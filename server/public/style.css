@@ -1,0 +1,297 @@
+:root {
+  --bg: #0b1a12;
+  --felt: #0f4d33;
+  --felt-2: #0a3a26;
+  --gold: #e8c46a;
+  --ink: #f3f6f4;
+  --muted: #9fb3a8;
+  --danger: #e2604f;
+  --ok: #4fbf7f;
+  --panel: #12241b;
+  --radius: 14px;
+}
+
+* { box-sizing: border-box; }
+
+/* An author `display` beats the user-agent [hidden] rule, so panels that set
+   display: flex would stay visible when hidden. Make [hidden] win. */
+[hidden] { display: none !important; }
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: radial-gradient(circle at 50% 0%, #143726 0%, var(--bg) 70%);
+  color: var(--ink);
+  font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.screen { max-width: 720px; margin: 0 auto; padding: 16px; }
+
+h1 { font-size: 28px; margin: 0 0 4px; letter-spacing: -0.5px; }
+h1 span { color: var(--gold); }
+h2 { font-size: 19px; margin: 0 0 12px; }
+h3 { font-size: 14px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 20px 0 8px; }
+.sub { color: var(--muted); margin: 0 0 20px; }
+.hint { color: var(--muted); font-size: 13px; margin-top: 14px; }
+.error { color: var(--danger); font-size: 14px; margin-top: 12px; }
+
+.panel {
+  background: var(--panel);
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: var(--radius);
+  padding: 20px;
+}
+
+.field { display: block; margin-bottom: 12px; }
+.field > span { display: block; font-size: 13px; color: var(--muted); margin-bottom: 5px; }
+
+input, select {
+  width: 100%;
+  padding: 11px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: #0a1710;
+  color: var(--ink);
+  font-size: 15px;
+}
+
+.btn {
+  display: block;
+  width: 100%;
+  padding: 12px 14px;
+  margin-bottom: 9px;
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 10px;
+  background: #1a3226;
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.btn:hover:not(:disabled) { background: #234433; }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn.primary { background: var(--gold); color: #1c1403; border-color: transparent; }
+.btn.primary:hover:not(:disabled) { background: #f0d182; }
+.btn.ghost { background: transparent; }
+.btn.small { width: auto; padding: 7px 12px; font-size: 13px; margin: 0; }
+
+.fieldlabel { display: block; font-size: 13px; color: var(--muted); margin: 14px 0 6px; }
+
+/* Segmented picker used for the Blind/Seen category and the stakes. */
+.segmented { display: flex; gap: 6px; margin-bottom: 4px; }
+.segmented button {
+  flex: 1;
+  padding: 10px 8px;
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 10px;
+  background: #0d1c14;
+  color: var(--muted);
+  font-size: 14.5px;
+  font-weight: 700;
+  cursor: pointer;
+  line-height: 1.25;
+}
+.segmented button small {
+  display: block;
+  font-size: 10.5px;
+  font-weight: 500;
+  opacity: 0.75;
+  margin-top: 2px;
+}
+.segmented button:hover { background: #14291d; }
+.segmented button.on {
+  background: rgba(232,196,106,0.14);
+  border-color: var(--gold);
+  color: var(--gold);
+}
+
+.row { display: flex; gap: 8px; align-items: center; }
+.row input { text-transform: uppercase; }
+.row .btn { width: auto; margin: 0; white-space: nowrap; }
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 4px 16px;
+}
+.who { display: flex; align-items: center; gap: 8px; }
+.tag {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;
+  background: rgba(232,196,106,0.15); color: var(--gold);
+  padding: 2px 7px; border-radius: 99px;
+}
+.chips { font-variant-numeric: tabular-nums; font-weight: 700; color: var(--gold); }
+.tablemeta { font-size: 13px; color: var(--muted); }
+.tablemeta strong { color: var(--gold); letter-spacing: 0.1em; }
+
+/* Felt */
+.felt {
+  position: relative;
+  background: radial-gradient(ellipse at 50% 45%, var(--felt) 0%, var(--felt-2) 100%);
+  border: 2px solid rgba(232,196,106,0.25);
+  border-radius: 100px / 60px;
+  padding: 22px 16px;
+  min-height: 300px;
+}
+
+.potbox { text-align: center; margin-bottom: 14px; }
+.potlabel { font-size: 11px; letter-spacing: 0.2em; color: rgba(255,255,255,0.5); }
+.potvalue { font-size: 30px; font-weight: 800; color: var(--gold); font-variant-numeric: tabular-nums; }
+.stake { font-size: 12px; color: rgba(255,255,255,0.55); }
+
+.seats { display: grid; grid-template-columns: repeat(auto-fit, minmax(112px, 1fr)); gap: 8px; }
+
+.seat {
+  background: rgba(0,0,0,0.28);
+  border: 1px solid rgba(255,255,255,0.09);
+  border-radius: 12px;
+  padding: 9px;
+  text-align: center;
+  font-size: 13px;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.seat.empty { opacity: 0.32; }
+.seat.turn { border-color: var(--gold); box-shadow: 0 0 0 2px rgba(232,196,106,0.28); }
+.seat.packed { opacity: 0.4; }
+.seat.won { border-color: var(--ok); box-shadow: 0 0 0 2px rgba(79,191,127,0.3); }
+.seat.offline { border-style: dashed; }
+.seat .nm { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.seat .ch { color: var(--gold); font-variant-numeric: tabular-nums; }
+/* Blind table: the stack was never sent, so it is shown as withheld. */
+.seat .ch.hidden { color: var(--muted); letter-spacing: 2px; }
+.seat .st { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+.seat .dealer { font-size: 10px; background: #fff; color: #000; border-radius: 99px; padding: 0 5px; font-weight: 800; }
+.seat .mini { display: flex; gap: 2px; justify-content: center; margin-top: 4px; }
+.seat .mini i { width: 13px; height: 19px; border-radius: 2px; background: linear-gradient(135deg, #8e2f2f, #571818); display: block; }
+
+.status { text-align: center; margin-top: 14px; min-height: 22px; color: var(--gold); font-weight: 600; }
+
+/* Own hand */
+.myhand { padding: 18px 4px 8px; }
+.cards { display: flex; gap: 10px; justify-content: center; min-height: 96px; }
+
+.card {
+  width: 66px; height: 94px;
+  border-radius: 9px;
+  background: #fff;
+  color: #111;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  font-weight: 800;
+  box-shadow: 0 6px 14px rgba(0,0,0,0.4);
+}
+.card.red { color: #c62828; }
+.card .r { font-size: 26px; line-height: 1; }
+.card .s { font-size: 20px; line-height: 1.1; }
+.card.back { background: repeating-linear-gradient(45deg, #8e2f2f 0 7px, #6f2222 7px 14px); }
+
+.timerbar { height: 5px; background: rgba(255,255,255,0.1); border-radius: 99px; margin: 14px 0 12px; overflow: hidden; }
+#timerFill { height: 100%; width: 0; background: var(--gold); transition: width 0.1s linear; }
+#timerFill.low { background: var(--danger); }
+
+.actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+.actions .btn { width: auto; flex: 1 1 92px; margin: 0; }
+
+/* Bet control: [ − ][ Chaal 400 ][ + ] — the steppers pick the amount,
+   the middle button is the only thing that places the bet. */
+.stepper { display: flex; gap: 0; flex: 2 1 190px; }
+.stepper .btn { margin: 0; border-radius: 0; }
+.stepper .btn.step {
+  flex: 0 0 46px;
+  font-size: 22px;
+  font-weight: 800;
+  background: #1a3226;
+  color: var(--gold);
+}
+.stepper .btn.step:first-child { border-radius: 10px 0 0 10px; }
+.stepper .btn.step:last-child { border-radius: 0 10px 10px 0; }
+.stepper .btn.step:disabled { color: var(--muted); opacity: 0.45; }
+.stepper .btn.raise {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  line-height: 1.15;
+  padding: 7px 6px;
+}
+.stepper .btn.raise .lbl { font-size: 11px; letter-spacing: 0.1em; opacity: 0.75; }
+.stepper .btn.raise .amt { font-size: 17px; font-variant-numeric: tabular-nums; }
+
+.log {
+  margin-top: 16px; padding: 10px 12px;
+  background: rgba(0,0,0,0.28); border-radius: 10px;
+  font-size: 12.5px; color: var(--muted);
+  max-height: 132px; overflow-y: auto;
+}
+.log div { padding: 1px 0; }
+.log .hl { color: var(--gold); }
+
+/* Room chat */
+.chatfab {
+  position: fixed;
+  right: 18px; bottom: 18px;
+  width: 58px; height: 58px;
+  border-radius: 50%;
+  border: 1px solid rgba(255,255,255,0.16);
+  background: var(--panel);
+  color: var(--ink);
+  font-size: 24px;
+  cursor: pointer;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.45);
+  z-index: 20;
+}
+.chatfab .badge {
+  position: absolute;
+  top: -4px; right: -4px;
+  min-width: 21px; height: 21px;
+  border-radius: 99px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 12px; font-weight: 800;
+  line-height: 21px;
+  padding: 0 5px;
+}
+
+.chatpanel {
+  position: fixed;
+  right: 12px; bottom: 12px;
+  width: min(360px, calc(100vw - 24px));
+  max-height: min(70vh, 520px);
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: var(--radius);
+  box-shadow: 0 12px 34px rgba(0,0,0,0.55);
+  z-index: 21;
+  overflow: hidden;
+}
+.chatpanel header {
+  display: flex; align-items: center; gap: 8px;
+  padding: 11px 12px;
+  border-bottom: 1px solid rgba(255,255,255,0.09);
+}
+.chatpanel header .meta { color: var(--muted); font-size: 11.5px; flex: 1; }
+
+.chatmessages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-height: 140px;
+}
+.chatmessages .msg { font-size: 14px; line-height: 1.35; word-break: break-word; }
+.chatmessages .msg .author { color: var(--gold); font-weight: 700; margin-right: 5px; }
+.chatmessages .msg.mine .author { color: var(--ok); }
+.chatmessages .msg.system { color: var(--muted); font-style: italic; font-size: 12.5px; }
+.chatmessages .empty { color: var(--muted); font-size: 13px; text-align: center; margin: auto 0; }
+
+.chatform { display: flex; gap: 7px; padding: 10px; border-top: 1px solid rgba(255,255,255,0.09); }
+.chatform input { flex: 1; padding: 9px 11px; font-size: 14px; }
+.chatform .btn { width: auto; margin: 0; }
+.chatpanel .error { margin: 0 12px 10px; }

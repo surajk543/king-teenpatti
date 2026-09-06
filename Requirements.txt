@@ -1,0 +1,31 @@
+I want to build Turn-based Teen Patti game at that scale (500–1000 concurrent players).
+For Backend Use Node.js + Socket.IO (or raw WebSockets) anf for frontend use unity.
+This should support android, ios and browser to play game.
+
+Features.
+1. Google, facebook and play as guest support(deviceId) for user login.
+2. Use sql-lite database and save user information according to google or facebbok login or guest(deviceId).
+3. There will be a room which at max support 5 players.
+4. To start a game minimum 2 players needed in a room and there can be multiple rooms.
+5. If player comes first time for play it will be granted 2 lac chips.
+6. In each room the game will have following playing strategy:|
+    a. Each Player will be allocated 3 cards and card face will be hidden.
+    b. Each player only make move when his turns come and turn will rotate clockwise.
+    c. Each player can bet same amount or double the amount on his turn.
+    d. When player turns comes he has 25 seconds to make move, otherwise he will be packed and the game will continue between other players.
+    e. Only one can be winner in a room, and the winner will take all amount.
+    f. I any player don't want to bet, he can pack his game and turn will shift to next player.
+    g. Winning strategy is simple who has trio, Pure run, run, color , pair like this ranking.
+7. When user login next time its data should be saved in database.
+8. In Each room give player a chat icon to type message, and this message will be delivered and shown to all
+players present in same room not different, once all users left the room then the chat history will be 
+deleted for that room,if a new player join that room he can see old message, the room chat message maximum
+can store 100 messages for each room, this chat message of each room will not be stored in database.
+9. When player raise amount in a game then give option + icon and - icon where on clicking + icon the amount
+will be doubled, if he click again + icon the amount will be doubled and make sure this amount don't cross
+the amount he already has.
+10. Once player does not act on his turn, he should be automatcially packed.
+12. chat UI of room should be collapsed if user wants.
+13. Boot Table should have 2 category , Blind and Seen and in each category player can take seat of table 
+of 200 , 5000 and IN Seen Category Everybody can see how many chips each user have, but in blind category
+user can see its own chips not others.

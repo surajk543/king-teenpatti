@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>King Teen Patti</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <!-- Login -->
+    <section id="login" class="screen">
+      <div class="panel">
+        <h1>King <span>Teen Patti</span></h1>
+        <p class="sub">Sign in to take a seat.</p>
+
+        <label class="field">
+          <span>Display name</span>
+          <input id="nameInput" type="text" maxlength="24" placeholder="Player" autocomplete="nickname" />
+        </label>
+
+        <button id="guestBtn" class="btn primary">Play as Guest</button>
+        <button id="googleBtn" class="btn">Continue with Google</button>
+        <button id="facebookBtn" class="btn">Continue with Facebook</button>
+
+        <p class="hint">
+          Guest play is keyed to this browser's device id, so your chips are here next time.
+        </p>
+        <p id="loginError" class="error" hidden></p>
+      </div>
+    </section>
+
+    <!-- Lobby -->
+    <section id="lobby" class="screen" hidden>
+      <header class="topbar">
+        <div class="who"><strong id="lobbyName"></strong><span id="lobbyProvider" class="tag"></span></div>
+        <div class="chips">💰 <span id="lobbyChips">0</span></div>
+      </header>
+
+      <div class="panel">
+        <h2>Take a seat</h2>
+
+        <!-- Category picks whether everyone's chip stacks are visible. -->
+        <span class="fieldlabel">Table category</span>
+        <div class="segmented" id="categorySelect">
+          <button type="button" data-category="seen" class="on">
+            Seen<small>everyone's chips visible</small>
+          </button>
+          <button type="button" data-category="blind">
+            Blind<small>only your own chips</small>
+          </button>
+        </div>
+
+        <span class="fieldlabel">Boot amount (ante)</span>
+        <div class="segmented" id="stakeSelect"></div>
+
+        <button id="quickJoinBtn" class="btn primary">Quick Join</button>
+        <button id="createBtn" class="btn">Create Private Table</button>
+
+        <div class="row">
+          <input id="codeInput" type="text" maxlength="6" placeholder="Table code" />
+          <button id="joinCodeBtn" class="btn">Join</button>
+        </div>
+
+        <p id="lobbyError" class="error" hidden></p>
+      </div>
+    </section>
+
+    <!-- Table -->
+    <section id="table" class="screen" hidden>
+      <header class="topbar">
+        <button id="leaveBtn" class="btn ghost small">Leave</button>
+        <div class="tablemeta">
+          Table <strong id="tableCode"></strong> <span id="tableCategory" class="tag"></span>
+          · Hand <span id="handNo">0</span>
+        </div>
+        <div class="chips">💰 <span id="myChips">0</span></div>
+      </header>
+
+      <div class="felt">
+        <div class="potbox">
+          <div class="potlabel">POT</div>
+          <div class="potvalue" id="pot">0</div>
+          <div class="stake">stake <span id="stake">0</span></div>
+        </div>
+        <div id="seats" class="seats"></div>
+        <div id="status" class="status"></div>
+      </div>
+
+      <div class="myhand">
+        <div id="myCards" class="cards"></div>
+        <div id="timerBar" class="timerbar"><div id="timerFill"></div></div>
+        <div id="actions" class="actions"></div>
+      </div>
+
+      <div class="log" id="log"></div>
+
+      <!-- Room chat: in-memory, room-scoped, never stored server-side. -->
+      <button id="chatToggle" class="chatfab" aria-label="Open table chat">
+        💬<span id="chatBadge" class="badge" hidden>0</span>
+      </button>
+
+      <div id="chatPanel" class="chatpanel" hidden>
+        <header>
+          <strong>Table Chat</strong>
+          <span class="meta">only players at this table</span>
+          <button id="chatClose" class="btn ghost small">✕</button>
+        </header>
+        <div id="chatMessages" class="chatmessages"></div>
+        <form id="chatForm" class="chatform" autocomplete="off">
+          <input id="chatInput" type="text" maxlength="140" placeholder="Say something…" />
+          <button type="submit" class="btn small primary">Send</button>
+        </form>
+        <p id="chatError" class="error" hidden></p>
+      </div>
+    </section>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="./client.js"></script>
+  </body>
+</html>
