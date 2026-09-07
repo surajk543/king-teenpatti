@@ -1,0 +1,143 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!--
+    King Teen Patti — a gold crown over a fan of three cards (A♥, A♠, Q♥),
+    after the reference painting. Every glyph is a path, so the icon renders
+    the same everywhere with no font on hand. Also the app's splash image.
+  -->
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="38%" r="70%">
+      <stop offset="0" stop-color="#3b4a50"/>
+      <stop offset="1" stop-color="#22292d"/>
+    </radialGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f7dc8a"/>
+      <stop offset="0.45" stop-color="#d9a72c"/>
+      <stop offset="1" stop-color="#9a6a12"/>
+    </linearGradient>
+    <linearGradient id="goldFlat" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#b8841d"/>
+      <stop offset="0.5" stop-color="#f1cf6a"/>
+      <stop offset="1" stop-color="#b8841d"/>
+    </linearGradient>
+    <radialGradient id="velvet" cx="50%" cy="30%" r="75%">
+      <stop offset="0" stop-color="#d43a45"/>
+      <stop offset="1" stop-color="#7d0f18"/>
+    </radialGradient>
+    <linearGradient id="card" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fbf6ea"/>
+      <stop offset="1" stop-color="#eee4cf"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="14"/>
+      <feOffset dy="16" result="b"/>
+      <feComponentTransfer in="b" result="s"><feFuncA type="linear" slope="0.45"/></feComponentTransfer>
+      <feMerge><feMergeNode in="s"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <!-- suit marks, each drawn in a 100×100 box centred on the origin -->
+    <path id="heart" d="M0 42 C-52 6 -52 -40 -22 -40 C-8 -40 0 -26 0 -26 C0 -26 8 -40 22 -40 C52 -40 52 6 0 42 Z"/>
+    <path id="spade" d="M0 -44 C52 -8 52 34 22 34 C10 34 3 26 0 20 L8 48 L-8 48 L0 20 C-3 26 -10 34 -22 34 C-52 34 -52 -8 0 -44 Z"/>
+    <!-- glyphs as strokes: no font needed -->
+    <g id="glyphA" fill="none" stroke-linecap="round" stroke-linejoin="round" stroke-width="14">
+      <path d="M-30 40 L0 -40 L30 40"/>
+      <path d="M-16 8 L16 8"/>
+    </g>
+    <g id="glyphQ" fill="none" stroke-linecap="round" stroke-linejoin="round" stroke-width="14">
+      <ellipse cx="0" cy="-2" rx="30" ry="36"/>
+      <path d="M14 20 L36 44"/>
+    </g>
+  </defs>
+
+  <!-- ground -->
+  <rect x="0" y="0" width="1024" height="1024" rx="224" fill="url(#bg)"/>
+  <!-- faint wing flourishes, as in the painting -->
+  <g fill="#000" opacity="0.10">
+    <path d="M140 420 C220 330 300 320 360 350 C300 380 250 430 240 500 C200 470 160 450 140 420 Z"/>
+    <path d="M884 420 C804 330 724 320 664 350 C724 380 774 430 784 500 C824 470 864 450 884 420 Z"/>
+  </g>
+
+  <!-- the three cards -->
+  <g filter="url(#shadow)">
+    <!-- A♥ -->
+    <g transform="translate(318 640) rotate(-17)">
+      <rect x="-150" y="-212" width="300" height="424" rx="26" fill="url(#card)" stroke="#2a2420" stroke-width="5"/>
+      <g fill="#b3202a" stroke="#b3202a">
+        <use href="#glyphA" transform="translate(-100 -150) scale(0.9)"/>
+        <use href="#heart" transform="translate(-100 -78) scale(0.55)" stroke="none"/>
+        <use href="#heart" transform="translate(0 6) scale(1.35)" stroke="none"/>
+      </g>
+    </g>
+    <!-- A♠ -->
+    <g transform="translate(512 610) rotate(-3)">
+      <rect x="-150" y="-212" width="300" height="424" rx="26" fill="url(#card)" stroke="#2a2420" stroke-width="5"/>
+      <g fill="#1e1a1a" stroke="#1e1a1a">
+        <use href="#glyphA" transform="translate(-100 -150) scale(0.9)"/>
+        <use href="#spade" transform="translate(-100 -78) scale(0.55)" stroke="none"/>
+        <use href="#spade" transform="translate(0 10) scale(1.45)" stroke="none"/>
+      </g>
+    </g>
+    <!-- Q♥ court card -->
+    <g transform="translate(716 668) rotate(13)">
+      <rect x="-150" y="-212" width="300" height="424" rx="26" fill="url(#card)" stroke="#2a2420" stroke-width="5"/>
+      <g fill="#b3202a" stroke="#b3202a">
+        <use href="#glyphQ" transform="translate(-100 -150) scale(0.9)"/>
+        <use href="#heart" transform="translate(-100 -78) scale(0.55)" stroke="none"/>
+        <use href="#glyphQ" transform="translate(100 150) rotate(180) scale(0.9)"/>
+        <use href="#heart" transform="translate(100 78) rotate(180) scale(0.55)" stroke="none"/>
+      </g>
+      <!-- the royal figure, reduced to its heraldry: frame, sash, crown -->
+      <g>
+        <rect x="-96" y="-112" width="192" height="224" rx="10" fill="none" stroke="#2a2420" stroke-width="4"/>
+        <path d="M-96 112 L96 -112 L96 -72 L-56 112 Z" fill="#b3202a"/>
+        <path d="M-96 -112 L96 112 L56 112 L-96 -72 Z" fill="url(#goldFlat)"/>
+        <circle cx="0" cy="0" r="30" fill="#fbf6ea" stroke="#2a2420" stroke-width="4"/>
+        <path d="M-22 -12 L-12 -32 L0 -14 L12 -32 L22 -12 Z" fill="url(#gold)" stroke="#7a5510" stroke-width="2"/>
+        <rect x="-22" y="-12" width="44" height="10" rx="2" fill="url(#gold)"/>
+        <use href="#heart" transform="translate(-58 -60) scale(0.36)" fill="#b3202a"/>
+        <use href="#heart" transform="translate(58 60) rotate(180) scale(0.36)" fill="#b3202a"/>
+      </g>
+    </g>
+  </g>
+
+  <!-- the crown -->
+  <g filter="url(#shadow)">
+    <!-- velvet dome -->
+    <path d="M372 372 C400 200 624 200 652 372 Z" fill="url(#velvet)"/>
+    <!-- gold arches with pearls -->
+    <g fill="none" stroke="url(#gold)" stroke-width="24" stroke-linecap="round">
+      <path d="M380 372 C400 250 470 190 512 168"/>
+      <path d="M644 372 C624 250 554 190 512 168"/>
+      <path d="M512 372 L512 168"/>
+    </g>
+    <g fill="#fff8e6" stroke="#9a6a12" stroke-width="2">
+      <circle cx="404" cy="312" r="9"/><circle cx="436" cy="256" r="9"/><circle cx="472" cy="210" r="9"/>
+      <circle cx="620" cy="312" r="9"/><circle cx="588" cy="256" r="9"/><circle cx="552" cy="210" r="9"/>
+      <circle cx="512" cy="300" r="9"/><circle cx="512" cy="240" r="9"/>
+    </g>
+    <!-- points and their pearls -->
+    <g fill="url(#gold)" stroke="#7a5510" stroke-width="3">
+      <path d="M352 372 L372 300 L392 372 Z"/>
+      <path d="M632 372 L652 300 L672 372 Z"/>
+      <path d="M422 372 L442 318 L462 372 Z"/>
+      <path d="M562 372 L582 318 L602 372 Z"/>
+    </g>
+    <g fill="#fff8e6" stroke="#9a6a12" stroke-width="2">
+      <circle cx="372" cy="292" r="11"/><circle cx="652" cy="292" r="11"/>
+      <circle cx="442" cy="310" r="10"/><circle cx="582" cy="310" r="10"/>
+    </g>
+    <!-- band with jewels -->
+    <rect x="344" y="366" width="336" height="66" rx="18" fill="url(#gold)" stroke="#7a5510" stroke-width="4"/>
+    <g stroke="#5c3d08" stroke-width="3">
+      <circle cx="396" cy="399" r="15" fill="#c8202b"/>
+      <circle cx="454" cy="399" r="15" fill="#2d59b8"/>
+      <circle cx="512" cy="399" r="17" fill="#c8202b"/>
+      <circle cx="570" cy="399" r="15" fill="#2d59b8"/>
+      <circle cx="628" cy="399" r="15" fill="#c8202b"/>
+    </g>
+    <!-- orb and cross -->
+    <circle cx="512" cy="150" r="28" fill="url(#gold)" stroke="#7a5510" stroke-width="4"/>
+    <g fill="url(#gold)" stroke="#7a5510" stroke-width="3">
+      <rect x="498" y="52" width="28" height="78" rx="6"/>
+      <rect x="474" y="76" width="76" height="26" rx="6"/>
+    </g>
+  </g>
+</svg>

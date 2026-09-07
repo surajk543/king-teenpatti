@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The ground of the icon artwork: the launcher paints it behind the
+         adaptive foreground so the masked icon matches the legacy one. -->
+    <color name="ic_launcher_background">#2B363B</color>
+    <color name="launch_background_light">#FAF7F0</color>
+    <color name="launch_background_dark">#0B0B0B</color>
+</resources>

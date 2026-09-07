@@ -1,4 +1,12 @@
 import { withTransaction } from './index.js';
+import {
+  dbTransactionDuration,
+  dbTransactionErrorsTotal,
+  handStartDuration,
+  settlementDuration,
+  safeLabel,
+  timed,
+} from '../metrics/index.js';
 
 /**
  * Every chip movement a hand makes, each as one PostgreSQL transaction.
@@ -46,6 +54,32 @@ const classify = (error) => {
   wrapped.cause = error;
   return wrapped;
 };
+
+/** The codes a ledger operation can fail with; anything else is folded into "other". */
+const KNOWN_LEDGER_CODES = new Set([
+  'duplicate_action',
+  'insufficient_chips',
+  'stale_state',
+  'no_pot',
+  'unknown_user',
+  'invalid_amount',
+  'persist_failed',
+]);
+
+/**
+ * Runs one ledger operation under its metrics: the transaction's duration by
+ * operation, and — when it rolls back — a count by error code. Every failure
+ * leaves here as a LedgerError, whatever it started out as.
+ */
+async function transact(op, fn) {
+  try {
+    return await timed(dbTransactionDuration, { op }, fn);
+  } catch (error) {
+    const refusal = classify(error);
+    dbTransactionErrorsTotal.inc({ op, code: safeLabel(refusal.code, KNOWN_LEDGER_CODES) });
+    throw refusal;
+  }
+}
 
 /**
  * Locks a wallet row and returns its balance. Locking first, then reading, is
@@ -99,12 +133,12 @@ async function saveState(client, { roomId, handId, version, state, at }) {
  * as the truth.
  */
 export async function bet({ userId, amount, roomId, handId, actionId, reason = 'bet', version, state }) {
-  if (!Number.isInteger(amount) || amount <= 0) {
-    throw new LedgerError('invalid_amount', 'bet amount must be a positive integer');
-  }
+  return transact('bet', async () => {
+    if (!Number.isInteger(amount) || amount <= 0) {
+      throw new LedgerError('invalid_amount', 'bet amount must be a positive integer');
+    }
 
-  try {
-    return await withTransaction(async (client) => {
+    return withTransaction(async (client) => {
       const at = now();
 
       const chips = await lockWallet(client, userId);
@@ -131,9 +165,7 @@ export async function bet({ userId, amount, roomId, handId, actionId, reason = '
       // movement left is the payout.
       return { balance, persisted: amount };
     });
-  } catch (error) {
-    throw classify(error);
-  }
+  });
 }
 
 /**
@@ -145,8 +177,10 @@ export async function bet({ userId, amount, roomId, handId, actionId, reason = '
  * charged — the table then sweeps them and tries again.
  */
 export async function collectBoot({ roomId, handId, bootAmount, entries, version, state }) {
-  try {
-    return await withTransaction(async (client) => {
+  // The boot transaction is what a hand start costs, so the same span feeds
+  // both the ledger histogram and the hand-start one.
+  return timed(handStartDuration, {}, () => transact('boot', () =>
+    withTransaction(async (client) => {
       const at = now();
       const ordered = [...entries].sort((a, b) => (a.userId < b.userId ? -1 : 1));
       const balances = {};
@@ -184,10 +218,7 @@ export async function collectBoot({ roomId, handId, bootAmount, entries, version
 
       await saveState(client, { roomId, handId, version, state, at });
       return { balances, persisted: bootAmount };
-    });
-  } catch (error) {
-    throw classify(error);
-  }
+    })));
 }
 
 /**
@@ -201,8 +232,8 @@ export async function collectBoot({ roomId, handId, bootAmount, entries, version
  * every entry, which the table adopts.
  */
 export async function settle({ hand, entries, version, state }) {
-  try {
-    return await withTransaction(async (client) => {
+  return timed(settlementDuration, {}, () => transact('settle', () =>
+    withTransaction(async (client) => {
       const at = now();
 
       await client.query(
@@ -287,10 +318,7 @@ export async function settle({ hand, entries, version, state }) {
 
       await saveState(client, { roomId: hand.roomId, handId: null, version, state, at });
       return balances;
-    });
-  } catch (error) {
-    throw classify(error);
-  }
+    })));
 }
 
 /**

@@ -1,0 +1,29 @@
+# /etc/systemd/system/king-teenpatti.service — reference unit for the Node server.
+#
+# Adjust User, WorkingDirectory and the node path. The drop-in in
+# king-teenpatti-limits.conf raises LimitNOFILE; it is repeated here so a fresh
+# install without the drop-in still gets it.
+[Unit]
+Description=King Teen Patti game server
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=teenpatti
+Group=teenpatti
+WorkingDirectory=/opt/king-teenpatti/server
+EnvironmentFile=/opt/king-teenpatti/server/.env
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/node src/index.js
+Restart=always
+RestartSec=3
+LimitNOFILE=65536
+# Hardening that does not get in the way of a websocket server.
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

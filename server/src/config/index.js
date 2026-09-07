@@ -180,6 +180,22 @@ const config = {
     resumeOfferMs: num(process.env.RESUME_OFFER_MS, 10 * 60 * 1000),
   },
 
+  /**
+   * Prometheus (requirement 35). `/metrics` is open by default for a server
+   * behind a firewall; set a token and/or an IP allow-list before exposing
+   * it on the internet.
+   */
+  metrics: {
+    enabled: (process.env.METRICS_ENABLED ?? 'true') !== 'false',
+    path: process.env.METRICS_PATH ?? '/metrics',
+    prefix: process.env.METRICS_PREFIX ?? 'game_server_',
+    token: process.env.METRICS_TOKEN ?? '',
+    allowIps: (process.env.METRICS_ALLOW_IPS ?? '')
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter(Boolean),
+  },
+
   chat: {
     /** Messages kept per room, in memory only. Oldest are dropped past this. */
     maxHistory: num(process.env.CHAT_MAX_HISTORY, 100),

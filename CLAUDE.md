@@ -65,7 +65,8 @@ king-teenpatti/
 └── flutter-client/
     ├── pubspec.yaml              package name `teenpatti` (imports are package:teenpatti/...), sdk ^3.12.2
     ├── lib/
-    │   ├── main.dart             landscape lock, Provider root, screen switch (no Navigator)
+    │   ├── main.dart             landscape lock, Provider root, screen switch (no Navigator); runApp first, `state.start()` behind the splash
+    │   ├── screens/splash_screen.dart  `Screen.splash` (initial): assets/app_icon.svg + "powered by sungamestudio.com"; held ≥ `GameState.minSplash` (1.4s), then login/lobby (or straight to the table if a snapshot arrived)
     │   ├── state/game_state.dart the ONE ChangeNotifier + formatChips / NumberSystem globals
     │   │     `resuming` veil on cold start (start() → _beginResume → session:ready.resume ? joinByCode : 900ms wait; room:joined lifts it with t.welcomeBack)
     │   │     `appVersion` from package_info_plus (settings drawer footer); formatChips abbreviates >100000 to TWO decimals (3.24 Lakh, 32.77 Crore)
@@ -114,8 +115,11 @@ Shell quirks on this machine: zsh with `grep`→`ugrep` and `find`→`bfs` alias
 `--include=*.js` fails with "no matches found"; `cd` in one Bash call can leak into the next — use
 absolute paths.
 
-Server ↔ emulator: the app's default `SERVER_URL` is `http://10.0.2.2:3000` (emulator alias for the
-host loopback). Override with `--dart-define=SERVER_URL=http://<lan-ip>:3000` for a real device.
+Server ↔ client: the app's default `SERVER_URL` is the **production backend
+`https://api.sungamestudio.com`** (REST + Socket.IO over TLS; verified 2026‑09‑08 to run the current
+server code). For a local server build with `--dart-define=SERVER_URL=http://10.0.2.2:3000`
+(the emulator's alias for the host loopback) or `http://<lan-ip>:3000` for a real device on the LAN —
+`usesCleartextTraffic` stays on for exactly that.
 `usesCleartextTraffic="true"` in the manifest makes plain http work.
 
 ---
@@ -156,8 +160,10 @@ PGPASSWORD=postgres psql -h localhost -U postgres -d gameplay -c "select nspname
 flutter pub get
 flutter analyze                 # must be clean (it is)
 flutter test                    # 6 tests (number formatting)
+flutter test tool/render_icons.dart   # re-render launcher/adaptive/splash PNGs from assets/app_icon.svg (not part of `flutter test`)
 flutter build apk --debug       # ~7s incremental; build/app/outputs/flutter-apk/app-debug.apk
-flutter build apk --debug --dart-define=SERVER_URL=http://192.168.1.10:3000
+flutter build apk --debug --dart-define=SERVER_URL=http://10.0.2.2:3000   # local server on the emulator
+flutter build apk --debug --dart-define=SERVER_URL=http://192.168.1.10:3000  # local server, real device
 adb install -r build/app/outputs/flutter-apk/app-debug.apk
 adb shell monkey -p com.kinggames.teenpatti -c android.intent.category.LAUNCHER 1   # launch
 adb shell am force-stop com.kinggames.teenpatti
@@ -351,6 +357,7 @@ user (`session:replaced` to the old one). On connect: `session:ready {user, conf
 | `game:showdown {reveals, reason}` / `game:handEnded {…nextHandAt}` | room |
 | `chat:message` / `chat:history` / `game:error` | room / socket / socket |
 
+Production: `https://api.sungamestudio.com` (REST + Socket.IO over TLS) — the Flutter default since 2026‑09‑08; runs the current server code (verified: 10-rung blind ladder, `invalid_bet` on string amounts).
 Client coverage: **Flutter** never sends `lobby:list`, `chat:history`, `ping:rtt`, and never listens
 to `game:handStarted`, `player:hand`, `game:turn`, `game:yourTurn` — it derives turn and options
 from `room:state.turn` / `you.options`. Changing `you.options` affects Flutter; changing
@@ -424,12 +431,40 @@ must return 0). The import wrote 12 `legacy_reconciliation` rows to make the old
 | `RESUME_OFFER_MS` | 600000 | how long a lapsed seat's table is offered back via `session:ready.resume` |
 | `BLIND_MAX_RAISE_STEPS` / `BLIND_MAX_BET_ROUNDS` / `BLIND_POT_LIMIT_MULTIPLIER` | 0 / 0 / 0 | blind tables: 0 = unlimited (ladder to the stack, no per-bet ceiling, no forced showdown) |
 | `CHAT_MAX_HISTORY` / `CHAT_MAX_LENGTH` / `CHAT_RATE_LIMIT` / `CHAT_RATE_WINDOW_MS` | 100 / 140 / 5 / 5000 | Flutter's chat field allows **200** — chars 141–200 are dropped server-side |
+| `METRICS_ENABLED` / `METRICS_PATH` / `METRICS_PREFIX` | true / `/metrics` / `game_server_` | Prometheus exposition (req. 35); prefix applies to prom-client's default process metrics only |
+| `METRICS_TOKEN` / `METRICS_ALLOW_IPS` | empty / empty | bearer token and/or comma-separated client IPs required to scrape; both empty = open (fine behind a firewall, wrong on the internet) |
 | `REDIS_URL` | empty | adapter only; RoomManager is process-local, so multi-node is **not** functional |
 | `LOG_LEVEL` | info | read directly by `util/logger.js` |
 
 There is no `server/.env`; the server runs on these defaults.
 
-### 7.5 Tests & tools
+### 7.5 Metrics (`src/metrics/index.js`, requirement 35) & Grafana (requirement 36)
+- One prom-client `Registry` (default label `service="king-teenpatti"`), exposed by `metricsHandler()` on `GET /metrics`
+  (token/IP-guarded per `config.metrics`). `httpMetricsMiddleware()` runs before body parsing and labels by
+  **route pattern** (`req.baseUrl + req.route.path`, else `static`/`unmatched`) — never the raw URL.
+- Default process metrics carry `game_server_` (CPU, RSS, heap, external, event-loop lag percentiles, GC, active
+  handles/requests, open fds, version, start time) plus custom `game_server_nodejs_heap_size_limit_bytes`,
+  `game_server_nodejs_array_buffers_bytes`, `game_server_nodejs_eventloop_utilization` (per-scrape ELU), `game_server_process_uptime_seconds`.
+- Game metrics (`game_…`): sockets (`connected_sockets`, `_peak`, `connections_total`, `disconnections_total{reason}`,
+  `reconnects_total{kind=seat_held|offer}`, `socket_errors_total{code}`, `socket_messages_total{event}`, `socket_emits_total{event}`,
+  `session_replaced_total`); tables (scrape-time gauges via `bindRooms(rooms)`: `players_online`, `active_games`, `waiting_games`,
+  `tables{category,stake}`); counters `games_started_total{category}`, `games_completed_total{category,reason}`,
+  `games_abandoned_total{category}`, `moves_total{action}`, `invalid_moves_total{code}`, `turn_timeouts_total`, `kicks_total{reason}`,
+  `chat_messages_total`, `pot_settled_chips_total`; histograms (buckets 1 ms…1 s) `move_processing_duration_seconds{action}`,
+  `creation_duration_seconds`, `join_duration_seconds{route=quick_join|code|create|switch|resume}`, `state_update_duration_seconds`,
+  `hand_start_duration_seconds`, `settlement_duration_seconds`, `db_transaction_duration_seconds{op=bet|boot|settle}` (+ `_errors_total{op,code}`);
+  pool gauges `db_pool_connections/idle_connections/waiting_requests` via `bindPool(getPool)`; HTTP `http_requests_total` /
+  `http_request_duration_seconds{method,route,status_code}`.
+- **Label rule (enforced by `safeLabel()` and `test/metrics.test.js`):** no socket/user/room id, table code, name, URL or IP ever
+  becomes a label value. `Table` stays uninstrumented — counters are fed from its events in `socket/index.js` (`wireTable`),
+  timings from the socket handlers, `RoomManager.createTable` and `db/ledger.js`.
+- Ops bundle: `server/ops/monitoring/` — `prometheus/prometheus.yml` + `alerts.yml`, `docker-compose.yml` (Prometheus, Grafana,
+  postgres_exporter, nginx-prometheus-exporter, node_exporter), Grafana provisioning + `grafana/dashboards/king-teenpatti.json`
+  (sections System · Node.js · WebSockets · Multiplayer Game · Latency · PostgreSQL · Nginx), `nginx/king-teenpatti.conf.example`
+  (websocket proxy, `stub_status`, `worker_connections 16384` — the 768 default capped production at ~1,500 players on 2026‑09‑08),
+  and `MONITORING.md` (runbook + requirement 35/36 checklist). Postgres internals come from postgres_exporter, not Node.
+
+### 7.6 Tests & tools
 - Runner: `node:test` + `node:assert/strict`; flat `test('sentence', async () => …)`.
 - **Unit suites** build `new Table({config, timers, settle, persistChips})` with
   `test/helpers/fakeTimers.js`. **`advance(ms)` is async** — always `await advance(ms)`; it awaits each
@@ -452,6 +487,17 @@ There is no `server/.env`; the server runs on these defaults.
   group **must** use `--offset`. Bots always `see`, ask sideshow 45%, answer 75/15/10
   accept/decline/lapse; retry `already_in_room` for 60s.
 - `test/loadtest.js` defaults to `--boot 100` which the default menu refuses — pass `--boot 200`.
+- **`tools/ramptest.mjs`** — staged capacity test: `--url --stages 10,25,…,1000 --hold 40 --boot 200 --category blind --out ramp.json
+  [--idOffset N for a second generator]`. Adds players in batches, holds each stage, records login/connect/action-ack
+  latency percentiles, moves/s, hands/min, `/health` RTT, the server's `process` vital signs when present, and its own
+  event-loop lag (generator-bound detector). Stops at p95 > 3000 ms, errors > 10 %, or < 90 % connected. Bots are guests
+  `LoadBot<n>` (fixed device ids `ramp-bot-<n>-device-id`, so re-runs reuse accounts). Reports: `server/loadtest-report/`
+  (HTML + JSON; 2026‑09‑08 production run 1: 1,000 players, p95 40 ms, 0 errors, no ceiling).
+- `tools/bot.js` now has **16** identities (Ravi…Neha, Priya, Aman, Sneha, Karan, Pooja, Rahul, Isha, Dev); groups use
+  `--offset 0/4/8/12`; `--url https://api.sungamestudio.com` runs them against production.
+- `GET /health` returns `{ok, uptime, tables, players, activeHands, sockets, process:{pid,node,rssMb,heapUsedMb,heapTotalMb,
+  externalMb,cpuPercent (share of one core since the previous call), loopLagP50Ms/P99Ms/MaxMs (monitorEventLoopDelay,
+  20 ms resolution → ~20 ms means idle)}, db:{total,idle,waiting}}`. Production still served the old shape on 2026‑09‑08.
 - `kicktest.mjs` (tracked) and `peek-tmp.mjs` (untracked) are manual scratch scripts on
   localhost:3000, not in npm scripts.
 
@@ -510,8 +556,13 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   ${code}'`, `'hand N'`, private-card body, picture-picker labels, `'Switch theme'`, chat `'You'`,
   the `'$winner won N'` banner (bypasses lakh formatting), and **wire hand names**.
 - **Android**: `com.kinggames.teenpatti`, `sensorLandscape`, cleartext, INTERNET (needed in
-  release), chip launcher PNGs (no adaptive XML), `values-v31/styles.xml` splash bg `#FAF7F0`
-  (night `#0B0B0B`). Release **signed with debug keys** (TODO in `build.gradle.kts`).
+  release). **Icon & splash** come from one file, `assets/app_icon.svg` (crown over A♥ A♠ Q♥, all paths, no fonts):
+  `tool/render_icons.dart` renders `mipmap-*/ic_launcher.png` (legacy), `mipmap-*/ic_launcher_foreground.png` +
+  `mipmap-anydpi-v26/ic_launcher.xml` (adaptive, bg `@color/ic_launcher_background` #2B363B), `drawable-*/splash_icon.png`,
+  and the 200×80dp `splash_branding.png` (DejaVu Sans, light/night variants). `values-v31` sets `windowSplashScreenAnimatedIcon`
+  + `windowSplashScreenBrandingImage`; pre-12 uses `drawable(-night)(-v21)/launch_background.xml` layer-lists. The Flutter
+  `SplashScreen` shows the same SVG + line; the login title carries the SVG at 40dp. Release **signed with debug keys**
+  (TODO in `build.gradle.kts`).
 
 ---
 

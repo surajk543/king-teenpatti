@@ -48,6 +48,8 @@ The settings you are most likely to change:
 | `NEXT_HAND_DELAY_MS` / `RECONNECT_GRACE_MS` | `4000` / `60000` | Countdown before a deal; how long a dropped connection keeps its seat. |
 | `RESUME_OFFER_MS` | `600000` | After the seat lapses, how long the table a player fell off is offered back on their next sign-in (`session:ready.resume`). |
 | `SEEN_MAX_RAISE_STEPS` | `2` | Seen tables: one double per turn. |
+| `METRICS_ENABLED` / `METRICS_PATH` / `METRICS_PREFIX` | `true` / `/metrics` / `game_server_` | Prometheus exposition; see `ops/monitoring/MONITORING.md`. |
+| `METRICS_TOKEN` / `METRICS_ALLOW_IPS` | empty | Bearer token and/or client-IP allow-list for `/metrics`. Set at least one before exposing the port publicly. |
 | `SEEN_MAX_BET_ROUNDS` | `7` | Seen tables: showdown after 7 rounds. |
 | `BLIND_MAX_RAISE_STEPS` / `BLIND_MAX_BET_ROUNDS` / `BLIND_POT_LIMIT_MULTIPLIER` | `0` / `0` / `0` | Blind tables: 0 = no limit. The ladder runs to the player's stack, no per-bet ceiling, and no forced showdown — the turn rotates until a pack or a show. |
 | `PRIVATE_MAX_POT` | `500000` | Private tables: pot ceiling. |

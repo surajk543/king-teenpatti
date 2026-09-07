@@ -88,3 +88,292 @@ happen in every player turn, for side request again player needs to wait next tu
 34. If chips count is grater than 100000, then IN UI chips count show in Indian numbering system, for example
 324011 will be shown as 3.2401Lakh and IN settings give option to change numbering system indian to inetrnational
 where instead of 10 lakhs million will be shown, add icons also and make it premium look.
+35. For Server, Build a complete production-grade Prometheus monitoring and observability system 
+a.  Enable Prometheus default metrics for Node.js:--
+
+    Collect:
+
+    Process CPU usage
+    Process CPU user/system time
+    RSS memory
+    Heap total
+    Heap used
+    Heap limit
+    External memory
+    ArrayBuffer memory
+    Event-loop lag
+    Event-loop utilization
+    Garbage collection
+    Active handles
+    Active requests
+    Process uptime
+    Node.js version
+    Process start time
+    Open file descriptors where available
+
+    Use an appropriate metric prefix such as:
+    game_server_
+
+    Example:
+    game_server_process_resident_memory_bytes
+    game_server_nodejs_heap_size_used_bytes
+    game_server_nodejs_eventloop_lag_seconds
+
+    Socket.IO metrics
+
+b.  Create custom metrics for WebSocket/Socket.IO connections:--
+    Track:
+
+    Current connected sockets
+    Total connections
+    Total disconnections
+    Connections per second
+    Disconnections per second
+    Reconnects
+    Socket errors
+    Socket messages
+
+    Create metrics such as:
+
+    game_connected_sockets
+    game_connections_total
+    game_disconnections_total
+    game_reconnects_total
+    game_socket_errors_total
+    game_socket_messages_total
+
+    Use labels carefully.
+
+    For example:
+
+    game_socket_messages_total{event="makeMove"}
+    game_socket_messages_total{event="joinGame"}
+
+    Do NOT use high-cardinality labels such as:
+
+    socket_id
+    user_id
+    game_id
+    IP address
+
+    because this can cause excessive Prometheus memory usage.
+    
+c.  Game metrics:--
+    Add metrics specifically for the multiplayer game.
+
+    Track:
+
+    Players currently online
+    Active games
+    Waiting games
+    Games started
+    Games completed
+    Games abandoned
+    Moves processed
+    Invalid moves
+    Reconnects
+
+    Create metrics such as:
+
+    game_players_online
+    game_active_games
+    game_waiting_games
+    game_games_started_total
+    game_games_completed_total
+    game_games_abandoned_total
+    game_moves_total
+    game_invalid_moves_total
+
+    Use Gauges for current state and Counters for cumulative events.
+    
+d.  Game processing latency:--
+    Create Prometheus Histograms for important operations.
+
+    At minimum:
+
+    Move processing latency
+    Game creation latency
+    Game join latency
+    Game state update latency
+
+    Example:
+
+    game_move_processing_duration_seconds
+
+    Use sensible buckets:
+
+    0.001
+    0.005
+    0.01
+    0.025
+    0.05
+    0.1
+    0.25
+    0.5
+    1
+
+    I need to be able to monitor:
+
+    P50
+    P90
+    P95
+    P99
+
+    latency in Grafana.
+
+e.  PostgreSQL monitoring:--
+    Integrate PostgreSQL monitoring.
+
+    Track:
+
+    Active connections
+    Idle connections
+    Transactions
+    Queries
+    Database size
+    Cache hit ratio
+    Locks
+    Deadlocks
+    Rows fetched
+    Rows inserted
+    Rows updated
+    Rows deleted
+
+    Prefer using postgres_exporter rather than implementing PostgreSQL monitoring manually inside Node.js.
+
+f.  HTTP metrics:--
+    Add HTTP metrics if the server exposes REST APIs.
+
+    Track:
+
+    Request count
+    Request duration
+    Response status
+    Requests/sec
+    Errors/sec
+
+    Create:
+
+    game_http_requests_total
+    game_http_request_duration_seconds
+
+    Use controlled labels:
+
+    method
+    route
+    status_code
+
+    Do not use raw URLs containing IDs as labels.
+
+    Bad:
+
+    /users/12345
+    /users/12346
+    /users/12347
+
+    Good:
+
+    /users/:id
+g.  Nginx monitoring:--
+    Document how to monitor:
+
+    Active connections
+    Reading
+    Writing
+    Waiting
+    Requests
+    Connections
+
+    Configure Nginx metrics using an appropriate exporter if required.
+36. Grafana dashboard
+    Create a Grafana dashboard specifically for my multiplayer game server.
+
+    The dashboard should have these sections.
+
+    System
+
+    Display:
+
+    CPU %
+    RAM usage
+    Swap usage
+    Disk usage
+    Network RX
+    Network TX
+    Load average
+    Open file descriptors
+    TCP connections
+    Node.js
+
+    Display:
+
+    RSS memory
+    Heap used
+    Heap total
+    Heap utilization
+    CPU
+    Event-loop lag
+    Event-loop utilization
+    GC activity
+    Active handles
+    Active requests
+    Uptime
+    WebSockets
+
+    Display:
+
+    Connected sockets
+    Peak connected sockets
+    Connections/sec
+    Disconnections/sec
+    Reconnects/sec
+    Messages/sec
+    Errors/sec
+    Multiplayer Game
+
+    Display:
+
+    Players online
+    Active games
+    Waiting games
+    Games started/sec
+    Games completed/sec
+    Games abandoned/sec
+    Moves/sec
+    Invalid moves/sec
+    Latency
+
+    Display:
+
+    Move P50
+    Move P95
+    Move P99
+
+    Game creation P50/P95/P99
+
+    Game join P50/P95/P99
+    
+    PostgreSQL
+
+    Display:
+
+    Connections
+    Active connections
+    Idle connections
+    Queries/sec
+    Transactions/sec
+    Cache hit ratio
+    Deadlocks
+    Locks
+    Database size
+
+    Nginx
+
+    Display:
+
+    Active connections
+    Requests/sec
+    Reading
+    Writing
+    Waiting
+    5xx errors

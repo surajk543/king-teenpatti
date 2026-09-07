@@ -3,25 +3,80 @@ import path from 'node:path';
 import express from 'express';
 import { Server } from 'socket.io';
 import config from './config/index.js';
-import { openDatabase, closeDatabase } from './db/index.js';
+import { monitorEventLoopDelay } from 'node:perf_hooks';
+import { openDatabase, closeDatabase, getPool } from './db/index.js';
 import { authRoutes, playerRoutes } from './auth/routes.js';
 import { AuthError } from './auth/providers.js';
 import { GameError } from './game/table.js';
 import RoomManager from './game/roomManager.js';
 import { attachSocketHandlers } from './socket/index.js';
 import logger from './util/logger.js';
+import { bindPool, bindRooms, httpMetricsMiddleware, metricsHandler } from './metrics/index.js';
 
 export async function createServer() {
   await openDatabase();
 
   const app = express();
   app.disable('x-powered-by');
+  // Node's own query-string parser rather than Express's default `qs`. The two
+  // query parameters this API reads (`limit`, `category`) are plain scalars,
+  // and it keeps `qs` — which has open advisories with no patched release
+  // yet — out of the request path altogether.
+  app.set('query parser', 'simple');
+  // Requirement 35: every response is counted and timed by route pattern.
+  if (config.metrics.enabled) app.use(httpMetricsMiddleware());
   app.use(express.json({ limit: '32kb' }));
 
   const rooms = new RoomManager();
+  bindRooms(rooms);
+  bindPool(getPool);
+  if (config.metrics.enabled) app.get(config.metrics.path, metricsHandler());
 
+  // Health carries the process's own vital signs as well as the room counts,
+  // so a load test — or a dashboard — can watch memory, CPU and event-loop
+  // lag from outside without a shell on the host. CPU is the share of one core
+  // used since the previous /health call, so a poller sees a running average
+  // over its own interval; loop-lag percentiles cover the same span.
+  const loopDelay = monitorEventLoopDelay({ resolution: 20 });
+  loopDelay.enable();
+  let cpuMark = process.cpuUsage();
+  let cpuMarkAt = process.hrtime.bigint();
   app.get('/health', (req, res) => {
-    res.json({ ok: true, uptime: process.uptime(), ...rooms.stats() });
+    const mem = process.memoryUsage();
+    const cpu = process.cpuUsage(cpuMark);
+    const now = process.hrtime.bigint();
+    const elapsedUs = Number(now - cpuMarkAt) / 1000;
+    cpuMark = process.cpuUsage();
+    cpuMarkAt = now;
+    const mb = (bytes) => Math.round(bytes / 1048576 * 10) / 10;
+    const ns = (v) => Math.round(v / 1e6 * 10) / 10;
+    let db = null;
+    try {
+      const pool = getPool();
+      db = { total: pool.totalCount, idle: pool.idleCount, waiting: pool.waitingCount };
+    } catch {
+      // Not open yet — nothing to report.
+    }
+    res.json({
+      ok: true,
+      uptime: process.uptime(),
+      ...rooms.stats(),
+      sockets: io.engine?.clientsCount ?? null,
+      process: {
+        pid: process.pid,
+        node: process.version,
+        rssMb: mb(mem.rss),
+        heapUsedMb: mb(mem.heapUsed),
+        heapTotalMb: mb(mem.heapTotal),
+        externalMb: mb(mem.external),
+        cpuPercent: elapsedUs > 0 ? Math.round((cpu.user + cpu.system) / elapsedUs * 1000) / 10 : 0,
+        loopLagP50Ms: ns(loopDelay.percentile(50)),
+        loopLagP99Ms: ns(loopDelay.percentile(99)),
+        loopLagMaxMs: ns(loopDelay.max),
+      },
+      db,
+    });
+    loopDelay.reset();
   });
 
   app.use('/api/auth', authRoutes());

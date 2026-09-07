@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:provider/provider.dart';
 
 import '../state/game_state.dart';
@@ -43,21 +44,38 @@ class _LoginScreenState extends State<LoginScreen> {
                       Row(
                         children: [
                           Expanded(
-                            child: RichText(
-                              text: TextSpan(
-                                style: theme.textTheme.headlineMedium
-                                    ?.copyWith(fontWeight: FontWeight.w800),
-                                children: [
-                                  TextSpan(
-                                    text: 'King ',
-                                    style: TextStyle(color: theme.colorScheme.onSurface),
+                            child: Row(
+                              children: [
+                                Flexible(
+                                  child: RichText(
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    text: TextSpan(
+                                      style: theme.textTheme.headlineMedium
+                                          ?.copyWith(fontWeight: FontWeight.w800),
+                                      children: [
+                                        TextSpan(
+                                          text: 'King ',
+                                          style: TextStyle(color: theme.colorScheme.onSurface),
+                                        ),
+                                        TextSpan(
+                                          text: 'Teen Patti',
+                                          style: TextStyle(color: theme.colorScheme.secondary),
+                                        ),
+                                      ],
+                                    ),
                                   ),
-                                  TextSpan(
-                                    text: 'Teen Patti',
-                                    style: TextStyle(color: theme.colorScheme.secondary),
-                                  ),
-                                ],
-                              ),
+                                ),
+                                const SizedBox(width: 12),
+                                // The game's mark beside its name — the same
+                                // artwork as the launcher icon and the splash.
+                                SvgPicture.asset(
+                                  'assets/app_icon.svg',
+                                  width: 40,
+                                  height: 40,
+                                  semanticsLabel: 'King Teen Patti icon',
+                                ),
+                              ],
                             ),
                           ),
                           IconButton(
@@ -117,11 +135,6 @@ class _LoginScreenState extends State<LoginScreen> {
                           minimumSize: const Size.fromHeight(48),
                         ),
                       ),
-                      const SizedBox(height: 14),
-                      Text(
-                        t.guestHint,
-                        style: theme.textTheme.bodySmall,
-                      ),
                       if (state.loginError != null) ...[
                         const SizedBox(height: 10),
                         Text(
@@ -130,6 +143,18 @@ class _LoginScreenState extends State<LoginScreen> {
                               ?.copyWith(color: theme.colorScheme.error),
                         ),
                       ],
+                      const SizedBox(height: 14),
+                      // Which build this is, for anyone reporting what they saw.
+                      Text(
+                        state.appVersion.isEmpty
+                            ? t.appVersion
+                            : '${t.appVersion} ${state.appVersion}',
+                        textAlign: TextAlign.right,
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                          letterSpacing: 0.3,
+                        ),
+                      ),
                     ],
                   ),
                 ),

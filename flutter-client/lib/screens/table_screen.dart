@@ -9,6 +9,7 @@ import '../state/game_state.dart';
 import '../theme/app_theme.dart';
 import '../widgets/playing_card.dart';
 import '../widgets/buy_chips.dart';
+import '../widgets/drifting_chips.dart';
 import '../widgets/fireworks.dart';
 import '../widgets/poker_chip.dart';
 import '../widgets/premium_surface.dart';
@@ -60,6 +61,9 @@ class _TableScreenState extends State<TableScreen> {
       body: SafeArea(
         child: Stack(
           children: [
+            // The same slow drift of chips the lobby has, behind the felt, so
+            // a room and the lobby feel like one place.
+            const Positioned.fill(child: IgnorePointer(child: DriftingChips())),
             Column(
               children: [
                 Expanded(

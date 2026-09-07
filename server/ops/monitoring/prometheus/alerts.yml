@@ -1,0 +1,323 @@
+# Alerting rules for the King Teen Patti game server.
+#
+# Every rule has a `for:` long enough to ride out a single bad scrape and a
+# `runbook` annotation pointing at the section of MONITORING.md that explains
+# what to do. Severities: "critical" = players are affected right now,
+# "warning" = they will be soon if nothing changes.
+#
+# Tunables live in the recording rules at the top so a limit is changed in one
+# place; the alerts read them with scalar().
+
+groups:
+  # ------------------------------------------------------------- tunables
+  - name: king-teenpatti-limits
+    interval: 1m
+    rules:
+      # The most simultaneous Socket.IO connections this deployment can carry.
+      # Set it to the SMALLEST of:
+      #   • nginx: worker_processes × worker_connections ÷ 2
+      #     (a proxied websocket holds one client-side and one upstream
+      #     connection; with the shipped 4 × 16384 that is 32,768)
+      #   • Node: LimitNOFILE of the service minus ~200 for files, DB pool, logs
+      #   • the capacity the load test actually proved.
+      # Ubuntu's default 768 × 4 ÷ 2 = 1,536 is exactly where the 2026-09-08
+      # load tests fell over with HTTP 500s on every new handshake.
+      - record: king_teenpatti:socket_limit
+        expr: vector(12000)
+
+  # ---------------------------------------------------------- game server
+  - name: king-teenpatti-game-server
+    rules:
+      - alert: GameServerDown
+        expr: up{job="game-server"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Game server metrics endpoint is down"
+          description: "Prometheus has not been able to scrape {{ $labels.instance }} for 1 minute. Either the Node process is down or /metrics is refusing us (token / IP allow-list)."
+          runbook: "MONITORING.md#alerts"
+
+      - alert: GameServerEventLoopLagHigh
+        # p99 of the event-loop delay sampled every 10 ms. 200 ms means every
+        # move, broadcast and DB callback is waiting behind something.
+        expr: game_server_nodejs_eventloop_lag_p99_seconds > 0.2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Event-loop lag p99 above 200 ms for 5 minutes"
+          description: "p99 event-loop lag is {{ $value | humanizeDuration }} on {{ $labels.instance }}. Check CPU (game_server_process_cpu_seconds_total), GC time and whether a synchronous serialisation is running hot (game_state_update_duration_seconds)."
+          runbook: "MONITORING.md#alerts"
+
+      - alert: GameServerEventLoopSaturated
+        expr: game_server_nodejs_eventloop_utilization > 0.9
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Event loop busy more than 90% of the time"
+          description: "Event-loop utilisation is {{ $value | humanizePercentage }} on {{ $labels.instance }}. The process is CPU-bound; latency alerts will follow."
+          runbook: "MONITORING.md#alerts"
+
+      - alert: GameServerSocketsNearLimit
+        expr: game_connected_sockets > 0.85 * scalar(king_teenpatti:socket_limit)
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Connected sockets within 15% of the configured limit"
+          description: "{{ $value }} sockets open on {{ $labels.instance }}; the limit recorded in king_teenpatti:socket_limit is {{ with query \"king_teenpatti:socket_limit\" }}{{ . | first | value }}{{ end }}. Past it nginx answers new handshakes with HTTP 500 (worker_connections) or Node hits EMFILE."
+          runbook: "MONITORING.md#alerts"
+
+      - alert: GameServerSocketsAtLimit
+        expr: game_connected_sockets > 0.97 * scalar(king_teenpatti:socket_limit)
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Connected sockets at the configured limit"
+          description: "{{ $value }} sockets open on {{ $labels.instance }}. New players are probably failing to connect right now."
+          runbook: "MONITORING.md#alerts"
+
+      - alert: GameServerHttp5xxRate
+        # Share of responses that were 5xx, only counted when there is real
+        # traffic (> 1 req/s) so a single failed request on a quiet night does
+        # not page anybody.
+        expr: |
+          (
+            sum(rate(game_http_requests_total{status_code=~"5.."}[5m]))
+              /
+            sum(rate(game_http_requests_total[5m]))
+          ) > 0.05
+          and
+          sum(rate(game_http_requests_total[5m])) > 1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "More than 5% of HTTP responses are 5xx"
+          description: "{{ $value | humanizePercentage }} of REST responses in the last 5 minutes were server errors. Break down by route with sum by (route) (rate(game_http_requests_total{status_code=~\"5..\"}[5m]))."
+          runbook: "MONITORING.md#alerts"
+
+      - alert: GameServerMoveLatencyHigh
+        expr: |
+          histogram_quantile(0.99, sum by (le) (rate(game_move_processing_duration_seconds_bucket[5m]))) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Move processing p99 above 500 ms"
+          description: "p99 move latency is {{ $value | humanizeDuration }}. A move is one ledger transaction: look at game_db_transaction_duration_seconds by op and at the pool (game_db_pool_waiting_requests)."
+          runbook: "MONITORING.md#alerts"
+
+      - alert: GameServerDbTransactionErrors
+        expr: sum by (op, code) (rate(game_db_transaction_errors_total[5m])) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Ledger transactions are rolling back ({{ $labels.op }}/{{ $labels.code }})"
+          description: "{{ $value | humanize }} {{ $labels.op }} transactions per second have failed with {{ $labels.code }} for 5 minutes. duplicate_action is a client retry (benign); anything else means chips are not moving."
+          runbook: "MONITORING.md#alerts"
+
+      - alert: GameServerDbPoolSaturated
+        expr: game_db_pool_waiting_requests > 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Queries are waiting for a pg pool connection"
+          description: "{{ $value }} queries have been queued for a pool connection for 2 minutes. Raise PG_POOL_MAX or find the slow transaction (pg_stat_activity_max_tx_duration)."
+          runbook: "MONITORING.md#alerts"
+
+      - alert: GameServerHeapNearLimit
+        expr: |
+          game_server_nodejs_heap_size_used_bytes / game_server_nodejs_heap_size_limit_bytes > 0.85
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "V8 heap above 85% of its limit"
+          description: "Heap used is {{ $value | humanizePercentage }} of heap_size_limit on {{ $labels.instance }}. The process dies of OOM at 100%. Look for a leak in the per-table state or raise --max-old-space-size."
+          runbook: "MONITORING.md#alerts"
+
+  # ----------------------------------------------------------- postgresql
+  - name: king-teenpatti-postgres
+    rules:
+      - alert: PostgresDown
+        expr: pg_up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "postgres_exporter cannot reach PostgreSQL"
+          description: "pg_up has been 0 for a minute. Either PostgreSQL is down or the exporter's DATA_SOURCE_NAME / pg_hba.conf is wrong. Every move on every table fails while this is true."
+          runbook: "MONITORING.md#alerts"
+
+      - alert: PostgresDeadlocks
+        expr: increase(pg_stat_database_deadlocks{datname="gameplay"}[5m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Deadlocks detected in the gameplay database"
+          description: "{{ $value | humanize }} deadlocks in the last 5 minutes. The ledger locks wallets in ascending user id order to prevent exactly this; a deadlock means something new is taking locks out of order."
+          runbook: "MONITORING.md#alerts"
+
+      - alert: PostgresCacheHitRatioLow
+        # Only meaningful when the database is actually reading blocks.
+        expr: |
+          (
+            sum(rate(pg_stat_database_blks_hit{datname="gameplay"}[15m]))
+              /
+            (sum(rate(pg_stat_database_blks_hit{datname="gameplay"}[15m])) + sum(rate(pg_stat_database_blks_read{datname="gameplay"}[15m])))
+          ) < 0.9
+          and
+          sum(rate(pg_stat_database_blks_read{datname="gameplay"}[15m])) > 1
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "PostgreSQL buffer cache hit ratio below 90%"
+          description: "Cache hit ratio is {{ $value | humanizePercentage }}. shared_buffers is too small for the working set, or a query is scanning chip_ledger/hands without an index."
+          runbook: "MONITORING.md#alerts"
+
+      - alert: PostgresConnectionsNearMax
+        expr: |
+          sum(pg_stat_activity_count) / scalar(pg_settings_max_connections) > 0.8
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "PostgreSQL connections above 80% of max_connections"
+          description: "{{ $value | humanizePercentage }} of max_connections are in use. The game server holds at most PG_POOL_MAX (default 10); the rest is somebody else."
+          runbook: "MONITORING.md#alerts"
+
+      - alert: PostgresLongTransaction
+        expr: max(pg_stat_activity_max_tx_duration{datname="gameplay"}) > 60
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "A transaction has been open for more than a minute"
+          description: "Longest open transaction in gameplay is {{ $value | humanizeDuration }}. A ledger transaction should take milliseconds; this one is holding a wallet row lock."
+          runbook: "MONITORING.md#alerts"
+
+  # ---------------------------------------------------------------- nginx
+  - name: king-teenpatti-nginx
+    rules:
+      - alert: NginxDown
+        expr: nginx_up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "nginx stub_status is unreachable"
+          description: "nginx-prometheus-exporter cannot read stub_status. Either nginx is down or the :8080 status server / allow-list is wrong."
+          runbook: "MONITORING.md#alerts"
+
+      - alert: NginxDroppingConnections
+        # accepted − handled is the number of connections nginx could not
+        # serve — the "worker_connections are not enough" failure that showed
+        # as HTTP 500 on every Socket.IO handshake in the 2026-09-08 load test.
+        expr: |
+          rate(nginx_connections_accepted[5m]) - rate(nginx_connections_handled[5m]) > 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "nginx is accepting connections it cannot handle"
+          description: "{{ $value | humanize }} connections/s accepted but not handled. Check /var/log/nginx/error.log for 'worker_connections are not enough' and raise worker_connections / worker_rlimit_nofile (see nginx/nginx.conf.example)."
+          runbook: "MONITORING.md#alerts"
+
+      - alert: NginxConnectionsNearWorkerLimit
+        # Active connections against the capacity in nginx.conf.example
+        # (4 workers × 16384). Change the constant with the config.
+        expr: nginx_connections_active > 0.8 * (4 * 16384)
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "nginx active connections above 80% of worker capacity"
+          description: "{{ $value }} active connections. Each proxied websocket costs two; raise worker_connections before the NginxDroppingConnections alert fires."
+          runbook: "MONITORING.md#alerts"
+
+      # nginx-side 5xx rate. stub_status has no status-code counters, so this
+      # rule uses the application's own counter: an nginx-generated 500/502/504
+      # (upstream down, worker_connections exhausted) is NOT in it. For the real
+      # thing install the VTS module or an access-log exporter (MONITORING.md
+      # "Nginx") and switch the expression to, e.g.
+      #   sum(rate(nginx_vts_server_requests_total{code="5xx"}[5m]))
+      #     / sum(rate(nginx_vts_server_requests_total[5m])) > 0.05
+      - alert: Nginx5xxRate
+        expr: |
+          (
+            sum(rate(game_http_requests_total{status_code=~"5.."}[5m]))
+              /
+            sum(rate(game_http_requests_total[5m]))
+          ) > 0.05
+          and
+          sum(rate(game_http_requests_total[5m])) > 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "5xx responses above 5% behind nginx"
+          description: "{{ $value | humanizePercentage }} of proxied responses were 5xx (application-side counter; see rule comment for nginx-generated errors)."
+          runbook: "MONITORING.md#alerts"
+
+  # ----------------------------------------------------------------- host
+  - name: king-teenpatti-host
+    rules:
+      - alert: HostHighCpu
+        expr: 1 - avg by (instance) (rate(node_cpu_seconds_total{job="node",mode="idle"}[5m])) > 0.9
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Host CPU above 90% for 10 minutes"
+          description: "CPU on {{ $labels.instance }} is {{ $value | humanizePercentage }}. Node is single-threaded: if game_server_process_cpu_seconds_total is near 1 core the game server itself is the bottleneck."
+          runbook: "MONITORING.md#alerts"
+
+      - alert: HostLowMemory
+        expr: node_memory_MemAvailable_bytes{job="node"} / node_memory_MemTotal_bytes{job="node"} < 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Less than 10% of RAM available"
+          description: "{{ $value | humanizePercentage }} of memory is available on {{ $labels.instance }}. The OOM killer picks the biggest process, which is PostgreSQL or Node."
+          runbook: "MONITORING.md#alerts"
+
+      - alert: HostDiskAlmostFull
+        expr: |
+          1 - node_filesystem_avail_bytes{job="node",mountpoint="/",fstype!~"tmpfs|overlay"}
+                / node_filesystem_size_bytes{job="node",mountpoint="/",fstype!~"tmpfs|overlay"} > 0.85
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Root filesystem above 85%"
+          description: "{{ $value | humanizePercentage }} of / is used on {{ $labels.instance }}. PostgreSQL stops accepting writes when the disk fills; chip_ledger grows with every move."
+          runbook: "MONITORING.md#alerts"
+
+      - alert: HostFileDescriptorsHigh
+        expr: node_filefd_allocated{job="node"} / node_filefd_maximum{job="node"} > 0.8
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "System-wide file descriptors above 80% of fs.file-max"
+          description: "{{ $value | humanizePercentage }} of the kernel's file-descriptor table is in use on {{ $labels.instance }}. Each websocket is a descriptor in nginx and another in Node."
+          runbook: "MONITORING.md#alerts"
+
+      - alert: GameServerFileDescriptorsHigh
+        expr: game_server_process_open_fds / game_server_process_max_fds > 0.8
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Node process above 80% of its open-files limit"
+          description: "{{ $value | humanizePercentage }} of the process's fd limit is used. Raise LimitNOFILE in the systemd drop-in (nginx/systemd/king-teenpatti-limits.conf) before accept() starts failing with EMFILE."
+          runbook: "MONITORING.md#alerts"

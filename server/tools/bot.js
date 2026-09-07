@@ -44,7 +44,13 @@ const OFFSET = Number.parseInt(args.offset ?? '0', 10);
  */
 const CHURN = Number.parseInt(args.churn ?? '0', 10);
 
-const NAMES = ['Ravi', 'Meera', 'Arjun', 'Kavya', 'Vikram', 'Anita', 'Rohit', 'Neha'];
+// Sixteen identities: enough for four bots on each of the three lobby tables
+// plus a spare group. Slot = (index + offset) % 16, so groups pick disjoint
+// offsets (0, 4, 8, 12).
+const NAMES = [
+  'Ravi', 'Meera', 'Arjun', 'Kavya', 'Vikram', 'Anita', 'Rohit', 'Neha',
+  'Priya', 'Aman', 'Sneha', 'Karan', 'Pooja', 'Rahul', 'Isha', 'Dev',
+];
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 

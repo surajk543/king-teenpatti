@@ -31,7 +31,8 @@ table. Two players are enough to start a hand. For the real client:
 
 ```bash
 cd flutter-client
-flutter build apk --debug     # default server: http://10.0.2.2:3000 (the emulator's host alias)
+flutter build apk --debug     # default server: https://api.sungamestudio.com (production)
+flutter build apk --debug --dart-define=SERVER_URL=http://10.0.2.2:3000   # local server from the emulator
 adb install -r build/app/outputs/flutter-apk/app-debug.apk
 ```
 

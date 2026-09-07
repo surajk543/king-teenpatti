@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import 'l10n/strings.dart';
 import 'screens/login_screen.dart';
+import 'screens/splash_screen.dart';
 import 'screens/lobby_screen.dart';
 import 'screens/table_screen.dart';
 import 'models/dtos.dart';
@@ -23,11 +26,13 @@ Future<void> main() async {
   await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
 
   final state = GameState();
-  await state.start();
 
+  // The first frame is the splash; the session check, connection and resume
+  // all happen behind it and move the app on when they are done.
   runApp(
     ChangeNotifierProvider<GameState>.value(value: state, child: const KingTeenPattiApp()),
   );
+  unawaited(state.start());
 }
 
 class KingTeenPattiApp extends StatelessWidget {
@@ -62,7 +67,7 @@ class _Root extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final screen = context.select<GameState, Screen>((s) => s.screen);
-    final resuming = context.select<GameState, bool>((s) => s.resuming);
+    final resuming = context.select<GameState, bool>((s) => s.resuming && s.screen != Screen.splash);
 
     return _NoticeHost(
       child: Stack(
@@ -71,6 +76,7 @@ class _Root extends StatelessWidget {
           _BackGuard(
             screen: screen,
             child: switch (screen) {
+              Screen.splash => const SplashScreen(),
               Screen.login => const LoginScreen(),
               Screen.lobby => const LobbyScreen(),
               Screen.table => const TableScreen(),

@@ -4,6 +4,7 @@ import { TABLE_CATEGORY, TABLE_STATE } from './constants.js';
 import config from '../config/index.js';
 import { uuid, roomCode } from '../util/ids.js';
 import { createLedger } from '../db/ledger.js';
+import { gameCreationDuration, timedSync } from '../metrics/index.js';
 import logger from '../util/logger.js';
 
 /**
@@ -87,7 +88,16 @@ export class RoomManager extends EventEmitter {
     }
   }
 
-  createTable({ bootAmount = config.game.bootAmount, isPrivate = false, category } = {}) {
+  /**
+   * Opens a table. Timed into `game_creation_duration_seconds` whichever door
+   * it is opened by — a quick-join that found every table full, or a private
+   * room.
+   */
+  createTable(options = {}) {
+    return timedSync(gameCreationDuration, {}, () => this._createTable(options));
+  }
+
+  _createTable({ bootAmount = config.game.bootAmount, isPrivate = false, category } = {}) {
     const id = uuid();
     const resolved = RoomManager.normalizeCategory(category);
 

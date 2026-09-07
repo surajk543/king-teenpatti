@@ -10,7 +10,7 @@ import '../models/dtos.dart';
 import '../net/api_client.dart';
 import '../net/game_connection.dart';
 
-enum Screen { login, lobby, table }
+enum Screen { splash, login, lobby, table }
 
 /// Everything the UI reads, and the only place the two halves of the server —
 /// REST and socket — are stitched together.
@@ -24,11 +24,12 @@ class GameState extends ChangeNotifier {
         _api = ApiClient(serverUrl ?? defaultServerUrl),
         _conn = GameConnection(serverUrl ?? defaultServerUrl);
 
-  /// An Android emulator reaches the host machine's loopback at 10.0.2.2.
-  /// Override with `--dart-define=SERVER_URL=...` for a device or a LAN box.
+  /// The production backend. For a local server override with
+  /// `--dart-define=SERVER_URL=http://10.0.2.2:3000` (the emulator's alias
+  /// for the host machine) or `http://<lan-ip>:3000` for a phone on the LAN.
   static const defaultServerUrl = String.fromEnvironment(
     'SERVER_URL',
-    defaultValue: 'http://10.0.2.2:3000',
+    defaultValue: 'https://api.sungamestudio.com',
   );
 
   final String serverUrl;
@@ -38,7 +39,9 @@ class GameState extends ChangeNotifier {
 
   // ----------------------------------------------------------------- state
 
-  Screen screen = Screen.login;
+  /// The app opens on the splash — icon and studio line — while [start] finds
+  /// out whether there is a session, a table, or a sign-in screen to show.
+  Screen screen = Screen.splash;
 
   /// Day mode by default; the toggle remembers a change.
   ThemeMode themeMode = ThemeMode.light;
@@ -157,7 +160,12 @@ class GameState extends ChangeNotifier {
 
   // ------------------------------------------------------------- lifecycle
 
+  /// The splash holds at least this long, so the icon is seen as a moment
+  /// rather than a flicker on a fast network.
+  static const minSplash = Duration(milliseconds: 1400);
+
   Future<void> start() async {
+    final splashShownAt = DateTime.now();
     final prefs = await SharedPreferences.getInstance();
 
     // Guest play is keyed to a device id, so chips survive a restart.
@@ -177,14 +185,16 @@ class GameState extends ChangeNotifier {
     unawaited(_loadPictures());
 
     // A saved session goes straight to the lobby.
+    var next = Screen.login;
     final saved = prefs.getString('token');
     if (saved != null && saved.isNotEmpty) {
       _token = saved;
       try {
         user = await _api.me(saved);
-        screen = Screen.lobby;
+        next = Screen.lobby;
         // If the app was closed mid-hand the seat may still be held, or the
-        // table remembered; either way the answer comes with the connection.
+        // table remembered; either way the answer comes with the connection,
+        // which starts now, behind the splash.
         _beginResume();
         _conn.connect(saved);
       } catch (_) {
@@ -193,6 +203,12 @@ class GameState extends ChangeNotifier {
         await prefs.remove('token');
       }
     }
+
+    final shownFor = DateTime.now().difference(splashShownAt);
+    if (shownFor < minSplash) await Future<void>.delayed(minSplash - shownFor);
+    // A table snapshot may already have arrived and moved us on; only the
+    // splash itself is replaced.
+    if (screen == Screen.splash) screen = next;
 
     // One second is enough for a countdown that shows seconds.
     _ticker = Timer.periodic(const Duration(seconds: 1), (_) => notifyListeners());
