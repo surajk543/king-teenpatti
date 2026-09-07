@@ -3,36 +3,41 @@ import Table, { GameError } from './table.js';
 import { TABLE_CATEGORY, TABLE_STATE } from './constants.js';
 import config from '../config/index.js';
 import { uuid, roomCode } from '../util/ids.js';
-import { settleHand, applyChipDelta } from '../db/users.js';
+import { createLedger } from '../db/ledger.js';
 import logger from '../util/logger.js';
 
 /**
  * Owns every live table in this process.
  *
  * At the 500–1000 concurrent player target that is roughly 100–200 tables, all
- * of which fit comfortably in memory; SQLite is only touched once per hand.
+ * of which fit comfortably in memory. Every chip movement is one PostgreSQL
+ * transaction (see db/ledger.js); everything else lives here.
  * To run more than one process, front them with a sticky-session load balancer
  * and set REDIS_URL so Socket.IO shares rooms (see the deployment notes).
  */
 export class RoomManager extends EventEmitter {
-  constructor({ settle = settleHand, persistChips = applyChipDelta, timers } = {}) {
+  constructor({ ledger, settle, persistChips, timers } = {}) {
     super();
     /** @type {Map<string, Table>} */
     this.tables = new Map();
     /** @type {Map<string, string>} userId -> roomId */
     this.playerRooms = new Map();
-    this.settle = settle;
 
     /**
-     * Banks a chip movement as it happens, so a bet is gone from the account
-     * the moment it is made rather than at the end of the hand.
+     * Where every table's chips are written. Production uses the PostgreSQL
+     * ledger; tests pass either their own `ledger` object or the older
+     * `settle` / `persistChips` hooks, which the table wraps for them.
      */
+    this.ledger = ledger ?? (settle || persistChips ? null : createLedger());
+    this.settle = settle;
     this.persistChips = persistChips;
     this.timers = timers;
 
     this._sweeper = setInterval(() => {
-      this.consolidateTables();
-      this.sweepEmptyTables();
+      Promise.resolve()
+        .then(() => this.consolidateTables())
+        .then(() => this.sweepEmptyTables())
+        .catch((error) => logger.error('table sweep failed', { error: error.message }));
     }, config.game.consolidateIntervalMs);
     this._sweeper.unref?.();
   }
@@ -61,6 +66,27 @@ export class RoomManager extends EventEmitter {
     }
   }
 
+  /**
+   * Rejects a table the lobby does not offer.
+   *
+   * The stake and the category are only meaningful together — 5,000 is on the
+   * menu and so is seen, but a seen table at 5,000 is not — so the pair is
+   * checked as a pair. An empty list means the menu is open, which the test
+   * suite relies on.
+   */
+  static assertTableOffered(bootAmount, category) {
+    const offered = config.game.lobbyTables;
+    if (offered.length === 0) return;
+
+    const match = offered.some(
+      (entry) => entry.bootAmount === bootAmount && entry.category === category,
+    );
+    if (!match) {
+      const menu = offered.map((e) => `${e.category} ${e.bootAmount}`).join(', ');
+      throw new GameError('table_not_offered', `The lobby offers: ${menu}`);
+    }
+  }
+
   createTable({ bootAmount = config.game.bootAmount, isPrivate = false, category } = {}) {
     const id = uuid();
     const resolved = RoomManager.normalizeCategory(category);
@@ -71,13 +97,21 @@ export class RoomManager extends EventEmitter {
     const boot = isPrivate ? config.game.privateBoot : bootAmount;
 
     // Requirement 19: seen tables allow a single double per turn and force a
-    // showdown after 7 rounds. Blind tables keep the open-ended ladder.
+    // showdown after 7 rounds. Blind tables are open-ended in every direction:
+    // the ladder runs to the player's whole stack, no bet has a ceiling of its
+    // own, and the turn keeps rotating until someone packs or shows.
     const categoryRules = resolved === TABLE_CATEGORY.SEEN
       ? {
           maxRaiseSteps: config.game.seenMaxRaiseSteps,
           maxBetRounds: config.game.seenMaxBetRounds,
+          // A seen table's pot is capped; a blind one's is not.
+          maxPot: config.game.seenMaxPot,
         }
-      : {};
+      : {
+          maxRaiseSteps: config.game.blindMaxRaiseSteps,
+          maxBetRounds: config.game.blindMaxBetRounds,
+          potLimitMultiplier: config.game.blindPotLimitMultiplier,
+        };
 
     // Requirement 22: a private table caps its pot and allows a single double
     // per turn, whichever category it is.
@@ -100,6 +134,7 @@ export class RoomManager extends EventEmitter {
         chatMaxHistory: config.chat.maxHistory,
         chatMaxLength: config.chat.maxLength,
       },
+      ledger: this.ledger ?? undefined,
       settle: this.settle,
       persistChips: this.persistChips,
       timers: this.timers,
@@ -107,6 +142,8 @@ export class RoomManager extends EventEmitter {
 
     table.isPrivate = isPrivate;
     table.on('error', (error) => logger.error('table error', { roomId: id, error: error.message }));
+    table.on('persistError', ({ reason, error }) =>
+      logger.warn('table write refused', { roomId: id, reason, error: error?.message }));
 
     this.tables.set(id, table);
     this.emit('tableCreated', table);
@@ -150,6 +187,21 @@ export class RoomManager extends EventEmitter {
     return {
       categories: [TABLE_CATEGORY.SEEN, TABLE_CATEGORY.BLIND],
       stakes: config.game.tableStakes,
+      /**
+       * The rooms on the menu, in the order the lobby should show them. The
+       * client renders this list rather than crossing categories with stakes,
+       * so what is on offer is decided in one place — here.
+       *
+       * Each carries the rules a player would want before sitting down, so the
+       * card states them from the same source the table is built from rather
+       * than repeating them as text somebody has to remember to update.
+       */
+      tables: config.game.lobbyTables.map((entry) => ({
+        ...entry,
+        /** 0 means the pot is uncapped. */
+        maxPot: entry.category === TABLE_CATEGORY.SEEN ? config.game.seenMaxPot : 0,
+        maxBlindMoves: config.game.maxBlindMoves,
+      })),
       /** Requirement 30: which table is capped, and at what stack. */
       entryCapBoot: config.game.entryCapBoot,
       entryCapCategory: config.game.entryCapCategory,
@@ -172,6 +224,7 @@ export class RoomManager extends EventEmitter {
     RoomManager.assertStakeAllowed(bootAmount);
 
     const resolved = RoomManager.normalizeCategory(category);
+    RoomManager.assertTableOffered(bootAmount, resolved);
 
     if (user.chips < bootAmount) {
       throw new GameError('insufficient_chips', 'Not enough chips to join this table');
@@ -228,7 +281,7 @@ export class RoomManager extends EventEmitter {
    * Leaving and seating happen together so the player is never standing: a
    * failure throws before their seat is given up.
    */
-  switchTable(user) {
+  async switchTable(user) {
     const current = this.getTableForPlayer(user.id);
     if (!current) throw new GameError('not_in_room', 'You are not at a table');
     if (current.isPrivate) {
@@ -259,11 +312,15 @@ export class RoomManager extends EventEmitter {
 
     // "moved" rather than "left", so the departure does not trigger a merge of
     // the table being left while the player is between seats.
-    this.leave(user.id, 'moved');
+    await this.leave(user.id, 'moved');
     return { from: current, table: this.join(target, user) };
   }
 
   join(table, user, socketId = null) {
+    // One seat per player, whichever door they came in by. Without this a
+    // seated player could open a private room and be sat in two places, the
+    // old seat left behind to stall its table until the turn clock kicked it.
+    this._assertNotSeated(user.id);
     table.addPlayer({
       userId: user.id,
       displayName: user.displayName,
@@ -275,19 +332,21 @@ export class RoomManager extends EventEmitter {
     return table;
   }
 
-  leave(userId, reason = 'left') {
+  async leave(userId, reason = 'left') {
     const table = this.getTableForPlayer(userId);
     if (!table) return null;
 
-    table.removePlayer(userId, reason);
+    // Off the index first: a leave can end a hand, and nothing that happens
+    // while that settles should still find this player at the table.
     this.playerRooms.delete(userId);
+    await table.removePlayer(userId, reason);
 
     if (table.isEmpty) {
-      this.destroyTable(table.id);
+      await this.destroyTable(table.id);
     } else if (reason !== 'moved') {
       // A departure is exactly when a table can drop to a single player, so
       // check for a merge right away rather than waiting for the next sweep.
-      this.consolidateTables();
+      await this.consolidateTables();
     }
 
     return table;
@@ -322,12 +381,14 @@ export class RoomManager extends EventEmitter {
 
   // ---------------------------------------------------------------- lifecycle
 
-  destroyTable(roomId) {
+  async destroyTable(roomId) {
     const table = this.tables.get(roomId);
     if (!table) return;
     for (const seat of table.occupiedSeats) this.playerRooms.delete(seat.userId);
-    table.destroy();
+    // Out of the map before the (possibly slow) settlement of a live hand, so
+    // nobody can be seated at a table that is on its way out.
     this.tables.delete(roomId);
+    await table.destroy();
     this.emit('tableDestroyed', roomId);
     logger.info('table destroyed', { roomId });
   }
@@ -342,7 +403,7 @@ export class RoomManager extends EventEmitter {
    *
    * Returns the moves that were made, for logging and tests.
    */
-  consolidateTables() {
+  async consolidateTables() {
     const singles = [...this.tables.values()].filter(
       (table) =>
         !table.isPrivate &&
@@ -370,7 +431,7 @@ export class RoomManager extends EventEmitter {
 
       for (const source of group.slice(1)) {
         if (target.isFull) break;
-        const move = this._movePlayer(source, target);
+        const move = await this._movePlayer(source, target);
         if (move) moves.push(move);
       }
     }
@@ -382,7 +443,7 @@ export class RoomManager extends EventEmitter {
    * Moves the sole occupant of `source` onto `target` and disposes of the empty
    * room. Both tables must be idle; the caller checks that.
    */
-  _movePlayer(source, target) {
+  async _movePlayer(source, target) {
     const seat = source.occupiedSeats[0];
     if (!seat || source.hand || target.hand || target.isFull) return null;
 
@@ -395,7 +456,7 @@ export class RoomManager extends EventEmitter {
     const socketId = seat.socketId;
     const fromRoomId = source.id;
 
-    source.removePlayer(player.id, 'moved');
+    await source.removePlayer(player.id, 'moved');
     this.playerRooms.delete(player.id);
 
     try {
@@ -408,7 +469,7 @@ export class RoomManager extends EventEmitter {
       return null;
     }
 
-    if (source.isEmpty) this.destroyTable(fromRoomId);
+    if (source.isEmpty) await this.destroyTable(fromRoomId);
 
     const move = { userId: player.id, fromRoomId, toRoomId: target.id };
     this.emit('playerMoved', move);
@@ -417,11 +478,11 @@ export class RoomManager extends EventEmitter {
   }
 
   /** Reaps tables that are empty and idle, so long-running processes stay flat. */
-  sweepEmptyTables() {
+  async sweepEmptyTables() {
     const cutoff = Date.now() - 30_000;
     for (const table of [...this.tables.values()]) {
       if (table.isEmpty && table.state === TABLE_STATE.WAITING && table.createdAt < cutoff) {
-        this.destroyTable(table.id);
+        await this.destroyTable(table.id);
       }
     }
   }
@@ -435,9 +496,9 @@ export class RoomManager extends EventEmitter {
     };
   }
 
-  shutdown() {
+  async shutdown() {
     clearInterval(this._sweeper);
-    for (const roomId of [...this.tables.keys()]) this.destroyTable(roomId);
+    for (const roomId of [...this.tables.keys()]) await this.destroyTable(roomId);
   }
 }
 

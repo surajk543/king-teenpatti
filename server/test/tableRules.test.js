@@ -54,22 +54,30 @@ function makeTable(overrides = {}) {
   return { table, advance, settled, ended, seat };
 }
 
+/**
+ * A room manager whose tables keep their chips in memory. Without a `settle`
+ * (or `persistChips`) hook the manager would reach for the PostgreSQL ledger,
+ * which these rule tests have no database for.
+ */
+const makeRooms = () =>
+  new RoomManager({ timers: createFakeTimers().timers, settle: () => ({}) });
+
 const turnUser = (table) => table.seats[table.hand.turnSeat].userId;
 
 // ------------------------------- requirement 15: everybody leaves the table
 
-test('when a player leaves mid-hand the one still sitting takes the pot', () => {
+test('when a player leaves mid-hand the one still sitting takes the pot', async () => {
   const { table, seat, advance, settled, ended } = makeTable();
   seat('alice');
   seat('bob');
-  advance(baseConfig.nextHandDelayMs);
+  await advance(baseConfig.nextHandDelayMs);
 
   const first = turnUser(table);
-  table.act(first, ACTION.CHAAL);
+  await table.act(first, ACTION.CHAAL);
   const potBefore = table.hand.pot;
   const other = table.activeSeats.find((s) => s.userId !== first).userId;
 
-  table.removePlayer(first, 'left');
+  await table.removePlayer(first, 'left');
 
   const result = ended.at(-1);
   assert.equal(result.reason, WIN_REASON.LAST_STANDING);
@@ -83,18 +91,18 @@ test('when a player leaves mid-hand the one still sitting takes the pot', () => 
   );
 });
 
-test('destroying a table mid-hand pays the pot out rather than voiding it', () => {
+test('destroying a table mid-hand pays the pot out rather than voiding it', async () => {
   // A shutdown or an idle sweep can tear down a table while a hand is live.
   // The chips in the middle still belong to someone.
   const { table, seat, advance, settled, ended } = makeTable();
   for (const id of ['a', 'b', 'c']) seat(id);
-  advance(baseConfig.nextHandDelayMs);
+  await advance(baseConfig.nextHandDelayMs);
 
-  table.act(turnUser(table), ACTION.CHAAL);
+  await table.act(turnUser(table), ACTION.CHAAL);
   const pot = table.hand.pot;
   const stillIn = table.activeSeats.map((s) => s.userId);
 
-  table.destroy();
+  await table.destroy();
 
   const result = ended.at(-1);
   assert.equal(result.reason, WIN_REASON.ALL_LEFT);
@@ -109,38 +117,38 @@ test('destroying a table mid-hand pays the pot out rather than voiding it', () =
   );
 });
 
-test('successive departures hand the pot to whoever is still in the hand', () => {
+test('successive departures hand the pot to whoever is still in the hand', async () => {
   const { table, seat, advance, ended } = makeTable();
   for (const id of ['a', 'b', 'c']) seat(id);
-  advance(baseConfig.nextHandDelayMs);
+  await advance(baseConfig.nextHandDelayMs);
 
-  table.act(turnUser(table), ACTION.CHAAL);
+  await table.act(turnUser(table), ACTION.CHAAL);
   const active = table.activeSeats.map((s) => s.userId);
 
   // First departure: two players are still in, so the hand carries on.
-  table.removePlayer(active[0], 'left');
+  await table.removePlayer(active[0], 'left');
   assert.ok(table.hand, 'the hand continues with two players');
 
   // Second departure leaves exactly one, who takes the pot.
   const potBefore = table.hand.pot;
-  table.removePlayer(active[1], 'left');
+  await table.removePlayer(active[1], 'left');
 
   assert.equal(table.hand, null, 'the hand is over');
   assert.equal(ended.at(-1).winnerId, active[2], 'the remaining player takes it');
   assert.equal(ended.at(-1).pot, potBefore);
 });
 
-test('a player who leaves mid-hand is flagged for the abandoned counter', () => {
+test('a player who leaves mid-hand is flagged for the abandoned counter', async () => {
   const { table, seat, advance, settled } = makeTable();
   for (const id of ['a', 'b', 'c']) seat(id);
-  advance(baseConfig.nextHandDelayMs);
+  await advance(baseConfig.nextHandDelayMs);
 
   const quitter = turnUser(table);
-  table.act(quitter, ACTION.CHAAL);
-  table.removePlayer(quitter, 'left');
+  await table.act(quitter, ACTION.CHAAL);
+  await table.removePlayer(quitter, 'left');
 
   // Finish the hand between the two who stayed.
-  table.act(turnUser(table), ACTION.PACK);
+  await table.act(turnUser(table), ACTION.PACK);
 
   const record = settled.at(-1);
   const quitterEntry = record.entries.find((entry) => entry.userId === quitter);
@@ -150,15 +158,15 @@ test('a player who leaves mid-hand is flagged for the abandoned counter', () => 
   assert.equal(quitterEntry.isWinner, false);
 });
 
-test('a player who only posts the boot is not marked as having played', () => {
+test('a player who only posts the boot is not marked as having played', async () => {
   const { table, seat, advance, settled } = makeTable();
   seat('alice');
   seat('bob');
-  advance(baseConfig.nextHandDelayMs);
+  await advance(baseConfig.nextHandDelayMs);
 
   // The player on turn packs straight away, never betting beyond the boot.
   const packer = turnUser(table);
-  table.act(packer, ACTION.PACK);
+  await table.act(packer, ACTION.PACK);
 
   const record = settled.at(-1);
   const entry = record.entries.find((row) => row.userId === packer);
@@ -167,15 +175,15 @@ test('a player who only posts the boot is not marked as having played', () => {
   assert.equal(entry.leftMidHand, false);
 });
 
-test('betting marks the hand as played', () => {
+test('betting marks the hand as played', async () => {
   const { table, seat, advance, settled } = makeTable();
   seat('alice');
   seat('bob');
-  advance(baseConfig.nextHandDelayMs);
+  await advance(baseConfig.nextHandDelayMs);
 
   const better = turnUser(table);
-  table.act(better, ACTION.CHAAL);
-  table.act(turnUser(table), ACTION.PACK);
+  await table.act(better, ACTION.CHAAL);
+  await table.act(turnUser(table), ACTION.PACK);
 
   const entry = settled.at(-1).entries.find((row) => row.userId === better);
   assert.equal(entry.didChaal, true);
@@ -183,13 +191,13 @@ test('betting marks the hand as played', () => {
 
 // --------------------------- requirement 19: seen tables play tighter
 
-test('a seen table allows a single double per turn', () => {
-  const rooms = new RoomManager({ timers: createFakeTimers().timers });
+test('a seen table allows a single double per turn', async () => {
+  const rooms = makeRooms();
   const table = rooms.createTable({ bootAmount: BOOT, category: TABLE_CATEGORY.SEEN });
 
   table.addPlayer({ userId: 'a', displayName: 'A', chips: START, socketId: '1' });
   table.addPlayer({ userId: 'b', displayName: 'B', chips: START, socketId: '2' });
-  table.startHand();
+  await table.startHand();
 
   const player = table.seats[table.hand.turnSeat];
   const { steps } = table.betOptions(player);
@@ -198,32 +206,68 @@ test('a seen table allows a single double per turn', () => {
   assert.deepEqual(steps, [BOOT, BOOT * 2]);
 
   // Pressing "+" past the single double is not a legal amount.
-  assert.throws(
-    () => table.act(player.userId, ACTION.RAISE, { amount: BOOT * 4 }),
+  await assert.rejects(
+    table.act(player.userId, ACTION.RAISE, { amount: BOOT * 4 }),
     (error) => error.code === 'invalid_bet',
   );
 
-  rooms.shutdown();
+  await rooms.shutdown();
 });
 
-test('a blind table keeps the full doubling ladder', () => {
-  const rooms = new RoomManager({ timers: createFakeTimers().timers });
+test('a blind table keeps the full doubling ladder', async () => {
+  const rooms = makeRooms();
   const table = rooms.createTable({ bootAmount: BOOT, category: TABLE_CATEGORY.BLIND });
 
   table.addPlayer({ userId: 'a', displayName: 'A', chips: START, socketId: '1' });
   table.addPlayer({ userId: 'b', displayName: 'B', chips: START, socketId: '2' });
-  table.startHand();
+  await table.startHand();
 
   const steps = table.betOptions(table.seats[table.hand.turnSeat]).steps;
   assert.ok(steps.length > 2, 'blind tables can keep doubling');
   assert.equal(steps[2], BOOT * 4);
 
-  rooms.shutdown();
+  await rooms.shutdown();
 });
 
-test('a seen table forces a showdown after 7 rounds', () => {
-  const timers = createFakeTimers();
-  const rooms = new RoomManager({ timers: timers.timers });
+test('a blind table has no round cap, no rung cap and no per-bet ceiling', async () => {
+  const rooms = makeRooms();
+  const table = rooms.createTable({ bootAmount: BOOT, category: TABLE_CATEGORY.BLIND });
+
+  assert.equal(table.config.maxBetRounds, 0, 'the turn rotates for as long as the players want');
+  assert.equal(table.config.maxRaiseSteps, 0, 'the ladder is bounded only by the stack');
+  assert.equal(table.config.potLimitMultiplier, 0, 'a single bet has no ceiling of its own');
+  assert.equal(table.maxPot, 0, 'and the pot is unlimited — 0 is how the table says uncapped');
+
+  await rooms.shutdown();
+});
+
+test('a blind table never forces a showdown, however long the betting goes on', async () => {
+  const rooms = makeRooms();
+  const table = rooms.createTable({ bootAmount: BOOT, category: TABLE_CATEGORY.BLIND });
+
+  table.addPlayer({ userId: 'a', displayName: 'A', chips: START, socketId: '1' });
+  table.addPlayer({ userId: 'b', displayName: 'B', chips: START, socketId: '2' });
+
+  const ended = [];
+  table.on('handEnded', (payload) => ended.push(payload));
+
+  await table.startHand();
+
+  // Well past the 20 rounds a default table would have stopped at. Both stay
+  // blind past their fourth move only because the table turns them seen.
+  for (let i = 0; i < 120 && table.hand; i += 1) {
+    await table.act(table.seats[table.hand.turnSeat].userId, ACTION.CHAAL);
+  }
+
+  assert.ok(table.hand, 'the hand is still live after 60 rounds each');
+  assert.ok(table.hand.round >= 50, `rounds counted: ${table.hand.round}`);
+  assert.equal(ended.length, 0, 'nothing but a pack or a show ends a blind hand');
+
+  await rooms.shutdown();
+});
+
+test('a seen table forces a showdown after 7 rounds', async () => {
+  const rooms = makeRooms();
   const table = rooms.createTable({ bootAmount: BOOT, category: TABLE_CATEGORY.SEEN });
 
   assert.equal(table.config.maxBetRounds, 7, 'seven turns each, then everyone shows');
@@ -236,11 +280,11 @@ test('a seen table forces a showdown after 7 rounds', () => {
   table.on('handEnded', (payload) => ended.push(payload));
   table.on('showdown', (payload) => showdowns.push(payload));
 
-  table.startHand();
+  await table.startHand();
 
   // Nobody folds, so only the round cap can end this.
   for (let i = 0; i < 60 && table.hand; i += 1) {
-    table.act(table.seats[table.hand.turnSeat].userId, ACTION.CHAAL);
+    await table.act(table.seats[table.hand.turnSeat].userId, ACTION.CHAAL);
   }
 
   assert.equal(table.hand, null, 'the hand ended on its own');
@@ -248,20 +292,20 @@ test('a seen table forces a showdown after 7 rounds', () => {
   assert.equal(showdowns.at(-1).reveals.length, 2, "everybody's cards are shown");
   assert.ok(ended.at(-1).winnerId, 'and the pot goes to the best hand');
 
-  rooms.shutdown();
+  await rooms.shutdown();
 });
 
-test('the showdown reveals every remaining player to everyone', () => {
+test('the showdown reveals every remaining player to everyone', async () => {
   // Requirement 14: a show must expose both hands, not just the caller's.
   const { table, seat, advance } = makeTable();
   seat('alice');
   seat('bob');
-  advance(baseConfig.nextHandDelayMs);
+  await advance(baseConfig.nextHandDelayMs);
 
   const reveals = [];
   table.on('showdown', (payload) => reveals.push(payload));
 
-  table.act(turnUser(table), ACTION.SHOW);
+  await table.act(turnUser(table), ACTION.SHOW);
 
   const showdown = reveals.at(-1);
   assert.equal(showdown.reveals.length, 2);

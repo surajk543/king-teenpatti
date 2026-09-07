@@ -53,6 +53,11 @@ class Strings {
 
   // --- lobby
   String get boot => _('boot');
+
+  // --- what a lobby card says about the room behind it
+  String get maxBlindsLabel => _('maxBlindsLabel');
+  String get potLimitLabel => _('potLimitLabel');
+  String get potUnlimited => _('potUnlimited');
   String get tapToSit => _('tapToSit');
   String get everyoneChips => _('everyoneChips');
   String get onlyYourChips => _('onlyYourChips');
@@ -75,9 +80,23 @@ class Strings {
   String get fourHourBonus => _('fourHourBonus');
   String get milestone => _('milestone');
   String get collect => _('collect');
+
+  // --- buying chips, not open yet
+  String get buyChips => _('buyChips');
+  String get comingSoon => _('comingSoon');
+  String get comingSoonBody => _('comingSoonBody');
   String get handsToGo => _('handsToGo');
   String get settings => _('settings');
   String get language => _('language');
+
+  // --- requirement 34: lakh/crore or million/billion
+  String get numberSystem => _('numberSystem');
+  String get numberIndian => _('numberIndian');
+  String get numberInternational => _('numberInternational');
+  String get unitLakh => _('unitLakh');
+  String get unitCrore => _('unitCrore');
+  String get unitMillion => _('unitMillion');
+  String get unitBillion => _('unitBillion');
   String get switchTheme => _('switchTheme');
   String get signOut => _('signOut');
   String get useProviderPicture => _('useProviderPicture');
@@ -91,13 +110,36 @@ class Strings {
   String get pack => _('pack');
   String get chaal => _('chaal');
   String get show => _('show');
+
+  // --- sideshow: ask the player on your right to compare hands
+  String get sideshow => _('sideshow');
+  String get sideshowWith => _('sideshowWith');
+  String get sideshowAsksYou => _('sideshowAsksYou');
+  String get sideshowRunning => _('sideshowRunning');
+  String get accept => _('accept');
+  String get decline => _('decline');
+  String get sideshowDeclined => _('sideshowDeclined');
+  String get sideshowTimedOut => _('sideshowTimedOut');
+  String get sideshowCancelled => _('sideshowCancelled');
+  String get sideshowYouLost => _('sideshowYouLost');
+  String get sideshowYouWon => _('sideshowYouWon');
   String get seeCards => _('seeCards');
   String get blindMovesLeft => _('blindMovesLeft');
+  String get blindMovesLabel => _('blindMovesLabel');
   String get lastBlindMove => _('lastBlindMove');
   String get inPot => _('inPot');
   String get waiting => _('waiting');
   String get offline => _('offline');
   String get packed => _('packed');
+
+  // --- requirement 31: auto-packs in a row, and the last warning
+  String get autoPacked => _('autoPacked');
+  String get autoPackedOne => _('autoPackedOne');
+  String get lastWarning => _('lastWarning');
+  String get missOneMore => _('missOneMore');
+  String get missedTurnsLabel => _('missedTurnsLabel');
+  String get resumingTable => _('resumingTable');
+  String get welcomeBack => _('welcomeBack');
   String get winner => _('winner');
   String get tableChat => _('tableChat');
   String get saySomething => _('saySomething');
@@ -170,6 +212,9 @@ class Strings {
       'guestHint':
           "Guest play is keyed to this device's id, so your chips are here next time.",
       'boot': 'boot',
+      'maxBlindsLabel': 'blind moves max',
+      'potLimitLabel': 'pot limit',
+      'potUnlimited': 'Unlimited',
       'tapToSit': 'Tap to sit down',
       'everyoneChips': "Everyone's chips are visible",
       'onlyYourChips': 'Only your own chips are visible',
@@ -192,9 +237,19 @@ class Strings {
       'fourHourBonus': '4-HOUR BONUS',
       'milestone': 'MILESTONE',
       'collect': 'Collect',
+      'buyChips': 'Buy chips',
+      'comingSoon': 'Coming soon',
+      'comingSoonBody': 'Buying chips is not open yet. Collect your rewards in the meantime.',
       'handsToGo': 'hands to go',
       'settings': 'Settings',
       'language': 'Language',
+      'numberSystem': 'Number format',
+      'numberIndian': 'Indian  ·  Lakh, Crore',
+      'numberInternational': 'International  ·  Million, Billion',
+      'unitLakh': 'Lakh',
+      'unitCrore': 'Crore',
+      'unitMillion': 'Million',
+      'unitBillion': 'Billion',
       'switchTheme': 'Switch theme',
       'signOut': 'Sign out',
       'useProviderPicture': 'Use my Google/Facebook picture',
@@ -206,13 +261,32 @@ class Strings {
       'pack': 'Pack',
       'chaal': 'Chaal',
       'show': 'Show',
+      'sideshow': 'Sideshow',
+      'sideshowWith': 'Compare with',
+      'sideshowAsksYou': 'wants to compare hands with you',
+      'sideshowRunning': 'Sideshow',
+      'accept': 'Accept',
+      'decline': 'Decline',
+      'sideshowDeclined': 'Your sideshow was declined',
+      'sideshowTimedOut': 'No answer — the sideshow lapsed',
+      'sideshowCancelled': 'The sideshow was called off',
+      'sideshowYouLost': 'Your hand was lower — you packed',
+      'sideshowYouWon': 'Your hand was higher — they packed',
       'seeCards': 'See cards',
       'blindMovesLeft': 'blind moves left',
+      'blindMovesLabel': 'Blind moves left',
       'lastBlindMove': 'last blind move',
       'inPot': 'in pot',
       'waiting': 'waiting',
       'offline': 'offline',
       'packed': 'PACKED',
+      'autoPacked': 'turns missed in a row',
+      'autoPackedOne': 'turn missed',
+      'lastWarning': 'Last warning',
+      'missOneMore': 'Miss this turn and you leave the table.',
+      'missedTurnsLabel': 'Missed turns',
+      'resumingTable': 'Returning to your table…',
+      'welcomeBack': "Welcome back — you're back at your table.",
       'winner': 'Winner',
       'tableChat': 'Table chat',
       'saySomething': 'Say something…',
@@ -281,6 +355,9 @@ class Strings {
       'guestHint':
           'मेहमान खाता इस डिवाइस से जुड़ा है, इसलिए आपके चिप्स अगली बार भी यहीं रहेंगे।',
       'boot': 'बूट',
+      'maxBlindsLabel': 'ब्लाइंड चालें अधिकतम',
+      'potLimitLabel': 'पॉट सीमा',
+      'potUnlimited': 'असीमित',
       'tapToSit': 'बैठने के लिए टैप करें',
       'everyoneChips': 'सबके चिप्स दिखते हैं',
       'onlyYourChips': 'सिर्फ़ आपके चिप्स दिखते हैं',
@@ -303,9 +380,19 @@ class Strings {
       'fourHourBonus': '4-घंटे का बोनस',
       'milestone': 'माइलस्टोन',
       'collect': 'लें',
+      'buyChips': 'चिप्स खरीदें',
+      'comingSoon': 'जल्द आ रहा है',
+      'comingSoonBody': 'चिप्स खरीदना अभी शुरू नहीं हुआ है। तब तक अपने इनाम लेते रहें।',
       'handsToGo': 'हाथ बाकी',
       'settings': 'सेटिंग्स',
       'language': 'भाषा',
+      'numberSystem': 'संख्या प्रारूप',
+      'numberIndian': 'भारतीय  ·  लाख, करोड़',
+      'numberInternational': 'अंतरराष्ट्रीय  ·  मिलियन, बिलियन',
+      'unitLakh': 'लाख',
+      'unitCrore': 'करोड़',
+      'unitMillion': 'मिलियन',
+      'unitBillion': 'बिलियन',
       'switchTheme': 'थीम बदलें',
       'signOut': 'साइन आउट',
       'useProviderPicture': 'मेरी Google/Facebook तस्वीर लगाएँ',
@@ -317,13 +404,32 @@ class Strings {
       'pack': 'पैक',
       'chaal': 'चाल',
       'show': 'शो',
+      'sideshow': 'साइडशो',
+      'sideshowWith': 'तुलना करें',
+      'sideshowAsksYou': 'आपके साथ पत्ते मिलाना चाहता है',
+      'sideshowRunning': 'साइडशो',
+      'accept': 'स्वीकारें',
+      'decline': 'मना करें',
+      'sideshowDeclined': 'आपका साइडशो मना कर दिया गया',
+      'sideshowTimedOut': 'कोई जवाब नहीं — साइडशो रद्द',
+      'sideshowCancelled': 'साइडशो रद्द हो गया',
+      'sideshowYouLost': 'आपके पत्ते कमज़ोर थे — आप पैक हुए',
+      'sideshowYouWon': 'आपके पत्ते बेहतर थे — वे पैक हुए',
       'seeCards': 'पत्ते देखें',
       'blindMovesLeft': 'ब्लाइंड चालें बाकी',
+      'blindMovesLabel': 'ब्लाइंड चालें बाकी',
       'lastBlindMove': 'आख़िरी ब्लाइंड चाल',
       'inPot': 'पॉट में',
       'waiting': 'इंतज़ार',
       'offline': 'ऑफ़लाइन',
       'packed': 'पैक',
+      'autoPacked': 'लगातार चालें चूकीं',
+      'autoPackedOne': 'चाल चूकी',
+      'lastWarning': 'आखिरी चेतावनी',
+      'missOneMore': 'यह चाल चूके तो आप टेबल से बाहर हो जाएंगे।',
+      'missedTurnsLabel': 'चूकी चालें',
+      'resumingTable': 'आपकी टेबल पर वापस जा रहे हैं…',
+      'welcomeBack': 'वापसी पर स्वागत है — आप अपनी टेबल पर वापस हैं।',
       'winner': 'विजेता',
       'tableChat': 'टेबल चैट',
       'saySomething': 'कुछ कहें…',
@@ -392,6 +498,9 @@ class Strings {
       'guestHint':
           'অতিথি অ্যাকাউন্ট এই ডিভাইসের সঙ্গে যুক্ত, তাই আপনার চিপ পরের বারও থাকবে।',
       'boot': 'বুট',
+      'maxBlindsLabel': 'ব্লাইন্ড চাল সর্বোচ্চ',
+      'potLimitLabel': 'পট সীমা',
+      'potUnlimited': 'সীমাহীন',
       'tapToSit': 'বসতে ট্যাপ করুন',
       'everyoneChips': 'সবার চিপ দেখা যায়',
       'onlyYourChips': 'শুধু আপনার চিপ দেখা যায়',
@@ -414,9 +523,19 @@ class Strings {
       'fourHourBonus': '৪-ঘণ্টার বোনাস',
       'milestone': 'মাইলস্টোন',
       'collect': 'নিন',
+      'buyChips': 'চিপ কিনুন',
+      'comingSoon': 'শীঘ্রই আসছে',
+      'comingSoonBody': 'চিপ কেনা এখনও চালু হয়নি। ততক্ষণ আপনার পুরস্কার নিতে থাকুন।',
       'handsToGo': 'হাত বাকি',
       'settings': 'সেটিংস',
       'language': 'ভাষা',
+      'numberSystem': 'সংখ্যা বিন্যাস',
+      'numberIndian': 'ভারতীয়  ·  লাখ, কোটি',
+      'numberInternational': 'আন্তর্জাতিক  ·  মিলিয়ন, বিলিয়ন',
+      'unitLakh': 'লাখ',
+      'unitCrore': 'কোটি',
+      'unitMillion': 'মিলিয়ন',
+      'unitBillion': 'বিলিয়ন',
       'switchTheme': 'থিম বদলান',
       'signOut': 'সাইন আউট',
       'useProviderPicture': 'আমার Google/Facebook ছবি ব্যবহার করুন',
@@ -428,13 +547,32 @@ class Strings {
       'pack': 'প্যাক',
       'chaal': 'চাল',
       'show': 'শো',
+      'sideshow': 'সাইডশো',
+      'sideshowWith': 'তুলনা করুন',
+      'sideshowAsksYou': 'আপনার সঙ্গে তাস মেলাতে চায়',
+      'sideshowRunning': 'সাইডশো',
+      'accept': 'গ্রহণ করুন',
+      'decline': 'প্রত্যাখ্যান',
+      'sideshowDeclined': 'আপনার সাইডশো প্রত্যাখ্যান করা হয়েছে',
+      'sideshowTimedOut': 'কোনও উত্তর নেই — সাইডশো বাতিল',
+      'sideshowCancelled': 'সাইডশো বাতিল হয়েছে',
+      'sideshowYouLost': 'আপনার তাস দুর্বল ছিল — আপনি প্যাক হলেন',
+      'sideshowYouWon': 'আপনার তাস ভালো ছিল — তিনি প্যাক হলেন',
       'seeCards': 'তাস দেখুন',
       'blindMovesLeft': 'ব্লাইন্ড চাল বাকি',
+      'blindMovesLabel': 'ব্লাইন্ড চাল বাকি',
       'lastBlindMove': 'শেষ ব্লাইন্ড চাল',
       'inPot': 'পটে',
       'waiting': 'অপেক্ষা',
       'offline': 'অফলাইন',
       'packed': 'প্যাক',
+      'autoPacked': 'পরপর চাল মিস',
+      'autoPackedOne': 'চাল মিস',
+      'lastWarning': 'শেষ সতর্কতা',
+      'missOneMore': 'এই চাল মিস করলে আপনি টেবিল ছাড়বেন।',
+      'missedTurnsLabel': 'মিস করা চাল',
+      'resumingTable': 'আপনার টেবিলে ফিরছি…',
+      'welcomeBack': 'ফিরে আসায় স্বাগত — আপনি আপনার টেবিলে ফিরে এসেছেন।',
       'winner': 'বিজয়ী',
       'tableChat': 'টেবিল চ্যাট',
       'saySomething': 'কিছু বলুন…',
@@ -503,6 +641,9 @@ class Strings {
       'guestHint':
           'મહેમાન ખાતું આ ડિવાઇસ સાથે જોડાયેલું છે, તેથી તમારા ચિપ્સ આવતી વખતે પણ અહીં જ રહેશે.',
       'boot': 'બૂટ',
+      'maxBlindsLabel': 'બ્લાઇન્ડ ચાલ મહત્તમ',
+      'potLimitLabel': 'પોટ મર્યાદા',
+      'potUnlimited': 'અમર્યાદિત',
       'tapToSit': 'બેસવા માટે ટૅપ કરો',
       'everyoneChips': 'બધાના ચિપ્સ દેખાય છે',
       'onlyYourChips': 'ફક્ત તમારા ચિપ્સ દેખાય છે',
@@ -525,9 +666,19 @@ class Strings {
       'fourHourBonus': '4-કલાકનું બોનસ',
       'milestone': 'માઇલસ્ટોન',
       'collect': 'લો',
+      'buyChips': 'ચિપ્સ ખરીદો',
+      'comingSoon': 'ટૂંક સમયમાં',
+      'comingSoonBody': 'ચિપ્સ ખરીદવાનું હજી શરૂ થયું નથી. ત્યાં સુધી તમારાં ઇનામ લેતા રહો.',
       'handsToGo': 'હાથ બાકી',
       'settings': 'સેટિંગ્સ',
       'language': 'ભાષા',
+      'numberSystem': 'સંખ્યા ફોર્મેટ',
+      'numberIndian': 'ભારતીય  ·  લાખ, કરોડ',
+      'numberInternational': 'આંતરરાષ્ટ્રીય  ·  મિલિયન, બિલિયન',
+      'unitLakh': 'લાખ',
+      'unitCrore': 'કરોડ',
+      'unitMillion': 'મિલિયન',
+      'unitBillion': 'બિલિયન',
       'switchTheme': 'થીમ બદલો',
       'signOut': 'સાઇન આઉટ',
       'useProviderPicture': 'મારો Google/Facebook ફોટો વાપરો',
@@ -539,13 +690,32 @@ class Strings {
       'pack': 'પૅક',
       'chaal': 'ચાલ',
       'show': 'શો',
+      'sideshow': 'સાઇડશો',
+      'sideshowWith': 'સરખાવો',
+      'sideshowAsksYou': 'તમારી સાથે પત્તાં સરખાવવા માંગે છે',
+      'sideshowRunning': 'સાઇડશો',
+      'accept': 'સ્વીકારો',
+      'decline': 'નકારો',
+      'sideshowDeclined': 'તમારો સાઇડશો નકારાયો',
+      'sideshowTimedOut': 'જવાબ નથી — સાઇડશો રદ',
+      'sideshowCancelled': 'સાઇડશો રદ થયો',
+      'sideshowYouLost': 'તમારાં પત્તાં નબળાં હતાં — તમે પૅક થયા',
+      'sideshowYouWon': 'તમારાં પત્તાં સારાં હતાં — તે પૅક થયા',
       'seeCards': 'પત્તા જુઓ',
       'blindMovesLeft': 'બ્લાઇન્ડ ચાલ બાકી',
+      'blindMovesLabel': 'બ્લાઇન્ડ ચાલ બાકી',
       'lastBlindMove': 'છેલ્લી બ્લાઇન્ડ ચાલ',
       'inPot': 'પોટમાં',
       'waiting': 'રાહ',
       'offline': 'ઑફલાઇન',
       'packed': 'પૅક',
+      'autoPacked': 'સળંગ ચાલ ચૂક્યા',
+      'autoPackedOne': 'ચાલ ચૂક્યા',
+      'lastWarning': 'છેલ્લી ચેતવણી',
+      'missOneMore': 'આ ચાલ ચૂકશો તો તમે ટેબલ છોડશો.',
+      'missedTurnsLabel': 'ચૂકેલી ચાલો',
+      'resumingTable': 'તમારા ટેબલ પર પાછા જઈ રહ્યા છીએ…',
+      'welcomeBack': 'પરત સ્વાગત — તમે તમારા ટેબલ પર પાછા છો.',
       'winner': 'વિજેતા',
       'tableChat': 'ટેબલ ચૅટ',
       'saySomething': 'કંઈક કહો…',
@@ -614,6 +784,9 @@ class Strings {
       'guestHint':
           'ਮਹਿਮਾਨ ਖਾਤਾ ਇਸ ਡਿਵਾਈਸ ਨਾਲ ਜੁੜਿਆ ਹੈ, ਇਸ ਲਈ ਤੁਹਾਡੇ ਚਿਪਸ ਅਗਲੀ ਵਾਰ ਵੀ ਇੱਥੇ ਹੋਣਗੇ।',
       'boot': 'ਬੂਟ',
+      'maxBlindsLabel': 'ਬਲਾਈਂਡ ਚਾਲਾਂ ਵੱਧ ਤੋਂ ਵੱਧ',
+      'potLimitLabel': 'ਪੌਟ ਸੀਮਾ',
+      'potUnlimited': 'ਅਸੀਮਤ',
       'tapToSit': 'ਬੈਠਣ ਲਈ ਟੈਪ ਕਰੋ',
       'everyoneChips': 'ਸਭ ਦੇ ਚਿਪਸ ਦਿਸਦੇ ਹਨ',
       'onlyYourChips': 'ਸਿਰਫ਼ ਤੁਹਾਡੇ ਚਿਪਸ ਦਿਸਦੇ ਹਨ',
@@ -636,9 +809,19 @@ class Strings {
       'fourHourBonus': '4-ਘੰਟੇ ਦਾ ਬੋਨਸ',
       'milestone': 'ਮਾਈਲਸਟੋਨ',
       'collect': 'ਲਓ',
+      'buyChips': 'ਚਿਪਸ ਖਰੀਦੋ',
+      'comingSoon': 'ਜਲਦੀ ਆ ਰਿਹਾ ਹੈ',
+      'comingSoonBody': 'ਚਿਪਸ ਖਰੀਦਣਾ ਅਜੇ ਸ਼ੁਰੂ ਨਹੀਂ ਹੋਇਆ। ਉਦੋਂ ਤੱਕ ਆਪਣੇ ਇਨਾਮ ਲੈਂਦੇ ਰਹੋ।',
       'handsToGo': 'ਹੱਥ ਬਾਕੀ',
       'settings': 'ਸੈਟਿੰਗਾਂ',
       'language': 'ਭਾਸ਼ਾ',
+      'numberSystem': 'ਨੰਬਰ ਫਾਰਮੈਟ',
+      'numberIndian': 'ਭਾਰਤੀ  ·  ਲੱਖ, ਕਰੋੜ',
+      'numberInternational': 'ਅੰਤਰਰਾਸ਼ਟਰੀ  ·  ਮਿਲੀਅਨ, ਬਿਲੀਅਨ',
+      'unitLakh': 'ਲੱਖ',
+      'unitCrore': 'ਕਰੋੜ',
+      'unitMillion': 'ਮਿਲੀਅਨ',
+      'unitBillion': 'ਬਿਲੀਅਨ',
       'switchTheme': 'ਥੀਮ ਬਦਲੋ',
       'signOut': 'ਸਾਈਨ ਆਊਟ',
       'useProviderPicture': 'ਮੇਰੀ Google/Facebook ਤਸਵੀਰ ਵਰਤੋ',
@@ -650,13 +833,32 @@ class Strings {
       'pack': 'ਪੈਕ',
       'chaal': 'ਚਾਲ',
       'show': 'ਸ਼ੋ',
+      'sideshow': 'ਸਾਈਡਸ਼ੋ',
+      'sideshowWith': 'ਮਿਲਾਓ',
+      'sideshowAsksYou': 'ਤੁਹਾਡੇ ਨਾਲ ਪੱਤੇ ਮਿਲਾਉਣਾ ਚਾਹੁੰਦਾ ਹੈ',
+      'sideshowRunning': 'ਸਾਈਡਸ਼ੋ',
+      'accept': 'ਮੰਨੋ',
+      'decline': 'ਨਾਂਹ ਕਰੋ',
+      'sideshowDeclined': 'ਤੁਹਾਡਾ ਸਾਈਡਸ਼ੋ ਨਾਂਹ ਕੀਤਾ ਗਿਆ',
+      'sideshowTimedOut': 'ਕੋਈ ਜਵਾਬ ਨਹੀਂ — ਸਾਈਡਸ਼ੋ ਰੱਦ',
+      'sideshowCancelled': 'ਸਾਈਡਸ਼ੋ ਰੱਦ ਹੋ ਗਿਆ',
+      'sideshowYouLost': 'ਤੁਹਾਡੇ ਪੱਤੇ ਕਮਜ਼ੋਰ ਸਨ — ਤੁਸੀਂ ਪੈਕ ਹੋਏ',
+      'sideshowYouWon': 'ਤੁਹਾਡੇ ਪੱਤੇ ਵਧੀਆ ਸਨ — ਉਹ ਪੈਕ ਹੋਏ',
       'seeCards': 'ਪੱਤੇ ਵੇਖੋ',
       'blindMovesLeft': 'ਬਲਾਈਂਡ ਚਾਲਾਂ ਬਾਕੀ',
+      'blindMovesLabel': 'ਬਲਾਈਂਡ ਚਾਲਾਂ ਬਾਕੀ',
       'lastBlindMove': 'ਆਖ਼ਰੀ ਬਲਾਈਂਡ ਚਾਲ',
       'inPot': 'ਪੌਟ ਵਿੱਚ',
       'waiting': 'ਉਡੀਕ',
       'offline': 'ਔਫ਼ਲਾਈਨ',
       'packed': 'ਪੈਕ',
+      'autoPacked': 'ਲਗਾਤਾਰ ਚਾਲਾਂ ਖੁੰਝੀਆਂ',
+      'autoPackedOne': 'ਚਾਲ ਖੁੰਝੀ',
+      'lastWarning': 'ਆਖਰੀ ਚੇਤਾਵਨੀ',
+      'missOneMore': 'ਇਹ ਚਾਲ ਖੁੰਝੀ ਤਾਂ ਤੁਸੀਂ ਟੇਬਲ ਛੱਡ ਦਿਓਗੇ।',
+      'missedTurnsLabel': 'ਖੁੰਝੀਆਂ ਚਾਲਾਂ',
+      'resumingTable': 'ਤੁਹਾਡੇ ਟੇਬਲ ਤੇ ਵਾਪਸ ਜਾ ਰਹੇ ਹਾਂ…',
+      'welcomeBack': 'ਵਾਪਸੀ ਤੇ ਸਵਾਗਤ — ਤੁਸੀਂ ਆਪਣੇ ਟੇਬਲ ਤੇ ਵਾਪਸ ਹੋ।',
       'winner': 'ਜੇਤੂ',
       'tableChat': 'ਟੇਬਲ ਚੈਟ',
       'saySomething': 'ਕੁਝ ਕਹੋ…',

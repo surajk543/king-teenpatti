@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:socket_io_client/socket_io_client.dart' as io;
+import 'package:uuid/uuid.dart';
 
 import '../models/dtos.dart';
 
@@ -15,9 +16,11 @@ class GameConnection {
 
   final String baseUrl;
   io.Socket? _socket;
+  static const _uuid = Uuid();
 
   final _state = StreamController<RoomState>.broadcast();
-  final _session = StreamController<({User user, GameConfig config})>.broadcast();
+  final _session =
+      StreamController<({User user, GameConfig config, ResumeHint? resume})>.broadcast();
   final _cards = StreamController<List<String>>.broadcast();
   final _showdown = StreamController<
       ({
@@ -26,7 +29,12 @@ class GameConnection {
         String? winnerId,
         String winnerName,
         int pot,
+        int nextHandAt,
       })>.broadcast();
+  final _sideshowAsked = StreamController<PendingSideshow>.broadcast();
+  final _sideshowReveal = StreamController<SideshowReveal>.broadcast();
+  final _sideshowDone = StreamController<
+      ({String fromUserId, String toUserId, bool accepted, String reason, String? packedUserId})>.broadcast();
   final _chat = StreamController<ChatMessage>.broadcast();
   final _chatHistory = StreamController<List<ChatMessage>>.broadcast();
   final _errors = StreamController<String>.broadcast();
@@ -36,7 +44,10 @@ class GameConnection {
 
   /// A full table snapshot, already redacted for this viewer.
   Stream<RoomState> get onState => _state.stream;
-  Stream<({User user, GameConfig config})> get onSession => _session.stream;
+  /// Who this is and how the game is configured; `resume` names a table to go
+  /// straight back to when a held seat has already lapsed.
+  Stream<({User user, GameConfig config, ResumeHint? resume})> get onSession =>
+      _session.stream;
 
   /// This player's own three cards, sent only once they have looked.
   Stream<List<String>> get onCards => _cards.stream;
@@ -47,7 +58,20 @@ class GameConnection {
         String? winnerId,
         String winnerName,
         int pot,
+        int nextHandAt,
       })> get onShowdown => _showdown.stream;
+  /// Somebody asked for a sideshow. Everyone at the table hears this — it is
+  /// what drives the animation between the two seats — but it carries no cards.
+  Stream<PendingSideshow> get onSideshowAsked => _sideshowAsked.stream;
+
+  /// The two hands in an accepted sideshow. The server sends this only to the
+  /// two players involved, so simply receiving it means the viewer is one.
+  Stream<SideshowReveal> get onSideshowReveal => _sideshowReveal.stream;
+
+  /// How it ended, for the whole table: accepted or not, and who packed.
+  Stream<
+      ({String fromUserId, String toUserId, bool accepted, String reason, String? packedUserId})>
+      get onSideshowDone => _sideshowDone.stream;
   Stream<ChatMessage> get onChat => _chat.stream;
   Stream<List<ChatMessage>> get onChatHistory => _chatHistory.stream;
   Stream<String> get onError => _errors.stream;
@@ -84,6 +108,7 @@ class GameConnection {
         config: j['config'] is Map
             ? GameConfig.fromJson(_map(j['config']))
             : GameConfig.fallback,
+        resume: j['resume'] is Map ? ResumeHint.fromJson(_map(j['resume'])) : null,
       ));
     });
 
@@ -124,6 +149,25 @@ class GameConnection {
       );
     });
 
+    socket.on('game:sideshowRequested',
+        (data) => _sideshowAsked.add(PendingSideshow.fromJson(_map(data))));
+    socket.on('game:sideshowReveal', (data) {
+      final j = _map(data);
+      if (j['reveal'] is Map) {
+        _sideshowReveal.add(SideshowReveal.fromJson(_map(j['reveal'])));
+      }
+    });
+    socket.on('game:sideshowResolved', (data) {
+      final j = _map(data);
+      _sideshowDone.add((
+        fromUserId: '${j['fromUserId'] ?? ''}',
+        toUserId: '${j['toUserId'] ?? ''}',
+        accepted: j['accepted'] == true,
+        reason: '${j['reason'] ?? ''}',
+        packedUserId: j['packedUserId'] as String?,
+      ));
+    });
+
     socket.on('chat:message', (data) => _chat.add(ChatMessage.fromJson(_map(data))));
     socket.on('chat:history', (data) {
       final j = _map(data);
@@ -150,6 +194,9 @@ class GameConnection {
       winnerId: j['winnerId'] as String?,
       winnerName: '${j['winnerName'] ?? ''}',
       pot: (j['pot'] as num?)?.toInt() ?? 0,
+      // Only the hand-ended frame carries this; the reveal that precedes it
+      // does not, and 0 means "not stated".
+      nextHandAt: (j['nextHandAt'] as num?)?.toInt() ?? 0,
     ));
   }
 
@@ -171,10 +218,21 @@ class GameConnection {
 
   /// Sends a move. [amount] is what the stepper picked; the server validates it
   /// against the ladder it computes itself, so a tampered client gains nothing.
+  ///
+  /// Every move carries a fresh [actionId]. The server writes it onto the
+  /// ledger row for the bet, where it is unique — so if this request is ever
+  /// sent twice (a retry after a lost ack, a double tap) the second copy is
+  /// refused rather than charged again.
   void act(String action, {int? amount}) => _emit('game:action', {
         'action': action,
         'amount': ?amount,
+        'actionId': _uuid.v4(),
       });
+
+  /// Answers a sideshow. Only the player who was asked may; anyone else gets a
+  /// refusal in the ack.
+  void respondToSideshow(bool accept) =>
+      _emit('game:sideshowRespond', {'accept': accept});
 
   void requestCards() => _emit('player:requestCards', const {});
 
@@ -226,6 +284,9 @@ class GameConnection {
     _session.close();
     _cards.close();
     _showdown.close();
+    _sideshowAsked.close();
+    _sideshowReveal.close();
+    _sideshowDone.close();
     _chat.close();
     _chatHistory.close();
     _errors.close();

@@ -56,11 +56,11 @@ const turnSeat = (table) => table.seats[table.hand.turnSeat];
 
 // ------------------------------------------------------------- the ladder
 
-test('each step doubles the previous amount', () => {
+test('each step doubles the previous amount', async () => {
   const { table, seat, advance } = makeTable();
   seat('a');
   seat('b');
-  advance(baseConfig.nextHandDelayMs);
+  await advance(baseConfig.nextHandDelayMs);
 
   const player = turnSeat(table);
   const { steps } = table.betOptions(player);
@@ -72,48 +72,64 @@ test('each step doubles the previous amount', () => {
   assert.deepEqual(steps, [100, 200, 400, 800, 1600, 3200, 6400, 12800]);
 });
 
-test('a seen player\'s ladder starts at double a blind player\'s', () => {
+test('a seen player\'s ladder starts at double a blind player\'s', async () => {
   const { table, seat, advance } = makeTable();
   seat('a');
   seat('b');
-  advance(baseConfig.nextHandDelayMs);
+  await advance(baseConfig.nextHandDelayMs);
 
   const player = turnSeat(table);
   assert.equal(table.betOptions(player).steps[0], BOOT, 'blind');
 
-  table.act(player.userId, ACTION.SEE);
+  await table.act(player.userId, ACTION.SEE);
   assert.equal(table.betOptions(player).steps[0], BOOT * 2, 'seen pays double');
   assert.equal(table.betOptions(player).steps[1], BOOT * 4);
 });
 
-test('the ladder is capped by the number of steps configured', () => {
+test('the ladder is capped by the number of steps configured', async () => {
   const { table, seat, advance } = makeTable({ maxRaiseSteps: 3 });
   seat('a');
   seat('b');
-  advance(baseConfig.nextHandDelayMs);
+  await advance(baseConfig.nextHandDelayMs);
 
   assert.deepEqual(table.betOptions(turnSeat(table)).steps, [100, 200, 400]);
 });
 
-test('the ladder is capped by the pot limit', () => {
+test('the ladder is capped by the pot limit', async () => {
   const { table, seat, advance } = makeTable({ potLimitMultiplier: 4 });
   seat('a');
   seat('b');
-  advance(baseConfig.nextHandDelayMs);
+  await advance(baseConfig.nextHandDelayMs);
 
   const { steps, max } = table.betOptions(turnSeat(table));
   assert.deepEqual(steps, [100, 200, 400], 'nothing above 4 x boot');
   assert.equal(max, 400);
 });
 
+test('zero rungs and a zero multiplier mean the ladder runs to the whole stack', async () => {
+  // A blind table's settings: nothing but the player's own chips bounds a bet.
+  const { table, seat, advance } = makeTable({ maxRaiseSteps: 0, potLimitMultiplier: 0 });
+  seat('a', BOOT + 1_000_000);
+  seat('b', BOOT + 1_000_000);
+  await advance(baseConfig.nextHandDelayMs);
+
+  const { steps, max } = table.betOptions(turnSeat(table));
+  // 100, 200, 400 … 819,200 fit inside a million; 1,638,400 does not.
+  assert.equal(steps.length, 14, 'far past the eight rungs a capped ladder stops at');
+  assert.equal(steps[0], BOOT);
+  assert.equal(max, 819_200);
+  assert.ok(max <= turnSeat(table).chips, 'never more than the player holds');
+  assert.ok(steps.every((amount, i) => i === 0 || amount === steps[i - 1] * 2), 'each rung doubles');
+});
+
 // --------------------------------------------- never more than you can pay
 
-test('the ladder never offers more chips than the player holds', () => {
+test('the ladder never offers more chips than the player holds', async () => {
   const { table, seat, advance } = makeTable();
   seat('rich');
   // Can cover the boot, then holds 650 — so 100, 200 and 400 fit, 800 does not.
   seat('short', BOOT + 650);
-  advance(baseConfig.nextHandDelayMs);
+  await advance(baseConfig.nextHandDelayMs);
 
   const short = table.findSeat('short');
   const { steps, max } = table.betOptions(short);
@@ -126,11 +142,11 @@ test('the ladder never offers more chips than the player holds', () => {
   }
 });
 
-test('a player who cannot afford the base bet is offered no bet at all', () => {
+test('a player who cannot afford the base bet is offered no bet at all', async () => {
   const { table, seat, advance } = makeTable();
   seat('rich');
   seat('broke', BOOT + 50); // 50 left, base bet is 100
-  advance(baseConfig.nextHandDelayMs);
+  await advance(baseConfig.nextHandDelayMs);
 
   const broke = table.findSeat('broke');
   const options = table.turnOptions(broke);
@@ -142,11 +158,11 @@ test('a player who cannot afford the base bet is offered no bet at all', () => {
   assert.equal(options.canPack, true, 'packing is always available');
 });
 
-test('the turn payload carries the ladder and the player\'s stack', () => {
+test('the turn payload carries the ladder and the player\'s stack', async () => {
   const { table, seat, advance } = makeTable();
   seat('a');
   seat('b');
-  advance(baseConfig.nextHandDelayMs);
+  await advance(baseConfig.nextHandDelayMs);
 
   const options = table.turnOptions(turnSeat(table));
 
@@ -159,17 +175,17 @@ test('the turn payload carries the ladder and the player\'s stack', () => {
 
 // ------------------------------------------------------- placing the bet
 
-test('a raise can be placed at any rung of the ladder', () => {
+test('a raise can be placed at any rung of the ladder', async () => {
   const { table, seat, advance, events } = makeTable();
   seat('a');
   seat('b');
-  advance(baseConfig.nextHandDelayMs);
+  await advance(baseConfig.nextHandDelayMs);
 
   const player = turnSeat(table);
   const potBefore = table.hand.pot;
 
   // Three taps of "+": 100 -> 200 -> 400 -> 800.
-  table.act(player.userId, ACTION.RAISE, { amount: 800 });
+  await table.act(player.userId, ACTION.RAISE, { amount: 800 });
 
   assert.equal(events.at(-1).amount, 800);
   assert.equal(table.hand.pot, potBefore + 800);
@@ -177,97 +193,97 @@ test('a raise can be placed at any rung of the ladder', () => {
   assert.equal(table.hand.stake, 800, 'a blind bet sets the stake');
 });
 
-test('omitting the amount keeps the old default behaviour', () => {
+test('omitting the amount keeps the old default behaviour', async () => {
   const { table, seat, advance, events } = makeTable();
   seat('a');
   seat('b');
-  advance(baseConfig.nextHandDelayMs);
+  await advance(baseConfig.nextHandDelayMs);
 
-  table.act(turnSeat(table).userId, ACTION.RAISE);
+  await table.act(turnSeat(table).userId, ACTION.RAISE);
   assert.equal(events.at(-1).amount, BOOT * 2, 'a bare raise is still double');
 
-  table.act(turnSeat(table).userId, ACTION.CHAAL);
+  await table.act(turnSeat(table).userId, ACTION.CHAAL);
   assert.equal(events.at(-1).action, ACTION.CHAAL);
 });
 
-test('an amount that is not on the ladder is refused', () => {
+test('an amount that is not on the ladder is refused', async () => {
   const { table, seat, advance } = makeTable();
   seat('a');
   seat('b');
-  advance(baseConfig.nextHandDelayMs);
+  await advance(baseConfig.nextHandDelayMs);
 
   const player = turnSeat(table);
 
   for (const bad of [150, 999, 101, 1]) {
-    assert.throws(
-      () => table.act(player.userId, ACTION.RAISE, { amount: bad }),
+    await assert.rejects(
+      table.act(player.userId, ACTION.RAISE, { amount: bad }),
       (error) => error.code === 'invalid_bet',
       `${bad} is not a rung`,
     );
   }
 });
 
-test('a bet larger than the player\'s stack is refused', () => {
+test('a bet larger than the player\'s stack is refused', async () => {
   const { table, seat, advance } = makeTable();
   seat('rich');
   seat('short', BOOT + 650);
-  advance(baseConfig.nextHandDelayMs);
+  await advance(baseConfig.nextHandDelayMs);
 
   // Make sure the short stack is the one on turn.
   while (turnSeat(table).userId !== 'short') {
-    table.act(turnSeat(table).userId, ACTION.CHAAL);
+    await table.act(turnSeat(table).userId, ACTION.CHAAL);
   }
 
   const short = table.findSeat('short');
   assert.equal(short.chips, 650);
 
   // 800 is a rung of the *unbounded* ladder but beyond this player's stack.
-  assert.throws(
-    () => table.act('short', ACTION.RAISE, { amount: 800 }),
+  await assert.rejects(
+    table.act('short', ACTION.RAISE, { amount: 800 }),
     (error) => error.code === 'invalid_bet',
   );
-  assert.throws(
-    () => table.act('short', ACTION.RAISE, { amount: 200000 }),
+  await assert.rejects(
+    table.act('short', ACTION.RAISE, { amount: 200000 }),
     (error) => error.code === 'invalid_bet',
   );
 
   assert.equal(short.chips, 650, 'no chips moved on a refused bet');
 });
 
-test('non-integer and negative amounts are refused', () => {
+test('non-integer and negative amounts are refused', async () => {
   const { table, seat, advance } = makeTable();
   seat('a');
   seat('b');
-  advance(baseConfig.nextHandDelayMs);
+  await advance(baseConfig.nextHandDelayMs);
 
   const player = turnSeat(table);
   for (const bad of [100.5, -100, Number.NaN, Number.POSITIVE_INFINITY]) {
-    assert.throws(
-      () => table.act(player.userId, ACTION.RAISE, { amount: bad }),
+    await assert.rejects(
+      table.act(player.userId, ACTION.RAISE, { amount: bad }),
       (error) => error.code === 'invalid_bet',
       `${bad} is rejected`,
     );
   }
 });
 
-test('a raise must be at least double the chaal', () => {
+test('a raise must be at least double the chaal', async () => {
   const { table, seat, advance } = makeTable();
   seat('a');
   seat('b');
-  advance(baseConfig.nextHandDelayMs);
+  await advance(baseConfig.nextHandDelayMs);
 
   // The base rung is a chaal, not a raise.
-  assert.throws(
-    () => table.act(turnSeat(table).userId, ACTION.RAISE, { amount: BOOT }),
+  await assert.rejects(
+    table.act(turnSeat(table).userId, ACTION.RAISE, { amount: BOOT }),
     (error) => error.code === 'invalid_bet',
   );
 });
 
-test('stepping up repeatedly stays inside the stack across a whole hand', () => {
+test('stepping up repeatedly stays inside the stack across a whole hand', async () => {
   const { table, seat, advance } = makeTable();
   seat('a');
   seat('b');
-  advance(baseConfig.nextHandDelayMs);
+  await advance(baseConfig.nextHandDelayMs);
 
   // Both players keep taking the biggest bet available to them. Once a stack
   // has shrunk to a single rung that rung is a chaal, not a raise — which is
@@ -277,12 +293,12 @@ test('stepping up repeatedly stays inside the stack across a whole hand', () => 
     const { steps, max } = table.betOptions(player);
 
     if (!max) {
-      table.act(player.userId, ACTION.PACK);
+      await table.act(player.userId, ACTION.PACK);
       continue;
     }
 
     const action = steps.length > 1 ? ACTION.RAISE : ACTION.CHAAL;
-    table.act(player.userId, action, { amount: max });
+    await table.act(player.userId, action, { amount: max });
     assert.ok(player.chips >= 0, 'a player can never be driven negative');
   }
 
@@ -291,15 +307,15 @@ test('stepping up repeatedly stays inside the stack across a whole hand', () => 
   }
 });
 
-test('a stack that affords only one rung can chaal but not raise', () => {
+test('a stack that affords only one rung can chaal but not raise', async () => {
   const { table, seat, advance } = makeTable();
   seat('rich');
   // 150 left after the boot: the base 100 fits, 200 does not.
   seat('tight', BOOT + 150);
-  advance(baseConfig.nextHandDelayMs);
+  await advance(baseConfig.nextHandDelayMs);
 
   while (turnSeat(table).userId !== 'tight') {
-    table.act(turnSeat(table).userId, ACTION.CHAAL);
+    await table.act(turnSeat(table).userId, ACTION.CHAAL);
   }
 
   const options = table.turnOptions(table.findSeat('tight'));
@@ -307,24 +323,24 @@ test('a stack that affords only one rung can chaal but not raise', () => {
   assert.equal(options.chaal, 100);
   assert.equal(options.raise, null, 'so no raise is offered');
 
-  assert.throws(
-    () => table.act('tight', ACTION.RAISE, { amount: 100 }),
+  await assert.rejects(
+    table.act('tight', ACTION.RAISE, { amount: 100 }),
     (error) => error.code === 'invalid_bet',
   );
 
-  table.act('tight', ACTION.CHAAL, { amount: 100 });
+  await table.act('tight', ACTION.CHAAL, { amount: 100 });
   assert.equal(table.findSeat('tight').chips, 50);
 });
 
 // ------------------------------------------------- requirement 10: timeout
 
-test('a player who does not act on their turn is packed automatically', () => {
+test('a player who does not act on their turn is packed automatically', async () => {
   const { table, seat, advance, events } = makeTable();
   for (const id of ['a', 'b', 'c']) seat(id);
-  advance(baseConfig.nextHandDelayMs);
+  await advance(baseConfig.nextHandDelayMs);
 
   const stalling = turnSeat(table).userId;
-  advance(baseConfig.turnTimeoutMs);
+  await advance(baseConfig.turnTimeoutMs);
 
   assert.equal(table.findSeat(stalling).status, SEAT_STATE.PACKED);
 
@@ -334,16 +350,16 @@ test('a player who does not act on their turn is packed automatically', () => {
   assert.notEqual(turnSeat(table).userId, stalling, 'play moved on');
 });
 
-test('the timeout still fires while a raise stepper is open', () => {
+test('the timeout still fires while a raise stepper is open', async () => {
   // Sitting on the +/- control must not hold the table up.
   const { table, seat, advance } = makeTable();
   seat('a');
   seat('b');
-  advance(baseConfig.nextHandDelayMs);
+  await advance(baseConfig.nextHandDelayMs);
 
   const stalling = turnSeat(table).userId;
-  table.act(stalling, ACTION.SEE); // looking at cards does not stop the clock
-  advance(baseConfig.turnTimeoutMs);
+  await table.act(stalling, ACTION.SEE); // looking at cards does not stop the clock
+  await advance(baseConfig.turnTimeoutMs);
 
   assert.equal(table.findSeat(stalling).status, SEAT_STATE.PACKED);
   assert.equal(table.hand, null, 'the last player standing took the pot');

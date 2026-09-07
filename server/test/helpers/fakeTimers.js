@@ -1,6 +1,10 @@
 /**
  * Minimal deterministic timer queue so table tests can step through the 25s
  * turn clock and the between-hand countdown without actually waiting.
+ *
+ * Timer callbacks may be async — the table's are, since a timeout can end a
+ * hand and a hand ending is a database transaction — so `advance` awaits each
+ * one before firing the next. Call it as `await advance(ms)`.
  */
 export function createFakeTimers() {
   let now = 0;
@@ -19,8 +23,8 @@ export function createFakeTimers() {
     },
   };
 
-  /** Advances the clock, firing everything due, in order. */
-  const advance = (ms) => {
+  /** Advances the clock, firing everything due, in order, awaiting each. */
+  const advance = async (ms) => {
     const target = now + ms;
     for (;;) {
       const due = [...scheduled.entries()]
@@ -30,7 +34,7 @@ export function createFakeTimers() {
       const [id, timer] = due[0];
       scheduled.delete(id);
       now = timer.at;
-      timer.fn();
+      await timer.fn();
     }
     now = target;
   };

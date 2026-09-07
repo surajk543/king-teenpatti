@@ -23,6 +23,16 @@
     /** Lobby selection: "seen" shows every stack, "blind" hides other players'. */
     categories: ['seen', 'blind'],
     stakes: [200, 5000],
+    /**
+     * The rooms the lobby offers, in the order to show them. The server sends
+     * the pairs rather than the client crossing categories with stakes: 5,000
+     * is a stake and seen is a category, but there is no seen table at 5,000.
+     */
+    tables: [
+      { category: 'seen', bootAmount: 200 },
+      { category: 'blind', bootAmount: 200 },
+      { category: 'blind', bootAmount: 5000 },
+    ],
     /** Room chat, mirrored from the server for as long as we are in the room. */
     chat: [],
     chatOpen: false,
@@ -198,6 +208,9 @@
       // The lobby renders whatever stakes the server offers.
       if (config && Array.isArray(config.stakes) && config.stakes.length) {
         state.stakes = config.stakes;
+      }
+      if (config && Array.isArray(config.tables) && config.tables.length) {
+        state.tables = config.tables;
       }
       if (config && Array.isArray(config.categories) && config.categories.length) {
         state.categories = config.categories;
@@ -457,8 +470,8 @@
   });
 
   /**
-   * Builds one card per table on offer, from the categories and stakes the
-   * server advertises.
+   * Builds one card per room the server advertises, in the order it listed
+   * them.
    *
    * The whole card is the button — a far better touch target on a phone than a
    * link tucked inside one — and the rail scrolls sideways, so the lobby never
@@ -474,33 +487,31 @@
         ? 'Only your own chips are visible'
         : "Everyone's chips are visible";
 
-    for (const category of state.categories) {
-      for (const stake of state.stakes) {
-        const card = document.createElement('button');
-        card.type = 'button';
-        card.className = `tablecard ${category}`;
+    for (const { category, bootAmount: stake } of state.tables) {
+      const card = document.createElement('button');
+      card.type = 'button';
+      card.className = `tablecard ${category}`;
 
-        const cat = document.createElement('span');
-        cat.className = 'cat';
-        cat.textContent = category;
+      const cat = document.createElement('span');
+      cat.className = 'cat';
+      cat.textContent = category;
 
-        const amount = document.createElement('span');
-        amount.className = 'amount';
-        amount.textContent = stake.toLocaleString();
+      const amount = document.createElement('span');
+      amount.className = 'amount';
+      amount.textContent = stake.toLocaleString();
 
-        const desc = document.createElement('span');
-        desc.className = 'desc';
-        desc.textContent = describe(category);
+      const desc = document.createElement('span');
+      desc.className = 'desc';
+      desc.textContent = describe(category);
 
-        const hint = document.createElement('span');
-        // Not "seats": that class is the ring of players on the table screen.
-        hint.className = 'cta';
-        hint.textContent = 'Tap to sit down';
+      const hint = document.createElement('span');
+      // Not "seats": that class is the ring of players on the table screen.
+      hint.className = 'cta';
+      hint.textContent = 'Tap to sit down';
 
-        card.append(cat, amount, desc, hint);
-        card.onclick = () => emit('room:quickJoin', { bootAmount: stake, category });
-        box.append(card);
-      }
+      card.append(cat, amount, desc, hint);
+      card.onclick = () => emit('room:quickJoin', { bootAmount: stake, category });
+      box.append(card);
     }
   }
 

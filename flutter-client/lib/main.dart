@@ -9,6 +9,7 @@ import 'screens/table_screen.dart';
 import 'models/dtos.dart';
 import 'state/game_state.dart';
 import 'theme/app_theme.dart';
+import 'widgets/poker_chip.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -61,15 +62,74 @@ class _Root extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final screen = context.select<GameState, Screen>((s) => s.screen);
+    final resuming = context.select<GameState, bool>((s) => s.resuming);
 
     return _NoticeHost(
-      child: _BackGuard(
-        screen: screen,
-        child: switch (screen) {
-          Screen.login => const LoginScreen(),
-          Screen.lobby => const LobbyScreen(),
-          Screen.table => const TableScreen(),
-        },
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          _BackGuard(
+            screen: screen,
+            child: switch (screen) {
+              Screen.login => const LoginScreen(),
+              Screen.lobby => const LobbyScreen(),
+              Screen.table => const TableScreen(),
+            },
+          ),
+          // On a cold start with a saved session the lobby is ready before the
+          // server has said whether the player still has a table. Holding a
+          // veil over it for that moment means an app closed mid-hand reopens
+          // onto the table, not onto the lobby with the table arriving a beat
+          // later.
+          IgnorePointer(
+            ignoring: !resuming,
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 380),
+              child: resuming
+                  ? const _ResumeVeil(key: ValueKey('resume-veil'))
+                  : const SizedBox.shrink(key: ValueKey('no-veil')),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// "Returning to your table…": what covers the lobby while the server works
+/// out where a reopened app belongs.
+class _ResumeVeil extends StatelessWidget {
+  const _ResumeVeil({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final lang = context.select<GameState, AppLang>((s) => s.lang);
+    final t = Strings(lang);
+
+    return Material(
+      color: theme.colorScheme.surface,
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SpinningChip(
+              colour: theme.colorScheme.primary,
+              size: 60,
+              turn: const Duration(milliseconds: 900),
+              rest: const Duration(milliseconds: 300),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              t.resumingTable,
+              textAlign: TextAlign.center,
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w700,
+                color: theme.colorScheme.onSurface,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

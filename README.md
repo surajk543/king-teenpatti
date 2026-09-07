@@ -1,42 +1,51 @@
 # King Teen Patti
 
 A turn-based multiplayer Teen Patti game: authoritative **Node.js + Socket.IO** server with
-**SQLite** persistence, a **Unity** client for Android / iOS / WebGL, and a bundled browser client
-for playing and testing without a Unity build.
+**PostgreSQL** persistence (every chip movement is one transaction), a **Flutter** client for
+Android (Material 3), and a bundled browser client for playing and testing without a build.
 
 ```
 king-teenpatti/
-├── server/          Node.js + Socket.IO + SQLite game server (authoritative)
-│   ├── src/         Game engine, auth, database, socket layer
-│   ├── public/      Browser client — playable immediately, no Unity needed
-│   └── test/        194 tests + a load-test harness
-├── unity-client/    Unity client (C#): Socket.IO protocol, models, runtime UI
-└── Requirements.txt The original brief
+├── server/          Node.js + Socket.IO + PostgreSQL game server (authoritative)
+│   ├── src/         Game engine, auth, database + ledger, socket layer
+│   ├── public/      Browser client — a zero-build protocol reference
+│   └── test/        node:test suites + a load-test harness
+├── flutter-client/  Flutter client (Dart): the live app — lobby, table, chat, sideshow
+├── CLAUDE.md        Detailed project context for coding sessions
+└── Requirements.txt The original brief (items 1–34; there is no 11)
 ```
 
 ## Quick start
 
 ```bash
+# PostgreSQL must be running with a database the server can use — by default
+# postgres://postgres:postgres@localhost:5432/gameplay (see server/.env.example).
 cd server
 npm install
 cp .env.example .env          # then set JWT_SECRET
-npm start
+npm start                     # creates the schema on first boot
 ```
 
-Open <http://localhost:3000> in two browser tabs, press **Play as Guest** in each, then
-**Quick Join**. Two players are enough to start a hand.
+Open <http://localhost:3000> in two browser tabs, press **Play as Guest** in each, then tap a
+table. Two players are enough to start a hand. For the real client:
 
 ```bash
-npm test                      # 194 tests
-npm run loadtest -- --players 1000 --seconds 60
+cd flutter-client
+flutter build apk --debug     # default server: http://10.0.2.2:3000 (the emulator's host alias)
+adb install -r build/app/outputs/flutter-apk/app-debug.apk
+```
+
+```bash
+cd server && npm test
+npm run loadtest -- --players 1000 --seconds 60 --boot 200
 ```
 
 ## What is implemented
 
 | # | Requirement | Where |
 |---|---|---|
-| 1 | Google, Facebook and guest (deviceId) login | [providers.js](server/src/auth/providers.js), [AuthService.cs](unity-client/Assets/Scripts/Game/AuthService.cs) |
-| 2 | SQLite storage per provider identity | [schema.sql](server/src/db/schema.sql), [users.js](server/src/db/users.js) |
+| 1 | Google, Facebook and guest (deviceId) login | [providers.js](server/src/auth/providers.js), [game_state.dart](flutter-client/lib/state/game_state.dart) |
+| 2 | Persistent storage per provider identity — **PostgreSQL** (the brief said SQLite; changed by the owner) | [schema.sql](server/src/db/schema.sql), [ledger.js](server/src/db/ledger.js), [users.js](server/src/db/users.js) |
 | 3 | Rooms of at most 5 players | [table.js](server/src/game/table.js), [roomManager.js](server/src/game/roomManager.js) |
 | 4 | 2 players minimum to start; many rooms | [table.js](server/src/game/table.js) |
 | 5 | 2 lakh welcome chips on first login | [users.js](server/src/db/users.js) |
@@ -49,9 +58,9 @@ npm run loadtest -- --players 1000 --seconds 60
 | 6g | Trail > pure sequence > sequence > color > pair > high card | [handRank.js](server/src/game/handRank.js) |
 | 7 | Account and chips restored on next login | [users.js](server/src/db/users.js) |
 | 8 | Room chat: in-memory, 100 messages, dies with the room | [chat.js](server/src/game/chat.js) |
-| 9 | +/− stepper doubles the bet, capped at the player's chips | [table.js](server/src/game/table.js), [GameUI.cs](unity-client/Assets/Scripts/UI/GameUI.cs) |
+| 9 | +/− stepper doubles the bet, capped at the player's chips | [table.js](server/src/game/table.js), [table_screen.dart](flutter-client/lib/screens/table_screen.dart) |
 | 10 | Auto-pack when a turn is not acted on | [table.js](server/src/game/table.js) |
-| 12 | Chat panel collapses to a badge and reopens | [client.js](server/public/client.js), [ChatPanel.cs](unity-client/Assets/Scripts/UI/ChatPanel.cs) |
+| 12 | Chat panel collapses to a badge and reopens | [client.js](server/public/client.js), [table_screen.dart](flutter-client/lib/screens/table_screen.dart) |
 | 13 | Blind/Seen categories at 200 and 5000; chip visibility per category | [table.js](server/src/game/table.js), [roomManager.js](server/src/game/roomManager.js) |
 | 14 | Show reveals every hand to the room, with the winner and amount | [table.js](server/src/game/table.js), [client.js](server/public/client.js) |
 | 15 | The pot always pays out, even when the table empties | [table.js](server/src/game/table.js) |
@@ -62,9 +71,9 @@ npm run loadtest -- --players 1000 --seconds 60
 | 20 | Profile picture taken from the Google/Facebook account | [providers.js](server/src/auth/providers.js) |
 | 21 | Pick a bundled picture; locked once seated; visible to everyone | [routes.js](server/src/auth/routes.js), [profiles/](server/public/profiles/) |
 | 22 | Private tables: fixed 200 boot, maximum win 500,000, one double per turn | [roomManager.js](server/src/game/roomManager.js), [table.js](server/src/game/table.js) |
-| 23 | Landscape on phones, icons, light/dark toggle, Material 3 | [theme.css](server/public/theme.css), [UiFactory.cs](unity-client/Assets/Scripts/UI/UiFactory.cs) |
+| 23 | Landscape on phones, icons, light/dark toggle, Material 3 | [theme.css](server/public/theme.css), [app_theme.dart](flutter-client/lib/theme/app_theme.dart) |
 | 24 | Two half-empty rooms merge; never mid-hand; "starting in N" countdown | [roomManager.js](server/src/game/roomManager.js) |
-| 25 | Leaving a table asks for confirmation first | [client.js](server/public/client.js), [GameUI.cs](unity-client/Assets/Scripts/UI/GameUI.cs) |
+| 25 | Leaving a table asks for confirmation first | [client.js](server/public/client.js), [main.dart](flutter-client/lib/main.dart) |
 | 26 | 4-hour bonus in the top-left corner, counting down in seconds | [client.js](server/public/client.js) |
 | 27 | Milestone reward in the bottom-right corner | [client.js](server/public/client.js) |
 | 28 | Square table cards with a looping diagonal sheen | [style.css](server/public/style.css) |
@@ -95,9 +104,13 @@ clock drift. Miss it and you are packed; play continues without you.
 two left. A round cap forces a showdown so a pot can never run forever. Exactly one player wins;
 an exact tie goes to the player who did *not* pay for the show.
 
-**Settlement.** Bets move in memory during a hand, then the whole hand settles in **one SQLite
-transaction** — chip deltas, the hand record, and the ledger row per player. That keeps database
-writes flat as table count grows, and every chip movement is auditable in `chip_ledger`.
+**Money.** Database-first. A bet is validated in memory, then written as **one PostgreSQL
+transaction** — the wallet row locked and debited, the pot credited, an append-only ledger row
+carrying the client's `actionId` (unique, so a retried request can never charge twice), and the
+table's versioned state — and only once that has committed does the table change what players see.
+A write that fails leaves the game untouched and refuses the move. Settlement pays the winner in the
+same shape. Every chip that ever moved is in `chip_ledger`, and `SUM(delta)` per player always
+equals their balance.
 
 **Showdown.** A show reveals every remaining hand to everyone at the table, with the winner and the
 amount written across the middle of the felt until the next deal. Seen tables also force a showdown
@@ -140,8 +153,8 @@ where walking away actually costs something: the stake stays in the pot.
 
 **Look and feel.** The interface follows **Material 3**: one tonal palette drives both schemes, with
 filled and tonal buttons, state layers, elevation and the M3 shape scale. A ☀️/🌙 icon switches
-light and dark, and the choice is remembered. Phones run the game in **landscape** — the Unity build
-disables portrait outright, and the browser client lays the table out for a wide screen and asks a
+light and dark, and the choice is remembered. Phones run the game in **landscape** — the Flutter app
+locks the orientation, and the browser client lays the table out for a wide screen and asks a
 portrait phone to turn.
 
 **Chat.** Per room, in server memory, capped at 100 messages. A player joining mid-session is sent
@@ -162,7 +175,7 @@ so it is a real privacy boundary rather than something the client politely decli
 and the pot stay public in both categories, because those are announced as they happen.
 
 Full protocol reference: [server/README.md](server/README.md).
-Unity setup, including Google/Facebook SDK wiring: [unity-client/README.md](unity-client/README.md).
+Everything a coding session needs to know, including the gotchas: [CLAUDE.md](CLAUDE.md).
 
 ## Measured performance
 
@@ -184,49 +197,33 @@ sharding caveat are in [server/README.md](server/README.md#scaling).
 
 ## Testing
 
-194 tests, all passing:
+`cd server && npm test` runs every suite with `node:test`. The unit suites drive the engine with a
+fake clock and an in-memory ledger; the process suites (`integration`, `socketProtocol`, `stakes`,
+`statsAndRewards`) start a real server against PostgreSQL, each in a throwaway schema it drops
+afterwards.
 
 | File | Covers |
 |---|---|
 | `handRank.test.js` | Hand ranking, every category, tie-breaks, shuffle integrity |
 | `table.test.js` | Seating, dealing, turn order, betting maths, timeouts, showdowns |
 | `settlement.test.js` | Chip conservation on every route a hand can take |
+| `chipPersistence.test.js` | Every boot and bet is banked as it happens; the winner is paid exactly the pot |
+| `blindRules.test.js` | Seeing out of turn, the blind-move cap and the auto-reveal |
+| `sideshow.test.js` | Who may ask, who may answer, ties, expiry, turn ownership |
+| `seatKeeping.test.js` | Three missed turns and an unfunded seat both lose the seat |
+| `lobbyRules.test.js` | Display names in every script; the entry cap and table switching |
 | `chat.test.js` | Buffer cap, sanitising, room scoping, history lifetime |
 | `raiseLadder.test.js` | The +/− ladder, its caps, amount validation, and the turn timeout |
 | `categories.test.js` | Blind/Seen chip visibility, per viewer, on and off the wire |
-| `stakes.test.js` | The lobby's fixed stakes and their validation |
+| `stakes.test.js` | The lobby menu (seen 200, blind 200, blind 5000) and its validation |
 | `statsAndRewards.test.js` | Play counters, both rewards, and avatar precedence |
 | `tableRules.test.js` | Pot payout when a table empties; seen-table betting limits |
 | `privateTables.test.js` | The fixed private boot, the win ceiling and the single double |
 | `consolidation.test.js` | Merging half-empty rooms, and never doing it mid-hand |
-| `integration.test.js` | Real sockets + real SQLite: auth, gameplay, room capacity, chat |
-| `socketProtocol.test.js` | The Unity client's Socket.IO framing, driven with real server frames |
+| `integration.test.js` | Real sockets + real PostgreSQL: auth, gameplay, room capacity, chat |
+| `socketProtocol.test.js` | The raw Socket.IO/Engine.IO framing, driven with real server frames |
 
-### Unity client — 36 tests
-
-Compiled and run with **Unity 6000.6.0f1**:
-
-```
-Compile         KingTeenPatti.dll — 0 errors, 0 warnings (WebGL transport included)
-PlayMode tests  36 passed, 0 failed
-Build           StandaloneLinux64 — Succeeded, 0 errors, 0 warnings
-```
-
-The PlayMode suite runs the real client code against a **live server**: guest login and the welcome
-grant, returning-account lookup, the Engine.IO handshake and auth packet, rejection of a bad token,
-two clients seated at one table playing a hand through to settlement (including the check that an
-opponent never receives your card faces), and room chat with backlog. Run it with:
-
-```bash
-cd server && npm start          # in one terminal
-# then, in Unity: Window > General > Test Runner > PlayMode > Run All
-```
-
-The tests skip themselves rather than fail when no server is running.
-
-`socketProtocol.test.js` on the server side ports the same C# parser to JavaScript so protocol
-regressions are caught by `npm test` alone, without needing a Unity install. **If you change the
-`Json` helper or packet dispatch in `SocketIOClient.cs`, update the port too** — both files say so.
+The Flutter client has `flutter analyze` and `flutter test` (money formatting).
 
 ## Security notes
 
@@ -247,13 +244,9 @@ regressions are caught by `npm test` alone, without needing a Unity install. **I
 
 ## Not included
 
-- **Google/Facebook native SDKs in Unity.** They are per-project native plugins that need your own
-  app ids, so `AuthService` exposes `GoogleSignIn` / `FacebookSignIn` hooks instead — wiring is
-  documented in the Unity README. Guest login works out of the box on every platform.
-- **Side show.** Not in the brief; the ruleset is *see, chaal, raise, pack, show*.
-- **Designed art.** The UI is built at runtime from code, so the client runs from a generated
-  scene with no prefab wiring; swapping in designed prefabs is a drop-in replacement in `GameUI`.
-- **Android / iOS / WebGL builds verified.** Only the Linux Standalone module is installed on this
-  machine, so those targets were not built. All three code paths compile (the WebGL transport was
-  type-checked explicitly), and `BuildScript` has ready entry points for each — but install the
-  platform modules and run a build before shipping.
+- **Google/Facebook native sign-in SDKs.** The server verifies both providers, but the Flutter app
+  does not bundle the native SDKs yet, so those buttons are disabled and guest login is the way in.
+- **An iOS build.** Only `flutter-client/android/` exists so far; the Dart code has nothing
+  platform-specific in it.
+- **Multi-process scaling.** Accounts are shared through PostgreSQL, but a table lives in one
+  process; see the sharding notes in [server/README.md](server/README.md#scaling).

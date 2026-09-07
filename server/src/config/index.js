@@ -42,10 +42,21 @@ const config = {
 
   allowFakeProviders: bool(process.env.AUTH_ALLOW_FAKE_PROVIDERS, false),
 
+  /**
+   * PostgreSQL. Every chip movement is a transaction here: the wallet row is
+   * locked, the pot and the append-only ledger are written, and the table's
+   * state is versioned — and only a committed transaction is allowed to change
+   * what players see.
+   */
   db: {
-    file: path.isAbsolute(process.env.DB_FILE ?? '')
-      ? process.env.DB_FILE
-      : path.resolve(rootDir, process.env.DB_FILE ?? './data/teenpatti.db'),
+    url: process.env.DATABASE_URL ?? 'postgres://postgres:postgres@localhost:5432/gameplay',
+    /**
+     * Schema the tables live in. Production uses `public`; each test suite
+     * points this at a throwaway schema of its own so suites cannot see each
+     * other's rows and can be dropped in one statement afterwards.
+     */
+    schema: process.env.PG_SCHEMA ?? 'public',
+    poolMax: num(process.env.PG_POOL_MAX, 10),
   },
 
   game: {
@@ -59,6 +70,24 @@ const config = {
     tableStakes: list(process.env.TABLE_STAKES ?? '200,5000')
       .map((entry) => Number.parseInt(entry, 10))
       .filter((entry) => Number.isInteger(entry) && entry > 0),
+    /**
+     * The tables the lobby actually offers, in the order they are shown.
+     *
+     * Not every stake at every category: the pairs are listed one by one,
+     * because the lobby is a short menu of rooms rather than a grid. Quick-join
+     * checks the pair against this, so a client cannot ask for a combination
+     * that is not on the menu — a seen table at 5,000, say.
+     *
+     * LOBBY_TABLES is "category:boot" pairs, comma separated. An empty list
+     * lifts the restriction back to "any allowed stake, either category",
+     * which is what the unit tests want.
+     */
+    lobbyTables: list(process.env.LOBBY_TABLES ?? 'seen:200,blind:200,blind:5000')
+      .map((entry) => {
+        const [category, boot] = entry.split(':');
+        return { category: category?.trim(), bootAmount: Number.parseInt(boot, 10) };
+      })
+      .filter((entry) => entry.category && Number.isInteger(entry.bootAmount)),
     maxPlayers: num(process.env.MAX_PLAYERS_PER_ROOM, 5),
     minPlayers: num(process.env.MIN_PLAYERS_TO_START, 2),
     turnTimeoutMs: num(process.env.TURN_TIMEOUT_MS, 25000),
@@ -77,6 +106,22 @@ const config = {
      */
     seenMaxRaiseSteps: num(process.env.SEEN_MAX_RAISE_STEPS, 2),
     seenMaxBetRounds: num(process.env.SEEN_MAX_BET_ROUNDS, 7),
+    /**
+     * The pot ceiling on a seen table. Everyone still in shows once no further
+     * bet fits under it, so a seen hand cannot run away. Blind tables have no
+     * ceiling — 0 means uncapped.
+     */
+    seenMaxPot: num(process.env.SEEN_MAX_POT, 1200000),
+    /**
+     * Blind tables (200 and 5000) play open-ended: the raise ladder keeps
+     * doubling until the player's own stack stops it, a single bet has no
+     * ceiling of its own, and the turn goes round for as long as the players
+     * keep it going — nothing but a pack, a show or a sideshow ends the hand.
+     * For each of these, 0 means "no limit".
+     */
+    blindMaxRaiseSteps: num(process.env.BLIND_MAX_RAISE_STEPS, 0),
+    blindMaxBetRounds: num(process.env.BLIND_MAX_BET_ROUNDS, 0),
+    blindPotLimitMultiplier: num(process.env.BLIND_POT_LIMIT_MULTIPLIER, 0),
     /**
      * How many bets a player may make while still blind. On the last one their
      * cards turn face up automatically, so nobody rides a whole hand blind.
@@ -129,7 +174,10 @@ const config = {
     /** How often idle single-player tables are merged together. */
     consolidateIntervalMs: num(process.env.CONSOLIDATE_INTERVAL_MS, 15000),
     /** Grace period a disconnected player keeps their seat before being removed. */
-    reconnectGraceMs: num(process.env.RECONNECT_GRACE_MS, 30000),
+    reconnectGraceMs: num(process.env.RECONNECT_GRACE_MS, 60000),
+    // After the seat itself has lapsed, how long the server still remembers
+    // which table a player fell off, so a reopened app can put them back.
+    resumeOfferMs: num(process.env.RESUME_OFFER_MS, 10 * 60 * 1000),
   },
 
   chat: {

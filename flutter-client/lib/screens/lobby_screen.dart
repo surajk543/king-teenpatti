@@ -1,10 +1,14 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../l10n/strings.dart';
 import '../models/dtos.dart';
 import '../state/game_state.dart';
+import '../theme/app_theme.dart';
 import '../widgets/avatar.dart';
+import '../widgets/buy_chips.dart';
 import '../widgets/poker_chip.dart';
 import '../widgets/premium_surface.dart';
 import '../widgets/rules_sheet.dart';
@@ -46,19 +50,34 @@ class _LobbyScreenState extends State<LobbyScreen> {
       body: SafeArea(
         child: Stack(
           children: [
+            // A few chips drifting slowly up behind everything: the room has a
+            // life of its own before the player touches anything.
+            const Positioned.fill(child: IgnorePointer(child: _DriftingChips())),
             Column(
               children: [
                 _TopBar(user: user, onOpen: _open),
                 Expanded(
-                  child: ListView(
+                  // The cards are square, so their height sets their width. On
+                  // a tablet the rail is tall enough that unbounded cards grow
+                  // to fill it, and two of them then take the whole screen —
+                  // so the rail is capped and centred instead.
+                  child: LayoutBuilder(
+                    builder: (context, box) => Center(
+                      child: SizedBox(
+                        height: math.min(box.maxHeight, 400),
+                        child: ListView(
                     scrollDirection: Axis.horizontal,
                     padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
                     children: [
-                      for (final category in state.config.categories)
-                        for (final boot in state.config.stakes)
-                          entering(_TableCard(category: category, boot: boot)),
+                      // The server decides which rooms exist and in what
+                      // order; this only draws the list it sent.
+                      for (final table in state.config.tables)
+                        entering(_TableCard(table: table)),
                       entering(const _PrivateCard()),
                     ],
+                        ),
+                      ),
+                    ),
                   ),
                 ),
               ],
@@ -66,7 +85,22 @@ class _LobbyScreenState extends State<LobbyScreen> {
             // Requirements 26 and 27: the two rewards sit in opposite corners of
             // the screen, so they are always reachable without hunting.
             const Positioned(top: 6, left: 12, child: _BonusChip()),
-            const Positioned(bottom: 12, right: 12, child: _MilestoneChip()),
+            // Both live in the bottom-right corner, stacked rather than in a
+            // row: side by side they would run off a narrow screen, and the
+            // rail of tables scrolls underneath them.
+            const Positioned(
+              bottom: 12,
+              right: 12,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _MilestoneChip(),
+                  SizedBox(height: 10),
+                  BuyChipsButton(),
+                ],
+              ),
+            ),
           ],
         ),
       ),
@@ -85,7 +119,15 @@ class _TopBar extends StatelessWidget {
     final state = context.watch<GameState>();
     final theme = Theme.of(context);
 
-    return Padding(
+    // The bonus chip floats over the top-left corner, so the bar starts clear
+    // of it. On a small phone in landscape what is left is barely enough for
+    // the balance and the buttons, so the name gives way first and the
+    // provider tag goes entirely — both are in the stats drawer anyway.
+    return LayoutBuilder(
+      builder: (context, box) {
+        final tight = box.maxWidth < 760;
+
+        return Padding(
       padding: const EdgeInsets.fromLTRB(240, 8, 12, 4),
       child: Row(
         children: [
@@ -113,10 +155,17 @@ class _TopBar extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 12),
-          Text(user?.displayName ?? '',
-              style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700)),
+          Flexible(
+            child: Text(
+              user?.displayName ?? '',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.titleLarge
+                  ?.copyWith(fontWeight: FontWeight.w700),
+            ),
+          ),
           const SizedBox(width: 10),
-          if (user != null)
+          if (user != null && !tight)
             Chip(
               label: Text(user!.provider.toUpperCase()),
               visualDensity: VisualDensity.compact,
@@ -142,21 +191,26 @@ class _TopBar extends StatelessWidget {
           ),
           IconButton(
             tooltip: state.t.yourRecord,
+            visualDensity: tight ? VisualDensity.compact : null,
             onPressed: () => onOpen(context, _EndPanel.stats),
             icon: const Icon(Icons.info_outline),
           ),
           IconButton(
             tooltip: state.t.settings,
+            visualDensity: tight ? VisualDensity.compact : null,
             onPressed: () => onOpen(context, _EndPanel.settings),
             icon: const Icon(Icons.settings_outlined),
           ),
           IconButton(
             tooltip: state.t.signOut,
+            visualDensity: tight ? VisualDensity.compact : null,
             onPressed: state.signOut,
             icon: const Icon(Icons.logout),
           ),
         ],
       ),
+        );
+      },
     );
   }
 }
@@ -187,10 +241,14 @@ class _Rail extends StatelessWidget {
 /// One boot table. Requirement 28: square, and lit by a sweep that runs corner
 /// to corner without stopping — the one piece of motion in the lobby.
 class _TableCard extends StatelessWidget {
-  const _TableCard({required this.category, required this.boot});
+  const _TableCard({required this.table});
 
-  final String category;
-  final int boot;
+  /// The room as the server described it — stake, category and the rules the
+  /// card states, all from the one source.
+  final LobbyTable table;
+
+  String get category => table.category;
+  int get boot => table.bootAmount;
 
   @override
   Widget build(BuildContext context) {
@@ -200,7 +258,10 @@ class _TableCard extends StatelessWidget {
     final state = context.watch<GameState>();
     final t = state.t;
     final blind = category == TableCategory.blind;
-    final accent = blind ? scheme.tertiary : scheme.secondary;
+    // Each table has a colour of its own — gold, sapphire, royal purple — and
+    // the room the card leads to is painted in the same one.
+    final palette = AppTheme.paletteFor(scheme, category: category, bootAmount: boot);
+    final accent = palette.accent;
 
     // Requirement 30: the cheapest blind table is for smaller stacks. The card
     // says so and refuses the tap, rather than letting the player find out from
@@ -218,46 +279,38 @@ class _TableCard extends StatelessWidget {
           child: PremiumSurface(
             accent: capped ? scheme.outlineVariant : accent,
             glint: !capped,
-            child: Builder(
-              builder: (context) {
+            tint: capped ? null : palette.tint * 0.8,
+            child: LayoutBuilder(
+              builder: (context, box) {
+              // The card is square, so its height follows the rail's, and on a
+              // small phone in landscape that is not much. Everything here is
+              // measured off it rather than fixed, so the card tightens instead
+              // of overflowing.
+              final compact = box.maxHeight < 330;
+              final pad = compact ? 13.0 : 20.0;
+              final gap = compact ? 7.0 : 12.0;
+
               return Padding(
-                  padding: const EdgeInsets.all(20),
+                  padding: EdgeInsets.all(pad),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Container(
-                        padding: const EdgeInsets.fromLTRB(10, 7, 16, 7),
-                        decoration: BoxDecoration(
-                          color: blind
-                              ? scheme.tertiaryContainer
-                              : scheme.secondaryContainer,
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            PokerChip(colour: accent, size: 22),
-                            const SizedBox(width: 8),
-                            Text(
-                              blind ? t.blind : t.seen,
-                              style: theme.textTheme.titleMedium?.copyWith(
-                                color: blind
-                                    ? scheme.onTertiaryContainer
-                                    : scheme.onSecondaryContainer,
-                                fontWeight: FontWeight.w900,
-                                letterSpacing: 1.4,
-                              ),
-                            ),
-                          ],
-                        ),
+                      _CategoryBadge(
+                        label: blind ? t.blind : t.seen,
+                        accent: accent,
+                        background: palette.container,
+                        foreground: palette.onContainer,
+                        // The two cards at the same stake sit side by side, so
+                        // their badges are offset rather than pulsing together.
+                        delay: Duration(milliseconds: blind ? 900 : 0),
                       ),
-                      const SizedBox(height: 12),
+                      SizedBox(height: gap),
                       // Counts up on first paint, so the stake lands rather
                       // than simply being there.
                       Row(
                         crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
-                          ChipStack(
+                          LivelyChipStack(
                             size: 26,
                             colours: [
                               scheme.primary,
@@ -290,12 +343,41 @@ class _TableCard extends StatelessWidget {
                       Text(t.boot,
                           style: theme.textTheme.bodySmall
                               ?.copyWith(color: scheme.onSurfaceVariant)),
-                      const SizedBox(height: 14),
+                      SizedBox(height: gap),
                       Text(
                         blind ? t.onlyYourChips : t.everyoneChips,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
                         style: theme.textTheme.bodyMedium
                             ?.copyWith(color: scheme.onSurface),
                       ),
+                      SizedBox(height: gap),
+
+                      // What the room actually plays like, stated before the
+                      // player sits down rather than discovered at the table.
+                      _CardFact(
+                        icon: Icons.visibility_off_rounded,
+                        accent: accent,
+                        label: t.maxBlindsLabel,
+                        value: '${table.maxBlindMoves}',
+                        compact: compact,
+                      ),
+                      SizedBox(height: compact ? 5 : 8),
+                      _CardFact(
+                        icon: Icons.savings_rounded,
+                        accent: accent,
+                        label: t.potLimitLabel,
+                        compact: compact,
+                        value: table.potUncapped
+                            ? t.potUnlimited
+                            : formatChips(table.maxPot),
+                        // An uncapped pot is the headline on a blind table, so
+                        // it is the one fact drawn in the table's own colour.
+                        highlight: table.potUncapped,
+                      ),
+
+                      // Takes up whatever is left over, and nothing when there
+                      // is nothing left over.
                       const Spacer(),
                       Row(
                         children: [
@@ -372,6 +454,214 @@ class _TableCard extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// One line of small print on a lobby card: an icon, what it is, and what it
+/// is set to.
+///
+/// The icon carries the meaning at a glance and the value is what the eye
+/// lands on, so the label between them is deliberately the quietest part.
+class _CardFact extends StatelessWidget {
+  const _CardFact({
+    required this.icon,
+    required this.accent,
+    required this.label,
+    required this.value,
+    this.highlight = false,
+    this.compact = false,
+  });
+
+  final IconData icon;
+  final Color accent;
+  final String label;
+  final String value;
+
+  /// Shrinks the badge for a card that has little height to spare.
+  final bool compact;
+
+  /// Draws the value in the table's own colour, for the fact worth noticing.
+  final bool highlight;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
+    return Row(
+      children: [
+        Container(
+          width: compact ? 21 : 26,
+          height: compact ? 21 : 26,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: accent.withValues(alpha: 0.14),
+            borderRadius: BorderRadius.circular(compact ? 7 : 9),
+          ),
+          child: Icon(icon, size: compact ? 13 : 15, color: accent),
+        ),
+        SizedBox(width: compact ? 7 : 9),
+        Expanded(
+          child: Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.bodySmall
+                ?.copyWith(color: scheme.onSurfaceVariant),
+          ),
+        ),
+        const SizedBox(width: 6),
+        Text(
+          value,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: theme.textTheme.labelLarge?.copyWith(
+            fontWeight: FontWeight.w800,
+            color: highlight ? accent : scheme.onSurface,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// The BLIND / SEEN badge on a lobby card.
+///
+/// Two things move: the chip turns over every few seconds, and a soft band of
+/// light crosses the label. The badge is what tells the two kinds of table
+/// apart at a glance, so it is the one part of the card worth drawing the eye
+/// to — everything else on the card stays still.
+class _CategoryBadge extends StatefulWidget {
+  const _CategoryBadge({
+    required this.label,
+    required this.accent,
+    required this.background,
+    required this.foreground,
+    this.delay = Duration.zero,
+  });
+
+  final String label;
+  final Color accent;
+  final Color background;
+  final Color foreground;
+
+  /// Offsets this badge against the others on screen, so a row of cards does
+  /// not pulse in unison — which reads as a glitch rather than a shine.
+  final Duration delay;
+
+  @override
+  State<_CategoryBadge> createState() => _CategoryBadgeState();
+}
+
+class _CategoryBadgeState extends State<_CategoryBadge>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _sheen = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 3800),
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    Future<void>.delayed(widget.delay, () {
+      if (mounted) _sheen.repeat();
+    });
+  }
+
+  @override
+  void dispose() {
+    _sheen.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return RepaintBoundary(
+      child: AnimatedBuilder(
+        animation: _sheen,
+        builder: (context, _) {
+          // One pass of light per cycle, over the first third of it; the rest
+          // of the cycle the badge simply sits there.
+          final pass = (_sheen.value * 3).clamp(0.0, 1.0);
+          // A glow that breathes with the same beat, so the badge lifts off
+          // the card as the light crosses it.
+          final glow = math.sin(pass * math.pi);
+
+          // The band crosses the whole badge rather than the letters alone.
+          // Lightening the glyphs themselves fades them instead of polishing
+          // them: they are dark type on a pale chip, so the light has to pass
+          // over them, not through them.
+          final centre = -0.3 + pass * 1.6;
+
+          return DecoratedBox(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(14),
+              boxShadow: [
+                BoxShadow(
+                  color: widget.accent.withValues(alpha: 0.34 * glow),
+                  blurRadius: 14 + 8 * glow,
+                  spreadRadius: 1,
+                ),
+              ],
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(14),
+              child: Stack(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.fromLTRB(10, 7, 16, 7),
+                    color: widget.background,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        SpinningChip(
+                          colour: widget.accent,
+                          size: 22,
+                          delay: widget.delay,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          widget.label,
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            color: widget.foreground,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 1.4,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Positioned.fill(
+                    child: IgnorePointer(
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: [
+                              Colors.white.withValues(alpha: 0),
+                              Colors.white.withValues(alpha: 0.45),
+                              Colors.white.withValues(alpha: 0),
+                            ],
+                            stops: [
+                              (centre - 0.22).clamp(0.0, 1.0),
+                              centre.clamp(0.0, 1.0),
+                              (centre + 0.22).clamp(0.0, 1.0),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
     );
   }
 }
@@ -693,6 +983,103 @@ class _StatsDrawer extends StatelessWidget {
 }
 
 /// Settings, in the same right-hand drawer as the record.
+/// The player's own balance written in one system, as a preview.
+///
+/// Their balance rather than a made-up figure: the point of the setting is how
+/// their own money will read, and a sample they recognise answers that at a
+/// glance.
+String _sampleIn(NumberSystem system, GameState state) {
+  final was = chipNumberSystem;
+  chipNumberSystem = system;
+  final text = formatChips(state.user?.chips ?? 1250000);
+  chipNumberSystem = was;
+  return text;
+}
+
+/// One choice of number format: an icon, its name, and what the player's own
+/// balance looks like under it.
+class _NumberOption extends StatelessWidget {
+  const _NumberOption({
+    required this.icon,
+    required this.label,
+    required this.sample,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final String sample;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final accent = selected ? scheme.primary : scheme.outlineVariant;
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOut,
+          padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+          decoration: BoxDecoration(
+            color: selected
+                ? scheme.primaryContainer.withValues(alpha: 0.55)
+                : scheme.surfaceContainerHigh,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: accent, width: selected ? 2 : 1),
+            boxShadow: selected
+                ? AppTheme.controlShadow(theme.brightness, elevation: 2)
+                : null,
+          ),
+          child: Row(
+            children: [
+              Icon(icon, size: 20, color: selected ? scheme.primary : scheme.onSurfaceVariant),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        fontWeight: selected ? FontWeight.w800 : FontWeight.w500,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      sample,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              AnimatedScale(
+                duration: const Duration(milliseconds: 220),
+                curve: Curves.easeOutBack,
+                scale: selected ? 1 : 0,
+                child: Icon(Icons.check_circle, size: 20, color: scheme.primary),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _SettingsDrawer extends StatefulWidget {
   const _SettingsDrawer();
 
@@ -827,6 +1214,47 @@ class _SettingsDrawerState extends State<_SettingsDrawer> {
                     ),
                 ],
                 onChanged: (l) => l == null ? null : state.setLanguage(l),
+              ),
+            ),
+            // Requirement 34: lakh and crore, or million and billion. Each
+            // option previews itself with the same figure, so the choice is
+            // made by looking rather than by knowing what the words mean.
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 10),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.tag,
+                          size: 18, color: theme.colorScheme.onSurfaceVariant),
+                      const SizedBox(width: 8),
+                      Text(
+                        t.numberSystem,
+                        style: theme.textTheme.labelLarge?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  for (final option in NumberSystem.values)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: _NumberOption(
+                        icon: option == NumberSystem.indian
+                            ? Icons.currency_rupee
+                            : Icons.public,
+                        label: option == NumberSystem.indian
+                            ? t.numberIndian
+                            : t.numberInternational,
+                        // The same stack written both ways.
+                        sample: _sampleIn(option, state),
+                        selected: state.numbers == option,
+                        onTap: () => state.setNumberSystem(option),
+                      ),
+                    ),
+                ],
               ),
             ),
             ListTile(
@@ -1060,6 +1488,95 @@ class _CornerChip extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+
+/// Faint poker chips rising through the lobby, each on its own slow path.
+///
+/// Seven chips, fixed paths, one ticker. They are drawn well behind the cards
+/// and at low opacity: the point is that the surface is alive, not that
+/// anything is happening on it.
+class _DriftingChips extends StatefulWidget {
+  const _DriftingChips();
+
+  @override
+  State<_DriftingChips> createState() => _DriftingChipsState();
+}
+
+class _DriftingChipsState extends State<_DriftingChips>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _clock = AnimationController(
+    vsync: this,
+    duration: const Duration(seconds: 28),
+  )..repeat();
+
+  // x as a fraction of the width, size in dp, speed in screens per cycle,
+  // phase offset, wobble amplitude in dp.
+  static const _paths = <(double, double, double, double, double)>[
+    (0.06, 34, 1.0, 0.00, 18),
+    (0.19, 22, 1.6, 0.35, 12),
+    (0.33, 46, 0.8, 0.70, 22),
+    (0.52, 26, 1.3, 0.15, 14),
+    (0.68, 38, 0.9, 0.55, 20),
+    (0.83, 20, 1.7, 0.85, 10),
+    (0.94, 30, 1.1, 0.40, 16),
+  ];
+
+  @override
+  void dispose() {
+    _clock.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final dark = scheme.brightness == Brightness.dark;
+    final colours = [
+      scheme.primary,
+      AppTheme.gold,
+      scheme.tertiary,
+      AppTheme.paletteFor(scheme, category: 'blind', bootAmount: 5000).accent,
+    ];
+
+    return LayoutBuilder(
+      builder: (context, box) => AnimatedBuilder(
+        animation: _clock,
+        builder: (context, _) {
+          final t = _clock.value;
+          return Stack(
+            clipBehavior: Clip.hardEdge,
+            children: [
+              for (var i = 0; i < _paths.length; i++)
+                () {
+                  final (fx, size, speed, phase, wobble) = _paths[i];
+                  // Rises from below the bottom edge to above the top, then
+                  // comes round again.
+                  final progress = (t * speed + phase) % 1.0;
+                  final y = box.maxHeight * (1.1 - 1.3 * progress);
+                  final x = fx * box.maxWidth +
+                      wobble * math.sin((t * 6.283 * speed) + i);
+                  return Positioned(
+                    left: x - size / 2,
+                    top: y - size / 2,
+                    child: Opacity(
+                      opacity: dark ? 0.16 : 0.11,
+                      child: Transform.rotate(
+                        angle: t * 6.283 * (i.isEven ? 1 : -1),
+                        child: PokerChip(
+                          colour: colours[i % colours.length],
+                          size: size,
+                        ),
+                      ),
+                    ),
+                  );
+                }(),
+            ],
+          );
+        },
       ),
     );
   }

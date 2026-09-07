@@ -5,17 +5,25 @@
  *            the next one.
  */
 import { io } from 'socket.io-client';
-import { getDatabase } from './src/db/index.js';
+import { openDatabase, closeDatabase, query } from './src/db/index.js';
 
 const BASE = 'http://localhost:3000';
-const db = getDatabase();
+await openDatabase();
 
 async function login(deviceId, displayName, chips) {
   const r = await fetch(`${BASE}/api/auth/login`, {
     method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ provider: 'guest', deviceId, displayName }),
   }).then((x) => x.json());
-  db.prepare('UPDATE users SET chips = ? WHERE id = ?').run(chips, r.user.id);
+  // A test fixture, not a payout: set the wallet and leave a ledger row that
+  // says so, so the account still reconciles.
+  const { rows } = await query('SELECT chips FROM users WHERE id = $1', [r.user.id]);
+  await query('UPDATE users SET chips = $1, updated_at = $2 WHERE id = $3', [chips, Date.now(), r.user.id]);
+  await query(
+    `INSERT INTO chip_ledger (user_id, hand_id, action_id, delta, balance, reason, created_at)
+     VALUES ($1, NULL, NULL, $2, $3, 'test_fixture', $4)`,
+    [r.user.id, chips - rows[0].chips, chips, Date.now()],
+  );
   // Log in again so the session carries the adjusted balance.
   return fetch(`${BASE}/api/auth/login`, {
     method: 'POST', headers: { 'content-type': 'application/json' },
@@ -43,3 +51,5 @@ const a = client(idler.token, 'Idler', { act: false });
 setTimeout(() => client(shorty.token, 'Shorty', { act: true }), 2000);
 
 setTimeout(() => process.exit(0), 150000);
+
+process.on('exit', () => { closeDatabase(); });

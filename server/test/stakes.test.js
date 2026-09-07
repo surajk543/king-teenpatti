@@ -1,32 +1,35 @@
 /**
- * The lobby's fixed stakes (requirement 13: tables of 200 and 5000).
+ * The lobby's menu: which rooms exist, and that nothing else can be joined.
  *
- * Quick-join is restricted to the configured stakes, so a client cannot spin up
- * a table at an arbitrary boot amount. This suite runs with the default list.
+ * Two restrictions stack. The stake must be one the lobby offers (requirement
+ * 13: 200 and 5000), and the stake and category together must be a room on the
+ * menu — 5,000 is offered and so is seen, but there is no seen table at 5,000.
+ * This suite runs with the defaults, because those defaults are what is under
+ * test.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
 
-const dbFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'teenpatti-stakes-')), 'stakes.db');
+// The config module snapshots the environment at import time, so everything
+// this suite needs has to be set before anything under src/ is loaded. The
+// suite gets a throwaway Postgres schema of its own, dropped again afterwards.
 process.env.NODE_ENV = 'test';
-process.env.DB_FILE = dbFile;
+process.env.PG_SCHEMA = `test_stakes_${Math.random().toString(36).slice(2, 8)}`;
 process.env.JWT_SECRET = 'stakes-test-secret';
 process.env.NEXT_HAND_DELAY_MS = '150';
-// Deliberately left at the default 200,5000 — that restriction is under test.
+// Deliberately left at the defaults — those restrictions are under test.
 delete process.env.TABLE_STAKES;
+delete process.env.LOBBY_TABLES;
 
 const { default: RoomManager } = await import('../src/game/roomManager.js');
 const { default: config } = await import('../src/config/index.js');
-const { closeDatabase, openDatabase } = await import('../src/db/index.js');
+const { openDatabase, dropSchema, closeDatabase } = await import('../src/db/index.js');
 
-openDatabase();
+await openDatabase();
 
-test.after(() => {
-  closeDatabase();
-  fs.rmSync(path.dirname(dbFile), { recursive: true, force: true });
+test.after(async () => {
+  await dropSchema();
+  await closeDatabase();
 });
 
 const player = (chips = 200000) => ({
@@ -42,23 +45,59 @@ test('the lobby offers exactly the 200 and 5000 stakes', () => {
   assert.deepEqual(RoomManager.lobbyOptions().categories, ['seen', 'blind']);
 });
 
-test('both offered stakes can be joined, in both categories', () => {
-  const rooms = new RoomManager();
-
-  for (const bootAmount of [200, 5000]) {
-    for (const category of ['seen', 'blind']) {
-      const table = rooms.quickJoin(player(), { bootAmount, category });
-      assert.equal(table.config.bootAmount, bootAmount);
-      assert.equal(table.category, category);
-    }
-  }
-
-  // Four distinct table types: 2 stakes x 2 categories.
-  assert.equal(rooms.listTables().length, 4);
-  rooms.shutdown();
+test('the menu is three rooms, in the order the lobby shows them', () => {
+  // Each carries the rules the lobby card states, so the card and the table it
+  // opens cannot drift apart. A zero ceiling means the pot is uncapped.
+  assert.deepEqual(RoomManager.lobbyOptions().tables, [
+    { category: 'seen', bootAmount: 200, maxPot: 1200000, maxBlindMoves: 4 },
+    { category: 'blind', bootAmount: 200, maxPot: 0, maxBlindMoves: 4 },
+    { category: 'blind', bootAmount: 5000, maxPot: 0, maxBlindMoves: 4 },
+  ]);
 });
 
-test('a stake the lobby does not offer is refused', () => {
+test('the ceiling a card advertises is the one the table is built with', async () => {
+  const rooms = new RoomManager();
+
+  for (const entry of RoomManager.lobbyOptions().tables) {
+    const table = rooms.quickJoin(player(), {
+      bootAmount: entry.bootAmount,
+      category: entry.category,
+    });
+    assert.equal(table.maxPot, entry.maxPot, `${entry.category} ${entry.bootAmount}`);
+    assert.equal(table.config.maxBlindMoves, entry.maxBlindMoves);
+  }
+
+  await rooms.shutdown();
+});
+
+test('every room on the menu can be joined', async () => {
+  const rooms = new RoomManager();
+
+  for (const { category, bootAmount } of RoomManager.lobbyOptions().tables) {
+    const table = rooms.quickJoin(player(), { bootAmount, category });
+    assert.equal(table.config.bootAmount, bootAmount);
+    assert.equal(table.category, category);
+  }
+
+  assert.equal(rooms.listTables().length, 3);
+  await rooms.shutdown();
+});
+
+test('a stake and category that is not a room on the menu is refused', async () => {
+  const rooms = new RoomManager();
+
+  // Both halves are offered on their own; the pair is not.
+  assert.throws(
+    () => rooms.quickJoin(player(), { bootAmount: 5000, category: 'seen' }),
+    (error) => error.code === 'table_not_offered',
+    'there is no seen table at 5,000',
+  );
+  assert.equal(rooms.listTables().length, 0, 'and no room was opened for it');
+
+  await rooms.shutdown();
+});
+
+test('a stake the lobby does not offer is refused', async () => {
   const rooms = new RoomManager();
 
   for (const bootAmount of [1, 100, 199, 4999, 10000]) {
@@ -69,10 +108,10 @@ test('a stake the lobby does not offer is refused', () => {
     );
   }
 
-  rooms.shutdown();
+  await rooms.shutdown();
 });
 
-test('a malformed stake is refused', () => {
+test('a malformed stake is refused', async () => {
   const rooms = new RoomManager();
 
   for (const bootAmount of [0, -200, 200.5, Number.NaN, 'lots', null]) {
@@ -83,14 +122,15 @@ test('a malformed stake is refused', () => {
     );
   }
 
-  rooms.shutdown();
+  await rooms.shutdown();
 });
 
-test('a player short of the stake cannot sit down', () => {
+test('a player short of the stake cannot sit down', async () => {
   const rooms = new RoomManager();
 
+  // The 5,000 room is a blind one; there is no seen table at that stake.
   assert.throws(
-    () => rooms.quickJoin(player(4999), { bootAmount: 5000 }),
+    () => rooms.quickJoin(player(4999), { bootAmount: 5000, category: 'blind' }),
     (error) => error.code === 'insufficient_chips',
   );
 
@@ -98,10 +138,10 @@ test('a player short of the stake cannot sit down', () => {
   const table = rooms.quickJoin(player(4999), { bootAmount: 200 });
   assert.equal(table.config.bootAmount, 200);
 
-  rooms.shutdown();
+  await rooms.shutdown();
 });
 
-test('players cluster onto the fullest matching table', () => {
+test('players cluster onto the fullest matching table', async () => {
   const rooms = new RoomManager();
 
   const first = rooms.quickJoin(player(), { bootAmount: 200, category: 'seen' });
@@ -112,5 +152,5 @@ test('players cluster onto the fullest matching table', () => {
   const other = rooms.quickJoin(player(), { bootAmount: 200, category: 'blind' });
   assert.notEqual(other.id, first.id);
 
-  rooms.shutdown();
+  await rooms.shutdown();
 });

@@ -11,19 +11,21 @@ import createFakeTimers from './helpers/fakeTimers.js';
 
 const START = 2000000;
 
-const makeRooms = () => new RoomManager({ timers: createFakeTimers().timers });
+// `settle` keeps the chips in memory: without it the room manager would reach
+// for the PostgreSQL ledger, and these are table-rule tests, not database ones.
+const makeRooms = () => new RoomManager({ timers: createFakeTimers().timers, settle: () => ({}) });
 
-const seatTwo = (table, chips = START) => {
+const seatTwo = async (table, chips = START) => {
   table.addPlayer({ userId: 'a', displayName: 'A', chips, socketId: '1' });
   table.addPlayer({ userId: 'b', displayName: 'B', chips, socketId: '2' });
-  table.startHand();
+  await table.startHand();
 };
 
 const turnUser = (table) => table.seats[table.hand.turnSeat].userId;
 
 // -------------------------------------------------------- fixed boot amount
 
-test('a private table always uses the fixed boot of 200 chips', () => {
+test('a private table always uses the fixed boot of 200 chips', async () => {
   const rooms = makeRooms();
 
   // Whatever is asked for is replaced: the boot is not a choice.
@@ -32,16 +34,16 @@ test('a private table always uses the fixed boot of 200 chips', () => {
     assert.equal(table.config.bootAmount, 200, `asking for ${asked} still gives 200`);
   }
 
-  rooms.shutdown();
+  await rooms.shutdown();
 });
 
-test('a public table still uses the stake it was created with', () => {
+test('a public table still uses the stake it was created with', async () => {
   const rooms = makeRooms();
 
   assert.equal(rooms.createTable({ bootAmount: 100, isPrivate: false }).config.bootAmount, 100);
   assert.equal(rooms.createTable({ bootAmount: 5000, isPrivate: false }).config.bootAmount, 5000);
 
-  rooms.shutdown();
+  await rooms.shutdown();
 });
 
 test('the lobby advertises the fixed boot and the maximum win', () => {
@@ -53,58 +55,74 @@ test('the lobby advertises the fixed boot and the maximum win', () => {
 
 // ------------------------------------------------- one double per turn
 
-test('a private table allows a single double per turn', () => {
+test('a private table allows a single double per turn', async () => {
   const rooms = makeRooms();
   const table = rooms.createTable({ bootAmount: 200, isPrivate: true, category: TABLE_CATEGORY.BLIND });
-  seatTwo(table);
+  await seatTwo(table);
 
   const player = table.seats[table.hand.turnSeat];
   const { steps } = table.betOptions(player);
 
   assert.deepEqual(steps, [200, 400], 'the chaal and one double, nothing further');
 
-  assert.throws(
-    () => table.act(player.userId, ACTION.RAISE, { amount: 800 }),
+  await assert.rejects(
+    table.act(player.userId, ACTION.RAISE, { amount: 800 }),
     (error) => error.code === 'invalid_bet',
     'a second double is not on the ladder',
   );
 
-  rooms.shutdown();
+  await rooms.shutdown();
 });
 
-test('a public blind table still keeps the full ladder', () => {
+test('a public blind table still keeps the full ladder', async () => {
   const rooms = makeRooms();
   const table = rooms.createTable({ bootAmount: 200, isPrivate: false, category: TABLE_CATEGORY.BLIND });
-  seatTwo(table);
+  await seatTwo(table);
 
   const steps = table.betOptions(table.seats[table.hand.turnSeat]).steps;
   assert.ok(steps.length > 2, 'public blind tables can keep doubling');
 
-  rooms.shutdown();
+  await rooms.shutdown();
 });
 
 // ------------------------------------------------------------ the pot cap
 
-test('a private table carries a pot ceiling; a public one does not', () => {
+test('every table but a public blind one carries a pot ceiling', async () => {
   const rooms = makeRooms();
 
+  // A private table's own ceiling wins whichever category it is.
   assert.equal(rooms.createTable({ bootAmount: 200, isPrivate: true }).maxPot, 500000);
-  assert.equal(rooms.createTable({ bootAmount: 200, isPrivate: false }).maxPot, 0, 'uncapped');
+  assert.equal(
+    rooms.createTable({ bootAmount: 200, isPrivate: true, category: 'blind' }).maxPot,
+    500000,
+  );
 
-  rooms.shutdown();
+  // A public seen table is capped so a seen hand cannot run away...
+  assert.equal(
+    rooms.createTable({ bootAmount: 200, isPrivate: false, category: 'seen' }).maxPot,
+    1200000,
+  );
+  // ...and a public blind one is not.
+  assert.equal(
+    rooms.createTable({ bootAmount: 200, isPrivate: false, category: 'blind' }).maxPot,
+    0,
+    'uncapped',
+  );
+
+  await rooms.shutdown();
 });
 
-test('the ceiling is reported to clients in the table snapshot', () => {
+test('the ceiling is reported to clients in the table snapshot', async () => {
   const rooms = makeRooms();
   const table = rooms.createTable({ bootAmount: 200, isPrivate: true });
-  seatTwo(table);
+  await seatTwo(table);
 
   assert.equal(table.serializeFor('a').maxPot, 500000);
 
-  rooms.shutdown();
+  await rooms.shutdown();
 });
 
-test('a bet that would push the pot past the ceiling is not offered', () => {
+test('a bet that would push the pot past the ceiling is not offered', async () => {
   const { timers } = createFakeTimers();
   const table = new Table({
     id: 'cap', code: 'CAP001',
@@ -117,7 +135,7 @@ test('a bet that would push the pot past the ceiling is not offered', () => {
     settle: () => ({}),
   });
 
-  seatTwo(table);
+  await seatTwo(table);
 
   // Pot is 400 after the boots; headroom is 4,600.
   table.hand.pot = 4000;
@@ -129,7 +147,7 @@ test('a bet that would push the pot past the ceiling is not offered', () => {
   assert.deepEqual(steps, [200, 400, 800], '1600 would overshoot, so it is withheld');
 });
 
-test('reaching the ceiling ends the hand in a showdown', () => {
+test('reaching the ceiling ends the hand in a showdown', async () => {
   const { timers } = createFakeTimers();
   const settled = [];
   const table = new Table({
@@ -151,7 +169,7 @@ test('reaching the ceiling ends the hand in a showdown', () => {
   table.on('handEnded', (payload) => ended.push(payload));
   table.on('showdown', (payload) => showdowns.push(payload));
 
-  seatTwo(table);
+  await seatTwo(table);
 
   // Both players keep betting; only the pot cap can stop this.
   for (let i = 0; i < 200 && table.hand; i += 1) {
@@ -159,7 +177,7 @@ test('reaching the ceiling ends the hand in a showdown', () => {
     const { max } = table.betOptions(player);
     if (!max) break;
     const steps = table.betOptions(player).steps;
-    table.act(player.userId, steps.length > 1 ? ACTION.RAISE : ACTION.CHAAL, { amount: max });
+    await table.act(player.userId, steps.length > 1 ? ACTION.RAISE : ACTION.CHAAL, { amount: max });
   }
 
   assert.equal(table.hand, null, 'the hand ended on its own');
@@ -175,15 +193,19 @@ test('reaching the ceiling ends the hand in a showdown', () => {
   );
 });
 
-test('an uncapped table is unaffected by the ceiling logic', () => {
+test('an uncapped table is unaffected by the ceiling logic', async () => {
   const rooms = makeRooms();
   const table = rooms.createTable({ bootAmount: 200, isPrivate: false, category: TABLE_CATEGORY.BLIND });
-  seatTwo(table);
+  await seatTwo(table);
 
-  // With no cap the pot has unlimited headroom, so the ladder is only bounded
-  // by the pot limit multiplier and the player's stack.
-  const steps = table.betOptions(table.seats[table.hand.turnSeat]).steps;
-  assert.equal(steps.length, 8, 'the full ladder is offered');
+  // With no cap the pot has unlimited headroom — and a public blind table has
+  // neither a rung limit nor a per-bet ceiling, so only the player's own stack
+  // bounds the ladder.
+  const seat = table.seats[table.hand.turnSeat];
+  const { steps, max } = table.betOptions(seat);
+  assert.ok(steps.length > 8, `runs past the eight rungs of a capped ladder (${steps.length})`);
+  assert.ok(max <= seat.chips, 'but never past what the player holds');
+  assert.ok(max * 2 > seat.chips, 'and stops only where the next double would not fit');
 
-  rooms.shutdown();
+  await rooms.shutdown();
 });

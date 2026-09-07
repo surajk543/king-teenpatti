@@ -1,4 +1,5 @@
-import { getDatabase } from './index.js';
+import { query, withTransaction } from './index.js';
+import { settle as settleLedger } from './ledger.js';
 import { uuid } from '../util/ids.js';
 import config from '../config/index.js';
 
@@ -58,16 +59,22 @@ const publicUser = (row) => {
   };
 };
 
-export function findById(id) {
-  const row = getDatabase().prepare('SELECT * FROM users WHERE id = ?').get(id);
-  return publicUser(row);
+const selectUser = async (client, id) => {
+  const { rows } = await client.query('SELECT * FROM users WHERE id = $1', [id]);
+  return rows[0] ?? null;
+};
+
+export async function findById(id) {
+  const { rows } = await query('SELECT * FROM users WHERE id = $1', [id]);
+  return publicUser(rows[0]);
 }
 
-export function findByProvider(provider, providerUserId) {
-  const row = getDatabase()
-    .prepare('SELECT * FROM users WHERE provider = ? AND provider_user_id = ?')
-    .get(provider, providerUserId);
-  return publicUser(row);
+export async function findByProvider(provider, providerUserId) {
+  const { rows } = await query(
+    'SELECT * FROM users WHERE provider = $1 AND provider_user_id = $2',
+    [provider, providerUserId],
+  );
+  return publicUser(rows[0]);
 }
 
 /**
@@ -77,184 +84,115 @@ export function findByProvider(provider, providerUserId) {
  * The insert and the welcome-grant ledger row go in one transaction so a crash
  * can never leave an account whose balance is not backed by the ledger.
  */
-export function upsertFromProfile(profile) {
-  const db = getDatabase();
+export async function upsertFromProfile(profile) {
   const timestamp = now();
 
-  const run = db.transaction(() => {
-    const existing = db
-      .prepare('SELECT * FROM users WHERE provider = ? AND provider_user_id = ?')
-      .get(profile.provider, profile.providerUserId);
+  return withTransaction(async (client) => {
+    const { rows } = await client.query(
+      'SELECT * FROM users WHERE provider = $1 AND provider_user_id = $2 FOR UPDATE',
+      [profile.provider, profile.providerUserId],
+    );
+    const existing = rows[0];
 
     if (existing) {
-      db.prepare(
+      await client.query(
         `UPDATE users
-            SET display_name  = ?,
-                email         = COALESCE(?, email),
-                avatar_url    = COALESCE(?, avatar_url),
-                updated_at    = ?,
-                last_login_at = ?
-          WHERE id = ?`,
-      ).run(
-        profile.displayName || existing.display_name,
-        profile.email ?? null,
-        profile.avatarUrl ?? null,
-        timestamp,
-        timestamp,
-        existing.id,
+            SET display_name  = $1,
+                email         = COALESCE($2, email),
+                avatar_url    = COALESCE($3, avatar_url),
+                updated_at    = $4,
+                last_login_at = $4
+          WHERE id = $5`,
+        [
+          profile.displayName || existing.display_name,
+          profile.email ?? null,
+          profile.avatarUrl ?? null,
+          timestamp,
+          existing.id,
+        ],
       );
-      const row = db.prepare('SELECT * FROM users WHERE id = ?').get(existing.id);
-      return { user: publicUser(row), isNew: false };
+      return { user: publicUser(await selectUser(client, existing.id)), isNew: false };
     }
 
     const id = uuid();
     const chips = config.game.welcomeChips;
 
-    db.prepare(
+    await client.query(
       `INSERT INTO users (id, provider, provider_user_id, display_name, email, avatar_url,
                           chips, created_at, updated_at, last_login_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).run(
-      id,
-      profile.provider,
-      profile.providerUserId,
-      profile.displayName,
-      profile.email ?? null,
-      profile.avatarUrl ?? null,
-      chips,
-      timestamp,
-      timestamp,
-      timestamp,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8, $8)`,
+      [
+        id,
+        profile.provider,
+        profile.providerUserId,
+        profile.displayName,
+        profile.email ?? null,
+        profile.avatarUrl ?? null,
+        chips,
+        timestamp,
+      ],
     );
 
-    db.prepare(
-      `INSERT INTO chip_ledger (user_id, hand_id, delta, balance, reason, created_at)
-       VALUES (?, NULL, ?, ?, 'welcome_bonus', ?)`,
-    ).run(id, chips, chips, timestamp);
+    await client.query(
+      `INSERT INTO chip_ledger (user_id, hand_id, action_id, delta, balance, reason, created_at)
+       VALUES ($1, NULL, NULL, $2, $2, 'welcome_bonus', $3)`,
+      [id, chips, timestamp],
+    );
 
-    const row = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
-    return { user: publicUser(row), isNew: true };
+    return { user: publicUser(await selectUser(client, id)), isNew: true };
   });
-
-  return run();
 }
 
 /**
- * Applies a chip delta and appends the matching ledger row atomically.
- * Throws when the delta would drive the balance negative, which is the last
- * line of defence behind the in-memory table's own affordability checks.
+ * Applies a chip delta and appends the matching ledger row atomically, with
+ * the wallet row locked for the duration. Throws when the delta would drive
+ * the balance negative.
+ *
+ * Gameplay does not use this — bets go through ledger.js so the pot and the
+ * table state travel in the same transaction. It remains for grants, tooling
+ * and corrections.
  */
-export function applyChipDelta({ userId, delta, reason, handId = null }) {
-  const db = getDatabase();
+export async function applyChipDelta({ userId, delta, reason, handId = null, actionId = null }) {
+  return withTransaction(async (client) => {
+    const { rows } = await client.query('SELECT chips FROM users WHERE id = $1 FOR UPDATE', [userId]);
+    if (rows.length === 0) throw new Error(`unknown user ${userId}`);
 
-  const run = db.transaction(() => {
-    const row = db.prepare('SELECT chips FROM users WHERE id = ?').get(userId);
-    if (!row) throw new Error(`unknown user ${userId}`);
-
-    const balance = row.chips + delta;
+    const balance = rows[0].chips + delta;
     if (balance < 0) throw new Error(`insufficient chips for ${userId}`);
 
     const timestamp = now();
-    db.prepare('UPDATE users SET chips = ?, updated_at = ? WHERE id = ?').run(balance, timestamp, userId);
-    db.prepare(
-      `INSERT INTO chip_ledger (user_id, hand_id, delta, balance, reason, created_at)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-    ).run(userId, handId, delta, balance, reason, timestamp);
+    await client.query('UPDATE users SET chips = $1, updated_at = $2 WHERE id = $3', [balance, timestamp, userId]);
+    await client.query(
+      `INSERT INTO chip_ledger (user_id, hand_id, action_id, delta, balance, reason, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [userId, handId, actionId, delta, balance, reason, timestamp],
+    );
 
     return balance;
   });
-
-  return run();
 }
 
 /**
- * Settles a whole hand in one transaction: net chip movement per seat, the
- * hand record, and the play/win counters. `entries` is
- * `[{ userId, delta, isWinner }]` where deltas already net out the pot.
+ * Settles a whole hand: hand record, payouts, counters, pot closing, state.
+ * The work lives in ledger.js; this name is kept for callers and tests that
+ * know the settlement by it.
  */
-export function settleHand({ hand, entries }) {
-  const db = getDatabase();
-
-  const run = db.transaction(() => {
-    db.prepare(
-      `INSERT INTO hands (id, room_id, hand_no, pot, winner_id, win_reason,
-                          boot_amount, started_at, ended_at, summary_json)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).run(
-      hand.id,
-      hand.roomId,
-      hand.handNo,
-      hand.pot,
-      hand.winnerId ?? null,
-      hand.winReason ?? null,
-      hand.bootAmount,
-      hand.startedAt,
-      hand.endedAt,
-      JSON.stringify(hand.summary),
-    );
-
-    const balances = {};
-    const timestamp = Date.now();
-
-    for (const entry of entries) {
-      const row = db.prepare('SELECT chips FROM users WHERE id = ?').get(entry.userId);
-      if (!row) continue;
-
-      const balance = Math.max(0, row.chips + entry.delta);
-
-      // "Played" means the player committed chips beyond the boot — posting the
-      // ante and folding straight away is not a hand played.
-      const played = entry.didChaal ? 1 : 0;
-      const left = entry.leftMidHand ? 1 : 0;
-      const lost = !entry.isWinner && !entry.leftMidHand ? 1 : 0;
-
-      db.prepare(
-        `UPDATE users
-            SET chips          = ?,
-                hands_played   = hands_played + ?,
-                hands_won      = hands_won + ?,
-                hands_lost     = hands_lost + ?,
-                hands_left_mid = hands_left_mid + ?,
-                total_winnings = total_winnings + ?,
-                biggest_pot    = MAX(biggest_pot, ?),
-                updated_at     = ?
-          WHERE id = ?`,
-      ).run(
-        balance,
-        played,
-        entry.isWinner ? 1 : 0,
-        lost,
-        left,
-        entry.isWinner ? hand.pot : 0,
-        entry.isWinner ? hand.pot : 0,
-        timestamp,
-        entry.userId,
-      );
-
-      db.prepare(
-        `INSERT INTO chip_ledger (user_id, hand_id, delta, balance, reason, created_at)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-      ).run(entry.userId, hand.id, entry.delta, balance, entry.isWinner ? 'hand_win' : 'hand_loss', timestamp);
-
-      balances[entry.userId] = balance;
-    }
-
-    return balances;
-  });
-
-  return run();
+export function settleHand(args) {
+  return settleLedger(args);
 }
 
-export function recentHands(userId, limit = 20) {
-  return getDatabase()
-    .prepare(
-      `SELECT h.* FROM hands h
-         JOIN chip_ledger l ON l.hand_id = h.id
-        WHERE l.user_id = ?
-        ORDER BY h.ended_at DESC
-        LIMIT ?`,
-    )
-    .all(userId, limit)
+export async function recentHands(userId, limit = 20) {
+  const { rows } = await query(
+    `SELECT DISTINCT ON (h.id) h.*
+       FROM hands h
+       JOIN chip_ledger l ON l.hand_id = h.id
+      WHERE l.user_id = $1
+      ORDER BY h.id, h.ended_at DESC`,
+    [userId],
+  );
+  return rows
+    .sort((a, b) => b.ended_at - a.ended_at)
+    .slice(0, limit)
     .map((row) => ({
       id: row.id,
       roomId: row.room_id,
@@ -263,7 +201,7 @@ export function recentHands(userId, limit = 20) {
       winnerId: row.winner_id,
       winReason: row.win_reason,
       endedAt: row.ended_at,
-      summary: JSON.parse(row.summary_json),
+      summary: typeof row.summary_json === 'string' ? JSON.parse(row.summary_json) : row.summary_json,
     }));
 }
 
@@ -271,13 +209,13 @@ export function recentHands(userId, limit = 20) {
  * Collects the reward for reaching a multiple of 25 hands played.
  *
  * The milestone already collected is recorded, so the same milestone can never
- * pay out twice however often the endpoint is called.
+ * pay out twice however often the endpoint is called — the row is locked while
+ * that is checked and written.
  */
-export function claimMilestoneReward(userId) {
-  const db = getDatabase();
-
-  const run = db.transaction(() => {
-    const row = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
+export async function claimMilestoneReward(userId) {
+  return withTransaction(async (client) => {
+    const { rows } = await client.query('SELECT * FROM users WHERE id = $1 FOR UPDATE', [userId]);
+    const row = rows[0];
     if (!row) throw new Error(`unknown user ${userId}`);
 
     const milestone = milestoneFor(row.hands_played);
@@ -288,19 +226,23 @@ export function claimMilestoneReward(userId) {
     const timestamp = now();
     const balance = row.chips + MILESTONE_REWARD;
 
-    db.prepare('UPDATE users SET chips = ?, milestone_claimed = ?, updated_at = ? WHERE id = ?')
-      .run(balance, milestone, timestamp, userId);
+    await client.query(
+      'UPDATE users SET chips = $1, milestone_claimed = $2, updated_at = $3 WHERE id = $4',
+      [balance, milestone, timestamp, userId],
+    );
+    await client.query(
+      `INSERT INTO chip_ledger (user_id, hand_id, action_id, delta, balance, reason, created_at)
+       VALUES ($1, NULL, $2, $3, $4, 'milestone_reward', $5)`,
+      [userId, `${userId}:milestone:${milestone}`, MILESTONE_REWARD, balance, timestamp],
+    );
 
-    db.prepare(
-      `INSERT INTO chip_ledger (user_id, hand_id, delta, balance, reason, created_at)
-       VALUES (?, NULL, ?, ?, 'milestone_reward', ?)`,
-    ).run(userId, MILESTONE_REWARD, balance, timestamp);
-
-    const updated = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
-    return { claimed: true, amount: MILESTONE_REWARD, milestone, user: publicUser(updated) };
+    return {
+      claimed: true,
+      amount: MILESTONE_REWARD,
+      milestone,
+      user: publicUser(await selectUser(client, userId)),
+    };
   });
-
-  return run();
 }
 
 /**
@@ -309,11 +251,10 @@ export function claimMilestoneReward(userId) {
  * The next unlock time lives in the database, so the countdown survives a
  * restart and cannot be reset by reinstalling the client.
  */
-export function claimTimedBonus(userId) {
-  const db = getDatabase();
-
-  const run = db.transaction(() => {
-    const row = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
+export async function claimTimedBonus(userId) {
+  return withTransaction(async (client) => {
+    const { rows } = await client.query('SELECT * FROM users WHERE id = $1 FOR UPDATE', [userId]);
+    const row = rows[0];
     if (!row) throw new Error(`unknown user ${userId}`);
 
     const timestamp = now();
@@ -329,22 +270,25 @@ export function claimTimedBonus(userId) {
     const balance = row.chips + TIMED_BONUS_REWARD;
     const readyAt = timestamp + TIMED_BONUS_INTERVAL_MS;
 
-    db.prepare('UPDATE users SET chips = ?, next_bonus_at = ?, updated_at = ? WHERE id = ?')
-      .run(balance, readyAt, timestamp, userId);
+    await client.query(
+      'UPDATE users SET chips = $1, next_bonus_at = $2, updated_at = $3 WHERE id = $4',
+      [balance, readyAt, timestamp, userId],
+    );
+    await client.query(
+      `INSERT INTO chip_ledger (user_id, hand_id, action_id, delta, balance, reason, created_at)
+       VALUES ($1, NULL, NULL, $2, $3, 'timed_bonus', $4)`,
+      [userId, TIMED_BONUS_REWARD, balance, timestamp],
+    );
 
-    db.prepare(
-      `INSERT INTO chip_ledger (user_id, hand_id, delta, balance, reason, created_at)
-       VALUES (?, NULL, ?, ?, 'timed_bonus', ?)`,
-    ).run(userId, TIMED_BONUS_REWARD, balance, timestamp);
-
-    const updated = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
-    return { claimed: true, amount: TIMED_BONUS_REWARD, readyAt, user: publicUser(updated) };
+    return {
+      claimed: true,
+      amount: TIMED_BONUS_REWARD,
+      readyAt,
+      user: publicUser(await selectUser(client, userId)),
+    };
   });
-
-  return run();
 }
 
-/** Sets the picture a player chose from the bundled profiles folder. */
 /**
  * Requirement 29: what a display name may be.
  *
@@ -375,17 +319,14 @@ export function normalizeDisplayName(raw, { maxLength = 24 } = {}) {
   return trimmed;
 }
 
-export function setDisplayName(userId, displayName) {
-  getDatabase()
-    .prepare('UPDATE users SET display_name = ?, updated_at = ? WHERE id = ?')
-    .run(displayName, now(), userId);
+export async function setDisplayName(userId, displayName) {
+  await query('UPDATE users SET display_name = $1, updated_at = $2 WHERE id = $3', [displayName, now(), userId]);
   return findById(userId);
 }
 
-export function setAvatarChoice(userId, avatarChoice) {
-  getDatabase()
-    .prepare('UPDATE users SET avatar_choice = ?, updated_at = ? WHERE id = ?')
-    .run(avatarChoice, now(), userId);
+/** Sets the picture a player chose from the bundled profiles folder. */
+export async function setAvatarChoice(userId, avatarChoice) {
+  await query('UPDATE users SET avatar_choice = $1, updated_at = $2 WHERE id = $3', [avatarChoice, now(), userId]);
   return findById(userId);
 }
 

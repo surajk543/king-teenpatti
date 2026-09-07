@@ -7,33 +7,33 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
 
-const dbFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'teenpatti-stats-')), 'stats.db');
+// The config module snapshots the environment at import time, so the schema
+// this suite writes to has to be named before anything under src/ is loaded.
+// It is a throwaway Postgres schema of the suite's own, dropped in test.after.
 process.env.NODE_ENV = 'test';
-process.env.DB_FILE = dbFile;
+process.env.PG_SCHEMA = `test_stats_${Math.random().toString(36).slice(2, 8)}`;
 process.env.JWT_SECRET = 'stats-test-secret';
 
 const users = await import('../src/db/users.js');
-const { openDatabase, closeDatabase, getDatabase } = await import('../src/db/index.js');
+const { openDatabase, dropSchema, closeDatabase, query } = await import('../src/db/index.js');
 
-openDatabase();
+await openDatabase();
 
-test.after(() => {
-  closeDatabase();
-  fs.rmSync(path.dirname(dbFile), { recursive: true, force: true });
+test.after(async () => {
+  await dropSchema();
+  await closeDatabase();
 });
 
 let seq = 0;
-const makeUser = (name = 'Player') => {
+const makeUser = async (name = 'Player') => {
   seq += 1;
-  return users.upsertFromProfile({
+  const { user } = await users.upsertFromProfile({
     provider: 'guest',
     providerUserId: `stats-${seq}-${Math.random().toString(36).slice(2)}`,
     displayName: name,
-  }).user;
+  });
+  return user;
 };
 
 /** Settles one synthetic hand so the counters move. */
@@ -54,13 +54,20 @@ const settle = (entries, pot) =>
     entries,
   });
 
+/**
+ * Reaches past the API to put a career's worth of hands on the counter, so the
+ * milestone tests do not have to settle 25 hands apiece.
+ */
+const setHandsPlayed = (userId, handsPlayed) =>
+  query('UPDATE users SET hands_played = $1 WHERE id = $2', [handsPlayed, userId]);
+
 // -------------------------------------------------------------- statistics
 
-test('a hand only counts as played once the player bets beyond the boot', () => {
-  const better = makeUser('Better');
-  const folder = makeUser('Folder');
+test('a hand only counts as played once the player bets beyond the boot', async () => {
+  const better = await makeUser('Better');
+  const folder = await makeUser('Folder');
 
-  settle(
+  await settle(
     [
       { userId: better.id, delta: 400, isWinner: true, didChaal: true, leftMidHand: false },
       // Posted the boot, then packed without ever betting.
@@ -69,16 +76,16 @@ test('a hand only counts as played once the player bets beyond the boot', () => 
     600,
   );
 
-  assert.equal(users.findById(better.id).handsPlayed, 1, 'the player who bet has played a hand');
-  assert.equal(users.findById(folder.id).handsPlayed, 0, 'posting the boot alone is not playing');
+  assert.equal((await users.findById(better.id)).handsPlayed, 1, 'the player who bet has played a hand');
+  assert.equal((await users.findById(folder.id)).handsPlayed, 0, 'posting the boot alone is not playing');
 });
 
-test('wins, losses and abandoned hands are counted separately', () => {
-  const winner = makeUser('W');
-  const loser = makeUser('L');
-  const quitter = makeUser('Q');
+test('wins, losses and abandoned hands are counted separately', async () => {
+  const winner = await makeUser('W');
+  const loser = await makeUser('L');
+  const quitter = await makeUser('Q');
 
-  settle(
+  await settle(
     [
       { userId: winner.id, delta: 800, isWinner: true, didChaal: true, leftMidHand: false },
       { userId: loser.id, delta: -400, isWinner: false, didChaal: true, leftMidHand: false },
@@ -87,9 +94,9 @@ test('wins, losses and abandoned hands are counted separately', () => {
     1600,
   );
 
-  const w = users.findById(winner.id);
-  const l = users.findById(loser.id);
-  const q = users.findById(quitter.id);
+  const w = await users.findById(winner.id);
+  const l = await users.findById(loser.id);
+  const q = await users.findById(quitter.id);
 
   assert.equal(w.handsWon, 1);
   assert.equal(w.handsLost, 0);
@@ -104,13 +111,13 @@ test('wins, losses and abandoned hands are counted separately', () => {
   assert.equal(q.handsPlayed, 1, 'they had bet, so the hand still counts as played');
 });
 
-test('total winnings accumulate the pots taken', () => {
-  const player = makeUser('Rich');
+test('total winnings accumulate the pots taken', async () => {
+  const player = await makeUser('Rich');
 
-  settle([{ userId: player.id, delta: 500, isWinner: true, didChaal: true, leftMidHand: false }], 1000);
-  settle([{ userId: player.id, delta: 900, isWinner: true, didChaal: true, leftMidHand: false }], 2500);
+  await settle([{ userId: player.id, delta: 500, isWinner: true, didChaal: true, leftMidHand: false }], 1000);
+  await settle([{ userId: player.id, delta: 900, isWinner: true, didChaal: true, leftMidHand: false }], 2500);
 
-  const row = users.findById(player.id);
+  const row = await users.findById(player.id);
   assert.equal(row.totalWinnings, 3500, 'the two pots are summed');
   assert.equal(row.biggestPot, 2500);
   assert.equal(row.handsWon, 2);
@@ -118,31 +125,31 @@ test('total winnings accumulate the pots taken', () => {
 
 // ------------------------------------------------- milestone reward (req 17)
 
-test('the milestone reward unlocks every 25 played hands', () => {
-  const player = makeUser('Grinder');
-  const db = getDatabase();
+test('the milestone reward unlocks every 25 played hands', async () => {
+  const player = await makeUser('Grinder');
 
-  assert.equal(users.findById(player.id).rewards.milestoneAvailable, false, 'nothing at zero hands');
-  assert.equal(users.findById(player.id).rewards.handsToNextMilestone, 25);
+  const fresh = await users.findById(player.id);
+  assert.equal(fresh.rewards.milestoneAvailable, false, 'nothing at zero hands');
+  assert.equal(fresh.rewards.handsToNextMilestone, 25);
 
-  db.prepare('UPDATE users SET hands_played = 24 WHERE id = ?').run(player.id);
-  assert.equal(users.findById(player.id).rewards.milestoneAvailable, false, 'not yet at 24');
-  assert.equal(users.findById(player.id).rewards.handsToNextMilestone, 1);
+  await setHandsPlayed(player.id, 24);
+  const nearly = await users.findById(player.id);
+  assert.equal(nearly.rewards.milestoneAvailable, false, 'not yet at 24');
+  assert.equal(nearly.rewards.handsToNextMilestone, 1);
 
-  db.prepare('UPDATE users SET hands_played = 25 WHERE id = ?').run(player.id);
-  const ready = users.findById(player.id);
+  await setHandsPlayed(player.id, 25);
+  const ready = await users.findById(player.id);
   assert.equal(ready.rewards.milestoneAvailable, true, 'available at 25');
   assert.equal(ready.rewards.milestoneAt, 25);
   assert.equal(ready.rewards.milestoneReward, 25000);
 });
 
-test('collecting the milestone reward grants 25,000 chips exactly once', () => {
-  const player = makeUser('Collector');
-  const db = getDatabase();
-  db.prepare('UPDATE users SET hands_played = 50 WHERE id = ?').run(player.id);
+test('collecting the milestone reward grants 25,000 chips exactly once', async () => {
+  const player = await makeUser('Collector');
+  await setHandsPlayed(player.id, 50);
 
-  const before = users.findById(player.id).chips;
-  const first = users.claimMilestoneReward(player.id);
+  const before = (await users.findById(player.id)).chips;
+  const first = await users.claimMilestoneReward(player.id);
 
   assert.equal(first.claimed, true);
   assert.equal(first.amount, 25000);
@@ -150,36 +157,40 @@ test('collecting the milestone reward grants 25,000 chips exactly once', () => {
   assert.equal(first.user.chips, before + 25000);
   assert.equal(first.user.rewards.milestoneAvailable, false, 'the same milestone is now spent');
 
-  const second = users.claimMilestoneReward(player.id);
+  const second = await users.claimMilestoneReward(player.id);
   assert.equal(second.claimed, false, 'a second claim pays nothing');
   assert.equal(second.reason, 'not_available');
-  assert.equal(users.findById(player.id).chips, before + 25000, 'and moves no chips');
+  assert.equal((await users.findById(player.id)).chips, before + 25000, 'and moves no chips');
 });
 
-test('reaching the next milestone unlocks the reward again', () => {
-  const player = makeUser('Repeater');
-  const db = getDatabase();
+test('reaching the next milestone unlocks the reward again', async () => {
+  const player = await makeUser('Repeater');
 
-  db.prepare('UPDATE users SET hands_played = 25 WHERE id = ?').run(player.id);
-  assert.equal(users.claimMilestoneReward(player.id).claimed, true);
+  await setHandsPlayed(player.id, 25);
+  assert.equal((await users.claimMilestoneReward(player.id)).claimed, true);
 
-  db.prepare('UPDATE users SET hands_played = 49 WHERE id = ?').run(player.id);
-  assert.equal(users.findById(player.id).rewards.milestoneAvailable, false, 'still on the 25 milestone');
+  await setHandsPlayed(player.id, 49);
+  assert.equal(
+    (await users.findById(player.id)).rewards.milestoneAvailable,
+    false,
+    'still on the 25 milestone',
+  );
 
-  db.prepare('UPDATE users SET hands_played = 50 WHERE id = ?').run(player.id);
-  assert.equal(users.findById(player.id).rewards.milestoneAvailable, true, '50 is a new milestone');
-  assert.equal(users.claimMilestoneReward(player.id).claimed, true);
+  await setHandsPlayed(player.id, 50);
+  assert.equal((await users.findById(player.id)).rewards.milestoneAvailable, true, '50 is a new milestone');
+  assert.equal((await users.claimMilestoneReward(player.id)).claimed, true);
 });
 
-test('the milestone reward is written to the chip ledger', () => {
-  const player = makeUser('Audited');
-  const db = getDatabase();
-  db.prepare('UPDATE users SET hands_played = 25 WHERE id = ?').run(player.id);
-  users.claimMilestoneReward(player.id);
+test('the milestone reward is written to the chip ledger', async () => {
+  const player = await makeUser('Audited');
+  await setHandsPlayed(player.id, 25);
+  await users.claimMilestoneReward(player.id);
 
-  const row = db
-    .prepare("SELECT * FROM chip_ledger WHERE user_id = ? AND reason = 'milestone_reward'")
-    .get(player.id);
+  const { rows } = await query(
+    "SELECT * FROM chip_ledger WHERE user_id = $1 AND reason = 'milestone_reward'",
+    [player.id],
+  );
+  const [row] = rows;
 
   assert.ok(row, 'the grant is auditable');
   assert.equal(row.delta, 25000);
@@ -187,21 +198,21 @@ test('the milestone reward is written to the chip ledger', () => {
 
 // ----------------------------------------------------- timed bonus (req 18)
 
-test('a new account can collect the timed bonus straight away', () => {
-  const player = makeUser('Fresh');
-  const rewards = users.findById(player.id).rewards;
+test('a new account can collect the timed bonus straight away', async () => {
+  const player = await makeUser('Fresh');
+  const { rewards } = await users.findById(player.id);
 
   assert.equal(rewards.bonusAvailable, true, 'no waiting on a brand new account');
   assert.equal(rewards.bonusReward, 10000);
   assert.equal(rewards.bonusIntervalMs, 4 * 60 * 60 * 1000, 'the countdown is 4 hours');
 });
 
-test('collecting the bonus grants 10,000 chips and starts a 4-hour countdown', () => {
-  const player = makeUser('Bonus');
-  const before = users.findById(player.id).chips;
+test('collecting the bonus grants 10,000 chips and starts a 4-hour countdown', async () => {
+  const player = await makeUser('Bonus');
+  const before = (await users.findById(player.id)).chips;
 
   const claimedAt = Date.now();
-  const result = users.claimTimedBonus(player.id);
+  const result = await users.claimTimedBonus(player.id);
 
   assert.equal(result.claimed, true);
   assert.equal(result.amount, 10000);
@@ -213,37 +224,36 @@ test('collecting the bonus grants 10,000 chips and starts a 4-hour countdown', (
   assert.equal(result.user.rewards.bonusAvailable, false, 'and is not collectable now');
 });
 
-test('the bonus cannot be collected twice inside the countdown', () => {
-  const player = makeUser('Greedy');
-  users.claimTimedBonus(player.id);
+test('the bonus cannot be collected twice inside the countdown', async () => {
+  const player = await makeUser('Greedy');
+  await users.claimTimedBonus(player.id);
 
-  const before = users.findById(player.id).chips;
-  const second = users.claimTimedBonus(player.id);
+  const before = (await users.findById(player.id)).chips;
+  const second = await users.claimTimedBonus(player.id);
 
   assert.equal(second.claimed, false);
   assert.equal(second.reason, 'not_ready');
   assert.ok(second.readyAt > Date.now());
-  assert.equal(users.findById(player.id).chips, before, 'no chips moved');
+  assert.equal((await users.findById(player.id)).chips, before, 'no chips moved');
 });
 
-test('the countdown lives in the database, so it survives a restart', () => {
-  const player = makeUser('Persistent');
-  const result = users.claimTimedBonus(player.id);
+test('the countdown lives in the database, so it survives a restart', async () => {
+  const player = await makeUser('Persistent');
+  const result = await users.claimTimedBonus(player.id);
 
-  const stored = getDatabase().prepare('SELECT next_bonus_at FROM users WHERE id = ?').get(player.id);
-  assert.equal(stored.next_bonus_at, result.readyAt, 'the unlock time is persisted, not held in memory');
+  const { rows } = await query('SELECT next_bonus_at FROM users WHERE id = $1', [player.id]);
+  assert.equal(rows[0].next_bonus_at, result.readyAt, 'the unlock time is persisted, not held in memory');
 
   // Once the stored time passes, it is collectable again.
-  getDatabase().prepare('UPDATE users SET next_bonus_at = ? WHERE id = ?')
-    .run(Date.now() - 1, player.id);
-  assert.equal(users.findById(player.id).rewards.bonusAvailable, true);
-  assert.equal(users.claimTimedBonus(player.id).claimed, true);
+  await query('UPDATE users SET next_bonus_at = $1 WHERE id = $2', [Date.now() - 1, player.id]);
+  assert.equal((await users.findById(player.id)).rewards.bonusAvailable, true);
+  assert.equal((await users.claimTimedBonus(player.id)).claimed, true);
 });
 
 // ------------------------------------------------------ avatars (req 20/21)
 
-test('a provider picture is kept and used by default', () => {
-  const { user } = users.upsertFromProfile({
+test('a provider picture is kept and used by default', async () => {
+  const { user } = await users.upsertFromProfile({
     provider: 'google',
     providerUserId: `g-${Math.random().toString(36).slice(2)}`,
     displayName: 'G Player',
@@ -255,18 +265,18 @@ test('a provider picture is kept and used by default', () => {
   assert.equal(user.avatarChoice, null);
 });
 
-test('a chosen picture overrides the provider one, and clearing restores it', () => {
-  const { user } = users.upsertFromProfile({
+test('a chosen picture overrides the provider one, and clearing restores it', async () => {
+  const { user } = await users.upsertFromProfile({
     provider: 'facebook',
     providerUserId: `f-${Math.random().toString(36).slice(2)}`,
     displayName: 'F Player',
     avatarUrl: 'https://graph.facebook.com/example',
   });
 
-  const chosen = users.setAvatarChoice(user.id, '/profiles/ace.svg');
+  const chosen = await users.setAvatarChoice(user.id, '/profiles/ace.svg');
   assert.equal(chosen.avatarUrl, '/profiles/ace.svg', 'the choice wins');
   assert.equal(chosen.providerAvatarUrl, 'https://graph.facebook.com/example', 'the original is kept');
 
-  const cleared = users.setAvatarChoice(user.id, null);
+  const cleared = await users.setAvatarChoice(user.id, null);
   assert.equal(cleared.avatarUrl, 'https://graph.facebook.com/example', 'clearing falls back');
 });

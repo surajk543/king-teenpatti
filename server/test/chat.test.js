@@ -124,11 +124,11 @@ test('a player who is not at the table cannot post to it', () => {
   assert.throws(() => table.postChat('stranger', 'let me in'), (error) => error.code === 'not_in_room');
 });
 
-test('joining and leaving are announced in the room log', () => {
+test('joining and leaving are announced in the room log', async () => {
   const { table, seat } = makeTable();
   seat('alice', 'Alice');
   seat('bob', 'Bob');
-  table.removePlayer('bob');
+  await table.removePlayer('bob');
 
   const lines = table.chatHistory().map((message) => message.text);
   assert.ok(lines.includes('Alice joined the table'));
@@ -154,13 +154,13 @@ test('a player who joins later sees the existing history', () => {
   assert.ok(visible.includes('Carol joined the table'));
 });
 
-test('destroying the room deletes its chat history', () => {
+test('destroying the room deletes its chat history', async () => {
   const { table, seat } = makeTable();
   seat('alice', 'Alice');
   table.postChat('alice', 'secret table talk');
   assert.ok(table.chatHistory().length > 0);
 
-  table.destroy();
+  await table.destroy();
 
   assert.equal(table.chatHistory().length, 0, 'nothing survives the room');
 });
@@ -179,11 +179,11 @@ test('two tables never see each other\'s messages', () => {
   assert.ok(first.table.chatHistory().some((message) => message.text === 'table one only'));
 });
 
-test('chat keeps working while a hand is in progress', () => {
+test('chat keeps working while a hand is in progress', async () => {
   const { table, seat, advance } = makeTable();
   seat('alice', 'Alice');
   seat('bob', 'Bob');
-  advance(baseConfig.nextHandDelayMs);
+  await advance(baseConfig.nextHandDelayMs);
 
   assert.ok(table.hand, 'a hand is live');
   const message = table.postChat('alice', 'nice cards');

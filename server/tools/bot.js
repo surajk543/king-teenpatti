@@ -65,8 +65,13 @@ async function login(name, index) {
 
 /** Plays a straightforward, slightly loose game — enough to make hands happen. */
 function decide(options) {
-  if (options.canSee && Math.random() < 0.7) return 'see';
+  // Bots always look. A blind bot cannot be part of a sideshow, and a table
+  // of them never exercises one.
+  if (options.canSee) return 'see';
   if (options.show && Math.random() < 0.5) return 'show';
+  // Ask for a sideshow when the server says it is on offer, often enough that
+  // playing against bots actually exercises it.
+  if (options.canSideshow && Math.random() < 0.45) return 'sideshow';
 
   const roll = Math.random();
   if (roll < 0.12) return 'pack';
@@ -140,6 +145,20 @@ async function startBot(index) {
   socket.on('game:yourTurn', ({ options }) => {
     // Human-ish think time, so the table does not resolve instantly.
     setTimeout(() => socket.emit('game:action', { action: decide(options) }), 700 + Math.random() * 1600);
+  });
+
+  // Somebody asked this bot for a sideshow. Mostly accept, so the compare-and-
+  // pack path gets played out; occasionally refuse, and now and then answer
+  // not at all so the six-second expiry is exercised too.
+  socket.on('game:sideshowRequested', ({ toUserId }) => {
+    if (toUserId !== user.id) return;
+
+    const roll = Math.random();
+    if (roll > 0.9) return; // let it lapse
+    setTimeout(
+      () => socket.emit('game:sideshowRespond', { accept: roll < 0.75 }),
+      600 + Math.random() * 1500,
+    );
   });
 
   socket.on('game:handEnded', ({ winnerName, pot }) => {

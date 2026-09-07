@@ -81,7 +81,7 @@ test('a stack exactly at the cap may still join', () => {
   );
 });
 
-test('the cap applies only to that stake and category', () => {
+test('the cap applies only to that stake and category', async () => {
   const rooms = makeRooms();
   const rich = player(cap + 1);
 
@@ -90,7 +90,7 @@ test('the cap applies only to that stake and category', () => {
   assert.doesNotThrow(
     () => rooms.quickJoin(rich, { bootAmount: capBoot, category: other }),
   );
-  rooms.leave(rich.id);
+  await rooms.leave(rich.id);
 
   // And so is the higher stake in the capped category.
   const bigger = config.game.tableStakes.find((s) => s !== capBoot);
@@ -132,7 +132,7 @@ test('names in Indic scripts survive their vowel marks', () => {
 
 // ------------------------------------- the cap guards the lobby, not a switch
 
-test('a switch is not blocked by the entry cap', () => {
+test('a switch is not blocked by the entry cap', async () => {
   const rooms = makeRooms();
   const rich = player(cap + 1);
 
@@ -145,7 +145,7 @@ test('a switch is not blocked by the entry cap', () => {
   // which is what the seat below stands in for.
   rooms.join(first, rich);
 
-  const { table } = rooms.switchTable(rich);
+  const { table } = await rooms.switchTable(rich);
   assert.equal(table.id, second.id, 'moved to the other table');
   assert.equal(rooms.getTableForPlayer(rich.id).id, second.id);
 });
@@ -158,7 +158,7 @@ test('but the lobby route still refuses them', () => {
   );
 });
 
-test('a switch never changes the stake or the category', () => {
+test('a switch never changes the stake or the category', async () => {
   const rooms = makeRooms();
   const other = capCategory === 'blind' ? 'seen' : 'blind';
 
@@ -171,27 +171,27 @@ test('a switch never changes the stake or the category', () => {
   const mover = player(1000);
   rooms.join(home, mover);
 
-  assert.throws(
-    () => rooms.switchTable(mover),
+  await assert.rejects(
+    rooms.switchTable(mover),
     (error) => error.code === 'no_other_table',
     'the only tables around are the wrong kind',
   );
 });
 
-test('switching keeps the seat when there is nowhere to go', () => {
+test('switching keeps the seat when there is nowhere to go', async () => {
   const rooms = makeRooms();
   const home = rooms.quickJoin(player(1000), { bootAmount: capBoot, category: capCategory });
   const mover = player(1000);
   rooms.join(home, mover);
 
-  assert.throws(() => rooms.switchTable(mover), (e) => e.code === 'no_other_table');
+  await assert.rejects(rooms.switchTable(mover), (e) => e.code === 'no_other_table');
   assert.equal(rooms.getTableForPlayer(mover.id)?.id, home.id, 'still seated where they were');
 });
 
-test('a player who is not seated cannot switch', () => {
+test('a player who is not seated cannot switch', async () => {
   const rooms = makeRooms();
-  assert.throws(
-    () => rooms.switchTable(player(1000)),
+  await assert.rejects(
+    rooms.switchTable(player(1000)),
     (error) => error.code === 'not_in_room',
   );
 });

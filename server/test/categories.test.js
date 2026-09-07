@@ -135,11 +135,11 @@ test('another player\'s stack is not in the serialized payload at all', () => {
   assert.ok(wire.includes('1000'), "alice's own stack is present");
 });
 
-test('your own turn options still carry your stack on a blind table', () => {
+test('your own turn options still carry your stack on a blind table', async () => {
   const { table, seat, advance } = makeTable(TABLE_CATEGORY.BLIND);
   seat('alice');
   seat('bob');
-  advance(baseConfig.nextHandDelayMs);
+  await advance(baseConfig.nextHandDelayMs);
 
   const onTurn = table.seats[table.hand.turnSeat];
   const view = table.serializeFor(onTurn.userId);
@@ -148,13 +148,13 @@ test('your own turn options still carry your stack on a blind table', () => {
   assert.equal(view.you.options.chips, START - BOOT);
 });
 
-test('bets stay public on a blind table', () => {
+test('bets stay public on a blind table', async () => {
   // What a player has put into this pot is announced as it happens, so hiding
   // it in the snapshot would be inconsistent, not private.
   const { table, seat, advance } = makeTable(TABLE_CATEGORY.BLIND);
   seat('alice');
   seat('bob');
-  advance(baseConfig.nextHandDelayMs);
+  await advance(baseConfig.nextHandDelayMs);
 
   const view = table.serializeFor('alice');
   assert.equal(seatOf(view, 'bob').contributed, BOOT, 'the boot they staked is visible');
@@ -162,14 +162,14 @@ test('bets stay public on a blind table', () => {
   assert.equal(view.pot, BOOT * 2, 'the pot is public');
 });
 
-test('hiding chips does not affect gameplay', () => {
+test('hiding chips does not affect gameplay', async () => {
   const blind = makeTable(TABLE_CATEGORY.BLIND);
   const seen = makeTable(TABLE_CATEGORY.SEEN);
 
   for (const setup of [blind, seen]) {
     setup.seat('alice');
     setup.seat('bob');
-    setup.advance(baseConfig.nextHandDelayMs);
+    await setup.advance(baseConfig.nextHandDelayMs);
   }
 
   const blindPlayer = blind.table.seats[blind.table.hand.turnSeat];

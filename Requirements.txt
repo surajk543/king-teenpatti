@@ -85,3 +85,6 @@ them based on card value and current player and the player who accepted the requ
 has accepted the request, while other players will see animation one player has requested the sideshow and the
 sideshow request will be for 6 seconds, then request will be auto rejected, Only one time side request can
 happen in every player turn, for side request again player needs to wait next turn of his.
+34. If chips count is grater than 100000, then IN UI chips count show in Indian numbering system, for example
+324011 will be shown as 3.2401Lakh and IN settings give option to change numbering system indian to inetrnational
+where instead of 10 lakhs million will be shown, add icons also and make it premium look.

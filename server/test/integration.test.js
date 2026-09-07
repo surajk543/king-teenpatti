@@ -1,14 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
 
 // The config module snapshots the environment at import time, so everything
-// this suite needs has to be set before the server is loaded.
-const dbFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'teenpatti-test-')), 'test.db');
+// this suite needs has to be set before the server is loaded. The suite gets a
+// throwaway Postgres schema of its own, dropped again in test.after.
 process.env.NODE_ENV = 'test';
-process.env.DB_FILE = dbFile;
+process.env.PG_SCHEMA = `test_integration_${Math.random().toString(36).slice(2, 8)}`;
 process.env.JWT_SECRET = 'integration-test-secret';
 process.env.AUTH_ALLOW_FAKE_PROVIDERS = 'true';
 process.env.WELCOME_CHIPS = '200000';
@@ -20,10 +17,12 @@ process.env.PORT = '0';
 // Lift the lobby's fixed stakes so each test can use its own boot amount for
 // isolation — quick-join matches on stake, so a unique one keeps tests apart.
 process.env.TABLE_STAKES = '';
+// ...and with it the menu of category/stake pairs, for the same reason.
+process.env.LOBBY_TABLES = '';
 
 const { createServer } = await import('../src/index.js');
 const { io: connect } = await import('socket.io-client');
-const { closeDatabase } = await import('../src/db/index.js');
+const { query, dropSchema, closeDatabase } = await import('../src/db/index.js');
 
 let server;
 let io;
@@ -40,13 +39,14 @@ test.before(async () => {
 });
 
 test.after(async () => {
-  rooms.shutdown();
+  // Live hands are settled (their pots paid out) before the pool closes.
+  await rooms.shutdown();
   // Sockets have to be torn down before the HTTP server will close.
   await new Promise((resolve) => io.close(resolve));
   server.closeAllConnections?.();
   await new Promise((resolve) => server.close(resolve));
-  closeDatabase();
-  fs.rmSync(path.dirname(dbFile), { recursive: true, force: true });
+  await dropSchema();
+  await closeDatabase();
 });
 
 /**
@@ -158,11 +158,11 @@ test('a different device is a different account', async () => {
 });
 
 test('the raw device id is never stored', async () => {
-  // Read straight from the database file the server is writing to.
-  const { getDatabase } = await import('../src/db/index.js');
-  const stored = getDatabase()
-    .prepare('SELECT provider_user_id FROM users WHERE provider = ?')
-    .all('guest');
+  // Read straight from the database the server is writing to.
+  const { rows: stored } = await query(
+    'SELECT provider_user_id FROM users WHERE provider = $1',
+    ['guest'],
+  );
 
   assert.ok(stored.length > 0);
   for (const row of stored) {
@@ -711,6 +711,130 @@ test('empty chat messages are ignored', async () => {
   assert.equal(rooms.getTable(joined.roomId).chatHistory().length, before);
 
   await client.close();
+});
+
+// -------------------------------------------------------------- resume
+
+const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+test('a player whose app dies mid-hand is put straight back at the table on reconnect', async () => {
+  const bootAmount = uniqueStake();
+  const alice = await guestLogin('device-resume-a', 'Alice');
+  const bob = await guestLogin('device-resume-b', 'Bob');
+  const ca = await openClient(alice.token);
+  const cb = await openClient(bob.token);
+
+  const joined = await ca.emit('room:quickJoin', { bootAmount });
+  await cb.emit('room:quickJoin', { bootAmount });
+  await ca.wait('game:handStarted');
+
+  // A force-closed app sends no room:leave — the socket simply goes away.
+  ca.socket.disconnect();
+  await pause(100); // well inside the 400ms grace this suite runs with
+
+  const back = await openClient(alice.token);
+  const ready = await back.wait('session:ready');
+  assert.equal(ready.resume, undefined, 'the seat is still held, so there is nothing to offer');
+
+  // Nothing was asked for: the table snapshot arrives on its own.
+  const state = await back.wait('room:joined');
+  assert.equal(state.roomId, joined.roomId);
+  assert.equal(state.state, 'betting', 'the hand carried on without them and is still live');
+  assert.ok(state.you, 'the snapshot is this player\'s own view of the table');
+  assert.equal(state.you.status, 'active', 'still in the hand, not sitting out');
+  assert.equal(state.seats[state.you.seatIndex].userId, alice.user.id);
+
+  await closeAll(back, cb);
+});
+
+test('once the held seat has lapsed, the next sign-in is offered the same table back — once', async () => {
+  const bootAmount = uniqueStake();
+  const alice = await guestLogin('device-resume-c', 'Alice');
+  const bob = await guestLogin('device-resume-d', 'Bob');
+  const ca = await openClient(alice.token);
+  const cb = await openClient(bob.token);
+
+  const joined = await ca.emit('room:quickJoin', { bootAmount });
+  await cb.emit('room:quickJoin', { bootAmount });
+  await ca.wait('game:handStarted');
+
+  ca.socket.disconnect();
+  await pause(800); // past the grace: the seat is given up
+  assert.equal(rooms.getTableForPlayer(alice.user.id), null, 'the seat has gone');
+
+  const back = await openClient(alice.token);
+  const ready = await back.wait('session:ready');
+  assert.deepEqual(ready.resume, {
+    roomId: joined.roomId,
+    code: joined.code,
+    category: joined.category,
+    bootAmount,
+  });
+  await pause(50);
+  assert.equal(back.all('room:joined').length, 0, 'no seat means no snapshot until they sit');
+
+  // The client takes the offer up with the ordinary join-by-code.
+  const rejoined = await back.emit('room:joinCode', { code: ready.resume.code });
+  assert.equal(rejoined.ok, true);
+  assert.equal(rejoined.roomId, joined.roomId);
+  assert.equal((await back.wait('room:joined')).roomId, joined.roomId);
+
+  // Seated again, a further reconnect restores the seat and carries no offer.
+  back.socket.disconnect();
+  await pause(50);
+  const again = await openClient(alice.token);
+  assert.equal((await again.wait('session:ready')).resume, undefined);
+  assert.equal((await again.wait('room:joined')).roomId, joined.roomId);
+
+  await closeAll(again, cb);
+});
+
+test('leaving a table on purpose leaves nothing to resume', async () => {
+  const bootAmount = uniqueStake();
+  const alice = await guestLogin('device-resume-e', 'Alice');
+  const bob = await guestLogin('device-resume-f', 'Bob');
+  const ca = await openClient(alice.token);
+  const cb = await openClient(bob.token);
+
+  await ca.emit('room:quickJoin', { bootAmount });
+  await cb.emit('room:quickJoin', { bootAmount });
+  await ca.wait('game:handStarted');
+
+  await ca.emit('room:leave');
+  ca.socket.disconnect();
+  await pause(800);
+
+  const back = await openClient(alice.token);
+  const ready = await back.wait('session:ready');
+  assert.equal(ready.resume, undefined);
+  await pause(50);
+  assert.equal(back.all('room:joined').length, 0);
+
+  await closeAll(back, cb);
+});
+
+test('a table that closed while the player was away is not offered back', async () => {
+  const bootAmount = uniqueStake();
+  const alice = await guestLogin('device-resume-g', 'Alice');
+  const bob = await guestLogin('device-resume-h', 'Bob');
+  const ca = await openClient(alice.token);
+  const cb = await openClient(bob.token);
+
+  const joined = await ca.emit('room:quickJoin', { bootAmount });
+  await cb.emit('room:quickJoin', { bootAmount });
+  await ca.wait('game:handStarted');
+
+  ca.socket.disconnect();
+  await pause(800);
+  // The last player walks out and the room is destroyed.
+  await cb.close();
+  assert.equal(rooms.getTable(joined.roomId), null);
+
+  const back = await openClient(alice.token);
+  const ready = await back.wait('session:ready');
+  assert.equal(ready.resume, undefined, 'there is no table left to return to');
+
+  await back.close();
 });
 
 test('health reports live table and player counts', async () => {

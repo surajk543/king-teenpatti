@@ -37,6 +37,7 @@ class GameAction {
   static const raise = 'raise';
   static const pack = 'pack';
   static const show = 'show';
+  static const sideshow = 'sideshow';
 }
 
 class Rewards {
@@ -132,6 +133,64 @@ class User {
       );
 }
 
+/// One room on the lobby's menu.
+///
+/// The server lists the pairs it offers rather than the client crossing every
+/// category with every stake: the two are only meaningful together, and 5,000
+/// existing as a stake does not mean a seen table exists at it.
+class LobbyTable {
+  const LobbyTable({
+    required this.category,
+    required this.bootAmount,
+    required this.maxPot,
+    required this.maxBlindMoves,
+  });
+
+  final String category;
+  final int bootAmount;
+
+  /// The pot ceiling on this table, or 0 when the pot is uncapped. It comes
+  /// from the server alongside the room itself, so the card and the table it
+  /// opens cannot state different rules.
+  final int maxPot;
+
+  /// How many blind bets a player gets before their cards turn face up.
+  final int maxBlindMoves;
+
+  bool get potUncapped => maxPot <= 0;
+
+  factory LobbyTable.fromJson(Map<String, dynamic> j) => LobbyTable(
+        category: _str(j['category']),
+        bootAmount: _int(j['bootAmount']),
+        maxPot: _int(j['maxPot']),
+        maxBlindMoves: j['maxBlindMoves'] == null ? 4 : _int(j['maxBlindMoves']),
+      );
+}
+
+/// The table the server remembers a player falling off. It comes with
+/// `session:ready` on the next sign-in once their held seat has lapsed, so a
+/// force-closed app can sit them straight back down there.
+class ResumeHint {
+  const ResumeHint({
+    required this.roomId,
+    required this.code,
+    required this.category,
+    required this.bootAmount,
+  });
+
+  final String roomId;
+  final String code;
+  final String category;
+  final int bootAmount;
+
+  factory ResumeHint.fromJson(Map<String, dynamic> j) => ResumeHint(
+        roomId: '${j['roomId'] ?? ''}',
+        code: '${j['code'] ?? ''}',
+        category: '${j['category'] ?? 'seen'}',
+        bootAmount: (j['bootAmount'] as num?)?.toInt() ?? 0,
+      );
+}
+
 class GameConfig {
   const GameConfig({
     required this.maxPlayers,
@@ -145,6 +204,8 @@ class GameConfig {
     required this.entryCapBoot,
     required this.entryCapCategory,
     required this.entryCapMaxChips,
+    required this.sideshowTimeoutMs,
+    required this.tables,
   });
 
   final int maxPlayers;
@@ -153,6 +214,9 @@ class GameConfig {
   final int turnTimeoutMs;
   final List<String> categories;
   final List<int> stakes;
+
+  /// The rooms to show, in the order the server listed them.
+  final List<LobbyTable> tables;
   final int privateBoot;
   final int privateMaxPot;
 
@@ -161,6 +225,10 @@ class GameConfig {
   final int entryCapBoot;
   final String entryCapCategory;
   final int entryCapMaxChips;
+
+  /// How long a sideshow request stands before the server drops it. Only used
+  /// to draw the countdown; the expiry itself is the server's.
+  final int sideshowTimeoutMs;
 
   /// Whether this table is closed to a player holding [chips].
   bool cappedFor(int chips, {required int boot, required String category}) =>
@@ -181,6 +249,24 @@ class GameConfig {
     entryCapBoot: 200,
     entryCapCategory: TableCategory.blind,
     entryCapMaxChips: 500000,
+    sideshowTimeoutMs: 6000,
+    tables: [
+      LobbyTable(
+          category: TableCategory.seen,
+          bootAmount: 200,
+          maxPot: 1200000,
+          maxBlindMoves: 4),
+      LobbyTable(
+          category: TableCategory.blind,
+          bootAmount: 200,
+          maxPot: 0,
+          maxBlindMoves: 4),
+      LobbyTable(
+          category: TableCategory.blind,
+          bootAmount: 5000,
+          maxPot: 0,
+          maxBlindMoves: 4),
+    ],
   );
 
   factory GameConfig.fromJson(Map<String, dynamic> j) => GameConfig(
@@ -188,9 +274,15 @@ class GameConfig {
         minPlayers: _int(j['minPlayers']),
         bootAmount: _int(j['bootAmount']),
         turnTimeoutMs: _int(j['turnTimeoutMs']),
+        sideshowTimeoutMs:
+            j['sideshowTimeoutMs'] == null ? 6000 : _int(j['sideshowTimeoutMs']),
         categories: (j['categories'] as List?)?.map((e) => '$e').toList() ??
             const [TableCategory.seen, TableCategory.blind],
         stakes: (j['stakes'] as List?)?.map(_int).toList() ?? const [200, 5000],
+        tables: (j['tables'] as List?)
+                ?.map((e) => LobbyTable.fromJson(Map<String, dynamic>.from(e as Map)))
+                .toList() ??
+            fallback.tables,
         privateBoot: _int(j['privateBoot']),
         privateMaxPot: _int(j['privateMaxPot']),
         entryCapBoot: _int(j['entryCapBoot']),
@@ -259,6 +351,8 @@ class TurnOptions {
   const TurnOptions({
     required this.canSee,
     required this.canPack,
+    required this.canSideshow,
+    required this.sideshowWith,
     required this.raiseSteps,
     required this.show,
     required this.chips,
@@ -267,6 +361,14 @@ class TurnOptions {
 
   final bool canSee;
   final bool canPack;
+
+  /// Whether a sideshow may be asked for right now. The server weighs up all
+  /// of it — three players in the hand, both hands seen, one ask per turn —
+  /// so the button only has to follow this.
+  final bool canSideshow;
+
+  /// Who the request would go to: the player on the viewer's right.
+  final String? sideshowWith;
 
   /// The whole +/- ladder, already capped to the player's stack and the table's
   /// pot limit, so the client never computes a bet of its own.
@@ -278,11 +380,81 @@ class TurnOptions {
   factory TurnOptions.fromJson(Map<String, dynamic> j) => TurnOptions(
         canSee: j['canSee'] == true,
         canPack: j['canPack'] != false,
+        canSideshow: j['canSideshow'] == true,
+        sideshowWith: j['sideshowWith'] as String?,
         raiseSteps:
             (j['raiseSteps'] as List?)?.map(_int).toList() ?? const <int>[],
         show: j['show'] == null ? null : _int(j['show']),
         chips: _int(j['chips']),
         currentStake: _int(j['currentStake']),
+      );
+}
+
+/// A sideshow waiting to be answered.
+///
+/// Public knowledge, cards excepted: it is in every viewer's snapshot so the
+/// table can animate the request, and so a client that reconnects mid-request
+/// puts the prompt back up rather than losing it.
+class PendingSideshow {
+  const PendingSideshow({
+    required this.fromUserId,
+    required this.fromSeat,
+    required this.toUserId,
+    required this.toSeat,
+    required this.expiresAt,
+  });
+
+  final String fromUserId;
+  final int fromSeat;
+  final String toUserId;
+  final int toSeat;
+
+  /// Unix ms. The server drops the request at this point whatever the client
+  /// does, so the countdown shown is a readout, never the thing that decides.
+  final int expiresAt;
+
+  factory PendingSideshow.fromJson(Map<String, dynamic> j) => PendingSideshow(
+        fromUserId: _str(j['fromUserId']),
+        fromSeat: _int(j['fromSeat']),
+        toUserId: _str(j['toUserId']),
+        toSeat: _int(j['toSeat']),
+        expiresAt: _int(j['expiresAt']),
+      );
+}
+
+/// One hand in a sideshow reveal. Only ever sent to the two players involved.
+class SideshowHand {
+  const SideshowHand({
+    required this.userId,
+    required this.displayName,
+    required this.cards,
+    required this.handName,
+  });
+
+  final String userId;
+  final String displayName;
+  final List<String> cards;
+  final String handName;
+
+  factory SideshowHand.fromJson(Map<String, dynamic> j) => SideshowHand(
+        userId: _str(j['userId']),
+        displayName: _str(j['displayName']),
+        cards: (j['cards'] as List? ?? const []).map((e) => '$e').toList(),
+        handName: _str(j['handName']),
+      );
+}
+
+class SideshowReveal {
+  const SideshowReveal({required this.hands, required this.packedUserId});
+
+  final List<SideshowHand> hands;
+  final String? packedUserId;
+
+  factory SideshowReveal.fromJson(Map<String, dynamic> j) => SideshowReveal(
+        hands: (j['hands'] as List? ?? const [])
+            .map((e) => SideshowHand.fromJson(Map<String, dynamic>.from(e as Map)))
+            .toList(),
+        packedUserId: j['packedUserId'] as String?,
       );
 }
 
@@ -311,6 +483,8 @@ class You {
     required this.isBlind,
     required this.blindMovesLeft,
     required this.contributed,
+    required this.missedTurns,
+    required this.maxMissedTurns,
     required this.cards,
     required this.options,
   });
@@ -324,6 +498,19 @@ class You {
   final int blindMovesLeft;
   final int contributed;
 
+  /// Requirement 31: turns auto-packed in a row, and how many the table allows
+  /// before the seat is given back. Sent only to the player it concerns.
+  final int missedTurns;
+  final int maxMissedTurns;
+
+  /// How many more can be missed before being shown out. Zero means the next
+  /// one does it.
+  int get missesLeft =>
+      maxMissedTurns <= 0 ? 1 : (maxMissedTurns - missedTurns - 1).clamp(0, 99);
+
+  /// True when one more missed turn costs them the seat.
+  bool get onLastWarning => missedTurns > 0 && missesLeft == 0;
+
   /// Empty until this player has looked — the server never sends a card early.
   final List<String> cards;
   final TurnOptions? options;
@@ -335,6 +522,9 @@ class You {
         isBlind: j['isBlind'] == true,
         blindMovesLeft: _int(j['blindMovesLeft']),
         contributed: _int(j['contributed']),
+        missedTurns: _int(j['missedTurns']),
+        maxMissedTurns:
+            j['maxMissedTurns'] == null ? 3 : _int(j['maxMissedTurns']),
         cards: (j['cards'] as List?)?.map((e) => '$e').toList() ?? const [],
         options: j['options'] is Map
             ? TurnOptions.fromJson(Map<String, dynamic>.from(j['options'] as Map))
@@ -359,6 +549,7 @@ class RoomState {
     required this.maxPot,
     required this.stake,
     required this.turn,
+    required this.sideshow,
     required this.you,
     required this.seats,
   });
@@ -378,6 +569,9 @@ class RoomState {
   final int maxPot;
   final int stake;
   final Turn? turn;
+
+  /// The sideshow awaiting an answer, if any. At most one at a time.
+  final PendingSideshow? sideshow;
   final You? you;
   final List<Seat> seats;
 
@@ -400,6 +594,10 @@ class RoomState {
         stake: _int(j['stake']),
         turn: j['turn'] is Map
             ? Turn.fromJson(Map<String, dynamic>.from(j['turn'] as Map))
+            : null,
+        sideshow: j['sideshow'] is Map
+            ? PendingSideshow.fromJson(
+                Map<String, dynamic>.from(j['sideshow'] as Map))
             : null,
         you: j['you'] is Map
             ? You.fromJson(Map<String, dynamic>.from(j['you'] as Map))

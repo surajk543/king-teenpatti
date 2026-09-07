@@ -32,10 +32,10 @@ const listProfilePictures = () => {
   }
 };
 
-export const requireAuth = (req, res, next) => {
+export const requireAuth = async (req, res, next) => {
   try {
     const claims = verifyToken(tokenFromRequest(req));
-    const user = findById(claims.sub);
+    const user = await findById(claims.sub);
     if (!user) throw new AuthError('unknown_user', 'This account no longer exists');
     req.user = user;
     next();
@@ -61,7 +61,7 @@ export function authRoutes() {
   router.post('/login', async (req, res, next) => {
     try {
       const profile = await verifyLogin(req.body ?? {});
-      const { user, isNew } = upsertFromProfile(profile);
+      const { user, isNew } = await upsertFromProfile(profile);
 
       logger.info(isNew ? 'account created' : 'login', {
         userId: user.id,
@@ -85,9 +85,13 @@ export function authRoutes() {
   });
 
   /** Recent hand history for the caller. */
-  router.get('/me/hands', requireAuth, (req, res) => {
-    const limit = Math.min(Number.parseInt(req.query.limit ?? '20', 10) || 20, 100);
-    res.json({ hands: recentHands(req.user.id, limit) });
+  router.get('/me/hands', requireAuth, async (req, res, next) => {
+    try {
+      const limit = Math.min(Number.parseInt(req.query.limit ?? '20', 10) || 20, 100);
+      res.json({ hands: await recentHands(req.user.id, limit) });
+    } catch (error) {
+      next(error);
+    }
   });
 
   return router;
@@ -107,9 +111,9 @@ export function playerRoutes({ isSeated = () => false } = {}) {
    * POST /api/rewards/milestone
    * Collects the 25,000 chips owed for reaching a multiple of 25 hands played.
    */
-  router.post('/rewards/milestone', requireAuth, (req, res, next) => {
+  router.post('/rewards/milestone', requireAuth, async (req, res, next) => {
     try {
-      const result = claimMilestoneReward(req.user.id);
+      const result = await claimMilestoneReward(req.user.id);
       if (!result.claimed) {
         return res.status(409).json({
           error: 'reward_not_available',
@@ -128,9 +132,9 @@ export function playerRoutes({ isSeated = () => false } = {}) {
    * POST /api/rewards/bonus
    * Collects the 10,000 chip timed bonus and restarts its 4-hour countdown.
    */
-  router.post('/rewards/bonus', requireAuth, (req, res, next) => {
+  router.post('/rewards/bonus', requireAuth, async (req, res, next) => {
     try {
-      const result = claimTimedBonus(req.user.id);
+      const result = await claimTimedBonus(req.user.id);
       if (!result.claimed) {
         return res.status(409).json({
           error: 'reward_not_ready',
@@ -157,7 +161,7 @@ export function playerRoutes({ isSeated = () => false } = {}) {
    * Passing null clears the choice and falls back to the Google/Facebook
    * picture. Refused while the player is seated at a table.
    */
-  router.post('/profile/avatar', requireAuth, (req, res, next) => {
+  router.post('/profile/avatar', requireAuth, async (req, res, next) => {
     try {
       if (isSeated(req.user.id)) {
         return res.status(409).json({
@@ -175,7 +179,7 @@ export function playerRoutes({ isSeated = () => false } = {}) {
         }
       }
 
-      const user = setAvatarChoice(req.user.id, requested ? `/profiles/${requested}` : null);
+      const user = await setAvatarChoice(req.user.id, requested ? `/profiles/${requested}` : null);
       return res.json({ user });
     } catch (error) {
       return next(error);
@@ -189,7 +193,7 @@ export function playerRoutes({ isSeated = () => false } = {}) {
    * while seated, for the same reason the picture is: everyone at the table is
    * looking at it, and it should not change under them mid-hand.
    */
-  router.post('/profile/name', requireAuth, (req, res, next) => {
+  router.post('/profile/name', requireAuth, async (req, res, next) => {
     try {
       if (isSeated(req.user.id)) {
         return res.status(409).json({
@@ -215,7 +219,7 @@ export function playerRoutes({ isSeated = () => false } = {}) {
         });
       }
 
-      return res.json({ user: setDisplayName(req.user.id, name) });
+      return res.json({ user: await setDisplayName(req.user.id, name) });
     } catch (error) {
       return next(error);
     }

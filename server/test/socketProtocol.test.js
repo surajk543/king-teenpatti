@@ -8,14 +8,13 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
 import { WebSocket } from 'ws';
 
-const dbFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'teenpatti-proto-')), 'proto.db');
+// The config module snapshots the environment at import time, so everything
+// this suite needs has to be set before the server is loaded. The suite gets a
+// throwaway Postgres schema of its own, dropped again in test.after.
 process.env.NODE_ENV = 'test';
-process.env.DB_FILE = dbFile;
+process.env.PG_SCHEMA = `test_proto_${Math.random().toString(36).slice(2, 8)}`;
 process.env.JWT_SECRET = 'protocol-test-secret';
 process.env.AUTH_ALLOW_FAKE_PROVIDERS = 'true';
 process.env.BOOT_AMOUNT = '100';
@@ -24,9 +23,11 @@ process.env.NEXT_HAND_DELAY_MS = '150';
 // Lift the lobby's fixed stakes so each test can use its own boot amount for
 // isolation — quick-join matches on stake, so a unique one keeps tests apart.
 process.env.TABLE_STAKES = '';
+// ...and with it the menu of category/stake pairs, for the same reason.
+process.env.LOBBY_TABLES = '';
 
 const { createServer } = await import('../src/index.js');
-const { closeDatabase } = await import('../src/db/index.js');
+const { dropSchema, closeDatabase } = await import('../src/db/index.js');
 const { Json, PortedSocketIOClient } = await import('./helpers/csharpJsonPort.js');
 
 let server;
@@ -44,12 +45,13 @@ test.before(async () => {
 });
 
 test.after(async () => {
-  rooms.shutdown();
+  // Live hands are settled (their pots paid out) before the pool closes.
+  await rooms.shutdown();
   await new Promise((resolve) => io.close(resolve));
   server.closeAllConnections?.();
   await new Promise((resolve) => server.close(resolve));
-  closeDatabase();
-  fs.rmSync(path.dirname(dbFile), { recursive: true, force: true });
+  await dropSchema();
+  await closeDatabase();
 });
 
 const guestLogin = async (deviceId, displayName) => {

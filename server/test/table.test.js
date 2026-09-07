@@ -19,7 +19,13 @@ const baseConfig = {
   welcomeChips: START_CHIPS,
 };
 
-/** Builds a table plus a recording of every event it emitted. */
+/**
+ * Builds a table plus a recording of every event it emitted.
+ *
+ * Every mutator on the table (act, removePlayer, startHand, destroy) now runs
+ * through its queue and returns a promise, and `advance` awaits each timer it
+ * fires — so tests await all of them and are declared async.
+ */
 function makeTable(overrides = {}) {
   const { timers, advance } = createFakeTimers();
   const settled = [];
@@ -69,7 +75,7 @@ const turnUser = (table) => table.seats[table.hand.turnSeat].userId;
 
 // ---------------------------------------------------------------- seating
 
-test('a table waits until the minimum number of players is seated', () => {
+test('a table waits until the minimum number of players is seated', async () => {
   const { table, seat, advance } = makeTable();
 
   seat('alice');
@@ -79,7 +85,7 @@ test('a table waits until the minimum number of players is seated', () => {
   seat('bob');
   assert.equal(table.state, TABLE_STATE.STARTING, 'two players triggers the start countdown');
 
-  advance(baseConfig.nextHandDelayMs);
+  await advance(baseConfig.nextHandDelayMs);
   assert.equal(table.state, TABLE_STATE.BETTING);
   assert.ok(table.hand);
 });
@@ -98,11 +104,11 @@ test('the same player cannot take two seats', () => {
   assert.throws(() => seat('alice'), (error) => error.code === 'already_seated');
 });
 
-test('a player who joins mid-hand sits out until the next deal', () => {
+test('a player who joins mid-hand sits out until the next deal', async () => {
   const { table, seat, advance } = makeTable();
   seat('alice');
   seat('bob');
-  advance(baseConfig.nextHandDelayMs);
+  await advance(baseConfig.nextHandDelayMs);
 
   const late = seat('carol');
   assert.equal(late.status, SEAT_STATE.WAITING);
@@ -110,12 +116,12 @@ test('a player who joins mid-hand sits out until the next deal', () => {
   assert.equal(table.activeSeats.length, 2);
 });
 
-test('a player who cannot cover the boot is dealt out', () => {
+test('a player who cannot cover the boot is dealt out', async () => {
   const { table, seat, advance } = makeTable();
   seat('alice');
   seat('bob');
   seat('broke', BOOT - 1);
-  advance(baseConfig.nextHandDelayMs);
+  await advance(baseConfig.nextHandDelayMs);
 
   assert.equal(table.findSeat('broke').status, SEAT_STATE.WAITING);
   assert.equal(table.activeSeats.length, 2);
@@ -123,12 +129,12 @@ test('a player who cannot cover the boot is dealt out', () => {
 
 // ------------------------------------------------------------- dealing
 
-test('every player is dealt three hidden cards and the boot is collected', () => {
+test('every player is dealt three hidden cards and the boot is collected', async () => {
   const { table, seat, advance, last } = makeTable();
   seat('alice');
   seat('bob');
   seat('carol');
-  advance(baseConfig.nextHandDelayMs);
+  await advance(baseConfig.nextHandDelayMs);
 
   for (const player of table.activeSeats) {
     assert.equal(player.cards.length, 3);
@@ -144,13 +150,13 @@ test('every player is dealt three hidden cards and the boot is collected', () =>
   assert.deepEqual(table.serializeFor('alice').you.cards, []);
 });
 
-test('a snapshot never contains another player\'s cards', () => {
+test('a snapshot never contains another player\'s cards', async () => {
   const { table, seat, advance } = makeTable();
   seat('alice');
   seat('bob');
-  advance(baseConfig.nextHandDelayMs);
+  await advance(baseConfig.nextHandDelayMs);
 
-  table.act(turnUser(table), ACTION.SEE);
+  await table.act(turnUser(table), ACTION.SEE);
   const view = table.serializeFor(turnUser(table));
 
   assert.equal(view.you.cards.length, 3, 'you can see your own hand once you look');
@@ -161,10 +167,10 @@ test('a snapshot never contains another player\'s cards', () => {
 
 // ------------------------------------------------------------- turn order
 
-test('turns open left of the dealer and rotate clockwise', () => {
+test('turns open left of the dealer and rotate clockwise', async () => {
   const { table, seat, advance, all } = makeTable();
   for (const id of ['a', 'b', 'c']) seat(id);
-  advance(baseConfig.nextHandDelayMs);
+  await advance(baseConfig.nextHandDelayMs);
 
   // Walk occupied seats clockwise from the dealer — seats can be sparse.
   const expected = [];
@@ -177,99 +183,99 @@ test('turns open left of the dealer and rotate clockwise', () => {
   const order = [];
   for (let i = 0; i < 3; i += 1) {
     order.push(turnUser(table));
-    table.act(turnUser(table), ACTION.CHAAL);
+    await table.act(turnUser(table), ACTION.CHAAL);
   }
 
   assert.deepEqual(order, expected);
   assert.ok(all('turn').length >= 3);
 });
 
-test('acting out of turn is refused', () => {
+test('acting out of turn is refused', async () => {
   const { table, seat, advance } = makeTable();
   seat('alice');
   seat('bob');
-  advance(baseConfig.nextHandDelayMs);
+  await advance(baseConfig.nextHandDelayMs);
 
   const onTurn = turnUser(table);
   const other = table.activeSeats.find((player) => player.userId !== onTurn).userId;
 
-  assert.throws(() => table.act(other, ACTION.CHAAL), (error) => error.code === 'not_your_turn');
+  await assert.rejects(table.act(other, ACTION.CHAAL), (error) => error.code === 'not_your_turn');
 });
 
-test('a player not in the hand cannot act', () => {
+test('a player not in the hand cannot act', async () => {
   const { table, seat, advance } = makeTable();
   seat('alice');
   seat('bob');
-  advance(baseConfig.nextHandDelayMs);
+  await advance(baseConfig.nextHandDelayMs);
   seat('carol'); // sitting out
 
-  assert.throws(() => table.act('carol', ACTION.CHAAL), (error) => error.code === 'not_in_hand');
-  assert.throws(() => table.act('nobody', ACTION.CHAAL), (error) => error.code === 'not_seated');
+  await assert.rejects(table.act('carol', ACTION.CHAAL), (error) => error.code === 'not_in_hand');
+  await assert.rejects(table.act('nobody', ACTION.CHAAL), (error) => error.code === 'not_seated');
 });
 
 // ------------------------------------------------------------- betting
 
-test('a blind player bets the stake or double it; a seen player pays double that', () => {
+test('a blind player bets the stake or double it; a seen player pays double that', async () => {
   const { table, seat, advance } = makeTable();
   seat('alice');
   seat('bob');
-  advance(baseConfig.nextHandDelayMs);
+  await advance(baseConfig.nextHandDelayMs);
 
   const blind = table.findSeat(turnUser(table));
   let options = table.betOptions(blind);
   assert.equal(options.chaal, BOOT, 'blind: same amount');
   assert.equal(options.raise, BOOT * 2, 'blind: double');
 
-  table.act(blind.userId, ACTION.SEE);
+  await table.act(blind.userId, ACTION.SEE);
   options = table.betOptions(blind);
   assert.equal(options.chaal, BOOT * 2, 'seen: same amount is double a blind');
   assert.equal(options.raise, BOOT * 4, 'seen: double');
 });
 
-test('a blind bet raises the stake; a seen bet raises it by half as much', () => {
+test('a blind bet raises the stake; a seen bet raises it by half as much', async () => {
   const { table, seat, advance } = makeTable();
   seat('alice');
   seat('bob');
-  advance(baseConfig.nextHandDelayMs);
+  await advance(baseConfig.nextHandDelayMs);
 
   const first = turnUser(table);
-  table.act(first, ACTION.RAISE); // blind, pays 2x boot
+  await table.act(first, ACTION.RAISE); // blind, pays 2x boot
   assert.equal(table.hand.stake, BOOT * 2);
   assert.equal(table.hand.pot, BOOT * 2 + BOOT * 2);
 
   const second = turnUser(table);
-  table.act(second, ACTION.SEE);
-  table.act(second, ACTION.CHAAL); // seen, pays 2 x stake = 4x boot
+  await table.act(second, ACTION.SEE);
+  await table.act(second, ACTION.CHAAL); // seen, pays 2 x stake = 4x boot
   assert.equal(table.hand.pot, BOOT * 4 + BOOT * 4);
   assert.equal(table.hand.stake, BOOT * 2, 'stake stays in blind units');
 });
 
-test('seeing cards is free, reveals only your hand, and does not pass the turn', () => {
+test('seeing cards is free, reveals only your hand, and does not pass the turn', async () => {
   const { table, seat, advance, last } = makeTable();
   seat('alice');
   seat('bob');
-  advance(baseConfig.nextHandDelayMs);
+  await advance(baseConfig.nextHandDelayMs);
 
   const player = turnUser(table);
   const before = table.findSeat(player).chips;
 
-  table.act(player, ACTION.SEE);
+  await table.act(player, ACTION.SEE);
 
   assert.equal(table.findSeat(player).chips, before, 'seeing costs nothing');
   assert.equal(turnUser(table), player, 'the turn does not move');
   assert.equal(last('cards').userId, player);
   assert.equal(last('cards').cards.length, 3);
-  assert.throws(() => table.act(player, ACTION.SEE), (error) => error.code === 'already_seen');
+  await assert.rejects(table.act(player, ACTION.SEE), (error) => error.code === 'already_seen');
 });
 
-test('bets are capped by the pot limit', () => {
+test('bets are capped by the pot limit', async () => {
   const { table, seat, advance } = makeTable({ potLimitMultiplier: 4 });
   seat('alice');
   seat('bob');
-  advance(baseConfig.nextHandDelayMs);
+  await advance(baseConfig.nextHandDelayMs);
 
   const player = table.findSeat(turnUser(table));
-  table.act(player.userId, ACTION.SEE);
+  await table.act(player.userId, ACTION.SEE);
   // Seen raise would be 4 x boot, and the cap is exactly 4 x boot.
   const options = table.betOptions(player);
   assert.equal(options.chaal, BOOT * 2);
@@ -277,11 +283,11 @@ test('bets are capped by the pot limit', () => {
   assert.equal(options.max, BOOT * 4, 'the ladder stops at the pot limit');
 });
 
-test('a player who cannot afford a bet is offered no bet', () => {
+test('a player who cannot afford a bet is offered no bet', async () => {
   const { table, seat, advance } = makeTable();
   seat('alice');
   seat('bob', BOOT + 10); // can pay the boot, then has 10 left
-  advance(baseConfig.nextHandDelayMs);
+  await advance(baseConfig.nextHandDelayMs);
 
   const poor = table.findSeat('bob');
   const options = table.turnOptions(poor);
@@ -292,14 +298,14 @@ test('a player who cannot afford a bet is offered no bet', () => {
 
 // -------------------------------------------------------------- packing
 
-test('packing forfeits the hand and passes the turn', () => {
+test('packing forfeits the hand and passes the turn', async () => {
   const { table, seat, advance, last } = makeTable();
   for (const id of ['a', 'b', 'c']) seat(id);
-  advance(baseConfig.nextHandDelayMs);
+  await advance(baseConfig.nextHandDelayMs);
 
   const packer = turnUser(table);
   const potBefore = table.hand.pot;
-  table.act(packer, ACTION.PACK);
+  await table.act(packer, ACTION.PACK);
 
   assert.equal(table.findSeat(packer).status, SEAT_STATE.PACKED);
   assert.equal(table.hand.pot, potBefore, 'a pack adds nothing to the pot');
@@ -307,18 +313,18 @@ test('packing forfeits the hand and passes the turn', () => {
   assert.equal(last('action').action, ACTION.PACK);
 });
 
-test('the last player standing takes the pot without a show', () => {
+test('the last player standing takes the pot without a show', async () => {
   const { table, seat, advance, last } = makeTable();
   seat('alice');
   seat('bob');
   seat('carol');
-  advance(baseConfig.nextHandDelayMs);
+  await advance(baseConfig.nextHandDelayMs);
 
   const pot = table.hand.pot;
   const first = turnUser(table);
-  table.act(first, ACTION.PACK);
+  await table.act(first, ACTION.PACK);
   const second = turnUser(table);
-  table.act(second, ACTION.PACK);
+  await table.act(second, ACTION.PACK);
 
   const ended = last('handEnded');
   assert.equal(ended.reason, WIN_REASON.LAST_STANDING);
@@ -329,13 +335,13 @@ test('the last player standing takes the pot without a show', () => {
 
 // -------------------------------------------------------------- timeouts
 
-test('a player who does not act within 25 seconds is packed automatically', () => {
+test('a player who does not act within 25 seconds is packed automatically', async () => {
   const { table, seat, advance, all } = makeTable();
   for (const id of ['a', 'b', 'c']) seat(id);
-  advance(baseConfig.nextHandDelayMs);
+  await advance(baseConfig.nextHandDelayMs);
 
   const stalling = turnUser(table);
-  advance(baseConfig.turnTimeoutMs);
+  await advance(baseConfig.turnTimeoutMs);
 
   assert.equal(table.findSeat(stalling).status, SEAT_STATE.PACKED);
   const timeoutPack = all('action').find(
@@ -345,11 +351,11 @@ test('a player who does not act within 25 seconds is packed automatically', () =
   assert.notEqual(turnUser(table), stalling, 'play continues with the others');
 });
 
-test('the turn clock is announced with a deadline the client can count down', () => {
+test('the turn clock is announced with a deadline the client can count down', async () => {
   const { table, seat, advance, last } = makeTable();
   seat('alice');
   seat('bob');
-  advance(baseConfig.nextHandDelayMs);
+  await advance(baseConfig.nextHandDelayMs);
 
   const turn = last('turn');
   assert.equal(turn.timeoutMs, 25000);
@@ -357,38 +363,38 @@ test('the turn clock is announced with a deadline the client can count down', ()
   assert.ok(turn.options.chaal > 0);
 });
 
-test('acting resets the clock for the next player', () => {
+test('acting resets the clock for the next player', async () => {
   const { table, seat, advance } = makeTable();
   for (const id of ['a', 'b', 'c']) seat(id);
-  advance(baseConfig.nextHandDelayMs);
+  await advance(baseConfig.nextHandDelayMs);
 
-  advance(baseConfig.turnTimeoutMs - 1000); // nearly out of time
+  await advance(baseConfig.turnTimeoutMs - 1000); // nearly out of time
   const player = turnUser(table);
-  table.act(player, ACTION.CHAAL);
+  await table.act(player, ACTION.CHAAL);
 
   const next = turnUser(table);
-  advance(baseConfig.turnTimeoutMs - 1000);
+  await advance(baseConfig.turnTimeoutMs - 1000);
   assert.equal(table.findSeat(next).status, SEAT_STATE.ACTIVE, 'the next player got a full window');
 });
 
 // -------------------------------------------------------------- showdown
 
-test('a show needs exactly two players left', () => {
+test('a show needs exactly two players left', async () => {
   const { table, seat, advance } = makeTable();
   for (const id of ['a', 'b', 'c']) seat(id);
-  advance(baseConfig.nextHandDelayMs);
+  await advance(baseConfig.nextHandDelayMs);
 
-  assert.throws(
-    () => table.act(turnUser(table), ACTION.SHOW),
+  await assert.rejects(
+    table.act(turnUser(table), ACTION.SHOW),
     (error) => error.code === 'show_unavailable',
   );
 });
 
-test('a show reveals both hands and the better hand takes the pot', () => {
+test('a show reveals both hands and the better hand takes the pot', async () => {
   const { table, seat, advance, last } = makeTable();
   seat('alice');
   seat('bob');
-  advance(baseConfig.nextHandDelayMs);
+  await advance(baseConfig.nextHandDelayMs);
 
   setHands(table, {
     alice: ['As', 'Ah', 'Ad'], // trail of aces
@@ -396,7 +402,7 @@ test('a show reveals both hands and the better hand takes the pot', () => {
   });
 
   const caller = turnUser(table);
-  table.act(caller, ACTION.SHOW);
+  await table.act(caller, ACTION.SHOW);
 
   const showdown = last('showdown');
   assert.equal(showdown.reveals.length, 2);
@@ -408,17 +414,17 @@ test('a show reveals both hands and the better hand takes the pot', () => {
   assert.ok(ended.reveals.find((reveal) => reveal.userId === 'alice').handName === 'Trail');
 });
 
-test('paying for a show costs the caller a chaal', () => {
+test('paying for a show costs the caller a chaal', async () => {
   const { table, seat, advance } = makeTable();
   seat('alice');
   seat('bob');
-  advance(baseConfig.nextHandDelayMs);
+  await advance(baseConfig.nextHandDelayMs);
 
   const caller = table.findSeat(turnUser(table));
   const potBefore = table.hand.pot;
   const cost = table.showCost(caller);
 
-  table.act(caller.userId, ACTION.SHOW);
+  await table.act(caller.userId, ACTION.SHOW);
 
   assert.equal(cost, BOOT, 'a blind caller pays the blind stake');
   const settledPot = table.serializeFor('alice');
@@ -426,11 +432,11 @@ test('paying for a show costs the caller a chaal', () => {
   assert.equal(potBefore + cost, BOOT * 2 + BOOT);
 });
 
-test('an exact tie goes to the player who did not call the show', () => {
+test('an exact tie goes to the player who did not call the show', async () => {
   const { table, seat, advance, last } = makeTable();
   seat('alice');
   seat('bob');
-  advance(baseConfig.nextHandDelayMs);
+  await advance(baseConfig.nextHandDelayMs);
 
   // Identical ranks, different suits — a true tie.
   setHands(table, {
@@ -439,17 +445,17 @@ test('an exact tie goes to the player who did not call the show', () => {
   });
 
   const caller = turnUser(table);
-  table.act(caller, ACTION.SHOW);
+  await table.act(caller, ACTION.SHOW);
 
   const ended = last('handEnded');
   assert.notEqual(ended.winnerId, caller, 'the caller loses a tie');
 });
 
-test('the round cap forces a showdown so a pot cannot run forever', () => {
+test('the round cap forces a showdown so a pot cannot run forever', async () => {
   const { table, seat, advance, last } = makeTable({ maxBetRounds: 3 });
   seat('alice');
   seat('bob');
-  advance(baseConfig.nextHandDelayMs);
+  await advance(baseConfig.nextHandDelayMs);
 
   setHands(table, {
     alice: ['As', 'Ks', 'Qs'], // pure sequence
@@ -458,7 +464,7 @@ test('the round cap forces a showdown so a pot cannot run forever', () => {
 
   // Both players keep calling; the cap must end it.
   for (let i = 0; i < 40 && table.hand; i += 1) {
-    table.act(turnUser(table), ACTION.CHAAL);
+    await table.act(turnUser(table), ACTION.CHAAL);
   }
 
   assert.equal(table.hand, null, 'the hand ended on its own');
@@ -469,17 +475,17 @@ test('the round cap forces a showdown so a pot cannot run forever', () => {
 
 // ------------------------------------------------------------ settlement
 
-test('the winner takes the whole pot and everyone else pays what they staked', () => {
+test('the winner takes the whole pot and everyone else pays what they staked', async () => {
   const { table, seat, advance, settled, last } = makeTable();
   seat('alice');
   seat('bob');
-  advance(baseConfig.nextHandDelayMs);
+  await advance(baseConfig.nextHandDelayMs);
 
   setHands(table, { alice: ['As', 'Ah', 'Ad'], bob: ['2s', '7h', '9d'] });
 
   const first = turnUser(table);
-  table.act(first, ACTION.CHAAL); // pot 300
-  table.act(turnUser(table), ACTION.SHOW); // caller pays another 100 -> pot 400
+  await table.act(first, ACTION.CHAAL); // pot 300
+  await table.act(turnUser(table), ACTION.SHOW); // caller pays another 100 -> pot 400
 
   const record = settled.at(-1);
   const ended = last('handEnded');
@@ -495,13 +501,13 @@ test('the winner takes the whole pot and everyone else pays what they staked', (
   assert.equal(record.entries.filter((entry) => entry.isWinner).length, 1, 'exactly one winner');
 });
 
-test('a hand record carries the full audit trail', () => {
+test('a hand record carries the full audit trail', async () => {
   const { table, seat, advance, settled } = makeTable();
   seat('alice');
   seat('bob');
-  advance(baseConfig.nextHandDelayMs);
+  await advance(baseConfig.nextHandDelayMs);
   setHands(table, { alice: ['As', 'Ah', 'Ad'], bob: ['2s', '7h', '9d'] });
-  table.act(turnUser(table), ACTION.SHOW);
+  await table.act(turnUser(table), ACTION.SHOW);
 
   const { hand } = settled.at(-1);
   assert.equal(hand.roomId, 'room-1');
@@ -515,20 +521,20 @@ test('a hand record carries the full audit trail', () => {
   }
 });
 
-test('a player who leaves mid-hand still forfeits their stake', () => {
+test('a player who leaves mid-hand still forfeits their stake', async () => {
   const { table, seat, advance, settled } = makeTable();
   seat('alice');
   seat('bob');
   seat('carol');
-  advance(baseConfig.nextHandDelayMs);
+  await advance(baseConfig.nextHandDelayMs);
 
   const quitter = turnUser(table);
-  table.act(quitter, ACTION.CHAAL);
-  table.removePlayer(quitter, 'left');
+  await table.act(quitter, ACTION.CHAAL);
+  await table.removePlayer(quitter, 'left');
 
   // Finish the hand between the two who stayed.
   const remaining = table.activeSeats.map((player) => player.userId);
-  table.act(turnUser(table), ACTION.PACK);
+  await table.act(turnUser(table), ACTION.PACK);
 
   const record = settled.at(-1);
   const quitterEntry = record.entries.find((entry) => entry.userId === quitter);
@@ -539,52 +545,52 @@ test('a player who leaves mid-hand still forfeits their stake', () => {
   assert.ok(remaining.includes(record.entries.find((entry) => entry.isWinner).userId));
 });
 
-test('the next hand starts automatically and the dealer button moves', () => {
+test('the next hand starts automatically and the dealer button moves', async () => {
   const { table, seat, advance } = makeTable();
   seat('alice');
   seat('bob');
-  advance(baseConfig.nextHandDelayMs);
+  await advance(baseConfig.nextHandDelayMs);
 
   const firstDealer = table.dealerSeat;
-  table.act(turnUser(table), ACTION.PACK); // hand 1 ends
+  await table.act(turnUser(table), ACTION.PACK); // hand 1 ends
 
   assert.equal(table.handNo, 1);
-  advance(baseConfig.nextHandDelayMs);
+  await advance(baseConfig.nextHandDelayMs);
 
   assert.equal(table.handNo, 2, 'a new hand was dealt');
   assert.notEqual(table.dealerSeat, firstDealer, 'the dealer button rotated');
 });
 
-test('play stops when only one funded player remains', () => {
+test('play stops when only one funded player remains', async () => {
   const { table, seat, advance } = makeTable();
   seat('alice');
   seat('bob');
-  advance(baseConfig.nextHandDelayMs);
+  await advance(baseConfig.nextHandDelayMs);
 
-  table.act(turnUser(table), ACTION.PACK);
-  table.removePlayer('bob');
-  advance(baseConfig.nextHandDelayMs * 3);
+  await table.act(turnUser(table), ACTION.PACK);
+  await table.removePlayer('bob');
+  await advance(baseConfig.nextHandDelayMs * 3);
 
   assert.equal(table.state, TABLE_STATE.WAITING);
   assert.equal(table.hand, null);
 });
 
-test('a destroyed table stops all of its timers', () => {
+test('a destroyed table stops all of its timers', async () => {
   const { table, seat, advance } = makeTable();
   seat('alice');
   seat('bob');
-  table.destroy();
-  advance(baseConfig.nextHandDelayMs * 5);
+  await table.destroy();
+  await advance(baseConfig.nextHandDelayMs * 5);
   assert.equal(table.hand, null, 'no hand is dealt after destroy');
 });
 
-test('unknown actions are rejected', () => {
+test('unknown actions are rejected', async () => {
   const { table, seat, advance } = makeTable();
   seat('alice');
   seat('bob');
-  advance(baseConfig.nextHandDelayMs);
-  assert.throws(
-    () => table.act(turnUser(table), 'steal_the_pot'),
+  await advance(baseConfig.nextHandDelayMs);
+  await assert.rejects(
+    table.act(turnUser(table), 'steal_the_pot'),
     (error) => error instanceof GameError && error.code === 'unknown_action',
   );
 });

@@ -27,6 +27,7 @@ class SeatPod extends StatelessWidget {
     required this.deadlineMs,
     required this.totalMs,
     required this.chipsHidden,
+    required this.handLive,
     required this.width,
     required this.avatarUrl,
     this.saying,
@@ -45,6 +46,12 @@ class SeatPod extends StatelessWidget {
   final int deadlineMs;
   final int totalMs;
   final bool chipsHidden;
+
+  /// Whether a hand is still on the table — counting the moment after it ends,
+  /// while the winner is being shown. A seat keeps its status until the next
+  /// deal, so without this a finished hand's bets hang over a table that has
+  /// gone back to waiting for players.
+  final bool handLive;
 
   /// Drives every other size in the pod.
   final double width;
@@ -70,7 +77,11 @@ class SeatPod extends StatelessWidget {
     final t = (progress ?? 0).clamp(0.0, 1.0);
     // Squared, so it holds green for most of the turn and reddens sharply at
     // the end rather than sitting muddy in the middle.
-    final beat = Color.lerp(theme.colorScheme.primary, theme.colorScheme.error, t * t)!;
+    final beat = Color.lerp(
+      theme.colorScheme.primary,
+      theme.colorScheme.error,
+      t * t,
+    )!;
 
     final gap = width * 0.05;
     final below = <Widget>[
@@ -96,16 +107,11 @@ class SeatPod extends StatelessWidget {
       ],
     ];
 
-    final column = <Widget>[
-      _pod(context, s, beat, t),
-      ...below,
-    ];
+    final column = <Widget>[_pod(context, s, beat, t), ...below];
 
     // The bubble goes above the pod whichever way the column runs, so it never
     // ends up underneath the player it belongs to.
-    final bubble = saying == null
-        ? null
-        : _Bubble(text: saying!, width: width);
+    final bubble = saying == null ? null : _Bubble(text: saying!, width: width);
 
     return SizedBox(
       width: width,
@@ -127,8 +133,8 @@ class SeatPod extends StatelessWidget {
     final accent = s.status == SeatState.won
         ? theme.colorScheme.primary
         : onTurn
-            ? beat
-            : theme.colorScheme.outlineVariant;
+        ? beat
+        : theme.colorScheme.outlineVariant;
 
     return _Blink(
       active: onTurn,
@@ -175,12 +181,14 @@ class SeatPod extends StatelessWidget {
                         CircleAvatar(
                           radius: width * 0.09,
                           backgroundColor: theme.colorScheme.tertiaryContainer,
-                          child: Text('D',
-                              style: TextStyle(
-                                fontSize: width * 0.1,
-                                color: theme.colorScheme.onTertiaryContainer,
-                                fontWeight: FontWeight.w800,
-                              )),
+                          child: Text(
+                            'D',
+                            style: TextStyle(
+                              fontSize: width * 0.1,
+                              color: theme.colorScheme.onTertiaryContainer,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
                         ),
                       ],
                     ],
@@ -243,7 +251,9 @@ class SeatPod extends StatelessWidget {
 
     return Container(
       padding: EdgeInsets.symmetric(
-          horizontal: width * 0.07, vertical: width * 0.025),
+        horizontal: width * 0.07,
+        vertical: width * 0.025,
+      ),
       decoration: BoxDecoration(
         color: theme.colorScheme.secondaryContainer,
         borderRadius: BorderRadius.circular(width * 0.1),
@@ -260,20 +270,29 @@ class SeatPod extends StatelessWidget {
           SizedBox(width: width * 0.05),
           // The figure slides up as it changes, so a raise is something the
           // table sees happen rather than a number that was always there.
-          AnimatedSwitcher(
-            duration: const Duration(milliseconds: 280),
-            transitionBuilder: (child, anim) => SlideTransition(
-              position: Tween(begin: const Offset(0, 0.6), end: Offset.zero)
-                  .animate(anim),
-              child: FadeTransition(opacity: anim, child: child),
-            ),
-            child: Text(
-              s.lastBet > 0 ? '$label  ${formatChips(s.lastBet)}' : label,
-              key: ValueKey('${s.lastBet}-${s.isBlind}'),
-              style: TextStyle(
-                fontSize: width * 0.115,
-                color: theme.colorScheme.onSecondaryContainer,
-                fontWeight: FontWeight.w800,
+          // It shrinks to the pod when the figure runs to lakhs or crores.
+          Flexible(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 280),
+                transitionBuilder: (child, anim) => SlideTransition(
+                  position: Tween(
+                    begin: const Offset(0, 0.6),
+                    end: Offset.zero,
+                  ).animate(anim),
+                  child: FadeTransition(opacity: anim, child: child),
+                ),
+                child: Text(
+                  s.lastBet > 0 ? '$label  ${formatChips(s.lastBet)}' : label,
+                  key: ValueKey('${s.lastBet}-${s.isBlind}'),
+                  maxLines: 1,
+                  style: TextStyle(
+                    fontSize: width * 0.115,
+                    color: theme.colorScheme.onSecondaryContainer,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
               ),
             ),
           ),
@@ -290,19 +309,23 @@ class SeatPod extends StatelessWidget {
       tween: Tween(end: s.contributed.toDouble()),
       duration: const Duration(milliseconds: 450),
       curve: Curves.easeOutCubic,
-      builder: (context, value, _) => Text(
-        '${context.watch<GameState>().t.inPot} ${formatChips(value.round())}',
-        style: TextStyle(
-          fontSize: width * 0.1,
-          color: theme.colorScheme.onSurfaceVariant,
-          fontWeight: FontWeight.w600,
+      builder: (context, value, _) => FittedBox(
+        fit: BoxFit.scaleDown,
+        child: Text(
+          '${context.watch<GameState>().t.inPot} ${formatChips(value.round())}',
+          maxLines: 1,
+          style: TextStyle(
+            fontSize: width * 0.1,
+            color: theme.colorScheme.onSurfaceVariant,
+            fontWeight: FontWeight.w600,
+          ),
         ),
       ),
     );
   }
 
   bool _inHand(Seat s) =>
-      s.status == SeatState.active || s.status == SeatState.won;
+      handLive && (s.status == SeatState.active || s.status == SeatState.won);
 
   String? _status(BuildContext context, Seat s) {
     final t = context.watch<GameState>().t;
@@ -407,12 +430,18 @@ class _Bubble extends StatelessWidget {
       child: Container(
         constraints: BoxConstraints(maxWidth: width * 1.9),
         padding: EdgeInsets.symmetric(
-            horizontal: width * 0.09, vertical: width * 0.05),
+          horizontal: width * 0.09,
+          vertical: width * 0.05,
+        ),
         decoration: BoxDecoration(
           color: theme.colorScheme.inverseSurface,
           borderRadius: BorderRadius.circular(width * 0.13),
           boxShadow: const [
-            BoxShadow(color: Color(0x40000000), blurRadius: 8, offset: Offset(0, 3)),
+            BoxShadow(
+              color: Color(0x40000000),
+              blurRadius: 8,
+              offset: Offset(0, 3),
+            ),
           ],
         ),
         child: Text(

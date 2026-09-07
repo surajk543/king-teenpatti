@@ -3,6 +3,10 @@
  *
  * Chips are the product here: every hand must redistribute exactly what was
  * staked, no more and no less, whatever route the hand took to finish.
+ *
+ * Every mutator on the table (act, removePlayer, startHand) runs through its
+ * queue and returns a promise, and `advance` awaits each timer it fires — so
+ * the tests await all of them and are declared async.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -84,52 +88,52 @@ const assertConserved = (record) => {
   );
 };
 
-test('chips are conserved when everyone else packs', () => {
+test('chips are conserved when everyone else packs', async () => {
   const { table, seat, advance, settled } = makeTable();
   for (const id of ['a', 'b', 'c']) seat(id);
-  advance(baseConfig.nextHandDelayMs);
+  await advance(baseConfig.nextHandDelayMs);
 
-  table.act(turnUser(table), ACTION.CHAAL);
-  table.act(turnUser(table), ACTION.PACK);
-  table.act(turnUser(table), ACTION.PACK);
+  await table.act(turnUser(table), ACTION.CHAAL);
+  await table.act(turnUser(table), ACTION.PACK);
+  await table.act(turnUser(table), ACTION.PACK);
 
   assertConserved(settled.at(-1));
 });
 
-test('chips are conserved through a show', () => {
+test('chips are conserved through a show', async () => {
   const { table, seat, advance, settled } = makeTable();
   seat('a');
   seat('b');
-  advance(baseConfig.nextHandDelayMs);
+  await advance(baseConfig.nextHandDelayMs);
   setHands(table, { a: ['As', 'Ah', 'Ad'], b: ['2s', '7h', '9d'] });
 
-  table.act(turnUser(table), ACTION.SEE);
-  table.act(turnUser(table), ACTION.RAISE);
-  table.act(turnUser(table), ACTION.SHOW);
+  await table.act(turnUser(table), ACTION.SEE);
+  await table.act(turnUser(table), ACTION.RAISE);
+  await table.act(turnUser(table), ACTION.SHOW);
 
   assertConserved(settled.at(-1));
 });
 
-test('chips are conserved through a forced showdown', () => {
+test('chips are conserved through a forced showdown', async () => {
   const { table, seat, advance, settled } = makeTable({ maxBetRounds: 4 });
   for (const id of ['a', 'b', 'c']) seat(id);
-  advance(baseConfig.nextHandDelayMs);
+  await advance(baseConfig.nextHandDelayMs);
 
-  for (let i = 0; i < 60 && table.hand; i += 1) table.act(turnUser(table), ACTION.CHAAL);
+  for (let i = 0; i < 60 && table.hand; i += 1) await table.act(turnUser(table), ACTION.CHAAL);
 
   assert.equal(table.hand, null);
   assertConserved(settled.at(-1));
 });
 
-test('chips are conserved when a player leaves mid-hand', () => {
+test('chips are conserved when a player leaves mid-hand', async () => {
   const { table, seat, advance, settled } = makeTable();
   for (const id of ['a', 'b', 'c']) seat(id);
-  advance(baseConfig.nextHandDelayMs);
+  await advance(baseConfig.nextHandDelayMs);
 
   const quitter = turnUser(table);
-  table.act(quitter, ACTION.CHAAL);
-  table.removePlayer(quitter, 'left');
-  table.act(turnUser(table), ACTION.PACK);
+  await table.act(quitter, ACTION.CHAAL);
+  await table.removePlayer(quitter, 'left');
+  await table.act(turnUser(table), ACTION.PACK);
 
   const record = settled.at(-1);
   assertConserved(record);
@@ -139,19 +143,19 @@ test('chips are conserved when a player leaves mid-hand', () => {
   );
 });
 
-test('chips are conserved when every player times out but one', () => {
+test('chips are conserved when every player times out but one', async () => {
   const { table, seat, advance, settled } = makeTable();
   for (const id of ['a', 'b', 'c']) seat(id);
-  advance(baseConfig.nextHandDelayMs);
+  await advance(baseConfig.nextHandDelayMs);
 
-  advance(baseConfig.turnTimeoutMs); // first player packed
-  advance(baseConfig.turnTimeoutMs); // second packed, hand ends
+  await advance(baseConfig.turnTimeoutMs); // first player packed
+  await advance(baseConfig.turnTimeoutMs); // second packed, hand ends
 
   assert.equal(table.hand, null);
   assertConserved(settled.at(-1));
 });
 
-test('the total in play is unchanged across many hands', () => {
+test('the total in play is unchanged across many hands', async () => {
   const { table, seat, advance, bank } = makeTable();
   for (const id of ['a', 'b', 'c', 'd']) seat(id);
 
@@ -159,7 +163,7 @@ test('the total in play is unchanged across many hands', () => {
 
   // Play out a stack of hands with a mix of packs, bets and shows.
   for (let hand = 0; hand < 25; hand += 1) {
-    advance(baseConfig.nextHandDelayMs);
+    await advance(baseConfig.nextHandDelayMs);
     if (!table.hand) break;
 
     let guard = 0;
@@ -168,10 +172,10 @@ test('the total in play is unchanged across many hands', () => {
       const player = table.findSeat(turnUser(table));
       const options = table.turnOptions(player);
 
-      if (options.show) table.act(player.userId, ACTION.SHOW);
-      else if (guard % 4 === 0) table.act(player.userId, ACTION.PACK);
-      else if (options.chaal) table.act(player.userId, ACTION.CHAAL);
-      else table.act(player.userId, ACTION.PACK);
+      if (options.show) await table.act(player.userId, ACTION.SHOW);
+      else if (guard % 4 === 0) await table.act(player.userId, ACTION.PACK);
+      else if (options.chaal) await table.act(player.userId, ACTION.CHAAL);
+      else await table.act(player.userId, ACTION.PACK);
     }
   }
 
@@ -180,7 +184,7 @@ test('the total in play is unchanged across many hands', () => {
   assert.ok(table.handNo > 5, 'a meaningful number of hands actually ran');
 });
 
-test('a settled balance of zero is not treated as a failed settlement', () => {
+test('a settled balance of zero is not treated as a failed settlement', async () => {
   // A player who wins a hand but is left with exactly 0 chips must not have the
   // pot credited twice by the in-memory fallback.
   const { timers, advance } = createFakeTimers();
@@ -194,9 +198,9 @@ test('a settled balance of zero is not treated as a failed settlement', () => {
 
   table.addPlayer({ userId: 'a', displayName: 'A', avatarUrl: null, chips: START, socketId: 's-a' });
   table.addPlayer({ userId: 'b', displayName: 'B', avatarUrl: null, chips: START, socketId: 's-b' });
-  advance(baseConfig.nextHandDelayMs);
+  await advance(baseConfig.nextHandDelayMs);
 
-  table.act(table.seats[table.hand.turnSeat].userId, ACTION.PACK);
+  await table.act(table.seats[table.hand.turnSeat].userId, ACTION.PACK);
 
   for (const seat of table.occupiedSeats) {
     assert.equal(seat.chips, 0, 'the settled balance is used verbatim');

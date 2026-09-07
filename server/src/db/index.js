@@ -1,80 +1,123 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import Database from 'better-sqlite3';
+import pg from 'pg';
 import config from '../config/index.js';
 import logger from '../util/logger.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
-let db = null;
+// PostgreSQL hands BIGINT back as a string, because it may not fit a double.
+// Every BIGINT here is chips or an epoch-ms timestamp — both far inside the
+// safe-integer range — and the rest of the server does arithmetic on them, so
+// they come back as numbers.
+pg.types.setTypeParser(20, (value) => Number(value));
+// SUM() over a BIGINT column comes back as NUMERIC. Nothing in this schema
+// stores a NUMERIC, so the only ones ever read are integer chip totals.
+pg.types.setTypeParser(1700, (value) => Number(value));
+
+let pool = null;
+let schemaName = 'public';
+
+/** Quotes a schema name so it can be interpolated into DDL. */
+const quoteIdent = (name) => `"${String(name).replace(/"/g, '""')}"`;
 
 /**
- * Opens (and, on first call, creates + migrates) the SQLite database.
+ * Opens the connection pool and makes sure the schema and tables exist.
  *
- * SQLite is a single-writer store, so the settings below matter for the
- * 500–1000 concurrent player target: WAL lets readers run while a write is in
- * flight, and `synchronous = NORMAL` avoids an fsync per commit. All gameplay
- * runs from memory — the database is only touched at login, at the end of a
- * hand, and on chip movements.
+ * Idempotent: `schema.sql` is written entirely in terms of IF NOT EXISTS and
+ * CREATE OR REPLACE, so it is safe to run on every boot — and on every test
+ * suite start, each of which uses a schema of its own.
  */
-export function openDatabase(file = config.db.file) {
-  if (db) return db;
+export async function openDatabase({ url = config.db.url, schema = config.db.schema } = {}) {
+  if (pool) return pool;
 
-  if (file !== ':memory:') {
-    fs.mkdirSync(path.dirname(file), { recursive: true });
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(schema)) {
+    throw new Error(`PG_SCHEMA must be a plain identifier, got "${schema}"`);
+  }
+  schemaName = schema;
+
+  // Every connection the pool opens looks in this schema first, so the SQL in
+  // the rest of this directory can name tables without a prefix. Set as a
+  // startup parameter rather than a query per connection, so it is in place
+  // before the connection is ever handed out.
+  const created = new pg.Pool({
+    connectionString: url,
+    max: config.db.poolMax,
+    options: `-c search_path=${schema},public`,
+  });
+  created.on('error', (error) => logger.error('postgres pool error', { error: error.message }));
+
+  const client = await created.connect();
+  try {
+    await client.query(`CREATE SCHEMA IF NOT EXISTS ${quoteIdent(schema)}`);
+    await client.query(`SET search_path TO ${quoteIdent(schema)}, public`);
+    const ddl = fs.readFileSync(path.join(here, 'schema.sql'), 'utf8');
+    await client.query(ddl);
+  } finally {
+    client.release();
   }
 
-  db = new Database(file);
-  db.pragma('journal_mode = WAL');
-  db.pragma('synchronous = NORMAL');
-  db.pragma('foreign_keys = ON');
-  db.pragma('busy_timeout = 5000');
+  pool = created;
+  logger.info('database ready', { url: redact(url), schema });
+  return pool;
+}
 
-  const schema = fs.readFileSync(path.join(here, 'schema.sql'), 'utf8');
-  db.exec(schema);
-  migrate(db);
+export function getPool() {
+  if (!pool) throw new Error('database not open — call openDatabase() first');
+  return pool;
+}
 
-  logger.info('database ready', { file });
-  return db;
+/** One-shot query on the pool. */
+export function query(text, params = []) {
+  return getPool().query(text, params);
 }
 
 /**
- * Adds columns that were introduced after a database was first created.
+ * Runs `fn(client)` inside BEGIN … COMMIT, rolling back on any throw.
  *
- * `CREATE TABLE IF NOT EXISTS` leaves an existing table untouched, so a
- * database made by an earlier build would be missing newer columns. Each ALTER
- * is applied only when the column is genuinely absent, which makes this safe to
- * run on every boot.
+ * Everything that moves chips goes through here, so a bet is either wholly in
+ * the database — wallet, pot, ledger, state — or not there at all.
  */
-function migrate(db) {
-  const columns = new Set(db.prepare('PRAGMA table_info(users)').all().map((row) => row.name));
-
-  const additions = [
-    ['hands_lost', 'INTEGER NOT NULL DEFAULT 0'],
-    ['hands_left_mid', 'INTEGER NOT NULL DEFAULT 0'],
-    ['total_winnings', 'INTEGER NOT NULL DEFAULT 0'],
-    ['milestone_claimed', 'INTEGER NOT NULL DEFAULT 0'],
-    ['next_bonus_at', 'INTEGER NOT NULL DEFAULT 0'],
-    ['avatar_choice', 'TEXT'],
-  ];
-
-  for (const [name, definition] of additions) {
-    if (columns.has(name)) continue;
-    db.exec(`ALTER TABLE users ADD COLUMN ${name} ${definition}`);
-    logger.info('database migrated', { added: name });
+export async function withTransaction(fn) {
+  const client = await getPool().connect();
+  try {
+    await client.query('BEGIN');
+    const result = await fn(client);
+    await client.query('COMMIT');
+    return result;
+  } catch (error) {
+    try {
+      await client.query('ROLLBACK');
+    } catch {
+      // The connection is probably gone; the pool will discard it.
+    }
+    throw error;
+  } finally {
+    client.release();
   }
 }
 
-export function getDatabase() {
-  if (!db) return openDatabase();
-  return db;
+/**
+ * Removes the schema and everything in it. Only for test teardown: a suite
+ * opens its own schema, runs, then throws the whole thing away.
+ */
+export async function dropSchema() {
+  if (!pool) return;
+  if (schemaName === 'public') throw new Error('refusing to drop the public schema');
+  await pool.query(`DROP SCHEMA IF EXISTS ${quoteIdent(schemaName)} CASCADE`);
 }
 
-export function closeDatabase() {
-  if (!db) return;
-  db.close();
-  db = null;
+export async function closeDatabase() {
+  if (!pool) return;
+  const closing = pool;
+  pool = null;
+  await closing.end();
 }
 
-export default { openDatabase, getDatabase, closeDatabase };
+/** Strips the password out of a connection string before it reaches a log. */
+function redact(url) {
+  return String(url).replace(/\/\/([^:]+):[^@]+@/, '//$1:***@');
+}
+
+export default { openDatabase, getPool, query, withTransaction, dropSchema, closeDatabase };

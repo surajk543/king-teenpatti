@@ -9,12 +9,22 @@ import 'package:flutter/material.dart';
 /// canvas and one repaint. Bursts are staggered and seeded per hand, so two
 /// wins in a row do not look identical.
 class Fireworks extends StatefulWidget {
-  const Fireworks({super.key, required this.seed, this.bursts = 6});
+  const Fireworks({
+    super.key,
+    required this.seed,
+    this.bursts = 6,
+    this.focus,
+  });
 
   /// Anything stable for this win — the hand number works — so the pattern is
   /// fixed while the celebration is on screen and different the next time.
   final int seed;
   final int bursts;
+
+  /// Where the bursts gather, as a fraction of this widget's box. Null
+  /// scatters them across it; a point clusters them there — over the winner's
+  /// seat, so the celebration is about a player rather than the room.
+  final Offset? focus;
 
   @override
   State<Fireworks> createState() => _FireworksState();
@@ -47,6 +57,7 @@ class _FireworksState extends State<Fireworks>
               t: _c.value,
               seed: widget.seed,
               bursts: widget.bursts,
+              focus: widget.focus,
               palette: [
                 scheme.secondary,
                 scheme.primary,
@@ -67,12 +78,14 @@ class _FireworksPainter extends CustomPainter {
     required this.t,
     required this.seed,
     required this.bursts,
+    required this.focus,
     required this.palette,
   });
 
   final double t;
   final int seed;
   final int bursts;
+  final Offset? focus;
   final List<Color> palette;
 
   static const int _perBurst = 26;
@@ -82,11 +95,18 @@ class _FireworksPainter extends CustomPainter {
     for (var b = 0; b < bursts; b++) {
       final rng = math.Random(seed * 977 + b * 31);
 
-      // Each burst has its own place, colour and moment in the loop.
-      final origin = Offset(
-        size.width * (0.12 + rng.nextDouble() * 0.76),
-        size.height * (0.10 + rng.nextDouble() * 0.55),
-      );
+      // Each burst has its own place, colour and moment in the loop —
+      // scattered across the table, or gathered around a point when one is
+      // given, with enough spread that they still read as separate bursts.
+      final origin = focus == null
+          ? Offset(
+              size.width * (0.12 + rng.nextDouble() * 0.76),
+              size.height * (0.10 + rng.nextDouble() * 0.55),
+            )
+          : Offset(
+              (focus!.dx + (rng.nextDouble() - 0.5) * 0.30) * size.width,
+              (focus!.dy + (rng.nextDouble() - 0.5) * 0.30) * size.height,
+            );
       final colour = palette[rng.nextInt(palette.length)];
       final start = rng.nextDouble() * 0.7;
 
@@ -124,5 +144,6 @@ class _FireworksPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_FireworksPainter old) => old.t != t || old.seed != seed;
+  bool shouldRepaint(_FireworksPainter old) =>
+      old.t != t || old.seed != seed || old.focus != focus;
 }

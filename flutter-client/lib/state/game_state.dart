@@ -45,6 +45,10 @@ class GameState extends ChangeNotifier {
   /// English by default; the choice is remembered.
   AppLang lang = AppLang.english;
 
+  /// Requirement 34: whether money is written in lakh and crore or in million
+  /// and billion. Indian by default, since that is who the game is for.
+  NumberSystem numbers = NumberSystem.indian;
+
   /// The strings for the chosen language.
   Strings get t => Strings(lang);
 
@@ -57,6 +61,12 @@ class GameState extends ChangeNotifier {
   String? notice;
   bool busy = false;
 
+  /// True from a cold start with a saved session until the server has either
+  /// put the player back at their table or made clear there is none to go
+  /// back to. The lobby is held behind a veil rather than flashed meanwhile.
+  bool resuming = false;
+  Timer? _resumeTimer;
+
   List<Reveal> showdown = const [];
   String showdownResult = '';
 
@@ -68,6 +78,19 @@ class GameState extends ChangeNotifier {
 
   bool get iWon => winnerId != null && winnerId == user?.id;
 
+  /// Clears the winner's banner once its moment has passed.
+  ///
+  /// The banner used to last until the next deal, which is fine while there is
+  /// a next deal. When the last of the other players walks out there is not:
+  /// the table drops back to waiting, the hand number never moves, and the
+  /// winner would sit behind their own celebration forever. So the banner is
+  /// given a life of its own, and the next deal merely cuts it short.
+  Timer? _celebrationTimer;
+
+  /// How long the banner stands when the server has not said when the next
+  /// hand is due — the same six seconds it schedules by default.
+  static const _celebrationFor = Duration(seconds: 6);
+
   final List<ChatMessage> chat = [];
   int unreadChat = 0;
 
@@ -78,6 +101,26 @@ class GameState extends ChangeNotifier {
   final Map<String, Timer> _bubbleTimers = {};
 
   static const bubbleFor = Duration(seconds: 3);
+
+  // ------------------------------------------------------------- sideshow
+
+  /// The two hands of a sideshow this player was part of, while they are still
+  /// on screen. The server sends these to nobody else, so holding them here
+  /// gives no one else sight of them.
+  SideshowReveal? sideshowReveal;
+  Timer? _revealTimer;
+
+  /// How long the two players get to look at the compared hands.
+  static const revealFor = Duration(seconds: 5);
+
+  /// The request currently waiting for an answer, straight from the table
+  /// snapshot so a reconnect mid-request still shows the prompt.
+  PendingSideshow? get sideshow => room?.sideshow;
+
+  /// True when the viewer is the one being asked, and so the one who answers.
+  bool get sideshowIsForMe =>
+      sideshow != null && sideshow!.toUserId == user?.id;
+
 
   String? _token;
   String _deviceId = '';
@@ -101,6 +144,8 @@ class GameState extends ChangeNotifier {
 
     themeMode = prefs.getBool('darkMode') == true ? ThemeMode.dark : ThemeMode.light;
     lang = AppLang.fromCode(prefs.getString('lang'));
+    numbers = NumberSystem.fromName(prefs.getString('numbers'));
+    _publishNumberFormat();
 
     _wire();
     unawaited(_loadPictures());
@@ -111,8 +156,11 @@ class GameState extends ChangeNotifier {
       _token = saved;
       try {
         user = await _api.me(saved);
-        _conn.connect(saved);
         screen = Screen.lobby;
+        // If the app was closed mid-hand the seat may still be held, or the
+        // table remembered; either way the answer comes with the connection.
+        _beginResume();
+        _conn.connect(saved);
       } catch (_) {
         // Expired or revoked — fall back to the sign-in screen.
         _token = null;
@@ -130,18 +178,30 @@ class GameState extends ChangeNotifier {
       _conn.onSession.listen((s) {
         user = s.user;
         config = s.config;
+        if (resuming) {
+          final offer = s.resume;
+          if (offer != null) {
+            // The seat itself lapsed while the app was closed, but the table
+            // is still there: sit back down at it. A refusal — full by now,
+            // or too few chips — comes back as an error and ends the wait.
+            _conn.joinByCode(offer.code);
+            _armResumeFallback(const Duration(seconds: 4));
+          } else {
+            // A held seat's snapshot follows this message on the same socket,
+            // so a short wait is enough to know whether one is coming.
+            _armResumeFallback(const Duration(milliseconds: 900));
+          }
+        }
         notifyListeners();
       }),
       _conn.onState.listen((s) {
+        final restored = resuming;
         final newHand = room?.handNo != s.handNo;
         room = s;
         if (newHand) {
-          // A fresh deal clears the last reveal and resets the stepper.
-          showdown = const [];
-          showdownResult = '';
-          winnerId = null;
-          winnerName = '';
-          winnerPot = 0;
+          // A fresh deal cuts the last celebration short and resets the stepper.
+          _clearSideshow();
+          _clearCelebration();
           raiseIndex = 0;
         }
         final steps = s.you?.options?.raiseSteps ?? const [];
@@ -153,9 +213,13 @@ class GameState extends ChangeNotifier {
           chat.clear();
           unreadChat = 0;
         }
+        if (restored) _endResume(welcome: true);
         notifyListeners();
       }),
       _conn.onShowdown.listen((s) {
+        // The hand is over, so a sideshow reveal still on its five seconds is
+        // dropped rather than left to stack under the winner's banner.
+        _clearSideshow();
         if (s.reveals.isNotEmpty) showdown = s.reveals;
         if (s.result.isNotEmpty) showdownResult = s.result;
         if (s.winnerId != null) {
@@ -163,6 +227,7 @@ class GameState extends ChangeNotifier {
           winnerName = s.winnerName;
           winnerPot = s.pot;
         }
+        _armCelebration(s.nextHandAt);
         notifyListeners();
         unawaited(refreshUser());
       }),
@@ -173,11 +238,10 @@ class GameState extends ChangeNotifier {
         notice = message;
         switching = false;
         room = null;
-        showdown = const [];
-        showdownResult = '';
-        winnerId = null;
         chat.clear();
         saidRecently.clear();
+        _clearSideshow();
+        _clearCelebration();
         screen = Screen.lobby;
         notifyListeners();
         unawaited(refreshUser());
@@ -188,14 +252,35 @@ class GameState extends ChangeNotifier {
         // room closing behind us is not a reason to walk back to the lobby.
         if (switching) return;
         room = null;
-        showdown = const [];
-        showdownResult = '';
-        winnerId = null;
         chat.clear();
         saidRecently.clear();
+        _clearSideshow();
+        _clearCelebration();
         screen = Screen.lobby;
         notifyListeners();
         unawaited(refreshUser());
+      }),
+      _conn.onSideshowAsked.listen((_) {
+        // The request itself arrives in the table snapshot that follows; this
+        // is only the cue to tick the clock the prompt counts down.
+        notifyListeners();
+      }),
+      _conn.onSideshowReveal.listen((reveal) {
+        sideshowReveal = reveal;
+        _revealTimer?.cancel();
+        _revealTimer = Timer(revealFor, () {
+          sideshowReveal = null;
+          notifyListeners();
+        });
+        notifyListeners();
+      }),
+      _conn.onSideshowDone.listen((done) {
+        // Everyone is told what became of it. The two who compared hands are
+        // already looking at the cards, so they are not told twice.
+        if (done.fromUserId == user?.id || done.toUserId == user?.id) {
+          if (!done.accepted) notice = _sideshowRefusedLine(done.reason);
+        }
+        notifyListeners();
       }),
       _conn.onChat.listen((m) {
         chat.add(m);
@@ -225,10 +310,36 @@ class GameState extends ChangeNotifier {
       }),
       _conn.onError.listen((e) {
         notice = e;
+        // A refused rejoin is an answer too: there is nothing to resume.
+        if (resuming) _endResume();
         notifyListeners();
       }),
       _conn.onConnected.listen((_) => notifyListeners()),
     ]);
+  }
+
+  // ---------------------------------------------------------------- resume
+
+  void _beginResume() {
+    resuming = true;
+    // Whatever happens — no network, a slow server — the lobby is never held
+    // back for long.
+    _armResumeFallback(const Duration(seconds: 8));
+  }
+
+  void _armResumeFallback(Duration after) {
+    _resumeTimer?.cancel();
+    _resumeTimer = Timer(after, _endResume);
+  }
+
+  /// Lifts the veil. [welcome] greets a player who was put back at a table.
+  void _endResume({bool welcome = false}) {
+    _resumeTimer?.cancel();
+    _resumeTimer = null;
+    if (!resuming) return;
+    resuming = false;
+    if (welcome) notice = t.welcomeBack;
+    notifyListeners();
   }
 
   // ------------------------------------------------------------------ auth
@@ -345,10 +456,34 @@ class GameState extends ChangeNotifier {
   Future<void> setLanguage(AppLang next) async {
     if (next == lang) return;
     lang = next;
+    // The unit names are part of the language, so they follow it.
+    _publishNumberFormat();
 
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('lang', next.code);
     notifyListeners();
+  }
+
+  Future<void> setNumberSystem(NumberSystem next) async {
+    if (next == numbers) return;
+    numbers = next;
+    _publishNumberFormat();
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('numbers', next.name);
+    notifyListeners();
+  }
+
+  /// Hands the current choice and the current language's words for the units
+  /// to [formatChips], which every part of the UI writing money goes through.
+  void _publishNumberFormat() {
+    chipNumberSystem = numbers;
+    chipUnits = (
+      lakh: t.unitLakh,
+      crore: t.unitCrore,
+      million: t.unitMillion,
+      billion: t.unitBillion,
+    );
   }
 
   Future<void> toggleTheme() async {
@@ -398,6 +533,20 @@ class GameState extends ChangeNotifier {
   void see() => _conn.act(GameAction.see);
   void pack() => _conn.act(GameAction.pack);
   void show(int amount) => _conn.act(GameAction.show, amount: amount);
+
+  /// Requirement: ask the player on your right to compare hands.
+  ///
+  /// Whether this is allowed at all is the server's call — the button is only
+  /// lit when the server says so, and asking anyway is refused there.
+  void askSideshow() => _conn.act(GameAction.sideshow);
+
+  void answerSideshow(bool accept) => _conn.respondToSideshow(accept);
+
+  String _sideshowRefusedLine(String reason) => switch (reason) {
+        'timeout' => t.sideshowTimedOut,
+        'left' => t.sideshowCancelled,
+        _ => t.sideshowDeclined,
+      };
 
   void sendChat(String text) {
     if (text.trim().isEmpty) return;
@@ -508,8 +657,42 @@ class GameState extends ChangeNotifier {
     return options[hash % options.length];
   }
 
+  /// Starts the banner's clock, running to the next deal the server has
+  /// scheduled, or to a plain six seconds when it has not scheduled one.
+  void _armCelebration(int nextHandAt) {
+    final left = nextHandAt <= 0
+        ? _celebrationFor
+        : Duration(
+            milliseconds: nextHandAt - DateTime.now().millisecondsSinceEpoch);
+
+    _celebrationTimer?.cancel();
+    _celebrationTimer = Timer(left.isNegative ? Duration.zero : left, () {
+      _clearCelebration();
+      notifyListeners();
+    });
+  }
+
+  void _clearCelebration() {
+    _celebrationTimer?.cancel();
+    _celebrationTimer = null;
+    showdown = const [];
+    showdownResult = '';
+    winnerId = null;
+    winnerName = '';
+    winnerPot = 0;
+  }
+
+  void _clearSideshow() {
+    _revealTimer?.cancel();
+    _revealTimer = null;
+    sideshowReveal = null;
+  }
+
   @override
   void dispose() {
+    _clearSideshow();
+    _resumeTimer?.cancel();
+    _celebrationTimer?.cancel();
     _ticker?.cancel();
     for (final t in _bubbleTimers.values) {
       t.cancel();
@@ -524,7 +707,74 @@ class GameState extends ChangeNotifier {
 
 /// 1234567 -> "12,34,567" is the Indian grouping, but the server and the web
 /// client both use plain thousands, so this matches them.
+/// How large numbers are written (requirement 34).
+enum NumberSystem {
+  /// Lakh and crore: 10,00,000 reads as 10 Lakh.
+  indian,
+
+  /// Million and billion: the same figure reads as 1 Million.
+  international;
+
+  static NumberSystem fromName(String? name) => NumberSystem.values.firstWhere(
+        (system) => system.name == name,
+        orElse: () => NumberSystem.indian,
+      );
+}
+
+/// The system money is written in, and the words for its units.
+///
+/// Module-level rather than threaded through every call: [formatChips] is used
+/// at nearly thirty places, all of them presentation, and this is one setting a
+/// player picks once. [GameState] owns it — it sets these when the preference
+/// or the language changes and republishes, so everything showing money
+/// rebuilds with the rest of the UI.
+NumberSystem chipNumberSystem = NumberSystem.indian;
+({String lakh, String crore, String million, String billion}) chipUnits =
+    (lakh: 'Lakh', crore: 'Crore', million: 'Million', billion: 'Billion');
+
+/// Where abbreviating starts. Below this a figure is short enough to read
+/// digit by digit, and rounding it would only lose information.
+const int _abbreviateAbove = 100000;
+
+/// Money, as the player has asked to see it.
+///
+/// Small amounts stay exact and grouped. Large ones are named in the current
+/// system, to four decimals with trailing zeros dropped — enough that 3,24,011
+/// still reads as 3.2401 Lakh rather than collapsing to a rounded 3 Lakh.
 String formatChips(int n) {
+  final magnitude = n.abs();
+  if (magnitude > _abbreviateAbove) {
+    final unit = _unitFor(magnitude);
+    if (unit != null) {
+      return '${n < 0 ? '-' : ''}${_trim(magnitude / unit.$1)} ${unit.$2}';
+    }
+  }
+  return _grouped(n);
+}
+
+/// The largest unit that fits, or null when the figure is better left in
+/// digits — which in the international system is anything under a million.
+(int, String)? _unitFor(int magnitude) => switch (chipNumberSystem) {
+      NumberSystem.indian => magnitude >= 10000000
+          ? (10000000, chipUnits.crore)
+          : (100000, chipUnits.lakh),
+      NumberSystem.international => magnitude >= 1000000000
+          ? (1000000000, chipUnits.billion)
+          : magnitude >= 1000000
+              ? (1000000, chipUnits.million)
+              : null,
+    };
+
+/// Two decimals at most, and none of the trailing zeros that come with them:
+/// 3.24 Lakh, 12 Lakh, 32.77 Crore. Two is what a player can take in at a
+/// glance across the table; the exact figure is always a tap away in the menu.
+String _trim(double value) {
+  final text = value.toStringAsFixed(2);
+  if (!text.contains('.')) return text;
+  return text.replaceFirst(RegExp(r'\.?0+$'), '');
+}
+
+String _grouped(int n) {
   final s = n.abs().toString();
   final b = StringBuffer(n < 0 ? '-' : '');
   for (var i = 0; i < s.length; i++) {

@@ -1,19 +1,22 @@
 # King Teen Patti — Server
 
-Authoritative game server: Node.js 20+, Socket.IO 4, SQLite (better-sqlite3).
+Authoritative game server: Node.js 20+, Socket.IO 4, PostgreSQL (via `pg`).
 
 ## Running
 
 ```bash
 npm install
 cp .env.example .env      # set JWT_SECRET; add provider credentials if you want Google/Facebook
-npm start                 # http://localhost:3000
+npm start                 # http://localhost:3000 — needs PostgreSQL (see Database below)
 npm run dev               # with --watch
-npm test                  # 194 tests
+npm test                  # every suite; the process suites need PostgreSQL too
 ```
 
-The bundled browser client is served from `/` — useful for playing, for filling a table while
-testing the Unity build, and as a reference implementation of the protocol.
+PostgreSQL must be reachable at `DATABASE_URL` (default
+`postgres://postgres:postgres@localhost:5432/gameplay`). The schema is created on boot.
+
+The bundled browser client is served from `/` — a zero-build reference implementation of the
+protocol, handy for filling a table while testing. The live client is `../flutter-client`.
 
 ## Configuration
 
@@ -26,14 +29,27 @@ The settings you are most likely to change:
 | `GOOGLE_CLIENT_IDS` | — | Comma-separated OAuth client ids (web, android, ios). |
 | `FACEBOOK_APP_ID` / `FACEBOOK_APP_SECRET` | — | Used to verify access tokens. |
 | `AUTH_ALLOW_FAKE_PROVIDERS` | `false` | Dev only. Skips provider verification. Forced off in production. |
+| `DATABASE_URL` | `postgres://postgres:postgres@localhost:5432/gameplay` | PostgreSQL connection string. |
+| `PG_SCHEMA` | `public` | Schema the tables live in. Tests use a throwaway schema each. |
+| `PG_POOL_MAX` | `10` | Connection pool size. |
 | `WELCOME_CHIPS` | `200000` | First-login grant (2 lakh). |
-| `BOOT_AMOUNT` | `100` | Default ante. |
+| `BOOT_AMOUNT` | `200` | Default ante. |
 | `TURN_TIMEOUT_MS` | `25000` | Turn clock. |
-| `MAX_BET_ROUNDS` | `20` | Rounds before a forced showdown. |
-| `MAX_RAISE_STEPS` | `8` | Rungs on the +/− raise ladder. |
+| `MAX_BET_ROUNDS` | `20` | Rounds before a forced showdown (default tables; seen and blind override it). |
+| `MAX_RAISE_STEPS` | `8` | Rungs on the +/− raise ladder (default tables; seen and blind override it). |
 | `TABLE_STAKES` | `200,5000` | Stakes the lobby offers. Empty means any stake is allowed. |
+| `LOBBY_TABLES` | `seen:200,blind:200,blind:5000` | The rooms on the menu, as `category:boot` pairs, in display order. |
+| `SEEN_MAX_POT` | `1200000` | Seen tables: pot ceiling (0 = uncapped). Blind tables are uncapped. |
+| `MAX_BLIND_MOVES` | `4` | Blind bets before the cards turn face up by themselves. |
+| `ENTRY_CAP_BOOT` / `ENTRY_CAP_CATEGORY` / `ENTRY_CAP_MAX_CHIPS` | `200` / `blind` / `500000` | Players above the cap cannot join that table from the lobby. |
+| `MAX_MISSED_TURNS` | `3` | Consecutive timed-out turns before the seat is given up. |
+| `SIDESHOW_TIMEOUT_MS` / `SIDESHOW_MIN_PLAYERS` | `6000` / `3` | Sideshow request window and minimum active players. |
+| `DISPLAY_NAME_MAX` | `24` | Longest display name accepted. |
+| `NEXT_HAND_DELAY_MS` / `RECONNECT_GRACE_MS` | `4000` / `60000` | Countdown before a deal; how long a dropped connection keeps its seat. |
+| `RESUME_OFFER_MS` | `600000` | After the seat lapses, how long the table a player fell off is offered back on their next sign-in (`session:ready.resume`). |
 | `SEEN_MAX_RAISE_STEPS` | `2` | Seen tables: one double per turn. |
 | `SEEN_MAX_BET_ROUNDS` | `7` | Seen tables: showdown after 7 rounds. |
+| `BLIND_MAX_RAISE_STEPS` / `BLIND_MAX_BET_ROUNDS` / `BLIND_POT_LIMIT_MULTIPLIER` | `0` / `0` / `0` | Blind tables: 0 = no limit. The ladder runs to the player's stack, no per-bet ceiling, and no forced showdown — the turn rotates until a pack or a show. |
 | `PRIVATE_MAX_POT` | `500000` | Private tables: pot ceiling. |
 | `PRIVATE_MAX_RAISE_STEPS` | `2` | Private tables: one double per turn. |
 | `CONSOLIDATE_INTERVAL_MS` | `15000` | How often half-empty rooms are merged. |
@@ -55,6 +71,7 @@ Production refuses to boot with a default `JWT_SECRET` or with fake providers en
 | `POST` | `/api/rewards/bonus` | Bearer token | Collects the 10,000 chip bonus and restarts its 4-hour countdown |
 | `GET` | `/api/profiles` | — | `{profiles}` — the bundled pictures a player may choose |
 | `POST` | `/api/profile/avatar` | `{avatar}` + token | Chooses a picture; `null` restores the provider one. Refused while seated |
+| `POST` | `/api/profile/name` | `{name}` + token | Changes the display name (letters, digits, spaces). Refused while seated |
 | `GET` | `/health` | — | `{ok, uptime, tables, players, activeHands}` |
 
 Login bodies by provider:
@@ -85,7 +102,9 @@ io("http://localhost:3000", { auth: { token }, transports: ["websocket", "pollin
 | `room:create` | `{bootAmount, isPrivate, category}` | `{ok, roomId, code, category}` | |
 | `room:joinCode` | `{code}` | `{ok, roomId, code}` | |
 | `room:leave` | `{}` | `{ok, roomId}` | Mid-hand this counts as a pack |
-| `game:action` | `{action, amount?}` | `{ok}` or `{ok:false, code, message}` | `see` \| `chaal` \| `raise` \| `pack` \| `show`. `amount` is the rung picked on the +/− stepper; omit it for the default |
+| `game:action` | `{action, amount?, actionId?}` | `{ok}` or `{ok:false, code, message}` | `see` \| `chaal` \| `raise` \| `pack` \| `show` \| `sideshow`. `amount` is the rung picked on the +/− stepper; omit it for the default. `actionId` is the client's own id for the move — it is unique on the ledger, so a repeated request is refused (`duplicate_action`) rather than charged twice |
+| `game:sideshowRespond` | `{accept}` | `{ok, accepted, packedUserId}` | Only the player who was asked may answer; the request lapses by itself after `SIDESHOW_TIMEOUT_MS` |
+| `room:switch` | `{}` | `{ok, roomId, code, category}` | Moves to another table at the same stake and category (not entry-cap checked) |
 | `player:requestCards` | `{}` | `{cards}` | Re-fetch your own hand after a reconnect |
 | `chat:message` | `{text}` | `{ok, messageId}` | Room-scoped |
 | `chat:history` | `{}` | `{count}` | Re-pull the backlog |
@@ -107,6 +126,9 @@ io("http://localhost:3000", { auth: { token }, transports: ["websocket", "pollin
 | `game:action` | `{userId, action, amount, pot, stake, reason}` | room |
 | `game:showdown` | `{reveals, reason}` | room |
 | `game:handEnded` | `{winnerId, winnerName, pot, reason, reveals, summary, nextHandAt}` | room |
+| `game:sideshowRequested` / `game:sideshowResolved` | who asked whom, the outcome — never cards | room |
+| `game:sideshowReveal` | `{reveal: {hands, packedUserId}}` | **only the two players comparing** |
+| `room:kicked` | `{roomId, reason, message}` | you, when the table shows you out (`idle`, `insufficient_chips`) |
 | `player:cards` | `{cards}` | **only that player**, only after `see` |
 | `chat:history` | `{roomId, messages}` | you, on join |
 | `chat:message` | `{id, userId, displayName, text, at, system}` | room |
@@ -238,27 +260,41 @@ the headroom rather than only equality matters — otherwise a player could be l
 nothing legal to do but fold.
 
 **Timeouts.** A player who does not act inside `TURN_TIMEOUT_MS` is packed and play continues.
+A reconnecting player is put straight back at their table: `session:ready` is followed by
+`room:joined` with their own view of the hand (cards included if already seen). Once the seat
+has lapsed, `session:ready` carries `resume: { roomId, code, category, bootAmount }` for
+`RESUME_OFFER_MS` after the drop, provided the table still exists and has room; the client
+takes it up with an ordinary `room:joinCode`. Leaving on purpose, or being kicked, leaves no
+offer. The offer is made once.
+
 A disconnected player keeps their seat for `RECONNECT_GRACE_MS`, but their turn still times out
 normally — dropping your connection is not a way to stall a table.
 
 ## Database
 
-Three tables (see [schema.sql](src/db/schema.sql)):
+PostgreSQL. Five tables (see [schema.sql](src/db/schema.sql)); the schema is applied on every boot
+and is fully idempotent.
 
-- `users` — one row per `(provider, provider_user_id)`, holding chips and lifetime stats.
+- `users` — one row per `(provider, provider_user_id)`. `chips` is the wallet (`CHECK (chips >= 0)`).
 - `hands` — one row per completed hand, with a JSON summary of every seat, for auditing.
-- `chip_ledger` — every chip movement, with the resulting balance. `users.chips` can be
-  reconciled against this at any time. Reward grants appear here as `milestone_reward` and
-  `timed_bonus`, so free chips are as auditable as anything won at a table.
+- `pots` — one row per hand: opened when the boots are collected, grown by every bet, closed to the
+  winner at settlement.
+- `chip_ledger` — **append-only** (a trigger refuses UPDATE and DELETE). Every chip movement, with
+  the resulting balance and the client's `action_id`, which is UNIQUE — a retried bet can never
+  deduct twice. `SUM(delta)` per user must always equal `users.chips`.
+- `game_states` — the authoritative snapshot of each live table with a monotonically rising
+  `version`; a write carrying an older version is refused.
 
-`users` also carries the play record and reward state: `hands_played`, `hands_won`, `hands_lost`,
-`hands_left_mid`, `total_winnings`, `milestone_claimed` (the highest milestone already collected)
-and `next_bonus_at` (when the timed bonus unlocks). Columns added after a database was first created
-are applied by an idempotent migration on boot, so an existing `teenpatti.db` upgrades in place.
+**Money is database-first.** A bet is validated in memory (turn, amount, balance), then written as
+one transaction — lock the wallet row `FOR UPDATE`, deduct, add to the pot, append the ledger row,
+save the table state/version — and only once that has committed does the table change what it
+holds in memory and broadcast to players. A write that fails leaves the game exactly as it was and
+the player's move is refused (`persist_failed`, `insufficient_chips`, `duplicate_action`). The
+boots for a hand are collected the same way before a card is dealt, and settlement pays the winner
+in the same shape. See [ledger.js](src/db/ledger.js).
 
-SQLite runs in WAL mode with `synchronous = NORMAL`. All gameplay is in memory; the database is
-touched at login, once per completed hand, and on chip grants. A crash mid-hand loses that hand's
-bets rather than half-applying them — bets never reach the database until the hand settles.
+Because those writes are asynchronous, every mutation of a table runs through a per-table queue,
+so a turn timeout can never interleave with a bet that is halfway to the database.
 
 ## Scaling
 
@@ -274,8 +310,8 @@ So horizontal scaling means **sharding rooms**, not just adding processes:
 1. Run N game processes, each owning its own tables.
 2. Put a router in front that assigns a player to a process and keeps them there (consistent
    hashing on room code, or a lobby service that hands out a process address on join).
-3. Keep SQLite per process, or move to Postgres/MySQL if you want one shared account store —
-   `src/db/users.js` is the only module that would change.
+3. Accounts already live in one shared PostgreSQL database, so processes can share players; the
+   thing that must not be shared is a *table*, which is why rooms have to be sharded.
 
 Sticky sessions alone are **not** sufficient; they keep a socket on one process but do not stop two
 players being routed to different processes for the same room.
@@ -291,13 +327,14 @@ src/
 │   ├── tokens.js       Session JWTs
 │   └── routes.js       REST endpoints
 ├── db/
-│   ├── schema.sql      Tables and indexes
-│   ├── index.js        Connection, WAL pragmas, migration on boot
-│   └── users.js        Accounts, chip ledger, hand settlement
+│   ├── schema.sql      Tables, indexes, the append-only ledger trigger
+│   ├── index.js        pg connection pool, schema bootstrap, transactions
+│   ├── ledger.js       The money transactions: boot, bet, settle
+│   └── users.js        Accounts, rewards, names and pictures
 ├── game/
 │   ├── deck.js         Crypto-secure shuffle and dealing
 │   ├── handRank.js     Hand evaluation and comparison
-│   ├── table.js        The game state machine (turn order, betting, showdown)
+│   ├── table.js        The game state machine — async, database-first (turn order, betting, sideshow, showdown)
 │   ├── chat.js         Per-room in-memory chat buffer
 │   ├── roomManager.js  Table lifecycle, matchmaking, sweeping
 │   └── constants.js    Shared enums

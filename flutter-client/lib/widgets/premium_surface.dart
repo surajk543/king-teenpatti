@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../theme/app_theme.dart';
+
 /// The app's one raised-surface treatment: a tinted gradient, a lit edge in an
 /// accent colour, and a shadow.
 ///
@@ -45,6 +47,9 @@ class PremiumSurface extends StatelessWidget {
       scheme.surfaceContainerHigh,
     );
     final bottom = dark ? scheme.surfaceContainerLowest : scheme.surfaceContainerLow;
+    // The same tinted shadow the buttons cast, so everything in the app is lit
+    // from one place.
+    final shadow = AppTheme.shadowFor(theme.brightness);
 
     return DecoratedBox(
       decoration: BoxDecoration(
@@ -58,19 +63,61 @@ class PremiumSurface extends StatelessWidget {
           color: accent.withValues(alpha: dark ? 0.55 : 0.35),
           width: borderWidth,
         ),
+        // Three layers rather than one. A single soft shadow reads as a blur
+        // behind the card; a tight contact shadow under the edge, a broader
+        // ambient one, and a faint bloom in the card's own accent is what makes
+        // it read as an object sitting on something.
         boxShadow: elevated
             ? [
                 BoxShadow(
-                  color: Colors.black.withValues(alpha: dark ? 0.55 : 0.14),
-                  blurRadius: 18,
-                  offset: const Offset(0, 8),
+                  color: shadow.withValues(alpha: dark ? 0.62 : 0.16),
+                  blurRadius: 6,
+                  offset: const Offset(0, 2),
+                ),
+                BoxShadow(
+                  color: shadow.withValues(alpha: dark ? 0.45 : 0.13),
+                  blurRadius: 22,
+                  offset: const Offset(0, 10),
+                ),
+                BoxShadow(
+                  color: accent.withValues(alpha: dark ? 0.20 : 0.13),
+                  blurRadius: 30,
+                  spreadRadius: -6,
+                  offset: const Offset(0, 6),
                 ),
               ]
             : null,
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(radius),
-        child: glint ? Glint(child: child) : child,
+        child: Stack(
+          children: [
+            glint ? Glint(child: child) : child,
+            // Light catching the top bevel. Two or three pixels of brightness
+            // along the upper edge is what separates a panel from a rectangle
+            // of colour, and it costs nothing to draw.
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              height: radius,
+              child: IgnorePointer(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        Colors.white.withValues(alpha: dark ? 0.10 : 0.34),
+                        Colors.white.withValues(alpha: 0),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

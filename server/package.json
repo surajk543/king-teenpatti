@@ -1,7 +1,7 @@
 {
   "name": "king-teenpatti-server",
   "version": "1.0.0",
-  "description": "Turn-based Teen Patti game server (Node.js + Socket.IO + SQLite)",
+  "description": "Turn-based Teen Patti game server (Node.js + Socket.IO + PostgreSQL)",
   "type": "module",
   "main": "src/index.js",
   "engines": {
@@ -16,11 +16,11 @@
   },
   "dependencies": {
     "@socket.io/redis-adapter": "^8.3.0",
-    "better-sqlite3": "^11.5.0",
     "dotenv": "^16.4.5",
     "express": "^4.21.1",
     "google-auth-library": "^9.14.2",
     "jsonwebtoken": "^9.0.2",
+    "pg": "^8.23.0",
     "redis": "^4.7.0",
     "socket.io": "^4.8.1"
   },

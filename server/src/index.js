@@ -12,7 +12,7 @@ import { attachSocketHandlers } from './socket/index.js';
 import logger from './util/logger.js';
 
 export async function createServer() {
-  openDatabase();
+  await openDatabase();
 
   const app = express();
   app.disable('x-powered-by');
@@ -41,7 +41,7 @@ export async function createServer() {
     });
   });
 
-  // Bundled browser client — lets you play in a tab without a Unity build.
+  // Bundled browser client — a zero-build reference client.
   app.use(express.static(path.join(config.rootDir, 'public')));
 
   app.use((error, req, res, next) => {
@@ -96,15 +96,15 @@ if (isEntrypoint) {
     });
   });
 
-  const shutdown = (signal) => {
+  const shutdown = async (signal) => {
     logger.info('shutting down', { signal });
-    io.close();
-    rooms.shutdown();
-    server.close(() => {
-      closeDatabase();
-      process.exit(0);
-    });
     setTimeout(() => process.exit(1), 8000).unref();
+    io.close();
+    // Live hands are settled (their pots paid out) before the pool closes.
+    await rooms.shutdown();
+    await new Promise((resolve) => server.close(resolve));
+    await closeDatabase();
+    process.exit(0);
   };
 
   process.on('SIGINT', () => shutdown('SIGINT'));

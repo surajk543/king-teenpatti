@@ -4,6 +4,10 @@
  * The account has to be right at every moment, not just at the end of a hand:
  * a process that dies mid-hand must not hand everybody their stake back, and a
  * player who walks out mid-hand does not get their contribution returned.
+ *
+ * Every mutator on the table (act, removePlayer, startHand) runs through its
+ * queue and returns a promise, and `advance` awaits each timer it fires — so
+ * the tests await all of them and are declared async.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -31,6 +35,9 @@ const baseConfig = {
 /**
  * A table backed by a toy ledger, so the test can watch the account move
  * rather than only inspecting the seats.
+ *
+ * `persistChips` is called once per participant for the boot (reason 'boot')
+ * and once per bet or show; a throw from it would refuse the move outright.
  */
 function makeTable(overrides = {}) {
   const { timers, advance } = createFakeTimers();
@@ -78,11 +85,11 @@ function makeTable(overrides = {}) {
 const turnUser = (table) => table.seats[table.hand.turnSeat].userId;
 const total = (accounts) => [...accounts.values()].reduce((a, b) => a + b, 0);
 
-test('the boot leaves the account the moment it is posted', () => {
+test('the boot leaves the account the moment it is posted', async () => {
   const { table, seat, advance, accounts } = makeTable();
   seat('alice');
   seat('bob');
-  advance(baseConfig.nextHandDelayMs);
+  await advance(baseConfig.nextHandDelayMs);
 
   // Both antes are already gone, before anyone has acted.
   assert.equal(accounts.get('alice'), START - BOOT);
@@ -90,30 +97,30 @@ test('the boot leaves the account the moment it is posted', () => {
   assert.equal(table.hand.pot, BOOT * 2);
 });
 
-test('every chaal is banked as it is made', () => {
+test('every chaal is banked as it is made', async () => {
   const { table, seat, advance, accounts } = makeTable();
   seat('alice');
   seat('bob');
-  advance(baseConfig.nextHandDelayMs);
+  await advance(baseConfig.nextHandDelayMs);
 
   const player = turnUser(table);
   const before = accounts.get(player);
   const stake = table.hand.stake;
 
-  table.act(player, ACTION.CHAAL);
+  await table.act(player, ACTION.CHAAL);
 
   assert.equal(accounts.get(player), before - stake, 'the account moved with the bet');
   assert.equal(table.findSeat(player).chips, accounts.get(player), 'seat and account agree');
 });
 
-test('the winner is paid the pot and nobody is charged twice', () => {
+test('the winner is paid the pot and nobody is charged twice', async () => {
   const { table, seat, advance, accounts } = makeTable();
   seat('alice');
   seat('bob');
-  advance(baseConfig.nextHandDelayMs);
+  await advance(baseConfig.nextHandDelayMs);
 
   const first = turnUser(table);
-  table.act(first, ACTION.CHAAL);
+  await table.act(first, ACTION.CHAAL);
 
   const loser = turnUser(table);
   const pot = table.hand.pot;
@@ -121,71 +128,71 @@ test('the winner is paid the pot and nobody is charged twice', () => {
   const winnerBefore = accounts.get(winner);
   const loserBefore = accounts.get(loser);
 
-  table.act(loser, ACTION.PACK);
+  await table.act(loser, ACTION.PACK);
 
   assert.equal(accounts.get(winner), winnerBefore + pot, 'paid exactly the pot');
   assert.equal(accounts.get(loser), loserBefore, 'already paid; not charged again');
   assert.equal(total(accounts), START * 2, 'chips are conserved');
 });
 
-test('a player who walks out mid-hand does not get their stake back', () => {
+test('a player who walks out mid-hand does not get their stake back', async () => {
   const { table, seat, advance, accounts } = makeTable();
   seat('alice');
   seat('bob');
   seat('carol');
-  advance(baseConfig.nextHandDelayMs);
+  await advance(baseConfig.nextHandDelayMs);
 
   const quitter = turnUser(table);
-  table.act(quitter, ACTION.CHAAL);
+  await table.act(quitter, ACTION.CHAAL);
 
   const staked = table.findSeat(quitter).contributed;
   const afterBetting = accounts.get(quitter);
   assert.equal(afterBetting, START - staked);
 
-  table.removePlayer(quitter, 'left');
+  await table.removePlayer(quitter, 'left');
 
   // Walking out settles nothing back: the chips are in the pot and stay there.
   assert.equal(accounts.get(quitter), START - staked, 'stake stays in the pot');
 
   // And when the hand finishes, they are still not refunded.
   while (table.hand && table.activeSeats.length > 1) {
-    table.act(turnUser(table), ACTION.PACK);
+    await table.act(turnUser(table), ACTION.PACK);
   }
   assert.equal(accounts.get(quitter), START - staked, 'still not refunded at settlement');
   assert.equal(total(accounts), START * 3, 'chips are conserved');
 });
 
-test('chips are conserved across a long hand of raises', () => {
+test('chips are conserved across a long hand of raises', async () => {
   const { table, seat, advance, accounts } = makeTable();
   seat('alice');
   seat('bob');
   seat('carol');
-  advance(baseConfig.nextHandDelayMs);
+  await advance(baseConfig.nextHandDelayMs);
 
   for (let i = 0; i < 9 && table.hand; i++) {
     const player = turnUser(table);
     const options = table.betOptions(table.findSeat(player));
     // Raise when there is a rung to raise to, otherwise call.
-    table.act(player, options.steps.length > 1 ? ACTION.RAISE : ACTION.CHAAL,
+    await table.act(player, options.steps.length > 1 ? ACTION.RAISE : ACTION.CHAAL,
       { amount: options.steps.length > 1 ? options.steps[1] : options.steps[0] });
   }
 
   while (table.hand && table.activeSeats.length > 1) {
-    table.act(turnUser(table), ACTION.PACK);
+    await table.act(turnUser(table), ACTION.PACK);
   }
 
   assert.equal(total(accounts), START * 3, 'nothing was created or destroyed');
 });
 
-test('a seat and its account never disagree', () => {
+test('a seat and its account never disagree', async () => {
   const { table, seat, advance, accounts } = makeTable();
   seat('alice');
   seat('bob');
-  advance(baseConfig.nextHandDelayMs);
+  await advance(baseConfig.nextHandDelayMs);
 
   for (let i = 0; i < 4 && table.hand; i++) {
     const player = turnUser(table);
-    table.act(player, ACTION.CHAAL);
+    await table.act(player, ACTION.CHAAL);
 
     for (const s of table.occupiedSeats) {
       if (s.status === SEAT_STATE.ACTIVE) {
