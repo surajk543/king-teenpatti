@@ -626,9 +626,36 @@ class GameState extends ChangeNotifier {
         _ => t.sideshowDeclined,
       };
 
-  void sendChat(String text) {
-    if (text.trim().isEmpty) return;
+  /// After a message goes out, the next one waits this long. Kept on the
+  /// client — the server has its own, looser limiter — so the countdown the
+  /// chat icon shows is exactly what the player can do.
+  static const chatCooldown = Duration(seconds: 4);
+  DateTime? _chatReadyAt;
+  Timer? _chatCooldownTimer;
+
+  bool get canChat =>
+      _chatReadyAt == null || !DateTime.now().isBefore(_chatReadyAt!);
+
+  /// Whole seconds until the next message may be sent; 0 when it may.
+  int get chatCooldownLeft {
+    final at = _chatReadyAt;
+    if (at == null) return 0;
+    final ms = at.difference(DateTime.now()).inMilliseconds;
+    return ms <= 0 ? 0 : (ms / 1000).ceil();
+  }
+
+  /// Sends the line and starts the cooldown. False when nothing was sent —
+  /// blank text, or the cooldown still running.
+  bool sendChat(String text) {
+    if (text.trim().isEmpty || !canChat) return false;
     _conn.sendChat(text.trim());
+    _chatReadyAt = DateTime.now().add(chatCooldown);
+    _chatCooldownTimer?.cancel();
+    // The one-second ticker redraws the countdown; this makes the moment it
+    // reaches zero exact rather than up to a second late.
+    _chatCooldownTimer = Timer(chatCooldown, notifyListeners);
+    notifyListeners();
+    return true;
   }
 
   /// Places the bet the stepper is showing. Anything above the base rung is a
@@ -771,6 +798,7 @@ class GameState extends ChangeNotifier {
     _clearSideshow();
     _resumeTimer?.cancel();
     _seatCheck?.cancel();
+    _chatCooldownTimer?.cancel();
     _celebrationTimer?.cancel();
     _ticker?.cancel();
     for (final t in _bubbleTimers.values) {

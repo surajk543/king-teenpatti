@@ -119,10 +119,20 @@ class _SideRail extends StatelessWidget {
             isLabelVisible: state.unreadChat > 0,
             label: Text('${state.unreadChat}'),
             child: IconButton(
-              tooltip: state.t.tableChat,
+              // While the cooldown runs the icon becomes the countdown, so
+              // the player can see when they may speak again without opening
+              // the chat to find out.
+              tooltip: state.canChat
+                  ? state.t.tableChat
+                  : '${state.t.tableChat} ${state.chatCooldownLeft}s',
               visualDensity: VisualDensity.compact,
               onPressed: () => onOpen(_LeftPanel.chat),
-              icon: const Icon(Icons.chat_bubble_outline),
+              icon: state.canChat
+                  ? const Icon(Icons.chat_bubble_outline)
+                  : _ChatCountdown(
+                      left: state.chatCooldownLeft,
+                      total: GameState.chatCooldown.inSeconds,
+                    ),
             ),
           ),
         ],
@@ -758,9 +768,21 @@ class _MissedTurnsStrip extends StatelessWidget {
     // Pack button's left edge and the viewer's pod. On a small phone that is
     // not much, so the pills tighten — one line, no explanation — and are
     // capped at about a quarter of the screen, so they never run under the pod.
-    final screenW = MediaQuery.sizeOf(context).width;
+    final size = MediaQuery.sizeOf(context);
+    final inset = MediaQuery.paddingOf(context);
+    final screenW = size.width;
     final compact = screenW < 760;
-    final maxW = (screenW * 0.26).clamp(150.0, 360.0);
+    // The cap is worked out from the same geometry the felt lays the viewer's
+    // pod out with — rail 46, felt padding 12 each side, the pod centred at
+    // 0.335 of the felt, pod width from the felt's height and width — so the
+    // pills stop a little short of the pod on every screen, camera cutout and
+    // all, rather than trusting a share of the screen width.
+    final feltW = screenW - inset.horizontal - 46 - 24;
+    final feltH = size.height - inset.vertical - 64;
+    final podW = math.min(feltH * 0.30, feltW * 0.155).clamp(56.0, 128.0);
+    final podLeft = 46 + 12 + 0.335 * feltW - podW / 2;
+    // 20 dp of clear felt between the pill's edge and the pod, shadows included.
+    final maxW = (podLeft - 16 - 20).clamp(120.0, 360.0);
 
     return SizedBox(
       height: 0,
@@ -979,7 +1001,9 @@ class _MissedTurnsState extends State<_MissedTurns>
                   if (last && !widget.compact)
                     Text(
                       t.missOneMore,
-                      maxLines: 1,
+                      // Two lines when the corner is narrow, rather than an
+                      // explanation cut off mid-sentence.
+                      maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: foreground,
@@ -2429,9 +2453,17 @@ class _ChatDrawerState extends State<_ChatDrawer> {
                     ),
                     const SizedBox(width: 8),
                     IconButton.filled(
-                      onPressed: () => _send(state),
+                      tooltip: state.canChat
+                          ? null
+                          : '${state.chatCooldownLeft}s',
+                      onPressed: state.canChat ? () => _send(state) : null,
                       style: _stepperStyle(Theme.of(context)),
-                      icon: const Icon(Icons.send),
+                      icon: state.canChat
+                          ? const Icon(Icons.send)
+                          : _ChatCountdown(
+                              left: state.chatCooldownLeft,
+                              total: GameState.chatCooldown.inSeconds,
+                            ),
                     ),
                   ],
                 ),
@@ -2444,8 +2476,49 @@ class _ChatDrawerState extends State<_ChatDrawer> {
   }
 
   void _send(GameState state) {
-    state.sendChat(_input.text);
+    if (!state.sendChat(_input.text)) return;
     _input.clear();
+    // Said: the keyboard and the drawer go together, and what the player sees
+    // next is the table with their words over their own seat.
+    FocusManager.instance.primaryFocus?.unfocus();
+    Navigator.of(context).pop();
+  }
+}
+
+/// The seconds until the next message may be sent, drawn as a number inside a
+/// ring that empties as the wait runs down.
+class _ChatCountdown extends StatelessWidget {
+  const _ChatCountdown({required this.left, required this.total});
+
+  final int left;
+  final int total;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return SizedBox(
+      width: 24,
+      height: 24,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          CircularProgressIndicator(
+            value: total == 0 ? 0 : (left / total).clamp(0.0, 1.0),
+            strokeWidth: 2.4,
+            color: scheme.primary,
+            backgroundColor: scheme.outlineVariant.withValues(alpha: 0.5),
+          ),
+          Text(
+            '$left',
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+              color: scheme.onSurface,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 

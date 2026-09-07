@@ -69,6 +69,7 @@ king-teenpatti/
     │   ├── state/game_state.dart the ONE ChangeNotifier + formatChips / NumberSystem globals
     │   │     `resuming` veil on cold start (start() → _beginResume → session:ready.resume ? joinByCode : 900ms wait; room:joined lifts it with t.welcomeBack)
     │   │     `appVersion` from package_info_plus (settings drawer footer); formatChips abbreviates >100000 to TWO decimals (3.24 Lakh, 32.77 Crore)
+    │   │     Chat pacing (client-side): `GameState.sendChat()` returns bool, starts `chatCooldown` (4s); `canChat`/`chatCooldownLeft` drive `_ChatCountdown` (ring + seconds) in the rail icon and the send key; `_ChatDrawer._send` unfocuses and pops the drawer after a successful send.
     │   │     `tableScaffold`/`lobbyScaffold` GlobalKeys: main.dart `_BackGuard` closes an open drawer/endDrawer first; only then asks leave (table) / quit (lobby).
     │   │     `_armSeatCheck()`: on a warm `session:ready` while `room != null`, if no snapshot follows within 1.8s the seat is gone (server restarted / room closed) → lobby + t.tableLost. Cold start uses the `resuming` veil instead.
     │   ├── theme/app_theme.dart `AppTheme.paletteFor(scheme, category, bootAmount)` → TablePalette: seen=gold, blind<1000=sapphire(tertiary), blind≥1000=royal purple; used by lobby card, felt, _CategoryTag ("BLIND · 5,000")
@@ -76,7 +77,7 @@ king-teenpatti/
     │   ├── screens/lobby_screen.dart `_DriftingChips` ambient background
     │   └── widgets/seat_pod.dart `BubbleSide {above,left,right}`: chat bubble hung off the column END in a zero-height OverflowBox — rim seats grow it up over their own cards/badge (max 1.7×podW, pointer tail up at the pod), the viewer's grows up from the column top (2.1×podW, tail down). Pods paint AFTER tag/pot/status in the felt Stack so a bubble is never hidden.
     │   │     GameState: bubbles hold `bubbleFor` = 4s; a second line from the same player queues in `_bubbleQueue` and shows when the first expires; `_clearBubbles()` on leave/kick.
-    │   │     `_MissedTurnsStrip`: compact (one line, labelMedium, no explanation) when screen width < 760dp; capped at 26% of screen width so it never runs under the viewer's pod. `_CategoryTag` text shrinks via FittedBox (slot w*0.30).
+    │   │     `_MissedTurnsStrip`: compact (one line, labelMedium, no explanation) when screen width < 760dp; capped at 26% (compact) / 30% (wide) of screen width so it never runs under the viewer's pod. `_CategoryTag` text shrinks via FittedBox (slot w*0.30).
     │   ├── net/game_connection.dart  Socket.IO streams; every move carries a fresh actionId
     │   ├── net/api_client.dart   REST
     │   ├── models/dtos.dart      wire DTOs mirroring server JSON
