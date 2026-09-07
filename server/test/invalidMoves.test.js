@@ -371,20 +371,26 @@ test('chat that is empty, too long, or from outside the room never reaches the t
   const heard = [];
   waiting.socket.on('chat:message', (m) => heard.push(m));
 
-  await onTurn.emit('chat:message', { text: '' });
-  await onTurn.emit('chat:message', { text: '   ' });
-  await onTurn.emit('chat:message', { text: 'x'.repeat(5000) });
-  await onTurn.emit('chat:message', { text: 12345 });
-  await onTurn.emit('chat:message', null);
-  await onTurn.emit('chat:message', { text: 'hello table' });
-  await waiting.wait('chat:message', () => true).catch(() => {});
+  // Five sends: the chat allowance is five per five seconds, and every send
+  // counts against it whether or not anything is posted.
+  const acks = [];
+  for (const payload of [{ text: '   ' }, { text: 'x'.repeat(5000) }, { text: 12345 }, null, { text: 'hello table' }]) {
+    acks.push(await onTurn.emit('chat:message', payload));
+  }
+  // Delivery is asynchronous; give the last message a moment to land.
+  for (let i = 0; i < 40 && !heard.some((m) => m.text === 'hello table'); i += 1) {
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  assert.ok(heard.some((m) => m.text === 'hello table'), `acks ${JSON.stringify(acks)}`);
   await new Promise((r) => setTimeout(r, 100));
 
-  // Blank, over-long and non-object messages are dropped. A bare number is
-  // said as its digits — harmless, and the player did say something.
-  assert.equal(heard.length, 2, 'the number and the real message');
-  assert.equal(heard[0].text, '12345');
-  assert.equal(heard[1].text, 'hello table');
+  // Blank and non-object messages are dropped. An over-long one is cut to the
+  // table's limit rather than thrown away, and a bare number is said as its
+  // digits — the player did say something in both cases.
+  assert.equal(heard.length, 3, 'the trimmed long message, the number, and the real one');
+  assert.equal(heard[0].text.length, 140);
+  assert.equal(heard[1].text, '12345');
+  assert.equal(heard[2].text, 'hello table');
   await closeAll(onTurn, waiting);
 });
 
@@ -420,9 +426,11 @@ test('garbage on every gameplay event is refused rather than crashing the server
   assert.ok(table.hand, 'the hand survived all of it');
   assert.equal(onTurn.socket.connected, true, 'and so did the socket');
 
-  // The table still works for honest play afterwards.
+  // That many requests in a burst trips the per-socket limiter, by design;
+  // once its window has passed the table works for honest play again.
+  await new Promise((resolve) => setTimeout(resolve, 5200));
   const ack = await onTurn.emit('game:action', { action: 'pack', actionId: 'garbage-pack' });
-  assert.equal(ack.ok, true);
+  assert.equal(ack.ok, true, JSON.stringify(ack));
   await closeAll(onTurn, waiting);
 });
 

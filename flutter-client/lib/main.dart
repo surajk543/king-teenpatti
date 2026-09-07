@@ -156,6 +156,22 @@ class _BackGuard extends StatelessWidget {
         final state = context.read<GameState>();
         final t = state.t;
 
+        // An open drawer — chat, menu, settings, stats — closes first. Back
+        // only reaches the leave-or-quit question when nothing is over the
+        // screen; otherwise a player closing the chat is asked to leave.
+        for (final key in [state.tableScaffold, state.lobbyScaffold]) {
+          final scaffold = key.currentState;
+          if (scaffold == null) continue;
+          if (scaffold.isDrawerOpen) {
+            scaffold.closeDrawer();
+            return;
+          }
+          if (scaffold.isEndDrawerOpen) {
+            scaffold.closeEndDrawer();
+            return;
+          }
+        }
+
         if (screen == Screen.table) {
           final room = state.room;
           final midHand = room?.state == TableState.betting &&

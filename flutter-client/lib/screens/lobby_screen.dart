@@ -44,6 +44,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
     Widget entering(Widget child) => _Entrance(index: slot++, child: child);
 
     return Scaffold(
+      key: state.lobbyScaffold,
       endDrawer: _panel == _EndPanel.stats
           ? const _StatsDrawer()
           : const _SettingsDrawer(),
@@ -1296,6 +1297,27 @@ class _SettingsDrawerState extends State<_SettingsDrawer> {
                 style: TextStyle(color: theme.colorScheme.error),
               ),
               onTap: state.signOut,
+            ),
+            const Divider(height: 1, indent: 20, endIndent: 20),
+            // Which build this is, for anyone reporting what they saw.
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 14, 20, 16),
+              child: Row(
+                children: [
+                  Icon(Icons.info_outline,
+                      size: 16, color: theme.colorScheme.onSurfaceVariant),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      '${t.appVersion}  ${state.appVersion.isEmpty ? '…' : state.appVersion}',
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ],
         ),

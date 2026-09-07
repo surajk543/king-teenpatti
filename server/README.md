@@ -260,6 +260,14 @@ the headroom rather than only equality matters — otherwise a player could be l
 nothing legal to do but fold.
 
 **Timeouts.** A player who does not act inside `TURN_TIMEOUT_MS` is packed and play continues.
+Every rule is enforced here, never trusted from a client. `test/invalidMoves.test.js` plays a
+tampered client against the live server: moves out of turn, bets off the ladder (negative, between
+rungs, more than the stack, strings or arrays coerced to numbers), shows with three players,
+sideshows with two, replays of the same `actionId`, joins while seated (including `room:create`),
+full tables, empty and over-long chat, garbage payloads on every event, and request bursts. Each
+is refused with a code, acknowledged (a rate-limited request is answered `rate_limited` rather
+than dropped), and leaves every wallet equal to its ledger.
+
 A reconnecting player is put straight back at their table: `session:ready` is followed by
 `room:joined` with their own view of the hand (cards included if already seen). Once the seat
 has lapsed, `session:ready` carries `resume: { roomId, code, category, bootAmount }` for

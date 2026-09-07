@@ -36,8 +36,10 @@ class _TableScreenState extends State<TableScreen> {
   _LeftPanel _panel = _LeftPanel.menu;
 
   /// Opening is driven from the rail, which sits inside this Scaffold, so the
-  /// state is reached by key rather than by looking up an ancestor.
-  final _scaffold = GlobalKey<ScaffoldState>();
+  /// state is reached by key rather than by looking up an ancestor. The key
+  /// lives on the game state so the back gesture can close the drawer too.
+  GlobalKey<ScaffoldState> get _scaffold =>
+      context.read<GameState>().tableScaffold;
 
   void _open(_LeftPanel panel) {
     if (panel == _LeftPanel.chat) context.read<GameState>().markChatRead();
@@ -460,6 +462,14 @@ class _Felt extends StatelessWidget {
               saying: s?.userId == null
                   ? null
                   : state.saidRecently[s!.userId]?.text,
+              // A bubble opens towards the middle of the table: seats on the
+              // left speak to the right, seats on the right to the left, and
+              // the viewer's own words go up over their pod.
+              bubbleSide: viewIndex == 0
+                  ? BubbleSide.above
+                  : viewIndex <= 2
+                  ? BubbleSide.right
+                  : BubbleSide.left,
               // The bottom seat stacks upwards, or its chip runs off the felt.
               reversed: viewIndex == 0,
             );
@@ -513,7 +523,10 @@ class _Felt extends StatelessWidget {
                 // pot, so the felt is never a flat wash.
                 Positioned.fill(
                   child: IgnorePointer(
-                    child: _AmbientGlow(colour: palette.accent, centre: const Alignment(0, -0.35)),
+                    child: _AmbientGlow(
+                      colour: palette.accent,
+                      centre: const Alignment(0, -0.35),
+                    ),
                   ),
                 ),
                 // Every bet is seen to travel: a chip leaves the seat that made
@@ -530,12 +543,14 @@ class _Felt extends StatelessWidget {
                     ),
                   ),
                 ),
-                for (var i = 1; i < _places.length; i++) at(_places[i], pod(i)),
-
+                // The table's furniture first, the seats after it: a seat's
+                // speech bubble or bet chip is a moment that matters more
+                // than the tag or the pot label it might briefly cross, so
+                // the seats paint on top.
                 at(
                   const Offset(0.5, 0.075),
                   _CategoryTag(room: room),
-                  width: w * 0.22,
+                  width: w * 0.30,
                 ),
                 at(const Offset(0.5, 0.26), _Pot(room: room), width: w * 0.34),
                 at(
@@ -543,6 +558,8 @@ class _Felt extends StatelessWidget {
                   _Status(room: room),
                   width: w * 0.4,
                 ),
+
+                for (var i = 1; i < _places.length; i++) at(_places[i], pod(i)),
 
                 // The viewer's pod and hand stand on the floor of the table
                 // rather than being centred on a point: their columns are
@@ -582,7 +599,7 @@ class _Felt extends StatelessWidget {
                           h,
                           podW,
                         ),
-                        accent: accent,
+                        accent: palette.accent,
                       ),
                     ),
                   ),
@@ -671,16 +688,20 @@ class _CategoryTag extends StatelessWidget {
             Icon(palette.icon, size: 14, color: palette.onContainer),
             const SizedBox(width: 6),
             Flexible(
-              child: Text(
-                // The category and the stake together: "BLIND · 5,000" names
-                // the table, and the colour behind it is the table's own.
-                '${blind ? t.blind : t.seen} · ${formatChips(room.bootAmount)}',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.labelMedium?.copyWith(
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: 1.2,
-                  color: palette.onContainer,
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  // The category and the stake together: "BLIND · 5,000"
+                  // names the table, and the colour behind it is the table's
+                  // own. It shrinks on a small screen rather than losing its
+                  // stake to an ellipsis.
+                  '${blind ? t.blind : t.seen} · ${formatChips(room.bootAmount)}',
+                  maxLines: 1,
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 1.2,
+                    color: palette.onContainer,
+                  ),
                 ),
               ),
             ),
@@ -733,6 +754,14 @@ class _MissedTurnsStrip extends StatelessWidget {
             .firstOrNull ??
         4;
 
+    // The corner the pills live in is only as wide as the gap between the
+    // Pack button's left edge and the viewer's pod. On a small phone that is
+    // not much, so the pills tighten — one line, no explanation — and are
+    // capped at about a quarter of the screen, so they never run under the pod.
+    final screenW = MediaQuery.sizeOf(context).width;
+    final compact = screenW < 760;
+    final maxW = (screenW * 0.26).clamp(150.0, 360.0);
+
     return SizedBox(
       height: 0,
       width: double.infinity,
@@ -744,16 +773,23 @@ class _MissedTurnsStrip extends StatelessWidget {
           alignment: Alignment.bottomLeft,
           child: Padding(
             padding: const EdgeInsets.only(left: 16, bottom: 4),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (showBlind) ...[
-                  _BlindMovesPill(left: you.blindMovesLeft, max: maxBlind),
-                  const SizedBox(height: 6),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(maxWidth: maxW),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (showBlind) ...[
+                    _BlindMovesPill(
+                      left: you.blindMovesLeft,
+                      max: maxBlind,
+                      compact: compact,
+                    ),
+                    SizedBox(height: compact ? 4 : 6),
+                  ],
+                  _MissedTurns(you: you, compact: compact),
                 ],
-                _MissedTurns(you: you),
-              ],
+              ),
             ),
           ),
         ),
@@ -766,10 +802,15 @@ class _MissedTurnsStrip extends StatelessWidget {
 /// The same figure sits under the "See cards" button; here it stays in the
 /// corner the player already watches for their missed-turn count.
 class _BlindMovesPill extends StatelessWidget {
-  const _BlindMovesPill({required this.left, required this.max});
+  const _BlindMovesPill({
+    required this.left,
+    required this.max,
+    this.compact = false,
+  });
 
   final int left;
   final int max;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
@@ -781,8 +822,9 @@ class _BlindMovesPill extends StatelessWidget {
     final lastOne = left <= 1;
 
     return Container(
-      constraints: const BoxConstraints(maxWidth: 360),
-      padding: const EdgeInsets.fromLTRB(10, 5, 12, 5),
+      padding: compact
+          ? const EdgeInsets.fromLTRB(8, 3, 10, 3)
+          : const EdgeInsets.fromLTRB(10, 5, 12, 5),
       decoration: BoxDecoration(
         color: lastOne
             ? scheme.tertiaryContainer.withValues(alpha: 0.96)
@@ -807,15 +849,21 @@ class _BlindMovesPill extends StatelessWidget {
           ),
           const SizedBox(width: 7),
           Flexible(
-            child: Text(
-              '${t.blindMovesLabel} $left/$max',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.labelLarge?.copyWith(
-                fontWeight: FontWeight.w800,
-                color: lastOne
-                    ? scheme.onTertiaryContainer
-                    : scheme.onSurfaceVariant,
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text(
+                '${t.blindMovesLabel} $left/$max',
+                maxLines: 1,
+                style: (compact
+                        ? theme.textTheme.labelMedium
+                        : theme.textTheme.labelLarge)
+                    ?.copyWith(
+                  fontWeight: FontWeight.w800,
+                  color: lastOne
+                      ? scheme.onTertiaryContainer
+                      : scheme.onSurfaceVariant,
+                ),
               ),
             ),
           ),
@@ -826,8 +874,11 @@ class _BlindMovesPill extends StatelessWidget {
 }
 
 class _MissedTurns extends StatefulWidget {
-  const _MissedTurns({required this.you});
+  const _MissedTurns({required this.you, this.compact = false});
   final You you;
+
+  /// One line only, for a screen with no room for the explanation.
+  final bool compact;
 
   @override
   State<_MissedTurns> createState() => _MissedTurnsState();
@@ -874,8 +925,9 @@ class _MissedTurnsState extends State<_MissedTurns>
         child: child,
       ),
       child: Container(
-        constraints: const BoxConstraints(maxWidth: 360),
-        padding: EdgeInsets.fromLTRB(10, last ? 7 : 5, 12, last ? 7 : 5),
+        padding: widget.compact
+            ? const EdgeInsets.fromLTRB(8, 3, 10, 3)
+            : EdgeInsets.fromLTRB(10, last ? 7 : 5, 12, last ? 7 : 5),
         decoration: BoxDecoration(
           color: last
               ? scheme.errorContainer
@@ -907,18 +959,24 @@ class _MissedTurnsState extends State<_MissedTurns>
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    // "Missed turns 1/3" — the count is the whole point, so it
-                    // is always there, even at 0/3.
-                    '${last ? t.lastWarning : t.missedTurnsLabel} $missed/$limit',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.labelLarge?.copyWith(
-                      fontWeight: FontWeight.w800,
-                      color: foreground,
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      // "Missed turns 1/3" — the count is the whole point, so
+                      // it is always there, even at 0/3.
+                      '${last ? t.lastWarning : t.missedTurnsLabel} $missed/$limit',
+                      maxLines: 1,
+                      style: (widget.compact
+                              ? theme.textTheme.labelMedium
+                              : theme.textTheme.labelLarge)
+                          ?.copyWith(
+                        fontWeight: FontWeight.w800,
+                        color: foreground,
+                      ),
                     ),
                   ),
-                  if (last)
+                  if (last && !widget.compact)
                     Text(
                       t.missOneMore,
                       maxLines: 1,
@@ -1217,7 +1275,6 @@ class _OwnHand extends StatelessWidget {
     // nothing and changes nothing for anyone else. Betting still waits for the
     // turn, which the action bar handles.
     final stillBlind = you.isBlind && !packed;
-    final blindLeft = you.blindMovesLeft;
 
     return Container(
       padding: EdgeInsets.all(cardHeight * 0.05),
@@ -1274,22 +1331,6 @@ class _OwnHand extends StatelessWidget {
                   ),
                   child: Text(state.t.seeCards),
                 ),
-                if (blindLeft > 0) ...[
-                  const SizedBox(height: 4),
-                  // Says why the cards will turn over on their own, so the
-                  // automatic reveal is never a surprise.
-                  Text(
-                    blindLeft == 1
-                        ? state.t.lastBlindMove
-                        : '$blindLeft ${state.t.blindMovesLeft}',
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      color: theme.colorScheme.onPrimary,
-                      backgroundColor: theme.colorScheme.scrim.withValues(
-                        alpha: 0.55,
-                      ),
-                    ),
-                  ),
-                ],
               ],
             ),
         ],
@@ -2408,7 +2449,6 @@ class _ChatDrawerState extends State<_ChatDrawer> {
   }
 }
 
-
 /// A soft pool of the table's colour, brightening and dimming on a slow cycle.
 class _AmbientGlow extends StatefulWidget {
   const _AmbientGlow({required this.colour, required this.centre});
@@ -2446,7 +2486,9 @@ class _AmbientGlowState extends State<_AmbientGlow>
               center: widget.centre,
               radius: 0.55 + 0.08 * v,
               colors: [
-                widget.colour.withValues(alpha: (dark ? 0.16 : 0.12) + 0.08 * v),
+                widget.colour.withValues(
+                  alpha: (dark ? 0.16 : 0.12) + 0.08 * v,
+                ),
                 widget.colour.withValues(alpha: 0),
               ],
             ),
@@ -2529,13 +2571,15 @@ class _BetFlightsState extends State<_BetFlights>
     for (final seat in widget.seats) {
       final before = _seen[seat.seatIndex] ?? 0;
       if (seat.occupied && seat.contributed > before) {
-        _flights.add(_Flight(
-          from: widget.centreOf(seat.seatIndex),
-          startedAt: _now,
-          // At the deal every seat posts at once; a short stagger keeps the
-          // chips from arriving as one lump.
-          delay: Duration(milliseconds: 70 * launched),
-        ));
+        _flights.add(
+          _Flight(
+            from: widget.centreOf(seat.seatIndex),
+            startedAt: _now,
+            // At the deal every seat posts at once; a short stagger keeps the
+            // chips from arriving as one lump.
+            delay: Duration(milliseconds: 70 * launched),
+          ),
+        );
         launched += 1;
       }
       _seen[seat.seatIndex] = seat.contributed;
@@ -2559,11 +2603,15 @@ class _BetFlightsState extends State<_BetFlights>
           () {
             final elapsed = _now - f.startedAt - f.delay;
             if (elapsed.isNegative) return const SizedBox.shrink();
-            final t = (elapsed.inMicroseconds / _travel.inMicroseconds).clamp(0.0, 1.0);
+            final t = (elapsed.inMicroseconds / _travel.inMicroseconds).clamp(
+              0.0,
+              1.0,
+            );
             final eased = Curves.easeInOutCubic.transform(t);
             // A shallow arc, so the chip is tossed rather than slid.
             final lift = math.sin(t * math.pi) * widget.size * 1.6;
-            final pos = Offset.lerp(f.from, widget.pot, eased)! - Offset(0, lift);
+            final pos =
+                Offset.lerp(f.from, widget.pot, eased)! - Offset(0, lift);
             final fade = t > 0.82 ? (1 - t) / 0.18 : 1.0;
             return Positioned(
               left: pos.dx - widget.size / 2,

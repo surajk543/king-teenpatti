@@ -68,6 +68,15 @@ king-teenpatti/
     │   ├── main.dart             landscape lock, Provider root, screen switch (no Navigator)
     │   ├── state/game_state.dart the ONE ChangeNotifier + formatChips / NumberSystem globals
     │   │     `resuming` veil on cold start (start() → _beginResume → session:ready.resume ? joinByCode : 900ms wait; room:joined lifts it with t.welcomeBack)
+    │   │     `appVersion` from package_info_plus (settings drawer footer); formatChips abbreviates >100000 to TWO decimals (3.24 Lakh, 32.77 Crore)
+    │   │     `tableScaffold`/`lobbyScaffold` GlobalKeys: main.dart `_BackGuard` closes an open drawer/endDrawer first; only then asks leave (table) / quit (lobby).
+    │   │     `_armSeatCheck()`: on a warm `session:ready` while `room != null`, if no snapshot follows within 1.8s the seat is gone (server restarted / room closed) → lobby + t.tableLost. Cold start uses the `resuming` veil instead.
+    │   ├── theme/app_theme.dart `AppTheme.paletteFor(scheme, category, bootAmount)` → TablePalette: seen=gold, blind<1000=sapphire(tertiary), blind≥1000=royal purple; used by lobby card, felt, _CategoryTag ("BLIND · 5,000")
+    │   ├── screens/table_screen.dart `_MissedTurnsStrip` (zero-height OverflowBox over the Pack button: `_BlindMovesPill` + `_MissedTurns`, always visible), `_BetFlights` (chip from seat to pot on every contributed increase), `_AmbientGlow`
+    │   ├── screens/lobby_screen.dart `_DriftingChips` ambient background
+    │   └── widgets/seat_pod.dart `BubbleSide {above,left,right}`: chat bubble hung off the column END in a zero-height OverflowBox — rim seats grow it up over their own cards/badge (max 1.7×podW, pointer tail up at the pod), the viewer's grows up from the column top (2.1×podW, tail down). Pods paint AFTER tag/pot/status in the felt Stack so a bubble is never hidden.
+    │   │     GameState: bubbles hold `bubbleFor` = 4s; a second line from the same player queues in `_bubbleQueue` and shows when the first expires; `_clearBubbles()` on leave/kick.
+    │   │     `_MissedTurnsStrip`: compact (one line, labelMedium, no explanation) when screen width < 760dp; capped at 26% of screen width so it never runs under the viewer's pod. `_CategoryTag` text shrinks via FittedBox (slot w*0.30).
     │   ├── net/game_connection.dart  Socket.IO streams; every move carries a fresh actionId
     │   ├── net/api_client.dart   REST
     │   ├── models/dtos.dart      wire DTOs mirroring server JSON
@@ -345,6 +354,9 @@ Client coverage: **Flutter** never sends `lobby:list`, `chat:history`, `ping:rtt
 to `game:handStarted`, `player:hand`, `game:turn`, `game:yourTurn` — it derives turn and options
 from `room:state.turn` / `you.options`. Changing `you.options` affects Flutter; changing
 `game:yourTurn` does not. **Browser** ignores `room:kicked` and all `game:sideshow*`.
+Input guards (`socket/index.js`): `game:action.amount` must be a JS number and safe integer (strings/arrays/booleans → `invalid_bet`);
+rate-limited requests are acked `{ok:false, code:'rate_limited'}`; `RoomManager.join()` asserts one seat per player (also closes
+`room:create` to a seated player); `player:requestCards` outside a table → `not_in_room`. Covered by `test/invalidMoves.test.js`.
 Disconnect: seat held `reconnectGraceMs` (60s) then `await rooms.leave(userId,'disconnected')`; just before
 leaving, `resumeOffers.set(userId, {roomId, at})`. On connect: if still seated → `room:joined` + `chat:history`
 re-sent (resume); else `takeResumeOffer(userId)` (fresh within `resumeOfferMs`, table alive and not full, offered
@@ -470,8 +482,8 @@ visibility depends on which client created it.
 
 ### 8.3 Money formatting (req. 34)
 `formatChips(int)` reads two **module-level globals** `chipNumberSystem` / `chipUnits`, written only
-by `GameState._publishNumberFormat()`. Abbreviate only `> 100000`; Indian `3.2401 Lakh`/`2.5 Crore`
-(4dp, trimmed); international keeps digits below 1,000,000 then `1.2 Million`. Tests reset the globals
+by `GameState._publishNumberFormat()`. Abbreviate only `> 100000`; Indian `3.24 Lakh`/`2.5 Crore`/`32.77 Crore`
+(2dp, rounded, trailing zeros trimmed); international keeps digits below 1,000,000 then `1.2 Million`. Tests reset the globals
 in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
 
 ### 8.4 UI

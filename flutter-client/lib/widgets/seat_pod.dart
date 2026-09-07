@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -16,6 +18,9 @@ import 'premium_surface.dart';
 /// The pod of whoever is to act blinks and fills from the bottom. The blink
 /// starts green and bleeds to red as the clock empties, so the colour alone
 /// says how long is left; a full pod means the turn is over.
+/// Where a seat's speech bubble opens relative to its pod.
+enum BubbleSide { above, left, right }
+
 class SeatPod extends StatelessWidget {
   const SeatPod({
     super.key,
@@ -31,6 +36,7 @@ class SeatPod extends StatelessWidget {
     required this.width,
     required this.avatarUrl,
     this.saying,
+    this.bubbleSide = BubbleSide.above,
     this.reversed = false,
   });
 
@@ -61,6 +67,9 @@ class SeatPod extends StatelessWidget {
 
   /// What they just said, while it is still fresh.
   final String? saying;
+
+  /// Which way the bubble opens, so it lands on the felt and not off it.
+  final BubbleSide bubbleSide;
 
   /// Cards and the bet chip stack upwards instead of down. The seat at the
   /// bottom of the table needs this or its column runs off the felt.
@@ -109,17 +118,62 @@ class SeatPod extends StatelessWidget {
 
     final column = <Widget>[_pod(context, s, beat, t), ...below];
 
-    // The bubble goes above the pod whichever way the column runs, so it never
-    // ends up underneath the player it belongs to.
-    final bubble = saying == null ? null : _Bubble(text: saying!, width: width);
+    // The bubble takes no room in the column — it hangs off one end of it in
+    // a zero-height box — so a player speaking never nudges their own pod,
+    // cards or chips. It is the last thing in the column, so it paints over
+    // the cards and badge rather than under them, and it stays over the
+    // player's own column: the seats round the rim open theirs over their
+    // cards, growing towards the middle of the table, and the viewer's opens
+    // upwards over their bets. Nothing ever reaches the pot, the tag, or the
+    // edge of the felt.
+    final bubble = saying == null
+        ? null
+        : SizedBox(
+            height: 0,
+            width: width,
+            child: OverflowBox(
+              alignment: switch (bubbleSide) {
+                BubbleSide.above => Alignment.bottomCenter,
+                BubbleSide.left => Alignment.bottomRight,
+                BubbleSide.right => Alignment.bottomLeft,
+              },
+              minWidth: 0,
+              // Narrower for the seats round the rim: their bubbles grow
+              // towards the middle of the table, where the pot and the status
+              // line are, and must stop short of them.
+              maxWidth: width * (bubbleSide == BubbleSide.above ? 2.1 : 1.7),
+              minHeight: 0,
+              maxHeight: width * 1.3,
+              child: Padding(
+                padding: EdgeInsets.only(bottom: gap),
+                child: _Bubble(
+                  text: saying!,
+                  width: width,
+                  // The pointer says whose words these are: the rim seats'
+                  // bubbles sit below their pod and point up at it; the
+                  // viewer's sits above and points down.
+                  tailUp: bubbleSide != BubbleSide.above,
+                  tailFrom: switch (bubbleSide) {
+                    BubbleSide.above => _TailFrom.centre,
+                    BubbleSide.right => _TailFrom.left,
+                    BubbleSide.left => _TailFrom.right,
+                  },
+                ),
+              ),
+            ),
+          );
+
+    // For the viewer the column is reversed, which puts the bubble at the top
+    // — above everything, growing upwards. For everyone else it sits at the
+    // foot of the column and grows up over it.
+    final ordered = <Widget>[...column, ?bubble];
 
     return SizedBox(
       width: width,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (bubble != null) ...[bubble, SizedBox(height: gap)],
-          ...(reversed ? column.reversed.toList() : column),
+          ...(reversed ? ordered.reversed.toList() : ordered),
         ],
       ),
     );
@@ -408,15 +462,80 @@ class _BlinkState extends State<_Blink> with SingleTickerProviderStateMixin {
 }
 
 /// A speech bubble over a seat, shown for a moment after that player speaks.
+/// Which edge of a bubble its pointer is measured from — the pod it belongs
+/// to is half a pod-width in from that edge.
+enum _TailFrom { left, right, centre }
+
 class _Bubble extends StatelessWidget {
-  const _Bubble({required this.text, required this.width});
+  const _Bubble({
+    required this.text,
+    required this.width,
+    required this.tailUp,
+    required this.tailFrom,
+  });
 
   final String text;
   final double width;
 
+  /// Whether the pointer is on the top edge (aimed up at a pod above) or the
+  /// bottom edge (aimed down at a pod below).
+  final bool tailUp;
+  final _TailFrom tailFrom;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final colour = theme.colorScheme.inverseSurface;
+    // The pointer is a rotated square half-buried in the bubble's edge, so
+    // what shows is a small triangle aimed at the speaker.
+    final tail = width * 0.13;
+    final reach = tail * 0.62;
+    // Centred under the pod, which is half a pod-width in from the anchored
+    // edge — or dead centre when the bubble is centred on the pod.
+    final inset = width / 2 - tail / 2;
+
+    final body = Container(
+      constraints: BoxConstraints(maxWidth: width * 2.1),
+      padding: EdgeInsets.symmetric(
+        horizontal: width * 0.09,
+        vertical: width * 0.05,
+      ),
+      decoration: BoxDecoration(
+        color: colour,
+        borderRadius: BorderRadius.circular(width * 0.13),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x40000000),
+            blurRadius: 8,
+            offset: Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Text(
+        text,
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+        textAlign: TextAlign.center,
+        style: TextStyle(
+          fontSize: width * 0.11,
+          height: 1.25,
+          color: theme.colorScheme.onInverseSurface,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+
+    final pointer = Transform.rotate(
+      angle: math.pi / 4,
+      child: Container(
+        width: tail,
+        height: tail,
+        decoration: BoxDecoration(
+          color: colour,
+          borderRadius: BorderRadius.circular(tail * 0.15),
+        ),
+      ),
+    );
 
     return TweenAnimationBuilder<double>(
       tween: Tween(begin: 0, end: 1),
@@ -424,38 +543,37 @@ class _Bubble extends StatelessWidget {
       curve: Curves.easeOutBack,
       builder: (context, v, child) => Transform.scale(
         scale: 0.6 + 0.4 * v,
-        alignment: Alignment.bottomCenter,
+        alignment: tailUp ? Alignment.topCenter : Alignment.bottomCenter,
         child: Opacity(opacity: v.clamp(0, 1), child: child),
       ),
-      child: Container(
-        constraints: BoxConstraints(maxWidth: width * 1.9),
-        padding: EdgeInsets.symmetric(
-          horizontal: width * 0.09,
-          vertical: width * 0.05,
-        ),
-        decoration: BoxDecoration(
-          color: theme.colorScheme.inverseSurface,
-          borderRadius: BorderRadius.circular(width * 0.13),
-          boxShadow: const [
-            BoxShadow(
-              color: Color(0x40000000),
-              blurRadius: 8,
-              offset: Offset(0, 3),
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Padding(
+            padding: EdgeInsets.only(
+              top: tailUp ? reach : 0,
+              bottom: tailUp ? 0 : reach,
             ),
-          ],
-        ),
-        child: Text(
-          text,
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            fontSize: width * 0.11,
-            height: 1.25,
-            color: theme.colorScheme.onInverseSurface,
-            fontWeight: FontWeight.w600,
+            child: body,
           ),
-        ),
+          Positioned(
+            top: tailUp ? 0 : null,
+            bottom: tailUp ? null : 0,
+            left: switch (tailFrom) {
+              _TailFrom.left => inset,
+              _TailFrom.right => null,
+              _TailFrom.centre => 0,
+            },
+            right: switch (tailFrom) {
+              _TailFrom.left => null,
+              _TailFrom.right => inset,
+              _TailFrom.centre => 0,
+            },
+            child: tailFrom == _TailFrom.centre
+                ? Center(child: pointer)
+                : pointer,
+          ),
+        ],
       ),
     );
   }

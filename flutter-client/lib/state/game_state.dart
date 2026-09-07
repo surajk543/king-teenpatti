@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 
@@ -67,6 +68,22 @@ class GameState extends ChangeNotifier {
   bool resuming = false;
   Timer? _resumeTimer;
 
+  /// Set on every `session:ready`, cleared by the next table snapshot. A warm
+  /// reconnect that brings no snapshot means the server no longer has us at a
+  /// table — it restarted, or the room closed while we were away — and the
+  /// table on screen is a ghost that has to go.
+  Timer? _seatCheck;
+  bool _snapshotSinceSession = false;
+
+  /// The two screens' scaffolds, so the back gesture can close an open drawer
+  /// before it ever asks about leaving the table or quitting the app.
+  final tableScaffold = GlobalKey<ScaffoldState>();
+  final lobbyScaffold = GlobalKey<ScaffoldState>();
+
+  /// "1.0.0 (1)": the build this is, read from the package itself so the
+  /// settings drawer can never disagree with the installed APK.
+  String appVersion = '';
+
   List<Reveal> showdown = const [];
   String showdownResult = '';
 
@@ -100,7 +117,12 @@ class GameState extends ChangeNotifier {
   final Map<String, ChatMessage> saidRecently = {};
   final Map<String, Timer> _bubbleTimers = {};
 
-  static const bubbleFor = Duration(seconds: 3);
+  /// What a player said while their previous line was still up. One bubble
+  /// per player at a time; each holds for [bubbleFor], then the next in line
+  /// takes its place, so nothing anyone says is skipped.
+  final Map<String, List<ChatMessage>> _bubbleQueue = {};
+
+  static const bubbleFor = Duration(seconds: 4);
 
   // ------------------------------------------------------------- sideshow
 
@@ -143,6 +165,10 @@ class GameState extends ChangeNotifier {
     await prefs.setString('deviceId', _deviceId);
 
     themeMode = prefs.getBool('darkMode') == true ? ThemeMode.dark : ThemeMode.light;
+    unawaited(PackageInfo.fromPlatform().then((info) {
+      appVersion = '${info.version} (${info.buildNumber})';
+      notifyListeners();
+    }).catchError((_) {}));
     lang = AppLang.fromCode(prefs.getString('lang'));
     numbers = NumberSystem.fromName(prefs.getString('numbers'));
     _publishNumberFormat();
@@ -178,6 +204,8 @@ class GameState extends ChangeNotifier {
       _conn.onSession.listen((s) {
         user = s.user;
         config = s.config;
+        _snapshotSinceSession = false;
+        if (!resuming && room != null) _armSeatCheck();
         if (resuming) {
           final offer = s.resume;
           if (offer != null) {
@@ -196,6 +224,8 @@ class GameState extends ChangeNotifier {
       }),
       _conn.onState.listen((s) {
         final restored = resuming;
+        _snapshotSinceSession = true;
+        _seatCheck?.cancel();
         final newHand = room?.handNo != s.handNo;
         room = s;
         if (newHand) {
@@ -239,7 +269,7 @@ class GameState extends ChangeNotifier {
         switching = false;
         room = null;
         chat.clear();
-        saidRecently.clear();
+        _clearBubbles();
         _clearSideshow();
         _clearCelebration();
         screen = Screen.lobby;
@@ -253,7 +283,7 @@ class GameState extends ChangeNotifier {
         if (switching) return;
         room = null;
         chat.clear();
-        saidRecently.clear();
+        _clearBubbles();
         _clearSideshow();
         _clearCelebration();
         screen = Screen.lobby;
@@ -289,16 +319,13 @@ class GameState extends ChangeNotifier {
         unreadChat++;
 
         // Show it over the sender's seat for a moment, so a table that is
-        // talking is visible without opening the chat.
-        saidRecently[m.userId] = m;
-        _bubbleTimers[m.userId]?.cancel();
-        _bubbleTimers[m.userId] = Timer(bubbleFor, () {
-          // Only clear it if nothing newer arrived in the meantime.
-          if (saidRecently[m.userId] == m) {
-            saidRecently.remove(m.userId);
-            notifyListeners();
-          }
-        });
+        // talking is visible without opening the chat. If their last line is
+        // still up, this one waits its turn rather than cutting it short.
+        if (saidRecently.containsKey(m.userId)) {
+          (_bubbleQueue[m.userId] ??= []).add(m);
+        } else {
+          _showBubble(m);
+        }
 
         notifyListeners();
       }),
@@ -316,6 +343,57 @@ class GameState extends ChangeNotifier {
       }),
       _conn.onConnected.listen((_) => notifyListeners()),
     ]);
+  }
+
+  // --------------------------------------------------------------- bubbles
+
+  void _showBubble(ChatMessage m) {
+    saidRecently[m.userId] = m;
+    _bubbleTimers[m.userId]?.cancel();
+    _bubbleTimers[m.userId] = Timer(bubbleFor, () {
+      saidRecently.remove(m.userId);
+      final waiting = _bubbleQueue[m.userId];
+      if (waiting != null && waiting.isNotEmpty) {
+        _showBubble(waiting.removeAt(0));
+      } else {
+        _bubbleTimers.remove(m.userId);
+      }
+      notifyListeners();
+    });
+  }
+
+  /// Drops every bubble and everything queued behind one — for leaving a
+  /// table, where the people who said them are no longer in view.
+  void _clearBubbles() {
+    for (final t in _bubbleTimers.values) {
+      t.cancel();
+    }
+    _bubbleTimers.clear();
+    _bubbleQueue.clear();
+    saidRecently.clear();
+  }
+
+  // ------------------------------------------------------------ seat check
+
+  /// After a reconnect the server re-sends the table straight after
+  /// `session:ready` if it still has us seated. If nothing follows, the seat
+  /// is gone: back to the lobby, with a word about why, rather than a table
+  /// that never moves again.
+  void _armSeatCheck() {
+    _seatCheck?.cancel();
+    _seatCheck = Timer(const Duration(milliseconds: 1800), () {
+      if (_snapshotSinceSession || room == null) return;
+      room = null;
+      chat.clear();
+      _clearBubbles();
+      _clearSideshow();
+      _clearCelebration();
+      switching = false;
+      notice = t.tableLost;
+      screen = Screen.lobby;
+      notifyListeners();
+      unawaited(refreshUser());
+    });
   }
 
   // ---------------------------------------------------------------- resume
@@ -692,6 +770,7 @@ class GameState extends ChangeNotifier {
   void dispose() {
     _clearSideshow();
     _resumeTimer?.cancel();
+    _seatCheck?.cancel();
     _celebrationTimer?.cancel();
     _ticker?.cancel();
     for (final t in _bubbleTimers.values) {

@@ -140,6 +140,8 @@ class Strings {
   String get missedTurnsLabel => _('missedTurnsLabel');
   String get resumingTable => _('resumingTable');
   String get welcomeBack => _('welcomeBack');
+  String get appVersion => _('appVersion');
+  String get tableLost => _('tableLost');
   String get winner => _('winner');
   String get tableChat => _('tableChat');
   String get saySomething => _('saySomething');
@@ -287,6 +289,8 @@ class Strings {
       'missedTurnsLabel': 'Missed turns',
       'resumingTable': 'Returning to your table…',
       'welcomeBack': "Welcome back — you're back at your table.",
+      'appVersion': 'App version',
+      'tableLost': 'The table closed while you were away.',
       'winner': 'Winner',
       'tableChat': 'Table chat',
       'saySomething': 'Say something…',
@@ -430,6 +434,8 @@ class Strings {
       'missedTurnsLabel': 'चूकी चालें',
       'resumingTable': 'आपकी टेबल पर वापस जा रहे हैं…',
       'welcomeBack': 'वापसी पर स्वागत है — आप अपनी टेबल पर वापस हैं।',
+      'appVersion': 'ऐप संस्करण',
+      'tableLost': 'आप दूर थे तब टेबल बंद हो गई।',
       'winner': 'विजेता',
       'tableChat': 'टेबल चैट',
       'saySomething': 'कुछ कहें…',
@@ -573,6 +579,8 @@ class Strings {
       'missedTurnsLabel': 'মিস করা চাল',
       'resumingTable': 'আপনার টেবিলে ফিরছি…',
       'welcomeBack': 'ফিরে আসায় স্বাগত — আপনি আপনার টেবিলে ফিরে এসেছেন।',
+      'appVersion': 'অ্যাপ সংস্করণ',
+      'tableLost': 'আপনি দূরে থাকাকালীন টেবিল বন্ধ হয়ে গেছে।',
       'winner': 'বিজয়ী',
       'tableChat': 'টেবিল চ্যাট',
       'saySomething': 'কিছু বলুন…',
@@ -716,6 +724,8 @@ class Strings {
       'missedTurnsLabel': 'ચૂકેલી ચાલો',
       'resumingTable': 'તમારા ટેબલ પર પાછા જઈ રહ્યા છીએ…',
       'welcomeBack': 'પરત સ્વાગત — તમે તમારા ટેબલ પર પાછા છો.',
+      'appVersion': 'એપ આવૃત્તિ',
+      'tableLost': 'તમે દૂર હતા ત્યારે ટેબલ બંધ થઈ ગયું.',
       'winner': 'વિજેતા',
       'tableChat': 'ટેબલ ચૅટ',
       'saySomething': 'કંઈક કહો…',
@@ -859,6 +869,8 @@ class Strings {
       'missedTurnsLabel': 'ਖੁੰਝੀਆਂ ਚਾਲਾਂ',
       'resumingTable': 'ਤੁਹਾਡੇ ਟੇਬਲ ਤੇ ਵਾਪਸ ਜਾ ਰਹੇ ਹਾਂ…',
       'welcomeBack': 'ਵਾਪਸੀ ਤੇ ਸਵਾਗਤ — ਤੁਸੀਂ ਆਪਣੇ ਟੇਬਲ ਤੇ ਵਾਪਸ ਹੋ।',
+      'appVersion': 'ਐਪ ਵਰਜਨ',
+      'tableLost': 'ਤੁਸੀਂ ਦੂਰ ਸੀ ਤਾਂ ਟੇਬਲ ਬੰਦ ਹੋ ਗਿਆ।',
       'winner': 'ਜੇਤੂ',
       'tableChat': 'ਟੇਬਲ ਚੈਟ',
       'saySomething': 'ਕੁਝ ਕਹੋ…',
