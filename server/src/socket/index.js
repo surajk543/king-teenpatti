@@ -67,6 +67,28 @@ export function attachSocketHandlers(io, rooms) {
 
     table.on('state', () => broadcastState(table));
 
+    /**
+     * Requirements 31 and 32: the table has decided somebody should not be
+     * sitting there any more — they stopped playing, or they can no longer
+     * cover the boot.
+     *
+     * The table only announces it; the seat is actually given up here, where
+     * the room book-keeping and the player's socket both live. They are told
+     * why, so the lobby can say something better than "you were removed".
+     */
+    table.on('kick', ({ userId, reason, message }) => {
+      if (!rooms.getTableForPlayer(userId)) return;
+
+      rooms.leave(userId, reason);
+      emitToUser(userId, 'room:kicked', { roomId: table.id, reason, message });
+
+      const socket = userSockets.get(userId);
+      if (socket) untrackRoom(table.id, socket);
+
+      const stillAlive = rooms.getTable(table.id);
+      if (stillAlive) broadcastState(stillAlive);
+    });
+
     table.on('handStarted', (payload) => {
       io.to(table.id).emit('game:handStarted', { ...payload, roomId: table.id });
       // Cards stay on the server until a player pays attention to them by
@@ -101,6 +123,25 @@ export function attachSocketHandlers(io, rooms) {
       io.to(table.id).emit('game:action', { ...payload, roomId: table.id });
     });
 
+    /**
+     * A sideshow is public knowledge except for the cards: everyone sees who
+     * asked whom, so the table can animate it, and everyone sees the outcome.
+     * Only the two players involved ever receive the hands.
+     */
+    table.on('sideshowRequested', (payload) => {
+      io.to(table.id).emit('game:sideshowRequested', { ...payload, roomId: table.id });
+    });
+
+    table.on('sideshowReveal', ({ userIds, reveal }) => {
+      for (const userId of userIds) {
+        emitToUser(userId, 'game:sideshowReveal', { roomId: table.id, reveal });
+      }
+    });
+
+    table.on('sideshowResolved', (payload) => {
+      io.to(table.id).emit('game:sideshowResolved', { ...payload, roomId: table.id });
+    });
+
     table.on('showdown', (payload) => {
       io.to(table.id).emit('game:showdown', { ...payload, roomId: table.id });
     });
@@ -125,6 +166,31 @@ export function attachSocketHandlers(io, rooms) {
   };
 
   rooms.on('tableCreated', wireTable);
+
+  /**
+   * Requirement 24: a player merged onto a busier table is re-tracked here and
+   * handed the new room, so the move is seamless rather than a disconnect.
+   */
+  rooms.on('playerMoved', ({ userId, fromRoomId, toRoomId }) => {
+    const socket = userSockets.get(userId);
+    const target = rooms.getTable(toRoomId);
+    if (!socket || !target) return;
+
+    untrackRoom(fromRoomId, socket);
+    wireTable(target);
+    trackRoom(toRoomId, socket);
+    target.setConnected(userId, true, socket.id);
+
+    socket.emit('room:moved', {
+      fromRoomId,
+      toRoomId,
+      code: target.code,
+      message: 'Moved to a table with other players waiting.',
+    });
+    socket.emit('room:joined', target.serializeFor(userId));
+    sendChatHistory(target, socket);
+    broadcastState(target);
+  });
 
   rooms.on('tableDestroyed', (roomId) => {
     for (const socket of socketsIn(roomId)) {
@@ -262,6 +328,47 @@ export function attachSocketHandlers(io, rooms) {
     );
 
     socket.on(
+      'room:switch',
+      guard(async () => {
+        const fresh = findById(user.id);
+
+        // Stop listening to the old room *first*. Leaving it can destroy it —
+        // if this player was the last one there — and a table being destroyed
+        // tells everyone still tracking it that the room closed. That message
+        // would land on this socket and read as "you have been thrown out",
+        // moments before the join it is in the middle of.
+        const leaving = rooms.getTableForPlayer(user.id);
+        if (leaving) untrackRoom(leaving.id, socket);
+
+        let from;
+        let table;
+        try {
+          ({ from, table } = rooms.switchTable(fresh));
+        } catch (error) {
+          // Nowhere to go: the seat was never given up, so put the socket back
+          // where it was listening.
+          if (leaving && rooms.getTable(leaving.id)) trackRoom(leaving.id, socket);
+          throw error;
+        }
+
+        wireTable(table);
+        trackRoom(table.id, socket);
+        table.setConnected(user.id, true, socket.id);
+
+        socket.emit('room:joined', table.serializeFor(user.id));
+        sendChatHistory(table, socket);
+        broadcastState(table);
+
+        // The table they left has one fewer player; everyone still there
+        // should see that straight away.
+        const vacated = rooms.getTable(from.id);
+        if (vacated) broadcastState(vacated);
+
+        return { roomId: table.id, code: table.code, category: table.category };
+      }),
+    );
+
+    socket.on(
       'room:leave',
       guard(async () => {
         const table = rooms.getTableForPlayer(user.id);
@@ -296,6 +403,21 @@ export function attachSocketHandlers(io, rooms) {
         }
 
         return table.act(user.id, action, { amount: parsed });
+      }),
+    );
+
+    /**
+     * The answer to a sideshow request. Only the player who was asked can send
+     * this, which the table enforces; an unanswered request expires by itself
+     * after six seconds, so a client that simply never replies is not a way to
+     * stall the table.
+     */
+    socket.on(
+      'game:sideshowRespond',
+      guard(async ({ accept }) => {
+        const table = rooms.getTableForPlayer(user.id);
+        if (!table) throw new GameError('not_in_room', 'You are not at a table');
+        return table.respondToSideshow(user.id, accept === true);
       }),
     );
 
@@ -392,9 +514,8 @@ const publicGameConfig = () => ({
   turnTimeoutMs: config.game.turnTimeoutMs,
   welcomeChips: config.game.welcomeChips,
   maxBetRounds: config.game.maxBetRounds,
-  /** The Blind/Seen categories and the stakes the lobby offers. */
-  categories: RoomManager.lobbyOptions().categories,
-  stakes: RoomManager.lobbyOptions().stakes,
+  /** The Blind/Seen categories, the lobby stakes, and the private-table rules. */
+  ...RoomManager.lobbyOptions(),
 });
 
 /** Simple fixed-window limiter, applied per socket. */

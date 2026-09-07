@@ -33,9 +33,37 @@ export function openDatabase(file = config.db.file) {
 
   const schema = fs.readFileSync(path.join(here, 'schema.sql'), 'utf8');
   db.exec(schema);
+  migrate(db);
 
   logger.info('database ready', { file });
   return db;
+}
+
+/**
+ * Adds columns that were introduced after a database was first created.
+ *
+ * `CREATE TABLE IF NOT EXISTS` leaves an existing table untouched, so a
+ * database made by an earlier build would be missing newer columns. Each ALTER
+ * is applied only when the column is genuinely absent, which makes this safe to
+ * run on every boot.
+ */
+function migrate(db) {
+  const columns = new Set(db.prepare('PRAGMA table_info(users)').all().map((row) => row.name));
+
+  const additions = [
+    ['hands_lost', 'INTEGER NOT NULL DEFAULT 0'],
+    ['hands_left_mid', 'INTEGER NOT NULL DEFAULT 0'],
+    ['total_winnings', 'INTEGER NOT NULL DEFAULT 0'],
+    ['milestone_claimed', 'INTEGER NOT NULL DEFAULT 0'],
+    ['next_bonus_at', 'INTEGER NOT NULL DEFAULT 0'],
+    ['avatar_choice', 'TEXT'],
+  ];
+
+  for (const [name, definition] of additions) {
+    if (columns.has(name)) continue;
+    db.exec(`ALTER TABLE users ADD COLUMN ${name} ${definition}`);
+    logger.info('database migrated', { added: name });
+  }
 }
 
 export function getDatabase() {

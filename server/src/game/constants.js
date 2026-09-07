@@ -38,6 +38,7 @@ export const ACTION = {
   RAISE: 'raise', // bet double the current amount
   PACK: 'pack', // fold
   SHOW: 'show', // pay to compare hands, only with two players left
+  SIDESHOW: 'sideshow', // ask the player on your right to compare privately
 };
 
 /** Why a hand ended — surfaced to clients and stored on the hand record. */
@@ -45,6 +46,8 @@ export const WIN_REASON = {
   LAST_STANDING: 'last_standing', // everyone else packed
   SHOW: 'show', // a player paid for a show
   FORCED_SHOWDOWN: 'forced_showdown', // the round cap was reached
+  ALL_LEFT: 'all_left', // everyone abandoned the hand; the last to leave takes it
+  POT_LIMIT: 'pot_limit', // the table's maximum pot was reached
 };
 
 export default { TABLE_CATEGORY, TABLE_STATE, SEAT_STATE, ACTION, WIN_REASON };

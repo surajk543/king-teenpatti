@@ -3,7 +3,7 @@
 Unity client for Android, iOS and WebGL. Talks to the Node.js server over Socket.IO.
 
 > **Status:** compiled and tested with **Unity 6000.6.0f1** — `KingTeenPatti.dll` builds with
-> 0 errors and 0 warnings, 25 PlayMode tests pass against a live server, and a StandaloneLinux64
+> 0 errors and 0 warnings, 36 PlayMode tests pass against a live server, and a StandaloneLinux64
 > player builds successfully. See [Verification](#verification).
 
 ## Requirements
@@ -60,8 +60,19 @@ Assets/
 │   └── TeenPattiWebSocket.jslib Browser WebSocket bridge
 ├── Editor/BuildScript.cs        Scene generation + command-line builds
 ├── Scenes/Game.unity            Generated play scene (one GameClient object)
-└── Tests/PlayMode/              25 tests, incl. live-server end-to-end
+└── Tests/PlayMode/              36 tests, incl. live-server end-to-end
 ```
+
+## Look and feel
+
+The interface follows **Material 3** (requirement 23). `UiFactory` holds two schemes built from one
+tonal palette, and every widget reads its colour from `UiFactory.Scheme`, so the ☀️/🌙 toggle is a
+single `SetDarkMode` call — `GameClient` then rebuilds the runtime UI, which is cheaper than teaching
+each widget to repaint itself. The choice is stored in `PlayerPrefs`.
+
+Phones run the game in **landscape only**. `BuildScript` disables both portrait orientations at build
+time, `GameClient.Awake` sets the same policy so the Editor matches, and the canvas scales against a
+1920×1080 reference matched on height.
 
 ## Platform notes
 
@@ -178,7 +189,7 @@ Compiled and run with **Unity 6000.6.0f1** on Linux:
 |---|---|
 | Compile `KingTeenPatti.dll` | **0 errors, 0 warnings** |
 | WebGL transport type-check | **0 errors** (guard temporarily relaxed so `WebGLWebSocket.cs`, normally excluded in the Editor, is compiled) |
-| PlayMode tests | **25 passed, 0 failed** |
+| PlayMode tests | **36 passed, 0 failed** |
 | `StandaloneLinux64` player | **Succeeded** — 0 errors, 0 warnings |
 
 ### Running the tests

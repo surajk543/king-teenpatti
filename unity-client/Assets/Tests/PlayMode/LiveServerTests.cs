@@ -119,7 +119,6 @@ namespace KingTeenPatti.Tests
         private IEnumerator SeatTwo(
             GameConnection host,
             GameConnection guest,
-            long bootAmount,
             string category,
             Action<RoomStateDto> onHostJoined = null,
             Action<RoomStateDto> onGuestJoined = null)
@@ -129,8 +128,10 @@ namespace KingTeenPatti.Tests
             host.RoomJoined += room => hostRoom = room;
             guest.RoomJoined += room => guestRoom = room;
 
+            // A private table's boot is fixed server-side (requirement 22), so
+            // none is chosen here; callers read it back off the room state.
             JoinAckDto created = null;
-            host.CreateTable(bootAmount, true, category, ack => created = ack);
+            host.CreateTable(0, true, category, ack => created = ack);
             yield return PumpBoth(host, guest, () => created != null && hostRoom != null);
 
             Assert.IsNotNull(created, "the table was created");
@@ -246,8 +247,6 @@ namespace KingTeenPatti.Tests
             yield return PumpBoth(ca, cb, () => readyA && readyB);
             Assert.IsTrue(readyA && readyB, "both clients connected");
 
-            var boot = 300 + UnityEngine.Random.Range(1, 400) * 10;
-
             RoomStateDto joinedA = null;
             RoomStateDto joinedB = null;
 
@@ -265,8 +264,9 @@ namespace KingTeenPatti.Tests
             ca.CardsReceived += payload => cardsA = payload;
             cb.CardsReceived += payload => cardsB = payload;
 
-            yield return SeatTwo(ca, cb, boot, TableCategory.Seen,
+            yield return SeatTwo(ca, cb, TableCategory.Seen,
                 room => joinedA = room, room => joinedB = room);
+            var boot = joinedA.bootAmount;
 
             Assert.IsNotNull(joinedA, "client A joined a table");
             Assert.IsNotNull(joinedB, "client B joined a table");
@@ -326,15 +326,25 @@ namespace KingTeenPatti.Tests
             yield return ApiClient.GetProfile(ServerUrl, winnerToken, user => profile = user, e => Assert.Fail(e));
 
             Assert.IsNotNull(profile);
-            Assert.AreEqual(1, profile.handsPlayed, "the hand was persisted");
-            Assert.AreEqual(1, profile.handsWon);
+            Assert.AreEqual(1, profile.handsWon, "the win was persisted");
             Assert.Greater(profile.chips, 200000, "winnings reached the database");
+
+            // "Played" counts only for a player who committed chips beyond the
+            // boot, so it is checked against whoever paid for the show.
+            UserDto caller = null;
+            var callerToken = onTurnIsA ? alice.token : bob.token;
+            yield return ApiClient.GetProfile(ServerUrl, callerToken, user => caller = user, e => Assert.Fail(e));
+
+            Assert.AreEqual(1, caller.handsPlayed, "paying for the show counts as playing");
         }
 
         /// <summary>
         /// The +/- stepper against the real server: the ladder doubles, stays
-        /// inside the player's stack, and a rung placed as a bet is accepted while
-        /// an off-ladder amount is refused.
+        /// inside the player's stack, and a rung placed as a bet is accepted
+        /// while an off-ladder amount is refused.
+        ///
+        /// This uses a public blind table, which is the only kind that keeps the
+        /// open-ended ladder — seen and private tables allow one double per turn.
         /// </summary>
         [UnityTest]
         public IEnumerator RaiseLadderIsUsableAndBounded()
@@ -349,20 +359,23 @@ namespace KingTeenPatti.Tests
             var ca = Connect(alice.token);
             var cb = Connect(bob.token);
 
-            var readyA = false;
+            GameConfigDto serverConfig = null;
             var readyB = false;
-            ca.SessionReady += _ => readyA = true;
+            ca.SessionReady += payload => serverConfig = payload.config;
             cb.SessionReady += _ => readyB = true;
-            yield return PumpBoth(ca, cb, () => readyA && readyB);
+            yield return PumpBoth(ca, cb, () => serverConfig != null && readyB);
 
-            var boot = 9000 + UnityEngine.Random.Range(1, 400) * 10;
+            // The biggest stake the lobby offers gives the ladder room to run.
+            var boot = serverConfig.stakes[serverConfig.stakes.Length - 1];
 
             YourTurnDto turnA = null;
             YourTurnDto turnB = null;
             ca.YourTurn += payload => turnA = payload;
             cb.YourTurn += payload => turnB = payload;
 
-            yield return SeatTwo(ca, cb, boot, TableCategory.Seen);
+            ca.QuickJoin(boot, TableCategory.Blind);
+            cb.QuickJoin(boot, TableCategory.Blind);
+
             yield return PumpBoth(ca, cb, () => turnA != null || turnB != null);
 
             var onTurnIsA = turnA != null;
@@ -370,7 +383,7 @@ namespace KingTeenPatti.Tests
             var options = (onTurnIsA ? turnA : turnB).options;
 
             // The ladder must double on every rung and never exceed the stack.
-            Assert.GreaterOrEqual(options.raiseSteps.Length, 2, "there is room to raise");
+            Assert.GreaterOrEqual(options.raiseSteps.Length, 3, "a blind table keeps doubling");
             Assert.AreEqual(boot, options.raiseSteps[0], "rung 0 is the chaal");
             for (var i = 1; i < options.raiseSteps.Length; i++)
             {
@@ -396,7 +409,7 @@ namespace KingTeenPatti.Tests
             Assert.IsFalse(hugeAck.ok, "a bet beyond the stack is rejected");
 
             // Two taps of "+" — rung 2 — is accepted, and the pot grows by it.
-            var chosen = options.raiseSteps[2 < options.raiseSteps.Length ? 2 : 1];
+            var chosen = options.raiseSteps[2];
             ActionDto placed = null;
             ca.PlayerActed += payload =>
             {
@@ -461,8 +474,6 @@ namespace KingTeenPatti.Tests
             cb.SessionReady += _ => readyB = true;
             yield return PumpBoth(ca, cb, () => readyA && readyB);
 
-            var boot = 21000 + UnityEngine.Random.Range(1, 400) * 10;
-
             RoomStateDto state = null;
             ca.RoomStateChanged += room =>
             {
@@ -474,7 +485,7 @@ namespace KingTeenPatti.Tests
                 if (seated == 2) state = room;
             };
 
-            yield return SeatTwo(ca, cb, boot, TableCategory.Seen);
+            yield return SeatTwo(ca, cb, TableCategory.Seen);
             yield return PumpBoth(ca, cb, () => state != null);
 
             Assert.IsNotNull(state, "both players were seated");
@@ -508,8 +519,6 @@ namespace KingTeenPatti.Tests
             cb.SessionReady += _ => readyB = true;
             yield return PumpBoth(ca, cb, () => readyA && readyB);
 
-            var boot = 31000 + UnityEngine.Random.Range(1, 400) * 10;
-
             RoomStateDto state = null;
             ca.RoomStateChanged += room =>
             {
@@ -522,7 +531,7 @@ namespace KingTeenPatti.Tests
             };
 
             RoomStateDto joined = null;
-            yield return SeatTwo(ca, cb, boot, TableCategory.Blind, room => joined = room);
+            yield return SeatTwo(ca, cb, TableCategory.Blind, room => joined = room);
             yield return PumpBoth(ca, cb, () => state != null);
 
             Assert.IsNotNull(joined, "the blind table was created and joined");
@@ -588,6 +597,65 @@ namespace KingTeenPatti.Tests
             Assert.IsTrue(seenAck.ok);
             Assert.AreNotEqual(blindAck.roomId, seenAck.roomId,
                 "the same stake in different categories is two rooms");
+        }
+
+        /// <summary>
+        /// Requirement 22: a private table has a fixed boot, caps what can be
+        /// won, and allows one double per turn.
+        /// </summary>
+        [UnityTest]
+        public IEnumerator PrivateTablesAreFixedAndCapped()
+        {
+            yield return EnsureServer();
+
+            LoginResponse alice = null;
+            LoginResponse bob = null;
+            yield return Login("privA", r => alice = r);
+            yield return Login("privB", r => bob = r);
+
+            var ca = Connect(alice.token);
+            var cb = Connect(bob.token);
+
+            GameConfigDto serverConfig = null;
+            var readyB = false;
+            ca.SessionReady += payload => serverConfig = payload.config;
+            cb.SessionReady += _ => readyB = true;
+            yield return PumpBoth(ca, cb, () => serverConfig != null && readyB);
+
+            Assert.AreEqual(200, serverConfig.privateBoot, "the fixed boot is advertised");
+            Assert.AreEqual(500000, serverConfig.privateMaxPot, "and so is the maximum win");
+
+            // Ask for a wildly different boot: the server fixes it regardless.
+            RoomStateDto joined = null;
+            RoomStateDto guestRoom = null;
+            ca.RoomJoined += room => joined = room;
+            cb.RoomJoined += room => guestRoom = room;
+
+            JoinAckDto created = null;
+            ca.CreateTable(99999, true, TableCategory.Blind, ack => created = ack);
+            yield return PumpBoth(ca, cb, () => created != null && joined != null);
+
+            Assert.IsTrue(created.ok, "create failed: " + created.message);
+            Assert.AreEqual(serverConfig.privateBoot, joined.bootAmount,
+                "the requested boot is ignored in favour of the fixed one");
+            Assert.AreEqual(serverConfig.privateMaxPot, joined.maxPot, "the win is capped");
+
+            YourTurnDto turnA = null;
+            YourTurnDto turnB = null;
+            ca.YourTurn += payload => turnA = payload;
+            cb.YourTurn += payload => turnB = payload;
+
+            JoinAckDto guestAck = null;
+            cb.JoinByCode(created.code, ack => guestAck = ack);
+            yield return PumpBoth(ca, cb, () => guestAck != null && guestRoom != null);
+            Assert.IsTrue(guestAck.ok);
+
+            yield return PumpBoth(ca, cb, () => turnA != null || turnB != null);
+            var options = (turnA != null ? turnA : turnB).options;
+
+            Assert.AreEqual(2, options.raiseSteps.Length, "one double per turn, no more");
+            Assert.AreEqual(serverConfig.privateBoot, options.raiseSteps[0]);
+            Assert.AreEqual(serverConfig.privateBoot * 2, options.raiseSteps[1]);
         }
 
         // ----------------------------------------------------------- room chat

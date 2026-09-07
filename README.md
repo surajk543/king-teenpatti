@@ -9,7 +9,7 @@ king-teenpatti/
 ├── server/          Node.js + Socket.IO + SQLite game server (authoritative)
 │   ├── src/         Game engine, auth, database, socket layer
 │   ├── public/      Browser client — playable immediately, no Unity needed
-│   └── test/        146 tests + a load-test harness
+│   └── test/        194 tests + a load-test harness
 ├── unity-client/    Unity client (C#): Socket.IO protocol, models, runtime UI
 └── Requirements.txt The original brief
 ```
@@ -27,7 +27,7 @@ Open <http://localhost:3000> in two browser tabs, press **Play as Guest** in eac
 **Quick Join**. Two players are enough to start a hand.
 
 ```bash
-npm test                      # 146 tests
+npm test                      # 194 tests
 npm run loadtest -- --players 1000 --seconds 60
 ```
 
@@ -53,6 +53,21 @@ npm run loadtest -- --players 1000 --seconds 60
 | 10 | Auto-pack when a turn is not acted on | [table.js](server/src/game/table.js) |
 | 12 | Chat panel collapses to a badge and reopens | [client.js](server/public/client.js), [ChatPanel.cs](unity-client/Assets/Scripts/UI/ChatPanel.cs) |
 | 13 | Blind/Seen categories at 200 and 5000; chip visibility per category | [table.js](server/src/game/table.js), [roomManager.js](server/src/game/roomManager.js) |
+| 14 | Show reveals every hand to the room, with the winner and amount | [table.js](server/src/game/table.js), [client.js](server/public/client.js) |
+| 15 | The pot always pays out, even when the table empties | [table.js](server/src/game/table.js) |
+| 16 | Played / won / lost / abandoned counters and total winnings | [users.js](server/src/db/users.js), [schema.sql](server/src/db/schema.sql) |
+| 17 | 25,000 chip reward at every 25 hands played | [users.js](server/src/db/users.js), [routes.js](server/src/auth/routes.js) |
+| 18 | 10,000 chip bonus on a 4-hour countdown, stored in the database | [users.js](server/src/db/users.js) |
+| 19 | Seen tables: one double per turn, showdown after 7 rounds | [roomManager.js](server/src/game/roomManager.js) |
+| 20 | Profile picture taken from the Google/Facebook account | [providers.js](server/src/auth/providers.js) |
+| 21 | Pick a bundled picture; locked once seated; visible to everyone | [routes.js](server/src/auth/routes.js), [profiles/](server/public/profiles/) |
+| 22 | Private tables: fixed 200 boot, maximum win 500,000, one double per turn | [roomManager.js](server/src/game/roomManager.js), [table.js](server/src/game/table.js) |
+| 23 | Landscape on phones, icons, light/dark toggle, Material 3 | [theme.css](server/public/theme.css), [UiFactory.cs](unity-client/Assets/Scripts/UI/UiFactory.cs) |
+| 24 | Two half-empty rooms merge; never mid-hand; "starting in N" countdown | [roomManager.js](server/src/game/roomManager.js) |
+| 25 | Leaving a table asks for confirmation first | [client.js](server/public/client.js), [GameUI.cs](unity-client/Assets/Scripts/UI/GameUI.cs) |
+| 26 | 4-hour bonus in the top-left corner, counting down in seconds | [client.js](server/public/client.js) |
+| 27 | Milestone reward in the bottom-right corner | [client.js](server/public/client.js) |
+| 28 | Square table cards with a looping diagonal sheen | [style.css](server/public/style.css) |
 
 ## How the game works
 
@@ -83,6 +98,51 @@ an exact tie goes to the player who did *not* pay for the show.
 **Settlement.** Bets move in memory during a hand, then the whole hand settles in **one SQLite
 transaction** — chip deltas, the hand record, and the ledger row per player. That keeps database
 writes flat as table count grows, and every chip movement is auditable in `chip_ledger`.
+
+**Showdown.** A show reveals every remaining hand to everyone at the table, with the winner and the
+amount written across the middle of the felt until the next deal. Seen tables also force a showdown
+once everyone has had 7 turns.
+
+**Rewards.** Two, both server-authoritative: 25,000 chips at every 25 hands played, and 10,000 chips
+on a 4-hour countdown. The milestone already collected and the next unlock time live in the
+database, so neither can be farmed by replaying a request or reinstalling the app.
+
+**Statistics.** Hands played, won, lost and abandoned, plus total winnings. A hand only counts as
+*played* once the player commits chips beyond the boot — posting the ante and folding immediately
+does not count, which is the rule the milestone reward is paid against.
+
+**Profile pictures.** Google and Facebook pictures are captured at login. A player can instead pick
+one of the pictures bundled in `server/public/profiles/`, and that choice is what everyone at the
+table sees. Changing it is refused while seated, so a picture cannot swap mid-hand.
+
+**Private tables.** Opened with a code rather than through the lobby. The boot is **fixed at 200
+chips** — not a choice, so there is nothing to pick in the UI and a requested amount is simply
+replaced. The most that can be won in a hand is **500,000**, and a player may double their chaal only
+once per turn. A bet that would push the pot past the ceiling is never offered, and once no further
+bet fits underneath it the hand goes straight to a showdown, so the cap is a real limit rather than
+a number the pot drifts past.
+
+**Filling tables.** Two rooms that have each dwindled to a single player are two rooms where nobody
+can play, so the stragglers are merged onto one table — the longest-standing room wins, and the
+emptied one is disposed of. Only idle tables are touched: **a table with a hand in progress is never
+disturbed**, which is what stops a player being moved out from under a live game. Stake, category and
+privacy all have to match, so nobody is moved to a table they did not choose. Once two players are
+seated the room counts down and every client shows *"Starting game in N seconds"* against the same
+server deadline.
+
+**Rewards on screen.** The 4-hour bonus sits in the top-left corner and counts down in hours,
+minutes **and seconds**, so the timer visibly moves; the milestone sits in the bottom-right. Both
+light up and pulse when they are ready to collect, and both are lobby furniture — they would clash
+with the chat button and the bet controls at a table.
+
+**Leaving a table** asks first. The wording changes when a hand is live, because that is the case
+where walking away actually costs something: the stake stays in the pot.
+
+**Look and feel.** The interface follows **Material 3**: one tonal palette drives both schemes, with
+filled and tonal buttons, state layers, elevation and the M3 shape scale. A ☀️/🌙 icon switches
+light and dark, and the choice is remembered. Phones run the game in **landscape** — the Unity build
+disables portrait outright, and the browser client lays the table out for a wide screen and asks a
+portrait phone to turn.
 
 **Chat.** Per room, in server memory, capped at 100 messages. A player joining mid-session is sent
 the backlog; when the last player leaves, the room and its chat are destroyed together. Nothing is
@@ -124,7 +184,7 @@ sharding caveat are in [server/README.md](server/README.md#scaling).
 
 ## Testing
 
-146 tests, all passing:
+194 tests, all passing:
 
 | File | Covers |
 |---|---|
@@ -135,16 +195,20 @@ sharding caveat are in [server/README.md](server/README.md#scaling).
 | `raiseLadder.test.js` | The +/− ladder, its caps, amount validation, and the turn timeout |
 | `categories.test.js` | Blind/Seen chip visibility, per viewer, on and off the wire |
 | `stakes.test.js` | The lobby's fixed stakes and their validation |
+| `statsAndRewards.test.js` | Play counters, both rewards, and avatar precedence |
+| `tableRules.test.js` | Pot payout when a table empties; seen-table betting limits |
+| `privateTables.test.js` | The fixed private boot, the win ceiling and the single double |
+| `consolidation.test.js` | Merging half-empty rooms, and never doing it mid-hand |
 | `integration.test.js` | Real sockets + real SQLite: auth, gameplay, room capacity, chat |
 | `socketProtocol.test.js` | The Unity client's Socket.IO framing, driven with real server frames |
 
-### Unity client — 25 tests
+### Unity client — 36 tests
 
 Compiled and run with **Unity 6000.6.0f1**:
 
 ```
 Compile         KingTeenPatti.dll — 0 errors, 0 warnings (WebGL transport included)
-PlayMode tests  25 passed, 0 failed
+PlayMode tests  36 passed, 0 failed
 Build           StandaloneLinux64 — Succeeded, 0 errors, 0 warnings
 ```
 

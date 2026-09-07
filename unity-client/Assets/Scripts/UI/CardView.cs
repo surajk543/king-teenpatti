@@ -15,16 +15,18 @@ namespace KingTeenPatti.UI
     {
         private Image _background;
         private Text _rank;
-        private Text _suit;
+        private Image _suit;
 
-        private static readonly Color Face = new Color(0.97f, 0.97f, 0.95f);
-        private static readonly Color Back = new Color(0.52f, 0.16f, 0.16f);
+        /// A playing card is a physical object: it looks the same whichever
+        /// theme the app is in, so these two are deliberately not palette roles.
+        public static readonly Color Face = new Color(0.97f, 0.97f, 0.95f);
+        public static readonly Color Back = new Color(0.52f, 0.16f, 0.16f);
 
         public static CardView Create(Transform parent, Vector2 anchorMin, Vector2 anchorMax)
         {
             var view = new CardView();
 
-            view._background = UiFactory.CreateImage("Card", parent, Back);
+            view._background = UiFactory.CreateRounded("Card", parent, Back, UiFactory.ShapeMedium);
             UiFactory.Anchor(view._background.rectTransform, anchorMin, anchorMax, Vector2.zero, Vector2.zero);
 
             view._rank = UiFactory.CreateText("Rank", view._background.transform, string.Empty, 56,
@@ -32,10 +34,14 @@ namespace KingTeenPatti.UI
             UiFactory.Anchor(view._rank.rectTransform, new Vector2(0, 0.44f), new Vector2(1, 0.92f),
                 Vector2.zero, Vector2.zero);
 
-            view._suit = UiFactory.CreateText("Suit", view._background.transform, string.Empty, 48,
-                TextAnchor.MiddleCenter, Card.Black);
-            UiFactory.Anchor(view._suit.rectTransform, new Vector2(0, 0.08f), new Vector2(1, 0.48f),
-                Vector2.zero, Vector2.zero);
+            // The pip is a generated sprite, not a character: the built-in font
+            // has no suit glyphs on Android and the cards came out blank there.
+            view._suit = UiFactory.CreateImage("Suit", view._background.transform, Card.Black);
+            view._suit.preserveAspect = true;
+            view._suit.raycastTarget = false;
+            UiFactory.Anchor(view._suit.rectTransform, new Vector2(0.22f, 0.08f),
+                new Vector2(0.78f, 0.46f), Vector2.zero, Vector2.zero);
+            view._suit.enabled = false;
 
             return view;
         }
@@ -47,9 +53,19 @@ namespace KingTeenPatti.UI
         public void SetBack()
         {
             _background.gameObject.SetActive(true);
-            _background.color = Back;
             _rank.text = string.Empty;
-            _suit.text = string.Empty;
+            _suit.enabled = false;
+
+            if (UiFactory.CardBack != null)
+            {
+                UiFactory.ApplyCardBack(_background);
+                return;
+            }
+
+            _background.sprite = UiFactory.RoundedSprite(UiFactory.ShapeMedium);
+            _background.type = Image.Type.Sliced;
+            _background.preserveAspect = false;
+            _background.color = Back;
         }
 
         /// <summary>Reveals a card from its server code, e.g. "As" or "Td".</summary>
@@ -62,13 +78,18 @@ namespace KingTeenPatti.UI
             }
 
             _background.gameObject.SetActive(true);
+            // Back to the plain rounded card the rank and pip are drawn on.
+            _background.sprite = UiFactory.RoundedSprite(UiFactory.ShapeMedium);
+            _background.type = Image.Type.Sliced;
+            _background.preserveAspect = false;
             _background.color = Face;
 
             var color = Card.ColorOf(code);
             _rank.text = Card.RankOf(code);
             _rank.color = color;
-            _suit.text = Card.SuitSymbol(code);
+            _suit.sprite = UiFactory.SuitSprite(Card.SuitOf(code));
             _suit.color = color;
+            _suit.enabled = true;
         }
     }
 }

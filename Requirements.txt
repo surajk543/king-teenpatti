@@ -29,3 +29,59 @@ the amount he already has.
 13. Boot Table should have 2 category , Blind and Seen and in each category player can take seat of table 
 of 200 , 5000 and IN Seen Category Everybody can see how many chips each user have, but in blind category
 user can see its own chips not others.
+14. When a player click show button ,it should show the card of opponent and mine to all players present in room ,
+since only 2 players left in game and others are packed. Then it should show some text in center that
+winner is this player and won this much amount.
+15. Suppose in a room if all players leave the room , then the amount present in table will be given 
+to that player who left the room at the end.
+16. Also store in database for each user that how many he has played, won, lost and left game in 
+middle(left the table before game finishes).Also store Total winning amount where played will be counted if
+he has perform some chaal.
+17. If Played count matches is a multiple of 25, then give button to collect reward in UI and  reward
+money will be 25000.
+18. Every user show the countdown of 4 hours, after that he can click on collect money with reward 10000,
+then again countdown of 4 hours start, maintain this info in db so that we can know that 4 hour finished and once
+he collect money then only again 4 hours count down will be started.
+19. IN Seen Category table, player can double the chaal only 1 time in each turn, and after everybody has turned 10
+moves , it will show everybody cards to everybody and amount will be given to winner.
+20. In each user profile image will be fetched from his google or facebook profile.
+21. IN main menu UI, the user can update the prfile pic from profiles folder present in project,but he can not 
+update the profile pic once he 
+joined table, this prfile pic will be visible to all users.
+22. In Case of private table , the maximum pot amount can be 500000, and user can double the 
+chaal once in every turn, private table boot amount will start from 200 chips.
+23. Game UI will always run in horizontal mode in android and ios phone, Add some icons in UI and give option
+to change UI light to dark mode icon and use Material 3 design.
+24. Suppose you have 2 rooms A and B.In each room 3 or 5 or 4 players are there.Now All players left the game
+of room A except one player and In room B also All players left the game except one player, Now Both room
+A and B have one player, then make sure you put Player of A into B room or vice-versa and while doing this make
+you do not move players of different room in between the game, it should be done before starting the Game
+in room, In a room you can show text starting game in 4 seconds, when more than one player is present in room.
+25. Before leaving the room, it should pop up prompt to Are you sure want to leave it ?
+26. Add 4 hour reward point in the top left corner of button of switching ui, and it should shows seconds also after
+collecting reward.
+27. Milestone rewards should be added in bottom right corner.
+28. Every card design of boot table should be in square size.Each Card should have Animation effect keep
+on going from top left to bottom right so that it looks premium.
+29. Add a display name for each user which user can change only in lobby, this display name will be saved in
+database and by default display name will be name and display name cannot have special charcters and cannot
+have empty sting.
+30. Once user login in app, and he has coins more than 500000, then user cannot join 200 Blind table, that
+table will be disabled and on that a transparent text will be shown player with coin 500000 cannot join this
+table, this validation will be applied when user is in lobby or when user logged in and this validation will 
+not be checked if user switch the table , this validation is applied when enetring from lobby not from switch table.
+31. If any user in a table has skipped his turns continuously 3 times means it has auto packed 3 times continuously 
+then he should be kicked out of the table, so server needs to maintain state and of its coin value goes below 
+the table boot value then also he will be kicked out of table.
+32. Whenever game starts in a table then table boot amount will be deducted from each player, if player does not
+have enough money then he will be kicked out thrown in lobby and displaying prompt that you don't have
+enough coins to remain in this table.
+33. In Game room of all table category, Give a sideshow button on the left of chaal by default it will be disabled,
+It will be enable when player has its turn and there are equal or more than 3 active players in game and
+the player's turn card should be seen and its right side player has also seen the card, then sideshow button
+will be enabled and by clicking it the animation and effects request to go right side player and that right side
+player will get prompt to accept the request if he accepts the request, then the one player will be packed between
+them based on card value and current player and the player who accepted the request can only see each other card if he
+has accepted the request, while other players will see animation one player has requested the sideshow and the
+sideshow request will be for 6 seconds, then request will be auto rejected, Only one time side request can
+happen in every player turn, for side request again player needs to wait next turn of his.

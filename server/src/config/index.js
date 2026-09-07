@@ -70,8 +70,64 @@ const config = {
      * the player's own chip stack or the pot limit cuts it short anyway.
      */
     maxRaiseSteps: num(process.env.MAX_RAISE_STEPS, 8),
-    /** Countdown shown to clients between a finished hand and the next deal. */
-    nextHandDelayMs: num(process.env.NEXT_HAND_DELAY_MS, 6000),
+    /**
+     * Seen tables play tighter (requirement 19): a player may double their
+     * chaal only once per turn, so the ladder has just two rungs, and the hand
+     * is forced to a showdown once everyone has had 7 turns.
+     */
+    seenMaxRaiseSteps: num(process.env.SEEN_MAX_RAISE_STEPS, 2),
+    seenMaxBetRounds: num(process.env.SEEN_MAX_BET_ROUNDS, 7),
+    /**
+     * How many bets a player may make while still blind. On the last one their
+     * cards turn face up automatically, so nobody rides a whole hand blind.
+     */
+    maxBlindMoves: num(process.env.MAX_BLIND_MOVES, 4),
+
+    /**
+     * Requirement 30: the smallest blind table is for new players.
+     *
+     * Anyone holding more than the cap is kept out of it, so a player with a
+     * large stack cannot sit at the cheapest blind table and grind beginners.
+     * The rule is enforced on every join; the lobby also greys the table out so
+     * it is refused before it is tapped rather than after.
+     */
+    entryCapBoot: num(process.env.ENTRY_CAP_BOOT, 200),
+    entryCapCategory: process.env.ENTRY_CAP_CATEGORY ?? 'blind',
+    entryCapMaxChips: num(process.env.ENTRY_CAP_MAX_CHIPS, 500000),
+
+    /**
+     * Requirement 31: how many turns in a row a player may let time out before
+     * the table gives their seat to somebody who is actually there.
+     */
+    maxMissedTurns: num(process.env.MAX_MISSED_TURNS, 3),
+
+    /**
+     * How long a sideshow request stands before it is treated as refused.
+     * Short on purpose: the table is waiting on it, and the turn clock is
+     * paused while it hangs.
+     */
+    sideshowTimeoutMs: num(process.env.SIDESHOW_TIMEOUT_MS, 6000),
+
+    /** Fewest active players for a sideshow to be offered at all. */
+    sideshowMinPlayers: num(process.env.SIDESHOW_MIN_PLAYERS, 3),
+
+    /** The longest a display name may be (requirement 29). */
+    displayNameMaxLength: num(process.env.DISPLAY_NAME_MAX, 24),
+    /**
+     * Private table rules (requirement 22): the boot is fixed rather than
+     * chosen, the pot is capped, and a player may double their chaal only once
+     * per turn.
+     */
+    privateMaxPot: num(process.env.PRIVATE_MAX_POT, 500000),
+    privateMaxRaiseSteps: num(process.env.PRIVATE_MAX_RAISE_STEPS, 2),
+    privateBoot: num(process.env.PRIVATE_BOOT, 200),
+    /**
+     * Countdown before a hand is dealt, shown to clients as "starting in N"
+     * once more than one player is at the table (requirement 24).
+     */
+    nextHandDelayMs: num(process.env.NEXT_HAND_DELAY_MS, 4000),
+    /** How often idle single-player tables are merged together. */
+    consolidateIntervalMs: num(process.env.CONSOLIDATE_INTERVAL_MS, 15000),
     /** Grace period a disconnected player keeps their seat before being removed. */
     reconnectGraceMs: num(process.env.RECONNECT_GRACE_MS, 30000),
   },

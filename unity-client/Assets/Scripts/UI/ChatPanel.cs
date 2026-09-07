@@ -50,7 +50,7 @@ namespace KingTeenPatti.UI
         private void BuildToggle(Transform parent)
         {
             _toggleButton = UiFactory.CreateButton("ChatToggle", parent, "CHAT", () => SetOpen(!_open),
-                new Color(0.09f, 0.18f, 0.13f), UiFactory.Ink, 26);
+                UiFactory.Tonal, UiFactory.OnTonal, 26);
             UiFactory.Anchor(_toggleButton.GetComponent<RectTransform>(),
                 new Vector2(0.74f, 0.94f), new Vector2(0.97f, 0.985f), Vector2.zero, Vector2.zero);
 
@@ -68,7 +68,7 @@ namespace KingTeenPatti.UI
 
         private void BuildPanel(Transform parent)
         {
-            _panel = UiFactory.CreatePanel("ChatPanel", parent, new Color(0.05f, 0.11f, 0.08f, 0.98f));
+            _panel = UiFactory.CreatePanel("ChatPanel", parent, UiFactory.Alpha(UiFactory.Scheme.Surface2, 0.98f));
             UiFactory.Anchor(_panel, new Vector2(0.04f, 0.16f), new Vector2(0.96f, 0.92f),
                 Vector2.zero, Vector2.zero);
 
@@ -83,14 +83,14 @@ namespace KingTeenPatti.UI
                 Vector2.zero, Vector2.zero);
 
             var close = UiFactory.CreateButton("Close", _panel, "X", () => SetOpen(false),
-                new Color(0.16f, 0.10f, 0.10f), UiFactory.Muted, 28);
+                UiFactory.Field, UiFactory.Muted, 28);
             UiFactory.Anchor(close.GetComponent<RectTransform>(), new Vector2(0.84f, 0.90f),
                 new Vector2(0.97f, 0.985f), Vector2.zero, Vector2.zero);
 
             // Scrolling message list. A single Text is used rather than one
             // object per line: the log is capped at 100 short messages, so this
             // is far cheaper than instantiating and pooling a hundred rows.
-            var viewport = UiFactory.CreateImage("Viewport", _panel, new Color(0, 0, 0, 0.25f));
+            var viewport = UiFactory.CreateImage("Viewport", _panel, UiFactory.Alpha(UiFactory.Scheme.Surface, 0.35f));
             UiFactory.Anchor(viewport.rectTransform, new Vector2(0.04f, 0.16f), new Vector2(0.96f, 0.88f),
                 Vector2.zero, Vector2.zero);
             viewport.gameObject.AddComponent<Mask>().showMaskGraphic = true;
@@ -141,7 +141,7 @@ namespace KingTeenPatti.UI
             });
 
             var send = UiFactory.CreateButton("Send", _panel, "SEND", Submit,
-                UiFactory.Gold, new Color(0.11f, 0.08f, 0.01f), 26);
+                UiFactory.Gold, UiFactory.OnGold, 26);
             UiFactory.Anchor(send.GetComponent<RectTransform>(), new Vector2(0.74f, 0.055f),
                 new Vector2(0.96f, 0.145f), Vector2.zero, Vector2.zero);
 

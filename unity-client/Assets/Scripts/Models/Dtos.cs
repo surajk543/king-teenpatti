@@ -12,6 +12,32 @@ namespace KingTeenPatti.Models
     /// both overflow int.
     /// </summary>
 
+    /// <summary>
+    /// The two collectable rewards: a milestone every 25 hands played, and a
+    /// bonus that recharges over 4 hours. Both unlock times come from the
+    /// server, so a countdown cannot be skipped by restarting the app.
+    /// </summary>
+    [Serializable]
+    public class RewardsDto
+    {
+        public bool milestoneAvailable;
+        public int milestoneAt;
+        public long milestoneReward;
+        public int milestoneEvery;
+        public int handsToNextMilestone;
+        /// <summary>Epoch ms the timed bonus unlocks; 0 means it is ready now.</summary>
+        public long bonusReadyAt;
+        public bool bonusAvailable;
+        public long bonusReward;
+        public long bonusIntervalMs;
+
+        /// <summary>Milliseconds until the bonus is collectable, 0 when ready.</summary>
+        public long MillisecondsUntilBonus =>
+            Math.Max(0, bonusReadyAt - DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+
+        public bool IsBonusReady => MillisecondsUntilBonus <= 0;
+    }
+
     [Serializable]
     public class UserDto
     {
@@ -19,13 +45,51 @@ namespace KingTeenPatti.Models
         public string provider;
         public string displayName;
         public string email;
+        /// <summary>The picture to show: a chosen one, else the Google/Facebook one.</summary>
         public string avatarUrl;
+        /// <summary>The picture Google or Facebook gave us, kept even when overridden.</summary>
+        public string providerAvatarUrl;
+        /// <summary>The bundled picture the player picked, or null.</summary>
+        public string avatarChoice;
         public long chips;
         public int handsPlayed;
         public int handsWon;
+        public int handsLost;
+        /// <summary>Hands abandoned before they finished.</summary>
+        public int handsLeftMid;
+        /// <summary>Gross chips taken in pots won.</summary>
+        public long totalWinnings;
         public long biggestPot;
+        public RewardsDto rewards;
         public long createdAt;
         public long lastLoginAt;
+    }
+
+    /// <summary>One picture from the bundled profiles folder.</summary>
+    [Serializable]
+    public class ProfilePictureDto
+    {
+        public string id;
+        public string url;
+    }
+
+    [Serializable]
+    public class ProfilePictureListDto
+    {
+        public ProfilePictureDto[] profiles;
+    }
+
+    /// <summary>Reply from a reward claim.</summary>
+    [Serializable]
+    public class RewardClaimDto
+    {
+        public bool claimed;
+        public long amount;
+        public int milestone;
+        public long readyAt;
+        public string error;
+        public string message;
+        public UserDto user;
     }
 
     [Serializable]
@@ -57,6 +121,10 @@ namespace KingTeenPatti.Models
         public string[] categories;
         /// <summary>The stakes the lobby offers, e.g. [200, 5000].</summary>
         public long[] stakes;
+        /// <summary>A private table's fixed boot (requirement 22). Not chosen.</summary>
+        public long privateBoot;
+        /// <summary>Most a private table can pay out; 0 when uncapped.</summary>
+        public long privateMaxPot;
     }
 
     [Serializable]
@@ -72,6 +140,7 @@ namespace KingTeenPatti.Models
         public int seatIndex;
         public string userId;
         public string displayName;
+        /// <summary>Shown to everyone at the table (requirements 20 and 21).</summary>
         public string avatarUrl;
         /// <summary>
         /// This player's stack. On a blind table the server sends null for every
@@ -185,6 +254,11 @@ namespace KingTeenPatti.Models
         public int turnTimeoutMs;
         public long startsAt;
         public long pot;
+        /// <summary>
+        /// The table's pot ceiling, or 0 when uncapped. Private tables set this
+        /// (requirement 22); once it is reached the hand goes to a showdown.
+        /// </summary>
+        public long maxPot;
         public long stake;
         public int round;
         public TurnDto turn;
@@ -363,6 +437,20 @@ namespace KingTeenPatti.Models
     [Serializable]
     public class SessionReplacedDto
     {
+        public string message;
+    }
+
+    /// <summary>
+    /// Requirement 24: two rooms that had dwindled to one player each were
+    /// merged, and this player was moved. The new room follows immediately as a
+    /// normal room:joined, so this only explains why.
+    /// </summary>
+    [Serializable]
+    public class RoomMovedDto
+    {
+        public string fromRoomId;
+        public string toRoomId;
+        public string code;
         public string message;
     }
 

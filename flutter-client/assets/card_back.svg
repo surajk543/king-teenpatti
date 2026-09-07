@@ -1,0 +1,115 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 336"
+     width="240" height="336" role="img" aria-label="Card back">
+  <title>King Teen Patti card back</title>
+  <defs>
+    <linearGradient id="felt" x1="0" y1="0" x2="0.35" y2="1">
+      <stop offset="0%" stop-color="#1B2A52"/>
+      <stop offset="55%" stop-color="#122140"/>
+      <stop offset="100%" stop-color="#0A1428"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#F3D998"/>
+      <stop offset="45%" stop-color="#C9A227"/>
+      <stop offset="100%" stop-color="#8C6B15"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="0" y="0" width="240" height="336" rx="20" fill="url(#felt)"/>
+
+  <!-- the two ruled borders -->
+  <rect x="10" y="10" width="220" height="316" rx="13"
+        fill="none" stroke="url(#gold)" stroke-width="2.4"/>
+  <rect x="18" y="18" width="204" height="300" rx="9"
+        fill="none" stroke="url(#gold)" stroke-width="1" stroke-opacity="0.6"/>
+
+  <!-- central medallion -->
+  <g>
+    <ellipse cx="120.00" cy="134.00" rx="7.5" ry="34" fill="url(#gold)" fill-opacity="0.30" transform="rotate(0.00 120.00 168.00)"/>
+    <ellipse cx="120.00" cy="134.00" rx="7.5" ry="34" fill="url(#gold)" fill-opacity="0.30" transform="rotate(22.50 120.00 168.00)"/>
+    <ellipse cx="120.00" cy="134.00" rx="7.5" ry="34" fill="url(#gold)" fill-opacity="0.30" transform="rotate(45.00 120.00 168.00)"/>
+    <ellipse cx="120.00" cy="134.00" rx="7.5" ry="34" fill="url(#gold)" fill-opacity="0.30" transform="rotate(67.50 120.00 168.00)"/>
+    <ellipse cx="120.00" cy="134.00" rx="7.5" ry="34" fill="url(#gold)" fill-opacity="0.30" transform="rotate(90.00 120.00 168.00)"/>
+    <ellipse cx="120.00" cy="134.00" rx="7.5" ry="34" fill="url(#gold)" fill-opacity="0.30" transform="rotate(112.50 120.00 168.00)"/>
+    <ellipse cx="120.00" cy="134.00" rx="7.5" ry="34" fill="url(#gold)" fill-opacity="0.30" transform="rotate(135.00 120.00 168.00)"/>
+    <ellipse cx="120.00" cy="134.00" rx="7.5" ry="34" fill="url(#gold)" fill-opacity="0.30" transform="rotate(157.50 120.00 168.00)"/>
+    <ellipse cx="120.00" cy="134.00" rx="7.5" ry="34" fill="url(#gold)" fill-opacity="0.30" transform="rotate(180.00 120.00 168.00)"/>
+    <ellipse cx="120.00" cy="134.00" rx="7.5" ry="34" fill="url(#gold)" fill-opacity="0.30" transform="rotate(202.50 120.00 168.00)"/>
+    <ellipse cx="120.00" cy="134.00" rx="7.5" ry="34" fill="url(#gold)" fill-opacity="0.30" transform="rotate(225.00 120.00 168.00)"/>
+    <ellipse cx="120.00" cy="134.00" rx="7.5" ry="34" fill="url(#gold)" fill-opacity="0.30" transform="rotate(247.50 120.00 168.00)"/>
+    <ellipse cx="120.00" cy="134.00" rx="7.5" ry="34" fill="url(#gold)" fill-opacity="0.30" transform="rotate(270.00 120.00 168.00)"/>
+    <ellipse cx="120.00" cy="134.00" rx="7.5" ry="34" fill="url(#gold)" fill-opacity="0.30" transform="rotate(292.50 120.00 168.00)"/>
+    <ellipse cx="120.00" cy="134.00" rx="7.5" ry="34" fill="url(#gold)" fill-opacity="0.30" transform="rotate(315.00 120.00 168.00)"/>
+    <ellipse cx="120.00" cy="134.00" rx="7.5" ry="34" fill="url(#gold)" fill-opacity="0.30" transform="rotate(337.50 120.00 168.00)"/>
+    <ellipse cx="120.00" cy="138.00" rx="12" ry="46" fill="url(#gold)" fill-opacity="0.22" transform="rotate(0.00 120.00 168.00)"/>
+    <ellipse cx="120.00" cy="138.00" rx="12" ry="46" fill="url(#gold)" fill-opacity="0.22" transform="rotate(45.00 120.00 168.00)"/>
+    <ellipse cx="120.00" cy="138.00" rx="12" ry="46" fill="url(#gold)" fill-opacity="0.22" transform="rotate(90.00 120.00 168.00)"/>
+    <ellipse cx="120.00" cy="138.00" rx="12" ry="46" fill="url(#gold)" fill-opacity="0.22" transform="rotate(135.00 120.00 168.00)"/>
+    <ellipse cx="120.00" cy="138.00" rx="12" ry="46" fill="url(#gold)" fill-opacity="0.22" transform="rotate(180.00 120.00 168.00)"/>
+    <ellipse cx="120.00" cy="138.00" rx="12" ry="46" fill="url(#gold)" fill-opacity="0.22" transform="rotate(225.00 120.00 168.00)"/>
+    <ellipse cx="120.00" cy="138.00" rx="12" ry="46" fill="url(#gold)" fill-opacity="0.22" transform="rotate(270.00 120.00 168.00)"/>
+    <ellipse cx="120.00" cy="138.00" rx="12" ry="46" fill="url(#gold)" fill-opacity="0.22" transform="rotate(315.00 120.00 168.00)"/>
+  </g>
+  <circle cx="120" cy="168" r="52" fill="none"
+          stroke="url(#gold)" stroke-width="1.6" stroke-opacity="0.85"/>
+  <circle cx="120" cy="168" r="44" fill="none"
+          stroke="url(#gold)" stroke-width="0.9" stroke-opacity="0.5"/>
+  <g>
+    <line x1="120.00" y1="144.00" x2="120.00" y2="130.00" stroke="url(#gold)" stroke-opacity="0.55" stroke-width="1.5" stroke-linecap="round"/>
+    <line x1="126.21" y1="144.82" x2="129.84" y2="131.29" stroke="url(#gold)" stroke-opacity="0.55" stroke-width="1.5" stroke-linecap="round"/>
+    <line x1="132.00" y1="147.22" x2="139.00" y2="135.09" stroke="url(#gold)" stroke-opacity="0.55" stroke-width="1.5" stroke-linecap="round"/>
+    <line x1="136.97" y1="151.03" x2="146.87" y2="141.13" stroke="url(#gold)" stroke-opacity="0.55" stroke-width="1.5" stroke-linecap="round"/>
+    <line x1="140.78" y1="156.00" x2="152.91" y2="149.00" stroke="url(#gold)" stroke-opacity="0.55" stroke-width="1.5" stroke-linecap="round"/>
+    <line x1="143.18" y1="161.79" x2="156.71" y2="158.16" stroke="url(#gold)" stroke-opacity="0.55" stroke-width="1.5" stroke-linecap="round"/>
+    <line x1="144.00" y1="168.00" x2="158.00" y2="168.00" stroke="url(#gold)" stroke-opacity="0.55" stroke-width="1.5" stroke-linecap="round"/>
+    <line x1="143.18" y1="174.21" x2="156.71" y2="177.84" stroke="url(#gold)" stroke-opacity="0.55" stroke-width="1.5" stroke-linecap="round"/>
+    <line x1="140.78" y1="180.00" x2="152.91" y2="187.00" stroke="url(#gold)" stroke-opacity="0.55" stroke-width="1.5" stroke-linecap="round"/>
+    <line x1="136.97" y1="184.97" x2="146.87" y2="194.87" stroke="url(#gold)" stroke-opacity="0.55" stroke-width="1.5" stroke-linecap="round"/>
+    <line x1="132.00" y1="188.78" x2="139.00" y2="200.91" stroke="url(#gold)" stroke-opacity="0.55" stroke-width="1.5" stroke-linecap="round"/>
+    <line x1="126.21" y1="191.18" x2="129.84" y2="204.71" stroke="url(#gold)" stroke-opacity="0.55" stroke-width="1.5" stroke-linecap="round"/>
+    <line x1="120.00" y1="192.00" x2="120.00" y2="206.00" stroke="url(#gold)" stroke-opacity="0.55" stroke-width="1.5" stroke-linecap="round"/>
+    <line x1="113.79" y1="191.18" x2="110.16" y2="204.71" stroke="url(#gold)" stroke-opacity="0.55" stroke-width="1.5" stroke-linecap="round"/>
+    <line x1="108.00" y1="188.78" x2="101.00" y2="200.91" stroke="url(#gold)" stroke-opacity="0.55" stroke-width="1.5" stroke-linecap="round"/>
+    <line x1="103.03" y1="184.97" x2="93.13" y2="194.87" stroke="url(#gold)" stroke-opacity="0.55" stroke-width="1.5" stroke-linecap="round"/>
+    <line x1="99.22" y1="180.00" x2="87.09" y2="187.00" stroke="url(#gold)" stroke-opacity="0.55" stroke-width="1.5" stroke-linecap="round"/>
+    <line x1="96.82" y1="174.21" x2="83.29" y2="177.84" stroke="url(#gold)" stroke-opacity="0.55" stroke-width="1.5" stroke-linecap="round"/>
+    <line x1="96.00" y1="168.00" x2="82.00" y2="168.00" stroke="url(#gold)" stroke-opacity="0.55" stroke-width="1.5" stroke-linecap="round"/>
+    <line x1="96.82" y1="161.79" x2="83.29" y2="158.16" stroke="url(#gold)" stroke-opacity="0.55" stroke-width="1.5" stroke-linecap="round"/>
+    <line x1="99.22" y1="156.00" x2="87.09" y2="149.00" stroke="url(#gold)" stroke-opacity="0.55" stroke-width="1.5" stroke-linecap="round"/>
+    <line x1="103.03" y1="151.03" x2="93.13" y2="141.13" stroke="url(#gold)" stroke-opacity="0.55" stroke-width="1.5" stroke-linecap="round"/>
+    <line x1="108.00" y1="147.22" x2="101.00" y2="135.09" stroke="url(#gold)" stroke-opacity="0.55" stroke-width="1.5" stroke-linecap="round"/>
+    <line x1="113.79" y1="144.82" x2="110.16" y2="131.29" stroke="url(#gold)" stroke-opacity="0.55" stroke-width="1.5" stroke-linecap="round"/>
+  </g>
+  <circle cx="120" cy="168" r="21" fill="#0A1428"
+          stroke="url(#gold)" stroke-width="1.4"/>
+    <ellipse cx="120.00" cy="157.00" rx="4.5" ry="12" fill="url(#gold)" fill-opacity="0.9" transform="rotate(0.00 120.00 168.00)"/>
+    <ellipse cx="120.00" cy="157.00" rx="4.5" ry="12" fill="url(#gold)" fill-opacity="0.9" transform="rotate(45.00 120.00 168.00)"/>
+    <ellipse cx="120.00" cy="157.00" rx="4.5" ry="12" fill="url(#gold)" fill-opacity="0.9" transform="rotate(90.00 120.00 168.00)"/>
+    <ellipse cx="120.00" cy="157.00" rx="4.5" ry="12" fill="url(#gold)" fill-opacity="0.9" transform="rotate(135.00 120.00 168.00)"/>
+    <ellipse cx="120.00" cy="157.00" rx="4.5" ry="12" fill="url(#gold)" fill-opacity="0.9" transform="rotate(180.00 120.00 168.00)"/>
+    <ellipse cx="120.00" cy="157.00" rx="4.5" ry="12" fill="url(#gold)" fill-opacity="0.9" transform="rotate(225.00 120.00 168.00)"/>
+    <ellipse cx="120.00" cy="157.00" rx="4.5" ry="12" fill="url(#gold)" fill-opacity="0.9" transform="rotate(270.00 120.00 168.00)"/>
+    <ellipse cx="120.00" cy="157.00" rx="4.5" ry="12" fill="url(#gold)" fill-opacity="0.9" transform="rotate(315.00 120.00 168.00)"/>
+  <circle cx="120" cy="168" r="4.5" fill="url(#gold)"/>
+
+  <!-- corner fleurs -->
+    <g transform="translate(30 30) scale(1 1)" fill="none" stroke="url(#gold)" stroke-width="1.6" stroke-linecap="round">
+      <path d="M0 14 C 0 6, 6 0, 14 0"/>
+      <path d="M0 22 C 0 10, 10 0, 22 0" stroke-opacity="0.55"/>
+      <circle cx="7.5" cy="7.5" r="1.9" fill="url(#gold)" stroke="none"/>
+    </g>
+    <g transform="translate(210.0 30) scale(-1 1)" fill="none" stroke="url(#gold)" stroke-width="1.6" stroke-linecap="round">
+      <path d="M0 14 C 0 6, 6 0, 14 0"/>
+      <path d="M0 22 C 0 10, 10 0, 22 0" stroke-opacity="0.55"/>
+      <circle cx="7.5" cy="7.5" r="1.9" fill="url(#gold)" stroke="none"/>
+    </g>
+    <g transform="translate(30 306.0) scale(1 -1)" fill="none" stroke="url(#gold)" stroke-width="1.6" stroke-linecap="round">
+      <path d="M0 14 C 0 6, 6 0, 14 0"/>
+      <path d="M0 22 C 0 10, 10 0, 22 0" stroke-opacity="0.55"/>
+      <circle cx="7.5" cy="7.5" r="1.9" fill="url(#gold)" stroke="none"/>
+    </g>
+    <g transform="translate(210.0 306.0) scale(-1 -1)" fill="none" stroke="url(#gold)" stroke-width="1.6" stroke-linecap="round">
+      <path d="M0 14 C 0 6, 6 0, 14 0"/>
+      <path d="M0 22 C 0 10, 10 0, 22 0" stroke-opacity="0.55"/>
+      <circle cx="7.5" cy="7.5" r="1.9" fill="url(#gold)" stroke="none"/>
+    </g>
+</svg>

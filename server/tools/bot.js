@@ -9,6 +9,7 @@
  *   node tools/bot.js --count 2 --boot 200
  *   node tools/bot.js --count 3 --boot 5000 --category blind --offset 4
  *   node tools/bot.js --count 4 --boot 200 --url http://localhost:3000
+ *   node tools/bot.js --count 8 --boot 200 --category blind --churn 45
  */
 import { io } from 'socket.io-client';
 
@@ -30,6 +31,19 @@ const BASE_URL = args.url ?? 'http://localhost:3000';
  * own offset or it will collide with the first.
  */
 const OFFSET = Number.parseInt(args.offset ?? '0', 10);
+
+/**
+ * Roughly how often, in seconds, a bot gets up and finds another table. 0 is
+ * off, which is the default.
+ *
+ * Without this every bot stays put, and the server seats players at the
+ * fullest table with room — so exactly one table ever has a free seat, and
+ * "switch table" has nowhere to send you. Bots that come and go keep seats
+ * opening across several tables, which is what a busy lobby actually looks
+ * like.
+ */
+const CHURN = Number.parseInt(args.churn ?? '0', 10);
+
 const NAMES = ['Ravi', 'Meera', 'Arjun', 'Kavya', 'Vikram', 'Anita', 'Rohit', 'Neha'];
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -106,6 +120,23 @@ async function startBot(index) {
 
   socket.on('connect', () => joinTable());
 
+  // Wander between tables, so seats keep opening up around the lobby.
+  if (CHURN > 0) {
+    const wander = () => {
+      // Spread out, so they do not all stand up at the same moment.
+      const wait = (CHURN * 1000) * (0.6 + Math.random() * 0.8);
+      setTimeout(() => {
+        socket.emit('room:leave', {}, () => {
+          // A short pause before sitting down again, which is the window that
+          // leaves a seat free for somebody else to take.
+          setTimeout(() => joinTable(), 1200 + Math.random() * 2500);
+        });
+        wander();
+      }, wait);
+    };
+    wander();
+  }
+
   socket.on('game:yourTurn', ({ options }) => {
     // Human-ish think time, so the table does not resolve instantly.
     setTimeout(() => socket.emit('game:action', { action: decide(options) }), 700 + Math.random() * 1600);
@@ -131,7 +162,11 @@ if (!health?.ok) {
   process.exit(1);
 }
 
-console.log(`Starting ${COUNT} practice bot(s) — ${CATEGORY} table, boot ${BOOT} — on ${BASE_URL}\n`);
+console.log(
+  `Starting ${COUNT} practice bot(s) — ${CATEGORY} table, boot ${BOOT} — on ${BASE_URL}` +
+    (CHURN > 0 ? `, moving tables about every ${CHURN}s` : '') +
+    '\n',
+);
 
 const sockets = [];
 for (let i = 0; i < COUNT; i += 1) {

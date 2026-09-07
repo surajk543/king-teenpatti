@@ -29,6 +29,8 @@ namespace KingTeenPatti.Net
         public event Action<RoomStateDto> RoomStateChanged;
         public event Action RoomLeft;
         public event Action RoomClosed;
+        /// <summary>Requirement 24: merged onto a busier table.</summary>
+        public event Action<RoomMovedDto> RoomMoved;
 
         // Game
         public event Action<HandStartedDto> HandStarted;
@@ -59,6 +61,7 @@ namespace KingTeenPatti.Net
             _socket.On<RoomStateDto>("room:state", payload => RoomStateChanged?.Invoke(payload));
             _socket.On("room:left", _ => RoomLeft?.Invoke());
             _socket.On("room:closed", _ => RoomClosed?.Invoke());
+            _socket.On<RoomMovedDto>("room:moved", payload => RoomMoved?.Invoke(payload));
 
             _socket.On<HandStartedDto>("game:handStarted", payload => HandStarted?.Invoke(payload));
             _socket.On<TurnChangedDto>("game:turn", payload => TurnChanged?.Invoke(payload));
@@ -104,11 +107,17 @@ namespace KingTeenPatti.Net
             Emit("room:quickJoin", payload, onResult);
         }
 
+        /// <summary>
+        /// Creates a table. A private table's boot is fixed by the server
+        /// (requirement 22), so pass 0 for <paramref name="bootAmount"/> to let
+        /// it decide; anything sent for a private table is replaced anyway.
+        /// </summary>
         public void CreateTable(long bootAmount, bool isPrivate,
             string category = TableCategory.Seen, Action<JoinAckDto> onResult = null)
         {
-            var payload = "{\"bootAmount\":" + bootAmount +
-                          ",\"isPrivate\":" + (isPrivate ? "true" : "false") +
+            var boot = bootAmount > 0 ? "\"bootAmount\":" + bootAmount + "," : string.Empty;
+            var payload = "{" + boot +
+                          "\"isPrivate\":" + (isPrivate ? "true" : "false") +
                           ",\"category\":\"" + Json.Escape(category) + "\"}";
             Emit("room:create", payload, onResult);
         }

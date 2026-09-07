@@ -10,9 +10,22 @@ CREATE TABLE IF NOT EXISTS users (
   email             TEXT,
   avatar_url        TEXT,
   chips             INTEGER NOT NULL DEFAULT 0,
+  -- A hand only counts as "played" once the player has made a voluntary bet;
+  -- posting the boot and folding immediately does not count.
   hands_played      INTEGER NOT NULL DEFAULT 0,
   hands_won         INTEGER NOT NULL DEFAULT 0,
+  hands_lost        INTEGER NOT NULL DEFAULT 0,
+  -- Hands abandoned before they finished, tracked separately from losses.
+  hands_left_mid    INTEGER NOT NULL DEFAULT 0,
+  -- Gross chips taken in pots won, over the account's lifetime.
+  total_winnings    INTEGER NOT NULL DEFAULT 0,
   biggest_pot       INTEGER NOT NULL DEFAULT 0,
+  -- Highest "hands played" milestone already collected (a multiple of 25).
+  milestone_claimed INTEGER NOT NULL DEFAULT 0,
+  -- Epoch ms when the timed bonus may next be collected. 0 = collectable now.
+  next_bonus_at     INTEGER NOT NULL DEFAULT 0,
+  -- Picture chosen from the bundled profiles folder; overrides avatar_url.
+  avatar_choice     TEXT,
   created_at        INTEGER NOT NULL,
   updated_at        INTEGER NOT NULL,
   last_login_at     INTEGER NOT NULL,

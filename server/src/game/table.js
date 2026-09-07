@@ -24,12 +24,26 @@ import { uuid } from '../util/ids.js';
  *   'seatUpdated'  ({ seatIndex })
  */
 export class Table extends EventEmitter {
-  constructor({ id, code, config, settle, timers = defaultTimers }) {
+  constructor({ id, code, config, settle, persistChips, timers = defaultTimers }) {
     super();
     this.id = id;
     this.code = code;
     this.config = config;
     this.settle = settle ?? (() => ({}));
+
+    /**
+     * Writes a chip movement to the account as it happens.
+     *
+     * Without it a hand's bets live only in memory until the hand ends, so a
+     * server that dies mid-hand would hand everybody their stake back — the
+     * chips would still be in the pot on screen but never gone from the
+     * account. With it, every bet is banked as it is made and the hand end only
+     * has to pay the winner.
+     *
+     * Optional: a table built without one settles in a single write at the end,
+     * which is what the unit tests do.
+     */
+    this.persistChips = persistChips ?? null;
     this.timers = timers;
 
     /**
@@ -40,6 +54,13 @@ export class Table extends EventEmitter {
     this.category = config.category === TABLE_CATEGORY.BLIND
       ? TABLE_CATEGORY.BLIND
       : TABLE_CATEGORY.SEEN;
+
+    /**
+     * Largest the pot may grow to, or 0 for no cap. Private tables set this
+     * (requirement 22); once it is reached the hand goes straight to a
+     * showdown rather than letting the pot run past the limit.
+     */
+    this.maxPot = config.maxPot ?? 0;
 
     this.seats = Array.from({ length: config.maxPlayers }, () => null);
     this.state = TABLE_STATE.WAITING;
@@ -101,6 +122,19 @@ export class Table extends EventEmitter {
       status: SEAT_STATE.WAITING,
       cards: [],
       isBlind: true,
+      /** Bets made while blind this hand; at the cap the cards turn face up. */
+      blindMoves: 0,
+      /**
+       * Turns let time out back to back (requirement 31). Any move the player
+       * makes themselves clears it; three in a row and the seat goes to
+       * somebody who is actually at the table.
+       */
+      missedTurns: 0,
+      /** One sideshow request per turn; cleared when their turn comes round. */
+      sideshowAskedThisTurn: false,
+      /** The last bet this player made, and what it was, for the table to see. */
+      lastBet: 0,
+      lastAction: null,
       contributed: 0,
       joinedAt: Date.now(),
       disconnectedAt: null,
@@ -155,6 +189,15 @@ export class Table extends EventEmitter {
     const wasOnTurn = this.hand?.turnSeat === seat.seatIndex;
     const wasActive = seat.status === SEAT_STATE.ACTIVE;
 
+    // A sideshow one of them is no longer around for cannot be answered, so
+    // it is dropped now rather than left to expire — otherwise the other
+    // player would sit and wait out a clock for nothing.
+    const pendingSideshow = this.hand?.sideshow;
+    if (pendingSideshow
+        && (pendingSideshow.fromUserId === userId || pendingSideshow.toUserId === userId)) {
+      this._resolveSideshow(false, 'left');
+    }
+
     this.seats[seat.seatIndex] = null;
     this.emit('seatUpdated', { seatIndex: seat.seatIndex });
     this.emit('chat', this.chat.addSystem(`${seat.displayName} left the table`));
@@ -163,6 +206,12 @@ export class Table extends EventEmitter {
       this.hand.packedUserIds.add(userId);
       seat.status = SEAT_STATE.PACKED;
       this._syncContribution(seat, SEAT_STATE.PACKED);
+
+      // Requirement 15/16: remember that this player abandoned the hand, and
+      // who the most recent leaver was in case everybody walks away.
+      const entry = this.hand.contributions.get(userId);
+      if (entry) entry.leftMidHand = true;
+      this.hand.lastDeparture = userId;
       this.emit('action', {
         userId,
         action: ACTION.PACK,
@@ -213,6 +262,12 @@ export class Table extends EventEmitter {
   _maybeStart() {
     if (this._destroyed) return;
     if (this.state !== TABLE_STATE.WAITING) return;
+
+    // Requirement 32: the boot comes out of every player at the deal, so anyone
+    // who cannot cover it is shown out now rather than sitting at a table they
+    // can never be dealt into.
+    this._sweepUnfunded();
+
     if (this._fundedSeats().length < this.config.minPlayers) return;
 
     this.state = TABLE_STATE.STARTING;
@@ -239,6 +294,12 @@ export class Table extends EventEmitter {
     if (this._destroyed) return null;
     if (this.hand) return null;
 
+    // Requirement 32: the boot is about to come out of everyone, so this is
+    // the moment to show out anyone who cannot cover it. Doing it here as well
+    // as in _maybeStart matters: a player can sit down after the countdown has
+    // already begun, and that path never passes through _maybeStart again.
+    this._sweepUnfunded();
+
     const participants = this._fundedSeats();
     if (participants.length < this.config.minPlayers) {
       this.state = TABLE_STATE.WAITING;
@@ -254,6 +315,9 @@ export class Table extends EventEmitter {
     for (const seat of this.occupiedSeats) {
       seat.cards = [];
       seat.isBlind = true;
+      seat.blindMoves = 0;
+      seat.lastBet = 0;
+      seat.lastAction = null;
       seat.contributed = 0;
       seat.status = participants.includes(seat) ? SEAT_STATE.ACTIVE : SEAT_STATE.WAITING;
     }
@@ -275,6 +339,13 @@ export class Table extends EventEmitter {
       startSeat: -1,
       seatOrder: participants.map((seat) => seat.seatIndex),
       showRequestedBy: null,
+      /** The sideshow awaiting an answer, if any. At most one at a time. */
+      sideshow: null,
+      /**
+       * The last player to walk away while this hand was live. If everybody
+       * leaves, the pot goes to them (requirement 15) rather than evaporating.
+       */
+      lastDeparture: null,
       // Keyed by userId and owned by the hand rather than the seat, so a player
       // who leaves mid-hand still has their stake settled and audited.
       contributions: new Map(),
@@ -322,6 +393,50 @@ export class Table extends EventEmitter {
   }
 
   /** Next seat still betting, clockwise from `fromSeat`. Returns -1 if none. */
+  /**
+   * The active player on this seat's right.
+   *
+   * Play moves clockwise — to the left — so the player on your right is the
+   * one who acted immediately before you. That is who a sideshow is asked of.
+   */
+  _rightActiveSeat(fromSeat) {
+    for (let step = 1; step <= this.seats.length; step += 1) {
+      const index = (fromSeat - step + this.seats.length * 2) % this.seats.length;
+      const seat = this.seats[index];
+      if (seat && seat.status === SEAT_STATE.ACTIVE && index !== fromSeat) return index;
+    }
+    return -1;
+  }
+
+  /**
+   * Why this seat may not ask for a sideshow right now, or null if it may.
+   *
+   * Returned as a reason rather than a boolean so the same check can gate the
+   * button in the client and refuse the action on the server, and say the same
+   * thing in both places.
+   */
+  sideshowBlockedReason(seat) {
+    if (!this.hand) return 'no_hand';
+    if (seat.status !== SEAT_STATE.ACTIVE) return 'not_in_hand';
+    if (this.hand.turnSeat !== seat.seatIndex) return 'not_your_turn';
+    if (this.hand.sideshow) return 'sideshow_pending';
+
+    // One ask per turn. Wanting another means waiting for the next one.
+    if (seat.sideshowAskedThisTurn) return 'already_asked';
+
+    if (this.activeSeats.length < this.config.sideshowMinPlayers) return 'too_few_players';
+
+    // Both hands have to have been looked at: comparing cards nobody has seen
+    // is not a decision, it is a coin toss.
+    if (seat.isBlind) return 'you_are_blind';
+
+    const rightIndex = this._rightActiveSeat(seat.seatIndex);
+    if (rightIndex === -1) return 'no_neighbour';
+    if (this.seats[rightIndex].isBlind) return 'neighbour_is_blind';
+
+    return null;
+  }
+
   _nextActiveSeat(fromSeat) {
     for (let step = 1; step <= this.seats.length; step += 1) {
       const index = (fromSeat + step + this.seats.length) % this.seats.length;
@@ -335,10 +450,18 @@ export class Table extends EventEmitter {
     return this.occupiedSeats.filter((seat) => seat.status === SEAT_STATE.ACTIVE);
   }
 
-  _setTurn(seatIndex) {
+  /**
+   * @param {object} [options]
+   * @param {boolean} [options.freshTurn]
+   *   False when the same player is simply getting their clock back — after a
+   *   sideshow they asked for, say. Their one ask has been used, and handing it
+   *   back would let them ask again in the same turn.
+   */
+  _setTurn(seatIndex, { freshTurn = true } = {}) {
     if (seatIndex < 0) return;
     this.hand.turnSeat = seatIndex;
     const seat = this.seats[seatIndex];
+    if (freshTurn) seat.sideshowAskedThisTurn = false;
     const deadline = Date.now() + this.config.turnTimeoutMs;
     this.hand.turnDeadline = deadline;
     this.hand.turnToken = uuid();
@@ -373,7 +496,52 @@ export class Table extends EventEmitter {
     const seat = this.seats[seatIndex];
     if (!this.hand || !seat || this.hand.turnSeat !== seatIndex) return;
     if (seat.status !== SEAT_STATE.ACTIVE) return;
+
+    seat.missedTurns += 1;
     this._pack(seat, 'timeout');
+
+    // Requirement 31: somebody who has stopped playing is holding up everyone
+    // else, a whole turn clock at a time. After three in a row the seat is
+    // given back to the table.
+    if (seat.missedTurns >= this.config.maxMissedTurns) {
+      this._kick(seat, 'idle', `Left the table after ${seat.missedTurns} missed turns`);
+    }
+  }
+
+  /**
+   * Asks for a player to be shown out, and says why.
+   *
+   * The table cannot do the removing itself: which room a player belongs to is
+   * the room manager's business, and it has to update its own book-keeping and
+   * tell the player. So this announces the decision and lets that happen.
+   */
+  _kick(seat, reason, message) {
+    this.emit('kick', {
+      userId: seat.userId,
+      displayName: seat.displayName,
+      reason,
+      message,
+    });
+  }
+
+  /**
+   * Requirements 31 and 32: shows out anyone who can no longer cover the boot.
+   *
+   * Only ever called between hands. Mid-hand a player who has bet everything
+   * is legitimately down to nothing, and throwing them out would take their
+   * stake with them.
+   */
+  _sweepUnfunded() {
+    if (this.hand) return;
+
+    for (const seat of this.occupiedSeats) {
+      if (seat.chips >= this.config.bootAmount) continue;
+      this._kick(
+        seat,
+        'insufficient_chips',
+        "You don't have enough coins to remain in this table",
+      );
+    }
   }
 
   _advanceTurn(fromSeat) {
@@ -381,6 +549,14 @@ export class Table extends EventEmitter {
 
     const next = this._nextActiveSeat(fromSeat);
     if (next === -1) return;
+
+    // Requirement 22: once no further bet can fit under the pot cap, everyone
+    // still in shows and the best hand takes it.
+    if (this._potCapReached()) {
+      this._clearTurnTimer();
+      this._resolveShowdown(this.activeSeats, WIN_REASON.POT_LIMIT, null);
+      return;
+    }
 
     // A betting round completes whenever the turn steps over the seat that
     // opened the hand. Measuring by distance (rather than landing exactly on
@@ -397,6 +573,17 @@ export class Table extends EventEmitter {
 
     this._setTurn(next);
     this.emit('state', this);
+  }
+
+  /**
+   * True when the pot has reached the table's cap, or is close enough that not
+   * even the smallest legal bet would fit underneath it. Checking the headroom
+   * rather than only equality avoids leaving a player on turn with nothing to
+   * do but fold.
+   */
+  _potCapReached() {
+    if (!this.maxPot || !this.hand) return false;
+    return this.hand.pot + this.hand.stake > this.maxPot;
   }
 
   _distance(from, to) {
@@ -424,9 +611,14 @@ export class Table extends EventEmitter {
     const ceiling = Math.min(potCap, seat.chips);
 
     const maxSteps = this.config.maxRaiseSteps ?? 8;
+    // Requirement 22: a private table's pot is capped, so a bet that would push
+    // it past the ceiling is not offered at all. Headroom is Infinity when the
+    // table has no cap.
+    const headroom = this.maxPot ? this.maxPot - this.hand.pot : Number.POSITIVE_INFINITY;
+
     const steps = [];
     let amount = Math.min(base, potCap);
-    while (amount <= ceiling && steps.length < maxSteps) {
+    while (amount <= ceiling && amount <= headroom && steps.length < maxSteps) {
       steps.push(amount);
       amount *= 2;
     }
@@ -454,8 +646,14 @@ export class Table extends EventEmitter {
     const twoLeft = this.activeSeats.length === 2;
     const show = twoLeft ? this.showCost(seat) : null;
 
+    const sideshowBlocked = this.sideshowBlockedReason(seat);
+    const rightIndex = sideshowBlocked ? -1 : this._rightActiveSeat(seat.seatIndex);
+
     return {
       canSee: seat.isBlind,
+      /** Requirement: ask the player on your right to compare, privately. */
+      canSideshow: sideshowBlocked === null,
+      sideshowWith: rightIndex === -1 ? null : this.seats[rightIndex].displayName,
       chaal,
       raise,
       /** The full +/− ladder, so the client never has to compute an amount. */
@@ -487,7 +685,35 @@ export class Table extends EventEmitter {
         status: seat.status,
         sawCards: !seat.isBlind,
         cards: seat.cards,
+        /** Set once the player bets beyond the boot — this is what "played" means. */
+        didChaal: false,
+        /** Set when the player abandons the hand before it finishes. */
+        leftMidHand: false,
+        /** How much of this contribution has already been taken from the account. */
+        persisted: 0,
       });
+    }
+
+    // Bank it now rather than at the end of the hand. Chips a player has bet
+    // are gone the moment they bet them, whatever happens to the process next.
+    this._bank(seat.userId, -amount, 'bet');
+  }
+
+  /**
+   * Writes a chip movement to the account and remembers that it was written,
+   * so the settlement at the end of the hand knows what is left to pay.
+   */
+  _bank(userId, delta, reason) {
+    if (!this.persistChips || delta === 0) return;
+
+    const entry = this.hand?.contributions.get(userId);
+    try {
+      this.persistChips({ userId, delta, reason, roomId: this.id });
+      if (entry) entry.persisted += -delta;
+    } catch (error) {
+      // A failed write must not take the hand down with it: the settlement at
+      // the end is the backstop, and it settles whatever was not banked.
+      this.emit('persistError', { userId, delta, reason, error });
     }
   }
 
@@ -513,7 +739,17 @@ export class Table extends EventEmitter {
     const seat = this.findSeat(userId);
     if (!seat) throw new GameError('not_seated', 'You are not at this table');
     if (seat.status !== SEAT_STATE.ACTIVE) throw new GameError('not_in_hand', 'You are not in this hand');
-    if (this.hand.turnSeat !== seat.seatIndex) throw new GameError('not_your_turn', 'It is not your turn');
+
+    // Seeing your own cards is not a move: it costs nothing, changes nothing
+    // for anyone else, and a player may look whenever they like. Everything
+    // that does change the hand still waits for their turn.
+    if (action !== ACTION.SEE && this.hand.turnSeat !== seat.seatIndex) {
+      throw new GameError('not_your_turn', 'It is not your turn');
+    }
+
+    // They are here and playing, so whatever they had missed before does not
+    // count against them any more.
+    seat.missedTurns = 0;
 
     switch (action) {
       case ACTION.SEE:
@@ -526,6 +762,8 @@ export class Table extends EventEmitter {
         return this._pack(seat, 'pack');
       case ACTION.SHOW:
         return this._show(seat);
+      case ACTION.SIDESHOW:
+        return this._requestSideshow(seat);
       default:
         throw new GameError('unknown_action', `Unknown action "${action}"`);
     }
@@ -535,7 +773,7 @@ export class Table extends EventEmitter {
    * Reveals the player's own cards to them. Free, and deliberately does not end
    * the turn — the turn timer keeps running, so seeing costs thinking time.
    */
-  _see(seat) {
+  _see(seat, { auto = false } = {}) {
     if (!seat.isBlind) throw new GameError('already_seen', 'You have already seen your cards');
     seat.isBlind = false;
     this._syncContribution(seat);
@@ -545,19 +783,28 @@ export class Table extends EventEmitter {
       userId: seat.userId,
       action: ACTION.SEE,
       amount: 0,
+      auto,
       pot: this.hand.pot,
       stake: this.hand.stake,
     });
-    // Re-issue the turn so the client gets the updated (seen) bet amounts.
-    this.emit('turn', {
-      userId: seat.userId,
-      seatIndex: seat.seatIndex,
-      deadline: this.hand.turnDeadline,
-      timeoutMs: Math.max(0, this.hand.turnDeadline - Date.now()),
-      options: this.turnOptions(seat),
-    });
+
+    // Re-issue the turn so the client picks up the seen player's bet ladder,
+    // which is double the blind one. Only when it really is their turn: a
+    // player may look at any point now, and the automatic reveal happens as
+    // their turn is ending, so in both of those cases telling the table it is
+    // their turn would be a lie.
+    if (!auto && this.hand.turnSeat === seat.seatIndex) {
+      this.emit('turn', {
+        userId: seat.userId,
+        seatIndex: seat.seatIndex,
+        deadline: this.hand.turnDeadline,
+        timeoutMs: Math.max(0, this.hand.turnDeadline - Date.now()),
+        options: this.turnOptions(seat),
+      });
+    }
+
     this.emit('state', this);
-    return { action: ACTION.SEE };
+    return { action: ACTION.SEE, auto };
   }
 
   /**
@@ -598,6 +845,17 @@ export class Table extends EventEmitter {
 
     this._moveToPot(seat, amount);
 
+    // What this player just did, so the table can show it rather than only the
+    // running total. Kept on the seat rather than inferred from the action
+    // stream, so it survives a reconnect and is there for a late joiner.
+    seat.lastBet = amount;
+    seat.lastAction = kind === 'raise' ? ACTION.RAISE : ACTION.CHAAL;
+
+    // Requirement 16: a hand only counts as played once chips go in beyond the
+    // boot, so record that here rather than at the deal.
+    const entry = this.hand.contributions.get(seat.userId);
+    if (entry) entry.didChaal = true;
+
     // The stake is always expressed as a blind unit, so halve a seen player's bet.
     this.hand.stake = seat.isBlind ? amount : Math.floor(amount / 2);
 
@@ -609,14 +867,34 @@ export class Table extends EventEmitter {
       stake: this.hand.stake,
     });
 
+    // A player gets a limited number of bets while blind; on the last one the
+    // cards turn face up by themselves, so nobody plays a whole hand unseen.
+    // The bet above was still a blind one — the reveal follows it.
+    let autoSeen = false;
+    if (seat.isBlind) {
+      seat.blindMoves += 1;
+      if (seat.blindMoves >= this.config.maxBlindMoves) {
+        this._see(seat, { auto: true });
+        autoSeen = true;
+      }
+    }
+
     this._clearTurnTimer();
     this._advanceTurn(seat.seatIndex);
     this.emit('state', this);
-    return { action: kind, amount };
+    return { action: kind, amount, autoSeen };
   }
 
-  _pack(seat, reason) {
+  /**
+   * @param {object} [options]
+   * @param {boolean} [options.advanceTurn]
+   *   False when the packed player was not the one on turn — a sideshow they
+   *   lost, for instance. The turn never left whoever holds it, so moving it
+   *   on would skip them.
+   */
+  _pack(seat, reason, { advanceTurn = true } = {}) {
     seat.status = SEAT_STATE.PACKED;
+    seat.lastAction = ACTION.PACK;
     this.hand.packedUserIds.add(seat.userId);
     this._syncContribution(seat, SEAT_STATE.PACKED);
 
@@ -633,7 +911,7 @@ export class Table extends EventEmitter {
 
     if (this._resolveIfOnlyOneLeft()) return { action: ACTION.PACK, reason };
 
-    this._advanceTurn(seat.seatIndex);
+    if (advanceTurn) this._advanceTurn(seat.seatIndex);
     this.emit('state', this);
     return { action: ACTION.PACK, reason };
   }
@@ -644,13 +922,161 @@ export class Table extends EventEmitter {
     if (active.length > 1) return false;
 
     if (active.length === 1) {
-      this._endHand({ winnerSeat: active[0], reason: WIN_REASON.LAST_STANDING, reveals: [] });
+      this._endHand({ winnerId: active[0].userId, reason: WIN_REASON.LAST_STANDING, reveals: [] });
     } else {
-      // Nobody left (everyone disconnected mid-hand): the pot is void and each
-      // remaining contribution is returned.
-      this._endHand({ winnerSeat: null, reason: WIN_REASON.LAST_STANDING, reveals: [] });
+      // Requirement 15: everybody walked out, so the pot goes to whoever left
+      // last rather than evaporating. They are no longer seated, which is why
+      // the hand is settled by user id rather than by seat.
+      this._endHand({
+        winnerId: this.hand.lastDeparture,
+        reason: WIN_REASON.ALL_LEFT,
+        reveals: [],
+      });
     }
     return true;
+  }
+
+  /**
+   * Asks the player on the right to compare hands privately.
+   *
+   * Nothing is decided here — it is a request, and it stands for a few seconds
+   * until they answer or the clock runs out. The turn clock is stopped for the
+   * duration: the player asking should not lose their turn while waiting for
+   * somebody else to press a button.
+   */
+  _requestSideshow(seat) {
+    const blocked = this.sideshowBlockedReason(seat);
+    if (blocked) {
+      const messages = {
+        sideshow_pending: 'A sideshow is already in progress',
+        already_asked: 'You have already asked for a sideshow this turn',
+        too_few_players: `A sideshow needs at least ${this.config.sideshowMinPlayers} players in the hand`,
+        you_are_blind: 'See your cards before asking for a sideshow',
+        neighbour_is_blind: 'The player on your right has not seen their cards',
+        no_neighbour: 'There is nobody on your right to ask',
+      };
+      throw new GameError(blocked, messages[blocked] ?? 'You cannot ask for a sideshow now');
+    }
+
+    const target = this.seats[this._rightActiveSeat(seat.seatIndex)];
+    seat.sideshowAskedThisTurn = true;
+
+    // The turn clock stops while the request stands, and is restarted from
+    // full when it resolves.
+    this._clearTurnTimer();
+
+    const expiresAt = Date.now() + this.config.sideshowTimeoutMs;
+    this.hand.sideshow = {
+      fromUserId: seat.userId,
+      fromSeat: seat.seatIndex,
+      toUserId: target.userId,
+      toSeat: target.seatIndex,
+      expiresAt,
+      timer: this.timers.setTimeout(
+        () => this._resolveSideshow(false, 'timeout'),
+        this.config.sideshowTimeoutMs,
+      ),
+    };
+
+    // Everyone sees that it was asked — that is public — but not the cards.
+    this.emit('sideshowRequested', {
+      fromUserId: seat.userId,
+      fromName: seat.displayName,
+      fromSeat: seat.seatIndex,
+      toUserId: target.userId,
+      toName: target.displayName,
+      toSeat: target.seatIndex,
+      expiresAt,
+      timeoutMs: this.config.sideshowTimeoutMs,
+    });
+
+    this.emit('state', this);
+    return { action: ACTION.SIDESHOW, toUserId: target.userId };
+  }
+
+  /** The asked player's answer. Only they may give it. */
+  respondToSideshow(userId, accept) {
+    const pending = this.hand?.sideshow;
+    if (!pending) throw new GameError('no_sideshow', 'There is no sideshow to answer');
+    if (pending.toUserId !== userId) {
+      throw new GameError('not_your_sideshow', 'That sideshow was not asked of you');
+    }
+    return this._resolveSideshow(Boolean(accept), accept ? 'accepted' : 'declined');
+  }
+
+  /**
+   * Settles a sideshow.
+   *
+   * On a refusal nothing changes but the clock. On an acceptance the two hands
+   * are compared and the weaker one packs — the asker loses a tie, which is
+   * the usual rule and stops asking being free.
+   *
+   * The cards go only to the two of them. Everyone else is told that it
+   * happened and who packed, which is what they would see at a real table.
+   */
+  _resolveSideshow(accepted, reason) {
+    const pending = this.hand?.sideshow;
+    if (!pending) return null;
+
+    if (pending.timer) this.timers.clearTimeout(pending.timer);
+    this.hand.sideshow = null;
+
+    const asker = this.findSeat(pending.fromUserId);
+    const asked = this.findSeat(pending.toUserId);
+
+    let packedUserId = null;
+
+    const bothInHand = asker?.status === SEAT_STATE.ACTIVE && asked?.status === SEAT_STATE.ACTIVE;
+
+    if (accepted && bothInHand) {
+      const a = evaluate(asker.cards);
+      const b = evaluate(asked.cards);
+      // A tie goes against the player who asked.
+      const loser = compare(a, b) > 0 ? asked : asker;
+      packedUserId = loser.userId;
+
+      // Only the two of them ever see these cards.
+      const reveal = {
+        reason,
+        packedUserId,
+        hands: [
+          {
+            userId: asker.userId,
+            displayName: asker.displayName,
+            cards: asker.cards.map(cardCode),
+            handName: a.name,
+          },
+          {
+            userId: asked.userId,
+            displayName: asked.displayName,
+            cards: asked.cards.map(cardCode),
+            handName: b.name,
+          },
+        ],
+      };
+      this.emit('sideshowReveal', { userIds: [asker.userId, asked.userId], reveal });
+
+      // Only the asker holds the turn, so only their packing moves it on.
+      this._pack(loser, 'sideshow', { advanceTurn: loser === asker });
+    }
+
+    this.emit('sideshowResolved', {
+      fromUserId: pending.fromUserId,
+      toUserId: pending.toUserId,
+      accepted,
+      reason,
+      packedUserId,
+    });
+
+    // The hand may have ended with that pack; if it is still running, the
+    // asker gets their turn back with a full clock.
+    if (this.hand && this.hand.turnSeat === pending.fromSeat && asker
+        && asker.status === SEAT_STATE.ACTIVE) {
+      this._setTurn(pending.fromSeat, { freshTurn: false });
+    }
+
+    this.emit('state', this);
+    return { accepted, packedUserId };
   }
 
   _show(seat) {
@@ -662,6 +1088,11 @@ export class Table extends EventEmitter {
 
     this._moveToPot(seat, cost);
     this.hand.showRequestedBy = seat.userId;
+
+    // Paying for a show commits chips beyond the boot, so it counts as having
+    // played the hand just as a chaal does (requirement 16).
+    const entry = this.hand.contributions.get(seat.userId);
+    if (entry) entry.didChaal = true;
 
     this.emit('action', {
       userId: seat.userId,
@@ -735,21 +1166,34 @@ export class Table extends EventEmitter {
       }
     }
 
-    this._endHand({ winnerSeat: best.seat, reason, reveals });
+    this._endHand({ winnerId: best.seat.userId, reason, reveals });
   }
 
   // ------------------------------------------------------------- hand end
 
-  _endHand({ winnerSeat, reason, reveals }) {
+  /**
+   * Ends the hand and settles it.
+   *
+   * The winner is identified by user id, not by seat: when everyone abandons a
+   * hand the pot goes to the last player who left, and they no longer have one.
+   */
+  _endHand({ winnerId, reason, reveals }) {
     const hand = this.hand;
     if (!hand) return;
 
     this._clearTurnTimer();
+    if (hand.sideshow?.timer) this.timers.clearTimeout(hand.sideshow.timer);
+    hand.sideshow = null;
     hand.endedAt = Date.now();
 
+    const winnerSeat = winnerId ? this.findSeat(winnerId) : null;
     if (winnerSeat) {
       winnerSeat.status = SEAT_STATE.WON;
       this._syncContribution(winnerSeat, SEAT_STATE.WON);
+    } else if (winnerId) {
+      // The winner has already left; mark their contribution record instead.
+      const entry = hand.contributions.get(winnerId);
+      if (entry) entry.status = SEAT_STATE.WON;
     }
 
     // Everyone who put chips in this hand, including players who have since
@@ -759,10 +1203,26 @@ export class Table extends EventEmitter {
     // With no winner (every player vanished mid-hand) the pot is void and each
     // contribution is returned rather than quietly destroyed.
     const entries = contributors.map((entry) => {
-      const isWinner = entry.userId === winnerSeat?.userId;
-      let delta = 0;
-      if (winnerSeat) delta = isWinner ? hand.pot - entry.contributed : -entry.contributed;
-      return { userId: entry.userId, delta, isWinner };
+      const isWinner = entry.userId === winnerId;
+
+      // What this hand costs or pays this player overall...
+      let net = 0;
+      if (winnerId) net = isWinner ? hand.pot - entry.contributed : -entry.contributed;
+
+      // ...less whatever was already taken from their account as they bet. A
+      // loser who has been banked all the way owes nothing further; a winner is
+      // paid the whole pot; and with no winner at all, a banked contribution is
+      // handed back.
+      const delta = net + entry.persisted;
+
+      return {
+        userId: entry.userId,
+        delta,
+        isWinner,
+        // Requirement 16: these drive the played / lost / abandoned counters.
+        didChaal: Boolean(entry.didChaal),
+        leftMidHand: Boolean(entry.leftMidHand),
+      };
     });
 
     const revealed = new Set(reveals.map((reveal) => reveal.userId));
@@ -781,7 +1241,7 @@ export class Table extends EventEmitter {
       roomId: this.id,
       handNo: hand.handNo,
       pot: hand.pot,
-      winnerId: winnerSeat?.userId ?? null,
+      winnerId: winnerId ?? null,
       winReason: reason,
       bootAmount: this.config.bootAmount,
       startedAt: hand.startedAt,
@@ -809,6 +1269,10 @@ export class Table extends EventEmitter {
       winnerSeat.chips += hand.pot;
     }
 
+    const winnerName = winnerSeat?.displayName
+      ?? (winnerId ? hand.contributions.get(winnerId)?.displayName : null)
+      ?? null;
+
     this.hand = null;
     this.state = TABLE_STATE.WAITING;
 
@@ -817,7 +1281,7 @@ export class Table extends EventEmitter {
       handId: record.id,
       handNo: record.handNo,
       winnerId: record.winnerId,
-      winnerName: winnerSeat?.displayName ?? null,
+      winnerName,
       pot: record.pot,
       reason,
       reveals,
@@ -858,8 +1322,24 @@ export class Table extends EventEmitter {
       turnTimeoutMs: this.config.turnTimeoutMs,
       startsAt: this.startsAt ?? null,
       pot: this.hand?.pot ?? 0,
+      /** The table's pot ceiling, or 0 when uncapped. */
+      maxPot: this.maxPot,
       stake: this.hand?.stake ?? this.config.bootAmount,
       round: this.hand?.round ?? 0,
+      /**
+       * The sideshow currently awaiting an answer. Public — who asked whom and
+       * how long is left, never the cards — so a client that reconnects
+       * mid-request can put the prompt back up.
+       */
+      sideshow: this.hand?.sideshow
+        ? {
+            fromUserId: this.hand.sideshow.fromUserId,
+            fromSeat: this.hand.sideshow.fromSeat,
+            toUserId: this.hand.sideshow.toUserId,
+            toSeat: this.hand.sideshow.toSeat,
+            expiresAt: this.hand.sideshow.expiresAt,
+          }
+        : null,
       turn: this.hand
         ? {
             seatIndex: this.hand.turnSeat,
@@ -873,6 +1353,10 @@ export class Table extends EventEmitter {
             chips: viewer.chips,
             status: viewer.status,
             isBlind: viewer.isBlind,
+            /** Blind bets still allowed before the cards turn face up. */
+            blindMovesLeft: viewer.isBlind
+              ? Math.max(0, this.config.maxBlindMoves - viewer.blindMoves)
+              : 0,
             contributed: viewer.contributed,
             cards: viewer.isBlind ? [] : viewer.cards.map(cardCode),
             options:
@@ -896,6 +1380,9 @@ export class Table extends EventEmitter {
           isBlind: seat.isBlind,
           // What a player has staked this hand stays public either way: bets
           // are announced as they happen, so hiding it here would fool nobody.
+          // The same goes for the last one on its own.
+          lastBet: seat.lastBet,
+          lastAction: seat.lastAction,
           contributed: seat.contributed,
           connected: seat.connected,
           cardCount: seat.cards.length,
@@ -918,7 +1405,21 @@ export class Table extends EventEmitter {
     };
   }
 
+  /**
+   * Tears the table down.
+   *
+   * If a hand is still live its pot must not simply vanish (requirement 15):
+   * it goes to whoever is still sitting, or failing that to the last player who
+   * walked out. This is the path a server shutdown or an idle sweep takes,
+   * since ordinary play always ends a hand before the room empties.
+   */
   destroy() {
+    if (this.hand) {
+      const remaining = this.activeSeats;
+      const winnerId = remaining.length > 0 ? remaining[0].userId : this.hand.lastDeparture;
+      this._endHand({ winnerId, reason: WIN_REASON.ALL_LEFT, reveals: [] });
+    }
+
     this._destroyed = true;
     this._clearTurnTimer();
     if (this._startTimer) {

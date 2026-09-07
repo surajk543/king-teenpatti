@@ -1,0 +1,433 @@
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+
+import '../models/dtos.dart';
+import '../state/game_state.dart';
+import 'avatar.dart';
+import 'liquid_fill.dart';
+import 'playing_card.dart';
+import 'poker_chip.dart';
+import 'premium_surface.dart';
+
+/// One player's place at the table: a portrait pod with the name across the
+/// top, a picture in the middle and the stack on a pill underneath, with its
+/// cards alongside and its bet between the pod and the pot.
+///
+/// The pod of whoever is to act blinks and fills from the bottom. The blink
+/// starts green and bleeds to red as the clock empties, so the colour alone
+/// says how long is left; a full pod means the turn is over.
+class SeatPod extends StatelessWidget {
+  const SeatPod({
+    super.key,
+    required this.seat,
+    required this.isMe,
+    required this.isDealer,
+    required this.onTurn,
+    required this.progress,
+    required this.deadlineMs,
+    required this.totalMs,
+    required this.chipsHidden,
+    required this.width,
+    required this.avatarUrl,
+    this.saying,
+    this.reversed = false,
+  });
+
+  final Seat? seat;
+  final bool isMe;
+  final bool isDealer;
+  final bool onTurn;
+
+  /// How much of this player's turn has gone, 0 to 1, or null when unknown.
+  /// Used for the colour; the fill level is worked out per frame from the
+  /// deadline below, because this only updates about once a second.
+  final double? progress;
+  final int deadlineMs;
+  final int totalMs;
+  final bool chipsHidden;
+
+  /// Drives every other size in the pod.
+  final double width;
+
+  /// This player's picture, already made absolute.
+  final String? avatarUrl;
+
+  /// What they just said, while it is still fresh.
+  final String? saying;
+
+  /// Cards and the bet chip stack upwards instead of down. The seat at the
+  /// bottom of the table needs this or its column runs off the felt.
+  final bool reversed;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = seat;
+    // An empty chair shows nothing: a row of blank pods reads as broken rather
+    // than as free seats.
+    if (s == null || !s.occupied) return SizedBox(width: width);
+
+    final theme = Theme.of(context);
+    final t = (progress ?? 0).clamp(0.0, 1.0);
+    // Squared, so it holds green for most of the turn and reddens sharply at
+    // the end rather than sitting muddy in the middle.
+    final beat = Color.lerp(theme.colorScheme.primary, theme.colorScheme.error, t * t)!;
+
+    final gap = width * 0.05;
+    final below = <Widget>[
+      if (s.cardCount > 0 && !isMe) ...[SizedBox(height: gap), _cards(s)],
+      if (_inHand(s)) ...[
+        SizedBox(height: gap),
+        _lastBet(context, s),
+        if (s.contributed > 0) ...[
+          SizedBox(height: gap * 0.5),
+          _total(context, s),
+        ],
+      ] else if (_status(context, s) != null) ...[
+        SizedBox(height: gap),
+        Text(
+          _status(context, s)!,
+          style: theme.textTheme.labelSmall?.copyWith(
+            color: s.connected
+                ? theme.colorScheme.onSurfaceVariant
+                : theme.colorScheme.error,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ],
+    ];
+
+    final column = <Widget>[
+      _pod(context, s, beat, t),
+      ...below,
+    ];
+
+    // The bubble goes above the pod whichever way the column runs, so it never
+    // ends up underneath the player it belongs to.
+    final bubble = saying == null
+        ? null
+        : _Bubble(text: saying!, width: width);
+
+    return SizedBox(
+      width: width,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (bubble != null) ...[bubble, SizedBox(height: gap)],
+          ...(reversed ? column.reversed.toList() : column),
+        ],
+      ),
+    );
+  }
+
+  Widget _pod(BuildContext context, Seat s, Color beat, double t) {
+    final theme = Theme.of(context);
+
+    // A pod is a lobby card at pod size, so the two screens are built from the
+    // same material rather than merely resembling each other.
+    final accent = s.status == SeatState.won
+        ? theme.colorScheme.primary
+        : onTurn
+            ? beat
+            : theme.colorScheme.outlineVariant;
+
+    return _Blink(
+      active: onTurn,
+      colour: beat,
+      radius: width * 0.14,
+      child: PremiumSurface(
+        accent: accent,
+        radius: width * 0.14,
+        borderWidth: onTurn ? 2 : 1.2,
+        child: Stack(
+          children: [
+            // The turn clock, drawn as liquid rising inside the pod. Full
+            // means their time is up.
+            if (onTurn && progress != null && deadlineMs > 0)
+              Positioned.fill(
+                child: LiquidFill(
+                  deadlineMs: deadlineMs,
+                  totalMs: totalMs,
+                  colour: beat,
+                ),
+              ),
+            Padding(
+              padding: EdgeInsets.all(width * 0.05),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Flexible(
+                        child: Text(
+                          isMe ? 'YOU' : s.displayName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: width * 0.135,
+                            fontWeight: FontWeight.w800,
+                            color: isMe ? theme.colorScheme.secondary : null,
+                          ),
+                        ),
+                      ),
+                      if (isDealer) ...[
+                        const SizedBox(width: 4),
+                        CircleAvatar(
+                          radius: width * 0.09,
+                          backgroundColor: theme.colorScheme.tertiaryContainer,
+                          child: Text('D',
+                              style: TextStyle(
+                                fontSize: width * 0.1,
+                                color: theme.colorScheme.onTertiaryContainer,
+                                fontWeight: FontWeight.w800,
+                              )),
+                        ),
+                      ],
+                    ],
+                  ),
+                  SizedBox(height: width * 0.04),
+                  Avatar(
+                    url: avatarUrl,
+                    fallback: s.displayName,
+                    radius: width * 0.2,
+                  ),
+                  SizedBox(height: width * 0.05),
+                  Container(
+                    width: double.infinity,
+                    padding: EdgeInsets.symmetric(vertical: width * 0.025),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.secondaryContainer,
+                      borderRadius: BorderRadius.circular(width * 0.09),
+                    ),
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        // On a blind table another player's stack was never
+                        // sent, so show it as withheld rather than as zero.
+                        s.chips == null ? '•••' : formatChips(s.chips!),
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: width * 0.125,
+                          color: theme.colorScheme.onSecondaryContainer,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _cards(Seat s) {
+    final dim = s.status == SeatState.packed || s.status == SeatState.lost;
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        for (var i = 0; i < s.cardCount; i++)
+          PlayingCard(height: width * 0.42, dimmed: dim),
+      ],
+    );
+  }
+
+  /// What this player just put in. The chip makes it read as money from across
+  /// the table, where a bare number does not.
+  Widget _lastBet(BuildContext context, Seat s) {
+    final theme = Theme.of(context);
+    final t = context.watch<GameState>().t;
+    final label = s.isBlind ? t.blind : t.seen;
+
+    return Container(
+      padding: EdgeInsets.symmetric(
+          horizontal: width * 0.07, vertical: width * 0.025),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.secondaryContainer,
+        borderRadius: BorderRadius.circular(width * 0.1),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          PokerChip(
+            colour: s.isBlind
+                ? theme.colorScheme.tertiary
+                : theme.colorScheme.secondary,
+            size: width * 0.14,
+          ),
+          SizedBox(width: width * 0.05),
+          // The figure slides up as it changes, so a raise is something the
+          // table sees happen rather than a number that was always there.
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 280),
+            transitionBuilder: (child, anim) => SlideTransition(
+              position: Tween(begin: const Offset(0, 0.6), end: Offset.zero)
+                  .animate(anim),
+              child: FadeTransition(opacity: anim, child: child),
+            ),
+            child: Text(
+              s.lastBet > 0 ? '$label  ${formatChips(s.lastBet)}' : label,
+              key: ValueKey('${s.lastBet}-${s.isBlind}'),
+              style: TextStyle(
+                fontSize: width * 0.115,
+                color: theme.colorScheme.onSecondaryContainer,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Everything they are in for this hand.
+  Widget _total(BuildContext context, Seat s) {
+    final theme = Theme.of(context);
+
+    return TweenAnimationBuilder<double>(
+      tween: Tween(end: s.contributed.toDouble()),
+      duration: const Duration(milliseconds: 450),
+      curve: Curves.easeOutCubic,
+      builder: (context, value, _) => Text(
+        '${context.watch<GameState>().t.inPot} ${formatChips(value.round())}',
+        style: TextStyle(
+          fontSize: width * 0.1,
+          color: theme.colorScheme.onSurfaceVariant,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
+
+  bool _inHand(Seat s) =>
+      s.status == SeatState.active || s.status == SeatState.won;
+
+  String? _status(BuildContext context, Seat s) {
+    final t = context.watch<GameState>().t;
+    if (!s.connected) return t.offline;
+    return switch (s.status) {
+      SeatState.packed => t.pack,
+      SeatState.won => t.winner,
+      SeatState.waiting => t.waiting,
+      _ => null,
+    };
+  }
+}
+
+/// The pod of whoever is to act pulses, brightly.
+///
+/// It is a ring of light around the pod rather than a change of border colour:
+/// from across the table the glow is what carries, and every player needs to
+/// see whose turn it is at a glance, not only the player whose turn it is.
+class _Blink extends StatefulWidget {
+  const _Blink({
+    required this.active,
+    required this.colour,
+    required this.radius,
+    required this.child,
+  });
+
+  final bool active;
+  final Color colour;
+  final double radius;
+  final Widget child;
+
+  @override
+  State<_Blink> createState() => _BlinkState();
+}
+
+class _BlinkState extends State<_Blink> with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 780),
+  )..repeat(reverse: true);
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!widget.active) return widget.child;
+
+    return AnimatedBuilder(
+      animation: _c,
+      builder: (context, child) {
+        final t = Curves.easeInOut.transform(_c.value);
+        return DecoratedBox(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(widget.radius),
+            boxShadow: [
+              // A tight core and a wide halo, both breathing, so the seat reads
+              // as lit rather than merely outlined.
+              BoxShadow(
+                color: widget.colour.withValues(alpha: 0.55 + 0.45 * t),
+                blurRadius: 10 + 10 * t,
+                spreadRadius: 1 + 2 * t,
+              ),
+              BoxShadow(
+                color: widget.colour.withValues(alpha: 0.20 + 0.35 * t),
+                blurRadius: 26 + 22 * t,
+                spreadRadius: 3 + 6 * t,
+              ),
+            ],
+          ),
+          child: child,
+        );
+      },
+      child: widget.child,
+    );
+  }
+}
+
+/// A speech bubble over a seat, shown for a moment after that player speaks.
+class _Bubble extends StatelessWidget {
+  const _Bubble({required this.text, required this.width});
+
+  final String text;
+  final double width;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: 1),
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOutBack,
+      builder: (context, v, child) => Transform.scale(
+        scale: 0.6 + 0.4 * v,
+        alignment: Alignment.bottomCenter,
+        child: Opacity(opacity: v.clamp(0, 1), child: child),
+      ),
+      child: Container(
+        constraints: BoxConstraints(maxWidth: width * 1.9),
+        padding: EdgeInsets.symmetric(
+            horizontal: width * 0.09, vertical: width * 0.05),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.inverseSurface,
+          borderRadius: BorderRadius.circular(width * 0.13),
+          boxShadow: const [
+            BoxShadow(color: Color(0x40000000), blurRadius: 8, offset: Offset(0, 3)),
+          ],
+        ),
+        child: Text(
+          text,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: width * 0.11,
+            height: 1.25,
+            color: theme.colorScheme.onInverseSurface,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ),
+    );
+  }
+}

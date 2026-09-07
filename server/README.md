@@ -9,7 +9,7 @@ npm install
 cp .env.example .env      # set JWT_SECRET; add provider credentials if you want Google/Facebook
 npm start                 # http://localhost:3000
 npm run dev               # with --watch
-npm test                  # 146 tests
+npm test                  # 194 tests
 ```
 
 The bundled browser client is served from `/` — useful for playing, for filling a table while
@@ -32,6 +32,12 @@ The settings you are most likely to change:
 | `MAX_BET_ROUNDS` | `20` | Rounds before a forced showdown. |
 | `MAX_RAISE_STEPS` | `8` | Rungs on the +/− raise ladder. |
 | `TABLE_STAKES` | `200,5000` | Stakes the lobby offers. Empty means any stake is allowed. |
+| `SEEN_MAX_RAISE_STEPS` | `2` | Seen tables: one double per turn. |
+| `SEEN_MAX_BET_ROUNDS` | `7` | Seen tables: showdown after 7 rounds. |
+| `PRIVATE_MAX_POT` | `500000` | Private tables: pot ceiling. |
+| `PRIVATE_MAX_RAISE_STEPS` | `2` | Private tables: one double per turn. |
+| `CONSOLIDATE_INTERVAL_MS` | `15000` | How often half-empty rooms are merged. |
+| `PRIVATE_BOOT` | `200` | Private tables: the fixed boot. Not chosen by the player. |
 | `CHAT_MAX_HISTORY` | `100` | Messages kept per room, in memory. |
 | `REDIS_URL` | — | Enables the Socket.IO Redis adapter. |
 
@@ -45,6 +51,10 @@ Production refuses to boot with a default `JWT_SECRET` or with fake providers en
 | `GET` | `/api/auth/me` | Bearer token | `{user}` |
 | `GET` | `/api/auth/me/hands` | Bearer token | `{hands}` — recent hand history |
 | `GET` | `/api/rooms` | `?category=blind\|seen` | `{tables, options}` — open tables, optionally filtered |
+| `POST` | `/api/rewards/milestone` | Bearer token | Collects 25,000 chips for reaching a multiple of 25 hands played |
+| `POST` | `/api/rewards/bonus` | Bearer token | Collects the 10,000 chip bonus and restarts its 4-hour countdown |
+| `GET` | `/api/profiles` | — | `{profiles}` — the bundled pictures a player may choose |
+| `POST` | `/api/profile/avatar` | `{avatar}` + token | Chooses a picture; `null` restores the provider one. Refused while seated |
 | `GET` | `/health` | — | `{ok, uptime, tables, players, activeHands}` |
 
 Login bodies by provider:
@@ -90,6 +100,7 @@ io("http://localhost:3000", { auth: { token }, transports: ["websocket", "pollin
 | `room:joined` | full table snapshot | you |
 | `room:state` | full table snapshot | each viewer, redacted per viewer |
 | `room:left` / `room:closed` | `{roomId}` | you |
+| `room:moved` | `{fromRoomId, toRoomId, code, message}` | you, when two half-empty rooms are merged |
 | `game:handStarted` | `{handId, handNo, dealerSeat, pot, stake, participants}` | room |
 | `game:turn` | `{userId, seatIndex, deadline, timeoutMs}` | room |
 | `game:yourTurn` | `{deadline, timeoutMs, options}` | **only the player on turn** |
@@ -175,6 +186,57 @@ privacy boundary. A seat's `contributed` and the pot stay public in both categor
 announced as they are made. An unrecognised category falls back to `seen`, so chips are never hidden
 by accident.
 
+### Rewards
+
+| Reward | Trigger | Amount | Stored as |
+|---|---|---|---|
+| Milestone | every 25 hands **played** | 25,000 | `milestone_claimed` |
+| Timed bonus | every 4 hours | 10,000 | `next_bonus_at` |
+
+Both are decided by the server. A milestone pays once per milestone however often the endpoint is
+called, and the bonus refuses until its stored unlock time has passed — so neither can be farmed by
+replaying a request or reinstalling the client. A brand new account can collect the bonus straight
+away; every collection after that starts a fresh 4-hour countdown.
+
+"Played" counts only hands where the player committed chips beyond the boot (a chaal, a raise, or
+paying for a show). Posting the ante and folding immediately is not a hand played, which is what the
+milestone is measured against.
+
+### Filling tables
+
+Two rooms each down to a single player are merged (requirement 24). `consolidateTables()` runs on a
+timer and immediately after any departure, since that is exactly when a table drops to one.
+
+A table is only eligible when it is **public, idle and holding exactly one player** — the `!table.hand`
+check is the important one, because it is what guarantees a player is never moved out from under a
+live game. Tables are grouped by `category:bootAmount`, so a player never lands on a different stake
+or category than the one they picked, and the longest-standing room is the destination.
+
+The moved player gets a `room:moved` notice followed by a normal `room:joined` for the new table, so
+the client follows along without a reconnect. Once two players are seated the table enters
+`starting` with a `startsAt` deadline, which clients render as "Starting game in N seconds".
+
+### Private tables
+
+A private table is created with `room:create` and reached by its code. It carries its own rules
+(requirement 22):
+
+| | Private | Public |
+|---|---|---|
+| Boot | fixed at `PRIVATE_BOOT` (200) | one of `TABLE_STAKES` |
+| Maximum win | `PRIVATE_MAX_POT` (500,000) | uncapped |
+| Doubles per turn | one | seen: one, blind: unlimited |
+
+The boot is **not** a choice: whatever `bootAmount` a client sends for a private table is replaced
+with the configured one, so there is nothing to validate and no way to open a room at another
+amount. Clients read `privateBoot` from the session config purely to label the button.
+
+The ceiling is enforced in two places. `betOptions` withholds any rung that would push the pot past
+it, so an over-the-top bet is never offered; and once the pot is close enough that not even the
+smallest legal bet fits underneath, the hand resolves as a showdown with reason `pot_limit`. Checking
+the headroom rather than only equality matters — otherwise a player could be left on turn with
+nothing legal to do but fold.
+
 **Timeouts.** A player who does not act inside `TURN_TIMEOUT_MS` is packed and play continues.
 A disconnected player keeps their seat for `RECONNECT_GRACE_MS`, but their turn still times out
 normally — dropping your connection is not a way to stall a table.
@@ -186,7 +248,13 @@ Three tables (see [schema.sql](src/db/schema.sql)):
 - `users` — one row per `(provider, provider_user_id)`, holding chips and lifetime stats.
 - `hands` — one row per completed hand, with a JSON summary of every seat, for auditing.
 - `chip_ledger` — every chip movement, with the resulting balance. `users.chips` can be
-  reconciled against this at any time.
+  reconciled against this at any time. Reward grants appear here as `milestone_reward` and
+  `timed_bonus`, so free chips are as auditable as anything won at a table.
+
+`users` also carries the play record and reward state: `hands_played`, `hands_won`, `hands_lost`,
+`hands_left_mid`, `total_winnings`, `milestone_claimed` (the highest milestone already collected)
+and `next_bonus_at` (when the timed bonus unlocks). Columns added after a database was first created
+are applied by an idempotent migration on boot, so an existing `teenpatti.db` upgrades in place.
 
 SQLite runs in WAL mode with `synchronous = NORMAL`. All gameplay is in memory; the database is
 touched at login, once per completed hand, and on chip grants. A crash mid-hand loses that hand's

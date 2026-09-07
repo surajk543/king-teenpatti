@@ -302,7 +302,14 @@ test('a full hand plays out: see, bet, show, and the pot is paid', async () => {
   ).json();
   assert.ok(profile.user.chips > 200000, 'winnings were written to the database');
   assert.equal(profile.user.handsWon, 1);
-  assert.equal(profile.user.handsPlayed, 1);
+
+  // "Played" counts only for a player who committed chips beyond the boot, so
+  // check it against the player who actually paid for the show.
+  const callerToken = turn.userId === alice.user.id ? alice.token : bob.token;
+  const callerProfile = await (
+    await fetch(`${baseUrl}/api/auth/me`, { headers: { authorization: `Bearer ${callerToken}` } })
+  ).json();
+  assert.equal(callerProfile.user.handsPlayed, 1, 'paying for the show counts as playing');
 
   await closeAll(...Object.values(clients));
 });
@@ -378,6 +385,8 @@ test('a private room can be created and joined by its code', async () => {
   const ch = await openClient(host.token);
   const cg = await openClient(guest.token);
 
+  // A private table's boot is fixed by the server (requirement 22), so none
+  // is sent and whatever this suite's default is does not apply.
   const created = await ch.emit('room:create', { isPrivate: true });
   assert.equal(created.ok, true);
   assert.match(created.code, /^[A-Z2-9]{6}$/);
@@ -388,6 +397,10 @@ test('a private room can be created and joined by its code', async () => {
 
   const bad = await cg.emit('room:joinCode', { code: 'ZZZZZZ' });
   assert.equal(bad.ok, false);
+
+  // Requirement 22: a requested boot is ignored on a private table.
+  assert.equal(rooms.getTable(created.roomId).config.bootAmount, 200,
+    'the fixed private boot is used');
 
   await closeAll(ch, cg);
 });

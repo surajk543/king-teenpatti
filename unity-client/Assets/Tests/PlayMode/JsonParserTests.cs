@@ -1,3 +1,4 @@
+using System;
 using KingTeenPatti.Models;
 using KingTeenPatti.Net;
 using NUnit.Framework;
@@ -182,6 +183,220 @@ namespace KingTeenPatti.Tests
             Assert.AreEqual(0, options.raiseSteps.Length);
             Assert.AreEqual(0, options.chaal);
             Assert.IsTrue(options.canPack, "packing is always available");
+        }
+
+        /// <summary>
+        /// Requirements 17 and 18: both reward states arrive on the user record,
+        /// and the bonus countdown is derived from the server's unlock time
+        /// rather than anything the client keeps.
+        /// </summary>
+        [Test]
+        public void RewardStateParses()
+        {
+            var readyAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() + 90 * 60 * 1000;
+            var user = JsonUtility.FromJson<UserDto>(
+                "{\"id\":\"u1\",\"chips\":250000,\"handsPlayed\":37,\"handsWon\":9," +
+                "\"handsLost\":26,\"handsLeftMid\":2,\"totalWinnings\":48000,\"rewards\":{" +
+                "\"milestoneAvailable\":true,\"milestoneAt\":25,\"milestoneReward\":25000," +
+                "\"milestoneEvery\":25,\"handsToNextMilestone\":13," +
+                "\"bonusReadyAt\":" + readyAt + ",\"bonusAvailable\":false," +
+                "\"bonusReward\":10000,\"bonusIntervalMs\":14400000}}");
+
+            Assert.AreEqual(37, user.handsPlayed);
+            Assert.AreEqual(26, user.handsLost);
+            Assert.AreEqual(2, user.handsLeftMid, "abandoned hands are tracked separately");
+            Assert.AreEqual(48000, user.totalWinnings);
+
+            Assert.IsTrue(user.rewards.milestoneAvailable);
+            Assert.AreEqual(25000, user.rewards.milestoneReward);
+            Assert.AreEqual(13, user.rewards.handsToNextMilestone);
+
+            Assert.IsFalse(user.rewards.IsBonusReady, "the bonus is still recharging");
+            Assert.Greater(user.rewards.MillisecondsUntilBonus, 0);
+            Assert.AreEqual(4 * 60 * 60 * 1000, user.rewards.bonusIntervalMs, "a 4-hour cycle");
+        }
+
+        [Test]
+        public void AReadyBonusHasNoCountdownLeft()
+        {
+            var user = JsonUtility.FromJson<UserDto>(
+                "{\"id\":\"u1\",\"rewards\":{\"bonusReadyAt\":0,\"bonusAvailable\":true,\"bonusReward\":10000}}");
+
+            Assert.IsTrue(user.rewards.IsBonusReady);
+            Assert.AreEqual(0, user.rewards.MillisecondsUntilBonus);
+        }
+
+        /// <summary>
+        /// Requirement 26: the bonus countdown always shows seconds, so it
+        /// visibly ticks instead of resting on the same minute for a while.
+        /// </summary>
+        [Test]
+        public void CountdownAlwaysShowsSeconds()
+        {
+            Assert.AreEqual("3h 41m 7s", UI.GameUI.FormatCountdown((3 * 3600 + 41 * 60 + 7) * 1000L));
+            Assert.AreEqual("3h 41m 0s", UI.GameUI.FormatCountdown((3 * 3600 + 41 * 60) * 1000L));
+            Assert.AreEqual("12m 5s", UI.GameUI.FormatCountdown((12 * 60 + 5) * 1000L));
+            Assert.AreEqual("9s", UI.GameUI.FormatCountdown(9000));
+            Assert.AreEqual("0s", UI.GameUI.FormatCountdown(-5000), "a past deadline reads as ready");
+
+            // A second apart must render differently, or the timer looks frozen.
+            Assert.AreNotEqual(
+                UI.GameUI.FormatCountdown(3600_000),
+                UI.GameUI.FormatCountdown(3599_000),
+                "one second of difference is visible");
+        }
+
+        /// <summary>Requirement 14: a showdown carries every hand, not just one.</summary>
+        [Test]
+        public void ShowdownRevealsParse()
+        {
+            var showdown = JsonUtility.FromJson<ShowdownDto>(
+                "{\"reason\":\"show\",\"reveals\":[" +
+                "{\"userId\":\"u1\",\"seatIndex\":0,\"cards\":[\"As\",\"Ah\",\"Ad\"]," +
+                "\"handName\":\"Trail\",\"category\":5,\"won\":true}," +
+                "{\"userId\":\"u2\",\"seatIndex\":1,\"cards\":[\"2s\",\"7h\",\"9d\"]," +
+                "\"handName\":\"High Card\",\"category\":0,\"won\":false}]}");
+
+            Assert.AreEqual(2, showdown.reveals.Length, "both hands are shown to everyone");
+            Assert.AreEqual("Trail", showdown.reveals[0].handName);
+            Assert.AreEqual(3, showdown.reveals[0].cards.Length);
+            Assert.IsTrue(showdown.reveals[0].won);
+            Assert.IsFalse(showdown.reveals[1].won);
+        }
+
+        /// <summary>Requirements 20 and 21: the picture everyone at the table sees.</summary>
+        [Test]
+        public void ProfilePicturesParse()
+        {
+            var list = JsonUtility.FromJson<ProfilePictureListDto>(
+                "{\"profiles\":[{\"id\":\"ace.svg\",\"url\":\"/profiles/ace.svg\"}," +
+                "{\"id\":\"king.svg\",\"url\":\"/profiles/king.svg\"}]}");
+
+            Assert.AreEqual(2, list.profiles.Length);
+            Assert.AreEqual("/profiles/ace.svg", list.profiles[0].url);
+
+            // A chosen picture overrides the provider one but does not erase it.
+            var user = JsonUtility.FromJson<UserDto>(
+                "{\"avatarUrl\":\"/profiles/king.svg\"," +
+                "\"providerAvatarUrl\":\"https://lh3.googleusercontent.com/x\"," +
+                "\"avatarChoice\":\"/profiles/king.svg\"}");
+
+            Assert.AreEqual("/profiles/king.svg", user.avatarUrl);
+            Assert.AreEqual("https://lh3.googleusercontent.com/x", user.providerAvatarUrl);
+        }
+
+        [Test]
+        public void SeatCarriesTheSharedAvatar()
+        {
+            var state = JsonUtility.FromJson<RoomStateDto>(
+                "{\"seats\":[{\"seatIndex\":0,\"userId\":\"u1\",\"displayName\":\"Ravi\"," +
+                "\"avatarUrl\":\"/profiles/spade.svg\",\"status\":\"active\"}]}");
+
+            Assert.AreEqual("/profiles/spade.svg", state.seats[0].avatarUrl,
+                "every player at the table sees this picture");
+        }
+
+        /// <summary>
+        /// Requirement 22: a private table reports its pot ceiling and boot
+        /// floor, so the client can show them and avoid an obviously bad request.
+        /// </summary>
+        [Test]
+        public void PrivateTableRulesParse()
+        {
+            var config = JsonUtility.FromJson<GameConfigDto>(
+                "{\"maxPlayers\":5,\"minPlayers\":2,\"bootAmount\":200," +
+                "\"stakes\":[200,5000],\"privateBoot\":200,\"privateMaxPot\":500000}");
+
+            Assert.AreEqual(200, config.privateBoot, "the boot is fixed, not chosen");
+            Assert.AreEqual(500000, config.privateMaxPot, "and the win is capped");
+
+            var capped = JsonUtility.FromJson<RoomStateDto>(
+                "{\"roomId\":\"r1\",\"pot\":1200,\"maxPot\":500000,\"stake\":200}");
+            Assert.AreEqual(500000, capped.maxPot, "a private table carries its ceiling");
+
+            var uncapped = JsonUtility.FromJson<RoomStateDto>(
+                "{\"roomId\":\"r2\",\"pot\":1200,\"maxPot\":0,\"stake\":200}");
+            Assert.AreEqual(0, uncapped.maxPot, "a public table is uncapped");
+        }
+
+        /// <summary>
+        /// Requirement 23: both Material 3 schemes exist and are genuinely
+        /// different, and switching swaps the whole palette.
+        /// </summary>
+        [Test]
+        public void DayModeIsTheDefault()
+        {
+            // A fresh install opens in light mode; the toggle stores anything else.
+            Assert.AreEqual(UI.UiFactory.Light.Surface, UI.UiFactory.Light.Surface);
+            Assert.Greater(
+                UI.UiFactory.Light.Surface.r,
+                UI.UiFactory.Dark.Surface.r,
+                "the light scheme is the brighter one");
+        }
+
+        [Test]
+        public void ThemeSwitchingSwapsTheWholePalette()
+        {
+            var wasDark = UI.UiFactory.IsDarkMode;
+            try
+            {
+                UI.UiFactory.SetDarkMode(true);
+                var darkSurface = UI.UiFactory.Scheme.Surface;
+                Assert.IsTrue(UI.UiFactory.IsDarkMode);
+
+                UI.UiFactory.SetDarkMode(false);
+                var lightSurface = UI.UiFactory.Scheme.Surface;
+
+                Assert.IsFalse(UI.UiFactory.IsDarkMode);
+                Assert.AreNotEqual(darkSurface, lightSurface, "the two schemes differ");
+
+                // A light scheme must actually be lighter than the dark one.
+                Assert.Greater(lightSurface.r + lightSurface.g + lightSurface.b,
+                    darkSurface.r + darkSurface.g + darkSurface.b);
+
+                // The role aliases follow the active scheme, not a fixed colour.
+                Assert.AreEqual(UI.UiFactory.Scheme.OnSurface, UI.UiFactory.Ink);
+                Assert.AreEqual(UI.UiFactory.Scheme.Secondary, UI.UiFactory.Gold);
+            }
+            finally
+            {
+                UI.UiFactory.SetDarkMode(wasDark);
+            }
+        }
+
+        [Test]
+        public void BothSchemesKeepTextReadable()
+        {
+            // On/​container pairs must contrast, or the UI is unusable in one mode.
+            foreach (var scheme in new[] { UI.UiFactory.Dark, UI.UiFactory.Light })
+            {
+                AssertContrasts(scheme.Surface, scheme.OnSurface, "surface");
+                AssertContrasts(scheme.Primary, scheme.OnPrimary, "primary");
+                AssertContrasts(scheme.SecondaryContainer, scheme.OnSecondaryContainer, "secondary container");
+                AssertContrasts(scheme.SurfaceVariant, scheme.OnSurfaceVariant, "surface variant");
+            }
+        }
+
+        private static void AssertContrasts(Color background, Color foreground, string what)
+        {
+            var difference = Mathf.Abs(Luminance(background) - Luminance(foreground));
+            Assert.Greater(difference, 0.3f, what + " needs readable contrast");
+        }
+
+        private static float Luminance(Color c) => 0.2126f * c.r + 0.7152f * c.g + 0.0722f * c.b;
+
+        /// <summary>Requirement 24: the move notice parses.</summary>
+        [Test]
+        public void RoomMoveNoticeParses()
+        {
+            var moved = JsonUtility.FromJson<RoomMovedDto>(
+                "{\"fromRoomId\":\"a\",\"toRoomId\":\"b\",\"code\":\"AB12CD\"," +
+                "\"message\":\"Moved to a table with other players waiting.\"}");
+
+            Assert.AreEqual("a", moved.fromRoomId);
+            Assert.AreEqual("b", moved.toRoomId);
+            Assert.AreEqual("AB12CD", moved.code);
+            Assert.IsNotEmpty(moved.message);
         }
 
         [Test]

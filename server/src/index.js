@@ -4,7 +4,7 @@ import express from 'express';
 import { Server } from 'socket.io';
 import config from './config/index.js';
 import { openDatabase, closeDatabase } from './db/index.js';
-import { authRoutes } from './auth/routes.js';
+import { authRoutes, playerRoutes } from './auth/routes.js';
 import { AuthError } from './auth/providers.js';
 import { GameError } from './game/table.js';
 import RoomManager from './game/roomManager.js';
@@ -25,6 +25,9 @@ export async function createServer() {
   });
 
   app.use('/api/auth', authRoutes());
+  // Rewards and profile pictures. Seating is checked live, so the avatar
+  // endpoint can refuse a change while the player is at a table.
+  app.use('/api', playerRoutes({ isSeated: (userId) => Boolean(rooms.getTableForPlayer(userId)) }));
 
   app.get('/api/rooms', (req, res) => {
     // ?category=blind|seen filters the lobby to one category.
