@@ -1,0 +1,7 @@
+cd /var/www/gameplay/king-teenpatti/server
+git pull origin master
+cd /var/www/gameplay/king-teenpatti/server
+npm ci
+sudo systemctl restart gameplay
+sudo systemctl status gameplay --no-pager
+sudo journalctl -u gameplay -n 20 --no-pager
