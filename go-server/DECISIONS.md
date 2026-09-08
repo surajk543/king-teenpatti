@@ -6,8 +6,9 @@ these without re-deciding; reviewers check against them. The rule behind them:
 > **Anything a shipped client or the database can observe on a success path is reproduced
 > exactly. Latent bugs that no client relies on are fixed, and every fix is listed here.**
 
-"Node" below means `server/src` on the working tree. "Deviation" means the Go server behaves
-differently from Node on purpose.
+"Node" below means `server/src` as it was before the Node server was removed from the repository
+(8 Sep 2026; `git log -- server/`, last commit carrying it `c19963b`). "Deviation" means the Go
+server behaves differently from Node on purpose.
 
 ## 1. Wire format
 
@@ -18,7 +19,7 @@ differently from Node on purpose.
 | Join-side event order (`room:state` before `room:joined`, leaver's traffic before `room:left`, mover's `room:closed` before `room:moved`/`room:joined`) | **Reproduce exactly.** Flutter's screen switching depends on `room:closed` never arriving *after* the new `room:joined`. |
 | Spurious `game:turn` for an asker who leaves during a pending sideshow | Either behaviour is acceptable; not asserted. Port the Node sequence and let it fall out. |
 | Long polling | **Deviation.** Not implemented. `transport=polling` gets HTTP 400 `{"code":0,"message":"Transport unknown"}`. Every shipped client is websocket-only or websocket-first without fallback. |
-| `/socket.io/socket.io.js` | Served by the Go server from an embedded copy of `server/node_modules/socket.io/client-dist/socket.io.min.js` (MIT), so the browser reference client works unchanged. `.min.js` also served. |
+| `/socket.io/socket.io.js` | Served by the Go server from an embedded copy of the socket.io client bundle (`internal/app/assets/socket.io.min.js` + its MIT `LICENSE`, copied from the former `server/node_modules/socket.io/client-dist/socket.io.min.js`), so the browser reference client works unchanged. `.min.js` also served. |
 | Engine.IO `sid` | Opaque 20-char base64url id; alphabet need not match `base64id`. |
 | `?token=` query on the handshake | Kept (Node accepts `handshake.query.token`). |
 | Handshake failure message | **Deviation.** Always the auth code (`missing_token`, `invalid_session`, `unknown_user`, `unauthorized`). A database error during `findById` is `unauthorized`, never a SQLSTATE. |
@@ -79,7 +80,7 @@ differently from Node on purpose.
 | Concurrent first logins for one identity | **Deviation.** Handled: on a unique violation the insert is retried as an update path; exactly one welcome bonus is ever written. |
 | Fake providers (`AUTH_ALLOW_FAKE_PROVIDERS`) | Kept, including the raw-displayName-then-`fake` provider-user-id fallback. Production refuses to start with it on. |
 | `/health` | Same keys. `process.node` = Go runtime version (e.g. `go1.27.1`); `heapUsedMb`/`heapTotalMb` from `runtime.MemStats`; `externalMb` = 0; `cpuPercent` = share of one core since the previous call; `loopLagP50Ms/P99Ms/MaxMs` = Go scheduler latency percentiles since the previous call (`runtime/metrics` `/sched/latencies:seconds`). Extra fields `goroutines`, `numCpu`, `gomaxprocs`. `db.waiting` = pool `EmptyAcquireCount` delta or 0. |
-| Static files | Same behaviour as `express.static` for GET/HEAD, index.html at `/`, dotfiles hidden, `.svg` as `image/svg+xml`. Default directory `PUBLIC_DIR=../server/public` (new env key). |
+| Static files | Same behaviour as `express.static` for GET/HEAD, index.html at `/`, dotfiles hidden, `.svg` as `image/svg+xml`. The browser client lives in `go-server/public`; `PUBLIC_DIR` (new env key) defaults to `./public` relative to the working directory (`go-server/`), falling back to `go-server/public` when the binary is started from the repository root. |
 | `METRICS_ALLOW_IPS` | Raw TCP peer address, no `X-Forwarded-For` (same as Node). |
 | `.env` | Loaded from the working directory if present, never overriding real env (same as dotenv). |
 | Env integer parsing | **Deviation.** Strict decimal integers; malformed values fail startup with a clear error. Empty string keeps Node's meaning (`TABLE_STAKES=` and `LOBBY_TABLES=` mean unrestricted). |

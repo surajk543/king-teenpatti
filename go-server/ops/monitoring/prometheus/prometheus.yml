@@ -1,14 +1,14 @@
 # Prometheus configuration for the King Teen Patti game server (Requirement 35).
 #
 # Four scrape jobs, one per layer of the stack:
-#   game-server  the Node process, prom-client on GET /metrics
+#   game-server  the game server (go-server/bin/gameplay) on GET /metrics
 #   postgres     postgres_exporter                     (Requirement 35e)
 #   nginx        nginx-prometheus-exporter/stub_status (Requirement 35g)
 #   node         node_exporter, host CPU/RAM/disk/net  (dashboard "System" row)
 #
 # The targets below assume the docker-compose stack in ../docker-compose.yml:
 # exporters are reached by their compose service name, the host's own processes
-# (Node, and node_exporter which runs in host network mode) through
+# (the game server, and node_exporter which runs in host network mode) through
 # host.docker.internal, which compose maps to the host gateway.
 #
 # Prometheus does NOT expand environment variables in this file. The three
@@ -37,17 +37,17 @@ rule_files:
 scrape_configs:
   # ------------------------------------------------------------ game server
   - job_name: game-server
-    # keep in sync with METRICS_PATH in server/.env (default /metrics)
+    # keep in sync with METRICS_PATH in go-server/.env (default /metrics)
     metrics_path: /metrics
     scheme: http
     static_configs:
       - targets:
-          # Node listening on the host (HOST=0.0.0.0, PORT=3000 in .env).
+          # the game server listening on the host (HOST=0.0.0.0, PORT=3000 in .env).
           - host.docker.internal:3000
         labels:
           # The app also sets service="king-teenpatti" on every series itself.
           app: king-teenpatti
-    # keep in sync with METRICS_TOKEN in server/.env. Leave both lines
+    # keep in sync with METRICS_TOKEN in go-server/.env. Leave both lines
     # commented while METRICS_TOKEN is empty (the endpoint is then open, which
     # is fine only behind a firewall). The token file is git-ignored; create it
     # with:  printf '%s' "$METRICS_TOKEN" > prometheus/metrics_token

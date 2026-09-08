@@ -5,8 +5,8 @@ A turn-based multiplayer Teen Patti game: an authoritative **Socket.IO** game se
 client for Android (Material 3), and a bundled browser client for playing and testing without a
 build. The server was first written in Node.js; the Go port replaced it on 8 Sep 2026 once it
 matched the original wire-for-wire (141/141 black-box parity suites, identical event streams).
-The Node implementation now lives only in git history — `git log -- server/`, and on `master` as
-of the merge of PR #2 — and nothing here depends on it.
+The Node implementation now lives only in git history — `git log -- server/`; the last commit that
+carries it is `c19963b` (the `multi_node` branch also still has it) — and nothing here depends on it.
 
 ```
 king-teenpatti/

@@ -8,7 +8,8 @@ Grafana at `https://api.sungamestudio.com/dashboard/` (dashboard uid `king-teenp
 The Go binary runs **inside the same systemd unit the Node server used, `gameplay.service`**, on the
 same port, with the same env keys — now read from `go-server/.env`. Nothing about nginx, Prometheus,
 the journal or the database changes. The first-time installer also **removes the Node server tree
-from the host** once the Go binary is healthy; the Node code stays on `master` and in git history.
+from the host** once the Go binary is healthy; the Node code stays in git history (`git log -- server/`,
+last commit carrying it `c19963b`) and on the `multi_node` branch.
 Everything below is run on the host as `deploy`; lines starting with `sudo` are the only ones that
 need root. `/var/www/gameplay/king-teenpatti/steps.txt` is the whole routine in six lines.
 
@@ -19,7 +20,7 @@ Files in this directory:
 | `build.sh` | deploy | installs Go 1.27.1 into `~/.local/go` if needed (sha256 verified against go.dev), builds `go-server/bin/gameplay` |
 | `gameplay-go.service` | — | the unit that `install-go-server.sh` installs as `gameplay.service` (`WorkingDirectory`, `EnvironmentFile` and `PUBLIC_DIR` all under `go-server/`) |
 | `install-go-server.sh` | sudo, once | backs up the Node unit → `gameplay.service.node.bak`, copies `server/.env` → `go-server/.env` once, installs the Go unit under the same name, restarts, verifies `/health` and `/metrics`, then removes `server/` from the host (`KEEP_NODE_TREE=1` skips) |
-| `rollback-to-node.sh` | sudo | restores the Node unit from the backup, restarts, verifies — **after** the Node tree has been restored from `master` (it refuses otherwise) |
+| `rollback-to-node.sh` | sudo | restores the Node unit from the backup, restarts, verifies — **after** the Node tree has been restored from history (`git checkout c19963b -- server`; it refuses otherwise) |
 | `lib.sh` | — | helpers shared by the two sudo scripts (paths, health polling, `.env` reading) |
 | `monitoring/` | — | Prometheus + Grafana + alerts + nginx bundle and `MONITORING.md` (formerly `server/ops/monitoring`) |
 
@@ -42,12 +43,12 @@ Files in this directory:
 - **WebSocket only.** `transport=polling` is refused with HTTP 400. Every shipped client (Flutter,
   browser, bots, ramptest) connects with websocket only, so nothing notices — but a stray
   `socket.io-client` default (polling first) would.
-- **The Node server leaves the host.** `git pull` on this branch removes `server/`'s tracked files;
+- **The Node server leaves the host.** `git pull origin master` removes `server/`'s tracked files;
   `install-go-server.sh` step 5 removes what `git` does not know about (`node_modules`, `.env`,
   logs) once `/health` reports the Go runtime. If `server/.env` differed from `go-server/.env` a copy
   is kept at `go-server/.env.node.bak`. `KEEP_NODE_TREE=1 sudo bash …/install-go-server.sh` leaves
   the directory alone. Node itself stays installed — the bots and the load ramp (`tools/`) need it.
-- **Rollback is two steps now** (§5): restore the Node tree from `master`, then
+- **Rollback is two steps now** (§5): restore the Node tree from history, then
   `rollback-to-node.sh` (~10 s once the tree is back).
 
 ---
@@ -57,9 +58,8 @@ Files in this directory:
 ```bash
 ssh deploy@148.113.24.201
 cd /var/www/gameplay/king-teenpatti
-git fetch origin
-git checkout go-server            # until go-server is merged into master; afterwards: git checkout master
-git pull
+git checkout master               # the go-server branch was merged into master (PR #2); master is what runs
+git pull origin master
 git log --oneline -1              # note the hash — build.sh stamps it into the binary
 ```
 
@@ -87,15 +87,15 @@ Later runs find that toolchain and skip straight to the build (~20 s cold, ~3 s 
 `bin/` is git-ignored; the binary is static (CGO off) — no shared libraries, no Go on the host at
 run time. Optional smoke test on a spare port with a throwaway schema (does not touch production
 data — it creates and uses schema `test_smoke`, drop it afterwards). Before the first install
-`go-server/.env` may not exist yet; point the smoke test at the old file in that case:
+`go-server/.env` may not exist yet — copy the live Node file over, which is exactly what the
+installer would do:
 
 ```bash
 cd /var/www/gameplay/king-teenpatti/go-server
-ENV=./.env; [ -f "$ENV" ] || ENV=../server/.env                      # first time only: the Node file is still the live one
-set -a; . "$ENV"; set +a
-PORT=3999 HOST=127.0.0.1 PG_SCHEMA=test_smoke ./bin/gameplay &        # PUBLIC_DIR defaults to ./public here
+[ -f .env ] || cp ../server/.env .env                                 # first time only
+PORT=3999 HOST=127.0.0.1 PG_SCHEMA=test_smoke ./bin/gameplay &        # reads ./.env; PUBLIC_DIR defaults to ./public
 sleep 2; curl -s 127.0.0.1:3999/health; kill %1
-psql "$DATABASE_URL" -c 'drop schema test_smoke cascade'
+psql "$(sed -n 's/^DATABASE_URL=//p' .env)" -c 'drop schema test_smoke cascade'
 ```
 
 ## 3. Install / switch the unit (sudo, first time only)
@@ -129,7 +129,7 @@ Once the unit points at the Go binary, the routine is the old one with the build
 (this is `steps.txt`):
 
 ```bash
-cd /var/www/gameplay/king-teenpatti && git pull
+cd /var/www/gameplay/king-teenpatti && git pull origin master
 bash go-server/ops/build.sh
 sudo systemctl restart gameplay
 sudo systemctl status gameplay --no-pager
@@ -200,13 +200,14 @@ psql "$(sed -n 's/^DATABASE_URL=//p' /var/www/gameplay/king-teenpatti/go-server/
 
 ## 5. Rollback
 
-The Node server is no longer in the checkout (this branch removed it, and `install-go-server.sh`
-removed the untracked residue from the host), so a rollback first puts the tree back — as `deploy`,
-never as root — and only then swaps the unit:
+The Node server is no longer in the repository (`master` removed it, and `install-go-server.sh`
+removed the untracked residue from the host), so a rollback first puts the tree back from history —
+as `deploy`, never as root — and only then swaps the unit. `c19963b` is the last commit that carries
+`server/` (`git log --diff-filter=D -- server/` finds the removal; any earlier commit works too):
 
 ```bash
 cd /var/www/gameplay/king-teenpatti
-git checkout master -- server && (cd server && npm ci --omit=dev)     # the Node tree, from master
+git checkout c19963b -- server && (cd server && npm ci --omit=dev)   # the Node tree, from history
 cp go-server/.env server/.env                                          # the Node unit reads server/.env (or use go-server/.env.node.bak)
 sudo bash /var/www/gameplay/king-teenpatti/go-server/ops/rollback-to-node.sh
 ```
@@ -217,7 +218,7 @@ sudo bash /var/www/gameplay/king-teenpatti/go-server/ops/rollback-to-node.sh
 `process.node` starting with `v` (Node; an older Node build without the `process` key also passes),
 prints `HEAD /metrics`, status and journal. The backup is kept, so `install-go-server.sh` can switch
 back to Go later (and will remove `server/` again unless `KEEP_NODE_TREE=1`). Afterwards
-`git status` shows `server/` as staged additions on this branch — `git restore --staged server && rm -rf server`
+`git status` shows `server/` as staged additions on `master` — `git restore --staged server && rm -rf server`
 undoes that once Go is back.
 
 Prometheus and Grafana need nothing for a rollback: the game rows work for both servers and the
@@ -233,8 +234,8 @@ old dashboard is in git history if you ever want it back).
 | Port / unit | `127.0.0.1:3000`, `gameplay.service` | **same** |
 | Env file | `server/.env` | `go-server/.env` (copied once by the installer; same keys) |
 | Working directory / browser client | `server/`, `server/public` | `go-server/`, `go-server/public` (`PUBLIC_DIR` in the unit) |
-| Checkout contents | `server/` + `go-server/` | `go-server/` + `tools/` (bots, ramp, parity); `server/` removed from the host |
-| Deploy routine | `git pull && npm ci && systemctl restart` | `git pull && bash go-server/ops/build.sh && systemctl restart` (`steps.txt`) |
+| Checkout contents | `server/` + `go-server/` | `go-server/` + `tools/` (bots, ramp, parity); `server/` removed from `master` and from the host |
+| Deploy routine | `git pull origin master && npm ci && systemctl restart` | `git pull origin master && bash go-server/ops/build.sh && systemctl restart` (`steps.txt`) |
 | Monitoring bundle | `server/ops/monitoring/` | `go-server/ops/monitoring/` |
 | `game_*` metrics (sockets, game, latency, HTTP, pool) | | **identical names, labels, buckets** |
 | Process metrics | `game_server_process_*` + `game_server_nodejs_*` | `game_server_process_*` + `game_server_go_*`; **no `nodejs_*` series** |
@@ -304,7 +305,7 @@ back to 8 GiB when that job is absent — edit the constant in `alerts.yml` if t
 | Prometheus: `rule_files` path not found after the pull | the bundle moved to `go-server/ops/monitoring/`; fix the path or copy `alerts.yml` (§6) |
 | Grafana Runtime row empty, game rows fine | dashboard not re-imported (§6), or Prometheus target down (`/api/v1/targets`) |
 | `game_server_nodejs_*` panels wanted back | they only exist while Node runs; the pre-Go dashboard is in git history (`git log -- server/ops/monitoring/grafana/dashboards/king-teenpatti.json`) |
-| `rollback-to-node.sh`: "`server/src/index.js` is missing" | expected on this branch — restore the tree first (§5): `git checkout master -- server && (cd server && npm ci --omit=dev)` |
+| `rollback-to-node.sh`: "`server/src/index.js` is missing" | expected — restore the tree from history first (§5): `git checkout c19963b -- server && (cd server && npm ci --omit=dev)` |
 | Need Node back now | §5 — restore the tree, then `sudo bash go-server/ops/rollback-to-node.sh` |
 
 Reference: `go-server/README.md` (build/test/parity), `go-server/PORT_PLAN.md` §9 and

@@ -6,8 +6,9 @@ same REST bodies and statuses, same JWTs, same PostgreSQL schema and ledger rows
 keys, same `game_*` Prometheus metrics — so the Flutter app, the browser client, the bots and the
 load tools connect to it unchanged. The Node implementation was removed from the repository on
 8 Sep 2026 once the port matched it (141/141 black-box parity suites, identical event streams); it
-lives in git history (`git log -- server/`) and on `master` as of the merge of PR #2. The tooling
-that used to live beside it — bots, load ramp, parity harness — is now the `../tools` package.
+lives in git history only (`git log -- server/`; the last commit carrying it is `c19963b`, and the
+`multi_node` branch still has it). The tooling that used to live beside it — bots, load ramp,
+parity harness — is now the `../tools` package.
 
 Go's scheduler uses every core; there is no cluster, no Redis.
 
@@ -96,8 +97,8 @@ Three groups of Go tests reach for Node and skip cleanly when it is not there:
 - `internal/game/interop_test.go` compares every hand ranking and every sanitising result with the
   original Node engine. It skips unless `NODE_REFERENCE_DIR` points at a checkout of the removed
   `server/` tree with its `node_modules` installed, e.g.
-  `git worktree add /tmp/node-ref master` (or any commit `git log -- server/` lists that still carries
-  the tree), `(cd /tmp/node-ref/server && npm ci)`, then
+  `git worktree add /tmp/node-ref c19963b` (the last commit that carries the tree; `git log -- server/`
+  lists the others), `(cd /tmp/node-ref/server && npm ci)`, then
   `NODE_REFERENCE_DIR=/tmp/node-ref/server go test ./internal/game -run Interop`.
 
 ## Parity — the black-box suites
@@ -125,9 +126,9 @@ the Flutter debug build with `--dart-define=SERVER_URL=http://10.0.2.2:3000`, an
 `sudo bash ops/install-go-server.sh` (installs the Go unit *as* `gameplay.service`, same port and
 metrics, copies the old `server/.env` to `go-server/.env` once, and removes the Node tree from the
 host once the Go binary is healthy — `KEEP_NODE_TREE=1` skips that), verify, and
-`ops/rollback-to-node.sh` to go back (it needs the Node tree restored from `master` first and says
-so). Every later deploy is `git pull` → `bash ops/build.sh` → `sudo systemctl restart gameplay`;
-`../steps.txt` is that routine in six lines.
+`ops/rollback-to-node.sh` to go back (it needs the Node tree restored from history first —
+`git checkout c19963b -- server` — and says so). Every later deploy is `git pull origin master` →
+`bash ops/build.sh` → `sudo systemctl restart gameplay`; `../steps.txt` is that routine in six lines.
 
 ## What differs from Node on purpose
 

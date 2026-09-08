@@ -13,7 +13,7 @@
 
 # ------------------------------------------------------------------ upstream
 upstream king_teenpatti {
-    # The Node process (HOST=0.0.0.0 PORT=3000 in server/.env).
+    # The game server process (HOST=0.0.0.0 PORT=3000 in go-server/.env).
     server 127.0.0.1:3000;
     # Reuse upstream connections for REST calls. Websockets are not pooled —
     # each one holds its own upstream connection for its whole life, which is

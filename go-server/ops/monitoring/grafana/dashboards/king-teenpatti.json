@@ -34,7 +34,7 @@
     {
       "title": "Runbook (MONITORING.md)",
       "type": "link",
-      "url": "https://github.com/surajk543/king-teenpatti/blob/master/server/ops/monitoring/MONITORING.md",
+      "url": "https://github.com/surajk543/king-teenpatti/blob/master/go-server/ops/monitoring/MONITORING.md",
       "icon": "doc",
       "targetBlank": true,
       "tooltip": "What each panel means and what to do when it goes red"

@@ -1,9 +1,12 @@
 # PORT_PLAN.md — King Teen Patti server, Node → Go
 
-This directory is the Go port of `server/` (Node 22 + Express + Socket.IO + `pg`). The Node
-code in the **working tree** of `/server` is the single source of truth — read it, never
-`git show HEAD:…`. `CLAUDE.md` at the repo root is the detailed behavioural reference; every
-doc comment in this module cites the Node file (and requirement number) it was ported from.
+This directory is the Go port of `server/` (Node 22 + Express + Socket.IO + `pg`). It was written
+while the Node code in the working tree of `/server` was the single source of truth; **that tree was
+removed from the repository on 8 Sep 2026** (last commit carrying it: `c19963b`; `git log -- server/`)
+once the port matched it, so every `server/…` path below now names a file in git history. §2 maps
+each of them to the Go file that implements the behaviour today. `CLAUDE.md` at the repo root is
+the detailed behavioural reference; every doc comment in this module cites the Node file (and
+requirement number) it was ported from.
 
 The skeleton compiles (`go build ./... && go vet ./...`) with every exported identifier,
 struct, json tag, constant and doc comment in place. Function bodies are
@@ -271,9 +274,9 @@ drive the clock).
   frame). Port `test/metrics.test.js`'s last test — parse every label in the exposition and
   assert none is an id/code/URL/IP.
 * **Acceptance against the real clients (no code changes allowed on their side):**
-  1. `cd server && node tools/bot.js --count 8 --boot 200 --category blind --churn 40 --url http://localhost:3000`
+  1. `cd tools && npm install && npm run bot -- --count 8 --boot 200 --category blind --churn 40 --url http://localhost:3000`
      against the Go binary — bots play, switch, sideshow, chat.
-  2. `node tools/ramptest.mjs --url http://localhost:3000 --stages 10,50,200,1000 --hold 40 --boot 200`.
+  2. `npm run ramp -- --url http://localhost:3000 --stages 10,50,200,1000 --hold 40 --boot 200` (same `tools/`).
   3. Flutter debug build with `--dart-define=SERVER_URL=http://10.0.2.2:3000` on `TP_Tall`
      and `TP_Small`; the browser client at `/`.
   4. `PGPASSWORD=postgres psql … "select count(*) from users u join (select user_id, sum(delta) s from chip_ledger group by user_id) l on l.user_id=u.id where l.s <> u.chips"` → 0.
@@ -369,7 +372,7 @@ drive the clock).
 | `/health.db.waiting`, `game_db_pool_waiting_requests` | `pool.waitingCount` | always 0 | pgxpool exposes no live waiter count |
 | Google login | google-auth-library | JWKS fetch + RS256 verification by hand (or an added dep, noted here) | no Go equivalent in the dependency list |
 | Chat/name length | UTF-16 code units | UTF-16 code units, never splitting a surrogate pair | DECISIONS.md §4 |
-| New env key | — | `PUBLIC_DIR` (default `../server/public`, falling back to `./public`) for the browser client | the Go binary has no `rootDir` |
+| New env key | — | `PUBLIC_DIR` (default `./public` relative to the working directory, i.e. `go-server/public` when started from `go-server/`; fallback `go-server/public` when started from the repository root) for the browser client, which now lives in `go-server/public` | the Go binary has no `rootDir` |
 | New error code | — | `table_destroyed` (post to a destroyed table) | folds to `other` in metrics |
 | Room code collisions | none checked | regenerated until unique among live tables | DECISIONS.md §3 |
 | Settle retry after the table is destroyed | dropped (`if (this._destroyed) return`) — pot never banked | continues off the actor (`settleDetached`); `Shutdown` waits for it; `WaitSettlements` reports | DECISIONS.md §2 |

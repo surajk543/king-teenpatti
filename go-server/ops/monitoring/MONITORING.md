@@ -2,7 +2,8 @@
 
 Prometheus + Grafana observability for the game server (Requirements 35 and 36).
 The server side of this — the `/metrics` endpoint and every `game_*` metric — lives in
-`server/src/metrics/index.js` and the listeners that feed it. This directory is everything
+`go-server/internal/metrics/` (`names.go` is the catalogue, `metrics.go` the registry, handler and
+HTTP middleware) and the socket/room/ledger code that feeds it. This directory is everything
 *around* the process: the scrapers, the exporters, the dashboard, the alerts, and the nginx
 settings that decide how many players the box can carry.
 
@@ -21,7 +22,7 @@ ops/monitoring/
 └── nginx/
     ├── king-teenpatti.conf.example      api.sungamestudio.com site + stub_status server
     ├── nginx.conf.example               main-context: worker_rlimit_nofile / events {}
-    └── systemd/                         LimitNOFILE drop-ins for nginx and the Node service
+    └── systemd/                         LimitNOFILE drop-ins for nginx and the (former) Node service; the Go unit carries its own LimitNOFILE
 ```
 
 Contents: [What the server exposes](#what-the-server-exposes) · [Running the stack](#running-the-stack-locally) ·
@@ -35,13 +36,13 @@ Contents: [What the server exposes](#what-the-server-exposes) · [Running the st
 ## What the server exposes
 
 `GET /metrics` (path from `METRICS_PATH`, on the same port as the API — 3000) returns the
-Prometheus text format. Controlled by five env keys in `server/.env`:
+Prometheus text format. Controlled by five env keys in `go-server/.env` (`go-server/.env.example` lists them):
 
 | Key | Default | Meaning |
 |---|---|---|
 | `METRICS_ENABLED` | `true` | `false` removes the endpoint and the HTTP middleware entirely |
 | `METRICS_PATH` | `/metrics` | must match `metrics_path` in `prometheus/prometheus.yml` |
-| `METRICS_PREFIX` | `game_server_` | prefix of the Node process metrics (not of the `game_*` ones) |
+| `METRICS_PREFIX` | `game_server_` | prefix of the process/runtime metrics (not of the `game_*` ones) |
 | `METRICS_TOKEN` | empty | when set, requests must carry `Authorization: Bearer <token>` |
 | `METRICS_ALLOW_IPS` | empty | comma-separated client IPs that may scrape (see [Securing](#securing-metrics)) |
 
@@ -150,7 +151,7 @@ Prerequisites on the host: Docker with the compose plugin; the game server runni
 `0.0.0.0:3000`; PostgreSQL on 5432; optionally nginx with the stub_status server.
 
 ```bash
-cd server/ops/monitoring
+cd go-server/ops/monitoring
 cp .env.example .env            # set GRAFANA_ADMIN_PASSWORD at least
 docker compose up -d
 docker compose ps               # five containers, all "running"
@@ -166,7 +167,7 @@ The containers reach the host through `host.docker.internal`, which compose maps
 of the fixed `172.30.0.0/24` network (`172.30.0.1`). Three host services have to accept
 connections from that address, not only from loopback:
 
-1. **Node** — already does (`HOST=0.0.0.0`).
+1. **The game server** — already does (`HOST=0.0.0.0`).
 2. **PostgreSQL** — stock installs listen on `localhost` only. See
    [postgres_exporter](#postgres_exporter-requirement-35e) for `listen_addresses` and `pg_hba.conf`.
 3. **nginx stub_status** — the example site binds `127.0.0.1:8080`; switch to `listen 8080;`
@@ -703,9 +704,9 @@ then `curl -X POST localhost:9090/-/reload`.
 | Target `postgres` UP but `pg_up == 0` | exporter cannot log in: `listen_addresses`, `pg_hba.conf` line for `172.30.0.0/24`, or DSN password. `docker compose logs postgres-exporter` |
 | Target `nginx` UP but `nginx_up == 0` | stub_status bound to `127.0.0.1` only (see [nginx](#nginx-prometheus-exporter-requirement-35g)), or the `deny all` hit: `docker compose logs nginx-exporter` |
 | Target `node` DOWN | node_exporter not in host network mode, or `:9100` firewalled from the bridge |
-| Latency panels empty / "No data" | no traffic in the window — `histogram_quantile` is NaN until the first move. Run `node tools/bot.js --count 3 --boot 200 --category blind` |
-| `game_players_online` is 0 while people play | `bindRooms()` not called — only happens if `createServer()` was bypassed |
+| Latency panels empty / "No data" | no traffic in the window — `histogram_quantile` is NaN until the first move. Run `cd tools && npm install && npm run bot -- --count 3 --boot 200 --category blind` |
+| `game_players_online` is 0 while people play | `BindRooms()` not called — only happens if `app.New()` was bypassed |
 | Dashboard shows "Datasource not found" | the provisioned datasource uid is `prometheus`; pick another in the **Prometheus** variable if you imported the JSON elsewhere |
 | `docker compose up` fails on `GRAFANA_ADMIN_PASSWORD` | copy `.env.example` to `.env` and set it — the compose file refuses to start with an empty password |
 | Series count climbing steadily | a label leaking values: `topk(10, count by (__name__) ({__name__=~"game_.*"}))`, then check the `Set` passed to `safeLabel` for that metric |
-| Server restarted and the config change did nothing | config is read once at import — restart the Node process (find it with `ss -lptn 'sport = :3000'`) |
+| Server restarted and the config change did nothing | config is read once at startup — restart the server process (`sudo systemctl restart gameplay`, or find it with `ss -lptn 'sport = :3000'`) |
