@@ -87,7 +87,7 @@ of having the skeleton.
 | `internal/auth/providers.go` | `auth/providers.js` | Google (JWKS by hand), Facebook Graph, guest sha256, fake providers |
 | `internal/auth/http.go` | `auth/routes.js` + the error middleware in index.js | 8 routes, `RequireAuth`, `WriteError`, response structs |
 | `internal/db/db.go` | `db/index.js` | `search_path` as a **connection parameter**, schema bootstrap from `//go:embed schema.sql` |
-| `internal/db/schema.sql` | `db/schema.sql` | **verbatim copy** — `diff` it against the Node file whenever either changes |
+| `internal/db/schema.sql` | `db/schema.sql` | was a **verbatim copy**; since the Node tree's removal it is the only schema — the DDL is idempotent and runs at every start |
 | `internal/db/ledger.go` | `db/ledger.js` | SQL quoted verbatim in the doc comments |
 | `internal/db/users.go` | `db/users.js` | `User` wire struct, rewards, `NormalizeDisplayName` (`\p{M}` matters) |
 | `internal/metrics/names.go` | metric names/labels in `metrics/index.js` | **filled in** |
