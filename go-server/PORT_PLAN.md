@@ -368,9 +368,9 @@ drive the clock).
 | `/health.process.loopLag*` | event-loop delay | scheduler-tick latency proxy (see `ProcessHealth`) | Go has no event loop |
 | `/health.db.waiting`, `game_db_pool_waiting_requests` | `pool.waitingCount` | always 0 | pgxpool exposes no live waiter count |
 | Google login | google-auth-library | JWKS fetch + RS256 verification by hand (or an added dep, noted here) | no Go equivalent in the dependency list |
-| Chat/name length | UTF-16 code units | runes | harmless; only non-BMP text differs |
-| New env key | — | `PUBLIC_DIR` (default `./public`) for the browser client | the Go binary has no `rootDir` |
+| Chat/name length | UTF-16 code units | UTF-16 code units, never splitting a surrogate pair | DECISIONS.md §4 |
+| New env key | — | `PUBLIC_DIR` (default `../server/public`, falling back to `./public`) for the browser client | the Go binary has no `rootDir` |
 | New error code | — | `table_destroyed` (post to a destroyed table) | folds to `other` in metrics |
-| Room code collisions | none checked | none checked (a retry loop in `CreateTable` is allowed) | parity |
+| Room code collisions | none checked | regenerated until unique among live tables | DECISIONS.md §3 |
 
-Anything else that differs is a bug in the port.
+`DECISIONS.md` (same directory) settles every open question the specs raised and OVERRIDES this table where they differ. Anything else that differs is a bug in the port.
