@@ -3,9 +3,27 @@
 Project context for AI coding sessions. Read this before touching anything. It records what the
 code does, why it is shaped the way it is, and the traps that have already bitten people here.
 
-> **The working tree is far ahead of HEAD.** HEAD has two commits and predates most of this project.
-> Never use `git show HEAD:…` to learn current behaviour — read the working tree. `unity-client/`
-> is deleted and staged; several real files are untracked (see §13).
+> **The Node.js server was removed from this repository on 8 Sep 2026.** `server/` (Node 22 +
+> Express + Socket.IO + `pg`) is gone from `master`; the Go server in `go-server/` is the only
+> server. The Node code lives in git history — `git log -- server/`; the last commit that carries the
+> tree is `c19963b` (`git checkout c19963b -- server` restores it; the `multi_node` branch also still
+> has it). **§5–§7 remain the authoritative description of the game's behaviour** — the Go port
+> reproduces it wire-for-wire, and `go-server/DECISIONS.md` / `go-server/PORT_PLAN.md` §9 list the
+> only deliberate differences — but their file citations (`table.js`, `roomManager.js`,
+> `socket/index.js`, `db/ledger.js`, `auth/routes.js`, `config/index.js`, `metrics/index.js` …) name
+> the *removed* Node source. Translate with `go-server/PORT_PLAN.md` §2; the short version:
+> `table.js` → `internal/game/table.go` (+ `view.go` for `serializeFor`/`betOptions`, `events.go`,
+> `snapshot.go`), `roomManager.js` → `internal/game/roommanager.go`, `handRank.js`/`deck.js`/`chat.js`
+> → `internal/game/{handrank,deck,chat}.go`, `socket/index.js` → `internal/socket/{handler,wire}.go`,
+> `auth/{routes,providers,tokens}.js` → `internal/auth/{http,handlers,providers,tokens}.go`,
+> `db/{index,ledger,users}.js` → `internal/db/{db,ledger,users}.go` (+ `schema.sql`),
+> `config/index.js` → `internal/config/config.go`, `metrics/index.js` →
+> `internal/metrics/{metrics,names}.go`, `src/index.js` → `cmd/gameplay/main.go` + `internal/app/`.
+> Node's `_private` methods keep their names minus the underscore in Go (`_endHand` → `endHand`).
+> The bots/ramp/parity tooling moved to `tools/` (a Node package). §14 describes the Go server itself.
+
+> **Read the working tree, never `git show HEAD:…`**, to learn current behaviour — uncommitted work is
+> normal here (see §13).
 
 ---
 
@@ -15,15 +33,17 @@ A turn-based multiplayer **Teen Patti** (3-card Indian poker) game:
 
 | Part | Path | Status |
 |---|---|---|
-| **Production game server** | `go-server/` | **The live server once deployed per `go-server/ops/DEPLOY.md`** (Sept 2026). Go 1.27, one static binary, wire-identical to `server/` — same protocol, JWTs, schema, ledger rows, `/health`, `game_*` metrics. See §14. |
-| Reference game server | `server/` | Node 22 + Express 4 + Socket.IO 4 + **PostgreSQL 18** via `pg`. Database-first money model (§5). The behavioural oracle the Go port is checked against (`test/parity/`), home of the bots/load/parity tooling and the rollback target. Everything in §5–§7 describes it and, unless §14 or `go-server/DECISIONS.md` says otherwise, the Go server too. |
+| **Game server** | `go-server/` | **The server** — live in production since `go-server/ops/DEPLOY.md` was run (Sept 2026). Go 1.27, one static binary, **PostgreSQL 18** via `pgx`. Database-first money model (§5). Wire-identical to the Node original it replaced — same protocol, JWTs, schema, ledger rows, `/health`, `game_*` metrics (141/141 black-box parity suites). §5–§7 describe its behaviour; §14 its shape. |
+| Node.js server | *(removed)* | The original implementation, removed from the repo on 8 Sep 2026 (`git log -- server/`, last commit `c19963b`; `multi_node` branch). Its behaviour is what §5–§7 document; its file names are what those sections cite. Not a rollback target unless restored from history first (`go-server/ops/rollback-to-node.sh` explains). |
 | Mobile client | `flutter-client/` | **The live client.** Flutter 3.44 / Dart 3.12, Material 3 via FlexColorScheme, Android only so far. |
-| Browser client | `server/public/` | Zero-build vanilla-JS reference client served at `/`. **Lags behind** — no sideshow, kick, rename, entry-cap or Indian-numbering UI. |
-| Unity client | `unity-client/` | **Removed** (`git rm`, Sept 2026). A JS port of its Socket.IO parser survives as `server/test/helpers/csharpJsonPort.js` and still exercises the raw wire protocol. |
+| Browser client | `go-server/public/` | Zero-build vanilla-JS reference client served at `/` by the Go binary (`PUBLIC_DIR`). **Lags behind** — no sideshow, kick, rename, entry-cap or Indian-numbering UI. |
+| Tools | `tools/` | Small Node ≥ 20 package (`npm install` first): `npm run bot` (practice bots), `npm run ramp` (staged load test), `npm run parity` / `parity:diff` (black-box suites in `tools/parity/`). Clients of the server; also lend `node_modules` to two Go interop tests. |
+| Load reports | `docs/load-reports/` | ramp-test HTML + JSON (the 2026‑09‑08 production runs, 1,000 → 4,000 players). |
+| Unity client | `unity-client/` | **Removed** (Sept 2026). A JS port of its Socket.IO parser survives as `tools/parity/lib/csharpJsonPort.js` and still exercises the raw wire protocol. |
 | Brief | `Requirements.txt` | 34 numbered requirements at lines 6–88 (**there is no #11**). Code comments cite these ("Requirement 22"). |
-| Docs | `README.md`, `server/README.md` | Updated for Postgres + Flutter (Sept 2026); `CLAUDE.md` is the detailed reference. |
+| Docs | `README.md`, `go-server/README.md`, `go-server/PORT_PLAN.md`, `go-server/DECISIONS.md`, `go-server/PORT_NOTES/` (incl. `specs/spec-socket-protocol.md`), `go-server/ops/DEPLOY.md`, `steps.txt` | `CLAUDE.md` is the detailed reference. |
 
-The server is the single authority: it deals, shuffles with `crypto.randomInt`, validates every bet
+The server is the single authority: it deals, shuffles with `crypto/rand` (Node: `crypto.randomInt`), validates every bet
 against a ladder it recomputes itself, decides winners, and redacts state per viewer so a client never
 receives a card or a hidden stack it should not see. Clients only render snapshots and forward intent.
 
@@ -36,37 +56,44 @@ king-teenpatti/
 ├── CLAUDE.md                     this file
 ├── README.md                     project overview
 ├── Requirements.txt              the numbered brief (1–34, no 11)
+├── steps.txt                     the six-line production deploy routine (tracked)
 ├── recordings/                   empty local dir (no root .gitignore; git doesn't show it)
-├── go-server/                    Go port — production server (§14): cmd/gameplay, internal/{config,game,sio,socket,auth,db,metrics,app,util}
-│   ├── ops/                      build.sh, gameplay-go.service, install-go-server.sh, rollback-to-node.sh, DEPLOY.md
-│   ├── PORT_PLAN.md / DECISIONS.md / PORT_NOTES/   architecture + file map + concurrency rules; every settled ambiguity; per-package notes
-│   └── bin/                      build output (git-ignored)
-├── server/
-│   ├── package.json              ESM, node>=20; scripts: start/dev/test/loadtest/bot
-│   ├── .env.example              every env key the code reads, with defaults
-│   ├── src/
-│   │   ├── index.js              createServer(): awaits openDatabase(); Express + http + Socket.IO
-│   │   ├── config/index.js       ALL env → config (snapshotted at import)
+├── docs/load-reports/            ramp-test reports, HTML + JSON (2026‑09‑08 production runs; formerly server/loadtest-report/)
+├── go-server/                    THE server (§14): Go 1.27, module github.com/surajk543/king-teenpatti/go-server
+│   ├── cmd/gameplay/main.go      entrypoint: godotenv .env → config → db → app → listen; SIGTERM = graceful 8 s; -version
+│   ├── internal/
+│   │   ├── config/config.go      ALL env → one immutable Config (Defaults(); strict integer parsing); parse.go
 │   │   ├── game/
-│   │   │   ├── table.js          THE rules engine (async, DB-first; Table, GameError, memoryLedger)
-│   │   │   ├── roomManager.js    lobby menu, quick-join, switch, consolidation; injects the ledger
-│   │   │   ├── handRank.js       evaluate/compare/pickWinner
-│   │   │   ├── deck.js           52 cards, crypto shuffle, 2-char wire codes ("As","Td")
-│   │   │   ├── chat.js           in-memory per-room chat buffer
-│   │   │   └── constants.js      TABLE_CATEGORY / TABLE_STATE / SEAT_STATE / ACTION / WIN_REASON
-│   │   ├── socket/index.js       the whole realtime protocol + per-viewer broadcast
-│   │   ├── auth/{routes,providers,tokens}.js   REST (async), login providers, JWT
-│   │   ├── db/
-│   │   │   ├── index.js          pg Pool, schema bootstrap, withTransaction(), dropSchema() for tests
-│   │   │   ├── schema.sql        Postgres DDL: users, hands, pots, chip_ledger (append-only), game_states
-│   │   │   ├── ledger.js         THE money transactions: bet(), collectBoot(), settle()
-│   │   │   └── users.js          async user store: login upsert, rewards, names, avatars
-│   │   └── util/{ids,logger}.js
-│   ├── public/                   browser client + profiles/ (15 Noto Emoji animal SVGs, Apache 2.0)
-│   ├── test/                     18 node:test suites + helpers/ + loadtest.js
-│   ├── tools/bot.js              practice bots
-│   ├── kicktest.mjs              scratch script (tracked)
-│   └── peek-tmp.mjs              scratch script (untracked) — lists live tables
+│   │   │   ├── table.go          THE rules engine (actor; Table, run(), every Node _method minus the underscore)
+│   │   │   ├── view.go           serializeFor / betOptions / turnOptions / summary — the redacted wire structs
+│   │   │   ├── events.go         Listener (one method per table event) + payload structs
+│   │   │   ├── snapshot.go       game_states JSON (server-side full state, never sent to clients)
+│   │   │   ├── roommanager.go    lobby menu, quick-join, switch, consolidation, sweeper; injects the Ledger
+│   │   │   ├── handrank.go       Evaluate/Compare/PickWinner
+│   │   │   ├── deck.go           52 cards, crypto/rand shuffle, 2-char wire codes ("As","Td")
+│   │   │   ├── chat.go           in-memory per-room chat buffer (actor-owned)
+│   │   │   ├── constants.go      Category / TableState / SeatState / Action / WinReason + verbatim messages
+│   │   │   ├── errors.go         GameError, every snake_case code and refusal message
+│   │   │   ├── ledger.go         Ledger interface (Bet/CollectBoot/Settle) + MemoryLedger for unit tests
+│   │   │   ├── clock.go          Clock interface, RealClock, Millis;  testclock/ = deterministic clock (Advance)
+│   │   │   └── *_test.go         table, tablerules, sideshow, settlement, roommanager, handrank, deck, chat, wire, review_*, interop (needs NODE_REFERENCE_DIR)
+│   │   ├── sio/                  our own Engine.IO v4 + Socket.IO v5 server, websocket only (protocol.go, conn.go, server.go)
+│   │   ├── socket/               the game protocol on sio: handler.go (Attach, guard, one method per event, grace, resume offers), wire.go (every event/ack), payload.go; testclient/
+│   │   ├── auth/                 tokens.go (JWT HS256), providers.go (Google/Facebook/guest/fake), http.go (routes, RequireAuth, WriteError), handlers.go (the 8 REST handlers), text.go
+│   │   ├── db/                   db.go (pgxpool, search_path as connection param, WithTx, DropSchema), schema.sql (embedded DDL), ledger.go (THE money transactions), users.go (login upsert, rewards, names, avatars); dbtest/
+│   │   ├── metrics/              names.go (every game_* metric), metrics.go (registry, Bind*, Handler, HTTPMiddleware, SafeLabel)
+│   │   ├── app/                  app.go (mux, REST, socket endpoint, Start/Shutdown), health.go, static.go (PUBLIC_DIR + embedded assets/socket.io.min.js)
+│   │   └── util/                 UUID, RoomCode, slog JSON logger
+│   ├── public/                   browser client (index.html, client.js, style.css, theme.css) + profiles/ (15 Noto Emoji animal SVGs, Apache 2.0)
+│   ├── .env.example              every env key the server reads, with defaults (+ Go-only PG_STATEMENT_TIMEOUT_MS)
+│   ├── ops/                      build.sh, gameplay-go.service, install-go-server.sh, rollback-to-node.sh, lib.sh, DEPLOY.md
+│   │   └── monitoring/           Prometheus + Grafana + alerts + nginx bundle, MONITORING.md (formerly server/ops/monitoring)
+│   ├── PORT_PLAN.md / DECISIONS.md / PORT_NOTES/   architecture + Node→Go file map + concurrency rules; every settled ambiguity; per-package port notes + specs/ (cite the removed Node source)
+│   ├── bin/                      build output (git-ignored: bin/, .env, *.log)
+│   └── go.mod, go.sum
+├── tools/                        Node package (npm install here first): bot.js, ramptest.mjs, parity.mjs, parity-diff.mjs
+│   ├── package.json              scripts: bot / ramp / parity / parity:diff; deps socket.io-client, ws, pg, jsonwebtoken
+│   └── parity/                   black-box suites (game, money, lobby, stakes, rest, protocol, resume, invalid, metrics) + lib/ (harness, launch, raw client, csharpJsonPort.js)
 └── flutter-client/
     ├── pubspec.yaml              package name `teenpatti` (imports are package:teenpatti/...), sdk ^3.12.2
     ├── lib/
@@ -97,8 +124,8 @@ king-teenpatti/
     └── android/                  applicationId com.kinggames.teenpatti, sensorLandscape, cleartext on
 ```
 
-There is no CI, Dockerfile, ESLint or Prettier anywhere. `cd server && npm test`,
-`cd go-server && go test -race ./...` (+ the parity harness, §14) and
+There is no CI, Dockerfile, ESLint or Prettier anywhere. `cd go-server && go test -race ./...`
+(+ `go vet`, `gofmt -l`), the parity harness (`cd tools && npm run parity`, §7.6/§14) and
 `cd flutter-client && flutter analyze && flutter test` are the whole verification story.
 
 ---
@@ -107,9 +134,10 @@ There is no CI, Dockerfile, ESLint or Prettier anywhere. `cd server && npm test`
 
 | Tool | Version in use | Notes |
 |---|---|---|
-| Node.js | v22.22.1 (`>=20`) | ESM only. Needs global `fetch`, `node:test`, `--watch`. |
-| npm | 9.2.0 | |
-| **PostgreSQL** | 18.6, local, port 5432 | DB `gameplay`, user/password `postgres`/`postgres`. Default `DATABASE_URL` in config points here. `psql` and `pg_isready` are installed. |
+| **Go** | 1.27.1 at `~/.local/go` | **Not on PATH** — `export PATH=$HOME/.local/go/bin:$PATH`. `go-server/ops/build.sh` installs exactly this version there when missing (sha256 checked against go.dev). `go.mod` says `go 1.27`. |
+| Node.js | v22.22.1 (`>=20`) | Still needed for `tools/` (bots, ramp, parity — ESM, `node:test`), for two Go interop tests that borrow `tools/node_modules`, and by the Flutter toolchain. **Not** needed to run the server. |
+| npm | 9.2.0 | `cd tools && npm install` once. |
+| **PostgreSQL** | 18.6, local, port 5432 | DB `gameplay`, user/password `postgres`/`postgres`. Default `DATABASE_URL` in config points here. `psql` and `pg_isready` are installed. Go tests skip (not fail) when it is unreachable. |
 | Flutter | 3.44.7 stable (`/snap/bin/flutter`) | Dart 3.12.2 — this is the **minimum** `pubspec.lock` accepts. Code uses records, switch expressions, `'k': ?v` null-aware map entries, `DropdownButtonFormField(initialValue:)`. |
 | Android SDK | `~/Android/Sdk` | **Not on PATH** — `export PATH="$PATH:$HOME/Android/Sdk/platform-tools:$HOME/Android/Sdk/emulator:$HOME/Android/Sdk/cmdline-tools/latest/bin"` |
 | Emulator images | `system-images;android-36;google_apis;x86_64` (+ android-34) | AVDs: `TP_API36` (Pixel 6), `TP_Small` (Nexus 5, 640×360dp — tightest), `TP_Tablet`, `TP_Tall` (Pixel 7 Pro), `Pixel_6_API_34`. |
@@ -118,8 +146,8 @@ There is no CI, Dockerfile, ESLint or Prettier anywhere. `cd server && npm test`
 | Linux desktop toolchain | absent | `flutter test` prints a GTK/clang warning first — noise |
 
 Shell quirks on this machine: zsh with `grep`→`ugrep` and `find`→`bfs` aliases; an unquoted
-`--include=*.js` fails with "no matches found"; `cd` in one Bash call can leak into the next — use
-absolute paths.
+`--include=*.js` (or `*.go`) fails with "no matches found" — quote it; `cd` in one Bash call can leak
+into the next — use absolute paths.
 
 Server ↔ client: the app's default `SERVER_URL` is the **production backend
 `https://api.sungamestudio.com`** (REST + Socket.IO over TLS; verified 2026‑09‑08 to run the current
@@ -132,25 +160,37 @@ server code). For a local server build with `--dart-define=SERVER_URL=http://10.
 
 ## 4. Commands
 
-### Server (`cd server`)
+### Server (`cd go-server`, `export PATH=$HOME/.local/go/bin:$PATH`)
 ```bash
-npm install
 cp .env.example .env            # optional; defaults work for local dev. Set JWT_SECRET for prod.
-npm start                       # node src/index.js  → http://0.0.0.0:3000 (needs Postgres up)
-npm run dev                     # node --watch src/index.js
-npm test                        # node --test --test-timeout=30000 "test/*.test.js"
-node --test test/sideshow.test.js          # one suite
-npm run loadtest -- --players 1000 --seconds 60 --boot 200
-node tools/bot.js --count 3 --boot 200  --category blind --offset 0
-node tools/bot.js --count 3 --boot 5000 --category blind --offset 3   # 2nd group needs its own --offset
-node tools/bot.js --count 8 --boot 200 --category blind --churn 40    # bots hop tables → room:switch testable
+go run ./cmd/gameplay           # → http://0.0.0.0:3000 (needs Postgres up); reads ./.env; browser client from ./public
+go build ./... && go vet ./... && test -z "$(gofmt -l .)"    # compiles, vets, formatted — part of "done"
+go test ./...                   # every package; Postgres-backed suites use schema test_<pkg>_<rand> and skip without a DB
+go test -race ./...             # the actor/lock rules (§14.1) are exactly what the race detector checks
+go test ./internal/game -run 'Sideshow'        # one package / tests matching a regex (names are sentences: TestASideshowNeedsThreePlayersInTheHand)
+go test -count=1 ./internal/db ./internal/app  # force the DB suites to re-run (no cache)
+bash ops/build.sh && ./bin/gameplay            # static, stripped, version-stamped binary (bin/ is git-ignored); -version prints the stamp
+PORT=3001 PG_SCHEMA=test_x ./bin/gameplay      # spare port + throwaway schema (drop it after)
+```
+
+### Tools (`cd tools`, Node ≥ 20 — `npm install` once)
+```bash
+npm run bot -- --count 3 --boot 200  --category blind --offset 0            # practice bots on http://localhost:3000
+npm run bot -- --count 3 --boot 5000 --category blind --offset 4            # 2nd group needs its own --offset
+npm run bot -- --count 8 --boot 200 --category blind --churn 40             # bots hop tables → room:switch testable
+npm run bot -- --url https://api.sungamestudio.com --count 3 --boot 200 --category blind   # against production
+npm run ramp -- --url http://localhost:3000 --stages 10,50,200,1000 --hold 40 --boot 200 --category blind --out ramp.json
+npm run parity                                                              # black-box suites vs ../go-server/bin/gameplay (build first)
+npm run parity -- --filter game,money --keep                                # some suites; keep server logs + schemas
+npm run parity -- --url http://127.0.0.1:3000 --schema public --filter rest # attach to a running server instead of spawning
+npm run parity:diff -- --a go --b http://127.0.0.1:3000 --schema-b public   # frame-by-frame traffic diff (spawned binary vs live)
 ```
 
 Find/stop the server safely (read §12.1 before reaching for `pkill`):
 ```bash
 ss -lptn 'sport = :3000'                      # shows the PID
-kill <pid>
-nohup node src/index.js > /tmp/server.log 2>&1 &     # start in a SEPARATE command from the kill
+kill <pid>                                    # SIGTERM: settles live pots, closes sockets, exits within 8 s
+nohup ./bin/gameplay > /tmp/server.log 2>&1 &        # start in a SEPARATE command from the kill (from go-server/)
 ```
 
 Useful Postgres checks:
@@ -191,12 +231,12 @@ adb shell screenrecord --time-limit 170 --bit-rate 8000000 /sdcard/seg.mp4   # f
 ## 5. Architecture
 
 ```
- Flutter / browser client                 server/src
+ Flutter / browser client                 go-server/internal  (Node names in §5–§7: auth/routes.js, socket/index.js, db/*.js)
  ┌──────────────────────┐   REST (JWT)    ┌─────────────┐      ┌────────────────────┐
- │ GameState (Provider) │◄──────────────►│ auth/routes  │◄────►│ db/users.js        │
- │  ├ ApiClient         │                └─────────────┘      │ (pg Pool)          │
+ │ GameState (Provider) │◄──────────────►│ auth/        │◄────►│ db/users.go        │
+ │  ├ ApiClient         │                └─────────────┘      │ (pgxpool)          │
  │  └ GameConnection    │   Socket.IO     ┌─────────────┐      │                    │
- │     (websocket only) │◄──────────────►│ socket/index │──┐   │ db/ledger.js       │
+ │     (websocket only) │◄──────────────►│ socket/      │──┐   │ db/ledger.go       │
  └──────────────────────┘  per-viewer     └─────────────┘  │   │  bet / collectBoot │
                            room:state           ▲          ▼   │  / settle          │
                                                 │   ┌──────────┴──┐  one transaction │
@@ -247,9 +287,13 @@ After every mutation the table emits `state`; the socket layer sends each viewer
 
 ---
 
-## 6. Server — game engine (`server/src/game/`)
+## 6. Server — game engine (`server/src/game/` → `go-server/internal/game/`)
 
-### 6.1 `table.js`
+Written against the Node source and kept as the behavioural spec. Go equivalents: `table.js` →
+`table.go` (+ `view.go`, `events.go`, `snapshot.go`), `roomManager.js` → `roommanager.go`,
+`handRank.js` → `handrank.go`, `deck.js` → `deck.go`; `_method` → `method`.
+
+### 6.1 `table.js` (→ `table.go`)
 **Seat:** `{ userId, displayName, avatarUrl, chips, status, isBlind, blindMoves, cards, lastBet,
 lastAction, contributed, connected, socketId, missedTurns, sideshowAskedThisTurn, seatIndex }`.
 **Hand:** `{ id, handNo, pot, stake, round, packedUserIds, turnSeat, startSeat, seatOrder,
@@ -295,7 +339,7 @@ showRequestedBy, sideshow, lastDeparture, turnDeadline, turnToken, contributions
   sideshowRequested, sideshowReveal, sideshowResolved, persistError, error`. `seatUpdated` has no
   listener; `persistError` is logged by RoomManager only.
 
-### 6.2 `roomManager.js`
+### 6.2 `roomManager.js` (→ `roommanager.go`; DECISIONS §3 lists the few deliberate differences)
 - `quickJoin`: `_assertNotSeated` → `assertStakeAllowed` (`tableStakes`) → `normalizeCategory`
   (unknown → **seen**) → `assertTableOffered` (`lobbyTables` pair) → chips ≥ boot →
   `_assertUnderEntryCap` → fullest public non-full table with same boot+category, else `createTable`.
@@ -313,7 +357,7 @@ showRequestedBy, sideshow, lastDeparture, turnDeadline, turnToken, contributions
 - Sweeper interval (unref'd): merges lone players on idle public tables of the same
   `category:boot` into the oldest; sweeps empty tables older than a **hardcoded** 30s.
 
-### 6.3 `handRank.js` / `deck.js`
+### 6.3 `handRank.js` / `deck.js` (→ `handrank.go` / `deck.go`)
 `HIGH_CARD 0 < PAIR < COLOR < SEQUENCE < PURE_SEQUENCE < TRAIL 5`. Runs: **A-K-Q > A-2-3 > K-Q-J >
 … > 4-3-2**. Suits never break ties. `pickWinner` is exported but `table.js` re-implements the tie
 loop — keep consistent. Wire hand names are the **English** `CATEGORY_NAMES` and Flutter shows them
@@ -323,7 +367,13 @@ untranslated.
 
 ## 7. Server — platform
 
-### 7.1 Socket.IO contract (`socket/index.js`)
+Go equivalents: `socket/index.js` → `internal/socket/{handler,wire,payload}.go` on top of
+`internal/sio` (our own Engine.IO/Socket.IO server, websocket only); `auth/routes.js` →
+`internal/auth/{http,handlers}.go`; `db/` → `internal/db/`; `config/index.js` →
+`internal/config/config.go`; `metrics/index.js` → `internal/metrics/{names,metrics}.go`. The full
+event-by-event contract is also written down in `go-server/PORT_NOTES/specs/spec-socket-protocol.md`.
+
+### 7.1 Socket.IO contract (`socket/index.js` → `internal/socket/handler.go`, `wire.go`)
 Handshake: JWT in `handshake.auth.token`; `io.use` is async (`await findById`). Failures →
 `connect_error` `missing_token | invalid_session | unknown_user | unauthorized`. One live socket per
 user (`session:replaced` to the old one). On connect: `session:ready {user, config}`; if still seated
@@ -379,7 +429,7 @@ once) rides on `session:ready.resume {roomId, code, category, bootAmount}` and t
 with `room:joinCode`. Voluntary leave / kick never create an offer (the grace timer finds no seat).
 `room:switch` must `untrackRoom` *before* `switchTable` and re-track on failure.
 
-### 7.2 REST (`auth/routes.js`, all handlers async)
+### 7.2 REST (`auth/routes.js` → `internal/auth/http.go` + `handlers.go`)
 `POST /api/auth/login {provider: google|facebook|guest, idToken|accessToken|deviceId, displayName?}`
 → `{token, user, isNew, welcomeChips}`; `GET /api/auth/me`; `GET /api/auth/me/hands?limit` (no
 client calls it); `POST /api/rewards/milestone|bonus`; `GET /api/profiles` (unauthenticated);
@@ -389,7 +439,7 @@ a table; live in `playerRoutes({isSeated})`, **not** `authRoutes`); `GET /api/ro
 ≥ 8 chars. `AUTH_ALLOW_FAKE_PROVIDERS=true` lets google/facebook skip verification (tests, browser
 stubs).
 
-### 7.3 Database (`db/`)
+### 7.3 Database (`db/` → `internal/db/`)
 `pg` Pool (`DATABASE_URL`, `PG_POOL_MAX`), `search_path` set as a connection **option**
 (`-c search_path=<schema>,public`). `openDatabase({url, schema})` creates the schema if missing and
 runs `schema.sql` (fully idempotent: IF NOT EXISTS / CREATE OR REPLACE / DO-block trigger).
@@ -410,10 +460,16 @@ timed_bonus, legacy_reconciliation, test_fixture, sqlite import rows keep their 
 **Invariant to keep true:** `SUM(chip_ledger.delta) per user == users.chips` (the psql check in §4
 must return 0). The import wrote 12 `legacy_reconciliation` rows to make the old data satisfy it.
 
-### 7.4 Config (`config/index.js`) — env → default. Built **once at import**.
+### 7.4 Config (`config/index.js` → `internal/config/config.go`) — env → default. Built **once at startup**.
+Every key below is listed with its default in **`go-server/.env.example`** (copy to `go-server/.env`;
+`cmd/gameplay` loads it with godotenv, never overriding real env). The Go loader parses integers
+**strictly** (a malformed value stops the binary, key named in the log) and rejects unknown
+`LOBBY_TABLES` categories at load. Two keys are Go-only: `PG_STATEMENT_TIMEOUT_MS` (below) and
+`PUBLIC_DIR` (browser-client dir; default `./public` relative to cwd, fallback `go-server/public`;
+not in `.env.example` — `config.go` documents it).
 | Env | Default | Purpose |
 |---|---|---|
-| `NODE_ENV` | development | `production` throws on default JWT secret / fake providers |
+| `NODE_ENV` | development | `production` refuses to start on the default JWT secret / fake providers (the Go binary keeps the key name; the unit sets it) |
 | `PORT` / `HOST` / `CORS_ORIGIN` | 3000 / 0.0.0.0 / `*` | |
 | `JWT_SECRET` / `JWT_EXPIRES_IN` | dev-only-insecure-secret / 30d | |
 | `GOOGLE_CLIENT_IDS`, `FACEBOOK_APP_ID/SECRET` | empty → 503 | |
@@ -441,18 +497,20 @@ must return 0). The import wrote 12 `legacy_reconciliation` rows to make the old
 | `CHAT_MAX_HISTORY` / `CHAT_MAX_LENGTH` / `CHAT_RATE_LIMIT` / `CHAT_RATE_WINDOW_MS` | 100 / 140 / 5 / 5000 | Flutter's chat field allows **200** — chars 141–200 are dropped server-side |
 | `METRICS_ENABLED` / `METRICS_PATH` / `METRICS_PREFIX` | true / `/metrics` / `game_server_` | Prometheus exposition (req. 35); prefix applies to prom-client's default process metrics only |
 | `METRICS_TOKEN` / `METRICS_ALLOW_IPS` | empty / empty | bearer token and/or comma-separated client IPs required to scrape; both empty = open (fine behind a firewall, wrong on the internet) |
-| `REDIS_URL` | empty | adapter only; RoomManager is process-local, so multi-node is **not** functional |
-| `LOG_LEVEL` | info | read directly by `util/logger.js` |
+| `REDIS_URL` | empty | read and logged as ignored — one process, no adapter; multi-node is **not** functional |
+| `LOG_LEVEL` | info | slog level (`util.ParseLogLevel`) |
 
-There is no `server/.env`; the server runs on these defaults.
+There is no `go-server/.env` on the dev box (it is git-ignored); the server runs on these defaults.
+Production's lives at `/var/www/gameplay/king-teenpatti/go-server/.env` (`PG_POOL_MAX=50`, `JWT_SECRET`, `METRICS_TOKEN`, …).
 
-### 7.5 Metrics (`src/metrics/index.js`, requirement 35) & Grafana (requirement 36)
-- One prom-client `Registry` (default label `service="king-teenpatti"`), exposed by `metricsHandler()` on `GET /metrics`
-  (token/IP-guarded per `config.metrics`). `httpMetricsMiddleware()` runs before body parsing and labels by
-  **route pattern** (`req.baseUrl + req.route.path`, else `static`/`unmatched`) — never the raw URL.
-- Default process metrics carry `game_server_` (CPU, RSS, heap, external, event-loop lag percentiles, GC, active
-  handles/requests, open fds, version, start time) plus custom `game_server_nodejs_heap_size_limit_bytes`,
-  `game_server_nodejs_array_buffers_bytes`, `game_server_nodejs_eventloop_utilization` (per-scrape ELU), `game_server_process_uptime_seconds`.
+### 7.5 Metrics (`src/metrics/index.js` → `internal/metrics/{names,metrics}.go`, requirement 35) & Grafana (requirement 36)
+- One registry (default label `service="king-teenpatti"`), exposed by `Metrics.Handler()` on `GET /metrics`
+  (token/IP-guarded per `config.metrics`). `HTTPMiddleware()` runs before body parsing and labels by
+  **route pattern** (`RouteLabelFor`, else `static`/`unmatched`) — never the raw URL.
+- Process/runtime metrics carry `game_server_`: `game_server_process_*` (CPU, RSS, open/max fds, start time,
+  `process_uptime_seconds`, network bytes) and `game_server_go_*` (goroutines, threads, GC, memstats,
+  `go_sched_latencies_seconds` — the event-loop-lag analogue). **No `game_server_nodejs_*` series** since the Go
+  switch; the Node build's `nodejs_*` set is documented historically in `MONITORING.md`.
 - Game metrics (`game_…`): sockets (`connected_sockets`, `_peak`, `connections_total`, `disconnections_total{reason}`,
   `reconnects_total{kind=seat_held|offer}`, `socket_errors_total{code}`, `socket_messages_total{event}`, `socket_emits_total{event}`,
   `session_replaced_total`); tables (scrape-time gauges via `bindRooms(rooms)`: `players_online`, `active_games`, `waiting_games`,
@@ -463,51 +521,68 @@ There is no `server/.env`; the server runs on these defaults.
   `hand_start_duration_seconds`, `settlement_duration_seconds`, `db_transaction_duration_seconds{op=bet|boot|settle}` (+ `_errors_total{op,code}`);
   pool gauges `db_pool_connections/idle_connections/waiting_requests` via `bindPool(getPool)`; HTTP `http_requests_total` /
   `http_request_duration_seconds{method,route,status_code}`.
-- **Label rule (enforced by `safeLabel()` and `test/metrics.test.js`):** no socket/user/room id, table code, name, URL or IP ever
-  becomes a label value. `Table` stays uninstrumented — counters are fed from its events in `socket/index.js` (`wireTable`),
-  timings from the socket handlers, `RoomManager.createTable` and `db/ledger.js`.
-- Ops bundle: `server/ops/monitoring/` — `prometheus/prometheus.yml` + `alerts.yml`, `docker-compose.yml` (Prometheus, Grafana,
-  postgres_exporter, nginx-prometheus-exporter, node_exporter), Grafana provisioning + `grafana/dashboards/king-teenpatti.json`
-  (sections System · Node.js · WebSockets · Multiplayer Game · Latency · PostgreSQL · Nginx), `nginx/king-teenpatti.conf.example`
-  (websocket proxy, `stub_status`, `worker_connections 16384` — the 768 default capped production at ~1,500 players on 2026‑09‑08),
-  and `MONITORING.md` (runbook + requirement 35/36 checklist). Postgres internals come from postgres_exporter, not Node.
+- **Label rule (enforced by `SafeLabel()` and `internal/metrics/metrics_test.go` + `tools/parity/metrics.test.js`):** no socket/user/room id,
+  table code, name, URL or IP ever becomes a label value. `Table` stays uninstrumented — counters are fed from its events in the
+  socket layer, timings from the socket handlers, `RoomManager.CreateTable` and `db/ledger.go`; `game` must not import `metrics`
+  (it takes `MetricsHooks` func fields).
+- Ops bundle: **`go-server/ops/monitoring/`** (formerly `server/ops/monitoring/`) — `prometheus/prometheus.yml` + `alerts.yml`,
+  `docker-compose.yml` (Prometheus, Grafana, postgres_exporter, nginx-prometheus-exporter, node_exporter), Grafana provisioning +
+  `grafana/dashboards/king-teenpatti.json` (sections System · Runtime (formerly Node.js) · WebSockets · Multiplayer Game · Latency ·
+  PostgreSQL · Nginx), `nginx/king-teenpatti.conf.example` (websocket proxy, `stub_status`, `worker_connections 16384` — the 768
+  default capped production at ~1,500 players on 2026‑09‑08), and `MONITORING.md` (runbook + requirement 35/36 checklist). Postgres
+  internals come from postgres_exporter, not the game server. Production's Prometheus/Grafana were pointed at the old path once;
+  DEPLOY.md §6 has the re-import and `rule_files` steps.
 
 ### 7.6 Tests & tools
-- Runner: `node:test` + `node:assert/strict`; flat `test('sentence', async () => …)`.
-- **Unit suites** build `new Table({config, timers, settle, persistChips})` with
-  `test/helpers/fakeTimers.js`. **`advance(ms)` is async** — always `await advance(ms)`; it awaits each
-  fired timer's callback. **`await table.act/removePlayer/startHand/destroy/respondToSideshow`**;
-  `await assert.rejects(table.act(...), {code})`. After an indirect removal (a `kick` handler calling
-  `removePlayer`) use `await table.settled()` — the removal is queued behind the current mutation.
-  Every suite declares a full `baseConfig` (Table uses config raw, no defaults merged). Force
-  deterministic showdowns with `seat.cards = codes.map(parseCard)`. `persistChips` receives
-  `{userId, delta, reason:'boot'|'bet'|'show', roomId, handId, actionId}`; a throw **refuses** the
-  move (`persist_failed`).
-- **Process suites** (`integration`, `socketProtocol`, `stakes`, `statsAndRewards`): set env before
-  `await import(...)`: `NODE_ENV=test`, **`PG_SCHEMA='test_<suite>_'+random`**, `TABLE_STAKES=''`,
-  `LOBBY_TABLES=''`, `PORT=0`, `AUTH_ALLOW_FAKE_PROVIDERS=true`, short `*_MS`. Teardown:
-  `await rooms.shutdown()` … `await dropSchema(); await closeDatabase()`. **`stakes.test.js` must run
-  with the real default menu** (it `delete`s those two env vars). Direct row checks use
-  `query(text, params)` from `db/index.js`.
-- `socketProtocol.test.js` imports `ws` — only a **transitive** dependency.
-- `tools/bot.js` flags: `--count --boot --category --url --offset --churn`. 8 fixed identities
-  (Ravi Meera Arjun Kavya Vikram Anita Rohit Neha; device id `practice-bot-<slot>-<name>`); a second
-  group **must** use `--offset`. Bots always `see`, ask sideshow 45%, answer 75/15/10
-  accept/decline/lapse; retry `already_in_room` for 60s.
-- `test/loadtest.js` defaults to `--boot 100` which the default menu refuses — pass `--boot 200`.
-- **`tools/ramptest.mjs`** — staged capacity test: `--url --stages 10,25,…,1000 --hold 40 --boot 200 --category blind --out ramp.json
-  [--idOffset N for a second generator]`. Adds players in batches, holds each stage, records login/connect/action-ack
-  latency percentiles, moves/s, hands/min, `/health` RTT, the server's `process` vital signs when present, and its own
+- **Go test suites** (`cd go-server && go test -race ./...`; names are sentences, `TestASideshowNeedsThreePlayersInTheHand`):
+  - `internal/game` — no DB. `NewTable` with `game.NewMemoryLedger(hooks)` + `testclock.Fake`; `clock.Advance(d)` is
+    synchronous and waits for every fired callback (Node's `await advance(ms)`); after an indirect removal (a kick) use
+    `table.Settled()`. Every suite passes a full config (Table uses it raw). Deterministic showdowns via the test
+    `harness` in `table_test.go` (`h.setCards(id, "As", "9s", "4s")` — an unexported seam in package `game`, never an
+    exported method). A `PersistChips` hook that returns an error
+    **refuses** the move (`persist_failed`); a bookless `MemoryLedger` banks 0 (`persisted` semantics, §12.2). Suites:
+    `table`, `tablerules`, `sideshow`, `settlement`, `roommanager` (+ `_fixture`), `handrank`, `deck`, `chat`, `wire`
+    (null-vs-absent JSON rules), `review_money*`/`review_concurrency` (adversarial), `interop` (see below).
+  - `internal/db`, `internal/app` — **Postgres-backed** via `dbtest.Open(t, "<pkg>")`: schema `test_<pkg>_<rand>`, dropped in
+    `t.Cleanup`, `t.Skip` when `TEST_DATABASE_URL`/`DATABASE_URL`/the default is unreachable. `internal/app` = the old
+    `integration`/`socketProtocol`/`stakes`/`statsAndRewards`/`metrics` process suites (real sockets through
+    `socket/testclient`, `/health`, `/metrics`, static files, review_headers); `internal/db` = ledger transactions
+    (`duplicate_action`, `stale_state`), users/rewards, `NormalizeDisplayName`, `statement_timeout`, review_money.
+  - `internal/socket` (invalid moves, hostile payloads, leaks, money, concurrency, stack), `internal/sio` (framing, server,
+    concurrency), `internal/auth`, `internal/config`, `internal/metrics` (the label rule), `cmd/gameplay` (version stamp).
+  - **Node-assisted tests, all `t.Skip` without their prerequisite:** `internal/auth/nodeinterop_test.go` (tokens minted by
+    `jsonwebtoken` verify in Go and vice versa) and `internal/sio/interop_test.go` (real `socket.io-client`) use
+    **`tools/node_modules`** — `cd tools && npm install`. `internal/game/interop_test.go` (every hand ranking and every
+    sanitising result vs the Node engine) needs **`NODE_REFERENCE_DIR`** = a checkout of the removed `server/` tree with
+    `node_modules` (`git worktree add /tmp/node-ref c19963b && (cd /tmp/node-ref/server && npm ci)`).
+  - Leftover schemas after a crash: `select nspname from pg_namespace where nspname like 'test_%'` (§4).
+- **Parity harness** (`tools/parity/`, run with `cd tools && npm run parity`): black-box `node:test` suites — `game`, `money`
+  (audits the books the profile wrote), `lobby`, `stakes`, `rest`, `protocol` (raw frames via `lib/csharpJsonPort.js`), `resume`,
+  `invalid`, `metrics` — over real sockets against a server it spawns (`--target go` is the only target; default binary
+  `../go-server/bin/gameplay`, `--bin` overrides) on a throwaway schema per **profile** (config is read once, so suites needing
+  different timeouts get their own server process), or against a running server with `--url … --schema …`. `--filter a,b`,
+  `--keep` (logs + schemas), `--serve [--profile main]`, `--verbose`. `npm run parity:diff -- --a go --b <url|go>` drives one fixed
+  scenario against two servers and diffs the normalised recordings (uuids/codes/JWTs/timestamps/cards masked, consecutive
+  identical `room:state` collapsed; `--out <dir>` keeps them). The Node target is gone — the last Node-vs-Go run was 141/141.
+- **`tools/bot.js`** (`npm run bot -- …`) flags: `--count --boot --category --url --offset --churn`. **16** fixed identities
+  (Ravi Meera Arjun Kavya Vikram Anita Rohit Neha Priya Aman Sneha Karan Pooja Rahul Isha Dev; device id `practice-bot-<slot>-<name>`);
+  groups use `--offset 0/4/8/12` — a second group **must** use `--offset`. Bots always `see`, ask sideshow 45%, answer 75/15/10
+  accept/decline/lapse; retry `already_in_room` for 60s. `--url https://api.sungamestudio.com` runs them against production.
+- **`tools/ramptest.mjs`** (`npm run ramp -- …`) — staged capacity test: `--url --stages 10,25,…,1000 --hold 40 --boot 200
+  --category blind --out ramp.json [--idOffset N for a second generator]`. Adds players in batches, holds each stage, records
+  login/connect/action-ack latency percentiles, moves/s, hands/min, `/health` RTT, the server's `process` vital signs, and its own
   event-loop lag (generator-bound detector). Stops at p95 > 3000 ms, errors > 10 %, or < 90 % connected. Bots are guests
-  `LoadBot<n>` (fixed device ids `ramp-bot-<n>-device-id`, so re-runs reuse accounts). Reports: `server/loadtest-report/`
-  (HTML + JSON; 2026‑09‑08 production run 1: 1,000 players, p95 40 ms, 0 errors, no ceiling).
-- `tools/bot.js` now has **16** identities (Ravi…Neha, Priya, Aman, Sneha, Karan, Pooja, Rahul, Isha, Dev); groups use
-  `--offset 0/4/8/12`; `--url https://api.sungamestudio.com` runs them against production.
+  `LoadBot<n>` (fixed device ids `ramp-bot-<n>-device-id`, so re-runs reuse accounts). Reports: **`docs/load-reports/`**
+  (HTML + JSON; the 2026‑09‑08 production runs on the Node build: 1,000 players p95 40 ms no ceiling; the nginx
+  `worker_connections` ceiling at ~1,500; 4,000 connected with 0 errors after the fix, p95 ~1 s on one Node core). On the
+  12-core dev box, both servers local, the same ramp gave **Go 4,000 players at ack p95 5 ms vs Node 255 ms** (no report file
+  committed for that run yet).
 - `GET /health` returns `{ok, uptime, tables, players, activeHands, sockets, process:{pid,node,rssMb,heapUsedMb,heapTotalMb,
-  externalMb,cpuPercent (share of one core since the previous call), loopLagP50Ms/P99Ms/MaxMs (monitorEventLoopDelay,
-  20 ms resolution → ~20 ms means idle)}, db:{total,idle,waiting}}`. Production still served the old shape on 2026‑09‑08.
-- `kicktest.mjs` (tracked) and `peek-tmp.mjs` (untracked) are manual scratch scripts on
-  localhost:3000, not in npm scripts.
+  externalMb,cpuPercent (share of one core since the previous call), loopLagP50Ms/P99Ms/MaxMs, goroutines, numCpu, gomaxprocs},
+  db:{total,idle,waiting}}`. Under Go `process.node` is the runtime string (`go1.27.1`), `loopLag*` are scheduler-latency
+  percentiles, `externalMb` is 0, `db.waiting` an acquire-wait delta (usually 0).
+- The Node scratch scripts (`kicktest.mjs`, `peek-tmp.mjs`) and `test/loadtest.js` went with `server/`; `npm run ramp` covers the
+  load-test role, `tools/parity/money.test.js` the books audit.
 
 ---
 
@@ -574,10 +649,13 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
 
 ---
 
-## 9. Browser client (`server/public/`)
-Vanilla JS IIFE; `localStorage tp_token/tp_device/tp_theme`; lobby from `config.tables`. No
-`room:kicked`, no sideshow, no rename/entry-cap/numbering. Google/Facebook buttons are stubs needing
-`AUTH_ALLOW_FAKE_PROVIDERS`. Chat `maxlength=140`. Treat as a protocol smoke-test surface.
+## 9. Browser client (`go-server/public/`)
+Vanilla JS IIFE (`client.js`, `style.css`, `theme.css`, `index.html`, `profiles/`); served at `/` by the
+Go binary from `PUBLIC_DIR` (default `./public` from `go-server/`), with `/socket.io/socket.io.js`
+coming from the embedded bundle in `internal/app/assets/`. `localStorage tp_token/tp_device/tp_theme`;
+lobby from `config.tables`. No `room:kicked`, no sideshow, no rename/entry-cap/numbering.
+Google/Facebook buttons are stubs needing `AUTH_ALLOW_FAKE_PROVIDERS`. Chat `maxlength=140`. Treat as
+a protocol smoke-test surface.
 
 ---
 
