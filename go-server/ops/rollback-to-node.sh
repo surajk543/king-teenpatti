@@ -26,12 +26,13 @@ node_bin="$(sed -n 's/^ExecStart=//p' "$UNIT_BACKUP" | head -n1 | awk '{print $1
 if [ -n "$node_bin" ] && [ "${node_bin#/}" != "$node_bin" ] && [ ! -x "$node_bin" ]; then
   note "WARNING: $node_bin is not executable on this host"
 fi
-# The Node server was removed from the go-server branch; master still carries
-# it. Restore the tree from there (as deploy, never as root) before the unit.
+# The Node server was removed from the repository (last commit carrying it:
+# c19963b; `git log --diff-filter=D -- server/` finds the removal). Restore the
+# tree from history (as deploy, never as root) before the unit.
 if [ ! -f "$NODE_DIR/src/index.js" ]; then
   die "$NODE_DIR/src/index.js is missing — the Node server is no longer in this checkout.
-    Restore it from master first, as the deploy user:
-      cd $REPO_DIR && git checkout master -- server && (cd server && npm ci --omit=dev)
+    Restore it from history first, as the deploy user:
+      cd $REPO_DIR && git checkout c19963b -- server && (cd server && npm ci --omit=dev)
       cp $GO_DIR/.env $NODE_DIR/.env   # if server/.env is gone
     then run this script again."
 fi

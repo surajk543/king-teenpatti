@@ -5,31 +5,36 @@ Host `148.113.24.201` (`ssh deploy@148.113.24.201`), Ubuntu, 4 cores / 8 GB, che
 Prometheus on the box scrapes `127.0.0.1:3000/metrics` (job `game-server`, bearer token);
 Grafana at `https://api.sungamestudio.com/dashboard/` (dashboard uid `king-teenpatti`).
 
-The Go binary replaces `node src/index.js` **inside the same systemd unit, `gameplay.service`**,
-on the same port, reading the same `server/.env`. Nothing about nginx, Prometheus, the journal or
-the database changes. Everything below is run on the host as `deploy`; lines starting with `sudo`
-are the only ones that need root.
+The Go binary runs **inside the same systemd unit the Node server used, `gameplay.service`**, on the
+same port, with the same env keys — now read from `go-server/.env`. Nothing about nginx, Prometheus,
+the journal or the database changes. The first-time installer also **removes the Node server tree
+from the host** once the Go binary is healthy; the Node code stays on `master` and in git history.
+Everything below is run on the host as `deploy`; lines starting with `sudo` are the only ones that
+need root. `/var/www/gameplay/king-teenpatti/steps.txt` is the whole routine in six lines.
 
 Files in this directory:
 
 | File | Run as | Purpose |
 |---|---|---|
 | `build.sh` | deploy | installs Go 1.27.1 into `~/.local/go` if needed (sha256 verified against go.dev), builds `go-server/bin/gameplay` |
-| `gameplay-go.service` | — | the unit that `install-go-server.sh` installs as `gameplay.service` |
-| `install-go-server.sh` | sudo, once | backs up the Node unit → `gameplay.service.node.bak`, installs the Go unit under the same name, restarts, verifies `/health` and `/metrics` |
-| `rollback-to-node.sh` | sudo | restores the Node unit from the backup, restarts, verifies |
-| `lib.sh` | — | helpers shared by the two sudo scripts (health polling, `.env` reading) |
+| `gameplay-go.service` | — | the unit that `install-go-server.sh` installs as `gameplay.service` (`WorkingDirectory`, `EnvironmentFile` and `PUBLIC_DIR` all under `go-server/`) |
+| `install-go-server.sh` | sudo, once | backs up the Node unit → `gameplay.service.node.bak`, copies `server/.env` → `go-server/.env` once, installs the Go unit under the same name, restarts, verifies `/health` and `/metrics`, then removes `server/` from the host (`KEEP_NODE_TREE=1` skips) |
+| `rollback-to-node.sh` | sudo | restores the Node unit from the backup, restarts, verifies — **after** the Node tree has been restored from `master` (it refuses otherwise) |
+| `lib.sh` | — | helpers shared by the two sudo scripts (paths, health polling, `.env` reading) |
+| `monitoring/` | — | Prometheus + Grafana + alerts + nginx bundle and `MONITORING.md` (formerly `server/ops/monitoring`) |
 
 ---
 
 ## 0. Before the first Go deploy — read once
 
-- **Same `.env`, same keys.** The binary reads `/var/www/gameplay/king-teenpatti/server/.env`
+- **Same keys, new file.** The binary reads `/var/www/gameplay/king-teenpatti/go-server/.env`
   twice (systemd `EnvironmentFile=` and godotenv from the working directory, which is the same
-  file). `DATABASE_URL`, `JWT_SECRET`, `PG_POOL_MAX=50`, `METRICS_TOKEN`, … all apply unchanged.
-  The only new key, `PUBLIC_DIR`, is set in the unit (`…/server/public`) so the browser client at
-  `/` keeps working. **Integer keys are parsed strictly** (`PG_POOL_MAX=50`, not `50 `); a
-  malformed value stops the binary at startup with the key named in the journal.
+  file). `install-go-server.sh` copies the production `server/.env` there once if `go-server/.env`
+  does not exist yet — `DATABASE_URL`, `JWT_SECRET`, `PG_POOL_MAX=50`, `METRICS_TOKEN`, … all apply
+  unchanged. **Integer keys are parsed strictly** (`PG_POOL_MAX=50`, not `50 `); a malformed value
+  stops the binary at startup with the key named in the journal. `PUBLIC_DIR` is set in the unit
+  (`…/go-server/public`) so the browser client at `/` keeps working; `PG_STATEMENT_TIMEOUT_MS`
+  (Go-only, default 15000) needs no line unless you want to change it.
 - **Sessions survive.** JWTs issued by Node (HS256) verify in Go and vice versa; nobody logs in again.
 - **Restart behaviour is the Node one:** on SIGTERM the server closes the sockets, settles every
   live pot (first still-active seat wins, reason `all_left`), writes the ledger, exits within 8 s.
@@ -37,9 +42,13 @@ Files in this directory:
 - **WebSocket only.** `transport=polling` is refused with HTTP 400. Every shipped client (Flutter,
   browser, bots, ramptest) connects with websocket only, so nothing notices — but a stray
   `socket.io-client` default (polling first) would.
-- **Node stays installed.** `server/` is still the reference implementation, the parity harness,
-  the bots and the load tools, and the rollback target. Keep running `npm ci` after a pull.
-- **Rollback is one command** (`rollback-to-node.sh`, §5) and takes ~10 s.
+- **The Node server leaves the host.** `git pull` on this branch removes `server/`'s tracked files;
+  `install-go-server.sh` step 5 removes what `git` does not know about (`node_modules`, `.env`,
+  logs) once `/health` reports the Go runtime. If `server/.env` differed from `go-server/.env` a copy
+  is kept at `go-server/.env.node.bak`. `KEEP_NODE_TREE=1 sudo bash …/install-go-server.sh` leaves
+  the directory alone. Node itself stays installed — the bots and the load ramp (`tools/`) need it.
+- **Rollback is two steps now** (§5): restore the Node tree from `master`, then
+  `rollback-to-node.sh` (~10 s once the tree is back).
 
 ---
 
@@ -52,8 +61,10 @@ git fetch origin
 git checkout go-server            # until go-server is merged into master; afterwards: git checkout master
 git pull
 git log --oneline -1              # note the hash — build.sh stamps it into the binary
-cd server && npm ci && cd ..      # tools (bots, parity, rollback) still need node_modules
 ```
+
+No `npm ci` in the deploy path any more: the binary is self-contained. The bots and the ramp
+(`tools/`) are optional and have their own `npm install` (§4).
 
 ## 2. Build (deploy user, no sudo)
 
@@ -75,13 +86,16 @@ Later runs find that toolchain and skip straight to the build (~20 s cold, ~3 s 
 
 `bin/` is git-ignored; the binary is static (CGO off) — no shared libraries, no Go on the host at
 run time. Optional smoke test on a spare port with a throwaway schema (does not touch production
-data — it creates and uses schema `test_smoke`, drop it afterwards):
+data — it creates and uses schema `test_smoke`, drop it afterwards). Before the first install
+`go-server/.env` may not exist yet; point the smoke test at the old file in that case:
 
 ```bash
-cd /var/www/gameplay/king-teenpatti/server
-PORT=3999 HOST=127.0.0.1 PG_SCHEMA=test_smoke ../go-server/bin/gameplay &   # reads ./.env
+cd /var/www/gameplay/king-teenpatti/go-server
+ENV=./.env; [ -f "$ENV" ] || ENV=../server/.env                      # first time only: the Node file is still the live one
+set -a; . "$ENV"; set +a
+PORT=3999 HOST=127.0.0.1 PG_SCHEMA=test_smoke ./bin/gameplay &        # PUBLIC_DIR defaults to ./public here
 sleep 2; curl -s 127.0.0.1:3999/health; kill %1
-psql "$(sed -n 's/^DATABASE_URL=//p' .env)" -c 'drop schema test_smoke cascade'
+psql "$DATABASE_URL" -c 'drop schema test_smoke cascade'
 ```
 
 ## 3. Install / switch the unit (sudo, first time only)
@@ -90,12 +104,15 @@ psql "$(sed -n 's/^DATABASE_URL=//p' .env)" -c 'drop schema test_smoke cascade'
 sudo bash /var/www/gameplay/king-teenpatti/go-server/ops/install-go-server.sh
 ```
 
-It refuses to run if `bin/gameplay` is missing, backs up `/etc/systemd/system/gameplay.service`
-to `gameplay.service.node.bak` (once — never overwritten), prints the unit diff so you can check no
-`Environment=` line you relied on is lost, installs `gameplay-go.service` **as `gameplay.service`**,
-`daemon-reload`, `restart`, then waits for `http://127.0.0.1:3000/health` to answer with
-`process.node = "go1.27.1"` and checks `HEAD /metrics` with the `METRICS_TOKEN` from `.env` → `200`.
-It ends with `systemctl status` and the last 20 journal lines. Expected journal head:
+It refuses to run if `bin/gameplay` is missing, copies `server/.env` → `go-server/.env` if the
+latter is absent (the old file is left in place for now), backs up
+`/etc/systemd/system/gameplay.service` to `gameplay.service.node.bak` (once — never overwritten),
+prints the unit diff so you can check no `Environment=` line you relied on is lost, installs
+`gameplay-go.service` **as `gameplay.service`**, `daemon-reload`, `restart`, then waits for
+`http://127.0.0.1:3000/health` to answer with `process.node = "go1.27.1"` and checks `HEAD /metrics`
+with the `METRICS_TOKEN` from `.env` → `200`. It prints `systemctl status` and the last 20 journal
+lines, and **then removes `/var/www/gameplay/king-teenpatti/server`** (step 5; keeping a
+`go-server/.env.node.bak` if the two `.env` files differed). Expected journal head:
 
 ```
 {"level":"INFO","msg":"gameplay build","version":"<hash>","go":"go1.27.1"}
@@ -103,15 +120,17 @@ It ends with `systemctl status` and the last 20 journal lines. Expected journal 
 {"level":"INFO","msg":"king-teenpatti server listening","url":"http://0.0.0.0:3000","env":"production",…}
 ```
 
-Re-running the script is harmless (re-installs, restarts, re-verifies).
+Re-running the script is harmless (re-installs, restarts, re-verifies; step 5 is a no-op once the
+directory is gone).
 
 ### Every later deploy
 
-Once the unit points at the Go binary, the routine is the old one with the build step swapped in:
+Once the unit points at the Go binary, the routine is the old one with the build step swapped in
+(this is `steps.txt`):
 
 ```bash
-cd /var/www/gameplay/king-teenpatti && git pull && (cd server && npm ci)
-cd go-server && bash ops/build.sh
+cd /var/www/gameplay/king-teenpatti && git pull
+bash go-server/ops/build.sh
 sudo systemctl restart gameplay
 sudo systemctl status gameplay --no-pager
 sudo journalctl -u gameplay -n 20 --no-pager
@@ -133,7 +152,7 @@ curl -s https://api.sungamestudio.com/health | python3 -c 'import json,sys; h=js
 **Metrics — scrape by hand, then confirm Prometheus sees the target as `up`:**
 
 ```bash
-TOKEN=$(sed -n 's/^METRICS_TOKEN=//p' /var/www/gameplay/king-teenpatti/server/.env)
+TOKEN=$(sed -n 's/^METRICS_TOKEN=//p' /var/www/gameplay/king-teenpatti/go-server/.env)
 curl -s -H "Authorization: Bearer $TOKEN" 127.0.0.1:3000/metrics | grep -c '^game_'            # > 0
 curl -s -H "Authorization: Bearer $TOKEN" 127.0.0.1:3000/metrics | grep '^game_server_go_info'  # version="go1.27.1"
 curl -s -H "Authorization: Bearer $TOKEN" 127.0.0.1:3000/metrics | grep -c '^game_server_nodejs_' # 0 — expected
@@ -152,11 +171,12 @@ before because the `game_*` names are identical. If the row is still the old "No
 dashboard JSON has not been re-imported yet — §6.
 
 **Real traffic — three bots for a minute** (they log in as guests, sit at a blind 200 table, play,
-chat, sideshow; Ctrl-C to stop; they leave cleanly):
+chat, sideshow; Ctrl-C to stop; they leave cleanly). The bots are a small Node package under
+`tools/`; `npm install` there once (Node ≥ 20 is still on the host):
 
 ```bash
-cd /var/www/gameplay/king-teenpatti/server
-node tools/bot.js --url https://api.sungamestudio.com --count 3 --boot 200 --category blind
+cd /var/www/gameplay/king-teenpatti/tools && npm install
+npm run bot -- --url https://api.sungamestudio.com --count 3 --boot 200 --category blind
 ```
 
 Watch `journalctl -u gameplay -f` in a second terminal: a `table created` line when they sit, no
@@ -166,7 +186,7 @@ phone: login, lobby, a hand, chat, leave.
 **Money — the ledger must reconcile to the wallets (CLAUDE.md §4). Must print `0`:**
 
 ```bash
-psql "$(sed -n 's/^DATABASE_URL=//p' /var/www/gameplay/king-teenpatti/server/.env)" -Atc \
+psql "$(sed -n 's/^DATABASE_URL=//p' /var/www/gameplay/king-teenpatti/go-server/.env)" -Atc \
   "select count(*) from users u join (select user_id, sum(delta) s from chip_ledger group by user_id) l on l.user_id=u.id where l.s <> u.chips"
 ```
 
@@ -174,21 +194,31 @@ Also worth a glance after the first hands: the newest ledger rows carry the app'
 `action_id` for bets and `<handId>:boot:<userId>` / `<handId>:settle:<userId>` for boots and settlements:
 
 ```bash
-psql "$(sed -n 's/^DATABASE_URL=//p' /var/www/gameplay/king-teenpatti/server/.env)" -c \
+psql "$(sed -n 's/^DATABASE_URL=//p' /var/www/gameplay/king-teenpatti/go-server/.env)" -c \
   "select reason, delta, action_id, to_timestamp(created_at/1000) from chip_ledger order by id desc limit 10"
 ```
 
 ## 5. Rollback
 
+The Node server is no longer in the checkout (this branch removed it, and `install-go-server.sh`
+removed the untracked residue from the host), so a rollback first puts the tree back — as `deploy`,
+never as root — and only then swaps the unit:
+
 ```bash
+cd /var/www/gameplay/king-teenpatti
+git checkout master -- server && (cd server && npm ci --omit=dev)     # the Node tree, from master
+cp go-server/.env server/.env                                          # the Node unit reads server/.env (or use go-server/.env.node.bak)
 sudo bash /var/www/gameplay/king-teenpatti/go-server/ops/rollback-to-node.sh
 ```
 
-Restores `gameplay.service` from `gameplay.service.node.bak`, `daemon-reload`, `restart`, waits for
-`/health` to report `process.node` starting with `v` (Node; an older Node build without the
-`process` key also passes), prints `HEAD /metrics`, status and journal. The backup is kept, so
-`install-go-server.sh` can switch back to Go later. Node needs `server/node_modules` — if a pull
-changed `package-lock.json`, run `npm ci` in `server/` (the script warns when the directory is missing).
+`rollback-to-node.sh` refuses to run until `server/src/index.js`, `server/.env` and
+`server/node_modules` exist, and says exactly that. It then restores `gameplay.service` from
+`gameplay.service.node.bak`, `daemon-reload`, `restart`, waits for `/health` to report
+`process.node` starting with `v` (Node; an older Node build without the `process` key also passes),
+prints `HEAD /metrics`, status and journal. The backup is kept, so `install-go-server.sh` can switch
+back to Go later (and will remove `server/` again unless `KEEP_NODE_TREE=1`). Afterwards
+`git status` shows `server/` as staged additions on this branch — `git restore --staged server && rm -rf server`
+undoes that once Go is back.
 
 Prometheus and Grafana need nothing for a rollback: the game rows work for both servers and the
 Runtime row simply goes empty while Node runs (Node's `nodejs_*` panels are gone from the JSON; the
@@ -200,7 +230,12 @@ old dashboard is in git history if you ever want it back).
 
 | | Node | Go |
 |---|---|---|
-| Port / unit / env file | `127.0.0.1:3000`, `gameplay.service`, `server/.env` | **same** |
+| Port / unit | `127.0.0.1:3000`, `gameplay.service` | **same** |
+| Env file | `server/.env` | `go-server/.env` (copied once by the installer; same keys) |
+| Working directory / browser client | `server/`, `server/public` | `go-server/`, `go-server/public` (`PUBLIC_DIR` in the unit) |
+| Checkout contents | `server/` + `go-server/` | `go-server/` + `tools/` (bots, ramp, parity); `server/` removed from the host |
+| Deploy routine | `git pull && npm ci && systemctl restart` | `git pull && bash go-server/ops/build.sh && systemctl restart` (`steps.txt`) |
+| Monitoring bundle | `server/ops/monitoring/` | `go-server/ops/monitoring/` |
 | `game_*` metrics (sockets, game, latency, HTTP, pool) | | **identical names, labels, buckets** |
 | Process metrics | `game_server_process_*` + `game_server_nodejs_*` | `game_server_process_*` + `game_server_go_*`; **no `nodejs_*` series** |
 | Event-loop lag | `game_server_nodejs_eventloop_lag_p99_seconds` | scheduler latency `histogram_quantile(0.99, sum by (le) (rate(game_server_go_sched_latencies_seconds_bucket[5m])))` |
@@ -209,7 +244,7 @@ old dashboard is in git history if you ever want it back).
 | Runtime version | `nodejs_version_info{version}` | `go_info{version}`; `/health process.node` = `go1.27.1` |
 | Concurrency | one event loop, ~1 core | `GOMAXPROCS` = all 4 cores by default (dashboard CPU panel shows the ceiling as a dashed line) |
 | Transport | websocket + polling | websocket only (polling → 400) |
-| DB pool | `PG_POOL_MAX=50` | **stays 50** (pgxpool; `game_db_pool_waiting_requests` is an acquire-wait delta, usually 0) |
+| DB pool | `PG_POOL_MAX=50` | **stays 50** (pgxpool; `game_db_pool_waiting_requests` is an acquire-wait delta, usually 0); `PG_STATEMENT_TIMEOUT_MS=15000` default |
 | Alerts | `GameServerEventLoopLagHigh`, `GameServerEventLoopSaturated`, `GameServerHeapNearLimit` | `GameServerSchedulerLatencyHigh` (p99 > 100 ms 5 m), `GameServerGoroutinesHigh` (> 50,000 5 m), `GameServerMemoryHigh` (RSS > 80 % of `king_teenpatti:host_memory_bytes` 10 m) |
 
 ### Re-import the dashboard (Grafana HTTP API)
@@ -221,7 +256,7 @@ Run on the host if Grafana listens only on localhost (`GRAFANA=http://127.0.0.1:
 nginx from anywhere (`GRAFANA=https://api.sungamestudio.com/dashboard`):
 
 ```bash
-cd /var/www/gameplay/king-teenpatti/server/ops/monitoring
+cd /var/www/gameplay/king-teenpatti/go-server/ops/monitoring
 GRAFANA=https://api.sungamestudio.com/dashboard          # or http://127.0.0.1:3001
 python3 -c 'import json,sys; json.dump({"dashboard": json.load(open(sys.argv[1])), "overwrite": True, "message": "Go runtime row"}, open(sys.argv[2], "w"))' \
   grafana/dashboards/king-teenpatti.json /tmp/king-teenpatti-import.json
@@ -240,16 +275,18 @@ API lives under the same root as the UI, so `…/dashboard/api/dashboards/db` be
 ```bash
 grep -A3 '^rule_files' /etc/prometheus/prometheus.yml           # where does the host's Prometheus read its rules from?
 # if it points at a copy rather than at the checkout:
-sudo cp /var/www/gameplay/king-teenpatti/server/ops/monitoring/prometheus/alerts.yml /etc/prometheus/alerts.yml
+sudo cp /var/www/gameplay/king-teenpatti/go-server/ops/monitoring/prometheus/alerts.yml /etc/prometheus/alerts.yml
 promtool check rules /etc/prometheus/alerts.yml                  # "SUCCESS: 26 rules found"
 sudo systemctl reload prometheus
 curl -s 127.0.0.1:9090/api/v1/rules | python3 -c 'import json,sys; print(sorted(r["name"] for g in json.load(sys.stdin)["data"]["groups"] for r in g["rules"] if r["type"]=="alerting"))'
 ```
 
-The list must contain `GameServerSchedulerLatencyHigh`, `GameServerGoroutinesHigh`,
-`GameServerMemoryHigh` and no `EventLoop`/`HeapNearLimit` names. The new recording rule
-`king_teenpatti:host_memory_bytes` takes RAM from node_exporter (job `node`) and falls back to
-8 GiB when that job is absent — edit the constant in `alerts.yml` if the box changes.
+If Prometheus reads its rules from the checkout by path, the path has moved: point `rule_files` at
+`/var/www/gameplay/king-teenpatti/go-server/ops/monitoring/prometheus/alerts.yml` (it used to be
+under `server/ops/monitoring/`). The list must contain `GameServerSchedulerLatencyHigh`,
+`GameServerGoroutinesHigh`, `GameServerMemoryHigh` and no `EventLoop`/`HeapNearLimit` names. The
+recording rule `king_teenpatti:host_memory_bytes` takes RAM from node_exporter (job `node`) and falls
+back to 8 GiB when that job is absent — edit the constant in `alerts.yml` if the box changes.
 
 ---
 
@@ -258,15 +295,19 @@ The list must contain `GameServerSchedulerLatencyHigh`, `GameServerGoroutinesHig
 | Symptom | Cause / fix |
 |---|---|
 | `install-go-server.sh`: "bin/gameplay is missing" | run `bash ops/build.sh` as `deploy` first |
+| `install-go-server.sh`: "`go-server/.env` not readable" | neither `go-server/.env` nor the old `server/.env` exists — copy the production `.env` to `go-server/.env` |
 | journal: `config: PG_POOL_MAX: …` (or any key) at startup | strict integer/enum parsing of `.env`; fix the value, `sudo systemctl restart gameplay` |
 | journal: `JWT_SECRET must be set in production` | `.env` lacks `JWT_SECRET` (Node used the same key) — the unit sets `NODE_ENV=production` |
 | `/health` never answers, unit flaps every 2 s | port 3000 still held by the old process for a few seconds — normal; if it lasts, `ss -lptn 'sport = :3000'` |
 | `/metrics` → `401` from the install script | `METRICS_TOKEN` in `.env` has quotes/spaces Node tolerated; the script strips quotes — check the raw line |
-| Browser client at `/` is a `Cannot GET /` 404 | `PUBLIC_DIR` in the unit does not exist; `ls /var/www/gameplay/king-teenpatti/server/public` |
+| Browser client at `/` is a `Cannot GET /` 404 | `PUBLIC_DIR` in the unit does not exist; `ls /var/www/gameplay/king-teenpatti/go-server/public` |
+| Prometheus: `rule_files` path not found after the pull | the bundle moved to `go-server/ops/monitoring/`; fix the path or copy `alerts.yml` (§6) |
 | Grafana Runtime row empty, game rows fine | dashboard not re-imported (§6), or Prometheus target down (`/api/v1/targets`) |
 | `game_server_nodejs_*` panels wanted back | they only exist while Node runs; the pre-Go dashboard is in git history (`git log -- server/ops/monitoring/grafana/dashboards/king-teenpatti.json`) |
-| Need Node back now | `sudo bash go-server/ops/rollback-to-node.sh` |
+| `rollback-to-node.sh`: "`server/src/index.js` is missing" | expected on this branch — restore the tree first (§5): `git checkout master -- server && (cd server && npm ci --omit=dev)` |
+| Need Node back now | §5 — restore the tree, then `sudo bash go-server/ops/rollback-to-node.sh` |
 
 Reference: `go-server/README.md` (build/test/parity), `go-server/PORT_PLAN.md` §9 and
 `go-server/DECISIONS.md` (every deliberate difference from Node),
-`server/ops/monitoring/MONITORING.md` (metrics, dashboard, alert runbook), `CLAUDE.md` (repo-wide reference).
+`go-server/ops/monitoring/MONITORING.md` (metrics, dashboard, alert runbook), `CLAUDE.md` (repo-wide reference),
+`steps.txt` (the six-line deploy routine).

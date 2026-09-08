@@ -1,6 +1,6 @@
 # Deploy routine — Go server (the Node server was removed from production on the switch)
 cd /var/www/gameplay/king-teenpatti
-git fetch origin && git checkout go-server && git pull origin go-server
+git pull origin master
 bash go-server/ops/build.sh                       # as deploy, no sudo: installs Go if missing, builds go-server/bin/gameplay
 sudo bash go-server/ops/install-go-server.sh      # FIRST TIME ONLY: swaps gameplay.service to the Go binary, copies .env, removes server/
 sudo systemctl restart gameplay                   # every later deploy (after build.sh)
