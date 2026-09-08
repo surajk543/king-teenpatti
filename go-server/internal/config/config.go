@@ -121,6 +121,11 @@ type DBConfig struct {
 	Schema string
 	// PoolMax is PG_POOL_MAX (10) → pgxpool MaxConns.
 	PoolMax int
+	// StatementTimeoutMs is PG_STATEMENT_TIMEOUT_MS (15000): Postgres
+	// statement_timeout for every pooled connection, so a hung query fails
+	// the one ledger write (persist_failed) instead of freezing that table's
+	// actor for good. 0 disables the limit (Node's behaviour). Go-only key.
+	StatementTimeoutMs int
 }
 
 // LobbyTable is one "category:boot" entry of LOBBY_TABLES, in menu order.
@@ -239,9 +244,10 @@ func Defaults() *Config {
 		Facebook:           FacebookConfig{},
 		AllowFakeProviders: false,
 		DB: DBConfig{
-			URL:     "postgres://postgres:postgres@localhost:5432/gameplay",
-			Schema:  "public",
-			PoolMax: 10,
+			URL:                "postgres://postgres:postgres@localhost:5432/gameplay",
+			Schema:             "public",
+			PoolMax:            10,
+			StatementTimeoutMs: 15000,
 		},
 		Game: GameConfig{
 			WelcomeChips: 200000,
@@ -387,6 +393,7 @@ func FromEnv(lookup Lookup) (*Config, error) {
 	c.DB.URL = r.str("DATABASE_URL", c.DB.URL)
 	c.DB.Schema = r.str("PG_SCHEMA", c.DB.Schema)
 	c.DB.PoolMax = r.integer("PG_POOL_MAX", c.DB.PoolMax)
+	c.DB.StatementTimeoutMs = r.integer("PG_STATEMENT_TIMEOUT_MS", c.DB.StatementTimeoutMs)
 
 	g := &c.Game
 	g.WelcomeChips = r.int64("WELCOME_CHIPS", g.WelcomeChips)

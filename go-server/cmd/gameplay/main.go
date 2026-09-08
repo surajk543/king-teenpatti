@@ -81,7 +81,7 @@ func run() error {
 	defer signal.Stop(signals)
 
 	ctx := context.Background()
-	database, err := db.Open(ctx, db.Options{URL: cfg.DB.URL, Schema: cfg.DB.Schema, PoolMax: cfg.DB.PoolMax, Logger: logger})
+	database, err := db.Open(ctx, db.Options{URL: cfg.DB.URL, Schema: cfg.DB.Schema, PoolMax: cfg.DB.PoolMax, StatementTimeout: time.Duration(cfg.DB.StatementTimeoutMs) * time.Millisecond, Logger: logger})
 	if err != nil {
 		return err
 	}

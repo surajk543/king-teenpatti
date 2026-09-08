@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
+	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -46,7 +47,12 @@ type Options struct {
 	URL     string // config.DB.URL
 	Schema  string // config.DB.Schema; must match ^[A-Za-z_][A-Za-z0-9_]*$
 	PoolMax int    // config.DB.PoolMax → pgxpool MaxConns
-	Logger  *slog.Logger
+	// StatementTimeout bounds every statement on every pooled connection
+	// (Postgres statement_timeout). A hung query would otherwise block a
+	// table's actor forever, since ledger calls run on it with the table's
+	// own context. Zero keeps Postgres' default (no limit), as Node had.
+	StatementTimeout time.Duration
+	Logger           *slog.Logger
 }
 
 // DB is the open pool plus the schema it was opened on.
@@ -96,6 +102,9 @@ func Open(ctx context.Context, opts Options) (*DB, error) {
 	}
 	quoted := pgx.Identifier{opts.Schema}.Sanitize()
 	cfg.ConnConfig.RuntimeParams["search_path"] = quoted + ",public"
+	if opts.StatementTimeout > 0 {
+		cfg.ConnConfig.RuntimeParams["statement_timeout"] = strconv.FormatInt(opts.StatementTimeout.Milliseconds(), 10)
+	}
 
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
