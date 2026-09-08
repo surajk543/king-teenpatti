@@ -191,6 +191,30 @@ class ResumeHint {
       );
 }
 
+/// Which server process answered, and the Socket.IO path that reaches it
+/// directly.
+///
+/// Production runs several game workers behind one host. A table lives on
+/// exactly one of them and never moves, so a player going back to their seat
+/// has to come in through the same door. The server names that door on every
+/// `session:ready`; the client remembers it for the next cold start, and a
+/// wrong guess only costs one `session:redirect`.
+class WorkerHint {
+  const WorkerHint({required this.id, required this.path});
+
+  /// The worker's small fixed number; 0 when the server runs as one process.
+  final int id;
+
+  /// `/w1/socket.io` and the like — or the default `/socket.io` when there is
+  /// only one process, which is also what an empty value means.
+  final String path;
+
+  factory WorkerHint.fromJson(Map<String, dynamic> j) => WorkerHint(
+        id: _int(j['id']),
+        path: _str(j['path']),
+      );
+}
+
 class GameConfig {
   const GameConfig({
     required this.maxPlayers,

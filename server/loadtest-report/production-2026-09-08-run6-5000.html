@@ -1,0 +1,362 @@
+<title>King Teen Patti 5,000-Player Test</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  :root {
+    color-scheme: light;
+    --bg: #f3f5ef;
+    --panel: #ffffff;
+    --panel-2: #eaeee6;
+    --ink: #16211b;
+    --ink-2: #566459;
+    --ink-3: #8a968e;
+    --line: #d5dcd3;
+    --felt: #0f5236;
+    --felt-soft: #d9ebdf;
+    --gold: #9c7411;
+    --good: #0b7a3e;
+    --good-bg: #dff3e6;
+    --warn: #a86a12;
+    --warn-bg: #fbeed3;
+    --bad: #b3261e;
+    --bad-bg: #f9dedb;
+    --s1: #2a78d6;   /* p50 */
+    --s2: #eb6834;   /* p95 */
+    --s3: #1baf7a;   /* p99 */
+    --grid: #e3e8e0;
+    --shadow: 0 1px 2px rgba(22, 33, 27, .06), 0 8px 24px -12px rgba(22, 33, 27, .18);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --bg: #0f1512; --panel: #161d19; --panel-2: #1d2621;
+      --ink: #eef2ec; --ink-2: #a9b4ac; --ink-3: #74807a; --line: #2a3530;
+      --felt: #7fd6a4; --felt-soft: #16352a; --gold: #e1b94e;
+      --good: #6fd39a; --good-bg: #163a28; --warn: #e8b660; --warn-bg: #3c2e12; --bad: #f08a83; --bad-bg: #4a1f1c;
+      --s1: #3987e5; --s2: #d95926; --s3: #199e70; --grid: #232d28;
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 28px -14px rgba(0,0,0,.7);
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #0f1512; --panel: #161d19; --panel-2: #1d2621;
+    --ink: #eef2ec; --ink-2: #a9b4ac; --ink-3: #74807a; --line: #2a3530;
+    --felt: #7fd6a4; --felt-soft: #16352a; --gold: #e1b94e;
+    --good: #6fd39a; --good-bg: #163a28; --warn: #e8b660; --warn-bg: #3c2e12; --bad: #f08a83; --bad-bg: #4a1f1c;
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --grid: #232d28;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 28px -14px rgba(0,0,0,.7);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: "Source Serif 4", Georgia, "Times New Roman", serif;
+    font-size: 17px; line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 40px 28px 72px; }
+  .prose { max-width: 68ch; }
+  h1, h2, h3 { font-family: "Bricolage Grotesque", "Helvetica Neue", Arial, sans-serif; text-wrap: balance; margin: 0; }
+  h1 { font-size: clamp(34px, 5vw, 52px); font-weight: 800; letter-spacing: -0.02em; line-height: 1.02; }
+  h2 { font-size: 24px; font-weight: 700; letter-spacing: -0.01em; margin-top: 56px; }
+  h3 { font-size: 17px; font-weight: 700; }
+  p { margin: 12px 0; }
+  a { color: var(--felt); }
+  .eyebrow { font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace; font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-2); }
+  .mono { font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace; font-variant-numeric: tabular-nums; }
+  .meta { display: flex; flex-wrap: wrap; gap: 8px 22px; margin-top: 18px; color: var(--ink-2); font-size: 15px; }
+  .meta b { color: var(--ink); font-weight: 600; }
+
+  /* verdict */
+  .verdict { margin-top: 36px; display: grid; grid-template-columns: minmax(260px, 1fr) 2fr; gap: 28px; align-items: stretch; }
+  .hero { background: var(--felt); color: #f6f8f2; border-radius: 18px; padding: 26px 28px 24px; box-shadow: var(--shadow); position: relative; overflow: hidden; }
+  .hero .eyebrow { color: rgba(246,248,242,.75); }
+  .hero .num { font-family: "Bricolage Grotesque", sans-serif; font-weight: 800; font-size: clamp(56px, 8vw, 84px); line-height: 1; letter-spacing: -0.03em; margin-top: 10px; font-variant-numeric: proportional-nums; color: #f6e7b8; }
+  .hero .unit { font-size: 18px; font-weight: 500; color: rgba(246,248,242,.85); margin-top: 6px; }
+  .hero::after { content: ""; position: absolute; right: -60px; bottom: -80px; width: 220px; height: 220px; border-radius: 50%; border: 22px solid rgba(255,255,255,.07); }
+  .answer { background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 24px 28px; }
+  .answer p:first-child { margin-top: 0; font-size: 19px; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; font-family: "IBM Plex Mono", monospace; font-size: 12.5px; font-weight: 600; letter-spacing: .02em; }
+  .pill.good { background: var(--good-bg); color: var(--good); }
+  .pill.warn { background: var(--warn-bg); color: var(--warn); }
+  .pill.bad { background: var(--bad-bg); color: var(--bad); }
+  .pill i { width: 8px; height: 8px; border-radius: 50%; background: currentColor; display: inline-block; }
+
+  /* KPI row */
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-top: 18px; }
+  .kpi { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px 12px; }
+  .kpi .l { font-size: 13px; color: var(--ink-2); font-family: "Bricolage Grotesque", sans-serif; font-weight: 500; }
+  .kpi .v { font-family: "IBM Plex Mono", monospace; font-size: 26px; font-weight: 600; margin-top: 4px; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+  .kpi .v small { font-size: 13px; color: var(--ink-2); font-weight: 500; margin-left: 3px; }
+
+  /* charts */
+  .figs { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 18px; margin-top: 18px; }
+  .fig { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 16px 16px 10px; position: relative; }
+  .fig.wide { grid-column: 1 / -1; }
+  .fig h3 { font-size: 15px; }
+  .fig .sub { font-size: 13px; color: var(--ink-2); margin: 2px 0 8px; }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 13px; color: var(--ink-2); margin: 0 0 6px; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .legend i { width: 14px; height: 3px; border-radius: 2px; display: inline-block; }
+  svg { width: 100%; height: auto; display: block; overflow: visible; }
+  .axis text { font-family: "IBM Plex Mono", monospace; font-size: 11px; fill: var(--ink-3); }
+  .grid line { stroke: var(--grid); stroke-width: 1; }
+  .axis line { stroke: var(--line); }
+  .series path { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+  .series circle { stroke: var(--panel); stroke-width: 2; }
+  .dlabel { font-family: "IBM Plex Mono", monospace; font-size: 11px; fill: var(--ink-2); }
+  .thresh line { stroke: var(--bad); stroke-dasharray: 4 4; stroke-width: 1.2; }
+  .thresh text { font-family: "IBM Plex Mono", monospace; font-size: 11px; fill: var(--bad); }
+  .tip { position: absolute; pointer-events: none; background: var(--ink); color: var(--bg); font-family: "IBM Plex Mono", monospace; font-size: 12px; padding: 6px 9px; border-radius: 6px; white-space: nowrap; transform: translate(-50%, -110%); opacity: 0; transition: opacity .08s; box-shadow: var(--shadow); z-index: 2; }
+  .tip b { font-weight: 600; }
+  .crosshair { stroke: var(--ink-3); stroke-width: 1; stroke-dasharray: 3 3; }
+
+  /* table */
+  .tablewrap { overflow-x: auto; margin-top: 18px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); }
+  table { border-collapse: collapse; width: 100%; min-width: 980px; font-size: 14px; }
+  th, td { padding: 10px 12px; text-align: right; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { font-family: "Bricolage Grotesque", sans-serif; font-weight: 600; font-size: 12.5px; color: var(--ink-2); background: var(--panel-2); position: sticky; top: 0; }
+  th:first-child, td:first-child { text-align: left; position: sticky; left: 0; background: var(--panel); }
+  th:first-child { background: var(--panel-2); }
+  td { font-family: "IBM Plex Mono", monospace; font-variant-numeric: tabular-nums; }
+  tr:last-child td { border-bottom: 0; }
+  td.bad { color: var(--bad); font-weight: 600; }
+  td.warn { color: var(--warn); font-weight: 600; }
+  tr.ceiling td { background: var(--bad-bg); }
+  .note { font-size: 14px; color: var(--ink-2); }
+
+  ul { padding-left: 20px; } li { margin: 6px 0; }
+  .two { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 24px 40px; }
+  dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 12px 0; font-size: 15px; }
+  dt { color: var(--ink-2); } dd { margin: 0; }
+  @media (max-width: 720px) { .verdict { grid-template-columns: 1fr; } .wrap { padding: 28px 18px 56px; } }
+  @media (prefers-reduced-motion: reduce) { .tip { transition: none; } }
+  :focus-visible { outline: 2px solid var(--felt); outline-offset: 2px; }
+</style>
+
+<div class="wrap">
+  <div class="eyebrow">Production load test · 5,000 players · instrumented build · <span id="host"></span></div>
+  <h1>King Teen Patti 5,000-Player Test</h1>
+  <div class="meta" id="meta"></div>
+
+  <section class="verdict">
+    <div class="hero">
+      <div class="eyebrow">Concurrent players held</div>
+      <div class="num" id="heroNum">—</div>
+      <div class="unit" id="heroUnit"></div>
+    </div>
+    <div class="answer" id="answer"></div>
+  </section>
+
+  <div class="kpis" id="kpis"></div>
+
+  <h2>How latency grew with the crowd</h2>
+  <p class="prose">Every bot times each move from the moment it sends <span class="mono">game:action</span> to the server's acknowledgement — the same round trip a player feels between tapping Chaal and the chips landing in the pot. The dashed line is the stop rule.</p>
+  <div class="figs">
+    <div class="fig wide" id="fig-latency"></div>
+    <div class="fig" id="fig-actions"></div>
+    <div class="fig" id="fig-hands"></div>
+    <div class="fig" id="fig-health"></div>
+    <div class="fig" id="fig-connect"></div>
+  </div>
+
+  <h2>Is the laptop or the server being measured?</h2>
+  <p class="prose">A load generator that runs out of breath inflates every latency it reports. This run timed how late its own 100&nbsp;ms heartbeat fired at each stage; if that number climbs with the crowd, the figures above it are the generator's, not the server's.</p>
+  <div class="figs">
+    <div class="fig" id="fig-genlag"></div>
+    <div class="fig" id="fig-host"></div>
+  </div>
+  <div id="hostnote" class="prose"></div>
+
+  <h2>4,000 players: last run against this one</h2>
+  <p class="prose">Both runs reached 4,000 players from a fresh set of accounts, an hour apart, on a server that was redeployed with the instrumented build in between. The rows agree closely, which is what a repeatable saturation looks like.</p>
+  <div class="tablewrap"><table id="compare"></table></div>
+
+  <h2>Every stage in numbers</h2>
+  <p class="prose">Each stage adds players in batches of 25, waits for them to sit, then measures for the hold window. Latencies are milliseconds; throughput is measured over the window only.</p>
+  <div class="tablewrap"><table id="stages"></table></div>
+
+  <h2>Inside the server</h2>
+  <p class="prose">This build reports its own vital signs on <span class="mono">/health</span>: CPU share of one core, memory, event-loop lag and the state of the PostgreSQL pool. Sampled every five seconds through each hold; the table shows the peak of each. Read the last two columns first.</p>
+  <div class="tablewrap"><table id="hostTable"></table></div>
+  <p class="prose" id="hostNote"></p>
+
+  <h2>What the test did</h2>
+  <div class="two">
+    <div>
+      <h3>The players</h3>
+      <ul id="method"></ul>
+    </div>
+    <div>
+      <h3>Read this with care</h3>
+      <ul id="caveats"></ul>
+    </div>
+  </div>
+
+  <h2>What to do with this</h2>
+  <ul class="prose" id="next"></ul>
+</div>
+
+<script>
+const RUN1 = {"url": "https://api.sungamestudio.com", "startedAt": "2026-09-07T21:56:25.918Z", "finishedAt": "2026-09-07T22:01:38.678Z", "stages": [1500, 2000, 3000, 4000], "holdSeconds": 60, "table": {"category": "blind", "boot": 200}, "thresholds": {"maxP95Ms": 3000, "maxErrorRate": 0.1}, "ceiling": null, "results": [{"target": 1500, "connected": 1499, "joined": 1499, "loginFailures": 0, "generatorLag": {"p50": 0, "p95": 1, "max": 4, "samples": 338}, "host": null, "connectFailures": 1, "disconnectsDuringHold": 0, "login": {"p50": 50, "p95": 72, "max": 162, "mean": 51}, "connect": {"p50": 154, "p95": 171, "max": 196}, "action": {"count": 36409, "errors": 0, "errorRate": 0, "perSec": 606.82, "p50": 28, "p95": 34, "p99": 43, "max": 293, "mean": 29}, "hands": {"started": 1412, "completed": 1426, "perSec": 23.77, "perMinute": 1426}, "chatSent": 2753, "healthRtt": {"p50": 81, "p95": 85, "max": 85}, "server": {"players": 1507, "tables": 303, "activeHands": 218, "uptime": 9931.679976041}, "stageSeconds": 77}, {"target": 2000, "connected": 1999, "joined": 1999, "loginFailures": 0, "generatorLag": {"p50": 0, "p95": 1, "max": 3, "samples": 327}, "host": null, "connectFailures": 1, "disconnectsDuringHold": 0, "login": {"p50": 72, "p95": 387, "max": 457, "mean": 92}, "connect": {"p50": 156, "p95": 197, "max": 398}, "action": {"count": 45031, "errors": 0, "errorRate": 0, "perSec": 750.52, "p50": 31, "p95": 191, "p99": 553, "max": 923, "mean": 53}, "hands": {"started": 1874, "completed": 1849, "perSec": 30.82, "perMinute": 1849}, "chatSent": 3653, "healthRtt": {"p50": 82, "p95": 85, "max": 85}, "server": {"players": 1920, "tables": 401, "activeHands": 258, "uptime": 10000.646994667}, "stageSeconds": 69}, {"target": 3000, "connected": 2999, "joined": 2999, "loginFailures": 0, "generatorLag": {"p50": 0, "p95": 1, "max": 2, "samples": 325}, "host": null, "connectFailures": 1, "disconnectsDuringHold": 0, "login": {"p50": 134, "p95": 575, "max": 664, "mean": 188}, "connect": {"p50": 165, "p95": 383, "max": 732}, "action": {"count": 49053, "errors": 0, "errorRate": 0, "perSec": 817.55, "p50": 209, "p95": 541, "p99": 1096, "max": 1924, "mean": 213}, "hands": {"started": 2078, "completed": 2056, "perSec": 34.27, "perMinute": 2056}, "chatSent": 5488, "healthRtt": {"p50": 83, "p95": 92, "max": 92}, "server": {"players": 2767, "tables": 577, "activeHands": 438, "uptime": 10079.054108955}, "stageSeconds": 78}, {"target": 4000, "connected": 3999, "joined": 3999, "loginFailures": 0, "generatorLag": {"p50": 0, "p95": 1, "max": 2, "samples": 316}, "host": null, "connectFailures": 1, "disconnectsDuringHold": 0, "login": {"p50": 432, "p95": 931, "max": 997, "mean": 437}, "connect": {"p50": 189, "p95": 666, "max": 1113}, "action": {"count": 48090, "errors": 0, "errorRate": 0, "perSec": 801.5, "p50": 477, "p95": 1002, "p99": 1379, "max": 2215, "mean": 430}, "hands": {"started": 1984, "completed": 1995, "perSec": 33.25, "perMinute": 1995}, "chatSent": 7384, "healthRtt": {"p50": 83, "p95": 91, "max": 91}, "server": {"players": 3619, "tables": 743, "activeHands": 589, "uptime": 10167.531633165}, "stageSeconds": 88}], "serverBefore": {"ok": true, "uptime": 9859.892606715, "tables": 3, "players": 15, "activeHands": 3, "rtt": 113}, "serverAfter": {"ok": true, "uptime": 10172.659425028, "tables": 743, "players": 3608, "activeHands": 585, "rtt": 93}, "lastHealthyStage": 4000, "stoppedBecause": null, "connectionsAtStop": 3999};
+const DATA = {"url": "https://api.sungamestudio.com", "startedAt": "2026-09-07T23:38:49.944Z", "finishedAt": "2026-09-07T23:46:54.426Z", "stages": [1000, 2000, 3000, 4000, 5000], "holdSeconds": 75, "table": {"category": "blind", "boot": 200}, "thresholds": {"maxP95Ms": 3000, "maxErrorRate": 0.1}, "ceiling": null, "results": [{"target": 1000, "connected": 1000, "joined": 1000, "loginFailures": 0, "generatorLag": {"p50": 0, "p95": 1, "max": 3, "samples": 416}, "host": {"samples": 15, "rssMbMax": 322.1, "heapUsedMbMax": 127.5, "cpuPercentMean": 38, "cpuPercentMax": 45.3, "loopLagP99MsMax": 21.5, "loopLagMaxMs": 21.9, "socketsMax": 1001, "dbWaitingMax": 0, "dbTotalMax": 10}, "connectFailures": 0, "disconnectsDuringHold": 0, "login": {"p50": 51, "p95": 73, "max": 193, "mean": 55}, "connect": {"p50": 158, "p95": 174, "max": 204}, "action": {"count": 30414, "errors": 0, "errorRate": 0, "perSec": 405.52, "p50": 28, "p95": 32, "p99": 36, "max": 66, "mean": 28}, "hands": {"started": 1162, "completed": 1180, "perSec": 15.73, "perMinute": 944}, "chatSent": 2329, "healthRtt": {"p50": 81, "p95": 83, "max": 83}, "server": {"players": 992, "tables": 200, "activeHands": 137, "uptime": 2016.658451055}, "stageSeconds": 88}, {"target": 2000, "connected": 2000, "joined": 2000, "loginFailures": 0, "generatorLag": {"p50": 0, "p95": 1, "max": 3, "samples": 419}, "host": {"samples": 15, "rssMbMax": 344.7, "heapUsedMbMax": 103, "cpuPercentMean": 63, "cpuPercentMax": 67.9, "loopLagP99MsMax": 22.9, "loopLagMaxMs": 24.7, "socketsMax": 2001, "dbWaitingMax": 0, "dbTotalMax": 10}, "connectFailures": 0, "disconnectsDuringHold": 0, "login": {"p50": 59, "p95": 122, "max": 215, "mean": 64}, "connect": {"p50": 163, "p95": 189, "max": 444}, "action": {"count": 56513, "errors": 0, "errorRate": 0, "perSec": 753.51, "p50": 31, "p95": 171, "p99": 531, "max": 1021, "mean": 50}, "hands": {"started": 2317, "completed": 2336, "perSec": 31.15, "perMinute": 1868.8}, "chatSent": 4579, "healthRtt": {"p50": 81, "p95": 89, "max": 89}, "server": {"players": 1890, "tables": 396, "activeHands": 281, "uptime": 2105.083223824}, "stageSeconds": 88}, {"target": 3000, "connected": 2999, "joined": 2999, "loginFailures": 0, "generatorLag": {"p50": 0, "p95": 1, "max": 3, "samples": 416}, "host": {"samples": 15, "rssMbMax": 365.7, "heapUsedMbMax": 146, "cpuPercentMean": 71, "cpuPercentMax": 77.9, "loopLagP99MsMax": 23.7, "loopLagMaxMs": 25.2, "socketsMax": 3000, "dbWaitingMax": 447, "dbTotalMax": 10}, "connectFailures": 1, "disconnectsDuringHold": 0, "login": {"p50": 109, "p95": 244, "max": 982, "mean": 148}, "connect": {"p50": 171, "p95": 301, "max": 1139}, "action": {"count": 67504, "errors": 0, "errorRate": 0, "perSec": 900.05, "p50": 115, "p95": 429, "p99": 1411, "max": 2937, "mean": 148}, "hands": {"started": 2852, "completed": 2894, "perSec": 38.59, "perMinute": 2315.2}, "chatSent": 6957, "healthRtt": {"p50": 82, "p95": 87, "max": 87}, "server": {"players": 2697, "tables": 572, "activeHands": 387, "uptime": 2197.567355536}, "stageSeconds": 92}, {"target": 4000, "connected": 3999, "joined": 3999, "loginFailures": 0, "generatorLag": {"p50": 0, "p95": 1, "max": 3, "samples": 430}, "host": {"samples": 15, "rssMbMax": 427.2, "heapUsedMbMax": 164, "cpuPercentMean": 64, "cpuPercentMax": 71.6, "loopLagP99MsMax": 23.7, "loopLagMaxMs": 28.7, "socketsMax": 4000, "dbWaitingMax": 509, "dbTotalMax": 10}, "connectFailures": 1, "disconnectsDuringHold": 0, "login": {"p50": 363, "p95": 1079, "max": 2748, "mean": 439}, "connect": {"p50": 192, "p95": 582, "max": 2865}, "action": {"count": 59433, "errors": 0, "errorRate": 0, "perSec": 792.44, "p50": 415, "p95": 1073, "p99": 2021, "max": 3326, "mean": 420}, "hands": {"started": 2467, "completed": 2497, "perSec": 33.29, "perMinute": 1997.6}, "chatSent": 9101, "healthRtt": {"p50": 84, "p95": 88, "max": 88}, "server": {"players": 3484, "tables": 727, "activeHands": 603, "uptime": 2301.817376529}, "stageSeconds": 104}, {"target": 5000, "connected": 4999, "joined": 4999, "loginFailures": 0, "generatorLag": {"p50": 0, "p95": 1, "max": 2, "samples": 435}, "host": {"samples": 15, "rssMbMax": 481.8, "heapUsedMbMax": 233.7, "cpuPercentMean": 66, "cpuPercentMax": 76.4, "loopLagP99MsMax": 24.8, "loopLagMaxMs": 28, "socketsMax": 5000, "dbWaitingMax": 753, "dbTotalMax": 10}, "connectFailures": 1, "disconnectsDuringHold": 0, "login": {"p50": 551, "p95": 1547, "max": 1722, "mean": 618}, "connect": {"p50": 236, "p95": 841, "max": 2865}, "action": {"count": 58963, "errors": 0, "errorRate": 0, "perSec": 786.17, "p50": 683, "p95": 1477, "p99": 2523, "max": 3732, "mean": 610}, "hands": {"started": 2500, "completed": 2499, "perSec": 33.32, "perMinute": 1999.2}, "chatSent": 11391, "healthRtt": {"p50": 83, "p95": 101, "max": 101}, "server": {"players": 4255, "tables": 882, "activeHands": 770, "uptime": 2413.227413802}, "stageSeconds": 111}], "serverBefore": {"ok": true, "uptime": 1933.883551176, "tables": 0, "players": 0, "activeHands": 0, "sockets": 1, "process": {"pid": 33517, "node": "v24.20.0", "rssMb": 87.2, "heapUsedMb": 19.4, "heapTotalMb": 21.4, "externalMb": 6.1, "cpuPercent": 0.6, "loopLagP50Ms": 20.2, "loopLagP99Ms": 21.3, "loopLagMaxMs": 21.3}, "db": {"total": 0, "idle": 0, "waiting": 0}, "rtt": 123}, "serverAfter": {"ok": true, "uptime": 2418.376757982, "tables": 882, "players": 4241, "activeHands": 700, "sockets": 5000, "process": {"pid": 33517, "node": "v24.20.0", "rssMb": 480.5, "heapUsedMb": 158.2, "heapTotalMb": 344.5, "externalMb": 7.2, "cpuPercent": 63, "loopLagP50Ms": 20.1, "loopLagP99Ms": 23, "loopLagMaxMs": 23.4}, "db": {"total": 10, "idle": 0, "waiting": 499}, "rtt": 105}, "lastHealthyStage": 5000, "stoppedBecause": null, "connectionsAtStop": 4999};
+
+// ---------------------------------------------------------------- helpers
+const fmt = (n, d = 0) => n == null || Number.isNaN(n) ? '—' : Number(n).toLocaleString('en-IN', { maximumFractionDigits: d, minimumFractionDigits: d });
+const ms = (n) => n == null ? '—' : `${fmt(n)} ms`;
+const $ = (id) => document.getElementById(id);
+const R = DATA.results;
+const ceiling = DATA.ceiling;
+const healthy = ceiling ? R.filter(r => r.target !== ceiling.target) : R;
+const peak = healthy[healthy.length - 1] ?? R[R.length - 1];
+const last = R[R.length - 1];
+const started = new Date(DATA.startedAt), finished = new Date(DATA.finishedAt);
+const durationMin = Math.round((finished - started) / 60000);
+
+$('host').textContent = new URL(DATA.url).host;
+$('meta').innerHTML = [
+  `<span><b>${started.toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}</b>, ${started.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })} IST</span>`,
+  `<span>Stages <b>${DATA.stages.join(' → ')}</b> players</span>`,
+  `<span>Hold <b>${DATA.holdSeconds >= 120 ? (DATA.holdSeconds / 60).toFixed(0) + ' min' : DATA.holdSeconds + 's'}</b> per stage · <b>${durationMin} min</b> total</span>`,
+  `<span>Table <b>${DATA.table.category} · boot ${fmt(DATA.table.boot)}</b></span>`,
+  `<span>Stop rules <b>p95 &gt; ${fmt(DATA.thresholds.maxP95Ms)} ms</b> or <b>errors &gt; ${DATA.thresholds.maxErrorRate * 100}%</b></span>`,
+].join('');
+
+// ---------------------------------------------------------------- verdict
+$('heroNum').textContent = fmt(peak.connected);
+$('heroUnit').textContent = ceiling
+  ? `of ${fmt(ceiling.target)} attempted before the stop rule tripped`
+  : `every stage up to ${fmt(last.target)} passed — the ceiling is above what was tested`;
+
+const worstP95 = Math.max(...healthy.map(r => r.action.p95));
+const totalActions = R.reduce((a, r) => a + r.action.count, 0);
+const totalHands = R.reduce((a, r) => a + r.hands.completed, 0);
+const totalErrors = R.reduce((a, r) => a + r.action.errors, 0);
+$('answer').innerHTML = `
+  <p>${ceiling
+    ? `Production held <b>${fmt(peak.connected)} concurrent players</b> cleanly. At <b>${fmt(ceiling.target)}</b> it broke the stop rule: ${ceiling.reasons.join('; ')}.`
+    : `Production accepted <b>every one of ${fmt(last.connected)} connections</b> and seated <b>${fmt(last.server.players)} players at ${fmt(last.server.tables)} tables</b> — ${fmt(last.server.activeHands)} hands in play at once — with no refused moves and no dropped sockets, so 5,000 players do not break it. They do slow it: a move acknowledged in ${ms(R[0].action.p95)} at the 95th percentile with ${fmt(R[0].connected)} players took <b>${ms(last.action.p95)}</b> with ${fmt(last.connected)}, and moves per second stopped growing near <b>${fmt(Math.max(...R.map(r => r.action.perSec)))}/s</b> from 3,000 players on. This run also recorded the server's own vital signs, and they point at one thing: the <b>PostgreSQL connection pool</b>, capped at ${fmt(last.host.dbTotalMax)} connections, had up to <b>${fmt(last.host.dbWaitingMax)} queries waiting</b> for a connection at the top stage, while the event loop stayed idle-fast (p99 lag ${fmt(last.host.loopLagP99MsMax)} ms) and CPU sat at ${fmt(last.host.cpuPercentMean)}% of one core. The game server is waiting on its database pool, not running out of processor.`}</p>
+  <p>At the top healthy stage a move was acknowledged in <b>${ms(peak.action.p50)}</b> typically and <b>${ms(peak.action.p95)}</b> at the 95th percentile, the server was completing <b>${fmt(peak.hands.perMinute, 1)} hands a minute</b>, and <b>${fmt(peak.action.errorRate * 100, 1)}%</b> of moves were refused. The worst p95 seen in any healthy stage was <b>${ms(worstP95)}</b>.</p>
+  <p>Over the whole run the bots made <b>${fmt(totalActions)}</b> moves and finished <b>${fmt(totalHands)}</b> hands with <b>${fmt(totalErrors)}</b> refused moves.
+  <span class="pill ${ceiling ? 'warn' : 'good'}"><i></i>${ceiling ? 'ceiling found' : 'no ceiling reached'}</span></p>`;
+
+// ---------------------------------------------------------------- KPIs
+$('kpis').innerHTML = [
+  ['Players seated at peak', fmt(peak.joined), ''],
+  ['Moves per second', fmt(peak.action.perSec, 1), ''],
+  ['Hands per minute', fmt(peak.hands.perMinute, 1), ''],
+  ['Move ack p95', fmt(peak.action.p95), 'ms'],
+  ['Health check p95', fmt(peak.healthRtt.p95), 'ms'],
+  ['Socket connect p95', fmt(peak.connect.p95), 'ms'],
+  ['Refused moves', fmt(peak.action.errorRate * 100, 1), '%'],
+  ['Tables open', fmt(peak.server.tables), ''],
+].map(([l, v, u]) => `<div class="kpi"><div class="l">${l}</div><div class="v">${v}${u ? `<small>${u}</small>` : ''}</div></div>`).join('');
+
+// ---------------------------------------------------------------- charts
+function lineChart(el, { title, sub, series, unit, threshold, yMax }) {
+  const W = 720, H = 300, m = { t: 18, r: 64, b: 40, l: 56 };
+  const xs = R.map(r => r.target);
+  const allY = series.flatMap(s => s.values).concat(threshold ? [threshold] : []);
+  const ymax = yMax ?? Math.max(1, ...allY) * 1.12;
+  const x = v => m.l + (Math.log10(v) - Math.log10(xs[0])) / (Math.log10(xs[xs.length - 1]) - Math.log10(xs[0]) || 1) * (W - m.l - m.r);
+  const y = v => H - m.b - (v / ymax) * (H - m.t - m.b);
+  const ticksY = 4;
+  let g = `<g class="grid">${Array.from({ length: ticksY + 1 }, (_, i) => { const v = ymax * i / ticksY; return `<line x1="${m.l}" x2="${W - m.r}" y1="${y(v)}" y2="${y(v)}"/>`; }).join('')}</g>`;
+  g += `<g class="axis">${Array.from({ length: ticksY + 1 }, (_, i) => { const v = ymax * i / ticksY; return `<text x="${m.l - 8}" y="${y(v) + 4}" text-anchor="end">${fmt(v)}</text>`; }).join('')}`;
+  g += xs.map(v => `<text x="${x(v)}" y="${H - m.b + 18}" text-anchor="middle">${v}</text>`).join('');
+  g += `<line x1="${m.l}" x2="${W - m.r}" y1="${H - m.b}" y2="${H - m.b}"/>`;
+  g += `<text x="${(m.l + W - m.r) / 2}" y="${H - 4}" text-anchor="middle">concurrent players (log scale)</text></g>`;
+  if (threshold) g += `<g class="thresh"><line x1="${m.l}" x2="${W - m.r}" y1="${y(threshold)}" y2="${y(threshold)}"/><text x="${W - m.r + 6}" y="${y(threshold) + 4}">stop ${fmt(threshold)}</text></g>`;
+  g += series.map(s => {
+    const d = s.values.map((v, i) => `${i ? 'L' : 'M'}${x(xs[i]).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+    const lastV = s.values[s.values.length - 1];
+    return `<g class="series"><path d="${d}" stroke="${s.color}"/>${s.values.map((v, i) => `<circle cx="${x(xs[i])}" cy="${y(v)}" r="4" fill="${s.color}"/>`).join('')}<text class="dlabel" x="${x(xs[xs.length - 1]) + 8}" y="${y(lastV) + 4}">${s.name}</text></g>`;
+  }).join('');
+  g += `<line class="crosshair" id="ch" x1="0" x2="0" y1="${m.t}" y2="${H - m.b}" style="opacity:0"/>`;
+  el.innerHTML = `<h3>${title}</h3><div class="sub">${sub}</div><div class="legend">${series.map(s => `<span><i style="background:${s.color}"></i>${s.name}</span>`).join('')}</div><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${title}">${g}</svg><div class="tip"></div>`;
+  const svg = el.querySelector('svg'), tip = el.querySelector('.tip'), ch = el.querySelector('#ch');
+  svg.addEventListener('mousemove', (e) => {
+    const rect = svg.getBoundingClientRect(); const px = (e.clientX - rect.left) / rect.width * W;
+    let i = 0, best = 1e9; xs.forEach((v, k) => { const d = Math.abs(x(v) - px); if (d < best) { best = d; i = k; } });
+    ch.setAttribute('x1', x(xs[i])); ch.setAttribute('x2', x(xs[i])); ch.style.opacity = 1;
+    tip.innerHTML = `<b>${xs[i]} players</b><br>${series.map(s => `${s.name}: ${fmt(s.values[i], s.decimals ?? 0)}${unit}`).join('<br>')}`;
+    tip.style.left = `${x(xs[i]) / W * rect.width}px`; tip.style.top = `${(y(Math.max(...series.map(s => s.values[i]))) / H) * rect.height + 8}px`; tip.style.opacity = 1;
+  });
+  svg.addEventListener('mouseleave', () => { tip.style.opacity = 0; ch.style.opacity = 0; });
+}
+const s1 = getComputedStyle(document.documentElement).getPropertyValue('--s1').trim(), s2 = getComputedStyle(document.documentElement).getPropertyValue('--s2').trim(), s3 = getComputedStyle(document.documentElement).getPropertyValue('--s3').trim();
+lineChart($('fig-latency'), { title: 'Move acknowledgement latency', sub: 'Client-measured round trip for game:action, per stage', unit: ' ms', threshold: DATA.thresholds.maxP95Ms,
+  series: [{ name: 'p50', color: s1, values: R.map(r => r.action.p50) }, { name: 'p95', color: s2, values: R.map(r => r.action.p95) }, { name: 'p99', color: s3, values: R.map(r => r.action.p99) }] });
+lineChart($('fig-actions'), { title: 'Moves per second', sub: 'Accepted game actions across all tables during the hold', unit: '/s', series: [{ name: 'moves/s', color: s1, values: R.map(r => r.action.perSec), decimals: 1 }] });
+lineChart($('fig-hands'), { title: 'Hands completed per minute', sub: 'Unique hands that reached a winner during the hold', unit: '/min', series: [{ name: 'hands/min', color: s1, values: R.map(r => r.hands.perMinute), decimals: 1 }] });
+lineChart($('fig-health'), { title: 'REST health check latency', sub: 'GET /health round trip while the tables were busy', unit: ' ms', series: [{ name: 'p50', color: s1, values: R.map(r => r.healthRtt.p50) }, { name: 'p95', color: s2, values: R.map(r => r.healthRtt.p95) }] });
+lineChart($('fig-connect'), { title: 'Sign-in and socket connect', sub: 'Guest login (REST) and Socket.IO handshake, p95 per stage', unit: ' ms', series: [{ name: 'login p95', color: s1, values: R.map(r => r.login.p95) }, { name: 'connect p95', color: s2, values: R.map(r => r.connect.p95) }] });
+
+// ---------------------------------------------------------------- table
+const cols = ['Players', 'Connected', 'Seated', 'Tables', 'Moves/s', 'Hands/min', 'Ack p50', 'Ack p95', 'Ack p99', 'Ack max', 'Refused', 'Login p95', 'Connect p95', 'Health p95', 'Drops'];
+$('stages').innerHTML = `<thead><tr>${cols.map(c => `<th>${c}</th>`).join('')}</tr></thead><tbody>${R.map(r => {
+  const isCeil = ceiling && r.target === ceiling.target;
+  const p95c = r.action.p95 > DATA.thresholds.maxP95Ms ? 'bad' : r.action.p95 > DATA.thresholds.maxP95Ms / 2 ? 'warn' : '';
+  const errc = r.action.errorRate > DATA.thresholds.maxErrorRate ? 'bad' : r.action.errorRate > DATA.thresholds.maxErrorRate / 2 ? 'warn' : '';
+  return `<tr class="${isCeil ? 'ceiling' : ''}"><td>${fmt(r.target)}${isCeil ? ' ✕' : ''}</td><td>${fmt(r.connected)}</td><td>${fmt(r.joined)}</td><td>${fmt(r.server.tables)}</td><td>${fmt(r.action.perSec, 1)}</td><td>${fmt(r.hands.perMinute, 1)}</td><td>${fmt(r.action.p50)}</td><td class="${p95c}">${fmt(r.action.p95)}</td><td>${fmt(r.action.p99)}</td><td>${fmt(r.action.max)}</td><td class="${errc}">${fmt(r.action.errors)} (${fmt(r.action.errorRate * 100, 1)}%)</td><td>${fmt(r.login.p95)}</td><td>${fmt(r.connect.p95)}</td><td>${fmt(r.healthRtt.p95)}</td><td>${fmt(r.generatorLag?.p95)}</td><td>${fmt(r.disconnectsDuringHold)}</td></tr>`;
+}).join('')}</tbody>`;
+
+// ---------------------------------------------------------------- generator lag & host
+lineChart($('fig-genlag'), { title: 'Load generator event-loop lag', sub: "How late the generator's own 100 ms heartbeat fired, p95 and max", unit: ' ms',
+  series: [{ name: 'p95', color: s1, values: R.map(r => r.generatorLag?.p95 ?? 0) }, { name: 'max', color: s2, values: R.map(r => r.generatorLag?.max ?? 0) }] });
+
+// ---------------------------------------------------------------- comparison with run 1
+
+const r1 = RUN1.results.find(r => r.target === 4000), r2 = R.find(r => r.target === 4000);
+if (r1 && r2) {
+  const rows = [
+    ['Hold', `${RUN1.holdSeconds}s`, `${DATA.holdSeconds}s`],
+    ['Connected', fmt(r1.connected), fmt(r2.connected)],
+    ['Seated (server)', fmt(r1.server.players), fmt(r2.server.players)],
+    ['Moves/s', fmt(r1.action.perSec, 1), fmt(r2.action.perSec, 1)],
+    ['Hands/min', fmt(r1.hands.perMinute, 1), fmt(r2.hands.perMinute, 1)],
+    ['Ack p50 ms', fmt(r1.action.p50), fmt(r2.action.p50)],
+    ['Ack p95 ms', fmt(r1.action.p95), fmt(r2.action.p95)],
+    ['Ack p99 ms', fmt(r1.action.p99), fmt(r2.action.p99)],
+    ['Ack max ms', fmt(r1.action.max), fmt(r2.action.max)],
+    ['Refused moves', `${fmt(r1.action.errors)} (${fmt(r1.action.errorRate * 100, 1)}%)`, `${fmt(r2.action.errors)} (${fmt(r2.action.errorRate * 100, 1)}%)`],
+    ['Health p95 ms', fmt(r1.healthRtt.p95), fmt(r2.healthRtt.p95)],
+    ['Generator lag p95 ms', fmt(r1.generatorLag?.p95), fmt(r2.generatorLag?.p95)],
+  ];
+  $('compare').innerHTML = `<thead><tr><th>1,500 players</th><th>Run 5 · ${new Date(RUN1.startedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', timeZone: 'Asia/Kolkata' })}</th><th>Run 6 · ${started.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', timeZone: 'Asia/Kolkata' })}</th></tr></thead><tbody>${rows.map(([k, a, b]) => `<tr><td>${k}</td><td>${a}</td><td>${b}</td></tr>`).join('')}</tbody>`;
+  $('compare').style.minWidth = '0';
+} else {
+  $('compare').innerHTML = '<tbody><tr><td>No 1,000-player stage in both runs.</td></tr></tbody>';
+}
+
+// ---------------------------------------------------------------- method / caveats / next
+$('method').innerHTML = [
+  `Each bot signs in as a guest over REST, opens one Socket.IO websocket, and quick-joins a <b>${DATA.table.category} ${fmt(DATA.table.boot)}</b> table — the same path the Flutter app takes.`,
+  `On its turn a bot waits 120–520 ms, then plays like a cautious human: sees its cards 60% of the time, packs 15%, raises 15%, otherwise chaals; heads-up it calls a show 45% of the time.`,
+  `About one chat line every 30 s per bot keeps the room-log path warm.`,
+  `Players are added in batches of 25 every 150 ms; the stage is measured only after the last batch has sat down.`,
+  `Stages: ${DATA.stages.join(', ')} players, each held ${DATA.holdSeconds} s. The run stops at the first stage whose p95 exceeds ${fmt(DATA.thresholds.maxP95Ms)} ms, whose refusal rate exceeds ${DATA.thresholds.maxErrorRate * 100}%, or where fewer than 90% of players connect.`,
+].map(t => `<li>${t}</li>`).join('');
+$('hostTable').innerHTML = `<thead><tr><th>Players</th><th>CPU mean %</th><th>CPU max %</th><th>RSS max MB</th><th>Heap max MB</th><th>Loop lag p99 max ms</th><th>Pool size</th><th>Queries waiting (max)</th></tr></thead><tbody>${R.map(r => {
+  const hst = r.host ?? {}; const waitc = (hst.dbWaitingMax ?? 0) > 0 ? 'bad' : '';
+  return `<tr><td>${fmt(r.target)}</td><td>${fmt(hst.cpuPercentMean)}</td><td>${fmt(hst.cpuPercentMax)}</td><td>${fmt(hst.rssMbMax)}</td><td>${fmt(hst.heapUsedMbMax)}</td><td>${fmt(hst.loopLagP99MsMax, 1)}</td><td>${fmt(hst.dbTotalMax)}</td><td class="${waitc}">${fmt(hst.dbWaitingMax)}</td></tr>`;
+}).join('')}</tbody>`;
+
+$('hostNote').innerHTML = `Every move is one database transaction, and the pool hands them out <b>${fmt(last.host.dbTotalMax)} at a time</b>. Up to 2,000 players nothing waited. From 3,000 on, hundreds of transactions queued for a free connection — that queue <em>is</em> the extra latency players felt — while the event loop never stalled and the processor had a third of a core to spare. Raising <span class="mono">PG_POOL_MAX</span> (and Postgres <span class="mono">max_connections</span> with it) is therefore the first and cheapest thing to change, and this run predicts it will move the knee well past 2,000 players.`;
+
+$('caveats').innerHTML = [
+  `All ${fmt(last.target)} players again ran from <b>the same laptop</b> as the first run — no second machine was available to this session — on one network path, so the floor of every latency figure (${ms(R[0].action.p50)} at ${R[0].target} players) is that path, not the server. Real players spread across India will each see their own network on top of the server's share.`,
+  `Bots act far faster than people: a table of five bots completes a hand in seconds, so <b>moves per second per player</b> here is several times a real table's. The server load per player is correspondingly higher than in production use.`,
+  `Server-side figures come from the process itself (<span class="mono">/health</span>, sampled every 5 s), not from the operating system: CPU is the process's share of one core, and Postgres's own view of the load was not captured — the pool statistics stand in for it. The Prometheus endpoint shipped in this build gives the full picture next time.`,
+  `Fresh accounts this time: <span class="mono">LoadBot40000 … LoadBot${40000 + last.target - 1}</span> were created, so ${fmt(last.server.players)} of ${fmt(last.connected)} connections held a seat at the top (the rest busted on the unlimited blind ladder within the hold). Earlier runs' accounts <span class="mono">LoadBot0 … LoadBot34999</span> also still exist in the production database (fixed device ids, so re-runs reuse them). Their hands and ledger rows are real rows; the chip ledger is append-only by design, so they can be retired but not deleted.`,
+  `Holds were 75 seconds. At 4,000 and 5,000 players the server was saturated for the whole hold; a longer hold would show whether the queue drains or keeps growing, and at these levels the answer matters.`,
+].map(t => `<li>${t}</li>`).join('');
+$('next').innerHTML = [
+  `<b>Raise the PostgreSQL pool and rerun this exact command.</b> Set <span class="mono">PG_POOL_MAX=50</span> on the game server (Postgres <span class="mono">max_connections</span> must be at least that plus the exporter and admin sessions — 100 is a safe setting), restart, and run <span class="mono">node tools/ramptest.mjs --url https://api.sungamestudio.com --stages 1000,2000,3000,4000,5000 --hold 75 --idOffset 50000</span>. Watch <span class="mono">game_db_pool_waiting_requests</span> and <span class="mono">game_db_transaction_duration_seconds</span> in Grafana while it runs: if waiting stays at zero and p95 stays flat past 3,000, the pool was the whole story; if transaction duration climbs instead, Postgres itself is next.`,
+  `<b>Until then, plan around 2,000 concurrent players per process</b> — the last stage where nothing queued and p95 stayed under 200 ms.`,
+  ceiling ? `Treat <b>${fmt(peak.connected)} concurrent players</b> as the safe operating level for this host until the cause at ${fmt(ceiling.target)} (${ceiling.reasons.join('; ')}) is understood.` : `Nothing in this run found the limit. Repeat with stages beyond ${fmt(last.target)} and a longer hold (5–10 min) to confirm the server is steady, not merely surviving.`,
+  `Run the same ramp from a second machine in another region — <span class="mono">node tools/ramptest.mjs --url https://api.sungamestudio.com --stages 1000,2000,3000 --hold 300 --idOffset 5000</span> — and compare the p50 floor: if it moves with the generator, the server is not the bottleneck at these levels.`,
+  `Capture host metrics during the next run (CPU per core, event-loop lag, Postgres connections and transaction latency). The database is the first thing to saturate in a database-first money model.`,
+  `If the ceiling is a single Node process, the honest next step is horizontal: several processes behind sticky sessions, with the room manager made shareable (Redis adapter is wired but rooms are process-local today).`,
+].map(t => `<li>${t}</li>`).join('');
+</script>

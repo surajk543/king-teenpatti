@@ -1,10 +1,17 @@
 # Prometheus configuration for the King Teen Patti game server (Requirement 35).
 #
-# Four scrape jobs, one per layer of the stack:
-#   game-server  the Node process, prom-client on GET /metrics
-#   postgres     postgres_exporter                     (Requirement 35e)
-#   nginx        nginx-prometheus-exporter/stub_status (Requirement 35g)
-#   node         node_exporter, host CPU/RAM/disk/net  (dashboard "System" row)
+# Scrape jobs, one per layer of the stack:
+#   game-server         the Node process in SINGLE-PROCESS mode (:3000)
+#   king-teenpatti-w1..3  the game WORKERS in cluster mode (:3101..:3103), one job each
+#   postgres            postgres_exporter                     (Requirement 35e)
+#   nginx               nginx-prometheus-exporter/stub_status (Requirement 35g)
+#   node                node_exporter, host CPU/RAM/disk/net  (dashboard "System" row)
+#
+# Single-process and cluster mode are both listed; whichever is not running
+# shows DOWN on /targets, which is harmless (the dashboard sums over whatever
+# instances exist). Comment out the block you are not using if the noise
+# bothers you. On the production box install-cluster.sh appends the same
+# king-teenpatti-w<N> jobs (targets 127.0.0.1:310N) to /etc/prometheus/prometheus.yml.
 #
 # The targets below assume the docker-compose stack in ../docker-compose.yml:
 # exporters are reached by their compose service name, the host's own processes
@@ -36,6 +43,7 @@ rule_files:
 
 scrape_configs:
   # ------------------------------------------------------------ game server
+  # Single-process mode (WORKER_ID unset): the one Node process on :3000.
   - job_name: game-server
     # keep in sync with METRICS_PATH in server/.env (default /metrics)
     metrics_path: /metrics
@@ -59,9 +67,55 @@ scrape_configs:
     # Prometheus connects from — for this compose stack that is the compose
     # network gateway (172.30.0.1), not 127.0.0.1.
 
+  # ------------------------------------------------------- game workers
+  # Cluster mode (server/ops/cluster/): gameplay@<id> listens on
+  # WORKER_BASE_PORT + WORKER_ID = 3100 + id. One job PER WORKER so that
+  # `up{job="king-teenpatti-w2"}` says exactly which one is down, and so the
+  # job label never depends on relabelling. Every worker publishes
+  # game_worker_info{worker="<id>"} = 1 — count(game_worker_info) is the
+  # dashboard's "Workers up" stat. All game_* metrics are per process:
+  # sum() across instances for totals, never read one worker as the whole.
+  #
+  # Adding a worker = copy one block, bump the id and the port. Keep the
+  # labels: `app` is what the dashboard's restart annotation filters on and
+  # `worker` is the small fixed id (allowed as a label value — it is not a
+  # socket/user/room id).
+  - job_name: king-teenpatti-w1
+    metrics_path: /metrics
+    scheme: http
+    static_configs:
+      - targets: ['host.docker.internal:3101']
+        labels:
+          app: king-teenpatti
+          worker: '1'
+    # Same METRICS_TOKEN note as game-server above: uncomment on every
+    # worker job when the token is set (one token, shared by all workers).
+    # authorization:
+    #   type: Bearer
+    #   credentials_file: /etc/prometheus/metrics_token
+  - job_name: king-teenpatti-w2
+    metrics_path: /metrics
+    scheme: http
+    static_configs:
+      - targets: ['host.docker.internal:3102']
+        labels:
+          app: king-teenpatti
+          worker: '2'
+  - job_name: king-teenpatti-w3
+    metrics_path: /metrics
+    scheme: http
+    static_configs:
+      - targets: ['host.docker.internal:3103']
+        labels:
+          app: king-teenpatti
+          worker: '3'
+
   # Production, scraped across the internet through nginx. Copy the block above
   # and change only what differs; never point a public scrape at an open
   # /metrics — set METRICS_TOKEN (and, ideally, restrict the nginx location).
+  # NOTE: the production nginx site answers 404 on /metrics and the workers'
+  # endpoints are not proxied at all, so this only works with a Prometheus on
+  # the box (or an SSH tunnel) — see MONITORING.md → Workers.
   # - job_name: game-server-prod
   #   metrics_path: /metrics
   #   scheme: https

@@ -1,0 +1,18 @@
+# /etc/systemd/system/gameplay.target — groups the gameplay@<id> workers so
+# they can be started, stopped and restarted as one:
+#
+#   sudo systemctl restart gameplay.target      # all workers at once
+#   sudo systemctl status 'gameplay@*'
+#
+# For a no-downtime deploy restart the workers ONE AT A TIME instead
+# (systemctl restart gameplay@1; wait for /health; then @2; then @3): players
+# on a restarting worker lose their table, players on the others do not.
+#
+# The Wants= list must match WORKER_COUNT in gameplay@.service; install-cluster.sh
+# writes both from the same number.
+[Unit]
+Description=King Teen Patti game workers
+Wants=gameplay@1.service gameplay@2.service gameplay@3.service
+
+[Install]
+WantedBy=multi-user.target

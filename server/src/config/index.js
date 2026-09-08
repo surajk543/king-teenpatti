@@ -20,10 +20,36 @@ const list = (value) =>
     .map((entry) => entry.trim())
     .filter(Boolean);
 
+/**
+ * Multi-process mode (see src/cluster/registry.js). WORKER_ID unset or 0 is
+ * the classic single process; 1..WORKER_COUNT makes this process one worker of
+ * a cluster, each with its own tables, behind an nginx upstream that routes a
+ * player back to the worker holding their seat.
+ */
+const cluster = {
+  workerId: Math.max(0, num(process.env.WORKER_ID, 0)),
+  workerCount: Math.max(1, num(process.env.WORKER_COUNT, 1)),
+  /** Worker N listens on basePort + N unless WORKER_PORT is set explicitly. */
+  basePort: num(process.env.WORKER_BASE_PORT, 3100),
+};
+
+/**
+ * The listen port. A worker's port is deliberately independent of PORT: the
+ * production .env says PORT=3000 from the single-process days, and dotenv
+ * re-injects it even when the systemd unit unsets it, so honouring PORT in
+ * worker mode would put every worker on 3000. Worker N listens on
+ * WORKER_BASE_PORT + N; WORKER_PORT is the explicit override for a worker.
+ * PORT keeps its meaning for the single process.
+ */
+const port = cluster.workerId > 0
+  ? num(process.env.WORKER_PORT, cluster.basePort + cluster.workerId)
+  : num(process.env.PORT, 3000);
+
 const config = {
   env: process.env.NODE_ENV ?? 'development',
-  port: num(process.env.PORT, 3000),
+  port,
   host: process.env.HOST ?? '0.0.0.0',
+  cluster,
   corsOrigin: process.env.CORS_ORIGIN === '*' || !process.env.CORS_ORIGIN ? '*' : list(process.env.CORS_ORIGIN),
 
   jwt: {

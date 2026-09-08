@@ -151,6 +151,13 @@ class GameState extends ChangeNotifier {
   String _deviceId = '';
   Timer? _ticker;
 
+  /// The Socket.IO path of the worker process that answered last, remembered
+  /// so the next cold start knocks on that door first. Production runs several
+  /// workers and a table lives on exactly one; a player whose seat is being
+  /// held then lands straight back on it, with no `session:redirect` between.
+  /// Null means the server's default path, which reaches any worker.
+  String? _socketPath;
+
   /// Which rung of the bet ladder the stepper is on.
   int raiseIndex = 0;
 
@@ -171,6 +178,10 @@ class GameState extends ChangeNotifier {
     // Guest play is keyed to a device id, so chips survive a restart.
     _deviceId = prefs.getString('deviceId') ?? const Uuid().v4();
     await prefs.setString('deviceId', _deviceId);
+
+    // The worker that had us last is the one most likely to have our table.
+    final savedPath = prefs.getString('socketPath');
+    _socketPath = (savedPath == null || savedPath.isEmpty) ? null : savedPath;
 
     themeMode = prefs.getBool('darkMode') == true ? ThemeMode.dark : ThemeMode.light;
     unawaited(PackageInfo.fromPlatform().then((info) {
@@ -194,9 +205,10 @@ class GameState extends ChangeNotifier {
         next = Screen.lobby;
         // If the app was closed mid-hand the seat may still be held, or the
         // table remembered; either way the answer comes with the connection,
-        // which starts now, behind the splash.
+        // which starts now, behind the splash — on the worker that had us
+        // last, so the answer is usually the table itself.
         _beginResume();
-        _conn.connect(saved);
+        _conn.connect(saved, path: _socketPath);
       } catch (_) {
         // Expired or revoked — fall back to the sign-in screen.
         _token = null;
@@ -220,6 +232,8 @@ class GameState extends ChangeNotifier {
       _conn.onSession.listen((s) {
         user = s.user;
         config = s.config;
+        final workerPath = s.worker?.path;
+        if (workerPath != null) _rememberSocketPath(workerPath);
         _snapshotSinceSession = false;
         if (!resuming && room != null) _armSeatCheck();
         if (resuming) {
@@ -236,6 +250,15 @@ class GameState extends ChangeNotifier {
             _armResumeFallback(const Duration(milliseconds: 900));
           }
         }
+        notifyListeners();
+      }),
+      _conn.onRedirect.listen((_) {
+        // Our seat — or the table whose code we typed — is on another worker,
+        // and the connection is being reopened there. On a cold start that is
+        // still "returning to your table": the real `session:ready` is yet to
+        // come, so the veil stays and gets its full grace again rather than
+        // running out halfway through the second handshake.
+        if (resuming) _armResumeFallback(const Duration(seconds: 8));
         notifyListeners();
       }),
       _conn.onState.listen((s) {
@@ -436,6 +459,21 @@ class GameState extends ChangeNotifier {
     notifyListeners();
   }
 
+  // ---------------------------------------------------------------- worker
+
+  /// Keeps the path of the worker that just answered, for the next cold start.
+  /// Only the server's word counts — a redirect's target is not written down
+  /// until that worker has actually said hello.
+  void _rememberSocketPath(String path) {
+    if (path.isEmpty || path == _socketPath) return;
+    _socketPath = path;
+    unawaited(SharedPreferences.getInstance().then<void>((prefs) async {
+      await prefs.setString('socketPath', path);
+    }).catchError((_) {
+      // Not stored this time; the next session:ready tries again.
+    }));
+  }
+
   // ------------------------------------------------------------------ auth
 
   Future<void> loginAsGuest(String displayName) async {
@@ -455,7 +493,7 @@ class GameState extends ChangeNotifier {
         notice = 'Welcome! ${formatChips(r.welcomeChips)} chips added to your account.';
       }
 
-      _conn.connect(r.token);
+      _conn.connect(r.token, path: _socketPath);
       screen = Screen.lobby;
     } on ApiException catch (e) {
       loginError = e.message;

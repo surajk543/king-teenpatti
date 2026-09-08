@@ -126,3 +126,51 @@ CREATE TABLE IF NOT EXISTS game_states (
   state      JSONB NOT NULL,
   updated_at BIGINT NOT NULL
 );
+
+-- ---------------------------------------------------------------- workers
+--
+-- Multi-process routing (see src/cluster/registry.js). Every worker process
+-- owns its own tables outright; these rows only say *which* worker holds a
+-- player's seat or runs a table, so a connection that nginx handed to the
+-- wrong worker can be sent to the right one. Nothing here is money, and every
+-- row is disposable: a worker purges its own on start and stop, deletes a
+-- lapsed seat's row once the resume offer behind it has expired, and a dead
+-- worker's rows are treated as absent once the resume window has passed.
+
+-- One row per live worker, refreshed every 5 s. A heartbeat older than 15 s
+-- means the worker is gone and its players may be taken over.
+CREATE TABLE IF NOT EXISTS cluster_workers (
+  worker_id    INTEGER PRIMARY KEY,
+  worker_count INTEGER NOT NULL,
+  port         INTEGER NOT NULL,
+  pid          INTEGER,
+  started_at   BIGINT NOT NULL,
+  heartbeat_at BIGINT NOT NULL
+);
+
+-- Which worker holds each player's seat (or held seat, or resume offer).
+-- room_id is informational and may be NULL. Written by a compare-and-set: a
+-- worker only takes a row that is free, its own, or whose owner has stopped
+-- heartbeating — so one account is never seated on two live workers.
+CREATE TABLE IF NOT EXISTS cluster_players (
+  user_id    TEXT PRIMARY KEY,
+  worker_id  INTEGER NOT NULL,
+  room_id    TEXT,
+  updated_at BIGINT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_cluster_players_worker ON cluster_players (worker_id);
+
+-- Which worker runs the table behind each join code, so a code typed on any
+-- worker reaches the private table it names.
+CREATE TABLE IF NOT EXISTS cluster_rooms (
+  code        TEXT PRIMARY KEY,
+  room_id     TEXT NOT NULL,
+  worker_id   INTEGER NOT NULL,
+  is_private  BOOLEAN NOT NULL DEFAULT FALSE,
+  category    TEXT NOT NULL,
+  boot_amount BIGINT NOT NULL,
+  updated_at  BIGINT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_cluster_rooms_worker ON cluster_rooms (worker_id);

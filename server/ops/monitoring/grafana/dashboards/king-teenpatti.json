@@ -1,11 +1,12 @@
 {
   "uid": "king-teenpatti",
   "title": "King Teen Patti — Game Server",
-  "description": "System, Node.js, WebSockets, game, latency, PostgreSQL and nginx for the King Teen Patti server (Requirements 35–36).",
+  "description": "System, Node.js, WebSockets, game, latency, PostgreSQL and nginx for the King Teen Patti server (Requirements 35–36). Multi-instance safe: per-process gauges are summed over workers (or max for peaks), counters use sum(rate()), histograms sum(rate(_bucket)) by (le); Node.js process metrics are one line per worker ({{instance}}).",
   "tags": [
     "king-teenpatti",
     "game-server",
-    "prometheus"
+    "prometheus",
+    "cluster"
   ],
   "timezone": "browser",
   "editable": true,
@@ -13,7 +14,7 @@
   "liveNow": false,
   "refresh": "10s",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 3,
   "fiscalYearStartMonth": 0,
   "weekStart": "",
   "time": {
@@ -66,7 +67,7 @@
         "expr": "changes(game_server_process_start_time_seconds[2m]) > 0",
         "step": "15s",
         "titleFormat": "Node restarted",
-        "textFormat": "game_server_process_start_time_seconds changed"
+        "textFormat": "{{instance}} — game_server_process_start_time_seconds changed"
       }
     ]
   },
@@ -977,7 +978,7 @@
       "id": 11,
       "type": "timeseries",
       "title": "Open file descriptors",
-      "description": "One descriptor per websocket in Node (plus the pg pool and logs) and two per proxied websocket in nginx. The dashed line is the Node process's RLIMIT_NOFILE — raise it with the systemd drop-in in ops/monitoring/nginx/systemd/.",
+      "description": "One descriptor per websocket in Node (plus the pg pool and logs) and two per proxied websocket in nginx. The dashed line is the Node process's RLIMIT_NOFILE — raise it with the systemd drop-in in ops/monitoring/nginx/systemd/. Game server fds are per worker; the limit (LimitNOFILE in gameplay@.service) is the same for all.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -1074,7 +1075,7 @@
           },
           "editorMode": "code",
           "expr": "game_server_process_open_fds",
-          "legendFormat": "game server",
+          "legendFormat": "game server {{instance}}",
           "range": true,
           "instant": false
         },
@@ -1109,7 +1110,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "game_server_process_max_fds",
+          "expr": "max(game_server_process_max_fds)",
           "legendFormat": "game server limit",
           "range": true,
           "instant": false
@@ -1230,6 +1231,142 @@
       }
     },
     {
+      "id": 99,
+      "type": "timeseries",
+      "title": "CPU per core",
+      "description": "Busy share of each core. The game server is one Node process, so under load one line sits near 100% while the others stay low — that line is the ceiling.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 16,
+        "x": 0,
+        "y": 23
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "expr": "1 - rate(node_cpu_seconds_total{job=\"node\",mode=\"idle\"}[$__rate_interval])",
+          "legendFormat": "core {{cpu}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "drawStyle": "line",
+            "gradientMode": "none",
+            "spanNulls": true
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 100,
+      "type": "bargauge",
+      "title": "CPU per core (now)",
+      "description": "Current busy share per core over the last rate interval.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 23
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "range": false,
+          "instant": true,
+          "expr": "1 - rate(node_cpu_seconds_total{job=\"node\",mode=\"idle\"}[$__rate_interval])",
+          "legendFormat": "core {{cpu}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.7
+              },
+              {
+                "color": "red",
+                "value": 0.9
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "gradient",
+        "showUnfilled": true,
+        "valueMode": "color",
+        "namePlacement": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
       "id": 13,
       "type": "row",
       "title": "Node.js",
@@ -1238,15 +1375,169 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 23
+        "y": 31
       },
       "panels": []
+    },
+    {
+      "id": 101,
+      "type": "stat",
+      "title": "Workers up",
+      "description": "count(game_worker_info) — game workers currently scraped (each worker publishes game_worker_info{worker=\"<id>\"} = 1). \"single process\" means the server runs without WORKER_ID (no cluster). Green at 3 = the shipped WORKER_COUNT; change the threshold with it. Orange = a worker is down or not yet scraped: check `systemctl status gameplay@*` and Prometheus /targets.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "green",
+                "value": 3
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "single process",
+                  "index": 0
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto",
+        "orientation": "auto",
+        "justifyMode": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "count(game_worker_info) or vector(0)",
+          "legendFormat": "workers",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 0,
+        "y": 32
+      }
+    },
+    {
+      "id": 102,
+      "type": "stat",
+      "title": "Redirects/sec",
+      "description": "session:redirect messages per second, summed over workers: a player connected to a worker that does not hold their seat (reason seat) or a private-table code that lives elsewhere (reason room) and was sent to the right worker. A few after every deploy is normal (clients reconnect through the load balancer); a steady stream means clients are not remembering their worker path. Zero in single-process mode.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "decimals": 2,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "value_and_name",
+        "orientation": "auto",
+        "justifyMode": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "sum by (reason) (rate(game_redirects_total[1m]))",
+          "legendFormat": "{{reason}}",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 4,
+        "y": 32
+      }
     },
     {
       "id": 14,
       "type": "stat",
       "title": "Uptime",
-      "description": "Seconds since the Node process started. A reset here with no deploy is a crash — check the restart annotation and journalctl.",
+      "description": "Seconds since the Node process started. A reset here with no deploy is a crash — check the restart annotation and journalctl. One value per worker; workers restarted one at a time show different ages.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -1296,88 +1587,23 @@
           },
           "editorMode": "code",
           "expr": "game_server_process_uptime_seconds",
-          "legendFormat": "uptime",
+          "legendFormat": "{{instance}}",
           "range": true,
           "instant": false
         }
       ],
       "gridPos": {
         "h": 5,
-        "w": 4,
-        "x": 0,
-        "y": 24
-      }
-    },
-    {
-      "id": 15,
-      "type": "stat",
-      "title": "Node.js version",
-      "description": "Runtime version reported by the process (game_server_nodejs_version_info). The server requires Node ≥ 20.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "color": {
-            "mode": "thresholds"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          },
-          "mappings": []
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "colorMode": "none",
-        "graphMode": "none",
-        "textMode": "name",
-        "orientation": "auto",
-        "justifyMode": "auto",
-        "wideLayout": true,
-        "showPercentChange": false
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
-          "editorMode": "code",
-          "expr": "game_server_nodejs_version_info",
-          "legendFormat": "{{version}}",
-          "range": true,
-          "instant": false
-        }
-      ],
-      "gridPos": {
-        "h": 5,
-        "w": 4,
-        "x": 4,
-        "y": 24
+        "w": 8,
+        "x": 8,
+        "y": 32
       }
     },
     {
       "id": 16,
       "type": "stat",
       "title": "Started at",
-      "description": "Wall-clock time the process started (game_server_process_start_time_seconds).",
+      "description": "Wall-clock time the process started (game_server_process_start_time_seconds). One value per worker.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -1426,7 +1652,72 @@
           },
           "editorMode": "code",
           "expr": "game_server_process_start_time_seconds * 1000",
-          "legendFormat": "started",
+          "legendFormat": "{{instance}}",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "gridPos": {
+        "h": 5,
+        "w": 8,
+        "x": 16,
+        "y": 32
+      }
+    },
+    {
+      "id": 15,
+      "type": "stat",
+      "title": "Node.js version",
+      "description": "Runtime version reported by the process (game_server_nodejs_version_info). The server requires Node ≥ 20. One tile per distinct version across the workers — two tiles means a half-finished deploy.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "none",
+        "graphMode": "none",
+        "textMode": "name",
+        "orientation": "auto",
+        "justifyMode": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "max by (version) (game_server_nodejs_version_info)",
+          "legendFormat": "{{version}}",
           "range": true,
           "instant": false
         }
@@ -1434,15 +1725,15 @@
       "gridPos": {
         "h": 5,
         "w": 4,
-        "x": 8,
-        "y": 24
+        "x": 0,
+        "y": 37
       }
     },
     {
       "id": 17,
       "type": "stat",
       "title": "RSS memory",
-      "description": "Resident set size of the Node process — what the OS actually holds in RAM for it.",
+      "description": "Resident set size of the Node process — what the OS actually holds in RAM for it. One value per worker; the box total is the sum.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -1491,23 +1782,23 @@
           },
           "editorMode": "code",
           "expr": "game_server_process_resident_memory_bytes",
-          "legendFormat": "rss",
+          "legendFormat": "{{instance}}",
           "range": true,
           "instant": false
         }
       ],
       "gridPos": {
         "h": 5,
-        "w": 4,
-        "x": 12,
-        "y": 24
+        "w": 8,
+        "x": 4,
+        "y": 37
       }
     },
     {
       "id": 18,
       "type": "stat",
       "title": "Heap used",
-      "description": "Live JavaScript objects on the V8 heap: tables, seats, hands, socket state.",
+      "description": "Live JavaScript objects on the V8 heap: tables, seats, hands, socket state. One value per worker.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -1556,23 +1847,23 @@
           },
           "editorMode": "code",
           "expr": "game_server_nodejs_heap_size_used_bytes",
-          "legendFormat": "heap used",
+          "legendFormat": "{{instance}}",
           "range": true,
           "instant": false
         }
       ],
       "gridPos": {
         "h": 5,
-        "w": 4,
-        "x": 16,
-        "y": 24
+        "w": 8,
+        "x": 12,
+        "y": 37
       }
     },
     {
       "id": 19,
       "type": "stat",
       "title": "Heap limit",
-      "description": "V8 heap_size_limit — the process is killed with an out-of-memory error when heap used reaches it. Raise with node --max-old-space-size.",
+      "description": "V8 heap_size_limit — the process is killed with an out-of-memory error when heap used reaches it. Raise with node --max-old-space-size. Identical for every worker (same node flags), so shown once.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -1620,7 +1911,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "game_server_nodejs_heap_size_limit_bytes",
+          "expr": "max(game_server_nodejs_heap_size_limit_bytes)",
           "legendFormat": "heap limit",
           "range": true,
           "instant": false
@@ -1630,14 +1921,14 @@
         "h": 5,
         "w": 4,
         "x": 20,
-        "y": 24
+        "y": 37
       }
     },
     {
       "id": 20,
       "type": "timeseries",
       "title": "RSS memory",
-      "description": "Resident set size and what it is made of: V8 heap, external (C++ objects such as socket buffers) and ArrayBuffers.",
+      "description": "Resident set size and what it is made of: V8 heap, external (C++ objects such as socket buffers) and ArrayBuffers. One line per worker (the instance label is host:port; 3101 = worker 1). In single-process mode there is one line.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -1704,7 +1995,7 @@
           },
           "editorMode": "code",
           "expr": "game_server_process_resident_memory_bytes",
-          "legendFormat": "rss",
+          "legendFormat": "rss {{instance}}",
           "range": true,
           "instant": false
         },
@@ -1716,7 +2007,7 @@
           },
           "editorMode": "code",
           "expr": "game_server_nodejs_heap_size_total_bytes",
-          "legendFormat": "heap total",
+          "legendFormat": "heap total {{instance}}",
           "range": true,
           "instant": false
         },
@@ -1728,7 +2019,7 @@
           },
           "editorMode": "code",
           "expr": "game_server_nodejs_external_memory_bytes",
-          "legendFormat": "external",
+          "legendFormat": "external {{instance}}",
           "range": true,
           "instant": false
         },
@@ -1740,7 +2031,7 @@
           },
           "editorMode": "code",
           "expr": "game_server_nodejs_array_buffers_bytes",
-          "legendFormat": "array buffers",
+          "legendFormat": "array buffers {{instance}}",
           "range": true,
           "instant": false
         }
@@ -1749,14 +2040,14 @@
         "h": 8,
         "w": 6,
         "x": 0,
-        "y": 29
+        "y": 42
       }
     },
     {
       "id": 21,
       "type": "timeseries",
       "title": "Heap used",
-      "description": "Total heap in use and the per-space breakdown. old_space that never comes back down after a hand-count plateau is a leak.",
+      "description": "Total heap in use and the per-space breakdown. old_space that never comes back down after a hand-count plateau is a leak. One line per worker (the instance label is host:port; 3101 = worker 1). In single-process mode there is one line.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -1823,7 +2114,7 @@
           },
           "editorMode": "code",
           "expr": "game_server_nodejs_heap_size_used_bytes",
-          "legendFormat": "used",
+          "legendFormat": "{{instance}}",
           "range": true,
           "instant": false
         },
@@ -1835,7 +2126,7 @@
           },
           "editorMode": "code",
           "expr": "game_server_nodejs_heap_space_size_used_bytes",
-          "legendFormat": "{{space}}",
+          "legendFormat": "{{space}} · {{instance}}",
           "range": true,
           "instant": false
         }
@@ -1844,14 +2135,14 @@
         "h": 8,
         "w": 6,
         "x": 6,
-        "y": 29
+        "y": 42
       }
     },
     {
       "id": 22,
       "type": "timeseries",
       "title": "Heap total",
-      "description": "Heap V8 has reserved from the OS against the hard limit. Total creeping towards the dashed limit is the early warning for an out-of-memory crash.",
+      "description": "Heap V8 has reserved from the OS against the hard limit. Total creeping towards the dashed limit is the early warning for an out-of-memory crash. Heap total is per worker; the limit is one dashed line (identical for all).",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -1948,7 +2239,7 @@
           },
           "editorMode": "code",
           "expr": "game_server_nodejs_heap_size_total_bytes",
-          "legendFormat": "total",
+          "legendFormat": "{{instance}}",
           "range": true,
           "instant": false
         },
@@ -1959,7 +2250,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "game_server_nodejs_heap_size_limit_bytes",
+          "expr": "max(game_server_nodejs_heap_size_limit_bytes)",
           "legendFormat": "limit",
           "range": true,
           "instant": false
@@ -1969,14 +2260,14 @@
         "h": 8,
         "w": 6,
         "x": 12,
-        "y": 29
+        "y": 42
       }
     },
     {
       "id": 23,
       "type": "timeseries",
       "title": "Heap utilization",
-      "description": "used/total saw-tooths with GC — normal. used/limit is the one that matters: the GameServerHeapNearLimit alert fires at 85%.",
+      "description": "used/total saw-tooths with GC — normal. used/limit is the one that matters: the GameServerHeapNearLimit alert fires at 85%. One line per worker (the instance label is host:port; 3101 = worker 1). In single-process mode there is one line.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -2048,7 +2339,7 @@
           },
           "editorMode": "code",
           "expr": "game_server_nodejs_heap_size_used_bytes / game_server_nodejs_heap_size_total_bytes",
-          "legendFormat": "used / total",
+          "legendFormat": "used / total {{instance}}",
           "range": true,
           "instant": false
         },
@@ -2060,7 +2351,7 @@
           },
           "editorMode": "code",
           "expr": "game_server_nodejs_heap_size_used_bytes / game_server_nodejs_heap_size_limit_bytes",
-          "legendFormat": "used / limit",
+          "legendFormat": "used / limit {{instance}}",
           "range": true,
           "instant": false
         }
@@ -2069,14 +2360,14 @@
         "h": 8,
         "w": 6,
         "x": 18,
-        "y": 29
+        "y": 42
       }
     },
     {
       "id": 24,
       "type": "timeseries",
       "title": "CPU",
-      "description": "CPU seconds per second used by the Node process. 1.0 is one full core — the event loop is single-threaded, so that is the ceiling for game logic.",
+      "description": "CPU seconds per second used by the Node process. 1.0 is one full core — the event loop is single-threaded, so that is the ceiling for game logic. Per worker, deliberately not summed: each worker has its own event loop and its own one-core ceiling.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -2147,7 +2438,7 @@
           },
           "editorMode": "code",
           "expr": "rate(game_server_process_cpu_seconds_total[1m])",
-          "legendFormat": "total",
+          "legendFormat": "total {{instance}}",
           "range": true,
           "instant": false
         },
@@ -2159,7 +2450,7 @@
           },
           "editorMode": "code",
           "expr": "rate(game_server_process_cpu_user_seconds_total[1m])",
-          "legendFormat": "user",
+          "legendFormat": "user {{instance}}",
           "range": true,
           "instant": false
         },
@@ -2171,7 +2462,7 @@
           },
           "editorMode": "code",
           "expr": "rate(game_server_process_cpu_system_seconds_total[1m])",
-          "legendFormat": "system",
+          "legendFormat": "system {{instance}}",
           "range": true,
           "instant": false
         }
@@ -2180,14 +2471,14 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 37
+        "y": 50
       }
     },
     {
       "id": 25,
       "type": "timeseries",
       "title": "Event-loop lag",
-      "description": "How late timers fire, sampled every 10 ms. Everything a player waits on — moves, broadcasts, DB callbacks — queues behind this. Alert at p99 > 200 ms for 5 min.",
+      "description": "How late timers fire, sampled every 10 ms. Everything a player waits on — moves, broadcasts, DB callbacks — queues behind this. Alert at p99 > 200 ms for 5 min. One line per worker (the instance label is host:port; 3101 = worker 1). In single-process mode there is one line.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -2258,7 +2549,7 @@
           },
           "editorMode": "code",
           "expr": "game_server_nodejs_eventloop_lag_p50_seconds",
-          "legendFormat": "p50",
+          "legendFormat": "p50 {{instance}}",
           "range": true,
           "instant": false
         },
@@ -2270,7 +2561,7 @@
           },
           "editorMode": "code",
           "expr": "game_server_nodejs_eventloop_lag_p90_seconds",
-          "legendFormat": "p90",
+          "legendFormat": "p90 {{instance}}",
           "range": true,
           "instant": false
         },
@@ -2282,7 +2573,7 @@
           },
           "editorMode": "code",
           "expr": "game_server_nodejs_eventloop_lag_p99_seconds",
-          "legendFormat": "p99",
+          "legendFormat": "p99 {{instance}}",
           "range": true,
           "instant": false
         },
@@ -2294,7 +2585,7 @@
           },
           "editorMode": "code",
           "expr": "game_server_nodejs_eventloop_lag_max_seconds",
-          "legendFormat": "max",
+          "legendFormat": "max {{instance}}",
           "range": true,
           "instant": false
         }
@@ -2303,14 +2594,14 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 37
+        "y": 50
       }
     },
     {
       "id": 26,
       "type": "timeseries",
       "title": "Event-loop utilization",
-      "description": "Fraction of the scrape interval the loop spent running JavaScript rather than waiting for I/O. Already a per-interval gauge — no rate() needed.",
+      "description": "Fraction of the scrape interval the loop spent running JavaScript rather than waiting for I/O. Already a per-interval gauge — no rate() needed. One line per worker (the instance label is host:port; 3101 = worker 1). In single-process mode there is one line.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -2382,7 +2673,7 @@
           },
           "editorMode": "code",
           "expr": "game_server_nodejs_eventloop_utilization",
-          "legendFormat": "utilization",
+          "legendFormat": "{{instance}}",
           "range": true,
           "instant": false
         }
@@ -2391,7 +2682,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 37
+        "y": 50
       }
     },
     {
@@ -2503,14 +2794,14 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 45
+        "y": 58
       }
     },
     {
       "id": 28,
       "type": "timeseries",
       "title": "Active handles",
-      "description": "libuv handles: mostly one Socket per websocket plus timers (turn clocks) and the pg pool sockets. Tracks connected sockets closely.",
+      "description": "libuv handles: mostly one Socket per websocket plus timers (turn clocks) and the pg pool sockets. Tracks connected sockets closely. One line per worker (the instance label is host:port; 3101 = worker 1). In single-process mode there is one line.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -2577,7 +2868,7 @@
           },
           "editorMode": "code",
           "expr": "game_server_nodejs_active_handles_total",
-          "legendFormat": "total",
+          "legendFormat": "total {{instance}}",
           "range": true,
           "instant": false
         },
@@ -2589,7 +2880,7 @@
           },
           "editorMode": "code",
           "expr": "game_server_nodejs_active_handles",
-          "legendFormat": "{{type}}",
+          "legendFormat": "{{type}} · {{instance}}",
           "range": true,
           "instant": false
         }
@@ -2598,14 +2889,14 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 45
+        "y": 58
       }
     },
     {
       "id": 29,
       "type": "timeseries",
       "title": "Active requests",
-      "description": "In-flight libuv requests (DNS lookups, file system, write requests). Normally near zero.",
+      "description": "In-flight libuv requests (DNS lookups, file system, write requests). Normally near zero. One line per worker (the instance label is host:port; 3101 = worker 1). In single-process mode there is one line.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -2672,7 +2963,7 @@
           },
           "editorMode": "code",
           "expr": "game_server_nodejs_active_requests_total",
-          "legendFormat": "total",
+          "legendFormat": "total {{instance}}",
           "range": true,
           "instant": false
         },
@@ -2684,7 +2975,7 @@
           },
           "editorMode": "code",
           "expr": "game_server_nodejs_active_requests",
-          "legendFormat": "{{type}}",
+          "legendFormat": "{{type}} · {{instance}}",
           "range": true,
           "instant": false
         }
@@ -2693,7 +2984,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 45
+        "y": 58
       }
     },
     {
@@ -2705,7 +2996,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 53
+        "y": 66
       },
       "panels": []
     },
@@ -2713,7 +3004,7 @@
       "id": 31,
       "type": "stat",
       "title": "Connected sockets",
-      "description": "Socket.IO connections open now. Thresholds mirror the king_teenpatti:socket_limit recording rule (12,000).",
+      "description": "Socket.IO connections open now. Thresholds mirror the king_teenpatti:socket_limit recording rule (12,000). Summed over every worker — the box total.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -2769,7 +3060,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "game_connected_sockets",
+          "expr": "sum(game_connected_sockets)",
           "legendFormat": "connected",
           "range": true,
           "instant": false
@@ -2779,14 +3070,14 @@
         "h": 5,
         "w": 6,
         "x": 0,
-        "y": 54
+        "y": 67
       }
     },
     {
       "id": 32,
       "type": "stat",
       "title": "Peak connected sockets",
-      "description": "Highest simultaneous connection count since the process started. Resets on restart.",
+      "description": "Highest simultaneous connection count since the process started. Resets on restart. With several workers this is the highest single-worker peak (max), not the box peak — peaks on different workers need not coincide, so summing them would overstate.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -2834,7 +3125,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "game_connected_sockets_peak",
+          "expr": "max(game_connected_sockets_peak)",
           "legendFormat": "peak",
           "range": true,
           "instant": false
@@ -2844,7 +3135,7 @@
         "h": 5,
         "w": 6,
         "x": 6,
-        "y": 54
+        "y": 67
       }
     },
     {
@@ -2910,7 +3201,7 @@
         "h": 5,
         "w": 6,
         "x": 12,
-        "y": 54
+        "y": 67
       }
     },
     {
@@ -2976,14 +3267,14 @@
         "h": 5,
         "w": 6,
         "x": 18,
-        "y": 54
+        "y": 67
       }
     },
     {
       "id": 35,
       "type": "timeseries",
       "title": "Connected sockets",
-      "description": "Connected vs seated: the gap is players in the lobby or on the login screen.",
+      "description": "Connected vs seated: the gap is players in the lobby or on the login screen. Connected and seated are summed over workers; peak is the highest single worker.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -3079,7 +3370,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "game_connected_sockets",
+          "expr": "sum(game_connected_sockets)",
           "legendFormat": "connected",
           "range": true,
           "instant": false
@@ -3091,7 +3382,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "game_connected_sockets_peak",
+          "expr": "max(game_connected_sockets_peak)",
           "legendFormat": "peak",
           "range": true,
           "instant": false
@@ -3103,7 +3394,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "game_players_online",
+          "expr": "sum(game_players_online)",
           "legendFormat": "seated players",
           "range": true,
           "instant": false
@@ -3113,7 +3404,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 59
+        "y": 72
       }
     },
     {
@@ -3220,7 +3511,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 59
+        "y": 72
       }
     },
     {
@@ -3303,7 +3594,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 59
+        "y": 72
       }
     },
     {
@@ -3386,7 +3677,7 @@
         "h": 8,
         "w": 6,
         "x": 0,
-        "y": 67
+        "y": 80
       }
     },
     {
@@ -3469,7 +3760,7 @@
         "h": 8,
         "w": 6,
         "x": 6,
-        "y": 67
+        "y": 80
       }
     },
     {
@@ -3552,7 +3843,7 @@
         "h": 8,
         "w": 6,
         "x": 12,
-        "y": 67
+        "y": 80
       }
     },
     {
@@ -3635,7 +3926,7 @@
         "h": 8,
         "w": 6,
         "x": 18,
-        "y": 67
+        "y": 80
       }
     },
     {
@@ -3647,7 +3938,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 75
+        "y": 88
       },
       "panels": []
     },
@@ -3655,7 +3946,7 @@
       "id": 43,
       "type": "stat",
       "title": "Players online",
-      "description": "Players seated at a table right now (not lobby visitors — see WebSockets → Connected sockets for those).",
+      "description": "Players seated at a table right now (not lobby visitors — see WebSockets → Connected sockets for those). Summed over every worker — the box total.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -3703,7 +3994,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "game_players_online",
+          "expr": "sum(game_players_online)",
           "legendFormat": "players",
           "range": true,
           "instant": false
@@ -3713,14 +4004,14 @@
         "h": 5,
         "w": 6,
         "x": 0,
-        "y": 76
+        "y": 89
       }
     },
     {
       "id": 44,
       "type": "stat",
       "title": "Active games",
-      "description": "Tables with a hand in progress.",
+      "description": "Tables with a hand in progress. Summed over every worker — the box total.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -3768,7 +4059,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "game_active_games",
+          "expr": "sum(game_active_games)",
           "legendFormat": "active",
           "range": true,
           "instant": false
@@ -3778,14 +4069,14 @@
         "h": 5,
         "w": 6,
         "x": 6,
-        "y": 76
+        "y": 89
       }
     },
     {
       "id": 45,
       "type": "stat",
       "title": "Waiting games",
-      "description": "Tables between hands or waiting for a second player.",
+      "description": "Tables between hands or waiting for a second player. Summed over every worker — the box total.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -3833,7 +4124,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "game_waiting_games",
+          "expr": "sum(game_waiting_games)",
           "legendFormat": "waiting",
           "range": true,
           "instant": false
@@ -3843,7 +4134,7 @@
         "h": 5,
         "w": 6,
         "x": 12,
-        "y": 76
+        "y": 89
       }
     },
     {
@@ -3908,14 +4199,14 @@
         "h": 5,
         "w": 6,
         "x": 18,
-        "y": 76
+        "y": 89
       }
     },
     {
       "id": 47,
       "type": "timeseries",
       "title": "Players & games",
-      "description": "Seated players against the number of tables with and without a hand running. At full tables players ≈ 5 × active games.",
+      "description": "Seated players against the number of tables with and without a hand running. At full tables players ≈ 5 × active games. Summed over every worker — the box total.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -3981,7 +4272,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "game_players_online",
+          "expr": "sum(game_players_online)",
           "legendFormat": "players online",
           "range": true,
           "instant": false
@@ -3993,7 +4284,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "game_active_games",
+          "expr": "sum(game_active_games)",
           "legendFormat": "active games",
           "range": true,
           "instant": false
@@ -4005,7 +4296,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "game_waiting_games",
+          "expr": "sum(game_waiting_games)",
           "legendFormat": "waiting games",
           "range": true,
           "instant": false
@@ -4015,7 +4306,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 81
+        "y": 94
       }
     },
     {
@@ -4098,7 +4389,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 81
+        "y": 94
       }
     },
     {
@@ -4181,7 +4472,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 81
+        "y": 94
       }
     },
     {
@@ -4264,7 +4555,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 89
+        "y": 102
       }
     },
     {
@@ -4347,7 +4638,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 89
+        "y": 102
       }
     },
     {
@@ -4430,7 +4721,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 89
+        "y": 102
       }
     },
     {
@@ -4513,7 +4804,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 97
+        "y": 110
       }
     },
     {
@@ -4608,7 +4899,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 97
+        "y": 110
       }
     },
     {
@@ -4720,7 +5011,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 97
+        "y": 110
       }
     },
     {
@@ -4732,7 +5023,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 105
+        "y": 118
       },
       "panels": []
     },
@@ -4807,7 +5098,7 @@
         "h": 5,
         "w": 6,
         "x": 0,
-        "y": 106
+        "y": 119
       }
     },
     {
@@ -4881,7 +5172,7 @@
         "h": 5,
         "w": 6,
         "x": 6,
-        "y": 106
+        "y": 119
       }
     },
     {
@@ -4955,7 +5246,7 @@
         "h": 5,
         "w": 6,
         "x": 12,
-        "y": 106
+        "y": 119
       }
     },
     {
@@ -5029,7 +5320,7 @@
         "h": 5,
         "w": 6,
         "x": 18,
-        "y": 106
+        "y": 119
       }
     },
     {
@@ -5152,7 +5443,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 111
+        "y": 124
       }
     },
     {
@@ -5235,7 +5526,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 111
+        "y": 124
       }
     },
     {
@@ -5358,7 +5649,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 111
+        "y": 124
       }
     },
     {
@@ -5481,7 +5772,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 119
+        "y": 132
       }
     },
     {
@@ -5564,7 +5855,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 119
+        "y": 132
       }
     },
     {
@@ -5671,7 +5962,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 119
+        "y": 132
       }
     },
     {
@@ -5758,7 +6049,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 127
+        "y": 140
       }
     },
     {
@@ -5877,7 +6168,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 127
+        "y": 140
       }
     },
     {
@@ -5960,7 +6251,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 127
+        "y": 140
       }
     },
     {
@@ -5972,7 +6263,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 135
+        "y": 148
       },
       "panels": []
     },
@@ -6058,7 +6349,7 @@
         "h": 5,
         "w": 4,
         "x": 0,
-        "y": 136
+        "y": 149
       }
     },
     {
@@ -6123,7 +6414,7 @@
         "h": 5,
         "w": 4,
         "x": 4,
-        "y": 136
+        "y": 149
       }
     },
     {
@@ -6188,7 +6479,7 @@
         "h": 5,
         "w": 4,
         "x": 8,
-        "y": 136
+        "y": 149
       }
     },
     {
@@ -6253,7 +6544,7 @@
         "h": 5,
         "w": 4,
         "x": 12,
-        "y": 136
+        "y": 149
       }
     },
     {
@@ -6324,7 +6615,7 @@
         "h": 5,
         "w": 4,
         "x": 16,
-        "y": 136
+        "y": 149
       }
     },
     {
@@ -6389,7 +6680,7 @@
         "h": 5,
         "w": 4,
         "x": 20,
-        "y": 136
+        "y": 149
       }
     },
     {
@@ -6514,7 +6805,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 141
+        "y": 154
       }
     },
     {
@@ -6609,7 +6900,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 141
+        "y": 154
       }
     },
     {
@@ -6704,7 +6995,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 141
+        "y": 154
       }
     },
     {
@@ -6823,7 +7114,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 149
+        "y": 162
       }
     },
     {
@@ -6911,7 +7202,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 149
+        "y": 162
       }
     },
     {
@@ -6994,7 +7285,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 149
+        "y": 162
       }
     },
     {
@@ -7078,7 +7369,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 157
+        "y": 170
       }
     },
     {
@@ -7161,14 +7452,14 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 157
+        "y": 170
       }
     },
     {
       "id": 85,
       "type": "timeseries",
       "title": "App-side pg pool",
-      "description": "The game server's own pg Pool (PG_POOL_MAX, default 10). Waiting requests > 0 means every connection is busy and moves are queueing — the GameServerDbPoolSaturated alert.",
+      "description": "The game server's own pg Pool (PG_POOL_MAX, default 10). Waiting requests > 0 means every connection is busy and moves are queueing — the GameServerDbPoolSaturated alert. Summed over workers: with N workers the box holds up to N × PG_POOL_MAX connections, which must stay under Postgres max_connections.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -7234,7 +7525,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "game_db_pool_connections",
+          "expr": "sum(game_db_pool_connections)",
           "legendFormat": "pool connections",
           "range": true,
           "instant": false
@@ -7246,7 +7537,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "game_db_pool_idle_connections",
+          "expr": "sum(game_db_pool_idle_connections)",
           "legendFormat": "idle",
           "range": true,
           "instant": false
@@ -7258,7 +7549,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "game_db_pool_waiting_requests",
+          "expr": "sum(game_db_pool_waiting_requests)",
           "legendFormat": "waiting requests",
           "range": true,
           "instant": false
@@ -7268,7 +7559,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 157
+        "y": 170
       }
     },
     {
@@ -7280,7 +7571,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 165
+        "y": 178
       },
       "panels": []
     },
@@ -7366,7 +7657,7 @@
         "h": 5,
         "w": 4,
         "x": 0,
-        "y": 166
+        "y": 179
       }
     },
     {
@@ -7431,7 +7722,7 @@
         "h": 5,
         "w": 4,
         "x": 4,
-        "y": 166
+        "y": 179
       }
     },
     {
@@ -7496,7 +7787,7 @@
         "h": 5,
         "w": 4,
         "x": 8,
-        "y": 166
+        "y": 179
       }
     },
     {
@@ -7561,7 +7852,7 @@
         "h": 5,
         "w": 4,
         "x": 12,
-        "y": 166
+        "y": 179
       }
     },
     {
@@ -7626,7 +7917,7 @@
         "h": 5,
         "w": 4,
         "x": 16,
-        "y": 166
+        "y": 179
       }
     },
     {
@@ -7692,7 +7983,7 @@
         "h": 5,
         "w": 4,
         "x": 20,
-        "y": 166
+        "y": 179
       }
     },
     {
@@ -7815,7 +8106,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 171
+        "y": 184
       }
     },
     {
@@ -7910,7 +8201,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 171
+        "y": 184
       }
     },
     {
@@ -8037,7 +8328,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 171
+        "y": 184
       }
     },
     {
@@ -8120,7 +8411,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 179
+        "y": 192
       }
     },
     {
@@ -8203,7 +8494,7 @@
         "h": 8,
         "w": 6,
         "x": 12,
-        "y": 179
+        "y": 192
       }
     },
     {
@@ -8286,7 +8577,7 @@
         "h": 8,
         "w": 6,
         "x": 18,
-        "y": 179
+        "y": 192
       }
     }
   ]

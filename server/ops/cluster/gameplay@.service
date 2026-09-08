@@ -1,0 +1,65 @@
+# /etc/systemd/system/gameplay@.service — one King Teen Patti game worker per
+# instance. `systemctl enable --now gameplay@1 gameplay@2 gameplay@3` runs three
+# workers; %i is the worker id (WORKER_ID).
+#
+# Each worker is a complete game server — its own RoomManager, tables, sockets
+# and /metrics — listening on WORKER_BASE_PORT + WORKER_ID: 3101, 3102, 3103
+# with the values below. nginx (nginx-gameplay.conf next to this file) spreads
+# new connections over the workers (upstream game_workers, least_conn) and
+# routes a returning player back to the worker holding their seat through the
+# per-worker /w<id>/socket.io paths. Workers coordinate through PostgreSQL
+# (cluster_workers / cluster_players / cluster_rooms); there is no Redis and a
+# table never leaves the worker that created it.
+#
+# PORT: a worker's listen port is WORKER_BASE_PORT + WORKER_ID, full stop — the
+# server ignores PORT in worker mode (src/config/index.js), so the PORT=3000 the
+# production .env still carries from the single-process era changes nothing.
+# It has to be that way round: the server loads .env itself (dotenv), so an
+# UnsetEnvironment=PORT here would be undone the moment Node starts. The
+# explicit override for a worker is WORKER_PORT, not PORT. systemd does no
+# arithmetic, so do not try WORKER_PORT=$((...)).
+#
+# WORKER_ID / WORKER_COUNT / WORKER_BASE_PORT come from THIS unit and must not
+# appear in .env: EnvironmentFile= beats Environment=, so a `WORKER_ID=` line
+# in the file (even an empty one) would turn every worker into a single
+# process on :3000. install-cluster.sh refuses such a .env.
+#
+# Same User, WorkingDirectory, ExecStart and EnvironmentFile as the
+# single-process gameplay.service it replaces. Rollback: ROLLBACK.md.
+
+[Unit]
+Description=King Teen Patti game worker %i
+Documentation=file:///var/www/gameplay/king-teenpatti/server/ops/cluster/ROLLBACK.md file:///var/www/gameplay/king-teenpatti/server/README.md
+After=network-online.target postgresql.service
+Wants=network-online.target
+# gameplay.target groups the workers: `systemctl restart gameplay.target`
+# restarts them all at once; restart one at a time for a no-downtime deploy.
+PartOf=gameplay.target
+
+[Service]
+Type=simple
+User=deploy
+WorkingDirectory=/var/www/gameplay/king-teenpatti/server
+# JWT_SECRET, DATABASE_URL, PG_POOL_MAX, METRICS_* — the file the single-process
+# unit used. NOTE: PG_POOL_MAX is PER WORKER; N workers hold N × PG_POOL_MAX
+# Postgres connections, which must stay under max_connections (default 100).
+EnvironmentFile=/var/www/gameplay/king-teenpatti/server/.env
+Environment=NODE_ENV=production
+Environment=WORKER_ID=%i
+Environment=WORKER_COUNT=3
+Environment=WORKER_BASE_PORT=3100
+# See the PORT note above: the listen port is 3100 + %i, whatever .env says.
+ExecStart=/usr/bin/node /var/www/gameplay/king-teenpatti/server/src/index.js
+Restart=always
+RestartSec=5
+# One descriptor per websocket plus the pg pool; the 1024 default dies of
+# EMFILE around 1,000 players (ops/monitoring/nginx/systemd/ has the story).
+LimitNOFILE=65536
+# Give in-flight ledger transactions a chance to commit on stop.
+KillSignal=SIGTERM
+TimeoutStopSec=20
+# journalctl -t gameplay-1 -f   (or -u gameplay@1)
+SyslogIdentifier=gameplay-%i
+
+[Install]
+WantedBy=multi-user.target

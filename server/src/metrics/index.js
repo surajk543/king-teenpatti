@@ -128,6 +128,26 @@ export const sessionReplacedTotal = new client.Counter({
   registers: [registry],
 });
 
+// ----------------------------------------------------------------- workers
+
+/**
+ * Always 1 for the process serving the scrape, labelled with its worker id —
+ * a small fixed integer (0 in single-process mode), not an identifier of
+ * anything a player did. `count(game_worker_info)` is "workers up".
+ */
+export const workerInfo = new client.Gauge({
+  name: 'game_worker_info',
+  help: 'Always 1, labelled with the id of the worker process serving this scrape (0 = single process).',
+  labelNames: ['worker'],
+  registers: [registry],
+});
+export const redirectsTotal = new client.Counter({
+  name: 'game_redirects_total',
+  help: 'Connections sent to another worker, by why: their seat lives there (seat) or the table code they asked for does (room).',
+  labelNames: ['reason'],
+  registers: [registry],
+});
+
 // -------------------------------------------------------------------- game
 
 let roomsRef = null;

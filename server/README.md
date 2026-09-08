@@ -57,7 +57,11 @@ The settings you are most likely to change:
 | `CONSOLIDATE_INTERVAL_MS` | `15000` | How often half-empty rooms are merged. |
 | `PRIVATE_BOOT` | `200` | Private tables: the fixed boot. Not chosen by the player. |
 | `CHAT_MAX_HISTORY` | `100` | Messages kept per room, in memory. |
-| `REDIS_URL` | — | Enables the Socket.IO Redis adapter. |
+| `REDIS_URL` | — | Enables the Socket.IO Redis adapter (broadcast sharing only — not needed by the worker cluster). |
+| `WORKER_ID` | — | Unset or `0` = single process (everything as before). `1..N` = this process is one worker of a cluster; see [Deployment](#deployment-workers). |
+| `WORKER_COUNT` | `1` | How many workers the cluster has (informational for the registry; nginx and systemd decide who actually runs). |
+| `WORKER_BASE_PORT` | `3100` | Worker `i` listens on `WORKER_BASE_PORT + i` (3101, 3102, …). A worker ignores `PORT` — the production `.env` still says `PORT=3000` and dotenv would otherwise put every worker on it. |
+| `WORKER_PORT` | — | Explicit listen port for a worker (overrides `WORKER_BASE_PORT + WORKER_ID`). Never set `WORKER_*` in `.env`: the systemd unit supplies them per worker and the file would override it. |
 
 Production refuses to boot with a default `JWT_SECRET` or with fake providers enabled.
 
@@ -74,7 +78,7 @@ Production refuses to boot with a default `JWT_SECRET` or with fake providers en
 | `GET` | `/api/profiles` | — | `{profiles}` — the bundled pictures a player may choose |
 | `POST` | `/api/profile/avatar` | `{avatar}` + token | Chooses a picture; `null` restores the provider one. Refused while seated |
 | `POST` | `/api/profile/name` | `{name}` + token | Changes the display name (letters, digits, spaces). Refused while seated |
-| `GET` | `/health` | — | `{ok, uptime, tables, players, activeHands}` |
+| `GET` | `/health` | — | `{ok, uptime, tables, players, activeHands, sockets, process, db}` — one process's own numbers (in cluster mode: whichever worker answered) |
 
 Login bodies by provider:
 
@@ -102,7 +106,7 @@ io("http://localhost:3000", { auth: { token }, transports: ["websocket", "pollin
 |---|---|---|---|
 | `room:quickJoin` | `{bootAmount, category}` | `{ok, roomId, code, category}` | Seats you at a matching table, else creates one. `category` is `seen` or `blind` |
 | `room:create` | `{bootAmount, isPrivate, category}` | `{ok, roomId, code, category}` | |
-| `room:joinCode` | `{code}` | `{ok, roomId, code}` | |
+| `room:joinCode` | `{code}` | `{ok, roomId, code}` | Cluster mode: a code that lives on another worker is answered `{ok:false, code:'other_worker', path}` together with a `session:redirect`; the client reconnects on `path` and repeats the join |
 | `room:leave` | `{}` | `{ok, roomId}` | Mid-hand this counts as a pack |
 | `game:action` | `{action, amount?, actionId?}` | `{ok}` or `{ok:false, code, message}` | `see` \| `chaal` \| `raise` \| `pack` \| `show` \| `sideshow`. `amount` is the rung picked on the +/− stepper; omit it for the default. `actionId` is the client's own id for the move — it is unique on the ledger, so a repeated request is refused (`duplicate_action`) rather than charged twice |
 | `game:sideshowRespond` | `{accept}` | `{ok, accepted, packedUserId}` | Only the player who was asked may answer; the request lapses by itself after `SIDESHOW_TIMEOUT_MS` |
@@ -116,7 +120,8 @@ io("http://localhost:3000", { auth: { token }, transports: ["websocket", "pollin
 
 | Event | Payload | Sent to |
 |---|---|---|
-| `session:ready` | `{user, config}` | you, on connect |
+| `session:ready` | `{user, config, worker: {id, path}, resume?}` | you, on connect. `worker.id` is `0` and `worker.path` `/socket.io` in single-process mode; in cluster mode `{id: 2, path: '/w2/socket.io'}` — remember the path and connect with it next time |
+| `session:redirect` | `{worker, path, reason: 'seat' \| 'room', joinCode?}` | you, **instead of** `session:ready`, when your seat (or the private table you asked for) lives on another worker. The socket is closed right after; reconnect on `path`, then send `room:joinCode {code: joinCode}` if it was given |
 | `session:replaced` | `{message}` | you, when a second sign-in kicks this one |
 | `room:joined` | full table snapshot | you |
 | `room:state` | full table snapshot | each viewer, redacted per viewer |
@@ -282,7 +287,7 @@ normally — dropping your connection is not a way to stall a table.
 
 ## Database
 
-PostgreSQL. Five tables (see [schema.sql](src/db/schema.sql)); the schema is applied on every boot
+PostgreSQL. Eight tables (see [schema.sql](src/db/schema.sql)); the schema is applied on every boot
 and is fully idempotent.
 
 - `users` — one row per `(provider, provider_user_id)`. `chips` is the wallet (`CHECK (chips >= 0)`).
@@ -294,6 +299,10 @@ and is fully idempotent.
   deduct twice. `SUM(delta)` per user must always equal `users.chips`.
 - `game_states` — the authoritative snapshot of each live table with a monotonically rising
   `version`; a write carrying an older version is refused.
+- `cluster_workers`, `cluster_players`, `cluster_rooms` — the worker registry (cluster mode only;
+  empty and unread in single-process mode): which worker is alive (heartbeat every 5 s), which
+  worker holds each seated player, which worker owns each table code. Routing data, not money —
+  see [Deployment](#deployment-workers).
 
 **Money is database-first.** A bet is validated in memory (turn, amount, balance), then written as
 one transaction — lock the wallet row `FOR UPDATE`, deduct, add to the pot, append the ledger row,
@@ -306,25 +315,111 @@ in the same shape. See [ledger.js](src/db/ledger.js).
 Because those writes are asynchronous, every mutation of a table runs through a per-table queue,
 so a turn timeout can never interleave with a bet that is halfway to the database.
 
-## Scaling
+## Deployment (workers)
 
-Measured on one machine, single process, 1000 bot players: **~15% of one CPU core, 162 MB RSS,
-p99 action latency 2 ms, 0 errors.** The 500–1000 target has ample headroom in one process.
+One Node process handles ~1,000 players at ~15 % of a core, but the event loop is single-threaded:
+the 2026-09-08 ramp tests pinned one of the four production cores at ~90 % from about 4,000
+players while the other three idled. Production therefore runs **N worker processes** — the same
+code, `WORKER_ID=1..N` — behind nginx. Everything lives in `ops/cluster/`.
 
-To go further, be aware of the real constraint: **game state is per process.** Setting `REDIS_URL`
-enables the Socket.IO Redis adapter, which shares *broadcasts* across processes — but it does not
-share the `Table` objects. Two players on different processes cannot sit at the same table.
+### What a worker is
 
-So horizontal scaling means **sharding rooms**, not just adding processes:
+Each worker is a complete game server: its own `RoomManager`, tables, sockets, chat buffers and
+`/metrics`. **A table never moves between workers and is never shared.** Workers coordinate only
+through PostgreSQL (no Redis):
 
-1. Run N game processes, each owning its own tables.
-2. Put a router in front that assigns a player to a process and keeps them there (consistent
-   hashing on room code, or a lobby service that hands out a process address on join).
-3. Accounts already live in one shared PostgreSQL database, so processes can share players; the
-   thing that must not be shared is a *table*, which is why rooms have to be sharded.
+| Table | Written when | Read when |
+|---|---|---|
+| `cluster_workers` | start + heartbeat every 5 s, on a **dedicated connection** (not the pool, so a pool queued behind ledger transactions cannot make a busy worker look dead) | to decide whether another worker is alive (heartbeat < 15 s old) |
+| `cluster_players` | a player is seated (quick-join, create, code, switch, resume) — a **compare-and-set** that only takes the row if it is free, already this worker's, or its owner has stopped heartbeating; deleted on leave/kick — **not** on a disconnect-grace lapse, so the row keeps routing the player back for the resume offer, and deleted `RESUME_OFFER_MS` after the lapse (a live worker's rows are never refreshed in bulk) | every connect, before `session:ready`; every heartbeat, to find seats held here whose row another live worker now owns |
+| `cluster_rooms` | a table is created (code → worker); deleted when it is destroyed | `room:joinCode` for a code this worker does not have |
 
-Sticky sessions alone are **not** sufficient; they keep a socket on one process but do not stop two
-players being routed to different processes for the same room.
+Routing, in `src/socket/index.js`:
+
+1. **Connect.** Before `session:ready` the worker asks the registry where the player is. If the
+   player's seat is on another *live* worker it emits `session:redirect {worker, path, reason:
+   'seat'}` and closes the socket; the client reconnects on `path` (`/w<id>/socket.io`) and lands
+   on the right worker, where the normal held-seat / resume-offer logic runs. If that worker is
+   dead the row is ignored and the player is served locally (takeover). The row outranks a seat
+   on this worker: one that contradicts a live foreign row was taken over while this worker was
+   out of touch, and is released.
+2. **`session:ready`** always carries `worker: {id, path}`. Clients persist the path and use it on
+   the next cold start, so a returning player usually connects to the right worker first time.
+3. **Seating.** Every seat is claimed in the registry *before* `room:joined` is sent. If the claim
+   is refused — the same account is seated on another live worker (a second device that landed
+   elsewhere while the first was in the lobby) — the seat is given straight back and the request
+   is answered `{ok:false, code:'already_seated', path}` plus `session:redirect {reason:'seat'}`.
+   One wallet is never at two tables.
+4. **Private codes.** `room:joinCode` for a code owned by another live worker answers
+   `{ok:false, code:'other_worker', path}` plus `session:redirect {reason:'room', joinCode}`; the
+   client reconnects and repeats the join.
+5. **Takeover clean-up.** A worker declared dead (heartbeat > 15 s old) may have been merely slow.
+   Every heartbeat it checks the seats it still holds against the registry; a seat whose row now
+   belongs to another live worker is released (`room:kicked {reason:'takeover'}` + a redirect to
+   the owner), so it stops charging boots against a wallet that is playing elsewhere.
+6. **Quick-join is worker-local by design** — the fullest local table with a free seat, else a
+   new one. nginx's `least_conn` keeps the workers roughly even, and the sweeper merges lone
+   players *within* a worker as before. A player on worker 1 and a friend on worker 2 who both
+   quick-join the same stake will not meet; a private code always works.
+7. **Shutdown** withdraws the worker from the registry *first* — its worker, player and room rows —
+   then closes the sockets and settles the tables. Reconnecting players are served wherever they
+   land instead of being redirected back to a port that no longer answers.
+
+In single-process mode (`WORKER_ID` unset) the registry is a no-op object: nothing is written,
+nothing redirects, `session:ready.worker` is `{id: 0, path: '/socket.io'}`. All existing tests
+run in that mode unchanged; `test/cluster.test.js` starts two workers in one process against a
+throwaway schema and exercises the redirects.
+
+### Ports and nginx
+
+| | Single process | Cluster (`WORKER_COUNT=3`) |
+|---|---|---|
+| systemd | `gameplay.service` | `gameplay@1`, `gameplay@2`, `gameplay@3` (template `gameplay@.service`; `gameplay.target` groups them) |
+| Listen | `PORT` (3000) | `WORKER_BASE_PORT + WORKER_ID` = 3101, 3102, 3103 (`WORKER_PORT` overrides). A worker ignores `PORT`: the `.env` still says `PORT=3000`, and since the server loads `.env` itself an `UnsetEnvironment=PORT` in the unit could not hide it |
+| nginx `location /` and `/socket.io/` | `127.0.0.1:3000` | `upstream game_workers { least_conn; 127.0.0.1:3101; :3102; :3103 }` |
+| nginx `/w1/socket.io/` … `/w3/socket.io/` | — | `proxy_pass http://127.0.0.1:310N/socket.io/` — pins a client to one worker; the worker itself keeps Socket.IO's default path |
+| `/metrics` | `404` at nginx; Prometheus scrapes `:3000` directly | `404` at nginx; one Prometheus job per worker on `127.0.0.1:310N` |
+| `/health` | the process | whichever worker `least_conn` picks — its own numbers |
+| Grafana | `/dashboard/` → `127.0.0.1:3001` | unchanged |
+
+Two numbers scale with N: **`PG_POOL_MAX` is per worker** (3 × 50 = 150 connections, more than
+Postgres' default `max_connections = 100` — lower the pool or raise the limit), and nginx's
+`worker_connections` must cover two connections per player (`ops/monitoring/nginx/nginx.conf.example`).
+
+### Installing
+
+```bash
+sudo bash ops/cluster/install-cluster.sh            # 3 workers; WORKER_COUNT=4 for four
+```
+
+Idempotent. Order: refuse a `.env` that sets any `WORKER_*` (the unit supplies them; the file
+would override it) → install the template unit → start the workers on their own ports → wait for
+each `/health` **and check it reports `worker.id == N`** → install the nginx site (backing up the
+old one) → `nginx -t` → reload → stop and disable `gameplay.service` → append the
+`king-teenpatti-w1..3` Prometheus jobs → `promtool check` → reload → print each worker's health.
+A failure before the nginx switch leaves the single process serving. Players connected to the
+old process are dropped once and reconnect onto a worker; their held seats do not survive (the
+old process is gone).
+
+Deploying new code: `systemctl restart gameplay@1`, wait for `/health`, then `@2`, then `@3` —
+players on the restarting worker lose their table, everyone else plays on (the stopping worker
+withdraws its registry rows before it closes a socket, so they are not redirected back to it).
+`systemctl restart gameplay.target` restarts all three at once.
+
+### Rollback
+
+`ops/cluster/ROLLBACK.md`, in short: `systemctl enable --now gameplay.service` → `systemctl
+disable --now 'gameplay@*'` → install `ops/cluster/nginx-gameplay-single.conf` (or the `.bak`
+the installer wrote) → `nginx -t && systemctl reload nginx`. The single-mode site keeps the
+`/w1..3/socket.io/` paths pointing at `:3000`, so a client that remembered a worker path still
+connects; the single process then tells it `worker.path: '/socket.io'`. The `cluster_*` tables
+are harmless when unused.
+
+### Beyond one box
+
+The registry is the piece that would let workers live on several machines — `cluster_workers`
+would carry a host, nginx's upstream would list remote addresses, and the `/w<id>/` paths would
+point at them. Nothing in the game code assumes localhost; only the ops files do.
 
 ## Layout
 
@@ -336,6 +431,7 @@ src/
 │   ├── providers.js    Google / Facebook / guest verification
 │   ├── tokens.js       Session JWTs
 │   └── routes.js       REST endpoints
+├── cluster/registry.js Worker registry over Postgres (heartbeat, player → worker, code → worker); null object in single-process mode
 ├── db/
 │   ├── schema.sql      Tables, indexes, the append-only ledger trigger
 │   ├── index.js        pg connection pool, schema bootstrap, transactions
@@ -348,6 +444,11 @@ src/
 │   ├── chat.js         Per-room in-memory chat buffer
 │   ├── roomManager.js  Table lifecycle, matchmaking, sweeping
 │   └── constants.js    Shared enums
-├── socket/index.js     Socket.IO handlers, per-viewer state redaction
+├── metrics/index.js    Prometheus registry, HTTP middleware, game counters/histograms
+├── socket/index.js     Socket.IO handlers, per-viewer state redaction, session:redirect
 └── util/               Logger, id generation
+
+ops/
+├── cluster/            gameplay@.service, gameplay.target, nginx-gameplay.conf, install-cluster.sh, ROLLBACK.md
+└── monitoring/         Prometheus + Grafana stack, exporters, nginx capacity settings, MONITORING.md
 ```

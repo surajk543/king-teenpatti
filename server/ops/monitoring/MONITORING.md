@@ -19,13 +19,19 @@ ops/monitoring/
 │   ├── provisioning/dashboards/dashboards.yml
 │   └── dashboards/king-teenpatti.json   the one dashboard, uid king-teenpatti
 └── nginx/
-    ├── king-teenpatti.conf.example      api.sungamestudio.com site + stub_status server
+    ├── king-teenpatti.conf.example      api.sungamestudio.com site + stub_status server (single process)
     ├── nginx.conf.example               main-context: worker_rlimit_nofile / events {}
     └── systemd/                         LimitNOFILE drop-ins for nginx and the Node service
+ops/cluster/                              multi-process deployment (see "Workers" below)
+├── gameplay@.service, gameplay.target    systemd template: one game worker per instance
+├── nginx-gameplay.conf                   the production site: upstream game_workers + /w<id>/socket.io/
+├── nginx-gameplay-single.conf            rollback site (everything → :3000)
+├── install-cluster.sh                    idempotent installer; also appends the per-worker Prometheus jobs
+└── ROLLBACK.md
 ```
 
 Contents: [What the server exposes](#what-the-server-exposes) · [Running the stack](#running-the-stack-locally) ·
-[Production](#pointing-prometheus-at-production) · [Securing /metrics](#securing-metrics) ·
+[Production](#pointing-prometheus-at-production) · [Workers](#workers-cluster-mode) · [Securing /metrics](#securing-metrics) ·
 [Percentiles](#percentiles-p50--p90--p95--p99) · [Exporters](#exporters) · [Label rule](#the-label-cardinality-rule) ·
 [Dashboard](#the-grafana-dashboard) · [Alerts](#alerts) · [Requirements checklist](#requirements-checklist) ·
 [Troubleshooting](#troubleshooting)
@@ -34,8 +40,11 @@ Contents: [What the server exposes](#what-the-server-exposes) · [Running the st
 
 ## What the server exposes
 
-`GET /metrics` (path from `METRICS_PATH`, on the same port as the API — 3000) returns the
-Prometheus text format. Controlled by five env keys in `server/.env`:
+`GET /metrics` (path from `METRICS_PATH`, on the same port as the API — 3000 in single-process
+mode; `WORKER_BASE_PORT + WORKER_ID` = 3101, 3102, 3103 per worker in cluster mode) returns the
+Prometheus text format. Every worker is a complete server with its own endpoint; nothing is
+aggregated in Node — Prometheus scrapes each worker and the dashboard sums (see
+[Workers](#workers-cluster-mode)). Controlled by five env keys in `server/.env`:
 
 | Key | Default | Meaning |
 |---|---|---|
@@ -89,6 +98,8 @@ curl -s -H 'Authorization: Bearer <token>' https://api.sungamestudio.com/metrics
 | `game_socket_messages_total` | counter | `event` | inbound messages by event name (`game:action`, `room:quickJoin`, `chat:message`, …) |
 | `game_socket_emits_total` | counter | `event` | outbound messages by event name (a room broadcast counts once) |
 | `game_session_replaced_total` | counter | — | a second sign-in displaced an existing socket |
+| `game_redirects_total` | counter | `reason` | cluster mode: `session:redirect` sent because the player's seat (`seat`) or the private table code they asked for (`room`) lives on another worker |
+| `game_worker_info` | gauge | `worker` | cluster mode: always 1, labelled with the small fixed worker id (allowed — it is not a socket/user/room id). `count(game_worker_info)` = workers up. Absent in single-process mode |
 
 ### Game (Requirement 35c)
 
@@ -104,7 +115,7 @@ curl -s -H 'Authorization: Bearer <token>' https://api.sungamestudio.com/metrics
 | `game_moves_total` | counter | `action` | accepted actions: `see` `chaal` `raise` `pack` `show` `sideshow` |
 | `game_invalid_moves_total` | counter | `code` | refused actions by `GameError` code (`not_your_turn`, `invalid_bet`, `insufficient_chips`, `duplicate_action`, …) |
 | `game_turn_timeouts_total` | counter | — | turns auto-packed by the 25 s clock |
-| `game_kicks_total` | counter | `reason` | players removed by the server (`idle`, `unfunded`, …) |
+| `game_kicks_total` | counter | `reason` | players removed by the server (`idle`, `unfunded`, `takeover` = seat released because another worker took the player over, …) |
 | `game_chat_messages_total` | counter | — | chat messages posted |
 | `game_pot_settled_chips_total` | counter | — | chips paid to winners |
 
@@ -204,6 +215,85 @@ For the `postgres`/`nginx`/`node` jobs in production, either run the whole compo
 `prometheus-postgres-exporter`, `prometheus-nginx-exporter` on Debian/Ubuntu) and change the
 targets to their addresses. The `nodename` label on the `node` job is free text — set it to the
 machine's name so alert annotations read well.
+
+---
+
+## Workers (cluster mode)
+
+Production runs `WORKER_COUNT` = 3 game processes (`ops/cluster/`, design in `CLAUDE.md` §5.3)
+instead of one, because one Node process pins a core at ~4,000 players. What that changes for
+monitoring:
+
+**Scraping.** One Prometheus job **per worker**, `king-teenpatti-w1`…`w3`, targets
+`127.0.0.1:3101`…`3103` (`prometheus/prometheus.yml` has the pattern; `install-cluster.sh`
+appends the same jobs to the host's `/etc/prometheus/prometheus.yml`). A job per worker rather
+than one job with three targets so `up{job="king-teenpatti-w2"}` names the dead worker without
+regexes. Each job carries `labels: app: king-teenpatti, worker: "<id>"`. The nginx site answers
+`404` on `/metrics` and does not proxy the worker ports, so scraping is loopback-only by design.
+
+**Every `game_*` series is per process.** `game_connected_sockets` from worker 2 is worker 2's
+sockets. The dashboard therefore never reads a bare gauge:
+
+| Kind | Rule | Example |
+|---|---|---|
+| gauges of state (`game_connected_sockets`, `game_players_online`, `game_active_games`, `game_waiting_games`, `game_tables`, `game_db_pool_*`) | `sum(...)` — the box total | `sum(game_players_online)` |
+| peaks (`game_connected_sockets_peak`) | `max(...)` — highest single worker; peaks on different workers need not coincide, so a sum would overstate | `max(game_connected_sockets_peak)` |
+| counters | `sum(rate(...))` by the existing labels | `sum by (reason) (rate(game_disconnections_total[1m]))` |
+| histograms | `histogram_quantile(Q, sum by (le[, label]) (rate(..._bucket[5m])))` — unchanged, this form was already multi-instance | Latency row |
+| Node.js process metrics (`game_server_*`: RSS, heap, CPU, event-loop lag, fds, handles) | **one line per worker**, legend `{{instance}}` — each worker has its own loop and its own one-core ceiling, so a sum hides the saturated one | `rate(game_server_process_cpu_seconds_total[1m])` → `total 127.0.0.1:3101`, … |
+| constants (`heap_size_limit`, `process_max_fds`, `nodejs_version_info`) | `max(...)` / `max by (version)` — identical on every worker | one dashed limit line |
+
+The same expressions are correct for a single process (a `sum` over one series is that series),
+so one dashboard serves both modes. New in the Node.js row: **Workers up**
+(`count(game_worker_info) or vector(0)`; shows "single process" at 0, orange below 3, green at 3 —
+edit the green threshold with `WORKER_COUNT`) and **Redirects/sec**
+(`sum by (reason) (rate(game_redirects_total[1m]))`; a burst after a deploy is normal — clients
+reconnect through the load balancer and are sent back to the worker holding their seat — a steady
+stream means clients are not remembering their worker path).
+
+**Alerts.** The per-series alerts (event-loop lag, heap, fds, pool waits) evaluate per worker
+(`{{ $labels.instance }}` says which), which is what you want. The shipped `alerts.yml` is already
+cluster-safe in the two places that are not per-worker:
+
+- `GameServerDown` is `up{job=~"game-server|king-teenpatti-w.*"} == 0` — it fires per dead
+  worker as well as for the single process. Delete the old `game-server` job pointing at `:3000`
+  from the host Prometheus once the cluster is live, otherwise that one target reports DOWN
+  forever; `install-cluster.sh` prints this reminder when it finds the old job.
+- `GameServerSocketsNearLimit` / `AtLimit` compare `sum(game_connected_sockets)` — the whole
+  box — with `king_teenpatti:socket_limit`, because the nginx side of the limit
+  (`worker_connections`) is shared by all workers. One worker's count alone would never reach it.
+
+If the host Prometheus keeps its own copy of the rules, copy the repo's `alerts.yml` over it
+(`promtool check rules`, then reload).
+
+**PostgreSQL.** `PG_POOL_MAX` is per worker, plus one dedicated connection per worker for the
+registry heartbeat (kept off the pool so a pool queued behind ledger transactions cannot make a
+busy worker look dead): three workers with the production `PG_POOL_MAX=50` want 153 connections
+against Postgres' default `max_connections = 100`. The "App-side pg pool" panel sums the pools;
+`PostgresConnectionsNearMax` will tell you when the arithmetic is wrong. `install-cluster.sh`
+checks it before starting anything.
+
+**Health.** `GET /health` through nginx reaches *one* worker (least_conn) and reports that
+worker's tables/players. For box numbers use the dashboard, or
+`for p in 3101 3102 3103; do curl -s 127.0.0.1:$p/health; echo; done`.
+
+**Registry tables.** Workers coordinate through `cluster_workers` (heartbeat every 5 s),
+`cluster_players` and `cluster_rooms` in the game database. Handy checks:
+
+```sql
+select worker_id, (extract(epoch from now())*1000 - heartbeat_at)/1000 as age_s from cluster_workers order by 1;  -- columns: src/db/schema.sql
+select worker_id, count(*) from cluster_players group by 1;   -- seated (or recently seated) players per worker
+select worker_id, count(*) from cluster_rooms   group by 1;   -- tables per worker
+```
+
+A worker whose heartbeat is older than 15 s is treated as dead by the others (its players are
+taken over locally on their next connect), which is also what "Workers up" dropping by one means.
+If it was merely slow it releases any seat that was taken over on its next heartbeat — those show
+up as `game_kicks_total{reason="takeover"}`, which should be zero in a healthy cluster; a non-zero
+rate means a worker's heartbeat is going stale (event-loop lag, or the database stalling) while
+players are still connected to it. `cluster_players` rows are deleted on leave/kick, and
+`RESUME_OFFER_MS` after a disconnected player's seat lapsed; a row count far above the players
+online means a worker is not cleaning up.
 
 ---
 
@@ -449,23 +539,25 @@ A metric whose series count keeps rising over a day has a leaking label.
 ## The Grafana dashboard
 
 `grafana/dashboards/king-teenpatti.json` — uid `king-teenpatti`, refresh 10 s, 7 rows /
-91 panels, schemaVersion 39 (Grafana 11 migrates it forward on load). Provisioned from
+95 panels, schemaVersion 39 (Grafana 11 migrates it forward on load). Provisioned from
 `grafana/provisioning/dashboards/dashboards.yml` into the folder "King Teen Patti"; the file
 is re-read every 30 s, so editing the JSON updates the live dashboard. UI edits are allowed but
 live in Grafana's database until the file changes — export the JSON to keep them.
 
 Variables: **Prometheus** (`$DS_PROMETHEUS`, datasource picker — every panel uses it) and
 **PostgreSQL database** (`$datname`, default `gameplay`). There are deliberately no `job` /
-`instance` variables: the server is one process, and adding the selectors would make the
-expressions unusable outside Grafana. If a second instance ever appears, add an `instance`
-variable and `{instance=~"$instance"}` to the `game_*` and `game_server_*` selectors.
+`instance` variables: every expression is written to be correct over any number of workers
+(the rules in [Workers](#workers-cluster-mode) — `sum` for state gauges, `max` for peaks,
+`sum(rate())` for counters, one line per `{{instance}}` for Node.js process metrics), and
+adding selectors would make the expressions unusable outside Grafana. To look at one worker,
+hover its line — the Node.js row is where per-worker detail lives.
 
 Rows and what to look at first:
 
 | Row | First glance | Then |
 |---|---|---|
 | System | CPU / RAM / Swap / Disk gauges | Open file descriptors vs the dashed limit; TCP established ≈ 2 × sockets |
-| Node.js | Event-loop lag p99 (red line at 200 ms), heap used/limit | CPU near 1 core = the loop is the bottleneck; GC time share |
+| Node.js | **Workers up** (3 = all workers scraped; "single process" = no cluster), Redirects/sec, event-loop lag p99 per worker (red line at 200 ms), heap used/limit | one worker's CPU near 1 core = *that* loop is the bottleneck (least_conn balances connections, not moves); GC time share |
 | WebSockets | Connected sockets vs peak, connections/sec | disconnections by reason (`ping timeout` spikes = network), errors by code |
 | Multiplayer Game | Players online, active/waiting games | moves/sec by action, invalid moves by code, abandoned games |
 | Latency | Move P50/P90/P95/P99 stats | DB transaction P95 by op — when moves slow down this says whether it is the database |
@@ -473,10 +565,15 @@ Rows and what to look at first:
 | Nginx | nginx_up, active connections vs the red worker line | accepted vs handled (dropped > 0 is the worker_connections failure); 5xx |
 
 Orange "Node restarted" annotations mark process restarts
-(`changes(game_server_process_start_time_seconds[2m]) > 0`).
+(`changes(game_server_process_start_time_seconds[2m]) > 0`); the text names the instance, so a
+one-at-a-time worker deploy shows three annotations a few seconds apart.
 
 Regenerating: the JSON is plain, 2-space indented and hand-editable; validate with
-`node -e "JSON.parse(require('fs').readFileSync('grafana/dashboards/king-teenpatti.json','utf8'))"`.
+`node -e "JSON.parse(require('fs').readFileSync('grafana/dashboards/king-teenpatti.json','utf8'))"`
+and keep the layout rule — no two panels may share grid cells (`gridPos` is `x/y/w/h` on a
+24-column grid; rows are `h: 1`). When adding a panel to a row that is full, move everything
+below it down by the panel's height rather than shrinking neighbours that show one tile per
+worker (Uptime, Started at, RSS, Heap used need the width).
 
 ---
 
@@ -490,10 +587,10 @@ the same limits.
 
 | Alert | Fires when | What it means / first move |
 |---|---|---|
-| **GameServerDown** | `up{job="game-server"} == 0` 1 m | Node is down or `/metrics` refuses us (token / IP). `systemctl status king-teenpatti`, `curl -i localhost:3000/metrics` |
+| **GameServerDown** | `up{job=~"game-server\|king-teenpatti-w.*"} == 0` 1 m | Node is down or `/metrics` refuses us (token / IP). Single process: `systemctl status king-teenpatti`, `curl -i localhost:3000/metrics`. **Cluster mode** (fires per worker, `{{ $labels.job }}` names it): `systemctl status 'gameplay@*'`, `curl -i 127.0.0.1:3101/metrics` — see [Workers](#workers-cluster-mode) |
 | **GameServerEventLoopLagHigh** | lag p99 > 0.2 s 5 m | Everything queues behind the loop. Check Node CPU, GC time share, state-update latency; look for a hot synchronous path |
 | **GameServerEventLoopSaturated** | utilisation > 0.9 5 m | CPU-bound. Same as above; latency alerts follow |
-| **GameServerSocketsNearLimit** / **AtLimit** | sockets > 85 % / 97 % of `king_teenpatti:socket_limit` | Capacity. Beyond it nginx returns 500 on handshakes or Node hits EMFILE. Raise limits (nginx section) or add a box |
+| **GameServerSocketsNearLimit** / **AtLimit** | sockets > 85 % / 97 % of `king_teenpatti:socket_limit` | Capacity. Beyond it nginx returns 500 on handshakes or Node hits EMFILE. Raise limits (nginx section) or add a box. The gauge is summed over the workers (`sum(game_connected_sockets)`), since the nginx limit is shared by all of them |
 | **GameServerHttp5xxRate** | 5xx > 5 % of REST responses with > 1 req/s, 5 m | Break down: `sum by (route) (rate(game_http_requests_total{status_code=~"5.."}[5m]))`; check DB |
 | **GameServerMoveLatencyHigh** | move p99 > 0.5 s 5 m | A move is one ledger transaction: look at DB transaction P95 by op and the pool's waiting requests |
 | **GameServerDbTransactionErrors** | any rollback rate for 5 m | `duplicate_action` = client retries (benign). Anything else: chips are not moving — server log, Postgres log |
@@ -576,6 +673,7 @@ then `curl -X POST localhost:9090/-/reload`.
 | Invalid moves | `game_invalid_moves_total{code}` (counter) — Invalid moves/sec |
 | Reconnects | `game_reconnects_total{kind}` — WebSockets → Reconnects/sec |
 | Gauges for state, counters for events | as above; the gauges are computed at scrape time from `RoomManager` |
+| (extra, cluster mode) workers up, redirects | `game_worker_info{worker}` → Node.js → Workers up; `game_redirects_total{reason}` → Node.js → Redirects/sec |
 
 **35d — Latency histograms** (buckets 0.001 … 1 s)
 
@@ -696,4 +794,9 @@ then `curl -X POST localhost:9090/-/reload`.
 | Dashboard shows "Datasource not found" | the provisioned datasource uid is `prometheus`; pick another in the **Prometheus** variable if you imported the JSON elsewhere |
 | `docker compose up` fails on `GRAFANA_ADMIN_PASSWORD` | copy `.env.example` to `.env` and set it — the compose file refuses to start with an empty password |
 | Series count climbing steadily | a label leaking values: `topk(10, count by (__name__) ({__name__=~"game_.*"}))`, then check the `Set` passed to `safeLabel` for that metric |
-| Server restarted and the config change did nothing | config is read once at import — restart the Node process (find it with `ss -lptn 'sport = :3000'`) |
+| Server restarted and the config change did nothing | config is read once at import — restart the Node process (find it with `ss -lptn 'sport = :3000'`, or `systemctl restart gameplay@1` per worker) |
+| "Workers up" says "single process" while `gameplay@*` are running | Prometheus has no `king-teenpatti-w*` jobs (run `install-cluster.sh` or add them), or the workers were started without `WORKER_ID` (check `systemctl show gameplay@1 -p Environment`) |
+| "Workers up" is orange (2 of 3) | one worker is down or its scrape fails: `systemctl status 'gameplay@*'`, `curl -i 127.0.0.1:3103/metrics`, Prometheus /targets |
+| Node.js panels show three lines / three tiles | expected in cluster mode — one per worker; the legend is `host:port`, 3101 = worker 1 |
+| Players online on the dashboard ≠ `/health` through nginx | `/health` reaches one worker and reports its own numbers; the dashboard sums all workers |
+| Postgres `too many clients already` after moving to workers | `PG_POOL_MAX` is per worker: N × PG_POOL_MAX + exporters must be < `max_connections`. Lower the pool in `.env` (all workers read it) or raise `max_connections` |

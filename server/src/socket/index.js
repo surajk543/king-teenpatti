@@ -5,6 +5,7 @@ import { GameError } from '../game/table.js';
 import { ACTION, TABLE_CATEGORY, WIN_REASON } from '../game/constants.js';
 import config from '../config/index.js';
 import logger from '../util/logger.js';
+import { createNullRegistry } from '../cluster/registry.js';
 import {
   connectedSockets,
   peakConnectedSockets,
@@ -15,6 +16,7 @@ import {
   socketMessagesTotal,
   socketEmitsTotal,
   sessionReplacedTotal,
+  redirectsTotal,
   gamesStartedTotal,
   gamesCompletedTotal,
   gamesAbandonedTotal,
@@ -61,6 +63,7 @@ const KNOWN_ERROR_CODES = new Set([
   'no_other_table',
   'not_in_room',
   'not_seated',
+  'other_worker',
   'over_entry_cap',
   'private_table',
   'room_not_found',
@@ -102,7 +105,22 @@ const KNOWN_ERROR_CODES = new Set([
 
 const KNOWN_WIN_REASONS = new Set(Object.values(WIN_REASON));
 const KNOWN_CATEGORIES = new Set(Object.values(TABLE_CATEGORY));
-const KNOWN_KICK_REASONS = new Set(['idle', 'insufficient_chips', 'unfunded', 'disconnected', 'other']);
+const KNOWN_KICK_REASONS = new Set(['idle', 'insufficient_chips', 'unfunded', 'disconnected', 'takeover', 'other']);
+
+/**
+ * A refusal that also tells the client where to go instead: the table it asked
+ * for by code is running on another worker (`other_worker`), or the player is
+ * already seated on another worker and may not be seated here as well
+ * (`already_seated`). It is acked like any other refusal (with the worker's
+ * Socket.IO `path` added) and followed by `session:redirect` rather than
+ * `game:error` — the client is about to reconnect, not to show a message.
+ */
+class RedirectError extends GameError {
+  constructor(code, message, redirect) {
+    super(code, message);
+    this.redirect = redirect;
+  }
+}
 
 /**
  * Wires Socket.IO to the room manager.
@@ -110,8 +128,14 @@ const KNOWN_KICK_REASONS = new Set(['idle', 'insufficient_chips', 'unfunded', 'd
  * Table state is broadcast per viewer rather than per room, because each player
  * must only ever receive their own cards. With at most five seats per table
  * that is a handful of small payloads per change.
+ *
+ * `registry` is the cluster registry (src/cluster/registry.js): in
+ * multi-process mode it says which worker holds a player's seat or runs a
+ * table, and a connection that reached the wrong worker is sent on with
+ * `session:redirect`. In single-process mode it is the null registry and
+ * nothing here changes.
  */
-export function attachSocketHandlers(io, rooms) {
+export function attachSocketHandlers(io, rooms, { registry = createNullRegistry() } = {}) {
   /** roomId -> Set<socket>, so we can address a table's viewers individually. */
   const roomSockets = new Map();
   /** userId -> socket, for the single-session rule and private sends. */
@@ -207,6 +231,114 @@ export function attachSocketHandlers(io, rooms) {
     }
   };
 
+  // ------------------------------------------------------- cluster registry
+
+  /**
+   * Records in the registry that this worker now holds the player's seat at
+   * `table`, once the table itself is on record there. The claim is a
+   * compare-and-set (see registry.js): it is refused when another *live*
+   * worker already holds this player, and the answer then names that worker.
+   * A registry *failure*, as opposed to a refusal, is logged and the player
+   * plays on: the seat is real whether or not the other workers can see it,
+   * they just cannot route the player back to it.
+   */
+  const claimSeat = async (userId, table) => {
+    try {
+      await table.registryPublished;
+      return await registry.claimPlayer(userId, table.id);
+    } catch (error) {
+      logger.warn('cluster claim failed', { userId, roomId: table.id, error: error.message });
+      return { claimed: true };
+    }
+  };
+
+  /** Withdraws the player's claim (fire-and-forget): they left, or were removed. */
+  const releaseClaim = (userId) => {
+    registry.releasePlayer(userId)
+      .catch((error) => logger.warn('cluster release failed', { userId, error: error.message }));
+  };
+
+  /**
+   * Gives up a seat this worker holds for a player who, according to the
+   * registry, is seated on another live worker. That happens when this worker
+   * was taken for dead — its heartbeat stale, or its rows aged out — and the
+   * player was seated elsewhere in the meantime: the seat here is a zombie
+   * that would keep drawing boots from the same wallet. The player's socket,
+   * if one is here, is told and sent on.
+   */
+  const dropForeignSeat = async (userId, owner) => {
+    const table = rooms.getTableForPlayer(userId);
+    if (!table) return;
+    logger.warn('seat taken over by another worker; releasing it here', {
+      userId,
+      roomId: table.id,
+      owner,
+    });
+    try {
+      await rooms.leave(userId, 'left');
+    } catch (error) {
+      logger.error('takeover release failed', { userId, error: error.message });
+      return;
+    }
+    kicksTotal.inc({ reason: 'takeover' });
+    const socket = userSockets.get(userId);
+    if (socket) {
+      untrackRoom(table.id, socket);
+      emitTo(socket, 'room:kicked', {
+        roomId: table.id,
+        reason: 'takeover',
+        message: 'Your seat moved to another server',
+      });
+      redirectsTotal.inc({ reason: 'seat' });
+      emitTo(socket, 'session:redirect', {
+        worker: owner,
+        path: registry.socketPathFor(owner),
+        reason: 'seat',
+      });
+      socket.disconnect(true);
+    }
+    const stillAlive = rooms.getTable(table.id);
+    if (stillAlive) broadcastState(stillAlive);
+  };
+
+  // Every heartbeat, the registry checks this worker's seats against its
+  // rows and hands back any that another live worker now owns.
+  registry.watchSeats({
+    seatedUserIds: () => [...rooms.playerRooms.keys()],
+    onForeignSeat: ({ userId, workerId }) => dropForeignSeat(userId, workerId),
+  });
+
+  /**
+   * Finishes seating a player: claims the seat in the registry, and only then
+   * lets them hear about the table. If the claim is refused — the same
+   * account is seated on another live worker — the seat just taken is given
+   * straight back and the player is sent to that worker instead, so one
+   * wallet is never at two tables.
+   *
+   * The one-live-session rule (`userSockets`, below) is per process, and
+   * nothing is claimed for a player who is merely in the lobby: the same
+   * account may sit in two lobbies on two workers, but never at two tables.
+   * The claim, not the socket, is what is exclusive.
+   */
+  const settleIn = async (socket, table) => {
+    const userId = socket.data.user.id;
+    const claim = await claimSeat(userId, table);
+    if (!claim.claimed) {
+      await rooms.leave(userId, 'left');
+      redirectsTotal.inc({ reason: 'seat' });
+      throw new RedirectError('already_seated', 'You are already seated on another server; reconnecting', {
+        worker: claim.workerId,
+        path: claim.path,
+        reason: 'seat',
+      });
+    }
+    trackRoom(table.id, socket);
+    table.setConnected(userId, true, socket.id);
+    emitTo(socket, 'room:joined', table.serializeFor(userId));
+    sendChatHistory(table, socket);
+    broadcastState(table);
+  };
+
   // ------------------------------------------------------------- table wiring
 
   const wireTable = (table) => {
@@ -236,6 +368,7 @@ export function attachSocketHandlers(io, rooms) {
         return;
       }
       kicksTotal.inc({ reason: safeLabel(reason, KNOWN_KICK_REASONS) });
+      releaseClaim(userId);
       emitToUser(userId, 'room:kicked', { roomId: table.id, reason, message });
 
       const socket = userSockets.get(userId);
@@ -353,6 +486,12 @@ export function attachSocketHandlers(io, rooms) {
     wireTable(target);
     trackRoom(toRoomId, socket);
     target.setConnected(userId, true, socket.id);
+    // A move within this worker: the claim is already ours, so this only
+    // updates the room — unless another worker won the player meanwhile.
+    claimSeat(userId, target).then((claim) => {
+      if (!claim.claimed) return dropForeignSeat(userId, claim.workerId);
+      return undefined;
+    }).catch((error) => logger.error('move claim failed', { userId, error: error.message }));
 
     emitTo(socket, 'room:moved', {
       fromRoomId,
@@ -384,6 +523,16 @@ export function attachSocketHandlers(io, rooms) {
       const user = await findById(claims.sub);
       if (!user) return next(new Error('unknown_user'));
       socket.data.user = user;
+      // Looked up here, before the connection is live, so the connection
+      // handler below stays synchronous: a client that emits the moment it
+      // connects finds every handler already in place. A registry failure
+      // must never keep a player out — it reads as "nowhere else".
+      try {
+        socket.data.where = await registry.whereIsPlayer(user.id);
+      } catch (error) {
+        logger.warn('cluster lookup failed', { userId: user.id, error: error.message });
+        socket.data.where = null;
+      }
       return next();
     } catch (error) {
       return next(new Error(error.code ?? 'unauthorized'));
@@ -392,6 +541,27 @@ export function attachSocketHandlers(io, rooms) {
 
   io.on('connection', (socket) => {
     const user = socket.data.user;
+
+    // Another worker holds this player's seat — or the seat it is keeping warm
+    // through the reconnect grace, or the table it will offer them back. Send
+    // them there before anything else; nothing about this connection is kept.
+    // A worker that has stopped heartbeating is not deferred to: the player
+    // is taken over here. The registry row outranks a seat on *this* worker:
+    // a claim is only ever taken from a worker that had gone quiet, so a local
+    // seat contradicting a live foreign row is one that was taken over while
+    // this worker was out of touch, and it is given up rather than fought for.
+    const where = socket.data.where ?? null;
+    if (where && where.alive && !registry.isLocal(where.workerId)) {
+      connectionsTotal.inc();
+      redirectsTotal.inc({ reason: 'seat' });
+      emitTo(socket, 'session:redirect', { worker: where.workerId, path: where.path, reason: 'seat' });
+      socket.disconnect(true);
+      if (rooms.getTableForPlayer(user.id)) {
+        dropForeignSeat(user.id, where.workerId)
+          .catch((error) => logger.error('takeover release failed', { userId: user.id, error: error.message }));
+      }
+      return;
+    }
 
     connectionsTotal.inc();
     connectedSockets.inc();
@@ -427,9 +597,20 @@ export function attachSocketHandlers(io, rooms) {
     if (existingTable) resumeOffers.delete(user.id);
     if (resume) reconnectsTotal.inc({ kind: 'offer' });
 
+    // A registry row that pointed here but has nothing behind it any more —
+    // the resume offer lapsed while the player was away — is finished with;
+    // forget it. (A dead worker's row is left alone: that worker purges its
+    // own rows when it comes back, and the registry ages them out meanwhile.)
+    if (where && !existingTable && !resume && registry.isLocal(where.workerId)) {
+      releaseClaim(user.id);
+    }
+
     emitTo(socket, 'session:ready', {
       user,
       config: publicGameConfig(),
+      // Which worker this is and the Socket.IO path that reaches exactly it
+      // again, so a returning client can come straight back here.
+      worker: { id: registry.workerId, path: registry.socketPathFor(registry.workerId) },
       ...(resume ? { resume } : {}),
     });
 
@@ -441,6 +622,13 @@ export function attachSocketHandlers(io, rooms) {
         emitTo(socket, 'room:joined', existingTable.serializeFor(user.id));
       });
       sendChatHistory(existingTable, socket);
+      // The row already pointed here (or nowhere, or at a dead worker), so the
+      // claim goes through unless another worker won the player in the last
+      // instant; then this seat is the zombie and is given up.
+      claimSeat(user.id, existingTable).then((claim) => {
+        if (!claim.claimed) return dropForeignSeat(user.id, claim.workerId);
+        return undefined;
+      }).catch((error) => logger.error('resume claim failed', { userId: user.id, error: error.message }));
     }
 
     const rateLimiter = createRateLimiter({ limit: 30, windowMs: 5000 });
@@ -468,9 +656,20 @@ export function attachSocketHandlers(io, rooms) {
         socketErrorsTotal.inc({ code });
         if (event === 'game:action') invalidMovesTotal.inc({ code });
         if (typeof ack === 'function') {
-          ack({ ok: false, code: error.code ?? 'internal_error', message: error.message });
+          ack({
+            ok: false,
+            code: error.code ?? 'internal_error',
+            message: error.message,
+            ...(error instanceof RedirectError ? { path: error.redirect.path } : {}),
+          });
         }
-        fail(socket, error);
+        // The ack goes first so the client's pending request settles before
+        // it tears the connection down to follow the redirect.
+        if (error instanceof RedirectError) {
+          emitTo(socket, 'session:redirect', error.redirect);
+        } else {
+          fail(socket, error);
+        }
       }
     };
 
@@ -494,13 +693,9 @@ export function attachSocketHandlers(io, rooms) {
           category,
         });
         wireTable(seated);
-        trackRoom(seated.id, socket);
-        seated.setConnected(user.id, true, socket.id);
-        emitTo(socket, 'room:joined', seated.serializeFor(user.id));
+        await settleIn(socket, seated);
         return seated;
       });
-      sendChatHistory(table, socket);
-      broadcastState(table);
       return { roomId: table.id, code: table.code, category: table.category };
     });
 
@@ -514,26 +709,37 @@ export function attachSocketHandlers(io, rooms) {
         });
         wireTable(created);
         rooms.join(created, fresh, socket.id);
-        trackRoom(created.id, socket);
-        emitTo(socket, 'room:joined', created.serializeFor(user.id));
+        await settleIn(socket, created);
         return created;
       });
-      sendChatHistory(table, socket);
       return { roomId: table.id, code: table.code, category: table.category };
     });
 
     handle('room:joinCode', async ({ code }) => {
+      // A code this worker does not know may name a table on another worker.
+      // Only a player with no seat here is sent on: a seated one is refused
+      // below (already_in_room) exactly as before, rather than bounced between
+      // the worker holding their seat and the one running the table.
+      if (!rooms.getTableByCode(code) && !rooms.getTableForPlayer(user.id)) {
+        const where = await registry.whereIsRoom(code);
+        if (where && where.alive && !registry.isLocal(where.workerId)) {
+          redirectsTotal.inc({ reason: 'room' });
+          throw new RedirectError('other_worker', 'That table is on another server; reconnecting', {
+            worker: where.workerId,
+            path: where.path,
+            reason: 'room',
+            joinCode: String(code ?? '').toUpperCase(),
+          });
+        }
+      }
+
       const table = await timed(gameJoinDuration, { route: 'code' }, async () => {
         const fresh = await findById(user.id);
         const seated = rooms.joinByCode(fresh, code);
         wireTable(seated);
-        trackRoom(seated.id, socket);
-        seated.setConnected(user.id, true, socket.id);
-        emitTo(socket, 'room:joined', seated.serializeFor(user.id));
+        await settleIn(socket, seated);
         return seated;
       });
-      sendChatHistory(table, socket);
-      broadcastState(table);
       return { roomId: table.id, code: table.code, category: table.category };
     });
 
@@ -561,19 +767,16 @@ export function attachSocketHandlers(io, rooms) {
         }
 
         wireTable(target);
-        trackRoom(target.id, socket);
-        target.setConnected(user.id, true, socket.id);
-        emitTo(socket, 'room:joined', target.serializeFor(user.id));
+        try {
+          await settleIn(socket, target);
+        } finally {
+          // The table they left has one fewer player; everyone still there
+          // should see that straight away — whether or not the new seat stuck.
+          const vacated = rooms.getTable(from.id);
+          if (vacated) broadcastState(vacated);
+        }
         return target;
       });
-
-      sendChatHistory(table, socket);
-      broadcastState(table);
-
-      // The table they left has one fewer player; everyone still there
-      // should see that straight away.
-      const vacated = rooms.getTable(from.id);
-      if (vacated) broadcastState(vacated);
 
       return { roomId: table.id, code: table.code, category: table.category };
     });
@@ -583,6 +786,13 @@ export function attachSocketHandlers(io, rooms) {
       if (!table) return {};
       const roomId = table.id;
       await rooms.leave(user.id, 'left');
+      // Awaited, so the ack means the other workers no longer route this
+      // player here.
+      try {
+        await registry.releasePlayer(user.id);
+      } catch (error) {
+        logger.warn('cluster release failed', { userId: user.id, error: error.message });
+      }
       untrackRoom(roomId, socket);
       emitTo(socket, 'room:left', { roomId });
       const stillAlive = rooms.getTable(roomId);
@@ -707,7 +917,12 @@ export function attachSocketHandlers(io, rooms) {
         const roomId = current.id;
         // The seat goes, but not the memory of where it was: a player who
         // reopens the app in the next few minutes is offered this table back.
-        resumeOffers.set(user.id, { roomId, at: Date.now() });
+        // The registry claim is kept for the same reason — it is what brings
+        // a player who reconnects to another worker back to this one for the
+        // offer. It is let go when the offer itself lapses (below), so a
+        // player who never comes back is not routed here for ever.
+        const offer = { roomId, at: Date.now() };
+        resumeOffers.set(user.id, offer);
         try {
           await rooms.leave(user.id, 'disconnected');
         } catch (error) {
@@ -716,6 +931,14 @@ export function attachSocketHandlers(io, rooms) {
         }
         const stillAlive = rooms.getTable(roomId);
         if (stillAlive) broadcastState(stillAlive);
+
+        const offerTimer = setTimeout(() => {
+          // Sat back down here in the meantime: the seat's own claim stands.
+          if (rooms.getTableForPlayer(user.id)) return;
+          if (resumeOffers.get(user.id) === offer) resumeOffers.delete(user.id);
+          releaseClaim(user.id);
+        }, config.game.resumeOfferMs);
+        offerTimer.unref?.();
       }, config.game.reconnectGraceMs);
 
       graceTimer.unref?.();

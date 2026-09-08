@@ -4,6 +4,7 @@ import { TABLE_CATEGORY, TABLE_STATE } from './constants.js';
 import config from '../config/index.js';
 import { uuid, roomCode } from '../util/ids.js';
 import { createLedger } from '../db/ledger.js';
+import { createNullRegistry } from '../cluster/registry.js';
 import { gameCreationDuration, timedSync } from '../metrics/index.js';
 import logger from '../util/logger.js';
 
@@ -13,16 +14,26 @@ import logger from '../util/logger.js';
  * At the 500–1000 concurrent player target that is roughly 100–200 tables, all
  * of which fit comfortably in memory. Every chip movement is one PostgreSQL
  * transaction (see db/ledger.js); everything else lives here.
- * To run more than one process, front them with a sticky-session load balancer
- * and set REDIS_URL so Socket.IO shares rooms (see the deployment notes).
+ *
+ * To use more than one core the server runs as several worker processes, each
+ * with a RoomManager of its own (see src/cluster/registry.js). Tables are
+ * never shared or moved between workers; the registry only records which
+ * worker runs which table and holds which player's seat, so a connection that
+ * reached the wrong worker can be sent to the right one.
  */
 export class RoomManager extends EventEmitter {
-  constructor({ ledger, settle, persistChips, timers } = {}) {
+  constructor({ ledger, settle, persistChips, timers, registry } = {}) {
     super();
     /** @type {Map<string, Table>} */
     this.tables = new Map();
     /** @type {Map<string, string>} userId -> roomId */
     this.playerRooms = new Map();
+
+    /**
+     * Where this worker advertises its tables to the other workers. The null
+     * registry (single-process mode, and every test) records nothing.
+     */
+    this.registry = registry ?? createNullRegistry();
 
     /**
      * Where every table's chips are written. Production uses the PostgreSQL
@@ -157,6 +168,14 @@ export class RoomManager extends EventEmitter {
 
     this.tables.set(id, table);
     this.emit('tableCreated', table);
+
+    // Advertise the table to the other workers so its code can be typed
+    // anywhere. Kept as a promise on the table: seating a player here awaits
+    // it, so the room is on record before the player's own claim refers to it.
+    table.registryPublished = this.registry
+      .publishRoom({ code: table.code, roomId: id, isPrivate, category: resolved, bootAmount: boot })
+      .catch((error) => logger.warn('room publish failed', { roomId: id, error: error.message }));
+
     logger.info('table created', {
       roomId: id,
       code: table.code,
@@ -228,6 +247,14 @@ export class RoomManager extends EventEmitter {
    * Seats a player at a table, creating one if every table at their stake is
    * full. Preference goes to the fullest table with room, so players cluster
    * into playable tables instead of scattering across half-empty ones.
+   *
+   * Deliberately worker-local: only this process's tables are candidates, and
+   * a new one is opened here rather than on a worker with a fuller table. A
+   * cross-worker quick-join would need a redirect on every lobby tap and a
+   * registry read on the hot path, for the sake of packing tables a little
+   * tighter; with nginx spreading connections by least-connections, each
+   * worker fills its own tables well enough. Only a join by *code* crosses
+   * workers (see room:joinCode in socket/index.js).
    */
   quickJoin(user, { bootAmount = config.game.bootAmount, category } = {}) {
     this._assertNotSeated(user.id);
@@ -400,6 +427,13 @@ export class RoomManager extends EventEmitter {
     this.tables.delete(roomId);
     await table.destroy();
     this.emit('tableDestroyed', roomId);
+    // Awaited, not fired and forgotten: whoever destroyed the table — a leave,
+    // a sweep, shutdown — is done only once the code no longer points here.
+    try {
+      await this.registry.retireRoom(table.code);
+    } catch (error) {
+      logger.warn('room retire failed', { roomId, error: error.message });
+    }
     logger.info('table destroyed', { roomId });
   }
 

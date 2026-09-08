@@ -9,11 +9,32 @@
   const $ = (id) => document.getElementById(id);
   const SUITS = { s: '♠', h: '♥', d: '♦', c: '♣' };
   const RED = new Set(['h', 'd']);
+  const PATH_KEY = 'tp_path';
 
   const state = {
     token: localStorage.getItem('tp_token'),
+    /**
+     * The Socket.IO path of the worker process that answered last. Production
+     * runs several game workers behind one host and a table lives on exactly
+     * one of them, so a returning player knocks on that door first; a wrong
+     * guess costs one `session:redirect`. Null means the server's default path.
+     */
+    path: localStorage.getItem(PATH_KEY) || null,
     user: null,
     socket: null,
+    /** A table code a redirect asked us to join once we are on its worker. */
+    joinAfterRedirect: null,
+    /** Redirects followed without a session:ready between — a loop detector. */
+    redirectsInARow: 0,
+    /** Failed connects on a remembered path before falling back to the default. */
+    pathFailures: 0,
+    /**
+     * The worker path just given up on, and when. A redirect straight back to
+     * it — a worker mid-restart whose registry rows are not gone yet — is
+     * followed after a short pause rather than at once.
+     */
+    lastFailedPath: null,
+    lastFailedAt: 0,
     room: null,
     options: null,
     deadline: 0,
@@ -185,9 +206,53 @@
 
   // ------------------------------------------------------------------ socket
 
-  function connect() {
-    state.socket = io({ auth: { token: state.token }, transports: ['websocket', 'polling'] });
+  /**
+   * Remembers which worker answered, so the next page load goes there first.
+   * Only the server's own word is written down — never a redirect's target
+   * before that worker has actually said hello.
+   */
+  function rememberPath(path) {
+    if (!path || path === state.path) return;
+    state.path = path;
+    localStorage.setItem(PATH_KEY, path);
+  }
+
+  /** How long to wait before a redirect to `path`: ~2 s if that path just failed us. */
+  const RETRY_FAILED_PATH_AFTER_MS = 2000;
+  function pauseBefore(path) {
+    if (!path || path !== state.lastFailedPath) return 0;
+    return Math.max(0, RETRY_FAILED_PATH_AFTER_MS - (Date.now() - state.lastFailedAt));
+  }
+
+  /**
+   * Closes the live socket and opens a new one on `path`, with the same token.
+   * Deferred at least a tick because it is called from inside the old socket's
+   * own event handler.
+   */
+  function reopen(current, path, afterMs = 0) {
+    setTimeout(() => {
+      if (!state.token || state.socket !== current) return;
+      current.disconnect();
+      current.off();
+      connect(path);
+    }, afterMs);
+  }
+
+  /**
+   * Opens the socket. `path` is the Socket.IO path of the worker to reach — the
+   * one remembered from the last session:ready — or null for the server's
+   * default, which lands on any worker and lets it redirect us.
+   */
+  function connect(path = state.path) {
+    state.pathFailures = 0;
+    // forceNew: a Manager is cached per host, and one built for another path
+    // must not be reused for this one.
+    const options = { auth: { token: state.token }, transports: ['websocket', 'polling'], forceNew: true };
+    if (path) options.path = path;
+    state.socket = io(options);
     const socket = state.socket;
+
+    socket.on('connect', () => { state.pathFailures = 0; });
 
     socket.on('connect_error', (error) => {
       // A stale token means the account is gone or the secret rotated.
@@ -197,10 +262,39 @@
         show('login');
         $('loginError').textContent = 'Session expired — please sign in again.';
         $('loginError').hidden = false;
+        return;
+      }
+      // A remembered worker path that keeps failing — the worker is gone, or
+      // the deployment changed — must not lock the player out. The default
+      // path reaches whichever worker is up, and that one sends us on. The
+      // fallback also restarts the loop detector: a redirect back to this
+      // path is a new attempt, not the same bounce again.
+      if (path && ++state.pathFailures >= 2) {
+        state.lastFailedPath = path;
+        state.lastFailedAt = Date.now();
+        state.redirectsInARow = 0;
+        reopen(socket, null);
       }
     });
 
-    socket.on('session:ready', ({ user, config }) => {
+    // The server has our seat, or the table we asked for, on another worker
+    // process. It hangs up straight after saying so; the same token opens the
+    // door it named, and the session:ready that follows is the real one.
+    socket.on('session:redirect', ({ path: target, joinCode, reason }) => {
+      if (!target) return;
+      if (++state.redirectsInARow > 3) {
+        $('lobbyError').textContent = 'The servers could not agree where your table is. Try again.';
+        $('lobbyError').hidden = false;
+        return;
+      }
+      state.joinAfterRedirect = typeof joinCode === 'string' && joinCode ? joinCode : null;
+      log(`Redirected to another server (${reason ?? 'seat'}).`);
+      reopen(socket, target, pauseBefore(target));
+    });
+
+    socket.on('session:ready', ({ user, config, worker }) => {
+      state.redirectsInARow = 0;
+      rememberPath(worker?.path);
       state.user = user;
       $('lobbyName').textContent = user.displayName;
       $('lobbyProvider').textContent = user.provider;
@@ -225,6 +319,13 @@
       renderProfile(user);
       loadProfilePictures();
       show('lobby');
+
+      // A redirect that named a table: now that we are on its worker, sit
+      // down at it. Once — a later reconnect must not re-join a table we have
+      // since left.
+      const pending = state.joinAfterRedirect;
+      state.joinAfterRedirect = null;
+      if (pending) emit('room:joinCode', { code: pending });
     });
 
     socket.on('session:replaced', () => {
@@ -428,7 +529,12 @@
   const emit = (event, payload = {}) =>
     new Promise((resolve) => {
       state.socket.emit(event, payload, (ack) => {
-        const failed = ack && ack.ok === false;
+        // "That table is on another server" — or "you are already seated on
+        // another server" — is not a refusal so much as a forwarding address:
+        // the session:redirect sent alongside it is already taking us there,
+        // and the join (if any) is re-sent on arrival.
+        const forwarded = ack && (ack.code === 'other_worker' || (ack.code === 'already_seated' && ack.path));
+        const failed = ack && ack.ok === false && !forwarded;
         $('lobbyError').textContent = failed ? ack.message : '';
         $('lobbyError').hidden = !failed;
         resolve(ack);

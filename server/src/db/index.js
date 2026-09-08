@@ -18,6 +18,7 @@ pg.types.setTypeParser(1700, (value) => Number(value));
 
 let pool = null;
 let schemaName = 'public';
+let poolUrl = config.db.url;
 
 /** Quotes a schema name so it can be interpolated into DDL. */
 const quoteIdent = (name) => `"${String(name).replace(/"/g, '""')}"`;
@@ -36,6 +37,7 @@ export async function openDatabase({ url = config.db.url, schema = config.db.sch
     throw new Error(`PG_SCHEMA must be a plain identifier, got "${schema}"`);
   }
   schemaName = schema;
+  poolUrl = url;
 
   // Every connection the pool opens looks in this schema first, so the SQL in
   // the rest of this directory can name tables without a prefix. Set as a
@@ -50,10 +52,21 @@ export async function openDatabase({ url = config.db.url, schema = config.db.sch
 
   const client = await created.connect();
   try {
-    await client.query(`CREATE SCHEMA IF NOT EXISTS ${quoteIdent(schema)}`);
-    await client.query(`SET search_path TO ${quoteIdent(schema)}, public`);
-    const ddl = fs.readFileSync(path.join(here, 'schema.sql'), 'utf8');
-    await client.query(ddl);
+    // Several workers boot at once after a reboot, and each runs this same
+    // idempotent DDL. Postgres refuses two CREATE OR REPLACE / DO blocks on
+    // the same objects at the same instant ("tuple concurrently updated"), so
+    // the bootstrap is serialised with a session-level advisory lock: the
+    // second worker simply waits for the first to finish, then finds
+    // everything already in place.
+    await client.query('SELECT pg_advisory_lock(hashtext($1))', [`king-teenpatti:schema:${schema}`]);
+    try {
+      await client.query(`CREATE SCHEMA IF NOT EXISTS ${quoteIdent(schema)}`);
+      await client.query(`SET search_path TO ${quoteIdent(schema)}, public`);
+      const ddl = fs.readFileSync(path.join(here, 'schema.sql'), 'utf8');
+      await client.query(ddl);
+    } finally {
+      await client.query('SELECT pg_advisory_unlock(hashtext($1))', [`king-teenpatti:schema:${schema}`]);
+    }
   } finally {
     client.release();
   }
@@ -71,6 +84,23 @@ export function getPool() {
 /** One-shot query on the pool. */
 export function query(text, params = []) {
   return getPool().query(text, params);
+}
+
+/**
+ * Opens one connection of its own, outside the pool, on the same database and
+ * schema the pool uses. For work that must not queue behind the pool — the
+ * cluster heartbeat, whose lateness reads as this worker's death — a saturated
+ * pool would otherwise turn a busy worker into a dead one. The caller owns the
+ * client: `client.end()` when done.
+ */
+export async function openDedicatedClient() {
+  getPool(); // the schema exists only once openDatabase() has run
+  const client = new pg.Client({
+    connectionString: poolUrl,
+    options: `-c search_path=${schemaName},public`,
+  });
+  await client.connect();
+  return client;
 }
 
 /**
@@ -120,4 +150,4 @@ function redact(url) {
   return String(url).replace(/\/\/([^:]+):[^@]+@/, '//$1:***@');
 }
 
-export default { openDatabase, getPool, query, withTransaction, dropSchema, closeDatabase };
+export default { openDatabase, getPool, query, withTransaction, openDedicatedClient, dropSchema, closeDatabase };

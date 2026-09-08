@@ -49,17 +49,21 @@ king-teenpatti/
 │   │   │   ├── deck.js           52 cards, crypto shuffle, 2-char wire codes ("As","Td")
 │   │   │   ├── chat.js           in-memory per-room chat buffer
 │   │   │   └── constants.js      TABLE_CATEGORY / TABLE_STATE / SEAT_STATE / ACTION / WIN_REASON
-│   │   ├── socket/index.js       the whole realtime protocol + per-viewer broadcast
+│   │   ├── socket/index.js       the whole realtime protocol + per-viewer broadcast + session:redirect
+│   │   ├── cluster/registry.js   worker registry over Postgres (heartbeat, player→worker, code→worker); null object when WORKER_ID unset (§5.3)
+│   │   ├── metrics/index.js      prom-client registry, HTTP middleware, game counters/histograms (§7.5)
 │   │   ├── auth/{routes,providers,tokens}.js   REST (async), login providers, JWT
 │   │   ├── db/
 │   │   │   ├── index.js          pg Pool, schema bootstrap, withTransaction(), dropSchema() for tests
-│   │   │   ├── schema.sql        Postgres DDL: users, hands, pots, chip_ledger (append-only), game_states
+│   │   │   ├── schema.sql        Postgres DDL: users, hands, pots, chip_ledger (append-only), game_states, cluster_{workers,players,rooms}
 │   │   │   ├── ledger.js         THE money transactions: bet(), collectBoot(), settle()
 │   │   │   └── users.js          async user store: login upsert, rewards, names, avatars
 │   │   └── util/{ids,logger}.js
 │   ├── public/                   browser client + profiles/ (15 Noto Emoji animal SVGs, Apache 2.0)
-│   ├── test/                     18 node:test suites + helpers/ + loadtest.js
-│   ├── tools/bot.js              practice bots
+│   ├── test/                     node:test suites (incl. metrics, cluster) + helpers/ + loadtest.js
+│   ├── tools/bot.js              practice bots; tools/ramptest.mjs staged capacity test
+│   ├── ops/cluster/              gameplay@.service + gameplay.target, nginx-gameplay.conf (+ -single rollback), install-cluster.sh, ROLLBACK.md (§5.3)
+│   ├── ops/monitoring/           Prometheus/Grafana stack, exporters, nginx capacity files, MONITORING.md (§7.5)
 │   ├── kicktest.mjs              scratch script (tracked)
 │   └── peek-tmp.mjs              scratch script (untracked) — lists live tables
 └── flutter-client/
@@ -239,6 +243,101 @@ table drops back to WAITING (an unfunded player is kicked; any other error retri
 After every mutation the table emits `state`; the socket layer sends each viewer
 `table.serializeFor(viewerId)` — never a room-wide snapshot.
 
+### 5.3 Workers (multi-process, Sept 2026)
+One Node process pinned one of four production cores at ~90% from ~4,000 players (ramp tests
+2026‑09‑08). Production now runs **N identical worker processes** behind nginx; no Redis.
+
+- **Env**: `WORKER_ID` (integer ≥1; **unset/0 = single-process mode, behaviour exactly as before**),
+  `WORKER_COUNT` (default 1), `WORKER_BASE_PORT` (default 3100). In worker mode the listen port is
+  `WORKER_BASE_PORT + WORKER_ID` unless **`WORKER_PORT`** is set; **a worker ignores `PORT`** — the
+  production `.env` still says `PORT=3000` and the server loads `.env` itself (dotenv fills in anything
+  the environment lacks), so honouring `PORT` would put every worker on 3000 no matter what the unit
+  unsets (`test/clusterConfig.test.js` pins this in child processes). `PORT` keeps its meaning for the
+  single process → `config.cluster = {workerId, workerCount, basePort}`. **Never put `WORKER_*` in
+  `.env`**: systemd's `EnvironmentFile=` overrides `Environment=`, so an empty `WORKER_ID=` line would
+  turn every `gameplay@N` into a single process on 3000 (`.env.example` ships them commented out;
+  `install-cluster.sh` dies on such a file). `createServer({workerId, workerCount, port, heartbeatMs})`
+  overrides config (tests start two workers in one process on the shared pool/schema) and returns
+  `{server, io, rooms, registry, workerId, port, shutdown}`.
+- **Each worker is a full game server** — own `RoomManager`, tables, sockets, chat, `/metrics`.
+  **Tables never move between workers and are never shared.** Quick-join is worker-local by design
+  (fullest local table with a free seat, else create); nginx `least_conn` keeps workers even.
+- **Registry** (`src/cluster/registry.js`, `createRegistry({workerId, workerCount, port, query, openClient,
+  heartbeatMs})`): `start()` upserts `cluster_workers` + heartbeats every 5 s **on a dedicated `pg.Client`**
+  (`db/index.js openDedicatedClient()`, falling back to the pool only while that client cannot be opened) so
+  a pool queued behind ledger transactions cannot make a busy worker look dead; `stop()` (sets `stopped`:
+  later claims/publishes are no-ops); `socketPathFor(id)` → `/w<id>/socket.io`; `isLocal(id)`;
+  **`claimPlayer(userId, roomId)` is a compare-and-set** — `INSERT … ON CONFLICT DO UPDATE … WHERE owner =
+  me OR NOT EXISTS (live heartbeat for owner) RETURNING worker_id` → `{claimed:true}` or `{claimed:false,
+  workerId, path}` (the null registry always claims); `releasePlayer(userId)` deletes own rows only →
+  `cluster_players` (user_id PK, worker_id, room_id nullable, updated_at ms); `whereIsPlayer(userId)` →
+  `null | {workerId, roomId, alive, path}` where `alive` = that worker's `heartbeat_at` < 15 s old; a row
+  is *expired* (treated as absent, deleted lazily) when `max(updated_at, heartbeat_at)` is older than
+  `resumeOfferMs + reconnectGraceMs` — i.e. **a live worker's rows never age** (no bulk refresh; the
+  socket layer deletes a lapsed seat's row itself `resumeOfferMs` after the grace lapse);
+  `watchSeats({seatedUserIds, onForeignSeat})` — each heartbeat also runs `SELECT … WHERE user_id =
+  ANY(seated) AND worker_id <> me AND owner alive` and hands every hit to `onForeignSeat` (takeover
+  clean-up); `publishRoom({code, roomId, isPrivate, category, bootAmount})` / `retireRoom(code)` /
+  `whereIsRoom(code)` → `cluster_rooms` (code PK). **Single-process mode gets a NULL registry**: no-op
+  writes, `whereIs*` → null, `isLocal` → true — every caller must work with it unchanged.
+- **Routing** (`socket/index.js`): on connect, **before** `session:ready`, `whereIsPlayer`; if the seat
+  is on another *live* worker → `session:redirect {worker, path, reason:'seat'}` + `disconnect(true)`
+  (a dead worker's row is ignored → local takeover). **The row outranks a local seat**: a seat here that
+  contradicts a live foreign row was taken over while this worker was out of touch → `dropForeignSeat`
+  (`rooms.leave`, `room:kicked {reason:'takeover'}`, redirect, `kicks_total{reason=takeover}`); the same
+  runs from `registry.watchSeats` every heartbeat. `session:ready` gains `worker: {id, path}` (`{0,
+  '/socket.io'}` in single mode). **Seating = `settleIn(socket, table)`**: seat → `await claimSeat`
+  (CAS) → only then `trackRoom`/`setConnected`/`room:joined`/chat history/broadcast; a refused claim
+  → `rooms.leave(user,'left')` + `RedirectError('already_seated', …)` → ack `{ok:false,
+  code:'already_seated', path}` + `session:redirect {reason:'seat'}` (one wallet never sits at two
+  tables). Used by `quickJoin/create/joinCode/switch`; the held-seat resume claims after `room:joined`
+  and drops the seat if refused. `room:leave` and kick → `releasePlayer`; the disconnect-grace lapse
+  does **not** release — it arms an unref'd `setTimeout(resumeOfferMs)` that releases the row (and the
+  offer) unless the player sat back down here. `room:joinCode` for a code owned by another live worker
+  → ack `{ok:false, code:'other_worker', message, path}` + `session:redirect {reason:'room', joinCode}`;
+  else the usual `room_not_found`. RoomManager takes `{registry}`; `createTable` → `publishRoom`
+  (fire-and-forget, logged), `destroyTable` → `retireRoom`. **`createServer().shutdown()` order:
+  `registry.stop()` → `io.close()` → `rooms.shutdown()` → `server.close()`** — rows are gone before
+  the first socket drops, so nobody is redirected back to a closing worker.
+- **Clients** persist the last worker path (Flutter SharedPreferences `socketPath`, browser
+  localStorage `tp_path`) from `session:ready.worker.path` and connect with it next time; on
+  `session:redirect` they disconnect, reconnect on `path`, and send `room:joinCode` if `joinCode`
+  came along. A redirect arrives *before* `session:ready`, so the Flutter resume veil stays up.
+  **Flutter must open every socket with `forceNew`** (`GameConnection.buildOptions` →
+  `enableForceNew()`): socket_io_client 3.1.6 caches one Manager per scheme://host:port and, the URL
+  having no path, reuses the first one — with its first `path` and `auth` — for every later `io()`
+  call, so without it a redirect reconnects on the old path and a new sign-in reuses the old token
+  (`disableMultiplex()` does NOT set `multiplex:false`). `test/game_connection_test.dart` pins it.
+  Both clients treat acks `{ok:false, code:'other_worker'|'already_seated', path}` as forwarding
+  addresses (no notice), reset the redirect-loop counter when they fall back from a failed worker
+  path, and wait ~2 s before following a redirect back to a path that just failed.
+- **Metrics**: `game_worker_info{worker="<id>"} = 1` (the small fixed id is an allowed label value;
+  `count(game_worker_info)` = "Workers up") and `game_redirects_total{reason=seat|room}`. Every
+  `game_*` series is per process — the dashboard sums state gauges, takes `max` of peaks,
+  `sum(rate())` of counters, and draws Node.js process metrics one line per `{{instance}}`.
+- **Ops** (`server/ops/cluster/`): `gameplay@.service` (systemd template; `WORKER_ID=%i`,
+  `WORKER_COUNT=3`, `WORKER_BASE_PORT=3100`; no `UnsetEnvironment=PORT` — it would be undone by dotenv,
+  which is why the server ignores `PORT` in worker mode instead), `gameplay.target`,
+  `nginx-gameplay.conf` (upstream `game_workers` least_conn 127.0.0.1:3101–3103 for `/` and
+  `/socket.io/`; `location /w<id>/socket.io/ { proxy_pass http://127.0.0.1:310<id>/socket.io/; }` pins a
+  client to one worker — the prefix exists only in nginx; Certbot lines, `/dashboard/` → :3001 and
+  `/metrics → 404` kept), `nginx-gameplay-single.conf` (rollback site, `/w*/` → :3000),
+  `install-cluster.sh` (idempotent: die if `.env` sets `WORKER_*` → units → workers up → `/health` must
+  report `worker.id == N` → nginx site + `-t` + reload → stop `gameplay.service` → Prometheus jobs
+  `king-teenpatti-w1..3` on 127.0.0.1:3101..3103 → `promtool` → reload → per-worker health),
+  `ROLLBACK.md`. **`PG_POOL_MAX` is per worker** (3 × 50 = 150 >
+  Postgres' default `max_connections` 100 — the installer warns). Deploy = restart workers one at a
+  time (`systemctl restart gameplay@1`, wait for `/health`, …). `/health` through nginx is *one*
+  worker's numbers.
+- `test/cluster.test.js`: two `createServer({workerId: 1|2, workerCount: 2, port: 0, heartbeatMs: 700})`
+  in one process + single-mode and third-worker servers; covers `session:ready.worker`, seat redirect +
+  reconnect, `other_worker` on `room:joinCode`, no redirect after `room:leave`, stale-heartbeat takeover
+  (`goStale()` waits for a heartbeat then zeroes it), `already_seated` on a second device, takeover
+  clean-up on the stale worker's next heartbeat (`room:kicked takeover`), lapsed-row release after
+  `RESUME_OFFER_MS` (4 s in the suite), shutdown withdrawing rows before sockets close, single mode
+  `worker.id === 0`, and the registry rows. `test/clusterConfig.test.js` spawns child processes for the
+  port rules (`.env` with `PORT=3000` + `WORKER_ID=2` → 3102).
+
 ---
 
 ## 6. Server — game engine (`server/src/game/`)
@@ -331,7 +430,8 @@ user (`session:replaced` to the old one). On connect: `session:ready {user, conf
 | `lobby:list` | `{category?}` | `{tables, options}` (used only by scratch/tests) |
 | `room:quickJoin` | `{bootAmount?, category?}` | `{roomId, code, category}` |
 | `room:create` | `{isPrivate=true, category?}` | `{roomId, code, category}` — boot ignored |
-| `room:joinCode` | `{code}` | `{roomId, code, category}` |
+| `room:joinCode` | `{code}` | `{roomId, code, category}`; code on another live worker → `{ok:false, code:'other_worker', path}` + `session:redirect` (§5.3) |
+| any seating (`room:quickJoin/create/joinCode/switch`) | | account already seated on another live worker → `{ok:false, code:'already_seated', path}` + `session:redirect {reason:'seat'}`; the seat just taken is given back (§5.3) |
 | `room:switch` | `{}` | `{roomId, code, category}` |
 | `room:leave` | `{}` | `{roomId}` or `{}` |
 | `game:action` | `{action, amount?, actionId?}` | table.act result; `actionId` (≤64 chars) becomes the ledger row's unique id |
@@ -343,7 +443,8 @@ user (`session:replaced` to the old one). On connect: `session:ready {user, conf
 
 | Server → client | Audience |
 |---|---|
-| `session:ready {user, config}` / `session:replaced` | socket |
+| `session:ready {user, config, worker:{id, path}, resume?}` / `session:replaced` | socket — `worker` is `{0, '/socket.io'}` in single-process mode, `{2, '/w2/socket.io'}` on worker 2 |
+| `session:redirect {worker, path, reason:'seat'\|'room', joinCode?}` — sent **instead of** `session:ready`, then `disconnect(true)`; also after an `other_worker`/`already_seated` ack, and after `room:kicked {reason:'takeover'}`; client reconnects on `path` (§5.3) | socket |
 | `room:joined` / `room:state` — `serializeFor(viewer)` | **per viewer** |
 | `room:moved {fromRoomId, toRoomId, code, message}` — **no `state`**; the snapshot is the `room:joined` that follows | socket |
 | `room:left` / `room:closed` / `room:kicked {roomId, reason, message}` | socket |
@@ -393,7 +494,10 @@ come back as strings.
 Tables: `users` (wallet = `chips BIGINT CHECK ≥ 0`, counters, `milestone_claimed`, `next_bonus_at`,
 `avatar_choice`), `hands` (`summary_json JSONB`), **`pots`** (`hand_id PK, amount, winner_id,
 opened_at, closed_at`), **`chip_ledger`** (`action_id UNIQUE`, `hand_id`, `delta`, `balance`,
-`reason`; append-only trigger), **`game_states`** (`room_id PK, version, state JSONB`). Timestamps
+`reason`; append-only trigger), **`game_states`** (`room_id PK, version, state JSONB`),
+**`cluster_workers` / `cluster_players` (user_id PK, worker_id, room_id nullable, updated_at) /
+`cluster_rooms` (code PK, room_id, worker_id, is_private, category, boot_amount, updated_at)** — the
+worker registry (§5.3; indexes on worker_id; empty and unread in single-process mode). Timestamps
 are epoch-ms BIGINT. Rewards: milestone 25,000 / 25 hands (`didChaal` only), timed 10,000 / 4h —
 constants in `users.js`. Display names: `NAME_PATTERN = /^[\p{L}\p{N}][\p{L}\p{N}\p{M} ]*$/u` —
 **`\p{M}` is essential** for Indic vowel signs.
@@ -433,7 +537,8 @@ must return 0). The import wrote 12 `legacy_reconciliation` rows to make the old
 | `CHAT_MAX_HISTORY` / `CHAT_MAX_LENGTH` / `CHAT_RATE_LIMIT` / `CHAT_RATE_WINDOW_MS` | 100 / 140 / 5 / 5000 | Flutter's chat field allows **200** — chars 141–200 are dropped server-side |
 | `METRICS_ENABLED` / `METRICS_PATH` / `METRICS_PREFIX` | true / `/metrics` / `game_server_` | Prometheus exposition (req. 35); prefix applies to prom-client's default process metrics only |
 | `METRICS_TOKEN` / `METRICS_ALLOW_IPS` | empty / empty | bearer token and/or comma-separated client IPs required to scrape; both empty = open (fine behind a firewall, wrong on the internet) |
-| `REDIS_URL` | empty | adapter only; RoomManager is process-local, so multi-node is **not** functional |
+| `REDIS_URL` | empty | adapter only; RoomManager is process-local — multi-process is the **worker cluster** (§5.3), not Redis |
+| `WORKER_ID` / `WORKER_COUNT` / `WORKER_BASE_PORT` / `WORKER_PORT` | unset / 1 / 3100 / unset | §5.3. `WORKER_ID` unset or 0 = single process (null registry, port `PORT`); ≥1 = worker listening on `WORKER_PORT` else `WORKER_BASE_PORT + WORKER_ID` — **`PORT` is ignored by a worker** (dotenv re-injects the `.env`'s `PORT=3000`). Never in `.env` → `config.cluster` |
 | `LOG_LEVEL` | info | read directly by `util/logger.js` |
 
 There is no `server/.env`; the server runs on these defaults.
@@ -454,7 +559,8 @@ There is no `server/.env`; the server runs on these defaults.
   `creation_duration_seconds`, `join_duration_seconds{route=quick_join|code|create|switch|resume}`, `state_update_duration_seconds`,
   `hand_start_duration_seconds`, `settlement_duration_seconds`, `db_transaction_duration_seconds{op=bet|boot|settle}` (+ `_errors_total{op,code}`);
   pool gauges `db_pool_connections/idle_connections/waiting_requests` via `bindPool(getPool)`; HTTP `http_requests_total` /
-  `http_request_duration_seconds{method,route,status_code}`.
+  `http_request_duration_seconds{method,route,status_code}`; cluster `worker_info{worker}` (= 1, absent in single mode) and
+  `redirects_total{reason=seat|room}` (§5.3).
 - **Label rule (enforced by `safeLabel()` and `test/metrics.test.js`):** no socket/user/room id, table code, name, URL or IP ever
   becomes a label value. `Table` stays uninstrumented — counters are fed from its events in `socket/index.js` (`wireTable`),
   timings from the socket handlers, `RoomManager.createTable` and `db/ledger.js`.
@@ -462,7 +568,15 @@ There is no `server/.env`; the server runs on these defaults.
   postgres_exporter, nginx-prometheus-exporter, node_exporter), Grafana provisioning + `grafana/dashboards/king-teenpatti.json`
   (sections System · Node.js · WebSockets · Multiplayer Game · Latency · PostgreSQL · Nginx), `nginx/king-teenpatti.conf.example`
   (websocket proxy, `stub_status`, `worker_connections 16384` — the 768 default capped production at ~1,500 players on 2026‑09‑08),
-  and `MONITORING.md` (runbook + requirement 35/36 checklist). Postgres internals come from postgres_exporter, not Node.
+  and `MONITORING.md` (runbook + requirement 35/36 checklist + "Workers" section). Postgres internals come from postgres_exporter, not Node.
+- **Dashboard is multi-instance-safe** (one job per worker `king-teenpatti-w1..3`; `prometheus.yml` has the pattern): state gauges
+  `sum(...)`, `game_connected_sockets_peak` → `max(...)`, counters `sum(rate(...))` by their labels, histograms unchanged
+  (`sum by (le…) (rate(_bucket))`), Node.js process metrics **one line per `{{instance}}`** (never summed — each worker has its
+  own one-core ceiling), constants (`heap_size_limit`, `max_fds`, `version_info`) `max`. Node.js row has "Workers up"
+  (`count(game_worker_info) or vector(0)`, "single process" at 0, green at 3 — edit with `WORKER_COUNT`) and "Redirects/sec".
+  Validate edits with `node -e 'JSON.parse(...)'` and an overlap check on `gridPos` (24 columns; rows `h:1`).
+  **`alerts.yml` still says `up{job="game-server"}`** for `GameServerDown` — in cluster mode it must become
+  `up{job=~"king-teenpatti-w.*"}`, and the socket-limit alerts compare one worker's sockets with the shared nginx limit.
 
 ### 7.6 Tests & tools
 - Runner: `node:test` + `node:assert/strict`; flat `test('sentence', async () => …)`.
@@ -475,7 +589,7 @@ There is no `server/.env`; the server runs on these defaults.
   deterministic showdowns with `seat.cards = codes.map(parseCard)`. `persistChips` receives
   `{userId, delta, reason:'boot'|'bet'|'show', roomId, handId, actionId}`; a throw **refuses** the
   move (`persist_failed`).
-- **Process suites** (`integration`, `socketProtocol`, `stakes`, `statsAndRewards`): set env before
+- **Process suites** (`integration`, `socketProtocol`, `stakes`, `statsAndRewards`, `cluster`): set env before
   `await import(...)`: `NODE_ENV=test`, **`PG_SCHEMA='test_<suite>_'+random`**, `TABLE_STAKES=''`,
   `LOBBY_TABLES=''`, `PORT=0`, `AUTH_ALLOW_FAKE_PROVIDERS=true`, short `*_MS`. Teardown:
   `await rooms.shutdown()` … `await dropSchema(); await closeDatabase()`. **`stakes.test.js` must run
@@ -617,6 +731,13 @@ final t = state.t;` at the top of `build`; M3 roles via `theme.colorScheme`; `.w
   old code (a client fell back to a default once because `publicGameConfig` lacked a new key).
 - **Bots reconnect to their previous table** (server restores seated users on connect). Use
   `--churn`, or wait out the 30s grace.
+- **Production is N workers, not one process** (§5.3): `systemctl status 'gameplay@*'`, ports 3101–3103,
+  `journalctl -t gameplay-1`. `curl api.sungamestudio.com/health` is *one* worker's numbers — sum
+  `127.0.0.1:310N/health` or read the dashboard. Restart workers **one at a time** to deploy. The
+  production `.env` still has `PORT=3000` — harmless because a worker ignores `PORT` (`WORKER_PORT` is its
+  override); a hand-started `WORKER_ID=2 node src/index.js` listens on 3102. `.env` must never set
+  `WORKER_*`. `PG_POOL_MAX` is per worker (+1 dedicated heartbeat connection each): keep
+  `N × (PG_POOL_MAX + 1) + ~10 < max_connections`. Rollback: `server/ops/cluster/ROLLBACK.md`.
 - `adb exec-out screencap` back-to-back returns **stale duplicate frames**; sleep ≥1s between grabs.
   Detect Flutter overflows with `adb logcat -d | grep -ic overflowed`.
 - `screenrecord` silently falls back to 1280×720 letterboxed; crop with ffmpeg `crop=1280:588:0:66`.

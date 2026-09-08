@@ -4,17 +4,52 @@ import express from 'express';
 import { Server } from 'socket.io';
 import config from './config/index.js';
 import { monitorEventLoopDelay } from 'node:perf_hooks';
-import { openDatabase, closeDatabase, getPool } from './db/index.js';
+import { openDatabase, closeDatabase, getPool, query } from './db/index.js';
 import { authRoutes, playerRoutes } from './auth/routes.js';
 import { AuthError } from './auth/providers.js';
 import { GameError } from './game/table.js';
 import RoomManager from './game/roomManager.js';
 import { attachSocketHandlers } from './socket/index.js';
+import { createRegistry } from './cluster/registry.js';
 import logger from './util/logger.js';
-import { bindPool, bindRooms, httpMetricsMiddleware, metricsHandler } from './metrics/index.js';
+import { bindPool, bindRooms, httpMetricsMiddleware, metricsHandler, workerInfo } from './metrics/index.js';
 
-export async function createServer() {
+/**
+ * Builds the whole game server — HTTP, Socket.IO, rooms, registry — without
+ * listening; the caller decides the port (the entrypoint below uses the
+ * configured one, tests use 0).
+ *
+ * `options` override the cluster settings from the environment, so a test can
+ * run two workers in one process against one database:
+ *   workerId     1-based worker id; 0/absent = single-process mode
+ *   workerCount  how many workers the cluster runs
+ *   port         the port this worker will listen on (recorded in the registry)
+ *   heartbeatMs  registry heartbeat interval (tests only; default 5 s)
+ *
+ * Returns `{ app, server, io, rooms, registry, workerId, workerCount, port,
+ * shutdown }`. `shutdown()` withdraws the worker from the registry, closes
+ * sockets, settles and destroys every table and closes the HTTP server; it
+ * does not close the database, which the caller opened implicitly and may
+ * share.
+ */
+export async function createServer(options = {}) {
   await openDatabase();
+
+  const workerId = options.workerId ?? config.cluster.workerId;
+  const workerCount = options.workerCount ?? config.cluster.workerCount;
+  const port = options.port ?? config.port;
+
+  // Registered first: a worker is findable by the others before it accepts a
+  // single player. In single-process mode this is the null registry.
+  const registry = createRegistry({
+    workerId,
+    workerCount,
+    port,
+    query,
+    ...(options.heartbeatMs ? { heartbeatMs: options.heartbeatMs } : {}),
+  });
+  await registry.start();
+  workerInfo.set({ worker: String(registry.workerId) }, 1);
 
   const app = express();
   app.disable('x-powered-by');
@@ -27,7 +62,7 @@ export async function createServer() {
   if (config.metrics.enabled) app.use(httpMetricsMiddleware());
   app.use(express.json({ limit: '32kb' }));
 
-  const rooms = new RoomManager();
+  const rooms = new RoomManager({ registry });
   bindRooms(rooms);
   bindPool(getPool);
   if (config.metrics.enabled) app.get(config.metrics.path, metricsHandler());
@@ -60,6 +95,7 @@ export async function createServer() {
     res.json({
       ok: true,
       uptime: process.uptime(),
+      worker: { id: registry.workerId, count: registry.workerCount, port },
       ...rooms.stats(),
       sockets: io.engine?.clientsCount ?? null,
       process: {
@@ -132,20 +168,51 @@ export async function createServer() {
     logger.info('socket.io redis adapter enabled');
   }
 
-  attachSocketHandlers(io, rooms);
+  attachSocketHandlers(io, rooms, { registry });
 
-  return { app, server, io, rooms };
+  /**
+   * Everything but the database, in the order that leaves nothing dangling.
+   *
+   * The registry goes first: the moment this worker's rows are gone, players
+   * it is about to drop are served by whichever worker they reconnect to.
+   * Withdrawing it last would leave the rows "alive" for up to a heartbeat
+   * while the sockets are already closed, and every reconnecting player would
+   * be redirected back to a port nothing listens on. The tables are destroyed
+   * (live hands settled, pots paid out) while the pool is still open; their
+   * retireRoom() calls find nothing left to delete.
+   */
+  const shutdown = async () => {
+    await registry.stop();
+    await new Promise((resolve) => io.close(resolve));
+    await rooms.shutdown();
+    server.closeAllConnections?.();
+    if (server.listening) await new Promise((resolve) => server.close(resolve));
+  };
+
+  return {
+    app,
+    server,
+    io,
+    rooms,
+    registry,
+    workerId: registry.workerId,
+    workerCount: registry.workerCount,
+    port,
+    shutdown,
+  };
 }
 
 const isEntrypoint = process.argv[1] && import.meta.url === `file://${path.resolve(process.argv[1])}`;
 
 if (isEntrypoint) {
-  const { server, rooms, io } = await createServer();
+  const created = await createServer();
+  const { server, workerId, workerCount, port } = created;
 
-  server.listen(config.port, config.host, () => {
+  server.listen(port, config.host, () => {
     logger.info('king-teenpatti server listening', {
-      url: `http://${config.host}:${config.port}`,
+      url: `http://${config.host}:${port}`,
       env: config.env,
+      worker: workerId ? `${workerId}/${workerCount}` : 'single',
       welcomeChips: config.game.welcomeChips,
       boot: config.game.bootAmount,
     });
@@ -154,10 +221,7 @@ if (isEntrypoint) {
   const shutdown = async (signal) => {
     logger.info('shutting down', { signal });
     setTimeout(() => process.exit(1), 8000).unref();
-    io.close();
-    // Live hands are settled (their pots paid out) before the pool closes.
-    await rooms.shutdown();
-    await new Promise((resolve) => server.close(resolve));
+    await created.shutdown();
     await closeDatabase();
     process.exit(0);
   };

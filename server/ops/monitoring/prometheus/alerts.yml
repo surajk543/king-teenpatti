@@ -29,13 +29,16 @@ groups:
   - name: king-teenpatti-game-server
     rules:
       - alert: GameServerDown
-        expr: up{job="game-server"} == 0
+        # One process (job game-server) or any one worker of the cluster
+        # (jobs king-teenpatti-w1..N, see prometheus.yml): a worker that dies
+        # takes its tables with it, so each one is watched on its own.
+        expr: up{job=~"game-server|king-teenpatti-w.*"} == 0
         for: 1m
         labels:
           severity: critical
         annotations:
-          summary: "Game server metrics endpoint is down"
-          description: "Prometheus has not been able to scrape {{ $labels.instance }} for 1 minute. Either the Node process is down or /metrics is refusing us (token / IP allow-list)."
+          summary: "Game server metrics endpoint is down ({{ $labels.job }})"
+          description: "Prometheus has not been able to scrape {{ $labels.instance }} ({{ $labels.job }}) for 1 minute. Either the Node process is down (systemctl status gameplay / 'gameplay@*') or /metrics is refusing us (token / IP allow-list)."
           runbook: "MONITORING.md#alerts"
 
       - alert: GameServerEventLoopLagHigh
@@ -60,24 +63,27 @@ groups:
           description: "Event-loop utilisation is {{ $value | humanizePercentage }} on {{ $labels.instance }}. The process is CPU-bound; latency alerts will follow."
           runbook: "MONITORING.md#alerts"
 
+      # The limit is for the whole box (nginx's worker_connections is shared by
+      # every worker behind it), so the sockets are summed over the workers —
+      # one worker's count alone would never reach it.
       - alert: GameServerSocketsNearLimit
-        expr: game_connected_sockets > 0.85 * scalar(king_teenpatti:socket_limit)
+        expr: sum(game_connected_sockets) > 0.85 * scalar(king_teenpatti:socket_limit)
         for: 2m
         labels:
           severity: warning
         annotations:
           summary: "Connected sockets within 15% of the configured limit"
-          description: "{{ $value }} sockets open on {{ $labels.instance }}; the limit recorded in king_teenpatti:socket_limit is {{ with query \"king_teenpatti:socket_limit\" }}{{ . | first | value }}{{ end }}. Past it nginx answers new handshakes with HTTP 500 (worker_connections) or Node hits EMFILE."
+          description: "{{ $value }} sockets open across the game workers; the limit recorded in king_teenpatti:socket_limit is {{ with query \"king_teenpatti:socket_limit\" }}{{ . | first | value }}{{ end }}. Past it nginx answers new handshakes with HTTP 500 (worker_connections) or Node hits EMFILE. Per worker: game_connected_sockets."
           runbook: "MONITORING.md#alerts"
 
       - alert: GameServerSocketsAtLimit
-        expr: game_connected_sockets > 0.97 * scalar(king_teenpatti:socket_limit)
+        expr: sum(game_connected_sockets) > 0.97 * scalar(king_teenpatti:socket_limit)
         for: 1m
         labels:
           severity: critical
         annotations:
           summary: "Connected sockets at the configured limit"
-          description: "{{ $value }} sockets open on {{ $labels.instance }}. New players are probably failing to connect right now."
+          description: "{{ $value }} sockets open across the game workers. New players are probably failing to connect right now."
           runbook: "MONITORING.md#alerts"
 
       - alert: GameServerHttp5xxRate
