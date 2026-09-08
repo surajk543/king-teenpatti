@@ -94,6 +94,8 @@ func TestVerifyRefusals(t *testing.T) {
 		{"empty", "", CodeMissingToken, "A session token is required"},
 		{"garbage", "nonsense", CodeInvalidSession, "jwt malformed"},
 		{"two segments", "a.b", CodeInvalidSession, "jwt malformed"},
+		{"three undecodable segments", "garbage.token.here", CodeInvalidSession, "invalid token"},
+		{"three segments, bad payload JSON", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.bm90LWpzb24.sig", CodeInvalidSession, "invalid token"},
 		{"wrong secret", wrongSecret, CodeInvalidSession, "invalid signature"},
 		{"expired", expired, CodeInvalidSession, "jwt expired"},
 		{"HS384 pinned out (DECISIONS §5)", hs384, CodeInvalidSession, "invalid algorithm"},

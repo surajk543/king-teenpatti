@@ -1142,6 +1142,19 @@ func (rm *RoomManager) destroyTable(roomID string, onlyIfUnclaimed bool) error {
 	}
 	rm.rl.OnTableDestroyed(roomID)
 	rm.log.Info("table destroyed", "roomId", roomID)
+	if table.PendingSettlements() > 0 {
+		// A pot the database had not accepted yet is still being written off
+		// the actor (Table.settleDetached); the table emits nothing after
+		// Destroy, so the outcome is logged from here.
+		rm.log.Warn("table destroyed with a settlement still owed", "roomId", roomID, "pending", table.PendingSettlements())
+		go func() {
+			if err := table.WaitSettlements(context.Background()); err != nil {
+				rm.log.Error("settlement abandoned after table destroyed", "roomId", roomID, "error", err.Error())
+				return
+			}
+			rm.log.Info("late settlement landed after table destroyed", "roomId", roomID, "hands", table.SettlementsLanded())
+		}()
+	}
 	return nil
 }
 
@@ -1340,31 +1353,46 @@ func (rm *RoomManager) Stats() Stats {
 }
 
 // Shutdown stops the sweeper and destroys every table in turn (settling live
-// hands — their pots are paid out — before the caller closes the pool). ctx
-// bounds the wait; Node gave the whole shutdown 8 s before process.exit(1).
-// A table opened while the shutdown runs is destroyed as well. When ctx
-// expires the remaining destroys carry on in the background and ctx.Err()
-// is returned.
+// hands — their pots are paid out — before the caller closes the pool), then
+// waits for any settlement the database refused at destroy time and that is
+// still being retried off the actor (Table.WaitSettlements). ctx bounds the
+// wait; Node gave the whole shutdown 8 s before process.exit(1). A table
+// opened while the shutdown runs is destroyed as well. When ctx expires the
+// remaining destroys carry on in the background and ctx.Err() is returned.
 func (rm *RoomManager) Shutdown(ctx context.Context) error {
 	rm.stopSweeper()
 
 	done := make(chan error, 1)
 	go func() {
+		var destroyed []*Table
 		for {
 			rm.mu.Lock()
 			tables := rm.tablesLocked()
 			rm.mu.Unlock()
 			if len(tables) == 0 {
-				done <- nil
-				return
+				break
 			}
 			for _, t := range tables {
 				if err := rm.DestroyTable(t.ID()); err != nil {
 					done <- err
 					return
 				}
+				destroyed = append(destroyed, t)
 			}
 		}
+		// A settlement the database refused at destroy time is still being
+		// retried off the actor; leaving now would orphan the pot. Wait for
+		// those writes within the caller's budget.
+		for _, t := range destroyed {
+			if err := t.WaitSettlements(ctx); err != nil {
+				if ctx.Err() != nil {
+					done <- err
+					return
+				}
+				rm.log.Error("settlement abandoned at shutdown", "roomId", t.ID(), "error", err.Error())
+			}
+		}
+		done <- nil
 	}()
 
 	select {

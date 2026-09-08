@@ -111,6 +111,19 @@ func run() error {
 	case <-sctx.Done():
 		return errShutdownTimedOut
 	}
-	database.Close()
-	return nil
+	// pgxpool.Close blocks until every acquired connection is released. A
+	// table actor still inside a hung statement never releases its own, so
+	// the close is bounded by the same budget — Node's process.exit(1) timer
+	// covered this step too.
+	closed := make(chan struct{})
+	go func() {
+		database.Close()
+		close(closed)
+	}()
+	select {
+	case <-closed:
+		return nil
+	case <-sctx.Done():
+		return errShutdownTimedOut
+	}
 }

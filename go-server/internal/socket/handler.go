@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"runtime/debug"
+	"strings"
 	"sync"
 	"time"
 
@@ -275,6 +276,12 @@ func (h *Handler) onConnection(s *sio.Socket) {
 	// stay live (the gap held a SetConnected post to a possibly busy actor).
 	// Claiming first means the second of the two finds the first and replaces
 	// it, exactly as if they had arrived one after the other.
+	// 8. (registered before the claim below: from the moment userSockets
+	// names this socket another sign-in may Disconnect it from its own
+	// goroutine, and a socket closed before its callback is registered would
+	// never run onDisconnect; the callback is idempotent — see onDisconnect)
+	s.OnDisconnect(func(reason string) { h.onDisconnect(s, reason) })
+
 	h.incConnections()
 	h.mu.Lock()
 	h.liveSockets++
@@ -286,10 +293,6 @@ func (h *Handler) onConnection(s *sio.Socket) {
 	h.userSockets[user.ID] = s
 	lapse := h.lapsing[user.ID]
 	h.mu.Unlock()
-
-	// 8. (registered first so a transport that dies mid-handshake is still
-	// accounted for; the callback is idempotent — see onDisconnect)
-	s.OnDisconnect(func(reason string) { h.onDisconnect(s, reason) })
 
 	// 2 (second half). one live session per account: a second login kicks
 	// the first, which stops a player opening two clients on the same seat.
@@ -879,9 +882,13 @@ func (h *Handler) action(s *sio.Socket, req ActionRequest) (any, error) {
 	// ledger row and is unique there, so a retried request — the ack got
 	// lost, the button was pressed twice — is refused rather than charged
 	// twice. A client that sends none (or one out of range) gets a fresh id
-	// and no protection.
+	// and no protection. The same column carries the server's own
+	// deterministic ids ("<handId>:boot:<userId>", "<handId>:settle:<userId>",
+	// "<userId>:milestone:<n>"); an id shaped like one of those — any colon —
+	// is not a token, it is an attempt to occupy a key the server will need
+	// (another player's milestone id fits in 64 chars), so it is dropped too.
 	actionID := ""
-	if n := utf16Len(req.ActionID); n > 0 && n <= ActionIDMaxLength {
+	if n := utf16Len(req.ActionID); n > 0 && n <= ActionIDMaxLength && !strings.ContainsRune(req.ActionID, ReservedActionIDSeparator) {
 		actionID = req.ActionID
 	}
 

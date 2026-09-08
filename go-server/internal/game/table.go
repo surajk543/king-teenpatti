@@ -69,6 +69,12 @@ const settleMaxAttempts = 10
 // settleRetryMaxDelay caps the settle back-off (Node: Math.min(30_000, …)).
 const settleRetryMaxDelay = 30 * time.Second
 
+// reservedActionIDSeparator is the character every server-generated
+// chip_ledger.action_id (BootActionID, SettleActionID, the users store's
+// milestone id) is built around. A client-supplied actionId containing it is
+// discarded in favour of a fresh uuid — see chargeToPot.
+const reservedActionIDSeparator = ':'
+
 // TableOptions builds a Table.
 type TableOptions struct {
 	ID        string // util.UUID()
@@ -262,10 +268,15 @@ type Table struct {
 	// pot was never banked).
 	retryTimers map[uint64]*settleRetry
 	retryGen    uint64
-	// detached counts the settlements still being retried after Destroy, so
-	// a shutdown can wait for them (WaitSettlements).
-	detached sync.WaitGroup
-	view     *View // the single View handed to listeners
+	// detached counts the settlement chains still being retried after
+	// Destroy (settleDetached), so a shutdown can wait for them
+	// (WaitSettlements); detachedMu guards the bookkeeping beside it.
+	detached        sync.WaitGroup
+	detachedMu      sync.Mutex
+	detachedStarted int
+	landed          []string // hand ids settled after Destroy
+	abandoned       []string // hand ids given up after settleMaxAttempts
+	view            *View    // the single View handed to listeners
 }
 
 // settleRetry is one armed settlement back-off: the timer and the exact
@@ -1558,7 +1569,14 @@ func (t *Table) sideshowBlockedReason(s *seat) string {
 // database transaction first, the table's own figures only after it has
 // committed. Returns the refusal (and changes nothing) when the write fails.
 func (t *Table) chargeToPot(s *seat, amount int64, actionID, reason string) error {
-	if actionID == "" {
+	// A client id is an opaque idempotency token. The ledger's own action ids
+	// ("<handId>:boot:<userId>", "<handId>:settle:<userId>",
+	// "<userId>:milestone:<n>") are the only colon-separated ones, and a client
+	// must never be able to occupy one of those keys ahead of the server —
+	// a bet carrying another player's "<userId>:milestone:25" would make that
+	// player's milestone claim fail on the UNIQUE index. The socket layer
+	// applies the same rule; this is the last line.
+	if actionID == "" || strings.ContainsRune(actionID, reservedActionIDSeparator) {
 		actionID = util.UUID()
 	}
 	version := t.version.Load() + 1
@@ -2366,18 +2384,25 @@ func (t *Table) endHand(winnerID *string, reason WinReason, reveals []Reveal) {
 
 // retrySettle (_retrySettle): if destroyed return. attempt > 10 → emit error
 // (OnError) with "settlement of hand <id> failed after 10 attempts". delay =
-// min(30s, NextHandDelay × attempt). AfterFunc(delay) → run(): if destroyed
-// return; Settle with Version+1; on success version = that, adopt balances
-// ONLY onto seats that are not active (a live stake is in play), emit state;
-// on error emit persistError{settle_retry, attempt} and retrySettle(attempt+1).
-// Unlike Node, the retry body runs ON the actor (Node ran it outside the
-// queue and mutated seats concurrently — a bug the port does not copy).
+// min(30s, NextHandDelay × attempt). AfterFunc(delay) → run(): Settle with
+// Version+1; on success version = that, adopt balances ONLY onto seats that
+// are not active (a live stake is in play), emit state; on error emit
+// persistError{settle_retry, attempt} and retrySettle(attempt+1). Unlike
+// Node, the retry body runs ON the actor (Node ran it outside the queue and
+// mutated seats concurrently — a bug the port does not copy).
 //
 // DECISIONS.md §2: a retry refused with duplicate_action means the write
 // already landed (the per-player settle action ids are UNIQUE), so it counts
 // as success and the chain stops.
+//
+// A retry the table no longer owns — Destroy ran first, or ran while the
+// timer's callback was already on its way to the actor — is not dropped: the
+// losers' stakes are already banked and the winner is still owed the pot, so
+// the write continues off the actor in settleDetached (Node's `if
+// (this._destroyed) return` silently orphaned the pot).
 func (t *Table) retrySettle(req SettleRequest, attempt int) {
 	if t.destroyed.Load() {
+		t.settleDetached(req, attempt)
 		return
 	}
 	if attempt > settleMaxAttempts {
@@ -2385,18 +2410,13 @@ func (t *Table) retrySettle(req SettleRequest, attempt int) {
 		return
 	}
 
-	delay := t.cfg.NextHandDelay * time.Duration(attempt)
-	if delay > settleRetryMaxDelay || delay < 0 {
-		delay = settleRetryMaxDelay
-	}
 	t.retryGen++
 	gen := t.retryGen
-	t.retryTimers[gen] = t.clock.AfterFunc(delay, func() {
-		_ = t.run(func() {
+	entry := &settleRetry{req: req, attempt: attempt}
+	t.retryTimers[gen] = entry
+	entry.timer = t.clock.AfterFunc(t.settleRetryDelay(attempt), func() {
+		err := t.run(func() {
 			delete(t.retryTimers, gen)
-			if t.destroyed.Load() {
-				return
-			}
 			// The version has moved on with later hands; present the current one
 			// so the snapshot check still describes "newer than stored".
 			version := t.version.Load() + 1
@@ -2418,7 +2438,112 @@ func (t *Table) retrySettle(req SettleRequest, attempt int) {
 			}
 			t.emitState()
 		})
+		if errors.Is(err, ErrTableDestroyed) {
+			// The timer fired in the same instant destroy() was tearing the
+			// table down; destroy saw Stop() report "already fired" and left
+			// this write to us.
+			t.settleDetached(req, attempt)
+		}
 	})
+}
+
+// settleRetryDelay is min(30s, NextHandDelay × attempt) — Node's back-off.
+func (t *Table) settleRetryDelay(attempt int) time.Duration {
+	delay := t.cfg.NextHandDelay * time.Duration(attempt)
+	if delay > settleRetryMaxDelay || delay < 0 {
+		delay = settleRetryMaxDelay
+	}
+	return delay
+}
+
+// settleDetached keeps retrying a settlement whose table has been destroyed
+// (Go addition; see retrySettle). It runs entirely off the actor: there are
+// no seats to correct, no state to broadcast and — Destroy's contract — no
+// Listener event is ever delivered again; the outcome is reported to whoever
+// calls WaitSettlements instead. Only the idempotent write itself remains,
+// with the same back-off, attempt numbering and cap as retrySettle, and a
+// context that outlives the table's. Each attempt takes the next version
+// number (versions only ever rise; a wasted number is harmless, a reused one
+// is stale_state).
+func (t *Table) settleDetached(req SettleRequest, attempt int) {
+	t.detachedMu.Lock()
+	t.detachedStarted++
+	t.detachedMu.Unlock()
+	t.detached.Add(1)
+	t.settleDetachedFrom(req, attempt)
+}
+
+// settleDetachedFrom is one link of a settleDetached chain; the chain holds
+// exactly one detached.Add for its whole life.
+func (t *Table) settleDetachedFrom(req SettleRequest, attempt int) {
+	if attempt > settleMaxAttempts {
+		t.detachedMu.Lock()
+		t.abandoned = append(t.abandoned, req.Hand.ID)
+		t.detachedMu.Unlock()
+		t.detached.Done()
+		return
+	}
+	t.clock.AfterFunc(t.settleRetryDelay(attempt), func() {
+		retry := req
+		retry.Version = t.version.Add(1)
+		_, err := t.ledger.Settle(context.WithoutCancel(t.ctx), retry)
+		if err != nil && CodeOf(err, "") != CodeDuplicateAction {
+			t.settleDetachedFrom(req, attempt+1)
+			return
+		}
+		t.detachedMu.Lock()
+		t.landed = append(t.landed, req.Hand.ID)
+		t.detachedMu.Unlock()
+		t.detached.Done()
+	})
+}
+
+// PendingSettlements reports how many settlements are still being retried
+// off the actor after Destroy (0 before Destroy, and 0 once every one has
+// landed or been abandoned).
+func (t *Table) PendingSettlements() int {
+	t.detachedMu.Lock()
+	defer t.detachedMu.Unlock()
+	return t.detachedOpen()
+}
+
+// detachedOpen is the number of detached chains still running; caller holds
+// detachedMu. Chains are counted by the WaitGroup, which cannot be read, so
+// the count is kept alongside it.
+func (t *Table) detachedOpen() int { return int(t.detachedStarted) - len(t.landed) - len(t.abandoned) }
+
+// WaitSettlements blocks until every settlement still being retried after
+// Destroy has landed or been abandoned, or ctx expires (ctx.Err()). It then
+// reports the hands whose settlement was abandoned after settleMaxAttempts as
+// an error naming them, or nil when everything landed. Before Destroy it
+// returns at once. RoomManager.Shutdown calls it so a process does not exit
+// with a winner's pot still unbanked while the database is merely slow;
+// RoomManager.destroyTable logs its result.
+func (t *Table) WaitSettlements(ctx context.Context) error {
+	done := make(chan struct{})
+	go func() {
+		t.detached.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	t.detachedMu.Lock()
+	defer t.detachedMu.Unlock()
+	if len(t.abandoned) == 0 {
+		return nil
+	}
+	return fmt.Errorf("settlement of hand(s) %s abandoned after %d attempts each", strings.Join(t.abandoned, ", "), settleMaxAttempts)
+}
+
+// SettlementsLanded returns the hand ids whose settlement landed only after
+// Destroy (for logs and tests).
+func (t *Table) SettlementsLanded() []string {
+	t.detachedMu.Lock()
+	defer t.detachedMu.Unlock()
+	return append([]string(nil), t.landed...)
 }
 
 // destroy (_destroy) — see Destroy.
@@ -2437,9 +2562,15 @@ func (t *Table) destroy() {
 	t.destroyed.Store(true)
 	t.clearTurnTimer()
 	t.clearStartTimer()
-	for gen, timer := range t.retryTimers {
-		timer.Stop()
+	// A settlement the database has not accepted yet is still owed whatever
+	// happens to the table: every stopped retry continues off the actor. A
+	// timer that had already fired is left to its own callback, which finds
+	// the table destroyed and does the same.
+	for gen, entry := range t.retryTimers {
 		delete(t.retryTimers, gen)
+		if entry.timer.Stop() {
+			t.settleDetached(entry.req, entry.attempt)
+		}
 	}
 	// The room is gone, and so is its chat: history exists only for as long as
 	// the room does, and is never written anywhere.

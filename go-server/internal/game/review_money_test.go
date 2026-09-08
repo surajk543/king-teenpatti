@@ -9,6 +9,7 @@ package game
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -137,11 +138,14 @@ func TestReviewDestroyMustNotAbandonAPendingSettlement(t *testing.T) {
 	loser := h.turnUser()
 	winner := h.otherActive(loser)
 
+	winnerBefore := ledger.wallet(winner)
+
 	ledger.setFailSettle(true)
 	h.mustAct(loser, ActionPack, ActRequest{})
 	eq(t, h.hasHand(), false, "hand over")
 	eq(t, ledger.settledCount(handID), 0, "settle did not land")
 	eq(t, h.clock.Pending() >= 1, true, "a retry is armed")
+	eq(t, h.table.PendingSettlements(), 0, "the actor still owns the retry")
 
 	// The database is back — but the table goes away first (last player
 	// leaves → RoomManager destroys it).
@@ -149,14 +153,71 @@ func TestReviewDestroyMustNotAbandonAPendingSettlement(t *testing.T) {
 	if err := h.table.Destroy(); err != nil {
 		t.Fatal(err)
 	}
+	eq(t, h.table.PendingSettlements(), 1, "the write is still owed after Destroy")
 
 	h.advance(10 * time.Minute)
 
 	if ledger.settledCount(handID) != 1 {
 		t.Fatalf("REVIEW: the settlement of hand %s was abandoned by Destroy; the winner %s never received the pot of %d in the database (wallet %d, expected %d)",
-			handID, winner, pot, ledger.wallet(winner), settleStart-settleBoot+pot-settleBoot)
+			handID, winner, pot, ledger.wallet(winner), winnerBefore+pot)
 	}
-	eq(t, ledger.wallet(winner), settleStart-settleBoot+pot, "the winner's wallet holds the pot")
+	eq(t, ledger.wallet(winner), winnerBefore+pot, "the winner's wallet holds the pot")
+	eq(t, h.table.PendingSettlements(), 0, "nothing left owed")
+	if err := h.table.WaitSettlements(context.Background()); err != nil {
+		t.Fatalf("WaitSettlements: %v", err)
+	}
+	eq(t, len(h.table.SettlementsLanded()), 1, "one late settlement reported")
+	eq(t, h.clock.Pending(), 0, "no timer left behind")
+}
+
+// TestReviewADetachedSettlementIsAbandonedAfterTenAttemptsAndReported: the
+// cap and the report survive the move off the actor — WaitSettlements names
+// the hand, and the chain stops (no timer left behind, no event after
+// Destroy).
+func TestReviewADetachedSettlementIsAbandonedAfterTenAttemptsAndReported(t *testing.T) {
+	ledger := newPersistingLedger()
+	h := reviewTable(t, ledger)
+	handID := h.lastHandStarted().HandID
+	ledger.setFailSettle(true)
+	h.mustAct(h.turnUser(), ActionPack, ActRequest{})
+	if err := h.table.Destroy(); err != nil {
+		t.Fatal(err)
+	}
+	events := h.rec.count()
+	// Retry 1 was owed by the actor (attempt 1 armed at 6 s); the detached
+	// chain continues from that attempt: 6+12+18+24+30×6 = 240 s.
+	h.advance(5 * time.Minute)
+	eq(t, ledger.settledCount(handID), 0, "never landed")
+	eq(t, h.table.PendingSettlements(), 0, "chain finished")
+	eq(t, h.clock.Pending(), 0, "no timer left behind")
+	eq(t, h.rec.count(), events, "no event after Destroy")
+	err := h.table.WaitSettlements(context.Background())
+	if err == nil || !strings.Contains(err.Error(), handID) {
+		t.Fatalf("WaitSettlements should name the abandoned hand, got %v", err)
+	}
+	eq(t, ledger.settleCalls, 11, "1 on the actor + 10 detached attempts")
+}
+
+// TestReviewWaitSettlementsHonoursItsContext: a shutdown budget must not be
+// held hostage by a database that never answers.
+func TestReviewWaitSettlementsHonoursItsContext(t *testing.T) {
+	ledger := newPersistingLedger()
+	h := reviewTable(t, ledger)
+	ledger.setFailSettle(true)
+	h.mustAct(h.turnUser(), ActionPack, ActRequest{})
+	if err := h.table.Destroy(); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	if err := h.table.WaitSettlements(ctx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected the context to expire, got %v", err)
+	}
+	// And an undestroyed table has nothing to wait for.
+	other := reviewTable(t, newPersistingLedger())
+	if err := other.table.WaitSettlements(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // TestReviewDestroyMidHandWithAFailingLedgerStillSettlesLater: shutdown or a
@@ -187,4 +248,28 @@ func TestReviewDestroyMidHandWithAFailingLedgerStillSettlesLater(t *testing.T) {
 	if ledger.settledCount(handID) != 1 {
 		t.Fatalf("REVIEW: pot %d of hand %s never paid to %s after Destroy (wallet %d)", pot, handID, winner, ledger.wallet(winner))
 	}
+}
+
+// TestReviewTableDropsAClientActionIDInAReservedNamespace: defence in depth
+// behind the socket layer's rule — a client actionId shaped like a server
+// ledger key ("<userId>:milestone:25", "<handId>:boot:<userId>", …) never
+// reaches the ledger; a fresh uuid does. Plain opaque tokens pass through
+// untouched.
+func TestReviewTableDropsAClientActionIDInAReservedNamespace(t *testing.T) {
+	var sent []string
+	h := newHarness(t, settleConfig(), withLedger(func(h *harness) Ledger {
+		return &captureLedger{inner: mirrorLedger(h), onBet: func(r BetRequest) { sent = append(sent, r.ActionID) }}
+	}))
+	h.seat("a", settleStart)
+	h.seat("b", settleStart)
+	h.advance(6 * time.Second)
+
+	first := h.turnUser()
+	h.mustAct(first, ActionChaal, ActRequest{ActionID: "b:milestone:25"})
+	h.mustAct(h.turnUser(), ActionChaal, ActRequest{ActionID: "client-token-1"})
+	eq(t, len(sent), 2, "two bets banked")
+	if sent[0] == "b:milestone:25" || strings.ContainsRune(sent[0], ':') || len(sent[0]) != 36 {
+		t.Fatalf("REVIEW: the reserved-namespace id reached the ledger as %q", sent[0])
+	}
+	eq(t, sent[1], "client-token-1", "an opaque token is kept verbatim")
 }

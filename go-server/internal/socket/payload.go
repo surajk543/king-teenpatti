@@ -123,21 +123,55 @@ func jsString(raw json.RawMessage, kind jsonKind) string {
 	case kindBool:
 		return string(bytes.TrimSpace(raw))
 	case kindArray:
-		var items []json.RawMessage
-		if err := json.Unmarshal(raw, &items); err != nil {
+		// Decode ONCE and walk the tree. The earlier version re-unmarshalled
+		// every element as a json.RawMessage and recursed, so each nesting
+		// level parsed the whole remaining subtree again: O(size × depth),
+		// ~3 s of CPU for one 100 KB frame nested 9000 deep — a hostile
+		// client's cheapest way to burn a core through
+		// `game:action {action: [[[…]]]}`. UseNumber keeps out-of-range
+		// literals (1e400) as text so they print as JavaScript would.
+		dec := json.NewDecoder(bytes.NewReader(raw))
+		dec.UseNumber()
+		var value any
+		if err := dec.Decode(&value); err != nil {
 			return ""
 		}
-		parts := make([]string, len(items))
-		for i, item := range items {
-			k := kindOf(item)
-			if k == kindNull {
-				continue // Array#join renders null and undefined as ""
-			}
-			parts[i] = jsString(item, k)
-		}
-		return strings.Join(parts, ",")
+		var b strings.Builder
+		b.Grow(len(raw))
+		joinJS(&b, value)
+		return b.String()
 	default:
 		return "[object Object]"
+	}
+}
+
+// joinJS appends Array.prototype.join's rendering of one decoded JSON value:
+// null → "" (join skips null and undefined), strings verbatim, numbers as
+// Number#toString, booleans "true"/"false", nested arrays flattened with ","
+// (their own toString), objects "[object Object]". Depth is bounded by
+// encoding/json's nesting limit (10 000), well within the Go stack.
+func joinJS(b *strings.Builder, value any) {
+	switch v := value.(type) {
+	case nil:
+	case string:
+		b.WriteString(v)
+	case json.Number:
+		b.WriteString(jsNumberString(json.RawMessage(v)))
+	case bool:
+		if v {
+			b.WriteString("true")
+		} else {
+			b.WriteString("false")
+		}
+	case []any:
+		for i, item := range v {
+			if i > 0 {
+				b.WriteByte(',')
+			}
+			joinJS(b, item)
+		}
+	default: // map[string]any
+		b.WriteString("[object Object]")
 	}
 }
 

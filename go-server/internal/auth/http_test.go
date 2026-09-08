@@ -343,6 +343,9 @@ func TestLoginRefusals(t *testing.T) {
 	// A non-JSON content type is ignored → body {} → unknown_provider "undefined".
 	res = h.do(http.MethodPost, "/api/auth/login", `{"provider":"guest","deviceId":"device-guest-0001"}`, "Content-Type", "text/plain")
 	expectError(t, res, 400, CodeUnknownProvider)
+	if res.body["message"] != `Unsupported login provider "undefined"` {
+		t.Errorf("non-JSON type message %q", res.body["message"])
+	}
 	res = h.do(http.MethodPost, "/api/auth/login", `{"provider":"guest","deviceId":"device-guest-0001"}`, "Content-Type", "application/vnd.api+json")
 	expectError(t, res, 400, CodeUnknownProvider)
 	// charset parameter on application/json is fine.
@@ -350,8 +353,14 @@ func TestLoginRefusals(t *testing.T) {
 	if res.status != 200 {
 		t.Errorf("charset=UTF-8: %d %s", res.status, res.raw)
 	}
-	// Empty body with a JSON content type is {}.
+	// Empty body with a JSON content type is {}; so is no body at all. Both
+	// name the missing provider "undefined", as Node's template literal did.
 	expectError(t, h.do(http.MethodPost, "/api/auth/login", ""), 400, CodeUnknownProvider)
+	res = h.do(http.MethodPost, "/api/auth/login", nil)
+	expectError(t, res, 400, CodeUnknownProvider)
+	if res.body["message"] != `Unsupported login provider "undefined"` {
+		t.Errorf("no-body message %q", res.body["message"])
+	}
 	// A store failure is a 500 internal_error and a `request failed` log line.
 	h.store.failWith = errors.New("connection refused")
 	res = h.do(http.MethodPost, "/api/auth/login", map[string]any{"provider": "guest", "deviceId": "device-guest-0001"})

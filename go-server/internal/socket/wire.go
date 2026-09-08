@@ -73,6 +73,11 @@ const (
 	ActionRateWindowMs = 5000
 	// ActionIDMaxLength: a longer or empty actionId is ignored (fresh uuid).
 	ActionIDMaxLength = 64
+	// ReservedActionIDSeparator: an actionId containing it is ignored too —
+	// every server-generated chip_ledger.action_id is colon-separated, and a
+	// client must not be able to take one of those keys first (see
+	// Handler.action).
+	ReservedActionIDSeparator = ':'
 )
 
 // KnownErrorCodes is the label set for game_socket_errors_total{code} and

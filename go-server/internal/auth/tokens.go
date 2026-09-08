@@ -75,18 +75,27 @@ func (t *Tokens) Verify(token string) (*Claims, error) {
 		jwt.WithValidMethods([]string{SigningMethod.Alg()}),
 		jwt.WithTimeFunc(t.now))
 	if err != nil {
-		return nil, NewAuthError(CodeInvalidSession, "Session token rejected: "+rejectionReason(err), 0)
+		return nil, NewAuthError(CodeInvalidSession, "Session token rejected: "+rejectionReason(token, err), 0)
 	}
 	return claims, nil
 }
 
 // rejectionReason maps golang-jwt's errors onto jsonwebtoken's wording where a
-// counterpart exists (jwt malformed / jwt expired / invalid signature / jwt
-// not active / invalid algorithm) so the `message` players and logs see does
-// not change with the runtime. Anything else keeps the library's text.
-func rejectionReason(err error) string {
+// counterpart exists (jwt malformed / invalid token / jwt expired / invalid
+// signature / jwt not active / invalid algorithm) so the `message` players and
+// logs see does not change with the runtime. Anything else keeps the
+// library's text.
+//
+// jsonwebtoken distinguishes two malformed cases: a string without exactly
+// three dot-separated segments is "jwt malformed", while three segments whose
+// header or payload will not decode is "invalid token" (verify.js: the
+// segment count is checked first, then jws.decode returning null).
+func rejectionReason(token string, err error) string {
 	switch {
 	case errors.Is(err, jwt.ErrTokenMalformed):
+		if strings.Count(token, ".") == 2 {
+			return "invalid token"
+		}
 		return "jwt malformed"
 	case errors.Is(err, jwt.ErrTokenExpired):
 		return "jwt expired"

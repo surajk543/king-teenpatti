@@ -93,7 +93,11 @@ func ReadJSONBody(r *http.Request, v any) error {
 // {userId, provider} → 200 {token, user, isNew, welcomeChips} with
 // welcomeChips = config.Game.WelcomeChips when isNew, else 0.
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
-	var req LoginRequest
+	// No body, an empty body or a non-JSON content type leaves req untouched
+	// (body-parser's `{}`), and Node then reported the missing provider as
+	// `Unsupported login provider "undefined"`; UnmarshalJSON recomputes the
+	// flag whenever a JSON body is actually decoded.
+	req := LoginRequest{providerAbsent: true}
 	if err := ReadJSONBody(r, &req); err != nil {
 		h.writeError(w, r, err)
 		return
