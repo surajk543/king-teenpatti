@@ -21,6 +21,7 @@ king-teenpatti/
 ├── docs/load-reports/    ramp-test reports (HTML + JSON)
 ├── flutter-client/  Flutter client (Dart): the live app — lobby, table, chat, sideshow
 ├── CLAUDE.md        Detailed project context for coding sessions
+├── steps.txt        The production deploy routine in six lines
 └── Requirements.txt The original brief (items 1–34; there is no 11)
 ```
 
