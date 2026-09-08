@@ -95,6 +95,8 @@ func TestVerifyRefusals(t *testing.T) {
 		{"garbage", "nonsense", CodeInvalidSession, "jwt malformed"},
 		{"two segments", "a.b", CodeInvalidSession, "jwt malformed"},
 		{"three undecodable segments", "garbage.token.here", CodeInvalidSession, "invalid token"},
+		// Node surfaced V8's JSON.parse text for this one ("Unexpected token …
+		// is not valid JSON"); the Go server folds it into "invalid token".
 		{"three segments, bad payload JSON", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.bm90LWpzb24.sig", CodeInvalidSession, "invalid token"},
 		{"wrong secret", wrongSecret, CodeInvalidSession, "invalid signature"},
 		{"expired", expired, CodeInvalidSession, "jwt expired"},

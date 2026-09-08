@@ -29,7 +29,9 @@ func TestReviewBlockedHandlerWithAFullInboundQueueStarvesTheHeartbeat(t *testing
 	h.srv.Use(tokenMiddleware)
 
 	release := make(chan struct{})
-	defer close(release)
+	var releaseOnce sync.Once
+	unblock := func() { releaseOnce.Do(func() { close(release) }) }
+	defer unblock()
 	var once sync.Once
 	reasons := make(chan string, 1)
 	h.srv.OnConnection(func(s *Socket) {
@@ -49,18 +51,23 @@ func TestReviewBlockedHandlerWithAFullInboundQueueStarvesTheHeartbeat(t *testing
 		send(t, c.ws, `42["stuck",{}]`)
 	}
 	// Answer every ping promptly for a while — much longer than PingTimeout.
+	// (gorilla read errors are sticky, so one deadline covers the whole
+	// window; pings every 60 ms keep the reads returning.)
 	deadline := time.Now().Add(600 * time.Millisecond)
-	for time.Now().Before(deadline) {
-		_ = c.ws.SetReadDeadline(time.Now().Add(50 * time.Millisecond))
+	_ = c.ws.SetReadDeadline(deadline)
+	for {
 		_, data, err := c.ws.ReadMessage()
 		if err != nil {
-			if strings.Contains(err.Error(), "timeout") {
-				continue
+			if strings.Contains(err.Error(), "timeout") && !time.Now().Before(deadline) {
+				break // survived the window
 			}
+			// The transport is gone. Let the handler return so the
+			// dispatcher can run the disconnect callbacks and name the reason.
+			unblock()
 			select {
 			case r := <-reasons:
 				t.Fatalf("REVIEW: connection closed with %q while the client answered every ping (reader parked on a full inbound queue)", r)
-			case <-time.After(time.Second):
+			case <-time.After(2 * time.Second):
 				t.Fatalf("REVIEW: transport closed (%v) while the client answered every ping", err)
 			}
 		}

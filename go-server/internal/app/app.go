@@ -66,7 +66,10 @@ const (
 	sioPath         = "/socket.io/"
 	sioPingInterval = 20 * time.Second
 	sioPingTimeout  = 25 * time.Second
-	sioMaxPayload   = 100000 // maxHttpBufferSize: 1e5
+	// maxHeaderBytes is Node's default http.maxHeaderSize (16 KiB): the
+	// largest request-line + header block accepted; bigger → 431.
+	maxHeaderBytes = 16 << 10
+	sioMaxPayload  = 100000 // maxHttpBufferSize: 1e5
 )
 
 // New wires everything (createServer):
@@ -228,7 +231,12 @@ func New(opts Options) (*App, error) {
 		// Node's http.Server headersTimeout (60 s); no other timeouts, because
 		// WebSocket upgrades are hijacked and long polls do not exist.
 		ReadHeaderTimeout: 60 * time.Second,
-		ErrorLog:          slog.NewLogLogger(logger.Handler(), slog.LevelWarn),
+		// Node's http.maxHeaderSize (16 KiB, --max-http-header-size). Go's
+		// default is 1 MiB, and sio keeps every upgrade request's headers for
+		// the life of the WebSocket (Handshake.Headers), so without this a
+		// client holding a free guest token could pin 1 MiB per connection.
+		MaxHeaderBytes: maxHeaderBytes,
+		ErrorLog:       slog.NewLogLogger(logger.Handler(), slog.LevelWarn),
 	}
 	return a, nil
 }
