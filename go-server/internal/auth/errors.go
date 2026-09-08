@@ -56,4 +56,5 @@ const (
 	CodeUnknownAvatar      = "unknown_avatar"       // 400
 	CodeInternalError      = "internal_error"       // 500
 	CodeInvalidJSON        = "invalid_json"         // 400 — Go-only, see PORT_PLAN.md (Node answered 500 internal_error)
+	CodeNotFound           = "not_found"            // 404 — Go-only JSON 404 for unknown /api paths (DECISIONS.md §5)
 )

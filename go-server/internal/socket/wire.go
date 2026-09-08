@@ -19,7 +19,7 @@ import (
 const (
 	EvLobbyList        = "lobby:list"           // {category?} → {tables, options}   (scratch/tests only)
 	EvRoomQuickJoin    = "room:quickJoin"       // {bootAmount?, category?} → RoomAck
-	EvRoomCreate       = "room:create"          // {isPrivate=true, category?} → RoomAck (boot ignored)
+	EvRoomCreate       = "room:create"          // {bootAmount?, isPrivate=true, category?} → RoomAck (boot forced to PrivateBoot when private)
 	EvRoomJoinCode     = "room:joinCode"        // {code} → RoomAck
 	EvRoomSwitch       = "room:switch"          // {} → RoomAck
 	EvRoomLeave        = "room:leave"           // {} → {roomId} or {}
@@ -107,49 +107,70 @@ var KnownEvents = map[string]struct{}{
 
 // ---- inbound payloads ----
 
-// LobbyListRequest ← lobby:list.
+// The inbound structs are filled by the decoders in payload.go, never by
+// json.Unmarshal directly: Node destructured `payload ?? {}` with JavaScript's
+// loose typing, so a non-object payload means "all defaults" and a wrongly
+// typed field is coerced (String(), truthiness) or dropped exactly as the
+// Node handler would have done. Each doc below says what its decoder stores.
+
+// LobbyListRequest ← lobby:list. Category is the string sent ("" → no
+// filter); a truthy non-string (42, {}) becomes a filter no table can match
+// — Node's `!category || table.category === category` returned [] for it.
 type LobbyListRequest struct {
 	Category string `json:"category"`
 }
 
-// QuickJoinRequest ← room:quickJoin. BootAmount nil → config default.
+// QuickJoinRequest ← room:quickJoin. BootAmount nil → config default (absent
+// or null); a positive integer as sent; any other value (0, 200.5, "lots",
+// true) is stored as −1 so the RoomManager refuses it with invalid_stake in
+// Node's check order (after already_in_room). Category: the string sent, ""
+// for a non-string (→ seen).
 type QuickJoinRequest struct {
 	BootAmount *int64 `json:"bootAmount"`
 	Category   string `json:"category"`
 }
 
-// CreateRequest ← room:create. IsPrivate nil → true. BootAmount is
-// accepted and then ignored for private tables (requirement 22).
+// CreateRequest ← room:create. IsPrivate nil → true (the destructuring
+// default applies to undefined only); null, false, 0, "" → public; any other
+// value → private (Node stored it raw and tested truthiness). BootAmount as
+// for QuickJoinRequest; it is ignored for private tables (requirement 22).
 type CreateRequest struct {
 	BootAmount *int64 `json:"bootAmount"`
 	IsPrivate  *bool  `json:"isPrivate"`
 	Category   string `json:"category"`
 }
 
-// JoinCodeRequest ← room:joinCode.
+// JoinCodeRequest ← room:joinCode. Code is `String(code ?? ”)`: "" for
+// absent/null, "[object Object]" for an object, digits for a number; the
+// RoomManager upper-cases it.
 type JoinCodeRequest struct {
 	Code string `json:"code"`
 }
 
-// ActionRequest ← game:action. Amount is kept raw so the handler can apply
-// Node's type rule: absent/null → no amount; a JSON number that is a safe
-// integer → that; anything else (string "100", array, boolean, 1.5, 1e300) →
-// invalid_bet "Bet amount must be a whole number". ActionID is used only when
-// 1..64 characters long. Action must be in game.AllActions → else
-// unknown_action.
+// ActionRequest ← game:action. Action is String(action) — "undefined" when
+// absent, "[object Object]" for an object — so the unknown_action message
+// interpolates exactly what Node's template literal did; it must be in
+// game.AllActions. Amount is kept raw (nil when absent) so the handler can
+// apply Node's type rule: absent/null → no amount; a JSON number that is a
+// safe integer → that; anything else (string "100", array, boolean, 1.5,
+// 1e300) → invalid_bet "Bet amount must be a whole number". ActionID is the
+// string sent ("" for a non-string) and is used only when 1..64 UTF-16 units
+// long.
 type ActionRequest struct {
 	Action   string          `json:"action"`
 	Amount   json.RawMessage `json:"amount"`
 	ActionID string          `json:"actionId"`
 }
 
-// SideshowRespondRequest ← game:sideshowRespond. Only a JSON `true` accepts
-// (Node: `accept === true`); anything else declines.
+// SideshowRespondRequest ← game:sideshowRespond. Accept is the raw value
+// (nil when absent). Only a JSON `true` accepts (Node: `accept === true`);
+// anything else declines.
 type SideshowRespondRequest struct {
 	Accept json.RawMessage `json:"accept"`
 }
 
-// ChatRequest ← chat:message.
+// ChatRequest ← chat:message. Text is the string sent, a number's decimal
+// string, or "" for anything else (DECISIONS.md §4); the Table sanitises it.
 type ChatRequest struct {
 	Text string `json:"text"`
 }
@@ -221,9 +242,11 @@ type ChatHistoryAck struct {
 }
 
 // PingAck ← ping:rtt: {sentAt, serverTime} — NO `ok` field. sentAt is echoed
-// as received (raw JSON).
+// as received (raw JSON, `null` included); when the client sent no argument
+// the key is ABSENT, as Node's `{ sentAt: undefined }` serialised — hence
+// omitempty on the RawMessage (nil → omitted, `null` → kept).
 type PingAck struct {
-	SentAt     json.RawMessage `json:"sentAt"`
+	SentAt     json.RawMessage `json:"sentAt,omitempty"`
 	ServerTime int64           `json:"serverTime"`
 }
 

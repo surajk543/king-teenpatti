@@ -32,10 +32,17 @@
 //	  4317[{"ok":true}]        ACK for id 17 — the args ARRAY
 //	  44{"message":"…"}        CONNECT_ERROR
 //
-// Reference: socket.io-parser v4 (`Encoder.encodeAsString`) and
-// engine.io-parser v5. The Node server's settings (index.js): pingInterval
-// 20000, pingTimeout 25000, maxHttpBufferSize 1e5, cors origin from config.
+// Reference: socket.io-parser v4 (`Encoder.encodeAsString` /
+// `Decoder.decodeString`) and engine.io-parser v5. The Node server's settings
+// (index.js): pingInterval 20000, pingTimeout 25000, maxHttpBufferSize 1e5,
+// cors origin from config.
 package sio
+
+import (
+	"bytes"
+	"encoding/json"
+	"strconv"
+)
 
 // EngineIOVersion is the only EIO query value accepted.
 const EngineIOVersion = "4"
@@ -113,7 +120,11 @@ type ConnectError struct {
 	Data    any    `json:"data,omitempty"`
 }
 
-// Packet is one decoded Socket.IO packet (namespace "/" implied).
+// MsgInvalidNamespace is socket.io's CONNECT_ERROR message for a CONNECT to a
+// namespace the server does not serve (socket.io/dist/client.js `connect`).
+const MsgInvalidNamespace = "Invalid namespace"
+
+// Packet is one decoded Socket.IO packet.
 type Packet struct {
 	Type byte
 	// ID is the ack id for EVENT/ACK packets, or -1 when absent.
@@ -122,24 +133,157 @@ type Packet struct {
 	// empty), for EVENT the args array `["event", ...payload]`, for ACK the
 	// args array, for CONNECT_ERROR the error object.
 	Data []byte
+	// Nsp is the namespace the packet names; "" (and "/") mean the default
+	// namespace, which the wire omits. The server serves only "/", but a
+	// CONNECT to another namespace must be answered with a CONNECT_ERROR
+	// addressed to THAT namespace — `44/admin,{"message":"Invalid namespace"}`
+	// — so the decoder reports it instead of failing (socket.io-parser keeps
+	// `nsp` on every packet).
+	Nsp string
+}
+
+// reservedEvents may not be used as event names on the wire (socket.io-parser
+// RESERVED_EVENTS); an EVENT carrying one fails to decode.
+var reservedEvents = map[string]struct{}{
+	"connect": {}, "connect_error": {}, "disconnect": {}, "disconnecting": {},
+	"newListener": {}, "removeListener": {},
 }
 
 // EncodePacket renders p as the Socket.IO part of a message frame — that is,
 // WITHOUT the leading Engine.IO "4"; the transport adds it. Examples: Packet
 // {Type: PacketEvent, ID: -1, Data: `["x",{}]`} → `2["x",{}]`; {PacketAck,
 // 17, `[{"ok":true}]`} → `317[{"ok":true}]`; {PacketConnect, -1, `{"sid":"s"}`}
-// → `0{"sid":"s"}`.
+// → `0{"sid":"s"}`. A non-default Nsp is written as `<nsp>,` right after the
+// type (`4/admin,{"message":"Invalid namespace"}`), exactly socket.io-parser's
+// `encodeAsString`.
 func EncodePacket(p Packet) []byte {
-	panic("not ported: sio.EncodePacket")
+	out := make([]byte, 0, 1+len(p.Nsp)+1+20+len(p.Data))
+	out = append(out, p.Type)
+	if p.Nsp != "" && p.Nsp != "/" {
+		out = append(out, p.Nsp...)
+		out = append(out, ',')
+	}
+	if p.ID >= 0 {
+		out = strconv.AppendInt(out, int64(p.ID), 10)
+	}
+	out = append(out, p.Data...)
+	return out
 }
 
 // DecodePacket parses the Socket.IO part of a message frame (after the
-// Engine.IO "4"). Grammar: type digit; optional binary attachment count
-// "<n>-" (rejected: ErrBinaryUnsupported); optional namespace "/<nsp>," (any
-// nsp other than "/" → the caller answers CONNECT_ERROR "Invalid namespace");
-// optional ack id digits; the rest is the JSON payload. Returns
-// ErrMalformedPacket on anything else. EVENT/ACK payloads must be a JSON
-// array; EVENT's first element must be a string.
+// Engine.IO "4"), following socket.io-parser's `Decoder.decodeString` rule for
+// rule. Grammar: type digit; optional binary attachment count "<n>-" (types
+// 5/6 only; rejected: ErrBinaryUnsupported); optional namespace "/<nsp>,"
+// (reported in Packet.Nsp — the caller answers a CONNECT to anything but "/"
+// with CONNECT_ERROR "Invalid namespace"); optional ack id digits; the rest
+// is the JSON payload, validated per type as `isPayloadValid` does: CONNECT →
+// object or absent; DISCONNECT → absent; CONNECT_ERROR → string or object;
+// EVENT → array whose first element is a string that is not a reserved event
+// name (or a number, which Node tolerates and then ignores); ACK → array.
+// Anything else → ErrMalformedPacket. An empty frame decodes as a bare
+// CONNECT, as `Number("")` is 0 in JavaScript.
 func DecodePacket(frame []byte) (Packet, error) {
-	panic("not ported: sio.DecodePacket")
+	p := Packet{ID: -1}
+	if len(frame) == 0 {
+		p.Type = PacketConnect
+		return p, nil
+	}
+	i := 0
+	p.Type = frame[0]
+	if p.Type < PacketConnect || p.Type > PacketBinaryAck {
+		return p, ErrMalformedPacket
+	}
+	if p.Type == PacketBinaryEvent || p.Type == PacketBinaryAck {
+		// "<n>-" attachments: the game never uses binary; refuse it outright
+		// (Node would wait for the attachments and then dispatch a packet with
+		// Buffers in it, which no handler of ours accepts).
+		return p, ErrBinaryUnsupported
+	}
+	// namespace
+	if i+1 < len(frame) && frame[i+1] == '/' {
+		start := i + 1
+		i++
+		for i < len(frame) && frame[i] != ',' {
+			i++
+		}
+		p.Nsp = string(frame[start:i])
+		// i now sits on the ',' (or at len(frame) when the nsp ran to the end)
+	}
+	// ack id: a run of ASCII digits
+	if i+1 < len(frame) && isDigit(frame[i+1]) {
+		start := i + 1
+		j := start
+		for j < len(frame) && isDigit(frame[j]) {
+			j++
+		}
+		if j-start > 18 {
+			return p, ErrMalformedPacket
+		}
+		id, err := strconv.Atoi(string(frame[start:j]))
+		if err != nil {
+			return p, ErrMalformedPacket
+		}
+		p.ID = id
+		i = j - 1
+	}
+	// payload
+	i++
+	if i < len(frame) {
+		data := frame[i:]
+		if !json.Valid(data) || !payloadValid(p.Type, data) {
+			return p, ErrMalformedPacket
+		}
+		p.Data = data
+	} else if p.Type == PacketEvent || p.Type == PacketAck {
+		// `42` alone: Node dispatches an empty args array, which no handler
+		// matches; we surface it as a packet without data (ignored upstream).
+		p.Data = nil
+	}
+	return p, nil
+}
+
+func isDigit(b byte) bool { return b >= '0' && b <= '9' }
+
+// payloadValid is socket.io-parser's `Decoder.isPayloadValid` for valid JSON.
+func payloadValid(typ byte, data []byte) bool {
+	trimmed := bytes.TrimLeft(data, " \t\r\n")
+	if len(trimmed) == 0 {
+		return false
+	}
+	switch typ {
+	case PacketConnect:
+		return trimmed[0] == '{'
+	case PacketDisconnect:
+		return false // "41" must carry nothing
+	case PacketConnectError:
+		return trimmed[0] == '"' || trimmed[0] == '{'
+	case PacketEvent:
+		if trimmed[0] != '[' {
+			return false
+		}
+		var elems []json.RawMessage
+		if err := json.Unmarshal(trimmed, &elems); err != nil || len(elems) == 0 {
+			return false
+		}
+		first := bytes.TrimLeft(elems[0], " \t\r\n")
+		if len(first) == 0 {
+			return false
+		}
+		switch {
+		case first[0] == '"':
+			var name string
+			if err := json.Unmarshal(first, &name); err != nil {
+				return false
+			}
+			_, reserved := reservedEvents[name]
+			return !reserved
+		case first[0] == '-' || isDigit(first[0]):
+			return true
+		default:
+			return false
+		}
+	case PacketAck:
+		return trimmed[0] == '['
+	}
+	return false
 }

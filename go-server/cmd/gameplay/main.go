@@ -14,7 +14,9 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -30,6 +32,10 @@ import (
 
 // shutdownBudget mirrors Node's `setTimeout(() => process.exit(1), 8000)`.
 const shutdownBudget = 8 * time.Second
+
+// errShutdownTimedOut is returned when the budget runs out; main exits 1, as
+// Node's hard timer did.
+var errShutdownTimedOut = errors.New("shutdown did not finish within 8s")
 
 func main() {
 	if err := run(); err != nil {
@@ -48,9 +54,13 @@ func run() error {
 	}
 	logger := util.NewLogger(cfg.LogLevel, os.Stdout)
 
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
+	// A signal is observed by name so the log line matches Node's
+	// `shutting down {signal: 'SIGTERM'}`.
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(signals)
 
+	ctx := context.Background()
 	database, err := db.Open(ctx, db.Options{URL: cfg.DB.URL, Schema: cfg.DB.Schema, PoolMax: cfg.DB.PoolMax, Logger: logger})
 	if err != nil {
 		return err
@@ -62,12 +72,45 @@ func run() error {
 		return err
 	}
 
-	// Not ported yet: the porter of cmd/gameplay replaces this block with
-	//   errCh := make(chan error, 1); go func() { errCh <- server.Start(ctx) }()
-	//   select { case err := <-errCh: return err; case <-ctx.Done(): }
-	//   logger.Info("shutting down", "signal", ...)
-	//   sctx, cancel := context.WithTimeout(context.Background(), shutdownBudget); defer cancel()
-	//   err = server.Shutdown(sctx); database.Close(); return err
-	_ = server
-	panic("not ported: main.run")
+	errCh := make(chan error, 1)
+	go func() { errCh <- server.Start(ctx) }()
+
+	var signalName string
+	select {
+	case err := <-errCh:
+		// The listener failed (port in use, …) or closed on its own.
+		database.Close()
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			return err
+		}
+		return nil
+	case sig := <-signals:
+		signalName = sig.String()
+		if s, ok := sig.(syscall.Signal); ok {
+			switch s {
+			case syscall.SIGINT:
+				signalName = "SIGINT"
+			case syscall.SIGTERM:
+				signalName = "SIGTERM"
+			}
+		}
+	}
+	logger.Info("shutting down", "signal", signalName)
+
+	// Node: io.close(); await rooms.shutdown(); server.close(); closeDatabase();
+	// exit 0 — with a hard exit 1 after 8 s if any step hangs.
+	sctx, cancel := context.WithTimeout(context.Background(), shutdownBudget)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- server.Shutdown(sctx) }()
+	select {
+	case err := <-done:
+		if err != nil {
+			logger.Error("shutdown finished with errors", "error", err.Error())
+		}
+	case <-sctx.Done():
+		return errShutdownTimedOut
+	}
+	database.Close()
+	return nil
 }

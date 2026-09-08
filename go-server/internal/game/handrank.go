@@ -1,5 +1,9 @@
 package game
 
+import (
+	"sort"
+)
+
 // Port of server/src/game/handRank.js.
 
 // HandCategory ranks Teen Patti hand types, low to high. The number is the
@@ -64,13 +68,104 @@ type EvaluateOptions struct {
 //
 // Suits never break ties (CLAUDE.md §6.3).
 func Evaluate(cards []Card, opts EvaluateOptions) EvaluatedHand {
-	panic("not ported: game.Evaluate")
+	if len(cards) != 3 {
+		panic("a Teen Patti hand must be exactly 3 cards")
+	}
+
+	ranks := [3]int{cards[0].Rank, cards[1].Rank, cards[2].Rank}
+	sort.Sort(sort.Reverse(sort.IntSlice(ranks[:])))
+	high, mid, low := ranks[0], ranks[1], ranks[2]
+	sameSuit := cards[0].Suit == cards[1].Suit && cards[1].Suit == cards[2].Suit
+
+	var category HandCategory
+	var tiebreak []int
+
+	switch {
+	case high == mid && mid == low:
+		category = Trail
+		tiebreak = []int{high}
+	case isRun(high, mid, low):
+		if sameSuit {
+			category = PureSequence
+		} else {
+			category = Sequence
+		}
+		tiebreak = []int{runStrength(high, mid, low, opts.AceLowIsLowest)}
+	case sameSuit:
+		category = Color
+		tiebreak = []int{high, mid, low}
+	case high == mid || mid == low:
+		category = Pair
+		// mid is always part of the pair; the remaining card is the kicker.
+		kicker := high
+		if high == mid {
+			kicker = low
+		}
+		tiebreak = []int{mid, kicker}
+	default:
+		category = HighCard
+		tiebreak = []int{high, mid, low}
+	}
+
+	score := make([]int, 0, 1+len(tiebreak))
+	score = append(score, int(category))
+	score = append(score, tiebreak...)
+
+	return EvaluatedHand{
+		Category: category,
+		Name:     CategoryNames[category],
+		Score:    score,
+		Cards:    CardCodes(cards),
+	}
+}
+
+// isRun reports whether the descending ranks form a Teen Patti run: the
+// A-2-3 wheel, or three consecutive ranks. K-A-2 never wraps around.
+func isRun(high, mid, low int) bool {
+	if high == 14 && mid == 3 && low == 2 {
+		return true
+	}
+	return high-mid == 1 && mid-low == 1
+}
+
+// runStrength ranks a run on a doubled scale so A-2-3 can slot between A-K-Q
+// and K-Q-J without fractions:
+//
+//	A-K-Q = 28  >  A-2-3 = 27  >  K-Q-J = 26  >  ...  >  4-3-2 = 8
+//
+// This is the standard Teen Patti ordering (the ace plays high in A-K-Q and
+// low in A-2-3, and A-2-3 outranks every run below A-K-Q). aceLowIsLowest is
+// the variant where A-2-3 is the weakest run (5 < 4-3-2's 8).
+func runStrength(high, mid, low int, aceLowIsLowest bool) int {
+	if high == 14 && mid == 3 && low == 2 {
+		if aceLowIsLowest {
+			return 5
+		}
+		return 2*14 - 1
+	}
+	return 2 * high
 }
 
 // Compare returns > 0 when a wins, < 0 when b wins, 0 on an exact tie.
 // Missing score elements compare as 0 (Node: `a.score[i] ?? 0`).
 func Compare(a, b EvaluatedHand) int {
-	panic("not ported: game.Compare")
+	length := len(a.Score)
+	if len(b.Score) > length {
+		length = len(b.Score)
+	}
+	for i := 0; i < length; i++ {
+		var x, y int
+		if i < len(a.Score) {
+			x = a.Score[i]
+		}
+		if i < len(b.Score) {
+			y = b.Score[i]
+		}
+		if diff := x - y; diff != 0 {
+			return diff
+		}
+	}
+	return 0
 }
 
 // Contender is one entrant to PickWinner: Key identifies the player (userId),
@@ -97,5 +192,48 @@ type WinnerPick struct {
 // call PickWinner with that preference list instead of duplicating it, as long
 // as the result is identical.
 func PickWinner(contenders []Contender, tieBreakOrder []string, opts EvaluateOptions) *WinnerPick {
-	panic("not ported: game.PickWinner")
+	if len(contenders) == 0 {
+		return nil
+	}
+
+	type scored struct {
+		key  string
+		hand EvaluatedHand
+	}
+	entries := make([]scored, len(contenders))
+	for i, entry := range contenders {
+		entries[i] = scored{key: entry.Key, hand: Evaluate(entry.Cards, opts)}
+	}
+
+	best := entries[0]
+	tied := []scored{best}
+	for _, candidate := range entries[1:] {
+		diff := Compare(candidate.hand, best.hand)
+		if diff > 0 {
+			best = candidate
+			tied = []scored{candidate}
+		} else if diff == 0 {
+			tied = append(tied, candidate)
+		}
+	}
+
+	if len(tied) > 1 {
+		// Earliest in tieBreakOrder wins; keys absent from it sort last and,
+		// among themselves, keep contender order (V8's Array.prototype.sort is
+		// stable, hence SliceStable).
+		rank := func(key string) int {
+			for i, k := range tieBreakOrder {
+				if k == key {
+					return i
+				}
+			}
+			return int(^uint(0) >> 1)
+		}
+		sort.SliceStable(tied, func(x, y int) bool {
+			return rank(tied[x].key) < rank(tied[y].key)
+		})
+		best = tied[0]
+	}
+
+	return &WinnerPick{Key: best.key, Hand: best.hand, WasTie: len(tied) > 1}
 }

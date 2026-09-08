@@ -1,5 +1,10 @@
 package game
 
+import (
+	"crypto/rand"
+	"encoding/binary"
+)
+
 // Port of server/src/game/deck.js.
 
 // Suit letters, in deck order: spades, hearts, diamonds, clubs.
@@ -78,7 +83,37 @@ func NewDeck() []Card {
 // is recoverable from a short run of outputs, which in a chips game means a
 // client could predict the deal. Returns the same slice for chaining.
 func Shuffle(deck []Card) []Card {
-	panic("not ported: game.Shuffle")
+	for i := len(deck) - 1; i > 0; i-- {
+		j := cryptoIntn(i + 1)
+		deck[i], deck[j] = deck[j], deck[i]
+	}
+	return deck
+}
+
+// cryptoIntn returns a uniformly distributed integer in [0, n) drawn from
+// crypto/rand, with rejection sampling so no residue bias creeps in
+// (crypto.randomInt is unbiased too). n must be > 0; the deck loop
+// guarantees 2 <= n <= 52. A failure of the system CSPRNG is not something a
+// chips game can carry on from, so it panics — exactly as crypto.randomInt
+// throws in Node.
+func cryptoIntn(n int) int {
+	if n <= 0 {
+		panic("cryptoIntn: n must be positive")
+	}
+	limit := uint64(n)
+	// Largest multiple of limit that fits in a uint64; anything at or above
+	// it is rejected so every residue class is equally likely.
+	bound := (^uint64(0) / limit) * limit
+	var buf [8]byte
+	for {
+		if _, err := rand.Read(buf[:]); err != nil {
+			panic("crypto/rand unavailable: " + err.Error())
+		}
+		v := binary.LittleEndian.Uint64(buf[:])
+		if v < bound {
+			return int(v % limit)
+		}
+	}
 }
 
 // Deal shuffles a fresh deck and deals `count` hands of `cardsPer` cards
@@ -86,5 +121,30 @@ func Shuffle(deck []Card) []Card {
 // hands[seat][round] = deck[round*count + seat]. `remaining` is the rest of
 // the deck in order. The Table always calls Deal(len(participants), 3).
 func Deal(count, cardsPer int) (hands [][]Card, remaining []Card) {
-	panic("not ported: game.Deal")
+	if count < 0 {
+		count = 0
+	}
+	if cardsPer < 0 {
+		cardsPer = 0
+	}
+	deck := Shuffle(NewDeck())
+	hands = make([][]Card, count)
+	for seat := range hands {
+		hands[seat] = make([]Card, 0, cardsPer)
+	}
+	index := 0
+	for round := 0; round < cardsPer; round++ {
+		for seat := 0; seat < count; seat++ {
+			// Node indexes past the end of the deck for count*cardsPer > 52
+			// and pushes `undefined`; the Table only ever asks for 5*3 = 15,
+			// so stopping at the last card is the same behaviour on every
+			// reachable path.
+			if index >= len(deck) {
+				return hands, deck[len(deck):]
+			}
+			hands[seat] = append(hands[seat], deck[index])
+			index++
+		}
+	}
+	return hands, deck[index:]
 }

@@ -1,6 +1,9 @@
 package game
 
-import "context"
+import (
+	"context"
+	"errors"
+)
 
 // Ledger is where the chips are actually kept — the port of the three
 // functions in server/src/db/ledger.js. Production hands the Table
@@ -179,20 +182,83 @@ func NewMemoryLedger(hooks MemoryLedgerHooks) *MemoryLedger {
 	return &MemoryLedger{Hooks: hooks}
 }
 
-// Bet implements Ledger.
+// Bet implements Ledger (table.js memoryLedger.bet): with a PersistChips
+// hook the stake really left the account and Persisted = Amount; without one
+// nothing did, Persisted = 0, and settlement must move the whole net. The
+// hook refusing (returning an error) refuses the move.
 func (m *MemoryLedger) Bet(ctx context.Context, req BetRequest) (BetResult, error) {
-	panic("not ported: (*MemoryLedger).Bet")
+	persisted := int64(0)
+	if m.Hooks.PersistChips != nil {
+		if err := m.Hooks.PersistChips(PersistChipsArgs{
+			UserID:   req.UserID,
+			Delta:    -req.Amount,
+			Reason:   req.Reason,
+			RoomID:   req.RoomID,
+			HandID:   req.HandID,
+			ActionID: req.ActionID,
+		}); err != nil {
+			return BetResult{}, hookRefusal(err)
+		}
+		persisted = req.Amount
+	}
+	return BetResult{Balance: req.BalanceBefore - req.Amount, Persisted: persisted}, nil
 }
 
 // CollectBoot implements Ledger. Persisted is entries[0].Amount when
-// PersistChips is set (Node: `entries[0]?.amount ?? 0`), else 0.
+// PersistChips is set (Node: `entries[0]?.amount ?? 0`), else 0. Entries are
+// debited in the order given (Node's memory ledger did not sort them); the
+// first hook refusal refuses the whole start, and Balances reports
+// BalanceBefore - Amount for every entry.
 func (m *MemoryLedger) CollectBoot(ctx context.Context, req CollectBootRequest) (CollectBootResult, error) {
-	panic("not ported: (*MemoryLedger).CollectBoot")
+	balances := make(map[string]int64, len(req.Entries))
+	for _, entry := range req.Entries {
+		if m.Hooks.PersistChips != nil {
+			if err := m.Hooks.PersistChips(PersistChipsArgs{
+				UserID:   entry.UserID,
+				Delta:    -entry.Amount,
+				Reason:   LedgerReasonBoot,
+				RoomID:   req.RoomID,
+				HandID:   req.HandID,
+				ActionID: BootActionID(req.HandID, entry.UserID),
+			}); err != nil {
+				return CollectBootResult{}, hookRefusal(err)
+			}
+		}
+		balances[entry.UserID] = entry.BalanceBefore - entry.Amount
+	}
+	persisted := int64(0)
+	if m.Hooks.PersistChips != nil && len(req.Entries) > 0 {
+		persisted = req.Entries[0].Amount
+	}
+	return CollectBootResult{Balances: balances, Persisted: persisted}, nil
 }
 
-// Settle implements Ledger.
+// Settle implements Ledger: the Settle hook's balances (nil → empty), or an
+// empty map without a hook, in which case the Table pays the winner in
+// memory.
 func (m *MemoryLedger) Settle(ctx context.Context, req SettleRequest) (SettleResult, error) {
-	panic("not ported: (*MemoryLedger).Settle")
+	if m.Hooks.Settle == nil {
+		return SettleResult{}, nil
+	}
+	balances, err := m.Hooks.Settle(req.Hand, req.Entries)
+	if err != nil {
+		return nil, hookRefusal(err)
+	}
+	if balances == nil {
+		return SettleResult{}, nil
+	}
+	return SettleResult(balances), nil
+}
+
+// hookRefusal is what a hook's error becomes: a *GameError passes through
+// with its code (Node's `_refusal` switched on `error.code`), anything else is
+// persist_failed with the original error as Cause.
+func hookRefusal(err error) error {
+	var ge *GameError
+	if errors.As(err, &ge) {
+		return ge
+	}
+	return &GameError{Code: CodePersistFailed, Message: err.Error(), Cause: err}
 }
 
 var _ Ledger = (*MemoryLedger)(nil)

@@ -39,7 +39,7 @@ func TestActionEventReasonAndAutoAreOmittedUnlessSet(t *testing.T) {
 	}
 	auto := false
 	see := marshal(t, ActionEvent{UserID: "u", Action: ActionSee, Auto: &auto, Pot: 1000, Stake: 400})
-	if see != `{"userId":"u","action":"see","amount":0,"pot":1000,"stake":400,"auto":false}` {
+	if see != `{"userId":"u","action":"see","amount":0,"auto":false,"pot":1000,"stake":400}` {
 		t.Fatalf("see = %s", see)
 	}
 	pack := marshal(t, ActionEvent{UserID: "u", Action: ActionPack, Reason: PackReasonTimeout, Pot: 1000, Stake: 400})

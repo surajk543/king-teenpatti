@@ -121,13 +121,14 @@ type ActionEvent struct {
 	UserID string `json:"userId"`
 	Action Action `json:"action"`
 	Amount int64  `json:"amount"` // 0 for see / pack
-	Pot    int64  `json:"pot"`
-	Stake  int64  `json:"stake"`
+	// Auto is present (true or false) only on a SEE: true when the cards
+	// turned face up by themselves after MaxBlindMoves blind bets. Field
+	// order follows Node's payload ({userId, action, amount, auto, pot, stake}).
+	Auto  *bool `json:"auto,omitempty"`
+	Pot   int64 `json:"pot"`
+	Stake int64 `json:"stake"`
 	// Reason is present only on a pack: PackReason* or a leave reason.
 	Reason string `json:"reason,omitempty"`
-	// Auto is present (true or false) only on a SEE: true when the cards
-	// turned face up by themselves after MaxBlindMoves blind bets.
-	Auto *bool `json:"auto,omitempty"`
 }
 
 // SideshowRequestedEvent ← 'sideshowRequested' → game:sideshowRequested.
