@@ -18,6 +18,7 @@ import (
 	"github.com/prometheus/common/expfmt"
 
 	"github.com/surajk543/king-teenpatti/go-server/internal/game"
+	"github.com/surajk543/king-teenpatti/go-server/internal/live"
 )
 
 // Options builds a Metrics.
@@ -97,15 +98,34 @@ type Metrics struct {
 	DBTransactionDuration *prometheus.HistogramVec // op
 	DBTransactionErrors   *prometheus.CounterVec   // op, code
 
+	// Live-state store (LIVE_STATE_PLAN.md). Fed through LiveHooks.
+	LiveStoreOperations *prometheus.CounterVec   // op, result
+	LiveStoreDuration   *prometheus.HistogramVec // op
+	LiveStoreErrors     *prometheus.CounterVec   // op
+	LiveStoreReconciles *prometheus.CounterVec   // result
+	RestoredTablesTotal *prometheus.CounterVec   // source
+	RestoredSeatsTotal  prometheus.Counter
+	RestoreReconciled   prometheus.Counter
+	RestoreRejected     prometheus.Counter
+	RefundedPotsTotal   prometheus.Counter
+	RefundedChipsTotal  prometheus.Counter
+
+	// Durable snapshot writer (game_states). The lag gauge reads
+	// BindSnapshotLag's source at scrape time.
+	SnapshotWrites        *prometheus.CounterVec // result
+	SnapshotWriteDuration prometheus.Histogram
+	SnapshotRowsWritten   prometheus.Counter
+
 	// HTTP
 	HTTPRequestsTotal   *prometheus.CounterVec   // method, route, status_code
 	HTTPRequestDuration *prometheus.HistogramVec // method, route, status_code
 
-	// mu guards the two late-bound sources; the scrape-time collectors read
-	// them under it, so BindRooms/BindPool may be called while a scrape runs.
-	mu    sync.RWMutex
-	rooms RoomsSource
-	pool  func() PoolStats
+	// mu guards the late-bound sources; the scrape-time collectors read them
+	// under it, so Bind* may be called while a scrape runs.
+	mu          sync.RWMutex
+	rooms       RoomsSource
+	pool        func() PoolStats
+	snapshotLag func() time.Duration
 }
 
 // New creates and registers every collector (Node: module load). Registers:
@@ -345,6 +365,76 @@ func New(opts Options) *Metrics {
 		Help: "Queries waiting for a pool connection.",
 	}, func() float64 { return float64(m.poolStats().Waiting) }))
 
+	// -------------------------------------------------------------- live store
+	// Every live.Store call, by method and outcome (LIVE_STATE_PLAN.md
+	// §Metrics). The store is FAST/TEMPORARY: an error here is logged and
+	// counted, never turned into a refused move, so this counter is the only
+	// place a sick Redis shows up before players notice.
+	m.LiveStoreOperations = m.counterVec(prometheus.CounterOpts{
+		Name: NameLiveStoreOperations,
+		Help: "Live-state store calls, by store method and outcome (ok, not_found, stale, error).",
+	}, []string{"op", "result"})
+	m.LiveStoreDuration = m.histogramVec(prometheus.HistogramOpts{
+		Name:    NameLiveStoreDuration,
+		Help:    "Live-state store call duration, by store method.",
+		Buckets: LiveBuckets,
+	}, []string{"op"})
+	m.LiveStoreErrors = m.counterVec(prometheus.CounterOpts{
+		Name: NameLiveStoreErrors,
+		Help: "Live-state store calls that failed (not_found and stale are outcomes, not failures), by store method.",
+	}, []string{"op"})
+	m.LiveStoreReconciles = m.counterVec(prometheus.CounterOpts{
+		Name: NameLiveStoreReconciles,
+		Help: "Reconciler passes that re-saved every live table into the live store, by outcome.",
+	}, []string{"result"})
+	m.RestoredTablesTotal = m.counterVec(prometheus.CounterOpts{
+		Name: NameRestoredTables,
+		Help: "Tables rebuilt at startup since the process started, by the store the snapshot came from (live or postgres).",
+	}, []string{"source"})
+	m.RestoredSeatsTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: NameRestoredSeats,
+		Help: "Seats held for the reconnect grace period after a restart since the process started.",
+	})
+	m.RestoreReconciled = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: NameRestoreReconciled,
+		Help: "Durable snapshots the ledger corrected before the table was rebuilt (the snapshot was behind the money).",
+	})
+	m.RestoreRejected = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: NameRestoreRejected,
+		Help: "Durable snapshots too stale to trust (the ledger disagreed with the seats); their pots were refunded instead.",
+	})
+	m.RefundedPotsTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: NameRefundedPots,
+		Help: "Open pots with no live table that were refunded to their contributors at startup.",
+	})
+	m.RefundedChipsTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: NameRefundedChips,
+		Help: "Chips returned to contributors by pot refunds at startup.",
+	})
+	svc.MustRegister(m.LiveStoreOperations, m.LiveStoreDuration, m.LiveStoreErrors, m.LiveStoreReconciles,
+		m.RestoredTablesTotal, m.RestoredSeatsTotal, m.RestoreReconciled, m.RestoreRejected,
+		m.RefundedPotsTotal, m.RefundedChipsTotal)
+
+	// ------------------------------------------------------- snapshot writer
+	m.SnapshotWrites = m.counterVec(prometheus.CounterOpts{
+		Name: NameSnapshotWrites,
+		Help: "Batched game_states flushes by the durable snapshot writer, by outcome.",
+	}, []string{"result"})
+	m.SnapshotWriteDuration = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Name:    NameSnapshotWriteDuration,
+		Help:    "Duration of one batched game_states flush (upserts and deletes in one transaction).",
+		Buckets: LatencyBuckets,
+	})
+	m.SnapshotRowsWritten = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: NameSnapshotRowsWritten,
+		Help: "game_states rows upserted or deleted by the durable snapshot writer.",
+	})
+	svc.MustRegister(m.SnapshotWrites, m.SnapshotWriteDuration, m.SnapshotRowsWritten)
+	svc.MustRegister(prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+		Name: NameSnapshotLag,
+		Help: "Age in seconds of the oldest table change not yet flushed to game_states (0 when nothing is pending).",
+	}, func() float64 { return m.lag().Seconds() }))
+
 	// -------------------------------------------------------------------- HTTP
 	m.HTTPRequestsTotal = m.counterVec(prometheus.CounterOpts{
 		Name: NameHTTPRequestsTotal,
@@ -358,6 +448,43 @@ func New(opts Options) *Metrics {
 	svc.MustRegister(m.HTTPRequestsTotal, m.HTTPRequestDuration)
 
 	return m
+}
+
+// LiveHooks returns the live.Hooks that feed game_live_store_operations_total
+// {op,result}, game_live_store_duration_seconds{op} and
+// game_live_store_errors_total{op}; the app wraps the store with
+// live.WithHooks(store, m.LiveHooks()). The op label is bounded to LiveOps
+// via SafeLabel (anything else becomes "other"); the result label is
+// LiveResultOf(err). Nil-safe: a nil *Metrics yields hooks that do nothing.
+func (m *Metrics) LiveHooks() live.Hooks {
+	if m == nil {
+		return live.Hooks{Observe: func(string, error, time.Duration) {}}
+	}
+	return live.Hooks{Observe: func(op string, err error, d time.Duration) {
+		label := SafeLabel(op, LiveOps, OtherLabel)
+		result := LiveResultOf(err)
+		m.LiveStoreOperations.WithLabelValues(label, result).Inc()
+		m.LiveStoreDuration.WithLabelValues(label).Observe(d.Seconds())
+		if result == LiveResultError {
+			m.LiveStoreErrors.WithLabelValues(label).Inc()
+		}
+	}}
+}
+
+// LiveResultOf classifies a live.Store method's error into a LiveResult*
+// label: nil → ok; live.ErrNotFound → not_found; live.ErrStale → stale;
+// anything else → error (the only class that counts as a failure).
+func LiveResultOf(err error) string {
+	switch {
+	case err == nil:
+		return LiveResultOK
+	case errors.Is(err, live.ErrNotFound):
+		return LiveResultNotFound
+	case errors.Is(err, live.ErrStale):
+		return LiveResultStale
+	default:
+		return LiveResultError
+	}
 }
 
 // BindRooms gives the table gauges their source (Node bindRooms). Before it
@@ -374,6 +501,25 @@ func (m *Metrics) BindPool(fn func() PoolStats) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.pool = fn
+}
+
+// BindSnapshotLag gives game_snapshot_lag_seconds its source (the durable
+// snapshot writer's age of its oldest dirty table). 0 until bound.
+func (m *Metrics) BindSnapshotLag(fn func() time.Duration) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.snapshotLag = fn
+}
+
+// lag reads the bound snapshot-lag source, 0 when none.
+func (m *Metrics) lag() time.Duration {
+	m.mu.RLock()
+	fn := m.snapshotLag
+	m.mu.RUnlock()
+	if fn == nil {
+		return 0
+	}
+	return fn()
 }
 
 // liveTables is Node's liveTables(): every table, or none before BindRooms.

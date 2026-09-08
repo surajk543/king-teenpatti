@@ -24,8 +24,9 @@ type Ledger interface {
 	// Sequence (ledger.js bet): validate amount → BEGIN → SELECT chips FOR
 	// UPDATE (unknown_user if no row; insufficient_chips if chips < amount) →
 	// UPDATE users.chips → UPDATE pots.amount += (no_pot if no row) → INSERT
-	// chip_ledger(action_id UNIQUE → duplicate_action) → UPSERT game_states
-	// WHERE version < new (stale_state) → COMMIT.
+	// chip_ledger(action_id UNIQUE → duplicate_action) → COMMIT. The table
+	// snapshot no longer rides in the transaction (LIVE_STATE_PLAN.md): the
+	// actor saves it to the live store and the durable sink afterwards.
 	Bet(ctx context.Context, req BetRequest) (BetResult, error)
 
 	// CollectBoot opens the pot and takes the boot from every participant in
@@ -34,7 +35,7 @@ type Ledger interface {
 	// boot refuses the whole start with insufficient_chips + UserID set.
 	// Writes: users.chips per player; INSERT pots(hand_id, room_id,
 	// boot_amount, amount=total, opened_at); one chip_ledger row per player
-	// with action_id BootActionID(handId, userId); UPSERT game_states.
+	// with action_id BootActionID(handId, userId).
 	CollectBoot(ctx context.Context, req CollectBootRequest) (CollectBootResult, error)
 
 	// Settle ends a hand in one transaction: per entry in ascending userId
@@ -47,8 +48,7 @@ type Ledger interface {
 	// hand_win / hand_loss (a zero delta is STILL written); then INSERT hands
 	// … ON CONFLICT (id) DO NOTHING (after the wallet locks — its winner_id
 	// foreign key locks the winner's row, see db.Ledger.Settle); UPDATE pots
-	// SET closed_at, winner_id; UPSERT game_states (hand_id NULL). Returns
-	// every settled balance. Idempotent by construction, which is what lets
+	// SET closed_at, winner_id. Returns every settled balance. Idempotent by construction, which is what lets
 	// the Table retry it.
 	Settle(ctx context.Context, req SettleRequest) (SettleResult, error)
 }
@@ -66,10 +66,6 @@ type BetRequest struct {
 	Reason string
 	// BalanceBefore is what the seat believed it held; the DB figure wins.
 	BalanceBefore int64
-	// Version is table.version + 1; State the snapshot as it will read once
-	// the bet is in (table.js _snapshotAfterBet).
-	Version int64
-	State   *Snapshot
 }
 
 // BetResult ← `{ balance, persisted }`.
@@ -97,8 +93,6 @@ type CollectBootRequest struct {
 	HandID     string
 	BootAmount int64
 	Entries    []BootEntry
-	Version    int64
-	State      *Snapshot // the snapshot AS IT WILL BE once the boots are paid (hand attached)
 }
 
 // CollectBootResult ← `{ balances, persisted }`.
@@ -126,8 +120,6 @@ type SettleEntry struct {
 type SettleRequest struct {
 	Hand    HandRecord
 	Entries []SettleEntry
-	Version int64
-	State   *Snapshot // the table back at rest: hand null, state "waiting"
 }
 
 // SettleResult is userId → balance after settlement for every entry whose

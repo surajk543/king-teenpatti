@@ -4,12 +4,16 @@
   "private": true,
   "description": "Client-side tooling for the King Teen Patti Go server: practice bots, load ramp, black-box parity suite",
   "type": "module",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "bot": "node bot.js",
     "ramp": "node ramptest.mjs",
     "parity": "node parity.mjs",
-    "parity:diff": "node parity-diff.mjs"
+    "parity:diff": "node parity-diff.mjs",
+    "crashtest": "node crashtest.mjs",
+    "hostmetrics": "node host-metrics.mjs"
   },
   "dependencies": {
     "jsonwebtoken": "^9.0.2",

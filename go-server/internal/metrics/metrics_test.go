@@ -15,6 +15,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/surajk543/king-teenpatti/go-server/internal/game"
+	"github.com/surajk543/king-teenpatti/go-server/internal/live"
 )
 
 // ---------------------------------------------------------------- exposition
@@ -177,6 +178,20 @@ var catalogue = []struct {
 	{NameDBPoolConnections, "gauge", "Connections held by the pg pool.", nil},
 	{NameDBPoolIdleConnections, "gauge", "Pool connections not in use.", nil},
 	{NameDBPoolWaitingRequests, "gauge", "Queries waiting for a pool connection.", nil},
+	{NameLiveStoreOperations, "counter", "Live-state store calls, by store method and outcome (ok, not_found, stale, error).", []string{"op", "result"}},
+	{NameLiveStoreDuration, "histogram", "Live-state store call duration, by store method.", []string{"op"}},
+	{NameLiveStoreErrors, "counter", "Live-state store calls that failed (not_found and stale are outcomes, not failures), by store method.", []string{"op"}},
+	{NameLiveStoreReconciles, "counter", "Reconciler passes that re-saved every live table into the live store, by outcome.", []string{"result"}},
+	{NameRestoredTables, "counter", "Tables rebuilt at startup since the process started, by the store the snapshot came from (live or postgres).", []string{"source"}},
+	{NameRestoredSeats, "counter", "Seats held for the reconnect grace period after a restart since the process started.", nil},
+	{NameRestoreReconciled, "counter", "Durable snapshots the ledger corrected before the table was rebuilt (the snapshot was behind the money).", nil},
+	{NameRestoreRejected, "counter", "Durable snapshots too stale to trust (the ledger disagreed with the seats); their pots were refunded instead.", nil},
+	{NameRefundedPots, "counter", "Open pots with no live table that were refunded to their contributors at startup.", nil},
+	{NameRefundedChips, "counter", "Chips returned to contributors by pot refunds at startup.", nil},
+	{NameSnapshotWrites, "counter", "Batched game_states flushes by the durable snapshot writer, by outcome.", []string{"result"}},
+	{NameSnapshotWriteDuration, "histogram", "Duration of one batched game_states flush (upserts and deletes in one transaction).", nil},
+	{NameSnapshotRowsWritten, "counter", "game_states rows upserted or deleted by the durable snapshot writer.", nil},
+	{NameSnapshotLag, "gauge", "Age in seconds of the oldest table change not yet flushed to game_states (0 when nothing is pending).", nil},
 	{NameHTTPRequestsTotal, "counter", "HTTP requests served, by method, route pattern and status code.", []string{"method", "route", "status_code"}},
 	{NameHTTPRequestDuration, "histogram", "HTTP request duration, by method, route pattern and status code.", []string{"method", "route", "status_code"}},
 }
@@ -205,6 +220,33 @@ func touch(m *Metrics) {
 	m.DBTransactionErrors.WithLabelValues(OpSettle, "stale_state").Inc()
 	m.HTTPRequestsTotal.WithLabelValues("GET", "/health", "200").Inc()
 	m.HTTPRequestDuration.WithLabelValues("GET", "/health", "200").Observe(0.0005)
+	m.LiveStoreOperations.WithLabelValues(LiveOpSaveTable, LiveResultOK).Inc()
+	m.LiveStoreDuration.WithLabelValues(LiveOpSaveTable).Observe(0.0002)
+	m.LiveStoreErrors.WithLabelValues(LiveOpPing).Inc()
+	m.LiveStoreReconciles.WithLabelValues(ResultOK).Inc()
+	m.RestoredTablesTotal.WithLabelValues(RestoreSourceLive).Inc()
+	m.SnapshotWrites.WithLabelValues(ResultOK).Inc()
+}
+
+// TestCatalogueCoversEveryGameFamily: every game_* family the registry
+// exposes is in the catalogue above (a new metric must be catalogued, with
+// its help text and label set, before it ships).
+func TestCatalogueCoversEveryGameFamily(t *testing.T) {
+	m := newMetrics(t)
+	touch(m)
+	_, e := scrape(t, m, Guard{}, nil)
+	known := map[string]bool{}
+	for _, c := range catalogue {
+		known[c.name] = true
+	}
+	for name := range e.types {
+		if strings.HasPrefix(name, "game_") && !strings.HasPrefix(name, "game_server_") && !known[name] {
+			t.Errorf("%s is exposed but not catalogued", name)
+		}
+	}
+	if len(catalogue) != 49 {
+		t.Errorf("catalogue has %d entries, want 49 (35 from Node + 10 live-state + 4 snapshot writer)", len(catalogue))
+	}
 }
 
 func TestGameMetricsMatchNodeCatalogue(t *testing.T) {
@@ -491,6 +533,94 @@ func TestNoLabelCarriesAnIdentifier(t *testing.T) {
 	}
 	if v, _ := e.value(NameInvalidMovesTotal, map[string]string{"code": "teleport"}); v != 0 {
 		t.Errorf("teleport became a label value")
+	}
+}
+
+// --------------------------------------------------------------- live hooks
+
+// TestLiveHooksFeedTheLiveStoreMetrics: the hooks count every call by
+// (op, result), time it into the 0.1 ms … 1 s histogram, count only real
+// failures as errors, fold an unknown op to "other", and classify the two
+// live sentinels as outcomes rather than failures — wrapped or not.
+func TestLiveHooksFeedTheLiveStoreMetrics(t *testing.T) {
+	m := newMetrics(t)
+	hooks := m.LiveHooks()
+	hooks.Observe(LiveOpSaveTable, nil, 200*time.Microsecond)
+	hooks.Observe(LiveOpSaveTable, live.ErrStale, 300*time.Microsecond)
+	hooks.Observe(LiveOpTakeResumeOffer, fmt.Errorf("take: %w", live.ErrNotFound), 50*time.Microsecond)
+	hooks.Observe(LiveOpPing, fmt.Errorf("dial tcp 127.0.0.1:6379: connection refused"), 2*time.Millisecond)
+	hooks.Observe("kt:table:7c2f1a2e-9b3d-4c1f-8a6e-0f1e2d3c4b5a", nil, time.Millisecond) // never a label value
+
+	_, e := scrape(t, m, Guard{}, nil)
+	for _, c := range []struct {
+		op, result string
+		want       float64
+	}{
+		{LiveOpSaveTable, LiveResultOK, 1}, {LiveOpSaveTable, LiveResultStale, 1},
+		{LiveOpTakeResumeOffer, LiveResultNotFound, 1}, {LiveOpPing, LiveResultError, 1},
+		{OtherLabel, LiveResultOK, 1},
+	} {
+		if v, _ := e.value(NameLiveStoreOperations, map[string]string{"op": c.op, "result": c.result}); v != c.want {
+			t.Errorf("operations{op=%s,result=%s} = %v, want %v", c.op, c.result, v, c.want)
+		}
+	}
+	if v, _ := e.value(NameLiveStoreErrors, map[string]string{"op": LiveOpPing}); v != 1 {
+		t.Errorf("errors{ping} = %v, want 1", v)
+	}
+	if v, _ := e.value(NameLiveStoreErrors, nil); v != 1 {
+		t.Errorf("errors total = %v, want 1 (not_found/stale are not failures)", v)
+	}
+	if v, _ := e.value(NameLiveStoreDuration+"_count", map[string]string{"op": LiveOpSaveTable}); v != 2 {
+		t.Errorf("duration_count{save_table} = %v, want 2", v)
+	}
+	// 200 µs and 300 µs both fall at or under the 0.0005 bucket, only one at 0.00025.
+	if v, _ := e.value(NameLiveStoreDuration+"_bucket", map[string]string{"op": LiveOpSaveTable, "le": "0.00025"}); v != 1 {
+		t.Errorf("bucket le=0.00025 = %v, want 1", v)
+	}
+	if v, _ := e.value(NameLiveStoreDuration+"_bucket", map[string]string{"op": LiveOpSaveTable, "le": "0.0005"}); v != 2 {
+		t.Errorf("bucket le=0.0005 = %v, want 2", v)
+	}
+	if !strings.Contains(e.body, `le="0.0001"`) || !strings.Contains(e.body, `le="1"`) {
+		t.Errorf("live buckets must run 0.0001 … 1: %s", e.body)
+	}
+	for _, v := range e.labelValues("op") {
+		if _, ok := LiveOps[v]; !ok && v != OtherLabel && v != OpBet && v != OpBoot && v != OpSettle {
+			t.Errorf("op label %q is outside the fixed set", v)
+		}
+	}
+	if strings.Contains(e.body, "7c2f1a2e") {
+		t.Error("a room id reached the exposition")
+	}
+	// A nil receiver hands back hooks that do nothing rather than panic.
+	var none *Metrics
+	none.LiveHooks().Observe(LiveOpPing, nil, time.Millisecond)
+	// The hooks plug straight into the live package's decorator.
+	if live.WithHooks(live.NewMemory(), m.LiveHooks()) == nil {
+		t.Fatal("WithHooks returned nil")
+	}
+	// Every store method name is a catalogued op.
+	if len(LiveOps) != 20 {
+		t.Errorf("LiveOps has %d entries, want one per live.Store method (20)", len(LiveOps))
+	}
+}
+
+// game_snapshot_lag_seconds reads the bound writer at scrape time; 0 before
+// anything is bound.
+func TestSnapshotLagGaugeReadsTheBoundSource(t *testing.T) {
+	m := newMetrics(t)
+	_, e := scrape(t, m, Guard{}, nil)
+	if v, ok := e.value(NameSnapshotLag, nil); !ok || v != 0 {
+		t.Fatalf("unbound lag = %v %v, want 0", v, ok)
+	}
+	m.BindSnapshotLag(func() time.Duration { return 1500 * time.Millisecond })
+	_, e = scrape(t, m, Guard{}, nil)
+	if v, _ := e.value(NameSnapshotLag, nil); v != 1.5 {
+		t.Fatalf("bound lag = %v, want 1.5", v)
+	}
+	for _, src := range e.labelValues("source") {
+		if _, ok := RestoreSources[src]; !ok {
+			t.Errorf("source label %q is outside the fixed set", src)
+		}
 	}
 }
 

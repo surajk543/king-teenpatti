@@ -23,6 +23,7 @@ import (
 	"github.com/surajk543/king-teenpatti/go-server/internal/config"
 	"github.com/surajk543/king-teenpatti/go-server/internal/db"
 	"github.com/surajk543/king-teenpatti/go-server/internal/game"
+	"github.com/surajk543/king-teenpatti/go-server/internal/livetest"
 	"github.com/surajk543/king-teenpatti/go-server/internal/metrics"
 	"github.com/surajk543/king-teenpatti/go-server/internal/sio"
 	"github.com/surajk543/king-teenpatti/go-server/internal/socket/testclient"
@@ -39,6 +40,7 @@ const (
 	welcomeChips = int64(200000)
 	ackTimeout   = 4 * time.Second
 	eventTimeout = 4 * time.Second
+	testInstance = "test-host:4242"
 )
 
 // fakeUsers is the UserStore: db.Users without the database. Chips are
@@ -183,6 +185,9 @@ type stack struct {
 	srv     *sio.Server
 	ts      *httptest.Server
 	metrics *metrics.Metrics
+	// live is the Handler's live store (presence, resume offers), a fake
+	// whose ttl clock is the Handler's clock.
+	live *livetest.Fake
 
 	stakes  atomic.Int64
 	clients []*testclient.Client
@@ -213,8 +218,10 @@ func newStack(t *testing.T, mutate func(cfg *config.Config)) *stack {
 }
 
 // newStackWithClock is newStack with the Handler's clock injected (the
-// grace timers and resume-offer ages run on it); nil → real clock. The
-// RoomManager and its tables keep the real clock.
+// grace timers, the presence heartbeat and the fake live store's ttl expiry
+// run on it); nil → real clock. The RoomManager and its tables keep the real
+// clock and no live store (the pre-Redis behaviour; the app suite covers the
+// RoomManager's side).
 func newStackWithClock(t *testing.T, mutate func(cfg *config.Config), clock game.Clock) *stack {
 	t.Helper()
 	cfg := testConfig()
@@ -228,15 +235,22 @@ func newStackWithClock(t *testing.T, mutate func(cfg *config.Config), clock game
 	st := &stack{t: t, cfg: cfg, users: users, books: bk, metrics: m}
 	st.stakes.Store(1000)
 	st.tokens = auth.NewTokens(cfg.JWT.Secret, cfg.JWT.ExpiresIn, nil)
+	if clock != nil {
+		st.live = livetest.NewWithClock(clock.Now)
+	} else {
+		st.live = livetest.New()
+	}
 
 	st.srv = sio.NewServer(sio.Options{Logger: logger})
 	st.h = New(Deps{
-		Config:  cfg,
-		Users:   users,
-		Tokens:  st.tokens,
-		Metrics: m,
-		Clock:   clock,
-		Logger:  logger,
+		Config:   cfg,
+		Users:    users,
+		Tokens:   st.tokens,
+		Metrics:  m,
+		Clock:    clock,
+		Logger:   logger,
+		Live:     st.live,
+		Instance: testInstance,
 	})
 	st.rooms = game.NewRoomManager(game.RoomManagerOptions{
 		Game:          cfg.Game,
@@ -269,6 +283,7 @@ func newStackWithClock(t *testing.T, mutate func(cfg *config.Config), clock game
 		defer cancel()
 		_ = st.rooms.Shutdown(ctx)
 		st.srv.Close()
+		st.h.Close()
 		st.ts.Close()
 	})
 	return st

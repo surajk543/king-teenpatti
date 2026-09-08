@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/surajk543/king-teenpatti/go-server/internal/live"
 	"github.com/surajk543/king-teenpatti/go-server/internal/util"
 )
 
@@ -84,6 +85,23 @@ type TableOptions struct {
 	Ledger    Ledger
 	Clock     Clock    // nil → RealClock{}
 	Listener  Listener // nil → NopListener{}
+
+	// Live is the live-state store the actor saves its Snapshot to after
+	// every mutation and mirrors its chat into (LIVE_STATE_PLAN.md). nil →
+	// nothing is saved (unit tests; a table that need not survive a restart).
+	Live live.Store
+	// LiveTTL bounds how long a table that stops updating survives in the
+	// store (LIVE_STATE_TTL_MS). 0 → DefaultLiveTTL.
+	LiveTTL time.Duration
+	// LiveErrors, if set, is called for every failed live-store call with
+	// the operation name (LiveOp*) — the game_live_store_errors_total{op}
+	// feed. Called on the actor goroutine; must not block or post back.
+	LiveErrors func(op string, err error)
+	// Snapshots is the durable backstop (game_states, written asynchronously
+	// by db.SnapshotWriter): every snapshot the actor saves is also handed
+	// to MarkDirty, with the same bytes; Destroy hands MarkDeleted. nil →
+	// no-op.
+	Snapshots SnapshotSink
 }
 
 // NewPlayer is what AddPlayer needs (roomManager.js join → table.addPlayer).
@@ -234,6 +252,13 @@ type Table struct {
 	listener  Listener
 	createdAt time.Time
 
+	// live is the live-state store (nil → no-op), liveTTL the snapshot
+	// expiry, liveErrors the error hook — see TableOptions.
+	live       live.Store
+	liveTTL    time.Duration
+	liveErrors func(op string, err error)
+	snapshots  SnapshotSink
+
 	// ctx is cancelled by Destroy; posts select on it so callers of a
 	// destroyed table get ErrTableDestroyed instead of blocking forever. It is
 	// also the ctx handed to the Ledger.
@@ -247,8 +272,19 @@ type Table struct {
 	state       atomic.Value // TableState
 	version     atomic.Int64 // rises by one per committed ledger write
 	destroyed   atomic.Bool
+	// liveSeq is the sequence number of the last snapshot saved to the live
+	// store (restored from the snapshot; 0 for a table never saved).
+	liveSeq atomic.Int64
+	// fenced is set when the live store refused a save with live.ErrStale:
+	// another process owns this table. Every post but Destroy is refused
+	// (ErrTableDestroyed), and destroy neither settles nor deletes the
+	// store's copy — both belong to the owner now.
+	fenced atomic.Bool
 
 	// ---- actor-owned state: touch ONLY from closures run by loop ----
+	// liveDirty marks that observable state changed inside the running
+	// closure; run() saves one snapshot when the closure ends.
+	liveDirty  bool
 	seats      []*seat // len == cfg.MaxPlayers; nil = empty
 	handNo     int
 	hand       *hand
@@ -304,8 +340,18 @@ func (t *Table) claimDetached(entry *settleRetry) {
 
 // NewTable constructs the table and starts its actor goroutine. State is
 // waiting, dealerSeat -1, version 0, MaxPlayers empty seats (Node
-// constructor). It does not emit anything.
+// constructor). It does not emit anything and saves nothing to the live
+// store until the first mutation.
 func NewTable(opts TableOptions) *Table {
+	t := newTableCore(opts)
+	go t.loop()
+	return t
+}
+
+// newTableCore is NewTable without starting the actor: the shared
+// constructor of NewTable and RestoreTable (which fills the actor-owned
+// fields in before the loop can touch them).
+func newTableCore(opts TableOptions) *Table {
 	clock := opts.Clock
 	if clock == nil {
 		clock = RealClock{}
@@ -336,6 +382,10 @@ func NewTable(opts TableOptions) *Table {
 	if chatLength <= 0 {
 		chatLength = defaultChatMaxLength
 	}
+	liveTTL := opts.LiveTTL
+	if liveTTL <= 0 {
+		liveTTL = DefaultLiveTTL
+	}
 
 	t := &Table{
 		id:          opts.ID,
@@ -346,6 +396,10 @@ func NewTable(opts TableOptions) *Table {
 		clock:       clock,
 		listener:    listener,
 		createdAt:   clock.Now(),
+		live:        opts.Live,
+		liveTTL:     liveTTL,
+		liveErrors:  opts.LiveErrors,
+		snapshots:   opts.Snapshots,
 		posts:       make(chan func()),
 		seats:       make([]*seat, cfg.MaxPlayers),
 		dealerSeat:  -1,
@@ -356,26 +410,35 @@ func NewTable(opts TableOptions) *Table {
 	t.detachedDone = sync.NewCond(&t.detachedMu)
 	t.state.Store(TableWaiting)
 	t.view = &View{t: t}
-	go t.loop()
 	return t
 }
 
 // run posts fn to the actor and waits for it to finish. Returns
-// ErrTableDestroyed (without running fn) once the table is destroyed.
+// ErrTableDestroyed (without running fn) once the table is destroyed — or
+// fenced (Fenced): a table another process owns accepts nothing but Destroy.
 // NEVER call from inside a closure already running on the actor (deadlock).
 //
 // A panic inside fn is recovered on the actor and handed back to the poster
 // as an internal_error GameError, so a programming error in one move rejects
 // that move (as Node's promise rejection did) instead of taking the whole
 // process down with it. The actor keeps running.
-func (t *Table) run(fn func()) error {
-	if t.destroyed.Load() {
+//
+// When fn is done the actor saves one Snapshot to the live store if the
+// closure changed observable state (flushLive) — after the Listener has seen
+// every event, so the store is never ahead of the clients, and once per
+// posted closure however many state events it emitted.
+func (t *Table) run(fn func()) error { return t.post(fn, false) }
+
+// post is run; force lets Destroy through the fence.
+func (t *Table) post(fn func(), force bool) error {
+	if t.destroyed.Load() || (!force && t.fenced.Load()) {
 		return ErrTableDestroyed
 	}
 	done := make(chan struct{})
 	var failure error
 	job := func() {
 		defer close(done)
+		defer t.flushLive()
 		defer func() {
 			if r := recover(); r != nil {
 				failure = &GameError{
@@ -471,8 +534,27 @@ func (t *Table) State() TableState {
 	return TableWaiting
 }
 
-// Version is the count of committed ledger writes (game_states.version).
+// Version is the count of committed ledger writes (boot, bet/show, settle,
+// settle retry). It used to be game_states.version; the live store's
+// per-table sequence is LiveSeq.
 func (t *Table) Version() int64 { return t.version.Load() }
+
+// LiveSeq is the sequence number of the last Snapshot the actor offered to
+// the live store (0 before the first; restored tables continue from the
+// stored value). Every attempt takes a number, landed or not, so the durable
+// writer's version guard stays monotonic; gaps are harmless.
+func (t *Table) LiveSeq() int64 { return t.liveSeq.Load() }
+
+// SaveLive posts a save of the current snapshot to the live store (and the
+// durable sink) whether or not anything changed — RoomManager.ReconcileLive
+// uses it to refill a store that came back empty. ErrTableDestroyed once the
+// table is gone.
+func (t *Table) SaveLive() error { return t.run(func() { t.liveDirty = true }) }
+
+// Fenced reports that the live store refused a save with live.ErrStale —
+// another process owns this table — so every post but Destroy is refused
+// with ErrTableDestroyed. RoomManager destroys a fenced table.
+func (t *Table) Fenced() bool { return t.fenced.Load() }
 
 // Destroyed reports whether Destroy has completed.
 func (t *Table) Destroyed() bool { return t.destroyed.Load() }
@@ -518,6 +600,15 @@ func (t *Table) ChatHistory() ([]ChatMessage, error) {
 	var history []ChatMessage
 	err := t.run(func() { history = t.chat.History() })
 	return history, err
+}
+
+// Snapshot posts a read and returns the full server-side Snapshot (cards
+// included) — what the live store holds after the last mutation. Never send
+// it to a client.
+func (t *Table) Snapshot() (*Snapshot, error) {
+	var snap *Snapshot
+	err := t.run(func() { snap = t.snapshot() })
+	return snap, err
 }
 
 // --------------------------------------------------------------- mutations
@@ -596,13 +687,15 @@ func (t *Table) SetChips(userID string, chips int64) error {
 			return
 		}
 		s.chips = chips
+		t.liveDirty = true
 		t.listener.OnSeatUpdated(t.view, s.seatIndex)
 	})
 }
 
 // PostChat appends a player line (postChat). Error not_in_room when the user
 // is not seated (message MsgNotInRoom). Returns nil, nil when the text
-// sanitised to nothing (no event). Emits chat on success.
+// sanitised to nothing (no event). Emits chat on success and mirrors the
+// line to the live store (Live.AppendChat, capped at ChatMaxHistory).
 func (t *Table) PostChat(userID, text string) (*ChatMessage, error) {
 	var msg *ChatMessage
 	var failure error
@@ -617,6 +710,7 @@ func (t *Table) PostChat(userID, text string) (*ChatMessage, error) {
 			return
 		}
 		t.listener.OnChat(t.view, msg)
+		t.liveAppendChat(msg)
 	})
 	if err != nil {
 		return nil, err
@@ -711,9 +805,14 @@ func (t *Table) RespondToSideshow(userID string, accept bool) (SideshowOutcome, 
 // an idle sweep takes. If a hand is live its pot must not vanish
 // (requirement 15): endHand(winner = first active seat, else lastDeparture,
 // reason all_left, no reveals). Then destroyed = true, timers stopped, chat
-// cleared, actor stopped. Idempotent: a second call returns ErrTableDestroyed.
+// cleared, the live store's copy deleted (DeleteTable + DeleteChat), actor
+// stopped. Idempotent: a second call returns ErrTableDestroyed.
+//
+// A FENCED table (another process owns it) is torn down without settling
+// the hand and without touching the store: both belong to the owner. Its
+// own detached settle retries — hands that ended here — continue.
 func (t *Table) Destroy() error {
-	return t.run(func() { t.destroy() })
+	return t.post(func() { t.destroy() }, true)
 }
 
 // ------------------------------------------------------------ internals
@@ -722,8 +821,12 @@ func (t *Table) Destroy() error {
 // Node's minus the underscore. Bodies live on the actor goroutine and never
 // call run(). Each doc comment is the specification.
 
-// emitState is `this.emit('state', this)`.
-func (t *Table) emitState() { t.listener.OnState(t.view) }
+// emitState is `this.emit('state', this)`. It also marks the snapshot dirty:
+// every state event is observable change, saved once the closure ends.
+func (t *Table) emitState() {
+	t.liveDirty = true
+	t.listener.OnState(t.view)
+}
 
 // setState writes the lifecycle state for the actor and the lock-free readers.
 func (t *Table) setState(s TableState) { t.state.Store(s) }
@@ -880,6 +983,7 @@ func (t *Table) addPlayer(p NewPlayer) (*SeatInfo, error) {
 	// has context for the history they are about to be shown.
 	if msg := t.chat.AddSystem(fmt.Sprintf(ChatJoinedFormat, p.DisplayName)); msg != nil {
 		t.listener.OnChat(t.view, msg)
+		t.liveAppendChat(msg)
 	}
 
 	t.maybeStart()
@@ -913,6 +1017,7 @@ func (t *Table) removePlayer(userID, reason string) *SeatInfo {
 	t.listener.OnSeatUpdated(t.view, s.seatIndex)
 	if msg := t.chat.AddSystem(fmt.Sprintf(ChatLeftFormat, s.displayName)); msg != nil {
 		t.listener.OnChat(t.view, msg)
+		t.liveAppendChat(msg)
 	}
 
 	if wasActive && t.hand != nil {
@@ -989,10 +1094,14 @@ func (t *Table) maybeStart() {
 // armStartTimer arms the single start timer for NextHandDelay; when it fires,
 // `then` runs on the actor after the timer handle has been released. A
 // callback from a timer that was stopped too late is stale and ignored.
-func (t *Table) armStartTimer(then func()) {
+func (t *Table) armStartTimer(then func()) { t.armStartTimerAfter(t.cfg.NextHandDelay, then) }
+
+// armStartTimerAfter is armStartTimer with an explicit delay (a restored
+// countdown has less than NextHandDelay left).
+func (t *Table) armStartTimerAfter(d time.Duration, then func()) {
 	t.startTimerGen++
 	gen := t.startTimerGen
-	t.startTimer = t.clock.AfterFunc(t.cfg.NextHandDelay, func() {
+	t.startTimer = t.clock.AfterFunc(d, func() {
 		_ = t.run(func() {
 			if t.startTimerGen != gen || t.startTimer == nil {
 				return
@@ -1099,20 +1208,17 @@ func (t *Table) startHand() {
 	for _, s := range participants {
 		entries = append(entries, BootEntry{UserID: s.userID, Amount: bootAmount, BalanceBefore: s.chips})
 	}
-	version := t.version.Load() + 1
 	result, err := t.ledger.CollectBoot(t.ctx, CollectBootRequest{
 		RoomID:     t.id,
 		HandID:     handID,
 		BootAmount: bootAmount,
 		Entries:    entries,
-		Version:    version,
-		State:      t.snapshotWith(h, handNo, dealerSeat, deals, participants, bootAmount, ""),
 	})
 	if err != nil {
 		t.startRefused(err)
 		return
 	}
-	t.version.Store(version)
+	t.version.Add(1)
 
 	// Committed. Now, and only now, the table takes the hand on. The ledger
 	// says how much of each boot it actually banked: all of it in production,
@@ -1374,6 +1480,7 @@ func (t *Table) sweepUnfunded() {
 			continue
 		}
 		s.kickPending = true
+		t.liveDirty = true
 		t.kick(s, KickReasonInsufficientChips, KickMessageInsufficientChips)
 	}
 }
@@ -1595,7 +1702,6 @@ func (t *Table) chargeToPot(s *seat, amount int64, actionID, reason string) erro
 	if actionID == "" || strings.ContainsRune(actionID, reservedActionIDSeparator) {
 		actionID = util.UUID()
 	}
-	version := t.version.Load() + 1
 	result, err := t.ledger.Bet(t.ctx, BetRequest{
 		UserID:        s.userID,
 		Amount:        amount,
@@ -1604,14 +1710,12 @@ func (t *Table) chargeToPot(s *seat, amount int64, actionID, reason string) erro
 		ActionID:      actionID,
 		Reason:        reason,
 		BalanceBefore: s.chips,
-		Version:       version,
-		State:         t.snapshotAfterBet(s, amount),
 	})
 	if err != nil {
 		t.listener.OnPersistError(t.view, PersistErrorEvent{UserID: s.userID, Delta: -amount, Reason: reason, Err: err})
 		return t.refusal(err)
 	}
-	t.version.Store(version)
+	t.version.Add(1)
 
 	// How much of this bet the account has actually been debited. The real
 	// ledger banks all of it; a bookless test ledger banks none, and then
@@ -2328,19 +2432,15 @@ func (t *Table) endHand(winnerID *string, reason WinReason, reveals []Reveal) {
 		Summary:    summary,
 	}
 
-	// The hand is over whatever the database says next; the snapshot it is
-	// saved with shows the table back at rest.
-	version := t.version.Load() + 1
-	state := t.snapshotWith(nil, t.handNo, t.dealerSeat, nil, nil, 0, TableWaiting)
-
-	settleReq := SettleRequest{Hand: record, Entries: entries, Version: version, State: state}
+	// The hand is over whatever the database says next.
+	settleReq := SettleRequest{Hand: record, Entries: entries}
 	balances, err := t.ledger.Settle(t.ctx, settleReq)
 	settledInDb := false
 	if err != nil {
 		t.listener.OnPersistError(t.view, PersistErrorEvent{Reason: "settle", HandID: h.id, Err: err})
 		balances = nil
 	} else {
-		t.version.Store(version)
+		t.version.Add(1)
 		settledInDb = true
 	}
 	if balances == nil {
@@ -2400,9 +2500,9 @@ func (t *Table) endHand(winnerID *string, reason WinReason, reveals []Reveal) {
 
 // retrySettle (_retrySettle): if destroyed return. attempt > 10 → emit error
 // (OnError) with "settlement of hand <id> failed after 10 attempts". delay =
-// min(30s, NextHandDelay × attempt). AfterFunc(delay) → run(): Settle with
-// Version+1; on success version = that, adopt balances ONLY onto seats that
-// are not active (a live stake is in play), emit state; on error emit
+// min(30s, NextHandDelay × attempt). AfterFunc(delay) → run(): Settle again;
+// on success version++, adopt balances ONLY onto seats that are not active
+// (a live stake is in play), emit state; on error emit
 // persistError{settle_retry, attempt} and retrySettle(attempt+1). Unlike
 // Node, the retry body runs ON the actor (Node ran it outside the queue and
 // mutated seats concurrently — a bug the port does not copy).
@@ -2433,18 +2533,13 @@ func (t *Table) retrySettle(req SettleRequest, attempt int) {
 	entry.timer = t.clock.AfterFunc(t.settleRetryDelay(attempt), func() {
 		err := t.run(func() {
 			delete(t.retryTimers, gen)
-			// The version has moved on with later hands; present the current one
-			// so the snapshot check still describes "newer than stored".
-			version := t.version.Load() + 1
-			retry := req
-			retry.Version = version
-			balances, err := t.ledger.Settle(t.ctx, retry)
+			balances, err := t.ledger.Settle(t.ctx, req)
 			if err != nil && CodeOf(err, "") != CodeDuplicateAction {
 				t.listener.OnPersistError(t.view, PersistErrorEvent{Reason: "settle_retry", HandID: req.Hand.ID, Attempt: attempt, Err: err})
 				t.retrySettle(req, attempt+1)
 				return
 			}
-			t.version.Store(version)
+			t.version.Add(1)
 			for userID, balance := range balances {
 				s := t.findSeat(userID)
 				// Only correct a seat that is not mid-hand; a live stake is in play.
@@ -2480,9 +2575,7 @@ func (t *Table) settleRetryDelay(attempt int) time.Duration {
 // Listener event is ever delivered again; the outcome is reported to whoever
 // calls WaitSettlements instead. Only the idempotent write itself remains,
 // with the same back-off, attempt numbering and cap as retrySettle, and a
-// context that outlives the table's. Each attempt takes the next version
-// number (versions only ever rise; a wasted number is harmless, a reused one
-// is stale_state).
+// context that outlives the table's. A landed write still counts in Version.
 func (t *Table) settleDetached(req SettleRequest, attempt int) {
 	t.detachedMu.Lock()
 	t.detachedOpen++
@@ -2499,13 +2592,12 @@ func (t *Table) settleDetachedFrom(req SettleRequest, attempt int) {
 		return
 	}
 	t.clock.AfterFunc(t.settleRetryDelay(attempt), func() {
-		retry := req
-		retry.Version = t.version.Add(1)
-		_, err := t.ledger.Settle(context.WithoutCancel(t.ctx), retry)
+		_, err := t.ledger.Settle(context.WithoutCancel(t.ctx), req)
 		if err != nil && CodeOf(err, "") != CodeDuplicateAction {
 			t.settleDetachedFrom(req, attempt+1)
 			return
 		}
+		t.version.Add(1)
 		t.finishDetached(req.Hand.ID, true)
 	})
 }
@@ -2572,7 +2664,8 @@ func (t *Table) SettlementsLanded() []string {
 
 // destroy (_destroy) — see Destroy.
 func (t *Table) destroy() {
-	if t.hand != nil {
+	fenced := t.fenced.Load()
+	if t.hand != nil && !fenced {
 		remaining := t.activeSeats()
 		var winnerID *string
 		if len(remaining) > 0 {
@@ -2586,6 +2679,12 @@ func (t *Table) destroy() {
 	t.destroyed.Store(true)
 	t.clearTurnTimer()
 	t.clearStartTimer()
+	if t.hand != nil && t.hand.sideshow != nil && t.hand.sideshow.timer != nil {
+		// Only reachable when fenced (endHand clears it otherwise): the hand
+		// is the owner's now, this process just stops its own clocks.
+		t.hand.sideshow.timer.Stop()
+		t.hand.sideshow.timer = nil
+	}
 	// A settlement the database has not accepted yet is still owed whatever
 	// happens to the table: every stopped retry continues off the actor. A
 	// timer that had already fired is left to its own callback, which finds
@@ -2603,79 +2702,64 @@ func (t *Table) destroy() {
 		}
 	}
 	// The room is gone, and so is its chat: history exists only for as long as
-	// the room does, and is never written anywhere.
+	// the room does. The live store's copy goes with it — unless another
+	// process owns the table, in which case the copy is theirs.
 	t.chat.Clear()
+	if !fenced {
+		t.liveDelete()
+		if t.snapshots != nil {
+			t.snapshots.MarkDeleted(t.id)
+		}
+	}
+	t.liveDirty = false
 	t.cancel()
 }
 
 // ------------------------------------------------------------ snapshots
 
-// snapshot (_snapshot) builds the DB-side Snapshot from the actor state, or
-// from an about-to-be hand (startHand passes the new hand, dealt cards and
-// participants so seats read as they WILL be: chips - boot, active, blind,
-// contributed boot). snapshotAfterBet (_snapshotAfterBet) is snapshot() with
-// pot/chips/contributed/persisted advanced by the bet.
+// snapshot builds the full server-side Snapshot from the actor state — what
+// the live store holds (see Snapshot). Every field RestoreTable reads is
+// here; the pair is an identity (TestSnapshotRoundTripIsLossless). Node's
+// _snapshot rendered a hand "as it will be" for the ledger's game_states
+// write; that write is gone, so the snapshot is always the table as it is.
 func (t *Table) snapshot() *Snapshot {
-	return t.snapshotWith(t.hand, t.handNo, t.dealerSeat, nil, nil, 0, "")
-}
-
-// snapshotWith is _snapshot with every override Node accepted: h is the hand
-// to render (nil between hands), deals/participants/bootAmount describe a
-// deal that has not been adopted yet, stateOverride replaces the derived
-// state ("" → betting when h != nil, else the table state).
-func (t *Table) snapshotWith(h *hand, handNo, dealerSeat int, deals [][]Card, participants []*seat, bootAmount int64, stateOverride TableState) *Snapshot {
-	dealt := func(s *seat) int {
-		if deals == nil || participants == nil {
-			return -1
-		}
-		for i, p := range participants {
-			if p == s {
-				return i
-			}
-		}
-		return -1
-	}
-
 	seats := make([]*SnapshotSeat, len(t.seats))
 	for index, s := range t.seats {
 		if s == nil {
 			continue
 		}
-		dealIndex := dealt(s)
-		inNewHand := dealIndex >= 0
 		snap := &SnapshotSeat{
-			SeatIndex:   index,
-			UserID:      s.userID,
-			DisplayName: s.displayName,
-			Chips:       s.chips,
-			Status:      s.status,
-			IsBlind:     s.isBlind,
-			BlindMoves:  s.blindMoves,
-			Contributed: s.contributed,
-			Cards:       CardCodes(s.cards),
+			SeatIndex:             index,
+			UserID:                s.userID,
+			DisplayName:           s.displayName,
+			Chips:                 s.chips,
+			Status:                s.status,
+			IsBlind:               s.isBlind,
+			BlindMoves:            s.blindMoves,
+			Contributed:           s.contributed,
+			Cards:                 CardCodes(s.cards),
+			LastBet:               s.lastBet,
+			MissedTurns:           s.missedTurns,
+			SideshowAskedThisTurn: s.sideshowAskedThisTurn,
+			KickPending:           s.kickPending,
+			JoinedAt:              Millis(s.joinedAt),
 		}
-		if inNewHand {
-			snap.Chips = s.chips - bootAmount
-			snap.Status = SeatActive
-			snap.IsBlind = true
-			snap.BlindMoves = 0
-			snap.Contributed = bootAmount
-			snap.Cards = CardCodes(deals[dealIndex])
+		if s.avatarURL != nil {
+			snap.AvatarURL = StrPtr(*s.avatarURL)
+		}
+		if s.lastAction != nil {
+			snap.LastAction = ActionPtr(*s.lastAction)
 		}
 		seats[index] = snap
 	}
 
-	state := stateOverride
-	if state == "" {
-		if h != nil {
-			state = TableBetting
-		} else {
-			state = t.State()
-		}
+	state := t.State()
+	if t.hand != nil {
+		state = TableBetting
 	}
 
 	var snapHand *SnapshotHand
-	if h != nil {
+	if h := t.hand; h != nil {
 		contributions := make([]SnapshotContribution, 0, len(h.contribOrder))
 		for _, userID := range h.contribOrder {
 			entry := h.contributions[userID]
@@ -2689,60 +2773,115 @@ func (t *Table) snapshotWith(h *hand, handNo, dealerSeat int, deals [][]Card, pa
 				Status:      entry.status,
 				DidChaal:    entry.didChaal,
 				LeftMidHand: entry.leftMidHand,
+				DisplayName: entry.displayName,
+				SeatIndex:   entry.seatIndex,
+				SawCards:    entry.sawCards,
+				Cards:       CardCodes(entry.cards),
 			})
 		}
-		var showRequestedBy *string
-		if h.showRequestedBy != nil {
-			showRequestedBy = StrPtr(*h.showRequestedBy)
+		packed := make([]string, 0, len(h.packedUserIDs))
+		for userID := range h.packedUserIDs {
+			packed = append(packed, userID)
 		}
+		sort.Strings(packed)
+		seatOrder := make([]int, len(h.seatOrder))
+		copy(seatOrder, h.seatOrder)
 		snapHand = &SnapshotHand{
-			ID:              h.id,
-			HandNo:          h.handNo,
-			Pot:             h.pot,
-			Stake:           h.stake,
-			Round:           h.round,
-			TurnSeat:        h.turnSeat,
-			StartSeat:       h.startSeat,
-			StartedAt:       Millis(h.startedAt),
-			ShowRequestedBy: showRequestedBy,
-			Contributions:   contributions,
+			ID:            h.id,
+			HandNo:        h.handNo,
+			Pot:           h.pot,
+			Stake:         h.stake,
+			Round:         h.round,
+			TurnSeat:      h.turnSeat,
+			StartSeat:     h.startSeat,
+			StartedAt:     Millis(h.startedAt),
+			Contributions: contributions,
+			PackedUserIDs: packed,
+			SeatOrder:     seatOrder,
+		}
+		if h.showRequestedBy != nil {
+			snapHand.ShowRequestedBy = StrPtr(*h.showRequestedBy)
+		}
+		if h.lastDeparture != nil {
+			snapHand.LastDeparture = StrPtr(*h.lastDeparture)
+		}
+		if !h.turnDeadline.IsZero() {
+			snapHand.TurnDeadline = Int64Ptr(Millis(h.turnDeadline))
+		}
+		if p := h.sideshow; p != nil {
+			snapHand.Sideshow = &SnapshotSideshow{
+				FromUserID: p.fromUserID,
+				FromSeat:   p.fromSeat,
+				ToUserID:   p.toUserID,
+				ToSeat:     p.toSeat,
+				ExpiresAt:  Millis(p.expiresAt),
+			}
 		}
 	}
 
-	return &Snapshot{
+	snap := &Snapshot{
 		RoomID:     t.id,
 		Code:       t.code,
 		Category:   t.cfg.Category,
 		State:      state,
-		HandNo:     handNo,
-		DealerSeat: dealerSeat,
+		HandNo:     t.handNo,
+		DealerSeat: t.dealerSeat,
 		Hand:       snapHand,
 		Seats:      seats,
+		Seq:        t.liveSeq.Load(),
+		Version:    t.version.Load(),
+		IsPrivate:  t.isPrivate,
+		CreatedAt:  Millis(t.createdAt),
+		Config:     snapshotConfig(t.cfg),
+	}
+	if t.startsAt != nil {
+		snap.StartsAt = Int64Ptr(Millis(*t.startsAt))
+	}
+	return snap
+}
+
+// snapshotConfig renders TableConfig for the store (durations in ms).
+func snapshotConfig(cfg TableConfig) SnapshotConfig {
+	return SnapshotConfig{
+		Category:           cfg.Category,
+		BootAmount:         cfg.BootAmount,
+		MaxPlayers:         cfg.MaxPlayers,
+		MinPlayers:         cfg.MinPlayers,
+		TurnTimeoutMs:      cfg.TurnTimeout.Milliseconds(),
+		MaxBetRounds:       cfg.MaxBetRounds,
+		PotLimitMultiplier: cfg.PotLimitMultiplier,
+		MaxRaiseSteps:      cfg.MaxRaiseSteps,
+		MaxPot:             cfg.MaxPot,
+		MaxBlindMoves:      cfg.MaxBlindMoves,
+		MaxMissedTurns:     cfg.MaxMissedTurns,
+		SideshowTimeoutMs:  cfg.SideshowTimeout.Milliseconds(),
+		SideshowMinPlayers: cfg.SideshowMinPlayers,
+		NextHandDelayMs:    cfg.NextHandDelay.Milliseconds(),
+		ChatMaxHistory:     cfg.ChatMaxHistory,
+		ChatMaxLength:      cfg.ChatMaxLength,
 	}
 }
 
-// snapshotAfterBet (_snapshotAfterBet): the snapshot as it will read once
-// `s` has put `amount` in the pot. The snapshot always assumes the bet is
-// fully banked (persisted += amount) — that is what the database is about
-// to make true.
-func (t *Table) snapshotAfterBet(s *seat, amount int64) *Snapshot {
-	snap := t.snapshot()
-	if snap.Hand != nil {
-		snap.Hand.Pot += amount
-		for i := range snap.Hand.Contributions {
-			if snap.Hand.Contributions[i].UserID == s.userID {
-				snap.Hand.Contributions[i].Contributed += amount
-				snap.Hand.Contributions[i].Persisted += amount
-			}
-		}
+// tableConfigFrom is the inverse of snapshotConfig.
+func tableConfigFrom(c SnapshotConfig) TableConfig {
+	return TableConfig{
+		Category:           c.Category,
+		BootAmount:         c.BootAmount,
+		MaxPlayers:         c.MaxPlayers,
+		MinPlayers:         c.MinPlayers,
+		TurnTimeout:        time.Duration(c.TurnTimeoutMs) * time.Millisecond,
+		MaxBetRounds:       c.MaxBetRounds,
+		PotLimitMultiplier: c.PotLimitMultiplier,
+		MaxRaiseSteps:      c.MaxRaiseSteps,
+		MaxPot:             c.MaxPot,
+		MaxBlindMoves:      c.MaxBlindMoves,
+		MaxMissedTurns:     c.MaxMissedTurns,
+		SideshowTimeout:    time.Duration(c.SideshowTimeoutMs) * time.Millisecond,
+		SideshowMinPlayers: c.SideshowMinPlayers,
+		NextHandDelay:      time.Duration(c.NextHandDelayMs) * time.Millisecond,
+		ChatMaxHistory:     c.ChatMaxHistory,
+		ChatMaxLength:      c.ChatMaxLength,
 	}
-	if s.seatIndex >= 0 && s.seatIndex < len(snap.Seats) {
-		if own := snap.Seats[s.seatIndex]; own != nil {
-			own.Chips -= amount
-			own.Contributed += amount
-		}
-	}
-	return snap
 }
 
 // ------------------------------------------------------------ serializing

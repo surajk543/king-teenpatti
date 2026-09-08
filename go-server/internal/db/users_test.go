@@ -677,7 +677,7 @@ func TestRecentHandsListsTheUsersHandsNewestFirstWithTheSummary(t *testing.T) {
 		} else {
 			participants = append(participants, c)
 		}
-		f.boot(room, hand, 200, int64(i*2-1), participants...)
+		f.boot(room, hand, 200, participants...)
 		var entries []game.SettleEntry
 		summary := []game.HandSummaryEntry{}
 		for j, p := range participants {
@@ -686,7 +686,7 @@ func TestRecentHandsListsTheUsersHandsNewestFirstWithTheSummary(t *testing.T) {
 		}
 		if _, err := f.ledger.Settle(f.ctx, game.SettleRequest{
 			Hand:    game.HandRecord{ID: hand, RoomID: room, HandNo: i, Pot: 400, WinnerID: ptr(a.ID), WinReason: "show", BootAmount: 200, StartedAt: int64(1000 * i), EndedAt: int64(1000*i + 500), Summary: summary},
-			Entries: entries, Version: int64(i * 2),
+			Entries: entries,
 		}); err != nil {
 			t.Fatal(err)
 		}

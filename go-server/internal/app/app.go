@@ -21,6 +21,7 @@ import (
 	"github.com/surajk543/king-teenpatti/go-server/internal/config"
 	"github.com/surajk543/king-teenpatti/go-server/internal/db"
 	"github.com/surajk543/king-teenpatti/go-server/internal/game"
+	"github.com/surajk543/king-teenpatti/go-server/internal/live"
 	"github.com/surajk543/king-teenpatti/go-server/internal/metrics"
 	"github.com/surajk543/king-teenpatti/go-server/internal/sio"
 	"github.com/surajk543/king-teenpatti/go-server/internal/socket"
@@ -36,6 +37,12 @@ type Options struct {
 	Clock  game.Clock // nil → game.RealClock{}
 	// StartedAt feeds /health uptime and the uptime gauge; zero → now.
 	StartedAt time.Time
+	// Live is the live-state store (LIVE_STATE_PLAN.md). nil → New opens one
+	// from Config: Redis when REDIS_URL is set (failing fast when it is
+	// unreachable), the in-process store otherwise — and Shutdown closes it
+	// last. An injected store (tests; several apps replaying a restart on one
+	// store) stays open: its owner closes it, as with DB.
+	Live live.Store
 }
 
 // App is the assembled server.
@@ -44,15 +51,30 @@ type App struct {
 	log     *slog.Logger
 	db      *db.DB
 	metrics *metrics.Metrics
-	rooms   *game.RoomManager
-	sio     *sio.Server
-	sockets *socket.Handler
-	mux     *http.ServeMux
-	http    *http.Server
-	started time.Time
-	clock   game.Clock
-	vitals  *vitals
-	handler http.Handler
+	live    live.Store
+	// ownsLive: New opened the store (Options.Live was nil) and Shutdown
+	// closes it.
+	ownsLive bool
+	// snapshots is the durable backstop writer (game_states, asynchronous);
+	// nil without a database.
+	snapshots *db.SnapshotWriter
+	rooms     *game.RoomManager
+	sio       *sio.Server
+	sockets   *socket.Handler
+	// restore and refund record what the startup sequence did (logged once;
+	// Restore()/Refund() expose them to tests and tooling).
+	restore game.RestoreReport
+	refund  db.RefundReport
+	// reconcileStop/Done drive the live-store reconciler (LIVE_RECONCILE_MS);
+	// Shutdown stops it.
+	reconcileStop chan struct{}
+	reconcileDone chan struct{}
+	mux           *http.ServeMux
+	http          *http.Server
+	started       time.Time
+	clock         game.Clock
+	vitals        *vitals
+	handler       http.Handler
 
 	mu       sync.Mutex
 	addr     string
@@ -72,22 +94,52 @@ const (
 	sioMaxPayload  = 100000 // maxHttpBufferSize: 1e5
 )
 
-// New wires everything (createServer):
+// Live-store timings owned by the app.
+const (
+	// liveOpenTimeout bounds live.Open (one Redis ping) — fail fast.
+	liveOpenTimeout = 5 * time.Second
+	// liveRoundTrip is live.Options.Timeout, one Redis round trip.
+	liveRoundTrip = 500 * time.Millisecond
+	// restoreTimeout bounds the whole startup sequence against the store and
+	// the database (Restore + RefundOrphanedPots); generous because a large
+	// store means many round trips, still finite so a hung backend cannot
+	// hold the process in "starting" forever.
+	restoreTimeout = 60 * time.Second
+	// healthLiveTimeout bounds the two store calls /health makes.
+	healthLiveTimeout = time.Second
+	// reconcileTimeout bounds one reconciler pass.
+	reconcileTimeout = 20 * time.Second
+)
+
+// New wires everything (createServer) and runs the live-state startup
+// sequence (LIVE_STATE_PLAN.md):
 //
 //  1. metrics.New (if config.Metrics.Enabled; else a Metrics that observes
 //     into an unexposed registry — the counters are still safe to call);
-//  2. users := db.NewUsers(DB, WelcomeChips); ledger := db.NewLedger(DB, m);
+//  2. the live store: Options.Live, else live.Open (Redis when REDIS_URL is
+//     set — unreachable → New fails and the process exits; memory otherwise),
+//     wrapped with live.WithHooks(store, m.LiveHooks()) so every call feeds
+//     game_live_store_*;
+//  3. users := db.NewUsers(DB, WelcomeChips); ledger := db.NewLedger(DB, m);
 //     tokens := auth.NewTokens(JWT); verifier := auth.NewVerifier(cfg);
-//  3. sio.NewServer{PingInterval 20s, PingTimeout 25s, MaxPayload 1e5,
+//     sio.NewServer{PingInterval 20s, PingTimeout 25s, MaxPayload 1e5,
 //     CheckOrigin from cfg.CORSOrigin / AllowAnyOrigin};
-//  4. sockets := socket.New(Deps{Rooms: nil, …}); rooms := game.NewRoomManager
-//     {TableListener: sockets, Listener: sockets, Ledger, Clock, Metrics:
-//     {ObserveCreation: m.CreationDuration}}; sockets.SetRooms(rooms);
-//     sockets.Attach(sio) — this order because the RoomManager needs the
-//     Handler as its listeners at construction and the Handler needs the
-//     RoomManager only at request time;
-//  5. m.BindRooms(rooms); m.BindPool(DB.Stats); rooms.StartSweeper();
-//  6. mux routes (Go 1.22 patterns):
+//  4. sockets := socket.New(Deps{Live, Instance, …}); rooms :=
+//     game.NewRoomManager{TableListener: sockets, Listener: sockets, Ledger,
+//     Clock, Live, Instance, LiveTTL, Metrics: {ObserveCreation}};
+//     sockets.SetRooms(rooms); sockets.Attach(sio) — this order because the
+//     RoomManager needs the Handler as its listeners at construction and the
+//     Handler needs the RoomManager only at request time;
+//  5. m.BindRooms(rooms); m.BindPool(DB.Stats);
+//  6. the restart sequence: rooms.Restore(ctx) (tables rebuilt from the
+//     store; a store that cannot be listed is fatal) →
+//     DB.RefundOrphanedPots(ctx, restored hand ids) (open pots no live table
+//     holds go back to their contributors; a failure is logged, the next
+//     start retries) → sockets.RestoreSeats(rooms.RestoredSeats()) (every
+//     restored seat held for RECONNECT_GRACE_MS) → one summary log line
+//     `live state restored`; then rooms.StartSweeper(). The listener opens in
+//     Start, after all of this.
+//  7. mux routes (Go 1.22 patterns):
 //     GET  {metricsPath}     → m.Handler(Guard{Token, AllowIPs})
 //     GET  /health           → Health
 //     auth.Handler.Register(mux)   (the 8 API routes)
@@ -127,22 +179,33 @@ func New(opts Options) (*App, error) {
 	a := &App{cfg: cfg, log: logger, db: opts.DB, started: started, clock: clock}
 	a.vitals = newVitals(started)
 
-	if cfg.RedisURL != "" {
-		// PORT_PLAN.md decision 1: single process, no adapter.
-		logger.Warn("REDIS_URL is ignored: the Go server is a single process with no Socket.IO adapter")
-	}
-
 	// 1. metrics — always built so the counters the socket layer, ledger and
 	// RoomManager touch exist; only exposed when enabled.
 	a.metrics = metrics.New(metrics.Options{Prefix: cfg.Metrics.Prefix, StartedAt: started})
 
-	// 2. stores, tokens, providers.
+	// 2. the live store, before anything that depends on it. Redis
+	// unreachable → fail fast (LIVE_STATE_PLAN.md startup step 1).
+	store := opts.Live
+	if store == nil {
+		octx, cancel := context.WithTimeout(context.Background(), liveOpenTimeout)
+		defer cancel()
+		opened, err := live.Open(octx, live.Options{URL: cfg.RedisURL, Instance: cfg.LiveInstanceID, Timeout: liveRoundTrip})
+		if err != nil {
+			return nil, fmt.Errorf("live store: %w", err)
+		}
+		store = opened
+		a.ownsLive = true
+	}
+	a.live = live.WithHooks(store, a.metrics.LiveHooks())
+	logger.Info("live store ready", "kind", a.live.Kind(), "instance", cfg.LiveInstanceID, "url", db.Redact(cfg.RedisURL))
+
+	// 3. stores, tokens, providers.
 	users := db.NewUsers(opts.DB, cfg.Game.WelcomeChips, clock.Now)
 	ledger := db.NewLedger(opts.DB, a.metrics, clock.Now)
 	tokens := auth.NewTokens(cfg.JWT.Secret, cfg.JWT.ExpiresIn, clock.Now)
 	verifier := auth.NewVerifier(cfg)
 
-	// 3. the Socket.IO server.
+	// The Socket.IO server.
 	a.sio = sio.NewServer(sio.Options{
 		Path:         sioPath,
 		PingInterval: sioPingInterval,
@@ -155,14 +218,28 @@ func New(opts Options) (*App, error) {
 
 	// 4. realtime handler ↔ room manager (mutual dependency, see the doc).
 	a.sockets = socket.New(socket.Deps{
-		Config:  cfg,
-		Users:   users,
-		Tokens:  tokens,
-		Metrics: a.metrics,
-		Clock:   clock,
-		Logger:  logger,
+		Config:   cfg,
+		Users:    users,
+		Tokens:   tokens,
+		Metrics:  a.metrics,
+		Clock:    clock,
+		Logger:   logger,
+		Live:     a.live,
+		Instance: cfg.LiveInstanceID,
 	})
-	a.rooms = game.NewRoomManager(game.RoomManagerOptions{
+	// The durable backstop: game_states written asynchronously
+	// (LIVE_STATE_PLAN.md "The durable backstop"); SNAPSHOT_FLUSH_MS=0 builds a
+	// writer that drops everything (Redis only).
+	if opts.DB != nil {
+		a.snapshots = db.NewSnapshotWriter(opts.DB, db.SnapshotWriterOptions{
+			Interval: cfg.SnapshotFlush,
+			Logger:   logger,
+			Metrics:  a.metrics,
+			Clock:    clock.Now,
+		})
+		a.metrics.BindSnapshotLag(a.snapshots.Lag)
+	}
+	roomOpts := game.RoomManagerOptions{
 		Game:          cfg.Game,
 		Chat:          cfg.Chat,
 		Ledger:        ledger,
@@ -170,14 +247,21 @@ func New(opts Options) (*App, error) {
 		TableListener: a.sockets,
 		Listener:      a.sockets,
 		Logger:        logger,
+		Live:          a.live,
+		Instance:      cfg.LiveInstanceID,
+		LiveTTL:       cfg.LiveStateTTL,
 		Metrics: game.MetricsHooks{
 			ObserveCreation: func(d time.Duration) { metrics.Observe(a.metrics.CreationDuration, d) },
+			// ObserveLiveError stays nil: the WithHooks wrapper already
+			// counts every failed store call in game_live_store_errors_total.
 		},
-	})
+	}
+	a.wireDurable(&roomOpts, opts.DB)
+	a.rooms = game.NewRoomManager(roomOpts)
 	a.sockets.SetRooms(a.rooms)
 	a.sockets.Attach(a.sio)
 
-	// 5. late-bound metric sources and the consolidation sweeper.
+	// 5. late-bound metric sources.
 	a.metrics.BindRooms(a.rooms)
 	if opts.DB != nil {
 		a.metrics.BindPool(func() metrics.PoolStats {
@@ -185,9 +269,21 @@ func New(opts Options) (*App, error) {
 			return metrics.PoolStats{Total: s.Total, Idle: s.Idle, Waiting: s.Waiting}
 		})
 	}
-	a.rooms.StartSweeper()
 
-	// 6. routes.
+	// 6. the restart sequence, then the sweeper and the reconciler.
+	if err := a.restoreLiveState(); err != nil {
+		if a.snapshots != nil {
+			a.snapshots.Close()
+		}
+		if a.ownsLive {
+			_ = a.live.Close()
+		}
+		return nil, err
+	}
+	a.rooms.StartSweeper()
+	a.startReconciler()
+
+	// 7. routes.
 	api := auth.NewHandler(auth.Deps{
 		Config:      cfg,
 		Users:       users,
@@ -259,6 +355,133 @@ func originChecker(cfg *config.Config) func(r *http.Request) bool {
 	}
 }
 
+// restoreLiveState is startup steps 2–4 of LIVE_STATE_PLAN.md, run by New
+// before the sweeper starts and the listener opens:
+//
+//	rooms.Restore(ctx)                            tables rebuilt: pass 1 from the live
+//	                                              store, pass 2 from game_states for
+//	                                              every room the live store lacked
+//	                                              (reconciled against the ledger and
+//	                                              written straight back into the store)
+//	DB.RefundOrphanedPots(ctx, hand ids of BOTH)  open pots nobody is playing → refunded
+//	sockets.RestoreSeats(rooms.RestoredSeats())   every restored seat held for the grace
+//
+// A store that cannot even be listed is fatal (the process must not start
+// half-blind and let the next process fight it over the same tables). A
+// refund failure is not: the chips are still in the pot, the failure is
+// logged, and the next start retries it. Counters:
+// game_restored_tables_total{source}, game_restore_reconciled_total,
+// game_restore_rejected_total, game_restored_seats_total (the handler adds
+// it), game_refunded_pots_total, game_refunded_chips_total. One summary line
+// is logged either way:
+//
+//	restored tables=N (live=A postgres=B) seats=C reconciled=D rejected=E refunded pots=F
+func (a *App) restoreLiveState() error {
+	ctx, cancel := context.WithTimeout(context.Background(), restoreTimeout)
+	defer cancel()
+
+	report, err := a.rooms.Restore(ctx)
+	if err != nil {
+		return fmt.Errorf("restore tables: %w", err)
+	}
+	a.restore = report
+	fromLive, fromPostgres, reconciled, rejected := restoreBreakdown(report)
+	if fromLive > 0 {
+		a.metrics.RestoredTablesTotal.WithLabelValues(metrics.RestoreSourceLive).Add(float64(fromLive))
+	}
+	if fromPostgres > 0 {
+		a.metrics.RestoredTablesTotal.WithLabelValues(metrics.RestoreSourcePostgres).Add(float64(fromPostgres))
+	}
+	if reconciled > 0 {
+		a.metrics.RestoreReconciled.Add(float64(reconciled))
+	}
+	if rejected > 0 {
+		a.metrics.RestoreRejected.Add(float64(rejected))
+	}
+
+	liveHands := make(map[string]bool, len(report.HandIDs))
+	for _, id := range report.HandIDs {
+		liveHands[id] = true
+	}
+	if a.db != nil {
+		refund, err := a.db.RefundOrphanedPots(ctx, liveHands)
+		a.refund = refund
+		if refund.Pots > 0 {
+			a.metrics.RefundedPotsTotal.Add(float64(refund.Pots))
+			a.metrics.RefundedChipsTotal.Add(float64(refund.Chips))
+		}
+		if err != nil {
+			a.log.Error("pot refund incomplete; will retry at the next start", "error", err.Error(),
+				"potsRefunded", refund.Pots, "chipsRefunded", refund.Chips)
+		}
+	}
+
+	restored := a.rooms.RestoredSeats()
+	seats := make([]socket.RestoredSeat, 0, len(restored))
+	for _, s := range restored {
+		seats = append(seats, socket.RestoredSeat{UserID: s.UserID, RoomID: s.RoomID})
+	}
+	held := a.sockets.RestoreSeats(seats)
+
+	a.log.Info(fmt.Sprintf("restored tables=%d (live=%d postgres=%d) seats=%d reconciled=%d rejected=%d refunded pots=%d",
+		report.Tables, fromLive, fromPostgres, held, reconciled, rejected, a.refund.Pots),
+		"store", a.live.Kind(),
+		"handsInProgress", report.HandsInProgress,
+		"snapshotsDropped", report.Dropped,
+		"loadsFailed", report.Failed,
+		"chipsRefunded", a.refund.Chips,
+		"graceMs", a.cfg.Game.ReconnectGrace.Milliseconds(),
+	)
+	return nil
+}
+
+// startReconciler runs one reconcile pass every LIVE_RECONCILE_MS
+// (LIVE_STATE_PLAN.md "Redis dies, server keeps running"): the store is
+// pinged and, on the transition back to healthy, every live table is
+// re-saved and the seats and lobby index re-published, so a Redis that came
+// back empty is refilled without waiting for each table's next move. Counted
+// in game_live_store_reconciles_total{result}. A non-positive interval
+// disables it.
+func (a *App) startReconciler() {
+	interval := a.cfg.LiveReconcile
+	if interval <= 0 {
+		return
+	}
+	a.reconcileStop = make(chan struct{})
+	a.reconcileDone = make(chan struct{})
+	go func() {
+		defer close(a.reconcileDone)
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				ctx, cancel := context.WithTimeout(context.Background(), reconcileTimeout)
+				err := a.reconcileLive(ctx)
+				cancel()
+				if err != nil {
+					a.metrics.LiveStoreReconciles.WithLabelValues(metrics.ResultError).Inc()
+					a.log.Warn("live store reconcile failed", "error", err.Error())
+				} else {
+					a.metrics.LiveStoreReconciles.WithLabelValues(metrics.ResultOK).Inc()
+				}
+			case <-a.reconcileStop:
+				return
+			}
+		}
+	}()
+}
+
+// stopReconciler stops the ticker and waits for a pass in flight.
+func (a *App) stopReconciler() {
+	if a.reconcileStop == nil {
+		return
+	}
+	close(a.reconcileStop)
+	<-a.reconcileDone
+	a.reconcileStop = nil
+}
+
 // Handler returns the root http.Handler (for httptest in integration tests).
 func (a *App) Handler() http.Handler {
 	return a.handler
@@ -266,6 +489,15 @@ func (a *App) Handler() http.Handler {
 
 // Rooms exposes the RoomManager (tests, tooling).
 func (a *App) Rooms() *game.RoomManager { return a.rooms }
+
+// Live exposes the (hooked) live store (tests, tooling).
+func (a *App) Live() live.Store { return a.live }
+
+// Restore is what rooms.Restore did at startup.
+func (a *App) Restore() game.RestoreReport { return a.restore }
+
+// Refund is what db.RefundOrphanedPots did at startup.
+func (a *App) Refund() db.RefundReport { return a.refund }
 
 // Start listens on cfg.Host:cfg.Port and serves until Shutdown. It logs
 // `king-teenpatti server listening {url, env, welcomeChips, boot}` and
@@ -316,11 +548,19 @@ func (a *App) Addr() string {
 }
 
 // Shutdown is the entrypoint's `shutdown(signal)`, in this order: sio.Close()
-// (every socket gets "server shutting down"); rooms.Shutdown(ctx) — LIVE
-// HANDS ARE SETTLED (pots paid out) before anything else closes; http
-// Shutdown(ctx). The caller then closes the DB. cmd/gameplay bounds the whole
-// thing with 8 s, as Node's setTimeout(process.exit(1), 8000). A second call
-// is a no-op returning nil.
+// (every socket gets "server shutting down"; each disconnect marks its seat
+// and clears its presence); the tables — rooms.Suspend(ctx) when the store
+// outlives this process (Redis, or an injected store: a final snapshot each,
+// clocks stopped, pots left open for the next process to continue the hands
+// with the seats held), rooms.Shutdown(ctx) with the in-process store (LIVE
+// HANDS ARE SETTLED, pots paid out — the pre-Redis behaviour, and the
+// rollback path when REDIS_URL is unset); http Shutdown(ctx); sio.Shutdown
+// (socket goroutines); sockets.Close() (presence heartbeat); the reconciler
+// stops; snapshots.Flush(ctx) writes the final game_states rows before the
+// caller closes the DB; and the store, when New opened it, is closed LAST,
+// after every user of it.
+// cmd/gameplay bounds the whole thing with 8 s, as Node's
+// setTimeout(process.exit(1), 8000). A second call is a no-op returning nil.
 func (a *App) Shutdown(ctx context.Context) error {
 	a.mu.Lock()
 	if a.shutDown {
@@ -333,8 +573,13 @@ func (a *App) Shutdown(ctx context.Context) error {
 
 	// 1. Disconnect every client so no new move can start.
 	a.sio.Close()
-	// 2. Destroy every table — a live hand is settled and its pot paid out.
-	roomsErr := a.rooms.Shutdown(ctx)
+	// 2. The tables: suspended into a durable store, else destroyed (settled).
+	var roomsErr error
+	if a.live.Kind() != "memory" {
+		roomsErr = a.rooms.Suspend(ctx)
+	} else {
+		roomsErr = a.rooms.Shutdown(ctx)
+	}
 	// 3. Stop accepting and drain the HTTP listener.
 	var httpErr error
 	if serving {
@@ -342,13 +587,29 @@ func (a *App) Shutdown(ctx context.Context) error {
 	}
 	// 4. Wait for the socket goroutines to wind down (bounded by ctx).
 	sioErr := a.sio.Shutdown(ctx)
-	return errors.Join(roomsErr, httpErr, sioErr)
+	// 5. Stop the presence heartbeat and the reconciler; flush the durable
+	// snapshots the suspend/destroy produced (the caller closes the DB after
+	// us); then close the store (when it is ours) — nothing above touches it
+	// any more.
+	a.sockets.Close()
+	a.stopReconciler()
+	var snapErr error
+	if a.snapshots != nil {
+		snapErr = a.snapshots.Flush(ctx)
+		a.snapshots.Close()
+	}
+	var liveErr error
+	if a.ownsLive {
+		liveErr = a.live.Close()
+	}
+	return errors.Join(roomsErr, httpErr, sioErr, snapErr, liveErr)
 }
 
 // HealthResponse is GET /health. Field names are Node's; `node` carries the
 // Go runtime version string ("go1.27.1") because the load-test tooling reads
 // the key by name. Loop-lag fields report the scheduler-latency proxy
-// described in ProcessHealth.
+// described in ProcessHealth. `live` is new with the live-state store
+// (LIVE_STATE_PLAN.md §Metrics) and appended after Node's keys.
 type HealthResponse struct {
 	OK     bool    `json:"ok"`
 	Uptime float64 `json:"uptime"` // seconds, fractional
@@ -358,6 +619,40 @@ type HealthResponse struct {
 	Process ProcessHealth `json:"process"`
 	// DB is null when the pool is not open.
 	DB *db.PoolStats `json:"db"`
+	// Live is the live-state store's health.
+	Live LiveHealth `json:"live"`
+}
+
+// LiveHealth is /health.live: the store's kind ("redis" | "memory"), whether
+// it answered a Ping (and the table listing), how many table snapshots it
+// holds — after a restart that is what the next process would rebuild — and
+// how far the durable backstop is behind it (the age of the oldest table
+// change not yet flushed to game_states; 0 when nothing is pending).
+type LiveHealth struct {
+	Kind               string  `json:"kind"`
+	OK                 bool    `json:"ok"`
+	Tables             int     `json:"tables"`
+	SnapshotLagSeconds float64 `json:"snapshotLagSeconds"`
+}
+
+// liveHealth probes the store within healthLiveTimeout.
+func (a *App) liveHealth() LiveHealth {
+	out := LiveHealth{Kind: a.live.Kind()}
+	if a.snapshots != nil {
+		out.SnapshotLagSeconds = round1(a.snapshots.Lag().Seconds())
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), healthLiveTimeout)
+	defer cancel()
+	if err := a.live.Ping(ctx); err != nil {
+		return out
+	}
+	refs, err := a.live.ListTables(ctx)
+	if err != nil {
+		return out
+	}
+	out.OK = true
+	out.Tables = len(refs)
+	return out
 }
 
 // ProcessHealth is /health.process. Node's values came from process.memoryUsage,
@@ -419,6 +714,7 @@ func (a *App) Health(w http.ResponseWriter, r *http.Request) {
 		stats.Waiting = waiting
 		res.DB = &stats
 	}
+	res.Live = a.liveHealth()
 	auth.WriteJSON(w, http.StatusOK, res)
 }
 

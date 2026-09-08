@@ -69,7 +69,7 @@ func TestReviewSettleAndCollectBootCannotDeadlockOnSharedWallets(t *testing.T) {
 	low, high := users[0], users[1] // wallets are locked low → high everywhere
 
 	// Table A dealt and about to settle: high won the pot of 400.
-	f.boot("room-A", "hand-A", 200, 1, low, high)
+	f.boot("room-A", "hand-A", 200, low, high)
 	settle := game.SettleRequest{
 		Hand: game.HandRecord{ID: "hand-A", RoomID: "room-A", HandNo: 1, Pot: 400, WinnerID: ptr(high.ID),
 			WinReason: game.WinLastStanding, BootAmount: 200, StartedAt: nowMs(), EndedAt: nowMs()},
@@ -77,8 +77,6 @@ func TestReviewSettleAndCollectBootCannotDeadlockOnSharedWallets(t *testing.T) {
 			{UserID: low.ID, Delta: 0},
 			{UserID: high.ID, Delta: 400, IsWinner: true},
 		},
-		Version: 2,
-		State:   snapshot("room-A", game.TableWaiting, 1),
 	}
 
 	// A bystander holds the winner's wallet for a moment (any FOR UPDATE on
@@ -107,7 +105,6 @@ func TestReviewSettleAndCollectBootCannotDeadlockOnSharedWallets(t *testing.T) {
 		_, err := f.ledger.CollectBoot(ctx, game.CollectBootRequest{
 			RoomID: "room-B", HandID: "hand-B", BootAmount: 200,
 			Entries: []game.BootEntry{{UserID: low.ID, Amount: 200}, {UserID: high.ID, Amount: 200}},
-			Version: 1, State: snapshot("room-B", game.TableBetting, 1),
 		})
 		bootErr <- err
 	}()
@@ -185,7 +182,6 @@ func TestReviewConcurrentTablesSharingWalletsNeverDeadlock(t *testing.T) {
 		go func(w int) {
 			var out outcome
 			roomID := "room-" + string(rune('A'+w))
-			var version int64
 			for h := 0; h < hands; h++ {
 				// A pseudo-random 2–3 player subset, deterministic per worker/hand.
 				n := 2 + (w+h)%2
@@ -200,31 +196,26 @@ func TestReviewConcurrentTablesSharingWalletsNeverDeadlock(t *testing.T) {
 					entries = append(entries, game.BootEntry{UserID: pool[idx].ID, Amount: 200})
 				}
 				handID := roomID + "-hand-" + string(rune('a'+h%26)) + string(rune('a'+h/26))
-				version++
 				_, err := f.ledger.CollectBoot(ctx, game.CollectBootRequest{RoomID: roomID, HandID: handID, BootAmount: 200,
-					Entries: entries, Version: version, State: snapshot(roomID, game.TableBetting, h+1)})
+					Entries: entries})
 				if err != nil {
 					if isDeadlock(db.Classify(err).Cause) {
 						out.deadlocks++
 					} else {
 						out.refused++
 					}
-					version--
 					continue
 				}
 				pot := int64(200 * len(entries))
 				for i, e := range entries {
-					version++
 					_, err := f.ledger.Bet(ctx, game.BetRequest{UserID: e.UserID, Amount: 400, RoomID: roomID, HandID: handID,
-						ActionID: handID + "-bet-" + string(rune('0'+i)), Reason: game.LedgerReasonBet, Version: version,
-						State: snapshot(roomID, game.TableBetting, h+1)})
+						ActionID: handID + "-bet-" + string(rune('0'+i)), Reason: game.LedgerReasonBet})
 					if err != nil {
 						if isDeadlock(db.Classify(err).Cause) {
 							out.deadlocks++
 						} else {
 							out.refused++
 						}
-						version--
 						continue
 					}
 					pot += 400
@@ -238,18 +229,16 @@ func TestReviewConcurrentTablesSharingWalletsNeverDeadlock(t *testing.T) {
 					}
 					settleEntries = append(settleEntries, se)
 				}
-				version++
 				_, err = f.ledger.Settle(ctx, game.SettleRequest{
 					Hand: game.HandRecord{ID: handID, RoomID: roomID, HandNo: h + 1, Pot: pot, WinnerID: ptr(winner),
 						WinReason: game.WinLastStanding, BootAmount: 200, StartedAt: nowMs(), EndedAt: nowMs()},
-					Entries: settleEntries, Version: version, State: snapshot(roomID, game.TableWaiting, h+1)})
+					Entries: settleEntries})
 				if err != nil {
 					if isDeadlock(db.Classify(err).Cause) {
 						out.deadlocks++
 					} else {
 						out.refused++
 					}
-					version--
 					continue
 				}
 				out.settled++

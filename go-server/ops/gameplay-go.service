@@ -15,7 +15,11 @@
 [Unit]
 Description=King Teen Patti game server (Go)
 Documentation=file:///var/www/gameplay/king-teenpatti/go-server/ops/DEPLOY.md
-After=network-online.target postgresql.service
+After=network-online.target postgresql.service redis-server.service
+# Redis holds the live table state (LIVE_STATE_PLAN.md). It is optional: with
+# REDIS_URL empty the server keeps its own in-process store, so a missing Redis
+# never stops the game — it only means a restart loses tables in progress.
+Wants=redis-server.service
 Wants=network-online.target
 
 [Service]

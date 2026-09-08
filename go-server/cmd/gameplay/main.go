@@ -1,15 +1,20 @@
 // Command gameplay is the King Teen Patti game server — the Go port of
 // `node server/src/index.js`. Single process; Go's scheduler uses every core.
 //
-// Boot sequence (index.js entrypoint block):
+// Boot sequence (index.js entrypoint block, extended by LIVE_STATE_PLAN.md):
 //  1. godotenv.Load() if a .env exists in the working directory (Node:
 //     `import 'dotenv/config'`); missing file is not an error;
 //  2. config.Load() — fails fast on production misconfiguration;
 //  3. logger from LOG_LEVEL;
 //  4. db.Open (schema bootstrap);
-//  5. app.New + Start;
+//  5. app.New: opens the live store (REDIS_URL set and unreachable → exit 1),
+//     starts the durable snapshot writer, rebuilds the tables the store (or
+//     game_states) holds, refunds orphaned pots, holds the restored seats;
+//     then Start opens the listener;
 //  6. on SIGINT/SIGTERM: log `shutting down {signal}`, app.Shutdown with an
-//     8 s budget, db.Close, exit 0 — or exit 1 when the budget runs out.
+//     8 s budget (tables suspended into Redis, or settled without it; the
+//     final game_states flush; the store closed last), db.Close, exit 0 — or
+//     exit 1 when the budget runs out.
 package main
 
 import (
@@ -86,6 +91,9 @@ func run() error {
 		return err
 	}
 
+	// app.New also opens the live store from cfg (REDIS_URL, LIVE_INSTANCE_ID)
+	// and runs the restart sequence; a store that is configured but
+	// unreachable, or that cannot be listed, is a startup failure.
 	server, err := app.New(app.Options{Config: cfg, DB: database, Logger: logger})
 	if err != nil {
 		database.Close()

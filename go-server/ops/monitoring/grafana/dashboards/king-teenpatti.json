@@ -1,7 +1,7 @@
 {
   "uid": "king-teenpatti",
-  "title": "King Teen Patti — Game Server",
-  "description": "System, Go runtime, WebSockets, game, latency, PostgreSQL and nginx for the King Teen Patti server (Requirements 35–36).",
+  "title": "King Teen Patti \u2014 Game Server",
+  "description": "System, Go runtime, WebSockets, game, latency, PostgreSQL and nginx for the King Teen Patti server (Requirements 35\u201336).",
   "tags": [
     "king-teenpatti",
     "game-server",
@@ -204,7 +204,7 @@
       "id": 3,
       "type": "gauge",
       "title": "RAM usage",
-      "description": "Memory not available to new allocations (MemTotal − MemAvailable); page cache counts as available.",
+      "description": "Memory not available to new allocations (MemTotal \u2212 MemAvailable); page cache counts as available.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -513,7 +513,7 @@
       "id": 7,
       "type": "timeseries",
       "title": "RAM usage",
-      "description": "Used = MemTotal − MemAvailable. Cache and buffers are reclaimable and not counted as used; swap used should stay at zero.",
+      "description": "Used = MemTotal \u2212 MemAvailable. Cache and buffers are reclaimable and not counted as used; swap used should stay at zero.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -894,7 +894,7 @@
       "id": 10,
       "type": "timeseries",
       "title": "Network TX",
-      "description": "Bits per second sent. Every table state change is one message per seated viewer; this scales with players × hands.",
+      "description": "Bits per second sent. Every table state change is one message per seated viewer; this scales with players \u00d7 hands.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -977,7 +977,7 @@
       "id": 11,
       "type": "timeseries",
       "title": "Open file descriptors",
-      "description": "One descriptor per websocket in the game server (plus the pg pool and logs) and two per proxied websocket in nginx. The dashed line is the game server process's RLIMIT_NOFILE — raise it with the systemd drop-in in ops/monitoring/nginx/systemd/.",
+      "description": "One descriptor per websocket in the game server (plus the pg pool and logs) and two per proxied websocket in nginx. The dashed line is the game server process's RLIMIT_NOFILE \u2014 raise it with the systemd drop-in in ops/monitoring/nginx/systemd/.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -1126,7 +1126,7 @@
       "id": 12,
       "type": "timeseries",
       "title": "TCP connections",
-      "description": "Established TCP connections on the host ≈ 2 × websockets (client→nginx and nginx→game server) + PostgreSQL + scrapes.",
+      "description": "Established TCP connections on the host \u2248 2 \u00d7 websockets (client\u2192nginx and nginx\u2192game server) + PostgreSQL + scrapes.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -1246,7 +1246,7 @@
       "id": 14,
       "type": "stat",
       "title": "Uptime",
-      "description": "Seconds since the game server process started (game_server_process_uptime_seconds). A reset here with no deploy is a crash — check the restart annotation and journalctl -u gameplay.",
+      "description": "Seconds since the game server process started (game_server_process_uptime_seconds). A reset here with no deploy is a crash \u2014 check the restart annotation and journalctl -u gameplay.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -1442,7 +1442,7 @@
       "id": 17,
       "type": "stat",
       "title": "RSS memory",
-      "description": "Resident set size of the game server process — what the OS actually holds in RAM for it.",
+      "description": "Resident set size of the game server process \u2014 what the OS actually holds in RAM for it.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -1572,7 +1572,7 @@
       "id": 19,
       "type": "stat",
       "title": "Goroutines",
-      "description": "Live goroutines (game_server_go_goroutines). One per table actor, a few per websocket, plus timers. Roughly 3 × sockets + tables at rest; the GameServerGoroutinesHigh alert fires above 50,000.",
+      "description": "Live goroutines (game_server_go_goroutines). One per table actor, a few per websocket, plus timers. Roughly 3 \u00d7 sockets + tables at rest; the GameServerGoroutinesHigh alert fires above 50,000.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -1756,7 +1756,7 @@
       "id": 21,
       "type": "timeseries",
       "title": "Heap",
-      "description": "alloc = bytes in live objects right now; in use = spans holding them; live = what survived the last GC (the real working set); goal = heap size that triggers the next GC (GOGC, default 100 → about 2 × live). A rising 'live' with a flat player count is a leak.",
+      "description": "alloc = bytes in live objects right now; in use = spans holding them; live = what survived the last GC (the real working set); goal = heap size that triggers the next GC (GOGC, default 100 \u2192 about 2 \u00d7 live). A rising 'live' with a flat player count is a leak.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -1905,7 +1905,7 @@
       "id": 22,
       "type": "timeseries",
       "title": "Goroutines & threads",
-      "description": "Total goroutines, the ones runnable but not yet scheduled (a growing runnable count means the CPUs are saturated) and OS threads. Red line: the GameServerGoroutinesHigh alert (50,000 for 5 min) — a leak of per-socket or per-table goroutines.",
+      "description": "Total goroutines, the ones runnable but not yet scheduled (a growing runnable count means the CPUs are saturated) and OS threads. Red line: the GameServerGoroutinesHigh alert (50,000 for 5 min) \u2014 a leak of per-socket or per-table goroutines.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -2290,7 +2290,7 @@
       "id": 25,
       "type": "timeseries",
       "title": "Scheduler latency",
-      "description": "How long runnable goroutines wait before they get a CPU (game_server_go_sched_latencies_seconds) — the Go equivalent of Node's event-loop lag: a move's ack, a broadcast, a turn timer all queue behind it. Red line: the GameServerSchedulerLatencyHigh alert (p99 > 100 ms for 5 min). Bucket edges are coarse (~1 ms, ~10 ms, ~117 ms), so values are interpolated within a bucket.",
+      "description": "How long runnable goroutines wait before they get a CPU (game_server_go_sched_latencies_seconds) \u2014 the Go equivalent of Node's event-loop lag: a move's ack, a broadcast, a turn timer all queue behind it. Red line: the GameServerSchedulerLatencyHigh alert (p99 > 100 ms for 5 min). Bucket edges are coarse (~1 ms, ~10 ms, ~117 ms), so values are interpolated within a bucket.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -2715,7 +2715,7 @@
       "id": 29,
       "type": "timeseries",
       "title": "Heap objects & allocation rate",
-      "description": "Left axis: live heap objects (game_server_go_memstats_heap_objects) — a leak detector when players are flat. Right axis: allocations per second (rate of game_server_go_memstats_mallocs_total), which drives GC frequency.",
+      "description": "Left axis: live heap objects (game_server_go_memstats_heap_objects) \u2014 a leak detector when players are flat. Right axis: allocations per second (rate of game_server_go_memstats_mallocs_total), which drives GC frequency.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -3044,7 +3044,7 @@
       "id": 34,
       "type": "stat",
       "title": "Messages/sec",
-      "description": "Client → server messages of every event type.",
+      "description": "Client \u2192 server messages of every event type.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -3782,7 +3782,7 @@
       "id": 43,
       "type": "stat",
       "title": "Players online",
-      "description": "Players seated at a table right now (not lobby visitors — see WebSockets → Connected sockets for those).",
+      "description": "Players seated at a table right now (not lobby visitors \u2014 see WebSockets \u2192 Connected sockets for those).",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -4042,7 +4042,7 @@
       "id": 47,
       "type": "timeseries",
       "title": "Players & games",
-      "description": "Seated players against the number of tables with and without a hand running. At full tables players ≈ 5 × active games.",
+      "description": "Seated players against the number of tables with and without a hand running. At full tables players \u2248 5 \u00d7 active games.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -4216,7 +4216,7 @@
           },
           "editorMode": "code",
           "expr": "sum by (category, stake) (game_tables)",
-          "legendFormat": "{{category}} · {{stake}}",
+          "legendFormat": "{{category}} \u00b7 {{stake}}",
           "range": true,
           "instant": false
         }
@@ -4742,7 +4742,7 @@
       "id": 55,
       "type": "timeseries",
       "title": "Chat messages/sec & chips paid out/sec",
-      "description": "Right axis: chips credited to winners per second — the throughput of the settle transaction.",
+      "description": "Right axis: chips credited to winners per second \u2014 the throughput of the settle transaction.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -5163,7 +5163,7 @@
       "id": 61,
       "type": "timeseries",
       "title": "Move processing latency",
-      "description": "Validate → ledger transaction → table update, all actions. Quantiles are interpolated within the bucket boundaries (1 ms … 1 s), so a value above 1 s is a lower bound.",
+      "description": "Validate \u2192 ledger transaction \u2192 table update, all actions. Quantiles are interpolated within the bucket boundaries (1 ms \u2026 1 s), so a value above 1 s is a lower bound.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -5698,7 +5698,7 @@
       "id": 66,
       "type": "timeseries",
       "title": "State update latency",
-      "description": "Serialising the table once per viewer (redaction) and emitting to all of them. Runs on the event loop — if this grows, event-loop lag follows.",
+      "description": "Serialising the table once per viewer (redaction) and emitting to all of them. Runs on the event loop \u2014 if this grows, event-loop lag follows.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -5805,7 +5805,7 @@
       "id": 67,
       "type": "timeseries",
       "title": "DB transaction P95 by op",
-      "description": "The ledger transactions that move chips: bet (one wallet row lock), boot (every player's wallet, locked in id order), settle (pot to winner). Compare with PostgreSQL → Transactions/sec.",
+      "description": "The ledger transactions that move chips: bet (one wallet row lock), boot (every player's wallet, locked in id order), settle (pot to winner). Compare with PostgreSQL \u2192 Transactions/sec.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -6078,7 +6078,7 @@
           },
           "editorMode": "code",
           "expr": "sum by (op, code) (rate(game_db_transaction_errors_total[1m]))",
-          "legendFormat": "{{op}} · {{code}}",
+          "legendFormat": "{{op}} \u00b7 {{code}}",
           "range": true,
           "instant": false
         }
@@ -6743,7 +6743,7 @@
       "id": 79,
       "type": "timeseries",
       "title": "Transactions/sec",
-      "description": "Commits ≈ moves/s + hands/s × 2 (boot + settle) + logins. Rollbacks that are not duplicate_action refusals need a look at the server log.",
+      "description": "Commits \u2248 moves/s + hands/s \u00d7 2 (boot + settle) + logins. Rollbacks that are not duplicate_action refusals need a look at the server log.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -7045,7 +7045,7 @@
       "id": 82,
       "type": "timeseries",
       "title": "Locks (by mode)",
-      "description": "Locks held on $datname. rowexclusivelock spikes are the ledger's SELECT … FOR UPDATE on wallets; accessexclusivelock means DDL or VACUUM FULL.",
+      "description": "Locks held on $datname. rowexclusivelock spikes are the ledger's SELECT \u2026 FOR UPDATE on wallets; accessexclusivelock means DDL or VACUUM FULL.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -7295,7 +7295,7 @@
       "id": 85,
       "type": "timeseries",
       "title": "App-side pg pool",
-      "description": "The game server's own pg Pool (PG_POOL_MAX, default 10). Waiting requests > 0 means every connection is busy and moves are queueing — the GameServerDbPoolSaturated alert.",
+      "description": "The game server's own pg Pool (PG_POOL_MAX, default 10). Waiting requests > 0 means every connection is busy and moves are queueing \u2014 the GameServerDbPoolSaturated alert.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -7500,7 +7500,7 @@
       "id": 88,
       "type": "stat",
       "title": "Active connections",
-      "description": "Client connections open, including idle keep-alive and every websocket. Does not include the upstream leg — nginx uses two descriptors per proxied websocket.",
+      "description": "Client connections open, including idle keep-alive and every websocket. Does not include the upstream leg \u2014 nginx uses two descriptors per proxied websocket.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -7826,7 +7826,7 @@
       "id": 93,
       "type": "timeseries",
       "title": "Connection states",
-      "description": "stub_status counters. The red line is 80% of worker_processes × worker_connections from nginx.conf.example (4 × 16384); update it with the config.",
+      "description": "stub_status counters. The red line is 80% of worker_processes \u00d7 worker_connections from nginx.conf.example (4 \u00d7 16384); update it with the config.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -8044,7 +8044,7 @@
       "id": 95,
       "type": "timeseries",
       "title": "Accepted vs handled/sec",
-      "description": "accepted − handled > 0 is nginx running out of worker_connections — the failure that capped the 2026-09-08 load test at ~1,500 players with HTTP 500 on every new handshake. Fires the NginxDroppingConnections alert.",
+      "description": "accepted \u2212 handled > 0 is nginx running out of worker_connections \u2014 the failure that capped the 2026-09-08 load test at ~1,500 players with HTTP 500 on every new handshake. Fires the NginxDroppingConnections alert.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -8171,7 +8171,7 @@
       "id": 96,
       "type": "timeseries",
       "title": "5xx errors/sec",
-      "description": "Server errors per second, from the application's own counter (game_http_requests_total). nginx-prometheus-exporter reads stub_status, which has NO per-status counters, so errors nginx generates itself — 502 with the game server down, 500 \"worker_connections are not enough\", 504 upstream timeouts — are not in this panel. To see those: (a) build nginx with the VTS module (github.com/vozlt/nginx-module-vts), add `vhost_traffic_status_zone;` in http{} and a `location /status { vhost_traffic_status_display; vhost_traffic_status_display_format prometheus; }`, scrape it and plot sum(rate(nginx_vts_server_requests_total{code=\"5xx\"}[1m])); or (b) run prometheus-nginxlog-exporter (github.com/martin-helmich/prometheus-nginxlog-exporter) on /var/log/nginx/king-teenpatti.access.log and plot sum(rate(nginx_http_response_count_total{status=~\"5..\"}[1m])). MONITORING.md → Nginx has the steps.",
+      "description": "Server errors per second, from the application's own counter (game_http_requests_total). nginx-prometheus-exporter reads stub_status, which has NO per-status counters, so errors nginx generates itself \u2014 502 with the game server down, 500 \"worker_connections are not enough\", 504 upstream timeouts \u2014 are not in this panel. To see those: (a) build nginx with the VTS module (github.com/vozlt/nginx-module-vts), add `vhost_traffic_status_zone;` in http{} and a `location /status { vhost_traffic_status_display; vhost_traffic_status_display_format prometheus; }`, scrape it and plot sum(rate(nginx_vts_server_requests_total{code=\"5xx\"}[1m])); or (b) run prometheus-nginxlog-exporter (github.com/martin-helmich/prometheus-nginxlog-exporter) on /var/log/nginx/king-teenpatti.access.log and plot sum(rate(nginx_http_response_count_total{status=~\"5..\"}[1m])). MONITORING.md \u2192 Nginx has the steps.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -8415,6 +8415,814 @@
         "x": 18,
         "y": 179
       }
+    },
+    {
+      "id": 99,
+      "type": "row",
+      "title": "Live state (Redis)",
+      "collapsed": false,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 187
+      },
+      "panels": []
+    },
+    {
+      "id": 100,
+      "type": "stat",
+      "title": "Redis up",
+      "description": "1 when redis_exporter can reach the live-state store. The game server keeps playing without it; a restart would then lose tables in progress.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 188
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "redis_up",
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 101,
+      "type": "stat",
+      "title": "Live keys",
+      "description": "Keys in the store: table snapshots, seats, presence, resume offers and the matchmaking index.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 4,
+        "y": 188
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "sum(redis_db_keys)",
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 102,
+      "type": "stat",
+      "title": "Memory used",
+      "description": "Redis resident memory against its 512 MB cap.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 8,
+        "y": 188
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "redis_memory_used_bytes",
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 103,
+      "type": "stat",
+      "title": "Tables restored (last start)",
+      "description": "Tables rebuilt from the live store when the server last started.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 12,
+        "y": 188
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "game_restored_tables_total",
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 104,
+      "type": "stat",
+      "title": "Seats held (last start)",
+      "description": "Seats held for their reconnect grace period after the last restart.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 16,
+        "y": 188
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "game_restored_seats_total",
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 105,
+      "type": "stat",
+      "title": "Pots refunded (last start)",
+      "description": "Open pots with no live table, returned to their contributors through the ledger.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 20,
+        "y": 188
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "game_refunded_pots_total",
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 106,
+      "type": "timeseries",
+      "title": "Live store latency by operation",
+      "description": "p95 of each store call from the game server's own timing. Redis on the loopback should stay well under a millisecond.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 192
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "showPoints": "never",
+            "pointSize": 4,
+            "spanNulls": true,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le, op) (rate(game_live_store_duration_seconds_bucket[5m])))",
+          "legendFormat": "{{op}} p95",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 107,
+      "type": "timeseries",
+      "title": "Live store operations",
+      "description": "Calls per second by operation and result. `stale` is the two-owners guard firing, not an error.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 192
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "fillOpacity": 25,
+            "gradientMode": "none",
+            "showPoints": "never",
+            "pointSize": 4,
+            "spanNulls": true,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            },
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "sum by (op, result) (rate(game_live_store_operations_total[5m]))",
+          "legendFormat": "{{op}} {{result}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 108,
+      "type": "timeseries",
+      "title": "Live store errors",
+      "description": "Failed store calls per second. These never refuse a move: the money is already committed in PostgreSQL.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 200
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "showPoints": "never",
+            "pointSize": 4,
+            "spanNulls": true,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "sum by (op) (rate(game_live_store_errors_total[5m]))",
+          "legendFormat": "{{op}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 109,
+      "type": "timeseries",
+      "title": "Redis memory and clients",
+      "description": "Resident memory against the cap, and connected clients (the game server pools a handful).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 200
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "showPoints": "never",
+            "pointSize": 4,
+            "spanNulls": true,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "redis_memory_used_bytes",
+          "legendFormat": "used",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "redis_memory_max_bytes",
+          "legendFormat": "max",
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "redis_connected_clients * 1e6",
+          "legendFormat": "clients (\u00d71M for scale)",
+          "refId": "C"
+        }
+      ]
+    },
+    {
+      "id": 110,
+      "type": "timeseries",
+      "title": "Redis command rate and keyspace",
+      "description": "Commands per second, and hits versus misses on lookups.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 200
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "showPoints": "never",
+            "pointSize": 4,
+            "spanNulls": true,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "rate(redis_commands_processed_total[5m])",
+          "legendFormat": "commands/s",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "rate(redis_keyspace_hits_total[5m])",
+          "legendFormat": "hits/s",
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "rate(redis_keyspace_misses_total[5m])",
+          "legendFormat": "misses/s",
+          "refId": "C"
+        }
+      ]
     }
   ]
 }

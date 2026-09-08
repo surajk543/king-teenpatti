@@ -11,7 +11,8 @@
  *     carries its deterministic action id;
  *   - every client-supplied actionId appears on exactly one ledger row, and
  *     no bet/show row is missing one;
- *   - game_states has one row per room that dealt, with a rising version;
+ *   - game_states holds a snapshot for every hand still open, with a rising
+ *     version, and none for a table that has been destroyed;
  *   - the append-only trigger refuses UPDATE/DELETE on chip_ledger.
  *
  * Runs last in each profile (tools/parity.mjs appends it), but is also safe to
@@ -142,18 +143,42 @@ test('client action ids land on exactly one ledger row each, and every bet or sh
   }
 });
 
-test('game_states holds one versioned snapshot per room that dealt, and versions only rise', async () => {
-  const { rows } = await query('SELECT room_id, hand_id, version, state, updated_at FROM game_states');
-  const rooms = await query('SELECT DISTINCT room_id FROM pots');
-  for (const { room_id: roomId } of rooms.rows) {
-    const row = rows.find((r) => r.room_id === roomId);
-    assert.ok(row, `game_states row for room ${roomId}`);
-    assert.ok(row.version >= 1);
-    assert.equal(typeof row.state, 'object');
-    assert.equal(row.state.roomId ?? row.state.id ?? roomId, roomId);
+test('game_states mirrors the live tables: a snapshot for every hand still open, nothing left behind', async () => {
+  // game_states is the durable backstop the live store is rebuilt from
+  // (LIVE_STATE_PLAN.md). It is no longer written inside the money
+  // transaction and it is no longer an audit log: a row exists while its
+  // table does, and is removed when the table is destroyed. What must hold
+  // is that anything still recoverable IS recoverable.
+  const rooms = new Set((await query('SELECT DISTINCT room_id FROM pots')).rows.map((r) => r.room_id));
+
+  const snapshots = async () => (await query('SELECT room_id, hand_id, version, state, updated_at FROM game_states')).rows;
+  let rows = await snapshots();
+
+  for (const row of rows) {
+    assert.ok(row.version >= 1, `version for ${row.room_id} is ${row.version}`);
+    assert.equal(typeof row.state, 'object', `state for ${row.room_id}`);
+    assert.equal(row.state.roomId ?? row.state.id ?? row.room_id, row.room_id, 'a snapshot names its own room');
+    assert.ok(rooms.has(row.room_id), `game_states row for a room that never dealt: ${row.room_id}`);
   }
+
+  // The recoverability invariant: a pot that is still open belongs to a hand
+  // that is still being played, so there must be a snapshot to rebuild it
+  // from. The writer batches, so give it a moment to catch up.
+  const openRooms = (await query('SELECT room_id FROM pots WHERE closed_at IS NULL')).rows.map((r) => r.room_id);
+  for (let i = 0; openRooms.length > 0 && i < 20; i++) {
+    const have = new Set(rows.map((r) => r.room_id));
+    if (openRooms.every((id) => have.has(id))) break;
+    await new Promise((r) => setTimeout(r, 250));
+    rows = await snapshots();
+  }
+  const have = new Set(rows.map((r) => r.room_id));
+  for (const roomId of openRooms) {
+    assert.ok(have.has(roomId), `an open pot at room ${roomId} has no durable snapshot to rebuild it from`);
+  }
+
   // A write with a non-rising version is refused by the WHERE clause, so a
-  // direct attempt to move a row backwards changes nothing.
+  // direct attempt to move a row backwards changes nothing. This is the guard
+  // that stops a late batch overwriting newer state.
   if (rows.length > 0) {
     const target = rows[0];
     const stale = await query(

@@ -17,6 +17,8 @@ import (
 	"github.com/surajk543/king-teenpatti/go-server/internal/config"
 	"github.com/surajk543/king-teenpatti/go-server/internal/db"
 	"github.com/surajk543/king-teenpatti/go-server/internal/db/dbtest"
+	"github.com/surajk543/king-teenpatti/go-server/internal/live"
+	"github.com/surajk543/king-teenpatti/go-server/internal/livetest"
 	"github.com/surajk543/king-teenpatti/go-server/internal/util"
 )
 
@@ -61,8 +63,8 @@ func testConfig(t *testing.T, public string) *config.Config {
 	return cfg
 }
 
-// newApp builds an App on a throwaway schema; it skips when Postgres is
-// unreachable and shuts the app down in Cleanup.
+// newApp builds an App on a throwaway schema with a fake live store; it
+// skips when Postgres is unreachable and shuts the app down in Cleanup.
 func newApp(t *testing.T, mutate func(*config.Config)) (*App, *db.DB) {
 	t.Helper()
 	database := dbtest.Open(t, "app")
@@ -70,7 +72,15 @@ func newApp(t *testing.T, mutate func(*config.Config)) (*App, *db.DB) {
 	if mutate != nil {
 		mutate(cfg)
 	}
-	a, err := New(Options{Config: cfg, DB: database, Logger: util.NewLogger("error", io.Discard)})
+	return newAppOn(t, cfg, database, livetest.New()), database
+}
+
+// newAppOn builds an App on the given database and live store (several apps
+// may share both, one after another, to play a restart) and shuts it down in
+// Cleanup.
+func newAppOn(t *testing.T, cfg *config.Config, database *db.DB, store live.Store) *App {
+	t.Helper()
+	a, err := New(Options{Config: cfg, DB: database, Logger: util.NewLogger("error", io.Discard), Live: store})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -81,7 +91,7 @@ func newApp(t *testing.T, mutate func(*config.Config)) (*App, *db.DB) {
 			t.Errorf("Shutdown: %v", err)
 		}
 	})
-	return a, database
+	return a
 }
 
 func get(t *testing.T, h http.Handler, method, target string, mutate func(*http.Request)) (*http.Response, []byte) {
@@ -110,8 +120,9 @@ func TestHealthHasNodesShape(t *testing.T) {
 	}
 
 	// Key set and order (spec-auth-http §4.10: ok, uptime, tables, players,
-	// activeHands, sockets, process, db).
-	keyOrder := regexp.MustCompile(`^\{"ok":true,"uptime":[0-9.e+-]+,"tables":\d+,"players":\d+,"activeHands":\d+,"sockets":\d+,"process":\{.*\},"db":\{"total":\d+,"idle":\d+,"waiting":\d+\}\}$`)
+	// activeHands, sockets, process, db) plus the live-state store appended
+	// after Node's keys (LIVE_STATE_PLAN.md: live {kind, ok, tables}).
+	keyOrder := regexp.MustCompile(`^\{"ok":true,"uptime":[0-9.e+-]+,"tables":\d+,"players":\d+,"activeHands":\d+,"sockets":\d+,"process":\{.*\},"db":\{"total":\d+,"idle":\d+,"waiting":\d+\},"live":\{"kind":"[a-z]+","ok":(true|false),"tables":\d+,"snapshotLagSeconds":[0-9.]+\}\}$`)
 	if !keyOrder.Match(body) {
 		t.Fatalf("unexpected /health body: %s", body)
 	}
@@ -125,12 +136,20 @@ func TestHealthHasNodesShape(t *testing.T) {
 		Sockets     *int    `json:"sockets"`
 		Process     map[string]json.RawMessage
 		DB          *struct{ Total, Idle, Waiting int } `json:"db"`
+		Live        struct {
+			Kind   string `json:"kind"`
+			OK     bool   `json:"ok"`
+			Tables int    `json:"tables"`
+		} `json:"live"`
 	}
 	if err := json.Unmarshal(body, &h); err != nil {
 		t.Fatal(err)
 	}
 	if !h.OK || h.Uptime < 0 || h.Sockets == nil || *h.Sockets != 0 || h.DB == nil {
 		t.Fatalf("fields: %+v", h)
+	}
+	if h.Live.Kind != "fake" || !h.Live.OK || h.Live.Tables != 0 {
+		t.Fatalf("live: %+v", h.Live)
 	}
 	if h.DB.Total < 1 {
 		t.Errorf("db.total %d, want ≥ 1 (bootstrap connection)", h.DB.Total)

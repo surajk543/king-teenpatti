@@ -50,9 +50,15 @@ var _ game.Ledger = (*Ledger)(nil)
 //	UPDATE users SET chips = $1, updated_at = $2 WHERE id = $3
 //	UPDATE pots SET amount = amount + $1 WHERE hand_id = $2         (rowCount 0 → no_pot)
 //	INSERT INTO chip_ledger (user_id, hand_id, action_id, delta, balance, reason, created_at) VALUES (…)
-//	INSERT INTO game_states … ON CONFLICT (room_id) DO UPDATE SET … WHERE game_states.version < EXCLUDED.version  (rowCount 0 → stale_state)
 //
 // Amount ≤ 0 → invalid_amount before BEGIN. Returns {balance, persisted: amount}.
+//
+// The game_states upsert that used to close this transaction (Node's
+// stale_state guard) is gone: the table snapshot now lives in the live store
+// (LIVE_STATE_PLAN.md), saved by the table actor AFTER the money has
+// committed, and the two-owners guard is the store's per-table sequence
+// (live.ErrStale). A money transaction touches only users, pots and
+// chip_ledger.
 func (l *Ledger) Bet(ctx context.Context, req game.BetRequest) (game.BetResult, error) {
 	var result game.BetResult
 	err := l.transact(metrics.OpBet, func() error {
@@ -95,9 +101,6 @@ func (l *Ledger) Bet(ctx context.Context, req game.BetRequest) (game.BetResult, 
 			if err := appendLedger(ctx, tx, req.UserID, req.HandID, req.ActionID, -req.Amount, balance, reason, at); err != nil {
 				return err
 			}
-			if err := saveState(ctx, tx, req.RoomID, req.HandID, req.Version, req.State, at); err != nil {
-				return err
-			}
 
 			// `persisted` tells the table how much of this stake the account
 			// has already been debited — here, all of it — so settlement knows
@@ -118,7 +121,8 @@ func (l *Ledger) Bet(ctx context.Context, req game.BetRequest) (game.BetResult, 
 //	INSERT INTO pots (hand_id, room_id, boot_amount, amount, opened_at) VALUES ($1,$2,$3,$4,$5)
 //
 // with amount = Σ entry.Amount. One ledger row per entry (action_id
-// game.BootActionID), then saveState. Returns {balances, persisted: bootAmount}.
+// game.BootActionID). Returns {balances, persisted: bootAmount}. No state
+// write (see Bet).
 func (l *Ledger) CollectBoot(ctx context.Context, req game.CollectBootRequest) (game.CollectBootResult, error) {
 	var result game.CollectBootResult
 	started := time.Now()
@@ -171,9 +175,6 @@ func (l *Ledger) CollectBoot(ctx context.Context, req game.CollectBootRequest) (
 				}
 			}
 
-			if err := saveState(ctx, tx, req.RoomID, req.HandID, req.Version, req.State, at); err != nil {
-				return err
-			}
 			result = game.CollectBootResult{Balances: balances, Persisted: req.BootAmount}
 			return nil
 		})
@@ -200,10 +201,10 @@ func (l *Ledger) CollectBoot(ctx context.Context, req game.CollectBootRequest) (
 //	INSERT INTO hands (id, room_id, hand_no, pot, winner_id, win_reason, boot_amount, started_at, ended_at, summary_json)
 //	  VALUES ($1,…,$10::jsonb) ON CONFLICT (id) DO NOTHING
 //	UPDATE pots SET closed_at = $1, winner_id = $2 WHERE hand_id = $3
-//	saveState(roomId, handId NULL, version, state)
 //
 // balance = max(0, chips + delta). summary_json is json.Marshal(hand.Summary)
-// ([] when empty, never null).
+// ([] when empty, never null). No state write (see Bet); the retry path
+// (Table.retrySettle) resends exactly this request.
 //
 // Deviation from ledger.js, which inserted the hands row FIRST: hands.winner_id
 // is a foreign key, so that insert takes a KEY SHARE lock on the winner's
@@ -312,11 +313,6 @@ func (l *Ledger) Settle(ctx context.Context, req game.SettleRequest) (game.Settl
 			if _, err := tx.Exec(ctx, `UPDATE pots SET closed_at = $1, winner_id = $2 WHERE hand_id = $3`, at, hand.WinnerID, hand.ID); err != nil {
 				return err
 			}
-
-			// hand_id is written as NULL on settlement: the table is between hands.
-			if err := saveState(ctx, tx, hand.RoomID, "", req.Version, req.State, at); err != nil {
-				return err
-			}
 			result = balances
 			return nil
 		})
@@ -398,44 +394,6 @@ func appendLedger(ctx context.Context, tx pgx.Tx, userID, handID, actionID strin
      VALUES ($1, $2, $3, $4, $5, $6, $7)`,
 		userID, nullIfEmpty(handID), nullIfEmpty(actionID), delta, balance, reason, at)
 	return err
-}
-
-// saveState upserts game_states, refusing to go backwards in version
-// (stale_state). version 0 → no-op (Node: `version === undefined || null`
-// return — callers such as the stats tests settle without a table state).
-// state is json.Marshal'd; nil → "{}".
-//
-// A single process always presents a rising version, so the WHERE clause is
-// a no-op for it; its purpose is the other case — a second process that
-// thinks it owns the same room — whose stale write is rejected and rolled
-// back. Equal version counts as stale.
-func saveState(ctx context.Context, tx pgx.Tx, roomID, handID string, version int64, state *game.Snapshot, at int64) error {
-	if version == 0 {
-		return nil
-	}
-	stateJSON := []byte("{}")
-	if state != nil {
-		var err error
-		if stateJSON, err = json.Marshal(state); err != nil {
-			return err
-		}
-	}
-	tag, err := tx.Exec(ctx, `INSERT INTO game_states (room_id, hand_id, version, state, updated_at)
-     VALUES ($1, $2, $3, $4::jsonb, $5)
-     ON CONFLICT (room_id) DO UPDATE
-        SET hand_id = EXCLUDED.hand_id,
-            version = EXCLUDED.version,
-            state = EXCLUDED.state,
-            updated_at = EXCLUDED.updated_at
-      WHERE game_states.version < EXCLUDED.version`,
-		roomID, nullIfEmpty(handID), version, string(stateJSON), at)
-	if err != nil {
-		return err
-	}
-	if tag.RowsAffected() == 0 {
-		return game.Errorf(game.CodeStaleState, "state version %d is not newer than the stored one", version)
-	}
-	return nil
 }
 
 // containsAny reports whether any of the haystacks contains needle.

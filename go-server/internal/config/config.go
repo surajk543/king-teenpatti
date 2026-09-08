@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -88,9 +89,28 @@ type Config struct {
 	// derived rootDir from the module path) — recorded in PORT_PLAN.md as the
 	// one added env key.
 	PublicDir string
-	// RedisURL is REDIS_URL. Read for parity and logged as ignored: the Go
-	// server is a single process (PORT_PLAN.md decision 1).
+	// RedisURL is REDIS_URL: the live-state store (LIVE_STATE_PLAN.md). Empty
+	// → the in-process store (single instance; nothing survives a restart);
+	// set → Redis, and the server refuses to start when it is unreachable.
 	RedisURL string
+	// LiveStateTTL is LIVE_STATE_TTL_MS (86400000 = 24 h): how long a table
+	// snapshot that stops updating survives in the live store.
+	LiveStateTTL time.Duration
+	// LiveInstanceID is LIVE_INSTANCE_ID: the tag this process writes into
+	// presence and matchmaking entries. Load() defaults it to "<hostname>:<pid>"
+	// when unset or empty; Defaults()/FromEnv() carry "" (they do not consult
+	// the host), exactly like PublicDir's filesystem-dependent default.
+	LiveInstanceID string
+	// SnapshotFlush is SNAPSHOT_FLUSH_MS (1000): how often the durable
+	// snapshot writer flushes every changed table into game_states in one
+	// transaction (LIVE_STATE_PLAN.md "The durable backstop"). 0 disables the
+	// writer — Redis only; a Redis loss then loses the tables.
+	SnapshotFlush time.Duration
+	// LiveReconcile is LIVE_RECONCILE_MS (30000): how often the live store is
+	// pinged and, once it answers again after an outage, refilled from memory
+	// (every table re-saved, seats and lobby index re-published). 0 disables
+	// the reconciler.
+	LiveReconcile time.Duration
 }
 
 // JWTConfig ← config.jwt.
@@ -299,9 +319,13 @@ func Defaults() *Config {
 			RateLimit:  5,
 			RateWindow: 5 * time.Second,
 		},
-		LogLevel:  "info",
-		PublicDir: DefaultPublicDir,
-		RedisURL:  "",
+		LogLevel:       "info",
+		PublicDir:      DefaultPublicDir,
+		RedisURL:       "",
+		LiveStateTTL:   24 * time.Hour,
+		LiveInstanceID: "",
+		SnapshotFlush:  time.Second,
+		LiveReconcile:  30 * time.Second,
 	}
 }
 
@@ -313,10 +337,12 @@ type Lookup func(key string) (string, bool)
 // godotenv) and returns the configuration, validated. Equivalent to importing
 // server/src/config/index.js.
 //
-// PUBLIC_DIR is the one key with a filesystem-dependent default: when it is
-// unset, DefaultPublicDir is used if it is a directory that exists, else
-// FallbackPublicDir (a binary deployed next to a copied `public/`). The app
-// warns at start-up when the chosen directory is missing.
+// Two keys have host-dependent defaults that only Load applies:
+//
+//   - PUBLIC_DIR unset → DefaultPublicDir if it is a directory that exists,
+//     else FallbackPublicDir (a binary deployed next to a copied `public/`).
+//     The app warns at start-up when the chosen directory is missing.
+//   - LIVE_INSTANCE_ID unset or empty → DefaultInstanceID() ("<hostname>:<pid>").
 func Load() (*Config, error) {
 	cfg, err := FromEnv(os.LookupEnv)
 	if err != nil {
@@ -328,7 +354,22 @@ func Load() (*Config, error) {
 			return err == nil && info.IsDir()
 		})
 	}
+	if cfg.LiveInstanceID == "" {
+		cfg.LiveInstanceID = DefaultInstanceID()
+	}
 	return cfg, nil
+}
+
+// DefaultInstanceID is Load's LIVE_INSTANCE_ID default: "<hostname>:<pid>"
+// ("unknown:<pid>" when the hostname cannot be read). It names this process
+// in the live store's presence and matchmaking entries so a restarted (or a
+// second) instance can tell its own entries from a dead one's.
+func DefaultInstanceID() string {
+	host, err := os.Hostname()
+	if err != nil || host == "" {
+		host = "unknown"
+	}
+	return host + ":" + strconv.Itoa(os.Getpid())
 }
 
 // resolvePublicDir is Load's PUBLIC_DIR default: DefaultPublicDir when
@@ -460,6 +501,10 @@ func FromEnv(lookup Lookup) (*Config, error) {
 	c.LogLevel = r.str("LOG_LEVEL", c.LogLevel)
 	c.PublicDir = r.str("PUBLIC_DIR", c.PublicDir)
 	c.RedisURL = r.str("REDIS_URL", c.RedisURL)
+	c.LiveStateTTL = r.millis("LIVE_STATE_TTL_MS", c.LiveStateTTL)
+	c.LiveInstanceID = r.str("LIVE_INSTANCE_ID", c.LiveInstanceID)
+	c.SnapshotFlush = r.millis("SNAPSHOT_FLUSH_MS", c.SnapshotFlush)
+	c.LiveReconcile = r.millis("LIVE_RECONCILE_MS", c.LiveReconcile)
 
 	if r.err != nil {
 		return nil, r.err

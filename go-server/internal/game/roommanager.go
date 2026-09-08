@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/surajk543/king-teenpatti/go-server/internal/config"
+	"github.com/surajk543/king-teenpatti/go-server/internal/live"
 	"github.com/surajk543/king-teenpatti/go-server/internal/util"
 )
 
@@ -155,6 +156,11 @@ type SwitchResult struct {
 type MetricsHooks struct {
 	// ObserveCreation records game_creation_duration_seconds.
 	ObserveCreation func(d time.Duration)
+	// ObserveLiveError counts a failed live-store call made by the game
+	// package (op is a LiveOp* name) — game_live_store_errors_total{op}. The
+	// app may leave it nil when the store itself is wrapped with
+	// live.WithHooks, which counts the same failures.
+	ObserveLiveError func(op string, err error)
 }
 
 // RoomManagerOptions builds a RoomManager.
@@ -181,6 +187,26 @@ type RoomManagerOptions struct {
 	Listener RoomListener
 	Logger   *slog.Logger // nil → slog.Default()
 	Metrics  MetricsHooks
+
+	// Live is the live-state store (LIVE_STATE_PLAN.md): every table saves
+	// its snapshot and chat there, the seat index is mirrored
+	// (SetSeated/ClearSeated), public tables are published to the
+	// matchmaking index, and Restore rebuilds the tables it holds. nil →
+	// none of that happens (exactly the pre-Redis behaviour).
+	Live live.Store
+	// Instance tags this process in TableSummary.Instance (LIVE_INSTANCE_ID,
+	// hostname:pid by default).
+	Instance string
+	// LiveTTL is the snapshot expiry handed to every table
+	// (LIVE_STATE_TTL_MS); 0 → DefaultLiveTTL.
+	LiveTTL time.Duration
+	// Snapshots is the durable backstop every table hands its snapshots to
+	// (db.SnapshotWriter → game_states, asynchronously). nil → no-op.
+	Snapshots SnapshotSink
+	// Durable supplies, at Restore, the tables the live store did not have
+	// (game_states) and the ledger totals to reconcile them with. nil → the
+	// live store is the only source.
+	Durable DurableSource
 }
 
 // RoomManager owns every live table in this process (roomManager.js).
@@ -247,6 +273,26 @@ type RoomManager struct {
 	sweepMu      sync.Mutex
 	sweepTimer   Timer
 	sweepStopped bool
+
+	// live-state store (nil → every live* helper is a no-op).
+	live      live.Store
+	instance  string
+	liveTTL   time.Duration
+	snapshots SnapshotSink
+	durable   DurableSource
+	// published is roomId → the (players, state) last pushed to the
+	// matchmaking index, so tableHooks.OnState publishes only on a change.
+	// Guarded by pubMu, never by mu (OnState runs on a table actor).
+	pubMu     sync.Mutex
+	published map[string]publishedSummary
+	// restored is every seat Restore rebuilt (RestoredSeats), under mu.
+	restored []RestoredSeat
+}
+
+// publishedSummary is what a table's last PublishTable said.
+type publishedSummary struct {
+	players int
+	state   TableState
 }
 
 // Refusal messages verbatim from roomManager.js (the Table's live in
@@ -298,6 +344,10 @@ func NewRoomManager(opts RoomManagerOptions) *RoomManager {
 	if logger == nil {
 		logger = slog.Default()
 	}
+	liveTTL := opts.LiveTTL
+	if liveTTL <= 0 {
+		liveTTL = DefaultLiveTTL
+	}
 	rm := &RoomManager{
 		game:        opts.Game,
 		chat:        opts.Chat,
@@ -311,6 +361,12 @@ func NewRoomManager(opts RoomManagerOptions) *RoomManager {
 		playerRooms: map[string]string{},
 		order:       map[string]uint64{},
 		pending:     map[string]int{},
+		live:        opts.Live,
+		instance:    opts.Instance,
+		liveTTL:     liveTTL,
+		snapshots:   opts.Snapshots,
+		durable:     opts.Durable,
+		published:   map[string]publishedSummary{},
 	}
 	rm.hooks = &tableHooks{rm: rm}
 	return rm
@@ -488,24 +544,35 @@ func (rm *RoomManager) newTableLocked(opts CreateTableOptions) *Table {
 	for rm.codeTakenLocked(code) {
 		code = util.RoomCode(util.DefaultRoomCodeLength)
 	}
-	table := NewTable(TableOptions{
+	table := NewTable(rm.tableOptions(TableOptions{
 		ID:        id,
 		Code:      code,
 		Config:    cfg,
 		IsPrivate: opts.IsPrivate,
-		Ledger:    rm.ledger,
-		Clock:     rm.clock,
-		Listener:  rm.hooks,
-	})
+	}))
 	rm.nextSeq++
 	rm.tables[id] = table
 	rm.order[id] = rm.nextSeq
 	return table
 }
 
+// tableOptions completes a table's options with everything every table of
+// this manager shares: ledger, clock, the hooks Listener and the live store.
+func (rm *RoomManager) tableOptions(opts TableOptions) TableOptions {
+	opts.Ledger = rm.ledger
+	opts.Clock = rm.clock
+	opts.Listener = rm.hooks
+	opts.Live = rm.live
+	opts.LiveTTL = rm.liveTTL
+	opts.LiveErrors = rm.liveErrorHook
+	opts.Snapshots = rm.snapshots
+	return opts
+}
+
 // announceCreated is the tail of _createTable, outside mu: emit
-// tableCreated, log, observe the creation duration.
+// tableCreated, log, observe the creation duration, publish to the index.
 func (rm *RoomManager) announceCreated(table *Table, started time.Time) {
+	rm.publishTable(table)
 	rm.rl.OnTableCreated(table)
 	var maxPot any // Node: `table.maxPot || null`
 	if table.MaxPot() != 0 {
@@ -966,6 +1033,9 @@ func (rm *RoomManager) seatHeld(table *Table, user Player, socketID string) erro
 		delete(rm.playerRooms, user.ID)
 	}
 	rm.mu.Unlock()
+	if err == nil {
+		rm.liveSetSeated(user.ID, roomID)
+	}
 	return err
 }
 
@@ -1032,6 +1102,7 @@ func (rm *RoomManager) vacateFrom(userID, roomID, reason string) (*Table, error)
 	// while that settles should still find this player at the table.
 	delete(rm.playerRooms, userID)
 	rm.mu.Unlock()
+	rm.liveClearSeated(userID)
 
 	if _, err := table.RemovePlayer(userID, reason); err != nil && !errors.Is(err, ErrTableDestroyed) {
 		return table, err
@@ -1127,9 +1198,11 @@ func (rm *RoomManager) destroyTable(roomID string, onlyIfUnclaimed bool) error {
 			}
 		}
 	}
+	var unseated []string
 	for userID, seatedAt := range rm.playerRooms {
 		if seatedAt == roomID {
 			delete(rm.playerRooms, userID)
+			unseated = append(unseated, userID)
 		}
 	}
 	delete(rm.tables, roomID)
@@ -1137,6 +1210,15 @@ func (rm *RoomManager) destroyTable(roomID string, onlyIfUnclaimed bool) error {
 	delete(rm.pending, roomID)
 	rm.mu.Unlock()
 
+	// A fenced table belongs to another process now: its seats and its index
+	// entry are the owner's to keep (Table.Destroy likewise leaves the
+	// owner's snapshot alone).
+	if !table.Fenced() {
+		for _, userID := range unseated {
+			rm.liveClearSeated(userID)
+		}
+		rm.retireTable(table)
+	}
 	if err := table.Destroy(); err != nil && !errors.Is(err, ErrTableDestroyed) {
 		return err
 	}
@@ -1275,6 +1357,7 @@ func (rm *RoomManager) movePlayer(source, target *Table) (*PlayerMove, error) {
 	delete(rm.playerRooms, player.ID)
 	rm.holdLocked(target)
 	rm.mu.Unlock()
+	rm.liveClearSeated(player.ID)
 
 	if _, err := source.RemovePlayer(player.ID, LeaveReasonMoved); err != nil {
 		rm.releaseHold(target.ID())
@@ -1434,7 +1517,13 @@ type tableHooks struct {
 
 var _ Listener = (*tableHooks)(nil)
 
-func (h *tableHooks) OnState(v *View)                           { h.rm.tl.OnState(v) }
+// OnState forwards, then publishes the table to the matchmaking index when
+// its player count or state changed (lock-free getters only; one store
+// round trip on the actor, the same cost as the snapshot save that follows).
+func (h *tableHooks) OnState(v *View) {
+	h.rm.tl.OnState(v)
+	h.rm.publishFromActor(v.t)
+}
 func (h *tableHooks) OnSeatUpdated(v *View, i int)              { h.rm.tl.OnSeatUpdated(v, i) }
 func (h *tableHooks) OnChat(v *View, m *ChatMessage)            { h.rm.tl.OnChat(v, m) }
 func (h *tableHooks) OnHandStarted(v *View, e HandStartedEvent) { h.rm.tl.OnHandStarted(v, e) }
@@ -1486,17 +1575,29 @@ func (h *tableHooks) OnKick(v *View, e KickEvent) {
 	}()
 }
 
-// OnPersistError logs at warn and forwards.
+// OnPersistError logs at warn and forwards. A live-store failure
+// (PersistReasonLive*) refused nothing — the move stood, the store's copy is
+// behind — so it is logged as `live store write failed` rather than as a
+// refused write.
 func (h *tableHooks) OnPersistError(v *View, e PersistErrorEvent) {
 	var errText any // Node: error?.message
 	if e.Err != nil {
 		errText = e.Err.Error()
 	}
-	h.rm.log.Warn("table write refused", "roomId", v.ID(), "reason", e.Reason, "error", errText)
+	switch e.Reason {
+	case PersistReasonLiveSave, PersistReasonLiveChat, PersistReasonLiveDelete:
+		h.rm.log.Warn("live store write failed", "roomId", v.ID(), "reason", e.Reason, "error", errText)
+	default:
+		h.rm.log.Warn("table write refused", "roomId", v.ID(), "reason", e.Reason, "error", errText)
+	}
 	h.rm.tl.OnPersistError(v, e)
 }
 
-// OnError logs at error and forwards.
+// OnError logs at error and forwards. A *FencedError (the live store refused
+// a save with live.ErrStale: another process owns the table) additionally
+// destroys the table — in a new goroutine, DestroyTable posts to the actor
+// delivering this event. Its viewers get room:closed and find their seats
+// again on the owning process.
 func (h *tableHooks) OnError(v *View, err error) {
 	text := ""
 	if err != nil {
@@ -1504,6 +1605,16 @@ func (h *tableHooks) OnError(v *View, err error) {
 	}
 	h.rm.log.Error("table error", "roomId", v.ID(), "error", text)
 	h.rm.tl.OnError(v, err)
+	var fenced *FencedError
+	if errors.As(err, &fenced) {
+		roomID := v.ID()
+		rm := h.rm
+		go func() {
+			if derr := rm.DestroyTable(roomID); derr != nil {
+				rm.log.Error("fenced table could not be destroyed", "roomId", roomID, "error", derr.Error())
+			}
+		}()
+	}
 }
 
 // String makes a PlayerMove readable in logs and test failures.

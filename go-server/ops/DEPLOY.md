@@ -333,3 +333,39 @@ sudo bash go-server/ops/tune-postgres.sh revert
 Re-run the ramp after each step (`cd tools && npm run ramp -- --url https://api.sungamestudio.com --stages 1000,2000,3000,4000 --hold 75 --idOffset <new range> --out ramp.json`)
 and compare `game_db_transaction_duration_seconds` p95 in Grafana. Beyond that, the fix is a
 database on its own host or a faster disk.
+
+## Live state (Redis)
+
+The server keeps its live table state — snapshots, presence, turn deadlines and the matchmaking
+index — in Redis, and its durable copy in PostgreSQL. See `../LIVE_STATE_PLAN.md` for the whole
+design. Redis is **optional**: with `REDIS_URL` empty the server uses an in-process store and
+behaves exactly as it did before, so a missing Redis never stops the game.
+
+```bash
+sudo bash go-server/ops/install-redis.sh      # install, configure, wire REDIS_URL, add the exporter
+sudo systemctl restart gameplay               # pick up REDIS_URL
+curl -s http://127.0.0.1:3000/health | python3 -m json.tool | grep -A4 '"live"'
+redis-cli --scan --pattern 'kt:*' | head
+```
+
+What it buys, in one line each:
+
+| Failure | Before | With Redis |
+|---|---|---|
+| Server restarted or crashed | every table and hand lost, seats gone | tables rebuilt, seats held for the reconnect grace, hands continue |
+| Redis dies while the server runs | — | play is unaffected; the reconciler refills Redis when it returns |
+| Redis and the server both die | — | rooms rebuilt from PostgreSQL `game_states`, corrected against the ledger |
+| Neither store has the room | pot stranded | pot returned to its contributors, one idempotent ledger row each |
+
+Chat is deliberately not durable: it lives only in Redis, so a room rebuilt from PostgreSQL comes
+back with an empty chat history. Nothing else is lost, and no chip is ever at risk — every chip
+movement is committed to PostgreSQL before the player is told the move succeeded.
+
+Verify a deploy end to end with the acceptance test, which kills the server and wipes Redis for
+real (run it against a scratch database, never production):
+
+```bash
+cd tools && npm install && npm run crashtest
+```
+
+Rollback: `sudo bash go-server/ops/install-redis.sh uninstall && sudo systemctl restart gameplay`.

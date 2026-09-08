@@ -30,6 +30,7 @@ var rmEpoch = time.UnixMilli(1_700_000_000_000)
 type roomEvents struct {
 	mu        sync.Mutex
 	created   []string
+	restored  []string
 	destroyed []string
 	moved     []game.PlayerMove
 	kicked    []game.PlayerKicked
@@ -50,6 +51,14 @@ func (r *roomEvents) OnTableCreated(t *game.Table) {
 	defer r.mu.Unlock()
 	r.created = append(r.created, t.ID())
 	r.note("created:" + t.ID())
+}
+
+// OnTableRestored is the optional game.TableRestoreListener extension.
+func (r *roomEvents) OnTableRestored(t *game.Table) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.restored = append(r.restored, t.ID())
+	r.note("restored:" + t.ID())
 }
 
 func (r *roomEvents) OnTableDestroyed(roomID string) {

@@ -84,6 +84,31 @@ const (
 	NameDBPoolWaitingRequests = "game_db_pool_waiting_requests"
 )
 
+// Live-state store (LIVE_STATE_PLAN.md §Metrics): every Store call by
+// method and outcome, its latency, real failures, and what a restart
+// rebuilt or refunded.
+const (
+	NameLiveStoreOperations = "game_live_store_operations_total" // {op,result}
+	NameLiveStoreDuration   = "game_live_store_duration_seconds" // {op}
+	NameLiveStoreErrors     = "game_live_store_errors_total"     // {op}
+	NameLiveStoreReconciles = "game_live_store_reconciles_total" // {result}
+	NameRestoredTables      = "game_restored_tables_total"       // {source=live|postgres}
+	NameRestoredSeats       = "game_restored_seats_total"
+	NameRestoreReconciled   = "game_restore_reconciled_total"
+	NameRestoreRejected     = "game_restore_rejected_total"
+	NameRefundedPots        = "game_refunded_pots_total"
+	NameRefundedChips       = "game_refunded_chips_total"
+)
+
+// The durable snapshot writer (LIVE_STATE_PLAN.md "The durable backstop"):
+// game_states written asynchronously, one batch per flush.
+const (
+	NameSnapshotWrites        = "game_snapshot_writes_total" // {result=ok|error}
+	NameSnapshotWriteDuration = "game_snapshot_write_duration_seconds"
+	NameSnapshotRowsWritten   = "game_snapshot_rows_written_total"
+	NameSnapshotLag           = "game_snapshot_lag_seconds" // gauge: age of the oldest dirty table
+)
+
 // HTTP.
 const (
 	NameHTTPRequestsTotal   = "game_http_requests_total"           // {method,route,status_code}
@@ -93,6 +118,12 @@ const (
 // LatencyBuckets is Node's LATENCY_BUCKETS: 1 ms … 1 s.
 var LatencyBuckets = []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1}
 
+// LiveBuckets are game_live_store_duration_seconds' buckets: 0.1 ms … 1 s —
+// finer at the bottom than LatencyBuckets because a Redis round trip on the
+// same host is a fraction of a millisecond and the in-process store is
+// microseconds.
+var LiveBuckets = []float64{0.0001, 0.00025, 0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1}
+
 // Fixed label value sets.
 var (
 	// JoinRoutes are the `route` values of game_join_duration_seconds.
@@ -101,6 +132,25 @@ var (
 	ReconnectKinds = map[string]struct{}{"seat_held": {}, "offer": {}}
 	// LedgerOps are the `op` values of the db transaction metrics.
 	LedgerOps = map[string]struct{}{"bet": {}, "boot": {}, "settle": {}}
+	// LiveOps are the `op` values of the live-store metrics: the live.Store
+	// method names in snake_case, and nothing else (SafeLabel folds any other
+	// value to "other").
+	LiveOps = map[string]struct{}{
+		LiveOpSaveTable: {}, LiveOpLoadTable: {}, LiveOpDeleteTable: {}, LiveOpListTables: {},
+		LiveOpAppendChat: {}, LiveOpLoadChat: {}, LiveOpDeleteChat: {},
+		LiveOpSetSeated: {}, LiveOpClearSeated: {}, LiveOpSeatOf: {},
+		LiveOpSetOnline: {}, LiveOpSetOffline: {}, LiveOpOnlineCount: {},
+		LiveOpPutResumeOffer: {}, LiveOpTakeResumeOffer: {}, LiveOpDeleteResumeOffer: {},
+		LiveOpPublishTable: {}, LiveOpRetireTable: {}, LiveOpCandidates: {},
+		LiveOpPing: {},
+	}
+	// LiveResults are the `result` values of game_live_store_operations_total.
+	LiveResults = map[string]struct{}{LiveResultOK: {}, LiveResultNotFound: {}, LiveResultStale: {}, LiveResultError: {}}
+	// WriteResults are the `result` values of game_snapshot_writes_total and
+	// game_live_store_reconciles_total.
+	WriteResults = map[string]struct{}{ResultOK: {}, ResultError: {}}
+	// RestoreSources are the `source` values of game_restored_tables_total.
+	RestoreSources = map[string]struct{}{RestoreSourceLive: {}, RestoreSourcePostgres: {}}
 	// HTTPMethods are the accepted `method` labels; anything else is "OTHER".
 	HTTPMethods = map[string]struct{}{"GET": {}, "POST": {}, "PUT": {}, "PATCH": {}, "DELETE": {}, "HEAD": {}, "OPTIONS": {}}
 )
@@ -125,6 +175,52 @@ const (
 	OpBet    = "bet"
 	OpBoot   = "boot"
 	OpSettle = "settle"
+)
+
+// Live-store op labels: one per live.Store method.
+const (
+	LiveOpSaveTable         = "save_table"
+	LiveOpLoadTable         = "load_table"
+	LiveOpDeleteTable       = "delete_table"
+	LiveOpListTables        = "list_tables"
+	LiveOpAppendChat        = "append_chat"
+	LiveOpLoadChat          = "load_chat"
+	LiveOpDeleteChat        = "delete_chat"
+	LiveOpSetSeated         = "set_seated"
+	LiveOpClearSeated       = "clear_seated"
+	LiveOpSeatOf            = "seat_of"
+	LiveOpSetOnline         = "set_online"
+	LiveOpSetOffline        = "set_offline"
+	LiveOpOnlineCount       = "online_count"
+	LiveOpPutResumeOffer    = "put_resume_offer"
+	LiveOpTakeResumeOffer   = "take_resume_offer"
+	LiveOpDeleteResumeOffer = "delete_resume_offer"
+	LiveOpPublishTable      = "publish_table"
+	LiveOpRetireTable       = "retire_table"
+	LiveOpCandidates        = "candidates"
+	LiveOpPing              = "ping"
+)
+
+// Live-store result labels. not_found and stale are ordinary outcomes of a
+// lookup / a compare-and-set, not failures: only `error` feeds
+// game_live_store_errors_total.
+const (
+	LiveResultOK       = "ok"
+	LiveResultNotFound = "not_found"
+	LiveResultStale    = "stale"
+	LiveResultError    = "error"
+)
+
+// Plain ok/error result labels (snapshot writes, reconciles).
+const (
+	ResultOK    = "ok"
+	ResultError = "error"
+)
+
+// Restore source labels: where a rebuilt table's snapshot came from.
+const (
+	RestoreSourceLive     = "live"
+	RestoreSourcePostgres = "postgres"
 )
 
 // HTTP route labels for requests that matched no API route.

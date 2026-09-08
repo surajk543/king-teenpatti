@@ -188,21 +188,8 @@ func (f *fixture) handLedgerRows(handID string) []ledgerRow {
 	return out
 }
 
-// snapshot builds a minimal but well-formed game_states.state for a room.
-func snapshot(roomID string, state game.TableState, handNo int) *game.Snapshot {
-	return &game.Snapshot{
-		RoomID:     roomID,
-		Code:       "ABC123",
-		Category:   game.CategoryBlind,
-		State:      state,
-		HandNo:     handNo,
-		DealerSeat: 0,
-		Seats:      []*game.SnapshotSeat{nil, nil, nil, nil, nil},
-	}
-}
-
-// boot collects the boot from every given user for a new hand (version v).
-func (f *fixture) boot(roomID, handID string, bootAmount int64, version int64, users ...*db.User) game.CollectBootResult {
+// boot collects the boot from every given user for a new hand.
+func (f *fixture) boot(roomID, handID string, bootAmount int64, users ...*db.User) game.CollectBootResult {
 	f.t.Helper()
 	entries := make([]game.BootEntry, 0, len(users))
 	for _, u := range users {
@@ -210,7 +197,6 @@ func (f *fixture) boot(roomID, handID string, bootAmount int64, version int64, u
 	}
 	res, err := f.ledger.CollectBoot(f.ctx, game.CollectBootRequest{
 		RoomID: roomID, HandID: handID, BootAmount: bootAmount, Entries: entries,
-		Version: version, State: snapshot(roomID, game.TableBetting, 1),
 	})
 	if err != nil {
 		f.t.Fatalf("collectBoot: %v", err)

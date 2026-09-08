@@ -115,10 +115,16 @@ BEGIN
 END;
 $$;
 
--- The authoritative snapshot of each live table, saved inside the same
--- transaction as every chip movement. `version` only ever goes up; a write
--- carrying an older version than the row already holds is refused, which is
--- how two processes are stopped from both believing they own a table.
+-- The durable backstop of the live state (LIVE_STATE_PLAN.md "The durable
+-- backstop"): the same snapshot the table actor saves to the live store
+-- (Redis) after every move, written here ASYNCHRONOUSLY by db.SnapshotWriter
+-- — one batched upsert every SNAPSHOT_FLUSH_MS for every table that changed,
+-- outside the money transaction it used to ride in. `version` is the live
+-- store's per-table sequence and only ever goes up: the upsert is guarded by
+-- `WHERE game_states.version < EXCLUDED.version`, so a late flush can never
+-- overwrite a newer state. Read at startup for every room the live store has
+-- lost (Redis empty after a crash); a snapshot may then be up to one flush
+-- behind the money, so the restore reconciles it against chip_ledger first.
 CREATE TABLE IF NOT EXISTS game_states (
   room_id    TEXT PRIMARY KEY,
   hand_id    TEXT,

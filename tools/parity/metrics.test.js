@@ -516,7 +516,15 @@ test('cardinality: no label carries an identifier, address or raw path', async (
   for (const method of gameValues('method')) assert.match(method, /^[A-Z]+$/, `method "${method}" is not an HTTP verb`);
   for (const action of gameValues('action')) assert.ok(['see', 'chaal', 'raise', 'pack', 'show', 'sideshow', 'other'].includes(action), `action "${action}"`);
   for (const route of gameValues('route')) assert.match(route, /^(\/[a-z/]+|static|unmatched|quick_join|code|create|switch|resume)$/, `route "${route}"`);
-  for (const op of gameValues('op')) assert.ok(['bet', 'boot', 'settle'].includes(op), `op "${op}"`);
+  // `op` names a database transaction (bet|boot|settle) or a live-store call
+  // (LIVE_STATE_PLAN.md). Both are fixed vocabularies of method names — the
+  // point of the check is that no identifier can ever appear here.
+  const DB_OPS = ['bet', 'boot', 'settle'];
+  const LIVE_OPS = ['save_table', 'load_table', 'delete_table', 'list_tables', 'append_chat', 'load_chat',
+    'delete_chat', 'set_seated', 'clear_seated', 'seat_of', 'set_online', 'set_offline', 'online_count',
+    'put_resume_offer', 'take_resume_offer', 'delete_resume_offer', 'publish_table', 'retire_table',
+    'candidates', 'ping', 'close', 'other'];
+  for (const op of gameValues('op')) assert.ok([...DB_OPS, ...LIVE_OPS].includes(op), `op "${op}" is outside the fixed vocabulary`);
   for (const kind of gameValues('kind')) assert.ok(['seat_held', 'offer'].includes(kind), `kind "${kind}"`);
   for (const reason of gameValues('reason')) assert.match(reason, /^[a-z][a-z _]*$/, `reason "${reason}"`);
   for (const stake of gameValues('stake')) assert.match(stake, /^\d+$/, `stake "${stake}"`);

@@ -479,7 +479,7 @@ test('reward and profile routes need a session', async () => {
 
 test('health reports live counts with the shape the tools read', async () => {
   const body = await health();
-  assertKeys(body, ['ok', 'uptime', 'tables', 'players', 'activeHands', 'sockets', 'process', 'db']);
+  assertKeys(body, ['ok', 'uptime', 'tables', 'players', 'activeHands', 'sockets', 'process', 'db', 'live']);
   assert.equal(body.ok, true);
   assert.equal(typeof body.uptime, 'number');
   assert.ok(body.uptime > 0);
@@ -492,6 +492,13 @@ test('health reports live counts with the shape the tools read', async () => {
   assert.equal(typeof body.process.pid, 'number');
   assert.equal(typeof body.process.node, 'string');
   assert.ok(body.process.rssMb > 0);
+  // The live-state store (LIVE_STATE_PLAN.md): "memory" when REDIS_URL is
+  // unset, "redis" when it is. `tables` is how many snapshots it holds, and
+  // `snapshotLagSeconds` how far the durable copy in PostgreSQL is behind.
+  assert.ok(['memory', 'redis'].includes(body.live.kind), `live.kind ${body.live.kind}`);
+  assert.equal(typeof body.live.ok, 'boolean');
+  assert.equal(typeof body.live.tables, 'number');
+  assert.equal(typeof body.live.snapshotLagSeconds, 'number');
   assertKeys(body.db, ['total', 'idle', 'waiting']);
   for (const key of ['total', 'idle', 'waiting']) assert.equal(typeof body.db[key], 'number', `db.${key}`);
 

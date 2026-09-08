@@ -652,11 +652,11 @@ func TestABootRefusedForAnotherReasonIsRetriedAfterTheDelay(t *testing.T) {
 
 func TestASettlementTheLedgerRefusesIsPaidInMemoryAndRetried(t *testing.T) {
 	var failSettle bool
-	var settleCalls []int64
+	var settleCalls []string
 	h := newHarness(t, settleConfig(), withLedger(func(h *harness) Ledger {
 		inner := mirrorLedger(h)
 		return &captureLedger{inner: inner, settle: func(r SettleRequest) (SettleResult, error) {
-			settleCalls = append(settleCalls, r.Version)
+			settleCalls = append(settleCalls, r.Hand.ID)
 			if failSettle {
 				return nil, errors.New("settle down")
 			}
@@ -684,17 +684,15 @@ func TestASettlementTheLedgerRefusesIsPaidInMemoryAndRetried(t *testing.T) {
 	pe := h.rec.all("persistError")[0].(PersistErrorEvent)
 	eq(t, pe.Reason, "settle", "reason settle")
 	eq(t, len(settleCalls), 1, "first attempt")
-	eq(t, settleCalls[0], int64(3), "version 3 offered")
 
 	// Retry 1 fires after NextHandDelay × 1 = 6 s; the next hand's countdown
 	// also fires at 6 s, but the retry timer was armed first (inside endHand,
-	// before maybeStart) so it runs first. It re-sends the same record with
-	// the live version + 1 — still 3, since nothing committed meanwhile.
+	// before maybeStart) so it runs first. It re-sends the same record.
 	failSettle = false
 	mark = h.rec.count()
 	h.advance(6 * time.Second)
 	eq(t, len(settleCalls), 2, "retried once")
-	eq(t, settleCalls[1], int64(3), "live version + 1")
+	eq(t, settleCalls[1], settleCalls[0], "the same hand is re-sent")
 	eq(t, h.table.Version(), int64(4), "retry committed 3, the next boot 4")
 	eq(t, h.rec.names()[mark], "state", "a successful retry re-broadcasts state")
 	if got := h.rec.all("persistError"); len(got) != 1 {

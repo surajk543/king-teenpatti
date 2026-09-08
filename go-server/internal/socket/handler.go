@@ -18,6 +18,7 @@ import (
 	"github.com/surajk543/king-teenpatti/go-server/internal/config"
 	"github.com/surajk543/king-teenpatti/go-server/internal/db"
 	"github.com/surajk543/king-teenpatti/go-server/internal/game"
+	"github.com/surajk543/king-teenpatti/go-server/internal/live"
 	"github.com/surajk543/king-teenpatti/go-server/internal/metrics"
 	"github.com/surajk543/king-teenpatti/go-server/internal/sio"
 )
@@ -36,7 +37,28 @@ type Deps struct {
 	Metrics *metrics.Metrics // nil → no observations (tests)
 	Clock   game.Clock       // nil → game.RealClock{}
 	Logger  *slog.Logger
+	// Live is the live-state store (LIVE_STATE_PLAN.md): presence
+	// (SetOnline/SetOffline, refreshed by the heartbeat) and the resume offers
+	// a lapsed seat leaves behind (PutResumeOffer/TakeResumeOffer) live there
+	// so they survive a restart. nil → live.NewMemory() (single instance,
+	// nothing survives). The app passes the same store the RoomManager uses.
+	Live live.Store
+	// Instance is LIVE_INSTANCE_ID, written into every presence entry.
+	Instance string
 }
+
+// Presence timings (LIVE_STATE_PLAN.md key schema, kt:online): every live
+// socket's entry is refreshed every PresenceHeartbeat and considered dead
+// after PresenceTTL, so a crashed process leaves no ghosts and one missed
+// beat does not drop a player.
+const (
+	PresenceTTL       = 90 * time.Second
+	PresenceHeartbeat = 30 * time.Second
+	// liveCallTimeout bounds every store call made from this layer; the store
+	// has its own per-round-trip timeout, this is the belt to its braces so a
+	// handler goroutine can never hang on Redis.
+	liveCallTimeout = 2 * time.Second
+)
 
 // session is socket.data: the authenticated user plus the per-socket rate
 // limiters. Stored via sio.Socket.SetData.
@@ -55,22 +77,16 @@ type session struct {
 	disconnected bool
 }
 
-// resumeOffer remembers the table a lapsed seat was at (resumeOffers map).
-type resumeOffer struct {
-	roomID string
-	at     time.Time
-}
-
 // Handler is attachSocketHandlers' closure state. It implements
 // game.Listener (table events → wire) and game.RoomListener (room events →
 // wire); the app passes it to game.NewRoomManager as both (see New).
 //
 // # Locking
 //
-// mu guards the four maps. It is NEVER held while calling into a Table or
-// the RoomManager (both may block on an actor) and never while emitting to a
-// socket (a slow client must not stall the table). Pattern: lock → copy what
-// is needed → unlock → act.
+// mu guards the maps below. It is NEVER held while calling into a Table, the
+// RoomManager (both may block on an actor) or the live store, and never
+// while emitting to a socket (a slow client must not stall the table).
+// Pattern: lock → copy what is needed → unlock → act.
 //
 // game.Listener methods run ON a table's actor goroutine: they may use the
 // *game.View and may take mu briefly, but must not call Table/RoomManager
@@ -88,8 +104,9 @@ type Handler struct {
 	userSockets map[string]*sio.Socket
 	// pendingRemovals: userId → grace timer armed on disconnect.
 	pendingRemovals map[string]game.Timer
-	// resumeOffers: userId → where they were when the grace period lapsed.
-	resumeOffers map[string]resumeOffer
+	// Resume offers (userId → where they were when the grace period lapsed)
+	// are no longer a map here: they live in deps.Live with RESUME_OFFER_MS
+	// as their ttl, so a restart does not lose them (LIVE_STATE_PLAN.md).
 	// lapsing: userId → closed when graceExpired has finished giving the seat
 	// up. A sign-in that lands in the middle of a lapse waits for it instead
 	// of restoring a seat that is about to be removed under it (Node deleted
@@ -99,6 +116,11 @@ type Handler struct {
 
 	liveSockets int
 	peakSockets int
+
+	// heartbeat is the armed presence refresh (see Attach); closed stops it
+	// from re-arming. Both under mu.
+	heartbeat game.Timer
+	closed    bool
 }
 
 // New builds the Handler (the closure state of attachSocketHandlers).
@@ -118,13 +140,15 @@ func New(deps Deps) *Handler {
 	if log == nil {
 		log = slog.Default()
 	}
+	if deps.Live == nil {
+		deps.Live = live.NewMemory()
+	}
 	return &Handler{
 		deps:            deps,
 		log:             log,
 		roomSockets:     make(map[string]map[*sio.Socket]struct{}),
 		userSockets:     make(map[string]*sio.Socket),
 		pendingRemovals: make(map[string]game.Timer),
-		resumeOffers:    make(map[string]resumeOffer),
 		lapsing:         make(map[string]chan struct{}),
 	}
 }
@@ -159,10 +183,26 @@ func (h *Handler) SetRooms(rooms *game.RoomManager) {
 //     chat:history;
 //  7. register every guarded handler (see guard) and ping:rtt;
 //  8. OnDisconnect (see onDisconnect).
+//
+// Attach also arms the presence heartbeat (see heartbeat); Close stops it.
 func (h *Handler) Attach(srv *sio.Server) {
 	h.srv = srv
 	srv.Use(h.authenticate)
 	srv.OnConnection(h.onConnection)
+	h.armHeartbeat()
+}
+
+// Close stops the presence heartbeat. Sockets are closed by the sio server;
+// their onDisconnect still runs and clears each presence entry. Idempotent.
+func (h *Handler) Close() {
+	h.mu.Lock()
+	h.closed = true
+	timer := h.heartbeat
+	h.heartbeat = nil
+	h.mu.Unlock()
+	if timer != nil {
+		timer.Stop()
+	}
 }
 
 // Stats is attachSocketHandlers' return value (unused by Node's index.js but
@@ -306,6 +346,11 @@ func (h *Handler) onConnection(s *sio.Socket) {
 		// Force the same order here (a no-op if sio already ran it).
 		h.onDisconnect(previous, sio.ReasonServerNamespaceDisc)
 	}
+	// Presence: this account is online on this instance until the heartbeat
+	// stops refreshing it (a crash) or onDisconnect clears it. Written after
+	// the replaced socket's disconnect so the entry cannot be cleared under
+	// the new session by the old one's bookkeeping.
+	h.setOnline(user.ID)
 	h.mu.Lock()
 	// 3. cancel a pending removal — this is a reconnect inside the grace window.
 	pending, hadPending := h.pendingRemovals[user.ID]
@@ -341,9 +386,7 @@ func (h *Handler) onConnection(s *sio.Socket) {
 	}
 	var resume *ResumeOffer
 	if existing != nil {
-		h.mu.Lock()
-		delete(h.resumeOffers, user.ID)
-		h.mu.Unlock()
+		h.deleteResumeOffer(user.ID)
 	} else {
 		resume = h.takeResumeOffer(user.ID)
 	}
@@ -1009,7 +1052,7 @@ func (h *Handler) pingRTT(_ *sio.Socket, args []json.RawMessage, ack sio.AckFunc
 //
 //	delete pendingRemovals[user]; if userSockets has the user → return
 //	(reconnected); current = GetTableForPlayer; nil → return;
-//	resumeOffers[user] = {current.ID(), now}; Rooms.Leave(user,
+//	Live.PutResumeOffer(user, {current…, now}, RESUME_OFFER_MS); Rooms.Leave(user,
 //	"disconnected") (error → log `grace removal failed`, return);
 //	broadcastState(current) if it still exists.
 //
@@ -1033,11 +1076,18 @@ func (h *Handler) onDisconnect(s *sio.Socket, reason string) {
 	if h.liveSockets > 0 {
 		h.liveSockets--
 	}
-	if h.userSockets[user.ID] == s {
+	wasLive := h.userSockets[user.ID] == s
+	if wasLive {
 		delete(h.userSockets, user.ID)
 	}
 	h.mu.Unlock()
 	h.incDisconnection(metrics.SafeLabel(reason, sio.KnownDisconnectReasons, metrics.OtherLabel))
+	// Presence is per account, not per socket: only the socket that WAS the
+	// account's live session clears it — a replaced socket's disconnect must
+	// not mark the new session offline.
+	if wasLive {
+		h.setOffline(user.ID)
+	}
 
 	rooms := h.rooms()
 	if rooms == nil {
@@ -1111,9 +1161,7 @@ func (h *Handler) graceExpired(userID string) {
 	// The seat goes, but not the memory of where it was: a player who reopens
 	// the app in the next few minutes is offered this table back. Written
 	// BEFORE the leave so a failed removal still leaves the offer standing.
-	h.mu.Lock()
-	h.resumeOffers[userID] = resumeOffer{roomID: roomID, at: h.now()}
-	h.mu.Unlock()
+	h.putResumeOffer(userID, current)
 	if _, err := rooms.Leave(userID, game.LeaveReasonDisconnected); err != nil {
 		h.log.Error("grace removal failed", "userId", userID, "error", err.Error())
 		return
@@ -1123,30 +1171,180 @@ func (h *Handler) graceExpired(userID string) {
 	}
 }
 
-// takeResumeOffer pops the user's offer: nil when absent, older than
-// config.Game.ResumeOffer, or the table is gone or full. Offered ONCE.
+// putResumeOffer stores where a lapsing seat was (graceExpired):
+// live.Store.PutResumeOffer with RESUME_OFFER_MS as the ttl — the store's
+// expiry is what used to be the age check in takeResumeOffer. A
+// RESUME_OFFER_MS of 0 disables offers (Node: every offer was already older
+// than 0 ms), so nothing is written. A store failure is logged: the player
+// simply gets no offer, never an error.
+func (h *Handler) putResumeOffer(userID string, table *game.Table) {
+	ttl := h.cfg().Game.ResumeOffer
+	if ttl <= 0 {
+		return
+	}
+	offer := live.ResumeOffer{
+		RoomID:     table.ID(),
+		Code:       table.Code(),
+		Category:   string(table.Category()),
+		BootAmount: table.BootAmount(),
+		At:         game.Millis(h.now()),
+	}
+	ctx, cancel := h.liveCtx()
+	defer cancel()
+	if err := h.deps.Live.PutResumeOffer(ctx, userID, offer, ttl); err != nil {
+		h.log.Warn("resume offer not stored", "userId", userID, "roomId", table.ID(), "error", err.Error())
+	}
+}
+
+// deleteResumeOffer drops a stale offer for a player who is still seated
+// (onConnection: the seat itself is what they get back).
+func (h *Handler) deleteResumeOffer(userID string) {
+	ctx, cancel := h.liveCtx()
+	defer cancel()
+	if err := h.deps.Live.DeleteResumeOffer(ctx, userID); err != nil {
+		h.log.Warn("resume offer not deleted", "userId", userID, "error", err.Error())
+	}
+}
+
+// takeResumeOffer pops the user's offer from the store (get-and-delete, so
+// it is offered ONCE, valid or not): nil when absent or expired
+// (config.Game.ResumeOffer is the store ttl), or when the table is gone or
+// full. The wire values come from the live table, as before.
 func (h *Handler) takeResumeOffer(userID string) *ResumeOffer {
-	h.mu.Lock()
-	offer, ok := h.resumeOffers[userID]
-	if ok {
-		delete(h.resumeOffers, userID) // offered once, valid or not
-	}
-	h.mu.Unlock()
-	if !ok {
-		return nil
-	}
-	if h.now().Sub(offer.at) > h.cfg().Game.ResumeOffer {
+	ctx, cancel := h.liveCtx()
+	defer cancel()
+	offer, err := h.deps.Live.TakeResumeOffer(ctx, userID)
+	if err != nil {
+		if !errors.Is(err, live.ErrNotFound) {
+			h.log.Warn("resume offer lookup failed", "userId", userID, "error", err.Error())
+		}
 		return nil
 	}
 	rooms := h.rooms()
 	if rooms == nil {
 		return nil
 	}
-	table := rooms.GetTable(offer.roomID)
+	table := rooms.GetTable(offer.RoomID)
 	if table == nil || table.IsFull() {
 		return nil
 	}
 	return &ResumeOffer{RoomID: table.ID(), Code: table.Code(), Category: table.Category(), BootAmount: table.BootAmount()}
+}
+
+// ------------------------------------------------------------- presence
+
+// liveCtx bounds one store call.
+func (h *Handler) liveCtx() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), liveCallTimeout)
+}
+
+// setOnline writes the account's presence entry (onConnection, heartbeat).
+func (h *Handler) setOnline(userID string) {
+	ctx, cancel := h.liveCtx()
+	defer cancel()
+	if err := h.deps.Live.SetOnline(ctx, userID, h.deps.Instance, PresenceTTL); err != nil {
+		h.log.Warn("presence not recorded", "userId", userID, "error", err.Error())
+	}
+}
+
+// setOffline clears it (onDisconnect of the account's live socket).
+func (h *Handler) setOffline(userID string) {
+	ctx, cancel := h.liveCtx()
+	defer cancel()
+	if err := h.deps.Live.SetOffline(ctx, userID); err != nil {
+		h.log.Warn("presence not cleared", "userId", userID, "error", err.Error())
+	}
+}
+
+// armHeartbeat schedules the next presence refresh on the injected clock.
+func (h *Handler) armHeartbeat() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.closed {
+		return
+	}
+	if h.heartbeat != nil {
+		h.heartbeat.Stop()
+	}
+	h.heartbeat = h.deps.Clock.AfterFunc(PresenceHeartbeat, h.heartbeatTick)
+}
+
+// heartbeatTick refreshes every live account's presence entry, then re-arms.
+//
+// One ticker for the whole handler rather than one timer per socket: the
+// entry only has to be touched somewhere inside its 90 s window, so N timers
+// firing at N scattered instants buy nothing over one pass every 30 s, and
+// they cost N timer-heap entries and N wake-ups. The pass copies the user
+// ids under mu and then calls the store off-lock, serially — with 1,000
+// players that is ~1,000 sub-millisecond round trips well inside the 60 s of
+// slack between beat and expiry — and it is the one place a batched refresh
+// would slot in should the store ever offer one.
+func (h *Handler) heartbeatTick() {
+	h.mu.Lock()
+	if h.closed {
+		h.mu.Unlock()
+		return
+	}
+	users := make([]string, 0, len(h.userSockets))
+	for id := range h.userSockets {
+		users = append(users, id)
+	}
+	h.mu.Unlock()
+	for _, id := range users {
+		h.setOnline(id)
+	}
+	h.armHeartbeat()
+}
+
+// ------------------------------------------------------------- restore
+
+// RestoredSeat names a seat RoomManager.Restore rebuilt from the live store:
+// the player is seated at RoomID with no socket. The app converts the
+// RoomManager's RestoredSeats() into these.
+type RestoredSeat struct {
+	UserID string
+	RoomID string
+}
+
+// RestoreSeats is startup step 4 (LIVE_STATE_PLAN.md): every restored seat is
+// marked disconnected and its reconnect grace timer armed, exactly as a
+// socket drop does (onDisconnect: SetConnected(false) → holdSeat). From here
+// the ordinary paths take over — a sign-in inside the grace finds the seat
+// held and is sent room:joined with the restored hand; nobody returning lets
+// graceExpired leave the seat with a resume offer in the store. A seat whose
+// table or index entry is missing, or whose account already has a live
+// socket (it signed in between Restore and this call and restored its own
+// seat), is skipped. Returns the number of seats held and adds it to
+// game_restored_seats_total. Must run before the listener opens.
+func (h *Handler) RestoreSeats(seats []RestoredSeat) int {
+	rooms := h.rooms()
+	held := 0
+	for _, seat := range seats {
+		table := rooms.GetTable(seat.RoomID)
+		if table == nil || rooms.GetTableForPlayer(seat.UserID) != table {
+			h.log.Warn("restored seat has no table; not held", "userId", seat.UserID, "roomId", seat.RoomID)
+			continue
+		}
+		h.mu.Lock()
+		s := h.userSockets[seat.UserID]
+		h.mu.Unlock()
+		if s != nil && s.Connected() {
+			continue
+		}
+		if _, err := table.SetConnected(seat.UserID, false, ""); err != nil {
+			h.log.Warn("restored seat could not be marked disconnected", "userId", seat.UserID, "roomId", seat.RoomID, "error", err.Error())
+			continue
+		}
+		h.holdSeat(seat.UserID)
+		held++
+	}
+	if m := h.mx(); m != nil && held > 0 {
+		m.RestoredSeatsTotal.Add(float64(held))
+	}
+	if held > 0 {
+		h.log.Info("restored seats held for reconnect", "seats", held, "graceMs", h.cfg().Game.ReconnectGrace.Milliseconds())
+	}
+	return held
 }
 
 // ------------------------------------------------------------- emitting

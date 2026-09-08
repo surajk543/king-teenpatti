@@ -21,6 +21,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/surajk543/king-teenpatti/go-server/internal/live"
 )
 
 // ------------------------------------------------------------ fake clock
@@ -241,10 +243,13 @@ type harness struct {
 var clockStart = time.UnixMilli(1_700_000_000_000)
 
 type harnessOptions struct {
-	id, code string
-	ledger   func(h *harness) Ledger
-	onKick   func(h *harness, e KickEvent)
-	clock    *fakeClock
+	id, code   string
+	ledger     func(h *harness) Ledger
+	onKick     func(h *harness, e KickEvent)
+	clock      *fakeClock
+	live       live.Store
+	liveErrors func(op string, err error)
+	sink       SnapshotSink
 }
 
 type harnessOption func(*harnessOptions)
@@ -295,12 +300,15 @@ func newHarness(t *testing.T, cfg TableConfig, opts ...harnessOption) *harness {
 		ledger = mirrorLedger(h)
 	}
 	h.table = NewTable(TableOptions{
-		ID:       o.id,
-		Code:     o.code,
-		Config:   cfg,
-		Ledger:   ledger,
-		Clock:    h.clock,
-		Listener: h.rec,
+		ID:         o.id,
+		Code:       o.code,
+		Config:     cfg,
+		Ledger:     ledger,
+		Clock:      h.clock,
+		Listener:   h.rec,
+		Live:       o.live,
+		LiveErrors: o.liveErrors,
+		Snapshots:  o.sink,
 	})
 	t.Cleanup(func() { _ = h.table.Destroy() })
 	return h
@@ -434,19 +442,27 @@ func (h *harness) hasHand() bool { return h.table.HasHand() }
 func (h *harness) state() TableState { return h.table.State() }
 
 // turnUser is Node's `table.seats[table.hand.turnSeat].userId`.
+//
+// The failure is raised OUTSIDE the posted closure: t.Fatal inside it would
+// Goexit the actor goroutine and every later post would block forever.
 func (h *harness) turnUser() string {
 	h.t.Helper()
-	var id string
+	var id, failure string
 	h.read(func() {
 		if h.table.hand == nil {
-			h.t.Fatal("turnUser: no hand")
+			failure = "turnUser: no hand"
+			return
 		}
 		s := h.table.seats[h.table.hand.turnSeat]
 		if s == nil {
-			h.t.Fatal("turnUser: turn seat is empty")
+			failure = "turnUser: turn seat is empty"
+			return
 		}
 		id = s.userID
 	})
+	if failure != "" {
+		h.t.Fatal(failure)
+	}
 	return id
 }
 
@@ -2312,7 +2328,10 @@ func TestSeatsKeepLastHandsStatusAndCardsUntilTheNextDeal(t *testing.T) {
 	eq(t, len(view.You.Cards), 0, "blind again")
 }
 
-func TestSnapshotsSentToTheLedgerCarryTheAuditableState(t *testing.T) {
+func TestLedgerRequestsCarryTheMoneyFactsAndTheSnapshotIsTheLiveOne(t *testing.T) {
+	// The snapshot no longer rides in the money transaction: the ledger
+	// requests carry only what it needs, and the auditable snapshot is what
+	// Snapshot() / the live store / the durable sink hold after the mutation.
 	var boots []CollectBootRequest
 	var bets []BetRequest
 	var settles []SettleRequest
@@ -2335,24 +2354,31 @@ func TestSnapshotsSentToTheLedgerCarryTheAuditableState(t *testing.T) {
 	boot := boots[0]
 	eq(t, boot.RoomID, "room-1", "roomId")
 	eq(t, boot.BootAmount, tableBoot, "boot")
-	eq(t, boot.Version, int64(1), "version 1")
 	eq(t, len(boot.Entries), 3, "three entries")
 	for _, e := range boot.Entries {
 		eq(t, e.Amount, tableBoot, "entry amount")
 		eq(t, e.BalanceBefore, tableStart, "balanceBefore")
 	}
-	snap := boot.State
-	eq(t, snap.State, TableBetting, "boot snapshot state is betting")
+	eq(t, h.table.Version(), int64(1), "version 1 after the boot commit")
+
+	snap, err := h.table.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	eq(t, snap.State, TableBetting, "snapshot state is betting")
 	eq(t, snap.HandNo, 1, "handNo")
-	eq(t, snap.Hand.TurnSeat, -1, "turnSeat -1 before the first turn")
-	eq(t, snap.Hand.StartSeat, -1, "startSeat -1")
+	eq(t, snap.Version, int64(1), "version in the snapshot")
 	eq(t, snap.Hand.Pot, tableBoot*3, "pot")
 	eq(t, snap.Hand.Stake, tableBoot, "stake")
+	if snap.Hand.TurnSeat < 0 || snap.Hand.StartSeat < 0 || snap.Hand.TurnDeadline == nil {
+		t.Fatalf("the live snapshot is the table as it is, turn included: %+v", snap.Hand)
+	}
 	eq(t, len(snap.Hand.Contributions), 3, "contributions")
 	for _, c := range snap.Hand.Contributions {
 		eq(t, c.Contributed, tableBoot, "contributed")
-		eq(t, c.Persisted, int64(0), "persisted 0 before the boot commits")
+		eq(t, c.Persisted, int64(0), "bookless ledger: persisted 0")
 		eq(t, c.Status, SeatActive, "active")
+		eq(t, len(c.Cards), 3, "contribution cards kept server-side")
 	}
 	eq(t, len(snap.Seats), 5, "five seat slots")
 	occupied := 0
@@ -2361,7 +2387,7 @@ func TestSnapshotsSentToTheLedgerCarryTheAuditableState(t *testing.T) {
 			continue
 		}
 		occupied++
-		eq(t, s.Chips, tableStart-tableBoot, "already debited")
+		eq(t, s.Chips, tableStart-tableBoot, "debited")
 		eq(t, s.Status, SeatActive, "active")
 		eq(t, s.IsBlind, true, "blind")
 		eq(t, s.Contributed, tableBoot, "contributed")
@@ -2369,12 +2395,13 @@ func TestSnapshotsSentToTheLedgerCarryTheAuditableState(t *testing.T) {
 	}
 	eq(t, occupied, 3, "three occupied")
 	raw, _ := json.Marshal(snap)
-	for _, key := range []string{`"roomId"`, `"code"`, `"category"`, `"state"`, `"handNo"`, `"dealerSeat"`, `"hand"`, `"seats"`, `"contributions"`, `"showRequestedBy":null`, `"startedAt"`} {
+	for _, key := range []string{`"roomId"`, `"code"`, `"category"`, `"state"`, `"handNo"`, `"dealerSeat"`, `"hand"`, `"seats"`, `"contributions"`, `"showRequestedBy":null`, `"startedAt"`,
+		`"seq"`, `"version"`, `"config"`, `"turnDeadline"`, `"packedUserIds"`, `"seatOrder"`, `"sideshow":null`, `"lastDeparture":null`, `"createdAt"`, `"isPrivate"`} {
 		if !strings.Contains(string(raw), key) {
 			t.Fatalf("snapshot JSON lacks %s: %s", key, raw)
 		}
 	}
-	for _, forbidden := range []string{"turnDeadline", "turnToken", "sideshow", "lastDeparture", "packedUserIds", "seatOrder"} {
+	for _, forbidden := range []string{"turnToken", "connected", "socketId"} {
 		if strings.Contains(string(raw), forbidden) {
 			t.Fatalf("snapshot JSON must not carry %s", forbidden)
 		}
@@ -2383,7 +2410,6 @@ func TestSnapshotsSentToTheLedgerCarryTheAuditableState(t *testing.T) {
 		t.Fatalf("empty seats must marshal as null: %s", raw)
 	}
 
-	// A bet's snapshot is the state as it will read once the bet is in.
 	player := h.turnUser()
 	h.mustAct(player, ActionChaal, amt(tableBoot))
 	eq(t, len(bets), 1, "one bet")
@@ -2391,19 +2417,19 @@ func TestSnapshotsSentToTheLedgerCarryTheAuditableState(t *testing.T) {
 	eq(t, bet.UserID, player, "userId")
 	eq(t, bet.Amount, tableBoot, "amount")
 	eq(t, bet.Reason, LedgerReasonBet, "reason")
-	eq(t, bet.Version, int64(2), "version 2")
 	eq(t, bet.BalanceBefore, tableStart-tableBoot, "balanceBefore")
 	if bet.ActionID == "" {
 		t.Fatal("actionId generated when the client sent none")
 	}
-	eq(t, bet.State.Hand.Pot, tableBoot*4, "pot advanced")
-	for _, c := range bet.State.Hand.Contributions {
+	eq(t, h.table.Version(), int64(2), "table version after two commits")
+	snap, _ = h.table.Snapshot()
+	eq(t, snap.Hand.Pot, tableBoot*4, "pot advanced in the live snapshot")
+	for _, c := range snap.Hand.Contributions {
 		if c.UserID == player {
 			eq(t, c.Contributed, tableBoot*2, "contribution advanced")
-			eq(t, c.Persisted, tableBoot, "persisted assumes the bet is banked")
+			eq(t, c.DidChaal, true, "played")
 		}
 	}
-	eq(t, h.table.Version(), int64(2), "table version after two commits")
 
 	// A client actionId is passed through verbatim.
 	h.mustAct(h.turnUser(), ActionChaal, ActRequest{ActionID: "client-move-1"})
@@ -2415,12 +2441,13 @@ func TestSnapshotsSentToTheLedgerCarryTheAuditableState(t *testing.T) {
 	}
 	eq(t, len(settles), 1, "one settle")
 	settle := settles[0]
-	eq(t, settle.Version, int64(4), "version 4")
-	eq(t, settle.State.State, TableWaiting, "settle snapshot is at rest")
-	if settle.State.Hand != nil {
-		t.Fatal("settle snapshot has hand null")
+	eq(t, h.table.Version(), int64(4), "boot, two bets, settle")
+	snap, _ = h.table.Snapshot()
+	eq(t, snap.State, TableStarting, "back between hands")
+	if snap.Hand != nil {
+		t.Fatal("snapshot hand null between hands")
 	}
-	eq(t, settle.State.HandNo, 1, "handNo of the hand just ended")
+	eq(t, snap.HandNo, 1, "handNo of the hand just ended")
 	eq(t, settle.Hand.HandNo, 1, "record handNo")
 	eq(t, len(settle.Hand.Summary), 3, "three contributors")
 	for _, row := range settle.Hand.Summary {

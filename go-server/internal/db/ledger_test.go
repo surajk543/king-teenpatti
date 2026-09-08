@@ -19,16 +19,15 @@ import (
 
 // ------------------------------------------------------------------ bet
 
-func TestBetDebitsTheWalletGrowsThePotAndWritesLedgerAndState(t *testing.T) {
+func TestBetDebitsTheWalletGrowsThePotAndWritesTheLedger(t *testing.T) {
 	f := newFixture(t)
 	a, b := f.user("A"), f.user("B")
 	room, hand := "room-bet", "hand-bet-1"
-	f.boot(room, hand, 200, 1, a, b)
+	f.boot(room, hand, 200, a, b)
 
 	res, err := f.ledger.Bet(f.ctx, game.BetRequest{
 		UserID: a.ID, Amount: 400, RoomID: room, HandID: hand, ActionID: "client-uuid-1",
 		Reason: game.LedgerReasonBet, BalanceBefore: welcome - 200,
-		Version: 2, State: snapshot(room, game.TableBetting, 1),
 	})
 	if err != nil {
 		t.Fatalf("bet: %v", err)
@@ -47,19 +46,8 @@ func TestBetDebitsTheWalletGrowsThePotAndWritesLedgerAndState(t *testing.T) {
 	if last.Delta != -400 || last.Balance != welcome-600 || last.Reason != "bet" || last.ActionID == nil || *last.ActionID != "client-uuid-1" || last.HandID == nil || *last.HandID != hand {
 		t.Fatalf("ledger row = %+v", last)
 	}
-	var version int64
-	var storedHand *string
-	var state []byte
-	if err := f.d.Pool.QueryRow(f.ctx, `SELECT version, hand_id, state FROM game_states WHERE room_id = $1`, room).Scan(&version, &storedHand, &state); err != nil {
-		t.Fatal(err)
-	}
-	if version != 2 || storedHand == nil || *storedHand != hand {
-		t.Fatalf("game_states version=%d hand=%v", version, storedHand)
-	}
-	var parsed game.Snapshot
-	if err := json.Unmarshal(state, &parsed); err != nil || parsed.RoomID != room || parsed.State != game.TableBetting {
-		t.Fatalf("stored state %s (%v)", state, err)
-	}
+	// The money transaction touches nothing but users, pots and chip_ledger
+	// (the snapshot lives in the live store now; LIVE_STATE_PLAN.md).
 	// Every row of one transaction shares one timestamp.
 	updatedAt := f.scalar(`SELECT updated_at FROM users WHERE id = $1`, a.ID)
 	if last.Created != updatedAt {
@@ -71,9 +59,9 @@ func TestBetDebitsTheWalletGrowsThePotAndWritesLedgerAndState(t *testing.T) {
 func TestBetShowReasonIsWrittenVerbatim(t *testing.T) {
 	f := newFixture(t)
 	a, b := f.user("A"), f.user("B")
-	f.boot("room-show", "hand-show", 200, 1, a, b)
+	f.boot("room-show", "hand-show", 200, a, b)
 	if _, err := f.ledger.Bet(f.ctx, game.BetRequest{UserID: b.ID, Amount: 400, RoomID: "room-show", HandID: "hand-show",
-		ActionID: "show-1", Reason: game.LedgerReasonShow, Version: 2}); err != nil {
+		ActionID: "show-1", Reason: game.LedgerReasonShow}); err != nil {
 		t.Fatal(err)
 	}
 	rows := f.ledgerRows(b.ID)
@@ -82,7 +70,7 @@ func TestBetShowReasonIsWrittenVerbatim(t *testing.T) {
 	}
 	// An empty reason falls back to Node's default parameter 'bet'.
 	if _, err := f.ledger.Bet(f.ctx, game.BetRequest{UserID: b.ID, Amount: 400, RoomID: "room-show", HandID: "hand-show",
-		ActionID: "bet-default", Version: 3}); err != nil {
+		ActionID: "bet-default"}); err != nil {
 		t.Fatal(err)
 	}
 	rows = f.ledgerRows(b.ID)
@@ -98,15 +86,14 @@ func TestBetWithADuplicateActionIDIsRefusedAndChargesNobody(t *testing.T) {
 	f := newFixture(t)
 	a, b := f.user("A"), f.user("B")
 	room, hand := "room-dup", "hand-dup"
-	f.boot(room, hand, 200, 1, a, b)
+	f.boot(room, hand, 200, a, b)
 
-	req := game.BetRequest{UserID: a.ID, Amount: 400, RoomID: room, HandID: hand, ActionID: "dup-same-id", Version: 2}
+	req := game.BetRequest{UserID: a.ID, Amount: 400, RoomID: room, HandID: hand, ActionID: "dup-same-id"}
 	if _, err := f.ledger.Bet(f.ctx, req); err != nil {
 		t.Fatal(err)
 	}
 	before := f.chips(a.ID)
 
-	req.Version = 3
 	_, err := f.ledger.Bet(f.ctx, req)
 	if code := codeOf(t, err); code != game.CodeDuplicateAction {
 		t.Fatalf("code = %s, want duplicate_action", code)
@@ -123,47 +110,6 @@ func TestBetWithADuplicateActionIDIsRefusedAndChargesNobody(t *testing.T) {
 	if pot := f.scalar(`SELECT amount FROM pots WHERE hand_id = $1`, hand); pot != 800 {
 		t.Fatalf("pot moved on a duplicate: %d", pot)
 	}
-	if v := f.scalar(`SELECT version FROM game_states WHERE room_id = $1`, room); v != 2 {
-		t.Fatalf("version moved on a duplicate: %d", v)
-	}
-	f.reconcile()
-}
-
-// game_states.version only rises; equal or older is stale and the whole bet
-// — wallet included — is rolled back.
-func TestBetWithAStaleOrEqualVersionIsRefusedAndWritesNothing(t *testing.T) {
-	f := newFixture(t)
-	a, b := f.user("A"), f.user("B")
-	room, hand := "room-stale", "hand-stale"
-	f.boot(room, hand, 200, 5, a, b) // stored version 5
-	before := f.chips(a.ID)
-
-	for _, version := range []int64{5, 4, 1} {
-		_, err := f.ledger.Bet(f.ctx, game.BetRequest{UserID: a.ID, Amount: 400, RoomID: room, HandID: hand,
-			ActionID: fmt.Sprintf("stale-%d", version), Version: version})
-		if code := codeOf(t, err); code != game.CodeStaleState {
-			t.Fatalf("version %d: code = %s, want stale_state", version, code)
-		}
-		if !strings.Contains(err.Error(), fmt.Sprintf("state version %d is not newer", version)) {
-			t.Fatalf("message = %q", err.Error())
-		}
-	}
-	if got := f.chips(a.ID); got != before {
-		t.Fatalf("wallet moved on a stale write: %d → %d", before, got)
-	}
-	if n := f.count(`SELECT COUNT(*) FROM chip_ledger WHERE action_id LIKE 'stale-%'`); n != 0 {
-		t.Fatalf("stale write left %d ledger rows", n)
-	}
-	if pot := f.scalar(`SELECT amount FROM pots WHERE hand_id = $1`, hand); pot != 400 {
-		t.Fatalf("pot moved on a stale write: %d", pot)
-	}
-	// Strictly newer goes through.
-	if _, err := f.ledger.Bet(f.ctx, game.BetRequest{UserID: a.ID, Amount: 400, RoomID: room, HandID: hand, ActionID: "fresh", Version: 6}); err != nil {
-		t.Fatal(err)
-	}
-	if v := f.scalar(`SELECT version FROM game_states WHERE room_id = $1`, room); v != 6 {
-		t.Fatalf("version = %d", v)
-	}
 	f.reconcile()
 }
 
@@ -171,10 +117,10 @@ func TestBetWithInsufficientChipsLeavesNoRows(t *testing.T) {
 	f := newFixture(t)
 	a, b := f.user("A"), f.user("B")
 	room, hand := "room-poor", "hand-poor"
-	f.boot(room, hand, 200, 1, a, b)
+	f.boot(room, hand, 200, a, b)
 	before := f.chips(a.ID)
 
-	_, err := f.ledger.Bet(f.ctx, game.BetRequest{UserID: a.ID, Amount: before + 1, RoomID: room, HandID: hand, ActionID: "too-much", Version: 2})
+	_, err := f.ledger.Bet(f.ctx, game.BetRequest{UserID: a.ID, Amount: before + 1, RoomID: room, HandID: hand, ActionID: "too-much"})
 	if code := codeOf(t, err); code != game.CodeInsufficientChips {
 		t.Fatalf("code = %s", code)
 	}
@@ -187,11 +133,8 @@ func TestBetWithInsufficientChipsLeavesNoRows(t *testing.T) {
 	if pot := f.scalar(`SELECT amount FROM pots WHERE hand_id = $1`, hand); pot != 400 {
 		t.Fatalf("pot = %d", pot)
 	}
-	if v := f.scalar(`SELECT version FROM game_states WHERE room_id = $1`, room); v != 1 {
-		t.Fatalf("version = %d", v)
-	}
 	// Exactly the balance is allowed (chips < amount is the refusal).
-	if _, err := f.ledger.Bet(f.ctx, game.BetRequest{UserID: a.ID, Amount: before, RoomID: room, HandID: hand, ActionID: "all-in", Version: 2}); err != nil {
+	if _, err := f.ledger.Bet(f.ctx, game.BetRequest{UserID: a.ID, Amount: before, RoomID: room, HandID: hand, ActionID: "all-in"}); err != nil {
 		t.Fatalf("all-in refused: %v", err)
 	}
 	if got := f.chips(a.ID); got != 0 {
@@ -205,17 +148,17 @@ func TestBetValidationErrorsAndCodes(t *testing.T) {
 	a := f.user("A")
 
 	for _, amount := range []int64{0, -1} {
-		_, err := f.ledger.Bet(f.ctx, game.BetRequest{UserID: a.ID, Amount: amount, RoomID: "r", HandID: "h", ActionID: "x", Version: 1})
+		_, err := f.ledger.Bet(f.ctx, game.BetRequest{UserID: a.ID, Amount: amount, RoomID: "r", HandID: "h", ActionID: "x"})
 		if code := codeOf(t, err); code != game.CodeInvalidAmount {
 			t.Fatalf("amount %d: code = %s", amount, code)
 		}
 	}
-	_, err := f.ledger.Bet(f.ctx, game.BetRequest{UserID: "nobody", Amount: 100, RoomID: "r", HandID: "h", ActionID: "x", Version: 1})
+	_, err := f.ledger.Bet(f.ctx, game.BetRequest{UserID: "nobody", Amount: 100, RoomID: "r", HandID: "h", ActionID: "x"})
 	if code := codeOf(t, err); code != game.CodeUnknownUser {
 		t.Fatalf("unknown user: code = %s", code)
 	}
 	// No pot row for the hand → no_pot, wallet untouched.
-	_, err = f.ledger.Bet(f.ctx, game.BetRequest{UserID: a.ID, Amount: 100, RoomID: "r", HandID: "no-such-hand", ActionID: "x", Version: 1})
+	_, err = f.ledger.Bet(f.ctx, game.BetRequest{UserID: a.ID, Amount: 100, RoomID: "r", HandID: "no-such-hand", ActionID: "x"})
 	if code := codeOf(t, err); code != game.CodeNoPot {
 		t.Fatalf("no pot: code = %s", code)
 	}
@@ -242,7 +185,7 @@ func TestCollectBootTakesEveryBootOpensThePotAndOrdersRowsByUserID(t *testing.T)
 	for i, j := 0, len(reversed)-1; i < j; i, j = i+1, j-1 {
 		reversed[i], reversed[j] = reversed[j], reversed[i]
 	}
-	res := f.boot(room, hand, 200, 1, reversed...)
+	res := f.boot(room, hand, 200, reversed...)
 
 	if res.Persisted != 200 {
 		t.Fatalf("persisted = %d", res.Persisted)
@@ -284,9 +227,6 @@ func TestCollectBootTakesEveryBootOpensThePotAndOrdersRowsByUserID(t *testing.T)
 			t.Fatal("boot rows of one transaction carry different timestamps")
 		}
 	}
-	if v := f.scalar(`SELECT version FROM game_states WHERE room_id = $1`, room); v != 1 {
-		t.Fatalf("version = %d", v)
-	}
 	f.reconcile()
 }
 
@@ -303,7 +243,6 @@ func TestCollectBootIsAllOrNothingAndNamesTheUnfundedPlayer(t *testing.T) {
 	_, err := f.ledger.CollectBoot(f.ctx, game.CollectBootRequest{
 		RoomID: "room-short", HandID: "hand-short", BootAmount: 200,
 		Entries: []game.BootEntry{{UserID: rich.ID, Amount: 200}, {UserID: poor.ID, Amount: 200}, {UserID: other.ID, Amount: 200}},
-		Version: 1, State: snapshot("room-short", game.TableBetting, 1),
 	})
 	var ge *game.GameError
 	if !errors.As(err, &ge) {
@@ -326,9 +265,6 @@ func TestCollectBootIsAllOrNothingAndNamesTheUnfundedPlayer(t *testing.T) {
 	if n := f.count(`SELECT COUNT(*) FROM chip_ledger WHERE hand_id = 'hand-short'`); n != 0 {
 		t.Fatal("ledger rows written despite the refusal")
 	}
-	if n := f.count(`SELECT COUNT(*) FROM game_states WHERE room_id = 'room-short'`); n != 0 {
-		t.Fatal("state written despite the refusal")
-	}
 	f.reconcile()
 }
 
@@ -337,12 +273,12 @@ func TestCollectBootIsAllOrNothingAndNamesTheUnfundedPlayer(t *testing.T) {
 func TestCollectBootTwiceForOneHandIsPersistFailed(t *testing.T) {
 	f := newFixture(t)
 	a, b := f.user("A"), f.user("B")
-	f.boot("room-twice", "hand-twice", 200, 1, a, b)
+	f.boot("room-twice", "hand-twice", 200, a, b)
 	before := f.chips(a.ID)
 
 	_, err := f.ledger.CollectBoot(f.ctx, game.CollectBootRequest{
 		RoomID: "room-twice", HandID: "hand-twice", BootAmount: 200,
-		Entries: []game.BootEntry{{UserID: a.ID, Amount: 200}, {UserID: b.ID, Amount: 200}}, Version: 2,
+		Entries: []game.BootEntry{{UserID: a.ID, Amount: 200}, {UserID: b.ID, Amount: 200}},
 	})
 	var ge *game.GameError
 	if !errors.As(err, &ge) || ge.Code != game.CodePersistFailed {
@@ -363,7 +299,7 @@ func TestCollectBootUnknownUserRefusesTheStart(t *testing.T) {
 	a := f.user("A")
 	_, err := f.ledger.CollectBoot(f.ctx, game.CollectBootRequest{
 		RoomID: "r", HandID: "h-unknown", BootAmount: 200,
-		Entries: []game.BootEntry{{UserID: a.ID, Amount: 200}, {UserID: "zzz-ghost", Amount: 200}}, Version: 1,
+		Entries: []game.BootEntry{{UserID: a.ID, Amount: 200}, {UserID: "zzz-ghost", Amount: 200}},
 	})
 	if code := codeOf(t, err); code != game.CodeUnknownUser {
 		t.Fatalf("code = %s", code)
@@ -382,15 +318,15 @@ func TestSettlePaysTheWinnerWritesEveryRowAndClosesThePot(t *testing.T) {
 	f := newFixture(t)
 	w, l1, l2 := f.user("Winner"), f.user("Loser"), f.user("Quitter")
 	room, hand := "room-settle", "hand-settle"
-	f.boot(room, hand, 200, 1, w, l1, l2)
-	bet := func(u *db.User, amount int64, version int64, id string) {
-		if _, err := f.ledger.Bet(f.ctx, game.BetRequest{UserID: u.ID, Amount: amount, RoomID: room, HandID: hand, ActionID: id, Version: version}); err != nil {
+	f.boot(room, hand, 200, w, l1, l2)
+	bet := func(u *db.User, amount int64, id string) {
+		if _, err := f.ledger.Bet(f.ctx, game.BetRequest{UserID: u.ID, Amount: amount, RoomID: room, HandID: hand, ActionID: id}); err != nil {
 			t.Fatalf("bet %s: %v", id, err)
 		}
 	}
-	bet(w, 400, 2, "b1")
-	bet(l1, 400, 3, "b2")
-	bet(w, 400, 4, "b3")
+	bet(w, 400, "b1")
+	bet(l1, 400, "b2")
+	bet(w, 400, "b3")
 	pot := int64(600 + 1200)
 
 	record := game.HandRecord{
@@ -409,7 +345,6 @@ func TestSettlePaysTheWinnerWritesEveryRowAndClosesThePot(t *testing.T) {
 			{UserID: l1.ID, Delta: 0, DidChaal: true},
 			{UserID: l2.ID, Delta: 0, DidChaal: false, LeftMidHand: true},
 		},
-		Version: 5, State: snapshot(room, game.TableWaiting, 1),
 	})
 	if err != nil {
 		t.Fatalf("settle: %v", err)
@@ -507,15 +442,6 @@ func TestSettlePaysTheWinnerWritesEveryRowAndClosesThePot(t *testing.T) {
 		t.Fatalf("staked %d won %d pot %d", staked, won, pot)
 	}
 
-	// game_states: version rose, hand_id is NULL between hands.
-	var version int64
-	var storedHand *string
-	if err := f.d.Pool.QueryRow(f.ctx, `SELECT version, hand_id FROM game_states WHERE room_id = $1`, room).Scan(&version, &storedHand); err != nil {
-		t.Fatal(err)
-	}
-	if version != 5 || storedHand != nil {
-		t.Fatalf("game_states after settle: version=%d hand_id=%v", version, storedHand)
-	}
 	f.reconcile()
 }
 
@@ -526,11 +452,10 @@ func TestSettleIsIdempotent(t *testing.T) {
 	f := newFixture(t)
 	w, l := f.user("W"), f.user("L")
 	room, hand := "room-idem", "hand-idem"
-	f.boot(room, hand, 200, 1, w, l)
+	f.boot(room, hand, 200, w, l)
 	req := game.SettleRequest{
 		Hand:    game.HandRecord{ID: hand, RoomID: room, HandNo: 1, Pot: 400, WinnerID: ptr(w.ID), WinReason: "last_standing", BootAmount: 200, StartedAt: 1, EndedAt: 2},
 		Entries: []game.SettleEntry{{UserID: w.ID, Delta: 400, IsWinner: true, DidChaal: true}, {UserID: l.ID, Delta: 0}},
-		Version: 2, State: snapshot(room, game.TableWaiting, 1),
 	}
 	if _, err := f.ledger.Settle(f.ctx, req); err != nil {
 		t.Fatal(err)
@@ -538,8 +463,7 @@ func TestSettleIsIdempotent(t *testing.T) {
 	wChips, lChips := f.chips(w.ID), f.chips(l.ID)
 	wUser := f.find(w.ID)
 
-	req.Version = 3 // the Table recomputes the version on retry
-	_, err := f.ledger.Settle(f.ctx, req)
+	_, err := f.ledger.Settle(f.ctx, req) // the Table's retry resends the same request
 	if code := codeOf(t, err); code != game.CodeDuplicateAction {
 		t.Fatalf("second settle code = %s", code)
 	}
@@ -551,9 +475,6 @@ func TestSettleIsIdempotent(t *testing.T) {
 	}
 	if n := f.count(`SELECT COUNT(*) FROM hands WHERE id = $1`, hand); n != 1 {
 		t.Fatalf("hands rows = %d", n)
-	}
-	if v := f.scalar(`SELECT version FROM game_states WHERE room_id = $1`, room); v != 2 {
-		t.Fatalf("version moved on the refused retry: %d", v)
 	}
 	f.reconcile()
 }
@@ -612,9 +533,9 @@ func TestSettleClampsTheBalanceAtZero(t *testing.T) {
 	}
 }
 
-// statsAndRewards.test.js settles with no version/state and no pot row:
-// saveState is skipped and the pot UPDATE matching nothing is tolerated.
-func TestSettleWithoutVersionOrPotStillCountsAndPays(t *testing.T) {
+// statsAndRewards.test.js settles with no pot row: the pot UPDATE matching
+// nothing is tolerated.
+func TestSettleWithoutAPotStillCountsAndPays(t *testing.T) {
 	f := newFixture(t)
 	w, l := f.user("W"), f.user("L")
 	balances, err := f.ledger.Settle(f.ctx, game.SettleRequest{
@@ -626,9 +547,6 @@ func TestSettleWithoutVersionOrPotStillCountsAndPays(t *testing.T) {
 	}
 	if balances[w.ID] != welcome+400 || balances[l.ID] != welcome-200 {
 		t.Fatalf("balances = %v", balances)
-	}
-	if n := f.count(`SELECT COUNT(*) FROM game_states WHERE room_id = 'room-nostate'`); n != 0 {
-		t.Fatal("version 0 must skip the state write")
 	}
 	if n := f.count(`SELECT COUNT(*) FROM hands WHERE id = 'hand-nostate'`); n != 1 {
 		t.Fatal("hands row missing")
@@ -650,11 +568,10 @@ func TestSettleWithoutAWinnerRefundsAndWritesNullWinner(t *testing.T) {
 	f := newFixture(t)
 	a, b := f.user("A"), f.user("B")
 	room, hand := "room-void", "hand-void"
-	f.boot(room, hand, 200, 1, a, b)
+	f.boot(room, hand, 200, a, b)
 	balances, err := f.ledger.Settle(f.ctx, game.SettleRequest{
 		Hand:    game.HandRecord{ID: hand, RoomID: room, HandNo: 1, Pot: 400, WinnerID: nil, WinReason: "all_left", BootAmount: 200, StartedAt: 1, EndedAt: 2},
 		Entries: []game.SettleEntry{{UserID: a.ID, Delta: 200, LeftMidHand: true}, {UserID: b.ID, Delta: 200, LeftMidHand: true}},
-		Version: 2,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -699,7 +616,6 @@ func TestRandomisedPlayKeepsEveryWalletEqualToItsLedger(t *testing.T) {
 	}
 	const boot = int64(200)
 	room := "room-random"
-	var version int64
 
 	for handNo := 1; handNo <= 12; handNo++ {
 		// 2–5 participants.
@@ -709,7 +625,6 @@ func TestRandomisedPlayKeepsEveryWalletEqualToItsLedger(t *testing.T) {
 			participants = append(participants, players[i])
 		}
 		hand := fmt.Sprintf("hand-random-%d", handNo)
-		version++
 		if _, err := f.ledger.CollectBoot(f.ctx, game.CollectBootRequest{
 			RoomID: room, HandID: hand, BootAmount: boot,
 			Entries: func() []game.BootEntry {
@@ -718,7 +633,7 @@ func TestRandomisedPlayKeepsEveryWalletEqualToItsLedger(t *testing.T) {
 					es = append(es, game.BootEntry{UserID: p.ID, Amount: boot})
 				}
 				return es
-			}(), Version: version, State: snapshot(room, game.TableBetting, handNo),
+			}(),
 		}); err != nil {
 			t.Fatalf("hand %d boot: %v", handNo, err)
 		}
@@ -732,19 +647,18 @@ func TestRandomisedPlayKeepsEveryWalletEqualToItsLedger(t *testing.T) {
 		for move := 0; move < 3+rng.Intn(6); move++ {
 			p := participants[rng.Intn(len(participants))]
 			amount := boot * int64(1<<rng.Intn(4))
-			version++
 			actionID := fmt.Sprintf("%s:%d", hand, move)
 			if rng.Intn(6) == 0 {
 				// Replay a previous move: must be refused and change nothing.
 				actionID = fmt.Sprintf("%s:%d", hand, rng.Intn(move+1))
 			}
-			_, err := f.ledger.Bet(f.ctx, game.BetRequest{UserID: p.ID, Amount: amount, RoomID: room, HandID: hand, ActionID: actionID, Version: version})
+			_, err := f.ledger.Bet(f.ctx, game.BetRequest{UserID: p.ID, Amount: amount, RoomID: room, HandID: hand, ActionID: actionID})
 			switch game.CodeOf(err, "") {
 			case "":
 				contributed[p.ID] += amount
 				pot += amount
 			case game.CodeDuplicateAction, game.CodeInsufficientChips:
-				version-- // nothing was written; the table would not bump its version either
+				// nothing was written
 			default:
 				t.Fatalf("hand %d move %d: %v", handNo, move, err)
 			}
@@ -770,10 +684,9 @@ func TestRandomisedPlayKeepsEveryWalletEqualToItsLedger(t *testing.T) {
 			}
 			entries = append(entries, e)
 		}
-		version++
 		if _, err := f.ledger.Settle(f.ctx, game.SettleRequest{
 			Hand:    game.HandRecord{ID: hand, RoomID: room, HandNo: handNo, Pot: pot, WinnerID: winner, WinReason: "show", BootAmount: boot, StartedAt: 1, EndedAt: 2},
-			Entries: entries, Version: version, State: snapshot(room, game.TableWaiting, handNo),
+			Entries: entries,
 		}); err != nil {
 			t.Fatalf("hand %d settle: %v", handNo, err)
 		}
@@ -791,9 +704,6 @@ func TestRandomisedPlayKeepsEveryWalletEqualToItsLedger(t *testing.T) {
 	      OR (p.winner_id IS NOT NULL AND p.amount <> (SELECT COALESCE(SUM(delta),0) FROM chip_ledger l WHERE l.hand_id = p.hand_id AND l.reason = 'hand_win'))`)
 	if mismatched != 0 {
 		t.Fatalf("%d pot(s) do not reconcile with their ledger rows", mismatched)
-	}
-	if v := f.scalar(`SELECT version FROM game_states WHERE room_id = $1`, room); v != version {
-		t.Fatalf("stored version %d != %d", v, version)
 	}
 }
 
@@ -893,20 +803,19 @@ func TestLedgerObservesTransactionMetrics(t *testing.T) {
 	a, b := f.user("A"), f.user("B")
 	room, hand := "room-metrics", "hand-metrics"
 	if _, err := ledger.CollectBoot(f.ctx, game.CollectBootRequest{RoomID: room, HandID: hand, BootAmount: 200,
-		Entries: []game.BootEntry{{UserID: a.ID, Amount: 200}, {UserID: b.ID, Amount: 200}}, Version: 1}); err != nil {
+		Entries: []game.BootEntry{{UserID: a.ID, Amount: 200}, {UserID: b.ID, Amount: 200}}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ledger.Bet(f.ctx, game.BetRequest{UserID: a.ID, Amount: 400, RoomID: room, HandID: hand, ActionID: "m1", Version: 2}); err != nil {
+	if _, err := ledger.Bet(f.ctx, game.BetRequest{UserID: a.ID, Amount: 400, RoomID: room, HandID: hand, ActionID: "m1"}); err != nil {
 		t.Fatal(err)
 	}
-	// Two refusals: a duplicate (duplicate_action) and a stale version.
-	_, _ = ledger.Bet(f.ctx, game.BetRequest{UserID: a.ID, Amount: 400, RoomID: room, HandID: hand, ActionID: "m1", Version: 3})
-	_, _ = ledger.Bet(f.ctx, game.BetRequest{UserID: a.ID, Amount: 400, RoomID: room, HandID: hand, ActionID: "m2", Version: 2})
+	// One refusal inside a transaction: a duplicate (duplicate_action).
+	_, _ = ledger.Bet(f.ctx, game.BetRequest{UserID: a.ID, Amount: 400, RoomID: room, HandID: hand, ActionID: "m1"})
 	// invalid_amount is counted even though no transaction was opened.
-	_, _ = ledger.Bet(f.ctx, game.BetRequest{UserID: a.ID, Amount: 0, RoomID: room, HandID: hand, ActionID: "m3", Version: 4})
+	_, _ = ledger.Bet(f.ctx, game.BetRequest{UserID: a.ID, Amount: 0, RoomID: room, HandID: hand, ActionID: "m3"})
 	if _, err := ledger.Settle(f.ctx, game.SettleRequest{
 		Hand:    game.HandRecord{ID: hand, RoomID: room, HandNo: 1, Pot: 800, WinnerID: ptr(a.ID), WinReason: "show", BootAmount: 200, StartedAt: 1, EndedAt: 2},
-		Entries: []game.SettleEntry{{UserID: a.ID, Delta: 800, IsWinner: true, DidChaal: true}, {UserID: b.ID}}, Version: 3,
+		Entries: []game.SettleEntry{{UserID: a.ID, Delta: 800, IsWinner: true, DidChaal: true}, {UserID: b.ID}},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -935,7 +844,7 @@ func TestLedgerObservesTransactionMetrics(t *testing.T) {
 	if n := sampleCount("game_db_transaction_duration_seconds", map[string]string{"op": "boot"}); n != 1 {
 		t.Fatalf("boot transactions observed = %d", n)
 	}
-	if n := sampleCount("game_db_transaction_duration_seconds", map[string]string{"op": "bet"}); n != 4 {
+	if n := sampleCount("game_db_transaction_duration_seconds", map[string]string{"op": "bet"}); n != 3 {
 		t.Fatalf("bet transactions observed = %d (every attempt, refused ones included)", n)
 	}
 	if n := sampleCount("game_db_transaction_duration_seconds", map[string]string{"op": "settle"}); n != 1 {
@@ -964,7 +873,7 @@ func TestLedgerObservesTransactionMetrics(t *testing.T) {
 		}
 		return 0
 	}
-	for code, want := range map[string]float64{"duplicate_action": 1, "stale_state": 1, "invalid_amount": 1} {
+	for code, want := range map[string]float64{"duplicate_action": 1, "invalid_amount": 1} {
 		if got := counter("game_db_transaction_errors_total", map[string]string{"op": "bet", "code": code}); got != want {
 			t.Fatalf("errors{op=bet,code=%s} = %v, want %v", code, got, want)
 		}

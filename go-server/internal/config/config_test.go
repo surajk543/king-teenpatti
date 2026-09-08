@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -52,6 +53,7 @@ func TestDefaultsMatchNode(t *testing.T) {
 		"Metrics.Enabled": true, "Metrics.Path": "/metrics", "Metrics.Prefix": "game_server_", "Metrics.Token": "",
 		"Chat.MaxHistory": 100, "Chat.MaxLength": 140, "Chat.RateLimit": 5, "Chat.RateWindow": 5 * time.Second,
 		"LogLevel": "info", "PublicDir": "./public", "RedisURL": "",
+		"LiveStateTTL": 24 * time.Hour, "LiveInstanceID": "", "SnapshotFlush": time.Second, "LiveReconcile": 30 * time.Second,
 	}
 	for path, expected := range want {
 		if got := field(t, cfg, path); !reflect.DeepEqual(got, expected) {
@@ -158,6 +160,11 @@ func TestEveryKey(t *testing.T) {
 		{"LOG_LEVEL", "debug", "LogLevel", "debug"},
 		{"PUBLIC_DIR", "/srv/public", "PublicDir", "/srv/public"},
 		{"REDIS_URL", "redis://localhost", "RedisURL", "redis://localhost"},
+		{"LIVE_STATE_TTL_MS", "3600000", "LiveStateTTL", time.Hour},
+		{"LIVE_INSTANCE_ID", "blue-1", "LiveInstanceID", "blue-1"},
+		{"SNAPSHOT_FLUSH_MS", "250", "SnapshotFlush", 250 * time.Millisecond},
+		{"SNAPSHOT_FLUSH_MS", "0", "SnapshotFlush", time.Duration(0)},
+		{"LIVE_RECONCILE_MS", "5000", "LiveReconcile", 5 * time.Second},
 	}
 	for _, row := range rows {
 		t.Run(row.key+"="+row.value, func(t *testing.T) {
@@ -441,6 +448,49 @@ func TestLoadReadsTheProcessEnvironment(t *testing.T) {
 	t.Setenv("PORT", "nope")
 	if _, err := Load(); err == nil {
 		t.Error("Load must fail on a malformed PORT")
+	}
+}
+
+// TestLiveStateKeys: REDIS_URL is honoured (no longer "ignored"),
+// LIVE_STATE_TTL_MS is a millisecond duration with the strict-integer rule,
+// and LIVE_INSTANCE_ID defaults to "<hostname>:<pid>" only through Load —
+// FromEnv keeps "" so Defaults() stays host-independent.
+func TestLiveStateKeys(t *testing.T) {
+	cfg := mustLoad(t, map[string]string{"REDIS_URL": "redis://127.0.0.1:6379/0", "LIVE_STATE_TTL_MS": "1000"})
+	if cfg.RedisURL != "redis://127.0.0.1:6379/0" || cfg.LiveStateTTL != time.Second || cfg.LiveInstanceID != "" {
+		t.Errorf("FromEnv: %+v", cfg)
+	}
+	if _, err := FromEnv(env(map[string]string{"LIVE_STATE_TTL_MS": "1d"})); err == nil || !strings.Contains(err.Error(), "LIVE_STATE_TTL_MS") {
+		t.Errorf("malformed LIVE_STATE_TTL_MS must fail naming the key, got %v", err)
+	}
+	if got := mustLoad(t, map[string]string{"LIVE_STATE_TTL_MS": ""}); got.LiveStateTTL != 24*time.Hour {
+		t.Errorf("empty LIVE_STATE_TTL_MS must keep the default, got %s", got.LiveStateTTL)
+	}
+
+	want := DefaultInstanceID()
+	host, _ := os.Hostname()
+	if !strings.HasSuffix(want, ":"+strconv.Itoa(os.Getpid())) || (host != "" && !strings.HasPrefix(want, host+":")) {
+		t.Errorf("DefaultInstanceID() = %q, want <hostname>:<pid>", want)
+	}
+	for _, env := range []struct {
+		set   bool
+		value string
+	}{{false, ""}, {true, ""}} {
+		os.Unsetenv("LIVE_INSTANCE_ID")
+		if env.set {
+			t.Setenv("LIVE_INSTANCE_ID", env.value)
+		}
+		cfg, err := Load()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.LiveInstanceID != want {
+			t.Errorf("LIVE_INSTANCE_ID set=%v %q → %q, want %q", env.set, env.value, cfg.LiveInstanceID, want)
+		}
+	}
+	t.Setenv("LIVE_INSTANCE_ID", "green-2")
+	if cfg, _ := Load(); cfg.LiveInstanceID != "green-2" {
+		t.Errorf("explicit LIVE_INSTANCE_ID must win: %q", cfg.LiveInstanceID)
 	}
 }
 
