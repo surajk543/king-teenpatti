@@ -520,7 +520,7 @@ test('cardinality: no label carries an identifier, address or raw path', async (
   // (LIVE_STATE_PLAN.md). Both are fixed vocabularies of method names — the
   // point of the check is that no identifier can ever appear here.
   const DB_OPS = ['bet', 'boot', 'settle'];
-  const LIVE_OPS = ['save_table', 'load_table', 'delete_table', 'list_tables', 'append_chat', 'load_chat',
+  const LIVE_OPS = ['save_table', 'load_table', 'delete_table', 'list_tables', 'count_tables', 'list_summaries', 'list_seats', 'append_chat', 'load_chat',
     'delete_chat', 'set_seated', 'clear_seated', 'seat_of', 'set_online', 'set_offline', 'online_count',
     'put_resume_offer', 'take_resume_offer', 'delete_resume_offer', 'publish_table', 'retire_table',
     'candidates', 'ping', 'close', 'other'];

@@ -412,3 +412,52 @@ func TestRestartWithEmptyLiveStoreRestoresFromGameStates(t *testing.T) {
 	}
 	_ = idB
 }
+
+// /health is polled by uptime checks, dashboards and the load generator. It
+// must cost the live store ONE call whatever the table count — it used to
+// enumerate every table, which on production (9 Sep 2026) meant ~1,130 Redis
+// round trips per health check, drove /health p95 to 1.1 s at 7,000 players
+// and eventually timed it out while the game itself was serving 1,598
+// actions a second.
+func TestHealthAsksTheLiveStoreForACountNotAListing(t *testing.T) {
+	database := dbtest.Open(t, "app")
+	store := livetest.New()
+	app := newAppOn(t, testConfig(t, publicDir(t)), database, store)
+	ts := httptest.NewServer(app.Handler())
+	defer ts.Close()
+
+	// A few tables so a listing would be visibly more expensive than a count.
+	for _, id := range []string{"r1", "r2", "r3", "r4", "r5"} {
+		if err := store.SaveTable(context.Background(), id, 1, []byte(`{}`), time.Hour); err != nil {
+			t.Fatal(err)
+		}
+	}
+	listsBefore, countsBefore := store.Calls(livetest.OpListTables), store.Calls(livetest.OpCountTables)
+
+	for i := 0; i < 3; i++ {
+		res, err := http.Get(ts.URL + "/health")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var body struct {
+			Live struct {
+				OK     bool `json:"ok"`
+				Tables int  `json:"tables"`
+			} `json:"live"`
+		}
+		if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+		if !body.Live.OK || body.Live.Tables != 5 {
+			t.Fatalf("/health live = %+v, want ok with 5 tables", body.Live)
+		}
+	}
+
+	if got := store.Calls(livetest.OpListTables) - listsBefore; got != 0 {
+		t.Fatalf("/health enumerated the store %d time(s); it must only count", got)
+	}
+	if got := store.Calls(livetest.OpCountTables) - countsBefore; got != 3 {
+		t.Fatalf("/health made %d count calls for 3 requests, want 3", got)
+	}
+}

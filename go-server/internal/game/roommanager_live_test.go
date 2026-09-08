@@ -491,10 +491,12 @@ func (d *durableFake) LoadSnapshots(context.Context) ([]game.DurableSnapshot, er
 	return append([]game.DurableSnapshot(nil), d.rows...), nil
 }
 
-func (d *durableFake) HandContributions(_ context.Context, handID string) (map[string]int64, error) {
-	out := map[string]int64{}
-	for k, v := range d.contributions[handID] {
-		out[k] = v
+// HandContributions returns the hand's totals in a stable ledger order (by
+// user id — the fixtures never depend on which player moved last).
+func (d *durableFake) HandContributions(_ context.Context, handID string) ([]game.LedgerContribution, error) {
+	out := []game.LedgerContribution{}
+	for _, userID := range sortedKeys(d.contributions[handID]) {
+		out = append(out, game.LedgerContribution{UserID: userID, Amount: d.contributions[handID][userID]})
 	}
 	return out, nil
 }
@@ -589,21 +591,14 @@ func TestRoomsRestoreFallsBackToTheDurableSnapshotsAndReconcilesThem(t *testing.
 	onTurnBefore := turnUser(t, t1)
 	_ = onTurnBefore
 
-	// t2: a waiting table with C alone, also only in the durable rows.
+	// t2: a waiting table with C alone. It has never dealt, so PostgreSQL
+	// holds NOTHING for it — the durable copy is written at the two hand
+	// boundaries only, and a table with no hand has nothing at stake
+	// (LIVE_STATE_PLAN.md, "The durable backstop").
 	c := f1.player("C", rmStart)
 	f1.clock.Advance(time.Second)
 	t2 := f1.mustQuickJoin(c, rmBoot, "seen")
-	durable.rows = append(durable.rows, sink.durable().rows...)
-	// Deduplicate rows by room (t1 must stay the frozen one).
-	seen := map[string]bool{}
-	var rows []game.DurableSnapshot
-	for _, row := range durable.rows {
-		if !seen[row.RoomID] {
-			seen[row.RoomID] = true
-			rows = append(rows, row)
-		}
-	}
-	durable.rows = rows
+	eq(t, len(sink.durable().rows), 1, "a table that never dealt wrote no durable row")
 
 	// The old process dies without a suspend, and Redis is lost with it.
 	empty := livetest.New()
@@ -614,9 +609,9 @@ func TestRoomsRestoreFallsBackToTheDurableSnapshotsAndReconcilesThem(t *testing.
 		t.Fatalf("restore: %v", err)
 	}
 	eq(t, report.FromLive, 0, "Redis had nothing")
-	eq(t, report.FromDurable, 2, "both tables came from game_states")
-	eq(t, report.Tables, 2, "two tables")
-	eq(t, report.Reconciled, 1, "the stale hand was corrected")
+	eq(t, report.FromDurable, 1, "the table with a hand came from game_states")
+	eq(t, report.Tables, 1, "and only that one — t2 never dealt, so it was never written")
+	eq(t, report.Reconciled, 1, "the hand-start snapshot was brought forward")
 	eq(t, report.Rejected, 0, "nothing rejected")
 	eq(t, report.HandsInProgress, 1, "one hand")
 	eq(t, report.HandIDs[0], handID, "its id")
@@ -643,11 +638,11 @@ func TestRoomsRestoreFallsBackToTheDurableSnapshotsAndReconcilesThem(t *testing.
 	stored, ok := empty.Stored(t1.ID())
 	eq(t, ok, true, "t1 written back into the live store")
 	eq(t, stored.Seq > durable.rows[0].Seq, true, "under a newer seq")
-	if _, ok := empty.Stored(t2.ID()); !ok {
-		t.Fatal("t2 written back")
+	if _, ok := empty.Stored(t2.ID()); ok {
+		t.Fatal("t2 had no durable row and must not come back from one")
 	}
 	eq(t, empty.Seats()[a.ID], t1.ID(), "seat index refilled")
-	eq(t, empty.Seats()[c.ID], t2.ID(), "seat index refilled")
+	eq(t, empty.Seats()[c.ID], "", "C simply re-joins: nothing of theirs was at stake")
 	if _, ok := empty.Index()[t1.ID()]; !ok {
 		t.Fatal("index refilled")
 	}
@@ -659,7 +654,12 @@ func TestRoomsRestoreFallsBackToTheDurableSnapshotsAndReconcilesThem(t *testing.
 	}
 }
 
-func TestRoomsRestoreRejectsADurableSnapshotTooStaleToTrust(t *testing.T) {
+// A durable snapshot is refused only when it cannot account for the money:
+// a player the ledger has staking in this hand who is not at the table and
+// has no contribution record. Everything the snapshot CAN account for — a
+// packed seat, a leaver, three rounds of betting since the deal — is
+// reconciled, not rejected (TestReconcileWithLedgerRejectsOnlyWhatCannotBeRebuilt).
+func TestRoomsRestoreRejectsADurableSnapshotItCannotAccountFor(t *testing.T) {
 	store := livetest.New()
 	sink := newSinkFake()
 	f1 := newRoomsFixture(t, withStoreAndDurable(store, sink, nil, "old"))
@@ -668,33 +668,41 @@ func TestRoomsRestoreRejectsADurableSnapshotTooStaleToTrust(t *testing.T) {
 	f1.mustQuickJoin(b, rmBoot, "blind")
 	f1.mustQuickJoin(c, rmBoot, "blind")
 	f1.clock.Advance(f1.cfg.NextHandDelay)
-	durable := sink.durable() // frozen right after the deal
-	// Then: one player chaals and packs (ledger has their chaal; the frozen
-	// snapshot has them active with only the boot — fine so far), and the
-	// NEXT player chaals too. Make it too stale: pack the first bettor in
-	// the frozen snapshot by hand so the ledger shows a bet from a packed seat.
+	durable := sink.durable() // the hand-start row, frozen right after the deal
 	first := turnUser(t, t1)
 	if _, err := t1.Act(first, game.ActionChaal, game.ActRequest{}); err != nil {
 		t.Fatal(err)
 	}
 	handID, totals := ledgerTotals(t, t1)
 	durable.contributions[handID] = totals
+	// Corrupt the row so it cannot account for the first bettor at all:
+	// neither a seat nor a contribution record, while the ledger has their
+	// boot and their chaal. There is nothing to rebuild the hand around.
 	for i, row := range durable.rows {
 		var snap game.Snapshot
 		if err := json.Unmarshal(row.State, &snap); err != nil {
 			t.Fatal(err)
 		}
-		for _, s := range snap.Seats {
+		for j, s := range snap.Seats {
 			if s != nil && s.UserID == first {
-				s.Status = game.SeatPacked
+				snap.Seats[j] = nil
 			}
 		}
-		for j := range snap.Hand.Contributions {
-			if snap.Hand.Contributions[j].UserID == first {
-				snap.Hand.Contributions[j].Status = game.SeatPacked
+		kept := snap.Hand.Contributions[:0]
+		for _, cr := range snap.Hand.Contributions {
+			if cr.UserID != first {
+				kept = append(kept, cr)
 			}
 		}
-		snap.Hand.PackedUserIDs = []string{first}
+		snap.Hand.Contributions = kept
+		if snap.Hand.TurnSeat >= 0 && snap.Seats[snap.Hand.TurnSeat] == nil {
+			for j, s := range snap.Seats {
+				if s != nil {
+					snap.Hand.TurnSeat = j
+					break
+				}
+			}
+		}
 		raw, _ := json.Marshal(snap)
 		durable.rows[i].State = raw
 	}
@@ -710,7 +718,7 @@ func TestRoomsRestoreRejectsADurableSnapshotTooStaleToTrust(t *testing.T) {
 		t.Fatal("a rejected room is not registered")
 	}
 	eq(t, len(report.HandIDs), 0, "its hand is left for the refund")
-	eq(t, strings.Contains(f2.logText(), "too stale"), true, "logged")
+	eq(t, strings.Contains(f2.logText(), "cannot be reconciled"), true, "logged")
 }
 
 func TestRoomsRestorePrefersTheLiveStoreOverTheDurableCopy(t *testing.T) {
@@ -823,4 +831,188 @@ func mustHand(t *testing.T, store *livetest.Store, roomID string) bool {
 		t.Fatal(err)
 	}
 	return snap.Hand != nil
+}
+
+// ------------------------------------------------------ leaks in the store
+
+// Production, 9 Sep 2026: zero players, zero tables, and Redis still holding
+// 4,715 `kt:seat:<userId>` keys and 141 `kt:summary:<roomId>` hashes. Seat
+// keys carry no ttl at all, so a departure that misses ClearSeated leaks one
+// for good. This walks every way a player or a table can leave and insists
+// the store is empty of both at the end.
+func TestAFullLifecycleLeavesNoSeatOrSummaryBehind(t *testing.T) {
+	store := livetest.New()
+	f := newRoomsFixture(t, withStore(store, "node-1"))
+	ctx := context.Background()
+
+	// 1. join → play → leave, one player at a time, the table destroyed
+	// when the last one goes.
+	a, b := f.player("A", rmStart), f.player("B", rmStart)
+	t1 := f.mustQuickJoin(a, rmBoot, "blind")
+	f.mustQuickJoin(b, rmBoot, "blind")
+	f.clock.Advance(f.cfg.NextHandDelay)
+	if !t1.HasHand() {
+		t.Fatal("t1 should have dealt")
+	}
+	if _, err := t1.Act(turnUser(t, t1), game.ActionChaal, game.ActRequest{}); err != nil {
+		t.Fatal(err)
+	}
+	f.mustLeave(a.ID, game.LeaveReasonLeft)
+	f.mustLeave(b.ID, game.LeaveReasonLeft)
+
+	// 2. kick: a player who cannot cover the boot is shown out by the table
+	// and removed by the manager's hook.
+	c := f.player("C", rmBoot-1)
+	t2 := f.rooms.CreateTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"})
+	f.mustJoin(t2, c)
+	f.awaitKick(2 * time.Second)
+	eventually(t, 2*time.Second, func() bool { _, seated := store.Seats()[c.ID]; return !seated }, "kick clears the seat")
+
+	// 3. consolidation: two idle singles merge, and the emptied table goes.
+	d, e := f.player("D", rmStart), f.player("E", rmStart)
+	t3 := f.rooms.CreateTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "seen"})
+	f.mustJoin(t3, d)
+	f.clock.Advance(time.Second)
+	t4 := f.rooms.CreateTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "seen"})
+	f.mustJoin(t4, e)
+	if moves := f.mustConsolidate(); len(moves) == 0 {
+		t.Fatal("the two singles should have merged")
+	}
+	if _, indexed := store.Index()[t4.ID()]; indexed {
+		t.Fatal("the emptied source table is still in the matchmaking index")
+	}
+
+	// 4. the empty-table sweep.
+	t5 := f.rooms.CreateTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"})
+	if _, indexed := store.Index()[t5.ID()]; !indexed {
+		t.Fatal("a new public table publishes a summary")
+	}
+	f.clock.Advance(31 * time.Second)
+	if err := f.rooms.SweepEmptyTables(); err != nil {
+		t.Fatal(err)
+	}
+	if _, indexed := store.Index()[t5.ID()]; indexed {
+		t.Fatal("a swept table left its summary behind")
+	}
+
+	// 5. shutdown, with players still seated and a private table open.
+	g := f.player("G", rmStart)
+	private := f.rooms.CreateTable(game.CreateTableOptions{IsPrivate: true, Category: "seen"})
+	f.mustJoin(private, g)
+	shutdownCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	if err := f.rooms.Shutdown(shutdownCtx); err != nil {
+		t.Fatalf("shutdown: %v", err)
+	}
+
+	eq(t, len(f.rooms.LiveTables()), 0, "no tables left")
+	if seats := store.Seats(); len(seats) != 0 {
+		t.Fatalf("kt:seat leak: %v", seats)
+	}
+	if index := store.Index(); len(index) != 0 {
+		t.Fatalf("kt:summary leak: %v", index)
+	}
+}
+
+// The belt-and-braces sweep: whatever the reason an entry was left behind —
+// a table whose snapshot expired, a process that never restored it, a
+// ClearSeated that failed against a store that was briefly down — the next
+// reconcile tick removes it (RoomManager.sweepStrays).
+func TestReconcileLiveSweepsStraySeatsAndSummaries(t *testing.T) {
+	store := livetest.New()
+	f := newRoomsFixture(t, withStore(store, "node-1"))
+	ctx := context.Background()
+
+	a, b := f.player("A", rmStart), f.player("B", rmStart)
+	t1 := f.mustQuickJoin(a, rmBoot, "blind")
+	private := f.rooms.CreateTable(game.CreateTableOptions{IsPrivate: true, Category: "seen"})
+	f.mustJoin(private, b)
+
+	// What a previous process left in the store: seats for players nobody
+	// has, and a summary for a table that no longer exists.
+	for _, ghost := range []string{"ghost-1", "ghost-2", "ghost-3"} {
+		if err := store.SetSeated(ctx, ghost, "room-that-is-gone"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := store.PublishTable(ctx, live.TableSummary{
+		RoomID: "room-that-is-gone", Category: "blind", BootAmount: rmBoot, Players: 3,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	eq(t, len(store.Seats()), 5, "five seat entries before the sweep")
+
+	report := f.rooms.ReconcileLive(ctx)
+	eq(t, report.Healthy, true, "store answered")
+	eq(t, report.StaleSeats, 3, "three orphaned seats removed")
+	eq(t, report.StaleSummaries, 1, "one orphaned summary removed")
+	eq(t, report.Errors, 0, "no store errors")
+
+	seats := store.Seats()
+	eq(t, len(seats), 2, "only the real seats survive")
+	eq(t, seats[a.ID], t1.ID(), "A keeps their seat")
+	eq(t, seats[b.ID], private.ID(), "and so does a player at a private table")
+	index := store.Index()
+	eq(t, len(index), 1, "only the real public summary survives")
+	if _, ok := index[t1.ID()]; !ok {
+		t.Fatal("the live table was retired by its own sweep")
+	}
+	eq(t, strings.Contains(f.logText(), "live store strays removed"), true, "logged")
+
+	// Idempotent: a second pass finds nothing left to do.
+	again := f.rooms.ReconcileLive(ctx)
+	eq(t, again.StaleSeats, 0, "nothing left")
+	eq(t, again.StaleSummaries, 0, "nothing left")
+	eq(t, again.Seats, 2, "and the real ones were re-set, not removed")
+}
+
+// A stored table that cannot be rebuilt takes everything it owns with it:
+// the snapshot, the chat, its summary and its players' seat entries. Leaving
+// them was one of the two leak paths found on production.
+func TestRestoreDroppingATableAlsoDropsItsSeatsAndSummary(t *testing.T) {
+	store := livetest.New()
+	f1, ids, players := playingFixture(t, store)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := f1.rooms.Suspend(ctx); err != nil {
+		t.Fatalf("suspend: %v", err)
+	}
+	t1 := ids[0]
+	if _, ok := store.Index()[t1]; !ok {
+		t.Fatal("a suspended public table keeps its summary for the next process")
+	}
+
+	// t1's snapshot is corrupted between the two processes.
+	if err := store.SaveTable(ctx, t1, 1<<40, []byte("{not a snapshot"), time.Hour); err != nil {
+		t.Fatal(err)
+	}
+
+	f2 := newRoomsFixture(t, withStore(store, "new"))
+	f2.clock.Advance(f1.clock.Now().Sub(rmEpoch) + time.Second)
+	report, err := f2.rooms.Restore(ctx)
+	if err != nil {
+		t.Fatalf("restore: %v", err)
+	}
+	eq(t, report.Dropped, 1, "the unparseable table was dropped")
+	if f2.rooms.GetTable(t1) != nil {
+		t.Fatal("a dropped table is not registered")
+	}
+	if _, ok := store.Index()[t1]; ok {
+		t.Fatal("a dropped table left its summary behind")
+	}
+	// A snapshot that will not even parse names no seats, so A's and B's
+	// entries cannot be cleared by name here — that is what the reconciler's
+	// sweep is for, on the very next tick.
+	report2 := f2.rooms.ReconcileLive(ctx)
+	eq(t, report2.StaleSeats, 2, "A and B, whose table never came back")
+	eq(t, report2.StaleSummaries, 0, "the summary was already retired by the drop")
+	seats := store.Seats()
+	if _, ok := seats[players["A"].ID]; ok {
+		t.Fatalf("a dropped table left seat keys behind: %v", seats)
+	}
+	if _, ok := seats[players["B"].ID]; ok {
+		t.Fatalf("a dropped table left seat keys behind: %v", seats)
+	}
+	eq(t, seats[players["C"].ID], ids[1], "a table that did restore keeps its seats")
+	eq(t, seats[players["D"].ID], ids[3], "including a private one")
 }

@@ -209,6 +209,23 @@ func (r *Redis) DeleteTable(ctx context.Context, roomID string) error {
 // ListTables implements Store: SMEMBERS, then one pipelined HGET seq per
 // member; members whose hash has expired are dropped from the set. Sorted
 // by room id.
+// CountTables is one SCARD on the index set — O(1), whatever the table count.
+// This is what /health calls; ListTables would be one round trip per table
+// (1,130 commands per health check at 7,000 players, measured on production
+// 9 Sep 2026, which pushed /health p95 to 1.1 s and eventually timed it out).
+// The set can briefly hold a room whose hash has expired, so the number may
+// run a little high until ListTables sweeps it; that runs at startup and in
+// the reconciler.
+func (r *Redis) CountTables(ctx context.Context) (int, error) {
+	ctx, cancel := r.bound(ctx)
+	defer cancel()
+	n, err := r.client.SCard(ctx, r.keyTables()).Result()
+	if err != nil {
+		return 0, err
+	}
+	return int(n), nil
+}
+
 func (r *Redis) ListTables(ctx context.Context) ([]TableRef, error) {
 	ctx, cancel := r.bound(ctx)
 	defer cancel()
@@ -310,6 +327,77 @@ func (r *Redis) ClearSeated(ctx context.Context, userID string) error {
 	ctx, cancel := r.bound(ctx)
 	defer cancel()
 	return r.client.Del(ctx, r.keySeat(userID)).Err()
+}
+
+// scanSuffixes walks every key matching prefix+pattern with SCAN — never
+// KEYS, which blocks the whole server — and returns what follows the prefix
+// (the user id, the room id). Each round trip is bounded on its own so a
+// large keyspace cannot hang on a single deadline; the caller's ctx bounds
+// the walk as a whole.
+func (r *Redis) scanSuffixes(ctx context.Context, infix string) ([]string, error) {
+	match := r.prefix + infix + "*"
+	trim := len(r.prefix + infix)
+	seen := make(map[string]struct{})
+	out := []string{}
+	var cursor uint64
+	for {
+		cctx, cancel := r.bound(ctx)
+		keys, next, err := r.client.Scan(cctx, cursor, match, scanBatch).Result()
+		cancel()
+		if err != nil {
+			return nil, err
+		}
+		for _, key := range keys {
+			// SCAN may return a key more than once across cursors.
+			if len(key) <= trim {
+				continue
+			}
+			id := key[trim:]
+			if _, dup := seen[id]; dup {
+				continue
+			}
+			seen[id] = struct{}{}
+			out = append(out, id)
+		}
+		cursor = next
+		if cursor == 0 {
+			return out, nil
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+	}
+}
+
+// ListSeats implements Store: SCAN kt:seat:* then one pipelined MGET.
+func (r *Redis) ListSeats(ctx context.Context) (map[string]string, error) {
+	users, err := r.scanSuffixes(ctx, "seat:")
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]string, len(users))
+	if len(users) == 0 {
+		return out, nil
+	}
+	cmds := make([]*redis.StringCmd, len(users))
+	bctx, cancel := r.bound(ctx)
+	defer cancel()
+	if _, err := r.client.Pipelined(bctx, func(p redis.Pipeliner) error {
+		for i, userID := range users {
+			cmds[i] = p.Get(bctx, r.keySeat(userID))
+		}
+		return nil
+	}); err != nil && !errors.Is(err, redis.Nil) {
+		return nil, err
+	}
+	for i, cmd := range cmds {
+		roomID, err := cmd.Result()
+		if err != nil {
+			continue // expired or deleted between the scan and the read
+		}
+		out[users[i]] = roomID
+	}
+	return out, nil
 }
 
 // SeatOf implements Store.
@@ -430,6 +518,44 @@ func (r *Redis) RetireTable(ctx context.Context, roomID, category string, bootAm
 		return nil
 	})
 	return err
+}
+
+// ListSummaries implements Store: SCAN kt:summary:* then one pipelined
+// HGETALL. Unlike Candidates this is not per bucket — a stray summary is
+// exactly one whose bucket nobody looks in any more.
+func (r *Redis) ListSummaries(ctx context.Context) ([]TableSummary, error) {
+	rooms, err := r.scanSuffixes(ctx, "summary:")
+	if err != nil {
+		return nil, err
+	}
+	out := []TableSummary{}
+	if len(rooms) == 0 {
+		return out, nil
+	}
+	cmds := make([]*redis.MapStringStringCmd, len(rooms))
+	bctx, cancel := r.bound(ctx)
+	defer cancel()
+	if _, err := r.client.Pipelined(bctx, func(p redis.Pipeliner) error {
+		for i, roomID := range rooms {
+			cmds[i] = p.HGetAll(bctx, r.keySummary(roomID))
+		}
+		return nil
+	}); err != nil && !errors.Is(err, redis.Nil) {
+		return nil, err
+	}
+	for i, cmd := range cmds {
+		fields, err := cmd.Result()
+		if err != nil || len(fields) == 0 {
+			continue // gone between the scan and the read
+		}
+		summary := summaryFromFields(fields)
+		if summary.RoomID == "" {
+			summary.RoomID = rooms[i]
+		}
+		out = append(out, summary)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].RoomID < out[j].RoomID })
+	return out, nil
 }
 
 // Candidates implements Store: ZREVRANGE the bucket, HGETALL every summary

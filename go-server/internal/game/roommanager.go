@@ -625,24 +625,33 @@ func (rm *RoomManager) GetTableByCode(code string) *Table {
 // playerRooms), or nil.
 func (rm *RoomManager) GetTableForPlayer(userID string) *Table {
 	rm.mu.Lock()
-	defer rm.mu.Unlock()
-	return rm.seatedTableLocked(userID)
+	t, dropped := rm.seatedTableLocked(userID)
+	rm.mu.Unlock()
+	if dropped {
+		rm.liveClearSeated(userID)
+	}
+	return t
 }
 
 // seatedTableLocked is getTableForPlayer under mu: the table the index
 // points at, or nil. An index entry naming a table that is no longer
 // registered is stale (Node's getTable returned null for it too) and is
-// dropped on sight so it cannot block a later join.
-func (rm *RoomManager) seatedTableLocked(userID string) *Table {
+// dropped on sight so it cannot block a later join; `dropped` says so, and
+// EVERY caller that leaves the player unseated must then clear the live
+// store's mirror of that entry (liveClearSeated). Seat keys carry no ttl, so
+// one dropped silently is one that stays in Redis for good — the
+// `kt:seat:<userId>` leak found on production, 9 Sep 2026.
+func (rm *RoomManager) seatedTableLocked(userID string) (t *Table, dropped bool) {
 	roomID, ok := rm.playerRooms[userID]
 	if !ok {
-		return nil
+		return nil, false
 	}
-	t := rm.tables[roomID]
+	t = rm.tables[roomID]
 	if t == nil {
 		delete(rm.playerRooms, userID)
+		return nil, true
 	}
-	return t
+	return t, false
 }
 
 // tablesLocked returns every registered table in creation order. mu held.
@@ -815,7 +824,7 @@ func (rm *RoomManager) QuickJoin(user Player, opts QuickJoinOptions) (*Table, er
 	for attempt := 0; ; attempt++ {
 		started := time.Now()
 		rm.mu.Lock()
-		if rm.seatedTableLocked(user.ID) != nil {
+		if seated, _ := rm.seatedTableLocked(user.ID); seated != nil {
 			rm.mu.Unlock()
 			return nil, NewGameError(CodeAlreadyInRoom, msgAlreadyInRoom)
 		}
@@ -904,9 +913,12 @@ func (rm *RoomManager) SwitchTable(user Player) (SwitchResult, error) {
 	defer ul.Unlock()
 
 	rm.mu.Lock()
-	current := rm.seatedTableLocked(user.ID)
+	current, dropped := rm.seatedTableLocked(user.ID)
 	if current == nil {
 		rm.mu.Unlock()
+		if dropped {
+			rm.liveClearSeated(user.ID)
+		}
 		return SwitchResult{}, NewGameError(CodeNotInRoom, msgNotAtATable)
 	}
 	if current.IsPrivate() {
@@ -981,7 +993,7 @@ func (rm *RoomManager) seat(table *Table, user Player, socketID string) error {
 		return ErrTableDestroyed
 	}
 	rm.mu.Lock()
-	if rm.seatedTableLocked(user.ID) != nil {
+	if seated, _ := rm.seatedTableLocked(user.ID); seated != nil {
 		rm.mu.Unlock()
 		return NewGameError(CodeAlreadyInRoom, msgAlreadyInRoom)
 	}
@@ -1011,7 +1023,7 @@ func (rm *RoomManager) seatHeld(table *Table, user Player, socketID string) erro
 		rm.mu.Unlock()
 		return ErrTableDestroyed
 	}
-	if rm.seatedTableLocked(user.ID) != nil {
+	if seated, _ := rm.seatedTableLocked(user.ID); seated != nil {
 		rm.releaseHoldLocked(roomID)
 		rm.mu.Unlock()
 		return NewGameError(CodeAlreadyInRoom, msgAlreadyInRoom)
@@ -1093,9 +1105,17 @@ func (rm *RoomManager) vacate(userID, reason string) (*Table, error) {
 // and the removal cannot be split by another transition of the same player.
 func (rm *RoomManager) vacateFrom(userID, roomID, reason string) (*Table, error) {
 	rm.mu.Lock()
-	table := rm.seatedTableLocked(userID)
+	table, dropped := rm.seatedTableLocked(userID)
 	if table == nil || (roomID != "" && table.ID() != roomID) {
 		rm.mu.Unlock()
+		if dropped {
+			// The index named a table that is gone, so seatedTableLocked
+			// dropped the entry: the mirror has to go with it or the seat key
+			// is orphaned (it has no ttl). A player seated somewhere ELSE
+			// (roomID names a table they have left) keeps their key — it is
+			// their real seat.
+			rm.liveClearSeated(userID)
+		}
 		return nil, nil
 	}
 	// Off the index first: a leave can end a hand, and nothing that happens

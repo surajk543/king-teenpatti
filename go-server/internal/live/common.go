@@ -25,6 +25,12 @@ const (
 	// its tables' chat and summaries forever. Seat keys (kt:seat:<userId>)
 	// carry no ttl — RoomManager clears them explicitly.
 	auxTTL = 24 * time.Hour
+
+	// scanBatch is the COUNT hint of the SCAN cursors behind ListSeats and
+	// ListSummaries (the reconciler's leak sweep). Big enough that a few
+	// thousand keys take a handful of round trips, small enough that no
+	// single SCAN blocks Redis noticeably.
+	scanBatch = 500
 )
 
 // HandIDOf extracts hand.id from a game.Snapshot JSON document ("" when the

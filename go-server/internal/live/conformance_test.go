@@ -133,6 +133,42 @@ func runConformance(t *testing.T, newHarness func(t *testing.T) *harness) {
 		}
 	})
 
+	// /health calls CountTables on every request, so it must be cheap AND it
+	// must agree with the listing — otherwise the number on the dashboard is
+	// a different number from the one a restore would rebuild.
+	t.Run("CountTablesAgreesWithListTables", func(t *testing.T) {
+		h := newHarness(t)
+		n, err := h.store.CountTables(ctx)
+		must(t, err)
+		if n != 0 {
+			t.Fatalf("empty CountTables = %d, want 0", n)
+		}
+		for _, id := range []string{"a", "b", "c", "d"} {
+			must(t, h.store.SaveTable(ctx, id, 1, []byte(id), h.ttl))
+		}
+		must(t, h.store.DeleteTable(ctx, "b"))
+		must(t, h.store.SaveTable(ctx, "a", 2, []byte("a2"), h.ttl))
+		refs, err := h.store.ListTables(ctx)
+		must(t, err)
+		n, err = h.store.CountTables(ctx)
+		must(t, err)
+		if n != len(refs) {
+			t.Fatalf("CountTables = %d, ListTables = %d", n, len(refs))
+		}
+		if n != 3 {
+			t.Fatalf("CountTables = %d, want 3", n)
+		}
+		// After everything expires both agree on nothing.
+		h.advance(h.ttl + time.Second)
+		refs, err = h.store.ListTables(ctx)
+		must(t, err)
+		n, err = h.store.CountTables(ctx)
+		must(t, err)
+		if n != len(refs) || n != 0 {
+			t.Fatalf("after expiry CountTables = %d, ListTables = %d, want 0", n, len(refs))
+		}
+	})
+
 	t.Run("ChatCapAndOrder", func(t *testing.T) {
 		h := newHarness(t)
 		msgs, err := h.store.LoadChat(ctx, "r1")
@@ -198,6 +234,62 @@ func runConformance(t *testing.T, newHarness func(t *testing.T) *harness) {
 			t.Fatalf("u2 lost its seat: %q", room)
 		}
 		must(t, h.store.ClearSeated(ctx, "nobody")) // idempotent
+	})
+
+	// ListSeats and ListSummaries are the sweep side of the mirror: what the
+	// store holds that memory may no longer have (RoomManager.ReconcileLive).
+	t.Run("ListSeatsAndSummaries", func(t *testing.T) {
+		h := newHarness(t)
+		seats, err := h.store.ListSeats(ctx)
+		must(t, err)
+		if len(seats) != 0 {
+			t.Fatalf("empty ListSeats = %v", seats)
+		}
+		summaries, err := h.store.ListSummaries(ctx)
+		must(t, err)
+		if len(summaries) != 0 {
+			t.Fatalf("empty ListSummaries = %v", summaries)
+		}
+
+		must(t, h.store.SetSeated(ctx, "u1", "r1"))
+		must(t, h.store.SetSeated(ctx, "u2", "r1"))
+		must(t, h.store.SetSeated(ctx, "u3", "r2"))
+		seats, err = h.store.ListSeats(ctx)
+		must(t, err)
+		if len(seats) != 3 || seats["u1"] != "r1" || seats["u3"] != "r2" {
+			t.Fatalf("ListSeats = %v", seats)
+		}
+		must(t, h.store.ClearSeated(ctx, "u2"))
+		seats, err = h.store.ListSeats(ctx)
+		must(t, err)
+		if len(seats) != 2 {
+			t.Fatalf("ListSeats after a clear = %v", seats)
+		}
+
+		// Private tables publish a summary too (they are just never indexed
+		// in a bucket), so the sweep has to see them.
+		must(t, h.store.PublishTable(ctx, TableSummary{RoomID: "r1", Category: "blind", BootAmount: 200, Players: 2}))
+		must(t, h.store.PublishTable(ctx, TableSummary{RoomID: "r2", Category: "seen", BootAmount: 5000, Players: 1}))
+		must(t, h.store.PublishTable(ctx, TableSummary{RoomID: "r3", Category: "seen", BootAmount: 5000, IsPrivate: true}))
+		summaries, err = h.store.ListSummaries(ctx)
+		must(t, err)
+		if len(summaries) != 3 {
+			t.Fatalf("ListSummaries = %v", summaries)
+		}
+		byRoom := map[string]TableSummary{}
+		for _, s := range summaries {
+			byRoom[s.RoomID] = s
+		}
+		if byRoom["r1"].Category != "blind" || byRoom["r1"].BootAmount != 200 {
+			t.Fatalf("summary fields lost: %+v", byRoom["r1"])
+		}
+		// The category and boot are what a sweep needs to retire a stray.
+		must(t, h.store.RetireTable(ctx, byRoom["r2"].RoomID, byRoom["r2"].Category, byRoom["r2"].BootAmount))
+		summaries, err = h.store.ListSummaries(ctx)
+		must(t, err)
+		if len(summaries) != 2 {
+			t.Fatalf("ListSummaries after a retire = %v", summaries)
+		}
 	})
 
 	t.Run("OnlineCountWithExpiry", func(t *testing.T) {

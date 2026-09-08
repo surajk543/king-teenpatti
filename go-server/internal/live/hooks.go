@@ -62,6 +62,13 @@ func (h *hooked) ListTables(ctx context.Context) (refs []TableRef, err error) {
 	return refs, err
 }
 
+func (h *hooked) CountTables(ctx context.Context) (n int, err error) {
+	start := time.Now()
+	defer func() { h.observe("count_tables", err, time.Since(start)) }()
+	n, err = h.Store.CountTables(ctx)
+	return n, err
+}
+
 func (h *hooked) AppendChat(ctx context.Context, roomID string, message []byte, max int) (err error) {
 	start := time.Now()
 	defer func() { h.observe("append_chat", err, time.Since(start)) }()
@@ -102,6 +109,13 @@ func (h *hooked) SeatOf(ctx context.Context, userID string) (roomID string, err 
 	defer func() { h.observe("seat_of", err, time.Since(start)) }()
 	roomID, err = h.Store.SeatOf(ctx, userID)
 	return roomID, err
+}
+
+func (h *hooked) ListSeats(ctx context.Context) (seats map[string]string, err error) {
+	start := time.Now()
+	defer func() { h.observe("list_seats", err, time.Since(start)) }()
+	seats, err = h.Store.ListSeats(ctx)
+	return seats, err
 }
 
 func (h *hooked) SetOnline(ctx context.Context, userID, instance string, ttl time.Duration) (err error) {
@@ -158,6 +172,13 @@ func (h *hooked) RetireTable(ctx context.Context, roomID, category string, bootA
 	defer func() { h.observe("retire_table", err, time.Since(start)) }()
 	err = h.Store.RetireTable(ctx, roomID, category, bootAmount)
 	return err
+}
+
+func (h *hooked) ListSummaries(ctx context.Context) (out []TableSummary, err error) {
+	start := time.Now()
+	defer func() { h.observe("list_summaries", err, time.Since(start)) }()
+	out, err = h.Store.ListSummaries(ctx)
+	return out, err
 }
 
 func (h *hooked) Candidates(ctx context.Context, category string, bootAmount int64) (out []TableSummary, err error) {

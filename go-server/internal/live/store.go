@@ -79,8 +79,16 @@ type Store interface {
 	LoadTable(ctx context.Context, roomID string) (seq int64, snapshot []byte, err error)
 	// DeleteTable forgets a table (destroyed, or refunded on startup).
 	DeleteTable(ctx context.Context, roomID string) error
-	// ListTables enumerates every stored table (used on startup to rebuild).
+	// ListTables enumerates every stored table. It is O(tables) — one round
+	// trip per table on Redis — so it belongs ONLY on the startup restore and
+	// in the periodic reconcile, never on a request path. Use CountTables for
+	// a number.
 	ListTables(ctx context.Context) ([]TableRef, error)
+	// CountTables is how many tables the store holds, in one O(1) call.
+	// /health reports this: it wants a number, not a listing. The count can
+	// briefly include a table whose snapshot expired but whose index entry has
+	// not been swept yet; ListTables repairs that, and the reconciler runs it.
+	CountTables(ctx context.Context) (int, error)
 
 	// ---- chat (per table, capped) -----------------------------------------
 	// AppendChat pushes one serialised chat message and trims to max entries.
@@ -96,6 +104,11 @@ type Store interface {
 	SetSeated(ctx context.Context, userID, roomID string) error
 	ClearSeated(ctx context.Context, userID string) error
 	SeatOf(ctx context.Context, userID string) (roomID string, err error) // ErrNotFound when not seated
+	// ListSeats returns every mirrored seat entry (userId → roomId). Seat
+	// entries have no ttl — they are cleared by whoever wrote them — so this
+	// is what lets RoomManager.ReconcileLive delete the ones no live table
+	// accounts for and heal a leak instead of accumulating one. Never nil.
+	ListSeats(ctx context.Context) (map[string]string, error)
 	// SetOnline records a live socket for the user on this instance; the entry
 	// expires after ttl unless refreshed (heartbeat), so a crashed process
 	// leaves no ghosts. SetOffline removes it. OnlineCount is scrape-time.
@@ -117,6 +130,10 @@ type Store interface {
 	PublishTable(ctx context.Context, t TableSummary) error
 	RetireTable(ctx context.Context, roomID, category string, bootAmount int64) error
 	Candidates(ctx context.Context, category string, bootAmount int64) ([]TableSummary, error)
+	// ListSummaries returns every published summary, whichever bucket it is
+	// indexed in — the sweep side of RetireTable, for the same reason
+	// ListSeats exists. Never nil.
+	ListSummaries(ctx context.Context) ([]TableSummary, error)
 
 	// ---- lifecycle ---------------------------------------------------------
 	Ping(ctx context.Context) error

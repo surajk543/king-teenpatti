@@ -397,8 +397,13 @@ async function main() {
     const before = await ctx.books.snapshot();
     const rooms = new Set(recs.map((r) => r.roomId).filter(Boolean));
     say(`     ${h1.tables} tables, ${h1.activeHands} hands running, ${before.openPots} open pots holding ${before.openAmount} chips`);
-    check(before.gameStates >= h1.tables, 'PostgreSQL holds a durable snapshot of every table',
-      `${before.gameStates} game_states rows for ${h1.tables} tables`);
+    // Since 9 Sep 2026 the durable copy is written at the two hand boundaries
+    // only, so a table that has never dealt has no row — nothing is at stake
+    // and its players simply re-join. What must hold is that every table that
+    // HAS dealt is recoverable.
+    const dealt = (await ctx.books.q('select count(distinct room_id) as n from %S%.pots'))[0].n;
+    check(before.gameStates >= dealt, 'PostgreSQL holds a durable snapshot of every table that dealt',
+      `${before.gameStates} game_states rows for ${dealt} room(s) that dealt, ${h1.tables} tables open`);
     postChat(recs); await sleep(1200);
 
     step('Kill the server AND wipe Redis — the live store is gone for good');

@@ -218,6 +218,25 @@ func (m *Memory) DeleteTable(ctx context.Context, roomID string) error {
 }
 
 // ListTables implements Store; the result is sorted by room id.
+// CountTables is len(tables) minus anything already expired, under one lock.
+func (m *Memory) CountTables(ctx context.Context) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := m.enter(ctx); err != nil {
+		return 0, err
+	}
+	now := m.now()
+	n := 0
+	for id, t := range m.tables {
+		if !t.expiresAt.After(now) {
+			delete(m.tables, id)
+			continue
+		}
+		n++
+	}
+	return n, nil
+}
+
 func (m *Memory) ListTables(ctx context.Context) ([]TableRef, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -325,6 +344,20 @@ func (m *Memory) ClearSeated(ctx context.Context, userID string) error {
 	}
 	delete(m.seats, userID)
 	return nil
+}
+
+// ListSeats implements Store.
+func (m *Memory) ListSeats(ctx context.Context) (map[string]string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := m.enter(ctx); err != nil {
+		return nil, err
+	}
+	out := make(map[string]string, len(m.seats))
+	for userID, roomID := range m.seats {
+		out[userID] = roomID
+	}
+	return out, nil
 }
 
 // SeatOf implements Store.
@@ -485,6 +518,27 @@ func (m *Memory) RetireTable(ctx context.Context, roomID, category string, bootA
 		m.dropSummary(roomID, s)
 	}
 	return nil
+}
+
+// ListSummaries implements Store: every published summary that has not
+// expired, whichever bucket it sits in, room id order.
+func (m *Memory) ListSummaries(ctx context.Context) ([]TableSummary, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := m.enter(ctx); err != nil {
+		return nil, err
+	}
+	now := m.now()
+	out := []TableSummary{}
+	for roomID, s := range m.summaries {
+		if !s.expiresAt.IsZero() && !s.expiresAt.After(now) {
+			m.dropSummary(roomID, s)
+			continue
+		}
+		out = append(out, s.summary)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].RoomID < out[j].RoomID })
+	return out, nil
 }
 
 // Candidates implements Store: the bucket's public tables, fullest first,

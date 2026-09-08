@@ -50,8 +50,8 @@ func (a *App) reconcileLive(ctx context.Context) error {
 
 // restoreBreakdown reads the per-source counts out of a RestoreReport for
 // the metrics and the summary line: FromLive / FromDurable (postgres),
-// Reconciled (durable snapshots the ledger corrected), Rejected (too stale,
-// left for the refund).
+// Reconciled (durable snapshots the ledger brought forward), Rejected (the
+// snapshot could not account for a contributor, left for the refund).
 func restoreBreakdown(report game.RestoreReport) (fromLive, fromPostgres, reconciled, rejected int) {
 	return report.FromLive, report.FromDurable, report.Reconciled, report.Rejected
 }

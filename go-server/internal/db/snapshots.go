@@ -16,12 +16,13 @@ import (
 // backstop: reconstructing Redis from PostgreSQL"). Redis is fast and
 // disposable only because every table's snapshot also reaches game_states —
 // not inside the money transaction any more (that cost every move a JSONB
-// write) but from here: the table actor marks its room dirty after each
-// save, and one goroutine flushes every dirty room in ONE transaction every
-// SNAPSHOT_FLUSH_MS. A restart whose Redis came back empty rebuilds its
+// write), and not once a second either (that cost the money the disk it
+// needed), but from here: the table actor marks its room dirty at the two
+// HAND BOUNDARIES — the deal and the settlement — and one goroutine flushes
+// every dirty room in ONE transaction every SNAPSHOT_FLUSH_MS. A restart whose Redis came back empty rebuilds its
 // tables from game_states (LoadSnapshots), reconciling each against the
-// ledger (HandContributions) because the flush can be one interval behind
-// the money.
+// ledger (HandContributions) because the durable copy is written only at the
+// two hand boundaries and is therefore a whole hand behind the money.
 
 // DurableSnapshot is one game_states row as LoadSnapshots returns it — the
 // game package's DurableSource contract (RoomID, HandID, Seq =
@@ -368,26 +369,33 @@ func (d *DB) LoadSnapshots(ctx context.Context) ([]DurableSnapshot, error) {
 }
 
 // HandContributions is what the ledger says each player has staked in a
-// hand — boots, bets and shows, as positive totals by user id
-// (game.DurableSource). The ledger is never behind the money, so a restore
-// from a durable snapshot sets each seat's contribution and the pot from
-// this, not from the snapshot.
-func (d *DB) HandContributions(ctx context.Context, handID string) (map[string]int64, error) {
-	rows, err := d.Pool.Query(ctx, `SELECT user_id, -SUM(delta)::bigint FROM chip_ledger
+// hand — boots, bets and shows, as positive totals (game.DurableSource).
+// The ledger is never behind the money, so a restore from a durable
+// snapshot sets each seat's contribution and the pot from this, not from
+// the snapshot.
+//
+// The rows come back in LEDGER ORDER: each player is placed by their most
+// recent row for the hand (MAX(id) — chip_ledger.id is a BIGSERIAL, so it
+// is the order the chips actually went in), which makes the last element
+// whoever moved last. game.ReconcileWithLedger gives the turn to the seat
+// after them, so a hand rebuilt from its opening snapshot resumes where the
+// engine would have gone next rather than asking somebody to act twice.
+func (d *DB) HandContributions(ctx context.Context, handID string) ([]game.LedgerContribution, error) {
+	rows, err := d.Pool.Query(ctx, `SELECT user_id, -SUM(delta)::bigint AS contributed FROM chip_ledger
 	   WHERE hand_id = $1 AND reason IN ($2, $3, $4)
-	   GROUP BY user_id`, handID, game.LedgerReasonBoot, game.LedgerReasonBet, game.LedgerReasonShow)
+	   GROUP BY user_id
+	   ORDER BY MAX(id)`, handID, game.LedgerReasonBoot, game.LedgerReasonBet, game.LedgerReasonShow)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	out := map[string]int64{}
+	out := []game.LedgerContribution{}
 	for rows.Next() {
-		var userID string
-		var total int64
-		if err := rows.Scan(&userID, &total); err != nil {
+		var entry game.LedgerContribution
+		if err := rows.Scan(&entry.UserID, &entry.Amount); err != nil {
 			return nil, err
 		}
-		out[userID] = total
+		out = append(out, entry)
 	}
 	return out, rows.Err()
 }

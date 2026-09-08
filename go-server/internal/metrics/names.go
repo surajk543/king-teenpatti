@@ -136,12 +136,12 @@ var (
 	// method names in snake_case, and nothing else (SafeLabel folds any other
 	// value to "other").
 	LiveOps = map[string]struct{}{
-		LiveOpSaveTable: {}, LiveOpLoadTable: {}, LiveOpDeleteTable: {}, LiveOpListTables: {},
+		LiveOpSaveTable: {}, LiveOpLoadTable: {}, LiveOpDeleteTable: {}, LiveOpListTables: {}, LiveOpCountTables: {},
 		LiveOpAppendChat: {}, LiveOpLoadChat: {}, LiveOpDeleteChat: {},
-		LiveOpSetSeated: {}, LiveOpClearSeated: {}, LiveOpSeatOf: {},
+		LiveOpSetSeated: {}, LiveOpClearSeated: {}, LiveOpSeatOf: {}, LiveOpListSeats: {},
 		LiveOpSetOnline: {}, LiveOpSetOffline: {}, LiveOpOnlineCount: {},
 		LiveOpPutResumeOffer: {}, LiveOpTakeResumeOffer: {}, LiveOpDeleteResumeOffer: {},
-		LiveOpPublishTable: {}, LiveOpRetireTable: {}, LiveOpCandidates: {},
+		LiveOpPublishTable: {}, LiveOpRetireTable: {}, LiveOpCandidates: {}, LiveOpListSummaries: {},
 		LiveOpPing: {},
 	}
 	// LiveResults are the `result` values of game_live_store_operations_total.
@@ -183,12 +183,14 @@ const (
 	LiveOpLoadTable         = "load_table"
 	LiveOpDeleteTable       = "delete_table"
 	LiveOpListTables        = "list_tables"
+	LiveOpCountTables       = "count_tables"
 	LiveOpAppendChat        = "append_chat"
 	LiveOpLoadChat          = "load_chat"
 	LiveOpDeleteChat        = "delete_chat"
 	LiveOpSetSeated         = "set_seated"
 	LiveOpClearSeated       = "clear_seated"
 	LiveOpSeatOf            = "seat_of"
+	LiveOpListSeats         = "list_seats"
 	LiveOpSetOnline         = "set_online"
 	LiveOpSetOffline        = "set_offline"
 	LiveOpOnlineCount       = "online_count"
@@ -198,6 +200,7 @@ const (
 	LiveOpPublishTable      = "publish_table"
 	LiveOpRetireTable       = "retire_table"
 	LiveOpCandidates        = "candidates"
+	LiveOpListSummaries     = "list_summaries"
 	LiveOpPing              = "ping"
 )
 

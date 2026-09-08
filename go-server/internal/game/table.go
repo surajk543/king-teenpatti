@@ -98,9 +98,10 @@ type TableOptions struct {
 	// feed. Called on the actor goroutine; must not block or post back.
 	LiveErrors func(op string, err error)
 	// Snapshots is the durable backstop (game_states, written asynchronously
-	// by db.SnapshotWriter): every snapshot the actor saves is also handed
-	// to MarkDirty, with the same bytes; Destroy hands MarkDeleted. nil →
-	// no-op.
+	// by db.SnapshotWriter). It is fed at the two HAND BOUNDARIES only —
+	// the hand's opening state and the table at rest after settlement
+	// (markDurable) — with the same bytes and the same seq as the live
+	// save of that closure; Destroy hands MarkDeleted. nil → no-op.
 	Snapshots SnapshotSink
 }
 
@@ -283,16 +284,20 @@ type Table struct {
 
 	// ---- actor-owned state: touch ONLY from closures run by loop ----
 	// liveDirty marks that observable state changed inside the running
-	// closure; run() saves one snapshot when the closure ends.
-	liveDirty  bool
-	seats      []*seat // len == cfg.MaxPlayers; nil = empty
-	handNo     int
-	hand       *hand
-	dealerSeat int        // -1 before the first hand
-	startsAt   *time.Time // countdown target while state == starting
-	chat       *RoomChat
-	turnTimer  Timer
-	startTimer Timer
+	// closure; run() saves one snapshot to the LIVE store when the closure
+	// ends. durableDirty marks that the same snapshot must also reach the
+	// DURABLE backstop (PostgreSQL game_states) — set by markDurable at the
+	// two hand boundaries and nowhere else (see markDurable).
+	liveDirty    bool
+	durableDirty bool
+	seats        []*seat // len == cfg.MaxPlayers; nil = empty
+	handNo       int
+	hand         *hand
+	dealerSeat   int        // -1 before the first hand
+	startsAt     *time.Time // countdown target while state == starting
+	chat         *RoomChat
+	turnTimer    Timer
+	startTimer   Timer
 	// startTimerGen names the armed start timer, so a callback whose timer
 	// was stopped a moment too late (time.AfterFunc's Stop can lose that
 	// race) is recognised as stale — the same guard hand.turnToken gives
@@ -1280,6 +1285,17 @@ func (t *Table) startHand() {
 	h.startSeat = firstSeat
 	t.setTurn(firstSeat, true)
 	t.emitState()
+
+	// DURABLE BOUNDARY 1 of 2 — HAND START. The boots are collected, the
+	// cards are dealt and the first turn is open: this is the hand's opening
+	// state, the one the boot transaction that has just committed
+	// corresponds to. PostgreSQL is written here and at the end of the hand
+	// and nowhere in between (LIVE_STATE_PLAN.md, "The durable backstop"):
+	// a snapshot per table per second competed with the money for the same
+	// disk and halved the usable ceiling. A restore from this row is
+	// reconciled against the ledger, which is never behind (see
+	// ReconcileWithLedger).
+	t.markDurable()
 }
 
 // startRefused (_startRefused): emit persistError{reason "boot"}; state
@@ -2495,6 +2511,16 @@ func (t *Table) endHand(winnerID *string, reason WinReason, reveals []Reveal) {
 	})
 
 	t.emitState()
+
+	// DURABLE BOUNDARY 2 of 2 — HAND END. Settlement is done, the hand is
+	// gone and the seats carry their settled chips: the table is at rest.
+	// This write is the one that matters most — without it a restore from
+	// the hand-start row would resurrect a hand that has already been paid
+	// out. maybeStart below may arm the next countdown in this same closure;
+	// the snapshot the flush takes then says `starting` with no hand, which
+	// is still the table at rest.
+	t.markDurable()
+
 	t.maybeStart()
 }
 
@@ -2712,6 +2738,7 @@ func (t *Table) destroy() {
 		}
 	}
 	t.liveDirty = false
+	t.durableDirty = false
 	t.cancel()
 }
 

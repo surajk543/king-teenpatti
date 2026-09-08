@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"regexp"
 	"sort"
 	"strconv"
@@ -185,7 +186,7 @@ var catalogue = []struct {
 	{NameRestoredTables, "counter", "Tables rebuilt at startup since the process started, by the store the snapshot came from (live or postgres).", []string{"source"}},
 	{NameRestoredSeats, "counter", "Seats held for the reconnect grace period after a restart since the process started.", nil},
 	{NameRestoreReconciled, "counter", "Durable snapshots the ledger corrected before the table was rebuilt (the snapshot was behind the money).", nil},
-	{NameRestoreRejected, "counter", "Durable snapshots too stale to trust (the ledger disagreed with the seats); their pots were refunded instead.", nil},
+	{NameRestoreRejected, "counter", "Durable snapshots that could not be reconciled (a contributor the snapshot cannot account for); their pots were refunded instead.", nil},
 	{NameRefundedPots, "counter", "Open pots with no live table that were refunded to their contributors at startup.", nil},
 	{NameRefundedChips, "counter", "Chips returned to contributors by pot refunds at startup.", nil},
 	{NameSnapshotWrites, "counter", "Batched game_states flushes by the durable snapshot writer, by outcome.", []string{"result"}},
@@ -598,9 +599,12 @@ func TestLiveHooksFeedTheLiveStoreMetrics(t *testing.T) {
 	if live.WithHooks(live.NewMemory(), m.LiveHooks()) == nil {
 		t.Fatal("WithHooks returned nil")
 	}
-	// Every store method name is a catalogued op.
-	if len(LiveOps) != 20 {
-		t.Errorf("LiveOps has %d entries, want one per live.Store method (20)", len(LiveOps))
+	// Every store method name is a catalogued op. Derived from the interface,
+	// not hardcoded, so adding a Store method fails here until its op is
+	// catalogued — Kind and Close are the two that carry no op label.
+	storeType := reflect.TypeOf((*live.Store)(nil)).Elem()
+	if want := storeType.NumMethod() - 2; len(LiveOps) != want {
+		t.Errorf("LiveOps has %d entries, want one per labelled live.Store method (%d)", len(LiveOps), want)
 	}
 }
 

@@ -206,6 +206,15 @@ func (s *Store) DeleteTable(_ context.Context, roomID string) error {
 	return nil
 }
 
+func (s *Store) CountTables(_ context.Context) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.record("count_tables"); err != nil {
+		return 0, err
+	}
+	return len(s.tables), nil
+}
+
 func (s *Store) ListTables(_ context.Context) ([]live.TableRef, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -271,6 +280,19 @@ func (s *Store) ClearSeated(_ context.Context, userID string) error {
 	}
 	delete(s.seats, userID)
 	return nil
+}
+
+func (s *Store) ListSeats(_ context.Context) (map[string]string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.record("list_seats"); err != nil {
+		return nil, err
+	}
+	out := make(map[string]string, len(s.seats))
+	for userID, roomID := range s.seats {
+		out[userID] = roomID
+	}
+	return out, nil
 }
 
 func (s *Store) SeatOf(_ context.Context, userID string) (string, error) {
@@ -367,6 +389,20 @@ func (s *Store) RetireTable(_ context.Context, roomID, category string, bootAmou
 	}
 	delete(s.index, roomID)
 	return nil
+}
+
+func (s *Store) ListSummaries(_ context.Context) ([]live.TableSummary, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.record("list_summaries"); err != nil {
+		return nil, err
+	}
+	out := []live.TableSummary{}
+	for _, t := range s.index {
+		out = append(out, t)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].RoomID < out[j].RoomID })
+	return out, nil
 }
 
 func (s *Store) Candidates(_ context.Context, category string, bootAmount int64) ([]live.TableSummary, error) {

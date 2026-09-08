@@ -13,7 +13,8 @@
     "parity": "node parity.mjs",
     "parity:diff": "node parity-diff.mjs",
     "crashtest": "node crashtest.mjs",
-    "hostmetrics": "node host-metrics.mjs"
+    "hostmetrics": "node host-metrics.mjs",
+    "chiptest": "node chiptest.mjs"
   },
   "dependencies": {
     "jsonwebtoken": "^9.0.2",

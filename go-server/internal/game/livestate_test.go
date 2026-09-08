@@ -959,34 +959,63 @@ func withSink(sink SnapshotSink) harnessOption {
 	return func(o *harnessOptions) { o.sink = sink }
 }
 
-func TestEverySaveIsAlsoHandedToTheDurableSinkWithTheSameBytes(t *testing.T) {
+// The durable backstop is fed at the two HAND BOUNDARIES and nowhere else
+// (Table.markDurable): PostgreSQL used to take a snapshot of every table
+// every second and lost the money the disk it needed.
+func TestTheDurableSinkIsFedAtTheHandBoundariesOnly(t *testing.T) {
 	store := livetest.New()
 	sink := &sinkRecorder{}
 	h := newHarness(t, liveConfig(), withLive(store), withSink(sink))
 	h.seat("a", tableStart)
 	h.seat("b", tableStart)
-	h.advance(6 * time.Second)
-	h.mustAct(h.turnUser(), ActionChaal, ActRequest{})
-
-	saves := store.Saves()
-	marks := sink.marks()
-	eq(t, len(marks), len(saves), "one MarkDirty per save")
-	for i := range saves {
-		eq(t, marks[i].roomID, saves[i].RoomID, "room")
-		eq(t, marks[i].seq, saves[i].Seq, "seq")
-		eq(t, string(marks[i].snapshot), string(saves[i].Snapshot), "the same bytes, serialised once")
+	eq(t, len(sink.marks()), 0, "seating writes nothing durable")
+	if len(store.Saves()) == 0 {
+		t.Fatal("but the live store has every mutation")
 	}
-	eq(t, marks[0].handID, "", "no hand before the deal")
-	eq(t, marks[len(marks)-1].handID, h.lastHandStarted().HandID, "hand id while a hand is live")
+
+	// Boundary 1: the deal.
+	h.advance(6 * time.Second)
+	marks := sink.marks()
+	eq(t, len(marks), 1, "one durable snapshot at the hand start")
+	dealt := marks[0]
+	eq(t, dealt.handID, h.lastHandStarted().HandID, "it carries the hand id")
+	saves := store.Saves()
+	last := saves[len(saves)-1]
+	eq(t, dealt.roomID, last.RoomID, "room")
+	eq(t, dealt.seq, last.Seq, "the same seq as the live save it belongs to")
+	eq(t, string(dealt.snapshot), string(last.Snapshot), "the same bytes, serialised once")
+
+	// Between the boundaries: play, and nothing durable at all.
+	h.mustAct(h.turnUser(), ActionChaal, ActRequest{})
+	h.mustAct(h.turnUser(), ActionSee, ActRequest{})
+	eq(t, len(sink.marks()), 1, "moves are Redis-only")
+	if len(store.Saves()) <= len(saves) {
+		t.Fatal("the live store still gets every mutation")
+	}
+
+	// Boundary 2: the settlement. With two players a pack ends the hand.
+	h.mustAct(h.turnUser(), ActionPack, ActRequest{})
+	marks = sink.marks()
+	eq(t, len(marks), 2, "one durable snapshot at the hand end")
+	rest := marks[1]
+	eq(t, rest.handID, "", "the table is at rest: no hand")
+	var atRest Snapshot
+	if err := json.Unmarshal(rest.snapshot, &atRest); err != nil {
+		t.Fatal(err)
+	}
+	if atRest.Hand != nil {
+		t.Fatal("a restore from this row must not resurrect a settled hand")
+	}
+	eq(t, rest.seq > dealt.seq, true, "under a later seq")
 
 	// The sink is fed even while the live store is down — that is what it
 	// is for — under a fresh seq each time.
 	store.Fail("save_table", errors.New("redis down"))
-	before := len(sink.marks())
-	h.mustAct(h.turnUser(), ActionChaal, ActRequest{})
+	before := sink.marks()
+	h.advance(6 * time.Second) // the next deal: boundary 1 again
 	marks = sink.marks()
-	eq(t, len(marks), before+1, "marked dirty despite the live failure")
-	eq(t, marks[len(marks)-1].seq > saves[len(saves)-1].Seq, true, "with a higher seq")
+	eq(t, len(marks), len(before)+1, "marked dirty despite the live failure")
+	eq(t, marks[len(marks)-1].seq > before[len(before)-1].seq, true, "with a higher seq")
 	store.Fail("save_table", nil)
 
 	// A fenced table hands the sink nothing more; Destroy of an owned table
@@ -999,11 +1028,16 @@ func TestEverySaveIsAlsoHandedToTheDurableSinkWithTheSameBytes(t *testing.T) {
 	eq(t, sink.deleted[0], "room-1", "for the room")
 	sink.mu.Unlock()
 
-	// Without a live store the sink alone still receives every snapshot.
+	// Without a live store the sink still gets the boundaries, and still
+	// nothing else.
 	sink2 := &sinkRecorder{}
 	h2 := newHarness(t, liveConfig(), withSink(sink2))
 	h2.seat("a", tableStart)
-	eq(t, len(sink2.marks()), 1, "sink without a live store")
+	h2.seat("b", tableStart)
+	eq(t, len(sink2.marks()), 0, "no hand, nothing durable")
+	eq(t, h2.table.LiveSeq(), int64(0), "and no snapshot was even taken")
+	h2.advance(6 * time.Second)
+	eq(t, len(sink2.marks()), 1, "the deal reaches the sink without a live store")
 	eq(t, h2.table.LiveSeq(), int64(1), "seq advances")
 }
 
@@ -1088,9 +1122,66 @@ func TestSnapshotNeverCarriesChat(t *testing.T) {
 
 // ------------------------------------------------------------ reconcile
 
+// ledgerRows renders what DurableSource.HandContributions returns for the
+// hand a snapshot is holding: each player's banked total, in LEDGER ORDER —
+// `last` is whoever put chips in most recently and therefore comes last.
+func ledgerRows(snap *Snapshot, last string) []LedgerContribution {
+	rows := []LedgerContribution{}
+	var tail *LedgerContribution
+	for _, c := range snap.Hand.Contributions {
+		entry := LedgerContribution{UserID: c.UserID, Amount: c.Contributed}
+		if c.UserID == last {
+			tail = &entry
+			continue
+		}
+		rows = append(rows, entry)
+	}
+	if tail != nil {
+		rows = append(rows, *tail)
+	}
+	return rows
+}
+
+// totalOf sums a ledger listing.
+func totalOf(rows []LedgerContribution) int64 {
+	var total int64
+	for _, r := range rows {
+		total += r.Amount
+	}
+	return total
+}
+
+// amountOf is one player's row.
+func amountOf(rows []LedgerContribution, userID string) int64 {
+	for _, r := range rows {
+		if r.UserID == userID {
+			return r.Amount
+		}
+	}
+	return -1
+}
+
+// seatAfter is the user at the first occupied seat clockwise of userID —
+// where ReconcileWithLedger hands the turn when the ledger has moved on.
+func seatAfter(snap *Snapshot, userID string) string {
+	from := -1
+	for i, s := range snap.Seats {
+		if s != nil && s.UserID == userID {
+			from = i
+		}
+	}
+	n := len(snap.Seats)
+	for step := 1; from >= 0 && step <= n; step++ {
+		if s := snap.Seats[(from+step)%n]; s != nil {
+			return s.UserID
+		}
+	}
+	return ""
+}
+
 // staleSnapshot is a live hand whose snapshot predates the last bet: the
 // ledger has the bet, the snapshot does not.
-func staleSnapshot(t *testing.T) (*Snapshot, map[string]int64, string) {
+func staleSnapshot(t *testing.T) (*Snapshot, []LedgerContribution, string) {
 	t.Helper()
 	h := newHarness(t, liveConfig())
 	for _, id := range []string{"a", "b", "c"} {
@@ -1103,62 +1194,58 @@ func staleSnapshot(t *testing.T) (*Snapshot, map[string]int64, string) {
 	// …but a second chaal landed in the ledger before the process died.
 	second := h.turnUser()
 	h.mustAct(second, ActionChaal, ActRequest{})
-	ledger := map[string]int64{}
-	for _, c := range mustSnapshot(h).Hand.Contributions {
-		ledger[c.UserID] = c.Contributed
-	}
-	return snap, ledger, second
+	return snap, ledgerRows(mustSnapshot(h), second), second
 }
 
 func TestReconcileWithLedgerAppliesTheMissingBet(t *testing.T) {
 	snap, ledger, second := staleSnapshot(t)
-	var potBefore int64 = snap.Hand.Pot
+	potBefore := snap.Hand.Pot
 	var chipsBefore int64
 	for _, s := range snap.Seats {
 		if s != nil && s.UserID == second {
 			chipsBefore = s.Chips
 		}
 	}
+	nextUp := seatAfter(snap, second)
+
 	if err := ReconcileWithLedger(snap, ledger); err != nil {
 		t.Fatalf("reconcile: %v", err)
 	}
-	var total int64
-	for _, v := range ledger {
-		total += v
-	}
+	total := totalOf(ledger)
 	eq(t, snap.Hand.Pot, total, "pot == Σ ledger")
 	eq(t, snap.Hand.Pot, potBefore+tableBoot, "the missing chaal is in the pot")
 	for _, s := range snap.Seats {
 		if s == nil {
 			continue
 		}
-		eq(t, s.Contributed, ledger[s.UserID], "seat contributed == ledger")
+		eq(t, s.Contributed, amountOf(ledger, s.UserID), "seat contributed == ledger")
 		if s.UserID == second {
 			eq(t, s.Chips, chipsBefore-tableBoot, "the missing debit is applied to the stack")
 		}
 	}
 	for _, c := range snap.Hand.Contributions {
-		eq(t, c.Contributed, ledger[c.UserID], "record contributed == ledger")
-		eq(t, c.Persisted, ledger[c.UserID], "persisted == banked")
-		eq(t, c.DidChaal, ledger[c.UserID] > tableBoot, "didChaal from the ledger")
+		eq(t, c.Contributed, amountOf(ledger, c.UserID), "record contributed == ledger")
+		eq(t, c.Persisted, amountOf(ledger, c.UserID), "persisted == banked")
+		eq(t, c.DidChaal, amountOf(ledger, c.UserID) > tableBoot, "didChaal from the ledger")
 	}
 
-	// The reconciled snapshot restores and the hand continues from the
-	// ledger's truth: the turn is where the stale snapshot had it (the second
-	// chaal's turn advance is lost, so the same player bets again — money
-	// is right, the extra move is harmless).
+	// The turn rule: the ledger's last row is the last player who moved, so
+	// play resumes with the seat AFTER them, on a fresh clock.
+	if snap.Hand.TurnDeadline != nil {
+		t.Fatal("the stored deadline belongs to a turn that is over")
+	}
+	eq(t, snap.Seats[snap.Hand.TurnSeat].UserID, nextUp, "the turn moved past the last contributor")
+
 	r := restoreHarness(t, roundTrip(t, snap), newFakeClock(clockStart.Add(6*time.Second)))
 	eq(t, r.pot(), total, "restored pot")
 	eq(t, r.hasHand(), true, "hand continues")
+	eq(t, r.turnUser(), nextUp, "and it is the right player's turn")
 
-	// Idempotent: reconciling an up-to-date snapshot changes nothing.
+	// Idempotent: reconciling an up-to-date snapshot changes nothing — not
+	// even the turn, because the ledger agrees with it.
 	fresh := mustSnapshot(r)
 	before := mustJSON(t, fresh)
-	current := map[string]int64{}
-	for _, c := range fresh.Hand.Contributions {
-		current[c.UserID] = c.Contributed
-	}
-	if err := ReconcileWithLedger(fresh, current); err != nil {
+	if err := ReconcileWithLedger(fresh, ledgerRows(fresh, r.turnUser())); err != nil {
 		t.Fatal(err)
 	}
 	eq(t, mustJSON(t, fresh), before, "no change")
@@ -1168,10 +1255,79 @@ func TestReconcileWithLedgerAppliesTheMissingBet(t *testing.T) {
 	eq(t, r.pot(), total+tableBoot, "play goes on")
 }
 
-func TestReconcileWithLedgerRejectsASnapshotTooOldToTrust(t *testing.T) {
+// A hand-start snapshot is what PostgreSQL now holds while a hand is being
+// played (Table.markDurable), so the ordinary restore gap is a whole hand of
+// betting, not one missing move.
+func TestReconcileRebuildsAHandStartSnapshotAfterThreeRoundsOfBetting(t *testing.T) {
+	h := newHarness(t, liveConfig())
+	for _, id := range []string{"a", "b", "c"} {
+		h.seat(id, tableStart)
+	}
+	h.advance(6 * time.Second)
+
+	// The durable row: the hand's opening state, written the moment the
+	// boots were collected and the cards dealt.
+	opening := roundTrip(t, mustSnapshot(h))
+	eq(t, opening.Hand.Pot, 3*tableBoot, "the opening pot is three boots")
+
+	// Nine chaals — three full rounds — then the process and Redis die.
+	last := ""
+	for i := 0; i < 9; i++ {
+		last = h.turnUser()
+		h.mustAct(last, ActionChaal, ActRequest{})
+	}
+	played := mustSnapshot(h)
+	ledger := ledgerRows(played, last)
+	total := totalOf(ledger)
+	if total <= opening.Hand.Pot {
+		t.Fatalf("three rounds should have grown the pot: %d vs %d", total, opening.Hand.Pot)
+	}
+	nextUp := h.turnUser() // where the live table would have gone next
+
+	if err := ReconcileWithLedger(opening, ledger); err != nil {
+		t.Fatalf("a hand-start snapshot is the normal case, not a stale one: %v", err)
+	}
+	eq(t, opening.Hand.Pot, total, "pot == Σ ledger")
+	for _, s := range opening.Seats {
+		if s == nil {
+			continue
+		}
+		eq(t, s.Contributed, amountOf(ledger, s.UserID), "seat contributed == its ledger total")
+	}
+	for _, c := range opening.Hand.Contributions {
+		eq(t, c.Contributed, amountOf(ledger, c.UserID), "record contributed == its ledger total")
+		eq(t, c.Persisted, amountOf(ledger, c.UserID), "persisted == banked")
+	}
+	eq(t, opening.Seats[opening.Hand.TurnSeat].UserID, nextUp, "play resumes after the last contributor")
+
+	restoredAt := clockStart.Add(30 * time.Second)
+	r := restoreHarness(t, roundTrip(t, opening), newFakeClock(restoredAt))
+	eq(t, r.pot(), total, "restored pot == Σ ledger")
+	eq(t, r.hasHand(), true, "the hand is still on")
+	eq(t, r.turnUser(), nextUp, "the right player is asked to act")
+	for _, id := range r.occupiedIDs() {
+		eq(t, r.mustSeat(id).Contributed, amountOf(ledger, id), "restored seat contributed == its ledger total")
+	}
+
+	// A fresh full turn clock, not the stored deadline (which is long past
+	// and would time the player out on the spot).
+	r.advance(r.table.Config().TurnTimeout - time.Second)
+	eq(t, r.turnUser(), nextUp, "still their turn just before the timeout")
+
+	// And play goes on from there.
+	player := r.turnUser()
+	r.mustAct(player, ActionChaal, ActRequest{})
+	if r.pot() <= total {
+		t.Fatalf("play did not continue: pot %d", r.pot())
+	}
+}
+
+func TestReconcileWithLedgerRejectsOnlyWhatCannotBeRebuilt(t *testing.T) {
 	snap, ledger, second := staleSnapshot(t)
 
-	// (1) The ledger has more from a player the snapshot shows packed.
+	// (1) A player the snapshot shows as PACKED who bet after it was taken
+	// is the normal case now, not a rejection: their chips are in the pot
+	// and the snapshot can account for them.
 	packed := roundTrip(t, snap)
 	for _, s := range packed.Seats {
 		if s != nil && s.UserID == second {
@@ -1183,29 +1339,34 @@ func TestReconcileWithLedgerRejectsASnapshotTooOldToTrust(t *testing.T) {
 			packed.Hand.Contributions[i].Status = SeatPacked
 		}
 	}
-	if err := ReconcileWithLedger(packed, ledger); err == nil {
-		t.Fatal("a bet from a packed player means the snapshot is too old")
+	if err := ReconcileWithLedger(packed, ledger); err != nil {
+		t.Fatalf("a hand played on past the snapshot is not unrecoverable: %v", err)
+	}
+	eq(t, packed.Hand.Pot, totalOf(ledger), "their stake is still in the pot")
+
+	// …and the turn does not go to a player who has packed.
+	if turn := packed.Seats[packed.Hand.TurnSeat]; turn.Status != SeatActive {
+		t.Fatalf("the turn went to a %s seat", turn.Status)
 	}
 
-	// (2) The ledger has a player the snapshot does not know at all.
+	// (2) The ledger has a player the snapshot cannot account for AT ALL —
+	// no seat and no contribution record. Nothing can be rebuilt around
+	// them, so the room is refused (and its pot refunded).
 	absent := roundTrip(t, snap)
-	extra := map[string]int64{}
-	for k, v := range ledger {
-		extra[k] = v
-	}
-	extra["ghost"] = tableBoot
-	if err := ReconcileWithLedger(absent, extra); err == nil {
-		t.Fatal("a contribution from an absent player means the snapshot is too old")
+	ghost := append(append([]LedgerContribution{}, ledger...), LedgerContribution{UserID: "ghost", Amount: tableBoot})
+	if err := ReconcileWithLedger(absent, ghost); err == nil {
+		t.Fatal("a contribution the snapshot cannot account for is refused")
 	}
 
 	// (3) The ledger has LESS than the snapshot — impossible for a saved
 	// snapshot; refuse rather than guess.
 	short := roundTrip(t, snap)
-	less := map[string]int64{}
-	for k, v := range ledger {
-		less[k] = v
+	less := append([]LedgerContribution{}, ledger...)
+	for i := range less {
+		if less[i].UserID == second {
+			less[i].Amount -= tableBoot * 2
+		}
 	}
-	less[second] -= tableBoot * 2
 	if err := ReconcileWithLedger(short, less); err == nil {
 		t.Fatal("a ledger behind the snapshot is refused")
 	}
@@ -1215,8 +1376,15 @@ func TestReconcileWithLedgerRejectsASnapshotTooOldToTrust(t *testing.T) {
 		t.Fatal("no rows for a live hand is refused")
 	}
 
-	// (5) A player who left mid-hand keeps their recorded stake: fine when
-	// equal, too old when the ledger has more.
+	// (5) The same player twice — a malformed source.
+	twice := append(append([]LedgerContribution{}, ledger...), ledger[0])
+	if err := ReconcileWithLedger(roundTrip(t, snap), twice); err == nil {
+		t.Fatal("a player named twice is refused")
+	}
+
+	// (6) A player who left mid-hand keeps their recorded stake, and a
+	// leaver who bet on after the snapshot is fine too — their contribution
+	// record accounts for the chips even though the seat has gone.
 	left := roundTrip(t, snap)
 	var leaver string
 	for _, s := range left.Seats {
@@ -1246,16 +1414,20 @@ func TestReconcileWithLedgerRejectsASnapshotTooOldToTrust(t *testing.T) {
 	if err := ReconcileWithLedger(roundTrip(t, left), ledger); err != nil {
 		t.Fatalf("a leaver's recorded stake matching the ledger is fine: %v", err)
 	}
-	more := map[string]int64{}
-	for k, v := range ledger {
-		more[k] = v
+	more := append([]LedgerContribution{}, ledger...)
+	for i := range more {
+		if more[i].UserID == leaver {
+			more[i].Amount += tableBoot
+		}
 	}
-	more[leaver] += tableBoot
-	if err := ReconcileWithLedger(roundTrip(t, left), more); err == nil {
-		t.Fatal("a leaver who bet after the snapshot means it is too old")
+	reconciled := roundTrip(t, left)
+	if err := ReconcileWithLedger(reconciled, more); err != nil {
+		t.Fatalf("a leaver who bet on is accounted for by their record: %v", err)
 	}
+	eq(t, reconciled.Hand.Pot, totalOf(more), "their extra stake is in the pot")
 
-	// A snapshot between hands has nothing to reconcile.
+	// A snapshot between hands has nothing to reconcile: it IS the table at
+	// rest, which is the other boundary PostgreSQL is written at.
 	idle := roundTrip(t, snap)
 	idle.Hand = nil
 	if err := ReconcileWithLedger(idle, nil); err != nil {

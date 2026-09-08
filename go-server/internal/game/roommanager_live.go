@@ -42,12 +42,12 @@ type RestoreReport struct {
 	// HandIDs are the ids of those hands: the pots the database refund step
 	// (db.RefundOrphanedPots) must leave alone — they are still being played.
 	HandIDs []string
-	// Reconciled is how many durable snapshots the ledger corrected (a bet
-	// the asynchronous writer had not flushed yet).
+	// Reconciled is how many durable snapshots the ledger corrected (the
+	// rounds of betting played since the hand-start row was written).
 	Reconciled int
-	// Rejected is how many durable snapshots were too stale to trust
-	// (ReconcileWithLedger refused them); they were NOT restored and are
-	// left for the refund step.
+	// Rejected is how many durable snapshots could not be reconciled at all
+	// (ReconcileWithLedger refused them — a contributor the snapshot cannot
+	// account for); they were NOT restored and are left for the refund step.
 	Rejected int
 	// Dropped is how many stored snapshots could not be parsed or rebuilt;
 	// live ones were deleted from the store (snapshot and chat).
@@ -82,11 +82,14 @@ const (
 //     from the store and counted in Dropped; a load error leaves the entry
 //     in place and counts in Failed.
 //  2. the durable source (game_states), for every room the live store did
-//     not have: the snapshot is up to SNAPSHOT_FLUSH_MS behind the money, so
-//     it is RECONCILED against the ledger first (ReconcileWithLedger — the
-//     ledger wins; a snapshot too old to trust is Rejected and left for the
-//     refund step), then restored (source "postgres") and written straight
-//     back into the live store by its first save, which refills Redis.
+//     not have: that row is written only at the two hand boundaries, so for
+//     a hand in progress it is the hand's OPENING state and the ledger has
+//     every bet since. It is RECONCILED against the ledger first
+//     (ReconcileWithLedger — the ledger wins and decides where play resumes;
+//     only a snapshot that cannot account for a contributor is Rejected and
+//     left for the refund step), then restored (source "postgres") and
+//     written straight back into the live store by its first save, which
+//     refills Redis.
 //
 // For each table: RestoreTable's first phase (construct without clocks) →
 // register (tables in CreatedAt order, playerRooms from the seats, code
@@ -137,7 +140,7 @@ func (rm *RoomManager) restoreFromLive(ctx context.Context, report *RestoreRepor
 		}
 		snap, err := parseStoredSnapshot(ref.RoomID, data)
 		if err != nil {
-			rm.dropStored(ctx, ref.RoomID, err)
+			rm.dropStored(ctx, ref.RoomID, nil, err)
 			report.Dropped++
 			continue
 		}
@@ -150,7 +153,7 @@ func (rm *RoomManager) restoreFromLive(ctx context.Context, report *RestoreRepor
 	for _, snap := range loaded {
 		switch rm.restoreOne(ctx, snap, RestoreSourceLive, report) {
 		case restoreDropped:
-			rm.dropStored(ctx, snap.RoomID, errors.New("could not be rebuilt"))
+			rm.dropStored(ctx, snap.RoomID, snap, errors.New("could not be rebuilt"))
 		}
 	}
 	return nil
@@ -192,7 +195,7 @@ func (rm *RoomManager) restoreFromDurable(ctx context.Context, report *RestoreRe
 			}
 			potBefore := snap.Hand.Pot
 			if err := ReconcileWithLedger(snap, contributions); err != nil {
-				rm.log.Warn("table restore: durable snapshot too stale, leaving the pot to the refund",
+				rm.log.Warn("table restore: durable snapshot cannot be reconciled, leaving the pot to the refund",
 					"roomId", row.RoomID, "handId", snap.Hand.ID, "error", err.Error())
 				report.Rejected++
 				continue
@@ -343,31 +346,54 @@ func (rm *RoomManager) restoreOne(ctx context.Context, snap *Snapshot, source st
 	return restoreDone
 }
 
-// ReconcileWithLedger corrects a durable snapshot (game_states, written up to
-// SNAPSHOT_FLUSH_MS after the money moved) against the ledger's per-player
-// totals for its hand — DurableSource.HandContributions: userID → chips
-// banked as boot, bet or show. The ledger is never behind, so the ledger wins:
+// ReconcileWithLedger brings a durable snapshot (game_states) forward to
+// what the ledger says, and is the reason PostgreSQL only has to be written
+// at the two hand boundaries (Table.markDurable). The row a restore reads
+// is normally the hand's OPENING state — boots paid, cards dealt — while
+// the ledger has however many rounds of betting happened afterwards. The
+// ledger is never behind the money, so the ledger wins:
 //
 //   - every seat's and contribution record's `contributed` and `persisted`
 //     become the ledger figure, the seat's chips are lowered by whatever the
 //     snapshot had not yet debited, `didChaal` is set once the figure exceeds
 //     the boot, and the hand's pot becomes the ledger total;
-//   - a ledger figure for a player the snapshot shows as PACKED, LOST or
-//     ABSENT that exceeds what the snapshot recorded means they bet after the
-//     snapshot was taken — the snapshot is too old to trust and an error is
-//     returned (Restore then rejects the room and leaves its open pot to
-//     RefundOrphanedPots); so is a ledger figure BELOW the snapshot's (a
-//     snapshot is only ever saved after the commit).
+//   - when the ledger shows more than the snapshot recorded — the normal case
+//     now — play is reopened after the last contributor (reopenTurn).
 //
-// Cards, seat order, blind/seen status and who has packed come from the
-// snapshot: none of them changes without a chip moving. The last bet's size
-// (hand.stake) cannot be read back from the ledger and is left as saved.
+// It refuses only what is genuinely unrecoverable, because a rejection costs
+// the room: the hand is abandoned and its pot refunded from the ledger
+// (RefundOrphanedPots).
 //
-// Invariant after a successful call: hand.pot == Σ contributions and every
-// seat's contributed == its entry. A snapshot without a hand is returned
-// unchanged (nil). Nil contributions with a live hand is an error: a hand in
-// progress always has its boots in the ledger.
-func ReconcileWithLedger(snap *Snapshot, contributions map[string]int64) error {
+//	chips staked by somebody the snapshot has NEITHER a seat NOR a
+//	    contribution record for → there is nothing to attribute them to;
+//	a ledger figure BELOW what the snapshot recorded → a snapshot is only
+//	    ever written after its transaction commits, so the ledger cannot be
+//	    behind it; something else is wrong and guessing would be worse;
+//	a snapshot contribution with no ledger row at all → likewise;
+//	a live hand with no ledger rows at all → a dealt hand always has its
+//	    boots banked;
+//	the same player twice in the ledger slice → a malformed source.
+//
+// What is NOT a rejection any more: a ledger figure above the snapshot's for
+// a player the snapshot shows as packed, lost, or gone from the table. That
+// used to mean "too old to trust"; with hand-boundary writes it is simply
+// what a hand that has been played looks like from its opening snapshot.
+// Their stake is in the pot and attributed to them, which is what the money
+// needs.
+//
+// Carried over from the snapshot and NOT recoverable from the ledger, all
+// harmless to the books and all documented in PORT_NOTES/live-game.md:
+// `hand.stake` (the size of the last bet — play resumes at the opening
+// stake, so the ladder can restart low), `hand.round` (the forced-showdown
+// count restarts), and who had packed (everyone the snapshot had active is
+// asked to act again). Cards, seat order and blind/seen status cannot change
+// without a chip moving, so those are right.
+//
+// Invariant after a successful call, and the one the tests pin:
+// hand.pot == Σ contributions, and every seat's contributed == its ledger
+// total. A snapshot without a hand is returned unchanged (nil) — it is a
+// hand-end row, already the table at rest.
+func ReconcileWithLedger(snap *Snapshot, contributions []LedgerContribution) error {
 	if snap == nil {
 		return errors.New("nil snapshot")
 	}
@@ -390,52 +416,144 @@ func ReconcileWithLedger(snap *Snapshot, contributions map[string]int64) error {
 	}
 
 	var total int64
-	for userID, banked := range contributions {
-		if banked < 0 {
-			return fmt.Errorf("ledger total for %s is negative (%d)", userID, banked)
+	behind := false
+	lastContributor := ""
+	banked := make(map[string]bool, len(contributions))
+	for _, entry := range contributions {
+		if entry.Amount < 0 {
+			return fmt.Errorf("ledger total for %s is negative (%d)", entry.UserID, entry.Amount)
 		}
-		total += banked
-		seat := seatOf[userID]
-		record := recordOf[userID]
+		if banked[entry.UserID] {
+			return fmt.Errorf("ledger names %s twice", entry.UserID)
+		}
+		banked[entry.UserID] = true
+		total += entry.Amount
+
+		seat := seatOf[entry.UserID]
+		record := recordOf[entry.UserID]
+		if seat == nil && record == nil {
+			// The one contribution nothing can be done with: chips are in the
+			// pot for a player this snapshot has never heard of, so the hand
+			// cannot be reconstructed around them.
+			return fmt.Errorf("ledger shows %d from %s, the snapshot has neither a seat nor a contribution for them", entry.Amount, entry.UserID)
+		}
 		var recorded int64
 		switch {
 		case record != nil:
 			recorded = record.Contributed
-		case seat != nil:
+		default:
 			recorded = seat.Contributed
 		}
-		if banked < recorded {
-			return fmt.Errorf("ledger shows %d for %s, snapshot already had %d", banked, userID, recorded)
+		if entry.Amount < recorded {
+			return fmt.Errorf("ledger shows %d for %s, snapshot already had %d", entry.Amount, entry.UserID, recorded)
 		}
-		if banked > recorded {
-			// Only a player still in the hand can have put chips in after
-			// the snapshot was taken.
-			inHand := seat != nil && seat.Status == SeatActive && record != nil && record.Status == SeatActive
-			if !inHand {
-				return fmt.Errorf("ledger shows %d for %s, snapshot has %d and them out of the hand", banked, userID, recorded)
+		if entry.Amount > recorded {
+			behind = true
+			if seat != nil {
+				// The stack in the snapshot predates those bets.
+				seat.Chips -= entry.Amount - recorded
+				if seat.Chips < 0 {
+					seat.Chips = 0
+				}
 			}
-			seat.Chips -= banked - recorded
 		}
 		if seat != nil {
-			seat.Contributed = banked
+			seat.Contributed = entry.Amount
 		}
 		if record != nil {
-			record.Contributed = banked
-			record.Persisted = banked
-			if banked > snap.Config.BootAmount {
+			record.Contributed = entry.Amount
+			record.Persisted = entry.Amount
+			if entry.Amount > snap.Config.BootAmount {
 				record.DidChaal = true
 			}
 		}
+		lastContributor = entry.UserID
 	}
 	// A record the ledger knows nothing about is a contribution that was
 	// never banked — impossible for a saved snapshot.
 	for _, c := range h.Contributions {
-		if _, known := contributions[c.UserID]; !known && c.Contributed > 0 {
+		if !banked[c.UserID] && c.Contributed > 0 {
 			return fmt.Errorf("snapshot has %d from %s, ledger has no row", c.Contributed, c.UserID)
 		}
 	}
 	h.Pot = total
+	if behind {
+		reopenTurn(snap, lastContributor)
+	}
 	return nil
+}
+
+// reopenTurn decides where play resumes on a snapshot the ledger has just
+// brought forward, and is called only when it actually moved (a snapshot the
+// ledger agrees with is current: its own turn and deadline stand).
+//
+// The rule: THE TURN GOES TO THE FIRST SEAT THAT CAN STILL ACT CLOCKWISE
+// AFTER THE LAST CONTRIBUTOR IN LEDGER ORDER, ON A FRESH FULL TURN CLOCK.
+// The last row in the ledger is the last chips anybody put in, so the player
+// who owns it is the one who moved last, and the seat after them is exactly
+// where the engine would have gone next (advanceTurn). Anything else either
+// asks a player to act twice or skips one.
+//
+// The clock is reset rather than restored because the stored deadline
+// belongs to a turn that ended before the crash: honouring it would time the
+// new player out the instant the table came back (RestoreTable fires an
+// expired deadline immediately, which packs them and counts a missed turn).
+// Any pending sideshow goes for the same reason — the turn it hung off is
+// gone — and the new seat starts the turn able to ask for one.
+//
+// Fallbacks, in order: the last contributor is not at the table any more →
+// keep the seat the snapshot had the turn on if it can still act → otherwise
+// the first seat that can → otherwise leave it to RestoreTable (which opens
+// play to the dealer's left, or resolves a hand with nobody left in it).
+func reopenTurn(snap *Snapshot, lastContributor string) {
+	h := snap.Hand
+	h.TurnDeadline = nil // a fresh full turn clock, armed by resumeTimers
+	h.Sideshow = nil
+
+	packed := make(map[string]bool, len(h.PackedUserIDs))
+	for _, id := range h.PackedUserIDs {
+		packed[id] = true
+	}
+	canAct := func(index int) bool {
+		if index < 0 || index >= len(snap.Seats) {
+			return false
+		}
+		s := snap.Seats[index]
+		return s != nil && s.Status == SeatActive && !packed[s.UserID]
+	}
+
+	from := -1
+	for index, s := range snap.Seats {
+		if s != nil && s.UserID == lastContributor {
+			from = index
+			break
+		}
+	}
+	next := -1
+	if n := len(snap.Seats); from >= 0 && n > 0 {
+		for step := 1; step <= n; step++ {
+			if index := (from + step) % n; canAct(index) {
+				next = index
+				break
+			}
+		}
+	}
+	if next < 0 && canAct(h.TurnSeat) {
+		next = h.TurnSeat
+	}
+	if next < 0 {
+		for index := range snap.Seats {
+			if canAct(index) {
+				next = index
+				break
+			}
+		}
+	}
+	if next < 0 {
+		return // nobody can act; RestoreTable decides (resolveIfOnlyOneLeft)
+	}
+	h.TurnSeat = next
+	snap.Seats[next].SideshowAskedThisTurn = false
 }
 
 // ReconcileReport is what ReconcileLive did.
@@ -447,21 +565,34 @@ type ReconcileReport struct {
 	Tables    int
 	Published int
 	Seats     int
+	// StaleSeats and StaleSummaries are what the leak sweep removed: seat
+	// entries for players this manager does not have, and summaries for
+	// tables it does not have (see ReconcileLive).
+	StaleSeats     int
+	StaleSummaries int
 	// Errors counts store calls that failed (also counted through the
 	// LiveErrors hook / the wrapped store's own metrics).
 	Errors int
 }
 
-// ReconcileLive refills the live store from memory: when the store answers
-// Ping, every live table is re-saved (Table.SaveLive: a fresh snapshot under
-// the next seq), every public table re-published to the matchmaking index
-// and every seat re-set. It exists for a Redis that died while the process
-// ran and came back EMPTY — without it each table would be missing until its
-// next move — and it heals a FLUSHALL or an eviction the same way. The app
-// ticks it (LIVE_RECONCILE_MS) and calls it once more when the store turns
-// healthy again. Cheap: three round trips per table plus one per seat, no
-// mutex held across any of them, and safe to call at any time (a table
-// destroyed under it is skipped). Without a store it does nothing.
+// ReconcileLive makes the live store agree with memory, in both directions.
+//
+// Refill: when the store answers Ping, every live table is re-saved
+// (Table.SaveLive: a fresh snapshot under the next seq), every public table
+// re-published to the matchmaking index and every seat re-set. That is for a
+// Redis that died while the process ran and came back EMPTY — without it
+// each table would be missing until its next move — and it heals a FLUSHALL
+// or an eviction the same way.
+//
+// Sweep: then everything the store holds that memory does not — stray seat
+// entries and stray summaries — is deleted (sweepStrays), so a deletion
+// missed anywhere heals itself on the next tick instead of accumulating.
+//
+// The app ticks it (LIVE_RECONCILE_MS) and calls it once more when the store
+// turns healthy again. Cheap: three round trips per table, one per seat and
+// two listings, no mutex held across any of them, and safe to call at any
+// time (a table destroyed under it is skipped). Without a store it does
+// nothing.
 func (rm *RoomManager) ReconcileLive(ctx context.Context) ReconcileReport {
 	var report ReconcileReport
 	if rm.live == nil {
@@ -510,8 +641,89 @@ func (rm *RoomManager) ReconcileLive(ctx context.Context) ReconcileReport {
 		}
 		report.Seats++
 	}
-	rm.log.Info("live store reconciled", "tables", report.Tables, "published", report.Published, "seats", report.Seats, "errors", report.Errors)
+
+	rm.sweepStrays(ctx, &report)
+
+	rm.log.Info("live store reconciled",
+		"tables", report.Tables, "published", report.Published, "seats", report.Seats,
+		"staleSeats", report.StaleSeats, "staleSummaries", report.StaleSummaries, "errors", report.Errors)
 	return report
+}
+
+// sweepStrays is ReconcileLive's other half: the belt to every ClearSeated
+// and RetireTable's braces. Whatever the reason a deletion was missed — a
+// departure path that forgot one, a store that was down for the one call
+// that mattered, a table this process never restored after a previous one
+// died — this removes it on the next tick instead of letting it accumulate.
+// Production, 9 Sep 2026, with zero players and zero tables: 4,715
+// `kt:seat:<userId>` keys (they have no ttl at all) and 141
+// `kt:summary:<roomId>` hashes.
+//
+// The rule is deliberately simple and it is the same one for both: THIS
+// PROCESS OWNS EVERY TABLE IN THE STORE (LIVE_STATE_PLAN.md: there is no
+// instance filter yet), so an entry naming something it does not have is by
+// definition finished with.
+//
+//   - a seat entry whose user is not in playerRooms → ClearSeated. Seats are
+//     read back only through this index, so nothing is lost by dropping one;
+//     a player who is really seated is re-set by the loop above, on this same
+//     tick, before the sweep looks.
+//   - a summary whose room is not registered → RetireTable, which also takes
+//     the room out of its lobby bucket. Private tables never publish one, so
+//     a private room being missing from the index is not a stray.
+//
+// It runs after the refill pass on purpose, and every candidate is checked
+// against the index AS IT IS AT THAT MOMENT, not against the copy the refill
+// used: a player who sits down while the reconcile is running has their key
+// written by seatHeld, and judging them against a stale copy would delete
+// the seat of somebody who is at a table.
+func (rm *RoomManager) sweepStrays(ctx context.Context, report *ReconcileReport) {
+	stored, err := rm.live.ListSeats(ctx)
+	if err != nil {
+		rm.liveError(LiveOpListSeats, err)
+		report.Errors++
+	}
+	for userID := range stored {
+		rm.mu.Lock()
+		_, ours := rm.playerRooms[userID]
+		rm.mu.Unlock()
+		if ours {
+			continue
+		}
+		if err := rm.live.ClearSeated(ctx, userID); err != nil {
+			rm.liveError(LiveOpClearSeated, err)
+			report.Errors++
+			continue
+		}
+		report.StaleSeats++
+	}
+
+	summaries, err := rm.live.ListSummaries(ctx)
+	if err != nil {
+		rm.liveError(LiveOpListSummaries, err)
+		report.Errors++
+	}
+	for _, summary := range summaries {
+		rm.mu.Lock()
+		_, ours := rm.tables[summary.RoomID]
+		rm.mu.Unlock()
+		if ours {
+			continue
+		}
+		rm.pubMu.Lock()
+		delete(rm.published, summary.RoomID)
+		rm.pubMu.Unlock()
+		if err := rm.live.RetireTable(ctx, summary.RoomID, summary.Category, summary.BootAmount); err != nil {
+			rm.liveError(LiveOpRetireTable, err)
+			report.Errors++
+			continue
+		}
+		report.StaleSummaries++
+	}
+	if report.StaleSeats > 0 || report.StaleSummaries > 0 {
+		rm.log.Warn("live store strays removed",
+			"seats", report.StaleSeats, "summaries", report.StaleSummaries)
+	}
 }
 
 // RestoredSeats returns every seat Restore rebuilt, in restore order. The
@@ -713,15 +925,48 @@ func (rm *RoomManager) retireTable(t *Table) {
 	}
 }
 
-// dropStored forgets a stored table that cannot be restored (snapshot and
-// chat) and says why.
-func (rm *RoomManager) dropStored(ctx context.Context, roomID string, cause error) {
+// dropStored forgets a stored table that cannot be restored and says why.
+// EVERYTHING the table left in the store goes, not just its snapshot: the
+// chat, its matchmaking summary, and the seat entry of every player the
+// snapshot named. Dropping only the snapshot is how a room that fails to
+// rebuild leaves a `kt:summary:<roomId>` and a fistful of `kt:seat:<userId>`
+// behind it for good (seat keys have no ttl), which is one of the two leaks
+// found on production, 9 Sep 2026.
+//
+// snap is nil when the snapshot could not even be parsed: there are no seats
+// to name then, and RetireTable still deletes the summary hash (the bucket
+// it also tries to ZREM simply does not have it; Candidates drops members
+// whose summary is gone, and ReconcileLive sweeps the rest).
+func (rm *RoomManager) dropStored(ctx context.Context, roomID string, snap *Snapshot, cause error) {
 	rm.log.Error("table restore: dropping stored table", "roomId", roomID, "error", cause.Error())
 	if err := rm.live.DeleteTable(ctx, roomID); err != nil {
 		rm.liveError(LiveOpDeleteTable, err)
 	}
 	if err := rm.live.DeleteChat(ctx, roomID); err != nil {
 		rm.liveError(LiveOpDeleteChat, err)
+	}
+	category, bootAmount := "", int64(0)
+	if snap != nil {
+		category = string(snap.Category)
+		if category == "" {
+			category = string(snap.Config.Category)
+		}
+		bootAmount = snap.Config.BootAmount
+		for _, seat := range snap.Seats {
+			if seat == nil {
+				continue
+			}
+			rm.mu.Lock()
+			stillSeated := rm.playerRooms[seat.UserID] != ""
+			rm.mu.Unlock()
+			if stillSeated {
+				continue // they sit at a table that DID restore; leave their key
+			}
+			rm.liveClearSeated(seat.UserID)
+		}
+	}
+	if err := rm.live.RetireTable(ctx, roomID, category, bootAmount); err != nil {
+		rm.liveError(LiveOpRetireTable, err)
 	}
 }
 

@@ -42,11 +42,13 @@ func TestWithHooksObservesEveryCall(t *testing.T) {
 	_, _, _ = store.LoadTable(ctx, "missing")
 	must(t, store.DeleteTable(ctx, "r"))
 	_, _ = store.ListTables(ctx)
+	_, _ = store.CountTables(ctx)
 	must(t, store.AppendChat(ctx, "r", []byte("m"), 5))
 	_, _ = store.LoadChat(ctx, "r")
 	must(t, store.DeleteChat(ctx, "r"))
 	must(t, store.SetSeated(ctx, "u", "r"))
 	_, _ = store.SeatOf(ctx, "u")
+	_, _ = store.ListSeats(ctx)
 	must(t, store.ClearSeated(ctx, "u"))
 	must(t, store.SetOnline(ctx, "u", "i", time.Minute))
 	_, _ = store.OnlineCount(ctx)
@@ -56,6 +58,7 @@ func TestWithHooksObservesEveryCall(t *testing.T) {
 	must(t, store.DeleteResumeOffer(ctx, "u"))
 	must(t, store.PublishTable(ctx, TableSummary{RoomID: "r", Category: "blind", BootAmount: 200}))
 	_, _ = store.Candidates(ctx, "blind", 200)
+	_, _ = store.ListSummaries(ctx)
 	must(t, store.RetireTable(ctx, "r", "blind", 200))
 	must(t, store.Ping(ctx))
 	must(t, store.Close())
@@ -64,11 +67,11 @@ func TestWithHooksObservesEveryCall(t *testing.T) {
 		t.Fatalf("decorator changed the result: %v", stale)
 	}
 	wantOps := []string{
-		"save_table", "save_table", "load_table", "load_table", "delete_table", "list_tables",
+		"save_table", "save_table", "load_table", "load_table", "delete_table", "list_tables", "count_tables",
 		"append_chat", "load_chat", "delete_chat",
-		"set_seated", "seat_of", "clear_seated", "set_online", "online_count", "set_offline",
+		"set_seated", "seat_of", "list_seats", "clear_seated", "set_online", "online_count", "set_offline",
 		"put_resume_offer", "take_resume_offer", "delete_resume_offer",
-		"publish_table", "candidates", "retire_table", "ping", "close",
+		"publish_table", "candidates", "list_summaries", "retire_table", "ping", "close",
 	}
 	mu.Lock()
 	defer mu.Unlock()

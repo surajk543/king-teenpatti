@@ -322,8 +322,17 @@ func TestLoadSnapshotsAndHandContributionsRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 2 || got[a.ID] != 600 || got[b.ID] != 600 {
+	total := map[string]int64{}
+	for _, row := range got {
+		total[row.UserID] = row.Amount
+	}
+	if len(got) != 2 || total[a.ID] != 600 || total[b.ID] != 600 {
 		t.Fatalf("contributions = %v", got)
+	}
+	// Ledger order: B's show is the most recent row of the hand, so B comes
+	// last — that is what ReconcileWithLedger hands the next turn to.
+	if got[len(got)-1].UserID != b.ID {
+		t.Fatalf("ledger order = %v, want B last", got)
 	}
 	if none, err := f.d.HandContributions(f.ctx, "no-such-hand"); err != nil || len(none) != 0 {
 		t.Fatalf("unknown hand: %v %v", none, err)

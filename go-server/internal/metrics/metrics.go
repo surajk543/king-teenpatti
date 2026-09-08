@@ -401,7 +401,7 @@ func New(opts Options) *Metrics {
 	})
 	m.RestoreRejected = prometheus.NewCounter(prometheus.CounterOpts{
 		Name: NameRestoreRejected,
-		Help: "Durable snapshots too stale to trust (the ledger disagreed with the seats); their pots were refunded instead.",
+		Help: "Durable snapshots that could not be reconciled (a contributor the snapshot cannot account for); their pots were refunded instead.",
 	})
 	m.RefundedPotsTotal = prometheus.NewCounter(prometheus.CounterOpts{
 		Name: NameRefundedPots,

@@ -23,12 +23,14 @@ const (
 	OpLoadTable         = "load_table"
 	OpDeleteTable       = "delete_table"
 	OpListTables        = "list_tables"
+	OpCountTables       = "count_tables"
 	OpAppendChat        = "append_chat"
 	OpLoadChat          = "load_chat"
 	OpDeleteChat        = "delete_chat"
 	OpSetSeated         = "set_seated"
 	OpClearSeated       = "clear_seated"
 	OpSeatOf            = "seat_of"
+	OpListSeats         = "list_seats"
 	OpSetOnline         = "set_online"
 	OpSetOffline        = "set_offline"
 	OpOnlineCount       = "online_count"
@@ -38,6 +40,7 @@ const (
 	OpPublishTable      = "publish_table"
 	OpRetireTable       = "retire_table"
 	OpCandidates        = "candidates"
+	OpListSummaries     = "list_summaries"
 	OpPing              = "ping"
 	OpClose             = "close"
 )
@@ -243,6 +246,21 @@ func (f *Fake) DeleteTable(ctx context.Context, roomID string) error {
 	return nil
 }
 
+func (f *Fake) CountTables(ctx context.Context) (int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.enter(ctx, OpCountTables); err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, t := range f.tables {
+		if t.expiresAt.After(f.now()) {
+			n++
+		}
+	}
+	return n, nil
+}
+
 func (f *Fake) ListTables(ctx context.Context) ([]live.TableRef, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -331,6 +349,19 @@ func (f *Fake) SeatOf(ctx context.Context, userID string) (string, error) {
 		return "", live.ErrNotFound
 	}
 	return roomID, nil
+}
+
+func (f *Fake) ListSeats(ctx context.Context) (map[string]string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.enter(ctx, OpListSeats); err != nil {
+		return nil, err
+	}
+	out := make(map[string]string, len(f.seats))
+	for userID, roomID := range f.seats {
+		out[userID] = roomID
+	}
+	return out, nil
 }
 
 func (f *Fake) SetOnline(ctx context.Context, userID, instance string, ttl time.Duration) error {
@@ -429,6 +460,20 @@ func (f *Fake) RetireTable(ctx context.Context, roomID, category string, bootAmo
 	}
 	delete(f.summaries, roomID)
 	return nil
+}
+
+func (f *Fake) ListSummaries(ctx context.Context) ([]live.TableSummary, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.enter(ctx, OpListSummaries); err != nil {
+		return nil, err
+	}
+	out := []live.TableSummary{}
+	for _, s := range f.summaries {
+		out = append(out, s)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].RoomID < out[j].RoomID })
+	return out, nil
 }
 
 func (f *Fake) Candidates(ctx context.Context, category string, bootAmount int64) ([]live.TableSummary, error) {

@@ -646,12 +646,15 @@ func (a *App) liveHealth() LiveHealth {
 	if err := a.live.Ping(ctx); err != nil {
 		return out
 	}
-	refs, err := a.live.ListTables(ctx)
+	// A count, not a listing: /health is polled by uptime checks and the load
+	// generator, and enumerating the store here cost one Redis round trip per
+	// table (see live.Store.CountTables).
+	n, err := a.live.CountTables(ctx)
 	if err != nil {
 		return out
 	}
 	out.OK = true
-	out.Tables = len(refs)
+	out.Tables = n
 	return out
 }
 

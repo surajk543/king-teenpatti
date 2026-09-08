@@ -12,6 +12,12 @@ import "context"
 // SnapshotSink is the durable backstop: PostgreSQL's game_states, written
 // asynchronously so the money transaction stays small. MarkDirty must never
 // block the actor — it hands over the newest snapshot for a room and returns.
+//
+// The table feeds it at the two HAND BOUNDARIES only (Table.markDurable):
+// the hand's opening state and the table at rest after settlement. Between
+// them the live store carries every mutation and the ledger carries the
+// money; a durable row is therefore at most one hand behind, and
+// ReconcileWithLedger closes that gap on the way back.
 type SnapshotSink interface {
 	MarkDirty(roomID string, seq int64, handID string, snapshot []byte)
 	MarkDeleted(roomID string)
@@ -26,11 +32,25 @@ type DurableSnapshot struct {
 	UpdatedAt int64
 }
 
+// LedgerContribution is one player's stake in a hand as the chip_ledger
+// tells it. The slice HandContributions returns is in LEDGER ORDER — each
+// player positioned by their most recent row for the hand — so its last
+// element is whoever put chips in last. ReconcileWithLedger uses that to
+// decide where play resumes (see reopenTurn).
+type LedgerContribution struct {
+	// UserID is the player who staked.
+	UserID string
+	// Amount is everything they have banked for this hand (boot + bets +
+	// show) as a positive number.
+	Amount int64
+}
+
 // DurableSource supplies the snapshots the live store did not have, and the
 // ledger totals used to correct a stale one.
 type DurableSource interface {
 	LoadSnapshots(ctx context.Context) ([]DurableSnapshot, error)
-	// HandContributions returns userID → chips banked for that hand
-	// (chip_ledger rows with reason boot|bet|show, as positive numbers).
-	HandContributions(ctx context.Context, handID string) (map[string]int64, error)
+	// HandContributions returns what each player has banked for that hand
+	// (chip_ledger rows with reason boot|bet|show, as positive numbers), in
+	// ledger order — the player who moved last comes last.
+	HandContributions(ctx context.Context, handID string) ([]LedgerContribution, error)
 }
