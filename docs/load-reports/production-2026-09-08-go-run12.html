@@ -1,0 +1,249 @@
+<title>Production Load Profile</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    --ground:#F2F4F6; --surface:#FFFFFF; --ink:#16202A; --muted:#5D6B79; --grid:#E1E6EB; --rule:#C9D1D9;
+    --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100; --s7:#4a3aa7;
+    --c1:#cfe0f7; --c2:#8fb8ec; --c3:#4f8fe0; --c4:#1d5fb8;
+    --ok:#1f8a4c; --warn:#b26a00; --bad:#b3261e; --ok-soft:#dff3e6; --warn-soft:#fbeed6; --bad-soft:#f9dcd9;
+    --shadow:0 1px 2px rgba(22,32,42,.06),0 6px 20px rgba(22,32,42,.06);
+  }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+    --ground:#0F1418; --surface:#161C22; --ink:#E6EBF0; --muted:#92A0AE; --grid:#2A333D; --rule:#33404C;
+    --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s7:#9085e9;
+    --c1:#2a3d55; --c2:#33578a; --c3:#3f77c0; --c4:#69a3f0;
+    --ok:#4cc27a; --warn:#e0a640; --bad:#e66767; --ok-soft:#173a26; --warn-soft:#3d2e12; --bad-soft:#3f1b19;
+    --shadow:0 1px 2px rgba(0,0,0,.4),0 6px 20px rgba(0,0,0,.35);
+  } }
+  :root[data-theme="dark"] {
+    --ground:#0F1418; --surface:#161C22; --ink:#E6EBF0; --muted:#92A0AE; --grid:#2A333D; --rule:#33404C;
+    --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s7:#9085e9;
+    --c1:#2a3d55; --c2:#33578a; --c3:#3f77c0; --c4:#69a3f0;
+    --ok:#4cc27a; --warn:#e0a640; --bad:#e66767; --ok-soft:#173a26; --warn-soft:#3d2e12; --bad-soft:#3f1b19;
+    --shadow:0 1px 2px rgba(0,0,0,.4),0 6px 20px rgba(0,0,0,.35);
+  }
+  body{background:var(--ground);color:var(--ink);font:15px/1.55 "IBM Plex Sans",system-ui,sans-serif;margin:0}
+  .page{max-width:1200px;margin:0 auto;padding:40px 28px 64px}
+  h1,h2,h3{font-family:"IBM Plex Sans Condensed","IBM Plex Sans",system-ui,sans-serif;text-wrap:balance;margin:0}
+  h1{font-size:40px;line-height:1.05;font-weight:600;letter-spacing:-.01em}
+  h2{font-size:24px;font-weight:600;margin:48px 0 14px}
+  h3{font-size:17px;font-weight:600}
+  p{max-width:70ch;margin:8px 0}
+  .eyebrow{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+  .lede{font-size:18px;max-width:64ch;margin-top:14px}
+  .mono{font-family:"IBM Plex Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums}
+  .facts{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:26px}
+  .fact{background:var(--surface);border-radius:10px;box-shadow:var(--shadow);padding:16px 18px}
+  .fact .v{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:28px;font-weight:500;line-height:1.1;font-variant-numeric:tabular-nums}
+  .fact .k{font-size:12.5px;color:var(--muted);margin-top:6px}
+  .stages{display:grid;grid-template-columns:repeat(7,1fr);gap:8px;margin-top:22px}
+  .stage{border-radius:8px;padding:10px 10px 9px;background:var(--surface);box-shadow:var(--shadow);border-top:3px solid var(--rule)}
+  .stage .n{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:15px;font-weight:500}
+  .stage .s{font-size:11.5px;color:var(--muted);margin-top:2px}
+  .stage.ok{border-top-color:var(--ok)} .stage.warn{border-top-color:var(--warn)} .stage.bad{border-top-color:var(--bad)} .stage.none{opacity:.55;border-top-style:dashed}
+  .charts{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  .chart{background:var(--surface);border-radius:10px;box-shadow:var(--shadow);padding:18px 20px 12px;min-width:0;position:relative}
+  .chart .sub{font-size:13px;color:var(--muted);margin:2px 0 8px}
+  .chart svg{width:100%;height:auto;display:block;overflow:visible}
+  .legend{display:flex;flex-wrap:wrap;gap:14px;font-size:12.5px;color:var(--muted);margin-top:6px}
+  .legend i{display:inline-block;width:10px;height:10px;border-radius:2px;vertical-align:-1px;margin-right:6px}
+  svg .grid line{stroke:var(--grid);stroke-width:1}
+  svg .axis text{fill:var(--muted);font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px}
+  svg .line{fill:none;stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
+  svg .dot{stroke:var(--surface);stroke-width:2}
+  svg .val{fill:var(--muted);font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px}
+  svg .ref{stroke:var(--bad);stroke-dasharray:4 4;stroke-width:1.2} svg .reftext{fill:var(--bad);font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px}
+  svg .cross{stroke:var(--rule);stroke-width:1;pointer-events:none}
+  .tip{position:absolute;pointer-events:none;background:var(--ink);color:var(--ground);font:12px/1.4 "IBM Plex Mono",ui-monospace,monospace;padding:8px 10px;border-radius:6px;box-shadow:var(--shadow);white-space:nowrap;display:none;z-index:2}
+  .tablewrap{overflow-x:auto;background:var(--surface);border-radius:10px;box-shadow:var(--shadow)}
+  table{border-collapse:collapse;width:100%;font-size:13px}
+  th,td{padding:8px 10px;text-align:right;border-bottom:1px solid var(--grid);white-space:nowrap;font-variant-numeric:tabular-nums}
+  th{font-weight:500;color:var(--muted);font-size:11.5px;letter-spacing:.04em;text-transform:uppercase;position:sticky;top:0;background:var(--surface)}
+  th:first-child,td:first-child{text-align:left;position:sticky;left:0;background:var(--surface);font-weight:600}
+  td.num{font-family:"IBM Plex Mono",ui-monospace,monospace}
+  tr.warn td{background:color-mix(in srgb,var(--warn-soft) 55%,var(--surface))} tr.bad td{background:color-mix(in srgb,var(--bad-soft) 55%,var(--surface))}
+  .pill{display:inline-block;font-size:11.5px;padding:1px 8px;border-radius:999px;font-weight:500}
+  .pill.ok{background:var(--ok-soft);color:var(--ok)} .pill.warn{background:var(--warn-soft);color:var(--warn)} .pill.bad{background:var(--bad-soft);color:var(--bad)}
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:16px 32px}
+  ul{margin:6px 0 0;padding-left:20px} li{margin:4px 0;max-width:72ch}
+  .note{font-size:13px;color:var(--muted)}
+  .method{font-size:13px;color:var(--muted);border-top:1px solid var(--rule);margin-top:48px;padding-top:16px}
+  code{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12.5px;background:var(--grid);padding:1px 6px;border-radius:4px}
+  @media (max-width:900px){.facts{grid-template-columns:repeat(2,1fr)}.stages{grid-template-columns:repeat(4,1fr)}.charts,.cols{grid-template-columns:1fr}h1{font-size:32px}}
+</style>
+<div class="page">
+  <div class="eyebrow">api.sungamestudio.com · Go game server · 8 Sep 2026 · production</div>
+  <h1>Production load profile, 1,000 to 15,000 concurrent players</h1>
+  <p class="lede" id="lede"></p>
+  <div class="facts" id="facts"></div>
+  <div class="stages" id="stages"></div>
+  <p class="note" id="stagesnote"></p>
+
+  <h2>Latency</h2>
+  <div class="charts">
+    <div class="chart"><h3>Acknowledgement latency by percentile</h3><p class="sub">Milliseconds from a bet leaving the client until the server's ack, log scale. The 26 ms floor is the network round trip from the load generator to the host.</p><svg id="c-lat" viewBox="0 0 560 300" role="img" aria-label="Latency percentiles by players"></svg><div class="legend"><span><i style="background:var(--s1)"></i>p50</span><span><i style="background:var(--s3)"></i>p90</span><span><i style="background:var(--s4)"></i>p95</span><span><i style="background:var(--s2)"></i>p99</span></div><div class="tip"></div></div>
+    <div class="chart"><h3>Server-side move processing, p95</h3><p class="sub">Time the server spent on a move once it had it (worst 15 s window of each stage). The gap to the client-side p95 is queueing in nginx, TLS and the network.</p><svg id="c-move" viewBox="0 0 560 300" role="img" aria-label="Move processing p95 by players"></svg><div class="legend"><span><i style="background:var(--s7)"></i>move processing p95</span></div><div class="tip"></div></div>
+  </div>
+
+  <h2>Throughput</h2>
+  <div class="charts">
+    <div class="chart"><h3>Actions per second</h3><p class="sub">Moves the server accepted per second during each 75 s hold.</p><svg id="c-aps" viewBox="0 0 560 300" role="img" aria-label="Actions per second"></svg><div class="legend"><span><i style="background:var(--s1)"></i>actions / s</span></div><div class="tip"></div></div>
+    <div class="chart"><h3>Hands completed per minute</h3><p class="sub">Full hands settled and paid out per minute.</p><svg id="c-hpm" viewBox="0 0 560 300" role="img" aria-label="Hands per minute"></svg><div class="legend"><span><i style="background:var(--s3)"></i>hands / min</span></div><div class="tip"></div></div>
+  </div>
+
+  <h2>Host resources</h2>
+  <div class="charts">
+    <div class="chart"><h3>CPU per core</h3><p class="sub">Mean busy share of each of the host's four cores during the hold. Game server, PostgreSQL and nginx share them.</p><svg id="c-cpu" viewBox="0 0 560 300" role="img" aria-label="CPU per core by stage"></svg><div class="legend"><span><i style="background:var(--c1)"></i>core 0</span><span><i style="background:var(--c2)"></i>core 1</span><span><i style="background:var(--c3)"></i>core 2</span><span><i style="background:var(--c4)"></i>core 3</span><span><i style="background:var(--s2)"></i>I/O wait</span></div><div class="tip"></div></div>
+    <div class="chart"><h3>Memory</h3><p class="sub">Host memory in use (of 7,941 MB) and the game server's resident size.</p><svg id="c-mem" viewBox="0 0 560 300" role="img" aria-label="Memory by stage"></svg><div class="legend"><span><i style="background:var(--s1)"></i>host used</span><span><i style="background:var(--s3)"></i>game server RSS</span></div><div class="tip"></div></div>
+    <div class="chart"><h3>Sockets, seated players and tables</h3><p class="sub">Open websocket connections, players holding a seat (mean over the hold), and tables with a hand in progress.</p><svg id="c-soc" viewBox="0 0 560 300" role="img" aria-label="Sockets and players"></svg><div class="legend"><span><i style="background:var(--s1)"></i>sockets</span><span><i style="background:var(--s3)"></i>seated players</span><span><i style="background:var(--s4)"></i>tables in a hand</span></div><div class="tip"></div></div>
+    <div class="chart"><h3>Database</h3><p class="sub">Committed transactions per second (every move is one). The 50-connection pool was fully in use from 1,000 players on.</p><svg id="c-db" viewBox="0 0 560 300" role="img" aria-label="Database commits per second"></svg><div class="legend"><span><i style="background:var(--s2)"></i>commits / s</span></div><div class="tip"></div></div>
+  </div>
+
+  <h2>Every figure, every stage</h2>
+  <div class="tablewrap"><table id="t-all"><thead></thead><tbody></tbody></table></div>
+  <p class="note">Latency figures are measured at the client with the network round trip included. Database p95 values of ≥1,000 ms sit in the histogram's top bucket; the true value is at least that. "Seated" is the mean number of players holding a seat during the hold; the gap to sockets is players between tables (kicked for missed turns under slow acks and re-joining).</p>
+
+  <h2>Stages not reached</h2>
+  <div class="cols" id="notreached"></div>
+
+  <h2>Reading the profile</h2>
+  <div class="cols">
+    <div>
+      <p><strong>Up to 4,000 players</strong> the server answers a move in 62 ms or less at the 95th percentile, of which 26 ms is the network. Throughput grows in step with players (400 → 1,358 actions/s) and the four cores are three-quarters busy.</p>
+      <p><strong>5,000 to 7,000</strong> is the knee. Throughput keeps rising to its peak of 1,625 actions/s at 7,000, but the host reaches 95% CPU and the p95 climbs from 62 ms to 555 ms as moves queue for the database. The Go process itself never uses more than 1.8 cores; PostgreSQL takes the rest.</p>
+    </div>
+    <div>
+      <p><strong>From 8,000</strong> the host is saturated (all cores 97–99%, I/O wait 22–30%). Throughput falls back to 1,100–1,400 actions/s because work is now spent on contention rather than moves, and the tail runs into seconds. At 15,000 the p95 crossed the 3 s stop rule and the run ended on its own. No stage produced a single refused move or a server error.</p>
+      <p><strong>What would move the ceiling:</strong> a database on its own host (it consumes about two of the four cores plus all of the disk), more cores on the game host, or both. The game server code has headroom: on a 12-core machine it held 4,000 players at 5 ms.</p>
+    </div>
+  </div>
+
+  <div class="method" id="method"></div>
+</div>
+<script>
+const R = {"meta":{"url":"https://api.sungamestudio.com","startedAt":"2026-09-08T17:46:31.822Z","finishedAt":"2026-09-08T18:02:42.924Z","stages":[1000,2000,3000,4000,5000,6000,7000,8000,9000,10000,15000,20000,30000,50000],"hold":75,"workers":10,"ceiling":{"target":15000,"reasons":["p95 4796ms > 3000ms"]},"thresholds":{"maxP95Ms":3000,"maxErrorRate":0.1},"reached":[1000,2000,3000,4000,5000,6000,7000,8000,9000,10000,15000],"notReached":[20000,30000,50000]},"rows":[{"players":1000,"connected":985,"seated":945,"connectedAfterHold":998,"joinRefusals":{},"connectFailures":0,"loginFailures":0,"disconnects":0,"actions":30040,"actionsPerSec":400.53,"errors":2,"p50":26,"p90":28,"p95":28,"p99":31,"max":29831,"mean":27,"handsStarted":1263,"handsCompleted":1123,"handsPerMin":898.4,"loginP50":61,"loginP95":429,"connectP50":237,"connectP95":375,"healthRttP95":148,"window":{"start":"2026-09-08T17:46:36.776Z","end":"2026-09-08T17:47:53.124Z","seconds":78},"cores":[{"core":0,"mean":19.7,"max":24.6},{"core":1,"mean":23.7,"max":33.2},{"core":2,"mean":20.9,"max":30.1},{"core":3,"mean":20.7,"max":28.6}],"cpuTotal":21.2,"iowait":1.6,"memTotalMb":7941,"memUsedMb":2134,"memAvailMinMb":5808,"goRssMb":580,"goCpuCores":0.48,"goCpuCoresMean":0.36,"goroutines":3208,"threads":18,"socketsMax":998,"connectionsAccepted":0,"disconnections":0,"seatedMean":830,"seatedMax":998,"tables":200,"tablesInHand":123,"tablesWaiting":44,"moveP95Ms":5,"dbP95":{"bet":5,"boot":5,"settle":8},"pool":50,"commitsPerSec":272,"nginxActive":1002,"nginxAccepted":16},{"players":2000,"connected":1997,"seated":1997,"connectedAfterHold":1997,"joinRefusals":{},"connectFailures":2,"loginFailures":1,"disconnects":0,"actions":56227,"actionsPerSec":749.69,"errors":0,"p50":26,"p90":28,"p95":30,"p99":548,"max":1987,"mean":40,"handsStarted":2356,"handsCompleted":2311,"handsPerMin":1848.8,"loginP50":64,"loginP95":260,"connectP50":209,"connectP95":329,"healthRttP95":88,"window":{"start":"2026-09-08T17:48:07.616Z","end":"2026-09-08T17:49:23.896Z","seconds":77},"cores":[{"core":0,"mean":45.3,"max":57.7},{"core":1,"mean":49.3,"max":55.9},{"core":2,"mean":47.6,"max":57.1},{"core":3,"mean":44.4,"max":59.1}],"cpuTotal":46.6,"iowait":6,"memTotalMb":7941,"memUsedMb":1857,"memAvailMinMb":6085,"goRssMb":267,"goCpuCores":0.88,"goCpuCoresMean":0.79,"goroutines":6401,"threads":18,"socketsMax":1997,"connectionsAccepted":0,"disconnections":0,"seatedMean":1940,"seatedMax":1973,"tables":394,"tablesInHand":252,"tablesWaiting":142,"moveP95Ms":7,"dbP95":{"bet":8,"boot":976,"settle":184},"pool":50,"commitsPerSec":582,"nginxActive":2173,"nginxAccepted":15},{"players":3000,"connected":2997,"seated":2997,"connectedAfterHold":2996,"joinRefusals":{},"connectFailures":2,"loginFailures":0,"disconnects":1,"actions":77839,"actionsPerSec":1037.85,"errors":1,"p50":26,"p90":30,"p95":34,"p99":1049,"max":29535,"mean":59,"handsStarted":3409,"handsCompleted":3295,"handsPerMin":2636,"loginP50":77,"loginP95":994,"connectP50":209,"connectP95":328,"healthRttP95":87,"window":{"start":"2026-09-08T17:49:28.976Z","end":"2026-09-08T17:50:45.287Z","seconds":78},"cores":[{"core":0,"mean":60,"max":82.9},{"core":1,"mean":62.4,"max":71.9},{"core":2,"mean":57.8,"max":65.5},{"core":3,"mean":59,"max":67}],"cpuTotal":59.8,"iowait":8.5,"memTotalMb":7941,"memUsedMb":1962,"memAvailMinMb":5980,"goRssMb":365,"goCpuCores":1.18,"goCpuCoresMean":1.06,"goroutines":9581,"threads":18,"socketsMax":2997,"connectionsAccepted":0,"disconnections":0,"seatedMean":2804,"seatedMax":2883,"tables":577,"tablesInHand":370,"tablesWaiting":207,"moveP95Ms":23,"dbP95":{"bet":168,"boot":1000,"settle":289},"pool":50,"commitsPerSec":769,"nginxActive":3001,"nginxAccepted":27},{"players":4000,"connected":3993,"seated":3965,"connectedAfterHold":3995,"joinRefusals":{},"connectFailures":2,"loginFailures":0,"disconnects":0,"actions":101869,"actionsPerSec":1358.25,"errors":0,"p50":27,"p90":40,"p95":62,"p99":553,"max":3156,"mean":48,"handsStarted":4505,"handsCompleted":4403,"handsPerMin":3522.4,"loginP50":116,"loginP95":378,"connectP50":215,"connectP95":333,"healthRttP95":102,"window":{"start":"2026-09-08T17:50:49.932Z","end":"2026-09-08T17:52:06.305Z","seconds":78},"cores":[{"core":0,"mean":73.8,"max":80.1},{"core":1,"mean":77.7,"max":81.5},{"core":2,"mean":73.4,"max":77.5},{"core":3,"mean":72.7,"max":78.3}],"cpuTotal":74.4,"iowait":4.7,"memTotalMb":7941,"memUsedMb":2076,"memAvailMinMb":5865,"goRssMb":497,"goCpuCores":1.46,"goCpuCoresMean":1.37,"goroutines":12750,"threads":18,"socketsMax":3995,"connectionsAccepted":0,"disconnections":0,"seatedMean":3408,"seatedMax":3656,"tables":712,"tablesInHand":466,"tablesWaiting":246,"moveP95Ms":200,"dbP95":{"bet":569,"boot":1000,"settle":300},"pool":50,"commitsPerSec":1056,"nginxActive":3998,"nginxAccepted":21},{"players":5000,"connected":4818,"seated":4701,"connectedAfterHold":4995,"joinRefusals":{},"connectFailures":3,"loginFailures":0,"disconnects":0,"actions":108770,"actionsPerSec":1450.27,"errors":0,"p50":31,"p90":128,"p95":332,"p99":1728,"max":3890,"mean":98,"handsStarted":4714,"handsCompleted":4679,"handsPerMin":3743.2,"loginP50":282,"loginP95":591,"connectP50":227,"connectP95":614,"healthRttP95":97,"window":{"start":"2026-09-08T17:52:12.075Z","end":"2026-09-08T17:53:28.482Z","seconds":77},"cores":[{"core":0,"mean":83,"max":91.5},{"core":1,"mean":81.4,"max":89.9},{"core":2,"mean":84,"max":90.5},{"core":3,"mean":84.8,"max":92.1}],"cpuTotal":83.3,"iowait":9,"memTotalMb":7941,"memUsedMb":2204,"memAvailMinMb":5737,"goRssMb":592,"goCpuCores":1.57,"goCpuCoresMean":1.42,"goroutines":15903,"threads":18,"socketsMax":4995,"connectionsAccepted":0,"disconnections":0,"seatedMean":4113,"seatedMax":4364,"tables":854,"tablesInHand":575,"tablesWaiting":280,"moveP95Ms":715,"dbP95":{"bet":1000,"boot":1000,"settle":1000},"pool":50,"commitsPerSec":1133,"nginxActive":5247,"nginxAccepted":21},{"players":6000,"connected":5854,"seated":5795,"connectedAfterHold":5994,"joinRefusals":{},"connectFailures":3,"loginFailures":1,"disconnects":0,"actions":113099,"actionsPerSec":1507.99,"errors":0,"p50":45,"p90":235,"p95":525,"p99":2149,"max":4350,"mean":150,"handsStarted":4948,"handsCompleted":5017,"handsPerMin":4013.6,"loginP50":323,"loginP95":723,"connectP50":249,"connectP95":646,"healthRttP95":104,"window":{"start":"2026-09-08T17:53:43.099Z","end":"2026-09-08T17:54:59.539Z","seconds":77},"cores":[{"core":0,"mean":90,"max":94.9},{"core":1,"mean":87.2,"max":94},{"core":2,"mean":91.2,"max":96.5},{"core":3,"mean":90,"max":94.5}],"cpuTotal":89.6,"iowait":9.3,"memTotalMb":7941,"memUsedMb":2303,"memAvailMinMb":5639,"goRssMb":689,"goCpuCores":1.75,"goCpuCoresMean":1.5,"goroutines":19012,"threads":18,"socketsMax":5994,"connectionsAccepted":0,"disconnections":0,"seatedMean":4803,"seatedMax":4984,"tables":999,"tablesInHand":687,"tablesWaiting":313,"moveP95Ms":1000,"dbP95":{"bet":1000,"boot":1000,"settle":969},"pool":50,"commitsPerSec":1222,"nginxActive":5997,"nginxAccepted":17},{"players":7000,"connected":6493,"seated":6359,"connectedAfterHold":6994,"joinRefusals":{},"connectFailures":3,"loginFailures":0,"disconnects":0,"actions":121854,"actionsPerSec":1624.72,"errors":0,"p50":124,"p90":378,"p95":555,"p99":1245,"max":2166,"mean":183,"handsStarted":5261,"handsCompleted":5270,"handsPerMin":4216,"loginP50":356,"loginP95":731,"connectP50":267,"connectP95":805,"healthRttP95":130,"window":{"start":"2026-09-08T17:55:05.888Z","end":"2026-09-08T17:56:22.449Z","seconds":78},"cores":[{"core":0,"mean":97.3,"max":99.1},{"core":1,"mean":91.9,"max":98.5},{"core":2,"mean":94.5,"max":98.9},{"core":3,"mean":97.4,"max":98.9}],"cpuTotal":95.3,"iowait":9.2,"memTotalMb":7941,"memUsedMb":2451,"memAvailMinMb":5490,"goRssMb":788,"goCpuCores":1.82,"goCpuCoresMean":1.59,"goroutines":22128,"threads":20,"socketsMax":6994,"connectionsAccepted":0,"disconnections":0,"seatedMean":5267,"seatedMax":5556,"tables":1099,"tablesInHand":804,"tablesWaiting":296,"moveP95Ms":1000,"dbP95":{"bet":1000,"boot":1000,"settle":969},"pool":50,"commitsPerSec":1258,"nginxActive":6998,"nginxAccepted":17},{"players":8000,"connected":7711,"seated":7384,"connectedAfterHold":7993,"joinRefusals":{},"connectFailures":3,"loginFailures":0,"disconnects":0,"actions":106686,"actionsPerSec":1422.48,"errors":0,"p50":156,"p90":645,"p95":2145,"p99":2743,"max":4486,"mean":346,"handsStarted":4654,"handsCompleted":4706,"handsPerMin":3764.8,"loginP50":464,"loginP95":1840,"connectP50":305,"connectP95":2298,"healthRttP95":782,"window":{"start":"2026-09-08T17:56:31.070Z","end":"2026-09-08T17:57:48.239Z","seconds":78},"cores":[{"core":0,"mean":98.6,"max":99.5},{"core":1,"mean":96.9,"max":99.3},{"core":2,"mean":99,"max":99.4},{"core":3,"mean":98.7,"max":99.5}],"cpuTotal":98.3,"iowait":25.7,"memTotalMb":7941,"memUsedMb":2629,"memAvailMinMb":5313,"goRssMb":919,"goCpuCores":1.59,"goCpuCoresMean":1.37,"goroutines":25401,"threads":20,"socketsMax":7993,"connectionsAccepted":0,"disconnections":0,"seatedMean":5904,"seatedMax":6145,"tables":1217,"tablesInHand":910,"tablesWaiting":307,"moveP95Ms":1000,"dbP95":{"bet":1000,"boot":1000,"settle":1000},"pool":50,"commitsPerSec":1102,"nginxActive":7997,"nginxAccepted":16},{"players":9000,"connected":8263,"seated":8231,"connectedAfterHold":8992,"joinRefusals":{},"connectFailures":4,"loginFailures":0,"disconnects":0,"actions":84627,"actionsPerSec":1128.36,"errors":0,"p50":322,"p90":1923,"p95":2555,"p99":5535,"max":7090,"mean":641,"handsStarted":3807,"handsCompleted":3513,"handsPerMin":2810.4,"loginP50":465,"loginP95":1409,"connectP50":328,"connectP95":2195,"healthRttP95":96,"window":{"start":"2026-09-08T17:57:55.140Z","end":"2026-09-08T17:59:11.491Z","seconds":77},"cores":[{"core":0,"mean":98.3,"max":99.3},{"core":1,"mean":97,"max":99},{"core":2,"mean":97.6,"max":99.5},{"core":3,"mean":97.5,"max":99.3}],"cpuTotal":97.6,"iowait":30.1,"memTotalMb":7941,"memUsedMb":2757,"memAvailMinMb":5184,"goRssMb":1013,"goCpuCores":1.69,"goCpuCoresMean":1.29,"goroutines":28526,"threads":20,"socketsMax":8992,"connectionsAccepted":0,"disconnections":0,"seatedMean":6509,"seatedMax":6747,"tables":1332,"tablesInHand":1005,"tablesWaiting":326,"moveP95Ms":1000,"dbP95":{"bet":1000,"boot":1000,"settle":1000},"pool":50,"commitsPerSec":1058,"nginxActive":9244,"nginxAccepted":18},{"players":10000,"connected":9741,"seated":9569,"connectedAfterHold":9990,"joinRefusals":{},"connectFailures":5,"loginFailures":0,"disconnects":0,"actions":103302,"actionsPerSec":1377.36,"errors":0,"p50":337,"p90":1167,"p95":2424,"p99":3862,"max":8722,"mean":544,"handsStarted":4441,"handsCompleted":4224,"handsPerMin":3379.2,"loginP50":1192,"loginP95":1816,"connectP50":413,"connectP95":3199,"healthRttP95":1831,"window":{"start":"2026-09-08T17:59:20.561Z","end":"2026-09-08T18:00:38.797Z","seconds":79},"cores":[{"core":0,"mean":96.4,"max":99.2},{"core":1,"mean":95.3,"max":98.9},{"core":2,"mean":98.3,"max":99.4},{"core":3,"mean":98.2,"max":99.1}],"cpuTotal":97.1,"iowait":25.4,"memTotalMb":7941,"memUsedMb":2922,"memAvailMinMb":5019,"goRssMb":1125,"goCpuCores":1.64,"goCpuCoresMean":1.37,"goroutines":31553,"threads":20,"socketsMax":9990,"connectionsAccepted":0,"disconnections":0,"seatedMean":7172,"seatedMax":7424,"tables":1467,"tablesInHand":1209,"tablesWaiting":258,"moveP95Ms":1000,"dbP95":{"bet":1000,"boot":1000,"settle":1000},"pool":50,"commitsPerSec":1032,"nginxActive":9993,"nginxAccepted":16},{"players":15000,"connected":14654,"seated":14396,"connectedAfterHold":14984,"joinRefusals":{},"connectFailures":12,"loginFailures":0,"disconnects":0,"actions":96489,"actionsPerSec":1286.52,"errors":0,"p50":1034,"p90":3410,"p95":4796,"p99":9089,"max":12147,"mean":1298,"handsStarted":3749,"handsCompleted":3812,"handsPerMin":3049.6,"loginP50":1288,"loginP95":4511,"connectP50":934,"connectP95":3804,"healthRttP95":131,"window":{"start":"2026-09-08T18:01:26.053Z","end":"2026-09-08T18:02:42.780Z","seconds":77},"cores":[{"core":0,"mean":99.2,"max":99.6},{"core":1,"mean":97.3,"max":99.1},{"core":2,"mean":99,"max":99.4},{"core":3,"mean":98.7,"max":99.3}],"cpuTotal":98.6,"iowait":22,"memTotalMb":7941,"memUsedMb":3719,"memAvailMinMb":4222,"goRssMb":1618,"goCpuCores":1.61,"goCpuCoresMean":1.44,"goroutines":47584,"threads":20,"socketsMax":14984,"connectionsAccepted":1,"disconnections":0,"seatedMean":11660,"seatedMax":12046,"tables":2345,"tablesInHand":2022,"tablesWaiting":323,"moveP95Ms":1000,"dbP95":{"bet":1000,"boot":1000,"settle":1000},"pool":50,"commitsPerSec":1081,"nginxActive":15233,"nginxAccepted":27}]};
+const rows = R.rows, meta = R.meta;
+const fmt = (n, d = 0) => (n === null || n === undefined) ? '–' : Number(n).toLocaleString('en-US', { maximumFractionDigits: d, minimumFractionDigits: d });
+const players = rows.map(r => r.players);
+const grade = (r) => r.p95 <= 100 ? 'ok' : r.p95 <= 1000 ? 'warn' : 'bad';
+const gradeText = { ok: 'smooth', warn: 'degraded', bad: 'saturated' };
+
+// ---- headline
+const peak = rows.reduce((a, b) => (b.actionsPerSec > a.actionsPerSec ? b : a));
+const lastOk = [...rows].reverse().find(r => grade(r) === 'ok');
+document.getElementById('lede').textContent = `One Go process on the 4-core production host, PostgreSQL alongside it with group commit and asynchronous commit enabled. Players were added in ${rows.length} stages and each stage was held for ${meta.hold} seconds. The server stayed smooth to ${fmt(lastOk.players)} players, peaked at ${fmt(peak.actionsPerSec)} actions per second at ${fmt(peak.players)}, and the run stopped itself at ${fmt(meta.ceiling.target)} when the 95th-percentile acknowledgement passed ${fmt(meta.thresholds.maxP95Ms)} ms. No move was refused and no error occurred at any stage.`;
+const facts = [
+  [fmt(lastOk.players), 'players with ack p95 ≤ 100 ms'],
+  [fmt(peak.actionsPerSec) + ' /s', `peak actions per second, at ${fmt(peak.players)} players`],
+  [fmt(rows.at(-1).connected), `sockets open at the last stage (${fmt(meta.ceiling.target)} target)`],
+  ['0', `errors across ${fmt(rows.reduce((n, r) => n + r.actions, 0))} moves`],
+];
+document.getElementById('facts').innerHTML = facts.map(([v, k]) => `<div class="fact"><div class="v">${v}</div><div class="k">${k}</div></div>`).join('');
+document.getElementById('stages').innerHTML = meta.stages.map(s => {
+  const r = rows.find(x => x.players === s);
+  if (!r) return `<div class="stage none"><div class="n">${fmt(s)}</div><div class="s">not reached</div></div>`;
+  return `<div class="stage ${grade(r)}"><div class="n">${fmt(s)}</div><div class="s">p95 ${fmt(r.p95)} ms · ${gradeText[grade(r)]}</div></div>`;
+}).join('');
+document.getElementById('stagesnote').textContent = `Green: p95 ≤ 100 ms. Amber: p95 ≤ 1 s. Red: above 1 s. Dashed: the run had already stopped (${meta.ceiling.reasons[0]} at ${fmt(meta.ceiling.target)} players).`;
+
+// ---- charts
+const W = 560, H = 300, L = 58, Rm = 16, T = 14, B = 40;
+const xAt = (i) => L + (i + 0.5) * (W - L - Rm) / players.length;
+function frame(yMax, ticks, unit, log) {
+  const ih = H - T - B;
+  const y = log ? (v) => T + ih - (Math.log10(Math.max(v, 1)) / Math.log10(yMax)) * ih : (v) => T + ih - (v / yMax) * ih;
+  let s = '<g class="grid">';
+  ticks.forEach(t => { s += `<line x1="${L}" x2="${W - Rm}" y1="${y(t).toFixed(1)}" y2="${y(t).toFixed(1)}"/>`; });
+  s += '</g><g class="axis">';
+  ticks.forEach(t => { s += `<text x="${L - 8}" y="${(y(t) + 4).toFixed(1)}" text-anchor="end">${fmt(t)}${unit}</text>`; });
+  players.forEach((p, i) => { s += `<text x="${xAt(i).toFixed(1)}" y="${H - 18}" text-anchor="middle">${p >= 1000 ? (p / 1000) + 'k' : p}</text>`; });
+  s += `<text x="${(L + W - Rm) / 2}" y="${H - 4}" text-anchor="middle">concurrent players</text></g>`;
+  return { s, y };
+}
+function attachHover(svg, tipEl, lines) {
+  svg.addEventListener('mousemove', (ev) => {
+    const box = svg.getBoundingClientRect();
+    const px = (ev.clientX - box.left) / box.width * W;
+    let i = 0, best = Infinity;
+    players.forEach((_, k) => { const d = Math.abs(xAt(k) - px); if (d < best) { best = d; i = k; } });
+    svg.querySelector('.cross')?.setAttribute('x1', xAt(i)); svg.querySelector('.cross')?.setAttribute('x2', xAt(i));
+    svg.querySelector('.cross')?.setAttribute('opacity', 1);
+    tipEl.style.display = 'block';
+    tipEl.innerHTML = `<b>${fmt(players[i])} players</b><br>` + lines(rows[i]).join('<br>');
+    const wrap = svg.parentElement.getBoundingClientRect();
+    const tx = ev.clientX - wrap.left + 14, ty = ev.clientY - wrap.top - 10;
+    tipEl.style.left = Math.min(tx, wrap.width - tipEl.offsetWidth - 8) + 'px'; tipEl.style.top = ty + 'px';
+  });
+  svg.addEventListener('mouseleave', () => { tipEl.style.display = 'none'; svg.querySelector('.cross')?.setAttribute('opacity', 0); });
+}
+function lines(id, series, { yMax, ticks, unit = '', log = false, ref = null, tip }) {
+  const svg = document.getElementById(id); const tipEl = svg.parentElement.querySelector('.tip');
+  let { s, y } = frame(yMax, ticks, unit, log);
+  if (ref) s += `<line class="ref" x1="${L}" x2="${W - Rm}" y1="${y(ref.v)}" y2="${y(ref.v)}"/><text class="reftext" x="${W - Rm}" y="${y(ref.v) - 5}" text-anchor="end">${ref.t}</text>`;
+  s += `<line class="cross" x1="0" x2="0" y1="${T}" y2="${H - B}" opacity="0"/>`;
+  for (const ser of series) {
+    const pts = rows.map((r, i) => [xAt(i), y(ser.get(r))]);
+    s += `<path class="line" style="stroke:${ser.color}" d="${pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ')}"/>`;
+    pts.forEach((p) => { s += `<circle class="dot" cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="4" style="fill:${ser.color}"/>`; });
+    const lastP = pts.at(-1); const lastV = ser.get(rows.at(-1));
+    s += `<text class="val" x="${(lastP[0] + 8).toFixed(1)}" y="${(lastP[1] + 4).toFixed(1)}">${ser.label(lastV)}</text>`;
+  }
+  svg.innerHTML = s;
+  attachHover(svg, tipEl, tip);
+}
+function groupedBars(id, series, { yMax, ticks, unit = '', ref = null, tip, overlay = null }) {
+  const svg = document.getElementById(id); const tipEl = svg.parentElement.querySelector('.tip');
+  let { s, y } = frame(yMax, ticks, unit, false);
+  const slot = (W - L - Rm) / players.length; const bw = Math.max(3, (slot - 8) / series.length - 1);
+  rows.forEach((r, i) => {
+    const x0 = xAt(i) - (bw + 1) * series.length / 2;
+    series.forEach((ser, k) => {
+      const v = ser.get(r); const top = y(v);
+      s += `<rect x="${(x0 + k * (bw + 1)).toFixed(1)}" y="${top.toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(1, H - B - top).toFixed(1)}" rx="2" style="fill:${ser.color}"/>`;
+    });
+  });
+  if (overlay) {
+    const pts = rows.map((r, i) => [xAt(i), y(overlay.get(r))]);
+    s += `<path class="line" style="stroke:${overlay.color}" d="${pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ')}"/>`;
+    pts.forEach((p) => { s += `<circle class="dot" cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="3.5" style="fill:${overlay.color}"/>`; });
+  }
+  if (ref) s += `<line class="ref" x1="${L}" x2="${W - Rm}" y1="${y(ref.v)}" y2="${y(ref.v)}"/><text class="reftext" x="${W - Rm}" y="${y(ref.v) - 5}" text-anchor="end">${ref.t}</text>`;
+  s += `<line class="cross" x1="0" x2="0" y1="${T}" y2="${H - B}" opacity="0"/>`;
+  svg.innerHTML = s;
+  attachHover(svg, tipEl, tip);
+}
+const c = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const ms = (v) => fmt(v) + ' ms';
+lines('c-lat', [
+  { get: r => r.p50, color: c('--s1'), label: v => 'p50 ' + ms(v) }, { get: r => r.p90, color: c('--s3'), label: v => 'p90 ' + ms(v) },
+  { get: r => r.p95, color: c('--s4'), label: v => 'p95 ' + ms(v) }, { get: r => r.p99, color: c('--s2'), label: v => 'p99 ' + ms(v) },
+], { yMax: 20000, ticks: [10, 100, 1000, 10000], unit: '', log: true, ref: { v: 3000, t: 'stop rule 3,000 ms' }, tip: r => [`p50 ${ms(r.p50)}`, `p90 ${ms(r.p90)}`, `p95 ${ms(r.p95)}`, `p99 ${ms(r.p99)}`, `max ${ms(r.max)} · mean ${ms(r.mean)}`] });
+lines('c-move', [{ get: r => r.moveP95Ms, color: c('--s7'), label: v => ms(v) }], { yMax: 1200, ticks: [0, 300, 600, 900, 1200], unit: '', tip: r => [`server move p95 ${ms(r.moveP95Ms)}`, `db bet p95 ${r.dbP95.bet >= 1000 ? '≥1,000' : fmt(r.dbP95.bet)} ms`, `db boot p95 ${r.dbP95.boot >= 1000 ? '≥1,000' : fmt(r.dbP95.boot)} ms`, `db settle p95 ${r.dbP95.settle >= 1000 ? '≥1,000' : fmt(r.dbP95.settle)} ms`] });
+lines('c-aps', [{ get: r => r.actionsPerSec, color: c('--s1'), label: v => fmt(v) }], { yMax: 2000, ticks: [0, 500, 1000, 1500, 2000], tip: r => [`${fmt(r.actionsPerSec)} actions/s`, `${fmt(r.actions)} moves in the hold`, `${fmt(r.errors)} refused`] });
+lines('c-hpm', [{ get: r => r.handsPerMin, color: c('--s3'), label: v => fmt(v) }], { yMax: 5000, ticks: [0, 1250, 2500, 3750, 5000], tip: r => [`${fmt(r.handsPerMin)} hands/min`, `${fmt(r.handsCompleted)} completed · ${fmt(r.handsStarted)} started`] });
+groupedBars('c-cpu', [0, 1, 2, 3].map(k => ({ get: r => r.cores[k]?.mean ?? 0, color: c(`--c${k + 1}`) })), { yMax: 100, ticks: [0, 25, 50, 75, 100], unit: '%', overlay: { get: r => r.iowait, color: c('--s2') }, tip: r => [...r.cores.map(cc => `core ${cc.core}: ${fmt(cc.mean)}% mean, ${fmt(cc.max)}% max`), `I/O wait ${fmt(r.iowait)}%`, `game server ${fmt(r.goCpuCores, 2)} cores`] });
+lines('c-mem', [{ get: r => r.memUsedMb, color: c('--s1'), label: v => fmt(v) + ' MB' }, { get: r => r.goRssMb, color: c('--s3'), label: v => fmt(v) + ' MB' }], { yMax: 8000, ticks: [0, 2000, 4000, 6000, 8000], unit: '', ref: { v: 7941, t: 'host total 7,941 MB' }, tip: r => [`host used ${fmt(r.memUsedMb)} MB (min available ${fmt(r.memAvailMinMb)} MB)`, `game server RSS ${fmt(r.goRssMb)} MB`, `${fmt(r.goroutines)} goroutines · ${fmt(r.threads)} threads`] });
+lines('c-soc', [{ get: r => r.socketsMax, color: c('--s1'), label: v => fmt(v) }, { get: r => r.seatedMean, color: c('--s3'), label: v => fmt(v) }, { get: r => r.tablesInHand, color: c('--s4'), label: v => fmt(v) }], { yMax: 16000, ticks: [0, 4000, 8000, 12000, 16000], tip: r => [`sockets ${fmt(r.socketsMax)} (nginx active ${fmt(r.nginxActive)})`, `seated ${fmt(r.seatedMean)} mean · ${fmt(r.seatedMax)} max`, `tables ${fmt(r.tables)}: ${fmt(r.tablesInHand)} in a hand, ${fmt(r.tablesWaiting)} waiting`] });
+lines('c-db', [{ get: r => r.commitsPerSec, color: c('--s2'), label: v => fmt(v) }], { yMax: 1500, ticks: [0, 500, 1000, 1500], tip: r => [`${fmt(r.commitsPerSec)} commits/s`, `pool ${fmt(r.pool)} / 50 connections`, `bet p95 ${r.dbP95.bet >= 1000 ? '≥1,000' : fmt(r.dbP95.bet)} ms · boot ${r.dbP95.boot >= 1000 ? '≥1,000' : fmt(r.dbP95.boot)} ms · settle ${r.dbP95.settle >= 1000 ? '≥1,000' : fmt(r.dbP95.settle)} ms`] });
+
+// ---- table
+const cols = [
+  ['Players', r => fmt(r.players)], ['State', r => `<span class="pill ${grade(r)}">${gradeText[grade(r)]}</span>`],
+  ['Sockets', r => fmt(r.connected)], ['Seated (mean)', r => fmt(r.seatedMean)], ['Not seated', r => fmt(r.connected - r.seatedMean)], ['Tables', r => fmt(r.tables)], ['In a hand', r => fmt(r.tablesInHand)], ['Waiting', r => fmt(r.tablesWaiting)],
+  ['Actions/s', r => fmt(r.actionsPerSec)], ['Hands/min', r => fmt(r.handsPerMin)], ['Moves', r => fmt(r.actions)], ['Errors', r => fmt(r.errors)],
+  ['p50', r => ms(r.p50)], ['p90', r => ms(r.p90)], ['p95', r => ms(r.p95)], ['p99', r => ms(r.p99)], ['max', r => ms(r.max)], ['mean', r => ms(r.mean)],
+  ['Login p95', r => ms(r.loginP95)], ['Connect p95', r => ms(r.connectP95)], ['/health p95', r => ms(r.healthRttP95)], ['Server move p95', r => ms(r.moveP95Ms)],
+  ['Core 0', r => fmt(r.cores[0]?.mean) + '%'], ['Core 1', r => fmt(r.cores[1]?.mean) + '%'], ['Core 2', r => fmt(r.cores[2]?.mean) + '%'], ['Core 3', r => fmt(r.cores[3]?.mean) + '%'], ['CPU total', r => fmt(r.cpuTotal) + '%'], ['I/O wait', r => fmt(r.iowait) + '%'],
+  ['Game server cores', r => fmt(r.goCpuCores, 2)], ['Game server RSS', r => fmt(r.goRssMb) + ' MB'], ['Goroutines', r => fmt(r.goroutines)], ['Host mem used', r => fmt(r.memUsedMb) + ' MB'], ['Mem available (min)', r => fmt(r.memAvailMinMb) + ' MB'],
+  ['DB commits/s', r => fmt(r.commitsPerSec)], ['Pool', r => fmt(r.pool) + '/50'], ['DB bet p95', r => (r.dbP95.bet >= 1000 ? '≥1,000' : fmt(r.dbP95.bet)) + ' ms'], ['DB boot p95', r => (r.dbP95.boot >= 1000 ? '≥1,000' : fmt(r.dbP95.boot)) + ' ms'], ['DB settle p95', r => (r.dbP95.settle >= 1000 ? '≥1,000' : fmt(r.dbP95.settle)) + ' ms'],
+  ['nginx active', r => fmt(r.nginxActive)], ['Hold window (UTC)', r => r.window.start.slice(11, 19) + '–' + r.window.end.slice(11, 19)],
+];
+document.querySelector('#t-all thead').innerHTML = '<tr>' + cols.map(([h]) => `<th>${h}</th>`).join('') + '</tr>';
+document.querySelector('#t-all tbody').innerHTML = rows.map(r => `<tr class="${grade(r)}">` + cols.map(([, f], i) => `<td class="${i > 1 ? 'num' : ''}">${f(r)}</td>`).join('') + '</tr>').join('');
+
+// ---- not reached
+document.getElementById('notreached').innerHTML = `<div><p>The run is designed to stop at the first stage that breaks a rule (ack p95 above ${fmt(meta.thresholds.maxP95Ms)} ms, refused moves above ${meta.thresholds.maxErrorRate * 100}%, or fewer than 90% of players connected). It broke the first rule at <strong>${fmt(meta.ceiling.target)}</strong> players (${meta.ceiling.reasons[0]}), so these stages were never attempted:</p><ul>${meta.notReached.map(s => `<li><strong>${fmt(s)} players</strong>: not attempted</li>`).join('')}</ul></div><div><p>They would not have produced a meaningful measurement on this host. From 8,000 players every core was already at 97–99%, and throughput had started to fall because the CPU was spent on contention. Beyond 28,000 the load generator would also have hit its own limit: one machine has about 28,000 ephemeral TCP ports for connections to a single destination.</p><p>Reaching those stages needs a bigger deployment, in order of leverage: PostgreSQL on its own host, more cores for the game server, and a wider ephemeral port range plus higher nginx connection caps for anything above 28,000 sockets.</p></div>`;
+
+// ---- method
+document.getElementById('method').innerHTML = `<strong>Method.</strong> Target ${meta.url}, the Go game server (${rows.length ? 'one process, 4 cores, 8 GB, PostgreSQL 16 on the same host with commit_delay=1000 µs, commit_siblings=5 and synchronous_commit=off' : ''}). Load generator: <code>tools/ramptest.mjs</code> on a 12-core machine, ${meta.workers} worker processes, each player a real socket.io-client with its own guest account (fresh accounts 200000 upwards, 200,000 chips each), quick-joining blind 200 tables and playing every turn it is given (see, chaal, raise, sideshow, pack). Stages ${meta.stages.map(s => fmt(s)).join(', ')}; each held ${meta.hold} s after the last player connected; latency percentiles are exact, computed over every acknowledged move of every worker in the hold. Host figures are 15-second Prometheus samples (node_exporter, the server's own metrics, postgres_exporter, nginx exporter) aggregated over each stage's exact hold window. Run started ${meta.startedAt.replace('T', ' ').slice(0, 19)} UTC and ended ${meta.finishedAt.replace('T', ' ').slice(0, 19)} UTC. Raw data: <code>ramp-prod-go-run12-full.json</code> and <code>ramp-prod-go-run12-host.json</code>.`;
+</script>

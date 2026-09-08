@@ -1,0 +1,799 @@
+{
+  "source": "http://127.0.0.1:19090",
+  "ramp": "/tmp/claude-1000/-home-suraj-Project-king-teenpatti/a9af3e74-90cc-48b5-abd9-a0b4dae9dc37/scratchpad/goport/prod/ramp-prod-go-run12-full.json",
+  "collectedAt": "2026-09-08T18:03:28.554Z",
+  "stages": [
+    {
+      "target": 1000,
+      "window": {
+        "start": "2026-09-08T17:46:36.776Z",
+        "end": "2026-09-08T17:47:53.124Z",
+        "seconds": 78
+      },
+      "host": {
+        "cores": 4,
+        "cpuPerCorePercent": [
+          {
+            "core": 0,
+            "mean": 19.7,
+            "max": 24.6
+          },
+          {
+            "core": 1,
+            "mean": 23.7,
+            "max": 33.2
+          },
+          {
+            "core": 2,
+            "mean": 20.9,
+            "max": 30.1
+          },
+          {
+            "core": 3,
+            "mean": 20.7,
+            "max": 28.6
+          }
+        ],
+        "cpuTotalPercentMean": 21.2,
+        "iowaitPercentMean": 1.6,
+        "memTotalMb": 7941,
+        "memUsedMbMean": 1807,
+        "memUsedMbMax": 2134,
+        "memAvailableMbMin": 5808
+      },
+      "gameServer": {
+        "rssMbMean": 244,
+        "rssMbMax": 580,
+        "cpuCoresMean": 0.36,
+        "cpuCoresMax": 0.48,
+        "goroutinesMax": 3208,
+        "threadsMax": 18,
+        "socketsMean": 832,
+        "socketsMax": 998,
+        "socketsPeakSinceStart": 6994,
+        "connectionsAccepted": 0,
+        "disconnections": 0,
+        "playersSeatedMean": 830,
+        "playersSeatedMax": 998,
+        "tablesMean": 200,
+        "tablesInHandMean": 123,
+        "tablesInHandMax": 183,
+        "tablesWaitingMean": 44,
+        "moveProcessingP95Ms": 5
+      },
+      "database": {
+        "poolConnectionsMax": 50,
+        "txP95Ms": {
+          "bet": 5,
+          "boot": 5,
+          "settle": 8
+        },
+        "commitsPerSecMean": 272
+      },
+      "nginx": {
+        "activeConnectionsMax": 1002,
+        "accepted": 16
+      }
+    },
+    {
+      "target": 2000,
+      "window": {
+        "start": "2026-09-08T17:48:07.616Z",
+        "end": "2026-09-08T17:49:23.896Z",
+        "seconds": 77
+      },
+      "host": {
+        "cores": 4,
+        "cpuPerCorePercent": [
+          {
+            "core": 0,
+            "mean": 45.3,
+            "max": 57.7
+          },
+          {
+            "core": 1,
+            "mean": 49.3,
+            "max": 55.9
+          },
+          {
+            "core": 2,
+            "mean": 47.6,
+            "max": 57.1
+          },
+          {
+            "core": 3,
+            "mean": 44.4,
+            "max": 59.1
+          }
+        ],
+        "cpuTotalPercentMean": 46.6,
+        "iowaitPercentMean": 6,
+        "memTotalMb": 7941,
+        "memUsedMbMean": 1836,
+        "memUsedMbMax": 1857,
+        "memAvailableMbMin": 6085
+      },
+      "gameServer": {
+        "rssMbMean": 258,
+        "rssMbMax": 267,
+        "cpuCoresMean": 0.79,
+        "cpuCoresMax": 0.88,
+        "goroutinesMax": 6401,
+        "threadsMax": 18,
+        "socketsMean": 1985,
+        "socketsMax": 1997,
+        "socketsPeakSinceStart": 6994,
+        "connectionsAccepted": 0,
+        "disconnections": 0,
+        "playersSeatedMean": 1940,
+        "playersSeatedMax": 1973,
+        "tablesMean": 394,
+        "tablesInHandMean": 252,
+        "tablesInHandMax": 299,
+        "tablesWaitingMean": 142,
+        "moveProcessingP95Ms": 7
+      },
+      "database": {
+        "poolConnectionsMax": 50,
+        "txP95Ms": {
+          "bet": 8,
+          "boot": 976,
+          "settle": 184
+        },
+        "commitsPerSecMean": 582
+      },
+      "nginx": {
+        "activeConnectionsMax": 2173,
+        "accepted": 15
+      }
+    },
+    {
+      "target": 3000,
+      "window": {
+        "start": "2026-09-08T17:49:28.976Z",
+        "end": "2026-09-08T17:50:45.287Z",
+        "seconds": 78
+      },
+      "host": {
+        "cores": 4,
+        "cpuPerCorePercent": [
+          {
+            "core": 0,
+            "mean": 60,
+            "max": 82.9
+          },
+          {
+            "core": 1,
+            "mean": 62.4,
+            "max": 71.9
+          },
+          {
+            "core": 2,
+            "mean": 57.8,
+            "max": 65.5
+          },
+          {
+            "core": 3,
+            "mean": 59,
+            "max": 67
+          }
+        ],
+        "cpuTotalPercentMean": 59.8,
+        "iowaitPercentMean": 8.5,
+        "memTotalMb": 7941,
+        "memUsedMbMean": 1935,
+        "memUsedMbMax": 1962,
+        "memAvailableMbMin": 5980
+      },
+      "gameServer": {
+        "rssMbMean": 357,
+        "rssMbMax": 365,
+        "cpuCoresMean": 1.06,
+        "cpuCoresMax": 1.18,
+        "goroutinesMax": 9581,
+        "threadsMax": 18,
+        "socketsMean": 2997,
+        "socketsMax": 2997,
+        "socketsPeakSinceStart": 6994,
+        "connectionsAccepted": 0,
+        "disconnections": 0,
+        "playersSeatedMean": 2804,
+        "playersSeatedMax": 2883,
+        "tablesMean": 577,
+        "tablesInHandMean": 370,
+        "tablesInHandMax": 399,
+        "tablesWaitingMean": 207,
+        "moveProcessingP95Ms": 23
+      },
+      "database": {
+        "poolConnectionsMax": 50,
+        "txP95Ms": {
+          "bet": 168,
+          "boot": 1000,
+          "settle": 289
+        },
+        "commitsPerSecMean": 769
+      },
+      "nginx": {
+        "activeConnectionsMax": 3001,
+        "accepted": 27
+      }
+    },
+    {
+      "target": 4000,
+      "window": {
+        "start": "2026-09-08T17:50:49.932Z",
+        "end": "2026-09-08T17:52:06.305Z",
+        "seconds": 78
+      },
+      "host": {
+        "cores": 4,
+        "cpuPerCorePercent": [
+          {
+            "core": 0,
+            "mean": 73.8,
+            "max": 80.1
+          },
+          {
+            "core": 1,
+            "mean": 77.7,
+            "max": 81.5
+          },
+          {
+            "core": 2,
+            "mean": 73.4,
+            "max": 77.5
+          },
+          {
+            "core": 3,
+            "mean": 72.7,
+            "max": 78.3
+          }
+        ],
+        "cpuTotalPercentMean": 74.4,
+        "iowaitPercentMean": 4.7,
+        "memTotalMb": 7941,
+        "memUsedMbMean": 2038,
+        "memUsedMbMax": 2076,
+        "memAvailableMbMin": 5865
+      },
+      "gameServer": {
+        "rssMbMean": 456,
+        "rssMbMax": 497,
+        "cpuCoresMean": 1.37,
+        "cpuCoresMax": 1.46,
+        "goroutinesMax": 12750,
+        "threadsMax": 18,
+        "socketsMean": 3829,
+        "socketsMax": 3995,
+        "socketsPeakSinceStart": 6994,
+        "connectionsAccepted": 0,
+        "disconnections": 0,
+        "playersSeatedMean": 3408,
+        "playersSeatedMax": 3656,
+        "tablesMean": 712,
+        "tablesInHandMean": 466,
+        "tablesInHandMax": 508,
+        "tablesWaitingMean": 246,
+        "moveProcessingP95Ms": 200
+      },
+      "database": {
+        "poolConnectionsMax": 50,
+        "txP95Ms": {
+          "bet": 569,
+          "boot": 1000,
+          "settle": 300
+        },
+        "commitsPerSecMean": 1056
+      },
+      "nginx": {
+        "activeConnectionsMax": 3998,
+        "accepted": 21
+      }
+    },
+    {
+      "target": 5000,
+      "window": {
+        "start": "2026-09-08T17:52:12.075Z",
+        "end": "2026-09-08T17:53:28.482Z",
+        "seconds": 77
+      },
+      "host": {
+        "cores": 4,
+        "cpuPerCorePercent": [
+          {
+            "core": 0,
+            "mean": 83,
+            "max": 91.5
+          },
+          {
+            "core": 1,
+            "mean": 81.4,
+            "max": 89.9
+          },
+          {
+            "core": 2,
+            "mean": 84,
+            "max": 90.5
+          },
+          {
+            "core": 3,
+            "mean": 84.8,
+            "max": 92.1
+          }
+        ],
+        "cpuTotalPercentMean": 83.3,
+        "iowaitPercentMean": 9,
+        "memTotalMb": 7941,
+        "memUsedMbMean": 2157,
+        "memUsedMbMax": 2204,
+        "memAvailableMbMin": 5737
+      },
+      "gameServer": {
+        "rssMbMean": 561,
+        "rssMbMax": 592,
+        "cpuCoresMean": 1.42,
+        "cpuCoresMax": 1.57,
+        "goroutinesMax": 15903,
+        "threadsMax": 18,
+        "socketsMean": 4828,
+        "socketsMax": 4995,
+        "socketsPeakSinceStart": 6994,
+        "connectionsAccepted": 0,
+        "disconnections": 0,
+        "playersSeatedMean": 4113,
+        "playersSeatedMax": 4364,
+        "tablesMean": 854,
+        "tablesInHandMean": 575,
+        "tablesInHandMax": 643,
+        "tablesWaitingMean": 280,
+        "moveProcessingP95Ms": 715
+      },
+      "database": {
+        "poolConnectionsMax": 50,
+        "txP95Ms": {
+          "bet": 1000,
+          "boot": 1000,
+          "settle": 1000
+        },
+        "commitsPerSecMean": 1133
+      },
+      "nginx": {
+        "activeConnectionsMax": 5247,
+        "accepted": 21
+      }
+    },
+    {
+      "target": 6000,
+      "window": {
+        "start": "2026-09-08T17:53:43.099Z",
+        "end": "2026-09-08T17:54:59.539Z",
+        "seconds": 77
+      },
+      "host": {
+        "cores": 4,
+        "cpuPerCorePercent": [
+          {
+            "core": 0,
+            "mean": 90,
+            "max": 94.9
+          },
+          {
+            "core": 1,
+            "mean": 87.2,
+            "max": 94
+          },
+          {
+            "core": 2,
+            "mean": 91.2,
+            "max": 96.5
+          },
+          {
+            "core": 3,
+            "mean": 90,
+            "max": 94.5
+          }
+        ],
+        "cpuTotalPercentMean": 89.6,
+        "iowaitPercentMean": 9.3,
+        "memTotalMb": 7941,
+        "memUsedMbMean": 2254,
+        "memUsedMbMax": 2303,
+        "memAvailableMbMin": 5639
+      },
+      "gameServer": {
+        "rssMbMean": 670,
+        "rssMbMax": 689,
+        "cpuCoresMean": 1.5,
+        "cpuCoresMax": 1.75,
+        "goroutinesMax": 19012,
+        "threadsMax": 18,
+        "socketsMean": 5994,
+        "socketsMax": 5994,
+        "socketsPeakSinceStart": 6994,
+        "connectionsAccepted": 0,
+        "disconnections": 0,
+        "playersSeatedMean": 4803,
+        "playersSeatedMax": 4984,
+        "tablesMean": 999,
+        "tablesInHandMean": 687,
+        "tablesInHandMax": 762,
+        "tablesWaitingMean": 313,
+        "moveProcessingP95Ms": 1000
+      },
+      "database": {
+        "poolConnectionsMax": 50,
+        "txP95Ms": {
+          "bet": 1000,
+          "boot": 1000,
+          "settle": 969
+        },
+        "commitsPerSecMean": 1222
+      },
+      "nginx": {
+        "activeConnectionsMax": 5997,
+        "accepted": 17
+      }
+    },
+    {
+      "target": 7000,
+      "window": {
+        "start": "2026-09-08T17:55:05.888Z",
+        "end": "2026-09-08T17:56:22.449Z",
+        "seconds": 78
+      },
+      "host": {
+        "cores": 4,
+        "cpuPerCorePercent": [
+          {
+            "core": 0,
+            "mean": 97.3,
+            "max": 99.1
+          },
+          {
+            "core": 1,
+            "mean": 91.9,
+            "max": 98.5
+          },
+          {
+            "core": 2,
+            "mean": 94.5,
+            "max": 98.9
+          },
+          {
+            "core": 3,
+            "mean": 97.4,
+            "max": 98.9
+          }
+        ],
+        "cpuTotalPercentMean": 95.3,
+        "iowaitPercentMean": 9.2,
+        "memTotalMb": 7941,
+        "memUsedMbMean": 2389,
+        "memUsedMbMax": 2451,
+        "memAvailableMbMin": 5490
+      },
+      "gameServer": {
+        "rssMbMean": 763,
+        "rssMbMax": 788,
+        "cpuCoresMean": 1.59,
+        "cpuCoresMax": 1.82,
+        "goroutinesMax": 22128,
+        "threadsMax": 20,
+        "socketsMean": 6827,
+        "socketsMax": 6994,
+        "socketsPeakSinceStart": 6994,
+        "connectionsAccepted": 0,
+        "disconnections": 0,
+        "playersSeatedMean": 5267,
+        "playersSeatedMax": 5556,
+        "tablesMean": 1099,
+        "tablesInHandMean": 804,
+        "tablesInHandMax": 897,
+        "tablesWaitingMean": 296,
+        "moveProcessingP95Ms": 1000
+      },
+      "database": {
+        "poolConnectionsMax": 50,
+        "txP95Ms": {
+          "bet": 1000,
+          "boot": 1000,
+          "settle": 969
+        },
+        "commitsPerSecMean": 1258
+      },
+      "nginx": {
+        "activeConnectionsMax": 6998,
+        "accepted": 17
+      }
+    },
+    {
+      "target": 8000,
+      "window": {
+        "start": "2026-09-08T17:56:31.070Z",
+        "end": "2026-09-08T17:57:48.239Z",
+        "seconds": 78
+      },
+      "host": {
+        "cores": 4,
+        "cpuPerCorePercent": [
+          {
+            "core": 0,
+            "mean": 98.6,
+            "max": 99.5
+          },
+          {
+            "core": 1,
+            "mean": 96.9,
+            "max": 99.3
+          },
+          {
+            "core": 2,
+            "mean": 99,
+            "max": 99.4
+          },
+          {
+            "core": 3,
+            "mean": 98.7,
+            "max": 99.5
+          }
+        ],
+        "cpuTotalPercentMean": 98.3,
+        "iowaitPercentMean": 25.7,
+        "memTotalMb": 7941,
+        "memUsedMbMean": 2573,
+        "memUsedMbMax": 2629,
+        "memAvailableMbMin": 5313
+      },
+      "gameServer": {
+        "rssMbMean": 885,
+        "rssMbMax": 919,
+        "cpuCoresMean": 1.37,
+        "cpuCoresMax": 1.59,
+        "goroutinesMax": 25401,
+        "threadsMax": 20,
+        "socketsMean": 7890,
+        "socketsMax": 7993,
+        "socketsPeakSinceStart": 7993,
+        "connectionsAccepted": 0,
+        "disconnections": 0,
+        "playersSeatedMean": 5904,
+        "playersSeatedMax": 6145,
+        "tablesMean": 1217,
+        "tablesInHandMean": 910,
+        "tablesInHandMax": 1058,
+        "tablesWaitingMean": 307,
+        "moveProcessingP95Ms": 1000
+      },
+      "database": {
+        "poolConnectionsMax": 50,
+        "txP95Ms": {
+          "bet": 1000,
+          "boot": 1000,
+          "settle": 1000
+        },
+        "commitsPerSecMean": 1102
+      },
+      "nginx": {
+        "activeConnectionsMax": 7997,
+        "accepted": 16
+      }
+    },
+    {
+      "target": 9000,
+      "window": {
+        "start": "2026-09-08T17:57:55.140Z",
+        "end": "2026-09-08T17:59:11.491Z",
+        "seconds": 77
+      },
+      "host": {
+        "cores": 4,
+        "cpuPerCorePercent": [
+          {
+            "core": 0,
+            "mean": 98.3,
+            "max": 99.3
+          },
+          {
+            "core": 1,
+            "mean": 97,
+            "max": 99
+          },
+          {
+            "core": 2,
+            "mean": 97.6,
+            "max": 99.5
+          },
+          {
+            "core": 3,
+            "mean": 97.5,
+            "max": 99.3
+          }
+        ],
+        "cpuTotalPercentMean": 97.6,
+        "iowaitPercentMean": 30.1,
+        "memTotalMb": 7941,
+        "memUsedMbMean": 2718,
+        "memUsedMbMax": 2757,
+        "memAvailableMbMin": 5184
+      },
+      "gameServer": {
+        "rssMbMean": 987,
+        "rssMbMax": 1013,
+        "cpuCoresMean": 1.29,
+        "cpuCoresMax": 1.69,
+        "goroutinesMax": 28526,
+        "threadsMax": 20,
+        "socketsMean": 8826,
+        "socketsMax": 8992,
+        "socketsPeakSinceStart": 8992,
+        "connectionsAccepted": 0,
+        "disconnections": 0,
+        "playersSeatedMean": 6509,
+        "playersSeatedMax": 6747,
+        "tablesMean": 1332,
+        "tablesInHandMean": 1005,
+        "tablesInHandMax": 1127,
+        "tablesWaitingMean": 326,
+        "moveProcessingP95Ms": 1000
+      },
+      "database": {
+        "poolConnectionsMax": 50,
+        "txP95Ms": {
+          "bet": 1000,
+          "boot": 1000,
+          "settle": 1000
+        },
+        "commitsPerSecMean": 1058
+      },
+      "nginx": {
+        "activeConnectionsMax": 9244,
+        "accepted": 18
+      }
+    },
+    {
+      "target": 10000,
+      "window": {
+        "start": "2026-09-08T17:59:20.561Z",
+        "end": "2026-09-08T18:00:38.797Z",
+        "seconds": 79
+      },
+      "host": {
+        "cores": 4,
+        "cpuPerCorePercent": [
+          {
+            "core": 0,
+            "mean": 96.4,
+            "max": 99.2
+          },
+          {
+            "core": 1,
+            "mean": 95.3,
+            "max": 98.9
+          },
+          {
+            "core": 2,
+            "mean": 98.3,
+            "max": 99.4
+          },
+          {
+            "core": 3,
+            "mean": 98.2,
+            "max": 99.1
+          }
+        ],
+        "cpuTotalPercentMean": 97.1,
+        "iowaitPercentMean": 25.4,
+        "memTotalMb": 7941,
+        "memUsedMbMean": 2869,
+        "memUsedMbMax": 2922,
+        "memAvailableMbMin": 5019
+      },
+      "gameServer": {
+        "rssMbMean": 1088,
+        "rssMbMax": 1125,
+        "cpuCoresMean": 1.37,
+        "cpuCoresMax": 1.64,
+        "goroutinesMax": 31553,
+        "threadsMax": 20,
+        "socketsMean": 9824,
+        "socketsMax": 9990,
+        "socketsPeakSinceStart": 9990,
+        "connectionsAccepted": 0,
+        "disconnections": 0,
+        "playersSeatedMean": 7172,
+        "playersSeatedMax": 7424,
+        "tablesMean": 1467,
+        "tablesInHandMean": 1209,
+        "tablesInHandMax": 1342,
+        "tablesWaitingMean": 258,
+        "moveProcessingP95Ms": 1000
+      },
+      "database": {
+        "poolConnectionsMax": 50,
+        "txP95Ms": {
+          "bet": 1000,
+          "boot": 1000,
+          "settle": 1000
+        },
+        "commitsPerSecMean": 1032
+      },
+      "nginx": {
+        "activeConnectionsMax": 9993,
+        "accepted": 16
+      }
+    },
+    {
+      "target": 15000,
+      "window": {
+        "start": "2026-09-08T18:01:26.053Z",
+        "end": "2026-09-08T18:02:42.780Z",
+        "seconds": 77
+      },
+      "host": {
+        "cores": 4,
+        "cpuPerCorePercent": [
+          {
+            "core": 0,
+            "mean": 99.2,
+            "max": 99.6
+          },
+          {
+            "core": 1,
+            "mean": 97.3,
+            "max": 99.1
+          },
+          {
+            "core": 2,
+            "mean": 99,
+            "max": 99.4
+          },
+          {
+            "core": 3,
+            "mean": 98.7,
+            "max": 99.3
+          }
+        ],
+        "cpuTotalPercentMean": 98.6,
+        "iowaitPercentMean": 22,
+        "memTotalMb": 7941,
+        "memUsedMbMean": 3639,
+        "memUsedMbMax": 3719,
+        "memAvailableMbMin": 4222
+      },
+      "gameServer": {
+        "rssMbMean": 1538,
+        "rssMbMax": 1618,
+        "cpuCoresMean": 1.44,
+        "cpuCoresMax": 1.61,
+        "goroutinesMax": 47584,
+        "threadsMax": 20,
+        "socketsMean": 14692,
+        "socketsMax": 14984,
+        "socketsPeakSinceStart": 14984,
+        "connectionsAccepted": 1,
+        "disconnections": 0,
+        "playersSeatedMean": 11660,
+        "playersSeatedMax": 12046,
+        "tablesMean": 2345,
+        "tablesInHandMean": 2022,
+        "tablesInHandMax": 2158,
+        "tablesWaitingMean": 323,
+        "moveProcessingP95Ms": 1000
+      },
+      "database": {
+        "poolConnectionsMax": 50,
+        "txP95Ms": {
+          "bet": 1000,
+          "boot": 1000,
+          "settle": 1000
+        },
+        "commitsPerSecMean": 1081
+      },
+      "nginx": {
+        "activeConnectionsMax": 15233,
+        "accepted": 27
+      }
+    }
+  ]
+}

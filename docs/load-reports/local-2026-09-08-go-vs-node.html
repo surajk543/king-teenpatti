@@ -1,0 +1,274 @@
+<title>Go Server Load Verdict</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    --ground: #F2F4F6; --surface: #FFFFFF; --ink: #16202A; --muted: #5D6B79; --grid: #D9DFE6; --rule: #C9D1D9;
+    --go: #0E8C7F; --go-soft: #D5EFEB; --node: #B5651D; --node-soft: #F5E3D3; --warn: #A33A2E;
+    --shadow: 0 1px 2px rgba(22,32,42,.06), 0 6px 20px rgba(22,32,42,.06);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #0F1418; --surface: #161C22; --ink: #E6EBF0; --muted: #92A0AE; --grid: #2A333D; --rule: #33404C;
+      --go: #2FB8A8; --go-soft: #143A36; --node: #D9843A; --node-soft: #3E2A18; --warn: #E0705F;
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 6px 20px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #0F1418; --surface: #161C22; --ink: #E6EBF0; --muted: #92A0AE; --grid: #2A333D; --rule: #33404C;
+    --go: #2FB8A8; --go-soft: #143A36; --node: #D9843A; --node-soft: #3E2A18; --warn: #E0705F;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 6px 20px rgba(0,0,0,.35);
+  }
+  body { background: var(--ground); color: var(--ink); font: 15px/1.55 "IBM Plex Sans", system-ui, sans-serif; margin: 0; }
+  .page { max-width: 1120px; margin: 0 auto; padding: 40px 28px 64px; }
+  h1, h2, h3 { font-family: "IBM Plex Sans Condensed", "IBM Plex Sans", system-ui, sans-serif; text-wrap: balance; margin: 0; }
+  h1 { font-size: 40px; line-height: 1.05; font-weight: 600; letter-spacing: -0.01em; }
+  h2 { font-size: 24px; font-weight: 600; margin-top: 48px; margin-bottom: 14px; }
+  h3 { font-size: 17px; font-weight: 600; }
+  p { max-width: 68ch; margin: 8px 0; }
+  .eyebrow { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+  .lede { font-size: 18px; color: var(--ink); max-width: 62ch; margin-top: 14px; }
+  .mono, td.num, th.num, .num { font-family: "IBM Plex Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+  .versus { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 28px; }
+  .side { background: var(--surface); border-radius: 10px; box-shadow: var(--shadow); padding: 20px 22px 18px; border-top: 4px solid var(--rule); }
+  .side.node { border-top-color: var(--node); } .side.go { border-top-color: var(--go); }
+  .side header { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+  .side header .tag { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 12px; color: var(--muted); }
+  .figs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px 16px; margin-top: 14px; }
+  .fig .v { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 26px; font-weight: 500; line-height: 1.1; font-variant-numeric: tabular-nums; }
+  .fig .k { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .side.node .fig .v.hot { color: var(--warn); }
+  .side.go .fig .v.hot { color: var(--go); }
+  .note { font-size: 13px; color: var(--muted); margin-top: 12px; }
+  .charts { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .chart { background: var(--surface); border-radius: 10px; box-shadow: var(--shadow); padding: 18px 20px 12px; min-width: 0; }
+  .chart h3 { margin-bottom: 2px; }
+  .chart .sub { font-size: 13px; color: var(--muted); margin: 0 0 8px; }
+  .chart svg { width: 100%; height: auto; display: block; overflow: visible; }
+  .legend { display: flex; gap: 18px; font-size: 13px; color: var(--muted); margin-top: 6px; }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: -1px; margin-right: 6px; }
+  .legend .n i { background: var(--node); } .legend .g i { background: var(--go); }
+  svg .grid line { stroke: var(--grid); stroke-width: 1; }
+  svg .axis text, svg .lbl { fill: var(--muted); font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 11px; }
+  svg .val { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 11px; font-weight: 500; }
+  svg .val.n { fill: var(--node); } svg .val.g { fill: var(--go); }
+  svg .bar.n { fill: var(--node); } svg .bar.g { fill: var(--go); }
+  svg .line.n { stroke: var(--node); } svg .line.g { stroke: var(--go); }
+  svg .line { fill: none; stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; }
+  svg .dot.n { fill: var(--node); } svg .dot.g { fill: var(--go); }
+  svg .ref { stroke: var(--warn); stroke-dasharray: 4 4; stroke-width: 1.2; }
+  svg .reftext { fill: var(--warn); font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 11px; }
+  .tablewrap { overflow-x: auto; background: var(--surface); border-radius: 10px; box-shadow: var(--shadow); }
+  table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+  th, td { padding: 9px 12px; text-align: left; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+  th { font-weight: 500; color: var(--muted); font-size: 12px; letter-spacing: .04em; text-transform: uppercase; }
+  th.num, td.num { text-align: right; }
+  tr:last-child td { border-bottom: 0; }
+  td.n { color: var(--node); } td.g { color: var(--go); }
+  tbody tr.stage-head td { background: color-mix(in srgb, var(--ground) 60%, var(--surface)); font-weight: 600; color: var(--ink); }
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px 32px; }
+  ul { margin: 6px 0 0; padding-left: 20px; } li { margin: 4px 0; max-width: 70ch; }
+  .check li::marker { color: var(--go); }
+  .steps li { margin: 8px 0; }
+  code { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 13px; background: var(--go-soft); color: var(--ink); padding: 1px 6px; border-radius: 4px; }
+  pre { background: var(--surface); border-radius: 8px; padding: 12px 14px; overflow-x: auto; font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 13px; box-shadow: var(--shadow); }
+  .method { font-size: 13px; color: var(--muted); border-top: 1px solid var(--rule); margin-top: 48px; padding-top: 16px; }
+  @media (max-width: 760px) { .versus, .charts, .cols { grid-template-columns: 1fr; } .figs { grid-template-columns: repeat(2, 1fr); } h1 { font-size: 32px; } }
+  @media (prefers-reduced-motion: no-preference) { .bar { transition: opacity .2s; } }
+</style>
+
+<div class="page">
+  <div class="eyebrow">King Teen Patti · game server · 8 Sep 2026</div>
+  <h1>The Go server removes the 3,000-player ceiling</h1>
+  <p class="lede">Same machine, same database, same 4,000-player ramp. Node saturates one core at 3,000 players and its acknowledgement latency climbs to a quarter of a second at 4,000. The Go port answers in 5 ms at 4,000 while spreading its work across cores, and its throughput is still rising with the player count.</p>
+
+  <div class="versus">
+    <div class="side node">
+      <header><h3>Node server</h3><span class="tag">server/ · one process · 4,000 players</span></header>
+      <div class="figs">
+        <div class="fig"><div class="v hot">255 ms</div><div class="k">ack p95</div></div>
+        <div class="fig"><div class="v hot">492 ms</div><div class="k">ack p99</div></div>
+        <div class="fig"><div class="v">1,175 /s</div><div class="k">actions, flat since 3,000</div></div>
+        <div class="fig"><div class="v hot">109%</div><div class="k">CPU, one core saturated</div></div>
+      </div>
+      <div class="note">Event-loop lag p99 30 ms · 160 DB requests queued for a pool connection · 423 MB RSS</div>
+    </div>
+    <div class="side go">
+      <header><h3>Go server</h3><span class="tag">go-server/ · one process · 4,000 players</span></header>
+      <div class="figs">
+        <div class="fig"><div class="v hot">5 ms</div><div class="k">ack p95</div></div>
+        <div class="fig"><div class="v hot">10 ms</div><div class="k">ack p99</div></div>
+        <div class="fig"><div class="v">1,568 /s</div><div class="k">actions, still scaling</div></div>
+        <div class="fig"><div class="v">180%</div><div class="k">CPU across 12 cores</div></div>
+      </div>
+      <div class="note">Scheduler latency p99 0.4 ms · 3 DB requests queued · 422 MB RSS · 0 errors in 70,546 actions</div>
+    </div>
+  </div>
+
+  <h2>Stage by stage</h2>
+  <div class="charts">
+    <div class="chart">
+      <h3>Acknowledgement latency, p95</h3>
+      <p class="sub">Milliseconds from a bet leaving the client to the server's ack. Lower is better.</p>
+      <svg id="c-ack" viewBox="0 0 520 260" role="img" aria-label="Ack p95 by stage, Node versus Go"></svg>
+      <div class="legend"><span class="n"><i></i>Node</span><span class="g"><i></i>Go</span></div>
+    </div>
+    <div class="chart">
+      <h3>Actions per second</h3>
+      <p class="sub">Moves the server accepted per second during each 45 s hold.</p>
+      <svg id="c-tp" viewBox="0 0 520 260" role="img" aria-label="Actions per second by stage"></svg>
+      <div class="legend"><span class="n"><i></i>Node</span><span class="g"><i></i>Go</span></div>
+    </div>
+    <div class="chart">
+      <h3>Process CPU</h3>
+      <p class="sub">Share of one core. Node cannot pass 100%; Go's work spreads over cores.</p>
+      <svg id="c-cpu" viewBox="0 0 520 260" role="img" aria-label="CPU by stage"></svg>
+      <div class="legend"><span class="n"><i></i>Node</span><span class="g"><i></i>Go</span></div>
+    </div>
+    <div class="chart">
+      <h3>Requests waiting for a database connection</h3>
+      <p class="sub">Peak queue on the 50-connection pool during the hold.</p>
+      <svg id="c-db" viewBox="0 0 520 260" role="img" aria-label="DB pool waiting by stage"></svg>
+      <div class="legend"><span class="n"><i></i>Node</span><span class="g"><i></i>Go</span></div>
+    </div>
+  </div>
+
+  <h2>All figures</h2>
+  <div class="tablewrap">
+    <table id="t-all">
+      <thead><tr>
+        <th>Players</th><th>Server</th>
+        <th class="num">ack p50</th><th class="num">ack p95</th><th class="num">ack p99</th><th class="num">ack max</th>
+        <th class="num">actions/s</th><th class="num">hands/min</th><th class="num">errors</th>
+        <th class="num">CPU mean</th><th class="num">CPU max</th><th class="num">RSS</th><th class="num">lag p99</th><th class="num">DB queued</th><th class="num">login p95</th>
+      </tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+  <p class="note">Node's CPU column is the share of one core; the process is single-threaded, so 109% is the ceiling. Go's 180% is 1.8 of 12 cores with room to grow. "lag p99" is Node's event-loop delay and Go's scheduler latency, the closest equivalents.</p>
+
+  <h2>Why Node flattens and Go does not</h2>
+  <div class="cols">
+    <div>
+      <p>Every move is one Postgres transaction plus JSON work on the game state. In Node all of that runs on a single thread. At 3,000 players that thread is fully busy (102%), so from there on more players only add queueing: the ack latency at 4,000 is dominated by moves waiting their turn on the event loop, and 160 database requests pile up behind it because the callbacks that would release pool connections are themselves waiting.</p>
+    </div>
+    <div>
+      <p>The Go server runs one goroutine per table, so 750 tables spread over 12 cores. Each table is still strictly serial, exactly the order guarantee the Node queue gave, but tables no longer wait for each other. The pool queue stays near zero and the ack time stays at the cost of the transaction itself. The next limit is Postgres sharing the host's cores, which is where the earlier multi-worker analysis also pointed.</p>
+    </div>
+  </div>
+
+  <h2>What was verified before this measurement</h2>
+  <div class="cols">
+    <div>
+      <ul class="check">
+        <li><strong>554 Go tests</strong> across 11 packages, all green under the race detector, mirroring every Node suite plus property and concurrency tests.</li>
+        <li><strong>141 black-box parity tests</strong> run against both servers over the wire: REST, raw Engine.IO framing, lobby, full hands, sideshow, invalid moves, resume, money, metrics. Both pass.</li>
+        <li><strong>Identical event streams</strong> for a scripted three-player scenario on Node and Go, normalised and diffed per socket, plus identical ledger rows.</li>
+        <li><strong>Differential engine tests</strong>: 22,100 hand evaluations and 194,569 chat-sanitising inputs identical between the JavaScript and Go engines; two scripted hands produce 346 identical records through both rule engines.</li>
+      </ul>
+    </div>
+    <div>
+      <ul class="check">
+        <li><strong>Real clients</strong>: the production bots and the unchanged Flutter APK played against the Go binary. A tap on Chaal produced a ledger row with the app's own action id; a force-stop mid-hand resumed with "Welcome back".</li>
+        <li><strong>Sessions carry over</strong>: tokens minted by Node verify in Go and vice versa, so phones stay signed in through the switch.</li>
+        <li><strong>Two 5-minute soaks</strong> with churning bots on all three table types: 164 hands, pots up to 2.3 lakh, zero data races, goroutines back to baseline, every wallet equal to its ledger sum.</li>
+        <li><strong>Four adversarial reviews</strong> (money, leaks and hostile input, concurrency, Flutter wire compatibility) found and fixed 10 issues, 4 of them present in the Node server too; 0 card or chip leaks.</li>
+      </ul>
+    </div>
+  </div>
+
+  <h2>Fixed along the way</h2>
+  <p>These were found by the reviewers with failing tests first. The first four exist in the Node server as well.</p>
+  <ul>
+    <li>A settlement refused by the database was lost for good when the table was destroyed before the retry landed. Go now finishes the idempotent write off the table.</li>
+    <li>A settle and a boot on shared wallets could deadlock through a foreign-key lock taken out of order. Wallet locks now come first.</li>
+    <li>A player could block another player's 25,000-chip milestone forever by reusing its ledger key as a bet's action id. Reserved key shapes are refused.</li>
+    <li>A join finishing on a socket that had just been replaced left the seat without a live viewer or a grace timer.</li>
+    <li>Two simultaneous sign-ins for one account both stayed live; a stale kick could remove a player from the table they had just moved to; a public <code>room:create</code> skipped stake and chip checks.</li>
+    <li>Go-only: a nested-array payload cost 2.8 s of CPU per message; per-connection header retention was 64× Node's; a hung database statement could freeze a table's actor. All three now bounded.</li>
+  </ul>
+
+  <h2>Deploying</h2>
+  <p>The Go binary listens on the same port, reads the same <code>.env</code>, exposes the same <code>game_*</code> metrics and serves the browser client, so nginx, Prometheus and the Grafana game rows do not change. Process metrics move from <code>nodejs_*</code> to <code>go_*</code>; the dashboard's runtime row and three alerts are updated in the branch.</p>
+  <ol class="steps">
+    <li>Push the <code>go-server</code> branch and pull it on the host.</li>
+    <li><code>bash go-server/ops/build.sh</code> as deploy: installs Go if missing, builds <code>go-server/bin/gameplay</code>.</li>
+    <li><code>sudo bash go-server/ops/install-go-server.sh</code>: backs up the Node unit, installs the Go binary as <code>gameplay.service</code>, restarts, verifies <code>/health</code>.</li>
+    <li>Run the 4,000-player ramp against production and compare with run 7 (p95 409 ms at 4,000, one core saturated).</li>
+    <li>Rollback at any time: <code>sudo bash go-server/ops/rollback-to-node.sh</code>.</li>
+  </ol>
+
+  <div class="method">
+    <strong>Method.</strong> Both servers ran on the same 12-core development machine against the same local PostgreSQL 18, each in its own schema, with <code>PG_POOL_MAX=50</code> and the production table menu. The load generator (<code>tools/ramptest.mjs</code>, one Node process) ran on the same machine and added blind-200 players in stages of 500, 1,000, 2,000, 3,000 and 4,000, holding each for 45 s. Numbers are per stage from the generator's JSON reports. Because the generator shares the machine, absolute figures are conservative for both servers; the comparison between them is like for like. Production reference: run 7 on 8 Sep 2026 measured Node at p95 409 ms with 4,000 players on the 4-core host.
+  </div>
+</div>
+
+<script>
+const DATA = {"node": [{"players": 500, "ackP50": 2, "ackP95": 3, "ackP99": 6, "ackMax": 10, "actionsPerSec": 217.16, "handsPerMin": 466.7, "errors": 0, "actions": 9772, "cpuMean": 21, "cpuMax": 27.7, "rssMb": 159, "lagP99": 21.1, "dbWaitingMax": 0, "loginP95": 67}, {"players": 1000, "ackP50": 2, "ackP95": 6, "ackP99": 24, "ackMax": 521, "actionsPerSec": 419.62, "handsPerMin": 985.3, "errors": 0, "actions": 18883, "cpuMean": 39, "cpuMax": 46.2, "rssMb": 161.9, "lagP99": 22.5, "dbWaitingMax": 0, "loginP95": 36}, {"players": 2000, "ackP50": 2, "ackP95": 7, "ackP99": 12, "ackMax": 33, "actionsPerSec": 827.78, "handsPerMin": 1964, "errors": 0, "actions": 37250, "cpuMean": 75, "cpuMax": 92.2, "rssMb": 223.8, "lagP99": 22.5, "dbWaitingMax": 0, "loginP95": 29}, {"players": 3000, "ackP50": 6, "ackP95": 41, "ackP99": 64, "ackMax": 180, "actionsPerSec": 1175.24, "handsPerMin": 2968, "errors": 0, "actions": 52886, "cpuMean": 102, "cpuMax": 107.2, "rssMb": 258.7, "lagP99": 26.3, "dbWaitingMax": 8, "loginP95": 88}, {"players": 4000, "ackP50": 174, "ackP95": 255, "ackP99": 492, "ackMax": 605, "actionsPerSec": 1174.89, "handsPerMin": 2882.7, "errors": 0, "actions": 52870, "cpuMean": 109, "cpuMax": 113.6, "rssMb": 423, "lagP99": 30.3, "dbWaitingMax": 160, "loginP95": 269}],
+"go": [{"players": 500, "ackP50": 1, "ackP95": 2, "ackP99": 4, "ackMax": 13, "actionsPerSec": 216.93, "handsPerMin": 464, "errors": 0, "actions": 9762, "cpuMean": 25, "cpuMax": 31.2, "rssMb": 76.4, "lagP99": 0.2, "dbWaitingMax": 0, "loginP95": 38}, {"players": 1000, "ackP50": 1, "ackP95": 3, "ackP99": 4, "ackMax": 14, "actionsPerSec": 422.02, "handsPerMin": 972, "errors": 0, "actions": 18991, "cpuMean": 48, "cpuMax": 54.3, "rssMb": 126.6, "lagP99": 0.2, "dbWaitingMax": 0, "loginP95": 22}, {"players": 2000, "ackP50": 1, "ackP95": 3, "ackP99": 5, "ackMax": 14, "actionsPerSec": 829.44, "handsPerMin": 2008, "errors": 0, "actions": 37325, "cpuMean": 95, "cpuMax": 104, "rssMb": 224.8, "lagP99": 0.2, "dbWaitingMax": 0, "loginP95": 17}, {"players": 3000, "ackP50": 2, "ackP95": 4, "ackP99": 6, "ackMax": 19, "actionsPerSec": 1211.07, "handsPerMin": 3022.7, "errors": 0, "actions": 54498, "cpuMean": 139, "cpuMax": 150.5, "rssMb": 323.3, "lagP99": 0.3, "dbWaitingMax": 0, "loginP95": 17}, {"players": 4000, "ackP50": 2, "ackP95": 5, "ackP99": 10, "ackMax": 40, "actionsPerSec": 1567.69, "handsPerMin": 3954.7, "errors": 0, "actions": 70546, "cpuMean": 180, "cpuMax": 190.5, "rssMb": 422.3, "lagP99": 0.4, "dbWaitingMax": 3, "loginP95": 17}]};
+
+const fmt = (n, d = 0) => n.toLocaleString('en-US', { maximumFractionDigits: d, minimumFractionDigits: d });
+const stages = DATA.node.map(r => r.players);
+const W = 520, H = 260, L = 52, R = 12, T = 14, B = 34;
+const px = i => L + (i + 0.5) * (W - L - R) / stages.length;
+
+function frame(svg, yMax, ticks, unit) {
+  const ih = H - T - B;
+  const y = v => T + ih - (v / yMax) * ih;
+  let s = '<g class="grid">';
+  ticks.forEach(t => { s += `<line x1="${L}" x2="${W - R}" y1="${y(t)}" y2="${y(t)}"/>`; });
+  s += '</g><g class="axis">';
+  ticks.forEach(t => { s += `<text x="${L - 8}" y="${y(t) + 4}" text-anchor="end">${fmt(t)}${unit}</text>`; });
+  stages.forEach((p, i) => { s += `<text x="${px(i)}" y="${H - 12}" text-anchor="middle">${fmt(p)}</text>`; });
+  s += `<text x="${(L + W - R) / 2}" y="${H - 1}" text-anchor="middle" class="lbl">players</text></g>`;
+  return { s, y };
+}
+
+function bars(id, key, yMax, ticks, unit, label, ref) {
+  const svg = document.getElementById(id);
+  let { s, y } = frame(svg, yMax, ticks, unit);
+  const bw = Math.min(34, (W - L - R) / stages.length / 2.6);
+  stages.forEach((p, i) => {
+    const n = DATA.node[i][key], g = DATA.go[i][key];
+    const xn = px(i) - bw - 3, xg = px(i) + 3;
+    s += `<rect class="bar n" x="${xn}" y="${y(n)}" width="${bw}" height="${Math.max(1.5, H - B - y(n))}" rx="2"/>`;
+    s += `<rect class="bar g" x="${xg}" y="${y(g)}" width="${bw}" height="${Math.max(1.5, H - B - y(g))}" rx="2"/>`;
+    s += `<text class="val n" x="${xn + bw / 2}" y="${y(n) - 4}" text-anchor="middle">${label(n)}</text>`;
+    s += `<text class="val g" x="${xg + bw / 2}" y="${y(g) - 4}" text-anchor="middle">${label(g)}</text>`;
+  });
+  if (ref) s += `<line class="ref" x1="${L}" x2="${W - R}" y1="${y(ref.v)}" y2="${y(ref.v)}"/><text class="reftext" x="${W - R}" y="${y(ref.v) - 5}" text-anchor="end">${ref.t}</text>`;
+  svg.innerHTML = s;
+}
+
+function lines(id, key, yMax, ticks, unit, label) {
+  const svg = document.getElementById(id);
+  let { s, y } = frame(svg, yMax, ticks, unit);
+  for (const [k, cls] of [['node', 'n'], ['go', 'g']]) {
+    const pts = DATA[k].map((r, i) => [px(i), y(r[key])]);
+    s += `<path class="line ${cls}" d="${pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ')}"/>`;
+    pts.forEach((p, i) => {
+      s += `<circle class="dot ${cls}" cx="${p[0]}" cy="${p[1]}" r="3.5"/>`;
+      const dy = cls === 'n' ? 16 : -9;
+      s += `<text class="val ${cls}" x="${p[0]}" y="${p[1] + dy}" text-anchor="middle">${label(DATA[k][i][key])}</text>`;
+    });
+  }
+  svg.innerHTML = s;
+}
+
+bars('c-ack', 'ackP95', 300, [0, 100, 200, 300], ' ms', v => fmt(v));
+lines('c-tp', 'actionsPerSec', 1800, [0, 600, 1200, 1800], '', v => fmt(v));
+bars('c-cpu', 'cpuMean', 200, [0, 50, 100, 150, 200], '%', v => fmt(v) + '%', { v: 100, t: 'one core = 100%' });
+bars('c-db', 'dbWaitingMax', 180, [0, 60, 120, 180], '', v => fmt(v));
+
+const tb = document.querySelector('#t-all tbody');
+stages.forEach((p, i) => {
+  for (const [k, cls, name] of [['node', 'n', 'Node'], ['go', 'g', 'Go']]) {
+    const r = DATA[k][i];
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td class="num">${k === 'node' ? fmt(p) : ''}</td><td class="${cls}">${name}</td>` +
+      [r.ackP50, r.ackP95, r.ackP99, r.ackMax].map(v => `<td class="num">${fmt(v)} ms</td>`).join('') +
+      `<td class="num">${fmt(r.actionsPerSec)}</td><td class="num">${fmt(r.handsPerMin)}</td><td class="num">${fmt(r.errors)}</td>` +
+      `<td class="num">${fmt(r.cpuMean)}%</td><td class="num">${fmt(r.cpuMax, 1)}%</td><td class="num">${fmt(r.rssMb)} MB</td><td class="num">${fmt(r.lagP99, 1)} ms</td><td class="num">${fmt(r.dbWaitingMax)}</td><td class="num">${fmt(r.loginP95)} ms</td>`;
+    tb.appendChild(tr);
+  }
+});
+</script>

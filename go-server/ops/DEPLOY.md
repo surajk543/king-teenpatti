@@ -312,3 +312,24 @@ Reference: `go-server/README.md` (build/test/parity), `go-server/PORT_PLAN.md` Â
 `go-server/DECISIONS.md` (every deliberate difference from Node),
 `go-server/ops/monitoring/MONITORING.md` (metrics, dashboard, alert runbook), `CLAUDE.md` (repo-wide reference),
 `steps.txt` (the six-line deploy routine).
+
+## Database tuning (the production ceiling after the Go switch)
+
+Measured on 8 Sep 2026 right after the switch (run 8, 4,000 players): the Go process used about
+one core while the bet transaction p95 reached 0.8 s, the 50-connection pool was saturated and
+the host showed 17% I/O wait at 930 commits/s. `pg_test_fsync` on the virtual disk gives ~650
+fsyncs/s, and Postgres runs stock settings. Every move is a durable commit, so the disk's fsync
+rate is the limit, for Node and Go alike.
+
+`ops/tune-postgres.sh` applies the remedy in steps, each reversible:
+
+```bash
+sudo bash go-server/ops/tune-postgres.sh durable   # group commit; full durability kept; reload only
+sudo bash go-server/ops/tune-postgres.sh fast      # + synchronous_commit=off (owner's call; read the warning in the script)
+sudo bash go-server/ops/tune-postgres.sh memory    # shared_buffers 2GB etc.; restarts postgresql
+sudo bash go-server/ops/tune-postgres.sh revert
+```
+
+Re-run the ramp after each step (`cd tools && npm run ramp -- --url https://api.sungamestudio.com --stages 1000,2000,3000,4000 --hold 75 --idOffset <new range> --out ramp.json`)
+and compare `game_db_transaction_duration_seconds` p95 in Grafana. Beyond that, the fix is a
+database on its own host or a faster disk.
