@@ -1,0 +1,146 @@
+# nginx site for the King Teen Patti game server — api.sungamestudio.com
+#
+# Install:  sudo cp king-teenpatti.conf.example /etc/nginx/sites-available/king-teenpatti.conf
+#           sudo ln -s /etc/nginx/sites-available/king-teenpatti.conf /etc/nginx/sites-enabled/
+#           sudo nginx -t && sudo systemctl reload nginx
+#
+# This file only holds server/upstream blocks (http context). The event-loop
+# settings that decide how many players nginx can carry live in the MAIN
+# context and are in nginx.conf.example next to this file — apply both.
+#
+# Certificates: paths below are certbot's defaults for the domain
+# (`certbot --nginx -d api.sungamestudio.com` writes them).
+
+# ------------------------------------------------------------------ upstream
+upstream king_teenpatti {
+    # The Node process (HOST=0.0.0.0 PORT=3000 in server/.env).
+    server 127.0.0.1:3000;
+    # Reuse upstream connections for REST calls. Websockets are not pooled —
+    # each one holds its own upstream connection for its whole life, which is
+    # why every player costs nginx TWO connections (client + upstream).
+    keepalive 64;
+}
+
+# "Connection: upgrade" when the client asked for a websocket, an empty header
+# (so keepalive works) otherwise.
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      '';
+}
+
+# --------------------------------------------------------- http → https
+server {
+    listen 80;
+    listen [::]:80;
+    server_name api.sungamestudio.com;
+
+    # Let certbot renew over plain http.
+    location ^~ /.well-known/acme-challenge/ {
+        root /var/www/html;
+    }
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+# -------------------------------------------------------------- https
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name api.sungamestudio.com;
+
+    ssl_certificate     /etc/letsencrypt/live/api.sungamestudio.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/api.sungamestudio.com/privkey.pem;
+    include             /etc/letsencrypt/options-ssl-nginx.conf;
+    ssl_dhparam         /etc/letsencrypt/ssl-dhparams.pem;
+
+    # The API accepts JSON bodies of at most 32 kB (express.json limit); the
+    # Socket.IO handshake and polling frames are small too.
+    client_max_body_size 64k;
+
+    access_log /var/log/nginx/king-teenpatti.access.log;
+    error_log  /var/log/nginx/king-teenpatti.error.log;
+
+    # Common proxy headers. Node trusts X-Forwarded-For only if `trust proxy`
+    # is enabled in Express — it is not, so req.ip is 127.0.0.1 behind nginx
+    # and METRICS_ALLOW_IPS cannot be used through this proxy (use the token
+    # and the /metrics allow-list below instead).
+    proxy_http_version 1.1;
+    proxy_set_header Host              $host;
+    proxy_set_header X-Real-IP         $remote_addr;
+    proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+
+    # ----- Socket.IO (websocket + long-polling fallback)
+    location /socket.io/ {
+        proxy_pass http://king_teenpatti;
+        proxy_set_header Upgrade    $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        # A seated player's socket is idle between turns and Socket.IO pings
+        # every 25 s; the default 60 s read timeout would still be safe, but an
+        # hour means nginx never closes a healthy game socket on its own.
+        proxy_read_timeout  3600s;
+        proxy_send_timeout  3600s;
+        proxy_connect_timeout 10s;
+        proxy_buffering off;
+    }
+
+    # ----- Prometheus scrape endpoint (keep in sync with METRICS_PATH)
+    # Reachable from localhost only by default: a Prometheus on this box
+    # scrapes 127.0.0.1:3000 directly and never comes through here. To scrape
+    # from another machine, add its address to the allow-list AND set
+    # METRICS_TOKEN on the server — the token alone is not enough on a path
+    # that is otherwise public.
+    location = /metrics {
+        allow 127.0.0.1;
+        allow ::1;
+        # allow 203.0.113.10;   # remote Prometheus
+        deny  all;
+        proxy_pass http://king_teenpatti;
+        proxy_set_header Connection "";
+        access_log off;
+    }
+
+    # ----- health (used by the load-test tools and uptime checks)
+    location = /health {
+        proxy_pass http://king_teenpatti;
+        proxy_set_header Connection "";
+        access_log off;
+    }
+
+    # ----- REST API and the reference browser client
+    location / {
+        proxy_pass http://king_teenpatti;
+        proxy_set_header Connection "";
+        proxy_read_timeout 60s;
+    }
+}
+
+# --------------------------------------------------------- stub_status
+# Read by nginx-prometheus-exporter (Requirement 35g): active, reading,
+# writing, waiting, accepted, handled, requests.
+#
+# Loopback only, so nothing outside the box can see connection counts. If the
+# exporter runs inside the ops/monitoring docker-compose stack it connects from
+# the compose bridge (172.30.0.1), which a 127.0.0.1 listener does not accept:
+# swap the listen line for the commented one and keep the allow-list, which
+# then does the job the loopback bind did.
+server {
+    listen 127.0.0.1:8080;
+    # listen 8080;                 # exporter in docker → all interfaces + allow-list
+    server_name _;
+
+    allow 127.0.0.1;
+    allow ::1;
+    allow 172.30.0.0/24;           # ops/monitoring compose network
+    deny  all;
+
+    location = /stub_status {
+        stub_status;
+        access_log off;
+    }
+    location / {
+        return 404;
+    }
+}

@@ -6,12 +6,12 @@
 # (127.0.0.1:3000), Prometheus (job "game-server"), `journalctl -u gameplay`
 # and the deploy routine all stay unchanged.
 #
-# The binary reads the same .env the Node server used (EnvironmentFile below,
-# and godotenv from the working directory — same file, same keys: DATABASE_URL,
-# JWT_SECRET, PG_POOL_MAX, METRICS_TOKEN, …). The one Go-only key is
-# PUBLIC_DIR, the browser client's directory; WorkingDirectory is the Node
-# server dir so its default (../server/public) would resolve anyway, and it is
-# set explicitly so a future move of the working directory cannot break `/`.
+# The binary reads the same keys the Node server used, from go-server/.env
+# (EnvironmentFile below, and godotenv from the working directory):
+# DATABASE_URL, JWT_SECRET, PG_POOL_MAX, METRICS_TOKEN, … install-go-server.sh
+# copies the old server/.env there once. PUBLIC_DIR is the browser client's
+# directory (go-server/public); the default would resolve from the working
+# directory anyway, it is set explicitly so a future move cannot break `/`.
 [Unit]
 Description=King Teen Patti game server (Go)
 Documentation=file:///var/www/gameplay/king-teenpatti/go-server/ops/DEPLOY.md
@@ -21,15 +21,15 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=deploy
-WorkingDirectory=/var/www/gameplay/king-teenpatti/server
-EnvironmentFile=/var/www/gameplay/king-teenpatti/server/.env
+WorkingDirectory=/var/www/gameplay/king-teenpatti/go-server
+EnvironmentFile=/var/www/gameplay/king-teenpatti/go-server/.env
 Environment=NODE_ENV=production
-Environment=PUBLIC_DIR=/var/www/gameplay/king-teenpatti/server/public
+Environment=PUBLIC_DIR=/var/www/gameplay/king-teenpatti/go-server/public
 ExecStart=/var/www/gameplay/king-teenpatti/go-server/bin/gameplay
 Restart=always
 RestartSec=2
 # One descriptor per websocket plus the pg pool; the 1024 default dies of
-# EMFILE near 1,000 players (server/ops/monitoring/nginx/systemd/).
+# EMFILE near 1,000 players (go-server/ops/monitoring/nginx/systemd/).
 LimitNOFILE=65536
 # SIGTERM → the binary closes sockets, settles every live pot and exits within
 # its own 8 s budget (cmd/gameplay/main.go); systemd only SIGKILLs after 15 s.

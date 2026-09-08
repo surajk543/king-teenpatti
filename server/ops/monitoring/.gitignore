@@ -1,3 +1,0 @@
-# Local secrets for the monitoring stack — never commit.
-.env
-prometheus/metrics_token

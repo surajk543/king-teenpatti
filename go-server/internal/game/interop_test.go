@@ -15,16 +15,24 @@ import (
 	"unicode/utf8"
 )
 
-// nodeServerDir locates ../server relative to this module (go-server/ and
-// server/ are siblings in the repository).
+// nodeServerDir locates the Node reference server (the original
+// implementation these differential tests compare against). It was removed
+// from the repository once the port had matched it; to re-run the
+// comparison, check it out from history (`git show <commit>:server/…` or a
+// worktree of a pre-removal commit) and point NODE_REFERENCE_DIR at that
+// server/ directory with its node_modules installed. Without it the
+// differential tests skip.
 func nodeServerDir(t *testing.T) string {
 	t.Helper()
-	dir, err := filepath.Abs(filepath.Join("..", "..", "..", "server"))
-	if err != nil {
-		t.Skip("cannot resolve the Node server dir")
+	dir := os.Getenv("NODE_REFERENCE_DIR")
+	if dir == "" {
+		var err error
+		if dir, err = filepath.Abs(filepath.Join("..", "..", "..", "server")); err != nil {
+			t.Skip("cannot resolve the Node server dir")
+		}
 	}
 	if _, err := os.Stat(filepath.Join(dir, "src", "game", "handRank.js")); err != nil {
-		t.Skip("Node reference tree not present")
+		t.Skip("Node reference tree not present (set NODE_REFERENCE_DIR to a checkout of the removed server/ tree)")
 	}
 	if _, err := exec.LookPath("node"); err != nil {
 		t.Skip("node not installed")

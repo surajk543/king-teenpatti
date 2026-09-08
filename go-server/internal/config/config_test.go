@@ -51,7 +51,7 @@ func TestDefaultsMatchNode(t *testing.T) {
 		"Game.ReconnectGrace": 60 * time.Second, "Game.ResumeOffer": 10 * time.Minute,
 		"Metrics.Enabled": true, "Metrics.Path": "/metrics", "Metrics.Prefix": "game_server_", "Metrics.Token": "",
 		"Chat.MaxHistory": 100, "Chat.MaxLength": 140, "Chat.RateLimit": 5, "Chat.RateWindow": 5 * time.Second,
-		"LogLevel": "info", "PublicDir": "../server/public", "RedisURL": "",
+		"LogLevel": "info", "PublicDir": "./public", "RedisURL": "",
 	}
 	for path, expected := range want {
 		if got := field(t, cfg, path); !reflect.DeepEqual(got, expected) {
@@ -362,11 +362,11 @@ func TestPublicGameConfigValues(t *testing.T) {
 	}
 }
 
-// TestEnvExampleIsTheDefaults reads server/.env.example, applies it through
+// TestEnvExampleIsTheDefaults reads go-server/.env.example, applies it through
 // FromEnv and expects the defaults back (JWT_SECRET is the one deliberate
 // difference — the example tells operators to change it).
 func TestEnvExampleIsTheDefaults(t *testing.T) {
-	path := filepath.Join("..", "..", "..", "server", ".env.example")
+	path := filepath.Join("..", "..", ".env.example")
 	f, err := os.Open(path)
 	if err != nil {
 		t.Skipf("no %s: %v", path, err)
@@ -444,8 +444,9 @@ func TestLoadReadsTheProcessEnvironment(t *testing.T) {
 	}
 }
 
-// TestLoadPublicDirDefault: PUBLIC_DIR unset → "../server/public" when that
-// directory exists, else "./public" (DECISIONS.md §5, PORT_PLAN.md §9). An
+// TestLoadPublicDirDefault: PUBLIC_DIR unset → "./public" when that
+// directory exists (cwd = go-server/), else "go-server/public" (cwd = repo
+// root) (DECISIONS.md §5, PORT_PLAN.md §9). An
 // explicit PUBLIC_DIR is never second-guessed, even when it does not exist.
 func TestLoadPublicDirDefault(t *testing.T) {
 	if got := resolvePublicDir(func(dir string) bool { return dir == DefaultPublicDir }); got != DefaultPublicDir {
@@ -456,10 +457,7 @@ func TestLoadPublicDirDefault(t *testing.T) {
 	}
 	// Through Load, from a scratch working directory.
 	root := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(root, "server", "public"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(root, "go-server"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(root, "go-server", "public"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Chdir(filepath.Join(root, "go-server"))
@@ -469,9 +467,9 @@ func TestLoadPublicDirDefault(t *testing.T) {
 		t.Fatal(err)
 	}
 	if cfg.PublicDir != DefaultPublicDir {
-		t.Errorf("sibling server/public present: %q", cfg.PublicDir)
+		t.Errorf("./public present: %q", cfg.PublicDir)
 	}
-	if err := os.RemoveAll(filepath.Join(root, "server")); err != nil {
+	if err := os.RemoveAll(filepath.Join(root, "go-server", "public")); err != nil {
 		t.Fatal(err)
 	}
 	cfg, err = Load()

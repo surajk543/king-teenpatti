@@ -1,0 +1,104 @@
+{
+  "url": "https://api.sungamestudio.com",
+  "startedAt": "2026-09-07T20:52:24.223Z",
+  "finishedAt": "2026-09-07T20:53:43.568Z",
+  "stages": [
+    1500,
+    2000,
+    3000,
+    4000
+  ],
+  "holdSeconds": 60,
+  "table": {
+    "category": "blind",
+    "boot": 200
+  },
+  "thresholds": {
+    "maxP95Ms": 3000,
+    "maxErrorRate": 0.1
+  },
+  "ceiling": {
+    "target": 2000,
+    "reasons": [
+      "while ramping to 2000: 59 of the 100 newest players failed to connect with 1499 sockets open"
+    ],
+    "connectedAtStop": 1499
+  },
+  "results": [
+    {
+      "target": 1500,
+      "connected": 1458,
+      "joined": 1458,
+      "loginFailures": 34,
+      "generatorLag": {
+        "p50": 0,
+        "p95": 1,
+        "max": 1,
+        "samples": 326
+      },
+      "host": null,
+      "connectFailures": 8,
+      "disconnectsDuringHold": 0,
+      "login": {
+        "p50": 52,
+        "p95": 144,
+        "max": 483,
+        "mean": 68
+      },
+      "connect": {
+        "p50": 152,
+        "p95": 232,
+        "max": 411
+      },
+      "action": {
+        "count": 35213,
+        "errors": 0,
+        "errorRate": 0,
+        "perSec": 586.88,
+        "p50": 28,
+        "p95": 33,
+        "p99": 39,
+        "max": 71,
+        "mean": 28
+      },
+      "hands": {
+        "started": 1380,
+        "completed": 1388,
+        "perSec": 23.13,
+        "perMinute": 1388
+      },
+      "chatSent": 2672,
+      "healthRtt": {
+        "p50": 82,
+        "p95": 87,
+        "max": 87
+      },
+      "server": {
+        "players": 1463,
+        "tables": 295,
+        "activeHands": 207,
+        "uptime": 6091.181047078
+      },
+      "stageSeconds": 78
+    }
+  ],
+  "serverBefore": {
+    "ok": true,
+    "uptime": 6018.201017918,
+    "tables": 4,
+    "players": 16,
+    "activeHands": 3,
+    "rtt": 112
+  },
+  "serverAfter": {
+    "ok": true,
+    "uptime": 6097.553656138,
+    "tables": 301,
+    "players": 1502,
+    "activeHands": 208,
+    "rtt": 81
+  },
+  "lastHealthyStage": 1500,
+  "stoppedBecause": "ramp aborted",
+  "connectionsAtStop": 1499
+}

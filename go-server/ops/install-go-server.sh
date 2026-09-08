@@ -29,14 +29,20 @@ log "Preflight"
     Build it first, as the deploy user (no sudo):
       cd $GO_DIR && bash ops/build.sh"
 [ -f "$UNIT_SRC" ] || die "$UNIT_SRC not found"
-[ -r "$ENV_FILE" ]  || die "$ENV_FILE not readable — the unit's EnvironmentFile must exist"
+# The Node server's .env was untracked, so it survives the removal of server/
+# from git. Carry it over once; the Go binary reads the same keys.
+if [ ! -e "$ENV_FILE" ] && [ -r "$LEGACY_ENV_FILE" ]; then
+  install -m 0640 -o deploy -g deploy "$LEGACY_ENV_FILE" "$ENV_FILE"
+  note "copied $LEGACY_ENV_FILE -> $ENV_FILE (the old file is left in place)"
+fi
+[ -r "$ENV_FILE" ]  || die "$ENV_FILE not readable — the unit's EnvironmentFile must exist (copy the production .env to $GO_DIR/.env)"
 note "binary   $GO_BIN"
 note "version  $("$GO_BIN" -version)"
 note "env file $ENV_FILE (PORT=$(env_value PORT 3000), METRICS_PATH=$(env_value METRICS_PATH /metrics), METRICS_TOKEN=$([ -n "$(env_value METRICS_TOKEN)" ] && echo set || echo empty))"
 for key in DATABASE_URL JWT_SECRET; do
   [ -n "$(env_value "$key")" ] || note "WARNING: $key is not set in $ENV_FILE — the Go server uses the same keys as Node"
 done
-[ -d "$NODE_DIR/public" ] || note "WARNING: $NODE_DIR/public missing — the browser client at / will 404 (PUBLIC_DIR in the unit)"
+[ -d "$GO_DIR/public" ] || note "WARNING: $GO_DIR/public missing — the browser client at / will 404 (PUBLIC_DIR in the unit)"
 
 # -------------------------------------------------------------- 2. backup
 log "Backing up the Node unit"

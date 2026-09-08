@@ -1,0 +1,144 @@
+# Monitoring stack for the King Teen Patti game server (Requirements 35e, 35g, 36).
+#
+#   docker compose --env-file .env up -d         (copy .env.example to .env first)
+#
+# Prometheus scrapes the Node process, PostgreSQL, nginx and the host; Grafana
+# is provisioned with the Prometheus datasource and the king-teenpatti
+# dashboard. Nothing here touches the game server itself.
+#
+# Reaching the host: every bridge-network service gets `host.docker.internal`
+# mapped to the host gateway (172.30.0.1 — the subnet is fixed below so that
+# nginx's stub_status allow-list and pg_hba.conf can name it). The host's
+# services must therefore listen on that address, not only on 127.0.0.1:
+#   • Node      HOST=0.0.0.0 (the default) — fine as is
+#   • Postgres  listen_addresses must include 172.30.0.1 (or '*') and
+#               pg_hba.conf needs a line for 172.30.0.0/24 — see MONITORING.md
+#   • nginx     stub_status server: `listen 8080;` + allow 172.30.0.0/24
+#               (nginx/king-teenpatti.conf.example shows both variants)
+# node_exporter runs in host network mode instead, because it has to see the
+# real interfaces and mounts.
+#
+# Images are pinned. Bump them deliberately, one at a time.
+
+name: king-teenpatti-monitoring
+
+services:
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    container_name: ktp-prometheus
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-15d}
+      - --web.enable-lifecycle          # curl -X POST :9090/-/reload after editing the yml
+      - --web.external-url=${PROMETHEUS_EXTERNAL_URL:-http://localhost:9090}
+    volumes:
+      # prometheus.yml, alerts.yml and (optional, git-ignored) metrics_token.
+      - ./prometheus:/etc/prometheus:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "${PROMETHEUS_BIND:-127.0.0.1}:${PROMETHEUS_PORT:-9090}:9090"
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    networks: [monitoring]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  grafana:
+    image: grafana/grafana:11.6.16
+    container_name: ktp-grafana
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in .env}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_SERVER_ROOT_URL: ${GRAFANA_ROOT_URL:-http://localhost:3001}
+      # Land on the game dashboard after login.
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/king-teenpatti.json
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      # 3000 is the game server; Grafana is published on 3001 by default.
+      - "${GRAFANA_BIND:-127.0.0.1}:${GRAFANA_PORT:-3001}:3000"
+    networks: [monitoring]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.20.1
+    container_name: ktp-postgres-exporter
+    restart: unless-stopped
+    environment:
+      # postgresql://USER:PASSWORD@HOST:5432/gameplay?sslmode=disable
+      # A dedicated role with pg_monitor is enough (MONITORING.md → PostgreSQL).
+      DATA_SOURCE_NAME: ${POSTGRES_EXPORTER_DSN:-postgresql://postgres:postgres@host.docker.internal:5432/gameplay?sslmode=disable}
+    command:
+      - --web.listen-address=:9187
+      # pg_stat_statements is off by default (needs the extension in the DB);
+      # see MONITORING.md → PostgreSQL → Queries/sec before enabling:
+      # - --collector.stat_statements
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    networks: [monitoring]
+    # Uncomment to inspect the raw exporter output from the host:
+    # ports:
+    #   - "127.0.0.1:9187:9187"
+
+  nginx-exporter:
+    image: nginx/nginx-prometheus-exporter:1.5.3
+    container_name: ktp-nginx-exporter
+    restart: unless-stopped
+    command:
+      - --nginx.scrape-uri=${NGINX_STUB_STATUS_URL:-http://host.docker.internal:8080/stub_status}
+      - --web.listen-address=:9113
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    networks: [monitoring]
+    # ports:
+    #   - "127.0.0.1:9113:9113"
+
+  node-exporter:
+    image: prom/node-exporter:v1.12.1
+    container_name: ktp-node-exporter
+    restart: unless-stopped
+    # Host PID and network namespaces: the container reports the machine, not
+    # itself. Prometheus reaches it at host.docker.internal:9100.
+    pid: host
+    network_mode: host
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro,rslave
+    command:
+      - --path.procfs=/host/proc
+      - --path.sysfs=/host/sys
+      - --path.rootfs=/rootfs
+      - --collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc|run/docker/.+|var/lib/docker/.+)($$|/)
+      - --collector.netclass.ignored-devices=^(veth.*|br-.*|docker.*|lo)$$
+      - --collector.netdev.device-exclude=^(veth.*|br-.*|docker.*|lo)$$
+      - --web.listen-address=${NODE_EXPORTER_BIND:-0.0.0.0}:9100
+
+networks:
+  monitoring:
+    driver: bridge
+    ipam:
+      config:
+        # Fixed so the gateway (172.30.0.1) can be allow-listed on the host.
+        - subnet: 172.30.0.0/24
+
+volumes:
+  prometheus-data:
+  grafana-data:

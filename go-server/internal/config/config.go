@@ -31,14 +31,14 @@ const (
 const DefaultJWTSecret = "dev-only-insecure-secret"
 
 // DefaultPublicDir is where the browser client lives relative to the Go
-// binary's working directory (go-server/): the Node tree's server/public.
+// binary's working directory (go-server/): go-server/public.
 // DECISIONS.md §5 (new env key PUBLIC_DIR).
-const DefaultPublicDir = "../server/public"
+const DefaultPublicDir = "./public"
 
 // FallbackPublicDir is what Load() uses when PUBLIC_DIR is unset and
-// DefaultPublicDir does not exist — a binary deployed next to a copied
-// `public/` (PORT_PLAN.md §9).
-const FallbackPublicDir = "./public"
+// DefaultPublicDir does not exist — the binary started from the repository
+// root instead of go-server/ (PORT_PLAN.md §9).
+const FallbackPublicDir = "go-server/public"
 
 // Table categories as the config layer spells them (game.Category has the
 // same values; config cannot import game). LOBBY_TABLES and
@@ -79,10 +79,10 @@ type Config struct {
 
 	// LogLevel is LOG_LEVEL (info). Node's util/logger.js reads it directly.
 	LogLevel string
-	// PublicDir is where the bundled browser client (server/public) lives so
+	// PublicDir is where the bundled browser client (go-server/public) lives so
 	// the Go binary can serve it at "/". Env PUBLIC_DIR; when unset, Load()
-	// picks DefaultPublicDir ("../server/public") if that directory exists
-	// and FallbackPublicDir ("./public") otherwise (DECISIONS.md §5,
+	// picks DefaultPublicDir ("./public") if that directory exists
+	// and FallbackPublicDir ("go-server/public") otherwise (DECISIONS.md §5,
 	// PORT_PLAN.md §9). Defaults()/FromEnv() carry DefaultPublicDir — they do
 	// not touch the filesystem. This variable does not exist in Node (it
 	// derived rootDir from the module path) — recorded in PORT_PLAN.md as the

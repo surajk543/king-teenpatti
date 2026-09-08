@@ -14,13 +14,13 @@ import (
 )
 
 // nodeModulesDir finds a node_modules with socket.io-client: $SIO_NODE_MODULES,
-// then each NODE_PATH entry, then the Node server's own node_modules two
-// directories up from the module root (server/node_modules). "" when none.
+// then each NODE_PATH entry, then the repository's tooling package two
+// directories up from the module root (tools/node_modules). "" when none.
 func nodeModulesDir() string {
 	candidates := []string{os.Getenv("SIO_NODE_MODULES")}
 	candidates = append(candidates, filepath.SplitList(os.Getenv("NODE_PATH"))...)
-	// internal/sio → go-server → repo root → server/node_modules
-	candidates = append(candidates, filepath.Join("..", "..", "..", "server", "node_modules"))
+	// internal/sio → go-server → repo root → tools/node_modules
+	candidates = append(candidates, filepath.Join("..", "..", "..", "tools", "node_modules"))
 	for _, dir := range candidates {
 		if dir == "" {
 			continue

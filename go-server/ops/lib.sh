@@ -3,10 +3,11 @@
 
 # --- paths (override with env vars when the checkout lives elsewhere) ---------
 REPO_DIR="${REPO_DIR:-/var/www/gameplay/king-teenpatti}"
-NODE_DIR="$REPO_DIR/server"
+NODE_DIR="$REPO_DIR/server"          # the removed Node server; only its untracked .env may linger
 GO_DIR="$REPO_DIR/go-server"
 GO_BIN="$GO_DIR/bin/gameplay"
-ENV_FILE="${ENV_FILE:-$NODE_DIR/.env}"
+ENV_FILE="${ENV_FILE:-$GO_DIR/.env}"
+LEGACY_ENV_FILE="$NODE_DIR/.env"
 UNIT_NAME="gameplay.service"
 UNIT_PATH="/etc/systemd/system/$UNIT_NAME"
 UNIT_BACKUP="$UNIT_PATH.node.bak"

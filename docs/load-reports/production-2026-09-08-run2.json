@@ -1,0 +1,154 @@
+{
+  "url": "https://api.sungamestudio.com",
+  "startedAt": "2026-09-07T20:26:00.000Z",
+  "finishedAt": "2026-09-07T20:41:00.000Z",
+  "stages": [
+    1000,
+    1500,
+    2000,
+    2500,
+    3000
+  ],
+  "holdSeconds": 300,
+  "table": {
+    "category": "blind",
+    "boot": 200
+  },
+  "thresholds": {
+    "maxP95Ms": 3000,
+    "maxErrorRate": 0.1
+  },
+  "ceiling": {
+    "target": 2000,
+    "reasons": [
+      "the nginx proxy answered every new connection and Socket.IO handshake with HTTP 500 once about 1,500 sockets were open; the run was stopped by hand after four minutes so real players could sign in again"
+    ]
+  },
+  "results": [
+    {
+      "target": 1000,
+      "connected": 997,
+      "joined": 753,
+      "loginFailures": 0,
+      "connectFailures": 3,
+      "disconnectsDuringHold": 0,
+      "generatorLag": {
+        "p50": 0,
+        "p95": 1,
+        "max": null,
+        "samples": null
+      },
+      "host": null,
+      "login": {
+        "p50": null,
+        "p95": null,
+        "max": null,
+        "mean": null
+      },
+      "connect": {
+        "p50": null,
+        "p95": null,
+        "max": null
+      },
+      "action": {
+        "count": 75357,
+        "errors": 0,
+        "errorRate": 0.0,
+        "perSec": 251.19,
+        "p50": 28,
+        "p95": 37,
+        "p99": 126,
+        "max": null,
+        "mean": null
+      },
+      "hands": {
+        "started": null,
+        "completed": 4762,
+        "perSec": 15.87,
+        "perMinute": 952.4
+      },
+      "chatSent": null,
+      "healthRtt": {
+        "p50": null,
+        "p95": 83,
+        "max": null
+      },
+      "server": {
+        "players": 507,
+        "tables": 154,
+        "activeHands": null,
+        "uptime": null
+      },
+      "stageSeconds": 310
+    },
+    {
+      "target": 1500,
+      "connected": 1445,
+      "joined": 1201,
+      "loginFailures": 0,
+      "connectFailures": 55,
+      "disconnectsDuringHold": 0,
+      "generatorLag": {
+        "p50": 0,
+        "p95": 1,
+        "max": null,
+        "samples": null
+      },
+      "host": null,
+      "login": {
+        "p50": null,
+        "p95": null,
+        "max": null,
+        "mean": null
+      },
+      "connect": {
+        "p50": null,
+        "p95": null,
+        "max": null
+      },
+      "action": {
+        "count": 99120,
+        "errors": 0,
+        "errorRate": 0.0,
+        "perSec": 330.4,
+        "p50": 30,
+        "p95": 40,
+        "p99": 125,
+        "max": null,
+        "mean": null
+      },
+      "hands": {
+        "started": null,
+        "completed": 5502,
+        "perSec": 18.34,
+        "perMinute": 1100.4
+      },
+      "chatSent": null,
+      "healthRtt": {
+        "p50": null,
+        "p95": 84,
+        "max": null
+      },
+      "server": {
+        "players": 676,
+        "tables": 192,
+        "activeHands": null,
+        "uptime": null
+      },
+      "stageSeconds": 310
+    }
+  ],
+  "serverBefore": {
+    "ok": true,
+    "players": 15,
+    "tables": 3
+  },
+  "serverAfter": {
+    "ok": true,
+    "players": 573,
+    "tables": 191,
+    "uptime": 5400
+  },
+  "lastHealthyStage": 1500,
+  "note": "Stage results are transcribed from the run log; the JSON file was not written because the generator was stopped mid-stage. Fields not in the log are null."
+}

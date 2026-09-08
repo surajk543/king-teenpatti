@@ -1,7 +1,3 @@
-# Go build output
-/gameplay
-/bin/
-*.test
-*.out
-# local env
+bin/
 .env
+*.log

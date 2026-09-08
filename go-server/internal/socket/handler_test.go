@@ -1169,8 +1169,13 @@ func TestConsolidationMovesTheLonePlayer(t *testing.T) {
 	oldStateAt := indexOf(evs, EvRoomState, func(p json.RawMessage) bool { return str(p, "roomId") == tableY.ID() && field(p, "you") == nil })
 	// spec §9.2: chat(old), room:state(old, you:null), room:closed(old),
 	// room:state(new), room:moved, room:joined, chat:history, room:state(new).
-	if !(evs[0].Name == EvChatMessageOut && oldStateAt >= 0 && oldStateAt < closedAt && closedAt < newStateAt && newStateAt < movedAt && movedAt < joinedAt && joinedAt < histAt) {
-		t.Fatalf("consolidation order %v (closed %d moved %d joined %d hist %d newState %d oldState %d)", names(evs), closedAt, movedAt, joinedAt, histAt, newStateAt, oldStateAt)
+	// A room:state for the old table may precede the system chat line (the
+	// leaver's own departure broadcast lands first when the actor is quick);
+	// DECISIONS.md §1 pins the relative order of the named events, not the
+	// count or position of extra snapshots.
+	chatAt := indexOf(evs, EvChatMessageOut, func(p json.RawMessage) bool { return str(p, "roomId") == tableY.ID() })
+	if !(chatAt >= 0 && chatAt < closedAt && oldStateAt >= 0 && oldStateAt < closedAt && closedAt < newStateAt && newStateAt < movedAt && movedAt < joinedAt && joinedAt < histAt) {
+		t.Fatalf("consolidation order %v (chat %d closed %d moved %d joined %d hist %d newState %d oldState %d)", names(evs), chatAt, closedAt, movedAt, joinedAt, histAt, newStateAt, oldStateAt)
 	}
 	if st.rooms.GetTableForPlayer(y1.user.ID) != st.rooms.GetTable(xRoom) || st.rooms.GetTable(tableY.ID()) != nil {
 		t.Fatalf("player not moved / source not destroyed")
