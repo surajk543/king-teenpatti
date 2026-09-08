@@ -44,7 +44,8 @@ go test -race ./...                            # unit + Postgres-backed tests (t
 ```
 
 Production deploys follow `go-server/ops/DEPLOY.md` (systemd unit `gameplay.service`, working
-directory and `.env` in `go-server/`). Everything the Go server does differently from the Node
+directory and `.env` in `go-server/`; the first-time installer also removes the Node tree from the
+host once the Go binary is healthy — `steps.txt` is the short routine). Everything the Go server does differently from the Node
 original on purpose — websocket only, no Redis, Go runtime metrics under `game_server_go_*`, a few
 latent money-path bugs fixed — is listed in `go-server/PORT_PLAN.md` §9 and `go-server/DECISIONS.md`.
 
@@ -247,8 +248,8 @@ Each `.html` has a `.json` twin written by the ramp tool. Reproduce with
 
 `cd go-server && go test -race ./...` runs every Go suite. The `internal/game` suites drive the
 engine with a fake clock (`testclock`) and an in-memory ledger; the Postgres-backed suites
-(`internal/db`, `internal/app`, `internal/socket`) each open a throwaway schema through
-`dbtest.Open` and drop it afterwards, and skip when no database is reachable.
+(`internal/db`, `internal/app`) each open a throwaway schema through `dbtest.Open` and drop it
+afterwards, and skip when no database is reachable.
 
 | Package | Covers |
 |---|---|
