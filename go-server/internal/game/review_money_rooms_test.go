@@ -162,7 +162,7 @@ func TestReviewTheLastPlayerLeavingDoesNotOrphanTheWinnersPot(t *testing.T) {
 func TestReviewShutdownWaitsForAnOwedSettlement(t *testing.T) {
 	ledger := newFlakyLedger()
 	f := flakyRooms(t, ledger)
-	_, handID, winner, _ := endHandWithTheDatabaseDown(t, f, ledger)
+	table, handID, winner, _ := endHandWithTheDatabaseDown(t, f, ledger)
 	pot := f.tables.endedCopy()[0].Pot
 	winnerWallet := ledger.wallet(winner)
 
@@ -170,8 +170,10 @@ func TestReviewShutdownWaitsForAnOwedSettlement(t *testing.T) {
 	ledger.setDown(false)
 	done := make(chan error, 1)
 	go func() { done <- f.rooms.Shutdown(context.Background()) }()
-	// Shutdown is blocked on WaitSettlements until the (fake) retry timer
-	// fires; drive the clock.
+	// Shutdown destroys the table (the next-hand countdown dies with it),
+	// then blocks on WaitSettlements until the fake retry timer fires; drive
+	// the clock once the table is gone.
+	eventually(t, 2*time.Second, table.Destroyed, "the table to be destroyed")
 	eventually(t, 2*time.Second, func() bool { return f.clock.Pending() > 0 }, "a detached retry armed")
 	f.clock.Advance(time.Minute)
 	select {

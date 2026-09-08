@@ -2561,7 +2561,11 @@ func TestViewAccessorsInsideCallbacksAndLockFreeGetters(t *testing.T) {
 	eq(t, strings.Join(probe.seen, "|"), strings.Join(want, "|"), "what the View reported")
 }
 
-func TestDestroyStopsArmedSettleRetryTimers(t *testing.T) {
+func TestDestroyHandsArmedSettleRetriesToADetachedChain(t *testing.T) {
+	// Node dropped the retry (`if (this._destroyed) return`) and the pot was
+	// never banked; the port keeps the write alive off the actor
+	// (Table.settleDetached, review_money_test.go). Destroy still stops
+	// every actor timer and no Listener event follows it.
 	h := newHarness(t, settleConfig(), withLedger(func(h *harness) Ledger {
 		return NewMemoryLedger(MemoryLedgerHooks{
 			Settle: func(HandRecord, []SettleEntry) (map[string]int64, error) { return nil, errors.New("settle down") },
@@ -2570,6 +2574,7 @@ func TestDestroyStopsArmedSettleRetryTimers(t *testing.T) {
 	h.seat("a", settleStart)
 	h.seat("b", settleStart)
 	h.advance(6 * time.Second)
+	handID := h.lastHandStarted().HandID
 	h.mustAct(h.turnUser(), ActionPack, ActRequest{})
 	if h.clock.Pending() < 2 {
 		t.Fatalf("expected a retry timer and the next countdown, have %d", h.clock.Pending())
@@ -2577,11 +2582,17 @@ func TestDestroyStopsArmedSettleRetryTimers(t *testing.T) {
 	if err := h.table.Destroy(); err != nil {
 		t.Fatal(err)
 	}
-	eq(t, h.clock.Pending(), 0, "retry timers stopped by Destroy")
+	eq(t, h.clock.Pending(), 1, "the countdown is gone; the owed settlement's retry is the only timer left")
+	eq(t, h.table.PendingSettlements(), 1, "one settlement still owed")
 	count := h.rec.count()
 	h.advance(time.Hour)
-	eq(t, h.rec.count(), count, "no retry fired after Destroy")
-	eq(t, len(h.rec.all("error")), 0, "never abandoned — the table is gone")
+	eq(t, h.rec.count(), count, "no event after Destroy")
+	eq(t, h.clock.Pending(), 0, "the chain gave up and left no timer")
+	eq(t, h.table.PendingSettlements(), 0, "nothing pending")
+	err := h.table.WaitSettlements(context.Background())
+	if err == nil || !strings.Contains(err.Error(), handID) {
+		t.Fatalf("WaitSettlements should report the abandoned hand, got %v", err)
+	}
 }
 
 func TestTheFirstRungIsThePerBetCeilingWhenTheStakeOutgrowsIt(t *testing.T) {
