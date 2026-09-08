@@ -84,6 +84,7 @@ differently from Node on purpose.
 | `.env` | Loaded from the working directory if present, never overriding real env (same as dotenv). |
 | Env integer parsing | **Deviation.** Strict decimal integers; malformed values fail startup with a clear error. Empty string keeps Node's meaning (`TABLE_STAKES=` and `LOBBY_TABLES=` mean unrestricted). |
 | `METRICS_PREFIX` | Kept configurable, default `game_server_`. |
+| Hung database statements | **Deviation (Go-only key).** `PG_STATEMENT_TIMEOUT_MS` (default 15000) sets Postgres `statement_timeout` on every pooled connection, so a hung query fails one ledger write (`persist_failed`, the move is refused) instead of freezing that table's actor for good. Node had no limit; `0` restores that. |
 
 ## 6. Metrics
 

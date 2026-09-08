@@ -108,6 +108,7 @@ func TestEveryKey(t *testing.T) {
 		{"DATABASE_URL", "postgres://u:p@h:1/d", "DB.URL", "postgres://u:p@h:1/d"},
 		{"PG_SCHEMA", "test_auth_ab12", "DB.Schema", "test_auth_ab12"},
 		{"PG_POOL_MAX", "3", "DB.PoolMax", 3},
+		{"PG_STATEMENT_TIMEOUT_MS", "2500", "DB.StatementTimeoutMs", 2500},
 		{"WELCOME_CHIPS", "1000", "Game.WelcomeChips", int64(1000)},
 		{"BOOT_AMOUNT", "100", "Game.BootAmount", int64(100)},
 		{"TABLE_STAKES", "", "Game.TableStakes", []int64{}},
