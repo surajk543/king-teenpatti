@@ -55,6 +55,18 @@ curl -s -H 'Authorization: Bearer <token>' https://api.sungamestudio.com/metrics
 
 ### Node.js process (`game_server_*`, prom-client default collectors + four extras)
 
+> **Go server (production since the `go-server/` deploy — see `go-server/ops/DEPLOY.md`).** The Go
+> binary keeps every `game_*` metric below byte-for-byte, and the `game_server_process_*` family
+> (`cpu_*`, `resident_memory_bytes`, `open_fds`/`max_fds`, `start_time_seconds`, `uptime_seconds`,
+> plus `network_receive/transmit_bytes_total`). **No `game_server_nodejs_*` series exist**; the
+> runtime is described by `game_server_go_*` instead: `go_goroutines`, `go_threads`,
+> `go_sched_gomaxprocs_threads`, `go_sched_latencies_seconds` (histogram — the event-loop-lag
+> analogue), `go_sched_pauses_total_gc_seconds` (histogram), `go_gc_duration_seconds` (summary),
+> `go_memstats_{heap_alloc,heap_inuse,heap_sys,stack_inuse,sys}_bytes`, `go_memstats_heap_objects`,
+> `go_memstats_mallocs_total`, `go_gc_heap_{live,goal}_bytes`, `go_info{version}`. The dashboard's
+> "Runtime" row and the `GameServerSchedulerLatencyHigh` / `GameServerGoroutinesHigh` /
+> `GameServerMemoryHigh` alerts use exactly these. The table below documents the Node build.
+
 | Metric | Type | What |
 |---|---|---|
 | `game_server_process_cpu_seconds_total`, `_cpu_user_seconds_total`, `_cpu_system_seconds_total` | counter | CPU time; `rate()` gives cores used (1.0 = one core) |
@@ -465,14 +477,14 @@ Rows and what to look at first:
 | Row | First glance | Then |
 |---|---|---|
 | System | CPU / RAM / Swap / Disk gauges | Open file descriptors vs the dashed limit; TCP established ≈ 2 × sockets |
-| Node.js | Event-loop lag p99 (red line at 200 ms), heap used/limit | CPU near 1 core = the loop is the bottleneck; GC time share |
+| Runtime | Scheduler latency p99 (red line at 100 ms), heap live vs next-GC goal, goroutines (red line 50k) | CPU vs the dashed GOMAXPROCS line = the box is the bottleneck; GC pause time share; RSS vs runtime sys; open fds vs limit |
 | WebSockets | Connected sockets vs peak, connections/sec | disconnections by reason (`ping timeout` spikes = network), errors by code |
 | Multiplayer Game | Players online, active/waiting games | moves/sec by action, invalid moves by code, abandoned games |
 | Latency | Move P50/P90/P95/P99 stats | DB transaction P95 by op — when moves slow down this says whether it is the database |
 | PostgreSQL | pg_up, connections, cache hit ratio | transactions/sec against moves/sec; locks; the app-side pool's *waiting* line |
 | Nginx | nginx_up, active connections vs the red worker line | accepted vs handled (dropped > 0 is the worker_connections failure); 5xx |
 
-Orange "Node restarted" annotations mark process restarts
+Orange "Game server restarted" annotations mark process restarts
 (`changes(game_server_process_start_time_seconds[2m]) > 0`).
 
 Regenerating: the JSON is plain, 2-space indented and hand-editable; validate with
@@ -491,14 +503,14 @@ the same limits.
 | Alert | Fires when | What it means / first move |
 |---|---|---|
 | **GameServerDown** | `up{job="game-server"} == 0` 1 m | Node is down or `/metrics` refuses us (token / IP). `systemctl status king-teenpatti`, `curl -i localhost:3000/metrics` |
-| **GameServerEventLoopLagHigh** | lag p99 > 0.2 s 5 m | Everything queues behind the loop. Check Node CPU, GC time share, state-update latency; look for a hot synchronous path |
-| **GameServerEventLoopSaturated** | utilisation > 0.9 5 m | CPU-bound. Same as above; latency alerts follow |
+| **GameServerSchedulerLatencyHigh** | Go scheduler latency p99 > 100 ms 5 m | Runnable goroutines are waiting for a CPU — every ack, broadcast and turn timer queues behind it. Check process CPU vs GOMAXPROCS, GC pause share, state-update latency |
+| **GameServerGoroutinesHigh** | `game_server_go_goroutines` > 50,000 5 m | With flat sockets/tables this is a leak (a listener that never returns, an unstopped timer). `curl :3000/health` shows `process.goroutines`; profile before restarting |
 | **GameServerSocketsNearLimit** / **AtLimit** | sockets > 85 % / 97 % of `king_teenpatti:socket_limit` | Capacity. Beyond it nginx returns 500 on handshakes or Node hits EMFILE. Raise limits (nginx section) or add a box |
 | **GameServerHttp5xxRate** | 5xx > 5 % of REST responses with > 1 req/s, 5 m | Break down: `sum by (route) (rate(game_http_requests_total{status_code=~"5.."}[5m]))`; check DB |
 | **GameServerMoveLatencyHigh** | move p99 > 0.5 s 5 m | A move is one ledger transaction: look at DB transaction P95 by op and the pool's waiting requests |
 | **GameServerDbTransactionErrors** | any rollback rate for 5 m | `duplicate_action` = client retries (benign). Anything else: chips are not moving — server log, Postgres log |
 | **GameServerDbPoolSaturated** | `game_db_pool_waiting_requests > 0` 2 m | All `PG_POOL_MAX` connections busy. Find the slow transaction (`pg_stat_activity_max_tx_duration`) or raise the pool |
-| **GameServerHeapNearLimit** | heap used / limit > 0.85 10 m | OOM crash coming. Heap dump / look for a leak in per-table state; `--max-old-space-size` buys time |
+| **GameServerMemoryHigh** | process RSS > 80 % of `king_teenpatti:host_memory_bytes` 10 m | Go has no heap limit unless `GOMEMLIMIT` is set; the OOM killer is next. Compare heap live bytes with players; `Environment=GOMEMLIMIT=6GiB` in the unit buys time |
 | **GameServerFileDescriptorsHigh** | open / max fds > 0.8 5 m | Raise `LimitNOFILE` (systemd drop-in) before `accept()` fails |
 | **PostgresDown** | `pg_up == 0` 1 m | DB down, or DSN / `pg_hba.conf` wrong for the exporter. Every move fails while true |
 | **PostgresDeadlocks** | any deadlock in 5 m | The ledger locks wallets in ascending id order; a deadlock means new code takes locks out of order |

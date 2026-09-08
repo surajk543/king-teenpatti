@@ -1,19 +1,53 @@
 # King Teen Patti
 
-A turn-based multiplayer Teen Patti game: authoritative **Node.js + Socket.IO** server with
+A turn-based multiplayer Teen Patti game: an authoritative **Socket.IO** game server with
 **PostgreSQL** persistence (every chip movement is one transaction), a **Flutter** client for
 Android (Material 3), and a bundled browser client for playing and testing without a build.
+The server exists twice, wire-identical: the **Go binary in `go-server/` runs production**; the
+original **Node.js implementation in `server/`** is the reference, the parity oracle and the
+home of the tooling.
 
 ```
 king-teenpatti/
-├── server/          Node.js + Socket.IO + PostgreSQL game server (authoritative)
+├── go-server/       Go game server — THE production server (one static binary; see go-server/README.md)
+│   ├── cmd/gameplay/  entrypoint;  internal/{game,sio,socket,auth,db,metrics,app,config}
+│   └── ops/         build.sh, systemd unit, install/rollback scripts, DEPLOY.md
+├── server/          Node.js + Socket.IO + PostgreSQL game server — reference implementation + tooling
 │   ├── src/         Game engine, auth, database + ledger, socket layer
-│   ├── public/      Browser client — a zero-build protocol reference
-│   └── test/        node:test suites + a load-test harness
+│   ├── public/      Browser client — a zero-build protocol reference (served by both servers)
+│   ├── test/        node:test suites, the parity harness (test/parity/), a load-test harness
+│   ├── tools/       practice bots, ramp/load test, parity runners
+│   └── ops/monitoring/  Prometheus + Grafana + alerts + nginx settings
 ├── flutter-client/  Flutter client (Dart): the live app — lobby, table, chat, sideshow
 ├── CLAUDE.md        Detailed project context for coding sessions
 └── Requirements.txt The original brief (items 1–34; there is no 11)
 ```
+
+## The Go server (production)
+
+`go-server/` is a port of `server/src` that reproduces everything a client or the database can
+observe: the same Socket.IO events, acks and error codes, the same REST bodies, the same JWTs
+(sessions survive a switch either way), the same schema and ledger rows, the same `/health`
+keys and `game_*` Prometheus metrics. It runs as one process — each table is an actor goroutine,
+Go's scheduler uses all cores — with its own WebSocket-only Socket.IO server and `pgx`. The Flutter
+app, the browser client, the bots and the load tools connect to it unchanged.
+
+```bash
+cd go-server
+bash ops/build.sh                      # installs Go 1.27 into ~/.local/go if needed, builds bin/gameplay
+go test -race ./...                    # unit + Postgres-backed tests (skip without a database)
+cd ../server && ../go-server/bin/gameplay   # same .env, same port 3000, browser client from ./public
+```
+
+Parity is proven, not assumed: `cd server && npm run parity -- --target go --bin ../go-server/bin/gameplay`
+runs the black-box suites against the Go binary, and `npm run parity:diff -- --a node --b go --bin …`
+diffs both servers' traffic frame by frame. Production deploys follow `go-server/ops/DEPLOY.md`
+(the Go binary replaces Node *inside* the existing `gameplay.service`, with a one-command rollback).
+Deliberate differences from Node — websocket only, no Redis, Go runtime metrics under
+`game_server_go_*` instead of `nodejs_*`, a few latent money-path bugs fixed — are listed in
+`go-server/PORT_PLAN.md` §9 and `go-server/DECISIONS.md`.
+
+Node stays: `server/` is what the Go code is checked against, and it is the rollback target.
 
 ## Quick start
 

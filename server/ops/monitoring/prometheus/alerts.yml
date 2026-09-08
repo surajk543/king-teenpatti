@@ -25,6 +25,13 @@ groups:
       - record: king_teenpatti:socket_limit
         expr: vector(12000)
 
+      # Physical RAM of the box the game server runs on, for the RSS alert.
+      # Taken from node_exporter when it is scraped (job "node"); otherwise the
+      # fixed fallback — the production host has 8 GiB. Change the constant if
+      # the machine changes and node_exporter is not running.
+      - record: king_teenpatti:host_memory_bytes
+        expr: max(node_memory_MemTotal_bytes{job="node"}) or vector(8589934592)
+
   # ---------------------------------------------------------- game server
   - name: king-teenpatti-game-server
     rules:
@@ -35,29 +42,36 @@ groups:
           severity: critical
         annotations:
           summary: "Game server metrics endpoint is down"
-          description: "Prometheus has not been able to scrape {{ $labels.instance }} for 1 minute. Either the Node process is down or /metrics is refusing us (token / IP allow-list)."
+          description: "Prometheus has not been able to scrape {{ $labels.instance }} for 1 minute. Either the game server process is down (systemctl status gameplay) or /metrics is refusing us (token / IP allow-list)."
           runbook: "MONITORING.md#alerts"
 
-      - alert: GameServerEventLoopLagHigh
-        # p99 of the event-loop delay sampled every 10 ms. 200 ms means every
-        # move, broadcast and DB callback is waiting behind something.
-        expr: game_server_nodejs_eventloop_lag_p99_seconds > 0.2
+      - alert: GameServerSchedulerLatencyHigh
+        # p99 of the time runnable goroutines wait for a CPU (the Go server's
+        # equivalent of Node's event-loop lag): every ack, broadcast and turn
+        # timer queues behind it. The runtime histogram has coarse buckets
+        # (~1 ms, ~10 ms, ~117 ms), so 100 ms means the tail really is in the
+        # top bucket, i.e. the CPUs are saturated or something is holding them.
+        expr: |
+          histogram_quantile(0.99, sum by (le) (rate(game_server_go_sched_latencies_seconds_bucket[5m]))) > 0.1
         for: 5m
         labels:
           severity: warning
         annotations:
-          summary: "Event-loop lag p99 above 200 ms for 5 minutes"
-          description: "p99 event-loop lag is {{ $value | humanizeDuration }} on {{ $labels.instance }}. Check CPU (game_server_process_cpu_seconds_total), GC time and whether a synchronous serialisation is running hot (game_state_update_duration_seconds)."
+          summary: "Go scheduler latency p99 above 100 ms for 5 minutes"
+          description: "p99 scheduler latency is {{ $value | humanizeDuration }}. Check process CPU against GOMAXPROCS (game_server_process_cpu_seconds_total vs game_server_go_sched_gomaxprocs_threads), GC pause time (game_server_go_gc_duration_seconds) and the move/state-update histograms."
           runbook: "MONITORING.md#alerts"
 
-      - alert: GameServerEventLoopSaturated
-        expr: game_server_nodejs_eventloop_utilization > 0.9
+      - alert: GameServerGoroutinesHigh
+        # At rest the server runs a handful of goroutines per socket plus one
+        # per table; 50,000 with a normal player count means goroutines are
+        # leaking (a listener that never returns, a timer never stopped).
+        expr: game_server_go_goroutines > 50000
         for: 5m
         labels:
           severity: warning
         annotations:
-          summary: "Event loop busy more than 90% of the time"
-          description: "Event-loop utilisation is {{ $value | humanizePercentage }} on {{ $labels.instance }}. The process is CPU-bound; latency alerts will follow."
+          summary: "More than 50,000 goroutines for 5 minutes"
+          description: "{{ $value | humanize }} goroutines on {{ $labels.instance }} (game_server_go_goroutines). Compare with game_connected_sockets and game_tables; if those are flat this is a leak — take a goroutine profile before restarting."
           runbook: "MONITORING.md#alerts"
 
       - alert: GameServerSocketsNearLimit
@@ -131,15 +145,19 @@ groups:
           description: "{{ $value }} queries have been queued for a pool connection for 2 minutes. Raise PG_POOL_MAX or find the slow transaction (pg_stat_activity_max_tx_duration)."
           runbook: "MONITORING.md#alerts"
 
-      - alert: GameServerHeapNearLimit
+      - alert: GameServerMemoryHigh
+        # Go has no heap limit unless GOMEMLIMIT is set, so the process grows
+        # until the OOM killer takes it: alert on RSS against the box's RAM
+        # (king_teenpatti:host_memory_bytes — node_exporter, or the 8 GiB
+        # fallback in the limits group).
         expr: |
-          game_server_nodejs_heap_size_used_bytes / game_server_nodejs_heap_size_limit_bytes > 0.85
+          game_server_process_resident_memory_bytes > 0.8 * scalar(king_teenpatti:host_memory_bytes)
         for: 10m
         labels:
           severity: warning
         annotations:
-          summary: "V8 heap above 85% of its limit"
-          description: "Heap used is {{ $value | humanizePercentage }} of heap_size_limit on {{ $labels.instance }}. The process dies of OOM at 100%. Look for a leak in the per-table state or raise --max-old-space-size."
+          summary: "Game server RSS above 80% of host memory"
+          description: "The game server's resident memory is {{ $value | humanize1024 }}B on {{ $labels.instance }}, above 80% of the host's RAM for 10 minutes. The OOM killer is next. Look at heap live bytes vs players (a leak in per-table or per-socket state); GOMEMLIMIT in the unit's Environment= makes the GC work harder before that point."
           runbook: "MONITORING.md#alerts"
 
   # ----------------------------------------------------------- postgresql
@@ -191,7 +209,7 @@ groups:
           severity: warning
         annotations:
           summary: "PostgreSQL connections above 80% of max_connections"
-          description: "{{ $value | humanizePercentage }} of max_connections are in use. The game server holds at most PG_POOL_MAX (default 10); the rest is somebody else."
+          description: "{{ $value | humanizePercentage }} of max_connections are in use. The game server holds at most PG_POOL_MAX (50 in production); the rest is somebody else."
           runbook: "MONITORING.md#alerts"
 
       - alert: PostgresLongTransaction
@@ -277,7 +295,7 @@ groups:
           severity: warning
         annotations:
           summary: "Host CPU above 90% for 10 minutes"
-          description: "CPU on {{ $labels.instance }} is {{ $value | humanizePercentage }}. Node is single-threaded: if game_server_process_cpu_seconds_total is near 1 core the game server itself is the bottleneck."
+          description: "CPU on {{ $labels.instance }} is {{ $value | humanizePercentage }}. The Go server uses every core: if rate(game_server_process_cpu_seconds_total) is near the core count the game server itself is the bottleneck, otherwise look at PostgreSQL."
           runbook: "MONITORING.md#alerts"
 
       - alert: HostLowMemory
@@ -287,7 +305,7 @@ groups:
           severity: warning
         annotations:
           summary: "Less than 10% of RAM available"
-          description: "{{ $value | humanizePercentage }} of memory is available on {{ $labels.instance }}. The OOM killer picks the biggest process, which is PostgreSQL or Node."
+          description: "{{ $value | humanizePercentage }} of memory is available on {{ $labels.instance }}. The OOM killer picks the biggest process, which is PostgreSQL or the game server."
           runbook: "MONITORING.md#alerts"
 
       - alert: HostDiskAlmostFull
@@ -309,7 +327,7 @@ groups:
           severity: warning
         annotations:
           summary: "System-wide file descriptors above 80% of fs.file-max"
-          description: "{{ $value | humanizePercentage }} of the kernel's file-descriptor table is in use on {{ $labels.instance }}. Each websocket is a descriptor in nginx and another in Node."
+          description: "{{ $value | humanizePercentage }} of the kernel's file-descriptor table is in use on {{ $labels.instance }}. Each websocket is a descriptor in nginx and another in the game server."
           runbook: "MONITORING.md#alerts"
 
       - alert: GameServerFileDescriptorsHigh
@@ -318,6 +336,6 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: "Node process above 80% of its open-files limit"
-          description: "{{ $value | humanizePercentage }} of the process's fd limit is used. Raise LimitNOFILE in the systemd drop-in (nginx/systemd/king-teenpatti-limits.conf) before accept() starts failing with EMFILE."
+          summary: "Game server process above 80% of its open-files limit"
+          description: "{{ $value | humanizePercentage }} of the process's fd limit is used. Raise LimitNOFILE in gameplay.service (go-server/ops/gameplay-go.service sets 65536) before accept() starts failing with EMFILE."
           runbook: "MONITORING.md#alerts"

@@ -1,7 +1,7 @@
 {
   "uid": "king-teenpatti",
   "title": "King Teen Patti — Game Server",
-  "description": "System, Node.js, WebSockets, game, latency, PostgreSQL and nginx for the King Teen Patti server (Requirements 35–36).",
+  "description": "System, Go runtime, WebSockets, game, latency, PostgreSQL and nginx for the King Teen Patti server (Requirements 35–36).",
   "tags": [
     "king-teenpatti",
     "game-server",
@@ -65,7 +65,7 @@
         "iconColor": "orange",
         "expr": "changes(game_server_process_start_time_seconds[2m]) > 0",
         "step": "15s",
-        "titleFormat": "Node restarted",
+        "titleFormat": "Game server restarted",
         "textFormat": "game_server_process_start_time_seconds changed"
       }
     ]
@@ -275,7 +275,7 @@
       "id": 4,
       "type": "gauge",
       "title": "Swap usage",
-      "description": "Any sustained swap use on a game host means the Node or PostgreSQL working set no longer fits in RAM. Reads 0 when the machine has no swap.",
+      "description": "Any sustained swap use on a game host means the game server's or PostgreSQL's working set no longer fits in RAM. Reads 0 when the machine has no swap.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -977,7 +977,7 @@
       "id": 11,
       "type": "timeseries",
       "title": "Open file descriptors",
-      "description": "One descriptor per websocket in Node (plus the pg pool and logs) and two per proxied websocket in nginx. The dashed line is the Node process's RLIMIT_NOFILE — raise it with the systemd drop-in in ops/monitoring/nginx/systemd/.",
+      "description": "One descriptor per websocket in the game server (plus the pg pool and logs) and two per proxied websocket in nginx. The dashed line is the game server process's RLIMIT_NOFILE — raise it with the systemd drop-in in ops/monitoring/nginx/systemd/.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -1126,7 +1126,7 @@
       "id": 12,
       "type": "timeseries",
       "title": "TCP connections",
-      "description": "Established TCP connections on the host ≈ 2 × websockets (client→nginx and nginx→Node) + PostgreSQL + scrapes.",
+      "description": "Established TCP connections on the host ≈ 2 × websockets (client→nginx and nginx→game server) + PostgreSQL + scrapes.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -1232,7 +1232,7 @@
     {
       "id": 13,
       "type": "row",
-      "title": "Node.js",
+      "title": "Runtime",
       "collapsed": false,
       "gridPos": {
         "h": 1,
@@ -1246,7 +1246,7 @@
       "id": 14,
       "type": "stat",
       "title": "Uptime",
-      "description": "Seconds since the Node process started. A reset here with no deploy is a crash — check the restart annotation and journalctl.",
+      "description": "Seconds since the game server process started (game_server_process_uptime_seconds). A reset here with no deploy is a crash — check the restart annotation and journalctl -u gameplay.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -1311,8 +1311,8 @@
     {
       "id": 15,
       "type": "stat",
-      "title": "Node.js version",
-      "description": "Runtime version reported by the process (game_server_nodejs_version_info). The server requires Node ≥ 20.",
+      "title": "Go version",
+      "description": "Runtime version reported by the process (game_server_go_info). The Go binary reports the same string as /health process.node.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -1360,7 +1360,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "game_server_nodejs_version_info",
+          "expr": "game_server_go_info",
           "legendFormat": "{{version}}",
           "range": true,
           "instant": false
@@ -1442,7 +1442,7 @@
       "id": 17,
       "type": "stat",
       "title": "RSS memory",
-      "description": "Resident set size of the Node process — what the OS actually holds in RAM for it.",
+      "description": "Resident set size of the game server process — what the OS actually holds in RAM for it.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -1506,8 +1506,8 @@
     {
       "id": 18,
       "type": "stat",
-      "title": "Heap used",
-      "description": "Live JavaScript objects on the V8 heap: tables, seats, hands, socket state.",
+      "title": "Heap in use",
+      "description": "Go heap spans in use (game_server_go_memstats_heap_inuse_bytes): live objects plus the unused part of the spans they sit in. Saw-tooths with the GC; a rising floor is a leak.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -1555,8 +1555,8 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "game_server_nodejs_heap_size_used_bytes",
-          "legendFormat": "heap used",
+          "expr": "game_server_go_memstats_heap_inuse_bytes",
+          "legendFormat": "heap in use",
           "range": true,
           "instant": false
         }
@@ -1571,15 +1571,15 @@
     {
       "id": 19,
       "type": "stat",
-      "title": "Heap limit",
-      "description": "V8 heap_size_limit — the process is killed with an out-of-memory error when heap used reaches it. Raise with node --max-old-space-size.",
+      "title": "Goroutines",
+      "description": "Live goroutines (game_server_go_goroutines). One per table actor, a few per websocket, plus timers. Roughly 3 × sockets + tables at rest; the GameServerGoroutinesHigh alert fires above 50,000.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "bytes",
+          "unit": "short",
           "color": {
             "mode": "thresholds"
           },
@@ -1604,8 +1604,8 @@
           "fields": "",
           "values": false
         },
-        "colorMode": "none",
-        "graphMode": "none",
+        "colorMode": "value",
+        "graphMode": "area",
         "textMode": "auto",
         "orientation": "auto",
         "justifyMode": "auto",
@@ -1620,8 +1620,8 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "game_server_nodejs_heap_size_limit_bytes",
-          "legendFormat": "heap limit",
+          "expr": "game_server_go_goroutines",
+          "legendFormat": "goroutines",
           "range": true,
           "instant": false
         }
@@ -1637,7 +1637,7 @@
       "id": 20,
       "type": "timeseries",
       "title": "RSS memory",
-      "description": "Resident set size and what it is made of: V8 heap, external (C++ objects such as socket buffers) and ArrayBuffers.",
+      "description": "Resident set size and what the Go runtime has asked the OS for: total (sys), the heap arena and goroutine stacks. RSS well above sys means memory outside the runtime (kernel socket buffers, the binary itself).",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -1715,8 +1715,8 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "game_server_nodejs_heap_size_total_bytes",
-          "legendFormat": "heap total",
+          "expr": "game_server_go_memstats_sys_bytes",
+          "legendFormat": "runtime sys",
           "range": true,
           "instant": false
         },
@@ -1727,8 +1727,8 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "game_server_nodejs_external_memory_bytes",
-          "legendFormat": "external",
+          "expr": "game_server_go_memstats_heap_sys_bytes",
+          "legendFormat": "heap sys",
           "range": true,
           "instant": false
         },
@@ -1739,8 +1739,8 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "game_server_nodejs_array_buffers_bytes",
-          "legendFormat": "array buffers",
+          "expr": "game_server_go_memstats_stack_inuse_bytes",
+          "legendFormat": "stacks",
           "range": true,
           "instant": false
         }
@@ -1755,103 +1755,8 @@
     {
       "id": 21,
       "type": "timeseries",
-      "title": "Heap used",
-      "description": "Total heap in use and the per-space breakdown. old_space that never comes back down after a hand-count plateau is a leak.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "bytes",
-          "min": 0,
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "drawStyle": "line",
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "showPoints": "never",
-            "pointSize": 4,
-            "spanNulls": true,
-            "stacking": {
-              "mode": "none",
-              "group": "A"
-            },
-            "axisPlacement": "auto",
-            "axisLabel": "",
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true,
-          "calcs": []
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
-          "editorMode": "code",
-          "expr": "game_server_nodejs_heap_size_used_bytes",
-          "legendFormat": "used",
-          "range": true,
-          "instant": false
-        },
-        {
-          "refId": "B",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
-          "editorMode": "code",
-          "expr": "game_server_nodejs_heap_space_size_used_bytes",
-          "legendFormat": "{{space}}",
-          "range": true,
-          "instant": false
-        }
-      ],
-      "gridPos": {
-        "h": 8,
-        "w": 6,
-        "x": 6,
-        "y": 29
-      }
-    },
-    {
-      "id": 22,
-      "type": "timeseries",
-      "title": "Heap total",
-      "description": "Heap V8 has reserved from the OS against the hard limit. Total creeping towards the dashed limit is the early warning for an out-of-memory crash.",
+      "title": "Heap",
+      "description": "alloc = bytes in live objects right now; in use = spans holding them; live = what survived the last GC (the real working set); goal = heap size that triggers the next GC (GOGC, default 100 → about 2 × live). A rising 'live' with a flat player count is a leak.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -1898,17 +1803,10 @@
         "overrides": [
           {
             "matcher": {
-              "id": "byName",
-              "options": "limit"
+              "id": "byFrameRefID",
+              "options": "D"
             },
             "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "red"
-                }
-              },
               {
                 "id": "custom.lineStyle",
                 "value": {
@@ -1922,6 +1820,13 @@
               {
                 "id": "custom.fillOpacity",
                 "value": 0
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
               }
             ]
           }
@@ -1947,8 +1852,8 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "game_server_nodejs_heap_size_total_bytes",
-          "legendFormat": "total",
+          "expr": "game_server_go_memstats_heap_alloc_bytes",
+          "legendFormat": "alloc",
           "range": true,
           "instant": false
         },
@@ -1959,8 +1864,32 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "game_server_nodejs_heap_size_limit_bytes",
-          "legendFormat": "limit",
+          "expr": "game_server_go_memstats_heap_inuse_bytes",
+          "legendFormat": "in use",
+          "range": true,
+          "instant": false
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "game_server_go_gc_heap_live_bytes",
+          "legendFormat": "live (after GC)",
+          "range": true,
+          "instant": false
+        },
+        {
+          "refId": "D",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "game_server_go_gc_heap_goal_bytes",
+          "legendFormat": "next GC goal",
           "range": true,
           "instant": false
         }
@@ -1968,22 +1897,22 @@
       "gridPos": {
         "h": 8,
         "w": 6,
-        "x": 12,
+        "x": 6,
         "y": 29
       }
     },
     {
-      "id": 23,
+      "id": 22,
       "type": "timeseries",
-      "title": "Heap utilization",
-      "description": "used/total saw-tooths with GC — normal. used/limit is the one that matters: the GameServerHeapNearLimit alert fires at 85%.",
+      "title": "Goroutines & threads",
+      "description": "Total goroutines, the ones runnable but not yet scheduled (a growing runnable count means the CPUs are saturated) and OS threads. Red line: the GameServerGoroutinesHigh alert (50,000 for 5 min) — a leak of per-socket or per-table goroutines.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "percentunit",
+          "unit": "short",
           "min": 0,
           "color": {
             "mode": "palette-classic"
@@ -2019,11 +1948,10 @@
               },
               {
                 "color": "red",
-                "value": 0.85
+                "value": 50000
               }
             ]
-          },
-          "max": 1
+          }
         },
         "overrides": []
       },
@@ -2047,8 +1975,8 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "game_server_nodejs_heap_size_used_bytes / game_server_nodejs_heap_size_total_bytes",
-          "legendFormat": "used / total",
+          "expr": "game_server_go_goroutines",
+          "legendFormat": "goroutines",
           "range": true,
           "instant": false
         },
@@ -2059,8 +1987,145 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "game_server_nodejs_heap_size_used_bytes / game_server_nodejs_heap_size_limit_bytes",
-          "legendFormat": "used / limit",
+          "expr": "game_server_go_sched_goroutines_runnable_goroutines",
+          "legendFormat": "runnable",
+          "range": true,
+          "instant": false
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "game_server_go_threads",
+          "legendFormat": "OS threads",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 12,
+        "y": 29
+      }
+    },
+    {
+      "id": 23,
+      "type": "timeseries",
+      "title": "Open file descriptors",
+      "description": "Descriptors held by the game server process: one per websocket, the pg pool, the listener, logs. Dashed line: RLIMIT_NOFILE (LimitNOFILE=65536 in gameplay.service). The GameServerFileDescriptorsHigh alert fires at 80 %.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "showPoints": "never",
+            "pointSize": 4,
+            "spanNulls": true,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    10,
+                    10
+                  ]
+                }
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "game_server_process_open_fds",
+          "legendFormat": "open",
+          "range": true,
+          "instant": false
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "game_server_process_max_fds",
+          "legendFormat": "limit",
           "range": true,
           "instant": false
         }
@@ -2076,7 +2141,7 @@
       "id": 24,
       "type": "timeseries",
       "title": "CPU",
-      "description": "CPU seconds per second used by the Node process. 1.0 is one full core — the event loop is single-threaded, so that is the ceiling for game logic.",
+      "description": "CPU seconds per second used by the process. Unlike Node, the Go server uses every core (GOMAXPROCS = all cores by default); the dashed line is that ceiling. Compare with the host CPU % in the System row.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -2107,24 +2172,50 @@
               "type": "linear"
             },
             "thresholdsStyle": {
-              "mode": "line"
+              "mode": "off"
             }
           },
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "transparent",
+                "color": "green",
                 "value": null
-              },
-              {
-                "color": "red",
-                "value": 1
               }
             ]
           }
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "D"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    10,
+                    10
+                  ]
+                }
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          }
+        ]
       },
       "options": {
         "legend": {
@@ -2174,6 +2265,18 @@
           "legendFormat": "system",
           "range": true,
           "instant": false
+        },
+        {
+          "refId": "D",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "game_server_go_sched_gomaxprocs_threads",
+          "legendFormat": "GOMAXPROCS (cores)",
+          "range": true,
+          "instant": false
         }
       ],
       "gridPos": {
@@ -2186,8 +2289,8 @@
     {
       "id": 25,
       "type": "timeseries",
-      "title": "Event-loop lag",
-      "description": "How late timers fire, sampled every 10 ms. Everything a player waits on — moves, broadcasts, DB callbacks — queues behind this. Alert at p99 > 200 ms for 5 min.",
+      "title": "Scheduler latency",
+      "description": "How long runnable goroutines wait before they get a CPU (game_server_go_sched_latencies_seconds) — the Go equivalent of Node's event-loop lag: a move's ack, a broadcast, a turn timer all queue behind it. Red line: the GameServerSchedulerLatencyHigh alert (p99 > 100 ms for 5 min). Bucket edges are coarse (~1 ms, ~10 ms, ~117 ms), so values are interpolated within a bucket.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -2230,7 +2333,7 @@
               },
               {
                 "color": "red",
-                "value": 0.2
+                "value": 0.1
               }
             ]
           }
@@ -2257,7 +2360,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "game_server_nodejs_eventloop_lag_p50_seconds",
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(game_server_go_sched_latencies_seconds_bucket[5m])))",
           "legendFormat": "p50",
           "range": true,
           "instant": false
@@ -2269,7 +2372,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "game_server_nodejs_eventloop_lag_p90_seconds",
+          "expr": "histogram_quantile(0.9, sum by (le) (rate(game_server_go_sched_latencies_seconds_bucket[5m])))",
           "legendFormat": "p90",
           "range": true,
           "instant": false
@@ -2281,20 +2384,8 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "game_server_nodejs_eventloop_lag_p99_seconds",
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(game_server_go_sched_latencies_seconds_bucket[5m])))",
           "legendFormat": "p99",
-          "range": true,
-          "instant": false
-        },
-        {
-          "refId": "D",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
-          "editorMode": "code",
-          "expr": "game_server_nodejs_eventloop_lag_max_seconds",
-          "legendFormat": "max",
           "range": true,
           "instant": false
         }
@@ -2309,15 +2400,15 @@
     {
       "id": 26,
       "type": "timeseries",
-      "title": "Event-loop utilization",
-      "description": "Fraction of the scrape interval the loop spent running JavaScript rather than waiting for I/O. Already a per-interval gauge — no rate() needed.",
+      "title": "GC pauses",
+      "description": "Stop-the-world pause lengths. p99 from the runtime histogram over 5 min (game_server_go_sched_pauses_total_gc_seconds); median and max from the game_server_go_gc_duration_seconds summary (last 256 cycles). Go pauses are sub-millisecond; anything above 10 ms is worth a look at heap size and allocation rate.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "percentunit",
+          "unit": "s",
           "min": 0,
           "color": {
             "mode": "palette-classic"
@@ -2341,23 +2432,18 @@
               "type": "linear"
             },
             "thresholdsStyle": {
-              "mode": "line"
+              "mode": "off"
             }
           },
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "transparent",
+                "color": "green",
                 "value": null
-              },
-              {
-                "color": "red",
-                "value": 0.9
               }
             ]
-          },
-          "max": 1
+          }
         },
         "overrides": []
       },
@@ -2381,8 +2467,32 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "game_server_nodejs_eventloop_utilization",
-          "legendFormat": "utilization",
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(game_server_go_sched_pauses_total_gc_seconds_bucket[5m])))",
+          "legendFormat": "p99 (5m)",
+          "range": true,
+          "instant": false
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "game_server_go_gc_duration_seconds{quantile=\"0.5\"}",
+          "legendFormat": "median",
+          "range": true,
+          "instant": false
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "game_server_go_gc_duration_seconds{quantile=\"1\"}",
+          "legendFormat": "max",
           "range": true,
           "instant": false
         }
@@ -2398,7 +2508,7 @@
       "id": 27,
       "type": "timeseries",
       "title": "GC activity",
-      "description": "Left axis: share of wall time spent in garbage collection, by kind (minor = scavenge, major = mark-sweep). Right axis: collections per second.",
+      "description": "Left axis: share of wall time spent in stop-the-world GC pauses (rate of game_server_go_gc_duration_seconds_sum). Right axis: GC cycles per second. Many cycles with a small heap = a high allocation rate; tune with GOGC or GOMEMLIMIT in the unit's Environment= if it ever matters.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -2481,8 +2591,8 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum by (kind) (rate(game_server_nodejs_gc_duration_seconds_sum[1m]))",
-          "legendFormat": "{{kind}} — time",
+          "expr": "rate(game_server_go_gc_duration_seconds_sum[1m])",
+          "legendFormat": "pause time share",
           "range": true,
           "instant": false
         },
@@ -2493,8 +2603,8 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum by (kind) (rate(game_server_nodejs_gc_duration_seconds_count[1m]))",
-          "legendFormat": "{{kind}} — runs/s",
+          "expr": "rate(game_server_go_gc_duration_seconds_count[1m])",
+          "legendFormat": "GC runs/s",
           "range": true,
           "instant": false
         }
@@ -2509,15 +2619,15 @@
     {
       "id": 28,
       "type": "timeseries",
-      "title": "Active handles",
-      "description": "libuv handles: mostly one Socket per websocket plus timers (turn clocks) and the pg pool sockets. Tracks connected sockets closely.",
+      "title": "Process network I/O",
+      "description": "Bytes per second the game server process itself receives and transmits (game_server_process_network_*_bytes_total): websocket frames to and from nginx plus PostgreSQL traffic. Compare with the host's Network RX/TX in the System row.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
+          "unit": "Bps",
           "min": 0,
           "color": {
             "mode": "palette-classic"
@@ -2576,8 +2686,8 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "game_server_nodejs_active_handles_total",
-          "legendFormat": "total",
+          "expr": "rate(game_server_process_network_receive_bytes_total[1m])",
+          "legendFormat": "receive",
           "range": true,
           "instant": false
         },
@@ -2588,8 +2698,8 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "game_server_nodejs_active_handles",
-          "legendFormat": "{{type}}",
+          "expr": "rate(game_server_process_network_transmit_bytes_total[1m])",
+          "legendFormat": "transmit",
           "range": true,
           "instant": false
         }
@@ -2604,8 +2714,8 @@
     {
       "id": 29,
       "type": "timeseries",
-      "title": "Active requests",
-      "description": "In-flight libuv requests (DNS lookups, file system, write requests). Normally near zero.",
+      "title": "Heap objects & allocation rate",
+      "description": "Left axis: live heap objects (game_server_go_memstats_heap_objects) — a leak detector when players are flat. Right axis: allocations per second (rate of game_server_go_memstats_mallocs_total), which drives GC frequency.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -2649,7 +2759,24 @@
             ]
           }
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "unit",
+                "value": "ops"
+              }
+            ]
+          }
+        ]
       },
       "options": {
         "legend": {
@@ -2671,8 +2798,8 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "game_server_nodejs_active_requests_total",
-          "legendFormat": "total",
+          "expr": "game_server_go_memstats_heap_objects",
+          "legendFormat": "heap objects",
           "range": true,
           "instant": false
         },
@@ -2683,8 +2810,8 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "game_server_nodejs_active_requests",
-          "legendFormat": "{{type}}",
+          "expr": "rate(game_server_go_memstats_mallocs_total[1m])",
+          "legendFormat": "allocs/s",
           "range": true,
           "instant": false
         }
@@ -7822,7 +7949,7 @@
       "id": 94,
       "type": "timeseries",
       "title": "Requests/sec",
-      "description": "nginx counts every HTTP request including Socket.IO handshakes and polling; Node counts only REST responses (the websocket upgrade is not an Express response).",
+      "description": "nginx counts every HTTP request including Socket.IO handshakes and polling; the game server counts only REST responses (the websocket upgrade is not counted).",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -7901,7 +8028,7 @@
           },
           "editorMode": "code",
           "expr": "sum(rate(game_http_requests_total[1m]))",
-          "legendFormat": "Node REST responses",
+          "legendFormat": "game server REST responses",
           "range": true,
           "instant": false
         }
@@ -8044,7 +8171,7 @@
       "id": 96,
       "type": "timeseries",
       "title": "5xx errors/sec",
-      "description": "Server errors per second, from the application's own counter (game_http_requests_total). nginx-prometheus-exporter reads stub_status, which has NO per-status counters, so errors nginx generates itself — 502 with Node down, 500 \"worker_connections are not enough\", 504 upstream timeouts — are not in this panel. To see those: (a) build nginx with the VTS module (github.com/vozlt/nginx-module-vts), add `vhost_traffic_status_zone;` in http{} and a `location /status { vhost_traffic_status_display; vhost_traffic_status_display_format prometheus; }`, scrape it and plot sum(rate(nginx_vts_server_requests_total{code=\"5xx\"}[1m])); or (b) run prometheus-nginxlog-exporter (github.com/martin-helmich/prometheus-nginxlog-exporter) on /var/log/nginx/king-teenpatti.access.log and plot sum(rate(nginx_http_response_count_total{status=~\"5..\"}[1m])). MONITORING.md → Nginx has the steps.",
+      "description": "Server errors per second, from the application's own counter (game_http_requests_total). nginx-prometheus-exporter reads stub_status, which has NO per-status counters, so errors nginx generates itself — 502 with the game server down, 500 \"worker_connections are not enough\", 504 upstream timeouts — are not in this panel. To see those: (a) build nginx with the VTS module (github.com/vozlt/nginx-module-vts), add `vhost_traffic_status_zone;` in http{} and a `location /status { vhost_traffic_status_display; vhost_traffic_status_display_format prometheus; }`, scrape it and plot sum(rate(nginx_vts_server_requests_total{code=\"5xx\"}[1m])); or (b) run prometheus-nginxlog-exporter (github.com/martin-helmich/prometheus-nginxlog-exporter) on /var/log/nginx/king-teenpatti.access.log and plot sum(rate(nginx_http_response_count_total{status=~\"5..\"}[1m])). MONITORING.md → Nginx has the steps.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -8126,7 +8253,7 @@
     {
       "id": 97,
       "type": "timeseries",
-      "title": "Node HTTP responses/sec by status class",
+      "title": "Game server HTTP responses/sec by status class",
       "description": "2xx / 4xx / 5xx share of REST responses. 4xx is mostly 401 from expired tokens and 409 from renaming while seated.",
       "datasource": {
         "type": "prometheus",
@@ -8209,7 +8336,7 @@
     {
       "id": 98,
       "type": "timeseries",
-      "title": "Node HTTP P95 by route",
+      "title": "Game server HTTP P95 by route",
       "description": "REST latency by route pattern (never a raw URL). /api/auth/login includes the provider round-trip.",
       "datasource": {
         "type": "prometheus",

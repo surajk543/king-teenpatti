@@ -12,7 +12,9 @@
     "dev": "node --watch src/index.js",
     "test": "node --test --test-timeout=30000 \"test/*.test.js\"",
     "loadtest": "node test/loadtest.js",
-    "bot": "node tools/bot.js"
+    "bot": "node tools/bot.js",
+    "parity": "node tools/parity.mjs",
+    "parity:diff": "node tools/parity-diff.mjs"
   },
   "dependencies": {
     "@socket.io/redis-adapter": "^8.3.0",
