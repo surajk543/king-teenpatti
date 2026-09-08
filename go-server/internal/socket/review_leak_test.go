@@ -218,8 +218,16 @@ func TestReviewLeaverReceivesNothingAfterRoomLeft(t *testing.T) {
 	}
 	table := st.rooms.GetTableForPlayer(ps[0].user.ID)
 	byID := map[string]*player{}
+	// Capture every hand NOW: once this hand ends the next one is dealt
+	// 150 ms later and a seat's live cards would no longer be this hand's.
+	dealtCards := map[string][]game.Card{}
 	for _, p := range ps {
 		byID[p.user.ID] = p
+		seat, err := table.FindSeat(p.user.ID)
+		if err != nil || seat == nil || len(seat.Cards) != 3 {
+			t.Fatalf("%s has no cards: %v", p.user.DisplayName, err)
+		}
+		dealtCards[p.user.ID] = seat.Cards
 	}
 	for _, p := range ps {
 		st.mustOK(p.c, EvGameAction, map[string]any{"action": "see"})
@@ -235,7 +243,6 @@ func TestReviewLeaverReceivesNothingAfterRoomLeft(t *testing.T) {
 			break
 		}
 	}
-	leaverSeat, _ := table.FindSeat(leaver.user.ID)
 	st.mustOK(leaver.c, EvRoomLeave, map[string]any{})
 	if _, err := leaver.c.Wait(EvRoomLeft, nil, eventTimeout); err != nil {
 		t.Fatal(err)
@@ -267,10 +274,7 @@ func TestReviewLeaverReceivesNothingAfterRoomLeft(t *testing.T) {
 		if p == leaver {
 			continue
 		}
-		seat, _ := table.FindSeat(p.user.ID)
-		if seat != nil {
-			assertNoForeignCards(t, leaver.user.DisplayName, leaver.c.Frames(), seat.Cards, p.user.DisplayName)
-		}
+		assertNoForeignCards(t, leaver.user.DisplayName, leaver.c.Frames(), dealtCards[p.user.ID], p.user.DisplayName)
 		ended, _ := p.c.Last(EvGameHandEnded)
 		for _, r := range arr(ended, "reveals") {
 			m, _ := r.(map[string]any)
@@ -278,9 +282,7 @@ func TestReviewLeaverReceivesNothingAfterRoomLeft(t *testing.T) {
 				t.Fatalf("REVIEW LEAK: the leaver's hand was revealed: %v", m)
 			}
 		}
-		if leaverSeat != nil {
-			assertNoForeignCards(t, p.user.DisplayName, p.c.Frames(), leaverSeat.Cards, leaver.user.DisplayName)
-		}
+		assertNoForeignCards(t, p.user.DisplayName, p.c.Frames(), dealtCards[leaver.user.ID], leaver.user.DisplayName)
 	}
 }
 

@@ -138,3 +138,27 @@ still answers `no_hand`; Go answers `table_destroyed` (PORT_PLAN §9) — pinned
 - Final run: `go test -race ./internal/game/...` →
   `ok github.com/surajk543/king-teenpatti/go-server/internal/game 5.5s`,
   `ok …/internal/game/testclock 1.0s` (282 test functions pass; `go vet` and `gofmt -l` clean).
+
+## 8. Money review (adversarial pass, 2026‑09‑08) — fixes and their tests
+
+Tests: `internal/game/review_money_test.go` (white-box), `internal/game/review_money_rooms_test.go`
+(RoomManager), `internal/socket/review_money_test.go`, `internal/db/review_money_test.go` (Postgres).
+Every fix is also recorded in `DECISIONS.md §2` and `PORT_PLAN.md §9`.
+
+1. **A settle retry no longer dies with the table.** `destroy()` used to stop the armed retry timers
+   (Node's callback returned on `_destroyed`), so a hand whose settlement the database refused once
+   was never banked if the winner left / was consolidated / the table was swept / the process shut
+   down within the retry window — losers debited, `pots` open, winner unpaid. Now `destroy()` hands
+   every owed write to `settleDetached` (off the actor, same back-off and 10-attempt cap, *no*
+   Listener events — Destroy's contract holds), `Table.PendingSettlements` / `WaitSettlements` /
+   `SettlementsLanded` report it, `RoomManager.destroyTable` logs the outcome and
+   `RoomManager.Shutdown` waits for it within its ctx. A retry whose timer fired in the same instant
+   as Destroy is claimed exactly once (`settleRetry.claimed`). `TestDestroyStopsArmedSettleRetryTimers`
+   was rewritten as `TestDestroyHandsArmedSettleRetriesToADetachedChain`.
+2. **Client `actionId` containing `:` is replaced by a uuid** (socket layer and `chargeToPot`).
+   `<userId>:milestone:<n>` fits in 64 chars; a bet carrying another player's milestone key made that
+   player's reward claim fail on the UNIQUE index forever.
+3. **`db.Ledger.Settle` locks wallets before `INSERT INTO hands`.** The `hands.winner_id` FK took a
+   KEY SHARE on the winner ahead of the ordered wallet locks and deadlocked against another table's
+   `CollectBoot` sharing those wallets (30–39 deadlocks per 200 hands in the stress test with Node's
+   order; 0 after). Rows written are identical.

@@ -15,10 +15,12 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime"
 	"syscall"
 	"time"
 
@@ -37,7 +39,24 @@ const shutdownBudget = 8 * time.Second
 // Node's hard timer did.
 var errShutdownTimedOut = errors.New("shutdown did not finish within 8s")
 
+// version is the build identifier stamped by ops/build.sh
+// (`-ldflags "-X main.version=$(git describe --always --dirty)"`); a plain
+// `go build` leaves it at "dev". Printed by `gameplay -version` and logged once
+// at startup so `journalctl -u gameplay` shows which build is running.
+var version = "dev"
+
+// versionString is the `-version` output: `gameplay <version> <go> <os>/<arch>`.
+func versionString() string {
+	return fmt.Sprintf("gameplay %s %s %s/%s", version, runtime.Version(), runtime.GOOS, runtime.GOARCH)
+}
+
 func main() {
+	showVersion := flag.Bool("version", false, "print the build version and exit")
+	flag.Parse()
+	if *showVersion {
+		fmt.Println(versionString())
+		return
+	}
 	if err := run(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
@@ -53,6 +72,7 @@ func run() error {
 		return err
 	}
 	logger := util.NewLogger(cfg.LogLevel, os.Stdout)
+	logger.Info("gameplay build", "version", version, "go", runtime.Version())
 
 	// A signal is observed by name so the log line matches Node's
 	// `shutting down {signal: 'SIGTERM'}`.

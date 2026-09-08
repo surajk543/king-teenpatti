@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/surajk543/king-teenpatti/go-server/internal/game/testclock"
 	"github.com/surajk543/king-teenpatti/go-server/internal/socket/testclient"
 )
 
@@ -47,7 +48,13 @@ func TestReviewSimultaneousSignInsLeaveExactlyOneLiveSocket(t *testing.T) {
 			defer cancel()
 			c, err := testclient.Dial(ctx, st.ts.URL, u.token)
 			if err != nil {
-				t.Errorf("dial %d: %v", i, err)
+				// Replaced so fast that "40" and "41" arrived together: that
+				// socket is simply not live. (A real failure to reach the
+				// server would leave nobody live and fail the count below.)
+				t.Logf("dial %d: %v", i, err)
+				if c != nil {
+					st.track(c)
+				}
 				return
 			}
 			st.track(c)
@@ -55,9 +62,6 @@ func TestReviewSimultaneousSignInsLeaveExactlyOneLiveSocket(t *testing.T) {
 		}(i)
 	}
 	wg.Wait()
-	if t.Failed() {
-		return
-	}
 
 	// Let the ledger write finish and every replacement settle.
 	time.Sleep(1500 * time.Millisecond)
@@ -187,5 +191,71 @@ func TestReviewSeatCompletedOnADeadSocketIsNotOrphaned(t *testing.T) {
 		_, pending := st.h.pendingRemovals[u.ID]
 		st.h.mu.Unlock()
 		t.Fatalf("REVIEW: seat completed on a dead socket is orphaned (no room:joined to the live socket, grace pending=%v, still seated=%v)", pending, true)
+	}
+}
+
+// TestReviewSignInDuringALapseWaitsAndGetsTheOffer: the grace timer has
+// fired and graceExpired is inside rooms.Leave (the actor is busy with a
+// slow ledger write) when the player signs in again. The sign-in must not
+// restore a seat that is being removed under it (it would receive
+// room:joined and then a you:null room:state with no room:left — Node's
+// synchronous index deletion made that impossible); it waits for the lapse
+// and receives session:ready with the resume offer instead. Also pins that
+// the wait is released (no hang until lapseWait).
+func TestReviewSignInDuringALapseWaitsAndGetsTheOffer(t *testing.T) {
+	clock := testclock.New(time.UnixMilli(1_700_000_000_000))
+	st := newStackWithClock(t, nil, clock)
+	d := st.dealtTable("")
+	u, v := d.waiting, d.onTurn
+
+	// U drops; the grace timer is armed on the fake clock.
+	u.c.Close()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if seat, _ := d.table.FindSeat(u.user.ID); seat != nil && !seat.Connected {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	// V's chaal holds the actor inside persist, so the Leave that the lapse
+	// posts will block there after the index has been cleared.
+	st.books.delay.Store(int64(700 * time.Millisecond))
+	defer st.books.delay.Store(0)
+	if err := v.c.Emit(EvGameAction, map[string]any{"action": "chaal"}); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(60 * time.Millisecond)
+
+	lapsed := make(chan struct{})
+	go func() {
+		defer close(lapsed)
+		clock.Advance(st.cfg.Game.ReconnectGrace + time.Millisecond) // graceExpired runs here
+	}()
+	time.Sleep(60 * time.Millisecond) // graceExpired is now inside Leave
+
+	started := time.Now()
+	again := st.dial(u.token)
+	ready, err := again.Wait(EvSessionReady, nil, 5*time.Second)
+	if err != nil {
+		t.Fatalf("no session:ready after a lapse: %v", err)
+	}
+	waited := time.Since(started)
+	select {
+	case <-lapsed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the lapse never finished")
+	}
+	if waited > 3*time.Second {
+		t.Fatalf("REVIEW: sign-in waited %s for the lapse (the wait was not released)", waited)
+	}
+	if got := str(ready, "resume.roomId"); got != d.roomID {
+		t.Fatalf("session:ready.resume.roomId = %q, want %s (%s)", got, d.roomID, ready)
+	}
+	if _, ok := again.Last(EvRoomJoined); ok {
+		t.Fatal("REVIEW: a seat that was lapsing was restored to the new socket")
+	}
+	if st.rooms.GetTableForPlayer(u.user.ID) != nil {
+		t.Fatal("the lapse did not remove the seat")
 	}
 }

@@ -38,6 +38,9 @@ differently from Node on purpose.
 | `collectBoot` statement order (pots row after wallet updates) | Same as Node. |
 | Lock ordering of wallets | Byte-wise ascending user id (ids are ASCII uuids). |
 | Missing-key semantics of `balances` | Key presence, never truthiness. A balance of 0 is valid. |
+| Settle retry pending when the table is destroyed (last player leaves, consolidation, sweep, shutdown) | **Deviation (money).** Node's retry callback returned on `_destroyed` and the pot was never banked. Go continues the idempotent write off the actor (`Table.settleDetached`, same back-off and 10-attempt cap, no Listener events); `RoomManager.Shutdown` waits for it within its budget and `destroyTable` logs the outcome (`Table.WaitSettlements`). |
+| `settle` statement order | **Deviation (money).** Wallet locks (ascending) come first; `INSERT INTO hands` follows them. Node inserted the hands row first, whose `winner_id` FK took a KEY SHARE on the winner's row out of order and could deadlock against another table's `collectBoot` (`db/review_money_test.go`). Rows written are identical. |
+| Client `actionId` containing `:` | **Deviation (money).** Dropped (fresh uuid) in the socket layer and again in `Table.chargeToPot`. Every server-generated `chip_ledger.action_id` is colon-separated and `<userId>:milestone:<n>` fits in 64 chars, so Node let one player pre-occupy another's milestone key with a bet and block that reward for good. Real clients send uuids / plain tokens. |
 
 ## 3. RoomManager
 

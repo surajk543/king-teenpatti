@@ -268,23 +268,38 @@ type Table struct {
 	// pot was never banked).
 	retryTimers map[uint64]*settleRetry
 	retryGen    uint64
-	// detached counts the settlement chains still being retried after
-	// Destroy (settleDetached), so a shutdown can wait for them
-	// (WaitSettlements); detachedMu guards the bookkeeping beside it.
-	detached        sync.WaitGroup
-	detachedMu      sync.Mutex
-	detachedStarted int
-	landed          []string // hand ids settled after Destroy
-	abandoned       []string // hand ids given up after settleMaxAttempts
-	view            *View    // the single View handed to listeners
+	// detachedMu guards the bookkeeping of settlement chains still being
+	// retried after Destroy (settleDetached): detachedOpen is how many are
+	// running, detachedDone is broadcast when one finishes, landed/abandoned
+	// record the outcomes for WaitSettlements.
+	detachedMu   sync.Mutex
+	detachedDone *sync.Cond
+	detachedOpen int
+	landed       []string // hand ids settled after Destroy
+	abandoned    []string // hand ids given up after settleMaxAttempts
+	view         *View    // the single View handed to listeners
 }
 
 // settleRetry is one armed settlement back-off: the timer and the exact
-// write it will attempt when it fires.
+// write it will attempt when it fires. claimed (under detachedMu) records
+// that the retry has been counted as a detached chain — by destroy() or by
+// the timer's own callback, whichever reaches it first when the table goes
+// down with the write still owed — so it is counted exactly once.
 type settleRetry struct {
 	timer   Timer
 	req     SettleRequest
 	attempt int
+	claimed bool
+}
+
+// claimDetached counts a retry as an open detached chain, once.
+func (t *Table) claimDetached(entry *settleRetry) {
+	t.detachedMu.Lock()
+	if !entry.claimed {
+		entry.claimed = true
+		t.detachedOpen++
+	}
+	t.detachedMu.Unlock()
 }
 
 // NewTable constructs the table and starts its actor goroutine. State is
@@ -338,6 +353,7 @@ func NewTable(opts TableOptions) *Table {
 		retryTimers: map[uint64]*settleRetry{},
 	}
 	t.ctx, t.cancel = context.WithCancel(context.Background())
+	t.detachedDone = sync.NewCond(&t.detachedMu)
 	t.state.Store(TableWaiting)
 	t.view = &View{t: t}
 	go t.loop()
@@ -2440,9 +2456,11 @@ func (t *Table) retrySettle(req SettleRequest, attempt int) {
 		})
 		if errors.Is(err, ErrTableDestroyed) {
 			// The timer fired in the same instant destroy() was tearing the
-			// table down; destroy saw Stop() report "already fired" and left
-			// this write to us.
-			t.settleDetached(req, attempt)
+			// table down: Stop() reported "already fired" to destroy, so the
+			// chain is ours to run. Whichever of us got to the entry first
+			// counted it (claimDetached); it is counted once either way.
+			t.claimDetached(entry)
+			t.settleDetachedFrom(req, attempt)
 		}
 	})
 }
@@ -2467,20 +2485,17 @@ func (t *Table) settleRetryDelay(attempt int) time.Duration {
 // is stale_state).
 func (t *Table) settleDetached(req SettleRequest, attempt int) {
 	t.detachedMu.Lock()
-	t.detachedStarted++
+	t.detachedOpen++
 	t.detachedMu.Unlock()
-	t.detached.Add(1)
 	t.settleDetachedFrom(req, attempt)
 }
 
-// settleDetachedFrom is one link of a settleDetached chain; the chain holds
-// exactly one detached.Add for its whole life.
+// settleDetachedFrom is one link of a settleDetached chain; the chain was
+// counted in detachedOpen once, by whoever started it, and is released here
+// when it lands or is abandoned.
 func (t *Table) settleDetachedFrom(req SettleRequest, attempt int) {
 	if attempt > settleMaxAttempts {
-		t.detachedMu.Lock()
-		t.abandoned = append(t.abandoned, req.Hand.ID)
-		t.detachedMu.Unlock()
-		t.detached.Done()
+		t.finishDetached(req.Hand.ID, false)
 		return
 	}
 	t.clock.AfterFunc(t.settleRetryDelay(attempt), func() {
@@ -2491,11 +2506,21 @@ func (t *Table) settleDetachedFrom(req SettleRequest, attempt int) {
 			t.settleDetachedFrom(req, attempt+1)
 			return
 		}
-		t.detachedMu.Lock()
-		t.landed = append(t.landed, req.Hand.ID)
-		t.detachedMu.Unlock()
-		t.detached.Done()
+		t.finishDetached(req.Hand.ID, true)
 	})
+}
+
+// finishDetached records a chain's outcome and wakes WaitSettlements.
+func (t *Table) finishDetached(handID string, landed bool) {
+	t.detachedMu.Lock()
+	if landed {
+		t.landed = append(t.landed, handID)
+	} else {
+		t.abandoned = append(t.abandoned, handID)
+	}
+	t.detachedOpen--
+	t.detachedDone.Broadcast()
+	t.detachedMu.Unlock()
 }
 
 // PendingSettlements reports how many settlements are still being retried
@@ -2504,13 +2529,8 @@ func (t *Table) settleDetachedFrom(req SettleRequest, attempt int) {
 func (t *Table) PendingSettlements() int {
 	t.detachedMu.Lock()
 	defer t.detachedMu.Unlock()
-	return t.detachedOpen()
+	return t.detachedOpen
 }
-
-// detachedOpen is the number of detached chains still running; caller holds
-// detachedMu. Chains are counted by the WaitGroup, which cannot be read, so
-// the count is kept alongside it.
-func (t *Table) detachedOpen() int { return int(t.detachedStarted) - len(t.landed) - len(t.abandoned) }
 
 // WaitSettlements blocks until every settlement still being retried after
 // Destroy has landed or been abandoned, or ctx expires (ctx.Err()). It then
@@ -2522,7 +2542,11 @@ func (t *Table) detachedOpen() int { return int(t.detachedStarted) - len(t.lande
 func (t *Table) WaitSettlements(ctx context.Context) error {
 	done := make(chan struct{})
 	go func() {
-		t.detached.Wait()
+		t.detachedMu.Lock()
+		for t.detachedOpen > 0 {
+			t.detachedDone.Wait()
+		}
+		t.detachedMu.Unlock()
 		close(done)
 	}()
 	select {
@@ -2568,8 +2592,14 @@ func (t *Table) destroy() {
 	// the table destroyed and does the same.
 	for gen, entry := range t.retryTimers {
 		delete(t.retryTimers, gen)
-		if entry.timer.Stop() {
-			t.settleDetached(entry.req, entry.attempt)
+		stopped := entry.timer.Stop()
+		// Counted here, before Destroy returns, so a WaitSettlements that
+		// starts the moment it does cannot miss the chain — even one whose
+		// timer had already fired and whose callback is on its way to run()
+		// to be told ErrTableDestroyed; that callback then runs the chain.
+		t.claimDetached(entry)
+		if stopped {
+			t.settleDetachedFrom(entry.req, entry.attempt)
 		}
 	}
 	// The room is gone, and so is its chat: history exists only for as long as

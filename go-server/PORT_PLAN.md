@@ -372,5 +372,8 @@ drive the clock).
 | New env key | — | `PUBLIC_DIR` (default `../server/public`, falling back to `./public`) for the browser client | the Go binary has no `rootDir` |
 | New error code | — | `table_destroyed` (post to a destroyed table) | folds to `other` in metrics |
 | Room code collisions | none checked | regenerated until unique among live tables | DECISIONS.md §3 |
+| Settle retry after the table is destroyed | dropped (`if (this._destroyed) return`) — pot never banked | continues off the actor (`settleDetached`); `Shutdown` waits for it; `WaitSettlements` reports | DECISIONS.md §2 |
+| `settle` statement order | `INSERT hands` first (FK KEY SHARE on the winner before the ordered wallet locks — deadlock-prone) | wallet locks first, hands row after | DECISIONS.md §2 |
+| Client `actionId` with `:` | accepted verbatim (could squat `<userId>:milestone:<n>`) | replaced by a server uuid | DECISIONS.md §2 |
 
 `DECISIONS.md` (same directory) settles every open question the specs raised and OVERRIDES this table where they differ. Anything else that differs is a bug in the port.

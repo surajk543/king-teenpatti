@@ -8,7 +8,9 @@ package game
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -272,4 +274,95 @@ func TestReviewTableDropsAClientActionIDInAReservedNamespace(t *testing.T) {
 		t.Fatalf("REVIEW: the reserved-namespace id reached the ledger as %q", sent[0])
 	}
 	eq(t, sent[1], "client-token-1", "an opaque token is kept verbatim")
+}
+
+// TestReviewCroreScaleWalletsNeitherOverflowNorLosePrecision: a 50-crore
+// stack (the dev database holds two) on an uncapped blind table gets a
+// ladder bounded by its stack with no int64 wrap, and its chips reach the
+// wire as an exact JSON integer (Go marshals int64 losslessly; nothing on
+// the path goes through float64).
+func TestReviewCroreScaleWalletsNeitherOverflowNorLosePrecision(t *testing.T) {
+	const crore50 = int64(50_00_00_000)
+	cfg := settleConfig()
+	cfg.Category = CategoryBlind
+	cfg.MaxBetRounds, cfg.PotLimitMultiplier, cfg.MaxRaiseSteps, cfg.MaxPot = 0, 0, 0, 0
+	h := newHarness(t, cfg)
+	h.seat("rich", crore50)
+	h.seat("richer", 1<<62) // absurd, but must not wrap the ladder
+	h.advance(6 * time.Second)
+
+	for _, id := range []string{"rich", "richer"} {
+		var options BetOptions
+		h.read(func() { options = h.table.betOptions(h.table.findSeat(id)) })
+		chips := h.mustSeat(id).Chips
+		for _, step := range options.Steps {
+			if step <= 0 || step > chips {
+				t.Fatalf("%s: rung %d outside (0, %d]", id, step, chips)
+			}
+		}
+		// The ladder must run all the way up the stack when uncapped: one more
+		// doubling would not fit.
+		if options.Max == nil || *options.Max*2 <= chips {
+			t.Fatalf("%s: ladder stopped at %v with %d in the stack", id, options.Max, chips)
+		}
+	}
+	view := h.view("rich")
+	raw, err := json.Marshal(view)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"chips":`+strconv.FormatInt(crore50-settleBoot, 10)) {
+		t.Fatalf("exact chips missing from the wire JSON: %s", raw)
+	}
+}
+
+// TestReviewASettleRetryFiringAsTheTableIsDestroyedIsBankedExactlyOnce: the
+// handoff window — the retry timer has fired and its callback is queued
+// behind Destroy on the actor. Destroy sees Stop() fail and the callback is
+// told ErrTableDestroyed; between them the write must be attempted by exactly
+// one detached chain and counted exactly once (PendingSettlements returns to
+// 0 and WaitSettlements returns).
+func TestReviewASettleRetryFiringAsTheTableIsDestroyedIsBankedExactlyOnce(t *testing.T) {
+	ledger := newPersistingLedger()
+	h := reviewTable(t, ledger)
+	handID := h.lastHandStarted().HandID
+	ledger.setFailSettle(true)
+	h.mustAct(h.turnUser(), ActionPack, ActRequest{})
+	ledger.setFailSettle(false)
+
+	// Occupy the actor so the next two posts queue behind it, in order:
+	// Destroy first, then the retry timer's callback (fired by Advance).
+	gate := make(chan struct{})
+	busy := make(chan struct{})
+	go func() {
+		_ = h.table.run(func() {
+			close(busy)
+			<-gate
+		})
+	}()
+	<-busy
+	destroyed := make(chan error, 1)
+	go func() { destroyed <- h.table.Destroy() }()
+	time.Sleep(20 * time.Millisecond)
+	advanced := make(chan struct{})
+	go func() {
+		h.advance(6 * time.Second) // fires the retry (attempt 1) → its run() queues behind Destroy
+		close(advanced)
+	}()
+	time.Sleep(20 * time.Millisecond)
+	close(gate)
+
+	if err := <-destroyed; err != nil {
+		t.Fatal(err)
+	}
+	<-advanced
+	eq(t, h.table.PendingSettlements(), 1, "exactly one chain owed")
+	h.advance(10 * time.Minute)
+	eq(t, ledger.settledCount(handID), 1, "banked exactly once")
+	eq(t, h.table.PendingSettlements(), 0, "counted exactly once")
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := h.table.WaitSettlements(ctx); err != nil {
+		t.Fatalf("WaitSettlements: %v", err)
+	}
 }

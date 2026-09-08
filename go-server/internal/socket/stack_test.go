@@ -209,6 +209,14 @@ func testConfig() *config.Config {
 
 func newStack(t *testing.T, mutate func(cfg *config.Config)) *stack {
 	t.Helper()
+	return newStackWithClock(t, mutate, nil)
+}
+
+// newStackWithClock is newStack with the Handler's clock injected (the
+// grace timers and resume-offer ages run on it); nil → real clock. The
+// RoomManager and its tables keep the real clock.
+func newStackWithClock(t *testing.T, mutate func(cfg *config.Config), clock game.Clock) *stack {
+	t.Helper()
 	cfg := testConfig()
 	if mutate != nil {
 		mutate(cfg)
@@ -227,6 +235,7 @@ func newStack(t *testing.T, mutate func(cfg *config.Config)) *stack {
 		Users:   users,
 		Tokens:  st.tokens,
 		Metrics: m,
+		Clock:   clock,
 		Logger:  logger,
 	})
 	st.rooms = game.NewRoomManager(game.RoomManagerOptions{

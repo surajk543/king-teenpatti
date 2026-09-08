@@ -1365,6 +1365,7 @@ func (rm *RoomManager) Shutdown(ctx context.Context) error {
 	done := make(chan error, 1)
 	go func() {
 		var destroyed []*Table
+		var first error
 		for {
 			rm.mu.Lock()
 			tables := rm.tablesLocked()
@@ -1373,9 +1374,14 @@ func (rm *RoomManager) Shutdown(ctx context.Context) error {
 				break
 			}
 			for _, t := range tables {
+				// One table's Destroy failing (a panic recovered on its actor
+				// comes back as internal_error) must not leave the other live
+				// pots unsettled: carry on and report the first error.
 				if err := rm.DestroyTable(t.ID()); err != nil {
-					done <- err
-					return
+					if first == nil {
+						first = err
+					}
+					continue
 				}
 				destroyed = append(destroyed, t)
 			}
@@ -1392,7 +1398,7 @@ func (rm *RoomManager) Shutdown(ctx context.Context) error {
 				rm.log.Error("settlement abandoned at shutdown", "roomId", t.ID(), "error", err.Error())
 			}
 		}
-		done <- nil
+		done <- first
 	}()
 
 	select {

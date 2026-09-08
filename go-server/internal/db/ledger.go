@@ -191,19 +191,27 @@ func (l *Ledger) CollectBoot(ctx context.Context, req game.CollectBootRequest) (
 
 // Settle implements game.Ledger. Statements:
 //
-//	INSERT INTO hands (id, room_id, hand_no, pot, winner_id, win_reason, boot_amount, started_at, ended_at, summary_json)
-//	  VALUES ($1,…,$10::jsonb) ON CONFLICT (id) DO NOTHING
 //	-- per entry, userId ascending:
 //	SELECT chips FROM users WHERE id = $1 FOR UPDATE                (no row → skip the entry)
 //	UPDATE users SET chips=$1, hands_played=hands_played+$2, hands_won=hands_won+$3, hands_lost=hands_lost+$4,
 //	       hands_left_mid=hands_left_mid+$5, total_winnings=total_winnings+$6, biggest_pot=GREATEST(biggest_pot,$7),
 //	       updated_at=$8 WHERE id=$9
 //	INSERT INTO chip_ledger (…) -- action_id game.SettleActionID, reason hand_win|hand_loss, delta may be 0
+//	INSERT INTO hands (id, room_id, hand_no, pot, winner_id, win_reason, boot_amount, started_at, ended_at, summary_json)
+//	  VALUES ($1,…,$10::jsonb) ON CONFLICT (id) DO NOTHING
 //	UPDATE pots SET closed_at = $1, winner_id = $2 WHERE hand_id = $3
 //	saveState(roomId, handId NULL, version, state)
 //
 // balance = max(0, chips + delta). summary_json is json.Marshal(hand.Summary)
 // ([] when empty, never null).
+//
+// Deviation from ledger.js, which inserted the hands row FIRST: hands.winner_id
+// is a foreign key, so that insert takes a KEY SHARE lock on the winner's
+// users row before any wallet has been locked in ascending order — and a
+// CollectBoot on another table holding a lower wallet and wanting the
+// winner's deadlocks against it (review_money_test.go). Every wallet lock now
+// comes first, in order, and the FK lock lands on a row this transaction
+// already holds. The rows written are identical.
 func (l *Ledger) Settle(ctx context.Context, req game.SettleRequest) (game.SettleResult, error) {
 	var result game.SettleResult
 	started := time.Now()
@@ -224,14 +232,6 @@ func (l *Ledger) Settle(ctx context.Context, req game.SettleRequest) (game.Settl
 			if hand.WinReason != "" {
 				s := string(hand.WinReason)
 				winReason = &s
-			}
-			if _, err := tx.Exec(ctx, `INSERT INTO hands (id, room_id, hand_no, pot, winner_id, win_reason,
-                            boot_amount, started_at, ended_at, summary_json)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb)
-         ON CONFLICT (id) DO NOTHING`,
-				hand.ID, hand.RoomID, hand.HandNo, hand.Pot, hand.WinnerID, winReason,
-				hand.BootAmount, hand.StartedAt, hand.EndedAt, string(summaryJSON)); err != nil {
-				return err
 			}
 
 			balances := make(game.SettleResult, len(req.Entries))
@@ -293,6 +293,18 @@ func (l *Ledger) Settle(ctx context.Context, req game.SettleRequest) (game.Settl
 				}
 
 				balances[entry.UserID] = balance
+			}
+
+			// The hand record goes in once every wallet is held (see the
+			// deviation note above): its winner_id foreign key locks the
+			// winner's users row, which this transaction now already owns.
+			if _, err := tx.Exec(ctx, `INSERT INTO hands (id, room_id, hand_no, pot, winner_id, win_reason,
+                            boot_amount, started_at, ended_at, summary_json)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb)
+         ON CONFLICT (id) DO NOTHING`,
+				hand.ID, hand.RoomID, hand.HandNo, hand.Pot, hand.WinnerID, winReason,
+				hand.BootAmount, hand.StartedAt, hand.EndedAt, string(summaryJSON)); err != nil {
+				return err
 			}
 
 			// No rowCount check: a hand settled without a pot row (tests) is

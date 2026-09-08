@@ -37,17 +37,19 @@ type Ledger interface {
 	// with action_id BootActionID(handId, userId); UPSERT game_states.
 	CollectBoot(ctx context.Context, req CollectBootRequest) (CollectBootResult, error)
 
-	// Settle ends a hand in one transaction: INSERT hands … ON CONFLICT (id)
-	// DO NOTHING; then per entry in ascending userId order: lock the wallet
-	// (skip silently if the row is gone), balance = max(0, chips + delta),
-	// UPDATE users (chips, hands_played += didChaal, hands_won += isWinner,
-	// hands_lost += !isWinner && !leftMidHand, hands_left_mid += leftMidHand,
-	// total_winnings += pot if winner, biggest_pot = GREATEST(…, pot if
-	// winner), updated_at); INSERT chip_ledger with action_id
-	// SettleActionID(handId, userId), reason hand_win / hand_loss (a zero
-	// delta is STILL written); then UPDATE pots SET closed_at, winner_id;
-	// UPSERT game_states (hand_id NULL). Returns every settled balance.
-	// Idempotent by construction, which is what lets the Table retry it.
+	// Settle ends a hand in one transaction: per entry in ascending userId
+	// order: lock the wallet (skip silently if the row is gone), balance =
+	// max(0, chips + delta), UPDATE users (chips, hands_played += didChaal,
+	// hands_won += isWinner, hands_lost += !isWinner && !leftMidHand,
+	// hands_left_mid += leftMidHand, total_winnings += pot if winner,
+	// biggest_pot = GREATEST(…, pot if winner), updated_at); INSERT
+	// chip_ledger with action_id SettleActionID(handId, userId), reason
+	// hand_win / hand_loss (a zero delta is STILL written); then INSERT hands
+	// … ON CONFLICT (id) DO NOTHING (after the wallet locks — its winner_id
+	// foreign key locks the winner's row, see db.Ledger.Settle); UPDATE pots
+	// SET closed_at, winner_id; UPSERT game_states (hand_id NULL). Returns
+	// every settled balance. Idempotent by construction, which is what lets
+	// the Table retry it.
 	Settle(ctx context.Context, req SettleRequest) (SettleResult, error)
 }
 
