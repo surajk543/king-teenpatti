@@ -8,6 +8,8 @@
 #   2. backs up the current unit to /etc/systemd/system/gameplay.service.node.bak
 #      (only once: an existing backup is never overwritten, and a unit that is
 #      already the Go one is never saved as the "Node" backup);
+#   5. removes the Node server tree (server/) from the host once the Go binary
+#      is healthy — set KEEP_NODE_TREE=1 to skip;
 #   3. installs ops/gameplay-go.service AS gameplay.service — same unit name, so
 #      nginx, Prometheus, the journal and `sudo systemctl restart gameplay` are
 #      unchanged; daemon-reload; enable; restart;
@@ -90,6 +92,26 @@ case "$status" in
 esac
 
 show_service
-log "Done — gameplay.service now runs the Go binary."
+
+# ------------------------------------------------- 5. remove the Node server
+# The Go binary is up and healthy on the same port, so the Node server has no
+# further job on this host. `git pull` already removed its tracked files; what
+# is left is the untracked residue (node_modules, .env, logs). Removing it is
+# what makes the switch complete — nothing else on the host points at server/
+# (nginx → :3000, Prometheus → :3000/metrics, the unit → go-server/bin).
+# Pass KEEP_NODE_TREE=1 to leave it in place.
+if [ -d "$NODE_DIR" ] && [ "${KEEP_NODE_TREE:-0}" != "1" ]; then
+  log "Removing the Node server tree from production: $NODE_DIR"
+  if [ -r "$LEGACY_ENV_FILE" ] && ! cmp -s "$LEGACY_ENV_FILE" "$ENV_FILE"; then
+    cp -p "$LEGACY_ENV_FILE" "$GO_DIR/.env.node.bak"
+    note "server/.env differed from go-server/.env; kept a copy at $GO_DIR/.env.node.bak"
+  fi
+  rm -rf "$NODE_DIR"
+  note "removed $NODE_DIR ($(du -sh "$GO_DIR" | cut -f1) of go-server/ remains). The Node code stays on the master branch and in git history."
+elif [ -d "$NODE_DIR" ]; then
+  note "KEEP_NODE_TREE=1: left $NODE_DIR in place"
+fi
+
+log "Done — gameplay.service now runs the Go binary and the Node server is gone from this host."
 note "Prometheus keeps scraping 127.0.0.1:$(env_value PORT 3000)/metrics; give it one interval, then check http://127.0.0.1:9090/targets."
-note "Rollback at any time:  sudo bash $SCRIPT_DIR/rollback-to-node.sh"
+note "Rollback (restores the Node tree from master first):  sudo bash $SCRIPT_DIR/rollback-to-node.sh"

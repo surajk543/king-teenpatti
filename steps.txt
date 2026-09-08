@@ -1,7 +1,12 @@
-cd /var/www/gameplay/king-teenpatti/server
-git pull origin master
-cd /var/www/gameplay/king-teenpatti/server
-npm ci
-sudo systemctl restart gameplay
+# Deploy routine — Go server (the Node server was removed from production on the switch)
+cd /var/www/gameplay/king-teenpatti
+git fetch origin && git checkout go-server && git pull origin go-server
+bash go-server/ops/build.sh                       # as deploy, no sudo: installs Go if missing, builds go-server/bin/gameplay
+sudo bash go-server/ops/install-go-server.sh      # FIRST TIME ONLY: swaps gameplay.service to the Go binary, copies .env, removes server/
+sudo systemctl restart gameplay                   # every later deploy (after build.sh)
 sudo systemctl status gameplay --no-pager
 sudo journalctl -u gameplay -n 20 --no-pager
+curl -s http://127.0.0.1:3000/health | python3 -m json.tool | head -20   # process.node must start with "go"
+
+# Practice bots / load ramp against production (from any machine with Node 20+):
+#   cd tools && npm install && npm run bot -- --url https://api.sungamestudio.com --count 3 --boot 200 --category blind

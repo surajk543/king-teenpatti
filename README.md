@@ -1,63 +1,61 @@
 # King Teen Patti
 
-A turn-based multiplayer Teen Patti game: an authoritative **Socket.IO** game server with
-**PostgreSQL** persistence (every chip movement is one transaction), a **Flutter** client for
-Android (Material 3), and a bundled browser client for playing and testing without a build.
-The server exists twice, wire-identical: the **Go binary in `go-server/` runs production**; the
-original **Node.js implementation in `server/`** is the reference, the parity oracle and the
-home of the tooling.
+A turn-based multiplayer Teen Patti game: an authoritative **Socket.IO** game server written in
+**Go** with **PostgreSQL** persistence (every chip movement is one transaction), a **Flutter**
+client for Android (Material 3), and a bundled browser client for playing and testing without a
+build. The server was first written in Node.js; the Go port replaced it on 8 Sep 2026 once it
+matched the original wire-for-wire (141/141 black-box parity suites, identical event streams).
+The Node implementation now lives only in git history — `git log -- server/`, and on `master` as
+of the merge of PR #2 — and nothing here depends on it.
 
 ```
 king-teenpatti/
-├── go-server/       Go game server — THE production server (one static binary; see go-server/README.md)
-│   ├── cmd/gameplay/  entrypoint;  internal/{game,sio,socket,auth,db,metrics,app,config}
-│   └── ops/         build.sh, systemd unit, install/rollback scripts, DEPLOY.md
-├── server/          Node.js + Socket.IO + PostgreSQL game server — reference implementation + tooling
-│   ├── src/         Game engine, auth, database + ledger, socket layer
-│   ├── public/      Browser client — a zero-build protocol reference (served by both servers)
-│   ├── test/        node:test suites, the parity harness (test/parity/), a load-test harness
-│   ├── tools/       practice bots, ramp/load test, parity runners
-│   └── ops/monitoring/  Prometheus + Grafana + alerts + nginx settings
+├── go-server/       THE game server — one static Go binary (see go-server/README.md)
+│   ├── cmd/gameplay/     entrypoint;  internal/{config,game,sio,socket,auth,db,metrics,app,util}
+│   ├── public/           browser client — a zero-build protocol reference, served by the binary at /
+│   ├── ops/              build.sh, systemd unit, install/rollback scripts, DEPLOY.md, monitoring/ (Prometheus + Grafana + alerts + nginx)
+│   ├── .env.example      every env key the server reads, with defaults
+│   └── PORT_PLAN.md, DECISIONS.md, PORT_NOTES/   how the port was done and every settled ambiguity
+├── tools/           Node package: practice bots, load ramp, black-box parity suite (npm install here first)
+│   └── parity/           the suites + lib/ (harness, launcher, raw Socket.IO client)
+├── docs/load-reports/    ramp-test reports (HTML + JSON)
 ├── flutter-client/  Flutter client (Dart): the live app — lobby, table, chat, sideshow
 ├── CLAUDE.md        Detailed project context for coding sessions
 └── Requirements.txt The original brief (items 1–34; there is no 11)
 ```
 
-## The Go server (production)
+## The server
 
-`go-server/` is a port of `server/src` that reproduces everything a client or the database can
-observe: the same Socket.IO events, acks and error codes, the same REST bodies, the same JWTs
-(sessions survive a switch either way), the same schema and ledger rows, the same `/health`
-keys and `game_*` Prometheus metrics. It runs as one process — each table is an actor goroutine,
-Go's scheduler uses all cores — with its own WebSocket-only Socket.IO server and `pgx`. The Flutter
-app, the browser client, the bots and the load tools connect to it unchanged.
+`go-server/` is a single process. Each table is an **actor** — one goroutine owns its state and
+every mutation or read is a closure posted to it, so a database round-trip inside a move can never
+interleave with a turn timer. Go's scheduler uses every core; there is no cluster and no Redis. It
+carries its own WebSocket-only Engine.IO/Socket.IO server (`internal/sio`), talks to Postgres through
+`pgx`, and serves the browser client and the `socket.io.js` bundle itself. Everything a client or the
+database can observe — Socket.IO events, acks and error codes, REST bodies, JWTs, the schema and
+ledger rows, `/health`, the `game_*` Prometheus metrics — is the contract the Node original defined
+and the parity suites in `tools/parity/` still enforce.
 
 ```bash
+export PATH=$HOME/.local/go/bin:$PATH          # Go 1.27.1; ops/build.sh installs it there when missing
 cd go-server
-bash ops/build.sh                      # installs Go 1.27 into ~/.local/go if needed, builds bin/gameplay
-go test -race ./...                    # unit + Postgres-backed tests (skip without a database)
-cd ../server && ../go-server/bin/gameplay   # same .env, same port 3000, browser client from ./public
+go run ./cmd/gameplay                          # dev: reads ./.env if present → http://0.0.0.0:3000, browser client from ./public
+bash ops/build.sh && ./bin/gameplay            # static, stripped, version-stamped binary (bin/ is git-ignored)
+go test -race ./...                            # unit + Postgres-backed tests (they skip without a database)
 ```
 
-Parity is proven, not assumed: `cd server && npm run parity -- --target go --bin ../go-server/bin/gameplay`
-runs the black-box suites against the Go binary, and `npm run parity:diff -- --a node --b go --bin …`
-diffs both servers' traffic frame by frame. Production deploys follow `go-server/ops/DEPLOY.md`
-(the Go binary replaces Node *inside* the existing `gameplay.service`, with a one-command rollback).
-Deliberate differences from Node — websocket only, no Redis, Go runtime metrics under
-`game_server_go_*` instead of `nodejs_*`, a few latent money-path bugs fixed — are listed in
-`go-server/PORT_PLAN.md` §9 and `go-server/DECISIONS.md`.
-
-Node stays: `server/` is what the Go code is checked against, and it is the rollback target.
+Production deploys follow `go-server/ops/DEPLOY.md` (systemd unit `gameplay.service`, working
+directory and `.env` in `go-server/`). Everything the Go server does differently from the Node
+original on purpose — websocket only, no Redis, Go runtime metrics under `game_server_go_*`, a few
+latent money-path bugs fixed — is listed in `go-server/PORT_PLAN.md` §9 and `go-server/DECISIONS.md`.
 
 ## Quick start
 
 ```bash
 # PostgreSQL must be running with a database the server can use — by default
-# postgres://postgres:postgres@localhost:5432/gameplay (see server/.env.example).
-cd server
-npm install
-cp .env.example .env          # then set JWT_SECRET
-npm start                     # creates the schema on first boot
+# postgres://postgres:postgres@localhost:5432/gameplay (see go-server/.env.example).
+cd go-server
+cp .env.example .env          # optional for local dev; set JWT_SECRET for anything public
+go run ./cmd/gameplay         # creates the schema on first boot
 ```
 
 Open <http://localhost:3000> in two browser tabs, press **Play as Guest** in each, then tap a
@@ -70,54 +68,66 @@ flutter build apk --debug --dart-define=SERVER_URL=http://10.0.2.2:3000   # loca
 adb install -r build/app/outputs/flutter-apk/app-debug.apk
 ```
 
+## Tools (`tools/`, Node ≥ 20)
+
+The bots, the load ramp and the parity harness are Node scripts in their own small package;
+they are clients of the server and need `npm install` once:
+
 ```bash
-cd server && npm test
-npm run loadtest -- --players 1000 --seconds 60 --boot 200
+cd tools && npm install
+npm run bot -- --url http://localhost:3000 --count 3 --boot 200 --category blind      # practice bots (Ctrl-C to stop)
+npm run bot -- --url http://localhost:3000 --count 8 --boot 200 --category blind --churn 40   # bots hop tables
+npm run parity                                                                          # black-box suites against ../go-server/bin/gameplay
+npm run parity -- --url http://127.0.0.1:3000 --schema public --filter rest             # attach to a running server
+npm run parity:diff -- --a go --b http://127.0.0.1:3000 --schema-b public               # frame-by-frame traffic diff
+npm run ramp -- --url http://localhost:3000 --stages 10,50,200,1000 --hold 40 --boot 200 --category blind --out ramp.json
 ```
+
+`npm run parity` builds nothing: run `bash ops/build.sh` in `go-server/` first, or pass `--bin`.
 
 ## What is implemented
 
 | # | Requirement | Where |
 |---|---|---|
-| 1 | Google, Facebook and guest (deviceId) login | [providers.js](server/src/auth/providers.js), [game_state.dart](flutter-client/lib/state/game_state.dart) |
-| 2 | Persistent storage per provider identity — **PostgreSQL** (the brief said SQLite; changed by the owner) | [schema.sql](server/src/db/schema.sql), [ledger.js](server/src/db/ledger.js), [users.js](server/src/db/users.js) |
-| 3 | Rooms of at most 5 players | [table.js](server/src/game/table.js), [roomManager.js](server/src/game/roomManager.js) |
-| 4 | 2 players minimum to start; many rooms | [table.js](server/src/game/table.js) |
-| 5 | 2 lakh welcome chips on first login | [users.js](server/src/db/users.js) |
-| 6a | 3 hidden cards each | [deck.js](server/src/game/deck.js), [table.js](server/src/game/table.js) |
-| 6b | Clockwise turn rotation | [table.js](server/src/game/table.js) |
-| 6c | Bet the same amount or double | [table.js](server/src/game/table.js) |
-| 6d | 25-second turn clock, auto-pack on timeout | [table.js](server/src/game/table.js) |
-| 6e | Exactly one winner takes the whole pot | [table.js](server/src/game/table.js) |
-| 6f | Pack to fold, turn moves on | [table.js](server/src/game/table.js) |
-| 6g | Trail > pure sequence > sequence > color > pair > high card | [handRank.js](server/src/game/handRank.js) |
-| 7 | Account and chips restored on next login | [users.js](server/src/db/users.js) |
-| 8 | Room chat: in-memory, 100 messages, dies with the room | [chat.js](server/src/game/chat.js) |
-| 9 | +/− stepper doubles the bet, capped at the player's chips | [table.js](server/src/game/table.js), [table_screen.dart](flutter-client/lib/screens/table_screen.dart) |
-| 10 | Auto-pack when a turn is not acted on | [table.js](server/src/game/table.js) |
-| 12 | Chat panel collapses to a badge and reopens | [client.js](server/public/client.js), [table_screen.dart](flutter-client/lib/screens/table_screen.dart) |
-| 13 | Blind/Seen categories at 200 and 5000; chip visibility per category | [table.js](server/src/game/table.js), [roomManager.js](server/src/game/roomManager.js) |
-| 14 | Show reveals every hand to the room, with the winner and amount | [table.js](server/src/game/table.js), [client.js](server/public/client.js) |
-| 15 | The pot always pays out, even when the table empties | [table.js](server/src/game/table.js) |
-| 16 | Played / won / lost / abandoned counters and total winnings | [users.js](server/src/db/users.js), [schema.sql](server/src/db/schema.sql) |
-| 17 | 25,000 chip reward at every 25 hands played | [users.js](server/src/db/users.js), [routes.js](server/src/auth/routes.js) |
-| 18 | 10,000 chip bonus on a 4-hour countdown, stored in the database | [users.js](server/src/db/users.js) |
-| 19 | Seen tables: one double per turn, showdown after 7 rounds | [roomManager.js](server/src/game/roomManager.js) |
-| 20 | Profile picture taken from the Google/Facebook account | [providers.js](server/src/auth/providers.js) |
-| 21 | Pick a bundled picture; locked once seated; visible to everyone | [routes.js](server/src/auth/routes.js), [profiles/](server/public/profiles/) |
-| 22 | Private tables: fixed 200 boot, maximum win 500,000, one double per turn | [roomManager.js](server/src/game/roomManager.js), [table.js](server/src/game/table.js) |
-| 23 | Landscape on phones, icons, light/dark toggle, Material 3 | [theme.css](server/public/theme.css), [app_theme.dart](flutter-client/lib/theme/app_theme.dart) |
-| 24 | Two half-empty rooms merge; never mid-hand; "starting in N" countdown | [roomManager.js](server/src/game/roomManager.js) |
-| 25 | Leaving a table asks for confirmation first | [client.js](server/public/client.js), [main.dart](flutter-client/lib/main.dart) |
-| 26 | 4-hour bonus in the top-left corner, counting down in seconds | [client.js](server/public/client.js) |
-| 27 | Milestone reward in the bottom-right corner | [client.js](server/public/client.js) |
-| 28 | Square table cards with a looping diagonal sheen | [style.css](server/public/style.css) |
+| 1 | Google, Facebook and guest (deviceId) login | [providers.go](go-server/internal/auth/providers.go), [handlers.go](go-server/internal/auth/handlers.go), [game_state.dart](flutter-client/lib/state/game_state.dart) |
+| 2 | Persistent storage per provider identity — **PostgreSQL** (the brief said SQLite; changed by the owner) | [schema.sql](go-server/internal/db/schema.sql), [ledger.go](go-server/internal/db/ledger.go), [users.go](go-server/internal/db/users.go) |
+| 3 | Rooms of at most 5 players | [table.go](go-server/internal/game/table.go), [roommanager.go](go-server/internal/game/roommanager.go) |
+| 4 | 2 players minimum to start; many rooms | [table.go](go-server/internal/game/table.go) |
+| 5 | 2 lakh welcome chips on first login | [users.go](go-server/internal/db/users.go) |
+| 6a | 3 hidden cards each | [deck.go](go-server/internal/game/deck.go), [table.go](go-server/internal/game/table.go) |
+| 6b | Clockwise turn rotation | [table.go](go-server/internal/game/table.go) |
+| 6c | Bet the same amount or double | [table.go](go-server/internal/game/table.go) |
+| 6d | 25-second turn clock, auto-pack on timeout | [table.go](go-server/internal/game/table.go) |
+| 6e | Exactly one winner takes the whole pot | [table.go](go-server/internal/game/table.go) |
+| 6f | Pack to fold, turn moves on | [table.go](go-server/internal/game/table.go) |
+| 6g | Trail > pure sequence > sequence > color > pair > high card | [handrank.go](go-server/internal/game/handrank.go) |
+| 7 | Account and chips restored on next login | [users.go](go-server/internal/db/users.go) |
+| 8 | Room chat: in-memory, 100 messages, dies with the room | [chat.go](go-server/internal/game/chat.go) |
+| 9 | +/− stepper doubles the bet, capped at the player's chips | [table.go](go-server/internal/game/table.go), [table_screen.dart](flutter-client/lib/screens/table_screen.dart) |
+| 10 | Auto-pack when a turn is not acted on | [table.go](go-server/internal/game/table.go) |
+| 12 | Chat panel collapses to a badge and reopens | [client.js](go-server/public/client.js), [table_screen.dart](flutter-client/lib/screens/table_screen.dart) |
+| 13 | Blind/Seen categories at 200 and 5000; chip visibility per category | [table.go](go-server/internal/game/table.go), [view.go](go-server/internal/game/view.go), [roommanager.go](go-server/internal/game/roommanager.go) |
+| 14 | Show reveals every hand to the room, with the winner and amount | [table.go](go-server/internal/game/table.go), [client.js](go-server/public/client.js) |
+| 15 | The pot always pays out, even when the table empties | [table.go](go-server/internal/game/table.go) |
+| 16 | Played / won / lost / abandoned counters and total winnings | [users.go](go-server/internal/db/users.go), [schema.sql](go-server/internal/db/schema.sql) |
+| 17 | 25,000 chip reward at every 25 hands played | [users.go](go-server/internal/db/users.go), [handlers.go](go-server/internal/auth/handlers.go) |
+| 18 | 10,000 chip bonus on a 4-hour countdown, stored in the database | [users.go](go-server/internal/db/users.go) |
+| 19 | Seen tables: one double per turn, showdown after 7 rounds | [roommanager.go](go-server/internal/game/roommanager.go) |
+| 20 | Profile picture taken from the Google/Facebook account | [providers.go](go-server/internal/auth/providers.go) |
+| 21 | Pick a bundled picture; locked once seated; visible to everyone | [handlers.go](go-server/internal/auth/handlers.go), [profiles/](go-server/public/profiles/) |
+| 22 | Private tables: fixed 200 boot, maximum win 500,000, one double per turn | [roommanager.go](go-server/internal/game/roommanager.go), [table.go](go-server/internal/game/table.go) |
+| 23 | Landscape on phones, icons, light/dark toggle, Material 3 | [theme.css](go-server/public/theme.css), [app_theme.dart](flutter-client/lib/theme/app_theme.dart) |
+| 24 | Two half-empty rooms merge; never mid-hand; "starting in N" countdown | [roommanager.go](go-server/internal/game/roommanager.go) |
+| 25 | Leaving a table asks for confirmation first | [client.js](go-server/public/client.js), [main.dart](flutter-client/lib/main.dart) |
+| 26 | 4-hour bonus in the top-left corner, counting down in seconds | [client.js](go-server/public/client.js) |
+| 27 | Milestone reward in the bottom-right corner | [client.js](go-server/public/client.js) |
+| 28 | Square table cards with a looping diagonal sheen | [style.css](go-server/public/style.css) |
 
 ## How the game works
 
 **Dealing.** Every funded player antes the boot. Three cards are dealt one at a time from a
-`crypto.randomInt` shuffle. **Card faces stay on the server** — a client is only sent its own hand
-after the player presses *See*, so a modified client has nothing to read.
+`crypto/rand` Fisher–Yates shuffle. **Card faces stay on the server** — a client is only sent its own
+hand after the player presses *See*, so a modified client has nothing to read.
 
 **Betting.** A blind player stakes the current unit; a seen player pays twice that — the standard
 handicap for having looked. From that base the server builds a **bet ladder** that doubles on each
@@ -160,7 +170,7 @@ database, so neither can be farmed by replaying a request or reinstalling the ap
 does not count, which is the rule the milestone reward is paid against.
 
 **Profile pictures.** Google and Facebook pictures are captured at login. A player can instead pick
-one of the pictures bundled in `server/public/profiles/`, and that choice is what everyone at the
+one of the pictures bundled in `go-server/public/profiles/`, and that choice is what everyone at the
 table sees. Changing it is refused while seated, so a picture cannot swap mid-hand.
 
 **Private tables.** Opened with a code rather than through the lobby. The boot is **fixed at 200
@@ -209,56 +219,52 @@ serialized **for each viewer** — on a blind table another player's balance is 
 so it is a real privacy boundary rather than something the client politely declines to draw. Bets
 and the pot stay public in both categories, because those are announced as they happen.
 
-Full protocol reference: [server/README.md](server/README.md).
+Server tour, build and parity: [go-server/README.md](go-server/README.md). Architecture, the
+Node→Go file map and the concurrency rules: [go-server/PORT_PLAN.md](go-server/PORT_PLAN.md).
+The Socket.IO contract, event by event:
+[go-server/PORT_NOTES/specs/spec-socket-protocol.md](go-server/PORT_NOTES/specs/spec-socket-protocol.md).
 Everything a coding session needs to know, including the gotchas: [CLAUDE.md](CLAUDE.md).
 
 ## Measured performance
 
-Load test on one machine, single Node process, 1000 bot players playing real hands:
+Same `tools/ramptest.mjs` ramp, both servers local on a 12-core dev box, real hands from 4,000
+bot players: the **single Go process answered actions at p95 5 ms**; the Node process it replaced
+answered the same load at p95 255 ms. The staged production runs against the Node build (4-core
+host behind nginx, 8 Sep 2026) are in `docs/load-reports/` and are the baseline the Go server was
+measured against:
 
-```
-sockets connected   1000        (0 login failures, 0 connect failures)
-server sees         1000 players / 200 tables
-hands completed     776 in 60s  (12.9 hands/sec)
-actions sent        21672       (0 action errors)
-latency p50/p95/p99 1 / 1 / 2 ms
-server process      ~15% of one CPU core, 162 MB RSS
-```
+| Report | What it shows |
+|---|---|
+| [production-2026-09-08.html](docs/load-reports/production-2026-09-08.html) | 10 → 1,000 players, 40 s holds: p95 ≈ 40 ms, 0 errors, no ceiling |
+| [production-2026-09-08-run2.html](docs/load-reports/production-2026-09-08-run2.html) | soak at 1,000 / 1,500; nginx answered handshakes with 500 near 1,500 sockets (`worker_connections 768`) |
+| [production-2026-09-08-run3.html](docs/load-reports/production-2026-09-08-run3.html) | the ceiling run that pinned the nginx limit |
+| [production-2026-09-08-run5-4000.html](docs/load-reports/production-2026-09-08-run5-4000.html) | 1,500 → 4,000 after the nginx fix: 4,000 connected, 0 errors, p95 rising to ~1 s on one Node core |
 
-Reproduce with `npm start` then `npm run loadtest -- --players 1000 --seconds 60`.
-
-The 500–1000 concurrent target fits comfortably in a single process. Scaling notes and the
-sharding caveat are in [server/README.md](server/README.md#scaling).
+Each `.html` has a `.json` twin written by the ramp tool. Reproduce with
+`cd tools && npm run ramp -- --url <server> --stages 10,50,200,1000,2000,4000 --hold 60 --boot 200 --category blind --out ramp.json`.
 
 ## Testing
 
-`cd server && npm test` runs every suite with `node:test`. The unit suites drive the engine with a
-fake clock and an in-memory ledger; the process suites (`integration`, `socketProtocol`, `stakes`,
-`statsAndRewards`) start a real server against PostgreSQL, each in a throwaway schema it drops
-afterwards.
+`cd go-server && go test -race ./...` runs every Go suite. The `internal/game` suites drive the
+engine with a fake clock (`testclock`) and an in-memory ledger; the Postgres-backed suites
+(`internal/db`, `internal/app`, `internal/socket`) each open a throwaway schema through
+`dbtest.Open` and drop it afterwards, and skip when no database is reachable.
 
-| File | Covers |
+| Package | Covers |
 |---|---|
-| `handRank.test.js` | Hand ranking, every category, tie-breaks, shuffle integrity |
-| `table.test.js` | Seating, dealing, turn order, betting maths, timeouts, showdowns |
-| `settlement.test.js` | Chip conservation on every route a hand can take |
-| `chipPersistence.test.js` | Every boot and bet is banked as it happens; the winner is paid exactly the pot |
-| `blindRules.test.js` | Seeing out of turn, the blind-move cap and the auto-reveal |
-| `sideshow.test.js` | Who may ask, who may answer, ties, expiry, turn ownership |
-| `seatKeeping.test.js` | Three missed turns and an unfunded seat both lose the seat |
-| `lobbyRules.test.js` | Display names in every script; the entry cap and table switching |
-| `chat.test.js` | Buffer cap, sanitising, room scoping, history lifetime |
-| `raiseLadder.test.js` | The +/− ladder, its caps, amount validation, and the turn timeout |
-| `categories.test.js` | Blind/Seen chip visibility, per viewer, on and off the wire |
-| `stakes.test.js` | The lobby menu (seen 200, blind 200, blind 5000) and its validation |
-| `statsAndRewards.test.js` | Play counters, both rewards, and avatar precedence |
-| `tableRules.test.js` | Pot payout when a table empties; seen-table betting limits |
-| `privateTables.test.js` | The fixed private boot, the win ceiling and the single double |
-| `consolidation.test.js` | Merging half-empty rooms, and never doing it mid-hand |
-| `integration.test.js` | Real sockets + real PostgreSQL: auth, gameplay, room capacity, chat |
-| `socketProtocol.test.js` | The raw Socket.IO/Engine.IO framing, driven with real server frames |
+| `internal/game` | Hand ranking, dealing, turn order, betting maths and the ladder, timeouts, showdowns, sideshow, seat keeping, settlement and chip conservation, blind rules, private tables, consolidation, chat buffer, redaction (`wire_test.go`) |
+| `internal/sio` | The raw Engine.IO/Socket.IO framing, frame by frame, plus an interop test against `socket.io-client` from `tools/node_modules` |
+| `internal/socket` | The realtime protocol: invalid moves, hostile payloads, leaks, money under concurrency |
+| `internal/db` | Ledger transactions (`duplicate_action`, `stale_state`), users, rewards, display-name normalisation, `statement_timeout` |
+| `internal/auth` | JWT (including tokens minted by Node's `jsonwebtoken`, via `tools/node_modules`), providers, REST handlers |
+| `internal/app` | Real sockets + real PostgreSQL: auth, gameplay, room capacity, chat, `/health`, `/metrics`, static files |
+| `internal/config`, `internal/metrics`, `cmd/gameplay` | Env parsing, the label-cardinality rule, the version stamp |
 
-The Flutter client has `flutter analyze` and `flutter test` (money formatting).
+The differential tests that compared the Go engine with the Node one (`internal/game/interop_test.go`)
+skip unless `NODE_REFERENCE_DIR` points at a checkout of the removed `server/` tree with its
+`node_modules` installed. The black-box parity suites (`cd tools && npm run parity`) exercise the
+built binary over real sockets. The Flutter client has `flutter analyze` and `flutter test` (money
+formatting).
 
 ## Security notes
 
@@ -267,8 +273,8 @@ The Flutter client has `flutter analyze` and `flutter test` (money formatting).
   which any Facebook token from any app would be accepted.
 - Guest device ids are SHA-256 hashed before storage — the database never holds a raw device id.
 - Card faces are never sent to anyone but their owner, and only after they look.
-- The deck is shuffled with `crypto.randomInt`, not `Math.random`, whose state is recoverable from
-  a short run of outputs.
+- The deck is shuffled with `crypto/rand`, not `math/rand`, whose state is recoverable from a short
+  run of outputs.
 - Chip balances are server-authoritative; a negative balance is rejected at the database layer as a
   last line of defence.
 - Bet amounts are validated against a ladder the server recomputes, so a client cannot bet an
@@ -276,6 +282,8 @@ The Flutter client has `flutter analyze` and `flutter test` (money formatting).
 - On a blind table another player's chip balance is never serialized to your client at all.
 - One live session per account; a second sign-in disconnects the first.
 - Per-socket rate limiting, with a tighter separate allowance for chat.
+- A hung database statement fails one ledger write (`PG_STATEMENT_TIMEOUT_MS`, default 15 s) instead
+  of freezing a table for good.
 
 ## Not included
 
@@ -284,4 +292,5 @@ The Flutter client has `flutter analyze` and `flutter test` (money formatting).
 - **An iOS build.** Only `flutter-client/android/` exists so far; the Dart code has nothing
   platform-specific in it.
 - **Multi-process scaling.** Accounts are shared through PostgreSQL, but a table lives in one
-  process; see the sharding notes in [server/README.md](server/README.md#scaling).
+  process (`REDIS_URL` is read and logged as ignored). One Go process carried 4,000 players at
+  p95 5 ms on the dev box, so sharding tables across processes has not been needed.
