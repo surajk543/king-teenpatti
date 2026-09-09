@@ -43,8 +43,19 @@ export function personaFor(index) {
      * nobody is blind is not a blind table.
      */
     seeRate: 0.10 + sees * 0.45,
-    /** Chance of saying something when a hand ends. */
-    chatRate: chatty < 0.55 ? 0.02 + chatty * 0.05 : 0.08 + (chatty - 0.55) * 0.30,
+    /**
+     * Chance of saying something when a hand ends.
+     *
+     * Weighted so most bots are quiet and a few carry the table: a room where
+     * everyone talks equally reads as scripted, and one where nobody talks
+     * reads as empty. The talkative fifth is what makes a table feel occupied.
+     */
+    chatRate: chatty < 0.55 ? 0.05 + chatty * 0.10 : 0.16 + (chatty - 0.55) * 0.45,
+    /**
+     * Chance this bot ever changes stake when the fleet offers it the choice.
+     * Most never do — a regular has a table.
+     */
+    hopRate: hash01(index, 6) < 0.28 ? 0.5 : 0,
     /** Base think time, milliseconds. */
     thinkMin: 900 + pace * 1600,
     thinkSpread: 1200 + pace * 3200,

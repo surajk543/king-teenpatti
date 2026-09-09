@@ -86,6 +86,23 @@ if (config.switchEvery > 0) {
   }
 }
 
+// And, far more rarely, a change of stake — so the three lobby tables are not
+// each the same fixed sixty-six accounts for ever. Only the minority of bots
+// whose persona has a hopRate ever take it.
+if (config.hopEvery > 0) {
+  for (const bot of bots) {
+    if (!bot.persona.hopRate) continue;
+    const tick = () => {
+      const wait = config.hopEvery * 1000 * (0.5 + Math.random() * 1.4);
+      bot.after(wait, () => {
+        if (Math.random() < bot.persona.hopRate) bot.hop();
+        tick();
+      });
+    };
+    tick();
+  }
+}
+
 // A heartbeat, so a fleet left running for weeks says something about itself
 // in the journal without anyone having to attach to it.
 setInterval(async () => {

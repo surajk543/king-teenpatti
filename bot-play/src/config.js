@@ -61,6 +61,16 @@ export const config = {
   switchEvery: num('switch-every', 240),
 
   /**
+   * Seconds between a bot considering a different STAKE — the other category,
+   * or the 5,000 table instead of the 200. 0 disables it.
+   *
+   * Much rarer than switchEvery on purpose. Switching seats is what a player
+   * does when a table goes quiet; changing stake is a different decision, and
+   * a fleet that made it often would leave whole stakes empty in waves.
+   */
+  hopEvery: num('hop-every', 1800),
+
+  /**
    * How long to wait between starting each bot. Two hundred logins and
    * websocket handshakes fired at once is a thundering herd against the very
    * server the fleet exists to make look healthy.
