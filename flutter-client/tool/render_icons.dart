@@ -86,6 +86,13 @@ void main() {
         // 108dp canvas, artwork in the 66% safe zone the mask keeps.
         await write('$res/mipmap-${entry.key}/ic_launcher_foreground.png', await rasterise(foreground, (108 * entry.value).round(), scale: 0.66));
       }
+      // The Play Store listing icon. Play does NOT take this from the bundle —
+      // it is a separate 512x512 upload, and without it the listing shows a
+      // placeholder robot. Corners are squared off (rx 0) because Play applies
+      // its own mask: transparent corners come out black on some surfaces.
+      final store = svg.replaceFirst('rx="224"', 'rx="0"');
+      await write('../docs/play-store/app-icon-512.png', await rasterise(store, 512));
+
       // Pre-Android-12 launch image: 160dp at xxhdpi, scaled by the system elsewhere.
       await write('$res/drawable-xxhdpi/splash_icon.png', await rasterise(svg, 480));
       await write('$res/drawable-xxxhdpi/splash_icon.png', await rasterise(svg, 640));
