@@ -43,3 +43,11 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Release signing. The upload key and its password decide whether you can ever
+# publish an update to an existing Play listing again — Google cannot simply
+# reissue one. Neither of these goes in the repository, ever.
+android/key.properties
+android/upload-keystore.jks
+**/*.jks
+**/*.keystore

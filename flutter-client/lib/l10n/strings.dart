@@ -211,6 +211,13 @@ class Strings {
   String get runOrderNote => _('runOrderNote');
   String get close => _('close');
 
+  // --- a newer build is waiting on Play
+  String get updateTitle => _('updateTitle');
+  String get updateBody => _('updateBody');
+  String get updateNow => _('updateNow');
+  String get updateOpenStore => _('updateOpenStore');
+  String get updateFailed => _('updateFailed');
+
   // --- name and the entry cap
   String get changeName => _('changeName');
   String get save => _('save');
@@ -265,6 +272,11 @@ class Strings {
       'tapToClose': 'Tap to close',
       'buyChips': 'Buy chips',
       'comingSoon': 'Coming soon',
+      'updateTitle': 'A new version is ready',
+      'updateBody': 'Update to keep playing. This version is no longer up to date.',
+      'updateNow': 'Update now',
+      'updateOpenStore': 'Open Play Store',
+      'updateFailed': 'The update did not finish. Please try again.',
       'storeTitle': 'Chip Store',
       'storeBlurb': 'The bigger the pack, the bigger the bonus.',
       'storeBonus': 'BONUS',
@@ -424,6 +436,11 @@ class Strings {
       'tapToClose': 'बंद करने के लिए टैप करें',
       'buyChips': 'चिप्स खरीदें',
       'comingSoon': 'जल्द आ रहा है',
+      'updateTitle': 'नया वर्ज़न तैयार है',
+      'updateBody': 'खेलते रहने के लिए अपडेट करें। यह वर्ज़न अब पुराना है।',
+      'updateNow': 'अभी अपडेट करें',
+      'updateOpenStore': 'प्ले स्टोर खोलें',
+      'updateFailed': 'अपडेट पूरा नहीं हुआ। कृपया फिर कोशिश करें।',
       'storeTitle': 'चिप स्टोर',
       'storeBlurb': 'जितना बड़ा पैक, उतना बड़ा बोनस।',
       'storeBonus': 'बोनस',
@@ -583,6 +600,11 @@ class Strings {
       'tapToClose': 'বন্ধ করতে ট্যাপ করুন',
       'buyChips': 'চিপ কিনুন',
       'comingSoon': 'শীঘ্রই আসছে',
+      'updateTitle': 'নতুন সংস্করণ প্রস্তুত',
+      'updateBody': 'খেলা চালিয়ে যেতে আপডেট করুন। এই সংস্করণটি আর সর্বশেষ নয়।',
+      'updateNow': 'এখনই আপডেট করুন',
+      'updateOpenStore': 'প্লে স্টোর খুলুন',
+      'updateFailed': 'আপডেট শেষ হয়নি। আবার চেষ্টা করুন।',
       'storeTitle': 'চিপ স্টোর',
       'storeBlurb': 'প্যাক যত বড়, বোনাসও তত বড়।',
       'storeBonus': 'বোনাস',
@@ -742,6 +764,11 @@ class Strings {
       'tapToClose': 'બંધ કરવા ટૅપ કરો',
       'buyChips': 'ચિપ્સ ખરીદો',
       'comingSoon': 'ટૂંક સમયમાં',
+      'updateTitle': 'નવું વર્ઝન તૈયાર છે',
+      'updateBody': 'રમવાનું ચાલુ રાખવા અપડેટ કરો. આ વર્ઝન હવે જૂનું છે.',
+      'updateNow': 'હમણાં અપડેટ કરો',
+      'updateOpenStore': 'પ્લે સ્ટોર ખોલો',
+      'updateFailed': 'અપડેટ પૂરું થયું નથી. ફરી પ્રયાસ કરો.',
       'storeTitle': 'ચિપ સ્ટોર',
       'storeBlurb': 'પૅક જેટલું મોટું, બોનસ એટલું મોટું.',
       'storeBonus': 'બોનસ',
@@ -901,6 +928,11 @@ class Strings {
       'tapToClose': 'ਬੰਦ ਕਰਨ ਲਈ ਟੈਪ ਕਰੋ',
       'buyChips': 'ਚਿਪਸ ਖਰੀਦੋ',
       'comingSoon': 'ਜਲਦੀ ਆ ਰਿਹਾ ਹੈ',
+      'updateTitle': 'ਨਵਾਂ ਵਰਜਨ ਤਿਆਰ ਹੈ',
+      'updateBody': 'ਖੇਡਦੇ ਰਹਿਣ ਲਈ ਅੱਪਡੇਟ ਕਰੋ। ਇਹ ਵਰਜਨ ਹੁਣ ਪੁਰਾਣਾ ਹੈ।',
+      'updateNow': 'ਹੁਣੇ ਅੱਪਡੇਟ ਕਰੋ',
+      'updateOpenStore': 'ਪਲੇ ਸਟੋਰ ਖੋਲ੍ਹੋ',
+      'updateFailed': 'ਅੱਪਡੇਟ ਪੂਰਾ ਨਹੀਂ ਹੋਇਆ। ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ।',
       'storeTitle': 'ਚਿੱਪ ਸਟੋਰ',
       'storeBlurb': 'ਪੈਕ ਜਿੰਨਾ ਵੱਡਾ, ਬੋਨਸ ਓਨਾ ਵੱਡਾ।',
       'storeBonus': 'ਬੋਨਸ',

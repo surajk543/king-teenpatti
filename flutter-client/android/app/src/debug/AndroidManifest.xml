@@ -4,4 +4,14 @@
          to allow setting breakpoints, to provide hot reload, etc.
     -->
     <uses-permission android:name="android.permission.INTERNET"/>
+
+    <!-- Plain HTTP, for a local server during development only: a SERVER_URL
+         dart-define pointing at http://10.0.2.2:3000 on the emulator, or a LAN
+         address on a real device.
+
+         It lives here rather than in the main manifest so the RELEASE build
+         cannot send anything in the clear. Production is HTTPS, so the
+         permission is pure risk there, and Play flags an app that asks for it
+         without needing it. -->
+    <application android:usesCleartextTraffic="true" />
 </manifest>

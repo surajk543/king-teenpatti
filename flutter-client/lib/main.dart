@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import 'l10n/strings.dart';
 import 'screens/login_screen.dart';
 import 'screens/splash_screen.dart';
+import 'screens/update_screen.dart';
 import 'screens/lobby_screen.dart';
 import 'screens/table_screen.dart';
 import 'models/dtos.dart';
@@ -77,6 +78,7 @@ class _Root extends StatelessWidget {
             screen: screen,
             child: switch (screen) {
               Screen.splash => const SplashScreen(),
+              Screen.update => const UpdateScreen(),
               Screen.login => const LoginScreen(),
               Screen.lobby => const LobbyScreen(),
               Screen.table => const TableScreen(),

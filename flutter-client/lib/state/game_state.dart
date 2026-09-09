@@ -9,10 +9,11 @@ import 'package:uuid/uuid.dart';
 import '../l10n/strings.dart';
 import '../models/dtos.dart';
 import '../net/api_client.dart';
+import '../net/app_update.dart';
 import '../net/game_connection.dart';
 import '../net/purchases.dart';
 
-enum Screen { splash, login, lobby, table }
+enum Screen { splash, update, login, lobby, table }
 
 /// Everything the UI reads, and the only place the two halves of the server —
 /// REST and socket — are stitched together.
@@ -46,6 +47,15 @@ class GameState extends ChangeNotifier {
   /// Set while a purchase is with Play or being credited, so the store can
   /// show progress instead of looking unresponsive.
   bool purchasePending = false;
+
+  /// Play's answer on whether a newer build exists, asked once at startup.
+  /// [UpdateStatus.none] on anything Play did not install, so a debug or
+  /// side-loaded build is never held up by a check that cannot pass.
+  UpdateStatus updateStatus = UpdateStatus.none;
+  final AppUpdate _update = const AppUpdate();
+
+  /// True while Play's own update flow is on screen.
+  bool updating = false;
   final GameConnection _conn;
   final List<StreamSubscription<dynamic>> _subs = [];
 
@@ -197,6 +207,11 @@ class GameState extends ChangeNotifier {
     _wire();
     unawaited(_loadPictures());
 
+    // Asked alongside the rest of startup rather than before it: the check is
+    // a Play round trip, and making the splash wait on it would add its
+    // latency to every launch for the sake of an answer that is usually "no".
+    final updateCheck = _update.check();
+
     // A saved session goes straight to the lobby.
     var next = Screen.login;
     final saved = prefs.getString('token');
@@ -216,6 +231,12 @@ class GameState extends ChangeNotifier {
         await prefs.remove('token');
       }
     }
+
+    updateStatus = await updateCheck;
+    // An old client and a newer server can disagree about the wire, so the
+    // update stands in front of everything — including a saved session, since
+    // being signed in already does not make an out-of-date build safe.
+    if (updateStatus != UpdateStatus.none) next = Screen.update;
 
     final shownFor = DateTime.now().difference(splashShownAt);
     if (shownFor < minSplash) await Future<void>.delayed(minSplash - shownFor);
@@ -559,6 +580,22 @@ class GameState extends ChangeNotifier {
   }
 
   /// Subscribes to Play and says what to do with a purchase when one lands.
+  /// Runs Play's in-place update. Play takes the screen, installs, and
+  /// restarts the app, so a success never returns here.
+  ///
+  /// A failure or a cancel leaves the prompt exactly where it was: the player
+  /// is still on an old build, and pretending otherwise would drop them into a
+  /// game that may not work.
+  Future<void> startUpdate() async {
+    if (updating) return;
+    updating = true;
+    notifyListeners();
+    final ok = await _update.startImmediate();
+    updating = false;
+    if (!ok) notice = t.updateFailed;
+    notifyListeners();
+  }
+
   void _startPurchases() {
     purchases
       ..onPending = () {
