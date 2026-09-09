@@ -517,11 +517,11 @@ class GameState extends ChangeNotifier {
   /// Google Play requires an in-app route to this. The server refuses while
   /// the player is seated, so callers should only offer it from the lobby.
   ///
-  /// Both stored identifiers go, not just the token: the device id is what
-  /// the guest account is keyed to, so keeping it would sign the next launch
-  /// straight back into an account the server has already erased — which
-  /// works, but hands the player a brand-new empty account with their old id
-  /// in local storage and no way to tell the two apart.
+  /// The device id is replaced, not just the token cleared. Guest accounts are
+  /// keyed to it, so a player who deletes and immediately plays again should
+  /// arrive as somebody new rather than as the same device wearing a fresh
+  /// account — which is what reusing the id would give them, since deletion
+  /// frees the identity server-side for exactly that reason.
   ///
   /// Returns null on success, or a message to show when the server refused.
   Future<String?> deleteAccount() async {
@@ -536,7 +536,13 @@ class GameState extends ChangeNotifier {
     }
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('token');
-    await prefs.remove('deviceId');
+    // A NEW device id, not merely a cleared one. _deviceId is read into memory
+    // once in start(), so removing the stored key alone leaves this session
+    // still holding the deleted account's id — signing straight back in would
+    // reuse it, and the rotation would only happen on the next cold start.
+    // Replacing it here keeps memory and storage saying the same thing.
+    _deviceId = const Uuid().v4();
+    await prefs.setString('deviceId', _deviceId);
     _token = null;
     _conn.disconnect();
     room = null;
