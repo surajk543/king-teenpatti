@@ -250,8 +250,23 @@ type PlayConfig struct {
 	// against: com.sungamestudio.kingteenpatti. A receipt minted for another
 	// package is refused.
 	Package string
+	// CredentialsFile is GOOGLE_PLAY_CREDENTIALS_FILE, a path to the
+	// service-account JSON. PREFER THIS over the inline form.
+	//
+	// The inline form does not survive systemd. The unit loads the same .env
+	// through EnvironmentFile=, and systemd's parser mangles the \n escapes
+	// inside private_key, so the JSON still parses but the PEM inside it is no
+	// longer a key ("Key must be a PEM encoded PKCS1 or PKCS8 key", production,
+	// 9 Sep 2026). godotenv handles it correctly and never gets the chance,
+	// because systemd has already set the variable and godotenv does not
+	// override real env. A path has no escapes to mangle.
+	//
+	// It is also the safer shape: a 2.3 KB private key in the environment is
+	// readable from /proc/<pid>/environ, while a file can be chmod 400.
+	CredentialsFile string
 	// Credentials is GOOGLE_PLAY_CREDENTIALS, the whole service-account JSON
-	// key as one value. Empty disables the store endpoint (503).
+	// as one value. Kept for a deployment that has no file to point at; see
+	// the warning on CredentialsFile. Empty disables the store (503).
 	Credentials string
 }
 
@@ -519,6 +534,7 @@ func FromEnv(lookup Lookup) (*Config, error) {
 	c.Chat.RateWindow = r.millis("CHAT_RATE_WINDOW_MS", c.Chat.RateWindow)
 
 	c.Play.Package = r.str("GOOGLE_PLAY_PACKAGE", c.Play.Package)
+	c.Play.CredentialsFile = r.str("GOOGLE_PLAY_CREDENTIALS_FILE", c.Play.CredentialsFile)
 	c.Play.Credentials = r.str("GOOGLE_PLAY_CREDENTIALS", c.Play.Credentials)
 
 	c.LogLevel = r.str("LOG_LEVEL", c.LogLevel)

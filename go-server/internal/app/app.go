@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -284,7 +285,20 @@ func New(opts Options) (*App, error) {
 	// an unverifiable store is closed (503), which is exactly what a nil
 	// gateway gives, and the game is unaffected either way. Loud log, carry on.
 	var chipStore auth.PurchaseGateway
-	if pv, err := purchase.NewGoogleVerifier(cfg.Play.Package, cfg.Play.Credentials); err != nil {
+	creds := cfg.Play.Credentials
+	if path := cfg.Play.CredentialsFile; path != "" {
+		// A path is preferred precisely because it cannot be mangled by an
+		// env-file parser on the way in — see config.PlayConfig.
+		b, err := os.ReadFile(path)
+		if err != nil {
+			logger.Error("chip store disabled: cannot read Google Play credentials file",
+				"path", path, "err", err.Error())
+			creds = ""
+		} else {
+			creds = string(b)
+		}
+	}
+	if pv, err := purchase.NewGoogleVerifier(cfg.Play.Package, creds); err != nil {
 		logger.Error("chip store disabled: Google Play credentials are unusable",
 			"err", err.Error(),
 			"hint", "GOOGLE_PLAY_CREDENTIALS must be the service-account JSON on ONE line")

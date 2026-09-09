@@ -2,3 +2,12 @@ bin/
 .env
 *.log
 gameplay
+
+# Service-account keys. GOOGLE_PLAY_CREDENTIALS_FILE points at one of these and
+# it lives next to the binary, inside a tracked directory — so the ignore rule
+# is what stands between a private key and the public repository. Match by
+# shape, not by one filename, because the next one will be called something
+# else.
+play-key.json
+*-key.json
+*.serviceaccount.json
