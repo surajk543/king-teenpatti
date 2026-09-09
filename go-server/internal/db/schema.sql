@@ -110,23 +110,41 @@ $$;
 --     settlement transaction. chip_ledger stays because its UNIQUE action_id
 --     IS the settle-retry safety mechanism (a commit whose acknowledgement is
 --     lost must not pay the winner twice); `hands` carried no such mechanism.
+-- Every reference to a retired table goes through EXECUTE, and that is not a
+-- style choice. PL/pgSQL parses and PLANS a statement before it evaluates it,
+-- and it treats an IF condition as one expression, so
+--
+--     IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'game_states')
+--        AND NOT EXISTS (SELECT 1 FROM game_states)
+--
+-- fails to parse the moment game_states is gone — SQL's AND promises no
+-- short-circuit, and planning happens first either way. Written that way the
+-- block drops the table on its first run and then makes every later boot fail
+-- with 42P01, which is exactly what it did to production on 9 Sep 2026: the
+-- server crash-looped, and because this block aborts schema.sql before the
+-- statements after it, pots and hands were never dropped either. Dynamic SQL
+-- defers the parse to run time, so the body is only ever parsed when the outer
+-- guard has already confirmed the table is there.
 DO $$
+DECLARE
+  retired  text;
+  occupied bigint;
 BEGIN
-  IF EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = current_schema() AND tablename = 'game_states')
-     AND NOT EXISTS (SELECT 1 FROM game_states)
-  THEN
-    DROP TABLE game_states;
-  END IF;
-  IF EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = current_schema() AND tablename = 'pots')
-     AND NOT EXISTS (SELECT 1 FROM pots)
-  THEN
-    DROP TABLE pots;
-  END IF;
-  IF EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = current_schema() AND tablename = 'hands')
-     AND NOT EXISTS (SELECT 1 FROM hands)
-  THEN
-    DROP TABLE hands;
-  END IF;
+  FOREACH retired IN ARRAY ARRAY['game_states', 'pots', 'hands'] LOOP
+    IF EXISTS (SELECT 1 FROM pg_tables
+                WHERE schemaname = current_schema() AND tablename = retired) THEN
+      -- Populated means a human should look at it (a restored backup, say),
+      -- so the drop is refused rather than guessed at.
+      EXECUTE format('SELECT count(*) FROM (SELECT 1 FROM %I LIMIT 1) probe', retired)
+         INTO occupied;
+      IF occupied = 0 THEN
+        EXECUTE format('DROP TABLE %I', retired);
+        RAISE NOTICE 'dropped retired empty table %', retired;
+      ELSE
+        RAISE NOTICE 'kept retired table % — it still holds rows', retired;
+      END IF;
+    END IF;
+  END LOOP;
 END;
 $$;
 
