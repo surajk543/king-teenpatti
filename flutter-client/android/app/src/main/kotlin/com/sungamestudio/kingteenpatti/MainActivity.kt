@@ -1,4 +1,4 @@
-package com.kinggames.teenpatti
+package com.sungamestudio.kingteenpatti
 
 import io.flutter.embedding.android.FlutterActivity
 

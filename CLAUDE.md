@@ -121,7 +121,7 @@ king-teenpatti/
     │   └── l10n/strings.dart     hand-written 5-language table (en/hi/bn/gu/pa)
     ├── assets/card_back.svg
     ├── test/number_format_test.dart
-    └── android/                  applicationId com.kinggames.teenpatti, sensorLandscape, cleartext on
+    └── android/                  applicationId com.sungamestudio.kingteenpatti, sensorLandscape, cleartext on
 ```
 
 There is no CI, Dockerfile, ESLint or Prettier anywhere. `cd go-server && go test -race ./...`
@@ -211,8 +211,8 @@ flutter build apk --debug       # ~7s incremental; build/app/outputs/flutter-apk
 flutter build apk --debug --dart-define=SERVER_URL=http://10.0.2.2:3000   # local server on the emulator
 flutter build apk --debug --dart-define=SERVER_URL=http://192.168.1.10:3000  # local server, real device
 adb install -r build/app/outputs/flutter-apk/app-debug.apk
-adb shell monkey -p com.kinggames.teenpatti -c android.intent.category.LAUNCHER 1   # launch
-adb shell am force-stop com.kinggames.teenpatti
+adb shell monkey -p com.sungamestudio.kingteenpatti -c android.intent.category.LAUNCHER 1   # launch
+adb shell am force-stop com.sungamestudio.kingteenpatti
 ```
 
 ### Emulator / verification helpers
@@ -702,7 +702,7 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   maps + a getter.** Teen Patti vocabulary transliterated. Still-English strings: `'YOU'`, `'Table
   ${code}'`, `'hand N'`, private-card body, picture-picker labels, `'Switch theme'`, chat `'You'`,
   the `'$winner won N'` banner (bypasses lakh formatting), and **wire hand names**.
-- **Android**: `com.kinggames.teenpatti`, `sensorLandscape`, cleartext, INTERNET (needed in
+- **Android**: `com.sungamestudio.kingteenpatti`, `sensorLandscape`, cleartext, INTERNET (needed in
   release). **Icon & splash** come from one file, `assets/app_icon.svg` (crown over A♥ A♠ Q♥, all paths, no fonts):
   `tool/render_icons.dart` renders `mipmap-*/ic_launcher.png` (legacy), `mipmap-*/ic_launcher_foreground.png` +
   `mipmap-anydpi-v26/ic_launcher.xml` (adaptive, bg `@color/ic_launcher_background` #2B363B), `drawable-*/splash_icon.png`,

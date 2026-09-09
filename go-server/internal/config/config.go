@@ -77,6 +77,10 @@ type Config struct {
 	Game    GameConfig
 	Metrics MetricsConfig
 	Chat    ChatConfig
+	// Play is the Google Play in-app purchase configuration. Empty credentials
+	// mean the store endpoint refuses every request — a server with no way to
+	// verify a receipt must never credit one.
+	Play PlayConfig
 
 	// LogLevel is LOG_LEVEL (info). Node's util/logger.js reads it directly.
 	LogLevel string
@@ -234,6 +238,23 @@ type MetricsConfig struct {
 }
 
 // ChatConfig ← config.chat.
+// PlayConfig is Google Play in-app purchases.
+//
+// The credentials are a service-account JSON key and are therefore a SECRET:
+// they belong in the environment (production's go-server/.env, which is
+// git-ignored), never in the repository. A key that has been pasted anywhere
+// else — a chat, a ticket, a screenshot — should be rotated in Google Cloud
+// rather than reused.
+type PlayConfig struct {
+	// Package is GOOGLE_PLAY_PACKAGE, the applicationId purchases are checked
+	// against: com.sungamestudio.kingteenpatti. A receipt minted for another
+	// package is refused.
+	Package string
+	// Credentials is GOOGLE_PLAY_CREDENTIALS, the whole service-account JSON
+	// key as one value. Empty disables the store endpoint (503).
+	Credentials string
+}
+
 type ChatConfig struct {
 	MaxHistory int           // CHAT_MAX_HISTORY 100 messages kept per room
 	MaxLength  int           // CHAT_MAX_LENGTH 140 characters (Flutter allows 200; 141–200 are cut here)
@@ -314,6 +335,11 @@ func Defaults() *Config {
 			RateLimit:  5,
 			RateWindow: 5 * time.Second,
 		},
+		// The package is a constant of this app, so it is the default rather
+		// than something every deployment has to set and can get wrong. The
+		// credentials are a secret and have no default: without them the store
+		// endpoint refuses.
+		Play:           PlayConfig{Package: "com.sungamestudio.kingteenpatti"},
 		LogLevel:       "info",
 		PublicDir:      DefaultPublicDir,
 		RedisURL:       "",
@@ -491,6 +517,9 @@ func FromEnv(lookup Lookup) (*Config, error) {
 	c.Chat.MaxLength = r.integer("CHAT_MAX_LENGTH", c.Chat.MaxLength)
 	c.Chat.RateLimit = r.integer("CHAT_RATE_LIMIT", c.Chat.RateLimit)
 	c.Chat.RateWindow = r.millis("CHAT_RATE_WINDOW_MS", c.Chat.RateWindow)
+
+	c.Play.Package = r.str("GOOGLE_PLAY_PACKAGE", c.Play.Package)
+	c.Play.Credentials = r.str("GOOGLE_PLAY_CREDENTIALS", c.Play.Credentials)
 
 	c.LogLevel = r.str("LOG_LEVEL", c.LogLevel)
 	c.PublicDir = r.str("PUBLIC_DIR", c.PublicDir)

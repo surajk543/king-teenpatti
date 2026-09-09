@@ -242,6 +242,63 @@ func (h *Handler) Bonus(w http.ResponseWriter, r *http.Request, user *db.User) {
 	WriteJSON(w, http.StatusOK, result)
 }
 
+// BuyChips is POST /api/purchases/google {productId, purchaseToken}.
+//
+// The client sends only what Play gave it: which product, and the purchase
+// token. It does NOT send an amount, and the server would not read one if it
+// did — the chips come from the server-side catalogue, keyed by product id.
+//
+// Order: no gateway → 503; missing fields → 400; then verify with Google and
+// credit. A receipt already banked answers 200 with credited=false, because
+// the player did buy those chips and the app should finish the Play
+// transaction rather than ask again.
+//
+// Note what is deliberately absent: any seated check. Rewards are refused at a
+// table to keep the money model's invariant, but refusing a PAID purchase
+// because someone is sitting down would be indefensible — running out of chips
+// mid-hand is exactly when they buy. The delta write at the next checkpoint
+// (internal/game/ledger.go) is what keeps the books straight instead.
+func (h *Handler) BuyChips(w http.ResponseWriter, r *http.Request, user *db.User) {
+	if h.deps.Purchases == nil {
+		WriteJSON(w, http.StatusServiceUnavailable,
+			ErrorResponse{Error: CodeStoreUnavailable, Message: MsgStoreUnavailable})
+		return
+	}
+	var body struct {
+		ProductID     string `json:"productId"`
+		PurchaseToken string `json:"purchaseToken"`
+	}
+	if err := ReadJSONBody(r, &body); err != nil {
+		h.writeError(w, r, err)
+		return
+	}
+	if body.ProductID == "" || body.PurchaseToken == "" {
+		WriteJSON(w, http.StatusBadRequest,
+			ErrorResponse{Error: CodeInvalidPurchase, Message: MsgInvalidPurchase})
+		return
+	}
+
+	out, err := h.deps.Purchases.Buy(r.Context(), user.ID, body.ProductID, body.PurchaseToken)
+	if err != nil {
+		if h.deps.Logger != nil {
+			h.deps.Logger.Warn("purchase refused",
+				"userId", user.ID, "productId", body.ProductID, "err", err.Error())
+		}
+		h.writeError(w, r, err)
+		return
+	}
+	if h.deps.Logger != nil && out.Credited {
+		h.deps.Logger.Info("chips purchased",
+			"userId", user.ID, "productId", body.ProductID, "chips", out.Chips)
+	}
+	WriteJSON(w, http.StatusOK, map[string]any{
+		"credited": out.Credited,
+		"chips":    out.Chips,
+		"balance":  out.Balance,
+		"user":     out.User,
+	})
+}
+
 // Profiles is GET /api/profiles (unauthenticated): {profiles: [{id, url}]}
 // from the live directory listing.
 func (h *Handler) Profiles(w http.ResponseWriter, r *http.Request) {

@@ -159,11 +159,18 @@ const (
 	LedgerReasonHandWin      = "hand_win"
 	LedgerReasonHandLoss     = "hand_loss"
 	// Retired 9 Sep 2026; historical rows only.
-	LedgerReasonBoot                 = "boot"
-	LedgerReasonBet                  = "bet"
-	LedgerReasonShow                 = "show"
-	LedgerReasonMilestoneReward      = "milestone_reward"
-	LedgerReasonTimedBonus           = "timed_bonus"
+	LedgerReasonBoot            = "boot"
+	LedgerReasonBet             = "bet"
+	LedgerReasonShow            = "show"
+	LedgerReasonMilestoneReward = "milestone_reward"
+	LedgerReasonTimedBonus      = "timed_bonus"
+	// LedgerReasonPurchase is chips bought with real money through Google
+	// Play. Its action_id is "gplay:<purchaseToken>", and the UNIQUE index on
+	// action_id is what stops one purchase being credited twice — see
+	// db.CreditPurchase. These are the only rows in the ledger that create
+	// chips from outside the game, so they are also what an audit of the chip
+	// economy has to separate from play.
+	LedgerReasonPurchase             = "purchase"
 	LedgerReasonLegacyReconciliation = "legacy_reconciliation"
 	LedgerReasonTestFixture          = "test_fixture"
 )

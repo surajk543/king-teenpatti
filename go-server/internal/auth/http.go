@@ -39,7 +39,29 @@ type Deps struct {
 	// choose from. Listed on every request (Node readdirSync), filtered to
 	// .svg/.png/.jpg/.jpeg/.webp, sorted by name.
 	ProfilesDir string
-	Logger      *slog.Logger
+	// Purchases credits a verified Google Play purchase. Nil when the server
+	// has no Play credentials, and then the endpoint refuses every request
+	// rather than crediting on the client's word.
+	Purchases PurchaseGateway
+	Logger    *slog.Logger
+}
+
+// PurchaseGateway is the store side of the server: verify a receipt with
+// Google, then credit the wallet exactly once. Implemented in internal/app so
+// this package keeps knowing nothing about Play or the database.
+type PurchaseGateway interface {
+	Buy(ctx context.Context, userID, productID, purchaseToken string) (PurchaseOutcome, error)
+}
+
+// PurchaseOutcome is what the endpoint reports back to the app.
+type PurchaseOutcome struct {
+	Chips   int64
+	Balance int64
+	// Credited is false when this receipt had already been banked. The client
+	// still treats it as success — the chips are in the wallet — and finishes
+	// the Play transaction so the player is not asked again.
+	Credited bool
+	User     *db.User
 }
 
 // Handler serves the REST API. Routes (Node authRoutes + playerRoutes),
@@ -86,6 +108,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.Handle("/api/auth/me", methods(http.MethodGet, h.RequireAuth(h.Me)))
 	mux.Handle("/api/rewards/milestone", methods(http.MethodPost, h.RequireAuth(h.Milestone)))
 	mux.Handle("/api/rewards/bonus", methods(http.MethodPost, h.RequireAuth(h.Bonus)))
+	mux.Handle("/api/purchases/google", methods(http.MethodPost, h.RequireAuth(h.BuyChips)))
 	mux.Handle("/api/profiles", methods(http.MethodGet, http.HandlerFunc(h.Profiles)))
 	mux.Handle("/api/profile/avatar", methods(http.MethodPost, h.RequireAuth(h.Avatar)))
 	mux.Handle("/api/profile/name", methods(http.MethodPost, h.RequireAuth(h.Name)))
@@ -301,6 +324,10 @@ const (
 	MsgSeatedName         = "You can only change your name in the lobby."
 	MsgSeatedMilestone    = "Collect your milestone reward from the lobby, not while you are at a table."
 	MsgSeatedBonus        = "Collect your reward from the lobby, not while you are at a table."
+	MsgStoreUnavailable   = "The chip store is not open yet."
+	MsgInvalidPurchase    = "That purchase is missing its product or receipt."
+	MsgUnknownProduct     = "That pack is not on sale."
+	MsgPurchaseUnverified = "Google Play could not confirm that purchase. Nothing was charged for it here."
 	MsgUnknownAvatar      = "That picture is not available."
 	MsgEmptyName          = "Your name cannot be empty."
 	MsgNameTooLongFormat  = "Keep it to %d characters or fewer."

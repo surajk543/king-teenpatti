@@ -23,6 +23,7 @@ import (
 	"github.com/surajk543/king-teenpatti/go-server/internal/game"
 	"github.com/surajk543/king-teenpatti/go-server/internal/live"
 	"github.com/surajk543/king-teenpatti/go-server/internal/metrics"
+	"github.com/surajk543/king-teenpatti/go-server/internal/purchase"
 	"github.com/surajk543/king-teenpatti/go-server/internal/sio"
 	"github.com/surajk543/king-teenpatti/go-server/internal/socket"
 )
@@ -268,12 +269,25 @@ func New(opts Options) (*App, error) {
 	a.startReconciler()
 
 	// 7. routes.
+	//
+	// The chip store is wired only when Play credentials are present. With
+	// none, `store` stays nil and the endpoint answers 503: a server that
+	// cannot verify a receipt must refuse rather than take the client's word.
+	var chipStore auth.PurchaseGateway
+	if pv, err := purchase.NewGoogleVerifier(cfg.Play.Package, cfg.Play.Credentials); err != nil {
+		return nil, fmt.Errorf("google play credentials: %w", err)
+	} else if pv != nil {
+		chipStore = &playStore{verifier: pv, db: opts.DB, users: users}
+		logger.Info("chip store enabled", "package", cfg.Play.Package, "products", len(purchase.Catalogue))
+	}
+
 	api := auth.NewHandler(auth.Deps{
 		Config:      cfg,
 		Users:       users,
 		Tokens:      tokens,
 		Verifier:    verifier,
 		IsSeated:    func(userID string) bool { return a.rooms.GetTableForPlayer(userID) != nil },
+		Purchases:   chipStore,
 		ProfilesDir: filepath.Join(cfg.PublicDir, "profiles"),
 		Logger:      logger,
 	})
