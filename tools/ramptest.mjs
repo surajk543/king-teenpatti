@@ -313,6 +313,12 @@ async function workerMain() {
         reply({ type: 'ramped', target: msg.target, loginMs: r.loginMs, loginFailures: r.loginFailures, aborted: r.aborted ?? null,
           connected: bots.filter((b) => b.connected).length, joined: bots.filter((b) => b.joined).length,
           connectFailures: bots.filter((b) => b.connectError).length, connectMs: bots.filter((b) => b.connectMs).map((b) => Math.round(b.connectMs)), joinRefusals: joinRefusals(bots) });
+      } else if (msg.type === 'count') {
+        // A re-count after the parent's settle sleep — see the note there.
+        reply({ type: 'counted',
+          connected: bots.filter((b) => b.connected).length, joined: bots.filter((b) => b.joined).length,
+          connectFailures: bots.filter((b) => b.connectError).length,
+          connectMs: bots.filter((b) => b.connectMs).map((b) => Math.round(b.connectMs)), joinRefusals: joinRefusals(bots) });
       } else if (msg.type === 'hold') {
         startWindow();
         await sleep(msg.seconds * 1000);
@@ -362,13 +368,23 @@ async function parentMain() {
       return;
     }
     await sleep(2500);
-    const connected = connectedNow();
-    const joined = ramped.reduce((n, r) => n + r.joined, 0);
+    // Count AFTER the settle sleep, not before. A worker answers 'ramp' the
+    // moment its last login resolves, while the final batch of websockets is
+    // still completing its handshake — so `ramped[].connected` is a snapshot
+    // from before this sleep and re-reading it here counts nothing new. That
+    // undercount reads exactly like a server refusing connections: a 1,000
+    // player stage reported 840/1000 and tripped the 90% stop rule while the
+    // server itself held all 1,000 sockets with zero connect or login
+    // failures. Single-process mode never had the bug because it sleeps
+    // before it counts; this asks the workers again so both modes agree.
+    const counted = await Promise.all(children.map((c) => ask(c, { type: 'count' }, 'counted')));
+    const connected = counted.reduce((n, r) => n + r.connected, 0);
+    const joined = counted.reduce((n, r) => n + r.joined, 0);
     const loginFailures = ramped.reduce((n, r) => n + r.loginFailures, 0);
-    const connectFailures = ramped.reduce((n, r) => n + r.connectFailures, 0);
+    const connectFailures = counted.reduce((n, r) => n + r.connectFailures, 0);
     const loginMs = ramped.flatMap((r) => r.loginMs);
-    const connectMs = ramped.flatMap((r) => r.connectMs);
-    const refusals = ramped.reduce((m, r) => { for (const [k, v] of Object.entries(r.joinRefusals ?? {})) m[k] = (m[k] ?? 0) + v; return m; }, {});
+    const connectMs = counted.flatMap((r) => r.connectMs);
+    const refusals = counted.reduce((m, r) => { for (const [k, v] of Object.entries(r.joinRefusals ?? {})) m[k] = (m[k] ?? 0) + v; return m; }, {});
 
     const t0 = Date.now();
     const holds = Promise.all(children.map((c) => ask(c, { type: 'hold', seconds: HOLD_S }, 'held')));
