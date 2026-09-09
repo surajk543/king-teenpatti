@@ -273,9 +273,21 @@ func New(opts Options) (*App, error) {
 	// The chip store is wired only when Play credentials are present. With
 	// none, `store` stays nil and the endpoint answers 503: a server that
 	// cannot verify a receipt must refuse rather than take the client's word.
+	// A broken credential disables the STORE. It must never stop the server.
+	//
+	// This first refused to start, on the reasoning that a server with bad
+	// payment credentials would otherwise fail only once a player had been
+	// charged. That reasoning is right about the store and badly wrong about
+	// the game: on 9 Sep 2026 a service-account key pasted across several
+	// lines — which godotenv cannot parse — crash-looped production and took
+	// every table down for a feature nobody was using yet. The safe state for
+	// an unverifiable store is closed (503), which is exactly what a nil
+	// gateway gives, and the game is unaffected either way. Loud log, carry on.
 	var chipStore auth.PurchaseGateway
 	if pv, err := purchase.NewGoogleVerifier(cfg.Play.Package, cfg.Play.Credentials); err != nil {
-		return nil, fmt.Errorf("google play credentials: %w", err)
+		logger.Error("chip store disabled: Google Play credentials are unusable",
+			"err", err.Error(),
+			"hint", "GOOGLE_PLAY_CREDENTIALS must be the service-account JSON on ONE line")
 	} else if pv != nil {
 		chipStore = &playStore{verifier: pv, db: opts.DB, users: users}
 		logger.Info("chip store enabled", "package", cfg.Play.Package, "products", len(purchase.Catalogue))
