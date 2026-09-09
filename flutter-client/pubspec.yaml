@@ -44,6 +44,10 @@ dependencies:
   package_info_plus: ^10.2.1
   in_app_purchase: ^3.3.0
   in_app_update: ^5.0.0
+  frosted_ui_kit: ^1.0.2
+  audioplayers: ^6.8.1
+  google_sign_in: ^7.2.0
+  flutter_facebook_auth: ^7.2.0
 
 dev_dependencies:
   flutter_test:
@@ -68,6 +72,7 @@ flutter:
   uses-material-design: true
 
   assets:
+    - assets/sfx/
     - assets/
 
   # To add assets to your application, add an assets section, like this:

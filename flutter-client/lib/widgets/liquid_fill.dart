@@ -2,12 +2,19 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../theme/app_theme.dart';
+
 /// The turn clock, drawn as liquid rising inside a player's pod.
 ///
 /// The surface ripples so it reads as something filling rather than a bar
 /// growing: two sine waves at different speeds and phases, which is enough to
 /// stop the crest looking mechanical. When the pod is full the player's time is
 /// up, so the level is the clock and the colour is how urgent it has become.
+///
+/// Nothing here can end a turn. The deadline is the server's, the server
+/// enforces the timeout, and no clock-skew correction is applied — a pod that
+/// fills a little early or late is a cosmetic error, whereas a client that
+/// believed its own arithmetic would be a rules error.
 class LiquidFill extends StatefulWidget {
   const LiquidFill({
     super.key,
@@ -54,6 +61,9 @@ class _LiquidFillState extends State<LiquidFill>
 
   @override
   Widget build(BuildContext context) {
+    // The pod around this repaints on every seat update; the liquid repaints on
+    // every frame. Without the boundary the second rate wins and the whole pod
+    // — gradient, border and three shadows — re-rasterises at 60fps.
     return RepaintBoundary(
       child: AnimatedBuilder(
         animation: _wave,
@@ -81,6 +91,34 @@ class _LiquidPainter extends CustomPainter {
   final double phase;
   final Color colour;
 
+  /// The meniscus, against the pod's short side.
+  ///
+  /// A fixed 1.4dp line was the whole liquid at a 56dp pod and invisible at
+  /// 148dp. Pod widths run about 82.6 at h=360, 92.6 at h=411 and the 148
+  /// ceiling at h=800, so the champagne line lands at 1.82 | 2.04 | 2.40dp —
+  /// the clamp floor only bites on a pod smaller than the felt can produce.
+  static double _meniscus(Size size) =>
+      (size.shortestSide * 0.022).clamp(1.0, 2.4);
+
+  /// The crest, sampled coarsely enough that a tablet-sized pod is not a
+  /// hundred-segment path and finely enough that a small one is still a curve.
+  Path _surfacePath(Size size, double surface, double amplitude, double speed,
+      double shift) {
+    final step = math.max(2.0, size.width / 48);
+    final path = Path();
+
+    for (var x = 0.0; x <= size.width; x += step) {
+      final t = (x / size.width) * 2 * math.pi;
+      final y = surface +
+          math.sin(t * 1.6 + phase * 2 * math.pi * speed + shift) * amplitude;
+      x == 0 ? path.moveTo(x, y) : path.lineTo(x, y);
+    }
+
+    // The loop can stop short of the right edge; sample it exactly.
+    final edge = 2 * math.pi * 1.6 + phase * 2 * math.pi * speed + shift;
+    return path..lineTo(size.width, surface + math.sin(edge) * amplitude);
+  }
+
   @override
   void paint(Canvas canvas, Size size) {
     if (level <= 0) return;
@@ -88,43 +126,74 @@ class _LiquidPainter extends CustomPainter {
     // Room for the crest to rise above the level without spilling.
     final amplitude = size.height * 0.035 * (level < 0.98 ? 1 : 0.2);
     final surface = size.height * (1 - level);
+    final line = _meniscus(size);
 
-    void wave(double shift, double speed, double alpha) {
-      final path = Path()..moveTo(0, size.height);
+    Path body(double shift, double speed) =>
+        _surfacePath(size, surface, amplitude, speed, shift)
+          ..lineTo(size.width, size.height)
+          ..lineTo(0, size.height)
+          ..close();
 
-      for (var x = 0.0; x <= size.width; x += 2) {
-        final t = (x / size.width) * 2 * math.pi;
-        final y = surface +
-            math.sin(t * 1.6 + phase * 2 * math.pi * speed + shift) * amplitude;
-        path.lineTo(x, y);
-      }
-
-      path
-        ..lineTo(size.width, size.height)
-        ..close();
-
-      canvas.drawPath(path, Paint()..color = colour.withValues(alpha: alpha));
-    }
-
-    // A body and a lighter swell in front of it, so the liquid has depth.
-    wave(0, 1.0, 0.30);
-    wave(math.pi * 0.7, -0.6, 0.22);
-
-    // A bright line on the surface, which is what sells it as a liquid.
-    final crest = Path();
-    for (var x = 0.0; x <= size.width; x += 2) {
-      final t = (x / size.width) * 2 * math.pi;
-      final y = surface + math.sin(t * 1.6 + phase * 2 * math.pi) * amplitude;
-      x == 0 ? crest.moveTo(x, y) : crest.lineTo(x, y);
-    }
-
-    canvas.drawPath(
-      crest,
-      Paint()
-        ..color = colour.withValues(alpha: 0.75)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.4,
+    // The body is denser at the bottom than at the surface, which is what
+    // makes it read as a volume of liquid rather than a tinted rectangle.
+    final fill = Rect.fromLTRB(
+      0,
+      math.min(surface, size.height - 1),
+      size.width,
+      size.height,
     );
+    canvas.drawPath(
+      body(0, 1.0),
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.bottomCenter,
+          end: Alignment.topCenter,
+          // Read against a PALE plaque, not a dark one. These alphas were set
+          // when the turn colour was a saturated green; champagne at a third
+          // of an alpha on a bone pod is a rumour, not a clock.
+          colors: [
+            colour.withValues(alpha: 0.72),
+            colour.withValues(alpha: 0.34),
+          ],
+        ).createShader(fill),
+    );
+
+    // A slower swell running the other way, so the surface is never one wave.
+    canvas.drawPath(
+      body(math.pi * 0.7, -0.6),
+      Paint()..color = colour.withValues(alpha: 0.30),
+    );
+
+    final crest = _surfacePath(size, surface, amplitude, 1.0, 0);
+
+    // Light bending through the meniscus: the same liquid, a band thick,
+    // sitting above the line rather than below it.
+    canvas.drawPath(
+      Path.from(crest)
+        ..lineTo(size.width, surface - line * 2)
+        ..lineTo(0, surface - line * 2)
+        ..close(),
+      Paint()..color = colour.withValues(alpha: 0.26),
+    );
+
+    // Champagne, not the urgency colour: the body carries how much time is
+    // left, and a gold line is the one thing on the pod that says liquid.
+    canvas
+      ..drawPath(
+        crest,
+        Paint()
+          ..color = AppTheme.goldDeep.withValues(alpha: 0.45)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = line * 1.8
+          ..maskFilter = MaskFilter.blur(BlurStyle.normal, size.height * 0.02),
+      )
+      ..drawPath(
+        crest,
+        Paint()
+          ..color = AppTheme.goldDeep.withValues(alpha: 0.95)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = line,
+      );
   }
 
   @override

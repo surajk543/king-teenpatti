@@ -41,7 +41,8 @@ that fills roughly thirteen tables per category.
 |---|---|---|
 | `--server-url` / `SERVER_URL` | `http://127.0.0.1:3000` | Where the game server is |
 | `--per-category` / `PER_CATEGORY` | 66 | Bots in *each* category, not per table |
-| `--switch-every` / `SWITCH_EVERY` | 240 | Seconds between a bot considering another table; 0 disables |
+| `--switch-every` / `SWITCH_EVERY` | 240 | Seconds between a bot considering another table at the SAME stake; 0 disables |
+| `--hop-every` / `HOP_EVERY` | 1800 | Seconds between a bot considering a DIFFERENT stake; 0 disables |
 | `--start-stagger-ms` / `START_STAGGER_MS` | 250 | Gap between starting each bot |
 | `--on-broke` / `ON_BROKE` | `rotate` | `rotate` or `retire` — see below |
 | `--quiet` / `QUIET` | off | Only log chip-minting rotations and the heartbeat |
@@ -67,10 +68,22 @@ read as one program with five sockets.
   correctly at 200 and at 5,000.
 - **Some sideshow asks are simply left to expire.** A table where every ask is
   answered within two seconds is a table of programs.
+- **They have faces.** Each bot wears one of the server's bundled profile
+  pictures, chosen from its index so the same seat keeps the same animal every
+  run. Five identical grey initials around a table is the tell that gives the
+  fleet away before anyone reads a name. Set once after login, because the
+  server refuses a picture change at a table (409 `seated`).
 - **They wander between tables.** This is not decoration: the server seats a
   player at the *fullest* table with room, so without churn exactly one table
   per category ever has a free seat, and every arriving real player lands in
   the same one. Bots coming and going keep seats open across the lobby.
+- **A few change stake.** `room:switch` means "another table of the same boot
+  and category" — changing stake is leaving one game for another, so it is a
+  leave and a fresh quick-join, as a player would do it from the lobby. Only
+  the ~28% of personas with a `hopRate` ever do, and rarely: a fleet that
+  redistributed itself often would leave whole stakes empty in waves. Without
+  it, the three lobby tables would each hold the same fixed sixty-six accounts
+  for ever.
 
 ## Running out of chips
 
@@ -113,6 +126,11 @@ kicks                                  0
 
 `hand_left 72` is the table switching working: a switch is a departure, and a
 departure is a checkpoint.
+
+**Chat, measured at the defaults:** 1.2 messages per table per minute — a line
+roughly every fifty seconds at the table a player is sitting at. The earlier
+rates gave 0.3, one line every three and a half minutes, which reads as an
+empty room rather than a quiet one.
 
 **12 invalid moves out of 213** remain, all of one kind — `no_hand`,
 `not_in_hand`, `not_your_turn`, `show_unavailable`. These are lost races, not

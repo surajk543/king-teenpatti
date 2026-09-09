@@ -4,6 +4,7 @@ import { config } from './config.js';
 import { moodFor, pickLine } from './chat.js';
 import { identityFor, rotatedIdentity } from './identities.js';
 import { personaFor, thinkTime } from './persona.js';
+import { profileFor, profileIds } from './profiles.js';
 
 /**
  * One resident player.
@@ -81,6 +82,32 @@ export class Bot {
     this.token = body.token;
     this.userId = body.user.id;
     this.chips = body.user.chips;
+    await this.wearAPicture(body.user);
+  }
+
+  /**
+   * Picks the bot's profile picture, once, while it is still in the lobby.
+   *
+   * The server refuses a picture change at a table (409 seated), which is why
+   * this runs here and not later: after login and before the socket connects
+   * is the only moment a bot is reliably unseated.
+   *
+   * A failure is swallowed. The picture is decoration and a bot that could not
+   * set one should still sit down and play.
+   */
+  async wearAPicture(user) {
+    if (user?.avatarChoice) return;
+    const wanted = profileFor(this.index, await profileIds());
+    if (!wanted) return;
+    try {
+      await fetch(`${config.serverUrl}/api/profile/avatar`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${this.token}` },
+        body: JSON.stringify({ avatar: wanted }),
+      });
+    } catch {
+      // see above
+    }
   }
 
   connect() {
@@ -148,8 +175,12 @@ export class Bot {
       (ack) => {
         if (ack?.ok) return;
         if (ack?.code === 'insufficient_chips') return this.onBroke();
-        const retryable = ack?.code === 'already_in_room' || ack?.code === 'table_full' ||
-          ack?.code === 'over_entry_cap';
+        if (ack?.code === 'over_entry_cap') {
+          // Too rich for this table, and waiting will not make it poorer.
+          this.table = this.affordableTable();
+          return this.after(1000 + Math.random() * 2000, () => this.join(attempt + 1));
+        }
+        const retryable = ack?.code === 'already_in_room' || ack?.code === 'table_full';
         if (retryable && attempt <= 20) {
           return this.after(4000 + Math.random() * 6000, () => this.join(attempt + 1));
         }
@@ -268,6 +299,50 @@ export class Bot {
     this.socket?.emit('room:switch', {}, (ack) => {
       if (ack?.ok === false && ack.code === 'insufficient_chips') this.onBroke();
     });
+  }
+
+  /**
+   * Moves to a DIFFERENT lobby table — another stake, or the other category.
+   *
+   * `wander` cannot do this: room:switch is defined as "another table of the
+   * same boot and category", which is what a player means by switching seats.
+   * Changing stake is leaving one game for another, so it is a leave and a
+   * fresh quick-join, exactly as a player would do it from the lobby.
+   *
+   * Only some bots ever do it, and rarely, because a fleet that redistributes
+   * itself constantly leaves whole stakes empty for minutes at a time. The
+   * point is that the three lobby tables do not each contain the same fixed
+   * sixty-six accounts for ever.
+   */
+  hop() {
+    if (this.stopped || !this.seated) return;
+    const elsewhere = config.categories.filter(
+      (c) => !(c.category === this.table.category && c.boot === this.table.boot),
+    );
+    if (!elsewhere.length) return;
+    const next = elsewhere[Math.floor(Math.random() * elsewhere.length)];
+    this.socket?.emit('room:leave', {}, () => {
+      this.seated = false;
+      this.table = next;
+      this.log?.(`${this.identity.name}: moving to ${next.category}/${next.boot}`);
+      // A beat in the lobby before sitting down again, so the move reads as a
+      // decision rather than a teleport.
+      this.after(1500 + Math.random() * 3000, () => this.join());
+    });
+  }
+
+  /**
+   * A table this bot can actually sit at, given what it is carrying.
+   *
+   * Requirement 30 caps the cheapest blind table so a big stack cannot sit
+   * down at it. A bot that has won its way past the cap is refused for ever
+   * otherwise, and retrying twenty times does not change its balance.
+   */
+  affordableTable() {
+    const others = config.categories.filter(
+      (c) => !(c.category === this.table.category && c.boot === this.table.boot),
+    );
+    return others[Math.floor(Math.random() * others.length)] ?? this.table;
   }
 
   /**

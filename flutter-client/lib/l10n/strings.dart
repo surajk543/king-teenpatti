@@ -23,9 +23,9 @@ enum AppLang {
   Locale get locale => Locale(code);
 
   static AppLang fromCode(String? code) => AppLang.values.firstWhere(
-        (l) => l.code == code,
-        orElse: () => AppLang.english,
-      );
+    (l) => l.code == code,
+    orElse: () => AppLang.english,
+  );
 }
 
 /// Every string the interface shows.
@@ -49,7 +49,11 @@ class Strings {
   String get signingIn => _('signingIn');
   String get continueGoogle => _('continueGoogle');
   String get continueFacebook => _('continueFacebook');
-  String get guestHint => _('guestHint');
+
+  /// Shown when a provider button is tapped in a build that carries no
+  /// credentials for it. `{provider}` is substituted with 'Google'/'Facebook'.
+  String signInUnavailable(String provider) =>
+      _('signInUnavailable').replaceAll('{provider}', provider);
 
   // --- lobby
   String get boot => _('boot');
@@ -117,6 +121,9 @@ class Strings {
   String get unitBillion => _('unitBillion');
   String get switchTheme => _('switchTheme');
   String get signOut => _('signOut');
+  String get serviceUnavailable => _('serviceUnavailable');
+  String get soundLabel => _('soundLabel');
+  String get vibrationLabel => _('vibrationLabel');
   String get deleteAccount => _('deleteAccount');
   String get deleteAccountTitle => _('deleteAccountTitle');
   String get deleteAccountBody => _('deleteAccountBody');
@@ -241,8 +248,8 @@ class Strings {
       'signingIn': 'Signing in…',
       'continueGoogle': 'Continue with Google',
       'continueFacebook': 'Continue with Facebook',
-      'guestHint':
-          "Guest play is keyed to this device's id, so your chips are here next time.",
+      'signInUnavailable':
+          '{provider} sign-in is not available in this version. Please play as guest for now.',
       'boot': 'boot',
       'maxBlindsLabel': 'blind moves max',
       'potLimitLabel': 'pot limit',
@@ -278,7 +285,8 @@ class Strings {
       'buyChips': 'Buy chips',
       'comingSoon': 'Coming soon',
       'updateTitle': 'A new version is ready',
-      'updateBody': 'Update to keep playing. This version is no longer up to date.',
+      'updateBody':
+          'Update to keep playing. This version is no longer up to date.',
       'updateNow': 'Update now',
       'updateOpenStore': 'Open Play Store',
       'updateFailed': 'The update did not finish. Please try again.',
@@ -290,7 +298,8 @@ class Strings {
       'posPopular': 'POPULAR',
       'posBestValue': 'BEST VALUE',
       'posPremium': 'PREMIUM',
-      'comingSoonBody': 'Buying chips is not open yet. Collect your rewards in the meantime.',
+      'comingSoonBody':
+          'Buying chips is not open yet. Collect your rewards in the meantime.',
       'handsToGo': 'hands to go',
       'settings': 'Settings',
       'language': 'Language',
@@ -303,9 +312,13 @@ class Strings {
       'unitBillion': 'Billion',
       'switchTheme': 'Switch theme',
       'signOut': 'Sign out',
+      'serviceUnavailable': 'Service not available',
+      'soundLabel': 'Sound',
+      'vibrationLabel': 'Vibration',
       'deleteAccount': 'Delete my account',
       'deleteAccountTitle': 'Delete your account?',
-      'deleteAccountBody': 'This erases your name, picture, statistics and every chip you hold, including chips you paid for. It cannot be undone, and nothing can be restored to a new account.',
+      'deleteAccountBody':
+          'This erases your name, picture, statistics and every chip you hold, including chips you paid for. It cannot be undone, and nothing can be restored to a new account.',
       'deleteAccountSeated': 'Leave the table before deleting your account.',
       'deleteAccountConfirm': 'Delete permanently',
       'useProviderPicture': 'Use my Google/Facebook picture',
@@ -378,7 +391,8 @@ class Strings {
       'joinAnother': 'You can join another straight away',
       'rules': 'Rules',
       'rulesTitle': 'Card ranking',
-      'rulesBeats': 'Strongest at the top. Every hand beats everything below it.',
+      'rulesBeats':
+          'Strongest at the top. Every hand beats everything below it.',
       'rankTrail': 'Trail',
       'rankTrailNote': 'Three of the same rank',
       'rankPureSeq': 'Pure Sequence',
@@ -392,13 +406,15 @@ class Strings {
       'rankHigh': 'High Card',
       'rankHighNote': 'None of the above; highest card wins',
       'runOrder': 'Run order',
-      'runOrderNote': 'A-K-Q is the highest run, then A-2-3, then K-Q-J down to 4-3-2.',
+      'runOrderNote':
+          'A-K-Q is the highest run, then A-2-3, then K-Q-J down to 4-3-2.',
       'close': 'Close',
       'changeName': 'Change name',
       'save': 'Save',
       'nameSaved': 'Name updated.',
       'cappedTitle': 'Table closed to you',
-      'cappedBody': 'Players holding more than {cap} chips cannot join this table.',
+      'cappedBody':
+          'Players holding more than {cap} chips cannot join this table.',
       'useSocialPicture': 'Use my Google or Facebook picture',
       'guestNoSocial': 'Sign in with Google or Facebook to use your own photo.',
     },
@@ -410,8 +426,8 @@ class Strings {
       'signingIn': 'साइन इन हो रहा है…',
       'continueGoogle': 'Google से जारी रखें',
       'continueFacebook': 'Facebook से जारी रखें',
-      'guestHint':
-          'मेहमान खाता इस डिवाइस से जुड़ा है, इसलिए आपके चिप्स अगली बार भी यहीं रहेंगे।',
+      'signInUnavailable':
+          'इस वर्शन में {provider} साइन-इन उपलब्ध नहीं है। फ़िलहाल गेस्ट के रूप में खेलें।',
       'boot': 'बूट',
       'maxBlindsLabel': 'ब्लाइंड चालें अधिकतम',
       'potLimitLabel': 'पॉट सीमा',
@@ -459,7 +475,8 @@ class Strings {
       'posPopular': 'लोकप्रिय',
       'posBestValue': 'सबसे बढ़िया',
       'posPremium': 'प्रीमियम',
-      'comingSoonBody': 'चिप्स खरीदना अभी शुरू नहीं हुआ है। तब तक अपने इनाम लेते रहें।',
+      'comingSoonBody':
+          'चिप्स खरीदना अभी शुरू नहीं हुआ है। तब तक अपने इनाम लेते रहें।',
       'handsToGo': 'हाथ बाकी',
       'settings': 'सेटिंग्स',
       'language': 'भाषा',
@@ -472,9 +489,13 @@ class Strings {
       'unitBillion': 'बिलियन',
       'switchTheme': 'थीम बदलें',
       'signOut': 'साइन आउट',
+      'serviceUnavailable': 'सेवा उपलब्ध नहीं है',
+      'soundLabel': 'आवाज़',
+      'vibrationLabel': 'कंपन',
       'deleteAccount': 'मेरा खाता हटाएं',
       'deleteAccountTitle': 'खाता हटाना है?',
-      'deleteAccountBody': 'इससे आपका नाम, तस्वीर, आंकड़े और आपके सारे चिप्स मिट जाएंगे, वे भी जो आपने खरीदे थे। यह वापस नहीं हो सकता, और कुछ भी नए खाते में नहीं आएगा।',
+      'deleteAccountBody':
+          'इससे आपका नाम, तस्वीर, आंकड़े और आपके सारे चिप्स मिट जाएंगे, वे भी जो आपने खरीदे थे। यह वापस नहीं हो सकता, और कुछ भी नए खाते में नहीं आएगा।',
       'deleteAccountSeated': 'खाता हटाने से पहले टेबल छोड़ें।',
       'deleteAccountConfirm': 'हमेशा के लिए हटाएं',
       'useProviderPicture': 'मेरी Google/Facebook तस्वीर लगाएँ',
@@ -567,9 +588,11 @@ class Strings {
       'save': 'सहेजें',
       'nameSaved': 'नाम बदल गया।',
       'cappedTitle': 'यह टेबल आपके लिए बंद है',
-      'cappedBody': '{cap} से ज़्यादा चिप्स रखने वाले खिलाड़ी इस टेबल पर नहीं बैठ सकते।',
+      'cappedBody':
+          '{cap} से ज़्यादा चिप्स रखने वाले खिलाड़ी इस टेबल पर नहीं बैठ सकते।',
       'useSocialPicture': 'मेरी Google या Facebook तस्वीर लगाएँ',
-      'guestNoSocial': 'अपनी तस्वीर लगाने के लिए Google या Facebook से साइन इन करें।',
+      'guestNoSocial':
+          'अपनी तस्वीर लगाने के लिए Google या Facebook से साइन इन करें।',
     },
     'bn': {
       'signInSubtitle': 'খেলতে সাইন ইন করুন।',
@@ -579,8 +602,8 @@ class Strings {
       'signingIn': 'সাইন ইন হচ্ছে…',
       'continueGoogle': 'Google দিয়ে চালিয়ে যান',
       'continueFacebook': 'Facebook দিয়ে চালিয়ে যান',
-      'guestHint':
-          'অতিথি অ্যাকাউন্ট এই ডিভাইসের সঙ্গে যুক্ত, তাই আপনার চিপ পরের বারও থাকবে।',
+      'signInUnavailable':
+          'এই সংস্করণে {provider} সাইন-ইন উপলব্ধ নয়। আপাতত গেস্ট হিসেবে খেলুন।',
       'boot': 'বুট',
       'maxBlindsLabel': 'ব্লাইন্ড চাল সর্বোচ্চ',
       'potLimitLabel': 'পট সীমা',
@@ -616,7 +639,8 @@ class Strings {
       'buyChips': 'চিপ কিনুন',
       'comingSoon': 'শীঘ্রই আসছে',
       'updateTitle': 'নতুন সংস্করণ প্রস্তুত',
-      'updateBody': 'খেলা চালিয়ে যেতে আপডেট করুন। এই সংস্করণটি আর সর্বশেষ নয়।',
+      'updateBody':
+          'খেলা চালিয়ে যেতে আপডেট করুন। এই সংস্করণটি আর সর্বশেষ নয়।',
       'updateNow': 'এখনই আপডেট করুন',
       'updateOpenStore': 'প্লে স্টোর খুলুন',
       'updateFailed': 'আপডেট শেষ হয়নি। আবার চেষ্টা করুন।',
@@ -628,7 +652,8 @@ class Strings {
       'posPopular': 'জনপ্রিয়',
       'posBestValue': 'সেরা মূল্য',
       'posPremium': 'প্রিমিয়াম',
-      'comingSoonBody': 'চিপ কেনা এখনও চালু হয়নি। ততক্ষণ আপনার পুরস্কার নিতে থাকুন।',
+      'comingSoonBody':
+          'চিপ কেনা এখনও চালু হয়নি। ততক্ষণ আপনার পুরস্কার নিতে থাকুন।',
       'handsToGo': 'হাত বাকি',
       'settings': 'সেটিংস',
       'language': 'ভাষা',
@@ -641,9 +666,13 @@ class Strings {
       'unitBillion': 'বিলিয়ন',
       'switchTheme': 'থিম বদলান',
       'signOut': 'সাইন আউট',
+      'serviceUnavailable': 'পরিষেবা উপলব্ধ নেই',
+      'soundLabel': 'শব্দ',
+      'vibrationLabel': 'কম্পন',
       'deleteAccount': 'আমার অ্যাকাউন্ট মুছুন',
       'deleteAccountTitle': 'অ্যাকাউন্ট মুছবেন?',
-      'deleteAccountBody': 'এতে আপনার নাম, ছবি, পরিসংখ্যান এবং আপনার সব চিপ মুছে যাবে, যেগুলি আপনি কিনেছিলেন সেগুলিও। এটি ফেরানো যায় না, এবং কিছুই নতুন অ্যাকাউন্টে ফিরবে না।',
+      'deleteAccountBody':
+          'এতে আপনার নাম, ছবি, পরিসংখ্যান এবং আপনার সব চিপ মুছে যাবে, যেগুলি আপনি কিনেছিলেন সেগুলিও। এটি ফেরানো যায় না, এবং কিছুই নতুন অ্যাকাউন্টে ফিরবে না।',
       'deleteAccountSeated': 'অ্যাকাউন্ট মোছার আগে টেবিল ছাড়ুন।',
       'deleteAccountConfirm': 'স্থায়ীভাবে মুছুন',
       'useProviderPicture': 'আমার Google/Facebook ছবি ব্যবহার করুন',
@@ -716,7 +745,8 @@ class Strings {
       'joinAnother': 'আপনি সঙ্গে সঙ্গে অন্য টেবিলে যোগ দিতে পারেন',
       'rules': 'নিয়ম',
       'rulesTitle': 'তাসের র‍্যাঙ্কিং',
-      'rulesBeats': 'উপরেরটি সবচেয়ে শক্তিশালী। প্রতিটি হাত নিচের সবগুলিকে হারায়।',
+      'rulesBeats':
+          'উপরেরটি সবচেয়ে শক্তিশালী। প্রতিটি হাত নিচের সবগুলিকে হারায়।',
       'rankTrail': 'ট্রেইল',
       'rankTrailNote': 'একই র‍্যাঙ্কের তিনটি তাস',
       'rankPureSeq': 'পিওর সিকোয়েন্স',
@@ -730,15 +760,18 @@ class Strings {
       'rankHigh': 'হাই কার্ড',
       'rankHighNote': 'কিছুই হয়নি; সবচেয়ে বড় তাস জেতে',
       'runOrder': 'সিকোয়েন্সের ক্রম',
-      'runOrderNote': 'A-K-Q সবচেয়ে উঁচু, তারপর A-2-3, তারপর K-Q-J থেকে 4-3-2 পর্যন্ত।',
+      'runOrderNote':
+          'A-K-Q সবচেয়ে উঁচু, তারপর A-2-3, তারপর K-Q-J থেকে 4-3-2 পর্যন্ত।',
       'close': 'বন্ধ করুন',
       'changeName': 'নাম বদলান',
       'save': 'সেভ করুন',
       'nameSaved': 'নাম বদলে গেছে।',
       'cappedTitle': 'এই টেবিল আপনার জন্য বন্ধ',
-      'cappedBody': '{cap} এর বেশি চিপ থাকা খেলোয়াড়েরা এই টেবিলে বসতে পারেন না।',
+      'cappedBody':
+          '{cap} এর বেশি চিপ থাকা খেলোয়াড়েরা এই টেবিলে বসতে পারেন না।',
       'useSocialPicture': 'আমার Google বা Facebook ছবি ব্যবহার করুন',
-      'guestNoSocial': 'নিজের ছবি ব্যবহার করতে Google বা Facebook দিয়ে সাইন ইন করুন।',
+      'guestNoSocial':
+          'নিজের ছবি ব্যবহার করতে Google বা Facebook দিয়ে সাইন ইন করুন।',
     },
     'gu': {
       'signInSubtitle': 'રમવા માટે સાઇન ઇન કરો.',
@@ -748,8 +781,8 @@ class Strings {
       'signingIn': 'સાઇન ઇન થઈ રહ્યું છે…',
       'continueGoogle': 'Google થી ચાલુ રાખો',
       'continueFacebook': 'Facebook થી ચાલુ રાખો',
-      'guestHint':
-          'મહેમાન ખાતું આ ડિવાઇસ સાથે જોડાયેલું છે, તેથી તમારા ચિપ્સ આવતી વખતે પણ અહીં જ રહેશે.',
+      'signInUnavailable':
+          'આ વર્ઝનમાં {provider} સાઇન-ઇન ઉપલબ્ધ નથી. હાલ પૂરતું ગેસ્ટ તરીકે રમો.',
       'boot': 'બૂટ',
       'maxBlindsLabel': 'બ્લાઇન્ડ ચાલ મહત્તમ',
       'potLimitLabel': 'પોટ મર્યાદા',
@@ -797,7 +830,8 @@ class Strings {
       'posPopular': 'લોકપ્રિય',
       'posBestValue': 'સૌથી સારું',
       'posPremium': 'પ્રીમિયમ',
-      'comingSoonBody': 'ચિપ્સ ખરીદવાનું હજી શરૂ થયું નથી. ત્યાં સુધી તમારાં ઇનામ લેતા રહો.',
+      'comingSoonBody':
+          'ચિપ્સ ખરીદવાનું હજી શરૂ થયું નથી. ત્યાં સુધી તમારાં ઇનામ લેતા રહો.',
       'handsToGo': 'હાથ બાકી',
       'settings': 'સેટિંગ્સ',
       'language': 'ભાષા',
@@ -810,9 +844,13 @@ class Strings {
       'unitBillion': 'બિલિયન',
       'switchTheme': 'થીમ બદલો',
       'signOut': 'સાઇન આઉટ',
+      'serviceUnavailable': 'સેવા ઉપલબ્ધ નથી',
+      'soundLabel': 'અવાજ',
+      'vibrationLabel': 'કંપન',
       'deleteAccount': 'મારું ખાતું કાઢી નાખો',
       'deleteAccountTitle': 'ખાતું કાઢી નાખવું છે?',
-      'deleteAccountBody': 'આનાથી તમારું નામ, ચિત્ર, આંકડા અને તમારી બધી ચિપ્સ ભૂંસાઈ જશે, જે તમે ખરીદી હતી તે પણ. આ પાછું લઈ શકાતું નથી, અને કંઈ પણ નવા ખાતામાં આવશે નહીં.',
+      'deleteAccountBody':
+          'આનાથી તમારું નામ, ચિત્ર, આંકડા અને તમારી બધી ચિપ્સ ભૂંસાઈ જશે, જે તમે ખરીદી હતી તે પણ. આ પાછું લઈ શકાતું નથી, અને કંઈ પણ નવા ખાતામાં આવશે નહીં.',
       'deleteAccountSeated': 'ખાતું કાઢી નાખતાં પહેલાં ટેબલ છોડો.',
       'deleteAccountConfirm': 'કાયમ માટે કાઢી નાખો',
       'useProviderPicture': 'મારો Google/Facebook ફોટો વાપરો',
@@ -879,7 +917,8 @@ class Strings {
           'તમને એ જ પ્રકારના બીજા ટેબલ પર બેસાડવામાં આવશે. ક્યાંય જગ્યા ન હોય તો આ ટેબલ જ રહેશે.',
       'switchAction': 'બદલો',
       'quitGameQ': 'ગેમ બંધ કરવી છે?',
-      'quitGameBody': 'તમે ગમે ત્યારે પાછા આવી શકો છો — તમારા ચિપ્સ સચવાયેલા છે.',
+      'quitGameBody':
+          'તમે ગમે ત્યારે પાછા આવી શકો છો — તમારા ચિપ્સ સચવાયેલા છે.',
       'quit': 'બંધ કરો',
       'cancel': 'રદ કરો',
       'joinAnother': 'તમે તરત જ બીજા ટેબલ પર જોડાઈ શકો છો',
@@ -905,7 +944,8 @@ class Strings {
       'save': 'સાચવો',
       'nameSaved': 'નામ બદલાઈ ગયું.',
       'cappedTitle': 'આ ટેબલ તમારા માટે બંધ છે',
-      'cappedBody': '{cap} થી વધુ ચિપ્સ ધરાવતા ખેલાડીઓ આ ટેબલ પર બેસી શકતા નથી.',
+      'cappedBody':
+          '{cap} થી વધુ ચિપ્સ ધરાવતા ખેલાડીઓ આ ટેબલ પર બેસી શકતા નથી.',
       'useSocialPicture': 'મારો Google કે Facebook ફોટો વાપરો',
       'guestNoSocial': 'તમારો ફોટો વાપરવા Google કે Facebook થી સાઇન ઇન કરો.',
     },
@@ -917,8 +957,8 @@ class Strings {
       'signingIn': 'ਸਾਈਨ ਇਨ ਹੋ ਰਿਹਾ ਹੈ…',
       'continueGoogle': 'Google ਨਾਲ ਜਾਰੀ ਰੱਖੋ',
       'continueFacebook': 'Facebook ਨਾਲ ਜਾਰੀ ਰੱਖੋ',
-      'guestHint':
-          'ਮਹਿਮਾਨ ਖਾਤਾ ਇਸ ਡਿਵਾਈਸ ਨਾਲ ਜੁੜਿਆ ਹੈ, ਇਸ ਲਈ ਤੁਹਾਡੇ ਚਿਪਸ ਅਗਲੀ ਵਾਰ ਵੀ ਇੱਥੇ ਹੋਣਗੇ।',
+      'signInUnavailable':
+          'ਇਸ ਵਰਜ਼ਨ ਵਿੱਚ {provider} ਸਾਈਨ-ਇਨ ਉਪਲਬਧ ਨਹੀਂ ਹੈ। ਫ਼ਿਲਹਾਲ ਗੈਸਟ ਵਜੋਂ ਖੇਡੋ।',
       'boot': 'ਬੂਟ',
       'maxBlindsLabel': 'ਬਲਾਈਂਡ ਚਾਲਾਂ ਵੱਧ ਤੋਂ ਵੱਧ',
       'potLimitLabel': 'ਪੌਟ ਸੀਮਾ',
@@ -966,7 +1006,8 @@ class Strings {
       'posPopular': 'ਹਰਮਨ ਪਿਆਰਾ',
       'posBestValue': 'ਵਧੀਆ ਮੁੱਲ',
       'posPremium': 'ਪ੍ਰੀਮੀਅਮ',
-      'comingSoonBody': 'ਚਿਪਸ ਖਰੀਦਣਾ ਅਜੇ ਸ਼ੁਰੂ ਨਹੀਂ ਹੋਇਆ। ਉਦੋਂ ਤੱਕ ਆਪਣੇ ਇਨਾਮ ਲੈਂਦੇ ਰਹੋ।',
+      'comingSoonBody':
+          'ਚਿਪਸ ਖਰੀਦਣਾ ਅਜੇ ਸ਼ੁਰੂ ਨਹੀਂ ਹੋਇਆ। ਉਦੋਂ ਤੱਕ ਆਪਣੇ ਇਨਾਮ ਲੈਂਦੇ ਰਹੋ।',
       'handsToGo': 'ਹੱਥ ਬਾਕੀ',
       'settings': 'ਸੈਟਿੰਗਾਂ',
       'language': 'ਭਾਸ਼ਾ',
@@ -979,9 +1020,13 @@ class Strings {
       'unitBillion': 'ਬਿਲੀਅਨ',
       'switchTheme': 'ਥੀਮ ਬਦਲੋ',
       'signOut': 'ਸਾਈਨ ਆਊਟ',
+      'serviceUnavailable': 'ਸੇਵਾ ਉਪਲਬਧ ਨਹੀਂ ਹੈ',
+      'soundLabel': 'ਆਵਾਜ਼',
+      'vibrationLabel': 'ਕੰਪਨ',
       'deleteAccount': 'ਮੇਰਾ ਖਾਤਾ ਮਿਟਾਓ',
       'deleteAccountTitle': 'ਖਾਤਾ ਮਿਟਾਉਣਾ ਹੈ?',
-      'deleteAccountBody': 'ਇਸ ਨਾਲ ਤੁਹਾਡਾ ਨਾਂ, ਤਸਵੀਰ, ਅੰਕੜੇ ਅਤੇ ਤੁਹਾਡੀਆਂ ਸਾਰੀਆਂ ਚਿਪਸ ਮਿਟ ਜਾਣਗੀਆਂ, ਉਹ ਵੀ ਜੋ ਤੁਸੀਂ ਖਰੀਦੀਆਂ ਸਨ। ਇਹ ਵਾਪਸ ਨਹੀਂ ਹੋ ਸਕਦਾ, ਅਤੇ ਕੁਝ ਵੀ ਨਵੇਂ ਖਾਤੇ ਵਿੱਚ ਨਹੀਂ ਆਵੇਗਾ।',
+      'deleteAccountBody':
+          'ਇਸ ਨਾਲ ਤੁਹਾਡਾ ਨਾਂ, ਤਸਵੀਰ, ਅੰਕੜੇ ਅਤੇ ਤੁਹਾਡੀਆਂ ਸਾਰੀਆਂ ਚਿਪਸ ਮਿਟ ਜਾਣਗੀਆਂ, ਉਹ ਵੀ ਜੋ ਤੁਸੀਂ ਖਰੀਦੀਆਂ ਸਨ। ਇਹ ਵਾਪਸ ਨਹੀਂ ਹੋ ਸਕਦਾ, ਅਤੇ ਕੁਝ ਵੀ ਨਵੇਂ ਖਾਤੇ ਵਿੱਚ ਨਹੀਂ ਆਵੇਗਾ।',
       'deleteAccountSeated': 'ਖਾਤਾ ਮਿਟਾਉਣ ਤੋਂ ਪਹਿਲਾਂ ਟੇਬਲ ਛੱਡੋ।',
       'deleteAccountConfirm': 'ਹਮੇਸ਼ਾ ਲਈ ਮਿਟਾਓ',
       'useProviderPicture': 'ਮੇਰੀ Google/Facebook ਤਸਵੀਰ ਵਰਤੋ',
@@ -1054,7 +1099,8 @@ class Strings {
       'joinAnother': 'ਤੁਸੀਂ ਤੁਰੰਤ ਕਿਸੇ ਹੋਰ ਟੇਬਲ ਉੱਤੇ ਜੁੜ ਸਕਦੇ ਹੋ',
       'rules': 'ਨਿਯਮ',
       'rulesTitle': 'ਪੱਤਿਆਂ ਦੀ ਰੈਂਕਿੰਗ',
-      'rulesBeats': 'ਉੱਪਰ ਵਾਲਾ ਸਭ ਤੋਂ ਤਕੜਾ। ਹਰ ਹੱਥ ਹੇਠਲੇ ਸਾਰਿਆਂ ਨੂੰ ਹਰਾਉਂਦਾ ਹੈ।',
+      'rulesBeats':
+          'ਉੱਪਰ ਵਾਲਾ ਸਭ ਤੋਂ ਤਕੜਾ। ਹਰ ਹੱਥ ਹੇਠਲੇ ਸਾਰਿਆਂ ਨੂੰ ਹਰਾਉਂਦਾ ਹੈ।',
       'rankTrail': 'ਟ੍ਰੇਲ',
       'rankTrailNote': 'ਇੱਕੋ ਰੈਂਕ ਦੇ ਤਿੰਨ ਪੱਤੇ',
       'rankPureSeq': 'ਪਿਓਰ ਸੀਕਵੈਂਸ',
@@ -1074,9 +1120,11 @@ class Strings {
       'save': 'ਸੰਭਾਲੋ',
       'nameSaved': 'ਨਾਮ ਬਦਲ ਗਿਆ।',
       'cappedTitle': 'ਇਹ ਟੇਬਲ ਤੁਹਾਡੇ ਲਈ ਬੰਦ ਹੈ',
-      'cappedBody': '{cap} ਤੋਂ ਵੱਧ ਚਿਪਸ ਰੱਖਣ ਵਾਲੇ ਖਿਡਾਰੀ ਇਸ ਟੇਬਲ ਉੱਤੇ ਨਹੀਂ ਬੈਠ ਸਕਦੇ।',
+      'cappedBody':
+          '{cap} ਤੋਂ ਵੱਧ ਚਿਪਸ ਰੱਖਣ ਵਾਲੇ ਖਿਡਾਰੀ ਇਸ ਟੇਬਲ ਉੱਤੇ ਨਹੀਂ ਬੈਠ ਸਕਦੇ।',
       'useSocialPicture': 'ਮੇਰੀ Google ਜਾਂ Facebook ਤਸਵੀਰ ਵਰਤੋ',
-      'guestNoSocial': 'ਆਪਣੀ ਤਸਵੀਰ ਵਰਤਣ ਲਈ Google ਜਾਂ Facebook ਨਾਲ ਸਾਈਨ ਇਨ ਕਰੋ।',
+      'guestNoSocial':
+          'ਆਪਣੀ ਤਸਵੀਰ ਵਰਤਣ ਲਈ Google ਜਾਂ Facebook ਨਾਲ ਸਾਈਨ ਇਨ ਕਰੋ।',
     },
   };
 }
