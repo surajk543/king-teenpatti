@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../settings/feedback_settings.dart';
 
@@ -84,7 +85,9 @@ class _LobbyScreenState extends State<LobbyScreen> {
             children: [
               // A few chips drifting slowly up behind everything: the room has a
               // life of its own before the player touches anything.
-              const Positioned.fill(child: IgnorePointer(child: DriftingChips())),
+              const Positioned.fill(
+                child: IgnorePointer(child: DriftingChips()),
+              ),
               Column(
                 children: [
                   _TopBar(user: user, onOpen: _open),
@@ -244,15 +247,19 @@ class _RewardCelebrationState extends State<_RewardCelebration>
               Fireworks(seed: won.amount, bursts: 7),
               Center(
                 child: ConstrainedBox(
-                  constraints: BoxConstraints(maxWidth: Dim.dialogW(size.width)),
+                  constraints: BoxConstraints(
+                    maxWidth: Dim.dialogW(size.width),
+                  ),
                   child: AnimatedBuilder(
                     animation: _in,
                     builder: (context, child) {
                       final e = Motion.settle.transform(_in.value);
                       return Opacity(
                         opacity: Curves.easeOut.transform(_in.value),
-                        child:
-                            Transform.scale(scale: 0.82 + 0.18 * e, child: child),
+                        child: Transform.scale(
+                          scale: 0.82 + 0.18 * e,
+                          child: child,
+                        ),
                       );
                     },
                     // The one place a bloom is honest in the lobby: the game
@@ -290,8 +297,9 @@ class _RewardCelebrationState extends State<_RewardCelebration>
                               blurb,
                               textAlign: TextAlign.center,
                               style: text.bodyMedium?.copyWith(
-                                color: theme.colorScheme.onSurface
-                                    .withValues(alpha: AppTheme.inkMed),
+                                color: theme.colorScheme.onSurface.withValues(
+                                  alpha: AppTheme.inkMed,
+                                ),
                               ),
                             ),
                             const SizedBox(height: Space.lg),
@@ -391,9 +399,11 @@ class _TopBar extends StatelessWidget {
                     child: SizedBox(
                       width: math.max(Dim.minTouch, avatarD),
                       child: InkWell(
-      // Material's own click, gated on the player's Sound switch —
-      // otherwise a silenced game would still tick on every tap.
-      enableFeedback: context.select<FeedbackSettings, bool>((f) => f.sound),
+                        // Material's own click, gated on the player's Sound switch —
+                        // otherwise a silenced game would still tick on every tap.
+                        enableFeedback: context.select<FeedbackSettings, bool>(
+                          (f) => f.sound,
+                        ),
                         customBorder: const CircleBorder(),
                         onTap: () => _openPicturePicker(context),
                         child: Center(
@@ -536,8 +546,9 @@ class _ProviderPill extends StatelessWidget {
         style: AppTheme.smallCaps(
           theme.textTheme.labelSmall!,
           tracking: 1.2,
-          colour: theme.colorScheme.onSurface
-              .withValues(alpha: AppTheme.inkLow),
+          colour: theme.colorScheme.onSurface.withValues(
+            alpha: AppTheme.inkLow,
+          ),
         ),
       ),
     );
@@ -570,9 +581,11 @@ class _BarActions extends StatelessWidget {
             width: Dim.minTouch,
             height: Dim.minTouch,
             child: InkWell(
-      // Material's own click, gated on the player's Sound switch —
-      // otherwise a silenced game would still tick on every tap.
-      enableFeedback: context.select<FeedbackSettings, bool>((f) => f.sound),
+              // Material's own click, gated on the player's Sound switch —
+              // otherwise a silenced game would still tick on every tap.
+              enableFeedback: context.select<FeedbackSettings, bool>(
+                (f) => f.sound,
+              ),
               onTap: onTap,
               customBorder: const CircleBorder(),
               child: Icon(
@@ -596,8 +609,9 @@ class _BarActions extends StatelessWidget {
         height: Dim.minTouch,
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(Radii.pill),
-          color: AppTheme.plaque(brightness)
-              .withValues(alpha: brightness == Brightness.dark ? 0.42 : 0.55),
+          color: AppTheme.plaque(
+            brightness,
+          ).withValues(alpha: brightness == Brightness.dark ? 0.42 : 0.55),
           border: Border.all(color: hairline, width: Dim.hairline),
         ),
         child: Row(
@@ -653,8 +667,11 @@ class _TableCard extends StatelessWidget {
     final blind = category == TableCategory.blind;
     // Each table has a colour of its own — gold, sapphire, royal purple — and
     // the room the card leads to is painted in the same one.
-    final palette =
-        AppTheme.paletteFor(scheme, category: category, bootAmount: boot);
+    final palette = AppTheme.paletteFor(
+      scheme,
+      category: category,
+      bootAmount: boot,
+    );
     final accent = palette.accent;
 
     // Requirement 30: the cheapest blind table is for smaller stacks. The card
@@ -719,8 +736,8 @@ class _TableCard extends StatelessWidget {
                               alpha: capped
                                   ? 0.04
                                   : (brightness == Brightness.dark
-                                      ? 0.10
-                                      : 0.08),
+                                        ? 0.10
+                                        : 0.08),
                             ),
                           ),
                         ),
@@ -755,8 +772,7 @@ class _TableCard extends StatelessWidget {
                                 child: RepaintBoundary(
                                   child: TweenAnimationBuilder<double>(
                                     tween: Tween(end: boot.toDouble()),
-                                    duration:
-                                        const Duration(milliseconds: 700),
+                                    duration: const Duration(milliseconds: 700),
                                     curve: Motion.standard,
                                     builder: (context, value, _) => FittedBox(
                                       fit: BoxFit.scaleDown,
@@ -766,7 +782,10 @@ class _TableCard extends StatelessWidget {
                                         style: AppTheme.money(
                                           text.displaySmall!,
                                           fontSize: bootSize,
-                                          colour: _goldInk(brightness, onCloth: !capped),
+                                          colour: _goldInk(
+                                            brightness,
+                                            onCloth: !capped,
+                                          ),
                                         ),
                                       ),
                                     ),
@@ -780,10 +799,13 @@ class _TableCard extends StatelessWidget {
                             style: AppTheme.label(
                               text.labelSmall!,
                               colour: capped
-                                  ? scheme.onSurface
-                                      .withValues(alpha: AppTheme.inkLow)
-                                  : AppTheme.onFelt(brightness,
-                                      alpha: AppTheme.inkLow),
+                                  ? scheme.onSurface.withValues(
+                                      alpha: AppTheme.inkLow,
+                                    )
+                                  : AppTheme.onFelt(
+                                      brightness,
+                                      alpha: AppTheme.inkLow,
+                                    ),
                             ),
                           ),
                           SizedBox(height: gap),
@@ -794,8 +816,9 @@ class _TableCard extends StatelessWidget {
                             style: text.bodySmall?.copyWith(
                               fontSize: blurbSize,
                               color: capped
-                                  ? scheme.onSurface
-                                      .withValues(alpha: AppTheme.inkMed)
+                                  ? scheme.onSurface.withValues(
+                                      alpha: AppTheme.inkMed,
+                                    )
                                   : AppTheme.onFelt(brightness),
                             ),
                           ),
@@ -912,8 +935,9 @@ class _TableCard extends StatelessWidget {
                       Icon(
                         Icons.lock_outline_rounded,
                         size: 20,
-                        color: scheme.onSurface
-                            .withValues(alpha: AppTheme.inkMed),
+                        color: scheme.onSurface.withValues(
+                          alpha: AppTheme.inkMed,
+                        ),
                       ),
                       const SizedBox(height: Space.sm),
                       Text(
@@ -929,8 +953,9 @@ class _TableCard extends StatelessWidget {
                         ),
                         textAlign: TextAlign.center,
                         style: text.bodySmall?.copyWith(
-                          color: scheme.onSurface
-                              .withValues(alpha: AppTheme.inkMed),
+                          color: scheme.onSurface.withValues(
+                            alpha: AppTheme.inkMed,
+                          ),
                         ),
                       ),
                     ],
@@ -1070,7 +1095,9 @@ class _CardFact extends StatelessWidget {
             style: AppTheme.money(
               text.labelLarge!,
               fontSize: size,
-              colour: highlight ? accent : AppTheme.onFelt(theme.brightness, alpha: AppTheme.inkHigh),
+              colour: highlight
+                  ? accent
+                  : AppTheme.onFelt(theme.brightness, alpha: AppTheme.inkHigh),
             ),
           ),
         ],
@@ -1111,8 +1138,10 @@ class _CategoryBadge extends StatefulWidget {
 
 class _CategoryBadgeState extends State<_CategoryBadge>
     with SingleTickerProviderStateMixin {
-  late final AnimationController _sheen =
-      AnimationController(vsync: this, duration: Motion.breath);
+  late final AnimationController _sheen = AnimationController(
+    vsync: this,
+    duration: Motion.breath,
+  );
 
   @override
   void initState() {
@@ -1206,8 +1235,9 @@ class _CategoryBadgeState extends State<_CategoryBadge>
                             end: Alignment.bottomRight,
                             colors: [
                               Colors.white.withValues(alpha: 0),
-                              Colors.white
-                                  .withValues(alpha: dark ? 0.26 : 0.40),
+                              Colors.white.withValues(
+                                alpha: dark ? 0.26 : 0.40,
+                              ),
                               Colors.white.withValues(alpha: 0),
                             ],
                             stops: [
@@ -1291,8 +1321,7 @@ class _PrivateCardState extends State<_PrivateCard> {
                           Icons.vpn_key_rounded,
                           size: s * 0.66,
                           color: accent.withValues(
-                            alpha:
-                                brightness == Brightness.dark ? 0.10 : 0.08,
+                            alpha: brightness == Brightness.dark ? 0.10 : 0.08,
                           ),
                         ),
                       ),
@@ -1305,8 +1334,11 @@ class _PrivateCardState extends State<_PrivateCard> {
                       children: [
                         Row(
                           children: [
-                            Icon(Icons.lock_outline_rounded,
-                                size: 18, color: accent),
+                            Icon(
+                              Icons.lock_outline_rounded,
+                              size: 18,
+                              color: accent,
+                            ),
                             const SizedBox(width: Space.sm),
                             Flexible(
                               child: Text(
@@ -1326,8 +1358,9 @@ class _PrivateCardState extends State<_PrivateCard> {
                           maxLines: compact ? 2 : 3,
                           overflow: TextOverflow.ellipsis,
                           style: text.bodySmall?.copyWith(
-                            color: scheme.onSurface
-                                .withValues(alpha: AppTheme.inkMed),
+                            color: scheme.onSurface.withValues(
+                              alpha: AppTheme.inkMed,
+                            ),
                           ),
                         ),
                         const Spacer(),
@@ -1335,8 +1368,9 @@ class _PrivateCardState extends State<_PrivateCard> {
                           state.t.orJoinCode,
                           style: AppTheme.label(
                             text.labelSmall!,
-                            colour: scheme.onSurface
-                                .withValues(alpha: AppTheme.inkLow),
+                            colour: scheme.onSurface.withValues(
+                              alpha: AppTheme.inkLow,
+                            ),
                           ),
                         ),
                         const SizedBox(height: Space.xs),
@@ -1346,8 +1380,7 @@ class _PrivateCardState extends State<_PrivateCard> {
                             controller: _code,
                             maxLength: 6,
                             textAlign: TextAlign.center,
-                            textCapitalization:
-                                TextCapitalization.characters,
+                            textCapitalization: TextCapitalization.characters,
                             // Tabular, tracked and centred: a room code is read
                             // out loud and typed in, never scanned as a word.
                             style: AppTheme.money(
@@ -1386,8 +1419,7 @@ class _PrivateCardState extends State<_PrivateCard> {
                               child: SizedBox(
                                 height: Dim.minTouch,
                                 child: OutlinedButton(
-                                  onPressed: () =>
-                                      state.joinByCode(_code.text),
+                                  onPressed: () => state.joinByCode(_code.text),
                                   child: Text(
                                     state.t.join,
                                     maxLines: 1,
@@ -1408,8 +1440,11 @@ class _PrivateCardState extends State<_PrivateCard> {
                     height: 1.5,
                     child: IgnorePointer(
                       child: ColoredBox(
-                        color: Color.lerp(accent, Colors.white, 0.18)!
-                            .withValues(alpha: 0.42),
+                        color: Color.lerp(
+                          accent,
+                          Colors.white,
+                          0.18,
+                        )!.withValues(alpha: 0.42),
                       ),
                     ),
                   ),
@@ -1420,8 +1455,11 @@ class _PrivateCardState extends State<_PrivateCard> {
                     height: 2,
                     child: IgnorePointer(
                       child: ColoredBox(
-                        color: Color.lerp(accent, Colors.black, 0.34)!
-                            .withValues(alpha: 0.50),
+                        color: Color.lerp(
+                          accent,
+                          Colors.black,
+                          0.34,
+                        )!.withValues(alpha: 0.50),
                       ),
                     ),
                   ),
@@ -1519,8 +1557,9 @@ Future<void> _openPicturePicker(BuildContext context) async {
                                 maxLines: 2,
                                 overflow: TextOverflow.ellipsis,
                                 style: text.bodySmall?.copyWith(
-                                  color: theme.colorScheme.onSurface
-                                      .withValues(alpha: AppTheme.inkMed),
+                                  color: theme.colorScheme.onSurface.withValues(
+                                    alpha: AppTheme.inkMed,
+                                  ),
                                 ),
                               ),
                             ],
@@ -1561,8 +1600,9 @@ Future<void> _openPicturePicker(BuildContext context) async {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             FilledButton.tonalIcon(
-                              onPressed:
-                                  enabled ? () => state.chooseAvatar(null) : null,
+                              onPressed: enabled
+                                  ? () => state.chooseAvatar(null)
+                                  : null,
                               icon: const Icon(
                                 Icons.account_circle_outlined,
                                 size: 18,
@@ -1574,8 +1614,9 @@ Future<void> _openPicturePicker(BuildContext context) async {
                               Text(
                                 state.t.guestNoSocial,
                                 style: text.bodySmall?.copyWith(
-                                  color: theme.colorScheme.onSurface
-                                      .withValues(alpha: AppTheme.inkLow),
+                                  color: theme.colorScheme.onSurface.withValues(
+                                    alpha: AppTheme.inkLow,
+                                  ),
                                 ),
                               ),
                             ],
@@ -1620,9 +1661,9 @@ class _PictureChoice extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(right: Space.md),
       child: InkWell(
-      // Material's own click, gated on the player's Sound switch —
-      // otherwise a silenced game would still tick on every tap.
-      enableFeedback: context.select<FeedbackSettings, bool>((f) => f.sound),
+        // Material's own click, gated on the player's Sound switch —
+        // otherwise a silenced game would still tick on every tap.
+        enableFeedback: context.select<FeedbackSettings, bool>((f) => f.sound),
         onTap: onTap,
         customBorder: const CircleBorder(),
         child: SizedBox(
@@ -1696,7 +1737,11 @@ class _LobbyDrawer extends StatelessWidget {
 
 /// A drawer's title row: a mark, what the panel is, and the way out.
 class _DrawerHead extends StatelessWidget {
-  const _DrawerHead({required this.leading, required this.title, this.subtitle});
+  const _DrawerHead({
+    required this.leading,
+    required this.title,
+    this.subtitle,
+  });
 
   final Widget leading;
   final String title;
@@ -1730,8 +1775,9 @@ class _DrawerHead extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: text.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurface
-                          .withValues(alpha: AppTheme.inkLow),
+                      color: theme.colorScheme.onSurface.withValues(
+                        alpha: AppTheme.inkLow,
+                      ),
                     ),
                   ),
               ],
@@ -1762,18 +1808,22 @@ class _DrawerRule extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-        padding: EdgeInsets.fromLTRB(Space.lg, space, Space.lg, space),
-        child: Container(
-          height: Dim.hairline,
-          color: AppTheme.hairlineColour(Theme.of(context).brightness),
-        ),
-      );
+    padding: EdgeInsets.fromLTRB(Space.lg, space, Space.lg, space),
+    child: Container(
+      height: Dim.hairline,
+      color: AppTheme.hairlineColour(Theme.of(context).brightness),
+    ),
+  );
 }
 
 /// One figure in the record: what it counts on the left, the number on the
 /// right, tabular so six of them line up.
 class _StatRow extends StatelessWidget {
-  const _StatRow({required this.icon, required this.label, required this.value});
+  const _StatRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
 
   final IconData icon;
   final String label;
@@ -1855,9 +1905,9 @@ class _DrawerAction extends StatelessWidget {
     return Material(
       type: MaterialType.transparency,
       child: InkWell(
-      // Material's own click, gated on the player's Sound switch —
-      // otherwise a silenced game would still tick on every tap.
-      enableFeedback: context.select<FeedbackSettings, bool>((f) => f.sound),
+        // Material's own click, gated on the player's Sound switch —
+        // otherwise a silenced game would still tick on every tap.
+        enableFeedback: context.select<FeedbackSettings, bool>((f) => f.sound),
         onTap: onTap,
         child: ConstrainedBox(
           constraints: const BoxConstraints(minHeight: Dim.minTouch),
@@ -1873,8 +1923,9 @@ class _DrawerAction extends StatelessWidget {
                     size: 18,
                     color: danger
                         ? ink
-                        : theme.colorScheme.onSurface
-                            .withValues(alpha: AppTheme.inkLow),
+                        : theme.colorScheme.onSurface.withValues(
+                            alpha: AppTheme.inkLow,
+                          ),
                   ),
                   child: leading,
                 ),
@@ -1900,8 +1951,9 @@ class _DrawerAction extends StatelessWidget {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: text.bodySmall?.copyWith(
-                            color: theme.colorScheme.onSurface
-                                .withValues(alpha: AppTheme.inkLow),
+                            color: theme.colorScheme.onSurface.withValues(
+                              alpha: AppTheme.inkLow,
+                            ),
                           ),
                         ),
                     ],
@@ -1930,19 +1982,23 @@ class _StatsDrawer extends StatelessWidget {
     final theme = Theme.of(context);
 
     final rows = <(IconData, String, String)>[
-      (Icons.style_outlined, t.handsPlayed, formatChips(user?.handsPlayed ?? 0)),
+      (
+        Icons.style_outlined,
+        t.handsPlayed,
+        formatChips(user?.handsPlayed ?? 0),
+      ),
       (Icons.emoji_events_outlined, t.won, formatChips(user?.handsWon ?? 0)),
       (Icons.trending_down, t.lost, formatChips(user?.handsLost ?? 0)),
       (Icons.exit_to_app, t.leftMidHand, formatChips(user?.handsLeftMid ?? 0)),
       (
         Icons.savings_outlined,
         t.totalWinnings,
-        formatChips(user?.totalWinnings ?? 0)
+        formatChips(user?.totalWinnings ?? 0),
       ),
       (
         Icons.local_fire_department_outlined,
         t.biggestPot,
-        formatChips(user?.biggestPot ?? 0)
+        formatChips(user?.biggestPot ?? 0),
       ),
     ];
 
@@ -1979,8 +2035,9 @@ class _StatsDrawer extends StatelessWidget {
           child: Text(
             t.playedNote,
             style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.onSurface
-                  .withValues(alpha: AppTheme.inkLow),
+              color: theme.colorScheme.onSurface.withValues(
+                alpha: AppTheme.inkLow,
+              ),
             ),
           ),
         ),
@@ -2032,9 +2089,9 @@ class _NumberOption extends StatelessWidget {
     return Material(
       type: MaterialType.transparency,
       child: InkWell(
-      // Material's own click, gated on the player's Sound switch —
-      // otherwise a silenced game would still tick on every tap.
-      enableFeedback: context.select<FeedbackSettings, bool>((f) => f.sound),
+        // Material's own click, gated on the player's Sound switch —
+        // otherwise a silenced game would still tick on every tap.
+        enableFeedback: context.select<FeedbackSettings, bool>((f) => f.sound),
         borderRadius: BorderRadius.circular(Radii.md),
         onTap: onTap,
         child: AnimatedContainer(
@@ -2047,8 +2104,9 @@ class _NumberOption extends StatelessWidget {
           ),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(Radii.md),
-            color: AppTheme.plaque(brightness)
-                .withValues(alpha: selected ? 0.55 : 0.28),
+            color: AppTheme.plaque(
+              brightness,
+            ).withValues(alpha: selected ? 0.55 : 0.28),
             border: Border.all(
               color: AppTheme.hairlineColour(brightness, live: selected),
               width: Dim.hairline,
@@ -2080,8 +2138,9 @@ class _NumberOption extends StatelessWidget {
                         text.labelMedium!,
                         colour: selected
                             ? _goldInk(brightness)
-                            : scheme.onSurface
-                                .withValues(alpha: AppTheme.inkLow),
+                            : scheme.onSurface.withValues(
+                                alpha: AppTheme.inkLow,
+                              ),
                       ),
                     ),
                   ],
@@ -2125,8 +2184,11 @@ class _SettingsDrawerState extends State<_SettingsDrawer> {
         padding: const EdgeInsets.all(Space.xl),
         title: Row(
           children: [
-            Icon(Icons.delete_forever_outlined,
-                size: 20, color: theme.colorScheme.error),
+            Icon(
+              Icons.delete_forever_outlined,
+              size: 20,
+              color: theme.colorScheme.error,
+            ),
             const SizedBox(width: Space.md),
             Expanded(
               child: Text(
@@ -2139,8 +2201,9 @@ class _SettingsDrawerState extends State<_SettingsDrawer> {
         content: Text(
           t.deleteAccountBody,
           style: theme.textTheme.bodyMedium?.copyWith(
-            color:
-                theme.colorScheme.onSurface.withValues(alpha: AppTheme.inkMed),
+            color: theme.colorScheme.onSurface.withValues(
+              alpha: AppTheme.inkMed,
+            ),
           ),
         ),
         actions: [
@@ -2164,11 +2227,7 @@ class _SettingsDrawerState extends State<_SettingsDrawer> {
     if (!context.mounted) return;
     if (refusal != null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        NoticeToast.snackBar(
-          context,
-          message: refusal,
-          tone: NoticeTone.bad,
-        ),
+        NoticeToast.snackBar(context, message: refusal, tone: NoticeTone.bad),
       );
       return;
     }
@@ -2316,8 +2375,9 @@ class _SettingsDrawerState extends State<_SettingsDrawer> {
                       overflow: TextOverflow.ellipsis,
                       style: AppTheme.label(
                         text.labelMedium!,
-                        colour: scheme.onSurface
-                            .withValues(alpha: AppTheme.inkLow),
+                        colour: scheme.onSurface.withValues(
+                          alpha: AppTheme.inkLow,
+                        ),
                       ),
                     ),
                   ),
@@ -2379,6 +2439,18 @@ class _SettingsDrawerState extends State<_SettingsDrawer> {
         // them can be undone. Google Play requires an in-app route to account
         // deletion, and this game creates an account on first launch, so every
         // player has one to delete.
+        // Google's User Data policy wants the privacy policy reachable from
+        // inside the app, not only from the Play listing. It opens in the
+        // browser rather than a webview so the player can see the address they
+        // are being shown.
+        _DrawerAction(
+          leading: const Icon(Icons.privacy_tip_outlined),
+          title: t.privacyPolicy,
+          onTap: () => launchUrl(
+            Uri.parse('https://api.sungamestudio.com/privacy/'),
+            mode: LaunchMode.externalApplication,
+          ),
+        ),
         const _DrawerRule(space: Space.lg),
         _DrawerAction(
           leading: const Icon(Icons.logout_rounded),
@@ -2427,17 +2499,22 @@ class _Entrance extends StatefulWidget {
   State<_Entrance> createState() => _EntranceState();
 }
 
-class _EntranceState extends State<_Entrance> with SingleTickerProviderStateMixin {
-  late final AnimationController _c =
-      AnimationController(vsync: this, duration: Motion.enter);
+class _EntranceState extends State<_Entrance>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: Motion.enter,
+  );
 
   @override
   void initState() {
     super.initState();
     // Capped, so a long rail does not take a noticeable age to finish.
     final delay = Duration(
-      milliseconds:
-          (widget.index * Motion.stagger.inMilliseconds).clamp(0, 560),
+      milliseconds: (widget.index * Motion.stagger.inMilliseconds).clamp(
+        0,
+        560,
+      ),
     );
     Future<void>.delayed(delay, () {
       if (mounted) _c.forward();
@@ -2552,8 +2629,10 @@ class _Hourglass extends StatefulWidget {
 
 class _HourglassState extends State<_Hourglass>
     with SingleTickerProviderStateMixin {
-  late final AnimationController _c =
-      AnimationController(vsync: this, duration: Motion.breath)..repeat();
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: Motion.breath,
+  )..repeat();
 
   static const double _size = 18;
 
@@ -2587,7 +2666,7 @@ class _HourglassState extends State<_Hourglass>
           final angle = t < flipFrom
               ? 0.0
               : math.pi *
-                  Motion.travel.transform((t - flipFrom) / (1 - flipFrom));
+                    Motion.travel.transform((t - flipFrom) / (1 - flipFrom));
 
           return Transform.rotate(
             angle: angle,
@@ -2641,8 +2720,16 @@ class _HourglassPainter extends CustomPainter {
       ..close();
     canvas.drawPath(glass, frame);
     // The caps, so the glass reads as an object and not as a bow tie.
-    canvas.drawLine(p(0.5 - halfW - 0.06, top), p(0.5 + halfW + 0.06, top), frame);
-    canvas.drawLine(p(0.5 - halfW - 0.06, foot), p(0.5 + halfW + 0.06, foot), frame);
+    canvas.drawLine(
+      p(0.5 - halfW - 0.06, top),
+      p(0.5 + halfW + 0.06, top),
+      frame,
+    );
+    canvas.drawLine(
+      p(0.5 - halfW - 0.06, foot),
+      p(0.5 + halfW + 0.06, foot),
+      frame,
+    );
 
     // What is left in the upper bulb: a triangle whose apex stays at the waist.
     final level = top + (waist - top) * drained;
@@ -2784,18 +2871,16 @@ class _CornerChip extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                       style: AppTheme.label(
                         text.labelSmall!,
-                        colour: theme.colorScheme.onSurface
-                            .withValues(alpha: AppTheme.inkLow),
+                        colour: theme.colorScheme.onSurface.withValues(
+                          alpha: AppTheme.inkLow,
+                        ),
                       ),
                     ),
                     Text(
                       subtitle,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: AppTheme.money(
-                        text.labelLarge!,
-                        colour: fg,
-                      ),
+                      style: AppTheme.money(text.labelLarge!, colour: fg),
                     ),
                   ],
                 ),

@@ -1,5 +1,4 @@
 import 'package:flutter/foundation.dart';
-import 'package:flutter_facebook_auth/flutter_facebook_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
 /// Thrown when the build carries no credentials for the provider tapped.
@@ -16,15 +15,25 @@ class SignInUnavailable implements Exception {
   String toString() => 'SignInUnavailable($provider)';
 }
 
-/// Getting a credential out of Google or Facebook.
+/// Getting a credential out of Google.
 ///
-/// Only that. Neither function talks to our server, decides anything about the
-/// account, or knows what a session is — they hand back one string, and
+/// Only that. It does not talk to our server, decide anything about the
+/// account, or know what a session is — it hands back one string, and
 /// GameState.loginWithProvider does the rest. Keeping it this narrow is what
-/// lets the two providers, and guest play, share one path afterwards.
+/// lets a provider and guest play share one path afterwards, and is why adding
+/// Facebook back later is a second function here and nothing else.
 ///
-/// Both return null when the player backs out of the provider's own sheet.
-/// That is a decision, not a failure, and it must not surface as an error.
+/// Returns null when the player backs out of Google's own sheet. That is a
+/// decision, not a failure, and it must not surface as an error.
+///
+/// Facebook lived here until 10 Sep 2026. It was removed for the first
+/// production release, not because it did not work, but because the
+/// flutter_facebook_auth plugin pulls in com.facebook.android:facebook-core,
+/// whose manifest injects AD_ID, four ACCESS_ADSERVICES_* permissions and the
+/// install-referrer binding. Those force a "yes" on Play's Advertising ID
+/// declaration for a game that carries no advertising at all — a contradiction
+/// a reviewer is entitled to question. docs/social-login-setup.md has what to
+/// restore.
 class SocialSignIn {
   const SocialSignIn._();
 
@@ -42,18 +51,6 @@ class SocialSignIn {
   );
 
   static bool get googleConfigured => serverClientId.isNotEmpty;
-
-  /// The Facebook app id, passed the same way:
-  ///
-  ///   --dart-define=FACEBOOK_APP_ID=1234567890
-  ///
-  /// Only used to decide whether a tap can succeed. The SDK itself reads the
-  /// id from android/app/src/main/res/values/strings.xml, because that is
-  /// where the native side looks and there is no way to hand it one from
-  /// Dart — so this flag and that file have to be set together.
-  static const facebookAppId = String.fromEnvironment('FACEBOOK_APP_ID');
-
-  static bool get facebookConfigured => facebookAppId.isNotEmpty;
 
   static bool _googleReady = false;
 
@@ -94,26 +91,6 @@ class SocialSignIn {
         default:
           rethrow;
       }
-    }
-  }
-
-  /// Signs in with Facebook and returns the access token for our server.
-  static Future<String?> facebook() async {
-    if (!facebookConfigured) throw const SignInUnavailable('Facebook');
-    final result = await FacebookAuth.instance.login(
-      // The default set. Our server only needs the identity behind the token;
-      // asking for more would put a longer consent screen in front of a
-      // player for data the game never reads.
-      permissions: const ['public_profile'],
-    );
-    switch (result.status) {
-      case LoginStatus.success:
-        return result.accessToken?.tokenString;
-      case LoginStatus.cancelled:
-        return null;
-      case LoginStatus.failed:
-      case LoginStatus.operationInProgress:
-        throw StateError(result.message ?? 'Facebook sign-in failed');
     }
   }
 }

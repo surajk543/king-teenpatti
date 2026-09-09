@@ -100,15 +100,40 @@ list, and a mismatch is rejected as `Wrong recipient`.
 
 ## 2. Facebook
 
-> **The Facebook button is currently hidden** (owner's decision, 10 Sep 2026 —
-> Google first, Facebook later). It is gated on `SocialSignIn.facebookConfigured`
-> in `login_screen.dart`, so building with `--dart-define=FACEBOOK_APP_ID=…`
-> brings it back and nothing else needs editing.
+> **Facebook is removed from the app entirely** (10 Sep 2026). Not merely
+> hidden: `flutter_facebook_auth` is out of `pubspec.yaml`, and with it the
+> `com.facebook.android:facebook-core` transitive dependency whose manifest was
+> injecting six permissions into the release build —
 >
-> Google is deliberately **not** gated the same way: it has shipped, so a
-> forgotten build flag must produce a visible message rather than a silently
-> missing sign-in option. Facebook has never shipped, so an offer that cannot
-> be honoured is only a dead end. That asymmetry is intentional.
+> ```
+> com.google.android.gms.permission.AD_ID
+> android.permission.ACCESS_ADSERVICES_AD_ID
+> android.permission.ACCESS_ADSERVICES_ATTRIBUTION
+> android.permission.ACCESS_ADSERVICES_CUSTOM_AUDIENCE
+> android.permission.ACCESS_ADSERVICES_TOPICS
+> com.google.android.finsky.permission.BIND_GET_INSTALL_REFERRER_SERVICE
+> ```
+>
+> — which would have forced a "yes" on Play's Advertising ID declaration for a
+> game that carries no advertising. Verified with `aapt2 dump permissions`: all
+> six are gone, and what remains is INTERNET, ACCESS_NETWORK_STATE, BILLING and
+> the two biometric permissions AndroidX Credential Manager needs for Google
+> sign-in.
+>
+> **To restore Facebook**, in this order: add `flutter_facebook_auth` back to
+> `pubspec.yaml`; recreate
+> `android/app/src/main/res/values/strings.xml` with the three strings below;
+> restore the `com.facebook.sdk.*` meta-data plus the `FacebookActivity` and
+> `CustomTabActivity` blocks in `AndroidManifest.xml`; re-add `facebook()` and
+> the `facebookConfigured` gate to `lib/net/social_sign_in.dart`; and put the
+> button back in `login_screen.dart`. `ApiClient.loginProvider` and
+> `GameState.loginWithProvider` already handle `'facebook'` untouched, and the
+> five `continueFacebook` translations are still in `strings.dart`. Then face
+> the Advertising ID declaration honestly.
+>
+> Google is deliberately **not** gated behind a build flag: it has shipped, so a
+> forgotten flag must produce a visible message rather than a silently missing
+> sign-in option.
 
 At developers.facebook.com, create an app and add the **Facebook Login**
 product for Android.

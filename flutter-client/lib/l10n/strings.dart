@@ -50,6 +50,10 @@ class Strings {
   String get continueGoogle => _('continueGoogle');
   String get continueFacebook => _('continueFacebook');
 
+  /// Opens the published privacy policy. Google's User Data policy wants
+  /// this reachable from inside the app, not only from the store listing.
+  String get privacyPolicy => _('privacyPolicy');
+
   /// Shown when a provider button is tapped in a build that carries no
   /// credentials for it. `{provider}` is substituted with 'Google'/'Facebook'.
   String signInUnavailable(String provider) =>
@@ -248,6 +252,7 @@ class Strings {
       'signingIn': 'Signing in…',
       'continueGoogle': 'Continue with Google',
       'continueFacebook': 'Continue with Facebook',
+      'privacyPolicy': 'Privacy policy',
       'signInUnavailable':
           '{provider} sign-in is not available in this version. Please play as guest for now.',
       'boot': 'boot',
@@ -426,6 +431,7 @@ class Strings {
       'signingIn': 'साइन इन हो रहा है…',
       'continueGoogle': 'Google से जारी रखें',
       'continueFacebook': 'Facebook से जारी रखें',
+      'privacyPolicy': 'गोपनीयता नीति',
       'signInUnavailable':
           'इस वर्शन में {provider} साइन-इन उपलब्ध नहीं है। फ़िलहाल गेस्ट के रूप में खेलें।',
       'boot': 'बूट',
@@ -602,6 +608,7 @@ class Strings {
       'signingIn': 'সাইন ইন হচ্ছে…',
       'continueGoogle': 'Google দিয়ে চালিয়ে যান',
       'continueFacebook': 'Facebook দিয়ে চালিয়ে যান',
+      'privacyPolicy': 'গোপনীয়তা নীতি',
       'signInUnavailable':
           'এই সংস্করণে {provider} সাইন-ইন উপলব্ধ নয়। আপাতত গেস্ট হিসেবে খেলুন।',
       'boot': 'বুট',
@@ -781,6 +788,7 @@ class Strings {
       'signingIn': 'સાઇન ઇન થઈ રહ્યું છે…',
       'continueGoogle': 'Google થી ચાલુ રાખો',
       'continueFacebook': 'Facebook થી ચાલુ રાખો',
+      'privacyPolicy': 'ગોપનીયતા નીતિ',
       'signInUnavailable':
           'આ વર્ઝનમાં {provider} સાઇન-ઇન ઉપલબ્ધ નથી. હાલ પૂરતું ગેસ્ટ તરીકે રમો.',
       'boot': 'બૂટ',
@@ -957,6 +965,7 @@ class Strings {
       'signingIn': 'ਸਾਈਨ ਇਨ ਹੋ ਰਿਹਾ ਹੈ…',
       'continueGoogle': 'Google ਨਾਲ ਜਾਰੀ ਰੱਖੋ',
       'continueFacebook': 'Facebook ਨਾਲ ਜਾਰੀ ਰੱਖੋ',
+      'privacyPolicy': 'ਪਰਦੇਦਾਰੀ ਨੀਤੀ',
       'signInUnavailable':
           'ਇਸ ਵਰਜ਼ਨ ਵਿੱਚ {provider} ਸਾਈਨ-ਇਨ ਉਪਲਬਧ ਨਹੀਂ ਹੈ। ਫ਼ਿਲਹਾਲ ਗੈਸਟ ਵਜੋਂ ਖੇਡੋ।',
       'boot': 'ਬੂਟ',

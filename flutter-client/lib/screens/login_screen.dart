@@ -154,26 +154,6 @@ class _LoginScreenState extends State<LoginScreen> {
                           SocialSignIn.google,
                         ),
                       ),
-                      // Facebook is hidden until the build carries an app id,
-                      // because it has never shipped: no player can be holding
-                      // a Facebook account with us, so an offer we cannot
-                      // honour is only a dead end. Pass
-                      // --dart-define=FACEBOOK_APP_ID=… and it returns with no
-                      // other change. The asymmetry with Google above is the
-                      // point — a door that was open must not close silently,
-                      // a door that never opened should not be drawn.
-                      if (SocialSignIn.facebookConfigured) ...[
-                        const SizedBox(height: Space.sm),
-                        _ProviderButton(
-                          icon: Icons.facebook,
-                          label: t.continueFacebook,
-                          busy: state.busy,
-                          onPressed: () => state.loginWithProvider(
-                            'facebook',
-                            SocialSignIn.facebook,
-                          ),
-                        ),
-                      ],
                       if (state.loginError != null) ...[
                         const SizedBox(height: Space.md),
                         Text(
