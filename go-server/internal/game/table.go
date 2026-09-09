@@ -679,6 +679,57 @@ func (t *Table) RemovePlayer(userID, reason string) (*SeatInfo, error) {
 // "" leaves the stored id unchanged (Node: `if (socketId)`). Sets
 // disconnectedAt = now when disconnecting, nil when connecting. Emits
 // seatUpdated and state. nil, nil when not seated.
+// CreditChips adds bought chips to a seated player's live stack.
+//
+// Called after a Google Play purchase has been verified and banked in
+// PostgreSQL, for a player who is sitting at a table. Without it the chips
+// would be in the wallet and invisible where they were bought — a player tops
+// up mid-hand precisely because they are short at THIS table, and telling them
+// to leave and come back to see it would be absurd.
+//
+// The delicate part is chipsWritten, and getting it wrong doubles the money.
+//
+// Rewards deliberately move the wallet and NOT the seat, which is why every
+// checkpoint writes `chips - chipsWritten` and never an absolute. A purchase
+// moves BOTH, so both sides of that subtraction have to move with it: the
+// stack gains the chips, and chipsWritten gains them too, because PostgreSQL
+// already has them. Advance only the stack and the next checkpoint writes the
+// purchase a second time; advance neither and the seat never shows it.
+//
+// Between hands there is no contribution record and nothing to reconcile — the
+// next deal takes chipsWritten from the seat, which by then includes the
+// purchase, and PostgreSQL agrees.
+//
+// Returns false when the player is not at this table, so the caller can tell
+// "credited the seat" from "there was no seat", and log accordingly.
+func (t *Table) CreditChips(userID string, amount int64) bool {
+	if amount <= 0 {
+		return false
+	}
+	var credited bool
+	_ = t.run(func() {
+		s := t.findSeat(userID)
+		if s == nil {
+			return
+		}
+		s.chips += amount
+		if t.hand != nil {
+			if entry := t.hand.contributions[userID]; entry != nil {
+				entry.chips += amount
+				// PostgreSQL already holds these chips. Moving chipsWritten by
+				// the same amount keeps `chips - chipsWritten` exactly what it
+				// was, so the next checkpoint writes the hand's betting and
+				// not the purchase.
+				entry.chipsWritten += amount
+			}
+		}
+		credited = true
+		t.listener.OnSeatUpdated(t.view, s.seatIndex)
+		t.emitState()
+	})
+	return credited
+}
+
 func (t *Table) SetConnected(userID string, connected bool, socketID string) (*SeatInfo, error) {
 	var info *SeatInfo
 	err := t.run(func() {

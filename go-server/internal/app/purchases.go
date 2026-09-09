@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 
 	"github.com/surajk543/king-teenpatti/go-server/internal/auth"
@@ -28,6 +29,12 @@ type playStore struct {
 	verifier *purchase.GoogleVerifier
 	db       *db.DB
 	users    *db.Users
+	// creditSeat adds the chips to the player's live seat when they are at a
+	// table. PostgreSQL alone is not enough: the seat is the live truth in
+	// Redis, and a player tops up mid-hand precisely because they are short at
+	// THIS table.
+	creditSeat func(userID string, amount int64) bool
+	logger     *slog.Logger
 }
 
 func (s *playStore) Buy(ctx context.Context, userID, productID, purchaseToken string) (auth.PurchaseOutcome, error) {
@@ -52,6 +59,17 @@ func (s *playStore) Buy(ctx context.Context, userID, productID, purchaseToken st
 	result, err := db.CreditPurchase(ctx, s.db, s.users, userID, product, purchaseToken)
 	if err != nil {
 		return auth.PurchaseOutcome{}, err
+	}
+
+	// The wallet has the chips; the seat is a separate copy of the truth.
+	// Only on a fresh credit — a replayed receipt already moved both, and
+	// adding again here would put chips in the seat that PostgreSQL does not
+	// have.
+	if result.Credited && s.creditSeat != nil {
+		if s.creditSeat(userID, product.Chips) && s.logger != nil {
+			s.logger.Info("purchased chips added to a live seat",
+				"userId", userID, "chips", product.Chips)
+		}
 	}
 
 	// Best effort, and only now. A failure here is not the player's problem —

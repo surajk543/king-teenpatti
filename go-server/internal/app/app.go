@@ -303,7 +303,13 @@ func New(opts Options) (*App, error) {
 			"err", err.Error(),
 			"hint", "GOOGLE_PLAY_CREDENTIALS must be the service-account JSON on ONE line")
 	} else if pv != nil {
-		chipStore = &playStore{verifier: pv, db: opts.DB, users: users}
+		chipStore = &playStore{
+			verifier:   pv,
+			db:         opts.DB,
+			users:      users,
+			creditSeat: func(id string, n int64) bool { return a.rooms.CreditChips(id, n) },
+			logger:     logger,
+		}
 		logger.Info("chip store enabled", "package", cfg.Play.Package, "products", len(purchase.Catalogue))
 	}
 

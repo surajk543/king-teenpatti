@@ -617,6 +617,20 @@ func (rm *RoomManager) GetTableByCode(code string) *Table {
 
 // GetTableForPlayer returns the table the user is seated at (via
 // playerRooms), or nil.
+// CreditChips adds purchased chips to a player's seat, wherever they are
+// sitting, and reports whether a seat was found.
+//
+// The mutex is released before the table is touched — RoomManager never holds
+// its lock while calling a Table (PORT_PLAN.md §3.4), and CreditChips posts to
+// that table's actor.
+func (rm *RoomManager) CreditChips(userID string, amount int64) bool {
+	t := rm.GetTableForPlayer(userID)
+	if t == nil {
+		return false
+	}
+	return t.CreditChips(userID, amount)
+}
+
 func (rm *RoomManager) GetTableForPlayer(userID string) *Table {
 	rm.mu.Lock()
 	t, dropped := rm.seatedTableLocked(userID)
