@@ -3,15 +3,19 @@ import 'package:provider/provider.dart';
 
 import '../state/game_state.dart';
 import '../theme/app_theme.dart';
+import 'chip_store.dart';
 import 'poker_chip.dart';
 
-/// The buy-chips button, and the answer it currently gives.
+/// The buy-chips button. Opens the chip store (`chip_store.dart`).
 ///
 /// It is here in both the lobby and the game room because running dry is
 /// exactly when a player looks for it, and that happens at the table as often
-/// as before sitting down. There is nothing to sell yet, so it says so plainly
-/// rather than being hidden until there is — a control that appears from
-/// nowhere later is harder to find than one that has always been there.
+/// as before sitting down.
+///
+/// The store shows the real shelf and the real prices, but no payment path is
+/// wired up: choosing a pack says so and charges nothing. That is deliberate —
+/// a button that looks like it took money is worse than one that admits it
+/// cannot yet.
 class BuyChipsButton extends StatelessWidget {
   const BuyChipsButton({super.key, this.compact = false});
 
@@ -29,7 +33,7 @@ class BuyChipsButton extends StatelessWidget {
       color: Colors.transparent,
       child: InkWell(
         borderRadius: BorderRadius.circular(24),
-        onTap: () => _showComingSoon(context),
+        onTap: () => showChipStore(context),
         child: Container(
           padding: EdgeInsets.fromLTRB(compact ? 10 : 14, 8, compact ? 12 : 16, 8),
           decoration: BoxDecoration(
@@ -61,23 +65,4 @@ class BuyChipsButton extends StatelessWidget {
       ),
     );
   }
-}
-
-Future<void> _showComingSoon(BuildContext context) {
-  final t = context.read<GameState>().t;
-
-  return showDialog<void>(
-    context: context,
-    builder: (context) => AlertDialog(
-      icon: const Icon(Icons.storefront_outlined),
-      title: Text(t.comingSoon),
-      content: Text(t.comingSoonBody),
-      actions: [
-        FilledButton(
-          onPressed: () => Navigator.pop(context),
-          child: Text(t.close),
-        ),
-      ],
-    ),
-  );
 }

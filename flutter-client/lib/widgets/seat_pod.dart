@@ -416,14 +416,30 @@ class _Blink extends StatefulWidget {
 }
 
 class _BlinkState extends State<_Blink> with SingleTickerProviderStateMixin {
-  late final AnimationController _c = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 780),
-  )..repeat(reverse: true);
+  /// Nullable, and deliberately not `late final`.
+  ///
+  /// Only the seat on turn blinks, so four of the five pods on a table never
+  /// build a controller at all — `build` returns early and never reads this.
+  /// That is the point of creating it on demand, and it is also the trap: with
+  /// `late final AnimationController _c = AnimationController(…)`, the
+  /// `_c.dispose()` in `dispose()` *runs the initialiser* for every pod that
+  /// never blinked. Constructing an AnimationController needs a TickerMode
+  /// lookup, that lookup is illegal on a deactivated element, and the throw
+  /// lands in the middle of `_InactiveElements._unmount` — so the tree stops
+  /// being finalised half-way and the failure surfaces later as a duplicate
+  /// GlobalKey and an `_ElementLifecycle` assertion, nowhere near this widget.
+  /// Every table teardown hit it. Keep the null check.
+  AnimationController? _c;
+
+  AnimationController get _blink =>
+      _c ??= AnimationController(
+        vsync: this,
+        duration: const Duration(milliseconds: 780),
+      )..repeat(reverse: true);
 
   @override
   void dispose() {
-    _c.dispose();
+    _c?.dispose();
     super.dispose();
   }
 
@@ -431,10 +447,11 @@ class _BlinkState extends State<_Blink> with SingleTickerProviderStateMixin {
   Widget build(BuildContext context) {
     if (!widget.active) return widget.child;
 
+    final blink = _blink;
     return AnimatedBuilder(
-      animation: _c,
+      animation: blink,
       builder: (context, child) {
-        final t = Curves.easeInOut.transform(_c.value);
+        final t = Curves.easeInOut.transform(blink.value);
         return DecoratedBox(
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(widget.radius),

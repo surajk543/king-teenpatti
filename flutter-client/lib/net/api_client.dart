@@ -113,7 +113,15 @@ class ApiClient {
 
   /// Claims a reward. [kind] is "milestone" (requirement 17) or "bonus"
   /// (requirement 18). The server decides whether it is actually due.
-  Future<({User? user, int awarded, String message})> claimReward(
+  /// Collects a reward. The server answers 200 `{claimed:true, amount,
+  /// milestone|readyAt, user}`, or 409 `{error, message, readyAt?, user}`.
+  ///
+  /// Read `claimed`, and read the amount from `amount` — NOT from `awarded`,
+  /// which no endpoint has ever sent. Keying success off a missing field meant
+  /// every successful collection fell through to the refusal branch and told
+  /// the player "Not ready yet" while the chips landed in their wallet.
+  Future<({User? user, bool claimed, int amount, int readyAt, String message})>
+      claimReward(
     String token,
     String kind,
   ) async {
@@ -127,7 +135,9 @@ class ApiClient {
       user: j['user'] is Map
           ? User.fromJson(Map<String, dynamic>.from(j['user'] as Map))
           : null,
-      awarded: (j['awarded'] as num?)?.toInt() ?? 0,
+      claimed: j['claimed'] == true,
+      amount: (j['amount'] as num?)?.toInt() ?? 0,
+      readyAt: (j['readyAt'] as num?)?.toInt() ?? 0,
       message: '${j['message'] ?? ''}',
     );
   }

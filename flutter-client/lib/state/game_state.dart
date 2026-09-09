@@ -532,15 +532,33 @@ class GameState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// The reward just collected, while its celebration is on screen. Null the
+  /// rest of the time. `readyAt` is epoch ms for the timed bonus and 0 for the
+  /// milestone, which has no clock.
+  ({String kind, int amount, int readyAt})? rewardWon;
+
+  /// Closes the celebration. The overlay calls this when the player dismisses
+  /// it or its own timer runs out.
+  void dismissReward() {
+    if (rewardWon == null) return;
+    rewardWon = null;
+    notifyListeners();
+  }
+
   Future<void> claimReward(String kind) async {
     final token = _token;
     if (token == null) return;
     try {
       final r = await _api.claimReward(token, kind);
       if (r.user != null) user = r.user;
-      notice = r.awarded > 0
-          ? 'Collected ${formatChips(r.awarded)} chips.'
-          : (r.message.isEmpty ? 'Not ready yet.' : r.message);
+      // Success is `claimed`, not a non-zero amount read from a field the
+      // server does not send. A refusal keeps the server's own wording, which
+      // is already specific ("Come back later", "You are at a table").
+      if (r.claimed) {
+        rewardWon = (kind: kind, amount: r.amount, readyAt: r.readyAt);
+      } else {
+        notice = r.message.isEmpty ? t.rewardRefused : r.message;
+      }
     } on ApiException catch (e) {
       notice = e.message;
     }

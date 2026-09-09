@@ -62,8 +62,13 @@ class _TableScreenState extends State<TableScreen> {
         child: Stack(
           children: [
             // The same slow drift of chips the lobby has, behind the felt, so
-            // a room and the lobby feel like one place.
-            const Positioned.fill(child: IgnorePointer(child: DriftingChips())),
+            // a room and the lobby feel like one place — but carried at more
+            // than twice the lobby's opacity. The felt covers most of the
+            // screen here, so only the margin around the oval shows a chip at
+            // all, and at the lobby's strength that margin looked empty.
+            const Positioned.fill(
+              child: IgnorePointer(child: DriftingChips(strength: 2.4)),
+            ),
             Column(
               children: [
                 Expanded(

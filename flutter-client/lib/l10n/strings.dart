@@ -81,9 +81,26 @@ class Strings {
   String get milestone => _('milestone');
   String get collect => _('collect');
 
+  // --- collecting a reward
+  String get rewardCollected => _('rewardCollected');
+  String get rewardComeBack => _('rewardComeBack');
+  String get rewardMilestoneAgain => _('rewardMilestoneAgain');
+  String get rewardRefused => _('rewardRefused');
+  String get tapToClose => _('tapToClose');
+
   // --- buying chips, not open yet
   String get buyChips => _('buyChips');
   String get comingSoon => _('comingSoon');
+
+  // --- the chip store
+  String get storeTitle => _('storeTitle');
+  String get storeBlurb => _('storeBlurb');
+  String get storeBonus => _('storeBonus');
+  String get storeNotLive => _('storeNotLive');
+  String get posStarter => _('posStarter');
+  String get posPopular => _('posPopular');
+  String get posBestValue => _('posBestValue');
+  String get posPremium => _('posPremium');
   String get comingSoonBody => _('comingSoonBody');
   String get handsToGo => _('handsToGo');
   String get settings => _('settings');
@@ -239,8 +256,21 @@ class Strings {
       'fourHourBonus': '4-HOUR BONUS',
       'milestone': 'MILESTONE',
       'collect': 'Collect',
+      'rewardCollected': 'Reward collected!',
+      'rewardComeBack': 'Come again after 4 hours.',
+      'rewardMilestoneAgain': 'Another 25 hands earns the next one.',
+      'rewardRefused': 'Not ready to collect yet.',
+      'tapToClose': 'Tap to close',
       'buyChips': 'Buy chips',
       'comingSoon': 'Coming soon',
+      'storeTitle': 'Chip Store',
+      'storeBlurb': 'The bigger the pack, the bigger the bonus.',
+      'storeBonus': 'BONUS',
+      'storeNotLive': 'Payments are not live yet — nothing was charged.',
+      'posStarter': 'STARTER',
+      'posPopular': 'POPULAR',
+      'posBestValue': 'BEST VALUE',
+      'posPremium': 'PREMIUM',
       'comingSoonBody': 'Buying chips is not open yet. Collect your rewards in the meantime.',
       'handsToGo': 'hands to go',
       'settings': 'Settings',
@@ -384,8 +414,21 @@ class Strings {
       'fourHourBonus': '4-घंटे का बोनस',
       'milestone': 'माइलस्टोन',
       'collect': 'लें',
+      'rewardCollected': 'इनाम मिल गया!',
+      'rewardComeBack': '4 घंटे बाद फिर आइए।',
+      'rewardMilestoneAgain': 'अगले के लिए 25 हाथ और खेलें।',
+      'rewardRefused': 'अभी लेने के लिए तैयार नहीं।',
+      'tapToClose': 'बंद करने के लिए टैप करें',
       'buyChips': 'चिप्स खरीदें',
       'comingSoon': 'जल्द आ रहा है',
+      'storeTitle': 'चिप स्टोर',
+      'storeBlurb': 'जितना बड़ा पैक, उतना बड़ा बोनस।',
+      'storeBonus': 'बोनस',
+      'storeNotLive': 'भुगतान अभी चालू नहीं है — कोई शुल्क नहीं लिया गया।',
+      'posStarter': 'शुरुआत',
+      'posPopular': 'लोकप्रिय',
+      'posBestValue': 'सबसे बढ़िया',
+      'posPremium': 'प्रीमियम',
       'comingSoonBody': 'चिप्स खरीदना अभी शुरू नहीं हुआ है। तब तक अपने इनाम लेते रहें।',
       'handsToGo': 'हाथ बाकी',
       'settings': 'सेटिंग्स',
@@ -529,8 +572,21 @@ class Strings {
       'fourHourBonus': '৪-ঘণ্টার বোনাস',
       'milestone': 'মাইলস্টোন',
       'collect': 'নিন',
+      'rewardCollected': 'পুরস্কার সংগ্রহ হয়েছে!',
+      'rewardComeBack': '৪ ঘণ্টা পরে আবার আসুন।',
+      'rewardMilestoneAgain': 'পরেরটির জন্য আরও ২৫ হাত।',
+      'rewardRefused': 'এখনও নেওয়ার জন্য প্রস্তুত নয়।',
+      'tapToClose': 'বন্ধ করতে ট্যাপ করুন',
       'buyChips': 'চিপ কিনুন',
       'comingSoon': 'শীঘ্রই আসছে',
+      'storeTitle': 'চিপ স্টোর',
+      'storeBlurb': 'প্যাক যত বড়, বোনাসও তত বড়।',
+      'storeBonus': 'বোনাস',
+      'storeNotLive': 'পেমেন্ট এখনও চালু নয় — কোনও চার্জ হয়নি।',
+      'posStarter': 'শুরু',
+      'posPopular': 'জনপ্রিয়',
+      'posBestValue': 'সেরা মূল্য',
+      'posPremium': 'প্রিমিয়াম',
       'comingSoonBody': 'চিপ কেনা এখনও চালু হয়নি। ততক্ষণ আপনার পুরস্কার নিতে থাকুন।',
       'handsToGo': 'হাত বাকি',
       'settings': 'সেটিংস',
@@ -674,8 +730,21 @@ class Strings {
       'fourHourBonus': '4-કલાકનું બોનસ',
       'milestone': 'માઇલસ્ટોન',
       'collect': 'લો',
+      'rewardCollected': 'ઇનામ મળી ગયું!',
+      'rewardComeBack': '4 કલાક પછી ફરી આવો.',
+      'rewardMilestoneAgain': 'આગલા માટે વધુ 25 હાથ.',
+      'rewardRefused': 'હજી લેવા માટે તૈયાર નથી.',
+      'tapToClose': 'બંધ કરવા ટૅપ કરો',
       'buyChips': 'ચિપ્સ ખરીદો',
       'comingSoon': 'ટૂંક સમયમાં',
+      'storeTitle': 'ચિપ સ્ટોર',
+      'storeBlurb': 'પૅક જેટલું મોટું, બોનસ એટલું મોટું.',
+      'storeBonus': 'બોનસ',
+      'storeNotLive': 'પેમેન્ટ હજી ચાલુ નથી — કોઈ ચાર્જ લેવાયો નથી.',
+      'posStarter': 'શરૂઆત',
+      'posPopular': 'લોકપ્રિય',
+      'posBestValue': 'સૌથી સારું',
+      'posPremium': 'પ્રીમિયમ',
       'comingSoonBody': 'ચિપ્સ ખરીદવાનું હજી શરૂ થયું નથી. ત્યાં સુધી તમારાં ઇનામ લેતા રહો.',
       'handsToGo': 'હાથ બાકી',
       'settings': 'સેટિંગ્સ',
@@ -819,8 +888,21 @@ class Strings {
       'fourHourBonus': '4-ਘੰਟੇ ਦਾ ਬੋਨਸ',
       'milestone': 'ਮਾਈਲਸਟੋਨ',
       'collect': 'ਲਓ',
+      'rewardCollected': 'ਇਨਾਮ ਮਿਲ ਗਿਆ!',
+      'rewardComeBack': '4 ਘੰਟੇ ਬਾਅਦ ਫਿਰ ਆਓ।',
+      'rewardMilestoneAgain': 'ਅਗਲੇ ਲਈ ਹੋਰ 25 ਹੱਥ।',
+      'rewardRefused': 'ਹਾਲੇ ਲੈਣ ਲਈ ਤਿਆਰ ਨਹੀਂ।',
+      'tapToClose': 'ਬੰਦ ਕਰਨ ਲਈ ਟੈਪ ਕਰੋ',
       'buyChips': 'ਚਿਪਸ ਖਰੀਦੋ',
       'comingSoon': 'ਜਲਦੀ ਆ ਰਿਹਾ ਹੈ',
+      'storeTitle': 'ਚਿੱਪ ਸਟੋਰ',
+      'storeBlurb': 'ਪੈਕ ਜਿੰਨਾ ਵੱਡਾ, ਬੋਨਸ ਓਨਾ ਵੱਡਾ।',
+      'storeBonus': 'ਬੋਨਸ',
+      'storeNotLive': 'ਭੁਗਤਾਨ ਹਾਲੇ ਚਾਲੂ ਨਹੀਂ — ਕੋਈ ਚਾਰਜ ਨਹੀਂ ਲਿਆ ਗਿਆ।',
+      'posStarter': 'ਸ਼ੁਰੂਆਤ',
+      'posPopular': 'ਹਰਮਨ ਪਿਆਰਾ',
+      'posBestValue': 'ਵਧੀਆ ਮੁੱਲ',
+      'posPremium': 'ਪ੍ਰੀਮੀਅਮ',
       'comingSoonBody': 'ਚਿਪਸ ਖਰੀਦਣਾ ਅਜੇ ਸ਼ੁਰੂ ਨਹੀਂ ਹੋਇਆ। ਉਦੋਂ ਤੱਕ ਆਪਣੇ ਇਨਾਮ ਲੈਂਦੇ ਰਹੋ।',
       'handsToGo': 'ਹੱਥ ਬਾਕੀ',
       'settings': 'ਸੈਟਿੰਗਾਂ',

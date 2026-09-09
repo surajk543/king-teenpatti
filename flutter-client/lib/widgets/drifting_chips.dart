@@ -12,7 +12,18 @@ import 'poker_chip.dart';
 /// alive, not that anything is happening on it. One widget, so the lobby and
 /// every game room breathe the same way.
 class DriftingChips extends StatefulWidget {
-  const DriftingChips({super.key});
+  const DriftingChips({super.key, this.strength = 1.0});
+
+  /// Multiplies the base opacity, so one widget can be barely-there in one
+  /// place and clearly visible in another.
+  ///
+  /// The lobby leaves this at 1 and keeps the whisper it was designed with:
+  /// there, the chips drift across an open background and a faint hint is
+  /// enough. The table draws its felt *over* them, so only the margins around
+  /// the oval show any chip at all, and at the lobby's strength that margin
+  /// reads as empty. Which is why this is a parameter rather than a new
+  /// constant: the right opacity depends on what is painted on top.
+  final double strength;
 
   @override
   State<DriftingChips> createState() => _DriftingChipsState();
@@ -75,7 +86,8 @@ class _DriftingChipsState extends State<DriftingChips>
                     left: x - size / 2,
                     top: y - size / 2,
                     child: Opacity(
-                      opacity: dark ? 0.16 : 0.11,
+                      opacity:
+                          ((dark ? 0.16 : 0.11) * widget.strength).clamp(0.0, 1.0),
                       child: Transform.rotate(
                         angle: t * 6.283 * (i.isEven ? 1 : -1),
                         child: PokerChip(

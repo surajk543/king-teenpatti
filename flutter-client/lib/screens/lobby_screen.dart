@@ -10,6 +10,7 @@ import '../theme/app_theme.dart';
 import '../widgets/avatar.dart';
 import '../widgets/buy_chips.dart';
 import '../widgets/drifting_chips.dart';
+import '../widgets/fireworks.dart';
 import '../widgets/poker_chip.dart';
 import '../widgets/premium_surface.dart';
 import '../widgets/rules_sheet.dart';
@@ -103,7 +104,150 @@ class _LobbyScreenState extends State<LobbyScreen> {
                 ],
               ),
             ),
+            // Sits last so it covers the chips and the rail. Collecting a
+            // reward is the one moment in the lobby worth interrupting for.
+            const _RewardCelebration(),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The banner for a collected reward: fireworks, a spinning chip, the amount,
+/// and when the next one is due.
+///
+/// It replaced a one-line toast that said "Not ready yet" on success, because
+/// the client read the amount from a field the server does not send. Since the
+/// grant is real and irreversible, it deserves to be unmistakable — a player
+/// who is not sure whether their tap worked will tap again.
+class _RewardCelebration extends StatefulWidget {
+  const _RewardCelebration();
+
+  @override
+  State<_RewardCelebration> createState() => _RewardCelebrationState();
+}
+
+class _RewardCelebrationState extends State<_RewardCelebration>
+    with SingleTickerProviderStateMixin {
+  /// Built in initState, not lazily in the field initialiser.
+  ///
+  /// `build` returns a `SizedBox.shrink()` whenever no reward is showing —
+  /// which is nearly always — so a lazy `late final` here would never be
+  /// initialised, and then `dispose()` would run its initialiser while this
+  /// element was being torn down. Constructing an AnimationController needs a
+  /// TickerMode lookup, and that lookup is illegal on a deactivated element:
+  /// the same crash that `_Blink` in seat_pod.dart was fixed for.
+  late final AnimationController _in;
+
+  /// Which reward the current entrance animation belongs to, so a second
+  /// collection re-runs it instead of appearing already finished.
+  int? _shownFor;
+
+  @override
+  void initState() {
+    super.initState();
+    _in = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 460),
+    );
+  }
+
+  @override
+  void dispose() {
+    _in.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final state = context.watch<GameState>();
+    final won = state.rewardWon;
+    final t = state.t;
+
+    if (won == null) {
+      _shownFor = null;
+      return const SizedBox.shrink();
+    }
+    if (_shownFor != won.amount) {
+      _shownFor = won.amount;
+      _in.forward(from: 0);
+    }
+
+    final isBonus = won.kind == 'bonus';
+    return Positioned.fill(
+      child: GestureDetector(
+        onTap: state.dismissReward,
+        child: ColoredBox(
+          color: theme.colorScheme.scrim.withValues(alpha: 0.62),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              // Seeded on the amount so the burst pattern is fixed while the
+              // banner is up and different for the next reward.
+              IgnorePointer(child: Fireworks(seed: won.amount, bursts: 7)),
+              Center(
+                child: AnimatedBuilder(
+                  animation: _in,
+                  builder: (context, child) {
+                    final e = Curves.easeOutBack.transform(_in.value);
+                    return Opacity(
+                      opacity: Curves.easeOut.transform(_in.value),
+                      child: Transform.scale(scale: 0.82 + 0.18 * e, child: child),
+                    );
+                  },
+                  child: PremiumSurface(
+                    accent: AppTheme.gold,
+                    radius: 26,
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(38, 30, 38, 26),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          SpinningChip(
+                            colour: AppTheme.gold,
+                            size: 62,
+                            turn: const Duration(milliseconds: 900),
+                            rest: const Duration(milliseconds: 260),
+                          ),
+                          const SizedBox(height: 18),
+                          Text(
+                            t.rewardCollected,
+                            textAlign: TextAlign.center,
+                            style: theme.textTheme.headlineSmall?.copyWith(
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            '+ ${formatChips(won.amount)}',
+                            style: theme.textTheme.headlineMedium?.copyWith(
+                              color: AppTheme.gold,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                          const SizedBox(height: 14),
+                          Text(
+                            isBonus ? t.rewardComeBack : t.rewardMilestoneAgain,
+                            textAlign: TextAlign.center,
+                            style: theme.textTheme.bodyLarge?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                          const SizedBox(height: 20),
+                          FilledButton(
+                            onPressed: state.dismissReward,
+                            child: Text(t.tapToClose),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -1427,12 +1571,81 @@ class _BonusChip extends StatelessWidget {
     final ready = r.bonusReady;
     return _CornerChip(
       icon: Icons.hourglass_bottom,
+      leadingBuilder: (fg) => _Hourglass(colour: fg, running: !ready),
       title: state.t.fourHourBonus,
       subtitle: ready
           ? '${state.t.collect} ${formatChips(r.bonusReward)}'
           : formatCountdown(r.untilBonus),
       enabled: ready,
       onTap: () => state.claimReward('bonus'),
+    );
+  }
+}
+
+/// The bonus chip's hourglass, turning while the bonus recharges.
+///
+/// One cycle is: sand at the top, sand run through, then the glass is flipped
+/// a half turn. Because the flip ends where the next cycle begins — a
+/// "drained" glass upside down is a "full" one — the loop closes without a
+/// jump, and the icon never has to be swapped mid-rotation.
+///
+/// When the bonus is ready it stops turning and breathes instead. A countdown
+/// that has finished should not still look like it is counting; the movement
+/// changes from "waiting" to "come and take it".
+class _Hourglass extends StatefulWidget {
+  const _Hourglass({required this.colour, required this.running});
+
+  final Color colour;
+  final bool running;
+
+  @override
+  State<_Hourglass> createState() => _HourglassState();
+}
+
+class _HourglassState extends State<_Hourglass>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 3200),
+  )..repeat();
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _c,
+      builder: (context, _) {
+        final t = _c.value;
+        if (!widget.running) {
+          // Ready: a slow breath, no rotation.
+          final breath = 1 + 0.12 * math.sin(t * 2 * math.pi);
+          return Transform.scale(
+            scale: breath,
+            child: Icon(Icons.hourglass_bottom, size: 20, color: widget.colour),
+          );
+        }
+        // Upright for the first 72% of the cycle while the sand runs, then a
+        // half turn over the last 28%.
+        const flipFrom = 0.72;
+        final angle = t < flipFrom
+            ? 0.0
+            : math.pi *
+                Curves.easeInOutCubic.transform((t - flipFrom) / (1 - flipFrom));
+        final sandAtTop = t < 0.36;
+        return Transform.rotate(
+          angle: angle,
+          child: Icon(
+            sandAtTop ? Icons.hourglass_top : Icons.hourglass_bottom,
+            size: 20,
+            color: widget.colour,
+          ),
+        );
+      },
     );
   }
 }
@@ -1465,9 +1678,15 @@ class _CornerChip extends StatelessWidget {
     required this.subtitle,
     required this.enabled,
     required this.onTap,
+    this.leadingBuilder,
   });
 
   final IconData icon;
+
+  /// Replaces the plain [icon] when a chip wants a moving one. It is a builder
+  /// rather than a widget because the foreground colour is decided here, from
+  /// whether the chip is enabled.
+  final Widget Function(Color colour)? leadingBuilder;
   final String title;
   final String subtitle;
   final bool enabled;
@@ -1494,7 +1713,7 @@ class _CornerChip extends StatelessWidget {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(icon, size: 20, color: fg),
+              leadingBuilder?.call(fg) ?? Icon(icon, size: 20, color: fg),
               const SizedBox(width: 8),
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
