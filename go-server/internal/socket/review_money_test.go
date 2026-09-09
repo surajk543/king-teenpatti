@@ -33,12 +33,19 @@ func TestReviewClientActionIDCannotClaimAReservedLedgerNamespace(t *testing.T) {
 	if str(ack.Raw, "action") != "chaal" {
 		t.Fatalf("chaal ack: %s", ack.Raw)
 	}
+	// A bet reaches the books only when the hand ends (owner's decision of
+	// 9 Sep 2026), so end it: the other player packs and the winner is paid.
+	st.mustOK(d.waiting.c, EvGameAction, map[string]any{"action": "pack"})
+	if _, err := d.onTurn.c.Wait(EvGameHandEnded, nil, eventTimeout); err != nil {
+		t.Fatalf("hand never ended: %v", err)
+	}
 	if n := st.books.rows(forged); n != 0 {
 		t.Fatalf("REVIEW: the ledger row for %s's chaal carries the forged action_id %q (%d row); %s's 25-hand milestone claim will now fail on the UNIQUE index",
 			d.onTurn.user.DisplayName, forged, n, d.waiting.user.DisplayName)
 	}
-	// The chaal itself still went through and was banked under a server id.
-	if got := st.users.chips(d.onTurn.user.ID); got != welcomeChips-2*d.boot {
-		t.Fatalf("the chaal was not banked: chips %d, want %d", got, welcomeChips-2*d.boot)
+	// The chaal itself still went through and was banked under a server id:
+	// the winner staked 2×boot and took a pot of 3×boot.
+	if got := st.users.chips(d.onTurn.user.ID); got != welcomeChips+d.boot {
+		t.Fatalf("the chaal was not banked: chips %d, want %d", got, welcomeChips+d.boot)
 	}
 }

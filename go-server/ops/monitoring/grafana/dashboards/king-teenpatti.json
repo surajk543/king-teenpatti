@@ -6838,7 +6838,7 @@
       "id": 80,
       "type": "timeseries",
       "title": "Rows/sec",
-      "description": "Every bet inserts one chip_ledger row and updates users + pots + game_states. Deletes should be ~0: chip_ledger is append-only by trigger.",
+      "description": "PostgreSQL is written twice per hand (boots at the deal, bets + settlement at the end) plus once per mid-hand departure; a bet of its own writes nothing. Deletes should be ~0: chip_ledger is append-only by trigger.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -8732,8 +8732,8 @@
     {
       "id": 105,
       "type": "stat",
-      "title": "Pots refunded (last start)",
-      "description": "Open pots with no live table, returned to their contributors through the ledger.",
+      "title": "Reconcile failures",
+      "description": "Failed passes of the periodic live-store reconcile (game_live_store_reconciles_total{result=\"error\"}). The reconcile refills Redis from memory after an outage and sweeps stray seat/summary keys; a rising count means the live store and the server disagree and nothing is healing it.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -8755,6 +8755,10 @@
               {
                 "color": "green",
                 "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
               }
             ]
           },
@@ -8778,13 +8782,16 @@
       },
       "targets": [
         {
+          "refId": "A",
           "datasource": {
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "game_refunded_pots_total",
-          "legendFormat": "",
-          "refId": "A"
+          "editorMode": "code",
+          "expr": "sum(game_live_store_reconciles_total{result=\"error\"})",
+          "legendFormat": "failed",
+          "range": true,
+          "instant": false
         }
       ]
     },
@@ -8959,7 +8966,7 @@
       },
       "gridPos": {
         "h": 8,
-        "w": 8,
+        "w": 6,
         "x": 0,
         "y": 200
       },
@@ -9032,15 +9039,15 @@
       "id": 109,
       "type": "timeseries",
       "title": "Redis memory and clients",
-      "description": "Resident memory against the cap, and connected clients (the game server pools a handful).",
+      "description": "Resident memory against the maxmemory cap, and connected clients on the right axis. The policy is noeviction, so at 100% live-state writes start failing rather than keys being dropped.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
       "gridPos": {
         "h": 8,
-        "w": 8,
-        "x": 8,
+        "w": 6,
+        "x": 6,
         "y": 200
       },
       "fieldConfig": {
@@ -9082,7 +9089,28 @@
             ]
           }
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "clients"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "clients"
+              }
+            ]
+          }
+        ]
       },
       "options": {
         "legend": {
@@ -9120,8 +9148,8 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "redis_connected_clients * 1e6",
-          "legendFormat": "clients (\u00d71M for scale)",
+          "expr": "redis_connected_clients",
+          "legendFormat": "clients",
           "refId": "C"
         }
       ]
@@ -9137,8 +9165,8 @@
       },
       "gridPos": {
         "h": 8,
-        "w": 8,
-        "x": 16,
+        "w": 6,
+        "x": 12,
         "y": 200
       },
       "fieldConfig": {
@@ -9221,6 +9249,122 @@
           "expr": "rate(redis_keyspace_misses_total[5m])",
           "legendFormat": "misses/s",
           "refId": "C"
+        }
+      ]
+    },
+    {
+      "id": 111,
+      "type": "timeseries",
+      "title": "Redis persistence (RDB)",
+      "description": "Unsaved changes since the last RDB snapshot, and whether that snapshot succeeded (1 = ok, right axis). king-teenpatti.conf sets stop-writes-on-bgsave-error no, so a failing BGSAVE never stops writes and never surfaces anywhere else \u2014 if this drops to 0, Redis has no usable snapshot and a restart loses every table.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 18,
+        "y": 200
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "showPoints": "never",
+            "pointSize": 4,
+            "spanNulls": true,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "last BGSAVE ok"
+            },
+            "properties": [
+              {
+                "id": "max",
+                "value": 1
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "1 = ok"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "redis_rdb_changes_since_last_save",
+          "legendFormat": "unsaved changes",
+          "range": true,
+          "instant": false
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "redis_rdb_last_bgsave_status",
+          "legendFormat": "last BGSAVE ok",
+          "range": true,
+          "instant": false
         }
       ]
     }

@@ -5,168 +5,184 @@ import (
 	"errors"
 )
 
-// Ledger is where the chips are actually kept — the port of the three
-// functions in server/src/db/ledger.js. Production hands the Table
-// db.Ledger (PostgreSQL); unit tests hand it a MemoryLedger.
+// Ledger is where the chips are actually kept.
+//
+// # The money model (owner's decision, 9 Sep 2026)
+//
+// ALL game state lives in the live store (Redis). PostgreSQL holds money and
+// audit only, and it is written at exactly THREE moments, each of which takes
+// a player's chips as the live state has them and makes the wallet agree:
+//
+//	a player LEAVES or SWITCHES table   → that player only   (reason hand_left)
+//	a player PACKS                      → that player only   (reason hand_packed)
+//	the HAND ENDS (a winner is decided) → everyone still at the table
+//	                                      (reason hand_win / hand_loss)
+//
+// Nothing else writes: not the deal, not a chaal, raise, show or see. Those
+// move chips at the seat, in the pot and in the Redis snapshot, and nowhere
+// else.
+//
+// # Deltas, never absolutes
+//
+// Every write is `UPDATE users SET chips = chips + delta`, where the Table
+// computed `delta = seat.chips now − seat.chips as last written`. It is never
+// `SET chips = <value from the live state>`: a seated player can claim the
+// four-hour bonus or a milestone reward, which credits PostgreSQL and not the
+// seat, and an absolute overwrite at the next checkpoint would erase it. With
+// a delta the reward survives, and with no concurrent credit the resulting
+// wallet equals the live figure exactly.
+//
+// A player written twice for the same hand (packed, then settled) computes a
+// zero delta the second time, so the money moves once while the outcome row
+// and its counters are still recorded. A zero-delta row is not noise: it is
+// what says this player was in the hand and how it ended for them.
+//
+// # Errors and idempotency
 //
 // Every method is ONE transaction: it either wholly happens or wholly does
 // not. On failure it returns a *GameError whose Code is one of
-// KnownLedgerCodes (duplicate_action, insufficient_chips, stale_state, no_pot,
-// unknown_user, invalid_amount, persist_failed); the Table maps it with
-// refusal() (only insufficient_chips and duplicate_action survive to the
-// client; the rest become persist_failed).
+// KnownLedgerCodes (duplicate_action, insufficient_chips, unknown_user,
+// invalid_amount, persist_failed); the Table maps it with refusal(). Each
+// entry carries its own `chip_ledger.action_id` — "<handId>:packed:<userId>",
+// "<handId>:left:<userId>", "<handId>:settle:<userId>" — which is UNIQUE, so
+// a replayed write raises a unique violation, rolls the whole transaction
+// back and comes out as duplicate_action: the Table treats that on a retry as
+// the success it is.
 //
 // The Table calls these from its actor goroutine and blocks on them — the
 // whole point: no timer or other move can interleave while a write is in
 // flight. ctx is the Table's context (cancelled by Destroy).
 type Ledger interface {
-	// Bet is a chaal, raise or show: one player's chips into the pot.
-	// Sequence (ledger.js bet): validate amount → BEGIN → SELECT chips FOR
-	// UPDATE (unknown_user if no row; insufficient_chips if chips < amount) →
-	// UPDATE users.chips → UPDATE pots.amount += (no_pot if no row) → INSERT
-	// chip_ledger(action_id UNIQUE → duplicate_action) → COMMIT. The table
-	// snapshot no longer rides in the transaction (LIVE_STATE_PLAN.md): the
-	// actor saves it to the live store and the durable sink afterwards.
-	Bet(ctx context.Context, req BetRequest) (BetResult, error)
+	// Checkpoint writes ONE player's chips through: the pack checkpoint and
+	// the leave/switch checkpoint. No hands row.
+	Checkpoint(ctx context.Context, req CheckpointRequest) (CheckpointResult, error)
 
-	// CollectBoot opens the pot and takes the boot from every participant in
-	// one transaction. Wallet rows are locked IN ASCENDING userId ORDER so two
-	// tables sharing a player cannot deadlock. Any single player short of the
-	// boot refuses the whole start with insufficient_chips + UserID set.
-	// Writes: users.chips per player; INSERT pots(hand_id, room_id,
-	// boot_amount, amount=total, opened_at); one chip_ledger row per player
-	// with action_id BootActionID(handId, userId).
-	CollectBoot(ctx context.Context, req CollectBootRequest) (CollectBootResult, error)
-
-	// Settle ends a hand in one transaction: per entry in ascending userId
+	// Settle is the HAND-END checkpoint: every player still at the table.
+	// Per entry, in ascending userId
 	// order: lock the wallet (skip silently if the row is gone), balance =
-	// max(0, chips + delta), UPDATE users (chips, hands_played += didChaal,
-	// hands_won += isWinner, hands_lost += !isWinner && !leftMidHand,
-	// hands_left_mid += leftMidHand, total_winnings += pot if winner,
-	// biggest_pot = GREATEST(…, pot if winner), updated_at); INSERT
-	// chip_ledger with action_id SettleActionID(handId, userId), reason
-	// hand_win / hand_loss (a zero delta is STILL written); then INSERT hands
-	// … ON CONFLICT (id) DO NOTHING (after the wallet locks — its winner_id
-	// foreign key locks the winner's row, see db.Ledger.Settle); UPDATE pots
-	// SET closed_at, winner_id. Returns every settled balance. Idempotent by construction, which is what lets
-	// the Table retry it.
+	// max(0, chips + delta), UPDATE users (chips, hands_played += DidChaal
+	// when Outcome, hands_won += IsWinner, hands_lost += Outcome &&
+	// !IsWinner && !LeftMidHand, hands_left_mid += LeftMidHand,
+	// total_winnings += Pot if winner, biggest_pot = GREATEST(…, Pot if
+	// winner), updated_at); INSERT chip_ledger with the entry's ActionID and
+	// Reason (a zero delta is STILL written). Returns every settled balance.
+	// The Table retries it unchanged on failure; the UNIQUE action ids are
+	// what make that safe.
 	Settle(ctx context.Context, req SettleRequest) (SettleResult, error)
 }
 
-// BetRequest ← ledger.bet({...}) arguments.
-type BetRequest struct {
+// Checkpoint reasons — the `chip_ledger.reason` of the three moments.
+const (
+	// LedgerReasonHandPacked is the pack checkpoint: the player folded, so
+	// their stake is fixed and their wallet is brought up to date at once.
+	// It carries no counters — the outcome row at the hand end does.
+	LedgerReasonHandPacked = "hand_packed"
+	// LedgerReasonHandLeft is the leave/switch checkpoint: the player is
+	// gone from the table, their wallet must be right immediately, and
+	// hands_left_mid is incremented here because they will not be at the
+	// hand-end write.
+	LedgerReasonHandLeft = "hand_left"
+)
+
+// SettleEntry is one player's row at one checkpoint. The Table computes
+// Delta; the ledger applies it and writes exactly one chip_ledger row.
+type SettleEntry struct {
+	// UserID is whose wallet moves.
 	UserID string
-	Amount int64
+	// Delta is `chips now − chips as last written to PostgreSQL`, so it may
+	// be negative (they staked), positive (they won) or zero (already
+	// written; the row records the outcome only).
+	Delta int64
+	// ActionID is the row's unique id: PackedActionID / LeftActionID /
+	// SettleActionID.
+	ActionID string
+	// Reason is the chip_ledger reason: hand_packed, hand_left, hand_win or
+	// hand_loss.
+	Reason string
+	// Outcome marks the row that RESOLVES the hand for this player and
+	// therefore carries the counters (hand_win, hand_loss, hand_left). The
+	// pack checkpoint is not an outcome — the player is still at the table
+	// and the hand-end write will resolve them.
+	Outcome bool
+	// IsWinner drives hands_won, total_winnings and biggest_pot.
+	IsWinner bool
+	// DidChaal drives hands_played on an outcome row (requirement 16).
+	DidChaal bool
+	// LeftMidHand drives hands_left_mid, and excludes the row from hands_lost.
+	LeftMidHand bool
+	// Pot is the hand's pot, used for total_winnings/biggest_pot when
+	// IsWinner.
+	Pot int64
+}
+
+// CheckpointRequest is one player's pack or leave checkpoint.
+type CheckpointRequest struct {
 	RoomID string
 	HandID string
-	// ActionID is the client's own id for the move (≤ 64 chars) or a fresh
-	// util.UUID() when the client sent none. Unique on chip_ledger.
-	ActionID string
-	// Reason is LedgerReasonBet or LedgerReasonShow.
-	Reason string
-	// BalanceBefore is what the seat believed it held; the DB figure wins.
-	BalanceBefore int64
+	Entry  SettleEntry
 }
 
-// BetResult ← `{ balance, persisted }`.
-type BetResult struct {
-	// Balance is the wallet after the deduction — the seat adopts it.
+// CheckpointResult is the wallet after the write (0 when the account is
+// gone). The Table does not adopt it — the seat is the live truth and the
+// wallet follows — but it is logged and asserted in tests.
+type CheckpointResult struct {
 	Balance int64
-	// Persisted is how much of the stake the account was actually debited:
-	// all of it for Postgres; 0 for a MemoryLedger without PersistChips.
-	// The Table adds it to the contribution's `persisted` so settlement can
-	// compute delta = net + persisted (CLAUDE.md §12.2 "persisted is reported
-	// by the ledger, not assumed").
-	Persisted int64
 }
 
-// BootEntry is one participant in CollectBootRequest.
-type BootEntry struct {
-	UserID        string
-	Amount        int64 // always the boot
-	BalanceBefore int64
-}
-
-// CollectBootRequest ← ledger.collectBoot({...}).
-type CollectBootRequest struct {
-	RoomID     string
-	HandID     string
-	BootAmount int64
-	Entries    []BootEntry
-}
-
-// CollectBootResult ← `{ balances, persisted }`.
-type CollectBootResult struct {
-	// Balances is userId → wallet after the boot, for every entry. The Table
-	// prefers this over seat.chips - boot when the key is present.
-	Balances map[string]int64
-	// Persisted is the boot amount actually debited per player (bootAmount
-	// for Postgres, 0 for a bookless MemoryLedger).
-	Persisted int64
-}
-
-// SettleEntry is one contributor's outcome, deltas already computed by the
-// Table (_endHand): delta = net + persisted where net is pot - contributed
-// for the winner, -contributed for a loser, 0 when there is no winner.
-type SettleEntry struct {
-	UserID      string
-	Delta       int64
-	IsWinner    bool
-	DidChaal    bool // requirement 16: drives hands_played
-	LeftMidHand bool // drives hands_left_mid, and excludes from hands_lost
-}
-
-// SettleRequest ← ledger.settle({...}).
+// SettleRequest ← the hand-end checkpoint.
 type SettleRequest struct {
-	Hand    HandRecord
+	RoomID  string
+	HandID  string
 	Entries []SettleEntry
 }
 
-// SettleResult is userId → balance after settlement for every entry whose
-// wallet row exists. The Table tests KEY PRESENCE, not truthiness — a balance
-// of exactly 0 is valid (CLAUDE.md §12.2).
+// SettleResult is userId → balance after the write for every entry whose
+// wallet row exists.
 type SettleResult map[string]int64
 
-// BootActionID is the deterministic chip_ledger.action_id for a boot:
-// "<handId>:boot:<userId>".
-func BootActionID(handID, userID string) string {
-	return handID + ":boot:" + userID
+// PackedActionID is the chip_ledger.action_id of a pack checkpoint:
+// "<handId>:packed:<userId>".
+func PackedActionID(handID, userID string) string {
+	return handID + ":packed:" + userID
 }
 
-// SettleActionID is the deterministic action_id for a settlement row:
+// LeftActionID is the action_id of a leave/switch checkpoint:
+// "<handId>:left:<userId>".
+func LeftActionID(handID, userID string) string {
+	return handID + ":left:" + userID
+}
+
+// SettleActionID is the action_id of a hand-end row:
 // "<handId>:settle:<userId>".
 func SettleActionID(handID, userID string) string {
 	return handID + ":settle:" + userID
 }
 
-// PersistChipsArgs is what MemoryLedger's PersistChips hook receives for every
-// boot and bet (test/helpers; CLAUDE.md §7.6): Delta is negative, Reason one
-// of boot | bet | show. A returned error REFUSES the move (persist_failed).
-type PersistChipsArgs struct {
-	UserID   string
-	Delta    int64
-	Reason   string
-	RoomID   string
-	HandID   string
-	ActionID string
+// CheckpointArgs is what MemoryLedger's Checkpoint hook receives for every
+// row the table writes — the pack and leave checkpoints and each entry of
+// the hand-end settlement. A returned error fails that write (the Table
+// reports it and, at the hand end, retries).
+type CheckpointArgs struct {
+	RoomID string
+	HandID string
+	Entry  SettleEntry
 }
 
-// MemoryLedgerHooks are the two optional callbacks Node's memoryLedger wraps.
+// MemoryLedgerHooks are the optional callbacks a test ledger wraps.
 type MemoryLedgerHooks struct {
-	// Settle, if set, is called at the end of every hand and must return the
-	// post-hand balances (userId → balance). Nil → Settle returns an empty
-	// map and the Table pays the winner in memory.
-	Settle func(hand HandRecord, entries []SettleEntry) (map[string]int64, error)
-	// PersistChips, if set, is called for every boot and bet. With it set the
-	// stake "really left the account" and Persisted = amount; without it
-	// Persisted = 0 and settlement must move the whole net.
-	PersistChips func(args PersistChipsArgs) error
+	// Checkpoint, if set, is called once per ledger row: the pack and leave
+	// checkpoints and every entry of the settlement. It is where a test's
+	// fake wallet moves.
+	Checkpoint func(args CheckpointArgs) error
+	// Settle, if set, is called once at the hand end with the request and the
+	// entries, AFTER the per-entry Checkpoint calls, and returns the
+	// post-hand balances. Nil → Settle returns an empty map.
+	Settle func(req SettleRequest, entries []SettleEntry) (map[string]int64, error)
 }
 
-// MemoryLedger keeps no books of its own (table.js memoryLedger) — for
-// tables built without a database. Bet returns BalanceBefore - Amount;
-// CollectBoot returns BalanceBefore - Amount per entry. Errors from the hooks
-// are wrapped as persist_failed GameErrors (unless already *GameError).
+// MemoryLedger keeps no books of its own — for tables built without a
+// database. Errors from the hooks are wrapped as persist_failed GameErrors
+// (unless already *GameError).
 type MemoryLedger struct {
 	Hooks MemoryLedgerHooks
 }
@@ -176,65 +192,30 @@ func NewMemoryLedger(hooks MemoryLedgerHooks) *MemoryLedger {
 	return &MemoryLedger{Hooks: hooks}
 }
 
-// Bet implements Ledger (table.js memoryLedger.bet): with a PersistChips
-// hook the stake really left the account and Persisted = Amount; without one
-// nothing did, Persisted = 0, and settlement must move the whole net. The
-// hook refusing (returning an error) refuses the move.
-func (m *MemoryLedger) Bet(ctx context.Context, req BetRequest) (BetResult, error) {
-	persisted := int64(0)
-	if m.Hooks.PersistChips != nil {
-		if err := m.Hooks.PersistChips(PersistChipsArgs{
-			UserID:   req.UserID,
-			Delta:    -req.Amount,
-			Reason:   req.Reason,
-			RoomID:   req.RoomID,
-			HandID:   req.HandID,
-			ActionID: req.ActionID,
-		}); err != nil {
-			return BetResult{}, hookRefusal(err)
+// Checkpoint implements Ledger: the pack / leave write.
+func (m *MemoryLedger) Checkpoint(ctx context.Context, req CheckpointRequest) (CheckpointResult, error) {
+	if m.Hooks.Checkpoint != nil {
+		if err := m.Hooks.Checkpoint(CheckpointArgs{RoomID: req.RoomID, HandID: req.HandID, Entry: req.Entry}); err != nil {
+			return CheckpointResult{}, hookRefusal(err)
 		}
-		persisted = req.Amount
 	}
-	return BetResult{Balance: req.BalanceBefore - req.Amount, Persisted: persisted}, nil
+	return CheckpointResult{}, nil
 }
 
-// CollectBoot implements Ledger. Persisted is entries[0].Amount when
-// PersistChips is set (Node: `entries[0]?.amount ?? 0`), else 0. Entries are
-// debited in the order given (Node's memory ledger did not sort them); the
-// first hook refusal refuses the whole start, and Balances reports
-// BalanceBefore - Amount for every entry.
-func (m *MemoryLedger) CollectBoot(ctx context.Context, req CollectBootRequest) (CollectBootResult, error) {
-	balances := make(map[string]int64, len(req.Entries))
-	for _, entry := range req.Entries {
-		if m.Hooks.PersistChips != nil {
-			if err := m.Hooks.PersistChips(PersistChipsArgs{
-				UserID:   entry.UserID,
-				Delta:    -entry.Amount,
-				Reason:   LedgerReasonBoot,
-				RoomID:   req.RoomID,
-				HandID:   req.HandID,
-				ActionID: BootActionID(req.HandID, entry.UserID),
-			}); err != nil {
-				return CollectBootResult{}, hookRefusal(err)
+// Settle implements Ledger: every entry through the Checkpoint hook, then the
+// Settle hook's balances (nil → empty, and the Table keeps its own figures).
+func (m *MemoryLedger) Settle(ctx context.Context, req SettleRequest) (SettleResult, error) {
+	if m.Hooks.Checkpoint != nil {
+		for _, entry := range req.Entries {
+			if err := m.Hooks.Checkpoint(CheckpointArgs{RoomID: req.RoomID, HandID: req.HandID, Entry: entry}); err != nil {
+				return nil, hookRefusal(err)
 			}
 		}
-		balances[entry.UserID] = entry.BalanceBefore - entry.Amount
 	}
-	persisted := int64(0)
-	if m.Hooks.PersistChips != nil && len(req.Entries) > 0 {
-		persisted = req.Entries[0].Amount
-	}
-	return CollectBootResult{Balances: balances, Persisted: persisted}, nil
-}
-
-// Settle implements Ledger: the Settle hook's balances (nil → empty), or an
-// empty map without a hook, in which case the Table pays the winner in
-// memory.
-func (m *MemoryLedger) Settle(ctx context.Context, req SettleRequest) (SettleResult, error) {
 	if m.Hooks.Settle == nil {
 		return SettleResult{}, nil
 	}
-	balances, err := m.Hooks.Settle(req.Hand, req.Entries)
+	balances, err := m.Hooks.Settle(req, req.Entries)
 	if err != nil {
 		return nil, hookRefusal(err)
 	}
@@ -245,8 +226,7 @@ func (m *MemoryLedger) Settle(ctx context.Context, req SettleRequest) (SettleRes
 }
 
 // hookRefusal is what a hook's error becomes: a *GameError passes through
-// with its code (Node's `_refusal` switched on `error.code`), anything else is
-// persist_failed with the original error as Cause.
+// with its code, anything else is persist_failed with the original as Cause.
 func hookRefusal(err error) error {
 	var ge *GameError
 	if errors.As(err, &ge) {

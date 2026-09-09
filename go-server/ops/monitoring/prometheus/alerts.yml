@@ -388,14 +388,15 @@ groups:
           description: "{{ $value | humanizePercentage }} of maxmemory used. The policy is noeviction, so at 100% live-state writes start failing. Raise maxmemory in /etc/redis/redis.conf.d/king-teenpatti.conf or check for keys that are not expiring (redis-cli --scan --pattern 'kt:*' | wc -l)."
           runbook: "MONITORING.md#alerts"
 
-      - alert: PotsRefundedOnStart
-        # The startup safety net: an open pot whose table did not come back is
-        # returned to its contributors through the ledger. A few after a crash
-        # are expected; a stream of them is not.
-        expr: increase(game_refunded_pots_total[15m]) > 20
+      - alert: LiveStoreReconcileFailing
+        # game_refunded_pots_total went with db.RefundOrphanedPots on 9 Sep 2026:
+        # PostgreSQL holds no game state, so there is no orphaned pot to refund.
+        # What replaced it as the live-store health signal is the reconciler,
+        # which refills Redis after an outage and sweeps stray seat/summary keys.
+        expr: increase(game_live_store_reconciles_total{result="error"}[15m]) > 3
         labels:
           severity: warning
         annotations:
-          summary: "More than 20 pots refunded in the last 15 minutes"
-          description: "{{ $value | humanize }} open pots had no live table on startup and were refunded (game_refunded_pots_total). Expected after a crash without Redis; if it repeats, table snapshots are not being saved — check RedisDown and LiveStoreErrors."
+          summary: "The live-store reconcile is failing"
+          description: "{{ $value | humanize }} failed reconcile passes in 15 minutes (game_live_store_reconciles_total). Redis and the server disagree and nothing is healing it: stray kt:seat:* / kt:summary:* keys accumulate and a restart may not rebuild every table. Check RedisDown, Redis memory, and the server log."
           runbook: "MONITORING.md#alerts"

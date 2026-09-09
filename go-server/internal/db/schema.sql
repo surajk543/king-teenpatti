@@ -39,39 +39,6 @@ CREATE TABLE IF NOT EXISTS users (
 
 CREATE INDEX IF NOT EXISTS idx_users_last_login ON users (last_login_at DESC);
 
--- One row per completed hand, for auditing and dispute resolution.
-CREATE TABLE IF NOT EXISTS hands (
-  id           TEXT PRIMARY KEY,
-  room_id      TEXT NOT NULL,
-  hand_no      INTEGER NOT NULL,
-  pot          BIGINT NOT NULL,
-  winner_id    TEXT REFERENCES users (id) ON DELETE SET NULL,
-  win_reason   TEXT,
-  boot_amount  BIGINT NOT NULL,
-  started_at   BIGINT NOT NULL,
-  ended_at     BIGINT NOT NULL,
-  -- Every seat with its cards, contribution and final status.
-  summary_json JSONB NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_hands_room ON hands (room_id, hand_no);
-CREATE INDEX IF NOT EXISTS idx_hands_ended ON hands (ended_at DESC);
-
--- The pot, as the database sees it. Opened when the boots are collected,
--- grown by every bet, closed when the hand settles. Its amount and the sum of
--- the hand's ledger rows must agree — that is the reconciliation check.
-CREATE TABLE IF NOT EXISTS pots (
-  hand_id     TEXT PRIMARY KEY,
-  room_id     TEXT NOT NULL,
-  boot_amount BIGINT NOT NULL,
-  amount      BIGINT NOT NULL DEFAULT 0 CHECK (amount >= 0),
-  winner_id   TEXT REFERENCES users (id) ON DELETE SET NULL,
-  opened_at   BIGINT NOT NULL,
-  closed_at   BIGINT
-);
-
-CREATE INDEX IF NOT EXISTS idx_pots_room ON pots (room_id, opened_at DESC);
-
 -- Per-player ledger. Chip movements are only ever written through this table
 -- so users.chips can be reconciled against it. Rows are never updated or
 -- deleted (see the trigger below).
@@ -80,7 +47,8 @@ CREATE TABLE IF NOT EXISTS chip_ledger (
   user_id    TEXT NOT NULL REFERENCES users (id) ON DELETE CASCADE,
   hand_id    TEXT,
   -- The client's id for the move that caused this row. UNIQUE, so a retried
-  -- request cannot deduct twice: the second insert fails and nothing changes.
+  -- request cannot deduct twice: the row is already there, and the writer
+  -- skips the wallet debit and the pot update with it (db.bankBets).
   action_id  TEXT UNIQUE,
   -- Negative for bets/antes, positive for pot winnings and grants.
   delta      BIGINT NOT NULL,
@@ -90,7 +58,6 @@ CREATE TABLE IF NOT EXISTS chip_ledger (
   created_at BIGINT NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_ledger_user ON chip_ledger (user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_ledger_hand ON chip_ledger (hand_id);
 
 -- The ledger is append-only. An UPDATE or DELETE is a bug or an intrusion,
@@ -115,20 +82,60 @@ BEGIN
 END;
 $$;
 
--- The durable backstop of the live state (LIVE_STATE_PLAN.md "The durable
--- backstop"): the same snapshot the table actor saves to the live store
--- (Redis) after every move, written here ASYNCHRONOUSLY by db.SnapshotWriter
--- — one batched upsert every SNAPSHOT_FLUSH_MS for every table that changed,
--- outside the money transaction it used to ride in. `version` is the live
--- store's per-table sequence and only ever goes up: the upsert is guarded by
--- `WHERE game_states.version < EXCLUDED.version`, so a late flush can never
--- overwrite a newer state. Read at startup for every room the live store has
--- lost (Redis empty after a crash); a snapshot may then be up to one flush
--- behind the money, so the restore reconciles it against chip_ledger first.
-CREATE TABLE IF NOT EXISTS game_states (
-  room_id    TEXT PRIMARY KEY,
-  hand_id    TEXT,
-  version    BIGINT NOT NULL,
-  state      JSONB NOT NULL,
-  updated_at BIGINT NOT NULL
-);
+-- PostgreSQL holds MONEY AND AUDIT ONLY: users (wallets and lifetime
+-- counters) and chip_ledger (the append-only money audit). There is no game
+-- state here at all — not the table, not the hand, not the pot — and no
+-- per-hand record either.
+--
+-- ALL game state lives in the live store (Redis) and nowhere else (owner's
+-- decision of 9 Sep 2026, LIVE_STATE_PLAN.md). If the live store is lost the
+-- hand never happened: the players re-join and whatever PostgreSQL holds is
+-- their balance.
+--
+-- Two tables are retired, and dropped below on an existing database ONLY when
+-- they exist AND are empty: this file runs on every boot, and an unguarded
+-- DROP in that path would be a hazard the day somebody restored an old
+-- backup. A table with rows in it is left alone so a human looks at it.
+--
+--   game_states (room_id, hand_id, version, state, updated_at) — table
+--     snapshots; the live store is the only copy now.
+--   pots (hand_id, room_id, boot_amount, amount, winner_id, opened_at,
+--     closed_at) — per-hand pot accounting. PostgreSQL never holds pot money
+--     any more, so nothing can be stranded in one and there is nothing to
+--     refund.
+--   hands (id, room_id, hand_no, pot, winner_id, …, summary_json) — one row
+--     per completed hand. Write-only: the single reader was
+--     GET /api/auth/me/hands, which no shipped client calls, and every stat
+--     the app shows is a counter column on `users` incremented in the
+--     settlement transaction. chip_ledger stays because its UNIQUE action_id
+--     IS the settle-retry safety mechanism (a commit whose acknowledgement is
+--     lost must not pay the winner twice); `hands` carried no such mechanism.
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = current_schema() AND tablename = 'game_states')
+     AND NOT EXISTS (SELECT 1 FROM game_states)
+  THEN
+    DROP TABLE game_states;
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = current_schema() AND tablename = 'pots')
+     AND NOT EXISTS (SELECT 1 FROM pots)
+  THEN
+    DROP TABLE pots;
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = current_schema() AND tablename = 'hands')
+     AND NOT EXISTS (SELECT 1 FROM hands)
+  THEN
+    DROP TABLE hands;
+  END IF;
+END;
+$$;
+
+-- idx_ledger_user (chip_ledger (user_id, created_at DESC)) is dropped and must
+-- not come back on a hunch. Measured on the dev database: it was the LARGEST
+-- index on the table at 6,128 kB — bigger than the unique constraint — and
+-- pg_stat_user_indexes.idx_scan recorded THREE scans in the table's entire
+-- life, all of them for GET /api/auth/me/hands, which is gone. It indexes a
+-- uuid, so every insert dirties a random leaf page; that write pattern is what
+-- pushed production past its 128 MB shared_buffers. The reconciliation query
+-- (SUM(delta) GROUP BY user_id) is a full scan either way.
+DROP INDEX IF EXISTS idx_ledger_user;

@@ -216,9 +216,9 @@ func (r *recorder) count() int {
 
 // ------------------------------------------------------------ harness
 
-// settleCall is one Ledger.Settle invocation: Node's `settled.push({hand, entries})`.
+// settleCall is one Ledger.Settle invocation.
 type settleCall struct {
-	hand    HandRecord
+	req     SettleRequest
 	entries []SettleEntry
 }
 
@@ -230,8 +230,9 @@ type harness struct {
 	clock *fakeClock
 	rec   *recorder
 
-	mu      sync.Mutex
-	settled []settleCall
+	mu          sync.Mutex
+	settled     []settleCall
+	checkpoints []SettleEntry
 	// kicks tracks the RemovePlayer goroutines the seatKeeping-style kick
 	// handler spawns, so a test can wait for a removal to land (Node:
 	// `await table.settled()`).
@@ -249,7 +250,6 @@ type harnessOptions struct {
 	clock      *fakeClock
 	live       live.Store
 	liveErrors func(op string, err error)
-	sink       SnapshotSink
 }
 
 type harnessOption func(*harnessOptions)
@@ -308,17 +308,61 @@ func newHarness(t *testing.T, cfg TableConfig, opts ...harnessOption) *harness {
 		Listener:   h.rec,
 		Live:       o.live,
 		LiveErrors: o.liveErrors,
-		Snapshots:  o.sink,
 	})
 	t.Cleanup(func() { _ = h.table.Destroy() })
 	return h
 }
 
-// recordSettle is what every settle hook calls first.
-func (h *harness) recordSettle(hand HandRecord, entries []SettleEntry) {
+// recordCheckpoint is what every Checkpoint hook calls first.
+func (h *harness) recordCheckpoint(args CheckpointArgs) error {
 	h.mu.Lock()
-	h.settled = append(h.settled, settleCall{hand: hand, entries: append([]SettleEntry(nil), entries...)})
+	h.checkpoints = append(h.checkpoints, args.Entry)
 	h.mu.Unlock()
+	return nil
+}
+
+// recordSettle is what every settle hook calls first.
+func (h *harness) recordSettle(req SettleRequest, entries []SettleEntry) {
+	h.mu.Lock()
+	h.settled = append(h.settled, settleCall{req: req, entries: append([]SettleEntry(nil), entries...)})
+	h.mu.Unlock()
+}
+
+// lastCheckpoint is the most recent pack/leave checkpoint the ledger was
+// handed; lastCheckpointFor is the most recent one for a given player. Both
+// need the harness's default ledger (mirrorLedger), which records them.
+func (h *harness) lastCheckpoint() SettleEntry {
+	h.t.Helper()
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if len(h.checkpoints) == 0 {
+		h.t.Fatal("no checkpoint recorded")
+	}
+	return h.checkpoints[len(h.checkpoints)-1]
+}
+
+func (h *harness) lastCheckpointFor(userID string) SettleEntry {
+	h.t.Helper()
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for i := len(h.checkpoints) - 1; i >= 0; i-- {
+		if h.checkpoints[i].UserID == userID {
+			return h.checkpoints[i]
+		}
+	}
+	h.t.Fatalf("no checkpoint recorded for %s", userID)
+	return SettleEntry{}
+}
+
+// lastEnded is the most recent handEnded event — where the pot, the winner
+// and the summary live now that the ledger no longer carries a hand record.
+func (h *harness) lastEnded() HandEndedEvent {
+	h.t.Helper()
+	v := h.rec.last("handEnded")
+	if v == nil {
+		h.t.Fatal("no handEnded event")
+	}
+	return v.(HandEndedEvent)
 }
 
 // lastSettled is Node's `settled.at(-1)`.
@@ -343,18 +387,16 @@ func (h *harness) settledCount() int {
 // Node's `table.findSeat` did from inside the callback.
 func mirrorLedger(h *harness) Ledger {
 	return NewMemoryLedger(MemoryLedgerHooks{
-		Settle: func(hand HandRecord, entries []SettleEntry) (map[string]int64, error) {
-			h.recordSettle(hand, entries)
+		Checkpoint: h.recordCheckpoint,
+		Settle: func(req SettleRequest, entries []SettleEntry) (map[string]int64, error) {
+			h.recordSettle(req, entries)
+			// The winner is already paid in memory before Settle is called
+			// now, so the seat IS the post-hand balance.
 			balances := map[string]int64{}
 			for _, e := range entries {
-				var before int64
 				if s := h.table.findSeat(e.UserID); s != nil {
-					before = s.chips
+					balances[e.UserID] = s.chips
 				}
-				if e.IsWinner {
-					before += hand.Pot
-				}
-				balances[e.UserID] = before
 			}
 			return balances, nil
 		},
@@ -364,8 +406,9 @@ func mirrorLedger(h *harness) Ledger {
 // emptyLedger is `settle: () => ({})`: the table pays the winner in memory.
 func emptyLedger(h *harness) Ledger {
 	return NewMemoryLedger(MemoryLedgerHooks{
-		Settle: func(hand HandRecord, entries []SettleEntry) (map[string]int64, error) {
-			h.recordSettle(hand, entries)
+		Checkpoint: h.recordCheckpoint,
+		Settle: func(req SettleRequest, entries []SettleEntry) (map[string]int64, error) {
+			h.recordSettle(req, entries)
 			return map[string]int64{}, nil
 		},
 	})
@@ -493,6 +536,39 @@ func (h *harness) mustSeat(id string) SeatInfo {
 		h.t.Fatalf("%s is not seated", id)
 	}
 	return *info
+}
+
+// unwritten is how much of a player's stack has not yet reached PostgreSQL:
+// the delta the next checkpoint will carry.
+func (h *harness) unwritten(userID string) int64 {
+	var delta int64
+	h.read(func() {
+		if h.table.hand == nil {
+			return
+		}
+		if entry := h.table.hand.contributions[userID]; entry != nil {
+			delta = entry.chips - entry.chipsWritten
+		}
+	})
+	return delta
+}
+
+// unwrittenPot is everything staked in the live hand that PostgreSQL has not
+// been told about — what a conservation check must subtract from the pot when
+// the accounts still hold it.
+func (h *harness) unwrittenPot() int64 {
+	var total int64
+	h.read(func() {
+		if h.table.hand == nil {
+			return
+		}
+		for _, entry := range h.table.hand.contributions {
+			if d := entry.chipsWritten - entry.chips; d > 0 {
+				total += d
+			}
+		}
+	})
+	return total
 }
 
 func (h *harness) pot() int64 {
@@ -1249,10 +1325,14 @@ func TestTheWinnerTakesTheWholePotAndEveryoneElsePaysWhatTheyStaked(t *testing.T
 		}
 	}
 	eq(t, winners, 1, "exactly one winner")
-	eq(t, sumContributed(record.hand.Summary), ended.Pot, "pot equals contributions")
+	eq(t, sumContributed(ended.Summary), ended.Pot, "pot equals contributions")
 }
 
-func TestAHandRecordCarriesTheFullAuditTrail(t *testing.T) {
+// The hand's audit trail is the handEnded event and the chip_ledger outcome
+// rows — there is no `hands` table any more (owner's decision of 9 Sep 2026:
+// it was write-only, its single reader GET /api/auth/me/hands is gone, and
+// every stat the app shows is a counter column on `users`).
+func TestTheHandEndedEventCarriesTheFullAuditTrail(t *testing.T) {
 	h := newHarness(t, tableConfig())
 	h.seat("alice", tableStart)
 	h.seat("bob", tableStart)
@@ -1261,18 +1341,30 @@ func TestAHandRecordCarriesTheFullAuditTrail(t *testing.T) {
 	h.setCards("bob", "2s", "7h", "9d")
 	h.mustAct(h.turnUser(), ActionShow, ActRequest{})
 
-	hand := h.lastSettled().hand
-	eq(t, hand.RoomID, "room-1", "roomId")
-	eq(t, hand.HandNo, 1, "handNo")
-	eq(t, hand.BootAmount, tableBoot, "boot")
-	if hand.StartedAt > hand.EndedAt {
-		t.Fatal("startedAt <= endedAt")
+	ended := h.lastEnded()
+	eq(t, ended.HandNo, 1, "handNo")
+	eq(t, ended.Reason, WinShow, "reason")
+	if ended.WinnerID == nil || *ended.WinnerID != "alice" {
+		t.Fatalf("winner %v", ended.WinnerID)
 	}
-	eq(t, len(hand.Summary), 2, "summary rows")
-	for _, row := range hand.Summary {
-		eq(t, len(row.Cards), 3, "showdown hands are recorded")
-		if row.Contributed <= 0 {
-			t.Fatal("contributed > 0")
+	eq(t, len(ended.Summary), 2, "a row per contributor")
+	eq(t, sumContributed(ended.Summary), ended.Pot, "the summary explains the pot")
+	for _, row := range ended.Summary {
+		eq(t, len(row.Cards), 3, "cards revealed at a show")
+		eq(t, row.Status, map[string]SeatState{"alice": SeatWon, "bob": SeatLost}[row.UserID], "status")
+	}
+
+	// And the ledger row that resolves each player carries the same story.
+	settle := h.lastSettled()
+	eq(t, settle.req.HandID, ended.HandID, "the settlement is for this hand")
+	for _, e := range settle.entries {
+		eq(t, e.ActionID, SettleActionID(ended.HandID, e.UserID), "action id")
+		eq(t, e.Outcome, true, "an outcome row")
+		if e.IsWinner {
+			eq(t, e.Reason, LedgerReasonHandWin, "winner reason")
+			eq(t, e.Pot, ended.Pot, "the pot, for total_winnings")
+		} else {
+			eq(t, e.Reason, LedgerReasonHandLoss, "loser reason")
 		}
 	}
 }
@@ -1292,21 +1384,19 @@ func TestAPlayerWhoLeavesMidHandStillForfeitsTheirStake(t *testing.T) {
 	h.mustAct(h.turnUser(), ActionPack, ActRequest{})
 
 	record := h.lastSettled()
-	var quitterEntry *SettleEntry
 	var winner string
 	for i := range record.entries {
 		if record.entries[i].UserID == quitter {
-			quitterEntry = &record.entries[i]
+			t.Fatal("a player who left must not be written again at the hand end")
 		}
 		if record.entries[i].IsWinner {
 			winner = record.entries[i].UserID
 		}
 	}
-	if quitterEntry == nil {
-		t.Fatal("the departed player is still settled")
-	}
-	eq(t, quitterEntry.Delta, -(tableBoot + tableBoot), "their boot and chaal stay in the pot")
-	eq(t, sumDeltas(record.entries), int64(0), "conserved")
+	// Their stake left their wallet at their own checkpoint and stays in the pot.
+	cp := h.lastCheckpointFor(quitter)
+	eq(t, cp.Reason, LedgerReasonHandLeft, "resolved when they left")
+	eq(t, cp.Delta, -(tableBoot + tableBoot), "their boot and chaal stay in the pot")
 	if !contains(remaining, winner) {
 		t.Fatalf("winner %s should be one of %v", winner, remaining)
 	}
@@ -2329,20 +2419,16 @@ func TestSeatsKeepLastHandsStatusAndCardsUntilTheNextDeal(t *testing.T) {
 }
 
 func TestLedgerRequestsCarryTheMoneyFactsAndTheSnapshotIsTheLiveOne(t *testing.T) {
-	// The snapshot no longer rides in the money transaction: the ledger
-	// requests carry only what it needs, and the auditable snapshot is what
-	// Snapshot() / the live store / the durable sink hold after the mutation.
-	var boots []CollectBootRequest
-	var bets []BetRequest
+	// PostgreSQL is written at three moments and no others (LIVE_STATE_PLAN.md):
+	// a pack, a leave or switch, and the hand end. The deal and every bet move
+	// chips at the seat and in the snapshot only.
+	var checkpoints []CheckpointRequest
 	var settles []SettleRequest
 	h := newHarness(t, tableConfig(), withLedger(func(h *harness) Ledger {
 		return &captureLedger{
-			inner:  mirrorLedger(h),
-			onBoot: func(r CollectBootRequest) { boots = append(boots, r) },
-			onBet:  func(r BetRequest) { bets = append(bets, r) },
-			onSettle: func(r SettleRequest) {
-				settles = append(settles, r)
-			},
+			inner:        mirrorLedger(h),
+			onCheckpoint: func(r CheckpointRequest) { checkpoints = append(checkpoints, r) },
+			onSettle:     func(r SettleRequest) { settles = append(settles, r) },
 		}
 	}))
 	h.seat("alice", tableStart)
@@ -2350,16 +2436,9 @@ func TestLedgerRequestsCarryTheMoneyFactsAndTheSnapshotIsTheLiveOne(t *testing.T
 	h.seat("carol", tableStart)
 	h.advance(6 * time.Second)
 
-	eq(t, len(boots), 1, "one boot transaction")
-	boot := boots[0]
-	eq(t, boot.RoomID, "room-1", "roomId")
-	eq(t, boot.BootAmount, tableBoot, "boot")
-	eq(t, len(boot.Entries), 3, "three entries")
-	for _, e := range boot.Entries {
-		eq(t, e.Amount, tableBoot, "entry amount")
-		eq(t, e.BalanceBefore, tableStart, "balanceBefore")
-	}
-	eq(t, h.table.Version(), int64(1), "version 1 after the boot commit")
+	eq(t, len(checkpoints), 0, "the deal writes nothing")
+	eq(t, len(settles), 0, "and settles nothing")
+	eq(t, h.table.Version(), int64(0), "no committed write yet")
 
 	snap, err := h.table.Snapshot()
 	if err != nil {
@@ -2367,7 +2446,6 @@ func TestLedgerRequestsCarryTheMoneyFactsAndTheSnapshotIsTheLiveOne(t *testing.T
 	}
 	eq(t, snap.State, TableBetting, "snapshot state is betting")
 	eq(t, snap.HandNo, 1, "handNo")
-	eq(t, snap.Version, int64(1), "version in the snapshot")
 	eq(t, snap.Hand.Pot, tableBoot*3, "pot")
 	eq(t, snap.Hand.Stake, tableBoot, "stake")
 	if snap.Hand.TurnSeat < 0 || snap.Hand.StartSeat < 0 || snap.Hand.TurnDeadline == nil {
@@ -2376,7 +2454,8 @@ func TestLedgerRequestsCarryTheMoneyFactsAndTheSnapshotIsTheLiveOne(t *testing.T
 	eq(t, len(snap.Hand.Contributions), 3, "contributions")
 	for _, c := range snap.Hand.Contributions {
 		eq(t, c.Contributed, tableBoot, "contributed")
-		eq(t, c.Persisted, int64(0), "bookless ledger: persisted 0")
+		eq(t, c.Chips, tableStart-tableBoot, "the live stack")
+		eq(t, c.ChipsWritten, tableStart, "PostgreSQL still holds the pre-boot figure")
 		eq(t, c.Status, SeatActive, "active")
 		eq(t, len(c.Cards), 3, "contribution cards kept server-side")
 	}
@@ -2396,7 +2475,7 @@ func TestLedgerRequestsCarryTheMoneyFactsAndTheSnapshotIsTheLiveOne(t *testing.T
 	eq(t, occupied, 3, "three occupied")
 	raw, _ := json.Marshal(snap)
 	for _, key := range []string{`"roomId"`, `"code"`, `"category"`, `"state"`, `"handNo"`, `"dealerSeat"`, `"hand"`, `"seats"`, `"contributions"`, `"showRequestedBy":null`, `"startedAt"`,
-		`"seq"`, `"version"`, `"config"`, `"turnDeadline"`, `"packedUserIds"`, `"seatOrder"`, `"sideshow":null`, `"lastDeparture":null`, `"createdAt"`, `"isPrivate"`} {
+		`"seq"`, `"version"`, `"config"`, `"turnDeadline"`, `"packedUserIds"`, `"seatOrder"`, `"sideshow":null`, `"lastDeparture":null`, `"createdAt"`, `"isPrivate"`, `"chipsWritten"`, `"actionIds"`} {
 		if !strings.Contains(string(raw), key) {
 			t.Fatalf("snapshot JSON lacks %s: %s", key, raw)
 		}
@@ -2412,50 +2491,75 @@ func TestLedgerRequestsCarryTheMoneyFactsAndTheSnapshotIsTheLiveOne(t *testing.T
 
 	player := h.turnUser()
 	h.mustAct(player, ActionChaal, amt(tableBoot))
-	eq(t, len(bets), 1, "one bet")
-	bet := bets[0]
-	eq(t, bet.UserID, player, "userId")
-	eq(t, bet.Amount, tableBoot, "amount")
-	eq(t, bet.Reason, LedgerReasonBet, "reason")
-	eq(t, bet.BalanceBefore, tableStart-tableBoot, "balanceBefore")
-	if bet.ActionID == "" {
-		t.Fatal("actionId generated when the client sent none")
-	}
-	eq(t, h.table.Version(), int64(2), "table version after two commits")
+	eq(t, len(checkpoints), 0, "a bet writes nothing either")
+	eq(t, h.table.Version(), int64(0), "still nothing committed")
 	snap, _ = h.table.Snapshot()
 	eq(t, snap.Hand.Pot, tableBoot*4, "pot advanced in the live snapshot")
 	for _, c := range snap.Hand.Contributions {
 		if c.UserID == player {
 			eq(t, c.Contributed, tableBoot*2, "contribution advanced")
 			eq(t, c.DidChaal, true, "played")
+			eq(t, c.Chips, tableStart-tableBoot*2, "live stack")
+			eq(t, c.ChipsWritten, tableStart, "and PostgreSQL still knows nothing of it")
 		}
 	}
+	eq(t, len(snap.Hand.ActionIDs), 1, "the bet's action id is remembered for the duplicate guard")
 
-	// A client actionId is passed through verbatim.
-	h.mustAct(h.turnUser(), ActionChaal, ActRequest{ActionID: "client-move-1"})
-	eq(t, bets[1].ActionID, "client-move-1", "client action id")
+	// CHECKPOINT 1: a pack. That one player is written, nobody else.
+	packer := h.turnUser()
+	packerStaked := h.mustSeat(packer).Contributed
+	h.mustAct(packer, ActionPack, ActRequest{})
+	eq(t, len(checkpoints), 1, "one checkpoint")
+	cp := checkpoints[0]
+	eq(t, cp.RoomID, "room-1", "roomId")
+	eq(t, cp.Entry.UserID, packer, "the packer")
+	eq(t, cp.Entry.Delta, -packerStaked, "their whole stake, as a delta")
+	eq(t, cp.Entry.Reason, LedgerReasonHandPacked, "reason")
+	eq(t, cp.Entry.Outcome, false, "a pack carries no counters")
+	eq(t, cp.Entry.ActionID, PackedActionID(cp.HandID, packer), "action id")
+	eq(t, h.table.Version(), int64(1), "one committed write")
 
-	// End the hand and check the settle request.
+	// CHECKPOINT 3: the hand end resolves everyone still at the table —
+	// packers included, with a delta of zero.
 	for h.hasHand() {
 		h.mustAct(h.turnUser(), ActionPack, ActRequest{})
 	}
 	eq(t, len(settles), 1, "one settle")
 	settle := settles[0]
-	eq(t, h.table.Version(), int64(4), "boot, two bets, settle")
+	byUser := map[string]SettleEntry{}
+	for _, e := range settle.Entries {
+		byUser[e.UserID] = e
+	}
+	eq(t, len(settle.Entries), 3, "everyone still at the table")
+	eq(t, byUser[packer].Delta, int64(0), "the packer's money moved at the pack")
+	eq(t, byUser[packer].Reason, LedgerReasonHandLoss, "and their outcome row is a loss")
+	eq(t, byUser[packer].Outcome, true, "which carries the counters")
+	winners := 0
+	for _, e := range settle.Entries {
+		if e.IsWinner {
+			winners++
+			eq(t, e.Reason, LedgerReasonHandWin, "winner reason")
+			eq(t, e.Pot, h.lastEnded().Pot, "the pot for total_winnings")
+		}
+		eq(t, e.ActionID, SettleActionID(settle.HandID, e.UserID), "settle action id")
+	}
+	eq(t, winners, 1, "one winner")
+	eq(t, h.table.Version(), int64(3), "the pack, this pack, and the settlement")
 	snap, _ = h.table.Snapshot()
 	eq(t, snap.State, TableStarting, "back between hands")
 	if snap.Hand != nil {
 		t.Fatal("snapshot hand null between hands")
 	}
 	eq(t, snap.HandNo, 1, "handNo of the hand just ended")
-	eq(t, settle.Hand.HandNo, 1, "record handNo")
-	eq(t, len(settle.Hand.Summary), 3, "three contributors")
-	for _, row := range settle.Hand.Summary {
+	ended := h.lastEnded()
+	eq(t, ended.HandNo, 1, "the handEnded event carries the record now")
+	eq(t, len(ended.Summary), 3, "three contributors")
+	for _, row := range ended.Summary {
 		if row.Cards != nil {
 			t.Fatal("no cards in the summary without a showdown")
 		}
 	}
-	rawSummary, _ := json.Marshal(settle.Hand.Summary)
+	rawSummary, _ := json.Marshal(ended.Summary)
 	if !strings.Contains(string(rawSummary), `"cards":null`) {
 		t.Fatalf("summary cards must be null when unrevealed: %s", rawSummary)
 	}
@@ -2463,34 +2567,22 @@ func TestLedgerRequestsCarryTheMoneyFactsAndTheSnapshotIsTheLiveOne(t *testing.T
 
 // captureLedger wraps a Ledger to record (or override) each call.
 type captureLedger struct {
-	inner    Ledger
-	onBoot   func(CollectBootRequest)
-	onBet    func(BetRequest)
-	onSettle func(SettleRequest)
+	inner        Ledger
+	onCheckpoint func(CheckpointRequest)
+	onSettle     func(SettleRequest)
 	// overrides, when set, replace the inner call.
-	boot   func(CollectBootRequest) (CollectBootResult, error)
-	bet    func(BetRequest) (BetResult, error)
-	settle func(SettleRequest) (SettleResult, error)
+	checkpoint func(CheckpointRequest) (CheckpointResult, error)
+	settle     func(SettleRequest) (SettleResult, error)
 }
 
-func (c *captureLedger) Bet(ctx context.Context, req BetRequest) (BetResult, error) {
-	if c.onBet != nil {
-		c.onBet(req)
+func (c *captureLedger) Checkpoint(ctx context.Context, req CheckpointRequest) (CheckpointResult, error) {
+	if c.onCheckpoint != nil {
+		c.onCheckpoint(req)
 	}
-	if c.bet != nil {
-		return c.bet(req)
+	if c.checkpoint != nil {
+		return c.checkpoint(req)
 	}
-	return c.inner.Bet(ctx, req)
-}
-
-func (c *captureLedger) CollectBoot(ctx context.Context, req CollectBootRequest) (CollectBootResult, error) {
-	if c.onBoot != nil {
-		c.onBoot(req)
-	}
-	if c.boot != nil {
-		return c.boot(req)
-	}
-	return c.inner.CollectBoot(ctx, req)
+	return c.inner.Checkpoint(ctx, req)
 }
 
 func (c *captureLedger) Settle(ctx context.Context, req SettleRequest) (SettleResult, error) {
@@ -2595,7 +2687,7 @@ func TestDestroyHandsArmedSettleRetriesToADetachedChain(t *testing.T) {
 	// every actor timer and no Listener event follows it.
 	h := newHarness(t, settleConfig(), withLedger(func(h *harness) Ledger {
 		return NewMemoryLedger(MemoryLedgerHooks{
-			Settle: func(HandRecord, []SettleEntry) (map[string]int64, error) { return nil, errors.New("settle down") },
+			Settle: func(SettleRequest, []SettleEntry) (map[string]int64, error) { return nil, errors.New("settle down") },
 		})
 	}))
 	h.seat("a", settleStart)
@@ -2879,29 +2971,16 @@ func runGoParity(t *testing.T, sc parityScenario) []any {
 	clock := newFakeClock(clockStart)
 	var table *Table
 	ledger := NewMemoryLedger(MemoryLedgerHooks{
-		Settle: func(hand HandRecord, entries []SettleEntry) (map[string]int64, error) {
+		Settle: func(req SettleRequest, entries []SettleEntry) (map[string]int64, error) {
 			es := make([]map[string]any, 0, len(entries))
 			balances := map[string]int64{}
 			for _, e := range entries {
-				es = append(es, map[string]any{"userId": e.UserID, "delta": e.Delta, "isWinner": e.IsWinner, "didChaal": e.DidChaal, "leftMidHand": e.LeftMidHand})
-				var before int64
+				es = append(es, map[string]any{"userId": e.UserID, "delta": e.Delta, "isWinner": e.IsWinner, "didChaal": e.DidChaal, "leftMidHand": e.LeftMidHand, "reason": e.Reason})
 				if s := table.findSeat(e.UserID); s != nil {
-					before = s.chips
+					balances[e.UserID] = s.chips
 				}
-				if e.IsWinner {
-					before += hand.Pot
-				}
-				balances[e.UserID] = before
 			}
-			var winner any
-			if hand.WinnerID != nil {
-				winner = *hand.WinnerID
-			}
-			var summary any
-			raw, _ := json.Marshal(hand.Summary)
-			_ = json.Unmarshal(raw, &summary)
-			rec.push("settle", map[string]any{"handNo": hand.HandNo, "pot": hand.Pot, "winnerId": winner, "winReason": string(hand.WinReason),
-				"bootAmount": hand.BootAmount, "roomId": hand.RoomID, "summary": summary, "entries": es})
+			rec.push("settle", map[string]any{"handId": req.HandID, "roomId": req.RoomID, "entries": es})
 			return balances, nil
 		},
 	})
@@ -3139,4 +3218,19 @@ func TestParityWithNodeTableOnScriptedScenarios(t *testing.T) {
 			pRemove("b", "disconnected"), ps("view"), ps("destroy"),
 		},
 	})
+}
+
+// mustSeat2 is what a departed player staked in the live hand (their seat is
+// gone, so it is read off the contribution record).
+func (h *harness) mustSeat2(userID string) int64 {
+	var staked int64
+	h.read(func() {
+		if h.table.hand == nil {
+			return
+		}
+		if entry := h.table.hand.contributions[userID]; entry != nil {
+			staked = entry.contributed
+		}
+	})
+	return staked
 }

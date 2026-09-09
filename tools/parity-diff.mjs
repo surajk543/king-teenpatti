@@ -318,17 +318,16 @@ const dumpDatabase = async (schema) => {
     const ledger = await client.query(
       `SELECT u.display_name, l.reason, l.delta, l.balance,
               CASE WHEN l.action_id LIKE 'parity-diff-%' THEN l.action_id
-                   WHEN l.action_id LIKE '%:boot:%' THEN '<hand>:boot:<user>'
                    WHEN l.action_id LIKE '%:settle:%' THEN '<hand>:settle:<user>'
+                   WHEN l.action_id LIKE '%:packed:%' THEN '<hand>:packed:<user>'
+                   WHEN l.action_id LIKE '%:left:%' THEN '<hand>:left:<user>'
                    WHEN l.action_id IS NULL THEN NULL ELSE '<uuid>' END AS action_id
          FROM chip_ledger l JOIN users u ON u.id = l.user_id
         WHERE u.display_name LIKE 'DiffP%' ORDER BY u.display_name, l.id`,
     );
-    const hands = await client.query('SELECT hand_no, pot, win_reason, boot_amount, jsonb_array_length(summary_json) AS seats FROM hands ORDER BY hand_no');
-    const pots = await client.query('SELECT boot_amount, amount, closed_at IS NOT NULL AS closed FROM pots ORDER BY opened_at');
-    return {
-      users: users.rows, ledger: ledger.rows, hands: hands.rows, pots: pots.rows,
-    };
+    // PostgreSQL holds money and audit only since 9 Sep 2026: there is no
+    // hands table and no pots table to diff.
+    return { users: users.rows, ledger: ledger.rows };
   } finally {
     await client.end();
   }

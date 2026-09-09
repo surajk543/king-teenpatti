@@ -19,7 +19,6 @@ import (
 type UserStore interface {
 	FindByID(ctx context.Context, id string) (*db.User, error)
 	UpsertFromProfile(ctx context.Context, p db.Profile) (*db.User, bool, error)
-	RecentHands(ctx context.Context, userID string, limit int) ([]db.HandHistory, error)
 	ClaimMilestoneReward(ctx context.Context, userID string) (*db.RewardResult, error)
 	ClaimTimedBonus(ctx context.Context, userID string) (*db.RewardResult, error)
 	SetDisplayName(ctx context.Context, userID, displayName string) (*db.User, error)
@@ -52,7 +51,6 @@ type Deps struct {
 //
 //	POST /api/auth/login        → Login
 //	GET  /api/auth/me           → Me            (RequireAuth)
-//	GET  /api/auth/me/hands     → Hands         (RequireAuth; ?limit, default 20, max 100)
 //	POST /api/rewards/milestone → Milestone     (RequireAuth)
 //	POST /api/rewards/bonus     → Bonus         (RequireAuth)
 //	GET  /api/profiles          → Profiles      (unauthenticated)
@@ -86,7 +84,6 @@ func NewHandler(deps Deps) *Handler {
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.Handle("/api/auth/login", methods(http.MethodPost, http.HandlerFunc(h.Login)))
 	mux.Handle("/api/auth/me", methods(http.MethodGet, h.RequireAuth(h.Me)))
-	mux.Handle("/api/auth/me/hands", methods(http.MethodGet, h.RequireAuth(h.Hands)))
 	mux.Handle("/api/rewards/milestone", methods(http.MethodPost, h.RequireAuth(h.Milestone)))
 	mux.Handle("/api/rewards/bonus", methods(http.MethodPost, h.RequireAuth(h.Bonus)))
 	mux.Handle("/api/profiles", methods(http.MethodGet, http.HandlerFunc(h.Profiles)))
@@ -224,11 +221,6 @@ type UserResponse struct {
 	User *db.User `json:"user"`
 }
 
-// HandsResponse ← GET /api/auth/me/hands.
-type HandsResponse struct {
-	Hands []db.HandHistory `json:"hands"`
-}
-
 // ProfilePicture is one bundled avatar: {id: "bear.svg", url: "/profiles/bear.svg"}.
 type ProfilePicture struct {
 	ID  string `json:"id"`
@@ -307,6 +299,8 @@ const (
 	MsgRewardNotReady     = "The bonus is still recharging."
 	MsgSeatedAvatar       = "You cannot change your picture while you are at a table."
 	MsgSeatedName         = "You can only change your name in the lobby."
+	MsgSeatedMilestone    = "Collect your milestone reward from the lobby, not while you are at a table."
+	MsgSeatedBonus        = "Collect your reward from the lobby, not while you are at a table."
 	MsgUnknownAvatar      = "That picture is not available."
 	MsgEmptyName          = "Your name cannot be empty."
 	MsgNameTooLongFormat  = "Keep it to %d characters or fewer."

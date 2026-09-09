@@ -188,20 +188,47 @@ func (f *fixture) handLedgerRows(handID string) []ledgerRow {
 	return out
 }
 
-// boot collects the boot from every given user for a new hand.
-func (f *fixture) boot(roomID, handID string, bootAmount int64, users ...*db.User) game.CollectBootResult {
+// pack is the pack checkpoint for one player: delta chips, no counters.
+func (f *fixture) pack(roomID, handID string, u *db.User, delta int64) (game.CheckpointResult, error) {
 	f.t.Helper()
-	entries := make([]game.BootEntry, 0, len(users))
-	for _, u := range users {
-		entries = append(entries, game.BootEntry{UserID: u.ID, Amount: bootAmount, BalanceBefore: u.Chips})
-	}
-	res, err := f.ledger.CollectBoot(f.ctx, game.CollectBootRequest{
-		RoomID: roomID, HandID: handID, BootAmount: bootAmount, Entries: entries,
+	return f.ledger.Checkpoint(f.ctx, game.CheckpointRequest{
+		RoomID: roomID, HandID: handID,
+		Entry: game.SettleEntry{
+			UserID: u.ID, Delta: delta, Reason: game.LedgerReasonHandPacked,
+			ActionID: game.PackedActionID(handID, u.ID),
+		},
 	})
-	if err != nil {
-		f.t.Fatalf("collectBoot: %v", err)
+}
+
+// left is the leave/switch checkpoint: it resolves the player, so it carries
+// the counters (hands_left_mid, and hands_played when they had chaaled).
+func (f *fixture) left(roomID, handID string, u *db.User, delta int64, didChaal bool) (game.CheckpointResult, error) {
+	f.t.Helper()
+	return f.ledger.Checkpoint(f.ctx, game.CheckpointRequest{
+		RoomID: roomID, HandID: handID,
+		Entry: game.SettleEntry{
+			UserID: u.ID, Delta: delta, Reason: game.LedgerReasonHandLeft,
+			ActionID: game.LeftActionID(handID, u.ID),
+			Outcome:  true, LeftMidHand: true, DidChaal: didChaal,
+		},
+	})
+}
+
+// settleEntry builds one hand-end entry.
+func settleEntry(handID, userID string, delta int64, isWinner, didChaal bool, pot int64) game.SettleEntry {
+	reason := game.LedgerReasonHandLoss
+	if isWinner {
+		reason = game.LedgerReasonHandWin
 	}
-	return res
+	e := game.SettleEntry{
+		UserID: userID, Delta: delta, Reason: reason,
+		ActionID: game.SettleActionID(handID, userID),
+		Outcome:  true, IsWinner: isWinner, DidChaal: didChaal,
+	}
+	if isWinner {
+		e.Pot = pot
+	}
+	return e
 }
 
 // codeOf extracts the GameError code, failing the test when err is not one.

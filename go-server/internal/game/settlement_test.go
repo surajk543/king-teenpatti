@@ -73,21 +73,30 @@ func (b *bank) total() int64 {
 	return sum
 }
 
-// bankLedger: bookless bets (persisted 0), settle moves the whole net.
+// bankLedger applies every checkpoint's delta to a fake wallet — the pack and
+// leave rows as well as the settlement's — which is exactly what db.Ledger
+// does.
 func bankLedger(bk *bank, start int64) func(h *harness) Ledger {
 	return func(h *harness) Ledger {
 		return NewMemoryLedger(MemoryLedgerHooks{
-			Settle: func(hand HandRecord, entries []SettleEntry) (map[string]int64, error) {
-				h.recordSettle(hand, entries)
+			Checkpoint: func(args CheckpointArgs) error {
+				h.recordCheckpoint(args)
+				before, ok := bk.get(args.Entry.UserID)
+				if !ok {
+					before = start
+				}
+				bk.set(args.Entry.UserID, before+args.Entry.Delta)
+				return nil
+			},
+			Settle: func(req SettleRequest, entries []SettleEntry) (map[string]int64, error) {
+				h.recordSettle(req, entries)
 				balances := map[string]int64{}
 				for _, e := range entries {
-					before, ok := bk.get(e.UserID)
+					v, ok := bk.get(e.UserID)
 					if !ok {
-						before = start
+						v = start
 					}
-					after := before + e.Delta
-					bk.set(e.UserID, after)
-					balances[e.UserID] = after
+					balances[e.UserID] = v
 				}
 				return balances, nil
 			},
@@ -106,12 +115,20 @@ func (h *harness) bankSeat(bk *bank, id string, chips int64) {
 	h.seat(id, chips)
 }
 
-// assertConserved is Node's assertConserved: Σdelta 0, Σcontributed == pot,
-// one winner netting pot - own stake.
-func assertConserved(t *testing.T, record settleCall) {
+// assertConserved: the pot is exactly what everybody staked, there is exactly
+// one winner, and the winner's settlement delta is the pot less whatever of
+// their own stake had not already been written through (nothing, unless they
+// packed — which a winner never does).
+//
+// Note what it can NO LONGER assert: Σ of the settlement deltas is not zero,
+// because a packer's stake moved at their own checkpoint and their outcome
+// row carries a delta of zero. Conservation is a property of ALL the hand's
+// ledger rows, and the bank-backed suites check that directly
+// (accounts.total()).
+func assertConserved(t *testing.T, h *harness, record settleCall) {
 	t.Helper()
-	eq(t, sumDeltas(record.entries), int64(0), "the sum of all deltas must be zero")
-	eq(t, sumContributed(record.hand.Summary), record.hand.Pot, "the pot equals everything staked")
+	ended := h.lastEnded()
+	eq(t, sumContributed(ended.Summary), ended.Pot, "the pot equals everything staked")
 	var winners []SettleEntry
 	for _, e := range record.entries {
 		if e.IsWinner {
@@ -119,13 +136,16 @@ func assertConserved(t *testing.T, record settleCall) {
 		}
 	}
 	eq(t, len(winners), 1, "exactly one winner")
+	if ended.WinnerID == nil || *ended.WinnerID != winners[0].UserID {
+		t.Fatalf("the settled winner %s is not the announced one %v", winners[0].UserID, ended.WinnerID)
+	}
 	var own int64
-	for _, row := range record.hand.Summary {
+	for _, row := range ended.Summary {
 		if row.UserID == winners[0].UserID {
 			own = row.Contributed
 		}
 	}
-	eq(t, winners[0].Delta, record.hand.Pot-own, "the winner nets the pot minus their own stake")
+	eq(t, winners[0].Delta, ended.Pot-own, "the winner nets the pot minus their own stake")
 }
 
 func TestChipsAreConservedWhenEveryoneElsePacks(t *testing.T) {
@@ -137,7 +157,7 @@ func TestChipsAreConservedWhenEveryoneElsePacks(t *testing.T) {
 	h.mustAct(h.turnUser(), ActionChaal, ActRequest{})
 	h.mustAct(h.turnUser(), ActionPack, ActRequest{})
 	h.mustAct(h.turnUser(), ActionPack, ActRequest{})
-	assertConserved(t, h.lastSettled())
+	assertConserved(t, h, h.lastSettled())
 	eq(t, bk.total(), settleStart*3, "bank total unchanged")
 }
 
@@ -152,7 +172,7 @@ func TestChipsAreConservedThroughAShow(t *testing.T) {
 	h.mustAct(h.turnUser(), ActionSee, ActRequest{})
 	h.mustAct(h.turnUser(), ActionRaise, ActRequest{})
 	h.mustAct(h.turnUser(), ActionShow, ActRequest{})
-	assertConserved(t, h.lastSettled())
+	assertConserved(t, h, h.lastSettled())
 	eq(t, *h.lastHandEnded().WinnerID, "a", "the trail wins")
 }
 
@@ -169,7 +189,7 @@ func TestChipsAreConservedThroughAForcedShowdown(t *testing.T) {
 		h.mustAct(h.turnUser(), ActionChaal, ActRequest{})
 	}
 	eq(t, h.hasHand(), false, "ended")
-	assertConserved(t, h.lastSettled())
+	assertConserved(t, h, h.lastSettled())
 }
 
 func TestChipsAreConservedWhenAPlayerLeavesMidHand(t *testing.T) {
@@ -184,14 +204,17 @@ func TestChipsAreConservedWhenAPlayerLeavesMidHand(t *testing.T) {
 	h.mustAct(h.turnUser(), ActionPack, ActRequest{})
 
 	record := h.lastSettled()
-	assertConserved(t, record)
-	paid := false
+	assertConserved(t, h, record)
+	// They were resolved at their own leave checkpoint and are not in the
+	// hand-end write; the bank shows what they paid.
 	for _, e := range record.entries {
-		if e.UserID == quitter && e.Delta < 0 {
-			paid = true
+		if e.UserID == quitter {
+			t.Fatal("a player who left must not be written again at the hand end")
 		}
 	}
-	eq(t, paid, true, "the player who left still paid what they staked")
+	left, _ := bk.get(quitter)
+	eq(t, left < settleStart, true, "the player who left still paid what they staked")
+	eq(t, bk.total(), settleStart*3, "chips are conserved")
 }
 
 func TestChipsAreConservedWhenEveryPlayerTimesOutButOne(t *testing.T) {
@@ -203,7 +226,7 @@ func TestChipsAreConservedWhenEveryPlayerTimesOutButOne(t *testing.T) {
 	h.advance(25 * time.Second)
 	h.advance(25 * time.Second)
 	eq(t, h.hasHand(), false, "ended")
-	assertConserved(t, h.lastSettled())
+	assertConserved(t, h, h.lastSettled())
 }
 
 func TestTheTotalInPlayIsUnchangedAcrossManyHands(t *testing.T) {
@@ -240,13 +263,18 @@ func TestTheTotalInPlayIsUnchangedAcrossManyHands(t *testing.T) {
 	eq(t, h.settledCount(), h.handNo(), "every hand was settled once")
 }
 
-func TestASettledBalanceOfZeroIsNotTreatedAsAFailedSettlement(t *testing.T) {
+// The seat is the truth for a stack, and the ledger follows it: whatever
+// Settle reports back, the Table keeps its own figures. (Before 9 Sep 2026 it
+// adopted the balances the ledger returned, which is why "a settled balance
+// of exactly 0 is valid, not missing" mattered; the checkpoint model has no
+// such adoption.)
+func TestTheSeatKeepsItsOwnFiguresWhateverSettleReports(t *testing.T) {
 	h := newHarness(t, settleConfig(), withLedger(func(h *harness) Ledger {
 		return NewMemoryLedger(MemoryLedgerHooks{
-			Settle: func(hand HandRecord, entries []SettleEntry) (map[string]int64, error) {
+			Settle: func(req SettleRequest, entries []SettleEntry) (map[string]int64, error) {
 				balances := map[string]int64{}
 				for _, e := range entries {
-					balances[e.UserID] = 0
+					balances[e.UserID] = 0 // nonsense on purpose
 				}
 				return balances, nil
 			},
@@ -255,39 +283,40 @@ func TestASettledBalanceOfZeroIsNotTreatedAsAFailedSettlement(t *testing.T) {
 	h.seatNamed("a", "A", settleStart)
 	h.seatNamed("b", "B", settleStart)
 	h.advance(6 * time.Second)
-	h.mustAct(h.turnUser(), ActionPack, ActRequest{})
-	for _, id := range h.occupiedIDs() {
-		eq(t, h.mustSeat(id).Chips, int64(0), "the settled balance is used verbatim")
-	}
+	loser := h.turnUser()
+	winner := h.otherActive(loser)
+	h.mustAct(loser, ActionPack, ActRequest{})
+	eq(t, h.mustSeat(loser).Chips, settleStart-settleBoot, "the packer keeps their stack")
+	eq(t, h.mustSeat(winner).Chips, settleStart+settleBoot, "and the winner keeps the pot they were paid in memory")
 }
 
-func TestABootBalanceOfZeroIsAdoptedByKeyPresence(t *testing.T) {
-	// The same rule at hand start (table.js:449-455): a returned balance of 0
-	// is a real figure, not a missing one.
+// THE DEAL WRITES NOTHING (owner's decision of 9 Sep 2026): the boot comes
+// out of the seat in memory, the wallet is untouched, and the contribution
+// remembers the pre-boot figure so the first checkpoint can compute its
+// delta. There is no boot transaction left to refuse a hand.
+func TestTheDealWritesNothingToTheLedger(t *testing.T) {
+	var writes int
 	h := newHarness(t, settleConfig(), withLedger(func(h *harness) Ledger {
-		return &captureLedger{inner: emptyLedger(h), boot: func(r CollectBootRequest) (CollectBootResult, error) {
-			balances := map[string]int64{}
-			for _, e := range r.Entries {
-				balances[e.UserID] = 0
-			}
-			return CollectBootResult{Balances: balances, Persisted: r.BootAmount}, nil
-		}}
+		return &captureLedger{
+			inner:        emptyLedger(h),
+			onCheckpoint: func(CheckpointRequest) { writes++ },
+			onSettle:     func(SettleRequest) { writes++ },
+		}
 	}))
 	h.seat("a", settleStart)
 	h.seat("b", settleStart)
 	h.advance(6 * time.Second)
-	eq(t, h.mustSeat("a").Chips, int64(0), "database figure wins")
-	eq(t, h.mustSeat("b").Chips, int64(0), "database figure wins")
-	// And a ledger that reports no balances falls back to chips - boot.
-	h2 := newHarness(t, settleConfig(), withLedger(func(h *harness) Ledger {
-		return &captureLedger{inner: emptyLedger(h), boot: func(r CollectBootRequest) (CollectBootResult, error) {
-			return CollectBootResult{Persisted: r.BootAmount}, nil
-		}}
-	}))
-	h2.seat("a", settleStart)
-	h2.seat("b", settleStart)
-	h2.advance(6 * time.Second)
-	eq(t, h2.mustSeat("a").Chips, settleStart-settleBoot, "fallback debit")
+	eq(t, h.hasHand(), true, "dealt")
+	eq(t, writes, 0, "no ledger call at the deal")
+	eq(t, h.table.Version(), int64(0), "and nothing committed")
+	eq(t, h.mustSeat("a").Chips, settleStart-settleBoot, "the boot came out of the seat")
+	eq(t, len(h.rec.all("persistError")), 0, "nothing could fail")
+
+	snap := mustSnapshot(h)
+	for _, c := range snap.Hand.Contributions {
+		eq(t, c.ChipsWritten, settleStart, "PostgreSQL still holds the pre-boot figure")
+		eq(t, c.Chips, settleStart-settleBoot, "the live state holds the post-boot one")
+	}
 }
 
 // ------------------------------------------------- chipPersistence.test.js
@@ -320,36 +349,36 @@ type movement struct {
 	reason string
 }
 
-// accountsLedger is chipPersistence.test.js's toy ledger: persistChips moves
-// the account on every boot and bet (a negative result would refuse), settle
-// applies the deltas.
+// accountsLedger is chipPersistence.test.js's toy ledger, brought forward to
+// the three-checkpoint model: the Checkpoint hook applies one delta to the
+// fake account per ledger row (a pack, a leave, and every entry of the
+// settlement), and records the movement so a test can count rows.
 func accountsLedger(t *testing.T, accounts *bank, movements *[]movement) func(h *harness) Ledger {
 	return func(h *harness) Ledger {
 		var mu sync.Mutex
 		return NewMemoryLedger(MemoryLedgerHooks{
-			PersistChips: func(args PersistChipsArgs) error {
-				before, _ := accounts.get(args.UserID)
-				after := before + args.Delta
+			Checkpoint: func(args CheckpointArgs) error {
+				h.recordCheckpoint(args)
+				before, _ := accounts.get(args.Entry.UserID)
+				after := before + args.Entry.Delta
 				if after < 0 {
-					return fmt.Errorf("%s went negative", args.UserID)
+					return fmt.Errorf("%s went negative", args.Entry.UserID)
 				}
-				accounts.set(args.UserID, after)
+				accounts.set(args.Entry.UserID, after)
 				mu.Lock()
-				*movements = append(*movements, movement{args.UserID, args.Delta, args.Reason})
+				*movements = append(*movements, movement{args.Entry.UserID, args.Entry.Delta, args.Entry.Reason})
 				mu.Unlock()
 				return nil
 			},
-			Settle: func(hand HandRecord, entries []SettleEntry) (map[string]int64, error) {
-				h.recordSettle(hand, entries)
+			Settle: func(req SettleRequest, entries []SettleEntry) (map[string]int64, error) {
+				// The Checkpoint hook above has already moved every account:
+				// MemoryLedger calls it once per entry before this. Only the
+				// balances are reported back.
+				h.recordSettle(req, entries)
 				balances := map[string]int64{}
 				for _, e := range entries {
-					before, _ := accounts.get(e.UserID)
-					after := before + e.Delta
-					accounts.set(e.UserID, after)
-					balances[e.UserID] = after
-					mu.Lock()
-					*movements = append(*movements, movement{e.UserID, e.Delta, "settle"})
-					mu.Unlock()
+					v, _ := accounts.get(e.UserID)
+					balances[e.UserID] = v
 				}
 				return balances, nil
 			},
@@ -373,7 +402,10 @@ func mustGet(t *testing.T, bk *bank, id string) int64 {
 	return v
 }
 
-func TestTheBootLeavesTheAccountTheMomentItIsPosted(t *testing.T) {
+// THE BOOT DOES NOT LEAVE THE ACCOUNT AT THE DEAL (owner's decision of
+// 9 Sep 2026). It comes out of the seat; PostgreSQL learns of it at the
+// player's first checkpoint.
+func TestTheBootLeavesTheSeatButNotYetTheAccount(t *testing.T) {
 	h, accounts, movements := bankTable(t)
 	h.seatNamed("alice", "ALICE", bankStart)
 	accounts.set("alice", bankStart)
@@ -381,17 +413,22 @@ func TestTheBootLeavesTheAccountTheMomentItIsPosted(t *testing.T) {
 	accounts.set("bob", bankStart)
 	h.advance(6 * time.Second)
 
-	eq(t, mustGet(t, accounts, "alice"), bankStart-bankBoot, "alice's ante is gone")
-	eq(t, mustGet(t, accounts, "bob"), bankStart-bankBoot, "bob's ante is gone")
+	eq(t, mustGet(t, accounts, "alice"), bankStart, "alice's wallet is untouched")
+	eq(t, mustGet(t, accounts, "bob"), bankStart, "bob's wallet is untouched")
+	eq(t, h.mustSeat("alice").Chips, bankStart-bankBoot, "but her seat has paid the ante")
 	eq(t, h.pot(), bankBoot*2, "pot")
-	eq(t, len(*movements), 2, "two boot movements")
-	for _, m := range *movements {
-		eq(t, m.reason, LedgerReasonBoot, "reason boot")
-		eq(t, m.delta, -bankBoot, "delta")
-	}
+	eq(t, len(*movements), 0, "no ledger row at the deal")
+
+	// The hand ends: now both wallets catch up in one row each.
+	h.mustAct(h.turnUser(), ActionPack, ActRequest{})
+	eq(t, len(*movements), 3, "the packer's checkpoint and both outcome rows")
+	eq(t, accounts.total(), bankStart*2, "chips are conserved")
 }
 
-func TestEveryChaalIsBankedAsItIsMade(t *testing.T) {
+// A chaal is not a database write (owner's decision of 9 Sep 2026): the chips
+// move at the seat and in the live store, and the account follows at the
+// player's next checkpoint — here, the hand end.
+func TestAChaalReachesTheAccountAtTheHandEndNotWhenItIsMade(t *testing.T) {
 	h, accounts, movements := bankTable(t)
 	accounts.set("alice", bankStart)
 	accounts.set("bob", bankStart)
@@ -400,15 +437,26 @@ func TestEveryChaalIsBankedAsItIsMade(t *testing.T) {
 	h.advance(6 * time.Second)
 
 	player := h.turnUser()
-	before := mustGet(t, accounts, player)
 	stake := h.stake()
 	h.mustAct(player, ActionChaal, ActRequest{})
 
-	eq(t, mustGet(t, accounts, player), before-stake, "the account moved with the bet")
-	eq(t, h.mustSeat(player).Chips, mustGet(t, accounts, player), "seat and account agree")
-	last := (*movements)[len(*movements)-1]
-	eq(t, last.reason, LedgerReasonBet, "bet reason")
-	eq(t, last.userID, player, "bet by the player")
+	eq(t, mustGet(t, accounts, player), bankStart, "the account did NOT move with the bet")
+	eq(t, h.mustSeat(player).Chips, bankStart-bankBoot-stake, "but the seat did")
+	eq(t, len(*movements), 0, "and nothing reached the books")
+
+	// The other player packs, so `player` wins the pot.
+	other := h.otherActive(player)
+	h.mustAct(other, ActionPack, ActRequest{})
+	pot := bankBoot*2 + stake
+	eq(t, mustGet(t, accounts, player), bankStart-bankBoot-stake+pot, "the winner's whole hand lands in one row")
+	eq(t, mustGet(t, accounts, other), bankStart-bankBoot, "and the packer's in theirs")
+	eq(t, accounts.total(), bankStart*2, "chips are conserved")
+	rows := map[string]int{}
+	for _, m := range *movements {
+		rows[m.userID]++
+	}
+	eq(t, rows[player], 1, "one row for the winner")
+	eq(t, rows[other], 2, "two for the packer: the pack checkpoint and the outcome")
 }
 
 func TestTheWinnerIsPaidThePotAndNobodyIsChargedTwice(t *testing.T) {
@@ -424,20 +472,21 @@ func TestTheWinnerIsPaidThePotAndNobodyIsChargedTwice(t *testing.T) {
 	loser := h.turnUser()
 	pot := h.pot()
 	winner := h.otherActive(loser)
-	winnerBefore := mustGet(t, accounts, winner)
-	loserBefore := mustGet(t, accounts, loser)
+	loserStaked := h.mustSeat(loser).Contributed
+	winnerStaked := h.mustSeat(winner).Contributed
 
 	h.mustAct(loser, ActionPack, ActRequest{})
 
-	eq(t, mustGet(t, accounts, winner), winnerBefore+pot, "paid exactly the pot")
-	eq(t, mustGet(t, accounts, loser), loserBefore, "already paid; not charged again")
+	eq(t, mustGet(t, accounts, winner), bankStart-winnerStaked+pot, "the winner's wallet is stake out, pot in")
+	eq(t, mustGet(t, accounts, loser), bankStart-loserStaked, "the loser paid what they staked, once")
 	eq(t, accounts.total(), bankStart*2, "chips are conserved")
-	// With a persisting ledger the deltas are payout-only: winner +pot, loser 0.
+	// The settlement deltas: the winner nets the pot less their own stake,
+	// and the packer's row is zero because their pack already moved it.
 	for _, e := range h.lastSettled().entries {
 		if e.IsWinner {
-			eq(t, e.Delta, pot, "winner delta is the pot")
+			eq(t, e.Delta, pot-winnerStaked, "winner delta")
 		} else {
-			eq(t, e.Delta, int64(0), "loser owes nothing further")
+			eq(t, e.Delta, int64(0), "the packer's money moved at the pack")
 		}
 	}
 }
@@ -453,10 +502,12 @@ func TestAPlayerWhoWalksOutMidHandDoesNotGetTheirStakeBack(t *testing.T) {
 	quitter := h.turnUser()
 	h.mustAct(quitter, ActionChaal, ActRequest{})
 	staked := h.mustSeat(quitter).Contributed
-	eq(t, mustGet(t, accounts, quitter), bankStart-staked, "after betting")
+	eq(t, mustGet(t, accounts, quitter), bankStart, "nothing is written while they play")
 
+	// Leaving mid-hand resolves them at once — their wallet has to be right
+	// the moment they are gone — and their stake stays in the pot.
 	h.remove(quitter, LeaveReasonLeft)
-	eq(t, mustGet(t, accounts, quitter), bankStart-staked, "stake stays in the pot")
+	eq(t, mustGet(t, accounts, quitter), bankStart-staked, "everything they staked is banked, and stays in the pot")
 
 	for h.hasHand() && len(h.activeIDs()) > 1 {
 		h.mustAct(h.turnUser(), ActionPack, ActRequest{})
@@ -488,7 +539,11 @@ func TestChipsAreConservedAcrossALongHandOfRaises(t *testing.T) {
 	eq(t, accounts.total(), bankStart*3, "nothing was created or destroyed")
 }
 
-func TestASeatAndItsAccountNeverDisagree(t *testing.T) {
+// The seat can never hold more than the wallet — the property that makes the
+// in-memory balance check as safe as the wallet lock it replaced. During a
+// hand the account is AHEAD of the seat by exactly the bets not yet banked,
+// so the seat is always the smaller number and the flush can never overdraw.
+func TestASeatNeverHoldsMoreThanItsAccount(t *testing.T) {
 	h, accounts, _ := bankTable(t)
 	accounts.set("alice", bankStart)
 	accounts.set("bob", bankStart)
@@ -499,155 +554,118 @@ func TestASeatAndItsAccountNeverDisagree(t *testing.T) {
 	for i := 0; i < 4 && h.hasHand(); i++ {
 		h.mustAct(h.turnUser(), ActionChaal, ActRequest{})
 		for _, id := range h.activeIDs() {
-			eq(t, h.mustSeat(id).Chips, mustGet(t, accounts, id), id+" out of step")
+			seat := h.mustSeat(id).Chips
+			account := mustGet(t, accounts, id)
+			if seat > account {
+				t.Fatalf("%s: seat %d exceeds account %d — a flush could overdraw the wallet", id, seat, account)
+			}
+			eq(t, seat-account, h.unwritten(id), id+": the account is ahead by exactly what has not been written")
 		}
+	}
+	// At the hand boundary they agree again.
+	for h.hasHand() {
+		h.mustAct(h.turnUser(), ActionPack, ActRequest{})
+	}
+	for _, id := range []string{"alice", "bob"} {
+		eq(t, h.mustSeat(id).Chips, mustGet(t, accounts, id), id+" out of step at rest")
 	}
 }
 
 // -------------------------------------------------- ledger failure paths
 
-func TestABetTheLedgerRefusesChangesNothing(t *testing.T) {
-	var refuse error
-	h := newHarness(t, settleConfig(), withLedger(func(h *harness) Ledger {
-		inner := mirrorLedger(h)
-		return &captureLedger{inner: inner, bet: func(r BetRequest) (BetResult, error) {
-			if refuse != nil {
-				return BetResult{}, refuse
-			}
-			return inner.Bet(context.Background(), r)
-		}}
-	}))
+// A bet no longer has a ledger transaction of its own (owner's decision of
+// 9 Sep 2026), so the two refusals the database used to produce are made in
+// memory instead — and a refused bet must still change absolutely nothing.
+func TestAReplayedBetIsRefusedAndChangesNothing(t *testing.T) {
+	h := newHarness(t, settleConfig())
 	h.seat("a", settleStart)
 	h.seat("b", settleStart)
 	h.advance(6 * time.Second)
 	player := h.turnUser()
+
+	// The first move under this action id goes through.
+	h.mustAct(player, ActionChaal, ActRequest{ActionID: "dup-same-id"})
+	other := h.turnUser()
+	h.mustAct(other, ActionChaal, ActRequest{ActionID: "other-id"})
+	eq(t, h.turnUser(), player, "the turn came back")
+
 	before := h.mustSeat(player)
 	pot := h.pot()
 	deadline := h.lastTurn().Deadline
-
-	cases := []struct {
-		ledgerErr error
-		code      string
-		message   string
-	}{
-		{NewGameError(CodeInsufficientChips, "db says no"), CodeInsufficientChips, MsgInsufficientForBet},
-		{NewGameError(CodeDuplicateAction, "seen it"), CodeDuplicateAction, MsgDuplicateAction},
-		{NewGameError(CodeStaleState, "old"), CodePersistFailed, MsgPersistFailed},
-		{errors.New("connection reset"), CodePersistFailed, MsgPersistFailed},
-	}
-	for _, c := range cases {
-		refuse = c.ledgerErr
-		mark := h.rec.count()
-		_, err := h.act(player, ActionChaal, ActRequest{ActionID: "dup-same-id"})
-		codeIs(t, err, c.code)
-		var ge *GameError
-		errors.As(err, &ge)
-		eq(t, ge.Message, c.message, "message for "+c.code)
-		if !errors.Is(err, c.ledgerErr) && ge.Cause != c.ledgerErr {
-			t.Fatal("the ledger error is kept as Cause")
-		}
-		// Nothing changed: no state, no action; only a persistError.
-		names := h.rec.names()[mark:]
-		eq(t, strings.Join(names, ","), "persistError", "only a persistError is emitted")
-		pe := h.rec.last("persistError").(PersistErrorEvent)
-		eq(t, pe.UserID, player, "persistError userId")
-		eq(t, pe.Delta, -settleBoot, "persistError delta")
-		eq(t, pe.Reason, LedgerReasonBet, "persistError reason")
-		after := h.mustSeat(player)
-		eq(t, after.Chips, before.Chips, "chips unchanged")
-		eq(t, after.Contributed, before.Contributed, "contributed unchanged")
-		eq(t, after.LastBet, int64(0), "no last bet")
-		eq(t, h.pot(), pot, "pot unchanged")
-		eq(t, h.turnUser(), player, "turn unchanged")
-		eq(t, h.table.Version(), int64(1), "version unchanged")
-		eq(t, h.lastTurn().Deadline, deadline, "clock untouched")
-	}
-	// A refused show is reported with reason "show".
-	refuse = errors.New("down")
-	_, err := h.act(player, ActionShow, ActRequest{})
-	codeIs(t, err, CodePersistFailed)
-	eq(t, h.rec.last("persistError").(PersistErrorEvent).Reason, LedgerReasonShow, "show reason")
-
-	// And once the ledger is back, the same move goes through.
-	refuse = nil
-	h.mustAct(player, ActionChaal, ActRequest{})
-	eq(t, h.table.Version(), int64(2), "version rises on the commit")
-}
-
-func TestABootRefusedForInsufficientChipsKicksTheUnfundedSeatWithoutARetry(t *testing.T) {
-	var refuse *GameError
-	h := newHarness(t, settleConfig(), withLedger(func(h *harness) Ledger {
-		inner := mirrorLedger(h)
-		return &captureLedger{inner: inner, boot: func(r CollectBootRequest) (CollectBootResult, error) {
-			if refuse != nil {
-				return CollectBootResult{}, refuse
-			}
-			return inner.CollectBoot(context.Background(), r)
-		}}
-	}))
-	h.seat("a", settleStart)
-	h.seat("b", settleStart)
-	refuse = &GameError{Code: CodeInsufficientChips, Message: "wallet short", UserID: "b"}
 	mark := h.rec.count()
-	h.advance(6 * time.Second)
 
-	eq(t, h.hasHand(), false, "nothing dealt")
-	eq(t, h.state(), TableWaiting, "back to waiting")
-	eq(t, h.mustSeat("b").Chips, settleBoot-1, "the seat's stale balance is corrected to boot-1")
-	eq(t, h.mustSeat("a").Chips, settleStart, "a untouched")
-	kicks := h.kickEvents()
-	eq(t, len(kicks), 1, "one kick")
-	eq(t, kicks[0].UserID, "b", "the unfunded player")
-	eq(t, kicks[0].Reason, KickReasonInsufficientChips, "reason")
-	eq(t, kicks[0].Message, KickMessageInsufficientChips, "message")
-	eq(t, strings.Join(h.rec.names()[mark:], ","), "persistError,kick,state", "startRefused order")
+	_, err := h.act(player, ActionChaal, ActRequest{ActionID: "dup-same-id"})
+	codeIs(t, err, CodeDuplicateAction)
+	var ge *GameError
+	errors.As(err, &ge)
+	eq(t, ge.Message, MsgDuplicateAction, "message")
+
+	names := h.rec.names()[mark:]
+	eq(t, strings.Join(names, ","), "persistError", "only a persistError is emitted")
 	pe := h.rec.last("persistError").(PersistErrorEvent)
-	eq(t, pe.Reason, LedgerReasonBoot, "persistError reason boot")
-	eq(t, h.clock.Pending(), 0, "no retry timer armed on this path")
-	eq(t, h.table.Version(), int64(0), "version unchanged")
-	if h.view("a").StartsAt != nil {
-		t.Fatal("startsAt cleared")
-	}
+	eq(t, pe.UserID, player, "persistError userId")
+	eq(t, pe.Reason, LedgerReasonBet, "persistError reason")
+	after := h.mustSeat(player)
+	eq(t, after.Chips, before.Chips, "chips unchanged")
+	eq(t, after.Contributed, before.Contributed, "contributed unchanged")
+	eq(t, h.pot(), pot, "pot unchanged")
+	eq(t, h.turnUser(), player, "turn unchanged")
+	eq(t, h.lastTurn().Deadline, deadline, "clock untouched")
 
-	// The unfunded player is removed (by the room manager in production);
-	// with a funded third player the table restarts on the waiting branch.
-	refuse = nil
-	h.seat("c", settleStart)
-	h.remove("b", KickReasonInsufficientChips)
-	eq(t, h.state(), TableStarting, "restart after the removal")
-	h.advance(6 * time.Second)
-	eq(t, h.hasHand(), true, "dealt")
+	// A fresh id on the same move goes through.
+	h.mustAct(player, ActionChaal, ActRequest{ActionID: "fresh-id"})
+	eq(t, h.pot() > pot, true, "the pot moved")
 }
 
-func TestABootRefusedForAnotherReasonIsRetriedAfterTheDelay(t *testing.T) {
-	failures := 0
-	h := newHarness(t, settleConfig(), withLedger(func(h *harness) Ledger {
-		inner := mirrorLedger(h)
-		return &captureLedger{inner: inner, boot: func(r CollectBootRequest) (CollectBootResult, error) {
-			if failures > 0 {
-				failures--
-				return CollectBootResult{}, errors.New("database unavailable")
+// A checkpoint the ledger refuses never stops the move: the pack or the
+// departure has already happened at the table. The failure is reported, the
+// player's chipsWritten is NOT advanced, and the hand-end write therefore
+// still carries their whole delta — so nothing is lost, only late.
+func TestACheckpointTheLedgerRefusesIsReportedAndCarriedToTheHandEnd(t *testing.T) {
+	var refuse error
+	accounts := newBank()
+	movements := &[]movement{}
+	h := newHarness(t, bankConfig(), withLedger(func(h *harness) Ledger {
+		inner := accountsLedger(t, accounts, movements)(h)
+		return &captureLedger{inner: inner, checkpoint: func(r CheckpointRequest) (CheckpointResult, error) {
+			if refuse != nil {
+				return CheckpointResult{}, refuse
 			}
-			return inner.CollectBoot(context.Background(), r)
+			return inner.Checkpoint(context.Background(), r)
 		}}
 	}))
-	h.seat("a", settleStart)
-	h.seat("b", settleStart)
-	failures = 2
-	h.advance(6 * time.Second) // first attempt fails
-	eq(t, h.hasHand(), false, "refused")
-	eq(t, h.state(), TableWaiting, "waiting")
-	eq(t, h.clock.Pending(), 1, "a retry timer is armed")
-	eq(t, len(h.kickEvents()), 0, "nobody kicked")
-	h.advance(6 * time.Second) // retry → maybeStart → starting again
-	eq(t, h.state(), TableStarting, "countdown restarted")
-	h.advance(6 * time.Second) // second attempt fails
-	eq(t, h.hasHand(), false, "refused again")
-	h.advance(6 * time.Second) // retry → starting
-	h.advance(6 * time.Second) // third attempt succeeds
-	eq(t, h.hasHand(), true, "dealt once the database is back")
-	eq(t, len(h.rec.all("persistError")), 2, "two boot refusals reported")
-	eq(t, h.table.Version(), int64(1), "one committed write")
+	for _, id := range []string{"alice", "bob", "carol"} {
+		accounts.set(id, bankStart)
+		h.seatNamed(id, strings.ToUpper(id), bankStart)
+	}
+	h.advance(6 * time.Second)
+	player := h.turnUser()
+	h.mustAct(player, ActionChaal, ActRequest{})
+	staked := h.mustSeat(player).Contributed
+	pot := h.pot()
+
+	// Bring the turn back round to them so they can pack.
+	for i := 0; i < 4 && h.turnUser() != player; i++ {
+		h.mustAct(h.turnUser(), ActionChaal, ActRequest{})
+	}
+	staked = h.mustSeat(player).Contributed
+	pot = h.pot()
+
+	refuse = errors.New("connection reset")
+	h.mustAct(player, ActionPack, ActRequest{})
+	eq(t, h.pot(), pot, "their stake stays in the pot")
+	pe := h.rec.last("persistError").(PersistErrorEvent)
+	eq(t, pe.Reason, LedgerReasonHandPacked, "reported as a pack checkpoint failure")
+	eq(t, pe.UserID, player, "for the packer")
+	eq(t, mustGet(t, accounts, player), bankStart, "their wallet is untouched")
+
+	// The hand ends with the ledger back: the whole delta lands then.
+	refuse = nil
+	for h.hasHand() {
+		h.mustAct(h.turnUser(), ActionPack, ActRequest{})
+	}
+	eq(t, mustGet(t, accounts, player), bankStart-staked, "the refused checkpoint was carried to the hand end")
+	eq(t, accounts.total(), bankStart*3, "chips are conserved")
 }
 
 func TestASettlementTheLedgerRefusesIsPaidInMemoryAndRetried(t *testing.T) {
@@ -656,7 +674,7 @@ func TestASettlementTheLedgerRefusesIsPaidInMemoryAndRetried(t *testing.T) {
 	h := newHarness(t, settleConfig(), withLedger(func(h *harness) Ledger {
 		inner := mirrorLedger(h)
 		return &captureLedger{inner: inner, settle: func(r SettleRequest) (SettleResult, error) {
-			settleCalls = append(settleCalls, r.Hand.ID)
+			settleCalls = append(settleCalls, r.HandID)
 			if failSettle {
 				return nil, errors.New("settle down")
 			}
@@ -666,7 +684,7 @@ func TestASettlementTheLedgerRefusesIsPaidInMemoryAndRetried(t *testing.T) {
 	h.seat("a", settleStart)
 	h.seat("b", settleStart)
 	h.advance(6 * time.Second)
-	h.mustAct(h.turnUser(), ActionChaal, ActRequest{}) // version 2
+	h.mustAct(h.turnUser(), ActionChaal, ActRequest{}) // writes nothing: version stays 1
 	pot := h.pot()
 	loser := h.turnUser()
 	winner := h.otherActive(loser)
@@ -678,7 +696,7 @@ func TestASettlementTheLedgerRefusesIsPaidInMemoryAndRetried(t *testing.T) {
 
 	eq(t, h.hasHand(), false, "the hand is over whatever the database says")
 	eq(t, h.mustSeat(winner).Chips, winnerBefore+pot, "the winner is paid in memory")
-	eq(t, h.table.Version(), int64(2), "version not bumped on a failed settle")
+	eq(t, h.table.Version(), int64(1), "version not bumped on a failed settle")
 	names := h.rec.names()[mark:]
 	eq(t, strings.Join(names, ","), "action,persistError,handEnded,state,state", "pack → failed settle → handEnded → state → state(starting)")
 	pe := h.rec.all("persistError")[0].(PersistErrorEvent)
@@ -693,7 +711,7 @@ func TestASettlementTheLedgerRefusesIsPaidInMemoryAndRetried(t *testing.T) {
 	h.advance(6 * time.Second)
 	eq(t, len(settleCalls), 2, "retried once")
 	eq(t, settleCalls[1], settleCalls[0], "the same hand is re-sent")
-	eq(t, h.table.Version(), int64(4), "retry committed 3, the next boot 4")
+	eq(t, h.table.Version(), int64(2), "the retry committed; the next deal writes nothing")
 	eq(t, h.rec.names()[mark], "state", "a successful retry re-broadcasts state")
 	if got := h.rec.all("persistError"); len(got) != 1 {
 		t.Fatalf("no further persist errors: %d", len(got))
@@ -708,11 +726,11 @@ func TestASettleRetryRefusedAsDuplicateActionCountsAsSuccess(t *testing.T) {
 	h := newHarness(t, settleConfig(), withLedger(func(h *harness) Ledger {
 		inner := mirrorLedger(h)
 		return &captureLedger{inner: inner, settle: func(r SettleRequest) (SettleResult, error) {
-			attempts[r.Hand.ID]++
-			if r.Hand.ID != firstHand {
+			attempts[r.HandID]++
+			if r.HandID != firstHand {
 				return inner.Settle(context.Background(), r)
 			}
-			switch attempts[r.Hand.ID] {
+			switch attempts[r.HandID] {
 			case 1:
 				return nil, errors.New("timeout after commit")
 			case 2:
@@ -731,7 +749,7 @@ func TestASettleRetryRefusedAsDuplicateActionCountsAsSuccess(t *testing.T) {
 
 	h.advance(6 * time.Second) // retry 1 → duplicate_action → success; then the next deal
 	eq(t, attempts[firstHand], 2, "one retry")
-	eq(t, h.table.Version(), int64(3), "retry committed version 2, the next boot version 3")
+	eq(t, h.table.Version(), int64(2), "the retry committed; the next deal writes nothing")
 	eq(t, len(h.rec.all("persistError")), 1, "only the first failure was reported")
 	h.advance(5 * time.Minute)
 	eq(t, attempts[firstHand], 2, "no third settle attempt for that hand")
@@ -743,7 +761,7 @@ func TestASettleRetryRefusedAsDuplicateActionCountsAsSuccess(t *testing.T) {
 func TestASettlementIsAbandonedAfterTenRetries(t *testing.T) {
 	h := newHarness(t, settleConfig(), withLedger(func(h *harness) Ledger {
 		return NewMemoryLedger(MemoryLedgerHooks{
-			Settle: func(HandRecord, []SettleEntry) (map[string]int64, error) { return nil, errors.New("settle down") },
+			Settle: func(SettleRequest, []SettleEntry) (map[string]int64, error) { return nil, errors.New("settle down") },
 		})
 	}))
 	// Keep the table from dealing again so the timers are only retries.
@@ -784,8 +802,9 @@ func TestASettlementIsAbandonedAfterTenRetries(t *testing.T) {
 // TestChipConservationUnderRandomPlay drives many hands of random legal play
 // (chaal/raise at any rung, pack, see, show, sideshow with every answer,
 // timeouts and kicks, leaves and rejoins) on a persisting ledger and checks
-// after every step that Σaccounts + pot never changes, that every seated
-// player's seat agrees with their account, and that every settlement's
+// after every step that Σaccounts + the BANKED part of the pot never changes,
+// that every seated player's seat is their account less their unbanked bets
+// (so the seat can never exceed the wallet), and that every settlement's
 // deltas add up to the pot.
 func TestChipConservationUnderRandomPlay(t *testing.T) {
 	for seed := int64(1); seed <= 10; seed++ {
@@ -820,12 +839,19 @@ func TestChipConservationUnderRandomPlay(t *testing.T) {
 			}
 			check := func(step string) {
 				h.waitKicks()
-				if got := accounts.total() + h.pot(); got != total {
-					t.Fatalf("after %s: accounts+pot = %d, want %d", step, got, total)
+				// The pot's UNBANKED part (bets that have not reached the
+				// books) is still sitting in the accounts, so it must not be
+				// counted twice.
+				if got := accounts.total() + h.pot() - h.unwrittenPot(); got != total {
+					t.Fatalf("after %s: accounts+bankedPot = %d, want %d", step, got, total)
 				}
 				for _, id := range h.occupiedIDs() {
-					if have := h.mustSeat(id).Chips; have != mustGet(t, accounts, id) {
-						t.Fatalf("after %s: %s seat %d != account %d", step, id, have, mustGet(t, accounts, id))
+					have, account := h.mustSeat(id).Chips, mustGet(t, accounts, id)
+					if have > account {
+						t.Fatalf("after %s: %s seat %d exceeds account %d", step, id, have, account)
+					}
+					if have-account != h.unwritten(id) {
+						t.Fatalf("after %s: %s seat %d, account %d, unwritten %d", step, id, have, account, h.unwritten(id))
 					}
 				}
 			}
@@ -835,21 +861,20 @@ func TestChipConservationUnderRandomPlay(t *testing.T) {
 				if h.settledCount() > settledSoFar {
 					h.mu.Lock()
 					for _, rec := range h.settled[settledSoFar:] {
-						// Persisting ledger: winner +pot, everyone else 0.
-						if got := sumDeltas(rec.entries); got != rec.hand.Pot {
-							t.Fatalf("hand %d deltas sum to %d, want the pot %d", rec.hand.HandNo, got, rec.hand.Pot)
-						}
-						if got := sumContributed(rec.hand.Summary); got != rec.hand.Pot {
-							t.Fatalf("hand %d contributions %d != pot %d", rec.hand.HandNo, got, rec.hand.Pot)
-						}
 						winners := 0
 						for _, e := range rec.entries {
 							if e.IsWinner {
 								winners++
 							}
+							if e.ActionID != SettleActionID(rec.req.HandID, e.UserID) {
+								t.Fatalf("hand %s: entry for %s carries %q", rec.req.HandID, e.UserID, e.ActionID)
+							}
+							if !e.Outcome {
+								t.Fatalf("hand %s: settlement entry for %s is not an outcome row", rec.req.HandID, e.UserID)
+							}
 						}
 						if winners != 1 {
-							t.Fatalf("hand %d has %d winners", rec.hand.HandNo, winners)
+							t.Fatalf("hand %s has %d winners", rec.req.HandID, winners)
 						}
 					}
 					settledSoFar = len(h.settled)
@@ -935,10 +960,10 @@ func TestChipConservationUnderRandomPlay(t *testing.T) {
 			t.Logf("%s table: %d hands, %d settlements, %d showdowns, %d sideshows asked / %d compared, %d kicks, %d timeouts",
 				cfg.Category, h.handNo(), h.settledCount(), len(h.rec.all("showdown")), len(h.sideshowRequested()),
 				len(h.sideshowReveals()), len(h.kickEvents()), countPackReason(h.actions(), PackReasonTimeout))
-			// Every account movement was a boot, bet, show or settle.
+			// Every account movement was one of the three checkpoints.
 			for _, m := range *movements {
 				switch m.reason {
-				case LedgerReasonBoot, LedgerReasonBet, LedgerReasonShow, "settle":
+				case LedgerReasonHandPacked, LedgerReasonHandLeft, LedgerReasonHandWin, LedgerReasonHandLoss:
 				default:
 					t.Fatalf("unexpected movement %+v", m)
 				}
@@ -1149,13 +1174,13 @@ func TestVersionRisesOncePerCommittedWrite(t *testing.T) {
 	h.seat("b", tableStart)
 	eq(t, h.table.Version(), int64(0), "fresh")
 	h.advance(6 * time.Second)
-	eq(t, h.table.Version(), int64(1), "boot")
+	eq(t, h.table.Version(), int64(0), "the deal writes nothing")
 	h.mustAct(h.turnUser(), ActionChaal, ActRequest{})
-	eq(t, h.table.Version(), int64(2), "bet")
+	eq(t, h.table.Version(), int64(0), "nor does a bet")
 	h.mustAct(h.turnUser(), ActionSee, ActRequest{})
-	eq(t, h.table.Version(), int64(2), "see is free")
+	eq(t, h.table.Version(), int64(0), "see is free")
 	h.mustAct(h.turnUser(), ActionShow, ActRequest{})
-	eq(t, h.table.Version(), int64(4), "show + settle")
+	eq(t, h.table.Version(), int64(1), "the settlement is the only write")
 }
 
 func TestSetConnectedAndSetChips(t *testing.T) {
@@ -1232,4 +1257,170 @@ func TestAddPlayerEventOrder(t *testing.T) {
 	ended := h.lastHandEnded()
 	eq(t, ended.NextHandAt, Millis(h.clock.Now().Add(6*time.Second)), "nextHandAt")
 	eq(t, h.state(), TableStarting, "next countdown")
+}
+
+// The two correctness traps of the three-checkpoint model, together.
+//
+// TRAP 1 — resolve each player exactly once. A packer IS written at the hand
+// end (their outcome row and its counters belong there), but their money must
+// move only at the pack: the settlement entry's delta is zero, so two rows
+// coexist and the wallet moves once. A player who LEFT is resolved at their
+// own checkpoint and is not in the hand-end write at all.
+//
+// TRAP 2 — a delta, never an absolute. A reward credited to a seated player
+// mid-hand survives the next checkpoint.
+func TestAPackerIsWrittenTwiceButChargedOnce(t *testing.T) {
+	var checkpoints []CheckpointRequest
+	var settles []SettleRequest
+	accounts := newBank()
+	movements := &[]movement{}
+	h := newHarness(t, bankConfig(), withLedger(func(h *harness) Ledger {
+		return &captureLedger{
+			inner:        accountsLedger(t, accounts, movements)(h),
+			onCheckpoint: func(r CheckpointRequest) { checkpoints = append(checkpoints, r) },
+			onSettle:     func(r SettleRequest) { settles = append(settles, r) },
+		}
+	}))
+	for _, id := range []string{"alice", "bob", "carol"} {
+		accounts.set(id, bankStart)
+		h.seatNamed(id, strings.ToUpper(id), bankStart)
+	}
+	h.advance(6 * time.Second)
+
+	packer := h.turnUser()
+	h.mustAct(packer, ActionChaal, ActRequest{ActionID: "packer-bet-1"})
+	for i := 0; i < 4 && h.turnUser() != packer; i++ {
+		h.mustAct(h.turnUser(), ActionChaal, ActRequest{})
+	}
+	staked := h.mustSeat(packer).Contributed
+	eq(t, len(checkpoints), 0, "nothing written while they play")
+	eq(t, mustGet(t, accounts, packer), bankStart, "and their wallet has not moved")
+
+	h.mustAct(packer, ActionPack, ActRequest{})
+	eq(t, len(checkpoints), 1, "the pack writes them through")
+	eq(t, checkpoints[0].Entry.UserID, packer, "the packer")
+	eq(t, checkpoints[0].Entry.Delta, -staked, "their whole stake, as a delta")
+	eq(t, checkpoints[0].Entry.Reason, LedgerReasonHandPacked, "reason")
+	eq(t, checkpoints[0].Entry.Outcome, false, "no counters yet")
+	eq(t, mustGet(t, accounts, packer), bankStart-staked, "wallet up to date")
+
+	for h.hasHand() {
+		h.mustAct(h.turnUser(), ActionPack, ActRequest{})
+	}
+	eq(t, len(settles), 1, "one settlement")
+	var settled *SettleEntry
+	for i := range settles[0].Entries {
+		if settles[0].Entries[i].UserID == packer {
+			settled = &settles[0].Entries[i]
+		}
+	}
+	if settled == nil {
+		t.Fatal("the packer must still be resolved at the hand end")
+	}
+	eq(t, settled.Delta, int64(0), "but their money moved at the pack")
+	eq(t, settled.Reason, LedgerReasonHandLoss, "the outcome row is a loss")
+	eq(t, settled.Outcome, true, "which is where hands_lost lands")
+	eq(t, settled.ActionID != checkpoints[0].Entry.ActionID, true, "two distinct action ids, so both rows coexist")
+	eq(t, mustGet(t, accounts, packer), bankStart-staked, "the wallet moved exactly once")
+
+	rows := 0
+	for _, m := range *movements {
+		if m.userID == packer {
+			rows++
+		}
+	}
+	eq(t, rows, 2, "two ledger rows: the pack and the outcome")
+	eq(t, accounts.total(), bankStart*3, "chips are conserved")
+}
+
+// TRAP 2: a reward claimed while seated credits PostgreSQL and not the seat.
+// The next checkpoint writes a DELTA, so the reward survives; an absolute
+// overwrite would erase it.
+func TestARewardCreditedMidHandSurvivesTheNextCheckpoint(t *testing.T) {
+	const reward int64 = 10000
+	accounts := newBank()
+	movements := &[]movement{}
+	h := newHarness(t, bankConfig(), withLedger(accountsLedger(t, accounts, movements)))
+	for _, id := range []string{"alice", "bob", "carol"} {
+		accounts.set(id, bankStart)
+		h.seatNamed(id, strings.ToUpper(id), bankStart)
+	}
+	h.advance(6 * time.Second)
+
+	player := h.turnUser()
+	h.mustAct(player, ActionChaal, ActRequest{})
+	for i := 0; i < 4 && h.turnUser() != player; i++ {
+		h.mustAct(h.turnUser(), ActionChaal, ActRequest{})
+	}
+	staked := h.mustSeat(player).Contributed
+
+	// The four-hour bonus lands in PostgreSQL while they are at the table.
+	// (The REST handlers refuse this now — auth.Handler.Bonus returns 409
+	// `seated` — but the money path must not depend on that gate.)
+	before, _ := accounts.get(player)
+	accounts.set(player, before+reward)
+
+	h.mustAct(player, ActionPack, ActRequest{})
+	eq(t, mustGet(t, accounts, player), bankStart+reward-staked,
+		"the checkpoint applied a delta, so the reward is still there")
+
+	for h.hasHand() {
+		h.mustAct(h.turnUser(), ActionPack, ActRequest{})
+	}
+	eq(t, mustGet(t, accounts, player), bankStart+reward-staked, "and the hand end did not erase it either")
+	eq(t, accounts.total(), bankStart*3+reward, "nothing created or destroyed beyond the reward")
+}
+
+// A player who LEFT mid-hand is resolved at their own checkpoint — their
+// wallet is right the moment they are gone — and is NOT written again at the
+// hand end.
+func TestLeavingMidHandResolvesThePlayerOnceAtTheirOwnCheckpoint(t *testing.T) {
+	var checkpoints []CheckpointRequest
+	var settles []SettleRequest
+	accounts := newBank()
+	movements := &[]movement{}
+	h := newHarness(t, bankConfig(), withLedger(func(h *harness) Ledger {
+		return &captureLedger{
+			inner:        accountsLedger(t, accounts, movements)(h),
+			onCheckpoint: func(r CheckpointRequest) { checkpoints = append(checkpoints, r) },
+			onSettle:     func(r SettleRequest) { settles = append(settles, r) },
+		}
+	}))
+	for _, id := range []string{"alice", "bob", "carol"} {
+		accounts.set(id, bankStart)
+		h.seatNamed(id, strings.ToUpper(id), bankStart)
+	}
+	h.advance(6 * time.Second)
+
+	quitter := h.turnUser()
+	h.mustAct(quitter, ActionChaal, ActRequest{})
+	staked := h.mustSeat(quitter).Contributed
+	eq(t, len(checkpoints), 0, "nothing written while they play")
+
+	h.remove(quitter, LeaveReasonLeft)
+	eq(t, len(checkpoints), 1, "the departure writes them through")
+	eq(t, checkpoints[0].Entry.UserID, quitter, "the leaver")
+	eq(t, checkpoints[0].Entry.Delta, -staked, "their whole stake")
+	eq(t, checkpoints[0].Entry.Reason, LedgerReasonHandLeft, "reason")
+	eq(t, checkpoints[0].Entry.Outcome, true, "this row resolves them")
+	eq(t, checkpoints[0].Entry.LeftMidHand, true, "hands_left_mid lands here")
+	eq(t, mustGet(t, accounts, quitter), bankStart-staked, "wallet right the moment they are gone")
+
+	for h.hasHand() && len(h.activeIDs()) > 1 {
+		h.mustAct(h.turnUser(), ActionPack, ActRequest{})
+	}
+	eq(t, len(settles), 1, "one settlement")
+	for _, e := range settles[0].Entries {
+		if e.UserID == quitter {
+			t.Fatal("a player who left must not be written again at the hand end")
+		}
+	}
+	rows := 0
+	for _, m := range *movements {
+		if m.userID == quitter {
+			rows++
+		}
+	}
+	eq(t, rows, 1, "exactly one ledger row, never two")
+	eq(t, accounts.total(), bankStart*3, "chips are conserved")
 }

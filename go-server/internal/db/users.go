@@ -2,11 +2,9 @@ package db
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
-	"sort"
 	"strings"
 	"time"
 	"unicode"
@@ -94,18 +92,6 @@ type Profile struct {
 	DisplayName    string
 	Email          *string
 	AvatarURL      *string
-}
-
-// HandHistory is one row of GET /api/auth/me/hands (recentHands).
-type HandHistory struct {
-	ID        string                  `json:"id"`
-	RoomID    string                  `json:"roomId"`
-	HandNo    int                     `json:"handNo"`
-	Pot       int64                   `json:"pot"`
-	WinnerID  *string                 `json:"winnerId"`
-	WinReason *string                 `json:"winReason"`
-	EndedAt   int64                   `json:"endedAt"`
-	Summary   []game.HandSummaryEntry `json:"summary"`
 }
 
 // RewardResult is what the two claim endpoints return. Claimed=false carries
@@ -465,64 +451,6 @@ func (u *Users) ApplyChipDelta(ctx context.Context, userID string, delta int64, 
 		return 0, err
 	}
 	return balance, nil
-}
-
-// RecentHands is GET /api/auth/me/hands (recentHands): hands the user has a
-// ledger row for, newest ended first, at most limit.
-//
-//	SELECT DISTINCT ON (h.id) h.* FROM hands h JOIN chip_ledger l ON l.hand_id = h.id
-//	 WHERE l.user_id = $1 ORDER BY h.id, h.ended_at DESC
-//
-// then sorted by ended_at desc in memory and sliced (as Node does; the
-// slice keeps Array.prototype.slice(0, limit) semantics, including a
-// negative limit dropping the last |limit| rows — the HTTP layer clamps to
-// [1, 100] per DECISIONS.md §5 so that path is never reached in practice).
-func (u *Users) RecentHands(ctx context.Context, userID string, limit int) ([]HandHistory, error) {
-	rows, err := u.db.Pool.Query(ctx, `SELECT DISTINCT ON (h.id) h.id, h.room_id, h.hand_no, h.pot, h.winner_id, h.win_reason, h.ended_at, h.summary_json
-       FROM hands h
-       JOIN chip_ledger l ON l.hand_id = h.id
-      WHERE l.user_id = $1
-      ORDER BY h.id, h.ended_at DESC`, userID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	hands := []HandHistory{}
-	for rows.Next() {
-		var h HandHistory
-		var summaryJSON []byte
-		if err := rows.Scan(&h.ID, &h.RoomID, &h.HandNo, &h.Pot, &h.WinnerID, &h.WinReason, &h.EndedAt, &summaryJSON); err != nil {
-			return nil, err
-		}
-		if len(summaryJSON) > 0 {
-			if err := json.Unmarshal(summaryJSON, &h.Summary); err != nil {
-				return nil, fmt.Errorf("hand %s summary_json: %w", h.ID, err)
-			}
-		}
-		if h.Summary == nil {
-			h.Summary = []game.HandSummaryEntry{}
-		}
-		hands = append(hands, h)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-
-	// Stable, like V8's sort: ties in ended_at keep the DISTINCT ON id order.
-	sort.SliceStable(hands, func(i, j int) bool { return hands[i].EndedAt > hands[j].EndedAt })
-
-	end := limit
-	if end < 0 {
-		end = len(hands) + end
-	}
-	if end < 0 {
-		end = 0
-	}
-	if end > len(hands) {
-		end = len(hands)
-	}
-	return hands[:end], nil
 }
 
 // ClaimMilestoneReward (requirement 17): lock the row; milestone =

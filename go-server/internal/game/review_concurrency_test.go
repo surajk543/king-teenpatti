@@ -229,7 +229,7 @@ func TestReviewDestroyWhilePostersAreQueued(t *testing.T) {
 // ErrTableDestroyed). Detects a panic or a data race on freed state.
 func TestReviewTimersAreInertAfterDestroyUnderRealClock(t *testing.T) {
 	failing := NewMemoryLedger(MemoryLedgerHooks{
-		Settle: func(HandRecord, []SettleEntry) (map[string]int64, error) {
+		Settle: func(SettleRequest, []SettleEntry) (map[string]int64, error) {
 			return nil, NewGameError(CodePersistFailed, "down")
 		},
 	})
@@ -283,12 +283,12 @@ func TestReviewShutdownSettlesLiveHands(t *testing.T) {
 	var mu sync.Mutex
 	settled := map[string]int64{}
 	ledger := NewMemoryLedger(MemoryLedgerHooks{
-		Settle: func(hand HandRecord, entries []SettleEntry) (map[string]int64, error) {
+		Settle: func(req SettleRequest, entries []SettleEntry) (map[string]int64, error) {
 			mu.Lock()
 			defer mu.Unlock()
 			for _, e := range entries {
 				if e.IsWinner {
-					settled[hand.RoomID] = hand.Pot
+					settled[req.RoomID] = e.Pot
 				}
 			}
 			return map[string]int64{}, nil
@@ -343,7 +343,7 @@ func TestReviewShutdownReturnsAtDeadlineWhenTheLedgerHangs(t *testing.T) {
 	hang := make(chan struct{})
 	defer close(hang)
 	ledger := NewMemoryLedger(MemoryLedgerHooks{
-		Settle: func(HandRecord, []SettleEntry) (map[string]int64, error) {
+		Settle: func(SettleRequest, []SettleEntry) (map[string]int64, error) {
 			<-hang // a statement that never returns
 			return map[string]int64{}, nil
 		},

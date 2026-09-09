@@ -95,7 +95,12 @@ func TestWhenAPlayerLeavesMidHandTheOneStillSittingTakesThePot(t *testing.T) {
 	eq(t, *result.WinnerID, other, "the player still at the table takes it")
 	eq(t, *result.WinnerName, h.mustSeat(other).DisplayName, "winnerName from the seat")
 	eq(t, result.Pot, potBefore, "pot")
-	eq(t, sumDeltas(h.lastSettled().entries), int64(0), "chips are conserved")
+	// The leaver was resolved at their own checkpoint, so only the winner is
+	// in the hand-end write, and their delta is the pot less their own stake.
+	entries := h.lastSettled().entries
+	eq(t, len(entries), 1, "only the player still at the table")
+	eq(t, entries[0].UserID, other, "the winner")
+	eq(t, entries[0].Delta, potBefore-h.mustSeat(other).Contributed, "the pot less their own stake")
 }
 
 func TestDestroyingATableMidHandPaysThePotOutRatherThanVoidingIt(t *testing.T) {
@@ -208,18 +213,21 @@ func TestAllLeftWinnerNameFromContribution(t *testing.T) {
 	eq(t, ended.Reason, WinAllLeft, "all_left")
 	eq(t, *ended.WinnerID, "b", "the last leaver is paid")
 	eq(t, *ended.WinnerName, "B", "winnerName from the contribution record")
+	// The departed winner is written at the hand end even though they have no
+	// seat: their leave checkpoint took their stake, and the pot still has to
+	// reach them.
 	record := h.lastSettled()
-	eq(t, record.hand.WinReason, WinAllLeft, "record reason")
 	for _, e := range record.entries {
 		switch e.UserID {
 		case "b":
 			eq(t, e.IsWinner, true, "b wins")
-			eq(t, e.Delta, rulesBoot, "b nets a's boot (bookless ledger)")
+			eq(t, e.Reason, LedgerReasonHandWin, "reason")
+			eq(t, e.Delta, ended.Pot-rulesBoot, "the pot reaches the departed winner, less the boot already written at their leave")
 		case "a":
-			eq(t, e.Delta, -rulesBoot, "a loses the boot")
+			t.Fatal("a left mid-hand and was resolved at their own checkpoint")
 		}
 	}
-	for _, row := range record.hand.Summary {
+	for _, row := range ended.Summary {
 		if row.UserID == "b" {
 			eq(t, row.Status, SeatWon, "departed winner's record marked won")
 		}
@@ -238,16 +246,16 @@ func TestAPlayerWhoLeavesMidHandIsFlaggedForTheAbandonedCounter(t *testing.T) {
 	h.remove(quitter, LeaveReasonLeft)
 	h.mustAct(h.turnUser(), ActionPack, ActRequest{})
 
-	record := h.lastSettled()
-	var entry *SettleEntry
-	for i := range record.entries {
-		if record.entries[i].UserID == quitter {
-			entry = &record.entries[i]
+	// A player who leaves is resolved at their OWN checkpoint (that is where
+	// hands_left_mid is counted) and is not in the hand-end write.
+	for _, e := range h.lastSettled().entries {
+		if e.UserID == quitter {
+			t.Fatal("a player who left must not be written again at the hand end")
 		}
 	}
-	if entry == nil {
-		t.Fatal("quitter settled")
-	}
+	entry := h.lastCheckpointFor(quitter)
+	eq(t, entry.Reason, LedgerReasonHandLeft, "reason")
+	eq(t, entry.Outcome, true, "it resolves them")
 	eq(t, entry.LeftMidHand, true, "flagged as abandoned")
 	eq(t, entry.DidChaal, true, "they had bet, so it counts as played")
 	eq(t, entry.IsWinner, false, "not the winner")

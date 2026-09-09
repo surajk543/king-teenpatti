@@ -12,7 +12,6 @@ import (
 	"errors"
 	"sort"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -473,288 +472,44 @@ func TestRoomsSuspendWithoutAStoreIsAShutdown(t *testing.T) {
 
 var _ = sortedKeys[string]
 
-// ------------------------------------------------------ durable backstop
-
-// durableFake is a DurableSource over maps.
-type durableFake struct {
-	rows          []game.DurableSnapshot
-	contributions map[string]map[string]int64
-	loadErr       error
-	loads         int
-}
-
-func (d *durableFake) LoadSnapshots(context.Context) ([]game.DurableSnapshot, error) {
-	d.loads++
-	if d.loadErr != nil {
-		return nil, d.loadErr
-	}
-	return append([]game.DurableSnapshot(nil), d.rows...), nil
-}
-
-// HandContributions returns the hand's totals in a stable ledger order (by
-// user id — the fixtures never depend on which player moved last).
-func (d *durableFake) HandContributions(_ context.Context, handID string) ([]game.LedgerContribution, error) {
-	out := []game.LedgerContribution{}
-	for _, userID := range sortedKeys(d.contributions[handID]) {
-		out = append(out, game.LedgerContribution{UserID: userID, Amount: d.contributions[handID][userID]})
-	}
-	return out, nil
-}
-
-// sinkFake is a SnapshotSink that keeps the newest snapshot per room — what
-// game_states would hold — so a test can feed it back as a DurableSource.
-type sinkFake struct {
-	mu      sync.Mutex
-	rows    map[string]game.DurableSnapshot
-	deleted []string
-}
-
-func newSinkFake() *sinkFake { return &sinkFake{rows: map[string]game.DurableSnapshot{}} }
-
-func (s *sinkFake) MarkDirty(roomID string, seq int64, handID string, snapshot []byte) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if cur, ok := s.rows[roomID]; ok && cur.Seq >= seq {
-		return
-	}
-	s.rows[roomID] = game.DurableSnapshot{RoomID: roomID, HandID: handID, Seq: seq, State: append([]byte(nil), snapshot...)}
-}
-
-func (s *sinkFake) MarkDeleted(roomID string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	delete(s.rows, roomID)
-	s.deleted = append(s.deleted, roomID)
-}
-
-func (s *sinkFake) durable() *durableFake {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	d := &durableFake{contributions: map[string]map[string]int64{}}
-	for _, row := range s.rows {
-		d.rows = append(d.rows, row)
-	}
-	return d
-}
-
-// ledgerTotals derives the per-hand ledger totals a real chip_ledger would
-// hold from the table's own live snapshot (the money the table applied).
-func ledgerTotals(t *testing.T, table *game.Table) (string, map[string]int64) {
-	t.Helper()
-	snap := mustSnapshotOf(t, table)
-	if snap.Hand == nil {
-		return "", nil
-	}
-	totals := map[string]int64{}
-	for _, c := range snap.Hand.Contributions {
-		totals[c.UserID] = c.Contributed
-	}
-	return snap.Hand.ID, totals
-}
-
-func withStoreAndDurable(store *livetest.Store, sink game.SnapshotSink, durable game.DurableSource, instance string) func(*config.GameConfig, *game.RoomManagerOptions) {
-	return func(g *config.GameConfig, o *game.RoomManagerOptions) {
-		openMenu(g, o)
-		o.Live = store
-		o.Instance = instance
-		o.Snapshots = sink
-		o.Durable = durable
-	}
-}
-
-func TestRoomsRestoreFallsBackToTheDurableSnapshotsAndReconcilesThem(t *testing.T) {
+// A LOST LIVE STORE LOSES THE TABLES. PostgreSQL holds no game state, so a
+// manager that comes up on an empty store restores nothing at all — the
+// players re-join and the open pots are refunded by the database step
+// (owner's decision of 9 Sep 2026).
+func TestRoomsRestoreFindsNothingWhenTheLiveStoreIsEmpty(t *testing.T) {
 	store := livetest.New()
-	sink := newSinkFake()
-	f1 := newRoomsFixture(t, withStoreAndDurable(store, sink, nil, "old"))
-
-	// t1: hand live, two chaals; the sink keeps every snapshot the store got.
-	a, b := f1.player("A", rmStart), f1.player("B", rmStart)
-	t1 := f1.mustQuickJoin(a, rmBoot, "blind")
-	f1.mustQuickJoin(b, rmBoot, "blind")
-	f1.clock.Advance(f1.cfg.NextHandDelay)
-	if _, err := t1.Act(turnUser(t, t1), game.ActionChaal, game.ActRequest{}); err != nil {
+	f := newRoomsFixture(t, withStore(store, "one"))
+	a, b := f.player("a", 100000), f.player("b", 100000)
+	table := f.mustQuickJoin(a, 200, "seen")
+	f.mustQuickJoin(b, 200, "seen")
+	f.clock.Advance(6 * time.Second)
+	if !table.HasHand() {
+		t.Fatal("no hand dealt")
+	}
+	if err := f.rooms.Suspend(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	// The durable row is the state BEFORE the last chaal (the async writer
-	// had not flushed it): freeze the sink here…
-	durable := sink.durable()
-	if _, err := t1.Act(turnUser(t, t1), game.ActionChaal, game.ActRequest{}); err != nil {
-		t.Fatal(err)
-	}
-	// …while the ledger has everything.
-	handID, totals := ledgerTotals(t, t1)
-	durable.contributions[handID] = totals
-	var ledgerPot int64
-	for _, v := range totals {
-		ledgerPot += v
-	}
-	onTurnBefore := turnUser(t, t1)
-	_ = onTurnBefore
 
-	// t2: a waiting table with C alone. It has never dealt, so PostgreSQL
-	// holds NOTHING for it — the durable copy is written at the two hand
-	// boundaries only, and a table with no hand has nothing at stake
-	// (LIVE_STATE_PLAN.md, "The durable backstop").
-	c := f1.player("C", rmStart)
-	f1.clock.Advance(time.Second)
-	t2 := f1.mustQuickJoin(c, rmBoot, "seen")
-	eq(t, len(sink.durable().rows), 1, "a table that never dealt wrote no durable row")
-
-	// The old process dies without a suspend, and Redis is lost with it.
-	empty := livetest.New()
-	f2 := newRoomsFixture(t, withStoreAndDurable(empty, newSinkFake(), durable, "new"))
-	f2.clock.Advance(f1.clock.Now().Sub(rmEpoch) + time.Second)
-	report, err := f2.rooms.Restore(context.Background())
-	if err != nil {
-		t.Fatalf("restore: %v", err)
-	}
-	eq(t, report.FromLive, 0, "Redis had nothing")
-	eq(t, report.FromDurable, 1, "the table with a hand came from game_states")
-	eq(t, report.Tables, 1, "and only that one — t2 never dealt, so it was never written")
-	eq(t, report.Reconciled, 1, "the hand-start snapshot was brought forward")
-	eq(t, report.Rejected, 0, "nothing rejected")
-	eq(t, report.HandsInProgress, 1, "one hand")
-	eq(t, report.HandIDs[0], handID, "its id")
-
-	// The invariant: pot and every contribution match the ledger.
-	r1 := f2.rooms.GetTable(t1.ID())
-	if r1 == nil {
-		t.Fatal("t1 not restored")
-	}
-	snap := mustSnapshotOf(t, r1)
-	eq(t, snap.Hand.Pot, ledgerPot, "pot == Σ ledger")
-	for _, s := range snap.Seats {
-		if s != nil {
-			eq(t, s.Contributed, totals[s.UserID], "seat contributed == ledger for "+s.UserID)
-		}
-	}
-	for _, cr := range snap.Hand.Contributions {
-		eq(t, cr.Contributed, totals[cr.UserID], "record == ledger")
-		eq(t, cr.Persisted, totals[cr.UserID], "persisted == banked")
-	}
-	eq(t, viewOf(t, r1, a.ID).Pot, ledgerPot, "clients see the ledger's pot")
-
-	// Redis is refilled: snapshot, index and seats are back in the store.
-	stored, ok := empty.Stored(t1.ID())
-	eq(t, ok, true, "t1 written back into the live store")
-	eq(t, stored.Seq > durable.rows[0].Seq, true, "under a newer seq")
-	if _, ok := empty.Stored(t2.ID()); ok {
-		t.Fatal("t2 had no durable row and must not come back from one")
-	}
-	eq(t, empty.Seats()[a.ID], t1.ID(), "seat index refilled")
-	eq(t, empty.Seats()[c.ID], "", "C simply re-joins: nothing of theirs was at stake")
-	if _, ok := empty.Index()[t1.ID()]; !ok {
-		t.Fatal("index refilled")
-	}
-	eq(t, strings.Contains(f2.logText(), `"source":"postgres"`), true, "source logged")
-
-	// The hand goes on.
-	if _, err := r1.Act(turnUser(t, r1), game.ActionChaal, game.ActRequest{}); err != nil {
-		t.Fatalf("play on: %v", err)
-	}
-}
-
-// A durable snapshot is refused only when it cannot account for the money:
-// a player the ledger has staking in this hand who is not at the table and
-// has no contribution record. Everything the snapshot CAN account for — a
-// packed seat, a leaver, three rounds of betting since the deal — is
-// reconciled, not rejected (TestReconcileWithLedgerRejectsOnlyWhatCannotBeRebuilt).
-func TestRoomsRestoreRejectsADurableSnapshotItCannotAccountFor(t *testing.T) {
-	store := livetest.New()
-	sink := newSinkFake()
-	f1 := newRoomsFixture(t, withStoreAndDurable(store, sink, nil, "old"))
-	a, b, c := f1.player("A", rmStart), f1.player("B", rmStart), f1.player("C", rmStart)
-	t1 := f1.mustQuickJoin(a, rmBoot, "blind")
-	f1.mustQuickJoin(b, rmBoot, "blind")
-	f1.mustQuickJoin(c, rmBoot, "blind")
-	f1.clock.Advance(f1.cfg.NextHandDelay)
-	durable := sink.durable() // the hand-start row, frozen right after the deal
-	first := turnUser(t, t1)
-	if _, err := t1.Act(first, game.ActionChaal, game.ActRequest{}); err != nil {
-		t.Fatal(err)
-	}
-	handID, totals := ledgerTotals(t, t1)
-	durable.contributions[handID] = totals
-	// Corrupt the row so it cannot account for the first bettor at all:
-	// neither a seat nor a contribution record, while the ledger has their
-	// boot and their chaal. There is nothing to rebuild the hand around.
-	for i, row := range durable.rows {
-		var snap game.Snapshot
-		if err := json.Unmarshal(row.State, &snap); err != nil {
-			t.Fatal(err)
-		}
-		for j, s := range snap.Seats {
-			if s != nil && s.UserID == first {
-				snap.Seats[j] = nil
-			}
-		}
-		kept := snap.Hand.Contributions[:0]
-		for _, cr := range snap.Hand.Contributions {
-			if cr.UserID != first {
-				kept = append(kept, cr)
-			}
-		}
-		snap.Hand.Contributions = kept
-		if snap.Hand.TurnSeat >= 0 && snap.Seats[snap.Hand.TurnSeat] == nil {
-			for j, s := range snap.Seats {
-				if s != nil {
-					snap.Hand.TurnSeat = j
-					break
-				}
-			}
-		}
-		raw, _ := json.Marshal(snap)
-		durable.rows[i].State = raw
-	}
-
-	f2 := newRoomsFixture(t, withStoreAndDurable(livetest.New(), newSinkFake(), durable, "new"))
+	// A brand-new, EMPTY store: nothing can come back.
+	f2 := newRoomsFixture(t, withStore(livetest.New(), "two"))
 	report, err := f2.rooms.Restore(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	eq(t, report.Rejected, 1, "rejected")
-	eq(t, report.Tables, 0, "not restored")
-	if f2.rooms.GetTable(t1.ID()) != nil {
-		t.Fatal("a rejected room is not registered")
-	}
-	eq(t, len(report.HandIDs), 0, "its hand is left for the refund")
-	eq(t, strings.Contains(f2.logText(), "cannot be reconciled"), true, "logged")
-}
+	eq(t, report.Tables, 0, "no table came back")
+	eq(t, report.Seats, 0, "no seat came back")
+	eq(t, len(report.HandIDs), 0, "no live hand to protect from the refund")
+	eq(t, f2.rooms.Stats().Tables, 0, "the manager has no tables")
 
-func TestRoomsRestorePrefersTheLiveStoreOverTheDurableCopy(t *testing.T) {
-	store := livetest.New()
-	sink := newSinkFake()
-	f1 := newRoomsFixture(t, withStoreAndDurable(store, sink, nil, "old"))
-	a, b := f1.player("A", rmStart), f1.player("B", rmStart)
-	t1 := f1.mustQuickJoin(a, rmBoot, "blind")
-	f1.mustQuickJoin(b, rmBoot, "blind")
-	f1.clock.Advance(f1.cfg.NextHandDelay)
-	durable := sink.durable() // stale: before the chaal
-	if _, err := t1.Act(turnUser(t, t1), game.ActionChaal, game.ActRequest{}); err != nil {
-		t.Fatal(err)
-	}
-	// Poison the durable ledger totals: if pass 2 ever touched this room the
-	// invariant check below would catch a pot of 999999.
-	handID, _ := ledgerTotals(t, t1)
-	durable.contributions[handID] = map[string]int64{a.ID: 999999}
-	livePot := mustSnapshotOf(t, t1).Hand.Pot
-	ctx := context.Background()
-	if err := f1.rooms.Suspend(ctx); err != nil {
-		t.Fatal(err)
-	}
-
-	f2 := newRoomsFixture(t, withStoreAndDurable(store, newSinkFake(), durable, "new"))
-	f2.clock.Advance(f1.clock.Now().Sub(rmEpoch))
-	report, err := f2.rooms.Restore(ctx)
+	// The store that DID have them still restores them, so the loss is the
+	// store's, not the code's.
+	f3 := newRoomsFixture(t, withStore(store, "three"))
+	back, err := f3.rooms.Restore(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	eq(t, report.FromLive, 1, "from the live store")
-	eq(t, report.FromDurable, 0, "the durable copy was ignored")
-	eq(t, report.Reconciled+report.Rejected, 0, "no reconciliation")
-	eq(t, report.Tables, 1, "one table")
-	eq(t, mustSnapshotOf(t, f2.rooms.GetTable(t1.ID())).Hand.Pot, livePot, "the live copy's pot")
-	eq(t, durable.loads, 1, "the durable source was consulted, and its row skipped")
+	eq(t, back.Tables, 1, "the surviving store still rebuilds the table")
+	eq(t, back.Seats, 2, "with both seats")
 }
 
 func TestRoomsReconcileLiveRefillsAnEmptiedStore(t *testing.T) {

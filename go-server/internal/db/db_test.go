@@ -46,7 +46,7 @@ func TestOpenRejectsANonIdentifierSchemaBeforeConnecting(t *testing.T) {
 func TestBootstrapCreatesEveryTableAndSetsSearchPathPerConnection(t *testing.T) {
 	f := newFixture(t)
 
-	for _, table := range []string{"users", "hands", "pots", "chip_ledger", "game_states"} {
+	for _, table := range []string{"users", "chip_ledger"} {
 		n := f.scalar(`SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = $1 AND table_name = $2`, f.d.Schema, table)
 		if n != 1 {
 			t.Fatalf("table %s missing from schema %s", table, f.d.Schema)

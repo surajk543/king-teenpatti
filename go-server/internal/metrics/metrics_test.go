@@ -183,16 +183,8 @@ var catalogue = []struct {
 	{NameLiveStoreDuration, "histogram", "Live-state store call duration, by store method.", []string{"op"}},
 	{NameLiveStoreErrors, "counter", "Live-state store calls that failed (not_found and stale are outcomes, not failures), by store method.", []string{"op"}},
 	{NameLiveStoreReconciles, "counter", "Reconciler passes that re-saved every live table into the live store, by outcome.", []string{"result"}},
-	{NameRestoredTables, "counter", "Tables rebuilt at startup since the process started, by the store the snapshot came from (live or postgres).", []string{"source"}},
+	{NameRestoredTables, "counter", "Tables rebuilt from the live store at startup since the process started (the live store is the only source: PostgreSQL holds no game state).", nil},
 	{NameRestoredSeats, "counter", "Seats held for the reconnect grace period after a restart since the process started.", nil},
-	{NameRestoreReconciled, "counter", "Durable snapshots the ledger corrected before the table was rebuilt (the snapshot was behind the money).", nil},
-	{NameRestoreRejected, "counter", "Durable snapshots that could not be reconciled (a contributor the snapshot cannot account for); their pots were refunded instead.", nil},
-	{NameRefundedPots, "counter", "Open pots with no live table that were refunded to their contributors at startup.", nil},
-	{NameRefundedChips, "counter", "Chips returned to contributors by pot refunds at startup.", nil},
-	{NameSnapshotWrites, "counter", "Batched game_states flushes by the durable snapshot writer, by outcome.", []string{"result"}},
-	{NameSnapshotWriteDuration, "histogram", "Duration of one batched game_states flush (upserts and deletes in one transaction).", nil},
-	{NameSnapshotRowsWritten, "counter", "game_states rows upserted or deleted by the durable snapshot writer.", nil},
-	{NameSnapshotLag, "gauge", "Age in seconds of the oldest table change not yet flushed to game_states (0 when nothing is pending).", nil},
 	{NameHTTPRequestsTotal, "counter", "HTTP requests served, by method, route pattern and status code.", []string{"method", "route", "status_code"}},
 	{NameHTTPRequestDuration, "histogram", "HTTP request duration, by method, route pattern and status code.", []string{"method", "route", "status_code"}},
 }
@@ -217,16 +209,15 @@ func touch(m *Metrics) {
 	m.StateUpdateDuration.Observe(0.001)
 	m.HandStartDuration.Observe(0.02)
 	m.SettlementDuration.Observe(0.03)
-	m.DBTransactionDuration.WithLabelValues(OpBet).Observe(0.004)
-	m.DBTransactionErrors.WithLabelValues(OpSettle, "stale_state").Inc()
+	m.DBTransactionDuration.WithLabelValues(OpCheckpoint).Observe(0.004)
+	m.DBTransactionErrors.WithLabelValues(OpSettle, "duplicate_action").Inc()
 	m.HTTPRequestsTotal.WithLabelValues("GET", "/health", "200").Inc()
 	m.HTTPRequestDuration.WithLabelValues("GET", "/health", "200").Observe(0.0005)
 	m.LiveStoreOperations.WithLabelValues(LiveOpSaveTable, LiveResultOK).Inc()
 	m.LiveStoreDuration.WithLabelValues(LiveOpSaveTable).Observe(0.0002)
 	m.LiveStoreErrors.WithLabelValues(LiveOpPing).Inc()
 	m.LiveStoreReconciles.WithLabelValues(ResultOK).Inc()
-	m.RestoredTablesTotal.WithLabelValues(RestoreSourceLive).Inc()
-	m.SnapshotWrites.WithLabelValues(ResultOK).Inc()
+	m.RestoredTablesTotal.Inc()
 }
 
 // TestCatalogueCoversEveryGameFamily: every game_* family the registry
@@ -245,8 +236,8 @@ func TestCatalogueCoversEveryGameFamily(t *testing.T) {
 			t.Errorf("%s is exposed but not catalogued", name)
 		}
 	}
-	if len(catalogue) != 49 {
-		t.Errorf("catalogue has %d entries, want 49 (35 from Node + 10 live-state + 4 snapshot writer)", len(catalogue))
+	if len(catalogue) != 41 {
+		t.Errorf("catalogue has %d entries, want 41 (35 from Node + 6 live-state)", len(catalogue))
 	}
 }
 
@@ -450,7 +441,7 @@ func TestNoLabelCarriesAnIdentifier(t *testing.T) {
 	m.KicksTotal.WithLabelValues(SafeLabel("10.0.0.7", game.KnownKickReasons, OtherLabel)).Inc()
 	m.GamesStartedTotal.WithLabelValues(SafeLabel("ABC234", knownCategories, OtherLabel)).Inc()
 	m.InvalidMovesTotal.WithLabelValues(SafeLabel("teleport", knownCodes, OtherLabel)).Inc()
-	m.DBTransactionErrors.WithLabelValues(OpBet, SafeLabel("23505", game.KnownLedgerCodes, OtherLabel)).Inc()
+	m.DBTransactionErrors.WithLabelValues(OpCheckpoint, SafeLabel("23505", game.KnownLedgerCodes, OtherLabel)).Inc()
 
 	_, e := scrape(t, m, Guard{}, nil)
 
@@ -585,7 +576,7 @@ func TestLiveHooksFeedTheLiveStoreMetrics(t *testing.T) {
 		t.Errorf("live buckets must run 0.0001 … 1: %s", e.body)
 	}
 	for _, v := range e.labelValues("op") {
-		if _, ok := LiveOps[v]; !ok && v != OtherLabel && v != OpBet && v != OpBoot && v != OpSettle {
+		if _, ok := LiveOps[v]; !ok && v != OtherLabel && v != OpCheckpoint && v != OpSettle {
 			t.Errorf("op label %q is outside the fixed set", v)
 		}
 	}
@@ -608,23 +599,17 @@ func TestLiveHooksFeedTheLiveStoreMetrics(t *testing.T) {
 	}
 }
 
-// game_snapshot_lag_seconds reads the bound writer at scrape time; 0 before
-// anything is bound.
-func TestSnapshotLagGaugeReadsTheBoundSource(t *testing.T) {
+// game_restored_tables_total carries no labels: the live store is the only
+// place a table can be rebuilt from.
+func TestRestoredTablesCounterIsUnlabelled(t *testing.T) {
 	m := newMetrics(t)
+	m.RestoredTablesTotal.Add(3)
 	_, e := scrape(t, m, Guard{}, nil)
-	if v, ok := e.value(NameSnapshotLag, nil); !ok || v != 0 {
-		t.Fatalf("unbound lag = %v %v, want 0", v, ok)
+	if v, ok := e.value(NameRestoredTables, nil); !ok || v != 3 {
+		t.Fatalf("%s = %v %v, want 3", NameRestoredTables, v, ok)
 	}
-	m.BindSnapshotLag(func() time.Duration { return 1500 * time.Millisecond })
-	_, e = scrape(t, m, Guard{}, nil)
-	if v, _ := e.value(NameSnapshotLag, nil); v != 1.5 {
-		t.Fatalf("bound lag = %v, want 1.5", v)
-	}
-	for _, src := range e.labelValues("source") {
-		if _, ok := RestoreSources[src]; !ok {
-			t.Errorf("source label %q is outside the fixed set", src)
-		}
+	if len(e.labelValues("source")) != 0 {
+		t.Errorf("a source label survived: %v", e.labelValues("source"))
 	}
 }
 
@@ -922,15 +907,15 @@ func TestTableGaugesRecountLiveTables(t *testing.T) {
 
 func TestTimedObservesEvenOnError(t *testing.T) {
 	m := newMetrics(t)
-	err := Timed(m.DBTransactionDuration.WithLabelValues(OpBoot), func() error { return fmt.Errorf("boom") })
+	err := Timed(m.DBTransactionDuration.WithLabelValues(OpCheckpoint), func() error { return fmt.Errorf("boom") })
 	if err == nil || err.Error() != "boom" {
 		t.Fatalf("error not propagated: %v", err)
 	}
 	_ = Timed(m.HandStartDuration, func() error { return nil })
 	Observe(m.SettlementDuration, 20*time.Millisecond)
 	_, e := scrape(t, m, Guard{}, nil)
-	if v, _ := e.value(NameDBTransactionDuration+"_count", map[string]string{"op": OpBoot}); v != 1 {
-		t.Errorf("boot count %v", v)
+	if v, _ := e.value(NameDBTransactionDuration+"_count", map[string]string{"op": OpCheckpoint}); v != 1 {
+		t.Errorf("checkpoint count %v", v)
 	}
 	if v, _ := e.value(NameHandStartDuration+"_count", nil); v != 1 {
 		t.Errorf("hand start count %v", v)

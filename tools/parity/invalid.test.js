@@ -194,9 +194,12 @@ test('replaying a move with the same actionId charges nobody twice — refused a
   assert.equal(onTurn.state().turn.userId, onTurnUser.id, 'and the turn did not move');
   assert.equal(onTurn.state().you.contributed, onTurn.state().bootAmount + amount);
 
-  const { rows } = await query('SELECT COUNT(*) AS n FROM chip_ledger WHERE action_id = $1', ['dup-same-id']);
-  assert.equal(rows[0].n, 1, 'exactly one ledger row carries the id');
-  assert.equal(await wallet(onTurnUser.id), walletBefore - amount);
+  // A bet writes nothing to PostgreSQL while the hand runs (owner's decision
+  // of 9 Sep 2026): the chips move at the seat and in the live store, and are
+  // banked when the player leaves the hand or when it settles.
+  assert.equal((await query('SELECT COUNT(*) AS n FROM chip_ledger WHERE action_id = $1', ['dup-same-id'])).rows[0].n, 0,
+    'a bet is not a transaction of its own');
+  assert.equal(await wallet(onTurnUser.id), walletBefore, 'and the wallet has not moved yet');
 
   // An actionId that is not a usable string is replaced by a server-minted uuid — the move still goes through.
   const long = await onTurn.emit('game:action', { action: 'chaal', amount, actionId: 'x'.repeat(65) });
@@ -204,12 +207,29 @@ test('replaying a move with the same actionId charges nobody twice — refused a
   await waiting.waitState((s) => s.turn?.userId !== onTurnUser.id);
   const numeric = await waiting.emit('game:action', { action: 'chaal', actionId: 12345 });
   assert.equal(numeric.ok, true, JSON.stringify(numeric));
-  const minted = await query(
-    "SELECT action_id FROM chip_ledger WHERE user_id = $1 AND reason = 'bet' ORDER BY id DESC LIMIT 1",
-    [onTurnUser.id],
-  );
-  assert.match(minted.rows[0].action_id, UUID, 'a 65-char id is replaced, not stored');
-  assert.equal((await query('SELECT COUNT(*) AS n FROM chip_ledger WHERE action_id = $1', ['12345'])).rows[0].n, 0);
+
+  // End the hand. The wallet catches up in ONE step — the pack checkpoint
+  // and then the outcome row — and every id in the ledger is server-minted:
+  // no client action id ever reaches it now, so the ids above could only ever
+  // have been idempotency tokens.
+  const staked = onTurn.state().you.contributed;
+  await onTurn.waitState((s) => s.turn?.userId === onTurnUser.id);
+  const packed = await onTurn.emit('game:action', { action: 'pack' });
+  assert.equal(packed.ok, true, JSON.stringify(packed));
+  const ended = await onTurn.wait('game:handEnded');
+
+  for (const id of ['dup-same-id', 'other-1', 'x'.repeat(65), '12345']) {
+    assert.equal((await query('SELECT COUNT(*) AS n FROM chip_ledger WHERE action_id = $1', [id])).rows[0].n, 0,
+      `a client action id reached the ledger: ${id}`);
+  }
+  const rows = await query('SELECT reason, delta, action_id FROM chip_ledger WHERE hand_id = $1 AND user_id = $2 ORDER BY id',
+    [ended.handId, onTurnUser.id]);
+  assert.deepEqual(rows.rows.map((r) => r.reason), ['hand_packed', 'hand_loss']);
+  assert.equal(rows.rows[0].action_id, `${ended.handId}:packed:${onTurnUser.id}`);
+  assert.equal(rows.rows[1].action_id, `${ended.handId}:settle:${onTurnUser.id}`);
+  assert.equal(rows.rows[0].delta, -staked, 'their whole stake, charged once at the pack');
+  assert.equal(rows.rows[1].delta, 0, 'and the outcome row moves nothing');
+  assert.equal(await wallet(onTurnUser.id), walletBefore - staked, 'the wallet moved exactly once');
   await closeAll(...clients);
 });
 

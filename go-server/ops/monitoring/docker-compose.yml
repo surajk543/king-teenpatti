@@ -110,6 +110,21 @@ services:
     # ports:
     #   - "127.0.0.1:9113:9113"
 
+  # Reads Redis (the live store) and exposes it to Prometheus. Points at the
+  # host's Redis, which binds 127.0.0.1 only, so it goes through the gateway.
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.69.0
+    container_name: ktp-redis-exporter
+    restart: unless-stopped
+    command:
+      - --redis.addr=${REDIS_ADDR:-redis://host.docker.internal:6379}
+      - --web.listen-address=:9121
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    networks: [monitoring]
+    # ports:
+    #   - "127.0.0.1:9121:9121"
+
   node-exporter:
     image: prom/node-exporter:v1.12.1
     container_name: ktp-node-exporter

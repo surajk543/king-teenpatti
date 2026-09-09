@@ -92,21 +92,8 @@ const (
 	NameLiveStoreDuration   = "game_live_store_duration_seconds" // {op}
 	NameLiveStoreErrors     = "game_live_store_errors_total"     // {op}
 	NameLiveStoreReconciles = "game_live_store_reconciles_total" // {result}
-	NameRestoredTables      = "game_restored_tables_total"       // {source=live|postgres}
+	NameRestoredTables      = "game_restored_tables_total"       // no labels: the live store is the only source
 	NameRestoredSeats       = "game_restored_seats_total"
-	NameRestoreReconciled   = "game_restore_reconciled_total"
-	NameRestoreRejected     = "game_restore_rejected_total"
-	NameRefundedPots        = "game_refunded_pots_total"
-	NameRefundedChips       = "game_refunded_chips_total"
-)
-
-// The durable snapshot writer (LIVE_STATE_PLAN.md "The durable backstop"):
-// game_states written asynchronously, one batch per flush.
-const (
-	NameSnapshotWrites        = "game_snapshot_writes_total" // {result=ok|error}
-	NameSnapshotWriteDuration = "game_snapshot_write_duration_seconds"
-	NameSnapshotRowsWritten   = "game_snapshot_rows_written_total"
-	NameSnapshotLag           = "game_snapshot_lag_seconds" // gauge: age of the oldest dirty table
 )
 
 // HTTP.
@@ -130,8 +117,12 @@ var (
 	JoinRoutes = map[string]struct{}{"quick_join": {}, "code": {}, "create": {}, "switch": {}, "resume": {}}
 	// ReconnectKinds are the `kind` values of game_reconnects_total.
 	ReconnectKinds = map[string]struct{}{"seat_held": {}, "offer": {}}
-	// LedgerOps are the `op` values of the db transaction metrics.
-	LedgerOps = map[string]struct{}{"bet": {}, "boot": {}, "settle": {}}
+	// LedgerOps are the `op` values of the db transaction metrics. Since
+	// 9 Sep 2026 a hand costs two kinds of transaction and no more: a
+	// per-player `checkpoint` (a pack, a leave or a switch) and the hand-end
+	// `settle`. `bet` and `boot` are retired — a bet and the deal write
+	// nothing.
+	LedgerOps = map[string]struct{}{OpCheckpoint: {}, OpSettle: {}}
 	// LiveOps are the `op` values of the live-store metrics: the live.Store
 	// method names in snake_case, and nothing else (SafeLabel folds any other
 	// value to "other").
@@ -146,11 +137,8 @@ var (
 	}
 	// LiveResults are the `result` values of game_live_store_operations_total.
 	LiveResults = map[string]struct{}{LiveResultOK: {}, LiveResultNotFound: {}, LiveResultStale: {}, LiveResultError: {}}
-	// WriteResults are the `result` values of game_snapshot_writes_total and
-	// game_live_store_reconciles_total.
+	// WriteResults are the `result` values of game_live_store_reconciles_total.
 	WriteResults = map[string]struct{}{ResultOK: {}, ResultError: {}}
-	// RestoreSources are the `source` values of game_restored_tables_total.
-	RestoreSources = map[string]struct{}{RestoreSourceLive: {}, RestoreSourcePostgres: {}}
 	// HTTPMethods are the accepted `method` labels; anything else is "OTHER".
 	HTTPMethods = map[string]struct{}{"GET": {}, "POST": {}, "PUT": {}, "PATCH": {}, "DELETE": {}, "HEAD": {}, "OPTIONS": {}}
 )
@@ -172,8 +160,10 @@ const (
 
 // Ledger op labels.
 const (
-	OpBet    = "bet"
-	OpBoot   = "boot"
+	// OpCheckpoint is one player's pack / leave-or-switch write.
+	OpCheckpoint = "checkpoint"
+	// OpSettle is the hand-end write: everyone still at the table, plus the
+	// hands row.
 	OpSettle = "settle"
 )
 
@@ -214,16 +204,10 @@ const (
 	LiveResultError    = "error"
 )
 
-// Plain ok/error result labels (snapshot writes, reconciles).
+// Plain ok/error result labels (reconciles).
 const (
 	ResultOK    = "ok"
 	ResultError = "error"
-)
-
-// Restore source labels: where a rebuilt table's snapshot came from.
-const (
-	RestoreSourceLive     = "live"
-	RestoreSourcePostgres = "postgres"
 )
 
 // HTTP route labels for requests that matched no API route.

@@ -27,8 +27,7 @@ import (
 type fakeStore struct {
 	users    map[string]*db.User // by id
 	byIdent  map[string]string   // provider|providerUserId → id
-	hands    map[string][]db.HandHistory
-	milestOK map[string]bool // ClaimMilestoneReward succeeds
+	milestOK map[string]bool     // ClaimMilestoneReward succeeds
 	bonusAt  map[string]int64
 	failWith error // every call returns this when set
 	now      int64
@@ -36,8 +35,7 @@ type fakeStore struct {
 }
 
 func newFakeStore() *fakeStore {
-	return &fakeStore{users: map[string]*db.User{}, byIdent: map[string]string{}, hands: map[string][]db.HandHistory{},
-		milestOK: map[string]bool{}, bonusAt: map[string]int64{}, now: 1_800_000_000_000}
+	return &fakeStore{users: map[string]*db.User{}, byIdent: map[string]string{}, milestOK: map[string]bool{}, bonusAt: map[string]int64{}, now: 1_800_000_000_000}
 }
 
 func (s *fakeStore) FindByID(_ context.Context, id string) (*db.User, error) {
@@ -72,18 +70,6 @@ func (s *fakeStore) UpsertFromProfile(_ context.Context, p db.Profile) (*db.User
 	s.byIdent[key] = id
 	copied := *u
 	return &copied, true, nil
-}
-
-func (s *fakeStore) RecentHands(_ context.Context, userID string, limit int) ([]db.HandHistory, error) {
-	if s.failWith != nil {
-		return nil, s.failWith
-	}
-	s.lastLim = limit
-	hands := s.hands[userID]
-	if len(hands) > limit {
-		hands = hands[:limit]
-	}
-	return hands, nil
 }
 
 func (s *fakeStore) ClaimMilestoneReward(_ context.Context, userID string) (*db.RewardResult, error) {
@@ -468,46 +454,19 @@ func TestBadSessionTokensAreRefused(t *testing.T) {
 	expectError(t, h.do(http.MethodGet, "/api/auth/me", nil, bearer(token)...), 500, CodeInternalError)
 }
 
-func TestHandsLimit(t *testing.T) {
+// GET /api/auth/me/hands is gone with the `hands` table (owner's decision of
+// 9 Sep 2026: it was write-only and no shipped client called it). An unknown
+// /api/* path must still 404 as JSON.
+func TestTheHandHistoryEndpointIsGone(t *testing.T) {
 	h := newHarness(t)
-	token, user := h.login("device-guest-0001", "Suraj")
-	id := user["id"].(string)
-	for i := 0; i < 5; i++ {
-		h.store.hands[id] = append(h.store.hands[id], db.HandHistory{ID: fmt.Sprint("hand-", i), RoomID: "room", HandNo: i, Pot: 400, EndedAt: int64(1000 - i), Summary: []game.HandSummaryEntry{}})
+	token, _ := h.login("device-guest-0001", "Suraj")
+	res := h.do(http.MethodGet, "/api/auth/me/hands", nil, bearer(token)...)
+	if res.status != 404 {
+		t.Fatalf("status %d: %s", res.status, res.raw)
 	}
-	for query, want := range map[string]int{"": 20, "?limit=3": 3, "?limit=abc": 20, "?limit=0": 20, "?limit=3.9": 3, "?limit=3abc": 3,
-		"?limit=1e3": 1, "?limit=500": 100, "?limit=-5": 1, "?limit=3&limit=5": 3, "?limit=+7": 7, "?limit=%202": 2} {
-		res := h.do(http.MethodGet, "/api/auth/me/hands"+query, nil, bearer(token)...)
-		if res.status != 200 {
-			t.Errorf("%s: %d %s", query, res.status, res.raw)
-			continue
-		}
-		if h.store.lastLim != want {
-			t.Errorf("%s: limit %d, want %d", query, h.store.lastLim, want)
-		}
+	if res.body["error"] == nil {
+		t.Fatalf("a removed /api/ path must 404 as JSON: %s", res.raw)
 	}
-	res := h.do(http.MethodGet, "/api/auth/me/hands?limit=2", nil, bearer(token)...)
-	hands := res.body["hands"].([]any)
-	if len(hands) != 2 {
-		t.Fatalf("%s", res.raw)
-	}
-	first := hands[0].(map[string]any)
-	for _, key := range []string{"id", "roomId", "handNo", "pot", "winnerId", "winReason", "endedAt", "summary"} {
-		if _, ok := first[key]; !ok {
-			t.Errorf("hand lacks %s: %v", key, first)
-		}
-	}
-	if first["winnerId"] != nil || first["summary"] == nil {
-		t.Errorf("null winner / non-null summary: %v", first)
-	}
-	// No hands → [] never null.
-	_, other := h.login("device-other-0009", "")
-	otherToken, _ := h.tokens.Issue(h.store.users[other["id"].(string)])
-	res = h.do(http.MethodGet, "/api/auth/me/hands", nil, bearer(otherToken)...)
-	if string(res.raw) != `{"hands":[]}` {
-		t.Errorf("%s", res.raw)
-	}
-	expectError(t, h.do(http.MethodGet, "/api/auth/me/hands", nil), 401, CodeMissingToken)
 }
 
 func TestMilestoneReward(t *testing.T) {
@@ -896,5 +855,49 @@ func TestReadJSONBodyMirrorsBodyParser(t *testing.T) {
 	}
 	if _, err := read(str(exact), "application/json", 0); err != nil {
 		t.Errorf("exactly 32 KiB must parse: %v", err)
+	}
+}
+
+// A reward may only be collected FROM THE LOBBY (owner's decision of 9 Sep
+// 2026). That gate is what makes the money model's invariant true: a seated
+// player's wallet in PostgreSQL cannot change except at the three checkpoints
+// (pack, leave/switch, hand end). It is checked before any database work, in
+// the same place as the name and avatar gates.
+func TestRewardsAreRefusedWhileSeated(t *testing.T) {
+	h := newHarness(t)
+	token, user := h.login("device-guest-0001", "Suraj")
+	id := user["id"].(string)
+	h.store.milestOK[id] = true
+	h.store.bonusAt[id] = 0
+	chipsBefore := h.store.users[id].Chips
+
+	h.seated[id] = true
+	for _, tc := range []struct {
+		path string
+		msg  string
+	}{
+		{"/api/rewards/milestone", MsgSeatedMilestone},
+		{"/api/rewards/bonus", MsgSeatedBonus},
+	} {
+		res := h.do(http.MethodPost, tc.path, map[string]any{}, bearer(token)...)
+		expectError(t, res, 409, CodeSeated)
+		if res.body["message"] != tc.msg {
+			t.Errorf("%s message = %v", tc.path, res.body["message"])
+		}
+		// Refused before any database work: nothing was claimed.
+		if h.store.users[id].Chips != chipsBefore {
+			t.Fatalf("%s credited a seated player: %d → %d", tc.path, chipsBefore, h.store.users[id].Chips)
+		}
+	}
+
+	// From the lobby both go through.
+	h.seated[id] = false
+	res := h.do(http.MethodPost, "/api/rewards/milestone", map[string]any{}, bearer(token)...)
+	if res.status != 200 || res.body["claimed"] != true {
+		t.Fatalf("milestone from the lobby: %d %s", res.status, res.raw)
+	}
+	res = h.do(http.MethodPost, "/api/rewards/bonus", map[string]any{}, bearer(token)...)
+	if res.status != 200 || res.body["claimed"] != true {
+		t.Fatalf("bonus from the lobby: %d %s", res.status, res.raw)
 	}
 }

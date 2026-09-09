@@ -122,7 +122,7 @@ func TestHealthHasNodesShape(t *testing.T) {
 	// Key set and order (spec-auth-http §4.10: ok, uptime, tables, players,
 	// activeHands, sockets, process, db) plus the live-state store appended
 	// after Node's keys (LIVE_STATE_PLAN.md: live {kind, ok, tables}).
-	keyOrder := regexp.MustCompile(`^\{"ok":true,"uptime":[0-9.e+-]+,"tables":\d+,"players":\d+,"activeHands":\d+,"sockets":\d+,"process":\{.*\},"db":\{"total":\d+,"idle":\d+,"waiting":\d+\},"live":\{"kind":"[a-z]+","ok":(true|false),"tables":\d+,"snapshotLagSeconds":[0-9.]+\}\}$`)
+	keyOrder := regexp.MustCompile(`^\{"ok":true,"uptime":[0-9.e+-]+,"tables":\d+,"players":\d+,"activeHands":\d+,"sockets":\d+,"process":\{.*\},"db":\{"total":\d+,"idle":\d+,"waiting":\d+\},"live":\{"kind":"[a-z]+","ok":(true|false),"tables":\d+\}\}$`)
 	if !keyOrder.Match(body) {
 		t.Fatalf("unexpected /health body: %s", body)
 	}

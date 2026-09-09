@@ -27,13 +27,10 @@ type RestoredSeat struct {
 
 // RestoreReport is what Restore did.
 type RestoreReport struct {
-	// Tables is how many tables were rebuilt and registered, from either
-	// source (FromLive + FromDurable).
+	// Tables is how many tables were rebuilt and registered. The live store
+	// is the only source there is: PostgreSQL holds no game state
+	// (LIVE_STATE_PLAN.md).
 	Tables int
-	// FromLive / FromDurable split Tables by where the snapshot came from:
-	// the live store (pass 1) or game_states (pass 2, Redis came up empty).
-	FromLive    int
-	FromDurable int
 	// Seats is how many seats those tables held (RestoredSeats has them).
 	Seats int
 	// HandsInProgress is how many restored tables had a live hand at the
@@ -42,13 +39,6 @@ type RestoreReport struct {
 	// HandIDs are the ids of those hands: the pots the database refund step
 	// (db.RefundOrphanedPots) must leave alone — they are still being played.
 	HandIDs []string
-	// Reconciled is how many durable snapshots the ledger corrected (the
-	// rounds of betting played since the hand-start row was written).
-	Reconciled int
-	// Rejected is how many durable snapshots could not be reconciled at all
-	// (ReconcileWithLedger refused them — a contributor the snapshot cannot
-	// account for); they were NOT restored and are left for the refund step.
-	Rejected int
 	// Dropped is how many stored snapshots could not be parsed or rebuilt;
 	// live ones were deleted from the store (snapshot and chat).
 	Dropped int
@@ -68,28 +58,16 @@ type TableRestoreListener interface {
 	OnTableRestored(t *Table)
 }
 
-// Restore source names (RestoreReport, logs, game_restored_tables_total{source}).
-const (
-	RestoreSourceLive    = "live"
-	RestoreSourceDurable = "postgres"
-)
-
-// Restore rebuilds every stored table (LIVE_STATE_PLAN.md startup step 2) in
-// two passes, the fresher source first:
+// Restore rebuilds every stored table (LIVE_STATE_PLAN.md startup step 2)
+// from the live store, the only place game state is kept:
+// ListTables → LoadTable → parse → restore. Snapshots that fail to parse or
+// cannot be rebuilt are deleted from the store and counted in Dropped; a
+// load error leaves the entry in place and counts in Failed.
 //
-//  1. the live store: ListTables → LoadTable → parse → restore (source
-//     "live"). Snapshots that fail to parse or cannot be rebuilt are deleted
-//     from the store and counted in Dropped; a load error leaves the entry
-//     in place and counts in Failed.
-//  2. the durable source (game_states), for every room the live store did
-//     not have: that row is written only at the two hand boundaries, so for
-//     a hand in progress it is the hand's OPENING state and the ledger has
-//     every bet since. It is RECONCILED against the ledger first
-//     (ReconcileWithLedger — the ledger wins and decides where play resumes;
-//     only a snapshot that cannot account for a contributor is Rejected and
-//     left for the refund step), then restored (source "postgres") and
-//     written straight back into the live store by its first save, which
-//     refills Redis.
+// There is no second pass. PostgreSQL holds money and audit only, so when
+// the live store is empty nothing comes back: the players re-join fresh
+// tables and every pot left open is refunded to its contributors
+// (db.RefundOrphanedPots), which is the whole safety net.
 //
 // For each table: RestoreTable's first phase (construct without clocks) →
 // register (tables in CreatedAt order, playerRooms from the seats, code
@@ -102,21 +80,18 @@ const (
 // and kicks treat them like any other. Call Restore before StartSweeper and
 // before the listener opens; then hand RestoredSeats to the socket layer and
 // HandIDs to the database refund. A single instance owns every stored table
-// (there is no instance filter yet). Without a live store or durable source
-// Restore does nothing. The returned error is fatal (a source could not even
-// be listed); the report is still filled with what was done before it.
+// (there is no instance filter yet). Without a live store Restore does
+// nothing. The returned error is fatal (the store could not even be listed);
+// the report is still filled with what was done before it.
 func (rm *RoomManager) Restore(ctx context.Context) (RestoreReport, error) {
 	report := RestoreReport{HandIDs: []string{}}
 	if err := rm.restoreFromLive(ctx, &report); err != nil {
 		return report, err
 	}
-	if err := rm.restoreFromDurable(ctx, &report); err != nil {
-		return report, err
-	}
 	return report, nil
 }
 
-// restoreFromLive is Restore's first pass.
+// restoreFromLive rebuilds every table the live store holds.
 func (rm *RoomManager) restoreFromLive(ctx context.Context, report *RestoreReport) error {
 	if rm.live == nil {
 		return nil
@@ -134,7 +109,7 @@ func (rm *RoomManager) restoreFromLive(ctx context.Context, report *RestoreRepor
 		}
 		if err != nil {
 			rm.liveError(LiveOpLoadTable, err)
-			rm.log.Error("table restore: load failed", "roomId", ref.RoomID, "source", RestoreSourceLive, "error", err.Error())
+			rm.log.Error("table restore: load failed", "roomId", ref.RoomID, "error", err.Error())
 			report.Failed++
 			continue
 		}
@@ -151,66 +126,10 @@ func (rm *RoomManager) restoreFromLive(ctx context.Context, report *RestoreRepor
 	}
 	sortSnapshotsByAge(loaded)
 	for _, snap := range loaded {
-		switch rm.restoreOne(ctx, snap, RestoreSourceLive, report) {
+		switch rm.restoreOne(ctx, snap, report) {
 		case restoreDropped:
 			rm.dropStored(ctx, snap.RoomID, snap, errors.New("could not be rebuilt"))
 		}
-	}
-	return nil
-}
-
-// restoreFromDurable is Restore's second pass (LIVE_STATE_PLAN.md "the
-// durable backstop"): every game_states row the live store did not have.
-func (rm *RoomManager) restoreFromDurable(ctx context.Context, report *RestoreReport) error {
-	if rm.durable == nil {
-		return nil
-	}
-	rows, err := rm.durable.LoadSnapshots(ctx)
-	if err != nil {
-		return fmt.Errorf("durable snapshots: load: %w", err)
-	}
-	loaded := make([]*Snapshot, 0, len(rows))
-	for _, row := range rows {
-		rm.mu.Lock()
-		_, registered := rm.tables[row.RoomID]
-		rm.mu.Unlock()
-		if registered {
-			continue // the live store had it (pass 1) — fresher, wins
-		}
-		snap, err := parseStoredSnapshot(row.RoomID, row.State)
-		if err != nil {
-			rm.log.Error("table restore: dropping durable snapshot", "roomId", row.RoomID, "source", RestoreSourceDurable, "error", err.Error())
-			report.Dropped++
-			continue
-		}
-		if snap.Seq < row.Seq {
-			snap.Seq = row.Seq
-		}
-		if snap.Hand != nil {
-			contributions, err := rm.durable.HandContributions(ctx, snap.Hand.ID)
-			if err != nil {
-				rm.log.Error("table restore: ledger totals unavailable", "roomId", row.RoomID, "handId", snap.Hand.ID, "error", err.Error())
-				report.Failed++
-				continue
-			}
-			potBefore := snap.Hand.Pot
-			if err := ReconcileWithLedger(snap, contributions); err != nil {
-				rm.log.Warn("table restore: durable snapshot cannot be reconciled, leaving the pot to the refund",
-					"roomId", row.RoomID, "handId", snap.Hand.ID, "error", err.Error())
-				report.Rejected++
-				continue
-			}
-			if snap.Hand.Pot != potBefore {
-				report.Reconciled++
-				rm.log.Info("table restore: snapshot reconciled with the ledger",
-					"roomId", row.RoomID, "handId", snap.Hand.ID, "potBefore", potBefore, "pot", snap.Hand.Pot)
-			}
-		}
-		loaded = append(loaded, snap)
-	}
-	sortSnapshotsByAge(loaded)
-	for _, snap := range loaded {
-		rm.restoreOne(ctx, snap, RestoreSourceDurable, report)
 	}
 	return nil
 }
@@ -250,7 +169,7 @@ const (
 )
 
 // restoreOne rebuilds, registers and resumes one snapshot (see Restore).
-func (rm *RoomManager) restoreOne(ctx context.Context, snap *Snapshot, source string, report *RestoreReport) restoreOutcome {
+func (rm *RoomManager) restoreOne(ctx context.Context, snap *Snapshot, report *RestoreReport) restoreOutcome {
 	rm.mu.Lock()
 	_, exists := rm.tables[snap.RoomID]
 	rm.mu.Unlock()
@@ -261,7 +180,7 @@ func (rm *RoomManager) restoreOne(ctx context.Context, snap *Snapshot, source st
 
 	table, err := restoreTable(snap, rm.tableOptions(TableOptions{}))
 	if err != nil {
-		rm.log.Error("table restore: could not rebuild", "roomId", snap.RoomID, "source", source, "error", err.Error())
+		rm.log.Error("table restore: could not rebuild", "roomId", snap.RoomID, "error", err.Error())
 		report.Dropped++
 		return restoreDropped
 	}
@@ -308,12 +227,6 @@ func (rm *RoomManager) restoreOne(ctx context.Context, snap *Snapshot, source st
 	}
 
 	report.Tables++
-	switch source {
-	case RestoreSourceLive:
-		report.FromLive++
-	case RestoreSourceDurable:
-		report.FromDurable++
-	}
 	if snap.Hand != nil {
 		report.HandsInProgress++
 		report.HandIDs = append(report.HandIDs, snap.Hand.ID)
@@ -321,8 +234,7 @@ func (rm *RoomManager) restoreOne(ctx context.Context, snap *Snapshot, source st
 
 	// Second phase: clocks. Anything that fires now (a lapsed turn, a kick)
 	// runs against a registered table. The first save that follows (seq + 1)
-	// claims the table in the live store — and refills it when the snapshot
-	// came from the durable source.
+	// claims the table in the live store.
 	if err := table.resume(); err != nil && !errors.Is(err, ErrTableDestroyed) {
 		rm.log.Error("table restore: resume failed", "roomId", table.ID(), "error", err.Error())
 	}
@@ -335,7 +247,6 @@ func (rm *RoomManager) restoreOne(ctx context.Context, snap *Snapshot, source st
 	rm.log.Info("table restored",
 		"roomId", table.ID(),
 		"code", table.Code(),
-		"source", source,
 		"bootAmount", table.BootAmount(),
 		"category", string(table.Category()),
 		"isPrivate", table.IsPrivate(),
@@ -344,216 +255,6 @@ func (rm *RoomManager) restoreOne(ctx context.Context, snap *Snapshot, source st
 		"state", string(table.State()),
 	)
 	return restoreDone
-}
-
-// ReconcileWithLedger brings a durable snapshot (game_states) forward to
-// what the ledger says, and is the reason PostgreSQL only has to be written
-// at the two hand boundaries (Table.markDurable). The row a restore reads
-// is normally the hand's OPENING state — boots paid, cards dealt — while
-// the ledger has however many rounds of betting happened afterwards. The
-// ledger is never behind the money, so the ledger wins:
-//
-//   - every seat's and contribution record's `contributed` and `persisted`
-//     become the ledger figure, the seat's chips are lowered by whatever the
-//     snapshot had not yet debited, `didChaal` is set once the figure exceeds
-//     the boot, and the hand's pot becomes the ledger total;
-//   - when the ledger shows more than the snapshot recorded — the normal case
-//     now — play is reopened after the last contributor (reopenTurn).
-//
-// It refuses only what is genuinely unrecoverable, because a rejection costs
-// the room: the hand is abandoned and its pot refunded from the ledger
-// (RefundOrphanedPots).
-//
-//	chips staked by somebody the snapshot has NEITHER a seat NOR a
-//	    contribution record for → there is nothing to attribute them to;
-//	a ledger figure BELOW what the snapshot recorded → a snapshot is only
-//	    ever written after its transaction commits, so the ledger cannot be
-//	    behind it; something else is wrong and guessing would be worse;
-//	a snapshot contribution with no ledger row at all → likewise;
-//	a live hand with no ledger rows at all → a dealt hand always has its
-//	    boots banked;
-//	the same player twice in the ledger slice → a malformed source.
-//
-// What is NOT a rejection any more: a ledger figure above the snapshot's for
-// a player the snapshot shows as packed, lost, or gone from the table. That
-// used to mean "too old to trust"; with hand-boundary writes it is simply
-// what a hand that has been played looks like from its opening snapshot.
-// Their stake is in the pot and attributed to them, which is what the money
-// needs.
-//
-// Carried over from the snapshot and NOT recoverable from the ledger, all
-// harmless to the books and all documented in PORT_NOTES/live-game.md:
-// `hand.stake` (the size of the last bet — play resumes at the opening
-// stake, so the ladder can restart low), `hand.round` (the forced-showdown
-// count restarts), and who had packed (everyone the snapshot had active is
-// asked to act again). Cards, seat order and blind/seen status cannot change
-// without a chip moving, so those are right.
-//
-// Invariant after a successful call, and the one the tests pin:
-// hand.pot == Σ contributions, and every seat's contributed == its ledger
-// total. A snapshot without a hand is returned unchanged (nil) — it is a
-// hand-end row, already the table at rest.
-func ReconcileWithLedger(snap *Snapshot, contributions []LedgerContribution) error {
-	if snap == nil {
-		return errors.New("nil snapshot")
-	}
-	h := snap.Hand
-	if h == nil {
-		return nil
-	}
-	if len(contributions) == 0 {
-		return fmt.Errorf("hand %s has no ledger rows", h.ID)
-	}
-	seatOf := make(map[string]*SnapshotSeat, len(snap.Seats))
-	for _, s := range snap.Seats {
-		if s != nil {
-			seatOf[s.UserID] = s
-		}
-	}
-	recordOf := make(map[string]*SnapshotContribution, len(h.Contributions))
-	for i := range h.Contributions {
-		recordOf[h.Contributions[i].UserID] = &h.Contributions[i]
-	}
-
-	var total int64
-	behind := false
-	lastContributor := ""
-	banked := make(map[string]bool, len(contributions))
-	for _, entry := range contributions {
-		if entry.Amount < 0 {
-			return fmt.Errorf("ledger total for %s is negative (%d)", entry.UserID, entry.Amount)
-		}
-		if banked[entry.UserID] {
-			return fmt.Errorf("ledger names %s twice", entry.UserID)
-		}
-		banked[entry.UserID] = true
-		total += entry.Amount
-
-		seat := seatOf[entry.UserID]
-		record := recordOf[entry.UserID]
-		if seat == nil && record == nil {
-			// The one contribution nothing can be done with: chips are in the
-			// pot for a player this snapshot has never heard of, so the hand
-			// cannot be reconstructed around them.
-			return fmt.Errorf("ledger shows %d from %s, the snapshot has neither a seat nor a contribution for them", entry.Amount, entry.UserID)
-		}
-		var recorded int64
-		switch {
-		case record != nil:
-			recorded = record.Contributed
-		default:
-			recorded = seat.Contributed
-		}
-		if entry.Amount < recorded {
-			return fmt.Errorf("ledger shows %d for %s, snapshot already had %d", entry.Amount, entry.UserID, recorded)
-		}
-		if entry.Amount > recorded {
-			behind = true
-			if seat != nil {
-				// The stack in the snapshot predates those bets.
-				seat.Chips -= entry.Amount - recorded
-				if seat.Chips < 0 {
-					seat.Chips = 0
-				}
-			}
-		}
-		if seat != nil {
-			seat.Contributed = entry.Amount
-		}
-		if record != nil {
-			record.Contributed = entry.Amount
-			record.Persisted = entry.Amount
-			if entry.Amount > snap.Config.BootAmount {
-				record.DidChaal = true
-			}
-		}
-		lastContributor = entry.UserID
-	}
-	// A record the ledger knows nothing about is a contribution that was
-	// never banked — impossible for a saved snapshot.
-	for _, c := range h.Contributions {
-		if !banked[c.UserID] && c.Contributed > 0 {
-			return fmt.Errorf("snapshot has %d from %s, ledger has no row", c.Contributed, c.UserID)
-		}
-	}
-	h.Pot = total
-	if behind {
-		reopenTurn(snap, lastContributor)
-	}
-	return nil
-}
-
-// reopenTurn decides where play resumes on a snapshot the ledger has just
-// brought forward, and is called only when it actually moved (a snapshot the
-// ledger agrees with is current: its own turn and deadline stand).
-//
-// The rule: THE TURN GOES TO THE FIRST SEAT THAT CAN STILL ACT CLOCKWISE
-// AFTER THE LAST CONTRIBUTOR IN LEDGER ORDER, ON A FRESH FULL TURN CLOCK.
-// The last row in the ledger is the last chips anybody put in, so the player
-// who owns it is the one who moved last, and the seat after them is exactly
-// where the engine would have gone next (advanceTurn). Anything else either
-// asks a player to act twice or skips one.
-//
-// The clock is reset rather than restored because the stored deadline
-// belongs to a turn that ended before the crash: honouring it would time the
-// new player out the instant the table came back (RestoreTable fires an
-// expired deadline immediately, which packs them and counts a missed turn).
-// Any pending sideshow goes for the same reason — the turn it hung off is
-// gone — and the new seat starts the turn able to ask for one.
-//
-// Fallbacks, in order: the last contributor is not at the table any more →
-// keep the seat the snapshot had the turn on if it can still act → otherwise
-// the first seat that can → otherwise leave it to RestoreTable (which opens
-// play to the dealer's left, or resolves a hand with nobody left in it).
-func reopenTurn(snap *Snapshot, lastContributor string) {
-	h := snap.Hand
-	h.TurnDeadline = nil // a fresh full turn clock, armed by resumeTimers
-	h.Sideshow = nil
-
-	packed := make(map[string]bool, len(h.PackedUserIDs))
-	for _, id := range h.PackedUserIDs {
-		packed[id] = true
-	}
-	canAct := func(index int) bool {
-		if index < 0 || index >= len(snap.Seats) {
-			return false
-		}
-		s := snap.Seats[index]
-		return s != nil && s.Status == SeatActive && !packed[s.UserID]
-	}
-
-	from := -1
-	for index, s := range snap.Seats {
-		if s != nil && s.UserID == lastContributor {
-			from = index
-			break
-		}
-	}
-	next := -1
-	if n := len(snap.Seats); from >= 0 && n > 0 {
-		for step := 1; step <= n; step++ {
-			if index := (from + step) % n; canAct(index) {
-				next = index
-				break
-			}
-		}
-	}
-	if next < 0 && canAct(h.TurnSeat) {
-		next = h.TurnSeat
-	}
-	if next < 0 {
-		for index := range snap.Seats {
-			if canAct(index) {
-				next = index
-				break
-			}
-		}
-	}
-	if next < 0 {
-		return // nobody can act; RestoreTable decides (resolveIfOnlyOneLeft)
-	}
-	h.TurnSeat = next
-	snap.Seats[next].SideshowAskedThisTurn = false
 }
 
 // ReconcileReport is what ReconcileLive did.

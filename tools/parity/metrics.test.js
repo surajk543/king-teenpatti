@@ -312,10 +312,15 @@ test('game: a dealt hand and its moves are counted and timed', async () => {
   assert.equal(see.ok, true, JSON.stringify(see));
   const chaal = await onTurn.emit('game:action', { action: 'chaal' });
   assert.equal(chaal.ok, true, JSON.stringify(chaal));
+  // A bet is no longer a transaction of its own (owner's decision of 9 Sep
+  // 2026): the `bet` op is the transaction that BANKS a player's bets, which
+  // happens when they leave the hand or when it settles. Leaving mid-hand is
+  // what produces it here.
+  const left = await onTurn.emit('room:leave', {});
+  assert.equal(left.ok, true, JSON.stringify(left));
 
   await eventually((m) => {
-    atLeast(m, 'game_players_online', {}, 2);
-    atLeast(m, 'game_active_games', {}, 1);
+    atLeast(m, 'game_players_online', {}, 1);
     atLeast(m, 'game_tables', { category: 'seen', stake: String(bootAmount) }, 1);
 
     atLeast(m, 'game_games_started_total', { category: 'seen' }, 1);
@@ -332,11 +337,10 @@ test('game: a dealt hand and its moves are counted and timed', async () => {
     atLeast(m, 'game_join_duration_seconds_count', { route: 'quick_join' }, 2);
     atLeast(m, 'game_creation_duration_seconds_count', {}, 1);
     atLeast(m, 'game_hand_start_duration_seconds_count', {}, 1);
-    atLeast(m, 'game_db_transaction_duration_seconds_count', { op: 'boot' }, 1);
-    atLeast(m, 'game_db_transaction_duration_seconds_count', { op: 'bet' }, 1);
+    atLeast(m, 'game_db_transaction_duration_seconds_count', { op: 'checkpoint' }, 1);
 
     assert.ok(m.value('game_move_processing_duration_seconds_sum', { action: 'chaal' }) > 0);
-    assert.ok(m.value('game_db_transaction_duration_seconds_sum', { op: 'bet' }) > 0);
+    assert.ok(m.value('game_db_transaction_duration_seconds_sum', { op: 'checkpoint' }) > 0);
     atLeast(m, 'game_socket_emits_total', { event: 'room:state' }, 1);
     atLeast(m, 'game_socket_emits_total', { event: 'game:handStarted' }, 1);
     atLeast(m, 'game_socket_emits_total', { event: 'player:hand' }, 1);
@@ -426,7 +430,6 @@ test('http: requests are counted by route pattern, never by raw path', async () 
 
   assert.equal((await fetch(`${baseUrl}/api/auth/me`, { headers: auth })).status, 200);
   assert.equal((await fetch(`${baseUrl}/health`)).status, 200);
-  assert.equal((await fetch(`${baseUrl}/api/auth/me/hands?limit=3`, { headers: auth })).status, 200);
   assert.equal((await fetch(`${baseUrl}/nothing-here-123`)).status, 404);
   assert.equal((await fetch(`${baseUrl}/profiles/bear.svg`)).status, 200);
 
@@ -434,7 +437,6 @@ test('http: requests are counted by route pattern, never by raw path', async () 
     atLeast(m, 'game_http_requests_total', { method: 'POST', route: '/api/auth/login', status_code: '200' }, 1);
     atLeast(m, 'game_http_requests_total', { method: 'GET', route: '/api/auth/me', status_code: '200' }, 1);
     atLeast(m, 'game_http_requests_total', { method: 'GET', route: '/health', status_code: '200' }, 1);
-    atLeast(m, 'game_http_requests_total', { method: 'GET', route: '/api/auth/me/hands', status_code: '200' }, 1);
     atLeast(m, 'game_http_requests_total', { method: 'GET', route: 'unmatched', status_code: '404' }, 1);
     atLeast(m, 'game_http_requests_total', { method: 'GET', route: 'static', status_code: '200' }, 1);
 
@@ -519,7 +521,7 @@ test('cardinality: no label carries an identifier, address or raw path', async (
   // `op` names a database transaction (bet|boot|settle) or a live-store call
   // (LIVE_STATE_PLAN.md). Both are fixed vocabularies of method names — the
   // point of the check is that no identifier can ever appear here.
-  const DB_OPS = ['bet', 'boot', 'settle'];
+  const DB_OPS = ['checkpoint', 'settle'];
   const LIVE_OPS = ['save_table', 'load_table', 'delete_table', 'list_tables', 'count_tables', 'list_summaries', 'list_seats', 'append_chat', 'load_chat',
     'delete_chat', 'set_seated', 'clear_seated', 'seat_of', 'set_online', 'set_offline', 'online_count',
     'put_resume_offer', 'take_resume_offer', 'delete_resume_offer', 'publish_table', 'retire_table',

@@ -182,17 +182,19 @@ func TestReplayedActionIDChargesNobodyTwice(t *testing.T) {
 	if str(first.Raw, "action") != "chaal" || num(first.Raw, "amount") != float64(amount) || field(first.Raw, "autoSeen") != false {
 		t.Fatalf("chaal ack %s", first.Raw)
 	}
-	// The turn has moved on, so the replay fails the turn check first; either
-	// way nothing is charged and exactly one ledger row carries the id.
+	// A bet writes nothing to the books until the hand ends (owner's decision
+	// of 9 Sep 2026): the chips have moved at the seat and in the live store
+	// only, so no ledger row and no wallet movement yet.
+	if st.books.rows("dup-same-id") != 0 {
+		t.Fatalf("a bet reached the books before the hand ended")
+	}
+	if st.users.chips(d.onTurn.user.ID) != walletBefore {
+		t.Fatalf("wallet moved on a bet: %d, want %d", st.users.chips(d.onTurn.user.ID), walletBefore)
+	}
+	// The turn has moved on, so the replay fails the turn check first.
 	st.mustFail(d.onTurn.c, EvGameAction, map[string]any{"action": "chaal", "amount": amount, "actionId": "dup-same-id"}, "")
-	if st.books.rows("dup-same-id") != 1 {
-		t.Fatalf("ledger rows for the id: %d", st.books.rows("dup-same-id"))
-	}
-	if st.users.chips(d.onTurn.user.ID) != walletBefore-amount {
-		t.Fatalf("wallet %d, want %d", st.users.chips(d.onTurn.user.ID), walletBefore-amount)
-	}
-	// Now it IS the other player's turn: a replay of a used id is refused by
-	// the books as duplicate_action, and the pot stays put.
+	// Now it IS the other player's turn: a replay of a used id is refused as
+	// duplicate_action, and the pot stays put.
 	other := d.waiting
 	pot := st.view(d.table, other.user.ID).Pot
 	st.mustOK(other.c, EvGameAction, map[string]any{"action": "chaal", "actionId": "other-1"})
@@ -200,9 +202,6 @@ func TestReplayedActionIDChargesNobodyTwice(t *testing.T) {
 	st.mustFail(d.onTurn.c, EvGameAction, map[string]any{"action": "chaal", "actionId": "dup-same-id"}, game.CodeDuplicateAction)
 	if st.view(d.table, other.user.ID).Pot != pot+amount {
 		t.Fatalf("pot moved on a duplicate")
-	}
-	if st.users.chips(d.onTurn.user.ID) != walletBefore-amount {
-		t.Fatalf("charged twice")
 	}
 	// An out-of-range actionId is silently replaced by a server uuid (no
 	// idempotency, but a legal move): 65 UTF-16 units — 33 emoji — is too
@@ -212,13 +211,35 @@ func TestReplayedActionIDChargesNobodyTwice(t *testing.T) {
 		t.Fatalf("utf16Len = %d", utf16Len(longID))
 	}
 	st.mustOK(d.onTurn.c, EvGameAction, map[string]any{"action": "chaal", "actionId": longID})
-	if st.books.rows(longID) != 0 {
-		t.Fatalf("an over-long actionId reached the ledger")
-	}
 	exact := strings.Repeat("😀", 32)
 	st.mustOK(other.c, EvGameAction, map[string]any{"action": "chaal", "actionId": exact})
-	if st.books.rows(exact) != 1 {
-		t.Fatalf("a 64-unit actionId was not honoured")
+
+	// End the hand. The wallet catches up in ONE row per player, under a
+	// server-minted action id — no client id ever reaches the ledger now
+	// (owner's decision of 9 Sep 2026), so the ids above are audit-invisible
+	// and can only ever have been idempotency tokens.
+	walletBeforeEnd := st.users.chips(d.onTurn.user.ID)
+	staked := st.view(d.table, d.onTurn.user.ID).You.Contributed
+	st.mustOK(d.onTurn.c, EvGameAction, map[string]any{"action": "pack"})
+	ended, err := other.c.Wait(EvGameHandEnded, nil, eventTimeout)
+	if err != nil {
+		t.Fatalf("hand never ended: %v", err)
+	}
+	_ = ended
+	for _, id := range []string{"dup-same-id", longID, exact, "other-1"} {
+		if n := st.books.rows(id); n != 0 {
+			t.Fatalf("a client action id reached the ledger: %q has %d rows", id, n)
+		}
+	}
+	handID := str(d.handStarted, "handId")
+	if n := st.books.rows(handID + ":packed:" + d.onTurn.user.ID); n != 1 {
+		t.Fatalf("the pack checkpoint wrote %d rows", n)
+	}
+	if n := st.books.rows(handID + ":settle:" + d.onTurn.user.ID); n != 1 {
+		t.Fatalf("the outcome row was written %d times", n)
+	}
+	if got := st.users.chips(d.onTurn.user.ID); got != walletBeforeEnd-staked {
+		t.Fatalf("wallet %d, want %d (their whole stake, charged once)", got, walletBeforeEnd-staked)
 	}
 }
 

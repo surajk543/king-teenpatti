@@ -17,9 +17,9 @@ import (
 	"time"
 )
 
-// persistingLedger stands in for db.Ledger: boots and bets really leave the
-// account (Persisted = amount), settle credits the payout deltas, and every
-// call can be made to fail on demand. It records what has been banked so a
+// persistingLedger stands in for db.Ledger under the three-checkpoint money
+// model: every checkpoint applies its delta to a fake wallet and records the
+// action id (the UNIQUE index), and settle can be made to fail on demand so a
 // test can ask "did the pot ever reach the winner's wallet?".
 type persistingLedger struct {
 	mu          sync.Mutex
@@ -27,11 +27,13 @@ type persistingLedger struct {
 	failSettle  bool
 	settleCalls int
 	settled     map[string]int // hand id → committed settles
-	pots        map[string]int64
+	// rows is the action_id UNIQUE index: a checkpoint already written is
+	// never written (or applied) twice.
+	rows map[string]bool
 }
 
 func newPersistingLedger() *persistingLedger {
-	return &persistingLedger{wallets: map[string]int64{}, settled: map[string]int{}, pots: map[string]int64{}}
+	return &persistingLedger{wallets: map[string]int64{}, settled: map[string]int{}, rows: map[string]bool{}}
 }
 
 func (l *persistingLedger) set(id string, chips int64) {
@@ -46,6 +48,16 @@ func (l *persistingLedger) wallet(id string) int64 {
 	return l.wallets[id]
 }
 
+func (l *persistingLedger) total() int64 {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	var sum int64
+	for _, v := range l.wallets {
+		sum += v
+	}
+	return sum
+}
+
 func (l *persistingLedger) setFailSettle(v bool) {
 	l.mu.Lock()
 	l.failSettle = v
@@ -58,32 +70,24 @@ func (l *persistingLedger) settledCount(handID string) int {
 	return l.settled[handID]
 }
 
-func (l *persistingLedger) Bet(_ context.Context, req BetRequest) (BetResult, error) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if l.wallets[req.UserID] < req.Amount {
-		return BetResult{}, NewGameError(CodeInsufficientChips, "insufficient")
+// applyLocked is the db ledger's applyCheckpoint: one row, one delta, and the
+// UNIQUE index refusing a replay.
+func (l *persistingLedger) applyLocked(e SettleEntry) error {
+	if l.rows[e.ActionID] {
+		return NewGameError(CodeDuplicateAction, MsgDuplicateAction)
 	}
-	l.wallets[req.UserID] -= req.Amount
-	l.pots[req.HandID] += req.Amount
-	return BetResult{Balance: l.wallets[req.UserID], Persisted: req.Amount}, nil
+	l.rows[e.ActionID] = true
+	l.wallets[e.UserID] += e.Delta
+	return nil
 }
 
-func (l *persistingLedger) CollectBoot(_ context.Context, req CollectBootRequest) (CollectBootResult, error) {
+func (l *persistingLedger) Checkpoint(_ context.Context, req CheckpointRequest) (CheckpointResult, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	for _, e := range req.Entries {
-		if l.wallets[e.UserID] < e.Amount {
-			return CollectBootResult{}, &GameError{Code: CodeInsufficientChips, Message: "insufficient", UserID: e.UserID}
-		}
+	if err := l.applyLocked(req.Entry); err != nil {
+		return CheckpointResult{}, err
 	}
-	balances := map[string]int64{}
-	for _, e := range req.Entries {
-		l.wallets[e.UserID] -= e.Amount
-		l.pots[req.HandID] += e.Amount
-		balances[e.UserID] = l.wallets[e.UserID]
-	}
-	return CollectBootResult{Balances: balances, Persisted: req.BootAmount}, nil
+	return CheckpointResult{Balance: l.wallets[req.Entry.UserID]}, nil
 }
 
 func (l *persistingLedger) Settle(_ context.Context, req SettleRequest) (SettleResult, error) {
@@ -93,13 +97,15 @@ func (l *persistingLedger) Settle(_ context.Context, req SettleRequest) (SettleR
 	if l.failSettle {
 		return nil, errors.New("database unavailable")
 	}
-	if l.settled[req.Hand.ID] > 0 {
+	if l.settled[req.HandID] > 0 {
 		return nil, NewGameError(CodeDuplicateAction, MsgDuplicateAction)
 	}
-	l.settled[req.Hand.ID]++
+	l.settled[req.HandID]++
 	out := SettleResult{}
 	for _, e := range req.Entries {
-		l.wallets[e.UserID] += e.Delta
+		if err := l.applyLocked(e); err != nil {
+			return nil, err
+		}
 		out[e.UserID] = l.wallets[e.UserID]
 	}
 	return out, nil
@@ -140,7 +146,11 @@ func TestReviewDestroyMustNotAbandonAPendingSettlement(t *testing.T) {
 	loser := h.turnUser()
 	winner := h.otherActive(loser)
 
+	// The winner has never been written this hand, so their settlement delta
+	// is the pot less everything they staked — the same end figure the
+	// per-bet model produced.
 	winnerBefore := ledger.wallet(winner)
+	winnerStaked := h.mustSeat(winner).Contributed
 
 	ledger.setFailSettle(true)
 	h.mustAct(loser, ActionPack, ActRequest{})
@@ -161,9 +171,9 @@ func TestReviewDestroyMustNotAbandonAPendingSettlement(t *testing.T) {
 
 	if ledger.settledCount(handID) != 1 {
 		t.Fatalf("REVIEW: the settlement of hand %s was abandoned by Destroy; the winner %s never received the pot of %d in the database (wallet %d, expected %d)",
-			handID, winner, pot, ledger.wallet(winner), winnerBefore+pot)
+			handID, winner, pot, ledger.wallet(winner), winnerBefore+pot-winnerStaked)
 	}
-	eq(t, ledger.wallet(winner), winnerBefore+pot, "the winner's wallet holds the pot")
+	eq(t, ledger.wallet(winner), winnerBefore+pot-winnerStaked, "the winner's wallet holds the pot")
 	eq(t, h.table.PendingSettlements(), 0, "nothing left owed")
 	if err := h.table.WaitSettlements(context.Background()); err != nil {
 		t.Fatalf("WaitSettlements: %v", err)
@@ -252,15 +262,25 @@ func TestReviewDestroyMidHandWithAFailingLedgerStillSettlesLater(t *testing.T) {
 	}
 }
 
-// TestReviewTableDropsAClientActionIDInAReservedNamespace: defence in depth
-// behind the socket layer's rule — a client actionId shaped like a server
-// ledger key ("<userId>:milestone:25", "<handId>:boot:<userId>", …) never
-// reaches the ledger; a fresh uuid does. Plain opaque tokens pass through
-// untouched.
+// TestReviewTableDropsAClientActionIDInAReservedNamespace: the exploit was a
+// client sending another player's "<userId>:milestone:25" as its own bet's
+// actionId, which would take that ledger key and make the victim's milestone
+// claim fail on the UNIQUE index. Since 9 Sep 2026 a bet writes no ledger row
+// at all and every action id the ledger sees is server-minted, so the hole is
+// closed by construction — this test pins that: NO client-supplied id ever
+// reaches the ledger, and every id that does is one of ours.
 func TestReviewTableDropsAClientActionIDInAReservedNamespace(t *testing.T) {
 	var sent []string
 	h := newHarness(t, settleConfig(), withLedger(func(h *harness) Ledger {
-		return &captureLedger{inner: mirrorLedger(h), onBet: func(r BetRequest) { sent = append(sent, r.ActionID) }}
+		return &captureLedger{
+			inner:        mirrorLedger(h),
+			onCheckpoint: func(r CheckpointRequest) { sent = append(sent, r.Entry.ActionID) },
+			onSettle: func(r SettleRequest) {
+				for _, e := range r.Entries {
+					sent = append(sent, e.ActionID)
+				}
+			},
+		}
 	}))
 	h.seat("a", settleStart)
 	h.seat("b", settleStart)
@@ -269,11 +289,23 @@ func TestReviewTableDropsAClientActionIDInAReservedNamespace(t *testing.T) {
 	first := h.turnUser()
 	h.mustAct(first, ActionChaal, ActRequest{ActionID: "b:milestone:25"})
 	h.mustAct(h.turnUser(), ActionChaal, ActRequest{ActionID: "client-token-1"})
-	eq(t, len(sent), 2, "two bets banked")
-	if sent[0] == "b:milestone:25" || strings.ContainsRune(sent[0], ':') || len(sent[0]) != 36 {
-		t.Fatalf("REVIEW: the reserved-namespace id reached the ledger as %q", sent[0])
+	eq(t, len(sent), 0, "a bet reaches no ledger at all")
+
+	handID := h.lastHandStarted().HandID
+	for h.hasHand() {
+		h.mustAct(h.turnUser(), ActionPack, ActRequest{})
 	}
-	eq(t, sent[1], "client-token-1", "an opaque token is kept verbatim")
+	if len(sent) == 0 {
+		t.Fatal("the hand end wrote nothing")
+	}
+	for _, id := range sent {
+		if id == "b:milestone:25" || id == "client-token-1" {
+			t.Fatalf("REVIEW: a client action id reached the ledger as %q", id)
+		}
+		if !strings.HasPrefix(id, handID+":") {
+			t.Fatalf("REVIEW: the ledger saw an id this server did not mint: %q", id)
+		}
+	}
 }
 
 // TestReviewCroreScaleWalletsNeitherOverflowNorLosePrecision: a 50-crore

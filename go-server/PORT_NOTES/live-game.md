@@ -1,28 +1,34 @@
 # PORT_NOTES — internal/game ↔ the live-state store (Redis beside PostgreSQL)
 
-Owner scope: `internal/game/table.go`, `livestate.go` (new), `snapshot.go`, `durable.go` (new),
-`ledger.go`, `roommanager.go`, `roommanager_live.go` (new), `internal/game/livetest/` (new, a
-map-backed `live.Store` for tests), and the tests `livestate_test.go`, `roommanager_live_test.go`
-(+ small edits to `table_test.go`, `settlement_test.go`, `roommanager_fixture_test.go`). Design:
-`../LIVE_STATE_PLAN.md` (authoritative, including "The durable backstop"). `internal/socket` and
-`internal/app` are untouched. The 9 Sep 2026 change (hand-boundary durable writes + the two store
-leaks) also touched `internal/live` (two new `Store` methods), `internal/db/snapshots.go`
-(`HandContributions` returns an ordered slice) and `internal/metrics/names.go` (two op labels).
+Owner scope: `internal/game/table.go`, `livestate.go` (new), `snapshot.go`, `ledger.go`,
+`roommanager.go`, `roommanager_live.go` (new), `internal/game/livetest/` (new, a map-backed
+`live.Store` for tests), and the tests `livestate_test.go`, `roommanager_live_test.go` (+ edits to
+`table_test.go`, `settlement_test.go`, `review_money*_test.go`, `roommanager_fixture_test.go`).
+Design: `../LIVE_STATE_PLAN.md` (authoritative).
+
+> **Superseded, 9 Sep 2026.** An earlier revision of this file described a "durable backstop":
+> `game_states` in PostgreSQL, written asynchronously at the two hand boundaries by
+> `db.SnapshotWriter`, read back at startup and reconciled against the ledger. The owner then
+> decided that **PostgreSQL must hold no game state at all** and that **a bet must not be a
+> PostgreSQL transaction**. `SnapshotSink`, `DurableSource`, `DurableSnapshot`,
+> `ReconcileWithLedger`, `Table.Snapshots`/`markDurable`/`MarkDeleted`, `RoomManager.Snapshots`/
+> `Durable` and Restore's second pass are all **deleted**; `game_states` is dropped from the schema.
 
 ## 1. What changed, in one paragraph
 
-Every `Table` now serialises its full `Snapshot` (cards included) **once per posted closure** that
+Every `Table` serialises its full `Snapshot` (cards included) **once per posted closure** that
 changed observable state and saves it to `live.Store.SaveTable` under a per-table strictly rising
-`seq`. The same bytes, under the same `seq`, also go to `SnapshotSink.MarkDirty` (the asynchronous
-`game_states` writer) — but **only at the two hand boundaries** (§2.1), not on every mutation. The money transaction no longer carries a snapshot: the ledger request
-fields `Version`/`State` are left at zero/nil (see §7). `live.ErrStale` on a save **fences** the
-table (two-owners guard). Chat is mirrored to the live store only. `RoomManager` mirrors the seat
-index, publishes public tables to the matchmaking index, and gains `Restore` (two passes: live
-store, then `game_states` reconciled against the ledger), `RestoredSeats`, `ReconcileLive`
-(refill an emptied Redis and sweep strays out of it) and `Suspend` (graceful restart that keeps
-tables alive).
+`seq`. That is the ONLY place game state goes: PostgreSQL sees money and audit only. `live.ErrStale`
+on a save **fences** the table (two-owners guard). Chat is mirrored to the live store only.
+`RoomManager` mirrors the seat index, publishes public tables to the matchmaking index, and gains
+`Restore` (one pass, the live store), `RestoredSeats`, `ReconcileLive` (refill an emptied Redis and
+sweep strays out of it) and `Suspend` (graceful restart that keeps tables alive).
 `RestoreTable(snapshot)` rebuilds a table and re-arms its clocks; Snapshot ⇄ RestoreTable ⇄
 Snapshot is an identity under random play (property test).
+
+A **bet writes nothing to PostgreSQL** (§2.1): it moves chips at the seat, in the pot and in the
+snapshot, and is banked when the player leaves the hand (`Table.flushBets` → `Ledger.FlushBets`) or
+when the hand ends (`endHand` → `Ledger.Settle`, which carries the outstanding bets).
 
 ## 2. Table (`table.go`, `livestate.go`)
 
@@ -33,31 +39,25 @@ type TableOptions struct {
     Live       live.Store               // nil → no live saves
     LiveTTL    time.Duration            // 0 → DefaultLiveTTL (24 h)
     LiveErrors func(op string, err error) // per failed store call; op = LiveOp* (matches metrics.LiveOps)
-    Snapshots  SnapshotSink             // nil → no durable copy; fed at the hand boundaries only (§2.1)
 }
 ```
 
 ### Saving
 - `emitState()` marks the actor's `liveDirty`; `SetChips` and `sweepUnfunded` (kickPending) mark it
   too. `run()`'s job wrapper calls `flushLive()` after the closure (after the Listener saw every
-  event): one `SaveTable(roomID, seq, json, ttl)` per mutation. Reads never save.
-- `MarkDirty` is gated on a second flag, `durableDirty`, set only by `markDurable()` (§2.1); when
-  both are set the snapshot is marshalled ONCE and both stores get the same bytes under the same
-  `seq`. With no live store at all, an ordinary move now takes no snapshot and no `seq` — only a
-  hand boundary does.
-- `seq` (`Table.LiveSeq()`) is separate from `Version()` (still the count of committed ledger
-  writes; now also stored in the snapshot). **Every attempt takes a seq**, landed or not, so the
-  durable writer's `version < EXCLUDED.version` guard stays monotonic; gaps are harmless.
+  event): one `SaveTable(roomID, seq, json, ttl)` per mutation. Reads never save. With no live store
+  no snapshot is taken at all.
+- `seq` (`Table.LiveSeq()`) is separate from `Version()` (the count of committed ledger writes; also
+  stored in the snapshot). **Every attempt takes a seq**, landed or not; gaps are harmless.
 - Failure: counted via `LiveErrors`, reported as `OnPersistError{Reason: "live_save"}` (RoomManager
   logs `live store write failed`), the move is **never refused**; the table stays dirty and the next
-  post of any kind (a read included) retries under a fresh seq. The durable sink still receives the
-  snapshot when the live save fails — that is its purpose.
+  post of any kind (a read included) retries under a fresh seq.
 - `live.ErrStale` → `fence(seq)`: `Fenced()` true, every clock stopped, every post but `Destroy`
   returns `ErrTableDestroyed` (code `table_destroyed`), `OnError` carries a `*FencedError`
   (unwraps to `live.ErrStale`). A fenced `destroy()` **does not settle the hand and does not delete
-  the store's copy or the durable row** — both belong to the owner. RoomManager's `tableHooks.OnError`
+  the store's copy** — it belongs to the owner. RoomManager's `tableHooks.OnError`
   destroys the fenced table in a goroutine and skips `RetireTable`/`ClearSeated` for it.
-- `Destroy` (owned table): `DeleteTable` + `DeleteChat` + `MarkDeleted`.
+- `Destroy` (owned table): `DeleteTable` + `DeleteChat`.
 - `Suspend()` (new): stops every clock, saves a final snapshot, marks destroyed **without** ending
   the hand or touching the stores — the graceful-restart path; detached settle retries continue as
   after Destroy. Without a live store (or when fenced) it is a Destroy.
@@ -69,30 +69,44 @@ type TableOptions struct {
 - All store calls use a 2 s context (`liveCallTimeout`) on top of the store's own timeout, and a
   panic inside the store is recovered on the actor and reported, never fatal.
 
-### 2.1 The durable copy is written at the two HAND BOUNDARIES only (9 Sep 2026)
+### 2.1 A BET IS NOT A DATABASE TRANSACTION (9 Sep 2026)
 
-Measured on production: writing a `game_states` snapshot of every table once a second competed with
-the money for the same saturated disk — committed transactions/s fell from 1,258 to 654 at 7,000
-players, I/O wait tripled to 31 %, and the usable ceiling halved from 15,000 players to 7,000. Redis
-was blameless. The owner's decision: *"In postgres do not save game live state, only save the state
-in the beginning of game, and when game ends. In between, game states should be saved in redis for
-all rooms."*
+Owner: *"Do not update pg database in bet chaal or show, just update in redis. Only update in pg when
+game starts and game ends. And in case of switch table or leave table, only update in pg for that
+player who left the table or switched the table."*
 
-`Table.markDurable()` (unexported, `livestate.go`) sets `liveDirty` **and** `durableDirty`. It is
-called from **exactly two places**, both in `table.go`, both with a comment saying why:
+`chargeToPot` no longer calls the ledger. It:
 
-| Call site | When | What the snapshot says |
+1. sanitises the client `actionId` (reserved-namespace ids are replaced by a uuid, as before);
+2. refuses `duplicate_action` when this hand has already accepted that id (`handHasActionID` — the
+   in-memory half of what the `chip_ledger.action_id` UNIQUE index used to do on its own);
+3. refuses `insufficient_chips` when `seat.chips < amount` — which IS the wallet check, because
+   `wallet == seat.chips + Σ unbanked bets` holds throughout a hand (boot debited up front, seat only
+   decreases, one seat per player);
+4. moves `seat.chips`, `seat.contributed` and `hand.pot`, and appends a `stakedBet{amount, reason,
+   actionID, flushed}` to the player's `contribution.bets`.
+
+`contribution.bets` is in `SnapshotContribution.Bets`, so the record of what is staked lives in the
+live store and survives a restart. It is banked in exactly two places:
+
+| Call site | When | What is written |
 |---|---|---|
-| end of `startHand`, after `setTurn(firstSeat, true); emitState()` | boots collected, cards dealt, first turn open | the hand's OPENING state — the state the boot transaction that just committed corresponds to |
-| end of `endHand`, after `emitState()`, before `maybeStart()` | settled, `hand == nil`, seats carrying their settled chips | the table AT REST — without it a restore from the hand-start row would resurrect a hand already paid out |
+| `flushBets(userID)` from `removePlayer` (leave, switch, kick, lapsed grace) | that player is out of the hand | `Ledger.FlushBets`: their bets in order, wallet debit, `pots.amount +=`. Every bet is marked `flushed` and `contribution.persisted += result.Persisted`. A failure is reported (`PersistReasonFlush`), never refuses the departure, and leaves the bets pending for the settlement. |
+| `endHand` → `Ledger.Settle` | the hand is over | `SettleEntry.Bets` carries each player's still-unflushed bets; the ledger banks them inside the settlement transaction. |
 
-`Destroy` still hands `MarkDeleted`. `Suspend` saves to the live store only — the live copy is what
-the next process comes back from. Nothing else touches the sink. A table that is created, filled and
-never dealt writes **nothing** durable: nothing is at stake and its players simply re-join, so a
-`game_states` row only ever exists for a room that has dealt.
+**Delta arithmetic (unchanged rows).** The Table still computes `Delta = net + persisted` where
+`persisted` counts only what has actually been banked (the boot, plus a departure's flush). The
+LEDGER adds what it banks in the settlement to that delta, so the settlement row is exactly what the
+per-bet model produced: `+pot` for the winner, `0` for a fully-banked loser. This is the `persisted`
+contract of CLAUDE.md §12.2 taken one step further — the ledger reports what it banked, the Table
+never assumes it — and it is what keeps the bookless `MemoryLedger` conserving (it banks 0, so the
+delta stays the whole net).
 
-Consequence for restores: a durable snapshot of a live hand is now a whole hand behind the money
-instead of ≤ `SNAPSHOT_FLUSH_MS`, which is what `ReconcileWithLedger` (§3) was widened for.
+**No double-write.** The `flushed` flag stops the re-send; `db.bankBets` inserts with
+`ON CONFLICT (action_id) DO NOTHING` and skips the debit and the pot update when the row is already
+there (a settle retry, or a flush whose marker was lost with Redis). A collision with a row from
+another hand is banked under a fresh uuid rather than dropped — the pot must never hold chips no row
+accounts for.
 
 ### Snapshot fields added (`snapshot.go`; Node's keys kept)
 Top level: `seq`, `version`, `isPrivate`, `createdAt`, `config` (`SnapshotConfig`: category,
@@ -102,15 +116,15 @@ nextHandDelayMs, chatMaxHistory, chatMaxLength), `startsAt` (STARTING only, else
 Seat: `avatarUrl`, `lastBet`, `lastAction`, `missedTurns`, `sideshowAskedThisTurn`, `kickPending`,
 `joinedAt`. Hand: `packedUserIds` (sorted), `seatOrder`, `sideshow{fromUserId, fromSeat, toUserId,
 toSeat, expiresAt}`, `lastDeparture`, `turnDeadline` (epoch ms, null before the first turn).
-Contribution: `displayName`, `seatIndex`, `sawCards`, `cards`. **Deliberately absent**: `connected`,
+Contribution: `displayName`, `seatIndex`, `sawCards`, `cards`, **`bets`** (`[]SnapshotBet{amount,
+reason, actionId, flushed}`, never nil — §2.1). **Deliberately absent**: `connected`,
 `socketId`, `disconnectedAt` (a restored process has no sockets), `turnToken` (re-minted), chat.
 The old "as it will be" rendering for the ledger (`snapshotWith` overrides, `snapshotAfterBet`) is
 gone; the snapshot is always the table as it is.
 
 ### RestoreTable
 `RestoreTable(snap *Snapshot, opts TableOptions) (*Table, error)` — the snapshot is authoritative
-for id, code, config, isPrivate; `opts` supplies Ledger, Clock, Listener, Live, LiveTTL, LiveErrors,
-Snapshots. Every seat comes back `connected=false`, no socket. Validation is strict (config present,
+for id, code, config, isPrivate; `opts` supplies Ledger, Clock, Listener, Live, LiveTTL and LiveErrors. Every seat comes back `connected=false`, no socket. Validation is strict (config present,
 seat indices, user ids unique, card codes parse, hand references occupied seats, sideshow seats
 match) and refuses with a descriptive error. Re-arm rules, on the actor, against `Clock.Now()`:
 
@@ -135,8 +149,6 @@ type RoomManagerOptions struct {
     Live      live.Store     // nil → pre-Redis behaviour exactly
     Instance  string         // TableSummary.Instance (LIVE_INSTANCE_ID)
     LiveTTL   time.Duration  // 0 → DefaultLiveTTL
-    Snapshots SnapshotSink   // db.SnapshotWriter (nil → no durable copy)
-    Durable   DurableSource  // game_states + chip_ledger reads for Restore (nil → live only)
 }
 type MetricsHooks struct { …; ObserveLiveError func(op string, err error) } // optional; the wrapped store counts too
 ```
@@ -150,52 +162,22 @@ type MetricsHooks struct { …; ObserveLiveError func(op string, err error) } //
   **Private tables are never published**. `RetireTable` when a table is destroyed (not when fenced).
 
 ### Restore
-`Restore(ctx) (RestoreReport, error)` — call **before `StartSweeper` and before the listener opens**:
-1. live store: `ListTables → LoadTable → parse/validate → restore` (source `live`); garbage →
-   `DeleteTable`+`DeleteChat`, `Dropped++`; load error → `Failed++` (left in place).
-2. `Durable.LoadSnapshots`, skipping rooms pass 1 registered; for a live hand
-   `Durable.HandContributions(handID)` → `ReconcileWithLedger` (below) → `Rejected++` and skip when
-   it cannot be reconciled (left to `RefundOrphanedPots`), else restore (source `postgres`); the table's first
-   save refills the live store (`SaveTable` seq+1), plus `PublishTable` and `SetSeated` per seat.
+`Restore(ctx) (RestoreReport, error)` — call **before `StartSweeper` and before the listener opens**.
+ONE pass, the live store, because there is nowhere else a table can come from:
+`ListTables → LoadTable → parse/validate → restore`; garbage → `DeleteTable`+`DeleteChat`,
+`Dropped++`; load error → `Failed++` (left in place).
 Per table: register (`tables`, `order` by `createdAt`, `playerRooms` from seats, code by scan),
 `LoadChat` from the live store, resume clocks, `OnTableCreated` (+ `OnTableRestored` when the
-listener implements `TableRestoreListener`), publish, log `table restored {roomId, code, source,
-…}`. A user seated in two stored tables keeps the older one; the other seat is removed.
-`RestoreReport{Tables, FromLive, FromDurable, Seats, HandsInProgress, HandIDs, Reconciled,
-Rejected, Dropped, Skipped, Failed}`. `HandIDs` = hands live at restore time (pre-resume) — what
-the db refund must skip. `RestoredSeats() []RestoredSeat{UserID, RoomID}` for the socket layer.
+listener implements `TableRestoreListener`), publish, log `table restored {roomId, code, …}`.
+A user seated in two stored tables keeps the older one; the other seat is removed.
+`RestoreReport{Tables, Seats, HandsInProgress, HandIDs, Dropped, Skipped, Failed}` — `FromLive`,
+`FromDurable`, `Reconciled` and `Rejected` are gone with the second pass. `HandIDs` = hands live at
+restore time (pre-resume) — what the db refund must skip. `RestoredSeats() []RestoredSeat{UserID,
+RoomID}` for the socket layer.
 
-### ReconcileWithLedger (exported, pure)
-`ReconcileWithLedger(snap *Snapshot, contributions []LedgerContribution) error`: the ledger wins.
-Sets each seat's/record's `contributed` and `persisted` to the ledger figure, lowers the seat's
-`chips` by the undebited difference (clamped at 0), sets `didChaal` once the figure exceeds the
-boot, `hand.pot = Σ`.
-
-**The contract changed with the hand-boundary policy.** `DurableSource.HandContributions` now
-returns an ORDERED `[]LedgerContribution{UserID, Amount}` — each player positioned by their most
-recent `chip_ledger` row for the hand (`ORDER BY MAX(id)`, and `id` is a BIGSERIAL) — so the last
-element is whoever moved last.
-
-**The turn rule after a reconcile that moved anything** (`reopenTurn`): *the turn goes to the first
-seat that can still act clockwise after the last contributor in ledger order, on a fresh full turn
-clock.* That is exactly where `advanceTurn` would have gone; anything else asks a player to act
-twice or skips one. The stored `turnDeadline` is dropped (it belongs to a turn that ended before the
-crash — `RestoreTable` fires an expired deadline immediately, which would pack the player and count
-a missed turn) and any pending sideshow with it; the new seat starts able to ask for one. Fallbacks,
-in order: the last contributor is no longer at the table → keep the snapshot's turn seat if it can
-act → otherwise the first seat that can → otherwise leave it to `RestoreTable`. When the ledger
-agrees with the snapshot exactly, nothing is touched (idempotent).
-
-**Rejections, now only what cannot be attributed** (→ Restore rejects the room and its pot is
-refunded): a contributor the snapshot has neither a seat nor a contribution record for; a ledger
-figure BELOW the snapshot's; a snapshot contribution with no ledger row; a live hand with no rows;
-the same player twice. **No longer a rejection:** a ledger figure above the snapshot's for a player
-the snapshot shows packed, lost or gone from the table — with hand-boundary writes that is the
-normal case, not a stale one, and their stake is accounted for by their seat or their record.
-
-Not recoverable from the ledger and left as saved: `hand.stake` (play resumes at the opening stake,
-so the ladder can restart one or more rungs low), `hand.round` (the forced-showdown count restarts),
-and who had packed (everyone the snapshot had active is asked to act again). All money-safe.
+**An empty live store restores nothing** (`TestRoomsRestoreFindsNothingWhenTheLiveStoreIsEmpty`).
+The players re-join and `db.RefundOrphanedPots` returns every open pot: that is the whole recovery
+story now.
 
 ### ReconcileLive (refill + stray sweep)
 `ReconcileLive(ctx) ReconcileReport{Healthy, Tables, Published, Seats, StaleSeats, StaleSummaries,
@@ -243,8 +225,6 @@ store, _ := live.Open(ctx, live.Options{URL: cfg.RedisURL, Instance: id, …})  
 rooms := game.NewRoomManager(game.RoomManagerOptions{
     Game, Chat, Ledger, Clock, TableListener: h, Listener: h, Logger, Metrics,
     Live: store, Instance: id, LiveTTL: cfg.LiveStateTTL,
-    Snapshots: snapshotWriter,   // db.SnapshotWriter (implements game.SnapshotSink)
-    Durable:   durableSource,    // db side (implements game.DurableSource)
 })
 h.SetRooms(rooms)
 report, err := rooms.Restore(ctx)                 // BEFORE StartSweeper / listener
@@ -263,18 +243,25 @@ go ticker(cfg.LiveReconcile) { rooms.ReconcileLive(ctx) }   // and once on unhea
 - `Table.LiveSeq()`, `Fenced()`, `Snapshot()`, `SaveLive()`, `Suspend()` are new; nothing else on
   the Table's exported surface changed.
 - Metric feeds: `MetricsHooks.ObserveLiveError(op, err)` is optional (the app wraps the store with
-  `live.WithHooks`, which counts the same calls). `RestoreReport.FromLive/FromDurable/Reconciled/
-  Rejected/Seats` map onto `game_restored_tables_total{source}`, `game_restore_reconciled_total`,
-  `game_restore_rejected_total`, `game_restored_seats_total`.
+  `live.WithHooks`, which counts the same calls). `RestoreReport.Tables/Seats` map onto
+  `game_restored_tables_total` (unlabelled) and `game_restored_seats_total`.
 
-## 5. Ledger request fields — for the db engineer
+## 5. Ledger contract — for the db engineer
 
-`BetRequest.Version/State`, `CollectBootRequest.Version/State` and `SettleRequest.Version/State` are
-**deleted**: the snapshot no longer rides in the money transaction (`db.saveState` and its three
-call sites were already gone from `internal/db` when this landed, so the module builds). The
-`Ledger` interface docs no longer mention the `game_states` upsert. `MemoryLedger` never read them.
-`tools/parity/money.test.js` "game_states holds one versioned snapshot per room" now depends on the
-async `SnapshotWriter` having flushed (`SNAPSHOT_FLUSH_MS`) and on `version` meaning the live `seq`.
+`Ledger.Bet` / `BetRequest` / `BetResult` are **deleted** — a bet is not a transaction. In their
+place:
+
+```go
+type StakedBet struct { Amount int64; Reason string; ActionID string }   // reason: bet | show
+
+FlushBets(ctx, FlushBetsRequest{UserID, RoomID, HandID, Bets []StakedBet}) (FlushBetsResult{Balance, Persisted}, error)
+```
+
+and `SettleEntry` gains `Bets []StakedBet`. `Persisted` is what the ledger ACTUALLY banked (bets
+already present are not charged again), and `Settle` must add what it banks to the entry's `Delta`
+before writing the settlement row — see §2.1. No request carries a snapshot: nothing about a table
+reaches PostgreSQL, and `game_states` is dropped from `schema.sql` by a guarded DO block that fires
+only when the table exists and is empty.
 
 ## 6. Tests (`go test -race ./internal/game/...` green; gofmt/vet clean)
 
@@ -282,30 +269,29 @@ async `SnapshotWriter` having flushed (`SNAPSHOT_FLUSH_MS`) and on `version` mea
   1..n, parses, cards present, reads save nothing; live failure never refuses + retries next post;
   ErrStale → fenced + `FencedError` + `table_destroyed` + Destroy leaves the store alone; chat mirror
   (player + system lines, cap, sanitised, failure reported); Destroy deletes; Suspend saves/ends
-  nothing; durable sink gets the same bytes, is fed while Redis is down, `MarkDeleted` on destroy,
-  nothing for a fenced table; **TestSnapshotNeverCarriesChat**; RestoreTable (a) deadline ahead →
+  nothing; **TestSnapshotNeverCarriesChat**; RestoreTable (a) deadline ahead →
   same turn, fires at the original instant, (b) deadline past → immediate timeout pack, turn
   advances, 3rd miss → idle kick, (c) sideshow pending: answerable / lapses on restore / expires at
   the original instant, (d) countdown: armed for what is left / deals now / refusal path, (e) all
   seats disconnected → last standing, Σdelta = 0, bank conserved, waiting → nothing (+ the
   boot-refusal deviation), kicks re-announced, claim save seq+1, 14 garbage cases refused;
-  `ReconcileWithLedger` applies the missing bet (pot/contributed/persisted/chips/didChaal), moves
-  the turn past the last contributor on a fresh clock, is idempotent, and rejects only what cannot
-  be attributed; **TestTheDurableSinkIsFedAtTheHandBoundariesOnly** (nothing on a join or a move,
-  one mark at the deal carrying the hand id, one at the settlement carrying none and no hand in the
-  bytes, fed while Redis is down, MarkDeleted on destroy);
-  **TestReconcileRebuildsAHandStartSnapshotAfterThreeRoundsOfBetting** (nine chaals of ledger, the
-  opening snapshot, correct pot and per-seat contributions, the right player on a full fresh turn
-  clock, play continues); **TestSnapshotRoundTripIsLossless** (8 seeds × 60
-  checkpoints of random play incl. sideshows, timeouts, kicks, leaves, disconnects).
+  **TestSnapshotRoundTripIsLossless** (8 seeds × 60 checkpoints of random play incl. sideshows,
+  timeouts, kicks, leaves, disconnects — the bets on each contribution ride round with it).
+- The money model (§2.1), in `settlement_test.go` / `table_test.go` / `review_money_test.go`:
+  **TestAChaalIsBankedWhenTheHandEndsNotWhenItIsMade**,
+  **TestLeavingMidHandBanksTheBetsOnceAndTheSettlementDoesNotResendThem**,
+  **TestASeatNeverHoldsMoreThanItsAccount**, **TestAReplayedBetIsRefusedAndChangesNothing**,
+  **TestAFlushTheLedgerRefusesStillLetsThePlayerLeave**, and
+  **TestChipConservationUnderRandomPlay** (Σaccounts + the BANKED part of the pot is invariant, and
+  every seat is its account less its unbanked bets).
 - `roommanager_live_test.go` (package game_test, testclock): seats mirrored / published / deduped /
   retired / private never indexed / kick clears; Suspend → Restore rebuilds 5 tables (order, codes,
   index, RestoredSeats, Stats, chat, same turn + deadline, listener, publish, second Restore no-op);
   restored tables consolidated and swept; garbage dropped, load failure kept, list failure fatal;
   **two owners**: the stale writer fences itself, is destroyed, touches nothing of the owner's;
-  Suspend without a store = Shutdown; durable fallback reconciles a stale row and refills Redis;
-  a row it cannot account for rejected and not restored; live wins over durable; `ReconcileLive`
-  refills a flushed store (tables/published/seats counts, fresh seqs, unhealthy → nothing);
+  Suspend without a store = Shutdown;
+  **TestRoomsRestoreFindsNothingWhenTheLiveStoreIsEmpty** (an empty store rebuilds no table and no
+  seat, while the store that DID have them still does); `ReconcileLive` refills a flushed store (tables/published/seats counts, fresh seqs, unhealthy → nothing);
   **TestAFullLifecycleLeavesNoSeatOrSummaryBehind** (join → play → leave → kick → consolidate →
   sweep → shutdown ends with zero `kt:seat:*` and zero `kt:summary:*`);
   **TestReconcileLiveSweepsStraySeatsAndSummaries** (three ghost seats and one ghost summary
@@ -320,12 +306,15 @@ async `SnapshotWriter` having flushed (`SNAPSHOT_FLUSH_MS`) and on `version` mea
   retry died with the process; otherwise identical. Say if you want the literal rule.
 - `Suspend` vs `Shutdown` at SIGTERM is the app's call: Suspend keeps hands alive across a deploy
   (players reconnect within `RECONNECT_GRACE_MS`), Shutdown settles them `all_left` as before.
-- Reconciled restores cannot recover `hand.stake`, `hand.round` or who had packed: the ladder may
-  start low, the forced-showdown count restarts, and a player who had packed is asked to act again.
-  The turn IS recovered (the seat after the ledger's last contributor, fresh clock). Money is exact.
-- `game_states` no longer has a row for a table that has never dealt. Anything that counted rows
-  against live tables has to count them against rooms with a pot instead (`tools/parity/money.test.js`
-  already does).
+- **A bet is not durable until the hand ends.** Losing Redis un-makes every unbanked bet: the players
+  keep those chips, the boots are refunded from the open pot, and nothing is created or destroyed.
+  That is the one guarantee this design gives up, deliberately (LIVE_STATE_PLAN.md invariant 7).
+- The in-memory balance check replaces the wallet `FOR UPDATE` lock for a bet. It is exact because
+  `wallet == seat.chips + Σ unbanked bets` throughout a hand; `bankBets` still refuses rather than
+  letting the `chips >= 0` CHECK abort a transaction, so a divergence would surface as a logged
+  `insufficient_chips`, not as lost money.
+- A client that reuses one `actionId` across two hands is no longer refused; its second use is
+  banked under a fresh server-minted id so the pot and the ledger still agree.
 - A fenced table settles nothing; if the owner also dies, the pot is refunded at the next startup.
 - `RoomListener.OnTableRestored` is an optional interface (`TableRestoreListener`), not a new
   method on `RoomListener`, so `socket.Handler` keeps compiling unchanged.

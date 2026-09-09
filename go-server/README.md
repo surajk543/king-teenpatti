@@ -21,7 +21,7 @@ index maps under a mutex that is never held while calling into a table. `interna
 Engine.IO v4 / Socket.IO v5 server (WebSocket only, on `gorilla/websocket`); `internal/socket`
 speaks the game protocol on top of it. Money is database-first through `pgx`: validate in memory →
 one transaction (lock wallet, debit, pot, append-only `chip_ledger` row with a UNIQUE `action_id`,
-versioned `game_states`) → only then mutate the table and broadcast. `PORT_PLAN.md` §3 is the full
+the live store's per-table `seq`) → only then mutate the table and broadcast. `PORT_PLAN.md` §3 is the full
 set of concurrency rules; read it before touching `game`, `socket` or `sio`.
 
 ## Layout

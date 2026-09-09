@@ -84,6 +84,16 @@ scrape_configs:
     static_configs:
       - targets: ['nginx-exporter:9113']
 
+  # ------------------------------------------------------------------ redis
+  # Redis is the live store: every table's state, presence and turn deadlines
+  # (go-server/LIVE_STATE_PLAN.md). ops/install-redis.sh installs this exporter
+  # on the game host and appends the same job to the host's own prometheus.yml;
+  # this entry is the docker-compose equivalent, so a local stack shows the
+  # same "Live state (Redis)" dashboard row as production.
+  - job_name: redis
+    static_configs:
+      - targets: ['redis-exporter:9121']
+
   # ------------------------------------------------------------------- node
   # node_exporter runs with network_mode: host so it sees the real interfaces
   # and mounts; that is why it is addressed through the host gateway.

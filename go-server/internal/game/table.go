@@ -97,13 +97,16 @@ type TableOptions struct {
 	// the operation name (LiveOp*) — the game_live_store_errors_total{op}
 	// feed. Called on the actor goroutine; must not block or post back.
 	LiveErrors func(op string, err error)
-	// Snapshots is the durable backstop (game_states, written asynchronously
-	// by db.SnapshotWriter). It is fed at the two HAND BOUNDARIES only —
-	// the hand's opening state and the table at rest after settlement
-	// (markDurable) — with the same bytes and the same seq as the live
-	// save of that closure; Destroy hands MarkDeleted. nil → no-op.
-	Snapshots SnapshotSink
+	// ObserveHandStart, if set, is called with how long startHand took —
+	// game_hand_start_duration_seconds. Called on the actor; must not block.
+	ObserveHandStart func(d time.Duration)
 }
+
+// PersistReasonFlush is PersistErrorEvent.Reason when a departing player's
+// accumulated bets could not be banked (Table.flushBets). Nothing was
+// refused: the player still leaves, their stake is still in the pot, and the
+// settlement banks the bets instead — only their wallet is briefly behind.
+const PersistReasonFlush = "flush_bets"
 
 // NewPlayer is what AddPlayer needs (roomManager.js join → table.addPlayer).
 type NewPlayer struct {
@@ -185,9 +188,24 @@ type contribution struct {
 	status      SeatState
 	sawCards    bool
 	cards       []Card
-	didChaal    bool  // set on the first chaal/raise/show — "played" (requirement 16)
-	leftMidHand bool  // abandoned before the hand finished
-	persisted   int64 // how much the account has already been debited
+	didChaal    bool // set on the first chaal/raise/show — "played" (requirement 16)
+	leftMidHand bool // abandoned before the hand finished
+
+	// chips is this player's stack as the LIVE state has it — the seat's
+	// chips, kept in step here so a player who has left the table still has
+	// a figure to settle against.
+	chips int64
+	// chipsWritten is the stack as PostgreSQL last had it. Every checkpoint
+	// writes `chips - chipsWritten` and then sets this to `chips`, so the
+	// money moves exactly once however many times a player is written: a
+	// packer's hand-end row computes a delta of zero and records only the
+	// outcome. It starts at the seat's chips when the hand was dealt, BEFORE
+	// the boot came out, because nothing is written at the deal.
+	//
+	// A delta, never an absolute: a seated player can claim the four-hour
+	// bonus or a milestone reward, which credits the wallet and not the seat,
+	// and `SET chips = <live figure>` would erase it.
+	chipsWritten int64
 }
 
 // pendingSideshow is hand.sideshow.
@@ -220,6 +238,11 @@ type hand struct {
 	turnToken       string // names the current turn; a late timeout carrying another token is stale
 	contributions   map[string]*contribution
 	contribOrder    []string // insertion order of contributions, for snapshots/summaries
+	// actionIDs are the client action ids this hand has already accepted for
+	// a bet. A bet writes nothing to PostgreSQL, so the chip_ledger UNIQUE
+	// index can no longer refuse a replayed move: this set does it in memory
+	// (duplicate_action). It is in the snapshot, so it survives a restart.
+	actionIDs map[string]struct{}
 }
 
 // Table is one Teen Patti table — the port of `class Table` in table.js.
@@ -255,10 +278,10 @@ type Table struct {
 
 	// live is the live-state store (nil → no-op), liveTTL the snapshot
 	// expiry, liveErrors the error hook — see TableOptions.
-	live       live.Store
-	liveTTL    time.Duration
-	liveErrors func(op string, err error)
-	snapshots  SnapshotSink
+	live        live.Store
+	liveTTL     time.Duration
+	liveErrors  func(op string, err error)
+	onHandStart func(d time.Duration)
 
 	// ctx is cancelled by Destroy; posts select on it so callers of a
 	// destroyed table get ErrTableDestroyed instead of blocking forever. It is
@@ -285,19 +308,17 @@ type Table struct {
 	// ---- actor-owned state: touch ONLY from closures run by loop ----
 	// liveDirty marks that observable state changed inside the running
 	// closure; run() saves one snapshot to the LIVE store when the closure
-	// ends. durableDirty marks that the same snapshot must also reach the
-	// DURABLE backstop (PostgreSQL game_states) — set by markDurable at the
-	// two hand boundaries and nowhere else (see markDurable).
-	liveDirty    bool
-	durableDirty bool
-	seats        []*seat // len == cfg.MaxPlayers; nil = empty
-	handNo       int
-	hand         *hand
-	dealerSeat   int        // -1 before the first hand
-	startsAt     *time.Time // countdown target while state == starting
-	chat         *RoomChat
-	turnTimer    Timer
-	startTimer   Timer
+	// ends. The live store is the ONLY place game state is kept — nothing
+	// about a table is ever written to PostgreSQL (LIVE_STATE_PLAN.md).
+	liveDirty  bool
+	seats      []*seat // len == cfg.MaxPlayers; nil = empty
+	handNo     int
+	hand       *hand
+	dealerSeat int        // -1 before the first hand
+	startsAt   *time.Time // countdown target while state == starting
+	chat       *RoomChat
+	turnTimer  Timer
+	startTimer Timer
 	// startTimerGen names the armed start timer, so a callback whose timer
 	// was stopped a moment too late (time.AfterFunc's Stop can lose that
 	// race) is recognised as stale — the same guard hand.turnToken gives
@@ -404,7 +425,7 @@ func newTableCore(opts TableOptions) *Table {
 		live:        opts.Live,
 		liveTTL:     liveTTL,
 		liveErrors:  opts.LiveErrors,
-		snapshots:   opts.Snapshots,
+		onHandStart: opts.ObserveHandStart,
 		posts:       make(chan func()),
 		seats:       make([]*seat, cfg.MaxPlayers),
 		dealerSeat:  -1,
@@ -1035,6 +1056,16 @@ func (t *Table) removePlayer(userID, reason string) *SeatInfo {
 		if entry := t.hand.contributions[userID]; entry != nil {
 			entry.leftMidHand = true
 		}
+		// CHECKPOINT 1 of 3 — A LEAVE OR SWITCH. They are gone, so their
+		// wallet must be right NOW: they may sit down elsewhere or read their
+		// balance at once. Their stake stays in the pot (leaving mid-hand is
+		// a pack), and this is the row that resolves the hand for them —
+		// hands_left_mid lands here, because they will not be at the
+		// hand-end write.
+		if entry := t.hand.contributions[userID]; entry != nil {
+			entry.chips = s.chips
+			t.checkpoint(entry, LedgerReasonHandLeft, LeftActionID(t.hand.id, userID), true)
+		}
 		departed := userID
 		t.hand.lastDeparture = &departed
 		t.listener.OnAction(t.view, ActionEvent{
@@ -1134,20 +1165,20 @@ func (t *Table) cancelStart() {
 	t.emitState()
 }
 
-// startHand (_startHand) deals database-first. If destroyed or a hand is live
-// → nil. sweepUnfunded(); participants = funded seats; if < MinPlayers →
-// state waiting, startsAt nil, emit state, return. Build the hand BESIDE the
-// table (id util.UUID(), handNo+1, pot = boot × n, stake = boot, round 0,
-// dealerSeat = nextOccupiedSeat(dealerSeat, participants), Deal(n,3),
-// contributions per participant {contributed boot, status active, cards,
-// persisted 0}). Ledger.CollectBoot with Version+1 and
-// snapshot(hand-to-be); on error → startRefused(err). On success: version++,
-// every contribution.persisted = result.Persisted, adopt handNo/dealerSeat,
-// reset EVERY occupied seat (cards [], isBlind true, blindMoves 0, lastBet 0,
-// lastAction nil, contributed 0, status active if participant else waiting),
-// give participants their cards, contributed = boot, chips = Balances[id] if
-// present else chips - boot; state betting; startsAt nil; emit handStarted;
-// startSeat = nextActiveSeat(dealerSeat); setTurn(startSeat); emit state.
+// startHand (_startHand) deals. Since 9 Sep 2026 it writes NOTHING to
+// PostgreSQL (owner's decision; see the Ledger doc): the boot comes out of
+// each seat in memory and the whole hand lives in the live store until a
+// checkpoint — a pack, a departure, or the hand ending — brings a player's
+// wallet up to date.
+//
+// If destroyed or a hand is live → nil. sweepUnfunded(); participants =
+// funded seats; if < MinPlayers → state waiting, startsAt nil, emit state,
+// return. Builds the hand (id util.UUID(), handNo+1, pot = boot × n, stake =
+// boot, round 0, dealerSeat = nextOccupiedSeat(dealerSeat, participants),
+// Deal(n,3), a contribution per participant recording `chipsWritten` = the
+// seat's stack BEFORE the boot, which is what PostgreSQL still holds), resets
+// every occupied seat, deals the cards, takes the boot, state betting,
+// emits handStarted, opens the turn at nextActiveSeat(dealerSeat).
 func (t *Table) startHand() {
 	if t.destroyed.Load() {
 		return
@@ -1155,6 +1186,7 @@ func (t *Table) startHand() {
 	if t.hand != nil {
 		return
 	}
+	started := t.clock.Now()
 
 	// Requirement 32: the boot is about to come out of everyone, so this is
 	// the moment to show out anyone who cannot cover it. Doing it here as well
@@ -1176,12 +1208,10 @@ func (t *Table) startHand() {
 	dealerSeat := t.nextOccupiedSeat(t.dealerSeat, participants)
 	deals, _ := Deal(len(participants), 3)
 
-	// The hand as it will be once the boots have been paid — built beside the
-	// table, not on it, and shown to the database before it is adopted.
 	h := &hand{
 		id:            handID,
 		handNo:        handNo,
-		startedAt:     t.clock.Now(),
+		startedAt:     started,
 		pot:           bootAmount * int64(len(participants)),
 		stake:         bootAmount,
 		round:         0,
@@ -1191,6 +1221,7 @@ func (t *Table) startHand() {
 		seatOrder:     make([]int, 0, len(participants)),
 		contributions: make(map[string]*contribution, len(participants)),
 		contribOrder:  make([]string, 0, len(participants)),
+		actionIDs:     map[string]struct{}{},
 	}
 	for i, s := range participants {
 		h.seatOrder = append(h.seatOrder, s.seatIndex)
@@ -1204,34 +1235,14 @@ func (t *Table) startHand() {
 			cards:       deals[i],
 			didChaal:    false,
 			leftMidHand: false,
-			persisted:   0,
+			// PostgreSQL still holds the pre-boot figure: nothing is written
+			// at the deal.
+			chipsWritten: s.chips,
+			chips:        s.chips - bootAmount,
 		}
 		h.contribOrder = append(h.contribOrder, s.userID)
 	}
 
-	entries := make([]BootEntry, 0, len(participants))
-	for _, s := range participants {
-		entries = append(entries, BootEntry{UserID: s.userID, Amount: bootAmount, BalanceBefore: s.chips})
-	}
-	result, err := t.ledger.CollectBoot(t.ctx, CollectBootRequest{
-		RoomID:     t.id,
-		HandID:     handID,
-		BootAmount: bootAmount,
-		Entries:    entries,
-	})
-	if err != nil {
-		t.startRefused(err)
-		return
-	}
-	t.version.Add(1)
-
-	// Committed. Now, and only now, the table takes the hand on. The ledger
-	// says how much of each boot it actually banked: all of it in production,
-	// nothing for a table that keeps no books — settlement then moves whatever
-	// is left, which is how the unit suites can still check conservation.
-	for _, entry := range h.contributions {
-		entry.persisted = result.Persisted
-	}
 	t.handNo = handNo
 	t.dealerSeat = dealerSeat
 	isParticipant := make(map[*seat]bool, len(participants))
@@ -1254,12 +1265,7 @@ func (t *Table) startHand() {
 	for i, s := range participants {
 		s.cards = deals[i]
 		s.contributed = bootAmount
-		// The database's figure wins over what the seat believed it had.
-		if balance, ok := result.Balances[s.userID]; ok {
-			s.chips = balance
-		} else {
-			s.chips -= bootAmount
-		}
+		s.chips -= bootAmount
 	}
 
 	t.setHand(h)
@@ -1285,46 +1291,10 @@ func (t *Table) startHand() {
 	h.startSeat = firstSeat
 	t.setTurn(firstSeat, true)
 	t.emitState()
-
-	// DURABLE BOUNDARY 1 of 2 — HAND START. The boots are collected, the
-	// cards are dealt and the first turn is open: this is the hand's opening
-	// state, the one the boot transaction that has just committed
-	// corresponds to. PostgreSQL is written here and at the end of the hand
-	// and nowhere in between (LIVE_STATE_PLAN.md, "The durable backstop"):
-	// a snapshot per table per second competed with the money for the same
-	// disk and halved the usable ceiling. A restore from this row is
-	// reconciled against the ledger, which is never behind (see
-	// ReconcileWithLedger).
-	t.markDurable()
-}
-
-// startRefused (_startRefused): emit persistError{reason "boot"}; state
-// waiting; startsAt nil. If err is insufficient_chips with UserID and that
-// seat exists: seat.chips = min(chips, boot-1) and kick(seat,
-// insufficient_chips, KickMessageInsufficientChips). Else if not destroyed:
-// arm startTimer(NextHandDelay) → run(maybeStart). Emit state.
-func (t *Table) startRefused(err error) {
-	t.listener.OnPersistError(t.view, PersistErrorEvent{Reason: LedgerReasonBoot, Err: err})
-	t.setState(TableWaiting)
-	t.startsAt = nil
-
-	var ge *GameError
-	if errors.As(err, &ge) && ge.Code == CodeInsufficientChips && ge.UserID != "" {
-		if s := t.findSeat(ge.UserID); s != nil {
-			// Whatever the seat thought, the account cannot cover the boot.
-			s.chips = min(s.chips, t.cfg.BootAmount-1)
-			t.kick(s, KickReasonInsufficientChips, KickMessageInsufficientChips)
-		}
-	} else if !t.destroyed.Load() {
-		// The database was unavailable or refused for another reason: try again
-		// shortly rather than leaving a full table waiting forever.
-		t.armStartTimer(func() { t.maybeStart() })
+	if t.onHandStart != nil {
+		t.onHandStart(t.clock.Now().Sub(started))
 	}
-
-	t.emitState()
 }
-
-// ------------------------------------------------------------- turn flow
 
 // nextOccupiedSeat (_nextOccupiedSeat): the first seat strictly clockwise
 // after fromSeat whose index is in pool; falls back to pool[0].
@@ -1704,59 +1674,103 @@ func (t *Table) sideshowBlockedReason(s *seat) string {
 	return ""
 }
 
-// chargeToPot (_chargeToPot) moves chips from a seat into the pot: the
-// database transaction first, the table's own figures only after it has
-// committed. Returns the refusal (and changes nothing) when the write fails.
+// chargeToPot (_chargeToPot) moves chips from a seat into the pot. Since the
+// owner's decision of 9 Sep 2026 it writes NOTHING to PostgreSQL: the money
+// moves in the table's memory and, through the snapshot flushed at the end of
+// this closure, in the live store. The wallet catches up at the next
+// checkpoint — this player packing, leaving, or the hand ending.
+//
+// The two refusals the database used to produce are made here instead:
+//
+//   - duplicate_action, when this hand has already accepted that action id (a
+//     replayed request; the chip_ledger UNIQUE index used to catch it);
+//   - insufficient_chips, when the seat does not hold the stake. The seat is
+//     the live truth for the stack, so this IS the balance check.
 func (t *Table) chargeToPot(s *seat, amount int64, actionID, reason string) error {
 	// A client id is an opaque idempotency token. The ledger's own action ids
-	// ("<handId>:boot:<userId>", "<handId>:settle:<userId>",
-	// "<userId>:milestone:<n>") are the only colon-separated ones, and a client
-	// must never be able to occupy one of those keys ahead of the server —
-	// a bet carrying another player's "<userId>:milestone:25" would make that
-	// player's milestone claim fail on the UNIQUE index. The socket layer
-	// applies the same rule; this is the last line.
+	// ("<handId>:settle:<userId>", "<handId>:packed:<userId>",
+	// "<handId>:left:<userId>", "<userId>:milestone:<n>") are the only
+	// colon-separated ones, and a client must never be able to occupy one of
+	// those keys ahead of the server — a bet carrying another player's
+	// "<userId>:milestone:25" would make that player's milestone claim fail
+	// on the UNIQUE index. The socket layer applies the same rule; this is
+	// the last line.
 	if actionID == "" || strings.ContainsRune(actionID, reservedActionIDSeparator) {
 		actionID = util.UUID()
 	}
-	result, err := t.ledger.Bet(t.ctx, BetRequest{
-		UserID:        s.userID,
-		Amount:        amount,
-		RoomID:        t.id,
-		HandID:        t.hand.id,
-		ActionID:      actionID,
-		Reason:        reason,
-		BalanceBefore: s.chips,
-	})
-	if err != nil {
+	if _, seen := t.hand.actionIDs[actionID]; seen {
+		err := &GameError{Code: CodeDuplicateAction, Message: MsgDuplicateAction}
 		t.listener.OnPersistError(t.view, PersistErrorEvent{UserID: s.userID, Delta: -amount, Reason: reason, Err: err})
-		return t.refusal(err)
+		return err
 	}
-	t.version.Add(1)
+	if s.chips < amount {
+		err := &GameError{Code: CodeInsufficientChips, Message: MsgInsufficientForBet}
+		t.listener.OnPersistError(t.view, PersistErrorEvent{UserID: s.userID, Delta: -amount, Reason: reason, Err: err})
+		return err
+	}
 
-	// How much of this bet the account has actually been debited. The real
-	// ledger banks all of it; a bookless test ledger banks none, and then
-	// settlement carries the whole net.
-	s.chips = result.Balance
+	t.hand.actionIDs[actionID] = struct{}{}
+	s.chips -= amount
 	s.contributed += amount
 	t.hand.pot += amount
 
 	if existing := t.hand.contributions[s.userID]; existing != nil {
 		existing.contributed = s.contributed
-		existing.persisted += result.Persisted
+		existing.chips = s.chips
 	} else {
 		t.hand.contributions[s.userID] = &contribution{
-			userID:      s.userID,
-			displayName: s.displayName,
-			seatIndex:   s.seatIndex,
-			contributed: s.contributed,
-			status:      s.status,
-			sawCards:    !s.isBlind,
-			cards:       s.cards,
-			persisted:   result.Persisted,
+			userID:       s.userID,
+			displayName:  s.displayName,
+			seatIndex:    s.seatIndex,
+			contributed:  s.contributed,
+			status:       s.status,
+			sawCards:     !s.isBlind,
+			cards:        s.cards,
+			chips:        s.chips,
+			chipsWritten: s.chips + amount,
 		}
 		t.hand.contribOrder = append(t.hand.contribOrder, s.userID)
 	}
 	return nil
+}
+
+// checkpoint writes ONE player's chips through to PostgreSQL — the pack
+// checkpoint and the leave/switch checkpoint (the hand end goes through
+// endHand's Settle, which does the same arithmetic for everyone at once).
+//
+// delta = the stack the live state has now MINUS the stack PostgreSQL was
+// last given. A player written twice therefore moves money once: the second
+// delta is zero and the row records only the outcome. Never an absolute
+// overwrite — see the Ledger doc.
+//
+// A failure is reported (persistError) and never refuses the move: the pack
+// or the departure has already happened at the table. The wallet is then
+// behind by that player's stake until the hand-end write catches it up (their
+// chipsWritten was not advanced), which is why nothing is lost.
+func (t *Table) checkpoint(entry *contribution, reason string, actionID string, outcome bool) {
+	if entry == nil {
+		return
+	}
+	delta := entry.chips - entry.chipsWritten
+	req := CheckpointRequest{
+		RoomID: t.id,
+		HandID: t.hand.id,
+		Entry: SettleEntry{
+			UserID:      entry.userID,
+			Delta:       delta,
+			ActionID:    actionID,
+			Reason:      reason,
+			Outcome:     outcome,
+			DidChaal:    entry.didChaal,
+			LeftMidHand: entry.leftMidHand,
+		},
+	}
+	if _, err := t.ledger.Checkpoint(t.ctx, req); err != nil {
+		t.listener.OnPersistError(t.view, PersistErrorEvent{UserID: entry.userID, Delta: delta, Reason: reason, HandID: t.hand.id, Err: err})
+		return
+	}
+	t.version.Add(1)
+	entry.chipsWritten = entry.chips
 }
 
 // refusal (_refusal) maps a Ledger error onto the GameError the player is
@@ -1787,6 +1801,7 @@ func (t *Table) syncContribution(s *seat, status SeatState) {
 	entry.status = status
 	entry.sawCards = !s.isBlind
 	entry.cards = s.cards
+	entry.chips = s.chips
 }
 
 // ---------------------------------------------------------------- actions
@@ -2003,6 +2018,12 @@ func (t *Table) pack(s *seat, reason string, advanceTurn bool) ActResult {
 	s.lastAction = ActionPtr(ActionPack)
 	t.hand.packedUserIDs[s.userID] = struct{}{}
 	t.syncContribution(s, SeatPacked)
+
+	// CHECKPOINT 2 of 3 — A PACK. Their stake is fixed the moment they fold,
+	// so the wallet is brought up to date now rather than at the hand end
+	// (owner's decision of 9 Sep 2026). The outcome row still comes at the
+	// settlement, where the delta is zero and the counters land.
+	t.checkpoint(t.hand.contributions[s.userID], LedgerReasonHandPacked, PackedActionID(t.hand.id, s.userID), false)
 
 	t.listener.OnAction(t.view, ActionEvent{
 		UserID: s.userID,
@@ -2327,21 +2348,28 @@ func (t *Table) resolveShowdown(contenders []*seat, reason WinReason, showReques
 
 // ------------------------------------------------------------- hand end
 
-// endHand (_endHand) settles. clearTurnTimer; stop sideshow timer; endedAt =
-// now. Winner seat → status won (or mark the contribution if they left).
-// contributors = contributions with contributed > 0. entries: net = pot -
-// contributed (winner), -contributed (loser), 0 (no winner); delta = net +
-// persisted. summary = HandSummaryEntry per contributor with cards only for
-// revealed users. record = HandRecord. version = Version+1; state =
-// snapshot(hand nil, state waiting). Ledger.Settle → on success version =
-// that, settledInDb; on error emit persistError{reason "settle"}. Adopt every
-// returned balance onto its seat. If the winner is seated and balances LACKS
-// their key → chips += pot (key presence, not truthiness). If !settledInDb →
-// retrySettle(args, 1). hand = nil; state waiting; emit handEnded{nextHandAt
-// = now + NextHandDelay}; emit state; maybeStart().
+// endHand (_endHand) settles: CHECKPOINT 3 of 3 — THE HAND END, the one that
+// resolves everybody still at the table.
 //
-// This is the ONE place memory changes before the write commits — the hand
-// IS over whatever the database says next.
+// clearTurnTimer; stop the sideshow timer; endedAt = now; the winner's seat
+// takes the pot IN MEMORY (the live state is the truth for a stack), then one
+// SettleEntry per player still at the table — packers included, because their
+// outcome row and its counters belong here even though their money moved at
+// the pack — plus the winner when they have already left (ALL_LEFT), whose
+// pot would otherwise be credited to nobody.
+//
+//	delta   = contribution.chips − contribution.chipsWritten
+//	reason  = hand_win for the winner, hand_loss for everyone else
+//	Outcome = true: this is the row that carries hands_played / hands_won /
+//	          hands_lost / total_winnings / biggest_pot
+//
+// A packer's delta is zero here (their pack checkpoint already moved it), so
+// the money moves once and the row records only the outcome — exactly what a
+// losing player's row has always been. A player who LEFT is not written here:
+// their leave checkpoint resolved them and counted hands_left_mid.
+//
+// On failure the hand is over anyway — memory is already right — and retrySettle re-sends the identical
+// request until it lands; the per-entry action ids make that safe.
 func (t *Table) endHand(winnerID *string, reason WinReason, reveals []Reveal) {
 	h := t.hand
 	if h == nil {
@@ -2364,16 +2392,21 @@ func (t *Table) endHand(winnerID *string, reason WinReason, reveals []Reveal) {
 	}
 	if winnerSeat != nil {
 		winnerSeat.status = SeatWon
+		// The pot is paid in memory first: the live state is what the
+		// checkpoint below writes through.
+		winnerSeat.chips += h.pot
 		t.syncContribution(winnerSeat, SeatWon)
 	} else if winnerID != nil {
-		// The winner has already left; mark their contribution record instead.
+		// The winner has already left. Their leave checkpoint took their
+		// stake; the pot still has to reach them, so their contribution is
+		// credited and written even though they have no seat.
 		if entry := h.contributions[*winnerID]; entry != nil {
 			entry.status = SeatWon
+			entry.chips += h.pot
 		}
 	}
 
-	// Everyone who put chips in this hand, including players who have since
-	// left the table — their stake still has to be settled and audited.
+	// Everyone who put chips in this hand, in the order they joined it.
 	contributors := make([]*contribution, 0, len(h.contribOrder))
 	for _, userID := range h.contribOrder {
 		if entry := h.contributions[userID]; entry != nil && entry.contributed > 0 {
@@ -2381,32 +2414,31 @@ func (t *Table) endHand(winnerID *string, reason WinReason, reveals []Reveal) {
 		}
 	}
 
-	// With no winner (every player vanished mid-hand) the pot is void and each
-	// contribution is returned rather than quietly destroyed.
 	entries := make([]SettleEntry, 0, len(contributors))
 	for _, entry := range contributors {
 		isWinner := winnerID != nil && entry.userID == *winnerID
-
-		// What this hand costs or pays this player overall...
-		var net int64
-		if winnerID != nil {
-			if isWinner {
-				net = h.pot - entry.contributed
-			} else {
-				net = -entry.contributed
-			}
+		if entry.leftMidHand && !isWinner {
+			// Resolved at their own checkpoint when they walked out.
+			continue
 		}
-
-		// ...less whatever was already taken from their account as they bet. A
-		// loser who has been banked all the way owes nothing further; a winner is
-		// paid the whole pot; and with no winner at all, a banked contribution is
-		// handed back.
+		rowReason := LedgerReasonHandLoss
+		if isWinner {
+			rowReason = LedgerReasonHandWin
+		}
+		var pot int64
+		if isWinner {
+			pot = h.pot
+		}
 		entries = append(entries, SettleEntry{
 			UserID:      entry.userID,
-			Delta:       net + entry.persisted,
+			Delta:       entry.chips - entry.chipsWritten,
+			ActionID:    SettleActionID(h.id, entry.userID),
+			Reason:      rowReason,
+			Outcome:     true,
 			IsWinner:    isWinner,
 			DidChaal:    entry.didChaal,
 			LeftMidHand: entry.leftMidHand,
+			Pot:         pot,
 		})
 	}
 
@@ -2431,58 +2463,23 @@ func (t *Table) endHand(winnerID *string, reason WinReason, reveals []Reveal) {
 		})
 	}
 
-	var recordWinner *string
-	if winnerID != nil {
-		recordWinner = StrPtr(*winnerID)
-	}
-	record := HandRecord{
-		ID:         h.id,
-		RoomID:     t.id,
-		HandNo:     h.handNo,
-		Pot:        h.pot,
-		WinnerID:   recordWinner,
-		WinReason:  reason,
-		BootAmount: t.cfg.BootAmount,
-		StartedAt:  Millis(h.startedAt),
-		EndedAt:    Millis(h.endedAt),
-		Summary:    summary,
-	}
-
-	// The hand is over whatever the database says next.
-	settleReq := SettleRequest{Hand: record, Entries: entries}
-	balances, err := t.ledger.Settle(t.ctx, settleReq)
-	settledInDb := false
+	// The hand is over whatever the database says next: the pot is already at
+	// the winner's seat and every stack is final. The write only makes the
+	// wallets agree.
+	settleReq := SettleRequest{RoomID: t.id, HandID: h.id, Entries: entries}
+	_, err := t.ledger.Settle(t.ctx, settleReq)
 	if err != nil {
 		t.listener.OnPersistError(t.view, PersistErrorEvent{Reason: "settle", HandID: h.id, Err: err})
-		balances = nil
+		// Keep trying — the write is idempotent (per-player action ids), so a
+		// late success moves each wallet exactly once. chipsWritten is NOT
+		// advanced, so if the retries are abandoned the next checkpoint for
+		// that player still carries this hand's delta.
+		t.retrySettle(settleReq, 1)
 	} else {
 		t.version.Add(1)
-		settledInDb = true
-	}
-	if balances == nil {
-		balances = SettleResult{}
-	}
-
-	for userID, balance := range balances {
-		if s := t.findSeat(userID); s != nil {
-			s.chips = balance
+		for _, entry := range contributors {
+			entry.chipsWritten = entry.chips
 		}
-	}
-
-	// Settlement failed (or did not cover the winner): keep the in-memory books
-	// consistent so play can continue. Tested by key presence, not truthiness —
-	// a settled balance of exactly 0 is a valid result, not a missing one.
-	if winnerSeat != nil {
-		if _, ok := balances[winnerSeat.userID]; !ok {
-			winnerSeat.chips += h.pot
-		}
-	}
-
-	if !settledInDb {
-		// The winner has not been paid in the database yet. Keep trying — the
-		// write is idempotent (hand id, per-player action ids), so a late success
-		// pays exactly once.
-		t.retrySettle(settleReq, 1)
 	}
 
 	var winnerName *string
@@ -2498,12 +2495,16 @@ func (t *Table) endHand(winnerID *string, reason WinReason, reveals []Reveal) {
 	t.setState(TableWaiting)
 
 	nextHandAt := t.clock.Now().Add(t.cfg.NextHandDelay)
+	var wireWinner *string
+	if winnerID != nil {
+		wireWinner = StrPtr(*winnerID)
+	}
 	t.listener.OnHandEnded(t.view, HandEndedEvent{
-		HandID:     record.ID,
-		HandNo:     record.HandNo,
-		WinnerID:   record.WinnerID,
+		HandID:     h.id,
+		HandNo:     h.handNo,
+		WinnerID:   wireWinner,
 		WinnerName: winnerName,
-		Pot:        record.Pot,
+		Pot:        h.pot,
 		Reason:     reason,
 		Reveals:    reveals,
 		Summary:    summary,
@@ -2511,15 +2512,6 @@ func (t *Table) endHand(winnerID *string, reason WinReason, reveals []Reveal) {
 	})
 
 	t.emitState()
-
-	// DURABLE BOUNDARY 2 of 2 — HAND END. Settlement is done, the hand is
-	// gone and the seats carry their settled chips: the table is at rest.
-	// This write is the one that matters most — without it a restore from
-	// the hand-start row would resurrect a hand that has already been paid
-	// out. maybeStart below may arm the next countdown in this same closure;
-	// the snapshot the flush takes then says `starting` with no hand, which
-	// is still the table at rest.
-	t.markDurable()
 
 	t.maybeStart()
 }
@@ -2548,7 +2540,7 @@ func (t *Table) retrySettle(req SettleRequest, attempt int) {
 		return
 	}
 	if attempt > settleMaxAttempts {
-		t.listener.OnError(t.view, fmt.Errorf("settlement of hand %s failed after %d attempts", req.Hand.ID, settleMaxAttempts))
+		t.listener.OnError(t.view, fmt.Errorf("settlement of hand %s failed after %d attempts", req.HandID, settleMaxAttempts))
 		return
 	}
 
@@ -2561,7 +2553,7 @@ func (t *Table) retrySettle(req SettleRequest, attempt int) {
 			delete(t.retryTimers, gen)
 			balances, err := t.ledger.Settle(t.ctx, req)
 			if err != nil && CodeOf(err, "") != CodeDuplicateAction {
-				t.listener.OnPersistError(t.view, PersistErrorEvent{Reason: "settle_retry", HandID: req.Hand.ID, Attempt: attempt, Err: err})
+				t.listener.OnPersistError(t.view, PersistErrorEvent{Reason: "settle_retry", HandID: req.HandID, Attempt: attempt, Err: err})
 				t.retrySettle(req, attempt+1)
 				return
 			}
@@ -2614,7 +2606,7 @@ func (t *Table) settleDetached(req SettleRequest, attempt int) {
 // when it lands or is abandoned.
 func (t *Table) settleDetachedFrom(req SettleRequest, attempt int) {
 	if attempt > settleMaxAttempts {
-		t.finishDetached(req.Hand.ID, false)
+		t.finishDetached(req.HandID, false)
 		return
 	}
 	t.clock.AfterFunc(t.settleRetryDelay(attempt), func() {
@@ -2624,7 +2616,7 @@ func (t *Table) settleDetachedFrom(req SettleRequest, attempt int) {
 			return
 		}
 		t.version.Add(1)
-		t.finishDetached(req.Hand.ID, true)
+		t.finishDetached(req.HandID, true)
 	})
 }
 
@@ -2733,12 +2725,8 @@ func (t *Table) destroy() {
 	t.chat.Clear()
 	if !fenced {
 		t.liveDelete()
-		if t.snapshots != nil {
-			t.snapshots.MarkDeleted(t.id)
-		}
 	}
 	t.liveDirty = false
-	t.durableDirty = false
 	t.cancel()
 }
 
@@ -2748,7 +2736,8 @@ func (t *Table) destroy() {
 // the live store holds (see Snapshot). Every field RestoreTable reads is
 // here; the pair is an identity (TestSnapshotRoundTripIsLossless). Node's
 // _snapshot rendered a hand "as it will be" for the ledger's game_states
-// write; that write is gone, so the snapshot is always the table as it is.
+// write; PostgreSQL holds no game state at all now, so the snapshot is
+// always the table as it is, and it only ever goes to the live store.
 func (t *Table) snapshot() *Snapshot {
 	seats := make([]*SnapshotSeat, len(t.seats))
 	for index, s := range t.seats {
@@ -2794,16 +2783,17 @@ func (t *Table) snapshot() *Snapshot {
 				continue
 			}
 			contributions = append(contributions, SnapshotContribution{
-				UserID:      entry.userID,
-				Contributed: entry.contributed,
-				Persisted:   entry.persisted,
-				Status:      entry.status,
-				DidChaal:    entry.didChaal,
-				LeftMidHand: entry.leftMidHand,
-				DisplayName: entry.displayName,
-				SeatIndex:   entry.seatIndex,
-				SawCards:    entry.sawCards,
-				Cards:       CardCodes(entry.cards),
+				UserID:       entry.userID,
+				Contributed:  entry.contributed,
+				Status:       entry.status,
+				DidChaal:     entry.didChaal,
+				LeftMidHand:  entry.leftMidHand,
+				DisplayName:  entry.displayName,
+				SeatIndex:    entry.seatIndex,
+				SawCards:     entry.sawCards,
+				Cards:        CardCodes(entry.cards),
+				Chips:        entry.chips,
+				ChipsWritten: entry.chipsWritten,
 			})
 		}
 		packed := make([]string, 0, len(h.packedUserIDs))
@@ -2811,6 +2801,11 @@ func (t *Table) snapshot() *Snapshot {
 			packed = append(packed, userID)
 		}
 		sort.Strings(packed)
+		actionIDs := make([]string, 0, len(h.actionIDs))
+		for id := range h.actionIDs {
+			actionIDs = append(actionIDs, id)
+		}
+		sort.Strings(actionIDs)
 		seatOrder := make([]int, len(h.seatOrder))
 		copy(seatOrder, h.seatOrder)
 		snapHand = &SnapshotHand{
@@ -2825,6 +2820,7 @@ func (t *Table) snapshot() *Snapshot {
 			Contributions: contributions,
 			PackedUserIDs: packed,
 			SeatOrder:     seatOrder,
+			ActionIDs:     actionIDs,
 		}
 		if h.showRequestedBy != nil {
 			snapHand.ShowRequestedBy = StrPtr(*h.showRequestedBy)

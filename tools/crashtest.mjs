@@ -12,9 +12,20 @@
  *
  * Chips are the point. PostgreSQL is the authority, so every scenario ends by
  * proving that each wallet still equals the sum of its own ledger rows and
- * that wallets plus open pots hold exactly what they held before the failure.
- * A hand that cannot be resumed must have its pot returned to the players who
- * paid into it, exactly once — never settled and refunded both.
+ * that no chips were created.
+ *
+ * Since 9 Sep 2026 (LIVE_STATE_PLAN.md) PostgreSQL holds MONEY AND AUDIT ONLY
+ * — `users` and `chip_ledger`, nothing else — and is written at exactly three
+ * moments: a player packs, a player leaves or switches, and the hand ends.
+ * The deal and every bet move chips in Redis and nowhere else. So losing
+ * Redis loses the TABLES and the hand never happened: whatever PostgreSQL
+ * holds is the players' balance, and for anyone who had not been checkpointed
+ * that is their PRE-HAND balance (the owner's example 1).
+ *
+ * The one accepted consequence, owner-approved: a player who PACKED before
+ * the loss keeps their reduced balance while nobody wins the pot, so those
+ * chips leave the economy. The tests below allow the total to fall by exactly
+ * that much and never by more, and never to rise.
  *
  *   node crashtest.mjs                          # every scenario
  *   node crashtest.mjs --scenario redis-loss    # one of: crash, redis-flush, redis-loss, no-redis
@@ -73,24 +84,34 @@ class Books {
   async q(text, params = []) { return (await this.pool.query({ text: text.replaceAll('%S%', `"${this.schema}"`), values: params })).rows; }
   async snapshot() {
     const [w] = await this.q('select coalesce(sum(chips),0) as chips, count(*) as users from %S%.users');
-    const [p] = await this.q('select coalesce(sum(amount),0) as open_amount, count(*) as open_pots from %S%.pots where closed_at is null');
     const mismatched = await this.q(`select u.id, u.chips, l.s from %S%.users u
         join (select user_id, sum(delta) s from %S%.chip_ledger group by user_id) l on l.user_id = u.id
         where l.s <> u.chips`);
     const byReason = await this.q('select reason, count(*) as n, sum(delta) as delta from %S%.chip_ledger group by reason order by reason');
-    const [g] = await this.q('select count(*) as rows from %S%.game_states');
-    return { chips: w.chips, users: w.users, openPots: p.open_pots, openAmount: p.open_amount,
-             total: w.chips + p.open_amount, mismatched, byReason, gameStates: g.rows };
+    const perUser = await this.q('select id, chips from %S%.users order by id');
+    // A hand whose rows do not sum to zero is one the failure interrupted:
+    // its packers were charged and nobody was paid.
+    const [stranded] = await this.q(`select coalesce(-sum(net), 0) as chips from (
+        select sum(delta) as net from %S%.chip_ledger where hand_id is not null group by hand_id having sum(delta) <> 0
+      ) x`);
+    return { chips: w.chips, users: w.users, total: w.chips, mismatched, byReason,
+             stranded: stranded.chips,
+             wallets: Object.fromEntries(perUser.map((r) => [r.id, r.chips])) };
   }
-  /** Any trace of chat text anywhere in the durable snapshots. */
-  async chatInDurable(mark) {
-    const [r] = await this.q("select count(*) as n from %S%.game_states where state::text like $1", [`%${mark}%`]);
-    return r.n;
+  /** Which tables the schema has — PostgreSQL must hold no game state. */
+  async tables() {
+    return (await this.pool.query(
+      { text: 'select tablename from pg_tables where schemaname = $1 order by tablename', values: [this.schema] })).rows.map((r) => r.tablename);
   }
+  async ledgerFor(userId) {
+    const [r] = await this.q('select coalesce(sum(delta),0) as s, count(*) as n from %S%.chip_ledger where user_id = $1', [userId]);
+    return r;
+  }
+  /** A player resolved twice in one hand — a win/loss/left row written twice. */
   async doubleClosed() {
-    return this.q(`select hand_id from %S%.chip_ledger where reason in ('hand_win','hand_loss')
-                   intersect
-                   select hand_id from %S%.chip_ledger where reason = 'refund'`);
+    return this.q(`select hand_id, user_id from %S%.chip_ledger
+                    where reason in ('hand_win','hand_loss','hand_left')
+                    group by hand_id, user_id having count(*) > 1`);
   }
   async drop() { try { await this.q('drop schema if exists %S% cascade'); } catch {} }
   async close() { await this.pool.end().catch(() => {}); }
@@ -122,7 +143,7 @@ function startServer({ port, schema, logDir, name, redisUrl }) {
     TABLE_STAKES: '', LOBBY_TABLES: '', BOOT_AMOUNT: '200', WELCOME_CHIPS: '200000',
     TURN_TIMEOUT_MS: '25000', NEXT_HAND_DELAY_MS: '1500', RECONNECT_GRACE_MS: '60000',
     // Short enough that the test does not wait long for the self-healing paths.
-    SNAPSHOT_FLUSH_MS: '400', LIVE_RECONCILE_MS: '3000',
+    LIVE_RECONCILE_MS: '3000',
     LOG_LEVEL: 'info', PUBLIC_DIR: path.join(here, '..', 'go-server', 'public'),
     REDIS_URL: redisUrl ?? '',
   };
@@ -277,9 +298,15 @@ async function auditBooks(books, before, label = '') {
   say(`     ledger: ${after.byReason.map((r) => `${r.reason} ${r.n}`).join(', ')}`);
   check(after.mismatched.length === 0, `every wallet equals the sum of its own ledger rows${label}`,
     after.mismatched.length ? JSON.stringify(after.mismatched.slice(0, 3)) : `${after.users} accounts`);
-  check(after.total === before.total, `wallets plus open pots hold what they held before${label}`,
-    `${after.total} vs ${before.total}`);
-  check(dbl.length === 0, 'no hand was both settled and refunded', dbl.length ? JSON.stringify(dbl) : '');
+  // THE conservation law of this design: wallets plus what an unfinished hand
+  // has already taken from its packers is constant. A hand in flight moves
+  // chips from wallets into "stranded"; finishing it moves them back; losing
+  // Redis leaves them stranded for good (owner-approved). Nothing is ever
+  // created either way.
+  check(after.total + after.stranded === before.total + before.stranded,
+    `wallets plus chips held by an unfinished hand are unchanged${label}`,
+    `${after.total}+${after.stranded} vs ${before.total}+${before.stranded}`);
+  check(dbl.length === 0, 'no player was resolved twice in one hand', dbl.length ? JSON.stringify(dbl) : '');
   return after;
 }
 
@@ -297,13 +324,13 @@ async function main() {
     await sleep(6000);
     const h1 = await health(ctx.baseUrl);
     const before = await ctx.books.snapshot();
-    say(`     ${h1.tables} tables, ${h1.activeHands} hands running, ${before.openPots} open pots holding ${before.openAmount} chips`);
+    say(`     ${h1.tables} tables, ${h1.activeHands} hands running; wallets hold ${before.total}`);
     check(h1.activeHands > 0, 'a hand is in progress when we kill the server', `${h1.activeHands} active`);
     check(redis.keys('kt:table:*').length === h1.tables, 'Redis holds a snapshot for every table',
       `${redis.keys('kt:table:*').length} of ${h1.tables}`);
     postChat(recs); await sleep(1200);
     check(redis.keys('kt:chat:*').length > 0, 'chat is mirrored to the live store', `${redis.keys('kt:chat:*').length} rooms`);
-    check((await ctx.books.chatInDurable(CHAT_MARK)) === 0, 'and no chat text reached PostgreSQL');
+    check((await ctx.books.tables()).join(',') === 'chip_ledger,users', 'PostgreSQL holds money and audit only — nothing about a table');
     const rooms = new Set(recs.map((r) => r.roomId).filter(Boolean));
 
     step('SIGKILL the server');
@@ -317,8 +344,8 @@ async function main() {
     say(`     live store: ${JSON.stringify(h2.live ?? 'not reported')}`);
     check(h2.tables === h1.tables, 'every table came back', `${h2.tables} of ${h1.tables}`);
     check(h2.players === PLAYERS, 'every seat was held for the reconnect grace', `${h2.players} of ${PLAYERS}`);
-    const fromLive = await metricSum(ctx.baseUrl, 'game_restored_tables_total', 'source="live"');
-    if (fromLive) check(fromLive === h1.tables, 'and they came from the live store', `${fromLive} tables`);
+    const restored = await metricSum(ctx.baseUrl, 'game_restored_tables_total');
+    if (restored) check(restored === h1.tables, 'and they came from the live store, the only source', `${restored} tables`);
 
     step('Players reconnect and play on');
     const again = users.map((u, i) => connect(ctx.baseUrl, u, { i, user: u }));
@@ -386,7 +413,7 @@ async function main() {
   });
 
   // 3 ─────────────────────────────────────────────────────────────────────
-  await scenario('redis-loss', 'REDIS AND SERVER BOTH DIE — every room is rebuilt from PostgreSQL', async (ctx) => {
+  await scenario('redis-loss', 'REDIS AND SERVER BOTH DIE — the tables are gone; every chip is not', async (ctx) => {
     await redis.start(ctx.logDir); redis.flush();
     ctx.servers.push(startServer({ ...ctx, name: 'server-1', redisUrl: redis.url }));
     await waitHealthy(ctx.baseUrl);
@@ -394,17 +421,34 @@ async function main() {
     const { users, recs } = await seatPlayers(ctx.baseUrl, ctx.schema);
     await sleep(7000);
     const h1 = await health(ctx.baseUrl);
-    const before = await ctx.books.snapshot();
     const rooms = new Set(recs.map((r) => r.roomId).filter(Boolean));
-    say(`     ${h1.tables} tables, ${h1.activeHands} hands running, ${before.openPots} open pots holding ${before.openAmount} chips`);
-    // Since 9 Sep 2026 the durable copy is written at the two hand boundaries
-    // only, so a table that has never dealt has no row — nothing is at stake
-    // and its players simply re-join. What must hold is that every table that
-    // HAS dealt is recoverable.
-    const dealt = (await ctx.books.q('select count(distinct room_id) as n from %S%.pots'))[0].n;
-    check(before.gameStates >= dealt, 'PostgreSQL holds a durable snapshot of every table that dealt',
-      `${before.gameStates} game_states rows for ${dealt} room(s) that dealt, ${h1.tables} tables open`);
+    say(`     ${h1.tables} tables, ${h1.activeHands} hands running`);
+    // PostgreSQL holds money and audit only (owner's decision of 9 Sep 2026).
+    check((await ctx.books.tables()).join(',') === 'chip_ledger,users',
+      'PostgreSQL holds money and audit only: no game_states, no pots, no hands');
     postChat(recs); await sleep(1200);
+
+    // One player walks out MID-HAND before the failure. That is checkpoint 1
+    // of 3, so their stake is written through there and then — those rows
+    // must survive the Redis loss, while everybody else's hand is un-made.
+    step('A player leaves mid-hand: that one player is written through');
+    const quitter = recs.find((r) => r.roomId) ?? recs[0];
+    const quitterId = quitter.user.user.id;
+    const preHand = (await ctx.books.snapshot()).wallets;
+    quitter.socket.emit('room:leave', {}, () => {});
+    await sleep(2000);
+    const quitterLedger = await ctx.books.ledgerFor(quitterId);
+    const afterLeave = (await ctx.books.snapshot()).wallets[quitterId];
+    check(afterLeave === quitterLedger.s, 'the departed player\'s wallet equals their ledger',
+      `${afterLeave} vs ${quitterLedger.s} over ${quitterLedger.n} rows`);
+    quitter.socket.close();
+
+    // Everyone still playing has been written for at most the hands that
+    // already ended: pick one who is mid-hand and remember what PostgreSQL
+    // holds for them — that is what they must still have afterwards.
+    const before = await ctx.books.snapshot();
+    const midHand = recs.filter((r) => r !== quitter && r.roomId).map((r) => r.user.user.id);
+    say(`     ${midHand.length} players mid-hand; wallets hold ${before.total}, ${before.stranded} stranded`);
 
     step('Kill the server AND wipe Redis — the live store is gone for good');
     await kill(ctx.servers.pop());
@@ -414,49 +458,71 @@ async function main() {
     redis.flush();
     check(redis.keys().length === 0, 'Redis comes back with nothing in it');
 
-    step('Restart the server — it must rebuild the rooms from PostgreSQL');
+    step('Restart — nothing is rebuilt, and the hand never happened');
     ctx.servers.push(startServer({ ...ctx, name: 'server-2', redisUrl: redis.url }));
     await waitHealthy(ctx.baseUrl); await sleep(2500);
     const h2 = await health(ctx.baseUrl);
     say(`     live store: ${JSON.stringify(h2.live ?? 'not reported')}`);
-    const fromPg = await metricSum(ctx.baseUrl, 'game_restored_tables_total', 'source="postgres"');
-    const rejected = await metricSum(ctx.baseUrl, 'game_restore_rejected_total');
-    const reconciled = await metricSum(ctx.baseUrl, 'game_restore_reconciled_total');
-    check(h2.tables > 0, 'rooms were rebuilt from the durable snapshot', `${h2.tables} tables (of ${h1.tables})`);
-    if (fromPg) check(fromPg > 0, 'and the restore source was PostgreSQL', `${fromPg} tables from game_states`);
-    say(`     ${reconciled} snapshot(s) corrected against the ledger, ${rejected} rejected as too stale`);
-    check(h2.players > 0, 'seats were held for the players', `${h2.players} of ${PLAYERS}`);
-    check(redis.keys('kt:table:*').length >= h2.tables, 'the rebuilt rooms were written back into Redis',
-      `${redis.keys('kt:table:*').length} snapshots`);
+    const restored = await metricSum(ctx.baseUrl, 'game_restored_tables_total');
+    check(h2.tables === 0, 'no table came back — the live store was the only copy', `${h2.tables} tables`);
+    check(restored === 0, 'and the restore counter agrees', `${restored} restored`);
+    check(h2.players === 0, 'no seat came back either', `${h2.players} players`);
+    const mid = await ctx.books.snapshot();
+    check(mid.mismatched.length === 0, 'every wallet still equals the sum of its own ledger rows',
+      mid.mismatched.length ? JSON.stringify(mid.mismatched.slice(0, 3)) : `${mid.users} accounts`);
+    // OWNER EXAMPLE 1: a player who staked mid-hand and was never
+    // checkpointed has their PRE-HAND balance, because nothing was deducted.
+    let unchanged = 0;
+    for (const id of midHand) if (mid.wallets[id] === before.wallets[id]) unchanged += 1;
+    check(unchanged === midHand.length,
+      'every mid-hand player has the balance PostgreSQL held before the failure — the hand never happened',
+      `${unchanged} of ${midHand.length}`);
+    // The departed player's checkpoint is still there.
+    const afterLedger = await ctx.books.ledgerFor(quitterId);
+    check(afterLedger.n >= quitterLedger.n, 'the departed player\'s checkpoint rows are still in PostgreSQL',
+      `${afterLedger.n} rows (was ${quitterLedger.n})`);
+    check(mid.wallets[quitterId] === afterLedger.s, 'and their wallet equals their ledger',
+      `${mid.wallets[quitterId]} vs ${afterLedger.s}`);
+    check(mid.wallets[quitterId] === afterLeave, 'and it was NOT refunded by the restart',
+      `${afterLeave} → ${mid.wallets[quitterId]}`);
+    check(mid.wallets[quitterId] <= preHand[quitterId], 'their stake stayed forfeited, as leaving mid-hand means',
+      `${preHand[quitterId]} → ${mid.wallets[quitterId]}`);
+    // The conservation law: wallets plus what the interrupted hand had already
+    // taken from its packers is unchanged. Those stranded chips are gone from
+    // the economy for good — the one accepted consequence of this design.
+    check(mid.total + mid.stranded === before.total + before.stranded,
+      'wallets plus chips held by the interrupted hand are unchanged',
+      `${mid.total}+${mid.stranded} vs ${before.total}+${before.stranded}`);
+    say(`     ${mid.stranded} chip(s) are stranded in hands the failure interrupted (owner-approved: a packer keeps their reduced balance and nobody wins the pot)`);
+    const dbl = await ctx.books.doubleClosed();
+    check(dbl.length === 0, 'no player was resolved twice in one hand', dbl.length ? JSON.stringify(dbl) : '');
 
-    step('Players reconnect');
+    step('Players rejoin into FRESH tables and play on');
     const again = users.map((u, i) => connect(ctx.baseUrl, u, { i, user: u }));
+    await sleep(1500);
+    for (const r of again) r.socket.emit('room:quickJoin', { bootAmount: 200, category: 'blind' }, () => {});
     await sleep(3500);
     const back = again.filter((r) => r.roomId).length;
-    check(back > 0, 'players are back at a table', `${back} of ${PLAYERS}`);
-    check(again.filter((r) => rooms.has(r.roomId)).length === back, 'at the table they were at before');
+    check(back === PLAYERS, 'every player is seated again', `${back} of ${PLAYERS}`);
+    check(again.every((r) => !rooms.has(r.roomId)), 'at a NEW table — the old rooms are gone for good');
     const withChat = again.filter((r) => (r.chat ?? []).some((t) => t.startsWith(CHAT_MARK))).length;
-    check(withChat === 0, 'the chat history is gone with the live store, as intended', `${withChat} players saw the old backlog`);
+    check(withChat === 0, 'the chat history went with the live store, as intended', `${withChat} players saw the old backlog`);
     check(again.filter((r) => Array.isArray(r.chat)).length === back, 'and the empty history is still delivered as a list');
-    check((await ctx.books.chatInDurable(CHAT_MARK)) === 0, 'no chat text was ever written to PostgreSQL');
 
-    step('Play on, then settle up');
     await sleep(10000);
     const moves = again.reduce((n, r) => n + (r.movesSeen ?? 0), 0);
-    check(moves > 0, 'the rebuilt hands are being played on', `${moves} moves after the rebuild`);
+    check(moves > 0, 'the fresh hands are being played', `${moves} moves after the rejoin`);
     check(again.some((r) => (r.handsEnded ?? 0) > 0), 'and a hand reached its showdown and paid out',
       `${again.reduce((n, r) => n + (r.handsEnded ?? 0), 0)} hands ended`);
     for (const r of again) r.socket.emit('room:leave', {}, () => {});
     await sleep(2500);
     for (const r of again) r.socket.close();
-    const after = await auditBooks(ctx.books, before);
-    const refunds = after.byReason.find((r) => r.reason === 'refund');
-    say(`     ${refunds ? `${refunds.n} refund rows returned ${refunds.delta} chips` : 'no pot needed refunding'}`);
+    await auditBooks(ctx.books, mid);
     redis.stop();
   });
 
   // 4 ─────────────────────────────────────────────────────────────────────
-  await scenario('no-redis', 'NO LIVE STORE AT ALL — tables are lost, money is not', async (ctx) => {
+  await scenario('no-redis', 'NO LIVE STORE AT ALL — a restart loses the tables; the money is untouched', async (ctx) => {
     ctx.servers.push(startServer({ ...ctx, name: 'server-1', redisUrl: '' }));
     await waitHealthy(ctx.baseUrl);
     step('Seat players and let hands run');
@@ -464,21 +530,21 @@ async function main() {
     await sleep(6000);
     const h1 = await health(ctx.baseUrl);
     const before = await ctx.books.snapshot();
-    say(`     ${h1.tables} tables, ${before.openPots} open pots holding ${before.openAmount} chips`);
+    say(`     ${h1.tables} tables; wallets hold ${before.total}, ${before.stranded} stranded`);
 
     step('SIGKILL the server');
     await kill(ctx.servers.pop());
     for (const r of recs) r.socket.close();
 
-    step('Restart — PostgreSQL is still the backstop even with no Redis');
+    step('Restart — the tables are lost and the hands never happened');
     ctx.servers.push(startServer({ ...ctx, name: 'server-2', redisUrl: '' }));
     await waitHealthy(ctx.baseUrl); await sleep(2500);
     const h2 = await health(ctx.baseUrl);
-    const fromPg = await metricSum(ctx.baseUrl, 'game_restored_tables_total', 'source="postgres"');
-    say(`     ${h2.tables} tables back, ${fromPg} from game_states`);
-    const after = await auditBooks(ctx.books, before, ' with no live store');
-    check(after.openPots === 0 || h2.tables > 0, 'no pot was left open with no table to play it out',
-      `${after.openPots} open, ${h2.tables} tables`);
+    const restored = await metricSum(ctx.baseUrl, 'game_restored_tables_total');
+    say(`     ${h2.tables} tables back, ${restored} restored`);
+    check(h2.tables === 0, 'no table came back: the in-process store died with the process', `${h2.tables} tables`);
+    check(restored === 0, 'and nothing was restored from anywhere', `${restored} restored`);
+    await auditBooks(ctx.books, before, ' with no live store');
   });
 
   // ────────────────────────────────────────────────────────────────────────

@@ -24,11 +24,12 @@ type flakyLedger struct {
 	down    bool
 	wallets map[string]int64
 	settled map[string]int
+	rows    map[string]bool
 	calls   int
 }
 
 func newFlakyLedger() *flakyLedger {
-	return &flakyLedger{wallets: map[string]int64{}, settled: map[string]int{}}
+	return &flakyLedger{wallets: map[string]int64{}, settled: map[string]int{}, rows: map[string]bool{}}
 }
 
 func (l *flakyLedger) setDown(v bool) {
@@ -49,25 +50,22 @@ func (l *flakyLedger) settledCount(handID string) int {
 	return l.settled[handID]
 }
 
-func (l *flakyLedger) Bet(_ context.Context, req game.BetRequest) (game.BetResult, error) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	l.wallets[req.UserID] -= req.Amount
-	return game.BetResult{Balance: l.wallets[req.UserID], Persisted: req.Amount}, nil
+func (l *flakyLedger) applyLocked(e game.SettleEntry) error {
+	if l.rows[e.ActionID] {
+		return game.NewGameError(game.CodeDuplicateAction, game.MsgDuplicateAction)
+	}
+	l.rows[e.ActionID] = true
+	l.wallets[e.UserID] += e.Delta
+	return nil
 }
 
-func (l *flakyLedger) CollectBoot(_ context.Context, req game.CollectBootRequest) (game.CollectBootResult, error) {
+func (l *flakyLedger) Checkpoint(_ context.Context, req game.CheckpointRequest) (game.CheckpointResult, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	balances := map[string]int64{}
-	for _, e := range req.Entries {
-		if _, ok := l.wallets[e.UserID]; !ok {
-			l.wallets[e.UserID] = e.BalanceBefore
-		}
-		l.wallets[e.UserID] -= e.Amount
-		balances[e.UserID] = l.wallets[e.UserID]
+	if err := l.applyLocked(req.Entry); err != nil {
+		return game.CheckpointResult{}, err
 	}
-	return game.CollectBootResult{Balances: balances, Persisted: req.BootAmount}, nil
+	return game.CheckpointResult{Balance: l.wallets[req.Entry.UserID]}, nil
 }
 
 func (l *flakyLedger) Settle(_ context.Context, req game.SettleRequest) (game.SettleResult, error) {
@@ -77,13 +75,15 @@ func (l *flakyLedger) Settle(_ context.Context, req game.SettleRequest) (game.Se
 	if l.down {
 		return nil, errors.New("database unavailable")
 	}
-	if l.settled[req.Hand.ID] > 0 {
+	if l.settled[req.HandID] > 0 {
 		return nil, game.NewGameError(game.CodeDuplicateAction, game.MsgDuplicateAction)
 	}
-	l.settled[req.Hand.ID]++
+	l.settled[req.HandID]++
 	out := game.SettleResult{}
 	for _, e := range req.Entries {
-		l.wallets[e.UserID] += e.Delta
+		if err := l.applyLocked(e); err != nil {
+			return nil, err
+		}
 		out[e.UserID] = l.wallets[e.UserID]
 	}
 	return out, nil
@@ -148,7 +148,9 @@ func TestReviewTheLastPlayerLeavingDoesNotOrphanTheWinnersPot(t *testing.T) {
 	if got := ledger.settledCount(handID); got != 1 {
 		t.Fatalf("REVIEW: hand %s never settled after the table was destroyed (settles: %d); %s is out the pot of %d", handID, got, winner, pot)
 	}
-	eq(t, ledger.wallet(winner), winnerWallet+pot, "winner paid in the database")
+	// The winner's whole hand lands in one row: the pot less the boot they
+	// staked (nothing had been written for them before).
+	eq(t, ledger.wallet(winner), winnerWallet+pot-rmBoot, "winner paid in the database")
 	// destroyTable logs the outcome from a goroutine waiting on the table.
 	eventually(t, time.Second, func() bool { return strings.Contains(f.logText(), "late settlement landed") }, "the late settlement to be logged")
 	if !strings.Contains(f.logText(), "settlement still owed") {
@@ -185,7 +187,7 @@ func TestReviewShutdownWaitsForAnOwedSettlement(t *testing.T) {
 		t.Fatal("Shutdown did not return")
 	}
 	eq(t, ledger.settledCount(handID), 1, "settled during shutdown")
-	eq(t, ledger.wallet(winner), winnerWallet+pot, "winner paid")
+	eq(t, ledger.wallet(winner), winnerWallet+pot-rmBoot, "winner paid")
 }
 
 // TestReviewShutdownBudgetIsRespectedWhenTheDatabaseStaysDown: an owed

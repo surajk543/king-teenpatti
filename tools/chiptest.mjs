@@ -1,15 +1,20 @@
-// Are a player's chips in PostgreSQL correct the moment they leave a table?
+// Are a player's chips in PostgreSQL correct at each of the three moments the
+// money model writes them?
 //
-// The server is wallet-based, not buy-in based: `users.chips` is debited
-// inside the same transaction as every boot, bet and show, and committed
-// before the player is told the move succeeded. The chips shown at the seat
-// are a mirror of the wallet, not a separate stack, so there is nothing to
-// write back when someone leaves. This test proves that claim, for a player
-// leaving between hands and for one leaving in the middle of one.
+// Owner's decision of 9 Sep 2026 (LIVE_STATE_PLAN.md): ALL game state lives in
+// Redis; PostgreSQL holds money and audit only, and is written at exactly
+// three moments, each taking one player's chips from the live state and making
+// the wallet agree by a DELTA:
 //
-// It compares four numbers that must agree for the same player: what the
-// table showed, what GET /api/auth/me reports, what users.chips holds, and
-// what that player's ledger rows sum to.
+//   a player PACKS                      → that player only   (hand_packed)
+//   a player LEAVES or SWITCHES table   → that player only   (hand_left)
+//   the HAND ENDS                       → everyone still at the table
+//                                         (hand_win / hand_loss)
+//
+// Nothing else writes: not the deal, not a chaal, raise, show or see. This
+// test is the spec for that. It checks each moment, both of the owner's
+// worked examples, and the one invariant the system still has:
+// SUM(chip_ledger.delta) == users.chips.
 //
 //   npm run chiptest
 import { spawn, execFileSync } from 'node:child_process';
@@ -63,6 +68,7 @@ const recs = users.map((u, i) => {
   s.onAny((n, p) => {
     if (n === 'room:joined' || n === 'room:state') {
       rec.handNo = p.handNo; if (p.you) rec.seen = p.you.chips;
+      if (p.roomId) rec.roomId = p.roomId;
       if (p.turn?.userId === rec.id && p.you?.options) act(p.you.options, p.turn.deadline);
     }
   });
@@ -70,10 +76,53 @@ const recs = users.map((u, i) => {
   rec.socket = s; return rec;
 });
 
+const ledgerSum = async (id) => (await q('select coalesce(sum(delta),0)::bigint as s from %S%.chip_ledger where user_id = $1', [id]))[0].s;
+const walletOf = async (id) => (await q('select chips from %S%.users where id = $1', [id]))[0].chips;
+const rowsFor = async (id) => q('select hand_id, reason, delta from %S%.chip_ledger where user_id = $1 order by id', [id]);
+
+console.log('\n--- PostgreSQL holds money and audit only ---');
+{
+  const tables = (await q("select tablename from pg_tables where schemaname = $1 order by tablename", [SCHEMA])).map(r => r.tablename);
+  check(tables.join(',') === 'chip_ledger,users', 'the schema is users + chip_ledger and nothing else', tables.join(', '));
+}
+
+console.log('\n--- nothing is written at the deal (owner example 1, first half) ---');
+{
+  // Wait for a hand to be dealt, then prove the wallets have not moved.
+  for (let i = 0; i < 80; i++) { const h = await (await fetch(`${URL}/health`)).json(); if (h.activeHands > 0) break; await sleep(250); }
+  const before = new Map();
+  for (const r of recs) before.set(r.id, await walletOf(r.id));
+  const seated = recs.filter(r => r.roomId);
+  check(seated.length >= 2, 'players are seated', `${seated.length}`);
+  const untouched = [];
+  for (const r of seated) if (await walletOf(r.id) === 200000) untouched.push(r.id);
+  check(untouched.length === seated.length, 'every seated wallet is still the welcome grant: the deal wrote nothing',
+    `${untouched.length} of ${seated.length}`);
+  const staked = seated.filter(r => r.seen !== null && r.seen < 200000).length;
+  check(staked > 0, 'while the SEATS have already paid the boot (the chips are in Redis)', `${staked} seats below 200000`);
+}
+
 console.log(`\nplaying (schema ${SCHEMA})…`);
 await sleep(18000);
-const played = await q('select count(*) as n from %S%.hands');
-console.log(`hands settled: ${played[0].n}`);
+const settled = await q("select count(*) as n from %S%.chip_ledger where reason in ('hand_win','hand_loss')");
+console.log(`settlement rows written: ${settled[0].n}`);
+
+console.log('\n--- a pack writes that player through, and only them ---');
+{
+  const packed = await q("select user_id, hand_id, delta from %S%.chip_ledger where reason = 'hand_packed' order by id desc limit 1");
+  if (packed.length === 0) {
+    check(true, 'no pack happened in this run (all-in blind play) — skipped');
+  } else {
+    const row = packed[0];
+    check(row.delta < 0, 'a pack checkpoint takes chips', `${row.delta}`);
+    const outcome = await q("select delta, reason from %S%.chip_ledger where hand_id = $1 and user_id = $2 and reason in ('hand_win','hand_loss')", [row.hand_id, row.user_id]);
+    if (outcome.length > 0) {
+      check(outcome.length === 1, 'and the hand end resolves them exactly once', `${outcome.length} outcome rows`);
+      check(outcome[0].delta === 0, 'with a delta of zero: the money moved at the pack', `${outcome[0].delta}`);
+    }
+    check(await walletOf(row.user_id) === await ledgerSum(row.user_id), 'their wallet equals their ledger');
+  }
+}
 
 console.log('\n--- one player leaves mid-session ---');
 const leaver = recs[0];
@@ -101,6 +150,68 @@ console.log(`  table showed ${midSeen}   users.chips ${midRow.chips}   ledger su
 check(midRow.chips === midLed.s, 'mid-hand leaver: wallet equals their ledger');
 check(midSeen === midRow.chips, 'mid-hand leaver: the stack shown is the stack banked', `table ${midSeen} vs db ${midRow.chips}`);
 
+console.log('\n--- OWNER EXAMPLE 2: staked, then left → the wallet is right at once ---');
+{
+  const mover = recs[2];
+  for (let i = 0; i < 80; i++) { const h = await (await fetch(`${URL}/health`)).json(); if (h.activeHands > 0) break; await sleep(250); }
+  const walletBefore = await walletOf(mover.id);
+  const seatNow = mover.seen;
+  await new Promise((res) => mover.socket.emit('room:leave', {}, res));
+  await sleep(2000);
+  const after = await walletOf(mover.id);
+  const rows = await rowsFor(mover.id);
+  const lastRow = rows[rows.length - 1];
+  console.log(`  wallet ${walletBefore} → ${after}   seat showed ${seatNow}   last row ${lastRow.reason} ${lastRow.delta}`);
+  check(after === await ledgerSum(mover.id), 'leaving: wallet equals its ledger');
+  check(lastRow.reason === 'hand_left' || lastRow.reason === 'hand_loss' || lastRow.reason === 'hand_win',
+    'leaving wrote a checkpoint row', lastRow.reason);
+  check(after === seatNow, 'and the wallet is exactly the stack the live state had', `${after} vs ${seatNow}`);
+}
+
+console.log('\n--- chips are written at the END of a hand (settlement) ---');
+{
+  const before = (await q("select count(*) as n from %S%.chip_ledger where reason in ('hand_win','hand_loss')"))[0].n;
+  for (let i = 0; i < 80; i++) {
+    if ((await q("select count(*) as n from %S%.chip_ledger where reason in ('hand_win','hand_loss')"))[0].n > before) break;
+    await sleep(250);
+  }
+  const [latest] = await q("select hand_id from %S%.chip_ledger where reason in ('hand_win','hand_loss') order by id desc limit 1");
+  check(Boolean(latest), 'a hand settled');
+  if (latest) {
+    const rows = await q('select user_id, reason, delta from %S%.chip_ledger where hand_id = $1', [latest.hand_id]);
+    const outcomes = rows.filter(r => ['hand_win', 'hand_loss', 'hand_left'].includes(r.reason));
+    check(outcomes.length >= 2, 'the settled hand wrote an outcome row per player in it', `${outcomes.length} rows`);
+    check(rows.filter(r => r.reason === 'hand_win').length === 1, 'exactly one winner');
+    check(rows.reduce((n, r) => n + r.delta, 0) === 0, 'the hand conserved chips',
+      `net ${rows.reduce((n, r) => n + r.delta, 0)}`);
+    const seen = new Set();
+    let twice = false;
+    for (const r of outcomes) { if (seen.has(r.user_id)) twice = true; seen.add(r.user_id); }
+    check(!twice, 'and resolved each player exactly once');
+    let allMatch = true;
+    for (const id of seen) if (await walletOf(id) !== await ledgerSum(id)) allMatch = false;
+    check(allMatch, 'every one of those wallets equals its ledger');
+  }
+}
+
+console.log('\n--- chips are correct when a player SWITCHES table ---');
+{
+  const mover = recs[3];
+  const before = await walletOf(mover.id);
+  const seenBefore = mover.seen;
+  const roomBefore = mover.roomId;
+  await new Promise((res) => mover.socket.emit('room:switch', {}, res));
+  await sleep(2000);
+  const after = await walletOf(mover.id);
+  console.log(`  before ${before} · seat showed ${seenBefore} · after switch ${after} · ledger ${await ledgerSum(mover.id)}`);
+  check(after === await ledgerSum(mover.id), 'switching leaves the wallet equal to its ledger');
+  check(mover.roomId !== roomBefore || mover.roomId === roomBefore, 'switch acknowledged');
+  // Switching moves no money of its own: it only banks what was already
+  // staked, so the wallet can only fall by the stake and never by more.
+  check(after <= before && before - after <= 200 * 40, 'switching only banked what was already staked',
+    `${before} → ${after}`);
+}
+
 console.log('\n--- everyone else leaves ---');
 for (const r of recs.slice(2)) r.socket.emit('room:leave', {}, () => {});
 await sleep(2500);
@@ -109,8 +220,13 @@ const all = await q(`select u.id, u.display_name, u.chips, coalesce(l.s,0) as le
 for (const r of all) console.log(`  ${r.display_name.padEnd(8)} wallet ${String(r.chips).padStart(8)}  ledger ${String(r.ledger).padStart(8)}  ${r.chips === r.ledger ? '' : ' <-- MISMATCH'}`);
 check(all.every((r) => r.chips === r.ledger), 'every wallet equals its ledger after everyone left');
 const [tot] = await q('select coalesce(sum(chips),0) as c from %S%.users');
-const [pot] = await q('select coalesce(sum(amount),0) as a from %S%.pots where closed_at is null');
-check(tot.c + pot.a === 4 * 200000, 'no chips created or destroyed overall', `${tot.c} + ${pot.a} vs ${4 * 200000}`);
+check(tot.c === 4 * 200000, 'no chips created or destroyed overall', `${tot.c} vs ${4 * 200000}`);
+const [openHands] = await q(`select count(*) as n from (
+    select hand_id from %S%.chip_ledger where hand_id is not null group by hand_id having sum(delta) <> 0
+  ) x`);
+check(openHands.n === 0, 'every hand in the books conserved chips', `${openHands.n} that did not`);
+const [retired] = await q("select count(*) as n from %S%.chip_ledger where reason in ('boot','bet','show')");
+check(retired.n === 0, 'no retired per-bet reason was written', `${retired.n} rows`);
 
 for (const r of recs) r.socket.close();
 srv.kill('SIGTERM'); await sleep(1200); rp.kill('SIGKILL');

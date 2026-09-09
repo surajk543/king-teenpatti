@@ -239,13 +239,13 @@ test('bad, missing, foreign-signed and orphaned session tokens are refused with 
   assert.equal(stale.body.error, 'invalid_session');
 });
 
-test('/api/auth/me/hands returns an array, limited', async () => {
+test('/api/auth/me/hands is gone with the hands table, and 404s as JSON', async () => {
+  // Owner's decision of 9 Sep 2026: `hands` was write-only, its only reader
+  // was this endpoint, and no shipped client called it.
   const { token } = await guestLogin('device-hands-0001', 'Hands');
   const response = await http('GET', '/api/auth/me/hands?limit=3', { token });
-  assert.equal(response.status, 200);
-  assert.deepEqual(response.body, { hands: [] });
-  const unauth = await http('GET', '/api/auth/me/hands');
-  assert.equal(unauth.status, 401);
+  assert.equal(response.status, 404);
+  assert.equal(typeof response.body.error, 'string', 'a removed /api/ path still 404s as JSON');
 });
 
 // ---------------------------------------------------------------- profile
@@ -493,12 +493,13 @@ test('health reports live counts with the shape the tools read', async () => {
   assert.equal(typeof body.process.node, 'string');
   assert.ok(body.process.rssMb > 0);
   // The live-state store (LIVE_STATE_PLAN.md): "memory" when REDIS_URL is
-  // unset, "redis" when it is. `tables` is how many snapshots it holds, and
-  // `snapshotLagSeconds` how far the durable copy in PostgreSQL is behind.
+  // unset, "redis" when it is. `tables` is how many snapshots it holds — and
+  // that is the whole of it, because PostgreSQL keeps no game state and so
+  // has no durable copy to lag behind.
+  assertKeys(body.live, ['kind', 'ok', 'tables']);
   assert.ok(['memory', 'redis'].includes(body.live.kind), `live.kind ${body.live.kind}`);
   assert.equal(typeof body.live.ok, 'boolean');
   assert.equal(typeof body.live.tables, 'number');
-  assert.equal(typeof body.live.snapshotLagSeconds, 'number');
   assertKeys(body.db, ['total', 'idle', 'waiting']);
   for (const key of ['total', 'idle', 'waiting']) assert.equal(typeof body.db[key], 'number', `db.${key}`);
 

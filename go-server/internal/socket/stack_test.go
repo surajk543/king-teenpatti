@@ -127,10 +127,11 @@ func (f *fakeUsers) FindByID(_ context.Context, id string) (*db.User, error) {
 	return &copied, nil
 }
 
-// books is the MemoryLedger's PersistChips hook standing in for Postgres:
-// every boot/bet/show debits the fake wallet and records its action_id, and
-// a repeated action_id is refused as duplicate_action exactly as the UNIQUE
-// constraint would be (invalidMoves.test.js "replaying a move…").
+// books is the MemoryLedger's Checkpoint hook standing in for Postgres: every
+// checkpoint (a pack, a leave or switch, and each entry of the hand-end
+// settlement) applies its delta to the fake wallet and records its action_id.
+// A repeated action_id is refused as duplicate_action, exactly as the UNIQUE
+// index would be — that is the settle-retry safety mechanism.
 type books struct {
 	mu        sync.Mutex
 	actionIDs map[string]int
@@ -140,19 +141,19 @@ type books struct {
 	delay atomic.Int64
 }
 
-func (b *books) persist(args game.PersistChipsArgs) error {
+func (b *books) persist(args game.CheckpointArgs) error {
 	if d := time.Duration(b.delay.Load()); d > 0 {
 		time.Sleep(d)
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if args.ActionID != "" {
-		if b.actionIDs[args.ActionID] > 0 {
+	if id := args.Entry.ActionID; id != "" {
+		if b.actionIDs[id] > 0 {
 			return game.NewGameError(game.CodeDuplicateAction, game.MsgDuplicateAction)
 		}
-		b.actionIDs[args.ActionID]++
+		b.actionIDs[id]++
 	}
-	b.users.addChips(args.UserID, args.Delta)
+	b.users.addChips(args.Entry.UserID, args.Entry.Delta)
 	return nil
 }
 
@@ -162,12 +163,11 @@ func (b *books) rows(actionID string) int {
 	return b.actionIDs[actionID]
 }
 
-// settle pays the winner: the hook receives net deltas (memory ledger:
-// Persisted = amount, so winner +pot, losers 0) and returns the balances.
-func (b *books) settle(_ game.HandRecord, entries []game.SettleEntry) (map[string]int64, error) {
+// settle reports the balances after the Checkpoint hook above has already
+// applied every entry's delta.
+func (b *books) settle(_ game.SettleRequest, entries []game.SettleEntry) (map[string]int64, error) {
 	out := map[string]int64{}
 	for _, e := range entries {
-		b.users.addChips(e.UserID, e.Delta)
 		out[e.UserID] = b.users.chips(e.UserID)
 	}
 	return out, nil
@@ -255,7 +255,7 @@ func newStackWithClock(t *testing.T, mutate func(cfg *config.Config), clock game
 	st.rooms = game.NewRoomManager(game.RoomManagerOptions{
 		Game:          cfg.Game,
 		Chat:          cfg.Chat,
-		Ledger:        game.NewMemoryLedger(game.MemoryLedgerHooks{PersistChips: bk.persist, Settle: bk.settle}),
+		Ledger:        game.NewMemoryLedger(game.MemoryLedgerHooks{Checkpoint: bk.persist, Settle: bk.settle}),
 		TableListener: st.h,
 		Listener:      st.h,
 		Logger:        logger,

@@ -101,11 +101,6 @@ type Config struct {
 	// when unset or empty; Defaults()/FromEnv() carry "" (they do not consult
 	// the host), exactly like PublicDir's filesystem-dependent default.
 	LiveInstanceID string
-	// SnapshotFlush is SNAPSHOT_FLUSH_MS (1000): how often the durable
-	// snapshot writer flushes every changed table into game_states in one
-	// transaction (LIVE_STATE_PLAN.md "The durable backstop"). 0 disables the
-	// writer — Redis only; a Redis loss then loses the tables.
-	SnapshotFlush time.Duration
 	// LiveReconcile is LIVE_RECONCILE_MS (30000): how often the live store is
 	// pinged and, once it answers again after an outage, refilled from memory
 	// (every table re-saved, seats and lobby index re-published). 0 disables
@@ -324,7 +319,6 @@ func Defaults() *Config {
 		RedisURL:       "",
 		LiveStateTTL:   24 * time.Hour,
 		LiveInstanceID: "",
-		SnapshotFlush:  time.Second,
 		LiveReconcile:  30 * time.Second,
 	}
 }
@@ -503,7 +497,6 @@ func FromEnv(lookup Lookup) (*Config, error) {
 	c.RedisURL = r.str("REDIS_URL", c.RedisURL)
 	c.LiveStateTTL = r.millis("LIVE_STATE_TTL_MS", c.LiveStateTTL)
 	c.LiveInstanceID = r.str("LIVE_INSTANCE_ID", c.LiveInstanceID)
-	c.SnapshotFlush = r.millis("SNAPSHOT_FLUSH_MS", c.SnapshotFlush)
 	c.LiveReconcile = r.millis("LIVE_RECONCILE_MS", c.LiveReconcile)
 
 	if r.err != nil {

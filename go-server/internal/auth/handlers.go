@@ -137,23 +137,10 @@ func (h *Handler) Me(w http.ResponseWriter, r *http.Request, user *db.User) {
 	WriteJSON(w, http.StatusOK, UserResponse{User: user})
 }
 
-// Hands is GET /api/auth/me/hands?limit=N: {hands} newest first. The limit is
-// read like Node's `parseInt(limit ?? '20') || 20` (leading integer of the
-// FIRST value, NaN or 0 → 20) and then clamped to [1, 100] (DECISIONS.md §5;
-// Node's `Math.min(…, 100)` let a negative through into Array.slice).
-func (h *Handler) Hands(w http.ResponseWriter, r *http.Request, user *db.User) {
-	hands, err := h.deps.Users.RecentHands(r.Context(), user.ID, parseLimit(r.URL.Query().Get("limit")))
-	if err != nil {
-		h.writeError(w, r, err)
-		return
-	}
-	if hands == nil {
-		hands = []db.HandHistory{}
-	}
-	WriteJSON(w, http.StatusOK, HandsResponse{Hands: hands})
-}
-
-// parseLimit is the ?limit rule described on Hands.
+// parseLimit reads a ?limit like Node's `parseInt(limit ?? '20') || 20` (the
+// leading integer of the first value; NaN or 0 → 20) and clamps it to
+// [1, 100] (DECISIONS.md §5). Kept for any future paged endpoint; the one it
+// was written for, GET /api/auth/me/hands, is gone with the `hands` table.
 func parseLimit(raw string) int {
 	n := jsParseInt(raw)
 	if n == 0 {
@@ -196,11 +183,24 @@ func jsParseInt(s string) int {
 	return sign * n
 }
 
-// Milestone is POST /api/rewards/milestone (requirement 17): claimed → 200
-// {claimed:true, amount, milestone, user} and log `milestone reward claimed`
-// {userId, milestone}; not claimed → 409 {error:"reward_not_available",
-// message, user}. The body is ignored.
+// Milestone is POST /api/rewards/milestone (requirement 17). Order: seated →
+// 409 {error:"seated"}; claimed → 200 {claimed:true, amount, milestone, user}
+// and log `milestone reward claimed` {userId, milestone}; not claimed → 409
+// {error:"reward_not_available", message, user}. The body is ignored.
+//
+// The seated check is not a UI nicety. It is what makes the money model's
+// invariant true: A SEATED PLAYER'S WALLET IN POSTGRESQL CANNOT CHANGE EXCEPT
+// AT THE THREE CHECKPOINTS (pack, leave/switch, hand end). A reward credited
+// mid-hand would be a fourth writer of the same row, and the seat would never
+// learn of it. Both shipped clients already offer rewards in the lobby only.
+// The Table still computes its checkpoints as a DELTA rather than an absolute
+// (see the Ledger doc), so a future fourth writer could not silently erase a
+// credit either — defence in depth, not redundancy.
 func (h *Handler) Milestone(w http.ResponseWriter, r *http.Request, user *db.User) {
+	if h.isSeated(user.ID) {
+		WriteJSON(w, http.StatusConflict, ErrorResponse{Error: CodeSeated, Message: MsgSeatedMilestone})
+		return
+	}
 	result, err := h.deps.Users.ClaimMilestoneReward(r.Context(), user.ID)
 	if err != nil {
 		h.writeError(w, r, err)
@@ -216,11 +216,16 @@ func (h *Handler) Milestone(w http.ResponseWriter, r *http.Request, user *db.Use
 	WriteJSON(w, http.StatusOK, result)
 }
 
-// Bonus is POST /api/rewards/bonus (requirement 18): claimed → 200
-// {claimed:true, amount, readyAt, user} and log `timed bonus claimed`
-// {userId}; not ready → 409 {error:"reward_not_ready", message, readyAt,
-// user}. The body is ignored.
+// Bonus is POST /api/rewards/bonus (requirement 18). Order: seated → 409
+// {error:"seated"}; claimed → 200 {claimed:true, amount, readyAt, user} and
+// log `timed bonus claimed` {userId}; not ready → 409
+// {error:"reward_not_ready", message, readyAt, user}. The body is ignored.
+// The seated check exists for the reason given on Milestone.
 func (h *Handler) Bonus(w http.ResponseWriter, r *http.Request, user *db.User) {
+	if h.isSeated(user.ID) {
+		WriteJSON(w, http.StatusConflict, ErrorResponse{Error: CodeSeated, Message: MsgSeatedBonus})
+		return
+	}
 	result, err := h.deps.Users.ClaimTimedBonus(r.Context(), user.ID)
 	if err != nil {
 		h.writeError(w, r, err)

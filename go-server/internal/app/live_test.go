@@ -13,9 +13,7 @@ import (
 
 	dto "github.com/prometheus/client_model/go"
 
-	"github.com/surajk543/king-teenpatti/go-server/internal/db"
 	"github.com/surajk543/king-teenpatti/go-server/internal/db/dbtest"
-	"github.com/surajk543/king-teenpatti/go-server/internal/game"
 	"github.com/surajk543/king-teenpatti/go-server/internal/livetest"
 	"github.com/surajk543/king-teenpatti/go-server/internal/socket"
 	"github.com/surajk543/king-teenpatti/go-server/internal/socket/testclient"
@@ -108,7 +106,7 @@ func jsonPath(raw json.RawMessage, path string) any {
 	return cur
 }
 
-func TestRestartRestoresTablesHoldsSeatsAndRefundsOrphanedPots(t *testing.T) {
+func TestRestartRestoresTablesAndHoldsSeats(t *testing.T) {
 	database := dbtest.Open(t, "app")
 	store := livetest.New()
 	cfg := testConfig(t, publicDir(t))
@@ -134,18 +132,7 @@ func TestRestartRestoresTablesHoldsSeatsAndRefundsOrphanedPots(t *testing.T) {
 	if _, err := a1.Wait(socket.EvRoomState, func(p json.RawMessage) bool { return jsonPath(p, "state") == "betting" }, 4*time.Second); err != nil {
 		t.Fatal(err)
 	}
-	var liveHand string
-	if err := database.Pool.QueryRow(context.Background(), `SELECT hand_id FROM pots WHERE room_id = $1 AND closed_at IS NULL`, roomID).Scan(&liveHand); err != nil {
-		t.Fatalf("live pot: %v", err)
-	}
-	// An orphan: a pot opened by a table that will not be in the store.
-	ledger := db.NewLedger(database, nil, nil)
-	if _, err := ledger.CollectBoot(context.Background(), game.CollectBootRequest{
-		RoomID: "orphan-room", HandID: "orphan-hand", BootAmount: 200,
-		Entries: []game.BootEntry{{UserID: idA, Amount: 200}, {UserID: idB, Amount: 200}},
-	}); err != nil {
-		t.Fatal(err)
-	}
+	liveHand := jsonPath(mustSnapshotOfApp(t, first, roomID), "hand.id").(string)
 	chipsBefore := map[string]int64{}
 	for _, id := range []string{idA, idB} {
 		if err := database.Pool.QueryRow(context.Background(), `SELECT chips FROM users WHERE id = $1`, id).Scan(new(int64)); err != nil {
@@ -168,9 +155,11 @@ func TestRestartRestoresTablesHoldsSeatsAndRefundsOrphanedPots(t *testing.T) {
 	if store.Tables() != 1 {
 		t.Fatalf("store holds %d tables after the suspend, want 1", store.Tables())
 	}
-	var stillOpen int64
-	if err := database.Pool.QueryRow(context.Background(), `SELECT COUNT(*) FROM pots WHERE hand_id = $1 AND closed_at IS NULL`, liveHand).Scan(&stillOpen); err != nil || stillOpen != 1 {
-		t.Fatalf("the suspended hand's pot must stay open (%d, %v)", stillOpen, err)
+	// Nothing was written for the suspended hand: the deal and every bet in
+	// it live only in the store.
+	var rowsForHand int64
+	if err := database.Pool.QueryRow(context.Background(), `SELECT COUNT(*) FROM chip_ledger WHERE hand_id = $1`, liveHand).Scan(&rowsForHand); err != nil || rowsForHand != 0 {
+		t.Fatalf("the suspended hand wrote %d ledger rows (%v)", rowsForHand, err)
 	}
 
 	// ---- process 2 on the same store and database.
@@ -186,38 +175,22 @@ func TestRestartRestoresTablesHoldsSeatsAndRefundsOrphanedPots(t *testing.T) {
 	if stats := second.Rooms().Stats(); stats.Tables != 1 || stats.Players != 2 || stats.ActiveHands != 1 {
 		t.Fatalf("rooms after restore = %+v", stats)
 	}
-	refund := second.Refund()
-	if refund.Pots != 1 || refund.Contributors != 2 || refund.Chips != 400 || refund.Skipped != 1 {
-		t.Fatalf("refund report = %+v (the orphan refunded, the live hand skipped)", refund)
-	}
-	var closedOrphan, openLive int64
-	_ = database.Pool.QueryRow(context.Background(), `SELECT COUNT(*) FROM pots WHERE hand_id = 'orphan-hand' AND closed_at IS NOT NULL AND winner_id IS NULL`).Scan(&closedOrphan)
-	_ = database.Pool.QueryRow(context.Background(), `SELECT COUNT(*) FROM pots WHERE hand_id = $1 AND closed_at IS NULL`, liveHand).Scan(&openLive)
-	if closedOrphan != 1 || openLive != 1 {
-		t.Fatalf("pots after refund: orphan closed=%d live open=%d", closedOrphan, openLive)
-	}
 	for _, id := range []string{idA, idB} {
 		var chips, ledgerSum int64
 		_ = database.Pool.QueryRow(context.Background(), `SELECT chips FROM users WHERE id = $1`, id).Scan(&chips)
 		_ = database.Pool.QueryRow(context.Background(), `SELECT COALESCE(SUM(delta),0)::bigint FROM chip_ledger WHERE user_id = $1`, id).Scan(&ledgerSum)
-		if chips != chipsBefore[id]+200 {
-			t.Fatalf("user %s chips %d, want the orphan boot back (%d)", id, chips, chipsBefore[id]+200)
+		if chips != chipsBefore[id] {
+			t.Fatalf("user %s chips %d, want them untouched across the restart (%d)", id, chips, chipsBefore[id])
 		}
 		if chips != ledgerSum {
 			t.Fatalf("user %s: SUM(delta) %d != chips %d", id, ledgerSum, chips)
 		}
 	}
-	if v := metricValue(second.metrics.RestoredTablesTotal.WithLabelValues("live")); v != 1 {
+	if v := metricValue(second.metrics.RestoredTablesTotal); v != 1 {
 		t.Fatalf("restored_tables_total = %v", v)
 	}
 	if v := metricValue(second.metrics.RestoredSeatsTotal); v != 2 {
 		t.Fatalf("restored_seats_total = %v", v)
-	}
-	if v := metricValue(second.metrics.RefundedPotsTotal); v != 1 {
-		t.Fatalf("refunded_pots_total = %v", v)
-	}
-	if v := metricValue(second.metrics.RefundedChipsTotal); v != 400 {
-		t.Fatalf("refunded_chips_total = %v", v)
 	}
 
 	// /health reports the store and the one table it holds.
@@ -272,13 +245,38 @@ func TestRestartRestoresTablesHoldsSeatsAndRefundsOrphanedPots(t *testing.T) {
 	if jsonPath(readyB, "resume.roomId") != roomID || jsonPath(readyB, "resume.code") != code {
 		t.Fatalf("Bob's session:ready.resume = %s", readyB)
 	}
-	// The live hand's pot has been settled by now (Alice won last standing) —
-	// nothing about the restored hand was ever refunded.
-	var refundRows int64
-	_ = database.Pool.QueryRow(context.Background(), `SELECT COUNT(*) FROM chip_ledger WHERE hand_id = $1 AND reason = $2`, liveHand, db.LedgerReasonRefund).Scan(&refundRows)
-	if refundRows != 0 {
-		t.Fatalf("the restored hand was refunded (%d rows)", refundRows)
+	// The restored hand has settled by now (Alice won last standing), so it
+	// finally reaches PostgreSQL — one outcome row per player, and no other.
+	var outcomeRows int64
+	_ = database.Pool.QueryRow(context.Background(), `SELECT COUNT(*) FROM chip_ledger WHERE hand_id = $1`, liveHand).Scan(&outcomeRows)
+	if outcomeRows == 0 {
+		t.Fatal("the restored hand never reached the books")
 	}
+	var mismatched int64
+	_ = database.Pool.QueryRow(context.Background(), `SELECT COUNT(*) FROM users u
+	  JOIN (SELECT user_id, SUM(delta) s FROM chip_ledger GROUP BY user_id) l ON l.user_id = u.id
+	 WHERE l.s <> u.chips`).Scan(&mismatched)
+	if mismatched != 0 {
+		t.Fatalf("%d wallet(s) disagree with their ledger", mismatched)
+	}
+}
+
+// mustSnapshotOfApp reads a table's server-side snapshot as JSON.
+func mustSnapshotOfApp(t *testing.T, a *App, roomID string) json.RawMessage {
+	t.Helper()
+	table := a.Rooms().GetTable(roomID)
+	if table == nil {
+		t.Fatalf("table %s not registered", roomID)
+	}
+	snap, err := table.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(snap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw
 }
 
 // With the in-process store a shutdown is a destroy (the pre-Redis
@@ -309,9 +307,17 @@ func TestShutdownWithMemoryStoreSettlesTheTables(t *testing.T) {
 	if err := a.Shutdown(ctx); err != nil {
 		t.Fatalf("shutdown: %v", err)
 	}
-	var open int64
-	if err := database.Pool.QueryRow(context.Background(), `SELECT COUNT(*) FROM pots WHERE closed_at IS NULL`).Scan(&open); err != nil || open != 0 {
-		t.Fatalf("open pots after a memory-store shutdown: %d (%v)", open, err)
+	// The hand was settled on the way down, so its outcome rows are in the
+	// books and every wallet still equals its ledger.
+	var rows, mismatched int64
+	if err := database.Pool.QueryRow(context.Background(), `SELECT COUNT(*) FROM chip_ledger WHERE reason IN ('hand_win','hand_loss')`).Scan(&rows); err != nil || rows == 0 {
+		t.Fatalf("the hand was not settled on shutdown: %d rows (%v)", rows, err)
+	}
+	_ = database.Pool.QueryRow(context.Background(), `SELECT COUNT(*) FROM users u
+	  JOIN (SELECT user_id, SUM(delta) s FROM chip_ledger GROUP BY user_id) l ON l.user_id = u.id
+	 WHERE l.s <> u.chips`).Scan(&mismatched)
+	if mismatched != 0 {
+		t.Fatalf("%d wallet(s) disagree with their ledger", mismatched)
 	}
 	// Closed last: the store refuses every call now.
 	if err := a.Live().Ping(context.Background()); err == nil {
@@ -334,26 +340,23 @@ func metricValue(c interface{ Write(*dto.Metric) error }) float64 {
 	return -1
 }
 
-// The durable backstop end to end (LIVE_STATE_PLAN.md "Redis and the server
-// both die"): the live store is EMPTY on restart, game_states has the room →
-// the table is rebuilt from it, reconciled against the ledger, and written
-// straight back into the live store.
-func TestRestartWithEmptyLiveStoreRestoresFromGameStates(t *testing.T) {
-	if !durableRestoreWired {
-		t.Skip("TODO(live-game): RoomManager.Restore pass 2 (DurableSource) is not wired yet")
-	}
+// A LOST LIVE STORE MEANS THE HAND NEVER HAPPENED (LIVE_STATE_PLAN.md,
+// owner's decision of 9 Sep 2026). PostgreSQL holds no game state and nothing
+// was written for a hand in progress, so a process that comes up on an empty
+// live store restores nothing and every player is back to the balance they
+// had before the hand — the owner's example 1.
+func TestRestartWithEmptyLiveStoreLosesTheTablesAndTheHandNeverHappened(t *testing.T) {
 	database := dbtest.Open(t, "app")
 	cfg := testConfig(t, publicDir(t))
 	cfg.Game.TurnTimeout = 20 * time.Second
 	cfg.Game.ReconnectGrace = 700 * time.Millisecond
-	cfg.SnapshotFlush = 50 * time.Millisecond
 
-	// Process 1 plays a hand; the writer flushes game_states on its own.
+	// Process 1 deals a hand and one player chaals.
 	first := newAppOn(t, cfg, database, livetest.New())
 	ts1 := httptest.NewServer(first.Handler())
 	defer ts1.Close()
-	tokA, idA := login(t, ts1.URL, "durable-device-alice-1", "Alice")
-	tokB, idB := login(t, ts1.URL, "durable-device-bob-0001", "Bob")
+	tokA, idA := login(t, ts1.URL, "lostlive-device-alice", "Alice")
+	tokB, idB := login(t, ts1.URL, "lostlive-device-bobby", "Bob")
 	a1, b1 := dial(t, ts1.URL, tokA), dial(t, ts1.URL, tokB)
 	join := map[string]any{"bootAmount": 200, "category": "seen"}
 	joined := mustOK(t, a1, socket.EvRoomQuickJoin, join)
@@ -362,55 +365,89 @@ func TestRestartWithEmptyLiveStoreRestoresFromGameStates(t *testing.T) {
 	if _, err := a1.Wait(socket.EvGameHandStarted, nil, 4*time.Second); err != nil {
 		t.Fatal(err)
 	}
+	before := map[string]int64{}
+	for _, id := range []string{idA, idB} {
+		var chips int64
+		_ = database.Pool.QueryRow(context.Background(), `SELECT chips FROM users WHERE id = $1`, id).Scan(&chips)
+		before[id] = chips
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
-	if err := first.Shutdown(ctx); err != nil { // suspend + final Flush
+	if err := first.Shutdown(ctx); err != nil {
 		t.Fatalf("shutdown 1: %v", err)
-	}
-	var rows int64
-	if err := database.Pool.QueryRow(context.Background(), `SELECT COUNT(*) FROM game_states WHERE room_id = $1`, roomID).Scan(&rows); err != nil || rows != 1 {
-		t.Fatalf("game_states rows for the room = %d (%v)", rows, err)
 	}
 
 	// Process 2: the live store came back EMPTY.
 	empty := livetest.New()
 	second := newAppOn(t, cfg, database, empty)
 	restored := second.Restore()
-	if restored.Tables != 1 || restored.Seats != 2 || restored.HandsInProgress != 1 {
-		t.Fatalf("restore report = %+v", restored)
+	if restored.Tables != 0 || restored.Seats != 0 {
+		t.Fatalf("a table came back from somewhere: %+v", restored)
 	}
-	if _, fromPostgres, _, _ := restoreBreakdown(restored); fromPostgres != 1 {
-		t.Fatalf("restore did not come from postgres: %+v", restored)
+	if second.Rooms().GetTable(roomID) != nil {
+		t.Fatal("the room is registered although nothing could restore it")
 	}
-	if empty.Tables() != 1 {
-		t.Fatalf("the restored table was not written back into the live store (%d)", empty.Tables())
+	// The owner's example: 1 lakh before the hand, chips staked, Redis dies →
+	// they have their pre-hand balance again, because nothing was deducted.
+	for _, id := range []string{idA, idB} {
+		var chips, ledgerSum int64
+		_ = database.Pool.QueryRow(context.Background(), `SELECT chips FROM users WHERE id = $1`, id).Scan(&chips)
+		_ = database.Pool.QueryRow(context.Background(), `SELECT COALESCE(SUM(delta),0)::bigint FROM chip_ledger WHERE user_id = $1`, id).Scan(&ledgerSum)
+		if chips != before[id] {
+			t.Fatalf("user %s chips %d, want their pre-hand balance %d", id, chips, before[id])
+		}
+		if chips != ledgerSum {
+			t.Fatalf("user %s: SUM(delta) %d != chips %d", id, ledgerSum, chips)
+		}
 	}
-	if second.Refund().Pots != 0 {
-		t.Fatalf("the live hand's pot was refunded: %+v", second.Refund())
+	// And the players can sit down again and play.
+	ts2 := httptest.NewServer(second.Handler())
+	defer ts2.Close()
+	a2, b2 := dial(t, ts2.URL, tokA), dial(t, ts2.URL, tokB)
+	fresh := mustOK(t, a2, socket.EvRoomQuickJoin, join)
+	mustOK(t, b2, socket.EvRoomQuickJoin, join)
+	if newRoom, _ := jsonPath(fresh.Raw, "roomId").(string); newRoom == roomID {
+		t.Fatal("the lost room came back")
 	}
-	// Ledger invariant after a durable restore: the table's pot equals the
-	// ledger's total for the hand.
-	table := second.Rooms().GetTable(roomID)
-	if table == nil {
-		t.Fatal("table not registered")
+	if _, err := a2.Wait(socket.EvGameHandStarted, nil, 4*time.Second); err != nil {
+		t.Fatalf("a fresh hand did not deal: %v", err)
 	}
-	view, err := table.SerializeFor(idA)
+}
+
+// PostgreSQL holds MONEY AND AUDIT ONLY: a fresh schema has `users` and
+// `chip_ledger` and nothing else — no game_states, no pots, no hands.
+func TestPostgresHoldsNoGameState(t *testing.T) {
+	database := dbtest.Open(t, "app")
+	cfg := testConfig(t, publicDir(t))
+	app := newAppOn(t, cfg, database, livetest.New())
+	ts := httptest.NewServer(app.Handler())
+	defer ts.Close()
+	tokA, _ := login(t, ts.URL, "nogamestate-device-al", "Alice")
+	tokB, _ := login(t, ts.URL, "nogamestate-device-bo", "Bob")
+	a, b := dial(t, ts.URL, tokA), dial(t, ts.URL, tokB)
+	join := map[string]any{"bootAmount": 200, "category": "seen"}
+	mustOK(t, a, socket.EvRoomQuickJoin, join)
+	mustOK(t, b, socket.EvRoomQuickJoin, join)
+	if _, err := a.Wait(socket.EvGameHandStarted, nil, 4*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := database.Pool.Query(context.Background(),
+		`SELECT tablename FROM pg_tables WHERE schemaname = current_schema() ORDER BY tablename`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var ledgerPot int64
-	_ = database.Pool.QueryRow(context.Background(), `SELECT -SUM(delta)::bigint FROM chip_ledger WHERE hand_id = $1 AND reason IN ('boot','bet','show')`, restored.HandIDs[0]).Scan(&ledgerPot)
-	if view.Pot != ledgerPot {
-		t.Fatalf("restored pot %d != ledger total %d", view.Pot, ledgerPot)
+	defer rows.Close()
+	var tables []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			t.Fatal(err)
+		}
+		tables = append(tables, name)
 	}
-	// Both seats are held; Alice returns to the rebuilt table.
-	ts2 := httptest.NewServer(second.Handler())
-	defer ts2.Close()
-	a2 := dial(t, ts2.URL, tokA)
-	if rejoined, err := a2.Wait(socket.EvRoomJoined, nil, 4*time.Second); err != nil || jsonPath(rejoined, "roomId") != roomID {
-		t.Fatalf("Alice not back at her table: %v %s", err, rejoined)
+	if len(tables) != 2 || tables[0] != "chip_ledger" || tables[1] != "users" {
+		t.Fatalf("schema tables = %v, want [chip_ledger users]", tables)
 	}
-	_ = idB
 }
 
 // /health is polled by uptime checks, dashboards and the load generator. It

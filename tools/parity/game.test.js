@@ -161,14 +161,14 @@ test('the deal: boots are banked, three hidden cards each, the turn opens left o
     }
   }
 
-  // The boots are in the database before anyone saw a card.
+  // THE DEAL WRITES NOTHING (owner's decision of 9 Sep 2026). The boot comes
+  // out of the seat and the wallet is untouched until this player's first
+  // checkpoint — a pack, a departure, or the hand ending.
   for (const entry of [s0, s1]) {
-    assert.equal(await wallet(entry.user.id), profile.welcomeChips - bootAmount);
-    const { rows } = await query("SELECT delta, action_id FROM chip_ledger WHERE user_id = $1 AND reason = 'boot'", [entry.user.id]);
-    assert.deepEqual(rows, [{ delta: -bootAmount, action_id: `${started.handId}:boot:${entry.user.id}` }]);
+    assert.equal(await wallet(entry.user.id), profile.welcomeChips, 'the wallet is untouched at the deal');
+    const { rows } = await query('SELECT COUNT(*) AS n FROM chip_ledger WHERE hand_id = $1', [started.handId]);
+    assert.equal(Number(rows[0].n), 0, 'no ledger row for a hand that has only been dealt');
   }
-  const pot = await query('SELECT amount, boot_amount, closed_at FROM pots WHERE hand_id = $1', [started.handId]);
-  assert.deepEqual(pot.rows, [{ amount: bootAmount * 2, boot_amount: bootAmount, closed_at: null }]);
 
   await closeAll(...clients);
 });
@@ -363,11 +363,14 @@ test('a full hand: chaal, raise, see, show — the ladder, the stake in blind un
   assert.equal(sum(ended.summary.map((e) => e.contributed)), expectedPot, 'the summary explains the pot');
   assert.equal(ended.summary.find((e) => e.seatIndex === 0).contributed, bootAmount * (1 + 2 + 8));
   assert.equal(ended.summary.find((e) => e.seatIndex === 1).contributed, bootAmount * (1 + 1 + 4 + 8));
-  assertOrder(s0.client.eventsSince(s0Mark), ['game:action', 'game:showdown', 'game:handEnded', 'room:state'], 'showdown order');
   assertBefore(s1.client.eventsSince(mark), 'game:handEnded', 'ack:game:action', 'the ack follows the hand end');
 
-  // Back to rest, then the countdown for the next hand.
+  // Back to rest, then the countdown for the next hand. Wait for that state
+  // BEFORE asserting the order: the settlement transaction now also banks the
+  // hand's bets (LIVE_STATE_PLAN.md), so the trailing room:state can land a
+  // few ms after game:handEnded rather than in the same breath.
   const rest = await s0.client.waitNext('room:state', (s) => s.state !== 'betting', 4000, s0Mark);
+  assertOrder(s0.client.eventsSince(s0Mark), ['game:action', 'game:showdown', 'game:handEnded', 'room:state'], 'showdown order');
   assert.equal(rest.pot, 0);
   assert.equal(rest.turn, null);
   assert.equal(rest.stake, bootAmount);
@@ -396,21 +399,23 @@ test('a full hand: chaal, raise, see, show — the ladder, the stake in blind un
   });
   assert.equal(rest.seats[winner.seatIndex].chips, profile.welcomeChips - winnerContributed + expectedPot, 'the seat adopts the settled balance');
 
-  // Ledger rows carry the client's action ids.
+  // NO CLIENT ACTION ID EVER REACHES THE LEDGER (owner's decision of 9 Sep
+  // 2026): a bet writes nothing, and the whole hand lands as one outcome row
+  // per player under a server-minted id.
+  const client = await query("SELECT COUNT(*) AS n FROM chip_ledger WHERE action_id LIKE 'parity-game-hand-%'");
+  assert.equal(Number(client.rows[0].n), 0, 'a client action id reached the ledger');
   const { rows } = await query(
-    "SELECT action_id, delta, reason FROM chip_ledger WHERE action_id LIKE 'parity-game-hand-%' ORDER BY id",
+    'SELECT user_id, delta, reason, action_id FROM chip_ledger WHERE hand_id = $1 ORDER BY user_id',
+    [ended.handId],
   );
-  assert.deepEqual(rows, [
-    { action_id: 'parity-game-hand-chaal', delta: -bootAmount, reason: 'bet' },
-    { action_id: 'parity-game-hand-raise', delta: -bootAmount * 2, reason: 'bet' },
-    { action_id: 'parity-game-hand-bare-raise', delta: -bootAmount * 4, reason: 'bet' },
-    { action_id: 'parity-game-hand-seen-chaal', delta: -bootAmount * 8, reason: 'bet' },
-    { action_id: 'parity-game-hand-show', delta: -bootAmount * 8, reason: 'show' },
-  ]);
-  const pot = await query('SELECT amount, winner_id, closed_at FROM pots WHERE hand_id = $1', [ended.handId]);
-  assert.equal(pot.rows[0].amount, expectedPot);
-  assert.equal(pot.rows[0].winner_id, winner.userId);
-  assert.ok(pot.rows[0].closed_at > 0);
+  assert.equal(rows.length, 2, 'one outcome row per player');
+  assert.equal(rows.reduce((n, r) => n + r.delta, 0), 0, 'the hand conserved chips');
+  for (const row of rows) {
+    assert.equal(row.action_id, `${ended.handId}:settle:${row.user_id}`);
+    assert.equal(row.reason, row.user_id === winner.userId ? 'hand_win' : 'hand_loss');
+  }
+  const won = rows.find((r) => r.user_id === winner.userId);
+  assert.equal(won.delta, expectedPot - winnerContributed, 'the winner nets the pot less their own stake');
 
   await closeAll(...t.clients);
 });
@@ -470,6 +475,9 @@ test('blind table: hidden stacks are null, the ladder runs on, and the fourth bl
       assert.equal(actor.client.count('player:cards'), 0);
     }
   }
+  // The auto-reveal is broadcast, so wait for seat 0's own snapshot of it
+  // rather than assuming it has already arrived.
+  await s0.client.waitState((v) => v.seats.some((seat) => seat.seatIndex === 1 && !seat.isBlind));
   assert.equal(s0.client.state().seats[1].isBlind, false, 'the reveal is public');
   assert.equal(s0.client.count('player:cards'), 0);
   assert.equal(s0.client.state().pot, expectedPot);
@@ -828,11 +836,22 @@ test('leaving mid-hand is a pack: the stake stays in the pot, the last player st
     assert.equal(stayer.handsWon, 1);
     assert.equal(stayer.handsPlayed, 0, 'never bet beyond the boot');
   });
+  // The leaver is resolved at their OWN checkpoint (hand_left, written the
+  // moment they are gone so their wallet is right at once) and is not in the
+  // hand-end write; the player still at the table gets the hand_win row.
   const ledger = await query(
-    "SELECT reason, delta FROM chip_ledger WHERE hand_id = $1 AND reason IN ('hand_win', 'hand_loss') ORDER BY reason",
+    'SELECT user_id, reason, delta, action_id FROM chip_ledger WHERE hand_id = $1 ORDER BY reason',
     [ended.handId],
   );
-  assert.deepEqual(ledger.rows, [{ reason: 'hand_loss', delta: 0 }, { reason: 'hand_win', delta: pot }]);
+  assert.deepEqual(ledger.rows.map((r) => r.reason), ['hand_left', 'hand_win']);
+  const leaverRow = ledger.rows.find((r) => r.reason === 'hand_left');
+  assert.equal(leaverRow.user_id, onTurnUser.id);
+  assert.equal(leaverRow.delta, -bootAmount * 2, 'their whole stake, taken when they left');
+  assert.equal(leaverRow.action_id, `${ended.handId}:left:${onTurnUser.id}`);
+  const winRow = ledger.rows.find((r) => r.reason === 'hand_win');
+  assert.equal(winRow.user_id, waitingUser.id);
+  assert.equal(winRow.delta, pot - bootAmount, 'the pot less their own boot');
+  assert.equal(ledger.rows.reduce((n, r) => n + r.delta, 0), 0, 'the hand conserved chips');
   await closeAll(...t.clients);
 });
 

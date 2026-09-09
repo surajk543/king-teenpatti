@@ -93,6 +93,11 @@ type SnapshotHand struct {
 	LastDeparture *string `json:"lastDeparture"`
 	// TurnDeadline is hand.turnDeadline (epoch ms), or null before the first turn.
 	TurnDeadline *int64 `json:"turnDeadline"`
+	// ActionIDs are the client action ids this hand has already accepted for
+	// a bet, sorted (a set). A bet writes nothing to PostgreSQL, so the
+	// chip_ledger UNIQUE index no longer refuses a replay — this does, and it
+	// has to survive a restart to keep doing it. Never nil.
+	ActionIDs []string `json:"actionIds"`
 }
 
 // SnapshotSideshow is SnapshotHand.sideshow (hand.sideshow without the timer).
@@ -108,7 +113,6 @@ type SnapshotSideshow struct {
 type SnapshotContribution struct {
 	UserID      string    `json:"userId"`
 	Contributed int64     `json:"contributed"`
-	Persisted   int64     `json:"persisted"`
 	Status      SeatState `json:"status"`
 	DidChaal    bool      `json:"didChaal"`
 	LeftMidHand bool      `json:"leftMidHand"`
@@ -119,6 +123,13 @@ type SnapshotContribution struct {
 	SeatIndex   int      `json:"seatIndex"`
 	SawCards    bool     `json:"sawCards"`
 	Cards       []string `json:"cards"` // wire codes; never nil
+	// Chips is this player's stack as the LIVE state has it.
+	Chips int64 `json:"chips"`
+	// ChipsWritten is the stack as PostgreSQL last had it. The next
+	// checkpoint writes `Chips - ChipsWritten`, so this is what makes the
+	// three-moment money model survive a restart: without it a rebuilt table
+	// could not tell how much of a player's stake had already been banked.
+	ChipsWritten int64 `json:"chipsWritten"`
 }
 
 // SnapshotSeat is one occupied seat in Snapshot.seats.
@@ -142,21 +153,6 @@ type SnapshotSeat struct {
 	SideshowAskedThisTurn bool    `json:"sideshowAskedThisTurn"`
 	KickPending           bool    `json:"kickPending"`
 	JoinedAt              int64   `json:"joinedAt"` // epoch ms
-}
-
-// HandRecord is the completed hand handed to Ledger.Settle (table.js
-// _endHand `record`) and written to the `hands` table.
-type HandRecord struct {
-	ID         string
-	RoomID     string
-	HandNo     int
-	Pot        int64
-	WinnerID   *string // nil when every player vanished (pot refunded)
-	WinReason  WinReason
-	BootAmount int64
-	StartedAt  int64 // epoch ms
-	EndedAt    int64 // epoch ms
-	Summary    []HandSummaryEntry
 }
 
 // HandSummaryEntry is one contributor in hands.summary_json and in the

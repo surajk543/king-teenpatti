@@ -55,16 +55,12 @@ type App struct {
 	// ownsLive: New opened the store (Options.Live was nil) and Shutdown
 	// closes it.
 	ownsLive bool
-	// snapshots is the durable backstop writer (game_states, asynchronous);
-	// nil without a database.
-	snapshots *db.SnapshotWriter
-	rooms     *game.RoomManager
-	sio       *sio.Server
-	sockets   *socket.Handler
-	// restore and refund record what the startup sequence did (logged once;
-	// Restore()/Refund() expose them to tests and tooling).
+	rooms    *game.RoomManager
+	sio      *sio.Server
+	sockets  *socket.Handler
+	// restore records what the startup sequence did (logged once; Restore()
+	// exposes it to tests and tooling).
 	restore game.RestoreReport
-	refund  db.RefundReport
 	// reconcileStop/Done drive the live-store reconciler (LIVE_RECONCILE_MS);
 	// Shutdown stops it.
 	reconcileStop chan struct{}
@@ -227,18 +223,6 @@ func New(opts Options) (*App, error) {
 		Live:     a.live,
 		Instance: cfg.LiveInstanceID,
 	})
-	// The durable backstop: game_states written asynchronously
-	// (LIVE_STATE_PLAN.md "The durable backstop"); SNAPSHOT_FLUSH_MS=0 builds a
-	// writer that drops everything (Redis only).
-	if opts.DB != nil {
-		a.snapshots = db.NewSnapshotWriter(opts.DB, db.SnapshotWriterOptions{
-			Interval: cfg.SnapshotFlush,
-			Logger:   logger,
-			Metrics:  a.metrics,
-			Clock:    clock.Now,
-		})
-		a.metrics.BindSnapshotLag(a.snapshots.Lag)
-	}
 	roomOpts := game.RoomManagerOptions{
 		Game:          cfg.Game,
 		Chat:          cfg.Chat,
@@ -252,11 +236,14 @@ func New(opts Options) (*App, error) {
 		LiveTTL:       cfg.LiveStateTTL,
 		Metrics: game.MetricsHooks{
 			ObserveCreation: func(d time.Duration) { metrics.Observe(a.metrics.CreationDuration, d) },
+			// game_hand_start_duration_seconds used to be timed around the
+			// boot transaction; the deal writes nothing to PostgreSQL since
+			// 9 Sep 2026, so the table times its own work.
+			ObserveHandStart: func(d time.Duration) { metrics.Observe(a.metrics.HandStartDuration, d) },
 			// ObserveLiveError stays nil: the WithHooks wrapper already
 			// counts every failed store call in game_live_store_errors_total.
 		},
 	}
-	a.wireDurable(&roomOpts, opts.DB)
 	a.rooms = game.NewRoomManager(roomOpts)
 	a.sockets.SetRooms(a.rooms)
 	a.sockets.Attach(a.sio)
@@ -272,9 +259,6 @@ func New(opts Options) (*App, error) {
 
 	// 6. the restart sequence, then the sweeper and the reconciler.
 	if err := a.restoreLiveState(); err != nil {
-		if a.snapshots != nil {
-			a.snapshots.Close()
-		}
 		if a.ownsLive {
 			_ = a.live.Close()
 		}
@@ -358,24 +342,20 @@ func originChecker(cfg *config.Config) func(r *http.Request) bool {
 // restoreLiveState is startup steps 2–4 of LIVE_STATE_PLAN.md, run by New
 // before the sweeper starts and the listener opens:
 //
-//	rooms.Restore(ctx)                            tables rebuilt: pass 1 from the live
-//	                                              store, pass 2 from game_states for
-//	                                              every room the live store lacked
-//	                                              (reconciled against the ledger and
-//	                                              written straight back into the store)
-//	DB.RefundOrphanedPots(ctx, hand ids of BOTH)  open pots nobody is playing → refunded
+//	rooms.Restore(ctx)                            every table the live store holds
 //	sockets.RestoreSeats(rooms.RestoredSeats())   every restored seat held for the grace
 //
-// A store that cannot even be listed is fatal (the process must not start
-// half-blind and let the next process fight it over the same tables). A
-// refund failure is not: the chips are still in the pot, the failure is
-// logged, and the next start retries it. Counters:
-// game_restored_tables_total{source}, game_restore_reconciled_total,
-// game_restore_rejected_total, game_restored_seats_total (the handler adds
-// it), game_refunded_pots_total, game_refunded_chips_total. One summary line
-// is logged either way:
+// The live store is the only source: PostgreSQL holds money and audit and no
+// game state at all, so a lost live store means the hand never happened —
+// the players re-join and whatever PostgreSQL holds is their balance. There
+// is nothing to refund because PostgreSQL never holds pot money.
 //
-//	restored tables=N (live=A postgres=B) seats=C reconciled=D rejected=E refunded pots=F
+// A store that cannot even be listed is fatal (the process must not start
+// half-blind and let the next process fight it over the same tables).
+// Counters: game_restored_tables_total, game_restored_seats_total (the
+// handler adds it). One summary line is logged:
+//
+//	restored tables=N seats=C
 func (a *App) restoreLiveState() error {
 	ctx, cancel := context.WithTimeout(context.Background(), restoreTimeout)
 	defer cancel()
@@ -385,35 +365,8 @@ func (a *App) restoreLiveState() error {
 		return fmt.Errorf("restore tables: %w", err)
 	}
 	a.restore = report
-	fromLive, fromPostgres, reconciled, rejected := restoreBreakdown(report)
-	if fromLive > 0 {
-		a.metrics.RestoredTablesTotal.WithLabelValues(metrics.RestoreSourceLive).Add(float64(fromLive))
-	}
-	if fromPostgres > 0 {
-		a.metrics.RestoredTablesTotal.WithLabelValues(metrics.RestoreSourcePostgres).Add(float64(fromPostgres))
-	}
-	if reconciled > 0 {
-		a.metrics.RestoreReconciled.Add(float64(reconciled))
-	}
-	if rejected > 0 {
-		a.metrics.RestoreRejected.Add(float64(rejected))
-	}
-
-	liveHands := make(map[string]bool, len(report.HandIDs))
-	for _, id := range report.HandIDs {
-		liveHands[id] = true
-	}
-	if a.db != nil {
-		refund, err := a.db.RefundOrphanedPots(ctx, liveHands)
-		a.refund = refund
-		if refund.Pots > 0 {
-			a.metrics.RefundedPotsTotal.Add(float64(refund.Pots))
-			a.metrics.RefundedChipsTotal.Add(float64(refund.Chips))
-		}
-		if err != nil {
-			a.log.Error("pot refund incomplete; will retry at the next start", "error", err.Error(),
-				"potsRefunded", refund.Pots, "chipsRefunded", refund.Chips)
-		}
+	if report.Tables > 0 {
+		a.metrics.RestoredTablesTotal.Add(float64(report.Tables))
 	}
 
 	restored := a.rooms.RestoredSeats()
@@ -423,13 +376,11 @@ func (a *App) restoreLiveState() error {
 	}
 	held := a.sockets.RestoreSeats(seats)
 
-	a.log.Info(fmt.Sprintf("restored tables=%d (live=%d postgres=%d) seats=%d reconciled=%d rejected=%d refunded pots=%d",
-		report.Tables, fromLive, fromPostgres, held, reconciled, rejected, a.refund.Pots),
+	a.log.Info(fmt.Sprintf("restored tables=%d seats=%d", report.Tables, held),
 		"store", a.live.Kind(),
 		"handsInProgress", report.HandsInProgress,
 		"snapshotsDropped", report.Dropped,
 		"loadsFailed", report.Failed,
-		"chipsRefunded", a.refund.Chips,
 		"graceMs", a.cfg.Game.ReconnectGrace.Milliseconds(),
 	)
 	return nil
@@ -496,9 +447,6 @@ func (a *App) Live() live.Store { return a.live }
 // Restore is what rooms.Restore did at startup.
 func (a *App) Restore() game.RestoreReport { return a.restore }
 
-// Refund is what db.RefundOrphanedPots did at startup.
-func (a *App) Refund() db.RefundReport { return a.refund }
-
 // Start listens on cfg.Host:cfg.Port and serves until Shutdown. It logs
 // `king-teenpatti server listening {url, env, welcomeChips, boot}` and
 // returns http.ErrServerClosed after a clean Shutdown. PORT=0 is allowed —
@@ -556,9 +504,8 @@ func (a *App) Addr() string {
 // HANDS ARE SETTLED, pots paid out — the pre-Redis behaviour, and the
 // rollback path when REDIS_URL is unset); http Shutdown(ctx); sio.Shutdown
 // (socket goroutines); sockets.Close() (presence heartbeat); the reconciler
-// stops; snapshots.Flush(ctx) writes the final game_states rows before the
-// caller closes the DB; and the store, when New opened it, is closed LAST,
-// after every user of it.
+// stops; and the store, when New opened it, is closed LAST, after every user
+// of it.
 // cmd/gameplay bounds the whole thing with 8 s, as Node's
 // setTimeout(process.exit(1), 8000). A second call is a no-op returning nil.
 func (a *App) Shutdown(ctx context.Context) error {
@@ -587,22 +534,15 @@ func (a *App) Shutdown(ctx context.Context) error {
 	}
 	// 4. Wait for the socket goroutines to wind down (bounded by ctx).
 	sioErr := a.sio.Shutdown(ctx)
-	// 5. Stop the presence heartbeat and the reconciler; flush the durable
-	// snapshots the suspend/destroy produced (the caller closes the DB after
-	// us); then close the store (when it is ours) — nothing above touches it
-	// any more.
+	// 5. Stop the presence heartbeat and the reconciler, then close the store
+	// (when it is ours) — nothing above touches it any more.
 	a.sockets.Close()
 	a.stopReconciler()
-	var snapErr error
-	if a.snapshots != nil {
-		snapErr = a.snapshots.Flush(ctx)
-		a.snapshots.Close()
-	}
 	var liveErr error
 	if a.ownsLive {
 		liveErr = a.live.Close()
 	}
-	return errors.Join(roomsErr, httpErr, sioErr, snapErr, liveErr)
+	return errors.Join(roomsErr, httpErr, sioErr, liveErr)
 }
 
 // HealthResponse is GET /health. Field names are Node's; `node` carries the
@@ -624,23 +564,18 @@ type HealthResponse struct {
 }
 
 // LiveHealth is /health.live: the store's kind ("redis" | "memory"), whether
-// it answered a Ping (and the table listing), how many table snapshots it
-// holds — after a restart that is what the next process would rebuild — and
-// how far the durable backstop is behind it (the age of the oldest table
-// change not yet flushed to game_states; 0 when nothing is pending).
+// it answered a Ping (and the table listing), and how many table snapshots
+// it holds — after a restart that is what the next process would rebuild.
+// There is no durable copy to lag behind: PostgreSQL holds no game state.
 type LiveHealth struct {
-	Kind               string  `json:"kind"`
-	OK                 bool    `json:"ok"`
-	Tables             int     `json:"tables"`
-	SnapshotLagSeconds float64 `json:"snapshotLagSeconds"`
+	Kind   string `json:"kind"`
+	OK     bool   `json:"ok"`
+	Tables int    `json:"tables"`
 }
 
 // liveHealth probes the store within healthLiveTimeout.
 func (a *App) liveHealth() LiveHealth {
 	out := LiveHealth{Kind: a.live.Kind()}
-	if a.snapshots != nil {
-		out.SnapshotLagSeconds = round1(a.snapshots.Lag().Seconds())
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), healthLiveTimeout)
 	defer cancel()
 	if err := a.live.Ping(ctx); err != nil {

@@ -52,7 +52,7 @@ const (
 const (
 	CodeRewardNotAvailable = "reward_not_available" // 409
 	CodeRewardNotReady     = "reward_not_ready"     // 409
-	CodeSeated             = "seated"               // 409: avatar/name change while at a table
+	CodeSeated             = "seated"               // 409: avatar/name change or a reward claim while at a table
 	CodeUnknownAvatar      = "unknown_avatar"       // 400
 	CodeInternalError      = "internal_error"       // 500
 	CodeInvalidJSON        = "invalid_json"         // 400 — Go-only, see PORT_PLAN.md (Node answered 500 internal_error)

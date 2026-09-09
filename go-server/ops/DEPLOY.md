@@ -354,7 +354,7 @@ What it buys, in one line each:
 |---|---|---|
 | Server restarted or crashed | every table and hand lost, seats gone | tables rebuilt, seats held for the reconnect grace, hands continue |
 | Redis dies while the server runs | — | play is unaffected; the reconciler refills Redis when it returns |
-| Redis and the server both die | — | rooms rebuilt from PostgreSQL `game_states`, corrected against the ledger |
+| Redis and the server both die | — | nothing is rebuilt (PostgreSQL holds no game state): players re-join, and every open pot is refunded to its contributors (`game_refunded_pots_total`) |
 | Neither store has the room | pot stranded | pot returned to its contributors, one idempotent ledger row each |
 
 Chat is deliberately not durable: it lives only in Redis, so a room rebuilt from PostgreSQL comes

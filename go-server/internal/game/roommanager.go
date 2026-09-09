@@ -156,6 +156,11 @@ type SwitchResult struct {
 type MetricsHooks struct {
 	// ObserveCreation records game_creation_duration_seconds.
 	ObserveCreation func(d time.Duration)
+	// ObserveHandStart records game_hand_start_duration_seconds: how long
+	// dealing a hand takes. It used to be timed around the boot transaction;
+	// the deal writes nothing to PostgreSQL since 9 Sep 2026, so the table
+	// times its own work instead.
+	ObserveHandStart func(d time.Duration)
 	// ObserveLiveError counts a failed live-store call made by the game
 	// package (op is a LiveOp* name) — game_live_store_errors_total{op}. The
 	// app may leave it nil when the store itself is wrapped with
@@ -200,13 +205,6 @@ type RoomManagerOptions struct {
 	// LiveTTL is the snapshot expiry handed to every table
 	// (LIVE_STATE_TTL_MS); 0 → DefaultLiveTTL.
 	LiveTTL time.Duration
-	// Snapshots is the durable backstop every table hands its snapshots to
-	// (db.SnapshotWriter → game_states, asynchronously). nil → no-op.
-	Snapshots SnapshotSink
-	// Durable supplies, at Restore, the tables the live store did not have
-	// (game_states) and the ledger totals to reconcile them with. nil → the
-	// live store is the only source.
-	Durable DurableSource
 }
 
 // RoomManager owns every live table in this process (roomManager.js).
@@ -275,11 +273,9 @@ type RoomManager struct {
 	sweepStopped bool
 
 	// live-state store (nil → every live* helper is a no-op).
-	live      live.Store
-	instance  string
-	liveTTL   time.Duration
-	snapshots SnapshotSink
-	durable   DurableSource
+	live     live.Store
+	instance string
+	liveTTL  time.Duration
 	// published is roomId → the (players, state) last pushed to the
 	// matchmaking index, so tableHooks.OnState publishes only on a change.
 	// Guarded by pubMu, never by mu (OnState runs on a table actor).
@@ -364,8 +360,6 @@ func NewRoomManager(opts RoomManagerOptions) *RoomManager {
 		live:        opts.Live,
 		instance:    opts.Instance,
 		liveTTL:     liveTTL,
-		snapshots:   opts.Snapshots,
-		durable:     opts.Durable,
 		published:   map[string]publishedSummary{},
 	}
 	rm.hooks = &tableHooks{rm: rm}
@@ -565,7 +559,7 @@ func (rm *RoomManager) tableOptions(opts TableOptions) TableOptions {
 	opts.Live = rm.live
 	opts.LiveTTL = rm.liveTTL
 	opts.LiveErrors = rm.liveErrorHook
-	opts.Snapshots = rm.snapshots
+	opts.ObserveHandStart = rm.mx.ObserveHandStart
 	return opts
 }
 
@@ -1444,10 +1438,18 @@ func (rm *RoomManager) SweepEmptyTables() error {
 
 // Stats is rooms.stats().
 func (rm *RoomManager) Stats() Stats {
+	// mu is the busiest lock in the server — every join, leave, switch and
+	// consolidation needs it — and this runs on /health, which uptime checks
+	// and dashboards poll. So take the counts and a copy of the table
+	// pointers under the lock, then ask the tables themselves outside it.
+	// HasHand is a lock-free atomic, but calling it 3,000 times while holding
+	// mu would put /health in the way of every player trying to sit down.
 	rm.mu.Lock()
-	defer rm.mu.Unlock()
 	stats := Stats{Tables: len(rm.tables), Players: len(rm.playerRooms)}
-	for _, t := range rm.tables {
+	tables := rm.tablesLocked()
+	rm.mu.Unlock()
+
+	for _, t := range tables {
 		if t.HasHand() {
 			stats.ActiveHands++
 		}

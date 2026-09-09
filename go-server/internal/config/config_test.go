@@ -53,7 +53,7 @@ func TestDefaultsMatchNode(t *testing.T) {
 		"Metrics.Enabled": true, "Metrics.Path": "/metrics", "Metrics.Prefix": "game_server_", "Metrics.Token": "",
 		"Chat.MaxHistory": 100, "Chat.MaxLength": 140, "Chat.RateLimit": 5, "Chat.RateWindow": 5 * time.Second,
 		"LogLevel": "info", "PublicDir": "./public", "RedisURL": "",
-		"LiveStateTTL": 24 * time.Hour, "LiveInstanceID": "", "SnapshotFlush": time.Second, "LiveReconcile": 30 * time.Second,
+		"LiveStateTTL": 24 * time.Hour, "LiveInstanceID": "", "LiveReconcile": 30 * time.Second,
 	}
 	for path, expected := range want {
 		if got := field(t, cfg, path); !reflect.DeepEqual(got, expected) {
@@ -162,8 +162,6 @@ func TestEveryKey(t *testing.T) {
 		{"REDIS_URL", "redis://localhost", "RedisURL", "redis://localhost"},
 		{"LIVE_STATE_TTL_MS", "3600000", "LiveStateTTL", time.Hour},
 		{"LIVE_INSTANCE_ID", "blue-1", "LiveInstanceID", "blue-1"},
-		{"SNAPSHOT_FLUSH_MS", "250", "SnapshotFlush", 250 * time.Millisecond},
-		{"SNAPSHOT_FLUSH_MS", "0", "SnapshotFlush", time.Duration(0)},
 		{"LIVE_RECONCILE_MS", "5000", "LiveReconcile", 5 * time.Second},
 	}
 	for _, row := range rows {

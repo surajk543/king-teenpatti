@@ -67,20 +67,20 @@ king-teenpatti/
 │   │   │   ├── table.go          THE rules engine (actor; Table, run(), every Node _method minus the underscore)
 │   │   │   ├── view.go           serializeFor / betOptions / turnOptions / summary — the redacted wire structs
 │   │   │   ├── events.go         Listener (one method per table event) + payload structs
-│   │   │   ├── snapshot.go       game_states JSON (server-side full state, never sent to clients)
+│   │   │   ├── snapshot.go       the server-side full state (cards, bets, deadlines) saved to Redis; never sent to clients
 │   │   │   ├── roommanager.go    lobby menu, quick-join, switch, consolidation, sweeper; injects the Ledger
 │   │   │   ├── handrank.go       Evaluate/Compare/PickWinner
 │   │   │   ├── deck.go           52 cards, crypto/rand shuffle, 2-char wire codes ("As","Td")
 │   │   │   ├── chat.go           in-memory per-room chat buffer (actor-owned)
 │   │   │   ├── constants.go      Category / TableState / SeatState / Action / WinReason + verbatim messages
 │   │   │   ├── errors.go         GameError, every snake_case code and refusal message
-│   │   │   ├── ledger.go         Ledger interface (Bet/CollectBoot/Settle) + MemoryLedger for unit tests
+│   │   │   ├── ledger.go         Ledger interface (CollectBoot/FlushBets/Settle) + MemoryLedger for unit tests
 │   │   │   ├── clock.go          Clock interface, RealClock, Millis;  testclock/ = deterministic clock (Advance)
 │   │   │   └── *_test.go         table, tablerules, sideshow, settlement, roommanager, handrank, deck, chat, wire, review_*, interop (needs NODE_REFERENCE_DIR)
 │   │   ├── sio/                  our own Engine.IO v4 + Socket.IO v5 server, websocket only (protocol.go, conn.go, server.go)
 │   │   ├── socket/               the game protocol on sio: handler.go (Attach, guard, one method per event, grace, resume offers), wire.go (every event/ack), payload.go; testclient/
 │   │   ├── auth/                 tokens.go (JWT HS256), providers.go (Google/Facebook/guest/fake), http.go (routes, RequireAuth, WriteError), handlers.go (the 8 REST handlers), text.go
-│   │   ├── db/                   db.go (pgxpool, search_path as connection param, WithTx, DropSchema), schema.sql (embedded DDL), ledger.go (THE money transactions), users.go (login upsert, rewards, names, avatars); dbtest/
+│   │   ├── db/                   db.go (pgxpool, search_path as connection param, WithTx, DropSchema), schema.sql (embedded DDL — money and audit only), ledger.go (THE money transactions: CollectBoot / FlushBets / Settle), refund.go (RefundOrphanedPots), users.go (login upsert, rewards, names, avatars); dbtest/
 │   │   ├── metrics/              names.go (every game_* metric), metrics.go (registry, Bind*, Handler, HTTPMiddleware, SafeLabel)
 │   │   ├── app/                  app.go (mux, REST, socket endpoint, Start/Shutdown), health.go, static.go (PUBLIC_DIR + embedded assets/socket.io.min.js)
 │   │   └── util/                 UUID, RoomCode, slog JSON logger
@@ -248,32 +248,72 @@ adb shell screenrecord --time-limit 170 --bit-rate 8000000 /sdcard/seg.mp4   # f
 ### 5.1 The money model (database-first)
 Every chip movement follows this exact shape — the client sends `BET amount + actionId`:
 
+**Owner's decision, 9 Sep 2026 — this replaced the per-bet "database-first" model.** All game state
+lives in **Redis** and nowhere else; **PostgreSQL holds money and audit only** (`users`,
+`chip_ledger`, `pots`, `hands` — there is no `game_states` table any more). A bet is **not** a
+database transaction. PostgreSQL is written at exactly these moments:
+
+| Moment | What is written | Scope |
+|---|---|---|
+| **hand start** | boots debited, `pots` row opened, one `boot` ledger row each (`CollectBoot`) | every player in the hand |
+| **a player leaves / switches / is kicked mid-hand** | that player's bets so far: wallet debit + their `bet`/`show` ledger rows (`FlushBets`) | that one player only |
+| **hand end** | every remaining player's bets, then the settlement rows, the `hands` row, the pot closed — ONE transaction (`Settle`) | everyone still in the hand |
+| bet / chaal / raise / show / see in between | **nothing** — the seat, the pot and the Redis snapshot only | — |
+
+A bet therefore looks like this:
+
 ```
-validate in memory (turn, amount ∈ ladder, balance)
-  → BEGIN
-  → SELECT chips FROM users WHERE id=$1 FOR UPDATE        lock the wallet row
-  → UPDATE users SET chips = chips - amount               deduct
-  → UPDATE pots SET amount = amount + $1                  pot accounting
-  → INSERT INTO chip_ledger (…, action_id) — UNIQUE       immutable ledger entry
-  → UPSERT game_states … WHERE stored.version < new       save state/version
-  → COMMIT
-  → SUCCESS: mutate Table memory, emit 'action'/'state'  (broadcast)
-  → FAILURE: change nothing, emit nothing, ack {ok:false, code}
+validate in memory (turn, amount ∈ ladder, actionId unused this hand, seat.chips ≥ amount)
+  → seat.chips -= amount; seat.contributed += amount; hand.pot += amount
+  → append {amount, reason, actionId, flushed:false} to the hand's contribution record
+  → emit 'action'/'state'; the actor saves the snapshot to Redis at the end of the closure
 ```
 
-- `chip_ledger.action_id` is UNIQUE → a retried request (`duplicate_action`) is refused, never
-  double-charged. Boots use `${handId}:boot:${userId}`, settlement `${handId}:settle:${userId}`, so
-  those transactions are idempotent too.
+and the two (or three) transactions that DO run keep the shape they always had:
+
+```
+  → BEGIN
+  → SELECT chips FROM users WHERE id=$1 FOR UPDATE        lock the wallet row(s), ascending id
+  → per outstanding bet: INSERT chip_ledger … ON CONFLICT (action_id) DO NOTHING
+  → UPDATE users SET chips = …                            deduct / pay
+  → UPDATE pots SET amount = amount + banked              pot accounting
+  → COMMIT
+```
+
+- **The audit is unchanged.** A hand's betting is batched, never aggregated: each bet keeps its own
+  ledger row, its own reason (`bet`/`show`) and the client's own `action_id`, so the rows are
+  indistinguishable from the ones the per-bet model wrote. Same rows, same `pots.amount`, **2
+  transactions per hand instead of 2 + one per bet**.
+- `chip_ledger.action_id` is UNIQUE → a retried request is never double-charged. Boots use
+  `${handId}:boot:${userId}`, settlement `${handId}:settle:${userId}`, refunds
+  `${handId}:refund:${userId}`, so those are idempotent too. A **replay within a hand** is refused in
+  memory (`duplicate_action`, `Table.handHasActionID`) — that is where the UNIQUE index used to catch
+  it. At bank time `ON CONFLICT DO NOTHING` means "already banked, skip the debit"; an id colliding
+  with **another hand's** row is banked under a fresh server uuid rather than dropped.
+- **No double-write.** A departing player's bets are marked `flushed` on the contribution record —
+  which is in the snapshot, so it is in Redis and survives a restart — and the settlement does not
+  re-send them.
 - `chip_ledger` is **append-only**: a trigger raises on UPDATE/DELETE.
-- `game_states.version` only rises; a write with an older version is rejected (`stale_state`) — the
-  guard against two processes owning one table.
-- `Table` never touches the DB directly. It is given a `ledger` object `{bet, collectBoot, settle}`
-  (production: `db/ledger.js`; tests: `memoryLedger` built from the older `settle`/`persistChips`
-  hooks). `table.version` increments per committed write.
-- **Every mutation runs through the table's serial queue** (`_run`). A DB round-trip can therefore
+- The two-owners guard is no longer `game_states.version` but the live store's per-table `seq`: a
+  refused compare-and-set (`live.ErrStale`) **fences** the table.
+- **The balance check is in memory, and that is exact.** The boot is debited from the wallet at the
+  deal, the seat only ever decreases as it bets, and a player holds one seat, so
+  `wallet == seat.chips + Σ unbanked bets` throughout a hand. `bankBets` still refuses rather than let
+  the `users.chips >= 0` CHECK abort a transaction, so a divergence would surface as a logged
+  `insufficient_chips`, never as lost chips.
+- **The one guarantee given up:** a bet is not durable until the hand ends. Lose Redis mid-hand and
+  those bets are simply un-made — the players keep the chips, PostgreSQL still holds the boots, and
+  `RefundOrphanedPots` returns them. Nothing is created or destroyed in any failure mode
+  (`tools/crashtest.mjs` proves all four).
+- `Table` never touches the DB directly. It is given a `Ledger` `{FlushBets, CollectBoot, Settle}`
+  (production: `internal/db/ledger.go`; tests: `MemoryLedger`). `table.version` increments per
+  committed write. `persisted` is **reported by the ledger, never assumed** (§12.2): `Settle` adds
+  what it actually banked to the entry's `Delta`, which is what keeps a bookless `MemoryLedger`
+  conserving.
+- **Every mutation runs through the table's serial queue** (`run`). A DB round-trip can therefore
   never interleave with a turn timeout; `hand.turnToken` additionally makes a late-firing timeout a
-  no-op. Consequence: `act`, `removePlayer`, `startHand`, `destroy`, `respondToSideshow` return
-  **Promises**; `addPlayer`, `postChat`, `setConnected`, `serializeFor` stay synchronous.
+  no-op. Consequence in Node: `act`, `removePlayer`, `startHand`, `destroy`, `respondToSideshow`
+  returned **Promises**; `addPlayer`, `postChat`, `setConnected`, `serializeFor` stayed synchronous.
 - Settlement (`_endHand`) is the one place memory is updated before the write completes — the hand
   *is* over. If the settle transaction fails the table pays the winner in memory and retries the
   idempotent write in the background (10 attempts, backoff) so the DB catches up.
@@ -333,8 +373,8 @@ showRequestedBy, sideshow, lastDeparture, turnDeadline, turnToken, contributions
   carry only `cardCount`; on BLIND tables others' `chips` is **`null`** (not 0) + `chipsHidden:true`;
   `missedTurns/maxMissedTurns/options` only in `you`; `sideshow` carries ids/seats/`expiresAt`, never
   cards. Public everywhere: `lastBet, lastAction, contributed, isBlind, connected, status`.
-- `_snapshot()` is the *server-side* full state (cards included) saved to `game_states` — never sent
-  to a client.
+- `_snapshot()` is the *server-side* full state (cards and the hand's per-player unbanked bets
+  included) saved to the **live store (Redis) only** — never to PostgreSQL, never to a client.
 - **Events**: `state, seatUpdated, chat, handStarted, cards, turn, action, showdown, handEnded, kick,
   sideshowRequested, sideshowReveal, sideshowResolved, persistError, error`. `seatUpdated` has no
   listener; `persistError` is logged by RoomManager only.
@@ -450,13 +490,16 @@ come back as strings.
 Tables: `users` (wallet = `chips BIGINT CHECK ≥ 0`, counters, `milestone_claimed`, `next_bonus_at`,
 `avatar_choice`), `hands` (`summary_json JSONB`), **`pots`** (`hand_id PK, amount, winner_id,
 opened_at, closed_at`), **`chip_ledger`** (`action_id UNIQUE`, `hand_id`, `delta`, `balance`,
-`reason`; append-only trigger), **`game_states`** (`room_id PK, version, state JSONB`). Timestamps
+`reason`; append-only trigger). **There is no `game_states` table** — PostgreSQL holds money and
+audit only, and `schema.sql` drops the old one (guarded: only when it exists and is empty). Timestamps
 are epoch-ms BIGINT. Rewards: milestone 25,000 / 25 hands (`didChaal` only), timed 10,000 / 4h —
 constants in `users.js`. Display names: `NAME_PATTERN = /^[\p{L}\p{N}][\p{L}\p{N}\p{M} ]*$/u` —
 **`\p{M}` is essential** for Indic vowel signs.
 
-Ledger `reason` values: `welcome_bonus, boot, bet, show, hand_win, hand_loss, milestone_reward,
-timed_bonus, legacy_reconciliation, test_fixture, sqlite import rows keep their old reasons`.
+Ledger `reason` values: `welcome_bonus, boot, bet, show, hand_win, hand_loss, refund,
+milestone_reward, timed_bonus, legacy_reconciliation, test_fixture, sqlite import rows keep their old
+reasons`. `refund` is `RefundOrphanedPots` returning an open pot with no live table
+(`<handId>:refund:<userId>`) — the safety net for a lost live store.
 **Invariant to keep true:** `SUM(chip_ledger.delta) per user == users.chips` (the psql check in §4
 must return 0). The import wrote 12 `legacy_reconciliation` rows to make the old data satisfy it.
 
@@ -498,7 +541,10 @@ not in `.env.example` — `config.go` documents it).
 | `CHAT_MAX_HISTORY` / `CHAT_MAX_LENGTH` / `CHAT_RATE_LIMIT` / `CHAT_RATE_WINDOW_MS` | 100 / 140 / 5 / 5000 | Flutter's chat field allows **200** — chars 141–200 are dropped server-side |
 | `METRICS_ENABLED` / `METRICS_PATH` / `METRICS_PREFIX` | true / `/metrics` / `game_server_` | Prometheus exposition (req. 35); prefix applies to prom-client's default process metrics only |
 | `METRICS_TOKEN` / `METRICS_ALLOW_IPS` | empty / empty | bearer token and/or comma-separated client IPs required to scrape; both empty = open (fine behind a firewall, wrong on the internet) |
-| `REDIS_URL` | empty | read and logged as ignored — one process, no adapter; multi-node is **not** functional |
+| **`REDIS_URL`** | empty | **The live store — where ALL game state lives** (§5.1). Empty = an in-process store: single instance, and a restart loses every table (the pots are refunded). Set (`redis://127.0.0.1:6379/0`) → Redis, and the boot **fails fast** if it is unreachable. There is no `SNAPSHOT_FLUSH_MS`: PostgreSQL keeps no game state, so there is nothing to flush to it. |
+| `LIVE_STATE_TTL_MS` | 86400000 | how long a table snapshot that stops updating survives in the live store |
+| `LIVE_INSTANCE_ID` | `hostname:pid` | presence / matchmaking owner tag (`Load()` only; `Defaults()`/`FromEnv()` carry `""`) |
+| `LIVE_RECONCILE_MS` | 30000 | how often the live store is pinged, refilled from memory after an outage, and swept for stray seat/summary keys; 0 disables |
 | `LOG_LEVEL` | info | slog level (`util.ParseLogLevel`) |
 
 There is no `go-server/.env` on the dev box (it is git-ignored); the server runs on these defaults.
@@ -519,9 +565,16 @@ Production's lives at `/var/www/gameplay/king-teenpatti/go-server/.env` (`PG_POO
   `games_abandoned_total{category}`, `moves_total{action}`, `invalid_moves_total{code}`, `turn_timeouts_total`, `kicks_total{reason}`,
   `chat_messages_total`, `pot_settled_chips_total`; histograms (buckets 1 ms…1 s) `move_processing_duration_seconds{action}`,
   `creation_duration_seconds`, `join_duration_seconds{route=quick_join|code|create|switch|resume}`, `state_update_duration_seconds`,
-  `hand_start_duration_seconds`, `settlement_duration_seconds`, `db_transaction_duration_seconds{op=bet|boot|settle}` (+ `_errors_total{op,code}`);
+  `hand_start_duration_seconds`, `settlement_duration_seconds`, `db_transaction_duration_seconds{op=bet|boot|settle}` (+ `_errors_total{op,code}`
+  — `op=bet` is now the transaction that BANKS a departing player's bets, not one per bet, §5.1);
   pool gauges `db_pool_connections/idle_connections/waiting_requests` via `bindPool(getPool)`; HTTP `http_requests_total` /
   `http_request_duration_seconds{method,route,status_code}`.
+- Live-store metrics (`internal/live` + the restart sequence): `live_store_operations_total{op,result}`,
+  `live_store_duration_seconds{op}` (buckets 0.1 ms…1 s), `live_store_errors_total{op}`, `live_store_reconciles_total{result}`,
+  `restored_tables_total` (**unlabelled** — the live store is the only source a table can come back from),
+  `restored_seats_total`, `refunded_pots_total`, `refunded_chips_total`. `/health` gains
+  `live: {kind, ok, tables}` after `db`. **There are no `game_snapshot_*` series and no
+  `game_restore_reconciled/rejected_total`** — they belonged to the abandoned PostgreSQL backstop.
 - **Label rule (enforced by `SafeLabel()` and `internal/metrics/metrics_test.go` + `tools/parity/metrics.test.js`):** no socket/user/room id,
   table code, name, URL or IP ever becomes a label value. `Table` stays uninstrumented — counters are fed from its events in the
   socket layer, timings from the socket handlers, `RoomManager.CreateTable` and `db/ledger.go`; `game` must not import `metrics`
@@ -703,8 +756,11 @@ final t = state.t;` at the top of `build`; M3 roles via `theme.colorScheme`; `.w
 ### 12.1 Operational
 - **Verified end-to-end on 2026‑09‑07**: a Chaal tapped in the Flutter app on the Pixel 6 emulator
   produced a `chip_ledger` row (`bet −400`, the app's uuid `action_id`, `hand_id` set), `pots.amount`
-  matched `game_states.state.hand.pot`, and `SUM(delta) == chips` for the account. Repeat this check
-  after any change to `internal/db/ledger.go` or `Table.chargeToPot` (Node: `ledger.js` / `_chargeToPot`).
+  matched the table's pot, and `SUM(delta) == chips` for the account. **Since 9 Sep 2026 that row
+  appears when the hand ends (or when the player leaves), not when the bet is made** (§5.1). Repeat
+  the check after any change to `internal/db/ledger.go`, `Table.chargeToPot` or `Table.flushBets`;
+  `cd tools && node chiptest.mjs` automates it (wallet at hand start, hand end, on leave — mid-hand
+  included — and on switch).
 - **`pgrep -f`/`pkill -f` match your own shell command line** and kill the session (exit 137/144) —
   ~6 times so far. Use `pgrep -f "[b]ot\.js"`, find the server by port (`ss -lptn`), and **never
   put a kill and a start in one command**. **`pgrep -f 'bot.js'` also matches any shell whose command
@@ -803,7 +859,10 @@ deploy runbook; `steps.txt` the six-line routine.
 
 ### 14.1 Shape
 - **One process, one static binary** (`CGO_ENABLED=0`), Go 1.27; the scheduler uses every core
-  (`GOMAXPROCS` = all cores). No Redis, no cluster; `REDIS_URL` is read and logged as ignored.
+  (`GOMAXPROCS` = all cores). **Redis is the live store** (`REDIS_URL`, §5.1): all game state lives
+  there and nowhere else, tables come back from it across a restart, and losing it means players
+  re-join while `RefundOrphanedPots` returns every open pot. Still no cluster — one process owns
+  every table.
 - **Table = actor.** `game.NewTable` starts one goroutine that owns the table; every mutation and
   every read of actor state is a closure posted with `run(fn)` that blocks until done — Node's
   `_run` queue made synchronous. Exported methods post; unexported internals never call `run`
@@ -820,7 +879,8 @@ deploy runbook; `steps.txt` the six-line routine.
   `server/node_modules/socket.io/client-dist`) so the browser client in `go-server/public` works
   unchanged. Every shipped client is websocket-only.
 - **DB via `pgx`** (`internal/db`): `schema.sql` (embedded; the only copy now — idempotent DDL run at
-  every start), same `Bet/CollectBoot/Settle` transactions, `search_path` as a connection parameter,
+  every start, `users`/`chip_ledger`/`pots`/`hands` and a guarded drop of the retired `game_states`),
+  the `CollectBoot`/`FlushBets`/`Settle` transactions of §5.1, `search_path` as a connection parameter,
   `statement_timeout` per pooled connection (`PG_STATEMENT_TIMEOUT_MS`). Money-path fixes vs Node
   (all in DECISIONS §2): wallet locks before the `hands` insert, settle retry continues after table
   destroy, client `actionId` containing `:` replaced by a uuid, `duplicate_action` on a settle retry

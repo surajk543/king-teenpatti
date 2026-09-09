@@ -103,18 +103,8 @@ type Metrics struct {
 	LiveStoreDuration   *prometheus.HistogramVec // op
 	LiveStoreErrors     *prometheus.CounterVec   // op
 	LiveStoreReconciles *prometheus.CounterVec   // result
-	RestoredTablesTotal *prometheus.CounterVec   // source
+	RestoredTablesTotal prometheus.Counter
 	RestoredSeatsTotal  prometheus.Counter
-	RestoreReconciled   prometheus.Counter
-	RestoreRejected     prometheus.Counter
-	RefundedPotsTotal   prometheus.Counter
-	RefundedChipsTotal  prometheus.Counter
-
-	// Durable snapshot writer (game_states). The lag gauge reads
-	// BindSnapshotLag's source at scrape time.
-	SnapshotWrites        *prometheus.CounterVec // result
-	SnapshotWriteDuration prometheus.Histogram
-	SnapshotRowsWritten   prometheus.Counter
 
 	// HTTP
 	HTTPRequestsTotal   *prometheus.CounterVec   // method, route, status_code
@@ -122,10 +112,9 @@ type Metrics struct {
 
 	// mu guards the late-bound sources; the scrape-time collectors read them
 	// under it, so Bind* may be called while a scrape runs.
-	mu          sync.RWMutex
-	rooms       RoomsSource
-	pool        func() PoolStats
-	snapshotLag func() time.Duration
+	mu    sync.RWMutex
+	rooms RoomsSource
+	pool  func() PoolStats
 }
 
 // New creates and registers every collector (Node: module load). Registers:
@@ -387,53 +376,16 @@ func New(opts Options) *Metrics {
 		Name: NameLiveStoreReconciles,
 		Help: "Reconciler passes that re-saved every live table into the live store, by outcome.",
 	}, []string{"result"})
-	m.RestoredTablesTotal = m.counterVec(prometheus.CounterOpts{
+	m.RestoredTablesTotal = prometheus.NewCounter(prometheus.CounterOpts{
 		Name: NameRestoredTables,
-		Help: "Tables rebuilt at startup since the process started, by the store the snapshot came from (live or postgres).",
-	}, []string{"source"})
+		Help: "Tables rebuilt from the live store at startup since the process started (the live store is the only source: PostgreSQL holds no game state).",
+	})
 	m.RestoredSeatsTotal = prometheus.NewCounter(prometheus.CounterOpts{
 		Name: NameRestoredSeats,
 		Help: "Seats held for the reconnect grace period after a restart since the process started.",
 	})
-	m.RestoreReconciled = prometheus.NewCounter(prometheus.CounterOpts{
-		Name: NameRestoreReconciled,
-		Help: "Durable snapshots the ledger corrected before the table was rebuilt (the snapshot was behind the money).",
-	})
-	m.RestoreRejected = prometheus.NewCounter(prometheus.CounterOpts{
-		Name: NameRestoreRejected,
-		Help: "Durable snapshots that could not be reconciled (a contributor the snapshot cannot account for); their pots were refunded instead.",
-	})
-	m.RefundedPotsTotal = prometheus.NewCounter(prometheus.CounterOpts{
-		Name: NameRefundedPots,
-		Help: "Open pots with no live table that were refunded to their contributors at startup.",
-	})
-	m.RefundedChipsTotal = prometheus.NewCounter(prometheus.CounterOpts{
-		Name: NameRefundedChips,
-		Help: "Chips returned to contributors by pot refunds at startup.",
-	})
 	svc.MustRegister(m.LiveStoreOperations, m.LiveStoreDuration, m.LiveStoreErrors, m.LiveStoreReconciles,
-		m.RestoredTablesTotal, m.RestoredSeatsTotal, m.RestoreReconciled, m.RestoreRejected,
-		m.RefundedPotsTotal, m.RefundedChipsTotal)
-
-	// ------------------------------------------------------- snapshot writer
-	m.SnapshotWrites = m.counterVec(prometheus.CounterOpts{
-		Name: NameSnapshotWrites,
-		Help: "Batched game_states flushes by the durable snapshot writer, by outcome.",
-	}, []string{"result"})
-	m.SnapshotWriteDuration = prometheus.NewHistogram(prometheus.HistogramOpts{
-		Name:    NameSnapshotWriteDuration,
-		Help:    "Duration of one batched game_states flush (upserts and deletes in one transaction).",
-		Buckets: LatencyBuckets,
-	})
-	m.SnapshotRowsWritten = prometheus.NewCounter(prometheus.CounterOpts{
-		Name: NameSnapshotRowsWritten,
-		Help: "game_states rows upserted or deleted by the durable snapshot writer.",
-	})
-	svc.MustRegister(m.SnapshotWrites, m.SnapshotWriteDuration, m.SnapshotRowsWritten)
-	svc.MustRegister(prometheus.NewGaugeFunc(prometheus.GaugeOpts{
-		Name: NameSnapshotLag,
-		Help: "Age in seconds of the oldest table change not yet flushed to game_states (0 when nothing is pending).",
-	}, func() float64 { return m.lag().Seconds() }))
+		m.RestoredTablesTotal, m.RestoredSeatsTotal)
 
 	// -------------------------------------------------------------------- HTTP
 	m.HTTPRequestsTotal = m.counterVec(prometheus.CounterOpts{
@@ -501,25 +453,6 @@ func (m *Metrics) BindPool(fn func() PoolStats) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.pool = fn
-}
-
-// BindSnapshotLag gives game_snapshot_lag_seconds its source (the durable
-// snapshot writer's age of its oldest dirty table). 0 until bound.
-func (m *Metrics) BindSnapshotLag(fn func() time.Duration) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.snapshotLag = fn
-}
-
-// lag reads the bound snapshot-lag source, 0 when none.
-func (m *Metrics) lag() time.Duration {
-	m.mu.RLock()
-	fn := m.snapshotLag
-	m.mu.RUnlock()
-	if fn == nil {
-		return 0
-	}
-	return fn()
 }
 
 // liveTables is Node's liveTables(): every table, or none before BindRooms.

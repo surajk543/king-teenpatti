@@ -1572,8 +1572,8 @@ func TestRoomsPersistErrorAndErrorAreLogged(t *testing.T) {
 	f := newRoomsFixture(t, func(_ *config.GameConfig, o *game.RoomManagerOptions) {
 		o.Ledger = nil // fall back to a MemoryLedger built from the hooks
 		o.LedgerHooks = game.MemoryLedgerHooks{
-			PersistChips: func(game.PersistChipsArgs) error { return refuse },
-			Settle: func(game.HandRecord, []game.SettleEntry) (map[string]int64, error) {
+			Checkpoint: func(game.CheckpointArgs) error { return refuse },
+			Settle: func(game.SettleRequest, []game.SettleEntry) (map[string]int64, error) {
 				return nil, refuse
 			},
 		}
@@ -1583,15 +1583,22 @@ func TestRoomsPersistErrorAndErrorAreLogged(t *testing.T) {
 	f.mustJoin(table, f.player("B", rmStart))
 	f.clock.Advance(f.cfg.NextHandDelay)
 
-	if table.HasHand() {
-		t.Fatal("the boot was refused, so nothing was dealt")
+	// The deal writes nothing, so a broken ledger cannot stop it any more.
+	if !table.HasHand() {
+		t.Fatal("the deal must not depend on the database")
+	}
+	// A pack does write — that is checkpoint 2 of 3 — and its failure is
+	// reported and logged without refusing the move.
+	onTurn := turnUser(t, table)
+	if _, err := table.Act(onTurn, game.ActionPack, game.ActRequest{}); err != nil {
+		t.Fatalf("the pack was refused: %v", err)
 	}
 	pe := f.tables.persistErrorsCopy()
-	if len(pe) == 0 || pe[0].Reason != game.LedgerReasonBoot {
+	if len(pe) == 0 || pe[0].Reason != game.LedgerReasonHandPacked {
 		t.Fatalf("persist errors %+v", pe)
 	}
 	log := f.logText()
-	if !strings.Contains(log, `"msg":"table write refused"`) || !strings.Contains(log, `"reason":"boot"`) || !strings.Contains(log, `"roomId":"`+table.ID()+`"`) {
+	if !strings.Contains(log, `"msg":"table write refused"`) || !strings.Contains(log, `"reason":"hand_packed"`) || !strings.Contains(log, `"roomId":"`+table.ID()+`"`) {
 		t.Fatalf("log:\n%s", log)
 	}
 }
@@ -1600,7 +1607,7 @@ func TestRoomsSettlementAbandonedIsLoggedAsTableError(t *testing.T) {
 	refuse := errors.New("settle down")
 	f := newRoomsFixture(t, func(_ *config.GameConfig, o *game.RoomManagerOptions) {
 		o.Ledger = game.NewMemoryLedger(game.MemoryLedgerHooks{
-			Settle: func(game.HandRecord, []game.SettleEntry) (map[string]int64, error) { return nil, refuse },
+			Settle: func(game.SettleRequest, []game.SettleEntry) (map[string]int64, error) { return nil, refuse },
 		})
 	})
 	table := f.rooms.CreateTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"})

@@ -1,18 +1,25 @@
 /**
  * The books, audited after everything the other suites played on this server
  * (invalidMoves #16 and the CLAUDE.md §4/§12.1 psql checks, over the whole
- * schema):
+ * schema).
  *
- *   - SUM(chip_ledger.delta) == users.chips for every user touched;
- *   - every pot equals the boots, bets and shows banked against its hand, and a
- *     closed pot's hands row carries the same pot and winner;
- *   - the winner's hand_win row pays the whole pot (every stake was banked as
- *     it was bet), losers get a hand_loss row of 0, and every boot/settle row
- *     carries its deterministic action id;
- *   - every client-supplied actionId appears on exactly one ledger row, and
- *     no bet/show row is missing one;
- *   - game_states holds a snapshot for every hand still open, with a rising
- *     version, and none for a table that has been destroyed;
+ * Since 9 Sep 2026 PostgreSQL holds MONEY AND AUDIT ONLY — `users` and
+ * `chip_ledger`, nothing else — and it is written at exactly three moments
+ * per hand: a player packs, a player leaves or switches, and the hand ends.
+ * The deal and every bet move chips in Redis and nowhere else. So this suite
+ * checks:
+ *
+ *   - SUM(chip_ledger.delta) == users.chips for every user. That is now the
+ *     ONLY money cross-check in the system, so treat it as load-bearing;
+ *   - every hand's rows sum to zero: chips moved between wallets, none were
+ *     created or destroyed;
+ *   - every row carries a known reason, a server-minted action id of the
+ *     right shape, and a balance that follows the running total;
+ *   - a hand_win row pays the pot less the winner's own stake; a player is
+ *     resolved exactly once (one outcome row per hand per player);
+ *   - the counters (handsWon / totalWinnings / biggestPot) follow the
+ *     hand_win rows;
+ *   - the schema has no game state: no game_states, no pots, no hands;
  *   - the append-only trigger refuses UPDATE/DELETE on chip_ledger.
  *
  * Runs last in each profile (tools/parity.mjs appends it), but is also safe to
@@ -21,13 +28,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { query, closeDb } from './lib/db.mjs';
-import { UUID } from './lib/harness.mjs';
 
 test.after(closeDb);
 
+// The vocabulary of chip_ledger.reason. `boot`, `bet` and `show` are retired
+// (they belonged to the per-bet model) and must not appear in a fresh schema.
 const REASONS = new Set([
-  'welcome_bonus', 'boot', 'bet', 'show', 'hand_win', 'hand_loss', 'milestone_reward', 'timed_bonus', 'test_fixture',
+  'welcome_bonus', 'hand_win', 'hand_loss', 'hand_packed', 'hand_left', 'milestone_reward', 'timed_bonus', 'test_fixture',
 ]);
+const CHECKPOINT_REASONS = new Set(['hand_win', 'hand_loss', 'hand_packed', 'hand_left']);
 
 test('every wallet equals the sum of its ledger', async () => {
   const { rows } = await query(`
@@ -50,148 +59,71 @@ test('every wallet equals the sum of its ledger', async () => {
 
 test('every ledger row has a known reason, a balance that follows the running total, and the right sign', async () => {
   const { rows } = await query('SELECT id, user_id, hand_id, action_id, delta, balance, reason, created_at FROM chip_ledger ORDER BY user_id, id');
-  let previous = null;
+  const running = new Map();
   for (const row of rows) {
     assert.ok(REASONS.has(row.reason), `reason ${row.reason}`);
-    assert.equal(typeof row.delta, 'number');
-    assert.equal(typeof row.created_at, 'number');
-    if (['boot', 'bet', 'show'].includes(row.reason)) {
-      assert.ok(row.delta < 0, `${row.reason} debits (${row.delta})`);
+    const before = running.get(row.user_id) ?? 0;
+    const after = before + row.delta;
+    running.set(row.user_id, after);
+    assert.equal(row.balance, Math.max(0, after), `balance follows the running total for ${row.user_id}`);
+    assert.ok(row.created_at > 0);
+    if (CHECKPOINT_REASONS.has(row.reason)) {
       assert.ok(row.hand_id, `${row.reason} names its hand`);
       assert.ok(row.action_id, `${row.reason} carries an action id`);
+      const verb = { hand_win: 'settle', hand_loss: 'settle', hand_packed: 'packed', hand_left: 'left' }[row.reason];
+      assert.equal(row.action_id, `${row.hand_id}:${verb}:${row.user_id}`,
+        'every checkpoint action id is server-minted — no client id ever reaches the ledger');
     }
     if (['welcome_bonus', 'milestone_reward', 'timed_bonus'].includes(row.reason)) assert.ok(row.delta > 0);
     if (row.reason === 'hand_win') assert.ok(row.delta > 0, 'a win pays');
-    if (row.reason === 'hand_loss') assert.equal(row.delta, 0, 'a loser was banked as they bet; settlement moves nothing');
-    if (row.reason === 'boot') assert.equal(row.action_id, `${row.hand_id}:boot:${row.user_id}`);
-    if (row.reason === 'hand_win' || row.reason === 'hand_loss') {
-      assert.equal(row.action_id, `${row.hand_id}:settle:${row.user_id}`);
-    }
-    // Balances chain within one user, in insertion order.
-    if (previous && previous.user_id === row.user_id) {
-      assert.equal(row.balance, previous.balance + row.delta,
-        `balance chain for ${row.user_id} at row ${row.id}: ${previous.balance} + ${row.delta} != ${row.balance}`);
-    } else {
-      assert.equal(row.balance, row.delta, `first row for ${row.user_id} opens the account`);
-    }
-    previous = row;
+    if (row.reason === 'hand_packed') assert.ok(row.delta <= 0, 'a pack only ever takes chips');
   }
 });
 
-test('every pot equals what was banked against its hand, and closed pots agree with their hands row', async () => {
-  const { rows: pots } = await query('SELECT hand_id, room_id, boot_amount, amount, winner_id, opened_at, closed_at FROM pots');
-  for (const pot of pots) {
-    const banked = await query(
-      `SELECT COALESCE(-SUM(delta), 0) AS staked, COUNT(*) FILTER (WHERE reason = 'boot') AS boots
-         FROM chip_ledger WHERE hand_id = $1 AND reason IN ('boot', 'bet', 'show')`,
-      [pot.hand_id],
-    );
-    assert.equal(pot.amount, banked.rows[0].staked, `pot ${pot.hand_id} vs banked stakes`);
-    assert.ok(banked.rows[0].boots >= 2, 'a hand needs at least two boots');
-    assert.equal(typeof pot.opened_at, 'number');
-    assert.ok(pot.room_id);
-
-    if (pot.closed_at === null) continue; // a hand still live when the audit ran
-
-    const hand = await query('SELECT id, room_id, hand_no, pot, winner_id, win_reason, boot_amount, started_at, ended_at, summary_json FROM hands WHERE id = $1', [pot.hand_id]);
-    assert.equal(hand.rows.length, 1, `hands row for ${pot.hand_id}`);
-    const record = hand.rows[0];
-    assert.equal(record.pot, pot.amount);
-    assert.equal(record.winner_id, pot.winner_id);
-    assert.equal(record.room_id, pot.room_id);
-    assert.equal(record.boot_amount, pot.boot_amount);
-    assert.ok(record.started_at <= record.ended_at);
-    assert.ok(['show', 'last_standing', 'forced_showdown', 'pot_limit', 'all_left'].includes(record.win_reason), record.win_reason);
-    const summary = record.summary_json;
-    assert.ok(Array.isArray(summary) && summary.length >= 2);
-    assert.equal(summary.reduce((sum, entry) => sum + entry.contributed, 0), record.pot, 'the summary explains the pot');
-    for (const entry of summary) {
-      assert.deepEqual(Object.keys(entry).sort(), ['cards', 'contributed', 'displayName', 'sawCards', 'seatIndex', 'status', 'userId']);
-      assert.ok(entry.cards === null || (Array.isArray(entry.cards) && entry.cards.length === 3));
-    }
-
-    // Settlement rows: the winner takes the pot, everybody else gets a zero row.
-    const settle = await query(
-      "SELECT user_id, delta, reason FROM chip_ledger WHERE hand_id = $1 AND reason IN ('hand_win', 'hand_loss')",
-      [pot.hand_id],
-    );
-    const contributors = new Set(summary.map((entry) => entry.userId));
-    assert.equal(settle.rows.length, contributors.size, 'one settlement row per contributor');
-    if (record.winner_id) {
-      const win = settle.rows.filter((row) => row.reason === 'hand_win');
-      assert.equal(win.length, 1);
-      assert.equal(win[0].user_id, record.winner_id);
-      assert.equal(win[0].delta, record.pot, 'the winner is paid the whole pot');
-      assert.ok(summary.filter((entry) => entry.status === 'won').length === 1);
-    }
-    for (const row of settle.rows.filter((r) => r.reason === 'hand_loss')) assert.equal(row.delta, 0);
+test('every hand conserves chips, and resolves each player exactly once', async () => {
+  const { rows: hands } = await query(
+    `SELECT hand_id, SUM(delta) AS net, COUNT(*) AS rows FROM chip_ledger
+      WHERE hand_id IS NOT NULL GROUP BY hand_id`);
+  for (const hand of hands) {
+    assert.equal(Number(hand.net), 0, `hand ${hand.hand_id} moved ${hand.net} chips into or out of the economy`);
   }
+  // One OUTCOME row per player per hand (hand_win / hand_loss / hand_left).
+  // A packer also has a hand_packed row — that is the money moving early —
+  // but never two outcomes.
+  const { rows: dupes } = await query(
+    `SELECT hand_id, user_id, COUNT(*) AS n FROM chip_ledger
+      WHERE reason IN ('hand_win', 'hand_loss', 'hand_left')
+      GROUP BY hand_id, user_id HAVING COUNT(*) > 1`);
+  assert.deepEqual(dupes, [], 'a player was resolved twice in one hand');
+  // A hand has at most one winner.
+  const { rows: winners } = await query(
+    `SELECT hand_id, COUNT(*) AS n FROM chip_ledger WHERE reason = 'hand_win' GROUP BY hand_id HAVING COUNT(*) > 1`);
+  assert.deepEqual(winners, [], 'a hand paid two winners');
 });
 
-test('client action ids land on exactly one ledger row each, and every bet or show has one', async () => {
+test('action ids are unique, so a replayed checkpoint can never be applied twice', async () => {
   const dupes = await query('SELECT action_id, COUNT(*) AS n FROM chip_ledger WHERE action_id IS NOT NULL GROUP BY action_id HAVING COUNT(*) > 1');
   assert.deepEqual(dupes.rows, [], 'the UNIQUE index held');
-  const bare = await query("SELECT COUNT(*) AS n FROM chip_ledger WHERE reason IN ('bet', 'show') AND action_id IS NULL");
-  assert.equal(bare.rows[0].n, 0);
-  // Ids the suites chose themselves are there once; ids the server minted are uuids.
-  const { rows } = await query("SELECT action_id FROM chip_ledger WHERE reason IN ('bet', 'show')");
-  for (const { action_id: id } of rows) {
-    assert.ok(id.length >= 1 && id.length <= 64, `action id length ${id.length}`);
-    if (!id.startsWith('parity-') && !id.startsWith('oot-') && !id.startsWith('ladder-') && !id.startsWith('dup-')) {
-      assert.ok(UUID.test(id) || id.length <= 64, `server-minted id ${id}`);
-    }
-  }
+  const bare = await query(`SELECT COUNT(*) AS n FROM chip_ledger WHERE reason IN ('hand_win','hand_loss','hand_packed','hand_left') AND action_id IS NULL`);
+  assert.equal(bare.rows[0].n, 0, 'every checkpoint row carries its id');
 });
 
-test('game_states mirrors the live tables: a snapshot for every hand still open, nothing left behind', async () => {
-  // game_states is the durable backstop the live store is rebuilt from
-  // (LIVE_STATE_PLAN.md). It is no longer written inside the money
-  // transaction and it is no longer an audit log: a row exists while its
-  // table does, and is removed when the table is destroyed. What must hold
-  // is that anything still recoverable IS recoverable.
-  const rooms = new Set((await query('SELECT DISTINCT room_id FROM pots')).rows.map((r) => r.room_id));
+test('PostgreSQL holds no game state at all: only users and chip_ledger', async () => {
+  // Owner's decision of 9 Sep 2026 (LIVE_STATE_PLAN.md): ALL game state lives
+  // in the live store (Redis). game_states, pots and hands are gone; the boot
+  // path in schema.sql drops each of them when it exists AND is empty, and
+  // never creates them.
+  const { rows } = await query(
+    `SELECT tablename FROM pg_tables WHERE schemaname = current_schema() ORDER BY tablename`);
+  const tables = rows.map((r) => r.tablename);
+  assert.deepEqual(tables, ['chip_ledger', 'users'],
+    `the schema must hold money and audit only, got ${tables.join(', ')}`);
+});
 
-  const snapshots = async () => (await query('SELECT room_id, hand_id, version, state, updated_at FROM game_states')).rows;
-  let rows = await snapshots();
-
-  for (const row of rows) {
-    assert.ok(row.version >= 1, `version for ${row.room_id} is ${row.version}`);
-    assert.equal(typeof row.state, 'object', `state for ${row.room_id}`);
-    assert.equal(row.state.roomId ?? row.state.id ?? row.room_id, row.room_id, 'a snapshot names its own room');
-    assert.ok(rooms.has(row.room_id), `game_states row for a room that never dealt: ${row.room_id}`);
-  }
-
-  // The recoverability invariant: a pot that is still open belongs to a hand
-  // that is still being played, so there must be a snapshot to rebuild it
-  // from. The writer batches, so give it a moment to catch up.
-  const openRooms = (await query('SELECT room_id FROM pots WHERE closed_at IS NULL')).rows.map((r) => r.room_id);
-  for (let i = 0; openRooms.length > 0 && i < 20; i++) {
-    const have = new Set(rows.map((r) => r.room_id));
-    if (openRooms.every((id) => have.has(id))) break;
-    await new Promise((r) => setTimeout(r, 250));
-    rows = await snapshots();
-  }
-  const have = new Set(rows.map((r) => r.room_id));
-  for (const roomId of openRooms) {
-    assert.ok(have.has(roomId), `an open pot at room ${roomId} has no durable snapshot to rebuild it from`);
-  }
-
-  // A write with a non-rising version is refused by the WHERE clause, so a
-  // direct attempt to move a row backwards changes nothing. This is the guard
-  // that stops a late batch overwriting newer state.
-  if (rows.length > 0) {
-    const target = rows[0];
-    const stale = await query(
-      `INSERT INTO game_states (room_id, hand_id, version, state, updated_at)
-       VALUES ($1, NULL, $2, '{}'::jsonb, $3)
-       ON CONFLICT (room_id) DO UPDATE SET version = EXCLUDED.version, state = EXCLUDED.state
-       WHERE game_states.version < EXCLUDED.version`,
-      [target.room_id, target.version - 1, Date.now()],
-    );
-    assert.equal(stale.rowCount, 0);
-    const after = await query('SELECT version FROM game_states WHERE room_id = $1', [target.room_id]);
-    assert.equal(after.rows[0].version, target.version);
-  }
+test('a bet is not a transaction: the books move only at a pack, a departure and the hand end', async () => {
+  const { rows } = await query(
+    `SELECT COUNT(*) AS n FROM chip_ledger WHERE reason IN ('boot', 'bet', 'show')`);
+  assert.equal(Number(rows[0].n), 0, 'a retired per-bet reason was written');
 });
 
 test('the chip ledger is append-only', async () => {
@@ -201,24 +133,38 @@ test('the chip ledger is append-only', async () => {
   await assert.rejects(query('DELETE FROM chip_ledger WHERE id = $1', [rows[0].id]), /append-only/);
 });
 
-test('hands and counters: handsWon / handsPlayed / handsLost / handsLeftMid follow the settled hands', async () => {
+test('counters: handsWon follows the hand_win rows, and the winnings counters agree with them', async () => {
   const { rows: users } = await query('SELECT id, hands_played, hands_won, hands_lost, hands_left_mid, total_winnings, biggest_pot FROM users');
-  const { rows: hands } = await query('SELECT id, pot, winner_id, summary_json FROM hands');
-  const wins = new Map();
-  const winnings = new Map();
-  const biggest = new Map();
-  for (const hand of hands) {
-    if (!hand.winner_id) continue;
-    wins.set(hand.winner_id, (wins.get(hand.winner_id) ?? 0) + 1);
-    winnings.set(hand.winner_id, (winnings.get(hand.winner_id) ?? 0) + hand.pot);
-    biggest.set(hand.winner_id, Math.max(biggest.get(hand.winner_id) ?? 0, hand.pot));
+  // There is no `hands` table to read a pot from any more, and a winner's own
+  // stake is folded into their single hand_win row (delta = pot - own stake),
+  // so the exact pot is not derivable from the ledger. What IS checkable:
+  // handsWon is exactly the number of hand_win rows, and the winnings
+  // counters are at least the net those rows paid (the pot is that net plus
+  // whatever the winner had staked, which is never negative).
+  const { rows: wins } = await query("SELECT user_id, delta FROM chip_ledger WHERE reason = 'hand_win'");
+  const count = new Map();
+  const net = new Map();
+  const biggestNet = new Map();
+  for (const win of wins) {
+    count.set(win.user_id, (count.get(win.user_id) ?? 0) + 1);
+    net.set(win.user_id, (net.get(win.user_id) ?? 0) + win.delta);
+    biggestNet.set(win.user_id, Math.max(biggestNet.get(win.user_id) ?? 0, win.delta));
   }
   for (const user of users) {
-    // Counters may exceed the hands rows where a REST test fast-forwarded
-    // hands_played directly; wins and winnings are only ever written by settlement.
-    assert.equal(user.hands_won, wins.get(user.id) ?? 0, `handsWon for ${user.id}`);
-    assert.equal(user.total_winnings, winnings.get(user.id) ?? 0, `totalWinnings for ${user.id}`);
-    assert.equal(user.biggest_pot, biggest.get(user.id) ?? 0, `biggestPot for ${user.id}`);
-    assert.ok(user.hands_lost + user.hands_left_mid + user.hands_won <= Math.max(user.hands_played, hands.length * 5));
+    const n = count.get(user.id) ?? 0;
+    assert.equal(user.hands_won, n, `handsWon for ${user.id}`);
+    if (n === 0) {
+      assert.equal(user.total_winnings, 0, `totalWinnings for ${user.id}`);
+      assert.equal(user.biggest_pot, 0, `biggestPot for ${user.id}`);
+      continue;
+    }
+    assert.ok(user.total_winnings >= net.get(user.id), `totalWinnings ${user.total_winnings} < net won ${net.get(user.id)}`);
+    assert.ok(user.biggest_pot >= biggestNet.get(user.id), `biggestPot ${user.biggest_pot} < biggest net ${biggestNet.get(user.id)}`);
+    assert.ok(user.biggest_pot <= user.total_winnings, 'the biggest pot cannot exceed the total');
   }
+  // Nobody is credited a loss and a departure for the same hand.
+  const { rows: both } = await query(
+    `SELECT hand_id, user_id FROM chip_ledger WHERE reason IN ('hand_loss','hand_left')
+      GROUP BY hand_id, user_id HAVING COUNT(*) > 1`);
+  assert.deepEqual(both, [], 'a player was both lost and left in one hand');
 });

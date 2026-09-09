@@ -1,7 +1,6 @@
 package db_test
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"math/rand"
@@ -17,84 +16,78 @@ import (
 	"github.com/surajk543/king-teenpatti/go-server/internal/metrics"
 )
 
-// ------------------------------------------------------------------ bet
+// -------------------------------------------------------- checkpoints
 
-func TestBetDebitsTheWalletGrowsThePotAndWritesTheLedger(t *testing.T) {
+// The pack checkpoint: one player's delta, one row, no counters. This is
+// checkpoint 2 of the three (LIVE_STATE_PLAN.md).
+func TestAPackCheckpointMovesTheWalletAndWritesOneRow(t *testing.T) {
 	f := newFixture(t)
-	a, b := f.user("A"), f.user("B")
-	room, hand := "room-bet", "hand-bet-1"
-	f.boot(room, hand, 200, a, b)
+	a := f.user("A")
+	room, hand := "room-pack", "hand-pack"
 
-	res, err := f.ledger.Bet(f.ctx, game.BetRequest{
-		UserID: a.ID, Amount: 400, RoomID: room, HandID: hand, ActionID: "client-uuid-1",
-		Reason: game.LedgerReasonBet, BalanceBefore: welcome - 200,
-	})
+	res, err := f.pack(room, hand, a, -25200)
 	if err != nil {
-		t.Fatalf("bet: %v", err)
+		t.Fatal(err)
 	}
-	if res.Balance != welcome-200-400 || res.Persisted != 400 {
-		t.Fatalf("result = %+v", res)
+	if res.Balance != welcome-25200 {
+		t.Fatalf("balance = %d", res.Balance)
 	}
-	if got := f.chips(a.ID); got != welcome-600 {
-		t.Fatalf("wallet = %d", got)
+	if got := f.chips(a.ID); got != welcome-25200 {
+		t.Fatalf("wallet = %d, want %d", got, welcome-25200)
 	}
-	if pot := f.scalar(`SELECT amount FROM pots WHERE hand_id = $1`, hand); pot != 800 {
-		t.Fatalf("pot = %d, want 800", pot)
+	rows := f.handLedgerRows(hand)
+	if len(rows) != 1 {
+		t.Fatalf("%d rows, want 1", len(rows))
 	}
-	rows := f.ledgerRows(a.ID)
-	last := rows[len(rows)-1]
-	if last.Delta != -400 || last.Balance != welcome-600 || last.Reason != "bet" || last.ActionID == nil || *last.ActionID != "client-uuid-1" || last.HandID == nil || *last.HandID != hand {
-		t.Fatalf("ledger row = %+v", last)
+	r := rows[0]
+	if r.Reason != game.LedgerReasonHandPacked || r.Delta != -25200 || r.Balance != welcome-25200 {
+		t.Fatalf("row %+v", r)
 	}
-	// The money transaction touches nothing but users, pots and chip_ledger
-	// (the snapshot lives in the live store now; LIVE_STATE_PLAN.md).
-	// Every row of one transaction shares one timestamp.
-	updatedAt := f.scalar(`SELECT updated_at FROM users WHERE id = $1`, a.ID)
-	if last.Created != updatedAt {
-		t.Fatalf("ledger created_at %d != users.updated_at %d", last.Created, updatedAt)
+	if r.ActionID == nil || *r.ActionID != hand+":packed:"+a.ID {
+		t.Fatalf("action id %v", r.ActionID)
+	}
+	// A pack carries no counters: the hand-end row resolves the player.
+	u := f.find(a.ID)
+	if u.HandsPlayed != 0 || u.HandsLost != 0 || u.HandsWon != 0 || u.HandsLeftMid != 0 {
+		t.Fatalf("a pack moved the counters: %+v", u)
 	}
 	f.reconcile()
 }
 
-func TestBetShowReasonIsWrittenVerbatim(t *testing.T) {
+// The leave/switch checkpoint resolves the player: hands_left_mid lands here,
+// because they will not be at the hand-end write.
+func TestALeaveCheckpointCountsHandsLeftMid(t *testing.T) {
 	f := newFixture(t)
-	a, b := f.user("A"), f.user("B")
-	f.boot("room-show", "hand-show", 200, a, b)
-	if _, err := f.ledger.Bet(f.ctx, game.BetRequest{UserID: b.ID, Amount: 400, RoomID: "room-show", HandID: "hand-show",
-		ActionID: "show-1", Reason: game.LedgerReasonShow}); err != nil {
+	a := f.user("A")
+	room, hand := "room-left", "hand-left"
+
+	if _, err := f.left(room, hand, a, -25200, true); err != nil {
 		t.Fatal(err)
 	}
-	rows := f.ledgerRows(b.ID)
-	if rows[len(rows)-1].Reason != "show" {
-		t.Fatalf("reason = %q", rows[len(rows)-1].Reason)
+	u := f.find(a.ID)
+	if u.HandsLeftMid != 1 || u.HandsPlayed != 1 || u.HandsLost != 0 || u.HandsWon != 0 {
+		t.Fatalf("counters %+v", u)
 	}
-	// An empty reason falls back to Node's default parameter 'bet'.
-	if _, err := f.ledger.Bet(f.ctx, game.BetRequest{UserID: b.ID, Amount: 400, RoomID: "room-show", HandID: "hand-show",
-		ActionID: "bet-default"}); err != nil {
-		t.Fatal(err)
+	rows := f.handLedgerRows(hand)
+	if len(rows) != 1 || rows[0].Reason != game.LedgerReasonHandLeft {
+		t.Fatalf("rows %+v", rows)
 	}
-	rows = f.ledgerRows(b.ID)
-	if rows[len(rows)-1].Reason != "bet" {
-		t.Fatalf("default reason = %q", rows[len(rows)-1].Reason)
-	}
+	f.reconcile()
 }
 
-// A retried request carries the same actionId; the UNIQUE index refuses the
-// second insert and — because the wallet UPDATE is in the same transaction —
-// nobody is charged twice (invalidMoves.test.js "replaying a move…").
-func TestBetWithADuplicateActionIDIsRefusedAndChargesNobody(t *testing.T) {
+// A replayed checkpoint is refused by the UNIQUE action id, and because the
+// wallet update is in the same transaction NOTHING moves.
+func TestAReplayedCheckpointIsRefusedAndChangesNothing(t *testing.T) {
 	f := newFixture(t)
-	a, b := f.user("A"), f.user("B")
+	a := f.user("A")
 	room, hand := "room-dup", "hand-dup"
-	f.boot(room, hand, 200, a, b)
 
-	req := game.BetRequest{UserID: a.ID, Amount: 400, RoomID: room, HandID: hand, ActionID: "dup-same-id"}
-	if _, err := f.ledger.Bet(f.ctx, req); err != nil {
+	if _, err := f.pack(room, hand, a, -400); err != nil {
 		t.Fatal(err)
 	}
 	before := f.chips(a.ID)
 
-	_, err := f.ledger.Bet(f.ctx, req)
+	_, err := f.pack(room, hand, a, -400)
 	if code := codeOf(t, err); code != game.CodeDuplicateAction {
 		t.Fatalf("code = %s, want duplicate_action", code)
 	}
@@ -102,612 +95,298 @@ func TestBetWithADuplicateActionIDIsRefusedAndChargesNobody(t *testing.T) {
 		t.Fatalf("message = %q", err.Error())
 	}
 	if got := f.chips(a.ID); got != before {
-		t.Fatalf("wallet moved on a duplicate: %d → %d", before, got)
+		t.Fatalf("wallet moved on a replay: %d → %d", before, got)
 	}
-	if n := f.count(`SELECT COUNT(*) FROM chip_ledger WHERE action_id = $1`, "dup-same-id"); n != 1 {
-		t.Fatalf("expected one row for the action id, got %d", n)
-	}
-	if pot := f.scalar(`SELECT amount FROM pots WHERE hand_id = $1`, hand); pot != 800 {
-		t.Fatalf("pot moved on a duplicate: %d", pot)
+	if n := f.count(`SELECT COUNT(*) FROM chip_ledger WHERE action_id = $1`, hand+":packed:"+a.ID); n != 1 {
+		t.Fatalf("%d rows for the action id", n)
 	}
 	f.reconcile()
 }
 
-func TestBetWithInsufficientChipsLeavesNoRows(t *testing.T) {
+// THE PACKER IS WRITTEN TWICE AND CHARGED ONCE. Their money moves at the
+// pack; the hand-end row has a delta of zero and carries the counters. Two
+// distinct action ids, so both rows coexist and neither can be replayed.
+func TestAPackerIsWrittenTwiceAndChargedOnce(t *testing.T) {
 	f := newFixture(t)
 	a, b := f.user("A"), f.user("B")
-	room, hand := "room-poor", "hand-poor"
-	f.boot(room, hand, 200, a, b)
-	before := f.chips(a.ID)
+	room, hand := "room-two", "hand-two"
+	const staked int64 = 25200
 
-	_, err := f.ledger.Bet(f.ctx, game.BetRequest{UserID: a.ID, Amount: before + 1, RoomID: room, HandID: hand, ActionID: "too-much"})
-	if code := codeOf(t, err); code != game.CodeInsufficientChips {
-		t.Fatalf("code = %s", code)
-	}
-	if got := f.chips(a.ID); got != before {
-		t.Fatalf("wallet moved: %d", got)
-	}
-	if n := f.count(`SELECT COUNT(*) FROM chip_ledger WHERE action_id = 'too-much'`); n != 0 {
-		t.Fatal("refused bet left a ledger row")
-	}
-	if pot := f.scalar(`SELECT amount FROM pots WHERE hand_id = $1`, hand); pot != 400 {
-		t.Fatalf("pot = %d", pot)
-	}
-	// Exactly the balance is allowed (chips < amount is the refusal).
-	if _, err := f.ledger.Bet(f.ctx, game.BetRequest{UserID: a.ID, Amount: before, RoomID: room, HandID: hand, ActionID: "all-in"}); err != nil {
-		t.Fatalf("all-in refused: %v", err)
-	}
-	if got := f.chips(a.ID); got != 0 {
-		t.Fatalf("all-in left %d", got)
-	}
-	f.reconcile()
-}
-
-func TestBetValidationErrorsAndCodes(t *testing.T) {
-	f := newFixture(t)
-	a := f.user("A")
-
-	for _, amount := range []int64{0, -1} {
-		_, err := f.ledger.Bet(f.ctx, game.BetRequest{UserID: a.ID, Amount: amount, RoomID: "r", HandID: "h", ActionID: "x"})
-		if code := codeOf(t, err); code != game.CodeInvalidAmount {
-			t.Fatalf("amount %d: code = %s", amount, code)
-		}
-	}
-	_, err := f.ledger.Bet(f.ctx, game.BetRequest{UserID: "nobody", Amount: 100, RoomID: "r", HandID: "h", ActionID: "x"})
-	if code := codeOf(t, err); code != game.CodeUnknownUser {
-		t.Fatalf("unknown user: code = %s", code)
-	}
-	// No pot row for the hand → no_pot, wallet untouched.
-	_, err = f.ledger.Bet(f.ctx, game.BetRequest{UserID: a.ID, Amount: 100, RoomID: "r", HandID: "no-such-hand", ActionID: "x"})
-	if code := codeOf(t, err); code != game.CodeNoPot {
-		t.Fatalf("no pot: code = %s", code)
-	}
-	if got := f.chips(a.ID); got != welcome {
-		t.Fatalf("wallet moved on no_pot: %d", got)
-	}
-	if n := f.count(`SELECT COUNT(*) FROM chip_ledger WHERE user_id = $1`, a.ID); n != 1 {
-		t.Fatalf("expected only the welcome row, got %d", n)
-	}
-	f.reconcile()
-}
-
-// ------------------------------------------------------------ collectBoot
-
-func TestCollectBootTakesEveryBootOpensThePotAndOrdersRowsByUserID(t *testing.T) {
-	f := newFixture(t)
-	users := []*db.User{f.user("P1"), f.user("P2"), f.user("P3")}
-	room, hand := "room-boot", "hand-boot"
-
-	// Hand the entries over in reverse id order to prove the ledger sorts.
-	sorted := append([]*db.User(nil), users...)
-	sort.Slice(sorted, func(i, j int) bool { return sorted[i].ID < sorted[j].ID })
-	reversed := append([]*db.User(nil), sorted...)
-	for i, j := 0, len(reversed)-1; i < j; i, j = i+1, j-1 {
-		reversed[i], reversed[j] = reversed[j], reversed[i]
-	}
-	res := f.boot(room, hand, 200, reversed...)
-
-	if res.Persisted != 200 {
-		t.Fatalf("persisted = %d", res.Persisted)
-	}
-	if len(res.Balances) != 3 {
-		t.Fatalf("balances = %v", res.Balances)
-	}
-	for _, u := range users {
-		if res.Balances[u.ID] != welcome-200 || f.chips(u.ID) != welcome-200 {
-			t.Fatalf("user %s: balance %d wallet %d", u.ID, res.Balances[u.ID], f.chips(u.ID))
-		}
-	}
-
-	var potRoom string
-	var bootAmount, amount int64
-	var winner *string
-	var closedAt *int64
-	if err := f.d.Pool.QueryRow(f.ctx, `SELECT room_id, boot_amount, amount, winner_id, closed_at FROM pots WHERE hand_id = $1`, hand).
-		Scan(&potRoom, &bootAmount, &amount, &winner, &closedAt); err != nil {
+	if _, err := f.pack(room, hand, a, -staked); err != nil {
 		t.Fatal(err)
 	}
-	if potRoom != room || bootAmount != 200 || amount != 600 || winner != nil || closedAt != nil {
-		t.Fatalf("pot row = %s %d %d %v %v", potRoom, bootAmount, amount, winner, closedAt)
+	afterPack := f.chips(a.ID)
+
+	// The hand ends: b wins the pot, a's outcome row moves nothing.
+	pot := staked * 2
+	if _, err := f.ledger.Settle(f.ctx, game.SettleRequest{RoomID: room, HandID: hand, Entries: []game.SettleEntry{
+		settleEntry(hand, a.ID, 0, false, true, 0),
+		settleEntry(hand, b.ID, pot-staked, true, true, pot),
+	}}); err != nil {
+		t.Fatal(err)
 	}
 
+	if got := f.chips(a.ID); got != afterPack {
+		t.Fatalf("the packer was charged again: %d → %d", afterPack, got)
+	}
+	if got := f.chips(b.ID); got != welcome+pot-staked {
+		t.Fatalf("winner wallet = %d, want %d", got, welcome+pot-staked)
+	}
 	rows := f.handLedgerRows(hand)
 	if len(rows) != 3 {
-		t.Fatalf("expected 3 boot rows, got %d", len(rows))
+		t.Fatalf("%d rows, want 3 (pack, loss, win)", len(rows))
 	}
-	for i, r := range rows {
-		want := sorted[i]
-		if r.UserID != want.ID {
-			t.Fatalf("row %d is for %s, want ascending user id order (%s)", i, r.UserID, want.ID)
-		}
-		if r.Reason != "boot" || r.Delta != -200 || r.Balance != welcome-200 || r.ActionID == nil || *r.ActionID != game.BootActionID(hand, want.ID) {
-			t.Fatalf("row %d = %+v", i, r)
-		}
-		if r.Created != rows[0].Created {
-			t.Fatal("boot rows of one transaction carry different timestamps")
-		}
+	byReason := map[string]int{}
+	for _, r := range rows {
+		byReason[r.Reason]++
 	}
-	f.reconcile()
-}
-
-// One unfunded player refuses the whole start: no wallet moves, no pot, no
-// ledger rows, no state — and the error names the offender so the table can
-// show them out instead of retrying forever.
-func TestCollectBootIsAllOrNothingAndNamesTheUnfundedPlayer(t *testing.T) {
-	f := newFixture(t)
-	rich, poor, other := f.user("Rich"), f.user("Poor"), f.user("Other")
-	if _, err := f.users.ApplyChipDelta(f.ctx, poor.ID, -(welcome - 150), "test_fixture", "", "poor-fixture"); err != nil {
-		t.Fatal(err)
+	if byReason[game.LedgerReasonHandPacked] != 1 || byReason[game.LedgerReasonHandLoss] != 1 || byReason[game.LedgerReasonHandWin] != 1 {
+		t.Fatalf("reasons %+v", byReason)
 	}
-
-	_, err := f.ledger.CollectBoot(f.ctx, game.CollectBootRequest{
-		RoomID: "room-short", HandID: "hand-short", BootAmount: 200,
-		Entries: []game.BootEntry{{UserID: rich.ID, Amount: 200}, {UserID: poor.ID, Amount: 200}, {UserID: other.ID, Amount: 200}},
-	})
-	var ge *game.GameError
-	if !errors.As(err, &ge) {
-		t.Fatalf("expected a GameError, got %v", err)
+	ua, ub := f.find(a.ID), f.find(b.ID)
+	if ua.HandsLost != 1 || ua.HandsPlayed != 1 || ua.HandsWon != 0 {
+		t.Fatalf("packer counters %+v", ua)
 	}
-	if ge.Code != game.CodeInsufficientChips || ge.UserID != poor.ID {
-		t.Fatalf("code=%s userId=%s, want insufficient_chips for %s", ge.Code, ge.UserID, poor.ID)
-	}
-	for _, u := range []*db.User{rich, other} {
-		if got := f.chips(u.ID); got != welcome {
-			t.Fatalf("%s charged despite the refusal: %d", u.DisplayName, got)
-		}
-	}
-	if got := f.chips(poor.ID); got != 150 {
-		t.Fatalf("poor = %d", got)
-	}
-	if n := f.count(`SELECT COUNT(*) FROM pots WHERE hand_id = 'hand-short'`); n != 0 {
-		t.Fatal("pot row written despite the refusal")
-	}
-	if n := f.count(`SELECT COUNT(*) FROM chip_ledger WHERE hand_id = 'hand-short'`); n != 0 {
-		t.Fatal("ledger rows written despite the refusal")
+	if ub.HandsWon != 1 || ub.HandsPlayed != 1 || ub.HandsLost != 0 || ub.TotalWinnings != pot || ub.BiggestPot != pot {
+		t.Fatalf("winner counters %+v", ub)
 	}
 	f.reconcile()
 }
 
-// A second boot for the same hand id hits pots_pkey — a unique violation that
-// is NOT about action_id, so it is persist_failed, not duplicate_action.
-func TestCollectBootTwiceForOneHandIsPersistFailed(t *testing.T) {
-	f := newFixture(t)
-	a, b := f.user("A"), f.user("B")
-	f.boot("room-twice", "hand-twice", 200, a, b)
-	before := f.chips(a.ID)
-
-	_, err := f.ledger.CollectBoot(f.ctx, game.CollectBootRequest{
-		RoomID: "room-twice", HandID: "hand-twice", BootAmount: 200,
-		Entries: []game.BootEntry{{UserID: a.ID, Amount: 200}, {UserID: b.ID, Amount: 200}},
-	})
-	var ge *game.GameError
-	if !errors.As(err, &ge) || ge.Code != game.CodePersistFailed {
-		t.Fatalf("expected persist_failed, got %v", err)
-	}
-	var pgErr *pgconn.PgError
-	if !errors.As(ge.Cause, &pgErr) || pgErr.Code != db.UniqueViolation {
-		t.Fatalf("cause should be the unique violation, got %v", ge.Cause)
-	}
-	if got := f.chips(a.ID); got != before {
-		t.Fatalf("wallet moved: %d → %d", before, got)
-	}
-	f.reconcile()
-}
-
-func TestCollectBootUnknownUserRefusesTheStart(t *testing.T) {
+// A DELTA, NEVER AN ABSOLUTE: a reward credited between two checkpoints
+// survives the next one. This is the hole an absolute overwrite would open.
+func TestARewardBetweenCheckpointsSurvives(t *testing.T) {
 	f := newFixture(t)
 	a := f.user("A")
-	_, err := f.ledger.CollectBoot(f.ctx, game.CollectBootRequest{
-		RoomID: "r", HandID: "h-unknown", BootAmount: 200,
-		Entries: []game.BootEntry{{UserID: a.ID, Amount: 200}, {UserID: "zzz-ghost", Amount: 200}},
-	})
-	if code := codeOf(t, err); code != game.CodeUnknownUser {
-		t.Fatalf("code = %s", code)
-	}
-	if got := f.chips(a.ID); got != welcome {
-		t.Fatalf("wallet moved: %d", got)
-	}
-}
+	room, hand := "room-reward", "hand-reward"
 
-// ------------------------------------------------------------------ settle
-
-// The full money path of one hand: boots, bets, settlement. Production
-// deltas are payout-only (winner +pot, losers 0) because every stake was
-// already banked as it was bet.
-func TestSettlePaysTheWinnerWritesEveryRowAndClosesThePot(t *testing.T) {
-	f := newFixture(t)
-	w, l1, l2 := f.user("Winner"), f.user("Loser"), f.user("Quitter")
-	room, hand := "room-settle", "hand-settle"
-	f.boot(room, hand, 200, w, l1, l2)
-	bet := func(u *db.User, amount int64, id string) {
-		if _, err := f.ledger.Bet(f.ctx, game.BetRequest{UserID: u.ID, Amount: amount, RoomID: room, HandID: hand, ActionID: id}); err != nil {
-			t.Fatalf("bet %s: %v", id, err)
-		}
-	}
-	bet(w, 400, "b1")
-	bet(l1, 400, "b2")
-	bet(w, 400, "b3")
-	pot := int64(600 + 1200)
-
-	record := game.HandRecord{
-		ID: hand, RoomID: room, HandNo: 1, Pot: pot, WinnerID: ptr(w.ID), WinReason: game.WinReason("show"),
-		BootAmount: 200, StartedAt: nowMs() - 1000, EndedAt: nowMs(),
-		Summary: []game.HandSummaryEntry{
-			{UserID: w.ID, DisplayName: "Winner", SeatIndex: 0, Contributed: 1000, Status: game.SeatWon, SawCards: true, Cards: []string{"As", "Ah", "Ad"}},
-			{UserID: l1.ID, DisplayName: "Loser", SeatIndex: 1, Contributed: 600, Status: game.SeatLost, SawCards: true, Cards: []string{"2s", "3h", "9d"}},
-			{UserID: l2.ID, DisplayName: "Quitter", SeatIndex: 2, Contributed: 200, Status: game.SeatPacked, SawCards: false, Cards: nil},
-		},
-	}
-	balances, err := f.ledger.Settle(f.ctx, game.SettleRequest{
-		Hand: record,
-		Entries: []game.SettleEntry{
-			{UserID: w.ID, Delta: pot, IsWinner: true, DidChaal: true},
-			{UserID: l1.ID, Delta: 0, DidChaal: true},
-			{UserID: l2.ID, Delta: 0, DidChaal: false, LeftMidHand: true},
-		},
-	})
-	if err != nil {
-		t.Fatalf("settle: %v", err)
-	}
-	if len(balances) != 3 || balances[w.ID] != welcome-1000+pot || balances[l1.ID] != welcome-600 || balances[l2.ID] != welcome-200 {
-		t.Fatalf("balances = %v", balances)
-	}
-
-	wu, l1u, l2u := f.find(w.ID), f.find(l1.ID), f.find(l2.ID)
-	if wu.Chips != welcome-1000+pot || wu.HandsPlayed != 1 || wu.HandsWon != 1 || wu.HandsLost != 0 || wu.HandsLeftMid != 0 || wu.TotalWinnings != pot || wu.BiggestPot != pot {
-		t.Fatalf("winner = %+v", wu)
-	}
-	if l1u.HandsPlayed != 1 || l1u.HandsWon != 0 || l1u.HandsLost != 1 || l1u.HandsLeftMid != 0 || l1u.TotalWinnings != 0 || l1u.BiggestPot != 0 {
-		t.Fatalf("loser = %+v", l1u)
-	}
-	// A mid-hand leaver: left_mid, not lost, and not played (no chaal).
-	if l2u.HandsPlayed != 0 || l2u.HandsLost != 0 || l2u.HandsLeftMid != 1 {
-		t.Fatalf("quitter = %+v", l2u)
-	}
-
-	// Settlement rows: one per contributor, ascending user id, zero deltas
-	// included, reasons hand_win / hand_loss (the leaver too).
-	rows := f.handLedgerRows(hand)
-	var settleRows []ledgerRow
-	for _, r := range rows {
-		if r.Reason == "hand_win" || r.Reason == "hand_loss" {
-			settleRows = append(settleRows, r)
-		}
-	}
-	if len(settleRows) != 3 {
-		t.Fatalf("expected 3 settlement rows, got %d", len(settleRows))
-	}
-	ids := []string{w.ID, l1.ID, l2.ID}
-	sort.Strings(ids)
-	for i, r := range settleRows {
-		if r.UserID != ids[i] {
-			t.Fatalf("settlement row %d for %s, want %s (ascending)", i, r.UserID, ids[i])
-		}
-		if r.ActionID == nil || *r.ActionID != game.SettleActionID(hand, r.UserID) {
-			t.Fatalf("settlement row action id = %v", r.ActionID)
-		}
-		wantReason := "hand_loss"
-		if r.UserID == w.ID {
-			wantReason = "hand_win"
-			if r.Delta != pot {
-				t.Fatalf("winner delta = %d", r.Delta)
-			}
-		} else if r.Delta != 0 {
-			t.Fatalf("loser delta = %d, want 0 (already banked)", r.Delta)
-		}
-		if r.Reason != wantReason {
-			t.Fatalf("row %d reason = %s, want %s", i, r.Reason, wantReason)
-		}
-	}
-
-	// hands row.
-	var hRoom string
-	var hNo int
-	var hPot, hBoot, hStarted, hEnded int64
-	var hWinner, hReason *string
-	var summaryJSON []byte
-	if err := f.d.Pool.QueryRow(f.ctx, `SELECT room_id, hand_no, pot, winner_id, win_reason, boot_amount, started_at, ended_at, summary_json FROM hands WHERE id = $1`, hand).
-		Scan(&hRoom, &hNo, &hPot, &hWinner, &hReason, &hBoot, &hStarted, &hEnded, &summaryJSON); err != nil {
+	if _, err := f.pack(room, hand, a, -400); err != nil {
 		t.Fatal(err)
 	}
-	if hRoom != room || hNo != 1 || hPot != pot || hWinner == nil || *hWinner != w.ID || hReason == nil || *hReason != "show" || hBoot != 200 || hStarted != record.StartedAt || hEnded != record.EndedAt {
-		t.Fatalf("hands row = %s %d %d %v %v %d %d %d", hRoom, hNo, hPot, hWinner, hReason, hBoot, hStarted, hEnded)
-	}
-	var summary []game.HandSummaryEntry
-	if err := json.Unmarshal(summaryJSON, &summary); err != nil {
+	// The four-hour bonus lands (the REST handler refuses this while seated;
+	// the money path must not depend on that gate).
+	if _, err := f.users.ClaimTimedBonus(f.ctx, a.ID); err != nil {
 		t.Fatal(err)
 	}
-	if len(summary) != 3 || summary[0].Cards[0] != "As" || summary[2].Cards != nil {
-		t.Fatalf("summary = %s", summaryJSON)
-	}
-	// cards: null (not []) for the unrevealed player.
-	if !strings.Contains(string(summaryJSON), `"cards": null`) && !strings.Contains(string(summaryJSON), `"cards":null`) {
-		t.Fatalf("unrevealed cards must be JSON null: %s", summaryJSON)
+	withReward := f.chips(a.ID)
+	if withReward <= welcome-400 {
+		t.Fatalf("the reward did not land: %d", withReward)
 	}
 
-	// Pot closed with the winner; amount unchanged.
-	var closedAt *int64
-	var potWinner *string
-	var potAmount int64
-	if err := f.d.Pool.QueryRow(f.ctx, `SELECT closed_at, winner_id, amount FROM pots WHERE hand_id = $1`, hand).Scan(&closedAt, &potWinner, &potAmount); err != nil {
+	if _, err := f.ledger.Settle(f.ctx, game.SettleRequest{RoomID: room, HandID: hand, Entries: []game.SettleEntry{
+		settleEntry(hand, a.ID, 0, false, true, 0),
+	}}); err != nil {
 		t.Fatal(err)
 	}
-	if closedAt == nil || potWinner == nil || *potWinner != w.ID || potAmount != pot {
-		t.Fatalf("pot after settle = %v %v %d", closedAt, potWinner, potAmount)
+	if got := f.chips(a.ID); got != withReward {
+		t.Fatalf("the checkpoint erased the reward: %d, want %d", got, withReward)
 	}
-	// Pot invariants: stakes in == pot == winnings out.
-	staked := -f.scalar(`SELECT SUM(delta)::bigint FROM chip_ledger WHERE hand_id = $1 AND reason IN ('boot','bet','show')`, hand)
-	won := f.scalar(`SELECT SUM(delta)::bigint FROM chip_ledger WHERE hand_id = $1 AND reason = 'hand_win'`, hand)
-	if staked != pot || won != pot {
-		t.Fatalf("staked %d won %d pot %d", staked, won, pot)
-	}
-
 	f.reconcile()
 }
 
-// Settling the same hand twice hits the <handId>:settle:<userId> key: the
-// second attempt is duplicate_action and moves nothing (the Table's retry
-// loop may hit this after a committed-but-unacknowledged first attempt).
+// ---------------------------------------------------------------- settle
+
+func TestSettleWritesARowPerPlayerAndMovesTheCounters(t *testing.T) {
+	f := newFixture(t)
+	a, b, c := f.user("A"), f.user("B"), f.user("C")
+	room, hand := "room-settle", "hand-settle"
+	const staked int64 = 600
+	pot := staked * 3
+
+	entries := []game.SettleEntry{
+		settleEntry(hand, a.ID, pot-staked, true, true, pot),
+		settleEntry(hand, b.ID, -staked, false, true, 0),
+		settleEntry(hand, c.ID, -staked, false, false, 0), // boot only: not "played"
+	}
+	balances, err := f.ledger.Settle(f.ctx, game.SettleRequest{RoomID: room, HandID: hand, Entries: entries})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(balances) != 3 {
+		t.Fatalf("balances %+v", balances)
+	}
+	if f.chips(a.ID) != welcome+pot-staked || f.chips(b.ID) != welcome-staked || f.chips(c.ID) != welcome-staked {
+		t.Fatalf("wallets %d %d %d", f.chips(a.ID), f.chips(b.ID), f.chips(c.ID))
+	}
+
+	// Rows are written in ascending userId order (the wallet-lock order).
+	rows := f.handLedgerRows(hand)
+	if len(rows) != 3 {
+		t.Fatalf("%d rows", len(rows))
+	}
+	ids := make([]string, len(rows))
+	for i, r := range rows {
+		ids[i] = r.UserID
+		if r.ActionID == nil || *r.ActionID != hand+":settle:"+r.UserID {
+			t.Fatalf("action id %v", r.ActionID)
+		}
+	}
+	if !sort.StringsAreSorted(ids) {
+		t.Fatalf("rows out of wallet-lock order: %v", ids)
+	}
+
+	ua, ub, uc := f.find(a.ID), f.find(b.ID), f.find(c.ID)
+	if ua.HandsWon != 1 || ua.HandsPlayed != 1 || ua.TotalWinnings != pot || ua.BiggestPot != pot {
+		t.Fatalf("winner %+v", ua)
+	}
+	if ub.HandsLost != 1 || ub.HandsPlayed != 1 {
+		t.Fatalf("loser %+v", ub)
+	}
+	if uc.HandsLost != 1 || uc.HandsPlayed != 0 {
+		t.Fatalf("boot-only player counts as played: %+v", uc)
+	}
+	f.reconcile()
+}
+
+// The settle retry is safe because the action ids are UNIQUE: a second
+// attempt rolls back whole and comes out as duplicate_action, which the Table
+// reads as the success it is.
 func TestSettleIsIdempotent(t *testing.T) {
 	f := newFixture(t)
-	w, l := f.user("W"), f.user("L")
+	a, b := f.user("A"), f.user("B")
 	room, hand := "room-idem", "hand-idem"
-	f.boot(room, hand, 200, w, l)
-	req := game.SettleRequest{
-		Hand:    game.HandRecord{ID: hand, RoomID: room, HandNo: 1, Pot: 400, WinnerID: ptr(w.ID), WinReason: "last_standing", BootAmount: 200, StartedAt: 1, EndedAt: 2},
-		Entries: []game.SettleEntry{{UserID: w.ID, Delta: 400, IsWinner: true, DidChaal: true}, {UserID: l.ID, Delta: 0}},
-	}
+	req := game.SettleRequest{RoomID: room, HandID: hand, Entries: []game.SettleEntry{
+		settleEntry(hand, a.ID, 400, true, true, 800),
+		settleEntry(hand, b.ID, -400, false, true, 0),
+	}}
 	if _, err := f.ledger.Settle(f.ctx, req); err != nil {
 		t.Fatal(err)
 	}
-	wChips, lChips := f.chips(w.ID), f.chips(l.ID)
-	wUser := f.find(w.ID)
+	chipsA, chipsB := f.chips(a.ID), f.chips(b.ID)
+	wonA := f.find(a.ID).HandsWon
 
-	_, err := f.ledger.Settle(f.ctx, req) // the Table's retry resends the same request
+	_, err := f.ledger.Settle(f.ctx, req)
 	if code := codeOf(t, err); code != game.CodeDuplicateAction {
-		t.Fatalf("second settle code = %s", code)
+		t.Fatalf("code = %s", code)
 	}
-	if f.chips(w.ID) != wChips || f.chips(l.ID) != lChips {
-		t.Fatal("a repeated settlement moved chips")
+	if f.chips(a.ID) != chipsA || f.chips(b.ID) != chipsB {
+		t.Fatal("a retry moved the wallets again")
 	}
-	if again := f.find(w.ID); again.HandsWon != wUser.HandsWon || again.TotalWinnings != wUser.TotalWinnings {
-		t.Fatal("a repeated settlement bumped the counters")
+	if f.find(a.ID).HandsWon != wonA {
+		t.Fatal("a retry counted the win twice")
 	}
-	if n := f.count(`SELECT COUNT(*) FROM hands WHERE id = $1`, hand); n != 1 {
-		t.Fatalf("hands rows = %d", n)
+	if n := f.count(`SELECT COUNT(*) FROM chip_ledger WHERE hand_id = $1`, hand); n != 2 {
+		t.Fatalf("%d rows after the retry", n)
 	}
 	f.reconcile()
 }
 
-// A contributor whose account has vanished is skipped silently — no ledger
-// row, no key in the result — while everyone else is settled.
 func TestSettleSkipsUnknownUsersAndReportsZeroBalancesAsPresent(t *testing.T) {
 	f := newFixture(t)
-	w, broke := f.user("W"), f.user("Broke")
-	// Empty the second wallet so its settled balance is exactly 0.
-	if _, err := f.users.ApplyChipDelta(f.ctx, broke.ID, -welcome, "test_fixture", "", ""); err != nil {
-		t.Fatal(err)
-	}
-	balances, err := f.ledger.Settle(f.ctx, game.SettleRequest{
-		Hand: game.HandRecord{ID: "hand-skip", RoomID: "room-skip", HandNo: 1, Pot: 0, WinnerID: ptr(w.ID), WinReason: "show", BootAmount: 200, StartedAt: 1, EndedAt: 2},
-		Entries: []game.SettleEntry{
-			{UserID: w.ID, Delta: 0, IsWinner: true, DidChaal: true},
-			{UserID: broke.ID, Delta: 0, DidChaal: true},
-			{UserID: "ghost-user", Delta: 100, DidChaal: true},
-		},
-	})
+	a := f.user("A")
+	room, hand := "room-gone", "hand-gone"
+	balances, err := f.ledger.Settle(f.ctx, game.SettleRequest{RoomID: room, HandID: hand, Entries: []game.SettleEntry{
+		settleEntry(hand, a.ID, -welcome, false, true, 0),
+		settleEntry(hand, "nobody-at-all", -100, false, false, 0),
+	}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, present := balances["ghost-user"]; present {
-		t.Fatal("a missing account must not appear in balances")
+	if _, ok := balances["nobody-at-all"]; ok {
+		t.Fatal("a deleted account must not report a balance")
 	}
-	v, present := balances[broke.ID]
-	if !present || v != 0 {
-		t.Fatalf("a settled balance of exactly 0 must be present as 0: %v", balances)
-	}
-	if n := f.count(`SELECT COUNT(*) FROM chip_ledger WHERE hand_id = 'hand-skip'`); n != 2 {
-		t.Fatalf("expected 2 settlement rows, got %d", n)
-	}
-	if f.find(broke.ID).HandsLost != 1 {
-		t.Fatal("the broke loser should still count a loss")
+	v, ok := balances[a.ID]
+	if !ok || v != 0 {
+		t.Fatalf("a balance of exactly 0 must be present: %v %v", v, ok)
 	}
 	f.reconcile()
 }
 
-// balance = max(0, chips + delta): a negative delta larger than the wallet
-// clamps to zero instead of failing (Node's Math.max). Never hit in
-// production, where settlement deltas are payouts.
 func TestSettleClampsTheBalanceAtZero(t *testing.T) {
 	f := newFixture(t)
-	u := f.user("Clamp")
-	balances, err := f.ledger.Settle(f.ctx, game.SettleRequest{
-		Hand:    game.HandRecord{ID: "hand-clamp", RoomID: "room-clamp", HandNo: 1, Pot: 0, WinReason: "show", BootAmount: 200, StartedAt: 1, EndedAt: 2},
-		Entries: []game.SettleEntry{{UserID: u.ID, Delta: -(welcome + 500), DidChaal: true}},
-	})
-	if err != nil {
+	a := f.user("A")
+	hand := "hand-clamp"
+	if _, err := f.ledger.Settle(f.ctx, game.SettleRequest{RoomID: "r", HandID: hand, Entries: []game.SettleEntry{
+		settleEntry(hand, a.ID, -(welcome * 10), false, true, 0),
+	}}); err != nil {
 		t.Fatal(err)
 	}
-	if balances[u.ID] != 0 || f.chips(u.ID) != 0 {
-		t.Fatalf("balance = %d wallet = %d", balances[u.ID], f.chips(u.ID))
+	if got := f.chips(a.ID); got != 0 {
+		t.Fatalf("wallet = %d, want 0", got)
+	}
+	// NB: the clamp is a tripwire, not a normal path — it is unreachable while
+	// the wallet and chipsWritten agree, because delta = chips_now -
+	// chips_written and chips_now is never negative. It is deliberately the
+	// ONE place the reconciliation invariant can be broken, and breaking it
+	// loudly beats letting the users.chips CHECK abort a settlement.
+	if f.chips(a.ID) == f.ledgerSum(a.ID) {
+		t.Fatal("this test is meant to exercise the clamp, which loses the difference")
 	}
 }
 
-// statsAndRewards.test.js settles with no pot row: the pot UPDATE matching
-// nothing is tolerated.
-func TestSettleWithoutAPotStillCountsAndPays(t *testing.T) {
-	f := newFixture(t)
-	w, l := f.user("W"), f.user("L")
-	balances, err := f.ledger.Settle(f.ctx, game.SettleRequest{
-		Hand:    game.HandRecord{ID: "hand-nostate", RoomID: "room-nostate", HandNo: 1, Pot: 600, WinnerID: ptr(w.ID), WinReason: "show", BootAmount: 200, StartedAt: 1, EndedAt: 2},
-		Entries: []game.SettleEntry{{UserID: w.ID, Delta: 400, IsWinner: true, DidChaal: true}, {UserID: l.ID, Delta: -200, DidChaal: false}},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if balances[w.ID] != welcome+400 || balances[l.ID] != welcome-200 {
-		t.Fatalf("balances = %v", balances)
-	}
-	if n := f.count(`SELECT COUNT(*) FROM hands WHERE id = 'hand-nostate'`); n != 1 {
-		t.Fatal("hands row missing")
-	}
-	// An empty summary is stored as [] (never null) and win_reason verbatim.
-	var summaryJSON string
-	if err := f.d.Pool.QueryRow(f.ctx, `SELECT summary_json::text FROM hands WHERE id = 'hand-nostate'`).Scan(&summaryJSON); err != nil {
-		t.Fatal(err)
-	}
-	if summaryJSON != "[]" {
-		t.Fatalf("summary_json = %s", summaryJSON)
-	}
-	f.reconcile()
-}
+// ------------------------------------------------------------- property
 
-// With no winner (every player vanished) each contributor is refunded: the
-// Table sends delta = contributed, and everyone is a "loss" for the counters.
-func TestSettleWithoutAWinnerRefundsAndWritesNullWinner(t *testing.T) {
-	f := newFixture(t)
-	a, b := f.user("A"), f.user("B")
-	room, hand := "room-void", "hand-void"
-	f.boot(room, hand, 200, a, b)
-	balances, err := f.ledger.Settle(f.ctx, game.SettleRequest{
-		Hand:    game.HandRecord{ID: hand, RoomID: room, HandNo: 1, Pot: 400, WinnerID: nil, WinReason: "all_left", BootAmount: 200, StartedAt: 1, EndedAt: 2},
-		Entries: []game.SettleEntry{{UserID: a.ID, Delta: 200, LeftMidHand: true}, {UserID: b.ID, Delta: 200, LeftMidHand: true}},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if balances[a.ID] != welcome || balances[b.ID] != welcome {
-		t.Fatalf("balances = %v", balances)
-	}
-	var winner *string
-	if err := f.d.Pool.QueryRow(f.ctx, `SELECT winner_id FROM hands WHERE id = $1`, hand).Scan(&winner); err != nil {
-		t.Fatal(err)
-	}
-	if winner != nil {
-		t.Fatalf("hands.winner_id = %v, want NULL", *winner)
-	}
-	if err := f.d.Pool.QueryRow(f.ctx, `SELECT winner_id FROM pots WHERE hand_id = $1`, hand).Scan(&winner); err != nil {
-		t.Fatal(err)
-	}
-	if winner != nil {
-		t.Fatalf("pots.winner_id = %v, want NULL", *winner)
-	}
-	au := f.find(a.ID)
-	if au.HandsLeftMid != 1 || au.HandsLost != 0 || au.HandsWon != 0 {
-		t.Fatalf("a = %+v", au)
-	}
-	rows := f.handLedgerRows(hand)
-	for _, r := range rows[2:] {
-		if r.Reason != "hand_loss" || r.Delta != 200 {
-			t.Fatalf("refund row = %+v", r)
-		}
-	}
-	f.reconcile()
-}
-
-// A random walk of boots, bets and settlements across several players; the
-// ledger must reconcile to every wallet and every pot afterwards.
+// Randomised checkpoints keep every wallet equal to its ledger — the one
+// money cross-check the system still has.
 func TestRandomisedPlayKeepsEveryWalletEqualToItsLedger(t *testing.T) {
 	f := newFixture(t)
-	rng := rand.New(rand.NewSource(20260908))
-	players := make([]*db.User, 5)
-	for i := range players {
-		players[i] = f.user(fmt.Sprintf("R%d", i))
-	}
-	const boot = int64(200)
-	room := "room-random"
+	players := []*db.User{f.user("P1"), f.user("P2"), f.user("P3"), f.user("P4")}
+	rng := rand.New(rand.NewSource(7))
+	const boot int64 = 200
 
-	for handNo := 1; handNo <= 12; handNo++ {
-		// 2–5 participants.
-		perm := rng.Perm(len(players))[:2+rng.Intn(len(players)-1)]
-		var participants []*db.User
-		for _, i := range perm {
-			participants = append(participants, players[i])
+	for handNo := 1; handNo <= 30; handNo++ {
+		hand := fmt.Sprintf("hand-%d", handNo)
+		room := "room-rand"
+		staked := map[string]int64{}
+		var pot int64
+		for _, p := range players {
+			amount := boot + int64(rng.Intn(5))*boot
+			if f.chips(p.ID) < amount {
+				amount = boot
+			}
+			staked[p.ID] = amount
+			pot += amount
 		}
-		hand := fmt.Sprintf("hand-random-%d", handNo)
-		if _, err := f.ledger.CollectBoot(f.ctx, game.CollectBootRequest{
-			RoomID: room, HandID: hand, BootAmount: boot,
-			Entries: func() []game.BootEntry {
-				var es []game.BootEntry
-				for _, p := range participants {
-					es = append(es, game.BootEntry{UserID: p.ID, Amount: boot})
+
+		// Some players pack (written at once); one may leave.
+		resolved := map[string]bool{}
+		for _, p := range players[1:] {
+			switch rng.Intn(3) {
+			case 0:
+				if _, err := f.pack(room, hand, p, -staked[p.ID]); err != nil {
+					t.Fatalf("pack: %v", err)
 				}
-				return es
-			}(),
-		}); err != nil {
-			t.Fatalf("hand %d boot: %v", handNo, err)
-		}
-		contributed := map[string]int64{}
-		for _, p := range participants {
-			contributed[p.ID] = boot
-		}
-		pot := boot * int64(len(participants))
-
-		// A handful of bets, some deliberately refused.
-		for move := 0; move < 3+rng.Intn(6); move++ {
-			p := participants[rng.Intn(len(participants))]
-			amount := boot * int64(1<<rng.Intn(4))
-			actionID := fmt.Sprintf("%s:%d", hand, move)
-			if rng.Intn(6) == 0 {
-				// Replay a previous move: must be refused and change nothing.
-				actionID = fmt.Sprintf("%s:%d", hand, rng.Intn(move+1))
-			}
-			_, err := f.ledger.Bet(f.ctx, game.BetRequest{UserID: p.ID, Amount: amount, RoomID: room, HandID: hand, ActionID: actionID})
-			switch game.CodeOf(err, "") {
-			case "":
-				contributed[p.ID] += amount
-				pot += amount
-			case game.CodeDuplicateAction, game.CodeInsufficientChips:
-				// nothing was written
-			default:
-				t.Fatalf("hand %d move %d: %v", handNo, move, err)
-			}
-		}
-
-		if got := f.scalar(`SELECT amount FROM pots WHERE hand_id = $1`, hand); got != pot {
-			t.Fatalf("hand %d pot %d != tracked %d", handNo, got, pot)
-		}
-
-		var winner *string
-		var entries []game.SettleEntry
-		if rng.Intn(5) != 0 {
-			winner = ptr(participants[rng.Intn(len(participants))].ID)
-		}
-		for _, p := range participants {
-			e := game.SettleEntry{UserID: p.ID, DidChaal: contributed[p.ID] > boot}
-			if winner != nil {
-				if p.ID == *winner {
-					e.IsWinner, e.Delta = true, pot
+			case 1:
+				if _, err := f.left(room, hand, p, -staked[p.ID], true); err != nil {
+					t.Fatalf("left: %v", err)
 				}
-			} else {
-				e.Delta, e.LeftMidHand = contributed[p.ID], true
+				resolved[p.ID] = true
 			}
-			entries = append(entries, e)
 		}
-		if _, err := f.ledger.Settle(f.ctx, game.SettleRequest{
-			Hand:    game.HandRecord{ID: hand, RoomID: room, HandNo: handNo, Pot: pot, WinnerID: winner, WinReason: "show", BootAmount: boot, StartedAt: 1, EndedAt: 2},
-			Entries: entries,
-		}); err != nil {
-			t.Fatalf("hand %d settle: %v", handNo, err)
+
+		entries := []game.SettleEntry{}
+		winner := players[0]
+		for _, p := range players {
+			if resolved[p.ID] {
+				continue // resolved at their own checkpoint
+			}
+			delta := -staked[p.ID]
+			if p.ID == winner.ID {
+				delta = pot - staked[p.ID]
+			}
+			// A packer's money already moved.
+			if n := f.count(`SELECT COUNT(*) FROM chip_ledger WHERE action_id = $1`, hand+":packed:"+p.ID); n > 0 {
+				delta = 0
+				if p.ID == winner.ID {
+					delta = pot
+				}
+			}
+			entries = append(entries, settleEntry(hand, p.ID, delta, p.ID == winner.ID, true, pot))
 		}
+		if _, err := f.ledger.Settle(f.ctx, game.SettleRequest{RoomID: room, HandID: hand, Entries: entries}); err != nil {
+			t.Fatalf("settle %s: %v", hand, err)
+		}
+		f.reconcile()
 	}
 
-	f.reconcile()
-	// Chips are conserved across the whole session.
-	total := f.scalar(`SELECT SUM(chips)::bigint FROM users`)
-	if total != welcome*int64(len(players)) {
-		t.Fatalf("chips created or destroyed: total %d", total)
-	}
-	// Every pot equals its stakes and, when won, its payout.
-	mismatched := f.scalar(`SELECT COUNT(*) FROM pots p
-	   WHERE p.amount <> (SELECT -COALESCE(SUM(delta),0) FROM chip_ledger l WHERE l.hand_id = p.hand_id AND l.reason IN ('boot','bet','show'))
-	      OR (p.winner_id IS NOT NULL AND p.amount <> (SELECT COALESCE(SUM(delta),0) FROM chip_ledger l WHERE l.hand_id = p.hand_id AND l.reason = 'hand_win'))`)
-	if mismatched != 0 {
-		t.Fatalf("%d pot(s) do not reconcile with their ledger rows", mismatched)
+	for _, p := range players {
+		if f.chips(p.ID) != f.ledgerSum(p.ID) {
+			t.Fatalf("%s: wallet %d != ledger %d", p.DisplayName, f.chips(p.ID), f.ledgerSum(p.ID))
+		}
 	}
 }
 
-// ---------------------------------------------------------- append-only
+// ---------------------------------------------------------------- misc
 
 func TestChipLedgerIsAppendOnly(t *testing.T) {
 	f := newFixture(t)
@@ -786,37 +465,42 @@ func TestClassifyMapsErrorsLikeNode(t *testing.T) {
 
 // ----------------------------------------------------------------- metrics
 
-// The ledger feeds game_db_transaction_duration_seconds{op}, the two
-// unlabelled hand-start / settlement histograms, and counts refusals by code.
+// The ledger feeds game_db_transaction_duration_seconds{op=checkpoint|settle},
+// the settlement histogram, and counts refusals by code.
+// (game_hand_start_duration_seconds is fed by the table now — the deal has no
+// transaction of its own.)
 func TestLedgerObservesTransactionMetrics(t *testing.T) {
 	f := newFixture(t)
 	reg := prometheus.NewRegistry()
 	m := &metrics.Metrics{
 		DBTransactionDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{Name: "game_db_transaction_duration_seconds"}, []string{"op"}),
 		DBTransactionErrors:   prometheus.NewCounterVec(prometheus.CounterOpts{Name: "game_db_transaction_errors_total"}, []string{"op", "code"}),
-		HandStartDuration:     prometheus.NewHistogram(prometheus.HistogramOpts{Name: "game_hand_start_duration_seconds"}),
 		SettlementDuration:    prometheus.NewHistogram(prometheus.HistogramOpts{Name: "game_settlement_duration_seconds"}),
 	}
-	reg.MustRegister(m.DBTransactionDuration, m.DBTransactionErrors, m.HandStartDuration, m.SettlementDuration)
+	reg.MustRegister(m.DBTransactionDuration, m.DBTransactionErrors, m.SettlementDuration)
 	ledger := db.NewLedger(f.d, m, nil)
 
 	a, b := f.user("A"), f.user("B")
 	room, hand := "room-metrics", "hand-metrics"
-	if _, err := ledger.CollectBoot(f.ctx, game.CollectBootRequest{RoomID: room, HandID: hand, BootAmount: 200,
-		Entries: []game.BootEntry{{UserID: a.ID, Amount: 200}, {UserID: b.ID, Amount: 200}}}); err != nil {
+	cp := func(u *db.User, delta int64, actionID string) error {
+		_, err := ledger.Checkpoint(f.ctx, game.CheckpointRequest{RoomID: room, HandID: hand,
+			Entry: game.SettleEntry{UserID: u.ID, Delta: delta, Reason: game.LedgerReasonHandPacked, ActionID: actionID}})
+		return err
+	}
+	if err := cp(a, -400, "m1"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ledger.Bet(f.ctx, game.BetRequest{UserID: a.ID, Amount: 400, RoomID: room, HandID: hand, ActionID: "m1"}); err != nil {
-		t.Fatal(err)
+	// One refusal inside a transaction: the same action id twice.
+	_ = cp(a, -400, "m1")
+	// And one for an account that does not exist.
+	if _, err := ledger.Checkpoint(f.ctx, game.CheckpointRequest{RoomID: room, HandID: hand,
+		Entry: game.SettleEntry{UserID: "nobody", Delta: -1, Reason: game.LedgerReasonHandPacked, ActionID: "m2"}}); err == nil {
+		t.Fatal("an unknown account must be refused by Checkpoint")
 	}
-	// One refusal inside a transaction: a duplicate (duplicate_action).
-	_, _ = ledger.Bet(f.ctx, game.BetRequest{UserID: a.ID, Amount: 400, RoomID: room, HandID: hand, ActionID: "m1"})
-	// invalid_amount is counted even though no transaction was opened.
-	_, _ = ledger.Bet(f.ctx, game.BetRequest{UserID: a.ID, Amount: 0, RoomID: room, HandID: hand, ActionID: "m3"})
-	if _, err := ledger.Settle(f.ctx, game.SettleRequest{
-		Hand:    game.HandRecord{ID: hand, RoomID: room, HandNo: 1, Pot: 800, WinnerID: ptr(a.ID), WinReason: "show", BootAmount: 200, StartedAt: 1, EndedAt: 2},
-		Entries: []game.SettleEntry{{UserID: a.ID, Delta: 800, IsWinner: true, DidChaal: true}, {UserID: b.ID}},
-	}); err != nil {
+	if _, err := ledger.Settle(f.ctx, game.SettleRequest{RoomID: room, HandID: hand, Entries: []game.SettleEntry{
+		settleEntry(hand, a.ID, 800, true, true, 800),
+		settleEntry(hand, b.ID, 0, false, true, 0),
+	}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -841,17 +525,11 @@ func TestLedgerObservesTransactionMetrics(t *testing.T) {
 		}
 		return 0
 	}
-	if n := sampleCount("game_db_transaction_duration_seconds", map[string]string{"op": "boot"}); n != 1 {
-		t.Fatalf("boot transactions observed = %d", n)
-	}
-	if n := sampleCount("game_db_transaction_duration_seconds", map[string]string{"op": "bet"}); n != 3 {
-		t.Fatalf("bet transactions observed = %d (every attempt, refused ones included)", n)
+	if n := sampleCount("game_db_transaction_duration_seconds", map[string]string{"op": "checkpoint"}); n != 3 {
+		t.Fatalf("checkpoint transactions observed = %d (every attempt, refused ones included)", n)
 	}
 	if n := sampleCount("game_db_transaction_duration_seconds", map[string]string{"op": "settle"}); n != 1 {
 		t.Fatalf("settle transactions observed = %d", n)
-	}
-	if n := sampleCount("game_hand_start_duration_seconds", nil); n != 1 {
-		t.Fatalf("hand start observed = %d", n)
 	}
 	if n := sampleCount("game_settlement_duration_seconds", nil); n != 1 {
 		t.Fatalf("settlement observed = %d", n)
@@ -873,12 +551,54 @@ func TestLedgerObservesTransactionMetrics(t *testing.T) {
 		}
 		return 0
 	}
-	for code, want := range map[string]float64{"duplicate_action": 1, "invalid_amount": 1} {
-		if got := counter("game_db_transaction_errors_total", map[string]string{"op": "bet", "code": code}); got != want {
-			t.Fatalf("errors{op=bet,code=%s} = %v, want %v", code, got, want)
+	for code, want := range map[string]float64{"duplicate_action": 1, "unknown_user": 1} {
+		if got := counter("game_db_transaction_errors_total", map[string]string{"op": "checkpoint", "code": code}); got != want {
+			t.Fatalf("errors{op=checkpoint,code=%s} = %v, want %v", code, got, want)
 		}
 	}
-	if got := counter("game_db_transaction_errors_total", map[string]string{"op": "boot", "code": "insufficient_chips"}); got != 0 {
-		t.Fatalf("unexpected boot errors: %v", got)
+	if got := counter("game_db_transaction_errors_total", map[string]string{"op": "settle", "code": "duplicate_action"}); got != 0 {
+		t.Fatalf("unexpected settle errors: %v", got)
 	}
+}
+
+// A player who leaves mid-hand is resolved at their OWN checkpoint and must
+// not be written again at the hand end: one wallet movement, one outcome row,
+// hands_left_mid counted once.
+func TestAPlayerWhoLeavesMidHandIsResolvedOnce(t *testing.T) {
+	f := newFixture(t)
+	a, b := f.user("A"), f.user("B")
+	room, hand := "room-leave", "hand-leave"
+	const aStaked, bStaked int64 = 1400, 600
+	pot := aStaked + bStaked
+
+	if _, err := f.left(room, hand, a, -aStaked, true); err != nil {
+		t.Fatal(err)
+	}
+	walletAfterLeave := f.chips(a.ID)
+	if walletAfterLeave != welcome-aStaked {
+		t.Fatalf("wallet after the leave = %d", walletAfterLeave)
+	}
+
+	// The hand settles with only the player still at the table.
+	if _, err := f.ledger.Settle(f.ctx, game.SettleRequest{RoomID: room, HandID: hand, Entries: []game.SettleEntry{
+		settleEntry(hand, b.ID, pot-bStaked, true, true, pot),
+	}}); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := f.chips(a.ID); got != walletAfterLeave {
+		t.Fatalf("the departed player was charged again: %d → %d", walletAfterLeave, got)
+	}
+	if got := f.chips(b.ID); got != welcome+pot-bStaked {
+		t.Fatalf("winner wallet = %d, want %d", got, welcome+pot-bStaked)
+	}
+	rows := f.handLedgerRows(hand)
+	if len(rows) != 2 {
+		t.Fatalf("%d rows, want 2 (the leave and the win)", len(rows))
+	}
+	ua := f.find(a.ID)
+	if ua.HandsLeftMid != 1 || ua.HandsLost != 0 || ua.HandsPlayed != 1 {
+		t.Fatalf("leaver counters %+v", ua)
+	}
+	f.reconcile()
 }

@@ -94,7 +94,7 @@ func TestGameErrorMatchesByCode(t *testing.T) {
 	if CodeOf(ErrTableDestroyed, "") != CodeTableDestroyed {
 		t.Fatal("ErrTableDestroyed code")
 	}
-	if BootActionID("h", "u") != "h:boot:u" || SettleActionID("h", "u") != "h:settle:u" {
+	if SettleActionID("h", "u") != "h:settle:u" || PackedActionID("h", "u") != "h:packed:u" || LeftActionID("h", "u") != "h:left:u" {
 		t.Fatal("deterministic action ids")
 	}
 }

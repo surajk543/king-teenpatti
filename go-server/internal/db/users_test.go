@@ -25,13 +25,22 @@ func (f *fixture) settle(entries []game.SettleEntry, pot int64) {
 			break
 		}
 	}
-	_, err := f.ledger.Settle(f.ctx, game.SettleRequest{
-		Hand: game.HandRecord{
-			ID: "hand-" + randomSuffix(f.t), RoomID: "room-stats", HandNo: 1, Pot: pot, WinnerID: winner,
-			WinReason: "show", BootAmount: 200, StartedAt: nowMs() - 1000, EndedAt: nowMs(), Summary: []game.HandSummaryEntry{},
-		},
-		Entries: entries,
-	})
+	handID := "hand-" + randomSuffix(f.t)
+	filled := make([]game.SettleEntry, len(entries))
+	for i, e := range entries {
+		e.ActionID = game.SettleActionID(handID, e.UserID)
+		e.Outcome = true
+		if e.Reason == "" {
+			e.Reason = game.LedgerReasonHandLoss
+			if e.IsWinner {
+				e.Reason = game.LedgerReasonHandWin
+				e.Pot = pot
+			}
+		}
+		filled[i] = e
+	}
+	_ = winner
+	_, err := f.ledger.Settle(f.ctx, game.SettleRequest{RoomID: "room-stats", HandID: handID, Entries: filled})
 	if err != nil {
 		f.t.Fatalf("settle: %v", err)
 	}
@@ -660,82 +669,6 @@ func TestApplyChipDeltaMovesChipsWithAMatchingLedgerRow(t *testing.T) {
 		t.Fatalf("row = %+v", rows[len(rows)-1])
 	}
 	f.reconcile()
-}
-
-// ------------------------------------------------------------- recentHands
-
-func TestRecentHandsListsTheUsersHandsNewestFirstWithTheSummary(t *testing.T) {
-	f := newFixture(t)
-	a, b, c := f.user("A"), f.user("B"), f.user("C")
-	room := "room-history"
-	for i := 1; i <= 4; i++ {
-		hand := fmt.Sprintf("hand-history-%d", i)
-		// A plays every hand; B plays the even ones only; C never.
-		participants := []*db.User{a}
-		if i%2 == 0 {
-			participants = append(participants, b)
-		} else {
-			participants = append(participants, c)
-		}
-		f.boot(room, hand, 200, participants...)
-		var entries []game.SettleEntry
-		summary := []game.HandSummaryEntry{}
-		for j, p := range participants {
-			entries = append(entries, game.SettleEntry{UserID: p.ID, IsWinner: j == 0, Delta: map[bool]int64{true: 400, false: 0}[j == 0], DidChaal: true})
-			summary = append(summary, game.HandSummaryEntry{UserID: p.ID, DisplayName: p.DisplayName, SeatIndex: j, Contributed: 200, Status: game.SeatLost, SawCards: true, Cards: []string{"As", "Kd", "2c"}})
-		}
-		if _, err := f.ledger.Settle(f.ctx, game.SettleRequest{
-			Hand:    game.HandRecord{ID: hand, RoomID: room, HandNo: i, Pot: 400, WinnerID: ptr(a.ID), WinReason: "show", BootAmount: 200, StartedAt: int64(1000 * i), EndedAt: int64(1000*i + 500), Summary: summary},
-			Entries: entries,
-		}); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	all, err := f.users.RecentHands(f.ctx, a.ID, 20)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(all) != 4 {
-		t.Fatalf("A has %d hands, want 4", len(all))
-	}
-	for i, h := range all {
-		wantNo := 4 - i
-		if h.HandNo != wantNo || h.ID != fmt.Sprintf("hand-history-%d", wantNo) || h.RoomID != room || h.Pot != 400 || h.WinnerID == nil || *h.WinnerID != a.ID || h.WinReason == nil || *h.WinReason != "show" || h.EndedAt != int64(1000*wantNo+500) {
-			t.Fatalf("hand %d = %+v", i, h)
-		}
-		if len(h.Summary) != 2 || h.Summary[0].UserID != a.ID || h.Summary[0].Cards[0] != "As" {
-			t.Fatalf("summary %d = %+v", i, h.Summary)
-		}
-	}
-	// One row per hand even though a user has several ledger rows per hand.
-	limited, err := f.users.RecentHands(f.ctx, a.ID, 2)
-	if err != nil || len(limited) != 2 || limited[0].HandNo != 4 || limited[1].HandNo != 3 {
-		t.Fatalf("limit 2 → %+v %v", limited, err)
-	}
-	bHands, _ := f.users.RecentHands(f.ctx, b.ID, 20)
-	if len(bHands) != 2 || bHands[0].HandNo != 4 || bHands[1].HandNo != 2 {
-		t.Fatalf("B hands = %+v", bHands)
-	}
-	// Ledger rows without a hand (welcome) do not create history; an empty
-	// history marshals as [] never null.
-	none, err := f.users.RecentHands(f.ctx, f.user("Nobody").ID, 20)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if none == nil || len(none) != 0 {
-		t.Fatalf("empty history = %#v", none)
-	}
-	if out, _ := json.Marshal(none); string(out) != "[]" {
-		t.Fatalf("empty history marshals as %s", out)
-	}
-	// JS slice semantics for the odd limits the route never sends.
-	if zero, _ := f.users.RecentHands(f.ctx, a.ID, 0); len(zero) != 0 {
-		t.Fatalf("limit 0 → %d", len(zero))
-	}
-	if neg, _ := f.users.RecentHands(f.ctx, a.ID, -1); len(neg) != 3 {
-		t.Fatalf("limit -1 → %d (slice(0,-1) keeps all but the last)", len(neg))
-	}
 }
 
 // -------------------------------------------------------- the wire object

@@ -2,23 +2,29 @@
 
 Owner scope: `internal/socket/*`, `internal/app/*`, `internal/db/*`, `internal/config/*`,
 `internal/metrics/*`, `cmd/gameplay/*`, `.env.example`, plus the test-only package
-`internal/livetest`. Architecture: `../LIVE_STATE_PLAN.md` (authoritative, including the owner's
-late additions "The durable backstop" and invariant 5, chat never in PostgreSQL). The store itself is
-`internal/live` (`live.md`); the table/RoomManager side is the game engineer's (`live-game.md` when
-it appears).
+`internal/livetest`. Architecture: `../LIVE_STATE_PLAN.md` (authoritative). The store itself is
+`internal/live` (`live.md`); the table/RoomManager side is `live-game.md`.
+
+> **Superseded, 9 Sep 2026.** An earlier revision of this file described a durable backstop —
+> `db.SnapshotWriter`, `game_states`, `SNAPSHOT_FLUSH_MS`, four `game_snapshot_*` metrics,
+> `/health.live.snapshotLagSeconds`, `game_restored_tables_total{source}` and Restore's second pass.
+> The owner then decided that **PostgreSQL must hold no game state at all** and that **a bet must
+> not be a PostgreSQL transaction**. All of that is **deleted**: `internal/db/snapshots.go` is gone,
+> `game_states` is dropped from `schema.sql`, the config key is gone, the metrics are gone, and
+> `/health.live` is `{kind, ok, tables}`. What survives is the live store, the refund, and the
+> money model below.
 
 ## What changed
 
 | Package | Change |
 |---|---|
-| `db/ledger.go` | The `game_states` upsert (`saveState`, Node's `stale_state` guard) is gone from `Bet`, `CollectBoot`, `Settle` and the settle retry path. A money transaction touches only `users`, `pots`, `chip_ledger` (+ `hands` on settle). `Version`/`State` on the ledger requests are no longer read (the game package has deprecated them). `stale_state` can no longer be produced by the db layer. |
-| `db/schema.sql` | `game_states` stays, re-described: the durable backstop written asynchronously by `SnapshotWriter`; `version` is now the live store's per-table `seq`. No migration needed. |
+| `db/ledger.go` | The `game_states` upsert (`saveState`, Node's `stale_state` guard) is gone; `stale_state` can no longer be produced by the db layer. `Bet` is **replaced by `FlushBets`** (one transaction banking one player's accumulated bets, `metrics.OpBet`), and `Settle` banks each entry's outstanding `Bets` inline before the settlement row and adds what it banked to the delta. `bankBets` is the shared helper: `INSERT … ON CONFLICT (action_id) DO NOTHING`, skip the debit and the pot update when the row is already there, re-mint the id when it collides with another hand's row. A money transaction touches only `users`, `pots`, `chip_ledger` (+ `hands` on settle). |
+| `db/schema.sql` | `game_states` is **removed**: never created, and dropped on an existing database by a guarded `DO` block that fires only when the table exists AND is empty (this file runs on every boot, so an unguarded DROP would be a hazard the day an old backup were restored; a non-empty table is left for a human). The schema is `users`, `chip_ledger`, `pots`, `hands` — money and audit only. |
 | `db/refund.go` | `RefundOrphanedPots(ctx, liveHandIDs) (RefundReport, error)` — startup step 3 / last-resort recovery. `LedgerReasonRefund = "refund"`, `RefundActionID(handID, userID) = "<handId>:refund:<userId>"`. |
-| `db/snapshots.go` | `SnapshotWriter` (the game package's `SnapshotSink`), `(*DB).LoadSnapshots`, `(*DB).HandContributions` (its `DurableSource`), `DurableSnapshot = game.DurableSnapshot`. |
-| `config` | `REDIS_URL` is used (no longer "ignored"); new `LIVE_STATE_TTL_MS` (86400000), `LIVE_INSTANCE_ID` (default `hostname:pid`, applied by `Load()` only — `Defaults()`/`FromEnv()` carry `""` so they stay host-independent, like `PUBLIC_DIR`), `SNAPSHOT_FLUSH_MS` (1000; 0 disables the writer), `LIVE_RECONCILE_MS` (30000; 0 disables the reconciler). All in `.env.example`; `TestEnvExampleIsTheDefaults` pins the two files together. |
-| `metrics` | 14 new families (below); `LiveHooks() live.Hooks` for `live.WithHooks`; `BindSnapshotLag`. Catalogue test covers 49 `game_*` families and requires every exposed family to be catalogued. |
+| `config` | `REDIS_URL` is used (no longer "ignored"); new `LIVE_STATE_TTL_MS` (86400000), `LIVE_INSTANCE_ID` (default `hostname:pid`, applied by `Load()` only — `Defaults()`/`FromEnv()` carry `""` so they stay host-independent, like `PUBLIC_DIR`), `LIVE_RECONCILE_MS` (30000; 0 disables the reconciler). All in `.env.example`; `TestEnvExampleIsTheDefaults` pins the two files together. |
+| `metrics` | 8 new families (below); `LiveHooks() live.Hooks` for `live.WithHooks`. Catalogue test covers 43 `game_*` families and requires every exposed family to be catalogued. |
 | `socket` | Presence (`SetOnline`/`SetOffline` + one heartbeat), resume offers through the store, `RestoreSeats`, `Close`. `Deps.Live`, `Deps.Instance`. The `resumeOffers` map is gone. |
-| `app` | `Options.Live`; opens/wraps the store; runs the startup sequence; `/health.live`; Suspend-or-Shutdown on stop; reconciler ticker; snapshot writer lifecycle. `Restore()`, `Refund()`, `Live()` accessors for tests/tooling. |
+| `app` | `Options.Live`; opens/wraps the store; runs the startup sequence; `/health.live` = `{kind, ok, tables}`; Suspend-or-Shutdown on stop; reconciler ticker. `Restore()`, `Refund()`, `Live()` accessors for tests/tooling. |
 | `cmd/gameplay` | No code change beyond the boot-sequence doc: `app.New` opens the store from the config it is passed and fails the boot when Redis is configured but unreachable. |
 | `livetest` (new, test-only) | `livetest.Fake`: a self-contained `live.Store` with ttl from an injectable clock, per-op call counts (`Calls`), fault injection (`Fail`), and peeks (`Online`, `Offer`, `Tables`, `Seed`). Deliberately independent of `live.Memory` so the socket/app suites do not move when the store implementation does. |
 
@@ -30,15 +36,14 @@ live store        Options.Live, else live.Open(URL: REDIS_URL, Instance: LIVE_IN
                   — REDIS_URL set and unreachable → New fails → process exits 1
                   wrapped once: live.WithHooks(store, metrics.LiveHooks())
 users / ledger / tokens / verifier / sio.Server
-db.NewSnapshotWriter(DB, {Interval: SNAPSHOT_FLUSH_MS, Metrics, Clock}); metrics.BindSnapshotLag(writer.Lag)
 socket.New(Deps{Live, Instance, …})
-game.NewRoomManager({Live, Instance, LiveTTL: LIVE_STATE_TTL_MS, Snapshots: writer, Durable: DB, …})
+game.NewRoomManager({Live, Instance, LiveTTL: LIVE_STATE_TTL_MS, …})
 sockets.SetRooms; sockets.Attach(sio)           ← arms the presence heartbeat
 metrics.BindRooms / BindPool
-rooms.Restore(ctx)                               pass 1 live store; pass 2 game_states (game side); fatal if the store cannot be listed
+rooms.Restore(ctx)                               the live store, the only source; fatal if it cannot be listed
 db.RefundOrphanedPots(ctx, report.HandIDs)       open pots no restored table holds; failure logged, retried next start
 sockets.RestoreSeats(rooms.RestoredSeats())      every restored seat: SetConnected(false) + grace timer
-log  "restored tables=N (live=A postgres=B) seats=C reconciled=D rejected=E refunded pots=F"
+log  "restored tables=N seats=C refunded pots=F"
 rooms.StartSweeper
 reconciler ticker every LIVE_RECONCILE_MS         → game_live_store_reconciles_total{result}
 mux …                                            (Start opens the listener)
@@ -53,9 +58,8 @@ All of the restore work happens in `New`, before the listener exists, bounded by
 store — a final snapshot each, clocks stopped, pots left open for the next process), else
 `rooms.Shutdown(ctx)` (hands settled, pots paid: the pre-Redis behaviour and the rollback path when
 `REDIS_URL` is unset) → `http.Shutdown` → `sio.Shutdown` → `sockets.Close()` (heartbeat) → reconciler
-stopped → `snapshots.Flush(ctx)` + `Close()` (the last `game_states` rows land before `cmd` closes the
-DB) → `live.Close()` last, **only when `New` opened the store**; an injected store belongs to its owner
-(the DB convention).
+stopped → `live.Close()` last, **only when `New` opened the store**; an injected store belongs to its
+owner (the DB convention).
 
 ## Presence and the heartbeat
 
@@ -110,33 +114,45 @@ credit are one transaction, so `SUM(chip_ledger.delta) == users.chips` holds (te
 no-op; a pot re-opened after its rows were written (the crash window) is closed again with nothing
 credited twice. Report: `{Pots, Contributors, Chips, AlreadyRefunded, Skipped}`; the first per-pot
 error is returned with the report, the others logged. It is the **third** recovery path — after the
-live store and `game_states`.
+live store.
 
-## The durable snapshot writer (`db.SnapshotWriter`)
+## The money model (`db/ledger.go`)
 
-- `MarkDirty(roomID, seq, handID, snapshot)` and `MarkDeleted(roomID)` never block: a mutex-guarded map
-  keeps **one entry per room** (newest seq wins; an equal or older seq is ignored; a delete drops a
-  pending snapshot; a later mark revives a deleted room). Memory is bounded by the number of live rooms.
-- One goroutine flushes every `SNAPSHOT_FLUSH_MS` as **one transaction**: a single multi-row upsert
-  over `unnest($1::text[], $2::text[], $3::bigint[], $4::text[], $5::bigint[])` with `state::jsonb`,
-  `ON CONFLICT (room_id) DO UPDATE … WHERE game_states.version < EXCLUDED.version` (a late flush never
-  overwrites a newer row — tested with a second writer behind), then `DELETE … WHERE room_id = ANY($1)`.
-  Deletes run after upserts. `Flush(ctx)` runs the same pass on demand; `Close()` stops the goroutine.
-- A failed flush is logged, counted (`game_snapshot_writes_total{result="error"}`) and **merged back**
-  into the pending set (a newer snapshot or a delete that arrived meanwhile wins) so the next pass
-  retries; nothing is fatal — the money committed already (tested with a `CHECK (false)` outage).
-- `SNAPSHOT_FLUSH_MS = 0` → a writer that drops every mark (Redis only).
-- `Lag()` = age of the oldest pending snapshot → `game_snapshot_lag_seconds` and `/health.live.snapshotLagSeconds`.
-- The writer stores **exactly the bytes it is handed**. `TestGameStatesNeverContainsChat` posts a
-  distinctive chat line on a real `game.Table`, snapshots it, flushes, and asserts the text is absent
-  from `game_states.state` and that the schema has no chat table or column.
+PostgreSQL is written at exactly three moments per hand and never per bet (owner, 9 Sep 2026):
+
+| Moment | Call | Scope |
+|---|---|---|
+| hand start | `CollectBoot` — wallets debited, `pots` row opened, one `boot` row each | everyone in the hand |
+| a player leaves / switches mid-hand | `FlushBets` — that player's bets in order, wallet debit, `pots.amount +=` | that one player |
+| hand end | `Settle` — everyone else's bets, then the settlement rows, the `hands` row, the pot closed, ONE transaction | everyone still in |
+
+`bankBets(ctx, tx, userID, handID, chips, bets, at)` is shared by the last two. Per bet, against a
+wallet row the transaction already holds locked:
+
+1. `balance = chips - amount`; **`balance < 0` → `insufficient_chips`**, refused rather than left to
+   abort the transaction on the `users.chips >= 0` CHECK. It cannot happen in practice: the seat can
+   only have staked chips the wallet held (boot debited up front, seat only decreases, one seat per
+   player), so this is a tripwire, not a clamp.
+2. `INSERT INTO chip_ledger … ON CONFLICT (action_id) DO NOTHING`. **0 rows** → look up the existing
+   row's `hand_id`: the same hand means it is already banked (a settle retry, or a flush whose
+   `flushed` marker was lost with Redis) — skip the debit and the pot update; a **different** hand
+   means a client reused its own id, so the row is written under a fresh `util.UUID()` and the chips
+   are banked after all. The pot must never hold chips no ledger row accounts for.
+3. `chips = balance`, `banked += amount`.
+
+Afterwards one `UPDATE users SET chips` and one `UPDATE pots SET amount = amount + banked`.
+`FlushBets` returns `{Balance, Persisted: banked}`; `Settle` adds `banked` to that entry's `Delta`
+before writing the settlement row, so the row is exactly what the per-bet model produced (+pot for
+the winner, 0 for a fully-banked loser) and `SUM(chip_ledger.delta) == users.chips` holds.
+
+`Settle` keeps its wallet-lock-order deviation from ledger.js (every wallet locked ascending before
+the `hands` insert, whose `winner_id` FK would otherwise take an out-of-order KEY SHARE lock).
 
 ### What is deliberately not durable
 
-Owner's invariant 5: **chat messages are never written to PostgreSQL**. Chat, presence (`kt:online`)
-and the matchmaking index live only in the live store; a room rebuilt from `game_states` comes back
-with an empty chat history by design, and a dead Redis loses exactly those three things and nothing
-else.
+**Nothing about a table is.** Chat, presence, the matchmaking index, the hand in progress and every
+bet made inside it live only in the live store. Losing it loses the tables; the boots are still in
+PostgreSQL and `RefundOrphanedPots` returns them, so no chip is created or destroyed.
 
 ## Config keys
 
@@ -145,7 +161,6 @@ else.
 | `REDIS_URL` | empty | empty = in-process store (single instance, nothing survives a restart); set → Redis, fail fast when unreachable |
 | `LIVE_STATE_TTL_MS` | 86400000 | snapshot expiry in the live store for a table that stops updating |
 | `LIVE_INSTANCE_ID` | `hostname:pid` (Load only) | presence/matchmaking owner tag |
-| `SNAPSHOT_FLUSH_MS` | 1000 | durable writer interval; 0 disables |
 | `LIVE_RECONCILE_MS` | 30000 | reconciler interval; 0 disables |
 
 ## Metrics added
@@ -153,12 +168,12 @@ else.
 `game_live_store_operations_total{op,result}` (result ∈ ok, not_found, stale, error — the two sentinels
 are outcomes, not failures), `game_live_store_duration_seconds{op}` (buckets 0.0001 … 1),
 `game_live_store_errors_total{op}`, `game_live_store_reconciles_total{result}`,
-`game_restored_tables_total{source=live|postgres}`, `game_restored_seats_total`,
-`game_restore_reconciled_total`, `game_restore_rejected_total`, `game_refunded_pots_total`,
-`game_refunded_chips_total`, `game_snapshot_writes_total{result}`, `game_snapshot_write_duration_seconds`,
-`game_snapshot_rows_written_total`, `game_snapshot_lag_seconds`. `op` is bounded to the 20 store method
-names in snake_case (`metrics.LiveOps`) through `SafeLabel`; every other label value is a fixed constant.
-`/health` gains `live: {kind, ok, tables, snapshotLagSeconds}` after `db`.
+`game_restored_tables_total` (**no labels**: the live store is the only source),
+`game_restored_seats_total`, `game_refunded_pots_total`, `game_refunded_chips_total`. `op` is bounded
+to the 20 store method names in snake_case (`metrics.LiveOps`) through `SafeLabel`; every other label
+value is a fixed constant. `/health` gains `live: {kind, ok, tables}` after `db`.
+`game_db_transaction_duration_seconds{op="bet"}` now times the transaction that BANKS a departing
+player's bets, not one per bet.
 
 ## Tests
 
@@ -166,22 +181,18 @@ names in snake_case (`metrics.LiveOps`) through `SafeLabel`; every other label v
 
 - **config (+1):** `TestLiveStateKeys` (REDIS_URL honoured, TTL parsing/empty/malformed, instance id default only through `Load`, explicit wins); rows for the four new keys in `TestEveryKey`; `.env.example` parity.
 - **metrics (+3):** catalogue (49), `TestCatalogueCoversEveryGameFamily`, `TestLiveHooksFeedTheLiveStoreMetrics` (op/result classification incl. wrapped sentinels, unknown op → other, buckets, nil receiver, plugs into `live.WithHooks`), `TestSnapshotLagGaugeReadsTheBoundSource`.
-- **db (+4 refund, +8 writer):** refund exactly once / rerun no-op / reconcile; live and settled pots untouched; per-contributor idempotency across a re-opened pot; no-op on nothing. Writer: coalescing + newest seq, version guard (older and equal refused, newer accepted), 200 rooms in one flush, delete-vs-dirty in both orders + revive, ticker + shutdown flush + disabled writer, outage → kept batch → recovery with newer/delete winning, `LoadSnapshots`/`HandContributions` round trip, `TestGameStatesNeverContainsChat`. Existing ledger tests lost their `game_states` assertions and the `stale_state` test; they now assert the table is never written by a money transaction.
+- **db (+4 refund, +3 money model):** refund exactly once / rerun no-op / reconcile; live and settled pots untouched; per-contributor idempotency across a re-opened pot; no-op on nothing. Money model: **TestBankingTheSameBetTwiceChargesNobodyTwice** (the repeat banks 0, no second row, wallet and pot unmoved), **TestAnActionIDReusedInAnotherHandIsStillBanked** (a fresh id, the chips banked, the pot exact), **TestAPlayerWhoLeavesMidHandIsBankedOnceNotTwice** (flush then settle re-sending the same bets → exactly one row per bet, one charge, pot == banked). `internal/db/snapshots.go` and its 8 writer tests are deleted; the ledger tests lost their `game_states` assertions and the `stale_state` test.
 - **socket (+7):** presence follows the live socket (replacement does not clear it), heartbeat refreshes every live account and stops on `Close` (fake clock), store failures never break sign-in, lapsed-seat offer kept in the store and taken once (+ a seated sign-in deletes a stale offer), `RESUME_OFFER_MS=0` writes nothing, `RestoreSeats` → reconnect inside grace lands at the table with the hand / no reconnect → lapse → offer → `session:ready.resume`, `RestoreSeats` skips what it cannot hold. The 62 pre-existing tests run unchanged on the fake store.
-- **app (+5):** `/health` shape with `live`; `TestLiveOpenFailsFastWhenRedisIsUnreachable`; `TestRestartRestoresTablesHoldsSeatsAndRefundsOrphanedPots` (process 1 mid-hand + an orphan pot → Suspend → process 2 on the same store: 1 table/2 seats restored, orphan refunded and the live pot untouched, `SUM(delta)==chips`, `/health.live.tables == 1`, Alice back in `betting`, Bob lapses into an offer); `TestShutdownWithMemoryStoreSettlesTheTables`; `TestRestartWithEmptyLiveStoreRestoresFromGameStates` (empty live store + `game_states` row → table rebuilt from postgres, written back into the store, pot == ledger total).
+- **app (+5):** `/health` shape with `live` = `{kind, ok, tables}`; `TestLiveOpenFailsFastWhenRedisIsUnreachable`; `TestRestartRestoresTablesHoldsSeatsAndRefundsOrphanedPots` (process 1 mid-hand + an orphan pot → Suspend → process 2 on the same store: 1 table/2 seats restored, orphan refunded and the live pot untouched, `SUM(delta)==chips`, `/health.live.tables == 1`, Alice back in `betting`, Bob lapses into an offer); `TestShutdownWithMemoryStoreSettlesTheTables`; **TestRestartWithEmptyLiveStoreLosesTheTablesAndRefundsThePots** (empty live store → 0 tables, 0 seats, the pot refunded, every wallet back to boot-in-hand and equal to its ledger, and the players deal a fresh hand); **TestPostgresHoldsNoGameState** (the schema has no `game_states` table after a hand is played).
 
-## Seams to the game engineer's API (`internal/app/durable.go`)
+## Seams to the game engineer's API (`internal/app/live.go`)
 
-All resolved against the landed game package: `RoomManagerOptions.Snapshots` ← `*db.SnapshotWriter`
-and `.Durable` ← `*db.DB` (both left nil without a database — a nil pointer inside a non-nil interface
-would not be the no-op the game package promises); `rooms.ReconcileLive(ctx) ReconcileReport` is what
-the ticker calls (`!Healthy` or `Errors > 0` → `result="error"`); `RestoreReport.FromLive /
-FromDurable / Reconciled / Rejected` feed `game_restored_tables_total{source}`,
-`game_restore_reconciled_total`, `game_restore_rejected_total` and the summary line.
-`durableRestoreWired` is `true`, so `TestRestartWithEmptyLiveStoreRestoresFromGameStates` runs: process 1
-plays a hand and is suspended (the writer's final flush lands the `game_states` row), process 2 boots on an
-EMPTY live store, rebuilds the table from `game_states`, writes it back into the store, refunds nothing,
-and the restored pot equals the ledger's total for the hand.
+`internal/app/durable.go` is gone (renamed `live.go`, carrying only `reconcileLive`).
+`RoomManagerOptions.Snapshots` / `.Durable`, `wireDurable`, `durableRestoreWired` and
+`restoreBreakdown` are deleted with the second restore pass. `rooms.ReconcileLive(ctx)
+ReconcileReport` is what the ticker calls (`!Healthy` or `Errors > 0` → `result="error"`);
+`RestoreReport.Tables/Seats` feed `game_restored_tables_total` (unlabelled) and
+`game_restored_seats_total` and the summary line.
 
 ## Integrator notes
 
@@ -192,9 +203,8 @@ and the restored pot equals the ledger's total for the hand.
 - `Table.Suspend`/`RoomManager.Suspend` only make sense with a store that outlives the process; the app
   decides by `store.Kind() != "memory"`. Unset `REDIS_URL` → memory → destroy/settle on stop, exactly
   the pre-Redis behaviour (tested).
-- The db test for the writer's outage path uses `ALTER TABLE … ADD CONSTRAINT … CHECK (false) NOT VALID`
-  rather than renaming the table: with `search_path = <test schema>, public` a renamed table makes
-  the query fall through to `public.game_states` on the shared dev database (it did once; the two rows
-  were removed).
+- A `search_path = <test schema>, public` trap worth remembering: a query naming a table the test
+  schema does not have falls through to `public`, so a db test that expects a table to be MISSING
+  must ask `pg_tables WHERE schemaname = current_schema()`, never `SELECT … FROM game_states`.
 - `internal/live/store.go` is flagged by `gofmt -l` (one alignment line, the shared contract, left as is
   per `live.md`).

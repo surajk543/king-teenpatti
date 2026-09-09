@@ -77,66 +77,35 @@ func (e *FencedError) Unwrap() error { return e.Err }
 
 // ---------------------------------------------------------------- saving
 
-// markDurable asks for the snapshot of the CURRENT closure to reach the
-// durable backstop (PostgreSQL game_states) as well as the live store. It is
-// called from exactly two places, both in table.go and both commented there:
-//
-//  1. startHand, once the boots are collected and the cards are dealt — the
-//     hand's opening state;
-//  2. endHand, once settlement is done and the hand is gone — the table at
-//     rest.
-//
-// Nowhere else. Writing a durable snapshot of every table every second cost
-// the money transactions the disk they needed (measured on production, 9 Sep
-// 2026: committed transactions/s fell from 1,258 to 654 at 7,000 players and
-// the usable ceiling halved), and PostgreSQL is only ever read back when
-// BOTH Redis and the process are gone. Between the boundaries the ledger is
-// the record of what has been staked, and ReconcileWithLedger rebuilds the
-// difference. A table that never deals therefore writes nothing durable at
-// all: nothing is at stake and its players simply re-join.
-//
-// It sets liveDirty too, so the durable copy is always a snapshot the live
-// store was offered under the same seq (the seq is what both version guards
-// compare).
-func (t *Table) markDurable() {
-	t.liveDirty = true
-	t.durableDirty = true
-}
-
 // flushLive runs at the end of every posted closure (run): if the closure
 // changed observable state (liveDirty, set by emitState and the few
 // mutations that do not emit state) the full Snapshot is serialised ONCE
-// under the next sequence number and saved to the LIVE store. The same
-// bytes, under the same seq, also go to the durable sink (MarkDirty) — but
-// only when the closure asked for it with markDurable, which is the two hand
-// boundaries and nothing else. One save per closure however many state
-// events were emitted, after the Listener has seen them all.
+// under the next sequence number and saved to the LIVE store. One save per
+// closure however many state events were emitted, after the Listener has
+// seen them all. Reads never save.
+//
+// The live store is the ONLY home of game state: PostgreSQL holds money and
+// audit (users, chip_ledger, pots, hands) and nothing about a table
+// (LIVE_STATE_PLAN.md). If the live store is lost the tables are lost with
+// it, players re-join, and the open pots are refunded (RefundOrphanedPots).
 //
 // Failure handling: a live-store error is counted (LiveErrors), reported
 // (OnPersistError live_save) and the table stays dirty so the next post —
-// any post, a read included — tries again under a fresh seq; a durable
-// snapshot due in that closure still reaches the sink, which is exactly the
-// case it exists for. live.ErrStale fences the table (see fence) and the
-// sink gets nothing: the owner writes that row. Nothing here ever refuses a
+// any post, a read included — tries again under a fresh seq.
+// live.ErrStale fences the table (see fence). Nothing here ever refuses a
 // move; the move is already committed and applied.
 func (t *Table) flushLive() {
 	defer func() {
-		// The stores are somebody else's code running on our actor; a panic
-		// in them must not take the table down with it.
+		// The store is somebody else's code running on our actor; a panic
+		// in it must not take the table down with it.
 		if r := recover(); r != nil {
 			t.liveFailed(LiveOpSaveTable, PersistReasonLiveSave, fmt.Errorf("live store panicked: %v\n%s", r, debug.Stack()))
 		}
 	}()
-	if !t.liveDirty && !t.durableDirty {
+	if !t.liveDirty {
 		return
 	}
-	if t.destroyed.Load() || t.fenced.Load() {
-		t.liveDirty, t.durableDirty = false, false
-		return
-	}
-	if t.live == nil && (t.snapshots == nil || !t.durableDirty) {
-		// Nowhere to put it: with no live store the snapshot is only ever
-		// taken for a hand boundary, so an ordinary move costs nothing.
+	if t.live == nil || t.destroyed.Load() || t.fenced.Load() {
 		t.liveDirty = false
 		return
 	}
@@ -146,36 +115,23 @@ func (t *Table) flushLive() {
 	data, err := json.Marshal(snap)
 	if err != nil {
 		// Will never marshal better; do not loop on it.
-		t.liveDirty, t.durableDirty = false, false
+		t.liveDirty = false
 		t.liveFailed(LiveOpSaveTable, PersistReasonLiveSave, err)
 		return
 	}
-	handID := ""
-	if snap.Hand != nil {
-		handID = snap.Hand.ID
-	}
-	if t.live != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), liveCallTimeout)
-		err = t.live.SaveTable(ctx, t.id, seq, data, t.liveTTL)
-		cancel()
-		switch {
-		case err == nil:
-			t.liveDirty = false
-		case errors.Is(err, live.ErrStale):
-			t.liveDirty, t.durableDirty = false, false
-			t.fence(seq, err)
-			return
-		default:
-			// Stay dirty: the next post retries.
-			t.liveFailed(LiveOpSaveTable, PersistReasonLiveSave, err)
-		}
-	} else {
+	ctx, cancel := context.WithTimeout(context.Background(), liveCallTimeout)
+	err = t.live.SaveTable(ctx, t.id, seq, data, t.liveTTL)
+	cancel()
+	switch {
+	case err == nil:
 		t.liveDirty = false
+	case errors.Is(err, live.ErrStale):
+		t.liveDirty = false
+		t.fence(seq, err)
+	default:
+		// Stay dirty: the next post retries.
+		t.liveFailed(LiveOpSaveTable, PersistReasonLiveSave, err)
 	}
-	if t.durableDirty && t.snapshots != nil {
-		t.snapshots.MarkDirty(t.id, seq, handID, data)
-	}
-	t.durableDirty = false
 }
 
 // fence marks the table as owned by another process (live.ErrStale on a
@@ -413,22 +369,27 @@ func restoreTable(snap *Snapshot, opts TableOptions) (*Table, error) {
 			seatOrder:     append([]int{}, sh.SeatOrder...),
 			contributions: make(map[string]*contribution, len(sh.Contributions)),
 			contribOrder:  make([]string, 0, len(sh.Contributions)),
+			actionIDs:     make(map[string]struct{}, len(sh.ActionIDs)),
+		}
+		for _, id := range sh.ActionIDs {
+			h.actionIDs[id] = struct{}{}
 		}
 		for _, id := range sh.PackedUserIDs {
 			h.packedUserIDs[id] = struct{}{}
 		}
 		for _, c := range sh.Contributions {
 			h.contributions[c.UserID] = &contribution{
-				userID:      c.UserID,
-				displayName: c.DisplayName,
-				seatIndex:   c.SeatIndex,
-				contributed: c.Contributed,
-				status:      c.Status,
-				sawCards:    c.SawCards,
-				cards:       ParseCards(c.Cards),
-				didChaal:    c.DidChaal,
-				leftMidHand: c.LeftMidHand,
-				persisted:   c.Persisted,
+				userID:       c.UserID,
+				displayName:  c.DisplayName,
+				seatIndex:    c.SeatIndex,
+				contributed:  c.Contributed,
+				status:       c.Status,
+				sawCards:     c.SawCards,
+				cards:        ParseCards(c.Cards),
+				didChaal:     c.DidChaal,
+				leftMidHand:  c.LeftMidHand,
+				chips:        c.Chips,
+				chipsWritten: c.ChipsWritten,
 			}
 			h.contribOrder = append(h.contribOrder, c.UserID)
 		}

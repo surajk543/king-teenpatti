@@ -147,30 +147,25 @@ const (
 	SideshowBlockedNeighbourIsBlind = "neighbour_is_blind"
 )
 
-// Ledger reasons (chip_ledger.reason). Bets carry LedgerReasonBet or
-// LedgerReasonShow; boots LedgerReasonBoot; settlement hand_win / hand_loss.
-// The last three are written by tooling only and listed so the vocabulary is
-// complete (CLAUDE.md §7.3).
+// Ledger reasons (chip_ledger.reason). Since 9 Sep 2026 a hand writes one row
+// per player per CHECKPOINT — hand_packed at a pack, hand_left on a leave or
+// switch, hand_win / hand_loss when the hand ends — and nothing at the deal
+// or per bet (see the Ledger doc). `boot`, `bet` and `show` are retired: they
+// are still in the vocabulary because rows written before that date carry
+// them and the money audit must still read. The last three are written by
+// tooling only and listed so the vocabulary is complete (CLAUDE.md §7.3).
 const (
-	LedgerReasonWelcomeBonus         = "welcome_bonus"
+	LedgerReasonWelcomeBonus = "welcome_bonus"
+	LedgerReasonHandWin      = "hand_win"
+	LedgerReasonHandLoss     = "hand_loss"
+	// Retired 9 Sep 2026; historical rows only.
 	LedgerReasonBoot                 = "boot"
 	LedgerReasonBet                  = "bet"
 	LedgerReasonShow                 = "show"
-	LedgerReasonHandWin              = "hand_win"
-	LedgerReasonHandLoss             = "hand_loss"
 	LedgerReasonMilestoneReward      = "milestone_reward"
 	LedgerReasonTimedBonus           = "timed_bonus"
 	LedgerReasonLegacyReconciliation = "legacy_reconciliation"
 	LedgerReasonTestFixture          = "test_fixture"
-)
-
-// Deterministic action ids the ledger uses for its own idempotent rows.
-// BootActionID and SettleActionID MUST produce exactly these strings — the
-// Postgres UNIQUE index on chip_ledger.action_id is what makes a retried
-// hand start or settlement harmless.
-const (
-	bootActionIDFormat   = "%s:boot:%s"   // handId, userId
-	settleActionIDFormat = "%s:settle:%s" // handId, userId
 )
 
 // Chat system sender: RoomChat.AddSystem stamps displayName "Table".
