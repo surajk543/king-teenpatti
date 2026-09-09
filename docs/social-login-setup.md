@@ -100,6 +100,16 @@ list, and a mismatch is rejected as `Wrong recipient`.
 
 ## 2. Facebook
 
+> **The Facebook button is currently hidden** (owner's decision, 10 Sep 2026 —
+> Google first, Facebook later). It is gated on `SocialSignIn.facebookConfigured`
+> in `login_screen.dart`, so building with `--dart-define=FACEBOOK_APP_ID=…`
+> brings it back and nothing else needs editing.
+>
+> Google is deliberately **not** gated the same way: it has shipped, so a
+> forgotten build flag must produce a visible message rather than a silently
+> missing sign-in option. Facebook has never shipped, so an offer that cannot
+> be honoured is only a dead end. That asymmetry is intentional.
+
 At developers.facebook.com, create an app and add the **Facebook Login**
 product for Android.
 

@@ -139,12 +139,12 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                       ),
                       const SizedBox(height: Space.md),
-                      // All three doors are always on screen. A build that
-                      // shipped without a provider's credentials says so when
-                      // the button is tapped (SignInUnavailable) rather than
-                      // hiding it, because a player who signed in with Google
-                      // last week and finds only Guest today has no way to
-                      // tell a missing build flag from a lost account.
+                      // Google is always on screen, even in a build that
+                      // carries no client id — it says so when tapped
+                      // (SignInUnavailable) instead of vanishing. A player who
+                      // signed in with Google last week and finds only Guest
+                      // today cannot tell a forgotten build flag from a lost
+                      // account, and that is the worse failure.
                       _ProviderButton(
                         icon: Icons.g_mobiledata_rounded,
                         label: t.continueGoogle,
@@ -154,16 +154,26 @@ class _LoginScreenState extends State<LoginScreen> {
                           SocialSignIn.google,
                         ),
                       ),
-                      const SizedBox(height: Space.sm),
-                      _ProviderButton(
-                        icon: Icons.facebook,
-                        label: t.continueFacebook,
-                        busy: state.busy,
-                        onPressed: () => state.loginWithProvider(
-                          'facebook',
-                          SocialSignIn.facebook,
+                      // Facebook is hidden until the build carries an app id,
+                      // because it has never shipped: no player can be holding
+                      // a Facebook account with us, so an offer we cannot
+                      // honour is only a dead end. Pass
+                      // --dart-define=FACEBOOK_APP_ID=… and it returns with no
+                      // other change. The asymmetry with Google above is the
+                      // point — a door that was open must not close silently,
+                      // a door that never opened should not be drawn.
+                      if (SocialSignIn.facebookConfigured) ...[
+                        const SizedBox(height: Space.sm),
+                        _ProviderButton(
+                          icon: Icons.facebook,
+                          label: t.continueFacebook,
+                          busy: state.busy,
+                          onPressed: () => state.loginWithProvider(
+                            'facebook',
+                            SocialSignIn.facebook,
+                          ),
                         ),
-                      ),
+                      ],
                       if (state.loginError != null) ...[
                         const SizedBox(height: Space.md),
                         Text(
