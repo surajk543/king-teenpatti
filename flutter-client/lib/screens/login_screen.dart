@@ -2,7 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:provider/provider.dart';
 
+import '../net/social_sign_in.dart';
 import '../state/game_state.dart';
+import '../theme/app_theme.dart';
+import '../widgets/premium_surface.dart';
+import '../widgets/table_ground.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -25,71 +29,87 @@ class _LoginScreenState extends State<LoginScreen> {
     final state = context.watch<GameState>();
     final t = state.t;
     final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final width = MediaQuery.sizeOf(context).width;
 
     return Scaffold(
-      body: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(vertical: 16),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 620),
-              child: Card(
-                margin: const EdgeInsets.symmetric(horizontal: 24),
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(32, 28, 32, 24),
+      body: LobbyGround(
+        child: SafeArea(
+          child: Center(
+            // The card is content-sized and scrolls: at the 1.25 text-scale
+            // ceiling with an error line showing it stands at ~316dp of the
+            // 360 a TP_Small has, and a keyboard takes more than that.
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(vertical: Space.lg),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(maxWidth: Dim.dialogW(width)),
+                child: PremiumGlassPanel(
+                  // The only surface on the screen, over a static ground:
+                  // the one case where a real blur costs nothing to keep.
+                  mode: GlassMode.auto,
+                  radius: Radii.lg,
+                  padding: const EdgeInsets.all(Space.xl),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Row(
                         children: [
+                          // The game's mark beside its name — the same
+                          // artwork as the launcher icon and the splash.
+                          SvgPicture.asset(
+                            'assets/app_icon.svg',
+                            width: 40,
+                            height: 40,
+                            semanticsLabel: 'King Teen Patti icon',
+                          ),
+                          const SizedBox(width: Space.md),
                           Expanded(
-                            child: Row(
-                              children: [
-                                Flexible(
-                                  child: RichText(
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    text: TextSpan(
-                                      style: theme.textTheme.headlineMedium
-                                          ?.copyWith(fontWeight: FontWeight.w800),
-                                      children: [
-                                        TextSpan(
-                                          text: 'King ',
-                                          style: TextStyle(color: theme.colorScheme.onSurface),
-                                        ),
-                                        TextSpan(
-                                          text: 'Teen Patti',
-                                          style: TextStyle(color: theme.colorScheme.secondary),
-                                        ),
-                                      ],
+                            child: RichText(
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              text: TextSpan(
+                                style: theme.textTheme.headlineSmall,
+                                children: [
+                                  TextSpan(
+                                    text: 'King ',
+                                    style: TextStyle(color: scheme.onSurface),
+                                  ),
+                                  TextSpan(
+                                    text: 'Teen Patti',
+                                    style: TextStyle(
+                                      // The champagne only reads on charcoal;
+                                      // on bone it takes the deep end.
+                                      color: theme.brightness == Brightness.dark
+                                          ? AppTheme.goldBright
+                                          : AppTheme.goldDeep,
                                     ),
                                   ),
-                                ),
-                                const SizedBox(width: 12),
-                                // The game's mark beside its name — the same
-                                // artwork as the launcher icon and the splash.
-                                SvgPicture.asset(
-                                  'assets/app_icon.svg',
-                                  width: 40,
-                                  height: 40,
-                                  semanticsLabel: 'King Teen Patti icon',
-                                ),
-                              ],
+                                ],
+                              ),
                             ),
                           ),
                           IconButton(
-                            tooltip: 'Switch theme',
+                            tooltip: t.switchTheme,
                             onPressed: state.toggleTheme,
-                            icon: Icon(state.themeMode == ThemeMode.dark
-                                ? Icons.light_mode_outlined
-                                : Icons.dark_mode_outlined),
+                            icon: Icon(
+                              state.themeMode == ThemeMode.dark
+                                  ? Icons.light_mode_outlined
+                                  : Icons.dark_mode_outlined,
+                            ),
                           ),
                         ],
                       ),
-                      const SizedBox(height: 4),
-                      Text(t.signInSubtitle, style: theme.textTheme.bodyLarge),
-                      const SizedBox(height: 20),
+                      const SizedBox(height: Space.sm),
+                      Text(
+                        t.signInSubtitle,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: scheme.onSurface.withValues(
+                            alpha: AppTheme.inkMed,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: Space.xl),
                       TextField(
                         controller: _name,
                         maxLength: 24,
@@ -101,58 +121,70 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                         onSubmitted: (_) => _signIn(context),
                       ),
-                      const SizedBox(height: 14),
+                      const SizedBox(height: Space.lg),
                       FilledButton.icon(
                         onPressed: state.busy ? null : () => _signIn(context),
                         icon: state.busy
                             ? const SizedBox(
                                 width: 18,
                                 height: 18,
-                                child: CircularProgressIndicator(strokeWidth: 2))
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
                             : const Icon(Icons.sports_esports_outlined),
                         label: Text(state.busy ? t.signingIn : t.playAsGuest),
                         style: FilledButton.styleFrom(
                           minimumSize: const Size.fromHeight(52),
                         ),
                       ),
-                      const SizedBox(height: 10),
-                      // Google and Facebook are wired on the server; the native
-                      // sign-in SDKs are not bundled in this build yet.
-                      FilledButton.tonalIcon(
-                        onPressed: null,
-                        icon: const Icon(Icons.g_mobiledata),
-                        label: Text(t.continueGoogle),
-                        style: FilledButton.styleFrom(
-                          minimumSize: const Size.fromHeight(48),
+                      const SizedBox(height: Space.md),
+                      // All three doors are always on screen. A build that
+                      // shipped without a provider's credentials says so when
+                      // the button is tapped (SignInUnavailable) rather than
+                      // hiding it, because a player who signed in with Google
+                      // last week and finds only Guest today has no way to
+                      // tell a missing build flag from a lost account.
+                      _ProviderButton(
+                        icon: Icons.g_mobiledata_rounded,
+                        label: t.continueGoogle,
+                        busy: state.busy,
+                        onPressed: () => state.loginWithProvider(
+                          'google',
+                          SocialSignIn.google,
                         ),
                       ),
-                      const SizedBox(height: 8),
-                      FilledButton.tonalIcon(
-                        onPressed: null,
-                        icon: const Icon(Icons.facebook_outlined),
-                        label: Text(t.continueFacebook),
-                        style: FilledButton.styleFrom(
-                          minimumSize: const Size.fromHeight(48),
+                      const SizedBox(height: Space.sm),
+                      _ProviderButton(
+                        icon: Icons.facebook,
+                        label: t.continueFacebook,
+                        busy: state.busy,
+                        onPressed: () => state.loginWithProvider(
+                          'facebook',
+                          SocialSignIn.facebook,
                         ),
                       ),
                       if (state.loginError != null) ...[
-                        const SizedBox(height: 10),
+                        const SizedBox(height: Space.md),
                         Text(
                           state.loginError!,
-                          style: theme.textTheme.bodyMedium
-                              ?.copyWith(color: theme.colorScheme.error),
+                          textAlign: TextAlign.center,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: scheme.error,
+                          ),
                         ),
                       ],
-                      const SizedBox(height: 14),
+                      const SizedBox(height: Space.lg),
                       // Which build this is, for anyone reporting what they saw.
                       Text(
                         state.appVersion.isEmpty
                             ? t.appVersion
                             : '${t.appVersion} ${state.appVersion}',
                         textAlign: TextAlign.right,
-                        style: theme.textTheme.labelSmall?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
-                          letterSpacing: 0.3,
+                        style: AppTheme.money(
+                          theme.textTheme.labelSmall ?? const TextStyle(),
+                          weight: FontWeight.w500,
+                          colour: scheme.onSurface.withValues(alpha: 0.40),
                         ),
                       ),
                     ],
@@ -168,4 +200,31 @@ class _LoginScreenState extends State<LoginScreen> {
 
   void _signIn(BuildContext context) =>
       context.read<GameState>().loginAsGuest(_name.text);
+}
+
+/// One provider button, in the same shape as the guest key above it.
+///
+/// Outlined rather than filled: guest play is the path most people take, and
+/// two more filled buttons would make the screen argue with itself about where
+/// to tap.
+class _ProviderButton extends StatelessWidget {
+  const _ProviderButton({
+    required this.icon,
+    required this.label,
+    required this.busy,
+    required this.onPressed,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool busy;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) => OutlinedButton.icon(
+    onPressed: busy ? null : onPressed,
+    icon: Icon(icon),
+    label: Text(label),
+    style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(48)),
+  );
 }

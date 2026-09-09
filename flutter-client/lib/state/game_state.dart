@@ -12,6 +12,7 @@ import '../net/api_client.dart';
 import '../net/app_update.dart';
 import '../net/game_connection.dart';
 import '../net/purchases.dart';
+import '../net/social_sign_in.dart';
 
 enum Screen { splash, update, login, lobby, table }
 
@@ -23,9 +24,9 @@ enum Screen { splash, update, login, lobby, table }
 /// comes back.
 class GameState extends ChangeNotifier {
   GameState({String? serverUrl})
-      : serverUrl = serverUrl ?? defaultServerUrl,
-        _api = ApiClient(serverUrl ?? defaultServerUrl),
-        _conn = GameConnection(serverUrl ?? defaultServerUrl);
+    : serverUrl = serverUrl ?? defaultServerUrl,
+      _api = ApiClient(serverUrl ?? defaultServerUrl),
+      _conn = GameConnection(serverUrl ?? defaultServerUrl);
 
   /// The production backend. For a local server override with
   /// `--dart-define=SERVER_URL=http://10.0.2.2:3000` (the emulator's alias
@@ -168,7 +169,6 @@ class GameState extends ChangeNotifier {
   bool get sideshowIsForMe =>
       sideshow != null && sideshow!.toUserId == user?.id;
 
-
   String? _token;
   String _deviceId = '';
   Timer? _ticker;
@@ -195,11 +195,17 @@ class GameState extends ChangeNotifier {
     _deviceId = prefs.getString('deviceId') ?? const Uuid().v4();
     await prefs.setString('deviceId', _deviceId);
 
-    themeMode = prefs.getBool('darkMode') == true ? ThemeMode.dark : ThemeMode.light;
-    unawaited(PackageInfo.fromPlatform().then((info) {
-      appVersion = '${info.version} (${info.buildNumber})';
-      notifyListeners();
-    }).catchError((_) {}));
+    themeMode = prefs.getBool('darkMode') == true
+        ? ThemeMode.dark
+        : ThemeMode.light;
+    unawaited(
+      PackageInfo.fromPlatform()
+          .then((info) {
+            appVersion = '${info.version} (${info.buildNumber})';
+            notifyListeners();
+          })
+          .catchError((_) {}),
+    );
     lang = AppLang.fromCode(prefs.getString('lang'));
     numbers = NumberSystem.fromName(prefs.getString('numbers'));
     _publishNumberFormat();
@@ -245,7 +251,10 @@ class GameState extends ChangeNotifier {
     if (screen == Screen.splash) screen = next;
 
     // One second is enough for a countdown that shows seconds.
-    _ticker = Timer.periodic(const Duration(seconds: 1), (_) => notifyListeners());
+    _ticker = Timer.periodic(
+      const Duration(seconds: 1),
+      (_) => notifyListeners(),
+    );
     notifyListeners();
   }
 
@@ -478,7 +487,10 @@ class GameState extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final r = await _api.loginGuest(deviceId: _deviceId, displayName: displayName);
+      final r = await _api.loginGuest(
+        deviceId: _deviceId,
+        displayName: displayName,
+      );
       _token = r.token;
       user = r.user;
 
@@ -486,11 +498,65 @@ class GameState extends ChangeNotifier {
       await prefs.setString('token', r.token);
 
       if (r.isNew && r.welcomeChips > 0) {
-        notice = 'Welcome! ${formatChips(r.welcomeChips)} chips added to your account.';
+        notice =
+            'Welcome! ${formatChips(r.welcomeChips)} chips added to your account.';
       }
 
       _conn.connect(r.token);
       screen = Screen.lobby;
+    } on ApiException catch (e) {
+      loginError = e.message;
+    } catch (e) {
+      loginError = 'Could not reach the server. Is it running?';
+    } finally {
+      busy = false;
+      notifyListeners();
+    }
+  }
+
+  /// Signs in with Google or Facebook.
+  ///
+  /// The provider hands back a credential, the server verifies it and answers
+  /// with the same session guest play gets — so everything after this line is
+  /// identical to [loginAsGuest], deliberately: one session shape means one
+  /// set of behaviour to reason about, whichever door was used.
+  ///
+  /// `credential` is null when the player backed out of the provider's own
+  /// sheet, which is not an error and must not be reported as one.
+  Future<void> loginWithProvider(
+    String provider,
+    Future<String?> Function() credentialOf,
+  ) async {
+    busy = true;
+    loginError = null;
+    notifyListeners();
+
+    try {
+      final credential = await credentialOf();
+      if (credential == null) return;
+
+      final r = await _api.loginProvider(
+        provider: provider,
+        credential: credential,
+      );
+      _token = r.token;
+      user = r.user;
+
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('token', r.token);
+
+      if (r.isNew && r.welcomeChips > 0) {
+        notice =
+            'Welcome! ${formatChips(r.welcomeChips)} chips added to your account.';
+      }
+
+      _conn.connect(r.token);
+      screen = Screen.lobby;
+    } on SignInUnavailable catch (e) {
+      // Not a failure of the network or the server: this build simply has no
+      // credentials for that provider. Saying so keeps the player from
+      // retrying something that cannot start working.
+      loginError = t.signInUnavailable(e.provider);
     } on ApiException catch (e) {
       loginError = e.message;
     } catch (e) {
@@ -803,10 +869,10 @@ class GameState extends ChangeNotifier {
   void answerSideshow(bool accept) => _conn.respondToSideshow(accept);
 
   String _sideshowRefusedLine(String reason) => switch (reason) {
-        'timeout' => t.sideshowTimedOut,
-        'left' => t.sideshowCancelled,
-        _ => t.sideshowDeclined,
-      };
+    'timeout' => t.sideshowTimedOut,
+    'left' => t.sideshowCancelled,
+    _ => t.sideshowDeclined,
+  };
 
   /// After a message goes out, the next one waits this long. Kept on the
   /// client — the server has its own, looser limiter — so the countdown the
@@ -846,8 +912,10 @@ class GameState extends ChangeNotifier {
     final steps = options?.raiseSteps ?? const [];
     if (steps.isEmpty) return;
     final amount = steps[raiseIndex.clamp(0, steps.length - 1)];
-    _conn.act(amount == steps.first ? GameAction.chaal : GameAction.raise,
-        amount: amount);
+    _conn.act(
+      amount == steps.first ? GameAction.chaal : GameAction.raise,
+      amount: amount,
+    );
   }
 
   void stepBet(int direction) {
@@ -911,7 +979,9 @@ class GameState extends ChangeNotifier {
   /// clock is running. Drives the pod filling up.
   double? get turnProgress {
     final t = room?.turn;
-    if (t == null || t.deadline <= 0 || room?.state != TableState.betting) return null;
+    if (t == null || t.deadline <= 0 || room?.state != TableState.betting) {
+      return null;
+    }
 
     final total = (room?.turnTimeoutMs ?? 25000) / 1000.0;
     if (total <= 0) return null;
@@ -937,10 +1007,15 @@ class GameState extends ChangeNotifier {
 
     final seats = room?.seats ?? const [];
     for (final seat in seats) {
-      if (seat.userId == userId) return options[seat.seatIndex % options.length];
+      if (seat.userId == userId) {
+        return options[seat.seatIndex % options.length];
+      }
     }
 
-    final hash = userId.codeUnits.fold<int>(7, (a, c) => (a * 31 + c) & 0x7fffffff);
+    final hash = userId.codeUnits.fold<int>(
+      7,
+      (a, c) => (a * 31 + c) & 0x7fffffff,
+    );
     return options[hash % options.length];
   }
 
@@ -950,7 +1025,8 @@ class GameState extends ChangeNotifier {
     final left = nextHandAt <= 0
         ? _celebrationFor
         : Duration(
-            milliseconds: nextHandAt - DateTime.now().millisecondsSinceEpoch);
+            milliseconds: nextHandAt - DateTime.now().millisecondsSinceEpoch,
+          );
 
     _celebrationTimer?.cancel();
     _celebrationTimer = Timer(left.isNegative ? Duration.zero : left, () {
@@ -1006,9 +1082,9 @@ enum NumberSystem {
   international;
 
   static NumberSystem fromName(String? name) => NumberSystem.values.firstWhere(
-        (system) => system.name == name,
-        orElse: () => NumberSystem.indian,
-      );
+    (system) => system.name == name,
+    orElse: () => NumberSystem.indian,
+  );
 }
 
 /// The system money is written in, and the words for its units.
@@ -1019,8 +1095,12 @@ enum NumberSystem {
 /// or the language changes and republishes, so everything showing money
 /// rebuilds with the rest of the UI.
 NumberSystem chipNumberSystem = NumberSystem.indian;
-({String lakh, String crore, String million, String billion}) chipUnits =
-    (lakh: 'Lakh', crore: 'Crore', million: 'Million', billion: 'Billion');
+({String lakh, String crore, String million, String billion}) chipUnits = (
+  lakh: 'Lakh',
+  crore: 'Crore',
+  million: 'Million',
+  billion: 'Billion',
+);
 
 /// Where abbreviating starts. Below this a figure is short enough to read
 /// digit by digit, and rounding it would only lose information.
@@ -1045,15 +1125,17 @@ String formatChips(int n) {
 /// The largest unit that fits, or null when the figure is better left in
 /// digits — which in the international system is anything under a million.
 (int, String)? _unitFor(int magnitude) => switch (chipNumberSystem) {
-      NumberSystem.indian => magnitude >= 10000000
-          ? (10000000, chipUnits.crore)
-          : (100000, chipUnits.lakh),
-      NumberSystem.international => magnitude >= 1000000000
-          ? (1000000000, chipUnits.billion)
-          : magnitude >= 1000000
-              ? (1000000, chipUnits.million)
-              : null,
-    };
+  NumberSystem.indian =>
+    magnitude >= 10000000
+        ? (10000000, chipUnits.crore)
+        : (100000, chipUnits.lakh),
+  NumberSystem.international =>
+    magnitude >= 1000000000
+        ? (1000000000, chipUnits.billion)
+        : magnitude >= 1000000
+        ? (1000000, chipUnits.million)
+        : null,
+};
 
 /// Two decimals at most, and none of the trailing zeros that come with them:
 /// 3.24 Lakh, 12 Lakh, 32.77 Crore. Two is what a player can take in at a

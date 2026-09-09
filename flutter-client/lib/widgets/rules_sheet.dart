@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../state/game_state.dart';
+import '../theme/app_theme.dart';
+import 'glass_panels.dart';
 import 'playing_card.dart';
 
 /// The hand rankings, shown over whatever the player was looking at.
@@ -37,6 +39,14 @@ class _RulesSheet extends StatelessWidget {
     final t = context.watch<GameState>().t;
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
+    // Champagne on charcoal, its deep end on bone: goldBright on a light
+    // panel is not a colour, it is a smudge.
+    final champagne = theme.brightness == Brightness.dark
+        ? AppTheme.goldBright
+        : AppTheme.goldDeep;
+    // The example hands are the one thing here that must scale: 41.4dp at
+    // h=360, 47.3 at h=411, 66 (the ceiling) at h=800.
+    final cardH = Dim.ruleCardH(MediaQuery.sizeOf(context).height);
 
     final labels = {
       'trail': (t.rankTrail, t.rankTrailNote),
@@ -47,81 +57,83 @@ class _RulesSheet extends StatelessWidget {
       'high': (t.rankHigh, t.rankHighNote),
     };
 
-    return Dialog(
-      backgroundColor: Colors.transparent,
-      insetPadding: const EdgeInsets.symmetric(horizontal: 28, vertical: 14),
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          // Translucent, so the game reads through it.
-          color: scheme.surface.withValues(alpha: 0.86),
-          borderRadius: BorderRadius.circular(26),
-          border: Border.all(color: scheme.primary.withValues(alpha: 0.45), width: 1.5),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 14, 20, 14),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
+    return GlassDialog(
+      padding: const EdgeInsets.all(Space.lg),
+      title: Row(
+        children: [
+          Icon(Icons.menu_book_outlined, size: 20, color: champagne),
+          const SizedBox(width: Space.md),
+          Expanded(
+            child: Text(
+              t.rulesTitle,
+              style: AppTheme.label(
+                theme.textTheme.titleMedium ?? const TextStyle(),
+              ),
+            ),
+          ),
+          IconButton(
+            tooltip: t.close,
+            icon: const Icon(Icons.close_rounded, size: 20),
+            onPressed: () => Navigator.pop(context),
+            style: IconButton.styleFrom(
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              minimumSize: const Size.square(Dim.minTouch),
+            ),
+          ),
+        ],
+      ),
+      content: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            t.rulesBeats,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: scheme.onSurface.withValues(alpha: AppTheme.inkLow),
+            ),
+          ),
+          const SizedBox(height: Space.md),
+          for (var i = 0; i < _examples.length; i++)
+            _Row(
+              place: i + 1,
+              name: labels[_examples[i].$1]!.$1,
+              note: labels[_examples[i].$1]!.$2,
+              cards: _examples[i].$2,
+              cardHeight: cardH,
+              numeral: champagne,
+              // A rule under every rank but the last: the list is ordered, and
+              // the numerals already say which way.
+              ruled: i < _examples.length - 1,
+            ),
+          const SizedBox(height: Space.md),
+          DecoratedBox(
+            decoration: BoxDecoration(
+              color: scheme.surfaceContainerHighest.withValues(alpha: 0.45),
+              borderRadius: BorderRadius.circular(Radii.sm),
+              border: Border.all(color: AppTheme.hairlineColour(theme.brightness)),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(Space.md),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Icon(Icons.menu_book_outlined, color: scheme.primary),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      t.rulesTitle,
-                      style: theme.textTheme.titleLarge
-                          ?.copyWith(fontWeight: FontWeight.w800),
+                  Text(
+                    t.runOrder,
+                    style: AppTheme.label(
+                      theme.textTheme.labelLarge ?? const TextStyle(),
                     ),
                   ),
-                  IconButton(
-                    visualDensity: VisualDensity.compact,
-                    icon: const Icon(Icons.close),
-                    onPressed: () => Navigator.pop(context),
+                  const SizedBox(height: Space.xxs),
+                  Text(
+                    t.runOrderNote,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: scheme.onSurface.withValues(alpha: AppTheme.inkMed),
+                    ),
                   ),
                 ],
               ),
-              Text(t.rulesBeats, style: theme.textTheme.bodySmall),
-              const SizedBox(height: 10),
-              Flexible(
-                child: SingleChildScrollView(
-                  child: Column(
-                    children: [
-                      for (var i = 0; i < _examples.length; i++)
-                        _Row(
-                          place: i + 1,
-                          name: labels[_examples[i].$1]!.$1,
-                          note: labels[_examples[i].$1]!.$2,
-                          cards: _examples[i].$2,
-                          // Each rank beats every one below it, which the
-                          // arrow between rows says without words.
-                          showArrow: i < _examples.length - 1,
-                        ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 8),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: scheme.secondaryContainer.withValues(alpha: 0.6),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(t.runOrder,
-                        style: theme.textTheme.labelLarge
-                            ?.copyWith(fontWeight: FontWeight.w800)),
-                    Text(t.runOrderNote, style: theme.textTheme.bodySmall),
-                  ],
-                ),
-              ),
-            ],
+            ),
           ),
-        ),
+        ],
       ),
     );
   }
@@ -133,14 +145,20 @@ class _Row extends StatelessWidget {
     required this.name,
     required this.note,
     required this.cards,
-    required this.showArrow,
+    required this.cardHeight,
+    required this.numeral,
+    required this.ruled,
   });
 
   final int place;
   final String name;
   final String note;
   final List<String> cards;
-  final bool showArrow;
+  final double cardHeight;
+
+  /// The champagne the sheet settled on for this brightness.
+  final Color numeral;
+  final bool ruled;
 
   @override
   Widget build(BuildContext context) {
@@ -149,42 +167,63 @@ class _Row extends StatelessWidget {
 
     return Column(
       children: [
-        Row(
-          children: [
-            CircleAvatar(
-              radius: 12,
-              backgroundColor: scheme.primaryContainer,
-              child: Text(
-                '$place',
-                style: theme.textTheme.labelSmall?.copyWith(
-                  color: scheme.onPrimaryContainer,
-                  fontWeight: FontWeight.w800,
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: Space.sm),
+          child: Row(
+            children: [
+              SizedBox(
+                // A ranking gutter, not a badge: the numerals line up on their
+                // right edge and the rows read as one column of places.
+                width: 22,
+                child: Text(
+                  '$place',
+                  textAlign: TextAlign.right,
+                  style: AppTheme.money(
+                    theme.textTheme.titleMedium ?? const TextStyle(),
+                    colour: numeral.withValues(alpha: 0.75),
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(width: 10),
-            SizedBox(
-              width: 168,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(name,
-                      style: theme.textTheme.titleSmall
-                          ?.copyWith(fontWeight: FontWeight.w800)),
-                  Text(note,
+              const SizedBox(width: Space.md),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      name,
+                      style: AppTheme.label(
+                        theme.textTheme.titleSmall ?? const TextStyle(),
+                      ),
+                    ),
+                    Text(
+                      note,
                       maxLines: 2,
-                      style: theme.textTheme.bodySmall
-                          ?.copyWith(color: scheme.onSurfaceVariant)),
-                ],
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color:
+                            scheme.onSurface.withValues(alpha: AppTheme.inkLow),
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
-            const Spacer(),
-            for (final c in cards) PlayingCard(height: 46, code: c),
-          ],
+              const SizedBox(width: Space.md),
+              // A hair of air between the cards so each keeps its own shadow;
+              // PlayingCard now casts outside its box.
+              for (final c in cards)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: Space.xxs),
+                  child: PlayingCard(height: cardHeight, code: c),
+                ),
+            ],
+          ),
         ),
-        if (showArrow)
-          Icon(Icons.keyboard_arrow_down,
-              size: 16, color: scheme.onSurfaceVariant.withValues(alpha: 0.6)),
+        if (ruled)
+          Divider(
+            height: 1,
+            thickness: Dim.hairline,
+            color: AppTheme.ink400.withValues(alpha: 0.25),
+          ),
       ],
     );
   }

@@ -71,6 +71,44 @@ class ApiClient {
     );
   }
 
+  /// Signs in with a token from Google or Facebook.
+  ///
+  /// The SAME endpoint and the same response as guest play — the server takes
+  /// `provider` plus one credential and answers with a session either way, so
+  /// nothing downstream of this needs to know which door the player came in
+  /// by. Google sends the OpenID `idToken`, Facebook the `accessToken`; the
+  /// server verifies it with the provider before minting anything.
+  ///
+  /// The server answers 503 `provider_unconfigured` when it has no credentials
+  /// for that provider, which is a deployment state rather than a user error —
+  /// the caller shows it as one.
+  Future<({String token, User user, bool isNew, int welcomeChips})> loginProvider({
+    required String provider,
+    required String credential,
+    String? displayName,
+  }) async {
+    final r = await http.post(
+      _uri('/api/auth/login'),
+      headers: _headers(),
+      body: jsonEncode({
+        'provider': provider,
+        // The key differs per provider; the server reads whichever it needs.
+        if (provider == 'google') 'idToken': credential,
+        if (provider == 'facebook') 'accessToken': credential,
+        if (displayName != null && displayName.trim().isNotEmpty)
+          'displayName': displayName.trim(),
+      }),
+    );
+
+    final j = _decode(r);
+    return (
+      token: '${j['token']}',
+      user: User.fromJson(Map<String, dynamic>.from(j['user'] as Map)),
+      isNew: j['isNew'] == true,
+      welcomeChips: (j['welcomeChips'] as num?)?.toInt() ?? 0,
+    );
+  }
+
   /// Re-reads the account, so chips, stats and reward timers stay current.
   Future<User> me(String token) async {
     final r = await http.get(_uri('/api/auth/me'), headers: _headers(token));

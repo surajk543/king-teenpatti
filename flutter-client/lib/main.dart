@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -11,9 +12,12 @@ import 'screens/update_screen.dart';
 import 'screens/lobby_screen.dart';
 import 'screens/table_screen.dart';
 import 'models/dtos.dart';
+import 'settings/feedback_settings.dart';
 import 'state/game_state.dart';
 import 'theme/app_theme.dart';
+import 'widgets/glass_panels.dart';
 import 'widgets/poker_chip.dart';
+import 'widgets/premium_surface.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -27,13 +31,23 @@ Future<void> main() async {
   await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
 
   final state = GameState();
+  // Separate from GameState on purpose: two booleans that no seat, card or
+  // chip should rebuild for. Loaded behind the splash like everything else.
+  final feedback = FeedbackSettings();
 
   // The first frame is the splash; the session check, connection and resume
   // all happen behind it and move the app on when they are done.
   runApp(
-    ChangeNotifierProvider<GameState>.value(value: state, child: const KingTeenPattiApp()),
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider<GameState>.value(value: state),
+        ChangeNotifierProvider<FeedbackSettings>.value(value: feedback),
+      ],
+      child: const KingTeenPattiApp(),
+    ),
   );
   unawaited(state.start());
+  unawaited(feedback.load());
 }
 
 class KingTeenPattiApp extends StatelessWidget {
@@ -42,18 +56,37 @@ class KingTeenPattiApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final mode = context.select<GameState, ThemeMode>((s) => s.themeMode);
+    final sound = context.select<FeedbackSettings, bool>((f) => f.sound);
 
     return MaterialApp(
       title: 'King Teen Patti',
       debugShowCheckedModeBanner: false,
-      theme: AppTheme.light(),
-      darkTheme: AppTheme.dark(),
+      // Rebuilt when the Sound switch moves, which is what carries the
+      // setting into Material's own per-button click.
+      theme: AppTheme.light(sound: sound),
+      darkTheme: AppTheme.dark(sound: sound),
       themeMode: mode,
       locale: context.select<GameState, AppLang>((s) => s.lang).locale,
       // The whole app crosses between palettes rather than snapping, which is
       // what makes the toggle feel like one movement.
       themeAnimationDuration: const Duration(milliseconds: 420),
       themeAnimationCurve: Curves.easeOutCubic,
+      // Both of these belong above the root Navigator and the root
+      // ScaffoldMessenger, not around `home`: dialogs, the picture sheet, the
+      // chip store and every snack bar are built from those, so a wrapper
+      // around `home` would miss precisely the surfaces with the least room to
+      // give — the store shelf, the rules cards, the toast.
+      builder: (context, child) => MediaQuery.withClampedTextScaling(
+        // The app is landscape, dense and full of fixed instrument heights.
+        // The OS scale reaches 2.0 on Android, which no panel here survives;
+        // 1.25 is as far as the type can grow before a card stops fitting.
+        minScaleFactor: 0.9,
+        maxScaleFactor: 1.25,
+        // One blur, app-wide. Whichever panel asks with the highest priority
+        // gets it and every other GlassMode.auto surface renders tinted, so
+        // opening a dialog over a drawer never stacks two filters.
+        child: GlassBudget(child: child ?? const SizedBox.shrink()),
+      ),
       home: const _Root(),
     );
   }
@@ -76,13 +109,16 @@ class _Root extends StatelessWidget {
         children: [
           _BackGuard(
             screen: screen,
-            child: switch (screen) {
-              Screen.splash => const SplashScreen(),
-              Screen.update => const UpdateScreen(),
-              Screen.login => const LoginScreen(),
-              Screen.lobby => const LobbyScreen(),
-              Screen.table => const TableScreen(),
-            },
+            child: _ScreenFade(
+              screen: screen,
+              child: switch (screen) {
+                Screen.splash => const SplashScreen(),
+                Screen.update => const UpdateScreen(),
+                Screen.login => const LoginScreen(),
+                Screen.lobby => const LobbyScreen(),
+                Screen.table => const TableScreen(),
+              },
+            ),
           ),
           // On a cold start with a saved session the lobby is ready before the
           // server has said whether the player still has a table. Holding a
@@ -104,6 +140,74 @@ class _Root extends StatelessWidget {
   }
 }
 
+/// Every screen resolves out of the room's own charcoal instead of appearing
+/// in one frame.
+///
+/// It is a veil clearing over the incoming screen rather than a cross-fade,
+/// because a cross-fade keeps both screens mounted for its duration and both
+/// hold a `GlobalKey<ScaffoldState>` off [GameState]: two live table screens
+/// inside one 300 ms window is a duplicate-key crash, and a stale lobby
+/// scaffold would answer [_BackGuard]'s drawer question. One screen is ever
+/// built. The veil is the ground colour, so the lobby never flashes a bright
+/// frame on the way to the table.
+class _ScreenFade extends StatefulWidget {
+  const _ScreenFade({required this.screen, required this.child});
+
+  final Screen screen;
+  final Widget child;
+
+  @override
+  State<_ScreenFade> createState() => _ScreenFadeState();
+}
+
+class _ScreenFadeState extends State<_ScreenFade>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: Motion.slow,
+    // Settled: the first screen is already here and has nothing to clear.
+    value: 1,
+  );
+  late final CurvedAnimation _curve =
+      CurvedAnimation(parent: _c, curve: Motion.emphasized);
+  late final Animation<double> _veil = ReverseAnimation(_curve);
+
+  @override
+  void didUpdateWidget(covariant _ScreenFade oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.screen != widget.screen) _c.forward(from: 0);
+  }
+
+  @override
+  void dispose() {
+    _curve.dispose();
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        widget.child,
+        IgnorePointer(
+          // The veil is a full-screen layer animating for 300 ms over a screen
+          // that is already busy building itself.
+          child: RepaintBoundary(
+            child: FadeTransition(
+              opacity: _veil,
+              child: ColoredBox(
+                color: AppTheme.ground(Theme.of(context).brightness),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 /// "Returning to your table…": what covers the lobby while the server works
 /// out where a reopened app belongs.
 class _ResumeVeil extends StatelessWidget {
@@ -115,30 +219,45 @@ class _ResumeVeil extends StatelessWidget {
     final lang = context.select<GameState, AppLang>((s) => s.lang);
     final t = Strings(lang);
 
-    return Material(
-      color: theme.colorScheme.surface,
-      child: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            SpinningChip(
-              colour: theme.colorScheme.primary,
-              size: 60,
-              turn: const Duration(milliseconds: 900),
-              rest: const Duration(milliseconds: 300),
-            ),
-            const SizedBox(height: 20),
-            Text(
-              t.resumingTable,
-              textAlign: TextAlign.center,
-              style: theme.textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w700,
-                color: theme.colorScheme.onSurface,
-              ),
-            ),
-          ],
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        // The one blur outside a modal. It is affordable because it is on
+        // screen for under two seconds, nothing behind it can be touched, and
+        // it is doing real work: the lobby the player is not going back to
+        // goes out of focus while the table resolves.
+        BackdropFilter(
+          filter: ui.ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+          child: ColoredBox(
+            color: AppTheme.ground(theme.brightness).withValues(alpha: 0.72),
+          ),
         ),
-      ),
+        Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SpinningChip(
+                colour: AppTheme.gold,
+                size: 56,
+                turn: const Duration(milliseconds: 900),
+                rest: const Duration(milliseconds: 300),
+              ),
+              const SizedBox(height: Space.xl),
+              Text(
+                t.resumingTable,
+                textAlign: TextAlign.center,
+                // label, not smallCaps: this line is translated, and tracked
+                // capitals do nothing to Devanagari but stretch it.
+                style: AppTheme.label(
+                  theme.textTheme.titleSmall ?? const TextStyle(),
+                  colour: theme.colorScheme.onSurface
+                      .withValues(alpha: AppTheme.inkMed),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
@@ -219,12 +338,33 @@ class _BackGuard extends StatelessWidget {
     required String confirm,
     required String cancel,
   }) {
+    final theme = Theme.of(context);
+
     return showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        icon: Icon(icon),
-        title: Text(title),
-        content: Text(body),
+      builder: (context) => GlassDialog(
+        padding: const EdgeInsets.all(Space.xl),
+        title: Row(
+          children: [
+            Icon(icon, size: 20, color: theme.colorScheme.primary),
+            const SizedBox(width: Space.md),
+            Expanded(
+              child: Text(
+                title,
+                style: AppTheme.label(
+                  theme.textTheme.titleMedium ?? const TextStyle(),
+                ),
+              ),
+            ),
+          ],
+        ),
+        content: Text(
+          body,
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: theme.colorScheme.onSurface
+                .withValues(alpha: AppTheme.inkMed),
+          ),
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -262,11 +402,10 @@ class _NoticeHostState extends State<_NoticeHost> {
         if (!mounted) return;
         ScaffoldMessenger.of(context)
           ..clearSnackBars()
-          ..showSnackBar(SnackBar(
-            content: Text(notice),
-            behavior: SnackBarBehavior.floating,
-            width: 420,
-          ));
+          // Tone stays neutral: `notice` is one string with no severity beside
+          // it, and colouring a refusal red by guessing at its wording would
+          // be wrong in five languages.
+          ..showSnackBar(NoticeToast.snackBar(context, message: _readable(context, notice)));
         context.read<GameState>().clearNotice();
         _shown = null;
       });
@@ -274,4 +413,39 @@ class _NoticeHostState extends State<_NoticeHost> {
 
     return widget.child;
   }
+}
+
+
+/// Turns anything machine-shaped into one sentence a player can act on.
+///
+/// Notices come from a lot of places, and some of them carry whatever the
+/// platform threw — a WebSocketException still holding the socket.io URL, its
+/// port and its query string was reaching the toast verbatim. That tells a
+/// player nothing they can use and tells everyone else more about the backend
+/// than they need to know.
+///
+/// Written as a filter at the point of DISPLAY rather than as a fix to the one
+/// string that leaked, so the next exception to find its way into a notice is
+/// caught too. Anything that reads as a message for a person is passed through
+/// untouched: refusals from the server ("This table is full") are the ones
+/// worth showing, and they are the majority.
+String _readable(BuildContext context, String notice) {
+  const machine = [
+    'Exception',
+    'Error:',
+    'socket.io',
+    'http://',
+    'https://',
+    'EIO=',
+    'errno',
+    'SocketException',
+    'HandshakeException',
+    'Failed host lookup',
+    // Not machine text, but the same news by another route: the server could
+    // not be reached. One sentence for one condition, however it arrived.
+    'Could not reach',
+  ];
+  final leaks = machine.any(notice.contains);
+  if (!leaks) return notice;
+  return context.read<GameState>().t.serviceUnavailable;
 }
