@@ -951,9 +951,26 @@ func (rm *RoomManager) SwitchTable(user Player) (SwitchResult, error) {
 
 	// "moved" rather than "left", so the departure does not trigger a merge
 	// of the table being left while the player is between seats.
-	if _, err := rm.vacate(user.ID, LeaveReasonMoved); err != nil {
+	//
+	// The seat comes back because the player has to be re-seated with what
+	// they ACTUALLY hold. `user.Chips` was read from the wallet before this
+	// line, and leaving mid-hand is a checkpoint: it has just written the
+	// hand's losses through to PostgreSQL, so that figure is now stale by
+	// exactly what they had staked. Re-seating on it handed the stake back at
+	// the new table — the ledger was right and the seat was wrong, and the
+	// gap then became the base for every later checkpoint, so it compounded
+	// with each switch until a delta outran the wallet.
+	_, vacated, err := rm.vacateSeat(user.ID, LeaveReasonMoved)
+	if err != nil {
 		rm.releaseHold(target.ID())
 		return SwitchResult{From: current}, err
+	}
+	// The seat is the authority the moment it is given up: whatever it held is
+	// what the checkpoint has just banked. Only fall back to the wallet read
+	// if there was no seat to take chips from, which means nothing was staked.
+	moving := user
+	if vacated != nil {
+		moving.Chips = vacated.Chips
 	}
 	if current.IsEmpty() {
 		if err := rm.destroyTable(current.ID(), true); err != nil {
@@ -961,8 +978,8 @@ func (rm *RoomManager) SwitchTable(user Player) (SwitchResult, error) {
 			return SwitchResult{From: current}, err
 		}
 	}
-	if err := rm.seatHeld(target, user, socketID); err != nil {
-		if rerr := rm.seat(current, user, socketID); rerr != nil {
+	if err := rm.seatHeld(target, moving, socketID); err != nil {
+		if rerr := rm.seat(current, moving, socketID); rerr != nil {
 			rm.log.Warn("table switch failed and the seat could not be restored",
 				"userId", user.ID, "roomId", current.ID(), "error", err.Error(), "restoreError", rerr.Error())
 		} else {
@@ -1080,7 +1097,7 @@ func (rm *RoomManager) Leave(userID, reason string) (*Table, error) {
 func (rm *RoomManager) leaveFrom(userID, roomID, reason string) (*Table, error) {
 	ul := rm.userLock(userID)
 	ul.Lock()
-	table, err := rm.vacateFrom(userID, roomID, reason)
+	table, _, err := rm.vacateFrom(userID, roomID, reason)
 	ul.Unlock()
 	if table == nil || err != nil {
 		return table, err
@@ -1105,13 +1122,21 @@ func (rm *RoomManager) leaveFrom(userID, roomID, reason string) (*Table, error) 
 // table destroyed under us (shutdown, sweep) counts as done — nobody is
 // seated there any more, which is all a leave asks for.
 func (rm *RoomManager) vacate(userID, reason string) (*Table, error) {
+	table, _, err := rm.vacateFrom(userID, "", reason)
+	return table, err
+}
+
+// vacateSeat is vacate for the one caller that needs the seat back: a table
+// switch, which has to re-seat the player and must do so with the chips the
+// checkpoint just banked rather than the wallet as it was read beforehand.
+func (rm *RoomManager) vacateSeat(userID, reason string) (*Table, *SeatInfo, error) {
 	return rm.vacateFrom(userID, "", reason)
 }
 
 // vacateFrom is vacate limited to roomID ("" = wherever they are): the index
 // is checked and deleted in one critical section, so the caller's decision
 // and the removal cannot be split by another transition of the same player.
-func (rm *RoomManager) vacateFrom(userID, roomID, reason string) (*Table, error) {
+func (rm *RoomManager) vacateFrom(userID, roomID, reason string) (*Table, *SeatInfo, error) {
 	rm.mu.Lock()
 	table, dropped := rm.seatedTableLocked(userID)
 	if table == nil || (roomID != "" && table.ID() != roomID) {
@@ -1124,7 +1149,7 @@ func (rm *RoomManager) vacateFrom(userID, roomID, reason string) (*Table, error)
 			// their real seat.
 			rm.liveClearSeated(userID)
 		}
-		return nil, nil
+		return nil, nil, nil
 	}
 	// Off the index first: a leave can end a hand, and nothing that happens
 	// while that settles should still find this player at the table.
@@ -1132,10 +1157,11 @@ func (rm *RoomManager) vacateFrom(userID, roomID, reason string) (*Table, error)
 	rm.mu.Unlock()
 	rm.liveClearSeated(userID)
 
-	if _, err := table.RemovePlayer(userID, reason); err != nil && !errors.Is(err, ErrTableDestroyed) {
-		return table, err
+	seat, err := table.RemovePlayer(userID, reason)
+	if err != nil && !errors.Is(err, ErrTableDestroyed) {
+		return table, nil, err
 	}
-	return table, nil
+	return table, seat, nil
 }
 
 // assertUnderEntryCap (_assertUnderEntryCap; requirement 30): the cheapest
