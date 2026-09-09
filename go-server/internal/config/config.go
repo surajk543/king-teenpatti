@@ -145,6 +145,16 @@ type DBConfig struct {
 	// the one ledger write (persist_failed) instead of freezing that table's
 	// actor for good. 0 disables the limit (Node's behaviour). Go-only key.
 	StatementTimeoutMs int
+	// LedgerPurgeInterval is LEDGER_PURGE_INTERVAL_MS (1h): how often
+	// db.PurgeLedger runs. 0 disables the purge job entirely — no rows are
+	// ever removed unless this is set.
+	LedgerPurgeInterval time.Duration
+	// LedgerPurgeAfter is LEDGER_PURGE_AFTER_MS (24h): a purgeable chip_ledger
+	// row (see db.purgeableReasons — checkpoint rows only, never purchase or
+	// reward rows) is deleted once it is older than this. 24h is a wide
+	// margin over RESUME_OFFER_MS (10 min, the longest a reconnecting client
+	// can still legitimately retry a stale action against).
+	LedgerPurgeAfter time.Duration
 }
 
 // LobbyTable is one "category:boot" entry of LOBBY_TABLES, in menu order.
@@ -295,10 +305,12 @@ func Defaults() *Config {
 		Facebook:           FacebookConfig{},
 		AllowFakeProviders: false,
 		DB: DBConfig{
-			URL:                "postgres://postgres:postgres@localhost:5432/gameplay",
-			Schema:             "public",
-			PoolMax:            10,
-			StatementTimeoutMs: 15000,
+			URL:                 "postgres://postgres:postgres@localhost:5432/gameplay",
+			Schema:              "public",
+			PoolMax:             10,
+			StatementTimeoutMs:  15000,
+			LedgerPurgeInterval: time.Hour,
+			LedgerPurgeAfter:    24 * time.Hour,
 		},
 		Game: GameConfig{
 			WelcomeChips: 200000,
@@ -470,6 +482,8 @@ func FromEnv(lookup Lookup) (*Config, error) {
 	c.DB.Schema = r.str("PG_SCHEMA", c.DB.Schema)
 	c.DB.PoolMax = r.integer("PG_POOL_MAX", c.DB.PoolMax)
 	c.DB.StatementTimeoutMs = r.integer("PG_STATEMENT_TIMEOUT_MS", c.DB.StatementTimeoutMs)
+	c.DB.LedgerPurgeInterval = r.millis("LEDGER_PURGE_INTERVAL_MS", c.DB.LedgerPurgeInterval)
+	c.DB.LedgerPurgeAfter = r.millis("LEDGER_PURGE_AFTER_MS", c.DB.LedgerPurgeAfter)
 
 	g := &c.Game
 	g.WelcomeChips = r.int64("WELCOME_CHIPS", g.WelcomeChips)
