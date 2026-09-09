@@ -67,6 +67,10 @@ type App struct {
 	// Shutdown stops it.
 	reconcileStop chan struct{}
 	reconcileDone chan struct{}
+	// ledgerPurgeStop/Done drive the chip_ledger purge job
+	// (LEDGER_PURGE_INTERVAL_MS); Shutdown stops it.
+	ledgerPurgeStop chan struct{}
+	ledgerPurgeDone chan struct{}
 	mux           *http.ServeMux
 	http          *http.Server
 	started       time.Time
@@ -107,6 +111,8 @@ const (
 	healthLiveTimeout = time.Second
 	// reconcileTimeout bounds one reconciler pass.
 	reconcileTimeout = 20 * time.Second
+	// ledgerPurgeTimeout bounds one PurgeLedger pass.
+	ledgerPurgeTimeout = 30 * time.Second
 )
 
 // New wires everything (createServer) and runs the live-state startup
@@ -268,6 +274,7 @@ func New(opts Options) (*App, error) {
 	}
 	a.rooms.StartSweeper()
 	a.startReconciler()
+	a.startLedgerPurge()
 
 	// 7. routes.
 	//
@@ -479,6 +486,56 @@ func (a *App) stopReconciler() {
 	a.reconcileStop = nil
 }
 
+// startLedgerPurge runs db.PurgeLedger every LEDGER_PURGE_INTERVAL_MS,
+// removing chip_ledger checkpoint rows (hand_win/hand_loss/hand_packed/
+// hand_left only — see db.purgeableReasons) once they are older than
+// LEDGER_PURGE_AFTER_MS. purchase/milestone_reward/timed_bonus/welcome_bonus
+// rows are never touched by this job; their UNIQUE action_id is a standing
+// double-credit guard, not a short-lived retry guard, and PurgeLedger's WHERE
+// clause is hardcoded to exclude them regardless of what this loop does.
+//
+// A non-positive interval disables the job entirely — the default keeps
+// every row forever, same as before this existed.
+func (a *App) startLedgerPurge() {
+	interval := a.cfg.DB.LedgerPurgeInterval
+	if interval <= 0 || a.db == nil {
+		return
+	}
+	a.ledgerPurgeStop = make(chan struct{})
+	a.ledgerPurgeDone = make(chan struct{})
+	go func() {
+		defer close(a.ledgerPurgeDone)
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				ctx, cancel := context.WithTimeout(context.Background(), ledgerPurgeTimeout)
+				cutoff := a.clock.Now().Add(-a.cfg.DB.LedgerPurgeAfter).UnixMilli()
+				deleted, err := a.db.PurgeLedger(ctx, cutoff)
+				cancel()
+				if err != nil {
+					a.log.Warn("chip_ledger purge failed", "error", err.Error())
+				} else if deleted > 0 {
+					a.log.Info("chip_ledger purge complete", "rows", deleted)
+				}
+			case <-a.ledgerPurgeStop:
+				return
+			}
+		}
+	}()
+}
+
+// stopLedgerPurge stops the ticker and waits for a pass in flight.
+func (a *App) stopLedgerPurge() {
+	if a.ledgerPurgeStop == nil {
+		return
+	}
+	close(a.ledgerPurgeStop)
+	<-a.ledgerPurgeDone
+	a.ledgerPurgeStop = nil
+}
+
 // Handler returns the root http.Handler (for httptest in integration tests).
 func (a *App) Handler() http.Handler {
 	return a.handler
@@ -584,6 +641,7 @@ func (a *App) Shutdown(ctx context.Context) error {
 	// (when it is ours) — nothing above touches it any more.
 	a.sockets.Close()
 	a.stopReconciler()
+	a.stopLedgerPurge()
 	var liveErr error
 	if a.ownsLive {
 		liveErr = a.live.Close()

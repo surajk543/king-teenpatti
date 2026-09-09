@@ -72,10 +72,31 @@ CREATE TABLE IF NOT EXISTS chip_ledger (
 
 CREATE INDEX IF NOT EXISTS idx_ledger_hand ON chip_ledger (hand_id);
 
+-- Backs db.PurgeLedger's WHERE (reason IN (...) AND created_at < cutoff).
+-- Partial and narrow on purpose, after idx_ledger_user's lesson two sections
+-- down: it covers only the four checkpoint reasons the purge job ever
+-- touches, so 'purchase' / 'milestone_reward' / 'timed_bonus' /
+-- 'welcome_bonus' rows never dirty this index on insert.
+CREATE INDEX IF NOT EXISTS idx_ledger_purge ON chip_ledger (created_at)
+  WHERE reason IN ('hand_win', 'hand_loss', 'hand_packed', 'hand_left');
+
 -- The ledger is append-only. An UPDATE or DELETE is a bug or an intrusion,
--- and either way the database refuses it.
+-- and either way the database refuses it — with ONE deliberate exception: a
+-- DELETE inside a transaction that has SET LOCAL app.ledger_purge = 'on' is
+-- let through. That GUC is set only by db.PurgeLedger (internal/db/ledger.go)
+-- for its own transaction, is session-local (never persists, never leaks to
+-- another connection the pool hands out), and PurgeLedger's WHERE clause is
+-- hardcoded to reason IN ('hand_win','hand_loss','hand_packed','hand_left')
+-- AND created_at older than the configured window — never 'purchase',
+-- 'milestone_reward', 'timed_bonus' or 'welcome_bonus', whose UNIQUE
+-- action_id is a standing fraud/double-credit guard, not a short-lived retry
+-- guard, and must not be purged on this clock. UPDATE stays refused
+-- unconditionally, always, from every caller.
 CREATE OR REPLACE FUNCTION chip_ledger_immutable() RETURNS trigger AS $$
 BEGIN
+  IF TG_OP = 'DELETE' AND current_setting('app.ledger_purge', true) = 'on' THEN
+    RETURN OLD;
+  END IF;
   RAISE EXCEPTION 'chip_ledger is append-only (attempted %)', TG_OP;
 END;
 $$ LANGUAGE plpgsql;
