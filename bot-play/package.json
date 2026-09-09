@@ -1,0 +1,16 @@
+{
+  "name": "king-teenpatti-bot-play",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The resident bot players: a fleet that keeps the lobby's tables populated so a real player always finds a game.",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node src/index.js --per-category 6",
+    "once": "node src/index.js --per-category 2 --quiet"
+  },
+  "dependencies": {
+    "socket.io-client": "^4.8.1"
+  }
+}

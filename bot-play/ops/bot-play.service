@@ -1,0 +1,31 @@
+[Unit]
+Description=King Teen Patti resident bot players
+Documentation=file:///var/www/gameplay/king-teenpatti/bot-play/README.md
+# Wants, not Requires: the fleet waits for the game server by polling /health
+# rather than failing when it is not up yet. A unit that restart-loops on boot
+# order is worse than one that waits quietly.
+After=network-online.target gameplay.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=deploy
+Group=deploy
+WorkingDirectory=/var/www/gameplay/king-teenpatti/bot-play
+ExecStart=/usr/bin/node src/index.js
+Environment=NODE_ENV=production
+# Loopback on purpose: no nginx, no TLS, no edge filter between the fleet and
+# the game it is playing. See README.
+Environment=SERVER_URL=http://127.0.0.1:3000
+Environment=PER_CATEGORY=66
+Restart=always
+RestartSec=15
+# SIGTERM closes every socket so the seats are released, rather than left for
+# the 60-second reconnect grace to expire with nobody coming back.
+KillSignal=SIGTERM
+TimeoutStopSec=25
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
