@@ -113,77 +113,92 @@ left open with no live table is refunded to its contributors (`RefundOrphanedPot
 - `gameplay.service`: `After=redis-server.service postgresql.service`.
 - Rollback: unset `REDIS_URL` → memory store, exactly the pre-Redis behaviour.
 
-## The money model: two transactions per hand, not one per bet
+## The money model: three checkpoints, nothing else
 
-PostgreSQL is written at exactly these moments and no others (owner's decisions 2 and 3):
+PostgreSQL is written at exactly these moments and no others (owner's decision, 9 Sep 2026). Note
+what is **not** here: the deal writes nothing, and neither does any bet.
 
-| Moment | What is written | Scope |
-|---|---|---|
-| **hand start** | boots debited, `pots` row opened, one `boot` ledger row each | every player in the hand |
-| **a player leaves or switches mid-hand** | that player's bets so far: wallet debit + their `bet`/`show` ledger rows | that one player only |
-| **hand end** | every remaining player's bets, then the settlement rows, the `hands` row, the pot closed | everyone still in the hand |
-| bet / chaal / raise / show / see in between | **nothing** — memory and Redis only | — |
+| Moment | `reason` | `action_id` | Scope |
+|---|---|---|---|
+| a player **packs** | `hand_packed` | `<handId>:packed:<userId>` | that player only |
+| a player **leaves / switches / is kicked** | `hand_left` | `<handId>:left:<userId>` | that player only |
+| the **hand ends**, winner decided | `hand_win` / `hand_loss` | `<handId>:settle:<userId>` | everyone still at the table |
+| deal, chaal, raise, show, see | — | — | **nothing is written** |
 
 ```
-   deal     → PostgreSQL CollectBoot (users, pots, chip_ledger)     ← durable
+   deal     → seat + pot in memory → Redis SaveTable            ← THAT IS ALL
+   bet      → seat + pot in memory → Redis SaveTable            ← THAT IS ALL
+   pack     → PostgreSQL Checkpoint for that player only        ← durable
             → Redis SaveTable
-   bet      → seat + pot in memory, the bet appended to the hand's
-              contribution record → Redis SaveTable                 ← THAT IS ALL
-   leave    → PostgreSQL FlushBets for that player only             ← durable
+   leave    → PostgreSQL Checkpoint for that player only        ← durable
             → Redis SaveTable
-   settle   → PostgreSQL Settle: the outstanding bets, then the
-              payout, the hands row and the pot close, ONE txn      ← durable
+   settle   → PostgreSQL Settle: every player still at the
+              table, ONE transaction                            ← durable
 ```
 
-### Batched, never aggregated
+### Deltas, never absolutes
 
-A hand's betting is **not** collapsed into one net figure: the ledger is the audit of every chip
-movement and requirement 16's stats hang off it. Each bet is kept on the hand's per-player
-contribution record — amount, reason (`bet`/`show`), the client's `actionId`, and a `flushed` flag —
-and that record is in the `Snapshot`, so the record of what is staked lives in Redis and survives a
-restart. `FlushBets` and `Settle` write those bets as individual rows, in order, under the **same
-action ids** the per-bet path used, so the rows are indistinguishable from the ones the old model
-produced and the `chip_ledger.action_id` UNIQUE index still makes a replay impossible.
+Every write is `UPDATE users SET chips = chips + delta`, where the Table computed
+`delta = seat.chips now − chips as last written to PostgreSQL`. The figure it was last written at
+lives on the hand's contribution record (`chipsWritten`), which is in the `Snapshot`, so it is in
+Redis and survives a restart.
 
-Net effect: the same ledger rows and the same `pots.amount`, from **2 transactions per hand** instead
-of 2 + one per bet.
+It is deliberately **not** `SET chips = <the live value>`. A reward credits PostgreSQL without
+touching the Redis seat, so an absolute overwrite at the next checkpoint would erase it. Rewards are
+now refused while seated (409 `seated` on `/api/rewards/milestone|bonus`, matching display name and
+avatar), which closes that hole at its source — the delta is the belt to that pair of braces, and
+what it really buys is an invariant: *a seated player's wallet cannot change except at these three
+moments.*
 
-### No double-write
+The delta is also what makes the settle retry safe, and that is not a coincidence. An absolute write
+would be idempotent by accident; a delta never is. See below.
 
-A player who leaves mid-hand has their bets banked at once and each is marked `flushed`, so the
-settlement does not send them again. Belt to that brace: `bankBets` inserts with
-`ON CONFLICT (action_id) DO NOTHING` and skips the wallet debit and the pot update when the row is
-already there — which covers a settle retry, and a flush that committed before its `flushed` marker
-reached Redis. If the id collides with a row from a **different** hand (a client reusing its own id)
-the chips are still banked, under a fresh server-minted id, rather than dropped: the pot must never
-hold chips no ledger row accounts for.
+### Resolve once, record twice
 
-Replaying an id **within** a hand is refused in memory (`duplicate_action`, `Table.handHasActionID`),
-which is where the database's UNIQUE index used to catch it.
+A player who packs is written twice for one hand: `hand_packed` when they fold, then `hand_loss` at
+the hand end whose delta computes to **zero**. The money moves once; the second row still carries
+the counters (`hands_played`, `hands_lost`) and says how the hand ended for them. A player who left
+is not in the hand-end write at all — they were resolved on the way out, and `hands_left_mid` was
+incremented there.
+
+A zero-delta row is not noise. It is the audit record of participation.
+
+### The UNIQUE action_id is a mechanism, not an audit key
+
+`Settle` retries up to 10 times with backoff. A transaction that **commits** but whose
+acknowledgement is lost (`statement_timeout` at 15 s, a dropped connection, a pool blip) would
+otherwise re-run `chips = chips + delta` and pay the winner the pot twice. Instead the replayed
+INSERT raises SQLSTATE 23505, `internal/db/ledger.go` maps it to `duplicate_action`, and
+`table.go:2555` reads that as the success it is and stops retrying.
+
+That is why `chip_ledger` survived the schema cull while `pots` and `hands` did not: those two were
+write-only records, this one is load-bearing. Replaying an id **within** a live hand is a different
+problem, refused in memory (`duplicate_action`, `hand.actionIDs`).
 
 ### What each failure mode costs
 
 | Situation | What happens |
 |---|---|
-| Hand plays out normally | Identical rows to the per-bet model: boot rows at the deal, one `bet`/`show` row per bet at the settlement, `hand_win`/`hand_loss` as before. |
-| **Server dies mid-hand, Redis alive** | The table comes back from Redis with its bets still on the contribution records; the hand continues and settles once. The settle action ids are the guard against a double write. |
-| **Redis dies mid-hand** | The hand is gone and the bets were never in PostgreSQL, so they are simply un-made: the players keep those chips. PostgreSQL holds the boots and an open pot; `RefundOrphanedPots` returns the boots. **Net zero.** |
-| Server killed between the boot commit and any bet | Same as above. |
-| A departed player, then Redis lost | Their flushed bets are in PostgreSQL and stay there; everyone else's are un-made; the pot is refunded. Wallets still equal their ledgers. |
+| Hand plays out normally | One row per player per checkpoint. Wallets equal their ledger sums throughout. |
+| **Server dies mid-hand, Redis alive** | The table comes back from Redis with `chipsWritten` intact; the hand continues and settles once. The settle action ids guard against a double write. |
+| **Redis dies mid-hand** | The hand is gone and nothing about it was ever in PostgreSQL, so it is un-made. A player holding 1,00,000 who had staked 25,000 gets the full 1,00,000 back. **Except** a player who had already **packed**: their checkpoint committed, so they keep their reduced balance while nobody wins the pot, and those chips leave the economy. Owner-approved; measured, not prevented. |
+| A departed player, then Redis lost | Their checkpoint is in PostgreSQL and stays there — they are at 75,000 in the example above. Everyone else's stake is un-made. |
 
-All five are asserted in `tools/crashtest.mjs` and `tools/parity/money.test.js`.
+`tools/crashtest.mjs` asserts all four, and measures the packed-then-lost case explicitly as
+`stranded`, holding `wallets + stranded` invariant: chips can never be **created**, and any loss is
+exactly what an interrupted hand had already taken.
 
-## Losing Redis: the tables are gone, the chips are not
+## Losing Redis: the tables are gone, and so are the hands
 
-There is no reconstruction path. PostgreSQL cannot rebuild a table because it holds nothing about
-one — `game_states` is not in the schema (`db/schema.sql` drops it, guarded, when it exists and is
-empty, and never creates it).
+There is no reconstruction path, by design. PostgreSQL cannot rebuild a table because it holds
+nothing about one — no `game_states`, no `pots`, no `hands` (`db/schema.sql` drops all three,
+guarded, when they exist and are empty, and never creates them).
 
 | Situation | What happens |
 |---|---|
 | **Redis dies, server keeps running** | Saves fail, are counted (`game_live_store_errors_total`) and logged; play continues from memory, because memory is the live truth while the process is up. A reconciler ticker (`LIVE_RECONCILE_MS`, default 30000) pings the store; on the transition back to healthy it **re-saves every live table, re-publishes the lobby index and every seat**, so a Redis that came back empty is refilled without waiting for each table's next move. The same ticker heals a `FLUSHALL` or an eviction, and sweeps stray seats and summaries (§ below). |
-| **Redis and the server both die (Redis empty on restart)** | Nothing is restored. `game_restored_tables_total` stays 0, every open pot is refunded, and the players re-join into fresh tables. The chat, the hands in progress and the seats are lost; not one chip is. |
-| **Redis unset (`REDIS_URL` empty)** | The in-process store dies with the process, which is the same thing: a restart loses the tables and refunds the pots. |
+| **Redis and the server both die (Redis empty on restart)** | Nothing is restored. `game_restored_tables_total` stays 0 and every player re-joins into a fresh table. Chat, hands in progress and seats are lost. Wallets are whatever the last checkpoint made them. |
+| **Redis unset (`REDIS_URL` empty)** | The in-process store dies with the process — the same thing: a restart loses every table and players re-join. |
 
 ### The reconciler also sweeps strays
 

@@ -74,8 +74,7 @@ server behaves differently from Node on purpose.
 | `JWT_EXPIRES_IN` | Parsed with `ms` grammar: a bare number string is **milliseconds**; `s m h d w y` units supported; `30d` default. |
 | Body parse failures | **Deviation.** HTTP 400 `{"error":"invalid_json","message":...}`; bodies over 32 kB → 413 with the same envelope. Missing or empty body → `{}`. |
 | Unknown `/api/*` path or method | **Deviation.** JSON 404 `{"error":"not_found","message":"Cannot GET /path"}`. Static 404s are plain text. |
-| `GET /api/auth/me/hands?limit` | Clamp to [1, 100]; default 20. |
-| `GET /api/rooms`, `GET /api/auth/me/hands` | Ported (no client calls them; cheap). |
+| `GET /api/rooms` | Ported (no client calls it; cheap). `GET /api/auth/me/hands` was ported too, then **removed on 9 Sep 2026** with the `hands` table it read — it now 404s. |
 | Guest `deviceId` | Must be a JSON string of at least 8 chars after trim; anything else → 400 `invalid_device_id`. (**Deviation**: Node coerced numbers/objects.) |
 | Concurrent first logins for one identity | **Deviation.** Handled: on a unique violation the insert is retried as an update path; exactly one welcome bonus is ever written. |
 | Fake providers (`AUTH_ALLOW_FAKE_PROVIDERS`) | Kept, including the raw-displayName-then-`fake` provider-user-id fallback. Production refuses to start with it on. |

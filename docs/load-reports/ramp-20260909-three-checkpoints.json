@@ -1,0 +1,65 @@
+{
+  "url": "https://api.sungamestudio.com",
+  "startedAt": null,
+  "finishedAt": "2026-09-09T00:38:58.444Z",
+  "stages": [
+    1000,
+    2000,
+    4000,
+    6000,
+    8000,
+    10000,
+    12000,
+    15000
+  ],
+  "holdSeconds": 60,
+  "table": {
+    "category": "blind",
+    "boot": 200
+  },
+  "workers": 6,
+  "thresholds": {
+    "maxP95Ms": 3000,
+    "maxErrorRate": 0.1
+  },
+  "ceiling": null,
+  "results": [],
+  "serverBefore": null,
+  "serverAfter": {
+    "ok": true,
+    "uptime": 485.07062901,
+    "tables": 1151,
+    "players": 5321,
+    "activeHands": 827,
+    "sockets": 5996,
+    "process": {
+      "pid": 114488,
+      "node": "go1.27.1",
+      "rssMb": 659.3,
+      "heapUsedMb": 462,
+      "heapTotalMb": 537.8,
+      "externalMb": 0,
+      "cpuPercent": 243.6,
+      "loopLagP50Ms": 0,
+      "loopLagP99Ms": 41.9,
+      "loopLagMaxMs": 67.1,
+      "goroutines": 19169,
+      "numCpu": 4,
+      "gomaxprocs": 4
+    },
+    "db": {
+      "total": 50,
+      "idle": 0,
+      "waiting": 0
+    },
+    "live": {
+      "kind": "redis",
+      "ok": true,
+      "tables": 1151
+    },
+    "rtt": 240
+  },
+  "lastHealthyStage": null,
+  "stoppedBecause": "terminated",
+  "connectionsAtStop": null
+}

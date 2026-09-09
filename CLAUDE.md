@@ -74,13 +74,13 @@ king-teenpatti/
 │   │   │   ├── chat.go           in-memory per-room chat buffer (actor-owned)
 │   │   │   ├── constants.go      Category / TableState / SeatState / Action / WinReason + verbatim messages
 │   │   │   ├── errors.go         GameError, every snake_case code and refusal message
-│   │   │   ├── ledger.go         Ledger interface (CollectBoot/FlushBets/Settle) + MemoryLedger for unit tests
+│   │   │   ├── ledger.go         Ledger interface (Checkpoint/Settle — the three checkpoints, §5.1) + MemoryLedger for unit tests
 │   │   │   ├── clock.go          Clock interface, RealClock, Millis;  testclock/ = deterministic clock (Advance)
 │   │   │   └── *_test.go         table, tablerules, sideshow, settlement, roommanager, handrank, deck, chat, wire, review_*, interop (needs NODE_REFERENCE_DIR)
 │   │   ├── sio/                  our own Engine.IO v4 + Socket.IO v5 server, websocket only (protocol.go, conn.go, server.go)
 │   │   ├── socket/               the game protocol on sio: handler.go (Attach, guard, one method per event, grace, resume offers), wire.go (every event/ack), payload.go; testclient/
 │   │   ├── auth/                 tokens.go (JWT HS256), providers.go (Google/Facebook/guest/fake), http.go (routes, RequireAuth, WriteError), handlers.go (the 8 REST handlers), text.go
-│   │   ├── db/                   db.go (pgxpool, search_path as connection param, WithTx, DropSchema), schema.sql (embedded DDL — money and audit only), ledger.go (THE money transactions: CollectBoot / FlushBets / Settle), refund.go (RefundOrphanedPots), users.go (login upsert, rewards, names, avatars); dbtest/
+│   │   ├── db/                   db.go (pgxpool, search_path as connection param, WithTx, DropSchema), schema.sql (embedded DDL — users + chip_ledger ONLY), ledger.go (THE money transactions: Checkpoint / Settle), users.go (login upsert, rewards, names, avatars); dbtest/
 │   │   ├── metrics/              names.go (every game_* metric), metrics.go (registry, Bind*, Handler, HTTPMiddleware, SafeLabel)
 │   │   ├── app/                  app.go (mux, REST, socket endpoint, Start/Shutdown), health.go, static.go (PUBLIC_DIR + embedded assets/socket.io.min.js)
 │   │   └── util/                 UUID, RoomCode, slog JSON logger
@@ -245,83 +245,87 @@ adb shell screenrecord --time-limit 170 --bit-rate 8000000 /sdcard/seg.mp4   # f
                                                     └─────────────┘
 ```
 
-### 5.1 The money model (database-first)
-Every chip movement follows this exact shape — the client sends `BET amount + actionId`:
+### 5.1 The money model (three checkpoints)
+**Owner's decision, 9 Sep 2026 — this replaced the batched-bet model of `3fa983d`, which had itself
+replaced the per-bet "database-first" one.** All game state lives in **Redis and nowhere else**.
+**PostgreSQL holds money and audit only, in exactly two tables — `users` and `chip_ledger`.** There
+is no `game_states`, no `pots` and no `hands` table any more (`schema.sql` drops all three, guarded;
+see §7.3). A bet is **not** a database transaction, and neither is the deal.
 
-**Owner's decision, 9 Sep 2026 — this replaced the per-bet "database-first" model.** All game state
-lives in **Redis** and nowhere else; **PostgreSQL holds money and audit only** (`users`,
-`chip_ledger`, `pots`, `hands` — there is no `game_states` table any more). A bet is **not** a
-database transaction. PostgreSQL is written at exactly these moments:
+The wallet is brought up to date at exactly three moments, each taking that player's chips as the
+live state has them:
 
-| Moment | What is written | Scope |
-|---|---|---|
-| **hand start** | boots debited, `pots` row opened, one `boot` ledger row each (`CollectBoot`) | every player in the hand |
-| **a player leaves / switches / is kicked mid-hand** | that player's bets so far: wallet debit + their `bet`/`show` ledger rows (`FlushBets`) | that one player only |
-| **hand end** | every remaining player's bets, then the settlement rows, the `hands` row, the pot closed — ONE transaction (`Settle`) | everyone still in the hand |
-| bet / chaal / raise / show / see in between | **nothing** — the seat, the pot and the Redis snapshot only | — |
+| Moment | `reason` | `action_id` | Scope |
+|---|---|---|---|
+| a player **packs** | `hand_packed` | `<handId>:packed:<userId>` | that player only |
+| a player **leaves / switches / is kicked** | `hand_left` | `<handId>:left:<userId>` | that player only |
+| the **hand ends**, winner decided | `hand_win` / `hand_loss` | `<handId>:settle:<userId>` | everyone still at the table |
+| the deal, chaal, raise, show, see | — | — | **nothing is written** |
 
-A bet therefore looks like this:
+A bet therefore never leaves the process:
 
 ```
 validate in memory (turn, amount ∈ ladder, actionId unused this hand, seat.chips ≥ amount)
   → seat.chips -= amount; seat.contributed += amount; hand.pot += amount
-  → append {amount, reason, actionId, flushed:false} to the hand's contribution record
   → emit 'action'/'state'; the actor saves the snapshot to Redis at the end of the closure
 ```
 
-and the two (or three) transactions that DO run keep the shape they always had:
+and the transactions that DO run have this shape:
 
 ```
   → BEGIN
   → SELECT chips FROM users WHERE id=$1 FOR UPDATE        lock the wallet row(s), ascending id
-  → per outstanding bet: INSERT chip_ledger … ON CONFLICT (action_id) DO NOTHING
-  → UPDATE users SET chips = …                            deduct / pay
-  → UPDATE pots SET amount = amount + banked              pot accounting
+  → UPDATE users SET chips = chips + delta, <counters>     DELTA, never an absolute
+  → INSERT chip_ledger (…, action_id UNIQUE)               one row per player per checkpoint
   → COMMIT
 ```
 
-- **The audit is unchanged.** A hand's betting is batched, never aggregated: each bet keeps its own
-  ledger row, its own reason (`bet`/`show`) and the client's own `action_id`, so the rows are
-  indistinguishable from the ones the per-bet model wrote. Same rows, same `pots.amount`, **2
-  transactions per hand instead of 2 + one per bet**.
-- `chip_ledger.action_id` is UNIQUE → a retried request is never double-charged. Boots use
-  `${handId}:boot:${userId}`, settlement `${handId}:settle:${userId}`, refunds
-  `${handId}:refund:${userId}`, so those are idempotent too. A **replay within a hand** is refused in
-  memory (`duplicate_action`, `Table.handHasActionID`) — that is where the UNIQUE index used to catch
-  it. At bank time `ON CONFLICT DO NOTHING` means "already banked, skip the debit"; an id colliding
-  with **another hand's** row is banked under a fresh server uuid rather than dropped.
-- **No double-write.** A departing player's bets are marked `flushed` on the contribution record —
-  which is in the snapshot, so it is in Redis and survives a restart — and the settlement does not
-  re-send them.
-- `chip_ledger` is **append-only**: a trigger raises on UPDATE/DELETE.
-- The two-owners guard is no longer `game_states.version` but the live store's per-table `seq`: a
-  refused compare-and-set (`live.ErrStale`) **fences** the table.
-- **The balance check is in memory, and that is exact.** The boot is debited from the wallet at the
-  deal, the seat only ever decreases as it bets, and a player holds one seat, so
-  `wallet == seat.chips + Σ unbanked bets` throughout a hand. `bankBets` still refuses rather than let
-  the `users.chips >= 0` CHECK abort a transaction, so a divergence would surface as a logged
-  `insufficient_chips`, never as lost chips.
-- **The one guarantee given up:** a bet is not durable until the hand ends. Lose Redis mid-hand and
-  those bets are simply un-made — the players keep the chips, PostgreSQL still holds the boots, and
-  `RefundOrphanedPots` returns them. Nothing is created or destroyed in any failure mode
-  (`tools/crashtest.mjs` proves all four).
-- `Table` never touches the DB directly. It is given a `Ledger` `{FlushBets, CollectBoot, Settle}`
-  (production: `internal/db/ledger.go`; tests: `MemoryLedger`). `table.version` increments per
-  committed write. `persisted` is **reported by the ledger, never assumed** (§12.2): `Settle` adds
-  what it actually banked to the entry's `Delta`, which is what keeps a bookless `MemoryLedger`
-  conserving.
+- **Deltas, never absolutes.** `delta = seat.chips now − chips as last written to PostgreSQL`
+  (`chipsWritten` on the hand's contribution record, so it lives in the snapshot and survives a
+  restart). It is never `SET chips = <live value>`: a reward credits PostgreSQL without touching the
+  Redis seat, and an absolute overwrite at the next checkpoint would erase it.
+- **Rewards are lobby-only.** `POST /api/rewards/milestone|bonus` return **409 `seated`** before any
+  DB work, matching the rule display name and avatar already had. That closes the concurrent-credit
+  hole at its source; the delta above is the belt to that pair of braces. Its real value is that it
+  makes an invariant true: *a seated player's wallet cannot change except at these three moments.*
+- **Resolve once, record twice.** A player who packs gets a `hand_packed` row and then a `hand_loss`
+  row at the hand end whose delta computes to **zero** — the money moves once, while the outcome row
+  still carries `hands_played`/`hands_lost`. A player who left is not in the hand-end write at all.
+  A zero-delta row is not noise; it is what says this player was in the hand and how it ended.
+- **`chip_ledger.action_id` is UNIQUE, and that is a mechanism, not just an audit key.** It is what
+  terminates the settle retry: `Settle` retries up to 10 times with backoff, and a commit whose
+  acknowledgement was lost (`statement_timeout`, a dropped connection) would otherwise run
+  `chips = chips + delta` a second time and pay the winner the pot twice. The replay raises 23505,
+  which `internal/db/ledger.go` maps to `duplicate_action`, which `table.go` reads as the success it
+  is. Note this only works *because* the writes are deltas — an absolute write would have been
+  idempotent by accident. A **replay within a live hand** is refused in memory instead
+  (`duplicate_action`, `hand.actionIDs`).
+- `chip_ledger` is **append-only**: a trigger raises on UPDATE/DELETE. `TRUNCATE` is the only way to
+  clear it, and doing so needs one reconciling row per account or the §4 invariant breaks.
+- The two-owners guard is the live store's per-table `seq`: a refused compare-and-set
+  (`live.ErrStale`) **fences** the table.
+- **Losing Redis loses the hands, and that is the accepted design.** Nothing is reconstructed —
+  every player simply rejoins. A player holding 1,00,000 who had put 25,000 into the pot gets the
+  full 1,00,000 back, because that is what PostgreSQL last knew; the 25,000 is un-made. The same
+  player who instead *leaves* is written through at 75,000. The one real cost: a player who had
+  already **packed** keeps their reduced balance while nobody wins the pot, so those chips leave the
+  economy. `tools/crashtest.mjs` measures that explicitly as `stranded` and asserts
+  `wallets + stranded` is invariant — chips can never be created, and any loss is exactly what an
+  interrupted hand had already taken.
+- `Table` never touches the DB directly. It is given a `Ledger` `{Checkpoint, Settle}` (production:
+  `internal/db/ledger.go`; tests: `MemoryLedger`). `table.version` increments per committed write.
 - **Every mutation runs through the table's serial queue** (`run`). A DB round-trip can therefore
   never interleave with a turn timeout; `hand.turnToken` additionally makes a late-firing timeout a
   no-op. Consequence in Node: `act`, `removePlayer`, `startHand`, `destroy`, `respondToSideshow`
   returned **Promises**; `addPlayer`, `postChat`, `setConnected`, `serializeFor` stayed synchronous.
-- Settlement (`_endHand`) is the one place memory is updated before the write completes — the hand
+- Settlement (`endHand`) is the one place memory is updated before the write completes — the hand
   *is* over. If the settle transaction fails the table pays the winner in memory and retries the
   idempotent write in the background (10 attempts, backoff) so the DB catches up.
 
 ### 5.2 Flow of a hand
-`WAITING → STARTING (nextHandDelayMs) → BETTING → SHOWDOWN → WAITING`. Boots are collected in one
-transaction (`collectBoot`, wallets locked in id order) before a card is dealt; if it is refused the
-table drops back to WAITING (an unfunded player is kicked; any other error retries after the delay).
+`WAITING → STARTING (nextHandDelayMs) → BETTING → SHOWDOWN → WAITING`. Boots are taken from the seat
+and the pot **in memory and Redis only** — the deal writes nothing to PostgreSQL (§5.1). A player who
+cannot cover the boot is kicked before a card is dealt.
 After every mutation the table emits `state`; the socket layer sends each viewer
 `table.serializeFor(viewerId)` — never a room-wide snapshot.
 
@@ -471,8 +475,9 @@ with `room:joinCode`. Voluntary leave / kick never create an offer (the grace ti
 
 ### 7.2 REST (`auth/routes.js` → `internal/auth/http.go` + `handlers.go`)
 `POST /api/auth/login {provider: google|facebook|guest, idToken|accessToken|deviceId, displayName?}`
-→ `{token, user, isNew, welcomeChips}`; `GET /api/auth/me`; `GET /api/auth/me/hands?limit` (no
-client calls it); `POST /api/rewards/milestone|bonus`; `GET /api/profiles` (unauthenticated);
+→ `{token, user, isNew, welcomeChips}`; `GET /api/auth/me`; `POST /api/rewards/milestone|bonus`
+(**409 `seated` while at a table** — rewards are lobby-only so a seated wallet only ever moves at the
+three checkpoints, §5.1); `GET /api/profiles` (unauthenticated);
 `POST /api/profile/avatar {avatar|null}` and `POST /api/profile/name {name}` (409 `seated` while at
 a table; live in `playerRoutes({isSeated})`, **not** `authRoutes`); `GET /api/rooms` (no client);
 `GET /health`. Errors `{error: code, message}`. Guest id = `sha256('teenpatti:'+deviceId)`, deviceId
@@ -487,19 +492,23 @@ runs `schema.sql` (fully idempotent: IF NOT EXISTS / CREATE OR REPLACE / DO-bloc
 are parsed to JS numbers** (`pg.types.setTypeParser(20|1700)`) — without that, `chips` and `SUM()`
 come back as strings.
 
-Tables: `users` (wallet = `chips BIGINT CHECK ≥ 0`, counters, `milestone_claimed`, `next_bonus_at`,
-`avatar_choice`), `hands` (`summary_json JSONB`), **`pots`** (`hand_id PK, amount, winner_id,
-opened_at, closed_at`), **`chip_ledger`** (`action_id UNIQUE`, `hand_id`, `delta`, `balance`,
-`reason`; append-only trigger). **There is no `game_states` table** — PostgreSQL holds money and
-audit only, and `schema.sql` drops the old one (guarded: only when it exists and is empty). Timestamps
+Tables — **there are exactly two**: `users` (wallet = `chips BIGINT CHECK ≥ 0`, counters,
+`milestone_claimed`, `next_bonus_at`, `avatar_choice`) and **`chip_ledger`** (`action_id UNIQUE`,
+`hand_id`, `delta`, `balance`, `reason`; append-only trigger). `game_states`, `pots` and `hands` were
+all removed on 9 Sep 2026 — PostgreSQL holds money and audit only. `schema.sql` drops each on an
+existing database, but **only when it is empty**, so a restored backup is left for a human; every
+reference to a retired table goes through `EXECUTE` because PL/pgSQL plans before it evaluates and a
+direct reference stops parsing once the table is gone (that bug crash-looped production on
+9 Sep 2026 — `d949179`). Timestamps
 are epoch-ms BIGINT. Rewards: milestone 25,000 / 25 hands (`didChaal` only), timed 10,000 / 4h —
 constants in `users.js`. Display names: `NAME_PATTERN = /^[\p{L}\p{N}][\p{L}\p{N}\p{M} ]*$/u` —
 **`\p{M}` is essential** for Indic vowel signs.
 
-Ledger `reason` values: `welcome_bonus, boot, bet, show, hand_win, hand_loss, refund,
-milestone_reward, timed_bonus, legacy_reconciliation, test_fixture, sqlite import rows keep their old
-reasons`. `refund` is `RefundOrphanedPots` returning an open pot with no live table
-(`<handId>:refund:<userId>`) — the safety net for a lost live store.
+Ledger `reason` values: `welcome_bonus, hand_packed, hand_left, hand_win, hand_loss,
+milestone_reward, timed_bonus, legacy_reconciliation, test_fixture`. The first three of the hand
+reasons are the three checkpoints of §5.1. `boot`, `bet`, `show` and `refund` are **retired** — no
+code writes them; rows carrying them are pre-9 Sep 2026 history (production's were cleared that day,
+replaced by one `legacy_reconciliation` row per account so the invariant below stayed true).
 **Invariant to keep true:** `SUM(chip_ledger.delta) per user == users.chips` (the psql check in §4
 must return 0). The import wrote 12 `legacy_reconciliation` rows to make the old data satisfy it.
 
@@ -541,7 +550,7 @@ not in `.env.example` — `config.go` documents it).
 | `CHAT_MAX_HISTORY` / `CHAT_MAX_LENGTH` / `CHAT_RATE_LIMIT` / `CHAT_RATE_WINDOW_MS` | 100 / 140 / 5 / 5000 | Flutter's chat field allows **200** — chars 141–200 are dropped server-side |
 | `METRICS_ENABLED` / `METRICS_PATH` / `METRICS_PREFIX` | true / `/metrics` / `game_server_` | Prometheus exposition (req. 35); prefix applies to prom-client's default process metrics only |
 | `METRICS_TOKEN` / `METRICS_ALLOW_IPS` | empty / empty | bearer token and/or comma-separated client IPs required to scrape; both empty = open (fine behind a firewall, wrong on the internet) |
-| **`REDIS_URL`** | empty | **The live store — where ALL game state lives** (§5.1). Empty = an in-process store: single instance, and a restart loses every table (the pots are refunded). Set (`redis://127.0.0.1:6379/0`) → Redis, and the boot **fails fast** if it is unreachable. There is no `SNAPSHOT_FLUSH_MS`: PostgreSQL keeps no game state, so there is nothing to flush to it. |
+| **`REDIS_URL`** | empty | **The live store — where ALL game state lives** (§5.1). Empty = an in-process store: single instance, and a restart loses every table (players re-join; nothing is reconstructed). Set (`redis://127.0.0.1:6379/0`) → Redis, and the boot **fails fast** if it is unreachable. There is no `SNAPSHOT_FLUSH_MS`: PostgreSQL keeps no game state, so there is nothing to flush to it. |
 | `LIVE_STATE_TTL_MS` | 86400000 | how long a table snapshot that stops updating survives in the live store |
 | `LIVE_INSTANCE_ID` | `hostname:pid` | presence / matchmaking owner tag (`Load()` only; `Defaults()`/`FromEnv()` carry `""`) |
 | `LIVE_RECONCILE_MS` | 30000 | how often the live store is pinged, refilled from memory after an outage, and swept for stray seat/summary keys; 0 disables |
@@ -572,9 +581,10 @@ Production's lives at `/var/www/gameplay/king-teenpatti/go-server/.env` (`PG_POO
 - Live-store metrics (`internal/live` + the restart sequence): `live_store_operations_total{op,result}`,
   `live_store_duration_seconds{op}` (buckets 0.1 ms…1 s), `live_store_errors_total{op}`, `live_store_reconciles_total{result}`,
   `restored_tables_total` (**unlabelled** — the live store is the only source a table can come back from),
-  `restored_seats_total`, `refunded_pots_total`, `refunded_chips_total`. `/health` gains
-  `live: {kind, ok, tables}` after `db`. **There are no `game_snapshot_*` series and no
-  `game_restore_reconciled/rejected_total`** — they belonged to the abandoned PostgreSQL backstop.
+  `restored_seats_total`. `/health` gains `live: {kind, ok, tables}` after `db`. **There are no
+  `game_snapshot_*` series, no `game_restore_reconciled/rejected_total` and no
+  `game_refunded_pots/chips_total`** — the first two belonged to the abandoned PostgreSQL backstop,
+  the third to `RefundOrphanedPots`, which went when PostgreSQL stopped holding pots (§5.1).
 - **Label rule (enforced by `SafeLabel()` and `internal/metrics/metrics_test.go` + `tools/parity/metrics.test.js`):** no socket/user/room id,
   table code, name, URL or IP ever becomes a label value. `Table` stays uninstrumented — counters are fed from its events in the
   socket layer, timings from the socket handlers, `RoomManager.CreateTable` and `db/ledger.go`; `game` must not import `metrics`
@@ -755,12 +765,12 @@ final t = state.t;` at the top of `build`; M3 roles via `theme.colorScheme`; `.w
 
 ### 12.1 Operational
 - **Verified end-to-end on 2026‑09‑07**: a Chaal tapped in the Flutter app on the Pixel 6 emulator
-  produced a `chip_ledger` row (`bet −400`, the app's uuid `action_id`, `hand_id` set), `pots.amount`
-  matched the table's pot, and `SUM(delta) == chips` for the account. **Since 9 Sep 2026 that row
-  appears when the hand ends (or when the player leaves), not when the bet is made** (§5.1). Repeat
-  the check after any change to `internal/db/ledger.go`, `Table.chargeToPot` or `Table.flushBets`;
-  `cd tools && node chiptest.mjs` automates it (wallet at hand start, hand end, on leave — mid-hand
-  included — and on switch).
+  produced a `chip_ledger` row and `SUM(delta) == chips` for the account. **Since 9 Sep 2026 a bet
+  writes nothing at all**: the row appears only when that player packs, leaves, or the hand ends
+  (§5.1), and it carries the net delta since their last checkpoint rather than the bet amount.
+  Repeat the check after any change to `internal/db/ledger.go` or `Table.chargeToPot`;
+  `cd tools && node chiptest.mjs` automates it (wallet on pack, on leave — mid-hand included — on
+  switch, and at the hand end).
 - **`pgrep -f`/`pkill -f` match your own shell command line** and kill the session (exit 137/144) —
   ~6 times so far. Use `pgrep -f "[b]ot\.js"`, find the server by port (`ss -lptn`), and **never
   put a kill and a start in one command**. **`pgrep -f 'bot.js'` also matches any shell whose command
@@ -798,8 +808,8 @@ final t = state.t;` at the top of `build`; M3 roles via `theme.colorScheme`; `.w
   `broadcastState`. `roomCode()` has no collision check in Node (Go regenerates until unique).
   `sweepEmptyTables` uses a hardcoded 30s. `handsToNextMilestone` says 25 (not 0)
   at an exact multiple — use `milestoneAvailable`.
-- Dead surface with no caller: `GET /api/rooms`, `GET /api/auth/me/hands`, inbound `lobby:list`,
-  `chat:history`, `ping:rtt`.
+- Dead surface with no caller: `GET /api/rooms`, inbound `lobby:list`, `chat:history`, `ping:rtt`.
+  (`GET /api/auth/me/hands` was **removed** on 9 Sep 2026 with the `hands` table — it now 404s.)
 - **SQLite is gone entirely** (file, driver, import tool). The 41 old accounts (4,494 hands, 16,471
   ledger rows) were imported once on 2026‑09‑07; 12 of them didn't reconcile (the old `kicktest.mjs`
   wrote `users.chips` with no ledger row; old settlement clamped at 0) and got a
@@ -860,9 +870,9 @@ deploy runbook; `steps.txt` the six-line routine.
 ### 14.1 Shape
 - **One process, one static binary** (`CGO_ENABLED=0`), Go 1.27; the scheduler uses every core
   (`GOMAXPROCS` = all cores). **Redis is the live store** (`REDIS_URL`, §5.1): all game state lives
-  there and nowhere else, tables come back from it across a restart, and losing it means players
-  re-join while `RefundOrphanedPots` returns every open pot. Still no cluster — one process owns
-  every table.
+  there and nowhere else, and tables come back from it across a restart. Losing it loses the hands:
+  nothing is reconstructed and every player simply re-joins (§5.1). Still no cluster — one process
+  owns every table.
 - **Table = actor.** `game.NewTable` starts one goroutine that owns the table; every mutation and
   every read of actor state is a closure posted with `run(fn)` that blocks until done — Node's
   `_run` queue made synchronous. Exported methods post; unexported internals never call `run`
@@ -879,8 +889,8 @@ deploy runbook; `steps.txt` the six-line routine.
   `server/node_modules/socket.io/client-dist`) so the browser client in `go-server/public` works
   unchanged. Every shipped client is websocket-only.
 - **DB via `pgx`** (`internal/db`): `schema.sql` (embedded; the only copy now — idempotent DDL run at
-  every start, `users`/`chip_ledger`/`pots`/`hands` and a guarded drop of the retired `game_states`),
-  the `CollectBoot`/`FlushBets`/`Settle` transactions of §5.1, `search_path` as a connection parameter,
+  every start — `users` and `chip_ledger` only, plus guarded drops of the retired `game_states`,
+  `pots` and `hands`), the `Checkpoint`/`Settle` transactions of §5.1, `search_path` as a connection parameter,
   `statement_timeout` per pooled connection (`PG_STATEMENT_TIMEOUT_MS`). Money-path fixes vs Node
   (all in DECISIONS §2): wallet locks before the `hands` insert, settle retry continues after table
   destroy, client `actionId` containing `:` replaced by a uuid, `duplicate_action` on a settle retry
