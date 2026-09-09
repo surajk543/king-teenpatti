@@ -317,11 +317,13 @@
       exporters.</p>
     <p>That is consistent with the shape of the traffic: at 1,835 actions/s each action broadcasts a
       redacted <code>room:state</code> to every seat at the table, so nginx is relaying on the order
-      of 9,000 messages a second through 14,000 TLS sessions. The connection-admission probe below
-      independently points at the same place: plain HTTPS requests fail at exactly the same rate as
-      websocket upgrades, before any application code runs. If TLS termination is the constraint,
-      the fix is nginx tuning or offload &mdash; and the game server has roughly twice its current
-      capacity still unused behind it.</p>
+      of 9,000 messages a second through 14,000 TLS sessions. <b>This remains a hypothesis, not a
+      measurement.</b> A per-process CPU sample under sustained load is the test that would settle
+      it, and it has not been captured: every attempt was defeated first by the load generator&rsquo;s
+      own connection bursts and then by the upstream filter described in the correction below. Until
+      that sample exists, the honest statement is narrower &mdash; <i>the game server, Redis, the
+      database and memory all have headroom at the throughput ceiling, and something else on the host
+      does not.</i></p>
   </div>
 
   <h3>Per-action latency, measured server-side</h3>
@@ -420,49 +422,55 @@
 </section>
 
 <section>
-  <h2>Two limits that are not the same number</h2>
-  <p class="lede">The ladder measures sustained load. It does not measure arrival rate, and those
-     turn out to be different ceilings.</p>
+  <h2 style="border-bottom-color:var(--crit)">Correction: a finding I withdrew</h2>
+  <p class="lede">An earlier version of this page reported that the server drops roughly one in ten
+     new connections when 120 arrive at once, and recommended fixing &ldquo;connection admission&rdquo;
+     before a restart discovered it. <b>That was wrong, and it is withdrawn.</b></p>
   <div class="note red">
-    <div class="h">Connection admission &mdash; measured</div>
-    <p>The server comfortably <b>holds</b> 14,000 established connections. It does <em>not</em>
-      accept new ones at anything like that rate. Opening 120 connections at once, against a server
-      sitting completely idle at 19 goroutines:</p>
+    <div class="h">What it actually was</div>
+    <p>The drops were real, but they were happening on the network path between the load generator
+      and the host &mdash; not at the server. The controlled test:</p>
     <div class="scroll" style="margin:14px 0">
       <table>
-        <thead><tr><th>Probe, 120 concurrent</th><th>Succeeded</th><th>Failed</th><th>Failure mode</th></tr></thead>
+        <thead><tr><th>Where the burst came from</th><th>Path</th><th>Result</th></tr></thead>
         <tbody>
-          <tr><td>REST <code>POST /api/auth/login</code></td><td>109</td><td>11</td>
-              <td><code>UND_ERR_CONNECT_TIMEOUT</code></td></tr>
-          <tr><td>WebSocket upgrade</td><td>98 of 109</td><td>11</td><td>connect timeout</td></tr>
+          <tr class="dead"><td>Load generator, over the internet</td><td>WAN &rarr; nginx &rarr; TLS</td>
+              <td>14 of 20 &mdash; six SYNs unanswered</td></tr>
+          <tr><td>The production host itself</td><td>loopback &rarr; nginx &rarr; TLS</td>
+              <td><b>20 of 20</b>, ~100 ms each</td></tr>
+          <tr><td>The production host itself</td><td>loopback &rarr; nginx &rarr; TLS</td>
+              <td><b>40 of 40</b></td></tr>
+          <tr><td>The production host itself</td><td>direct to Go, no nginx, no TLS</td>
+              <td><b>40 of 40</b></td></tr>
         </tbody>
-        <caption>Repeated twice; the first run failed 27 of 120 on the REST leg. Roughly one in ten
-          new connections is dropped when 120 arrive together.</caption>
+        <caption>Identical burst, two origins. The server accepts every one; only the internet path
+          drops them.</caption>
       </table>
     </div>
-    <p>Both legs fail at the same rate, and both fail <b>before any application code runs</b> &mdash;
-      a plain HTTPS request times out at the TCP/TLS layer exactly as often as a websocket upgrade
-      does. That points at the shared front door: accept queue and TLS handshake, not the game.
-      It is the same finding as the CPU gap above, seen from the other side.</p>
-    <p>This matters operationally, because the one moment every client connects at once is a server
-      restart or a network blip &mdash; a reconnect storm. Sustained capacity of 14,000 does not mean
-      14,000 clients can come back simultaneously, and the ladder never exposed it because it steps
-      up gradually with a delay between batches.</p>
+    <p>Corroborating evidence: the kernel recorded <b>zero</b> <code>ListenOverflows</code>,
+      <code>ListenDrops</code> and syncookies since boot; conntrack sat at 1,456 of 262,144; there is
+      no firewall rule, and fail2ban is inactive. Nothing on the host dropped anything. The failures
+      are consistent with the provider&rsquo;s upstream DDoS protection treating a burst of SYNs from
+      one source address as an attack &mdash; and by the end of testing that filter was dropping even
+      single requests from the generator, while the same request from the host succeeded in 20 ms.</p>
+    <p><b>Why it does not affect real players:</b> the filter keys on source address. Thousands of
+      players reconnecting after a restart arrive from thousands of distinct addresses, which is
+      exactly the pattern it ignores. A reconnect storm was never the risk this measurement implied.</p>
   </div>
+  <p>The ladder results above are unaffected &mdash; they were measured on connections already
+     established, and the ladder paces its arrivals in batches, which is why it never tripped the
+     filter. What the withdrawal costs is the <em>corroboration</em> for the CPU attribution in the
+     previous section: that argument now rests on the CPU measurements alone.</p>
 </section>
 
 <section>
   <h2>What the numbers say to do next</h2>
   <ul class="tight">
-    <li><b>Attribute the missing 40% of CPU per-process, then tune the front door.</b> Two
-      independent signals point at TLS termination: the CPU gap, and a connection probe that fails
-      identically on REST and websocket. If that is right, the game server has roughly double its
-      current capacity waiting behind a proxy tune, and this is the only change that moves the
-      1,835/s ceiling.</li>
-    <li><b>Fix connection admission before it is discovered by a restart.</b> One in ten new
-      connections is dropped when 120 arrive at once, against an idle server. Somewhere between
-      <code>somaxconn</code>, nginx&rsquo;s accept queue and TLS handshake cost there is a cheap
-      fix; the expensive version of finding out is 14,000 clients reconnecting together.</li>
+    <li><b>Capture a per-process CPU sample at 6,000+ players &mdash; this is the only thing that
+      matters next.</b> The 40% gap is the whole story of the 1,835/s ceiling and it is still
+      unattributed. Run it from a host the provider&rsquo;s DDoS filter does not throttle (a second
+      cloud instance, or the game host itself), sampling <code>ps</code>/<code>pidstat</code> during
+      a sustained hold. Everything below is guesswork until this exists.</li>
     <li><b>Set the serving target at 4,000&ndash;5,000 players per host</b> for now. That is the last
       stage before the knee, at p95 33 ms with every component under half utilised.</li>
     <li><b>Test a reconnect storm explicitly.</b> Sustained 14,000 and a cold arrival of 8,000 are
@@ -494,10 +502,13 @@
       stage ran with ~51 fewer active players than its label.</li>
     <li><b>The CPU is attributed by elimination, not by per-process measurement.</b> The host
       saturation (87.6%), the game server&rsquo;s share (44%) and Redis&rsquo;s (15% of one core) are
-      each measured directly. That nginx accounts for most of the remaining ~40% is inference from
-      what else runs on the box &mdash; supported by the connection probe, which fails in the shared
-      TLS path, but not yet proven with a per-process sample under load. Three attempts to capture
-      one were themselves defeated by the admission limit.</li>
+      each measured directly; what consumes the rest is not. Five attempts to capture a per-process
+      sample failed &mdash; the first few because the generator could not establish connections fast
+      enough, the rest because the upstream filter had by then throttled the generator&rsquo;s address
+      entirely. This is the one open question in the report.</li>
+    <li><b>One finding was published and then withdrawn</b> &mdash; see the correction section. It
+      claimed a server-side connection-admission limit; it was the test rig. The ladder measurements
+      are unaffected.</li>
   </ul>
   <p>The server was never restarted during or after the ladder &mdash; it held 15,836 sockets, shed
      them, and returned to idle on the same process. One error in roughly 1.1 million actions.</p>
