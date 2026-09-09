@@ -512,6 +512,40 @@ class GameState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Deletes this account, permanently, at the player's request.
+  ///
+  /// Google Play requires an in-app route to this. The server refuses while
+  /// the player is seated, so callers should only offer it from the lobby.
+  ///
+  /// Both stored identifiers go, not just the token: the device id is what
+  /// the guest account is keyed to, so keeping it would sign the next launch
+  /// straight back into an account the server has already erased — which
+  /// works, but hands the player a brand-new empty account with their old id
+  /// in local storage and no way to tell the two apart.
+  ///
+  /// Returns null on success, or a message to show when the server refused.
+  Future<String?> deleteAccount() async {
+    final token = _token;
+    if (token == null) return null;
+    try {
+      await _api.deleteAccount(token);
+    } on ApiException catch (e) {
+      return e.message;
+    } catch (_) {
+      return 'Could not reach the server.';
+    }
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('token');
+    await prefs.remove('deviceId');
+    _token = null;
+    _conn.disconnect();
+    room = null;
+    user = null;
+    screen = Screen.login;
+    notifyListeners();
+    return null;
+  }
+
   Future<void> refreshUser() async {
     final token = _token;
     if (token == null) return;

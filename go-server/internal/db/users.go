@@ -249,8 +249,15 @@ func scanUser(row pgx.Row) (*userRow, error) {
 }
 
 // selectUser is Node's selectUser(client, id): SELECT … FROM users WHERE id = $1.
+//
+// A deleted account is invisible here, which is what makes deletion take
+// effect immediately: a JWT is valid for 30 days, so a token minted before
+// the account was deleted would otherwise keep working until it expired.
+// Every authenticated path — RequireAuth and the socket handshake both — ends
+// up in this query, and gets "unknown user" instead.
 func selectUser(ctx context.Context, q queryer, id string) (*userRow, error) {
-	return scanUser(q.QueryRow(ctx, `SELECT `+userColumns+` FROM users WHERE id = $1`, id))
+	return scanUser(q.QueryRow(ctx,
+		`SELECT `+userColumns+` FROM users WHERE id = $1 AND deleted_at = 0`, id))
 }
 
 // publicUser is users.js publicUser(row): the wire object. bonusAvailable is
@@ -311,7 +318,8 @@ func (u *Users) FindByID(ctx context.Context, id string) (*User, error) {
 // FindByProvider looks up by (provider, provider_user_id); nil, nil when absent.
 func (u *Users) FindByProvider(ctx context.Context, provider, providerUserID string) (*User, error) {
 	row, err := scanUser(u.db.Pool.QueryRow(ctx,
-		`SELECT `+userColumns+` FROM users WHERE provider = $1 AND provider_user_id = $2`,
+		`SELECT `+userColumns+` FROM users WHERE provider = $1 AND provider_user_id = $2
+		   AND deleted_at = 0`,
 		provider, providerUserID))
 	if err != nil {
 		return nil, err
@@ -573,6 +581,74 @@ func (u *Users) SetAvatarChoice(ctx context.Context, userID string, choice *stri
 		return nil, err
 	}
 	return u.FindByID(ctx, userID)
+}
+
+// DeletedDisplayName replaces the name on an account the player has deleted.
+// Ledger rows keep pointing at the row, so it needs to read as gone rather
+// than as blank.
+const DeletedDisplayName = "Deleted player"
+
+// DeleteAccount erases the person behind an account at their own request
+// (Google Play requires apps that create accounts to offer this).
+//
+// It pseudonymises rather than deletes, and the schema forces that:
+// chip_ledger.user_id REFERENCES users (id) ON DELETE CASCADE, so removing
+// the row would silently take the money audit with it — the one record that
+// is append-only precisely because it must never be lost. The row therefore
+// stays, emptied of anything that identifies anyone.
+//
+// Erased: display name, email, both avatar fields, and the provider identity.
+// Clearing the identity is what frees (provider, provider_user_id) for reuse,
+// so the same device signing in afterwards gets a NEW account with a fresh
+// welcome bonus instead of being handed the deleted one back.
+//
+// The wallet is emptied through a ledger row rather than by writing chips = 0
+// directly, because SUM(chip_ledger.delta) == users.chips is the invariant
+// the entire money model is audited against (CLAUDE.md §7.3). Zeroing the
+// column on its own would break it for every account ever deleted, and the
+// append-only trigger means it could never be repaired in place.
+//
+// Chips leave the economy here. That is the right answer: so has the player.
+func (u *Users) DeleteAccount(ctx context.Context, userID string) error {
+	return u.db.WithTx(ctx, func(tx pgx.Tx) error {
+		var chips int64
+		err := tx.QueryRow(ctx,
+			`SELECT chips FROM users WHERE id = $1 AND deleted_at = 0 FOR UPDATE`, userID).Scan(&chips)
+		if errors.Is(err, pgx.ErrNoRows) {
+			// Already deleted, or never existed. Either way there is nothing
+			// left to erase, and saying so is not an error the caller can act
+			// on differently.
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		timestamp := now(u.clock)
+		if chips > 0 {
+			// action_id is unique per account, so a retried delete cannot
+			// write the drop twice — the second attempt fails the unique
+			// index rather than double-counting. It cannot fire in practice
+			// (the account is invisible by then) but the ledger's rule is
+			// that every row carries its own idempotency.
+			if err := appendLedger(ctx, tx, userID, "", "delete:"+userID,
+				-chips, 0, game.LedgerReasonAccountDeleted, timestamp); err != nil {
+				return err
+			}
+		}
+		_, err = tx.Exec(ctx, `
+			UPDATE users
+			   SET chips            = 0,
+			       display_name     = $1,
+			       email            = NULL,
+			       avatar_url       = NULL,
+			       avatar_choice    = NULL,
+			       provider_user_id = $2,
+			       deleted_at       = $3,
+			       updated_at       = $3
+			 WHERE id = $4`,
+			DeletedDisplayName, "deleted:"+util.UUID(), timestamp, userID)
+		return err
+	})
 }
 
 // MilestoneFor is floor(handsPlayed / MilestoneEvery) * MilestoneEvery.

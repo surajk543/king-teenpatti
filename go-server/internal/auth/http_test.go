@@ -107,6 +107,20 @@ func (s *fakeStore) SetDisplayName(_ context.Context, userID, displayName string
 	return &copied, nil
 }
 
+// DeleteAccount mirrors db.Users.DeleteAccount as the HTTP layer sees it: the
+// account stops resolving, so a later request with the same token is answered
+// unknown_user.
+func (s *fakeStore) DeleteAccount(_ context.Context, userID string) error {
+	if s.failWith != nil {
+		return s.failWith
+	}
+	if u := s.users[userID]; u != nil {
+		delete(s.byIdent, u.Provider+"|"+userID)
+		delete(s.users, userID)
+	}
+	return nil
+}
+
 func (s *fakeStore) SetAvatarChoice(_ context.Context, userID string, choice *string) (*db.User, error) {
 	if s.failWith != nil {
 		return nil, s.failWith
@@ -900,4 +914,36 @@ func TestRewardsAreRefusedWhileSeated(t *testing.T) {
 	if res.status != 200 || res.body["claimed"] != true {
 		t.Fatalf("bonus from the lobby: %d %s", res.status, res.raw)
 	}
+}
+
+// Google Play requires an in-app way to delete an account, and this game
+// creates one on first launch, so the endpoint has to exist for every player.
+func TestAPlayerCanDeleteTheirOwnAccountFromTheLobbyOnly(t *testing.T) {
+	h := newHarness(t)
+	token, user := h.login("delete-me-device-id", "Departing")
+	id := user["id"].(string)
+
+	// At a table the wallet is partly in a pot and PostgreSQL is only brought
+	// up to date at the three checkpoints, so emptying it now would settle the
+	// live hand against a balance that no longer exists.
+	h.seated[id] = true
+	res := h.do(http.MethodDelete, "/api/account", nil, bearer(token)...)
+	expectError(t, res, 409, CodeSeated)
+	if res.body["message"] != MsgSeatedDelete {
+		t.Errorf("%s", res.raw)
+	}
+	if _, still := h.store.users[id]; !still {
+		t.Fatal("a refused deletion must not have deleted anything")
+	}
+
+	h.seated[id] = false
+	res = h.do(http.MethodDelete, "/api/account", nil, bearer(token)...)
+	if res.status != 200 || res.body["deleted"] != true {
+		t.Fatalf("%d %s", res.status, res.raw)
+	}
+
+	// The token still verifies — it is a 30-day JWT and nothing revoked it —
+	// but the account it names is gone, so every later request is refused.
+	expectError(t, h.do(http.MethodGet, "/api/auth/me", nil, bearer(token)...), 401, CodeUnknownUser)
+	expectError(t, h.do(http.MethodDelete, "/api/account", nil), 401, CodeMissingToken)
 }

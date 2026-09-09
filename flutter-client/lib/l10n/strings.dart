@@ -117,6 +117,11 @@ class Strings {
   String get unitBillion => _('unitBillion');
   String get switchTheme => _('switchTheme');
   String get signOut => _('signOut');
+  String get deleteAccount => _('deleteAccount');
+  String get deleteAccountTitle => _('deleteAccountTitle');
+  String get deleteAccountBody => _('deleteAccountBody');
+  String get deleteAccountSeated => _('deleteAccountSeated');
+  String get deleteAccountConfirm => _('deleteAccountConfirm');
   String get useProviderPicture => _('useProviderPicture');
   String get pictureLocked => _('pictureLocked');
 
@@ -298,6 +303,11 @@ class Strings {
       'unitBillion': 'Billion',
       'switchTheme': 'Switch theme',
       'signOut': 'Sign out',
+      'deleteAccount': 'Delete my account',
+      'deleteAccountTitle': 'Delete your account?',
+      'deleteAccountBody': 'This erases your name, picture, statistics and every chip you hold, including chips you paid for. It cannot be undone, and nothing can be restored to a new account.',
+      'deleteAccountSeated': 'Leave the table before deleting your account.',
+      'deleteAccountConfirm': 'Delete permanently',
       'useProviderPicture': 'Use my Google/Facebook picture',
       'pictureLocked': 'It cannot change once you sit at a table.',
       'pot': 'POT',
@@ -462,6 +472,11 @@ class Strings {
       'unitBillion': 'बिलियन',
       'switchTheme': 'थीम बदलें',
       'signOut': 'साइन आउट',
+      'deleteAccount': 'मेरा खाता हटाएं',
+      'deleteAccountTitle': 'खाता हटाना है?',
+      'deleteAccountBody': 'इससे आपका नाम, तस्वीर, आंकड़े और आपके सारे चिप्स मिट जाएंगे, वे भी जो आपने खरीदे थे। यह वापस नहीं हो सकता, और कुछ भी नए खाते में नहीं आएगा।',
+      'deleteAccountSeated': 'खाता हटाने से पहले टेबल छोड़ें।',
+      'deleteAccountConfirm': 'हमेशा के लिए हटाएं',
       'useProviderPicture': 'मेरी Google/Facebook तस्वीर लगाएँ',
       'pictureLocked': 'टेबल पर बैठने के बाद इसे बदला नहीं जा सकता।',
       'pot': 'पॉट',
@@ -626,6 +641,11 @@ class Strings {
       'unitBillion': 'বিলিয়ন',
       'switchTheme': 'থিম বদলান',
       'signOut': 'সাইন আউট',
+      'deleteAccount': 'আমার অ্যাকাউন্ট মুছুন',
+      'deleteAccountTitle': 'অ্যাকাউন্ট মুছবেন?',
+      'deleteAccountBody': 'এতে আপনার নাম, ছবি, পরিসংখ্যান এবং আপনার সব চিপ মুছে যাবে, যেগুলি আপনি কিনেছিলেন সেগুলিও। এটি ফেরানো যায় না, এবং কিছুই নতুন অ্যাকাউন্টে ফিরবে না।',
+      'deleteAccountSeated': 'অ্যাকাউন্ট মোছার আগে টেবিল ছাড়ুন।',
+      'deleteAccountConfirm': 'স্থায়ীভাবে মুছুন',
       'useProviderPicture': 'আমার Google/Facebook ছবি ব্যবহার করুন',
       'pictureLocked': 'টেবিলে বসার পর এটি বদলানো যায় না।',
       'pot': 'পট',
@@ -790,6 +810,11 @@ class Strings {
       'unitBillion': 'બિલિયન',
       'switchTheme': 'થીમ બદલો',
       'signOut': 'સાઇન આઉટ',
+      'deleteAccount': 'મારું ખાતું કાઢી નાખો',
+      'deleteAccountTitle': 'ખાતું કાઢી નાખવું છે?',
+      'deleteAccountBody': 'આનાથી તમારું નામ, ચિત્ર, આંકડા અને તમારી બધી ચિપ્સ ભૂંસાઈ જશે, જે તમે ખરીદી હતી તે પણ. આ પાછું લઈ શકાતું નથી, અને કંઈ પણ નવા ખાતામાં આવશે નહીં.',
+      'deleteAccountSeated': 'ખાતું કાઢી નાખતાં પહેલાં ટેબલ છોડો.',
+      'deleteAccountConfirm': 'કાયમ માટે કાઢી નાખો',
       'useProviderPicture': 'મારો Google/Facebook ફોટો વાપરો',
       'pictureLocked': 'ટેબલ પર બેઠા પછી આ બદલી શકાતું નથી.',
       'pot': 'પોટ',
@@ -954,6 +979,11 @@ class Strings {
       'unitBillion': 'ਬਿਲੀਅਨ',
       'switchTheme': 'ਥੀਮ ਬਦਲੋ',
       'signOut': 'ਸਾਈਨ ਆਊਟ',
+      'deleteAccount': 'ਮੇਰਾ ਖਾਤਾ ਮਿਟਾਓ',
+      'deleteAccountTitle': 'ਖਾਤਾ ਮਿਟਾਉਣਾ ਹੈ?',
+      'deleteAccountBody': 'ਇਸ ਨਾਲ ਤੁਹਾਡਾ ਨਾਂ, ਤਸਵੀਰ, ਅੰਕੜੇ ਅਤੇ ਤੁਹਾਡੀਆਂ ਸਾਰੀਆਂ ਚਿਪਸ ਮਿਟ ਜਾਣਗੀਆਂ, ਉਹ ਵੀ ਜੋ ਤੁਸੀਂ ਖਰੀਦੀਆਂ ਸਨ। ਇਹ ਵਾਪਸ ਨਹੀਂ ਹੋ ਸਕਦਾ, ਅਤੇ ਕੁਝ ਵੀ ਨਵੇਂ ਖਾਤੇ ਵਿੱਚ ਨਹੀਂ ਆਵੇਗਾ।',
+      'deleteAccountSeated': 'ਖਾਤਾ ਮਿਟਾਉਣ ਤੋਂ ਪਹਿਲਾਂ ਟੇਬਲ ਛੱਡੋ।',
+      'deleteAccountConfirm': 'ਹਮੇਸ਼ਾ ਲਈ ਮਿਟਾਓ',
       'useProviderPicture': 'ਮੇਰੀ Google/Facebook ਤਸਵੀਰ ਵਰਤੋ',
       'pictureLocked': 'ਟੇਬਲ ਉੱਤੇ ਬੈਠਣ ਤੋਂ ਬਾਅਦ ਇਹ ਬਦਲੀ ਨਹੀਂ ਜਾ ਸਕਦੀ।',
       'pot': 'ਪੌਟ',

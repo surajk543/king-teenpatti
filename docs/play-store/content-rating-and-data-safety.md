@@ -74,30 +74,44 @@ web browsing history, search history.
 > the server only that a purchase completed, which is why "Payment info" is not
 > collected even though the app sells things.
 
-## 4. The gap that will bounce this submission
+## 4. Account deletion — done
 
-**Play requires apps that let users create an account to offer account
-deletion — both inside the app and at a publicly reachable URL that does not
-require installing the app.** King Teen Patti creates an account on first
-launch (a guest account keyed to the hashed device id), so this applies.
+Play requires apps that let users create an account to offer deletion **both
+inside the app and at a publicly reachable URL** that does not require
+installing the app. King Teen Patti creates a guest account on first launch, so
+this applies to every player. Both routes now exist:
 
-Today it has neither:
+| | |
+|---|---|
+| In-app | Lobby → Settings drawer → **Delete my account**, behind a confirmation |
+| Public URL | `https://api.sungamestudio.com/account-deletion/` |
+| API | `DELETE /api/account` — authenticated, refused with 409 `seated` while at a table |
 
-- no in-app "Delete my account" — the settings drawer has no such option
-- no deletion URL — the privacy policy names an email address, and Play has
-  been rejecting email-only for this since 2024
+**It pseudonymises rather than deletes, and the schema forces that.**
+`chip_ledger.user_id REFERENCES users (id) ON DELETE CASCADE`, so removing the
+row would take the money audit with it — the one table that is append-only
+precisely because it must never be lost. The row stays, emptied of everything
+that identifies anyone: display name, email, both avatar fields and the
+provider identity are cleared, and `deleted_at` is stamped.
 
-Two pieces of work close it:
+Two consequences worth knowing:
 
-1. `DELETE /api/account` on the server, plus a "Delete my account" item in the
-   settings drawer with a confirmation. Deleting must keep the `chip_ledger`
-   rows (tax record) while clearing the identity from `users`, or the
-   reconciliation invariant in CLAUDE.md §7.3 breaks — so this is a
-   pseudonymise, not a `DELETE FROM users`.
-2. A page at `https://api.sungamestudio.com/account-deletion/` explaining what
-   is deleted, what is kept and why, and how to request it without the app.
+- **The wallet is emptied through a ledger row**, not by writing `chips = 0`.
+  `SUM(chip_ledger.delta) == users.chips` is the invariant the whole money
+  model is audited against, and zeroing the column alone would break it for
+  every deleted account, permanently — the append-only trigger means it could
+  never be repaired in place.
+- **Clearing the provider identity is what frees `(provider,
+  provider_user_id)`**, so the same device signing in afterwards gets a new
+  account with a fresh welcome bonus instead of being handed the deleted one
+  back.
 
-Neither is large. Ask and I will write both.
+Deletion bites immediately even though a JWT lives 30 days, because every
+authenticated path resolves the user through `db.selectUser`, which does not
+return deleted accounts.
+
+Answer Play's **"Do you provide a way for users to request that their data be
+deleted?"** with *Yes*, and give the public URL above.
 
 ## 5. Other App content declarations
 

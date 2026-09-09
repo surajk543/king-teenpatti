@@ -34,8 +34,20 @@ CREATE TABLE IF NOT EXISTS users (
   created_at        BIGINT NOT NULL,
   updated_at        BIGINT NOT NULL,
   last_login_at     BIGINT NOT NULL,
+  -- Epoch ms the account was deleted at the player's request; 0 = live.
+  -- The row survives deletion because chip_ledger references it ON DELETE
+  -- CASCADE and those rows are a financial record that must not vanish. What
+  -- is erased is the identity, in db.Users.DeleteAccount: the name, the
+  -- pictures, the email and the provider identity are cleared and the wallet
+  -- is emptied through a ledger row, so SUM(delta) = chips = 0 still holds.
+  deleted_at        BIGINT NOT NULL DEFAULT 0,
   UNIQUE (provider, provider_user_id)
 );
+
+-- Added after the table existed in production, so it needs its own statement:
+-- CREATE TABLE IF NOT EXISTS above is a no-op on a database that already has
+-- the table and would never add the column.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS deleted_at BIGINT NOT NULL DEFAULT 0;
 
 CREATE INDEX IF NOT EXISTS idx_users_last_login ON users (last_login_at DESC);
 

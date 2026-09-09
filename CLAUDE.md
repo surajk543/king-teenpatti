@@ -479,7 +479,15 @@ with `room:joinCode`. Voluntary leave / kick never create an offer (the grace ti
 (**409 `seated` while at a table** — rewards are lobby-only so a seated wallet only ever moves at the
 three checkpoints, §5.1); `GET /api/profiles` (unauthenticated);
 `POST /api/profile/avatar {avatar|null}` and `POST /api/profile/name {name}` (409 `seated` while at
-a table; live in `playerRoutes({isSeated})`, **not** `authRoutes`); `GET /api/rooms` (no client);
+a table; live in `playerRoutes({isSeated})`, **not** `authRoutes`);
+**`DELETE /api/account`** → `{deleted:true}` (409 `seated` at a table; Google Play requires an
+in-app deletion route and the game creates an account on first launch). It **pseudonymises**:
+`chip_ledger.user_id` is `ON DELETE CASCADE`, so deleting the row would destroy the money audit —
+instead the wallet is emptied *through a ledger row* (`account_deleted`, so `SUM(delta) == chips`
+still holds) and the name/email/avatars/provider identity are cleared with `deleted_at` stamped.
+`db.selectUser` filters `deleted_at = 0`, which is what makes a still-valid 30-day JWT stop working
+at once; clearing `provider_user_id` frees the identity so the same device signs in as a NEW
+account. `GET /api/rooms` (no client);
 `GET /health`. Errors `{error: code, message}`. Guest id = `sha256('teenpatti:'+deviceId)`, deviceId
 ≥ 8 chars. `AUTH_ALLOW_FAKE_PROVIDERS=true` lets google/facebook skip verification (tests, browser
 stubs).
@@ -493,7 +501,7 @@ are parsed to JS numbers** (`pg.types.setTypeParser(20|1700)`) — without that,
 come back as strings.
 
 Tables — **there are exactly two**: `users` (wallet = `chips BIGINT CHECK ≥ 0`, counters,
-`milestone_claimed`, `next_bonus_at`, `avatar_choice`) and **`chip_ledger`** (`action_id UNIQUE`,
+`milestone_claimed`, `next_bonus_at`, `avatar_choice`, `deleted_at`) and **`chip_ledger`** (`action_id UNIQUE`,
 `hand_id`, `delta`, `balance`, `reason`; append-only trigger). `game_states`, `pots` and `hands` were
 all removed on 9 Sep 2026 — PostgreSQL holds money and audit only. `schema.sql` drops each on an
 existing database, but **only when it is empty**, so a restored backup is left for a human; every
@@ -505,7 +513,10 @@ constants in `users.js`. Display names: `NAME_PATTERN = /^[\p{L}\p{N}][\p{L}\p{N
 **`\p{M}` is essential** for Indic vowel signs.
 
 Ledger `reason` values: `welcome_bonus, hand_packed, hand_left, hand_win, hand_loss,
-milestone_reward, timed_bonus, legacy_reconciliation, test_fixture`. The first three of the hand
+milestone_reward, timed_bonus, purchase, account_deleted, legacy_reconciliation, test_fixture`.
+(`purchase` is a Google Play chip pack, action_id `gplay:<token>`; `account_deleted` empties the
+wallet when a player deletes their account, action_id `delete:<userId>` — chips leave the economy
+there, which is correct, the player has gone.) The first three of the hand
 reasons are the three checkpoints of §5.1. `boot`, `bet`, `show` and `refund` are **retired** — no
 code writes them; rows carrying them are pre-9 Sep 2026 history (production's were cleared that day,
 replaced by one `legacy_reconciliation` row per account so the invariant below stayed true).

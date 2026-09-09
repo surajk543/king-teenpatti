@@ -111,6 +111,24 @@ class ApiClient {
     return User.fromJson(Map<String, dynamic>.from(j['user'] as Map));
   }
 
+  /// Deletes the player's account, permanently.
+  ///
+  /// Google Play requires an in-app route to this, and the game creates an
+  /// account on first launch, so every player has one to delete.
+  ///
+  /// The server refuses while the player is seated (409 `seated`), because a
+  /// seated wallet is only brought up to date at the three checkpoints and
+  /// emptying it mid-hand would settle that hand against a balance that has
+  /// stopped existing. The caller should send the player to the lobby first.
+  ///
+  /// After this returns the token still verifies but names nothing, so every
+  /// later request is answered `unknown_user`. Clear the stored token and
+  /// device id, or the next launch spends its first request finding that out.
+  Future<void> deleteAccount(String token) async {
+    final r = await http.delete(_uri('/api/account'), headers: _headers(token));
+    _decode(r);
+  }
+
   /// Hands a Google Play receipt to the server for verification.
   ///
   /// Sends only what Play gave us — which product, and the purchase token. No

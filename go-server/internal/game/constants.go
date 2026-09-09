@@ -170,7 +170,12 @@ const (
 	// db.CreditPurchase. These are the only rows in the ledger that create
 	// chips from outside the game, so they are also what an audit of the chip
 	// economy has to separate from play.
-	LedgerReasonPurchase             = "purchase"
+	LedgerReasonPurchase = "purchase"
+	// LedgerReasonAccountDeleted empties a wallet when a player deletes their
+	// account. The row is what keeps SUM(delta) == chips true afterwards: the
+	// account's chips go to 0, so the ledger has to record the same drop.
+	// Chips leave the economy here, which is correct — the player is gone.
+	LedgerReasonAccountDeleted       = "account_deleted"
 	LedgerReasonLegacyReconciliation = "legacy_reconciliation"
 	LedgerReasonTestFixture          = "test_fixture"
 )

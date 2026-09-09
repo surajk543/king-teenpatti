@@ -1238,6 +1238,45 @@ class _SettingsDrawer extends StatefulWidget {
 }
 
 class _SettingsDrawerState extends State<_SettingsDrawer> {
+  /// Asks twice-over before deleting, and reports a refusal rather than
+  /// swallowing it — the server says no while the player is seated, and a
+  /// button that silently does nothing is worse than one that explains.
+  Future<void> _confirmDelete(BuildContext context, GameState state) async {
+    final t = state.t;
+    final theme = Theme.of(context);
+    final go = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        icon: Icon(Icons.delete_forever_outlined, color: theme.colorScheme.error),
+        title: Text(t.deleteAccountTitle),
+        content: Text(t.deleteAccountBody),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: Text(t.cancel),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: theme.colorScheme.error,
+              foregroundColor: theme.colorScheme.onError,
+            ),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: Text(t.deleteAccountConfirm),
+          ),
+        ],
+      ),
+    );
+    if (go != true) return;
+    final refusal = await state.deleteAccount();
+    if (!context.mounted) return;
+    if (refusal != null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(refusal)));
+      return;
+    }
+    // Deletion put the app back on the login screen; the drawer is over it.
+    Navigator.pop(context);
+  }
+
   late final TextEditingController _name;
   String? _nameError;
   bool _saving = false;
@@ -1446,6 +1485,21 @@ class _SettingsDrawerState extends State<_SettingsDrawer> {
                 style: TextStyle(color: theme.colorScheme.error),
               ),
               onTap: state.signOut,
+            ),
+            // Google Play requires an in-app route to account deletion, and
+            // this game creates an account on first launch, so every player
+            // has one to delete. Kept below Sign out and behind a confirm,
+            // because the two sit next to each other and only one of them can
+            // be undone.
+            ListTile(
+              dense: true,
+              leading: Icon(Icons.delete_forever_outlined,
+                  color: theme.colorScheme.error),
+              title: Text(
+                t.deleteAccount,
+                style: TextStyle(color: theme.colorScheme.error),
+              ),
+              onTap: () => _confirmDelete(context, state),
             ),
             const Divider(height: 1, indent: 20, endIndent: 20),
             // Which build this is, for anyone reporting what they saw.
