@@ -19,6 +19,7 @@ import (
 	"log/slog"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -147,12 +148,66 @@ func bootstrap(ctx context.Context, pool *pgxpool.Pool, schema, quoted string) (
 	if _, err := conn.Exec(ctx, "SET search_path TO "+quoted+", public"); err != nil {
 		return fmt.Errorf("set search_path: %w", err)
 	}
+	// Fail fast, and say why, when DDL cannot get its lock.
+	//
+	// schema.sql runs on EVERY boot, and some of it needs locks that queue
+	// behind ordinary readers. Without this the wait is bounded only by
+	// PG_STATEMENT_TIMEOUT_MS, so a single long report turns a restart into a
+	// crash loop whose only symptom is "canceling statement due to statement
+	// timeout" — true, and useless. Three seconds is far longer than any lock
+	// this file legitimately waits for, and lock_timeout raises 55P03, which
+	// is specific enough to explain itself below.
+	if _, err := conn.Exec(ctx, "SET lock_timeout = '3s'"); err != nil {
+		return fmt.Errorf("set lock_timeout: %w", err)
+	}
 	// No arguments → simple protocol → the whole file runs as one
 	// multi-statement query, $$ bodies included.
 	if _, err := conn.Exec(ctx, schemaSQL); err != nil {
-		return fmt.Errorf("run schema.sql: %w", err)
+		return fmt.Errorf("run schema.sql: %w%s", err, blockingActivity(ctx, conn, err))
 	}
 	return nil
+}
+
+// blockingActivity names what is holding the lock schema.sql could not take,
+// as a suffix for the startup error. Best effort: it runs after a failure, on
+// a connection that has just had one, so anything it hits is swallowed — a
+// diagnostic that fails must not replace the diagnosis.
+//
+// It exists because the answer to "why will the server not start" was once a
+// fifteen-minute hunt through pg_stat_activity, and it is the first thing
+// anyone would have asked for.
+func blockingActivity(ctx context.Context, conn *pgxpool.Conn, cause error) string {
+	// 55P03 lock_not_available (lock_timeout) and 57014 query_canceled
+	// (statement_timeout) are the two failures a lock holder explains. Any
+	// other error is about the SQL itself and a list of readers would mislead.
+	var pgErr *pgconn.PgError
+	if !errors.As(cause, &pgErr) || (pgErr.Code != "55P03" && pgErr.Code != "57014") {
+		return ""
+	}
+	rows, err := conn.Query(context.WithoutCancel(ctx), `
+		SELECT pid, state, EXTRACT(epoch FROM now() - query_start)::bigint,
+		       left(regexp_replace(query, E'\s+', ' ', 'g'), 120)
+		  FROM pg_stat_activity
+		 WHERE datname = current_database()
+		   AND pid <> pg_backend_pid()
+		   AND query_start < now() - interval '3 seconds'
+		 ORDER BY query_start
+		 LIMIT 3`)
+	if err != nil {
+		return ""
+	}
+	defer rows.Close()
+	var b strings.Builder
+	for rows.Next() {
+		var pid int
+		var state, query string
+		var age int64
+		if err := rows.Scan(&pid, &state, &age, &query); err != nil {
+			return ""
+		}
+		fmt.Fprintf(&b, "\n  possibly blocking: pid=%d state=%s age=%ds query=%q", pid, state, age, query)
+	}
+	return b.String()
 }
 
 // Query runs a one-shot query on the pool (Node `query`).

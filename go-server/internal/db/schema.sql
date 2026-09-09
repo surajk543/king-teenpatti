@@ -47,7 +47,27 @@ CREATE TABLE IF NOT EXISTS users (
 -- Added after the table existed in production, so it needs its own statement:
 -- CREATE TABLE IF NOT EXISTS above is a no-op on a database that already has
 -- the table and would never add the column.
-ALTER TABLE users ADD COLUMN IF NOT EXISTS deleted_at BIGINT NOT NULL DEFAULT 0;
+--
+-- Guarded by a catalogue lookup rather than written as a bare
+-- `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`, because that form still takes an
+-- ACCESS EXCLUSIVE lock on users EVERY BOOT even when the column is already
+-- there, and an exclusive lock queues behind any reader. On 9 Sep 2026 a
+-- long-running report holding ACCESS SHARE on users made this statement wait
+-- past PG_STATEMENT_TIMEOUT_MS, so the server failed to start and systemd
+-- restarted it into the same wall seven times. A boot that changes nothing
+-- must take no lock that a plain SELECT can block.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_schema = current_schema()
+       AND table_name   = 'users'
+       AND column_name  = 'deleted_at'
+  ) THEN
+    ALTER TABLE users ADD COLUMN deleted_at BIGINT NOT NULL DEFAULT 0;
+  END IF;
+END;
+$$;
 
 CREATE INDEX IF NOT EXISTS idx_users_last_login ON users (last_login_at DESC);
 
