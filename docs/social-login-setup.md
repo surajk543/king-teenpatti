@@ -50,8 +50,41 @@ The Web client id is:
 It is not a secret — it ships inside the APK. The Web client's *secret* is
 unused by this project and can be deleted.
 
-Still outstanding for Google: a second Android client carrying the Play
-app-signing SHA-1, and **Audience → Publish app**.
+### The four Android OAuth clients
+
+Play enrolled this app in **quantum-ready hybrid signing**, which is a key
+*rotation*, not an extra signature. Three certificates therefore identify the
+same app on different slices of the fleet, and Play Console Help says so
+outright: *"you must copy the fingerprints for three keys and register each of
+them with your API providers: your new classical and PQC keys used on newer
+devices and your classical key used on older devices."*
+
+Extracted 10 Sep 2026 from Play Console → App signing → Download certificates
+(a certificate fingerprint is just the hash of the DER bytes, which is why the
+PQC one can be read without parsing ML-DSA):
+
+| Client | SHA-1 | Certificate | Verifies on |
+|---|---|---|---|
+| debug | `A0:54:6D:CF:0D:B9:25:B9:0E:75:0A:A7:94:A2:CC:76:7C:1F:93:EB` | `~/.android/debug.keystore` | anything `adb install`ed |
+| Play (legacy) | `60:3C:5C:30:CB:CE:1F:A6:AD:B6:1B:19:A0:EC:55:5C:28:FC:98:07` | `deployment_cert.der` | Android 7–12 |
+| Play (classical) | `6D:5B:FF:9B:D5:CB:46:D6:44:43:08:D8:54:3E:C6:F8:71:C9:BB:FB` | `hybrid_classical_cert.der` | Android 13–16 |
+| Play (PQC) | `62:3C:19:FE:8B:23:7A:E2:D6:72:CC:00:E4:A9:72:BF:61:D1:99:43` | `hybrid_pqc_cert.der` | Android 17+ |
+
+One Android client holds exactly one fingerprint, so that is four clients, not
+one with four rows. None of their ids is ever referenced in code — they exist
+only so Play Services will authorise a request from this package and signature.
+The id the code *does* use is the Web client, above.
+
+Do not be talked out of the legacy row by its "Previous app signing keys"
+heading or its "Install base 0%": 0% means nobody has installed yet, and that
+certificate is what Android 7–12 will verify against when they do.
+
+Facebook key hashes for the same three, for when Facebook returns —
+`YDxcMMvOH6atthsZoOxVXCj8mAc=`, `bVv/m9XLRtZEQwjYVD7G+HHJu/s=`,
+`YjwZ/osjeuLWcswA5Klyv2HRmUM=`.
+
+Still outstanding for Google: creating those three Play clients, and
+**Audience → Publish app**.
 
 > **Where the Play fingerprint lives.** Google's support article and Google's
 > own console disagree. The article says *Play Store distribution → Go to Play
