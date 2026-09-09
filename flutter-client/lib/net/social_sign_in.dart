@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_facebook_auth/flutter_facebook_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
@@ -66,10 +67,33 @@ class SocialSignIn {
     }
     try {
       final account = await GoogleSignIn.instance.authenticate();
-      return account.authentication.idToken;
+      final idToken = account.authentication.idToken;
+      if (idToken == null) {
+        // Sign-in succeeded and produced a credential our server cannot check.
+        // The cause is always the same one: serverClientId is absent or is not
+        // the WEB client, so Google had no audience to mint an ID token for.
+        debugPrint(
+          'Google sign-in: no idToken — serverClientId is not a Web client',
+        );
+        throw const SignInUnavailable('Google');
+      }
+      return idToken;
     } on GoogleSignInException catch (e) {
-      if (e.code == GoogleSignInExceptionCode.canceled) return null;
-      rethrow;
+      // Log every one before deciding. Android's Credential Manager reports
+      // several configuration errors as "canceled" *after* an account has been
+      // picked (the plugin's own README says so), which is indistinguishable
+      // from the player backing out. Without this line a wrong SHA-1 fingerprint
+      // looks exactly like a change of mind and leaves nothing to debug.
+      debugPrint('Google sign-in: ${e.code.name}: ${e.description ?? ''}');
+      switch (e.code) {
+        case GoogleSignInExceptionCode.canceled:
+          return null;
+        case GoogleSignInExceptionCode.clientConfigurationError:
+        case GoogleSignInExceptionCode.providerConfigurationError:
+          throw const SignInUnavailable('Google');
+        default:
+          rethrow;
+      }
     }
   }
 

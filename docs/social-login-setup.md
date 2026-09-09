@@ -21,7 +21,7 @@ Nothing below is a code change. It is four values, in four places.
 |---|---|
 | Package / applicationId | `com.sungamestudio.kingteenpatti` |
 | Debug keystore SHA-1 | `A0:54:6D:CF:0D:B9:25:B9:0E:75:0A:A7:94:A2:CC:76:7C:1F:93:EB` |
-| Play app-signing SHA-1 | Play Console → Test and release → **App signing** |
+| Play app-signing SHA-1 | Play Console → **Protected with Play → Play Store protection → Manage Play app signing** |
 
 **Register both SHA-1s.** The debug one makes sign-in work on the emulator and
 on any `flutter build apk --debug` you install by hand. The Play one is the
@@ -32,16 +32,61 @@ moment it ships.
 
 ---
 
+## 0. What already exists
+
+Created 10 Sep 2026 in Cloud project **King Teen Patti** (`king-teen-patti-508120`):
+
+| Client | Type | Purpose |
+|---|---|---|
+| King Teen Patti — debug | Android | package + debug SHA-1, so Play Services trusts the app |
+| King Teen Patti backend | Web | the `serverClientId` / `aud` — **the only id used anywhere** |
+
+The Web client id is:
+
+```
+265025011940-0k4kh3ljcopn2pmkpb0q1rhbe8er8h09.apps.googleusercontent.com
+```
+
+It is not a secret — it ships inside the APK. The Web client's *secret* is
+unused by this project and can be deleted.
+
+Still outstanding for Google: a second Android client carrying the Play
+app-signing SHA-1, and **Audience → Publish app**.
+
+> **Where the Play fingerprint lives.** Google's support article and Google's
+> own console disagree. The article says *Play Store distribution → Go to Play
+> app signing*; the console's help text on the client form says *Play Store
+> protection → Manage Play app signing*. Trust the console — it is the thing
+> being clicked. Older accounts may still show *Test and release → App
+> integrity*.
+
 ## 1. Google
 
 In the Google Cloud console, on the project you want the game under:
 
-1. **APIs & Services → OAuth consent screen** — set it up (External), add your
-   own account as a test user until it is published.
-2. **Credentials → Create credentials → OAuth client ID → Android.** Package
-   name and SHA-1 as above. Do this **twice**, once per SHA-1.
-3. **Credentials → Create credentials → OAuth client ID → Web application.**
-   This one you never use directly in the app; you copy its client id.
+1. **Google Auth Platform** (`/auth/overview`) → **GET STARTED**. This is where
+   the old *APIs & Services → OAuth consent screen* went; it is now split into
+   Overview / Branding / Audience / Clients / Data Access / Verification Center.
+   Audience must be **External** — Internal needs a Workspace organisation and
+   would reject every consumer account with `org_internal`.
+2. **Data Access → ADD OR REMOVE SCOPES** — tick exactly `openid`,
+   `userinfo.email`, `userinfo.profile`. All three are classed *non-sensitive*,
+   and that is the entire reason this app can publish without Google's review.
+   One sensitive scope turns that into mandatory verification with a demo video
+   and a hard 100-user cap.
+3. **Branding** — fill **Authorised domains** (`sungamestudio.com`, bare apex)
+   *first*; the home-page and privacy-policy fields stay locked until it saves.
+4. **Clients → CREATE CLIENT → Android.** Package name and SHA-1 as above.
+   The form takes one fingerprint, so debug and Play app-signing need **two
+   separate Android clients**, not two rows on one. (The old *APIs & Services →
+   Credentials* page still works and lists the same objects.)
+5. **Clients → CREATE CLIENT → Web application.** Leave *Authorised JavaScript
+   origins* and *Authorised redirect URIs* empty — they govern browser
+   redirects, and none happens here: the token is minted on-device by Play
+   Services. Copy this one's client id.
+6. **Audience → Publish app.** Until you do, sign-in is refused for anyone not
+   listed under *Test users*, and a test-user slot is consumed permanently the
+   moment it is added — removing the person does not give it back.
 
 The Web client id is what both remaining steps want. It is what makes Google
 return an `idToken` at all — with only the Android clients the sign-in
@@ -103,6 +148,32 @@ sudo systemctl restart gameplay
 ```
 
 ---
+
+## When a Google sign-in fails
+
+Android's Credential Manager reports several **configuration** errors as
+`canceled`, *after* an account has been picked — indistinguishable from the
+player changing their mind. `google_sign_in_android`'s own README says so. The
+app therefore logs every failure before deciding what to do with it:
+
+```bash
+adb logcat | grep "Google sign-in"
+```
+
+| What you see | What it means |
+|---|---|
+| `canceled` with no account picker shown | genuinely dismissed |
+| `canceled` right after picking an account | wrong SHA-1, or the wrong Cloud project |
+| `clientConfigurationError` | package name or fingerprint does not match any Android client |
+| `no idToken` | `GOOGLE_SERVER_CLIENT_ID` missing at build time, or not the **Web** client |
+| `Wrong recipient` from our server | app id and `GOOGLE_CLIENT_IDS` differ |
+| `provider_unconfigured` (503) | server env empty, or `gameplay` not restarted |
+
+Two traps that waste the most time here: console changes take **5 minutes to a
+few hours** to propagate, so an immediate retest measures nothing; and Google
+sign-in cannot be tested on this machine's emulators at all — both installed
+system images are `google_apis`, which has no Play Store and so no Google
+account. Use a `google_apis_playstore` image or a real device.
 
 ## One thing to fix before this ships
 
