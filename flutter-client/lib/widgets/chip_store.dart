@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:in_app_purchase/in_app_purchase.dart';
 import 'package:provider/provider.dart';
 
 import '../l10n/strings.dart';
@@ -29,6 +30,7 @@ enum Flair { none, fire, crown }
 class ChipPack {
   const ChipPack({
     required this.id,
+    required this.productId,
     required this.rupees,
     required this.chips,
     this.bonusPercent = 0,
@@ -37,6 +39,10 @@ class ChipPack {
   });
 
   final String id;
+
+  /// The Play Console product id. It must match internal/purchase/catalogue.go
+  /// exactly — that file, not this one, decides how many chips it is worth.
+  final String productId;
   final int rupees;
   final int chips;
 
@@ -51,19 +57,19 @@ class ChipPack {
 /// The shelf, in the owner's order. Cheapest first, so scrolling right is
 /// always "more".
 const chipPacks = <ChipPack>[
-  ChipPack(id: 'A', rupees: 99, chips: 19200000, mark: ShelfMark.starter),
-  ChipPack(id: 'B', rupees: 199, chips: 52800000, bonusPercent: 20),
-  ChipPack(id: 'C', rupees: 399, chips: 120000000, bonusPercent: 30),
+  ChipPack(id: 'A', productId: 'chips_a_99', rupees: 99, chips: 19200000, mark: ShelfMark.starter),
+  ChipPack(id: 'B', productId: 'chips_b_199', rupees: 199, chips: 52800000, bonusPercent: 20),
+  ChipPack(id: 'C', productId: 'chips_c_399', rupees: 399, chips: 120000000, bonusPercent: 30),
   ChipPack(
-    id: 'D',
+    id: 'D', productId: 'chips_d_999',
     rupees: 999,
     chips: 352000000,
     bonusPercent: 40,
     mark: ShelfMark.popular,
   ),
-  ChipPack(id: 'E', rupees: 1499, chips: 600000000, bonusPercent: 50),
+  ChipPack(id: 'E', productId: 'chips_e_1499', rupees: 1499, chips: 600000000, bonusPercent: 50),
   ChipPack(
-    id: 'F',
+    id: 'F', productId: 'chips_f_2999',
     rupees: 2999,
     chips: 1500000000,
     bonusPercent: 55,
@@ -71,7 +77,7 @@ const chipPacks = <ChipPack>[
     flair: Flair.fire,
   ),
   ChipPack(
-    id: 'G',
+    id: 'G', productId: 'chips_g_4999',
     rupees: 4999,
     chips: 2750000000,
     bonusPercent: 60,
@@ -79,7 +85,7 @@ const chipPacks = <ChipPack>[
     flair: Flair.fire,
   ),
   ChipPack(
-    id: 'H',
+    id: 'H', productId: 'chips_h_6900',
     rupees: 6900,
     chips: 4000000000,
     bonusPercent: 65,
@@ -87,7 +93,7 @@ const chipPacks = <ChipPack>[
     flair: Flair.crown,
   ),
   ChipPack(
-    id: 'I',
+    id: 'I', productId: 'chips_i_7900',
     rupees: 7900,
     chips: 5000000000,
     bonusPercent: 70,
@@ -125,13 +131,38 @@ Future<void> showChipStore(BuildContext context) {
   );
 }
 
-class _ChipStore extends StatelessWidget {
+class _ChipStore extends StatefulWidget {
   const _ChipStore();
+
+  @override
+  State<_ChipStore> createState() => _ChipStoreState();
+}
+
+class _ChipStoreState extends State<_ChipStore> {
+  /// Play's own prices, in the player's currency. Fetched when the store
+  /// opens rather than held on the state: prices are Play's to change, and a
+  /// figure cached across sessions could be wrong by the time it is shown.
+  Map<String, ProductDetails> _prices = const {};
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPrices();
+  }
+
+  Future<void> _loadPrices() async {
+    final got = await context
+        .read<GameState>()
+        .purchases
+        .priceList(chipPacks.map((p) => p.productId).toSet());
+    if (mounted && got.isNotEmpty) setState(() => _prices = got);
+  }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final t = context.watch<GameState>().t;
+    final prices = _prices;
 
     return Center(
       child: Padding(
@@ -201,7 +232,7 @@ class _ChipStore extends StatelessWidget {
                           separatorBuilder: (_, i) => const SizedBox(width: 12),
                           itemBuilder: (context, i) => _PackEntrance(
                             index: i,
-                            child: _PackCard(pack: chipPacks[i]),
+                            child: _PackCard(pack: chipPacks[i], prices: prices),
                           ),
                         ),
                       ),
@@ -270,9 +301,15 @@ class _PackEntranceState extends State<_PackEntrance>
 }
 
 class _PackCard extends StatefulWidget {
-  const _PackCard({required this.pack});
+  const _PackCard({required this.pack, required this.prices});
 
   final ChipPack pack;
+
+  /// What Play says these cost, keyed by product id. Empty when Play is
+  /// unavailable or has not answered yet, and then the card falls back to the
+  /// list price — an approximate figure beats an empty shelf, and the real one
+  /// is always shown on Play's own sheet before anyone is charged.
+  final Map<String, ProductDetails> prices;
 
   @override
   State<_PackCard> createState() => _PackCardState();
@@ -329,13 +366,24 @@ class _PackCardState extends State<_PackCard>
     final state = context.watch<GameState>();
     final t = state.t;
     final p = widget.pack;
+    final prices = widget.prices;
     final accent = p.featured ? AppTheme.gold : _markColour(scheme);
 
     void buy() {
-      // Deliberately does not pretend to sell anything. There is no payment
-      // path wired up, and a button that looks like it charged money is worse
-      // than one that says it did not.
-      state.notice = t.storeNotLive;
+      // Play is the only thing that can take money, and it is not always
+      // there: an emulator without Play Services, a side-loaded build, a
+      // device signed out of Play. Say so plainly instead of failing at the
+      // billing sheet.
+      final details = prices[p.productId];
+      if (!state.purchases.available || details == null) {
+        state.notice = t.storeNotLive;
+        Navigator.pop(context);
+        return;
+      }
+      // From here the result arrives on the purchase stream, not from this
+      // call — see net/purchases.dart. The store closes; a purchase that
+      // completes minutes later is still credited and still celebrated.
+      state.purchases.buy(details);
       Navigator.pop(context);
     }
 
@@ -460,7 +508,8 @@ class _PackCardState extends State<_PackCard>
                                 shape: const StadiumBorder(),
                               ),
                               child: Text(
-                                '₹${_grouped(p.rupees)}',
+                                prices[p.productId]?.price ??
+                                    '₹${_grouped(p.rupees)}',
                                 style: const TextStyle(
                                   fontWeight: FontWeight.w900,
                                   fontSize: 15,

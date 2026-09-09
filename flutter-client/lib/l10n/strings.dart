@@ -86,6 +86,7 @@ class Strings {
   String get rewardComeBack => _('rewardComeBack');
   String get rewardMilestoneAgain => _('rewardMilestoneAgain');
   String get rewardRefused => _('rewardRefused');
+  String get rewardPurchased => _('rewardPurchased');
   String get tapToClose => _('tapToClose');
 
   // --- buying chips, not open yet
@@ -258,6 +259,7 @@ class Strings {
       'collect': 'Collect',
       'rewardCollected': 'Reward collected!',
       'rewardComeBack': 'Come again after 4 hours.',
+      'rewardPurchased': 'The chips are in your wallet. Good luck.',
       'rewardMilestoneAgain': 'Another 25 hands earns the next one.',
       'rewardRefused': 'Not ready to collect yet.',
       'tapToClose': 'Tap to close',
@@ -416,6 +418,7 @@ class Strings {
       'collect': 'लें',
       'rewardCollected': 'इनाम मिल गया!',
       'rewardComeBack': '4 घंटे बाद फिर आइए।',
+      'rewardPurchased': 'चिप्स आपके वॉलेट में हैं। शुभकामनाएँ।',
       'rewardMilestoneAgain': 'अगले के लिए 25 हाथ और खेलें।',
       'rewardRefused': 'अभी लेने के लिए तैयार नहीं।',
       'tapToClose': 'बंद करने के लिए टैप करें',
@@ -574,6 +577,7 @@ class Strings {
       'collect': 'নিন',
       'rewardCollected': 'পুরস্কার সংগ্রহ হয়েছে!',
       'rewardComeBack': '৪ ঘণ্টা পরে আবার আসুন।',
+      'rewardPurchased': 'চিপ আপনার ওয়ালেটে আছে। শুভকামনা।',
       'rewardMilestoneAgain': 'পরেরটির জন্য আরও ২৫ হাত।',
       'rewardRefused': 'এখনও নেওয়ার জন্য প্রস্তুত নয়।',
       'tapToClose': 'বন্ধ করতে ট্যাপ করুন',
@@ -732,6 +736,7 @@ class Strings {
       'collect': 'લો',
       'rewardCollected': 'ઇનામ મળી ગયું!',
       'rewardComeBack': '4 કલાક પછી ફરી આવો.',
+      'rewardPurchased': 'ચિપ્સ તમારા વૉલેટમાં છે. શુભકામના.',
       'rewardMilestoneAgain': 'આગલા માટે વધુ 25 હાથ.',
       'rewardRefused': 'હજી લેવા માટે તૈયાર નથી.',
       'tapToClose': 'બંધ કરવા ટૅપ કરો',
@@ -890,6 +895,7 @@ class Strings {
       'collect': 'ਲਓ',
       'rewardCollected': 'ਇਨਾਮ ਮਿਲ ਗਿਆ!',
       'rewardComeBack': '4 ਘੰਟੇ ਬਾਅਦ ਫਿਰ ਆਓ।',
+      'rewardPurchased': 'ਚਿੱਪਾਂ ਤੁਹਾਡੇ ਵਾਲਿਟ ਵਿੱਚ ਹਨ। ਸ਼ੁਭਕਾਮਨਾਵਾਂ।',
       'rewardMilestoneAgain': 'ਅਗਲੇ ਲਈ ਹੋਰ 25 ਹੱਥ।',
       'rewardRefused': 'ਹਾਲੇ ਲੈਣ ਲਈ ਤਿਆਰ ਨਹੀਂ।',
       'tapToClose': 'ਬੰਦ ਕਰਨ ਲਈ ਟੈਪ ਕਰੋ',

@@ -175,7 +175,11 @@ class _RewardCelebrationState extends State<_RewardCelebration>
       _in.forward(from: 0);
     }
 
-    final isBonus = won.kind == 'bonus';
+    final blurb = switch (won.kind) {
+      'bonus' => t.rewardComeBack,
+      'purchase' => t.rewardPurchased,
+      _ => t.rewardMilestoneAgain,
+    };
     return Positioned.fill(
       child: GestureDetector(
         onTap: state.dismissReward,
@@ -229,7 +233,7 @@ class _RewardCelebrationState extends State<_RewardCelebration>
                           ),
                           const SizedBox(height: 14),
                           Text(
-                            isBonus ? t.rewardComeBack : t.rewardMilestoneAgain,
+                            blurb,
                             textAlign: TextAlign.center,
                             style: theme.textTheme.bodyLarge?.copyWith(
                               color: theme.colorScheme.onSurfaceVariant,

@@ -111,10 +111,41 @@ class ApiClient {
     return User.fromJson(Map<String, dynamic>.from(j['user'] as Map));
   }
 
+  /// Hands a Google Play receipt to the server for verification.
+  ///
+  /// Sends only what Play gave us — which product, and the purchase token. No
+  /// amount: the server holds the catalogue and decides what a product is
+  /// worth, because a client that could name its own figure could mint chips.
+  ///
+  /// `credited` false with a 200 means this receipt had already been banked
+  /// (a retry, or a purchase restored on a new install). That is success: the
+  /// chips are in the wallet, and the caller should finish the Play
+  /// transaction rather than leave it to be delivered again.
+  Future<({User? user, bool credited, int chips, int balance})> redeemPurchase(
+    String token,
+    String productId,
+    String purchaseToken,
+  ) async {
+    final r = await http.post(
+      _uri('/api/purchases/google'),
+      headers: _headers(token),
+      body: jsonEncode({'productId': productId, 'purchaseToken': purchaseToken}),
+    );
+    final j = _decode(r);
+    return (
+      user: j['user'] is Map
+          ? User.fromJson(Map<String, dynamic>.from(j['user'] as Map))
+          : null,
+      credited: j['credited'] == true,
+      chips: (j['chips'] as num?)?.toInt() ?? 0,
+      balance: (j['balance'] as num?)?.toInt() ?? 0,
+    );
+  }
+
   /// Claims a reward. [kind] is "milestone" (requirement 17) or "bonus"
-  /// (requirement 18). The server decides whether it is actually due.
-  /// Collects a reward. The server answers 200 `{claimed:true, amount,
-  /// milestone|readyAt, user}`, or 409 `{error, message, readyAt?, user}`.
+  /// (requirement 18). The server decides whether it is actually due, and
+  /// answers 200 `{claimed:true, amount, milestone|readyAt, user}` or 409
+  /// `{error, message, readyAt?, user}`.
   ///
   /// Read `claimed`, and read the amount from `amount` — NOT from `awarded`,
   /// which no endpoint has ever sent. Keying success off a missing field meant

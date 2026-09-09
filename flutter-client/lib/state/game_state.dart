@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:in_app_purchase/in_app_purchase.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
@@ -9,6 +10,7 @@ import '../l10n/strings.dart';
 import '../models/dtos.dart';
 import '../net/api_client.dart';
 import '../net/game_connection.dart';
+import '../net/purchases.dart';
 
 enum Screen { splash, login, lobby, table }
 
@@ -34,6 +36,16 @@ class GameState extends ChangeNotifier {
 
   final String serverUrl;
   final ApiClient _api;
+
+  /// Google Play. Subscribed at startup, not when the store opens: Play
+  /// delivers a purchase whenever it can — days later, on a new device, after
+  /// a reinstall — and one that arrives while the store is closed still has to
+  /// be honoured.
+  final Purchases purchases = Purchases();
+
+  /// Set while a purchase is with Play or being credited, so the store can
+  /// show progress instead of looking unresponsive.
+  bool purchasePending = false;
   final GameConnection _conn;
   final List<StreamSubscription<dynamic>> _subs = [];
 
@@ -166,6 +178,7 @@ class GameState extends ChangeNotifier {
 
   Future<void> start() async {
     final splashShownAt = DateTime.now();
+    _startPurchases();
     final prefs = await SharedPreferences.getInstance();
 
     // Guest play is keyed to a device id, so chips survive a restart.
@@ -545,6 +558,64 @@ class GameState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Subscribes to Play and says what to do with a purchase when one lands.
+  void _startPurchases() {
+    purchases
+      ..onPending = () {
+        purchasePending = true;
+        notifyListeners();
+      }
+      ..onFailed = (message) {
+        purchasePending = false;
+        notice = message;
+        notifyListeners();
+      }
+      ..onDeliver = _deliverPurchase;
+    unawaited(purchases.start());
+  }
+
+  /// Hands one receipt to the server and, if it banks the chips, reports true
+  /// so the purchase can be completed with Play.
+  ///
+  /// Returning false is not a failure to swallow — it leaves the purchase
+  /// pending with Play, which re-delivers it on the next launch. That is the
+  /// safety net for dying between paying and crediting, and the reason this
+  /// must never return true on a path that did not credit.
+  Future<bool> _deliverPurchase(PurchaseDetails purchase) async {
+    final token = _token;
+    if (token == null) return false; // signed out; Play will bring it back
+    final receipt = purchase.verificationData.serverVerificationData;
+    if (receipt.isEmpty) return false;
+
+    try {
+      final r = await _api.redeemPurchase(token, purchase.productID, receipt);
+      if (r.user != null) user = r.user;
+      purchasePending = false;
+      // `credited` false means the server had already banked this receipt.
+      // Still a success: the chips are in the wallet and the transaction
+      // should be finished rather than delivered again.
+      if (r.credited) {
+        rewardWon = (kind: 'purchase', amount: r.chips, readyAt: 0);
+      }
+      notifyListeners();
+      return true;
+    } on ApiException catch (e) {
+      // The server refused it — a receipt Google would not confirm, or an
+      // unknown product. Completing it stops an endless redelivery loop of
+      // something that will never be accepted.
+      purchasePending = false;
+      notice = e.message;
+      notifyListeners();
+      return true;
+    } catch (_) {
+      // Network or server trouble: keep the purchase pending so the next
+      // launch retries. The player has paid and must not lose the chips.
+      purchasePending = false;
+      notifyListeners();
+      return false;
+    }
+  }
+
   Future<void> claimReward(String kind) async {
     final token = _token;
     if (token == null) return;
@@ -829,6 +900,7 @@ class GameState extends ChangeNotifier {
 
   @override
   void dispose() {
+    unawaited(purchases.dispose());
     _clearSideshow();
     _resumeTimer?.cancel();
     _seatCheck?.cancel();
