@@ -14,6 +14,17 @@ Design: `../LIVE_STATE_PLAN.md` (authoritative).
 > `ReconcileWithLedger`, `Table.Snapshots`/`markDurable`/`MarkDeleted`, `RoomManager.Snapshots`/
 > `Durable` and Restore's second pass are all **deleted**; `game_states` is dropped from the schema.
 
+> **Superseded again, 9 Sep 2026 (same day, second reversal).** The owner then went further: PostgreSQL
+> is written at **three checkpoints only** — a player packs (`hand_packed`), a player leaves or
+> switches (`hand_left`), and the hand ends (`hand_win`/`hand_loss`). The deal writes nothing, so
+> `Ledger.CollectBoot` is gone; bets are never banked individually, so `Table.flushBets`,
+> `Ledger.FlushBets`, `StakedBet`, the `flushed` flag and `bankBets` are gone with it. The interface
+> is now `Ledger{Checkpoint, Settle}` and each write is a **delta** (`chips now − chips as last
+> written`, tracked as `chipsWritten`), never an absolute. `pots` and `hands` are dropped from the
+> schema, `db.RefundOrphanedPots` is deleted, and a lost Redis rebuilds **nothing** — players simply
+> re-join. Everything below about flushing, banking, boots and refunds is therefore history.
+> **Current truth: `../LIVE_STATE_PLAN.md` §The money model, and CLAUDE.md §5.1.**
+
 ## 1. What changed, in one paragraph
 
 Every `Table` serialises its full `Snapshot` (cards included) **once per posted closure** that

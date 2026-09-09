@@ -14,6 +14,16 @@ Owner scope: `internal/socket/*`, `internal/app/*`, `internal/db/*`, `internal/c
 > `/health.live` is `{kind, ok, tables}`. What survives is the live store, the refund, and the
 > money model below.
 
+> **Superseded again, 9 Sep 2026 (same day, second reversal).** PostgreSQL is now written at **three
+> checkpoints only** (pack / leave / hand end) and holds **two tables, `users` and `chip_ledger`** —
+> `pots` and `hands` are dropped alongside `game_states`, `db/refund.go` is deleted with
+> `game_refunded_pots_total` and `game_refunded_chips_total`, and `GET /api/auth/me/hands` is removed
+> with the table it read. `Ledger` is `{Checkpoint, Settle}`; `Bet`, `CollectBoot`, `FlushBets` and
+> `bankBets` are all gone, and every write is a **delta** rather than an absolute so a reward cannot
+> be erased. Rewards are refused while seated (409 `seated`). Losing Redis rebuilds nothing. Every
+> section below on refunds, boots, flushing and `pots` is therefore history.
+> **Current truth: `../LIVE_STATE_PLAN.md` §The money model, and CLAUDE.md §5.1.**
+
 ## What changed
 
 | Package | Change |

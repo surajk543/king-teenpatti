@@ -14,8 +14,8 @@ Target architecture (owner's diagram, 9 Sep 2026):
         │ ALL game  │  │ users        │
         │   state   │  │ wallets      │
         │ presence  │  │ chip_ledger  │
-        │ deadlines │  │ pots         │
-        │matchmaking│  │ hands, audit │
+        │ deadlines │  │ TWO TABLES   │
+        │matchmaking│  │ ONLY         │
         └──────────┘  └──────────────┘
       THE ONLY COPY      MONEY AND AUDIT ONLY
       lose it → rejoin   never lose
@@ -35,25 +35,25 @@ Target architecture (owner's diagram, 9 Sep 2026):
 >
 > "4. do not store any game state info in pg database … so check pg schema again."
 
-So: **Redis holds all game state; PostgreSQL holds money and audit only** (`users`, `chip_ledger`,
-`pots`, `hands` — the `game_states` table is gone from the schema). A Redis loss loses the tables:
-players re-join, and the one thing that must still happen is the money safety net — every `pots` row
-left open with no live table is refunded to its contributors (`RefundOrphanedPots`).
+So: **Redis holds all game state; PostgreSQL holds money and audit only, in exactly two tables —
+`users` and `chip_ledger`.** `game_states`, `pots` and `hands` are all gone from the schema. A Redis
+loss loses the tables and the hands with them: nothing is reconstructed and every player re-joins.
+There is no refund path, because there is no pot in PostgreSQL to refund.
 
 ## What moves where
 
 | Today (single process, Postgres only) | After |
 |---|---|
-| `game_states` JSONB upsert inside every bet/boot/settle transaction | Snapshot saved to the live store by the table actor after every mutation; `game_states` is dropped from the schema and PostgreSQL sees no game state at all |
+| `game_states` JSONB upsert inside every bet/boot/settle transaction | Snapshot saved to the live store by the table actor after every mutation; `game_states`, `pots` and `hands` are all dropped from the schema and PostgreSQL sees no game state at all |
 | `stale_state` guard = `game_states.version` | CAS on the live store's per-table `seq` (`live.ErrStale`) |
 | RoomManager `playerRooms` in memory only | Mirrored to the live store (`SetSeated`/`ClearSeated`) |
 | `resumeOffers` map in the socket handler | Live store with TTL (`PutResumeOffer`/`TakeResumeOffer`), survives restarts |
 | Timers only in process | Deadlines are in the snapshot (turn, sideshow, next hand); a restarted process re-arms them |
 | Lobby selection in memory | Still in memory for one instance; every change is published to the index so a restart (or later a second instance) can read it |
 | Chat buffer in memory | Mirrored to the live store (capped list) so it survives a restart with the table. **Never written to PostgreSQL** — if the live store is lost the chat is lost with it, by design |
-| Restart = every table and pot lost | Restart = tables rebuilt from the live store, seats held for `RECONNECT_GRACE_MS`, timers re-armed; orphaned open pots (no live table) refunded from the ledger |
-| One money transaction per bet | **No** money transaction per bet: PostgreSQL is written at the deal (boots), when a player leaves the hand (their bets), and at the settlement (everyone else's bets plus the payout) — §The money model below |
-| Restart with an empty Redis = rooms rebuilt from `game_states` | Restart with an empty Redis = **nothing is rebuilt**; players re-join and every open pot is refunded |
+| Restart = every table and pot lost | Restart = tables rebuilt from the live store, seats held for `RECONNECT_GRACE_MS`, timers re-armed |
+| One money transaction per bet | **No** money transaction per bet, and none at the deal either: PostgreSQL is written when a player packs, when a player leaves or switches, and when the hand ends — §The money model below |
+| Restart with an empty Redis = rooms rebuilt from `game_states` | Restart with an empty Redis = **nothing is rebuilt**; players re-join into fresh tables |
 
 ## Invariants that must hold
 
@@ -75,7 +75,7 @@ left open with no live table is refunded to its contributors (`RefundOrphanedPot
 
 1. `live.Open` (Redis when `REDIS_URL` set, memory otherwise; fail fast if Redis is unreachable).
 2. `rooms.Restore(ctx)`: `ListTables` → for each `LoadTable` → `game.RestoreTable(snapshot, opts)` → register in maps (`playerRooms` from seats) → `PublishTable`. Tables whose snapshot fails to parse are deleted from the store and reported. **This is the only pass there is**: an empty live store restores nothing.
-3. `db.RefundOrphanedPots(ctx, liveHandIDs)`: every `pots` row with `closed_at IS NULL` whose `hand_id` is not held by a restored table gets each contributor's boot/bet/show total returned (one ledger row per contributor) and the pot closed with `winner_id NULL`. Logged and counted (`game_refunded_pots_total`). **This is the whole safety net** — the reason a lost Redis costs nobody a chip.
+3. *(Removed 9 Sep 2026.)* There was a third step here — `db.RefundOrphanedPots`, which returned every open `pots` row with no restored table. It went with the `pots` table: PostgreSQL no longer knows a pot exists, so there is nothing to orphan and nothing to refund. What a lost Redis costs now is set out under §The money model.
 4. `handler.RestoreSeats(rooms)`: for every restored seat, mark disconnected and arm the reconnect grace timer exactly as a drop would; when the player reconnects, `session:ready` → `room:joined` as today.
 5. Restored tables re-arm their own timers inside `RestoreTable`: turn deadline in the past → the pack fires on the first actor turn; sideshow past its expiry → lapses; `starting` → `startsAt` (or now).
 6. Then the sweeper starts and the listener opens.
@@ -99,13 +99,13 @@ left open with no live table is refunded to its contributors (`RefundOrphanedPot
 
 | Env | Default | Meaning |
 |---|---|---|
-| `REDIS_URL` | empty | empty = in-process live store (single instance, nothing survives a restart — the tables are lost and the pots refunded); `redis://127.0.0.1:6379/0` in production |
+| `REDIS_URL` | empty | empty = in-process live store (single instance, nothing survives a restart — the tables are lost and players re-join); `redis://127.0.0.1:6379/0` in production |
 | `LIVE_STATE_TTL_MS` | 86400000 | snapshot expiry for a table that stops updating |
 | `LIVE_INSTANCE_ID` | hostname:pid | presence/matchmaking owner tag |
 
 ## Metrics
 
-`game_live_store_operations_total{op,result}`, `game_live_store_duration_seconds{op}` (buckets 0.1 ms … 1 s), `game_restored_tables_total` (**no labels** — the live store is the only source), `game_restored_seats_total`, `game_refunded_pots_total`, `game_refunded_chips_total`, `game_live_store_errors_total{op}`, `game_live_store_reconciles_total{result}`. `/health.live` = `{kind, ok, tables}`.
+`game_live_store_operations_total{op,result}`, `game_live_store_duration_seconds{op}` (buckets 0.1 ms … 1 s), `game_restored_tables_total` (**no labels** — the live store is the only source), `game_restored_seats_total`, `game_live_store_errors_total{op}`, `game_live_store_reconciles_total{result}`. `/health.live` = `{kind, ok, tables}`.
 
 ## Ops
 
@@ -225,4 +225,4 @@ not one permanent key.
 
 ### Metrics
 
-`game_live_store_reconciles_total{result}`, `game_restored_tables_total` (unlabelled), `game_refunded_pots_total`, `game_refunded_chips_total`. The live-store op labels include `list_seats` and `list_summaries`. `game_db_transaction_duration_seconds{op="bet"}` now times the transaction that BANKS a player's bets (a departure), not one per bet.
+`game_live_store_reconciles_total{result}`, `game_restored_tables_total` (unlabelled). The live-store op labels include `list_seats` and `list_summaries`. `game_refunded_pots_total` and `game_refunded_chips_total` are **gone** with the refund path. `game_db_transaction_duration_seconds{op="bet"}` now times a checkpoint (a pack or a departure), not one per bet — expect it to be near-silent between checkpoints.
