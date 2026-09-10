@@ -515,6 +515,16 @@ are epoch-ms BIGINT. Rewards: milestone 25,000 / 25 hands (`didChaal` only), tim
 constants in `users.js`. Display names: `NAME_PATTERN = /^[\p{L}\p{N}][\p{L}\p{N}\p{M} ]*$/u` —
 **`\p{M}` is essential** for Indic vowel signs.
 
+**`users` rows are never deleted** (owner's decision, 10 Sep 2026): trigger `users_no_delete`
+(`users_immutable_rows()`, `schema.sql`, created only when missing) raises on every DELETE from every
+caller — the server never issues one (`DELETE /api/account` pseudonymises). Removing a row is a
+deliberate privileged step: `sudo -u postgres psql gameplay`, `ALTER TABLE users DISABLE TRIGGER
+users_no_delete`, delete, re-enable. Prod's app role `gameplay_app` still **owns** the table and the
+function (it runs `schema.sql`), so it could disable the trigger; DEPLOY.md §7 has the one-time
+ownership transfer that closes that (owner → `postgres`, `GRANT SELECT, INSERT, UPDATE` back), which
+needs sudo on the host and is why the function is create-if-missing rather than CREATE OR REPLACE.
+Test: `TestUserRowsAreNeverDeleted` (`internal/db/users_delete_test.go`).
+
 Ledger `reason` values: `welcome_bonus, hand_packed, hand_left, hand_win, hand_loss,
 milestone_reward, timed_bonus, purchase, account_deleted, legacy_reconciliation, test_fixture`.
 (`purchase` is a Google Play chip pack, action_id `gplay:<token>`; `account_deleted` empties the

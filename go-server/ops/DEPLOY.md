@@ -296,6 +296,47 @@ back to 8 GiB when that job is absent — edit the constant in `alerts.yml` if t
 
 ---
 
+## 7. Locking `users` rows to the superuser — one-time, sudo
+
+Since 10 Sep 2026 `schema.sql` installs a trigger, `users_no_delete`, that refuses every `DELETE
+FROM users` (the server never issues one; `DELETE /api/account` pseudonymises the row). It lands
+on the next restart with no action needed. But the app role `gameplay_app` **owns** the table and
+the trigger function, because it is the role that runs `schema.sql`, and an owner can disable a
+trigger. To make deleting a user something only a person with sudo on the host can do, hand both
+to the `postgres` superuser once, and grant the app role back exactly what it uses:
+
+```bash
+sudo -u postgres psql gameplay <<'SQL'
+ALTER FUNCTION users_immutable_rows() OWNER TO postgres;
+ALTER TABLE users OWNER TO postgres;
+GRANT SELECT, INSERT, UPDATE ON users TO gameplay_app;
+SQL
+sudo systemctl restart gameplay          # proves schema.sql still boots under the new ownership
+```
+
+Verify, as the app role (the `DATABASE_URL` in `go-server/.env`):
+
+```bash
+psql "$(sed -n 's/^DATABASE_URL=//p' /var/www/gameplay/king-teenpatti/go-server/.env)" <<'SQL'
+BEGIN; DELETE FROM users WHERE id = (SELECT id FROM users LIMIT 1); ROLLBACK;   -- ERROR: users rows are never deleted …
+ALTER TABLE users DISABLE TRIGGER users_no_delete;                              -- ERROR: must be owner of table users
+SQL
+```
+
+From then on, removing a row is deliberately three statements as `postgres`:
+
+```sql
+ALTER TABLE users DISABLE TRIGGER users_no_delete;
+DELETE FROM users WHERE id = '…';        -- cascades into chip_ledger, whose own trigger will refuse it:
+ALTER TABLE users ENABLE TRIGGER users_no_delete;   -- a player with ledger rows cannot be removed at all, by design
+```
+
+The one trap: a future `schema.sql` that alters `users` (`ALTER TABLE users ADD COLUMN …`) will fail
+at boot under `gameplay_app` once `postgres` owns the table — run that statement as `postgres`
+first, or add it as a guarded `DO` block that skips when the column exists. This is why the trigger
+function is created only when missing rather than with `CREATE OR REPLACE`, which would need the
+owner on every boot.
+
 ## Troubleshooting
 
 | Symptom | Cause / fix |

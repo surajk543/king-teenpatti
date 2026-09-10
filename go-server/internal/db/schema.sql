@@ -71,6 +71,51 @@ $$;
 
 CREATE INDEX IF NOT EXISTS idx_users_last_login ON users (last_login_at DESC);
 
+-- A users row is never deleted (owner's decision, 10 Sep 2026). The server
+-- has no reason to: DELETE /api/account pseudonymises the row in place
+-- (db.Users.DeleteAccount) because chip_ledger references it ON DELETE
+-- CASCADE and the money audit must outlive the player. So a DELETE here can
+-- only be a mistake or a hand on the wrong console, and it is refused from
+-- every caller — the app role, a psql session, a script. Removing a row
+-- takes a deliberate privileged step, as the table owner or a superuser:
+--
+--   ALTER TABLE users DISABLE TRIGGER users_no_delete;
+--   DELETE FROM users WHERE id = '…';
+--   ALTER TABLE users ENABLE TRIGGER users_no_delete;
+--
+-- which in production means `sudo -u postgres psql gameplay` on the host.
+--
+-- Created only when missing, NOT CREATE OR REPLACE, so the function and the
+-- table can be handed to the postgres superuser (ops/DEPLOY.md §7: ALTER …
+-- OWNER TO postgres; GRANT SELECT, INSERT, UPDATE ON users TO gameplay_app)
+-- and this file still boots: once the app role no longer owns either, it can
+-- neither delete a row nor disable the trigger nor rewrite the function —
+-- only sudo on the host can.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_proc
+     WHERE proname = 'users_immutable_rows'
+       AND pronamespace = current_schema()::regnamespace
+  ) THEN
+    CREATE FUNCTION users_immutable_rows() RETURNS trigger AS $fn$
+    BEGIN
+      RAISE EXCEPTION 'users rows are never deleted (attempted % on %); pseudonymise through DELETE /api/account, or disable trigger users_no_delete as a superuser', TG_OP, OLD.id;
+    END;
+    $fn$ LANGUAGE plpgsql;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger
+     WHERE tgname = 'users_no_delete'
+       AND tgrelid = 'users'::regclass
+  ) THEN
+    CREATE TRIGGER users_no_delete
+      BEFORE DELETE ON users
+      FOR EACH ROW EXECUTE FUNCTION users_immutable_rows();
+  END IF;
+END;
+$$;
+
 -- Per-player ledger. Chip movements are only ever written through this table
 -- so users.chips can be reconciled against it. Rows are never updated or
 -- deleted (see the trigger below).
