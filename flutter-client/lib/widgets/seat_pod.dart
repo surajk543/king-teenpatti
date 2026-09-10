@@ -192,7 +192,10 @@ class SeatPod extends StatelessWidget {
         // hand first and reads the label second, and a label underneath sat
         // between one seat's cards and the next seat's pod — which is the one
         // place on a crowded table it could be mistaken for either.
-        if (revealedHand != null) _handName(context, revealedHand!),
+        // Not on the winner: their ribbon already carries the ranking, and
+        // the same words twice, six lines apart, read as a glitch.
+        if (revealedHand != null && s.status != SeatState.won)
+          _handName(context, revealedHand!),
         _cards(s),
       ],
       // The viewer's badge and total are not in their column: they are drawn
@@ -547,9 +550,13 @@ class SeatPod extends StatelessWidget {
     );
   }
 
-  /// The hand's name, under the cards, at a showdown.
+  /// The hand's name, above the cards, at a showdown or a sideshow peek.
+  ///
+  /// Champagne on charcoal, deep gold on parchment: the table is pale in the
+  /// light scheme, and [AppTheme.goldBright] on it is very nearly invisible.
   Widget _handName(BuildContext context, String name) {
     final theme = Theme.of(context);
+    final dark = theme.brightness == Brightness.dark;
     return Padding(
       padding: EdgeInsets.only(top: width * 0.04),
       child: FittedBox(
@@ -560,7 +567,7 @@ class SeatPod extends StatelessWidget {
           style: AppTheme.smallCaps(
             theme.textTheme.labelSmall!,
             fontSize: math.max(_kStatusFloor, width * 0.095),
-            colour: AppTheme.goldBright,
+            colour: dark ? AppTheme.goldBright : AppTheme.goldDeep,
             weight: FontWeight.w800,
           ),
         ),

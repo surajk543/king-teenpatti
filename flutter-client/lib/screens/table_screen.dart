@@ -77,6 +77,12 @@ class _TableScreenState extends State<TableScreen> {
     // open drawer down with it. Everything inside subscribes for itself.
     return Scaffold(
       key: _scaffold,
+      // The table is a fixed landscape layout that fills the screen. Letting
+      // the soft keyboard shrink it squeezed the rail and the chat panel until
+      // both painted overflow stripes; the chat drawer lifts its own composer
+      // over the keyboard (`viewInsets`), which is the only thing that needs
+      // to move.
+      resizeToAvoidBottomInset: false,
       drawer: _panel == _LeftPanel.menu
           ? const _TableDrawer()
           : const _ChatDrawer(),
@@ -1622,7 +1628,18 @@ class _MissedTurnsStrip extends StatelessWidget {
     // included: 127.3 wide at 640x360, 200.1 at 891x411, 301.3 at 1280x800.
     final maxW = (podLeft - left - Space.xl).clamp(110.0, 360.0);
     // One line and no explanation where there is no room for two.
-    final compact = Breaks.isCompact(screenW) || Breaks.isShort(size.height);
+    //
+    // The corner's own width decides it, not the screen's: below about 260 the
+    // explanation wraps to two lines that are still cut off ("and you leave
+    // …"), and those two lines grow the plate up into the left seat's caption,
+    // which then reads through the glass. A tablet's corner is 301 wide and
+    // fits the sentence on one line, with the felt above it to spare. The
+    // blind-moves row sharing the plate costs a row on any screen.
+    final compact =
+        Breaks.isCompact(screenW) ||
+        Breaks.isShort(size.height) ||
+        maxW < 260 ||
+        showBlind;
     // How far the strip rides above the Pack key it shares a corner with.
     final liftOverPack =
         Dim.keyH(size.height) + 2 * Dim.gap(screenW) + Space.xs;
@@ -3012,6 +3029,14 @@ class _ChatDrawerState extends State<_ChatDrawer> {
   Widget build(BuildContext context) {
     final state = context.watch<GameState>();
     final theme = Theme.of(context);
+    // On a landscape phone the soft keyboard leaves the panel about a
+    // hundred and fifty points tall — less than the title, the rule and the
+    // composer need, and the shortfall painted overflow stripes across the
+    // table. While the player is typing the title is decoration and the
+    // history behind it is hidden anyway, so both stand down and the composer
+    // gets the whole panel.
+    final typing = MediaQuery.viewInsetsOf(context).bottom > 0;
+
     return GlassDrawerPanel(
       padding: EdgeInsets.zero,
       child: SizedBox.expand(
@@ -3023,38 +3048,39 @@ class _ChatDrawerState extends State<_ChatDrawer> {
           ),
           child: Column(
             children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(
-                  Space.lg,
-                  Space.md,
-                  Space.sm,
-                  Space.xs,
-                ),
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.forum_rounded,
-                      size: 18,
-                      color: _goldInk(theme.brightness),
-                    ),
-                    const SizedBox(width: Space.md),
-                    Expanded(
-                      child: Text(
-                        state.t.tableChat,
-                        style: AppTheme.label(
-                          theme.textTheme.titleMedium ?? const TextStyle(),
+              if (!typing)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                    Space.lg,
+                    Space.md,
+                    Space.sm,
+                    Space.xs,
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.forum_rounded,
+                        size: 18,
+                        color: _goldInk(theme.brightness),
+                      ),
+                      const SizedBox(width: Space.md),
+                      Expanded(
+                        child: Text(
+                          state.t.tableChat,
+                          style: AppTheme.label(
+                            theme.textTheme.titleMedium ?? const TextStyle(),
+                          ),
                         ),
                       ),
-                    ),
-                    IconButton(
-                      visualDensity: VisualDensity.compact,
-                      icon: const Icon(Icons.close_rounded),
-                      onPressed: () => Navigator.pop(context),
-                    ),
-                  ],
+                      IconButton(
+                        visualDensity: VisualDensity.compact,
+                        icon: const Icon(Icons.close_rounded),
+                        onPressed: () => Navigator.pop(context),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-              const _MenuRule(),
+              if (!typing) const _MenuRule(),
               Expanded(
                 child: ListView.builder(
                   reverse: true,
