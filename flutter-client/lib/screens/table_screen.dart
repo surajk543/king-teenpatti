@@ -756,7 +756,16 @@ class _Felt extends StatelessWidget {
   /// the viewer at the bottom, then clockwise from their left.
   /// A seat's column is pod, then cards, then its bet chip — about half the
   /// felt's height in all — so the top pair sit well clear of the rim or their
-  /// names are clipped off by it. Their dy moved 0.28 -> 0.335 on 10 Sep 2026
+  /// names are clipped off by it.
+  ///
+  /// The columns also have to clear each OTHER sideways. The viewer's column
+  /// is reversed, so its status line sits above their pod — at very nearly the
+  /// height the top pair's "in pot" line sits below theirs. With the top-left
+  /// seat at 0.260 and the viewer at 0.335 those two lines were 0.075 of the
+  /// width apart inside columns 0.163 wide, and they ran together into one
+  /// unreadable sentence ("in pot 2,200 • Pack"). Widened to 0.225/0.355 on
+  /// 10 Sep 2026. There is room to spread now: with the cloth gone nothing
+  /// clips a pod for reaching past where the oval used to be. Their dy moved 0.28 -> 0.335 on 10 Sep 2026
   /// when the pods grew. The anchor is the column's MIDDLE, so a taller column
   /// hangs further above it — and the column's height is not fixed: a seat
   /// showing a revealed hand carries its hand name, its badge and its pot line
@@ -764,11 +773,11 @@ class _Felt extends StatelessWidget {
   /// while the seat beside it at the same dy was fine. The figure has to clear
   /// the tallest state a column can reach, not the common one.
   static const List<Offset> _places = [
-    Offset(0.335, 0.00), // you — x only; the pair below sit on the floor
-    Offset(0.090, 0.42), // left
-    Offset(0.260, 0.335), // top left
-    Offset(0.740, 0.335), // top right
-    Offset(0.910, 0.42), // right
+    Offset(0.355, 0.00), // you — x only; the pair below sit on the floor
+    Offset(0.085, 0.42), // left
+    Offset(0.225, 0.335), // top left
+    Offset(0.775, 0.335), // top right
+    Offset(0.915, 0.42), // right
   ];
 
   /// Where the middle of the pot is, as a fraction of the felt's height.

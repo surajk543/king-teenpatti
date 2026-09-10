@@ -32,6 +32,11 @@ const double _kPad = 0.05;
 const double _kName = 0.125;
 const double _kNameFloor = 10.0;
 const double _kAvatar = 0.245;
+
+/// The picture when no stack pill sits under it — a blind table's other
+/// seats. It takes back most of what the pill was using, so the pod stays
+/// about the height it was and the face gets the difference.
+const double _kAvatarAlone = 0.315;
 const double _kDealer = 0.095;
 const double _kGap = 0.04;
 const double _kStack = 0.115;
@@ -275,6 +280,11 @@ class SeatPod extends StatelessWidget {
     final dark = theme.brightness == Brightness.dark;
     final won = s.status == SeatState.won;
 
+    // Null means withheld, never zero — a blind table sends no stack for
+    // anyone but you (CLAUDE.md §6.1). Your own pod always knows its figure,
+    // so the viewer keeps their pill while the rim seats lose theirs.
+    final knownStack = s.chips != null;
+
     // A pod is a lobby card at pod size, so the two screens are built from the
     // same material rather than merely resembling each other.
     //
@@ -384,14 +394,23 @@ class SeatPod extends StatelessWidget {
                   Avatar(
                     url: avatarUrl,
                     fallback: s.displayName,
-                    radius: width * _kAvatar,
+                    // Bigger when there is no stack pill under it. On a blind
+                    // table another player's chips were never sent, so the
+                    // pill under their picture said nothing but '•••' — a
+                    // bordered, shaded plaque spending a fifth of the pod's
+                    // height to report that it has nothing to report. Drop it
+                    // and the picture takes the room instead, which is the one
+                    // thing in a pod worth looking at.
+                    radius: width * (knownStack ? _kAvatar : _kAvatarAlone),
                     // The second, quieter turn cue, for a player reading faces
                     // rather than borders.
                     ring: onTurn ? beat : null,
                     ringWidth: onTurn ? 2 : 1.5,
                   ),
-                  SizedBox(height: width * _kGap),
-                  _stackPill(context, s),
+                  if (knownStack) ...[
+                    SizedBox(height: width * _kGap),
+                    _stackPill(context, s),
+                  ],
                 ],
               ),
             ),
