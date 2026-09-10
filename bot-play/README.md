@@ -71,8 +71,14 @@ read as one program with five sockets.
 - **They have faces.** Each bot wears one of the server's bundled profile
   pictures, chosen from its index so the same seat keeps the same animal every
   run. Five identical grey initials around a table is the tell that gives the
-  fleet away before anyone reads a name. Set once after login, because the
-  server refuses a picture change at a table (409 `seated`).
+  fleet away before anyone reads a name. Set after login, because the
+  server refuses a picture change at a table (409 `seated`) — and if that
+  refusal comes anyway, because the fleet restarted inside the server's
+  60-second reconnect grace and every seat was still held, the bot steps out
+  of its restored seat once, puts the picture on, and sits back down
+  (`stepOutForPicture`; the log line is `stepped out for a picture`). Until
+  10 Sep 2026 that refusal was swallowed, which is how a whole fleet ran
+  faceless for a day after a restart.
 - **They wander between tables.** This is not decoration: the server seats a
   player at the *fullest* table with room, so without churn exactly one table
   per category ever has a free seat, and every arriving real player lands in

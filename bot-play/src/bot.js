@@ -34,6 +34,14 @@ export class Bot {
     this.chips = 0;
     this.stopped = false;
     this.seated = false;
+    /**
+     * Set when the picture could not be put on at login because the server
+     * still held this bot's seat (409 seated — the fleet restarted inside the
+     * reconnect grace). The next `room:joined` is then the restored seat, and
+     * the bot steps out to the lobby once to wear the picture. See
+     * wearAPicture / stepOutForPicture.
+     */
+    this.owesPicture = false;
     this.lastChatAt = 0;
     this.timers = new Set();
     /**
@@ -86,28 +94,54 @@ export class Bot {
   }
 
   /**
-   * Picks the bot's profile picture, once, while it is still in the lobby.
+   * Picks the bot's profile picture while it is in the lobby.
    *
    * The server refuses a picture change at a table (409 seated), which is why
-   * this runs here and not later: after login and before the socket connects
-   * is the only moment a bot is reliably unseated.
+   * this runs after login and before the socket connects — normally the one
+   * moment a bot is reliably unseated. Not always, though: a fleet restarted
+   * inside the server's 60-second reconnect grace finds every seat still
+   * held, the request is refused, and until 10 Sep 2026 that refusal was
+   * swallowed and never retried, so a restart left two hundred bots faceless
+   * for good. Now a refusal marks the bot as owing itself a picture, and the
+   * restored seat that follows is answered by stepping out once
+   * (stepOutForPicture).
    *
-   * A failure is swallowed. The picture is decoration and a bot that could not
-   * set one should still sit down and play.
+   * Any other failure is still swallowed. The picture is decoration and a bot
+   * that could not set one should still sit down and play.
    */
   async wearAPicture(user) {
+    this.owesPicture = false;
     if (user?.avatarChoice) return;
     const wanted = profileFor(this.index, await profileIds());
     if (!wanted) return;
     try {
-      await fetch(`${config.serverUrl}/api/profile/avatar`, {
+      const res = await fetch(`${config.serverUrl}/api/profile/avatar`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', authorization: `Bearer ${this.token}` },
         body: JSON.stringify({ avatar: wanted }),
       });
+      if (res.status === 409) this.owesPicture = true;
     } catch {
       // see above
     }
+  }
+
+  /**
+   * Leaves the restored seat, wears the picture, sits back down.
+   *
+   * Runs once per login at most: owesPicture is cleared by wearAPicture
+   * whatever the outcome, so a second refusal cannot turn into a leave loop.
+   * Leaving mid-hand packs the bot's cards — its own chips, and a fleet-wide
+   * restart is rare enough that a round of packs is the cheaper of the two
+   * evils next to a lobby of grey circles.
+   */
+  stepOutForPicture() {
+    this.socket?.emit('room:leave', {}, async () => {
+      this.seated = false;
+      await this.wearAPicture();
+      this.log?.(`${this.identity.name}: stepped out for a picture`);
+      this.after(1500 + Math.random() * 3000, () => this.join());
+    });
   }
 
   connect() {
@@ -133,6 +167,9 @@ export class Bot {
     });
     this.socket.on('room:joined', () => {
       this.seated = true;
+      // The seat the server held through a restart, and a picture still owed:
+      // step out and put it on before anything else.
+      if (this.owesPicture) return this.stepOutForPicture();
       // A greeting on arrival, sometimes — not every time, or every table
       // becomes a chorus of hellos whenever anyone sits down.
       if (Math.random() < this.persona.chatRate * 1.5) {
