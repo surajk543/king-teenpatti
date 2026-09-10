@@ -23,7 +23,6 @@ type UserStore interface {
 	ClaimTimedBonus(ctx context.Context, userID string) (*db.RewardResult, error)
 	SetDisplayName(ctx context.Context, userID, displayName string) (*db.User, error)
 	SetAvatarChoice(ctx context.Context, userID string, choice *string) (*db.User, error)
-	DeleteAccount(ctx context.Context, userID string) error
 }
 
 // Deps wires a Handler.
@@ -113,7 +112,6 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.Handle("/api/profiles", methods(http.MethodGet, http.HandlerFunc(h.Profiles)))
 	mux.Handle("/api/profile/avatar", methods(http.MethodPost, h.RequireAuth(h.Avatar)))
 	mux.Handle("/api/profile/name", methods(http.MethodPost, h.RequireAuth(h.Name)))
-	mux.Handle("/api/account", methods(http.MethodDelete, h.RequireAuth(h.DeleteAccount)))
 }
 
 // methods lets `method` (and HEAD when method is GET) through to next and
@@ -247,11 +245,6 @@ type UserResponse struct {
 }
 
 // ProfilePicture is one bundled avatar: {id: "bear.svg", url: "/profiles/bear.svg"}.
-// DeleteAccountResponse ← DELETE /api/account.
-type DeleteAccountResponse struct {
-	Deleted bool `json:"deleted"`
-}
-
 type ProfilePicture struct {
 	ID  string `json:"id"`
 	URL string `json:"url"`
@@ -329,7 +322,6 @@ const (
 	MsgRewardNotReady     = "The bonus is still recharging."
 	MsgSeatedAvatar       = "You cannot change your picture while you are at a table."
 	MsgSeatedName         = "You can only change your name in the lobby."
-	MsgSeatedDelete       = "Leave the table before deleting your account."
 	MsgSeatedMilestone    = "Collect your milestone reward from the lobby, not while you are at a table."
 	MsgSeatedBonus        = "Collect your reward from the lobby, not while you are at a table."
 	MsgStoreUnavailable   = "The chip store is not open yet."

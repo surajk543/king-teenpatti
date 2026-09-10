@@ -10,10 +10,11 @@ import (
 )
 
 // TestUserRowsAreNeverDeleted: a `DELETE FROM users` is refused by a trigger,
-// whatever the row holds. The server never deletes one — DELETE /api/account
-// pseudonymises — so the only thing a delete can be is a mistake or a hand on
-// the wrong console, and it must take a deliberate privileged step (disable
-// the trigger as the table owner or a superuser) rather than one statement.
+// whatever the row holds. The server issues none — since the deletion route
+// was removed on 10 Sep 2026 nothing in the code deletes or pseudonymises a
+// user — so the only thing a delete can be is a mistake or a hand on the wrong
+// console, and it must take a deliberate privileged step (disable the trigger
+// as the table owner or a superuser) rather than one statement.
 // Owner's decision, 10 Sep 2026.
 func TestUserRowsAreNeverDeleted(t *testing.T) {
 	f := newFixture(t)
@@ -44,11 +45,10 @@ func TestUserRowsAreNeverDeleted(t *testing.T) {
 	u := f.user("Deletable")
 	refused(u.ID)
 
-	// The player's own route still works: it pseudonymises the row in place.
-	if err := f.users.DeleteAccount(f.ctx, u.ID); err != nil {
-		t.Fatalf("DeleteAccount: %v", err)
-	}
-	if n := f.count(`SELECT COUNT(*) FROM users WHERE id = $1 AND deleted_at > 0`, u.ID); n != 1 {
-		t.Fatalf("pseudonymised row missing (%d)", n)
+	// deleted_at survives the removal of the deletion route: rows
+	// pseudonymised while it existed must stay hidden, which is why
+	// selectUser still filters on it.
+	if n := f.count(`SELECT COUNT(*) FROM users WHERE id = $1`, u.ID); n != 1 {
+		t.Fatalf("the row must still be there (%d)", n)
 	}
 }

@@ -36,7 +36,7 @@ A turn-based multiplayer **Teen Patti** (3-card Indian poker) game:
 | **Game server** | `go-server/` | **The server** — live in production since `go-server/ops/DEPLOY.md` was run (Sept 2026). Go 1.27, one static binary, **PostgreSQL 18** via `pgx`. Database-first money model (§5). Wire-identical to the Node original it replaced — same protocol, JWTs, schema, ledger rows, `/health`, `game_*` metrics (141/141 black-box parity suites). §5–§7 describe its behaviour; §14 its shape. |
 | Node.js server | *(removed)* | The original implementation, removed from the repo on 8 Sep 2026 (`git log -- server/`, last commit `c19963b`; `multi_node` branch). Its behaviour is what §5–§7 document; its file names are what those sections cite. Not a rollback target unless restored from history first (`go-server/ops/rollback-to-node.sh` explains). |
 | Mobile client | `flutter-client/` | **The live client.** Flutter 3.44 / Dart 3.12, Material 3 via FlexColorScheme, Android only so far. |
-| Browser client | `go-server/public/` | Zero-build vanilla-JS reference client served at `/` by the Go binary (`PUBLIC_DIR`) — **in dev only; production hides it** (`ROOT_REDIRECT=/dashboard/`, §7.4/§9) and serves just `privacy/`, `account-deletion/`, `profiles/` from that dir. **Lags behind** — no sideshow, kick, rename, entry-cap or Indian-numbering UI. |
+| Browser client | `go-server/public/` | Zero-build vanilla-JS reference client served at `/` by the Go binary (`PUBLIC_DIR`) — **in dev only; production hides it** (`ROOT_REDIRECT=/dashboard/`, §7.4/§9) and serves just `privacy/`, `profiles/` from that dir. **Lags behind** — no sideshow, kick, rename, entry-cap or Indian-numbering UI. |
 | Tools | `tools/` | Small Node ≥ 20 package (`npm install` first): `npm run bot` (practice bots), `npm run ramp` (staged load test), `npm run parity` / `parity:diff` (black-box suites in `tools/parity/`). Clients of the server; also lend `node_modules` to two Go interop tests. |
 | Load reports | `docs/load-reports/` | ramp-test HTML + JSON (the 2026‑09‑08 production runs, 1,000 → 4,000 players). |
 | Unity client | `unity-client/` | **Removed** (Sept 2026). A JS port of its Socket.IO parser survives as `tools/parity/lib/csharpJsonPort.js` and still exercises the raw wire protocol. |
@@ -480,14 +480,7 @@ with `room:joinCode`. Voluntary leave / kick never create an offer (the grace ti
 three checkpoints, §5.1); `GET /api/profiles` (unauthenticated);
 `POST /api/profile/avatar {avatar|null}` and `POST /api/profile/name {name}` (409 `seated` while at
 a table; live in `playerRoutes({isSeated})`, **not** `authRoutes`);
-**`DELETE /api/account`** → `{deleted:true}` (409 `seated` at a table; Google Play requires an
-in-app deletion route and the game creates an account on first launch). It **pseudonymises**:
-`chip_ledger.user_id` is `ON DELETE CASCADE`, so deleting the row would destroy the money audit —
-instead the wallet is emptied *through a ledger row* (`account_deleted`, so `SUM(delta) == chips`
-still holds) and the name/email/avatars/provider identity are cleared with `deleted_at` stamped.
-`db.selectUser` filters `deleted_at = 0`, which is what makes a still-valid 30-day JWT stop working
-at once; clearing `provider_user_id` frees the identity so the same device signs in as a NEW
-account. `GET /api/rooms` (no client);
+`GET /api/rooms` (no client);
 `GET /health`. Errors `{error: code, message}`. Guest id = `sha256('teenpatti:'+deviceId)`, deviceId
 ≥ 8 chars. `AUTH_ALLOW_FAKE_PROVIDERS=true` lets google/facebook skip verification (tests, browser
 stubs). **A refused login is logged** (`login refused` WARN: provider, code, status, reason with the
@@ -517,7 +510,8 @@ constants in `users.js`. Display names: `NAME_PATTERN = /^[\p{L}\p{N}][\p{L}\p{N
 
 **`users` rows are never deleted** (owner's decision, 10 Sep 2026): trigger `users_no_delete`
 (`users_immutable_rows()`, `schema.sql`, created only when missing) raises on every DELETE from every
-caller — the server never issues one (`DELETE /api/account` pseudonymises). Removing a row is a
+caller — the server never issues one; the deletion route was removed on 10 Sep 2026 at the
+owner's request, so nothing in the code deletes or pseudonymises a user. Removing a row is a
 deliberate privileged step: `sudo -u postgres psql gameplay`, `ALTER TABLE users DISABLE TRIGGER
 users_no_delete`, delete, re-enable. Prod's app role `gameplay_app` still **owns** the table and the
 function (it runs `schema.sql`), so it could disable the trigger; DEPLOY.md §7 has the one-time
@@ -579,7 +573,7 @@ fallback `go-server/public`; not in `.env.example` — `config.go` documents it)
 | `LIVE_INSTANCE_ID` | `hostname:pid` | presence / matchmaking owner tag (`Load()` only; `Defaults()`/`FromEnv()` carry `""`) |
 | `LIVE_RECONCILE_MS` | 30000 | how often the live store is pinged, refilled from memory after an outage, and swept for stray seat/summary keys; 0 disables |
 | `LOG_LEVEL` | info | slog level (`util.ParseLogLevel`) |
-| `ROOT_REDIRECT` | empty | **Go-only.** Set (**production: `/dashboard/`**, the Grafana login) it hides the browser client: `GET /` → 302 to the value, every top-level file of `PUBLIC_DIR` (`index.html`, `client.js`, the stylesheets) and `/socket.io/socket.io(.min).js` → 404; subdirectories keep serving — `privacy/`, `account-deletion/` (Play listing links), `profiles/` (Flutter avatars via `/api/profiles`). Empty = browser client at `/` (dev, parity). The rule is the directory layout, not a filename list (`static.go`). |
+| `ROOT_REDIRECT` | empty | **Go-only.** Set (**production: `/dashboard/`**, the Grafana login) it hides the browser client: `GET /` → 302 to the value, every top-level file of `PUBLIC_DIR` (`index.html`, `client.js`, the stylesheets) and `/socket.io/socket.io(.min).js` → 404; subdirectories keep serving — `privacy/` (Play listing link), `profiles/` (Flutter avatars via `/api/profiles`). Empty = browser client at `/` (dev, parity). The rule is the directory layout, not a filename list (`static.go`). |
 
 There is no `go-server/.env` on the dev box (it is git-ignored); the server runs on these defaults.
 Production's lives at `/var/www/gameplay/king-teenpatti/go-server/.env` (`PG_POOL_MAX=50`, `JWT_SECRET`, `METRICS_TOKEN`, …).
@@ -754,7 +748,7 @@ Google/Facebook buttons are stubs needing `AUTH_ALLOW_FAKE_PROVIDERS` (the Googl
 idToken**; against production it is a guaranteed 401 `missing_token` — not a server fault). Chat
 `maxlength=140`. Treat as a protocol smoke-test surface. **Production hides it** (`ROOT_REDIRECT=/dashboard/`,
 §7.4, since 10 Sep 2026): `/` bounces to the Grafana login and the client's files are 404, while
-`privacy/`, `account-deletion/` and `profiles/` under the same dir stay served.
+`privacy/` and `profiles/` under the same dir stay served.
 
 ---
 

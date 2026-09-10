@@ -26,21 +26,25 @@ class ApiClient {
   Uri _uri(String path) => Uri.parse('$baseUrl$path');
 
   Map<String, String> _headers([String? token]) => {
-        'Content-Type': 'application/json',
-        if (token != null) 'Authorization': 'Bearer $token',
-      };
+    'Content-Type': 'application/json',
+    if (token != null) 'Authorization': 'Bearer $token',
+  };
 
   Map<String, dynamic> _decode(http.Response r) {
     final body = r.body.isEmpty ? '{}' : r.body;
     final json = jsonDecode(body);
-    final map = json is Map ? Map<String, dynamic>.from(json) : <String, dynamic>{};
+    final map = json is Map
+        ? Map<String, dynamic>.from(json)
+        : <String, dynamic>{};
 
     if (r.statusCode >= 400) {
       final error = map['error'];
       final message = error is Map ? error['message'] : map['message'];
-      throw ApiException('$message'.isEmpty || message == null
-          ? 'Request failed (${r.statusCode})'
-          : '$message');
+      throw ApiException(
+        '$message'.isEmpty || message == null
+            ? 'Request failed (${r.statusCode})'
+            : '$message',
+      );
     }
     return map;
   }
@@ -82,7 +86,8 @@ class ApiClient {
   /// The server answers 503 `provider_unconfigured` when it has no credentials
   /// for that provider, which is a deployment state rather than a user error —
   /// the caller shows it as one.
-  Future<({String token, User user, bool isNew, int welcomeChips})> loginProvider({
+  Future<({String token, User user, bool isNew, int welcomeChips})>
+  loginProvider({
     required String provider,
     required String credential,
     String? displayName,
@@ -121,7 +126,9 @@ class ApiClient {
     final r = await http.get(_uri('/api/profiles'), headers: _headers());
     final j = _decode(r);
     return (j['profiles'] as List? ?? [])
-        .map((e) => ProfilePicture.fromJson(Map<String, dynamic>.from(e as Map)))
+        .map(
+          (e) => ProfilePicture.fromJson(Map<String, dynamic>.from(e as Map)),
+        )
         .toList();
   }
 
@@ -149,24 +156,6 @@ class ApiClient {
     return User.fromJson(Map<String, dynamic>.from(j['user'] as Map));
   }
 
-  /// Deletes the player's account, permanently.
-  ///
-  /// Google Play requires an in-app route to this, and the game creates an
-  /// account on first launch, so every player has one to delete.
-  ///
-  /// The server refuses while the player is seated (409 `seated`), because a
-  /// seated wallet is only brought up to date at the three checkpoints and
-  /// emptying it mid-hand would settle that hand against a balance that has
-  /// stopped existing. The caller should send the player to the lobby first.
-  ///
-  /// After this returns the token still verifies but names nothing, so every
-  /// later request is answered `unknown_user`. Clear the stored token and
-  /// device id, or the next launch spends its first request finding that out.
-  Future<void> deleteAccount(String token) async {
-    final r = await http.delete(_uri('/api/account'), headers: _headers(token));
-    _decode(r);
-  }
-
   /// Hands a Google Play receipt to the server for verification.
   ///
   /// Sends only what Play gave us — which product, and the purchase token. No
@@ -185,7 +174,10 @@ class ApiClient {
     final r = await http.post(
       _uri('/api/purchases/google'),
       headers: _headers(token),
-      body: jsonEncode({'productId': productId, 'purchaseToken': purchaseToken}),
+      body: jsonEncode({
+        'productId': productId,
+        'purchaseToken': purchaseToken,
+      }),
     );
     final j = _decode(r);
     return (
@@ -208,10 +200,7 @@ class ApiClient {
   /// every successful collection fell through to the refusal branch and told
   /// the player "Not ready yet" while the chips landed in their wallet.
   Future<({User? user, bool claimed, int amount, int readyAt, String message})>
-      claimReward(
-    String token,
-    String kind,
-  ) async {
+  claimReward(String token, String kind) async {
     final r = await http.post(
       _uri('/api/rewards/$kind'),
       headers: _headers(token),

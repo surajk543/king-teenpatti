@@ -79,13 +79,16 @@ web browsing history, search history.
 Play requires apps that let users create an account to offer deletion **both
 inside the app and at a publicly reachable URL** that does not require
 installing the app. King Teen Patti creates a guest account on first launch, so
-this applies to every player. Both routes now exist:
+this applies to every player.
 
-| | |
-|---|---|
-| In-app | Lobby → Settings drawer → **Delete my account**, behind a confirmation |
-| Public URL | `https://api.sungamestudio.com/account-deletion/` |
-| API | `DELETE /api/account` — authenticated, refused with 409 `seated` while at a table |
+> **Neither route exists any more.** The in-app option, the public page and
+> `DELETE /api/account` were all removed on 10 Sep 2026 at the owner's request,
+> after the Play requirement was put to them. Deletion is now by email only —
+> `support@sungamestudio.com`, as the privacy policy says. **Expect this to be
+> raised at review**, and be ready either to restore the feature (it is one
+> commit back in history) or to argue the email route satisfies the policy.
+> The `deleted_at` column and the `selectUser` filter stay, so accounts
+> pseudonymised while the route existed remain hidden.
 
 **It pseudonymises rather than deletes, and the schema forces that.**
 `chip_ledger.user_id REFERENCES users (id) ON DELETE CASCADE`, so removing the

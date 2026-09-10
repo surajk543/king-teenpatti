@@ -447,37 +447,6 @@ func (h *Handler) Name(w http.ResponseWriter, r *http.Request, user *db.User) {
 
 // isSeated consults Deps.IsSeated; absent → never seated (Node's default
 // `isSeated = () => false`).
-// DeleteAccount is DELETE /api/account: the player erases their own account.
-//
-// Google Play requires apps that create accounts to offer deletion, and this
-// game creates one on first launch, so every player has an account to delete
-// whether they asked for one or not.
-//
-// Order of refusals: RequireAuth (401) → seated (409). The seated check is
-// the same rule the avatar, name and reward endpoints follow, and here it is
-// load-bearing rather than tidy: a seated player's chips are partly in a pot
-// and partly on the table, and PostgreSQL is only brought up to date at the
-// three checkpoints (CLAUDE.md §5.1). Emptying the wallet from underneath a
-// live hand would settle that hand against a balance that no longer exists.
-// In the lobby there is nothing in flight and the wallet is authoritative.
-//
-// Answers 200 {deleted:true} once the account is gone. The client's token
-// keeps its signature but stops working immediately, because every
-// authenticated path resolves the user through db.selectUser, which does not
-// return deleted accounts.
-func (h *Handler) DeleteAccount(w http.ResponseWriter, r *http.Request, user *db.User) {
-	if h.isSeated(user.ID) {
-		WriteJSON(w, http.StatusConflict, ErrorResponse{Error: CodeSeated, Message: MsgSeatedDelete})
-		return
-	}
-	if err := h.deps.Users.DeleteAccount(r.Context(), user.ID); err != nil {
-		h.writeError(w, r, err)
-		return
-	}
-	h.deps.Logger.Info("account deleted at the player's request", "userId", user.ID)
-	WriteJSON(w, http.StatusOK, DeleteAccountResponse{Deleted: true})
-}
-
 func (h *Handler) isSeated(userID string) bool {
 	return h.deps.IsSeated != nil && h.deps.IsSeated(userID)
 }

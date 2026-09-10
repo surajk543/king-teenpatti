@@ -609,47 +609,6 @@ class GameState extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Deletes this account, permanently, at the player's request.
-  ///
-  /// Google Play requires an in-app route to this. The server refuses while
-  /// the player is seated, so callers should only offer it from the lobby.
-  ///
-  /// The device id is replaced, not just the token cleared. Guest accounts are
-  /// keyed to it, so a player who deletes and immediately plays again should
-  /// arrive as somebody new rather than as the same device wearing a fresh
-  /// account — which is what reusing the id would give them, since deletion
-  /// frees the identity server-side for exactly that reason.
-  ///
-  /// Returns null on success, or a message to show when the server refused.
-  Future<String?> deleteAccount() async {
-    final token = _token;
-    if (token == null) return null;
-    try {
-      await _api.deleteAccount(token);
-    } on ApiException catch (e) {
-      return e.message;
-    } catch (_) {
-      return 'Could not reach the server.';
-    }
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('token');
-    // A NEW device id, not merely a cleared one. _deviceId is read into memory
-    // once in start(), so removing the stored key alone leaves this session
-    // still holding the deleted account's id — signing straight back in would
-    // reuse it, and the rotation would only happen on the next cold start.
-    // Replacing it here keeps memory and storage saying the same thing.
-    _deviceId = const Uuid().v4();
-    await prefs.setString('deviceId', _deviceId);
-    _token = null;
-    _conn.disconnect();
-    room = null;
-    seatedAt = null;
-    user = null;
-    screen = Screen.login;
-    notifyListeners();
-    return null;
-  }
-
   Future<void> refreshUser() async {
     final token = _token;
     if (token == null) return;
