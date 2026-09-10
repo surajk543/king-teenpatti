@@ -36,7 +36,7 @@ A turn-based multiplayer **Teen Patti** (3-card Indian poker) game:
 | **Game server** | `go-server/` | **The server** — live in production since `go-server/ops/DEPLOY.md` was run (Sept 2026). Go 1.27, one static binary, **PostgreSQL 18** via `pgx`. Database-first money model (§5). Wire-identical to the Node original it replaced — same protocol, JWTs, schema, ledger rows, `/health`, `game_*` metrics (141/141 black-box parity suites). §5–§7 describe its behaviour; §14 its shape. |
 | Node.js server | *(removed)* | The original implementation, removed from the repo on 8 Sep 2026 (`git log -- server/`, last commit `c19963b`; `multi_node` branch). Its behaviour is what §5–§7 document; its file names are what those sections cite. Not a rollback target unless restored from history first (`go-server/ops/rollback-to-node.sh` explains). |
 | Mobile client | `flutter-client/` | **The live client.** Flutter 3.44 / Dart 3.12, Material 3 via FlexColorScheme, Android only so far. |
-| Browser client | `go-server/public/` | Zero-build vanilla-JS reference client served at `/` by the Go binary (`PUBLIC_DIR`). **Lags behind** — no sideshow, kick, rename, entry-cap or Indian-numbering UI. |
+| Browser client | `go-server/public/` | Zero-build vanilla-JS reference client served at `/` by the Go binary (`PUBLIC_DIR`) — **in dev only; production hides it** (`ROOT_REDIRECT=/dashboard/`, §7.4/§9) and serves just `privacy/`, `account-deletion/`, `profiles/` from that dir. **Lags behind** — no sideshow, kick, rename, entry-cap or Indian-numbering UI. |
 | Tools | `tools/` | Small Node ≥ 20 package (`npm install` first): `npm run bot` (practice bots), `npm run ramp` (staged load test), `npm run parity` / `parity:diff` (black-box suites in `tools/parity/`). Clients of the server; also lend `node_modules` to two Go interop tests. |
 | Load reports | `docs/load-reports/` | ramp-test HTML + JSON (the 2026‑09‑08 production runs, 1,000 → 4,000 players). |
 | Unity client | `unity-client/` | **Removed** (Sept 2026). A JS port of its Socket.IO parser survives as `tools/parity/lib/csharpJsonPort.js` and still exercises the raw wire protocol. |
@@ -527,9 +527,9 @@ must return 0). The import wrote 12 `legacy_reconciliation` rows to make the old
 Every key below is listed with its default in **`go-server/.env.example`** (copy to `go-server/.env`;
 `cmd/gameplay` loads it with godotenv, never overriding real env). The Go loader parses integers
 **strictly** (a malformed value stops the binary, key named in the log) and rejects unknown
-`LOBBY_TABLES` categories at load. Two keys are Go-only: `PG_STATEMENT_TIMEOUT_MS` (below) and
-`PUBLIC_DIR` (browser-client dir; default `./public` relative to cwd, fallback `go-server/public`;
-not in `.env.example` — `config.go` documents it).
+`LOBBY_TABLES` categories at load. Three keys are Go-only: `PG_STATEMENT_TIMEOUT_MS` (below),
+`ROOT_REDIRECT` (below) and `PUBLIC_DIR` (browser-client dir; default `./public` relative to cwd,
+fallback `go-server/public`; not in `.env.example` — `config.go` documents it).
 
 | Env | Default | Purpose |
 |---|---|---|
@@ -566,6 +566,7 @@ not in `.env.example` — `config.go` documents it).
 | `LIVE_INSTANCE_ID` | `hostname:pid` | presence / matchmaking owner tag (`Load()` only; `Defaults()`/`FromEnv()` carry `""`) |
 | `LIVE_RECONCILE_MS` | 30000 | how often the live store is pinged, refilled from memory after an outage, and swept for stray seat/summary keys; 0 disables |
 | `LOG_LEVEL` | info | slog level (`util.ParseLogLevel`) |
+| `ROOT_REDIRECT` | empty | **Go-only.** Set (**production: `/dashboard/`**, the Grafana login) it hides the browser client: `GET /` → 302 to the value, every top-level file of `PUBLIC_DIR` (`index.html`, `client.js`, the stylesheets) and `/socket.io/socket.io(.min).js` → 404; subdirectories keep serving — `privacy/`, `account-deletion/` (Play listing links), `profiles/` (Flutter avatars via `/api/profiles`). Empty = browser client at `/` (dev, parity). The rule is the directory layout, not a filename list (`static.go`). |
 
 There is no `go-server/.env` on the dev box (it is git-ignored); the server runs on these defaults.
 Production's lives at `/var/www/gameplay/king-teenpatti/go-server/.env` (`PG_POOL_MAX=50`, `JWT_SECRET`, `METRICS_TOKEN`, …).
@@ -729,8 +730,11 @@ Vanilla JS IIFE (`client.js`, `style.css`, `theme.css`, `index.html`, `profiles/
 Go binary from `PUBLIC_DIR` (default `./public` from `go-server/`), with `/socket.io/socket.io.js`
 coming from the embedded bundle in `internal/app/assets/`. `localStorage tp_token/tp_device/tp_theme`;
 lobby from `config.tables`. No `room:kicked`, no sideshow, no rename/entry-cap/numbering.
-Google/Facebook buttons are stubs needing `AUTH_ALLOW_FAKE_PROVIDERS`. Chat `maxlength=140`. Treat as
-a protocol smoke-test surface.
+Google/Facebook buttons are stubs needing `AUTH_ALLOW_FAKE_PROVIDERS` (the Google one sends **no
+idToken**; against production it is a guaranteed 401 `missing_token` — not a server fault). Chat
+`maxlength=140`. Treat as a protocol smoke-test surface. **Production hides it** (`ROOT_REDIRECT=/dashboard/`,
+§7.4, since 10 Sep 2026): `/` bounces to the Grafana login and the client's files are 404, while
+`privacy/`, `account-deletion/` and `profiles/` under the same dir stay served.
 
 ---
 
@@ -908,7 +912,8 @@ deploy runbook; `steps.txt` the six-line routine.
   = success.
 - **Config** (`internal/config`): same env keys as §7.4 (`go-server/.env.example`) plus `PUBLIC_DIR`
   (browser client dir; default `./public` relative to cwd — i.e. `go-server/public` when started from
-  `go-server/` — fallback `go-server/public` from the repo root) and `PG_STATEMENT_TIMEOUT_MS`
+  `go-server/` — fallback `go-server/public` from the repo root), `ROOT_REDIRECT` (hides the browser
+  client behind a 302 to the Grafana login in production, §7.4) and `PG_STATEMENT_TIMEOUT_MS`
   (default 15000; `0` = Node's no-limit behaviour). Integers parse strictly; unknown `LOBBY_TABLES`
   categories fail at load; `NODE_ENV=production` refuses the default `JWT_SECRET` and fake providers
   exactly like Node.

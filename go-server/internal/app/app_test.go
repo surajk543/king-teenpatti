@@ -40,6 +40,8 @@ func publicDir(t *testing.T) string {
 	must(os.MkdirAll(filepath.Join(dir, "profiles"), 0o755))
 	must(os.WriteFile(filepath.Join(dir, "profiles", "bear.svg"), []byte(`<svg xmlns="http://www.w3.org/2000/svg"/>`), 0o644))
 	must(os.WriteFile(filepath.Join(dir, "profiles", "NOTICE.txt"), []byte("Noto Emoji, Apache 2.0"), 0o644))
+	must(os.MkdirAll(filepath.Join(dir, "privacy"), 0o755))
+	must(os.WriteFile(filepath.Join(dir, "privacy", "index.html"), []byte("<!doctype html><title>Privacy policy</title>"), 0o644))
 	return dir
 }
 
@@ -276,6 +278,63 @@ func TestStaticBrowserClient(t *testing.T) {
 	res, _ = get(t, h, http.MethodHead, "/", nil)
 	if res.StatusCode != http.StatusOK {
 		t.Errorf("HEAD index: %d", res.StatusCode)
+	}
+}
+
+// TestRootRedirectHidesTheBrowserClient: with ROOT_REDIRECT set the game is
+// not playable from a browser — "/" sends the visitor to the configured URL,
+// the client's own files (the top level of the public dir) and the Socket.IO
+// browser bundle are gone — while the pages Google Play links to and the
+// avatars the Flutter client fetches keep being served from subdirectories.
+func TestRootRedirectHidesTheBrowserClient(t *testing.T) {
+	a, _ := newApp(t, func(c *config.Config) { c.RootRedirect = "/dashboard/" })
+	h := a.Handler()
+
+	for _, method := range []string{http.MethodGet, http.MethodHead} {
+		res, _ := get(t, h, method, "/", nil)
+		if res.StatusCode != http.StatusFound || res.Header.Get("Location") != "/dashboard/" {
+			t.Errorf("%s /: %d %q, want 302 → /dashboard/", method, res.StatusCode, res.Header.Get("Location"))
+		}
+	}
+	res, _ := get(t, h, http.MethodGet, "/?utm=x", nil)
+	if res.StatusCode != http.StatusFound {
+		t.Errorf("GET /?query: %d", res.StatusCode)
+	}
+
+	// The browser client's files sit at the top level of the public dir.
+	for _, p := range []string{"/index.html", "/style.css", "/socket.io/socket.io.js", "/socket.io/socket.io.min.js"} {
+		res, body := get(t, h, http.MethodGet, p, nil)
+		if res.StatusCode != http.StatusNotFound || string(body) != "Cannot GET "+p {
+			t.Errorf("%s: %d %.60q, want the plain 404", p, res.StatusCode, body)
+		}
+	}
+
+	// Subdirectories are still served exactly as before.
+	res, body := get(t, h, http.MethodGet, "/privacy/", nil)
+	if res.StatusCode != http.StatusOK || !strings.Contains(string(body), "Privacy policy") {
+		t.Errorf("privacy page: %d %s", res.StatusCode, body)
+	}
+	res, body = get(t, h, http.MethodGet, "/profiles/bear.svg", nil)
+	if res.StatusCode != http.StatusOK || !strings.HasPrefix(string(body), "<svg") {
+		t.Errorf("avatar: %d %s", res.StatusCode, body)
+	}
+	res, _ = get(t, h, http.MethodGet, "/profiles", nil)
+	if res.StatusCode != http.StatusMovedPermanently || res.Header.Get("Location") != "/profiles/" {
+		t.Errorf("dir redirect: %d %q", res.StatusCode, res.Header.Get("Location"))
+	}
+	res, body = get(t, h, http.MethodPost, "/", nil)
+	if res.StatusCode != http.StatusNotFound || string(body) != "Cannot POST /" {
+		t.Errorf("POST /: %d %s", res.StatusCode, body)
+	}
+
+	// The socket itself is untouched: the handshake path still reaches sio.
+	res, body = get(t, h, http.MethodGet, "/socket.io/?EIO=4&transport=polling", nil)
+	if res.StatusCode != http.StatusBadRequest || !strings.Contains(string(body), `"code":0`) {
+		t.Errorf("polling handshake: %d %s", res.StatusCode, body)
+	}
+	res, _ = get(t, h, http.MethodGet, "/health", nil)
+	if res.StatusCode != http.StatusOK {
+		t.Errorf("/health: %d", res.StatusCode)
 	}
 }
 

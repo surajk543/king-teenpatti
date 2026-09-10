@@ -159,6 +159,8 @@ func TestEveryKey(t *testing.T) {
 		{"CHAT_RATE_WINDOW_MS", "999", "Chat.RateWindow", 999 * time.Millisecond},
 		{"LOG_LEVEL", "debug", "LogLevel", "debug"},
 		{"PUBLIC_DIR", "/srv/public", "PublicDir", "/srv/public"},
+		{"ROOT_REDIRECT", "/dashboard/", "RootRedirect", "/dashboard/"},
+		{"ROOT_REDIRECT", "", "RootRedirect", ""},
 		{"REDIS_URL", "redis://localhost", "RedisURL", "redis://localhost"},
 		{"LIVE_STATE_TTL_MS", "3600000", "LiveStateTTL", time.Hour},
 		{"LIVE_INSTANCE_ID", "blue-1", "LiveInstanceID", "blue-1"},

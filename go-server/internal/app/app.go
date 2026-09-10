@@ -71,12 +71,12 @@ type App struct {
 	// (LEDGER_PURGE_INTERVAL_MS); Shutdown stops it.
 	ledgerPurgeStop chan struct{}
 	ledgerPurgeDone chan struct{}
-	mux           *http.ServeMux
-	http          *http.Server
-	started       time.Time
-	clock         game.Clock
-	vitals        *vitals
-	handler       http.Handler
+	mux             *http.ServeMux
+	http            *http.Server
+	started         time.Time
+	clock           game.Clock
+	vitals          *vitals
+	handler         http.Handler
 
 	mu       sync.Mutex
 	addr     string
@@ -341,7 +341,10 @@ func New(opts Options) (*App, error) {
 	if !publicDirExists(cfg.PublicDir) {
 		logger.Warn("browser client directory not found; static requests will 404", "publicDir", cfg.PublicDir)
 	}
-	mux.Handle("/", staticHandler{root: http.Dir(cfg.PublicDir)})
+	if cfg.RootRedirect != "" {
+		logger.Info("browser client hidden; / redirects", "rootRedirect", cfg.RootRedirect)
+	}
+	mux.Handle("/", staticHandler{root: http.Dir(cfg.PublicDir), rootRedirect: cfg.RootRedirect})
 	a.mux = mux
 
 	var web http.Handler = mux
@@ -350,6 +353,11 @@ func New(opts Options) (*App, error) {
 	}
 	a.handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if clientBundlePaths[r.URL.Path] {
+			if cfg.RootRedirect != "" {
+				// The bundle exists only for the browser client; hidden with it.
+				staticNotFound(w, r)
+				return
+			}
 			a.serveClientBundle(w, r)
 			return
 		}

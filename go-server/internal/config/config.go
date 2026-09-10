@@ -93,6 +93,16 @@ type Config struct {
 	// derived rootDir from the module path) — recorded in PORT_PLAN.md as the
 	// one added env key.
 	PublicDir string
+	// RootRedirect is ROOT_REDIRECT (empty). Set, it takes the browser client
+	// off the internet: GET / answers 302 to this URL (production points it at
+	// the Grafana login, "/dashboard/"), the client's own files — every file
+	// at the top level of PublicDir, plus the Socket.IO browser bundle — are
+	// not served (404), and only PublicDir's subdirectories remain reachable:
+	// the pages Google Play links to (privacy/, account-deletion/) and the
+	// avatars the Flutter client fetches (profiles/). Empty keeps the browser
+	// client at "/" for development and the parity harness. Go-only key, like
+	// PUBLIC_DIR (DECISIONS.md §5).
+	RootRedirect string
 	// RedisURL is REDIS_URL: the live-state store (LIVE_STATE_PLAN.md). Empty
 	// → the in-process store (single instance; nothing survives a restart);
 	// set → Redis, and the server refuses to start when it is unreachable.
@@ -553,6 +563,7 @@ func FromEnv(lookup Lookup) (*Config, error) {
 
 	c.LogLevel = r.str("LOG_LEVEL", c.LogLevel)
 	c.PublicDir = r.str("PUBLIC_DIR", c.PublicDir)
+	c.RootRedirect = r.str("ROOT_REDIRECT", c.RootRedirect)
 	c.RedisURL = r.str("REDIS_URL", c.RedisURL)
 	c.LiveStateTTL = r.millis("LIVE_STATE_TTL_MS", c.LiveStateTTL)
 	c.LiveInstanceID = r.str("LIVE_INSTANCE_ID", c.LiveInstanceID)

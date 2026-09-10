@@ -84,8 +84,16 @@ func (a *App) serveClientBundle(w http.ResponseWriter, r *http.Request) {
 // Last-Modified + Cache-Control "public, max-age=0" on a hit, conditional
 // and Range requests handled by http.ServeContent. Misses are plain-text
 // 404s (DECISIONS.md §5; Express sent an HTML page nothing parses).
+//
+// With rootRedirect set (config.RootRedirect, env ROOT_REDIRECT) the browser
+// client is hidden: "/" answers 302 to that URL and every file at the top
+// level of root — which is exactly the client (index.html, client.js, the
+// stylesheets) — is a 404. Subdirectories are untouched, so privacy/,
+// account-deletion/ and profiles/ keep serving. Nothing is enumerated by
+// name: the rule is the directory layout.
 type staticHandler struct {
-	root http.Dir
+	root         http.Dir
+	rootRedirect string
 }
 
 func (s staticHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -98,6 +106,16 @@ func (s staticHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		upath = "/" + upath
 	}
 	clean := path.Clean(upath)
+	if s.rootRedirect != "" {
+		if clean == "/" {
+			http.Redirect(w, r, s.rootRedirect, http.StatusFound)
+			return
+		}
+		if path.Dir(clean) == "/" && !s.isDir(clean) {
+			staticNotFound(w, r)
+			return
+		}
+	}
 	// dotfiles: 'ignore' — any segment starting with "." is invisible.
 	for _, seg := range strings.Split(clean, "/") {
 		if strings.HasPrefix(seg, ".") && seg != "." && seg != ".." {
@@ -142,6 +160,19 @@ func (s staticHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		clean = index
 	}
 	serveFile(w, r, clean, info, f)
+}
+
+// isDir reports whether name (already cleaned) is a directory under root, so
+// the hidden-client rule can still redirect "/profiles" to "/profiles/" while
+// refusing "/client.js".
+func (s staticHandler) isDir(name string) bool {
+	f, err := s.root.Open(name)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	return err == nil && info.IsDir()
 }
 
 // serveFile writes one regular file with serve-static's headers.

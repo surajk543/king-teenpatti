@@ -74,12 +74,17 @@ PORT=3001 PG_SCHEMA=test_me ./bin/gameplay                     # spare port, thr
 ```
 
 Every env key and default is in `internal/config/config.go` (`Defaults()`), documented in
-`.env.example` and `../CLAUDE.md` §7.4. Two keys are Go-only:
+`.env.example` and `../CLAUDE.md` §7.4. Three keys are Go-only:
 
 - `PUBLIC_DIR` — the browser client's directory. Default `./public` relative to the working
   directory (i.e. `go-server/public` when started from `go-server/`); when that does not exist the
   binary falls back to `go-server/public` (started from the repository root). The systemd unit sets
   it explicitly.
+- `ROOT_REDIRECT` (default empty) — set, it takes the browser client off the internet: `GET /`
+  answers 302 to this URL (production: `/dashboard/`, the Grafana login), every top-level file of
+  `PUBLIC_DIR` and the Socket.IO browser bundle are 404, and only the subdirectories keep serving
+  (`privacy/`, `account-deletion/` for Google Play, `profiles/` for the Flutter avatars). Empty keeps
+  the browser client at `/` for development and the parity harness.
 - `PG_STATEMENT_TIMEOUT_MS` (default 15000) — Postgres `statement_timeout` on every pooled
   connection, so a hung query fails one ledger write (`persist_failed`, the move is refused) instead
   of freezing that table's actor; `0` disables it (Node's behaviour). See DECISIONS.md §5.

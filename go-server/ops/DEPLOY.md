@@ -36,6 +36,11 @@ Files in this directory:
   stops the binary at startup with the key named in the journal. `PUBLIC_DIR` is set in the unit
   (`…/go-server/public`) so the browser client at `/` keeps working; `PG_STATEMENT_TIMEOUT_MS`
   (Go-only, default 15000) needs no line unless you want to change it.
+- **The game is not playable from a browser in production.** `go-server/.env` carries
+  `ROOT_REDIRECT=/dashboard/` (added 10 Sep 2026): `https://api.sungamestudio.com/` answers 302 to
+  the Grafana login, the browser client's files and `/socket.io/socket.io.js` are 404, while
+  `/privacy/`, `/account-deletion/` (linked from the Play listing) and `/profiles/*.svg` (the app's
+  avatars) keep serving. Remove the line and restart to get the browser client back.
 - **Sessions survive.** JWTs issued by Node (HS256) verify in Go and vice versa; nobody logs in again.
 - **Restart behaviour is the Node one:** on SIGTERM the server closes the sockets, settles every
   live pot (first still-active seat wins, reason `all_left`), writes the ledger, exits within 8 s.
