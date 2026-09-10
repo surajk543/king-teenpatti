@@ -10,6 +10,7 @@ import '../l10n/strings.dart';
 import '../models/dtos.dart';
 import '../net/api_client.dart';
 import '../net/app_update.dart';
+import '../net/connection_failure.dart';
 import '../net/game_connection.dart';
 import '../net/purchases.dart';
 import '../net/social_sign_in.dart';
@@ -528,7 +529,11 @@ class GameState extends ChangeNotifier {
     } on ApiException catch (e) {
       loginError = e.message;
     } catch (e) {
-      loginError = 'Could not reach the server. Is it running?';
+      // Not an answer from the server: a network-level failure, named by
+      // kind so a report from a phone says what actually went wrong.
+      debugPrint('login: $e');
+      loginError =
+          'Could not reach the server.\n${describeConnectionFailure(e, serverUrl)}';
     } finally {
       busy = false;
       notifyListeners();
@@ -581,7 +586,11 @@ class GameState extends ChangeNotifier {
     } on ApiException catch (e) {
       loginError = e.message;
     } catch (e) {
-      loginError = 'Could not reach the server. Is it running?';
+      // Not an answer from the server: a network-level failure, named by
+      // kind so a report from a phone says what actually went wrong.
+      debugPrint('login: $e');
+      loginError =
+          'Could not reach the server.\n${describeConnectionFailure(e, serverUrl)}';
     } finally {
       busy = false;
       notifyListeners();
