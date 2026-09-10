@@ -766,7 +766,15 @@ class _Felt extends StatelessWidget {
   /// pot leaving for the winner. They used to be three different numbers —
   /// 0.30, 0.26 and 0.26 — so a bet landed a little above the pile it was
   /// joining.
-  static const double _potDy = 0.27;
+  /// The pot sits in the middle of the cloth, which is where a pot is.
+  ///
+  /// It used to ride high at 0.27, above the middle, leaving the centre of the
+  /// table empty during a hand — the one place every player is already looking.
+  static const double _potDy = 0.46;
+
+  /// The waiting / starting line takes the perch the pot gave up. It only ever
+  /// speaks when no hand is running, so it can have the high ground.
+  static const double _statusDy = 0.28;
 
   /// Where a seat sits on the felt, given its index as the server numbers it.
   ///
@@ -976,11 +984,17 @@ class _Felt extends StatelessWidget {
                 // pod on a 640dp phone.
                 at(
                   const Offset(0.5, _potDy),
-                  _Pot(room: room, chipSize: (podW * 0.22).clamp(14.0, 26.0)),
+                  _PotPulse(
+                    pot: room.pot,
+                    child: _Pot(
+                      room: room,
+                      chipSize: (podW * 0.22).clamp(14.0, 26.0),
+                    ),
+                  ),
                   width: w * 0.30,
                 ),
                 at(
-                  const Offset(0.5, 0.44),
+                  const Offset(0.5, _statusDy),
                   _Status(room: room),
                   width: w * 0.4,
                 ),
@@ -3439,7 +3453,6 @@ class _ChatDrawerState extends State<_ChatDrawer> {
   Widget build(BuildContext context) {
     final state = context.watch<GameState>();
     final theme = Theme.of(context);
-
     return GlassDrawerPanel(
       padding: EdgeInsets.zero,
       child: SizedBox.expand(
@@ -4243,6 +4256,91 @@ class _KeyPulseState extends State<_KeyPulse>
         );
       },
       child: RepaintBoundary(child: widget.child),
+    );
+  }
+}
+
+/// The pot, breathing between hands and flaring when chips land on it.
+///
+/// Two different jobs in one widget, because they are two halves of the same
+/// idea — that the middle of the table is alive.
+///
+/// The **breath** is a very slow gold bloom under the plinth, on a loop nobody
+/// watches. It exists so that a table sitting between hands does not look like
+/// a screenshot: an idle pot with no movement anywhere near it reads as a
+/// frozen app rather than a quiet moment.
+///
+/// The **flare** fires only when the pot actually grows. It is the one moment
+/// worth interrupting the breath for, and it is deliberately short — money
+/// arriving should be noticed, not waited on. A pot that shrinks (a hand ends,
+/// the next one starts at zero) gets nothing: that is not chips landing.
+class _PotPulse extends StatefulWidget {
+  const _PotPulse({required this.pot, required this.child});
+
+  final int pot;
+  final Widget child;
+
+  @override
+  State<_PotPulse> createState() => _PotPulseState();
+}
+
+class _PotPulseState extends State<_PotPulse> with TickerProviderStateMixin {
+  late final AnimationController _breath = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 3600),
+  )..repeat(reverse: true);
+
+  late final AnimationController _flare = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 620),
+  );
+
+  @override
+  void didUpdateWidget(covariant _PotPulse old) {
+    super.didUpdateWidget(old);
+    if (widget.pot > old.pot) _flare.forward(from: 0);
+  }
+
+  @override
+  void dispose() {
+    _breath.dispose();
+    _flare.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: Listenable.merge([_breath, _flare]),
+      builder: (context, child) {
+        // Ease out, so the flare is at its brightest the instant it starts and
+        // spends the rest of its life fading — the shape money arriving has.
+        final flare = Curves.easeOut.transform(1 - _flare.value);
+        final breathe = Curves.easeInOut.transform(_breath.value);
+        final live = _flare.isAnimating;
+
+        return Transform.scale(
+          // Barely more than one. At 1.06 the plate visibly jumps and the
+          // number under it stops being readable mid-count.
+          scale: live ? 1 + 0.035 * flare : 1,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(Radii.lg),
+              boxShadow: [
+                BoxShadow(
+                  color: AppTheme.goldBright.withValues(
+                    alpha: 0.05 + 0.05 * breathe + 0.26 * flare,
+                  ),
+                  blurRadius: 18 + 26 * flare,
+                  spreadRadius: 1 + 6 * flare,
+                ),
+              ],
+            ),
+            child: child,
+          ),
+        );
+      },
+      child: widget.child,
     );
   }
 }

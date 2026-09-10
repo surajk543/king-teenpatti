@@ -101,7 +101,9 @@ class _Root extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final screen = context.select<GameState, Screen>((s) => s.screen);
-    final resuming = context.select<GameState, bool>((s) => s.resuming && s.screen != Screen.splash);
+    final resuming = context.select<GameState, bool>(
+      (s) => s.resuming && s.screen != Screen.splash,
+    );
 
     return _NoticeHost(
       child: Stack(
@@ -168,8 +170,10 @@ class _ScreenFadeState extends State<_ScreenFade>
     // Settled: the first screen is already here and has nothing to clear.
     value: 1,
   );
-  late final CurvedAnimation _curve =
-      CurvedAnimation(parent: _c, curve: Motion.emphasized);
+  late final CurvedAnimation _curve = CurvedAnimation(
+    parent: _c,
+    curve: Motion.emphasized,
+  );
   late final Animation<double> _veil = ReverseAnimation(_curve);
 
   @override
@@ -250,8 +254,9 @@ class _ResumeVeil extends StatelessWidget {
                 // capitals do nothing to Devanagari but stretch it.
                 style: AppTheme.label(
                   theme.textTheme.titleSmall ?? const TextStyle(),
-                  colour: theme.colorScheme.onSurface
-                      .withValues(alpha: AppTheme.inkMed),
+                  colour: theme.colorScheme.onSurface.withValues(
+                    alpha: AppTheme.inkMed,
+                  ),
                 ),
               ),
             ],
@@ -301,7 +306,8 @@ class _BackGuard extends StatelessWidget {
 
         if (screen == Screen.table) {
           final room = state.room;
-          final midHand = room?.state == TableState.betting &&
+          final midHand =
+              room?.state == TableState.betting &&
               room?.you?.status == SeatState.active;
 
           final leave = await _ask(
@@ -361,8 +367,9 @@ class _BackGuard extends StatelessWidget {
         content: Text(
           body,
           style: theme.textTheme.bodyMedium?.copyWith(
-            color: theme.colorScheme.onSurface
-                .withValues(alpha: AppTheme.inkMed),
+            color: theme.colorScheme.onSurface.withValues(
+              alpha: AppTheme.inkMed,
+            ),
           ),
         ),
         actions: [
@@ -405,7 +412,9 @@ class _NoticeHostState extends State<_NoticeHost> {
           // Tone stays neutral: `notice` is one string with no severity beside
           // it, and colouring a refusal red by guessing at its wording would
           // be wrong in five languages.
-          ..showSnackBar(NoticeToast.snackBar(context, message: _readable(context, notice)));
+          ..showSnackBar(
+            NoticeToast.snackBar(context, message: _readable(context, notice)),
+          );
         context.read<GameState>().clearNotice();
         _shown = null;
       });
@@ -414,7 +423,6 @@ class _NoticeHostState extends State<_NoticeHost> {
     return widget.child;
   }
 }
-
 
 /// Turns anything machine-shaped into one sentence a player can act on.
 ///

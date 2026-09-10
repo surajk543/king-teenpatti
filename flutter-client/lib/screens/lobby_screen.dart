@@ -990,8 +990,12 @@ class _SitCapsule extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    // Near-white rather than gold once there is a lit pane behind it: gold on
+    // glass on a brown card is three warm layers deep and the label was the
+    // one losing. Gold stays everywhere else on the card, so this reads as the
+    // action rather than as another value.
     final ink = enabled
-        ? _goldInk(theme.brightness)
+        ? Colors.white.withValues(alpha: 0.96)
         : theme.colorScheme.onSurface.withValues(alpha: AppTheme.inkLow);
 
     return Container(
@@ -1002,10 +1006,48 @@ class _SitCapsule extends StatelessWidget {
       alignment: Alignment.center,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(Radii.pill),
+        // A pane of glass laid on the card, not an outline drawn on it.
+        //
+        // This was a hairline border around transparency, and on a dark card
+        // that is very close to nothing: the one thing on the card you are
+        // meant to press looked like a caption, and looked disabled next to
+        // the enabled-looking rows above it. Filling it lifts it off the card
+        // without introducing a fourth solid colour into a lobby that already
+        // carries three.
+        gradient: enabled
+            ? LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Colors.white.withValues(alpha: 0.20),
+                  Colors.white.withValues(alpha: 0.07),
+                ],
+              )
+            : null,
         border: Border.all(
-          color: AppTheme.hairlineColour(theme.brightness, live: enabled),
-          width: Dim.hairline,
+          color: enabled
+              ? Colors.white.withValues(alpha: 0.34)
+              : AppTheme.hairlineColour(theme.brightness, live: false),
+          width: enabled ? 1.2 : Dim.hairline,
         ),
+        // The lit top edge the felt and the card rims both use, so the capsule
+        // belongs to the same room as everything around it.
+        boxShadow: enabled
+            ? [
+                BoxShadow(
+                  color: Colors.white.withValues(alpha: 0.16),
+                  offset: const Offset(0, -0.5),
+                  blurRadius: 0,
+                  spreadRadius: -0.5,
+                ),
+                BoxShadow(
+                  color: AppTheme.ink900.withValues(alpha: 0.30),
+                  offset: const Offset(0, 2),
+                  blurRadius: 8,
+                  spreadRadius: -2,
+                ),
+              ]
+            : null,
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
