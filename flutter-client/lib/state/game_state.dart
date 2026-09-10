@@ -135,6 +135,19 @@ class GameState extends ChangeNotifier {
   static const _celebrationFor = Duration(seconds: 6);
 
   final List<ChatMessage> chat = [];
+
+  /// When the player sat down at the table they are at *now*.
+  ///
+  /// Display only — the drawer's "how long have I been here" readout and
+  /// nothing else. It is never sent anywhere, never persisted, and no rule of
+  /// the game reads it. The server has its own idea of when a seat was taken
+  /// and this is deliberately not that: it answers the question the player is
+  /// actually asking, which is how long *this sitting* has lasted.
+  ///
+  /// Reset whenever the room id changes, which is what makes switching tables
+  /// start the clock again, and cleared on leaving so a stale figure cannot
+  /// survive into the next table.
+  DateTime? seatedAt;
   int unreadChat = 0;
 
   /// The message each player last said, while it is still worth showing over
@@ -286,7 +299,12 @@ class GameState extends ChangeNotifier {
         _snapshotSinceSession = true;
         _seatCheck?.cancel();
         final newHand = room?.handNo != s.handNo;
+        // A different room id means a different table — a switch, a resume
+        // onto another table, or sitting down for the first time. All three
+        // are a new sitting as far as the drawer's clock is concerned.
+        final newTable = room?.roomId != s.roomId;
         room = s;
+        if (newTable) seatedAt = DateTime.now();
         if (newHand) {
           // A fresh deal cuts the last celebration short and resets the stepper.
           _clearSideshow();
@@ -327,6 +345,7 @@ class GameState extends ChangeNotifier {
         notice = message;
         switching = false;
         room = null;
+        seatedAt = null;
         chat.clear();
         _clearBubbles();
         _clearSideshow();
@@ -341,6 +360,7 @@ class GameState extends ChangeNotifier {
         // room closing behind us is not a reason to walk back to the lobby.
         if (switching) return;
         room = null;
+        seatedAt = null;
         chat.clear();
         _clearBubbles();
         _clearSideshow();
@@ -443,6 +463,7 @@ class GameState extends ChangeNotifier {
     _seatCheck = Timer(const Duration(milliseconds: 1800), () {
       if (_snapshotSinceSession || room == null) return;
       room = null;
+      seatedAt = null;
       chat.clear();
       _clearBubbles();
       _clearSideshow();
@@ -573,6 +594,7 @@ class GameState extends ChangeNotifier {
     _token = null;
     _conn.disconnect();
     room = null;
+    seatedAt = null;
     user = null;
     screen = Screen.login;
     notifyListeners();
@@ -612,6 +634,7 @@ class GameState extends ChangeNotifier {
     _token = null;
     _conn.disconnect();
     room = null;
+    seatedAt = null;
     user = null;
     screen = Screen.login;
     notifyListeners();

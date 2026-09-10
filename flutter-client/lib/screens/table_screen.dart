@@ -338,6 +338,11 @@ class _TableDrawer extends StatelessWidget {
                       ],
                     ),
                   ),
+                  // How long this sitting has lasted. Top right, above the
+                  // close key, because it is a fact about the table rather
+                  // than an action on it.
+                  const _SeatedFor(),
+                  const SizedBox(width: Space.xs),
                   IconButton(
                     visualDensity: VisualDensity.compact,
                     icon: const Icon(Icons.close_rounded),
@@ -4341,6 +4346,80 @@ class _PotPulseState extends State<_PotPulse> with TickerProviderStateMixin {
         );
       },
       child: widget.child,
+    );
+  }
+}
+
+/// How long the player has been sitting at this table, as h:mm:ss.
+///
+/// Counts its own seconds rather than riding GameState's ticker, and that is
+/// the whole point of it being a separate widget. The table screen's build
+/// deliberately watches nothing — a per-second rebuild up there tears down any
+/// open drawer, which is exactly where this clock lives. Keeping the tick
+/// local means the only thing repainting each second is these few characters.
+///
+/// The elapsed figure is derived from [GameState.seatedAt] on every frame
+/// rather than counted up, so it stays right across a pause, a backgrounded
+/// app, or a dropped frame — a counter that increments a variable drifts, and
+/// a clock that drifts is worse than no clock.
+class _SeatedFor extends StatefulWidget {
+  const _SeatedFor();
+
+  @override
+  State<_SeatedFor> createState() => _SeatedForState();
+}
+
+class _SeatedForState extends State<_SeatedFor> {
+  Timer? _tick;
+
+  @override
+  void initState() {
+    super.initState();
+    _tick = Timer.periodic(const Duration(seconds: 1), (_) => setState(() {}));
+  }
+
+  @override
+  void dispose() {
+    _tick?.cancel();
+    super.dispose();
+  }
+
+  /// h:mm:ss, with the hours unpadded so a short sitting reads "0:04:12"
+  /// rather than "00:04:12" — nobody sits at a table for ten hours, and two
+  /// leading digits imply somebody might.
+  static String _clock(Duration d) {
+    final t = d.isNegative ? Duration.zero : d;
+    String two(int n) => n.toString().padLeft(2, '0');
+    return '${t.inHours}:${two(t.inMinutes % 60)}:${two(t.inSeconds % 60)}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final seatedAt = context.read<GameState>().seatedAt;
+    if (seatedAt == null) return const SizedBox.shrink();
+
+    final theme = Theme.of(context);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(
+          Icons.schedule_rounded,
+          size: 14,
+          color: theme.colorScheme.onSurface.withValues(alpha: AppTheme.inkLow),
+        ),
+        const SizedBox(width: Space.xxs),
+        Text(
+          _clock(DateTime.now().difference(seatedAt)),
+          // Tabular figures, or the whole row shuffles sideways every second
+          // as the digits change width.
+          style: AppTheme.money(
+            theme.textTheme.labelMedium ?? const TextStyle(),
+            colour: theme.colorScheme.onSurface.withValues(
+              alpha: AppTheme.inkMed,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
