@@ -607,7 +607,11 @@ Production's lives at `/var/www/gameplay/king-teenpatti/go-server/.env` (`PG_POO
 - Ops bundle: **`go-server/ops/monitoring/`** (formerly `server/ops/monitoring/`) — `prometheus/prometheus.yml` + `alerts.yml`,
   `docker-compose.yml` (Prometheus, Grafana, postgres_exporter, nginx-prometheus-exporter, node_exporter), Grafana provisioning +
   `grafana/dashboards/king-teenpatti.json` (sections System · Runtime (formerly Node.js) · WebSockets · Multiplayer Game · Latency ·
-  PostgreSQL · Nginx), `nginx/king-teenpatti.conf.example` (websocket proxy, `stub_status`, `worker_connections 16384` — the 768
+  PostgreSQL · Nginx) **and `king-teenpatti-logs.json`** (uid `king-teenpatti-logs`, added 10 Sep 2026: the gameplay journal in
+  **Loki** — Alloy ships `journalctl -u gameplay` as stream `{service_name="gameplay"}`, every line the slog JSON, `| json` parses it;
+  rows Volume · Warnings & errors · Sessions & money (incl. `login refused`) · Server lifecycle · All logs; both dashboards live in
+  Grafana folder `king-teenpatti-dashboards` and link to each other; import = `POST /api/dashboards/db` with a service-account token,
+  `overwrite:true`), `nginx/king-teenpatti.conf.example` (websocket proxy, `stub_status`, `worker_connections 16384` — the 768
   default capped production at ~1,500 players on 2026‑09‑08), and `MONITORING.md` (runbook + requirement 35/36 checklist). Postgres
   internals come from postgres_exporter, not the game server. Production's Prometheus/Grafana were pointed at the old path once;
   DEPLOY.md §6 has the re-import and `rule_files` steps.

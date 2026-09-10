@@ -18,7 +18,8 @@ ops/monitoring/
 ├── grafana/
 │   ├── provisioning/datasources/prometheus.yml
 │   ├── provisioning/dashboards/dashboards.yml
-│   └── dashboards/king-teenpatti.json   the one dashboard, uid king-teenpatti
+│   ├── dashboards/king-teenpatti.json   the metrics dashboard, uid king-teenpatti
+│   └── dashboards/king-teenpatti-logs.json   the Loki logs dashboard, uid king-teenpatti-logs (see "The Logs dashboard")
 └── nginx/
     ├── king-teenpatti.conf.example      api.sungamestudio.com site + stub_status server
     ├── nginx.conf.example               main-context: worker_rlimit_nofile / events {}
@@ -490,6 +491,50 @@ Orange "Game server restarted" annotations mark process restarts
 
 Regenerating: the JSON is plain, 2-space indented and hand-editable; validate with
 `node -e "JSON.parse(require('fs').readFileSync('grafana/dashboards/king-teenpatti.json','utf8'))"`.
+
+---
+
+## The Logs dashboard (Loki)
+
+`grafana/dashboards/king-teenpatti-logs.json` — uid `king-teenpatti-logs`, refresh 30 s, default
+range 6 h, 5 rows / 24 panels, same folder as the metrics dashboard; the two link to each other
+through the "King Teen Patti dashboards" drop-down (a `dashboards`-type link on the tag
+`king-teenpatti`). Added 10 Sep 2026.
+
+**Where the lines come from.** Production runs `loki.service` (Loki 3.7, `127.0.0.1:3100`, not
+reachable from outside) and `alloy.service` (`/etc/alloy/config.alloy`), which reads
+`journalctl -u gameplay` and ships every line as the stream `{service_name="gameplay"}` with labels
+`host`, `job=loki.source.journal.gameplay`, `service`, `service_name` and Loki's `detected_level`.
+Each line is the server's slog JSON exactly as `journalctl -u gameplay` shows it, so every query
+starts `{service_name="gameplay"} | json` and then filters on the fields: `level`, `msg`, and the
+attributes (`userId`, `roomId`, `code`, `provider`, `err`, `errors`, …). `msg` values are the
+literal strings in the Go source (`grep -rhoE '\.(Info|Warn|Error)\("[^"]+"' internal cmd`).
+
+| Row | Panels | What to read |
+|---|---|---|
+| Volume | Log lines · Warnings · Errors · Restarts · Logins refused · Reconcile passes with errors; Lines/min by level | The six stats are counts over the selected range. Errors > 0 or an unexplained restart is the thing to open. The per-minute floor is `live store reconciled` (every 30 s) plus bot-play's guest sign-ins. |
+| Warnings & errors | WARN / ERROR per minute by message; the WARN/ERROR lines | Every warning as its own series, so a burst is named without scrolling. |
+| Sessions & money | Logins/min by provider · Refused logins/min by code · Money events/min; Refused logins · Money events | `login refused` carries provider, code, status and the reason with the credential cut out — the first stop for a "Google sign-in does not work" report (`Wrong recipient` = app built with a different `GOOGLE_SERVER_CLIENT_ID`; `missing_token` = no idToken was sent). Money = purchases, rewards, deletions, ledger purges, and the two settlement edge cases (`table destroyed with a settlement still owed`, `late settlement landed after table destroyed`). |
+| Server lifecycle | Starts & shutdowns · Tables/min by event · Live store: reconcile errors & failures; Lifecycle & live store lines | `gameplay build` opens every start, `shutting down` closes a SIGTERM stop; a start without a shutdown before it is a crash. The **Game server starts** annotation draws each start as a vertical line on every panel. |
+| All logs | All logs | Driven by the variables **Level** (INFO/WARN/ERROR, multi), **Search** (regex over the whole line — a userId, a room code, an error text) and **Message** (regex over `msg`). |
+
+**Importing.** Both dashboards were imported through the HTTP API rather than file provisioning
+(`overwrite: true` replaces the dashboard with that uid in place). A one-off service-account token
+(Administration → Users and access → Service accounts, role Editor) does it from anywhere through
+nginx; revoke the token afterwards:
+
+```bash
+cd go-server/ops/monitoring
+G=https://api.sungamestudio.com/dashboard
+python3 -c 'import json,sys; json.dump({"dashboard": json.load(open(sys.argv[1])), "folderUid": "king-teenpatti-dashboards", "overwrite": True, "message": sys.argv[2]}, open("/tmp/import.json","w"))' \
+  grafana/dashboards/king-teenpatti-logs.json "why"
+curl --fail -sS -X POST -H "Authorization: Bearer $GRAFANA_TOKEN" -H 'Content-Type: application/json' \
+  --data-binary @/tmp/import.json "$G/api/dashboards/db"; rm /tmp/import.json
+```
+
+Before committing a change, every LogQL expression in the file can be run against Loki on the
+host (`curl -G 127.0.0.1:3100/loki/api/v1/query_range --data-urlencode 'query=…'`) with `$__auto`
+→ `1m`, `$__range` → `6h`, `${level:regex}` → `(INFO|WARN|ERROR)`, `$search` → `` and `$msg` → `.*`.
 
 ---
 
