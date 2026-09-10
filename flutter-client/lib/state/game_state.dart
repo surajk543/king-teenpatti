@@ -157,12 +157,12 @@ class GameState extends ChangeNotifier {
   final Map<String, ChatMessage> saidRecently = {};
   final Map<String, Timer> _bubbleTimers = {};
 
-  /// What a player said while their previous line was still up. One bubble
-  /// per player at a time; each holds for [bubbleFor], then the next in line
-  /// takes its place, so nothing anyone says is skipped.
+  /// What a player said while their previous line was still up — the newest
+  /// one only, never a backlog. One bubble per player at a time; each holds
+  /// for [bubbleFor], then the waiting line takes its place.
   final Map<String, List<ChatMessage>> _bubbleQueue = {};
 
-  static const bubbleFor = Duration(seconds: 4);
+  static const bubbleFor = Duration(seconds: 8);
 
   // ------------------------------------------------------------- sideshow
 
@@ -401,8 +401,16 @@ class GameState extends ChangeNotifier {
         // Show it over the sender's seat for a moment, so a table that is
         // talking is visible without opening the chat. If their last line is
         // still up, this one waits its turn rather than cutting it short.
+        //
+        // At most ONE line waits. A bubble holds for 8s and a player may send
+        // every 4s, so an unbounded queue drains slower than it fills and the
+        // bubble drifts further behind real time with every message — a
+        // chatty player would end up with the felt showing something they
+        // said a minute ago. Keeping only the newest bounds how stale a
+        // bubble can be to one hold. The full conversation is in the chat
+        // drawer, in order and complete; the bubble is a glance, not a log.
         if (saidRecently.containsKey(m.userId)) {
-          (_bubbleQueue[m.userId] ??= []).add(m);
+          _bubbleQueue[m.userId] = [m];
         } else {
           _showBubble(m);
         }

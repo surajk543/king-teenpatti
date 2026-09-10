@@ -756,12 +756,18 @@ class _Felt extends StatelessWidget {
   /// the viewer at the bottom, then clockwise from their left.
   /// A seat's column is pod, then cards, then its bet chip — about half the
   /// felt's height in all — so the top pair sit well clear of the rim or their
-  /// names are clipped off by it.
+  /// names are clipped off by it. Their dy moved 0.28 -> 0.335 on 10 Sep 2026
+  /// when the pods grew. The anchor is the column's MIDDLE, so a taller column
+  /// hangs further above it — and the column's height is not fixed: a seat
+  /// showing a revealed hand carries its hand name, its badge and its pot line
+  /// as well, which is why the winner's pod was the one losing its top edge
+  /// while the seat beside it at the same dy was fine. The figure has to clear
+  /// the tallest state a column can reach, not the common one.
   static const List<Offset> _places = [
     Offset(0.335, 0.00), // you — x only; the pair below sit on the floor
     Offset(0.090, 0.42), // left
-    Offset(0.260, 0.28), // top left
-    Offset(0.740, 0.28), // top right
+    Offset(0.260, 0.335), // top left
+    Offset(0.740, 0.335), // top right
     Offset(0.910, 0.42), // right
   ];
 

@@ -166,15 +166,22 @@ class Dim {
   /// A rail button's height. 360 -> 46.8 | 411 -> 53.4 | 800 -> 56.0
   static double railButtonH(double h) => (h * 0.13).clamp(minTouch, 56.0);
 
-  /// An action key. 360 -> 48.6 | 411 -> 55.5 | 800 -> 60.0
-  static double keyH(double h) => (h * 0.135).clamp(minTouch, 60.0);
+  /// An action key. 360 -> 44.0 | 411 -> 47.7 | 800 -> 52.0
+  ///
+  /// Brought down on 10 Sep 2026 to give the felt its height back. The console
+  /// is the only thing competing with the cloth for vertical space, and at
+  /// h*0.135 it was taking about a sixth of a landscape screen to show six
+  /// controls that are mostly empty padding. The floor stays at [minTouch] —
+  /// these are the keys the whole game is played with, and a key too small to
+  /// hit reliably is a worse table than a slightly shorter one.
+  static double keyH(double h) => (h * 0.116).clamp(minTouch, 52.0);
 
   /// The console's own padding, above and below its keys.
-  /// 360 -> 6.5 | 411 -> 7.4 | 800 -> 9.0
-  static double consolePad(double h) => (h * 0.018).clamp(5.0, 9.0);
+  /// 360 -> 4.3 | 411 -> 4.9 | 800 -> 7.0
+  static double consolePad(double h) => (h * 0.012).clamp(4.0, 7.0);
 
   /// Derived from the keys it holds, so it can never be too short for them.
-  /// 360 -> 61.6 | 411 -> 70.3 | 800 -> 78.0
+  /// 360 -> 52.6 | 411 -> 57.5 | 800 -> 66.0 (was 61.6 | 70.3 | 78.0)
   static double consoleH(double h) => keyH(h) + 2 * consolePad(h);
 
   /// 640 -> 96.0 | 891 -> 129.2 | 1280 -> 168.0
@@ -226,10 +233,19 @@ class Dim {
   static double feltPad(double w) => (w * 0.018).clamp(10.0, 28.0);
 
   /// A seat pod, measured against the felt's own box rather than the screen's.
-  /// The formula is the one the felt has always used; only the ceiling moved,
-  /// so a tablet's table keeps growing with the screen.
+  ///
+  /// Nudged up on 10 Sep 2026, but only a little, and the picture inside the
+  /// pod was enlarged much more (_kAvatar in seat_pod.dart). That split is
+  /// deliberate: the complaint was that the player's picture was the smallest
+  /// thing on a table full of cards and chips, and growing the whole pod to
+  /// fix it is the expensive way. A pod's column is taller than it is wide, so
+  /// width buys height faster than it buys picture — at feltH * 0.345 the top
+  /// seat's pod ran off the top of the screen and the rim seat crossed the
+  /// cloth's edge. The horizontal clamp in _Felt.at() stops a pod leaving the
+  /// felt sideways; nothing stops it leaving upwards, so the height fraction
+  /// is the real ceiling here.
   static double podW(double feltW, double feltH) =>
-      math.min(feltH * 0.30, feltW * 0.155).clamp(56.0, 148.0);
+      math.min(feltH * 0.315, feltW * 0.163).clamp(60.0, 152.0);
 
   /// The viewer's own fanned hand, again against the felt's box.
   static double handH(double feltH) => (feltH * 0.29).clamp(50.0, 134.0);

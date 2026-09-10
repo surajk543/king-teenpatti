@@ -31,13 +31,17 @@ const double _kRadius = 0.11;
 const double _kPad = 0.05;
 const double _kName = 0.125;
 const double _kNameFloor = 10.0;
-const double _kAvatar = 0.175;
+const double _kAvatar = 0.245;
 const double _kDealer = 0.095;
 const double _kGap = 0.04;
 const double _kStack = 0.115;
 const double _kStackFloor = 9.5;
 const double _kStatus = 0.095;
 const double _kStatusFloor = 9.0;
+
+/// Chat is read rather than glanced at, so it gets a larger floor than the
+/// captions do.
+const double _kBubbleFloor = 12.0;
 
 /// One player's place at the table: a portrait pod with the name across the
 /// top, a picture in the middle and the stack on a pill underneath, with its
@@ -233,9 +237,7 @@ class SeatPod extends StatelessWidget {
         width: width,
         child: Column(
           mainAxisSize: MainAxisSize.min,
-          children: [
-            ...(reversed ? ordered.reversed.toList() : ordered),
-          ],
+          children: [...(reversed ? ordered.reversed.toList() : ordered)],
         ),
       ),
     );
@@ -578,7 +580,10 @@ class SeatPod extends StatelessWidget {
               style: AppTheme.label(
                 theme.textTheme.labelSmall!,
                 fontSize: size,
-                colour: AppTheme.onFelt(theme.brightness, alpha: AppTheme.inkLow),
+                colour: AppTheme.onFelt(
+                  theme.brightness,
+                  alpha: AppTheme.inkLow,
+                ),
               ),
             ),
             SizedBox(width: width * 0.035),
@@ -749,11 +754,10 @@ class _TurnRingState extends State<_TurnRing>
 
   /// 780ms is turn timing, not chrome timing: it is read against a 25-second
   /// clock, so it stays out of [Motion].
-  AnimationController get _blink =>
-      _c ??= AnimationController(
-        vsync: this,
-        duration: const Duration(milliseconds: 780),
-      )..repeat(reverse: true);
+  AnimationController get _blink => _c ??= AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 780),
+  )..repeat(reverse: true);
 
   @override
   void dispose() {
@@ -893,7 +897,12 @@ class _Bubble extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
             textAlign: TextAlign.center,
             style: theme.textTheme.bodySmall!.copyWith(
-              fontSize: math.max(_kStatusFloor, width * 0.105),
+              // Chat is the one thing on the felt a player actually reads, as
+              // opposed to glances at, and it was set at the same size as the
+              // status captions around it. Its own floor too: _kStatusFloor is
+              // 9pt, which is fine for a word like "BLIND" and not fine for a
+              // sentence somebody typed.
+              fontSize: math.max(_kBubbleFloor, width * 0.135),
               height: 1.3,
               fontWeight: FontWeight.w500,
               color: AppTheme.boneInk.withValues(alpha: 0.94),
