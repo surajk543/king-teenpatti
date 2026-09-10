@@ -18,7 +18,10 @@ ops/monitoring/
 ├── grafana/
 │   ├── provisioning/datasources/prometheus.yml
 │   ├── provisioning/dashboards/dashboards.yml
-│   ├── dashboards/king-teenpatti.json   the metrics dashboard, uid king-teenpatti
+│   ├── dashboards/king-teenpatti.json   the combined metrics dashboard, uid king-teenpatti (the source of the split below)
+│   ├── dashboards/king-teenpatti-{system,runtime,sockets,game,latency,postgres,nginx,redis}.json
+│   │                                    one dashboard per row of the combined one — GENERATED, see "One dashboard per concern"
+│   ├── split_dashboards.py              the generator (`--check` verifies the eight files are current)
 │   └── dashboards/king-teenpatti-logs.json   the Loki logs dashboard, uid king-teenpatti-logs (see "The Logs dashboard")
 └── nginx/
     ├── king-teenpatti.conf.example      api.sungamestudio.com site + stub_status server
@@ -491,6 +494,33 @@ Orange "Game server restarted" annotations mark process restarts
 
 Regenerating: the JSON is plain, 2-space indented and hand-editable; validate with
 `node -e "JSON.parse(require('fs').readFileSync('grafana/dashboards/king-teenpatti.json','utf8'))"`.
+
+---
+
+## One dashboard per concern (the split set)
+
+Added 10 Sep 2026 because 111 panels on one page is a scroll, not a glance. Each row of the
+combined dashboard is also its own dashboard, in the same folder, tagged `king-teenpatti` +
+`split`, all reachable from the **King Teen Patti dashboards** drop-down at the top of every one:
+
+| uid | Title | Row it mirrors | Panels |
+|---|---|---|---|
+| `king-teenpatti-system` | System | System (node_exporter) | 11 |
+| `king-teenpatti-runtime` | Runtime (Go) | Runtime | 16 |
+| `king-teenpatti-sockets` | WebSockets | WebSockets | 11 |
+| `king-teenpatti-game` | Game | Multiplayer Game | 13 |
+| `king-teenpatti-latency` | Latency | Latency | 13 |
+| `king-teenpatti-postgres` | PostgreSQL | PostgreSQL (+ the `datname` variable) | 15 |
+| `king-teenpatti-nginx` | Nginx | Nginx | 12 |
+| `king-teenpatti-redis` | Redis (live state) | Live state (Redis) | 12 |
+
+**They are generated, not edited.** `python3 grafana/split_dashboards.py` rewrites the eight
+files from `king-teenpatti.json` (panels re-based to y=0, same ids, the `DS_PROMETHEUS`
+variable always, `datname` only where a panel uses it, the restart annotation, the runbook link
+and the drop-down). Change a panel in the combined file, rerun the script, import both. A hand
+edit to a split file is lost on the next run; `--check` exits 1 when any of the eight is stale,
+which is the thing to run before committing. Import each the same way as the logs dashboard
+(`POST /api/dashboards/db`, `folderUid: king-teenpatti-dashboards`, `overwrite: true`).
 
 ---
 
