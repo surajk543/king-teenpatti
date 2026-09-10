@@ -69,9 +69,19 @@ PQC one can be read without parsing ML-DSA):
 | Play (legacy) | `60:3C:5C:30:CB:CE:1F:A6:AD:B6:1B:19:A0:EC:55:5C:28:FC:98:07` | `deployment_cert.der` | Android 7–12 |
 | Play (classical) | `6D:5B:FF:9B:D5:CB:46:D6:44:43:08:D8:54:3E:C6:F8:71:C9:BB:FB` | `hybrid_classical_cert.der` | Android 13–16 |
 | Play (PQC) | `62:3C:19:FE:8B:23:7A:E2:D6:72:CC:00:E4:A9:72:BF:61:D1:99:43` | `hybrid_pqc_cert.der` | Android 17+ |
+| upload key | `7C:D8:5B:26:76:40:D5:BE:97:19:22:58:DB:16:DD:E4:ED:A2:55:8A` | `android/key.properties` keystore (CN=Sun Game Studio) | a **sideloaded** `flutter build apk --release` |
 
-One Android client holds exactly one fingerprint, so that is four clients, not
-one with four rows. None of their ids is ever referenced in code — they exist
+The fifth row is the one that bit on 10 Sep 2026: a release APK copied onto a
+phone by hand keeps the upload key as its runtime signature (Play never
+re-signed it), and with no Android client for that fingerprint Google's picker
+closes as "canceled" right after the account is chosen. Register it too, or
+test only through Play. Read a fingerprint out of any APK without the SDK
+tools: extract the DER certificate from the v2 signing block and hash it —
+`keytool -printcert -jarfile` only sees the v1 signature, which release builds
+no longer carry.
+
+One Android client holds exactly one fingerprint, so that is five clients, not
+one with five rows. None of their ids is ever referenced in code — they exist
 only so Play Services will authorise a request from this package and signature.
 The id the code *does* use is the Web client, above.
 
