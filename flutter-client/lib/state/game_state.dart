@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:in_app_purchase/in_app_purchase.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:uuid/uuid.dart';
 
 import '../l10n/strings.dart';
@@ -111,6 +112,12 @@ class GameState extends ChangeNotifier {
   /// settings drawer can never disagree with the installed APK.
   String appVersion = '';
 
+  /// This build's Android versionCode, for the server's minimum-version gate.
+  /// 0 until package_info answers, which is why the gate treats 0 as "cannot
+  /// tell" and lets the player through: locking someone out because a plugin
+  /// had not replied yet would be a worse failure than an old client.
+  int _buildNumber = 0;
+
   List<Reveal> showdown = const [];
   String showdownResult = '';
 
@@ -216,6 +223,7 @@ class GameState extends ChangeNotifier {
       PackageInfo.fromPlatform()
           .then((info) {
             appVersion = '${info.version} (${info.buildNumber})';
+            _buildNumber = int.tryParse(info.buildNumber) ?? 0;
             notifyListeners();
           })
           .catchError((_) {}),
@@ -272,11 +280,43 @@ class GameState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Whether this build is older than the server will talk to.
+  ///
+  /// Fails OPEN in both unknowable cases: a server that names no floor (0) and
+  /// a build whose own number we do not have yet. A gate that locks people out
+  /// when it cannot tell is worse than one that occasionally lets an old
+  /// client through — the old client sees a broken table, the false positive
+  /// sees a game it can never open.
+  bool _belowMinimumBuild(int minimum) =>
+      minimum > 0 && _buildNumber > 0 && _buildNumber < minimum;
+
+  /// Sends the player to the update screen and cuts the socket.
+  ///
+  /// Disconnecting matters: this build has been told it cannot be understood,
+  /// so leaving it talking would produce exactly the misread state the floor
+  /// exists to prevent.
+  void _forceUpdate() {
+    _conn.disconnect();
+    room = null;
+    seatedAt = null;
+    screen = Screen.update;
+    notifyListeners();
+  }
+
   void _wire() {
     _subs.addAll([
       _conn.onSession.listen((s) {
         user = s.user;
         config = s.config;
+        _snapshotSinceSession = false;
+        // The server's own floor, checked the moment it tells us what it is.
+        // Play's update check answers "is there something newer"; this answers
+        // "can this build still be talked to", which is the question that
+        // matters when the wire has moved on — and only the server knows it.
+        if (_belowMinimumBuild(s.config.minClientBuild)) {
+          _forceUpdate();
+          return;
+        }
         _snapshotSinceSession = false;
         if (!resuming && room != null) _armSeatCheck();
         if (resuming) {
@@ -695,7 +735,36 @@ class GameState extends ChangeNotifier {
     if (updating) return;
     updating = true;
     notifyListeners();
-    final ok = await _update.startImmediate();
+
+    // Play's in-place flow first, but only when Play said it could run one.
+    // The server can force this screen for a build Play has nothing newer
+    // for — or one Play never installed — and calling startImmediate() there
+    // fails every time, which would leave the player on a locked screen
+    // pressing a button that cannot work.
+    var ok = updateStatus == UpdateStatus.available
+        ? await _update.startImmediate()
+        : false;
+
+    // Otherwise send them to the listing. market:// opens the Play app
+    // directly; the https form is the fallback for a device without it.
+    if (!ok) {
+      for (final uri in const [
+        'market://details?id=com.sungamestudio.kingteenpatti',
+        'https://play.google.com/store/apps/details'
+            '?id=com.sungamestudio.kingteenpatti',
+      ]) {
+        try {
+          ok = await launchUrl(
+            Uri.parse(uri),
+            mode: LaunchMode.externalApplication,
+          );
+        } catch (_) {
+          ok = false;
+        }
+        if (ok) break;
+      }
+    }
+
     updating = false;
     if (!ok) notice = t.updateFailed;
     notifyListeners();
