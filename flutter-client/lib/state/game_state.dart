@@ -745,14 +745,10 @@ class GameState extends ChangeNotifier {
         ? await _update.startImmediate()
         : false;
 
-    // Otherwise send them to the listing. market:// opens the Play app
-    // directly; the https form is the fallback for a device without it.
+    // Otherwise send them to the listing — the store app first, its web page
+    // second (net/app_update.dart picks the pair for the platform).
     if (!ok) {
-      for (final uri in const [
-        'market://details?id=com.sungamestudio.kingteenpatti',
-        'https://play.google.com/store/apps/details'
-            '?id=com.sungamestudio.kingteenpatti',
-      ]) {
+      for (final uri in storeListingUris()) {
         try {
           ok = await launchUrl(
             Uri.parse(uri),

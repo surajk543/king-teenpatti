@@ -1,3 +1,5 @@
+import 'dart:io' show Platform;
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -30,7 +32,10 @@ class UpdateScreen extends StatelessWidget {
     final width = MediaQuery.sizeOf(context).width;
     // Play can install in place, or only send them to the listing. The button
     // says which, because "Update now" that opens a store page is a small lie.
+    // iOS only ever has the listing, and it is a different shop, so it is named
+    // as one.
     final inPlace = state.updateStatus == UpdateStatus.available;
+    final openStore = Platform.isIOS ? t.updateOpenAppStore : t.updateOpenStore;
 
     return Scaffold(
       body: LobbyGround(
@@ -93,9 +98,7 @@ class UpdateScreen extends StatelessWidget {
                                       child: CircularProgressIndicator(
                                           strokeWidth: 2.4),
                                     )
-                                  : Text(
-                                      inPlace ? t.updateNow : t.updateOpenStore,
-                                    ),
+                                  : Text(inPlace ? t.updateNow : openStore),
                             ),
                           ),
                           if (state.appVersion.isNotEmpty) ...[

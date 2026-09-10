@@ -35,13 +35,13 @@ A turn-based multiplayer **Teen Patti** (3-card Indian poker) game:
 |---|---|---|
 | **Game server** | `go-server/` | **The server** — live in production since `go-server/ops/DEPLOY.md` was run (Sept 2026). Go 1.27, one static binary, **PostgreSQL 18** via `pgx`. Database-first money model (§5). Wire-identical to the Node original it replaced — same protocol, JWTs, schema, ledger rows, `/health`, `game_*` metrics (141/141 black-box parity suites). §5–§7 describe its behaviour; §14 its shape. |
 | Node.js server | *(removed)* | The original implementation, removed from the repo on 8 Sep 2026 (`git log -- server/`, last commit `c19963b`; `multi_node` branch). Its behaviour is what §5–§7 document; its file names are what those sections cite. Not a rollback target unless restored from history first (`go-server/ops/rollback-to-node.sh` explains). |
-| Mobile client | `flutter-client/` | **The live client.** Flutter 3.44 / Dart 3.12, Material 3 via FlexColorScheme, Android only so far. |
+| Mobile client | `flutter-client/` | **The live client.** Flutter 3.44 / Dart 3.12, Material 3 via FlexColorScheme. Android is the shipping platform; `ios/` exists and is configured (`docs/ios-setup.md`) but has never been compiled — there is no macOS here. |
 | Browser client | `go-server/public/` | Zero-build vanilla-JS reference client served at `/` by the Go binary (`PUBLIC_DIR`) — **in dev only; production hides it** (`ROOT_REDIRECT=/dashboard/`, §7.4/§9) and serves just `privacy/`, `profiles/` from that dir. **Lags behind** — no sideshow, kick, rename, entry-cap or Indian-numbering UI. |
 | Tools | `tools/` | Small Node ≥ 20 package (`npm install` first): `npm run bot` (practice bots), `npm run ramp` (staged load test), `npm run parity` / `parity:diff` (black-box suites in `tools/parity/`). Clients of the server; also lend `node_modules` to two Go interop tests. |
 | Load reports | `docs/load-reports/` | ramp-test HTML + JSON (the 2026‑09‑08 production runs, 1,000 → 4,000 players). |
 | Unity client | `unity-client/` | **Removed** (Sept 2026). A JS port of its Socket.IO parser survives as `tools/parity/lib/csharpJsonPort.js` and still exercises the raw wire protocol. |
 | Brief | `Requirements.txt` | 34 numbered requirements at lines 6–88 (**there is no #11**). Code comments cite these ("Requirement 22"). |
-| Docs | `README.md`, `go-server/README.md`, `go-server/PORT_PLAN.md`, `go-server/DECISIONS.md`, `go-server/PORT_NOTES/` (incl. `specs/spec-socket-protocol.md`), `go-server/ops/DEPLOY.md`, `steps.txt` | `CLAUDE.md` is the detailed reference. |
+| Docs | `docs/ios-setup.md` (what a Mac still has to do), `README.md`, `go-server/README.md`, `go-server/PORT_PLAN.md`, `go-server/DECISIONS.md`, `go-server/PORT_NOTES/` (incl. `specs/spec-socket-protocol.md`), `go-server/ops/DEPLOY.md`, `steps.txt` | `CLAUDE.md` is the detailed reference. |
 
 The server is the single authority: it deals, shuffles with `crypto/rand` (Node: `crypto.randomInt`), validates every bet
 against a ladder it recomputes itself, decides winners, and redacts state per viewer so a client never
@@ -121,7 +121,10 @@ king-teenpatti/
     │   └── l10n/strings.dart     hand-written 5-language table (en/hi/bn/gu/pa)
     ├── assets/card_back.svg
     ├── test/number_format_test.dart
-    └── android/                  applicationId com.sungamestudio.kingteenpatti, sensorLandscape, cleartext on
+    ├── android/                  applicationId com.sungamestudio.kingteenpatti, sensorLandscape, cleartext on
+    └── ios/                      bundle id com.sungamestudio.kingteenpatti, landscape-only, status bar hidden,
+                                  NSAllowsLocalNetworking; GIDClientID + URL scheme come from Flutter/*.xcconfig.
+                                  NO Podfile (Flutter writes one on the Mac); never built here — docs/ios-setup.md
 ```
 
 There is no CI, Dockerfile, ESLint or Prettier anywhere. `cd go-server && go test -race ./...`
@@ -736,6 +739,17 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   + `windowSplashScreenBrandingImage`; pre-12 uses `drawable(-night)(-v21)/launch_background.xml` layer-lists. The Flutter
   `SplashScreen` shows the same SVG + line; the login title carries the SVG at 40dp. Release **signed with debug keys**
   (TODO in `build.gradle.kts`).
+- **iOS** (`flutter-client/ios/`, added 11 Sep 2026, **never compiled — no macOS on this box**): same bundle id as the
+  Android `applicationId`, `CFBundleDisplayName` "King Teen Patti", landscape-only in `Info.plist` (SystemChrome only
+  narrows what the system already allows, so a portrait entry would let the launch screen appear sideways),
+  `UIStatusBarHidden` for immersive-sticky's absence, `NSAllowsLocalNetworking` as the `usesCleartextTraffic`
+  equivalent. `tool/render_icons.dart` also writes `AppIcon.appiconset` (**alpha stripped via Pillow** — Apple rejects
+  an icon with an alpha channel) and the `LaunchImage`/`LaunchBranding` sets the storyboard draws on
+  `LaunchBackground.colorset` (#FAF7F0 / #0B0B0B, Android's two launch colours). Two things are deliberately
+  Android-only and must stay so until the server catches up: `Purchases.start()` (the receipt goes to
+  `/api/purchases/google`, so StoreKit would take money and credit nothing) and `AppUpdate` (`in_app_update` is an
+  Android plugin; the server's `MIN_CLIENT_BUILD` floor still works and `storeListingUris()` needs
+  `--dart-define=APPLE_APP_ID`). `docs/ios-setup.md` is the runbook.
 
 ---
 

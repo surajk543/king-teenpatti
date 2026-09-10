@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 
 import 'package:in_app_purchase/in_app_purchase.dart';
 
@@ -49,15 +50,29 @@ class Purchases {
   bool _available = false;
 
   /// Whether this device can buy at all. False on an emulator without Play
-  /// Services, on a build side-loaded outside Play, and anywhere Play is
-  /// unavailable — none of which are errors, so the store should say so
-  /// plainly rather than fail when the button is pressed.
+  /// Services, on a build side-loaded outside Play, anywhere Play is
+  /// unavailable — and on iOS, see [start] — none of which are errors, so the
+  /// store should say so plainly rather than fail when the button is pressed.
   bool get available => _available;
 
   /// Subscribes to Play. Safe to call once at startup; further calls are
   /// ignored.
+  ///
+  /// **Android only, deliberately.** StoreKit works and `in_app_purchase`
+  /// supports iOS, but the half that matters does not: a receipt goes to
+  /// `POST /api/purchases/google`, which verifies it with Google and banks the
+  /// chips. Apple's receipt is not a Play token, so the server would refuse it
+  /// — and `GameState._deliverPurchase` completes a refused purchase to stop an
+  /// endless redelivery loop. The player would have paid Apple and been given
+  /// nothing. Leaving [available] false is what keeps that impossible: the
+  /// shelf still shows its prices and Buy answers `storeNotLive`.
+  ///
+  /// Turning it on means an `/api/purchases/apple` route on the server that
+  /// verifies with the App Store Server API, and Apple products created with
+  /// these same ids. Until both exist this stays as it is.
   Future<void> start() async {
     if (_sub != null) return;
+    if (!Platform.isAndroid) return;
     try {
       _available = await _iap.isAvailable();
     } catch (_) {

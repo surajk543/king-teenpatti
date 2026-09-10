@@ -1,0 +1,20 @@
+#include "Generated.xcconfig"
+
+// Google sign-in, read by Runner/Info.plist as GIDClientID and as the app's
+// URL scheme. Both come from the **iOS** OAuth client in Google Cloud — a
+// different client from the Android and Web ones already registered
+// (docs/social-login-setup.md, docs/ios-setup.md):
+//
+//   GOOGLE_IOS_CLIENT_ID   = 1234567890-abcdef.apps.googleusercontent.com
+//   GOOGLE_IOS_URL_SCHEME  = com.googleusercontent.apps.1234567890-abcdef
+//
+// The scheme is the client id with its two halves swapped — Google calls it the
+// reversed client id and prints it in the client's own panel. Left empty the
+// app still builds and guest play still works; only "Continue with Google"
+// fails, and it fails saying so.
+//
+// The server-side half is unchanged and stays a dart-define, because the server
+// checks the token's audience against the WEB client id on both platforms:
+//   flutter build ipa --dart-define=GOOGLE_SERVER_CLIENT_ID=…apps.googleusercontent.com
+GOOGLE_IOS_CLIENT_ID=
+GOOGLE_IOS_URL_SCHEME=
