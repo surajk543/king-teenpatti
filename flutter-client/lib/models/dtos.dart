@@ -206,6 +206,7 @@ class GameConfig {
     required this.entryCapMaxChips,
     required this.sideshowTimeoutMs,
     required this.tables,
+    this.minClientBuild = 0,
   });
 
   final int maxPlayers;
@@ -229,6 +230,11 @@ class GameConfig {
   /// How long a sideshow request stands before the server drops it. Only used
   /// to draw the countdown; the expiry itself is the server's.
   final int sideshowTimeoutMs;
+
+  /// The oldest Android versionCode this server will talk to; 0 means no
+  /// floor. Only the server can answer this — Play knows a newer build exists
+  /// but not that the wire changed this morning.
+  final int minClientBuild;
 
   /// Whether this table is closed to a player holding [chips].
   bool cappedFor(int chips, {required int boot, required String category}) =>
@@ -276,6 +282,7 @@ class GameConfig {
         turnTimeoutMs: _int(j['turnTimeoutMs']),
         sideshowTimeoutMs:
             j['sideshowTimeoutMs'] == null ? 6000 : _int(j['sideshowTimeoutMs']),
+        minClientBuild: _int(j['minClientBuild']),
         categories: (j['categories'] as List?)?.map((e) => '$e').toList() ??
             const [TableCategory.seen, TableCategory.blind],
         stakes: (j['stakes'] as List?)?.map(_int).toList() ?? const [200, 5000],

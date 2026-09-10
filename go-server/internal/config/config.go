@@ -231,6 +231,22 @@ type GameConfig struct {
 	SideshowTimeout    time.Duration // SIDESHOW_TIMEOUT_MS 6000
 	SideshowMinPlayers int           // SIDESHOW_MIN_PLAYERS 3
 
+	// MinClientBuild is the oldest Android versionCode allowed to play.
+	//
+	// MIN_CLIENT_BUILD, 0 = no floor (the default, and what every environment
+	// that is not production should use). The client compares its own build
+	// number against this on session:ready and sends the player to the update
+	// screen below it.
+	//
+	// This exists because Play's own update check cannot answer the question
+	// that matters. Play knows a newer build exists; it does not know that the
+	// server changed the wire this morning, and its answer lags a release by
+	// hours. Only the server knows which clients it can still talk to, so only
+	// the server can set the floor. Raise it in the same deploy that ships a
+	// breaking change, never before — every player below it is locked out
+	// until they update.
+	MinClientBuild int // MIN_CLIENT_BUILD 0
+
 	// Requirement 29: longest display name. Also hardcoded as 24 in
 	// providers.js sanitizeName and the Flutter login/lobby fields.
 	DisplayNameMaxLength int // DISPLAY_NAME_MAX 24
@@ -350,6 +366,7 @@ func Defaults() *Config {
 			MaxMissedTurns:          3,
 			SideshowTimeout:         6 * time.Second,
 			SideshowMinPlayers:      3,
+			MinClientBuild:          0,
 			DisplayNameMaxLength:    24,
 			PrivateMaxPot:           500000,
 			PrivateMaxRaiseSteps:    2,
@@ -533,6 +550,7 @@ func FromEnv(lookup Lookup) (*Config, error) {
 	g.MaxMissedTurns = r.integer("MAX_MISSED_TURNS", g.MaxMissedTurns)
 	g.SideshowTimeout = r.millis("SIDESHOW_TIMEOUT_MS", g.SideshowTimeout)
 	g.SideshowMinPlayers = r.integer("SIDESHOW_MIN_PLAYERS", g.SideshowMinPlayers)
+	g.MinClientBuild = r.integer("MIN_CLIENT_BUILD", g.MinClientBuild)
 	g.DisplayNameMaxLength = r.integer("DISPLAY_NAME_MAX", g.DisplayNameMaxLength)
 	g.PrivateMaxPot = r.int64("PRIVATE_MAX_POT", g.PrivateMaxPot)
 	g.PrivateMaxRaiseSteps = r.integer("PRIVATE_MAX_RAISE_STEPS", g.PrivateMaxRaiseSteps)

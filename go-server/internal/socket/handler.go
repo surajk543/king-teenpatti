@@ -1487,6 +1487,7 @@ func (h *Handler) publicGameConfig() PublicGameConfig {
 		MaxBetRounds:       g.MaxBetRounds,
 		SideshowTimeoutMs:  g.SideshowTimeout.Milliseconds(),
 		SideshowMinPlayers: g.SideshowMinPlayers,
+		MinClientBuild:     g.MinClientBuild,
 	}
 	if rooms := h.rooms(); rooms != nil {
 		out.LobbyOptions = rooms.LobbyOptions()

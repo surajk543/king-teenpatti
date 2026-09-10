@@ -268,6 +268,12 @@ type PublicGameConfig struct {
 	MaxBetRounds       int   `json:"maxBetRounds"` // the GENERIC default (20), not a table's
 	SideshowTimeoutMs  int64 `json:"sideshowTimeoutMs"`
 	SideshowMinPlayers int   `json:"sideshowMinPlayers"`
+
+	// MinClientBuild is the oldest Android versionCode this server will talk
+	// to. Absent (0) means no floor. Clients below it show the update screen
+	// instead of the lobby — see MIN_CLIENT_BUILD in internal/config.
+	MinClientBuild int `json:"minClientBuild"`
+
 	game.LobbyOptions
 }
 
