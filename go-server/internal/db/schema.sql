@@ -69,7 +69,26 @@ BEGIN
 END;
 $$;
 
-CREATE INDEX IF NOT EXISTS idx_users_last_login ON users (last_login_at DESC);
+-- Guarded the same way the ALTER above is, and for a sharper reason: CREATE
+-- INDEX requires ownership of the table, and IF NOT EXISTS does NOT bypass
+-- that check — PostgreSQL resolves and permission-checks the relation before
+-- it ever looks to see whether the index is already there. So once `users`
+-- was handed to the postgres superuser (§7 of ops/DEPLOY.md, exactly what
+-- makes users_no_delete undisableable by the app role) this line began raising
+-- 42501 on every boot, and systemd restarted the server into the same wall
+-- 1,319 times before anyone looked. A boot that changes nothing must not
+-- require a privilege the running server does not need.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_indexes
+     WHERE schemaname = current_schema()
+       AND indexname  = 'idx_users_last_login'
+  ) THEN
+    CREATE INDEX idx_users_last_login ON users (last_login_at DESC);
+  END IF;
+END;
+$$;
 
 -- A users row is never deleted (owner's decision, 10 Sep 2026). The server
 -- has no reason to: DELETE /api/account pseudonymises the row in place
@@ -135,15 +154,35 @@ CREATE TABLE IF NOT EXISTS chip_ledger (
   created_at BIGINT NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_ledger_hand ON chip_ledger (hand_id);
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_indexes
+     WHERE schemaname = current_schema()
+       AND indexname  = 'idx_ledger_hand'
+  ) THEN
+    CREATE INDEX idx_ledger_hand ON chip_ledger (hand_id);
+  END IF;
+END;
+$$;
 
 -- Backs db.PurgeLedger's WHERE (reason IN (...) AND created_at < cutoff).
 -- Partial and narrow on purpose, after idx_ledger_user's lesson two sections
 -- down: it covers only the four checkpoint reasons the purge job ever
 -- touches, so 'purchase' / 'milestone_reward' / 'timed_bonus' /
 -- 'welcome_bonus' rows never dirty this index on insert.
-CREATE INDEX IF NOT EXISTS idx_ledger_purge ON chip_ledger (created_at)
-  WHERE reason IN ('hand_win', 'hand_loss', 'hand_packed', 'hand_left');
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_indexes
+     WHERE schemaname = current_schema()
+       AND indexname  = 'idx_ledger_purge'
+  ) THEN
+    CREATE INDEX idx_ledger_purge ON chip_ledger (created_at)
+      WHERE reason IN ('hand_win', 'hand_loss', 'hand_packed', 'hand_left');
+  END IF;
+END;
+$$;
 
 -- The ledger is append-only. An UPDATE or DELETE is a bug or an intrusion,
 -- and either way the database refuses it — with ONE deliberate exception: a
