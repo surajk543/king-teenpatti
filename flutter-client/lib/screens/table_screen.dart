@@ -1207,12 +1207,14 @@ class _ClothPainter extends CustomPainter {
     // The cloth: lit a little above the middle, where the lamp hangs, and
     // falling away to almost black at the rim.
     //
-    // Laid down just short of opaque, so the chips crossing the room behind
-    // the table ghost through it and the felt reads as glass over a lit
-    // surface rather than as a painted panel. Below about 0.80 the pale ground
-    // starts to bleed through and a washed-out felt stops being furniture, so
-    // this sits just above that.
-    const clarity = 0.84;
+    // The opacity is not one number but a fall — clear in the middle, dense at
+    // the edge. A single low alpha across the whole surface was tried first and
+    // it fails: the pale ground bleeds evenly through and the table stops being
+    // furniture and becomes a tint. Real glass does not do that. A glass table
+    // is a window in the middle and a bevelled, nearly solid edge at the rim,
+    // and reproducing that fall is what lets the centre go properly clear —
+    // chips crossing the room read straight through it — while the rim still
+    // holds an object on the floor.
     canvas.drawRect(
       rect,
       Paint()
@@ -1220,11 +1222,30 @@ class _ClothPainter extends CustomPainter {
           center: const Alignment(0, -0.15),
           radius: 0.86,
           colors: [
-            core.withValues(alpha: clarity),
-            mid.withValues(alpha: clarity),
-            rim.withValues(alpha: clarity),
+            core.withValues(alpha: 0.40),
+            mid.withValues(alpha: 0.63),
+            rim.withValues(alpha: 0.90),
           ],
           stops: const [0, 0.58, 1],
+        ).createShader(rect),
+    );
+
+    // The pane itself: one broad specular fall from the top left, the way light
+    // sits on glass rather than soaks into cloth. This is what stops the
+    // clearing above reading as thin paint — without a highlight the eye has
+    // nothing to tell it there is a surface there at all.
+    canvas.drawRect(
+      rect,
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Colors.white.withValues(alpha: 0.10),
+            Colors.white.withValues(alpha: 0.028),
+            Colors.transparent,
+          ],
+          stops: const [0, 0.32, 0.62],
         ).createShader(rect),
     );
 
@@ -1233,7 +1254,7 @@ class _ClothPainter extends CustomPainter {
     // right emphasis.
     canvas.drawRect(
       rect,
-      Paint()..color = accent.withValues(alpha: tint * 0.5),
+      Paint()..color = accent.withValues(alpha: tint * 0.34),
     );
 
     // Weave. Two diagonals, one lit and one shadowed, at an alpha where the
