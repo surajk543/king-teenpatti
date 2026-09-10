@@ -458,8 +458,7 @@ class AppTheme {
       : const Color(0xFF0B3524);
 
   /// The screen's ground, and the darker edge a vignette closes on.
-  static Color ground(Brightness b) =>
-      b == Brightness.dark ? ink800 : bone100;
+  static Color ground(Brightness b) => b == Brightness.dark ? ink800 : bone100;
   static Color groundEdge(Brightness b) =>
       b == Brightness.dark ? ink900 : bone300;
 
@@ -470,22 +469,21 @@ class AppTheme {
   /// A solid raised object: a seat pod, a machined key, a plaque. Never glass;
   /// five blurred pods over a felt that repaints every frame is the one change
   /// that would sink the frame budget.
-  static Color plaque(Brightness b) =>
-      b == Brightness.dark ? ink600 : bone200;
+  static Color plaque(Brightness b) => b == Brightness.dark ? ink600 : bone200;
 
   /// The app's one hairline, at its two alphas. Resting is a rim; live means
   /// focused, claimable, or the primary key in a row.
   static Color hairlineColour(Brightness b, {bool live = false}) =>
       b == Brightness.dark
-          ? goldBright.withValues(alpha: live ? hairlineLive : hairlineResting)
-          : goldDeep
-              .withValues(alpha: live ? hairlineLiveLight : hairlineRestingLight);
+      ? goldBright.withValues(alpha: live ? hairlineLive : hairlineResting)
+      : goldDeep.withValues(
+          alpha: live ? hairlineLiveLight : hairlineRestingLight,
+        );
 
   /// The lit inner top edge that separates a charcoal object from a charcoal
   /// ground. In dark mode this does the work a shadow cannot.
-  static Color rimLight(Brightness b) => b == Brightness.dark
-      ? const Color(0x12FFFFFF)
-      : const Color(0x59FFFFFF);
+  static Color rimLight(Brightness b) =>
+      b == Brightness.dark ? const Color(0x12FFFFFF) : const Color(0x59FFFFFF);
 
   /// The three tones of the cloth, per brightness.
   static ({Color core, Color mid, Color rim}) feltColours(
@@ -525,6 +523,17 @@ class AppTheme {
   static Color onFelt(Brightness b, {double alpha = inkMed}) =>
       (b == Brightness.dark ? bone200 : bone100).withValues(alpha: alpha);
 
+  /// Ink for text on the TABLE, which since 10 Sep 2026 has no cloth under it.
+  ///
+  /// [onFelt] is bone in both schemes because cloth was dark in both. Remove
+  /// the cloth and that assumption inverts: bone on the light scheme's pale
+  /// ground is very nearly invisible, and the "in pot" line disappeared
+  /// exactly as the comment above warned it would on green. The table now sits
+  /// on the app's own surface, so its ink follows the surface like any other
+  /// text does. [onFelt] stays for the lobby cards, which still wear baize.
+  static Color onTable(ColorScheme scheme, {double alpha = inkMed}) =>
+      scheme.onSurface.withValues(alpha: alpha);
+
   /// Elevation for a button, by state: lifted at rest, higher under a pointer,
   /// and pressed down flat under a finger, so it behaves like a physical key.
   ///
@@ -554,14 +563,14 @@ class AppTheme {
     final shadow = shadowFor(theme.brightness);
 
     ButtonStyle lift(double rest) => ButtonStyle(
-          elevation: liftElevation(rest),
-          shadowColor: WidgetStatePropertyAll(shadow),
-          // M3 tints a raised surface by elevation as well as shadowing it.
-          // The buttons here are already solidly coloured, so the tint only
-          // muddies them.
-          surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
-          enableFeedback: sound,
-        );
+      elevation: liftElevation(rest),
+      shadowColor: WidgetStatePropertyAll(shadow),
+      // M3 tints a raised surface by elevation as well as shadowing it.
+      // The buttons here are already solidly coloured, so the tint only
+      // muddies them.
+      surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
+      enableFeedback: sound,
+    );
 
     return theme.copyWith(
       filledButtonTheme: FilledButtonThemeData(style: lift(3)),
@@ -584,22 +593,28 @@ class AppTheme {
   static InputDecorationThemeData _inputs(ThemeData theme) {
     final b = theme.brightness;
     OutlineInputBorder border(Color c, double w) => OutlineInputBorder(
-          borderRadius: BorderRadius.circular(Radii.md),
-          borderSide: BorderSide(color: c, width: w),
-        );
+      borderRadius: BorderRadius.circular(Radii.md),
+      borderSide: BorderSide(color: c, width: w),
+    );
 
     return theme.inputDecorationTheme.copyWith(
       filled: true,
-      fillColor: panelBase(b).withValues(alpha: b == Brightness.dark ? 0.55 : 0.70),
-      contentPadding:
-          const EdgeInsets.symmetric(horizontal: Space.lg, vertical: Space.md),
+      fillColor: panelBase(
+        b,
+      ).withValues(alpha: b == Brightness.dark ? 0.55 : 0.70),
+      contentPadding: const EdgeInsets.symmetric(
+        horizontal: Space.lg,
+        vertical: Space.md,
+      ),
       border: border(hairlineColour(b), Dim.hairline),
       enabledBorder: border(hairlineColour(b), Dim.hairline),
       focusedBorder: border(hairlineColour(b, live: true), Dim.hairline),
       errorBorder: border(theme.colorScheme.error, Dim.hairline),
       focusedErrorBorder: border(theme.colorScheme.error, Dim.hairline),
-      disabledBorder:
-          border(theme.colorScheme.outlineVariant.withValues(alpha: 0.4), Dim.hairline),
+      disabledBorder: border(
+        theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
+        Dim.hairline,
+      ),
     );
   }
 
@@ -681,14 +696,13 @@ class AppTheme {
     Color? colour,
     double? fontSize,
     FontWeight weight = FontWeight.w700,
-  }) =>
-      base.copyWith(
-        fontSize: fontSize ?? base.fontSize,
-        fontWeight: weight,
-        letterSpacing: 0,
-        color: colour ?? base.color,
-        fontFeatures: const [FontFeature.tabularFigures()],
-      );
+  }) => base.copyWith(
+    fontSize: fontSize ?? base.fontSize,
+    fontWeight: weight,
+    letterSpacing: 0,
+    color: colour ?? base.color,
+    fontFeatures: const [FontFeature.tabularFigures()],
+  );
 
   /// Tracked capitals, for the handful of fixed Latin labels the code owns:
   /// POT, BOOT, VS, SIDESHOW, YOU.
@@ -704,13 +718,12 @@ class AppTheme {
     double tracking = 1.4,
     Color? colour,
     FontWeight weight = FontWeight.w600,
-  }) =>
-      base.copyWith(
-        fontSize: fontSize ?? (base.fontSize ?? 14) * 0.94,
-        fontWeight: weight,
-        letterSpacing: tracking,
-        color: colour ?? base.color,
-      );
+  }) => base.copyWith(
+    fontSize: fontSize ?? (base.fontSize ?? 14) * 0.94,
+    fontWeight: weight,
+    letterSpacing: tracking,
+    color: colour ?? base.color,
+  );
 
   /// The same slot as [smallCaps] for anything the player wrote or the server
   /// translated: natural case, and only as much tracking as a label wants.
@@ -719,13 +732,12 @@ class AppTheme {
     double? fontSize,
     Color? colour,
     FontWeight weight = FontWeight.w600,
-  }) =>
-      base.copyWith(
-        fontSize: fontSize ?? base.fontSize,
-        fontWeight: weight,
-        letterSpacing: 0.2,
-        color: colour ?? base.color,
-      );
+  }) => base.copyWith(
+    fontSize: fontSize ?? base.fontSize,
+    fontWeight: weight,
+    letterSpacing: 0.2,
+    color: colour ?? base.color,
+  );
 
   /// One type ramp for the whole app.
   ///
@@ -736,63 +748,140 @@ class AppTheme {
     final ink = b == Brightness.dark ? boneInk : inkOnLight;
 
     return TextTheme(
-      displaySmall: TextStyle(fontSize: 34, height: 1.05, fontWeight: FontWeight.w700, letterSpacing: -0.6, color: ink),
-      headlineMedium: TextStyle(fontSize: 27, height: 1.10, fontWeight: FontWeight.w700, letterSpacing: -0.3, color: ink),
-      headlineSmall: TextStyle(fontSize: 23, height: 1.15, fontWeight: FontWeight.w600, letterSpacing: -0.2, color: ink),
-      titleLarge: TextStyle(fontSize: 20, height: 1.20, fontWeight: FontWeight.w600, color: ink),
-      titleMedium: TextStyle(fontSize: 17, height: 1.25, fontWeight: FontWeight.w600, letterSpacing: 0.1, color: ink),
-      titleSmall: TextStyle(fontSize: 15, height: 1.30, fontWeight: FontWeight.w600, letterSpacing: 0.2, color: ink),
-      bodyLarge: TextStyle(fontSize: 15, height: 1.40, fontWeight: FontWeight.w400, letterSpacing: 0.1, color: ink),
-      bodyMedium: TextStyle(fontSize: 13.5, height: 1.40, fontWeight: FontWeight.w400, letterSpacing: 0.1, color: ink),
-      bodySmall: TextStyle(fontSize: 12, height: 1.35, fontWeight: FontWeight.w400, letterSpacing: 0.15, color: ink),
-      labelLarge: TextStyle(fontSize: 13.5, height: 1.15, fontWeight: FontWeight.w600, letterSpacing: 0.4, color: ink),
-      labelMedium: TextStyle(fontSize: 12, height: 1.15, fontWeight: FontWeight.w600, letterSpacing: 0.6, color: ink),
-      labelSmall: TextStyle(fontSize: 10.5, height: 1.15, fontWeight: FontWeight.w600, letterSpacing: 0.8, color: ink),
+      displaySmall: TextStyle(
+        fontSize: 34,
+        height: 1.05,
+        fontWeight: FontWeight.w700,
+        letterSpacing: -0.6,
+        color: ink,
+      ),
+      headlineMedium: TextStyle(
+        fontSize: 27,
+        height: 1.10,
+        fontWeight: FontWeight.w700,
+        letterSpacing: -0.3,
+        color: ink,
+      ),
+      headlineSmall: TextStyle(
+        fontSize: 23,
+        height: 1.15,
+        fontWeight: FontWeight.w600,
+        letterSpacing: -0.2,
+        color: ink,
+      ),
+      titleLarge: TextStyle(
+        fontSize: 20,
+        height: 1.20,
+        fontWeight: FontWeight.w600,
+        color: ink,
+      ),
+      titleMedium: TextStyle(
+        fontSize: 17,
+        height: 1.25,
+        fontWeight: FontWeight.w600,
+        letterSpacing: 0.1,
+        color: ink,
+      ),
+      titleSmall: TextStyle(
+        fontSize: 15,
+        height: 1.30,
+        fontWeight: FontWeight.w600,
+        letterSpacing: 0.2,
+        color: ink,
+      ),
+      bodyLarge: TextStyle(
+        fontSize: 15,
+        height: 1.40,
+        fontWeight: FontWeight.w400,
+        letterSpacing: 0.1,
+        color: ink,
+      ),
+      bodyMedium: TextStyle(
+        fontSize: 13.5,
+        height: 1.40,
+        fontWeight: FontWeight.w400,
+        letterSpacing: 0.1,
+        color: ink,
+      ),
+      bodySmall: TextStyle(
+        fontSize: 12,
+        height: 1.35,
+        fontWeight: FontWeight.w400,
+        letterSpacing: 0.15,
+        color: ink,
+      ),
+      labelLarge: TextStyle(
+        fontSize: 13.5,
+        height: 1.15,
+        fontWeight: FontWeight.w600,
+        letterSpacing: 0.4,
+        color: ink,
+      ),
+      labelMedium: TextStyle(
+        fontSize: 12,
+        height: 1.15,
+        fontWeight: FontWeight.w600,
+        letterSpacing: 0.6,
+        color: ink,
+      ),
+      labelSmall: TextStyle(
+        fontSize: 10.5,
+        height: 1.15,
+        fontWeight: FontWeight.w600,
+        letterSpacing: 0.8,
+        color: ink,
+      ),
     );
   }
 
-  static ThemeData light({bool sound = true}) => _raisedButtons(sound: sound, FlexThemeData.light(
-        colors: const FlexSchemeColor(
-          primary: _seed,
-          primaryContainer: Color(0xFFA8E9C6),
-          secondary: Color(0xFF7A6412),
-          secondaryContainer: Color(0xFFF6E4B0),
-          tertiary: Color(0xFF15586F),
-          tertiaryContainer: Color(0xFFC2E3F2),
-          appBarColor: Color(0xFFF6E4B0),
-          error: Color(0xFFC0271B),
-        ),
-        surface: bone200,
-        scaffoldBackground: bone100,
-        surfaceMode: FlexSurfaceMode.highScaffoldLowSurface,
-        blendLevel: 4,
-        useMaterial3: true,
-        subThemesData: _subThemes,
-        textTheme: _textTheme(Brightness.light),
-        visualDensity: VisualDensity.standard,
-      ));
+  static ThemeData light({bool sound = true}) => _raisedButtons(
+    sound: sound,
+    FlexThemeData.light(
+      colors: const FlexSchemeColor(
+        primary: _seed,
+        primaryContainer: Color(0xFFA8E9C6),
+        secondary: Color(0xFF7A6412),
+        secondaryContainer: Color(0xFFF6E4B0),
+        tertiary: Color(0xFF15586F),
+        tertiaryContainer: Color(0xFFC2E3F2),
+        appBarColor: Color(0xFFF6E4B0),
+        error: Color(0xFFC0271B),
+      ),
+      surface: bone200,
+      scaffoldBackground: bone100,
+      surfaceMode: FlexSurfaceMode.highScaffoldLowSurface,
+      blendLevel: 4,
+      useMaterial3: true,
+      subThemesData: _subThemes,
+      textTheme: _textTheme(Brightness.light),
+      visualDensity: VisualDensity.standard,
+    ),
+  );
 
-  static ThemeData dark({bool sound = true}) => _raisedButtons(sound: sound, FlexThemeData.dark(
-        colors: const FlexSchemeColor(
-          primary: Color(0xFF5FD3A0),
-          primaryContainer: Color(0xFF0E3A2A),
-          secondary: Color(0xFFE3C88B),
-          secondaryContainer: Color(0xFF3A2E12),
-          tertiary: Color(0xFF7FB6D6),
-          tertiaryContainer: Color(0xFF17394B),
-          appBarColor: Color(0xFF12161A),
-          error: Color(0xFFFF6B5A),
-        ),
-        surface: ink700,
-        scaffoldBackground: ink800,
-        surfaceMode: FlexSurfaceMode.highScaffoldLowSurface,
-        // A whisper of emerald in every container, so charcoal never goes blue.
-        blendLevel: 6,
-        useMaterial3: true,
-        subThemesData: _subThemes,
-        textTheme: _textTheme(Brightness.dark),
-        visualDensity: VisualDensity.standard,
-      ));
+  static ThemeData dark({bool sound = true}) => _raisedButtons(
+    sound: sound,
+    FlexThemeData.dark(
+      colors: const FlexSchemeColor(
+        primary: Color(0xFF5FD3A0),
+        primaryContainer: Color(0xFF0E3A2A),
+        secondary: Color(0xFFE3C88B),
+        secondaryContainer: Color(0xFF3A2E12),
+        tertiary: Color(0xFF7FB6D6),
+        tertiaryContainer: Color(0xFF17394B),
+        appBarColor: Color(0xFF12161A),
+        error: Color(0xFFFF6B5A),
+      ),
+      surface: ink700,
+      scaffoldBackground: ink800,
+      surfaceMode: FlexSurfaceMode.highScaffoldLowSurface,
+      // A whisper of emerald in every container, so charcoal never goes blue.
+      blendLevel: 6,
+      useMaterial3: true,
+      subThemesData: _subThemes,
+      textTheme: _textTheme(Brightness.dark),
+      visualDensity: VisualDensity.standard,
+    ),
+  );
 
   /// Shared component shaping, in [Radii]'s terms. Squarer than it was: the
   /// stadium buttons are what made the game read as a friendly Material app.

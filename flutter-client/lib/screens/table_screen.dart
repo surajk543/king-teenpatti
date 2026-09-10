@@ -704,8 +704,8 @@ class _SwitchingVeil extends StatelessWidget {
                 t.switchTable,
                 style: AppTheme.smallCaps(
                   theme.textTheme.titleSmall!,
-                  colour: AppTheme.onFelt(
-                    theme.brightness,
+                  colour: AppTheme.onTable(
+                    theme.colorScheme,
                     alpha: AppTheme.inkHigh,
                   ),
                 ),
@@ -811,7 +811,6 @@ class _Felt extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final state = context.watch<GameState>();
-    final theme = Theme.of(context);
 
     final room = state.room;
     if (room == null) return const Center(child: CircularProgressIndicator());
@@ -921,181 +920,172 @@ class _Felt extends StatelessWidget {
           }
 
           // The room takes its colour from the table you sat down at, so a
-          // blind table and a seen one are told apart at a glance — and the
-          // room matches the lobby card you tapped to get here. A bigger stake
-          // tints deeper, so the two stakes differ as well. The identity lives
-          // in the rail around the cloth, not in the cloth: baize is emerald,
-          // whatever the stake.
-          final palette = AppTheme.paletteFor(
-            theme.colorScheme,
-            category: room.category,
-            bootAmount: room.bootAmount,
-          );
           final potCentre = Offset(0.5 * w, _potDy * h);
           Offset seatCentre(int seatIndex) =>
               _seatCentre(state, seatIndex, w, h, podW);
 
-          return _FeltCloth(
-            palette: palette,
-            radius: h / 2,
-            child: Stack(
-              clipBehavior: Clip.none,
-              children: [
-                // The overhead lamp, breathing slowly over the middle of the
-                // cloth, so the felt is never a flat wash. Its own layer: it
-                // repaints every frame for the life of the room, and the cloth
-                // beneath it never does.
-                const Positioned.fill(
-                  child: RepaintBoundary(
-                    child: IgnorePointer(child: _AmbientLamp()),
+          // The cloth is gone (owner's decision, 10 Sep 2026) and nothing else
+          // moved: every position in this Stack is computed from the
+          // LayoutBuilder's box, not from the table that used to be drawn
+          // inside it, so removing the drawing leaves the seats exactly where
+          // they were. Dropping the ClipRRect with it also means a pod at the
+          // rim can no longer lose its edge to the oval's curve.
+          return Stack(
+            clipBehavior: Clip.none,
+            children: [
+              // The overhead lamp, breathing slowly over the middle of the
+              // cloth, so the felt is never a flat wash. Its own layer: it
+              // repaints every frame for the life of the room, and the cloth
+              // beneath it never does.
+              const Positioned.fill(
+                child: RepaintBoundary(
+                  child: IgnorePointer(child: _AmbientLamp()),
+                ),
+              ),
+              // Every bet is seen to travel: a chip leaves the seat that made
+              // it and lands on the pot. Boundaried for the same reason.
+              // The deal, drawn before the bets so a boot chip lands on a
+              // seat that has already been given its cards.
+              Positioned.fill(
+                child: RepaintBoundary(
+                  child: IgnorePointer(
+                    child: _DealFlights(
+                      seats: room.seats,
+                      roomId: room.roomId,
+                      handNo: room.handNo,
+                      centreOf: seatCentre,
+                      deck: Offset(w / 2, h * 0.42),
+                      cardHeight: (podW * 0.42).clamp(18.0, 46.0),
+                    ),
                   ),
                 ),
-                // Every bet is seen to travel: a chip leaves the seat that made
-                // it and lands on the pot. Boundaried for the same reason.
-                // The deal, drawn before the bets so a boot chip lands on a
-                // seat that has already been given its cards.
+              ),
+              Positioned.fill(
+                child: RepaintBoundary(
+                  child: IgnorePointer(
+                    child: _BetFlights(
+                      seats: room.seats,
+                      handNo: room.handNo,
+                      centreOf: seatCentre,
+                      pot: potCentre,
+                      size: (podW * 0.22).clamp(14.0, 26.0),
+                    ),
+                  ),
+                ),
+              ),
+              // The table's furniture first, the seats after it: a seat's
+              // speech bubble or bet chip is a moment that matters more
+              // than the tag or the pot label it might briefly cross, so
+              // the seats paint on top.
+              at(
+                const Offset(0.5, 0.075),
+                _CategoryTag(room: room),
+                width: w * 0.30,
+              ),
+              // Narrower than the tag above it: the plinth has an edge now,
+              // and at a third of the felt that edge ran under the top-left
+              // pod on a 640dp phone.
+              at(
+                const Offset(0.5, _potDy),
+                _PotPulse(
+                  pot: room.pot,
+                  child: _Pot(
+                    room: room,
+                    chipSize: (podW * 0.22).clamp(14.0, 26.0),
+                  ),
+                ),
+                width: w * 0.30,
+              ),
+              at(
+                const Offset(0.5, _statusDy),
+                _Status(room: room),
+                width: w * 0.4,
+              ),
+
+              for (var i = 1; i < _places.length; i++) at(_places[i], pod(i)),
+
+              // The viewer's pod and hand stand on the floor of the table
+              // rather than being centred on a point: their columns are
+              // different heights, so centring both left one hanging over the
+              // rim and clipped by it. A shared bottom line keeps them inside
+              // and flush with the edge.
+              Positioned(
+                left: _places[0].dx * w - podW / 2,
+                bottom: h * 0.035,
+                width: podW,
+                child: pod(0),
+              ),
+              Positioned(
+                left: _places[0].dx * w + podW / 2 + Space.md,
+                bottom: h * 0.035,
+                child: _OwnHand(cardHeight: handH),
+              ),
+
+              // A sideshow in progress, drawn for everyone: a line pulsing
+              // between the two seats, so the rest of the table can see who
+              // asked whom without seeing a single card.
+              if (state.sideshow != null)
                 Positioned.fill(
                   child: RepaintBoundary(
                     child: IgnorePointer(
-                      child: _DealFlights(
-                        seats: room.seats,
-                        roomId: room.roomId,
-                        handNo: room.handNo,
-                        centreOf: seatCentre,
-                        deck: Offset(w / 2, h * 0.42),
-                        cardHeight: (podW * 0.42).clamp(18.0, 46.0),
-                      ),
-                    ),
-                  ),
-                ),
-                Positioned.fill(
-                  child: RepaintBoundary(
-                    child: IgnorePointer(
-                      child: _BetFlights(
-                        seats: room.seats,
-                        handNo: room.handNo,
-                        centreOf: seatCentre,
-                        pot: potCentre,
-                        size: (podW * 0.22).clamp(14.0, 26.0),
-                      ),
-                    ),
-                  ),
-                ),
-                // The table's furniture first, the seats after it: a seat's
-                // speech bubble or bet chip is a moment that matters more
-                // than the tag or the pot label it might briefly cross, so
-                // the seats paint on top.
-                at(
-                  const Offset(0.5, 0.075),
-                  _CategoryTag(room: room),
-                  width: w * 0.30,
-                ),
-                // Narrower than the tag above it: the plinth has an edge now,
-                // and at a third of the felt that edge ran under the top-left
-                // pod on a 640dp phone.
-                at(
-                  const Offset(0.5, _potDy),
-                  _PotPulse(
-                    pot: room.pot,
-                    child: _Pot(
-                      room: room,
-                      chipSize: (podW * 0.22).clamp(14.0, 26.0),
-                    ),
-                  ),
-                  width: w * 0.30,
-                ),
-                at(
-                  const Offset(0.5, _statusDy),
-                  _Status(room: room),
-                  width: w * 0.4,
-                ),
-
-                for (var i = 1; i < _places.length; i++) at(_places[i], pod(i)),
-
-                // The viewer's pod and hand stand on the floor of the table
-                // rather than being centred on a point: their columns are
-                // different heights, so centring both left one hanging over the
-                // rim and clipped by it. A shared bottom line keeps them inside
-                // and flush with the edge.
-                Positioned(
-                  left: _places[0].dx * w - podW / 2,
-                  bottom: h * 0.035,
-                  width: podW,
-                  child: pod(0),
-                ),
-                Positioned(
-                  left: _places[0].dx * w + podW / 2 + Space.md,
-                  bottom: h * 0.035,
-                  child: _OwnHand(cardHeight: handH),
-                ),
-
-                // A sideshow in progress, drawn for everyone: a line pulsing
-                // between the two seats, so the rest of the table can see who
-                // asked whom without seeing a single card.
-                if (state.sideshow != null)
-                  Positioned.fill(
-                    child: RepaintBoundary(
-                      child: IgnorePointer(
-                        child: _SideshowLink(
-                          from: _seatCentre(
-                            state,
-                            state.sideshow!.fromSeat,
-                            w,
-                            h,
-                            podW,
-                          ),
-                          to: _seatCentre(
-                            state,
-                            state.sideshow!.toSeat,
-                            w,
-                            h,
-                            podW,
-                          ),
+                      child: _SideshowLink(
+                        from: _seatCentre(
+                          state,
+                          state.sideshow!.fromSeat,
+                          w,
+                          h,
+                          podW,
+                        ),
+                        to: _seatCentre(
+                          state,
+                          state.sideshow!.toSeat,
+                          w,
+                          h,
+                          podW,
                         ),
                       ),
                     ),
                   ),
+                ),
 
-                // Only the player being asked gets the buttons.
-                if (state.sideshowIsForMe)
-                  Positioned.fill(child: _SideshowPrompt(state: state)),
+              // Only the player being asked gets the buttons.
+              if (state.sideshowIsForMe)
+                Positioned.fill(child: _SideshowPrompt(state: state)),
 
-                // And only the two of them ever see the hands. The winner's
-                // banner wins any race between the two.
-                if (state.sideshowReveal != null &&
-                    state.showdown.isEmpty &&
-                    state.showdownResult.isEmpty)
-                  Positioned.fill(
-                    child: _SideshowRevealPanel(reveal: state.sideshowReveal!),
-                  ),
+              // And only the two of them ever see the hands. The winner's
+              // banner wins any race between the two.
+              if (state.sideshowReveal != null &&
+                  state.showdown.isEmpty &&
+                  state.showdownResult.isEmpty)
+                Positioned.fill(
+                  child: _SideshowRevealPanel(reveal: state.sideshowReveal!),
+                ),
 
-                if (state.showdown.isNotEmpty ||
-                    state.showdownResult.isNotEmpty)
-                  Positioned.fill(
-                    child: _Showdown(
-                      // Fractions of the felt, so the bursts land over the
-                      // player who won rather than across the whole room.
-                      winnerAt: winnerSeat == null
-                          ? null
-                          : Offset(
-                              _seatCentre(state, winnerSeat, w, h, podW).dx / w,
-                              _seatCentre(state, winnerSeat, w, h, podW).dy / h,
+              if (state.showdown.isNotEmpty || state.showdownResult.isNotEmpty)
+                Positioned.fill(
+                  child: _Showdown(
+                    // Fractions of the felt, so the bursts land over the
+                    // player who won rather than across the whole room.
+                    winnerAt: winnerSeat == null
+                        ? null
+                        : Offset(
+                            _seatCentre(state, winnerSeat, w, h, podW).dx / w,
+                            _seatCentre(state, winnerSeat, w, h, podW).dy / h,
+                          ),
+                    // The pot going where it was won.
+                    potFlight: winnerSeat == null || state.winnerPot <= 0
+                        ? null
+                        : _PotToWinner(
+                            key: ValueKey(
+                              'pot-${room.handNo}-${state.winnerId}',
                             ),
-                      // The pot going where it was won.
-                      potFlight: winnerSeat == null || state.winnerPot <= 0
-                          ? null
-                          : _PotToWinner(
-                              key: ValueKey(
-                                'pot-${room.handNo}-${state.winnerId}',
-                              ),
-                              from: potCentre,
-                              to: _seatCentre(state, winnerSeat, w, h, podW),
-                              size: podW * 0.28,
-                            ),
-                    ),
+                            from: potCentre,
+                            to: _seatCentre(state, winnerSeat, w, h, podW),
+                            size: podW * 0.28,
+                          ),
                   ),
-              ],
-            ),
+                ),
+            ],
           );
         },
       ),

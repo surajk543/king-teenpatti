@@ -43,6 +43,12 @@ const double _kStatusFloor = 9.0;
 /// captions do.
 const double _kBubbleFloor = 12.0;
 
+/// How far a seat fades once it is out of the hand — packed, lost, or waiting
+/// for the next deal. Low enough to read as "not playing", high enough that
+/// the name and the picture are still legible: a seat you cannot see is a
+/// seat you forget is sitting there, and they are still at the table.
+const double _kAsideOpacity = 0.45;
+
 /// One player's place at the table: a portrait pod with the name across the
 /// top, a picture in the middle and the stack on a pill underneath, with its
 /// cards alongside and its bet between the pod and the pot.
@@ -232,12 +238,33 @@ class SeatPod extends StatelessWidget {
     // breathes continuously. Without this boundary all five re-rasterise on
     // every frame of every ambient animation on the screen; with it, a seat
     // repaints when that seat's own data changes.
+    // Somebody who has packed, or who is sitting out until the next deal, is
+    // still at the table but not in the hand — and at full strength their pod
+    // competes for attention with the players who are. Fading the whole column
+    // rather than greying its parts keeps them legible (you can still see who
+    // is there and what they hold) while putting them behind the live seats.
+    //
+    // Animated, because status flips mid-hand: a pack that snapped to half
+    // opacity would read as a glitch rather than as somebody folding. The
+    // winner is never faded — `won` outranks everything, including the `lost`
+    // that every other seat is wearing at that moment.
+    final aside =
+        s.status != SeatState.won &&
+        (s.status == SeatState.packed ||
+            s.status == SeatState.waiting ||
+            s.status == SeatState.lost);
+
     return RepaintBoundary(
-      child: SizedBox(
-        width: width,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [...(reversed ? ordered.reversed.toList() : ordered)],
+      child: AnimatedOpacity(
+        opacity: aside ? _kAsideOpacity : 1,
+        duration: Motion.base,
+        curve: Curves.easeOut,
+        child: SizedBox(
+          width: width,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [...(reversed ? ordered.reversed.toList() : ordered)],
+          ),
         ),
       ),
     );
@@ -580,8 +607,8 @@ class SeatPod extends StatelessWidget {
               style: AppTheme.label(
                 theme.textTheme.labelSmall!,
                 fontSize: size,
-                colour: AppTheme.onFelt(
-                  theme.brightness,
+                colour: AppTheme.onTable(
+                  theme.colorScheme,
                   alpha: AppTheme.inkLow,
                 ),
               ),
@@ -593,7 +620,7 @@ class SeatPod extends StatelessWidget {
               style: AppTheme.money(
                 theme.textTheme.labelSmall!,
                 fontSize: size,
-                colour: AppTheme.onFelt(theme.brightness),
+                colour: AppTheme.onTable(theme.colorScheme),
                 weight: FontWeight.w600,
               ),
             ),
@@ -613,7 +640,7 @@ class SeatPod extends StatelessWidget {
             SeatState.won => AppTheme.gold,
             SeatState.waiting => AppTheme.amber,
             // Also on the cloth, so also felt ink rather than surface ink.
-            _ => AppTheme.onFelt(theme.brightness),
+            _ => AppTheme.onTable(theme.colorScheme),
           };
 
     return SizedBox(
