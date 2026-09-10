@@ -490,7 +490,10 @@ at once; clearing `provider_user_id` frees the identity so the same device signs
 account. `GET /api/rooms` (no client);
 `GET /health`. Errors `{error: code, message}`. Guest id = `sha256('teenpatti:'+deviceId)`, deviceId
 ≥ 8 chars. `AUTH_ALLOW_FAKE_PROVIDERS=true` lets google/facebook skip verification (tests, browser
-stubs).
+stubs). **A refused login is logged** (`login refused` WARN: provider, code, status, reason with the
+credential cut out — `handlers.go logRefusedLogin`, since 10 Sep 2026); other AuthErrors are written
+to the client only, so `journalctl -u gameplay | grep 'login refused'` is where a "Google sign-in
+doesn't work" report starts.
 
 ### 7.3 Database (`db/` → `internal/db/`)
 `pg` Pool (`DATABASE_URL`, `PG_POOL_MAX`), `search_path` set as a connection **option**

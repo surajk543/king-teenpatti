@@ -104,6 +104,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 	profile, err := h.deps.Verifier.VerifyLogin(r.Context(), req)
 	if err != nil {
+		h.logRefusedLogin(req, err)
 		h.writeError(w, r, err)
 		return
 	}
@@ -297,6 +298,32 @@ func (h *Handler) BuyChips(w http.ResponseWriter, r *http.Request, user *db.User
 		"balance":  out.Balance,
 		"user":     out.User,
 	})
+}
+
+// logRefusedLogin leaves one `login refused` line (provider, code, status,
+// reason) for a login the verifier turned away. The wire answer reaches only
+// the client, so without this a player saying "Google sign-in does not work"
+// leaves nothing in the journal but a 401 in the metrics (10 Sep 2026). Only
+// AuthErrors are logged here — anything else is WriteError's `request failed`.
+// The credential never reaches the log: the google-auth-library messages this
+// port reproduces quote the token back ("Wrong number of segments in token:
+// <jwt>", "Invalid token signature: <jwt>"), so it is cut out of the reason.
+func (h *Handler) logRefusedLogin(req LoginRequest, err error) {
+	if h.deps.Logger == nil {
+		return
+	}
+	var authErr *AuthError
+	if !errors.As(err, &authErr) {
+		return
+	}
+	reason := authErr.Message
+	for _, credential := range []string{req.IDToken, req.AccessToken} {
+		if credential != "" {
+			reason = strings.ReplaceAll(reason, credential, "<credential>")
+		}
+	}
+	h.deps.Logger.Warn("login refused",
+		"provider", req.Provider, "code", authErr.Code, "status", authErr.Status, "reason", reason)
 }
 
 // Profiles is GET /api/profiles (unauthenticated): {profiles: [{id, url}]}

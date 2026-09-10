@@ -397,6 +397,56 @@ func TestGoogleAndFacebookFakeLoginsCreateProviderScopedAccounts(t *testing.T) {
 	expectError(t, strict.do(http.MethodPost, "/api/auth/login", map[string]any{"provider": "google", "idToken": "a.b.c"}), 503, CodeProviderUnconfigured)
 }
 
+// TestRefusedLoginsAreLogged: a login the verifier turns away leaves one
+// `login refused` line — provider, code, status, reason — because the wire
+// answer reaches only the client, and a player reporting "Google sign-in does
+// not work" otherwise leaves nothing to read in the journal (10 Sep 2026: one
+// 401 in the metrics and no way to learn why). The credential never appears
+// in that line, even though the google-auth-library messages this port
+// reproduces on the wire quote the token back.
+func TestRefusedLoginsAreLogged(t *testing.T) {
+	strict := newHarness(t)
+	strict.cfg.AllowFakeProviders = false
+	strict.cfg.Google.ClientIDs = []string{"web.apps.googleusercontent.com"}
+	handler := NewHandler(Deps{
+		Config: strict.cfg, Users: strict.store, Tokens: strict.tokens, Verifier: NewVerifier(strict.cfg),
+		Logger: slog.New(slog.NewJSONHandler(strict.logs, nil)),
+	})
+	mux := http.NewServeMux()
+	handler.Register(mux)
+	strict.mux = mux
+
+	// A token of the wrong shape is refused before any network call, and the
+	// library wording quotes it back on the wire (Node parity) — the log must
+	// carry the reason without it.
+	res := strict.do(http.MethodPost, "/api/auth/login", map[string]any{"provider": "google", "idToken": "not-a-jwt-xyz"})
+	expectError(t, res, 401, CodeInvalidToken)
+	if msg, _ := res.body["message"].(string); !strings.Contains(msg, "not-a-jwt-xyz") {
+		t.Fatalf("wire message should be the Node one, token included: %s", res.raw)
+	}
+	logs := strict.logs.String()
+	for _, want := range []string{`"msg":"login refused"`, `"provider":"google"`, `"code":"invalid_token"`, `"status":401`, `Wrong number of segments`} {
+		if !strings.Contains(logs, want) {
+			t.Errorf("log lacks %s: %s", want, logs)
+		}
+	}
+	if strings.Contains(logs, "not-a-jwt-xyz") {
+		t.Errorf("credential leaked into the log: %s", logs)
+	}
+
+	// Every verifier refusal goes the same way, whatever the provider.
+	strict.logs.Reset()
+	expectError(t, strict.do(http.MethodPost, "/api/auth/login", map[string]any{"provider": "google"}), 401, CodeMissingToken)
+	if logs := strict.logs.String(); !strings.Contains(logs, `"msg":"login refused"`) || !strings.Contains(logs, `"code":"missing_token"`) {
+		t.Errorf("missing_token not logged: %s", logs)
+	}
+	strict.logs.Reset()
+	expectError(t, strict.do(http.MethodPost, "/api/auth/login", map[string]any{"provider": "guest", "deviceId": "abc"}), 400, CodeInvalidDeviceID)
+	if logs := strict.logs.String(); !strings.Contains(logs, `"msg":"login refused"`) || !strings.Contains(logs, `"provider":"guest"`) || !strings.Contains(logs, `"status":400`) {
+		t.Errorf("guest refusal not logged: %s", logs)
+	}
+}
+
 func TestMeReturnsThePersistedProfile(t *testing.T) {
 	h := newHarness(t)
 	token, user := h.login("device-guest-0001", "Suraj")
