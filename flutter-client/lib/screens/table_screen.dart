@@ -106,18 +106,34 @@ class _TableScreenState extends State<TableScreen> {
                     ],
                   ),
                 ),
-                const _MissedTurnsStrip(),
-                const _ActionConsole(),
               ],
             ),
           ),
-          // Top right, which is the one corner of the felt nothing else uses:
-          // the menu and chat are down the left edge, the seats sit around the
-          // rim, and the category tag is centred above the pot.
+          // The keys, floating over the bottom-right of the table instead of
+          // sitting in a bar across the foot of it. Owner's decision,
+          // 10 Sep 2026: the bar was a sixth of a landscape screen reserved
+          // for six controls, and the table wanted the room.
           const Positioned(
-            top: Space.sm,
-            right: Space.md,
-            child: SafeArea(child: BuyChipsButton(compact: true)),
+            right: 0,
+            bottom: 0,
+            child: SafeArea(child: _ActionCluster()),
+          ),
+          // Pack sits in the opposite corner from everything else, which is
+          // the point: folding is the one action you never want under a thumb
+          // reaching for Chaal.
+          const Positioned(
+            left: 0,
+            bottom: 0,
+            child: SafeArea(child: _PackKey()),
+          ),
+          // The strip spans the foot of the screen and places itself from the
+          // left, so it cannot live in a column beside the key — it is lifted
+          // over the key instead, by exactly the key's own height.
+          const Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: SafeArea(child: _MissedTurnsStrip()),
           ),
         ],
       ),
@@ -193,6 +209,12 @@ class _SideRail extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            // Buying chips sits at the head of the rail rather than off in the
+            // opposite corner. It is the only control on the felt that is an
+            // offer rather than a move, and it now shares a column with the
+            // other two things that open something instead of playing a card.
+            const BuyChipsButton(compact: true),
+            const SizedBox(height: Space.md),
             _RailKey(
               tooltip: t.tableMenu,
               width: railW,
@@ -613,29 +635,15 @@ Future<void> _confirmSwitch(
   // outlives every route below it.
   final navigator = Navigator.of(context, rootNavigator: true);
 
-  final go = await showDialog<bool>(
-    context: context,
-    builder: (context) => GlassDialog(
-      padding: const EdgeInsets.all(Space.xl),
-      title: _dialogTitle(
-        context,
-        Icons.swap_horiz_rounded,
-        state.t.switchTableQ,
-      ),
-      content: Text(midHand ? state.t.switchMidHand : state.t.switchIdle),
-      actions: _dialogActions(
-        context,
-        stay: state.t.stay,
-        go: state.t.switchAction,
-      ),
-    ),
-  );
-
-  if (go != true) return;
-  // No `context.mounted` guard here, and that is deliberate. This is reached
-  // from a drawer row that pops itself before calling, so by now that element
-  // is unmounted and the check was returning early every single time — which
-  // is why the veil never appeared. Nothing below touches `context`: the
+  // No confirmation (owner's decision, 10 Sep 2026). Switching is cheap and
+  // recoverable — the player keeps their chips and can switch straight back —
+  // so a dialog in front of it was a question with only one interesting
+  // answer. The mid-hand case is the one that costs something: the stake
+  // already in the pot stays there. That is now told rather than asked, in the
+  // notice below, after the move.
+  //
+  // Nothing here touches `context`. This is reached from a drawer row that
+  // pops itself before calling, so that element is already unmounted; the
   // overlay comes from the navigator captured above, and the switch is a call
   // on GameState.
 
@@ -653,6 +661,12 @@ Future<void> _confirmSwitch(
   final before = state.room?.roomId;
   await state.switchTable();
   if (state.room?.roomId == before) return;
+
+  // The one thing the dialog used to say that was worth saying. Leaving
+  // mid-hand packs your cards and your stake stays in the pot behind you —
+  // told after the fact rather than asked before it, because it is a
+  // consequence to know about, not a decision to take twice.
+  if (midHand) state.notice = state.t.switchMidHand;
 
   final entry = OverlayEntry(builder: (_) => const _SwitchingVeil());
   navigator.overlay?.insert(entry);
@@ -763,9 +777,15 @@ class _Felt extends StatelessWidget {
   /// height the top pair's "in pot" line sits below theirs. With the top-left
   /// seat at 0.260 and the viewer at 0.335 those two lines were 0.075 of the
   /// width apart inside columns 0.163 wide, and they ran together into one
-  /// unreadable sentence ("in pot 2,200 • Pack"). Widened to 0.225/0.355 on
-  /// 10 Sep 2026. There is room to spread now: with the cloth gone nothing
-  /// clips a pod for reaching past where the oval used to be. Their dy moved 0.28 -> 0.335 on 10 Sep 2026
+  /// unreadable sentence ("in pot 2,200 • Pack"). Widened on 10 Sep 2026, and
+  /// there is room to spread now: with the cloth gone nothing clips a pod for
+  /// reaching past where the oval used to be.
+  ///
+  /// The viewer sits at 0.265 rather than centred because their fanned hand is
+  /// drawn to the RIGHT of their pod, and the key cluster now occupies the
+  /// bottom-right corner. Those two collided at 0.375 — the plus key ended up
+  /// underneath the third card — so the whole column moved left until the hand
+  /// clears the cluster with room to spare. Their dy moved 0.28 -> 0.335 on 10 Sep 2026
   /// when the pods grew. The anchor is the column's MIDDLE, so a taller column
   /// hangs further above it — and the column's height is not fixed: a seat
   /// showing a revealed hand carries its hand name, its badge and its pot line
@@ -773,11 +793,11 @@ class _Felt extends StatelessWidget {
   /// while the seat beside it at the same dy was fine. The figure has to clear
   /// the tallest state a column can reach, not the common one.
   static const List<Offset> _places = [
-    Offset(0.355, 0.00), // you — x only; the pair below sit on the floor
-    Offset(0.085, 0.42), // left
-    Offset(0.225, 0.335), // top left
-    Offset(0.775, 0.335), // top right
-    Offset(0.915, 0.42), // right
+    Offset(0.265, 0.00), // you — x only; the pair below sit on the floor
+    Offset(0.055, 0.44), // left
+    Offset(0.275, 0.30), // top left
+    Offset(0.725, 0.30), // top right
+    Offset(0.945, 0.44), // right
   ];
 
   /// Where the middle of the pot is, as a fraction of the felt's height.
@@ -825,6 +845,10 @@ class _Felt extends StatelessWidget {
     if (room == null) return const Center(child: CircularProgressIndicator());
 
     final seats = state.seatsInViewOrder();
+    // The viewer's own showdown reveal, if the hand got that far.
+    final myReveal = state.showdown
+        .where((r) => r.userId == state.user?.id)
+        .firstOrNull;
     final turnSeat = room.turn?.seatIndex;
     final progress = state.turnProgress;
     final pad = Dim.feltPad(MediaQuery.sizeOf(context).width);
@@ -877,10 +901,24 @@ class _Felt extends StatelessWidget {
             final reveal = s == null
                 ? null
                 : state.showdown.where((r) => r.userId == s.userId).firstOrNull;
+            // A sideshow turns the two hands face up where they are sitting,
+            // exactly as a showdown does, instead of lifting them into a panel
+            // over the middle of the table.
+            //
+            // Nothing here enforces the privacy of that: the server sends
+            // `game:sideshowReveal` to those two sockets and nobody else
+            // (CLAUDE.md §7.1), so on every other player's device
+            // state.sideshowReveal is null and this resolves to backs. The
+            // client could not leak a card it was never sent.
+            final peek = s == null || reveal != null
+                ? null
+                : state.sideshowReveal?.hands
+                      .where((hand) => hand.userId == s.userId)
+                      .firstOrNull;
 
             return SeatPod(
-              revealed: reveal?.cards,
-              revealedHand: reveal?.handName,
+              revealed: reveal?.cards ?? peek?.cards,
+              revealedHand: reveal?.handName ?? peek?.handName,
               seat: s,
               isMe: s?.userId != null && s!.userId == state.user?.id,
               isDealer: s?.seatIndex == room.dealerSeat,
@@ -991,19 +1029,20 @@ class _Felt extends StatelessWidget {
                 _CategoryTag(room: room),
                 width: w * 0.30,
               ),
-              // Narrower than the tag above it: the plinth has an edge now,
-              // and at a third of the felt that edge ran under the top-left
-              // pod on a 640dp phone.
+              // Narrower than the tag above it, and narrower again since the
+              // cloth went: with no table under it the plinth is the largest
+              // solid object on the screen, and at a third of the felt it was
+              // reading as the subject rather than as the score.
               at(
                 const Offset(0.5, _potDy),
                 _PotPulse(
                   pot: room.pot,
                   child: _Pot(
                     room: room,
-                    chipSize: (podW * 0.22).clamp(14.0, 26.0),
+                    chipSize: (podW * 0.17).clamp(12.0, 20.0),
                   ),
                 ),
-                width: w * 0.30,
+                width: w * 0.20,
               ),
               at(
                 const Offset(0.5, _statusDy),
@@ -1020,14 +1059,47 @@ class _Felt extends StatelessWidget {
               // and flush with the edge.
               Positioned(
                 left: _places[0].dx * w - podW / 2,
-                bottom: h * 0.035,
+                bottom: h * 0.012,
                 width: podW,
                 child: pod(0),
               ),
+              // The viewer's own badge and total ride over their cards rather
+              // than under their pod: the pod stands on the floor, so a stack
+              // beneath it would run off the screen, and the space above the
+              // hand is where they are already looking.
+              //
+              // One column with the hand, rather than a second Positioned at a
+              // computed offset, so the readout centres itself over whatever
+              // width the cards happen to take — three cards, or two after a
+              // sideshow — instead of being pinned to their left edge.
               Positioned(
                 left: _places[0].dx * w + podW / 2 + Space.md,
-                bottom: h * 0.035,
-                child: _OwnHand(cardHeight: handH),
+                bottom: h * 0.012,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // The viewer's own hand name at a showdown, over their
+                    // cards, so the seat that matters most to them is not the
+                    // one seat that has to work out what it won with.
+                    if (myReveal?.handName != null) ...[
+                      _OwnHandName(name: myReveal!.handName),
+                      const SizedBox(height: Space.xxs),
+                    ],
+                    if (seats.isNotEmpty && seats[0] != null && handLive) ...[
+                      // Scaled against a wider pod than the viewer actually
+                      // has: this is their own bet, read every turn from the
+                      // far end of a landscape screen, and it earns a size the
+                      // rim seats' copies do not.
+                      SeatBet(
+                        seat: seats[0]!,
+                        width: podW * 1.22,
+                        totalFirst: true,
+                      ),
+                      const SizedBox(height: Space.xs),
+                    ],
+                    _OwnHand(cardHeight: handH),
+                  ],
+                ),
               ),
 
               // A sideshow in progress, drawn for everyone: a line pulsing
@@ -1060,15 +1132,6 @@ class _Felt extends StatelessWidget {
               // Only the player being asked gets the buttons.
               if (state.sideshowIsForMe)
                 Positioned.fill(child: _SideshowPrompt(state: state)),
-
-              // And only the two of them ever see the hands. The winner's
-              // banner wins any race between the two.
-              if (state.sideshowReveal != null &&
-                  state.showdown.isEmpty &&
-                  state.showdownResult.isEmpty)
-                Positioned.fill(
-                  child: _SideshowRevealPanel(reveal: state.sideshowReveal!),
-                ),
 
               if (state.showdown.isNotEmpty || state.showdownResult.isNotEmpty)
                 Positioned.fill(
@@ -1550,8 +1613,8 @@ class _MissedTurnsStrip extends StatelessWidget {
     final railW = Dim.railW(screenW);
     final feltPad = Dim.feltPad(screenW);
     final feltW = screenW - inset.horizontal - railW - 2 * feltPad;
-    final feltH =
-        size.height - inset.vertical - _consoleBlock(size.height) - Space.xxs;
+    // No console under the felt any more, so nothing is subtracted for one.
+    final feltH = size.height - inset.vertical - Space.xxs;
     final podW = Dim.podW(feltW, feltH);
     final left = railW + feltPad;
     final podLeft = left + _Felt._places[0].dx * feltW - podW / 2;
@@ -1560,6 +1623,9 @@ class _MissedTurnsStrip extends StatelessWidget {
     final maxW = (podLeft - left - Space.xl).clamp(110.0, 360.0);
     // One line and no explanation where there is no room for two.
     final compact = Breaks.isCompact(screenW) || Breaks.isShort(size.height);
+    // How far the strip rides above the Pack key it shares a corner with.
+    final liftOverPack =
+        Dim.keyH(size.height) + 2 * Dim.gap(screenW) + Space.xs;
 
     return SizedBox(
       height: 0,
@@ -1567,11 +1633,16 @@ class _MissedTurnsStrip extends StatelessWidget {
       child: OverflowBox(
         alignment: Alignment.bottomLeft,
         minHeight: 0,
-        maxHeight: 120,
+        // The ceiling has to include the lift over the Pack key, or the plate
+        // is given 120 to draw two rows in and then told to sit 70 higher —
+        // which is a RenderFlex overflow, and it showed as one.
+        maxHeight: 120 + liftOverPack,
         child: Align(
           alignment: Alignment.bottomLeft,
           child: Padding(
-            padding: EdgeInsets.only(left: left, bottom: Space.xs),
+            // Clear of the Pack key beneath it: the key's height plus the
+            // padding it sits in, so the two never share a pixel.
+            padding: EdgeInsets.only(left: left, bottom: liftOverPack),
             child: ConstrainedBox(
               constraints: BoxConstraints(maxWidth: maxW),
               child: _Plate(
@@ -1610,10 +1681,6 @@ class _MissedTurnsStrip extends StatelessWidget {
 
 /// What the console and its surround take out of the screen's height.
 ///
-/// 71.6 of 360, 80.3 of 411, 88.0 of 800 — the figure the felt is left with,
-/// and the one the instrument cluster has to reproduce to know where the
-/// viewer's pod ends up.
-double _consoleBlock(double h) => Dim.consoleH(h) + Space.xs + Space.sm;
 
 /// A hairline between the cluster's two rows.
 class _ClusterRule extends StatelessWidget {
@@ -1957,8 +2024,8 @@ class _Pot extends StatelessWidget {
       elevation: 3,
       accent: AppTheme.goldBright.withValues(alpha: 0.22),
       padding: const EdgeInsets.symmetric(
-        horizontal: Space.md,
-        vertical: Space.sm,
+        horizontal: Space.sm,
+        vertical: Space.xs,
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -1974,7 +2041,7 @@ class _Pot extends StatelessWidget {
               // The pile grows as the pot does — a nudge upward each time chips
               // land, so the middle of the table is where the eye goes.
               _PotChips(pot: room.pot, size: chipSize),
-              const SizedBox(width: Space.md),
+              const SizedBox(width: Space.sm),
               Flexible(
                 // Chips arriving in the pot is the thing players watch, so the
                 // number travels to its new value instead of jumping. Tabular
@@ -1988,7 +2055,7 @@ class _Pot extends StatelessWidget {
                     child: Text(
                       formatChips(value.round()),
                       style: AppTheme.money(
-                        theme.textTheme.headlineSmall ?? const TextStyle(),
+                        theme.textTheme.titleLarge ?? const TextStyle(),
                         colour: AppTheme.goldBright,
                       ),
                     ),
@@ -2352,43 +2419,14 @@ class _Showdown extends StatelessWidget {
     final state = context.watch<GameState>();
 
     final won = state.iWon;
-    final headline = won
-        ? state.t.youAreWinner
-        : state.winnerName.isNotEmpty
-        ? '${state.winnerName} ${state.t.isTheWinner}'
-        : state.showdownResult;
-
-    // Attention is focused rather than the whole table greyed: the cloth stays
-    // bright where the winner is sitting and closes down towards the rim. When
-    // they have already left, the light falls on the middle instead — the same
-    // branch the scattered fireworks take.
-    final focus = winnerAt == null
-        ? Alignment.center
-        : Alignment(winnerAt!.dx * 2 - 1, winnerAt!.dy * 2 - 1);
 
     return Stack(
       children: [
-        Positioned.fill(
-          child: IgnorePointer(
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: RadialGradient(
-                  center: focus,
-                  radius: 0.85,
-                  colors: [
-                    // Barely there. This scrim existed to lift a panel of
-                    // cards off the felt; the hands are now revealed at the
-                    // seats, and 62% of ink over them is why they could not be
-                    // seen. It only has to seat the banner now.
-                    AppTheme.ink900.withValues(alpha: 0.04),
-                    AppTheme.ink900.withValues(alpha: 0.30),
-                  ],
-                  stops: const [0.20, 1],
-                ),
-              ),
-            ),
-          ),
-        ),
+        // No scrim (owner's decision, 10 Sep 2026). Dimming the table to point
+        // at the winner also greys every other seat's revealed hand — the very
+        // cards a player wants to compare against — and makes the app look
+        // frozen for the length of the celebration. The winner is marked on
+        // their own pod instead, which points without switching the lights off.
         Positioned.fill(
           child: Fireworks(
             seed: state.room?.handNo ?? 0,
@@ -2397,113 +2435,12 @@ class _Showdown extends StatelessWidget {
           ),
         ),
         if (potFlight != null) Positioned.fill(child: potFlight!),
-        Positioned.fill(
-          child: Center(
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: Space.xl),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // Only the result. The hands themselves are revealed at the
-                  // seats that played them — a panel of cards over the middle
-                  // of the table covers the very seats a player is trying to
-                  // read, and no real table shows you a hand anywhere but in
-                  // front of the person holding it.
-                  _Banner(headline: headline, won: won, pot: state.winnerPot),
-                ],
-              ),
-            ),
-          ),
-        ),
+        // No banner over the middle of the table (owner's decision, 10 Sep
+        // 2026). The result is announced on the winner's own pod instead —
+        // see _WinnerFlash in seat_pod.dart — which says the same thing in the
+        // one place a player is already looking, and says WHO by sitting on
+        // them rather than by naming them.
       ],
-    );
-  }
-}
-
-/// The announcement itself, which lands rather than appears.
-///
-/// Winning and losing are told apart by the fireworks and by where the light
-/// falls, not by a change of surface: a green pill for a win and a grey one for
-/// a loss made the same moment look like two different screens.
-class _Banner extends StatelessWidget {
-  const _Banner({required this.headline, required this.won, required this.pot});
-
-  final String headline;
-  final bool won;
-  final int pot;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return TweenAnimationBuilder<double>(
-      tween: Tween(begin: 0, end: 1),
-      duration: Motion.arrive,
-      curve: Motion.settle,
-      builder: (context, v, child) => Transform.scale(
-        scale: 0.7 + 0.3 * v,
-        child: Opacity(opacity: v.clamp(0, 1), child: child),
-      ),
-      child: _Plate(
-        radius: Radii.lg,
-        opacity: 0.72,
-        elevation: 5,
-        borderWidth: 1.5,
-        accent: AppTheme.goldBright.withValues(alpha: won ? 0.55 : 0.30),
-        padding: const EdgeInsets.symmetric(
-          horizontal: Space.xxl,
-          vertical: Space.lg,
-        ),
-        // Scaled as one piece: a pot in crores must never push the trophy or
-        // the name out of the plate, or the plate off the felt.
-        child: FittedBox(
-          fit: BoxFit.scaleDown,
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (won) ...[
-                const Icon(
-                  Icons.emoji_events_rounded,
-                  color: AppTheme.goldBright,
-                  size: 24,
-                ),
-                const SizedBox(width: Space.md),
-              ],
-              Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    headline,
-                    style: AppTheme.label(
-                      theme.textTheme.titleMedium ?? const TextStyle(),
-                      colour: AppTheme.boneInk,
-                      weight: FontWeight.w700,
-                    ),
-                  ),
-                  if (pot > 0) ...[
-                    const SizedBox(height: Space.xs),
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const PokerChip(colour: AppTheme.gold, size: 18),
-                        const SizedBox(width: Space.sm),
-                        Text(
-                          formatChips(pot),
-                          style: AppTheme.money(
-                            theme.textTheme.titleMedium ?? const TextStyle(),
-                            colour: AppTheme.goldBright,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
     );
   }
 }
@@ -2546,6 +2483,10 @@ class _SideshowLinkState extends State<_SideshowLink>
   }
 }
 
+// Drawn in goldDeep rather than goldBright, and roughly twice as heavy.
+// Bright champagne was chosen when this arced across dark emerald cloth; with
+// the cloth gone it is pale-on-pale and all but invisible — the ask happened
+// and nothing on screen showed it. The deep gold reads on both grounds.
 class _SideshowLinkPainter extends CustomPainter {
   const _SideshowLinkPainter({
     required this.from,
@@ -2576,16 +2517,16 @@ class _SideshowLinkPainter extends CustomPainter {
     canvas.drawPath(
       path,
       Paint()
-        ..color = AppTheme.goldBright.withValues(alpha: 0.14)
-        ..strokeWidth = 4
+        ..color = AppTheme.goldDeep.withValues(alpha: 0.30)
+        ..strokeWidth = 7
         ..style = PaintingStyle.stroke
         ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3),
     );
     canvas.drawPath(
       path,
       Paint()
-        ..color = AppTheme.goldBright.withValues(alpha: 0.55)
-        ..strokeWidth = 1.2
+        ..color = AppTheme.goldDeep.withValues(alpha: 0.95)
+        ..strokeWidth = 2.6
         ..style = PaintingStyle.stroke,
     );
 
@@ -2602,7 +2543,7 @@ class _SideshowLinkPainter extends CustomPainter {
           at,
           5 - i * 0.35,
           Paint()
-            ..color = AppTheme.goldBright.withValues(alpha: 0.55 * (1 - i / 9)),
+            ..color = AppTheme.goldDeep.withValues(alpha: 0.85 * (1 - i / 9)),
         );
       }
       canvas.drawCircle(
@@ -2843,161 +2784,6 @@ class _SideshowCountdownState extends State<_SideshowCountdown>
   }
 }
 
-/// The two compared hands. The server sends these to the two players in the
-/// sideshow and to nobody else, so this widget is only ever built for them.
-class _SideshowRevealPanel extends StatelessWidget {
-  const _SideshowRevealPanel({required this.reveal});
-  final SideshowReveal reveal;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final state = context.watch<GameState>();
-    final me = state.user?.id;
-
-    final iPacked = reveal.packedUserId != null && reveal.packedUserId == me;
-
-    return IgnorePointer(
-      child: ColoredBox(
-        color: AppTheme.ink900.withValues(alpha: 0.55),
-        child: Center(
-          child: _Plate(
-            radius: Radii.lg,
-            opacity: 0.78,
-            elevation: 5,
-            borderWidth: 1.5,
-            accent: AppTheme.goldBright.withValues(alpha: 0.45),
-            padding: const EdgeInsets.fromLTRB(
-              Space.lg,
-              Space.md,
-              Space.lg,
-              Space.lg,
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  'SIDESHOW',
-                  style: AppTheme.smallCaps(
-                    theme.textTheme.labelSmall ?? const TextStyle(),
-                    tracking: 2.4,
-                    colour: AppTheme.goldBright.withValues(alpha: 0.75),
-                  ),
-                ),
-                const SizedBox(height: Space.md),
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    for (final hand in reveal.hands) ...[
-                      _SideshowHandCard(
-                        hand: hand,
-                        packed: hand.userId == reveal.packedUserId,
-                        isMe: hand.userId == me,
-                      ),
-                      if (hand != reveal.hands.last)
-                        Padding(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: Space.md,
-                          ),
-                          child: Text(
-                            'VS',
-                            style: AppTheme.smallCaps(
-                              theme.textTheme.titleMedium ?? const TextStyle(),
-                              tracking: 2,
-                              colour: AppTheme.goldBright,
-                              weight: FontWeight.w700,
-                            ),
-                          ),
-                        ),
-                    ],
-                  ],
-                ),
-                const SizedBox(height: Space.md),
-                Text(
-                  iPacked ? state.t.sideshowYouLost : state.t.sideshowYouWon,
-                  style: AppTheme.label(
-                    theme.textTheme.titleSmall ?? const TextStyle(),
-                    colour: iPacked
-                        ? AppTheme.boneInk.withValues(alpha: 0.55)
-                        : AppTheme.goldBright,
-                    weight: FontWeight.w700,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _SideshowHandCard extends StatelessWidget {
-  const _SideshowHandCard({
-    required this.hand,
-    required this.packed,
-    required this.isMe,
-  });
-
-  final SideshowHand hand;
-  final bool packed;
-  final bool isMe;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final cardH = Dim.revealCardH(MediaQuery.sizeOf(context).height);
-
-    return _Plate(
-      radius: Radii.md,
-      opacity: 0.55,
-      borderWidth: packed ? Dim.hairline : 1.5,
-      accent: packed
-          ? AppTheme.ink400.withValues(alpha: 0.7)
-          : AppTheme.goldBright.withValues(alpha: 0.55),
-      padding: const EdgeInsets.symmetric(
-        horizontal: Space.md,
-        vertical: Space.sm,
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            isMe ? '${hand.displayName} *' : hand.displayName,
-            style: AppTheme.label(
-              theme.textTheme.labelMedium ?? const TextStyle(),
-              colour: packed
-                  ? AppTheme.boneInk.withValues(alpha: AppTheme.inkLow)
-                  : AppTheme.boneInk,
-            ),
-          ),
-          const SizedBox(height: Space.sm),
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              for (final c in hand.cards)
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: Space.xxs),
-                  child: PlayingCard(height: cardH, code: c, dimmed: packed),
-                ),
-            ],
-          ),
-          const SizedBox(height: Space.xs),
-          Text(
-            hand.handName,
-            style: AppTheme.label(
-              theme.textTheme.bodySmall ?? const TextStyle(),
-              colour: AppTheme.boneInk.withValues(alpha: AppTheme.inkLow),
-              weight: FontWeight.w500,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 /// The lift on an icon button that has a background of its own.
 ///
 /// The button themes cover the labelled buttons; icon buttons are left out of
@@ -3152,243 +2938,6 @@ class _MachinedKey extends StatelessWidget {
                 ),
               ),
             ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// The amount on the ladder, in a window cut into the console.
-///
-/// It is the visual anchor of the row: darker than the console around it, with
-/// a champagne rim, so it reads as recessed rather than as a fifth key.
-class _BetWindow extends StatelessWidget {
-  const _BetWindow({
-    required this.width,
-    required this.height,
-    required this.amount,
-    required this.live,
-  });
-
-  final double width;
-  final double height;
-  final int amount;
-  final bool live;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final dark = theme.brightness == Brightness.dark;
-    final ink = live
-        ? _goldInk(theme.brightness)
-        : theme.colorScheme.onSurface.withValues(alpha: 0.34);
-
-    return Container(
-      width: width,
-      height: height,
-      alignment: Alignment.center,
-      padding: const EdgeInsets.symmetric(horizontal: Space.md),
-      decoration: BoxDecoration(
-        // Recessed in both schemes: darker than whatever the console is.
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: dark
-              ? const [AppTheme.ink900, AppTheme.ink700]
-              : const [AppTheme.bone300, AppTheme.bone200],
-        ),
-        borderRadius: BorderRadius.circular(Radii.md),
-        border: Border.all(
-          color: live
-              ? AppTheme.hairlineColour(theme.brightness, live: true)
-              : AppTheme.ink400.withValues(alpha: 0.30),
-          width: Dim.hairline,
-        ),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          // A real chip rather than an icon of one: it is the same artwork the
-          // pot and the seats are counted in.
-          PokerChip(
-            colour: live ? AppTheme.gold : theme.colorScheme.outline,
-            size: 18,
-          ),
-          const SizedBox(width: Space.sm),
-          Flexible(
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              child: AnimatedSwitcher(
-                duration: Motion.fast,
-                child: Text(
-                  formatChips(amount),
-                  // Keyed on the figure so a step swaps it rather than
-                  // redrawing it in place; tabular, so the ladder's doublings
-                  // never change the window's width.
-                  key: ValueKey(amount),
-                  style: AppTheme.money(
-                    theme.textTheme.titleMedium ?? const TextStyle(),
-                    colour: ink,
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// Pack on the left, the stake stepper in the middle, then Chaal and one more
-/// key on the right.
-///
-/// The console is always there and simply goes dead between turns: one that
-/// disappears and comes back moves the keys under the player's thumb, which is
-/// how misclicks happen.
-///
-/// That last slot is Sideshow, and becomes Show once only two players are left
-/// in the hand — the two can never be offered at once, because a sideshow needs
-/// a third player and a show needs there not to be one.
-///
-/// It is [GlassMode.tinted], never blurred: it sits over the room's ground for
-/// the whole session, and a `BackdropFilter` re-blurs its backdrop on every
-/// frame that backdrop repaints.
-class _ActionConsole extends StatelessWidget {
-  const _ActionConsole();
-
-  @override
-  Widget build(BuildContext context) {
-    final state = context.watch<GameState>();
-    final t = state.t;
-    final theme = Theme.of(context);
-
-    final live = state.myTurn;
-    final options = state.options;
-    final showCost = options?.show;
-    final canSideshow = live && (options?.canSideshow ?? false);
-    // Heads-up: a show is on offer, and a sideshow cannot be.
-    final headsUp = live && showCost != null && showCost > 0;
-
-    final size = MediaQuery.sizeOf(context);
-    final keyH = Dim.keyH(size.height);
-    final gap = Dim.gap(size.width);
-
-    return Padding(
-      padding: EdgeInsets.fromLTRB(
-        Dim.feltPad(size.width),
-        Space.xs,
-        Dim.feltPad(size.width),
-        Space.sm,
-      ),
-      child: PremiumGlassPanel(
-        mode: GlassMode.tinted,
-        radius: Radii.lg,
-        live: live,
-        // The panel's height is its keys plus its own padding, never the other
-        // way round: keyH + 2*consolePad is 61.6 at h=360, 70.3 at h=411 and
-        // 78.0 at h=800, and the keys inside it are 48.6 / 55.5 / 60.0 tall.
-        padding: EdgeInsets.symmetric(
-          horizontal: gap,
-          vertical: Dim.consolePad(size.height),
-        ),
-        child: SizedBox(
-          height: keyH,
-          child: LayoutBuilder(
-            builder: (context, box) {
-              // The row is laid out inside a bounded box rather than scaled
-              // down by a FittedBox, which is what used to take a 46dp key to
-              // about 37 on a small phone. Three keys, the bet window and two
-              // steppers, with what is left over going to the two spacers:
-              // 119.7dp keys of 605 at 640x360, 178.7 of 838.9 at 891x411 and
-              // 235.2 of 1213.9 at 1280x800.
-              final bet = Dim.betW(size.width);
-              final free = box.maxWidth - bet - 2 * Dim.minTouch - 5 * gap;
-              final keyW = math.max(
-                0.0,
-                math.min(free / 3, Dim.keyW(size.width) * 1.4),
-              );
-
-              return Row(
-                children: [
-                  _MachinedKey(
-                    width: keyW,
-                    height: keyH,
-                    icon: Icons.close_rounded,
-                    label: t.pack,
-                    alive: live && (options?.canPack ?? false),
-                    edge: theme.colorScheme.error.withValues(alpha: 0.45),
-                    onPressed: live && (options?.canPack ?? false)
-                        ? state.pack
-                        : null,
-                  ),
-                  const Spacer(),
-                  _StepperKey(
-                    icon: Icons.remove_rounded,
-                    height: keyH,
-                    onPressed: state.canStepDown
-                        ? () => state.stepBet(-1)
-                        : null,
-                  ),
-                  SizedBox(width: gap),
-                  _BetWindow(
-                    width: bet,
-                    height: keyH,
-                    amount: state.betAmount,
-                    live: live,
-                  ),
-                  SizedBox(width: gap),
-                  _StepperKey(
-                    icon: Icons.add_rounded,
-                    height: keyH,
-                    onPressed: state.canStepUp ? () => state.stepBet(1) : null,
-                  ),
-                  const Spacer(),
-                  _MachinedKey(
-                    width: keyW,
-                    height: keyH,
-                    icon: Icons.arrow_forward_rounded,
-                    label: t.chaal,
-                    alive: live,
-                    amount: formatChips(state.betAmount),
-                    onPressed: live ? state.bet : null,
-                    primary: true,
-                  ),
-                  SizedBox(width: gap),
-                  // One slot, two jobs. A show is only possible with two
-                  // players left and a sideshow only with three or more, so the
-                  // key turns into Show at exactly the point Sideshow stops
-                  // being askable — and the two are never on screen together.
-                  headsUp
-                      ? _MachinedKey(
-                          width: keyW,
-                          height: keyH,
-                          icon: Icons.visibility_rounded,
-                          label: t.show,
-                          alive: true,
-                          amount: formatChips(showCost),
-                          onPressed: () => state.show(showCost),
-                        )
-                      // Dead by default: it wakes up only on your turn, with
-                      // three players in the hand and both you and the player
-                      // on your right holding seen cards. All of that is the
-                      // server's judgement, arriving as canSideshow.
-                      : _MachinedKey(
-                          width: keyW,
-                          height: keyH,
-                          icon: Icons.compare_arrows_rounded,
-                          label: t.sideshow,
-                          amount: canSideshow ? options?.sideshowWith : null,
-                          // Only when the server says it is actually offered —
-                          // a lit key that refuses on tap is worse than a dark
-                          // one.
-                          alive: canSideshow,
-                          onPressed: canSideshow ? state.askSideshow : null,
-                        ),
-                ],
-              );
-            },
           ),
         ),
       ),
@@ -4425,6 +3974,179 @@ class _SeatedForState extends State<_SeatedFor> {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// The keys, gathered into the bottom-right corner instead of a bar.
+///
+/// Laid out as the owner asked (10 Sep 2026): Chaal on the bottom row with the
+/// plus to its left and the minus to its right, and the sideshow key sitting
+/// directly on top of Chaal.
+///
+/// Two things are here that were not in the brief, and both are deliberate.
+///
+/// **Pack**, above the sideshow key. It was not mentioned, and a table you
+/// cannot fold at is not a table — leaving it out would have been reading the
+/// instruction rather than the intent. It sits at the top of the stack because
+/// it is the one key you never want under a thumb reaching for Chaal.
+///
+/// **No bet window.** The figure lives on the Chaal key itself, which already
+/// showed it, so the separate readout the old bar carried would now be saying
+/// the same number twice a centimetre apart.
+class _ActionCluster extends StatelessWidget {
+  const _ActionCluster();
+
+  @override
+  Widget build(BuildContext context) {
+    final state = context.watch<GameState>();
+    final t = state.t;
+
+    final live = state.myTurn;
+    final options = state.options;
+    final showCost = options?.show;
+    final canSideshow = live && (options?.canSideshow ?? false);
+    // Heads-up: a show is on offer, and a sideshow cannot be. One slot, two
+    // jobs — a show needs exactly two players left and a sideshow three or
+    // more, so they are never askable at the same moment.
+    final headsUp = live && showCost != null && showCost > 0;
+
+    final size = MediaQuery.sizeOf(context);
+    final keyH = Dim.keyH(size.height);
+    final keyW = Dim.keyW(size.width);
+    final gap = Dim.gap(size.width);
+
+    return Padding(
+      padding: EdgeInsets.fromLTRB(gap, gap, Dim.feltPad(size.width), gap),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          headsUp
+              ? _MachinedKey(
+                  width: keyW,
+                  height: keyH,
+                  icon: Icons.visibility_rounded,
+                  label: t.show,
+                  alive: true,
+                  amount: formatChips(showCost),
+                  onPressed: () => state.show(showCost),
+                )
+              // Dead by default: it wakes only on your turn, with three in the
+              // hand and both you and the player on your right holding seen
+              // cards. All of that is the server's judgement, arriving as
+              // canSideshow — a lit key that refuses on tap is worse than a
+              // dark one.
+              : _MachinedKey(
+                  width: keyW,
+                  height: keyH,
+                  icon: Icons.compare_arrows_rounded,
+                  label: t.sideshow,
+                  amount: canSideshow ? options?.sideshowWith : null,
+                  alive: canSideshow,
+                  onPressed: canSideshow ? state.askSideshow : null,
+                ),
+          SizedBox(height: gap),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _StepperKey(
+                icon: Icons.remove_rounded,
+                height: keyH,
+                onPressed: state.canStepDown ? () => state.stepBet(-1) : null,
+              ),
+              SizedBox(width: gap),
+              _MachinedKey(
+                width: keyW,
+                height: keyH,
+                icon: Icons.arrow_forward_rounded,
+                label: t.chaal,
+                alive: live,
+                amount: formatChips(state.betAmount),
+                onPressed: live ? state.bet : null,
+                primary: true,
+              ),
+              SizedBox(width: gap),
+              _StepperKey(
+                icon: Icons.add_rounded,
+                height: keyH,
+                onPressed: state.canStepUp ? () => state.stepBet(1) : null,
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Pack, alone in the bottom-left corner.
+///
+/// Everything else lives in the opposite corner. That is not symmetry for its
+/// own sake: Chaal and the two steppers are pressed constantly and pack is
+/// pressed once, irreversibly, and a fold landing under a thumb that was
+/// reaching for a raise is the worst misclick this game has.
+class _PackKey extends StatelessWidget {
+  const _PackKey();
+
+  @override
+  Widget build(BuildContext context) {
+    final state = context.watch<GameState>();
+    final theme = Theme.of(context);
+    final size = MediaQuery.sizeOf(context);
+    final canPack = state.myTurn && (state.options?.canPack ?? false);
+    final gap = Dim.gap(size.width);
+
+    return Padding(
+      padding: EdgeInsets.fromLTRB(Dim.feltPad(size.width), gap, gap, gap),
+      child: _MachinedKey(
+        width: Dim.keyW(size.width),
+        height: Dim.keyH(size.height),
+        icon: Icons.close_rounded,
+        label: state.t.pack,
+        alive: canPack,
+        edge: theme.colorScheme.error.withValues(alpha: 0.45),
+        onPressed: canPack ? state.pack : null,
+      ),
+    );
+  }
+}
+
+/// The viewer's hand name at a showdown — "Pair", "Colour", "Run".
+///
+/// Its own widget rather than SeatPod's, because the viewer's cards are not in
+/// a pod: they are the fanned hand on the floor, and the label has to sit over
+/// them at the size that hand is drawn rather than at pod scale.
+class _OwnHandName extends StatelessWidget {
+  const _OwnHandName({required this.name});
+
+  final String name;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: Space.sm,
+        vertical: Space.xxs,
+      ),
+      decoration: BoxDecoration(
+        color: AppTheme.plaque(theme.brightness).withValues(alpha: 0.86),
+        borderRadius: BorderRadius.circular(Radii.sm),
+        border: Border.all(color: AppTheme.hairlineColour(theme.brightness)),
+      ),
+      child: Text(
+        name,
+        maxLines: 1,
+        style: AppTheme.smallCaps(
+          theme.textTheme.labelMedium ?? const TextStyle(),
+          tracking: 0.8,
+          colour: theme.brightness == Brightness.dark
+              ? AppTheme.goldBright
+              : AppTheme.goldDeep,
+        ),
+      ),
     );
   }
 }

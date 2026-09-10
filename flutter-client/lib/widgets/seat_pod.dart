@@ -37,10 +37,33 @@ const double _kAvatar = 0.245;
 /// seats. It takes back most of what the pill was using, so the pod stays
 /// about the height it was and the face gets the difference.
 const double _kAvatarAlone = 0.315;
+
+/// The viewer's own picture. Larger than anyone else's, which makes their pod
+/// TALLER without making it wider — the column sizes to its contents, and
+/// nothing else in it changed. Width is deliberately untouched: the pod sits
+/// between the Pack key and a fanned hand with little room either side, so
+/// growing sideways is what would collide, and growing downwards is free now
+/// that the name has moved out above the plaque.
+const double _kAvatarMine = 0.365;
 const double _kDealer = 0.095;
 const double _kGap = 0.04;
-const double _kStack = 0.115;
-const double _kStackFloor = 9.5;
+const double _kStack = 0.125;
+
+/// The BLIND / SEEN badge, which used to share [_kStack] with the chips pill.
+/// They are not the same job: the pill is the viewer's own balance, glanced at
+/// occasionally, while the badge is how everyone reads what the other players
+/// are doing all hand long. Shrinking one should not shrink the other, and
+/// before this constant existed it did.
+const double _kBadge = 0.105;
+const double _kBadgeFloor = 10.0;
+
+/// What a seat has put in this hand. Deliberately a step smaller than
+/// [_kBadge]: the badge carries the decision (blind or seen, and for how
+/// much), the total is context for it, and when the two sit together the
+/// headline should be obvious without reading either.
+const double _kInPot = 0.086;
+const double _kInPotFloor = 9.0;
+const double _kStackFloor = 11.5;
 const double _kStatus = 0.095;
 const double _kStatusFloor = 9.0;
 
@@ -140,7 +163,7 @@ class SeatPod extends StatelessWidget {
     // An empty chair shows nothing: a row of blank pods reads as broken rather
     // than as free seats. Before the watch below, so a table with two players
     // does not rebuild three empty pods on every tick of GameState's clock.
-    if (s == null || !s.occupied) return SizedBox(width: width);
+    if (s == null || !s.occupied) return _emptySeat(context);
 
     final state = context.watch<GameState>();
     final t = state.t;
@@ -165,16 +188,21 @@ class SeatPod extends StatelessWidget {
     final below = <Widget>[
       if (s.cardCount > 0 && !isMe) ...[
         SizedBox(height: gap),
-        _cards(s),
+        // Above the cards, not under them. At a showdown the eye lands on the
+        // hand first and reads the label second, and a label underneath sat
+        // between one seat's cards and the next seat's pod — which is the one
+        // place on a crowded table it could be mistaken for either.
         if (revealedHand != null) _handName(context, revealedHand!),
+        _cards(s),
       ],
-      if (_inHand(s)) ...[
+      // The viewer's badge and total are not in their column: they are drawn
+      // over their own cards instead (see _Felt). Their pod stands on the
+      // floor beside a fanned hand, so a stack under it grows towards the
+      // screen edge, while the space above the cards is empty and is where
+      // their eye already is.
+      if (_inHand(s) && !isMe) ...[
         SizedBox(height: gap),
-        _lastBet(context, t, s),
-        if (s.contributed > 0) ...[
-          SizedBox(height: gap * 0.5),
-          _total(context, t, s),
-        ],
+        SeatBet(seat: s, width: width),
       ] else if (status != null) ...[
         SizedBox(height: gap),
         _statusTag(context, s, status),
@@ -401,7 +429,13 @@ class SeatPod extends StatelessWidget {
                     // height to report that it has nothing to report. Drop it
                     // and the picture takes the room instead, which is the one
                     // thing in a pod worth looking at.
-                    radius: width * (knownStack ? _kAvatar : _kAvatarAlone),
+                    radius:
+                        width *
+                        (isMe
+                            ? _kAvatarMine
+                            : knownStack
+                            ? _kAvatar
+                            : _kAvatarAlone),
                     // The second, quieter turn cue, for a player reading faces
                     // rather than borders.
                     ring: onTurn ? beat : null,
@@ -414,6 +448,16 @@ class SeatPod extends StatelessWidget {
                 ],
               ),
             ),
+            // The result, on the winner rather than over the middle of the
+            // table — and LAST in this stack, so it sits above the face and
+            // the plaque. Placed before them it was painted over by the
+            // avatar, which left "W…R" showing round the edges of a picture.
+            if (won)
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: _WinnerFlash(width: width, hand: revealedHand),
+                ),
+              ),
           ],
         ),
       ),
@@ -429,9 +473,13 @@ class SeatPod extends StatelessWidget {
 
     return Container(
       width: double.infinity,
+      // Slimmer than it was: only the viewer still carries a pill (the rim
+      // seats' figures are withheld on a blind table and the pill went with
+      // them), and one plaque at the bottom of the screen does not need the
+      // weight it had when five of them ringed the table.
       padding: EdgeInsets.symmetric(
-        vertical: width * 0.028,
-        horizontal: width * 0.06,
+        vertical: width * 0.010,
+        horizontal: width * 0.040,
       ),
       decoration: BoxDecoration(
         // Two stops rather than one: the darker top edge is what reads as a
@@ -522,11 +570,16 @@ class SeatPod extends StatelessWidget {
 
   /// What this player just put in. The chip makes it read as money from across
   /// the table, where a bare number does not.
-  Widget _lastBet(BuildContext context, Strings t, Seat s) {
+  static Widget _lastBet(
+    BuildContext context,
+    Strings t,
+    Seat s,
+    double width,
+  ) {
     final theme = Theme.of(context);
     final dark = theme.brightness == Brightness.dark;
     final label = s.isBlind ? t.blind : t.seen;
-    final size = math.max(_kStackFloor, width * _kStack);
+    final size = math.max(_kBadgeFloor, width * _kBadge);
     final ink = dark ? AppTheme.boneInk : AppTheme.inkOnLight;
 
     return Container(
@@ -606,10 +659,45 @@ class SeatPod extends StatelessWidget {
     );
   }
 
-  /// Everything they are in for this hand.
-  Widget _total(BuildContext context, Strings t, Seat s) {
+  /// A seat nobody is in.
+  ///
+  /// It used to be nothing at all — a zero-height box — so a player leaving
+  /// made the table silently rearrange itself around the hole, and the seat
+  /// they had been in stopped existing. A chair that stays put says the table
+  /// has five places and one of them is free, which is both true and what a
+  /// player expects to see: the same shape comes back with a face in it when
+  /// somebody sits down.
+  ///
+  /// No name, because there is nobody to name. Quiet enough that five empty
+  /// chairs never compete with one occupied one.
+  Widget _emptySeat(BuildContext context) {
     final theme = Theme.of(context);
-    final size = math.max(_kStatusFloor, width * 0.1);
+
+    return SizedBox(
+      width: width,
+      child: Container(
+        height: width * 0.86,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: AppTheme.plaque(theme.brightness).withValues(alpha: 0.28),
+          borderRadius: BorderRadius.circular(width * _kRadius),
+          border: Border.all(
+            color: AppTheme.hairlineColour(theme.brightness, live: false),
+          ),
+        ),
+        child: Icon(
+          Icons.chair_alt_outlined,
+          size: width * 0.34,
+          color: AppTheme.onTable(theme.colorScheme).withValues(alpha: 0.22),
+        ),
+      ),
+    );
+  }
+
+  /// Everything they are in for this hand.
+  static Widget _total(BuildContext context, Strings t, Seat s, double width) {
+    final theme = Theme.of(context);
+    final size = math.max(_kInPotFloor, width * _kInPot);
 
     return TweenAnimationBuilder<double>(
       tween: Tween(end: s.contributed.toDouble()),
@@ -617,33 +705,47 @@ class SeatPod extends StatelessWidget {
       curve: Curves.easeOutCubic,
       builder: (context, value, _) => FittedBox(
         fit: BoxFit.scaleDown,
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              t.inPot,
-              maxLines: 1,
-              style: AppTheme.label(
-                theme.textTheme.labelSmall!,
-                fontSize: size,
-                colour: AppTheme.onTable(
-                  theme.colorScheme,
-                  alpha: AppTheme.inkLow,
+        // A plaque of its own, a step quieter than the badge beneath it: same
+        // material, no border, tighter corners. Enough to read as a chip of
+        // information rather than loose text on the ground, not enough to
+        // argue with the badge for which of the two is the headline.
+        child: Container(
+          padding: EdgeInsets.symmetric(
+            horizontal: width * 0.055,
+            vertical: width * 0.018,
+          ),
+          decoration: BoxDecoration(
+            color: AppTheme.plaque(theme.brightness).withValues(alpha: 0.72),
+            borderRadius: BorderRadius.circular(width * 0.07),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                t.inPot,
+                maxLines: 1,
+                style: AppTheme.label(
+                  theme.textTheme.labelSmall!,
+                  fontSize: size,
+                  colour: AppTheme.onTable(
+                    theme.colorScheme,
+                    alpha: AppTheme.inkLow,
+                  ),
                 ),
               ),
-            ),
-            SizedBox(width: width * 0.035),
-            Text(
-              formatChips(value.round()),
-              maxLines: 1,
-              style: AppTheme.money(
-                theme.textTheme.labelSmall!,
-                fontSize: size,
-                colour: AppTheme.onTable(theme.colorScheme),
-                weight: FontWeight.w600,
+              SizedBox(width: width * 0.035),
+              Text(
+                formatChips(value.round()),
+                maxLines: 1,
+                style: AppTheme.money(
+                  theme.textTheme.labelSmall!,
+                  fontSize: size,
+                  colour: AppTheme.onTable(theme.colorScheme),
+                  weight: FontWeight.w600,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -1049,4 +1151,230 @@ class _BubbleSkin extends CustomPainter {
       old.tailFrom != tailFrom ||
       old.blur != blur ||
       old.dy != dy;
+}
+
+/// A seat's BLIND/SEEN badge and what it has put in this hand.
+///
+/// Lives outside [SeatPod] because the viewer's copy is not in their pod: it
+/// is drawn over their own cards, where there is room and where they are
+/// already looking. Everyone else's sits under their pod as before, and both
+/// go through here so the two can never drift apart.
+class SeatBet extends StatelessWidget {
+  const SeatBet({
+    super.key,
+    required this.seat,
+    required this.width,
+    this.totalFirst = false,
+  });
+
+  final Seat seat;
+
+  /// Whether "In Pot" sits above the badge rather than below it.
+  ///
+  /// True only for the viewer, whose copy hangs over their own cards: there
+  /// the badge is the line they act on, so it wants to be nearest the hand.
+  /// A rim seat's copy hangs under their pod, where the reverse is true —
+  /// the badge belongs against the pod it describes.
+  final bool totalFirst;
+
+  /// The pod width the figures are scaled against, so the viewer's badge is
+  /// the same size as everybody else's rather than sized to its new home.
+  final double width;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.watch<GameState>().t;
+
+    final gap = SizedBox(height: width * _kPad * 0.5);
+    final total = seat.contributed > 0
+        ? SeatPod._total(context, t, seat, width)
+        : null;
+    final badge = SeatPod._lastBet(context, t, seat, width);
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: totalFirst
+          ? [
+              if (total != null) ...[total, gap],
+              badge,
+            ]
+          : [
+              badge,
+              if (total != null) ...[gap, total],
+            ],
+    );
+  }
+}
+
+/// WINNER, struck across the pod of whoever just took the pot.
+///
+/// This replaced a banner across the middle of the table. A banner had to name
+/// the winner because it was nowhere near them; sitting on their pod says who
+/// by position, which is faster to read and covers nothing a player wants to
+/// look at.
+///
+/// It arrives rather than appears: a hard scale-down from oversized onto the
+/// pod, the way a stamp lands, then a slow shine that keeps it alive for the
+/// few seconds it is up. Both run once per hand — the widget is rebuilt with
+/// the seat, so a new winner gets a new strike.
+class _WinnerFlash extends StatefulWidget {
+  const _WinnerFlash({required this.width, this.hand});
+
+  final double width;
+
+  /// What they won with — "Pair", "Colour", "Run". Null when the hand ended
+  /// without a showdown because everyone else packed: there is no winning hand
+  /// to name then, only a last player standing.
+  final String? hand;
+
+  @override
+  State<_WinnerFlash> createState() => _WinnerFlashState();
+}
+
+class _WinnerFlashState extends State<_WinnerFlash>
+    with TickerProviderStateMixin {
+  late final AnimationController _strike = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 620),
+  )..forward();
+
+  late final AnimationController _shine = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 2200),
+  )..repeat();
+
+  @override
+  void dispose() {
+    _strike.dispose();
+    _shine.dispose();
+    super.dispose();
+  }
+
+  /// Both lines of the strike share a treatment: the shader paints them, so
+  /// the colour here only has to be opaque, and the shadow is what lifts them
+  /// off whatever the pod is showing underneath.
+  TextStyle _struck(
+    BuildContext context,
+    double w,
+    double scale,
+    FontWeight weight,
+  ) =>
+      AppTheme.smallCaps(
+        Theme.of(context).textTheme.titleLarge ?? const TextStyle(),
+        fontSize: math.max(9.0, w * scale),
+        tracking: w * scale * 0.065,
+        weight: weight,
+        colour: Colors.white,
+      ).copyWith(
+        shadows: [
+          Shadow(
+            color: AppTheme.ink900.withValues(alpha: 0.55),
+            blurRadius: w * 0.06,
+            offset: Offset(0, w * 0.012),
+          ),
+        ],
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    final w = widget.width;
+
+    return AnimatedBuilder(
+      animation: Listenable.merge([_strike, _shine]),
+      builder: (context, _) {
+        final t = Curves.easeOutBack.transform(_strike.value.clamp(0.0, 1.0));
+        // From oversized down onto the pod, so it reads as landing rather than
+        // as growing — but only just oversized. At 2.1x the strike was half a
+        // pod tall before it settled, and on the top row that overshoot went
+        // straight off the top of the screen: the word and the hand under it
+        // were cut for the first third of a second, which is exactly the part
+        // a player looks at.
+        final scale = 1.32 - 0.32 * t;
+        final fade = Curves.easeOut.transform(
+          (_strike.value * 2.2).clamp(0.0, 1.0),
+        );
+        final shine = _shine.value;
+
+        return Opacity(
+          opacity: fade,
+          child: Transform.scale(
+            scale: scale,
+            child: Center(
+              child: Container(
+                // A solid ribbon, not bare text. Gold letters sat directly on
+                // the pod were gold on a pale plaque over a photograph, which
+                // is three light things in a row — the word was there and
+                // could not be read, and the ranking under it disappeared
+                // altogether. Ink behind them is what makes both legible on
+                // any avatar anybody ever picks.
+                padding: EdgeInsets.symmetric(
+                  horizontal: w * 0.09,
+                  vertical: w * 0.045,
+                ),
+                margin: EdgeInsets.symmetric(horizontal: w * 0.04),
+                decoration: BoxDecoration(
+                  color: AppTheme.ink900.withValues(alpha: 0.88),
+                  borderRadius: BorderRadius.circular(w * 0.06),
+                  border: Border.all(
+                    color: AppTheme.goldBright.withValues(alpha: 0.55),
+                    width: 1.2,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: AppTheme.goldBright.withValues(alpha: 0.30 * fade),
+                      blurRadius: w * 0.16,
+                      spreadRadius: w * 0.01,
+                    ),
+                  ],
+                ),
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      ShaderMask(
+                        blendMode: BlendMode.srcIn,
+                        shaderCallback: (rect) => LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: const [
+                            AppTheme.goldDeep,
+                            Colors.white,
+                            AppTheme.goldBright,
+                          ],
+                          stops: [
+                            (shine - 0.28).clamp(0.0, 1.0),
+                            shine.clamp(0.0, 1.0),
+                            (shine + 0.28).clamp(0.0, 1.0),
+                          ],
+                        ).createShader(rect),
+                        child: Text(
+                          'WINNER',
+                          maxLines: 1,
+                          style: _struck(context, w, 0.175, FontWeight.w900),
+                        ),
+                      ),
+                      // What they won with. On the ribbon rather than beside
+                      // it, so it cannot end up over a face on its own.
+                      if (widget.hand != null)
+                        Text(
+                          widget.hand!,
+                          maxLines: 1,
+                          style: _struck(
+                            context,
+                            w,
+                            0.092,
+                            FontWeight.w700,
+                          ).copyWith(color: AppTheme.bone100),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
 }

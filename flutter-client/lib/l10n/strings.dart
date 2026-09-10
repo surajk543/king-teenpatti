@@ -339,7 +339,7 @@ class Strings {
       'blindMovesLeft': 'blind moves left',
       'blindMovesLabel': 'Blind moves left',
       'lastBlindMove': 'last blind move',
-      'inPot': 'in pot',
+      'inPot': 'In Pot',
       'waiting': 'waiting',
       'offline': 'offline',
       'packed': 'PACKED',

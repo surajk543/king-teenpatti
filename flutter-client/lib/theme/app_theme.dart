@@ -245,10 +245,14 @@ class Dim {
   /// felt sideways; nothing stops it leaving upwards, so the height fraction
   /// is the real ceiling here.
   static double podW(double feltW, double feltH) =>
-      math.min(feltH * 0.315, feltW * 0.163).clamp(60.0, 152.0);
+      math.min(feltH * 0.270, feltW * 0.150).clamp(60.0, 140.0);
 
   /// The viewer's own fanned hand, again against the felt's box.
-  static double handH(double feltH) => (feltH * 0.29).clamp(50.0, 134.0);
+  ///
+  /// Brought down on 10 Sep 2026. Three cards at 0.29 of the felt's height
+  /// were the largest object on the screen once the cloth went, and the hand
+  /// is the one thing a player already knows the contents of.
+  static double handH(double feltH) => (feltH * 0.235).clamp(46.0, 108.0);
 
   /// A card in the sideshow reveal. Sized so it never grows on the tightest
   /// screen: 360 -> 61.2 | 411 -> 69.9 | 800 -> 104.0
