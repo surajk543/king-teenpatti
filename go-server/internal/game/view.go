@@ -76,6 +76,10 @@ type YouView struct {
 	// Requirement 31: warning to this player only.
 	MissedTurns    int `json:"missedTurns"`
 	MaxMissedTurns int `json:"maxMissedTurns"`
+	// UnfundedDeadline (epoch ms) is set while this player cannot cover the
+	// boot and the table is holding their seat for a chip purchase
+	// (UNFUNDED_GRACE_MS); absent otherwise.
+	UnfundedDeadline *int64 `json:"unfundedDeadline,omitempty"`
 	// Cards is the viewer's hand once seen, else [] — NEVER null (Flutter
 	// reads it as a list). Marshal an empty non-nil slice.
 	Cards []string `json:"cards"`

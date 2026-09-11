@@ -130,7 +130,8 @@ func TestVerifyBuyingAfterTheLosingHandEndsIsTooLateToStayAtTheTable(t *testing.
 	h.seat("rival", blindStart)
 	h.advance(6 * time.Second)
 
-	// The hand ends with the buyer at 100, under the 200 boot.
+	// No grace configured (UNFUNDED_GRACE_MS=0): the hand ends with the buyer
+	// at 100, under the 200 boot, and the sweep shows them out at once.
 	packOnTurn(h, "buyer")
 	var kicked bool
 	for _, k := range h.kickEvents() {

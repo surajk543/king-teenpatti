@@ -1587,8 +1587,12 @@ func TestUnfundedKickBetweenHands(t *testing.T) {
 	// Requirements 31/32: a player who can no longer cover the boot is kicked
 	// between hands with reason insufficient_chips. Alice sits down with 250
 	// chips at boot 100 and never acts; Bob chaals whenever it is his turn.
-	// She loses two hands (150 → 50) and the sweep before the third removes her.
-	st := newStack(t, func(cfg *config.Config) { cfg.Game.TurnTimeout = 250 * time.Millisecond })
+	// She loses two hands (150 → 50); the sweep before the third holds her seat
+	// for the (here brief) unfunded grace, and then she is removed.
+	st := newStack(t, func(cfg *config.Config) {
+		cfg.Game.TurnTimeout = 250 * time.Millisecond
+		cfg.Game.UnfundedGrace = 200 * time.Millisecond
+	})
 	boot := int64(100)
 	alice := st.player("Alice")
 	st.users.setChips(alice.user.ID, 250)

@@ -142,6 +142,7 @@ func TestEveryKey(t *testing.T) {
 		{"PRIVATE_MAX_RAISE_STEPS", "1", "Game.PrivateMaxRaiseSteps", 1},
 		{"PRIVATE_BOOT", "50", "Game.PrivateBoot", int64(50)},
 		{"NEXT_HAND_DELAY_MS", "10", "Game.NextHandDelay", 10 * time.Millisecond},
+		{"UNFUNDED_GRACE_MS", "0", "Game.UnfundedGrace", time.Duration(0)},
 		{"CONSOLIDATE_INTERVAL_MS", "40", "Game.ConsolidateInterval", 40 * time.Millisecond},
 		{"RECONNECT_GRACE_MS", "150", "Game.ReconnectGrace", 150 * time.Millisecond},
 		{"RESUME_OFFER_MS", "0", "Game.ResumeOffer", time.Duration(0)},

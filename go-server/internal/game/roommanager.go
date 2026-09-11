@@ -529,6 +529,7 @@ func (rm *RoomManager) newTableLocked(opts CreateTableOptions) *Table {
 		SideshowTimeout:    g.SideshowTimeout,
 		SideshowMinPlayers: g.SideshowMinPlayers,
 		NextHandDelay:      g.NextHandDelay,
+		UnfundedGrace:      g.UnfundedGrace,
 		ChatMaxHistory:     rm.chat.MaxHistory,
 		ChatMaxLength:      rm.chat.MaxLength,
 	}

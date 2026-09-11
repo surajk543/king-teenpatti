@@ -221,6 +221,10 @@ func newRoomsFixture(t *testing.T, mutate func(*config.GameConfig, *game.RoomMan
 	t.Helper()
 	f := &roomsFixture{t: t, clock: testclock.New(rmEpoch), logs: &bytes.Buffer{}}
 	f.cfg = config.Defaults().Game
+	// These suites pin Node's immediate insufficient_chips kick; the grace a
+	// short seat gets (UNFUNDED_GRACE_MS) is covered by unfunded_grace_test.go
+	// and the socket suite. A mutate can opt back in.
+	f.cfg.UnfundedGrace = 0
 	var trace []string
 	f.events = &roomEvents{trace: &trace, kickCh: make(chan game.PlayerKicked, 64)}
 	f.tables = &tableEvents{mu: &f.events.mu, rooms: f.events}

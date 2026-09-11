@@ -144,6 +144,7 @@ func (t *Table) fence(seq int64, cause error) {
 	t.fenced.Store(true)
 	t.clearTurnTimer()
 	t.clearStartTimer()
+	t.clearUnfundedTimer()
 	if t.hand != nil && t.hand.sideshow != nil && t.hand.sideshow.timer != nil {
 		t.hand.sideshow.timer.Stop()
 		t.hand.sideshow.timer = nil
@@ -217,6 +218,7 @@ func (t *Table) suspend() {
 	}
 	t.clearTurnTimer()
 	t.clearStartTimer()
+	t.clearUnfundedTimer()
 	if t.hand != nil && t.hand.sideshow != nil && t.hand.sideshow.timer != nil {
 		t.hand.sideshow.timer.Stop()
 		t.hand.sideshow.timer = nil
@@ -281,7 +283,9 @@ func (t *Table) restoreChat(history []ChatMessage) error {
 //     which at rest can only mean a boot refusal whose retry timer died with
 //     the process (table.js _startRefused);
 //   - seats marked kickPending (a kick whose removal was in flight) are
-//     kicked again so the RoomManager's hook can finish the job.
+//     kicked again so the RoomManager's hook can finish the job;
+//   - a seat in an unfunded grace (sweepUnfunded) has its timer re-armed for
+//     what is left, and is shown out at once if the grace lapsed meanwhile.
 //
 // With a live store the restored table saves one snapshot straight away
 // (seq + 1), which is how a process that is still writing this table learns
@@ -350,6 +354,10 @@ func restoreTable(snap *Snapshot, opts TableOptions) (*Table, error) {
 		}
 		if ss.LastAction != nil {
 			s.lastAction = ActionPtr(*ss.LastAction)
+		}
+		if ss.UnfundedUntil != nil {
+			until := FromMillis(*ss.UnfundedUntil)
+			s.unfundedUntil = &until
 		}
 		t.seats[index] = s
 	}
@@ -498,6 +506,9 @@ func (t *Table) resumeTimers() {
 			t.kick(s, KickReasonInsufficientChips, KickMessageInsufficientChips)
 		}
 	}
+	// A short-stacked seat's grace kept running while the process was down:
+	// re-arm it for what is left, or show the seat out now if it has lapsed.
+	t.armUnfundedTimer()
 }
 
 // armSideshowTimer arms the expiry of a pending request for d (requestSideshow

@@ -53,6 +53,10 @@ type TableConfig struct {
 
 	NextHandDelay time.Duration // 4s countdown, also the settle-retry base delay
 
+	// UnfundedGrace: how long a seat below the boot is held between hands
+	// before the insufficient_chips kick; 0 = at once (requirements 31/32).
+	UnfundedGrace time.Duration
+
 	ChatMaxHistory int // RoomChat caps; 0 → chat.js defaults (100 / 140)
 	ChatMaxLength  int
 }
@@ -176,6 +180,9 @@ type seat struct {
 	joinedAt              time.Time
 	disconnectedAt        *time.Time
 	kickPending           bool
+	// unfundedUntil ends the grace a seat below the boot is given between
+	// hands before the insufficient_chips kick; nil while none is running.
+	unfundedUntil *time.Time
 }
 
 // contribution is hand.contributions[userId] — owned by the HAND, not the
@@ -324,6 +331,11 @@ type Table struct {
 	// race) is recognised as stale — the same guard hand.turnToken gives
 	// the turn clock.
 	startTimerGen uint64
+	// unfundedTimer fires at the earliest grace deadline a short-stacked seat
+	// was given (armUnfundedTimer); unfundedTimerGen guards a late callback the
+	// way startTimerGen does.
+	unfundedTimer    Timer
+	unfundedTimerGen uint64
 	// retryTimers are the armed settle back-offs (timer + the write it owes),
 	// so Destroy can stop them and hand the writes to settleDetached rather
 	// than lose them (Node let them fire into `_destroyed` checks and the
@@ -700,6 +712,10 @@ func (t *Table) RemovePlayer(userID, reason string) (*SeatInfo, error) {
 // next deal takes chipsWritten from the seat, which by then includes the
 // purchase, and PostgreSQL agrees.
 //
+// A seat the sweep found short and is holding for a purchase (UnfundedGrace)
+// is released from its grace as soon as the chips cover the boot, and a
+// waiting table is given the chance to start with it.
+//
 // Returns false when the player is not at this table, so the caller can tell
 // "credited the seat" from "there was no seat", and log accordingly.
 func (t *Table) CreditChips(userID string, amount int64) bool {
@@ -724,8 +740,17 @@ func (t *Table) CreditChips(userID string, amount int64) bool {
 			}
 		}
 		credited = true
+		// Bought back over the boot: the grace the sweep gave this seat is
+		// spent, and a table that was waiting on funded players may now start.
+		if s.unfundedUntil != nil && s.chips >= t.cfg.BootAmount {
+			s.unfundedUntil = nil
+			t.armUnfundedTimer()
+		}
 		t.listener.OnSeatUpdated(t.view, s.seatIndex)
 		t.emitState()
+		if t.hand == nil {
+			t.maybeStart()
+		}
 	})
 	return credited
 }
@@ -1498,17 +1523,31 @@ func (t *Table) kick(s *seat, reason, message string) {
 }
 
 // sweepUnfunded (_sweepUnfunded; requirements 31/32): ONLY between hands (`if
-// hand != nil return`). For each seat with chips < boot and !kickPending:
-// kickPending = true, kick(insufficient_chips, KickMessageInsufficientChips).
+// hand != nil return`). A seat with chips < boot and !kickPending is shown out
+// with kick(insufficient_chips, KickMessageInsufficientChips) — at once when
+// UnfundedGrace is 0 (Node's rule), otherwise once the grace it was given the
+// first time a sweep found it short has run out. A seat that is funded again
+// loses its grace.
 //
 // Mid-hand a player who has bet everything is legitimately down to nothing,
 // and throwing them out would take their stake with them.
+//
+// The grace is for buying chips (owner's decision, 11 Sep 2026). This sweep
+// runs the moment a hand ends (endHand → maybeStart), so a player who had just
+// lost their last chips had no time at all to get through a store sheet: the
+// purchase landed in PostgreSQL and the player landed in the lobby.
 func (t *Table) sweepUnfunded() {
 	if t.hand != nil {
 		return
 	}
+	now := t.clock.Now()
+	granted := false
 	for _, s := range t.occupiedSeats() {
 		if s.chips >= t.cfg.BootAmount {
+			if s.unfundedUntil != nil {
+				s.unfundedUntil = nil
+				t.liveDirty = true
+			}
 			continue
 		}
 		// The removal a kick asks for is queued behind whatever is running, so
@@ -1516,9 +1555,97 @@ func (t *Table) sweepUnfunded() {
 		if s.kickPending {
 			continue
 		}
-		s.kickPending = true
-		t.liveDirty = true
-		t.kick(s, KickReasonInsufficientChips, KickMessageInsufficientChips)
+		if t.cfg.UnfundedGrace > 0 {
+			if s.unfundedUntil == nil {
+				until := now.Add(t.cfg.UnfundedGrace)
+				s.unfundedUntil = &until
+				t.liveDirty = true
+				granted = true
+			}
+			if s.unfundedUntil.After(now) {
+				continue
+			}
+		}
+		t.kickUnfunded(s)
+	}
+	t.armUnfundedTimer()
+	if granted {
+		// The deadline rides in that player's `you`: send it now, not whenever
+		// the table next happens to change.
+		t.emitState()
+	}
+}
+
+// kickUnfunded marks a seat that cannot cover the boot and asks the
+// RoomManager to show it out.
+func (t *Table) kickUnfunded(s *seat) {
+	s.kickPending = true
+	s.unfundedUntil = nil
+	t.liveDirty = true
+	t.kick(s, KickReasonInsufficientChips, KickMessageInsufficientChips)
+}
+
+// expireUnfunded runs when the unfunded timer fires: every seat whose grace
+// has run out and that still cannot cover the boot is shown out — mid-hand
+// too, since a seat sitting a hand out has nothing in its pot. A seat that is
+// funded again just loses its grace.
+func (t *Table) expireUnfunded() {
+	now := t.clock.Now()
+	for _, s := range t.occupiedSeats() {
+		if s.unfundedUntil == nil || s.unfundedUntil.After(now) || s.kickPending {
+			continue
+		}
+		if s.chips >= t.cfg.BootAmount {
+			s.unfundedUntil = nil
+			t.liveDirty = true
+			continue
+		}
+		if t.hand != nil && s.status == SeatActive {
+			continue // an unfunded seat is never dealt in; the hand-end sweep has it
+		}
+		t.kickUnfunded(s)
+	}
+	t.armUnfundedTimer()
+}
+
+// armUnfundedTimer (re)arms the one unfunded timer for the earliest grace
+// still running, and leaves it stopped when there is none.
+func (t *Table) armUnfundedTimer() {
+	t.clearUnfundedTimer()
+	if t.destroyed.Load() {
+		return
+	}
+	var next *time.Time
+	for _, s := range t.occupiedSeats() {
+		if s.unfundedUntil == nil || s.kickPending || (t.hand != nil && s.status == SeatActive) {
+			continue
+		}
+		if next == nil || s.unfundedUntil.Before(*next) {
+			next = s.unfundedUntil
+		}
+	}
+	if next == nil {
+		return
+	}
+	d := max(next.Sub(t.clock.Now()), 0)
+	t.unfundedTimerGen++
+	gen := t.unfundedTimerGen
+	t.unfundedTimer = t.clock.AfterFunc(d, func() {
+		_ = t.run(func() {
+			if t.unfundedTimerGen != gen || t.unfundedTimer == nil {
+				return
+			}
+			t.unfundedTimer = nil
+			t.expireUnfunded()
+		})
+	})
+}
+
+// clearUnfundedTimer stops the unfunded timer if one is armed.
+func (t *Table) clearUnfundedTimer() {
+	if t.unfundedTimer != nil {
+		t.unfundedTimer.Stop()
+		t.unfundedTimer = nil
 	}
 }
 
@@ -2748,6 +2875,7 @@ func (t *Table) destroy() {
 	t.destroyed.Store(true)
 	t.clearTurnTimer()
 	t.clearStartTimer()
+	t.clearUnfundedTimer()
 	if t.hand != nil && t.hand.sideshow != nil && t.hand.sideshow.timer != nil {
 		// Only reachable when fenced (endHand clears it otherwise): the hand
 		// is the owner's now, this process just stops its own clocks.
@@ -2810,6 +2938,9 @@ func (t *Table) snapshot() *Snapshot {
 			SideshowAskedThisTurn: s.sideshowAskedThisTurn,
 			KickPending:           s.kickPending,
 			JoinedAt:              Millis(s.joinedAt),
+		}
+		if s.unfundedUntil != nil {
+			snap.UnfundedUntil = Int64Ptr(Millis(*s.unfundedUntil))
 		}
 		if s.avatarURL != nil {
 			snap.AvatarURL = StrPtr(*s.avatarURL)
@@ -2931,6 +3062,7 @@ func snapshotConfig(cfg TableConfig) SnapshotConfig {
 		SideshowTimeoutMs:  cfg.SideshowTimeout.Milliseconds(),
 		SideshowMinPlayers: cfg.SideshowMinPlayers,
 		NextHandDelayMs:    cfg.NextHandDelay.Milliseconds(),
+		UnfundedGraceMs:    cfg.UnfundedGrace.Milliseconds(),
 		ChatMaxHistory:     cfg.ChatMaxHistory,
 		ChatMaxLength:      cfg.ChatMaxLength,
 	}
@@ -2953,6 +3085,7 @@ func tableConfigFrom(c SnapshotConfig) TableConfig {
 		SideshowTimeout:    time.Duration(c.SideshowTimeoutMs) * time.Millisecond,
 		SideshowMinPlayers: c.SideshowMinPlayers,
 		NextHandDelay:      time.Duration(c.NextHandDelayMs) * time.Millisecond,
+		UnfundedGrace:      time.Duration(c.UnfundedGraceMs) * time.Millisecond,
 		ChatMaxHistory:     c.ChatMaxHistory,
 		ChatMaxLength:      c.ChatMaxLength,
 	}
@@ -3027,6 +3160,9 @@ func (t *Table) serializeFor(viewerID string) *TableView {
 			MissedTurns:    viewer.missedTurns,
 			MaxMissedTurns: t.cfg.MaxMissedTurns,
 			Cards:          []string{},
+		}
+		if viewer.unfundedUntil != nil && !viewer.kickPending {
+			you.UnfundedDeadline = Int64Ptr(Millis(*viewer.unfundedUntil))
 		}
 		// Blind bets still allowed before the cards turn face up.
 		if viewer.isBlind {

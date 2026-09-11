@@ -64,6 +64,7 @@ type SnapshotConfig struct {
 	SideshowTimeoutMs  int64    `json:"sideshowTimeoutMs"`
 	SideshowMinPlayers int      `json:"sideshowMinPlayers"`
 	NextHandDelayMs    int64    `json:"nextHandDelayMs"`
+	UnfundedGraceMs    int64    `json:"unfundedGraceMs,omitempty"`
 	ChatMaxHistory     int      `json:"chatMaxHistory"`
 	ChatMaxLength      int      `json:"chatMaxLength"`
 }
@@ -152,7 +153,8 @@ type SnapshotSeat struct {
 	MissedTurns           int     `json:"missedTurns"`
 	SideshowAskedThisTurn bool    `json:"sideshowAskedThisTurn"`
 	KickPending           bool    `json:"kickPending"`
-	JoinedAt              int64   `json:"joinedAt"` // epoch ms
+	UnfundedUntil         *int64  `json:"unfundedUntil,omitempty"` // epoch ms: end of the unfunded grace
+	JoinedAt              int64   `json:"joinedAt"`                // epoch ms
 }
 
 // HandSummaryEntry is one contributor in hands.summary_json and in the

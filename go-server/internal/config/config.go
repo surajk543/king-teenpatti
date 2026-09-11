@@ -256,7 +256,12 @@ type GameConfig struct {
 	PrivateMaxRaiseSteps int   // PRIVATE_MAX_RAISE_STEPS 2
 	PrivateBoot          int64 // PRIVATE_BOOT 200
 
-	NextHandDelay       time.Duration // NEXT_HAND_DELAY_MS 4000 ("starting in N")
+	NextHandDelay time.Duration // NEXT_HAND_DELAY_MS 4000 ("starting in N")
+	// UnfundedGrace is UNFUNDED_GRACE_MS 30000: how long a seat that can no
+	// longer cover the boot is held between hands before the
+	// insufficient_chips kick (requirements 31/32), so a player buying chips
+	// has time to finish the purchase and stay. 0 = at once (Node's rule).
+	UnfundedGrace       time.Duration
 	ConsolidateInterval time.Duration // CONSOLIDATE_INTERVAL_MS 15000 (requirement 24 sweeper)
 	ReconnectGrace      time.Duration // RECONNECT_GRACE_MS 60000 (seat held after a drop)
 	// ResumeOffer is RESUME_OFFER_MS 600000: after the held seat lapses, how
@@ -372,6 +377,7 @@ func Defaults() *Config {
 			PrivateMaxRaiseSteps:    2,
 			PrivateBoot:             200,
 			NextHandDelay:           4 * time.Second,
+			UnfundedGrace:           30 * time.Second,
 			ConsolidateInterval:     15 * time.Second,
 			ReconnectGrace:          60 * time.Second,
 			ResumeOffer:             10 * time.Minute,
@@ -556,6 +562,7 @@ func FromEnv(lookup Lookup) (*Config, error) {
 	g.PrivateMaxRaiseSteps = r.integer("PRIVATE_MAX_RAISE_STEPS", g.PrivateMaxRaiseSteps)
 	g.PrivateBoot = r.int64("PRIVATE_BOOT", g.PrivateBoot)
 	g.NextHandDelay = r.millis("NEXT_HAND_DELAY_MS", g.NextHandDelay)
+	g.UnfundedGrace = r.millis("UNFUNDED_GRACE_MS", g.UnfundedGrace)
 	g.ConsolidateInterval = r.millis("CONSOLIDATE_INTERVAL_MS", g.ConsolidateInterval)
 	g.ReconnectGrace = r.millis("RECONNECT_GRACE_MS", g.ReconnectGrace)
 	g.ResumeOffer = r.millis("RESUME_OFFER_MS", g.ResumeOffer)
