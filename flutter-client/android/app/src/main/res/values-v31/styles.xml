@@ -6,7 +6,7 @@
       app's own surface, or the launch flashes white before the game paints.
     -->
     <style name="LaunchTheme" parent="@android:style/Theme.Light.NoTitleBar">
-        <item name="android:windowSplashScreenBackground">#FAF7F0</item>
+        <item name="android:windowSplashScreenBackground">#F4F5F7</item>
         <!-- The launcher icon (adaptive, so the system masks it) and the studio
              line beneath it, rendered from assets/app_icon.svg. -->
         <item name="android:windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>

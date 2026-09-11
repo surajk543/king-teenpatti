@@ -1,10 +1,12 @@
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
 import '../theme/app_theme.dart';
+import '../theme/theme_colors.dart';
 
 /// The app's one raised-surface treatment: a tinted gradient, a lit edge in an
 /// accent colour, and a shadow.
@@ -77,12 +79,14 @@ class PremiumSurface extends StatelessWidget {
     final baize = cloth == null
         ? null
         : AppTheme.feltColours(theme.brightness, accent: cloth);
-    final top = baize?.core ??
+    final top =
+        baize?.core ??
         Color.alphaBlend(
           accent.withValues(alpha: strength),
           scheme.surfaceContainerHigh,
         );
-    final bottom = baize?.rim ??
+    final bottom =
+        baize?.rim ??
         (dark ? scheme.surfaceContainerLowest : scheme.surfaceContainerLow);
     // The same tinted shadow the buttons cast, so everything in the app is lit
     // from one place.
@@ -192,7 +196,7 @@ class PremiumGlassPanel extends StatefulWidget {
     required this.child,
     required this.padding,
     this.mode = GlassMode.tinted,
-    this.sigma = 18,
+    this.sigma,
     this.priority = 0,
     this.radius = Radii.lg,
     this.live = false,
@@ -208,9 +212,10 @@ class PremiumGlassPanel extends StatefulWidget {
 
   final GlassMode mode;
 
-  /// Blur radius, when this panel blurs at all. Never above 24 — the cost is
-  /// roughly linear in area and there is no visual return past it.
-  final double sigma;
+  /// Blur radius, when this panel blurs at all. Null takes the theme's own —
+  /// 16 on obsidian, 20 on ice ([GlassColors.sigma]). Never above 24: the
+  /// cost is roughly linear in area and there is no visual return past it.
+  final double? sigma;
 
   /// Which panel wins when two [GlassMode.auto] panels want the one blur.
   /// A full-screen overlay claims a higher priority than the drawer beneath it.
@@ -237,9 +242,9 @@ class _PremiumGlassPanelState extends State<PremiumGlassPanel> {
   static final Map<double, ui.ImageFilter> _blurCache = {};
 
   static ui.ImageFilter _blur(double sigma) => _blurCache.putIfAbsent(
-        sigma,
-        () => ui.ImageFilter.blur(sigmaX: sigma, sigmaY: sigma),
-      );
+    sigma,
+    () => ui.ImageFilter.blur(sigmaX: sigma, sigmaY: sigma),
+  );
 
   GlassAllowance? _allowance;
   bool _holdsLease = false;
@@ -254,7 +259,8 @@ class _PremiumGlassPanelState extends State<PremiumGlassPanel> {
     // A panel decides once, when it mounts, and keeps that decision for its
     // lifetime unless it is preempted. Re-deciding mid-life would pop a blur in
     // and out underneath a player's finger.
-    _holdsLease = _allowance?.claim(
+    _holdsLease =
+        _allowance?.claim(
           this,
           priority: widget.priority,
           onRevoked: _onRevoked,
@@ -277,37 +283,52 @@ class _PremiumGlassPanelState extends State<PremiumGlassPanel> {
   }
 
   bool get _blurring => switch (widget.mode) {
-        GlassMode.blurred => true,
-        GlassMode.tinted => false,
-        GlassMode.auto => _holdsLease,
-      };
+    GlassMode.blurred => true,
+    GlassMode.tinted => false,
+    GlassMode.auto => _holdsLease,
+  };
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final glass = GlassColors.of(context);
     final dark = theme.brightness == Brightness.dark;
     final blurring = _blurring;
 
-    // Nothing behind a tinted panel is being blurred, so the panel has to carry
-    // more of its own body or it reads as a smear.
-    final lift = blurring ? 0.0 : 0.16;
-    final base = AppTheme.panelBase(theme.brightness);
-    Color body(double alpha) {
+    // Over a blur the panel is barely more than the blur: a whisper of white
+    // on obsidian, milk on ice, because the softened backdrop IS the body.
+    // Nothing behind a tinted panel is being blurred, so that panel has to
+    // carry its own body or it reads as a smear.
+    final List<Color> body;
+    if (blurring) {
+      Color washed(Color c) => widget.tint == null
+          ? c
+          : Color.alphaBlend(widget.tint!.withValues(alpha: 0.10), c);
+      body = [washed(glass.fill), washed(glass.fillStrong)];
+    } else {
+      final base = AppTheme.panelBase(theme.brightness);
       final c = widget.tint == null
           ? base
           : Color.alphaBlend(widget.tint!.withValues(alpha: 0.14), base);
-      return c.withValues(alpha: (alpha + lift).clamp(0.0, 1.0));
+      body = dark
+          ? [c.withValues(alpha: 0.84), c.withValues(alpha: 0.94)]
+          : [c.withValues(alpha: 0.88), c.withValues(alpha: 0.96)];
     }
+
+    // Resting, the border is the spec's one-pixel gradient — lit above,
+    // fading below. Live (focused, claimable, the primary thing on screen) it
+    // is the app's gold hairline, so the accent still means something.
+    final live = AppTheme.hairlineColour(theme.brightness, live: true);
+    final border = widget.live
+        ? [live, live]
+        : [glass.borderTop, glass.borderBottom];
 
     final panel = DecoratedBox(
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(widget.radius),
-        border: Border.all(
-          color: AppTheme.hairlineColour(theme.brightness, live: widget.live),
-          width: Dim.hairline,
-        ),
-        boxShadow:
-            widget.elevated ? AppTheme.glassShadow(theme.brightness) : null,
+        boxShadow: widget.elevated
+            ? AppTheme.glassShadow(theme.brightness)
+            : null,
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(widget.radius),
@@ -320,7 +341,7 @@ class _PremiumGlassPanelState extends State<PremiumGlassPanel> {
             if (blurring)
               Positioned.fill(
                 child: BackdropFilter(
-                  filter: _blur(widget.sigma),
+                  filter: _blur(widget.sigma ?? glass.sigma),
                   child: const ColoredBox(color: Colors.transparent),
                 ),
               ),
@@ -331,9 +352,7 @@ class _PremiumGlassPanelState extends State<PremiumGlassPanel> {
                     gradient: LinearGradient(
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
-                      colors: dark
-                          ? [body(0.66), body(0.78)]
-                          : [body(0.72), body(0.80)],
+                      colors: body,
                     ),
                   ),
                 ),
@@ -352,11 +371,18 @@ class _PremiumGlassPanelState extends State<PremiumGlassPanel> {
                       begin: Alignment.topCenter,
                       end: Alignment.bottomCenter,
                       colors: [
-                        Colors.white.withValues(alpha: dark ? 0.055 : 0.30),
-                        Colors.white.withValues(alpha: 0),
+                        glass.highlight,
+                        glass.highlight.withValues(alpha: 0),
                       ],
                     ),
                   ),
+                ),
+              ),
+            ),
+            Positioned.fill(
+              child: IgnorePointer(
+                child: CustomPaint(
+                  painter: GlassHairline(radius: widget.radius, colors: border),
                 ),
               ),
             ),
@@ -428,8 +454,7 @@ class GlassAllowance {
       lease.onRevoked();
       return;
     }
-    SchedulerBinding.instance
-        .addPostFrameCallback((_) => lease.onRevoked());
+    SchedulerBinding.instance.addPostFrameCallback((_) => lease.onRevoked());
   }
 }
 
@@ -458,8 +483,8 @@ class GlassBudget extends StatefulWidget {
   /// the caller depend on it — the object's identity never changes — so taking
   /// a lease never rebuilds anything but the panel that asked.
   static GlassAllowance? maybeOf(BuildContext context) {
-    final element =
-        context.getElementForInheritedWidgetOfExactType<_GlassBudgetScope>();
+    final element = context
+        .getElementForInheritedWidgetOfExactType<_GlassBudgetScope>();
     return (element?.widget as _GlassBudgetScope?)?.allowance;
   }
 
@@ -493,6 +518,51 @@ class _GlassBudgetScope extends InheritedWidget {
       !identical(oldWidget.allowance, allowance);
 }
 
+/// The one-pixel border every glass pane wears: a rounded-rectangle stroke in
+/// a top-to-bottom gradient, so the edge is lit where the light would catch
+/// it and fades where it would not. A `Border` cannot take a gradient, which
+/// is why this is a painter.
+class GlassHairline extends CustomPainter {
+  const GlassHairline({
+    required this.radius,
+    required this.colors,
+    this.width = Dim.hairline,
+  });
+
+  final double radius;
+
+  /// Top colour first, bottom colour last.
+  final List<Color> colors;
+  final double width;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rect = Offset.zero & size;
+    final paint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = width
+      ..shader = LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: colors,
+      ).createShader(rect);
+    // Inset by half the stroke so the whole line lands inside the clip.
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        rect.deflate(width / 2),
+        Radius.circular(math.max(0, radius - width / 2)),
+      ),
+      paint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(GlassHairline old) =>
+      old.radius != radius ||
+      old.width != width ||
+      !listEquals(old.colors, colors);
+}
+
 /// A thin highlight that travels across a surface, corner to corner, over and
 /// over (requirement 28).
 ///
@@ -509,8 +579,10 @@ class Glint extends StatefulWidget {
 }
 
 class _GlintState extends State<Glint> with SingleTickerProviderStateMixin {
-  late final AnimationController _c =
-      AnimationController(vsync: this, duration: widget.period)..repeat();
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: widget.period,
+  )..repeat();
 
   static const double _halfBand = 0.07;
 
@@ -522,8 +594,9 @@ class _GlintState extends State<Glint> with SingleTickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
-    final strength =
-        Theme.of(context).brightness == Brightness.dark ? 0.11 : 0.16;
+    final strength = Theme.of(context).brightness == Brightness.dark
+        ? 0.11
+        : 0.16;
 
     return Stack(
       children: [

@@ -13,6 +13,7 @@ import '../widgets/buy_chips.dart';
 import '../widgets/drifting_chips.dart';
 import '../widgets/feedback_toggles.dart';
 import '../widgets/fireworks.dart';
+import '../widgets/glass_components.dart';
 import '../widgets/glass_panels.dart';
 import '../widgets/playing_card.dart';
 import '../widgets/poker_chip.dart';
@@ -290,12 +291,16 @@ class _RailKey extends StatelessWidget {
               alpha: AppTheme.inkMed,
             ),
           ),
-          child: GlassCapsule(
-            radius: Radii.md,
-            padding: EdgeInsets.zero,
-            minHeight: height,
-            onTap: onTap,
-            child: Center(child: child),
+          // The press-scale is a Listener over the capsule, so the capsule's
+          // own ink and tap are untouched; only the feel of the key changes.
+          child: PressScale(
+            child: GlassCapsule(
+              radius: Radii.md,
+              padding: EdgeInsets.zero,
+              minHeight: height,
+              onTap: onTap,
+              child: Center(child: child),
+            ),
           ),
         ),
       ),
@@ -371,10 +376,12 @@ class _TableDrawer extends StatelessWidget {
                   // than an action on it.
                   const _SeatedFor(),
                   const SizedBox(width: Space.xs),
-                  IconButton(
-                    visualDensity: VisualDensity.compact,
-                    icon: const Icon(Icons.close_rounded),
-                    onPressed: () => Navigator.pop(context),
+                  PressScale(
+                    child: IconButton(
+                      visualDensity: VisualDensity.compact,
+                      icon: const Icon(Icons.close_rounded),
+                      onPressed: () => Navigator.pop(context),
+                    ),
                   ),
                 ],
               ),
@@ -440,14 +447,50 @@ class _TableDrawer extends StatelessWidget {
             // player who wants the phone quiet wants it quiet NOW, at the
             // table, not after leaving one.
             const FeedbackToggles(),
-            _MenuRow(
-              icon: state.themeMode == ThemeMode.dark
-                  ? Icons.light_mode_outlined
-                  : Icons.dark_mode_outlined,
-              label: state.themeMode == ThemeMode.dark
-                  ? t.dayMode
-                  : t.nightMode,
-              onTap: state.toggleTheme,
+            // Appearance: System · Dark · Light as one segmented control, in
+            // place of the day/night toggle row. The switcher selects the
+            // mode itself and calls GameState.setThemeMode; nothing here
+            // reads the theme.
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                Space.lg,
+                Space.md,
+                Space.lg,
+                Space.md,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.palette_outlined,
+                        size: 16,
+                        color: scheme.onSurface.withValues(
+                          alpha: AppTheme.inkLow,
+                        ),
+                      ),
+                      const SizedBox(width: Space.sm),
+                      Expanded(
+                        child: Text(
+                          t.appearance,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTheme.label(
+                            theme.textTheme.labelMedium ?? const TextStyle(),
+                            colour: scheme.onSurface.withValues(
+                              alpha: AppTheme.inkLow,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: Space.sm),
+                  const GlassThemeSwitcher(),
+                ],
+              ),
             ),
           ],
         ),
@@ -575,14 +618,18 @@ class _MenuRow extends StatelessWidget {
       );
     }
 
-    return InkWell(
-      // Material's own click, gated on the player's Sound switch —
-      // otherwise a silenced game would still tick on every tap.
-      enableFeedback: context.select<FeedbackSettings, bool>((f) => f.sound),
-      onTap: onTap,
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(minHeight: Dim.minTouch),
-        child: body,
+    // The press-scale sits outside the InkWell as a raw pointer Listener, so
+    // the row keeps its tap and its ink exactly as they were.
+    return PressScale(
+      child: InkWell(
+        // Material's own click, gated on the player's Sound switch —
+        // otherwise a silenced game would still tick on every tap.
+        enableFeedback: context.select<FeedbackSettings, bool>((f) => f.sound),
+        onTap: onTap,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: Dim.minTouch),
+          child: body,
+        ),
       ),
     );
   }
@@ -594,15 +641,24 @@ List<Widget> _dialogActions(
   required String stay,
   required String go,
 }) => [
-  TextButton(onPressed: () => Navigator.pop(context, false), child: Text(stay)),
-  FilledButton(
+  // The flat half of the pair: the theme keeps a text button shadowless, so a
+  // shadow under "stay" never fights the key it defers to.
+  GlassButton(
+    style: GlassButtonStyle.text,
+    onPressed: () => Navigator.pop(context, false),
+    label: stay,
+  ),
+  // The acting key: the one solid gold fill, on ink900 in both brightnesses,
+  // and never under the 44dp touch floor.
+  GlassButton(
+    style: GlassButtonStyle.primary,
     onPressed: () => Navigator.pop(context, true),
-    style: FilledButton.styleFrom(
-      minimumSize: const Size(120, Dim.minTouch),
+    minimumSize: const Size(120, Dim.minTouch),
+    buttonStyle: FilledButton.styleFrom(
       backgroundColor: AppTheme.gold,
       foregroundColor: AppTheme.ink900,
     ),
-    child: Text(go),
+    label: go,
   ),
 ];
 
@@ -699,7 +755,10 @@ class _SwitchingVeil extends StatelessWidget {
     final t = context.read<GameState>().t;
 
     return ColoredBox(
-      color: Colors.black.withValues(alpha: 0.42),
+      // The room's own ink, not a bare black: a scrim in both brightnesses,
+      // since the veil covers the whole screen for half a second and dims it
+      // rather than following it.
+      color: AppTheme.ink900.withValues(alpha: 0.42),
       child: Center(
         child: PremiumGlassPanel(
           padding: const EdgeInsets.symmetric(
@@ -2309,28 +2368,34 @@ class _OwnHand extends StatelessWidget {
               child: Center(
                 child: ConstrainedBox(
                   constraints: BoxConstraints(maxWidth: width - Space.md),
-                  child: FilledButton(
-                    onPressed: state.see,
-                    style: FilledButton.styleFrom(
-                      // A ghost key, so it no longer hides the artwork it is
-                      // laid over.
-                      minimumSize: Size(cardW * 1.6, Dim.minTouch),
-                      backgroundColor: AppTheme.ink900.withValues(alpha: 0.62),
-                      foregroundColor: AppTheme.goldBright,
-                      side: BorderSide(
-                        color: AppTheme.goldBright.withValues(alpha: 0.55),
-                        width: 1.4,
+                  // The press feel only; the ghost styling under it is
+                  // untouched, and the tap is still `state.see`, once.
+                  child: PressScale(
+                    child: FilledButton(
+                      onPressed: () => state.see(),
+                      style: FilledButton.styleFrom(
+                        // A ghost key, so it no longer hides the artwork it is
+                        // laid over.
+                        minimumSize: Size(cardW * 1.6, Dim.minTouch),
+                        backgroundColor: AppTheme.ink900.withValues(
+                          alpha: 0.62,
+                        ),
+                        foregroundColor: AppTheme.goldBright,
+                        side: BorderSide(
+                          color: AppTheme.goldBright.withValues(alpha: 0.55),
+                          width: 1.4,
+                        ),
                       ),
-                    ),
-                    child: FittedBox(
-                      fit: BoxFit.scaleDown,
-                      child: Text(
-                        state.t.seeCards,
-                        maxLines: 1,
-                        style: AppTheme.label(
-                          theme.textTheme.labelLarge ?? const TextStyle(),
-                          colour: AppTheme.goldBright,
-                          weight: FontWeight.w700,
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text(
+                          state.t.seeCards,
+                          maxLines: 1,
+                          style: AppTheme.label(
+                            theme.textTheme.labelLarge ?? const TextStyle(),
+                            colour: AppTheme.goldBright,
+                            weight: FontWeight.w700,
+                          ),
                         ),
                       ),
                     ),
@@ -2656,17 +2721,24 @@ class _SideshowPrompt extends StatelessWidget {
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  // Both keys stand on a dark plate on the cloth, so they keep
+                  // plate ink in both brightnesses (file header): the decline
+                  // key is the glass weight with the plate's own fill and
+                  // bone ink laid over it, the accept key the one gold fill.
                   Expanded(
-                    child: FilledButton(
+                    child: GlassButton(
+                      style: GlassButtonStyle.glass,
+                      expand: true,
                       onPressed: () => state.answerSideshow(false),
-                      style: FilledButton.styleFrom(
-                        minimumSize: const Size(120, 48),
+                      minimumSize: const Size(120, 48),
+                      buttonStyle: OutlinedButton.styleFrom(
                         backgroundColor: AppTheme.ink700.withValues(alpha: 0.9),
                         foregroundColor: AppTheme.boneInk,
                         side: BorderSide(
                           color: theme.colorScheme.error.withValues(
                             alpha: 0.45,
                           ),
+                          width: Dim.hairline,
                         ),
                       ),
                       child: FittedBox(
@@ -2677,10 +2749,12 @@ class _SideshowPrompt extends StatelessWidget {
                   ),
                   const SizedBox(width: Space.lg),
                   Expanded(
-                    child: FilledButton(
+                    child: GlassButton(
+                      style: GlassButtonStyle.primary,
+                      expand: true,
                       onPressed: () => state.answerSideshow(true),
-                      style: FilledButton.styleFrom(
-                        minimumSize: const Size(120, 48),
+                      minimumSize: const Size(120, 48),
+                      buttonStyle: FilledButton.styleFrom(
                         backgroundColor: AppTheme.gold,
                         foregroundColor: AppTheme.ink900,
                       ),
@@ -2819,7 +2893,8 @@ ButtonStyle _stepperStyle(ThemeData theme) =>
 /// Still a [FilledButton], because leaving `elevation` unset in `styleFrom` is
 /// what lets the theme's `liftElevation` resolve the rest / pressed / hovered /
 /// disabled ladder. A disabled key loses its gold rather than changing colour:
-/// that is the only illegal-move signal the game has.
+/// that is the only illegal-move signal the game has. The press-scale and the
+/// light haptic are laid over it; the caller's callback is called as before.
 class _MachinedKey extends StatelessWidget {
   const _MachinedKey({
     required this.width,
@@ -2901,6 +2976,7 @@ class _MachinedKey extends StatelessWidget {
     // hand saw three buttons that looked pressable and were not. Dropping the
     // whole key's opacity is the one treatment nobody has to learn.
     final dead = onPressed == null;
+    final press = onPressed;
 
     return Opacity(
       opacity: dead ? 0.42 : 1,
@@ -2908,53 +2984,58 @@ class _MachinedKey extends StatelessWidget {
         alive: alive,
         colour: halo,
         radius: Radii.md,
-        child: FilledButton(
-          onPressed: onPressed,
-          style: style,
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(icon, size: 18),
-              const SizedBox(width: Space.sm),
-              Flexible(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    FittedBox(
-                      fit: BoxFit.scaleDown,
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        // Translated, so it keeps its natural case.
-                        label,
-                        maxLines: 1,
-                        style: AppTheme.label(
-                          theme.textTheme.labelLarge ?? const TextStyle(),
-                          weight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                    if (amount != null)
-                      // A crore-sized bet is a long word; it shrinks to fit rather
-                      // than losing its tail to an ellipsis.
+        // Inside the pulse, so the halo stays put while the key itself dips
+        // under the thumb. A Listener, so the button keeps every tap it had.
+        child: PressScale(
+          enabled: !dead,
+          child: FilledButton(
+            onPressed: press,
+            style: style,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, size: 18),
+                const SizedBox(width: Space.sm),
+                Flexible(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
                       FittedBox(
                         fit: BoxFit.scaleDown,
                         alignment: Alignment.centerLeft,
                         child: Text(
-                          amount!,
+                          // Translated, so it keeps its natural case.
+                          label,
                           maxLines: 1,
-                          style: AppTheme.money(
-                            theme.textTheme.bodySmall ?? const TextStyle(),
-                            weight: FontWeight.w600,
+                          style: AppTheme.label(
+                            theme.textTheme.labelLarge ?? const TextStyle(),
+                            weight: FontWeight.w700,
                           ),
                         ),
                       ),
-                  ],
+                      if (amount != null)
+                        // A crore-sized bet is a long word; it shrinks to fit rather
+                        // than losing its tail to an ellipsis.
+                        FittedBox(
+                          fit: BoxFit.scaleDown,
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            amount!,
+                            maxLines: 1,
+                            style: AppTheme.money(
+                              theme.textTheme.bodySmall ?? const TextStyle(),
+                              weight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -2978,31 +3059,40 @@ class _StepperKey extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final press = onPressed;
 
-    return IconButton.filledTonal(
-      onPressed: onPressed,
-      iconSize: 22,
-      style: _stepperStyle(theme).copyWith(
-        fixedSize: WidgetStatePropertyAll(Size(Dim.minTouch, height)),
-        // Exactly 44 wide, not the 48 a padded tap target would take.
-        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-        padding: const WidgetStatePropertyAll(EdgeInsets.zero),
-        shape: WidgetStatePropertyAll(
-          RoundedRectangleBorder(borderRadius: BorderRadius.circular(Radii.md)),
+    return PressScale(
+      enabled: press != null,
+      child: IconButton.filledTonal(
+        onPressed: press,
+        iconSize: 22,
+        style: _stepperStyle(theme).copyWith(
+          fixedSize: WidgetStatePropertyAll(Size(Dim.minTouch, height)),
+          // Exactly 44 wide, not the 48 a padded tap target would take.
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          padding: const WidgetStatePropertyAll(EdgeInsets.zero),
+          shape: WidgetStatePropertyAll(
+            RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(Radii.md),
+            ),
+          ),
+          side: WidgetStateProperty.resolveWith(
+            (states) => states.contains(WidgetState.disabled)
+                ? BorderSide(
+                    color: AppTheme.ink400.withValues(alpha: 0.30),
+                    width: Dim.hairline,
+                  )
+                : BorderSide(
+                    color: AppTheme.hairlineColour(
+                      theme.brightness,
+                      live: true,
+                    ),
+                    width: Dim.hairline,
+                  ),
+          ),
         ),
-        side: WidgetStateProperty.resolveWith(
-          (states) => states.contains(WidgetState.disabled)
-              ? BorderSide(
-                  color: AppTheme.ink400.withValues(alpha: 0.30),
-                  width: Dim.hairline,
-                )
-              : BorderSide(
-                  color: AppTheme.hairlineColour(theme.brightness, live: true),
-                  width: Dim.hairline,
-                ),
-        ),
+        icon: Icon(icon),
       ),
-      icon: Icon(icon),
     );
   }
 }
@@ -3072,10 +3162,12 @@ class _ChatDrawerState extends State<_ChatDrawer> {
                           ),
                         ),
                       ),
-                      IconButton(
-                        visualDensity: VisualDensity.compact,
-                        icon: const Icon(Icons.close_rounded),
-                        onPressed: () => Navigator.pop(context),
+                      PressScale(
+                        child: IconButton(
+                          visualDensity: VisualDensity.compact,
+                          icon: const Icon(Icons.close_rounded),
+                          onPressed: () => Navigator.pop(context),
+                        ),
                       ),
                     ],
                   ),
@@ -3148,34 +3240,38 @@ class _ChatDrawerState extends State<_ChatDrawer> {
                 child: Row(
                   children: [
                     Expanded(
-                      child: TextField(
+                      // The composer on glass: the same controller, limit,
+                      // hint and submit, with the field's fill from the
+                      // glass tokens rather than the bare input theme. The
+                      // counter stays hidden (the component's default).
+                      child: GlassTextField(
                         controller: _input,
                         maxLength: 200,
-                        decoration: InputDecoration(
-                          hintText: state.t.saySomething,
-                          counterText: '',
-                          isDense: true,
-                        ),
+                        hintText: state.t.saySomething,
+                        decoration: const InputDecoration(isDense: true),
                         onSubmitted: (_) => _send(state),
                       ),
                     ),
                     const SizedBox(width: Space.md),
-                    IconButton.filled(
-                      tooltip: state.canChat
-                          ? null
-                          : '${state.chatCooldownLeft}s',
-                      onPressed: state.canChat ? () => _send(state) : null,
-                      style: _stepperStyle(theme).copyWith(
-                        minimumSize: const WidgetStatePropertyAll(
-                          Size(Dim.minTouch, Dim.minTouch),
+                    PressScale(
+                      enabled: state.canChat,
+                      child: IconButton.filled(
+                        tooltip: state.canChat
+                            ? null
+                            : '${state.chatCooldownLeft}s',
+                        onPressed: state.canChat ? () => _send(state) : null,
+                        style: _stepperStyle(theme).copyWith(
+                          minimumSize: const WidgetStatePropertyAll(
+                            Size(Dim.minTouch, Dim.minTouch),
+                          ),
                         ),
+                        icon: state.canChat
+                            ? const Icon(Icons.send_rounded)
+                            : _ChatCountdown(
+                                left: state.chatCooldownLeft,
+                                total: GameState.chatCooldown.inSeconds,
+                              ),
                       ),
-                      icon: state.canChat
-                          ? const Icon(Icons.send_rounded)
-                          : _ChatCountdown(
-                              left: state.chatCooldownLeft,
-                              total: GameState.chatCooldown.inSeconds,
-                            ),
                     ),
                   ],
                 ),

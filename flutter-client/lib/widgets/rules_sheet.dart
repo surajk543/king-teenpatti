@@ -3,8 +3,11 @@ import 'package:provider/provider.dart';
 
 import '../state/game_state.dart';
 import '../theme/app_theme.dart';
+import '../theme/theme_colors.dart';
+import 'glass_components.dart';
 import 'glass_panels.dart';
 import 'playing_card.dart';
+import 'premium_surface.dart';
 
 /// The hand rankings, shown over whatever the player was looking at.
 ///
@@ -14,7 +17,10 @@ import 'playing_card.dart';
 Future<void> showRules(BuildContext context) {
   return showDialog<void>(
     context: context,
-    barrierColor: Colors.black.withValues(alpha: 0.45),
+    // One ink for both themes, at a light alpha (lighter than the store's
+    // 0.72): the light theme's own ground would not dim the table at all, so
+    // the barrier darkens it either way and the table stays readable behind.
+    barrierColor: AppTheme.ink900.withValues(alpha: 0.45),
     builder: (context) => const _RulesSheet(),
   );
 }
@@ -57,8 +63,10 @@ class _RulesSheet extends StatelessWidget {
       'high': (t.rankHigh, t.rankHighNote),
     };
 
+    // Already glass: GlassDialog is GlassMode.auto at priority 20 and takes
+    // the app's one blur when it is free.
     return GlassDialog(
-      padding: const EdgeInsets.all(Space.lg),
+      padding: const EdgeInsets.all(Space.xl),
       title: Row(
         children: [
           Icon(Icons.menu_book_outlined, size: 20, color: champagne),
@@ -71,13 +79,17 @@ class _RulesSheet extends StatelessWidget {
               ),
             ),
           ),
-          IconButton(
-            tooltip: t.close,
-            icon: const Icon(Icons.close_rounded, size: 20),
-            onPressed: () => Navigator.pop(context),
-            style: IconButton.styleFrom(
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              minimumSize: const Size.square(Dim.minTouch),
+          PressScale(
+            child: IconButton(
+              tooltip: t.close,
+              icon: const Icon(Icons.close_rounded, size: 20),
+              onPressed: () => Navigator.pop(context),
+              // shrinkWrap + the 44dp floor: a Material icon button lays out
+              // at 48 otherwise, taller than the title row.
+              style: IconButton.styleFrom(
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                minimumSize: const Size.square(Dim.minTouch),
+              ),
             ),
           ),
         ],
@@ -105,32 +117,31 @@ class _RulesSheet extends StatelessWidget {
               ruled: i < _examples.length - 1,
             ),
           const SizedBox(height: Space.md),
-          DecoratedBox(
-            decoration: BoxDecoration(
-              color: scheme.surfaceContainerHighest.withValues(alpha: 0.45),
-              borderRadius: BorderRadius.circular(Radii.sm),
-              border: Border.all(color: AppTheme.hairlineColour(theme.brightness)),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.all(Space.md),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    t.runOrder,
-                    style: AppTheme.label(
-                      theme.textTheme.labelLarge ?? const TextStyle(),
-                    ),
+          // An inner well of tinted glass — tinted, never blurred: the dialog
+          // around it already holds the app's one blur, and a nested filter
+          // would sample the dialog's own layer every frame.
+          PremiumGlassPanel(
+            mode: GlassMode.tinted,
+            radius: Radii.sm,
+            elevated: false,
+            padding: const EdgeInsets.all(Space.md),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  t.runOrder,
+                  style: AppTheme.label(
+                    theme.textTheme.labelLarge ?? const TextStyle(),
                   ),
-                  const SizedBox(height: Space.xxs),
-                  Text(
-                    t.runOrderNote,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: scheme.onSurface.withValues(alpha: AppTheme.inkMed),
-                    ),
+                ),
+                const SizedBox(height: Space.xxs),
+                Text(
+                  t.runOrderNote,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: scheme.onSurface.withValues(alpha: AppTheme.inkMed),
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
         ],
@@ -163,7 +174,6 @@ class _Row extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
 
     return Column(
       children: [
@@ -200,8 +210,9 @@ class _Row extends StatelessWidget {
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.bodySmall?.copyWith(
-                        color:
-                            scheme.onSurface.withValues(alpha: AppTheme.inkLow),
+                        // The quiet tier's own token, not a faded onSurface:
+                        // it is the one tuned for contrast in both themes.
+                        color: GlassColors.of(context).textMuted,
                       ),
                     ),
                   ],

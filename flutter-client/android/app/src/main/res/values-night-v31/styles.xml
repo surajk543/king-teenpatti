@@ -2,7 +2,7 @@
 <resources>
     <!-- The same, for a device in dark mode. -->
     <style name="LaunchTheme" parent="@android:style/Theme.Black.NoTitleBar">
-        <item name="android:windowSplashScreenBackground">#0B0B0B</item>
+        <item name="android:windowSplashScreenBackground">#0D0E12</item>
         <!-- The launcher icon (adaptive, so the system masks it) and the studio
              line beneath it, rendered from assets/app_icon.svg. -->
         <item name="android:windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>

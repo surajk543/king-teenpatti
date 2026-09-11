@@ -5,6 +5,8 @@ import 'package:provider/provider.dart';
 import '../net/social_sign_in.dart';
 import '../state/game_state.dart';
 import '../theme/app_theme.dart';
+import '../theme/theme_colors.dart';
+import '../widgets/glass_components.dart';
 import '../widgets/premium_surface.dart';
 import '../widgets/table_ground.dart';
 
@@ -30,7 +32,12 @@ class _LoginScreenState extends State<LoginScreen> {
     final t = state.t;
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
+    final glass = GlassColors.of(context);
     final width = MediaQuery.sizeOf(context).width;
+    // The card breathes on a phone with room to spare and tightens on a
+    // TP_Small (640 wide, 360 tall), where the eight extra dp top and bottom
+    // would otherwise be paid for in scrolling.
+    final inset = width < Breaks.compact ? Space.xl : Space.xxl;
 
     return Scaffold(
       body: LobbyGround(
@@ -48,7 +55,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   // the one case where a real blur costs nothing to keep.
                   mode: GlassMode.auto,
                   radius: Radii.lg,
-                  padding: const EdgeInsets.all(Space.xl),
+                  padding: EdgeInsets.all(inset),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     mainAxisSize: MainAxisSize.min,
@@ -73,7 +80,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                 children: [
                                   TextSpan(
                                     text: 'King ',
-                                    style: TextStyle(color: scheme.onSurface),
+                                    style: TextStyle(color: glass.textDisplay),
                                   ),
                                   TextSpan(
                                     text: 'Teen Patti',
@@ -89,40 +96,47 @@ class _LoginScreenState extends State<LoginScreen> {
                               ),
                             ),
                           ),
-                          IconButton(
-                            tooltip: t.switchTheme,
-                            onPressed: state.toggleTheme,
-                            icon: Icon(
-                              state.themeMode == ThemeMode.dark
-                                  ? Icons.light_mode_outlined
-                                  : Icons.dark_mode_outlined,
-                            ),
-                          ),
                         ],
                       ),
                       const SizedBox(height: Space.sm),
                       Text(
                         t.signInSubtitle,
                         style: theme.textTheme.bodyMedium?.copyWith(
-                          color: scheme.onSurface.withValues(
-                            alpha: AppTheme.inkMed,
-                          ),
+                          color: glass.textBody,
                         ),
                       ),
-                      const SizedBox(height: Space.xl),
-                      TextField(
+                      const SizedBox(height: Space.lg),
+                      // System · Dark · Light, on its own line rather than in
+                      // the title row: three legal touch targets need about
+                      // 140dp, and taking that out of the row left the game's
+                      // own name to ellipsise on a 640dp phone. The card
+                      // scrolls, so a line costs height it can afford.
+                      const Align(
+                        alignment: AlignmentDirectional.centerEnd,
+                        child: SizedBox(
+                          width: 240,
+                          // Wide enough for the three words at the ordinary
+                          // text scale and still inside the card at its 320dp
+                          // floor; the control drops to icons by itself when
+                          // the type grows past what that leaves.
+                          child: GlassThemeSwitcher(),
+                        ),
+                      ),
+                      const SizedBox(height: Space.lg),
+                      GlassTextField(
                         controller: _name,
                         maxLength: 24,
                         textInputAction: TextInputAction.done,
-                        decoration: InputDecoration(
-                          labelText: t.displayName,
-                          hintText: t.playerHint,
-                          counterText: '',
-                        ),
+                        labelText: t.displayName,
+                        hintText: t.playerHint,
+                        counterText: '',
                         onSubmitted: (_) => _signIn(context),
                       ),
                       const SizedBox(height: Space.lg),
-                      FilledButton.icon(
+                      GlassButton(
+                        style: GlassButtonStyle.primary,
+                        expand: true,
+                        minimumSize: const Size.fromHeight(52),
                         onPressed: state.busy ? null : () => _signIn(context),
                         icon: state.busy
                             ? const SizedBox(
@@ -133,10 +147,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                 ),
                               )
                             : const Icon(Icons.sports_esports_outlined),
-                        label: Text(state.busy ? t.signingIn : t.playAsGuest),
-                        style: FilledButton.styleFrom(
-                          minimumSize: const Size.fromHeight(52),
-                        ),
+                        label: state.busy ? t.signingIn : t.playAsGuest,
                       ),
                       const SizedBox(height: Space.md),
                       // Google is always on screen, even in a build that
@@ -174,7 +185,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         style: AppTheme.money(
                           theme.textTheme.labelSmall ?? const TextStyle(),
                           weight: FontWeight.w500,
-                          colour: scheme.onSurface.withValues(alpha: 0.40),
+                          colour: glass.textMuted,
                         ),
                       ),
                     ],
@@ -194,9 +205,9 @@ class _LoginScreenState extends State<LoginScreen> {
 
 /// One provider button, in the same shape as the guest key above it.
 ///
-/// Outlined rather than filled: guest play is the path most people take, and
-/// two more filled buttons would make the screen argue with itself about where
-/// to tap.
+/// A glass pane rather than a filled key: guest play is the path most people
+/// take, and two more filled buttons would make the screen argue with itself
+/// about where to tap.
 class _ProviderButton extends StatelessWidget {
   const _ProviderButton({
     required this.icon,
@@ -211,10 +222,12 @@ class _ProviderButton extends StatelessWidget {
   final VoidCallback onPressed;
 
   @override
-  Widget build(BuildContext context) => OutlinedButton.icon(
+  Widget build(BuildContext context) => GlassButton(
+    style: GlassButtonStyle.glass,
+    expand: true,
+    minimumSize: const Size.fromHeight(48),
     onPressed: busy ? null : onPressed,
     icon: Icon(icon),
-    label: Text(label),
-    style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(48)),
+    label: label,
   );
 }

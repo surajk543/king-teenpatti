@@ -15,6 +15,8 @@ import 'models/dtos.dart';
 import 'settings/feedback_settings.dart';
 import 'state/game_state.dart';
 import 'theme/app_theme.dart';
+import 'theme/theme_colors.dart';
+import 'widgets/glass_components.dart';
 import 'widgets/glass_panels.dart';
 import 'widgets/poker_chip.dart';
 import 'widgets/premium_surface.dart';
@@ -104,6 +106,13 @@ class _Root extends StatelessWidget {
     final resuming = context.select<GameState, bool>(
       (s) => s.resuming && s.screen != Screen.splash,
     );
+    // Only over the game itself: the update screen outranks it, and there is
+    // nobody to ask on the splash or the sign-in screen.
+    final consent = context.select<GameState, bool>(
+      (s) =>
+          s.consentPending &&
+          (s.screen == Screen.lobby || s.screen == Screen.table),
+    );
 
     return _NoticeHost(
       child: Stack(
@@ -136,8 +145,133 @@ class _Root extends StatelessWidget {
                   : const SizedBox.shrink(key: ValueKey('no-veil')),
             ),
           ),
+          // Above the resume veil: a player being returned to their table can
+          // read and confirm the statement while the table resolves behind it,
+          // and the game stays covered until they have.
+          IgnorePointer(
+            ignoring: !consent,
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 380),
+              child: consent
+                  ? const _ConsentGate(key: ValueKey('consent-gate'))
+                  : const SizedBox.shrink(key: ValueKey('no-consent')),
+            ),
+          ),
         ],
       ),
+    );
+  }
+}
+
+/// The one-time statement that stands between sign-in and the game: the
+/// player confirms they expect no money or other enrichment from playing.
+///
+/// A layer in the root stack rather than a `showDialog` route, so it cannot
+/// be dismissed by a tap outside, survives the screen changing underneath it
+/// (a table snapshot arriving during a resume), and needs no navigator
+/// bookkeeping. The only way past it is the button; back offers to quit the
+/// app, as it does anywhere else off the table. Shown once per account on
+/// this device ([GameState.consentPending]).
+class _ConsentGate extends StatelessWidget {
+  const _ConsentGate({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final glass = GlassColors.of(context);
+    final lang = context.select<GameState, AppLang>((s) => s.lang);
+    final t = Strings(lang);
+    final width = MediaQuery.sizeOf(context).width;
+
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        // A tint, not a blur: the panel takes the one blur lease itself, and
+        // the lobby's drifting chips behind it would re-blur every frame.
+        ColoredBox(
+          color: AppTheme.ground(theme.brightness).withValues(alpha: 0.72),
+        ),
+        Center(
+          // Scrolls: three lines of Bengali at the 1.25 text-scale ceiling on
+          // a 360dp-tall phone is exactly the panel that must not overflow.
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(
+              horizontal: Space.xl,
+              vertical: Space.lg,
+            ),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(maxWidth: Dim.dialogW(width)),
+              // The Material stays: this layer lives in the root Stack with no
+              // Scaffold above it, and the card itself supplies none, so
+              // without it every Text here draws the missing-Material
+              // underline.
+              child: Material(
+                type: MaterialType.transparency,
+                child: GlassCard(
+                  mode: GlassMode.auto,
+                  priority: 20,
+                  radius: Radii.lg,
+                  padding: const EdgeInsets.all(Space.xl),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.verified_user_outlined,
+                            size: 20,
+                            color: scheme.primary,
+                          ),
+                          const SizedBox(width: Space.md),
+                          Expanded(
+                            child: Text(
+                              t.consentTitle,
+                              style: AppTheme.label(
+                                theme.textTheme.titleMedium ??
+                                    const TextStyle(),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: Space.md),
+                      // The statement itself, in full ink: it is what the
+                      // button below confirms, so it is not to be read as a
+                      // caption.
+                      Text(
+                        t.consentBody,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: glass.textDisplay,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      const SizedBox(height: Space.md),
+                      Text(
+                        t.consentNote,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: glass.textMuted,
+                        ),
+                      ),
+                      const SizedBox(height: Space.xl),
+                      GlassButton(
+                        style: GlassButtonStyle.primary,
+                        expand: true,
+                        minimumSize: const Size.fromHeight(52),
+                        icon: const Icon(Icons.check_rounded),
+                        label: t.consentAccept,
+                        onPressed: () =>
+                            context.read<GameState>().acceptConsent(),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -176,6 +310,13 @@ class _ScreenFadeState extends State<_ScreenFade>
   );
   late final Animation<double> _veil = ReverseAnimation(_curve);
 
+  /// Fade-through: the incoming screen settles up from a touch under full
+  /// size as the veil clears, so a screen arrives rather than appears.
+  late final Animation<double> _scale = Tween<double>(
+    begin: 0.96,
+    end: 1,
+  ).animate(_curve);
+
   @override
   void didUpdateWidget(covariant _ScreenFade oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -194,7 +335,19 @@ class _ScreenFadeState extends State<_ScreenFade>
     return Stack(
       fit: StackFit.expand,
       children: [
-        widget.child,
+        // The ground, painted under everything. The screen above it is
+        // scaled up from 0.96, and for those 300 ms it does not reach the
+        // edges: without this the gap is whatever the engine last cleared to,
+        // which on the light scheme reads as a dark rim closing in.
+        ColoredBox(color: AppTheme.ground(Theme.of(context).brightness)),
+        // RepaintBoundary inside the transform, not around it: the screen is
+        // then re-composited at a new scale each frame rather than repainted,
+        // which is the whole point of scaling a screen that is at the same
+        // moment building itself.
+        ScaleTransition(
+          scale: _scale,
+          child: RepaintBoundary(child: widget.child),
+        ),
         IgnorePointer(
           // The veil is a full-screen layer animating for 300 ms over a screen
           // that is already busy building itself.
@@ -373,13 +526,17 @@ class _BackGuard extends StatelessWidget {
           ),
         ),
         actions: [
-          TextButton(
+          // Flat cancel beside a filled confirm: the quiet half of the pair
+          // must not carry a shadow that fights the key it defers to.
+          GlassButton(
+            style: GlassButtonStyle.text,
+            label: cancel,
             onPressed: () => Navigator.pop(context, false),
-            child: Text(cancel),
           ),
-          FilledButton(
+          GlassButton(
+            style: GlassButtonStyle.primary,
+            label: confirm,
             onPressed: () => Navigator.pop(context, true),
-            child: Text(confirm),
           ),
         ],
       ),
