@@ -378,10 +378,16 @@ showRequestedBy, sideshow, lastDeparture, turnDeadline, turnToken, contributions
 - **Leaving mid-hand** = pack; stake stays; `leftMidHand=true`; `lastDeparture` gets the pot if all
   leave (`ALL_LEFT`). Winner identified by **userId**, not seat.
 - `_sweepUnfunded` only between hands (`if (this.hand) return`); it sets `seat.kickPending` so a
-  seat is kicked once even if two sweeps run before the queued removal lands.
+  seat is kicked once even if two sweeps run before the queued removal lands. **Go only, since
+  11 Sep 2026 (owner):** a short seat is not kicked at once but held for `UNFUNDED_GRACE_MS` (30 s) —
+  `seat.unfundedUntil`, one table timer (`armUnfundedTimer`/`expireUnfunded`, re-armed on restore,
+  stopped by destroy/suspend/fence), sent to that player alone as `you.unfundedDeadline`. The sweep
+  runs the instant a hand ends (`endHand → maybeStart`), so without it a player buying chips could
+  never beat the kick; `Table.CreditChips` drops the grace once the boot is covered and calls
+  `maybeStart`. A seat sitting a hand out is shown out mid-hand when its grace lapses.
 - **`serializeFor` redaction (do not break)**: `you.cards` only when `!viewer.isBlind`; other seats
   carry only `cardCount`; on BLIND tables others' `chips` is **`null`** (not 0) + `chipsHidden:true`;
-  `missedTurns/maxMissedTurns/options` only in `you`; `sideshow` carries ids/seats/`expiresAt`, never
+  `missedTurns/maxMissedTurns/options` (and `unfundedDeadline` while a short seat is held) only in `you`; `sideshow` carries ids/seats/`expiresAt`, never
   cards. Public everywhere: `lastBet, lastAction, contributed, isBlind, connected, status`.
 - `_snapshot()` is the *server-side* full state (cards and the hand's per-player unbanked bets
   included) saved to the **live store (Redis) only** — never to PostgreSQL, never to a client.
@@ -568,6 +574,7 @@ fallback `go-server/public`; not in `.env.example` — `config.go` documents it)
 | `MAX_BLIND_MOVES` | 4 | |
 | `ENTRY_CAP_BOOT` / `ENTRY_CAP_CATEGORY` / `ENTRY_CAP_MAX_CHIPS` | 200 / blind / 500000 | |
 | `MAX_MISSED_TURNS` | 3 | |
+| **`UNFUNDED_GRACE_MS`** | 30000 | **Go-only.** How long a seat that can no longer cover the boot is held between hands before the `insufficient_chips` kick, so a player can buy chips and stay; `you.unfundedDeadline` carries the deadline to that player and the Flutter status line counts it down. 0 = kicked at once (Node's rule). |
 | **`MIN_CLIENT_BUILD`** | 0 | The oldest client build allowed to play, sent to every client in `session:ready.config.minClientBuild`. A client below it is held on the update screen with no way past (Flutter `_belowMinimumBuild`/`_forceUpdate`). **0 = no floor**, which is what production runs; raise it only after the newer build is actually live in the store, or the floor locks everyone out of a version they cannot yet install. This is the server-authoritative gate — Play's own in-app check (`AppUpdate`) is a separate, best-effort nudge that fails open. |
 | `SIDESHOW_TIMEOUT_MS` / `SIDESHOW_MIN_PLAYERS` | 6000 / 3 | |
 | `DISPLAY_NAME_MAX` | 24 | also hardcoded: providers.js `.slice(0,24)`, Flutter login/lobby `maxLength: 24` |
@@ -749,7 +756,7 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   **`_Showdown` is now only `Fireworks(focus: winner)` + `_PotToWinner`** — the scrim and the banner
   over the middle of the table were removed (owner, 10 Sep 2026): the scrim greyed every revealed
   hand a player wanted to compare against, and the result is announced on the winner's own pod by
-  `_WinnerFlash` instead. `handLive` gates bet pills.
+  `_WinnerFlash` instead. `handLive` gates bet pills. While `you.unfundedDeadline` is set, `_Status` shows `buyChipsToStay` (amber, counting down) in place of the waiting/starting line.
 - **The seat pod** (`widgets/seat_pod.dart`) carries the rest of it. An unoccupied place draws
   `_emptySeat()` — a dashed outline and a chair, never a blank pod. The viewer's badge and total are
   **not** in their column: they hang over their own fanned hand (`SeatBet(totalFirst: true)`), and
