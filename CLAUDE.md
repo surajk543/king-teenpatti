@@ -109,8 +109,8 @@ king-teenpatti/
     │   ├── screens/table_screen.dart `_MissedTurnsStrip` (zero-height OverflowBox over the Pack button: `_BlindMovesPill` + `_MissedTurns`, always visible), `_BetFlights` (chip from seat to pot on every contributed increase), `_AmbientGlow`
     │   ├── screens/lobby_screen.dart `_DriftingChips` ambient background
     │   └── widgets/seat_pod.dart `BubbleSide {above,left,right}`: chat bubble hung off the column END in a zero-height OverflowBox — rim seats grow it up over their own cards/badge (max 1.7×podW, pointer tail up at the pod), the viewer's grows up from the column top (2.1×podW, tail down). Pods paint AFTER tag/pot/status in the felt Stack so a bubble is never hidden.
-    │   │     GameState: bubbles hold `bubbleFor` = 4s; a second line from the same player queues in `_bubbleQueue` and shows when the first expires; `_clearBubbles()` on leave/kick.
-    │   │     `_MissedTurnsStrip`: compact (one line, labelMedium, no explanation) when screen width < 760dp; capped at 26% (compact) / 30% (wide) of screen width so it never runs under the viewer's pod. `_CategoryTag` text shrinks via FittedBox (slot w*0.30).
+    │   │     GameState: bubbles hold `bubbleFor` = 8s; a second line from the same player queues in `_bubbleQueue` and shows when the first expires; `_clearBubbles()` on leave/kick.
+    │   │     `_MissedTurnsStrip`: width comes from the pod geometry, not a share of the screen — `podLeft - left - Space.xl`, clamped 110..360 (200.1 at 891x411, 301.3 at 1280x800). Compact (one line, no explanation) when that corner is under 260, on a compact/short screen, or when the blind-moves row is sharing the plate: four rows grew it up into the left seat's caption. `_CategoryTag` text shrinks via FittedBox (slot w*0.30).
     │   ├── net/game_connection.dart  Socket.IO streams; every move carries a fresh actionId
     │   ├── net/api_client.dart   REST
     │   ├── models/dtos.dart      wire DTOs mirroring server JSON
@@ -484,6 +484,9 @@ three checkpoints, §5.1); `GET /api/profiles` (unauthenticated);
 `POST /api/profile/avatar {avatar|null}` and `POST /api/profile/name {name}` (409 `seated` while at
 a table; live in `playerRoutes({isSeated})`, **not** `authRoutes`);
 `GET /api/rooms` (no client);
+**`POST /api/purchases/google {productId, purchaseToken}`** — verifies the token with Google and banks
+the pack through a `purchase` ledger row (action_id `gplay:<token>`), so a replay credits once. **There
+is no Apple counterpart**, which is why the Flutter chip store does not start on iOS (§8.4);
 `GET /health`. Errors `{error: code, message}`. Guest id = `sha256('teenpatti:'+deviceId)`, deviceId
 ≥ 8 chars. `AUTH_ALLOW_FAKE_PROVIDERS=true` lets google/facebook skip verification (tests, browser
 stubs). **A refused login is logged** (`login refused` WARN: provider, code, status, reason with the
@@ -562,6 +565,7 @@ fallback `go-server/public`; not in `.env.example` — `config.go` documents it)
 | `MAX_BLIND_MOVES` | 4 | |
 | `ENTRY_CAP_BOOT` / `ENTRY_CAP_CATEGORY` / `ENTRY_CAP_MAX_CHIPS` | 200 / blind / 500000 | |
 | `MAX_MISSED_TURNS` | 3 | |
+| **`MIN_CLIENT_BUILD`** | 0 | The oldest client build allowed to play, sent to every client in `session:ready.config.minClientBuild`. A client below it is held on the update screen with no way past (Flutter `_belowMinimumBuild`/`_forceUpdate`). **0 = no floor**, which is what production runs; raise it only after the newer build is actually live in the store, or the floor locks everyone out of a version they cannot yet install. This is the server-authoritative gate — Play's own in-app check (`AppUpdate`) is a separate, best-effort nudge that fails open. |
 | `SIDESHOW_TIMEOUT_MS` / `SIDESHOW_MIN_PLAYERS` | 6000 / 3 | |
 | `DISPLAY_NAME_MAX` | 24 | also hardcoded: providers.js `.slice(0,24)`, Flutter login/lobby `maxLength: 24` |
 | `PRIVATE_BOOT` / `PRIVATE_MAX_POT` / `PRIVATE_MAX_RAISE_STEPS` | 200 / 500000 / 2 | |
@@ -714,13 +718,37 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   `_CategoryBadge` (sheen + `SpinningChip`, blind delayed 900ms), `LivelyChipStack`, `_CardFact`
   rows, entry-cap overlay; `_TopBar` `fromLTRB(240,…)` clears the bonus chip, `tight` < 760;
   `_MilestoneChip` above `BuyChipsButton` ("Coming soon"); one `endDrawer` for stats/settings.
-- **Table**: `_TableScreenState.build` **watches nothing** (a per-second Scaffold rebuild destroyed
-  the open drawer); `_LeftPanel {menu, chat}` shares one `drawer`. `_ActionBar` always present, only
-  disables: `Pack | − [chip amount] + | Chaal | Sideshow⇄Show`; natural width 760, `FittedBox`.
-  `_Felt`: seats at fractional `_places` (5 only), viewer at view seat 0, `podW = min(h*0.30,
-  w*0.155).clamp(56,128)`, pods clamped inside. Overlays: `_CategoryTag`, `_Pot`, `_Status`,
-  `_MissedTurns` (only when `you.missedTurns > 0`), `_SideshowLink/Prompt/RevealPanel`, `_Showdown`
-  (scrim, `Fireworks(focus: winner)`, `_PotToWinner` under the banner). `handLive` gates bet pills.
+- **Table** (rebuilt around the felt on 10–11 Sep 2026 — `fb47ba4`, `b83b273`, `81a5981`; the bar
+  across the foot and the cloth under it are both gone, and the screenshots in `docs/play-store/`
+  predate all of it). `_TableScreenState.build` **watches nothing** (a per-second Scaffold rebuild
+  destroyed the open drawer) and sets **`resizeToAvoidBottomInset: false`** — the soft keyboard used
+  to squeeze the rail and the chat panel until both painted overflow stripes; the chat drawer lifts
+  its own composer over the keyboard and drops its title while typing.
+  `_LeftPanel {menu, chat}` shares one `drawer`.
+  **There is no `_ActionBar`.** The keys live in the corners they are pressed in: `_SideRail`
+  (BuyChips `+` at the head, then menu, then chat — each key fills the rail so the target stays
+  ≥44dp, which is why they sit flush to the screen edge on a 360dp phone), `_PackKey` bottom-left
+  with `_MissedTurnsStrip` riding above it, and `_ActionCluster` bottom-right (`Sideshow` over
+  `− Chaal +`).
+  `_Felt`: seats at fractional `_places` (5 only), viewer at view seat 0, `Dim.podW(feltW, feltH) =
+  min(feltH*0.270, feltW*0.150).clamp(60,140)`, pods clamped inside. Overlays: `_CategoryTag`,
+  `_Pot`/`_PotPulse` at `_potDy` 0.46, `_Status` at 0.28, `_SideshowLink/Prompt`, `_Showdown`.
+  **`_Showdown` is now only `Fireworks(focus: winner)` + `_PotToWinner`** — the scrim and the banner
+  over the middle of the table were removed (owner, 10 Sep 2026): the scrim greyed every revealed
+  hand a player wanted to compare against, and the result is announced on the winner's own pod by
+  `_WinnerFlash` instead. `handLive` gates bet pills.
+- **The seat pod** (`widgets/seat_pod.dart`) carries the rest of it. An unoccupied place draws
+  `_emptySeat()` — a dashed outline and a chair, never a blank pod. The viewer's badge and total are
+  **not** in their column: they hang over their own fanned hand (`SeatBet(totalFirst: true)`), and
+  their name stays inside their pod. A rim seat shows, in order: pod, cards, then `SeatBet` — and
+  since 11 Sep 2026 **BLIND/SEEN is written on the card fan, not in the badge**
+  (`SeatPod._category`), which leaves the badge under the pod as a chip and a figure. A seat that has
+  not bet yet has no badge at all rather than an empty capsule. **A seen opponent's card backs turn
+  green** (`AppTheme.cardSeenBack`, applied as `PlayingCard.tint` through `BlendMode.color` so the
+  printed crown survives) and the word is written in that same green (`AppTheme.seenInk`); BLIND
+  keeps the quiet ink. None of it applies to a packed seat or to face-up cards — at a showdown or a
+  sideshow peek the hand answers the question itself, with `_handName` above it (suppressed on the
+  winner, whose `_WinnerFlash` ribbon already carries the ranking).
 - **Per-frame clocks** (`LiquidFill`, `_SideshowCountdown`) compute from `deadlineMs -
   DateTime.now()` inside an `AnimationController` — never from the 1s tick. No clock-skew correction.
 - **Theme**: FlexColorScheme with explicit palettes (the "one seed" comment is stale);
@@ -873,7 +901,11 @@ final t = state.t;` at the top of `build`; M3 roles via `theme.colorScheme`; `.w
 - `GameConfig.fromJson` ints fall to 0 → `config.maxPlayers == 0 ? 5 : …` guards.
 - `Avatar` SVG branch has no `errorBuilder`. `_PotChips` animates only on increase. `PlayingCard`
   flips only face-down↔up. Only 5 `_places`.
-- Google/Facebook buttons `onPressed: null` — SDKs not bundled; "use provider picture" disabled.
+- Google sign-in works (`google_sign_in` 7.x, `net/social_sign_in.dart`); the **Web** client id is the
+  `serverClientId` and arrives as `--dart-define=GOOGLE_SERVER_CLIENT_ID`, without which sign-in
+  succeeds and returns no `idToken`. Facebook was removed on 10 Sep 2026 (§8.4). A build with no client
+  id throws `SignInUnavailable` and says so rather than blaming the network; "use provider picture"
+  is still disabled.
 - `main()` awaits `/api/auth/me` with no timeout before the first frame.
 - Chat field `maxLength: 200` vs server 140 (see §7.4).
 
@@ -889,6 +921,11 @@ final t = state.t;` at the top of `build`; M3 roles via `theme.colorScheme`; `.w
 - `go-server/bin/` is git-ignored (so are `go-server/.env`, `*.log`, `tools/node_modules`); a stray
   `go-server/gameplay` binary from a bare `go build` is not — delete it (§12.1).
 - `flutter-client/README.md` and `pubspec.yaml description` are `flutter create` boilerplate.
+- **`docs/play-store/screenshots/` are out of date** — they show the pale felt and the action bar
+  across the foot, both gone since 10 Sep 2026. The 512x512 icon and the 1024x500 feature graphic in
+  the same directory are current. Re-shoot before the listing goes to review.
+- `flutter-client/ios/` has never been compiled (no macOS here) and carries no `Podfile` — Flutter
+  writes one on the Mac at first build. `docs/ios-setup.md` §5 lists what is deliberately off there.
 - `flutter-client/test/widget_test.dart` was **deleted on purpose** (template counter test).
 - `tools/parity/lib/csharpJsonPort.js` / `protocol.test.js` guard a wire format whose C# original is gone.
 - `GameConnection.onCards`/`requestCards()` wired but unused; `room:moved` `state` branch dead.
