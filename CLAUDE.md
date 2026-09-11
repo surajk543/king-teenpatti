@@ -38,6 +38,7 @@ A turn-based multiplayer **Teen Patti** (3-card Indian poker) game:
 | Mobile client | `flutter-client/` | **The live client.** Flutter 3.44 / Dart 3.12, Material 3 via FlexColorScheme. Android is the shipping platform; `ios/` exists and is configured (`docs/ios-setup.md`) but has never been compiled — there is no macOS here. |
 | Browser client | `go-server/public/` | Zero-build vanilla-JS reference client served at `/` by the Go binary (`PUBLIC_DIR`) — **in dev only; production hides it** (`ROOT_REDIRECT=/dashboard/`, §7.4/§9) and serves just `privacy/`, `profiles/` from that dir. **Lags behind** — no sideshow, kick, rename, entry-cap or Indian-numbering UI. |
 | Tools | `tools/` | Small Node ≥ 20 package (`npm install` first): `npm run bot` (practice bots), `npm run ramp` (staged load test), `npm run parity` / `parity:diff` (black-box suites in `tools/parity/`). Clients of the server; also lend `node_modules` to two Go interop tests. |
+| **Bot fleet** | `bot-play/` | The resident bots that keep production's lobby populated (`bot-play.service` on the game host, loopback to `:3000`): 198 guest identities, 75–95% online at once in sittings that come and go. They judge their cards with a port of `handrank.go` (verified on all 22,100 hands), raise up the server's ladder with strong hands, bluff by persona, and chat under a per-table budget. `npm test`; `bot-play/README.md` is the reference. Separate from `tools/bot.js`, the practice bots for manual testing. |
 | Load reports | `docs/load-reports/` | ramp-test HTML + JSON (the 2026‑09‑08 production runs, 1,000 → 4,000 players). |
 | Unity client | `unity-client/` | **Removed** (Sept 2026). A JS port of its Socket.IO parser survives as `tools/parity/lib/csharpJsonPort.js` and still exercises the raw wire protocol. |
 | Brief | `Requirements.txt` | 34 numbered requirements at lines 6–88 (**there is no #11**). Code comments cite these ("Requirement 22"). |
@@ -94,6 +95,11 @@ king-teenpatti/
 ├── tools/                        Node package (npm install here first): bot.js, ramptest.mjs, parity.mjs, parity-diff.mjs
 │   ├── package.json              scripts: bot / ramp / parity / parity:diff; deps socket.io-client, ws, pg, jsonwebtoken
 │   └── parity/                   black-box suites (game, money, lobby, stakes, rest, protocol, resume, invalid, metrics) + lib/ (harness, launch, raw client, csharpJsonPort.js)
+├── bot-play/                     the resident bot fleet (Node, socket.io-client) — README.md is its reference
+│   ├── src/                      index (start + heartbeat), fleet (who is online), bot (one player), brain (decisions),
+│   │                             handrank (port of handrank.go), persona, chat, config, identities, profiles, random
+│   ├── test/                     node:test — brain, handrank, persona + chat (`npm test`)
+│   └── ops/                      bot-play.service, install.sh
 └── flutter-client/
     ├── pubspec.yaml              package name `teenpatti` (imports are package:teenpatti/...), sdk ^3.12.2
     ├── lib/
