@@ -761,7 +761,10 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   printed crown survives) and the word is written in that same green (`AppTheme.seenInk`); BLIND
   keeps the quiet ink. None of it applies to a packed seat or to face-up cards — at a showdown or a
   sideshow peek the hand answers the question itself, with `_handName` above it (suppressed on the
-  winner, whose `_WinnerFlash` ribbon already carries the ranking).
+  winner, whose `_WinnerFlash` ribbon already carries the ranking). A **sideshow** names only the hand that
+  **won** it (the reveal's `packedUserId` marks the loser): the loser's cards still turn face up but
+  carry no ranking, and when the viewer wins, `_OwnHandName` names their hand over their own cards
+  (it used to appear only at a showdown, so a sideshow the viewer won put the label on the loser).
 - **Per-frame clocks** (`LiquidFill`, `_SideshowCountdown`) compute from `deadlineMs -
   DateTime.now()` inside an `AnimationController` — never from the 1s tick. No clock-skew correction.
 - **Theme** ("Glassmorphic Premium", 11 Sep 2026): FlexColorScheme with explicit palettes (the "one seed"
@@ -784,9 +787,30 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   thumb, haptic, calls `GameState.setThemeMode`). Three modes: `GameState.themeMode` may be
   `ThemeMode.system`; `setThemeMode()` persists; `toggleTheme()` kept (from `system` it flips away from
   the platform brightness). **Dark glass is the default** for a fresh install
-  (`ThemePreference.fallback`). Screen changes are fade-through (`_ScreenFade`: veil + 0.96→1 scale).
-  Solid things stay solid by design: felt, seat pods, cards, chips, lobby rail cards (`PremiumSurface`),
-  the on-cloth `_Plate`s, the machined console keys — glass is for what COVERS the game.
+  (`ThemePreference.fallback`). **The native launch screens are dark on every system setting too** (11 Sep
+  2026): `values/`, `values-v31/`, `drawable(-v21)/launch_background.xml` are copies of their `-night`
+  twins, `render_icons.dart` writes light-on-dark branding for both, and iOS `LaunchBackground` is
+  `#0D0E12` in both appearances — so a light-mode phone never flashes a pale frame before the dark
+  default paints. A player who picks Light or System still gets it once the app is up. Screen changes are fade-through (`_ScreenFade`: veil + 0.96→1 scale).
+  Solid things stay solid by design: felt, cards, chips, the on-cloth `_Plate`s, the machined
+  console keys — glass is for what COVERS the game. **The lobby's cards and the table's seat pods
+  are the exception** (owner, 11 Sep 2026, after a reference of frosted cards over colour orbs): `_TableCard`
+  and `_PrivateCard` are `PremiumGlassPanel(mode: tinted, tint: white)` — no cloth, no coloured rim,
+  no watermark — each with a colour **orb** in its table's accent (`_orbColours`: saturated, plus a
+  hue-shifted partner). The blur is **baked, never live**: the sharp `_Orb` sits behind the card and
+  a pre-blurred copy (`ImageFiltered` in a `RepaintBoundary`, rasterised once) in the panel's
+  **`behind` slot** at the same place, so it reads as colour through frosted glass without a
+  `BackdropFilter` over the drifting chips or a claim on the one `GlassBudget` lease. `_orbPlace`
+  lets only the first card spill left (each card paints after the one before it, so a left spill
+  would lie on top of its neighbour) and keeps vertical spill inside the rail's `Space.md` padding.
+  **Seat pods** (`SeatPod._pod`) use the same pair from `widgets/glass_orb.dart` (`orbColours`,
+  `GlassOrb` — the lobby imports it too), coloured by `GameState.colourFor` (the player's chat
+  colour, so a pod and its chat name match) and spilling a sixth of the pod width out of
+  `OrbCorner` (odd view index top-right, 2 and 4 top-left — always towards open felt, never under the
+  rail or a card fan; the viewer's is `contained`, glow inside the glass and no orb outside, because
+  between the missed-turns plate and their own cards there is no felt to spill into — on TP_Small a
+  spilled orb lay under the plate). Turn and winner state ride on the glass: `live` (gold hairline) plus a wash
+  of the beat / primary colour; at rest the glass is plain frosted white.
   `_raisedButtons` = state-driven elevation (`liftElevation`: disabled 0, pressed rest/3, hover 2×),
   tinted `shadowFor`, transparent surfaceTint; text buttons flat. `PremiumSurface` = the one raised
   treatment (3 shadows + bevel + optional `Glint`).
@@ -894,7 +918,12 @@ final t = state.t;` at the top of `build`; M3 roles via `theme.colorScheme`; `.w
   Detect Flutter overflows with `adb logcat -d | grep -ic overflowed`.
 - `screenrecord` silently falls back to 1280×720 letterboxed; crop with ffmpeg `crop=1280:588:0:66`.
 - Pixel 7 Pro AVD: `settings put secure stylus_handwriting_enabled 0`.
-- Use `uiautomator dump` bounds for taps; screenshot coordinates are display-scaled.
+- Use `uiautomator dump` bounds for taps; screenshot coordinates are display-scaled. **A dump can be
+  stale on Flutter screens**: each dump re-attaches accessibility and may hand back the *previous*
+  screen's tree for seconds to minutes (the lobby's nodes while the table is up), so never decide which
+  screen is showing from a dump taken after a transition — dialogs dump fresh. For scripted play on the
+  table read pixels instead: the Chaal key is gold only on your turn, the rail's `+` only while the
+  table is on screen.
 - Test schemas are dropped in `t.Cleanup` (Go) / the parity harness's teardown (`--keep` keeps them
   on purpose); a crashed run can leave `test_*` schemas — see §4 psql check and `DROP SCHEMA test_x CASCADE`.
 
@@ -943,6 +972,14 @@ final t = state.t;` at the top of `build`; M3 roles via `theme.colorScheme`; `.w
   is still disabled.
 - `main()` awaits `/api/auth/me` with no timeout before the first frame.
 - Chat field `maxLength: 200` vs server 140 (see §7.4).
+- **A `late final AnimationController` first read in `dispose()` breaks the teardown.** The initializer
+  runs there, `vsync: this` looks up `TickerMode` on a deactivated element, the throw lands inside
+  `_InactiveElements._unmount` and leaves the tree half unmounted — and the *next* screen dies on an
+  `_ElementLifecycle.inactive` assertion when it reuses `tableScaffold` (the red screen after sit alone →
+  Leave → join a hand, 11 Sep 2026). `_DealFlights` touches its controller only when a deal arrives, so
+  it is nullable and created on demand (`_controller ??=`, `_controller?.dispose()`). Any controller not
+  read in `initState` or on every build path needs the same. The stack showed in `flutter run`'s
+  console, not in `adb logcat`.
 
 ---
 
