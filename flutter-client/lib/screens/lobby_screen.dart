@@ -10,11 +10,13 @@ import '../l10n/strings.dart';
 import '../models/dtos.dart';
 import '../state/game_state.dart';
 import '../theme/app_theme.dart';
+import '../theme/theme_colors.dart';
 import '../widgets/avatar.dart';
 import '../widgets/buy_chips.dart';
 import '../widgets/feedback_toggles.dart';
 import '../widgets/drifting_chips.dart';
 import '../widgets/fireworks.dart';
+import '../widgets/glass_components.dart';
 import '../widgets/glass_panels.dart';
 import '../widgets/poker_chip.dart';
 import '../widgets/premium_surface.dart';
@@ -27,9 +29,10 @@ import '../widgets/table_ground.dart';
 /// The rail is a shelf of four *products*, not a stack of panels: each table is
 /// a solid lit object in its own colour (gold, sapphire, royal purple) and the
 /// private room is the emerald fourth. Glass is spent only on what covers the
-/// shelf — the two drawers, the delete dialog, the picture sheet — and never on
-/// the cards themselves, which would flatten three identities into one charcoal
-/// rectangle repeated three times.
+/// shelf — the two drawers and the picture sheet, which blur, and the top bar,
+/// its pill of keys and the two corner chips, which are tinted panes — and
+/// never on the cards themselves, which would flatten three identities into one
+/// charcoal rectangle repeated three times.
 ///
 /// Nothing here blurs while the player is only looking: the drifting chips
 /// repaint the whole background continuously, and a `BackdropFilter` over a
@@ -303,9 +306,10 @@ class _RewardCelebrationState extends State<_RewardCelebration>
                               ),
                             ),
                             const SizedBox(height: Space.lg),
-                            FilledButton(
+                            GlassButton(
+                              style: GlassButtonStyle.primary,
                               onPressed: state.dismissReward,
-                              child: Text(t.tapToClose),
+                              label: t.tapToClose,
                             ),
                           ],
                         ),
@@ -325,9 +329,10 @@ class _RewardCelebrationState extends State<_RewardCelebration>
 /// The ledge the lobby hangs from: the player, their balance, the four-hour
 /// bonus and the three panels they can open.
 ///
-/// It is a shelf rather than a floating row — a body that fades downwards and
-/// one hairline along its foot — so the rail of cards visibly hangs beneath
-/// something instead of drifting under loose text.
+/// It is a shelf rather than a floating row — a pane of tinted glass that fades
+/// downwards, a sheen along its top and one hairline along its foot — so the
+/// rail of cards visibly hangs beneath something instead of drifting under
+/// loose text. Tinted, never blurred: the chips drift under it every frame.
 class _TopBar extends StatelessWidget {
   const _TopBar({required this.user, required this.onOpen});
 
@@ -340,6 +345,8 @@ class _TopBar extends StatelessWidget {
     final theme = Theme.of(context);
     final text = theme.textTheme;
     final brightness = theme.brightness;
+    final glass = GlassColors.of(context);
+    final dark = brightness == Brightness.dark;
     final h = MediaQuery.sizeOf(context).height;
 
     final pad = Dim.topRailPad(h);
@@ -355,111 +362,139 @@ class _TopBar extends StatelessWidget {
       height: railH,
       child: DecoratedBox(
         decoration: BoxDecoration(
+          // The glass fill, strongest along the top and gone by the foot, so
+          // the shelf reads as a pane laid over the room rather than a bar.
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [
-              AppTheme.panelBase(brightness).withValues(alpha: 0.55),
-              AppTheme.panelBase(brightness).withValues(alpha: 0),
-            ],
+            colors: [glass.fillStrong, glass.fill.withValues(alpha: 0)],
           ),
           border: Border(
             bottom: BorderSide(
-              color: AppTheme.hairlineColour(brightness),
+              color: dark ? glass.borderTop : glass.borderBottom,
               width: Dim.hairline,
             ),
           ),
         ),
-        child: LayoutBuilder(
-          builder: (context, box) {
-            final slotW = Dim.bonusSlotW(box.maxWidth);
-            // The provider tag folds on what the row actually has left, not on
-            // the screen width: 640 -> 448 (fold) | 891 -> 623.7 | 1280 -> 980.
-            final tight = Breaks.isTightBar(box.maxWidth - slotW);
-
-            return Padding(
-              padding: EdgeInsets.symmetric(
-                horizontal: Space.md,
-                vertical: pad,
-              ),
-              child: Row(
-                children: [
-                  // Requirement 26 keeps its corner, but as a real slot rather
-                  // than a 240dp pad in this bar and a literal 12dp offset in
-                  // the Stack — two numbers that used to break each other.
-                  SizedBox(
-                    width: slotW - Space.md,
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: _BonusChip(maxWidth: slotW - Space.md),
-                    ),
-                  ),
-                  Tooltip(
-                    message: state.t.yourPicture,
-                    child: SizedBox(
-                      width: math.max(Dim.minTouch, avatarD),
-                      child: InkWell(
-                        // Material's own click, gated on the player's Sound switch —
-                        // otherwise a silenced game would still tick on every tap.
-                        enableFeedback: context.select<FeedbackSettings, bool>(
-                          (f) => f.sound,
-                        ),
-                        customBorder: const CircleBorder(),
-                        onTap: () => _openPicturePicker(context),
-                        child: Center(
-                          child: _AvatarWithPip(
-                            url: state.avatarUrl,
-                            fallback: user?.displayName ?? '',
-                            diameter: avatarD,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: Space.md),
-                  Flexible(
-                    child: Text(
-                      user?.displayName ?? '',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      // A player's own name, in whatever script they wrote it.
-                      style: AppTheme.label(text.titleMedium!),
-                    ),
-                  ),
-                  if (user != null && !tight) ...[
-                    const SizedBox(width: Space.md),
-                    _ProviderPill(provider: user!.provider),
-                  ],
-                  const Spacer(),
-                  // The balance counts to its new value rather than snapping, so
-                  // a reward landing is something you see happen.
-                  RepaintBoundary(
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        PokerChip(colour: AppTheme.gold, size: 18),
-                        const SizedBox(width: Space.sm),
-                        TweenAnimationBuilder<double>(
-                          tween: Tween(end: (user?.chips ?? 0).toDouble()),
-                          duration: const Duration(milliseconds: 650),
-                          curve: Motion.standard,
-                          builder: (context, value, _) => Text(
-                            formatChips(value.round()),
-                            style: AppTheme.money(
-                              text.titleMedium!,
-                              colour: _goldInk(brightness),
-                            ),
-                          ),
-                        ),
+        child: Stack(
+          fit: StackFit.passthrough,
+          children: [
+            // The sheen along the top edge every glass pane carries.
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              height: 2,
+              child: IgnorePointer(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        glass.highlight.withValues(alpha: 0),
+                        glass.highlight,
+                        glass.highlight.withValues(alpha: 0),
                       ],
                     ),
                   ),
-                  const SizedBox(width: Space.md),
-                  _BarActions(onOpen: onOpen),
-                ],
+                ),
               ),
-            );
-          },
+            ),
+            LayoutBuilder(
+              builder: (context, box) {
+                final slotW = Dim.bonusSlotW(box.maxWidth);
+                // The provider tag folds on what the row actually has left, not on
+                // the screen width: 640 -> 448 (fold) | 891 -> 623.7 | 1280 -> 980.
+                final tight = Breaks.isTightBar(box.maxWidth - slotW);
+
+                return Padding(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: Space.md,
+                    vertical: pad,
+                  ),
+                  child: Row(
+                    children: [
+                      // Requirement 26 keeps its corner, but as a real slot rather
+                      // than a 240dp pad in this bar and a literal 12dp offset in
+                      // the Stack — two numbers that used to break each other.
+                      SizedBox(
+                        width: slotW - Space.md,
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: _BonusChip(maxWidth: slotW - Space.md),
+                        ),
+                      ),
+                      Tooltip(
+                        message: state.t.yourPicture,
+                        child: SizedBox(
+                          width: math.max(Dim.minTouch, avatarD),
+                          child: PressScale(
+                            child: InkWell(
+                              // Material's own click, gated on the player's Sound
+                              // switch — otherwise a silenced game would still
+                              // tick on every tap.
+                              enableFeedback: context
+                                  .select<FeedbackSettings, bool>(
+                                    (f) => f.sound,
+                                  ),
+                              customBorder: const CircleBorder(),
+                              onTap: () => _openPicturePicker(context),
+                              child: Center(
+                                child: _AvatarWithPip(
+                                  url: state.avatarUrl,
+                                  fallback: user?.displayName ?? '',
+                                  diameter: avatarD,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: Space.md),
+                      Flexible(
+                        child: Text(
+                          user?.displayName ?? '',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          // A player's own name, in whatever script they wrote it.
+                          style: AppTheme.label(text.titleMedium!),
+                        ),
+                      ),
+                      if (user != null && !tight) ...[
+                        const SizedBox(width: Space.md),
+                        _ProviderPill(provider: user!.provider),
+                      ],
+                      const Spacer(),
+                      // The balance counts to its new value rather than snapping, so
+                      // a reward landing is something you see happen.
+                      RepaintBoundary(
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            PokerChip(colour: AppTheme.gold, size: 18),
+                            const SizedBox(width: Space.sm),
+                            TweenAnimationBuilder<double>(
+                              tween: Tween(end: (user?.chips ?? 0).toDouble()),
+                              duration: const Duration(milliseconds: 650),
+                              curve: Motion.standard,
+                              builder: (context, value, _) => Text(
+                                formatChips(value.round()),
+                                style: AppTheme.money(
+                                  text.titleMedium!,
+                                  colour: _goldInk(brightness),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: Space.md),
+                      _BarActions(onOpen: onOpen),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ],
         ),
       ),
     );
@@ -486,6 +521,7 @@ class _AvatarWithPip extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final brightness = theme.brightness;
+    final glass = GlassColors.of(context);
     final pip = diameter * 0.34;
 
     return Stack(
@@ -502,7 +538,12 @@ class _AvatarWithPip extends StatelessWidget {
           height: pip,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: AppTheme.plaque(brightness),
+            // The glass fill laid over the plaque: it sits on a photograph, so
+            // a fill that let the picture through would lose the mark.
+            color: Color.alphaBlend(
+              glass.fillStrong,
+              AppTheme.plaque(brightness),
+            ),
             border: Border.all(
               color: AppTheme.hairlineColour(brightness, live: true),
               width: Dim.hairline,
@@ -520,7 +561,7 @@ class _AvatarWithPip extends StatelessWidget {
 }
 
 /// Which account the player signed in with. Metadata, not a control, so it is a
-/// hairline micro-pill rather than a filled Material chip.
+/// hairline micro-pill of tinted glass rather than a filled Material chip.
 class _ProviderPill extends StatelessWidget {
   const _ProviderPill({required this.provider});
 
@@ -531,13 +572,16 @@ class _ProviderPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final glass = GlassColors.of(context);
+    final dark = theme.brightness == Brightness.dark;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: Space.sm, vertical: 2),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(Radii.xs),
+        color: glass.fill,
         border: Border.all(
-          color: AppTheme.hairlineColour(theme.brightness),
+          color: dark ? glass.borderTop : glass.borderBottom,
           width: Dim.hairline,
         ),
       ),
@@ -571,8 +615,8 @@ class _BarActions extends StatelessWidget {
     final state = context.watch<GameState>();
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final brightness = theme.brightness;
-    final hairline = AppTheme.hairlineColour(brightness);
+    final glass = GlassColors.of(context);
+    final dark = theme.brightness == Brightness.dark;
 
     Widget key(String tip, IconData icon, VoidCallback onTap, double alpha) =>
         Tooltip(
@@ -580,18 +624,22 @@ class _BarActions extends StatelessWidget {
           child: SizedBox(
             width: Dim.minTouch,
             height: Dim.minTouch,
-            child: InkWell(
-              // Material's own click, gated on the player's Sound switch —
-              // otherwise a silenced game would still tick on every tap.
-              enableFeedback: context.select<FeedbackSettings, bool>(
-                (f) => f.sound,
-              ),
-              onTap: onTap,
-              customBorder: const CircleBorder(),
-              child: Icon(
-                icon,
-                size: 19,
-                color: scheme.onSurface.withValues(alpha: alpha),
+            child: PressScale(
+              child: InkWell(
+                // Material's own click, gated on the player's Sound switch —
+                // otherwise a silenced game would still tick on every tap.
+                enableFeedback: context.select<FeedbackSettings, bool>(
+                  (f) => f.sound,
+                ),
+                // The caller's own callback, unchanged: the light haptic comes
+                // from the PressScale above, which fires it on release.
+                onTap: onTap,
+                customBorder: const CircleBorder(),
+                child: Icon(
+                  icon,
+                  size: 19,
+                  color: scheme.onSurface.withValues(alpha: alpha),
+                ),
               ),
             ),
           ),
@@ -600,39 +648,48 @@ class _BarActions extends StatelessWidget {
     final divider = Container(
       width: Dim.hairline,
       height: Dim.minTouch * 0.44,
-      color: hairline,
+      color: dark ? glass.borderTop : glass.borderBottom,
     );
 
+    // A pill of tinted glass: the fill, the 1px top-to-bottom hairline and no
+    // blur — the chips drift under it.
     return Material(
       type: MaterialType.transparency,
-      child: Container(
-        height: Dim.minTouch,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(Radii.pill),
-          color: AppTheme.plaque(
-            brightness,
-          ).withValues(alpha: brightness == Brightness.dark ? 0.42 : 0.55),
-          border: Border.all(color: hairline, width: Dim.hairline),
+      child: CustomPaint(
+        foregroundPainter: GlassHairline(
+          radius: Radii.pill,
+          colors: [glass.borderTop, glass.borderBottom],
         ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            key(
-              state.t.yourRecord,
-              Icons.insights_outlined,
-              () => onOpen(context, _EndPanel.stats),
-              AppTheme.inkMed,
+        child: Container(
+          height: Dim.minTouch,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(Radii.pill),
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [glass.fillStrong, glass.fill],
             ),
-            divider,
-            key(
-              state.t.settings,
-              Icons.tune_rounded,
-              () => onOpen(context, _EndPanel.settings),
-              AppTheme.inkMed,
-            ),
-            divider,
-            key(state.t.signOut, Icons.logout_rounded, state.signOut, 0.42),
-          ],
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              key(
+                state.t.yourRecord,
+                Icons.insights_outlined,
+                () => onOpen(context, _EndPanel.stats),
+                AppTheme.inkMed,
+              ),
+              divider,
+              key(
+                state.t.settings,
+                Icons.tune_rounded,
+                () => onOpen(context, _EndPanel.settings),
+                AppTheme.inkMed,
+              ),
+              divider,
+              key(state.t.signOut, Icons.logout_rounded, state.signOut, 0.42),
+            ],
+          ),
         ),
       ),
     );
@@ -1418,7 +1475,7 @@ class _PrivateCardState extends State<_PrivateCard> {
                         const SizedBox(height: Space.xs),
                         SizedBox(
                           height: Dim.minTouch,
-                          child: TextField(
+                          child: GlassTextField(
                             controller: _code,
                             maxLength: 6,
                             textAlign: TextAlign.center,
@@ -1429,11 +1486,11 @@ class _PrivateCardState extends State<_PrivateCard> {
                               text.titleMedium!,
                               colour: _goldInk(brightness),
                             ).copyWith(letterSpacing: 6),
-                            decoration: InputDecoration(
-                              hintText: state.t.tableCode,
-                              counterText: '',
+                            hintText: state.t.tableCode,
+                            counterText: '',
+                            decoration: const InputDecoration(
                               isDense: true,
-                              contentPadding: const EdgeInsets.symmetric(
+                              contentPadding: EdgeInsets.symmetric(
                                 horizontal: Space.md,
                               ),
                             ),
@@ -1446,13 +1503,10 @@ class _PrivateCardState extends State<_PrivateCard> {
                             Expanded(
                               child: SizedBox(
                                 height: Dim.minTouch,
-                                child: FilledButton(
+                                child: GlassButton(
+                                  style: GlassButtonStyle.primary,
                                   onPressed: state.createPrivate,
-                                  child: Text(
-                                    state.t.create,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
+                                  label: state.t.create,
                                 ),
                               ),
                             ),
@@ -1460,13 +1514,10 @@ class _PrivateCardState extends State<_PrivateCard> {
                             Expanded(
                               child: SizedBox(
                                 height: Dim.minTouch,
-                                child: OutlinedButton(
+                                child: GlassButton(
+                                  style: GlassButtonStyle.glass,
                                   onPressed: () => state.joinByCode(_code.text),
-                                  child: Text(
-                                    state.t.join,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
+                                  label: state.t.join,
                                 ),
                               ),
                             ),
@@ -1641,7 +1692,8 @@ Future<void> _openPicturePicker(BuildContext context) async {
                         return Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            FilledButton.tonalIcon(
+                            GlassButton(
+                              style: GlassButtonStyle.glass,
                               onPressed: enabled
                                   ? () => state.chooseAvatar(null)
                                   : null,
@@ -1649,7 +1701,7 @@ Future<void> _openPicturePicker(BuildContext context) async {
                                 Icons.account_circle_outlined,
                                 size: 18,
                               ),
-                              label: Text(state.t.useSocialPicture),
+                              label: state.t.useSocialPicture,
                             ),
                             if (!enabled) ...[
                               const SizedBox(height: Space.xs),
@@ -1702,33 +1754,37 @@ class _PictureChoice extends StatelessWidget {
 
     return Padding(
       padding: const EdgeInsets.only(right: Space.md),
-      child: InkWell(
-        // Material's own click, gated on the player's Sound switch —
-        // otherwise a silenced game would still tick on every tap.
-        enableFeedback: context.select<FeedbackSettings, bool>((f) => f.sound),
-        onTap: onTap,
-        customBorder: const CircleBorder(),
-        child: SizedBox(
-          width: side,
-          child: Center(
-            child: AnimatedSwitcher(
-              duration: Motion.base,
-              child: selected
-                  ? Avatar(
-                      key: const ValueKey(true),
-                      url: url,
-                      fallback: picture.id,
-                      radius: radius,
-                      ring: AppTheme.goldBright,
-                      ringWidth: 2.5,
-                      ringGap: 2,
-                    )
-                  : Avatar(
-                      key: const ValueKey(false),
-                      url: url,
-                      fallback: picture.id,
-                      radius: radius + 3,
-                    ),
+      child: PressScale(
+        child: InkWell(
+          // Material's own click, gated on the player's Sound switch —
+          // otherwise a silenced game would still tick on every tap.
+          enableFeedback: context.select<FeedbackSettings, bool>(
+            (f) => f.sound,
+          ),
+          onTap: onTap,
+          customBorder: const CircleBorder(),
+          child: SizedBox(
+            width: side,
+            child: Center(
+              child: AnimatedSwitcher(
+                duration: Motion.base,
+                child: selected
+                    ? Avatar(
+                        key: const ValueKey(true),
+                        url: url,
+                        fallback: picture.id,
+                        radius: radius,
+                        ring: AppTheme.goldBright,
+                        ringWidth: 2.5,
+                        ringGap: 2,
+                      )
+                    : Avatar(
+                        key: const ValueKey(false),
+                        url: url,
+                        fallback: picture.id,
+                        radius: radius + 3,
+                      ),
+              ),
             ),
           ),
         ),
@@ -1767,7 +1823,7 @@ class _LobbyDrawer extends StatelessWidget {
             // Landscape leaves very little height, so this scrolls rather than
             // overflowing — which is what was clipping the name off the top.
             child: ListView(
-              padding: const EdgeInsets.symmetric(vertical: Space.md),
+              padding: const EdgeInsets.symmetric(vertical: Space.lg),
               children: children,
             ),
           ),
@@ -1828,10 +1884,12 @@ class _DrawerHead extends StatelessWidget {
           SizedBox(
             width: Dim.minTouch,
             height: Dim.minTouch,
-            child: IconButton(
-              padding: EdgeInsets.zero,
-              icon: const Icon(Icons.close_rounded, size: 20),
-              onPressed: () => Navigator.pop(context),
+            child: PressScale(
+              child: IconButton(
+                padding: EdgeInsets.zero,
+                icon: const Icon(Icons.close_rounded, size: 20),
+                onPressed: () => Navigator.pop(context),
+              ),
             ),
           ),
         ],
@@ -1944,64 +2002,68 @@ class _DrawerAction extends StatelessWidget {
         ? theme.colorScheme.error.withValues(alpha: 0.86)
         : theme.colorScheme.onSurface;
 
-    return Material(
-      type: MaterialType.transparency,
-      child: InkWell(
-        // Material's own click, gated on the player's Sound switch —
-        // otherwise a silenced game would still tick on every tap.
-        enableFeedback: context.select<FeedbackSettings, bool>((f) => f.sound),
-        onTap: onTap,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(minHeight: Dim.minTouch),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: Space.lg,
-              vertical: Space.sm,
-            ),
-            child: Row(
-              children: [
-                IconTheme.merge(
-                  data: IconThemeData(
-                    size: 18,
-                    color: danger
-                        ? ink
-                        : theme.colorScheme.onSurface.withValues(
-                            alpha: AppTheme.inkLow,
-                          ),
-                  ),
-                  child: leading,
-                ),
-                const SizedBox(width: Space.md),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppTheme.label(
-                          text.bodyMedium!,
-                          colour: ink,
-                          weight: FontWeight.w500,
-                        ),
-                      ),
-                      if (caption != null)
-                        Text(
-                          caption,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: text.bodySmall?.copyWith(
-                            color: theme.colorScheme.onSurface.withValues(
+    return PressScale(
+      child: Material(
+        type: MaterialType.transparency,
+        child: InkWell(
+          // Material's own click, gated on the player's Sound switch —
+          // otherwise a silenced game would still tick on every tap.
+          enableFeedback: context.select<FeedbackSettings, bool>(
+            (f) => f.sound,
+          ),
+          onTap: onTap,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: Dim.minTouch),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: Space.lg,
+                vertical: Space.sm,
+              ),
+              child: Row(
+                children: [
+                  IconTheme.merge(
+                    data: IconThemeData(
+                      size: 18,
+                      color: danger
+                          ? ink
+                          : theme.colorScheme.onSurface.withValues(
                               alpha: AppTheme.inkLow,
                             ),
+                    ),
+                    child: leading,
+                  ),
+                  const SizedBox(width: Space.md),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTheme.label(
+                            text.bodyMedium!,
+                            colour: ink,
+                            weight: FontWeight.w500,
                           ),
                         ),
-                    ],
+                        if (caption != null)
+                          Text(
+                            caption,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: text.bodySmall?.copyWith(
+                              color: theme.colorScheme.onSurface.withValues(
+                                alpha: AppTheme.inkLow,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
@@ -2124,81 +2186,90 @@ class _NumberOption extends StatelessWidget {
     final scheme = theme.colorScheme;
     final text = theme.textTheme;
     final brightness = theme.brightness;
+    final glass = GlassColors.of(context);
+    final dark = brightness == Brightness.dark;
     final ink = selected
         ? _goldInk(brightness)
         : scheme.onSurface.withValues(alpha: AppTheme.inkLow);
 
-    return Material(
-      type: MaterialType.transparency,
-      child: InkWell(
-        // Material's own click, gated on the player's Sound switch —
-        // otherwise a silenced game would still tick on every tap.
-        enableFeedback: context.select<FeedbackSettings, bool>((f) => f.sound),
-        borderRadius: BorderRadius.circular(Radii.md),
-        onTap: onTap,
-        child: AnimatedContainer(
-          duration: Motion.base,
-          curve: Motion.standard,
-          constraints: const BoxConstraints(minHeight: Dim.minTouch),
-          padding: const EdgeInsets.symmetric(
-            horizontal: Space.md,
-            vertical: Space.sm,
+    // A tile of tinted glass inside the drawer's pane: the stronger fill and
+    // the live gold hairline mark the chosen one; the other wears the resting
+    // glass edge.
+    return PressScale(
+      child: Material(
+        type: MaterialType.transparency,
+        child: InkWell(
+          // Material's own click, gated on the player's Sound switch —
+          // otherwise a silenced game would still tick on every tap.
+          enableFeedback: context.select<FeedbackSettings, bool>(
+            (f) => f.sound,
           ),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(Radii.md),
-            color: AppTheme.plaque(
-              brightness,
-            ).withValues(alpha: selected ? 0.55 : 0.28),
-            border: Border.all(
-              color: AppTheme.hairlineColour(brightness, live: selected),
-              width: Dim.hairline,
+          borderRadius: BorderRadius.circular(Radii.md),
+          onTap: onTap,
+          child: AnimatedContainer(
+            duration: Motion.base,
+            curve: Motion.standard,
+            constraints: const BoxConstraints(minHeight: Dim.minTouch),
+            padding: const EdgeInsets.symmetric(
+              horizontal: Space.md,
+              vertical: Space.sm,
             ),
-          ),
-          child: Row(
-            children: [
-              Icon(icon, size: 18, color: ink),
-              const SizedBox(width: Space.md),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      label,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppTheme.label(
-                        text.bodyMedium!,
-                        weight: selected ? FontWeight.w700 : FontWeight.w500,
-                      ),
-                    ),
-                    Text(
-                      sample,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppTheme.money(
-                        text.labelMedium!,
-                        colour: selected
-                            ? _goldInk(brightness)
-                            : scheme.onSurface.withValues(
-                                alpha: AppTheme.inkLow,
-                              ),
-                      ),
-                    ),
-                  ],
-                ),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(Radii.md),
+              color: selected ? glass.fillStrong : glass.fill,
+              border: Border.all(
+                color: selected
+                    ? AppTheme.hairlineColour(brightness, live: true)
+                    : (dark ? glass.borderTop : glass.borderBottom),
+                width: Dim.hairline,
               ),
-              AnimatedScale(
-                duration: Motion.base,
-                curve: Motion.settle,
-                scale: selected ? 1 : 0,
-                child: Icon(
-                  Icons.check_circle_rounded,
-                  size: 18,
-                  color: _goldInk(brightness),
+            ),
+            child: Row(
+              children: [
+                Icon(icon, size: 18, color: ink),
+                const SizedBox(width: Space.md),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTheme.label(
+                          text.bodyMedium!,
+                          weight: selected ? FontWeight.w700 : FontWeight.w500,
+                        ),
+                      ),
+                      Text(
+                        sample,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTheme.money(
+                          text.labelMedium!,
+                          colour: selected
+                              ? _goldInk(brightness)
+                              : scheme.onSurface.withValues(
+                                  alpha: AppTheme.inkLow,
+                                ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-            ],
+                AnimatedScale(
+                  duration: Motion.base,
+                  curve: Motion.settle,
+                  scale: selected ? 1 : 0,
+                  child: Icon(
+                    Icons.check_circle_rounded,
+                    size: 18,
+                    color: _goldInk(brightness),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -2277,31 +2348,34 @@ class _SettingsDrawerState extends State<_SettingsDrawer> {
         const SizedBox(height: Space.md),
         Padding(
           padding: const EdgeInsets.fromLTRB(Space.lg, 0, Space.lg, Space.xs),
-          child: TextField(
+          child: GlassTextField(
             controller: _name,
             maxLength: 24,
             textInputAction: TextInputAction.done,
-            decoration: InputDecoration(
-              labelText: t.displayName,
-              prefixIcon: const Icon(Icons.badge_outlined, size: 18),
-              counterText: '',
-              isDense: true,
-              errorText: _nameError,
-              suffixIcon: _saving
-                  ? const Padding(
-                      padding: EdgeInsets.all(Space.md),
-                      child: SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
-                    )
-                  : IconButton(
-                      tooltip: t.save,
-                      icon: const Icon(Icons.check_rounded, size: 18),
-                      onPressed: () => _save(state),
+            labelText: t.displayName,
+            prefixIcon: const Icon(Icons.badge_outlined, size: 18),
+            counterText: '',
+            suffixIcon: _saving
+                ? const Padding(
+                    padding: EdgeInsets.all(Space.md),
+                    child: SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
                     ),
-            ),
+                  )
+                : IconButton(
+                    tooltip: t.save,
+                    icon: const Icon(Icons.check_rounded, size: 18),
+                    // A suffix icon cannot take a PressScale — scaling inside
+                    // the field's box clips — so the key gets the light
+                    // haptic on its callback instead.
+                    onPressed: () {
+                      tapHaptic(context);
+                      _save(state);
+                    },
+                  ),
+            decoration: InputDecoration(isDense: true, errorText: _nameError),
             onSubmitted: (_) => _save(state),
           ),
         ),
@@ -2309,6 +2383,12 @@ class _SettingsDrawerState extends State<_SettingsDrawer> {
           padding: const EdgeInsets.fromLTRB(Space.lg, Space.xs, Space.lg, 0),
           child: DropdownButtonFormField<AppLang>(
             initialValue: state.lang,
+            // The field takes the width it is given and its longest item
+            // ellipsises inside it, instead of the row sizing itself to the
+            // longest name and running 17dp past the drawer's edge — which is
+            // what it did once the type became Inter, which is wider than the
+            // font this slot was measured against.
+            isExpanded: true,
             decoration: InputDecoration(
               labelText: t.language,
               prefixIcon: const Icon(Icons.translate, size: 18),
@@ -2324,6 +2404,8 @@ class _SettingsDrawerState extends State<_SettingsDrawer> {
                     l == AppLang.english
                         ? l.nativeName
                         : '${l.nativeName}  ·  ${l.englishName}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
             ],
@@ -2396,23 +2478,43 @@ class _SettingsDrawerState extends State<_SettingsDrawer> {
         // state the player should be able to read at a glance, which a row
         // that merely reacts to a tap does not show.
         const FeedbackToggles(),
-        _DrawerAction(
-          leading: AnimatedSwitcher(
-            duration: Motion.slow,
-            transitionBuilder: (child, anim) => RotationTransition(
-              turns: Tween(begin: 0.6, end: 1.0).animate(anim),
-              child: FadeTransition(opacity: anim, child: child),
-            ),
-            child: Icon(
-              state.themeMode == ThemeMode.dark
-                  ? Icons.light_mode_outlined
-                  : Icons.dark_mode_outlined,
-              key: ValueKey(state.themeMode),
-            ),
+        // Appearance: System, Dark or Light as one segmented glass control,
+        // headed the same way as the number system above it. The switcher
+        // reads and writes the theme mode itself.
+        Padding(
+          padding: const EdgeInsets.fromLTRB(Space.lg, Space.md, Space.lg, 0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(
+                    Icons.palette_outlined,
+                    size: 16,
+                    color: scheme.onSurface.withValues(alpha: AppTheme.inkLow),
+                  ),
+                  const SizedBox(width: Space.sm),
+                  Flexible(
+                    child: Text(
+                      t.appearance,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTheme.label(
+                        text.labelMedium!,
+                        colour: scheme.onSurface.withValues(
+                          alpha: AppTheme.inkLow,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: Space.sm),
+              const GlassThemeSwitcher(),
+            ],
           ),
-          title: state.themeMode == ThemeMode.dark ? t.dayMode : t.nightMode,
-          onTap: state.toggleTheme,
         ),
+        const _DrawerRule(),
         // The two irreversible rows are pushed below a full rule and drawn in
         // one quiet red, because they sit next to each other and only one of
         // them can be undone. Google Play requires an in-app route to account
@@ -2805,60 +2907,65 @@ class _CornerChip extends StatelessWidget {
 
     return ConstrainedBox(
       constraints: BoxConstraints(maxWidth: cap),
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(Radii.pill),
-          boxShadow: enabled
-              ? [
-                  BoxShadow(
-                    color: gold.withValues(alpha: 0.16),
-                    blurRadius: 16,
-                    spreadRadius: -2,
-                  ),
-                ]
-              : null,
-        ),
-        child: GlassCapsule(
-          live: enabled,
-          // Both states are the same size, so a chip becoming claimable does
-          // not shove the row it is in.
-          minHeight: Dim.minTouch,
-          onTap: enabled ? onTap : null,
-          padding: const EdgeInsets.symmetric(
-            horizontal: Space.lg,
-            vertical: Space.sm,
+      // Presses in only while it can be taken; a chip still counting down
+      // stays still under the finger, which is what says it is not a key yet.
+      child: PressScale(
+        enabled: enabled,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(Radii.pill),
+            boxShadow: enabled
+                ? [
+                    BoxShadow(
+                      color: gold.withValues(alpha: 0.16),
+                      blurRadius: 16,
+                      spreadRadius: -2,
+                    ),
+                  ]
+                : null,
           ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              leadingBuilder?.call(fg) ?? Icon(icon, size: 18, color: fg),
-              const SizedBox(width: Space.md),
-              Flexible(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppTheme.label(
-                        text.labelSmall!,
-                        colour: theme.colorScheme.onSurface.withValues(
-                          alpha: AppTheme.inkLow,
+          child: GlassCapsule(
+            live: enabled,
+            // Both states are the same size, so a chip becoming claimable does
+            // not shove the row it is in.
+            minHeight: Dim.minTouch,
+            onTap: enabled ? onTap : null,
+            padding: const EdgeInsets.symmetric(
+              horizontal: Space.lg,
+              vertical: Space.sm,
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                leadingBuilder?.call(fg) ?? Icon(icon, size: 18, color: fg),
+                const SizedBox(width: Space.md),
+                Flexible(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTheme.label(
+                          text.labelSmall!,
+                          colour: theme.colorScheme.onSurface.withValues(
+                            alpha: AppTheme.inkLow,
+                          ),
                         ),
                       ),
-                    ),
-                    Text(
-                      subtitle,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppTheme.money(text.labelLarge!, colour: fg),
-                    ),
-                  ],
+                      Text(
+                        subtitle,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTheme.money(text.labelLarge!, colour: fg),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),

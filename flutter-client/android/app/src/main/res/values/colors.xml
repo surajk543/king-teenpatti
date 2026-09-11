@@ -3,6 +3,6 @@
     <!-- The ground of the icon artwork: the launcher paints it behind the
          adaptive foreground so the masked icon matches the legacy one. -->
     <color name="ic_launcher_background">#2B363B</color>
-    <color name="launch_background_light">#FAF7F0</color>
-    <color name="launch_background_dark">#0B0B0B</color>
+    <color name="launch_background_light">#F4F5F7</color>
+    <color name="launch_background_dark">#0D0E12</color>
 </resources>

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
 import '../theme/app_theme.dart';
+import '../theme/theme_colors.dart';
 import '../widgets/premium_surface.dart';
 import '../widgets/table_ground.dart';
 
@@ -24,8 +25,10 @@ class _SplashScreenState extends State<SplashScreen>
     duration: const Duration(milliseconds: 650),
   )..forward();
 
-  late final CurvedAnimation _fade =
-      CurvedAnimation(parent: _in, curve: Motion.standard);
+  late final CurvedAnimation _fade = CurvedAnimation(
+    parent: _in,
+    curve: Motion.standard,
+  );
 
   @override
   void dispose() {
@@ -37,6 +40,7 @@ class _SplashScreenState extends State<SplashScreen>
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final glass = GlassColors.of(context);
 
     return Scaffold(
       // The room the game is played in, lamp and all, from the very first
@@ -83,8 +87,7 @@ class _SplashScreenState extends State<SplashScreen>
                         style: AppTheme.smallCaps(
                           theme.textTheme.labelMedium ?? const TextStyle(),
                           tracking: 1.8,
-                          colour: theme.colorScheme.onSurface
-                              .withValues(alpha: AppTheme.inkLow),
+                          colour: glass.textMuted,
                         ),
                       ),
                     ],

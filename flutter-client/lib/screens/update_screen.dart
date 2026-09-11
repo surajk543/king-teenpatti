@@ -6,7 +6,9 @@ import 'package:provider/provider.dart';
 import '../net/app_update.dart';
 import '../state/game_state.dart';
 import '../theme/app_theme.dart';
+import '../theme/theme_colors.dart';
 import '../widgets/drifting_chips.dart';
+import '../widgets/glass_components.dart';
 import '../widgets/poker_chip.dart';
 import '../widgets/premium_surface.dart';
 import '../widgets/table_ground.dart';
@@ -28,7 +30,7 @@ class UpdateScreen extends StatelessWidget {
     final state = context.watch<GameState>();
     final t = state.t;
     final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
+    final glass = GlassColors.of(context);
     final width = MediaQuery.sizeOf(context).width;
     // Play can install in place, or only send them to the listing. The button
     // says which, because "Update now" that opens a store page is a small lie.
@@ -71,45 +73,44 @@ class UpdateScreen extends StatelessWidget {
                           Text(
                             t.updateTitle,
                             textAlign: TextAlign.center,
-                            style: theme.textTheme.headlineSmall,
+                            style: theme.textTheme.headlineSmall?.copyWith(
+                              color: glass.textDisplay,
+                            ),
                           ),
                           const SizedBox(height: Space.md),
                           Text(
                             t.updateBody,
                             textAlign: TextAlign.center,
                             style: theme.textTheme.bodyMedium?.copyWith(
-                              color: scheme.onSurface
-                                  .withValues(alpha: AppTheme.inkMed),
+                              color: glass.textBody,
                             ),
                           ),
                           const SizedBox(height: Space.xl),
-                          SizedBox(
-                            width: double.infinity,
-                            child: FilledButton(
-                              onPressed:
-                                  state.updating ? null : state.startUpdate,
-                              style: FilledButton.styleFrom(
-                                minimumSize: const Size.fromHeight(52),
-                              ),
-                              child: state.updating
-                                  ? const SizedBox(
-                                      height: 20,
-                                      width: 20,
-                                      child: CircularProgressIndicator(
-                                          strokeWidth: 2.4),
-                                    )
-                                  : Text(inPlace ? t.updateNow : openStore),
-                            ),
+                          GlassButton(
+                            style: GlassButtonStyle.primary,
+                            expand: true,
+                            minimumSize: const Size.fromHeight(52),
+                            onPressed: state.updating
+                                ? null
+                                : state.startUpdate,
+                            child: state.updating
+                                ? const SizedBox(
+                                    height: 20,
+                                    width: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2.4,
+                                    ),
+                                  )
+                                : Text(inPlace ? t.updateNow : openStore),
                           ),
                           if (state.appVersion.isNotEmpty) ...[
                             const SizedBox(height: Space.lg),
                             Text(
                               state.appVersion,
                               style: AppTheme.money(
-                                theme.textTheme.labelSmall ??
-                                    const TextStyle(),
+                                theme.textTheme.labelSmall ?? const TextStyle(),
                                 weight: FontWeight.w500,
-                                colour: scheme.onSurface.withValues(alpha: 0.40),
+                                colour: glass.textMuted,
                               ),
                             ),
                           ],

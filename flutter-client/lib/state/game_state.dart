@@ -16,6 +16,7 @@ import '../net/game_connection.dart';
 import '../net/purchases.dart';
 import '../net/social_sign_in.dart';
 import 'consent.dart';
+import 'theme_preference.dart';
 
 enum Screen { splash, update, login, lobby, table }
 
@@ -69,8 +70,9 @@ class GameState extends ChangeNotifier {
   /// out whether there is a session, a table, or a sign-in screen to show.
   Screen screen = Screen.splash;
 
-  /// Day mode by default; the toggle remembers a change.
-  ThemeMode themeMode = ThemeMode.light;
+  /// System, dark glass or light glass. Dark glass by default; the setting
+  /// remembers a change ([ThemePreference]).
+  ThemeMode themeMode = ThemePreference.fallback;
 
   /// English by default; the choice is remembered.
   AppLang lang = AppLang.english;
@@ -223,9 +225,7 @@ class GameState extends ChangeNotifier {
     _deviceId = prefs.getString('deviceId') ?? const Uuid().v4();
     await prefs.setString('deviceId', _deviceId);
 
-    themeMode = prefs.getBool('darkMode') == true
-        ? ThemeMode.dark
-        : ThemeMode.light;
+    themeMode = ThemePreference.read(prefs);
     unawaited(
       PackageInfo.fromPlatform()
           .then((info) {
@@ -877,6 +877,15 @@ class GameState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// The three-way appearance setting: follow the system, dark glass, or
+  /// light glass.
+  Future<void> setThemeMode(ThemeMode next) async {
+    if (next == themeMode) return;
+    themeMode = next;
+    notifyListeners();
+    await ThemePreference.write(next);
+  }
+
   Future<void> setLanguage(AppLang next) async {
     if (next == lang) return;
     lang = next;
@@ -910,11 +919,19 @@ class GameState extends ChangeNotifier {
     );
   }
 
+  /// The old two-way toggle, still wired where a single key is all there is
+  /// room for: flips between light and dark. From `system` it flips away from
+  /// whatever the device is showing right now, which is what a player tapping
+  /// "the other one" means.
   Future<void> toggleTheme() async {
-    themeMode = themeMode == ThemeMode.dark ? ThemeMode.light : ThemeMode.dark;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('darkMode', themeMode == ThemeMode.dark);
-    notifyListeners();
+    final dark = switch (themeMode) {
+      ThemeMode.dark => true,
+      ThemeMode.light => false,
+      ThemeMode.system =>
+        WidgetsBinding.instance.platformDispatcher.platformBrightness ==
+            Brightness.dark,
+    };
+    await setThemeMode(dark ? ThemeMode.light : ThemeMode.dark);
   }
 
   // -------------------------------------------------------------- gameplay

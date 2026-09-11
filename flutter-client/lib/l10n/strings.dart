@@ -179,6 +179,12 @@ class Strings {
   String get maxPot => _('maxPot');
   String get nightMode => _('nightMode');
   String get dayMode => _('dayMode');
+
+  // --- the three-way appearance setting
+  String get appearance => _('appearance');
+  String get themeSystem => _('themeSystem');
+  String get themeDark => _('themeDark');
+  String get themeLight => _('themeLight');
   String get waitingForPlayers => _('waitingForPlayers');
   String get startingGame => _('startingGame');
   String get youAreWinner => _('youAreWinner');
@@ -368,6 +374,10 @@ class Strings {
       'maxPot': 'Max pot',
       'nightMode': 'Night mode',
       'dayMode': 'Day mode',
+      'appearance': 'Appearance',
+      'themeSystem': 'System',
+      'themeDark': 'Dark',
+      'themeLight': 'Light',
       'waitingForPlayers': 'Waiting for players',
       'startingGame': 'Starting game…',
       'youAreWinner': 'You are the winner',
@@ -547,6 +557,10 @@ class Strings {
       'maxPot': 'अधिकतम पॉट',
       'nightMode': 'रात मोड',
       'dayMode': 'दिन मोड',
+      'appearance': 'रूप',
+      'themeSystem': 'सिस्टम',
+      'themeDark': 'डार्क',
+      'themeLight': 'लाइट',
       'waitingForPlayers': 'खिलाड़ियों का इंतज़ार',
       'startingGame': 'खेल शुरू हो रहा है…',
       'youAreWinner': 'आप जीत गए',
@@ -726,6 +740,10 @@ class Strings {
       'maxPot': 'সর্বোচ্চ পট',
       'nightMode': 'রাত মোড',
       'dayMode': 'দিন মোড',
+      'appearance': 'চেহারা',
+      'themeSystem': 'সিস্টেম',
+      'themeDark': 'ডার্ক',
+      'themeLight': 'লাইট',
       'waitingForPlayers': 'খেলোয়াড়ের অপেক্ষা',
       'startingGame': 'খেলা শুরু হচ্ছে…',
       'youAreWinner': 'আপনি জিতেছেন',
@@ -906,6 +924,10 @@ class Strings {
       'maxPot': 'મહત્તમ પોટ',
       'nightMode': 'રાત મોડ',
       'dayMode': 'દિવસ મોડ',
+      'appearance': 'દેખાવ',
+      'themeSystem': 'સિસ્ટમ',
+      'themeDark': 'ડાર્ક',
+      'themeLight': 'લાઇટ',
       'waitingForPlayers': 'ખેલાડીઓની રાહ',
       'startingGame': 'રમત શરૂ થાય છે…',
       'youAreWinner': 'તમે જીત્યા',
@@ -1084,6 +1106,10 @@ class Strings {
       'maxPot': 'ਵੱਧ ਤੋਂ ਵੱਧ ਪੌਟ',
       'nightMode': 'ਰਾਤ ਮੋਡ',
       'dayMode': 'ਦਿਨ ਮੋਡ',
+      'appearance': 'ਦਿੱਖ',
+      'themeSystem': 'ਸਿਸਟਮ',
+      'themeDark': 'ਡਾਰਕ',
+      'themeLight': 'ਲਾਈਟ',
       'waitingForPlayers': 'ਖਿਡਾਰੀਆਂ ਦੀ ਉਡੀਕ',
       'startingGame': 'ਖੇਡ ਸ਼ੁਰੂ ਹੋ ਰਹੀ ਹੈ…',
       'youAreWinner': 'ਤੁਸੀਂ ਜਿੱਤ ਗਏ',

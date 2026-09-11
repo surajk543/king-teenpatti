@@ -3,6 +3,8 @@ import 'dart:math' as math;
 import 'package:flex_color_scheme/flex_color_scheme.dart';
 import 'package:flutter/material.dart';
 
+import 'theme_colors.dart';
+
 /// The one spacing ramp.
 ///
 /// It is a ~1.4x ramp, not a 4-based grid — 6, 10, 14 and 28 are deliberate
@@ -374,21 +376,24 @@ class AppTheme {
   static const double hairlineRestingLight = 0.28;
   static const double hairlineLiveLight = 0.48;
 
-  /// The charcoal ground the whole dark scheme is built on.
-  static const Color ink900 = Color(0xFF06080A);
-  static const Color ink800 = Color(0xFF0B0E11);
+  /// The obsidian ground the whole dark scheme is built on: the screen sits
+  /// at [ink800] and its vignette closes on [ink900], the two ends of the
+  /// glass spec's near-black range. See [GlassColors.dark].
+  static const Color ink900 = Color(0xFF08080A);
+  static const Color ink800 = Color(0xFF0D0E12);
   static const Color ink700 = Color(0xFF121619);
   static const Color ink600 = Color(0xFF1A2024);
   static const Color ink500 = Color(0xFF232B31);
   static const Color ink400 = Color(0xFF39434A);
 
-  /// Its light-mode counterpart: warm parchment, never white. The dark scheme
-  /// is the design's home, but every token below has a light value beside it —
-  /// a saved `darkMode` preference and a toggle in the drawer both still work,
-  /// and a light mode of charcoal cards on parchment would be incoherent.
-  static const Color bone100 = Color(0xFFF3F1EA);
-  static const Color bone200 = Color(0xFFE9E5DA);
-  static const Color bone300 = Color(0xFFD8D2C3);
+  /// Its light-mode counterpart: frosted ice — a cool off-white slate, never
+  /// pure white, so the milky panels over it still read as panels. The dark
+  /// scheme is the design's home, but every token below has a light value
+  /// beside it, and the three-way switcher (system / dark / light) can land
+  /// on either. See [GlassColors.light].
+  static const Color bone100 = Color(0xFFF4F5F7);
+  static const Color bone200 = Color(0xFFEAECEF);
+  static const Color bone300 = Color(0xFFDFE2E7);
 
   /// The cloth. Solid emerald, lit from the middle and darkened at the rim —
   /// a physical surface, so it is never glass and never scheme-derived.
@@ -409,11 +414,29 @@ class AppTheme {
   static const Color lampWarm = Color(0xFFFFF3DC);
 
   /// Type ink, and the three opacities the whole app writes at.
-  static const Color boneInk = Color(0xFFF4F1E9);
-  static const Color inkOnLight = Color(0xFF14181B);
+  ///
+  /// Display and titles write in the full ink — white on obsidian, charcoal
+  /// on ice. Body copy sits at [inkMed] (white70) and the quiet third tier at
+  /// [inkLow].
+  ///
+  /// [inkLow] is 0.46 rather than the white38 the dark spec names, because
+  /// this alpha is applied to BOTH inks and the light one is the constraint:
+  /// 0.38 of #121316 on the ice ground is 2.4:1, which fails AA for the very
+  /// labels — a card note, a unit, a caption — that the quiet tier is for.
+  /// 0.46 is 3.2:1 on ice and 4.4:1 on obsidian, and the three tiers still
+  /// read as three tiers. Where a light-mode colour is wanted outright rather
+  /// than an alpha, [GlassColors.textMuted] is the token.
+  static const Color boneInk = Color(0xFFFFFFFF);
+  static const Color inkOnLight = Color(0xFF121316);
   static const double inkHigh = 1;
-  static const double inkMed = 0.72;
+  static const double inkMed = 0.70;
   static const double inkLow = 0.46;
+
+  /// Body ink as a colour rather than an alpha: the spec names it outright on
+  /// the light side (#4A4D55), where an alpha of charcoal over slate would
+  /// land a shade off. The text theme's body styles use this.
+  static Color bodyInk(Brightness b) =>
+      b == Brightness.dark ? Colors.white70 : const Color(0xFF4A4D55);
 
   /// The middle tier of an escalation — a missed turn that has been marked but
   /// is not yet a kick. The ends of that scale are `scheme.primary` and
@@ -473,12 +496,13 @@ class AppTheme {
 
   /// The colour a raised control casts.
   ///
-  /// Not black in light mode: a neutral shadow under a warm gold-and-green
-  /// palette reads as grubby. In the dark scheme it stays pure black, because a
-  /// shadow lighter than the surface makes a button glow instead of lift.
+  /// Not black in light mode: a pure black shadow on the cool slate ground
+  /// reads as grubby, so it is a deep slate-blue that sits inside the ground's
+  /// own hue. In the dark scheme it stays pure black, because a shadow lighter
+  /// than the surface makes a button glow instead of lift.
   static Color shadowFor(Brightness brightness) => brightness == Brightness.dark
       ? const Color(0xFF000000)
-      : const Color(0xFF0B3524);
+      : const Color(0xFF0E1220);
 
   /// The screen's ground, and the darker edge a vignette closes on.
   static Color ground(Brightness b) => b == Brightness.dark ? ink800 : bone100;
@@ -486,8 +510,9 @@ class AppTheme {
       b == Brightness.dark ? ink900 : bone300;
 
   /// The body of a panel — glass or otherwise — before anything tints it.
+  /// Frosted ice is milk over slate, so on the light side this is white.
   static Color panelBase(Brightness b) =>
-      b == Brightness.dark ? ink700 : const Color(0xFFFBFAF6);
+      b == Brightness.dark ? ink700 : const Color(0xFFFFFFFF);
 
   /// A solid raised object: a seat pod, a machined key, a plaque. Never glass;
   /// five blurred pods over a felt that repaints every frame is the one change
@@ -622,9 +647,12 @@ class AppTheme {
 
     return theme.inputDecorationTheme.copyWith(
       filled: true,
-      fillColor: panelBase(
-        b,
-      ).withValues(alpha: b == Brightness.dark ? 0.55 : 0.70),
+      // The well token, so a field sunk into a glass pane has a body of its
+      // own in both modes — and so the two fields in the settings drawer, one
+      // built by GlassTextField and one a plain DropdownButtonFormField, are
+      // filled from the same place and cannot drift apart.
+      fillColor: (b == Brightness.dark ? GlassColors.dark : GlassColors.light)
+          .wellFill,
       contentPadding: const EdgeInsets.symmetric(
         horizontal: Space.lg,
         vertical: Space.md,
@@ -686,23 +714,26 @@ class AppTheme {
     ];
   }
 
-  /// What a glass panel casts. Two layers, and never a bloom: an accent bloom
-  /// is reserved for the felt, the winner's pod and the buy-chips button, so
+  /// What a glass panel casts: a tight directional shadow under its edge and
+  /// a broad ambient one, tuned per ground. Never a bloom — an accent bloom is
+  /// reserved for the felt, the winner's pod and the buy-chips button, so
   /// that a bloom always means the game did something.
   static List<BoxShadow> glassShadow(Brightness brightness) {
     final s = shadowFor(brightness);
     final dark = brightness == Brightness.dark;
 
     return [
+      // Directional: the pane's contact with what is under it.
       BoxShadow(
-        color: s.withValues(alpha: dark ? 0.55 : 0.18),
-        blurRadius: 10,
-        offset: const Offset(0, 4),
+        color: s.withValues(alpha: dark ? 0.45 : 0.08),
+        blurRadius: 8,
+        offset: const Offset(0, 3),
       ),
+      // Ambient: the room's light falling around it.
       BoxShadow(
-        color: s.withValues(alpha: dark ? 0.30 : 0.10),
-        blurRadius: 30,
-        offset: const Offset(0, 14),
+        color: s.withValues(alpha: dark ? 0.35 : 0.10),
+        blurRadius: 28,
+        offset: const Offset(0, 12),
       ),
     ];
   }
@@ -769,6 +800,7 @@ class AppTheme {
   /// tracking and opacity instead.
   static TextTheme _textTheme(Brightness b) {
     final ink = b == Brightness.dark ? boneInk : inkOnLight;
+    final body = bodyInk(b);
 
     return TextTheme(
       displaySmall: TextStyle(
@@ -817,21 +849,21 @@ class AppTheme {
         height: 1.40,
         fontWeight: FontWeight.w400,
         letterSpacing: 0.1,
-        color: ink,
+        color: body,
       ),
       bodyMedium: TextStyle(
         fontSize: 13.5,
         height: 1.40,
         fontWeight: FontWeight.w400,
         letterSpacing: 0.1,
-        color: ink,
+        color: body,
       ),
       bodySmall: TextStyle(
         fontSize: 12,
         height: 1.35,
         fontWeight: FontWeight.w400,
         letterSpacing: 0.15,
-        color: ink,
+        color: body,
       ),
       labelLarge: TextStyle(
         fontSize: 13.5,
@@ -877,9 +909,16 @@ class AppTheme {
       useMaterial3: true,
       subThemesData: _subThemes,
       textTheme: _textTheme(Brightness.light),
+      fontFamily: fontFamily,
       visualDensity: VisualDensity.standard,
+      extensions: const [GlassColors.light],
     ),
   );
+
+  /// The app's one typeface. Inter, bundled (assets/fonts, SIL OFL 1.1) so
+  /// the first launch does not depend on a font download, with tabular
+  /// figures for everything [money] sets.
+  static const String fontFamily = 'Inter';
 
   static ThemeData dark({bool sound = true}) => _raisedButtons(
     sound: sound,
@@ -902,7 +941,9 @@ class AppTheme {
       useMaterial3: true,
       subThemesData: _subThemes,
       textTheme: _textTheme(Brightness.dark),
+      fontFamily: fontFamily,
       visualDensity: VisualDensity.standard,
+      extensions: const [GlassColors.dark],
     ),
   );
 

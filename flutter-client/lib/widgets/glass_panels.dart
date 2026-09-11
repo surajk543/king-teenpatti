@@ -37,7 +37,7 @@ class GlassDrawerPanel extends StatelessWidget {
     this.width,
     this.margin = const EdgeInsets.all(Space.md),
     this.mode = GlassMode.auto,
-    this.sigma = 22,
+    this.sigma,
     this.priority = 10,
   });
 
@@ -54,7 +54,9 @@ class GlassDrawerPanel extends StatelessWidget {
   final EdgeInsetsGeometry margin;
 
   final GlassMode mode;
-  final double sigma;
+
+  /// Null takes the theme's blur ([GlassColors.sigma]).
+  final double? sigma;
 
   /// Above a capsule, below a dialog: a dialog opened over a drawer takes the
   /// blur and the drawer settles for tint.
@@ -105,7 +107,7 @@ class GlassDialog extends StatelessWidget {
     this.title,
     this.actions = const [],
     this.mode = GlassMode.auto,
-    this.sigma = 22,
+    this.sigma,
     this.priority = 20,
     this.maxWidth,
   });
@@ -122,7 +124,9 @@ class GlassDialog extends StatelessWidget {
   final List<Widget> actions;
 
   final GlassMode mode;
-  final double sigma;
+
+  /// Null takes the theme's blur ([GlassColors.sigma]).
+  final double? sigma;
   final int priority;
 
   /// Defaults to [Dim.dialogW]: 396.8dp at 640 wide, 520 above 840.
@@ -162,10 +166,7 @@ class GlassDialog extends StatelessWidget {
               // Height is the scarce axis in landscape, so the body gives way
               // before the title or the actions do.
               Flexible(
-                child: SingleChildScrollView(
-                  primary: false,
-                  child: content,
-                ),
+                child: SingleChildScrollView(primary: false, child: content),
               ),
               if (actions.isNotEmpty) ...[
                 const SizedBox(height: Space.lg),
@@ -229,9 +230,11 @@ class GlassCapsule extends StatelessWidget {
       body = Material(
         type: MaterialType.transparency,
         child: InkWell(
-      // Material's own click, gated on the player's Sound switch —
-      // otherwise a silenced game would still tick on every tap.
-      enableFeedback: context.select<FeedbackSettings, bool>((f) => f.sound),
+          // Material's own click, gated on the player's Sound switch —
+          // otherwise a silenced game would still tick on every tap.
+          enableFeedback: context.select<FeedbackSettings, bool>(
+            (f) => f.sound,
+          ),
           onTap: onTap,
           borderRadius: BorderRadius.circular(radius),
           child: body,
@@ -285,15 +288,14 @@ class NoticeToast extends StatelessWidget {
     required String message,
     NoticeTone tone = NoticeTone.neutral,
     IconData? icon,
-  }) =>
-      SnackBar(
-        content: NoticeToast(message: message, tone: tone, icon: icon),
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        padding: EdgeInsets.zero,
-        behavior: SnackBarBehavior.floating,
-        width: Dim.toastW(MediaQuery.sizeOf(context).width),
-      );
+  }) => SnackBar(
+    content: NoticeToast(message: message, tone: tone, icon: icon),
+    backgroundColor: Colors.transparent,
+    elevation: 0,
+    padding: EdgeInsets.zero,
+    behavior: SnackBarBehavior.floating,
+    width: Dim.toastW(MediaQuery.sizeOf(context).width),
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -303,10 +305,7 @@ class NoticeToast extends StatelessWidget {
     final (Color mark, IconData glyph) = switch (tone) {
       NoticeTone.good => (scheme.primary, Icons.check_circle_rounded),
       NoticeTone.bad => (scheme.error, Icons.error_rounded),
-      NoticeTone.neutral => (
-          AppTheme.goldBright,
-          Icons.info_rounded,
-        ),
+      NoticeTone.neutral => (AppTheme.goldBright, Icons.info_rounded),
     };
 
     return PremiumGlassPanel(

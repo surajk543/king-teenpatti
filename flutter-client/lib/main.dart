@@ -15,6 +15,8 @@ import 'models/dtos.dart';
 import 'settings/feedback_settings.dart';
 import 'state/game_state.dart';
 import 'theme/app_theme.dart';
+import 'theme/theme_colors.dart';
+import 'widgets/glass_components.dart';
 import 'widgets/glass_panels.dart';
 import 'widgets/poker_chip.dart';
 import 'widgets/premium_surface.dart';
@@ -177,6 +179,7 @@ class _ConsentGate extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
+    final glass = GlassColors.of(context);
     final lang = context.select<GameState, AppLang>((s) => s.lang);
     final t = Strings(lang);
     final width = MediaQuery.sizeOf(context).width;
@@ -199,9 +202,13 @@ class _ConsentGate extends StatelessWidget {
             ),
             child: ConstrainedBox(
               constraints: BoxConstraints(maxWidth: Dim.dialogW(width)),
+              // The Material stays: this layer lives in the root Stack with no
+              // Scaffold above it, and the card itself supplies none, so
+              // without it every Text here draws the missing-Material
+              // underline.
               child: Material(
                 type: MaterialType.transparency,
-                child: PremiumGlassPanel(
+                child: GlassCard(
                   mode: GlassMode.auto,
                   priority: 20,
                   radius: Radii.lg,
@@ -236,7 +243,7 @@ class _ConsentGate extends StatelessWidget {
                       Text(
                         t.consentBody,
                         style: theme.textTheme.bodyMedium?.copyWith(
-                          color: scheme.onSurface,
+                          color: glass.textDisplay,
                           fontWeight: FontWeight.w500,
                         ),
                       ),
@@ -244,20 +251,18 @@ class _ConsentGate extends StatelessWidget {
                       Text(
                         t.consentNote,
                         style: theme.textTheme.bodySmall?.copyWith(
-                          color: scheme.onSurface.withValues(
-                            alpha: AppTheme.inkMed,
-                          ),
+                          color: glass.textMuted,
                         ),
                       ),
                       const SizedBox(height: Space.xl),
-                      FilledButton.icon(
+                      GlassButton(
+                        style: GlassButtonStyle.primary,
+                        expand: true,
+                        minimumSize: const Size.fromHeight(52),
+                        icon: const Icon(Icons.check_rounded),
+                        label: t.consentAccept,
                         onPressed: () =>
                             context.read<GameState>().acceptConsent(),
-                        icon: const Icon(Icons.check_rounded),
-                        label: Text(t.consentAccept),
-                        style: FilledButton.styleFrom(
-                          minimumSize: const Size.fromHeight(52),
-                        ),
                       ),
                     ],
                   ),
@@ -305,6 +310,13 @@ class _ScreenFadeState extends State<_ScreenFade>
   );
   late final Animation<double> _veil = ReverseAnimation(_curve);
 
+  /// Fade-through: the incoming screen settles up from a touch under full
+  /// size as the veil clears, so a screen arrives rather than appears.
+  late final Animation<double> _scale = Tween<double>(
+    begin: 0.96,
+    end: 1,
+  ).animate(_curve);
+
   @override
   void didUpdateWidget(covariant _ScreenFade oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -323,7 +335,19 @@ class _ScreenFadeState extends State<_ScreenFade>
     return Stack(
       fit: StackFit.expand,
       children: [
-        widget.child,
+        // The ground, painted under everything. The screen above it is
+        // scaled up from 0.96, and for those 300 ms it does not reach the
+        // edges: without this the gap is whatever the engine last cleared to,
+        // which on the light scheme reads as a dark rim closing in.
+        ColoredBox(color: AppTheme.ground(Theme.of(context).brightness)),
+        // RepaintBoundary inside the transform, not around it: the screen is
+        // then re-composited at a new scale each frame rather than repainted,
+        // which is the whole point of scaling a screen that is at the same
+        // moment building itself.
+        ScaleTransition(
+          scale: _scale,
+          child: RepaintBoundary(child: widget.child),
+        ),
         IgnorePointer(
           // The veil is a full-screen layer animating for 300 ms over a screen
           // that is already busy building itself.
@@ -502,13 +526,17 @@ class _BackGuard extends StatelessWidget {
           ),
         ),
         actions: [
-          TextButton(
+          // Flat cancel beside a filled confirm: the quiet half of the pair
+          // must not carry a shadow that fights the key it defers to.
+          GlassButton(
+            style: GlassButtonStyle.text,
+            label: cancel,
             onPressed: () => Navigator.pop(context, false),
-            child: Text(cancel),
           ),
-          FilledButton(
+          GlassButton(
+            style: GlassButtonStyle.primary,
+            label: confirm,
             onPressed: () => Navigator.pop(context, true),
-            child: Text(confirm),
           ),
         ],
       ),

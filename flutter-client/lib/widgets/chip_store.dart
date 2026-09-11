@@ -9,6 +9,7 @@ import '../settings/feedback_settings.dart';
 import '../l10n/strings.dart';
 import '../state/game_state.dart';
 import '../theme/app_theme.dart';
+import 'glass_components.dart';
 import 'poker_chip.dart';
 import 'premium_surface.dart';
 
@@ -51,40 +52,69 @@ class ChipPack {
 /// The shelf, in the owner's order. Cheapest first, so scrolling right is
 /// always "more".
 const chipPacks = <ChipPack>[
-  ChipPack(id: 'A', productId: 'chips_a_99', rupees: 99, chips: 19200000, mark: ShelfMark.starter),
-  ChipPack(id: 'B', productId: 'chips_b_199', rupees: 199, chips: 52800000, bonusPercent: 20),
-  ChipPack(id: 'C', productId: 'chips_c_399', rupees: 399, chips: 120000000, bonusPercent: 30),
   ChipPack(
-    id: 'D', productId: 'chips_d_999',
+    id: 'A',
+    productId: 'chips_a_99',
+    rupees: 99,
+    chips: 19200000,
+    mark: ShelfMark.starter,
+  ),
+  ChipPack(
+    id: 'B',
+    productId: 'chips_b_199',
+    rupees: 199,
+    chips: 52800000,
+    bonusPercent: 20,
+  ),
+  ChipPack(
+    id: 'C',
+    productId: 'chips_c_399',
+    rupees: 399,
+    chips: 120000000,
+    bonusPercent: 30,
+  ),
+  ChipPack(
+    id: 'D',
+    productId: 'chips_d_999',
     rupees: 999,
     chips: 352000000,
     bonusPercent: 40,
     mark: ShelfMark.popular,
   ),
-  ChipPack(id: 'E', productId: 'chips_e_1499', rupees: 1499, chips: 600000000, bonusPercent: 50),
   ChipPack(
-    id: 'F', productId: 'chips_f_2999',
+    id: 'E',
+    productId: 'chips_e_1499',
+    rupees: 1499,
+    chips: 600000000,
+    bonusPercent: 50,
+  ),
+  ChipPack(
+    id: 'F',
+    productId: 'chips_f_2999',
     rupees: 2999,
     chips: 1500000000,
     bonusPercent: 55,
     mark: ShelfMark.bestValue,
   ),
   ChipPack(
-    id: 'G', productId: 'chips_g_4999',
+    id: 'G',
+    productId: 'chips_g_4999',
     rupees: 4999,
     chips: 2750000000,
     bonusPercent: 60,
     mark: ShelfMark.popular,
   ),
   ChipPack(
-    id: 'H', productId: 'chips_h_6900',
+    id: 'H',
+    productId: 'chips_h_6900',
     rupees: 6900,
     chips: 4000000000,
     bonusPercent: 65,
     mark: ShelfMark.premium,
   ),
   ChipPack(
-    id: 'I', productId: 'chips_i_7900',
+    id: 'I',
+    productId: 'chips_i_7900',
     rupees: 7900,
     chips: 5000000000,
     bonusPercent: 70,
@@ -95,8 +125,9 @@ const chipPacks = <ChipPack>[
 /// The tallest pile any card carries, from the same expression the cards use.
 /// It is what the shelf height is measured against, so every card is the same
 /// height whatever its own pile does.
-final int _tallestPile =
-    chipPacks.map((p) => _pileFor(p)).reduce((a, b) => a > b ? a : b);
+final int _tallestPile = chipPacks
+    .map((p) => _pileFor(p))
+    .reduce((a, b) => a > b ? a : b);
 
 /// How many discs a pack's pile is. Unchanged: `colours.length` is layout in
 /// [LivelyChipStack], so this expression is the card's geometry, not a palette.
@@ -121,7 +152,10 @@ Future<void> showChipStore(BuildContext context) {
     context: context,
     barrierDismissible: true,
     barrierLabel: MaterialLocalizations.of(context).modalBarrierDismissLabel,
-    barrierColor: Colors.black.withValues(alpha: 0.72),
+    // A scrim is always dark, whatever the theme: the ground's own edge is a
+    // pale slate in the light scheme, so dimming with it BRIGHTENED the lobby
+    // behind the store instead of pushing it back.
+    barrierColor: AppTheme.ink900.withValues(alpha: 0.72),
     transitionDuration: Motion.enter,
     pageBuilder: (_, a, b) => const _ChipStore(),
     transitionBuilder: (context, anim, _, child) {
@@ -160,10 +194,9 @@ class _ChipStoreState extends State<_ChipStore> {
   }
 
   Future<void> _loadPrices() async {
-    final got = await context
-        .read<GameState>()
-        .purchases
-        .priceList(chipPacks.map((p) => p.productId).toSet());
+    final got = await context.read<GameState>().purchases.priceList(
+      chipPacks.map((p) => p.productId).toSet(),
+    );
     if (mounted && got.isNotEmpty) setState(() => _prices = got);
   }
 
@@ -190,11 +223,7 @@ class _ChipStoreState extends State<_ChipStore> {
     // card fits at every size, so the min() is the guard rail, not the rule.
     final shelfH = math.min(
       packH,
-      size.height -
-          2 * Space.md -
-          2 * Space.lg -
-          headerH -
-          Space.lg,
+      size.height - 2 * Space.md - 2 * Space.lg - headerH - Space.lg,
     );
 
     return Center(
@@ -204,9 +233,9 @@ class _ChipStoreState extends State<_ChipStore> {
         padding: const EdgeInsets.all(Space.md),
         child: PremiumGlassPanel(
           // A modal, and the only one of its kind on screen: it may take the
-          // app's single blur if nothing louder has claimed it.
+          // app's single blur if nothing louder has claimed it. The blur
+          // radius is the theme's own (GlassColors.sigma).
           mode: GlassMode.auto,
-          sigma: 24,
           priority: 20,
           radius: Radii.lg,
           padding: const EdgeInsets.all(Space.lg),
@@ -237,23 +266,26 @@ class _ChipStoreState extends State<_ChipStore> {
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: theme.textTheme.bodySmall?.copyWith(
-                              color: scheme.onSurface
-                                  .withValues(alpha: AppTheme.inkLow),
+                              color: scheme.onSurface.withValues(
+                                alpha: AppTheme.inkLow,
+                              ),
                             ),
                           ),
                         ],
                       ),
                     ),
-                    IconButton(
-                      tooltip: t.close,
-                      onPressed: () => Navigator.pop(context),
-                      icon: const Icon(Icons.close_rounded, size: 20),
-                      // A Material icon button lays out at 48 whatever its
-                      // icon does, which is 4dp more than the header is tall.
-                      // The touch floor is Dim.minTouch, so say so.
-                      style: IconButton.styleFrom(
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        minimumSize: const Size.square(Dim.minTouch),
+                    PressScale(
+                      child: IconButton(
+                        tooltip: t.close,
+                        onPressed: () => Navigator.pop(context),
+                        icon: const Icon(Icons.close_rounded, size: 20),
+                        // A Material icon button lays out at 48 whatever its
+                        // icon does, which is 4dp more than the header is
+                        // tall. The touch floor is Dim.minTouch, so say so.
+                        style: IconButton.styleFrom(
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          minimumSize: const Size.square(Dim.minTouch),
+                        ),
                       ),
                     ),
                   ],
@@ -298,7 +330,8 @@ double _packHeight(TextScaler scaler, double screenH) {
       Space.sm +
       _badgeHeight(scaler) +
       Space.sm +
-      chip + chip * 0.22 * (_tallestPile - 1) +
+      chip +
+      chip * 0.22 * (_tallestPile - 1) +
       Space.sm +
       _line(scaler, 17, 1.25) +
       Space.md +
@@ -462,10 +495,17 @@ class _PackCardState extends State<_PackCard> {
             child: Material(
               type: MaterialType.transparency,
               child: InkWell(
-      // Material's own click, gated on the player's Sound switch —
-      // otherwise a silenced game would still tick on every tap.
-      enableFeedback: context.select<FeedbackSettings, bool>((f) => f.sound),
-                onTap: buy,
+                // Material's own click, gated on the player's Sound switch —
+                // otherwise a silenced game would still tick on every tap.
+                enableFeedback: context.select<FeedbackSettings, bool>(
+                  (f) => f.sound,
+                ),
+                // The card has its own press-down scale (AnimatedScale
+                // above), so no PressScale here — only the light haptic.
+                onTap: () {
+                  tapHaptic(context);
+                  buy();
+                },
                 onTapDown: (_) => setState(() => _down = true),
                 onTapCancel: () => setState(() => _down = false),
                 onTapUp: (_) => setState(() => _down = false),
@@ -531,25 +571,30 @@ class _PackCardState extends State<_PackCard> {
                         Space.md,
                         Space.md,
                       ),
-                      child: SizedBox(
-                        width: double.infinity,
-                        child: FilledButton(
-                          onPressed: buy,
-                          style: FilledButton.styleFrom(
-                            // shrinkWrap, or Material's padded tap target
-                            // silently makes this key 48 and the card 4dp
-                            // taller than the shelf it was measured for.
-                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                            minimumSize: const Size.fromHeight(Dim.minTouch),
-                            padding: EdgeInsets.zero,
-                          ),
-                          child: Text(
-                            prices[p.productId]?.price ??
-                                '₹${_grouped(p.rupees)}',
-                            maxLines: 1,
-                            style: AppTheme.money(
-                              theme.textTheme.titleSmall ?? const TextStyle(),
-                            ),
+                      // The one filled key on the card: Material's
+                      // FilledButton underneath (theme lift, enableFeedback)
+                      // with the haptic and press-scale over it.
+                      child: GlassButton(
+                        onPressed: buy,
+                        style: GlassButtonStyle.primary,
+                        // The card already presses in on tap (AnimatedScale
+                        // above), so the key must not shrink a second time.
+                        pressScale: false,
+                        expand: true,
+                        buttonStyle: FilledButton.styleFrom(
+                          // shrinkWrap, or Material's padded tap target
+                          // silently makes this key 48 and the card 4dp
+                          // taller than the shelf it was measured for.
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          minimumSize: const Size.fromHeight(Dim.minTouch),
+                          padding: EdgeInsets.zero,
+                        ),
+                        child: Text(
+                          prices[p.productId]?.price ??
+                              '₹${_grouped(p.rupees)}',
+                          maxLines: 1,
+                          style: AppTheme.money(
+                            theme.textTheme.titleSmall ?? const TextStyle(),
                           ),
                         ),
                       ),

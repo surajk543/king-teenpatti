@@ -117,10 +117,13 @@ king-teenpatti/
     │   ├── screens/{login,lobby,table}_screen.dart
     │   ├── widgets/              premium_surface, seat_pod, playing_card, poker_chip, liquid_fill,
     │   │                         fireworks, avatar, buy_chips, rules_sheet
-    │   ├── theme/app_theme.dart  FlexColorScheme + shadow/lift helpers
+    │   ├── theme/app_theme.dart  FlexColorScheme + shadow/lift helpers, Space/Radii/Motion/Breaks/Dim, Inter
+    │   ├── theme/theme_colors.dart  GlassColors ThemeExtension (obsidian / frosted-ice tokens, §8.4)
+    │   ├── widgets/glass_components.dart  tapHaptic, PressScale, GlassCard, GlassButton, GlassTextField, GlassThemeSwitcher
+    │   ├── state/theme_preference.dart  themeMode read/write (+ legacy darkMode); state/consent.dart  the no-winnings flag
     │   └── l10n/strings.dart     hand-written 5-language table (en/hi/bn/gu/pa)
-    ├── assets/card_back.svg
-    ├── test/number_format_test.dart
+    ├── assets/card_back.svg, assets/app_icon.svg, assets/fonts/ (Inter 400/500/600/700 + OFL licence), assets/sfx/
+    ├── test/  number_format, connection_failure, consent, theme_preference
     ├── android/                  applicationId com.sungamestudio.kingteenpatti, sensorLandscape, cleartext on
     └── ios/                      bundle id com.sungamestudio.kingteenpatti, landscape-only, status bar hidden,
                                   NSAllowsLocalNetworking; GIDClientID + URL scheme come from Flutter/*.xcconfig.
@@ -208,7 +211,7 @@ PGPASSWORD=postgres psql -h localhost -U postgres -d gameplay -c "select nspname
 ```bash
 flutter pub get
 flutter analyze                 # must be clean (it is)
-flutter test                    # 6 tests (number formatting)
+flutter test                    # 21 tests (number formatting, connection failures, consent, theme preference)
 flutter test tool/render_icons.dart   # re-render launcher/adaptive/splash PNGs from assets/app_icon.svg (not part of `flutter test`)
 flutter build apk --debug       # ~7s incremental; build/app/outputs/flutter-apk/app-debug.apk
 flutter build apk --debug --dart-define=SERVER_URL=http://10.0.2.2:3000   # local server on the emulator
@@ -697,7 +700,9 @@ Production's lives at `/var/www/gameplay/king-teenpatti/go-server/.env` (`PG_POO
   `j['state']` branch is dead code (server sends no `state` there).
 - DTOs (`dtos.dart`): `const` classes + tolerant `fromJson`; server enums as `static const String`
   classes; `Seat.chips` **nullable** (null = withheld, never 0).
-- SharedPreferences: `deviceId`, `token`, `darkMode`, `lang`, `numbers`, `noWinningsAck:<userId>`.
+- SharedPreferences: `deviceId`, `token`, `themeMode` (`system|dark|light`, `state/theme_preference.dart`;
+  the old `darkMode` bool is read once when `themeMode` is absent and never written again), `lang`,
+  `numbers`, `noWinningsAck:<userId>`.
 - **No-winnings confirmation** (`state/consent.dart`, `_ConsentGate` in `main.dart`, added 11 Sep 2026):
   after sign-in (either door, or a restored session) the lobby/table is covered by a panel — "I confirm
   that I do not have any expectations of winning any monetary or other enrichment from playing this
@@ -759,7 +764,29 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   winner, whose `_WinnerFlash` ribbon already carries the ranking).
 - **Per-frame clocks** (`LiquidFill`, `_SideshowCountdown`) compute from `deadlineMs -
   DateTime.now()` inside an `AnimationController` — never from the 1s tick. No clock-skew correction.
-- **Theme**: FlexColorScheme with explicit palettes (the "one seed" comment is stale);
+- **Theme** ("Glassmorphic Premium", 11 Sep 2026): FlexColorScheme with explicit palettes (the "one seed"
+  comment is stale) plus a `GlassColors` ThemeExtension (`theme/theme_colors.dart`) holding the glass
+  tokens per brightness — **Obsidian** dark (ground `#0D0E12`→`#08080A`, fill white 0.04/0.08, border
+  white 0.12→0.04, blur 16, type white/white70/white38) and **Frosted ice** light (ground
+  `#F4F5F7`→`#EAECEF`, fill white 0.62/0.70, white highlight + black 0.06 border, blur 20, type
+  `#121316`/`#4A4D55`). `GlassColors.of(context)`; it lerps with the 420 ms theme cross-fade. Typeface
+  **Inter** (bundled, `assets/fonts/`, OFL; `AppTheme.fontFamily`), tabular figures on money.
+  `PremiumGlassPanel` (the ONE glass primitive, `widgets/premium_surface.dart`) paints the spec: a
+  near-transparent gradient body over the blur (or an opaque body when tinted), a 2dp sheen and a 1px
+  top→bottom gradient hairline (`GlassHairline` painter; gold when `live`); `sigma: null` = the theme's.
+  **Blur budget unchanged**: one `GlassBudget` lease, `GlassMode.auto` claimants only over static or
+  covered backdrops — never on the felt or over the lobby's drifting chips (`tinted` there).
+  `widgets/glass_components.dart`: `tapHaptic(context)` (`HapticFeedback.lightImpact`, gated on the
+  Vibration switch), `PressScale` (Listener-based 0.97 press-down; never enters the gesture arena),
+  `GlassCard`, `GlassButton` (Material's Filled/Outlined/TextButton underneath → `enableFeedback`,
+  `liftElevation`, disabled all still work; `primary|glass|outline|text`), `GlassTextField` (every
+  input property passed through), `GlassThemeSwitcher` (System · Dark · Light, `SpringSimulation`
+  thumb, haptic, calls `GameState.setThemeMode`). Three modes: `GameState.themeMode` may be
+  `ThemeMode.system`; `setThemeMode()` persists; `toggleTheme()` kept (from `system` it flips away from
+  the platform brightness). **Dark glass is the default** for a fresh install
+  (`ThemePreference.fallback`). Screen changes are fade-through (`_ScreenFade`: veil + 0.96→1 scale).
+  Solid things stay solid by design: felt, seat pods, cards, chips, lobby rail cards (`PremiumSurface`),
+  the on-cloth `_Plate`s, the machined console keys — glass is for what COVERS the game.
   `_raisedButtons` = state-driven elevation (`liftElevation`: disabled 0, pressed rest/3, hover 2×),
   tinted `shadowFor`, transparent surfaceTint; text buttons flat. `PremiumSurface` = the one raised
   treatment (3 shadows + bevel + optional `Glint`).

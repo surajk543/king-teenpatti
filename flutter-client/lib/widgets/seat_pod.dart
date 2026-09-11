@@ -1272,13 +1272,7 @@ class SeatBet extends StatelessWidget {
     // The word was carrying it; now the figure has to, and until there is one
     // the badge stands down and `In Pot` speaks for the seat.
     final badge = withCategory || seat.lastBet > 0
-        ? SeatPod._lastBet(
-            context,
-            t,
-            seat,
-            width,
-            withCategory: withCategory,
-          )
+        ? SeatPod._lastBet(context, t, seat, width, withCategory: withCategory)
         : null;
 
     return Column(
@@ -1342,7 +1336,9 @@ class _WinnerFlashState extends State<_WinnerFlash>
 
   /// Both lines of the strike share a treatment: the shader paints them, so
   /// the colour here only has to be opaque, and the shadow is what lifts them
-  /// off whatever the pod is showing underneath.
+  /// off whatever the pod is showing underneath. [AppTheme.boneInk] rather than
+  /// a scheme ink: the ribbon is charcoal in both themes, so its type is the
+  /// on-obsidian ink in both — the same reason the chat bubble's text is.
   TextStyle _struck(
     BuildContext context,
     double w,
@@ -1354,7 +1350,7 @@ class _WinnerFlashState extends State<_WinnerFlash>
         fontSize: math.max(9.0, w * scale),
         tracking: w * scale * 0.065,
         weight: weight,
-        colour: Colors.white,
+        colour: AppTheme.boneInk,
       ).copyWith(
         shadows: [
           Shadow(
@@ -1429,7 +1425,7 @@ class _WinnerFlashState extends State<_WinnerFlash>
                           end: Alignment.bottomRight,
                           colors: const [
                             AppTheme.goldDeep,
-                            Colors.white,
+                            AppTheme.boneInk,
                             AppTheme.goldBright,
                           ],
                           stops: [
