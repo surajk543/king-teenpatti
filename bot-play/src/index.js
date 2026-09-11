@@ -1,15 +1,17 @@
 /**
  * The resident bot fleet.
  *
- *   npm start                        # 66 per category = 198 bots
+ *   npm start                        # 66 per category = 198 bots, ~75–95% online at once
  *   npm start -- --per-category 10   # a smaller fleet for a local server
  *   npm run dev                      # six per category, for a laptop
+ *   npm test                         # the decision, ranking, persona and chat rules
  *
  * Bots exist so a real player who opens the lobby finds a game in progress
  * rather than three empty tables. They speak only the public protocol.
  */
 import { Bot } from './bot.js';
 import { config, totalBots } from './config.js';
+import { Fleet } from './fleet.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -48,29 +50,24 @@ console.log(
     `${health.players} players, ${health.tables} tables)`,
 );
 console.log(
-  `starting ${totalBots} bots: ${config.perCategory} in each of ` +
-    config.categories.map((c) => `${c.category}/${c.boot}`).join(', '),
+  `fleet of ${totalBots} bots: ${config.perCategory} in each of ` +
+    config.categories.map((c) => `${c.category}/${c.boot}`).join(', ') +
+    (config.steady
+      ? ', all seated for good'
+      : `; ${config.onlineMin}–${config.onlineMax}% online at once, sittings of ~${config.sessionHands} hands, ~${config.restMinutes}m away between them`),
 );
 
 const bots = [];
 let index = 0;
 for (const table of config.categories) {
   for (let n = 0; n < config.perCategory; n += 1) {
-    const bot = new Bot({ index: index++, table, log });
-    bots.push(bot);
-    try {
-      await bot.start();
-    } catch (e) {
-      log(`bot ${bot.identity.name} failed to start: ${e.message}`);
-    }
-    // Staggered on purpose: two hundred logins and websocket handshakes at
-    // once is a thundering herd against the very server this is meant to make
-    // look healthy, and it is the shape an edge filter drops.
-    await sleep(config.startStaggerMs);
+    bots.push(new Bot({ index: index++, table, log }));
   }
 }
 
-console.log(`${bots.length} bots seated.`);
+const fleet = new Fleet({ bots, log });
+await fleet.start();
+console.log(`${fleet.summary()} — the rest are resting and will drift in.`);
 
 // Wandering, so seats keep opening across the lobby rather than in one table.
 if (config.switchEvery > 0) {
@@ -87,8 +84,8 @@ if (config.switchEvery > 0) {
 }
 
 // And, far more rarely, a change of stake — so the three lobby tables are not
-// each the same fixed sixty-six accounts for ever. Only the minority of bots
-// whose persona has a hopRate ever take it.
+// each the same fixed accounts for ever. Only the minority of bots whose
+// persona has a hopRate ever take it.
 if (config.hopEvery > 0) {
   for (const bot of bots) {
     if (!bot.persona.hopRate) continue;
@@ -116,7 +113,8 @@ setInterval(async () => {
     server = ' · server unreachable';
   }
   console.log(
-    `${new Date().toISOString()} fleet ${seated}/${bots.length} seated` +
+    `${new Date().toISOString()} fleet ${seated}/${bots.length} seated, ${fleet.summary()}` +
+      `, ${fleet.arrivals} arrivals ${fleet.departures} sent home` +
       (stopped ? `, ${stopped} retired` : '') +
       (mintedRotations ? `, ${mintedRotations} rotations minted chips` : '') +
       ` · up ${Math.round((Date.now() - startedAt) / 60000)}m` +
@@ -126,6 +124,7 @@ setInterval(async () => {
 
 const shutdown = (signal) => {
   console.log(`${signal}: stopping ${bots.length} bots`);
+  fleet.stop();
   for (const bot of bots) bot.stop();
   // Give the sockets a moment to close cleanly, so seats are released rather
   // than left for the reconnect grace to expire.

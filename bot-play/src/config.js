@@ -18,31 +18,43 @@
  */
 const args = Object.fromEntries(
   process.argv.slice(2).reduce((pairs, token, i, all) => {
-    if (token.startsWith('--')) pairs.push([token.slice(2), all[i + 1] ?? 'true']);
+    if (!token.startsWith('--')) return pairs;
+    const next = all[i + 1];
+    pairs.push([token.slice(2), next === undefined || next.startsWith('--') ? 'true' : next]);
     return pairs;
   }, []),
 );
 
+const envName = (name) => name.toUpperCase().replace(/-/g, '_');
+
 const num = (name, fallback) => {
-  const raw = args[name] ?? process.env[name.toUpperCase().replace(/-/g, '_')];
+  const raw = args[name] ?? process.env[envName(name)];
   if (raw === undefined) return fallback;
   const n = Number.parseInt(raw, 10);
   if (Number.isNaN(n)) throw new Error(`bot-play: ${name} must be a whole number, got ${raw}`);
   return n;
 };
 
-const str = (name, fallback) =>
-  args[name] ?? process.env[name.toUpperCase().replace(/-/g, '_')] ?? fallback;
+const decimal = (name, fallback) => {
+  const raw = args[name] ?? process.env[envName(name)];
+  if (raw === undefined) return fallback;
+  const n = Number.parseFloat(raw);
+  if (Number.isNaN(n)) throw new Error(`bot-play: ${name} must be a number, got ${raw}`);
+  return n;
+};
 
-const flag = (name) => args[name] === 'true' || args[name] === '' ||
-  process.env[name.toUpperCase().replace(/-/g, '_')] === 'true';
+const str = (name, fallback) => args[name] ?? process.env[envName(name)] ?? fallback;
+
+const flag = (name) => args[name] === 'true' || args[name] === '' || process.env[envName(name)] === 'true';
 
 export const config = {
   serverUrl: str('server-url', 'http://127.0.0.1:3000'),
 
   /**
    * Bots per table CATEGORY, not per table — a table seats five, so 66 here
-   * fills about thirteen tables in each of the three lobby categories.
+   * fills about thirteen tables in each of the three lobby categories when
+   * all of them are online. See onlineMin / onlineMax: most of the time only a
+   * share of them are.
    */
   perCategory: num('per-category', 66),
 
@@ -71,6 +83,26 @@ export const config = {
   hopEvery: num('hop-every', 1800),
 
   /**
+   * The share of each category's bots online at once, in percent, drifting
+   * between the two (fleet.js). People come and go: a bot plays a sitting,
+   * gets up, rests, and another comes back. 100/100 is the old always-on fleet.
+   */
+  onlineMin: num('online-min', 75),
+  onlineMax: num('online-max', 95),
+
+  /** Average hands in a sitting before a bot gets up (each persona stays longer or shorter). */
+  sessionHands: num('session-hands', 20),
+
+  /** Average minutes a bot stays away after getting up. */
+  restMinutes: decimal('rest-minutes', 25),
+
+  /** Keeps every bot seated for good: no sittings, no rests (the pre-12 Sep 2026 fleet). */
+  steady: flag('steady'),
+
+  /** Multiplies how often bots talk. 0 silences the fleet. */
+  chatScale: decimal('chat-scale', 1),
+
+  /**
    * How long to wait between starting each bot. Two hundred logins and
    * websocket handshakes fired at once is a thundering herd against the very
    * server the fleet exists to make look healthy.
@@ -78,7 +110,8 @@ export const config = {
   startStaggerMs: num('start-stagger-ms', 250),
 
   /**
-   * What to do when a bot can no longer cover the boot.
+   * What to do when a bot can no longer cover the boot, once the timed bonus
+   * has been tried.
    *
    * "retire" leaves the seat empty and the fleet quietly shrinks — honest, and
    * visible in the log, but the lobby thins out over weeks.
@@ -92,6 +125,9 @@ export const config = {
   onBroke: str('on-broke', 'rotate'),
 
   quiet: flag('quiet'),
+
+  /** Logs every bet a bot makes, with its hand. Noisy; for watching a small fleet. */
+  verbose: flag('verbose'),
 };
 
 export const totalBots = config.perCategory * config.categories.length;
