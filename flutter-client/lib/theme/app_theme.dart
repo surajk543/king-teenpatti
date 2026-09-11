@@ -329,6 +329,25 @@ class AppTheme {
 
   /// A deep casino green, used as the seed for both schemes.
   static const Color _seed = Color(0xFF0F5236);
+
+  /// The back of a card belonging to a player who has looked at theirs.
+  ///
+  /// The same green the scheme is seeded from, so it is the app's own colour
+  /// rather than a new one: a seen hand across the table reads at a glance,
+  /// before the word on the fan has been read (owner's decision, 11 Sep 2026).
+  static const Color cardSeenBack = _seed;
+
+  /// The same green lifted for a dark ground.
+  ///
+  /// [cardSeenBack] is a deep green that all but disappears on the night
+  /// scheme's plaque; this keeps the hue and buys the luminance back.
+  static const Color cardSeenBright = Color(0xFF3FA97A);
+
+  /// Green as *ink*: the deep casino green on parchment, a lifted one on
+  /// charcoal. The counterpart to gold-as-ink, for the one word that says a
+  /// player has looked at their hand.
+  static Color seenInk(Brightness b) =>
+      b == Brightness.dark ? cardSeenBright : cardSeenBack;
   static const Color _gold = Color(0xFFC9A227);
 
   /// The rim around the table, and the accent on chips and stakes.

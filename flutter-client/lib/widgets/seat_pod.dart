@@ -196,7 +196,7 @@ class SeatPod extends StatelessWidget {
         // the same words twice, six lines apart, read as a glitch.
         if (revealedHand != null && s.status != SeatState.won)
           _handName(context, revealedHand!),
-        _cards(s),
+        _cards(context, t, s),
       ],
       // The viewer's badge and total are not in their column: they are drawn
       // over their own cards instead (see _Felt). Their pod stands on the
@@ -205,7 +205,7 @@ class SeatPod extends StatelessWidget {
       // their eye already is.
       if (_inHand(s) && !isMe) ...[
         SizedBox(height: gap),
-        SeatBet(seat: s, width: width),
+        SeatBet(seat: s, width: width, withCategory: false),
       ] else if (status != null) ...[
         SizedBox(height: gap),
         _statusTag(context, s, status),
@@ -528,7 +528,7 @@ class SeatPod extends StatelessWidget {
     );
   }
 
-  Widget _cards(Seat s) {
+  Widget _cards(BuildContext context, Strings t, Seat s) {
     final dim = s.status == SeatState.packed || s.status == SeatState.lost;
     final show = revealed;
     // At a showdown the pod draws the real hand and the card flips where it
@@ -537,7 +537,7 @@ class SeatPod extends StatelessWidget {
     final count = show != null && show.length >= s.cardCount
         ? s.cardCount
         : s.cardCount;
-    return Row(
+    final fan = Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         for (var i = 0; i < count; i++)
@@ -545,8 +545,68 @@ class SeatPod extends StatelessWidget {
             height: width * 0.42,
             dimmed: dim,
             code: show != null && i < show.length ? show[i] : null,
+            // Green backs say this player has looked at their hand, which is
+            // the one thing about an opponent that changes how you bet. Not
+            // while they are out of it: a packed seat's cards are history.
+            tint: !s.isBlind && _inHand(s) ? AppTheme.cardSeenBack : null,
           ),
       ],
+    );
+
+    // BLIND / SEEN rides on the hand it describes, and only while there is a
+    // hand to describe: face-up cards at a showdown or a sideshow peek are the
+    // answer to the same question, and a capsule over them would be covering
+    // the very thing the player leaned in to read.
+    if (show != null || !_inHand(s)) return fan;
+
+    return Stack(
+      alignment: Alignment.center,
+      children: [fan, _category(context, t, s)],
+    );
+  }
+
+  /// Whether this seat is playing blind, laid over their cards.
+  ///
+  /// It used to be the first word of the badge under the pod. Moved here it
+  /// says the same thing about the same object while the badge is left to be
+  /// what it always mostly was — a chip and a figure.
+  Widget _category(BuildContext context, Strings t, Seat s) {
+    final theme = Theme.of(context);
+    final dark = theme.brightness == Brightness.dark;
+    final ink = dark ? AppTheme.boneInk : AppTheme.inkOnLight;
+    // SEEN is written in the same green their cards have turned, so the word
+    // and the backs under it are one signal rather than two. BLIND keeps the
+    // quiet ink: green here means exactly one thing, and saying it of both
+    // would mean nothing.
+    final seen = !s.isBlind;
+
+    return Container(
+      padding: EdgeInsets.symmetric(
+        horizontal: width * 0.055,
+        vertical: width * 0.018,
+      ),
+      decoration: BoxDecoration(
+        // The badge's own capsule, at the badge's own size: the two carry one
+        // seat's state between them and should not read as two materials.
+        color: AppTheme.plaque(theme.brightness).withValues(alpha: 0.88),
+        borderRadius: BorderRadius.circular(width * 0.08),
+        border: Border.all(color: AppTheme.hairlineColour(theme.brightness)),
+      ),
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        child: Text(
+          seen ? t.seen : t.blind,
+          maxLines: 1,
+          style: AppTheme.label(
+            theme.textTheme.labelMedium!,
+            fontSize: math.max(_kBadgeFloor, width * _kBadge),
+            colour: seen
+                ? AppTheme.seenInk(theme.brightness)
+                : ink.withValues(alpha: AppTheme.inkMed),
+            weight: seen ? FontWeight.w800 : FontWeight.w600,
+          ),
+        ),
+      ),
     );
   }
 
@@ -581,8 +641,9 @@ class SeatPod extends StatelessWidget {
     BuildContext context,
     Strings t,
     Seat s,
-    double width,
-  ) {
+    double width, {
+    required bool withCategory,
+  }) {
     final theme = Theme.of(context);
     final dark = theme.brightness == Brightness.dark;
     final label = s.isBlind ? t.blind : t.seen;
@@ -635,17 +696,18 @@ class SeatPod extends StatelessWidget {
                     // translated and stays in its natural case, the figure is
                     // money and gets tabular digits so it does not jitter as
                     // it counts.
-                    Text(
-                      label,
-                      maxLines: 1,
-                      style: AppTheme.label(
-                        theme.textTheme.labelMedium!,
-                        fontSize: size,
-                        colour: ink.withValues(alpha: AppTheme.inkMed),
+                    if (withCategory)
+                      Text(
+                        label,
+                        maxLines: 1,
+                        style: AppTheme.label(
+                          theme.textTheme.labelMedium!,
+                          fontSize: size,
+                          colour: ink.withValues(alpha: AppTheme.inkMed),
+                        ),
                       ),
-                    ),
                     if (s.lastBet > 0) ...[
-                      SizedBox(width: width * 0.04),
+                      if (withCategory) SizedBox(width: width * 0.04),
                       Text(
                         formatChips(s.lastBet),
                         maxLines: 1,
@@ -1172,6 +1234,7 @@ class SeatBet extends StatelessWidget {
     required this.seat,
     required this.width,
     this.totalFirst = false,
+    this.withCategory = true,
   });
 
   final Seat seat;
@@ -1188,6 +1251,14 @@ class SeatBet extends StatelessWidget {
   /// the same size as everybody else's rather than sized to its new home.
   final double width;
 
+  /// Whether the badge still opens with the word BLIND or SEEN.
+  ///
+  /// True for the viewer only. A rim seat wears that word over its cards
+  /// instead (owner's decision, 11 Sep 2026), which leaves the badge under the
+  /// pod as a chip and a figure — the two things a player is counting when
+  /// they look across the table.
+  final bool withCategory;
+
   @override
   Widget build(BuildContext context) {
     final t = context.watch<GameState>().t;
@@ -1196,18 +1267,30 @@ class SeatBet extends StatelessWidget {
     final total = seat.contributed > 0
         ? SeatPod._total(context, t, seat, width)
         : null;
-    final badge = SeatPod._lastBet(context, t, seat, width);
+    // Without the word, a seat that has not bet yet would leave a capsule
+    // holding one chip and nothing else — an empty box rather than a fact.
+    // The word was carrying it; now the figure has to, and until there is one
+    // the badge stands down and `In Pot` speaks for the seat.
+    final badge = withCategory || seat.lastBet > 0
+        ? SeatPod._lastBet(
+            context,
+            t,
+            seat,
+            width,
+            withCategory: withCategory,
+          )
+        : null;
 
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: totalFirst
           ? [
-              if (total != null) ...[total, gap],
-              badge,
+              if (total != null) ...[total, if (badge != null) gap],
+              ?badge,
             ]
           : [
-              badge,
-              if (total != null) ...[gap, total],
+              if (badge != null) ...[badge, if (total != null) gap],
+              ?total,
             ],
     );
   }

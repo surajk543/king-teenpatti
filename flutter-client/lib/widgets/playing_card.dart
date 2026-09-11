@@ -24,6 +24,7 @@ class PlayingCard extends StatefulWidget {
     this.code,
     this.height = 96,
     this.dimmed = false,
+    this.tint,
   });
 
   /// A server card code such as "As" or "Td". Null means face down.
@@ -33,6 +34,14 @@ class PlayingCard extends StatefulWidget {
   /// Packed players' cards are dimmed rather than removed, so the seat still
   /// reads as "was in this hand".
   final bool dimmed;
+
+  /// Recolours the BACK, leaving the artwork's own light and shade alone.
+  ///
+  /// [BlendMode.color] takes the hue and saturation from this and the
+  /// luminosity from the printed back, so the crown and the bevel survive the
+  /// change — a flat fill would paint over both. A face is never tinted: a
+  /// card that is showing has already answered the question this asks.
+  final Color? tint;
 
   /// The card-back artwork's own ratio, which is the standard 5:7.
   static const double aspect = 240 / 336;
@@ -229,6 +238,9 @@ class _PlayingCardState extends State<PlayingCard>
               fit: BoxFit.fill,
               width: h * PlayingCard.aspect,
               height: h,
+              colorFilter: widget.tint == null
+                  ? null
+                  : ColorFilter.mode(widget.tint!, BlendMode.color),
             ),
             ?_sheen(sheen),
           ],
