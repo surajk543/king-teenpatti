@@ -187,6 +187,8 @@ class Strings {
   String get themeLight => _('themeLight');
   String get waitingForPlayers => _('waitingForPlayers');
   String get startingGame => _('startingGame');
+  String buyChipsToStay(int seconds) =>
+      _('buyChipsToStay').replaceAll('{seconds}', '$seconds');
   String get youAreWinner => _('youAreWinner');
   String get isTheWinner => _('isTheWinner');
 
@@ -380,6 +382,7 @@ class Strings {
       'themeLight': 'Light',
       'waitingForPlayers': 'Waiting for players',
       'startingGame': 'Starting game…',
+      'buyChipsToStay': 'Buy chips in {seconds}s to keep your seat',
       'youAreWinner': 'You are the winner',
       'isTheWinner': 'is the winner',
       'leaveTable': 'Leave table',
@@ -563,6 +566,7 @@ class Strings {
       'themeLight': 'लाइट',
       'waitingForPlayers': 'खिलाड़ियों का इंतज़ार',
       'startingGame': 'खेल शुरू हो रहा है…',
+      'buyChipsToStay': 'सीट बचाने के लिए {seconds} सेकंड में चिप्स खरीदें',
       'youAreWinner': 'आप जीत गए',
       'isTheWinner': 'जीत गए',
       'leaveTable': 'टेबल छोड़ें',
@@ -746,6 +750,7 @@ class Strings {
       'themeLight': 'লাইট',
       'waitingForPlayers': 'খেলোয়াড়ের অপেক্ষা',
       'startingGame': 'খেলা শুরু হচ্ছে…',
+      'buyChipsToStay': 'আসন রাখতে {seconds} সেকেন্ডের মধ্যে চিপস কিনুন',
       'youAreWinner': 'আপনি জিতেছেন',
       'isTheWinner': 'জিতেছেন',
       'leaveTable': 'টেবিল ছাড়ুন',
@@ -930,6 +935,7 @@ class Strings {
       'themeLight': 'લાઇટ',
       'waitingForPlayers': 'ખેલાડીઓની રાહ',
       'startingGame': 'રમત શરૂ થાય છે…',
+      'buyChipsToStay': 'સીટ રાખવા {seconds} સેકન્ડમાં ચિપ્સ ખરીદો',
       'youAreWinner': 'તમે જીત્યા',
       'isTheWinner': 'જીત્યા',
       'leaveTable': 'ટેબલ છોડો',
@@ -1112,6 +1118,7 @@ class Strings {
       'themeLight': 'ਲਾਈਟ',
       'waitingForPlayers': 'ਖਿਡਾਰੀਆਂ ਦੀ ਉਡੀਕ',
       'startingGame': 'ਖੇਡ ਸ਼ੁਰੂ ਹੋ ਰਹੀ ਹੈ…',
+      'buyChipsToStay': 'ਸੀਟ ਰੱਖਣ ਲਈ {seconds} ਸਕਿੰਟ ਵਿੱਚ ਚਿਪਸ ਖਰੀਦੋ',
       'youAreWinner': 'ਤੁਸੀਂ ਜਿੱਤ ਗਏ',
       'isTheWinner': 'ਜਿੱਤ ਗਏ',
       'leaveTable': 'ਟੇਬਲ ਛੱਡੋ',

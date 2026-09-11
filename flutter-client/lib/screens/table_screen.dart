@@ -1139,7 +1139,11 @@ class _Felt extends StatelessWidget {
               at(
                 const Offset(0.5, _statusDy),
                 _Status(room: room),
-                width: w * 0.4,
+                // Narrower than it looks like it needs to be: at this height
+                // the line sits between the two top seats, whose pods paint
+                // over it, so a long line (the buy-chips countdown) has to
+                // shrink into the gap instead of running under them.
+                width: w * 0.28,
               ),
 
               for (var i = 1; i < _places.length; i++) at(_places[i], pod(i)),
@@ -2257,7 +2261,12 @@ class _Status extends StatelessWidget {
       _ => '',
     };
 
-    if (text.isEmpty) return const SizedBox.shrink();
+    // A seat the table is holding for a chip purchase outranks the rest: it
+    // is the one line here with the player's own seat riding on it.
+    final graceLeft = room.you?.unfundedSecondsLeft(DateTime.now());
+    final line = graceLeft != null ? state.t.buyChipsToStay(graceLeft) : text;
+
+    if (line.isEmpty) return const SizedBox.shrink();
 
     final mine = state.myTurn && room.state == TableState.betting;
     final base = theme.textTheme.titleSmall ?? const TextStyle();
@@ -2278,14 +2287,18 @@ class _Status extends StatelessWidget {
       child: FittedBox(
         // Keyed on the sentence, so one line cross-fades into the next rather
         // than snapping. A player's name is in it, so it keeps its own case.
-        key: ValueKey(text),
+        // The countdown keeps one key, so its ticking seconds do not
+        // cross-fade the line every second.
+        key: ValueKey(graceLeft != null ? 'unfunded-grace' : line),
         fit: BoxFit.scaleDown,
         child: Text(
-          text,
+          line,
           style:
               AppTheme.label(
                 base,
-                colour: mine
+                colour: graceLeft != null
+                    ? AppTheme.amber
+                    : mine
                     ? AppTheme.goldBright
                     : AppTheme.boneInk.withValues(alpha: 0.82),
                 weight: FontWeight.w700,

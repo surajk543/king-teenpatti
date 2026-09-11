@@ -494,6 +494,7 @@ class You {
     required this.maxMissedTurns,
     required this.cards,
     required this.options,
+    this.unfundedDeadline,
   });
 
   final int seatIndex;
@@ -522,6 +523,18 @@ class You {
   final List<String> cards;
   final TurnOptions? options;
 
+  /// Epoch ms. Set while this player cannot cover the boot and the table is
+  /// holding their seat for a chip purchase; the seat goes when it passes.
+  final int? unfundedDeadline;
+
+  /// Whole seconds left of that grace, or null when there is none.
+  int? unfundedSecondsLeft(DateTime now) {
+    final deadline = unfundedDeadline;
+    if (deadline == null) return null;
+    final ms = deadline - now.millisecondsSinceEpoch;
+    return ms <= 0 ? 0 : (ms / 1000).ceil();
+  }
+
   factory You.fromJson(Map<String, dynamic> j) => You(
         seatIndex: _int(j['seatIndex']),
         chips: _int(j['chips']),
@@ -536,6 +549,8 @@ class You {
         options: j['options'] is Map
             ? TurnOptions.fromJson(Map<String, dynamic>.from(j['options'] as Map))
             : null,
+        unfundedDeadline:
+            j['unfundedDeadline'] == null ? null : _int(j['unfundedDeadline']),
       );
 }
 
