@@ -15,6 +15,7 @@ import '../net/connection_failure.dart';
 import '../net/game_connection.dart';
 import '../net/purchases.dart';
 import '../net/social_sign_in.dart';
+import 'consent.dart';
 
 enum Screen { splash, update, login, lobby, table }
 
@@ -89,6 +90,12 @@ class GameState extends ChangeNotifier {
   String? loginError;
   String? notice;
   bool busy = false;
+
+  /// True while the signed-in player has yet to confirm that they expect no
+  /// money or other enrichment from playing. The game is held behind that
+  /// statement until they do; [acceptConsent] records it for this account
+  /// ([NoWinningsConsent]) and it is never asked of them again on this device.
+  bool consentPending = false;
 
   /// True from a cold start with a saved session until the server has either
   /// put the player back at their table or made clear there is none to go
@@ -248,6 +255,9 @@ class GameState extends ChangeNotifier {
       try {
         user = await _api.me(saved);
         next = Screen.lobby;
+        // An install that signed in before the statement existed meets it on
+        // its next launch, once, like everyone else.
+        await loadConsent(prefs);
         // If the app was closed mid-hand the seat may still be held, or the
         // table remembered; either way the answer comes with the connection,
         // which starts now, behind the splash.
@@ -566,6 +576,7 @@ class GameState extends ChangeNotifier {
 
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('token', r.token);
+      await loadConsent(prefs);
 
       if (r.isNew && r.welcomeChips > 0) {
         notice =
@@ -618,6 +629,7 @@ class GameState extends ChangeNotifier {
 
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('token', r.token);
+      await loadConsent(prefs);
 
       if (r.isNew && r.welcomeChips > 0) {
         notice =
@@ -653,7 +665,29 @@ class GameState extends ChangeNotifier {
     room = null;
     seatedAt = null;
     user = null;
+    consentPending = false;
     screen = Screen.login;
+    notifyListeners();
+  }
+
+  /// Works out whether [user] still owes the no-winnings confirmation.
+  ///
+  /// Called wherever a session begins — both sign-in doors and the saved
+  /// session a cold start restores — so the statement stands in front of the
+  /// game whichever way the player arrived, and only if this account has not
+  /// confirmed it on this device before.
+  Future<void> loadConsent([SharedPreferences? prefs]) async {
+    consentPending = await NoWinningsConsent.isPending(user?.id, prefs);
+  }
+
+  /// Records the confirmation for this account and lets the game open.
+  ///
+  /// Written before the flag clears, so a crash between the two leaves the
+  /// player asked again rather than never asked.
+  Future<void> acceptConsent() async {
+    final id = user?.id;
+    if (id != null) await NoWinningsConsent.record(id);
+    consentPending = false;
     notifyListeners();
   }
 

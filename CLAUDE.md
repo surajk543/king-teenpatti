@@ -697,7 +697,15 @@ Production's lives at `/var/www/gameplay/king-teenpatti/go-server/.env` (`PG_POO
   `j['state']` branch is dead code (server sends no `state` there).
 - DTOs (`dtos.dart`): `const` classes + tolerant `fromJson`; server enums as `static const String`
   classes; `Seat.chips` **nullable** (null = withheld, never 0).
-- SharedPreferences: `deviceId`, `token`, `darkMode`, `lang`, `numbers`.
+- SharedPreferences: `deviceId`, `token`, `darkMode`, `lang`, `numbers`, `noWinningsAck:<userId>`.
+- **No-winnings confirmation** (`state/consent.dart`, `_ConsentGate` in `main.dart`, added 11 Sep 2026):
+  after sign-in (either door, or a restored session) the lobby/table is covered by a panel — "I confirm
+  that I do not have any expectations of winning any monetary or other enrichment from playing this
+  game." — until the player taps *I confirm*. `GameState.consentPending` gates it; `loadConsent()` runs
+  at every session start, `acceptConsent()` writes `noWinningsAck:<userId>` so that **account** is never
+  asked again on that device (quit, relaunch, resume included). Keyed per account, not per device: a
+  second account on the same phone is asked once for itself. Client-only, nothing goes to the server.
+  Not shown over the update screen. Back while it is up = the usual quit question. `test/consent_test.dart`.
 
 ### 8.2 GameState essentials
 New hand = `handNo` changed → clears celebration/sideshow reveal, resets `raiseIndex`. **The

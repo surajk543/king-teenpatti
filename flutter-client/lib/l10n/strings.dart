@@ -202,6 +202,12 @@ class Strings {
   String get cancel => _('cancel');
   String get joinAnother => _('joinAnother');
 
+  // --- the one-time no-winnings confirmation after sign-in
+  String get consentTitle => _('consentTitle');
+  String get consentBody => _('consentBody');
+  String get consentNote => _('consentNote');
+  String get consentAccept => _('consentAccept');
+
   // --- rules
   String get rules => _('rules');
   String get rulesTitle => _('rulesTitle');
@@ -384,6 +390,12 @@ class Strings {
       'quitGameBody': 'You can come back any time — your chips are saved.',
       'quit': 'Quit',
       'cancel': 'Cancel',
+      'consentTitle': 'Before you play',
+      'consentBody':
+          'I confirm that I do not have any expectations of winning any monetary or other enrichment from playing this game.',
+      'consentNote':
+          'This game is for entertainment only. Chips have no cash value and cannot be exchanged for money or anything else.',
+      'consentAccept': 'I confirm',
       'joinAnother': 'You can join another straight away',
       'rules': 'Rules',
       'rulesTitle': 'Card ranking',
@@ -557,6 +569,12 @@ class Strings {
       'quitGameBody': 'आप कभी भी लौट सकते हैं — आपके चिप्स सुरक्षित हैं।',
       'quit': 'बंद करें',
       'cancel': 'रद्द करें',
+      'consentTitle': 'खेलने से पहले',
+      'consentBody':
+          'मैं पुष्टि करता/करती हूँ कि इस गेम को खेलने से मुझे किसी भी तरह का पैसा या अन्य लाभ जीतने की कोई अपेक्षा नहीं है।',
+      'consentNote':
+          'यह गेम केवल मनोरंजन के लिए है। चिप्स का कोई नकद मूल्य नहीं है और इन्हें पैसे या किसी और चीज़ से बदला नहीं जा सकता।',
+      'consentAccept': 'पुष्टि करें',
       'joinAnother': 'आप तुरंत दूसरी टेबल पर जुड़ सकते हैं',
       'rules': 'नियम',
       'rulesTitle': 'पत्तों की रैंकिंग',
@@ -730,6 +748,12 @@ class Strings {
       'quitGameBody': 'যে কোনো সময় ফিরে আসতে পারেন — আপনার চিপ সংরক্ষিত।',
       'quit': 'বন্ধ করুন',
       'cancel': 'বাতিল',
+      'consentTitle': 'খেলার আগে',
+      'consentBody':
+          'আমি নিশ্চিত করছি যে এই গেম খেলে কোনো অর্থ বা অন্য কোনো লাভ জেতার কোনো প্রত্যাশা আমার নেই।',
+      'consentNote':
+          'এই গেম শুধুমাত্র বিনোদনের জন্য। চিপের কোনো নগদ মূল্য নেই এবং টাকা বা অন্য কিছুর বিনিময়ে বদলানো যায় না।',
+      'consentAccept': 'নিশ্চিত করছি',
       'joinAnother': 'আপনি সঙ্গে সঙ্গে অন্য টেবিলে যোগ দিতে পারেন',
       'rules': 'নিয়ম',
       'rulesTitle': 'তাসের র‍্যাঙ্কিং',
@@ -905,6 +929,12 @@ class Strings {
           'તમે ગમે ત્યારે પાછા આવી શકો છો — તમારા ચિપ્સ સચવાયેલા છે.',
       'quit': 'બંધ કરો',
       'cancel': 'રદ કરો',
+      'consentTitle': 'રમતા પહેલાં',
+      'consentBody':
+          'હું પુષ્ટિ કરું છું કે આ ગેમ રમીને મને કોઈ પૈસા કે અન્ય લાભ જીતવાની કોઈ અપેક્ષા નથી.',
+      'consentNote':
+          'આ ગેમ માત્ર મનોરંજન માટે છે. ચિપ્સનું કોઈ રોકડ મૂલ્ય નથી અને તેને પૈસા કે બીજી કોઈ વસ્તુ સાથે બદલી શકાતી નથી.',
+      'consentAccept': 'પુષ્ટિ કરું છું',
       'joinAnother': 'તમે તરત જ બીજા ટેબલ પર જોડાઈ શકો છો',
       'rules': 'નિયમો',
       'rulesTitle': 'પત્તાંની રેન્કિંગ',
@@ -1076,6 +1106,12 @@ class Strings {
       'quitGameBody': 'ਤੁਸੀਂ ਕਦੇ ਵੀ ਵਾਪਸ ਆ ਸਕਦੇ ਹੋ — ਤੁਹਾਡੇ ਚਿਪਸ ਸੁਰੱਖਿਅਤ ਹਨ।',
       'quit': 'ਬੰਦ ਕਰੋ',
       'cancel': 'ਰੱਦ ਕਰੋ',
+      'consentTitle': 'ਖੇਡਣ ਤੋਂ ਪਹਿਲਾਂ',
+      'consentBody':
+          'ਮੈਂ ਪੁਸ਼ਟੀ ਕਰਦਾ/ਕਰਦੀ ਹਾਂ ਕਿ ਇਹ ਗੇਮ ਖੇਡ ਕੇ ਮੈਨੂੰ ਕੋਈ ਪੈਸਾ ਜਾਂ ਹੋਰ ਲਾਭ ਜਿੱਤਣ ਦੀ ਕੋਈ ਉਮੀਦ ਨਹੀਂ ਹੈ।',
+      'consentNote':
+          'ਇਹ ਗੇਮ ਸਿਰਫ਼ ਮਨੋਰੰਜਨ ਲਈ ਹੈ। ਚਿਪਸ ਦੀ ਕੋਈ ਨਕਦ ਕੀਮਤ ਨਹੀਂ ਹੈ ਅਤੇ ਇਹਨਾਂ ਨੂੰ ਪੈਸੇ ਜਾਂ ਕਿਸੇ ਹੋਰ ਚੀਜ਼ ਨਾਲ ਬਦਲਿਆ ਨਹੀਂ ਜਾ ਸਕਦਾ।',
+      'consentAccept': 'ਪੁਸ਼ਟੀ ਕਰੋ',
       'joinAnother': 'ਤੁਸੀਂ ਤੁਰੰਤ ਕਿਸੇ ਹੋਰ ਟੇਬਲ ਉੱਤੇ ਜੁੜ ਸਕਦੇ ਹੋ',
       'rules': 'ਨਿਯਮ',
       'rulesTitle': 'ਪੱਤਿਆਂ ਦੀ ਰੈਂਕਿੰਗ',

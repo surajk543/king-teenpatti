@@ -104,6 +104,13 @@ class _Root extends StatelessWidget {
     final resuming = context.select<GameState, bool>(
       (s) => s.resuming && s.screen != Screen.splash,
     );
+    // Only over the game itself: the update screen outranks it, and there is
+    // nobody to ask on the splash or the sign-in screen.
+    final consent = context.select<GameState, bool>(
+      (s) =>
+          s.consentPending &&
+          (s.screen == Screen.lobby || s.screen == Screen.table),
+    );
 
     return _NoticeHost(
       child: Stack(
@@ -136,8 +143,130 @@ class _Root extends StatelessWidget {
                   : const SizedBox.shrink(key: ValueKey('no-veil')),
             ),
           ),
+          // Above the resume veil: a player being returned to their table can
+          // read and confirm the statement while the table resolves behind it,
+          // and the game stays covered until they have.
+          IgnorePointer(
+            ignoring: !consent,
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 380),
+              child: consent
+                  ? const _ConsentGate(key: ValueKey('consent-gate'))
+                  : const SizedBox.shrink(key: ValueKey('no-consent')),
+            ),
+          ),
         ],
       ),
+    );
+  }
+}
+
+/// The one-time statement that stands between sign-in and the game: the
+/// player confirms they expect no money or other enrichment from playing.
+///
+/// A layer in the root stack rather than a `showDialog` route, so it cannot
+/// be dismissed by a tap outside, survives the screen changing underneath it
+/// (a table snapshot arriving during a resume), and needs no navigator
+/// bookkeeping. The only way past it is the button; back offers to quit the
+/// app, as it does anywhere else off the table. Shown once per account on
+/// this device ([GameState.consentPending]).
+class _ConsentGate extends StatelessWidget {
+  const _ConsentGate({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final lang = context.select<GameState, AppLang>((s) => s.lang);
+    final t = Strings(lang);
+    final width = MediaQuery.sizeOf(context).width;
+
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        // A tint, not a blur: the panel takes the one blur lease itself, and
+        // the lobby's drifting chips behind it would re-blur every frame.
+        ColoredBox(
+          color: AppTheme.ground(theme.brightness).withValues(alpha: 0.72),
+        ),
+        Center(
+          // Scrolls: three lines of Bengali at the 1.25 text-scale ceiling on
+          // a 360dp-tall phone is exactly the panel that must not overflow.
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(
+              horizontal: Space.xl,
+              vertical: Space.lg,
+            ),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(maxWidth: Dim.dialogW(width)),
+              child: Material(
+                type: MaterialType.transparency,
+                child: PremiumGlassPanel(
+                  mode: GlassMode.auto,
+                  priority: 20,
+                  radius: Radii.lg,
+                  padding: const EdgeInsets.all(Space.xl),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.verified_user_outlined,
+                            size: 20,
+                            color: scheme.primary,
+                          ),
+                          const SizedBox(width: Space.md),
+                          Expanded(
+                            child: Text(
+                              t.consentTitle,
+                              style: AppTheme.label(
+                                theme.textTheme.titleMedium ??
+                                    const TextStyle(),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: Space.md),
+                      // The statement itself, in full ink: it is what the
+                      // button below confirms, so it is not to be read as a
+                      // caption.
+                      Text(
+                        t.consentBody,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: scheme.onSurface,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      const SizedBox(height: Space.md),
+                      Text(
+                        t.consentNote,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: scheme.onSurface.withValues(
+                            alpha: AppTheme.inkMed,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: Space.xl),
+                      FilledButton.icon(
+                        onPressed: () =>
+                            context.read<GameState>().acceptConsent(),
+                        icon: const Icon(Icons.check_rounded),
+                        label: Text(t.consentAccept),
+                        style: FilledButton.styleFrom(
+                          minimumSize: const Size.fromHeight(52),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
