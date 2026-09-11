@@ -914,6 +914,21 @@ class _Felt extends StatelessWidget {
     final myReveal = state.showdown
         .where((r) => r.userId == state.user?.id)
         .firstOrNull;
+    // A sideshow names the hand that won it and nothing else. Both hands still
+    // turn over where they sit, but a ranking over the loser's read as if that
+    // were the result. The reveal itself says who was packed, so the label is
+    // right from the first frame rather than after the snapshot that packs them.
+    final sideshow = state.sideshowReveal;
+    bool wonSideshow(String? userId) =>
+        userId != null &&
+        sideshow?.packedUserId != null &&
+        sideshow!.packedUserId != userId;
+    final myPeek = sideshow?.hands
+        .where((h) => h.userId == state.user?.id)
+        .firstOrNull;
+    final ownHandName =
+        myReveal?.handName ??
+        (wonSideshow(myPeek?.userId) ? myPeek?.handName : null);
     final turnSeat = room.turn?.seatIndex;
     final progress = state.turnProgress;
     final pad = Dim.feltPad(MediaQuery.sizeOf(context).width);
@@ -983,8 +998,20 @@ class _Felt extends StatelessWidget {
 
             return SeatPod(
               revealed: reveal?.cards ?? peek?.cards,
-              revealedHand: reveal?.handName ?? peek?.handName,
+              revealedHand:
+                  reveal?.handName ??
+                  (wonSideshow(peek?.userId) ? peek?.handName : null),
               seat: s,
+              // The orb leaks towards open felt: away from the rail on the left
+              // seat, off the top edge for the top two, and away from the
+              // screen edge on the right seat. The viewer's stays inside their
+              // glass — the missed-turns plate and their own cards leave it
+              // nowhere to go (on TP_Small it lay under the plate).
+              orbCorner: viewIndex == 0
+                  ? OrbCorner.contained
+                  : viewIndex.isOdd
+                  ? OrbCorner.topRight
+                  : OrbCorner.topLeft,
               isMe: s?.userId != null && s!.userId == state.user?.id,
               isDealer: s?.seatIndex == room.dealerSeat,
               onTurn: onTurn(s),
@@ -1145,9 +1172,10 @@ class _Felt extends StatelessWidget {
                   children: [
                     // The viewer's own hand name at a showdown, over their
                     // cards, so the seat that matters most to them is not the
-                    // one seat that has to work out what it won with.
-                    if (myReveal?.handName != null) ...[
-                      _OwnHandName(name: myReveal!.handName),
+                    // one seat that has to work out what it won with — and
+                    // after a sideshow they won, which it names the same way.
+                    if (ownHandName != null) ...[
+                      _OwnHandName(name: ownHandName),
                       const SizedBox(height: Space.xxs),
                     ],
                     if (seats.isNotEmpty && seats[0] != null && handLive) ...[
@@ -3740,7 +3768,22 @@ class _DealFlightsState extends State<_DealFlights>
     with SingleTickerProviderStateMixin {
   static const _cardsEach = 3;
 
-  late final AnimationController _run =
+  /// Created by the first deal, never in advance — and never by [dispose].
+  ///
+  /// A table left before any hand is dealt (the player sat alone and walked
+  /// away) never touched this, so as a `late final` its first read was
+  /// `dispose()`, which ran the initialiser mid-teardown. A ticker needs a
+  /// TickerMode lookup, that lookup is illegal on a deactivated element, and
+  /// the throw stopped `_InactiveElements._unmount` half-way: the table's
+  /// scaffold was left half-unmounted, and the NEXT table to mount reused its
+  /// GlobalKey and died on an `_ElementLifecycle` assertion — a red screen on
+  /// the table joined after the one left. The same trap as `_TurnRing` in
+  /// seat_pod.dart. Keep the null check.
+  AnimationController? _controller;
+
+  AnimationController get _run => _controller ??= _createRun();
+
+  AnimationController _createRun() =>
       AnimationController(
         vsync: this,
         // Slower than feels necessary on paper. Dealing is the moment the hand
@@ -3758,7 +3801,7 @@ class _DealFlightsState extends State<_DealFlights>
 
   @override
   void dispose() {
-    _run.dispose();
+    _controller?.dispose();
     super.dispose();
   }
 

@@ -11,6 +11,7 @@ import '../models/dtos.dart';
 import '../state/game_state.dart';
 import '../theme/app_theme.dart';
 import '../theme/theme_colors.dart';
+import '../widgets/glass_orb.dart';
 import '../widgets/avatar.dart';
 import '../widgets/buy_chips.dart';
 import '../widgets/feedback_toggles.dart';
@@ -39,12 +40,27 @@ import '../widgets/table_ground.dart';
 /// backdrop that is dirty every frame is a blur every frame.
 /// Champagne reads as gold on charcoal and as mud on parchment, so every gold
 /// figure in the lobby routes through here rather than naming a constant.
+Color _goldInk(Brightness b) =>
+    b == Brightness.dark ? AppTheme.goldBright : AppTheme.goldDeep;
+
+/// Where a lobby card's orb sits, as a square in the card's own coordinates.
 ///
-/// `onCloth` is the exception the table cards need: their ground is baize,
-/// which is dark in BOTH schemes, so the deep gold picked for a pale panel
-/// goes dim on them.
-Color _goldInk(Brightness b, {bool onCloth = false}) =>
-    b == Brightness.dark || onCloth ? AppTheme.goldBright : AppTheme.goldDeep;
+/// Only the first card may spill left: each card is painted after the one
+/// before it, so an orb reaching left would lie on top of its neighbour rather
+/// than behind it. Vertically it passes the card by no more than the rail's own
+/// padding, or the rail would cut it off.
+Rect _orbPlace(int index, double s) {
+  final (cx, cy, d) = index == 0
+      ? (0.10, 0.64, 0.74)
+      : index.isOdd
+      ? (0.88, 0.34, 0.74)
+      : (0.90, 0.65, 0.76);
+  return Rect.fromCenter(
+    center: Offset(cx * s, cy * s),
+    width: d * s,
+    height: d * s,
+  );
+}
 
 /// Which panel the right-hand drawer is currently showing. A Scaffold has only
 /// one end drawer, and both of these belong on that side.
@@ -123,8 +139,9 @@ class _LobbyScreenState extends State<LobbyScreen> {
                               children: [
                                 // The server decides which rooms exist and in
                                 // what order; this only draws the list it sent.
-                                for (final table in state.config.tables)
-                                  entering(_TableCard(table: table)),
+                                for (final (i, table)
+                                    in state.config.tables.indexed)
+                                  entering(_TableCard(table: table, index: i)),
                                 entering(const _PrivateCard()),
                               ],
                             ),
@@ -704,11 +721,14 @@ class _BarActions extends StatelessWidget {
 /// the crest bled into the corner, the wash through the body and the two-tone
 /// rim, so the room a player lands in is recognisably the card they tapped.
 class _TableCard extends StatelessWidget {
-  const _TableCard({required this.table});
+  const _TableCard({required this.table, required this.index});
 
   /// The room as the server described it — stake, category and the rules the
   /// card states, all from the one source.
   final LobbyTable table;
+
+  /// Where the card sits in the rail, which decides where its orb sits.
+  final int index;
 
   String get category => table.category;
   int get boot => table.bootAmount;
@@ -719,6 +739,7 @@ class _TableCard extends StatelessWidget {
     final scheme = theme.colorScheme;
     final text = theme.textTheme;
     final brightness = theme.brightness;
+    final glass = GlassColors.of(context);
     final state = context.watch<GameState>();
     final t = state.t;
     final blind = category == TableCategory.blind;
@@ -766,40 +787,39 @@ class _TableCard extends StatelessWidget {
               final ctaH = (s * 0.125).clamp(28.0, 38.0);
               final blurbSize = (s * 0.047).clamp(11.5, 15.0);
 
-              return PremiumSurface(
-                accent: capped ? scheme.outlineVariant : accent,
-                glint: !capped,
-                tint: capped ? null : palette.tint,
-                // The card is a swatch of the room it opens: the same baize,
-                // mixed by the same function, so tapping the purple card lands
-                // you on purple cloth. A capped table keeps the flat panel —
-                // it is not a room you can enter.
-                cloth: capped ? null : accent,
-                // The card wears the table's own rim instead of the house
-                // bevel, and blooms for nothing: a bloom is reserved for the
-                // moment the game does something.
-                bevel: 0,
-                bloom: 0,
-                child: Stack(
-                  children: [
-                    Positioned.fill(
-                      child: IgnorePointer(
-                        child: Align(
-                          alignment: const Alignment(1.5, -0.95),
-                          child: Icon(
-                            palette.icon,
-                            size: s * 0.66,
-                            color: accent.withValues(
-                              alpha: capped
-                                  ? 0.04
-                                  : (brightness == Brightness.dark
-                                        ? 0.10
-                                        : 0.08),
+              // Glass, not the table's cloth (owner's decision, 11 Sep 2026): the
+              // lobby sits on the same obsidian / frosted-ice ground as every
+              // other covering surface, and the stake, the badge and the chips
+              // carry the table's colour instead of a whole painted card.
+              // Tinted rather than blurred: the drifting chips behind the rail
+              // move every frame, and a live blur there would be three
+              // full-card blurs per frame on the one GlassBudget lease.
+              final colours = orbColours(accent);
+              final orb = _orbPlace(index, s);
+              final dark = brightness == Brightness.dark;
+              final panel = PremiumGlassPanel(
+                mode: GlassMode.tinted,
+                padding: EdgeInsets.zero,
+                // Frosted: the theme's panel lifted toward white, the grey a
+                // dark room turns behind real glass.
+                tint: capped ? null : Colors.white,
+                behind: capped
+                    ? null
+                    : Stack(
+                        children: [
+                          Positioned.fromRect(
+                            rect: orb,
+                            child: GlassOrb(
+                              colours: colours,
+                              size: orb.width,
+                              soft: true,
+                              opacity: dark ? 0.62 : 0.46,
                             ),
                           ),
-                        ),
+                        ],
                       ),
-                    ),
+                child: Stack(
+                  children: [
                     Padding(
                       padding: EdgeInsets.all(pad),
                       child: Column(
@@ -839,10 +859,7 @@ class _TableCard extends StatelessWidget {
                                         style: AppTheme.money(
                                           text.displaySmall!,
                                           fontSize: bootSize,
-                                          colour: _goldInk(
-                                            brightness,
-                                            onCloth: !capped,
-                                          ),
+                                          colour: _goldInk(brightness),
                                         ),
                                       ),
                                     ),
@@ -855,14 +872,7 @@ class _TableCard extends StatelessWidget {
                             t.boot,
                             style: AppTheme.label(
                               text.labelSmall!,
-                              colour: capped
-                                  ? scheme.onSurface.withValues(
-                                      alpha: AppTheme.inkLow,
-                                    )
-                                  : AppTheme.onFelt(
-                                      brightness,
-                                      alpha: AppTheme.inkLow,
-                                    ),
+                              colour: glass.textMuted,
                             ),
                           ),
                           SizedBox(height: gap),
@@ -872,11 +882,7 @@ class _TableCard extends StatelessWidget {
                             overflow: TextOverflow.ellipsis,
                             style: text.bodySmall?.copyWith(
                               fontSize: blurbSize,
-                              color: capped
-                                  ? scheme.onSurface.withValues(
-                                      alpha: AppTheme.inkMed,
-                                    )
-                                  : AppTheme.onFelt(brightness),
+                              color: glass.textBody,
                             ),
                           ),
                           SizedBox(height: gap),
@@ -896,9 +902,7 @@ class _TableCard extends StatelessWidget {
                             ),
                             child: Container(
                               height: Dim.hairline,
-                              color: capped
-                                  ? AppTheme.hairlineColour(brightness)
-                                  : AppTheme.onFelt(brightness, alpha: 0.16),
+                              color: AppTheme.hairlineColour(brightness),
                             ),
                           ),
                           _CardFact(
@@ -925,38 +929,28 @@ class _TableCard extends StatelessWidget {
                         ],
                       ),
                     ),
-                    // The felt's own trick, applied to a container: a rim lit
-                    // along the top and shaded along the foot reads as a
-                    // physical edge, and it is the one thing that keeps three
-                    // cards from being one card in three hues.
-                    Positioned(
-                      top: 0,
-                      left: 0,
-                      right: 0,
-                      height: 1.5,
-                      child: IgnorePointer(
-                        child: ColoredBox(
-                          color: palette.rimHigh.withValues(
-                            alpha: capped ? 0.12 : 0.42,
-                          ),
-                        ),
-                      ),
-                    ),
-                    Positioned(
-                      bottom: 0,
-                      left: 0,
-                      right: 0,
-                      height: 2,
-                      child: IgnorePointer(
-                        child: ColoredBox(
-                          color: palette.rimLow.withValues(
-                            alpha: capped ? 0.16 : 0.50,
-                          ),
-                        ),
-                      ),
-                    ),
                   ],
                 ),
+              );
+
+              return Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  // The sharp orb, behind the card. Its softened twin is in the
+                  // glass's `behind` slot at the same place.
+                  if (!capped)
+                    Positioned.fromRect(
+                      rect: orb,
+                      child: IgnorePointer(
+                        child: GlassOrb(
+                          colours: colours,
+                          size: orb.width,
+                          opacity: dark ? 1.0 : 0.9,
+                        ),
+                      ),
+                    ),
+                  panel,
+                ],
               );
             },
           ),
@@ -1052,7 +1046,7 @@ class _SitCapsule extends StatelessWidget {
     // one losing. Gold stays everywhere else on the card, so this reads as the
     // action rather than as another value.
     final ink = enabled
-        ? Colors.white.withValues(alpha: 0.96)
+        ? GlassColors.of(context).textDisplay
         : theme.colorScheme.onSurface.withValues(alpha: AppTheme.inkLow);
 
     return Container(
@@ -1172,7 +1166,7 @@ class _CardFact extends StatelessWidget {
           Icon(
             icon,
             size: height * 0.80,
-            color: AppTheme.onFelt(theme.brightness, alpha: AppTheme.inkLow),
+            color: GlassColors.of(context).textMuted,
           ),
           const SizedBox(width: Space.sm),
           Expanded(
@@ -1182,7 +1176,7 @@ class _CardFact extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               style: text.bodySmall?.copyWith(
                 fontSize: size,
-                color: AppTheme.onFelt(theme.brightness),
+                color: GlassColors.of(context).textBody,
               ),
             ),
           ),
@@ -1194,9 +1188,7 @@ class _CardFact extends StatelessWidget {
             style: AppTheme.money(
               text.labelLarge!,
               fontSize: size,
-              colour: highlight
-                  ? accent
-                  : AppTheme.onFelt(theme.brightness, alpha: AppTheme.inkHigh),
+              colour: highlight ? accent : GlassColors.of(context).textDisplay,
             ),
           ),
         ],
@@ -1405,27 +1397,28 @@ class _PrivateCardState extends State<_PrivateCard> {
             final pad = compact ? Space.md : Space.lg;
             final gap = (s * 0.038).clamp(8.0, 20.0);
 
-            return PremiumSurface(
-              accent: accent,
-              tint: brightness == Brightness.dark ? 0.10 : 0.09,
-              bevel: 0,
-              bloom: 0,
-              child: Stack(
+            final colours = orbColours(accent);
+            final orb = _orbPlace(state.config.tables.length, s);
+            final dark = brightness == Brightness.dark;
+            final panel = PremiumGlassPanel(
+              mode: GlassMode.tinted,
+              padding: EdgeInsets.zero,
+              tint: Colors.white,
+              behind: Stack(
                 children: [
-                  Positioned.fill(
-                    child: IgnorePointer(
-                      child: Align(
-                        alignment: const Alignment(1.5, -0.95),
-                        child: Icon(
-                          Icons.vpn_key_rounded,
-                          size: s * 0.66,
-                          color: accent.withValues(
-                            alpha: brightness == Brightness.dark ? 0.10 : 0.08,
-                          ),
-                        ),
-                      ),
+                  Positioned.fromRect(
+                    rect: orb,
+                    child: GlassOrb(
+                      colours: colours,
+                      size: orb.width,
+                      soft: true,
+                      opacity: dark ? 0.62 : 0.46,
                     ),
                   ),
+                ],
+              ),
+              child: Stack(
+                children: [
                   Padding(
                     padding: EdgeInsets.all(pad),
                     child: Column(
@@ -1558,6 +1551,23 @@ class _PrivateCardState extends State<_PrivateCard> {
                   ),
                 ],
               ),
+            );
+
+            return Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Positioned.fromRect(
+                  rect: orb,
+                  child: IgnorePointer(
+                    child: GlassOrb(
+                      colours: colours,
+                      size: orb.width,
+                      opacity: dark ? 1.0 : 0.9,
+                    ),
+                  ),
+                ),
+                panel,
+              ],
             );
           },
         ),

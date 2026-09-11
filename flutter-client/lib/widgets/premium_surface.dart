@@ -201,6 +201,7 @@ class PremiumGlassPanel extends StatefulWidget {
     this.radius = Radii.lg,
     this.live = false,
     this.tint,
+    this.behind,
     this.elevated = true,
     this.clipBehavior = Clip.antiAlias,
   });
@@ -229,6 +230,12 @@ class PremiumGlassPanel extends StatefulWidget {
 
   /// An optional wash of colour through the fill — a table's accent, say.
   final Color? tint;
+
+  /// What shows through the glass: painted over the body, under the sheen and
+  /// the hairline, and clipped with them. A panel that cannot afford a live
+  /// blur draws here, already softened, the colour a blur would have let
+  /// through — which is how the lobby's cards get their frosted orbs.
+  final Widget? behind;
 
   final bool elevated;
   final Clip clipBehavior;
@@ -358,6 +365,8 @@ class _PremiumGlassPanelState extends State<PremiumGlassPanel> {
                 ),
               ),
             ),
+            if (widget.behind != null)
+              Positioned.fill(child: IgnorePointer(child: widget.behind!)),
             // A fixed 2dp sheen, never the corner radius.
             Positioned(
               top: 0,

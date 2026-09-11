@@ -11,6 +11,7 @@ import 'avatar.dart';
 import 'liquid_fill.dart';
 import 'playing_card.dart';
 import 'poker_chip.dart';
+import 'glass_orb.dart';
 import 'premium_surface.dart';
 
 /// Every proportion in the pod, named once.
@@ -88,6 +89,31 @@ const double _kAsideOpacity = 0.45;
 /// Where a seat's speech bubble opens relative to its pod.
 enum BubbleSide { above, left, right }
 
+/// Which corner of a seat pod its orb spills out of. The table picks per seat
+/// so the colour always leaks towards open felt — never under the rail, over a
+/// card fan or off the side of the screen.
+///
+/// [contained] keeps the colour inside the glass and draws no orb outside it:
+/// the viewer's pod stands on the floor between the missed-turns plate and
+/// their own cards, and on a 360dp phone there is no open felt on either side
+/// for anything to spill into.
+enum OrbCorner { topLeft, topRight, contained }
+
+/// Where a pod's orb sits, as a square in the pod's own coordinates: most of it
+/// behind the top of the pod, and a sixth of the pod's width spilling out of
+/// the chosen corner. No more than that — the table is crowded, and an orb
+/// reaching further would lie under a neighbour's cards.
+Rect _orbRect(double w, OrbCorner corner) {
+  final d = w * 0.80;
+  final spill = w * 0.15;
+  final cx = corner == OrbCorner.topRight ? w - d / 2 + spill : d / 2 - spill;
+  return Rect.fromCenter(
+    center: Offset(cx, d / 2 - spill),
+    width: d,
+    height: d,
+  );
+}
+
 class SeatPod extends StatelessWidget {
   const SeatPod({
     super.key,
@@ -107,6 +133,7 @@ class SeatPod extends StatelessWidget {
     this.saying,
     this.bubbleSide = BubbleSide.above,
     this.reversed = false,
+    this.orbCorner = OrbCorner.topLeft,
   });
 
   final Seat? seat;
@@ -156,6 +183,9 @@ class SeatPod extends StatelessWidget {
   /// Cards and the bet chip stack upwards instead of down. The seat at the
   /// bottom of the table needs this or its column runs off the felt.
   final bool reversed;
+
+  /// Which corner of the pod its colour spills out of (see [OrbCorner]).
+  final OrbCorner orbCorner;
 
   @override
   Widget build(BuildContext context) {
@@ -212,7 +242,15 @@ class SeatPod extends StatelessWidget {
       ],
     ];
 
-    final column = <Widget>[_pod(context, s, beat), ...below];
+    final column = <Widget>[
+      _pod(
+        context,
+        s,
+        beat,
+        state.colourFor(s.userId ?? '', theme.colorScheme),
+      ),
+      ...below,
+    ];
 
     // The bubble takes no room in the column — it hangs off one end of it in
     // a zero-height box — so a player speaking never nudges their own pod,
@@ -306,7 +344,7 @@ class SeatPod extends StatelessWidget {
     );
   }
 
-  Widget _pod(BuildContext context, Seat s, Color beat) {
+  Widget _pod(BuildContext context, Seat s, Color beat, Color player) {
     final theme = Theme.of(context);
     final dark = theme.brightness == Brightness.dark;
     final won = s.status == SeatState.won;
@@ -333,29 +371,36 @@ class SeatPod extends StatelessWidget {
 
     final nameSize = math.max(_kNameFloor, width * _kName);
 
-    return _TurnRing(
+    // Glass, with the player's own colour behind it (owner's decision, 11 Sep
+    // 2026: the lobby's cards, at pod size). What the plaque used to say with
+    // its border, wash and bloom now rides on the glass — a gold hairline and a
+    // wash of the turn or winner colour while the seat is live, plain frosted
+    // white at rest.
+    final colours = orbColours(player);
+    final orb = _orbRect(width, orbCorner);
+    final panel = _TurnRing(
       active: onTurn,
       colour: beat,
       radius: width * _kRadius,
-      child: PremiumSurface(
-        accent: accent,
+      child: PremiumGlassPanel(
+        mode: GlassMode.tinted,
+        padding: EdgeInsets.zero,
         radius: width * _kRadius,
-        borderWidth: won
-            ? 2.4
-            : onTurn
-            ? 2.0
-            : 1.0,
-        tint: won
-            ? 0.20
-            : onTurn
-            ? 0.16
-            : 0.06,
-        bloom: won
-            ? 0.28
-            : onTurn
-            ? 0.10
-            : 0,
-        bevel: 2,
+        live: won || onTurn,
+        tint: won || onTurn ? accent : Colors.white,
+        behind: Stack(
+          children: [
+            Positioned.fromRect(
+              rect: orb,
+              child: GlassOrb(
+                colours: colours,
+                size: orb.width,
+                soft: true,
+                opacity: dark ? 0.58 : 0.42,
+              ),
+            ),
+          ],
+        ),
         child: Stack(
           children: [
             // The turn clock, drawn as liquid rising inside the pod. Full
@@ -464,6 +509,26 @@ class SeatPod extends StatelessWidget {
           ],
         ),
       ),
+    );
+
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        // The sharp orb, behind the pod. Its softened twin is in the glass's
+        // `behind` slot at the same place.
+        if (orbCorner != OrbCorner.contained)
+          Positioned.fromRect(
+            rect: orb,
+            child: IgnorePointer(
+              child: GlassOrb(
+                colours: colours,
+                size: orb.width,
+                opacity: dark ? 0.95 : 0.85,
+              ),
+            ),
+          ),
+        panel,
+      ],
     );
   }
 
@@ -610,7 +675,8 @@ class SeatPod extends StatelessWidget {
     );
   }
 
-  /// The hand's name, above the cards, at a showdown or a sideshow peek.
+  /// The hand's name, above the cards, at a showdown — or on the hand that
+  /// won a sideshow (the loser's cards turn over with no name).
   ///
   /// Champagne on charcoal, deep gold on parchment: the table is pale in the
   /// light scheme, and [AppTheme.goldBright] on it is very nearly invisible.
