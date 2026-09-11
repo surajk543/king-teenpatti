@@ -1,18 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!--
-      Android 12 draws its own splash from the launcher icon rather than the
-      window background, so the colour behind it is set here. It matches the
-      app's own surface, or the launch flashes white before the game paints.
-    -->
-    <style name="LaunchTheme" parent="@android:style/Theme.Light.NoTitleBar">
-        <item name="android:windowSplashScreenBackground">#F4F5F7</item>
+    <!-- The same, for a device in dark mode. -->
+    <style name="LaunchTheme" parent="@android:style/Theme.Black.NoTitleBar">
+        <item name="android:windowSplashScreenBackground">#0D0E12</item>
         <!-- The launcher icon (adaptive, so the system masks it) and the studio
              line beneath it, rendered from assets/app_icon.svg. -->
         <item name="android:windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
         <item name="android:windowSplashScreenBrandingImage">@drawable/splash_branding</item>
     </style>
-    <style name="NormalTheme" parent="@android:style/Theme.Light.NoTitleBar">
+    <style name="NormalTheme" parent="@android:style/Theme.Black.NoTitleBar">
         <item name="android:windowBackground">?android:colorBackground</item>
     </style>
 </resources>

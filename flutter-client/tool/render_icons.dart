@@ -98,6 +98,8 @@ Future<Uint8List> branding(Color colour, double scale) async {
   return bytes!.buffer.asUint8List();
 }
 
+// Launch screens are dark on every system setting (the app's own default is
+// dark glass), so every branding bitmap carries the light-on-dark ink.
 void main() {
   testWidgets('render launcher and splash bitmaps', (tester) async {
     await tester.runAsync(() async {
@@ -127,9 +129,9 @@ void main() {
 
       final font = File('/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf').readAsBytesSync();
       await (FontLoader('Branding')..addFont(Future.value(ByteData.view(font.buffer)))).load();
-      await write('$res/drawable-xxhdpi/splash_branding.png', await branding(const Color(0xFF5B5B58), 3));
+      await write('$res/drawable-xxhdpi/splash_branding.png', await branding(const Color(0xFFB9B9B4), 3));
       await write('$res/drawable-night-xxhdpi/splash_branding.png', await branding(const Color(0xFFB9B9B4), 3));
-      await write('$res/drawable-xxxhdpi/splash_branding.png', await branding(const Color(0xFF5B5B58), 4));
+      await write('$res/drawable-xxxhdpi/splash_branding.png', await branding(const Color(0xFFB9B9B4), 4));
       await write('$res/drawable-night-xxxhdpi/splash_branding.png', await branding(const Color(0xFFB9B9B4), 4));
 
       // ---- iOS ----------------------------------------------------------
@@ -161,7 +163,7 @@ void main() {
         await write('$launch/LaunchImage$at.png', await rasterise(svg, 160 * scale));
         await write(
           '$xcassets/LaunchBranding.imageset/LaunchBranding$at.png',
-          await branding(const Color(0xFF5B5B58), scale.toDouble()),
+          await branding(const Color(0xFFB9B9B4), scale.toDouble()),
         );
         await write(
           '$xcassets/LaunchBranding.imageset/LaunchBranding-dark$at.png',
