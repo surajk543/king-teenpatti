@@ -1,7 +1,10 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:lottie/lottie.dart';
 
+import '../net/picture_cache.dart';
 import '../theme/app_theme.dart';
 
 /// A player's picture (requirements 20 and 21), set in a ring.
@@ -113,37 +116,19 @@ class Avatar extends StatelessWidget {
     final animated =
         extension.endsWith('.lottie') || extension.endsWith('.json');
 
+    // Bytes first, network second: PictureCache keeps a picture on the phone
+    // once it has been fetched, so the second launch — and every rebuild of
+    // the five seat pods — paints from memory rather than the wire.
     final Widget? picture = link == null || link.isEmpty
         ? null
-        : animated
-        ? Lottie.network(
-            link,
-            width: radius * 2,
-            height: radius * 2,
-            fit: BoxFit.cover,
+        : _CachedPicture(
+            url: link,
+            size: radius * 2,
+            animated: animated,
+            isSvg: extension.endsWith('.svg'),
             animate: animate,
-            repeat: animate,
-            // Until the composition is down, the initial holds the space —
-            // the same thing the other two loaders show while they fetch.
-            frameBuilder: (_, child, composition) =>
-                composition == null ? Center(child: initial) : child,
-            errorBuilder: (_, _, _) => fallbackImage,
-          )
-        : extension.endsWith('.svg')
-        ? SvgPicture.network(
-            link,
-            width: radius * 2,
-            height: radius * 2,
-            fit: BoxFit.cover,
-            placeholderBuilder: (_) => Center(child: initial),
-            errorBuilder: (_, _, _) => fallbackImage,
-          )
-        : Image.network(
-            link,
-            width: radius * 2,
-            height: radius * 2,
-            fit: BoxFit.cover,
-            errorBuilder: (_, _, _) => fallbackImage,
+            placeholder: Center(child: initial),
+            fallback: fallbackImage,
           );
 
     Widget core = CircleAvatar(
@@ -209,6 +194,124 @@ class Avatar extends StatelessWidget {
         ],
       ),
       child: core,
+    );
+  }
+}
+
+
+/// One picture, drawn from [PictureCache].
+///
+/// Held apart from [Avatar] because it needs state and Avatar does not: the
+/// bytes arrive after the first frame the first time, and never after that.
+/// A picture already in memory is painted on the FIRST frame — no placeholder,
+/// no flash — which is the whole point of the cache being synchronous to peek.
+class _CachedPicture extends StatefulWidget {
+  const _CachedPicture({
+    required this.url,
+    required this.size,
+    required this.animated,
+    required this.isSvg,
+    required this.animate,
+    required this.placeholder,
+    required this.fallback,
+  });
+
+  final String url;
+  final double size;
+
+  /// Routed on the extension, as before: an SVG through Image renders nothing,
+  /// and a dotLottie is a zip neither of the others can read.
+  final bool animated;
+  final bool isSvg;
+
+  /// Whether an animation plays, as opposed to resting on its first frame.
+  final bool animate;
+
+  /// Held while the bytes are on their way — only ever on a first fetch.
+  final Widget placeholder;
+
+  /// Shown when they cannot be had, or will not decode.
+  final Widget fallback;
+
+  @override
+  State<_CachedPicture> createState() => _CachedPictureState();
+}
+
+class _CachedPictureState extends State<_CachedPicture> {
+  Uint8List? _bytes;
+  bool _failed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _resolve();
+  }
+
+  @override
+  void didUpdateWidget(covariant _CachedPicture old) {
+    super.didUpdateWidget(old);
+    if (old.url != widget.url) {
+      _bytes = null;
+      _failed = false;
+      _resolve();
+    }
+  }
+
+  void _resolve() {
+    final ready = PictureCache.peek(widget.url);
+    if (ready != null) {
+      _bytes = ready;
+      return;
+    }
+    final wanted = widget.url;
+    PictureCache.load(wanted).then((bytes) {
+      // The picker changes the picture under this widget, so a slow answer
+      // for the previous URL must not overwrite the current one.
+      if (!mounted || wanted != widget.url) return;
+      setState(() {
+        _bytes = bytes;
+        _failed = bytes == null;
+      });
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_failed) return widget.fallback;
+    final bytes = _bytes;
+    if (bytes == null) return widget.placeholder;
+
+    if (widget.animated) {
+      return Lottie.memory(
+        bytes,
+        width: widget.size,
+        height: widget.size,
+        fit: BoxFit.cover,
+        animate: widget.animate,
+        repeat: widget.animate,
+        frameBuilder: (_, child, composition) =>
+            composition == null ? widget.placeholder : child,
+        errorBuilder: (_, _, _) => widget.fallback,
+      );
+    }
+    if (widget.isSvg) {
+      return SvgPicture.memory(
+        bytes,
+        width: widget.size,
+        height: widget.size,
+        fit: BoxFit.cover,
+        placeholderBuilder: (_) => widget.placeholder,
+        errorBuilder: (_, _, _) => widget.fallback,
+      );
+    }
+    return Image.memory(
+      bytes,
+      width: widget.size,
+      height: widget.size,
+      fit: BoxFit.cover,
+      // Bytes that will not decode are the same problem as bytes that never
+      // arrived, and get the same answer.
+      errorBuilder: (_, _, _) => widget.fallback,
     );
   }
 }

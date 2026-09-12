@@ -9,6 +9,7 @@ import 'package:uuid/uuid.dart';
 
 import '../l10n/strings.dart';
 import '../models/dtos.dart';
+import '../net/picture_cache.dart';
 import '../net/api_client.dart';
 import '../net/app_update.dart';
 import '../net/connection_failure.dart';
@@ -736,6 +737,11 @@ class GameState extends ChangeNotifier {
   Future<void> _loadPictures() async {
     try {
       pictures = await _api.profilePictures(_token);
+      // Pull the faces down as soon as we know what they are, so the picker
+      // opens on pictures rather than on fifteen placeholders. Not awaited:
+      // the list renders either way, and a picture that is not down yet fills
+      // itself in when it arrives.
+      PictureCache.warm(pictures.map((p) => p.url));
       notifyListeners();
     } catch (_) {
       // The picker just stays empty.
