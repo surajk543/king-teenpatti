@@ -1194,7 +1194,11 @@ class _Felt extends StatelessWidget {
                       ),
                       const SizedBox(height: Space.xs),
                     ],
-                    _OwnHand(cardHeight: handH),
+                    // The showdown's copy of their own hand, so a player who
+                    // paid for a show while still blind sees what they were
+                    // holding: the server withholds `you.cards` until they
+                    // look, and it never turns that off.
+                    _OwnHand(cardHeight: handH, revealed: myReveal?.cards),
                   ],
                 ),
               ),
@@ -2324,8 +2328,17 @@ class _Status extends StatelessWidget {
 /// cards" laid over them: looking at your hand is something you do to the
 /// cards, and once you have looked the key has no reason to still be there.
 class _OwnHand extends StatelessWidget {
-  const _OwnHand({required this.cardHeight});
+  const _OwnHand({required this.cardHeight, this.revealed});
   final double cardHeight;
+
+  /// The viewer's own cards as the showdown turned them over.
+  ///
+  /// Only ever needed by a player who paid for a show without looking first:
+  /// `you.cards` stays empty while a seat is blind and the server does not
+  /// un-blind the seat at the showdown, so their own hand would be the one
+  /// hand on the table still face down — under a SEE button, at the moment
+  /// they are being told they won with it.
+  final List<String>? revealed;
 
   /// How far each card is turned out of the fan, in radians. Small: three
   /// cards held in one hand are barely splayed at all.
@@ -2340,18 +2353,30 @@ class _OwnHand extends StatelessWidget {
 
     final packed =
         you.status == SeatState.packed || you.status == SeatState.lost;
+    // The hand that just took the pot is still on the table while the
+    // celebration runs. The server moves the winner's seat to `won` the moment
+    // it settles, and reading that as "not playing any more" swept the
+    // viewer's own cards off the felt at the exact moment they were being told
+    // they had won with them — the rim seats already count `won` as in-hand
+    // (seat_pod.dart `_inHand`), and this is the copy that did not.
+    final inHand =
+        you.status == SeatState.active || you.status == SeatState.won;
     // A packed hand stays on the table, face down and struck out, so the player
     // can see what they folded rather than having it vanish.
-    if (you.status != SeatState.active && !packed) {
+    if (!inHand && !packed) {
       return const SizedBox.shrink();
     }
 
-    final cards = you.cards;
+    final cards = you.cards.isNotEmpty ? you.cards : (revealed ?? const []);
 
     // Looking is allowed at any point, not only on your own turn: it costs
     // nothing and changes nothing for anyone else. Betting still waits for the
-    // turn, which the console handles.
-    final stillBlind = you.isBlind && !packed;
+    // turn, which the console handles. Only while the hand is actually being
+    // played, though: a hand already face up has nothing left to look at, and
+    // a hand won by everyone else packing is over — the key would offer a move
+    // the server can only refuse.
+    final stillBlind =
+        you.isBlind && you.status == SeatState.active && cards.isEmpty;
 
     // The fan's own box. The cards overlap by 18% and the outer two lean out,
     // so the box pays for both the overlap and the lean; the cards cast their
