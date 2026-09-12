@@ -31,6 +31,8 @@ type PictureStore interface {
 	List(ctx context.Context, userID string) ([]db.Picture, error)
 	Find(ctx context.Context, userID string, id int64) (db.Picture, bool, error)
 	Buy(ctx context.Context, userID string, id int64) (*db.PicturePurchase, error)
+	// ExpireLapsed takes off a picture whose rental has run out, at login.
+	ExpireLapsed(ctx context.Context, userID string) (bool, error)
 }
 
 // Deps wires a Handler.
