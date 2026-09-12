@@ -9,6 +9,7 @@ import '../settings/feedback_settings.dart';
 import '../l10n/strings.dart';
 import '../state/game_state.dart';
 import '../theme/app_theme.dart';
+import '../theme/theme_colors.dart';
 import 'glass_components.dart';
 import 'poker_chip.dart';
 import 'premium_surface.dart';
@@ -123,8 +124,8 @@ const chipPacks = <ChipPack>[
 ];
 
 /// The tallest pile any card carries, from the same expression the cards use.
-/// It is what the shelf height is measured against, so every card is the same
-/// height whatever its own pile does.
+/// It is what every card's height is measured against, so they line up on one
+/// grid whatever their own pile does.
 final int _tallestPile = chipPacks
     .map((p) => _pileFor(p))
     .reduce((a, b) => a > b ? a : b);
@@ -147,27 +148,36 @@ double _line(TextScaler scaler, double size, double heightFactor) =>
 /// `showGeneralDialog` rather than `showDialog` so the scrim and the entrance
 /// are ours: the packs arrive in sequence, which reads as a shelf being set
 /// out rather than a panel appearing.
+/// Opens the store.
+///
+/// A bottom sheet, laid out exactly like the picture picker: the same glass
+/// panel, the same grab handle, the same header, and the same vertically
+/// scrolling body under the same scrollbar. They are the two shelves in this
+/// game — one sells pictures, one sells chips — and until now they arrived
+/// differently, one rising from the floor and one unfolding in the middle of
+/// the screen, which made them feel like two unrelated parts of the app.
+///
+/// A scrim is always dark, whatever the theme: the ground's own edge is a pale
+/// slate in the light scheme, so dimming with it BRIGHTENED the lobby behind
+/// the store instead of pushing it back.
 Future<void> showChipStore(BuildContext context) {
   return showGeneralDialog<void>(
     context: context,
     barrierDismissible: true,
     barrierLabel: MaterialLocalizations.of(context).modalBarrierDismissLabel,
-    // A scrim is always dark, whatever the theme: the ground's own edge is a
-    // pale slate in the light scheme, so dimming with it BRIGHTENED the lobby
-    // behind the store instead of pushing it back.
     barrierColor: AppTheme.ink900.withValues(alpha: 0.72),
     transitionDuration: Motion.enter,
     pageBuilder: (_, a, b) => const _ChipStore(),
     transitionBuilder: (context, anim, _, child) {
-      // Rises and settles: easeOutBack overshoots a touch on the way in, which
-      // reads as the shelf being set down rather than fading up.
-      final e = Motion.settle.transform(anim.value.clamp(0.0, 1.0));
+      // Rises from the foot of the screen and settles, which is how the
+      // picture picker arrives too — the two shelves should not open in two
+      // different ways.
       final fade = Motion.standard.transform(anim.value);
       return Opacity(
         opacity: fade,
         child: Transform.translate(
-          offset: Offset(0, 26 * (1 - fade)),
-          child: Transform.scale(scale: 0.90 + 0.10 * e, child: child),
+          offset: Offset(0, 40 * (1 - fade)),
+          child: child,
         ),
       );
     },
@@ -187,10 +197,20 @@ class _ChipStoreState extends State<_ChipStore> {
   /// figure cached across sessions could be wrong by the time it is shown.
   Map<String, ProductDetails> _prices = const {};
 
+  /// Built in initState, never lazily: a late controller first read in
+  /// dispose() is the teardown trap CLAUDE.md §12.3 documents.
+  final ScrollController _scroller = ScrollController();
+
   @override
   void initState() {
     super.initState();
     _loadPrices();
+  }
+
+  @override
+  void dispose() {
+    _scroller.dispose();
+    super.dispose();
   }
 
   Future<void> _loadPrices() async {
@@ -217,20 +237,18 @@ class _ChipStoreState extends State<_ChipStore> {
       Dim.minTouch,
       _line(scaler, 17, 1.25) + _line(scaler, 12, 1.35),
     );
-    final packH = _packHeight(scaler, size.height);
-    // Shelf against the room, at the 1.25 text ceiling: 250dp free at h=360
-    // for a 195.2dp card, 301 for 200.4 at h=411, 690 for 210.7 at h=800 — the
-    // card fits at every size, so the min() is the guard rail, not the rule.
-    final shelfH = math.min(
-      packH,
-      size.height - 2 * Space.md - 2 * Space.lg - headerH - Space.lg,
-    );
-
-    return Center(
-      child: Padding(
-        // The app is landscape and short, so the shelf is a horizontal rail
-        // and the panel gives it nearly the full width.
-        padding: const EdgeInsets.all(Space.md),
+    // Sits at the foot of the screen like the picture picker's sheet, rather
+    // than in the middle of it: the two shelves are the same kind of thing and
+    // should arrive in the same place.
+    return SafeArea(
+      child: Align(
+        alignment: Alignment.bottomCenter,
+        child: Padding(
+        padding: const EdgeInsets.fromLTRB(Space.md, 0, Space.md, Space.md),
+        // Bounded, so the shelf cannot grow past the screen as packs are
+        // added; only the packs scroll.
+        child: ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: size.height * 0.88),
         child: PremiumGlassPanel(
           // A modal, and the only one of its kind on screen: it may take the
           // app's single blur if nothing louder has claimed it. The blur
@@ -238,10 +256,29 @@ class _ChipStoreState extends State<_ChipStore> {
           mode: GlassMode.auto,
           priority: 20,
           radius: Radii.lg,
-          padding: const EdgeInsets.all(Space.lg),
+          padding: const EdgeInsets.fromLTRB(
+            Space.lg,
+            Space.md,
+            Space.lg,
+            Space.lg,
+          ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              Center(
+                child: Container(
+                  width: 36,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(Radii.pill),
+                    color: AppTheme.hairlineColour(
+                      theme.brightness,
+                      live: true,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: Space.md),
               SizedBox(
                 height: headerH,
                 child: Row(
@@ -291,26 +328,48 @@ class _ChipStoreState extends State<_ChipStore> {
                   ],
                 ),
               ),
-              const SizedBox(height: Space.lg),
-              SizedBox(
-                height: shelfH,
-                child: ListView.separated(
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(horizontal: Space.xxs),
-                  itemCount: chipPacks.length,
-                  separatorBuilder: (_, i) => const SizedBox(width: Space.md),
-                  itemBuilder: (context, i) => _PackEntrance(
-                    index: i,
-                    child: _PackCard(
-                      pack: chipPacks[i],
-                      prices: prices,
-                      width: Dim.packW(size.width),
+              const SizedBox(height: Space.md),
+              Flexible(
+                child: ScrollbarTheme(
+                  data: ScrollbarThemeData(
+                    thickness: const WidgetStatePropertyAll(4),
+                    radius: const Radius.circular(Radii.pill),
+                    thumbColor: WidgetStatePropertyAll(
+                      AppTheme.hairlineColour(theme.brightness, live: true),
+                    ),
+                  ),
+                  child: Scrollbar(
+                    controller: _scroller,
+                    thumbVisibility: true,
+                    child: SingleChildScrollView(
+                      controller: _scroller,
+                      padding: const EdgeInsets.only(right: Space.md),
+                      child: Wrap(
+                        spacing: Space.md,
+                        runSpacing: Space.md,
+                        children: [
+                          for (var i = 0; i < chipPacks.length; i++)
+                            SizedBox(
+                              height: _packHeight(scaler, size.height),
+                              child: _PackEntrance(
+                                index: i,
+                                child: _PackCard(
+                                  pack: chipPacks[i],
+                                  prices: prices,
+                                  width: Dim.packW(size.width),
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
               ),
             ],
           ),
+        ),
+        ),
         ),
       ),
     );
@@ -320,6 +379,13 @@ class _ChipStoreState extends State<_ChipStore> {
 /// A pack card's height, added up from what it holds rather than picked to
 /// look right on one device: the ribbon lane, the bonus plate, the tallest
 /// pile on the shelf, the figure, the price key, and the gaps between them.
+///
+/// Every card is given this height explicitly, and that is not decoration: the
+/// card's own Column contains a Flexible, which is illegal under an unbounded
+/// height constraint. It used to be bounded by the shelf's SizedBox; now that
+/// the cards wrap down the sheet inside a scroll view — which offers infinite
+/// height — each one has to carry its own bound or the whole subtree fails to
+/// lay out and the store opens empty.
 ///
 /// 195.2dp at h=360, 200.4 at h=411, 210.7 at h=800 (all at the 1.25 text
 /// scale ceiling; the pile is the only part that grows with the screen).
@@ -536,9 +602,12 @@ class _PackCardState extends State<_PackCard> {
                       child: FittedBox(
                         fit: BoxFit.scaleDown,
                         child: LivelyChipStack(
+                          // Two tones of the same metal. It used to alternate
+                          // gold and the theme's mint, which is where most of
+                          // the green on this card came from.
                           colours: List.generate(
                             _pileFor(p),
-                            (i) => i.isEven ? AppTheme.gold : scheme.primary,
+                            (i) => i.isEven ? AppTheme.gold : AppTheme.goldDeep,
                           ),
                           size: _pileChip(screenH),
                         ),
@@ -571,12 +640,14 @@ class _PackCardState extends State<_PackCard> {
                         Space.md,
                         Space.md,
                       ),
-                      // The one filled key on the card: Material's
-                      // FilledButton underneath (theme lift, enableFeedback)
-                      // with the haptic and press-scale over it.
+                      // Frosted, not filled. A mint key under a gold ribbon
+                      // put the app's two loudest colours on one small card,
+                      // and neither is what the store is selling: the money is
+                      // the gold, so the price wears it as ink on glass and the
+                      // card stops arguing with itself.
                       child: GlassButton(
                         onPressed: buy,
-                        style: GlassButtonStyle.primary,
+                        style: GlassButtonStyle.glass,
                         // The card already presses in on tap (AnimatedScale
                         // above), so the key must not shrink a second time.
                         pressScale: false,
@@ -595,6 +666,7 @@ class _PackCardState extends State<_PackCard> {
                           maxLines: 1,
                           style: AppTheme.money(
                             theme.textTheme.titleSmall ?? const TextStyle(),
+                            colour: champagne,
                           ),
                         ),
                       ),
@@ -639,10 +711,22 @@ class _Ribbon extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
+    final glass = GlassColors.of(context);
+    final dark = theme.brightness == Brightness.dark;
+
     return DecoratedBox(
-      // Flat foil, not the struck gradient the buy-chips key wears: a marker
-      // and a control should not be the same material.
-      decoration: const BoxDecoration(color: AppTheme.gold),
+      // Frosted, not foil. A solid gold bar across the top of every card made
+      // the marker louder than the pack it marks; as glass with gold ink it
+      // still reads first without becoming the card.
+      decoration: BoxDecoration(
+        color: glass.fillStrong,
+        border: Border(
+          bottom: BorderSide(
+            color: AppTheme.goldBright.withValues(alpha: dark ? 0.30 : 0.42),
+            width: Dim.hairline,
+          ),
+        ),
+      ),
       child: Center(
         child: Text(
           label,
@@ -653,7 +737,7 @@ class _Ribbon extends StatelessWidget {
           // tracking to Gujarati or Gurmukhi only pulls it apart.
           style: AppTheme.label(
             theme.textTheme.labelSmall ?? const TextStyle(),
-            colour: AppTheme.inkOnLight,
+            colour: dark ? AppTheme.goldBright : AppTheme.goldDeep,
             weight: FontWeight.w700,
           ),
         ),

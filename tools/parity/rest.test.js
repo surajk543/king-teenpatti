@@ -340,7 +340,12 @@ test('the picture catalogue is listed, worn and cleared', async () => {
   assert.ok(profiles.length >= 1);
 
   for (const entry of profiles) {
-    assertKeys(entry, ['id', 'name', 'url', 'type', 'cost', 'sortOrder', 'owned']);
+    assertKeys(entry, ['id', 'name', 'url', 'type', 'cost', 'durationDays', 'sortOrder', 'owned', 'expiresAt']);
+    // A premium picture is a rental; a free one never runs out, and nobody
+    // owning nothing has an expiry.
+    assert.equal(typeof entry.durationDays, 'number');
+    if (entry.type === 'FREE') assert.equal(entry.durationDays, 0);
+    assert.equal(entry.expiresAt, 0, 'an anonymous listing has no rental dates');
     assert.equal(typeof entry.id, 'number');
     assert.ok(entry.name.length > 0);
     // image_url is whatever a client can load: a path into PUBLIC_DIR for the

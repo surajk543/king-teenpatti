@@ -578,6 +578,128 @@ func TestBuyingAPremiumPictureMovesChipsThroughTheLedgerExactlyOnce(t *testing.T
 	}
 }
 
+func TestAPremiumPictureIsARentalThatRunsOut(t *testing.T) {
+	f := newFixture(t)
+	user := newGuest(t, f)
+	pic := premiumPicture(t, f)
+
+	// Give it a term, then buy it.
+	if _, err := f.d.Pool.Exec(f.ctx,
+		`UPDATE profile_pictures SET duration_days = 30 WHERE id = $1`, pic.ID); err != nil {
+		t.Fatal(err)
+	}
+	bought, err := f.pictures.Buy(f.ctx, user.ID, pic.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bought.Charged || bought.Picture.ExpiresAt == 0 {
+		t.Fatalf("a rental should be charged and dated: %+v", bought)
+	}
+	if _, err := f.users.SetActivePicture(f.ctx, user.ID, &pic.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	// While it runs: owned, worn, and the sweep has nothing to do.
+	listed, err := f.pictures.List(f.ctx, user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ownedIn(listed, pic.ID) {
+		t.Fatal("a live rental is not owned")
+	}
+	if swept, err := f.pictures.ExpireLapsed(f.ctx, user.ID); err != nil || swept {
+		t.Fatalf("swept a live rental: %v %v", swept, err)
+	}
+
+	// Wind the clock past the term by moving the expiry into the past — the
+	// same thing the passage of time does, without waiting a month for it.
+	if _, err := f.d.Pool.Exec(f.ctx,
+		`UPDATE user_profile_pictures SET expires_at = 1 WHERE user_id = $1`, user.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	// Ownership lapses on its own, with no sweep having run: every read tests
+	// the expiry, which is what stops a lapsed rental being wearable.
+	listed, err = f.pictures.List(f.ctx, user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ownedIn(listed, pic.ID) {
+		t.Error("a lapsed rental is still owned")
+	}
+	if _, _, err := f.pictures.Find(f.ctx, user.ID, pic.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	// But the player is still WEARING it until the sweep at login says so —
+	// active_picture_id is a plain column no expiry test passes through.
+	still, err := f.users.FindByID(f.ctx, user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if still.ActivePictureID == nil {
+		t.Fatal("the picture came off without the sweep; the test proves nothing")
+	}
+
+	swept, err := f.pictures.ExpireLapsed(f.ctx, user.ID)
+	if err != nil || !swept {
+		t.Fatalf("the sweep did not take the lapsed picture off: %v %v", swept, err)
+	}
+	after, err := f.users.FindByID(f.ctx, user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.ActivePictureID != nil {
+		t.Errorf("still wearing a lapsed rental: %v", *after.ActivePictureID)
+	}
+	// Idempotent: a second login does not keep finding work to do.
+	if swept, err := f.pictures.ExpireLapsed(f.ctx, user.ID); err != nil || swept {
+		t.Errorf("the sweep repeated itself: %v %v", swept, err)
+	}
+
+	// And it can be rented again — the first purchase's action id is spent, so
+	// this only works because the id carries the purchase number.
+	again, err := f.pictures.Buy(f.ctx, user.ID, pic.ID)
+	if err != nil {
+		t.Fatalf("a lapsed rental could not be bought again: %v", err)
+	}
+	if !again.Charged {
+		t.Error("renewing a lapsed rental charged nothing")
+	}
+	f.reconcile()
+}
+
+// ownedIn reports whether the listing marks that picture as owned.
+func ownedIn(listed []db.Picture, id int64) bool {
+	for _, p := range listed {
+		if p.ID == id {
+			return p.Owned
+		}
+	}
+	return false
+}
+
+func TestAFreePictureNeverExpires(t *testing.T) {
+	f := newFixture(t)
+	user := newGuest(t, f)
+	pic := freePicture(t, f)
+	if _, err := f.users.SetActivePicture(f.ctx, user.ID, &pic.ID); err != nil {
+		t.Fatal(err)
+	}
+	// Nothing to expire, so nothing is taken off — a free picture has no
+	// ownership row for the sweep to find missing.
+	if swept, err := f.pictures.ExpireLapsed(f.ctx, user.ID); err != nil || swept {
+		t.Fatalf("swept a free picture: %v %v", swept, err)
+	}
+	after, err := f.users.FindByID(f.ctx, user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.ActivePictureID == nil {
+		t.Error("a free picture was taken off")
+	}
+}
+
 func TestBuyingIsRefusedWhenItCannotBePaidFor(t *testing.T) {
 	f := newFixture(t)
 	user := newGuest(t, f)

@@ -110,6 +110,32 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, r, err)
 		return
 	}
+
+	// A premium picture is a rental, and this is where one is noticed to have
+	// run out: the player is coming back, so compare what they are wearing with
+	// what they still own and take it off if the term is over. Only the WEARING
+	// needs sweeping — every ownership read tests the expiry itself — and the
+	// user is re-read afterwards so the response carries the face they actually
+	// have rather than the one they had a moment ago.
+	//
+	// A failure here is logged and swallowed. Losing a picture is not worth
+	// refusing a login over, and the next read of the catalogue will still show
+	// the rental as lapsed.
+	if h.deps.Pictures != nil {
+		expired, err := h.deps.Pictures.ExpireLapsed(r.Context(), user.ID)
+		switch {
+		case err != nil && h.deps.Logger != nil:
+			h.deps.Logger.Warn("picture expiry sweep failed", "userId", user.ID, "error", err.Error())
+		case expired:
+			if fresh, ferr := h.deps.Users.FindByID(r.Context(), user.ID); ferr == nil && fresh != nil {
+				user = fresh
+			}
+			if h.deps.Logger != nil {
+				h.deps.Logger.Info("premium picture expired", "userId", user.ID)
+			}
+		}
+	}
+
 	token, err := h.deps.Tokens.Issue(user)
 	if err != nil {
 		h.writeError(w, r, err)
@@ -336,6 +362,20 @@ func (h *Handler) Profiles(w http.ResponseWriter, r *http.Request) {
 	viewer := ""
 	if claims, err := h.deps.Tokens.Verify(TokenFromRequest(r)); err == nil {
 		viewer = claims.Subject
+	}
+	// Opening the picker is the other moment a lapsed rental should be
+	// noticed, and the one that matters in the lobby: a player who has been
+	// signed in for days never passes through login, so without this they
+	// would keep wearing a picture the catalogue below already shows as
+	// locked. Anonymous callers own nothing, so there is nothing to sweep.
+	//
+	// Swallowed on failure like the one at login: the listing is still correct
+	// — ownership tests the expiry itself — and a tidy-up is not worth refusing
+	// somebody the shelf over.
+	if viewer != "" {
+		if _, err := h.deps.Pictures.ExpireLapsed(r.Context(), viewer); err != nil && h.deps.Logger != nil {
+			h.deps.Logger.Warn("picture expiry sweep failed", "userId", viewer, "error", err.Error())
+		}
 	}
 	pictures, err := h.deps.Pictures.List(r.Context(), viewer)
 	if err != nil {

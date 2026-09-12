@@ -72,6 +72,19 @@ CREATE TABLE IF NOT EXISTS profile_pictures (
   -- What it costs in chips. Paid through chip_ledger like every other chip
   -- movement, so SUM(delta) = users.chips still reconciles after a purchase.
   cost       BIGINT  NOT NULL DEFAULT 0 CHECK (cost >= 0),
+  -- How long a purchase of this picture lasts, in DAYS. 0 means for ever,
+  -- which is what every free picture is and what a premium one is until
+  -- somebody prices it as a rental.
+  --
+  -- Days, not the milliseconds every other duration in this server is measured
+  -- in, and deliberately: this is a catalogue column an owner edits by hand,
+  -- and `duration_days = 30` cannot be misread the way `duration_ms = 30`
+  -- silently can. The server converts once, on purchase.
+  --
+  -- Changing it re-prices the SHELF, never a rental already sold: the expiry
+  -- is stamped onto the ownership row at the moment of purchase, so a player
+  -- keeps the terms they bought under.
+  duration_days INTEGER NOT NULL DEFAULT 0 CHECK (duration_days >= 0),
   -- FALSE retires a picture: it disappears from the catalogue the clients are
   -- offered, but the rows owning it and the players wearing it are untouched.
   is_active  BOOLEAN NOT NULL DEFAULT TRUE,
@@ -183,15 +196,34 @@ $$;
 
 -- --------------------------------------------------------------- ownership
 
--- Who owns which premium picture. A FREE picture needs no row — everyone may
--- wear it — so this table holds only what somebody paid for, one row per
--- player per picture, written in the same transaction as the chip debit.
+-- Who owns which premium picture, and until when. A FREE picture needs no row
+-- — everyone may wear it — so this table holds only what somebody paid for,
+-- one row per player per picture, written in the same transaction as the chip
+-- debit.
+--
+-- The row is never deleted when it lapses. It is the record of a purchase, it
+-- points at the chip_ledger row that paid for it, and money is not tidied away:
+-- an expired rental is a row whose expires_at is in the past, and every
+-- ownership test says so rather than relying on a sweep having run.
 CREATE TABLE IF NOT EXISTS user_profile_pictures (
   user_id            TEXT   NOT NULL REFERENCES users (id) ON DELETE CASCADE,
   profile_picture_id BIGINT NOT NULL REFERENCES profile_pictures (id) ON DELETE CASCADE,
   acquired_at        BIGINT NOT NULL,
+  -- Epoch ms the rental runs out; 0 means it never does. Stamped from the
+  -- picture's duration_days at the moment of purchase, so re-pricing the shelf
+  -- afterwards cannot shorten or extend what somebody already bought.
+  expires_at         BIGINT NOT NULL DEFAULT 0,
+  -- How many times this player has bought this picture. It is what makes the
+  -- ledger's action_id unique per PURCHASE rather than per pair, so a lapsed
+  -- rental can be bought again — the id of the first purchase is already
+  -- spent, and UNIQUE would refuse the second.
+  purchases          INTEGER NOT NULL DEFAULT 1 CHECK (purchases > 0),
   PRIMARY KEY (user_id, profile_picture_id)
 );
+
+-- Finds the rentals that have run out, for the sweep at login.
+CREATE INDEX IF NOT EXISTS idx_owned_pictures_expiry
+  ON user_profile_pictures (expires_at) WHERE expires_at > 0;
 
 
 -- ------------------------------------------------------------------ money

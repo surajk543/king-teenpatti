@@ -203,6 +203,9 @@ class GameState extends ChangeNotifier {
   String _deviceId = '';
   Timer? _ticker;
 
+  /// Watches the worn picture's rental while the player is in the lobby.
+  Timer? _rentalWatch;
+
   /// Which rung of the bet ladder the stepper is on.
   int raiseIndex = 0;
 
@@ -287,6 +290,10 @@ class GameState extends ChangeNotifier {
     _ticker = Timer.periodic(
       const Duration(seconds: 1),
       (_) => notifyListeners(),
+    );
+    _rentalWatch = Timer.periodic(
+      const Duration(seconds: 7),
+      (_) => _checkRental(),
     );
     notifyListeners();
   }
@@ -759,6 +766,13 @@ class GameState extends ChangeNotifier {
       config.cappedFor(user?.chips ?? 0, boot: boot, category: category);
 
   /// Wears a catalogue picture, or null to go back to the provider photo.
+  ///
+  /// The catalogue is re-read afterwards, and not awaited: a premium picture is
+  /// a rental, so the answer to "may I still wear this" changes with the clock
+  /// rather than with anything the player did. Asking again on the way out of
+  /// this action is what re-locks a term that ran out while the lobby was
+  /// open — the listing is also where the server takes a lapsed picture off —
+  /// and doing it unawaited keeps the tick itself instant.
   Future<void> chooseAvatar(int? id) async {
     final token = _token;
     if (token == null) return;
@@ -768,6 +782,57 @@ class GameState extends ChangeNotifier {
       notice = e.message;
     }
     notifyListeners();
+    unawaited(_refreshPictures());
+  }
+
+  /// Watches the rental on the picture the player is wearing, in the lobby.
+  ///
+  /// Every seven seconds it re-reads the catalogue, which is where the server
+  /// takes a lapsed picture off and re-locks it. If the term has run out the
+  /// player is back on their default face and has to buy it again.
+  ///
+  /// It asks the SERVER rather than comparing the deadline it already holds,
+  /// and that is the second attempt: deciding locally costs nothing and is
+  /// right whenever the expiry is the one the client was told at purchase, but
+  /// it cannot see a term that changed underneath it — an expiry edited
+  /// directly, a clock that disagrees — and then the picture never comes off.
+  /// The authority on when a rental ends is the server, so the watch asks it.
+  ///
+  /// Two things keep that from being a poll worth worrying about. It runs only
+  /// in the LOBBY — at a table the picture cannot change anyway (requirement
+  /// 21), and taking one off mid-hand would be a change nobody asked for — and
+  /// only while the player is wearing a PREMIUM picture, which is the only kind
+  /// that can lapse. A player on a free face never makes the call at all.
+  void _checkRental() {
+    if (screen != Screen.lobby || _rentalRefreshing) return;
+    final worn = user?.activePictureId;
+    if (worn == null) return;
+
+    // Nothing to watch unless what they are wearing can actually run out.
+    final premium = pictures.any((p) => p.id == worn && !p.free);
+    if (!premium) return;
+
+    _rentalRefreshing = true;
+    unawaited(
+      _refreshPictures().whenComplete(() => _rentalRefreshing = false),
+    );
+  }
+
+  /// Guards the watch against stacking refreshes if one is slow.
+  bool _rentalRefreshing = false;
+
+  /// Re-reads the catalogue and the account together, so a rental that lapsed
+  /// takes its picture off the player as well as re-locking it on the shelf.
+  Future<void> _refreshPictures() async {
+    await _loadPictures();
+    final token = _token;
+    if (token == null) return;
+    try {
+      user = await _api.me(token);
+      notifyListeners();
+    } catch (_) {
+      // Offline or reconnecting; the next update catches up.
+    }
   }
 
   /// Set while a picture purchase is with the server, so the picker can show
@@ -789,7 +854,7 @@ class GameState extends ChangeNotifier {
       user = bought.user;
       // The catalogue carries `owned` per viewer, so it has to be re-read
       // before the picker can stop drawing a padlock on what was just bought.
-      await _loadPictures();
+      await _refreshPictures();
       await chooseAvatar(id);
       return true;
     } on ApiException catch (e) {
@@ -1236,6 +1301,7 @@ class GameState extends ChangeNotifier {
   @override
   void dispose() {
     unawaited(purchases.dispose());
+    _rentalWatch?.cancel();
     _clearSideshow();
     _resumeTimer?.cancel();
     _seatCheck?.cancel();
