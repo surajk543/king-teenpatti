@@ -1,12 +1,22 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:lottie/lottie.dart';
 
 import '../theme/app_theme.dart';
 
 /// A player's picture (requirements 20 and 21), set in a ring.
 ///
-/// The catalogue set is SVG and a Google or Facebook picture is a bitmap, so
-/// both paths are handled here.
+/// The catalogue set is SVG, a Google or Facebook picture is a bitmap, and a
+/// catalogue row may point at a Lottie animation, so three loaders are handled
+/// here. They are routed on the extension and must stay that way: an SVG
+/// through Image.network renders nothing, and a dotLottie is a zip that neither
+/// of the other two can read.
+///
+/// An animation only PLAYS where [animate] is set — the picker. Everywhere else
+/// it is drawn stopped on its first frame, which is still the player's picture
+/// and costs no ticker: five looping animations around a felt that already runs
+/// per-frame turn clocks is a different question, and not one a profile picture
+/// should answer on its own.
 ///
 /// There are two different fallbacks and the difference matters. A player with
 /// NO picture gets their initial — it is something rather than nothing, and it
@@ -36,6 +46,7 @@ class Avatar extends StatelessWidget {
     this.ring,
     this.ringWidth = 1.5,
     this.ringGap = 0,
+    this.animate = false,
   });
 
   /// Absolute, or server-relative like "/profiles/ace.svg".
@@ -53,6 +64,11 @@ class Avatar extends StatelessWidget {
   /// A band of ground between the ring and the picture, for a selected state
   /// that has to read as chosen rather than as an Android focus highlight.
   final double ringGap;
+
+  /// Whether a Lottie picture plays. Off everywhere but the picker; a stopped
+  /// animation still draws its first frame. Does nothing for SVG or bitmap
+  /// pictures, which have no frames to run.
+  final bool animate;
 
   @override
   Widget build(BuildContext context) {
@@ -90,11 +106,30 @@ class Avatar extends StatelessWidget {
     );
 
     final link = url;
+    final extension = (link ?? '').toLowerCase();
+    // A dotLottie (.lottie) is a zip of manifest + animation + images; a raw
+    // Lottie is .json. LottieComposition.decodeZip is the default decoder and
+    // sniffs the PK magic bytes, so one call reads either.
+    final animated =
+        extension.endsWith('.lottie') || extension.endsWith('.json');
+
     final Widget? picture = link == null || link.isEmpty
         ? null
-        // An SVG through Image.network renders nothing, so the two loaders are
-        // routed on the extension and must stay that way.
-        : link.toLowerCase().endsWith('.svg')
+        : animated
+        ? Lottie.network(
+            link,
+            width: radius * 2,
+            height: radius * 2,
+            fit: BoxFit.cover,
+            animate: animate,
+            repeat: animate,
+            // Until the composition is down, the initial holds the space —
+            // the same thing the other two loaders show while they fetch.
+            frameBuilder: (_, child, composition) =>
+                composition == null ? Center(child: initial) : child,
+            errorBuilder: (_, _, _) => fallbackImage,
+          )
+        : extension.endsWith('.svg')
         ? SvgPicture.network(
             link,
             width: radius * 2,

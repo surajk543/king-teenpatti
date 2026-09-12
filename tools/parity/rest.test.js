@@ -343,7 +343,10 @@ test('the picture catalogue is listed, worn and cleared', async () => {
     assertKeys(entry, ['id', 'name', 'url', 'type', 'cost', 'sortOrder', 'owned']);
     assert.equal(typeof entry.id, 'number');
     assert.ok(entry.name.length > 0);
-    assert.match(entry.url, /^\/profiles\/.+\.(svg|png|jpg|jpeg|webp)$/i);
+    // image_url is whatever a client can load: a path into PUBLIC_DIR for the
+    // bundled art, or an absolute URL when a picture is hosted elsewhere (the
+    // animated ones are dotLottie on lottie.host).
+    assert.match(entry.url, /^(\/profiles\/.+\.(svg|png|jpg|jpeg|webp)|https?:\/\/.+)$/i);
     assert.ok(['FREE', 'PREMIUM'].includes(entry.type));
     // The schema's own CHECK, seen from the outside.
     if (entry.type === 'FREE') assert.equal(entry.cost, 0);
@@ -358,7 +361,11 @@ test('the picture catalogue is listed, worn and cleared', async () => {
   const premium = profiles.find((p) => p.type === 'PREMIUM');
   assert.ok(free && premium, 'the seeded catalogue has both tiers');
 
-  const served = await http('GET', free.url, { raw: true });
+  // A bundled picture specifically: a hosted one (the animated dotLottie) is
+  // not served by this server at all, so picking "the first free row" would
+  // start failing the day one sorts to the front.
+  const local = profiles.find((p) => p.url.startsWith('/profiles/'));
+  const served = await http('GET', local.url, { raw: true });
   assert.equal(served.status, 200);
   assert.match(served.headers.get('content-type') ?? '', /^image\/svg\+xml/);
 

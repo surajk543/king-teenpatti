@@ -41,6 +41,12 @@ dependencies:
   shared_preferences: ^2.5.5
   uuid: ^4.6.0
   flutter_svg: ^2.3.0
+
+  # Animated profile pictures. Lottie ships as raw JSON or as a dotLottie zip
+  # (manifest + animation + images); LottieComposition.decodeZip is the default
+  # decoder and sniffs the PK magic bytes, so one call reads both. Already in
+  # the tree transitively — named here because the app imports it directly now.
+  lottie: ^3.5.1
   package_info_plus: ^10.2.1
   in_app_purchase: ^3.3.0
   in_app_update: ^5.0.0

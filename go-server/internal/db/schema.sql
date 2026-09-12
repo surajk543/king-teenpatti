@@ -201,7 +201,14 @@ BEGIN
       ('Lion',    '/profiles/lion.svg',     'PREMIUM', 25000::bigint, 120),
       ('Tiger',   '/profiles/tiger.svg',    'PREMIUM', 25000::bigint, 130),
       ('Panda',   '/profiles/panda.svg',    'PREMIUM', 50000::bigint, 140),
-      ('Wolf',    '/profiles/wolf.svg',     'PREMIUM', 50000::bigint, 150)
+      ('Wolf',    '/profiles/wolf.svg',     'PREMIUM', 50000::bigint, 150),
+      -- An animated picture, to prove the column takes an absolute URL and the
+      -- picker takes a Lottie. image_url is whatever a client can load, not a
+      -- path into PUBLIC_DIR; this one is a dotLottie (a zip of manifest,
+      -- animation and images) and only the picker plays it — everywhere else it
+      -- is drawn stopped on its first frame.
+      ('Butterfly', 'https://lottie.host/753d8332-77a2-46c9-914d-ae98c148a65a/lPzmUsFDRo.lottie',
+                                        'FREE',        0::bigint, 160)
     ) AS t(name, image_url, type, cost, sort_order)
   LOOP
     INSERT INTO profile_pictures (name, image_url, type, cost, is_active, sort_order, created_at, updated_at)

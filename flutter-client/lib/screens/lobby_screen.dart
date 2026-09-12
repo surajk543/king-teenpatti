@@ -1640,6 +1640,7 @@ Future<void> _openPicturePicker(BuildContext context) async {
                           url: state.avatarUrl,
                           fallback: user?.displayName ?? '',
                           radius: headR,
+                          animate: true,
                         ),
                         const SizedBox(width: Space.lg),
                         Expanded(
@@ -1836,12 +1837,14 @@ class _PictureChoice extends StatelessWidget {
               ring: AppTheme.goldBright,
               ringWidth: 2.5,
               ringGap: 2,
+              animate: true,
             )
           : Avatar(
               key: const ValueKey(false),
               url: url,
               fallback: picture.name,
               radius: radius + 3,
+              animate: true,
             ),
     );
 
