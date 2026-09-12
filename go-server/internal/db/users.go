@@ -62,7 +62,7 @@ type User struct {
 	Provider    string  `json:"provider"`
 	DisplayName string  `json:"displayName"`
 	Email       *string `json:"email"` // null for guests
-	// AvatarURL is the image_url of the catalogue picture the player is
+	// AvatarURL is the asset_url of the catalogue picture the player is
 	// wearing if they have chosen one, else avatar_url (a picture chosen
 	// in-game wins over the provider's); null when neither.
 	AvatarURL *string `json:"avatarUrl"`
@@ -222,12 +222,12 @@ type queryer interface {
 
 // userColumns is every users column, in DDL order, so a row scans into
 // userRow without depending on `SELECT *` column ordering, followed by the
-// image_url of the catalogue picture the player is wearing. Qualified with the
+// asset_url of the catalogue picture the player is wearing. Qualified with the
 // `u` alias because every read now goes through userFrom's join.
 const userColumns = `u.id, u.provider, u.provider_user_id, u.display_name, u.email, u.avatar_url, u.chips,
        u.hands_played, u.hands_won, u.hands_lost, u.hands_left_mid, u.total_winnings, u.biggest_pot,
        u.milestone_claimed, u.next_bonus_at, u.active_picture_id, u.created_at, u.updated_at, u.last_login_at,
-       ap.image_url`
+       ap.asset_url`
 
 // userFrom joins the picture the player is wearing so publicUser can resolve
 // avatarUrl without a second round trip. LEFT, because most players wear
@@ -242,10 +242,10 @@ const userFrom = ` FROM users u LEFT JOIN profile_pictures ap ON ap.id = u.activ
 type userRow struct {
 	id, provider, providerUserID, displayName string
 	email, avatarURL                          *string
-	// activePictureID is the catalogue row worn; pictureImageURL is that
-	// row's image_url, carried along by userFrom's join.
+	// activePictureID is the catalogue row worn; pictureAssetURL is that
+	// row's asset_url, carried along by userFrom's join.
 	activePictureID                   *int64
-	pictureImageURL                   *string
+	pictureAssetURL                   *string
 	chips                             int64
 	handsPlayed, handsWon             int
 	handsLost, handsLeftMid           int
@@ -261,7 +261,7 @@ func scanUser(row pgx.Row) (*userRow, error) {
 	err := row.Scan(&r.id, &r.provider, &r.providerUserID, &r.displayName, &r.email, &r.avatarURL, &r.chips,
 		&r.handsPlayed, &r.handsWon, &r.handsLost, &r.handsLeftMid, &r.totalWinnings, &r.biggestPot,
 		&r.milestoneClaimed, &r.nextBonusAt, &r.activePictureID, &r.createdAt, &r.updatedAt, &r.lastLoginAt,
-		&r.pictureImageURL)
+		&r.pictureAssetURL)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -292,11 +292,11 @@ func (u *Users) publicUser(r *userRow) *User {
 	milestone := MilestoneFor(r.handsPlayed)
 	// A picture chosen in-game wins over the one the provider gave us. The
 	// choice is a catalogue id now, so what goes on the wire is that row's
-	// image_url; a row that has since been deleted leaves the join null and
+	// asset_url; a row that has since been deleted leaves the join null and
 	// falls through to the provider picture rather than to a broken link.
 	avatarURL := r.avatarURL
-	if r.pictureImageURL != nil && *r.pictureImageURL != "" {
-		avatarURL = r.pictureImageURL
+	if r.pictureAssetURL != nil && *r.pictureAssetURL != "" {
+		avatarURL = r.pictureAssetURL
 	}
 	return &User{
 		ID:                r.id,

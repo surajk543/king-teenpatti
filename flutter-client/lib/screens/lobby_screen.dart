@@ -2069,6 +2069,7 @@ class _PictureChoice extends StatelessWidget {
           ? Avatar(
               key: const ValueKey(true),
               url: url,
+              format: picture.assetFormat,
               fallback: picture.name,
               radius: radius - 3,
               ring: AppTheme.goldBright,
@@ -2079,6 +2080,7 @@ class _PictureChoice extends StatelessWidget {
           : Avatar(
               key: ValueKey(unlockedRing),
               url: url,
+              format: picture.assetFormat,
               fallback: picture.name,
               radius: radius,
               ring: unlockedRing ? theme.colorScheme.primary : null,

@@ -504,7 +504,7 @@ with `room:joinCode`. Voluntary leave / kick never create an offer (the grace ti
 → `{token, user, isNew, welcomeChips}`; `GET /api/auth/me`; `POST /api/rewards/milestone|bonus`
 (**409 `seated` while at a table** — rewards are lobby-only so a seated wallet only ever moves at the
 three checkpoints, §5.1); **`GET /api/profiles`** — the picture catalogue from `profile_pictures`, active rows only, in
-`sort_order` then `id`: `{profiles:[{id, name, url, type, cost, sortOrder, owned}]}`. The token is
+`sort_order` then `id`: `{profiles:[{id, name, url, assetFormat, type, cost, durationDays, sortOrder, owned, expiresAt}]}` — `assetFormat` is IMAGE (jpg/jpeg/png, one loader), SVG, LOTTIE (Lottie JSON/.lottie at the url) or RIVE (.riv binary), how the client renders what `url` serves. The token is
 **optional**: without one every FREE row reads `owned:true` and every PREMIUM one `owned:false`;
 with one, `owned` also covers the premium pictures that player has bought. A bad token is ignored,
 not refused;
@@ -551,12 +551,12 @@ come back as strings.
 Tables — **there are exactly four, and none of them is game state**: `users` (wallet = `chips BIGINT
 CHECK ≥ 0`, counters, `milestone_claimed`, `next_bonus_at`, `active_picture_id`, `deleted_at`),
 **`chip_ledger`** (`action_id UNIQUE`, `hand_id`, `delta`, `balance`, `reason`; append-only trigger),
-and the picture catalogue added 12 Sep 2026 (owner): **`profile_pictures`** (`name`, `image_url`
+and the picture catalogue added 12 Sep 2026 (owner): **`profile_pictures`** (`name`, `asset_url`
 UNIQUE, `type` FREE|PREMIUM, `cost` with a CHECK that free is 0 and premium is > 0, `is_active`,
 `sort_order`) and **`user_profile_pictures`** (`user_id`, `profile_picture_id`, PK on the pair) —
 who has bought what. A FREE picture needs **no** ownership row: everyone may wear it, so the table
 holds only what somebody paid for. `schema.sql` seeds the 15 bundled animals (9 free, 6 premium at
-10k/25k/50k) with `ON CONFLICT (image_url) DO NOTHING`, so re-pricing or retiring one is an UPDATE
+10k/25k/50k) with `ON CONFLICT (asset_url) DO NOTHING`, so re-pricing or retiring one is an UPDATE
 the next boot will not undo. `users.avatar_choice` (the old free-text `/profiles/x.svg` path) is
 migrated into `active_picture_id` and dropped — **but only once every non-empty choice has found its
 catalogue row**, and any picture that was already being worn is granted an ownership row first so

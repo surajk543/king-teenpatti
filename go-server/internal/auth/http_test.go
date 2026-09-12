@@ -137,11 +137,11 @@ func (s *fakeStore) SetActivePicture(_ context.Context, userID string, pictureID
 // fakeCatalogue stands in for the profile_pictures table: two free pictures,
 // two premium ones, and a retired row that is still a valid id.
 var fakeCatalogue = map[int64]db.Picture{
-	1: {ID: 1, Name: "Bear", URL: "/profiles/bear.svg", Type: db.PictureFree, SortOrder: 10},
-	2: {ID: 2, Name: "Cat", URL: "/profiles/cat.svg", Type: db.PictureFree, SortOrder: 20},
-	3: {ID: 3, Name: "Wolf", URL: "/profiles/wolf.svg", Type: db.PicturePremium, Cost: 50000, DurationDays: 30, SortOrder: 30},
-	4: {ID: 4, Name: "Lion", URL: "/profiles/lion.svg", Type: db.PicturePremium, Cost: 25000, DurationDays: 30, SortOrder: 40},
-	9: {ID: 9, Name: "Dodo", URL: "/profiles/dodo.svg", Type: db.PicturePremium, Cost: 100, DurationDays: 30, SortOrder: 90},
+	1: {ID: 1, Name: "Bear", URL: "/profiles/bear.svg", AssetFormat: "SVG", Type: db.PictureFree, SortOrder: 10},
+	2: {ID: 2, Name: "Cat", URL: "/profiles/cat.svg", AssetFormat: "SVG", Type: db.PictureFree, SortOrder: 20},
+	3: {ID: 3, Name: "Wolf", URL: "/profiles/wolf.svg", AssetFormat: "SVG", Type: db.PicturePremium, Cost: 50000, DurationDays: 30, SortOrder: 30},
+	4: {ID: 4, Name: "Lion", URL: "/profiles/lion.svg", AssetFormat: "SVG", Type: db.PicturePremium, Cost: 25000, DurationDays: 30, SortOrder: 40},
+	9: {ID: 9, Name: "Dodo", URL: "/profiles/dodo.svg", AssetFormat: "SVG", Type: db.PicturePremium, Cost: 100, DurationDays: 30, SortOrder: 90},
 }
 
 // fakePictures is the PictureStore the harness wires in: the catalogue above,
@@ -703,10 +703,10 @@ func TestProfilesListsTheCatalogue(t *testing.T) {
 		t.Fatalf("%d", res.status)
 	}
 	want := `{"profiles":[` +
-		`{"id":1,"name":"Bear","url":"/profiles/bear.svg","type":"FREE","cost":0,"durationDays":0,"sortOrder":10,"owned":true,"expiresAt":0},` +
-		`{"id":2,"name":"Cat","url":"/profiles/cat.svg","type":"FREE","cost":0,"durationDays":0,"sortOrder":20,"owned":true,"expiresAt":0},` +
-		`{"id":3,"name":"Wolf","url":"/profiles/wolf.svg","type":"PREMIUM","cost":50000,"durationDays":30,"sortOrder":30,"owned":false,"expiresAt":0},` +
-		`{"id":4,"name":"Lion","url":"/profiles/lion.svg","type":"PREMIUM","cost":25000,"durationDays":30,"sortOrder":40,"owned":false,"expiresAt":0}]}`
+		`{"id":1,"name":"Bear","url":"/profiles/bear.svg","assetFormat":"SVG","type":"FREE","cost":0,"durationDays":0,"sortOrder":10,"owned":true,"expiresAt":0},` +
+		`{"id":2,"name":"Cat","url":"/profiles/cat.svg","assetFormat":"SVG","type":"FREE","cost":0,"durationDays":0,"sortOrder":20,"owned":true,"expiresAt":0},` +
+		`{"id":3,"name":"Wolf","url":"/profiles/wolf.svg","assetFormat":"SVG","type":"PREMIUM","cost":50000,"durationDays":30,"sortOrder":30,"owned":false,"expiresAt":0},` +
+		`{"id":4,"name":"Lion","url":"/profiles/lion.svg","assetFormat":"SVG","type":"PREMIUM","cost":25000,"durationDays":30,"sortOrder":40,"owned":false,"expiresAt":0}]}`
 	if string(res.raw) != want {
 		t.Errorf("got  %s\nwant %s", res.raw, want)
 	}

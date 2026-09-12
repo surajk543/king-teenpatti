@@ -29,6 +29,13 @@ type Picture struct {
 	ID   int64  `json:"id"`
 	Name string `json:"name"`
 	URL  string `json:"url"`
+	// AssetFormat tells the client how to play what URL serves: "IMAGE"
+	// (jpg/jpeg/png — one loader for all three), "SVG", "LOTTIE" (a Lottie
+	// JSON or .lottie zip fetched and played) or "RIVE" (a Rive .riv
+	// binary). It rides the wire so a catalogue row can change loader
+	// without a client release — hosted URLs rarely carry an extension to
+	// guess from.
+	AssetFormat string `json:"assetFormat"`
 	// Type is PictureFree or PicturePremium.
 	Type string `json:"type"`
 	// Cost in chips. Always 0 for a free picture (the schema's
@@ -84,7 +91,7 @@ func NewPictures(d *DB, users *Users, clock func() time.Time) *Pictures {
 }
 
 // pictureColumns is the catalogue row, aliased p.
-const pictureColumns = `p.id, p.name, p.image_url, p.type, p.cost, p.duration_days, p.sort_order`
+const pictureColumns = `p.id, p.name, p.asset_url, p.asset_format, p.type, p.cost, p.duration_days, p.sort_order`
 
 // ownedJoin resolves ownership for one viewer. $1 is the user id; an empty
 // string matches nobody, which is exactly right for an anonymous caller — they
@@ -142,7 +149,7 @@ func (p *Pictures) List(ctx context.Context, userID string) ([]Picture, error) {
 	pictures := []Picture{}
 	for rows.Next() {
 		var pic Picture
-		if err := rows.Scan(&pic.ID, &pic.Name, &pic.URL, &pic.Type, &pic.Cost,
+		if err := rows.Scan(&pic.ID, &pic.Name, &pic.URL, &pic.AssetFormat, &pic.Type, &pic.Cost,
 			&pic.DurationDays, &pic.SortOrder, &pic.Owned, &pic.ExpiresAt); err != nil {
 			return nil, err
 		}
@@ -162,7 +169,7 @@ func (p *Pictures) Find(ctx context.Context, userID string, id int64) (Picture, 
 		`SELECT `+pictureColumns+`, p.is_active, `+ownedExpr+`, `+expiryExpr+`
 		   FROM profile_pictures p`+p.ownedJoinNow()+`
 		  WHERE p.id = $2`, userID, id).
-		Scan(&pic.ID, &pic.Name, &pic.URL, &pic.Type, &pic.Cost, &pic.DurationDays,
+		Scan(&pic.ID, &pic.Name, &pic.URL, &pic.AssetFormat, &pic.Type, &pic.Cost, &pic.DurationDays,
 			&pic.SortOrder, &active, &pic.Owned, &pic.ExpiresAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Picture{}, false, ErrPictureUnknown
@@ -232,7 +239,7 @@ func (p *Pictures) Buy(ctx context.Context, userID string, pictureID int64) (*Pi
 			`SELECT `+pictureColumns+`, p.is_active, `+ownedExpr+`, `+expiryExpr+`
 			   FROM profile_pictures p`+p.ownedJoinNow()+`
 			  WHERE p.id = $2`, userID, pictureID).
-			Scan(&pic.ID, &pic.Name, &pic.URL, &pic.Type, &pic.Cost, &pic.DurationDays,
+			Scan(&pic.ID, &pic.Name, &pic.URL, &pic.AssetFormat, &pic.Type, &pic.Cost, &pic.DurationDays,
 				&pic.SortOrder, &active, &pic.Owned, &pic.ExpiresAt)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrPictureUnknown

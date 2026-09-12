@@ -1,6 +1,6 @@
 -- Profile-picture catalogue, hosted on Google Drive, all FREE.
 --
--- image_url is whatever a client can actually LOAD, and for Drive that is not
+-- asset_url is whatever a client can actually LOAD, and for Drive that is not
 -- the /file/d/<id>/view link: that one is an HTML viewer page and would render
 -- nothing. lh3.googleusercontent.com/d/<id> serves the bytes, and Drive
 -- rasterises the SVG to PNG on the way out — so these are PNGs, and the "=s256"
@@ -10,7 +10,7 @@
 -- when a picture will not load, so it ships INSIDE the app
 -- (assets/default_avatar.svg) and must not depend on the network. It is also
 -- not something a player should be able to choose.
-INSERT INTO profile_pictures (name, image_url, type, cost, is_active, sort_order, created_at, updated_at)
+INSERT INTO profile_pictures (name, asset_url, type, cost, is_active, sort_order, created_at, updated_at)
 VALUES
   ('Bear',    'https://lh3.googleusercontent.com/d/1cMAxBlDvKxPpPyOKffLsjM0RDxPUdC-_=s256', 'FREE', 0, TRUE,  10, (EXTRACT(EPOCH FROM now())*1000)::bigint, (EXTRACT(EPOCH FROM now())*1000)::bigint),
   ('Cat',     'https://lh3.googleusercontent.com/d/1fTFvJGmCOaFF-mCm_4XAdyjaRFw3Sf9a=s256', 'FREE', 0, TRUE,  20, (EXTRACT(EPOCH FROM now())*1000)::bigint, (EXTRACT(EPOCH FROM now())*1000)::bigint),
@@ -27,17 +27,17 @@ VALUES
   ('Rabbit',  'https://lh3.googleusercontent.com/d/1wIdpZ7RMytoy9rhpA411lZFz7CbjdyM3=s256', 'FREE', 0, TRUE, 130, (EXTRACT(EPOCH FROM now())*1000)::bigint, (EXTRACT(EPOCH FROM now())*1000)::bigint),
   ('Tiger',   'https://lh3.googleusercontent.com/d/1L-focNnL0yNJueAArM-YfHE9kX0VZv3T=s256', 'FREE', 0, TRUE, 140, (EXTRACT(EPOCH FROM now())*1000)::bigint, (EXTRACT(EPOCH FROM now())*1000)::bigint),
   ('Wolf',    'https://lh3.googleusercontent.com/d/1LB0wQaR_rq3bYk9oN5P6RWsEm5-oIXae=s256', 'FREE', 0, TRUE, 150, (EXTRACT(EPOCH FROM now())*1000)::bigint, (EXTRACT(EPOCH FROM now())*1000)::bigint)
-ON CONFLICT (image_url) DO NOTHING;
+ON CONFLICT (asset_url) DO NOTHING;
 
 -- ALTERNATIVE, and probably the one you want.
 --
 -- The catalogue already holds these fifteen animals pointing at /profiles/*.svg,
--- and image_url is UNIQUE on the URL rather than on the name — so the INSERT
+-- and asset_url is UNIQUE on the URL rather than on the name — so the INSERT
 -- above ADDS fifteen more rows and every animal appears twice in the picker.
 -- To move the existing rows onto Drive instead, keeping their ids (and so every
 -- player's chosen picture and every premium purchase), re-point them by name:
 UPDATE profile_pictures p SET
-       image_url  = v.url,
+       asset_url  = v.url,
        updated_at = (EXTRACT(EPOCH FROM now())*1000)::bigint
   FROM (VALUES
          ('Bear', 'https://lh3.googleusercontent.com/d/1cMAxBlDvKxPpPyOKffLsjM0RDxPUdC-_=s256'),

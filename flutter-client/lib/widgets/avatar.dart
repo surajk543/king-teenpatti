@@ -43,6 +43,7 @@ class Avatar extends StatelessWidget {
   const Avatar({
     super.key,
     required this.url,
+    this.format,
     required this.fallback,
     this.radius = 20,
     this.background,
@@ -54,6 +55,11 @@ class Avatar extends StatelessWidget {
 
   /// Absolute, or server-relative like "/profiles/ace.svg".
   final String? url;
+
+  /// The catalogue's declared render format — 'IMAGE', 'SVG', 'LOTTIE' or
+  /// 'RIVE' — when it is known. The picker has it; a worn seat URL does not.
+  /// Given, it wins over extension sniffing; null keeps the old guess.
+  final String? format;
 
   /// Shown when there is no picture: normally the display name.
   final String fallback;
@@ -115,17 +121,27 @@ class Avatar extends StatelessWidget {
     // sniffs the PK magic bytes, so one call reads either.
     final animated =
         extension.endsWith('.lottie') || extension.endsWith('.json');
+    // The catalogue's declared format wins over extension sniffing when it
+    // is provided — hosted URLs usually have no extension to sniff.
+    final isSvg = extension.endsWith('.svg');
+    final useLottie = format == 'LOTTIE' || (format == null && animated);
+    final useSvg = format == 'SVG' || (format == null && isSvg);
+    // No Rive runtime ships in the app yet (no rive package), so a RIVE row
+    // cannot be played. Drawing the bundled default is honest; decoding a
+    // .riv as a bitmap is not. When the package lands, route RIVE to it here.
+    final unsupported = format == 'RIVE';
 
     // Bytes first, network second: PictureCache keeps a picture on the phone
     // once it has been fetched, so the second launch — and every rebuild of
     // the five seat pods — paints from memory rather than the wire.
-    final Widget? picture = link == null || link.isEmpty
+    final Widget? picture =
+        link == null || link.isEmpty || unsupported
         ? null
         : _CachedPicture(
             url: link,
             size: radius * 2,
-            animated: animated,
-            isSvg: extension.endsWith('.svg'),
+            animated: useLottie,
+            isSvg: useSvg,
             animate: animate,
             placeholder: Center(child: initial),
             fallback: fallbackImage,

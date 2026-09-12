@@ -59,15 +59,27 @@
 -- the game offers: a FREE row is worn by anyone, a PREMIUM row costs chips a
 -- player has to spend before they may wear it.
 --
--- image_url is whatever a client can LOAD. That is a hosted URL for the art
+-- asset_url is whatever a client can LOAD. That is a hosted URL for the art
 -- the game ships with today; a server-relative path into PUBLIC_DIR
 -- ("/profiles/bear.svg") works just as well. It is UNIQUE because it is the
 -- natural key the seed below matches on; the BIGSERIAL id is what
 -- users.active_picture_id and user_profile_pictures point at.
+--
+-- asset_format tells the client HOW to play what asset_url serves, so no
+-- client ever has to guess from a file extension (hosted URLs often carry
+-- none): IMAGE is a bitmap — jpg, jpeg and png share one loader — SVG is
+-- vector art, LOTTIE is a Lottie JSON (or .lottie zip) the client downloads
+-- and plays, RIVE is a Rive .riv binary. The value rides the wire next to the
+-- URL as assetFormat, so a catalogue row can change loader without a client
+-- release.
 CREATE TABLE IF NOT EXISTS profile_pictures (
   id         BIGSERIAL PRIMARY KEY,
   name       TEXT    NOT NULL,
-  image_url  TEXT    NOT NULL UNIQUE,
+  asset_url  TEXT    NOT NULL UNIQUE,
+  -- How the client renders what asset_url serves. Defaults to IMAGE so a row
+  -- inserted without the column is a picture every client can draw.
+  asset_format TEXT   NOT NULL DEFAULT 'IMAGE'
+               CHECK (asset_format IN ('IMAGE', 'SVG', 'LOTTIE', 'RIVE')),
   type       TEXT    NOT NULL CHECK (type IN ('FREE', 'PREMIUM')),
   -- What it costs in chips. Paid through chip_ledger like every other chip
   -- movement, so SUM(delta) = users.chips still reconciles after a purchase.

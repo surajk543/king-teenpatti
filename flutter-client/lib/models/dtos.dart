@@ -719,6 +719,7 @@ class ProfilePicture {
     required this.id,
     required this.name,
     required this.url,
+    this.assetFormat = 'IMAGE',
     required this.type,
     required this.cost,
     required this.durationDays,
@@ -733,6 +734,13 @@ class ProfilePicture {
 
   /// Server-relative ("/profiles/bear.svg") or absolute.
   final String url;
+
+  /// How the client renders what [url] serves: 'IMAGE' (jpg/jpeg/png — one
+  /// loader), 'SVG', 'LOTTIE' (a Lottie JSON or .lottie zip fetched and
+  /// played) or 'RIVE' (a Rive .riv binary; no Rive runtime ships in the app
+  /// yet, so such a row falls back to the bundled default). Declared by the
+  /// server because hosted URLs rarely carry an extension to sniff.
+  final String assetFormat;
 
   /// 'FREE' or 'PREMIUM'.
   final String type;
@@ -775,6 +783,7 @@ class ProfilePicture {
         id: _int(j['id']),
         name: _str(j['name']),
         url: _str(j['url']),
+        assetFormat: _str(j['assetFormat'] ?? 'IMAGE'),
         type: _str(j['type']).isEmpty ? 'FREE' : _str(j['type']),
         cost: _int(j['cost']),
         durationDays: _int(j['durationDays']),
