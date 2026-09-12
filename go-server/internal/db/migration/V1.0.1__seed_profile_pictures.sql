@@ -13,7 +13,8 @@
 --
 -- Which animals cost chips is a product decision, not a technical one. Two are
 -- free — everyone has a face from the first launch — and the rest ladder up at
--- 5k / 10k / 25k / 50k against a 2,00,000 welcome. Change any of it with
+-- 25k / 50k / 1L / 2L against a 2,00,000 welcome, so the top pair costs a whole
+-- welcome grant and is something to play towards. Change any of it with
 -- `UPDATE profile_pictures SET type = …, cost = … WHERE name = …`; this script
 -- only ever puts the starting set there.
 
