@@ -133,10 +133,21 @@ end sees bets that made sense for the cards that turn over.
 - **Some sideshow asks are simply left to expire**, and the rest are answered by
   the hand: a good hand is glad to compare. A table where every ask is answered
   within two seconds is a table of programs.
-- **They have faces.** Each bot wears one of the server's bundled profile
-  pictures, chosen from its index so the same seat keeps the same animal every
-  run. Five identical grey initials around a table is the tell that gives the
-  fleet away before anyone reads a name. Set after login, because the
+- **They have faces.** Each bot wears one of the server's profile pictures,
+  chosen from its index so the same seat keeps the same animal every run. Five
+  identical grey initials around a table is the tell that gives the fleet away
+  before anyone reads a name.
+
+  Only the **FREE** ones. The catalogue is rows in `profile_pictures` now, and a
+  PREMIUM picture costs chips: a fleet buying its way through it would be two
+  hundred accounts quietly draining the chip economy on decoration every
+  restart, and the server would refuse them anyway (403 `picture_locked`). How
+  many pictures are free is one `UPDATE` away from changing, so the step through
+  the list is derived from the list's own length rather than hardcoded —
+  `strideFor`. The old fixed stride of 7 put every bot on the SAME face the day
+  the catalogue held seven free pictures, which is the opposite of the point.
+
+  Set after login, because the
   server refuses a picture change at a table (409 `seated`) — and if that
   refusal comes anyway, because the fleet restarted inside the server's
   60-second reconnect grace and every seat was still held, the bot steps out
