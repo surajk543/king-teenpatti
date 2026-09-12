@@ -985,6 +985,17 @@ final t = state.t;` at the top of `build`; M3 roles via `theme.colorScheme`; `.w
   is still disabled.
 - `main()` awaits `/api/auth/me` with no timeout before the first frame.
 - Chat field `maxLength: 200` vs server 140 (see §7.4).
+- **The winner's seat is `won`, not `active`** — `endHand` moves it there the moment it settles, and
+  the seat keeps that status until the next deal. Any "is this seat still playing" test must count it
+  (`seat_pod.dart` `_inHand` does; `_OwnHand` did not, so the viewer's own cards vanished off the felt
+  at the moment they were told they had won with them). Its partner `lost` is what a showdown loser
+  gets — `_OwnHand` still draws that one dimmed under a **PACKED** plate, which is wrong for a hand
+  that was beaten rather than folded.
+- **The bet stepper is per-turn, not per-hand.** `GameState.raiseIndex` resets on a new hand *and*
+  whenever `you.options` reappears (the server sends options only to the player on turn, so that is
+  this seat's turn beginning) and on `see()`, whose ladder is double the blind one. Left to persist,
+  a raise made on one turn is silently re-made on the next — for more, because the ladder climbed
+  with the stake it had just raised.
 - **A `late final AnimationController` first read in `dispose()` breaks the teardown.** The initializer
   runs there, `vsync: this` looks up `TickerMode` on a deactivated element, the throw lands inside
   `_InactiveElements._unmount` and leaves the tree half unmounted — and the *next* screen dies on an
