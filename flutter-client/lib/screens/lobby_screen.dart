@@ -797,9 +797,17 @@ class _TableCard extends StatelessWidget {
     // What the door asks for, stated on every card — including the ones that
     // ask for nothing, because "open to all" is itself worth knowing when the
     // card beside it is not.
+    // A server that predates the band sends none, and the only limit it knows
+    // is the old ENTRY_CAP_* one. Reading that here keeps the card honest in
+    // the window between shipping this build and deploying that server —
+    // otherwise the cheapest blind table would be refused by cappedOut while
+    // its own card said "Open to all".
+    final int ceiling = table.maxChips > 0
+        ? table.maxChips
+        : (state.cappedOut(boot, category) ? state.config.entryCapMaxChips : 0);
     final String entryValue;
-    if (table.maxChips > 0) {
-      entryValue = t.entryUpTo.replaceFirst('{cap}', formatChips(table.maxChips));
+    if (ceiling > 0) {
+      entryValue = t.entryUpTo.replaceFirst('{cap}', formatChips(ceiling));
     } else if (table.minChips > 0) {
       entryValue = t.entryFrom.replaceFirst('{min}', formatChips(table.minChips));
     } else {
