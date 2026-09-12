@@ -16,7 +16,10 @@
 #   4. waits for http://127.0.0.1:$PORT/health to report process.node = "go…"
 #      and checks a HEAD on /metrics with the METRICS_TOKEN from .env → 200.
 #
-# Undo: sudo bash rollback-to-node.sh
+# Undo: there is no scripted undo. The previous unit is kept at $UNIT_PATH.node.bak, but the
+#       Node server it points at cannot run against the current schema (it wants
+#       users.avatar_choice), so the way back from a bad release is the previous Go tag —
+#       DEPLOY.md §5.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib.sh
@@ -79,7 +82,8 @@ log "Verifying"
 if ! wait_for_health go; then
   show_service
   die "the Go server did not become healthy within ${HEALTH_WAIT_SECONDS}s.
-    Roll back with:  sudo bash $SCRIPT_DIR/rollback-to-node.sh"
+    The previous unit is kept at $UNIT_BACKUP; to go back to a working build use the previous
+    Go release tag instead (DEPLOY.md section 5)."
 fi
 note "process.node = $HEALTH_NODE  (must start with \"go\")"
 status="$(metrics_head || true)"
@@ -114,4 +118,4 @@ fi
 
 log "Done — gameplay.service now runs the Go binary and the Node server is gone from this host."
 note "Prometheus keeps scraping 127.0.0.1:$(env_value PORT 3000)/metrics; give it one interval, then check http://127.0.0.1:9090/targets."
-note "Rollback (restores the Node tree from master first):  sudo bash $SCRIPT_DIR/rollback-to-node.sh"
+note "Previous unit kept at $UNIT_BACKUP. To go back, check out the previous go-server/vX.Y.Z tag and rebuild (DEPLOY.md section 5)"

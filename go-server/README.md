@@ -172,8 +172,11 @@ them apart.
 `sudo bash ops/install-go-server.sh` (installs the Go unit *as* `gameplay.service`, same port and
 metrics, copies the old `server/.env` to `go-server/.env` once, and removes the Node tree from the
 host once the Go binary is healthy — `KEEP_NODE_TREE=1` skips that), verify, and
-`ops/rollback-to-node.sh` to go back (it needs the Node tree restored from history first —
-`git checkout c19963b -- server` — and says so). Every later deploy is **tag first** (above), then
+**Rolling back means the previous Go tag**, not Node: `git checkout go-server/vX.Y.Z` →
+`ops/build.sh` → restart (`DEPLOY.md` §5). Node stopped being a rollback target on 12 Sep 2026 —
+it reads `users.avatar_choice`, which the schema no longer has — so `rollback-to-node.sh` was
+removed rather than kept as a script that would fail at the moment it was needed.
+Every later deploy is **tag first** (above), then
 `git pull origin master` → `bash ops/build.sh` → `sudo systemctl restart gameplay` →
 `bash ops/prod-version.sh` to confirm the version answering is the one you tagged; `../steps.txt` is
 that routine in short form.

@@ -1,4 +1,4 @@
-# Shared helpers for install-go-server.sh and rollback-to-node.sh. Sourced, not run.
+# Shared helpers for install-go-server.sh. Sourced, not run.
 # Everything here is read-only apart from what the caller does with the results.
 
 # --- paths (override with env vars when the checkout lives elsewhere) ---------

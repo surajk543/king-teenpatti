@@ -34,7 +34,7 @@ A turn-based multiplayer **Teen Patti** (3-card Indian poker) game:
 | Part | Path | Status |
 |---|---|---|
 | **Game server** | `go-server/` | **The server** — live in production since `go-server/ops/DEPLOY.md` was run (Sept 2026). Go 1.27, one static binary, **PostgreSQL 18** via `pgx`. Database-first money model (§5). Wire-identical to the Node original it replaced — same protocol, JWTs, schema, ledger rows, `/health`, `game_*` metrics (141/141 black-box parity suites). §5–§7 describe its behaviour; §14 its shape. |
-| Node.js server | *(removed)* | The original implementation, removed from the repo on 8 Sep 2026 (`git log -- server/`, last commit `c19963b`; `multi_node` branch). Its behaviour is what §5–§7 document; its file names are what those sections cite. Not a rollback target unless restored from history first (`go-server/ops/rollback-to-node.sh` explains). |
+| Node.js server | *(removed)* | The original implementation, removed from the repo on 8 Sep 2026 (`git log -- server/`, last commit `c19963b`; `multi_node` branch). Its behaviour is what §5–§7 document; its file names are what those sections cite. **No longer a rollback target at all** (12 Sep 2026): it reads and writes `users.avatar_choice`, which the schema dropped for `active_picture_id`, and knows nothing of the picture-catalogue tables — so it cannot run against this database. `ops/rollback-to-node.sh` was deleted rather than left as a recovery script that would fail when used; rolling back now means the previous **Go** tag (DEPLOY.md §5). |
 | Mobile client | `flutter-client/` | **The live client.** Flutter 3.44 / Dart 3.12, Material 3 via FlexColorScheme. Android is the shipping platform; `ios/` exists and is configured (`docs/ios-setup.md`) but has never been compiled — there is no macOS here. |
 | Browser client | `go-server/public/` | Zero-build vanilla-JS reference client served at `/` by the Go binary (`PUBLIC_DIR`) — **in dev only; production hides it** (`ROOT_REDIRECT=/dashboard/`, §7.4/§9) and serves just `privacy/`, `profiles/` from that dir. **Lags behind** — no sideshow, kick, rename, entry-cap or Indian-numbering UI. |
 | Tools | `tools/` | Small Node ≥ 20 package (`npm install` first): `npm run bot` (practice bots), `npm run ramp` (staged load test), `npm run parity` / `parity:diff` (black-box suites in `tools/parity/`). Clients of the server; also lend `node_modules` to two Go interop tests. |
@@ -87,7 +87,7 @@ king-teenpatti/
 │   │   └── util/                 UUID, RoomCode, slog JSON logger
 │   ├── public/                   browser client (index.html, client.js, style.css, theme.css) + profiles/ (15 Noto Emoji animal SVGs, Apache 2.0)
 │   ├── .env.example              every env key the server reads, with defaults (+ Go-only PG_STATEMENT_TIMEOUT_MS)
-│   ├── ops/                      build.sh, gameplay-go.service, install-go-server.sh, rollback-to-node.sh, lib.sh, DEPLOY.md
+│   ├── ops/                      build.sh, release.sh, prod-version.sh, gameplay-go.service, install-go-server.sh, lib.sh, DEPLOY.md
 │   │   └── monitoring/           Prometheus + Grafana + alerts + nginx bundle, MONITORING.md (formerly server/ops/monitoring)
 │   ├── PORT_PLAN.md / DECISIONS.md / PORT_NOTES/   architecture + Node→Go file map + concurrency rules; every settled ambiguity; per-package port notes + specs/ (cite the removed Node source)
 │   ├── bin/                      build output (git-ignored: bin/, .env, *.log)
@@ -1225,9 +1225,9 @@ sudo bash go-server/ops/install-go-server.sh                      # FIRST TIME: 
 sudo systemctl restart gameplay                                   # every later deploy (after git pull + build.sh)
 sudo systemctl status gameplay --no-pager && sudo journalctl -u gameplay -n 20 --no-pager
 curl -s 127.0.0.1:3000/health | python3 -m json.tool | head -20   # process.node must start with "go"
-# rollback = restore the Node tree from history FIRST (rollback-to-node.sh refuses otherwise), then swap the unit back
-git checkout c19963b -- server && (cd server && npm ci --omit=dev) && cp go-server/.env server/.env
-sudo bash go-server/ops/rollback-to-node.sh                       # back to Node in ~10 s once the tree is back; the unit backup is kept
+# rollback = the PREVIOUS GO TAG, never Node (it cannot run against this schema — DEPLOY.md §5)
+git checkout go-server/v1.1.0 && bash go-server/ops/build.sh && sudo systemctl restart gameplay
+bash go-server/ops/prod-version.sh                                # must report the tag you rolled back to
 ```
 Then: `/health`, `curl -s 127.0.0.1:9090/api/v1/targets` (game-server `up`), bots against production
 (`cd tools && npm install && npm run bot -- --url https://api.sungamestudio.com --count 3 --boot 200 --category blind`),

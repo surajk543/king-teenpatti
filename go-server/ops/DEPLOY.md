@@ -20,7 +20,6 @@ Files in this directory:
 | `build.sh` | deploy | installs Go 1.27.1 into `~/.local/go` if needed (sha256 verified against go.dev), builds `go-server/bin/gameplay` |
 | `gameplay-go.service` | — | the unit that `install-go-server.sh` installs as `gameplay.service` (`WorkingDirectory`, `EnvironmentFile` and `PUBLIC_DIR` all under `go-server/`) |
 | `install-go-server.sh` | sudo, once | backs up the Node unit → `gameplay.service.node.bak`, copies `server/.env` → `go-server/.env` once, installs the Go unit under the same name, restarts, verifies `/health` and `/metrics`, then removes `server/` from the host (`KEEP_NODE_TREE=1` skips) |
-| `rollback-to-node.sh` | sudo | restores the Node unit from the backup, restarts, verifies — **after** the Node tree has been restored from history (`git checkout c19963b -- server`; it refuses otherwise) |
 | `lib.sh` | — | helpers shared by the two sudo scripts (paths, health polling, `.env` reading) |
 | `monitoring/` | — | Prometheus + Grafana + alerts + nginx bundle and `MONITORING.md` (formerly `server/ops/monitoring`) |
 
@@ -53,8 +52,9 @@ Files in this directory:
   logs) once `/health` reports the Go runtime. If `server/.env` differed from `go-server/.env` a copy
   is kept at `go-server/.env.node.bak`. `KEEP_NODE_TREE=1 sudo bash …/install-go-server.sh` leaves
   the directory alone. Node itself stays installed — the bots and the load ramp (`tools/`) need it.
-- **Rollback is two steps now** (§5): restore the Node tree from history, then
-  `rollback-to-node.sh` (~10 s once the tree is back).
+- **Rollback goes to the previous Go tag, not to Node** (§5). The Node build cannot run against
+  this schema any more, so `rollback-to-node.sh` was removed; `git checkout go-server/vX.Y.Z` +
+  `build.sh` + restart is the way back.
 
 ---
 
@@ -205,26 +205,36 @@ psql "$(sed -n 's/^DATABASE_URL=//p' /var/www/gameplay/king-teenpatti/go-server/
 
 ## 5. Rollback
 
-The Node server is no longer in the repository (`master` removed it, and `install-go-server.sh`
-removed the untracked residue from the host), so a rollback first puts the tree back from history —
-as `deploy`, never as root — and only then swaps the unit. `c19963b` is the last commit that carries
-`server/` (`git log --diff-filter=D -- server/` finds the removal; any earlier commit works too):
+**Roll back to the previous Go release, not to Node.** Rolling back to Node stopped being possible
+on 12 Sep 2026: `users.avatar_choice` — which the Node build reads and writes in three places — no
+longer exists, the catalogue tables (`profile_pictures`, `user_profile_pictures`) are not in its
+schema at all, and `server/` is long gone from the host. `rollback-to-node.sh` was removed rather
+than left as a safety net with a hole in it; a recovery script that fails at the moment it is needed
+is worse than none, because it implies a way back that is not there.
+
+Releases are tagged (`go-server/vX.Y.Z`, see `../README.md` §Releasing), so going back one is a
+checkout and a rebuild. As `deploy`, no sudo needed until the restart:
 
 ```bash
 cd /var/www/gameplay/king-teenpatti
-git checkout c19963b -- server && (cd server && npm ci --omit=dev)   # the Node tree, from history
-cp go-server/.env server/.env                                          # the Node unit reads server/.env (or use go-server/.env.node.bak)
-sudo bash /var/www/gameplay/king-teenpatti/go-server/ops/rollback-to-node.sh
+git tag --list 'go-server/v*' --sort=-v:refname | head       # what there is to go back to
+git checkout go-server/v1.1.0                                # detached HEAD, on purpose
+bash go-server/ops/build.sh                                  # stamps v1.1.0 into the binary
+sudo systemctl restart gameplay                              # or: kill "$(systemctl show gameplay -p MainPID --value)"
+bash go-server/ops/prod-version.sh                           # must now report v1.1.0
 ```
 
-`rollback-to-node.sh` refuses to run until `server/src/index.js`, `server/.env` and
-`server/node_modules` exist, and says exactly that. It then restores `gameplay.service` from
-`gameplay.service.node.bak`, `daemon-reload`, `restart`, waits for `/health` to report
-`process.node` starting with `v` (Node; an older Node build without the `process` key also passes),
-prints `HEAD /metrics`, status and journal. The backup is kept, so `install-go-server.sh` can switch
-back to Go later (and will remove `server/` again unless `KEEP_NODE_TREE=1`). Afterwards
-`git status` shows `server/` as staged additions on `master` — `git restore --staged server && rm -rf server`
-undoes that once Go is back.
+Then get back onto the branch when the fix is ready: `git checkout master && git pull origin master`.
+
+**What a rollback does not undo.** The database is not versioned with the binary. Migrations run at
+every boot and only ever add; an older binary against a newer schema is fine (it ignores columns it
+does not know), but an older binary cannot remove a column a newer one added, and **nothing here
+reverses a data change**. If a release altered data rather than code, say so in the release notes and
+plan the reversal separately — through the ledger for anything touching money (`chip_ledger` is
+append-only; a correction is a compensating row, never a DELETE).
+
+`go-server/.env` is also not versioned. A release that changed a key's meaning needs that key put
+back by hand, or the old binary reads a value it does not expect.
 
 Prometheus and Grafana need nothing for a rollback: the game rows work for both servers and the
 Runtime row simply goes empty while Node runs (Node's `nodejs_*` panels are gone from the JSON; the
@@ -351,8 +361,7 @@ owner on every boot.
 | Prometheus: `rule_files` path not found after the pull | the bundle moved to `go-server/ops/monitoring/`; fix the path or copy `alerts.yml` (§6) |
 | Grafana Runtime row empty, game rows fine | dashboard not re-imported (§6), or Prometheus target down (`/api/v1/targets`) |
 | `game_server_nodejs_*` panels wanted back | they only exist while Node runs; the pre-Go dashboard is in git history (`git log -- server/ops/monitoring/grafana/dashboards/king-teenpatti.json`) |
-| `rollback-to-node.sh`: "`server/src/index.js` is missing" | expected — restore the tree from history first (§5): `git checkout c19963b -- server && (cd server && npm ci --omit=dev)` |
-| Need Node back now | §5 — restore the tree, then `sudo bash go-server/ops/rollback-to-node.sh` |
+| Need the previous build now | §5 — `git checkout go-server/vX.Y.Z`, `build.sh`, restart. Node is not a rollback target any more: it cannot run against this schema. |
 
 Reference: `go-server/README.md` (build/test/parity), `go-server/PORT_PLAN.md` §9 and
 `go-server/DECISIONS.md` (every deliberate difference from Node),
