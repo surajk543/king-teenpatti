@@ -7,11 +7,8 @@ import (
 	"io"
 	"mime"
 	"net/http"
-	"os"
-	"regexp"
-	"sort"
+	"strconv"
 	"strings"
-	"unicode/utf16"
 
 	"github.com/surajk543/king-teenpatti/go-server/internal/db"
 )
@@ -326,53 +323,49 @@ func (h *Handler) logRefusedLogin(req LoginRequest, err error) {
 		"provider", req.Provider, "code", authErr.Code, "status", authErr.Status, "reason", reason)
 }
 
-// Profiles is GET /api/profiles (unauthenticated): {profiles: [{id, url}]}
-// from the live directory listing.
+// Profiles is GET /api/profiles: the picture catalogue, in display order.
+//
+// The token is OPTIONAL and that is deliberate. The route has always been
+// unauthenticated — the browser client and the bot fleet both list without one
+// — and the catalogue itself is not private. What a token buys is the `owned`
+// flag on each row: with one, a player sees which premium pictures are already
+// theirs; without one, every free picture reads as owned and nothing else does.
+// A bad or expired token is ignored rather than refused, so a stale session
+// still gets a picker to look at.
 func (h *Handler) Profiles(w http.ResponseWriter, r *http.Request) {
-	WriteJSON(w, http.StatusOK, ProfilesResponse{Profiles: h.listProfilePictures()})
-}
-
-// profilePattern is routes.js's /\.(svg|png|jpg|jpeg|webp)$/i.
-var profilePattern = regexp.MustCompile(`(?i)\.(svg|png|jpg|jpeg|webp)$`)
-
-// listProfilePictures is routes.js listProfilePictures: read ProfilesDir on
-// every call, keep image names, sort as JS `Array.sort` does (UTF-16 code
-// unit order — upper case before lower), map to {id: name, url:
-// "/profiles/<name>"}; an unreadable directory → [] (never null).
-func (h *Handler) listProfilePictures() []ProfilePicture {
-	pictures := []ProfilePicture{}
-	entries, err := os.ReadDir(h.deps.ProfilesDir)
+	viewer := ""
+	if claims, err := h.deps.Tokens.Verify(TokenFromRequest(r)); err == nil {
+		viewer = claims.Subject
+	}
+	pictures, err := h.deps.Pictures.List(r.Context(), viewer)
 	if err != nil {
-		return pictures
+		h.writeError(w, r, err)
+		return
 	}
-	names := make([]string, 0, len(entries))
-	for _, entry := range entries {
-		if profilePattern.MatchString(entry.Name()) {
-			names = append(names, entry.Name())
-		}
-	}
-	sort.Slice(names, func(i, j int) bool { return lessUTF16(names[i], names[j]) })
-	for _, name := range names {
-		pictures = append(pictures, ProfilePicture{ID: name, URL: "/profiles/" + name})
-	}
-	return pictures
+	WriteJSON(w, http.StatusOK, ProfilesResponse{Profiles: pictures})
 }
 
-// lessUTF16 compares strings by UTF-16 code units, JavaScript's default sort.
-func lessUTF16(a, b string) bool {
-	ua, ub := utf16.Encode([]rune(a)), utf16.Encode([]rune(b))
-	for i := 0; i < len(ua) && i < len(ub); i++ {
-		if ua[i] != ub[i] {
-			return ua[i] < ub[i]
-		}
+// pictureIDFrom parses a catalogue id the client sent as text. Anything that
+// is not a positive integer is not an id, and every caller treats that as
+// "no such picture" rather than as a malformed request — the client picked it
+// off a listing this server produced, so a non-id is a client that has gone
+// wrong, not a player who typed something.
+func pictureIDFrom(text string) (int64, bool) {
+	id, err := strconv.ParseInt(strings.TrimSpace(text), 10, 64)
+	if err != nil || id <= 0 {
+		return 0, false
 	}
-	return len(ua) < len(ub)
+	return id, true
 }
 
-// Avatar is POST /api/profile/avatar {avatar: "bear.svg" | null}
-// (requirement 21). Order: seated → 409; a non-null name must equal (===) an
-// id from the live listing else 400 unknown_avatar; then SetAvatarChoice
-// ("/profiles/<name>" or nil) → 200 {user}.
+// Avatar is POST /api/profile/avatar {avatar: <picture id> | null}
+// (requirement 21). Order: seated → 409; null/absent clears the picture; an id
+// that is not in the catalogue → 400 unknown_avatar; a retired one → 400
+// picture_retired; a premium one the player has not bought → 403
+// picture_locked; then SetActivePicture → 200 {user}.
+//
+// Ownership is checked here rather than in the store because the refusal has
+// to reach the player as a sentence. The foreign key stays the backstop.
 func (h *Handler) Avatar(w http.ResponseWriter, r *http.Request, user *db.User) {
 	if h.isSeated(user.ID) {
 		WriteJSON(w, http.StatusConflict, ErrorResponse{Error: CodeSeated, Message: MsgSeatedAvatar})
@@ -383,27 +376,98 @@ func (h *Handler) Avatar(w http.ResponseWriter, r *http.Request, user *db.User) 
 		h.writeError(w, r, err)
 		return
 	}
-	var choice *string
+
+	var choice *int64
 	if req.Avatar != nil {
-		allowed := false
-		for _, picture := range h.listProfilePictures() {
-			if picture.ID == *req.Avatar {
-				allowed = true
-			}
-		}
-		if !allowed {
+		id, ok := pictureIDFrom(*req.Avatar)
+		if !ok {
 			WriteJSON(w, http.StatusBadRequest, ErrorResponse{Error: CodeUnknownAvatar, Message: MsgUnknownAvatar})
 			return
 		}
-		stored := "/profiles/" + *req.Avatar
-		choice = &stored
+		picture, active, err := h.deps.Pictures.Find(r.Context(), user.ID, id)
+		switch {
+		case errors.Is(err, db.ErrPictureUnknown):
+			WriteJSON(w, http.StatusBadRequest, ErrorResponse{Error: CodeUnknownAvatar, Message: MsgUnknownAvatar})
+			return
+		case err != nil:
+			h.writeError(w, r, err)
+			return
+		case !active:
+			WriteJSON(w, http.StatusBadRequest, ErrorResponse{Error: CodePictureRetired, Message: MsgPictureRetired})
+			return
+		case !picture.Owned:
+			WriteJSON(w, http.StatusForbidden, ErrorResponse{Error: CodePictureLocked, Message: MsgPictureLocked})
+			return
+		}
+		choice = &id
 	}
-	updated, err := h.deps.Users.SetAvatarChoice(r.Context(), user.ID, choice)
+
+	updated, err := h.deps.Users.SetActivePicture(r.Context(), user.ID, choice)
 	if err != nil {
 		h.writeError(w, r, err)
 		return
 	}
 	WriteJSON(w, http.StatusOK, UserResponse{User: updated})
+}
+
+// BuyPicture is POST /api/profile/picture/buy {pictureId}: unlocks a premium
+// picture by spending chips on it.
+//
+// Refused while seated, and that is a money rule rather than a UI one. A
+// seated player's wallet may only move at the three hand checkpoints
+// (CLAUDE.md §5.1) — the live seat holds the authoritative stack mid-hand, and
+// a debit written to `users` behind its back is overwritten by the next
+// checkpoint's delta, handing the picture over for free. Buying belongs in the
+// lobby with the rewards, for exactly the same reason they do.
+//
+// Buying does NOT put the picture on. It is a separate POST to
+// /api/profile/avatar, so the two refusals stay separate and a player who buys
+// a picture to save for later is not forced to wear it.
+func (h *Handler) BuyPicture(w http.ResponseWriter, r *http.Request, user *db.User) {
+	if h.isSeated(user.ID) {
+		WriteJSON(w, http.StatusConflict, ErrorResponse{Error: CodeSeated, Message: MsgSeatedPicture})
+		return
+	}
+	var req BuyPictureRequest
+	if err := ReadJSONBody(r, &req); err != nil {
+		h.writeError(w, r, err)
+		return
+	}
+	if req.PictureID == nil {
+		WriteJSON(w, http.StatusBadRequest, ErrorResponse{Error: CodeUnknownAvatar, Message: MsgUnknownAvatar})
+		return
+	}
+	id, ok := pictureIDFrom(*req.PictureID)
+	if !ok {
+		WriteJSON(w, http.StatusBadRequest, ErrorResponse{Error: CodeUnknownAvatar, Message: MsgUnknownAvatar})
+		return
+	}
+
+	bought, err := h.deps.Pictures.Buy(r.Context(), user.ID, id)
+	switch {
+	case errors.Is(err, db.ErrPictureUnknown):
+		WriteJSON(w, http.StatusBadRequest, ErrorResponse{Error: CodeUnknownAvatar, Message: MsgUnknownAvatar})
+		return
+	case errors.Is(err, db.ErrPictureInactive):
+		WriteJSON(w, http.StatusBadRequest, ErrorResponse{Error: CodePictureRetired, Message: MsgPictureRetired})
+		return
+	case errors.Is(err, db.ErrPictureFree):
+		WriteJSON(w, http.StatusBadRequest, ErrorResponse{Error: CodePictureFree, Message: MsgPictureFree})
+		return
+	case errors.Is(err, db.ErrPictureChips):
+		WriteJSON(w, http.StatusConflict, ErrorResponse{Error: CodePictureChips, Message: MsgPictureChips})
+		return
+	case err != nil:
+		h.writeError(w, r, err)
+		return
+	}
+
+	WriteJSON(w, http.StatusOK, BuyPictureResponse{
+		User:    bought.User,
+		Picture: bought.Picture,
+		Charged: bought.Charged,
+		Spent:   bought.Spent,
+	})
 }
 
 // Name is POST /api/profile/name {name} (requirement 29). Order: seated →

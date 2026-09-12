@@ -8,6 +8,10 @@
 library;
 
 int _int(dynamic v) => v is num ? v.toInt() : 0;
+
+/// Null stays null: a picture id of 0 would be a real-looking id the server
+/// never issues, so "wearing nothing" must not collapse into it.
+int? _intOrNull(dynamic v) => v is num ? v.toInt() : null;
 String _str(dynamic v) => v is String ? v : '';
 
 class SeatState {
@@ -88,7 +92,7 @@ class User {
     required this.chips,
     required this.avatarUrl,
     required this.providerAvatarUrl,
-    required this.avatarChoice,
+    required this.activePictureId,
     required this.handsPlayed,
     required this.handsWon,
     required this.handsLost,
@@ -102,9 +106,18 @@ class User {
   final String provider;
   final String displayName;
   final int chips;
+  /// Already resolved by the server: the catalogue picture being worn if
+  /// there is one, else the provider photo, else null.
   final String? avatarUrl;
+
+  /// The Google or Facebook photo, kept separately so "use my social picture"
+  /// has something to go back to.
   final String? providerAvatarUrl;
-  final String? avatarChoice;
+
+  /// Which [ProfilePicture] is being worn, or null for none. This is what the
+  /// picker ticks — it used to be the `/profiles/x.svg` path, which never
+  /// matched the id the picker had and so nothing ever showed as selected.
+  final int? activePictureId;
   final int handsPlayed;
   final int handsWon;
   final int handsLost;
@@ -120,7 +133,7 @@ class User {
         chips: _int(j['chips']),
         avatarUrl: j['avatarUrl'] as String?,
         providerAvatarUrl: j['providerAvatarUrl'] as String?,
-        avatarChoice: j['avatarChoice'] as String?,
+        activePictureId: _intOrNull(j['activePictureId']),
         handsPlayed: _int(j['handsPlayed']),
         handsWon: _int(j['handsWon']),
         handsLost: _int(j['handsLost']),
@@ -676,12 +689,50 @@ class ChatMessage {
       );
 }
 
+/// One row of the server's picture catalogue (GET /api/profiles).
 class ProfilePicture {
-  const ProfilePicture({required this.id, required this.url});
+  const ProfilePicture({
+    required this.id,
+    required this.name,
+    required this.url,
+    required this.type,
+    required this.cost,
+    required this.owned,
+  });
 
-  final String id;
+  final int id;
+
+  /// What to call it in the picker — "Bear", "Wolf".
+  final String name;
+
+  /// Server-relative ("/profiles/bear.svg") or absolute.
   final String url;
 
-  factory ProfilePicture.fromJson(Map<String, dynamic> j) =>
-      ProfilePicture(id: _str(j['id']), url: _str(j['url']));
+  /// 'FREE' or 'PREMIUM'.
+  final String type;
+
+  /// Chips it costs. Always 0 when [free].
+  final int cost;
+
+  /// Whether this player may wear it: every free picture, plus the premium
+  /// ones they have bought. The server decides this per viewer — the client
+  /// never works it out from the wallet.
+  final bool owned;
+
+  bool get free => type == 'FREE';
+
+  /// Locked = premium and not yet bought: the picker draws a padlock and the
+  /// price, and tapping it offers to buy.
+  bool get locked => !owned;
+
+  factory ProfilePicture.fromJson(Map<String, dynamic> j) => ProfilePicture(
+        id: _int(j['id']),
+        name: _str(j['name']),
+        url: _str(j['url']),
+        type: _str(j['type']).isEmpty ? 'FREE' : _str(j['type']),
+        cost: _int(j['cost']),
+        // Absent means the server did not say, and the safe reading of that is
+        // "not owned" — a free picture is only ever sent with owned true.
+        owned: j['owned'] == true,
+      );
 }

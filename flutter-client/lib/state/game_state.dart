@@ -254,6 +254,7 @@ class GameState extends ChangeNotifier {
       _token = saved;
       try {
         user = await _api.me(saved);
+        unawaited(_loadPictures());
         next = Screen.lobby;
         // An install that signed in before the statement existed meets it on
         // its next launch, once, like everyone else.
@@ -584,6 +585,9 @@ class GameState extends ChangeNotifier {
       );
       _token = r.token;
       user = r.user;
+      // Re-read the catalogue now there is a token: ownership is resolved per
+      // viewer, and the startup call was anonymous.
+      unawaited(_loadPictures());
 
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('token', r.token);
@@ -637,6 +641,9 @@ class GameState extends ChangeNotifier {
       );
       _token = r.token;
       user = r.user;
+      // Re-read the catalogue now there is a token: ownership is resolved per
+      // viewer, and the startup call was anonymous.
+      unawaited(_loadPictures());
 
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('token', r.token);
@@ -713,9 +720,15 @@ class GameState extends ChangeNotifier {
     }
   }
 
+  /// Loads the picture catalogue.
+  ///
+  /// Called once at startup and again after signing in, because ownership is
+  /// resolved per viewer: the first call has no token and every premium
+  /// picture comes back locked, and the second is what unlocks the ones this
+  /// player has bought. Also re-run after a purchase.
   Future<void> _loadPictures() async {
     try {
-      pictures = await _api.profilePictures();
+      pictures = await _api.profilePictures(_token);
       notifyListeners();
     } catch (_) {
       // The picker just stays empty.
@@ -745,7 +758,8 @@ class GameState extends ChangeNotifier {
   bool cappedOut(int boot, String category) =>
       config.cappedFor(user?.chips ?? 0, boot: boot, category: category);
 
-  Future<void> chooseAvatar(String? id) async {
+  /// Wears a catalogue picture, or null to go back to the provider photo.
+  Future<void> chooseAvatar(int? id) async {
     final token = _token;
     if (token == null) return;
     try {
@@ -754,6 +768,40 @@ class GameState extends ChangeNotifier {
       notice = e.message;
     }
     notifyListeners();
+  }
+
+  /// Set while a picture purchase is with the server, so the picker can show
+  /// progress on that one tile instead of looking unresponsive.
+  int? buyingPicture;
+
+  /// Buys a premium picture and, when that works, puts it on.
+  ///
+  /// Two requests rather than one: the server sells and dresses separately so
+  /// the refusals stay separate, and this is the one place that wants both.
+  /// Returns true when the player ends up wearing it.
+  Future<bool> buyPicture(int id) async {
+    final token = _token;
+    if (token == null || buyingPicture != null) return false;
+    buyingPicture = id;
+    notifyListeners();
+    try {
+      final bought = await _api.buyPicture(token, id);
+      user = bought.user;
+      // The catalogue carries `owned` per viewer, so it has to be re-read
+      // before the picker can stop drawing a padlock on what was just bought.
+      await _loadPictures();
+      await chooseAvatar(id);
+      return true;
+    } on ApiException catch (e) {
+      notice = e.message;
+      return false;
+    } catch (_) {
+      notice = 'Could not reach the server.';
+      return false;
+    } finally {
+      buyingPicture = null;
+      notifyListeners();
+    }
   }
 
   /// The reward just collected, while its celebration is on screen. Null the

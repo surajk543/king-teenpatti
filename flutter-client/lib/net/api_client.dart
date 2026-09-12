@@ -121,9 +121,13 @@ class ApiClient {
     return User.fromJson(Map<String, dynamic>.from(j['user'] as Map));
   }
 
-  /// The bundled pictures a player can choose between (requirement 21).
-  Future<List<ProfilePicture>> profilePictures() async {
-    final r = await http.get(_uri('/api/profiles'), headers: _headers());
+  /// The picture catalogue (requirement 21).
+  ///
+  /// The token is optional to the server but wanted here: it is what makes
+  /// `owned` true for the premium pictures this player has already bought,
+  /// and without it every one of them comes back locked.
+  Future<List<ProfilePicture>> profilePictures([String? token]) async {
+    final r = await http.get(_uri('/api/profiles'), headers: _headers(token));
     final j = _decode(r);
     return (j['profiles'] as List? ?? [])
         .map(
@@ -132,16 +136,39 @@ class ApiClient {
         .toList();
   }
 
-  /// Picks a bundled picture, or null to fall back to the provider's. The
-  /// server refuses the change once the player is seated at a table.
-  Future<User> setAvatar(String token, String? avatarId) async {
+  /// Wears a catalogue picture, or null to fall back to the provider's. The
+  /// server refuses the change once the player is seated at a table, and
+  /// refuses a premium picture they have not bought.
+  Future<User> setAvatar(String token, int? pictureId) async {
     final r = await http.post(
       _uri('/api/profile/avatar'),
       headers: _headers(token),
-      body: jsonEncode({'avatar': avatarId}),
+      body: jsonEncode({'avatar': pictureId}),
     );
     final j = _decode(r);
     return User.fromJson(Map<String, dynamic>.from(j['user'] as Map));
+  }
+
+  /// Buys a premium picture with chips. Returns the fresh wallet; whether the
+  /// call actually charged is in `charged` (false when it was already owned).
+  ///
+  /// Buying does not wear the picture — that is [setAvatar] — so the two
+  /// refusals stay separate and the chips are spent by one request only.
+  Future<({User user, bool charged, int spent})> buyPicture(
+    String token,
+    int pictureId,
+  ) async {
+    final r = await http.post(
+      _uri('/api/profile/picture/buy'),
+      headers: _headers(token),
+      body: jsonEncode({'pictureId': pictureId}),
+    );
+    final j = _decode(r);
+    return (
+      user: User.fromJson(Map<String, dynamic>.from(j['user'] as Map)),
+      charged: j['charged'] == true,
+      spent: (j['spent'] as num?)?.toInt() ?? 0,
+    );
   }
 
   /// Requirement 29: renames the player. The server validates the name and

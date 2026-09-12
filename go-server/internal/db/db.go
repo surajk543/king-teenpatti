@@ -13,11 +13,12 @@ package db
 
 import (
 	"context"
-	_ "embed"
+	"embed"
 	"errors"
 	"fmt"
 	"log/slog"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -27,16 +28,91 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// schemaSQL is server/src/db/schema.sql, copied VERBATIM (diffed in CI by
-// hand: `diff server/src/db/schema.sql go-server/internal/db/schema.sql`).
-// Fully idempotent: IF NOT EXISTS / CREATE OR REPLACE / DO-block trigger, so
-// it runs on every boot and on every test schema.
+// migrationFS holds the versioned DDL, named the Flyway way:
+// V<version>__<description>.sql, applied in ascending version order.
 //
-//go:embed schema.sql
-var schemaSQL string
+// There is no schema history table. Flyway would keep one and skip what it has
+// already applied; this server instead applies EVERY script on EVERY boot and
+// on every test schema, which works only because every script is idempotent —
+// IF NOT EXISTS, CREATE OR REPLACE, ON CONFLICT DO NOTHING, and a catalogue
+// lookup in front of anything lacking its own guard. A script that is not
+// idempotent will not fail the first time; it will fail the second, on a
+// restart, in production.
+//
+//go:embed migration/*.sql
+var migrationFS embed.FS
 
-// SchemaSQL returns the embedded DDL (for tests and tooling).
-func SchemaSQL() string { return schemaSQL }
+// Migration is one versioned DDL script.
+type Migration struct {
+	Version string // "1.0.0"
+	Name    string // "baseline"
+	File    string // "V1.0.0__baseline.sql"
+	SQL     string
+}
+
+// migrationPattern is Flyway's: V, a dotted version, two underscores, a
+// description. Anything else in the directory is not a migration and is
+// ignored rather than guessed at.
+var migrationPattern = regexp.MustCompile(`^V(\d+(?:\.\d+)*)__(.+)\.sql$`)
+
+// Migrations returns every embedded script in ascending version order.
+// It panics on a malformed name or a duplicate version: both are build-time
+// mistakes in a directory this package owns, and neither should be discovered
+// by a server that is already serving.
+func Migrations() []Migration {
+	entries, err := migrationFS.ReadDir("migration")
+	if err != nil {
+		panic("db: reading embedded migrations: " + err.Error())
+	}
+	out := make([]Migration, 0, len(entries))
+	seen := map[string]string{}
+	for _, entry := range entries {
+		match := migrationPattern.FindStringSubmatch(entry.Name())
+		if match == nil {
+			panic("db: migration/" + entry.Name() + " is not named V<version>__<description>.sql")
+		}
+		if first, dup := seen[match[1]]; dup {
+			panic("db: migration version " + match[1] + " is claimed by both " + first + " and " + entry.Name())
+		}
+		seen[match[1]] = entry.Name()
+		body, err := migrationFS.ReadFile("migration/" + entry.Name())
+		if err != nil {
+			panic("db: reading migration/" + entry.Name() + ": " + err.Error())
+		}
+		out = append(out, Migration{Version: match[1], Name: match[2], File: entry.Name(), SQL: string(body)})
+	}
+	sort.Slice(out, func(i, j int) bool { return lessVersion(out[i].Version, out[j].Version) })
+	return out
+}
+
+// lessVersion orders dotted versions numerically, so 1.0.10 follows 1.0.9
+// rather than preceding it as a string sort would have it.
+func lessVersion(a, b string) bool {
+	as, bs := strings.Split(a, "."), strings.Split(b, ".")
+	for i := 0; i < len(as) || i < len(bs); i++ {
+		var x, y int
+		if i < len(as) {
+			x, _ = strconv.Atoi(as[i])
+		}
+		if i < len(bs) {
+			y, _ = strconv.Atoi(bs[i])
+		}
+		if x != y {
+			return x < y
+		}
+	}
+	return false
+}
+
+// SchemaSQL returns every migration concatenated in order (tests and tooling).
+func SchemaSQL() string {
+	var b strings.Builder
+	for _, m := range Migrations() {
+		b.WriteString(m.SQL)
+		b.WriteString("\n")
+	}
+	return b.String()
+}
 
 // schemaIdent is Node's `/^[A-Za-z_][A-Za-z0-9_]*$/` (index.js:35): a schema
 // name is interpolated into DDL and into the search_path startup parameter,
@@ -160,10 +236,12 @@ func bootstrap(ctx context.Context, pool *pgxpool.Pool, schema, quoted string) (
 	if _, err := conn.Exec(ctx, "SET lock_timeout = '3s'"); err != nil {
 		return fmt.Errorf("set lock_timeout: %w", err)
 	}
-	// No arguments → simple protocol → the whole file runs as one
-	// multi-statement query, $$ bodies included.
-	if _, err := conn.Exec(ctx, schemaSQL); err != nil {
-		return fmt.Errorf("run schema.sql: %w%s", err, blockingActivity(ctx, conn, err))
+	// One Exec per script, in version order. No arguments → simple protocol →
+	// each file runs as one multi-statement query, $$ bodies included.
+	for _, migration := range Migrations() {
+		if _, err := conn.Exec(ctx, migration.SQL); err != nil {
+			return fmt.Errorf("run %s: %w%s", migration.File, err, blockingActivity(ctx, conn, err))
+		}
 	}
 	return nil
 }

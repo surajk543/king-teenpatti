@@ -3,8 +3,7 @@ package db_test
 import (
 	"context"
 	"errors"
-	"os"
-	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -16,20 +15,86 @@ import (
 	"github.com/surajk543/king-teenpatti/go-server/internal/db/dbtest"
 )
 
-// The Go binary embeds its own copy of schema.sql; it must stay a verbatim
-// copy of the Node file so both servers bootstrap identical databases.
-func TestSchemaSQLIsAVerbatimCopyOfTheNodeFile(t *testing.T) {
-	nodePath := filepath.Join("..", "..", "..", "server", "src", "db", "schema.sql")
-	nodeSQL, err := os.ReadFile(nodePath)
-	if err != nil {
-		t.Skipf("Node schema not present at %s: %v", nodePath, err)
+// The embedded migrations are the only copy of the DDL. They are named the
+// Flyway way and applied in version order, and every one of them has to be
+// idempotent because this server has no schema history table — it runs all of
+// them on every boot.
+func TestMigrationsAreVersionedOrderedAndSplitByKind(t *testing.T) {
+	migrations := db.Migrations()
+	if len(migrations) < 2 {
+		t.Fatalf("expected at least a baseline and a seed, got %d", len(migrations))
 	}
-	if string(nodeSQL) != db.SchemaSQL() {
-		t.Fatalf("internal/db/schema.sql differs from %s — copy it verbatim", nodePath)
+
+	for i, m := range migrations {
+		if i > 0 && !lessVersionForTest(migrations[i-1].Version, m.Version) {
+			t.Errorf("migrations out of order: %s before %s", migrations[i-1].File, m.File)
+		}
+		if m.SQL == "" {
+			t.Errorf("%s is empty", m.File)
+		}
+	}
+
+	// DDL and DML are kept apart: the baseline builds the tables and holds no
+	// rows, the seed holds rows and builds nothing.
+	//
+	// Asserted against the STATEMENTS, not the file: both scripts talk about
+	// SQL in their comments — the baseline documents the manual
+	// `ALTER TABLE users DISABLE TRIGGER` a superuser needs to delete a row —
+	// and a test that reads prose as code fails on documentation.
+	baseline, seed := statementsOf(migrations[0].SQL), statementsOf(migrations[1].SQL)
+	if !strings.Contains(baseline, "CREATE TABLE IF NOT EXISTS users") {
+		t.Error("the baseline does not create users")
+	}
+	if strings.Contains(baseline, "INSERT INTO") {
+		t.Errorf("%s is DDL and must hold no rows", migrations[0].File)
+	}
+	// A fresh schema is built from these alone, so nothing may depend on an
+	// ALTER to add a column after the fact.
+	if strings.Contains(baseline, "ALTER TABLE") {
+		t.Error("the baseline declares its tables in full; it needs no ALTER")
+	}
+	if !strings.Contains(seed, "INSERT INTO profile_pictures") {
+		t.Errorf("%s should seed the catalogue", migrations[1].File)
+	}
+	for _, ddl := range []string{"CREATE TABLE", "ALTER TABLE", "CREATE INDEX"} {
+		if strings.Contains(seed, ddl) {
+			t.Errorf("%s is DML and must not %s", migrations[1].File, ddl)
+		}
 	}
 	if !strings.Contains(db.SchemaSQL(), "chip_ledger_no_rewrite") {
-		t.Fatal("embedded schema lacks the append-only trigger")
+		t.Fatal("the embedded DDL lacks the append-only trigger")
 	}
+}
+
+// statementsOf strips whole-line SQL comments, leaving what the database
+// actually executes.
+func statementsOf(sql string) string {
+	var kept []string
+	for _, line := range strings.Split(sql, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "--") {
+			continue
+		}
+		kept = append(kept, line)
+	}
+	return strings.Join(kept, "\n")
+}
+
+// lessVersionForTest mirrors the package's own dotted-version ordering.
+func lessVersionForTest(a, b string) bool {
+	as, bs := strings.Split(a, "."), strings.Split(b, ".")
+	for i := 0; i < len(as) || i < len(bs); i++ {
+		var x, y int
+		if i < len(as) {
+			x, _ = strconv.Atoi(as[i])
+		}
+		if i < len(bs) {
+			y, _ = strconv.Atoi(bs[i])
+		}
+		if x != y {
+			return x < y
+		}
+	}
+	return false
 }
 
 func TestOpenRejectsANonIdentifierSchemaBeforeConnecting(t *testing.T) {

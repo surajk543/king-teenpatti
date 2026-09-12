@@ -378,8 +378,90 @@ func TestAProviderPictureIsKeptAndUsedByDefault(t *testing.T) {
 	if user.ProviderAvatarURL == nil || *user.ProviderAvatarURL != "https://lh3.googleusercontent.com/example" {
 		t.Fatalf("providerAvatarUrl = %v", user.ProviderAvatarURL)
 	}
-	if user.AvatarChoice != nil {
-		t.Fatalf("avatarChoice = %v, want null", *user.AvatarChoice)
+	if user.ActivePictureID != nil {
+		t.Fatalf("activePictureId = %v, want null", *user.ActivePictureID)
+	}
+}
+
+// newGuest is a funded account to spend on pictures.
+func newGuest(t *testing.T, f *fixture) *db.User {
+	t.Helper()
+	user, _, err := f.users.UpsertFromProfile(f.ctx, db.Profile{
+		Provider: db.ProviderGuest, ProviderUserID: "p-" + randomSuffix(t), DisplayName: "Buyer",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return user
+}
+
+// freePicture returns a free catalogue row, and premiumPicture a paid one, as
+// seeded by schema.sql. They are looked up rather than hardcoded because the
+// catalogue is data the owner is expected to edit.
+func freePicture(t *testing.T, f *fixture) db.Picture {
+	t.Helper()
+	return pictureOfType(t, f, db.PictureFree)
+}
+
+func premiumPicture(t *testing.T, f *fixture) db.Picture {
+	t.Helper()
+	return pictureOfType(t, f, db.PicturePremium)
+}
+
+func pictureOfType(t *testing.T, f *fixture, kind string) db.Picture {
+	t.Helper()
+	all, err := f.pictures.List(f.ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range all {
+		if p.Type == kind {
+			return p
+		}
+	}
+	t.Fatalf("no %s picture in the seeded catalogue", kind)
+	return db.Picture{}
+}
+
+func TestTheSeededCatalogueOffersFreeAndPremiumPictures(t *testing.T) {
+	f := newFixture(t)
+	all, err := f.pictures.List(f.ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) == 0 {
+		t.Fatal("schema.sql seeds no pictures")
+	}
+	var free, premium int
+	for i, p := range all {
+		switch p.Type {
+		case db.PictureFree:
+			free++
+			if p.Cost != 0 || !p.Owned {
+				t.Errorf("free picture %q: cost=%d owned=%v", p.Name, p.Cost, p.Owned)
+			}
+		case db.PicturePremium:
+			premium++
+			if p.Cost <= 0 {
+				t.Errorf("premium picture %q costs %d", p.Name, p.Cost)
+			}
+			// Nobody owns a premium picture until they buy it, and an
+			// anonymous caller owns nothing at all.
+			if p.Owned {
+				t.Errorf("premium picture %q is owned by nobody", p.Name)
+			}
+		default:
+			t.Errorf("unknown type %q", p.Type)
+		}
+		if p.Name == "" || p.URL == "" {
+			t.Errorf("picture %d is missing a name or image", p.ID)
+		}
+		if i > 0 && all[i-1].SortOrder > p.SortOrder {
+			t.Errorf("catalogue is not in display order at %d", i)
+		}
+	}
+	if free == 0 || premium == 0 {
+		t.Fatalf("free=%d premium=%d — the catalogue needs both", free, premium)
 	}
 }
 
@@ -392,34 +474,176 @@ func TestAChosenPictureOverridesTheProviderOneAndClearingRestoresIt(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	chosen, err := f.users.SetAvatarChoice(f.ctx, user.ID, ptr("/profiles/ace.svg"))
+	pic := freePicture(t, f)
+
+	chosen, err := f.users.SetActivePicture(f.ctx, user.ID, &pic.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if chosen.AvatarURL == nil || *chosen.AvatarURL != "/profiles/ace.svg" {
+	if chosen.AvatarURL == nil || *chosen.AvatarURL != pic.URL {
 		t.Fatalf("the choice wins: %v", chosen.AvatarURL)
 	}
 	if chosen.ProviderAvatarURL == nil || *chosen.ProviderAvatarURL != "https://graph.facebook.com/example" {
 		t.Fatal("the original is kept")
 	}
-	if chosen.AvatarChoice == nil || *chosen.AvatarChoice != "/profiles/ace.svg" {
-		t.Fatalf("avatarChoice = %v", chosen.AvatarChoice)
+	if chosen.ActivePictureID == nil || *chosen.ActivePictureID != pic.ID {
+		t.Fatalf("activePictureId = %v", chosen.ActivePictureID)
 	}
-	cleared, err := f.users.SetAvatarChoice(f.ctx, user.ID, nil)
+
+	cleared, err := f.users.SetActivePicture(f.ctx, user.ID, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cleared.AvatarURL == nil || *cleared.AvatarURL != "https://graph.facebook.com/example" || cleared.AvatarChoice != nil {
+	if cleared.AvatarURL == nil || *cleared.AvatarURL != "https://graph.facebook.com/example" || cleared.ActivePictureID != nil {
 		t.Fatalf("clearing falls back: %+v", cleared)
 	}
-	// JS `||`: an empty-string choice falls through to the provider picture,
-	// while `??` still reports it as the choice.
-	empty, err := f.users.SetAvatarChoice(f.ctx, user.ID, ptr(""))
+}
+
+func TestAPictureIdMustBeInTheCatalogue(t *testing.T) {
+	f := newFixture(t)
+	user := newGuest(t, f)
+	// The foreign key is the backstop under the handler's own check: an id
+	// that is not a catalogue row is refused by the database rather than
+	// stored and drawn as a broken image later.
+	missing := int64(9_000_000)
+	if _, err := f.users.SetActivePicture(f.ctx, user.ID, &missing); err == nil {
+		t.Fatal("an unknown picture id was accepted")
+	}
+}
+
+func TestBuyingAPremiumPictureMovesChipsThroughTheLedgerExactlyOnce(t *testing.T) {
+	f := newFixture(t)
+	user := newGuest(t, f)
+	pic := premiumPicture(t, f)
+
+	before := f.chips(user.ID)
+	bought, err := f.pictures.Buy(f.ctx, user.ID, pic.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if empty.AvatarURL == nil || *empty.AvatarURL != "https://graph.facebook.com/example" || empty.AvatarChoice == nil || *empty.AvatarChoice != "" {
-		t.Fatalf("empty choice: avatarUrl=%v avatarChoice=%v", empty.AvatarURL, empty.AvatarChoice)
+	if !bought.Charged || bought.Spent != pic.Cost {
+		t.Fatalf("charged=%v spent=%d, want a %d charge", bought.Charged, bought.Spent, pic.Cost)
+	}
+	if got := f.chips(user.ID); got != before-pic.Cost {
+		t.Fatalf("wallet %d, want %d", got, before-pic.Cost)
+	}
+	if !bought.Picture.Owned {
+		t.Error("the bought picture is not owned")
+	}
+
+	// One ledger row, negative, with the reason that says what it was.
+	var rows, delta int64
+	if err := f.d.Pool.QueryRow(f.ctx,
+		`SELECT count(*), COALESCE(sum(delta),0) FROM chip_ledger WHERE user_id = $1 AND reason = $2`,
+		user.ID, "picture_purchase").Scan(&rows, &delta); err != nil {
+		t.Fatal(err)
+	}
+	if rows != 1 || delta != -pic.Cost {
+		t.Fatalf("ledger rows=%d delta=%d", rows, delta)
+	}
+	// The invariant the whole money model is checked against.
+	f.reconcile()
+
+	// Buying it again is success with nothing charged, and no second row.
+	again, err := f.pictures.Buy(f.ctx, user.ID, pic.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.Charged || again.Spent != 0 {
+		t.Fatalf("a second buy charged: %+v", again)
+	}
+	if got := f.chips(user.ID); got != before-pic.Cost {
+		t.Fatalf("a second buy moved the wallet to %d", got)
+	}
+	f.reconcile()
+
+	// Now it can be worn, and the wire carries the catalogue image.
+	worn, err := f.users.SetActivePicture(f.ctx, user.ID, &pic.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if worn.AvatarURL == nil || *worn.AvatarURL != pic.URL {
+		t.Fatalf("avatarUrl = %v, want %s", worn.AvatarURL, pic.URL)
+	}
+
+	// And it now reads as owned in the listing this player is shown.
+	listed, err := f.pictures.List(f.ctx, user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range listed {
+		if p.ID == pic.ID && !p.Owned {
+			t.Error("a bought picture is not listed as owned")
+		}
+	}
+}
+
+func TestBuyingIsRefusedWhenItCannotBePaidFor(t *testing.T) {
+	f := newFixture(t)
+	user := newGuest(t, f)
+	pic := premiumPicture(t, f)
+
+	// Spend the wallet down through the ledger so the books stay true.
+	if _, err := f.d.Pool.Exec(f.ctx,
+		`UPDATE users SET chips = 1 WHERE id = $1`, user.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.d.Pool.Exec(f.ctx,
+		`INSERT INTO chip_ledger (user_id, delta, balance, reason, created_at)
+		 VALUES ($1, $2, 1, 'test_fixture', 0)`, user.ID, 1-welcome); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := f.pictures.Buy(f.ctx, user.ID, pic.ID); !errors.Is(err, db.ErrPictureChips) {
+		t.Fatalf("err = %v, want ErrPictureChips", err)
+	}
+	if got := f.chips(user.ID); got != 1 {
+		t.Fatalf("a refused buy moved the wallet to %d", got)
+	}
+	f.reconcile()
+
+	// A free picture is not for sale, and an unknown id is unknown.
+	if _, err := f.pictures.Buy(f.ctx, user.ID, freePicture(t, f).ID); !errors.Is(err, db.ErrPictureFree) {
+		t.Fatalf("err = %v, want ErrPictureFree", err)
+	}
+	if _, err := f.pictures.Buy(f.ctx, user.ID, 9_000_000); !errors.Is(err, db.ErrPictureUnknown) {
+		t.Fatalf("err = %v, want ErrPictureUnknown", err)
+	}
+}
+
+func TestARetiredPictureLeavesTheCatalogueButNotTheWearer(t *testing.T) {
+	f := newFixture(t)
+	user := newGuest(t, f)
+	pic := freePicture(t, f)
+	if _, err := f.users.SetActivePicture(f.ctx, user.ID, &pic.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.d.Pool.Exec(f.ctx,
+		`UPDATE profile_pictures SET is_active = FALSE WHERE id = $1`, pic.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	listed, err := f.pictures.List(f.ctx, user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range listed {
+		if p.ID == pic.ID {
+			t.Error("a retired picture is still on offer")
+		}
+	}
+	// Find still resolves it, reporting that it is no longer active, and the
+	// player wearing it keeps it.
+	found, active, err := f.pictures.Find(f.ctx, user.ID, pic.ID)
+	if err != nil || active || found.ID != pic.ID {
+		t.Fatalf("find retired: %+v active=%v err=%v", found, active, err)
+	}
+	still, err := f.users.FindByID(f.ctx, user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if still.AvatarURL == nil || *still.AvatarURL != pic.URL {
+		t.Fatalf("retiring a picture undressed its wearer: %v", still.AvatarURL)
 	}
 }
 
@@ -438,7 +662,7 @@ func TestGuestLoginCreatesAnAccountWithTheWelcomeGrant(t *testing.T) {
 	if !regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`).MatchString(user.ID) {
 		t.Fatalf("id %q is not a lowercase uuid v4", user.ID)
 	}
-	if user.Email != nil || user.AvatarURL != nil || user.ProviderAvatarURL != nil || user.AvatarChoice != nil {
+	if user.Email != nil || user.AvatarURL != nil || user.ProviderAvatarURL != nil || user.ActivePictureID != nil {
 		t.Fatalf("guest nullables must be null: %+v", user)
 	}
 	if user.CreatedAt == 0 || user.CreatedAt != user.LastLoginAt {
@@ -540,7 +764,8 @@ func TestLoginOnlyEverSetsEmailAndAvatarNeverClearsThem(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.users.SetAvatarChoice(f.ctx, first.ID, ptr("/profiles/fox.svg")); err != nil {
+	pic := freePicture(t, f)
+	if _, err := f.users.SetActivePicture(f.ctx, first.ID, &pic.ID); err != nil {
 		t.Fatal(err)
 	}
 	// A login with no email/picture keeps both; the in-game choice survives.
@@ -551,7 +776,7 @@ func TestLoginOnlyEverSetsEmailAndAvatarNeverClearsThem(t *testing.T) {
 	if second.Email == nil || *second.Email != "g@example.com" || second.ProviderAvatarURL == nil || *second.ProviderAvatarURL != "https://pic/1" {
 		t.Fatalf("COALESCE broke: %+v", second)
 	}
-	if second.AvatarChoice == nil || *second.AvatarChoice != "/profiles/fox.svg" || *second.AvatarURL != "/profiles/fox.svg" {
+	if second.ActivePictureID == nil || *second.ActivePictureID != pic.ID || *second.AvatarURL != pic.URL {
 		t.Fatalf("avatar choice lost on login: %+v", second)
 	}
 	// A new picture replaces the provider one, not the choice.
@@ -559,7 +784,7 @@ func TestLoginOnlyEverSetsEmailAndAvatarNeverClearsThem(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if *third.ProviderAvatarURL != "https://pic/2" || *third.AvatarURL != "/profiles/fox.svg" {
+	if *third.ProviderAvatarURL != "https://pic/2" || *third.AvatarURL != pic.URL {
 		t.Fatalf("third = %+v", third)
 	}
 }
@@ -688,7 +913,7 @@ func TestUserMarshalsToThePublicUserShape(t *testing.T) {
 	if err := json.Unmarshal(out, &m); err != nil {
 		t.Fatal(err)
 	}
-	wantKeys := []string{"id", "provider", "displayName", "email", "avatarUrl", "providerAvatarUrl", "avatarChoice", "chips",
+	wantKeys := []string{"id", "provider", "displayName", "email", "avatarUrl", "providerAvatarUrl", "activePictureId", "chips",
 		"handsPlayed", "handsWon", "handsLost", "handsLeftMid", "totalWinnings", "biggestPot", "rewards", "createdAt", "lastLoginAt"}
 	if len(m) != len(wantKeys) {
 		t.Fatalf("user has %d keys, want %d: %s", len(m), len(wantKeys), out)
@@ -715,8 +940,8 @@ func TestUserMarshalsToThePublicUserShape(t *testing.T) {
 			t.Fatalf("key order differs at %d: %v", i, top)
 		}
 	}
-	if string(m["chips"]) != "200000" || string(m["avatarChoice"]) != "null" || string(m["avatarUrl"]) != `"https://pic"` {
-		t.Fatalf("values: chips=%s avatarChoice=%s avatarUrl=%s", m["chips"], m["avatarChoice"], m["avatarUrl"])
+	if string(m["chips"]) != "200000" || string(m["activePictureId"]) != "null" || string(m["avatarUrl"]) != `"https://pic"` {
+		t.Fatalf("values: chips=%s activePictureId=%s avatarUrl=%s", m["chips"], m["activePictureId"], m["avatarUrl"])
 	}
 	var rewards map[string]json.RawMessage
 	if err := json.Unmarshal(m["rewards"], &rewards); err != nil {
@@ -733,7 +958,7 @@ func TestUserMarshalsToThePublicUserShape(t *testing.T) {
 	// A guest's nullables are JSON null, not "" or absent.
 	g := f.user("Null")
 	gout, _ := json.Marshal(g)
-	for _, k := range []string{`"email":null`, `"avatarUrl":null`, `"providerAvatarUrl":null`, `"avatarChoice":null`} {
+	for _, k := range []string{`"email":null`, `"avatarUrl":null`, `"providerAvatarUrl":null`, `"activePictureId":null`} {
 		if !strings.Contains(string(gout), k) {
 			t.Fatalf("expected %s in %s", k, gout)
 		}

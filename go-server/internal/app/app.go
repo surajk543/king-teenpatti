@@ -12,7 +12,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -205,6 +204,7 @@ func New(opts Options) (*App, error) {
 
 	// 3. stores, tokens, providers.
 	users := db.NewUsers(opts.DB, cfg.Game.WelcomeChips, clock.Now)
+	pictures := db.NewPictures(opts.DB, users, clock.Now)
 	ledger := db.NewLedger(opts.DB, a.metrics, clock.Now)
 	tokens := auth.NewTokens(cfg.JWT.Secret, cfg.JWT.ExpiresIn, clock.Now)
 	verifier := auth.NewVerifier(cfg)
@@ -321,14 +321,14 @@ func New(opts Options) (*App, error) {
 	}
 
 	api := auth.NewHandler(auth.Deps{
-		Config:      cfg,
-		Users:       users,
-		Tokens:      tokens,
-		Verifier:    verifier,
-		IsSeated:    func(userID string) bool { return a.rooms.GetTableForPlayer(userID) != nil },
-		Purchases:   chipStore,
-		ProfilesDir: filepath.Join(cfg.PublicDir, "profiles"),
-		Logger:      logger,
+		Config:    cfg,
+		Users:     users,
+		Tokens:    tokens,
+		Verifier:  verifier,
+		IsSeated:  func(userID string) bool { return a.rooms.GetTableForPlayer(userID) != nil },
+		Purchases: chipStore,
+		Pictures:  pictures,
+		Logger:    logger,
 	})
 	mux := http.NewServeMux()
 	if cfg.Metrics.Enabled {
