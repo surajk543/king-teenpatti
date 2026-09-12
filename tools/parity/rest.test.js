@@ -571,7 +571,7 @@ test('reward and profile routes need a session', async () => {
 
 test('health reports live counts with the shape the tools read', async () => {
   const body = await health();
-  assertKeys(body, ['ok', 'uptime', 'tables', 'players', 'activeHands', 'sockets', 'process', 'db', 'live']);
+  assertKeys(body, ['ok', 'uptime', 'tables', 'players', 'activeHands', 'sockets', 'process', 'db', 'live', 'version']);
   assert.equal(body.ok, true);
   assert.equal(typeof body.uptime, 'number');
   assert.ok(body.uptime > 0);
@@ -594,6 +594,12 @@ test('health reports live counts with the shape the tools read', async () => {
   assert.equal(typeof body.live.tables, 'number');
   assertKeys(body.db, ['total', 'idle', 'waiting']);
   for (const key of ['total', 'idle', 'waiting']) assert.equal(typeof body.db[key], 'number', `db.${key}`);
+  // The build this process is running: the go-server release tag stamped in
+  // by ops/build.sh, or "dev" for a plain `go build` like the one under test.
+  // Never empty — ops/prod-version.sh reads it to decide whether a deploy
+  // actually landed, and an empty string there would read as "no build".
+  assert.equal(typeof body.version, 'string');
+  assert.ok(body.version.length > 0, 'version must not be empty');
 
   // The counts move with the tables.
   const account = await guestLogin('device-health-0001', 'Healthy');

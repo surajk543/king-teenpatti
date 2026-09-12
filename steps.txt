@@ -8,5 +8,15 @@ sudo systemctl status gameplay --no-pager
 sudo journalctl -u gameplay -n 20 --no-pager
 curl -s http://127.0.0.1:3000/health | python3 -m json.tool | head -20   # process.node must start with "go"
 
+# Which build is live? /health carries the release tag ops/build.sh stamped in.
+# Do this from anywhere — no ssh, no credentials — and trust nothing until it says IN SYNC:
+# a restart that quietly failed is indistinguishable from a successful one otherwise.
+bash go-server/ops/prod-version.sh                # IN SYNC / BEHIND (exit 2) against api.sungamestudio.com
+curl -s https://api.sungamestudio.com/health | python3 -c 'import sys,json;print(json.load(sys.stdin)["version"])'
+
+# Cutting a release (tags are go-server/vX.Y.Z; the script refuses a dirty tree and never pushes):
+bash go-server/ops/release.sh patch               # or minor / major / vX.Y.Z ; --current just reports
+git push origin go-server/vX.Y.Z
+
 # Practice bots / load ramp against production (from any machine with Node 20+):
 #   cd tools && npm install && npm run bot -- --url https://api.sungamestudio.com --count 3 --boot 200 --category blind

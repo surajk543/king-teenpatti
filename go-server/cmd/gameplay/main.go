@@ -94,7 +94,7 @@ func run() error {
 	// app.New also opens the live store from cfg (REDIS_URL, LIVE_INSTANCE_ID)
 	// and runs the restart sequence; a store that is configured but
 	// unreachable, or that cannot be listed, is a startup failure.
-	server, err := app.New(app.Options{Config: cfg, DB: database, Logger: logger})
+	server, err := app.New(app.Options{Config: cfg, DB: database, Logger: logger, Version: version})
 	if err != nil {
 		database.Close()
 		return err

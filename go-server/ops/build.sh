@@ -9,9 +9,10 @@
 #      from go.dev, verifies the sha256 that go.dev publishes for that file
 #      (fetched at run time from https://go.dev/dl/?mode=json&include=all) and
 #      unpacks it into $HOME/.local/go — no root, nothing outside $HOME;
-#   2. builds a static, stripped binary at bin/gameplay with the git describe
-#      stamped into `main.version` (shown by `bin/gameplay -version` and in the
-#      first journal line of the service);
+#   2. builds a static, stripped binary at bin/gameplay with the release tag
+#      (`git describe --match 'go-server/v*'`) stamped into `main.version` —
+#      shown by `bin/gameplay -version`, in the first journal line of the
+#      service, and in GET /health as `version`;
 #   3. prints the binary's size and `file` output.
 #
 # Env overrides: GO_VERSION (default 1.27.1), GO_INSTALL_DIR (default
@@ -128,7 +129,13 @@ export GOTOOLCHAIN=local
 
 # ----------------------------------------------------------- 2. build
 cd "$MODULE_DIR"
-VERSION="$(git -C "$MODULE_DIR" describe --always --dirty 2>/dev/null || echo unknown)"
+# The stamp is the go-server release tag as `git describe` renders it:
+# "v1.0.1" exactly on a tag, "v1.0.1-3-gabc1234" three commits past one, plus
+# "-dirty" when the tree has uncommitted changes. --match keeps the client's
+# and the bot fleet's tags out of it, so each component versions on its own;
+# with no tag yet it falls back to the bare commit. ops/release.sh cuts them.
+VERSION="$(git -C "$MODULE_DIR" describe --tags --match 'go-server/v*' --always --dirty 2>/dev/null || echo unknown)"
+VERSION="${VERSION#go-server/}"
 log "Building $OUT (version $VERSION, $("$GO_BIN" version | cut -d' ' -f3))"
 mkdir -p "$MODULE_DIR/bin"
 CGO_ENABLED=0 "$GO_BIN" build -trimpath \

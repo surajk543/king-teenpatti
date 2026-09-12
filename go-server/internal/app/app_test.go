@@ -111,6 +111,57 @@ func get(t *testing.T, h http.Handler, method, target string, mutate func(*http.
 
 // ------------------------------------------------------------------- /health
 
+// TestHealthReportsTheBuildVersion covers the deploy check: ops/build.sh
+// stamps `git describe --match 'go-server/v*'` into main.version, main.go
+// hands it to app.New, and /health reports it. That chain is what lets
+// ops/prod-version.sh tell a finished deploy from a restart that quietly
+// failed — the two look identical from outside if the version is missing or
+// stale, which is precisely the case this pins.
+func TestHealthReportsTheBuildVersion(t *testing.T) {
+	database := dbtest.Open(t, "app")
+	cfg := testConfig(t, publicDir(t))
+	a := newAppOn(t, cfg, database, livetest.New())
+	// The default: a plain `go build` leaves main.version at "dev", and New
+	// turns an empty Options.Version into the same thing, so an untagged
+	// build never reports an empty string.
+	if got := versionFromHealth(t, a); got != "dev" {
+		t.Fatalf("unstamped build reported %q, want \"dev\"", got)
+	}
+
+	stamped, err := New(Options{
+		Config: testConfig(t, publicDir(t)), DB: database,
+		Logger: util.NewLogger("error", io.Discard), Live: livetest.New(),
+		Version: "v1.4.0-2-gdeadbee",
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+		defer cancel()
+		_ = stamped.Shutdown(ctx)
+	})
+	if got := versionFromHealth(t, stamped); got != "v1.4.0-2-gdeadbee" {
+		t.Fatalf("stamped build reported %q", got)
+	}
+}
+
+// versionFromHealth reads /health.version off a running app.
+func versionFromHealth(t *testing.T, a *App) string {
+	t.Helper()
+	res, body := get(t, a.Handler(), http.MethodGet, "/health", nil)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status %d: %s", res.StatusCode, body)
+	}
+	var parsed struct {
+		Version string `json:"version"`
+	}
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		t.Fatalf("decode /health: %v", err)
+	}
+	return parsed.Version
+}
+
 func TestHealthHasNodesShape(t *testing.T) {
 	a, _ := newApp(t, nil)
 	res, body := get(t, a.Handler(), http.MethodGet, "/health", nil)
@@ -122,9 +173,11 @@ func TestHealthHasNodesShape(t *testing.T) {
 	}
 
 	// Key set and order (spec-auth-http §4.10: ok, uptime, tables, players,
-	// activeHands, sockets, process, db) plus the live-state store appended
-	// after Node's keys (LIVE_STATE_PLAN.md: live {kind, ok, tables}).
-	keyOrder := regexp.MustCompile(`^\{"ok":true,"uptime":[0-9.e+-]+,"tables":\d+,"players":\d+,"activeHands":\d+,"sockets":\d+,"process":\{.*\},"db":\{"total":\d+,"idle":\d+,"waiting":\d+\},"live":\{"kind":"[a-z]+","ok":(true|false),"tables":\d+\}\}$`)
+	// activeHands, sockets, process, db) plus the two keys appended after
+	// Node's: the live-state store (LIVE_STATE_PLAN.md: live {kind, ok,
+	// tables}) and the build version ops/build.sh stamps in. Appended, never
+	// inserted — the load-test tooling reads Node's keys by position.
+	keyOrder := regexp.MustCompile(`^\{"ok":true,"uptime":[0-9.e+-]+,"tables":\d+,"players":\d+,"activeHands":\d+,"sockets":\d+,"process":\{.*\},"db":\{"total":\d+,"idle":\d+,"waiting":\d+\},"live":\{"kind":"[a-z]+","ok":(true|false),"tables":\d+\},"version":"[^"]+"\}$`)
 	if !keyOrder.Match(body) {
 		t.Fatalf("unexpected /health body: %s", body)
 	}

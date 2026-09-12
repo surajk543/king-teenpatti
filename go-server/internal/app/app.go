@@ -38,6 +38,14 @@ type Options struct {
 	Clock  game.Clock // nil → game.RealClock{}
 	// StartedAt feeds /health uptime and the uptime gauge; zero → now.
 	StartedAt time.Time
+	// Version is the build identifier stamped by ops/build.sh into
+	// main.version — a release tag as `git describe` renders it
+	// ("v1.0.1", or "v1.0.1-3-gabc1234" three commits past that tag), else
+	// the bare commit. It is reported by GET /health so the deployed build
+	// can be read off a running server without shelling into the host, which
+	// is the whole point of tagging releases. Empty → "dev", matching a plain
+	// `go build`.
+	Version string
 	// Live is the live-state store (LIVE_STATE_PLAN.md). nil → New opens one
 	// from Config: Redis when REDIS_URL is set (failing fast when it is
 	// unreachable), the in-process store otherwise — and Shutdown closes it
@@ -75,6 +83,7 @@ type App struct {
 	started         time.Time
 	clock           game.Clock
 	vitals          *vitals
+	version         string
 	handler         http.Handler
 
 	mu       sync.Mutex
@@ -179,7 +188,11 @@ func New(opts Options) (*App, error) {
 		started = clock.Now()
 	}
 
-	a := &App{cfg: cfg, log: logger, db: opts.DB, started: started, clock: clock}
+	version := opts.Version
+	if version == "" {
+		version = "dev"
+	}
+	a := &App{cfg: cfg, log: logger, db: opts.DB, started: started, clock: clock, version: version}
 	a.vitals = newVitals(started)
 
 	// 1. metrics — always built so the counters the socket layer, ledger and
@@ -673,6 +686,11 @@ type HealthResponse struct {
 	DB *db.PoolStats `json:"db"`
 	// Live is the live-state store's health.
 	Live LiveHealth `json:"live"`
+	// Version is the build this process is running — the release tag from
+	// ops/build.sh (Options.Version). Appended after Node's keys, like
+	// `live`. It is what makes "which build is prod on?" a curl rather than
+	// an ssh, so a deploy can be confirmed from anywhere.
+	Version string `json:"version"`
 }
 
 // LiveHealth is /health.live: the store's kind ("redis" | "memory"), whether
@@ -765,6 +783,7 @@ func (a *App) Health(w http.ResponseWriter, r *http.Request) {
 		res.DB = &stats
 	}
 	res.Live = a.liveHealth()
+	res.Version = a.version
 	auth.WriteJSON(w, http.StatusOK, res)
 }
 

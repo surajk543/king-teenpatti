@@ -732,7 +732,9 @@ Production's lives at `/var/www/gameplay/king-teenpatti/go-server/.env` (`PG_POO
   committed for that run yet).
 - `GET /health` returns `{ok, uptime, tables, players, activeHands, sockets, process:{pid,node,rssMb,heapUsedMb,heapTotalMb,
   externalMb,cpuPercent (share of one core since the previous call), loopLagP50Ms/P99Ms/MaxMs, goroutines, numCpu, gomaxprocs},
-  db:{total,idle,waiting}}`. Under Go `process.node` is the runtime string (`go1.27.1`), `loopLag*` are scheduler-latency
+  db:{total,idle,waiting}, live:{kind,ok,tables}, version}`. **`version`** is the go-server release tag `ops/build.sh` stamped in
+  (`v1.0.1`, or `v1.0.1-3-gabc1234` past a tag, `dev` for a plain `go build`) — the answer to "which build is prod on?"
+  without an ssh, which is what `ops/prod-version.sh` reads. Under Go `process.node` is the runtime string (`go1.27.1`), `loopLag*` are scheduler-latency
   percentiles, `externalMb` is 0, `db.waiting` an acquire-wait delta (usually 0).
 - The Node scratch scripts (`kicktest.mjs`, `peek-tmp.mjs`) and `test/loadtest.js` went with `server/`; `npm run ramp` covers the
   load-test role, `tools/parity/money.test.js` the books audit.
@@ -1153,8 +1155,12 @@ go build ./... && go vet ./... && test -z "$(gofmt -l .)"
 go test ./...                     # Postgres-backed tests use schema test_<pkg>_<rand> (dbtest.Open) and skip without a DB
 go test -race ./...               # the actor/lock rules are exactly what the race detector checks
 go run ./cmd/gameplay             # dev run: ./.env if present, port 3000, browser client from ./public
-bash ops/build.sh                 # static, stripped, `-X main.version=$(git describe)` → bin/gameplay; installs Go 1.27.1 to ~/.local/go if missing
-./bin/gameplay -version           # gameplay <describe> go1.27.1 linux/amd64
+bash ops/build.sh                 # static, stripped, release tag → main.version → bin/gameplay; installs Go 1.27.1 to ~/.local/go if missing
+./bin/gameplay -version           # gameplay v1.0.1 go1.27.1 linux/amd64
+# release tags (§14.4): cut one, see what it would be, and check what prod actually runs
+bash ops/release.sh patch         # go-server/v1.0.0 → go-server/v1.0.1 (annotated; does NOT push)
+bash ops/release.sh --current     # the newest tag and what `git describe` renders now
+bash ops/prod-version.sh          # curls /health on production and says IN SYNC or BEHIND (exit 2)
 PORT=3001 HOST=127.0.0.1 PG_SCHEMA=test_x ./bin/gameplay      # spare port + throwaway schema (drop it after)
 # parity (from tools/, `npm install` once): the black-box suites against the built binary, and a traffic diff
 cd ../tools && npm run parity                                 # --bin <path> / --filter a,b / --keep / --url <running server> --schema <s>
@@ -1163,6 +1169,23 @@ npm run parity:diff -- --a go --b http://127.0.0.1:3000 --schema-b public
 Bots (`npm run bot`), ramptest (`npm run ramp`), the Flutter debug build (`--dart-define=SERVER_URL=http://10.0.2.2:3000`)
 and the §4 ledger-reconciliation psql check (`0`) are the acceptance run — unchanged tooling, Go on the other end.
 Two Go tests borrow `tools/node_modules` and one needs `NODE_REFERENCE_DIR` (§7.6); all skip cleanly without them.
+
+### 14.4 Release tags (added 12 Sep 2026, owner)
+Tags are named **`go-server/vX.Y.Z`** — component-scoped because this repository ships three things on
+their own schedules (server, Flutter client, bot fleet), so one plain `vX.Y.Z` would have to mean all
+three at once. `ops/build.sh` stamps `git describe --tags --match 'go-server/v*'` into `main.version`,
+which surfaces in three places: `bin/gameplay -version`, the server's first journal line, and
+**`GET /health`'s `version`**. The last is the useful one — it makes confirming a deploy a `curl` from
+anywhere rather than an ssh, and `ops/prod-version.sh` compares it with the newest local tag and exits
+2 when prod is behind. **A restart that silently failed looks exactly like a successful one from
+outside**, and that is what this exists to catch.
+
+`ops/release.sh patch|minor|major|vX.Y.Z` cuts an annotated tag. It refuses a dirty tree and refuses a
+commit that already carries one — a tag has to name a commit someone else can rebuild byte for byte,
+or the stamp is a lie — and it **never pushes**: a published version number cannot be withdrawn once
+anyone has fetched it, so it prints `git push origin go-server/vX.Y.Z` for a human to run. With no tags
+at all, `git describe` falls back to the bare commit, which is why production reported `0d78eae`
+before the first tag existed.
 
 ### 14.3 Production deploy (`go-server/ops/DEPLOY.md` has every command; `steps.txt` the short form)
 Host `148.113.24.201` (`ssh deploy@…`), checkout `/var/www/gameplay/king-teenpatti` on **`master`**
