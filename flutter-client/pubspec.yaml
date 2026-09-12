@@ -37,6 +37,12 @@ dependencies:
   flex_color_scheme: ^8.4.0
   socket_io_client: ^3.1.6
   http: ^1.6.0
+  # Profile pictures are kept on the phone after the first fetch
+  # (lib/net/picture_cache.dart): path_provider for the directory,
+  # crypto to turn a URL into a filename. Both were already here
+  # transitively; declared because the app imports them directly.
+  path_provider: ^2.1.5
+  crypto: ^3.0.6
   provider: ^6.1.5+1
   shared_preferences: ^2.5.5
   uuid: ^4.6.0
