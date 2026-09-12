@@ -189,6 +189,14 @@ class Strings {
   String get startingGame => _('startingGame');
   String buyChipsToStay(int seconds) =>
       _('buyChipsToStay').replaceAll('{seconds}', '$seconds');
+
+  /// The premium-picture tier (requirement 21).
+  String get unlock => _('unlock');
+  String get unlockTitle => _('unlockTitle');
+  String unlockBody(String name, String cost) => _('unlockBody')
+      .replaceAll('{name}', name)
+      .replaceAll('{cost}', cost);
+  String get pictureOwned => _('pictureOwned');
   String get youAreWinner => _('youAreWinner');
   String get isTheWinner => _('isTheWinner');
 
@@ -383,6 +391,10 @@ class Strings {
       'waitingForPlayers': 'Waiting for players',
       'startingGame': 'Starting game…',
       'buyChipsToStay': 'Buy chips in {seconds}s to keep your seat',
+      'unlock': 'Unlock',
+      'unlockTitle': 'Unlock this picture?',
+      'unlockBody': '{name} costs {cost} chips. Unlock it and wear it now?',
+      'pictureOwned': 'Yours',
       'youAreWinner': 'You are the winner',
       'isTheWinner': 'is the winner',
       'leaveTable': 'Leave table',
@@ -562,6 +574,10 @@ class Strings {
       'dayMode': 'दिन मोड',
       'appearance': 'रूप',
       'themeSystem': 'सिस्टम',
+      'unlock': 'अनलॉक करें',
+      'unlockTitle': 'यह तस्वीर अनलॉक करें?',
+      'unlockBody': '{name} की कीमत {cost} चिप्स है। अभी अनलॉक करके लगाएँ?',
+      'pictureOwned': 'आपकी',
       'themeDark': 'डार्क',
       'themeLight': 'लाइट',
       'waitingForPlayers': 'खिलाड़ियों का इंतज़ार',
@@ -740,6 +756,10 @@ class Strings {
       'tableChat': 'টেবিল চ্যাট',
       'saySomething': 'কিছু বলুন…',
       'tableMenu': 'টেবিল মেনু',
+      'unlock': 'আনলক করুন',
+      'unlockTitle': 'এই ছবিটি আনলক করবেন?',
+      'unlockBody': '{name} এর দাম {cost} চিপস। এখনই আনলক করে ব্যবহার করবেন?',
+      'pictureOwned': 'আপনার',
       'yourChips': 'আপনার চিপ',
       'maxPot': 'সর্বোচ্চ পট',
       'nightMode': 'রাত মোড',
@@ -919,6 +939,10 @@ class Strings {
       'missedTurnsLabel': 'ચૂકેલી ચાલો',
       'resumingTable': 'તમારા ટેબલ પર પાછા જઈ રહ્યા છીએ…',
       'welcomeBack': 'પરત સ્વાગત — તમે તમારા ટેબલ પર પાછા છો.',
+      'unlock': 'અનલૉક કરો',
+      'unlockTitle': 'આ ફોટો અનલૉક કરવો છે?',
+      'unlockBody': '{name} ની કિંમત {cost} ચિપ્સ છે. હમણાં અનલૉક કરીને વાપરવો?',
+      'pictureOwned': 'તમારો',
       'appVersion': 'એપ આવૃત્તિ',
       'tableLost': 'તમે દૂર હતા ત્યારે ટેબલ બંધ થઈ ગયું.',
       'winner': 'વિજેતા',
@@ -1099,6 +1123,10 @@ class Strings {
       'autoPackedOne': 'ਚਾਲ ਖੁੰਝੀ',
       'lastWarning': 'ਆਖਰੀ ਚੇਤਾਵਨੀ',
       'missOneMore': 'ਇਹ ਚਾਲ ਖੁੰਝੀ ਤਾਂ ਤੁਸੀਂ ਟੇਬਲ ਛੱਡ ਦਿਓਗੇ।',
+      'unlock': 'ਅਨਲਾਕ ਕਰੋ',
+      'unlockTitle': 'ਇਹ ਤਸਵੀਰ ਅਨਲਾਕ ਕਰਨੀ ਹੈ?',
+      'unlockBody': '{name} ਦੀ ਕੀਮਤ {cost} ਚਿਪਸ ਹੈ। ਹੁਣੇ ਅਨਲਾਕ ਕਰਕੇ ਲਗਾਉਣੀ ਹੈ?',
+      'pictureOwned': 'ਤੁਹਾਡੀ',
       'missedTurnsLabel': 'ਖੁੰਝੀਆਂ ਚਾਲਾਂ',
       'resumingTable': 'ਤੁਹਾਡੇ ਟੇਬਲ ਤੇ ਵਾਪਸ ਜਾ ਰਹੇ ਹਾਂ…',
       'welcomeBack': 'ਵਾਪਸੀ ਤੇ ਸਵਾਗਤ — ਤੁਸੀਂ ਆਪਣੇ ਟੇਬਲ ਤੇ ਵਾਪਸ ਹੋ।',

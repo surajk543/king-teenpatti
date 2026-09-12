@@ -1653,8 +1653,7 @@ Future<void> _openPicturePicker(BuildContext context) async {
                                 style: AppTheme.label(text.titleSmall!),
                               ),
                               Text(
-                                user == null ||
-                                        (user.avatarChoice ?? '').isEmpty
+                                user == null || user.activePictureId == null
                                     ? 'Using your ${user?.provider ?? 'guest'} picture.'
                                     : state.t.pictureLocked,
                                 maxLines: 2,
@@ -1680,8 +1679,11 @@ Future<void> _openPicturePicker(BuildContext context) async {
                             _PictureChoice(
                               picture: p,
                               side: strip,
-                              selected: user?.avatarChoice == p.id,
-                              onTap: () => state.chooseAvatar(p.id),
+                              selected: user?.activePictureId == p.id,
+                              busy: state.buyingPicture == p.id,
+                              onTap: () => p.locked
+                                  ? _unlockPicture(context, p)
+                                  : state.chooseAvatar(p.id),
                             ),
                         ],
                       ),
@@ -1739,11 +1741,67 @@ Future<void> _openPicturePicker(BuildContext context) async {
   );
 }
 
+/// Asks before spending chips on a premium picture, then buys and wears it.
+///
+/// A confirmation rather than a straight tap-to-buy: this is the only place in
+/// the lobby where a tap costs real chips, and a picker is somewhere people
+/// browse. Tapping a face should never be how a stack quietly goes down.
+Future<void> _unlockPicture(BuildContext context, ProfilePicture picture) async {
+  final state = context.read<GameState>();
+  final t = state.t;
+  final theme = Theme.of(context);
+
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) => GlassDialog(
+      padding: const EdgeInsets.all(Space.xl),
+      title: Row(
+        children: [
+          Icon(Icons.lock_open, size: 20, color: theme.colorScheme.primary),
+          const SizedBox(width: Space.md),
+          Expanded(
+            child: Text(
+              t.unlockTitle,
+              style: AppTheme.label(
+                theme.textTheme.titleMedium ?? const TextStyle(),
+              ),
+            ),
+          ),
+        ],
+      ),
+      content: Text(
+        t.unlockBody(picture.name, formatChips(picture.cost)),
+        style: theme.textTheme.bodyMedium?.copyWith(
+          color: theme.colorScheme.onSurface.withValues(alpha: AppTheme.inkMed),
+        ),
+      ),
+      actions: [
+        GlassButton(
+          style: GlassButtonStyle.text,
+          label: t.cancel,
+          onPressed: () => Navigator.pop(dialogContext, false),
+        ),
+        GlassButton(
+          style: GlassButtonStyle.primary,
+          label: t.unlock,
+          onPressed: () => Navigator.pop(dialogContext, true),
+        ),
+      ],
+    ),
+  );
+
+  // The server is the authority on whether it can be afforded and whether the
+  // player is seated; a refusal comes back as a notice rather than being
+  // guessed at here.
+  if (confirmed == true) await state.buyPicture(picture.id);
+}
+
 class _PictureChoice extends StatelessWidget {
   const _PictureChoice({
     required this.picture,
     required this.side,
     required this.selected,
+    required this.busy,
     required this.onTap,
   });
 
@@ -1753,14 +1811,47 @@ class _PictureChoice extends StatelessWidget {
   /// row does not shuffle sideways when the selection moves.
   final double side;
   final bool selected;
+
+  /// This picture is being bought right now.
+  final bool busy;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     final url = context.read<GameState>().absoluteUrl(picture.url);
     // Avatar's ring and gap grow outwards, so the picture gives them back and
     // the outer circle is the same in both states.
     final radius = side * 0.34;
+    final locked = picture.locked;
+
+    Widget face = AnimatedSwitcher(
+      duration: Motion.base,
+      child: selected
+          ? Avatar(
+              key: const ValueKey(true),
+              url: url,
+              fallback: picture.name,
+              radius: radius,
+              ring: AppTheme.goldBright,
+              ringWidth: 2.5,
+              ringGap: 2,
+            )
+          : Avatar(
+              key: const ValueKey(false),
+              url: url,
+              fallback: picture.name,
+              radius: radius + 3,
+            ),
+    );
+
+    // A locked picture is shown, not hidden: knowing what is behind the
+    // padlock is the whole reason anybody buys one. It is just held back —
+    // dimmed, with the price on it — so it cannot be mistaken for a choice
+    // that is one tap away.
+    if (locked) {
+      face = Opacity(opacity: 0.55, child: face);
+    }
 
     return Padding(
       padding: const EdgeInsets.only(right: Space.md),
@@ -1771,33 +1862,72 @@ class _PictureChoice extends StatelessWidget {
           enableFeedback: context.select<FeedbackSettings, bool>(
             (f) => f.sound,
           ),
-          onTap: onTap,
+          onTap: busy ? null : onTap,
           customBorder: const CircleBorder(),
           child: SizedBox(
             width: side,
-            child: Center(
-              child: AnimatedSwitcher(
-                duration: Motion.base,
-                child: selected
-                    ? Avatar(
-                        key: const ValueKey(true),
-                        url: url,
-                        fallback: picture.id,
-                        radius: radius,
-                        ring: AppTheme.goldBright,
-                        ringWidth: 2.5,
-                        ringGap: 2,
-                      )
-                    : Avatar(
-                        key: const ValueKey(false),
-                        url: url,
-                        fallback: picture.id,
-                        radius: radius + 3,
-                      ),
-              ),
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                Center(child: face),
+                if (locked && !busy)
+                  Positioned(
+                    bottom: 0,
+                    child: _PriceTag(cost: picture.cost),
+                  ),
+                if (busy)
+                  SizedBox(
+                    width: radius,
+                    height: radius,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: theme.colorScheme.primary,
+                    ),
+                  ),
+              ],
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// The padlock and price sitting on a premium picture nobody has bought yet.
+class _PriceTag extends StatelessWidget {
+  const _PriceTag({required this.cost});
+
+  final int cost;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: Space.xs,
+        vertical: Space.xxs,
+      ),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(Radii.pill),
+        color: AppTheme.ink900.withValues(alpha: 0.82),
+        border: Border.all(color: AppTheme.goldBright.withValues(alpha: 0.45)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.lock, size: 9, color: AppTheme.goldBright),
+          const SizedBox(width: 2),
+          Text(
+            formatChips(cost),
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: AppTheme.goldBright,
+              fontWeight: FontWeight.w700,
+              fontSize: 9,
+              height: 1.1,
+            ),
+          ),
+        ],
       ),
     );
   }

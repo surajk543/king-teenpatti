@@ -5,10 +5,17 @@ import '../theme/app_theme.dart';
 
 /// A player's picture (requirements 20 and 21), set in a ring.
 ///
-/// The bundled set is SVG and a Google or Facebook picture is a bitmap, so both
-/// paths are handled here. Anything that fails to load falls back to the
-/// player's initial rather than a broken box — a missing picture should never
-/// be the most eye-catching thing at the table.
+/// The catalogue set is SVG and a Google or Facebook picture is a bitmap, so
+/// both paths are handled here.
+///
+/// There are two different fallbacks and the difference matters. A player with
+/// NO picture gets their initial — it is something rather than nothing, and it
+/// tells the table who the seat belongs to. A picture that was supposed to
+/// load and did NOT — a retired file, a dead Google URL, a phone that lost the
+/// network mid-fetch — gets [defaultAsset], a bundled image, because falling
+/// back to a letter there would make a broken link look like a deliberate
+/// choice. Either way, never a broken box: a missing picture should not be the
+/// most eye-catching thing at the table.
 ///
 /// The ring is what makes the portrait sit *in* the surface it is on rather
 /// than on top of it: a champagne hairline, a contact shadow under it, and a
@@ -16,6 +23,10 @@ import '../theme/app_theme.dart';
 /// not bleed into a pale plaque. The seat pod passes the turn colour here, so a
 /// player watching faces rather than borders still sees whose turn it is.
 class Avatar extends StatelessWidget {
+  /// Shipped with the app rather than fetched, because the whole point of it
+  /// is to be there when a fetch has just failed.
+  static const defaultAsset = 'assets/default_avatar.svg';
+
   const Avatar({
     super.key,
     required this.url,
@@ -68,6 +79,16 @@ class Avatar extends StatelessWidget {
       ),
     );
 
+    final fallbackImage = SvgPicture.asset(
+      defaultAsset,
+      width: radius * 2,
+      height: radius * 2,
+      fit: BoxFit.cover,
+      // If even the bundled asset will not render there is nothing left to
+      // try, so the initial is the floor.
+      placeholderBuilder: (_) => Center(child: initial),
+    );
+
     final link = url;
     final Widget? picture = link == null || link.isEmpty
         ? null
@@ -80,13 +101,14 @@ class Avatar extends StatelessWidget {
             height: radius * 2,
             fit: BoxFit.cover,
             placeholderBuilder: (_) => Center(child: initial),
+            errorBuilder: (_, _, _) => fallbackImage,
           )
         : Image.network(
             link,
             width: radius * 2,
             height: radius * 2,
             fit: BoxFit.cover,
-            errorBuilder: (_, _, _) => Center(child: initial),
+            errorBuilder: (_, _, _) => fallbackImage,
           );
 
     Widget core = CircleAvatar(
