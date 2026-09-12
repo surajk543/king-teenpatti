@@ -49,15 +49,6 @@ SELECT name, image_url, type, cost, is_active, sort_order,
     ('Panda',    'https://lh3.googleusercontent.com/d/1zCySFnbUMtnBjv1g_u9nruHZM5PIdnt_=s256',
      'PREMIUM', 50000::bigint, TRUE,  140),
     ('Wolf',     'https://lh3.googleusercontent.com/d/1LB0wQaR_rq3bYk9oN5P6RWsEm5-oIXae=s256',
-     'PREMIUM', 50000::bigint, TRUE,  150),
-    -- An animated picture, and the reason it is seeded INACTIVE: it does not
-    -- render yet. Every layer in that dotLottie is an image layer, and its
-    -- assets name image_0.png while the zip stores them under images/.
-    -- LottieComposition.decodeZip matches on the whole path, so it finds
-    -- nothing and draws a silent blank. The picker's Lottie loader is right;
-    -- the decoder needs to match on the basename instead. Flip this to TRUE
-    -- once it does — the row is already here waiting.
-    ('Butterfly', 'https://lottie.host/753d8332-77a2-46c9-914d-ae98c148a65a/lPzmUsFDRo.lottie',
-     'FREE',          0::bigint, FALSE, 160)
+     'PREMIUM', 50000::bigint, TRUE,  150)
   ) AS seed(name, image_url, type, cost, is_active, sort_order)
     ON CONFLICT (image_url) DO NOTHING;
