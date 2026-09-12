@@ -47,7 +47,7 @@ func TestDefaultsMatchNode(t *testing.T) {
 		},
 		"Game.MaxPlayers": 5, "Game.MinPlayers": 2, "Game.TurnTimeout": 25 * time.Second,
 		"Game.MaxBetRounds": 20, "Game.PotLimitMultiplier": int64(1024), "Game.MaxRaiseSteps": 8,
-		"Game.SeenMaxRaiseSteps": 2, "Game.SeenMaxBetRounds": 7, "Game.SeenMaxPot": int64(1200000),
+		"Game.SeenMaxRaiseSteps": 2, "Game.SeenMaxBetRounds": 7, "Game.SeenMaxPot": int64(2000000),
 		"Game.BlindMaxRaiseSteps": 0, "Game.BlindMaxBetRounds": 0, "Game.BlindPotLimitMultiplier": int64(0),
 		"Game.MaxBlindMoves": 4,
 		"Game.EntryCapBoot":  int64(200), "Game.EntryCapCategory": "blind", "Game.EntryCapMaxChips": int64(500000),
@@ -333,13 +333,13 @@ func TestTableRules(t *testing.T) {
 		private  bool
 		want     TableRules
 	}{
-		{"public seen", "seen", 200, false, TableRules{200, 2, 7, 1024, 1200000}},
+		{"public seen", "seen", 200, false, TableRules{200, 2, 7, 1024, 2000000}},
 		{"public blind 200", "blind", 200, false, TableRules{200, 0, 0, 0, 0}},
 		{"public blind 5000", "blind", 5000, false, TableRules{5000, 0, 0, 0, 0}},
 		{"private seen ignores the asked boot", "seen", 5000, true, TableRules{200, 2, 7, 1024, 500000}},
 		{"private blind", "blind", 5000, true, TableRules{200, 2, 0, 0, 500000}},
-		{"unknown category is seen", "BLIND", 200, false, TableRules{200, 2, 7, 1024, 1200000}},
-		{"zero boot is the default", "seen", 0, false, TableRules{200, 2, 7, 1024, 1200000}},
+		{"unknown category is seen", "BLIND", 200, false, TableRules{200, 2, 7, 1024, 2000000}},
+		{"zero boot is the default", "seen", 0, false, TableRules{200, 2, 7, 1024, 2000000}},
 	} {
 		if got := g.TableRules(tc.category, tc.boot, tc.private); got != tc.want {
 			t.Errorf("%s: %+v, want %+v", tc.name, got, tc.want)
@@ -356,7 +356,7 @@ func TestTableRules(t *testing.T) {
 	if NormalizeCategory("blind") != "blind" || NormalizeCategory("seen") != "seen" || NormalizeCategory("") != "seen" || NormalizeCategory("Blind") != "seen" {
 		t.Error("NormalizeCategory")
 	}
-	if g.MenuMaxPot("seen") != 1200000 || g.MenuMaxPot("blind") != 0 {
+	if g.MenuMaxPot("seen") != 2000000 || g.MenuMaxPot("blind") != 0 {
 		t.Error("MenuMaxPot")
 	}
 }
@@ -391,7 +391,7 @@ func TestPublicGameConfigValues(t *testing.T) {
 	for i, entry := range g.LobbyTables {
 		wantPot := int64(0)
 		if i == 0 {
-			wantPot = 1200000
+			wantPot = 2000000
 		}
 		if g.MenuMaxPot(entry.Category) != wantPot {
 			t.Errorf("tables[%d].maxPot = %d, want %d", i, g.MenuMaxPot(entry.Category), wantPot)

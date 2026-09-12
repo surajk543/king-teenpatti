@@ -61,7 +61,7 @@ func productionConfig(category Category, boot int64) TableConfig {
 	if category == CategorySeen {
 		cfg.MaxRaiseSteps = 2  // SEEN_MAX_RAISE_STEPS
 		cfg.MaxBetRounds = 7   // SEEN_MAX_BET_ROUNDS
-		cfg.MaxPot = 1_200_000 // SEEN_MAX_POT
+		cfg.MaxPot = 2_000_000 // SEEN_MAX_POT
 	} else {
 		cfg.MaxRaiseSteps = 0      // BLIND_MAX_RAISE_STEPS
 		cfg.MaxBetRounds = 0       // BLIND_MAX_BET_ROUNDS
@@ -73,6 +73,70 @@ func productionConfig(category Category, boot int64) TableConfig {
 
 func rulesTable(t *testing.T) *harness {
 	return newHarness(t, rulesConfig(), withID("rules-room", "RULE01"))
+}
+
+// ------------------------- the seen table's ceiling (requirement 19)
+
+// 20 Lakh is the most a seen hand can pay. The moment the pot reaches it,
+// betting is over: everyone still in turns their cards face up and the best
+// hand takes the lot.
+//
+// The last rung is what makes that happen at all. A seen player's smallest
+// legal bet is the whole per-bet ceiling (2,04,800 at boot 200) once the stake
+// has outgrown it, so a pot a little short of the cap used to offer nobody a
+// rung: every player left had nothing to press but Pack, the pot dribbled away
+// by folding and the pot-limit showdown never ran. betOptions now offers the
+// remaining headroom as the single rung, so the pot lands exactly on the
+// ceiling instead of stalling just under it.
+func TestASeenHandStopsAtTwentyLakhAndShowsEverybodysCards(t *testing.T) {
+	h := newHarness(t, productionConfig(CategorySeen, 200), withID("seen-cap", "SEENCP"), withLedger(emptyLedger))
+	h.seatNamed("a", "A", 500_000_000)
+	h.seatNamed("b", "B", 500_000_000)
+	h.seatNamed("c", "C", 500_000_000)
+	h.advance(6 * time.Second)
+
+	// Two rungs on a seen table: the chaal, and the one raise above it. That
+	// is what "a player may raise once when the turn reaches them" means —
+	// there is no third rung to climb to (SEEN_MAX_RAISE_STEPS 2).
+	eq(t, len(h.betOptions(h.turnUser()).Steps), 2, "chaal, or one raise, and nothing beyond")
+
+	for i := 0; i < 100 && h.hasHand(); i++ {
+		player := h.turnUser()
+		opts := h.betOptions(player)
+		if len(opts.Steps) == 0 {
+			t.Fatalf("turn %d: pot %d left %s with no legal bet at all", i, h.pot(), player)
+		}
+		action := ActionChaal
+		if len(opts.Steps) > 1 {
+			action = ActionRaise
+		}
+		h.mustAct(player, action, amt(*opts.Max))
+	}
+
+	eq(t, h.hasHand(), false, "the hand ended on its own")
+	ended := h.lastHandEnded()
+	eq(t, ended.Reason, WinPotLimit, "the ceiling ended it, not the round count and not packing")
+	eq(t, ended.Pot, int64(2_000_000), "the pot stops exactly on 20 Lakh")
+	eq(t, len(h.lastShowdown().Reveals), 3, "everybody still in shows their cards")
+	if ended.WinnerID == nil {
+		t.Fatal("the best hand takes the pot")
+	}
+	// The winner is the best hand among the three, not the last to act.
+	best, bestID := EvaluatedHand{}, ""
+	h.read(func() {
+		for _, id := range []string{"a", "b", "c"} {
+			seat := h.table.findSeat(id)
+			if seat == nil {
+				continue
+			}
+			hand := Evaluate(seat.cards, EvaluateOptions{})
+			if bestID == "" || Compare(hand, best) > 0 {
+				best, bestID = hand, id
+			}
+		}
+	})
+	eq(t, *ended.WinnerID, bestID, "the highest ranking hand took it")
+	eq(t, sumDeltas(h.lastSettled().entries), int64(0), "chips are still conserved")
 }
 
 // ------------------------------- requirement 15: everybody leaves the table

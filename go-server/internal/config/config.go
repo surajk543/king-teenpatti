@@ -221,7 +221,7 @@ type GameConfig struct {
 	// after 7 rounds (the brief says "10 moves"), pot capped at 1.2M.
 	SeenMaxRaiseSteps int   // SEEN_MAX_RAISE_STEPS 2
 	SeenMaxBetRounds  int   // SEEN_MAX_BET_ROUNDS 7
-	SeenMaxPot        int64 // SEEN_MAX_POT 1200000 (0 = uncapped)
+	SeenMaxPot        int64 // SEEN_MAX_POT 2000000 (0 = uncapped)
 
 	// Blind tables (200 and 5000) are open-ended: 0 means "no limit" for each.
 	BlindMaxRaiseSteps      int   // BLIND_MAX_RAISE_STEPS 0
@@ -379,7 +379,7 @@ func Defaults() *Config {
 			MaxRaiseSteps:           8,
 			SeenMaxRaiseSteps:       2,
 			SeenMaxBetRounds:        7,
-			SeenMaxPot:              1200000,
+			SeenMaxPot:              2000000,
 			BlindMaxRaiseSteps:      0,
 			BlindMaxBetRounds:       0,
 			BlindPotLimitMultiplier: 0,

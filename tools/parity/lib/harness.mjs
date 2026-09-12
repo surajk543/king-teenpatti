@@ -59,7 +59,7 @@ export const profile = {
   sideshowMinPlayers: 3,
   privateBoot: 200,
   privateMaxPot: 500000,
-  seenMaxPot: 1200000,
+  seenMaxPot: 2000000, // SEEN_MAX_POT — 20 Lakh is the most a seen hand pays
   chatMaxLength: 140,
 };
 

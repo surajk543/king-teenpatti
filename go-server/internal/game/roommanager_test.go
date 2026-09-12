@@ -451,6 +451,44 @@ func TestRoomsBandAppliesToJoinByCodeToo(t *testing.T) {
 	expectCode(t, err, game.CodeBelowTableMinimum)
 }
 
+// A band is an ENTRY rule: it decides who may sit down, never who may stay or
+// where they may move. A player whose stack outgrew a table while they were
+// winning at it keeps their seat and may still switch to another table of the
+// same kind — a switch is a sideways move, not a new entry, and throwing
+// somebody out of the game for doing well would be the opposite of the point.
+// The floor behaves the same way from the other side.
+func TestRoomsSwitchIgnoresTheStackBand(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		boot    int64
+		seated  int64 // what they held when they sat down
+		nowHold int64 // what they hold when they ask to move
+	}{
+		{"a stack that has outgrown the ceiling", 5000, 1000000, 50000001},
+		{"a stack that has fallen below the floor", 1000000, 500000000, 400000000},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newRoomsFixture(t, nil)
+			first := f.rooms.CreateTable(game.CreateTableOptions{BootAmount: tc.boot, Category: "blind"})
+			second := f.rooms.CreateTable(game.CreateTableOptions{BootAmount: tc.boot, Category: "blind"})
+			f.mustJoin(second, f.player("Other", tc.seated))
+
+			mover := f.player("Mover", tc.seated)
+			f.mustJoin(first, mover)
+
+			// Their fortunes changed while they were sitting there.
+			mover.Chips = tc.nowHold
+			result, err := f.rooms.SwitchTable(mover)
+			if err != nil {
+				t.Fatalf("a seated player was refused a sideways move: %v", err)
+			}
+			if result.To.ID() != second.ID() {
+				t.Fatalf("moved to %s, want %s", result.To.ID(), second.ID())
+			}
+		})
+	}
+}
+
 // ------------------------------------------- requirement 30: the entry cap
 // (lobbyRules.test.js)
 
@@ -747,7 +785,7 @@ func TestRoomsPotCeilingsPerKind(t *testing.T) {
 	}{
 		{"private seen", game.CreateTableOptions{BootAmount: 200, IsPrivate: true}, 500000},
 		{"private blind", game.CreateTableOptions{BootAmount: 200, IsPrivate: true, Category: "blind"}, 500000},
-		{"public seen", game.CreateTableOptions{BootAmount: 200, Category: "seen"}, 1200000},
+		{"public seen", game.CreateTableOptions{BootAmount: 200, Category: "seen"}, 2000000},
 		{"public blind", game.CreateTableOptions{BootAmount: 200, Category: "blind"}, 0},
 	}
 	for _, c := range cases {
@@ -839,7 +877,7 @@ func TestRoomsCreateTableConfigIsExplicit(t *testing.T) {
 	}
 	seen := common
 	seen.Category, seen.BootAmount = game.CategorySeen, 200
-	seen.MaxRaiseSteps, seen.MaxBetRounds, seen.MaxPot, seen.PotLimitMultiplier = 2, 7, 1_200_000, 1024
+	seen.MaxRaiseSteps, seen.MaxBetRounds, seen.MaxPot, seen.PotLimitMultiplier = 2, 7, 2_000_000, 1024
 	blind := common
 	blind.Category, blind.BootAmount = game.CategoryBlind, 5000
 	blind.MaxRaiseSteps, blind.MaxBetRounds, blind.MaxPot, blind.PotLimitMultiplier = 0, 0, 0, 0
@@ -929,7 +967,7 @@ func TestRoomsLobbyOffersExactlyTheDefaultMenu(t *testing.T) {
 	// Each blind table carries the stack band it is for; requirement 30's cap
 	// on the 200 table is the same field, folded in from ENTRY_CAP_*.
 	wantTables := []game.LobbyTableOption{
-		{Category: "seen", BootAmount: 200, MaxPot: 1200000, MaxBlindMoves: 4},
+		{Category: "seen", BootAmount: 200, MaxPot: 2000000, MaxBlindMoves: 4},
 		{Category: "blind", BootAmount: 200, MaxPot: 0, MaxBlindMoves: 4, MaxChips: 500000},
 		{Category: "blind", BootAmount: 5000, MaxPot: 0, MaxBlindMoves: 4, MaxChips: 50000000},
 		{Category: "blind", BootAmount: 50000, MaxPot: 0, MaxBlindMoves: 4, MaxChips: 1000000000},
@@ -949,7 +987,7 @@ func TestRoomsLobbyOffersExactlyTheDefaultMenu(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := `{"categories":["seen","blind"],"stakes":[200,5000,50000,1000000],"tables":[` +
-		`{"category":"seen","bootAmount":200,"maxPot":1200000,"maxBlindMoves":4,"minChips":0,"maxChips":0},` +
+		`{"category":"seen","bootAmount":200,"maxPot":2000000,"maxBlindMoves":4,"minChips":0,"maxChips":0},` +
 		`{"category":"blind","bootAmount":200,"maxPot":0,"maxBlindMoves":4,"minChips":0,"maxChips":500000},` +
 		`{"category":"blind","bootAmount":5000,"maxPot":0,"maxBlindMoves":4,"minChips":0,"maxChips":50000000},` +
 		`{"category":"blind","bootAmount":50000,"maxPot":0,"maxBlindMoves":4,"minChips":0,"maxChips":1000000000},` +

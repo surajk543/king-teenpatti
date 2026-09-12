@@ -25,7 +25,7 @@ test.after(async () => {
 // say who each table is for, 0 meaning no limit at that end. Requirement 30's
 // cap on the 200 table is the same field, folded in from ENTRY_CAP_*.
 const MENU = [
-  { category: 'seen', bootAmount: 200, maxPot: 1200000, maxBlindMoves: 4, minChips: 0, maxChips: 0 },
+  { category: 'seen', bootAmount: 200, maxPot: 2000000, maxBlindMoves: 4, minChips: 0, maxChips: 0 },
   { category: 'blind', bootAmount: 200, maxPot: 0, maxBlindMoves: 4, minChips: 0, maxChips: 500000 },
   { category: 'blind', bootAmount: 5000, maxPot: 0, maxBlindMoves: 4, minChips: 0, maxChips: 50000000 },
   { category: 'blind', bootAmount: 50000, maxPot: 0, maxBlindMoves: 4, minChips: 0, maxChips: 1000000000 },
@@ -208,7 +208,7 @@ test('a private table ignores the menu (fixed boot 200); a public create is vali
   } else {
     assert.equal(badPair.ok, true);
     assert.equal(client.last('room:joined').bootAmount, 5000);
-    assert.equal(client.last('room:joined').maxPot, 1200000);
+    assert.equal(client.last('room:joined').maxPot, 2000000);
     await client.emit('room:leave', {});
   }
   const onMenu = await client.emit('room:create', { isPrivate: false, bootAmount: 200, category: 'blind' });

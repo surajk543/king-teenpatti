@@ -765,6 +765,19 @@ class GameState extends ChangeNotifier {
   bool cappedOut(int boot, String category) =>
       config.cappedFor(user?.chips ?? 0, boot: boot, category: category);
 
+  /// Whether [table] is shut to this player as they stand: they have outgrown
+  /// its ceiling, or have not yet reached its floor.
+  ///
+  /// One answer for both jobs — the lobby orders its cards by this and each
+  /// card draws itself by it — so the rail can never file a card under
+  /// "you can join these" and then show it padlocked.
+  bool tableShut(LobbyTable table) {
+    final chips = user?.chips ?? 0;
+    return table.tooRich(chips) ||
+        table.tooPoor(chips) ||
+        cappedOut(table.bootAmount, table.category);
+  }
+
   /// Wears a catalogue picture, or null to go back to the provider photo.
   ///
   /// The catalogue is re-read afterwards, and not awaited: a premium picture is

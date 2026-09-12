@@ -137,10 +137,19 @@ class _LobbyScreenState extends State<LobbyScreen> {
                                 Space.md,
                               ),
                               children: [
-                                // The server decides which rooms exist and in
-                                // what order; this only draws the list it sent.
+                                // The server decides which rooms exist; the
+                                // lobby decides the order a player meets them
+                                // in. Seen first — it is where the game is
+                                // explained — then the tables they can sit at
+                                // today, then the ones shut to their stack,
+                                // and the private card last. Putting a
+                                // padlocked card between two open ones makes a
+                                // player scroll past a wall to find the room
+                                // they are actually allowed into; putting them
+                                // at the end turns the same cards into the
+                                // thing to play towards.
                                 for (final (i, table)
-                                    in state.config.tables.indexed)
+                                    in _orderedTables(state).indexed)
                                   entering(_TableCard(table: table, index: i)),
                                 entering(const _PrivateCard()),
                               ],
@@ -748,6 +757,27 @@ class _BarActions extends StatelessWidget {
 /// hue are three charcoal rectangles; these differ in the colour of the plate,
 /// the crest bled into the corner, the wash through the body and the two-tone
 /// rim, so the room a player lands in is recognisably the card they tapped.
+/// The menu in the order the lobby shows it: seen, then joinable, then shut.
+///
+/// Bucketed rather than sorted because Dart's List.sort is not stable, and
+/// within each group the server's own order is the one to keep — it decides
+/// which stake comes before which.
+List<LobbyTable> _orderedTables(GameState state) {
+  final seen = <LobbyTable>[];
+  final open = <LobbyTable>[];
+  final shut = <LobbyTable>[];
+  for (final table in state.config.tables) {
+    if (table.category == TableCategory.seen) {
+      seen.add(table);
+    } else if (state.tableShut(table)) {
+      shut.add(table);
+    } else {
+      open.add(table);
+    }
+  }
+  return [...seen, ...open, ...shut];
+}
+
 class _TableCard extends StatelessWidget {
   const _TableCard({required this.table, required this.index});
 
@@ -790,9 +820,10 @@ class _TableCard extends StatelessWidget {
     // 30's ENTRY_CAP_*), so a server that sends no band still shuts the
     // cheapest blind table to a big stack.
     final chips = state.user?.chips ?? 0;
-    final capped = table.tooRich(chips) || state.cappedOut(boot, category);
+    // Shut, and which way: a stack under the floor gets the rising arrow and
+    // something to aim at, anything else gets the padlock.
     final locked = table.tooPoor(chips);
-    final shut = capped || locked;
+    final shut = state.tableShut(table);
 
     // What the door asks for, stated on every card — including the ones that
     // ask for nothing, because "open to all" is itself worth knowing when the
