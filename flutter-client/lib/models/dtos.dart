@@ -157,6 +157,8 @@ class LobbyTable {
     required this.bootAmount,
     required this.maxPot,
     required this.maxBlindMoves,
+    this.minChips = 0,
+    this.maxChips = 0,
   });
 
   final String category;
@@ -170,13 +172,35 @@ class LobbyTable {
   /// How many blind bets a player gets before their cards turn face up.
   final int maxBlindMoves;
 
+  /// The stack this table is for. [minChips] is the floor and [maxChips] the
+  /// ceiling, 0 meaning no limit at that end. Both come from the server so a
+  /// card cannot advertise terms the door does not enforce — and the door is
+  /// what enforces them: greying a card out is a courtesy, not the rule.
+  final int minChips;
+  final int maxChips;
+
   bool get potUncapped => maxPot <= 0;
+
+  /// Whether a player holding [chips] may sit here. The limits are exclusive
+  /// of themselves, matching the server: exactly the ceiling still fits, and
+  /// exactly the floor is enough.
+  bool admits(int chips) =>
+      (minChips <= 0 || chips >= minChips) && (maxChips <= 0 || chips <= maxChips);
+
+  /// Why they cannot, for a card that has to explain itself.
+  bool tooRich(int chips) => maxChips > 0 && chips > maxChips;
+  bool tooPoor(int chips) => minChips > 0 && chips < minChips;
+
+  /// Whether this table states any entry requirement at all.
+  bool get hasBand => minChips > 0 || maxChips > 0;
 
   factory LobbyTable.fromJson(Map<String, dynamic> j) => LobbyTable(
         category: _str(j['category']),
         bootAmount: _int(j['bootAmount']),
         maxPot: _int(j['maxPot']),
         maxBlindMoves: j['maxBlindMoves'] == null ? 4 : _int(j['maxBlindMoves']),
+        minChips: _int(j['minChips']),
+        maxChips: _int(j['maxChips']),
       );
 }
 

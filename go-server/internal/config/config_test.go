@@ -37,11 +37,17 @@ func TestDefaultsMatchNode(t *testing.T) {
 		"Facebook.AppID": "", "Facebook.AppSecret": "", "AllowFakeProviders": false,
 		"DB.URL": "postgres://postgres:postgres@localhost:5432/gameplay", "DB.Schema": "public", "DB.PoolMax": 10,
 		"Game.WelcomeChips": int64(200000), "Game.BootAmount": int64(200),
-		"Game.TableStakes": []int64{200, 5000},
-		"Game.LobbyTables": []LobbyTable{{"seen", 200}, {"blind", 200}, {"blind", 5000}},
-		"Game.MaxPlayers":  5, "Game.MinPlayers": 2, "Game.TurnTimeout": 25 * time.Second,
+		"Game.TableStakes": []int64{200, 5000, 50000, 1000000},
+		"Game.LobbyTables": []LobbyTable{
+			{Category: "seen", BootAmount: 200},
+			{Category: "blind", BootAmount: 200},
+			{Category: "blind", BootAmount: 5000, MaxChips: 50000000},
+			{Category: "blind", BootAmount: 50000, MaxChips: 1000000000},
+			{Category: "blind", BootAmount: 1000000, MinChips: 500000000},
+		},
+		"Game.MaxPlayers": 5, "Game.MinPlayers": 2, "Game.TurnTimeout": 25 * time.Second,
 		"Game.MaxBetRounds": 20, "Game.PotLimitMultiplier": int64(1024), "Game.MaxRaiseSteps": 8,
-		"Game.SeenMaxRaiseSteps": 2, "Game.SeenMaxBetRounds": 7, "Game.SeenMaxPot": int64(1200000),
+		"Game.SeenMaxRaiseSteps": 2, "Game.SeenMaxBetRounds": 7, "Game.SeenMaxPot": int64(2000000),
 		"Game.BlindMaxRaiseSteps": 0, "Game.BlindMaxBetRounds": 0, "Game.BlindPotLimitMultiplier": int64(0),
 		"Game.MaxBlindMoves": 4,
 		"Game.EntryCapBoot":  int64(200), "Game.EntryCapCategory": "blind", "Game.EntryCapMaxChips": int64(500000),
@@ -116,8 +122,16 @@ func TestEveryKey(t *testing.T) {
 		{"TABLE_STAKES", "", "Game.TableStakes", []int64{}},
 		{"TABLE_STAKES", "100, 200,0,-3,200", "Game.TableStakes", []int64{100, 200, 200}},
 		{"LOBBY_TABLES", "", "Game.LobbyTables", []LobbyTable{}},
-		{"LOBBY_TABLES", " blind : 5000 ,seen:100", "Game.LobbyTables", []LobbyTable{{"blind", 5000}, {"seen", 100}}},
-		{"LOBBY_TABLES", "seen:0", "Game.LobbyTables", []LobbyTable{{"seen", 0}}},
+		{"LOBBY_TABLES", " blind : 5000 ,seen:100", "Game.LobbyTables", []LobbyTable{{Category: "blind", BootAmount: 5000}, {Category: "seen", BootAmount: 100}}},
+		{"LOBBY_TABLES", "seen:0", "Game.LobbyTables", []LobbyTable{{Category: "seen", BootAmount: 0}}},
+		// The stack band: either limit, both, in either order, and spaces
+		// tolerated the way the rest of the list is.
+		{"LOBBY_TABLES", "blind:5000:max=50000000", "Game.LobbyTables",
+			[]LobbyTable{{Category: "blind", BootAmount: 5000, MaxChips: 50000000}}},
+		{"LOBBY_TABLES", "blind:1000000:min=500000000", "Game.LobbyTables",
+			[]LobbyTable{{Category: "blind", BootAmount: 1000000, MinChips: 500000000}}},
+		{"LOBBY_TABLES", "blind:5000:max=900:min=100", "Game.LobbyTables",
+			[]LobbyTable{{Category: "blind", BootAmount: 5000, MinChips: 100, MaxChips: 900}}},
 		{"MAX_PLAYERS_PER_ROOM", "3", "Game.MaxPlayers", 3},
 		{"MIN_PLAYERS_TO_START", "3", "Game.MinPlayers", 3},
 		{"TURN_TIMEOUT_MS", "500", "Game.TurnTimeout", 500 * time.Millisecond},
@@ -200,6 +214,12 @@ func TestMalformedIntegersFailStartup(t *testing.T) {
 		{"LOBBY_TABLES": "seen"},
 		{"LOBBY_TABLES": ":200"},
 		{"LOBBY_TABLES": "seen:200:extra"},
+		{"LOBBY_TABLES": "blind:5000:max=abc"},
+		{"LOBBY_TABLES": "blind:5000:max=-1"},
+		{"LOBBY_TABLES": "blind:5000:cap=100"}, // only min and max exist
+		// A band no stack could satisfy would advertise a table nobody can
+		// join, so it stops the boot rather than the player.
+		{"LOBBY_TABLES": "blind:5000:min=900:max=100"},
 		{"LOBBY_TABLES": "foo:200"}, // DECISIONS.md §3: unknown category
 		{"JWT_EXPIRES_IN": "soon"},
 		{"JWT_EXPIRES_IN": ""},
@@ -313,13 +333,13 @@ func TestTableRules(t *testing.T) {
 		private  bool
 		want     TableRules
 	}{
-		{"public seen", "seen", 200, false, TableRules{200, 2, 7, 1024, 1200000}},
+		{"public seen", "seen", 200, false, TableRules{200, 2, 7, 1024, 2000000}},
 		{"public blind 200", "blind", 200, false, TableRules{200, 0, 0, 0, 0}},
 		{"public blind 5000", "blind", 5000, false, TableRules{5000, 0, 0, 0, 0}},
 		{"private seen ignores the asked boot", "seen", 5000, true, TableRules{200, 2, 7, 1024, 500000}},
 		{"private blind", "blind", 5000, true, TableRules{200, 2, 0, 0, 500000}},
-		{"unknown category is seen", "BLIND", 200, false, TableRules{200, 2, 7, 1024, 1200000}},
-		{"zero boot is the default", "seen", 0, false, TableRules{200, 2, 7, 1024, 1200000}},
+		{"unknown category is seen", "BLIND", 200, false, TableRules{200, 2, 7, 1024, 2000000}},
+		{"zero boot is the default", "seen", 0, false, TableRules{200, 2, 7, 1024, 2000000}},
 	} {
 		if got := g.TableRules(tc.category, tc.boot, tc.private); got != tc.want {
 			t.Errorf("%s: %+v, want %+v", tc.name, got, tc.want)
@@ -336,7 +356,7 @@ func TestTableRules(t *testing.T) {
 	if NormalizeCategory("blind") != "blind" || NormalizeCategory("seen") != "seen" || NormalizeCategory("") != "seen" || NormalizeCategory("Blind") != "seen" {
 		t.Error("NormalizeCategory")
 	}
-	if g.MenuMaxPot("seen") != 1200000 || g.MenuMaxPot("blind") != 0 {
+	if g.MenuMaxPot("seen") != 2000000 || g.MenuMaxPot("blind") != 0 {
 		t.Error("MenuMaxPot")
 	}
 }
@@ -352,17 +372,26 @@ func TestPublicGameConfigValues(t *testing.T) {
 		g.MaxBlindMoves != 4 {
 		t.Errorf("public game config scalars drifted: %+v", g)
 	}
-	if !reflect.DeepEqual(g.TableStakes, []int64{200, 5000}) {
+	if !reflect.DeepEqual(g.TableStakes, []int64{200, 5000, 50000, 1000000}) {
 		t.Errorf("stakes %v", g.TableStakes)
 	}
-	menu := []LobbyTable{{"seen", 200}, {"blind", 200}, {"blind", 5000}}
+	// The blind ladder is banded by stack as well as by stake: over 5 Cr is
+	// shut out of the 5,000 table, over 100 Cr out of the 50,000 one, and the
+	// 10,00,000 table needs 50 Cr to enter.
+	menu := []LobbyTable{
+		{Category: "seen", BootAmount: 200},
+		{Category: "blind", BootAmount: 200},
+		{Category: "blind", BootAmount: 5000, MaxChips: 50000000},
+		{Category: "blind", BootAmount: 50000, MaxChips: 1000000000},
+		{Category: "blind", BootAmount: 1000000, MinChips: 500000000},
+	}
 	if !reflect.DeepEqual(g.LobbyTables, menu) {
 		t.Errorf("menu %v", g.LobbyTables)
 	}
 	for i, entry := range g.LobbyTables {
 		wantPot := int64(0)
 		if i == 0 {
-			wantPot = 1200000
+			wantPot = 2000000
 		}
 		if g.MenuMaxPot(entry.Category) != wantPot {
 			t.Errorf("tables[%d].maxPot = %d, want %d", i, g.MenuMaxPot(entry.Category), wantPot)

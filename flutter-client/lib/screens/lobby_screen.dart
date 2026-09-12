@@ -137,10 +137,19 @@ class _LobbyScreenState extends State<LobbyScreen> {
                                 Space.md,
                               ),
                               children: [
-                                // The server decides which rooms exist and in
-                                // what order; this only draws the list it sent.
+                                // The server decides which rooms exist; the
+                                // lobby decides the order a player meets them
+                                // in. Seen first — it is where the game is
+                                // explained — then the tables they can sit at
+                                // today, then the ones shut to their stack,
+                                // and the private card last. Putting a
+                                // padlocked card between two open ones makes a
+                                // player scroll past a wall to find the room
+                                // they are actually allowed into; putting them
+                                // at the end turns the same cards into the
+                                // thing to play towards.
                                 for (final (i, table)
-                                    in state.config.tables.indexed)
+                                    in _orderedTables(state).indexed)
                                   entering(_TableCard(table: table, index: i)),
                                 entering(const _PrivateCard()),
                               ],
@@ -748,6 +757,27 @@ class _BarActions extends StatelessWidget {
 /// hue are three charcoal rectangles; these differ in the colour of the plate,
 /// the crest bled into the corner, the wash through the body and the two-tone
 /// rim, so the room a player lands in is recognisably the card they tapped.
+/// The menu in the order the lobby shows it: seen, then joinable, then shut.
+///
+/// Bucketed rather than sorted because Dart's List.sort is not stable, and
+/// within each group the server's own order is the one to keep — it decides
+/// which stake comes before which.
+List<LobbyTable> _orderedTables(GameState state) {
+  final seen = <LobbyTable>[];
+  final open = <LobbyTable>[];
+  final shut = <LobbyTable>[];
+  for (final table in state.config.tables) {
+    if (table.category == TableCategory.seen) {
+      seen.add(table);
+    } else if (state.tableShut(table)) {
+      shut.add(table);
+    } else {
+      open.add(table);
+    }
+  }
+  return [...seen, ...open, ...shut];
+}
+
 class _TableCard extends StatelessWidget {
   const _TableCard({required this.table, required this.index});
 
@@ -780,17 +810,47 @@ class _TableCard extends StatelessWidget {
     );
     final accent = palette.accent;
 
-    // Requirement 30: the cheapest blind table is for smaller stacks. The card
-    // says so and refuses the tap, rather than letting the player find out from
-    // the server after they have tried.
-    final capped = state.cappedOut(boot, category);
+    // The blind ladder is banded by stack: a table can be shut because the
+    // player has outgrown it or because they have not grown into it yet. The
+    // numbers come from the server with the menu, so the card cannot state
+    // terms the door does not enforce — and the door is what enforces them;
+    // refusing the tap here only saves the player a pointless round trip.
+    //
+    // cappedOut is kept as a second source for the oldest rule (requirement
+    // 30's ENTRY_CAP_*), so a server that sends no band still shuts the
+    // cheapest blind table to a big stack.
+    final chips = state.user?.chips ?? 0;
+    // Shut, and which way: a stack under the floor gets the rising arrow and
+    // something to aim at, anything else gets the padlock.
+    final locked = table.tooPoor(chips);
+    final shut = state.tableShut(table);
+
+    // What the door asks for, stated on every card — including the ones that
+    // ask for nothing, because "open to all" is itself worth knowing when the
+    // card beside it is not.
+    // A server that predates the band sends none, and the only limit it knows
+    // is the old ENTRY_CAP_* one. Reading that here keeps the card honest in
+    // the window between shipping this build and deploying that server —
+    // otherwise the cheapest blind table would be refused by cappedOut while
+    // its own card said "Open to all".
+    final int ceiling = table.maxChips > 0
+        ? table.maxChips
+        : (state.cappedOut(boot, category) ? state.config.entryCapMaxChips : 0);
+    final String entryValue;
+    if (ceiling > 0) {
+      entryValue = t.entryUpTo.replaceFirst('{cap}', formatChips(ceiling));
+    } else if (table.minChips > 0) {
+      entryValue = t.entryFrom.replaceFirst('{min}', formatChips(table.minChips));
+    } else {
+      entryValue = t.entryOpen;
+    }
 
     final card = Padding(
       padding: const EdgeInsets.only(right: Space.lg),
       child: AspectRatio(
         aspectRatio: 1,
         child: _Pressable(
-          onTap: capped
+          onTap: shut
               ? () {}
               : () {
                   // The door, then the room.
@@ -830,8 +890,8 @@ class _TableCard extends StatelessWidget {
                 padding: EdgeInsets.zero,
                 // Frosted: the theme's panel lifted toward white, the grey a
                 // dark room turns behind real glass.
-                tint: capped ? null : Colors.white,
-                behind: capped
+                tint: shut ? null : Colors.white,
+                behind: shut
                     ? null
                     : Stack(
                         children: [
@@ -945,6 +1005,25 @@ class _TableCard extends StatelessWidget {
                             // so it is the one fact drawn in the table's colour.
                             highlight: table.potUncapped,
                           ),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(
+                              vertical: Space.xs,
+                            ),
+                            child: Container(
+                              height: Dim.hairline,
+                              color: AppTheme.hairlineColour(brightness),
+                            ),
+                          ),
+                          _CardFact(
+                            icon: Icons.account_balance_wallet_rounded,
+                            accent: accent,
+                            label: t.entryLabel,
+                            value: entryValue,
+                            height: factH,
+                            // A floor is the fact that makes a table
+                            // aspirational, so it is worth the colour.
+                            highlight: table.minChips > 0,
+                          ),
 
                           // Takes up whatever is left over, and nothing when
                           // there is nothing left over.
@@ -952,7 +1031,7 @@ class _TableCard extends StatelessWidget {
                           _SitCapsule(
                             label: t.tapToSit,
                             height: ctaH,
-                            enabled: !capped,
+                            enabled: !shut,
                           ),
                         ],
                       ),
@@ -966,7 +1045,7 @@ class _TableCard extends StatelessWidget {
                 children: [
                   // The sharp orb, behind the card. Its softened twin is in the
                   // glass's `behind` slot at the same place.
-                  if (!capped)
+                  if (!shut)
                     Positioned.fromRect(
                       rect: orb,
                       child: IgnorePointer(
@@ -986,7 +1065,7 @@ class _TableCard extends StatelessWidget {
       ),
     );
 
-    if (!capped) return card;
+    if (!shut) return card;
 
     // Faded back and captioned. Translucent rather than opaque, so the stake is
     // still readable — a player should be able to see the table they are being
@@ -1012,7 +1091,9 @@ class _TableCard extends StatelessWidget {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Icon(
-                        Icons.lock_outline_rounded,
+                        locked
+                            ? Icons.trending_up_rounded
+                            : Icons.lock_outline_rounded,
                         size: 20,
                         color: scheme.onSurface.withValues(
                           alpha: AppTheme.inkMed,
@@ -1020,16 +1101,25 @@ class _TableCard extends StatelessWidget {
                       ),
                       const SizedBox(height: Space.sm),
                       Text(
-                        t.cappedTitle,
+                        locked ? t.lockedTitle : t.cappedTitle,
                         textAlign: TextAlign.center,
                         style: AppTheme.label(text.titleSmall!),
                       ),
                       const SizedBox(height: Space.xs),
                       Text(
-                        t.cappedBody.replaceFirst(
-                          '{cap}',
-                          formatChips(state.config.entryCapMaxChips),
-                        ),
+                        locked
+                            ? t.lockedBody.replaceFirst(
+                                '{min}',
+                                formatChips(table.minChips),
+                              )
+                            : t.cappedBody.replaceFirst(
+                                '{cap}',
+                                formatChips(
+                                  table.maxChips > 0
+                                      ? table.maxChips
+                                      : state.config.entryCapMaxChips,
+                                ),
+                              ),
                         textAlign: TextAlign.center,
                         style: text.bodySmall?.copyWith(
                           color: scheme.onSurface.withValues(

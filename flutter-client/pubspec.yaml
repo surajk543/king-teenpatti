@@ -79,6 +79,7 @@ flutter:
 
   assets:
     - assets/sfx/
+    - assets/animations/
     - assets/
 
   # Inter (SIL Open Font License 1.1; the licence sits beside the files) is

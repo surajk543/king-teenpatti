@@ -21,20 +21,33 @@ test.after(async () => {
   await closeDb();
 });
 
+// The blind ladder is banded by stack as well as by stake: minChips / maxChips
+// say who each table is for, 0 meaning no limit at that end. Requirement 30's
+// cap on the 200 table is the same field, folded in from ENTRY_CAP_*.
 const MENU = [
-  { category: 'seen', bootAmount: 200, maxPot: 1200000, maxBlindMoves: 4 },
-  { category: 'blind', bootAmount: 200, maxPot: 0, maxBlindMoves: 4 },
-  { category: 'blind', bootAmount: 5000, maxPot: 0, maxBlindMoves: 4 },
+  { category: 'seen', bootAmount: 200, maxPot: 2000000, maxBlindMoves: 4, minChips: 0, maxChips: 0 },
+  { category: 'blind', bootAmount: 200, maxPot: 0, maxBlindMoves: 4, minChips: 0, maxChips: 500000 },
+  { category: 'blind', bootAmount: 5000, maxPot: 0, maxBlindMoves: 4, minChips: 0, maxChips: 50000000 },
+  { category: 'blind', bootAmount: 50000, maxPot: 0, maxBlindMoves: 4, minChips: 0, maxChips: 1000000000 },
+  { category: 'blind', bootAmount: 1000000, maxPot: 0, maxBlindMoves: 4, minChips: 500000000, maxChips: 0 },
 ];
 
-test('the lobby offers exactly the 200 and 5000 stakes and the three rooms, in menu order, with their rules', async () => {
+/** A stack that covers an entry's boot and sits inside its band. */
+const legalStack = (entry) => {
+  let stack = Math.max(200000, entry.bootAmount * 50);
+  if (entry.minChips > 0 && stack < entry.minChips) stack = entry.minChips;
+  if (entry.maxChips > 0 && stack > entry.maxChips) stack = entry.maxChips;
+  return stack;
+};
+
+test('the lobby offers exactly the four stakes and the five rooms, in menu order, with their rules and bands', async () => {
   const account = await guestLogin('device-parity-menu-config', 'Menu');
   const client = await openClient(account.token);
   const ready = await client.wait('session:ready');
-  assert.deepEqual(ready.config.stakes, [200, 5000]);
+  assert.deepEqual(ready.config.stakes, [200, 5000, 50000, 1000000]);
   assert.deepEqual(ready.config.categories, ['seen', 'blind']);
   assert.deepEqual(ready.config.tables, MENU);
-  for (const entry of ready.config.tables) assert.deepEqual(Object.keys(entry), ['category', 'bootAmount', 'maxPot', 'maxBlindMoves'], 'key order');
+  for (const entry of ready.config.tables) assert.deepEqual(Object.keys(entry), ['category', 'bootAmount', 'maxPot', 'maxBlindMoves', 'minChips', 'maxChips'], 'key order');
   assert.equal(ready.config.bootAmount, 200, 'the default boot');
   assert.equal(ready.config.entryCapBoot, 200);
   assert.equal(ready.config.entryCapCategory, 'blind');
@@ -45,7 +58,7 @@ test('the lobby offers exactly the 200 and 5000 stakes and the three rooms, in m
 
   const rooms = await http('GET', '/api/rooms');
   assert.equal(rooms.status, 200);
-  assert.deepEqual(rooms.body.options.stakes, [200, 5000]);
+  assert.deepEqual(rooms.body.options.stakes, [200, 5000, 50000, 1000000]);
   assert.deepEqual(rooms.body.options.tables, MENU);
   assertKeys(rooms.body.options, ['categories', 'stakes', 'tables', 'entryCapBoot', 'entryCapCategory', 'entryCapMaxChips', 'privateBoot', 'privateMaxPot']);
   const listed = await client.emit('lobby:list', {});
@@ -57,6 +70,11 @@ test('every room on the menu can be joined, and the ceiling a card advertises is
   const clients = [];
   for (const [i, entry] of MENU.entries()) {
     const account = await guestLogin(`device-parity-menu-join-${i}`, `Menu${i}`);
+    // The welcome grant cannot cover the top table's boot, let alone its
+    // floor, so each account is funded into the band of the table it is
+    // testing — the point here is that the menu is joinable, not that 2 lakh
+    // opens everything.
+    await setWallet(account.user.id, legalStack(entry), `parity-menu-join-${i}`);
     const client = await openClient(account.token);
     const ack = await client.emit('room:quickJoin', { bootAmount: entry.bootAmount, category: entry.category });
     assert.equal(ack.ok, true, `${entry.category} ${entry.bootAmount}: ${JSON.stringify(ack)}`);
@@ -70,7 +88,7 @@ test('every room on the menu can be joined, and the ceiling a card advertises is
     clients.push(client);
   }
   const listed = await clients[0].emit('lobby:list', {});
-  assert.equal(listed.tables.length, 3, 'three rooms, one per menu entry');
+  assert.equal(listed.tables.length, MENU.length, 'one room per menu entry');
   assert.deepEqual(
     listed.tables.map((t) => `${t.category}:${t.bootAmount}`).sort(),
     MENU.map((t) => `${t.category}:${t.bootAmount}`).sort(),
@@ -82,7 +100,7 @@ test('every room on the menu can be joined, and the ceiling a card advertises is
     assert.equal(row.pot, 0);
   }
   const rest = await http('GET', '/api/rooms?category=blind');
-  assert.equal(rest.body.tables.length, 2);
+  assert.equal(rest.body.tables.length, MENU.filter((e) => e.category === 'blind').length);
   assert.ok(rest.body.tables.every((t) => t.category === 'blind'));
   await closeAll(...clients);
 });
@@ -92,7 +110,7 @@ test('a stake and category that is not a room on the menu is refused, and no roo
   const client = await openClient(account.token);
   // Both halves are offered on their own; the pair is not.
   const ack = await client.emit('room:quickJoin', { bootAmount: 5000, category: 'seen' });
-  assert.deepEqual(ack, { ok: false, code: 'table_not_offered', message: 'The lobby offers: seen 200, blind 200, blind 5000' });
+  assert.deepEqual(ack, { ok: false, code: 'table_not_offered', message: 'The lobby offers: seen 200, blind 200, blind 5000, blind 50000, blind 1000000' });
   const listed = await client.emit('lobby:list', {});
   assert.ok(!listed.tables.some((t) => t.category === 'seen' && t.bootAmount === 5000), 'no seen table at 5,000 exists');
   assert.equal(client.count('room:joined'), 0);
@@ -104,7 +122,7 @@ test('a stake the lobby does not offer, or a malformed one, is refused; null mea
   const client = await openClient(account.token);
   for (const bootAmount of [1, 100, 199, 4999, 10000]) {
     const ack = await client.emit('room:quickJoin', { bootAmount });
-    assert.deepEqual(ack, { ok: false, code: 'invalid_stake', message: 'Stake must be one of: 200, 5000' }, `${bootAmount}`);
+    assert.deepEqual(ack, { ok: false, code: 'invalid_stake', message: 'Stake must be one of: 200, 5000, 50000, 1000000' }, `${bootAmount}`);
   }
   for (const bootAmount of [0, -200, 200.5, 'lots', '200']) {
     const ack = await client.emit('room:quickJoin', { bootAmount });
@@ -190,7 +208,7 @@ test('a private table ignores the menu (fixed boot 200); a public create is vali
   } else {
     assert.equal(badPair.ok, true);
     assert.equal(client.last('room:joined').bootAmount, 5000);
-    assert.equal(client.last('room:joined').maxPot, 1200000);
+    assert.equal(client.last('room:joined').maxPot, 2000000);
     await client.emit('room:leave', {});
   }
   const onMenu = await client.emit('room:create', { isPrivate: false, bootAmount: 200, category: 'blind' });

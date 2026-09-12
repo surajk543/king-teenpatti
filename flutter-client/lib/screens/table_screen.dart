@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
+import 'package:lottie/lottie.dart';
 import 'package:provider/provider.dart';
 
 import '../models/dtos.dart';
@@ -12,7 +13,6 @@ import '../theme/app_theme.dart';
 import '../widgets/buy_chips.dart';
 import '../widgets/drifting_chips.dart';
 import '../widgets/feedback_toggles.dart';
-import '../widgets/fireworks.dart';
 import '../widgets/glass_components.dart';
 import '../widgets/glass_panels.dart';
 import '../widgets/playing_card.dart';
@@ -2576,10 +2576,13 @@ class _Showdown extends StatelessWidget {
         // frozen for the length of the celebration. The winner is marked on
         // their own pod instead, which points without switching the lights off.
         Positioned.fill(
-          child: Fireworks(
-            seed: state.room?.handNo ?? 0,
-            bursts: won ? 8 : 5,
+          child: _WinnerBurst(
+            // Restarts on the next win rather than on every rebuild: the
+            // screen repaints once a second for the reward clock, and a
+            // celebration that began again each tick would never finish.
+            hand: state.room?.handNo ?? 0,
             focus: winnerAt,
+            big: won,
           ),
         ),
         if (potFlight != null) Positioned.fill(child: potFlight!),
@@ -2589,6 +2592,104 @@ class _Showdown extends StatelessWidget {
         // one place a player is already looking, and says WHO by sitting on
         // them rather than by naming them.
       ],
+    );
+  }
+}
+
+/// The winner's fireworks: `assets/animations/Fireworks.json`, played once
+/// over the seat that won.
+///
+/// Lottie rather than an animated SVG, which is what this started as:
+/// flutter_svg's compiler has no handling for `animate` / `animateTransform`
+/// at all, so an animated SVG lands on the felt as one still frame with no
+/// error to say why. Lottie is already a dependency (the profile pictures use
+/// it) and plays properly.
+///
+/// It runs ONCE, not on a loop. The celebration stays up for a few seconds
+/// while the pot travels and the next deal is announced, and fireworks
+/// restarting under that would read as a stuck screen rather than a flourish.
+class _WinnerBurst extends StatefulWidget {
+  const _WinnerBurst({required this.hand, this.focus, this.big = false});
+
+  /// The hand just won. A change is what replays it.
+  final int hand;
+
+  /// Where the burst is centred, as a fraction of this box — the winner's
+  /// seat, so the celebration is about a player rather than the room. Null
+  /// centres it on the felt.
+  final Offset? focus;
+
+  /// Larger when the viewer themselves won.
+  final bool big;
+
+  @override
+  State<_WinnerBurst> createState() => _WinnerBurstState();
+}
+
+class _WinnerBurstState extends State<_WinnerBurst>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(vsync: this);
+
+  @override
+  void didUpdateWidget(covariant _WinnerBurst old) {
+    super.didUpdateWidget(old);
+    if (old.hand != widget.hand && _controller.duration != null) {
+      _controller.forward(from: 0);
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: LayoutBuilder(
+        builder: (context, box) {
+          // Square, because the composition is: 512x512. Sized off the
+          // SHORTER side so it never runs off a wide felt, and overscaled a
+          // little so the sparks clear the pod rather than stopping at it.
+          final side =
+              math.min(box.maxWidth, box.maxHeight) * (widget.big ? 1.25 : 0.95);
+          final centre = widget.focus == null
+              ? Offset(box.maxWidth / 2, box.maxHeight / 2)
+              : Offset(
+                  widget.focus!.dx * box.maxWidth,
+                  widget.focus!.dy * box.maxHeight,
+                );
+          return Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Positioned(
+                left: centre.dx - side / 2,
+                top: centre.dy - side / 2,
+                width: side,
+                height: side,
+                child: RepaintBoundary(
+                  child: Lottie.asset(
+                    'assets/animations/Fireworks.json',
+                    controller: _controller,
+                    fit: BoxFit.contain,
+                    // The composition carries its own length; taking it from
+                    // the file keeps the timing right if the art is replaced.
+                    onLoaded: (composition) {
+                      _controller.duration = composition.duration;
+                      _controller.forward(from: 0);
+                    },
+                    // A missing or unreadable file must not take the table
+                    // down with it — the hand is already won either way.
+                    errorBuilder: (context, error, stack) =>
+                        const SizedBox.shrink(),
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
+      ),
     );
   }
 }

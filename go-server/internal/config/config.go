@@ -174,6 +174,18 @@ type DBConfig struct {
 type LobbyTable struct {
 	Category   string `json:"category"`
 	BootAmount int64  `json:"bootAmount"`
+	// MinChips is the smallest stack allowed through the door, 0 for no floor.
+	// It is what makes a table exclusive rather than merely expensive: the
+	// 10-lakh blind table is for players who have already won big, and the
+	// boot alone would not keep anyone else out — a player with 20 lakh could
+	// cover the boot and be broke in two hands.
+	MinChips int64
+	// MaxChips is the largest stack allowed, 0 for no ceiling. This is the
+	// generalisation of requirement 30's entry cap: a player who has outgrown
+	// a table is moved up rather than left to farm the smaller stakes.
+	// Exactly the limit is allowed at both ends — the rules are "more than"
+	// and "less than", not "at least" and "at most".
+	MaxChips int64
 }
 
 // GameConfig ← config.game. Durations replace Node's *Ms integers; convert
@@ -209,7 +221,7 @@ type GameConfig struct {
 	// after 7 rounds (the brief says "10 moves"), pot capped at 1.2M.
 	SeenMaxRaiseSteps int   // SEEN_MAX_RAISE_STEPS 2
 	SeenMaxBetRounds  int   // SEEN_MAX_BET_ROUNDS 7
-	SeenMaxPot        int64 // SEEN_MAX_POT 1200000 (0 = uncapped)
+	SeenMaxPot        int64 // SEEN_MAX_POT 2000000 (0 = uncapped)
 
 	// Blind tables (200 and 5000) are open-ended: 0 means "no limit" for each.
 	BlindMaxRaiseSteps      int   // BLIND_MAX_RAISE_STEPS 0
@@ -346,11 +358,18 @@ func Defaults() *Config {
 		Game: GameConfig{
 			WelcomeChips: 200000,
 			BootAmount:   200,
-			TableStakes:  []int64{200, 5000},
+			TableStakes:  []int64{200, 5000, 50000, 1000000},
+			// The blind ladder is banded by stack as well as by stake, so a
+			// player sits where their money belongs: outgrow a table and it
+			// closes behind you, and the top one opens only once you could
+			// lose a hand there and still be playing. Indian numbering, since
+			// that is how these were specified: 5 Cr = 5,00,00,000.
 			LobbyTables: []LobbyTable{
 				{Category: "seen", BootAmount: 200},
 				{Category: "blind", BootAmount: 200},
-				{Category: "blind", BootAmount: 5000},
+				{Category: "blind", BootAmount: 5000, MaxChips: 50000000},     // over 5 Cr must move up
+				{Category: "blind", BootAmount: 50000, MaxChips: 1000000000},  // over 100 Cr must move up
+				{Category: "blind", BootAmount: 1000000, MinChips: 500000000}, // 50 Cr or more to enter
 			},
 			MaxPlayers:              5,
 			MinPlayers:              2,
@@ -360,7 +379,7 @@ func Defaults() *Config {
 			MaxRaiseSteps:           8,
 			SeenMaxRaiseSteps:       2,
 			SeenMaxBetRounds:        7,
-			SeenMaxPot:              1200000,
+			SeenMaxPot:              2000000,
 			BlindMaxRaiseSteps:      0,
 			BlindMaxBetRounds:       0,
 			BlindPotLimitMultiplier: 0,

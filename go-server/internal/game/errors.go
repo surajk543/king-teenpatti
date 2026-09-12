@@ -76,8 +76,12 @@ const (
 	CodeNotInRoom         = "not_in_room"        // not seated anywhere / postChat by a non-seat
 	CodeNotSeated         = "not_seated"         // Table.Act by a user not at this table
 	CodeOverEntryCap      = "over_entry_cap"     // requirement 30
-	CodePrivateTable      = "private_table"      // room:switch from a private table
-	CodeRoomNotFound      = "room_not_found"     // unknown code
+	// CodeBelowTableMinimum: the table has a floor and this stack is under it
+	// (config.LobbyTable.MinChips). The partner of over_entry_cap: one says
+	// the player has outgrown a table, this says they have not grown into it.
+	CodeBelowTableMinimum = "below_table_minimum"
+	CodePrivateTable      = "private_table"  // room:switch from a private table
+	CodeRoomNotFound      = "room_not_found" // unknown code
 	CodeTableFull         = "table_full"
 	CodeTableNotOffered   = "table_not_offered" // category:boot pair not on LobbyTables
 	CodeUnknownAction     = "unknown_action"

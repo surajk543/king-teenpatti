@@ -53,6 +53,14 @@ type LobbyTableOption struct {
 	// MaxPot is SeenMaxPot for seen entries, 0 (uncapped) for blind.
 	MaxPot        int64 `json:"maxPot"`
 	MaxBlindMoves int   `json:"maxBlindMoves"`
+	// MinChips / MaxChips are the stack band for this table, 0 for no limit
+	// at that end (config.LobbyTable). They are sent so the lobby can say who
+	// a table is for BEFORE the tap — a card that explains why it is shut is
+	// worth more than a refusal after the fact — but the client is never what
+	// enforces them: RoomManager.assertWithinTableBand checks every route
+	// into a seat.
+	MinChips int64 `json:"minChips"`
+	MaxChips int64 `json:"maxChips"`
 }
 
 // PlayerMove ← 'playerMoved' {userId, fromRoomId, toRoomId} (requirement 24).
@@ -294,20 +302,21 @@ type publishedSummary struct {
 // Refusal messages verbatim from roomManager.js (the Table's live in
 // errors.go; these are the RoomManager's own).
 const (
-	msgAlreadyInRoom      = "You are already seated at a table"
-	msgInvalidStake       = "That stake is not valid"
-	msgStakeMustBeOneOf   = "Stake must be one of: %s"
-	msgLobbyOffers        = "The lobby offers: %s"
-	msgInsufficientToJoin = "Not enough chips to join this table"
-	msgRoomNotFound       = "No table with that code"
-	msgThatTableFull      = "That table is full" // joinByCode; the Table's own is "This table is full"
-	msgNotAtATable        = "You are not at a table"
-	msgPrivateTableSwitch = "A private table cannot be swapped for another"
-	msgNoOtherTableFormat = "No other %s table at this stake has a free seat right now"
-	msgOverEntryCapFormat = "Players with more than %s chips cannot join this table"
-	sweepEmptyTableMinAge = 30 * time.Second // roomManager.js sweepEmptyTables: Date.now() - 30_000, hardcoded
-	userLockStripes       = 256
-	quickJoinMaxRepicks   = 3
+	msgAlreadyInRoom       = "You are already seated at a table"
+	msgInvalidStake        = "That stake is not valid"
+	msgStakeMustBeOneOf    = "Stake must be one of: %s"
+	msgLobbyOffers         = "The lobby offers: %s"
+	msgInsufficientToJoin  = "Not enough chips to join this table"
+	msgRoomNotFound        = "No table with that code"
+	msgThatTableFull       = "That table is full" // joinByCode; the Table's own is "This table is full"
+	msgNotAtATable         = "You are not at a table"
+	msgPrivateTableSwitch  = "A private table cannot be swapped for another"
+	msgNoOtherTableFormat  = "No other %s table at this stake has a free seat right now"
+	msgOverEntryCapFormat  = "Players with more than %s chips cannot join this table"
+	msgBelowTableMinFormat = "This table is for players with %s chips or more"
+	sweepEmptyTableMinAge  = 30 * time.Second // roomManager.js sweepEmptyTables: Date.now() - 30_000, hardcoded
+	userLockStripes        = 256
+	quickJoinMaxRepicks    = 3
 )
 
 // userLock is the stripe serialising one player's seat transitions.
@@ -716,6 +725,8 @@ func (rm *RoomManager) LobbyOptions() LobbyOptions {
 			BootAmount:    entry.BootAmount,
 			MaxPot:        g.MenuMaxPot(entry.Category), // 0 means the pot is uncapped
 			MaxBlindMoves: g.MaxBlindMoves,
+			MinChips:      rm.tableMinChips(entry),
+			MaxChips:      rm.tableMaxChips(entry),
 		})
 	}
 	return LobbyOptions{
@@ -825,6 +836,9 @@ func (rm *RoomManager) QuickJoin(user Player, opts QuickJoinOptions) (*Table, er
 	if err := rm.assertUnderEntryCap(user, bootAmount, resolved); err != nil {
 		return nil, err
 	}
+	if err := rm.assertWithinTableBand(user, bootAmount, resolved); err != nil {
+		return nil, err
+	}
 
 	ul := rm.userLock(user.ID)
 	ul.Lock()
@@ -891,6 +905,9 @@ func (rm *RoomManager) JoinByCode(user Player, code string) (*Table, error) {
 	// A private table is somewhere you were invited, so the cap does not apply.
 	if !table.IsPrivate() {
 		if err := rm.assertUnderEntryCap(user, table.BootAmount(), table.Category()); err != nil {
+			return nil, err
+		}
+		if err := rm.assertWithinTableBand(user, table.BootAmount(), table.Category()); err != nil {
 			return nil, err
 		}
 	}
@@ -1186,6 +1203,50 @@ func (rm *RoomManager) assertUnderEntryCap(user Player, bootAmount int64, catego
 		return nil
 	}
 	return Errorf(CodeOverEntryCap, msgOverEntryCapFormat, formatThousands(cap))
+}
+
+// tableMinChips / tableMaxChips are the band for one menu entry. The legacy
+// ENTRY_CAP_* trio (requirement 30) is folded in here rather than left as a
+// second mechanism: it describes exactly one table by category and boot, so
+// it is that table's MaxChips, and a band set on the same entry in
+// LOBBY_TABLES wins because it is the more specific statement of the two.
+func (rm *RoomManager) tableMinChips(entry config.LobbyTable) int64 { return entry.MinChips }
+
+func (rm *RoomManager) tableMaxChips(entry config.LobbyTable) int64 {
+	if entry.MaxChips > 0 {
+		return entry.MaxChips
+	}
+	g := rm.game
+	if g.EntryCapMaxChips > 0 && entry.BootAmount == g.EntryCapBoot && entry.Category == g.EntryCapCategory {
+		return g.EntryCapMaxChips
+	}
+	return 0
+}
+
+// assertWithinTableBand refuses a seat to a stack the table is not for.
+//
+// Checked on every route in rather than only in the lobby: the lobby shows a
+// card as shut, but a client is never what enforces a rule — a modified or
+// simply stale build would otherwise walk straight past it.
+//
+// Both ends are exclusive of the limit itself, which is how the rules were
+// written: "more than 5 Cr cannot enter" lets exactly 5 Cr in, and "50 Cr or
+// more" lets exactly 50 Cr in. With no menu configured (tests pass an empty
+// LobbyTables to mean "any table") there is no band to apply.
+func (rm *RoomManager) assertWithinTableBand(user Player, bootAmount int64, category Category) error {
+	for _, entry := range rm.game.LobbyTables {
+		if entry.BootAmount != bootAmount || entry.Category != string(category) {
+			continue
+		}
+		if min := rm.tableMinChips(entry); min > 0 && user.Chips < min {
+			return Errorf(CodeBelowTableMinimum, msgBelowTableMinFormat, formatThousands(min))
+		}
+		if max := rm.tableMaxChips(entry); max > 0 && user.Chips > max {
+			return Errorf(CodeOverEntryCap, msgOverEntryCapFormat, formatThousands(max))
+		}
+		return nil
+	}
+	return nil
 }
 
 // formatThousands is Number#toLocaleString('en-US') for an integer: comma

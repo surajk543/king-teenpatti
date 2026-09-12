@@ -1746,6 +1746,25 @@ func (t *Table) betOptions(s *seat) BetOptions {
 		amount *= 2
 	}
 
+	// The last bet before the ceiling. Without this the hand can strand: on a
+	// seen table the smallest legal bet is the whole per-bet ceiling once the
+	// stake has outgrown it (2,04,800 at boot 200), so a pot sitting 1,56,600
+	// short of its cap offers NOBODY a rung — every player still in is left
+	// with nothing to do but pack, and the pot-limit showdown the cap exists
+	// to cause never happens. Offering the remaining headroom as the one rung
+	// lets the pot land exactly on the ceiling, which is what trips
+	// potCapReached on the next advanceTurn.
+	//
+	// Deliberately only when the POT CAP is what bars the way: a player who
+	// simply cannot afford the chaal is a different case, and still has no
+	// rung to press.
+	if len(steps) == 0 && t.cfg.MaxPot > 0 {
+		floor := min(base, perBetCeiling)
+		if headroom > 0 && headroom < floor && headroom <= s.chips {
+			steps = append(steps, headroom)
+		}
+	}
+
 	options := BetOptions{Steps: steps}
 	if len(steps) > 0 {
 		options.Chaal = Int64Ptr(steps[0])
