@@ -780,17 +780,38 @@ class _TableCard extends StatelessWidget {
     );
     final accent = palette.accent;
 
-    // Requirement 30: the cheapest blind table is for smaller stacks. The card
-    // says so and refuses the tap, rather than letting the player find out from
-    // the server after they have tried.
-    final capped = state.cappedOut(boot, category);
+    // The blind ladder is banded by stack: a table can be shut because the
+    // player has outgrown it or because they have not grown into it yet. The
+    // numbers come from the server with the menu, so the card cannot state
+    // terms the door does not enforce — and the door is what enforces them;
+    // refusing the tap here only saves the player a pointless round trip.
+    //
+    // cappedOut is kept as a second source for the oldest rule (requirement
+    // 30's ENTRY_CAP_*), so a server that sends no band still shuts the
+    // cheapest blind table to a big stack.
+    final chips = state.user?.chips ?? 0;
+    final capped = table.tooRich(chips) || state.cappedOut(boot, category);
+    final locked = table.tooPoor(chips);
+    final shut = capped || locked;
+
+    // What the door asks for, stated on every card — including the ones that
+    // ask for nothing, because "open to all" is itself worth knowing when the
+    // card beside it is not.
+    final String entryValue;
+    if (table.maxChips > 0) {
+      entryValue = t.entryUpTo.replaceFirst('{cap}', formatChips(table.maxChips));
+    } else if (table.minChips > 0) {
+      entryValue = t.entryFrom.replaceFirst('{min}', formatChips(table.minChips));
+    } else {
+      entryValue = t.entryOpen;
+    }
 
     final card = Padding(
       padding: const EdgeInsets.only(right: Space.lg),
       child: AspectRatio(
         aspectRatio: 1,
         child: _Pressable(
-          onTap: capped
+          onTap: shut
               ? () {}
               : () {
                   // The door, then the room.
@@ -830,8 +851,8 @@ class _TableCard extends StatelessWidget {
                 padding: EdgeInsets.zero,
                 // Frosted: the theme's panel lifted toward white, the grey a
                 // dark room turns behind real glass.
-                tint: capped ? null : Colors.white,
-                behind: capped
+                tint: shut ? null : Colors.white,
+                behind: shut
                     ? null
                     : Stack(
                         children: [
@@ -945,6 +966,25 @@ class _TableCard extends StatelessWidget {
                             // so it is the one fact drawn in the table's colour.
                             highlight: table.potUncapped,
                           ),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(
+                              vertical: Space.xs,
+                            ),
+                            child: Container(
+                              height: Dim.hairline,
+                              color: AppTheme.hairlineColour(brightness),
+                            ),
+                          ),
+                          _CardFact(
+                            icon: Icons.account_balance_wallet_rounded,
+                            accent: accent,
+                            label: t.entryLabel,
+                            value: entryValue,
+                            height: factH,
+                            // A floor is the fact that makes a table
+                            // aspirational, so it is worth the colour.
+                            highlight: table.minChips > 0,
+                          ),
 
                           // Takes up whatever is left over, and nothing when
                           // there is nothing left over.
@@ -952,7 +992,7 @@ class _TableCard extends StatelessWidget {
                           _SitCapsule(
                             label: t.tapToSit,
                             height: ctaH,
-                            enabled: !capped,
+                            enabled: !shut,
                           ),
                         ],
                       ),
@@ -966,7 +1006,7 @@ class _TableCard extends StatelessWidget {
                 children: [
                   // The sharp orb, behind the card. Its softened twin is in the
                   // glass's `behind` slot at the same place.
-                  if (!capped)
+                  if (!shut)
                     Positioned.fromRect(
                       rect: orb,
                       child: IgnorePointer(
@@ -986,7 +1026,7 @@ class _TableCard extends StatelessWidget {
       ),
     );
 
-    if (!capped) return card;
+    if (!shut) return card;
 
     // Faded back and captioned. Translucent rather than opaque, so the stake is
     // still readable — a player should be able to see the table they are being
@@ -1012,7 +1052,9 @@ class _TableCard extends StatelessWidget {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Icon(
-                        Icons.lock_outline_rounded,
+                        locked
+                            ? Icons.trending_up_rounded
+                            : Icons.lock_outline_rounded,
                         size: 20,
                         color: scheme.onSurface.withValues(
                           alpha: AppTheme.inkMed,
@@ -1020,16 +1062,25 @@ class _TableCard extends StatelessWidget {
                       ),
                       const SizedBox(height: Space.sm),
                       Text(
-                        t.cappedTitle,
+                        locked ? t.lockedTitle : t.cappedTitle,
                         textAlign: TextAlign.center,
                         style: AppTheme.label(text.titleSmall!),
                       ),
                       const SizedBox(height: Space.xs),
                       Text(
-                        t.cappedBody.replaceFirst(
-                          '{cap}',
-                          formatChips(state.config.entryCapMaxChips),
-                        ),
+                        locked
+                            ? t.lockedBody.replaceFirst(
+                                '{min}',
+                                formatChips(table.minChips),
+                              )
+                            : t.cappedBody.replaceFirst(
+                                '{cap}',
+                                formatChips(
+                                  table.maxChips > 0
+                                      ? table.maxChips
+                                      : state.config.entryCapMaxChips,
+                                ),
+                              ),
                         textAlign: TextAlign.center,
                         style: text.bodySmall?.copyWith(
                           color: scheme.onSurface.withValues(

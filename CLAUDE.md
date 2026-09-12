@@ -405,7 +405,8 @@ showRequestedBy, sideshow, lastDeparture, turnDeadline, turnToken, contributions
 ### 6.2 `roomManager.js` (→ `roommanager.go`; DECISIONS §3 lists the few deliberate differences)
 - `quickJoin`: `_assertNotSeated` → `assertStakeAllowed` (`tableStakes`) → `normalizeCategory`
   (unknown → **seen**) → `assertTableOffered` (`lobbyTables` pair) → chips ≥ boot →
-  `_assertUnderEntryCap` → fullest public non-full table with same boot+category, else `createTable`.
+  `_assertUnderEntryCap` → **`assertWithinTableBand`** → fullest public non-full table with same boot+category,
+  else `createTable`.
   Sync.
 - `switchTable` (**async**): same boot+category, **no entry cap**, leaves with reason `'moved'`
   (skips consolidation). `leave`, `destroyTable`, `consolidateTables`, `sweepEmptyTables`,
@@ -448,7 +449,7 @@ user (`session:replaced` to the old one). On connect: `session:ready {user, conf
 
 | Client → server | Payload | Ack |
 |---|---|---|
-| `lobby:list` | `{category?}` | `{tables, options}` (used only by scratch/tests) |
+| `lobby:list` | `{category?}` | `{tables, options}` (used only by scratch/tests); each `options.tables[]` entry carries `minChips`/`maxChips`, the stack band |
 | `room:quickJoin` | `{bootAmount?, category?}` | `{roomId, code, category}` |
 | `room:create` | `{isPrivate=true, category?}` | `{roomId, code, category}` — boot ignored |
 | `room:joinCode` | `{code}` | `{roomId, code, category}` |
@@ -611,14 +612,14 @@ fallback `go-server/public`; not in `.env.example` — `config.go` documents it)
 | **`PG_POOL_MAX`** | 10 | |
 | `PG_STATEMENT_TIMEOUT_MS` | 15000 | **Go server only**: Postgres `statement_timeout` per pooled connection so a hung query fails one ledger write instead of freezing a table; 0 = no limit (Node behaviour) |
 | `WELCOME_CHIPS` / `BOOT_AMOUNT` | 200000 / 200 | |
-| `TABLE_STAKES` | `200,5000` | empty = any (tests) |
-| `LOBBY_TABLES` | `seen:200,blind:200,blind:5000` | the menu; empty = any pair (tests) |
+| `TABLE_STAKES` | `200,5000,50000,1000000` | empty = any (tests) |
+| **`LOBBY_TABLES`** | `seen:200,blind:200,blind:5000:max=50000000,blind:50000:max=1000000000,blind:1000000:min=500000000` | the menu; empty = any pair (tests). Each entry is `category:boot` plus an optional **stack band** — `max=N` shuts the table to a player holding MORE than N, `min=N` to one holding LESS. Exactly the limit is allowed at either end. A band whose min exceeds its max fails at load (it would advertise a table nobody could join). |
 | `MAX_PLAYERS_PER_ROOM` / `MIN_PLAYERS_TO_START` | 5 / 2 | 5 is also hardcoded in Flutter `_places` and browser CSS |
 | `TURN_TIMEOUT_MS` | 25000 | |
 | `MAX_BET_ROUNDS` / `POT_LIMIT_MULTIPLIER` / `MAX_RAISE_STEPS` | 20 / 1024 / 8 | defaults only; `createTable` overrides all three per category (seen: 7 / 1024 / 2, blind: 0 / 0 / 0) |
 | `SEEN_MAX_RAISE_STEPS` / `SEEN_MAX_BET_ROUNDS` / `SEEN_MAX_POT` | 2 / 7 / 1200000 | brief says "10 moves"; code is 7 rounds |
 | `MAX_BLIND_MOVES` | 4 | |
-| `ENTRY_CAP_BOOT` / `ENTRY_CAP_CATEGORY` / `ENTRY_CAP_MAX_CHIPS` | 200 / blind / 500000 | |
+| `ENTRY_CAP_BOOT` / `ENTRY_CAP_CATEGORY` / `ENTRY_CAP_MAX_CHIPS` | 200 / blind / 500000 | Requirement 30, and now the oldest case of the band above: `RoomManager.tableMaxChips` folds this trio into the matching menu entry's `maxChips`, so the lobby draws it from the same field as every other table. A `max=` on that entry in `LOBBY_TABLES` wins, being the more specific statement. |
 | `MAX_MISSED_TURNS` | 3 | |
 | **`UNFUNDED_GRACE_MS`** | 30000 | **Go-only.** How long a seat that can no longer cover the boot is held between hands before the `insufficient_chips` kick, so a player can buy chips and stay; `you.unfundedDeadline` carries the deadline to that player and the Flutter status line counts it down. 0 = kicked at once (Node's rule). |
 | **`MIN_CLIENT_BUILD`** | 0 | The oldest client build allowed to play, sent to every client in `session:ready.config.minClientBuild`. A client below it is held on the update screen with no way past (Flutter `_belowMinimumBuild`/`_forceUpdate`). **0 = no floor**, which is what production runs; raise it only after the newer build is actually live in the store, or the floor locks everyone out of a version they cannot yet install. This is the server-authoritative gate — Play's own in-app check (`AppUpdate`) is a separate, best-effort nudge that fails open. |
@@ -784,7 +785,10 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
 ### 8.4 UI
 - **Lobby**: rail of square `_TableCard`s from `config.tables` (server order), capped at 400dp tall;
   `_CategoryBadge` (sheen + `SpinningChip`, blind delayed 900ms), `LivelyChipStack`, `_CardFact`
-  rows, entry-cap overlay; `_TopBar` `fromLTRB(240,…)` clears the bonus chip, `tight` < 760;
+  rows (including **Entry**, the table's stack band: "Up to 5 Crore", "50 Crore or more", or "Open to all"),
+  shut-table overlay — a padlock and `cappedTitle` when the player has outgrown the table, a rising arrow and
+  `lockedTitle` when they have not grown into it, both faded to 0.42 so the stake stays readable;
+  `_TopBar` `fromLTRB(240,…)` clears the bonus chip, `tight` < 760;
   `_MilestoneChip` above `BuyChipsButton` ("Coming soon"); one `endDrawer` for stats/settings.
 - **Table** (rebuilt around the felt on 10–11 Sep 2026 — `fb47ba4`, `b83b273`, `81a5981`; the bar
   across the foot and the cloth under it are both gone, and the screenshots in `docs/play-store/`
@@ -931,7 +935,9 @@ idToken**; against production it is a guaranteed 401 `missing_token` — not a s
 20 provider avatar · 21 avatar picker, locked when seated (a DB catalogue since 12 Sep 2026: free
 pictures plus premium ones bought with chips) · 22 private table · 23 landscape/M3 ·
 24 merge lone rooms · 25 leave confirm · 26 4h reward top-left · 27 milestone bottom-right ·
-28 square cards + sweep · 29 display name · 30 entry cap (not on switch) · 31 3 auto-packs → kick,
+28 square cards + sweep · 29 display name · 30 entry cap (not on switch; generalised 12 Sep 2026 to a per-table
+**stack band** — `config.LobbyTable.MinChips/MaxChips`, enforced by `assertWithinTableBand` on every route into a
+seat, shown on every lobby card) · 31 3 auto-packs → kick,
 below boot → kick · 32 boot deducted at start · 33 sideshow · 34 Indian numbering + toggle.
 Verbal additions: menu = exactly seen 200 / blind 200 / blind 5000; seen pot cap 1.2M; buy-chips
 button; category tag; winner chip flight; action-bar icons; chat as left drawer; missed-turn warning.

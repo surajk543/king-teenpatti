@@ -127,7 +127,7 @@ func parseLobbyTables(raw string) ([]LobbyTable, error) {
 	tables := []LobbyTable{}
 	for _, entry := range list(raw) {
 		parts := strings.Split(entry, ":")
-		if len(parts) != 2 {
+		if len(parts) < 2 {
 			return nil, fmt.Errorf("entry %q must be category:boot", entry)
 		}
 		category := strings.TrimSpace(parts[0])
@@ -138,7 +138,40 @@ func parseLobbyTables(raw string) ([]LobbyTable, error) {
 		if err != nil {
 			return nil, fmt.Errorf("entry %q: boot is not an integer", entry)
 		}
-		tables = append(tables, LobbyTable{Category: category, BootAmount: boot})
+		table := LobbyTable{Category: category, BootAmount: boot}
+		// Anything after the boot is a stack band: "blind:5000:max=50000000"
+		// or "blind:1000000:min=500000000", in either order and both
+		// optional. Suffixes rather than more colon-positions because a
+		// bare third number would be unreadable at a glance, and because
+		// "category:boot" has to keep parsing exactly as it always did.
+		for _, extra := range parts[2:] {
+			key, value, found := strings.Cut(strings.TrimSpace(extra), "=")
+			if !found {
+				return nil, fmt.Errorf("entry %q: %q must be min=N or max=N", entry, extra)
+			}
+			n, err := parseInt(value)
+			if err != nil {
+				return nil, fmt.Errorf("entry %q: %s is not an integer", entry, key)
+			}
+			if n < 0 {
+				return nil, fmt.Errorf("entry %q: %s cannot be negative", entry, key)
+			}
+			switch strings.TrimSpace(key) {
+			case "min":
+				table.MinChips = n
+			case "max":
+				table.MaxChips = n
+			default:
+				return nil, fmt.Errorf("entry %q: unknown limit %q (want min or max)", entry, key)
+			}
+		}
+		// A band nobody can satisfy would take the table off the menu at run
+		// time while still advertising it, so it is a boot failure instead.
+		if table.MinChips > 0 && table.MaxChips > 0 && table.MinChips > table.MaxChips {
+			return nil, fmt.Errorf("entry %q: min %d is above max %d, so no stack could join",
+				entry, table.MinChips, table.MaxChips)
+		}
+		tables = append(tables, table)
 	}
 	return tables, nil
 }

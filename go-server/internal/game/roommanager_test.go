@@ -358,6 +358,99 @@ func TestRoomsLeavingTriggersAMergeImmediately(t *testing.T) {
 	}
 }
 
+// ------------------------------------- the blind ladder's stack bands
+//
+// The blind tables are banded by stack as well as by stake, so a player sits
+// where their money belongs: outgrow a table and it shuts behind you, and the
+// top one opens only once losing a hand there would not end your evening.
+// Both ends are exclusive of the limit itself, which is how the rules read —
+// "more than 5 Cr cannot enter", "50 Cr or more may".
+
+func TestRoomsBlindTablesAreBandedByStack(t *testing.T) {
+	const (
+		fiveCrore    int64 = 50000000
+		fiftyCrore   int64 = 500000000
+		hundredCrore int64 = 1000000000
+	)
+	for _, tc := range []struct {
+		name   string
+		boot   int64
+		chips  int64
+		reject string // "" = they get a seat
+	}{
+		{"exactly 5 Cr still fits the 5,000 table", 5000, fiveCrore, ""},
+		{"a chip over 5 Cr does not", 5000, fiveCrore + 1, game.CodeOverEntryCap},
+		{"5 Cr is welcome at 50,000", 50000, fiveCrore, ""},
+		{"exactly 100 Cr still fits 50,000", 50000, hundredCrore, ""},
+		{"a chip over 100 Cr does not", 50000, hundredCrore + 1, game.CodeOverEntryCap},
+		{"under 50 Cr cannot open the 10 lakh table", 1000000, fiftyCrore - 1, game.CodeBelowTableMinimum},
+		{"exactly 50 Cr can", 1000000, fiftyCrore, ""},
+		{"and so can far more", 1000000, hundredCrore, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newRoomsFixture(t, nil)
+			_, err := f.rooms.QuickJoin(f.player("Stack", tc.chips),
+				game.QuickJoinOptions{BootAmount: tc.boot, Category: "blind"})
+			if tc.reject == "" {
+				if err != nil {
+					t.Fatalf("a %d stack was refused the %d table: %v", tc.chips, tc.boot, err)
+				}
+				return
+			}
+			expectCode(t, err, tc.reject)
+			if n := len(f.rooms.LiveTables()); n != 0 {
+				t.Fatalf("a refused join still opened %d table(s)", n)
+			}
+		})
+	}
+}
+
+// The band is on the menu so the lobby can say who a table is for before the
+// tap; the card the client draws comes from exactly these numbers.
+func TestRoomsMenuCarriesEachTablesBand(t *testing.T) {
+	f := newRoomsFixture(t, nil)
+	want := map[int64][2]int64{ // boot -> {min, max}
+		200:     {0, 500000}, // requirement 30's cap, folded in
+		5000:    {0, 50000000},
+		50000:   {0, 1000000000},
+		1000000: {500000000, 0},
+	}
+	seen := map[int64]bool{}
+	for _, entry := range f.rooms.LobbyOptions().Tables {
+		if entry.Category != "blind" {
+			continue
+		}
+		band, ok := want[entry.BootAmount]
+		if !ok {
+			t.Fatalf("unexpected blind table at boot %d", entry.BootAmount)
+		}
+		seen[entry.BootAmount] = true
+		if entry.MinChips != band[0] || entry.MaxChips != band[1] {
+			t.Errorf("boot %d: band {%d,%d}, want {%d,%d}",
+				entry.BootAmount, entry.MinChips, entry.MaxChips, band[0], band[1])
+		}
+	}
+	for boot := range want {
+		if !seen[boot] {
+			t.Errorf("the menu is missing the blind %d table", boot)
+		}
+	}
+}
+
+// A stack outside the band is refused however the player reaches the seat, not
+// just through quick-join: the lobby greys a card out, but a client is never
+// what enforces a rule.
+func TestRoomsBandAppliesToJoinByCodeToo(t *testing.T) {
+	f := newRoomsFixture(t, nil)
+	opened, err := f.rooms.QuickJoin(f.player("Whale", 600000000),
+		game.QuickJoinOptions{BootAmount: 1000000, Category: "blind"})
+	if err != nil {
+		t.Fatalf("the whale could not open the table: %v", err)
+	}
+	_, err = f.rooms.JoinByCode(f.player("Minnow", 1000000), opened.Code())
+	expectCode(t, err, game.CodeBelowTableMinimum)
+}
+
 // ------------------------------------------- requirement 30: the entry cap
 // (lobbyRules.test.js)
 
@@ -827,16 +920,20 @@ func TestRoomsSeenTableForcesAShowdownAfterSevenRounds(t *testing.T) {
 func TestRoomsLobbyOffersExactlyTheDefaultMenu(t *testing.T) {
 	f := newRoomsFixture(t, nil)
 	o := f.rooms.LobbyOptions()
-	if !equalInt64s(o.Stakes, []int64{200, 5000}) {
+	if !equalInt64s(o.Stakes, []int64{200, 5000, 50000, 1000000}) {
 		t.Fatalf("stakes %v", o.Stakes)
 	}
 	if len(o.Categories) != 2 || o.Categories[0] != game.CategorySeen || o.Categories[1] != game.CategoryBlind {
 		t.Fatalf("categories %v", o.Categories)
 	}
+	// Each blind table carries the stack band it is for; requirement 30's cap
+	// on the 200 table is the same field, folded in from ENTRY_CAP_*.
 	wantTables := []game.LobbyTableOption{
 		{Category: "seen", BootAmount: 200, MaxPot: 1200000, MaxBlindMoves: 4},
-		{Category: "blind", BootAmount: 200, MaxPot: 0, MaxBlindMoves: 4},
-		{Category: "blind", BootAmount: 5000, MaxPot: 0, MaxBlindMoves: 4},
+		{Category: "blind", BootAmount: 200, MaxPot: 0, MaxBlindMoves: 4, MaxChips: 500000},
+		{Category: "blind", BootAmount: 5000, MaxPot: 0, MaxBlindMoves: 4, MaxChips: 50000000},
+		{Category: "blind", BootAmount: 50000, MaxPot: 0, MaxBlindMoves: 4, MaxChips: 1000000000},
+		{Category: "blind", BootAmount: 1000000, MaxPot: 0, MaxBlindMoves: 4, MinChips: 500000000},
 	}
 	if len(o.Tables) != len(wantTables) {
 		t.Fatalf("tables %+v", o.Tables)
@@ -851,10 +948,12 @@ func TestRoomsLobbyOffersExactlyTheDefaultMenu(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := `{"categories":["seen","blind"],"stakes":[200,5000],"tables":[` +
-		`{"category":"seen","bootAmount":200,"maxPot":1200000,"maxBlindMoves":4},` +
-		`{"category":"blind","bootAmount":200,"maxPot":0,"maxBlindMoves":4},` +
-		`{"category":"blind","bootAmount":5000,"maxPot":0,"maxBlindMoves":4}],` +
+	want := `{"categories":["seen","blind"],"stakes":[200,5000,50000,1000000],"tables":[` +
+		`{"category":"seen","bootAmount":200,"maxPot":1200000,"maxBlindMoves":4,"minChips":0,"maxChips":0},` +
+		`{"category":"blind","bootAmount":200,"maxPot":0,"maxBlindMoves":4,"minChips":0,"maxChips":500000},` +
+		`{"category":"blind","bootAmount":5000,"maxPot":0,"maxBlindMoves":4,"minChips":0,"maxChips":50000000},` +
+		`{"category":"blind","bootAmount":50000,"maxPot":0,"maxBlindMoves":4,"minChips":0,"maxChips":1000000000},` +
+		`{"category":"blind","bootAmount":1000000,"maxPot":0,"maxBlindMoves":4,"minChips":500000000,"maxChips":0}],` +
 		`"entryCapBoot":200,"entryCapCategory":"blind","entryCapMaxChips":500000,"privateBoot":200,"privateMaxPot":500000}`
 	if string(raw) != want {
 		t.Fatalf("json\n got  %s\n want %s", raw, want)
@@ -872,10 +971,27 @@ func TestRoomsLobbyOptionsEmptyMenuMarshalsEmptyArrays(t *testing.T) {
 	}
 }
 
+// legalStackFor is a stack that covers an entry's boot AND sits inside its
+// band, so a test can walk the whole menu without hand-picking a number per
+// table — and keeps working when the bands are re-tuned.
+func legalStackFor(entry game.LobbyTableOption) int64 {
+	stack := rmStart
+	if cover := entry.BootAmount * 50; stack < cover {
+		stack = cover
+	}
+	if entry.MinChips > 0 && stack < entry.MinChips {
+		stack = entry.MinChips
+	}
+	if entry.MaxChips > 0 && stack > entry.MaxChips {
+		stack = entry.MaxChips
+	}
+	return stack
+}
+
 func TestRoomsAdvertisedCeilingMatchesTheTableBuilt(t *testing.T) {
 	f := newRoomsFixture(t, nil)
 	for _, entry := range f.rooms.LobbyOptions().Tables {
-		table := f.mustQuickJoin(f.player("P", rmStart), entry.BootAmount, entry.Category)
+		table := f.mustQuickJoin(f.player("P", legalStackFor(entry)), entry.BootAmount, entry.Category)
 		if table.MaxPot() != entry.MaxPot {
 			t.Fatalf("%s %d: maxPot %d, card says %d", entry.Category, entry.BootAmount, table.MaxPot(), entry.MaxPot)
 		}
@@ -888,12 +1004,12 @@ func TestRoomsAdvertisedCeilingMatchesTheTableBuilt(t *testing.T) {
 func TestRoomsEveryMenuRoomCanBeJoined(t *testing.T) {
 	f := newRoomsFixture(t, nil)
 	for _, entry := range f.rooms.LobbyOptions().Tables {
-		table := f.mustQuickJoin(f.player("P", rmStart), entry.BootAmount, entry.Category)
+		table := f.mustQuickJoin(f.player("P", legalStackFor(entry)), entry.BootAmount, entry.Category)
 		if table.BootAmount() != entry.BootAmount || string(table.Category()) != entry.Category {
 			t.Fatalf("%+v vs %s %d", entry, table.Category(), table.BootAmount())
 		}
 	}
-	if n := len(f.rooms.ListTables(game.ListOptions{})); n != 3 {
+	if n := len(f.rooms.ListTables(game.ListOptions{})); n != 5 {
 		t.Fatalf("listTables %d", n)
 	}
 }
@@ -903,7 +1019,7 @@ func TestRoomsPairNotOnMenuRefused(t *testing.T) {
 	// Both halves are offered on their own; the pair is not.
 	_, err := f.rooms.QuickJoin(f.player("P", rmStart), game.QuickJoinOptions{BootAmount: 5000, Category: "seen"})
 	expectCode(t, err, game.CodeTableNotOffered)
-	if want := "The lobby offers: seen 200, blind 200, blind 5000"; err.Error() != want {
+	if want := "The lobby offers: seen 200, blind 200, blind 5000, blind 50000, blind 1000000"; err.Error() != want {
 		t.Fatalf("message %q", err.Error())
 	}
 	if n := len(f.rooms.ListTables(game.ListOptions{})); n != 0 {
@@ -916,7 +1032,7 @@ func TestRoomsStakeNotOfferedRefused(t *testing.T) {
 	for _, boot := range []int64{1, 100, 199, 4999, 10000} {
 		_, err := f.rooms.QuickJoin(f.player("P", rmStart), game.QuickJoinOptions{BootAmount: boot})
 		expectCode(t, err, game.CodeInvalidStake)
-		if want := "Stake must be one of: 200, 5000"; err.Error() != want {
+		if want := "Stake must be one of: 200, 5000, 50000, 1000000"; err.Error() != want {
 			t.Fatalf("%d: message %q", boot, err.Error())
 		}
 	}

@@ -279,6 +279,12 @@ class Strings {
   String get nameSaved => _('nameSaved');
   String get cappedTitle => _('cappedTitle');
   String get cappedBody => _('cappedBody');
+  String get lockedTitle => _('lockedTitle');
+  String get lockedBody => _('lockedBody');
+  String get entryLabel => _('entryLabel');
+  String get entryOpen => _('entryOpen');
+  String get entryUpTo => _('entryUpTo');
+  String get entryFrom => _('entryFrom');
   String get useSocialPicture => _('useSocialPicture');
   String get guestNoSocial => _('guestNoSocial');
 
@@ -476,6 +482,12 @@ class Strings {
       'cappedTitle': 'Table closed to you',
       'cappedBody':
           'Players holding more than {cap} chips cannot join this table.',
+      'lockedTitle': 'Table not open yet',
+      'lockedBody': 'You need {min} chips to sit at this table.',
+      'entryLabel': 'Entry',
+      'entryOpen': 'Open to all',
+      'entryUpTo': 'Up to {cap}',
+      'entryFrom': '{min} or more',
       'useSocialPicture': 'Use my Google or Facebook picture',
       'guestNoSocial': 'Sign in with Google or Facebook to use your own photo.',
     },
@@ -669,6 +681,12 @@ class Strings {
       'cappedTitle': 'यह टेबल आपके लिए बंद है',
       'cappedBody':
           '{cap} से ज़्यादा चिप्स रखने वाले खिलाड़ी इस टेबल पर नहीं बैठ सकते।',
+      'lockedTitle': 'यह टेबल अभी बंद है',
+      'lockedBody': 'इस टेबल पर बैठने के लिए {min} चिप्स चाहिए।',
+      'entryLabel': 'प्रवेश',
+      'entryOpen': 'सबके लिए खुला',
+      'entryUpTo': '{cap} तक',
+      'entryFrom': '{min} या ज़्यादा',
       'useSocialPicture': 'मेरी Google या Facebook तस्वीर लगाएँ',
       'guestNoSocial':
           'अपनी तस्वीर लगाने के लिए Google या Facebook से साइन इन करें।',
@@ -866,6 +884,12 @@ class Strings {
       'cappedTitle': 'এই টেবিল আপনার জন্য বন্ধ',
       'cappedBody':
           '{cap} এর বেশি চিপ থাকা খেলোয়াড়েরা এই টেবিলে বসতে পারেন না।',
+      'lockedTitle': 'এই টেবিল এখনো বন্ধ',
+      'lockedBody': 'এই টেবিলে বসতে {min} চিপ দরকার।',
+      'entryLabel': 'প্রবেশ',
+      'entryOpen': 'সবার জন্য খোলা',
+      'entryUpTo': '{cap} পর্যন্ত',
+      'entryFrom': '{min} বা বেশি',
       'useSocialPicture': 'আমার Google বা Facebook ছবি ব্যবহার করুন',
       'guestNoSocial':
           'নিজের ছবি ব্যবহার করতে Google বা Facebook দিয়ে সাইন ইন করুন।',
@@ -1061,6 +1085,12 @@ class Strings {
       'cappedTitle': 'આ ટેબલ તમારા માટે બંધ છે',
       'cappedBody':
           '{cap} થી વધુ ચિપ્સ ધરાવતા ખેલાડીઓ આ ટેબલ પર બેસી શકતા નથી.',
+      'lockedTitle': 'આ ટેબલ હજી બંધ છે',
+      'lockedBody': 'આ ટેબલ પર બેસવા {min} ચિપ્સ જોઈએ.',
+      'entryLabel': 'પ્રવેશ',
+      'entryOpen': 'બધા માટે ખુલ્લું',
+      'entryUpTo': '{cap} સુધી',
+      'entryFrom': '{min} કે વધુ',
       'useSocialPicture': 'મારો Google કે Facebook ફોટો વાપરો',
       'guestNoSocial': 'તમારો ફોટો વાપરવા Google કે Facebook થી સાઇન ઇન કરો.',
     },
@@ -1255,6 +1285,12 @@ class Strings {
       'cappedTitle': 'ਇਹ ਟੇਬਲ ਤੁਹਾਡੇ ਲਈ ਬੰਦ ਹੈ',
       'cappedBody':
           '{cap} ਤੋਂ ਵੱਧ ਚਿਪਸ ਰੱਖਣ ਵਾਲੇ ਖਿਡਾਰੀ ਇਸ ਟੇਬਲ ਉੱਤੇ ਨਹੀਂ ਬੈਠ ਸਕਦੇ।',
+      'lockedTitle': 'ਇਹ ਟੇਬਲ ਹਾਲੇ ਬੰਦ ਹੈ',
+      'lockedBody': 'ਇਸ ਟੇਬਲ ਉੱਤੇ ਬੈਠਣ ਲਈ {min} ਚਿਪਸ ਚਾਹੀਦੇ ਹਨ।',
+      'entryLabel': 'ਦਾਖ਼ਲਾ',
+      'entryOpen': 'ਸਾਰਿਆਂ ਲਈ ਖੁੱਲ੍ਹਾ',
+      'entryUpTo': '{cap} ਤੱਕ',
+      'entryFrom': '{min} ਜਾਂ ਵੱਧ',
       'useSocialPicture': 'ਮੇਰੀ Google ਜਾਂ Facebook ਤਸਵੀਰ ਵਰਤੋ',
       'guestNoSocial':
           'ਆਪਣੀ ਤਸਵੀਰ ਵਰਤਣ ਲਈ Google ਜਾਂ Facebook ਨਾਲ ਸਾਈਨ ਇਨ ਕਰੋ।',
