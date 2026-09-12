@@ -13,14 +13,14 @@ import {
   http, login, guestLogin, me, health, openClient, closeAll, stakeCounter, isNode, isGo, profile,
   assertKeys, decodeJwt, signJwt, UUID, pause, baseUrl,
 } from './lib/harness.mjs';
-import { query, closeDb, wallet } from './lib/db.mjs';
+import { query, closeDb, wallet, setWallet } from './lib/db.mjs';
 
 test.after(closeDb);
 
 const uniqueStake = stakeCounter(100);
 
 const USER_KEYS = [
-  'id', 'provider', 'displayName', 'email', 'avatarUrl', 'providerAvatarUrl', 'avatarChoice', 'chips',
+  'id', 'provider', 'displayName', 'email', 'avatarUrl', 'providerAvatarUrl', 'activePictureId', 'chips',
   'handsPlayed', 'handsWon', 'handsLost', 'handsLeftMid', 'totalWinnings', 'biggestPot', 'rewards',
   'createdAt', 'lastLoginAt',
 ];
@@ -47,7 +47,7 @@ test('guest login creates an account with the welcome chip grant, in the exact p
   assert.equal(user.email, null);
   assert.equal(user.avatarUrl, null);
   assert.equal(user.providerAvatarUrl, null);
-  assert.equal(user.avatarChoice, null);
+  assert.equal(user.activePictureId, null);
   assert.equal(user.chips, profile.welcomeChips, 'a first-time player is granted 2 lakh chips');
   for (const counter of ['handsPlayed', 'handsWon', 'handsLost', 'handsLeftMid', 'totalWinnings', 'biggestPot']) {
     assert.equal(user[counter], 0, counter);
@@ -316,9 +316,15 @@ test('name and picture changes are refused while seated (409 seated)', async () 
   assert.equal(name.status, 409);
   assert.deepEqual(name.body, { error: 'seated', message: 'You can only change your name in the lobby.' });
 
-  const avatar = await http('POST', '/api/profile/avatar', { token: account.token, body: { avatar: 'bear.svg' } });
+  const avatar = await http('POST', '/api/profile/avatar', { token: account.token, body: { avatar: 1 } });
   assert.equal(avatar.status, 409);
   assert.deepEqual(avatar.body, { error: 'seated', message: 'You cannot change your picture while you are at a table.' });
+
+  // A seated wallet may only move at the three hand checkpoints, so the
+  // picture shop is shut at the table too.
+  const buy = await http('POST', '/api/profile/picture/buy', { token: account.token, body: { pictureId: 1 } });
+  assert.equal(buy.status, 409);
+  assert.deepEqual(buy.body, { error: 'seated', message: 'You cannot buy a picture while you are at a table.' });
 
   await client.close();
   await pause(50);
@@ -326,46 +332,121 @@ test('name and picture changes are refused while seated (409 seated)', async () 
   assert.equal(after.status, 200, 'back in the lobby the change goes through');
 });
 
-test('the bundled profile pictures are listed and can be chosen, then cleared', async () => {
+test('the picture catalogue is listed, worn and cleared', async () => {
   const listed = await http('GET', '/api/profiles');
   assert.equal(listed.status, 200);
   assertKeys(listed.body, ['profiles']);
   const { profiles } = listed.body;
   assert.ok(profiles.length >= 1);
-  const ids = profiles.map((p) => p.id);
-  assert.deepEqual(ids, [...ids].sort(), 'sorted by file name');
-  for (const entry of profiles) {
-    assertKeys(entry, ['id', 'url']);
-    assert.match(entry.id, /\.(svg|png|jpg|jpeg|webp)$/i);
-    assert.equal(entry.url, `/profiles/${entry.id}`);
-  }
-  assert.ok(ids.includes('bear.svg'), `expected bear.svg among ${ids.join(', ')}`);
 
-  const served = await http('GET', '/profiles/bear.svg', { raw: true });
+  for (const entry of profiles) {
+    assertKeys(entry, ['id', 'name', 'url', 'type', 'cost', 'sortOrder', 'owned']);
+    assert.equal(typeof entry.id, 'number');
+    assert.ok(entry.name.length > 0);
+    assert.match(entry.url, /^\/profiles\/.+\.(svg|png|jpg|jpeg|webp)$/i);
+    assert.ok(['FREE', 'PREMIUM'].includes(entry.type));
+    // The schema's own CHECK, seen from the outside.
+    if (entry.type === 'FREE') assert.equal(entry.cost, 0);
+    else assert.ok(entry.cost > 0);
+    // Anonymous: free pictures are everyone's, premium ones are nobody's.
+    assert.equal(entry.owned, entry.type === 'FREE');
+  }
+  const order = profiles.map((p) => p.sortOrder);
+  assert.deepEqual(order, [...order].sort((a, b) => a - b), 'listed in display order');
+
+  const free = profiles.find((p) => p.type === 'FREE');
+  const premium = profiles.find((p) => p.type === 'PREMIUM');
+  assert.ok(free && premium, 'the seeded catalogue has both tiers');
+
+  const served = await http('GET', free.url, { raw: true });
   assert.equal(served.status, 200);
   assert.match(served.headers.get('content-type') ?? '', /^image\/svg\+xml/);
 
   const { token } = await guestLogin('device-avatar-0001', 'Avatar');
-  let r = await http('POST', '/api/profile/avatar', { token, body: { avatar: 'bear.svg' } });
+  let r = await http('POST', '/api/profile/avatar', { token, body: { avatar: free.id } });
   assert.equal(r.status, 200);
   assertKeys(r.body, ['user']);
-  assert.equal(r.body.user.avatarChoice, '/profiles/bear.svg', 'stored in URL form');
-  assert.equal(r.body.user.avatarUrl, '/profiles/bear.svg', 'the choice wins');
+  assert.equal(r.body.user.activePictureId, free.id, 'stored as a catalogue id');
+  assert.equal(r.body.user.avatarUrl, free.url, 'the choice wins, resolved to its image');
   assert.equal(r.body.user.providerAvatarUrl, null);
 
-  for (const bad of ['nope.svg', '', '/profiles/bear.svg', 'BEAR.SVG', 0, false]) {
+  // An id that is not a catalogue row — which is also where an old client
+  // sending a file name lands.
+  for (const bad of ['nope.svg', '', 'bear.svg', 0, -1, false, 999999]) {
     r = await http('POST', '/api/profile/avatar', { token, body: { avatar: bad } });
     assert.equal(r.status, 400, JSON.stringify(bad));
     assert.deepEqual(r.body, { error: 'unknown_avatar', message: 'That picture is not available.' });
   }
 
+  // A premium picture cannot be worn until it is bought.
+  r = await http('POST', '/api/profile/avatar', { token, body: { avatar: premium.id } });
+  assert.equal(r.status, 403);
+  assert.deepEqual(r.body, { error: 'picture_locked', message: 'Unlock that picture before you can wear it.' });
+
   r = await http('POST', '/api/profile/avatar', { token, body: { avatar: null } });
   assert.equal(r.status, 200);
-  assert.equal(r.body.user.avatarChoice, null);
+  assert.equal(r.body.user.activePictureId, null);
   assert.equal(r.body.user.avatarUrl, null, 'cleared back to the (absent) provider picture');
 
   r = await http('POST', '/api/profile/avatar', { token, body: {} });
   assert.equal(r.status, 200, 'a missing avatar field also clears');
+});
+
+test('a premium picture is bought once, with chips, and then can be worn', async () => {
+  const { profiles } = (await http('GET', '/api/profiles')).body;
+  const premium = profiles.filter((p) => p.type === 'PREMIUM').sort((a, b) => a.cost - b.cost)[0];
+  const free = profiles.find((p) => p.type === 'FREE');
+  assert.ok(premium, 'the seeded catalogue has a premium picture');
+
+  const { token, user } = await guestLogin('device-picture-0001', 'Buyer');
+  const before = user.chips;
+
+  let r = await http('POST', '/api/profile/picture/buy', { token, body: { pictureId: premium.id } });
+  assert.equal(r.status, 200);
+  assertKeys(r.body, ['user', 'picture', 'charged', 'spent']);
+  assert.equal(r.body.charged, true);
+  assert.equal(r.body.spent, premium.cost);
+  assert.equal(r.body.picture.owned, true);
+  assert.equal(r.body.user.chips, before - premium.cost, 'the price came out of the wallet');
+  // Buying does not dress the player.
+  assert.equal(r.body.user.activePictureId, null);
+
+  // The listing now says it is theirs — but only to them.
+  const mine = (await http('GET', '/api/profiles', { token })).body.profiles;
+  assert.equal(mine.find((p) => p.id === premium.id).owned, true);
+  const anon = (await http('GET', '/api/profiles')).body.profiles;
+  assert.equal(anon.find((p) => p.id === premium.id).owned, false);
+
+  // And now it can be worn.
+  r = await http('POST', '/api/profile/avatar', { token, body: { avatar: premium.id } });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.user.avatarUrl, premium.url);
+
+  // Buying it again is success that charges nothing: a click that arrives
+  // twice must not cost twice.
+  r = await http('POST', '/api/profile/picture/buy', { token, body: { pictureId: premium.id } });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.charged, false);
+  assert.equal(r.body.spent, 0);
+  assert.equal(r.body.user.chips, before - premium.cost, 'the second buy moved nothing');
+
+  // A free picture is not for sale, and an unknown id is unknown.
+  r = await http('POST', '/api/profile/picture/buy', { token, body: { pictureId: free.id } });
+  assert.equal(r.status, 400);
+  assert.deepEqual(r.body, { error: 'picture_free', message: 'That picture is free — just choose it.' });
+  for (const bad of [999999, 'wolf.svg', null, '']) {
+    r = await http('POST', '/api/profile/picture/buy', { token, body: { pictureId: bad } });
+    assert.equal(r.status, 400, JSON.stringify(bad));
+    assert.deepEqual(r.body, { error: 'unknown_avatar', message: 'That picture is not available.' });
+  }
+
+  // A wallet that cannot cover the price.
+  const dearest = profiles.filter((p) => p.type === 'PREMIUM').sort((a, b) => b.cost - a.cost)[0];
+  const poor = await guestLogin('device-picture-0002', 'Skint');
+  await setWallet(poor.user.id, 1);
+  r = await http('POST', '/api/profile/picture/buy', { token: poor.token, body: { pictureId: dearest.id } });
+  assert.equal(r.status, 409);
+  assert.deepEqual(r.body, { error: 'picture_chips', message: 'You do not have enough chips for that picture.' });
 });
 
 // ---------------------------------------------------------------- rewards

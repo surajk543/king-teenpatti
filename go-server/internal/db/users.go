@@ -62,22 +62,28 @@ type User struct {
 	Provider    string  `json:"provider"`
 	DisplayName string  `json:"displayName"`
 	Email       *string `json:"email"` // null for guests
-	// AvatarURL is avatar_choice if set, else avatar_url (a picture chosen
+	// AvatarURL is the image_url of the catalogue picture the player is
+	// wearing if they have chosen one, else avatar_url (a picture chosen
 	// in-game wins over the provider's); null when neither.
 	AvatarURL *string `json:"avatarUrl"`
-	// ProviderAvatarURL is the raw avatar_url column.
+	// ProviderAvatarURL is the raw avatar_url column — the photo Google or
+	// Facebook gave us, which is a different thing from a chosen picture and
+	// is what "use my social picture" falls back to.
 	ProviderAvatarURL *string `json:"providerAvatarUrl"`
-	AvatarChoice      *string `json:"avatarChoice"`
-	Chips             int64   `json:"chips"`
-	HandsPlayed       int     `json:"handsPlayed"`
-	HandsWon          int     `json:"handsWon"`
-	HandsLost         int     `json:"handsLost"`
-	HandsLeftMid      int     `json:"handsLeftMid"`
-	TotalWinnings     int64   `json:"totalWinnings"`
-	BiggestPot        int64   `json:"biggestPot"`
-	Rewards           Rewards `json:"rewards"`
-	CreatedAt         int64   `json:"createdAt"`   // epoch ms
-	LastLoginAt       int64   `json:"lastLoginAt"` // epoch ms
+	// ActivePictureID is users.active_picture_id: the profile_pictures row
+	// being worn, or null for none. Replaced avatarChoice, which carried the
+	// bare "/profiles/bear.svg" path before the catalogue existed.
+	ActivePictureID *int64  `json:"activePictureId"`
+	Chips           int64   `json:"chips"`
+	HandsPlayed     int     `json:"handsPlayed"`
+	HandsWon        int     `json:"handsWon"`
+	HandsLost       int     `json:"handsLost"`
+	HandsLeftMid    int     `json:"handsLeftMid"`
+	TotalWinnings   int64   `json:"totalWinnings"`
+	BiggestPot      int64   `json:"biggestPot"`
+	Rewards         Rewards `json:"rewards"`
+	CreatedAt       int64   `json:"createdAt"`   // epoch ms
+	LastLoginAt     int64   `json:"lastLoginAt"` // epoch ms
 }
 
 // Player converts to the seat-level view the RoomManager needs.
@@ -215,22 +221,38 @@ type queryer interface {
 }
 
 // userColumns is every users column, in DDL order, so a row scans into
-// userRow without depending on `SELECT *` column ordering.
-const userColumns = `id, provider, provider_user_id, display_name, email, avatar_url, chips,
-       hands_played, hands_won, hands_lost, hands_left_mid, total_winnings, biggest_pot,
-       milestone_claimed, next_bonus_at, avatar_choice, created_at, updated_at, last_login_at`
+// userRow without depending on `SELECT *` column ordering, followed by the
+// image_url of the catalogue picture the player is wearing. Qualified with the
+// `u` alias because every read now goes through userFrom's join.
+const userColumns = `u.id, u.provider, u.provider_user_id, u.display_name, u.email, u.avatar_url, u.chips,
+       u.hands_played, u.hands_won, u.hands_lost, u.hands_left_mid, u.total_winnings, u.biggest_pot,
+       u.milestone_claimed, u.next_bonus_at, u.active_picture_id, u.created_at, u.updated_at, u.last_login_at,
+       ap.image_url`
+
+// userFrom joins the picture the player is wearing so publicUser can resolve
+// avatarUrl without a second round trip. LEFT, because most players wear
+// nothing and every one of them must still come back from these queries.
+//
+// A locking read adds `FOR UPDATE OF u`: the bare form would try to lock the
+// catalogue row too, and two players buying the same picture would queue behind
+// each other for no reason.
+const userFrom = ` FROM users u LEFT JOIN profile_pictures ap ON ap.id = u.active_picture_id `
 
 // userRow is one users row as stored (snake_case columns).
 type userRow struct {
 	id, provider, providerUserID, displayName string
-	email, avatarURL, avatarChoice            *string
-	chips                                     int64
-	handsPlayed, handsWon                     int
-	handsLost, handsLeftMid                   int
-	totalWinnings, biggestPot                 int64
-	milestoneClaimed                          int
-	nextBonusAt                               int64
-	createdAt, updatedAt, lastLoginAt         int64
+	email, avatarURL                          *string
+	// activePictureID is the catalogue row worn; pictureImageURL is that
+	// row's image_url, carried along by userFrom's join.
+	activePictureID                   *int64
+	pictureImageURL                   *string
+	chips                             int64
+	handsPlayed, handsWon             int
+	handsLost, handsLeftMid           int
+	totalWinnings, biggestPot         int64
+	milestoneClaimed                  int
+	nextBonusAt                       int64
+	createdAt, updatedAt, lastLoginAt int64
 }
 
 // scanUser scans one row selected with userColumns; pgx.ErrNoRows → nil, nil.
@@ -238,7 +260,8 @@ func scanUser(row pgx.Row) (*userRow, error) {
 	var r userRow
 	err := row.Scan(&r.id, &r.provider, &r.providerUserID, &r.displayName, &r.email, &r.avatarURL, &r.chips,
 		&r.handsPlayed, &r.handsWon, &r.handsLost, &r.handsLeftMid, &r.totalWinnings, &r.biggestPot,
-		&r.milestoneClaimed, &r.nextBonusAt, &r.avatarChoice, &r.createdAt, &r.updatedAt, &r.lastLoginAt)
+		&r.milestoneClaimed, &r.nextBonusAt, &r.activePictureID, &r.createdAt, &r.updatedAt, &r.lastLoginAt,
+		&r.pictureImageURL)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -257,7 +280,7 @@ func scanUser(row pgx.Row) (*userRow, error) {
 // up in this query, and gets "unknown user" instead.
 func selectUser(ctx context.Context, q queryer, id string) (*userRow, error) {
 	return scanUser(q.QueryRow(ctx,
-		`SELECT `+userColumns+` FROM users WHERE id = $1 AND deleted_at = 0`, id))
+		`SELECT `+userColumns+userFrom+` WHERE u.id = $1 AND u.deleted_at = 0`, id))
 }
 
 // publicUser is users.js publicUser(row): the wire object. bonusAvailable is
@@ -267,11 +290,13 @@ func (u *Users) publicUser(r *userRow) *User {
 		return nil
 	}
 	milestone := MilestoneFor(r.handsPlayed)
-	// A picture chosen in-game wins over the one the provider gave us.
-	// JS `avatar_choice || avatar_url`: an empty-string choice falls through.
+	// A picture chosen in-game wins over the one the provider gave us. The
+	// choice is a catalogue id now, so what goes on the wire is that row's
+	// image_url; a row that has since been deleted leaves the join null and
+	// falls through to the provider picture rather than to a broken link.
 	avatarURL := r.avatarURL
-	if r.avatarChoice != nil && *r.avatarChoice != "" {
-		avatarURL = r.avatarChoice
+	if r.pictureImageURL != nil && *r.pictureImageURL != "" {
+		avatarURL = r.pictureImageURL
 	}
 	return &User{
 		ID:                r.id,
@@ -280,7 +305,7 @@ func (u *Users) publicUser(r *userRow) *User {
 		Email:             r.email,
 		AvatarURL:         avatarURL,
 		ProviderAvatarURL: r.avatarURL,
-		AvatarChoice:      r.avatarChoice,
+		ActivePictureID:   r.activePictureID,
 		Chips:             r.chips,
 		HandsPlayed:       r.handsPlayed,
 		HandsWon:          r.handsWon,
@@ -318,8 +343,8 @@ func (u *Users) FindByID(ctx context.Context, id string) (*User, error) {
 // FindByProvider looks up by (provider, provider_user_id); nil, nil when absent.
 func (u *Users) FindByProvider(ctx context.Context, provider, providerUserID string) (*User, error) {
 	row, err := scanUser(u.db.Pool.QueryRow(ctx,
-		`SELECT `+userColumns+` FROM users WHERE provider = $1 AND provider_user_id = $2
-		   AND deleted_at = 0`,
+		`SELECT `+userColumns+userFrom+` WHERE u.provider = $1 AND u.provider_user_id = $2
+		   AND u.deleted_at = 0`,
 		provider, providerUserID))
 	if err != nil {
 		return nil, err
@@ -368,7 +393,7 @@ func (u *Users) UpsertFromProfile(ctx context.Context, p Profile) (user *User, i
 func (u *Users) upsertOnce(ctx context.Context, p Profile, timestamp int64) (user *User, isNew bool, err error) {
 	err = u.db.WithTx(ctx, func(tx pgx.Tx) error {
 		existing, err := scanUser(tx.QueryRow(ctx,
-			`SELECT `+userColumns+` FROM users WHERE provider = $1 AND provider_user_id = $2 FOR UPDATE`,
+			`SELECT `+userColumns+userFrom+` WHERE u.provider = $1 AND u.provider_user_id = $2 FOR UPDATE OF u`,
 			p.Provider, p.ProviderUserID))
 		if err != nil {
 			return err
@@ -473,7 +498,7 @@ func (u *Users) ApplyChipDelta(ctx context.Context, userID string, delta int64, 
 func (u *Users) ClaimMilestoneReward(ctx context.Context, userID string) (*RewardResult, error) {
 	var result *RewardResult
 	err := u.db.WithTx(ctx, func(tx pgx.Tx) error {
-		row, err := scanUser(tx.QueryRow(ctx, `SELECT `+userColumns+` FROM users WHERE id = $1 FOR UPDATE`, userID))
+		row, err := scanUser(tx.QueryRow(ctx, `SELECT `+userColumns+userFrom+` WHERE u.id = $1 FOR UPDATE OF u`, userID))
 		if err != nil {
 			return err
 		}
@@ -524,7 +549,7 @@ func (u *Users) ClaimMilestoneReward(ctx context.Context, userID string) (*Rewar
 func (u *Users) ClaimTimedBonus(ctx context.Context, userID string) (*RewardResult, error) {
 	var result *RewardResult
 	err := u.db.WithTx(ctx, func(tx pgx.Tx) error {
-		row, err := scanUser(tx.QueryRow(ctx, `SELECT `+userColumns+` FROM users WHERE id = $1 FOR UPDATE`, userID))
+		row, err := scanUser(tx.QueryRow(ctx, `SELECT `+userColumns+userFrom+` WHERE u.id = $1 FOR UPDATE OF u`, userID))
 		if err != nil {
 			return err
 		}
@@ -573,11 +598,18 @@ func (u *Users) SetDisplayName(ctx context.Context, userID, displayName string) 
 	return u.FindByID(ctx, userID)
 }
 
-// SetAvatarChoice sets avatar_choice ("/profiles/<file>" or nil to clear) and
-// returns the fresh user.
-func (u *Users) SetAvatarChoice(ctx context.Context, userID string, choice *string) (*User, error) {
-	if _, err := u.db.Pool.Exec(ctx, `UPDATE users SET avatar_choice = $1, updated_at = $2 WHERE id = $3`,
-		choice, now(u.clock), userID); err != nil {
+// SetActivePicture points users.active_picture_id at a catalogue row (or nil
+// to take the picture off and fall back to the provider photo) and returns the
+// fresh user.
+//
+// It does NOT check that the player owns the picture — that is the caller's
+// job, because the refusal has to reach the client as a message rather than as
+// a constraint violation. The foreign key is still the backstop: an id that is
+// not in the catalogue is refused by the database, not stored and drawn as a
+// broken image later.
+func (u *Users) SetActivePicture(ctx context.Context, userID string, pictureID *int64) (*User, error) {
+	if _, err := u.db.Pool.Exec(ctx, `UPDATE users SET active_picture_id = $1, updated_at = $2 WHERE id = $3`,
+		pictureID, now(u.clock), userID); err != nil {
 		return nil, err
 	}
 	return u.FindByID(ctx, userID)

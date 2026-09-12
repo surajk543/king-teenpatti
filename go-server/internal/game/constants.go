@@ -171,6 +171,14 @@ const (
 	// chips from outside the game, so they are also what an audit of the chip
 	// economy has to separate from play.
 	LedgerReasonPurchase = "purchase"
+	// LedgerReasonPicturePurchase is a premium profile picture bought with
+	// chips (db.Pictures.Buy). Its action_id is "picture:<userId>:<pictureId>"
+	// — UNIQUE, so a retried click cannot charge twice, and unique per pair
+	// because a picture is bought once and owned for good. Unlike a Play
+	// purchase this DESTROYS chips rather than creating them: the delta is
+	// negative and the chips leave the economy, which is what makes a premium
+	// picture a chip sink rather than a transfer.
+	LedgerReasonPicturePurchase = "picture_purchase"
 	// LedgerReasonAccountDeleted empties a wallet when a player deletes their
 	// account. The row is what keeps SUM(delta) == chips true afterwards: the
 	// account's chips go to 0, so the ledger has to record the same drop.

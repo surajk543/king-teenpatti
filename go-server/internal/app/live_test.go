@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -414,8 +415,16 @@ func TestRestartWithEmptyLiveStoreLosesTheTablesAndTheHandNeverHappened(t *testi
 	}
 }
 
-// PostgreSQL holds MONEY AND AUDIT ONLY: a fresh schema has `users` and
-// `chip_ledger` and nothing else — no game_states, no pots, no hands.
+// PostgreSQL holds MONEY, AUDIT AND ACCOUNTS ONLY — never game state. A fresh
+// schema has exactly the four tables below and nothing else; no game_states,
+// no pots, no hands, and nothing per-hand or per-table that a restart would
+// have to reconcile against the live store.
+//
+// profile_pictures and user_profile_pictures are on this list because a
+// catalogue and who has paid for what are account facts, the same kind of
+// thing `users` holds: they outlive every hand and no table ever reads them.
+// The list is exact rather than a minimum, so a new table has to be argued
+// for here before it can appear in production.
 func TestPostgresHoldsNoGameState(t *testing.T) {
 	database := dbtest.Open(t, "app")
 	cfg := testConfig(t, publicDir(t))
@@ -445,8 +454,9 @@ func TestPostgresHoldsNoGameState(t *testing.T) {
 		}
 		tables = append(tables, name)
 	}
-	if len(tables) != 2 || tables[0] != "chip_ledger" || tables[1] != "users" {
-		t.Fatalf("schema tables = %v, want [chip_ledger users]", tables)
+	want := []string{"chip_ledger", "profile_pictures", "user_profile_pictures", "users"}
+	if !slices.Equal(tables, want) {
+		t.Fatalf("schema tables = %v, want %v", tables, want)
 	}
 }
 

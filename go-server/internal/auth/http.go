@@ -22,7 +22,15 @@ type UserStore interface {
 	ClaimMilestoneReward(ctx context.Context, userID string) (*db.RewardResult, error)
 	ClaimTimedBonus(ctx context.Context, userID string) (*db.RewardResult, error)
 	SetDisplayName(ctx context.Context, userID, displayName string) (*db.User, error)
-	SetAvatarChoice(ctx context.Context, userID string, choice *string) (*db.User, error)
+	SetActivePicture(ctx context.Context, userID string, pictureID *int64) (*db.User, error)
+}
+
+// PictureStore is the slice of db.Pictures the handlers use: the catalogue a
+// player chooses from, and the till they buy a premium picture at.
+type PictureStore interface {
+	List(ctx context.Context, userID string) ([]db.Picture, error)
+	Find(ctx context.Context, userID string, id int64) (db.Picture, bool, error)
+	Buy(ctx context.Context, userID string, id int64) (*db.PicturePurchase, error)
 }
 
 // Deps wires a Handler.
@@ -35,10 +43,10 @@ type Deps struct {
 	// the avatar and name endpoints can refuse a change mid-table (routes.js
 	// playerRoutes({isSeated})).
 	IsSeated func(userID string) bool
-	// ProfilesDir is <PublicDir>/profiles: the bundled pictures a player may
-	// choose from. Listed on every request (Node readdirSync), filtered to
-	// .svg/.png/.jpg/.jpeg/.webp, sorted by name.
-	ProfilesDir string
+	// Pictures is the profile-picture catalogue. It replaced a live listing
+	// of <PublicDir>/profiles: the files are still served from there, but
+	// what is on offer, what it is called and what it costs are rows now.
+	Pictures PictureStore
 	// Purchases credits a verified Google Play purchase. Nil when the server
 	// has no Play credentials, and then the endpoint refuses every request
 	// rather than crediting on the client's word.
@@ -75,8 +83,9 @@ type PurchaseOutcome struct {
 //	GET  /api/auth/me           → Me            (RequireAuth)
 //	POST /api/rewards/milestone → Milestone     (RequireAuth)
 //	POST /api/rewards/bonus     → Bonus         (RequireAuth)
-//	GET  /api/profiles          → Profiles      (unauthenticated)
+//	GET  /api/profiles          → Profiles      (token optional)
 //	POST /api/profile/avatar    → Avatar        (RequireAuth)
+//	POST /api/profile/picture/buy → BuyPicture  (RequireAuth)
 //	POST /api/profile/name      → Name          (RequireAuth)
 //
 // Responses are JSON; errors are ErrorResponse. Body parsing (ReadJSONBody):
@@ -111,6 +120,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.Handle("/api/purchases/google", methods(http.MethodPost, h.RequireAuth(h.BuyChips)))
 	mux.Handle("/api/profiles", methods(http.MethodGet, http.HandlerFunc(h.Profiles)))
 	mux.Handle("/api/profile/avatar", methods(http.MethodPost, h.RequireAuth(h.Avatar)))
+	mux.Handle("/api/profile/picture/buy", methods(http.MethodPost, h.RequireAuth(h.BuyPicture)))
 	mux.Handle("/api/profile/name", methods(http.MethodPost, h.RequireAuth(h.Name)))
 }
 
@@ -244,27 +254,24 @@ type UserResponse struct {
 	User *db.User `json:"user"`
 }
 
-// ProfilePicture is one bundled avatar: {id: "bear.svg", url: "/profiles/bear.svg"}.
-type ProfilePicture struct {
-	ID  string `json:"id"`
-	URL string `json:"url"`
-}
-
-// ProfilesResponse ← GET /api/profiles.
+// ProfilesResponse ← GET /api/profiles: the catalogue, in display order, each
+// row marked with whether this caller may wear it. Anonymous callers (the
+// browser client, the bots) see the free ones as owned and nothing else.
 type ProfilesResponse struct {
-	Profiles []ProfilePicture `json:"profiles"` // [] when the directory is unreadable, never null
+	Profiles []db.Picture `json:"profiles"` // [] when the catalogue is empty, never null
 }
 
-// AvatarRequest ← POST /api/profile/avatar {avatar: "bear.svg" | null}.
-// nil clears the choice (falls back to the provider picture); a name not in
-// the profiles dir → 400 unknown_avatar ("That picture is not available.");
-// while seated → 409 seated ("You cannot change your picture while you are
-// at a table."). Stored as "/profiles/<name>".
+// AvatarRequest ← POST /api/profile/avatar {avatar: <picture id> | null}.
+// nil clears the choice (falls back to the provider picture); an id that is
+// not in the catalogue → 400 unknown_avatar; a premium picture the player has
+// not bought → 403 picture_locked; while seated → 409 seated.
 //
-// Decoding mirrors `req.body?.avatar ?? null`: absent or null → nil; a string
-// → itself; any other JSON value → its literal text, which can never equal a
-// bundled file name and so ends in unknown_avatar exactly as `entry.id === 0`
-// did in Node.
+// The id was a bundled file name ("bear.svg") before the catalogue existed and
+// is a profile_pictures id now. Decoding is unchanged — absent or null → nil,
+// a string → itself, any other JSON value → its literal text — so a client
+// that sends the number 7 and one that sends "7" are the same request, and
+// anything that is not a number at all falls through to unknown_avatar exactly
+// as an unbundled file name used to.
 type AvatarRequest struct {
 	Avatar *string `json:"avatar"`
 }
@@ -286,6 +293,42 @@ func (a *AvatarRequest) UnmarshalJSON(data []byte) error {
 	text := jsString(value)
 	a.Avatar = &text
 	return nil
+}
+
+// BuyPictureRequest ← POST /api/profile/picture/buy {pictureId}. Decoded the
+// same forgiving way as AvatarRequest, and for the same reason: the id may
+// arrive as a JSON number or as its text.
+type BuyPictureRequest struct {
+	PictureID *string `json:"pictureId"`
+}
+
+// UnmarshalJSON applies AvatarRequest's coercion to pictureId.
+func (b *BuyPictureRequest) UnmarshalJSON(data []byte) error {
+	*b = BuyPictureRequest{}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		if bytes.HasPrefix(bytes.TrimSpace(data), []byte("[")) {
+			return nil
+		}
+		return err
+	}
+	value, ok := raw["pictureId"]
+	if !ok || string(value) == "null" {
+		return nil
+	}
+	text := jsString(value)
+	b.PictureID = &text
+	return nil
+}
+
+// BuyPictureResponse ← POST /api/profile/picture/buy. Charged is false when
+// the player already owned it: the request still succeeded, but no chips
+// moved.
+type BuyPictureResponse struct {
+	User    *db.User   `json:"user"`
+	Picture db.Picture `json:"picture"`
+	Charged bool       `json:"charged"`
+	Spent   int64      `json:"spent"`
 }
 
 // NameRequest ← POST /api/profile/name {name} (requirement 29). While seated
@@ -329,6 +372,11 @@ const (
 	MsgUnknownProduct     = "That pack is not on sale."
 	MsgPurchaseUnverified = "Google Play could not confirm that purchase. Nothing was charged for it here."
 	MsgUnknownAvatar      = "That picture is not available."
+	MsgPictureLocked      = "Unlock that picture before you can wear it."
+	MsgPictureRetired     = "That picture is no longer available."
+	MsgPictureFree        = "That picture is free — just choose it."
+	MsgPictureChips       = "You do not have enough chips for that picture."
+	MsgSeatedPicture      = "You cannot buy a picture while you are at a table."
 	MsgEmptyName          = "Your name cannot be empty."
 	MsgNameTooLongFormat  = "Keep it to %d characters or fewer."
 	MsgInvalidName        = "Letters, numbers and spaces only."

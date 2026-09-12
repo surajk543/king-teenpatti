@@ -135,6 +135,177 @@ BEGIN
 END;
 $$;
 
+-- The profile-picture catalogue (requirements 20 and 21). One row per picture
+-- the game offers: the bundled animals are FREE, and a PREMIUM row costs chips
+-- a player has to spend before they may wear it.
+--
+-- image_url is what a client loads — a server-relative path into PUBLIC_DIR
+-- ("/profiles/bear.svg") or an absolute URL if the art ever moves to a CDN.
+-- It is UNIQUE because it is the natural key the seed below and the
+-- avatar_choice migration further down both match on; the BIGSERIAL id is what
+-- users.active_picture_id and user_profile_pictures point at.
+--
+-- Timestamps are epoch milliseconds like every other timestamp in this schema,
+-- not TIMESTAMPTZ: the server works in Date.now() values end to end and one
+-- column in a different unit is a trap for whoever writes the next query.
+CREATE TABLE IF NOT EXISTS profile_pictures (
+  id         BIGSERIAL PRIMARY KEY,
+  name       TEXT    NOT NULL,
+  image_url  TEXT    NOT NULL UNIQUE,
+  type       TEXT    NOT NULL CHECK (type IN ('FREE', 'PREMIUM')),
+  -- What it costs in chips. Paid through chip_ledger like every other chip
+  -- movement, so SUM(delta) = users.chips still reconciles after a purchase.
+  cost       BIGINT  NOT NULL DEFAULT 0 CHECK (cost >= 0),
+  -- FALSE retires a picture: it disappears from the catalogue the clients are
+  -- offered, but the rows owning it and the players wearing it are untouched.
+  is_active  BOOLEAN NOT NULL DEFAULT TRUE,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at BIGINT  NOT NULL,
+  updated_at BIGINT  NOT NULL,
+  -- Free means free and premium means it costs something. Without this a
+  -- PREMIUM row at cost 0 would be a picture the buy endpoint charges nothing
+  -- for and the picker still draws a padlock on.
+  CONSTRAINT free_picture_cost_check CHECK (
+    (type = 'FREE'    AND cost =  0) OR
+    (type = 'PREMIUM' AND cost >  0)
+  )
+);
+
+-- Seeds the catalogue with the bundled pictures in go-server/public/profiles.
+-- ON CONFLICT DO NOTHING on the natural key, so this is a no-op from the
+-- second boot on and never rewrites a row the owner has since re-priced,
+-- renamed, reordered or retired. Editing the catalogue is an UPDATE, not a
+-- code change; this block only ever puts the starting set there.
+--
+-- Which animals cost chips is a product decision, not a technical one — the
+-- six showiest are premium at 10k/25k/50k against a 2,00,000 welcome. Change
+-- them with `UPDATE profile_pictures SET type = …, cost = … WHERE image_url = …`.
+DO $$
+DECLARE
+  seed  record;
+  stamp bigint := (EXTRACT(EPOCH FROM now()) * 1000)::bigint;
+BEGIN
+  FOR seed IN
+    SELECT * FROM (VALUES
+      ('Bear',    '/profiles/bear.svg',     'FREE',        0::bigint,  10),
+      ('Cat',     '/profiles/cat.svg',      'FREE',        0::bigint,  20),
+      ('Dog',     '/profiles/dog.svg',      'FREE',        0::bigint,  30),
+      ('Frog',    '/profiles/frog.svg',     'FREE',        0::bigint,  40),
+      ('Horse',   '/profiles/horse.svg',    'FREE',        0::bigint,  50),
+      ('Koala',   '/profiles/koala.svg',    'FREE',        0::bigint,  60),
+      ('Monkey',  '/profiles/monkey.svg',   'FREE',        0::bigint,  70),
+      ('Penguin', '/profiles/penguin.svg',  'FREE',        0::bigint,  80),
+      ('Rabbit',  '/profiles/rabbit.svg',   'FREE',        0::bigint,  90),
+      ('Fox',     '/profiles/fox.svg',      'PREMIUM', 10000::bigint, 100),
+      ('Owl',     '/profiles/owl.svg',      'PREMIUM', 10000::bigint, 110),
+      ('Lion',    '/profiles/lion.svg',     'PREMIUM', 25000::bigint, 120),
+      ('Tiger',   '/profiles/tiger.svg',    'PREMIUM', 25000::bigint, 130),
+      ('Panda',   '/profiles/panda.svg',    'PREMIUM', 50000::bigint, 140),
+      ('Wolf',    '/profiles/wolf.svg',     'PREMIUM', 50000::bigint, 150)
+    ) AS t(name, image_url, type, cost, sort_order)
+  LOOP
+    INSERT INTO profile_pictures (name, image_url, type, cost, is_active, sort_order, created_at, updated_at)
+    VALUES (seed.name, seed.image_url, seed.type, seed.cost, TRUE, seed.sort_order, stamp, stamp)
+    ON CONFLICT (image_url) DO NOTHING;
+  END LOOP;
+END;
+$$;
+
+-- Which picture a player is wearing. Replaces avatar_choice, the free-text
+-- "/profiles/bear.svg" path this column's catalogue row now owns; avatar_url
+-- stays and still holds the picture GOOGLE OR FACEBOOK gave us, which is a
+-- different thing and the one the "use my social picture" button falls back to.
+--
+-- Guarded by a catalogue lookup for the reason the deleted_at block above
+-- spells out: a bare ALTER takes an ACCESS EXCLUSIVE lock on users every boot
+-- even when there is nothing to do, and an exclusive lock queues behind any
+-- reader. ON DELETE SET NULL so removing a catalogue row undresses whoever
+-- wore it rather than failing.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_schema = current_schema()
+       AND table_name   = 'users'
+       AND column_name  = 'active_picture_id'
+  ) THEN
+    ALTER TABLE users ADD COLUMN active_picture_id BIGINT
+      REFERENCES profile_pictures (id) ON DELETE SET NULL;
+  END IF;
+END;
+$$;
+
+-- Who owns which premium picture. A FREE picture needs no row — everyone may
+-- wear it — so this table holds only what somebody paid for, one row per
+-- player per picture, written in the same transaction as the chip debit.
+CREATE TABLE IF NOT EXISTS user_profile_pictures (
+  user_id            TEXT   NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  profile_picture_id BIGINT NOT NULL REFERENCES profile_pictures (id) ON DELETE CASCADE,
+  acquired_at        BIGINT NOT NULL,
+  PRIMARY KEY (user_id, profile_picture_id)
+);
+
+-- Moves avatar_choice into active_picture_id and then drops it.
+--
+-- Every statement that names avatar_choice goes through EXECUTE, and that is
+-- not a style choice — it is the lesson the retired-tables block at the foot of
+-- this file was written in blood for. PL/pgSQL PLANS a statement before it runs
+-- it, so a direct reference to the column stops the whole file parsing the boot
+-- after it is dropped, and the server crash-loops. Dynamic SQL defers the parse
+-- to run time, where the outer guard has already confirmed the column is there.
+--
+-- The drop only happens once every non-empty choice has found its catalogue
+-- row. A choice pointing at a picture that is no longer bundled keeps the
+-- column and raises a notice instead, so a human looks at it rather than the
+-- boot quietly throwing a player's picture away.
+DO $$
+DECLARE
+  stranded bigint;
+  stamp    bigint := (EXTRACT(EPOCH FROM now()) * 1000)::bigint;
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_schema = current_schema()
+       AND table_name   = 'users'
+       AND column_name  = 'avatar_choice'
+  ) THEN
+    EXECUTE $q$
+      UPDATE users u
+         SET active_picture_id = p.id
+        FROM profile_pictures p
+       WHERE u.active_picture_id IS NULL
+         AND u.avatar_choice IS NOT NULL
+         AND u.avatar_choice <> ''
+         AND p.image_url = u.avatar_choice
+    $q$;
+
+    -- Grandfathering: a picture somebody is already wearing is theirs, whatever
+    -- it now costs. Without this, seeding wolf as premium would padlock the
+    -- picture on the back of the player already using it.
+    EXECUTE format($q$
+      INSERT INTO user_profile_pictures (user_id, profile_picture_id, acquired_at)
+      SELECT u.id, u.active_picture_id, %s
+        FROM users u
+        JOIN profile_pictures p ON p.id = u.active_picture_id
+       WHERE p.type = 'PREMIUM'
+      ON CONFLICT DO NOTHING
+    $q$, stamp);
+
+    EXECUTE $q$
+      SELECT count(*) FROM users
+       WHERE avatar_choice IS NOT NULL AND avatar_choice <> '' AND active_picture_id IS NULL
+    $q$ INTO stranded;
+
+    IF stranded = 0 THEN
+      EXECUTE 'ALTER TABLE users DROP COLUMN avatar_choice';
+      RAISE NOTICE 'avatar_choice migrated into active_picture_id and dropped';
+    ELSE
+      RAISE NOTICE 'kept avatar_choice — % row(s) name a picture that is not in the catalogue', stranded;
+    END IF;
+  END IF;
+END;
+$$;
+
 -- Per-player ledger. Chip movements are only ever written through this table
 -- so users.chips can be reconciled against it. Rows are never updated or
 -- deleted (see the trigger below).

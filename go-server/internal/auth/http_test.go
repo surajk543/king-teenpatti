@@ -10,8 +10,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -121,14 +119,14 @@ func (s *fakeStore) DeleteAccount(_ context.Context, userID string) error {
 	return nil
 }
 
-func (s *fakeStore) SetAvatarChoice(_ context.Context, userID string, choice *string) (*db.User, error) {
+func (s *fakeStore) SetActivePicture(_ context.Context, userID string, pictureID *int64) (*db.User, error) {
 	if s.failWith != nil {
 		return nil, s.failWith
 	}
 	u := s.users[userID]
-	u.AvatarChoice = choice
-	if choice != nil {
-		u.AvatarURL = choice
+	u.ActivePictureID = pictureID
+	if pictureID != nil {
+		u.AvatarURL = ptr(fakeCatalogue[*pictureID].URL)
 	} else {
 		u.AvatarURL = u.ProviderAvatarURL
 	}
@@ -136,38 +134,121 @@ func (s *fakeStore) SetAvatarChoice(_ context.Context, userID string, choice *st
 	return &copied, nil
 }
 
+// fakeCatalogue stands in for the profile_pictures table: two free pictures,
+// two premium ones, and a retired row that is still a valid id.
+var fakeCatalogue = map[int64]db.Picture{
+	1: {ID: 1, Name: "Bear", URL: "/profiles/bear.svg", Type: db.PictureFree, SortOrder: 10},
+	2: {ID: 2, Name: "Cat", URL: "/profiles/cat.svg", Type: db.PictureFree, SortOrder: 20},
+	3: {ID: 3, Name: "Wolf", URL: "/profiles/wolf.svg", Type: db.PicturePremium, Cost: 50000, SortOrder: 30},
+	4: {ID: 4, Name: "Lion", URL: "/profiles/lion.svg", Type: db.PicturePremium, Cost: 25000, SortOrder: 40},
+	9: {ID: 9, Name: "Dodo", URL: "/profiles/dodo.svg", Type: db.PicturePremium, Cost: 100, SortOrder: 90},
+}
+
+// fakePictures is the PictureStore the harness wires in: the catalogue above,
+// an ownership set, and a wallet it debits so the buy path can be exercised
+// without a database.
+type fakePictures struct {
+	store    *fakeStore
+	owned    map[string]map[int64]bool
+	retired  map[int64]bool
+	failWith error
+}
+
+func newFakePictures(store *fakeStore) *fakePictures {
+	return &fakePictures{store: store, owned: map[string]map[int64]bool{}, retired: map[int64]bool{9: true}}
+}
+
+func (f *fakePictures) has(userID string, id int64) bool {
+	return fakeCatalogue[id].Type == db.PictureFree || f.owned[userID][id]
+}
+
+func (f *fakePictures) List(_ context.Context, userID string) ([]db.Picture, error) {
+	if f.failWith != nil {
+		return nil, f.failWith
+	}
+	out := []db.Picture{}
+	for _, id := range []int64{1, 2, 3, 4, 9} {
+		if f.retired[id] {
+			continue
+		}
+		pic := fakeCatalogue[id]
+		pic.Owned = f.has(userID, id)
+		out = append(out, pic)
+	}
+	return out, nil
+}
+
+func (f *fakePictures) Find(_ context.Context, userID string, id int64) (db.Picture, bool, error) {
+	if f.failWith != nil {
+		return db.Picture{}, false, f.failWith
+	}
+	pic, ok := fakeCatalogue[id]
+	if !ok {
+		return db.Picture{}, false, db.ErrPictureUnknown
+	}
+	pic.Owned = f.has(userID, id)
+	return pic, !f.retired[id], nil
+}
+
+func (f *fakePictures) Buy(_ context.Context, userID string, id int64) (*db.PicturePurchase, error) {
+	if f.failWith != nil {
+		return nil, f.failWith
+	}
+	pic, ok := fakeCatalogue[id]
+	if !ok {
+		return nil, db.ErrPictureUnknown
+	}
+	switch {
+	case f.retired[id]:
+		return nil, db.ErrPictureInactive
+	case pic.Free():
+		return nil, db.ErrPictureFree
+	}
+	user := f.store.users[userID]
+	if f.owned[userID][id] {
+		pic.Owned = true
+		return &db.PicturePurchase{Picture: pic, Charged: false, Balance: user.Chips, User: user}, nil
+	}
+	if user.Chips < pic.Cost {
+		return nil, db.ErrPictureChips
+	}
+	user.Chips -= pic.Cost
+	if f.owned[userID] == nil {
+		f.owned[userID] = map[int64]bool{}
+	}
+	f.owned[userID][id] = true
+	pic.Owned = true
+	return &db.PicturePurchase{Picture: pic, Charged: true, Spent: pic.Cost, Balance: user.Chips, User: user}, nil
+}
+
 // harness is a mux with the 8 routes plus the app-side /api/ 404, a fake
 // store and a profiles directory holding the bundled picture names.
 type harness struct {
-	t      *testing.T
-	mux    *http.ServeMux
-	store  *fakeStore
-	tokens *Tokens
-	cfg    *config.Config
-	seated map[string]bool
-	logs   *bytes.Buffer
+	t        *testing.T
+	mux      *http.ServeMux
+	store    *fakeStore
+	pictures *fakePictures
+	tokens   *Tokens
+	cfg      *config.Config
+	seated   map[string]bool
+	logs     *bytes.Buffer
 }
 
 func newHarness(t *testing.T) *harness {
 	t.Helper()
 	cfg := config.Defaults()
 	cfg.AllowFakeProviders = true
-	profiles := t.TempDir()
-	for _, name := range []string{"bear.svg", "cat.svg", "Zebra.png", "wolf.webp", "NOTICE.txt", "dog.SVG", ".hidden.svg"} {
-		if err := os.WriteFile(filepath.Join(profiles, name), []byte("x"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
 	h := &harness{t: t, mux: http.NewServeMux(), store: newFakeStore(), cfg: cfg, seated: map[string]bool{}, logs: &bytes.Buffer{}}
+	h.pictures = newFakePictures(h.store)
 	h.tokens = NewTokens(cfg.JWT.Secret, cfg.JWT.ExpiresIn, time.Now)
 	handler := NewHandler(Deps{
-		Config:      cfg,
-		Users:       h.store,
-		Tokens:      h.tokens,
-		Verifier:    NewVerifier(cfg),
-		IsSeated:    func(id string) bool { return h.seated[id] },
-		ProfilesDir: profiles,
-		Logger:      slog.New(slog.NewJSONHandler(h.logs, nil)),
+		Config:   cfg,
+		Users:    h.store,
+		Pictures: h.pictures,
+		Tokens:   h.tokens,
+		Verifier: NewVerifier(cfg),
+		IsSeated: func(id string) bool { return h.seated[id] },
+		Logger:   slog.New(slog.NewJSONHandler(h.logs, nil)),
 	})
 	handler.Register(h.mux)
 	h.mux.Handle("/api/", NotFoundHandler())
@@ -594,79 +675,181 @@ func TestTimedBonus(t *testing.T) {
 	}
 }
 
-func TestProfilesListsTheBundledPictures(t *testing.T) {
+func TestProfilesListsTheCatalogue(t *testing.T) {
 	h := newHarness(t)
+
+	// Anonymous: the catalogue is public, the free pictures read as owned and
+	// the premium ones do not. A retired row is never listed.
 	res := h.do(http.MethodGet, "/api/profiles", nil)
 	if res.status != 200 {
 		t.Fatalf("%d", res.status)
 	}
-	// JS default sort: UTF-16 code units, so upper case first; NOTICE.txt and
-	// dotfiles... a dotfile matching the pattern IS listed by Node's readdir —
-	// keep that (the static server hides it, the picker never shows one).
-	want := `{"profiles":[{"id":".hidden.svg","url":"/profiles/.hidden.svg"},{"id":"Zebra.png","url":"/profiles/Zebra.png"},{"id":"bear.svg","url":"/profiles/bear.svg"},{"id":"cat.svg","url":"/profiles/cat.svg"},{"id":"dog.SVG","url":"/profiles/dog.SVG"},{"id":"wolf.webp","url":"/profiles/wolf.webp"}]}`
+	want := `{"profiles":[` +
+		`{"id":1,"name":"Bear","url":"/profiles/bear.svg","type":"FREE","cost":0,"sortOrder":10,"owned":true},` +
+		`{"id":2,"name":"Cat","url":"/profiles/cat.svg","type":"FREE","cost":0,"sortOrder":20,"owned":true},` +
+		`{"id":3,"name":"Wolf","url":"/profiles/wolf.svg","type":"PREMIUM","cost":50000,"sortOrder":30,"owned":false},` +
+		`{"id":4,"name":"Lion","url":"/profiles/lion.svg","type":"PREMIUM","cost":25000,"sortOrder":40,"owned":false}]}`
 	if string(res.raw) != want {
 		t.Errorf("got  %s\nwant %s", res.raw, want)
 	}
-	// Unreadable directory → [] never null.
-	handler := NewHandler(Deps{Config: h.cfg, Users: h.store, Tokens: h.tokens, Verifier: NewVerifier(h.cfg), ProfilesDir: filepath.Join(t.TempDir(), "missing")})
-	mux := http.NewServeMux()
-	handler.Register(mux)
-	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/profiles", nil))
-	if rec.Body.String() != `{"profiles":[]}` {
-		t.Errorf("%s", rec.Body.String())
-	}
-	// Real bundled directory, when present: 15 animals, NOTICE.txt excluded.
-	real := filepath.Join("..", "..", "..", "server", "public", "profiles")
-	if _, err := os.Stat(real); err == nil {
-		handler := NewHandler(Deps{ProfilesDir: real})
-		pictures := handler.listProfilePictures()
-		if len(pictures) != 15 || pictures[0].ID != "bear.svg" || pictures[14].ID != "wolf.svg" {
-			t.Errorf("bundled profiles: %v", pictures)
+
+	// With a token, what the player owns comes back owned.
+	token, user := h.login("device-guest-0001", "Suraj")
+	h.pictures.owned[user["id"].(string)] = map[int64]bool{3: true}
+	res = h.do(http.MethodGet, "/api/profiles", nil, bearer(token)...)
+	for _, p := range res.body["profiles"].([]any) {
+		row := p.(map[string]any)
+		want := row["id"].(float64) != 4 // everything but the Lion
+		if row["owned"] != want {
+			t.Errorf("%v owned=%v, want %v", row["id"], row["owned"], want)
 		}
+	}
+
+	// A junk token is ignored, not refused: a stale session still gets a picker.
+	res = h.do(http.MethodGet, "/api/profiles", nil, "Authorization", "Bearer nonsense")
+	if res.status != 200 || len(res.body["profiles"].([]any)) != 4 {
+		t.Errorf("junk token: %d %s", res.status, res.raw)
+	}
+
+	// An empty catalogue is [] and never null.
+	h.pictures.retired = map[int64]bool{1: true, 2: true, 3: true, 4: true, 9: true}
+	if res = h.do(http.MethodGet, "/api/profiles", nil); string(res.raw) != `{"profiles":[]}` {
+		t.Errorf("empty catalogue: %s", res.raw)
 	}
 }
 
-func TestAvatarChoice(t *testing.T) {
+func TestWearingAPicture(t *testing.T) {
 	h := newHarness(t)
 	token, user := h.login("device-guest-0001", "Suraj")
 	id := user["id"].(string)
-	res := h.do(http.MethodPost, "/api/profile/avatar", map[string]any{"avatar": "bear.svg"}, bearer(token)...)
+
+	// A free picture: chosen by catalogue id, and the wire carries its image.
+	res := h.do(http.MethodPost, "/api/profile/avatar", map[string]any{"avatar": 1}, bearer(token)...)
 	if res.status != 200 {
 		t.Fatalf("%d %s", res.status, res.raw)
 	}
 	u := res.body["user"].(map[string]any)
-	if u["avatarChoice"] != "/profiles/bear.svg" || u["avatarUrl"] != "/profiles/bear.svg" {
+	if u["activePictureId"] != float64(1) || u["avatarUrl"] != "/profiles/bear.svg" {
 		t.Errorf("%s", res.raw)
 	}
-	for _, bad := range []any{"", 0, false, "nope.svg", "/profiles/bear.svg", "BEAR.SVG", "NOTICE.txt", []string{"bear.svg"}} {
+	// The id may arrive as text just as well as a number.
+	res = h.do(http.MethodPost, "/api/profile/avatar", map[string]any{"avatar": "2"}, bearer(token)...)
+	if res.status != 200 || res.body["user"].(map[string]any)["activePictureId"] != float64(2) {
+		t.Errorf("string id: %d %s", res.status, res.raw)
+	}
+
+	// Anything that is not an id in the catalogue is unknown_avatar — which is
+	// also where an old client sending a file name lands.
+	for _, bad := range []any{"", 0, -1, false, "bear.svg", "nope", 404, []string{"1"}} {
 		res := h.do(http.MethodPost, "/api/profile/avatar", map[string]any{"avatar": bad}, bearer(token)...)
 		expectError(t, res, 400, CodeUnknownAvatar)
 		if res.body["message"] != MsgUnknownAvatar {
 			t.Errorf("%v: %s", bad, res.raw)
 		}
 	}
-	// null / absent clears the choice.
+
+	// A premium picture the player has not bought is refused, and buying it
+	// makes the same request work.
+	res = h.do(http.MethodPost, "/api/profile/avatar", map[string]any{"avatar": 3}, bearer(token)...)
+	expectError(t, res, 403, CodePictureLocked)
+	if res.body["message"] != MsgPictureLocked {
+		t.Errorf("%s", res.raw)
+	}
+	h.pictures.owned[id] = map[int64]bool{3: true}
+	res = h.do(http.MethodPost, "/api/profile/avatar", map[string]any{"avatar": 3}, bearer(token)...)
+	if res.status != 200 || res.body["user"].(map[string]any)["avatarUrl"] != "/profiles/wolf.svg" {
+		t.Errorf("owned premium: %d %s", res.status, res.raw)
+	}
+
+	// A retired picture cannot be put on, even by id.
+	res = h.do(http.MethodPost, "/api/profile/avatar", map[string]any{"avatar": 9}, bearer(token)...)
+	expectError(t, res, 400, CodePictureRetired)
+
+	// null / absent takes the picture off.
 	res = h.do(http.MethodPost, "/api/profile/avatar", map[string]any{"avatar": nil}, bearer(token)...)
-	if res.status != 200 || res.body["user"].(map[string]any)["avatarChoice"] != nil {
+	if res.status != 200 || res.body["user"].(map[string]any)["activePictureId"] != nil {
 		t.Errorf("%d %s", res.status, res.raw)
 	}
-	h.store.users[id].AvatarChoice = ptr("/profiles/cat.svg")
+	h.store.users[id].ActivePictureID = ptrInt(2)
 	res = h.do(http.MethodPost, "/api/profile/avatar", map[string]any{}, bearer(token)...)
-	if res.status != 200 || res.body["user"].(map[string]any)["avatarChoice"] != nil {
+	if res.status != 200 || res.body["user"].(map[string]any)["activePictureId"] != nil {
 		t.Errorf("absent avatar must clear: %d %s", res.status, res.raw)
 	}
-	// Seated → 409 before any validation.
+
+	// Seated → 409 before any validation (requirement 21).
 	h.seated[id] = true
-	res = h.do(http.MethodPost, "/api/profile/avatar", map[string]any{"avatar": "nope.svg"}, bearer(token)...)
+	res = h.do(http.MethodPost, "/api/profile/avatar", map[string]any{"avatar": 404}, bearer(token)...)
 	expectError(t, res, 409, CodeSeated)
 	if res.body["message"] != MsgSeatedAvatar {
 		t.Errorf("%s", res.raw)
 	}
 	h.seated[id] = false
 	expectError(t, h.do(http.MethodPost, "/api/profile/avatar", "{bad", bearer(token)...), 400, CodeInvalidJSON)
-	expectError(t, h.do(http.MethodPost, "/api/profile/avatar", map[string]any{"avatar": "bear.svg"}), 401, CodeMissingToken)
+	expectError(t, h.do(http.MethodPost, "/api/profile/avatar", map[string]any{"avatar": 1}), 401, CodeMissingToken)
 }
+
+func TestBuyingAPremiumPicture(t *testing.T) {
+	h := newHarness(t)
+	token, user := h.login("device-guest-0001", "Suraj")
+	id := user["id"].(string)
+	h.store.users[id].Chips = 60000
+
+	res := h.do(http.MethodPost, "/api/profile/picture/buy", map[string]any{"pictureId": 3}, bearer(token)...)
+	if res.status != 200 {
+		t.Fatalf("%d %s", res.status, res.raw)
+	}
+	if res.body["charged"] != true || res.body["spent"] != float64(50000) {
+		t.Errorf("%s", res.raw)
+	}
+	if res.body["user"].(map[string]any)["chips"] != float64(10000) {
+		t.Errorf("wallet: %s", res.raw)
+	}
+	if pic := res.body["picture"].(map[string]any); pic["owned"] != true || pic["id"] != float64(3) {
+		t.Errorf("picture: %s", res.raw)
+	}
+
+	// Buying it again is success with nothing charged — a click that arrives
+	// twice must not cost twice.
+	res = h.do(http.MethodPost, "/api/profile/picture/buy", map[string]any{"pictureId": 3}, bearer(token)...)
+	if res.status != 200 || res.body["charged"] != false || res.body["spent"] != float64(0) {
+		t.Errorf("replay: %d %s", res.status, res.raw)
+	}
+	if res.body["user"].(map[string]any)["chips"] != float64(10000) {
+		t.Errorf("replay moved chips: %s", res.raw)
+	}
+
+	// Buying does not put it on — that is a separate request.
+	if h.store.users[id].ActivePictureID != nil {
+		t.Errorf("buying dressed the player: %v", h.store.users[id].ActivePictureID)
+	}
+
+	// A wallet that cannot cover it.
+	res = h.do(http.MethodPost, "/api/profile/picture/buy", map[string]any{"pictureId": 4}, bearer(token)...)
+	expectError(t, res, 409, CodePictureChips)
+	if res.body["message"] != MsgPictureChips {
+		t.Errorf("%s", res.raw)
+	}
+
+	// Free, retired, and unknown.
+	expectError(t, h.do(http.MethodPost, "/api/profile/picture/buy", map[string]any{"pictureId": 1}, bearer(token)...), 400, CodePictureFree)
+	expectError(t, h.do(http.MethodPost, "/api/profile/picture/buy", map[string]any{"pictureId": 9}, bearer(token)...), 400, CodePictureRetired)
+	for _, bad := range []any{404, "wolf.svg", nil, ""} {
+		expectError(t, h.do(http.MethodPost, "/api/profile/picture/buy", map[string]any{"pictureId": bad}, bearer(token)...), 400, CodeUnknownAvatar)
+	}
+
+	// Seated → 409 before anything else. A seated wallet may only move at the
+	// three hand checkpoints, so the till is shut at the table.
+	h.seated[id] = true
+	res = h.do(http.MethodPost, "/api/profile/picture/buy", map[string]any{"pictureId": 4}, bearer(token)...)
+	expectError(t, res, 409, CodeSeated)
+	if res.body["message"] != MsgSeatedPicture {
+		t.Errorf("%s", res.raw)
+	}
+	h.seated[id] = false
+	expectError(t, h.do(http.MethodPost, "/api/profile/picture/buy", map[string]any{"pictureId": 4}), 401, CodeMissingToken)
+}
+
+func ptrInt(n int64) *int64 { return &n }
 
 func ptr(s string) *string { return &s }
 

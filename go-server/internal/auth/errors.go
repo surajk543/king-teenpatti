@@ -57,7 +57,11 @@ const (
 	CodeInvalidPurchase    = "invalid_purchase"     // 400: productId or purchaseToken missing
 	CodeUnknownProduct     = "unknown_product"      // 400: a product id the catalogue does not hold
 	CodePurchaseUnverified = "purchase_unverified"  // 402: Google rejected the receipt
-	CodeUnknownAvatar      = "unknown_avatar"       // 400
+	CodeUnknownAvatar      = "unknown_avatar"       // 400: no such picture in the catalogue
+	CodePictureLocked      = "picture_locked"       // 403: a premium picture the player has not bought
+	CodePictureRetired     = "picture_retired"      // 400: is_active = FALSE
+	CodePictureFree        = "picture_free"         // 400: nothing to buy
+	CodePictureChips       = "picture_chips"        // 409: wallet cannot cover the price
 	CodeInternalError      = "internal_error"       // 500
 	CodeInvalidJSON        = "invalid_json"         // 400 — Go-only, see PORT_PLAN.md (Node answered 500 internal_error)
 	CodeNotFound           = "not_found"            // 404 — Go-only JSON 404 for unknown /api paths (DECISIONS.md §5)

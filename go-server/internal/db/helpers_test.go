@@ -20,22 +20,25 @@ const welcome int64 = 200000
 
 // fixture is one throwaway schema with a Users store and a Ledger on it.
 type fixture struct {
-	t      *testing.T
-	ctx    context.Context
-	d      *db.DB
-	users  *db.Users
-	ledger *db.Ledger
+	t        *testing.T
+	ctx      context.Context
+	d        *db.DB
+	users    *db.Users
+	pictures *db.Pictures
+	ledger   *db.Ledger
 }
 
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
 	d := dbtest.Open(t, "db")
+	users := db.NewUsers(d, welcome, nil)
 	return &fixture{
-		t:      t,
-		ctx:    context.Background(),
-		d:      d,
-		users:  db.NewUsers(d, welcome, nil),
-		ledger: db.NewLedger(d, nil, nil),
+		t:        t,
+		ctx:      context.Background(),
+		d:        d,
+		users:    users,
+		pictures: db.NewPictures(d, users, nil),
+		ledger:   db.NewLedger(d, nil, nil),
 	}
 }
 

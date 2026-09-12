@@ -34,7 +34,8 @@ test.after(closeDb);
 // The vocabulary of chip_ledger.reason. `boot`, `bet` and `show` are retired
 // (they belonged to the per-bet model) and must not appear in a fresh schema.
 const REASONS = new Set([
-  'welcome_bonus', 'hand_win', 'hand_loss', 'hand_packed', 'hand_left', 'milestone_reward', 'timed_bonus', 'test_fixture',
+  'welcome_bonus', 'hand_win', 'hand_loss', 'hand_packed', 'hand_left', 'milestone_reward', 'timed_bonus',
+  'picture_purchase', 'test_fixture',
 ]);
 const CHECKPOINT_REASONS = new Set(['hand_win', 'hand_loss', 'hand_packed', 'hand_left']);
 
@@ -75,6 +76,11 @@ test('every ledger row has a known reason, a balance that follows the running to
         'every checkpoint action id is server-minted — no client id ever reaches the ledger');
     }
     if (['welcome_bonus', 'milestone_reward', 'timed_bonus'].includes(row.reason)) assert.ok(row.delta > 0);
+    // A premium picture is a chip SINK: the row only ever takes chips away.
+    if (row.reason === 'picture_purchase') {
+      assert.ok(row.delta < 0, 'buying a picture only ever takes chips');
+      assert.ok(row.action_id?.startsWith('picture:'), 'a picture purchase carries its own action id');
+    }
     if (row.reason === 'hand_win') assert.ok(row.delta > 0, 'a win pays');
     if (row.reason === 'hand_packed') assert.ok(row.delta <= 0, 'a pack only ever takes chips');
   }
@@ -108,16 +114,21 @@ test('action ids are unique, so a replayed checkpoint can never be applied twice
   assert.equal(bare.rows[0].n, 0, 'every checkpoint row carries its id');
 });
 
-test('PostgreSQL holds no game state at all: only users and chip_ledger', async () => {
+test('PostgreSQL holds no game state at all: money, audit and accounts only', async () => {
   // Owner's decision of 9 Sep 2026 (LIVE_STATE_PLAN.md): ALL game state lives
   // in the live store (Redis). game_states, pots and hands are gone; the boot
   // path in schema.sql drops each of them when it exists AND is empty, and
   // never creates them.
+  //
+  // profile_pictures and user_profile_pictures are account facts, the same
+  // kind of thing `users` holds — a catalogue and who has paid for what. They
+  // outlive every hand and no table ever reads them. The list is exact rather
+  // than a minimum, so a new table has to be argued for here first.
   const { rows } = await query(
     `SELECT tablename FROM pg_tables WHERE schemaname = current_schema() ORDER BY tablename`);
   const tables = rows.map((r) => r.tablename);
-  assert.deepEqual(tables, ['chip_ledger', 'users'],
-    `the schema must hold money and audit only, got ${tables.join(', ')}`);
+  assert.deepEqual(tables, ['chip_ledger', 'profile_pictures', 'user_profile_pictures', 'users'],
+    `the schema must hold money, audit and accounts only, got ${tables.join(', ')}`);
 });
 
 test('a bet is not a transaction: the books move only at a pack, a departure and the hand end', async () => {
