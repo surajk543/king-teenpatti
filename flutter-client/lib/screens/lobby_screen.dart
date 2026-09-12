@@ -415,8 +415,11 @@ class _TopBar extends StatelessWidget {
             LayoutBuilder(
               builder: (context, box) {
                 final slotW = Dim.bonusSlotW(box.maxWidth);
-                // The provider tag folds on what the row actually has left, not on
-                // the screen width: 640 -> 448 (fold) | 891 -> 623.7 | 1280 -> 980.
+                // The provider tag folds on what the row actually has left,
+                // not on the screen width. It matters more now that the Shop
+                // key shares this bar: on a 640dp screen the tag was rendering
+                // as "GUE…", which tells nobody anything — better absent than
+                // truncated.
                 final tight = Breaks.isTightBar(box.maxWidth - slotW);
 
                 return Padding(
@@ -463,19 +466,33 @@ class _TopBar extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(width: Space.md),
+                      // The name over the provider tag rather than beside it.
+                      // Side by side they competed for one line, and the tag —
+                      // which says something the player already knows — was
+                      // winning: the name ellipsised to "Gue…" on a Pixel while
+                      // GUEST sat beside it at full width. Stacked, the name
+                      // gets the room and the tag becomes the footnote it is.
                       Flexible(
-                        child: Text(
-                          user?.displayName ?? '',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          // A player's own name, in whatever script they wrote it.
-                          style: AppTheme.label(text.titleMedium!),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              user?.displayName ?? '',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              // A player's own name, in whatever script they
+                              // wrote it.
+                              style: AppTheme.label(text.titleMedium!),
+                            ),
+                            if (user != null && !tight)
+                              _ProviderPill(
+                                provider: user!.provider,
+                                compact: true,
+                              ),
+                          ],
                         ),
                       ),
-                      if (user != null && !tight) ...[
-                        const SizedBox(width: Space.md),
-                        _ProviderPill(provider: user!.provider),
-                      ],
                       const Spacer(),
                       // The balance counts to its new value rather than snapping, so
                       // a reward landing is something you see happen.
@@ -582,17 +599,35 @@ class _AvatarWithPip extends StatelessWidget {
 /// Which account the player signed in with. Metadata, not a control, so it is a
 /// hairline micro-pill of tinted glass rather than a filled Material chip.
 class _ProviderPill extends StatelessWidget {
-  const _ProviderPill({required this.provider});
+  const _ProviderPill({required this.provider, this.compact = false});
 
   /// One of the server's provider names — ASCII the client owns, which is why
   /// tracked capitals are safe here and never on a name or a translation.
   final String provider;
+
+  /// Under the name in the top bar rather than beside it: smaller, and with
+  /// the plaque dropped. Two stacked outlines under a name is a stack of
+  /// boxes; at this size the tracked capitals are label enough on their own.
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final glass = GlassColors.of(context);
     final dark = theme.brightness == Brightness.dark;
+
+    final label = Text(
+      provider.toUpperCase(),
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: AppTheme.smallCaps(
+        theme.textTheme.labelSmall!,
+        tracking: compact ? 0.9 : 1.2,
+        colour: theme.colorScheme.onSurface.withValues(alpha: AppTheme.inkLow),
+      ).copyWith(fontSize: compact ? 9 : null, height: compact ? 1.1 : null),
+    );
+
+    if (compact) return label;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: Space.sm, vertical: 2),
@@ -604,16 +639,7 @@ class _ProviderPill extends StatelessWidget {
           width: Dim.hairline,
         ),
       ),
-      child: Text(
-        provider.toUpperCase(),
-        style: AppTheme.smallCaps(
-          theme.textTheme.labelSmall!,
-          tracking: 1.2,
-          colour: theme.colorScheme.onSurface.withValues(
-            alpha: AppTheme.inkLow,
-          ),
-        ),
-      ),
+      child: label,
     );
   }
 }
