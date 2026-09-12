@@ -81,7 +81,7 @@ king-teenpatti/
 │   │   ├── sio/                  our own Engine.IO v4 + Socket.IO v5 server, websocket only (protocol.go, conn.go, server.go)
 │   │   ├── socket/               the game protocol on sio: handler.go (Attach, guard, one method per event, grace, resume offers), wire.go (every event/ack), payload.go; testclient/
 │   │   ├── auth/                 tokens.go (JWT HS256), providers.go (Google/Facebook/guest/fake), http.go (routes, RequireAuth, WriteError), handlers.go (the 8 REST handlers), text.go
-│   │   ├── db/                   db.go (pgxpool, search_path as connection param, WithTx, DropSchema), schema.sql (embedded DDL — users + chip_ledger + the picture catalogue), ledger.go (THE money transactions: Checkpoint / Settle), users.go (login upsert, rewards, names, the worn picture), pictures.go (the catalogue, ownership and the chip purchase); dbtest/
+│   │   ├── db/                   db.go (pgxpool, search_path as connection param, WithTx, DropSchema, Migrations), migration/ (embedded, Flyway-named V<version>__<name>.sql, applied in version order: V1.0.0__baseline.sql = DDL, V1.0.1__seed_profile_pictures.sql = DML), ledger.go (THE money transactions: Checkpoint / Settle), users.go (login upsert, rewards, names, the worn picture), pictures.go (the catalogue, ownership and the chip purchase); dbtest/
 │   │   ├── metrics/              names.go (every game_* metric), metrics.go (registry, Bind*, Handler, HTTPMiddleware, SafeLabel)
 │   │   ├── app/                  app.go (mux, REST, socket endpoint, Start/Shutdown), health.go, static.go (PUBLIC_DIR + embedded assets/socket.io.min.js)
 │   │   └── util/                 UUID, RoomCode, slog JSON logger
@@ -526,8 +526,17 @@ doesn't work" report starts.
 
 ### 7.3 Database (`db/` → `internal/db/`)
 `pg` Pool (`DATABASE_URL`, `PG_POOL_MAX`), `search_path` set as a connection **option**
-(`-c search_path=<schema>,public`). `openDatabase({url, schema})` creates the schema if missing and
-runs `schema.sql` (fully idempotent: IF NOT EXISTS / CREATE OR REPLACE / DO-block trigger).
+(`-c search_path=<schema>,public`). `openDatabase({url, schema})` creates the schema if missing and applies
+**`internal/db/migration/*.sql`** in version order. They are named the Flyway way
+(`V<version>__<description>.sql`) and split DDL from DML — `V1.0.0__baseline.sql` declares every
+table in full (no ALTERs; a fresh database is built from it alone) and `V1.0.1__seed_profile_pictures.sql`
+holds the catalogue rows. **There is no schema history table**: the server applies EVERY script on
+EVERY boot, so each one must be idempotent (IF NOT EXISTS / CREATE OR REPLACE / ON CONFLICT DO
+NOTHING / a catalogue lookup before an unguarded trigger). A script that is not idempotent does not
+fail the first time — it fails on the next restart, in production. The next change is a NEW file,
+never an edit to an applied one. **A column added to an existing database is a deliberate one-off
+ALTER run by hand** (`CREATE TABLE IF NOT EXISTS` is a no-op where the table exists, so the baseline
+cannot add one), which is the trade the no-ALTER baseline makes.
 `withTransaction(fn)` = BEGIN/COMMIT/ROLLBACK. `dropSchema()` refuses `public`. **int8 and numeric
 are parsed to JS numbers** (`pg.types.setTypeParser(20|1700)`) — without that, `chips` and `SUM()`
 come back as strings.
@@ -1110,7 +1119,8 @@ deploy runbook; `steps.txt` the six-line routine.
   `socket.io.min.js` (`internal/app/assets/`, MIT, copied from the former
   `server/node_modules/socket.io/client-dist`) so the browser client in `go-server/public` works
   unchanged. Every shipped client is websocket-only.
-- **DB via `pgx`** (`internal/db`): `schema.sql` (embedded; the only copy now — idempotent DDL run at
+- **DB via `pgx`** (`internal/db`): `migration/V*.sql` (embedded; Flyway-named, DDL and DML split,
+  applied in version order — idempotent, run at
   every start — `users` and `chip_ledger` only, plus guarded drops of the retired `game_states`,
   `pots` and `hands`), the `Checkpoint`/`Settle` transactions of §5.1, `search_path` as a connection parameter,
   `statement_timeout` per pooled connection (`PG_STATEMENT_TIMEOUT_MS`). Money-path fixes vs Node
