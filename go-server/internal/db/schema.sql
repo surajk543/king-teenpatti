@@ -171,7 +171,10 @@ CREATE TABLE IF NOT EXISTS profile_pictures (
   )
 );
 
--- Seeds the catalogue with the bundled pictures in go-server/public/profiles.
+-- Seeds the catalogue. The pictures are HOSTED, not bundled: image_url is
+-- whatever a client can load, and these are Drive's rasterised PNGs at 256px
+-- ("=s256"), not paths into PUBLIC_DIR. The files under public/profiles stay
+-- for the browser client's fallback; nothing in this table points at them.
 -- ON CONFLICT DO NOTHING on the natural key, so this is a no-op from the
 -- second boot on and never rewrites a row the owner has since re-priced,
 -- renamed, reordered or retired. Editing the catalogue is an UPDATE, not a
@@ -187,32 +190,49 @@ DECLARE
 BEGIN
   FOR seed IN
     SELECT * FROM (VALUES
-      ('Bear',    '/profiles/bear.svg',     'FREE',        0::bigint,  10),
-      ('Cat',     '/profiles/cat.svg',      'FREE',        0::bigint,  20),
-      ('Dog',     '/profiles/dog.svg',      'FREE',        0::bigint,  30),
-      ('Frog',    '/profiles/frog.svg',     'FREE',        0::bigint,  40),
-      ('Horse',   '/profiles/horse.svg',    'FREE',        0::bigint,  50),
-      ('Koala',   '/profiles/koala.svg',    'FREE',        0::bigint,  60),
-      ('Monkey',  '/profiles/monkey.svg',   'FREE',        0::bigint,  70),
-      ('Penguin', '/profiles/penguin.svg',  'FREE',        0::bigint,  80),
-      ('Rabbit',  '/profiles/rabbit.svg',   'FREE',        0::bigint,  90),
-      ('Fox',     '/profiles/fox.svg',      'PREMIUM', 10000::bigint, 100),
-      ('Owl',     '/profiles/owl.svg',      'PREMIUM', 10000::bigint, 110),
-      ('Lion',    '/profiles/lion.svg',     'PREMIUM', 25000::bigint, 120),
-      ('Tiger',   '/profiles/tiger.svg',    'PREMIUM', 25000::bigint, 130),
-      ('Panda',   '/profiles/panda.svg',    'PREMIUM', 50000::bigint, 140),
-      ('Wolf',    '/profiles/wolf.svg',     'PREMIUM', 50000::bigint, 150),
-      -- An animated picture, to prove the column takes an absolute URL and the
-      -- picker takes a Lottie. image_url is whatever a client can load, not a
-      -- path into PUBLIC_DIR; this one is a dotLottie (a zip of manifest,
-      -- animation and images) and only the picker plays it — everywhere else it
-      -- is drawn stopped on its first frame.
+      ('Bear',     'https://lh3.googleusercontent.com/d/1cMAxBlDvKxPpPyOKffLsjM0RDxPUdC-_=s256',
+       'FREE',       0::bigint, TRUE,   10),
+      ('Cat',      'https://lh3.googleusercontent.com/d/1fTFvJGmCOaFF-mCm_4XAdyjaRFw3Sf9a=s256',
+       'FREE',       0::bigint, TRUE,   20),
+      ('Dog',      'https://lh3.googleusercontent.com/d/1hZ2iw1UkqHJN18MLUhRTZGbgLBm-7dBS=s256',
+       'FREE',       0::bigint, TRUE,   30),
+      ('Frog',     'https://lh3.googleusercontent.com/d/1JNMYRv7JtMkfkhEebxLIpTEx4TVMIV-7=s256',
+       'FREE',       0::bigint, TRUE,   40),
+      ('Horse',    'https://lh3.googleusercontent.com/d/16v7Hh1ZknhM79ZR0KvelT48J4h2T-wyd=s256',
+       'FREE',       0::bigint, TRUE,   50),
+      ('Koala',    'https://lh3.googleusercontent.com/d/1eRCQHZY-GJc5I2skndx6eyegFhTDCXoH=s256',
+       'FREE',       0::bigint, TRUE,   60),
+      ('Monkey',   'https://lh3.googleusercontent.com/d/1NJDPIyXjEDEj4nRYEu1KTUjGDNQGqAfg=s256',
+       'FREE',       0::bigint, TRUE,   70),
+      ('Penguin',  'https://lh3.googleusercontent.com/d/11MRH75SHIbZJzeK_tkQp6Gt6Z5GFJlaH=s256',
+       'FREE',       0::bigint, TRUE,   80),
+      ('Rabbit',   'https://lh3.googleusercontent.com/d/1wIdpZ7RMytoy9rhpA411lZFz7CbjdyM3=s256',
+       'FREE',       0::bigint, TRUE,   90),
+      ('Fox',      'https://lh3.googleusercontent.com/d/1qBwGLPAEBr2y5Y2_EVCAd0jQWDeCcUOW=s256',
+       'PREMIUM', 10000::bigint, TRUE,  100),
+      ('Owl',      'https://lh3.googleusercontent.com/d/125zcjmHrYFGg0jMFm0zqpRg_G8VNSr5L=s256',
+       'PREMIUM', 10000::bigint, TRUE,  110),
+      ('Lion',     'https://lh3.googleusercontent.com/d/1weXwu_K_35tQHYg92C4tIB9TwM7mBDab=s256',
+       'PREMIUM', 25000::bigint, TRUE,  120),
+      ('Tiger',    'https://lh3.googleusercontent.com/d/1L-focNnL0yNJueAArM-YfHE9kX0VZv3T=s256',
+       'PREMIUM', 25000::bigint, TRUE,  130),
+      ('Panda',    'https://lh3.googleusercontent.com/d/1zCySFnbUMtnBjv1g_u9nruHZM5PIdnt_=s256',
+       'PREMIUM', 50000::bigint, TRUE,  140),
+      ('Wolf',     'https://lh3.googleusercontent.com/d/1LB0wQaR_rq3bYk9oN5P6RWsEm5-oIXae=s256',
+       'PREMIUM', 50000::bigint, TRUE,  150),
+      -- An animated picture, and the reason it is seeded INACTIVE: it does not
+      -- render yet. Every layer in that dotLottie is an image layer, and its
+      -- assets name image_0.png while the zip stores them under images/.
+      -- LottieComposition.decodeZip matches on the whole path, so it finds
+      -- nothing and draws a silent blank. The picker's Lottie loader is right;
+      -- the decoder needs to match on the basename instead. Flip this to TRUE
+      -- once it does — the row is already here waiting.
       ('Butterfly', 'https://lottie.host/753d8332-77a2-46c9-914d-ae98c148a65a/lPzmUsFDRo.lottie',
-                                        'FREE',        0::bigint, 160)
-    ) AS t(name, image_url, type, cost, sort_order)
+       'FREE',          0::bigint, FALSE, 160)
+    ) AS t(name, image_url, type, cost, is_active, sort_order)
   LOOP
     INSERT INTO profile_pictures (name, image_url, type, cost, is_active, sort_order, created_at, updated_at)
-    VALUES (seed.name, seed.image_url, seed.type, seed.cost, TRUE, seed.sort_order, stamp, stamp)
+    VALUES (seed.name, seed.image_url, seed.type, seed.cost, seed.is_active, seed.sort_order, stamp, stamp)
     ON CONFLICT (image_url) DO NOTHING;
   END LOOP;
 END;

@@ -361,11 +361,10 @@ test('the picture catalogue is listed, worn and cleared', async () => {
   const premium = profiles.find((p) => p.type === 'PREMIUM');
   assert.ok(free && premium, 'the seeded catalogue has both tiers');
 
-  // A bundled picture specifically: a hosted one (the animated dotLottie) is
-  // not served by this server at all, so picking "the first free row" would
-  // start failing the day one sorts to the front.
-  const local = profiles.find((p) => p.url.startsWith('/profiles/'));
-  const served = await http('GET', local.url, { raw: true });
+  // The catalogue's pictures are hosted elsewhere now, so this asserts what is
+  // still this server's job: that the profiles directory is served. A row is
+  // not the subject any more, so it names a bundled file outright.
+  const served = await http('GET', '/profiles/default.svg', { raw: true });
   assert.equal(served.status, 200);
   assert.match(served.headers.get('content-type') ?? '', /^image\/svg\+xml/);
 
