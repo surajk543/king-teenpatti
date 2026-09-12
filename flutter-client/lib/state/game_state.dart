@@ -354,14 +354,25 @@ class GameState extends ChangeNotifier {
         // onto another table, or sitting down for the first time. All three
         // are a new sitting as far as the drawer's clock is concerned.
         final newTable = room?.roomId != s.roomId;
+        // The server sends options to the player on turn and to nobody else,
+        // so options arriving where there were none is this seat's turn
+        // beginning.
+        final myTurnBegan =
+            room?.you?.options == null && s.you?.options != null;
         room = s;
         if (newTable) seatedAt = DateTime.now();
         if (newHand) {
-          // A fresh deal cuts the last celebration short and resets the stepper.
+          // A fresh deal cuts the last celebration short.
           _clearSideshow();
           _clearCelebration();
-          raiseIndex = 0;
         }
+        // Every turn opens on the plain chaal. The stepper used to keep the
+        // rung it was left on until the next deal, so a raise made on one turn
+        // was quietly made again when the turn came back round — and for more,
+        // because the ladder had climbed with the stake it had just raised. On
+        // a blind table, where the ladder runs to the whole stack, that is a
+        // hand-sized bet the player never asked for.
+        if (newHand || myTurnBegan) raiseIndex = 0;
         final steps = s.you?.options?.raiseSteps ?? const [];
         if (steps.isNotEmpty && raiseIndex > steps.length - 1) {
           raiseIndex = steps.length - 1;
@@ -971,7 +982,15 @@ class GameState extends ChangeNotifier {
     }
   }
 
-  void see() => _conn.act(GameAction.see);
+  /// Looking is free and does not end the turn, but the ladder that comes
+  /// back is double the blind one — so the stepper starts again rather than
+  /// re-pricing whatever rung it happened to be showing.
+  void see() {
+    raiseIndex = 0;
+    _conn.act(GameAction.see);
+    notifyListeners();
+  }
+
   void pack() => _conn.act(GameAction.pack);
   void show(int amount) => _conn.act(GameAction.show, amount: amount);
 
