@@ -155,15 +155,25 @@ type DBConfig struct {
 	// the one ledger write (persist_failed) instead of freezing that table's
 	// actor for good. 0 disables the limit (Node's behaviour). Go-only key.
 	StatementTimeoutMs int
-	// LedgerPurgeInterval is LEDGER_PURGE_INTERVAL_MS (1h): how often
-	// db.PurgeLedger runs. 0 disables the purge job entirely — no rows are
-	// ever removed unless this is set.
+	// LedgerPurgeInterval is LEDGER_PURGE_INTERVAL_MS (5 min): how often
+	// db.PurgeLedger runs. 0 disables the purge job entirely — and it is the
+	// ONLY way to disable it; see the warning on LedgerPurgeAfter.
 	LedgerPurgeInterval time.Duration
-	// LedgerPurgeAfter is LEDGER_PURGE_AFTER_MS (24h): a purgeable chip_ledger
-	// row (see db.purgeableReasons — checkpoint rows only, never purchase or
-	// reward rows) is deleted once it is older than this. 24h is a wide
-	// margin over RESUME_OFFER_MS (10 min, the longest a reconnecting client
-	// can still legitimately retry a stale action against).
+	// LedgerPurgeAfter is LEDGER_PURGE_AFTER_MS (10 min): a purgeable
+	// chip_ledger row (see db.purgeableReasons — checkpoint rows only, never
+	// purchase or reward rows) is deleted once it is older than this.
+	//
+	// 10 min is exactly RESUME_OFFER_MS, which is the longest a reconnecting
+	// client can still legitimately retry a stale action against. The two
+	// were deliberately far apart (this was 24h) so that a retry always found
+	// its action_id still present and was refused as the duplicate it is;
+	// they now meet, so a retry at the very edge of the resume window can
+	// find the row already purged and the UNIQUE guard gone. Raise this if
+	// that trade stops being worth the disk.
+	//
+	// 0 does NOT disable the purge: it makes the cutoff `now`, so the next
+	// pass deletes every purgeable row in the table. Use LedgerPurgeInterval
+	// = 0 to turn the job off.
 	LedgerPurgeAfter time.Duration
 }
 
@@ -352,8 +362,8 @@ func Defaults() *Config {
 			Schema:              "public",
 			PoolMax:             10,
 			StatementTimeoutMs:  15000,
-			LedgerPurgeInterval: time.Hour,
-			LedgerPurgeAfter:    24 * time.Hour,
+			LedgerPurgeInterval: 5 * time.Minute,
+			LedgerPurgeAfter:    10 * time.Minute,
 		},
 		Game: GameConfig{
 			WelcomeChips: 200000,

@@ -36,6 +36,12 @@ func TestDefaultsMatchNode(t *testing.T) {
 		"JWT.Secret": "dev-only-insecure-secret", "JWT.ExpiresIn": 30 * 24 * time.Hour,
 		"Facebook.AppID": "", "Facebook.AppSecret": "", "AllowFakeProviders": false,
 		"DB.URL": "postgres://postgres:postgres@localhost:5432/gameplay", "DB.Schema": "public", "DB.PoolMax": 10,
+		"DB.StatementTimeoutMs": 15000,
+		// The purge job is ON by default. Pinned here because the pair is a
+		// retention policy, not a tuning knob: the interval is the only way to
+		// turn it off, and the window is what decides how long a replayed
+		// action_id is still refused as the duplicate it is.
+		"DB.LedgerPurgeInterval": 5 * time.Minute, "DB.LedgerPurgeAfter": 10 * time.Minute,
 		"Game.WelcomeChips": int64(200000), "Game.BootAmount": int64(200),
 		"Game.TableStakes": []int64{200, 5000, 50000, 1000000},
 		"Game.LobbyTables": []LobbyTable{
@@ -180,6 +186,13 @@ func TestEveryKey(t *testing.T) {
 		{"LIVE_STATE_TTL_MS", "3600000", "LiveStateTTL", time.Hour},
 		{"LIVE_INSTANCE_ID", "blue-1", "LiveInstanceID", "blue-1"},
 		{"LIVE_RECONCILE_MS", "5000", "LiveReconcile", 5 * time.Second},
+		{"LEDGER_PURGE_INTERVAL_MS", "60000", "DB.LedgerPurgeInterval", time.Minute},
+		{"LEDGER_PURGE_AFTER_MS", "900000", "DB.LedgerPurgeAfter", 15 * time.Minute},
+		// Zero means two different things here, and both are load-bearing:
+		// no purge job at all, and a cutoff of `now` that takes every
+		// purgeable row on the next pass.
+		{"LEDGER_PURGE_INTERVAL_MS", "0", "DB.LedgerPurgeInterval", time.Duration(0)},
+		{"LEDGER_PURGE_AFTER_MS", "0", "DB.LedgerPurgeAfter", time.Duration(0)},
 	}
 	for _, row := range rows {
 		t.Run(row.key+"="+row.value, func(t *testing.T) {

@@ -515,8 +515,14 @@ func (a *App) stopReconciler() {
 // double-credit guard, not a short-lived retry guard, and PurgeLedger's WHERE
 // clause is hardcoded to exclude them regardless of what this loop does.
 //
-// A non-positive interval disables the job entirely — the default keeps
-// every row forever, same as before this existed.
+// A non-positive interval disables the job entirely. It is ON by default
+// (every 5 min, deleting checkpoint rows older than 10 min), so a deployment
+// that wants to keep its hand history has to say so with
+// LEDGER_PURGE_INTERVAL_MS=0.
+//
+// The first pass is one full interval after boot, not at startup: a ticker
+// fires at t+interval. A server restarted more often than the interval never
+// purges at all.
 func (a *App) startLedgerPurge() {
 	interval := a.cfg.DB.LedgerPurgeInterval
 	if interval <= 0 || a.db == nil {
