@@ -44,9 +44,18 @@ bash ops/build.sh && ./bin/gameplay            # static, stripped, version-stamp
 go test -race ./...                            # unit + Postgres-backed tests (they skip without a database)
 ```
 
+A release is a tag on `master`, cut with `go-server/ops/release.sh patch|minor|major` and named
+`go-server/vX.Y.Z`. The tag is stamped into the binary and reported by `GET /health`'s `version`, so
+`go-server/ops/prod-version.sh` can say whether production is running what you tagged (it exits 2
+when it is not) without an ssh. The script never pushes the tag — `git push origin go-server/vX.Y.Z`
+is yours. `go-server/README.md` §Releasing has the detail; tag **before** deploying, or the check
+compares against a stale tag and reports IN SYNC while production is behind.
+
 Production deploys follow `go-server/ops/DEPLOY.md` (systemd unit `gameplay.service`, working
 directory and `.env` in `go-server/`; the first-time installer also removes the Node tree from the
-host once the Go binary is healthy — `steps.txt` is the short routine). Everything the Go server does differently from the Node
+host once the Go binary is healthy — `steps.txt` is the short routine). Note that `go-server/.env`
+on the host overrides compiled-in defaults, so a release that changes one leaves any key production
+pins unchanged until somebody edits the file. Everything the Go server does differently from the Node
 original on purpose — websocket only, no Redis, Go runtime metrics under `game_server_go_*`, a few
 latent money-path bugs fixed — is listed in `go-server/PORT_PLAN.md` §9 and `go-server/DECISIONS.md`.
 

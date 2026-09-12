@@ -1,4 +1,15 @@
 # Deploy routine — Go server (the Node server was removed from production on the switch)
+
+# 0. FIRST, on your own machine: cut the release tag from master and push it.
+#    The tag IS the version — build.sh stamps it into the binary and /health reports it — so an
+#    untagged deploy has no name, and prod-version.sh below would compare against the previous tag
+#    and cheerfully report IN SYNC while production is several commits behind.
+#    release.sh refuses a dirty tree and a commit that is already tagged, and never pushes for you.
+git checkout master && git pull origin master
+bash go-server/ops/release.sh minor               # or patch / major / vX.Y.Z ; --current just reports
+git push origin go-server/vX.Y.Z
+
+# 1. Then on the host:
 cd /var/www/gameplay/king-teenpatti
 git pull origin master
 bash go-server/ops/build.sh                       # as deploy, no sudo: installs Go if missing, builds go-server/bin/gameplay
@@ -8,15 +19,16 @@ sudo systemctl status gameplay --no-pager
 sudo journalctl -u gameplay -n 20 --no-pager
 curl -s http://127.0.0.1:3000/health | python3 -m json.tool | head -20   # process.node must start with "go"
 
+# The host's go-server/.env OVERRIDES the defaults compiled into the binary. A release that changes
+# a default (LOBBY_TABLES, TABLE_STAKES, SEEN_MAX_POT, …) does nothing on a host that pins that key
+# until the file is edited — check it whenever the release notes mention one.
+grep -E '^(LOBBY_TABLES|TABLE_STAKES|SEEN_MAX_POT|ENTRY_CAP)' go-server/.env
+
 # Which build is live? /health carries the release tag ops/build.sh stamped in.
 # Do this from anywhere — no ssh, no credentials — and trust nothing until it says IN SYNC:
 # a restart that quietly failed is indistinguishable from a successful one otherwise.
 bash go-server/ops/prod-version.sh                # IN SYNC / BEHIND (exit 2) against api.sungamestudio.com
 curl -s https://api.sungamestudio.com/health | python3 -c 'import sys,json;print(json.load(sys.stdin)["version"])'
-
-# Cutting a release (tags are go-server/vX.Y.Z; the script refuses a dirty tree and never pushes):
-bash go-server/ops/release.sh patch               # or minor / major / vX.Y.Z ; --current just reports
-git push origin go-server/vX.Y.Z
 
 # Practice bots / load ramp against production (from any machine with Node 20+):
 #   cd tools && npm install && npm run bot -- --url https://api.sungamestudio.com --count 3 --boot 200 --category blind

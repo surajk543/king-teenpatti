@@ -125,6 +125,47 @@ Then the real clients, unchanged: `npm run bot -- --url http://localhost:3000 --
 the Flutter debug build with `--dart-define=SERVER_URL=http://10.0.2.2:3000`, and the ledger check
 (`SUM(chip_ledger.delta) per user == users.chips`, `../CLAUDE.md` §4) must return 0.
 
+## Releasing
+
+A release is a **tag on `master`**, because `master` is the branch production pulls. The tag is the
+version: `ops/build.sh` stamps `git describe --tags --match 'go-server/v*'` into `main.version`, and
+that is what `./bin/gameplay -version`, the service's first journal line and **`GET /health`'s
+`version`** all report. No tag, no version — with none at all `git describe` falls back to the bare
+commit, which is why production reported `0d78eae` before the first one existed.
+
+Tags are named **`go-server/vX.Y.Z`**. The component prefix is deliberate: this repository ships a
+server, a Flutter client and a bot fleet on their own schedules, so one plain `vX.Y.Z` would have to
+stand for all three, and `build.sh`'s `--match` would pick up whichever was tagged last.
+
+```bash
+bash ops/release.sh --current        # the newest tag, and what `git describe` renders right now
+bash ops/release.sh patch            # go-server/v1.1.0 -> go-server/v1.1.1
+bash ops/release.sh minor            # -> go-server/v1.2.0   (new tables, a changed rule: player-visible)
+bash ops/release.sh major            # -> go-server/v2.0.0
+bash ops/release.sh v1.4.0           # that exact version
+git push origin go-server/v1.2.0     # publish it — release.sh never pushes for you
+```
+
+`release.sh` **refuses a dirty tree** and **refuses a commit that already carries a tag**: a tag has
+to name a commit somebody else can rebuild byte for byte, or the stamp in the binary is a lie. It
+does not push, because a version number cannot be withdrawn once anyone has fetched it — that step
+is yours.
+
+Then check what production actually answers with, from anywhere, no ssh and no credentials:
+
+```bash
+bash ops/prod-version.sh                       # or: ops/prod-version.sh http://127.0.0.1:3000
+curl -s https://api.sungamestudio.com/health | python3 -c 'import sys,json;print(json.load(sys.stdin)["version"])'
+```
+
+It prints `IN SYNC` or `BEHIND`, and **exits 2** when behind, so a deploy script can gate on it.
+A restart that silently failed looks exactly like one that worked from outside; this is what tells
+them apart.
+
+> **Tag before you deploy, not after.** `prod-version.sh` compares production against the newest
+> *tag*, so commits merged to `master` but not yet tagged are invisible to it — production can be
+> several commits behind while the check still says `IN SYNC`.
+
 ## Deploying
 
 `ops/DEPLOY.md` — build as `deploy` (`ops/build.sh`), install once with
@@ -132,8 +173,14 @@ the Flutter debug build with `--dart-define=SERVER_URL=http://10.0.2.2:3000`, an
 metrics, copies the old `server/.env` to `go-server/.env` once, and removes the Node tree from the
 host once the Go binary is healthy — `KEEP_NODE_TREE=1` skips that), verify, and
 `ops/rollback-to-node.sh` to go back (it needs the Node tree restored from history first —
-`git checkout c19963b -- server` — and says so). Every later deploy is `git pull origin master` →
-`bash ops/build.sh` → `sudo systemctl restart gameplay`; `../steps.txt` is that routine in six lines.
+`git checkout c19963b -- server` — and says so). Every later deploy is **tag first** (above), then
+`git pull origin master` → `bash ops/build.sh` → `sudo systemctl restart gameplay` →
+`bash ops/prod-version.sh` to confirm the version answering is the one you tagged; `../steps.txt` is
+that routine in short form.
+
+Check `go-server/.env` on the host when a release changes a default: the file's values **override**
+the defaults compiled in, so a key production pins (`LOBBY_TABLES`, `TABLE_STAKES`, …) keeps its old
+value through a deploy until somebody edits it.
 
 ## What differs from Node on purpose
 
