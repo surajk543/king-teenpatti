@@ -1622,11 +1622,11 @@ Future<void> _openPicturePicker(BuildContext context) async {
       final theme = Theme.of(sheetContext);
       final text = theme.textTheme;
       final size = MediaQuery.sizeOf(sheetContext);
-      // A tile's circle, and the box the name sits under it in. The screen is
-      // short and wide in landscape, so the grid earns its height from the
-      // number of rows rather than from big tiles: at 891x411 this is 30.2,
-      // and eleven tiles fit across.
-      final tileR = (size.height * 0.072).clamp(22.0, 34.0);
+      // A tile's circle. Bigger than it was: these are the faces the player is
+      // choosing between, and at 30dp they were thumbnails with labels stacked
+      // on them. The grid scrolls, so height is the cheap axis to spend —
+      // 43.2 at 891x411, and seven still fit across.
+      final tileR = (size.height * 0.105).clamp(32.0, 52.0);
       final headR = (size.height * 0.055).clamp(18.0, 26.0);
 
       return Consumer<GameState>(
@@ -1906,7 +1906,15 @@ Future<void> _unlockPicture(BuildContext context, ProfilePicture picture) async 
         ],
       ),
       content: Text(
-        t.unlockBody(picture.name, formatChips(picture.cost)),
+        // A rental and a purchase are different offers, and the dialog is the
+        // last place to say which this is before chips leave the wallet.
+        picture.rented
+            ? t.unlockRentBody(
+                picture.name,
+                formatChips(picture.cost),
+                picture.durationDays,
+              )
+            : t.unlockBody(picture.name, formatChips(picture.cost)),
         style: theme.textTheme.bodyMedium?.copyWith(
           color: theme.colorScheme.onSurface.withValues(alpha: AppTheme.inkMed),
         ),
@@ -1959,6 +1967,12 @@ class _PictureChoice extends StatelessWidget {
     final url = context.read<GameState>().absoluteUrl(picture.url);
     final locked = picture.locked;
 
+    // Three rings, and each says something different. Gold is the one being
+    // worn. Green is premium already paid for — the padlock is off, and at a
+    // glance down the shelf that is the line between what this player can use
+    // and what they would have to buy. Everything else keeps the champagne
+    // hairline every portrait in the app wears.
+    final unlockedRing = !picture.free && !locked;
     Widget face = AnimatedSwitcher(
       duration: Motion.base,
       child: selected
@@ -1973,10 +1987,12 @@ class _PictureChoice extends StatelessWidget {
               animate: true,
             )
           : Avatar(
-              key: const ValueKey(false),
+              key: ValueKey(unlockedRing),
               url: url,
               fallback: picture.name,
               radius: radius,
+              ring: unlockedRing ? theme.colorScheme.primary : null,
+              ringWidth: unlockedRing ? 2 : 1.5,
               animate: true,
             ),
     );
@@ -1997,23 +2013,20 @@ class _PictureChoice extends StatelessWidget {
         onTap: busy ? null : onTap,
         borderRadius: BorderRadius.circular(Radii.md),
         child: SizedBox(
-          width: radius * 2 + Space.md,
+          width: radius * 2 + Space.lg,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              // The picture, with nothing written on it. The price and the
+              // term used to sit over the bottom of the portrait, which put
+              // type on exactly the part of a face people look at; they are a
+              // line of their own underneath now.
               SizedBox(
                 height: radius * 2 + 6,
                 child: Stack(
                   alignment: Alignment.center,
                   children: [
                     Center(child: face),
-                    if (locked && !busy)
-                      Positioned(bottom: 0, child: _PriceTag(cost: picture.cost)),
-                    // A premium picture that HAS been paid for. Without this
-                    // an unlocked one is indistinguishable from a free one,
-                    // and the chips somebody spent stop showing anywhere.
-                    if (!locked && !picture.free && !busy)
-                      const Positioned(bottom: 0, child: _UnlockedTag()),
                     if (busy)
                       SizedBox(
                         width: radius,
@@ -2027,6 +2040,20 @@ class _PictureChoice extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: Space.xxs),
+              if (!busy && locked)
+                _PriceTag(
+                  cost: picture.cost,
+                  days: picture.rented ? picture.durationDays : null,
+                ),
+              // A premium picture that HAS been paid for. Without this an
+              // unlocked one is indistinguishable from a free one, and the
+              // chips somebody spent stop showing anywhere. A rental says how
+              // long is left instead, because that is the thing its owner
+              // actually needs to know.
+              if (!busy && !locked && !picture.free)
+                _UnlockedTag(daysLeft: picture.daysLeft(DateTime.now())),
+              if (!busy && (locked || !picture.free))
+                const SizedBox(height: Space.xxs),
               // The catalogue gives every picture a name; showing it is what
               // turns a row of circles into a list somebody can talk about.
               Text(
@@ -2055,11 +2082,21 @@ class _PictureChoice extends StatelessWidget {
 /// same spot and the same shape as the price it replaces, so the eye reads the
 /// swap rather than a new kind of badge.
 class _UnlockedTag extends StatelessWidget {
-  const _UnlockedTag();
+  const _UnlockedTag({this.daysLeft});
+
+  /// Days left on the rental, or null when it never runs out.
+  final int? daysLeft;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    // The same green as the ring round an unlocked picture, so the badge and
+    // the outline read as one statement rather than two.
+    final green = theme.colorScheme.primary;
+    final left = daysLeft;
+    final label = left == null
+        ? context.read<GameState>().t.pictureUnlocked
+        : context.read<GameState>().t.daysLeft(left);
 
     return Container(
       padding: const EdgeInsets.symmetric(
@@ -2069,17 +2106,21 @@ class _UnlockedTag extends StatelessWidget {
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(Radii.pill),
         color: AppTheme.ink900.withValues(alpha: 0.82),
-        border: Border.all(color: AppTheme.goldBright.withValues(alpha: 0.55)),
+        border: Border.all(color: green.withValues(alpha: 0.55)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.lock_open, size: 9, color: AppTheme.goldBright),
+          Icon(
+            left == null ? Icons.lock_open : Icons.schedule,
+            size: 9,
+            color: green,
+          ),
           const SizedBox(width: 2),
           Text(
-            context.read<GameState>().t.pictureUnlocked,
+            label,
             style: theme.textTheme.labelSmall?.copyWith(
-              color: AppTheme.goldBright,
+              color: green,
               fontWeight: FontWeight.w700,
               fontSize: 9,
               height: 1.1,
@@ -2093,9 +2134,14 @@ class _UnlockedTag extends StatelessWidget {
 
 /// The padlock and price sitting on a premium picture nobody has bought yet.
 class _PriceTag extends StatelessWidget {
-  const _PriceTag({required this.cost});
+  const _PriceTag({required this.cost, this.days});
 
   final int cost;
+
+  /// The rental term, or null when buying it keeps it for good. Shown under
+  /// the price rather than beside it: the price is the decision, the term is
+  /// the small print, and on a 60dp tile they cannot share a line.
+  final int? days;
 
   @override
   Widget build(BuildContext context) {
@@ -2111,20 +2157,35 @@ class _PriceTag extends StatelessWidget {
         color: AppTheme.ink900.withValues(alpha: 0.82),
         border: Border.all(color: AppTheme.goldBright.withValues(alpha: 0.45)),
       ),
-      child: Row(
+      child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.lock, size: 9, color: AppTheme.goldBright),
-          const SizedBox(width: 2),
-          Text(
-            formatChips(cost),
-            style: theme.textTheme.labelSmall?.copyWith(
-              color: AppTheme.goldBright,
-              fontWeight: FontWeight.w700,
-              fontSize: 9,
-              height: 1.1,
-            ),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.lock, size: 9, color: AppTheme.goldBright),
+              const SizedBox(width: 2),
+              Text(
+                formatChips(cost),
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: AppTheme.goldBright,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 9,
+                  height: 1.1,
+                ),
+              ),
+            ],
           ),
+          if (days != null)
+            Text(
+              context.read<GameState>().t.rentForDays(days!),
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: AppTheme.goldBright.withValues(alpha: 0.75),
+                fontWeight: FontWeight.w600,
+                fontSize: 8,
+                height: 1.15,
+              ),
+            ),
         ],
       ),
     );

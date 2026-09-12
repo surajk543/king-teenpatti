@@ -205,6 +205,16 @@ class Strings {
   /// The caption under the big picture in Settings.
   String get tapToChangePicture => _('tapToChangePicture');
 
+  /// Rental wording for a premium picture.
+  String rentForDays(int days) =>
+      _('rentForDays').replaceAll('{days}', '$days');
+  String daysLeft(int days) => _('daysLeft').replaceAll('{days}', '$days');
+  String unlockRentBody(String name, String cost, int days) =>
+      _('unlockRentBody')
+          .replaceAll('{name}', name)
+          .replaceAll('{cost}', cost)
+          .replaceAll('{days}', '$days');
+
   /// The two tiers, as section headings in the picture picker.
   String get pictureFree => _('pictureFree');
   String get picturePremium => _('picturePremium');
@@ -408,6 +418,9 @@ class Strings {
       'unlockBody': '{name} costs {cost} chips. Unlock it and wear it now?',
       'pictureUnlocked': 'Unlocked',
       'tapToChangePicture': 'Tap to change your picture',
+      'rentForDays': '{days} days',
+      'daysLeft': '{days}d left',
+      'unlockRentBody': '{name} costs {cost} chips and is yours for {days} days. Unlock it and wear it now?',
       'pictureFree': 'Free',
       'picturePremium': 'Premium',
       'youAreWinner': 'You are the winner',
@@ -595,6 +608,9 @@ class Strings {
       'unlockBody': '{name} की कीमत {cost} चिप्स है। अभी अनलॉक करके लगाएँ?',
       'pictureUnlocked': 'अनलॉक',
       'tapToChangePicture': 'तस्वीर बदलने के लिए टैप करें',
+      'rentForDays': '{days} दिन',
+      'daysLeft': '{days} दिन बाकी',
+      'unlockRentBody': '{name} की कीमत {cost} चिप्स है और यह {days} दिन तक आपका रहेगा। अभी अनलॉक करके लगाएँ?',
       'pictureFree': 'मुफ़्त',
       'picturePremium': 'प्रीमियम',
       'themeDark': 'डार्क',
@@ -781,6 +797,9 @@ class Strings {
       'unlockBody': '{name} এর দাম {cost} চিপস। এখনই আনলক করে ব্যবহার করবেন?',
       'pictureUnlocked': 'আনলক',
       'tapToChangePicture': 'ছবি বদলাতে ট্যাপ করুন',
+      'rentForDays': '{days} দিন',
+      'daysLeft': '{days} দিন বাকি',
+      'unlockRentBody': '{name} এর দাম {cost} চিপস এবং এটি {days} দিন আপনার থাকবে। এখনই আনলক করে ব্যবহার করবেন?',
       'pictureFree': 'ফ্রি',
       'picturePremium': 'প্রিমিয়াম',
       'yourChips': 'আপনার চিপ',
@@ -968,6 +987,9 @@ class Strings {
       'unlockBody': '{name} ની કિંમત {cost} ચિપ્સ છે. હમણાં અનલૉક કરીને વાપરવો?',
       'pictureUnlocked': 'અનલૉક',
       'tapToChangePicture': 'ફોટો બદલવા ટૅપ કરો',
+      'rentForDays': '{days} દિવસ',
+      'daysLeft': '{days} દિવસ બાકી',
+      'unlockRentBody': '{name} ની કિંમત {cost} ચિપ્સ છે અને તે {days} દિવસ તમારો રહેશે. હમણાં અનલૉક કરીને વાપરવો?',
       'pictureFree': 'મફત',
       'picturePremium': 'પ્રીમિયમ',
       'appVersion': 'એપ આવૃત્તિ',
@@ -1156,6 +1178,9 @@ class Strings {
       'unlockBody': '{name} ਦੀ ਕੀਮਤ {cost} ਚਿਪਸ ਹੈ। ਹੁਣੇ ਅਨਲਾਕ ਕਰਕੇ ਲਗਾਉਣੀ ਹੈ?',
       'pictureUnlocked': 'ਅਨਲਾਕ',
       'tapToChangePicture': 'ਤਸਵੀਰ ਬਦਲਣ ਲਈ ਟੈਪ ਕਰੋ',
+      'rentForDays': '{days} ਦਿਨ',
+      'daysLeft': '{days} ਦਿਨ ਬਾਕੀ',
+      'unlockRentBody': '{name} ਦੀ ਕੀਮਤ {cost} ਚਿਪਸ ਹੈ ਅਤੇ ਇਹ {days} ਦਿਨ ਤੁਹਾਡੀ ਰਹੇਗੀ। ਹੁਣੇ ਅਨਲਾਕ ਕਰਕੇ ਲਗਾਉਣੀ ਹੈ?',
       'pictureFree': 'ਮੁਫ਼ਤ',
       'picturePremium': 'ਪ੍ਰੀਮੀਅਮ',
       'missedTurnsLabel': 'ਖੁੰਝੀਆਂ ਚਾਲਾਂ',

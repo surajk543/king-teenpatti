@@ -697,7 +697,9 @@ class ProfilePicture {
     required this.url,
     required this.type,
     required this.cost,
+    required this.durationDays,
     required this.owned,
+    required this.expiresAt,
   });
 
   final int id;
@@ -714,12 +716,32 @@ class ProfilePicture {
   /// Chips it costs. Always 0 when [free].
   final int cost;
 
+  /// How long a purchase lasts. 0 means for ever, which every free picture is
+  /// and a premium one is until somebody prices it as a rental.
+  final int durationDays;
+
   /// Whether this player may wear it: every free picture, plus the premium
   /// ones they have bought. The server decides this per viewer — the client
   /// never works it out from the wallet.
   final bool owned;
 
+  /// Epoch ms this player's rental runs out; 0 when they do not own it, or own
+  /// it for ever.
+  final int expiresAt;
+
   bool get free => type == 'FREE';
+
+  /// Whether buying this one rents it rather than keeps it.
+  bool get rented => durationDays > 0;
+
+  /// Whole days left on this player's rental, or null when it never runs out.
+  /// Rounded UP, so the last few hours read as "1 day left" rather than "0".
+  int? daysLeft(DateTime now) {
+    if (expiresAt <= 0) return null;
+    final left = expiresAt - now.millisecondsSinceEpoch;
+    if (left <= 0) return 0;
+    return (left / Duration.millisecondsPerDay).ceil();
+  }
 
   /// Locked = premium and not yet bought: the picker draws a padlock and the
   /// price, and tapping it offers to buy.
@@ -731,6 +753,8 @@ class ProfilePicture {
         url: _str(j['url']),
         type: _str(j['type']).isEmpty ? 'FREE' : _str(j['type']),
         cost: _int(j['cost']),
+        durationDays: _int(j['durationDays']),
+        expiresAt: _int(j['expiresAt']),
         // Absent means the server did not say, and the safe reading of that is
         // "not owned" — a free picture is only ever sent with owned true.
         owned: j['owned'] == true,
