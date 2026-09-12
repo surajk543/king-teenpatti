@@ -193,7 +193,7 @@ export class Bot {
    */
   async wearAPicture(user) {
     this.owesPicture = false;
-    if (user?.avatarChoice) return;
+    if (user?.activePictureId) return;
     const wanted = profileFor(this.index, await profileIds());
     if (!wanted) return;
     try {

@@ -81,7 +81,7 @@ king-teenpatti/
 │   │   ├── sio/                  our own Engine.IO v4 + Socket.IO v5 server, websocket only (protocol.go, conn.go, server.go)
 │   │   ├── socket/               the game protocol on sio: handler.go (Attach, guard, one method per event, grace, resume offers), wire.go (every event/ack), payload.go; testclient/
 │   │   ├── auth/                 tokens.go (JWT HS256), providers.go (Google/Facebook/guest/fake), http.go (routes, RequireAuth, WriteError), handlers.go (the 8 REST handlers), text.go
-│   │   ├── db/                   db.go (pgxpool, search_path as connection param, WithTx, DropSchema), schema.sql (embedded DDL — users + chip_ledger ONLY), ledger.go (THE money transactions: Checkpoint / Settle), users.go (login upsert, rewards, names, avatars); dbtest/
+│   │   ├── db/                   db.go (pgxpool, search_path as connection param, WithTx, DropSchema), schema.sql (embedded DDL — users + chip_ledger + the picture catalogue), ledger.go (THE money transactions: Checkpoint / Settle), users.go (login upsert, rewards, names, the worn picture), pictures.go (the catalogue, ownership and the chip purchase); dbtest/
 │   │   ├── metrics/              names.go (every game_* metric), metrics.go (registry, Bind*, Handler, HTTPMiddleware, SafeLabel)
 │   │   ├── app/                  app.go (mux, REST, socket endpoint, Start/Shutdown), health.go, static.go (PUBLIC_DIR + embedded assets/socket.io.min.js)
 │   │   └── util/                 UUID, RoomCode, slog JSON logger
@@ -296,8 +296,9 @@ and the transactions that DO run have this shape:
   (`chipsWritten` on the hand's contribution record, so it lives in the snapshot and survives a
   restart). It is never `SET chips = <live value>`: a reward credits PostgreSQL without touching the
   Redis seat, and an absolute overwrite at the next checkpoint would erase it.
-- **Rewards are lobby-only.** `POST /api/rewards/milestone|bonus` return **409 `seated`** before any
-  DB work, matching the rule display name and avatar already had. That closes the concurrent-credit
+- **Rewards and picture purchases are lobby-only.** `POST /api/rewards/milestone|bonus` and
+  `POST /api/profile/picture/buy` return **409 `seated`** before any DB work, matching the rule
+  display name and avatar already had. That closes the concurrent-credit
   hole at its source; the delta above is the belt to that pair of braces. Its real value is that it
   makes an invariant true: *a seated player's wallet cannot change except at these three moments.*
 - **Resolve once, record twice.** A player who packs gets a `hand_packed` row and then a `hand_loss`
@@ -495,9 +496,23 @@ with `room:joinCode`. Voluntary leave / kick never create an offer (the grace ti
 `POST /api/auth/login {provider: google|facebook|guest, idToken|accessToken|deviceId, displayName?}`
 → `{token, user, isNew, welcomeChips}`; `GET /api/auth/me`; `POST /api/rewards/milestone|bonus`
 (**409 `seated` while at a table** — rewards are lobby-only so a seated wallet only ever moves at the
-three checkpoints, §5.1); `GET /api/profiles` (unauthenticated);
-`POST /api/profile/avatar {avatar|null}` and `POST /api/profile/name {name}` (409 `seated` while at
-a table; live in `playerRoutes({isSeated})`, **not** `authRoutes`);
+three checkpoints, §5.1); **`GET /api/profiles`** — the picture catalogue from `profile_pictures`, active rows only, in
+`sort_order` then `id`: `{profiles:[{id, name, url, type, cost, sortOrder, owned}]}`. The token is
+**optional**: without one every FREE row reads `owned:true` and every PREMIUM one `owned:false`;
+with one, `owned` also covers the premium pictures that player has bought. A bad token is ignored,
+not refused;
+`POST /api/profile/avatar {avatar|null}` — `avatar` is a **profile_pictures id** (a JSON number or
+its text; it was a bundled file name before the catalogue existed). null/absent takes the picture
+off. Unknown id → 400 `unknown_avatar`, retired row → 400 `picture_retired`, a premium picture the
+player has not bought → **403 `picture_locked`**;
+**`POST /api/profile/picture/buy {pictureId}`** — unlocks a premium picture with chips: one
+`picture_purchase` ledger row (`action_id` `picture:<userId>:<pictureId>`, UNIQUE, so a double click
+cannot charge twice) plus a `user_profile_pictures` row, in one transaction under the wallet lock.
+Answers `{user, picture, charged, spent}`; `charged:false` means it was already owned. Free → 400
+`picture_free`, too poor → 409 `picture_chips`. **Buying does not wear it** — that is a separate
+avatar POST;
+`POST /api/profile/name {name}` (409 `seated` while at a table; these live in
+`playerRoutes({isSeated})`, **not** `authRoutes`);
 `GET /api/rooms` (no client);
 **`POST /api/purchases/google {productId, purchaseToken}`** — verifies the token with Google and banks
 the pack through a `purchase` ledger row (action_id `gplay:<token>`), so a replay credits once. **There
@@ -517,9 +532,23 @@ runs `schema.sql` (fully idempotent: IF NOT EXISTS / CREATE OR REPLACE / DO-bloc
 are parsed to JS numbers** (`pg.types.setTypeParser(20|1700)`) — without that, `chips` and `SUM()`
 come back as strings.
 
-Tables — **there are exactly two**: `users` (wallet = `chips BIGINT CHECK ≥ 0`, counters,
-`milestone_claimed`, `next_bonus_at`, `avatar_choice`, `deleted_at`) and **`chip_ledger`** (`action_id UNIQUE`,
-`hand_id`, `delta`, `balance`, `reason`; append-only trigger). `game_states`, `pots` and `hands` were
+Tables — **there are exactly four, and none of them is game state**: `users` (wallet = `chips BIGINT
+CHECK ≥ 0`, counters, `milestone_claimed`, `next_bonus_at`, `active_picture_id`, `deleted_at`),
+**`chip_ledger`** (`action_id UNIQUE`, `hand_id`, `delta`, `balance`, `reason`; append-only trigger),
+and the picture catalogue added 12 Sep 2026 (owner): **`profile_pictures`** (`name`, `image_url`
+UNIQUE, `type` FREE|PREMIUM, `cost` with a CHECK that free is 0 and premium is > 0, `is_active`,
+`sort_order`) and **`user_profile_pictures`** (`user_id`, `profile_picture_id`, PK on the pair) —
+who has bought what. A FREE picture needs **no** ownership row: everyone may wear it, so the table
+holds only what somebody paid for. `schema.sql` seeds the 15 bundled animals (9 free, 6 premium at
+10k/25k/50k) with `ON CONFLICT (image_url) DO NOTHING`, so re-pricing or retiring one is an UPDATE
+the next boot will not undo. `users.avatar_choice` (the old free-text `/profiles/x.svg` path) is
+migrated into `active_picture_id` and dropped — **but only once every non-empty choice has found its
+catalogue row**, and any picture that was already being worn is granted an ownership row first so
+seeding it as premium cannot confiscate it. Every statement naming `avatar_choice` goes through
+`EXECUTE` for the reason the retired-tables block documents: PL/pgSQL plans before it evaluates, so a
+direct reference stops the file parsing the boot after the column is gone. `avatar_url` **stays** —
+it is the Google/Facebook photo, a different thing from a chosen picture, and what "use my social
+picture" falls back to. `game_states`, `pots` and `hands` were
 all removed on 9 Sep 2026 — PostgreSQL holds money and audit only. `schema.sql` drops each on an
 existing database, but **only when it is empty**, so a restored backup is left for a human; every
 reference to a retired table goes through `EXECUTE` because PL/pgSQL plans before it evaluates and a
@@ -541,7 +570,9 @@ needs sudo on the host and is why the function is create-if-missing rather than 
 Test: `TestUserRowsAreNeverDeleted` (`internal/db/users_delete_test.go`).
 
 Ledger `reason` values: `welcome_bonus, hand_packed, hand_left, hand_win, hand_loss,
-milestone_reward, timed_bonus, purchase, account_deleted, legacy_reconciliation, test_fixture`.
+milestone_reward, timed_bonus, purchase, picture_purchase, account_deleted, legacy_reconciliation,
+test_fixture`. (`picture_purchase` is a premium profile picture bought with chips — a chip **sink**,
+always a negative delta, action_id `picture:<userId>:<pictureId>`.)
 (`purchase` is a Google Play chip pack, action_id `gplay:<token>`; `account_deleted` empties the
 wallet when a player deletes their account, action_id `delete:<userId>` — chips leave the economy
 there, which is correct, the player has gone.) The first three of the hand
@@ -827,6 +858,20 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   `_raisedButtons` = state-driven elevation (`liftElevation`: disabled 0, pressed rest/3, hover 2×),
   tinted `shadowFor`, transparent surfaceTint; text buttons flat. `PremiumSurface` = the one raised
   treatment (3 shadows + bevel + optional `Glint`).
+- **The picture picker** (`_openPicturePicker`, `_PictureChoice`, requirement 21): a horizontal strip
+  of every active catalogue row, free first. A picture the player has not bought is drawn at 0.55
+  opacity with a gold padlock-and-price pill (`_PriceTag`) — shown rather than hidden, because
+  knowing what is behind the padlock is the whole reason anyone buys one. Tapping a locked one asks
+  first (`GlassDialog`, `t.unlockTitle`/`unlockBody`/`unlock`), then `GameState.buyPicture` buys it,
+  re-reads the catalogue (`owned` is per viewer) and wears it. The tick follows
+  `user.activePictureId == p.id` — it used to compare the choice PATH to the picture's id, so
+  nothing was ever ticked. `state.buyingPicture` puts a spinner on the one tile being bought.
+- **`Avatar` has two different fallbacks and the difference is deliberate.** No picture at all → the
+  player's initial, which still says whose seat it is. A picture that was supposed to load and did
+  not (a retired file, a dead Google URL, a phone that lost the network) → `assets/default_avatar.svg`,
+  bundled rather than fetched because the whole point of it is to be there when a fetch has just
+  failed. Both `SvgPicture.network` and `Image.network` route their `errorBuilder` to it. Never a
+  broken box.
 - **i18n**: `AppLang` × 5; `Strings(lang)` with English → key fallback. **New keys go in all five
   maps + a getter.** Teen Patti vocabulary transliterated. Still-English strings: `'YOU'`, `'Table
   ${code}'`, `'hand N'`, private-card body, picture-picker labels, `'Switch theme'`, chat `'You'`,
@@ -872,7 +917,8 @@ idToken**; against production it is a guaranteed 401 `missing_token` — not a s
 9 +/− stepper · 10 auto-pack · **(no 11)** · 12 collapsible chat · 13 Blind/Seen × 200/5000 ·
 14 Show reveal · 15 pot to last leaver · 16 stats (played = made a chaal) · 17 25k/25 hands ·
 18 4h 10k bonus · 19 Seen: one double, forced showdown (brief 10 moves / code 7 rounds) ·
-20 provider avatar · 21 avatar picker, locked when seated · 22 private table · 23 landscape/M3 ·
+20 provider avatar · 21 avatar picker, locked when seated (a DB catalogue since 12 Sep 2026: free
+pictures plus premium ones bought with chips) · 22 private table · 23 landscape/M3 ·
 24 merge lone rooms · 25 leave confirm · 26 4h reward top-left · 27 milestone bottom-right ·
 28 square cards + sweep · 29 display name · 30 entry cap (not on switch) · 31 3 auto-packs → kick,
 below boot → kick · 32 boot deducted at start · 33 sideshow · 34 Indian numbering + toggle.

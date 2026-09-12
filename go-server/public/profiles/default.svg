@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96" role="img" aria-label="No picture">
+  <!-- The picture shown when a player has none, or when theirs will not load.
+       Deliberately quiet: a missing picture should never be the most
+       eye-catching thing at a table. Colours are the app's launcher ground and
+       champagne ink, so it sits in the seat pod rather than on top of it. -->
+  <circle cx="48" cy="48" r="48" fill="#2B363B"/>
+  <circle cx="48" cy="38" r="14.5" fill="#D8C79A"/>
+  <path d="M21 82c0-16.6 12.1-25 27-25s27 8.4 27 25z" fill="#D8C79A"/>
+</svg>

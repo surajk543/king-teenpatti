@@ -868,7 +868,12 @@
 
   function renderProfile(user) {
     if (!user) return;
-    $('currentAvatar').src = user.avatarUrl || '/profiles/ace.svg';
+    // /profiles/default.svg, not a bundled animal: the old fallback named a
+    // file that has never existed, so a player with no picture got a broken
+    // image icon.
+    const avatar = $('currentAvatar');
+    avatar.src = user.avatarUrl || '/profiles/default.svg';
+    avatar.onerror = () => { avatar.onerror = null; avatar.src = '/profiles/default.svg'; };
     renderStats(user);
     renderRewards(user);
     renderAvatarGrid();
@@ -884,7 +889,10 @@
 
   async function loadProfilePictures() {
     try {
-      const { profiles } = await (await fetch('/api/profiles')).json();
+      // The token is optional here, but it is what makes `owned` mean
+      // anything: without one every premium picture comes back locked.
+      const headers = state.token ? { authorization: `Bearer ${state.token}` } : {};
+      const { profiles } = await (await fetch('/api/profiles', { headers })).json();
       state.profiles = profiles ?? [];
       renderAvatarGrid();
     } catch {
@@ -902,16 +910,44 @@
       const button = document.createElement('button');
       button.type = 'button';
       button.disabled = seated;
-      button.classList.toggle('on', state.user?.avatarUrl === profile.url);
+      button.classList.toggle('on', state.user?.activePictureId === profile.id);
 
       const img = document.createElement('img');
       img.src = profile.url;
-      img.alt = profile.id;
+      img.alt = profile.name;
       button.append(img);
 
-      button.onclick = () => chooseAvatar(profile.id);
+      // A picture that has not been bought says what it costs; clicking it
+      // buys it and then puts it on.
+      if (!profile.owned) {
+        const price = document.createElement('span');
+        price.textContent = `🔒 ${profile.cost.toLocaleString()}`;
+        button.append(price);
+        button.title = `${profile.name} — ${profile.cost.toLocaleString()} chips`;
+        button.onclick = () => buyPicture(profile);
+      } else {
+        button.title = profile.name;
+        button.onclick = () => chooseAvatar(profile.id);
+      }
       grid.append(button);
     }
+  }
+
+  /** Unlocks a premium picture, then wears it. */
+  async function buyPicture(profile) {
+    const response = await fetch('/api/profile/picture/buy', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${state.token}` },
+      body: JSON.stringify({ pictureId: profile.id }),
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      $('avatarHint').textContent = data.message ?? 'Could not buy that picture.';
+      return;
+    }
+    applyUser(data.user);
+    await loadProfilePictures();
+    await chooseAvatar(profile.id);
   }
 
   async function chooseAvatar(avatar) {
