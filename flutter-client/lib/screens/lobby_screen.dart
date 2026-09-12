@@ -163,11 +163,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   mainAxisSize: MainAxisSize.min,
-                  children: [
-                    _MilestoneChip(),
-                    SizedBox(height: Space.md),
-                    BuyChipsButton(),
-                  ],
+                  children: [_MilestoneChip()],
                 ),
               ),
               // Sits last so it covers the chips and the rail. Collecting a
@@ -504,6 +500,12 @@ class _TopBar extends StatelessWidget {
                           ],
                         ),
                       ),
+                      const SizedBox(width: Space.md),
+                      // The way to more chips, next to the count of them. It
+                      // used to be a pill in the bottom-right corner, where it
+                      // sat under the table rail and competed with the
+                      // milestone chip for the same corner.
+                      const ShopButton(),
                       const SizedBox(width: Space.md),
                       _BarActions(onOpen: onOpen),
                     ],
@@ -1579,6 +1581,12 @@ class _PrivateCardState extends State<_PrivateCard> {
 /// Requirement 21: the picture is chosen from the top bar, and the server
 /// refuses the change once the player is seated at a table.
 Future<void> _openPicturePicker(BuildContext context) async {
+  // Owned by the caller, not the builder: the sheet's body is inside a
+  // Consumer and rebuilds on every state change, and a controller made in
+  // there would be a new one each time — the Scrollbar would lose its
+  // position the moment a purchase landed.
+  final scroller = ScrollController();
+
   await showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
@@ -1588,10 +1596,11 @@ Future<void> _openPicturePicker(BuildContext context) async {
       final theme = Theme.of(sheetContext);
       final text = theme.textTheme;
       final size = MediaQuery.sizeOf(sheetContext);
-      // The sheet does not scroll, so the strip shrinks on a short screen
-      // rather than growing: h=360 -> 79.2 | 411 -> 90.4 | 800 -> 108.0, and a
-      // choice's outer circle is 2r + the ring and gap = 60.9 / 68.5 / 80.4.
-      final strip = Dim.pickerH(size.height);
+      // A tile's circle, and the box the name sits under it in. The screen is
+      // short and wide in landscape, so the grid earns its height from the
+      // number of rows rather than from big tiles: at 891x411 this is 30.2,
+      // and eleven tiles fit across.
+      final tileR = (size.height * 0.072).clamp(22.0, 34.0);
       final headR = (size.height * 0.055).clamp(18.0, 26.0);
 
       return Consumer<GameState>(
@@ -1606,7 +1615,12 @@ Future<void> _openPicturePicker(BuildContext context) async {
                 Space.md,
                 Space.md,
               ),
-              child: PremiumGlassPanel(
+              // Bounded, so the sheet cannot grow past the screen when the
+              // catalogue does. Everything above and below the grid is pinned;
+              // only the pictures scroll.
+              child: ConstrainedBox(
+                constraints: BoxConstraints(maxHeight: size.height * 0.88),
+                child: PremiumGlassPanel(
                 mode: GlassMode.auto,
                 priority: 20,
                 radius: Radii.lg,
@@ -1668,71 +1682,84 @@ Future<void> _openPicturePicker(BuildContext context) async {
                             ],
                           ),
                         ),
+                        // "Use my own photo", as an icon in the header rather
+                        // than a labelled button under the grid: the sheet is
+                        // short in landscape and every fixed row above or below
+                        // the pictures comes straight out of the scrolling
+                        // area. The words survive as the tooltip, which is also
+                        // where a guest finds out WHY it is greyed out —
+                        // without that, a disabled icon says nothing at all.
+                        Builder(
+                          builder: (context) {
+                            final hasPhoto =
+                                (user?.providerAvatarUrl ?? '').isNotEmpty;
+                            final guest = (user?.provider ?? 'guest') == 'guest';
+                            final enabled = hasPhoto && !guest;
+
+                            return Tooltip(
+                              message: enabled
+                                  ? state.t.useSocialPicture
+                                  : state.t.guestNoSocial,
+                              child: IconButton(
+                                onPressed: enabled
+                                    ? () => state.chooseAvatar(null)
+                                    : null,
+                                iconSize: 22,
+                                visualDensity: VisualDensity.compact,
+                                tooltip: null,
+                                icon: const Icon(Icons.account_circle_outlined),
+                                color: theme.colorScheme.onSurface.withValues(
+                                  alpha: AppTheme.inkMed,
+                                ),
+                              ),
+                            );
+                          },
+                        ),
                       ],
                     ),
                     const SizedBox(height: Space.md),
-                    SizedBox(
-                      height: strip,
-                      child: ListView(
-                        scrollDirection: Axis.horizontal,
-                        children: [
-                          for (final p in state.pictures)
-                            _PictureChoice(
-                              picture: p,
-                              side: strip,
-                              selected: user?.activePictureId == p.id,
-                              busy: state.buyingPicture == p.id,
-                              onTap: () => p.locked
-                                  ? _unlockPicture(context, p)
-                                  : state.chooseAvatar(p.id),
-                            ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: Space.md),
-                    // The button is always here, so a guest can see that using
-                    // their own photo is something the game does — it just needs
-                    // a Google or Facebook account. Hiding it would make the
-                    // feature invisible to exactly the people who have not found
-                    // it yet.
-                    Builder(
-                      builder: (context) {
-                        final hasPhoto =
-                            (user?.providerAvatarUrl ?? '').isNotEmpty;
-                        final guest = (user?.provider ?? 'guest') == 'guest';
-                        final enabled = hasPhoto && !guest;
-
-                        return Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            GlassButton(
-                              style: GlassButtonStyle.glass,
-                              onPressed: enabled
-                                  ? () => state.chooseAvatar(null)
-                                  : null,
-                              icon: const Icon(
-                                Icons.account_circle_outlined,
-                                size: 18,
-                              ),
-                              label: state.t.useSocialPicture,
-                            ),
-                            if (!enabled) ...[
-                              const SizedBox(height: Space.xs),
-                              Text(
-                                state.t.guestNoSocial,
-                                style: text.bodySmall?.copyWith(
-                                  color: theme.colorScheme.onSurface.withValues(
-                                    alpha: AppTheme.inkLow,
+                    // The pictures, grouped by what they cost and scrolling
+                    // vertically. Flexible rather than a fixed height: the grid
+                    // takes what the sheet has left after the header and the
+                    // button, so it is the part that shrinks on a short screen.
+                    Flexible(
+                      // The bar is always visible — it is the only thing that
+                      // says there is more below the fold — but wearing the
+                      // app's champagne rather than Material's primary, which
+                      // on this glass reads as a highlighter down the edge.
+                      child: ScrollbarTheme(
+                        data: ScrollbarThemeData(
+                          thickness: const WidgetStatePropertyAll(4),
+                          radius: const Radius.circular(Radii.pill),
+                          thumbColor: WidgetStatePropertyAll(
+                            AppTheme.hairlineColour(theme.brightness, live: true),
+                          ),
+                        ),
+                        child: Scrollbar(
+                          controller: scroller,
+                          thumbVisibility: true,
+                          child: SingleChildScrollView(
+                            controller: scroller,
+                            padding: const EdgeInsets.only(right: Space.md),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                for (final tier in [true, false])
+                                  ..._pictureTier(
+                                    context: context,
+                                    state: state,
+                                    free: tier,
+                                    radius: tileR,
                                   ),
-                                ),
-                              ),
-                            ],
-                          ],
-                        );
-                      },
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
                     ),
                   ],
                 ),
+              ),
               ),
             ),
           );
@@ -1740,6 +1767,88 @@ Future<void> _openPicturePicker(BuildContext context) async {
       );
     },
   );
+
+  scroller.dispose();
+}
+
+/// The name of the picture the player is wearing, or null when they are on
+/// their provider photo (or the catalogue has not arrived yet).
+String? _wornPictureName(GameState state) {
+  final id = state.user?.activePictureId;
+  if (id == null) return null;
+  for (final p in state.pictures) {
+    if (p.id == id) return p.name;
+  }
+  return null;
+}
+
+/// One tier of the catalogue: a heading, then its pictures.
+///
+/// Returns the pieces rather than a widget so the two tiers sit in the same
+/// scrolling column and share its padding. A tier with nothing in it is left
+/// out entirely — an empty "Premium" heading would read as a bug, not as a
+/// catalogue the owner has priced at zero.
+List<Widget> _pictureTier({
+  required BuildContext context,
+  required GameState state,
+  required bool free,
+  required double radius,
+}) {
+  final pictures = state.pictures.where((p) => p.free == free).toList();
+  if (pictures.isEmpty) return const [];
+
+  final theme = Theme.of(context);
+  final t = state.t;
+  final user = state.user;
+
+  return [
+    Padding(
+      padding: const EdgeInsets.only(bottom: Space.sm, top: Space.xs),
+      child: Row(
+        children: [
+          Icon(
+            free ? Icons.lock_open : Icons.lock,
+            size: 13,
+            color: free
+                ? theme.colorScheme.onSurface.withValues(alpha: AppTheme.inkMed)
+                : AppTheme.goldBright,
+          ),
+          const SizedBox(width: Space.xs),
+          Text(
+            free ? t.pictureFree : t.picturePremium,
+            style: AppTheme.label(
+              theme.textTheme.labelMedium ?? const TextStyle(),
+              colour: free ? null : AppTheme.goldBright,
+            ),
+          ),
+          const SizedBox(width: Space.sm),
+          Expanded(
+            child: Divider(
+              height: 1,
+              color: AppTheme.hairlineColour(theme.brightness),
+            ),
+          ),
+        ],
+      ),
+    ),
+    Wrap(
+      spacing: Space.md,
+      runSpacing: Space.sm,
+      children: [
+        for (final p in pictures)
+          _PictureChoice(
+            picture: p,
+            radius: radius,
+            selected: user?.activePictureId == p.id,
+            busy: state.buyingPicture == p.id,
+            onTap: () => p.locked
+                ? _unlockPicture(context, p)
+                : state.chooseAvatar(p.id),
+          ),
+      ],
+    ),
+    const SizedBox(height: Space.md),
+  ];
 }
 
 /// Asks before spending chips on a premium picture, then buys and wears it.
@@ -1800,7 +1909,7 @@ Future<void> _unlockPicture(BuildContext context, ProfilePicture picture) async 
 class _PictureChoice extends StatelessWidget {
   const _PictureChoice({
     required this.picture,
-    required this.side,
+    required this.radius,
     required this.selected,
     required this.busy,
     required this.onTap,
@@ -1808,9 +1917,10 @@ class _PictureChoice extends StatelessWidget {
 
   final ProfilePicture picture;
 
-  /// The strip's height. Both states are laid out in a box this wide so the
-  /// row does not shuffle sideways when the selection moves.
-  final double side;
+  /// The circle's radius. The tile is wider than 2r so the name underneath has
+  /// room, and every tile is the same width so the grid stays on its columns
+  /// whatever the names are.
+  final double radius;
   final bool selected;
 
   /// This picture is being bought right now.
@@ -1821,9 +1931,6 @@ class _PictureChoice extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final url = context.read<GameState>().absoluteUrl(picture.url);
-    // Avatar's ring and gap grow outwards, so the picture gives them back and
-    // the outer circle is the same in both states.
-    final radius = side * 0.34;
     final locked = picture.locked;
 
     Widget face = AnimatedSwitcher(
@@ -1833,7 +1940,7 @@ class _PictureChoice extends StatelessWidget {
               key: const ValueKey(true),
               url: url,
               fallback: picture.name,
-              radius: radius,
+              radius: radius - 3,
               ring: AppTheme.goldBright,
               ringWidth: 2.5,
               ringGap: 2,
@@ -1843,7 +1950,7 @@ class _PictureChoice extends StatelessWidget {
               key: const ValueKey(false),
               url: url,
               fallback: picture.name,
-              radius: radius + 3,
+              radius: radius,
               animate: true,
             ),
     );
@@ -1856,41 +1963,103 @@ class _PictureChoice extends StatelessWidget {
       face = Opacity(opacity: 0.55, child: face);
     }
 
-    return Padding(
-      padding: const EdgeInsets.only(right: Space.md),
-      child: PressScale(
-        child: InkWell(
-          // Material's own click, gated on the player's Sound switch —
-          // otherwise a silenced game would still tick on every tap.
-          enableFeedback: context.select<FeedbackSettings, bool>(
-            (f) => f.sound,
-          ),
-          onTap: busy ? null : onTap,
-          customBorder: const CircleBorder(),
-          child: SizedBox(
-            width: side,
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                Center(child: face),
-                if (locked && !busy)
-                  Positioned(
-                    bottom: 0,
-                    child: _PriceTag(cost: picture.cost),
+    return PressScale(
+      child: InkWell(
+        // Material's own click, gated on the player's Sound switch —
+        // otherwise a silenced game would still tick on every tap.
+        enableFeedback: context.select<FeedbackSettings, bool>((f) => f.sound),
+        onTap: busy ? null : onTap,
+        borderRadius: BorderRadius.circular(Radii.md),
+        child: SizedBox(
+          width: radius * 2 + Space.md,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(
+                height: radius * 2 + 6,
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    Center(child: face),
+                    if (locked && !busy)
+                      Positioned(bottom: 0, child: _PriceTag(cost: picture.cost)),
+                    // A premium picture that HAS been paid for. Without this
+                    // an unlocked one is indistinguishable from a free one,
+                    // and the chips somebody spent stop showing anywhere.
+                    if (!locked && !picture.free && !busy)
+                      const Positioned(bottom: 0, child: _UnlockedTag()),
+                    if (busy)
+                      SizedBox(
+                        width: radius,
+                        height: radius,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: theme.colorScheme.primary,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: Space.xxs),
+              // The catalogue gives every picture a name; showing it is what
+              // turns a row of circles into a list somebody can talk about.
+              Text(
+                picture.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: theme.textTheme.labelSmall?.copyWith(
+                  fontSize: 10,
+                  height: 1.1,
+                  color: theme.colorScheme.onSurface.withValues(
+                    alpha: selected ? AppTheme.inkHigh : AppTheme.inkMed,
                   ),
-                if (busy)
-                  SizedBox(
-                    width: radius,
-                    height: radius,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: theme.colorScheme.primary,
-                    ),
-                  ),
-              ],
-            ),
+                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                ),
+              ),
+            ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// The mark on a premium picture this player owns: an open padlock, in the
+/// same spot and the same shape as the price it replaces, so the eye reads the
+/// swap rather than a new kind of badge.
+class _UnlockedTag extends StatelessWidget {
+  const _UnlockedTag();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: Space.xs,
+        vertical: Space.xxs,
+      ),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(Radii.pill),
+        color: AppTheme.ink900.withValues(alpha: 0.82),
+        border: Border.all(color: AppTheme.goldBright.withValues(alpha: 0.55)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.lock_open, size: 9, color: AppTheme.goldBright),
+          const SizedBox(width: 2),
+          Text(
+            context.read<GameState>().t.pictureUnlocked,
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: AppTheme.goldBright,
+              fontWeight: FontWeight.w700,
+              fontSize: 9,
+              height: 1.1,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -2488,7 +2657,73 @@ class _SettingsDrawerState extends State<_SettingsDrawer> {
           title: t.settings,
         ),
         const _DrawerRule(space: 0),
-        const SizedBox(height: Space.md),
+        // The picture leads the drawer, above the name, because it is the
+        // louder half of the same decision — who you are at the table. The top
+        // bar's avatar opens the same sheet; this is the copy for anyone who
+        // went looking in Settings, which is where a player looks for anything
+        // about their own account.
+        //
+        // Shown big rather than as a row: it is the only thing in this drawer
+        // that is a picture, and at row scale it read as an icon next to a
+        // label instead of as the face everyone at the table will see. The
+        // pencil is the same pip the top bar's avatar wears, so the two read as
+        // the same control in two places rather than as two different ones.
+        Padding(
+          padding: const EdgeInsets.fromLTRB(Space.lg, Space.sm, Space.lg, 0),
+          child: PressScale(
+            child: Material(
+              type: MaterialType.transparency,
+              child: InkWell(
+                enableFeedback: context.select<FeedbackSettings, bool>(
+                  (f) => f.sound,
+                ),
+                borderRadius: BorderRadius.circular(Radii.md),
+                onTap: () {
+                  // Close the drawer first: the picker is a modal sheet, and
+                  // leaving the drawer open behind it stacks two overlays that
+                  // dismiss in an order nobody expects.
+                  Navigator.pop(context);
+                  _openPicturePicker(context);
+                },
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: Space.sm),
+                  child: Column(
+                    children: [
+                      _AvatarWithPip(
+                        url: state.avatarUrl,
+                        fallback: state.user?.displayName ?? '',
+                        diameter: 72,
+                      ),
+                      const SizedBox(height: Space.sm),
+                      Text(
+                        _wornPictureName(state) ?? t.yourPicture,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTheme.label(
+                          text.titleSmall ?? const TextStyle(),
+                        ),
+                      ),
+                      const SizedBox(height: Space.xxs),
+                      Text(
+                        t.tapToChangePicture,
+                        textAlign: TextAlign.center,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: text.bodySmall?.copyWith(
+                          color: scheme.onSurface.withValues(
+                            alpha: AppTheme.inkMed,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+        const _DrawerRule(space: Space.sm),
+        const SizedBox(height: Space.xs),
         Padding(
           padding: const EdgeInsets.fromLTRB(Space.lg, 0, Space.lg, Space.xs),
           child: GlassTextField(

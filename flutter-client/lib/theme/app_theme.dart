@@ -204,8 +204,14 @@ class Dim {
   static double actionRowW(double w) =>
       3 * keyW(w) + betW(w) + 2 * minTouch + 5 * gap(w);
 
-  /// The lobby's avatar. 360 -> 37.8 | 411 -> 43.2 | 800 -> 48.0
-  static double avatarD(double h) => (h * 0.105).clamp(36.0, 48.0);
+  /// The lobby's avatar, and the thing the whole top rail is sized from.
+  ///
+  /// Bigger than it used to be (0.105, clamped 36..48) because it is the
+  /// player's own face and the one picture they have chosen — at 43dp on a
+  /// Pixel it was the smallest thing in a bar full of numbers, and a catalogue
+  /// worth paying chips for deserves to be legible.
+  /// 360 -> 48.6 | 411 -> 55.5 | 800 -> 64.0
+  static double avatarD(double h) => (h * 0.135).clamp(44.0, 64.0);
 
   /// The edit pip hangs off the avatar's corner and has to be paid for.
   static const double avatarPip = 4;
@@ -214,7 +220,7 @@ class Dim {
   static double topRailPad(double h) => (h * 0.017).clamp(5.0, 10.0);
 
   /// Derived from the avatar it carries, pip included.
-  /// 360 -> 54.0 | 411 -> 61.1 | 800 -> 72.0
+  /// 360 -> 64.8 | 411 -> 73.5 | 800 -> 88.0
   static double topRailH(double h) =>
       avatarD(h) + avatarPip + 2 * topRailPad(h);
 

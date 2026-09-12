@@ -99,6 +99,9 @@ class Strings {
 
   // --- buying chips, not open yet
   String get buyChips => _('buyChips');
+
+  /// The top bar's shop button.
+  String get shop => _('shop');
   String get comingSoon => _('comingSoon');
 
   // --- the chip store
@@ -196,7 +199,15 @@ class Strings {
   String unlockBody(String name, String cost) => _('unlockBody')
       .replaceAll('{name}', name)
       .replaceAll('{cost}', cost);
-  String get pictureOwned => _('pictureOwned');
+  /// The word on a premium picture this player has already paid for.
+  String get pictureUnlocked => _('pictureUnlocked');
+
+  /// The caption under the big picture in Settings.
+  String get tapToChangePicture => _('tapToChangePicture');
+
+  /// The two tiers, as section headings in the picture picker.
+  String get pictureFree => _('pictureFree');
+  String get picturePremium => _('picturePremium');
   String get youAreWinner => _('youAreWinner');
   String get isTheWinner => _('isTheWinner');
 
@@ -306,6 +317,7 @@ class Strings {
       'rewardRefused': 'Not ready to collect yet.',
       'tapToClose': 'Tap to close',
       'buyChips': 'Buy chips',
+      'shop': 'Shop',
       'comingSoon': 'Coming soon',
       'updateTitle': 'A new version is ready',
       'updateBody':
@@ -394,7 +406,10 @@ class Strings {
       'unlock': 'Unlock',
       'unlockTitle': 'Unlock this picture?',
       'unlockBody': '{name} costs {cost} chips. Unlock it and wear it now?',
-      'pictureOwned': 'Yours',
+      'pictureUnlocked': 'Unlocked',
+      'tapToChangePicture': 'Tap to change your picture',
+      'pictureFree': 'Free',
+      'picturePremium': 'Premium',
       'youAreWinner': 'You are the winner',
       'isTheWinner': 'is the winner',
       'leaveTable': 'Leave table',
@@ -495,6 +510,7 @@ class Strings {
       'rewardRefused': 'अभी लेने के लिए तैयार नहीं।',
       'tapToClose': 'बंद करने के लिए टैप करें',
       'buyChips': 'चिप्स खरीदें',
+      'shop': 'दुकान',
       'comingSoon': 'जल्द आ रहा है',
       'updateTitle': 'नया वर्ज़न तैयार है',
       'updateBody': 'खेलते रहने के लिए अपडेट करें। यह वर्ज़न अब पुराना है।',
@@ -577,7 +593,10 @@ class Strings {
       'unlock': 'अनलॉक करें',
       'unlockTitle': 'यह तस्वीर अनलॉक करें?',
       'unlockBody': '{name} की कीमत {cost} चिप्स है। अभी अनलॉक करके लगाएँ?',
-      'pictureOwned': 'आपकी',
+      'pictureUnlocked': 'अनलॉक',
+      'tapToChangePicture': 'तस्वीर बदलने के लिए टैप करें',
+      'pictureFree': 'मुफ़्त',
+      'picturePremium': 'प्रीमियम',
       'themeDark': 'डार्क',
       'themeLight': 'लाइट',
       'waitingForPlayers': 'खिलाड़ियों का इंतज़ार',
@@ -682,6 +701,7 @@ class Strings {
       'rewardRefused': 'এখনও নেওয়ার জন্য প্রস্তুত নয়।',
       'tapToClose': 'বন্ধ করতে ট্যাপ করুন',
       'buyChips': 'চিপ কিনুন',
+      'shop': 'দোকান',
       'comingSoon': 'শীঘ্রই আসছে',
       'updateTitle': 'নতুন সংস্করণ প্রস্তুত',
       'updateBody':
@@ -759,7 +779,10 @@ class Strings {
       'unlock': 'আনলক করুন',
       'unlockTitle': 'এই ছবিটি আনলক করবেন?',
       'unlockBody': '{name} এর দাম {cost} চিপস। এখনই আনলক করে ব্যবহার করবেন?',
-      'pictureOwned': 'আপনার',
+      'pictureUnlocked': 'আনলক',
+      'tapToChangePicture': 'ছবি বদলাতে ট্যাপ করুন',
+      'pictureFree': 'ফ্রি',
+      'picturePremium': 'প্রিমিয়াম',
       'yourChips': 'আপনার চিপ',
       'maxPot': 'সর্বোচ্চ পট',
       'nightMode': 'রাত মোড',
@@ -872,6 +895,7 @@ class Strings {
       'rewardRefused': 'હજી લેવા માટે તૈયાર નથી.',
       'tapToClose': 'બંધ કરવા ટૅપ કરો',
       'buyChips': 'ચિપ્સ ખરીદો',
+      'shop': 'દુકાન',
       'comingSoon': 'ટૂંક સમયમાં',
       'updateTitle': 'નવું વર્ઝન તૈયાર છે',
       'updateBody': 'રમવાનું ચાલુ રાખવા અપડેટ કરો. આ વર્ઝન હવે જૂનું છે.',
@@ -942,7 +966,10 @@ class Strings {
       'unlock': 'અનલૉક કરો',
       'unlockTitle': 'આ ફોટો અનલૉક કરવો છે?',
       'unlockBody': '{name} ની કિંમત {cost} ચિપ્સ છે. હમણાં અનલૉક કરીને વાપરવો?',
-      'pictureOwned': 'તમારો',
+      'pictureUnlocked': 'અનલૉક',
+      'tapToChangePicture': 'ફોટો બદલવા ટૅપ કરો',
+      'pictureFree': 'મફત',
+      'picturePremium': 'પ્રીમિયમ',
       'appVersion': 'એપ આવૃત્તિ',
       'tableLost': 'તમે દૂર હતા ત્યારે ટેબલ બંધ થઈ ગયું.',
       'winner': 'વિજેતા',
@@ -1059,6 +1086,7 @@ class Strings {
       'rewardRefused': 'ਹਾਲੇ ਲੈਣ ਲਈ ਤਿਆਰ ਨਹੀਂ।',
       'tapToClose': 'ਬੰਦ ਕਰਨ ਲਈ ਟੈਪ ਕਰੋ',
       'buyChips': 'ਚਿਪਸ ਖਰੀਦੋ',
+      'shop': 'ਦੁਕਾਨ',
       'comingSoon': 'ਜਲਦੀ ਆ ਰਿਹਾ ਹੈ',
       'updateTitle': 'ਨਵਾਂ ਵਰਜਨ ਤਿਆਰ ਹੈ',
       'updateBody': 'ਖੇਡਦੇ ਰਹਿਣ ਲਈ ਅੱਪਡੇਟ ਕਰੋ। ਇਹ ਵਰਜਨ ਹੁਣ ਪੁਰਾਣਾ ਹੈ।',
@@ -1126,7 +1154,10 @@ class Strings {
       'unlock': 'ਅਨਲਾਕ ਕਰੋ',
       'unlockTitle': 'ਇਹ ਤਸਵੀਰ ਅਨਲਾਕ ਕਰਨੀ ਹੈ?',
       'unlockBody': '{name} ਦੀ ਕੀਮਤ {cost} ਚਿਪਸ ਹੈ। ਹੁਣੇ ਅਨਲਾਕ ਕਰਕੇ ਲਗਾਉਣੀ ਹੈ?',
-      'pictureOwned': 'ਤੁਹਾਡੀ',
+      'pictureUnlocked': 'ਅਨਲਾਕ',
+      'tapToChangePicture': 'ਤਸਵੀਰ ਬਦਲਣ ਲਈ ਟੈਪ ਕਰੋ',
+      'pictureFree': 'ਮੁਫ਼ਤ',
+      'picturePremium': 'ਪ੍ਰੀਮੀਅਮ',
       'missedTurnsLabel': 'ਖੁੰਝੀਆਂ ਚਾਲਾਂ',
       'resumingTable': 'ਤੁਹਾਡੇ ਟੇਬਲ ਤੇ ਵਾਪਸ ਜਾ ਰਹੇ ਹਾਂ…',
       'welcomeBack': 'ਵਾਪਸੀ ਤੇ ਸਵਾਗਤ — ਤੁਸੀਂ ਆਪਣੇ ਟੇਬਲ ਤੇ ਵਾਪਸ ਹੋ।',
