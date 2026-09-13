@@ -96,6 +96,7 @@ class Strings {
   String get rewardMilestoneAgain => _('rewardMilestoneAgain');
   String get rewardRefused => _('rewardRefused');
   String get rewardPurchased => _('rewardPurchased');
+  String get rewardDiamondsPurchased => _('rewardDiamondsPurchased');
   String get tapToClose => _('tapToClose');
 
   // --- buying chips, not open yet
@@ -111,6 +112,9 @@ class Strings {
   String get storeTabChips => _('storeTabChips');
   String get storeTabPictures => _('storeTabPictures');
   String get storePicturesBlurb => _('storePicturesBlurb');
+  String get storeTabDiamonds => _('storeTabDiamonds');
+  String get storeDiamondsTitle => _('storeDiamondsTitle');
+  String get storeDiamondsBlurb => _('storeDiamondsBlurb');
   String get storeBonus => _('storeBonus');
   String get storeNotLive => _('storeNotLive');
   String get posStarter => _('posStarter');
@@ -353,6 +357,8 @@ class Strings {
       'rewardCollected': 'Reward collected!',
       'rewardComeBack': 'Come again after 4 hours.',
       'rewardPurchased': 'The chips are in your wallet. Good luck.',
+      'rewardDiamondsPurchased':
+          'The diamonds are in your wallet. Pick a picture.',
       'rewardMilestoneAgain': 'Another 25 hands earns the next one.',
       'rewardRefused': 'Not ready to collect yet.',
       'tapToClose': 'Tap to close',
@@ -371,6 +377,9 @@ class Strings {
       'storeTabChips': 'Chips',
       'storeTabPictures': 'Pictures',
       'storePicturesBlurb': 'Unlock a picture with chips or diamonds.',
+      'storeTabDiamonds': 'Diamonds',
+      'storeDiamondsTitle': 'Diamond Store',
+      'storeDiamondsBlurb': 'Diamonds unlock animated pictures.',
       'storeBonus': 'BONUS',
       'storeNotLive': 'Payments are not live yet — nothing was charged.',
       'posStarter': 'STARTER',
@@ -567,6 +576,7 @@ class Strings {
       'rewardCollected': 'इनाम मिल गया!',
       'rewardComeBack': '4 घंटे बाद फिर आइए।',
       'rewardPurchased': 'चिप्स आपके वॉलेट में हैं। शुभकामनाएँ।',
+      'rewardDiamondsPurchased': 'हीरे आपके वॉलेट में हैं। कोई तस्वीर चुनें।',
       'rewardMilestoneAgain': 'अगले के लिए 25 हाथ और खेलें।',
       'rewardRefused': 'अभी लेने के लिए तैयार नहीं।',
       'tapToClose': 'बंद करने के लिए टैप करें',
@@ -584,6 +594,9 @@ class Strings {
       'storeTabChips': 'चिप्स',
       'storeTabPictures': 'तस्वीरें',
       'storePicturesBlurb': 'चिप्स या हीरों से तस्वीर अनलॉक करें।',
+      'storeTabDiamonds': 'हीरे',
+      'storeDiamondsTitle': 'हीरा स्टोर',
+      'storeDiamondsBlurb': 'हीरों से एनिमेटेड तस्वीरें अनलॉक करें।',
       'storeBonus': 'बोनस',
       'storeNotLive': 'भुगतान अभी चालू नहीं है — कोई शुल्क नहीं लिया गया।',
       'posStarter': 'शुरुआत',
@@ -779,6 +792,7 @@ class Strings {
       'rewardCollected': 'পুরস্কার সংগ্রহ হয়েছে!',
       'rewardComeBack': '৪ ঘণ্টা পরে আবার আসুন।',
       'rewardPurchased': 'চিপ আপনার ওয়ালেটে আছে। শুভকামনা।',
+      'rewardDiamondsPurchased': 'হীরে আপনার ওয়ালেটে আছে। একটি ছবি বেছে নিন।',
       'rewardMilestoneAgain': 'পরেরটির জন্য আরও ২৫ হাত।',
       'rewardRefused': 'এখনও নেওয়ার জন্য প্রস্তুত নয়।',
       'tapToClose': 'বন্ধ করতে ট্যাপ করুন',
@@ -797,6 +811,9 @@ class Strings {
       'storeTabChips': 'চিপস',
       'storeTabPictures': 'ছবি',
       'storePicturesBlurb': 'চিপস বা হীরে দিয়ে ছবি আনলক করুন।',
+      'storeTabDiamonds': 'হীরে',
+      'storeDiamondsTitle': 'হীরের দোকান',
+      'storeDiamondsBlurb': 'হীরে দিয়ে অ্যানিমেটেড ছবি আনলক করুন।',
       'storeBonus': 'বোনাস',
       'storeNotLive': 'পেমেন্ট এখনও চালু নয় — কোনও চার্জ হয়নি।',
       'posStarter': 'শুরু',
@@ -994,6 +1011,7 @@ class Strings {
       'rewardCollected': 'ઇનામ મળી ગયું!',
       'rewardComeBack': '4 કલાક પછી ફરી આવો.',
       'rewardPurchased': 'ચિપ્સ તમારા વૉલેટમાં છે. શુભકામના.',
+      'rewardDiamondsPurchased': 'હીરા તમારા વૉલેટમાં છે. કોઈ ફોટો પસંદ કરો.',
       'rewardMilestoneAgain': 'આગલા માટે વધુ 25 હાથ.',
       'rewardRefused': 'હજી લેવા માટે તૈયાર નથી.',
       'tapToClose': 'બંધ કરવા ટૅપ કરો',
@@ -1011,6 +1029,9 @@ class Strings {
       'storeTabChips': 'ચિપ્સ',
       'storeTabPictures': 'ફોટા',
       'storePicturesBlurb': 'ચિપ્સ અથવા હીરાથી ફોટો અનલૉક કરો.',
+      'storeTabDiamonds': 'હીરા',
+      'storeDiamondsTitle': 'હીરા સ્ટોર',
+      'storeDiamondsBlurb': 'હીરાથી એનિમેટેડ ફોટા અનલૉક કરો.',
       'storeBonus': 'બોનસ',
       'storeNotLive': 'પેમેન્ટ હજી ચાલુ નથી — કોઈ ચાર્જ લેવાયો નથી.',
       'posStarter': 'શરૂઆત',
@@ -1207,6 +1228,7 @@ class Strings {
       'rewardCollected': 'ਇਨਾਮ ਮਿਲ ਗਿਆ!',
       'rewardComeBack': '4 ਘੰਟੇ ਬਾਅਦ ਫਿਰ ਆਓ।',
       'rewardPurchased': 'ਚਿੱਪਾਂ ਤੁਹਾਡੇ ਵਾਲਿਟ ਵਿੱਚ ਹਨ। ਸ਼ੁਭਕਾਮਨਾਵਾਂ।',
+      'rewardDiamondsPurchased': 'ਹੀਰੇ ਤੁਹਾਡੇ ਵਾਲਿਟ ਵਿੱਚ ਹਨ। ਕੋਈ ਤਸਵੀਰ ਚੁਣੋ।',
       'rewardMilestoneAgain': 'ਅਗਲੇ ਲਈ ਹੋਰ 25 ਹੱਥ।',
       'rewardRefused': 'ਹਾਲੇ ਲੈਣ ਲਈ ਤਿਆਰ ਨਹੀਂ।',
       'tapToClose': 'ਬੰਦ ਕਰਨ ਲਈ ਟੈਪ ਕਰੋ',
@@ -1224,6 +1246,9 @@ class Strings {
       'storeTabChips': 'ਚਿਪਸ',
       'storeTabPictures': 'ਤਸਵੀਰਾਂ',
       'storePicturesBlurb': 'ਚਿਪਸ ਜਾਂ ਹੀਰਿਆਂ ਨਾਲ ਤਸਵੀਰ ਅਨਲੌਕ ਕਰੋ।',
+      'storeTabDiamonds': 'ਹੀਰੇ',
+      'storeDiamondsTitle': 'ਹੀਰਾ ਸਟੋਰ',
+      'storeDiamondsBlurb': 'ਹੀਰਿਆਂ ਨਾਲ ਐਨੀਮੇਟਿਡ ਤਸਵੀਰਾਂ ਅਨਲੌਕ ਕਰੋ।',
       'storeBonus': 'ਬੋਨਸ',
       'storeNotLive': 'ਭੁਗਤਾਨ ਹਾਲੇ ਚਾਲੂ ਨਹੀਂ — ਕੋਈ ਚਾਰਜ ਨਹੀਂ ਲਿਆ ਗਿਆ।',
       'posStarter': 'ਸ਼ੁਰੂਆਤ',

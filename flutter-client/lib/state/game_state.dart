@@ -987,7 +987,11 @@ class GameState extends ChangeNotifier {
       // Still a success: the chips are in the wallet and the transaction
       // should be finished rather than delivered again.
       if (r.credited) {
-        rewardWon = (kind: 'purchase', amount: r.chips, readyAt: 0);
+        // The product decided the wallet, and the answer says which: a
+        // diamond pack celebrates diamonds, a chip pack celebrates chips.
+        rewardWon = r.diamonds > 0
+            ? (kind: 'diamonds', amount: r.diamonds, readyAt: 0)
+            : (kind: 'purchase', amount: r.chips, readyAt: 0);
       }
       notifyListeners();
       return true;

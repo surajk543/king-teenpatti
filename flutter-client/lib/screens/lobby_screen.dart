@@ -259,8 +259,10 @@ class _RewardCelebrationState extends State<_RewardCelebration>
     final blurb = switch (won.kind) {
       'bonus' => t.rewardComeBack,
       'purchase' => t.rewardPurchased,
+      'diamonds' => t.rewardDiamondsPurchased,
       _ => t.rewardMilestoneAgain,
     };
+    final diamonds = won.kind == 'diamonds';
 
     return Positioned.fill(
       child: GestureDetector(
@@ -300,12 +302,20 @@ class _RewardCelebrationState extends State<_RewardCelebration>
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            SpinningChip(
-                              colour: AppTheme.gold,
-                              size: chip,
-                              turn: const Duration(milliseconds: 900),
-                              rest: const Duration(milliseconds: 260),
-                            ),
+                            // A gem for diamonds, the spinning chip for chips:
+                            // the hero says which wallet just filled.
+                            diamonds
+                                ? Icon(
+                                    Icons.diamond,
+                                    size: chip,
+                                    color: diamondInkOn(theme.brightness),
+                                  )
+                                : SpinningChip(
+                                    colour: AppTheme.gold,
+                                    size: chip,
+                                    turn: const Duration(milliseconds: 900),
+                                    rest: const Duration(milliseconds: 260),
+                                  ),
                             const SizedBox(height: Space.lg),
                             Text(
                               t.rewardCollected,
@@ -317,7 +327,9 @@ class _RewardCelebrationState extends State<_RewardCelebration>
                               '+ ${formatChips(won.amount)}',
                               style: AppTheme.money(
                                 text.headlineMedium!,
-                                colour: _goldInk(theme.brightness),
+                                colour: diamonds
+                                    ? diamondInkOn(theme.brightness)
+                                    : _goldInk(theme.brightness),
                               ),
                             ),
                             const SizedBox(height: Space.md),
@@ -508,50 +520,65 @@ class _TopBar extends StatelessWidget {
                       const Spacer(),
                       // The balance counts to its new value rather than snapping, so
                       // a reward landing is something you see happen.
-                      RepaintBoundary(
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            PokerChip(colour: AppTheme.gold, size: 18),
-                            const SizedBox(width: Space.sm),
-                            TweenAnimationBuilder<double>(
-                              tween: Tween(end: (user?.chips ?? 0).toDouble()),
-                              duration: const Duration(milliseconds: 650),
-                              curve: Motion.standard,
-                              builder: (context, value, _) => Text(
-                                formatChips(value.round()),
-                                style: AppTheme.money(
-                                  text.titleMedium!,
-                                  colour: _goldInk(brightness),
+                      //
+                      // Flexible + FittedBox: chips and diamonds side by side
+                      // outgrew the row on a 640dp phone once the chips read
+                      // "1.99 Lakh" and the action keys overflowed. It now
+                      // scales down to the room it has instead, and at full size
+                      // wherever it fits.
+                      Flexible(
+                        flex: 4,
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          alignment: Alignment.centerRight,
+                          child: RepaintBoundary(
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                PokerChip(colour: AppTheme.gold, size: 18),
+                                const SizedBox(width: Space.sm),
+                                TweenAnimationBuilder<double>(
+                                  tween: Tween(
+                                    end: (user?.chips ?? 0).toDouble(),
+                                  ),
+                                  duration: const Duration(milliseconds: 650),
+                                  curve: Motion.standard,
+                                  builder: (context, value, _) => Text(
+                                    formatChips(value.round()),
+                                    style: AppTheme.money(
+                                      text.titleMedium!,
+                                      colour: _goldInk(brightness),
+                                    ),
+                                  ),
                                 ),
-                              ),
-                            ),
-                            // The second wallet beside the first: diamonds pay
-                            // for what chips cannot, so a player should not have
-                            // to open the picture picker to learn how many they
-                            // hold. Same type, same count-up, its own ink.
-                            SizedBox(width: tight ? Space.md : Space.lg),
-                            Icon(
-                              Icons.diamond,
-                              size: 18,
-                              color: diamondInkOn(brightness),
-                            ),
-                            const SizedBox(width: Space.xs),
-                            TweenAnimationBuilder<double>(
-                              tween: Tween(
-                                end: (user?.diamond ?? 0).toDouble(),
-                              ),
-                              duration: const Duration(milliseconds: 650),
-                              curve: Motion.standard,
-                              builder: (context, value, _) => Text(
-                                '${value.round()}',
-                                style: AppTheme.money(
-                                  text.titleMedium!,
-                                  colour: diamondInkOn(brightness),
+                                // The second wallet beside the first: diamonds pay
+                                // for what chips cannot, so a player should not have
+                                // to open the picture picker to learn how many they
+                                // hold. Same type, same count-up, its own ink.
+                                SizedBox(width: tight ? Space.md : Space.lg),
+                                Icon(
+                                  Icons.diamond,
+                                  size: 18,
+                                  color: diamondInkOn(brightness),
                                 ),
-                              ),
+                                const SizedBox(width: Space.xs),
+                                TweenAnimationBuilder<double>(
+                                  tween: Tween(
+                                    end: (user?.diamond ?? 0).toDouble(),
+                                  ),
+                                  duration: const Duration(milliseconds: 650),
+                                  curve: Motion.standard,
+                                  builder: (context, value, _) => Text(
+                                    '${value.round()}',
+                                    style: AppTheme.money(
+                                      text.titleMedium!,
+                                      colour: diamondInkOn(brightness),
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
-                          ],
+                          ),
                         ),
                       ),
                       const SizedBox(width: Space.md),

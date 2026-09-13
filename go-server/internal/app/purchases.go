@@ -56,6 +56,22 @@ func (s *playStore) Buy(ctx context.Context, userID, productID, purchaseToken st
 		return auth.PurchaseOutcome{}, err
 	}
 
+	// A diamond pack fills users.diamond through its own replay guard, and
+	// has no live seat to top up: diamonds are spent in the lobby, on pictures.
+	if product.Diamonds > 0 {
+		result, err := db.CreditDiamondPurchase(ctx, s.db, s.users, userID, product, purchaseToken)
+		if err != nil {
+			return auth.PurchaseOutcome{}, err
+		}
+		_ = s.verifier.Acknowledge(ctx, productID, purchaseToken)
+		return auth.PurchaseOutcome{
+			Diamonds: result.Diamonds,
+			Balance:  result.Balance,
+			Credited: result.Credited,
+			User:     result.User,
+		}, nil
+	}
+
 	result, err := db.CreditPurchase(ctx, s.db, s.users, userID, product, purchaseToken)
 	if err != nil {
 		return auth.PurchaseOutcome{}, err

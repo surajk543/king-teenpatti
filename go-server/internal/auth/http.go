@@ -65,8 +65,11 @@ type PurchaseGateway interface {
 
 // PurchaseOutcome is what the endpoint reports back to the app.
 type PurchaseOutcome struct {
-	Chips   int64
-	Balance int64
+	Chips int64
+	// Diamonds is what a diamond pack credited (or would have, on a replay).
+	// Zero for a chip pack.
+	Diamonds int64
+	Balance  int64
 	// Credited is false when this receipt had already been banked. The client
 	// still treats it as success — the chips are in the wallet — and finishes
 	// the Play transaction so the player is not asked again.

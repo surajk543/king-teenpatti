@@ -454,7 +454,9 @@ func TestPostgresHoldsNoGameState(t *testing.T) {
 		}
 		tables = append(tables, name)
 	}
-	want := []string{"chip_ledger", "profile_pictures", "user_profile_pictures", "users"}
+	// diamond_purchases (13 Sep 2026) is money too: the record of a Play
+	// diamond pack and the guard that stops its token crediting twice.
+	want := []string{"chip_ledger", "diamond_purchases", "profile_pictures", "user_profile_pictures", "users"}
 	if !slices.Equal(tables, want) {
 		t.Fatalf("schema tables = %v, want %v", tables, want)
 	}

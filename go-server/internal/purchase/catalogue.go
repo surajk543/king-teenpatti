@@ -1,4 +1,4 @@
-// Package purchase turns a Google Play purchase into chips.
+// Package purchase turns a Google Play purchase into chips or diamonds.
 //
 // Two rules shape everything here.
 //
@@ -25,8 +25,13 @@ import "fmt"
 type Product struct {
 	// ID is the Play Console product id. It must match exactly.
 	ID string
-	// Chips is what the account is credited. This is the authoritative figure.
+	// Chips is what the account is credited for a chip pack. This is the
+	// authoritative figure. Zero for a diamond pack.
 	Chips int64
+	// Diamonds is what the account is credited for a diamond pack (owner,
+	// 13 Sep 2026). Zero for a chip pack: every product fills exactly one
+	// wallet, and the gateway branches on which.
+	Diamonds int64
 	// Rupees is the list price at launch, for logs and reconciliation only.
 	Rupees int
 	// Pack is the owner's letter for the shelf position (A…I), so a support
@@ -50,6 +55,14 @@ var Catalogue = map[string]Product{
 	"chips_g_4999": {ID: "chips_g_4999", Pack: "G", Rupees: 4999, Chips: 2_750_000_000},
 	"chips_h_6900": {ID: "chips_h_6900", Pack: "H", Rupees: 6900, Chips: 4_000_000_000},
 	"chips_i_7900": {ID: "chips_i_7900", Pack: "I", Rupees: 7900, Chips: 5_000_000_000},
+
+	// Diamond packs (owner, 13 Sep 2026), `diamonds_<count>_<rupees>`. Diamonds
+	// pay for premium pictures (users.diamond); they are credited through
+	// diamond_purchases, not chip_ledger, which backs the chips invariant only.
+	"diamonds_1_49":     {ID: "diamonds_1_49", Pack: "D1", Rupees: 49, Diamonds: 1},
+	"diamonds_5_199":    {ID: "diamonds_5_199", Pack: "D5", Rupees: 199, Diamonds: 5},
+	"diamonds_20_699":   {ID: "diamonds_20_699", Pack: "D20", Rupees: 699, Diamonds: 20},
+	"diamonds_100_2999": {ID: "diamonds_100_2999", Pack: "D100", Rupees: 2999, Diamonds: 100},
 }
 
 // Lookup returns the product for a Play product id.

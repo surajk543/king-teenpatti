@@ -81,7 +81,7 @@ king-teenpatti/
 │   │   ├── sio/                  our own Engine.IO v4 + Socket.IO v5 server, websocket only (protocol.go, conn.go, server.go)
 │   │   ├── socket/               the game protocol on sio: handler.go (Attach, guard, one method per event, grace, resume offers), wire.go (every event/ack), payload.go; testclient/
 │   │   ├── auth/                 tokens.go (JWT HS256), providers.go (Google/Facebook/guest/fake), http.go (routes, RequireAuth, WriteError), handlers.go (the 8 REST handlers), text.go
-│   │   ├── db/                   db.go (pgxpool, search_path as connection param, WithTx, DropSchema, Migrations), migration/ (embedded, Flyway-named V<version>__<name>.sql, applied in version order: V1.0.0__baseline.sql = DDL, V1.0.1__seed_profile_pictures.sql + V1.0.2__seed_animated_pictures.sql = DML), ledger.go (THE money transactions: Checkpoint / Settle), users.go (login upsert, rewards, names, the worn picture), pictures.go (the catalogue, ownership and the chip purchase); dbtest/
+│   │   ├── db/                   db.go (pgxpool, search_path as connection param, WithTx, DropSchema, Migrations), migration/ (embedded, Flyway-named V<version>__<name>.sql, applied in version order: V1.0.0__baseline.sql = DDL, V1.0.1__seed_profile_pictures.sql + V1.0.2__seed_animated_pictures.sql = DML, V1.0.3__diamond_purchases.sql = DDL), ledger.go (THE money transactions: Checkpoint / Settle), users.go (login upsert, rewards, names, the worn picture), pictures.go (the catalogue, ownership and the chip purchase); dbtest/
 │   │   ├── metrics/              names.go (every game_* metric), metrics.go (registry, Bind*, Handler, HTTPMiddleware, SafeLabel)
 │   │   ├── app/                  app.go (mux, REST, socket endpoint, Start/Shutdown), health.go, static.go (PUBLIC_DIR + embedded assets/socket.io.min.js)
 │   │   └── util/                 UUID, RoomCode, slog JSON logger
@@ -528,7 +528,11 @@ avatar POST;
 `playerRoutes({isSeated})`, **not** `authRoutes`);
 `GET /api/rooms` (no client);
 **`POST /api/purchases/google {productId, purchaseToken}`** — verifies the token with Google and banks
-the pack through a `purchase` ledger row (action_id `gplay:<token>`), so a replay credits once. **There
+the pack through a `purchase` ledger row (action_id `gplay:<token>`), so a replay credits once. The same endpoint sells
+**diamond packs** (owner, 13 Sep 2026): `diamonds_1_49`, `diamonds_5_199`, `diamonds_20_699`, `diamonds_100_2999`
+(`purchase.Catalogue`, `Product.Diamonds`) → `db.CreditDiamondPurchase` adds to `users.diamond` with **no ledger row**,
+guarded by `diamond_purchases` (PK = the purchase token, `ON CONFLICT DO NOTHING`), and the answer carries `diamonds`
+beside `chips` (one of them 0). All four product ids must exist as managed products in the Play Console. **There
 is no Apple counterpart**, which is why the Flutter chip store does not start on iOS (§8.4);
 `GET /health`. Errors `{error: code, message}`. Guest id = `sha256('teenpatti:'+deviceId)`, deviceId
 ≥ 8 chars. `AUTH_ALLOW_FAKE_PROVIDERS=true` lets google/facebook skip verification (tests, browser
@@ -554,7 +558,7 @@ cannot add one), which is the trade the no-ALTER baseline makes.
 are parsed to JS numbers** (`pg.types.setTypeParser(20|1700)`) — without that, `chips` and `SUM()`
 come back as strings.
 
-Tables — **there are exactly four, and none of them is game state**: `users` (wallet = `chips BIGINT
+Tables — **there are exactly five, and none of them is game state** (the fifth, `diamond_purchases`, is below): `users` (wallet = `chips BIGINT
 CHECK ≥ 0`, **`diamond INTEGER NOT NULL DEFAULT 1 CHECK ≥ 0`** — the premium currency, one per new account, never
 ledgered —, counters, `milestone_claimed`, `next_bonus_at`, `active_picture_id`, `deleted_at`),
 **`chip_ledger`** (`action_id UNIQUE`, `hand_id`, `delta`, `balance`, `reason`; append-only trigger),
@@ -564,7 +568,7 @@ UNIQUE, `asset_format` IMAGE|SVG|LOTTIE|RIVE, `currency` COIN|DIAMOND, `type` FR
 who has bought what. A FREE picture needs **no** ownership row: everyone may wear it, so the table
 holds only what somebody paid for. `V1.0.1__seed_profile_pictures.sql` seeds 15 hosted animals (2 free, 13 coin-priced rentals) and
 Orange Ballerina (a LOTTIE at 1 DIAMOND for 100 days); `V1.0.2__seed_animated_pictures.sql` adds four more LOTTIE rentals of 100 days — Butterfly Flapping (4 DIAMONDS, sort_order 170), Toucan Flying (a landscape 1920×1080 canvas, 3 DIAMONDS, 180), Live Chatbot (1 DIAMOND, 190) and Paper Plane (1 DIAMOND, 200) — each script inserts with `ON CONFLICT (asset_url) DO NOTHING`, so re-pricing or retiring one is an UPDATE
-the next boot will not undo. `users.avatar_choice` (the old free-text `/profiles/x.svg` path) is
+the next boot will not undo. **`diamond_purchases`** (`V1.0.3__diamond_purchases.sql`: `purchase_token` PK, `user_id`, `product_id`, `diamonds`, `created_at`) is the replay guard and record for Play diamond packs — diamonds never enter `chip_ledger`. `users.avatar_choice` (the old free-text `/profiles/x.svg` path) is
 migrated into `active_picture_id` and dropped — **but only once every non-empty choice has found its
 catalogue row**, and any picture that was already being worn is granted an ownership row first so
 seeding it as premium cannot confiscate it. Every statement naming `avatar_choice` goes through
@@ -900,7 +904,7 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   treatment (3 shadows + bevel + optional `Glint`).
 - **The picture picker** (`_openPicturePicker`; its shelf — `PictureFilter`, `PictureFilterMenu`, `pictureShelf`,
   `PictureChoice`, `unlockPicture`, `DiamondBalance` — lives in `widgets/picture_shelf.dart`, shared with the chip
-  store's **Pictures** tab (`chip_store.dart` `_StoreTabs`: Chips | Pictures in the header; the Pictures key is not
+  store's **Pictures** tab (`chip_store.dart` `_StoreTabs`: Chips | Diamonds | Pictures in the header — the **Diamonds** tab (`diamondPacks`, `_DiamondPackCard`: 1/₹49, 5/₹199 ⭐, 20/₹699 🔥, 100/₹2,999) is offered at a table too, and a credited pack celebrates as `rewardWon.kind == 'diamonds'`; the Pictures key is not
   offered at a table, where a seated player cannot buy or change a picture; the chip packs are drawn as lobby table cards —
   frosted glass over a baked orb, a still plate, count-up figure, one fact, a price capsule — coloured sapphire → purple → gold
   up the range; the Pictures tab heads its grid with the worn picture, large and centred, beside the shelf menu); requirement 21): a horizontal strip
