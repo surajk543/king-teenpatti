@@ -36,7 +36,7 @@
 -- THE ANIMATED PICTURES are Lottie animations (asset_format LOTTIE) priced in
 -- DIAMONDs on a 100-day rental, the Premium (Animated) shelf. One diamond —
 -- Orange Ballerina, Live Chatbot, Paper Plane, Bouncing Dots, Galloping Horse,
--- Spider, Blazing Fire — is exactly what every new account starts with.
+-- Blazing Fire — is exactly what every new account starts with.
 --
 --   Orange Ballerina                                       1 DIAMOND   sort_order 160
 --   Butterfly Flapping  1000×1000, 5 s,    Lottie 4.8.0    4 DIAMONDS  sort_order 170
@@ -54,7 +54,7 @@
 --   Jolly King          1080×1080, 6.2 s,  Lottie 5.9.0   10 DIAMONDS  sort_order 290
 --   Jolly Queen         1080×1080, 6.2 s,  Lottie 5.9.0   10 DIAMONDS  sort_order 300
 --   Shooting Game        400×400,  0.85 s, Lottie 5.5.2    8 DIAMONDS  sort_order 310
---   Spider              3840×2160, 6 s,    Lottie 5.12.1   1 DIAMOND   sort_order 320
+--   Spider              3840×2160, 6 s,    Lottie 5.12.1   8 DIAMONDS  sort_order 320
 --   Swirling Dots       1080×1080, 2.8 s,  Lottie 5.9.3    3 DIAMONDS  sort_order 330
 --   Sporty Avocado       256×256,  3.2 s,  Lottie 5.7.11   9 DIAMONDS  sort_order 340
 --   Blazing Fire         500×690,  1.1 s,  Lottie 5.9.0    1 DIAMOND   sort_order 350
@@ -190,7 +190,7 @@ SELECT name, asset_url, asset_format, currency, type, cost, duration_days, is_ac
     ('Shooting Game',      'https://drive.google.com/uc?export=download&id=1awnG6ysbh0QRWXQpDN-5yIsTj0IXFJbO',
      'LOTTIE', 'DIAMOND', 'PREMIUM', 8::bigint, 100, TRUE, 310),
     ('Spider',             'https://drive.google.com/uc?export=download&id=1JRg3ayCimSPi3SsJNSRFj53S65BdMzpY',
-     'LOTTIE', 'DIAMOND', 'PREMIUM', 1::bigint, 100, TRUE, 320),
+     'LOTTIE', 'DIAMOND', 'PREMIUM', 8::bigint, 100, TRUE, 320),
     ('Swirling Dots',      'https://drive.google.com/uc?export=download&id=10vbKXtV7-ZT8Gf-m7giwWNbi0nP67juF',
      'LOTTIE', 'DIAMOND', 'PREMIUM', 3::bigint, 100, TRUE, 330),
     ('Sporty Avocado',     'https://drive.google.com/uc?export=download&id=1cal_8xZS9Tz4TCDt1leTtG36mqZhH98Q',
