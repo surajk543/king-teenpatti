@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { profileFor, strideFor } from '../src/profiles.js';
+import { wearableIds, profileFor, strideFor } from '../src/profiles.js';
 
 /** Catalogue ids as the server hands them over: integers, in display order. */
 const catalogue = (n) => Array.from({ length: n }, (_, i) => i + 1);
@@ -42,4 +42,19 @@ test('a bot keeps the same face across runs, and copes with an empty catalogue',
   const ids = catalogue(9);
   assert.equal(profileFor(42, ids), profileFor(42, ids));
   assert.equal(profileFor(0, []), null, 'no catalogue means no picture, not a crash');
+});
+
+test('only free pictures the app can draw are worn — never premium, never RIVE', () => {
+  const catalogue = [
+    { id: 1, type: 'FREE', assetFormat: 'IMAGE', currency: 'COIN' },
+    { id: 2, type: 'FREE', assetFormat: 'SVG', currency: 'COIN' },
+    { id: 3, type: 'FREE', assetFormat: 'LOTTIE', currency: 'COIN' },
+    { id: 4, type: 'FREE', assetFormat: 'RIVE', currency: 'COIN' },
+    { id: 5, type: 'PREMIUM', assetFormat: 'IMAGE', currency: 'COIN', cost: 25000 },
+    { id: 6, type: 'PREMIUM', assetFormat: 'LOTTIE', currency: 'DIAMOND', cost: 1 },
+    { id: 7, type: 'FREE' },
+  ];
+  assert.deepEqual(wearableIds(catalogue), [1, 2, 3, 7],
+    'a row with no assetFormat is an IMAGE, as the server defaults it');
+  assert.deepEqual(wearableIds(undefined), []);
 });

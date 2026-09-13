@@ -88,6 +88,13 @@ end sees bets that made sense for the cards that turn over.
   shows their green SEEN backs); a blind-lover rides it for rounds, sometimes
   raising blind to lean on the table; anyone looks once the price climbs or
   someone starts raising.
+- **At a blind table, blind is the game** (13 Sep 2026). Every bot there prefers
+  blind moves: the chance of looking starts far lower and climbs slowly with each
+  blind bet (`lookChanceFor` in `src/brain.js`), so a casual bot plays most of a
+  hand blind, a blind-lover more, a careful one a little less. Pressure still
+  counts — a bet worth a real share of the stack, or a table raising hard, makes
+  anyone look sooner — and the server turns the cards up itself after the
+  table's blind-move limit. Seen tables are unchanged.
 - **A big loss stings.** A bot that just lost big plays looser for a few hands,
   then settles.
 - **Every move is one the server offered, and every amount a rung it sent.**
@@ -138,7 +145,10 @@ end sees bets that made sense for the cards that turn over.
   identical grey initials around a table is the tell that gives the fleet away
   before anyone reads a name.
 
-  Only the **FREE** ones. The catalogue is rows in `profile_pictures` now, and a
+  Only the **FREE** ones, and never a `RIVE` row (`wearableIds`): the app ships
+  no Rive runtime yet, so one would show as the default face. A row's
+  `currency` (COIN or DIAMOND) only prices PREMIUM pictures, which are never
+  taken. The catalogue is rows in `profile_pictures` now, and a
   PREMIUM picture costs chips: a fleet buying its way through it would be two
   hundred accounts quietly draining the chip economy on decoration every
   restart, and the server would refuse them anyway (403 `picture_locked`). How
@@ -155,10 +165,14 @@ end sees bets that made sense for the cards that turn over.
   (`stepOutForPicture`; the log line is `stepped out for a picture`). Until
   10 Sep 2026 that refusal was swallowed, which is how a whole fleet ran
   faceless for a day after a restart.
-- **They wander between tables.** This is not decoration: the server seats a
+- **They wander between tables.** This is not decoration: a quick-join seats a
   player at the *fullest* table with room, so without churn exactly one table
   per category ever has a free seat, and every arriving real player lands in
-  the same one. Bots coming and going keep seats open across the lobby.
+  the same one. Bots coming and going keep seats open across the lobby. Since
+  13 Sep 2026 `room:switch` lands on a **random** other table of the same boot
+  and category rather than the fullest, so a wandering bot spreads itself
+  evenly instead of piling onto the busiest table; `no_other_table` just leaves
+  it where it is.
 - **A few change stake.** `room:switch` means "another table of the same boot
   and category" — changing stake is leaving one game for another, so it is a
   leave and a fresh quick-join, as a player would do it from the lobby. Only

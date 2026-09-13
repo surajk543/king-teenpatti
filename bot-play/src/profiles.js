@@ -19,15 +19,28 @@ import { config } from './config.js';
 
 let cached = null;
 
+/**
+ * The ids of the catalogue rows a bot may wear: FREE, and in a format the app
+ * can draw. The catalogue declares each row's `assetFormat` (IMAGE, SVG,
+ * LOTTIE or RIVE); the app ships no Rive runtime yet, so a RIVE picture shows
+ * as the default face — a bot wearing one would be the faceless bot this
+ * module exists to prevent. `currency` (COIN or DIAMOND) never matters here:
+ * it only prices PREMIUM rows, and those are never taken.
+ */
+export function wearableIds(profiles) {
+  return (profiles ?? [])
+    .filter((p) => p?.type === 'FREE')
+    .filter((p) => (p?.assetFormat ?? 'IMAGE') !== 'RIVE')
+    .map((p) => p.id)
+    .filter((id) => Number.isInteger(id));
+}
+
 export async function profileIds() {
   if (cached) return cached;
   try {
     const res = await fetch(`${config.serverUrl}/api/profiles`);
     const body = await res.json();
-    cached = (body?.profiles ?? [])
-      .filter((p) => p?.type === 'FREE')
-      .map((p) => p.id)
-      .filter((id) => Number.isInteger(id));
+    cached = wearableIds(body?.profiles);
   } catch {
     // The picture is decoration; a bot that cannot fetch the list still plays.
     cached = [];

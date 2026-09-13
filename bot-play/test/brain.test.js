@@ -26,10 +26,10 @@ function optionsFor({ chips = 200_000, stake = 200, blind = false, pot = 1_000, 
   };
 }
 
-function viewFor({ cards = [], opponents = 2, blind = false } = {}) {
+function viewFor({ cards = [], opponents = 2, blind = false, category = 'seen' } = {}) {
   const seats = [{ userId: 'me', status: 'active' }];
   for (let i = 0; i < opponents; i += 1) seats.push({ userId: `opp${i}`, status: 'active' });
-  return { seats, you: { cards: blind ? [] : cards, isBlind: blind, status: 'active' } };
+  return { category, seats, you: { cards: blind ? [] : cards, isBlind: blind, status: 'active' } };
 }
 
 const STYLES = {
@@ -150,6 +150,66 @@ test('blind-lovers stay blind longer than careful players', () => {
     return seen;
   };
   assert.ok(looks('rock') > looks('maniac'), `first-turn looks: rock ${looks('rock')} vs maniac ${looks('maniac')}`);
+});
+
+test('at a blind table every bot prefers blind moves, and still looks under pressure', () => {
+  // How many of 3000 bots look on a given blind turn, at one kind of table.
+  const looks = (style, category, { blindTurnsAlready = 0, raisesFaced = 0 } = {}) => {
+    const rng = seededRandom(31);
+    let seen = 0;
+    for (let n = 0; n < 3000; n += 1) {
+      const memory = newHandMemory();
+      memory.blindTurns = blindTurnsAlready;
+      memory.raisesFaced = raisesFaced;
+      const move = decide({
+        options: optionsFor({ blind: true }),
+        view: viewFor({ blind: true, category }),
+        me: 'me',
+        persona: persona(style),
+        memory,
+        rng,
+      });
+      if (move.action === 'see') seen += 1;
+    }
+    return seen;
+  };
+  for (const style of Object.keys(STYLES)) {
+    const atBlind = looks(style, 'blind');
+    const atSeen = looks(style, 'seen');
+    // Even the most careful bot stays blind on most first turns at a blind table.
+    assert.ok(atBlind < 3000 * 0.2, `${style} looks on ${atBlind} of 3000 first turns at a blind table`);
+    assert.ok(atBlind * 2 < atSeen, `${style}: blind table ${atBlind} vs seen table ${atSeen}`);
+  }
+  // Blind bets add up: by the fourth, a casual player has a real reason to look.
+  assert.ok(looks('casual', 'blind', { blindTurnsAlready: 3 }) > looks('casual', 'blind'));
+  // A table raising hard still makes a bot look sooner.
+  assert.ok(looks('casual', 'blind', { raisesFaced: 3 }) > looks('casual', 'blind'));
+  // And the personas keep their order: a rock looks sooner than a maniac.
+  assert.ok(looks('rock', 'blind') > looks('maniac', 'blind'));
+});
+
+test('at a blind table a bot plays most of a hand blind', () => {
+  // Four blind turns in a row, as the server allows before turning the cards
+  // up: count the blind bets made before the first look.
+  const rng = seededRandom(37);
+  let blindBets = 0;
+  const hands = 2000;
+  for (let n = 0; n < hands; n += 1) {
+    const memory = newHandMemory();
+    for (let turn = 0; turn < 4; turn += 1) {
+      const move = decide({
+        options: optionsFor({ blind: true }),
+        view: viewFor({ blind: true, category: 'blind' }),
+        me: 'me',
+        persona: persona('casual'),
+        memory,
+        rng,
+      });
+      if (move.action === 'see' || move.action === 'pack') break;
+      blindBets += 1;
+    }
+  }
+  assert.ok(blindBets / hands > 2.5, `blind bets per hand: ${(blindBets / hands).toFixed(2)} of a possible 4`);
 });
 
 test('a middling hand grows impatient as the hand drags on', () => {

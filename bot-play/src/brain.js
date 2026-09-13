@@ -9,7 +9,9 @@
  *
  *  - Blind: a careful player looks at once, a blind-lover rides it for a few
  *    rounds; anyone looks when the price climbs or someone starts raising.
- *    Now and then a bold one raises blind to lean on the table.
+ *    Now and then a bold one raises blind to lean on the table. At a BLIND
+ *    table everyone leans the other way: playing blind is the point of the
+ *    table, so a bot prefers blind moves and looks late (see `lookChance`).
  *  - Seen: judge the hand against how many are still in and how hard they have
  *    been betting. Strong → bet big, high up the ladder (or slow-play it).
  *    Middling → stay in while the price is right, or settle it cheaply with a
@@ -55,6 +57,32 @@ export function raiseAmount(options, persona, power, rng) {
  * This turn's move: `{action, amount?, hand?, bluff?, mood?}`. Counts
  * `memory.blindTurns`. `tilt` (0…1) loosens a player who just lost big.
  */
+/**
+ * The chance of looking at the cards this turn, while still blind.
+ *
+ * At a seen table blind is a style: a careful player looks at once, and
+ * anyone looks as the rounds and the raises mount. At a BLIND table (owner,
+ * 13 Sep 2026) blind is the game — a player who sat down there wants to bet
+ * blind — so every bot prefers blind moves: a far lower chance of looking,
+ * which climbs slowly with each blind bet, and still more for a blind-lover
+ * than a careful player. Pressure still counts, only for less: a bet that
+ * costs a real share of the stack, or a table raising hard, makes anyone look
+ * sooner. The server turns the cards face up itself after `maxBlindMoves`.
+ */
+export function lookChanceFor({ view, persona, memory, options, chaal, canAfford }) {
+  const expensive = canAfford && chaal > options.chips * 0.08;
+  if (view?.category === 'blind') {
+    const pressure = memory.raisesFaced * 0.06 + (expensive ? 0.2 : 0);
+    return clamp(
+      0.02 + (1 - persona.blindLove) * 0.1 + (memory.blindTurns - 1) * 0.05 + pressure,
+      0.01,
+      0.6,
+    );
+  }
+  const pressure = memory.raisesFaced * 0.18 + (expensive ? 0.35 : 0);
+  return clamp(0.2 + (1 - persona.blindLove) * 0.5 + (memory.blindTurns - 1) * 0.18 + pressure, 0.05, 0.97);
+}
+
 export function decide({ options, view, me, persona, memory, rng, tilt = 0 }) {
   const chaal = options.chaal ?? null;
   const canAfford = chaal != null && chaal <= options.chips;
@@ -64,8 +92,7 @@ export function decide({ options, view, me, persona, memory, rng, tilt = 0 }) {
   // ---- blind
   if (options.canSee) {
     memory.blindTurns += 1;
-    const pressure = memory.raisesFaced * 0.18 + (canAfford && chaal > options.chips * 0.08 ? 0.35 : 0);
-    const lookChance = clamp(0.2 + (1 - persona.blindLove) * 0.5 + (memory.blindTurns - 1) * 0.18 + pressure, 0.05, 0.97);
+    const lookChance = lookChanceFor({ view, persona, memory, options, chaal, canAfford });
     if (!canAfford || rng.chance(lookChance)) return { action: 'see' };
     if (options.show != null && rng.chance(persona.showRate * 0.25)) return { action: 'show' };
     if (rng.chance(persona.aggression * 0.22)) {
