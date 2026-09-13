@@ -211,7 +211,7 @@ class _TableScreenState extends State<TableScreen> {
           const Positioned(
             right: 0,
             bottom: 0,
-            child: SafeArea(child: _ActionCluster()),
+            child: SafeArea(child: _WhileOnline(child: _ActionCluster())),
           ),
           // Pack sits in the opposite corner from everything else, which is
           // the point: folding is the one action you never want under a thumb
@@ -219,8 +219,9 @@ class _TableScreenState extends State<TableScreen> {
           const Positioned(
             left: 0,
             bottom: 0,
-            child: SafeArea(child: _PackKey()),
+            child: SafeArea(child: _WhileOnline(child: _PackKey())),
           ),
+          const Positioned.fill(child: SafeArea(child: _Reconnecting())),
         ],
       ),
     );
@@ -299,6 +300,95 @@ double _tableWalletRoom(BuildContext context) {
   final clear = feltLeft + podLeft + podW + podW / 6 + Space.xs;
   final right = size.width - safe.right - pad;
   return math.max(Dim.minTouch, right - clear);
+}
+
+/// Said over the table while the connection is down (QA PIX-2, 14 Sep 2026).
+///
+/// The socket reconnects by itself, but until it does nothing reaches the
+/// server, and the table on screen stops where it was — a turn clock still
+/// running on a hand the server has already moved past. With no word of it the
+/// app looked frozen, or deaf to the keys. This says what is happening, and
+/// [_WhileOnline] rests the keys beneath it.
+///
+/// It shows once the socket reports the loss. On a network that simply goes
+/// dark that is the Engine.IO ping timeout — the server's 20s interval plus
+/// its 25s grace — not the instant the signal goes.
+class _Reconnecting extends StatelessWidget {
+  const _Reconnecting();
+
+  @override
+  Widget build(BuildContext context) {
+    final (offline, lang) = context.select<GameState, (bool, AppLang)>(
+      (s) => (s.offline, s.lang),
+    );
+    final theme = Theme.of(context);
+
+    return IgnorePointer(
+      child: Align(
+        // Over the status line, between the top seats and the pot.
+        alignment: const Alignment(0, -0.42),
+        child: AnimatedSwitcher(
+          duration: Motion.base,
+          child: !offline
+              ? const SizedBox.shrink()
+              : Semantics(
+                  liveRegion: true,
+                  child: _Plate(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: Space.lg,
+                      vertical: Space.md,
+                    ),
+                    opacity: 0.88,
+                    accent: AppTheme.goldBright.withValues(alpha: 0.55),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        SizedBox.square(
+                          dimension: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor: AlwaysStoppedAnimation(AppTheme.gold),
+                          ),
+                        ),
+                        const SizedBox(width: Space.md),
+                        Text(
+                          Strings(lang).reconnecting,
+                          style: theme.textTheme.titleSmall?.copyWith(
+                            // Light ink on a dark plate, in both brightnesses.
+                            color: Colors.white.withValues(alpha: 0.92),
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Rests a corner's keys while the connection is down: dimmed, and deaf to
+/// touches, since a move then could only be refused (QA PIX-1/PIX-2,
+/// 14 Sep 2026). [_Reconnecting] says why.
+class _WhileOnline extends StatelessWidget {
+  const _WhileOnline({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final offline = context.select<GameState, bool>((s) => s.offline);
+    return AbsorbPointer(
+      absorbing: offline,
+      child: AnimatedOpacity(
+        duration: Motion.base,
+        opacity: offline ? 0.45 : 1,
+        child: child,
+      ),
+    );
+  }
 }
 
 /// The floor of the room, carrying a whisper of the table's own colour.
@@ -737,7 +827,9 @@ class _TableDrawer extends StatelessWidget {
             _MenuRow(
               icon: Icons.logout_rounded,
               label: t.leaveTable,
-              note: t.joinAnother,
+              // What leaving costs right now (QA PIX-4, 14 Sep 2026): it said
+              // "join another straight away" in the middle of a hand too.
+              note: state.inLiveHand ? t.leaveStakeStays : t.joinAnother,
               tone: scheme.error,
               onTap: () async {
                 // Close the menu first, so the dialog is not stacked on top of
@@ -1170,15 +1262,20 @@ Future<void> _confirmLeave(
   GameState state,
   RoomState room,
 ) async {
-  final midHand =
-      room.state == TableState.betting && room.you?.status == SeatState.active;
-
   final leave = await showDialog<bool>(
     context: context,
     builder: (context) => GlassDialog(
       padding: const EdgeInsets.all(Space.xl),
       title: _dialogTitle(context, Icons.logout_rounded, state.t.leaveTableQ),
-      content: Text(midHand ? state.t.leaveMidHand : state.t.leaveAnytime),
+      // Read live: a hand can be dealt while the dialog is up, and then
+      // leaving costs the boot (QA PIX-4, 14 Sep 2026).
+      content: Builder(
+        builder: (context) => Text(
+          context.select<GameState, bool>((s) => s.inLiveHand)
+              ? state.t.leaveMidHand
+              : state.t.leaveAnytime,
+        ),
+      ),
       actions: _dialogActions(context, stay: state.t.stay, go: state.t.leave),
     ),
   );

@@ -11,7 +11,6 @@ import 'screens/splash_screen.dart';
 import 'screens/update_screen.dart';
 import 'screens/lobby_screen.dart';
 import 'screens/table_screen.dart';
-import 'models/dtos.dart';
 import 'settings/feedback_settings.dart';
 import 'state/game_state.dart';
 import 'theme/app_theme.dart';
@@ -519,16 +518,15 @@ class _BackGuard extends StatelessWidget {
         }
 
         if (screen == Screen.table) {
-          final room = state.room;
-          final midHand =
-              room?.state == TableState.betting &&
-              room?.you?.status == SeatState.active;
-
           final leave = await _ask(
             context,
             icon: Icons.logout,
             title: t.leaveTableQ,
-            body: midHand ? t.leaveMidHand : t.leaveAnytime,
+            body: t.leaveAnytime,
+            // Read live, not when the dialog opened: a hand dealt while it is
+            // up makes leaving cost the boot, and the text said it was free
+            // (QA PIX-4, 14 Sep 2026).
+            liveBody: (s) => s.inLiveHand ? s.t.leaveMidHand : s.t.leaveAnytime,
             confirm: t.leave,
             cancel: t.stay,
           );
@@ -557,6 +555,7 @@ class _BackGuard extends StatelessWidget {
     required String body,
     required String confirm,
     required String cancel,
+    String Function(GameState state)? liveBody,
   }) {
     final theme = Theme.of(context);
 
@@ -578,11 +577,15 @@ class _BackGuard extends StatelessWidget {
             ),
           ],
         ),
-        content: Text(
-          body,
-          style: theme.textTheme.bodyMedium?.copyWith(
-            color: theme.colorScheme.onSurface.withValues(
-              alpha: AppTheme.inkMed,
+        content: Builder(
+          builder: (context) => Text(
+            liveBody == null
+                ? body
+                : context.select<GameState, String>(liveBody),
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.onSurface.withValues(
+                alpha: AppTheme.inkMed,
+              ),
             ),
           ),
         ),

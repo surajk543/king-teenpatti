@@ -56,7 +56,8 @@ class GameConnection {
   final _errors =
       StreamController<({String? code, String message})>.broadcast();
   final _left = StreamController<void>.broadcast();
-  final _kicked = StreamController<String>.broadcast();
+  final _kicked =
+      StreamController<({String reason, String message})>.broadcast();
   final _connected = StreamController<bool>.broadcast();
 
   /// A full table snapshot, already redacted for this viewer.
@@ -117,11 +118,16 @@ class GameConnection {
   Stream<({String? code, String message})> get onError => _errors.stream;
   Stream<void> get onLeft => _left.stream;
 
-  /// The table showed this player out, with the reason to tell them.
-  Stream<String> get onKicked => _kicked.stream;
+  /// The table showed this player out: the server's reason code (`idle`,
+  /// `insufficient_chips`) and its English sentence, for a reason the client
+  /// has no words of its own for.
+  Stream<({String reason, String message})> get onKicked => _kicked.stream;
   Stream<bool> get onConnected => _connected.stream;
 
   bool get isConnected => _socket?.connected ?? false;
+
+  /// The code a move gets when it is refused because the socket is down.
+  static const notConnected = 'not_connected';
 
   void connect(String token) {
     disconnect();
@@ -138,7 +144,16 @@ class GameConnection {
     _socket = socket;
 
     socket.onConnect((_) => _connected.add(true));
-    socket.onDisconnect((_) => _connected.add(false));
+    socket.onDisconnect((_) {
+      // The library keeps what was emitted while it was down and sends it all
+      // on reconnect, so a Chaal tapped into a dead connection reached the
+      // server 77 seconds later, for a turn long gone (QA PIX-1, 14 Sep 2026)
+      // — had it been this player's turn again, it would have bet for them.
+      // Nothing waits: whatever made it into the buffer is dropped here, and
+      // [_emit] and [request] refuse while the socket is down.
+      socket.sendBuffer.clear();
+      _connected.add(false);
+    });
     socket.onConnectError(
       (e) =>
           _errors.add((code: null, message: 'Could not reach the table: $e')),
@@ -172,7 +187,10 @@ class GameConnection {
     socket.on('room:left', (_) => _left.add(null));
     socket.on('room:kicked', (data) {
       final j = _map(data);
-      _kicked.add('${j['message'] ?? 'You were removed from the table.'}');
+      _kicked.add((
+        reason: '${j['reason'] ?? ''}',
+        message: '${j['message'] ?? 'You were removed from the table.'}',
+      ));
     });
     socket.on('room:closed', (_) => _left.add(null));
 
@@ -333,7 +351,9 @@ class GameConnection {
     Map<String, dynamic> payload,
   ) async {
     final socket = _socket;
-    if (socket == null) return {'ok': false, 'message': 'Not connected'};
+    if (socket == null || !socket.connected) {
+      return {'ok': false, 'code': notConnected, 'message': 'Not connected'};
+    }
 
     final done = Completer<Map<String, dynamic>>();
     socket.emitWithAck(
@@ -353,6 +373,11 @@ class GameConnection {
   void _emit(String event, Map<String, dynamic> payload) {
     final socket = _socket;
     if (socket == null) return;
+    // Refused now rather than buffered for later (see onDisconnect).
+    if (!socket.connected) {
+      _errors.add((code: notConnected, message: 'Not connected'));
+      return;
+    }
 
     // Every gameplay event is acknowledged, and a refusal comes back in the
     // ack rather than as a thrown error.

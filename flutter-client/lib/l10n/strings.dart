@@ -247,6 +247,11 @@ class Strings {
   String get welcomeBack => _('welcomeBack');
   String get appVersion => _('appVersion');
   String get tableLost => _('tableLost');
+  String get notConnected => _('notConnected');
+  String get reconnecting => _('reconnecting');
+  String get kickedNoChips => _('kickedNoChips');
+  String kickedIdle(int turns) => _('kickedIdle').replaceAll('{n}', '$turns');
+  String get leaveStakeStays => _('leaveStakeStays');
   String get winner => _('winner');
   String get tableChat => _('tableChat');
   String get saySomething => _('saySomething');
@@ -610,7 +615,12 @@ class Strings {
       'resumingTable': 'Returning to your table…',
       'welcomeBack': "Welcome back — you're back at your table.",
       'appVersion': 'App version',
-      'tableLost': 'The table closed while you were away.',
+      'tableLost': 'You lost your seat while you were away.',
+      'notConnected': 'No connection. That did not go through.',
+      'reconnecting': 'Connection lost. Reconnecting…',
+      'kickedNoChips': "You don't have enough chips to stay at this table.",
+      'kickedIdle': 'You left the table after {n} missed turns.',
+      'leaveStakeStays': 'Your stake stays in the pot',
       'winner': 'Winner',
       'tableChat': 'Table chat',
       'saySomething': 'Say something…',
@@ -889,7 +899,13 @@ class Strings {
       'resumingTable': 'आपकी टेबल पर वापस जा रहे हैं…',
       'welcomeBack': 'वापसी पर स्वागत है — आप अपनी टेबल पर वापस हैं।',
       'appVersion': 'ऐप संस्करण',
-      'tableLost': 'आप दूर थे तब टेबल बंद हो गई।',
+      'tableLost': 'आप दूर थे तब आपकी सीट छूट गई।',
+      'notConnected': 'कनेक्शन नहीं है। यह नहीं भेजा गया।',
+      'reconnecting': 'कनेक्शन टूट गया। फिर से जुड़ रहे हैं…',
+      'kickedNoChips':
+          'इस टेबल पर बने रहने के लिए आपके पास पर्याप्त चिप्स नहीं हैं।',
+      'kickedIdle': 'लगातार {n} चालें चूकने पर आप टेबल से हट गए।',
+      'leaveStakeStays': 'आपका दांव पॉट में रहेगा',
       'winner': 'विजेता',
       'tableChat': 'टेबल चैट',
       'saySomething': 'कुछ कहें…',
@@ -1165,7 +1181,12 @@ class Strings {
       'resumingTable': 'আপনার টেবিলে ফিরছি…',
       'welcomeBack': 'ফিরে আসায় স্বাগত — আপনি আপনার টেবিলে ফিরে এসেছেন।',
       'appVersion': 'অ্যাপ সংস্করণ',
-      'tableLost': 'আপনি দূরে থাকাকালীন টেবিল বন্ধ হয়ে গেছে।',
+      'tableLost': 'আপনি দূরে থাকাকালীন আপনার আসন চলে গেছে।',
+      'notConnected': 'সংযোগ নেই। এটি পাঠানো যায়নি।',
+      'reconnecting': 'সংযোগ বিচ্ছিন্ন। আবার যুক্ত হচ্ছে…',
+      'kickedNoChips': 'এই টেবিলে থাকার মতো যথেষ্ট চিপ আপনার নেই।',
+      'kickedIdle': 'পরপর {n}টি চাল মিস করায় আপনি টেবিল ছেড়েছেন।',
+      'leaveStakeStays': 'আপনার বাজি পটেই থাকবে',
       'winner': 'বিজয়ী',
       'tableChat': 'টেবিল চ্যাট',
       'saySomething': 'কিছু বলুন…',
@@ -1472,7 +1493,12 @@ class Strings {
       'wear': 'વાપરો',
       'wearing': 'વપરાય છે',
       'appVersion': 'એપ આવૃત્તિ',
-      'tableLost': 'તમે દૂર હતા ત્યારે ટેબલ બંધ થઈ ગયું.',
+      'tableLost': 'તમે દૂર હતા ત્યારે તમારી બેઠક જતી રહી.',
+      'notConnected': 'કનેક્શન નથી. આ મોકલાયું નથી.',
+      'reconnecting': 'કનેક્શન તૂટી ગયું. ફરી જોડાઈ રહ્યા છીએ…',
+      'kickedNoChips': 'આ ટેબલ પર રહેવા માટે તમારી પાસે પૂરતી ચિપ્સ નથી.',
+      'kickedIdle': 'સળંગ {n} ચાલ ચૂકી જતાં તમે ટેબલ છોડ્યું.',
+      'leaveStakeStays': 'તમારો દાવ પોટમાં જ રહેશે',
       'winner': 'વિજેતા',
       'tableChat': 'ટેબલ ચૅટ',
       'saySomething': 'કંઈક કહો…',
@@ -1747,7 +1773,12 @@ class Strings {
       'resumingTable': 'ਤੁਹਾਡੇ ਟੇਬਲ ਤੇ ਵਾਪਸ ਜਾ ਰਹੇ ਹਾਂ…',
       'welcomeBack': 'ਵਾਪਸੀ ਤੇ ਸਵਾਗਤ — ਤੁਸੀਂ ਆਪਣੇ ਟੇਬਲ ਤੇ ਵਾਪਸ ਹੋ।',
       'appVersion': 'ਐਪ ਵਰਜਨ',
-      'tableLost': 'ਤੁਸੀਂ ਦੂਰ ਸੀ ਤਾਂ ਟੇਬਲ ਬੰਦ ਹੋ ਗਿਆ।',
+      'tableLost': 'ਤੁਸੀਂ ਦੂਰ ਸੀ ਤਾਂ ਤੁਹਾਡੀ ਸੀਟ ਚਲੀ ਗਈ।',
+      'notConnected': 'ਕਨੈਕਸ਼ਨ ਨਹੀਂ ਹੈ। ਇਹ ਨਹੀਂ ਭੇਜਿਆ ਗਿਆ।',
+      'reconnecting': 'ਕਨੈਕਸ਼ਨ ਟੁੱਟ ਗਿਆ। ਮੁੜ ਜੁੜ ਰਹੇ ਹਾਂ…',
+      'kickedNoChips': 'ਇਸ ਟੇਬਲ ਉੱਤੇ ਰਹਿਣ ਲਈ ਤੁਹਾਡੇ ਕੋਲ ਲੋੜੀਂਦੇ ਚਿਪਸ ਨਹੀਂ ਹਨ।',
+      'kickedIdle': 'ਲਗਾਤਾਰ {n} ਚਾਲਾਂ ਖੁੰਝਣ ਕਾਰਨ ਤੁਸੀਂ ਟੇਬਲ ਛੱਡ ਦਿੱਤਾ।',
+      'leaveStakeStays': 'ਤੁਹਾਡਾ ਦਾਅ ਪੌਟ ਵਿੱਚ ਹੀ ਰਹੇਗਾ',
       'winner': 'ਜੇਤੂ',
       'tableChat': 'ਟੇਬਲ ਚੈਟ',
       'saySomething': 'ਕੁਝ ਕਹੋ…',

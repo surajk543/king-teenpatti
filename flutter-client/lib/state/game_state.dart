@@ -317,6 +317,17 @@ class GameState extends ChangeNotifier {
   int raiseIndex = 0;
 
   bool get connected => _conn.isConnected;
+
+  /// True from the moment an established connection drops until it is back.
+  /// Unlike `!connected` it is false before the first connection, so nothing
+  /// says "reconnecting" to a session that has not connected yet.
+  bool offline = false;
+
+  /// Whether the viewer is playing a hand right now, so leaving or switching
+  /// would pack their cards and leave their stake in the pot.
+  bool get inLiveHand =>
+      room?.state == TableState.betting &&
+      room?.you?.status == SeatState.active;
   TurnOptions? get options => room?.you?.options;
   bool get myTurn => options != null;
 
@@ -443,7 +454,20 @@ class GameState extends ChangeNotifier {
           return;
         }
         _snapshotSinceSession = false;
-        if (!resuming && room != null) _armSeatCheck();
+        if (!resuming && room != null) {
+          final offer = s.resume;
+          if (offer != null) {
+            // The connection was down long enough for the seat to lapse, but
+            // the table is still there: sit back down at it, as a cold start
+            // does. It dropped the player to the lobby with "the table closed"
+            // while the table played on (QA PIX-3, 14 Sep 2026). The server
+            // offers this once, so it is taken now or not at all.
+            _conn.joinByCode(offer.code);
+            _armSeatCheck(after: const Duration(seconds: 4));
+          } else {
+            _armSeatCheck();
+          }
+        }
         if (resuming) {
           final offer = s.resume;
           if (offer != null) {
@@ -483,8 +507,8 @@ class GameState extends ChangeNotifier {
       // Requirements 31 and 32: idled out, or out of chips for this table.
       // Shown out is not the same as leaving, so the reason is carried back to
       // the lobby rather than the player simply finding themselves there.
-      _conn.onKicked.listen((message) {
-        notice = message;
+      _conn.onKicked.listen((kick) {
+        notice = kickText(kick.reason, kick.message);
         switching = false;
         room = null;
         seatedAt = null;
@@ -565,7 +589,10 @@ class GameState extends ChangeNotifier {
         if (resuming) _endResume();
         notifyListeners();
       }),
-      _conn.onConnected.listen((_) => notifyListeners()),
+      _conn.onConnected.listen((up) {
+        offline = !up;
+        notifyListeners();
+      }),
     ]);
   }
 
@@ -833,9 +860,9 @@ class GameState extends ChangeNotifier {
   /// `session:ready` if it still has us seated. If nothing follows, the seat
   /// is gone: back to the lobby, with a word about why, rather than a table
   /// that never moves again.
-  void _armSeatCheck() {
+  void _armSeatCheck({Duration after = const Duration(milliseconds: 1800)}) {
     _seatCheck?.cancel();
-    _seatCheck = Timer(const Duration(milliseconds: 1800), () {
+    _seatCheck = Timer(after, () {
       if (_snapshotSinceSession || room == null) return;
       room = null;
       seatedAt = null;
@@ -1441,6 +1468,18 @@ class GameState extends ChangeNotifier {
   /// server's own message.
   String refusalText(String? code, String message) {
     if (code == 'no_hammers') return t.noHammers;
+    if (code == GameConnection.notConnected) return t.notConnected;
+    if (code == 'over_entry_cap' || code == 'below_table_minimum') {
+      // The server writes the limit with Western grouping ("500,000"); the
+      // lobby card beside the refusal says "5 Lakh". Said with the card's own
+      // sentence, in the player's numbering (QA PIX-5, 14 Sep 2026).
+      final digits = RegExp(r'\d[\d,]*').firstMatch(message)?.group(0);
+      final limit = int.tryParse(digits?.replaceAll(',', '') ?? '');
+      if (limit == null) return message;
+      return code == 'over_entry_cap'
+          ? t.cappedBody.replaceAll('{cap}', formatChips(limit))
+          : t.lockedBody.replaceAll('{min}', formatChips(limit));
+    }
     if (code == 'no_other_table') {
       // The server names the table's category in English; this names it the
       // way the player's language writes it, lower case where the script has
@@ -1450,6 +1489,24 @@ class GameState extends ChangeNotifier {
       return t.noOtherTable(
         (category == TableCategory.blind ? t.blind : t.seen).toLowerCase(),
       );
+    }
+    return message;
+  }
+
+  /// Why the table showed this player out, in their language (QA PIX-5,
+  /// 14 Sep 2026). The server's reasons are stable codes and its sentences are
+  /// English — and say "coins" where the game says chips — so the words are
+  /// chosen here. The idle sentence carries the count the server used; a
+  /// reason with no words here keeps the server's message.
+  String kickText(String reason, String message) {
+    switch (reason) {
+      case 'insufficient_chips':
+        return t.kickedNoChips;
+      case 'idle':
+        final turns = int.tryParse(
+          RegExp(r'\d+').firstMatch(message)?.group(0) ?? '',
+        );
+        return turns == null ? message : t.kickedIdle(turns);
     }
     return message;
   }
@@ -1604,6 +1661,13 @@ class GameState extends ChangeNotifier {
   /// blank text, or the cooldown still running.
   bool sendChat(String text) {
     if (text.trim().isEmpty || !canChat) return false;
+    // Refused while the connection is down, before the cooldown starts: the
+    // line stays in the field to send once it is back.
+    if (offline) {
+      notice = t.notConnected;
+      notifyListeners();
+      return false;
+    }
     _conn.sendChat(text.trim());
     _chatReadyAt = DateTime.now().add(chatCooldown);
     _chatCooldownTimer?.cancel();
