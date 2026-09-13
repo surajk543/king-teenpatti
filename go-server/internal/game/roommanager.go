@@ -201,6 +201,32 @@ type RoomManagerOptions struct {
 	Logger   *slog.Logger // nil → slog.Default()
 	Metrics  MetricsHooks
 
+	// LoadPlayer reads a player's account — above all their wallet — for a
+	// seat taken from the lobby (QuickJoin, JoinByCode, Join, CreateAndJoin).
+	// It is called HOLDING that player's seat lock, with a context bounded by
+	// walletReadTimeout, and the seat starts from what it returns rather than
+	// from the Player the caller passed in; the chip checks of that door read
+	// it too.
+	//
+	// It is the other half of WhileUnseated and CreditBoughtChips. Every
+	// caller reads the wallet before asking for a seat (the socket layer's
+	// freshUser), and a lobby-only debit — a chip-priced picture — that
+	// committed between that read and the seat reservation used to leave the
+	// seat holding chips the wallet no longer had: when the player lost them,
+	// the checkpoint clamped the wallet at zero and the winner was paid chips
+	// that never existed. Read under the lock, the wallet a seat starts from
+	// cannot be moved by a change holding the same lock before the seat is
+	// reserved, and once it is reserved a lobby-only change is refused
+	// (CLAUDE.md §5.1: a seated wallet moves only at a checkpoint).
+	//
+	// It is not called while that wallet is still waiting for a write from a
+	// table the player sat at (departing, owed): no read can be final before
+	// the write lands, so the seat is refused settlement_pending instead.
+	//
+	// nil → the Player the caller passed is used as it is (unit tests, whose
+	// players have no wallet behind them). Production wires db.Users.FindByID.
+	LoadPlayer func(ctx context.Context, userID string) (Player, error)
+
 	// Live is the live-state store (LIVE_STATE_PLAN.md): every table saves
 	// its snapshot and chat there, the seat index is mirrored
 	// (SetSeated/ClearSeated), public tables are published to the
@@ -244,6 +270,24 @@ type RoomManagerOptions struct {
 // on purpose — it blocks only other transitions of the same (or a
 // same-stripe) player, never the manager.
 //
+// The stripe also fences the player's wallet off from the lobby. Every seat
+// taken from the lobby reads the wallet under it (LoadPlayer), and the wallet
+// changes a seat must neither start from half-done nor miss run under it — a
+// lobby-only change (WhileUnseated), a chip pack's credit together with its
+// seat top-up (CreditBoughtChips) — so no seat starts from a balance such a
+// change is about to replace. The database work done under a stripe is that
+// read, those changes, and whatever checkpoint a Table call makes on the
+// actor; none of it takes a stripe, so the order is always stripe → mu
+// (briefly, released) → table actor → database, and nothing waits the other
+// way round. (A table's actor does take mu, briefly, to count a settlement
+// owed — but mu is never held while calling a table, so no holder of mu can be
+// waiting for that actor.) Two paths take seats off the index without the
+// players' stripes, a table destroy and a suspend; they mark those players
+// departing instead. And a player can leave a table between hands while the
+// database is still refusing that table's last settlement; the table reports
+// the write owed (settlementOwed). WhileUnseated and every lobby seat
+// (freshPlayer) honour both marks.
+//
 // All methods Node marked async are ordinary blocking methods here.
 type RoomManager struct {
 	game   config.GameConfig
@@ -256,9 +300,25 @@ type RoomManager struct {
 	mx     MetricsHooks
 	hooks  *tableHooks
 
+	// loadPlayer is RoomManagerOptions.LoadPlayer (nil → the caller's Player).
+	loadPlayer func(ctx context.Context, userID string) (Player, error)
+
 	mu          sync.Mutex
 	tables      map[string]*Table // roomId → table
 	playerRooms map[string]string // userId → roomId
+	// departing is userId → seats of theirs that destroyTable or Suspend has
+	// taken off the index without the player's stripe and whose last write
+	// has not landed yet: the settlement of the live hand Destroy ends, until
+	// Destroy returns (a settlement it leaves retrying is owed from then on),
+	// or the seat a suspend hands on to the next process. WhileUnseated and a
+	// lobby seat (freshPlayer) treat such a player as still at the table — a
+	// lobby debit, or a seat started from the wallet, landing ahead of that
+	// write would leave it to clamp the wallet at zero.
+	departing map[string]int
+	// owed is userId → refused hand-end settlements still being retried that
+	// move that player's wallet (settlementOwed). Honoured exactly as
+	// departing is, for as long as the count is above zero.
+	owed map[string]int
 	// order is roomId → creation sequence number. Node's Map iterated in
 	// insertion order and its sorts were stable, so every "oldest" / "ties
 	// to the earliest" rule fell out of creation order; Go maps do not
@@ -315,9 +375,28 @@ const (
 	msgNoOtherTableFormat  = "No other %s table at this stake has a free seat right now"
 	msgOverEntryCapFormat  = "Players with more than %s chips cannot join this table"
 	msgBelowTableMinFormat = "This table is for players with %s chips or more"
-	sweepEmptyTableMinAge  = 30 * time.Second // roomManager.js sweepEmptyTables: Date.now() - 30_000, hardcoded
+	msgSettlementPending   = "Your last hand is still being saved; try again in a moment" // Go only (freshPlayer)
+	sweepEmptyTableMinAge  = 30 * time.Second                                             // roomManager.js sweepEmptyTables: Date.now() - 30_000, hardcoded
 	userLockStripes        = 256
 	quickJoinMaxRepicks    = 3
+)
+
+// Bounds on the database work done holding a player's stripe. A stripe is
+// shared by every player hashed to it (1 in userLockStripes), and
+// statement_timeout does not cover waiting for a pool connection or a
+// database that has stopped answering, so none of that work may wait for ever.
+const (
+	// walletReadTimeout bounds LoadPlayer: a join that cannot read the wallet
+	// in this long is refused rather than left holding the stripe.
+	walletReadTimeout = 10 * time.Second
+	// walletWorkTimeout bounds the transaction WhileUnseated or
+	// CreditBoughtChips runs. It is twice PG_STATEMENT_TIMEOUT_MS's default on
+	// purpose: a statement PostgreSQL gives up on fails and rolls back before
+	// this fires, so the outcome is final when the stripe is released. The
+	// bound is for a stall PostgreSQL cannot see — a pool that never hands out
+	// a connection, or a network gone quiet mid-COMMIT, the one case in which
+	// the stripe is let go with the outcome still unknown.
+	walletWorkTimeout = 30 * time.Second
 )
 
 // userLock is the stripe serialising one player's seat transitions.
@@ -358,6 +437,7 @@ func NewRoomManager(opts RoomManagerOptions) *RoomManager {
 		game:        opts.Game,
 		chat:        opts.Chat,
 		ledger:      ledger,
+		loadPlayer:  opts.LoadPlayer,
 		clock:       clock,
 		tl:          tl,
 		rl:          rl,
@@ -365,6 +445,8 @@ func NewRoomManager(opts RoomManagerOptions) *RoomManager {
 		mx:          opts.Metrics,
 		tables:      map[string]*Table{},
 		playerRooms: map[string]string{},
+		departing:   map[string]int{},
+		owed:        map[string]int{},
 		order:       map[string]uint64{},
 		pending:     map[string]int{},
 		live:        opts.Live,
@@ -571,6 +653,7 @@ func (rm *RoomManager) tableOptions(opts TableOptions) TableOptions {
 	opts.LiveTTL = rm.liveTTL
 	opts.LiveErrors = rm.liveErrorHook
 	opts.ObserveHandStart = rm.mx.ObserveHandStart
+	opts.SettlementOwed = rm.settlementOwed
 	return opts
 }
 
@@ -626,15 +709,49 @@ func (rm *RoomManager) GetTableByCode(code string) *Table {
 	return nil
 }
 
-// GetTableForPlayer returns the table the user is seated at (via
-// playerRooms), or nil.
-// CreditChips adds purchased chips to a player's seat, wherever they are
-// sitting, and reports whether a seat was found.
+// CreditBoughtChips banks a chip purchase and adds it to the player's seat, if
+// they have one, as one step under the player's stripe, and reports whether a
+// seat was topped up. bank is the database credit: it runs on the context it
+// is handed — bounded by walletWorkTimeout and never a request's, for the
+// reason given on WhileUnseated — and reports whether it credited the wallet
+// this time. A receipt already banked credits nothing, and neither does its
+// seat.
+//
+// A purchase is not lobby-only, so why the stripe: the credit and the top-up
+// are two moments, and a lobby seat is taken from the wallet as read under the
+// stripe (LoadPlayer). With nothing held across both, a join could read the
+// wallet after the credit had committed and reserve its seat before the
+// top-up looked for one: the seat started with the pack in it, the top-up
+// added the pack again, and losing those chips clamped the wallet at zero and
+// paid out chips that never existed. Held across both, either the join sits
+// down first and the top-up finds its seat, or the join reads a wallet that
+// already holds the pack, after a top-up that found no seat. A seated player's
+// purchase is otherwise unchanged: the top-up is Table.CreditChips, which also
+// ends an unfunded grace the chips now cover.
+//
+// bank must not start a seat transition, or any other call that takes this
+// player's stripe: it would deadlock.
+func (rm *RoomManager) CreditBoughtChips(userID string, amount int64, bank func(ctx context.Context) bool) bool {
+	ul := rm.userLock(userID)
+	ul.Lock()
+	defer ul.Unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), walletWorkTimeout)
+	credited := bank(ctx)
+	cancel()
+	if !credited {
+		return false
+	}
+	return rm.creditSeat(userID, amount)
+}
+
+// creditSeat adds purchased chips to a player's seat, wherever they are
+// sitting, and reports whether a seat was found. The caller holds the
+// player's stripe (CreditBoughtChips).
 //
 // The mutex is released before the table is touched — RoomManager never holds
 // its lock while calling a Table (PORT_PLAN.md §3.4), and CreditChips posts to
 // that table's actor.
-func (rm *RoomManager) CreditChips(userID string, amount int64) bool {
+func (rm *RoomManager) creditSeat(userID string, amount int64) bool {
 	t := rm.GetTableForPlayer(userID)
 	if t == nil {
 		return false
@@ -642,6 +759,8 @@ func (rm *RoomManager) CreditChips(userID string, amount int64) bool {
 	return t.CreditChips(userID, amount)
 }
 
+// GetTableForPlayer returns the table the user is seated at (via
+// playerRooms), or nil.
 func (rm *RoomManager) GetTableForPlayer(userID string) *Table {
 	rm.mu.Lock()
 	t, dropped := rm.seatedTableLocked(userID)
@@ -855,7 +974,17 @@ func (rm *RoomManager) pickRandomTableLocked(bootAmount int64, category Category
 // so fifty players quick-joining at the same instant are routed by the seats
 // that will be taken and nobody is refused with table_full by a race Node's
 // single thread could not have.
+//
+// The player's stripe is taken before anything is decided, because the chip
+// checks and the seat have to use the wallet as it stands under that lock
+// (freshPlayer, LoadPlayer): a lobby-only wallet change holds the same lock
+// (WhileUnseated), so it lands wholly before the read or is refused once the
+// seat is reserved.
 func (rm *RoomManager) QuickJoin(user Player, opts QuickJoinOptions) (*Table, error) {
+	ul := rm.userLock(user.ID)
+	ul.Lock()
+	defer ul.Unlock()
+
 	if err := rm.assertNotSeated(user.ID); err != nil {
 		return nil, err
 	}
@@ -867,6 +996,10 @@ func (rm *RoomManager) QuickJoin(user Player, opts QuickJoinOptions) (*Table, er
 	if err := rm.AssertTableOffered(bootAmount, resolved); err != nil {
 		return nil, err
 	}
+	user, err := rm.freshPlayer(user)
+	if err != nil {
+		return nil, err
+	}
 	if user.Chips < bootAmount {
 		return nil, NewGameError(CodeInsufficientChips, msgInsufficientToJoin)
 	}
@@ -876,10 +1009,6 @@ func (rm *RoomManager) QuickJoin(user Player, opts QuickJoinOptions) (*Table, er
 	if err := rm.assertWithinTableBand(user, bootAmount, resolved); err != nil {
 		return nil, err
 	}
-
-	ul := rm.userLock(user.ID)
-	ul.Lock()
-	defer ul.Unlock()
 
 	for attempt := 0; ; attempt++ {
 		started := time.Now()
@@ -926,8 +1055,13 @@ func (rm *RoomManager) QuickJoin(user Player, opts QuickJoinOptions) (*Table, er
 // full") → insufficient_chips →
 // entry cap (skipped for private tables: you were invited) → Join. Neither
 // the stake list nor the menu is consulted: any live table can be joined by
-// its code.
+// its code. As in QuickJoin, the player's stripe is held from the first check,
+// so the chips checked and seated are the wallet read under it.
 func (rm *RoomManager) JoinByCode(user Player, code string) (*Table, error) {
+	ul := rm.userLock(user.ID)
+	ul.Lock()
+	defer ul.Unlock()
+
 	if err := rm.assertNotSeated(user.ID); err != nil {
 		return nil, err
 	}
@@ -942,6 +1076,10 @@ func (rm *RoomManager) JoinByCode(user Player, code string) (*Table, error) {
 	if table.IsFull() {
 		return nil, NewGameError(CodeTableFull, msgThatTableFull)
 	}
+	user, err := rm.freshPlayer(user)
+	if err != nil {
+		return nil, err
+	}
 	if user.Chips < table.BootAmount() {
 		return nil, NewGameError(CodeInsufficientChips, msgInsufficientToJoin)
 	}
@@ -954,7 +1092,9 @@ func (rm *RoomManager) JoinByCode(user Player, code string) (*Table, error) {
 			return nil, err
 		}
 	}
-	if err := rm.Join(table, user, ""); err != nil {
+	// seat, not Join: this goroutine already holds the stripe, and the wallet
+	// has just been read under it.
+	if err := rm.seat(table, user, ""); err != nil {
 		return nil, err
 	}
 	return table, nil
@@ -1064,12 +1204,175 @@ func (rm *RoomManager) SwitchTable(user Player) (SwitchResult, error) {
 // out of the map refuses with table_destroyed rather than seating somebody
 // on a room that is closing — and must have a seat that is not already held
 // by a join in flight (table_full, "This table is full", the Table's own
-// wording for the same refusal a moment later).
+// wording for the same refusal a moment later). The seat starts from the
+// wallet as read under the player's stripe (freshPlayer), not from user.Chips.
 func (rm *RoomManager) Join(table *Table, user Player, socketID string) error {
 	ul := rm.userLock(user.ID)
 	ul.Lock()
 	defer ul.Unlock()
+	user, err := rm.freshPlayer(user)
+	if err != nil {
+		return err
+	}
 	return rm.seat(table, user, socketID)
+}
+
+// freshPlayer is the account a seat taken from the lobby starts from:
+// LoadPlayer's answer when the manager has one, else the Player the caller
+// passed. The caller holds the player's stripe, which is the point — see
+// RoomManagerOptions.LoadPlayer and WhileUnseated. The read is bounded by
+// walletReadTimeout: it holds a stripe other players share, and a pool with no
+// connection to give, or a database that has stopped answering, would
+// otherwise hold that stripe for as long as it lasted. A seat that moves with
+// its player (a switch, a consolidation) never comes through here: the seat's
+// own chips are the authority there, and the checkpoint has just banked them.
+//
+// Before any read, a player whose wallet is still waiting for a write from a
+// table they sat at — a settlement the database refused and is retrying
+// (owed), or a destroy still settling their seat (departing) — is refused
+// settlement_pending, with or without a loader. Read now, the wallet would
+// still hold a stake that write is about to take: the seat would start with
+// chips the wallet is about to lose, and losing them at the new table would
+// clamp the wallet at zero and pay chips that never existed. The look is under
+// the stripe, before the read, and that is enough (see settlementOwed): a debit
+// cannot be marked owed for a player who is unseated and whose stripe is held.
+func (rm *RoomManager) freshPlayer(user Player) (Player, error) {
+	rm.mu.Lock()
+	unfinished := rm.walletUnfinishedLocked(user.ID)
+	rm.mu.Unlock()
+	if unfinished {
+		return Player{}, NewGameError(CodeSettlementPending, msgSettlementPending)
+	}
+	if rm.loadPlayer == nil {
+		return user, nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), walletReadTimeout)
+	defer cancel()
+	fresh, err := rm.loadPlayer(ctx, user.ID)
+	if err != nil {
+		return Player{}, err
+	}
+	if fresh.ID != user.ID {
+		return Player{}, fmt.Errorf("load player %s: got account %q", user.ID, fresh.ID)
+	}
+	return fresh, nil
+}
+
+// WhileUnseated runs fn — a change to the player's wallet that may only be
+// made in the lobby: a reward, a chip-priced picture — holding that player's
+// stripe, and reports whether it ran. It reports false, and fn does not run,
+// while the player has a seat — one the index names, or one a table destroy or
+// suspend has taken off the index before its last write landed (departing) —
+// or while a settlement of a table they have left is still being retried
+// (owed): until that write lands, their wallet is not final.
+// With the stripe held, that look is also a look at every seat transition of
+// theirs that holds the stripe across its gap: a join between reading the
+// wallet and reserving the seat, a leave or kick between the index and the
+// table, a switch or a consolidation move between one table and the next, a
+// chip pack between its credit and its seat top-up.
+//
+// A look without the lock (GetTableForPlayer, the old IsSeated) is not enough
+// because the look and the commit are two moments. A player holding 2,50,000
+// bought a 2,00,000 picture while their room:quickJoin had already read the
+// wallet: the join reserved its seat after the purchase committed, the seat
+// started at 2,50,000 against a wallet of 50,000, and when they lost it the
+// checkpoint clamped the wallet at zero and the winner was paid 2,00,000 that
+// never existed. Now one of the two runs wholly before the other: the purchase
+// finds the seat and is refused, or the join reads the wallet it left.
+//
+// fn's database work must use the ctx it is handed, bounded by
+// walletWorkTimeout — never a request's. pgx gives up on a cancelled context
+// at once, even with COMMIT already on the wire, so a client that hung up
+// could end fn, and release the stripe, while PostgreSQL was still deciding
+// the outcome; a join waiting on the stripe could then read the wallet from
+// before a debit that landed a moment later.
+//
+// fn may do I/O — it is a database transaction — and holding the stripe
+// through it blocks only seat transitions of this player (and of whoever
+// shares their stripe), never the manager, exactly as a Table call under the
+// stripe does. fn must not start a seat transition itself (Join, Leave,
+// SwitchTable, …): they take the same stripe, and it would deadlock.
+//
+// The owed mark covers a player who left a table between hands while the
+// database was refusing its settlement. A leave between hands writes nothing,
+// so the wallet went on holding the stake they had lost: a 9,800 picture paid
+// from a wallet of 10,000, with 9,600 at the seat, left the retry's −400 to
+// clamp the wallet at zero, and the winner was paid 200 chips that never
+// existed. settlementOwed says why a look under the stripe cannot miss such a
+// debit.
+func (rm *RoomManager) WhileUnseated(userID string, fn func(ctx context.Context)) bool {
+	ul := rm.userLock(userID)
+	ul.Lock()
+	defer ul.Unlock()
+	rm.mu.Lock()
+	seated, dropped := rm.seatedTableLocked(userID)
+	unfinished := rm.walletUnfinishedLocked(userID)
+	rm.mu.Unlock()
+	if dropped {
+		rm.liveClearSeated(userID)
+	}
+	if seated != nil || unfinished {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), walletWorkTimeout)
+	defer cancel()
+	fn(ctx)
+	return true
+}
+
+// CreateAndJoin is room:create: open a table and seat its creator at it,
+// holding the creator's stripe from the first check to the seat. Order:
+// already_in_room → for a public table AssertStakeAllowed → AssertTableOffered
+// → insufficient_chips → entry cap → table band — then CreateTable and the
+// seat (DECISIONS.md §3). A private table forces its boot (requirement 22) and
+// checks no chips: it is somewhere its creator invites people to, which is
+// also why JoinByCode does not cap it.
+//
+// The chip checks read the wallet under the stripe (freshPlayer), the same
+// wallet the seat starts from. Made on a read taken before the lock, as the
+// socket layer used to make them, a lobby purchase or reward committing in
+// between could seat the creator below the boot, above the entry cap
+// (requirement 30) or outside the table's band. A refused create opens no
+// table; a seat refused once the table is open (a shutdown destroying it under
+// us) takes the empty table away again rather than leaving it to the sweeper.
+func (rm *RoomManager) CreateAndJoin(user Player, opts CreateTableOptions, socketID string) (*Table, error) {
+	ul := rm.userLock(user.ID)
+	ul.Lock()
+	defer ul.Unlock()
+
+	if err := rm.assertNotSeated(user.ID); err != nil {
+		return nil, err
+	}
+	category := NormalizeCategory(opts.Category)
+	if !opts.IsPrivate {
+		if err := rm.AssertStakeAllowed(opts.BootAmount); err != nil {
+			return nil, err
+		}
+		if err := rm.AssertTableOffered(opts.BootAmount, category); err != nil {
+			return nil, err
+		}
+	}
+	user, err := rm.freshPlayer(user)
+	if err != nil {
+		return nil, err
+	}
+	if !opts.IsPrivate {
+		if user.Chips < opts.BootAmount {
+			return nil, NewGameError(CodeInsufficientChips, msgInsufficientToJoin)
+		}
+		if err := rm.assertUnderEntryCap(user, opts.BootAmount, category); err != nil {
+			return nil, err
+		}
+		if err := rm.assertWithinTableBand(user, opts.BootAmount, category); err != nil {
+			return nil, err
+		}
+	}
+	table := rm.CreateTable(opts)
+	if err := rm.seat(table, user, socketID); err != nil {
+		_ = rm.destroyTable(table.ID(), true)
+		return nil, err
+	}
+	return table, nil
 }
 
 // seat is Join's body for callers already holding the player's stripe: take
@@ -1363,6 +1666,12 @@ func (rm *RoomManager) destroyTable(roomID string, onlyIfUnclaimed bool) error {
 		if seatedAt == roomID {
 			delete(rm.playerRooms, userID)
 			unseated = append(unseated, userID)
+			// Off the index without the player's stripe, and not yet written
+			// through: Destroy settles a live hand below, and the wallet is
+			// still waiting for that write. Until Destroy returns, a lobby
+			// change or a lobby seat counts the player as still here
+			// (departing).
+			rm.departing[userID]++
 		}
 	}
 	delete(rm.tables, roomID)
@@ -1379,7 +1688,16 @@ func (rm *RoomManager) destroyTable(roomID string, onlyIfUnclaimed bool) error {
 		}
 		rm.retireTable(table)
 	}
-	if err := table.Destroy(); err != nil && !errors.Is(err, ErrTableDestroyed) {
+	err := table.Destroy()
+	// Destroy settled the live hand on the actor before it returned: the write
+	// landed, or the database refused it and the table reported it owed
+	// (settlementOwed), a mark that holds until a retry lands or is given up.
+	// Either way the departing mark has done its work. The same owed marks
+	// cover a player who left this table earlier while one of its settlements
+	// was retrying, whom no departing mark could name. A Destroy that failed (a
+	// panic recovered on the actor) has left nothing to wait for either.
+	rm.clearDeparting(unseated)
+	if err != nil && !errors.Is(err, ErrTableDestroyed) {
 		return err
 	}
 	rm.rl.OnTableDestroyed(roomID)
@@ -1398,6 +1716,75 @@ func (rm *RoomManager) destroyTable(roomID string, onlyIfUnclaimed bool) error {
 		}()
 	}
 	return nil
+}
+
+// clearDeparting ends the departing marks destroyTable set for userIDs, once
+// Destroy has returned.
+func (rm *RoomManager) clearDeparting(userIDs []string) {
+	rm.mu.Lock()
+	defer rm.mu.Unlock()
+	for _, userID := range userIDs {
+		if rm.departing[userID]--; rm.departing[userID] <= 0 {
+			delete(rm.departing, userID)
+		}
+	}
+}
+
+// settlementOwed is every table's TableOptions.SettlementOwed: it counts, per
+// player, the refused hand-end settlements still being retried that move
+// their wallet — a non-zero delta; a zero-delta row only records an outcome,
+// and that wallet is already final.
+//
+// Why the manager has to know. A player can leave a table between hands while
+// the database is refusing its settlement, and a leave between hands writes
+// nothing, so their wallet goes on holding the stake they lost until a retry
+// lands. The index no longer seats them, and departing covers only a table
+// destroyed or suspended under its players, so a lobby debit of that wallet,
+// or a lobby seat started from it, used to go through — and the late negative
+// delta then clamped the wallet at zero and paid the winner chips that never
+// existed. While the count is above zero, WhileUnseated refuses and
+// freshPlayer refuses settlement_pending.
+//
+// Why a look under the player's stripe is enough. A retry chain begins on the
+// actor inside endHand, and a debit can only be in it for a player the table
+// still held when the hand ended: seated in the index; off it inside a
+// transition that holds their stripe — whose RemovePlayer the actor runs only
+// after endHand, so the stripe is let go only after the mark is set; or taken
+// off by a destroy, whose departing mark is set with the index deletion and
+// cleared only after Destroy (and so endHand) has returned. A player found
+// unseated, not departing and owing nothing, with their stripe held, cannot
+// therefore acquire a pending debit before the look's decision is carried out,
+// and a mark is cleared only after the write it stands for has returned. A
+// pending CREDIT can be marked for a player who has already gone — the winner
+// of a hand everyone left (ALL_LEFT) — but a credit landing late cannot clamp
+// anything: at worst a seat starts without it and the wallet ends up higher.
+//
+// It runs on a table's actor, or on its clock's goroutine for a retry that
+// outlived the table: mu only, briefly, and never anything that waits on a
+// table.
+func (rm *RoomManager) settlementOwed(req SettleRequest, owed bool) {
+	rm.mu.Lock()
+	defer rm.mu.Unlock()
+	for _, entry := range req.Entries {
+		if entry.Delta == 0 {
+			continue
+		}
+		if owed {
+			rm.owed[entry.UserID]++
+			continue
+		}
+		if rm.owed[entry.UserID]--; rm.owed[entry.UserID] <= 0 {
+			delete(rm.owed, entry.UserID)
+		}
+	}
+}
+
+// walletUnfinishedLocked reports whether the player's wallet is still waiting
+// for a write from a table they sat at: a destroy or suspend still settling or
+// handing on their seat (departing), or a refused settlement still being
+// retried (owed). The caller holds mu.
+func (rm *RoomManager) walletUnfinishedLocked(userID string) bool {
+	return rm.departing[userID] > 0 || rm.owed[userID] > 0
 }
 
 // ConsolidateTables (consolidateTables; requirement 24) merges public idle
@@ -1519,13 +1906,21 @@ func (rm *RoomManager) movePlayer(source, target *Table) (*PlayerMove, error) {
 	rm.mu.Unlock()
 	rm.liveClearSeated(player.ID)
 
-	if _, err := source.RemovePlayer(player.ID, LeaveReasonMoved); err != nil {
+	vacated, err := source.RemovePlayer(player.ID, LeaveReasonMoved)
+	if err != nil {
 		rm.releaseHold(target.ID())
 		ul.Unlock()
 		if errors.Is(err, ErrTableDestroyed) {
 			return nil, nil
 		}
 		return nil, err
+	}
+	// The seat above was read before the stripe was taken, and a chip pack's
+	// seat top-up (CreditBoughtChips) holds the stripe, so one can have landed
+	// in between. Carry the chips the seat held when it was given up, as
+	// SwitchTable does.
+	if vacated != nil {
+		player.Chips = vacated.Chips
 	}
 
 	if err := rm.seatHeld(target, player, socketID); err != nil {

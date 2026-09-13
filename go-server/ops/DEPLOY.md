@@ -143,7 +143,10 @@ curl -s 127.0.0.1:3000/health | python3 -m json.tool | grep -E '"ok"|"node"|"pla
 ```
 
 The build writes `bin/gameplay` while the old binary is running — Linux keeps the old inode alive
-until the restart, so building never disturbs the live process.
+until the restart, so building never disturbs the live process. Files under `go-server/public/`
+are different: the running binary reads them from disk, so a pull that deletes one takes it away
+before the restart. Keep the pull, the build and the restart back to back; §5 has the one such
+release so far (Butterfly Flapping's move to Drive).
 
 ## 4. Verify
 
@@ -213,25 +216,104 @@ than left as a safety net with a hole in it; a recovery script that fails at the
 is worse than none, because it implies a way back that is not there.
 
 Releases are tagged (`go-server/vX.Y.Z`, see `../README.md` §Releasing), so going back one is a
-checkout and a rebuild. As `deploy`, no sudo needed until the restart:
+checkout and a rebuild. One thing has to be settled **before** the checkout — who owns `users` — and
+one is worth knowing first: going back to `go-server/v1.3.0` brings back a second Butterfly Flapping.
+Both are explained below the commands. As `deploy`, no sudo needed until the restart:
 
 ```bash
 cd /var/www/gameplay/king-teenpatti
 git tag --list 'go-server/v*' --sort=-v:refname | head       # what there is to go back to
+psql "$(sed -n 's/^DATABASE_URL=//p' go-server/.env)" -Atc "SET statement_timeout = '10s'" \
+  -c "SELECT tableowner FROM pg_tables WHERE schemaname = 'public' AND tablename = 'users'"   # gameplay_app; postgres = §7 is applied, do its undo first
+git diff --name-status HEAD go-server/v1.1.0 -- go-server/public/profiles    # a "D" line is a served picture the rollback deletes (none today)
 git checkout go-server/v1.1.0                                # detached HEAD, on purpose
 bash go-server/ops/build.sh                                  # stamps v1.1.0 into the binary
 sudo systemctl restart gameplay                              # or: kill "$(systemctl show gameplay -p MainPID --value)"
 bash go-server/ops/prod-version.sh                           # must now report v1.1.0
 ```
 
-Then get back onto the branch when the fix is ready: `git checkout master && git pull origin master`.
+**Files the catalogue still points at can vanish.** A picture this server serves itself lives in
+`go-server/public/profiles/`, which belongs to the checkout, while its catalogue row lives in the
+database, which a rollback does not touch. The static handler reads that directory from disk, so a
+file the older tag lacks is gone the moment that tag is checked out — before the restart — and its
+row stays on sale: a player who buys it pays and gets the default avatar. No served picture is in that
+position today — every file in `go-server/public/profiles/` exists in every tag, so the `git diff`
+above prints nothing. If a later release adds one, put each "D" file back straight after the checkout
+(`git show <the ref you left>:<path> > <path>`), before the build, and delete it again before
+returning to the branch: git refuses to check out over an untracked file, even an identical one.
+
+**Butterfly Flapping, and rolling back to `go-server/v1.3.0`.** v1.3.0 served Butterfly Flapping
+itself, from `go-server/public/profiles/butterfly-flapping.json`. The release after it serves the
+byte-identical file from Drive, deletes it from the checkout, and its V1.0.2 moves the catalogue row
+to the Drive URL at boot — in place, so production's row keeps id 65, and every purchase and every
+player wearing it stay on that id.
+
+- **Back to `go-server/v1.2.0` or older: nothing to do.** Those builds have no V1.0.2, and the row
+  they find already points at Drive, which needs no file on this host.
+- **Back to `go-server/v1.3.0`** (or any untagged build between it and the move): the checkout
+  brings the file back — v1.3.0 tracks it — so nothing 404s. But v1.3.0's V1.0.2 still seeds the old
+  path, and with the row moved its `ON CONFLICT (asset_url)` no longer matches, so its first boot
+  **inserts a second Butterfly Flapping** at `/profiles/butterfly-flapping.json` under a new id. What
+  you see: the first query below answers two rows, and players see the picture twice on the Premium
+  (Animated) shelf — the original (65, Drive) still owned and worn by whoever had it, and the
+  duplicate locked for everyone and on sale at 4 diamonds.
+- **What to run: nothing is required.** The next forward boot of any later build folds the duplicate
+  into id 65: ownership rows and wearers move across (a player who bought both keeps the later rental
+  plus whatever was left of the earlier one), the duplicate is deleted, and one row remains, on the
+  Drive URL (`TestARollbackDuplicateOfButterflyFlappingFoldsIntoTheOriginalWithoutLosingOwnership`,
+  `internal/db`). If the rollback will last long enough that you would rather nobody bought the
+  duplicate meanwhile, retire it with the second query. It matches only an old-path row NEWER than
+  the row at the Drive URL, so it can never retire the owned original, and it answers `UPDATE 0` when
+  there is nothing to retire. v1.3.0's later boots leave a retired row
+  alone (`ON CONFLICT DO NOTHING`), and the forward fold treats it exactly like an active one.
+
+```bash
+cd /var/www/gameplay/king-teenpatti
+psql "$(sed -n 's/^DATABASE_URL=//p' go-server/.env)" -Atc "SET statement_timeout = '10s'" \
+  -c "SELECT id, asset_url, is_active FROM profile_pictures WHERE name = 'Butterfly Flapping' ORDER BY id"   # two rows under v1.3.0; one (65, Drive URL) after the next forward boot
+psql "$(sed -n 's/^DATABASE_URL=//p' go-server/.env)" -Atc "SET statement_timeout = '10s'" \
+  -c "UPDATE profile_pictures SET is_active = FALSE WHERE asset_url = '/profiles/butterfly-flapping.json' AND id > (SELECT id FROM profile_pictures WHERE asset_url = 'https://drive.google.com/uc?export=download&id=19mQ9PjStBJUoFyThaSe97fEcfzARw_Ar')"   # optional, while v1.3.0 runs: UPDATE 1 retires the duplicate; UPDATE 0 = nothing to retire
+```
+
+Never `DELETE` the duplicate by hand: `user_profile_pictures` cascades on it and
+`users.active_picture_id` is set to null, so whoever bought or wore it during the rollback would lose
+it — which is exactly what the fold exists to avoid.
+
+**The forward deploy that moves it has a short gap.** `git pull` deletes
+`go-server/public/profiles/butterfly-flapping.json` from disk at once, while the running binary's
+catalogue keeps handing out that path until the restart runs the new V1.0.2. For the length of the
+build and the restart the path answers 404, so keep the three steps back to back. A phone that has
+already downloaded the picture keeps drawing it from its own copy; only a phone meeting it for the
+first time inside the gap draws the default avatar, until it next reads the catalogue. After the
+restart every phone is handed the Drive URL — a new URL to its cache — and downloads the file once
+more. One slower tail: a table restored from Redis keeps each seat's picture URL from its snapshot, so
+a seated player wearing Butterfly Flapping keeps the old path on their seat — drawn by the phones that
+have the file and as the default by the rest — until they sit down again or put the picture back on.
+
+**Under §7, older tags cannot start.** Once `postgres` owns `users` (§7), every tag up to and
+including `go-server/v1.3.0` fails at boot with `must be owner of table users`, because its baseline
+creates `idx_users_last_login` without the ownership-proof lookup. That is what the owner query at the
+top is for: if it answers `postgres`, hand `users` and its function back to `gameplay_app` first (the
+undo in §7), then check out, build and restart, and run §7 again once a guarded build is back.
+
+Then get back onto the branch when the fix is ready. From v1.3.0 the checkout removes
+`butterfly-flapping.json` by itself — the tag tracks it and `master` does not — which opens the same
+short 404 gap as the forward deploy above, until the restart. So build and restart straight after it:
+
+```bash
+git checkout master && git pull origin master
+bash go-server/ops/build.sh
+sudo systemctl restart gameplay                              # or: kill "$(systemctl show gameplay -p MainPID --value)"
+bash go-server/ops/prod-version.sh                           # the release you came back to; its first boot folds any duplicate
+```
 
 **What a rollback does not undo.** The database is not versioned with the binary. Migrations run at
 every boot and only ever add; an older binary against a newer schema is fine (it ignores columns it
 does not know), but an older binary cannot remove a column a newer one added, and **nothing here
 reverses a data change**. If a release altered data rather than code, say so in the release notes and
 plan the reversal separately — through the ledger for anything touching money (`chip_ledger` is
-append-only; a correction is a compensating row, never a DELETE).
+append-only; a correction is a compensating row, never a DELETE). Butterfly Flapping's move is one
+such change: no rollback puts the row back on the served path, and none needs to.
 
 `go-server/.env` is also not versioned. A release that changed a key's meaning needs that key put
 back by hand, or the old binary reads a value it does not expect.
@@ -308,30 +390,86 @@ back to 8 GiB when that job is absent — edit the constant in `alerts.yml` if t
 
 ## 7. Locking `users` rows to the superuser — one-time, sudo
 
-Since 10 Sep 2026 `schema.sql` installs a trigger, `users_no_delete`, that refuses every `DELETE
-FROM users` (the server never issues one; `DELETE /api/account` pseudonymises the row). It lands
-on the next restart with no action needed. But the app role `gameplay_app` **owns** the table and
-the trigger function, because it is the role that runs `schema.sql`, and an owner can disable a
-trigger. To make deleting a user something only a person with sudo on the host can do, hand both
-to the `postgres` superuser once, and grant the app role back exactly what it uses:
+Since 10 Sep 2026 the baseline migration installs a trigger, `users_no_delete`, that refuses every
+`DELETE FROM users` (the server never issues one; the deletion route was removed the same day). It
+lands on the next restart with no action needed. But the app role `gameplay_app` **owns** the table
+and the trigger function, because it is the role that runs the migrations at every boot, and an owner
+can disable a trigger. To make deleting a user something only a person with sudo on the host can do, hand both
+to the `postgres` superuser once, and grant the app role back exactly what it uses.
+
+**Check the build first.** Every release up to and including `go-server/v1.3.0` creates
+`idx_users_last_login` with a bare `CREATE INDEX IF NOT EXISTS … ON users`. PostgreSQL checks that
+the caller owns the table *before* it looks for the index, so those builds cannot start once
+`postgres` owns `users` — `run V1.0.0__baseline.sql: ERROR: must be owner of table users` on every
+restart, and systemd restarts it straight back into the same error. Apply this section only on a
+checkout whose baseline carries the guarded statement — and, because the migrations are compiled into
+`bin/gameplay` (`//go:embed`), only once the running server was built from that checkout. A grep of
+the checkout says nothing about a binary built before the last `git pull`:
+
+```bash
+cd /var/www/gameplay/king-teenpatti
+grep -c "indrelid = 'users'::regclass" go-server/internal/db/migration/V1.0.0__baseline.sql   # 1 = this checkout is guarded; 0 = stop
+git describe --tags --match 'go-server/v*'                                                      # the checkout …
+curl -s 127.0.0.1:3000/health | python3 -c 'import json,sys; print(json.load(sys.stdin)["version"])'   # … and the running build: must be the same, else build.sh + restart first
+```
 
 ```bash
 sudo -u postgres psql gameplay <<'SQL'
 ALTER FUNCTION users_immutable_rows() OWNER TO postgres;
 ALTER TABLE users OWNER TO postgres;
 GRANT SELECT, INSERT, UPDATE ON users TO gameplay_app;
+GRANT REFERENCES ON users TO gameplay_app;
 SQL
-sudo systemctl restart gameplay          # proves schema.sql still boots under the new ownership
+sudo systemctl restart gameplay
+sudo journalctl -u gameplay -n 20 --no-pager     # "database ready" then "king-teenpatti server listening", once — not a restart loop
+```
+
+**Why REFERENCES.** The app role creates tables at boot, and creating a table with a foreign key to
+`users` — `diamond_purchases` (V1.0.3) has one, and a later table may — needs the REFERENCES
+privilege on `users`. An owner holds it implicitly; once `postgres` owns the table, `gameplay_app`
+holds it only if granted. Its absence does not show on the day this section is run:
+`CREATE TABLE IF NOT EXISTS` skips a table that already exists before it checks anything. It shows on
+the first boot that has to *create* such a table — `permission denied for table users` — which is to
+say in some later release. If `users` is already owned by `postgres` from a run of this section that
+predates the REFERENCES line, run that one `GRANT` on its own now.
+
+**What the restart proves, and what it does not.** A clean restart proves that the scripts in *this*
+checkout boot under the new ownership. It proves nothing about the next release, which brings scripts
+of its own: without the REFERENCES grant this restart is clean, and a release that adds a table
+referencing `users` still crash-loops. What covers a checkout's scripts is
+`TestTheAppRoleBootsTwiceBeforeAndAfterUsersIsHandedToTheSuperuser` (`internal/db`; needs a local
+PostgreSQL superuser). It reads the SQL block above out of this file, applies it to a throwaway
+schema, and boots every migration twice as a role that is not a superuser, before and after — then
+twice more while re-creating `diamond_purchases` under the new ownership. Run it before deploying a
+release that touches `users` or adds a table referencing it:
+
+```bash
+cd go-server && go test -count=1 -v -run UsersIsHandedToTheSuperuser ./internal/db | grep -E -- '--- (PASS|SKIP|FAIL)'   # must print PASS
+```
+
+It must print `--- PASS`. Without `-v`, a skipped test prints `ok` exactly like a passing one, and it
+skips when PostgreSQL is unreachable, when the test connection is not a superuser, or when a new role
+cannot log in with a password — a SKIP proves nothing.
+
+If the restart fails anyway, give both objects back and restart; that is exactly the arrangement the
+server ran under before this section:
+
+```bash
+sudo -u postgres psql gameplay -c 'ALTER TABLE users OWNER TO gameplay_app' -c 'ALTER FUNCTION users_immutable_rows() OWNER TO gameplay_app'
+sudo systemctl restart gameplay
 ```
 
 Verify, as the app role (the `DATABASE_URL` in `go-server/.env`):
 
 ```bash
 psql "$(sed -n 's/^DATABASE_URL=//p' /var/www/gameplay/king-teenpatti/go-server/.env)" <<'SQL'
-BEGIN; DELETE FROM users WHERE id = (SELECT id FROM users LIMIT 1); ROLLBACK;   -- ERROR: users rows are never deleted …
+BEGIN; DELETE FROM users WHERE id = (SELECT id FROM users LIMIT 1); ROLLBACK;   -- ERROR: permission denied for table users
 ALTER TABLE users DISABLE TRIGGER users_no_delete;                              -- ERROR: must be owner of table users
 SQL
 ```
+
+The `DELETE` never reaches the trigger: `gameplay_app` holds no DELETE privilege at all. The trigger
+is the wall behind that one, for a role that does.
 
 From then on, removing a row is deliberately three statements as `postgres`:
 
@@ -341,11 +479,20 @@ DELETE FROM users WHERE id = '…';        -- cascades into chip_ledger, whose o
 ALTER TABLE users ENABLE TRIGGER users_no_delete;   -- a player with ledger rows cannot be removed at all, by design
 ```
 
-The one trap: a future `schema.sql` that alters `users` (`ALTER TABLE users ADD COLUMN …`) will fail
-at boot under `gameplay_app` once `postgres` owns the table — run that statement as `postgres`
-first, or add it as a guarded `DO` block that skips when the column exists. This is why the trigger
-function is created only when missing rather than with `CREATE OR REPLACE`, which would need the
-owner on every boot.
+**Scripts that touch `users` from now on.** Every boot runs every migration as `gameplay_app`, and
+PostgreSQL checks privileges before `IF NOT EXISTS`, so a statement that needs to own `users` fails
+even when there is nothing left for it to do: `CREATE INDEX [IF NOT EXISTS] … ON users` (the baseline
+did exactly this until `idx_users_last_login` was put behind a lookup), `ALTER TABLE users …`
+(`ADD COLUMN IF NOT EXISTS` included), `COMMENT ON TABLE users`, and
+`CREATE OR REPLACE FUNCTION users_immutable_rows()`; `CREATE TRIGGER … ON users` needs the TRIGGER
+privilege, which is not granted either. Such a statement goes into its script behind a catalogue
+lookup in a `DO` block — the pattern the baseline uses for `users_no_delete` and
+`idx_users_last_login` — so a fresh database runs it and a handed-over one skips it. On production,
+run the statement once as `postgres` before deploying the release, so the lookup finds the work
+done. This is also why the trigger function is created only when missing rather than with
+`CREATE OR REPLACE`. The test above fails on a script that forgets the lookup; it cannot fail on a
+guarded statement whose work production has not done yet (it builds its schema as the owner first),
+which is exactly why that one-off run as `postgres` comes before the deploy.
 
 ## Troubleshooting
 

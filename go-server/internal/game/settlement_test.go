@@ -797,6 +797,101 @@ func TestASettlementIsAbandonedAfterTenRetries(t *testing.T) {
 	eq(t, h.clock.Pending(), 0, "no retry timer left")
 }
 
+// Every settlement the ledger refuses is reported owed exactly once, as its
+// retries begin, and settled exactly once, after the write that ends them has
+// returned — however the chain ends: accepted on the actor (duplicate_action
+// included), given up there, or accepted or given up after Destroy. One that
+// is accepted first time is never reported. RoomManager.settlementOwed counts
+// on the pairs matching, and a settled report made before its write returned
+// would let a lobby purchase in ahead of that write.
+func TestARefusedSettlementIsReportedOwedOnceAndSettledOnceAfterItsWrite(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		refusals  int  // attempts refused before one is accepted; -1 = every one
+		duplicate bool // the accepted attempt answers duplicate_action
+		destroy   bool // the table is destroyed while the retry is owed
+		want      string
+	}{
+		{name: "accepted first time", want: ""},
+		{name: "a retry is accepted on the actor", refusals: 1, want: "owed settled"},
+		{name: "a retry is answered duplicate_action", refusals: 1, duplicate: true, want: "owed settled"},
+		{name: "the retries are given up on the actor", refusals: -1, want: "owed settled"},
+		{name: "a retry that outlived Destroy is accepted", refusals: 1, destroy: true, want: "owed settled"},
+		{name: "a retry that outlived Destroy is given up", refusals: -1, destroy: true, want: "owed settled"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var mu sync.Mutex
+			attempts, written := 0, false
+			var reports, hands []string
+			h := newHarness(t, settleConfig(),
+				withLedger(func(h *harness) Ledger {
+					return &captureLedger{inner: emptyLedger(h), settle: func(SettleRequest) (SettleResult, error) {
+						mu.Lock()
+						defer mu.Unlock()
+						attempts++
+						if tc.refusals < 0 || attempts <= tc.refusals {
+							return nil, errors.New("settle down")
+						}
+						written = true
+						if tc.duplicate {
+							return nil, NewGameError(CodeDuplicateAction, MsgDuplicateAction)
+						}
+						return SettleResult{}, nil
+					}}
+				}),
+				withSettlementOwed(func(req SettleRequest, owed bool) {
+					mu.Lock()
+					defer mu.Unlock()
+					hands = append(hands, req.HandID)
+					switch {
+					case owed:
+						reports = append(reports, "owed")
+					case written, tc.refusals < 0 && attempts == settleMaxAttempts+1:
+						reports = append(reports, "settled")
+					default:
+						reports = append(reports, fmt.Sprintf("settled-after-%d-attempts-before-its-write", attempts))
+					}
+				}),
+			)
+			h.seat("a", settleStart)
+			h.seat("b", settleStart)
+			h.advance(6 * time.Second)
+			hand := h.lastHandStarted().HandID
+			loser := h.turnUser()
+			h.mustAct(loser, ActionPack, ActRequest{})
+			// No next hand, so only the retries are left on the clock.
+			for _, id := range h.occupiedIDs() {
+				if id != loser {
+					h.remove(id, LeaveReasonLeft)
+				}
+			}
+			if tc.destroy {
+				if err := h.table.Destroy(); err != nil {
+					t.Fatalf("destroy: %v", err)
+				}
+			}
+
+			// Delays: 6,12,18,24,30,30,30,30,30,30 = 240 s, then the chain gives up.
+			h.advance(10 * time.Minute)
+			if tc.destroy {
+				if err := h.table.WaitSettlements(context.Background()); (err != nil) != (tc.refusals < 0) {
+					t.Fatalf("WaitSettlements: %v", err)
+				}
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			if got := strings.Join(reports, " "); got != tc.want {
+				t.Fatalf("reports %q, want %q", got, tc.want)
+			}
+			for _, id := range hands {
+				if id != hand {
+					t.Fatalf("a report named hand %s, want %s", id, hand)
+				}
+			}
+		})
+	}
+}
+
 // ------------------------------------------------------------ properties
 
 // TestChipConservationUnderRandomPlay drives many hands of random legal play

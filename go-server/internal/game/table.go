@@ -104,6 +104,15 @@ type TableOptions struct {
 	// ObserveHandStart, if set, is called with how long startHand took —
 	// game_hand_start_duration_seconds. Called on the actor; must not block.
 	ObserveHandStart func(d time.Duration)
+	// SettlementOwed, if set, hears of every hand-end settlement the database
+	// refused: once with owed=true as its retries begin, and once with
+	// owed=false when they end — the write landed (duplicate_action included)
+	// or was given up after settleMaxAttempts. In between, the wallets named
+	// in req do not hold that hand's result, wherever their players have gone
+	// since (RoomManager.settlementOwed). Called on the actor, or on the
+	// clock's goroutine for a retry that outlived Destroy or Suspend; must not
+	// block or call back into the table.
+	SettlementOwed func(req SettleRequest, owed bool)
 }
 
 // PersistReasonFlush is PersistErrorEvent.Reason when a departing player's
@@ -351,7 +360,9 @@ type Table struct {
 	detachedOpen int
 	landed       []string // hand ids settled after Destroy
 	abandoned    []string // hand ids given up after settleMaxAttempts
-	view         *View    // the single View handed to listeners
+	// settlementOwed is TableOptions.SettlementOwed (nil → nobody to tell).
+	settlementOwed func(req SettleRequest, owed bool)
+	view           *View // the single View handed to listeners
 }
 
 // settleRetry is one armed settlement back-off: the timer and the exact
@@ -443,6 +454,8 @@ func newTableCore(opts TableOptions) *Table {
 		dealerSeat:  -1,
 		chat:        NewRoomChat(chatHistory, chatLength, clock),
 		retryTimers: map[uint64]*settleRetry{},
+
+		settlementOwed: opts.SettlementOwed,
 	}
 	t.ctx, t.cancel = context.WithCancel(context.Background())
 	t.detachedDone = sync.NewCond(&t.detachedMu)
@@ -2693,6 +2706,13 @@ func (t *Table) endHand(winnerID *string, reason WinReason, reveals []Reveal) {
 		// late success moves each wallet exactly once. chipsWritten is NOT
 		// advanced, so if the retries are abandoned the next checkpoint for
 		// that player still carries this hand's delta.
+		//
+		// Until a retry lands, the wallets in the request do not hold this
+		// hand's result, and a player can leave between hands — a leave that
+		// writes nothing — and ask for that wallet in the lobby. So the write
+		// is reported owed here, on the actor, before any RemovePlayer queued
+		// behind this closure can run.
+		t.owe(settleReq, true)
 		t.retrySettle(settleReq, 1)
 	} else {
 		t.version.Add(1)
@@ -2759,6 +2779,9 @@ func (t *Table) retrySettle(req SettleRequest, attempt int) {
 		return
 	}
 	if attempt > settleMaxAttempts {
+		// Given up: nothing will write this hand now, so the wallets as they
+		// stand are the last word and nobody need wait for them any longer.
+		t.owe(req, false)
 		t.listener.OnError(t.view, fmt.Errorf("settlement of hand %s failed after %d attempts", req.HandID, settleMaxAttempts))
 		return
 	}
@@ -2776,6 +2799,7 @@ func (t *Table) retrySettle(req SettleRequest, attempt int) {
 				t.retrySettle(req, attempt+1)
 				return
 			}
+			t.owe(req, false) // landed: first, so nothing below can skip it
 			t.version.Add(1)
 			for userID, balance := range balances {
 				s := t.findSeat(userID)
@@ -2795,6 +2819,18 @@ func (t *Table) retrySettle(req SettleRequest, attempt int) {
 			t.settleDetachedFrom(req, attempt)
 		}
 	})
+}
+
+// owe reports a refused settlement to TableOptions.SettlementOwed: owed as its
+// retries begin (endHand), !owed when they end. Every chain is reported once
+// each way, because it begins in exactly one place and ends at exactly one of
+// three: a retry that landed on the actor, the attempt cap reached on the
+// actor, or finishDetached for a chain that outlived its table. A chain the
+// timer's callback and Destroy both reach is still one chain (claimDetached).
+func (t *Table) owe(req SettleRequest, owed bool) {
+	if t.settlementOwed != nil {
+		t.settlementOwed(req, owed)
+	}
 }
 
 // settleRetryDelay is min(30s, NextHandDelay × attempt) — Node's back-off.
@@ -2825,7 +2861,7 @@ func (t *Table) settleDetached(req SettleRequest, attempt int) {
 // when it lands or is abandoned.
 func (t *Table) settleDetachedFrom(req SettleRequest, attempt int) {
 	if attempt > settleMaxAttempts {
-		t.finishDetached(req.HandID, false)
+		t.finishDetached(req, false)
 		return
 	}
 	t.clock.AfterFunc(t.settleRetryDelay(attempt), func() {
@@ -2835,17 +2871,20 @@ func (t *Table) settleDetachedFrom(req SettleRequest, attempt int) {
 			return
 		}
 		t.version.Add(1)
-		t.finishDetached(req.HandID, true)
+		t.finishDetached(req, true)
 	})
 }
 
-// finishDetached records a chain's outcome and wakes WaitSettlements.
-func (t *Table) finishDetached(handID string, landed bool) {
+// finishDetached ends a chain: the settlement stops being owed, its outcome
+// is recorded, and WaitSettlements wakes. The owed mark goes first, so whoever
+// has seen WaitSettlements return also finds the wallets final.
+func (t *Table) finishDetached(req SettleRequest, landed bool) {
+	t.owe(req, false)
 	t.detachedMu.Lock()
 	if landed {
-		t.landed = append(t.landed, handID)
+		t.landed = append(t.landed, req.HandID)
 	} else {
-		t.abandoned = append(t.abandoned, handID)
+		t.abandoned = append(t.abandoned, req.HandID)
 	}
 	t.detachedOpen--
 	t.detachedDone.Broadcast()

@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -239,12 +240,22 @@ func jsParseInt(s string) int {
 // The Table still computes its checkpoints as a DELTA rather than an absolute
 // (see the Ledger doc), so a future fourth writer could not silently erase a
 // credit either — defence in depth, not redundancy.
+//
+// The check and the claim run together under the player's seat lock
+// (Deps.WhileUnseated). Checked on its own, a claim could commit after a join
+// had read the wallet and before it reserved the seat: no chips are made that
+// way — the delta absorbs the difference — but the seat would start without a
+// credit the wallet has, which is exactly the fourth writer ruled out above.
+// The claim runs on the context the lock hands it, not the request's: a client
+// giving up while the claim's COMMIT was on the wire would otherwise end the
+// call — and release the lock — before the outcome was known.
 func (h *Handler) Milestone(w http.ResponseWriter, r *http.Request, user *db.User) {
-	if h.isSeated(user.ID) {
+	var result *db.RewardResult
+	var err error
+	if !h.whileUnseated(r.Context(), user.ID, func(ctx context.Context) { result, err = h.deps.Users.ClaimMilestoneReward(ctx, user.ID) }) {
 		WriteJSON(w, http.StatusConflict, ErrorResponse{Error: CodeSeated, Message: MsgSeatedMilestone})
 		return
 	}
-	result, err := h.deps.Users.ClaimMilestoneReward(r.Context(), user.ID)
 	if err != nil {
 		h.writeError(w, r, err)
 		return
@@ -263,13 +274,15 @@ func (h *Handler) Milestone(w http.ResponseWriter, r *http.Request, user *db.Use
 // {error:"seated"}; claimed → 200 {claimed:true, amount, readyAt, user} and
 // log `timed bonus claimed` {userId}; not ready → 409
 // {error:"reward_not_ready", message, readyAt, user}. The body is ignored.
-// The seated check exists for the reason given on Milestone.
+// The seated check, and the lock it is taken under, exist for the reasons given
+// on Milestone.
 func (h *Handler) Bonus(w http.ResponseWriter, r *http.Request, user *db.User) {
-	if h.isSeated(user.ID) {
+	var result *db.RewardResult
+	var err error
+	if !h.whileUnseated(r.Context(), user.ID, func(ctx context.Context) { result, err = h.deps.Users.ClaimTimedBonus(ctx, user.ID) }) {
 		WriteJSON(w, http.StatusConflict, ErrorResponse{Error: CodeSeated, Message: MsgSeatedBonus})
 		return
 	}
-	result, err := h.deps.Users.ClaimTimedBonus(r.Context(), user.ID)
 	if err != nil {
 		h.writeError(w, r, err)
 		return
@@ -495,6 +508,16 @@ func (h *Handler) Avatar(w http.ResponseWriter, r *http.Request, user *db.User) 
 // writes them. The rule is applied inside the purchase transaction
 // (db.Pictures.BuyAtTable) → 409 seated.
 //
+// In the lobby the purchase runs under the player's seat lock
+// (Deps.WhileUnseated), and that is what makes "in the lobby" true for the
+// whole transaction rather than for the instant it was checked. Without it a
+// room:quickJoin that had read a wallet of 2,50,000 could reserve its seat
+// after a 2,00,000 picture committed, seating 2,50,000 against a wallet of
+// 50,000; losing them clamped the wallet at zero and paid the winner chips that
+// did not exist. At a table the purchase runs without the lock, because
+// BuyAtTable never charges anything a seat holds. The lobby purchase runs on
+// the context the lock hands it; Milestone says why never the request's.
+//
 // Buying does NOT put the picture on. It is a separate POST to
 // /api/profile/avatar, so the two refusals stay separate and a player who buys
 // a picture to save for later is not forced to wear it.
@@ -514,11 +537,11 @@ func (h *Handler) BuyPicture(w http.ResponseWriter, r *http.Request, user *db.Us
 		return
 	}
 
-	buy := h.deps.Pictures.Buy
-	if h.isSeated(user.ID) {
-		buy = h.deps.Pictures.BuyAtTable
+	var bought *db.PicturePurchase
+	var err error
+	if !h.whileUnseated(r.Context(), user.ID, func(ctx context.Context) { bought, err = h.deps.Pictures.Buy(ctx, user.ID, id) }) {
+		bought, err = h.deps.Pictures.BuyAtTable(r.Context(), user.ID, id)
 	}
-	bought, err := buy(r.Context(), user.ID, id)
 	switch {
 	case errors.Is(err, db.ErrPictureAtTable):
 		WriteJSON(w, http.StatusConflict, ErrorResponse{Error: CodeSeated, Message: MsgSeatedPicture})
@@ -596,4 +619,19 @@ func (h *Handler) Name(w http.ResponseWriter, r *http.Request, user *db.User) {
 // `isSeated = () => false`).
 func (h *Handler) isSeated(userID string) bool {
 	return h.deps.IsSeated != nil && h.deps.IsSeated(userID)
+}
+
+// whileUnseated runs fn as a lobby-only wallet change and reports whether it
+// ran: under Deps.WhileUnseated when the app provides it, on the context that
+// lock hands out; else after an isSeated look with no lock, on ctx cut loose
+// from the request's cancellation (unit tests, which have no seats to race).
+func (h *Handler) whileUnseated(ctx context.Context, userID string, fn func(ctx context.Context)) bool {
+	if h.deps.WhileUnseated != nil {
+		return h.deps.WhileUnseated(userID, fn)
+	}
+	if h.isSeated(userID) {
+		return false
+	}
+	fn(context.WithoutCancel(ctx))
+	return true
 }

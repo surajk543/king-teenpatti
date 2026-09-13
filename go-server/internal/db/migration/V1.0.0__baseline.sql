@@ -3,7 +3,11 @@
 -- Flyway naming: V<version>__<description>.sql. Scripts are applied in
 -- ascending version order, so the next change is a NEW file (V1.0.1__….sql)
 -- rather than an edit to this one — an applied migration is history and
--- editing history is how two environments quietly stop matching.
+-- editing history is how two environments quietly stop matching. (One
+-- sanctioned exception, 13 Sep 2026: the catalogue guard around
+-- idx_users_last_login below, which only skips work already done — the comment
+-- there says why no new script could have fixed it. It is not a precedent for
+-- changing what a script creates.)
 --
 -- EVERY SCRIPT MUST BE IDEMPOTENT, including this one. Flyway would keep a
 -- schema history table and skip what it has already run, but this server has
@@ -167,7 +171,32 @@ CREATE TABLE IF NOT EXISTS users (
   UNIQUE (provider, provider_user_id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_users_last_login ON users (last_login_at DESC);
+-- Behind a catalogue lookup, not a bare IF NOT EXISTS. PostgreSQL checks that
+-- the caller OWNS the table before it looks for the index, so once users is
+-- handed to the postgres superuser (ops/DEPLOY.md §7) the bare statement
+-- failed on every boot as gameplay_app — "must be owner of table users" —
+-- even though the index was already there and the statement would have done
+-- nothing. The lookup skips it wherever the index exists on this schema's
+-- users, and a fresh database runs the original statement exactly as before.
+--
+-- This is an edit to an applied script, which is otherwise never done. It is
+-- the one sanctioned exception, for two reasons: no NEW script could fix it,
+-- because scripts run in version order and this one fails first; and the edit
+-- only skips work that was already a no-op, so no database built from the old
+-- text differs from one built from this. Tested as a non-superuser role under
+-- the §7 arrangement: TestTheAppRoleBootsTwiceBeforeAndAfterUsersIsHandedToTheSuperuser.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_index i
+      JOIN pg_class c ON c.oid = i.indexrelid
+     WHERE i.indrelid = 'users'::regclass
+       AND c.relname = 'idx_users_last_login'
+  ) THEN
+    CREATE INDEX IF NOT EXISTS idx_users_last_login ON users (last_login_at DESC);
+  END IF;
+END;
+$$;
 
 -- A users row is never deleted (owner's decision, 10 Sep 2026). The server has
 -- no reason to: DELETE /api/account pseudonymises the row in place, because
@@ -185,7 +214,8 @@ CREATE INDEX IF NOT EXISTS idx_users_last_login ON users (last_login_at DESC);
 --
 -- Created only when missing, NOT CREATE OR REPLACE, so the function and the
 -- table can be handed to the postgres superuser (ops/DEPLOY.md §7: ALTER …
--- OWNER TO postgres; GRANT SELECT, INSERT, UPDATE ON users TO gameplay_app)
+-- OWNER TO postgres; GRANT SELECT, INSERT, UPDATE and REFERENCES ON users TO
+-- gameplay_app)
 -- and this file still runs: once the app role no longer owns either, it can
 -- neither delete a row nor disable the trigger nor rewrite the function —
 -- only sudo on the host can.

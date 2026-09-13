@@ -44,9 +44,27 @@ type Deps struct {
 	Tokens   *Tokens
 	Verifier *Verifier
 	// IsSeated is injected by the app (rooms.GetTableForPlayer(id) != nil) so
-	// the name endpoint, the rewards and a chip-priced picture can refuse a
-	// change mid-table (routes.js playerRoutes({isSeated})).
+	// the name endpoint can refuse a rename mid-table (routes.js
+	// playerRoutes({isSeated})). Where WhileUnseated is absent (unit tests) it
+	// also stands in for it: both rewards and a chip-priced picture are then
+	// refused 409 seated on this look alone, and a picture purchase it calls
+	// seated goes to BuyAtTable.
 	IsSeated func(userID string) bool
+	// WhileUnseated runs fn — a wallet change that may only be made in the
+	// lobby: a reward, a chip-priced picture — holding the player's seat lock,
+	// and reports false WITHOUT running it when they are seated, or while a
+	// write from a table they sat at has yet to reach their wallet (app:
+	// rooms.WhileUnseated; the handlers answer both with 409 seated, since
+	// until that write lands the wallet still belongs to the table). A plain
+	// IsSeated look is not enough where chips
+	// move: the look and the commit are two moments, and a join that read the
+	// wallet between them seated chips the wallet no longer held. fn's store
+	// calls use the context it is handed, never the request's: a client giving
+	// up while COMMIT was on the wire would end the call, and release the
+	// lock, before the outcome was known. Nil → IsSeated is consulted and fn
+	// run with no lock, on the request's context cut loose from its
+	// cancellation (unit tests).
+	WhileUnseated func(userID string, fn func(ctx context.Context)) bool
 	// PictureWorn puts a newly worn picture on the player's seat when they are
 	// at a table (app: rooms.SetPlayerAvatar, a no-op for a player in the
 	// lobby). Nil = nobody to tell.

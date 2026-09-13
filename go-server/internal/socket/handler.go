@@ -538,6 +538,15 @@ func notAtTable() error { return game.NewGameError(game.CodeNotInRoom, MsgNotAtT
 // freshUser re-reads the account (the seat needs CURRENT chips, not the
 // handshake snapshot). A vanished row is an internal error, as Node's
 // TypeError on `null.id` was.
+//
+// This read is not the one a seat starts from: it happens before the join
+// holds the player's seat lock, so a lobby-only wallet change can still commit
+// after it. The RoomManager reads the account again under that lock
+// (RoomManagerOptions.LoadPlayer), and checks and seats that; this read only
+// builds the Player a join is handed and refuses a vanished account before any
+// lock is taken. It costs one primary-key SELECT per join, outside the lock,
+// and keeps this layer right on a RoomManager with no loader (the socket
+// suites').
 func (h *Handler) freshUser(userID string) (*db.User, error) {
 	fresh, err := h.deps.Users.FindByID(context.Background(), userID)
 	if err != nil {
@@ -661,15 +670,20 @@ func roomAck(table *game.Table) RoomAck {
 	return RoomAck{OK: true, RoomID: table.ID(), Code: table.Code(), Category: table.Category()}
 }
 
-// create (timed {create}): fresh user; Rooms.CreateTable({boot ?? default,
-// isPrivate ?? true, category}); Rooms.Join(table, fresh, socket.ID());
-// track; emit room:joined; chat:history; ack RoomAck. NOTE: no broadcastState
-// (Node omits it; the creator already has the snapshot).
+// create (timed {create}): fresh user; Rooms.CreateAndJoin(fresh, {boot ??
+// default, isPrivate ?? true, category}, socket.ID()); track; emit
+// room:joined; chat:history; ack RoomAck. NOTE: no broadcastState (Node omits
+// it; the creator already has the snapshot).
 //
 // DECISIONS.md §3: already_in_room is checked BEFORE any table is created,
 // and a PUBLIC create is validated like quickJoin — invalid_stake,
-// table_not_offered, insufficient_chips, over_entry_cap, in that order.
-// A private create is unchanged (boot forced to PrivateBoot; requirement 22).
+// table_not_offered, insufficient_chips, over_entry_cap, then the table's
+// stack band. The RoomManager makes every one of those checks, and the seat,
+// holding the creator's seat lock and on the wallet read under it. Made here
+// on freshUser's earlier read, as they were, a lobby purchase or reward
+// committing in between could seat the creator below the boot, over the entry
+// cap or outside the band. A private create is unchanged (boot forced to
+// PrivateBoot; requirement 22).
 func (h *Handler) create(s *sio.Socket, req CreateRequest) (any, error) {
 	user := sessionOf(s).user
 	started := time.Now()
@@ -679,40 +693,16 @@ func (h *Handler) create(s *sio.Socket, req CreateRequest) (any, error) {
 		if err != nil {
 			return err
 		}
-		rooms := h.rooms()
-		if rooms.GetTableForPlayer(user.ID) != nil {
-			return game.NewGameError(game.CodeAlreadyInRoom, msgAlreadyInRoom)
-		}
-		isPrivate := req.IsPrivate == nil || *req.IsPrivate
 		boot := h.cfg().Game.BootAmount
 		if req.BootAmount != nil {
 			boot = *req.BootAmount
 		}
-		category := game.NormalizeCategory(req.Category)
-		if !isPrivate {
-			if err := rooms.AssertStakeAllowed(boot); err != nil {
-				return err
-			}
-			if err := rooms.AssertTableOffered(boot, category); err != nil {
-				return err
-			}
-			if fresh.Chips < boot {
-				return game.NewGameError(game.CodeInsufficientChips, msgInsufficientToJoin)
-			}
-			if err := h.assertUnderEntryCap(fresh.Chips, boot, category); err != nil {
-				return err
-			}
-		}
-		table = rooms.CreateTable(game.CreateTableOptions{BootAmount: boot, IsPrivate: isPrivate, Category: req.Category})
-		if err := rooms.Join(table, fresh.Player(), s.ID()); err != nil {
-			// Only a race with another join of the same account can get here
-			// (the seat check above ran first). Do not leave an empty table
-			// behind for the sweeper — nobody is on it.
-			if table.IsEmpty() {
-				if derr := rooms.DestroyTable(table.ID()); derr != nil {
-					h.log.Warn("create: could not remove unused table", "roomId", table.ID(), "error", derr.Error())
-				}
-			}
+		table, err = h.rooms().CreateAndJoin(fresh.Player(), game.CreateTableOptions{
+			BootAmount: boot,
+			IsPrivate:  req.IsPrivate == nil || *req.IsPrivate,
+			Category:   req.Category,
+		}, s.ID())
+		if err != nil {
 			return err
 		}
 		h.trackRoom(table.ID(), s)
@@ -729,44 +719,6 @@ func (h *Handler) create(s *sio.Socket, req CreateRequest) (any, error) {
 	}
 	h.sendChatHistory(table, s)
 	return roomAck(table), nil
-}
-
-// Messages the RoomManager uses for the two refusals the public-create
-// validation reproduces (roomManager.js quickJoin / _assertUnderEntryCap).
-const (
-	msgAlreadyInRoom      = "You are already seated at a table"
-	msgInsufficientToJoin = "Not enough chips to join this table"
-	msgOverEntryCapFormat = "Players with more than %s chips cannot join this table"
-)
-
-// assertUnderEntryCap is roomManager.js _assertUnderEntryCap (requirement 30)
-// for the public-create route: only when EntryCapMaxChips > 0 and the
-// (boot, category) pair is the capped table; exactly the cap is allowed.
-func (h *Handler) assertUnderEntryCap(chips, boot int64, category game.Category) error {
-	g := h.cfg().Game
-	cap := g.EntryCapMaxChips
-	if cap <= 0 || boot != g.EntryCapBoot || string(category) != g.EntryCapCategory || chips <= cap {
-		return nil
-	}
-	return game.Errorf(game.CodeOverEntryCap, msgOverEntryCapFormat, groupThousands(cap))
-}
-
-// groupThousands is Number#toLocaleString('en-US') for an integer: comma
-// thousands grouping, no decimals ("500,000").
-func groupThousands(n int64) string {
-	digits := fmt.Sprintf("%d", n)
-	sign := ""
-	if digits[0] == '-' {
-		sign, digits = "-", digits[1:]
-	}
-	var out []byte
-	for i, c := range []byte(digits) {
-		if i > 0 && (len(digits)-i)%3 == 0 {
-			out = append(out, ',')
-		}
-		out = append(out, c)
-	}
-	return sign + string(out)
 }
 
 // joinCode (timed {code}): fresh user; Rooms.JoinByCode; track; SetConnected;

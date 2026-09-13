@@ -271,14 +271,11 @@ func TestDecodeLobbyListAndSideshow(t *testing.T) {
 	}
 }
 
-func TestUTF16LenAndGrouping(t *testing.T) {
+// The thousands grouping in refusal messages moved to the RoomManager with the
+// public-create checks (game.formatThousands); only utf16Len is left here.
+func TestUTF16Len(t *testing.T) {
 	if utf16Len("abc") != 3 || utf16Len("😀") != 2 || utf16Len("é") != 1 || utf16Len("") != 0 {
 		t.Fatalf("utf16Len")
-	}
-	for n, want := range map[int64]string{0: "0", 999: "999", 1000: "1,000", 500000: "500,000", 1200000: "1,200,000", -5000: "-5,000"} {
-		if got := groupThousands(n); got != want {
-			t.Errorf("groupThousands(%d) = %q, want %q", n, got, want)
-		}
 	}
 }
 

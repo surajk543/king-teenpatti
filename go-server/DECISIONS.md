@@ -47,7 +47,7 @@ server behaves differently from Node on purpose.
 
 | Topic | Decision |
 |---|---|
-| `room:create {isPrivate:false}` (public table at any boot, no chips check) | **Deviation (security).** A public create is validated like `quickJoin`: `invalid_stake`, `table_not_offered`, `insufficient_chips`, `over_entry_cap`, in that order. Private create is unchanged (boot forced to `privateBoot`). |
+| `room:create {isPrivate:false}` (public table at any boot, no chips check) | **Deviation (security).** A public create is validated like `quickJoin`: `invalid_stake`, `table_not_offered`, `insufficient_chips`, `over_entry_cap`, then the table's stack band (`below_table_minimum` / `over_entry_cap`), in that order — every check, and the seat, made by `RoomManager.CreateAndJoin` under the creator's seat lock on the wallet read under it. Private create is unchanged (boot forced to `privateBoot`). |
 | `room:create` by a seated player | **Deviation.** `already_in_room` is checked *before* any table is created. No orphan table. |
 | `switchTable` failure after leaving | **Deviation.** The seat on the source table is restored (as `_movePlayer` does). If the source is gone, the player gets `room:left` and the error. |
 | `switchTable` target | **Deviation (owner, 13 Sep 2026).** Node sent a switcher to the FULLEST other public non-full table of the same boot and category; Go picks one of those tables uniformly at random (`pickRandomTableLocked`, drawn with crypto/rand), so switchers spread across every table of that kind instead of piling onto one. `quickJoin` still takes the fullest. |
@@ -55,6 +55,7 @@ server behaves differently from Node on purpose.
 | `LOBBY_TABLES` with an unknown category | **Deviation.** Rejected at config load with a clear error. |
 | Consolidation order and copying chips from the seat | Same as Node. |
 | Sweeper interval and the hardcoded 30 s empty-table age | Same as Node; the sweeper uses the injected Clock. |
+| A lobby seat or lobby-only wallet change while the wallet still waits for a write from a table (a hand-end settlement the database refused and is retrying, or a destroyed table still settling) | **Deviation (money).** Node had no such wait. A player could leave between hands (a leave that writes nothing) and buy a chip-priced picture, or sit down elsewhere, from a wallet that still held the stake they had lost. The late settlement then clamped the wallet at zero and paid the winner chips that never existed. Go counts, per player, the refused settlements still being retried that move their wallet (`TableOptions.SettlementOwed` → `RoomManager.settlementOwed`). While any is owed, or a destroy is still settling their seat, `room:quickJoin` / `room:joinCode` / `room:create` are refused `settlement_pending` ("Your last hand is still being saved; try again in a moment") and the rewards and a chip-priced picture are answered 409 `seated`. The wait ends when the write lands or its retries are given up. |
 
 ## 4. Text handling (chat, names)
 

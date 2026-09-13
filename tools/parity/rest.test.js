@@ -371,9 +371,9 @@ test('the picture catalogue is listed, worn and cleared', async () => {
     assert.equal(typeof entry.id, 'number');
     assert.ok(entry.name.length > 0);
     // image_url is whatever a client can load: a path into PUBLIC_DIR for the
-    // art this server serves (bundled SVGs, and a Lottie JSON reworked to play
-    // on a phone, such as Butterfly Flapping), or an absolute URL when a
-    // picture is hosted elsewhere.
+    // art this server serves (the bundled SVGs; a reworked Lottie can be served
+    // from there too, as Butterfly Flapping was in go-server/v1.3.0), or an
+    // absolute URL when a picture is hosted elsewhere, as every animated one is.
     assert.match(entry.url, /^(\/profiles\/.+\.(svg|png|jpg|jpeg|webp|json|lottie|riv)|https?:\/\/.+)$/i);
     assert.ok(['FREE', 'PREMIUM'].includes(entry.type));
     // The schema's own CHECK, seen from the outside.
