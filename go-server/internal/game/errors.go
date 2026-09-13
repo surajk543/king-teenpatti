@@ -107,6 +107,11 @@ const (
 	CodeTooFewPlayers    = SideshowBlockedTooFewPlayers
 	CodeYouAreBlind      = SideshowBlockedYouAreBlind
 
+	// CodeNoHammers: a Force Sideshow from a player whose wallet holds fewer
+	// than ForceSideshowCost hammers. Go only (owner, 13 Sep 2026). Nothing
+	// was spent and nothing changed at the table.
+	CodeNoHammers = "no_hammers"
+
 	// Chat
 	CodeChatRateLimited = "chat_rate_limited"
 
@@ -170,5 +175,6 @@ const (
 	MsgSideshowNeighbour    = "The player on your right has not seen their cards"
 	MsgSideshowNoNeighbour  = "There is nobody on your right to ask"
 	MsgSideshowGeneric      = "You cannot ask for a sideshow now"
+	MsgNoHammers            = "You need a hammer to force a sideshow" // Go only
 	MsgUnknownActionFormat  = "Unknown action \"%s\""
 )

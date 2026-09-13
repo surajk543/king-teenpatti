@@ -457,9 +457,17 @@ class _RewardCelebrationState extends State<_RewardCelebration>
       'bonus' => t.rewardComeBack,
       'purchase' => t.rewardPurchased,
       'diamonds' => t.rewardDiamondsPurchased,
+      'hammers' => t.rewardHammersPurchased,
       _ => t.rewardMilestoneAgain,
     };
-    final diamonds = won.kind == 'diamonds';
+    // The ink of the soft wallet that filled, or null for chips — which keep
+    // the spinning chip and the gold.
+    final softInk = switch (won.kind) {
+      'diamonds' => diamondInkOn(theme.brightness),
+      'hammers' => hammerInkOn(theme.brightness),
+      _ => null,
+    };
+    final softIcon = won.kind == 'hammers' ? Icons.hardware : Icons.diamond;
 
     return Positioned.fill(
       child: GestureDetector(
@@ -499,14 +507,11 @@ class _RewardCelebrationState extends State<_RewardCelebration>
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            // A gem for diamonds, the spinning chip for chips:
-                            // the hero says which wallet just filled.
-                            diamonds
-                                ? Icon(
-                                    Icons.diamond,
-                                    size: chip,
-                                    color: diamondInkOn(theme.brightness),
-                                  )
+                            // A gem for diamonds, a hammer for hammers, the
+                            // spinning chip for chips: the hero says which
+                            // wallet just filled.
+                            softInk != null
+                                ? Icon(softIcon, size: chip, color: softInk)
                                 : SpinningChip(
                                     colour: AppTheme.gold,
                                     size: chip,
@@ -524,9 +529,7 @@ class _RewardCelebrationState extends State<_RewardCelebration>
                               '+ ${formatChips(won.amount)}',
                               style: AppTheme.money(
                                 text.headlineMedium!,
-                                colour: diamonds
-                                    ? diamondInkOn(theme.brightness)
-                                    : _goldInk(theme.brightness),
+                                colour: softInk ?? _goldInk(theme.brightness),
                               ),
                             ),
                             const SizedBox(height: Space.md),
@@ -791,6 +794,38 @@ class _TopBar extends StatelessWidget {
                                             style: AppTheme.money(
                                               text.titleMedium!,
                                               colour: diamondInkOn(brightness),
+                                            ),
+                                          ),
+                                        ),
+                                        // The third wallet after the second
+                                        // (owner, 13 Sep 2026): hammers pay for
+                                        // a Force Sideshow, and the lobby is
+                                        // where a player sees whether to buy
+                                        // more before sitting down. Inside the
+                                        // same FittedBox, so the name keeps
+                                        // the room it has.
+                                        SizedBox(
+                                          width: tight ? Space.md : Space.lg,
+                                        ),
+                                        Icon(
+                                          Icons.hardware,
+                                          size: 18,
+                                          color: hammerInkOn(brightness),
+                                        ),
+                                        const SizedBox(width: Space.xs),
+                                        TweenAnimationBuilder<double>(
+                                          tween: Tween(
+                                            end: (user?.hammer ?? 0).toDouble(),
+                                          ),
+                                          duration: const Duration(
+                                            milliseconds: 650,
+                                          ),
+                                          curve: Motion.standard,
+                                          builder: (context, value, _) => Text(
+                                            '${value.round()}',
+                                            style: AppTheme.money(
+                                              text.titleMedium!,
+                                              colour: hammerInkOn(brightness),
                                             ),
                                           ),
                                         ),

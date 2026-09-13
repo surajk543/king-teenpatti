@@ -29,9 +29,13 @@ type Product struct {
 	// authoritative figure. Zero for a diamond pack.
 	Chips int64
 	// Diamonds is what the account is credited for a diamond pack (owner,
-	// 13 Sep 2026). Zero for a chip pack: every product fills exactly one
+	// 13 Sep 2026). Zero for any other pack: every product fills exactly one
 	// wallet, and the gateway branches on which.
 	Diamonds int64
+	// Hammers is what the account is credited for a hammer pack (owner,
+	// 13 Sep 2026) — the currency a Force Sideshow is paid in. Zero for any
+	// other pack.
+	Hammers int64
 	// Rupees is the list price at launch, for logs and reconciliation only.
 	Rupees int
 	// Pack is the owner's letter for the shelf position (A…I), so a support
@@ -63,6 +67,15 @@ var Catalogue = map[string]Product{
 	"diamonds_5_199":    {ID: "diamonds_5_199", Pack: "D5", Rupees: 199, Diamonds: 5},
 	"diamonds_20_699":   {ID: "diamonds_20_699", Pack: "D20", Rupees: 699, Diamonds: 20},
 	"diamonds_100_2999": {ID: "diamonds_100_2999", Pack: "D100", Rupees: 2999, Diamonds: 100},
+
+	// Hammer packs (owner, 13 Sep 2026), `hammers_<count>_<rupees>`. A hammer
+	// pays for one Force Sideshow (users.hammer); packs are credited through
+	// hammer_purchases, never chip_ledger. Like every id here, each must exist
+	// as a managed product in the Play Console.
+	"hammers_20_300":   {ID: "hammers_20_300", Pack: "H20", Rupees: 300, Hammers: 20},
+	"hammers_50_699":   {ID: "hammers_50_699", Pack: "H50", Rupees: 699, Hammers: 50},
+	"hammers_100_1299": {ID: "hammers_100_1299", Pack: "H100", Rupees: 1299, Hammers: 100},
+	"hammers_250_2999": {ID: "hammers_250_2999", Pack: "H250", Rupees: 2999, Hammers: 250},
 }
 
 // Lookup returns the product for a Play product id.

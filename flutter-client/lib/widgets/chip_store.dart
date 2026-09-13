@@ -93,6 +93,48 @@ const diamondPacks = <DiamondPack>[
   DiamondPack(productId: 'diamonds_100_2999', rupees: 2999, diamonds: 100),
 ];
 
+/// One purchasable hammer pack (owner, 13 Sep 2026). A hammer pays for one
+/// Force Sideshow at the table.
+///
+/// Like [DiamondPack], the count is only for display: `purchase.Catalogue` on
+/// the server decides what a product id is worth, and a hammer pack credits
+/// `users.hammer`, never chips or diamonds.
+class HammerPack {
+  const HammerPack({
+    required this.productId,
+    required this.rupees,
+    required this.hammers,
+    this.mark = ShelfMark.none,
+  });
+
+  /// The Play Console product id. It must match
+  /// internal/purchase/catalogue.go exactly.
+  final String productId;
+  final int rupees;
+  final int hammers;
+  final ShelfMark mark;
+}
+
+/// The hammer shelf, cheapest first. ⭐ marks the popular pack and 🔥 the best
+/// value, the same treatment as the diamond shelf, on the packs the owner
+/// chose: 50 and 100.
+const hammerPacks = <HammerPack>[
+  HammerPack(productId: 'hammers_20_300', rupees: 300, hammers: 20),
+  HammerPack(
+    productId: 'hammers_50_699',
+    rupees: 699,
+    hammers: 50,
+    mark: ShelfMark.popular,
+  ),
+  HammerPack(
+    productId: 'hammers_100_1299',
+    rupees: 1299,
+    hammers: 100,
+    mark: ShelfMark.bestValue,
+  ),
+  HammerPack(productId: 'hammers_250_2999', rupees: 2999, hammers: 250),
+];
+
 /// The shelf, in the owner's order. Cheapest first, so scrolling right is
 /// always "more".
 const chipPacks = <ChipPack>[
@@ -175,8 +217,11 @@ const chipPacks = <ChipPack>[
 double _line(TextScaler scaler, double size, double heightFactor) =>
     (scaler.scale(size) * heightFactor).ceilToDouble();
 
-/// The store's shelves: chip packs, diamond packs, and the picture catalogue.
-enum _StoreTab { chips, diamonds, pictures }
+/// The store's shelves, in the order their keys sit in the header: chip packs,
+/// diamond packs, hammer packs and the picture catalogue. Public so a caller
+/// can open the store on the shelf it is sending the player to — the table's
+/// Force Sideshow key sends a player with no hammers to [hammers].
+enum StoreTab { chips, diamonds, hammers, pictures }
 
 /// The switch between the store's shelves, in the header beside the close key.
 ///
@@ -192,8 +237,8 @@ class _StoreTabs extends StatelessWidget {
     this.compact = false,
   });
 
-  final _StoreTab value;
-  final ValueChanged<_StoreTab> onChanged;
+  final StoreTab value;
+  final ValueChanged<StoreTab> onChanged;
 
   /// Icons alone, without their words. On a 640dp phone three labelled keys
   /// left the header's blurb a few words ("The bigger the pack, the bigge…");
@@ -216,7 +261,7 @@ class _StoreTabs extends StatelessWidget {
       alpha: AppTheme.inkMed,
     );
 
-    Widget key(_StoreTab tab, IconData icon, String label) {
+    Widget key(StoreTab tab, IconData icon, String label) {
       final on = tab == value;
       final ink = on ? champagne : quiet;
       final body = PressScale(
@@ -288,19 +333,71 @@ class _StoreTabs extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        key(_StoreTab.chips, Icons.toll_rounded, t.storeTabChips),
-        const SizedBox(width: Space.sm),
-        key(_StoreTab.diamonds, Icons.diamond_rounded, t.storeTabDiamonds),
-        const SizedBox(width: Space.sm),
-        animatedOnly
-            ? key(
-                _StoreTab.pictures,
-                Icons.auto_awesome_rounded,
-                t.storeTabAnimated,
-              )
-            : key(_StoreTab.pictures, Icons.face_rounded, t.storeTabPictures),
+        for (final (i, shelf) in _shelves(t, animatedOnly).indexed) ...[
+          if (i > 0) const SizedBox(width: Space.sm),
+          key(shelf.tab, shelf.icon, shelf.label),
+        ],
       ],
     );
+  }
+
+  /// The keys in header order, with what each one shows.
+  static List<({StoreTab tab, IconData icon, String label})> _shelves(
+    Strings t,
+    bool animatedOnly,
+  ) => [
+    (tab: StoreTab.chips, icon: Icons.toll_rounded, label: t.storeTabChips),
+    (
+      tab: StoreTab.diamonds,
+      icon: Icons.diamond_rounded,
+      label: t.storeTabDiamonds,
+    ),
+    (tab: StoreTab.hammers, icon: Icons.hardware, label: t.storeTabHammers),
+    animatedOnly
+        ? (
+            tab: StoreTab.pictures,
+            icon: Icons.auto_awesome_rounded,
+            label: t.storeTabAnimated,
+          )
+        : (
+            tab: StoreTab.pictures,
+            icon: Icons.face_rounded,
+            label: t.storeTabPictures,
+          ),
+  ];
+
+  /// How wide the keys are with their words, in this language at this text
+  /// scale, so the header drops the words only when they do not fit.
+  ///
+  /// Measured rather than decided by screen width. With a fourth shelf the
+  /// labelled keys fit a 891dp phone in English but not in every language at
+  /// the 1.25 text ceiling, and any single width rule would either starve the
+  /// title in one language or hide the words needlessly in another.
+  static double labelledWidth(
+    BuildContext context,
+    Strings t, {
+    required bool animatedOnly,
+  }) {
+    final theme = Theme.of(context);
+    final style = AppTheme.label(
+      theme.textTheme.labelLarge ?? const TextStyle(),
+      weight: FontWeight.w700,
+    );
+    final shelves = _shelves(t, animatedOnly);
+    var total = Space.sm * (shelves.length - 1);
+    for (final shelf in shelves) {
+      final painter = TextPainter(
+        text: TextSpan(text: shelf.label, style: style),
+        textDirection: Directionality.of(context),
+        textScaler: MediaQuery.textScalerOf(context),
+        maxLines: 1,
+      )..layout();
+      // The key's padding either side, its icon and the gap after it, and
+      // the hairline round it.
+      total += 2 * Space.md + 18 + Space.xs + painter.width + 2 * Dim.hairline;
+      painter.dispose();
+    }
+    return total;
   }
 }
 
@@ -321,7 +418,13 @@ class _StoreTabs extends StatelessWidget {
 /// A scrim is always dark, whatever the theme: the ground's own edge is a pale
 /// slate in the light scheme, so dimming with it BRIGHTENED the lobby behind
 /// the store instead of pushing it back.
-Future<void> showChipStore(BuildContext context) {
+///
+/// [opensOn] is the shelf showing when it opens: Chips from the Shop key, and
+/// Hammers when a Force Sideshow found the player's wallet empty.
+Future<void> showChipStore(
+  BuildContext context, {
+  StoreTab opensOn = StoreTab.chips,
+}) {
   // Where the store was opened decides what it sells, and that holds for as
   // long as it is open. Worked out again on every build, a kick while the
   // table's store was up turned it into the lobby's under the player's finger.
@@ -332,7 +435,7 @@ Future<void> showChipStore(BuildContext context) {
     barrierLabel: MaterialLocalizations.of(context).modalBarrierDismissLabel,
     barrierColor: AppTheme.ink900.withValues(alpha: 0.72),
     transitionDuration: Motion.enter,
-    pageBuilder: (_, a, b) => _ChipStore(atTable: atTable),
+    pageBuilder: (_, a, b) => _ChipStore(atTable: atTable, opensOn: opensOn),
     transitionBuilder: (context, anim, _, child) {
       // Rises from the foot of the screen and settles, which is how the
       // picture picker arrives too — the two shelves should not open in two
@@ -350,7 +453,10 @@ Future<void> showChipStore(BuildContext context) {
 }
 
 class _ChipStore extends StatefulWidget {
-  const _ChipStore({required this.atTable});
+  const _ChipStore({required this.atTable, required this.opensOn});
+
+  /// The shelf showing when the store opens.
+  final StoreTab opensOn;
 
   /// Whether the store was opened at a table, where its picture key sells the
   /// animated shelf alone (owner, 13 Sep 2026). Fixed when it opens.
@@ -370,8 +476,8 @@ class _ChipStoreState extends State<_ChipStore> {
   /// dispose() is the teardown trap CLAUDE.md §12.3 documents.
   final ScrollController _scroller = ScrollController();
 
-  /// Which shelf is showing.
-  _StoreTab _tab = _StoreTab.chips;
+  /// Which shelf is showing. Set from [_ChipStore.opensOn] in initState.
+  StoreTab _tab = StoreTab.chips;
 
   /// The picture shelf's filter, as in the picker; it opens on All. At a table
   /// the shelf is the animated one whatever this says.
@@ -386,6 +492,7 @@ class _ChipStoreState extends State<_ChipStore> {
   @override
   void initState() {
     super.initState();
+    _tab = widget.opensOn;
     _loadPrices();
   }
 
@@ -396,11 +503,13 @@ class _ChipStoreState extends State<_ChipStore> {
   }
 
   Future<void> _loadPrices() async {
-    // One query for both shelves: Play answers per product id, and a player
-    // flicking between the Chips and Diamonds tabs should see prices at once.
+    // One query for every shelf: Play answers per product id, and a player
+    // flicking between the Chips, Diamonds and Hammers tabs should see prices
+    // at once.
     final got = await context.read<GameState>().purchases.priceList({
       ...chipPacks.map((p) => p.productId),
       ...diamondPacks.map((p) => p.productId),
+      ...hammerPacks.map((p) => p.productId),
     });
     if (mounted && got.isNotEmpty) setState(() => _prices = got);
   }
@@ -417,8 +526,9 @@ class _ChipStoreState extends State<_ChipStore> {
     final atTable = widget.atTable;
     final shelf = atTable ? PictureFilter.animated : _shelf;
     final tab = _tab;
-    final onPictures = tab == _StoreTab.pictures;
-    final onDiamonds = tab == _StoreTab.diamonds;
+    final onPictures = tab == StoreTab.pictures;
+    final onDiamonds = tab == StoreTab.diamonds;
+    final onHammers = tab == StoreTab.hammers;
     // The picture being worn, when it is one of the catalogue's, for the
     // Pictures tab's header; null leaves the provider photo or the initial.
     final wornMatches = state.pictures.where(
@@ -436,6 +546,46 @@ class _ChipStoreState extends State<_ChipStore> {
     final headerH = math.max(
       Dim.minTouch,
       _line(scaler, 17, 1.25) + _line(scaler, 12, 1.35),
+    );
+    // The tabs keep their words while the title beside them keeps some room of
+    // its own. The header row is the screen less the safe area, the sheet's
+    // margin and its padding; its fixed parts are the shelf's glyph, a
+    // balance, the close key and the gaps between them. A balance is counted
+    // on every shelf, although Chips shows none, so the tabs never change size
+    // — and move under a finger — on the way from one shelf to the next.
+    final safe = MediaQuery.paddingOf(context);
+    final headerW =
+        size.width - safe.left - safe.right - 2 * Space.md - 2 * Space.lg;
+    const balanceW = 72.0;
+    const titleFloor = 96.0;
+    final fixedW =
+        22 +
+        Space.md +
+        Space.md +
+        balanceW +
+        Space.md +
+        Space.sm +
+        Dim.minTouch;
+    final compactTabs =
+        headerW - fixedW - titleFloor <
+        _StoreTabs.labelledWidth(context, t, animatedOnly: atTable);
+
+    // A shelf of packs: near-square cards, the lobby card's proportions, set
+    // out one stagger apart. Keyed by shelf, so moving from one pack shelf to
+    // another sets the new one out afresh instead of reusing the last one's
+    // cards.
+    Widget packShelf(StoreTab shelf, List<Widget> cards) => Wrap(
+      spacing: Space.md,
+      runSpacing: Space.md,
+      children: [
+        for (final (i, card) in cards.indexed)
+          SizedBox(
+            key: ValueKey('${shelf.name}-$i'),
+            width: Dim.packW(size.width),
+            height: Dim.packW(size.width) * 1.05,
+            child: _PackEntrance(index: i, child: card),
+          ),
+      ],
     );
     // Sits at the foot of the screen like the picture picker's sheet, rather
     // than in the middle of it: the two shelves are the same kind of thing and
@@ -498,6 +648,12 @@ class _ChipStoreState extends State<_ChipStore> {
                                 size: 22,
                                 color: diamondInkOn(theme.brightness),
                               )
+                            : onHammers
+                            ? Icon(
+                                Icons.hardware,
+                                size: 22,
+                                color: hammerInkOn(theme.brightness),
+                              )
                             : const PokerChip(colour: AppTheme.gold, size: 22),
                         const SizedBox(width: Space.md),
                         Expanded(
@@ -512,6 +668,8 @@ class _ChipStoreState extends State<_ChipStore> {
                                           : t.storeTabPictures)
                                     : onDiamonds
                                     ? t.storeDiamondsTitle
+                                    : onHammers
+                                    ? t.storeHammersTitle
                                     : t.storeTitle,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
@@ -527,6 +685,8 @@ class _ChipStoreState extends State<_ChipStore> {
                                           : t.storePicturesBlurb)
                                     : onDiamonds
                                     ? t.storeDiamondsBlurb
+                                    : onHammers
+                                    ? t.storeHammersBlurb
                                     : t.storeBlurb,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
@@ -551,10 +711,14 @@ class _ChipStoreState extends State<_ChipStore> {
                           DiamondBalance(count: state.user?.diamond ?? 0),
                           const SizedBox(width: Space.md),
                         ],
+                        if (onHammers) ...[
+                          HammerBalance(count: state.user?.hammer ?? 0),
+                          const SizedBox(width: Space.md),
+                        ],
                         _StoreTabs(
                           value: tab,
                           animatedOnly: atTable,
-                          compact: Breaks.isCompact(size.width),
+                          compact: compactTabs,
                           onChanged: (next) => setState(() {
                             _tab = next;
                             _toTop();
@@ -681,29 +845,23 @@ class _ChipStoreState extends State<_ChipStore> {
                                   ),
                                 )
                               : onDiamonds
-                              ? Wrap(
-                                  spacing: Space.md,
-                                  runSpacing: Space.md,
-                                  children: [
-                                    for (
-                                      var i = 0;
-                                      i < diamondPacks.length;
-                                      i++
-                                    )
-                                      SizedBox(
-                                        width: Dim.packW(size.width),
-                                        height: Dim.packW(size.width) * 1.05,
-                                        child: _PackEntrance(
-                                          index: i,
-                                          child: _DiamondPackCard(
-                                            pack: diamondPacks[i],
-                                            index: i,
-                                            prices: prices,
-                                          ),
-                                        ),
-                                      ),
-                                  ],
-                                )
+                              ? packShelf(StoreTab.diamonds, [
+                                  for (final (i, p) in diamondPacks.indexed)
+                                    _CountPackCard.diamonds(
+                                      p,
+                                      index: i,
+                                      prices: prices,
+                                    ),
+                                ])
+                              : onHammers
+                              ? packShelf(StoreTab.hammers, [
+                                  for (final (i, p) in hammerPacks.indexed)
+                                    _CountPackCard.hammers(
+                                      p,
+                                      index: i,
+                                      prices: prices,
+                                    ),
+                                ])
                               : Wrap(
                                   spacing: Space.md,
                                   runSpacing: Space.md,
@@ -1039,21 +1197,76 @@ String _grouped(int n) {
   return '$buf,$tail';
 }
 
-/// One diamond pack, drawn as the same lobby-style card as a chip pack.
+/// One diamond or hammer pack, drawn as the same lobby-style card as a chip
+/// pack.
 ///
 /// The plate names its place on the shelf (⭐ popular, 🔥 best value), the
-/// figure is the diamond count beside a gem, and the price rides the glass
-/// capsule along the foot. Colour climbs the shelf the way it climbs the chip
-/// packs — sapphire, sapphire, purple, gold — so the two shelves read as one
-/// store.
-class _DiamondPackCard extends StatefulWidget {
-  const _DiamondPackCard({
-    required this.pack,
+/// figure is the count beside the wallet's own glyph in the wallet's own ink,
+/// and the price rides the glass capsule along the foot. Colour climbs the
+/// shelf the way it climbs the chip packs — sapphire, sapphire, purple, gold —
+/// so the shelves read as one store. One card serves both shelves because the
+/// two differ in nothing but the glyph, the ink and the word.
+class _CountPackCard extends StatefulWidget {
+  const _CountPackCard({
+    required this.productId,
+    required this.rupees,
+    required this.count,
+    required this.mark,
+    required this.icon,
+    required this.inkOn,
+    required this.unit,
     required this.index,
     required this.prices,
   });
 
-  final DiamondPack pack;
+  _CountPackCard.diamonds(
+    DiamondPack pack, {
+    required int index,
+    required Map<String, ProductDetails> prices,
+  }) : this(
+         productId: pack.productId,
+         rupees: pack.rupees,
+         count: pack.diamonds,
+         mark: pack.mark,
+         icon: Icons.diamond_rounded,
+         inkOn: diamondInkOn,
+         unit: _diamondsWord,
+         index: index,
+         prices: prices,
+       );
+
+  _CountPackCard.hammers(
+    HammerPack pack, {
+    required int index,
+    required Map<String, ProductDetails> prices,
+  }) : this(
+         productId: pack.productId,
+         rupees: pack.rupees,
+         count: pack.hammers,
+         mark: pack.mark,
+         icon: Icons.hardware,
+         inkOn: hammerInkOn,
+         unit: _hammersWord,
+         index: index,
+         prices: prices,
+       );
+
+  /// The Play Console product id, which is also the key into [prices].
+  final String productId;
+
+  /// The list price, shown until Play answers with its own.
+  final int rupees;
+  final int count;
+  final ShelfMark mark;
+
+  /// The wallet's glyph beside the figure.
+  final IconData icon;
+
+  /// The wallet's ink on the store's glass, by brightness.
+  final Color Function(Brightness) inkOn;
+
+  /// The wallet's name in the player's language, under the figure.
+  final String Function(Strings) unit;
   final int index;
 
   /// Play's prices by product id; empty until Play answers, when the card
@@ -1061,18 +1274,21 @@ class _DiamondPackCard extends StatefulWidget {
   final Map<String, ProductDetails> prices;
 
   @override
-  State<_DiamondPackCard> createState() => _DiamondPackCardState();
+  State<_CountPackCard> createState() => _CountPackCardState();
 }
 
-class _DiamondPackCardState extends State<_DiamondPackCard> {
+String _diamondsWord(Strings t) => t.storeTabDiamonds;
+String _hammersWord(Strings t) => t.storeTabHammers;
+
+class _CountPackCardState extends State<_CountPackCard> {
   bool _down = false;
 
-  String _plateLabel(Strings t) => switch (widget.pack.mark) {
+  String _plateLabel(Strings t) => switch (widget.mark) {
     ShelfMark.popular => '⭐ ${t.posPopular}',
     ShelfMark.bestValue => '🔥 ${t.posBestValue}',
     ShelfMark.starter => t.posStarter,
     ShelfMark.premium => t.posPremium,
-    ShelfMark.none => t.storeTabDiamonds.toUpperCase(),
+    ShelfMark.none => widget.unit(t).toUpperCase(),
   };
 
   @override
@@ -1082,7 +1298,6 @@ class _DiamondPackCardState extends State<_DiamondPackCard> {
     final dark = theme.brightness == Brightness.dark;
     final state = context.watch<GameState>();
     final t = state.t;
-    final p = widget.pack;
     final prices = widget.prices;
     final palette = AppTheme.paletteFor(
       theme.colorScheme,
@@ -1090,19 +1305,19 @@ class _DiamondPackCardState extends State<_DiamondPackCard> {
       bootAmount: widget.index >= 2 ? 5000 : 200,
     );
     final accent = palette.accent;
-    final gem = diamondInkOn(theme.brightness);
+    final ink = widget.inkOn(theme.brightness);
 
     void buy() {
       // The same rule as a chip pack: Play is the only thing that takes money,
       // and it is not always there. Say so rather than fail at the sheet.
-      final details = prices[p.productId];
+      final details = prices[widget.productId];
       if (!state.purchases.available || details == null) {
         state.notice = t.storeNotLive;
         Navigator.pop(context);
         return;
       }
       // The result arrives on the purchase stream; the server credits the
-      // diamonds and the wallet updates from its answer.
+      // wallet the product names, and the balance updates from its answer.
       state.purchases.buy(details);
       Navigator.pop(context);
     }
@@ -1131,7 +1346,7 @@ class _DiamondPackCardState extends State<_DiamondPackCard> {
           final panel = PremiumGlassPanel(
             mode: GlassMode.tinted,
             radius: Radii.lg,
-            live: p.mark == ShelfMark.bestValue,
+            live: widget.mark == ShelfMark.bestValue,
             padding: EdgeInsets.zero,
             tint: Colors.white,
             behind: Stack(
@@ -1177,19 +1392,19 @@ class _DiamondPackCardState extends State<_DiamondPackCard> {
                       Row(
                         crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
-                          Icon(Icons.diamond_rounded, size: figure, color: gem),
+                          Icon(widget.icon, size: figure, color: ink),
                           const SizedBox(width: Space.sm),
                           Expanded(
                             child: FittedBox(
                               fit: BoxFit.scaleDown,
                               alignment: Alignment.centerLeft,
                               child: Text(
-                                '${p.diamonds}',
+                                '${widget.count}',
                                 maxLines: 1,
                                 style: AppTheme.money(
                                   text.displaySmall!,
                                   fontSize: figure,
-                                  colour: gem,
+                                  colour: ink,
                                 ),
                               ),
                             ),
@@ -1197,7 +1412,7 @@ class _DiamondPackCardState extends State<_DiamondPackCard> {
                         ],
                       ),
                       Text(
-                        t.storeTabDiamonds,
+                        widget.unit(t),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: text.bodySmall?.copyWith(
@@ -1207,8 +1422,8 @@ class _DiamondPackCardState extends State<_DiamondPackCard> {
                       const Spacer(),
                       _PriceCapsule(
                         label:
-                            prices[p.productId]?.price ??
-                            '₹${_grouped(p.rupees)}',
+                            prices[widget.productId]?.price ??
+                            '₹${_grouped(widget.rupees)}',
                         height: ctaH,
                       ),
                     ],

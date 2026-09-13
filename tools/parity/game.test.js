@@ -119,6 +119,7 @@ test('the deal: boots are banked, three hidden cards each, the turn opens left o
     canSee: true,
     canSideshow: false,
     sideshowWith: null,
+    canForceSideshow: false,
     chaal: bootAmount,
     raise: bootAmount * 2,
     raiseSteps: [bootAmount, bootAmount * 2],

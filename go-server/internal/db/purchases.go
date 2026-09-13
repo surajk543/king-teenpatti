@@ -21,8 +21,11 @@ type PurchaseResult struct {
 	// Chips is what the product is worth, whether or not this call banked it.
 	Chips int64
 	// Diamonds is what a diamond pack is worth, whether or not this call
-	// banked it. Zero for a chip pack.
+	// banked it. Zero for any other pack.
 	Diamonds int64
+	// Hammers is what a hammer pack is worth, whether or not this call banked
+	// it. Zero for any other pack.
+	Hammers int64
 	// Balance is the wallet after the credit, or the current wallet when the
 	// purchase was already banked.
 	Balance int64
@@ -121,53 +124,108 @@ func CreditPurchase(ctx context.Context, d *DB, users *Users, userID string, p p
 // already there, inserts nothing, and reports Credited=false with the wallet
 // untouched. The count comes from the server-side catalogue, never the caller.
 func CreditDiamondPurchase(ctx context.Context, d *DB, users *Users, userID string, p purchase.Product, purchaseToken string) (PurchaseResult, error) {
-	if purchaseToken == "" {
-		return PurchaseResult{}, errors.New("db: empty purchase token")
-	}
 	if p.Diamonds <= 0 {
 		return PurchaseResult{}, fmt.Errorf("db: product %s grants no diamonds", p.ID)
 	}
-	now := time.Now().UnixMilli()
 	out := PurchaseResult{Diamonds: p.Diamonds}
+	if err := creditSoftPack(ctx, d, users, userID, p.ID, p.Diamonds, purchaseToken, diamondPack, &out); err != nil {
+		return PurchaseResult{}, err
+	}
+	return out, nil
+}
 
+// CreditHammerPurchase adds a verified Google Play hammer pack to a player's
+// hammers, once (owner, 13 Sep 2026) — CreditDiamondPurchase's twin, with
+// hammer_purchases as the replay guard:
+//
+//	SELECT hammer FROM users WHERE id = $1 FOR UPDATE       lock the wallet
+//	INSERT hammer_purchases (token, …) ON CONFLICT DO NOTHING
+//	UPDATE users SET hammer = hammer + $n                    only when the insert took
+//
+// Hammers are not chips: no chip_ledger row, no seat to top up (a table never
+// holds a hammer count), and so no seat lock either — a pack bought at a table
+// lands in the wallet the next Force Sideshow is charged to.
+func CreditHammerPurchase(ctx context.Context, d *DB, users *Users, userID string, p purchase.Product, purchaseToken string) (PurchaseResult, error) {
+	if p.Hammers <= 0 {
+		return PurchaseResult{}, fmt.Errorf("db: product %s grants no hammers", p.ID)
+	}
+	out := PurchaseResult{Hammers: p.Hammers}
+	if err := creditSoftPack(ctx, d, users, userID, p.ID, p.Hammers, purchaseToken, hammerPack, &out); err != nil {
+		return PurchaseResult{}, err
+	}
+	return out, nil
+}
+
+// softPack is the SQL that banks a pack of a currency outside chip_ledger:
+// lock the wallet, record the purchase token (the replay guard), credit.
+// Fixed statements per currency, never assembled from input.
+type softPack struct {
+	lock   string // $1 user id
+	record string // $1 token, $2 user id, $3 product id, $4 count, $5 now — ON CONFLICT DO NOTHING
+	credit string // $1 user id, $2 count, $3 now
+}
+
+var (
+	diamondPack = softPack{
+		lock: `SELECT diamond FROM users WHERE id = $1 FOR UPDATE`,
+		record: `INSERT INTO diamond_purchases (purchase_token, user_id, product_id, diamonds, created_at)
+		 VALUES ($1, $2, $3, $4, $5)
+		 ON CONFLICT (purchase_token) DO NOTHING`,
+		credit: `UPDATE users SET diamond = diamond + $2, updated_at = $3 WHERE id = $1`,
+	}
+	hammerPack = softPack{
+		lock: `SELECT hammer FROM users WHERE id = $1 FOR UPDATE`,
+		record: `INSERT INTO hammer_purchases (purchase_token, user_id, product_id, hammers, created_at)
+		 VALUES ($1, $2, $3, $4, $5)
+		 ON CONFLICT (purchase_token) DO NOTHING`,
+		credit: `UPDATE users SET hammer = hammer + $2, updated_at = $3 WHERE id = $1`,
+	}
+)
+
+// creditSoftPack banks count of a pack's currency once per purchase token and
+// fills out's Credited, User and Balance (the chip balance, which a soft pack
+// leaves as it was). A replayed token — a retry after a lost reply, Play
+// restoring it on a new install, or the same token sent from another account —
+// finds its record already there, inserts nothing, and leaves Credited false
+// with the wallet untouched. The count comes from the server-side catalogue,
+// never the caller.
+func creditSoftPack(ctx context.Context, d *DB, users *Users, userID, productID string, count int64, purchaseToken string, pack softPack, out *PurchaseResult) error {
+	if purchaseToken == "" {
+		return errors.New("db: empty purchase token")
+	}
+	now := time.Now().UnixMilli()
 	err := d.WithTx(ctx, func(tx pgx.Tx) error {
-		var diamond int64
-		if err := tx.QueryRow(ctx,
-			`SELECT diamond FROM users WHERE id = $1 FOR UPDATE`, userID).Scan(&diamond); err != nil {
+		var held int64
+		if err := tx.QueryRow(ctx, pack.lock, userID).Scan(&held); err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				return game.Errorf(game.CodeUnknownUser, "unknown user %s", userID)
 			}
 			return err
 		}
-		tag, err := tx.Exec(ctx,
-			`INSERT INTO diamond_purchases (purchase_token, user_id, product_id, diamonds, created_at)
-			 VALUES ($1, $2, $3, $4, $5)
-			 ON CONFLICT (purchase_token) DO NOTHING`,
-			purchaseToken, userID, p.ID, p.Diamonds, now)
+		tag, err := tx.Exec(ctx, pack.record, purchaseToken, userID, productID, count, now)
 		if err != nil {
 			return err
 		}
 		if tag.RowsAffected() == 0 {
-			// Already banked: the diamonds are where the first call put them.
+			// Already banked: the currency is where the first call put it.
 			return nil
 		}
-		if _, err := tx.Exec(ctx,
-			`UPDATE users SET diamond = diamond + $2, updated_at = $3 WHERE id = $1`,
-			userID, p.Diamonds, now); err != nil {
+		if _, err := tx.Exec(ctx, pack.credit, userID, count, now); err != nil {
 			return err
 		}
 		out.Credited = true
 		return nil
 	})
 	if err != nil {
-		return PurchaseResult{}, err
+		*out = PurchaseResult{}
+		return err
 	}
-
 	user, err := users.FindByID(ctx, userID)
 	if err != nil {
-		return PurchaseResult{}, err
+		*out = PurchaseResult{}
+		return err
 	}
 	out.User = user
 	out.Balance = user.Chips
-	return out, nil
+	return nil
 }

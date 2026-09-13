@@ -780,6 +780,117 @@ class DiamondBalance extends StatelessWidget {
   }
 }
 
+/// The ink every hammer figure is drawn in on a dark pill: a pale copper, the
+/// colour of the tool's head in the lamp, and far enough from the chips' gold
+/// and the diamonds' ice blue that the three wallets never read as one.
+const _hammerInk = Color(0xFFFFC08A);
+
+/// The hammer ink for a surface that follows the theme. The pale copper is
+/// lost on frosted white, so the light theme gets a burnt one (4.5:1 there).
+Color hammerInkOn(Brightness brightness) =>
+    brightness == Brightness.dark ? _hammerInk : const Color(0xFFB0571F);
+
+/// The player's hammers, in the store's header on the Hammers shelf — the
+/// hammer twin of [DiamondBalance].
+class HammerBalance extends StatelessWidget {
+  const HammerBalance({super.key, required this.count});
+
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: Space.md,
+        vertical: Space.xs,
+      ),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(Radii.pill),
+        color: AppTheme.ink900.withValues(alpha: 0.82),
+        border: Border.all(color: _hammerInk.withValues(alpha: 0.55)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.hardware, size: 14, color: _hammerInk),
+          const SizedBox(width: Space.xs),
+          Text(
+            '$count',
+            style: theme.textTheme.labelMedium?.copyWith(
+              color: _hammerInk,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Both soft wallets in one dark pill — diamonds, then hammers — for the top
+/// right of the game table (owner, 13 Sep 2026).
+///
+/// A pill rather than two: at a table the corner has room for one small
+/// object, and a player glancing up mid-hand wants "what can I still spend"
+/// answered once. Dark with light ink in both brightnesses, like everything
+/// else standing on the table, and display only — the store is the Shop key's
+/// job, and a stray tap in a corner should never open a sheet mid-turn.
+class WalletPill extends StatelessWidget {
+  const WalletPill({
+    super.key,
+    required this.diamonds,
+    required this.hammers,
+    required this.semanticsLabel,
+  });
+
+  final int diamonds;
+  final int hammers;
+
+  /// What a screen reader says instead of two bare numbers.
+  final String semanticsLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final figure = theme.textTheme.labelMedium?.copyWith(
+      fontWeight: FontWeight.w700,
+      fontFeatures: const [FontFeature.tabularFigures()],
+    );
+
+    return Semantics(
+      label: semanticsLabel,
+      excludeSemantics: true,
+      child: Container(
+        padding: const EdgeInsets.symmetric(
+          horizontal: Space.md,
+          vertical: Space.xs,
+        ),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(Radii.pill),
+          color: AppTheme.ink900.withValues(alpha: 0.82),
+          border: Border.all(
+            color: AppTheme.goldBright.withValues(alpha: 0.28),
+            width: Dim.hairline,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.diamond, size: 14, color: _diamondInk),
+            const SizedBox(width: Space.xs),
+            Text('$diamonds', style: figure?.copyWith(color: _diamondInk)),
+            const SizedBox(width: Space.md),
+            const Icon(Icons.hardware, size: 14, color: _hammerInk),
+            const SizedBox(width: Space.xs),
+            Text('$hammers', style: figure?.copyWith(color: _hammerInk)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _PriceTag extends StatelessWidget {
   const _PriceTag({required this.cost, this.currency = 'COIN', this.days});
 

@@ -190,7 +190,11 @@ type RoomManagerOptions struct {
 	// LedgerHooks are the optional settle / persistChips hooks the default
 	// MemoryLedger wraps when Ledger is nil. Ignored when Ledger is set.
 	LedgerHooks MemoryLedgerHooks
-	Clock       Clock // nil → RealClock{}
+	// Hammers is the wallet every Table charges a Force Sideshow to.
+	// Production: db.Hammers. nil → each table's empty default, which refuses
+	// every Force Sideshow no_hammers.
+	Hammers HammerWallet
+	Clock   Clock // nil → RealClock{}
 	// TableListener receives every Table's events (the socket layer). The
 	// RoomManager wraps it (see tableHooks) so that it can act on OnKick,
 	// OnPersistError and OnError itself, then forwards every call unchanged.
@@ -290,15 +294,16 @@ type RoomManagerOptions struct {
 //
 // All methods Node marked async are ordinary blocking methods here.
 type RoomManager struct {
-	game   config.GameConfig
-	chat   config.ChatConfig
-	ledger Ledger
-	clock  Clock
-	tl     Listener
-	rl     RoomListener
-	log    *slog.Logger
-	mx     MetricsHooks
-	hooks  *tableHooks
+	game    config.GameConfig
+	chat    config.ChatConfig
+	ledger  Ledger
+	hammers HammerWallet
+	clock   Clock
+	tl      Listener
+	rl      RoomListener
+	log     *slog.Logger
+	mx      MetricsHooks
+	hooks   *tableHooks
 
 	// loadPlayer is RoomManagerOptions.LoadPlayer (nil → the caller's Player).
 	loadPlayer func(ctx context.Context, userID string) (Player, error)
@@ -437,6 +442,7 @@ func NewRoomManager(opts RoomManagerOptions) *RoomManager {
 		game:        opts.Game,
 		chat:        opts.Chat,
 		ledger:      ledger,
+		hammers:     opts.Hammers,
 		loadPlayer:  opts.LoadPlayer,
 		clock:       clock,
 		tl:          tl,
@@ -644,9 +650,12 @@ func (rm *RoomManager) newTableLocked(opts CreateTableOptions) *Table {
 }
 
 // tableOptions completes a table's options with everything every table of
-// this manager shares: ledger, clock, the hooks Listener and the live store.
+// this manager shares: ledger, hammer wallet, clock, the hooks Listener and
+// the live store. A restored table gets them through here too, so a Force
+// Sideshow on a table brought back from the live store is charged like any other.
 func (rm *RoomManager) tableOptions(opts TableOptions) TableOptions {
 	opts.Ledger = rm.ledger
+	opts.Hammers = rm.hammers
 	opts.Clock = rm.clock
 	opts.Listener = rm.hooks
 	opts.Live = rm.live

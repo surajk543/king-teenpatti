@@ -6,15 +6,18 @@ import 'package:flutter/scheduler.dart';
 import 'package:lottie/lottie.dart';
 import 'package:provider/provider.dart';
 
+import '../l10n/strings.dart';
 import '../models/dtos.dart';
 import '../settings/feedback_settings.dart';
 import '../state/game_state.dart';
 import '../theme/app_theme.dart';
 import '../widgets/buy_chips.dart';
+import '../widgets/chip_store.dart';
 import '../widgets/drifting_chips.dart';
 import '../widgets/feedback_toggles.dart';
 import '../widgets/glass_components.dart';
 import '../widgets/glass_panels.dart';
+import '../widgets/picture_shelf.dart';
 import '../widgets/playing_card.dart';
 import '../widgets/poker_chip.dart';
 import '../widgets/premium_surface.dart';
@@ -127,6 +130,15 @@ class _TableScreenState extends State<TableScreen> {
             top: Space.sm,
             child: SafeArea(child: ShopButton()),
           ),
+          // Diamonds and hammers, in the corner opposite the Shop key and on
+          // its line (owner, 13 Sep 2026): what the player can still spend at
+          // this table that is not chips. In the room rather than on the felt,
+          // like the Shop key, and outside every seat's column (_TableWallet).
+          const Positioned(
+            right: 0,
+            top: Space.sm,
+            child: SafeArea(child: _TableWallet()),
+          ),
           // The keys, floating over the bottom-right of the table instead of
           // sitting in a bar across the foot of it. Owner's decision,
           // 10 Sep 2026: the bar was a sixth of a landscape screen reserved
@@ -148,6 +160,80 @@ class _TableScreenState extends State<TableScreen> {
       ),
     );
   }
+}
+
+/// Diamonds and hammers, in the top-right corner of the room (owner,
+/// 13 Sep 2026).
+///
+/// It stands on the Shop key's line, right-aligned with the key cluster below
+/// it, and is never wider than the corner it has: from the felt's right edge
+/// back to the top-right seat's pod and the glow spilling out of that pod's
+/// corner ([_tableWalletRoom]). Three-digit counts at the 1.25 text ceiling
+/// on a 640dp phone would run past that, so there it scales down instead of
+/// running under the pod. The right-hand seat's column starts below it, and
+/// the notices stand between the top two seats ([tableNoticeArea]).
+/// test/table_wallet_layout_test.dart checks it at 640x360, 891x411 and
+/// 1280x800.
+class _TableWallet extends StatelessWidget {
+  const _TableWallet();
+
+  @override
+  Widget build(BuildContext context) {
+    // `select`, not `watch`: the counts change when a hammer is spent or a
+    // pack lands, never with the reward ticker. A record compares by value.
+    final (diamonds, hammers, lang) = context
+        .select<GameState, (int, int, AppLang)>(
+          (s) => (s.user?.diamond ?? 0, s.user?.hammer ?? 0, s.lang),
+        );
+    final width = MediaQuery.sizeOf(context).width;
+
+    // A row the Shop key's height with the pill in the middle of it, so the
+    // two corners share one centre line.
+    return Padding(
+      padding: EdgeInsets.only(right: Dim.feltPad(width)),
+      child: SizedBox(
+        height: Dim.minTouch,
+        child: Center(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxWidth: _tableWalletRoom(context)),
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerRight,
+              child: WalletPill(
+                diamonds: diamonds,
+                hammers: hammers,
+                semanticsLabel: Strings(lang).walletSummary(diamonds, hammers),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// How wide the table's wallet may be: from the felt's right edge back to the
+/// top-right seat's pod, less the sixth of a pod its orb spills out of that
+/// corner and a little air. Worked out from the numbers [_Felt] lays the seats
+/// out with, the way [tableNoticeArea] finds the notices' gap — about 95dp at
+/// 640x360, 144 at 891x411 and 227 at 1280x800.
+double _tableWalletRoom(BuildContext context) {
+  final size = MediaQuery.sizeOf(context);
+  final safe = MediaQuery.paddingOf(context);
+  final pad = Dim.feltPad(size.width);
+  final feltLeft = safe.left + Dim.railW(size.width) + pad;
+  final feltTop = safe.top + Space.xxs;
+  final w = size.width - safe.right - pad - feltLeft;
+  final h = size.height - safe.bottom - feltTop;
+  final podW = Dim.podW(w, h);
+
+  final topRight = _Felt._places[3];
+  final podLeft = (topRight.dx * w - podW / 2)
+      .clamp(0.0, math.max(0.0, w - podW))
+      .toDouble();
+  final clear = feltLeft + podLeft + podW + podW / 6 + Space.xs;
+  final right = size.width - safe.right - pad;
+  return math.max(Dim.minTouch, right - clear);
 }
 
 /// The floor of the room, carrying a whisper of the table's own colour.
@@ -859,6 +945,76 @@ Future<void> _confirmLeave(
   );
 
   if (leave == true) state.leaveTable();
+}
+
+/// Force Sideshow, from the key to the server (owner, 13 Sep 2026).
+///
+/// Asked first: a hammer is bought with real money, and a forced sideshow can
+/// pack the player who forced it. A player with no hammers is not asked that —
+/// they are offered the store's Hammers shelf instead, which is the only
+/// answer that helps. The server has the last word on both, and when its count
+/// turns out to be 0 after all the same offer follows.
+Future<void> _forceSideshow(BuildContext context, GameState state) async {
+  final t = state.t;
+  if (!state.hasHammer) {
+    await _offerHammers(context, state);
+    return;
+  }
+
+  final name = state.options?.sideshowWith ?? '';
+  final go = await showDialog<bool>(
+    context: context,
+    builder: (context) {
+      final theme = Theme.of(context);
+      return GlassDialog(
+        padding: const EdgeInsets.all(Space.xl),
+        title: _dialogTitle(context, Icons.hardware, t.forceSideshowTitle),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(t.forceSideshowBody(name)),
+            const SizedBox(height: Space.sm),
+            Text(
+              t.forceSideshowNote,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurface.withValues(
+                  alpha: AppTheme.inkLowOn(theme.brightness),
+                ),
+              ),
+            ),
+          ],
+        ),
+        actions: _dialogActions(context, stay: t.cancel, go: t.force),
+      );
+    },
+  );
+  if (go != true || !context.mounted) return;
+
+  // The turn clock kept running while the question was up. If the turn went,
+  // or this turn's ask was used, there is nothing left to force, and sending
+  // it anyway would only earn a refusal to read.
+  if (!state.canForceSideshow) return;
+  final result = await state.forceSideshow();
+  if (result == ForceSideshowResult.noHammers && context.mounted) {
+    await _offerHammers(context, state);
+  }
+}
+
+/// The store's Hammers shelf, offered to a player whose wallet is empty.
+Future<void> _offerHammers(BuildContext context, GameState state) async {
+  final t = state.t;
+  final shop = await showDialog<bool>(
+    context: context,
+    builder: (context) => GlassDialog(
+      padding: const EdgeInsets.all(Space.xl),
+      title: _dialogTitle(context, Icons.hardware, t.noHammersTitle),
+      content: Text(t.noHammersBody),
+      actions: _dialogActions(context, stay: t.cancel, go: t.getHammers),
+    ),
+  );
+  if (shop != true || !context.mounted) return;
+  await showChipStore(context, opensOn: StoreTab.hammers);
 }
 
 /// Gold as *ink*: champagne on charcoal, deep gold on parchment.
@@ -2912,6 +3068,7 @@ class _MachinedKey extends StatelessWidget {
     this.primary = false,
     this.edge,
     this.alive = false,
+    this.muted = false,
   });
 
   final double width;
@@ -2936,6 +3093,11 @@ class _MachinedKey extends StatelessWidget {
   /// Only ever set on keys that are actually pressable, so a lit key is always
   /// a promise that tapping it will do something.
   final bool alive;
+
+  /// Drawn as inert while it still answers a tap. For a move the rules allow
+  /// but the player cannot pay for — Force Sideshow with no hammers — where
+  /// the tap is what offers the way to pay.
+  final bool muted;
 
   @override
   Widget build(BuildContext context) {
@@ -2985,7 +3147,7 @@ class _MachinedKey extends StatelessWidget {
     final press = onPressed;
 
     return Opacity(
-      opacity: dead ? 0.42 : 1,
+      opacity: dead || muted ? 0.42 : 1,
       child: _KeyPulse(
         alive: alive,
         colour: halo,
@@ -4149,6 +4311,13 @@ class _ActionCluster extends StatelessWidget {
     final options = state.options;
     final showCost = options?.show;
     final canSideshow = live && (options?.canSideshow ?? false);
+    // A Force Sideshow has a sideshow's rules, and the server says so in an
+    // option of its own. Whether the player can PAY is their own count — the
+    // table never sees the wallet — so with no hammers the key is greyed but
+    // still answers a tap, with an offer of the store.
+    final canForce =
+        live && (options?.canForceSideshow ?? false) && !state.forcingSideshow;
+    final hasHammer = state.hasHammer;
     // Heads-up: a show is on offer, and a sideshow cannot be. One slot, two
     // jobs — a show needs exactly two players left and a sideshow three or
     // more, so they are never askable at the same moment.
@@ -4158,6 +4327,11 @@ class _ActionCluster extends StatelessWidget {
     final keyH = Dim.keyH(size.height);
     final keyW = Dim.keyW(size.width);
     final gap = Dim.gap(size.width);
+    // The force key is as wide as the two steppers and the gap between them,
+    // so the top row comes out exactly as wide as the − Chaal + row under it.
+    // The cluster's footprint — which the viewer's hand and the right-hand
+    // seat are laid out to clear — is the one it had with a single key on top.
+    final forceW = 2 * Dim.minTouch + gap;
 
     return Padding(
       padding: EdgeInsets.fromLTRB(gap, gap, Dim.feltPad(size.width), gap),
@@ -4165,30 +4339,53 @@ class _ActionCluster extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          headsUp
-              ? _MachinedKey(
-                  width: keyW,
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Tooltip(
+                message: t.forceSideshow,
+                child: _MachinedKey(
+                  width: forceW,
                   height: keyH,
-                  icon: Icons.visibility_rounded,
-                  label: t.show,
-                  alive: true,
-                  amount: formatChips(showCost),
-                  onPressed: () => state.show(showCost),
-                )
-              // Dead by default: it wakes only on your turn, with three in the
-              // hand and both you and the player on your right holding seen
-              // cards. All of that is the server's judgement, arriving as
-              // canSideshow — a lit key that refuses on tap is worse than a
-              // dark one.
-              : _MachinedKey(
-                  width: keyW,
-                  height: keyH,
-                  icon: Icons.compare_arrows_rounded,
-                  label: t.sideshow,
-                  amount: canSideshow ? options?.sideshowWith : null,
-                  alive: canSideshow,
-                  onPressed: canSideshow ? state.askSideshow : null,
+                  icon: Icons.hardware,
+                  label: t.force,
+                  // Its price, lit or not: a key that costs something says what
+                  // before it is pressed.
+                  amount: '🔨 $forceSideshowCost',
+                  alive: canForce && hasHammer,
+                  muted: canForce && !hasHammer,
+                  onPressed: canForce
+                      ? () => _forceSideshow(context, state)
+                      : null,
                 ),
+              ),
+              SizedBox(width: gap),
+              headsUp
+                  ? _MachinedKey(
+                      width: keyW,
+                      height: keyH,
+                      icon: Icons.visibility_rounded,
+                      label: t.show,
+                      alive: true,
+                      amount: formatChips(showCost),
+                      onPressed: () => state.show(showCost),
+                    )
+                  // Dead by default: it wakes only on your turn, with three
+                  // in the hand and both you and the player on your right
+                  // holding seen cards. All of that is the server's
+                  // judgement, arriving as canSideshow — a lit key that
+                  // refuses on tap is worse than a dark one.
+                  : _MachinedKey(
+                      width: keyW,
+                      height: keyH,
+                      icon: Icons.compare_arrows_rounded,
+                      label: t.sideshow,
+                      amount: canSideshow ? options?.sideshowWith : null,
+                      alive: canSideshow,
+                      onPressed: canSideshow ? state.askSideshow : null,
+                    ),
+            ],
+          ),
           SizedBox(height: gap),
           Row(
             mainAxisSize: MainAxisSize.min,

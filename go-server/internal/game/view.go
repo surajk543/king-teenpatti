@@ -100,6 +100,14 @@ type TurnOptions struct {
 	CanSideshow bool `json:"canSideshow"`
 	// SideshowWith is the right-hand neighbour's displayName, or null when blocked.
 	SideshowWith *string `json:"sideshowWith"`
+	// CanForceSideshow says a Force Sideshow would be allowed by the rules. Go
+	// only (owner, 13 Sep 2026). A forced sideshow has exactly the eligibility
+	// of an ordinary one — same checks, same neighbour, the same one ask per
+	// turn — so today it always equals CanSideshow; it is its own key so the
+	// client never infers one from the other. It says nothing about hammers:
+	// the table does not hold the wallet, the client greys the key when its
+	// own count is 0, and the server refuses no_hammers if it is.
+	CanForceSideshow bool `json:"canForceSideshow"`
 	// Chaal is steps[0] or null when the player cannot afford the base.
 	Chaal *int64 `json:"chaal"`
 	// Raise is steps[1] or null.

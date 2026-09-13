@@ -494,6 +494,27 @@ done. This is also why the trigger function is created only when missing rather 
 guarded statement whose work production has not done yet (it builds its schema as the owner first),
 which is exactly why that one-off run as `postgres` comes before the deploy.
 
+**Releases that need that one-off run, oldest first.** Only on a database this section has already
+been applied to; where `gameplay_app` still owns `users` the boot does the work itself. Each statement
+is idempotent, so running it twice, or on a database that already has the change, does nothing.
+
+- **`V1.0.5__hammers.sql` (hammers and Force Sideshow, 13 Sep 2026)** adds `users.hammer`. Before
+  deploying the first release that carries that script:
+
+  ```bash
+  sudo -u postgres psql gameplay <<'SQL'
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS hammer INTEGER NOT NULL DEFAULT 20 CHECK (hammer >= 0);
+  SQL
+  ```
+
+  The `DEFAULT` gives every existing account its 20 hammers (the owner's decision); on PostgreSQL 11+
+  a constant default is a catalogue change, not a table rewrite, so it holds the lock for a moment.
+  `hammer_purchases` and `hammer_spends` need nothing by hand: the app role creates them at boot, and
+  their foreign keys to `users` are what the `REFERENCES` grant above is for. Skip this and every
+  restart fails with `run V1.0.5__hammers.sql: ERROR: must be owner of table users`.
+  `TestTheAppRoleBootsTwiceBeforeAndAfterUsersIsHandedToTheSuperuser` reads this block out of this
+  file and proves the release boots after it.
+
 ## Troubleshooting
 
 | Symptom | Cause / fix |

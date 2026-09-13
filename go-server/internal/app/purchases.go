@@ -81,6 +81,24 @@ func (s *playStore) Buy(ctx context.Context, userID, productID, purchaseToken st
 		}, nil
 	}
 
+	// A hammer pack fills users.hammer through hammer_purchases, the same
+	// way. It is allowed at a table — hammers are not chips — and has no seat
+	// to top up: the table never holds a hammer count, it charges the wallet
+	// when a Force Sideshow is played.
+	if product.Hammers > 0 {
+		result, err := db.CreditHammerPurchase(ctx, s.db, s.users, userID, product, purchaseToken)
+		if err != nil {
+			return auth.PurchaseOutcome{}, err
+		}
+		_ = s.verifier.Acknowledge(ctx, productID, purchaseToken)
+		return auth.PurchaseOutcome{
+			Hammers:  result.Hammers,
+			Balance:  result.Balance,
+			Credited: result.Credited,
+			User:     result.User,
+		}, nil
+	}
+
 	// The wallet gets the chips; the seat is a separate copy of the truth.
 	// Only a fresh credit reaches the seat — a replayed receipt already moved
 	// both, and adding again would put chips in the seat that PostgreSQL does

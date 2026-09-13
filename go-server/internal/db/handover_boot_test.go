@@ -15,6 +15,7 @@ import (
 
 	"github.com/surajk543/king-teenpatti/go-server/internal/db"
 	"github.com/surajk543/king-teenpatti/go-server/internal/db/dbtest"
+	"github.com/surajk543/king-teenpatti/go-server/internal/game"
 )
 
 // deployGuide is the runbook whose §7 this file executes, relative to this
@@ -212,11 +213,92 @@ func TestTheAppRoleBootsTwiceBeforeAndAfterUsersIsHandedToTheSuperuser(t *testin
 	if n := usersIndexes(); n != 1 {
 		t.Fatalf("boots under §7 must leave exactly one idx_users_last_login, found %d", n)
 	}
+
+	// 5. V1.0.5 adds users.hammer, which only the owner of users may do. A
+	// database handed over before that release lacks the column: the release
+	// must not boot there until §7's one-off statement for V1.0.5 has run as
+	// postgres, and must boot cleanly, twice, once it has.
+	for _, stmt := range []string{
+		`DROP TABLE ` + qualified("hammer_spends"),
+		`DROP TABLE ` + qualified("hammer_purchases"),
+		`ALTER TABLE ` + qualified("users") + ` DROP COLUMN hammer`,
+	} {
+		if _, err := admin.Exec(ctx, stmt); err != nil {
+			t.Fatalf("%s: %v", stmt, err)
+		}
+	}
+	func() {
+		bootCtx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		d, err := db.Open(bootCtx, db.Options{URL: asRole, Schema: schema, PoolMax: 2})
+		if err == nil {
+			d.Close()
+			t.Fatal("V1.0.5 booted as the app role on a handed-over database without its column; the ownership check it relies on is gone")
+		}
+		if !strings.Contains(err.Error(), "must be owner of table users") {
+			t.Fatalf("V1.0.5 without §7's statement should fail on ownership, got %v", err)
+		}
+	}()
+	hammerSQL := section7Block(t, "hammer")
+	tx, err = admin.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	if _, err := tx.Exec(ctx, `SET LOCAL search_path TO `+schemaIdent); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(ctx, hammerSQL); err != nil {
+		t.Fatalf("%s §7, V1.0.5: %v\n%s", deployGuide, err, hammerSQL)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	const hammerHint = "\n  V1.0.5 on a handed-over database needs §7's ALTER run as postgres first (DEPLOY.md §7)"
+	boot("V1.0.5 after §7's statement", hammerHint)
+	d = boot("V1.0.5 once more", hammerHint)
+	var hammers int64
+	if err := admin.QueryRow(ctx, `SELECT hammer FROM `+qualified("users")+` WHERE id = $1`, u.ID).Scan(&hammers); err != nil {
+		t.Fatal(err)
+	}
+	if hammers != 20 {
+		t.Fatalf("an account from before the column holds %d hammers, want 20", hammers)
+	}
+	spent, err := db.NewHammers(d, nil, nil).SpendHammer(ctx, game.HammerSpend{
+		HandID: "handover", UserID: u.ID, ActionID: game.ForceSideshowSpendID("handover", u.ID, suffix),
+	})
+	if err != nil || spent.Remaining != 19 {
+		t.Fatalf("a Force Sideshow's hammer must be spendable on §7's grants: %+v %v", spent, err)
+	}
 }
 
 // section7SQL returns what ops/DEPLOY.md §7 has an operator feed to
-// `sudo -u postgres psql gameplay`: the handover itself.
+// `sudo -u postgres psql gameplay` first: the handover itself.
 func section7SQL(t *testing.T) string {
+	t.Helper()
+	return section7Blocks(t)[0]
+}
+
+// section7Block returns the one later §7 block — a release's one-off
+// statement — that mentions marker.
+func section7Block(t *testing.T, marker string) string {
+	t.Helper()
+	var found []string
+	for _, block := range section7Blocks(t)[1:] {
+		if strings.Contains(block, marker) {
+			found = append(found, block)
+		}
+	}
+	if len(found) != 1 {
+		t.Fatalf("%s §7 has %d one-off SQL blocks mentioning %q, want exactly 1", deployGuide, len(found), marker)
+	}
+	return found[0]
+}
+
+// section7Blocks returns every SQL body §7 feeds to
+// `sudo -u postgres psql gameplay <<'SQL'`, in order, with the indentation a
+// block inside a list item carries taken off.
+func section7Blocks(t *testing.T) []string {
 	t.Helper()
 	guide, err := os.ReadFile(deployGuide)
 	if err != nil {
@@ -231,17 +313,32 @@ func section7SQL(t *testing.T) string {
 	if end := strings.Index(section, "\n## "); end >= 0 {
 		section = section[:end]
 	}
-	const open = "sudo -u postgres psql gameplay <<'SQL'\n"
-	i := strings.Index(section, open)
-	if i < 0 {
-		t.Fatalf("%s §7 no longer feeds its SQL to `%s`; update this test with it", deployGuide, strings.TrimSpace(open))
+	const open = "sudo -u postgres psql gameplay <<'SQL'"
+	var blocks []string
+	lines := strings.Split(section, "\n")
+	for i := 0; i < len(lines); i++ {
+		if strings.TrimSpace(lines[i]) != open {
+			continue
+		}
+		indent := lines[i][:len(lines[i])-len(strings.TrimLeft(lines[i], " "))]
+		var body []string
+		closed := false
+		for i++; i < len(lines); i++ {
+			if strings.TrimSpace(lines[i]) == "SQL" {
+				closed = true
+				break
+			}
+			body = append(body, strings.TrimPrefix(lines[i], indent))
+		}
+		if !closed {
+			t.Fatalf("%s §7: an SQL block is not closed", deployGuide)
+		}
+		blocks = append(blocks, strings.Join(body, "\n"))
 	}
-	body := section[i+len(open):]
-	j := strings.Index(body, "\nSQL\n")
-	if j < 0 {
-		t.Fatalf("%s §7: the SQL block is not closed", deployGuide)
+	if len(blocks) == 0 {
+		t.Fatalf("%s §7 no longer feeds its SQL to `%s`; update this test with it", deployGuide, open)
 	}
-	return body[:j]
+	return blocks
 }
 
 // withLogin returns base with its login replaced by role's, in whichever of

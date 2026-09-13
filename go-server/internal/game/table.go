@@ -87,8 +87,12 @@ type TableOptions struct {
 	Config    TableConfig
 	IsPrivate bool // requirement 22; set by RoomManager, read by lobby filters
 	Ledger    Ledger
-	Clock     Clock    // nil → RealClock{}
-	Listener  Listener // nil → NopListener{}
+	// Hammers is the wallet a Force Sideshow is paid from. Production:
+	// db.Hammers. nil → a wallet with nothing in it, so every Force Sideshow is
+	// refused no_hammers rather than given away.
+	Hammers  HammerWallet
+	Clock    Clock    // nil → RealClock{}
+	Listener Listener // nil → NopListener{}
 
 	// Live is the live-state store the actor saves its Snapshot to after
 	// every mutation and mirrors its chat into (LIVE_STATE_PLAN.md). nil →
@@ -151,13 +155,20 @@ type ActRequest struct {
 //	pack     → {action:"pack", reason:"pack"}
 //	show     → {action:"show", amount}
 //	sideshow → {action:"sideshow", toUserId}
+//	forceSideshow → {action:"forceSideshow", toUserId, packedUserId, hammers}
 type ActResult struct {
 	Action   string `json:"action"`
 	Auto     *bool  `json:"auto,omitempty"`     // see: always present
 	Amount   *int64 `json:"amount,omitempty"`   // chaal/raise/show
 	AutoSeen *bool  `json:"autoSeen,omitempty"` // chaal/raise: always present
 	Reason   string `json:"reason,omitempty"`   // pack
-	ToUserID string `json:"toUserId,omitempty"` // sideshow
+	ToUserID string `json:"toUserId,omitempty"` // sideshow, forceSideshow
+	// PackedUserID is who lost a forced sideshow and packed (forceSideshow
+	// only: it resolves inside the move, so the ack can say how it ended).
+	PackedUserID *string `json:"packedUserId,omitempty"`
+	// Hammers is the asker's hammers left after paying for a forced sideshow
+	// (forceSideshow only, and present at 0) — the client's new count.
+	Hammers *int64 `json:"hammers,omitempty"`
 }
 
 // SideshowOutcome is respondToSideshow's return: ack `{ok:true, accepted,
@@ -288,6 +299,7 @@ type Table struct {
 	cfg       TableConfig
 	isPrivate bool
 	ledger    Ledger
+	hammers   HammerWallet
 	clock     Clock
 	listener  Listener
 	createdAt time.Time
@@ -415,6 +427,10 @@ func newTableCore(opts TableOptions) *Table {
 		// built without a database keeps its chips in the seats.
 		ledger = NewMemoryLedger(MemoryLedgerHooks{})
 	}
+	var hammers HammerWallet = noHammerWallet{}
+	if opts.Hammers != nil {
+		hammers = opts.Hammers
+	}
 	cfg := opts.Config
 	if cfg.MaxPlayers < 0 {
 		cfg.MaxPlayers = 0
@@ -442,6 +458,7 @@ func newTableCore(opts TableOptions) *Table {
 		cfg:         cfg,
 		isPrivate:   opts.IsPrivate,
 		ledger:      ledger,
+		hammers:     hammers,
 		clock:       clock,
 		listener:    listener,
 		createdAt:   clock.Now(),
@@ -889,6 +906,12 @@ func (t *Table) StartHand() error {
 //	           fallback); mark sideshowAskedThisTurn; STOP the turn clock;
 //	           arm SideshowTimeout → resolveSideshow(false, "timeout"); emit
 //	           sideshowRequested and state.
+//	forceSideshow → forceSideshow: the same sideshowBlockedReason refusals;
+//	           duplicate_action for an actionId this hand already delivered;
+//	           then HammerWallet.SpendHammer (no_hammers passes through,
+//	           anything else is persist_failed — both leave the table as it
+//	           was); then it resolves at once as an accepted sideshow does,
+//	           with reason "forced".
 //	other    → unknown_action.
 //
 // missedTurns is reset to 0 only AFTER the move succeeded.
@@ -1850,16 +1873,18 @@ func (t *Table) turnOptions(s *seat) TurnOptions {
 		CanSee:       s.isBlind,
 		CanSideshow:  blocked == "",
 		SideshowWith: sideshowWith,
-		Chaal:        options.Chaal,
-		Raise:        options.Raise,
-		RaiseSteps:   options.Steps,
-		MaxBet:       options.Max,
-		Show:         show,
-		CanPack:      true,
-		IsBlind:      s.isBlind,
-		CurrentStake: currentStake,
-		Chips:        s.chips,
-		Pot:          pot,
+		// One eligibility for both: a Force Sideshow only skips the asking.
+		CanForceSideshow: blocked == "",
+		Chaal:            options.Chaal,
+		Raise:            options.Raise,
+		RaiseSteps:       options.Steps,
+		MaxBet:           options.Max,
+		Show:             show,
+		CanPack:          true,
+		IsBlind:          s.isBlind,
+		CurrentStake:     currentStake,
+		Chips:            s.chips,
+		Pot:              pot,
 	}
 }
 
@@ -2073,6 +2098,8 @@ func (t *Table) act(userID string, action Action, req ActRequest) (ActResult, er
 		result, err = t.show(s, req.ActionID)
 	case ActionSideshow:
 		result, err = t.requestSideshow(s)
+	case ActionForceSideshow:
+		result, err = t.forceSideshow(s, req.ActionID)
 	default:
 		return ActResult{}, Errorf(CodeUnknownAction, MsgUnknownActionFormat, string(action))
 	}
@@ -2311,24 +2338,7 @@ func (t *Table) resolveIfOnlyOneLeft() bool {
 // while waiting for somebody else to press a button.
 func (t *Table) requestSideshow(s *seat) (ActResult, error) {
 	if blocked := t.sideshowBlockedReason(s); blocked != "" {
-		var message string
-		switch blocked {
-		case SideshowBlockedPending:
-			message = MsgSideshowPending
-		case SideshowBlockedAlreadyAsked:
-			message = MsgSideshowAlreadyAsked
-		case SideshowBlockedTooFewPlayers:
-			message = fmt.Sprintf(MsgSideshowTooFewFormat, t.cfg.SideshowMinPlayers)
-		case SideshowBlockedYouAreBlind:
-			message = MsgSideshowYouAreBlind
-		case SideshowBlockedNeighbourIsBlind:
-			message = MsgSideshowNeighbour
-		case SideshowBlockedNoNeighbour:
-			message = MsgSideshowNoNeighbour
-		default:
-			message = MsgSideshowGeneric
-		}
-		return ActResult{}, NewGameError(blocked, message)
+		return ActResult{}, t.sideshowRefusal(blocked)
 	}
 
 	target := t.seats[t.rightActiveSeat(s.seatIndex)]
@@ -2376,11 +2386,106 @@ func (t *Table) requestSideshow(s *seat) (ActResult, error) {
 	return ActResult{Action: string(ActionSideshow), ToUserID: target.userID}, nil
 }
 
-// resolveSideshow (_resolveSideshow) settles a sideshow — see
+// sideshowRefusal is the GameError for a sideshowBlockedReason: the reason is
+// the code, and the message is the one the player is shown. Shared by the
+// ordinary and the forced sideshow, which refuse for the same reasons.
+func (t *Table) sideshowRefusal(blocked string) *GameError {
+	var message string
+	switch blocked {
+	case SideshowBlockedPending:
+		message = MsgSideshowPending
+	case SideshowBlockedAlreadyAsked:
+		message = MsgSideshowAlreadyAsked
+	case SideshowBlockedTooFewPlayers:
+		message = fmt.Sprintf(MsgSideshowTooFewFormat, t.cfg.SideshowMinPlayers)
+	case SideshowBlockedYouAreBlind:
+		message = MsgSideshowYouAreBlind
+	case SideshowBlockedNeighbourIsBlind:
+		message = MsgSideshowNeighbour
+	case SideshowBlockedNoNeighbour:
+		message = MsgSideshowNoNeighbour
+	default:
+		message = MsgSideshowGeneric
+	}
+	return NewGameError(blocked, message)
+}
+
+// forceSideshow compares hands with the player on the right without asking
+// them (owner, 13 Sep 2026). It is an ordinary sideshow with the request and
+// the answer taken out, paid for with a hammer:
+//
+//   - the same eligibility, checked in the same order, against the same
+//     neighbour, and it is this turn's one ask — a normal and a forced
+//     sideshow cannot both happen in one turn;
+//   - an actionId this hand already delivered is refused duplicate_action
+//     before anything is spent. The wallet's key would charge a replay
+//     nothing, but it would still resolve it, and one hammer must buy one
+//     forced sideshow — not one per turn for as long as the id is replayed;
+//   - the hammer is spent BEFORE the table changes, on the actor, as the
+//     Ledger's checkpoints are: a refusal (no_hammers, or persist_failed when
+//     the wallet cannot be written) leaves the table exactly as it was;
+//   - then it resolves through settleSideshow as an accepted sideshow does —
+//     the two see each other's cards, the room is told who packed but never
+//     the cards, a tie goes against the asker, and the asker keeps the turn
+//     with the clock re-armed but not a fresh turn if the other hand packs.
+//
+// No chips move and nothing is written to chip_ledger: the loser's pack is
+// the ordinary pack checkpoint any pack makes.
+func (t *Table) forceSideshow(s *seat, actionID string) (ActResult, error) {
+	if blocked := t.sideshowBlockedReason(s); blocked != "" {
+		return ActResult{}, t.sideshowRefusal(blocked)
+	}
+	// The same rule chargeToPot applies to a bet's id: an empty id, or one
+	// shaped like a server key, is replaced and protects nothing.
+	if actionID == "" || strings.ContainsRune(actionID, reservedActionIDSeparator) {
+		actionID = util.UUID()
+	}
+	if _, seen := t.hand.actionIDs[actionID]; seen {
+		return ActResult{}, &GameError{Code: CodeDuplicateAction, Message: MsgDuplicateAction}
+	}
+	target := t.seats[t.rightActiveSeat(s.seatIndex)]
+
+	spend, err := t.hammers.SpendHammer(t.ctx, HammerSpend{
+		RoomID:   t.id,
+		HandID:   t.hand.id,
+		UserID:   s.userID,
+		ActionID: ForceSideshowSpendID(t.hand.id, s.userID, actionID),
+	})
+	if err != nil {
+		if CodeOf(err, "") == CodeNoHammers {
+			return ActResult{}, NewGameError(CodeNoHammers, MsgNoHammers)
+		}
+		t.listener.OnPersistError(t.view, PersistErrorEvent{Reason: PersistReasonHammerSpend, UserID: s.userID, HandID: t.hand.id, Err: err})
+		return ActResult{}, &GameError{Code: CodePersistFailed, Message: MsgPersistFailed, Cause: err}
+	}
+
+	// Paid for: from here on it happens. The id is remembered with the hand
+	// (and so in the snapshot), which is what refuses a replay later on.
+	t.hand.actionIDs[actionID] = struct{}{}
+	s.sideshowAskedThisTurn = true
+	t.clearTurnTimer()
+
+	outcome := t.settleSideshow(&pendingSideshow{
+		fromUserID: s.userID,
+		fromSeat:   s.seatIndex,
+		toUserID:   target.userID,
+		toSeat:     target.seatIndex,
+		expiresAt:  t.clock.Now(),
+	}, true, SideshowForced)
+
+	remaining := spend.Remaining
+	return ActResult{
+		Action:       string(ActionForceSideshow),
+		ToUserID:     target.userID,
+		PackedUserID: outcome.PackedUserID,
+		Hammers:      &remaining,
+	}, nil
+}
+
+// resolveSideshow (_resolveSideshow) settles the pending sideshow — see
 // RespondToSideshow. Returns ok=false when nothing was pending (a late timer
-// is a no-op). On a refusal nothing changes but the clock. On an acceptance
-// the two hands are compared and the weaker one packs — the asker loses a
-// tie, which is the usual rule and stops asking being free.
+// is a no-op). It stops the request's timer, clears it from the hand and hands
+// it to settleSideshow.
 func (t *Table) resolveSideshow(accepted bool, reason string) (SideshowOutcome, bool) {
 	if t.hand == nil || t.hand.sideshow == nil {
 		return SideshowOutcome{}, false
@@ -2391,7 +2496,16 @@ func (t *Table) resolveSideshow(accepted bool, reason string) (SideshowOutcome, 
 		pending.timer = nil
 	}
 	t.hand.sideshow = nil
+	return t.settleSideshow(pending, accepted, reason), true
+}
 
+// settleSideshow is the outcome of a sideshow no longer pending: the asked
+// player's answer or its lapse (resolveSideshow), or a Force Sideshow, which
+// never was pending. On a refusal nothing changes but the clock. On an
+// acceptance — and always for a forced one — the two hands are compared and
+// the weaker one packs: the asker loses a tie, which is the usual rule and
+// stops asking being free.
+func (t *Table) settleSideshow(pending *pendingSideshow, accepted bool, reason string) SideshowOutcome {
 	asker := t.findSeat(pending.fromUserID)
 	asked := t.findSeat(pending.toUserID)
 
@@ -2440,7 +2554,7 @@ func (t *Table) resolveSideshow(accepted bool, reason string) (SideshowOutcome, 
 	}
 
 	t.emitState()
-	return SideshowOutcome{Accepted: accepted, PackedUserID: packedUserID}, true
+	return SideshowOutcome{Accepted: accepted, PackedUserID: packedUserID}
 }
 
 // show (_show) pays for a show and resolves it — see Act.

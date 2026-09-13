@@ -91,9 +91,12 @@ type PurchaseGateway interface {
 type PurchaseOutcome struct {
 	Chips int64
 	// Diamonds is what a diamond pack credited (or would have, on a replay).
-	// Zero for a chip pack.
+	// Zero for any other pack.
 	Diamonds int64
-	Balance  int64
+	// Hammers is what a hammer pack credited (or would have, on a replay).
+	// Zero for any other pack.
+	Hammers int64
+	Balance int64
 	// Credited is false when this receipt had already been banked. The client
 	// still treats it as success — the chips are in the wallet — and finishes
 	// the Play transaction so the player is not asked again.
