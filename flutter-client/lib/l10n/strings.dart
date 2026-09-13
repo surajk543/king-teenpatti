@@ -195,6 +195,42 @@ class Strings {
   String get tableChat => _('tableChat');
   String get saySomething => _('saySomething');
   String get tableMenu => _('tableMenu');
+
+  // --- quick messages: set lines a player sends from the table's rail
+  String get quickMessagesTitle => _('quickMessagesTitle');
+  String get quickMessagesTip => _('quickMessagesTip');
+  String get quickPlayBlind => _('quickPlayBlind');
+  String get quickPlayFast => _('quickPlayFast');
+  String get quickHowToWin => _('quickHowToWin');
+  String get quickUnlucky => _('quickUnlucky');
+  String get quickYouGotLucky => _('quickYouGotLucky');
+  String get quickOops => _('quickOops');
+  String get quickTakeSideshow => _('quickTakeSideshow');
+  String get quickTakeShow => _('quickTakeShow');
+  String get quickSwitchTable => _('quickSwitchTable');
+  String get quickHelpMe => _('quickHelpMe');
+
+  /// The quick messages in panel order, in this language.
+  ///
+  /// The one list the panel draws and its test checks, so a line added here is
+  /// on the table and under test together. Each goes out as ordinary chat, so
+  /// it must fit the server's CHAT_MAX_LENGTH (140 UTF-16 units) — past that
+  /// the server cuts it, and a set line arriving truncated reads as a fault.
+  /// For the same reason a translation must hold nothing else the server's
+  /// sanitiser rewrites: a format character (ZWJ and ZWNJ included) becomes a
+  /// space, and a run of spaces closes up to one.
+  List<String> get quickMessages => [
+    quickPlayBlind,
+    quickPlayFast,
+    quickHowToWin,
+    quickUnlucky,
+    quickYouGotLucky,
+    quickOops,
+    quickTakeSideshow,
+    quickTakeShow,
+    quickSwitchTable,
+    quickHelpMe,
+  ];
   String get yourChips => _('yourChips');
   String get maxPot => _('maxPot');
   String get nightMode => _('nightMode');
@@ -494,6 +530,21 @@ class Strings {
       'tableChat': 'Table chat',
       'saySomething': 'Say something…',
       'tableMenu': 'Table menu',
+      // The panel's own title and its key's tooltip. The owner gave only the
+      // ten lines below, so this wording is ours and free to change.
+      'quickMessagesTitle': 'Quick messages',
+      'quickMessagesTip': 'Send a quick message',
+      // The owner's wording, capitals and apostrophes as given.
+      'quickPlayBlind': 'Please Play Blind.',
+      'quickPlayFast': 'Please Play fast.',
+      'quickHowToWin': "That's how you win it.",
+      'quickUnlucky': 'I am unlucky.',
+      'quickYouGotLucky': 'You got lucky.',
+      'quickOops': "Oops! I shouldn't have played it.",
+      'quickTakeSideshow': 'Please take sideshow.',
+      'quickTakeShow': 'Please take show.',
+      'quickSwitchTable': 'Switch Table.',
+      'quickHelpMe': 'Please help me.',
       'yourChips': 'Your chips',
       'maxPot': 'Max pot',
       'nightMode': 'Night mode',
@@ -729,6 +780,18 @@ class Strings {
       'tableChat': 'टेबल चैट',
       'saySomething': 'कुछ कहें…',
       'tableMenu': 'टेबल मेनू',
+      'quickMessagesTitle': 'झटपट संदेश',
+      'quickMessagesTip': 'झटपट संदेश भेजें',
+      'quickPlayBlind': 'कृपया ब्लाइंड खेलें।',
+      'quickPlayFast': 'कृपया जल्दी खेलें।',
+      'quickHowToWin': 'ऐसे जीतते हैं।',
+      'quickUnlucky': 'मेरी क़िस्मत ख़राब है।',
+      'quickYouGotLucky': 'आपकी क़िस्मत अच्छी थी।',
+      'quickOops': 'उफ़! मुझे यह नहीं खेलना चाहिए था।',
+      'quickTakeSideshow': 'कृपया साइडशो करें।',
+      'quickTakeShow': 'कृपया शो करें।',
+      'quickSwitchTable': 'टेबल बदलें।',
+      'quickHelpMe': 'कृपया मेरी मदद करें।',
       'yourChips': 'आपके चिप्स',
       'maxPot': 'अधिकतम पॉट',
       'nightMode': 'रात मोड',
@@ -964,6 +1027,18 @@ class Strings {
       'tableChat': 'টেবিল চ্যাট',
       'saySomething': 'কিছু বলুন…',
       'tableMenu': 'টেবিল মেনু',
+      'quickMessagesTitle': 'দ্রুত বার্তা',
+      'quickMessagesTip': 'দ্রুত বার্তা পাঠান',
+      'quickPlayBlind': 'দয়া করে ব্লাইন্ড খেলুন।',
+      'quickPlayFast': 'দয়া করে তাড়াতাড়ি খেলুন।',
+      'quickHowToWin': 'এভাবেই জিততে হয়।',
+      'quickUnlucky': 'আমার ভাগ্য খারাপ।',
+      'quickYouGotLucky': 'আপনার ভাগ্য ভালো ছিল।',
+      'quickOops': 'উফ! এটা খেলা আমার উচিত হয়নি।',
+      'quickTakeSideshow': 'দয়া করে সাইডশো করুন।',
+      'quickTakeShow': 'দয়া করে শো করুন।',
+      'quickSwitchTable': 'টেবিল বদলান।',
+      'quickHelpMe': 'দয়া করে আমাকে সাহায্য করুন।',
       'unlock': 'আনলক করুন',
       'unlockTitle': 'এই ছবিটি আনলক করবেন?',
       'unlockBody': '{name} এর দাম {cost} চিপস। এখনই আনলক করে ব্যবহার করবেন?',
@@ -1232,6 +1307,18 @@ class Strings {
       'tableChat': 'ટેબલ ચૅટ',
       'saySomething': 'કંઈક કહો…',
       'tableMenu': 'ટેબલ મેનૂ',
+      'quickMessagesTitle': 'ઝટપટ સંદેશા',
+      'quickMessagesTip': 'ઝટપટ સંદેશો મોકલો',
+      'quickPlayBlind': 'કૃપા કરીને બ્લાઇન્ડ રમો.',
+      'quickPlayFast': 'કૃપા કરીને ઝડપથી રમો.',
+      'quickHowToWin': 'આમ જ જીતાય છે.',
+      'quickUnlucky': 'મારું નસીબ ખરાબ છે.',
+      'quickYouGotLucky': 'તમારું નસીબ સારું હતું.',
+      'quickOops': 'અરેરે! મારે આ નહોતું રમવું જોઈતું.',
+      'quickTakeSideshow': 'કૃપા કરીને સાઇડશો કરો.',
+      'quickTakeShow': 'કૃપા કરીને શો કરો.',
+      'quickSwitchTable': 'ટેબલ બદલો.',
+      'quickHelpMe': 'કૃપા કરીને મારી મદદ કરો.',
       'yourChips': 'તમારા ચિપ્સ',
       'maxPot': 'મહત્તમ પોટ',
       'nightMode': 'રાત મોડ',
@@ -1466,6 +1553,18 @@ class Strings {
       'tableChat': 'ਟੇਬਲ ਚੈਟ',
       'saySomething': 'ਕੁਝ ਕਹੋ…',
       'tableMenu': 'ਟੇਬਲ ਮੀਨੂ',
+      'quickMessagesTitle': 'ਝਟਪਟ ਸੁਨੇਹੇ',
+      'quickMessagesTip': 'ਝਟਪਟ ਸੁਨੇਹਾ ਭੇਜੋ',
+      'quickPlayBlind': 'ਕਿਰਪਾ ਕਰਕੇ ਬਲਾਈਂਡ ਖੇਡੋ।',
+      'quickPlayFast': 'ਕਿਰਪਾ ਕਰਕੇ ਜਲਦੀ ਖੇਡੋ।',
+      'quickHowToWin': 'ਇੰਝ ਜਿੱਤੀਦਾ ਹੈ।',
+      'quickUnlucky': 'ਮੇਰੀ ਕਿਸਮਤ ਮਾੜੀ ਹੈ।',
+      'quickYouGotLucky': 'ਤੁਹਾਡੀ ਕਿਸਮਤ ਚੰਗੀ ਸੀ।',
+      'quickOops': 'ਓਹੋ! ਮੈਨੂੰ ਇਹ ਨਹੀਂ ਖੇਡਣਾ ਚਾਹੀਦਾ ਸੀ।',
+      'quickTakeSideshow': 'ਕਿਰਪਾ ਕਰਕੇ ਸਾਈਡਸ਼ੋ ਕਰੋ।',
+      'quickTakeShow': 'ਕਿਰਪਾ ਕਰਕੇ ਸ਼ੋ ਕਰੋ।',
+      'quickSwitchTable': 'ਟੇਬਲ ਬਦਲੋ।',
+      'quickHelpMe': 'ਕਿਰਪਾ ਕਰਕੇ ਮੇਰੀ ਮਦਦ ਕਰੋ।',
       'yourChips': 'ਤੁਹਾਡੇ ਚਿਪਸ',
       'maxPot': 'ਵੱਧ ਤੋਂ ਵੱਧ ਪੌਟ',
       'nightMode': 'ਰਾਤ ਮੋਡ',
