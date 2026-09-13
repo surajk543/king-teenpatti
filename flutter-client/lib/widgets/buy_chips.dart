@@ -142,7 +142,6 @@ class BuyChipsButton extends StatelessWidget {
   }
 }
 
-
 /// The Shop button in the lobby's top bar.
 ///
 /// The same destination as [BuyChipsButton] and the same gold, but it lives in
@@ -156,7 +155,12 @@ class BuyChipsButton extends StatelessWidget {
 /// the bloom behind it breathes. The sweep spends most of its cycle off the
 /// right-hand edge, so the button is quiet far more often than it is not.
 class ShopButton extends StatefulWidget {
-  const ShopButton({super.key});
+  const ShopButton({super.key, this.compact = false});
+
+  /// The storefront alone, without the word. The lobby's top bar asks for it
+  /// when the row is tight (a 640dp phone), where the label cost the player's
+  /// name its letters; a tooltip still names the key.
+  final bool compact;
 
   @override
   State<ShopButton> createState() => _ShopButtonState();
@@ -276,20 +280,31 @@ class _ShopButtonState extends State<ShopButton>
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Icon(
-                          Icons.storefront_rounded,
-                          size: 19,
-                          color: AppTheme.inkOnLight,
-                        ),
-                        const SizedBox(width: Space.xs),
-                        Text(
-                          t.shop,
-                          style: AppTheme.label(
-                            theme.textTheme.labelLarge ?? const TextStyle(),
-                            colour: AppTheme.inkOnLight,
-                            weight: FontWeight.w700,
+                        if (widget.compact)
+                          Tooltip(
+                            message: t.shop,
+                            child: const Icon(
+                              Icons.storefront_rounded,
+                              size: 19,
+                              color: AppTheme.inkOnLight,
+                            ),
+                          )
+                        else
+                          const Icon(
+                            Icons.storefront_rounded,
+                            size: 19,
+                            color: AppTheme.inkOnLight,
                           ),
-                        ),
+                        if (!widget.compact) const SizedBox(width: Space.xs),
+                        if (!widget.compact)
+                          Text(
+                            t.shop,
+                            style: AppTheme.label(
+                              theme.textTheme.labelLarge ?? const TextStyle(),
+                              colour: AppTheme.inkOnLight,
+                              weight: FontWeight.w700,
+                            ),
+                          ),
                       ],
                     ),
                   ),

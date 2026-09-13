@@ -37,7 +37,8 @@ class GameConnection {
       ({String fromUserId, String toUserId, bool accepted, String reason, String? packedUserId})>.broadcast();
   final _chat = StreamController<ChatMessage>.broadcast();
   final _chatHistory = StreamController<List<ChatMessage>>.broadcast();
-  final _errors = StreamController<String>.broadcast();
+  final _errors =
+      StreamController<({String? code, String message})>.broadcast();
   final _left = StreamController<void>.broadcast();
   final _kicked = StreamController<String>.broadcast();
   final _connected = StreamController<bool>.broadcast();
@@ -74,7 +75,10 @@ class GameConnection {
       get onSideshowDone => _sideshowDone.stream;
   Stream<ChatMessage> get onChat => _chat.stream;
   Stream<List<ChatMessage>> get onChatHistory => _chatHistory.stream;
-  Stream<String> get onError => _errors.stream;
+  /// A refusal or a failure. `code` is the server's snake_case code when it
+  /// sent one: its messages are English by design, so the client localises
+  /// by code and falls back to `message` for anything it has no words for.
+  Stream<({String? code, String message})> get onError => _errors.stream;
   Stream<void> get onLeft => _left.stream;
 
   /// The table showed this player out, with the reason to tell them.
@@ -99,7 +103,9 @@ class GameConnection {
 
     socket.onConnect((_) => _connected.add(true));
     socket.onDisconnect((_) => _connected.add(false));
-    socket.onConnectError((e) => _errors.add('Could not reach the table: $e'));
+    socket.onConnectError(
+      (e) => _errors.add((code: null, message: 'Could not reach the table: $e')),
+    );
 
     socket.on('session:ready', (data) {
       final j = _map(data);
@@ -176,9 +182,14 @@ class GameConnection {
           .toList());
     });
 
-    socket.on('game:error', (data) => _errors.add('${_map(data)['message']}'));
-    socket.on('session:replaced',
-        (data) => _errors.add('${_map(data)['message'] ?? 'Signed in elsewhere'}'));
+    socket.on('game:error', (data) {
+      final j = _map(data);
+      _errors.add((code: _code(j), message: '${j['message']}'));
+    });
+    socket.on('session:replaced', (data) => _errors.add((
+          code: null,
+          message: '${_map(data)['message'] ?? 'Signed in elsewhere'}',
+        )));
   }
 
   void _emitShowdown(dynamic data, String? result) {
@@ -269,9 +280,18 @@ class GameConnection {
     // ack rather than as a thrown error.
     socket.emitWithAck(event, payload, ack: (dynamic response) {
       final j = _map(response);
-      if (j['ok'] == false) _errors.add('${j['message'] ?? 'That move was refused'}');
+      if (j['ok'] == false) {
+        _errors.add((
+          code: _code(j),
+          message: '${j['message'] ?? 'That move was refused'}',
+        ));
+      }
     });
   }
+
+  /// The refusal's code, or null when the payload carries none.
+  static String? _code(Map<String, dynamic> j) =>
+      j['code'] is String ? j['code'] as String : null;
 
   void disconnect() {
     _socket?.dispose();

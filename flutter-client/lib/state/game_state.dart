@@ -476,7 +476,10 @@ class GameState extends ChangeNotifier {
         chat.add(m);
         // The room keeps at most a hundred messages, and so does this.
         if (chat.length > 100) chat.removeAt(0);
-        unreadChat++;
+        // Only other players' lines are unread. The server echoes the viewer's
+        // own message back, and it lands after the chat drawer has closed on
+        // sending, so counting it raised a badge for something they wrote.
+        if (m.userId != user?.id) unreadChat++;
 
         // Show it over the sender's seat for a moment, so a table that is
         // talking is visible without opening the chat. If their last line is
@@ -504,7 +507,7 @@ class GameState extends ChangeNotifier {
         notifyListeners();
       }),
       _conn.onError.listen((e) {
-        notice = e;
+        notice = refusalText(e.code, e.message);
         // A refused rejoin is an answer too: there is nothing to resume.
         if (resuming) _endResume();
         notifyListeners();
@@ -1132,12 +1135,36 @@ class GameState extends ChangeNotifier {
     try {
       final reply = await _conn.request('room:switch', const {});
       if (reply['ok'] == false) {
-        notice = '${reply['message'] ?? 'Could not switch table'}';
+        notice = refusalText(
+          reply['code'] is String ? reply['code'] as String : null,
+          '${reply['message'] ?? 'Could not switch table'}',
+        );
       }
     } finally {
       switching = false;
       notifyListeners();
     }
+  }
+
+  /// A server refusal in the player's language.
+  ///
+  /// The server's messages are English by design and its codes are stable, so
+  /// the words are chosen here, by code. A refusal arrives twice — in the ack
+  /// and as `game:error` — and both copies come through this, so they read the
+  /// same and still show as one toast. A code with no words here keeps the
+  /// server's own message.
+  String refusalText(String? code, String message) {
+    if (code == 'no_other_table') {
+      // The server names the table's category in English; this names it the
+      // way the player's language writes it, lower case where the script has
+      // case ("seen" in the English sentence, सीन in the Hindi one).
+      final category = room?.category;
+      if (category == null) return message;
+      return t.noOtherTable(
+        (category == TableCategory.blind ? t.blind : t.seen).toLowerCase(),
+      );
+    }
+    return message;
   }
 
   /// Looking is free and does not end the turn, but the ladder that comes

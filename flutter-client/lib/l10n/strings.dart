@@ -113,6 +113,10 @@ class Strings {
   String get storeTabPictures => _('storeTabPictures');
   String get storeTabAnimated => _('storeTabAnimated');
   String get storePicturesBlurb => _('storePicturesBlurb');
+
+  /// The Pictures tab's blurb at a table, where the key sells the animated
+  /// shelf alone and every picture on it is paid for in diamonds.
+  String get storeAnimatedBlurb => _('storeAnimatedBlurb');
   String get storeTabDiamonds => _('storeTabDiamonds');
   String get storeDiamondsTitle => _('storeDiamondsTitle');
   String get storeDiamondsBlurb => _('storeDiamondsBlurb');
@@ -141,7 +145,11 @@ class Strings {
   String get soundLabel => _('soundLabel');
   String get vibrationLabel => _('vibrationLabel');
   String get useProviderPicture => _('useProviderPicture');
-  String get pictureLocked => _('pictureLocked');
+
+  /// The picture picker's line under "Your picture". A worn picture can be
+  /// changed at a table since 13 Sep 2026, so it says so rather than warning
+  /// that sitting down locks it.
+  String get pictureChangeAnytime => _('pictureChangeAnytime');
 
   // --- table
   String get pot => _('pot');
@@ -246,6 +254,39 @@ class Strings {
   String get picturePremium => _('picturePremium');
   String get picturePremiumAnimated => _('picturePremiumAnimated');
   String get pictureShelfEmpty => _('pictureShelfEmpty');
+
+  /// The popup over a premium picture this player has already paid for.
+  String get pictureOwnedTitle => _('pictureOwnedTitle');
+
+  /// The three units a rental's time left is counted in, each with its own
+  /// singular key, so the popup can pair any two — "3 days 4 hours", "1 hour
+  /// 20 minutes". Hindi and Punjabi change the hour's word with the number;
+  /// the other languages repeat one form in both keys.
+  String timeDays(int n) =>
+      _(n == 1 ? 'timeDay' : 'timeDays').replaceAll('{n}', '$n');
+  String timeHours(int n) =>
+      _(n == 1 ? 'timeHour' : 'timeHours').replaceAll('{n}', '$n');
+  String timeMinutes(int n) =>
+      _(n == 1 ? 'timeMinute' : 'timeMinutes').replaceAll('{n}', '$n');
+
+  /// Wraps a counted [time] as time remaining. A template of its own rather
+  /// than "left" glued on, so each language keeps its own word order.
+  String timeLeft(String time) => _('timeLeft').replaceAll('{time}', time);
+
+  /// Said instead of a time for a premium picture that never runs out.
+  String get pictureKeeps => _('pictureKeeps');
+
+  /// Said when the rental ends while the popup is open.
+  String get rentalLapsed => _('rentalLapsed');
+
+  /// The rental's end, with `{date}` already written as numbers.
+  String rentalEnds(String date) => _('rentalEnds').replaceAll('{date}', date);
+  String rentalEnded(String date) =>
+      _('rentalEnded').replaceAll('{date}', date);
+
+  /// The popup's key, and what it reads when that picture is already on.
+  String get wear => _('wear');
+  String get wearing => _('wearing');
   String get youAreWinner => _('youAreWinner');
   String get isTheWinner => _('isTheWinner');
 
@@ -266,6 +307,12 @@ class Strings {
   String get quit => _('quit');
   String get cancel => _('cancel');
   String get joinAnother => _('joinAnother');
+
+  /// The server's `no_other_table` refusal to a table switch, in the
+  /// player's language. `{category}` is the table's category as this
+  /// language writes it.
+  String noOtherTable(String category) =>
+      _('noOtherTable').replaceAll('{category}', category);
 
   // --- the one-time no-winnings confirmation after sign-in
   String get consentTitle => _('consentTitle');
@@ -379,6 +426,7 @@ class Strings {
       'storeTabPictures': 'Pictures',
       'storeTabAnimated': 'Animated',
       'storePicturesBlurb': 'Unlock a picture with chips or diamonds.',
+      'storeAnimatedBlurb': 'Unlock an animated picture with diamonds.',
       'storeTabDiamonds': 'Diamonds',
       'storeDiamondsTitle': 'Diamond Store',
       'storeDiamondsBlurb': 'Diamonds unlock animated pictures.',
@@ -406,7 +454,7 @@ class Strings {
       'soundLabel': 'Sound',
       'vibrationLabel': 'Vibration',
       'useProviderPicture': 'Use my Google/Facebook picture',
-      'pictureLocked': 'It cannot change once you sit at a table.',
+      'pictureChangeAnytime': 'You can change it any time, even at a table.',
       'pot': 'POT',
       'stake': 'stake',
       'yourTurn': 'YOUR TURN',
@@ -475,6 +523,20 @@ class Strings {
       'picturePremium': 'Premium',
       'picturePremiumAnimated': 'Premium (Animated)',
       'pictureShelfEmpty': 'No pictures here yet.',
+      'pictureOwnedTitle': 'Already unlocked',
+      'timeDay': '{n} day',
+      'timeDays': '{n} days',
+      'timeHour': '{n} hour',
+      'timeHours': '{n} hours',
+      'timeMinute': '{n} minute',
+      'timeMinutes': '{n} minutes',
+      'timeLeft': '{time} left',
+      'pictureKeeps': 'Yours to keep',
+      'rentalLapsed': 'Your rental has run out',
+      'rentalEnds': 'Ends {date}',
+      'rentalEnded': 'Ended {date}',
+      'wear': 'Wear',
+      'wearing': 'Wearing',
       'youAreWinner': 'You are the winner',
       'isTheWinner': 'is the winner',
       'leaveTable': 'Leave table',
@@ -502,6 +564,8 @@ class Strings {
           'This game is for entertainment only. Chips have no cash value and cannot be exchanged for money or anything else.',
       'consentAccept': 'I confirm',
       'joinAnother': 'You can join another straight away',
+      'noOtherTable':
+          'No other {category} table at this stake has a free seat right now',
       'rules': 'Rules',
       'rulesTitle': 'Card ranking',
       'rulesBeats':
@@ -597,6 +661,7 @@ class Strings {
       'storeTabPictures': 'तस्वीरें',
       'storeTabAnimated': 'एनिमेटेड',
       'storePicturesBlurb': 'चिप्स या हीरों से तस्वीर अनलॉक करें।',
+      'storeAnimatedBlurb': 'हीरों से एनिमेटेड तस्वीर अनलॉक करें।',
       'storeTabDiamonds': 'हीरे',
       'storeDiamondsTitle': 'हीरा स्टोर',
       'storeDiamondsBlurb': 'हीरों से एनिमेटेड तस्वीरें अनलॉक करें।',
@@ -624,7 +689,7 @@ class Strings {
       'soundLabel': 'आवाज़',
       'vibrationLabel': 'कंपन',
       'useProviderPicture': 'मेरी Google/Facebook तस्वीर लगाएँ',
-      'pictureLocked': 'टेबल पर बैठने के बाद इसे बदला नहीं जा सकता।',
+      'pictureChangeAnytime': 'आप इसे कभी भी बदल सकते हैं, टेबल पर भी।',
       'pot': 'पॉट',
       'stake': 'दांव',
       'yourTurn': 'आपकी बारी',
@@ -688,6 +753,20 @@ class Strings {
       'picturePremium': 'प्रीमियम',
       'picturePremiumAnimated': 'प्रीमियम (एनिमेटेड)',
       'pictureShelfEmpty': 'यहाँ अभी कोई तस्वीर नहीं है।',
+      'pictureOwnedTitle': 'पहले से अनलॉक है',
+      'timeDay': '{n} दिन',
+      'timeDays': '{n} दिन',
+      'timeHour': '{n} घंटा',
+      'timeHours': '{n} घंटे',
+      'timeMinute': '{n} मिनट',
+      'timeMinutes': '{n} मिनट',
+      'timeLeft': '{time} बाकी',
+      'pictureKeeps': 'हमेशा के लिए आपकी',
+      'rentalLapsed': 'किराये की अवधि ख़त्म हो गई',
+      'rentalEnds': 'समाप्ति: {date}',
+      'rentalEnded': 'समाप्त हुई: {date}',
+      'wear': 'लगाएँ',
+      'wearing': 'लगी हुई है',
       'themeDark': 'डार्क',
       'themeLight': 'लाइट',
       'waitingForPlayers': 'खिलाड़ियों का इंतज़ार',
@@ -720,6 +799,8 @@ class Strings {
           'यह गेम केवल मनोरंजन के लिए है। चिप्स का कोई नकद मूल्य नहीं है और इन्हें पैसे या किसी और चीज़ से बदला नहीं जा सकता।',
       'consentAccept': 'पुष्टि करें',
       'joinAnother': 'आप तुरंत दूसरी टेबल पर जुड़ सकते हैं',
+      'noOtherTable':
+          'इस दांव पर अभी किसी और {category} टेबल पर सीट खाली नहीं है',
       'rules': 'नियम',
       'rulesTitle': 'पत्तों की रैंकिंग',
       'rulesBeats': 'सबसे ऊपर सबसे मज़बूत। ऊपर वाला हाथ नीचे वाले सब पर भारी।',
@@ -815,6 +896,7 @@ class Strings {
       'storeTabPictures': 'ছবি',
       'storeTabAnimated': 'অ্যানিমেটেড',
       'storePicturesBlurb': 'চিপস বা হীরে দিয়ে ছবি আনলক করুন।',
+      'storeAnimatedBlurb': 'হীরে দিয়ে একটি অ্যানিমেটেড ছবি আনলক করুন।',
       'storeTabDiamonds': 'হীরে',
       'storeDiamondsTitle': 'হীরের দোকান',
       'storeDiamondsBlurb': 'হীরে দিয়ে অ্যানিমেটেড ছবি আনলক করুন।',
@@ -842,7 +924,7 @@ class Strings {
       'soundLabel': 'শব্দ',
       'vibrationLabel': 'কম্পন',
       'useProviderPicture': 'আমার Google/Facebook ছবি ব্যবহার করুন',
-      'pictureLocked': 'টেবিলে বসার পর এটি বদলানো যায় না।',
+      'pictureChangeAnytime': 'আপনি এটি যেকোনো সময় বদলাতে পারেন, টেবিলে বসেও।',
       'pot': 'পট',
       'stake': 'বাজি',
       'yourTurn': 'আপনার পালা',
@@ -900,6 +982,20 @@ class Strings {
       'picturePremium': 'প্রিমিয়াম',
       'picturePremiumAnimated': 'প্রিমিয়াম (অ্যানিমেটেড)',
       'pictureShelfEmpty': 'এখানে এখনও কোনো ছবি নেই।',
+      'pictureOwnedTitle': 'আগেই আনলক করা',
+      'timeDay': '{n} দিন',
+      'timeDays': '{n} দিন',
+      'timeHour': '{n} ঘণ্টা',
+      'timeHours': '{n} ঘণ্টা',
+      'timeMinute': '{n} মিনিট',
+      'timeMinutes': '{n} মিনিট',
+      'timeLeft': '{time} বাকি',
+      'pictureKeeps': 'চিরকাল আপনার',
+      'rentalLapsed': 'ভাড়ার মেয়াদ শেষ হয়েছে',
+      'rentalEnds': 'মেয়াদ শেষ: {date}',
+      'rentalEnded': 'শেষ হয়েছে: {date}',
+      'wear': 'ব্যবহার করুন',
+      'wearing': 'ব্যবহার হচ্ছে',
       'yourChips': 'আপনার চিপ',
       'maxPot': 'সর্বোচ্চ পট',
       'nightMode': 'রাত মোড',
@@ -938,6 +1034,7 @@ class Strings {
           'এই গেম শুধুমাত্র বিনোদনের জন্য। চিপের কোনো নগদ মূল্য নেই এবং টাকা বা অন্য কিছুর বিনিময়ে বদলানো যায় না।',
       'consentAccept': 'নিশ্চিত করছি',
       'joinAnother': 'আপনি সঙ্গে সঙ্গে অন্য টেবিলে যোগ দিতে পারেন',
+      'noOtherTable': 'এই বাজিতে এখন অন্য কোনো {category} টেবিলে খালি আসন নেই',
       'rules': 'নিয়ম',
       'rulesTitle': 'তাসের র‍্যাঙ্কিং',
       'rulesBeats':
@@ -1034,6 +1131,7 @@ class Strings {
       'storeTabPictures': 'ફોટા',
       'storeTabAnimated': 'એનિમેટેડ',
       'storePicturesBlurb': 'ચિપ્સ અથવા હીરાથી ફોટો અનલૉક કરો.',
+      'storeAnimatedBlurb': 'હીરાથી એનિમેટેડ ફોટો અનલૉક કરો.',
       'storeTabDiamonds': 'હીરા',
       'storeDiamondsTitle': 'હીરા સ્ટોર',
       'storeDiamondsBlurb': 'હીરાથી એનિમેટેડ ફોટા અનલૉક કરો.',
@@ -1061,7 +1159,7 @@ class Strings {
       'soundLabel': 'અવાજ',
       'vibrationLabel': 'કંપન',
       'useProviderPicture': 'મારો Google/Facebook ફોટો વાપરો',
-      'pictureLocked': 'ટેબલ પર બેઠા પછી આ બદલી શકાતું નથી.',
+      'pictureChangeAnytime': 'તમે આ ગમે ત્યારે બદલી શકો છો, ટેબલ પર પણ.',
       'pot': 'પોટ',
       'stake': 'દાવ',
       'yourTurn': 'તમારો વારો',
@@ -1114,6 +1212,20 @@ class Strings {
       'picturePremium': 'પ્રીમિયમ',
       'picturePremiumAnimated': 'પ્રીમિયમ (એનિમેટેડ)',
       'pictureShelfEmpty': 'અહીં હજી કોઈ ફોટો નથી.',
+      'pictureOwnedTitle': 'પહેલેથી અનલૉક છે',
+      'timeDay': '{n} દિવસ',
+      'timeDays': '{n} દિવસ',
+      'timeHour': '{n} કલાક',
+      'timeHours': '{n} કલાક',
+      'timeMinute': '{n} મિનિટ',
+      'timeMinutes': '{n} મિનિટ',
+      'timeLeft': '{time} બાકી',
+      'pictureKeeps': 'હંમેશા માટે તમારો',
+      'rentalLapsed': 'ભાડાની મુદત પૂરી થઈ ગઈ',
+      'rentalEnds': 'મુદત પૂરી: {date}',
+      'rentalEnded': 'પૂરી થઈ: {date}',
+      'wear': 'વાપરો',
+      'wearing': 'વપરાય છે',
       'appVersion': 'એપ આવૃત્તિ',
       'tableLost': 'તમે દૂર હતા ત્યારે ટેબલ બંધ થઈ ગયું.',
       'winner': 'વિજેતા',
@@ -1159,6 +1271,8 @@ class Strings {
           'આ ગેમ માત્ર મનોરંજન માટે છે. ચિપ્સનું કોઈ રોકડ મૂલ્ય નથી અને તેને પૈસા કે બીજી કોઈ વસ્તુ સાથે બદલી શકાતી નથી.',
       'consentAccept': 'પુષ્ટિ કરું છું',
       'joinAnother': 'તમે તરત જ બીજા ટેબલ પર જોડાઈ શકો છો',
+      'noOtherTable':
+          'આ દાવ પર હાલમાં બીજા કોઈ {category} ટેબલ પર સીટ ખાલી નથી',
       'rules': 'નિયમો',
       'rulesTitle': 'પત્તાંની રેન્કિંગ',
       'rulesBeats': 'ઉપરનું સૌથી મજબૂત. દરેક હાથ નીચેના બધાને હરાવે છે.',
@@ -1252,6 +1366,7 @@ class Strings {
       'storeTabPictures': 'ਤਸਵੀਰਾਂ',
       'storeTabAnimated': 'ਐਨੀਮੇਟਿਡ',
       'storePicturesBlurb': 'ਚਿਪਸ ਜਾਂ ਹੀਰਿਆਂ ਨਾਲ ਤਸਵੀਰ ਅਨਲੌਕ ਕਰੋ।',
+      'storeAnimatedBlurb': 'ਹੀਰਿਆਂ ਨਾਲ ਐਨੀਮੇਟਿਡ ਤਸਵੀਰ ਅਨਲੌਕ ਕਰੋ।',
       'storeTabDiamonds': 'ਹੀਰੇ',
       'storeDiamondsTitle': 'ਹੀਰਾ ਸਟੋਰ',
       'storeDiamondsBlurb': 'ਹੀਰਿਆਂ ਨਾਲ ਐਨੀਮੇਟਿਡ ਤਸਵੀਰਾਂ ਅਨਲੌਕ ਕਰੋ।',
@@ -1279,7 +1394,7 @@ class Strings {
       'soundLabel': 'ਆਵਾਜ਼',
       'vibrationLabel': 'ਕੰਪਨ',
       'useProviderPicture': 'ਮੇਰੀ Google/Facebook ਤਸਵੀਰ ਵਰਤੋ',
-      'pictureLocked': 'ਟੇਬਲ ਉੱਤੇ ਬੈਠਣ ਤੋਂ ਬਾਅਦ ਇਹ ਬਦਲੀ ਨਹੀਂ ਜਾ ਸਕਦੀ।',
+      'pictureChangeAnytime': 'ਤੁਸੀਂ ਇਹ ਕਦੇ ਵੀ ਬਦਲ ਸਕਦੇ ਹੋ, ਟੇਬਲ ਉੱਤੇ ਵੀ।',
       'pot': 'ਪੌਟ',
       'stake': 'ਦਾਅ',
       'yourTurn': 'ਤੁਹਾਡੀ ਵਾਰੀ',
@@ -1328,6 +1443,20 @@ class Strings {
       'picturePremium': 'ਪ੍ਰੀਮੀਅਮ',
       'picturePremiumAnimated': 'ਪ੍ਰੀਮੀਅਮ (ਐਨੀਮੇਟਿਡ)',
       'pictureShelfEmpty': 'ਇੱਥੇ ਹਾਲੇ ਕੋਈ ਤਸਵੀਰ ਨਹੀਂ ਹੈ।',
+      'pictureOwnedTitle': 'ਪਹਿਲਾਂ ਹੀ ਅਨਲਾਕ ਹੈ',
+      'timeDay': '{n} ਦਿਨ',
+      'timeDays': '{n} ਦਿਨ',
+      'timeHour': '{n} ਘੰਟਾ',
+      'timeHours': '{n} ਘੰਟੇ',
+      'timeMinute': '{n} ਮਿੰਟ',
+      'timeMinutes': '{n} ਮਿੰਟ',
+      'timeLeft': '{time} ਬਾਕੀ',
+      'pictureKeeps': 'ਹਮੇਸ਼ਾ ਲਈ ਤੁਹਾਡੀ',
+      'rentalLapsed': 'ਕਿਰਾਏ ਦੀ ਮਿਆਦ ਖਤਮ ਹੋ ਗਈ',
+      'rentalEnds': 'ਮਿਆਦ ਖਤਮ: {date}',
+      'rentalEnded': 'ਖਤਮ ਹੋਈ: {date}',
+      'wear': 'ਲਗਾਓ',
+      'wearing': 'ਲੱਗੀ ਹੋਈ ਹੈ',
       'missedTurnsLabel': 'ਖੁੰਝੀਆਂ ਚਾਲਾਂ',
       'resumingTable': 'ਤੁਹਾਡੇ ਟੇਬਲ ਤੇ ਵਾਪਸ ਜਾ ਰਹੇ ਹਾਂ…',
       'welcomeBack': 'ਵਾਪਸੀ ਤੇ ਸਵਾਗਤ — ਤੁਸੀਂ ਆਪਣੇ ਟੇਬਲ ਤੇ ਵਾਪਸ ਹੋ।',
@@ -1375,6 +1504,8 @@ class Strings {
           'ਇਹ ਗੇਮ ਸਿਰਫ਼ ਮਨੋਰੰਜਨ ਲਈ ਹੈ। ਚਿਪਸ ਦੀ ਕੋਈ ਨਕਦ ਕੀਮਤ ਨਹੀਂ ਹੈ ਅਤੇ ਇਹਨਾਂ ਨੂੰ ਪੈਸੇ ਜਾਂ ਕਿਸੇ ਹੋਰ ਚੀਜ਼ ਨਾਲ ਬਦਲਿਆ ਨਹੀਂ ਜਾ ਸਕਦਾ।',
       'consentAccept': 'ਪੁਸ਼ਟੀ ਕਰੋ',
       'joinAnother': 'ਤੁਸੀਂ ਤੁਰੰਤ ਕਿਸੇ ਹੋਰ ਟੇਬਲ ਉੱਤੇ ਜੁੜ ਸਕਦੇ ਹੋ',
+      'noOtherTable':
+          'ਇਸ ਦਾਅ ਉੱਤੇ ਹੁਣ ਕਿਸੇ ਹੋਰ {category} ਟੇਬਲ ਉੱਤੇ ਸੀਟ ਖਾਲੀ ਨਹੀਂ ਹੈ',
       'rules': 'ਨਿਯਮ',
       'rulesTitle': 'ਪੱਤਿਆਂ ਦੀ ਰੈਂਕਿੰਗ',
       'rulesBeats':

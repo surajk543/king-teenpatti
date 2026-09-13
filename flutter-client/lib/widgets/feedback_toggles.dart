@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../l10n/strings.dart';
 import '../settings/feedback_settings.dart';
 import '../state/game_state.dart';
 import '../theme/app_theme.dart';
@@ -17,7 +18,11 @@ class FeedbackToggles extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final feedback = context.watch<FeedbackSettings>();
-    final t = context.read<GameState>().t;
+    // Subscribed to the language, not read once: both drawers place this as a
+    // const widget, so their own rebuilds never reach it, and a language
+    // picked with the drawer open left these two labels in the old one.
+    // Selecting on `lang` alone keeps the one-second tick out of it.
+    final t = Strings(context.select<GameState, AppLang>((s) => s.lang));
 
     return Column(
       mainAxisSize: MainAxisSize.min,

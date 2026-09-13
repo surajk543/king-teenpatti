@@ -189,10 +189,16 @@ class _StoreTabs extends StatelessWidget {
     required this.value,
     required this.onChanged,
     this.animatedOnly = false,
+    this.compact = false,
   });
 
   final _StoreTab value;
   final ValueChanged<_StoreTab> onChanged;
+
+  /// Icons alone, without their words. On a 640dp phone three labelled keys
+  /// left the header's blurb a few words ("The bigger the pack, the bigge…");
+  /// the title over the blurb already names the shelf that is on.
+  final bool compact;
 
   /// Whether the picture key sells the animated shelf alone, and is named for
   /// it. True at a table (owner, 13 Sep 2026), where a seated player may buy
@@ -213,7 +219,7 @@ class _StoreTabs extends StatelessWidget {
     Widget key(_StoreTab tab, IconData icon, String label) {
       final on = tab == value;
       final ink = on ? champagne : quiet;
-      return PressScale(
+      final body = PressScale(
         child: Material(
           type: MaterialType.transparency,
           child: InkWell(
@@ -230,7 +236,10 @@ class _StoreTabs extends StatelessWidget {
             child: AnimatedContainer(
               duration: Motion.fast,
               alignment: Alignment.center,
-              constraints: const BoxConstraints(minHeight: Dim.minTouch),
+              constraints: BoxConstraints(
+                minHeight: Dim.minTouch,
+                minWidth: compact ? Dim.minTouch : 0,
+              ),
               padding: const EdgeInsets.symmetric(horizontal: Space.md),
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(Radii.pill),
@@ -244,26 +253,36 @@ class _StoreTabs extends StatelessWidget {
                   width: Dim.hairline,
                 ),
               ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(icon, size: 18, color: ink),
-                  const SizedBox(width: Space.xs),
-                  Text(
-                    label,
-                    maxLines: 1,
-                    style: AppTheme.label(
-                      theme.textTheme.labelLarge ?? const TextStyle(),
-                      colour: ink,
-                      weight: FontWeight.w700,
+              child: compact
+                  ? Icon(icon, size: 18, color: ink)
+                  : Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(icon, size: 18, color: ink),
+                        const SizedBox(width: Space.xs),
+                        Text(
+                          label,
+                          maxLines: 1,
+                          style: AppTheme.label(
+                            theme.textTheme.labelLarge ?? const TextStyle(),
+                            colour: ink,
+                            weight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
                     ),
-                  ),
-                ],
-              ),
             ),
           ),
         ),
       );
+      // An icon-only key still says what it is: in a tooltip on a long press,
+      // and to a screen reader, which also hears which shelf is on.
+      return compact
+          ? Tooltip(
+              message: label,
+              child: Semantics(selected: on, child: body),
+            )
+          : body;
     }
 
     return Row(
@@ -303,13 +322,17 @@ class _StoreTabs extends StatelessWidget {
 /// slate in the light scheme, so dimming with it BRIGHTENED the lobby behind
 /// the store instead of pushing it back.
 Future<void> showChipStore(BuildContext context) {
+  // Where the store was opened decides what it sells, and that holds for as
+  // long as it is open. Worked out again on every build, a kick while the
+  // table's store was up turned it into the lobby's under the player's finger.
+  final atTable = context.read<GameState>().screen == Screen.table;
   return showGeneralDialog<void>(
     context: context,
     barrierDismissible: true,
     barrierLabel: MaterialLocalizations.of(context).modalBarrierDismissLabel,
     barrierColor: AppTheme.ink900.withValues(alpha: 0.72),
     transitionDuration: Motion.enter,
-    pageBuilder: (_, a, b) => const _ChipStore(),
+    pageBuilder: (_, a, b) => _ChipStore(atTable: atTable),
     transitionBuilder: (context, anim, _, child) {
       // Rises from the foot of the screen and settles, which is how the
       // picture picker arrives too — the two shelves should not open in two
@@ -327,7 +350,11 @@ Future<void> showChipStore(BuildContext context) {
 }
 
 class _ChipStore extends StatefulWidget {
-  const _ChipStore();
+  const _ChipStore({required this.atTable});
+
+  /// Whether the store was opened at a table, where its picture key sells the
+  /// animated shelf alone (owner, 13 Sep 2026). Fixed when it opens.
+  final bool atTable;
 
   @override
   State<_ChipStore> createState() => _ChipStoreState();
@@ -387,7 +414,7 @@ class _ChipStoreState extends State<_ChipStore> {
     final prices = _prices;
     // At a table the picture key sells the animated shelf alone, with no shelf
     // menu (owner, 13 Sep 2026); the lobby keeps every shelf.
-    final atTable = state.screen == Screen.table;
+    final atTable = widget.atTable;
     final shelf = atTable ? PictureFilter.animated : _shelf;
     final tab = _tab;
     final onPictures = tab == _StoreTab.pictures;
@@ -418,10 +445,13 @@ class _ChipStoreState extends State<_ChipStore> {
         alignment: Alignment.bottomCenter,
         child: Padding(
           padding: const EdgeInsets.fromLTRB(Space.md, 0, Space.md, Space.md),
-          // Bounded, so the shelf cannot grow past the screen as packs are
-          // added; only the packs scroll.
-          child: ConstrainedBox(
-            constraints: BoxConstraints(maxHeight: size.height * 0.88),
+          // One height whatever the shelf holds, so the header and its tabs
+          // stay put from Chips to Diamonds to Pictures. Sized to its content,
+          // the sheet shrank under the four diamond packs, and a tap aimed at
+          // the next tab landed on the scrim and closed the store. Only the
+          // packs scroll.
+          child: SizedBox(
+            height: size.height * 0.88,
             child: PremiumGlassPanel(
               // A modal, and the only one of its kind on screen: it may take the
               // app's single blur if nothing louder has claimed it. The blur
@@ -492,7 +522,9 @@ class _ChipStoreState extends State<_ChipStore> {
                               ),
                               Text(
                                 onPictures
-                                    ? t.storePicturesBlurb
+                                    ? (atTable
+                                          ? t.storeAnimatedBlurb
+                                          : t.storePicturesBlurb)
                                     : onDiamonds
                                     ? t.storeDiamondsBlurb
                                     : t.storeBlurb,
@@ -500,7 +532,7 @@ class _ChipStoreState extends State<_ChipStore> {
                                 overflow: TextOverflow.ellipsis,
                                 style: theme.textTheme.bodySmall?.copyWith(
                                   color: scheme.onSurface.withValues(
-                                    alpha: AppTheme.inkLow,
+                                    alpha: AppTheme.inkLowOn(theme.brightness),
                                   ),
                                 ),
                               ),
@@ -508,18 +540,26 @@ class _ChipStoreState extends State<_ChipStore> {
                           ),
                         ),
                         const SizedBox(width: Space.md),
+                        // The diamond balance stands before the tabs, not after
+                        // them. It shows on Diamonds and Pictures only, and
+                        // between the tabs and the close key its coming and
+                        // going slid the whole tab row sideways, so a tap on a
+                        // tab where it had just been landed on the balance.
+                        // Here the title gives up the room instead, and the
+                        // tabs stay anchored to the close key on every shelf.
+                        if (onPictures || onDiamonds) ...[
+                          DiamondBalance(count: state.user?.diamond ?? 0),
+                          const SizedBox(width: Space.md),
+                        ],
                         _StoreTabs(
                           value: tab,
                           animatedOnly: atTable,
+                          compact: Breaks.isCompact(size.width),
                           onChanged: (next) => setState(() {
                             _tab = next;
                             _toTop();
                           }),
                         ),
-                        if (onPictures || onDiamonds) ...[
-                          const SizedBox(width: Space.md),
-                          DiamondBalance(count: state.user?.diamond ?? 0),
-                        ],
                         const SizedBox(width: Space.sm),
                         PressScale(
                           child: IconButton(
@@ -606,7 +646,9 @@ class _ChipStoreState extends State<_ChipStore> {
                     ),
                     const SizedBox(height: Space.sm),
                   ],
-                  Flexible(
+                  // Expanded, so a short shelf sits at the top of the fixed
+                  // body rather than letting the sheet shrink around it.
+                  Expanded(
                     child: ScrollbarTheme(
                       data: ScrollbarThemeData(
                         thickness: const WidgetStatePropertyAll(4),

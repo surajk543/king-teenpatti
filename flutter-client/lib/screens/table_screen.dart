@@ -368,7 +368,7 @@ class _TableDrawer extends StatelessWidget {
                           style: AppTheme.smallCaps(
                             theme.textTheme.labelSmall ?? const TextStyle(),
                             colour: scheme.onSurface.withValues(
-                              alpha: AppTheme.inkLow,
+                              alpha: AppTheme.inkLowOn(theme.brightness),
                             ),
                           ),
                         ),
@@ -472,7 +472,7 @@ class _TableDrawer extends StatelessWidget {
                         Icons.palette_outlined,
                         size: 16,
                         color: scheme.onSurface.withValues(
-                          alpha: AppTheme.inkLow,
+                          alpha: AppTheme.inkLowOn(theme.brightness),
                         ),
                       ),
                       const SizedBox(width: Space.sm),
@@ -484,7 +484,7 @@ class _TableDrawer extends StatelessWidget {
                           style: AppTheme.label(
                             theme.textTheme.labelMedium ?? const TextStyle(),
                             colour: scheme.onSurface.withValues(
-                              alpha: AppTheme.inkLow,
+                              alpha: AppTheme.inkLowOn(theme.brightness),
                             ),
                           ),
                         ),
@@ -626,8 +626,13 @@ class _MenuRow extends StatelessWidget {
                     note!,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
+                    // Neutral ink even under a toned label: the error red at
+                    // the quiet alpha measured 2:1 under "Leave table", and
+                    // the red label above it already says the row costs.
                     style: theme.textTheme.bodySmall?.copyWith(
-                      color: ink.withValues(alpha: AppTheme.inkLow),
+                      color: scheme.onSurface.withValues(
+                        alpha: AppTheme.inkLowOn(theme.brightness),
+                      ),
                     ),
                   ),
               ],
@@ -917,6 +922,11 @@ class _Felt extends StatelessWidget {
   /// speaks when no hand is running, so it can have the high ground.
   static const double _statusDy = 0.28;
 
+  /// Where the middle of the category tag is, as a fraction of the felt's
+  /// height. A name rather than a literal because the table's notices stand
+  /// under it too ([tableNoticeArea]).
+  static const double _tagDy = 0.075;
+
   /// Where a seat sits on the felt, given its index as the server numbers it.
   ///
   /// The table is drawn from the viewer's chair, so a server index has to be
@@ -1153,7 +1163,7 @@ class _Felt extends StatelessWidget {
               // than the tag or the pot label it might briefly cross, so
               // the seats paint on top.
               at(
-                const Offset(0.5, 0.075),
+                const Offset(0.5, _tagDy),
                 _CategoryTag(room: room),
                 width: w * 0.30,
               ),
@@ -1300,6 +1310,69 @@ class _Felt extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Where a notice may stand at the table, in screen coordinates: the open felt
+/// between the two top seats, under the category tag and over the pot.
+///
+/// The foot of the screen is the viewer's own pod, hand and keys, and a band
+/// 40% of the width over the pot ran across the top seats' card fans and their
+/// SEEN labels, hiding who had looked. Every seat's column is exactly a pod
+/// wide and placed from [_Felt._places], so the gap between the top pair is
+/// worked out here from the numbers [_Felt] lays them out with rather than
+/// guessed as a share of the screen: about 214dp wide on a Pixel 7 Pro, 150 on
+/// a 640dp phone and 370 on a tablet. Nothing is drawn there during a hand;
+/// between hands the waiting line stands in it, and a notice may cover that
+/// for the moment it shows.
+Rect tableNoticeArea(BuildContext context) {
+  final size = MediaQuery.sizeOf(context);
+  final safe = MediaQuery.paddingOf(context);
+  final scaler = MediaQuery.textScalerOf(context);
+  final text = Theme.of(context).textTheme;
+
+  // The felt's box as TableScreen lays it out: inside the SafeArea, right of
+  // the rail, inside the felt's own padding (_Felt.build).
+  final pad = Dim.feltPad(size.width);
+  final feltLeft = safe.left + Dim.railW(size.width) + pad;
+  final feltTop = safe.top + Space.xxs;
+  final w = size.width - safe.right - pad - feltLeft;
+  final h = size.height - safe.bottom - feltTop;
+  final podW = Dim.podW(w, h);
+
+  // A column's left edge, clamped inside the felt exactly as _Felt.at() does.
+  double columnLeft(Offset place) =>
+      (place.dx * w - podW / 2).clamp(0.0, math.max(0.0, w - podW)).toDouble();
+  final left = feltLeft + columnLeft(_Felt._places[2]) + podW + Space.md;
+  final right = feltLeft + columnLeft(_Felt._places[3]) - Space.md;
+
+  // The tag and the pot are each one line of type on a plate: the line, the
+  // plate's padding above and below it, and its hairline.
+  double plate(TextStyle? style) =>
+      scaler.scale(style?.fontSize ?? 14) * (style?.height ?? 1.3) +
+      2 * Space.xs +
+      2 * Dim.hairline;
+  final top =
+      feltTop + _Felt._tagDy * h + plate(text.labelMedium) / 2 + Space.sm;
+  final bottom =
+      feltTop + _Felt._potDy * h - plate(text.titleLarge) / 2 - Space.sm;
+
+  var area = Rect.fromLTRB(left, top, right, bottom);
+  // A screen too cramped for the gap still gets a toast that reads, centred
+  // where the gap is; a wide one never gets a wider toast than the lobby's.
+  final minW = 120.0;
+  final maxW = Dim.toastW(size.width);
+  if (!area.isFinite) {
+    area = Rect.fromCenter(
+      center: size.center(Offset.zero),
+      width: minW,
+      height: Dim.minTouch,
+    );
+  }
+  return Rect.fromCenter(
+    center: area.center,
+    width: area.width.clamp(minW, maxW).toDouble(),
+    height: math.max(area.height, Dim.minTouch),
+  );
 }
 
 /// The cloth and the rail around it.
@@ -2088,8 +2161,13 @@ class _OwnHand extends StatelessWidget {
     final you = state.room?.you;
     if (you == null) return const SizedBox.shrink();
 
-    final packed =
-        you.status == SeatState.packed || you.status == SeatState.lost;
+    // Folded and beaten are different endings. A pack is struck out — dimmed,
+    // under a PACKED plate. A hand beaten at a show was played to the end and
+    // is on the table to be compared, so it stays face up and clear with its
+    // name over it, like every other hand that showdown turned over. The
+    // server marks only a showdown loser `lost`; a fold stays `packed`.
+    final packed = you.status == SeatState.packed;
+    final beaten = you.status == SeatState.lost;
     // The hand that just took the pot is still on the table while the
     // celebration runs. The server moves the winner's seat to `won` the moment
     // it settles, and reading that as "not playing any more" swept the
@@ -2100,7 +2178,7 @@ class _OwnHand extends StatelessWidget {
         you.status == SeatState.active || you.status == SeatState.won;
     // A packed hand stays on the table, face down and struck out, so the player
     // can see what they folded rather than having it vanish.
-    if (!inHand && !packed) {
+    if (!inHand && !packed && !beaten) {
       return const SizedBox.shrink();
     }
 
