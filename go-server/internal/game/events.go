@@ -153,7 +153,9 @@ type SideshowHand struct {
 
 // SideshowReveal is the private payload (game:sideshowReveal.reveal).
 type SideshowReveal struct {
-	Reason       string         `json:"reason"` // always "accepted" here
+	// Reason is "accepted" for an ordinary sideshow the asked player agreed
+	// to, "forced" for a Force Sideshow (SideshowForced), which nobody agreed to.
+	Reason       string         `json:"reason"`
 	PackedUserID string         `json:"packedUserId"`
 	Hands        []SideshowHand `json:"hands"` // [asker, asked]
 }
@@ -168,9 +170,11 @@ type SideshowRevealEvent struct {
 type SideshowResolvedEvent struct {
 	FromUserID string `json:"fromUserId"`
 	ToUserID   string `json:"toUserId"`
-	Accepted   bool   `json:"accepted"`
-	Reason     string `json:"reason"` // Sideshow* resolution reason
-	// PackedUserID is null unless the sideshow was accepted and compared.
+	// Accepted is true for a compared sideshow — an accepted one and a forced
+	// one alike, since both compare the hands.
+	Accepted bool   `json:"accepted"`
+	Reason   string `json:"reason"` // Sideshow* resolution reason; "forced" for a Force Sideshow
+	// PackedUserID is null unless the sideshow was compared.
 	PackedUserID *string `json:"packedUserId"`
 }
 

@@ -219,6 +219,7 @@ func New(opts Options) (*App, error) {
 	users := db.NewUsers(opts.DB, cfg.Game.WelcomeChips, clock.Now)
 	pictures := db.NewPictures(opts.DB, users, clock.Now)
 	ledger := db.NewLedger(opts.DB, a.metrics, clock.Now)
+	hammers := db.NewHammers(opts.DB, a.metrics, clock.Now)
 	tokens := auth.NewTokens(cfg.JWT.Secret, cfg.JWT.ExpiresIn, clock.Now)
 	verifier := auth.NewVerifier(cfg)
 
@@ -245,9 +246,12 @@ func New(opts Options) (*App, error) {
 		Instance: cfg.LiveInstanceID,
 	})
 	roomOpts := game.RoomManagerOptions{
-		Game:          cfg.Game,
-		Chat:          cfg.Chat,
-		Ledger:        ledger,
+		Game:   cfg.Game,
+		Chat:   cfg.Chat,
+		Ledger: ledger,
+		// Every table charges a Force Sideshow's hammer here, on its actor,
+		// before it resolves (game.HammerWallet).
+		Hammers:       hammers,
 		Clock:         clock,
 		TableListener: a.sockets,
 		Listener:      a.sockets,

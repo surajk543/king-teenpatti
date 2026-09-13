@@ -31,6 +31,54 @@ const tableCodeLength = 8;
 bool isValidTableCode(String code) =>
     RegExp('^[A-Za-z0-9]{$tableCodeLength}\$').hasMatch(code.trim());
 
+/// What became of a Force Sideshow, for the key that asked for one.
+enum ForceSideshowResult {
+  /// The server compared the hands; the reveal and the table's notice follow.
+  forced,
+
+  /// The wallet was empty after all. Nothing was spent and this turn's ask is
+  /// still there, so the store's Hammers shelf is the useful answer.
+  noHammers,
+
+  /// Anything else — the move is no longer allowed, or the server could not
+  /// be reached. The player has already been told which.
+  refused,
+}
+
+/// The line a Force Sideshow leaves at the table, or null when there is nobody
+/// to name.
+///
+/// Three audiences, three sentences: the player who forced it, the player it
+/// was forced on, and everyone else. `game:sideshowResolved` carries ids but
+/// no names, so the names come from the seats — both players are still seated
+/// when it lands, the loser merely packed.
+String? forcedSideshowLine(
+  Strings t, {
+  required String? viewerId,
+  required String fromUserId,
+  required String toUserId,
+  required List<Seat> seats,
+}) {
+  String? nameOf(String userId) {
+    for (final seat in seats) {
+      if (seat.userId == userId && seat.displayName.isNotEmpty) {
+        return seat.displayName;
+      }
+    }
+    return null;
+  }
+
+  final from = nameOf(fromUserId);
+  final to = nameOf(toUserId);
+  if (viewerId != null && viewerId == fromUserId) {
+    return to == null ? null : t.sideshowForcedByYou(to);
+  }
+  if (viewerId != null && viewerId == toUserId) {
+    return from == null ? null : t.sideshowForcedOnYou(from);
+  }
+  return from == null || to == null ? null : t.sideshowForcedOn(from, to);
+}
+
 /// Everything the UI reads, and the only place the two halves of the server —
 /// REST and socket — are stitched together.
 ///
@@ -465,9 +513,22 @@ class GameState extends ChangeNotifier {
         notifyListeners();
       }),
       _conn.onSideshowDone.listen((done) {
-        // Everyone is told what became of it. The two who compared hands are
-        // already looking at the cards, so they are not told twice.
-        if (done.fromUserId == user?.id || done.toUserId == user?.id) {
+        if (done.reason == SideshowReason.forced) {
+          // A forced sideshow is news to the whole table. Nobody saw a
+          // request, so without a line the only sign of it is a player
+          // packing out of turn. The two who compared hands are told too:
+          // their cards alone read like a sideshow one of them agreed to.
+          final line = forcedSideshowLine(
+            t,
+            viewerId: user?.id,
+            fromUserId: done.fromUserId,
+            toUserId: done.toUserId,
+            seats: room?.seats ?? const [],
+          );
+          if (line != null) notice = line;
+        } else if (done.fromUserId == user?.id || done.toUserId == user?.id) {
+          // An ordinary one tells only the two in it, and only when it did
+          // not happen: one that did is already on screen as their cards.
           if (!done.accepted) notice = _sideshowRefusedLine(done.reason);
         }
         notifyListeners();
@@ -508,6 +569,11 @@ class GameState extends ChangeNotifier {
         notifyListeners();
       }),
       _conn.onError.listen((e) {
+        // A Force Sideshow reads these two refusals from its ack, which the
+        // server sends first: no_hammers turns into an offer of the store and
+        // persist_failed into a retry. Their game:error copies would only put
+        // a toast over that.
+        if (_forceQuiet(e.code)) return;
         notice = refusalText(e.code, e.message);
         // A refused rejoin is an answer too: there is nothing to resume.
         if (resuming) _endResume();
@@ -992,8 +1058,11 @@ class GameState extends ChangeNotifier {
       // should be finished rather than delivered again.
       if (r.credited) {
         // The product decided the wallet, and the answer says which: a
-        // diamond pack celebrates diamonds, a chip pack celebrates chips.
-        rewardWon = r.diamonds > 0
+        // hammer pack celebrates hammers, a diamond pack diamonds, and a chip
+        // pack chips.
+        rewardWon = r.hammers > 0
+            ? (kind: 'hammers', amount: r.hammers, readyAt: 0)
+            : r.diamonds > 0
             ? (kind: 'diamonds', amount: r.diamonds, readyAt: 0)
             : (kind: 'purchase', amount: r.chips, readyAt: 0);
       }
@@ -1155,6 +1224,7 @@ class GameState extends ChangeNotifier {
   /// same and still show as one toast. A code with no words here keeps the
   /// server's own message.
   String refusalText(String? code, String message) {
+    if (code == 'no_hammers') return t.noHammers;
     if (code == 'no_other_table') {
       // The server names the table's category in English; this names it the
       // way the player's language writes it, lower case where the script has
@@ -1185,6 +1255,108 @@ class GameState extends ChangeNotifier {
   /// Whether this is allowed at all is the server's call — the button is only
   /// lit when the server says so, and asking anyway is refused there.
   void askSideshow() => _conn.act(GameAction.sideshow);
+
+  // ------------------------------------------------------- force sideshow
+
+  /// Whether the rules allow a Force Sideshow right now: the server's word,
+  /// through `you.options`. Paying for it is a separate question — [hasHammer].
+  bool get canForceSideshow => myTurn && (options?.canForceSideshow ?? false);
+
+  /// Whether this player holds the hammer a Force Sideshow costs, by the last
+  /// count the server gave. The server checks again, and its count is the one
+  /// that is spent.
+  bool get hasHammer => (user?.hammer ?? 0) >= forceSideshowCost;
+
+  /// Set while a Force Sideshow is with the server, so the key cannot send a
+  /// second one before the first is answered.
+  bool forcingSideshow = false;
+
+  /// Until when a `no_hammers` or `persist_failed` game:error belongs to a
+  /// Force Sideshow this state is already dealing with. It runs a few seconds
+  /// past each answer, because the server sends the ack first and its
+  /// game:error copy straight after.
+  DateTime? _forceQuietUntil;
+
+  bool _forceQuiet(String? code) {
+    final until = _forceQuietUntil;
+    return (code == 'no_hammers' || code == 'persist_failed') &&
+        until != null &&
+        DateTime.now().isBefore(until);
+  }
+
+  /// Forces a sideshow with the player on the right: one hammer, no request,
+  /// no answer to wait for (owner, 13 Sep 2026).
+  ///
+  /// The hands come back the way an accepted sideshow's do — the reveal to the
+  /// two players, the pack to the room — so there is nothing new to draw. What
+  /// this adds is the count: the ack says how many hammers are left, and the
+  /// wallet takes that figure at once rather than at the next `/api/auth/me`.
+  ///
+  /// One actionId serves the move and its retry. The server keys the hammer it
+  /// spends on it, so when the hammer was taken but the table move was not
+  /// (`persist_failed`), or the answer never came, asking again with the same
+  /// id resolves the sideshow without taking a second hammer. It retries
+  /// once, and only while the table still offers the move: an answer lost
+  /// after the move DID land has already used this turn's ask.
+  Future<ForceSideshowResult> forceSideshow() async {
+    if (forcingSideshow || !canForceSideshow) {
+      return ForceSideshowResult.refused;
+    }
+    forcingSideshow = true;
+    notifyListeners();
+    final actionId = const Uuid().v4();
+    try {
+      var reply = await _sendForce(actionId);
+      if (_worthRetrying(reply)) {
+        await Future<void>.delayed(const Duration(milliseconds: 700));
+        if (canForceSideshow) reply = await _sendForce(actionId);
+      }
+
+      if (reply['ok'] == true) {
+        final left = reply['hammers'];
+        final u = user;
+        if (left is num && u != null) user = u.withHammer(left.toInt());
+        return ForceSideshowResult.forced;
+      }
+
+      // Refused. Whatever the reason, the count held here may be the thing
+      // that is wrong, so it is read again.
+      unawaited(refreshUser());
+      final code = reply['code'] is String ? reply['code'] as String : null;
+      if (code == 'no_hammers') {
+        final u = user;
+        if (u != null) user = u.withHammer(0);
+        return ForceSideshowResult.noHammers;
+      }
+      // Every other refusal has already reached the player as its game:error.
+      // The one quieted above is said here, and so is a request that was never
+      // answered, which has no game:error at all — but only while nothing has
+      // happened at the table, since a move that did land explains itself.
+      final message = '${reply['message'] ?? ''}';
+      if (message.isNotEmpty &&
+          (code == 'persist_failed' || (code == null && canForceSideshow))) {
+        notice = refusalText(code, message);
+      }
+      return ForceSideshowResult.refused;
+    } finally {
+      forcingSideshow = false;
+      notifyListeners();
+    }
+  }
+
+  Future<Map<String, dynamic>> _sendForce(String actionId) async {
+    _forceQuietUntil = DateTime.now().add(const Duration(seconds: 3));
+    final reply = await _conn.forceSideshow(actionId);
+    _forceQuietUntil = DateTime.now().add(const Duration(seconds: 3));
+    return reply;
+  }
+
+  /// An answer that never came (no code at all), or a hammer spent whose table
+  /// move was not: both are safe to send again with the same id. Nothing else
+  /// is worth repeating — the server would refuse it the same way.
+  static bool _worthRetrying(Map<String, dynamic> reply) =>
+      reply['ok'] != true &&
+      (reply['code'] == null || reply['code'] == 'persist_failed');
 
   void answerSideshow(bool accept) => _conn.respondToSideshow(accept);
 

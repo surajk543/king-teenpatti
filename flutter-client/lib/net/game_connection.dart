@@ -240,6 +240,23 @@ class GameConnection {
         'actionId': _uuid.v4(),
       });
 
+  /// Forces a sideshow with the player on the viewer's right, and waits for
+  /// the answer (owner, 13 Sep 2026).
+  ///
+  /// Unlike [act] this hands the ack back, because the ack is where the
+  /// server says how many hammers are left: `{ok: true, action, toUserId,
+  /// packedUserId, hammers}`, or `{ok: false, code, message}`.
+  ///
+  /// The caller chooses [actionId] and must send the SAME one again when it
+  /// retries: the server keys the hammer it spends on it, so a retry after a
+  /// lost answer resolves the sideshow without charging a second hammer. A
+  /// fresh id per retry would be charged again.
+  Future<Map<String, dynamic>> forceSideshow(String actionId) =>
+      request('game:action', {
+        'action': GameAction.forceSideshow,
+        'actionId': actionId,
+      });
+
   /// Answers a sideshow. Only the player who was asked may; anyone else gets a
   /// refusal in the ack.
   void respondToSideshow(bool accept) =>

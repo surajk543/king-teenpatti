@@ -60,11 +60,18 @@ const (
 	ActionPack     Action = "pack"     // fold
 	ActionShow     Action = "show"     // pay chaal to compare, only with exactly two left
 	ActionSideshow Action = "sideshow" // ask the player on your right to compare privately
+	// ActionForceSideshow compares with the player on your right WITHOUT
+	// asking: no request, no answer, it resolves at once as an accepted
+	// sideshow would. It costs ForceSideshowCost hammers (owner, 13 Sep 2026;
+	// Go only — Node had no such action, DECISIONS.md §2).
+	ActionForceSideshow Action = "forceSideshow"
 )
 
-// AllActions is the set game:action validates against (socket VALID_ACTIONS).
+// AllActions is the set game:action validates against (socket VALID_ACTIONS,
+// plus forceSideshow).
 var AllActions = map[Action]struct{}{
 	ActionSee: {}, ActionChaal: {}, ActionRaise: {}, ActionPack: {}, ActionShow: {}, ActionSideshow: {},
+	ActionForceSideshow: {},
 }
 
 // BetKind names the two bet flavours _bet() distinguishes ("chaal" | "raise").
@@ -131,6 +138,10 @@ const (
 	SideshowDeclined = "declined"
 	SideshowTimeout  = "timeout" // SideshowTimeout elapsed without an answer
 	SideshowLeft     = "left"    // a participant left the table
+	// SideshowForced is a Force Sideshow: paid for with a hammer, never asked,
+	// always compared. Carried in SideshowReveal.Reason too, so the two
+	// players can be told it was forced rather than accepted.
+	SideshowForced = "forced"
 )
 
 // Sideshow blocked reasons, in the exact order sideshowBlockedReason checks

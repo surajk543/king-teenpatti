@@ -251,9 +251,15 @@ type harnessOptions struct {
 	live       live.Store
 	liveErrors func(op string, err error)
 	owed       func(req SettleRequest, owed bool)
+	hammers    HammerWallet
 }
 
 type harnessOption func(*harnessOptions)
+
+// withHammers gives the table a hammer wallet (Force Sideshow).
+func withHammers(w HammerWallet) harnessOption {
+	return func(o *harnessOptions) { o.hammers = w }
+}
 
 // withSettlementOwed hears the table's TableOptions.SettlementOwed reports.
 func withSettlementOwed(fn func(req SettleRequest, owed bool)) harnessOption {
@@ -310,6 +316,7 @@ func newHarness(t *testing.T, cfg TableConfig, opts ...harnessOption) *harness {
 		Code:       o.code,
 		Config:     cfg,
 		Ledger:     ledger,
+		Hammers:    o.hammers,
 		Clock:      h.clock,
 		Listener:   h.rec,
 		Live:       o.live,

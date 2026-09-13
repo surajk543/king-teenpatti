@@ -93,6 +93,8 @@ var KnownErrorCodes = map[string]struct{}{
 	// sideshow
 	"already_asked": {}, "neighbour_is_blind": {}, "no_neighbour": {}, "no_sideshow": {},
 	"not_your_sideshow": {}, "sideshow_pending": {}, "too_few_players": {}, "you_are_blind": {},
+	// force sideshow (Go only)
+	"no_hammers": {},
 	// chat
 	"chat_rate_limited": {},
 	// auth

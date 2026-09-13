@@ -41,6 +41,12 @@ class Strings {
 
   String _(String key) => _table[lang.code]?[key] ?? _table['en']![key] ?? key;
 
+  /// This language's own entry for [key], or null where [_] would fall back
+  /// to English. For tests that a new word really was translated: the
+  /// fallback otherwise hides a missing one behind the English.
+  @visibleForTesting
+  String? ownEntry(String key) => _table[lang.code]?[key];
+
   // --- login
   String get signInSubtitle => _('signInSubtitle');
   String get displayName => _('displayName');
@@ -97,6 +103,7 @@ class Strings {
   String get rewardRefused => _('rewardRefused');
   String get rewardPurchased => _('rewardPurchased');
   String get rewardDiamondsPurchased => _('rewardDiamondsPurchased');
+  String get rewardHammersPurchased => _('rewardHammersPurchased');
   String get tapToClose => _('tapToClose');
 
   // --- buying chips, not open yet
@@ -120,6 +127,9 @@ class Strings {
   String get storeTabDiamonds => _('storeTabDiamonds');
   String get storeDiamondsTitle => _('storeDiamondsTitle');
   String get storeDiamondsBlurb => _('storeDiamondsBlurb');
+  String get storeTabHammers => _('storeTabHammers');
+  String get storeHammersTitle => _('storeHammersTitle');
+  String get storeHammersBlurb => _('storeHammersBlurb');
   String get storeBonus => _('storeBonus');
   String get storeNotLive => _('storeNotLive');
   String get posStarter => _('posStarter');
@@ -172,6 +182,44 @@ class Strings {
   String get sideshowCancelled => _('sideshowCancelled');
   String get sideshowYouLost => _('sideshowYouLost');
   String get sideshowYouWon => _('sideshowYouWon');
+
+  // --- Force Sideshow, paid for with a hammer (owner, 13 Sep 2026)
+
+  /// The key's own word, short enough for a key two steppers wide.
+  String get force => _('force');
+
+  /// The move's full name, for the key's tooltip.
+  String get forceSideshow => _('forceSideshow');
+  String get forceSideshowTitle => _('forceSideshowTitle');
+
+  /// The confirmation. `{name}` is the player on the viewer's right.
+  String forceSideshowBody(String name) =>
+      _('forceSideshowBody').replaceAll('{name}', name);
+
+  /// What the player is agreeing to, under the question.
+  String get forceSideshowNote => _('forceSideshowNote');
+
+  /// The offer of the store to a player with no hammers.
+  String get noHammersTitle => _('noHammersTitle');
+  String get noHammersBody => _('noHammersBody');
+  String get getHammers => _('getHammers');
+
+  /// The server's `no_hammers` refusal, in the player's language.
+  String get noHammers => _('noHammers');
+
+  /// What a Force Sideshow says at the table: to the player who forced it,
+  /// to the player it was forced on, and to everyone else.
+  String sideshowForcedByYou(String name) =>
+      _('sideshowForcedByYou').replaceAll('{name}', name);
+  String sideshowForcedOnYou(String name) =>
+      _('sideshowForcedOnYou').replaceAll('{name}', name);
+  String sideshowForcedOn(String from, String to) =>
+      _('sideshowForcedOn').replaceAll('{from}', from).replaceAll('{to}', to);
+
+  /// The table's wallet pill, as a screen reader says it.
+  String walletSummary(int diamonds, int hammers) => _(
+    'walletSummary',
+  ).replaceAll('{diamonds}', '$diamonds').replaceAll('{hammers}', '$hammers');
   String get seeCards => _('seeCards');
   String get blindMovesLeft => _('blindMovesLeft');
   String get blindMovesLabel => _('blindMovesLabel');
@@ -466,6 +514,12 @@ class Strings {
       'storeTabDiamonds': 'Diamonds',
       'storeDiamondsTitle': 'Diamond Store',
       'storeDiamondsBlurb': 'Diamonds unlock animated pictures.',
+      'storeTabHammers': 'Hammers',
+      'storeHammersTitle': 'Hammer Store',
+      'storeHammersBlurb': 'A hammer forces a sideshow — nobody is asked.',
+      'rewardHammersPurchased':
+          'The hammers are in your wallet. Force a sideshow at the table.',
+      'walletSummary': '{diamonds} diamonds, {hammers} hammers',
       'storeBonus': 'BONUS',
       'storeNotLive': 'Payments are not live yet — nothing was charged.',
       'posStarter': 'STARTER',
@@ -509,6 +563,19 @@ class Strings {
       'sideshowCancelled': 'The sideshow was called off',
       'sideshowYouLost': 'Your hand was lower — you packed',
       'sideshowYouWon': 'Your hand was higher — they packed',
+      'force': 'Force',
+      'forceSideshow': 'Force sideshow',
+      'forceSideshowTitle': 'Force a sideshow?',
+      'forceSideshowBody': 'Spend 1 hammer to force a sideshow with {name}?',
+      'forceSideshowNote': 'They cannot refuse, and a tie goes against you.',
+      'noHammersTitle': 'No hammers left',
+      'noHammersBody':
+          'A forced sideshow costs 1 hammer. Get more in the store?',
+      'getHammers': 'Get hammers',
+      'noHammers': 'You need a hammer to force a sideshow',
+      'sideshowForcedByYou': 'You forced a sideshow with {name}',
+      'sideshowForcedOnYou': '{name} forced a sideshow with you',
+      'sideshowForcedOn': '{from} forced a sideshow on {to}',
       'seeCards': 'See cards',
       'blindMovesLeft': 'blind moves left',
       'blindMovesLabel': 'Blind moves left',
@@ -716,6 +783,12 @@ class Strings {
       'storeTabDiamonds': 'हीरे',
       'storeDiamondsTitle': 'हीरा स्टोर',
       'storeDiamondsBlurb': 'हीरों से एनिमेटेड तस्वीरें अनलॉक करें।',
+      'storeTabHammers': 'हथौड़े',
+      'storeHammersTitle': 'हथौड़ा स्टोर',
+      'storeHammersBlurb': 'हथौड़े से साइडशो बिना पूछे होता है।',
+      'rewardHammersPurchased':
+          'हथौड़े आपके वॉलेट में हैं। टेबल पर फ़ोर्स साइडशो करें।',
+      'walletSummary': '{diamonds} हीरे, {hammers} हथौड़े',
       'storeBonus': 'बोनस',
       'storeNotLive': 'भुगतान अभी चालू नहीं है — कोई शुल्क नहीं लिया गया।',
       'posStarter': 'शुरुआत',
@@ -759,6 +832,19 @@ class Strings {
       'sideshowCancelled': 'साइडशो रद्द हो गया',
       'sideshowYouLost': 'आपके पत्ते कमज़ोर थे — आप पैक हुए',
       'sideshowYouWon': 'आपके पत्ते बेहतर थे — वे पैक हुए',
+      'force': 'फ़ोर्स',
+      'forceSideshow': 'फ़ोर्स साइडशो',
+      'forceSideshowTitle': 'फ़ोर्स साइडशो करें?',
+      'forceSideshowBody':
+          '{name} के साथ फ़ोर्स साइडशो के लिए 1 हथौड़ा खर्च करें?',
+      'forceSideshowNote': 'वे मना नहीं कर सकते, और बराबरी पर आप हारेंगे।',
+      'noHammersTitle': 'कोई हथौड़ा नहीं बचा',
+      'noHammersBody': 'फ़ोर्स साइडशो में 1 हथौड़ा लगता है। स्टोर से और लें?',
+      'getHammers': 'हथौड़े लें',
+      'noHammers': 'फ़ोर्स साइडशो के लिए हथौड़ा चाहिए',
+      'sideshowForcedByYou': 'आपने {name} के साथ फ़ोर्स साइडशो किया',
+      'sideshowForcedOnYou': '{name} ने आपके साथ फ़ोर्स साइडशो किया',
+      'sideshowForcedOn': '{from} ने {to} पर फ़ोर्स साइडशो किया',
       'seeCards': 'पत्ते देखें',
       'blindMovesLeft': 'ब्लाइंड चालें बाकी',
       'blindMovesLabel': 'ब्लाइंड चालें बाकी',
@@ -963,6 +1049,12 @@ class Strings {
       'storeTabDiamonds': 'হীরে',
       'storeDiamondsTitle': 'হীরের দোকান',
       'storeDiamondsBlurb': 'হীরে দিয়ে অ্যানিমেটেড ছবি আনলক করুন।',
+      'storeTabHammers': 'হাতুড়ি',
+      'storeHammersTitle': 'হাতুড়ি স্টোর',
+      'storeHammersBlurb': 'হাতুড়ি দিয়ে না জিজ্ঞেস করেই সাইডশো হয়।',
+      'rewardHammersPurchased':
+          'হাতুড়ি আপনার ওয়ালেটে আছে। টেবিলে ফোর্স সাইডশো করুন।',
+      'walletSummary': '{diamonds}টি হীরে, {hammers}টি হাতুড়ি',
       'storeBonus': 'বোনাস',
       'storeNotLive': 'পেমেন্ট এখনও চালু নয় — কোনও চার্জ হয়নি।',
       'posStarter': 'শুরু',
@@ -1006,6 +1098,20 @@ class Strings {
       'sideshowCancelled': 'সাইডশো বাতিল হয়েছে',
       'sideshowYouLost': 'আপনার তাস দুর্বল ছিল — আপনি প্যাক হলেন',
       'sideshowYouWon': 'আপনার তাস ভালো ছিল — তিনি প্যাক হলেন',
+      'force': 'ফোর্স',
+      'forceSideshow': 'ফোর্স সাইডশো',
+      'forceSideshowTitle': 'ফোর্স সাইডশো করবেন?',
+      'forceSideshowBody':
+          '{name}-এর সঙ্গে ফোর্স সাইডশো করতে 1টি হাতুড়ি খরচ করবেন?',
+      'forceSideshowNote': 'তিনি না বলতে পারবেন না, আর সমান হলে আপনি হারবেন।',
+      'noHammersTitle': 'কোনও হাতুড়ি নেই',
+      'noHammersBody':
+          'ফোর্স সাইডশো করতে 1টি হাতুড়ি লাগে। স্টোর থেকে আরও নেবেন?',
+      'getHammers': 'হাতুড়ি নিন',
+      'noHammers': 'ফোর্স সাইডশো করতে একটি হাতুড়ি লাগবে',
+      'sideshowForcedByYou': 'আপনি {name}-এর সঙ্গে ফোর্স সাইডশো করলেন',
+      'sideshowForcedOnYou': '{name} আপনার সঙ্গে ফোর্স সাইডশো করলেন',
+      'sideshowForcedOn': '{from} {to}-এর সঙ্গে ফোর্স সাইডশো করলেন',
       'seeCards': 'তাস দেখুন',
       'blindMovesLeft': 'ব্লাইন্ড চাল বাকি',
       'blindMovesLabel': 'ব্লাইন্ড চাল বাকি',
@@ -1210,6 +1316,12 @@ class Strings {
       'storeTabDiamonds': 'હીરા',
       'storeDiamondsTitle': 'હીરા સ્ટોર',
       'storeDiamondsBlurb': 'હીરાથી એનિમેટેડ ફોટા અનલૉક કરો.',
+      'storeTabHammers': 'હથોડી',
+      'storeHammersTitle': 'હથોડી સ્ટોર',
+      'storeHammersBlurb': 'હથોડીથી પૂછ્યા વગર સાઇડશો થાય છે.',
+      'rewardHammersPurchased':
+          'હથોડી તમારા વૉલેટમાં છે. ટેબલ પર ફોર્સ સાઇડશો કરો.',
+      'walletSummary': '{diamonds} હીરા, {hammers} હથોડી',
       'storeBonus': 'બોનસ',
       'storeNotLive': 'પેમેન્ટ હજી ચાલુ નથી — કોઈ ચાર્જ લેવાયો નથી.',
       'posStarter': 'શરૂઆત',
@@ -1253,6 +1365,18 @@ class Strings {
       'sideshowCancelled': 'સાઇડશો રદ થયો',
       'sideshowYouLost': 'તમારાં પત્તાં નબળાં હતાં — તમે પૅક થયા',
       'sideshowYouWon': 'તમારાં પત્તાં સારાં હતાં — તે પૅક થયા',
+      'force': 'ફોર્સ',
+      'forceSideshow': 'ફોર્સ સાઇડશો',
+      'forceSideshowTitle': 'ફોર્સ સાઇડશો કરશો?',
+      'forceSideshowBody': '{name} સાથે ફોર્સ સાઇડશો માટે 1 હથોડી વાપરશો?',
+      'forceSideshowNote': 'તે ના પાડી શકતા નથી, અને બરાબરી થાય તો તમે હારશો.',
+      'noHammersTitle': 'કોઈ હથોડી બાકી નથી',
+      'noHammersBody': 'ફોર્સ સાઇડશોમાં 1 હથોડી લાગે છે. સ્ટોરમાંથી વધુ લેશો?',
+      'getHammers': 'હથોડી લો',
+      'noHammers': 'ફોર્સ સાઇડશો માટે હથોડી જોઈએ',
+      'sideshowForcedByYou': 'તમે {name} સાથે ફોર્સ સાઇડશો કર્યો',
+      'sideshowForcedOnYou': '{name} એ તમારી સાથે ફોર્સ સાઇડશો કર્યો',
+      'sideshowForcedOn': '{from} એ {to} સાથે ફોર્સ સાઇડશો કર્યો',
       'seeCards': 'પત્તા જુઓ',
       'blindMovesLeft': 'બ્લાઇન્ડ ચાલ બાકી',
       'blindMovesLabel': 'બ્લાઇન્ડ ચાલ બાકી',
@@ -1457,6 +1581,12 @@ class Strings {
       'storeTabDiamonds': 'ਹੀਰੇ',
       'storeDiamondsTitle': 'ਹੀਰਾ ਸਟੋਰ',
       'storeDiamondsBlurb': 'ਹੀਰਿਆਂ ਨਾਲ ਐਨੀਮੇਟਿਡ ਤਸਵੀਰਾਂ ਅਨਲੌਕ ਕਰੋ।',
+      'storeTabHammers': 'ਹਥੌੜੇ',
+      'storeHammersTitle': 'ਹਥੌੜਾ ਸਟੋਰ',
+      'storeHammersBlurb': 'ਹਥੌੜੇ ਨਾਲ ਬਿਨਾਂ ਪੁੱਛੇ ਸਾਈਡਸ਼ੋ ਹੁੰਦਾ ਹੈ।',
+      'rewardHammersPurchased':
+          'ਹਥੌੜੇ ਤੁਹਾਡੇ ਵਾਲਿਟ ਵਿੱਚ ਹਨ। ਟੇਬਲ ’ਤੇ ਫੋਰਸ ਸਾਈਡਸ਼ੋ ਕਰੋ।',
+      'walletSummary': '{diamonds} ਹੀਰੇ, {hammers} ਹਥੌੜੇ',
       'storeBonus': 'ਬੋਨਸ',
       'storeNotLive': 'ਭੁਗਤਾਨ ਹਾਲੇ ਚਾਲੂ ਨਹੀਂ — ਕੋਈ ਚਾਰਜ ਨਹੀਂ ਲਿਆ ਗਿਆ।',
       'posStarter': 'ਸ਼ੁਰੂਆਤ',
@@ -1500,6 +1630,19 @@ class Strings {
       'sideshowCancelled': 'ਸਾਈਡਸ਼ੋ ਰੱਦ ਹੋ ਗਿਆ',
       'sideshowYouLost': 'ਤੁਹਾਡੇ ਪੱਤੇ ਕਮਜ਼ੋਰ ਸਨ — ਤੁਸੀਂ ਪੈਕ ਹੋਏ',
       'sideshowYouWon': 'ਤੁਹਾਡੇ ਪੱਤੇ ਵਧੀਆ ਸਨ — ਉਹ ਪੈਕ ਹੋਏ',
+      'force': 'ਫੋਰਸ',
+      'forceSideshow': 'ਫੋਰਸ ਸਾਈਡਸ਼ੋ',
+      'forceSideshowTitle': 'ਫੋਰਸ ਸਾਈਡਸ਼ੋ ਕਰਨਾ ਹੈ?',
+      'forceSideshowBody': '{name} ਨਾਲ ਫੋਰਸ ਸਾਈਡਸ਼ੋ ਲਈ 1 ਹਥੌੜਾ ਖਰਚ ਕਰਨਾ ਹੈ?',
+      'forceSideshowNote': 'ਉਹ ਨਾਂਹ ਨਹੀਂ ਕਰ ਸਕਦੇ, ਅਤੇ ਬਰਾਬਰੀ ’ਤੇ ਤੁਸੀਂ ਹਾਰੋਗੇ।',
+      'noHammersTitle': 'ਕੋਈ ਹਥੌੜਾ ਨਹੀਂ ਬਚਿਆ',
+      'noHammersBody':
+          'ਫੋਰਸ ਸਾਈਡਸ਼ੋ ਲਈ 1 ਹਥੌੜਾ ਲੱਗਦਾ ਹੈ। ਸਟੋਰ ਤੋਂ ਹੋਰ ਲੈਣੇ ਹਨ?',
+      'getHammers': 'ਹਥੌੜੇ ਲਓ',
+      'noHammers': 'ਫੋਰਸ ਸਾਈਡਸ਼ੋ ਲਈ ਹਥੌੜਾ ਚਾਹੀਦਾ ਹੈ',
+      'sideshowForcedByYou': 'ਤੁਸੀਂ {name} ਨਾਲ ਫੋਰਸ ਸਾਈਡਸ਼ੋ ਕੀਤਾ',
+      'sideshowForcedOnYou': '{name} ਨੇ ਤੁਹਾਡੇ ਨਾਲ ਫੋਰਸ ਸਾਈਡਸ਼ੋ ਕੀਤਾ',
+      'sideshowForcedOn': '{from} ਨੇ {to} ਨਾਲ ਫੋਰਸ ਸਾਈਡਸ਼ੋ ਕੀਤਾ',
       'seeCards': 'ਪੱਤੇ ਵੇਖੋ',
       'blindMovesLeft': 'ਬਲਾਈਂਡ ਚਾਲਾਂ ਬਾਕੀ',
       'blindMovesLabel': 'ਬਲਾਈਂਡ ਚਾਲਾਂ ਬਾਕੀ',

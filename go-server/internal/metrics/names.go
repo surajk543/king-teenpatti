@@ -165,6 +165,10 @@ const (
 	// OpSettle is the hand-end write: everyone still at the table, plus the
 	// hands row.
 	OpSettle = "settle"
+	// OpHammerSpend is the one hammer a Force Sideshow takes (db.Hammers). Not
+	// a chip write — it touches users.hammer and hammer_spends only — but a
+	// transaction the table blocks on all the same, so it is timed with them.
+	OpHammerSpend = "hammer_spend"
 )
 
 // Live-store op labels: one per live.Store method.

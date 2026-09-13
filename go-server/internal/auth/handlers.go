@@ -300,9 +300,9 @@ func (h *Handler) Bonus(w http.ResponseWriter, r *http.Request, user *db.User) {
 
 // BuyChips is POST /api/purchases/google {productId, purchaseToken}.
 //
-// It serves chip packs and diamond packs alike: the product id decides which
-// wallet is filled (purchase.Catalogue), and the answer carries both figures,
-// one of them zero.
+// It serves chip, diamond and hammer packs alike: the product id decides which
+// wallet is filled (purchase.Catalogue), and the answer carries all three
+// figures — chips, diamonds, hammers — exactly one of them non-zero.
 //
 // The client sends only what Play gave it: which product, and the purchase
 // token. It does NOT send an amount, and the server would not read one if it
@@ -348,10 +348,14 @@ func (h *Handler) BuyChips(w http.ResponseWriter, r *http.Request, user *db.User
 		return
 	}
 	if h.deps.Logger != nil && out.Credited {
-		if out.Diamonds > 0 {
+		switch {
+		case out.Hammers > 0:
+			h.deps.Logger.Info("hammers purchased",
+				"userId", user.ID, "productId", body.ProductID, "hammers", out.Hammers)
+		case out.Diamonds > 0:
 			h.deps.Logger.Info("diamonds purchased",
 				"userId", user.ID, "productId", body.ProductID, "diamonds", out.Diamonds)
-		} else {
+		default:
 			h.deps.Logger.Info("chips purchased",
 				"userId", user.ID, "productId", body.ProductID, "chips", out.Chips)
 		}
@@ -360,6 +364,7 @@ func (h *Handler) BuyChips(w http.ResponseWriter, r *http.Request, user *db.User
 		"credited": out.Credited,
 		"chips":    out.Chips,
 		"diamonds": out.Diamonds,
+		"hammers":  out.Hammers,
 		"balance":  out.Balance,
 		"user":     out.User,
 	})

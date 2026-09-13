@@ -78,7 +78,11 @@ type User struct {
 	// Diamond is the premium soft currency (users.diamond). Every account
 	// starts with 1. It is not chip_ledger's business: the ledger backs
 	// the chips invariant, and diamonds are not chips.
-	Diamond       int     `json:"diamond"`
+	Diamond int `json:"diamond"`
+	// Hammer is users.hammer, the currency a Force Sideshow is paid in (owner,
+	// 13 Sep 2026): 20 for every account, new or existing (V1.0.5), and bought
+	// in packs on Play. Like diamonds, never chip_ledger's business.
+	Hammer        int     `json:"hammer"`
 	HandsPlayed   int     `json:"handsPlayed"`
 	HandsWon      int     `json:"handsWon"`
 	HandsLost     int     `json:"handsLost"`
@@ -224,11 +228,12 @@ type queryer interface {
 	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
 }
 
-// userColumns is every users column, in DDL order, so a row scans into
+// userColumns is every users column, in DDL order (hammer, which V1.0.5 adds
+// at the end of the table, is listed beside diamond), so a row scans into
 // userRow without depending on `SELECT *` column ordering, followed by the
 // asset_url of the catalogue picture the player is wearing. Qualified with the
 // `u` alias because every read now goes through userFrom's join.
-const userColumns = `u.id, u.provider, u.provider_user_id, u.display_name, u.email, u.avatar_url, u.chips, u.diamond,
+const userColumns = `u.id, u.provider, u.provider_user_id, u.display_name, u.email, u.avatar_url, u.chips, u.diamond, u.hammer,
        u.hands_played, u.hands_won, u.hands_lost, u.hands_left_mid, u.total_winnings, u.biggest_pot,
        u.milestone_claimed, u.next_bonus_at, u.active_picture_id, u.created_at, u.updated_at, u.last_login_at,
        ap.asset_url`
@@ -252,6 +257,7 @@ type userRow struct {
 	pictureAssetURL                   *string
 	chips                             int64
 	diamond                           int
+	hammer                            int
 	handsPlayed, handsWon             int
 	handsLost, handsLeftMid           int
 	totalWinnings, biggestPot         int64
@@ -263,7 +269,7 @@ type userRow struct {
 // scanUser scans one row selected with userColumns; pgx.ErrNoRows → nil, nil.
 func scanUser(row pgx.Row) (*userRow, error) {
 	var r userRow
-	err := row.Scan(&r.id, &r.provider, &r.providerUserID, &r.displayName, &r.email, &r.avatarURL, &r.chips, &r.diamond,
+	err := row.Scan(&r.id, &r.provider, &r.providerUserID, &r.displayName, &r.email, &r.avatarURL, &r.chips, &r.diamond, &r.hammer,
 		&r.handsPlayed, &r.handsWon, &r.handsLost, &r.handsLeftMid, &r.totalWinnings, &r.biggestPot,
 		&r.milestoneClaimed, &r.nextBonusAt, &r.activePictureID, &r.createdAt, &r.updatedAt, &r.lastLoginAt,
 		&r.pictureAssetURL)
@@ -313,6 +319,7 @@ func (u *Users) publicUser(r *userRow) *User {
 		ActivePictureID:   r.activePictureID,
 		Chips:             r.chips,
 		Diamond:           r.diamond,
+		Hammer:            r.hammer,
 		HandsPlayed:       r.handsPlayed,
 		HandsWon:          r.handsWon,
 		HandsLost:         r.handsLost,

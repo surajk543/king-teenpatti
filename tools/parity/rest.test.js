@@ -20,7 +20,7 @@ test.after(closeDb);
 const uniqueStake = stakeCounter(100);
 
 const USER_KEYS = [
-  'id', 'provider', 'displayName', 'email', 'avatarUrl', 'providerAvatarUrl', 'activePictureId', 'chips', 'diamond',
+  'id', 'provider', 'displayName', 'email', 'avatarUrl', 'providerAvatarUrl', 'activePictureId', 'chips', 'diamond', 'hammer',
   'handsPlayed', 'handsWon', 'handsLost', 'handsLeftMid', 'totalWinnings', 'biggestPot', 'rewards',
   'createdAt', 'lastLoginAt',
 ];

@@ -12,7 +12,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  guestLogin, openClient, closeAll, closeOpenClients, stakeCounter, dealtTable, pause, UUID, profile,
+  guestLogin, openClient, closeAll, closeOpenClients, stakeCounter, dealtTable, pause, UUID, profile, assertKeys,
 } from './lib/harness.mjs';
 import { query, closeDb, wallet, ledgerSum, setWallet } from './lib/db.mjs';
 
@@ -151,6 +151,71 @@ test('only `accept: true` accepts a sideshow; anything else declines it', async 
   assert.equal(resolved.accepted, false);
   assert.equal(resolved.reason, 'declined');
   assert.equal(asker.client.count('game:sideshowReveal'), 0);
+  await closeAll(...t.clients);
+});
+
+// Force Sideshow (Go only, owner 13 Sep 2026): the same eligibility as a
+// sideshow, no request and no answer, one hammer from users.hammer — refused
+// without one, leaving the table as it was.
+test('a forced sideshow needs no answer, costs one hammer, and is refused without one', async () => {
+  const t = await dealtTable('ssforce', uniqueStake, { count: 3 });
+  for (const entry of t.entries) await entry.client.emit('game:action', { action: 'see' });
+  const asker = t.byUser[t.state.turn.userId];
+  // The player on the right: the next seat DOWN from the asker, wrapping.
+  const seats = t.entries.map((e) => e.seatIndex).sort((a, b) => a - b);
+  const below = seats.filter((s) => s < asker.seatIndex);
+  const asked = t.bySeat[below.length ? below[below.length - 1] : seats[seats.length - 1]];
+  const bystander = t.entries.find((e) => e !== asker && e !== asked);
+  const hammers = async (id) => (await query('SELECT hammer FROM users WHERE id = $1', [id])).rows[0].hammer;
+
+  assert.equal(asker.user.hammer, 20, 'every account starts with 20 hammers');
+  await pause(50);
+  const options = asker.client.state().you.options;
+  assert.equal(options.canForceSideshow, true);
+  assert.equal(options.canSideshow, true);
+
+  await query('UPDATE users SET hammer = 0 WHERE id = $1', [asker.user.id]);
+  let ack = await asker.client.emit('game:action', { action: 'forceSideshow', actionId: 'force-broke' });
+  assert.deepEqual(ack, { ok: false, code: 'no_hammers', message: 'You need a hammer to force a sideshow' });
+  await pause(50);
+  assert.equal(asker.client.state().sideshow, null);
+  assert.equal(asker.client.state().turn.userId, asker.user.id, 'the turn stays');
+  assert.equal(asker.client.state().seats.filter((s) => s.status === 'active').length, 3, 'nobody packed');
+  assert.equal(asker.client.state().you.options.canSideshow, true, 'the refusal did not use the ask');
+  assert.equal(bystander.client.count('game:sideshowResolved'), 0);
+
+  await query('UPDATE users SET hammer = 20 WHERE id = $1', [asker.user.id]);
+  const bystanderMark = bystander.client.count('game:sideshowReveal');
+  ack = await asker.client.emit('game:action', { action: 'forceSideshow', actionId: 'force-1' });
+  assertKeys(ack, ['ok', 'action', 'toUserId', 'packedUserId', 'hammers'], 'forceSideshow ack');
+  assert.equal(ack.ok, true);
+  assert.equal(ack.action, 'forceSideshow');
+  assert.equal(ack.toUserId, asked.user.id, 'the player on the right');
+  assert.equal(ack.hammers, 19);
+  assert.ok([asker.user.id, asked.user.id].includes(ack.packedUserId), 'one of the two packed');
+
+  const reveal = await asker.client.wait('game:sideshowReveal');
+  assert.equal(reveal.reveal.reason, 'forced');
+  assert.equal(reveal.reveal.packedUserId, ack.packedUserId);
+  assert.deepEqual(reveal.reveal.hands.map((h) => h.userId), [asker.user.id, asked.user.id]);
+  const theirs = await asked.client.wait('game:sideshowReveal');
+  assert.equal(theirs.reveal.reason, 'forced');
+  const resolved = await bystander.client.wait('game:sideshowResolved');
+  assert.deepEqual(
+    { fromUserId: resolved.fromUserId, toUserId: resolved.toUserId, accepted: resolved.accepted, reason: resolved.reason, packedUserId: resolved.packedUserId },
+    { fromUserId: asker.user.id, toUserId: asked.user.id, accepted: true, reason: 'forced', packedUserId: ack.packedUserId },
+  );
+  await pause(100);
+  assert.equal(bystander.client.count('game:sideshowReveal'), bystanderMark, 'the room never sees the cards');
+  assert.equal(bystander.client.count('game:sideshowRequested'), 0, 'nobody was asked');
+  const loser = t.byUser[ack.packedUserId];
+  assert.equal(bystander.client.state().seats.find((s) => s.userId === loser.user.id).status, 'packed');
+
+  assert.equal(await hammers(asker.user.id), 19, 'one hammer spent');
+  assert.equal(await hammers(asked.user.id), 20, 'the asked player pays nothing');
+  const { rows } = await query('SELECT count(*)::int AS n FROM hammer_spends WHERE user_id = $1', [asker.user.id]);
+  assert.equal(rows[0].n, 1);
+  assert.equal(await ledgerSum(asker.user.id), await wallet(asker.user.id), 'hammers never touch the chip books');
   await closeAll(...t.clients);
 });
 
