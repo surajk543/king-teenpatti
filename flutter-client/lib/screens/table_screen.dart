@@ -466,13 +466,21 @@ List<ValueDelegate<Object>> _strokesInInk(Color ink, Color paper) => [
 /// fails if a replacement file renames them.
 List<ValueDelegate<Object>> _envelopeInInk(Color ink, Color paper) => [
   ValueDelegate.transformOpacity(const ['background Outlines'], value: 0),
-  for (final layer in const [
-    'front Outlines',
-    'back Outlines',
-    'opener Outlines',
-    'plane Outlines',
+  // The flap, the front's centre and the plane in the ink; the front's side
+  // folds and the inside of the back in a lighter shade of it. All in the one
+  // ink, a closed envelope was a featureless bar for much of the loop (QA 14
+  // Sep 2026); the second shade draws its folds back in.
+  for (final path in const [
+    ['front Outlines', 'Group 2', '**'],
+    ['opener Outlines', '**'],
+    ['plane Outlines', '**'],
   ])
-    ValueDelegate.color([layer, '**'], value: ink),
+    ValueDelegate.color(path, value: ink),
+  for (final path in const [
+    ['front Outlines', 'Group 1', '**'],
+    ['back Outlines', '**'],
+  ])
+    ValueDelegate.color(path, value: Color.lerp(ink, paper, 0.45)!),
   ValueDelegate.color(const [
     'mail inside Outlines',
     'Group 1',
@@ -676,11 +684,21 @@ class _TableDrawer extends StatelessWidget {
                       children: [
                         // Only a private table keeps its code here: it is how
                         // friends are let in, and nothing else shows it.
+                        // One line, shrunk to fit rather than broken: a code
+                        // split across two lines ("Table CMU4 / 2LFF" on a
+                        // 640dp phone, QA 14 Sep 2026) reads as two codes.
                         if (room.isPrivate)
-                          Text(
-                            'Table ${room.code}',
-                            style: AppTheme.money(
-                              theme.textTheme.titleMedium ?? const TextStyle(),
+                          FittedBox(
+                            fit: BoxFit.scaleDown,
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              'Table ${room.code}',
+                              maxLines: 1,
+                              softWrap: false,
+                              style: AppTheme.money(
+                                theme.textTheme.titleMedium ??
+                                    const TextStyle(),
+                              ),
                             ),
                           ),
                         Text(
@@ -688,6 +706,8 @@ class _TableDrawer extends StatelessWidget {
                           // capitals are safe on it; the hand number is not
                           // translated either.
                           '${room.category.toUpperCase()}  ·  hand ${room.handNo}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                           style: AppTheme.smallCaps(
                             theme.textTheme.labelSmall ?? const TextStyle(),
                             colour: scheme.onSurface.withValues(
@@ -713,25 +733,33 @@ class _TableDrawer extends StatelessWidget {
                 ],
               ),
             ),
-            _MenuRow(
-              icon: Icons.swap_horiz_rounded,
-              leading: state.switching
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : null,
-              label: t.switchTable,
-              note: '${t.switchTable} · ${room.category}',
-              onTap: state.switching
-                  ? null
-                  : () async {
-                      Navigator.pop(context);
-                      await _confirmSwitch(context, state, room);
-                    },
-            ),
-            const _MenuRule(),
+            // A private table cannot be swapped for another — the server
+            // refuses it — so it is not offered there, rather than offered and
+            // then refused with a toast (QA 14 Sep 2026).
+            if (!room.isPrivate) ...[
+              _MenuRow(
+                icon: Icons.swap_horiz_rounded,
+                leading: state.switching
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : null,
+                label: t.switchTable,
+                // Which stake the new table will be: it repeated its own
+                // title before, with the category left in English.
+                note:
+                    '${room.category == 'blind' ? t.blind : t.seen} · ${formatChips(room.bootAmount)}',
+                onTap: state.switching
+                    ? null
+                    : () async {
+                        Navigator.pop(context);
+                        await _confirmSwitch(context, state, room);
+                      },
+              ),
+              const _MenuRule(),
+            ],
             _MenuRow(
               icon: Icons.logout_rounded,
               label: t.leaveTable,
@@ -1199,42 +1227,84 @@ Future<void> _forceSideshow(BuildContext context, GameState state) async {
   }
 
   final name = state.options?.sideshowWith ?? '';
+  // Worth asking only while this turn can still force a sideshow on this same
+  // neighbour. The turn clock keeps running under the question: it used to
+  // stay up after the turn timed out and on into the next hand, still naming a
+  // player it might no longer reach, and a late Force closed it with nothing
+  // sent and nothing said (QA 14 Sep 2026).
+  bool stillOpen(GameState s) =>
+      s.canForceSideshow && (s.options?.sideshowWith ?? '') == name;
   final go = await showDialog<bool>(
     context: context,
     builder: (context) {
       final theme = Theme.of(context);
-      return GlassDialog(
-        padding: const EdgeInsets.all(Space.xl),
-        title: _dialogTitle(context, Icons.hardware, t.forceSideshowTitle),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(t.forceSideshowBody(name)),
-            const SizedBox(height: Space.sm),
-            Text(
-              t.forceSideshowNote,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurface.withValues(
-                  alpha: AppTheme.inkLowOn(theme.brightness),
+      return _WhileStillOpen(
+        open: stillOpen,
+        child: GlassDialog(
+          padding: const EdgeInsets.all(Space.xl),
+          title: _dialogTitle(context, Icons.hardware, t.forceSideshowTitle),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(t.forceSideshowBody(name)),
+              const SizedBox(height: Space.sm),
+              Text(
+                t.forceSideshowNote,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurface.withValues(
+                    alpha: AppTheme.inkLowOn(theme.brightness),
+                  ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
+          actions: _dialogActions(context, stay: t.cancel, go: t.force),
         ),
-        actions: _dialogActions(context, stay: t.cancel, go: t.force),
       );
     },
   );
-  if (go != true || !context.mounted) return;
-
-  // The turn clock kept running while the question was up. If the turn went,
-  // or this turn's ask was used, there is nothing left to force, and sending
-  // it anyway would only earn a refusal to read.
-  if (!state.canForceSideshow) return;
+  if (!context.mounted) return;
+  // Closed because the move went, or confirmed a moment after it did: nothing
+  // is sent, so no hammer is spent — and the player is told so rather than
+  // left wondering why Force did nothing. A Cancel is not answered.
+  if (!stillOpen(state)) {
+    if (go != false) state.say(t.forceSideshowTooLate);
+    return;
+  }
+  if (go != true) return;
   final result = await state.forceSideshow();
   if (result == ForceSideshowResult.noHammers && context.mounted) {
     await _offerHammers(context, state);
+  }
+}
+
+/// Keeps a dialog up only while [open] holds, and closes it the frame it stops
+/// holding — for a question about a move the table can take away while it is
+/// on screen.
+class _WhileStillOpen extends StatefulWidget {
+  const _WhileStillOpen({required this.open, required this.child});
+
+  final bool Function(GameState) open;
+  final Widget child;
+
+  @override
+  State<_WhileStillOpen> createState() => _WhileStillOpenState();
+}
+
+class _WhileStillOpenState extends State<_WhileStillOpen> {
+  bool _closing = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final open = context.select<GameState, bool>(widget.open);
+    if (!open && !_closing) {
+      _closing = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) Navigator.of(context).pop();
+      });
+    }
+    return widget.child;
   }
 }
 
@@ -2660,7 +2730,13 @@ class _Status extends StatelessWidget {
                     ? AppTheme.amber
                     : mine
                     ? AppTheme.goldBright
-                    : AppTheme.boneInk.withValues(alpha: 0.82),
+                    // The felt is pale on the light theme, and white text
+                    // on it all but vanished ("Waiting for players", QA 14
+                    // Sep 2026); dark ink there, as on every other light
+                    // surface.
+                    : theme.brightness == Brightness.dark
+                    ? AppTheme.boneInk.withValues(alpha: 0.82)
+                    : AppTheme.inkOnLight.withValues(alpha: 0.78),
                 weight: FontWeight.w700,
               ).copyWith(
                 // The only glowing text in the app, on the only line that has a
@@ -4926,7 +5002,12 @@ class _ActionCluster extends StatelessWidget {
     // Heads-up: a show is on offer, and a sideshow cannot be. One slot, two
     // jobs — a show needs exactly two players left and a sideshow three or
     // more, so they are never askable at the same moment.
-    final headsUp = live && showCost != null && showCost > 0;
+    // Held back while a Force Sideshow's hammer is still in the air: the
+    // loser has already been packed server-side, so the table turning heads-up
+    // under the key would give away who lost before the hammer lands (QA 14
+    // Sep 2026), as the fold itself is held back on the felt.
+    final headsUp =
+        live && showCost != null && showCost > 0 && !state.hammerLinkShown;
 
     final size = MediaQuery.sizeOf(context);
     final keyH = Dim.keyH(size.height);

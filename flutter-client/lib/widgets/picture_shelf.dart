@@ -100,6 +100,9 @@ Widget pictureShelf({
   return Padding(
     padding: const EdgeInsets.only(bottom: Space.md),
     child: Wrap(
+      // Centred in the sheet: flush left, a tablet's nine columns left about
+      // 95dp empty on the right and 20 on the left (QA 14 Sep 2026).
+      alignment: WrapAlignment.center,
       spacing: Space.md,
       runSpacing: Space.sm,
       children: [

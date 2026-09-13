@@ -572,6 +572,13 @@ class GameState extends ChangeNotifier {
   /// A table snapshot, already redacted for this viewer.
   @visibleForTesting
   void handleState(RoomState s) {
+    // A snapshot that seats nobody as this player is a table they are no
+    // longer at. After an out-of-chips kick one could still arrive behind the
+    // room:kicked that had just taken them to the lobby — the bots were still
+    // playing — and it put the table back on screen with no seat, no keys that
+    // answered and no way out short of closing the app (QA 14 Sep 2026). Every
+    // snapshot of a table this player is at carries their seat.
+    if (s.you == null) return;
     final restored = resuming;
     _snapshotSinceSession = true;
     _seatCheck?.cancel();
@@ -683,8 +690,15 @@ class GameState extends ChangeNotifier {
       }
     } else if (done.fromUserId == user?.id || done.toUserId == user?.id) {
       // An ordinary one tells only the two in it, and only when it did
-      // not happen: one that did is already on screen as their cards.
-      if (!done.accepted) notice = _sideshowRefusedLine(done.reason);
+      // not happen: one that did is already on screen as their cards. A
+      // decline is news to the player who asked, not to the one who tapped
+      // Decline — they were being told "Your sideshow was declined" about a
+      // sideshow that was not theirs (QA 14 Sep 2026).
+      final declinedByViewer =
+          done.toUserId == user?.id && done.reason == SideshowReason.declined;
+      if (!done.accepted && !declinedByViewer) {
+        notice = _sideshowRefusedLine(done.reason);
+      }
     }
     notifyListeners();
   }
@@ -1622,7 +1636,14 @@ class GameState extends ChangeNotifier {
   /// The amount the Chaal button will place.
   int get betAmount {
     final steps = options?.raiseSteps ?? const [];
-    if (steps.isEmpty) return room?.stake ?? 0;
+    if (steps.isEmpty) {
+      // Off turn there is no ladder, so the key shows the chaal from the
+      // table's stake — which is in BLIND units. A seen player's chaal is
+      // twice it; the dimmed key read "Chaal 400" between turns of "Chaal
+      // 800" (QA 14 Sep 2026).
+      final stake = room?.stake ?? 0;
+      return room?.you?.isBlind == false ? stake * 2 : stake;
+    }
     return steps[raiseIndex.clamp(0, steps.length - 1)];
   }
 
@@ -1853,13 +1874,18 @@ String _grouped(int n) {
   return b.toString();
 }
 
-/// "3h 59m 54s". Seconds are always shown (requirement 26), so the timer
-/// visibly ticks instead of resting on a minute.
-String formatCountdown(Duration d) {
+/// "3h 59m 54s" — with its units in the player's language when [t] is given
+/// (the lobby's bonus chip read "3h 54m 9s" under a Hindi or Bengali label).
+/// Seconds are always shown (requirement 26), so the timer visibly ticks
+/// instead of resting on a minute.
+String formatCountdown(Duration d, [Strings? t]) {
+  final hu = t?.unitHourShort ?? 'h';
+  final mu = t?.unitMinuteShort ?? 'm';
+  final su = t?.unitSecondShort ?? 's';
   final h = d.inHours;
   final m = d.inMinutes % 60;
   final s = d.inSeconds % 60;
-  if (h > 0) return '${h}h ${m}m ${s}s';
-  if (m > 0) return '${m}m ${s}s';
-  return '${s}s';
+  if (h > 0) return '$h$hu $m$mu $s$su';
+  if (m > 0) return '$m$mu $s$su';
+  return '$s$su';
 }

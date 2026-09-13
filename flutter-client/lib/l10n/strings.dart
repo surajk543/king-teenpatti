@@ -138,6 +138,8 @@ class Strings {
   String get posPremium => _('posPremium');
   String get comingSoonBody => _('comingSoonBody');
   String get handsToGo => _('handsToGo');
+  String get handToGo => _('handToGo');
+  String get forceSideshowTooLate => _('forceSideshowTooLate');
   String get settings => _('settings');
   String get language => _('language');
 
@@ -151,6 +153,12 @@ class Strings {
   String get unitBillion => _('unitBillion');
   String get switchTheme => _('switchTheme');
   String get signOut => _('signOut');
+  String get signOutQ => _('signOutQ');
+  String get signOutBody => _('signOutBody');
+  String get providerGuest => _('providerGuest');
+  String get unitHourShort => _('unitHourShort');
+  String get unitMinuteShort => _('unitMinuteShort');
+  String get unitSecondShort => _('unitSecondShort');
   String get serviceUnavailable => _('serviceUnavailable');
   String get soundLabel => _('soundLabel');
   String get vibrationLabel => _('vibrationLabel');
@@ -529,6 +537,9 @@ class Strings {
       'comingSoonBody':
           'Buying chips is not open yet. Collect your rewards in the meantime.',
       'handsToGo': 'hands to go',
+      'handToGo': 'hand to go',
+      'forceSideshowTooLate':
+          'Too late — that sideshow is no longer open. No hammer was spent.',
       'settings': 'Settings',
       'language': 'Language',
       'numberSystem': 'Number format',
@@ -540,6 +551,13 @@ class Strings {
       'unitBillion': 'Billion',
       'switchTheme': 'Switch theme',
       'signOut': 'Sign out',
+      'signOutQ': 'Sign out?',
+      'signOutBody':
+          'Your chips, diamonds, hammers and pictures stay with this account.',
+      'providerGuest': 'Guest',
+      'unitHourShort': 'h',
+      'unitMinuteShort': 'm',
+      'unitSecondShort': 's',
       'serviceUnavailable': 'Service not available',
       'soundLabel': 'Sound',
       'vibrationLabel': 'Vibration',
@@ -798,6 +816,9 @@ class Strings {
       'comingSoonBody':
           'चिप्स खरीदना अभी शुरू नहीं हुआ है। तब तक अपने इनाम लेते रहें।',
       'handsToGo': 'हाथ बाकी',
+      'handToGo': 'हाथ बाकी',
+      'forceSideshowTooLate':
+          'देर हो गई — अब वह साइडशो नहीं हो सकता। कोई हथौड़ा खर्च नहीं हुआ।',
       'settings': 'सेटिंग्स',
       'language': 'भाषा',
       'numberSystem': 'संख्या प्रारूप',
@@ -809,6 +830,13 @@ class Strings {
       'unitBillion': 'बिलियन',
       'switchTheme': 'थीम बदलें',
       'signOut': 'साइन आउट',
+      'signOutQ': 'साइन आउट करें?',
+      'signOutBody':
+          'आपके चिप्स, हीरे, हथौड़े और तस्वीरें इसी खाते में रहेंगे।',
+      'providerGuest': 'मेहमान',
+      'unitHourShort': 'घं',
+      'unitMinuteShort': 'मि',
+      'unitSecondShort': 'से',
       'serviceUnavailable': 'सेवा उपलब्ध नहीं है',
       'soundLabel': 'आवाज़',
       'vibrationLabel': 'कंपन',
@@ -1019,7 +1047,7 @@ class Strings {
       'totalWinnings': 'মোট জেতা',
       'biggestPot': 'সবচেয়ে বড় পট',
       'playedNote': 'কোনো চাল দিলে তবেই হাতটি গোনা হয়।',
-      'fourHourBonus': '৪-ঘণ্টার বোনাস',
+      'fourHourBonus': '4-ঘণ্টার বোনাস',
       'milestone': 'মাইলস্টোন',
       'collect': 'নিন',
       'rewardCollected': 'পুরস্কার সংগ্রহ হয়েছে!',
@@ -1064,6 +1092,9 @@ class Strings {
       'comingSoonBody':
           'চিপ কেনা এখনও চালু হয়নি। ততক্ষণ আপনার পুরস্কার নিতে থাকুন।',
       'handsToGo': 'হাত বাকি',
+      'handToGo': 'হাত বাকি',
+      'forceSideshowTooLate':
+          'দেরি হয়ে গেছে — সেই সাইডশো আর সম্ভব নয়। কোনো হাতুড়ি খরচ হয়নি।',
       'settings': 'সেটিংস',
       'language': 'ভাষা',
       'numberSystem': 'সংখ্যা বিন্যাস',
@@ -1075,6 +1106,12 @@ class Strings {
       'unitBillion': 'বিলিয়ন',
       'switchTheme': 'থিম বদলান',
       'signOut': 'সাইন আউট',
+      'signOutQ': 'সাইন আউট করবেন?',
+      'signOutBody': 'আপনার চিপস, হীরে, হাতুড়ি আর ছবি এই অ্যাকাউন্টেই থাকবে।',
+      'providerGuest': 'অতিথি',
+      'unitHourShort': 'ঘ',
+      'unitMinuteShort': 'মি',
+      'unitSecondShort': 'সে',
       'serviceUnavailable': 'পরিষেবা উপলব্ধ নেই',
       'soundLabel': 'শব্দ',
       'vibrationLabel': 'কম্পন',
@@ -1331,6 +1368,9 @@ class Strings {
       'comingSoonBody':
           'ચિપ્સ ખરીદવાનું હજી શરૂ થયું નથી. ત્યાં સુધી તમારાં ઇનામ લેતા રહો.',
       'handsToGo': 'હાથ બાકી',
+      'handToGo': 'હાથ બાકી',
+      'forceSideshowTooLate':
+          'મોડું થઈ ગયું — હવે એ સાઇડશો શક્ય નથી. કોઈ હથોડી વપરાઈ નથી.',
       'settings': 'સેટિંગ્સ',
       'language': 'ભાષા',
       'numberSystem': 'સંખ્યા ફોર્મેટ',
@@ -1342,6 +1382,12 @@ class Strings {
       'unitBillion': 'બિલિયન',
       'switchTheme': 'થીમ બદલો',
       'signOut': 'સાઇન આઉટ',
+      'signOutQ': 'સાઇન આઉટ કરશો?',
+      'signOutBody': 'તમારી ચિપ્સ, હીરા, હથોડી અને ફોટા આ જ ખાતામાં રહેશે.',
+      'providerGuest': 'મહેમાન',
+      'unitHourShort': 'ક',
+      'unitMinuteShort': 'મિ',
+      'unitSecondShort': 'સે',
       'serviceUnavailable': 'સેવા ઉપલબ્ધ નથી',
       'soundLabel': 'અવાજ',
       'vibrationLabel': 'કંપન',
@@ -1596,6 +1642,9 @@ class Strings {
       'comingSoonBody':
           'ਚਿਪਸ ਖਰੀਦਣਾ ਅਜੇ ਸ਼ੁਰੂ ਨਹੀਂ ਹੋਇਆ। ਉਦੋਂ ਤੱਕ ਆਪਣੇ ਇਨਾਮ ਲੈਂਦੇ ਰਹੋ।',
       'handsToGo': 'ਹੱਥ ਬਾਕੀ',
+      'handToGo': 'ਹੱਥ ਬਾਕੀ',
+      'forceSideshowTooLate':
+          'ਦੇਰ ਹੋ ਗਈ — ਹੁਣ ਉਹ ਸਾਈਡਸ਼ੋ ਨਹੀਂ ਹੋ ਸਕਦਾ। ਕੋਈ ਹਥੌੜਾ ਖਰਚ ਨਹੀਂ ਹੋਇਆ।',
       'settings': 'ਸੈਟਿੰਗਾਂ',
       'language': 'ਭਾਸ਼ਾ',
       'numberSystem': 'ਨੰਬਰ ਫਾਰਮੈਟ',
@@ -1607,6 +1656,13 @@ class Strings {
       'unitBillion': 'ਬਿਲੀਅਨ',
       'switchTheme': 'ਥੀਮ ਬਦਲੋ',
       'signOut': 'ਸਾਈਨ ਆਊਟ',
+      'signOutQ': 'ਸਾਈਨ ਆਊਟ ਕਰਨਾ ਹੈ?',
+      'signOutBody':
+          'ਤੁਹਾਡੇ ਚਿਪਸ, ਹੀਰੇ, ਹਥੌੜੇ ਅਤੇ ਤਸਵੀਰਾਂ ਇਸੇ ਖਾਤੇ ਵਿੱਚ ਰਹਿਣਗੇ।',
+      'providerGuest': 'ਮਹਿਮਾਨ',
+      'unitHourShort': 'ਘੰ',
+      'unitMinuteShort': 'ਮਿੰ',
+      'unitSecondShort': 'ਸ',
       'serviceUnavailable': 'ਸੇਵਾ ਉਪਲਬਧ ਨਹੀਂ ਹੈ',
       'soundLabel': 'ਆਵਾਜ਼',
       'vibrationLabel': 'ਕੰਪਨ',

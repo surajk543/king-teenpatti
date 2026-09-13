@@ -616,10 +616,26 @@ class _NoticeHost extends StatefulWidget {
 
 class _NoticeHostState extends State<_NoticeHost> {
   String? _shown;
+  Screen? _screen;
 
   @override
   Widget build(BuildContext context) {
     final notice = context.select<GameState, String?>((s) => s.notice);
+
+    // A toast belongs to the screen it was raised on. The lobby's "Left the
+    // table after 3 missed turns" stayed up after the player sat down again,
+    // over their own chips and the − key (QA 14 Sep 2026). When the screen
+    // changes with nothing new to say, the old toast goes; when it changes
+    // WITH news — a kick lands in the lobby together with its reason — the
+    // news replaces it below as before.
+    final screen = context.select<GameState, Screen>((s) => s.screen);
+    final moved = _screen != null && _screen != screen;
+    _screen = screen;
+    if (moved && notice == null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) ScaffoldMessenger.of(context).clearSnackBars();
+      });
+    }
 
     if (notice != null && notice != _shown) {
       _shown = notice;

@@ -399,6 +399,14 @@ class _StoreTabs extends StatelessWidget {
     }
     return total;
   }
+
+  /// How wide the keys are as icons alone ([compact]): each one its padding
+  /// and icon, never under the touch floor, with the gaps between them.
+  static double compactWidth({required bool animatedOnly}) {
+    final shelves = _shelves(const Strings(AppLang.english), animatedOnly);
+    final keyW = math.max(Dim.minTouch, 2 * Space.md + 18);
+    return shelves.length * keyW + Space.sm * (shelves.length - 1);
+  }
 }
 
 /// Opens the store over whatever is behind it.
@@ -543,16 +551,16 @@ class _ChipStoreState extends State<_ChipStore> {
     // whatever is left. Header: the title over the blurb, or the close
     // button's touch target, whichever is taller — 44dp at the normal text
     // scale, 48 at the 1.25 ceiling.
-    final headerH = math.max(
-      Dim.minTouch,
-      _line(scaler, 17, 1.25) + _line(scaler, 12, 1.35),
-    );
-    // The tabs keep their words while the title beside them keeps some room of
-    // its own. The header row is the screen less the safe area, the sheet's
-    // margin and its padding; its fixed parts are the shelf's glyph, a
-    // balance, the close key and the gaps between them. A balance is counted
-    // on every shelf, although Chips shows none, so the tabs never change size
-    // — and move under a finger — on the way from one shelf to the next.
+    // The tabs keep their words only while every shelf's blurb still fits
+    // beside them on one line. The header row is the screen less the safe
+    // area, the sheet's margin and its padding; its fixed parts are the
+    // shelf's glyph, a balance, the close key and the gaps between them. A
+    // balance is counted on every shelf, although Chips shows none, and the
+    // widest blurb of all four shelves decides, so the tabs never change
+    // size — and move under a finger — on the way from one shelf to the
+    // next. It used to keep a flat 96dp for the title, which left the Hammers
+    // and Pictures blurbs cut off even on an 891dp phone ("A hammer forces a
+    // sideshow — nob…", QA 14 Sep 2026).
     final safe = MediaQuery.paddingOf(context);
     final headerW =
         size.width - safe.left - safe.right - 2 * Space.md - 2 * Space.lg;
@@ -566,9 +574,41 @@ class _ChipStoreState extends State<_ChipStore> {
         Space.md +
         Space.sm +
         Dim.minTouch;
+    final blurbStyle = theme.textTheme.bodySmall ?? const TextStyle();
+    var blurbW = 0.0;
+    for (final blurb in [
+      t.storeBlurb,
+      t.storeDiamondsBlurb,
+      t.storeHammersBlurb,
+      atTable ? t.storeAnimatedBlurb : t.storePicturesBlurb,
+    ]) {
+      final painter = TextPainter(
+        text: TextSpan(text: blurb, style: blurbStyle),
+        textDirection: Directionality.of(context),
+        textScaler: scaler,
+        maxLines: 1,
+      )..layout();
+      blurbW = math.max(blurbW, painter.width.ceilToDouble());
+      painter.dispose();
+    }
+    final labelledW = _StoreTabs.labelledWidth(
+      context,
+      t,
+      animatedOnly: atTable,
+    );
     final compactTabs =
-        headerW - fixedW - titleFloor <
-        _StoreTabs.labelledWidth(context, t, animatedOnly: atTable);
+        headerW - fixedW - math.max(titleFloor, blurbW) < labelledW;
+    // With the words gone the keys are icons alone; where even then the widest
+    // blurb does not fit on one line (a 640dp phone), it takes two, and the
+    // header is measured for two rather than cutting the sentence off.
+    final tabsW = compactTabs
+        ? _StoreTabs.compactWidth(animatedOnly: atTable)
+        : labelledW;
+    final blurbLines = headerW - fixedW - tabsW >= blurbW ? 1 : 2;
+    final headerH = math.max(
+      Dim.minTouch,
+      _line(scaler, 17, 1.25) + blurbLines * _line(scaler, 12, 1.35),
+    );
 
     // A shelf of packs: near-square cards, the lobby card's proportions, set
     // out one stagger apart. Keyed by shelf, so moving from one pack shelf to
@@ -688,7 +728,7 @@ class _ChipStoreState extends State<_ChipStore> {
                                     : onHammers
                                     ? t.storeHammersBlurb
                                     : t.storeBlurb,
-                                maxLines: 1,
+                                maxLines: blurbLines,
                                 overflow: TextOverflow.ellipsis,
                                 style: theme.textTheme.bodySmall?.copyWith(
                                   color: scheme.onSurface.withValues(

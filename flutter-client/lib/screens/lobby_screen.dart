@@ -755,7 +755,8 @@ class _TopBar extends StatelessWidget {
                                   child: RepaintBoundary(
                                     child: Column(
                                       mainAxisSize: MainAxisSize.min,
-                                      crossAxisAlignment: CrossAxisAlignment.end,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.end,
                                       children: [
                                         Row(
                                           mainAxisSize: MainAxisSize.min,
@@ -795,7 +796,9 @@ class _TopBar extends StatelessWidget {
                                               value: user?.diamond ?? 0,
                                               style: AppTheme.money(
                                                 text.labelMedium!,
-                                                colour: diamondInkOn(brightness),
+                                                colour: diamondInkOn(
+                                                  brightness,
+                                                ),
                                               ),
                                             ),
                                             const SizedBox(width: Space.md),
@@ -949,13 +952,24 @@ class _ProviderPill extends StatelessWidget {
     final glass = GlassColors.of(context);
     final dark = theme.brightness == Brightness.dark;
 
+    // A guest is named in the player's language (it read "GUEST" in every
+    // language, QA 14 Sep 2026); a provider keeps its brand name. Tracked
+    // capitals in English only: spread over Devanagari or Gurmukhi they pull
+    // the vowel signs off their letters.
+    final lang = context.select<GameState, AppLang>((s) => s.lang);
+    final english = lang == AppLang.english;
+    final name = provider == 'guest'
+        ? Strings(lang).providerGuest
+        : provider.isEmpty
+        ? ''
+        : '${provider[0].toUpperCase()}${provider.substring(1)}';
     final label = Text(
-      provider.toUpperCase(),
+      english ? name.toUpperCase() : name,
       maxLines: 1,
       overflow: TextOverflow.ellipsis,
       style: AppTheme.smallCaps(
         theme.textTheme.labelSmall!,
-        tracking: compact ? 0.9 : 1.2,
+        tracking: english ? (compact ? 0.9 : 1.2) : 0,
         colour: theme.colorScheme.onSurface.withValues(alpha: AppTheme.inkLow),
       ).copyWith(fontSize: compact ? 9 : null, height: compact ? 1.1 : null),
     );
@@ -975,6 +989,59 @@ class _ProviderPill extends StatelessWidget {
       child: label,
     );
   }
+}
+
+/// Signing out drops the player on the login screen, so it asks first, the way
+/// quitting and leaving a table do. The top bar's key sits one tap from
+/// Settings and used to sign a player out with no question at all (QA 14 Sep
+/// 2026) — and a guest who then played on without typing a name came back
+/// under a fresh guest name.
+Future<void> _confirmSignOut(BuildContext context, GameState state) async {
+  final theme = Theme.of(context);
+  final t = state.t;
+  final yes = await showDialog<bool>(
+    context: context,
+    builder: (context) => GlassDialog(
+      padding: const EdgeInsets.all(Space.xl),
+      title: Row(
+        children: [
+          Icon(
+            Icons.logout_rounded,
+            size: 20,
+            color: theme.colorScheme.primary,
+          ),
+          const SizedBox(width: Space.md),
+          Expanded(
+            child: Text(
+              t.signOutQ,
+              style: AppTheme.label(
+                theme.textTheme.titleMedium ?? const TextStyle(),
+              ),
+            ),
+          ),
+        ],
+      ),
+      content: Text(
+        t.signOutBody,
+        style: theme.textTheme.bodyMedium?.copyWith(
+          color: theme.colorScheme.onSurface.withValues(alpha: AppTheme.inkMed),
+        ),
+      ),
+      actions: [
+        GlassButton(
+          style: GlassButtonStyle.text,
+          label: t.cancel,
+          onPressed: () => Navigator.pop(context, false),
+        ),
+        GlassButton(
+          style: GlassButtonStyle.primary,
+          label: t.signOut,
+          onPressed: () => Navigator.pop(context, true),
+        ),
+      ],
+    ),
+  );
+  if (yes == true) await state.signOut();
 }
 
 /// The three panels the top rail can open, as one segmented control.
@@ -1065,7 +1132,12 @@ class _BarActions extends StatelessWidget {
                 AppTheme.inkMed,
               ),
               divider,
-              key(state.t.signOut, Icons.logout_rounded, state.signOut, 0.42),
+              key(
+                state.t.signOut,
+                Icons.logout_rounded,
+                () => _confirmSignOut(context, state),
+                0.42,
+              ),
             ],
           ),
         ),
@@ -2734,7 +2806,12 @@ class _StatsDrawer extends StatelessWidget {
 String _sampleIn(NumberSystem system, GameState state) {
   final was = chipNumberSystem;
   chipNumberSystem = system;
-  final text = formatChips(state.user?.chips ?? 1250000);
+  // The player's own balance while it reads differently in the two systems.
+  // At a lakh or less both print the same digits, so the choice showed
+  // "90,000 / 90,000" or "0 / 0" (QA 14 Sep 2026); a sum that shows the
+  // difference stands in.
+  final chips = state.user?.chips ?? 0;
+  final text = formatChips(chips > 100000 ? chips : 12500000);
   chipNumberSystem = was;
   return text;
 }
@@ -2811,7 +2888,9 @@ class _NumberOption extends StatelessWidget {
                     children: [
                       Text(
                         label,
-                        maxLines: 1,
+                        // Two lines rather than one cut short: a 640dp drawer
+                        // showed "International · Millio…" (QA 14 Sep 2026).
+                        maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: AppTheme.label(
                           text.bodyMedium!,
@@ -3021,6 +3100,13 @@ class _SettingsDrawerState extends State<_SettingsDrawer> {
                       },
                     ),
               decoration: InputDecoration(isDense: true, errorText: _nameError),
+              // The server's complaint is about the name that was sent. Once
+              // the player edits it, that complaint no longer describes what
+              // is in the field, so it goes rather than staying red over a
+              // name that may already be fine.
+              onChanged: (_) {
+                if (_nameError != null) setState(() => _nameError = null);
+              },
               onSubmitted: (_) => _save(state),
             ),
           ),
@@ -3183,7 +3269,12 @@ class _SettingsDrawerState extends State<_SettingsDrawer> {
           leading: const Icon(Icons.logout_rounded),
           title: t.signOut,
           danger: true,
-          onTap: state.signOut,
+          onTap: () {
+            // The drawer closes first, as it does before the picture picker,
+            // so the question is not stacked over an open drawer.
+            Navigator.pop(context);
+            _confirmSignOut(context, state);
+          },
         ),
         const _DrawerRule(),
         // Which build this is, for anyone reporting what they saw.
@@ -3317,7 +3408,7 @@ class _BonusChip extends StatelessWidget {
       title: state.t.fourHourBonus,
       subtitle: ready
           ? '${state.t.collect} ${formatChips(r.bonusReward)}'
-          : formatCountdown(r.untilBonus),
+          : formatCountdown(r.untilBonus, state.t),
       enabled: ready,
       maxWidth: maxWidth,
       onTap: () => state.claimReward('bonus'),
@@ -3546,7 +3637,7 @@ class _MilestoneChip extends StatelessWidget {
       title: state.t.milestone,
       subtitle: r.milestoneAvailable
           ? '${state.t.collect} ${formatChips(r.milestoneReward)}'
-          : '${r.handsToNextMilestone} ${state.t.handsToGo}',
+          : '${r.handsToNextMilestone} ${r.handsToNextMilestone == 1 ? state.t.handToGo : state.t.handsToGo}',
       enabled: r.milestoneAvailable,
       onTap: () => state.claimReward('milestone'),
     );
