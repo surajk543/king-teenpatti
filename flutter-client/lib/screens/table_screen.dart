@@ -48,8 +48,8 @@ import '../widgets/table_ground.dart';
 /// brightnesses**, because the cloth is dark emerald in both. Only the chrome
 /// standing on the ground — the rail, the console, the drawers — follows the
 /// theme.
-/// Which of the three panels the left drawer is showing.
-enum _LeftPanel { menu, chat, quick }
+/// Which of the two panels the left drawer is showing.
+enum _LeftPanel { menu, chat }
 
 /// The left drawer's content, which tells the table when it has left the
 /// screen.
@@ -89,9 +89,9 @@ class TableScreen extends StatefulWidget {
 }
 
 class _TableScreenState extends State<TableScreen> {
-  /// The menu, the chat and the quick messages share one drawer rather than
-  /// being a drawer and two sheets: all three are "the panel behind the left
-  /// edge", and a Scaffold has only one of those. Which one is showing is
+  /// The menu and the chat (with its quick messages tab) share one drawer
+  /// rather than being a drawer and a sheet: both are "the panel behind the
+  /// left edge", and a Scaffold has only one of those. Which one is showing is
   /// decided before it opens — and one drawer is also what lets the back
   /// gesture close any of them (`_BackGuard` asks only `isDrawerOpen`).
   ///
@@ -108,8 +108,8 @@ class _TableScreenState extends State<TableScreen> {
 
   void _open(_LeftPanel panel) {
     // Only the chat shows the conversation, so only the chat clears its
-    // badge. The quick panel sends into it without showing it, and a line
-    // nobody read yet is still unread after the player has said something.
+    // badge. It always opens on the conversation, even though its quick
+    // messages tab sends into it without showing it.
     if (panel == _LeftPanel.chat) context.read<GameState>().markChatRead();
     setState(() => _panel = panel);
     _scaffold.currentState?.openDrawer();
@@ -117,10 +117,10 @@ class _TableScreenState extends State<TableScreen> {
 
   /// Puts the menu back behind the edge once the drawer has finished closing.
   ///
-  /// Left as it was, a swipe in from the edge after the quick messages would
-  /// open a panel where one stray tap talks to the whole table, and after the
-  /// chat it would show the conversation without clearing its badge. The
-  /// menu sends nothing and reads nothing, so it is what a swipe should find.
+  /// Left as it was, a swipe in from the edge after the chat would show the
+  /// conversation without clearing its badge, a tab away from quick messages
+  /// where one stray tap talks to the whole table. The menu sends nothing and
+  /// reads nothing, so it is what a swipe should find.
   ///
   /// `Scaffold.onDrawerChanged` cannot do this: it fires as the close starts,
   /// with the panel still on screen, and swapping it there would flash the
@@ -153,7 +153,6 @@ class _TableScreenState extends State<TableScreen> {
         child: switch (_panel) {
           _LeftPanel.menu => const _TableDrawer(),
           _LeftPanel.chat => const _ChatDrawer(),
-          _LeftPanel.quick => const _QuickDrawer(),
         },
       ),
       body: Stack(
@@ -340,8 +339,8 @@ class _RoomGround extends StatelessWidget {
 }
 
 /// The only chrome in the game room besides the Shop key in the corner above
-/// it: the menu, the chat below it and the quick messages below that, stacked
-/// down the left edge.
+/// it: the menu and the chat below it, stacked down the left edge. The quick
+/// messages are a tab of the chat drawer.
 ///
 /// Everything else that used to sit across the top — the table code, the
 /// category, the hand number — is in the drawer. None of it changed what a
@@ -363,12 +362,14 @@ class _SideRail extends StatelessWidget {
     // 54.0x56.0 at 1280x800 — every one of them past the 44dp minimum, which
     // an inset key would not have been at the rail's 48dp floor.
     //
-    // Three keys and two gaps, centred down the rail: 3x46.8 + 2x10 = 160.4dp
-    // at 640x360, so the column runs from y 99.8 to 260.2. The Shop key above
+    // Two keys and a gap, centred down the rail: 2x46.8 + 10 = 103.6dp at
+    // 640x360, so the column runs from y 128.2 to 231.8. The Shop key above
     // it ends by y 50 (6dp inset, 44dp tall) and the Pack key below it starts
     // at y 306 at the earliest (44dp tall, at most 10dp off the bottom), which
-    // leaves more than 45dp clear at each end on the tightest phone; at
-    // 891x411 the column is 180.2dp tall and the margins only grow.
+    // leaves more than 74dp clear at each end on the tightest phone; at
+    // 891x411 the column is 116.8dp tall and the margins only grow. The quick
+    // messages had a third key here until 14 Sep 2026 (owner); they are a tab
+    // of the chat drawer now.
     final railW = Dim.railW(size.width);
     final keyH = Dim.railButtonH(size.height);
 
@@ -413,39 +414,6 @@ class _SideRail extends StatelessWidget {
                       ),
               ),
             ),
-            const SizedBox(height: Space.md),
-            // The quick messages (owner, 13 Sep 2026). They are chat, so they
-            // share the chat's cooldown, and the key shows the same countdown:
-            // the player sees the lines are resting before opening the panel.
-            _RailKey(
-              tooltip: state.canChat
-                  ? t.quickMessagesTip
-                  : '${t.quickMessagesTip} ${state.chatCooldownLeft}s',
-              width: railW,
-              height: keyH,
-              onTap: () => onOpen(_LeftPanel.quick),
-              child: state.canChat
-                  ? const _RailLottie(
-                      asset: 'assets/animations/Quick message.json',
-                      fallback: Icons.quickreply_rounded,
-                      recolour: _envelopeInInk,
-                      // Larger than the glyphs above it, in a key of the same
-                      // size (owner, 14 Sep 2026). With its disc hidden the
-                      // envelope fills about 45% of the canvas's width, centred
-                      // across it and a little below the middle, and the plane's
-                      // trail reaches out to its left; so the canvas is drawn at
-                      // 56dp and lifted 2dp, which centres the envelope in the
-                      // key and keeps the trail (about 22dp left of centre)
-                      // inside even a 48dp key.
-                      size: 30,
-                      art: 56,
-                      artShift: Offset(0, -2),
-                    )
-                  : _ChatCountdown(
-                      left: state.chatCooldownLeft,
-                      total: GameState.chatCooldown.inSeconds,
-                    ),
-            ),
           ],
         ),
       ),
@@ -458,7 +426,7 @@ List<ValueDelegate<Object>> _strokesInInk(Color ink, Color paper) => [
   ValueDelegate.strokeColor(const ['**'], value: ink),
 ];
 
-/// The quick-message envelope in the rail's ink (owner, 14 Sep 2026: black):
+/// The quick-message envelope in the drawer's ink (owner, 14 Sep 2026: black):
 /// the envelope, its flap, the @, the paper plane and its dotted trail take the
 /// ink, the letter takes the paper so it shows against the envelope it rises
 /// out of, and the disc behind it all is hidden, so the envelope stands on the
@@ -494,10 +462,11 @@ List<ValueDelegate<Object>> _envelopeInInk(Color ink, Color paper) => [
   ValueDelegate.strokeColor(const ['Shape Layer 1', '**'], value: ink),
 ];
 
-/// A rail key's animated glyph (owner, 14 Sep 2026): the chat key plays
-/// `assets/animations/Message.json`, a speech bubble that writes its lines, and
-/// the quick-message key `assets/animations/Quick message.json`, an envelope
-/// that opens, sends a paper plane and closes. Each loops.
+/// An animated chat glyph (owner, 14 Sep 2026): the rail's chat key and the
+/// chat drawer's first tab play `assets/animations/Message.json`, a speech
+/// bubble that writes its lines, and the drawer's quick-message tab
+/// `assets/animations/Quick message.json`, an envelope that opens, sends a
+/// paper plane and closes. Each loops while [animate].
 ///
 /// [recolour] gives the file's colours in terms of the rail's ink — the
 /// theme's onSurface at full strength, black on the light theme and white on
@@ -516,6 +485,7 @@ class _RailLottie extends StatefulWidget {
     this.size = 26,
     this.art,
     this.artShift = Offset.zero,
+    this.animate = true,
   });
 
   final String asset;
@@ -537,6 +507,9 @@ class _RailLottie extends StatefulWidget {
 
   /// Moves the art so its drawn content, rather than its canvas, is centred.
   final Offset artShift;
+
+  /// False holds the glyph on its current frame.
+  final bool animate;
 
   @override
   State<_RailLottie> createState() => _RailLottieState();
@@ -567,6 +540,7 @@ class _RailLottieState extends State<_RailLottie> {
         child: Lottie.asset(
           widget.asset,
           delegates: _delegates,
+          animate: widget.animate,
           fit: BoxFit.contain,
           // A missing or unreadable file must not leave a blank key.
           errorBuilder: (context, error, stack) =>
@@ -3771,8 +3745,16 @@ class _ChatDrawer extends StatefulWidget {
   State<_ChatDrawer> createState() => _ChatDrawerState();
 }
 
+/// The chat drawer's two pages.
+enum _ChatView { chat, quick }
+
 class _ChatDrawerState extends State<_ChatDrawer> {
   final _input = TextEditingController();
+
+  /// Which page is up. Every opening starts on the conversation — the drawer
+  /// goes back to the menu once it closes, so this state is new each time —
+  /// because the conversation is what the rail's key promised.
+  _ChatView _view = _ChatView.chat;
 
   @override
   void dispose() {
@@ -3784,6 +3766,7 @@ class _ChatDrawerState extends State<_ChatDrawer> {
   Widget build(BuildContext context) {
     final state = context.watch<GameState>();
     final theme = Theme.of(context);
+    final t = state.t;
     // On a landscape phone the soft keyboard leaves the panel about a
     // hundred and fifty points tall — less than the title, the rule and the
     // composer need, and the shortfall painted overflow stripes across the
@@ -3806,24 +3789,47 @@ class _ChatDrawerState extends State<_ChatDrawer> {
               if (!typing)
                 Padding(
                   padding: const EdgeInsets.fromLTRB(
-                    Space.lg,
                     Space.md,
-                    Space.sm,
+                    Space.md,
+                    Space.xs,
                     Space.xs,
                   ),
+                  // The quick messages are a tab here (owner, 14 Sep 2026;
+                  // they had a rail key and a drawer of their own). Both are
+                  // how a player talks to the table, and from the top of the
+                  // one drawer either is a tap away.
                   child: Row(
                     children: [
-                      Icon(
-                        Icons.forum_rounded,
-                        size: 18,
-                        color: _goldInk(theme.brightness),
-                      ),
-                      const SizedBox(width: Space.md),
                       Expanded(
-                        child: Text(
-                          state.t.tableChat,
-                          style: AppTheme.label(
-                            theme.textTheme.titleMedium ?? const TextStyle(),
+                        child: _ChatTab(
+                          label: t.tableChat,
+                          selected: _view == _ChatView.chat,
+                          onTap: () => setState(() => _view = _ChatView.chat),
+                          glyph: _RailLottie(
+                            asset: 'assets/animations/Message.json',
+                            fallback: Icons.forum_rounded,
+                            recolour: _strokesInInk,
+                            size: 24,
+                            animate: _view == _ChatView.chat,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: Space.xs),
+                      Expanded(
+                        child: _ChatTab(
+                          label: t.quickMessagesTitle,
+                          selected: _view == _ChatView.quick,
+                          onTap: () => setState(() => _view = _ChatView.quick),
+                          // The rail's proportions (a 56dp canvas in a 30dp
+                          // slot, lifted 2dp), scaled to the tab.
+                          glyph: _RailLottie(
+                            asset: 'assets/animations/Quick message.json',
+                            fallback: Icons.quickreply_rounded,
+                            recolour: _envelopeInInk,
+                            size: 24,
+                            art: 45,
+                            artShift: const Offset(0, -1.6),
+                            animate: _view == _ChatView.quick,
                           ),
                         ),
                       ),
@@ -3838,114 +3844,155 @@ class _ChatDrawerState extends State<_ChatDrawer> {
                   ),
                 ),
               if (!typing) const _MenuRule(),
-              Expanded(
-                child: ListView.builder(
-                  reverse: true,
+              if (_view == _ChatView.quick)
+                Expanded(child: _quickLines(state))
+              else ...[
+                Expanded(
+                  child: ListView.builder(
+                    reverse: true,
+                    padding: const EdgeInsets.fromLTRB(
+                      Space.lg,
+                      Space.sm,
+                      Space.lg,
+                      Space.sm,
+                    ),
+                    itemCount: state.chat.length,
+                    itemBuilder: (context, i) {
+                      final m = state.chat[state.chat.length - 1 - i];
+                      final mine = m.userId == state.user?.id;
+                      // Everyone gets their own colour, kept from their id so a
+                      // player looks the same every time they speak.
+                      final colour = state.colourFor(
+                        m.userId,
+                        theme.colorScheme,
+                      );
+
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(
+                          vertical: Space.xxs,
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Container(
+                              width: 3,
+                              height: 18,
+                              margin: const EdgeInsets.only(
+                                right: Space.md,
+                                top: 3,
+                              ),
+                              decoration: BoxDecoration(
+                                color: colour,
+                                borderRadius: BorderRadius.circular(Radii.xs),
+                              ),
+                            ),
+                            Expanded(
+                              child: RichText(
+                                text: TextSpan(
+                                  style: theme.textTheme.bodyMedium,
+                                  children: [
+                                    TextSpan(
+                                      text: '${mine ? 'You' : m.displayName}: ',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                        color: colour,
+                                      ),
+                                    ),
+                                    TextSpan(text: m.text),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                Padding(
                   padding: const EdgeInsets.fromLTRB(
                     Space.lg,
                     Space.sm,
                     Space.lg,
-                    Space.sm,
+                    Space.md,
                   ),
-                  itemCount: state.chat.length,
-                  itemBuilder: (context, i) {
-                    final m = state.chat[state.chat.length - 1 - i];
-                    final mine = m.userId == state.user?.id;
-                    // Everyone gets their own colour, kept from their id so a
-                    // player looks the same every time they speak.
-                    final colour = state.colourFor(m.userId, theme.colorScheme);
-
-                    return Padding(
-                      padding: const EdgeInsets.symmetric(vertical: Space.xxs),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Container(
-                            width: 3,
-                            height: 18,
-                            margin: const EdgeInsets.only(
-                              right: Space.md,
-                              top: 3,
-                            ),
-                            decoration: BoxDecoration(
-                              color: colour,
-                              borderRadius: BorderRadius.circular(Radii.xs),
-                            ),
-                          ),
-                          Expanded(
-                            child: RichText(
-                              text: TextSpan(
-                                style: theme.textTheme.bodyMedium,
-                                children: [
-                                  TextSpan(
-                                    text: '${mine ? 'You' : m.displayName}: ',
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.w700,
-                                      color: colour,
-                                    ),
-                                  ),
-                                  TextSpan(text: m.text),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    );
-                  },
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(
-                  Space.lg,
-                  Space.sm,
-                  Space.lg,
-                  Space.md,
-                ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      // The composer on glass: the same controller, limit,
-                      // hint and submit, with the field's fill from the
-                      // glass tokens rather than the bare input theme. The
-                      // counter stays hidden (the component's default).
-                      child: GlassTextField(
-                        controller: _input,
-                        maxLength: 200,
-                        hintText: state.t.saySomething,
-                        decoration: const InputDecoration(isDense: true),
-                        onSubmitted: (_) => _send(state),
-                      ),
-                    ),
-                    const SizedBox(width: Space.md),
-                    PressScale(
-                      enabled: state.canChat,
-                      child: IconButton.filled(
-                        tooltip: state.canChat
-                            ? null
-                            : '${state.chatCooldownLeft}s',
-                        onPressed: state.canChat ? () => _send(state) : null,
-                        style: _stepperStyle(theme).copyWith(
-                          minimumSize: const WidgetStatePropertyAll(
-                            Size(Dim.minTouch, Dim.minTouch),
-                          ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        // The composer on glass: the same controller, limit,
+                        // hint and submit, with the field's fill from the
+                        // glass tokens rather than the bare input theme. The
+                        // counter stays hidden (the component's default).
+                        child: GlassTextField(
+                          controller: _input,
+                          maxLength: 200,
+                          hintText: t.saySomething,
+                          decoration: const InputDecoration(isDense: true),
+                          onSubmitted: (_) => _send(state),
                         ),
-                        icon: state.canChat
-                            ? const Icon(Icons.send_rounded)
-                            : _ChatCountdown(
-                                left: state.chatCooldownLeft,
-                                total: GameState.chatCooldown.inSeconds,
-                              ),
                       ),
-                    ),
-                  ],
+                      const SizedBox(width: Space.md),
+                      PressScale(
+                        enabled: state.canChat,
+                        child: IconButton.filled(
+                          tooltip: state.canChat
+                              ? null
+                              : '${state.chatCooldownLeft}s',
+                          onPressed: state.canChat ? () => _send(state) : null,
+                          style: _stepperStyle(theme).copyWith(
+                            minimumSize: const WidgetStatePropertyAll(
+                              Size(Dim.minTouch, Dim.minTouch),
+                            ),
+                          ),
+                          icon: state.canChat
+                              ? const Icon(Icons.send_rounded)
+                              : _ChatCountdown(
+                                  left: state.chatCooldownLeft,
+                                  total: GameState.chatCooldown.inSeconds,
+                                ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
+              ],
             ],
           ),
         ),
       ),
     );
+  }
+
+  /// The quick messages page: set lines a player can say in one tap —
+  /// "Please Play Blind.", "Please take show." and the rest of
+  /// [Strings.quickMessages] (owner, 13 Sep 2026).
+  ///
+  /// A column of the drawer rather than chips over the felt: ten sentences, in
+  /// scripts that run long, need a column of room, and the felt has none to
+  /// spare. Each goes out through [GameState.sendChat] exactly as typed chat
+  /// does — free text in the sender's own language, so the protocol does not
+  /// change — and lands as their bubble and in the chat like anything typed.
+  /// They share the chat's cooldown, and each row counts it down.
+  Widget _quickLines(GameState state) {
+    final lines = state.t.quickMessages;
+    final left = state.chatCooldownLeft;
+    return ListView.builder(
+      padding: const EdgeInsets.symmetric(vertical: Space.xs),
+      itemCount: lines.length,
+      itemBuilder: (context, i) => _QuickLine(
+        text: lines[i],
+        secondsLeft: left,
+        onTap: state.canChat ? () => _sendQuick(state, lines[i]) : null,
+      ),
+    );
+  }
+
+  /// The same ending as a typed line: once it is out the drawer goes, and what
+  /// the player sees next is their words over their own seat. A refusal (the
+  /// cooldown caught between build and tap) leaves it open.
+  void _sendQuick(GameState state, String line) {
+    if (!state.sendChat(line)) return;
+    Navigator.of(context).pop();
   }
 
   void _send(GameState state) {
@@ -3958,105 +4005,93 @@ class _ChatDrawerState extends State<_ChatDrawer> {
   }
 }
 
-/// Set lines a player can say in one tap — "Please Play Blind.", "Please take
-/// show." and the rest of [Strings.quickMessages] (owner, 13 Sep 2026).
-///
-/// A panel of the left drawer rather than chips over the felt: ten sentences,
-/// in scripts that run long, need a column of room, and the felt has none to
-/// spare. Each goes out through [GameState.sendChat] exactly as typed chat
-/// does — free text in the sender's own language, so the protocol does not
-/// change — and lands as their bubble and in the chat like anything typed.
-class _QuickDrawer extends StatelessWidget {
-  const _QuickDrawer();
+/// One of the chat drawer's two tabs, the conversation or the quick messages:
+/// a glyph over its name, the whole tab the target. The tab that is up is
+/// washed and ringed in gold, and only its glyph plays. The name shrinks to
+/// fit rather than being cut: two tabs share a 260dp drawer on a 640dp phone.
+class _ChatTab extends StatelessWidget {
+  const _ChatTab({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+    required this.glyph,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+  final Widget glyph;
 
   @override
   Widget build(BuildContext context) {
-    // A watch is right here, unlike on the Scaffold: the once-a-second tick is
-    // what counts the cooldown down on the rows.
-    final state = context.watch<GameState>();
     final theme = Theme.of(context);
-    final t = state.t;
-    final lines = t.quickMessages;
-    final canChat = state.canChat;
-    final left = state.chatCooldownLeft;
+    final ink = theme.colorScheme.onSurface;
+    final gold = _goldInk(theme.brightness);
+    final radius = BorderRadius.circular(Radii.md);
 
-    return GlassDrawerPanel(
-      padding: EdgeInsets.zero,
-      // Loose constraints from the panel's Align would leave the list no
-      // height to scroll in, as in the menu.
-      child: SizedBox.expand(
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(
-                Space.lg,
-                Space.md,
-                Space.sm,
-                Space.xs,
+    return Semantics(
+      button: true,
+      selected: selected,
+      child: PressScale(
+        child: Material(
+          type: MaterialType.transparency,
+          child: InkWell(
+            borderRadius: radius,
+            enableFeedback: context.select<FeedbackSettings, bool>(
+              (f) => f.sound,
+            ),
+            onTap: onTap,
+            child: AnimatedContainer(
+              duration: Motion.fast,
+              constraints: const BoxConstraints(minHeight: Dim.minTouch),
+              padding: const EdgeInsets.symmetric(
+                horizontal: Space.xs,
+                vertical: Space.xs,
               ),
-              child: Row(
+              decoration: BoxDecoration(
+                borderRadius: radius,
+                color: selected
+                    ? ink.withValues(alpha: 0.07)
+                    : ink.withValues(alpha: 0),
+                border: Border.all(
+                  color: selected
+                      ? gold.withValues(alpha: 0.75)
+                      : gold.withValues(alpha: 0),
+                  width: Dim.hairline,
+                ),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(
-                    Icons.quickreply_rounded,
-                    size: 18,
-                    color: _goldInk(theme.brightness),
-                  ),
-                  const SizedBox(width: Space.md),
-                  Expanded(
+                  glyph,
+                  const SizedBox(height: Space.xxs),
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
                     child: Text(
-                      t.quickMessagesTitle,
+                      label,
                       maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppTheme.label(
-                        theme.textTheme.titleMedium ?? const TextStyle(),
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        fontWeight: selected
+                            ? FontWeight.w700
+                            : FontWeight.w500,
+                        color: ink.withValues(
+                          alpha: selected ? AppTheme.inkHigh : AppTheme.inkMed,
+                        ),
                       ),
-                    ),
-                  ),
-                  if (!canChat) ...[
-                    _ChatCountdown(
-                      left: left,
-                      total: GameState.chatCooldown.inSeconds,
-                    ),
-                    const SizedBox(width: Space.xs),
-                  ],
-                  PressScale(
-                    child: IconButton(
-                      visualDensity: VisualDensity.compact,
-                      icon: const Icon(Icons.close_rounded),
-                      onPressed: () => Navigator.pop(context),
                     ),
                   ),
                 ],
               ),
             ),
-            const _MenuRule(),
-            Expanded(
-              child: ListView.builder(
-                padding: const EdgeInsets.symmetric(vertical: Space.xs),
-                itemCount: lines.length,
-                itemBuilder: (context, i) => _QuickLine(
-                  text: lines[i],
-                  secondsLeft: left,
-                  onTap: canChat ? () => _send(context, state, lines[i]) : null,
-                ),
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     );
   }
-
-  /// The same ending as the chat's own send: once the line is out the drawer
-  /// goes, and what the player sees next is their words over their own seat.
-  /// A refusal (the cooldown caught between build and tap) leaves it open.
-  void _send(BuildContext context, GameState state, String line) {
-    if (!state.sendChat(line)) return;
-    Navigator.of(context).pop();
-  }
 }
 
-/// One sentence in the quick-message panel, the whole row its target.
+/// One sentence on the chat drawer's quick messages tab, the whole row its
+/// target.
 ///
 /// While the cooldown runs the row is disabled and says how many seconds are
 /// left, rather than taking a tap that would do nothing and say nothing.

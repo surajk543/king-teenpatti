@@ -855,15 +855,18 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   (`RoomState.isPrivate`, from the wire's `isPrivate`), since that code is how friends get in.
   **There is no `_ActionBar`.** The keys live in the corners they are pressed in: the lobby's `ShopButton`
   top-left (13 Sep 2026, replacing the gold `+` that headed the rail; it opens the store on Chips), `_SideRail`
-  (menu, chat, quick messages — each key fills the rail so the target stays
+  (menu, chat — each key fills the rail so the target stays
   ≥44dp, which is why they sit flush to the screen edge on a 360dp phone), `_PackKey` bottom-left, and `_ActionCluster` bottom-right (`Force Sideshow` and
-  `Sideshow` over `− Chaal +`). **The chat and quick-message keys play Lotties** (owner, 14 Sep 2026; `_RailLottie`):
+  `Sideshow` over `− Chaal +`). **The quick messages are a tab of the chat drawer** (owner, 14 Sep 2026; they had a third rail
+  key and a `_QuickDrawer` of their own): `_ChatDrawer` heads with two `_ChatTab`s, Table chat and Quick messages,
+  opens on the chat every time, and sends a quick line through `sendChat` and closes, as a typed one does.
+  **The chat key and both tabs play Lotties** (`_RailLottie`, `animate` only on the selected tab):
   `assets/animations/Message.json` (a speech bubble) and `assets/animations/Quick message.json` (an envelope sending a
-  paper plane), both drawn in the rail's ink by `ValueDelegate`s — onSurface at full strength, black on the light theme,
+  paper plane), both drawn in the theme's ink by `ValueDelegate`s — onSurface at full strength, black on the light theme,
   white on the dark — with the envelope's disc hidden and its letter in the surface colour (`_envelopeInInk`, matched
-  by layer and group name, pinned by `test/message_glyph_test.dart`). The envelope's canvas is drawn at 56dp inside a
-  30dp layout slot (`OverflowBox`), so it is larger than the other glyphs without growing its key. The chat cooldown
-  still replaces either glyph with `_ChatCountdown`. `Quick message.json` is a copy flattened by
+  by layer and group name, pinned by `test/message_glyph_test.dart`). The envelope's canvas is drawn at 45dp inside a
+  24dp layout slot (`OverflowBox`), so it is larger than the bubble without growing its tab. The chat cooldown
+  replaces the rail glyph with `_ChatCountdown`, and each quick line counts it down. `Quick message.json` is a copy flattened by
   `tools/lottie/flatten_orientation.py` (its flap opened with `rx`). **The Force key** reads "Force Sideshow" on two
   lines (`_MachinedKey.stackLabel`) beside `assets/animations/Hammer.json` (`_MachinedKey.glyph`), which swings only
   while the key can be used; no cost line — the confirmation states the hammer.
