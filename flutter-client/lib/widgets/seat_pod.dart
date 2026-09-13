@@ -8,6 +8,7 @@ import '../models/dtos.dart';
 import '../state/game_state.dart';
 import '../theme/app_theme.dart';
 import 'avatar.dart';
+import 'hammer_flight.dart';
 import 'liquid_fill.dart';
 import 'playing_card.dart';
 import 'poker_chip.dart';
@@ -78,6 +79,11 @@ const double _kBubbleFloor = 12.0;
 /// seat you forget is sitting there, and they are still at the table.
 const double _kAsideOpacity = 0.45;
 
+/// The same fade on the light theme's pale ground, where 0.45 took a packed
+/// seat's "Pack" line to 2:1: charcoal loses far more against ice than bone
+/// does against obsidian.
+const double _kAsideOpacityLight = 0.62;
+
 /// One player's place at the table: a portrait pod with the name across the
 /// top, a picture in the middle and the stack on a pill underneath, with its
 /// cards alongside and its bet between the pod and the pot.
@@ -134,7 +140,18 @@ class SeatPod extends StatelessWidget {
     this.bubbleSide = BubbleSide.above,
     this.reversed = false,
     this.orbCorner = OrbCorner.topLeft,
+    this.podKey,
+    this.impact,
   });
+
+  /// Names the pod itself — the glass plaque, not the column of cards and bets
+  /// under it — so the table can find where it stands on the felt: where a
+  /// Force Sideshow's hammer is thrown from, and where it lands.
+  final Key? podKey;
+
+  /// The hammer's clock while this is the pod being hit, else null
+  /// ([PodImpact]).
+  final Animation<double>? impact;
 
   final Seat? seat;
   final bool isMe;
@@ -322,7 +339,13 @@ class SeatPod extends StatelessWidget {
     // opacity would read as a glitch rather than as somebody folding. The
     // winner is never faded — `won` outranks everything, including the `lost`
     // that every other seat is wearing at that moment.
+    //
+    // Never the viewer's own pod. The fade puts the OTHER players who are out
+    // of the hand behind the ones still in it; the viewer's pod is where they
+    // read their own balance, and faded it measured under 2:1 in the light
+    // theme. Their hand already says they packed, under its plate.
     final aside =
+        !isMe &&
         s.status != SeatState.won &&
         (s.status == SeatState.packed ||
             s.status == SeatState.waiting ||
@@ -330,7 +353,11 @@ class SeatPod extends StatelessWidget {
 
     return RepaintBoundary(
       child: AnimatedOpacity(
-        opacity: aside ? _kAsideOpacity : 1,
+        opacity: aside
+            ? (theme.brightness == Brightness.light
+                  ? _kAsideOpacityLight
+                  : _kAsideOpacity)
+            : 1,
         duration: Motion.base,
         curve: Curves.easeOut,
         child: SizedBox(
@@ -516,24 +543,29 @@ class SeatPod extends StatelessWidget {
       ),
     );
 
-    return Stack(
-      clipBehavior: Clip.none,
-      children: [
-        // The sharp orb, behind the pod. Its softened twin is in the glass's
-        // `behind` slot at the same place.
-        if (orbCorner != OrbCorner.contained)
-          Positioned.fromRect(
-            rect: orb,
-            child: IgnorePointer(
-              child: GlassOrb(
-                colours: colours,
-                size: orb.width,
-                opacity: dark ? 0.95 : 0.85,
+    return PodImpact(
+      key: podKey,
+      clock: impact,
+      width: width,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          // The sharp orb, behind the pod. Its softened twin is in the glass's
+          // `behind` slot at the same place.
+          if (orbCorner != OrbCorner.contained)
+            Positioned.fromRect(
+              rect: orb,
+              child: IgnorePointer(
+                child: GlassOrb(
+                  colours: colours,
+                  size: orb.width,
+                  opacity: dark ? 0.95 : 0.85,
+                ),
               ),
             ),
-          ),
-        panel,
-      ],
+          panel,
+        ],
+      ),
     );
   }
 
@@ -900,8 +932,10 @@ class SeatPod extends StatelessWidget {
         : switch (s.status) {
             SeatState.won => AppTheme.gold,
             SeatState.waiting => AppTheme.amber,
-            // Also on the cloth, so also felt ink rather than surface ink.
-            _ => AppTheme.onTable(theme.colorScheme),
+            // Also on the cloth, so also felt ink rather than surface ink. At
+            // full strength: this is the line that says why the seat is
+            // faded, and the fade already takes it down to the quiet tier.
+            _ => AppTheme.onTable(theme.colorScheme, alpha: AppTheme.inkHigh),
           };
 
     return SizedBox(

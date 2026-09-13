@@ -34,9 +34,11 @@ latest_tag() {
   git -C "$REPO_ROOT" tag --list "${PREFIX}*" --sort=-v:refname | head -n 1
 }
 
-# Split "go-server/v1.2.3" into the three numbers.
+# Split "go-server/v1.2.3" — or the "v1.2.3" a caller types — into the three
+# numbers.
 parse() {
   local v="${1#"$PREFIX"}"
+  v="${v#v}"
   [[ "$v" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]] || die "cannot read a version out of '$1'"
   MAJOR="${BASH_REMATCH[1]}"; MINOR="${BASH_REMATCH[2]}"; PATCH="${BASH_REMATCH[3]}"
 }

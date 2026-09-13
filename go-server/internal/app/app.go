@@ -219,6 +219,7 @@ func New(opts Options) (*App, error) {
 	users := db.NewUsers(opts.DB, cfg.Game.WelcomeChips, clock.Now)
 	pictures := db.NewPictures(opts.DB, users, clock.Now)
 	ledger := db.NewLedger(opts.DB, a.metrics, clock.Now)
+	hammers := db.NewHammers(opts.DB, a.metrics, clock.Now)
 	tokens := auth.NewTokens(cfg.JWT.Secret, cfg.JWT.ExpiresIn, clock.Now)
 	verifier := auth.NewVerifier(cfg)
 
@@ -245,9 +246,12 @@ func New(opts Options) (*App, error) {
 		Instance: cfg.LiveInstanceID,
 	})
 	roomOpts := game.RoomManagerOptions{
-		Game:          cfg.Game,
-		Chat:          cfg.Chat,
-		Ledger:        ledger,
+		Game:   cfg.Game,
+		Chat:   cfg.Chat,
+		Ledger: ledger,
+		// Every table charges a Force Sideshow's hammer here, on its actor,
+		// before it resolves (game.HammerWallet).
+		Hammers:       hammers,
 		Clock:         clock,
 		TableListener: a.sockets,
 		Listener:      a.sockets,
@@ -263,6 +267,21 @@ func New(opts Options) (*App, error) {
 			ObserveHandStart: func(d time.Duration) { metrics.Observe(a.metrics.HandStartDuration, d) },
 			// ObserveLiveError stays nil: the WithHooks wrapper already
 			// counts every failed store call in game_live_store_errors_total.
+		},
+
+		// A seat taken from the lobby starts from the wallet as read under the
+		// player's seat lock — the lock a lobby-only wallet change and a chip
+		// pack's credit hold (auth Deps.WhileUnseated, playStore.credit below)
+		// — never from a read made before it. ctx is the manager's, bounded.
+		LoadPlayer: func(ctx context.Context, userID string) (game.Player, error) {
+			user, err := users.FindByID(ctx, userID)
+			if err != nil {
+				return game.Player{}, err
+			}
+			if user == nil {
+				return game.Player{}, fmt.Errorf("user %s no longer exists", userID)
+			}
+			return user.Player(), nil
 		},
 	}
 	a.rooms = game.NewRoomManager(roomOpts)
@@ -324,11 +343,11 @@ func New(opts Options) (*App, error) {
 			"hint", "GOOGLE_PLAY_CREDENTIALS must be the service-account JSON on ONE line")
 	} else if pv != nil {
 		chipStore = &playStore{
-			verifier:   pv,
-			db:         opts.DB,
-			users:      users,
-			creditSeat: func(id string, n int64) bool { return a.rooms.CreditChips(id, n) },
-			logger:     logger,
+			verifier: pv,
+			db:       opts.DB,
+			users:    users,
+			credit:   a.rooms.CreditBoughtChips,
+			logger:   logger,
 		}
 		logger.Info("chip store enabled", "package", cfg.Play.Package, "products", len(purchase.Catalogue))
 	}
@@ -343,6 +362,10 @@ func New(opts Options) (*App, error) {
 		Purchases:   chipStore,
 		Pictures:    pictures,
 		Logger:      logger,
+
+		// Rewards and chip-priced pictures run under the player's seat lock,
+		// the lock every lobby seat reads the wallet under (LoadPlayer above).
+		WhileUnseated: a.rooms.WhileUnseated,
 	})
 	mux := http.NewServeMux()
 	if cfg.Metrics.Enabled {

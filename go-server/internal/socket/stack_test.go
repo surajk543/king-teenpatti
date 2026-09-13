@@ -175,10 +175,13 @@ func (b *books) settle(_ game.SettleRequest, entries []game.SettleEntry) (map[st
 
 // stack is one running server.
 type stack struct {
-	t       *testing.T
-	cfg     *config.Config
-	users   *fakeUsers
-	books   *books
+	t     *testing.T
+	cfg   *config.Config
+	users *fakeUsers
+	books *books
+	// hammers is every table's Force Sideshow wallet; accounts start with
+	// none, so a test gives its players what it needs.
+	hammers *game.MemoryHammers
 	tokens  *auth.Tokens
 	h       *Handler
 	rooms   *game.RoomManager
@@ -232,7 +235,7 @@ func newStackWithClock(t *testing.T, mutate func(cfg *config.Config), clock game
 	users := newFakeUsers()
 	bk := &books{actionIDs: map[string]int{}, users: users}
 	m := metrics.New(metrics.Options{})
-	st := &stack{t: t, cfg: cfg, users: users, books: bk, metrics: m}
+	st := &stack{t: t, cfg: cfg, users: users, books: bk, metrics: m, hammers: game.NewMemoryHammers(nil)}
 	st.stakes.Store(1000)
 	st.tokens = auth.NewTokens(cfg.JWT.Secret, cfg.JWT.ExpiresIn, nil)
 	if clock != nil {
@@ -256,6 +259,7 @@ func newStackWithClock(t *testing.T, mutate func(cfg *config.Config), clock game
 		Game:          cfg.Game,
 		Chat:          cfg.Chat,
 		Ledger:        game.NewMemoryLedger(game.MemoryLedgerHooks{Checkpoint: bk.persist, Settle: bk.settle}),
+		Hammers:       st.hammers,
 		TableListener: st.h,
 		Listener:      st.h,
 		Logger:        logger,

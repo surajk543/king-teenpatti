@@ -468,6 +468,13 @@ func (rm *RoomManager) Suspend(ctx context.Context) error {
 				for userID, seatedAt := range rm.playerRooms {
 					if seatedAt == t.ID() {
 						delete(rm.playerRooms, userID)
+						// The seat is not gone: it goes on in the store, stake
+						// and all, for the next process, and REST is served
+						// until the app's http shutdown. A chip-priced picture
+						// bought now would debit a wallet the restored seat
+						// never hears of, so to WhileUnseated the player is
+						// still seated. Never cleared: this process is ending.
+						rm.departing[userID]++
 					}
 				}
 				delete(rm.tables, t.ID())

@@ -107,6 +107,11 @@ const (
 	CodeTooFewPlayers    = SideshowBlockedTooFewPlayers
 	CodeYouAreBlind      = SideshowBlockedYouAreBlind
 
+	// CodeNoHammers: a Force Sideshow from a player whose wallet holds fewer
+	// than ForceSideshowCost hammers. Go only (owner, 13 Sep 2026). Nothing
+	// was spent and nothing changed at the table.
+	CodeNoHammers = "no_hammers"
+
 	// Chat
 	CodeChatRateLimited = "chat_rate_limited"
 
@@ -125,6 +130,13 @@ const (
 	// Go-only: a post to a destroyed table (decision 4). Not in Node's set;
 	// safeLabel folds it into "other" for metrics.
 	CodeTableDestroyed = "table_destroyed"
+
+	// Go-only: a seat from the lobby refused while the player's wallet is
+	// still waiting for a write from a table they sat at — a hand-end
+	// settlement the database refused and is retrying, or a table destroyed
+	// under them that is still settling (RoomManager.freshPlayer). Asking again
+	// once it lands works. Not in Node's set; safeLabel folds it into "other".
+	CodeSettlementPending = "settlement_pending"
 )
 
 // KnownLedgerCodes is db/ledger.js KNOWN_LEDGER_CODES — the label set for
@@ -163,5 +175,6 @@ const (
 	MsgSideshowNeighbour    = "The player on your right has not seen their cards"
 	MsgSideshowNoNeighbour  = "There is nobody on your right to ask"
 	MsgSideshowGeneric      = "You cannot ask for a sideshow now"
+	MsgNoHammers            = "You need a hammer to force a sideshow" // Go only
 	MsgUnknownActionFormat  = "Unknown action \"%s\""
 )

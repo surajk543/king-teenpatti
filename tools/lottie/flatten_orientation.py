@@ -1,5 +1,7 @@
-# Bake a Lottie layer's 3D orientation ("or") into 2D transforms the mobile
-# players (lottie-android, Flutter's lottie) can play.
+# Bake a Lottie layer's 3D orientation ("or") and X/Y rotation ("rx", "ry",
+# with "rz" folded in beside them) into 2D transforms the mobile players
+# (lottie-android, Flutter's lottie) can play. Keyframed rotations are eased
+# the way lottie-web eases them; orientation is slerped.
 #
 # lottie-web draws a flat comp orthographically: a layer's 2D matrix is the
 # x/y part of  T(-a) · S · Rz(-or.z) · Ry(or.y) · Rx(or.x) · T(p)  (row
@@ -63,8 +65,44 @@ def rz(t): c, s = math.cos(t), math.sin(t); return [[c, -s, 0], [s, c, 0], [0, 0
 def static(prop, default):
     if prop is None:
         return default
-    assert prop.get('a', 0) != 1, 'only orientation may be keyframed here'
+    assert prop.get('a', 0) != 1, 'only orientation and rotation may be keyframed here'
     return prop['k'] if isinstance(prop['k'], list) else [prop['k']]
+
+def bezier_ease(o, i, t):  # lottie-web BezierFactory: y at x = t on (0,0) o i (1,1)
+    x1, y1, x2, y2 = o['x'], o['y'], i['x'], i['y']
+    x1, y1, x2, y2 = (v[0] if isinstance(v, list) else v for v in (x1, y1, x2, y2))
+    if x1 == y1 and x2 == y2:
+        return t
+    bx = lambda u: 3 * (1 - u) ** 2 * u * x1 + 3 * (1 - u) * u * u * x2 + u ** 3
+    by = lambda u: 3 * (1 - u) ** 2 * u * y1 + 3 * (1 - u) * u * u * y2 + u ** 3
+    lo, hi = 0.0, 1.0
+    for _ in range(60):
+        mid = (lo + hi) / 2
+        if bx(mid) < t: lo = mid
+        else: hi = mid
+    return by((lo + hi) / 2)
+
+def rotation(prop, f):  # a scalar rotation (rx / ry / rz) in DEGREES at frame f
+    if prop is None:
+        return 0.0
+    if prop.get('a') != 1:
+        k = prop['k']
+        return k[0] if isinstance(k, list) else k
+    kfs = prop['k']
+    first = kfs[0]['s']
+    if f <= kfs[0]['t']:
+        return first[0] if isinstance(first, list) else first
+    for k0, k1 in zip(kfs, kfs[1:]):
+        if k0['t'] <= f < k1['t']:
+            start, end = k0['s'], k1.get('s') or k0.get('e')
+            start = start[0] if isinstance(start, list) else start
+            end = end[0] if isinstance(end, list) else end
+            if k0.get('h') == 1:
+                return start
+            e = bezier_ease(k0['o'], k0['i'], (f - k0['t']) / (k1['t'] - k0['t']))
+            return start + (end - start) * e
+    last = kfs[-1]['s']
+    return last[0] if isinstance(last, list) else last
 
 def unwrap(seq):
     out = [seq[0]]
@@ -88,20 +126,34 @@ def linear_kfs(frames, values):
 layers = j['layers']
 next_ind = max(l['ind'] for l in layers) + 1
 nulls, worst, min_r = [], 0.0, float('inf')
+def turns(prop):  # is this orientation / rotation anything but a flat zero?
+    if prop is None:
+        return False
+    if prop.get('a') == 1:
+        return True
+    k = prop['k'] if isinstance(prop['k'], list) else [prop['k']]
+    return any(abs((v + 180) % 360 - 180) > 1e-9 for v in k)
+
 for layer in layers:
     ks = layer['ks']
-    if 'or' not in ks or ks['or'].get('a') != 1:
+    # lottie-web draws or / rx / ry whenever a layer carries them (its
+    # TransformProperty takes that branch unless the layer has a 2D "r").
+    # Flutter's lottie (3.5.1) ignores or and draws rx / ry only as a cos()
+    # stretch about the anchor, which drops the shear lottie-web's full matrix
+    # has — close for a lone flip, wrong once or or a second axis joins it. A
+    # layer whose rx / ry / or never leave zero needs nothing.
+    if 'r' in ks or not any(turns(ks.get(k)) for k in ('or', 'rx', 'ry')):
         continue
-    for k in ('rx', 'ry', 'rz'):
-        assert static(ks.get(k), [0])[0] == 0, f'{layer["nm"]}: {k} is not zero'
     a = static(ks.get('a'), [0, 0, 0]); p = static(ks.get('p'), [0, 0, 0]); s = static(ks.get('s'), [100, 100, 100])
     ip, op = int(layer['ip']), int(layer['op'])
     frames = list(range(ip, op))
     A = []
     for f in frames:
-        o = orientation(ks['or'], f)
+        o = orientation(ks['or'], f) if 'or' in ks else [0, 0, 0]
+        RX, RY, RZ = (rotation(ks.get(k), f) * D for k in ('rx', 'ry', 'rz'))
         S = [[s[0] / 100, 0, 0], [0, s[1] / 100, 0], [0, 0, (s[2] if len(s) > 2 else 100) / 100]]
-        M = mul(mul(mul(S, rz(-o[2] * D)), ry(o[1] * D)), rx(o[0] * D))
+        # lottie-web: rotateZ(-rz) rotateY(ry) rotateX(rx) rotateZ(-or.z) rotateY(or.y) rotateX(or.x)
+        M = mul(mul(mul(mul(mul(mul(S, rz(-RZ)), ry(RY)), rx(RX)), rz(-o[2] * D)), ry(o[1] * D)), rx(o[0] * D))
         A.append((M[0][0], M[1][0], M[0][1], M[1][1]))  # column form [[a, b], [c, d]]
     a1s, a2s, sx, sy = [], [], [], []
     for (ma, mb, mc, md) in A:

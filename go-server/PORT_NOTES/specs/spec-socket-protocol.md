@@ -182,6 +182,8 @@ Produced by `publicUser(row)` from a `users` row. Key order and types (MUST MATC
   "providerAvatarUrl": "<avatar_url>" | null,
   "avatarChoice": "<avatar_choice>" | null,
   "chips": <integer>,                              // BIGINT parsed to a JS number
+  "diamond": <integer>,                            // Go only: users.diamond, the premium currency
+  "hammer": <integer>,                             // Go only (owner, 13 Sep 2026): users.hammer, what a Force Sideshow costs (§6.1.1); 20 per account
   "handsPlayed": <integer>,
   "handsWon": <integer>,
   "handsLost": <integer>,                          // row.hands_lost ?? 0
@@ -203,6 +205,10 @@ Produced by `publicUser(row)` from a `users` row. Key order and types (MUST MATC
   "lastLoginAt": <epoch ms>
 }
 ```
+
+Go today (`internal/db/users.go` `User`): `diamond` and `hammer` follow `chips` as marked, and
+`activePictureId` stands where `avatarChoice` was. `hammer` is the count as of that read; a Force
+Sideshow's ack carries the count left after it (§6.1.1).
 
 ### 3.2 `session:ready` payload (`sock:430-434`, `sock:733-745`)
 
@@ -317,6 +323,7 @@ MUST MATCH:
 
 `KNOWN_ERROR_CODES` (`sock:55-101`) exists only to fold metric labels; the ack always carries the
 real code. INCIDENTAL, but `metrics.test.js:613-615` asserts every `code` label is `^[a-z][a-z0-9_]*$`.
+Go's `KnownErrorCodes` (`internal/socket/wire.go`) adds `no_hammers` (§6.1.1).
 
 ---
 
@@ -466,18 +473,21 @@ Payload `{action, amount?, actionId?}`. Checks in this exact order (each throws 
    'sideshow'}` (`constants.js:126-133`); else `unknown_action` with message
    `` `Unknown action "${action}"` `` (string interpolation: `undefined` → `Unknown action
    "undefined"`, an object → `Unknown action "[object Object]"`). `'__proto__'` is refused (a `Set`
-   lookup, not a property lookup).
+   lookup, not a property lookup). **Go adds `'forceSideshow'`** (`game.AllActions`, §6.1.1),
+   matched case-sensitively like the rest: `'ForceSideshow'` is `unknown_action`.
 2. `rooms.getTableForPlayer(user.id)` null → `not_in_room` "You are not at a table".
 3. Amount typing: `parsed = (amount === undefined || amount === null) ? undefined : amount`; if
    `parsed !== undefined && (typeof parsed !== 'number' || !Number.isSafeInteger(parsed))` →
    `invalid_bet` "Bet amount must be a whole number". Refuses strings (`"100"`, `"1e3"`), booleans,
    arrays, objects, `1.5`, and anything beyond ±2^53−1. Negative integers and `0` pass this check
    and are refused later by the ladder. **This check runs for every action, including `pack`,
-   `see`, `sideshow`** — `{action:'pack', amount:'x'}` is `invalid_bet`.
+   `see`, `sideshow`** (and in Go `forceSideshow`) — `{action:'pack', amount:'x'}` is `invalid_bet`.
 4. `id = (typeof actionId === 'string' && actionId.length > 0 && actionId.length <= 64) ? actionId
    : undefined` — anything else is silently dropped and the table generates a `uuid()` for the
    ledger row (`table.js:849`), which removes idempotency protection for that move. Length is
-   JS string length (UTF-16 code units).
+   JS string length (UTF-16 code units). Go also drops an id containing `:` (`ReservedActionIDSeparator`,
+   `internal/socket/handler.go` `action`), and the table applies the same rule again: the server's own
+   keys are the colon-separated ones.
 5. `result = await timed(moveDuration, {action}, () => table.act(user.id, action, {amount: parsed,
    actionId: id}))`; on success `movesTotal.inc({action})`.
 
@@ -495,6 +505,7 @@ Per-action results (the ack is `{ok:true, ...result}`), MUST MATCH:
 | `pack` | — | `{action:'pack', reason:'pack'}` |
 | `show` | `show_unavailable` "A show needs exactly two players left"; `insufficient_chips` "Not enough chips to pay for the show" (cost null or unaffordable); ledger refusals as above | `{action:'show', amount:<cost>}` |
 | `sideshow` | `sideshowBlockedReason` (`table.js:558-578`) in order `no_hand`, `not_in_hand`, `not_your_turn`, `sideshow_pending`, `already_asked`, `too_few_players`, `you_are_blind`, `no_neighbour`, `neighbour_is_blind`; messages (`table.js:1153-1161`): `sideshow_pending` "A sideshow is already in progress", `already_asked` "You have already asked for a sideshow this turn", `too_few_players` "A sideshow needs at least 3 players in the hand", `you_are_blind` "See your cards before asking for a sideshow", `neighbour_is_blind` "The player on your right has not seen their cards", `no_neighbour` "There is nobody on your right to ask", others "You cannot ask for a sideshow now" | `{action:'sideshow', toUserId:<id>}` |
+| `forceSideshow` (**Go only**, §6.1.1) | `sideshowBlockedReason` exactly as for `sideshow` — same codes, messages and order (its `no_hand`, `not_in_hand` and `not_your_turn` are already caught by `_act`); then `duplicate_action` "That move was already applied" when this hand has already delivered that `actionId`, from any move by any player; then the hammer spend: `no_hammers` "You need a hammer to force a sideshow", anything else `persist_failed` "The move could not be recorded, so nothing was changed". Every refusal spends nothing and leaves the table exactly as it was | `{action:'forceSideshow', toUserId:<asked>, packedUserId:<the loser>, hammers:<int left, present at 0>}` |
 
 When `amount` is omitted for `chaal`/`raise`, the table uses `options.chaal` / `options.raise`
 (`table.js:1030-1031`); Flutter omits `amount` for `see`/`pack` and sends it for bets/show; the
@@ -504,6 +515,55 @@ DB coupling (MUST MATCH): the `actionId` string becomes `chip_ledger.action_id` 
 row (`ledger.js:97-103`), where it is UNIQUE; a Postgres `23505` whose detail/constraint mentions
 `action_id` is classified `duplicate_action` (`ledger.js:48-56`). `invalidMoves.test.js:257-275`
 asserts exactly one ledger row carries a replayed id.
+
+#### 6.1.1 `forceSideshow` (Go only — owner, 13 Sep 2026; DECISIONS.md §2)
+
+A sideshow with the request and the answer taken out, paid for with one hammer (`users.hammer`, §3.1).
+Rules engine: `internal/game/table.go` `forceSideshow`; the socket layer handles it like any other action
+(§6.1 steps 1–5, `game_moves_total{action="forceSideshow"}` on success).
+
+```
+C→S  421["game:action",{"action":"forceSideshow","actionId":"<uuid>"}]
+```
+
+`amount` is ignored (but still type-checked, step 3). `actionId` is the spend's idempotency key: the
+hammer is charged under `<handId>:force:<userId>:<actionId>` (`game.ForceSideshowSpendID`, the
+`hammer_spends` primary key), so only the same player resending the same id in the same hand is free.
+The same id in another hand, or from another player, is a new hammer. An absent, over-long or
+colon-bearing id is replaced by a fresh uuid (step 4), which makes every send a new hammer.
+
+Order of work, all on the table's actor:
+
+1. `_act`'s checks, then `sideshowBlockedReason` → the refusals in the table above.
+   `you.options.canForceSideshow` is this same check (§8.2).
+2. `hand.actionIDs` already holds the id → `duplicate_action`. This is checked **before** the wallet:
+   the wallet would charge a delivered id nothing, but the table would resolve it all over again.
+3. `HammerWallet.SpendHammer` (`db.Hammers`: the wallet row `FOR UPDATE`, `INSERT … hammer_spends ON
+   CONFLICT DO NOTHING`, then `hammer - 1`). A key that is already paid for succeeds uncharged, and its
+   `hammers` is the balance as it stands: that is the retry of a spend whose answer was lost, which
+   itself was refused `persist_failed`. A wallet short of a hammer → `no_hammers`. Any other failure →
+   `persist_failed`, and the table fires `persistError` (reason `hammer_spend`), which RoomManager logs.
+   Nothing has been emitted yet.
+4. Paid: the id joins `hand.actionIDs` (and so the snapshot), `sideshowAskedThisTurn = true`, and the
+   turn clock stops. That flag is the turn's one ask, for an ordinary `sideshow` as well.
+5. Resolved at once, as an accepted sideshow is (`settleSideshow`, reason `'forced'`): the weaker hand
+   packs, and **a tie goes against the asker**. No `game:sideshowRequested` is sent and
+   `room:state.sideshow` stays `null` throughout. No chips move: the loser's pack is the ordinary pack
+   checkpoint.
+
+On the wire, in this order (the ack is written last, §11):
+
+| Outcome | Sequence |
+|---|---|
+| the asked player loses | `game:sideshowReveal {roomId, reveal:{reason:'forced', packedUserId:<asked>, hands:[asker, asked]}}` to **the two only**; `game:action {userId:<asked>, action:'pack', amount:0, pot, stake, reason:'sideshow', roomId}`; `room:state` (each); `game:sideshowResolved {fromUserId, toUserId, accepted:true, reason:'forced', packedUserId:<asked>, roomId}`; `game:turn` + `game:yourTurn` for the asker again, clock re-armed in full, with `canSideshow` and `canForceSideshow` now false; `room:state` (each) |
+| the asker loses, or ties | `game:sideshowReveal` (`packedUserId:<asker>`); `game:action {pack, reason:'sideshow'}` for the asker; `game:turn` + `game:yourTurn` for the next active seat clockwise, a fresh turn; `room:state` ×2; `game:sideshowResolved` (`packedUserId:<asker>`); `room:state` |
+
+```
+S→C  431[{"ok":true,"action":"forceSideshow","toUserId":"<asked>","packedUserId":"<loser>","hammers":19}]
+```
+
+While `SIDESHOW_MIN_PLAYERS` is at least 3 (the default) the pack cannot end the hand: at least three
+were in it, so at least two remain.
 
 ### 6.2 `game:sideshowRespond` (`sock:636-640`)
 
@@ -610,8 +670,8 @@ raw `socket.emit` and count manually: `broadcastState` (`sock:192-199`) and the 
 | `game:yourTurn` | player on turn (`emitToUser`) | `{roomId, deadline, timeoutMs, options}` §8.2 | `sock:272-277` |
 | `game:action` | room | `{userId, action, amount, pot, stake, [reason], [auto], roomId}` — `see`: `amount:0, auto:<bool>`; `pack`: `amount:0, reason:<'pack'|'timeout'|'sideshow'|leave reason 'left'|'disconnected'|'moved'|'idle'|'insufficient_chips'>`; `chaal`/`raise`/`show`: `amount:<int>`, neither extra key | `table.js:982-989, 1065-1071, 1104-1111, 1306-1312, 257-264`; `sock:280-284` |
 | `game:sideshowRequested` | room | `{fromUserId, fromName, fromSeat, toUserId, toName, toSeat, expiresAt, timeoutMs, roomId}` | `table.js:1185-1194` |
-| `game:sideshowReveal` | **the two participants only** (asker, asked) | `{roomId, reveal:{reason, packedUserId, hands:[{userId, displayName, cards, handName}, {…}]}}` asker first | `table.js:1244-1262`, `sock:295-300` |
-| `game:sideshowResolved` | room | `{fromUserId, toUserId, accepted, reason, packedUserId, roomId}`; `reason` ∈ `'accepted'|'declined'|'timeout'|'left'`; `packedUserId` null unless accepted | `table.js:1268-1274` |
+| `game:sideshowReveal` | **the two participants only** (asker, asked) | `{roomId, reveal:{reason, packedUserId, hands:[{userId, displayName, cards, handName}, {…}]}}` asker first; `reason` is `'accepted'`, or in Go `'forced'` (§6.1.1) | `table.js:1244-1262`, `sock:295-300` |
+| `game:sideshowResolved` | room | `{fromUserId, toUserId, accepted, reason, packedUserId, roomId}`; `reason` ∈ `'accepted'|'declined'|'timeout'|'left'`, and in Go `'forced'` (§6.1.1: always `accepted:true` with `packedUserId` set, and no `game:sideshowRequested` before it); `packedUserId` null unless accepted | `table.js:1268-1274` |
 | `game:showdown` | room | `{reveals:[{userId, seatIndex, cards:[3 codes], handName, category:<0-5>, won}], reason, roomId}` | `table.js:1360-1369` |
 | `game:handEnded` | room | `{handId, handNo, winnerId, winnerName, pot, reason, reveals, summary:[{userId, displayName, seatIndex, contributed, status, sawCards, cards:[…]|null}], nextHandAt, roomId}`; `reason` ∈ `last_standing|show|forced_showdown|all_left|pot_limit`; `winnerId` may be `null` (ALL_LEFT with no departure), `winnerName` may be `null` | `table.js:1509-1519` |
 | `chat:message` | room | `{…message (§7.3), roomId}` | `sock:326-330` |
@@ -663,10 +723,16 @@ only under `you`; `sideshow` never carries cards.
 
 ```jsonc
 { "canSee": <isBlind>, "canSideshow": <bool>, "sideshowWith": <displayName|null>,
+  "canForceSideshow": <bool>,   // Go only, see below
   "chaal": <int|null>, "raise": <int|null>, "raiseSteps": [<int>…], "maxBet": <int|null>,
   "show": <int|null>,   // only with exactly 2 active seats and affordable; else null
   "canPack": true, "isBlind": <bool>, "currentStake": <int>, "chips": <int>, "pot": <int> }
 ```
+
+**Go only (owner, 13 Sep 2026):** `canForceSideshow` follows `sideshowWith`. It comes from the same
+`sideshowBlockedReason` as `canSideshow`, so today the two are always equal, but it is its own key so a
+client never infers one from the other. It says nothing about hammers: the table does not hold the
+wallet, so a client greys its key on its own `user.hammer`, and the server refuses `no_hammers`.
 
 Flutter derives its whole action bar from `you.options` in `room:state` and never listens to
 `game:yourTurn`/`game:turn`; bots and the browser act on `game:yourTurn.options`
@@ -800,6 +866,7 @@ receives `session:replaced` then `41` then the TCP close.
 | `see` on turn | room / self | `player:cards` (self), `game:action{see}`, `game:turn`+`game:yourTurn` (re-issued with remaining `timeoutMs`), `room:state`; ack |
 | bet | room | `game:action`, [`player:cards`+`game:action{see,auto:true}` if 4th blind move], `game:turn`/`game:yourTurn` or showdown, `room:state` ×2 (from `_advanceTurn` and `_bet`); ack |
 | kick | self | [removal traffic while still tracked], `room:kicked`; others `room:state` |
+| `forceSideshow` ok (Go) | the two / room / self | the §6.1.1 sequence for its outcome, then the ack; no `game:sideshowRequested` |
 
 Acks are always written **after** every emit the handler performed (Socket.IO preserves order on one
 connection).
@@ -820,6 +887,14 @@ histograms `game_move_processing_duration_seconds{action}`,
 `game_state_update_duration_seconds` (buckets `0.001,0.005,0.01,0.025,0.05,0.1,0.25,0.5,1`). All
 series carry default label `service="king-teenpatti"`. Label values must never contain ids, codes,
 URLs or IPs (`metrics.test.js:580-625`); `event` labels must match `^[a-z]+:[a-zA-Z]+$`.
+
+Go adds `game_moves_total{action="forceSideshow"}` and
+`game_move_processing_duration_seconds{action="forceSideshow"}` (the `action` label set is
+`game.AllActions`), and `game_invalid_moves_total{code="no_hammers"}`. Fed by `db.Hammers` rather than by
+this layer: `game_db_transaction_duration_seconds{op="hammer_spend"}` and
+`game_db_transaction_errors_total{op="hammer_spend",code}`. `op` ∈ `metrics.LedgerOps`
+(`checkpoint`, `settle`, `hammer_spend`), and a wallet with no hammers is a refusal, not a transaction
+error.
 
 ---
 
@@ -1074,6 +1149,15 @@ guests (`POST /api/auth/login {provider:'guest', deviceId, displayName}`).
 | `chat: a posted message is counted…` (`:550`) | ack `ok:true` with `messageId`; `game_chat_messages_total ≥ 1`, `game_socket_emits_total{event=chat:message} ≥ 1`, `game_socket_messages_total{event=chat:message} ≥ 1` |
 | `cardinality…` (`:580`) | no label named `*_id`, `code_*`, `socket_id`, `user_id`, `room_id`, `ip`, `url`, `path`, `device_id`; no label value is a UUID, IPv4/6 or 64-hex; `code` values `^[a-z][a-z0-9_]*$`; `event` values `^[a-z]+:[a-zA-Z]+$`; `category` ∈ `seen|blind|other` |
 
+### 15.5 Force Sideshow (Go only, §6.1.1)
+
+| Test | Assertion |
+|---|---|
+| `internal/game/forcesideshow_test.go` | the three outcomes (asked loses, asker loses, tie) with their exact event order and ack; every `sideshowBlockedReason` refusal spends nothing; `no_hammers` and `persist_failed` leave the snapshot byte-identical; a retry after a lost answer is not charged; a delivered id is `duplicate_action` on a later turn; the same id in the next hand, or from another player, costs a hammer; one ask per turn across both kinds; a snapshot round trip; a table without a wallet refuses `no_hammers` |
+| `internal/socket/forcesideshow_test.go` | guard, `unknown_action` for `ForceSideshow`, `no_hammers` acked and emitted as `game:error`, an ack of exactly five keys, the reveal to the two only, no `game:sideshowRequested`, the move and refusal metrics |
+| `internal/db/hammers_test.go` | a key charged once and never below zero; the key names the hand and the player; concurrent spends take no more than the wallet holds |
+| `tools/parity/invalid.test.js` "a forced sideshow needs no answer, costs one hammer, and is refused without one" | the same over real sockets against the built binary |
+
 ---
 
 ## 16. Traps for the port
@@ -1102,7 +1186,10 @@ guests (`POST /api/auth/login {provider:'guest', deviceId, displayName}`).
 6. **`actionId` idempotency key**: only a string of 1–64 UTF-16 units is honoured; otherwise a
    fresh UUID is used and the replay protection silently disappears. The id lands in
    `chip_ledger.action_id` (UNIQUE); a `23505` mentioning `action_id` → `duplicate_action`. Boots
-   and settlements use `${handId}:boot:${userId}` / `${handId}:settle:${userId}` (other spec).
+   and settlements use `${handId}:boot:${userId}` / `${handId}:settle:${userId}` (other spec). In Go a
+   `forceSideshow`'s id is also its hammer key, `<handId>:force:<userId>:<actionId>`: a retry is free only
+   with the same id, and an id the server drops (step 4, including any containing `:`) makes the retry
+   pay a second hammer.
 7. **`accept === true` only** for `game:sideshowRespond`.
 8. **Rate limiting**: fixed window anchored to the first request after expiry, 30/5 s general
    (counts every guarded event, including chat and refused requests) and 5/5 s chat (counts every

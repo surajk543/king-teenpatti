@@ -41,6 +41,12 @@ class Strings {
 
   String _(String key) => _table[lang.code]?[key] ?? _table['en']![key] ?? key;
 
+  /// This language's own entry for [key], or null where [_] would fall back
+  /// to English. For tests that a new word really was translated: the
+  /// fallback otherwise hides a missing one behind the English.
+  @visibleForTesting
+  String? ownEntry(String key) => _table[lang.code]?[key];
+
   // --- login
   String get signInSubtitle => _('signInSubtitle');
   String get displayName => _('displayName');
@@ -97,6 +103,7 @@ class Strings {
   String get rewardRefused => _('rewardRefused');
   String get rewardPurchased => _('rewardPurchased');
   String get rewardDiamondsPurchased => _('rewardDiamondsPurchased');
+  String get rewardHammersPurchased => _('rewardHammersPurchased');
   String get tapToClose => _('tapToClose');
 
   // --- buying chips, not open yet
@@ -113,9 +120,16 @@ class Strings {
   String get storeTabPictures => _('storeTabPictures');
   String get storeTabAnimated => _('storeTabAnimated');
   String get storePicturesBlurb => _('storePicturesBlurb');
+
+  /// The Pictures tab's blurb at a table, where the key sells the animated
+  /// shelf alone and every picture on it is paid for in diamonds.
+  String get storeAnimatedBlurb => _('storeAnimatedBlurb');
   String get storeTabDiamonds => _('storeTabDiamonds');
   String get storeDiamondsTitle => _('storeDiamondsTitle');
   String get storeDiamondsBlurb => _('storeDiamondsBlurb');
+  String get storeTabHammers => _('storeTabHammers');
+  String get storeHammersTitle => _('storeHammersTitle');
+  String get storeHammersBlurb => _('storeHammersBlurb');
   String get storeBonus => _('storeBonus');
   String get storeNotLive => _('storeNotLive');
   String get posStarter => _('posStarter');
@@ -141,7 +155,11 @@ class Strings {
   String get soundLabel => _('soundLabel');
   String get vibrationLabel => _('vibrationLabel');
   String get useProviderPicture => _('useProviderPicture');
-  String get pictureLocked => _('pictureLocked');
+
+  /// The picture picker's line under "Your picture". A worn picture can be
+  /// changed at a table since 13 Sep 2026, so it says so rather than warning
+  /// that sitting down locks it.
+  String get pictureChangeAnytime => _('pictureChangeAnytime');
 
   // --- table
   String get pot => _('pot');
@@ -164,6 +182,44 @@ class Strings {
   String get sideshowCancelled => _('sideshowCancelled');
   String get sideshowYouLost => _('sideshowYouLost');
   String get sideshowYouWon => _('sideshowYouWon');
+
+  // --- Force Sideshow, paid for with a hammer (owner, 13 Sep 2026)
+
+  /// The key's own word, short enough for a key two steppers wide.
+  String get force => _('force');
+
+  /// The move's full name, for the key's tooltip.
+  String get forceSideshow => _('forceSideshow');
+  String get forceSideshowTitle => _('forceSideshowTitle');
+
+  /// The confirmation. `{name}` is the player on the viewer's right.
+  String forceSideshowBody(String name) =>
+      _('forceSideshowBody').replaceAll('{name}', name);
+
+  /// What the player is agreeing to, under the question.
+  String get forceSideshowNote => _('forceSideshowNote');
+
+  /// The offer of the store to a player with no hammers.
+  String get noHammersTitle => _('noHammersTitle');
+  String get noHammersBody => _('noHammersBody');
+  String get getHammers => _('getHammers');
+
+  /// The server's `no_hammers` refusal, in the player's language.
+  String get noHammers => _('noHammers');
+
+  /// What a Force Sideshow says at the table: to the player who forced it,
+  /// to the player it was forced on, and to everyone else.
+  String sideshowForcedByYou(String name) =>
+      _('sideshowForcedByYou').replaceAll('{name}', name);
+  String sideshowForcedOnYou(String name) =>
+      _('sideshowForcedOnYou').replaceAll('{name}', name);
+  String sideshowForcedOn(String from, String to) =>
+      _('sideshowForcedOn').replaceAll('{from}', from).replaceAll('{to}', to);
+
+  /// The table's wallet pill, as a screen reader says it.
+  String walletSummary(int diamonds, int hammers) => _(
+    'walletSummary',
+  ).replaceAll('{diamonds}', '$diamonds').replaceAll('{hammers}', '$hammers');
   String get seeCards => _('seeCards');
   String get blindMovesLeft => _('blindMovesLeft');
   String get blindMovesLabel => _('blindMovesLabel');
@@ -187,6 +243,42 @@ class Strings {
   String get tableChat => _('tableChat');
   String get saySomething => _('saySomething');
   String get tableMenu => _('tableMenu');
+
+  // --- quick messages: set lines a player sends from the table's rail
+  String get quickMessagesTitle => _('quickMessagesTitle');
+  String get quickMessagesTip => _('quickMessagesTip');
+  String get quickPlayBlind => _('quickPlayBlind');
+  String get quickPlayFast => _('quickPlayFast');
+  String get quickHowToWin => _('quickHowToWin');
+  String get quickUnlucky => _('quickUnlucky');
+  String get quickYouGotLucky => _('quickYouGotLucky');
+  String get quickOops => _('quickOops');
+  String get quickTakeSideshow => _('quickTakeSideshow');
+  String get quickTakeShow => _('quickTakeShow');
+  String get quickSwitchTable => _('quickSwitchTable');
+  String get quickHelpMe => _('quickHelpMe');
+
+  /// The quick messages in panel order, in this language.
+  ///
+  /// The one list the panel draws and its test checks, so a line added here is
+  /// on the table and under test together. Each goes out as ordinary chat, so
+  /// it must fit the server's CHAT_MAX_LENGTH (140 UTF-16 units) — past that
+  /// the server cuts it, and a set line arriving truncated reads as a fault.
+  /// For the same reason a translation must hold nothing else the server's
+  /// sanitiser rewrites: a format character (ZWJ and ZWNJ included) becomes a
+  /// space, and a run of spaces closes up to one.
+  List<String> get quickMessages => [
+    quickPlayBlind,
+    quickPlayFast,
+    quickHowToWin,
+    quickUnlucky,
+    quickYouGotLucky,
+    quickOops,
+    quickTakeSideshow,
+    quickTakeShow,
+    quickSwitchTable,
+    quickHelpMe,
+  ];
   String get yourChips => _('yourChips');
   String get maxPot => _('maxPot');
   String get nightMode => _('nightMode');
@@ -246,6 +338,39 @@ class Strings {
   String get picturePremium => _('picturePremium');
   String get picturePremiumAnimated => _('picturePremiumAnimated');
   String get pictureShelfEmpty => _('pictureShelfEmpty');
+
+  /// The popup over a premium picture this player has already paid for.
+  String get pictureOwnedTitle => _('pictureOwnedTitle');
+
+  /// The three units a rental's time left is counted in, each with its own
+  /// singular key, so the popup can pair any two — "3 days 4 hours", "1 hour
+  /// 20 minutes". Hindi and Punjabi change the hour's word with the number;
+  /// the other languages repeat one form in both keys.
+  String timeDays(int n) =>
+      _(n == 1 ? 'timeDay' : 'timeDays').replaceAll('{n}', '$n');
+  String timeHours(int n) =>
+      _(n == 1 ? 'timeHour' : 'timeHours').replaceAll('{n}', '$n');
+  String timeMinutes(int n) =>
+      _(n == 1 ? 'timeMinute' : 'timeMinutes').replaceAll('{n}', '$n');
+
+  /// Wraps a counted [time] as time remaining. A template of its own rather
+  /// than "left" glued on, so each language keeps its own word order.
+  String timeLeft(String time) => _('timeLeft').replaceAll('{time}', time);
+
+  /// Said instead of a time for a premium picture that never runs out.
+  String get pictureKeeps => _('pictureKeeps');
+
+  /// Said when the rental ends while the popup is open.
+  String get rentalLapsed => _('rentalLapsed');
+
+  /// The rental's end, with `{date}` already written as numbers.
+  String rentalEnds(String date) => _('rentalEnds').replaceAll('{date}', date);
+  String rentalEnded(String date) =>
+      _('rentalEnded').replaceAll('{date}', date);
+
+  /// The popup's key, and what it reads when that picture is already on.
+  String get wear => _('wear');
+  String get wearing => _('wearing');
   String get youAreWinner => _('youAreWinner');
   String get isTheWinner => _('isTheWinner');
 
@@ -266,6 +391,12 @@ class Strings {
   String get quit => _('quit');
   String get cancel => _('cancel');
   String get joinAnother => _('joinAnother');
+
+  /// The server's `no_other_table` refusal to a table switch, in the
+  /// player's language. `{category}` is the table's category as this
+  /// language writes it.
+  String noOtherTable(String category) =>
+      _('noOtherTable').replaceAll('{category}', category);
 
   // --- the one-time no-winnings confirmation after sign-in
   String get consentTitle => _('consentTitle');
@@ -379,9 +510,16 @@ class Strings {
       'storeTabPictures': 'Pictures',
       'storeTabAnimated': 'Animated',
       'storePicturesBlurb': 'Unlock a picture with chips or diamonds.',
+      'storeAnimatedBlurb': 'Unlock an animated picture with diamonds.',
       'storeTabDiamonds': 'Diamonds',
       'storeDiamondsTitle': 'Diamond Store',
       'storeDiamondsBlurb': 'Diamonds unlock animated pictures.',
+      'storeTabHammers': 'Hammers',
+      'storeHammersTitle': 'Hammer Store',
+      'storeHammersBlurb': 'A hammer forces a sideshow — nobody is asked.',
+      'rewardHammersPurchased':
+          'The hammers are in your wallet. Force a sideshow at the table.',
+      'walletSummary': '{diamonds} diamonds, {hammers} hammers',
       'storeBonus': 'BONUS',
       'storeNotLive': 'Payments are not live yet — nothing was charged.',
       'posStarter': 'STARTER',
@@ -406,7 +544,7 @@ class Strings {
       'soundLabel': 'Sound',
       'vibrationLabel': 'Vibration',
       'useProviderPicture': 'Use my Google/Facebook picture',
-      'pictureLocked': 'It cannot change once you sit at a table.',
+      'pictureChangeAnytime': 'You can change it any time, even at a table.',
       'pot': 'POT',
       'stake': 'stake',
       'yourTurn': 'YOUR TURN',
@@ -425,6 +563,19 @@ class Strings {
       'sideshowCancelled': 'The sideshow was called off',
       'sideshowYouLost': 'Your hand was lower — you packed',
       'sideshowYouWon': 'Your hand was higher — they packed',
+      'force': 'Force',
+      'forceSideshow': 'Force Sideshow',
+      'forceSideshowTitle': 'Force a sideshow?',
+      'forceSideshowBody': 'Spend 1 hammer to force a sideshow with {name}?',
+      'forceSideshowNote': 'They cannot refuse, and a tie goes against you.',
+      'noHammersTitle': 'No hammers left',
+      'noHammersBody':
+          'A forced sideshow costs 1 hammer. Get more in the store?',
+      'getHammers': 'Get hammers',
+      'noHammers': 'You need a hammer to force a sideshow',
+      'sideshowForcedByYou': 'You forced a sideshow with {name}',
+      'sideshowForcedOnYou': '{name} forced a sideshow with you',
+      'sideshowForcedOn': '{from} forced a sideshow on {to}',
       'seeCards': 'See cards',
       'blindMovesLeft': 'blind moves left',
       'blindMovesLabel': 'Blind moves left',
@@ -446,6 +597,21 @@ class Strings {
       'tableChat': 'Table chat',
       'saySomething': 'Say something…',
       'tableMenu': 'Table menu',
+      // The panel's own title and its key's tooltip. The owner gave only the
+      // ten lines below, so this wording is ours and free to change.
+      'quickMessagesTitle': 'Quick messages',
+      'quickMessagesTip': 'Send a quick message',
+      // The owner's wording, capitals and apostrophes as given.
+      'quickPlayBlind': 'Please Play Blind.',
+      'quickPlayFast': 'Please Play fast.',
+      'quickHowToWin': "That's how you win it.",
+      'quickUnlucky': 'I am unlucky.',
+      'quickYouGotLucky': 'You got lucky.',
+      'quickOops': "Oops! I shouldn't have played it.",
+      'quickTakeSideshow': 'Please take sideshow.',
+      'quickTakeShow': 'Please take show.',
+      'quickSwitchTable': 'Switch Table.',
+      'quickHelpMe': 'Please help me.',
       'yourChips': 'Your chips',
       'maxPot': 'Max pot',
       'nightMode': 'Night mode',
@@ -475,6 +641,20 @@ class Strings {
       'picturePremium': 'Premium',
       'picturePremiumAnimated': 'Premium (Animated)',
       'pictureShelfEmpty': 'No pictures here yet.',
+      'pictureOwnedTitle': 'Already unlocked',
+      'timeDay': '{n} day',
+      'timeDays': '{n} days',
+      'timeHour': '{n} hour',
+      'timeHours': '{n} hours',
+      'timeMinute': '{n} minute',
+      'timeMinutes': '{n} minutes',
+      'timeLeft': '{time} left',
+      'pictureKeeps': 'Yours to keep',
+      'rentalLapsed': 'Your rental has run out',
+      'rentalEnds': 'Ends {date}',
+      'rentalEnded': 'Ended {date}',
+      'wear': 'Wear',
+      'wearing': 'Wearing',
       'youAreWinner': 'You are the winner',
       'isTheWinner': 'is the winner',
       'leaveTable': 'Leave table',
@@ -502,6 +682,8 @@ class Strings {
           'This game is for entertainment only. Chips have no cash value and cannot be exchanged for money or anything else.',
       'consentAccept': 'I confirm',
       'joinAnother': 'You can join another straight away',
+      'noOtherTable':
+          'No other {category} table at this stake has a free seat right now',
       'rules': 'Rules',
       'rulesTitle': 'Card ranking',
       'rulesBeats':
@@ -597,9 +779,16 @@ class Strings {
       'storeTabPictures': 'तस्वीरें',
       'storeTabAnimated': 'एनिमेटेड',
       'storePicturesBlurb': 'चिप्स या हीरों से तस्वीर अनलॉक करें।',
+      'storeAnimatedBlurb': 'हीरों से एनिमेटेड तस्वीर अनलॉक करें।',
       'storeTabDiamonds': 'हीरे',
       'storeDiamondsTitle': 'हीरा स्टोर',
       'storeDiamondsBlurb': 'हीरों से एनिमेटेड तस्वीरें अनलॉक करें।',
+      'storeTabHammers': 'हथौड़े',
+      'storeHammersTitle': 'हथौड़ा स्टोर',
+      'storeHammersBlurb': 'हथौड़े से साइडशो बिना पूछे होता है।',
+      'rewardHammersPurchased':
+          'हथौड़े आपके वॉलेट में हैं। टेबल पर फ़ोर्स साइडशो करें।',
+      'walletSummary': '{diamonds} हीरे, {hammers} हथौड़े',
       'storeBonus': 'बोनस',
       'storeNotLive': 'भुगतान अभी चालू नहीं है — कोई शुल्क नहीं लिया गया।',
       'posStarter': 'शुरुआत',
@@ -624,7 +813,7 @@ class Strings {
       'soundLabel': 'आवाज़',
       'vibrationLabel': 'कंपन',
       'useProviderPicture': 'मेरी Google/Facebook तस्वीर लगाएँ',
-      'pictureLocked': 'टेबल पर बैठने के बाद इसे बदला नहीं जा सकता।',
+      'pictureChangeAnytime': 'आप इसे कभी भी बदल सकते हैं, टेबल पर भी।',
       'pot': 'पॉट',
       'stake': 'दांव',
       'yourTurn': 'आपकी बारी',
@@ -643,6 +832,19 @@ class Strings {
       'sideshowCancelled': 'साइडशो रद्द हो गया',
       'sideshowYouLost': 'आपके पत्ते कमज़ोर थे — आप पैक हुए',
       'sideshowYouWon': 'आपके पत्ते बेहतर थे — वे पैक हुए',
+      'force': 'फ़ोर्स',
+      'forceSideshow': 'फ़ोर्स साइडशो',
+      'forceSideshowTitle': 'फ़ोर्स साइडशो करें?',
+      'forceSideshowBody':
+          '{name} के साथ फ़ोर्स साइडशो के लिए 1 हथौड़ा खर्च करें?',
+      'forceSideshowNote': 'वे मना नहीं कर सकते, और बराबरी पर आप हारेंगे।',
+      'noHammersTitle': 'कोई हथौड़ा नहीं बचा',
+      'noHammersBody': 'फ़ोर्स साइडशो में 1 हथौड़ा लगता है। स्टोर से और लें?',
+      'getHammers': 'हथौड़े लें',
+      'noHammers': 'फ़ोर्स साइडशो के लिए हथौड़ा चाहिए',
+      'sideshowForcedByYou': 'आपने {name} के साथ फ़ोर्स साइडशो किया',
+      'sideshowForcedOnYou': '{name} ने आपके साथ फ़ोर्स साइडशो किया',
+      'sideshowForcedOn': '{from} ने {to} पर फ़ोर्स साइडशो किया',
       'seeCards': 'पत्ते देखें',
       'blindMovesLeft': 'ब्लाइंड चालें बाकी',
       'blindMovesLabel': 'ब्लाइंड चालें बाकी',
@@ -664,6 +866,18 @@ class Strings {
       'tableChat': 'टेबल चैट',
       'saySomething': 'कुछ कहें…',
       'tableMenu': 'टेबल मेनू',
+      'quickMessagesTitle': 'झटपट संदेश',
+      'quickMessagesTip': 'झटपट संदेश भेजें',
+      'quickPlayBlind': 'कृपया ब्लाइंड खेलें।',
+      'quickPlayFast': 'कृपया जल्दी खेलें।',
+      'quickHowToWin': 'ऐसे जीतते हैं।',
+      'quickUnlucky': 'मेरी क़िस्मत ख़राब है।',
+      'quickYouGotLucky': 'आपकी क़िस्मत अच्छी थी।',
+      'quickOops': 'उफ़! मुझे यह नहीं खेलना चाहिए था।',
+      'quickTakeSideshow': 'कृपया साइडशो करें।',
+      'quickTakeShow': 'कृपया शो करें।',
+      'quickSwitchTable': 'टेबल बदलें।',
+      'quickHelpMe': 'कृपया मेरी मदद करें।',
       'yourChips': 'आपके चिप्स',
       'maxPot': 'अधिकतम पॉट',
       'nightMode': 'रात मोड',
@@ -688,6 +902,20 @@ class Strings {
       'picturePremium': 'प्रीमियम',
       'picturePremiumAnimated': 'प्रीमियम (एनिमेटेड)',
       'pictureShelfEmpty': 'यहाँ अभी कोई तस्वीर नहीं है।',
+      'pictureOwnedTitle': 'पहले से अनलॉक है',
+      'timeDay': '{n} दिन',
+      'timeDays': '{n} दिन',
+      'timeHour': '{n} घंटा',
+      'timeHours': '{n} घंटे',
+      'timeMinute': '{n} मिनट',
+      'timeMinutes': '{n} मिनट',
+      'timeLeft': '{time} बाकी',
+      'pictureKeeps': 'हमेशा के लिए आपकी',
+      'rentalLapsed': 'किराये की अवधि ख़त्म हो गई',
+      'rentalEnds': 'समाप्ति: {date}',
+      'rentalEnded': 'समाप्त हुई: {date}',
+      'wear': 'लगाएँ',
+      'wearing': 'लगी हुई है',
       'themeDark': 'डार्क',
       'themeLight': 'लाइट',
       'waitingForPlayers': 'खिलाड़ियों का इंतज़ार',
@@ -720,6 +948,8 @@ class Strings {
           'यह गेम केवल मनोरंजन के लिए है। चिप्स का कोई नकद मूल्य नहीं है और इन्हें पैसे या किसी और चीज़ से बदला नहीं जा सकता।',
       'consentAccept': 'पुष्टि करें',
       'joinAnother': 'आप तुरंत दूसरी टेबल पर जुड़ सकते हैं',
+      'noOtherTable':
+          'इस दांव पर अभी किसी और {category} टेबल पर सीट खाली नहीं है',
       'rules': 'नियम',
       'rulesTitle': 'पत्तों की रैंकिंग',
       'rulesBeats': 'सबसे ऊपर सबसे मज़बूत। ऊपर वाला हाथ नीचे वाले सब पर भारी।',
@@ -815,9 +1045,16 @@ class Strings {
       'storeTabPictures': 'ছবি',
       'storeTabAnimated': 'অ্যানিমেটেড',
       'storePicturesBlurb': 'চিপস বা হীরে দিয়ে ছবি আনলক করুন।',
+      'storeAnimatedBlurb': 'হীরে দিয়ে একটি অ্যানিমেটেড ছবি আনলক করুন।',
       'storeTabDiamonds': 'হীরে',
       'storeDiamondsTitle': 'হীরের দোকান',
       'storeDiamondsBlurb': 'হীরে দিয়ে অ্যানিমেটেড ছবি আনলক করুন।',
+      'storeTabHammers': 'হাতুড়ি',
+      'storeHammersTitle': 'হাতুড়ি স্টোর',
+      'storeHammersBlurb': 'হাতুড়ি দিয়ে না জিজ্ঞেস করেই সাইডশো হয়।',
+      'rewardHammersPurchased':
+          'হাতুড়ি আপনার ওয়ালেটে আছে। টেবিলে ফোর্স সাইডশো করুন।',
+      'walletSummary': '{diamonds}টি হীরে, {hammers}টি হাতুড়ি',
       'storeBonus': 'বোনাস',
       'storeNotLive': 'পেমেন্ট এখনও চালু নয় — কোনও চার্জ হয়নি।',
       'posStarter': 'শুরু',
@@ -842,7 +1079,7 @@ class Strings {
       'soundLabel': 'শব্দ',
       'vibrationLabel': 'কম্পন',
       'useProviderPicture': 'আমার Google/Facebook ছবি ব্যবহার করুন',
-      'pictureLocked': 'টেবিলে বসার পর এটি বদলানো যায় না।',
+      'pictureChangeAnytime': 'আপনি এটি যেকোনো সময় বদলাতে পারেন, টেবিলে বসেও।',
       'pot': 'পট',
       'stake': 'বাজি',
       'yourTurn': 'আপনার পালা',
@@ -861,6 +1098,20 @@ class Strings {
       'sideshowCancelled': 'সাইডশো বাতিল হয়েছে',
       'sideshowYouLost': 'আপনার তাস দুর্বল ছিল — আপনি প্যাক হলেন',
       'sideshowYouWon': 'আপনার তাস ভালো ছিল — তিনি প্যাক হলেন',
+      'force': 'ফোর্স',
+      'forceSideshow': 'ফোর্স সাইডশো',
+      'forceSideshowTitle': 'ফোর্স সাইডশো করবেন?',
+      'forceSideshowBody':
+          '{name}-এর সঙ্গে ফোর্স সাইডশো করতে 1টি হাতুড়ি খরচ করবেন?',
+      'forceSideshowNote': 'তিনি না বলতে পারবেন না, আর সমান হলে আপনি হারবেন।',
+      'noHammersTitle': 'কোনও হাতুড়ি নেই',
+      'noHammersBody':
+          'ফোর্স সাইডশো করতে 1টি হাতুড়ি লাগে। স্টোর থেকে আরও নেবেন?',
+      'getHammers': 'হাতুড়ি নিন',
+      'noHammers': 'ফোর্স সাইডশো করতে একটি হাতুড়ি লাগবে',
+      'sideshowForcedByYou': 'আপনি {name}-এর সঙ্গে ফোর্স সাইডশো করলেন',
+      'sideshowForcedOnYou': '{name} আপনার সঙ্গে ফোর্স সাইডশো করলেন',
+      'sideshowForcedOn': '{from} {to}-এর সঙ্গে ফোর্স সাইডশো করলেন',
       'seeCards': 'তাস দেখুন',
       'blindMovesLeft': 'ব্লাইন্ড চাল বাকি',
       'blindMovesLabel': 'ব্লাইন্ড চাল বাকি',
@@ -882,6 +1133,18 @@ class Strings {
       'tableChat': 'টেবিল চ্যাট',
       'saySomething': 'কিছু বলুন…',
       'tableMenu': 'টেবিল মেনু',
+      'quickMessagesTitle': 'দ্রুত বার্তা',
+      'quickMessagesTip': 'দ্রুত বার্তা পাঠান',
+      'quickPlayBlind': 'দয়া করে ব্লাইন্ড খেলুন।',
+      'quickPlayFast': 'দয়া করে তাড়াতাড়ি খেলুন।',
+      'quickHowToWin': 'এভাবেই জিততে হয়।',
+      'quickUnlucky': 'আমার ভাগ্য খারাপ।',
+      'quickYouGotLucky': 'আপনার ভাগ্য ভালো ছিল।',
+      'quickOops': 'উফ! এটা খেলা আমার উচিত হয়নি।',
+      'quickTakeSideshow': 'দয়া করে সাইডশো করুন।',
+      'quickTakeShow': 'দয়া করে শো করুন।',
+      'quickSwitchTable': 'টেবিল বদলান।',
+      'quickHelpMe': 'দয়া করে আমাকে সাহায্য করুন।',
       'unlock': 'আনলক করুন',
       'unlockTitle': 'এই ছবিটি আনলক করবেন?',
       'unlockBody': '{name} এর দাম {cost} চিপস। এখনই আনলক করে ব্যবহার করবেন?',
@@ -900,6 +1163,20 @@ class Strings {
       'picturePremium': 'প্রিমিয়াম',
       'picturePremiumAnimated': 'প্রিমিয়াম (অ্যানিমেটেড)',
       'pictureShelfEmpty': 'এখানে এখনও কোনো ছবি নেই।',
+      'pictureOwnedTitle': 'আগেই আনলক করা',
+      'timeDay': '{n} দিন',
+      'timeDays': '{n} দিন',
+      'timeHour': '{n} ঘণ্টা',
+      'timeHours': '{n} ঘণ্টা',
+      'timeMinute': '{n} মিনিট',
+      'timeMinutes': '{n} মিনিট',
+      'timeLeft': '{time} বাকি',
+      'pictureKeeps': 'চিরকাল আপনার',
+      'rentalLapsed': 'ভাড়ার মেয়াদ শেষ হয়েছে',
+      'rentalEnds': 'মেয়াদ শেষ: {date}',
+      'rentalEnded': 'শেষ হয়েছে: {date}',
+      'wear': 'ব্যবহার করুন',
+      'wearing': 'ব্যবহার হচ্ছে',
       'yourChips': 'আপনার চিপ',
       'maxPot': 'সর্বোচ্চ পট',
       'nightMode': 'রাত মোড',
@@ -938,6 +1215,7 @@ class Strings {
           'এই গেম শুধুমাত্র বিনোদনের জন্য। চিপের কোনো নগদ মূল্য নেই এবং টাকা বা অন্য কিছুর বিনিময়ে বদলানো যায় না।',
       'consentAccept': 'নিশ্চিত করছি',
       'joinAnother': 'আপনি সঙ্গে সঙ্গে অন্য টেবিলে যোগ দিতে পারেন',
+      'noOtherTable': 'এই বাজিতে এখন অন্য কোনো {category} টেবিলে খালি আসন নেই',
       'rules': 'নিয়ম',
       'rulesTitle': 'তাসের র‍্যাঙ্কিং',
       'rulesBeats':
@@ -1034,9 +1312,16 @@ class Strings {
       'storeTabPictures': 'ફોટા',
       'storeTabAnimated': 'એનિમેટેડ',
       'storePicturesBlurb': 'ચિપ્સ અથવા હીરાથી ફોટો અનલૉક કરો.',
+      'storeAnimatedBlurb': 'હીરાથી એનિમેટેડ ફોટો અનલૉક કરો.',
       'storeTabDiamonds': 'હીરા',
       'storeDiamondsTitle': 'હીરા સ્ટોર',
       'storeDiamondsBlurb': 'હીરાથી એનિમેટેડ ફોટા અનલૉક કરો.',
+      'storeTabHammers': 'હથોડી',
+      'storeHammersTitle': 'હથોડી સ્ટોર',
+      'storeHammersBlurb': 'હથોડીથી પૂછ્યા વગર સાઇડશો થાય છે.',
+      'rewardHammersPurchased':
+          'હથોડી તમારા વૉલેટમાં છે. ટેબલ પર ફોર્સ સાઇડશો કરો.',
+      'walletSummary': '{diamonds} હીરા, {hammers} હથોડી',
       'storeBonus': 'બોનસ',
       'storeNotLive': 'પેમેન્ટ હજી ચાલુ નથી — કોઈ ચાર્જ લેવાયો નથી.',
       'posStarter': 'શરૂઆત',
@@ -1061,7 +1346,7 @@ class Strings {
       'soundLabel': 'અવાજ',
       'vibrationLabel': 'કંપન',
       'useProviderPicture': 'મારો Google/Facebook ફોટો વાપરો',
-      'pictureLocked': 'ટેબલ પર બેઠા પછી આ બદલી શકાતું નથી.',
+      'pictureChangeAnytime': 'તમે આ ગમે ત્યારે બદલી શકો છો, ટેબલ પર પણ.',
       'pot': 'પોટ',
       'stake': 'દાવ',
       'yourTurn': 'તમારો વારો',
@@ -1080,6 +1365,18 @@ class Strings {
       'sideshowCancelled': 'સાઇડશો રદ થયો',
       'sideshowYouLost': 'તમારાં પત્તાં નબળાં હતાં — તમે પૅક થયા',
       'sideshowYouWon': 'તમારાં પત્તાં સારાં હતાં — તે પૅક થયા',
+      'force': 'ફોર્સ',
+      'forceSideshow': 'ફોર્સ સાઇડશો',
+      'forceSideshowTitle': 'ફોર્સ સાઇડશો કરશો?',
+      'forceSideshowBody': '{name} સાથે ફોર્સ સાઇડશો માટે 1 હથોડી વાપરશો?',
+      'forceSideshowNote': 'તે ના પાડી શકતા નથી, અને બરાબરી થાય તો તમે હારશો.',
+      'noHammersTitle': 'કોઈ હથોડી બાકી નથી',
+      'noHammersBody': 'ફોર્સ સાઇડશોમાં 1 હથોડી લાગે છે. સ્ટોરમાંથી વધુ લેશો?',
+      'getHammers': 'હથોડી લો',
+      'noHammers': 'ફોર્સ સાઇડશો માટે હથોડી જોઈએ',
+      'sideshowForcedByYou': 'તમે {name} સાથે ફોર્સ સાઇડશો કર્યો',
+      'sideshowForcedOnYou': '{name} એ તમારી સાથે ફોર્સ સાઇડશો કર્યો',
+      'sideshowForcedOn': '{from} એ {to} સાથે ફોર્સ સાઇડશો કર્યો',
       'seeCards': 'પત્તા જુઓ',
       'blindMovesLeft': 'બ્લાઇન્ડ ચાલ બાકી',
       'blindMovesLabel': 'બ્લાઇન્ડ ચાલ બાકી',
@@ -1114,12 +1411,38 @@ class Strings {
       'picturePremium': 'પ્રીમિયમ',
       'picturePremiumAnimated': 'પ્રીમિયમ (એનિમેટેડ)',
       'pictureShelfEmpty': 'અહીં હજી કોઈ ફોટો નથી.',
+      'pictureOwnedTitle': 'પહેલેથી અનલૉક છે',
+      'timeDay': '{n} દિવસ',
+      'timeDays': '{n} દિવસ',
+      'timeHour': '{n} કલાક',
+      'timeHours': '{n} કલાક',
+      'timeMinute': '{n} મિનિટ',
+      'timeMinutes': '{n} મિનિટ',
+      'timeLeft': '{time} બાકી',
+      'pictureKeeps': 'હંમેશા માટે તમારો',
+      'rentalLapsed': 'ભાડાની મુદત પૂરી થઈ ગઈ',
+      'rentalEnds': 'મુદત પૂરી: {date}',
+      'rentalEnded': 'પૂરી થઈ: {date}',
+      'wear': 'વાપરો',
+      'wearing': 'વપરાય છે',
       'appVersion': 'એપ આવૃત્તિ',
       'tableLost': 'તમે દૂર હતા ત્યારે ટેબલ બંધ થઈ ગયું.',
       'winner': 'વિજેતા',
       'tableChat': 'ટેબલ ચૅટ',
       'saySomething': 'કંઈક કહો…',
       'tableMenu': 'ટેબલ મેનૂ',
+      'quickMessagesTitle': 'ઝટપટ સંદેશા',
+      'quickMessagesTip': 'ઝટપટ સંદેશો મોકલો',
+      'quickPlayBlind': 'કૃપા કરીને બ્લાઇન્ડ રમો.',
+      'quickPlayFast': 'કૃપા કરીને ઝડપથી રમો.',
+      'quickHowToWin': 'આમ જ જીતાય છે.',
+      'quickUnlucky': 'મારું નસીબ ખરાબ છે.',
+      'quickYouGotLucky': 'તમારું નસીબ સારું હતું.',
+      'quickOops': 'અરેરે! મારે આ નહોતું રમવું જોઈતું.',
+      'quickTakeSideshow': 'કૃપા કરીને સાઇડશો કરો.',
+      'quickTakeShow': 'કૃપા કરીને શો કરો.',
+      'quickSwitchTable': 'ટેબલ બદલો.',
+      'quickHelpMe': 'કૃપા કરીને મારી મદદ કરો.',
       'yourChips': 'તમારા ચિપ્સ',
       'maxPot': 'મહત્તમ પોટ',
       'nightMode': 'રાત મોડ',
@@ -1159,6 +1482,8 @@ class Strings {
           'આ ગેમ માત્ર મનોરંજન માટે છે. ચિપ્સનું કોઈ રોકડ મૂલ્ય નથી અને તેને પૈસા કે બીજી કોઈ વસ્તુ સાથે બદલી શકાતી નથી.',
       'consentAccept': 'પુષ્ટિ કરું છું',
       'joinAnother': 'તમે તરત જ બીજા ટેબલ પર જોડાઈ શકો છો',
+      'noOtherTable':
+          'આ દાવ પર હાલમાં બીજા કોઈ {category} ટેબલ પર સીટ ખાલી નથી',
       'rules': 'નિયમો',
       'rulesTitle': 'પત્તાંની રેન્કિંગ',
       'rulesBeats': 'ઉપરનું સૌથી મજબૂત. દરેક હાથ નીચેના બધાને હરાવે છે.',
@@ -1252,9 +1577,16 @@ class Strings {
       'storeTabPictures': 'ਤਸਵੀਰਾਂ',
       'storeTabAnimated': 'ਐਨੀਮੇਟਿਡ',
       'storePicturesBlurb': 'ਚਿਪਸ ਜਾਂ ਹੀਰਿਆਂ ਨਾਲ ਤਸਵੀਰ ਅਨਲੌਕ ਕਰੋ।',
+      'storeAnimatedBlurb': 'ਹੀਰਿਆਂ ਨਾਲ ਐਨੀਮੇਟਿਡ ਤਸਵੀਰ ਅਨਲੌਕ ਕਰੋ।',
       'storeTabDiamonds': 'ਹੀਰੇ',
       'storeDiamondsTitle': 'ਹੀਰਾ ਸਟੋਰ',
       'storeDiamondsBlurb': 'ਹੀਰਿਆਂ ਨਾਲ ਐਨੀਮੇਟਿਡ ਤਸਵੀਰਾਂ ਅਨਲੌਕ ਕਰੋ।',
+      'storeTabHammers': 'ਹਥੌੜੇ',
+      'storeHammersTitle': 'ਹਥੌੜਾ ਸਟੋਰ',
+      'storeHammersBlurb': 'ਹਥੌੜੇ ਨਾਲ ਬਿਨਾਂ ਪੁੱਛੇ ਸਾਈਡਸ਼ੋ ਹੁੰਦਾ ਹੈ।',
+      'rewardHammersPurchased':
+          'ਹਥੌੜੇ ਤੁਹਾਡੇ ਵਾਲਿਟ ਵਿੱਚ ਹਨ। ਟੇਬਲ ’ਤੇ ਫੋਰਸ ਸਾਈਡਸ਼ੋ ਕਰੋ।',
+      'walletSummary': '{diamonds} ਹੀਰੇ, {hammers} ਹਥੌੜੇ',
       'storeBonus': 'ਬੋਨਸ',
       'storeNotLive': 'ਭੁਗਤਾਨ ਹਾਲੇ ਚਾਲੂ ਨਹੀਂ — ਕੋਈ ਚਾਰਜ ਨਹੀਂ ਲਿਆ ਗਿਆ।',
       'posStarter': 'ਸ਼ੁਰੂਆਤ',
@@ -1279,7 +1611,7 @@ class Strings {
       'soundLabel': 'ਆਵਾਜ਼',
       'vibrationLabel': 'ਕੰਪਨ',
       'useProviderPicture': 'ਮੇਰੀ Google/Facebook ਤਸਵੀਰ ਵਰਤੋ',
-      'pictureLocked': 'ਟੇਬਲ ਉੱਤੇ ਬੈਠਣ ਤੋਂ ਬਾਅਦ ਇਹ ਬਦਲੀ ਨਹੀਂ ਜਾ ਸਕਦੀ।',
+      'pictureChangeAnytime': 'ਤੁਸੀਂ ਇਹ ਕਦੇ ਵੀ ਬਦਲ ਸਕਦੇ ਹੋ, ਟੇਬਲ ਉੱਤੇ ਵੀ।',
       'pot': 'ਪੌਟ',
       'stake': 'ਦਾਅ',
       'yourTurn': 'ਤੁਹਾਡੀ ਵਾਰੀ',
@@ -1298,6 +1630,19 @@ class Strings {
       'sideshowCancelled': 'ਸਾਈਡਸ਼ੋ ਰੱਦ ਹੋ ਗਿਆ',
       'sideshowYouLost': 'ਤੁਹਾਡੇ ਪੱਤੇ ਕਮਜ਼ੋਰ ਸਨ — ਤੁਸੀਂ ਪੈਕ ਹੋਏ',
       'sideshowYouWon': 'ਤੁਹਾਡੇ ਪੱਤੇ ਵਧੀਆ ਸਨ — ਉਹ ਪੈਕ ਹੋਏ',
+      'force': 'ਫੋਰਸ',
+      'forceSideshow': 'ਫੋਰਸ ਸਾਈਡਸ਼ੋ',
+      'forceSideshowTitle': 'ਫੋਰਸ ਸਾਈਡਸ਼ੋ ਕਰਨਾ ਹੈ?',
+      'forceSideshowBody': '{name} ਨਾਲ ਫੋਰਸ ਸਾਈਡਸ਼ੋ ਲਈ 1 ਹਥੌੜਾ ਖਰਚ ਕਰਨਾ ਹੈ?',
+      'forceSideshowNote': 'ਉਹ ਨਾਂਹ ਨਹੀਂ ਕਰ ਸਕਦੇ, ਅਤੇ ਬਰਾਬਰੀ ’ਤੇ ਤੁਸੀਂ ਹਾਰੋਗੇ।',
+      'noHammersTitle': 'ਕੋਈ ਹਥੌੜਾ ਨਹੀਂ ਬਚਿਆ',
+      'noHammersBody':
+          'ਫੋਰਸ ਸਾਈਡਸ਼ੋ ਲਈ 1 ਹਥੌੜਾ ਲੱਗਦਾ ਹੈ। ਸਟੋਰ ਤੋਂ ਹੋਰ ਲੈਣੇ ਹਨ?',
+      'getHammers': 'ਹਥੌੜੇ ਲਓ',
+      'noHammers': 'ਫੋਰਸ ਸਾਈਡਸ਼ੋ ਲਈ ਹਥੌੜਾ ਚਾਹੀਦਾ ਹੈ',
+      'sideshowForcedByYou': 'ਤੁਸੀਂ {name} ਨਾਲ ਫੋਰਸ ਸਾਈਡਸ਼ੋ ਕੀਤਾ',
+      'sideshowForcedOnYou': '{name} ਨੇ ਤੁਹਾਡੇ ਨਾਲ ਫੋਰਸ ਸਾਈਡਸ਼ੋ ਕੀਤਾ',
+      'sideshowForcedOn': '{from} ਨੇ {to} ਨਾਲ ਫੋਰਸ ਸਾਈਡਸ਼ੋ ਕੀਤਾ',
       'seeCards': 'ਪੱਤੇ ਵੇਖੋ',
       'blindMovesLeft': 'ਬਲਾਈਂਡ ਚਾਲਾਂ ਬਾਕੀ',
       'blindMovesLabel': 'ਬਲਾਈਂਡ ਚਾਲਾਂ ਬਾਕੀ',
@@ -1328,6 +1673,20 @@ class Strings {
       'picturePremium': 'ਪ੍ਰੀਮੀਅਮ',
       'picturePremiumAnimated': 'ਪ੍ਰੀਮੀਅਮ (ਐਨੀਮੇਟਿਡ)',
       'pictureShelfEmpty': 'ਇੱਥੇ ਹਾਲੇ ਕੋਈ ਤਸਵੀਰ ਨਹੀਂ ਹੈ।',
+      'pictureOwnedTitle': 'ਪਹਿਲਾਂ ਹੀ ਅਨਲਾਕ ਹੈ',
+      'timeDay': '{n} ਦਿਨ',
+      'timeDays': '{n} ਦਿਨ',
+      'timeHour': '{n} ਘੰਟਾ',
+      'timeHours': '{n} ਘੰਟੇ',
+      'timeMinute': '{n} ਮਿੰਟ',
+      'timeMinutes': '{n} ਮਿੰਟ',
+      'timeLeft': '{time} ਬਾਕੀ',
+      'pictureKeeps': 'ਹਮੇਸ਼ਾ ਲਈ ਤੁਹਾਡੀ',
+      'rentalLapsed': 'ਕਿਰਾਏ ਦੀ ਮਿਆਦ ਖਤਮ ਹੋ ਗਈ',
+      'rentalEnds': 'ਮਿਆਦ ਖਤਮ: {date}',
+      'rentalEnded': 'ਖਤਮ ਹੋਈ: {date}',
+      'wear': 'ਲਗਾਓ',
+      'wearing': 'ਲੱਗੀ ਹੋਈ ਹੈ',
       'missedTurnsLabel': 'ਖੁੰਝੀਆਂ ਚਾਲਾਂ',
       'resumingTable': 'ਤੁਹਾਡੇ ਟੇਬਲ ਤੇ ਵਾਪਸ ਜਾ ਰਹੇ ਹਾਂ…',
       'welcomeBack': 'ਵਾਪਸੀ ਤੇ ਸਵਾਗਤ — ਤੁਸੀਂ ਆਪਣੇ ਟੇਬਲ ਤੇ ਵਾਪਸ ਹੋ।',
@@ -1337,6 +1696,18 @@ class Strings {
       'tableChat': 'ਟੇਬਲ ਚੈਟ',
       'saySomething': 'ਕੁਝ ਕਹੋ…',
       'tableMenu': 'ਟੇਬਲ ਮੀਨੂ',
+      'quickMessagesTitle': 'ਝਟਪਟ ਸੁਨੇਹੇ',
+      'quickMessagesTip': 'ਝਟਪਟ ਸੁਨੇਹਾ ਭੇਜੋ',
+      'quickPlayBlind': 'ਕਿਰਪਾ ਕਰਕੇ ਬਲਾਈਂਡ ਖੇਡੋ।',
+      'quickPlayFast': 'ਕਿਰਪਾ ਕਰਕੇ ਜਲਦੀ ਖੇਡੋ।',
+      'quickHowToWin': 'ਇੰਝ ਜਿੱਤੀਦਾ ਹੈ।',
+      'quickUnlucky': 'ਮੇਰੀ ਕਿਸਮਤ ਮਾੜੀ ਹੈ।',
+      'quickYouGotLucky': 'ਤੁਹਾਡੀ ਕਿਸਮਤ ਚੰਗੀ ਸੀ।',
+      'quickOops': 'ਓਹੋ! ਮੈਨੂੰ ਇਹ ਨਹੀਂ ਖੇਡਣਾ ਚਾਹੀਦਾ ਸੀ।',
+      'quickTakeSideshow': 'ਕਿਰਪਾ ਕਰਕੇ ਸਾਈਡਸ਼ੋ ਕਰੋ।',
+      'quickTakeShow': 'ਕਿਰਪਾ ਕਰਕੇ ਸ਼ੋ ਕਰੋ।',
+      'quickSwitchTable': 'ਟੇਬਲ ਬਦਲੋ।',
+      'quickHelpMe': 'ਕਿਰਪਾ ਕਰਕੇ ਮੇਰੀ ਮਦਦ ਕਰੋ।',
       'yourChips': 'ਤੁਹਾਡੇ ਚਿਪਸ',
       'maxPot': 'ਵੱਧ ਤੋਂ ਵੱਧ ਪੌਟ',
       'nightMode': 'ਰਾਤ ਮੋਡ',
@@ -1375,6 +1746,8 @@ class Strings {
           'ਇਹ ਗੇਮ ਸਿਰਫ਼ ਮਨੋਰੰਜਨ ਲਈ ਹੈ। ਚਿਪਸ ਦੀ ਕੋਈ ਨਕਦ ਕੀਮਤ ਨਹੀਂ ਹੈ ਅਤੇ ਇਹਨਾਂ ਨੂੰ ਪੈਸੇ ਜਾਂ ਕਿਸੇ ਹੋਰ ਚੀਜ਼ ਨਾਲ ਬਦਲਿਆ ਨਹੀਂ ਜਾ ਸਕਦਾ।',
       'consentAccept': 'ਪੁਸ਼ਟੀ ਕਰੋ',
       'joinAnother': 'ਤੁਸੀਂ ਤੁਰੰਤ ਕਿਸੇ ਹੋਰ ਟੇਬਲ ਉੱਤੇ ਜੁੜ ਸਕਦੇ ਹੋ',
+      'noOtherTable':
+          'ਇਸ ਦਾਅ ਉੱਤੇ ਹੁਣ ਕਿਸੇ ਹੋਰ {category} ਟੇਬਲ ਉੱਤੇ ਸੀਟ ਖਾਲੀ ਨਹੀਂ ਹੈ',
       'rules': 'ਨਿਯਮ',
       'rulesTitle': 'ਪੱਤਿਆਂ ਦੀ ਰੈਂਕਿੰਗ',
       'rulesBeats':

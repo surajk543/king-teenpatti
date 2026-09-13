@@ -134,52 +134,94 @@ class _Root extends StatelessWidget {
     );
 
     return _NoticeHost(
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          _BackGuard(
-            screen: screen,
-            child: _ScreenFade(
+      child: _TableRoutes(
+        screen: screen,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            _BackGuard(
               screen: screen,
-              child: switch (screen) {
-                Screen.splash => const SplashScreen(),
-                Screen.update => const UpdateScreen(),
-                Screen.login => const LoginScreen(),
-                Screen.lobby => const LobbyScreen(),
-                Screen.table => const TableScreen(),
-              },
+              child: _ScreenFade(
+                screen: screen,
+                child: switch (screen) {
+                  Screen.splash => const SplashScreen(),
+                  Screen.update => const UpdateScreen(),
+                  Screen.login => const LoginScreen(),
+                  Screen.lobby => const LobbyScreen(),
+                  Screen.table => const TableScreen(),
+                },
+              ),
             ),
-          ),
-          // On a cold start with a saved session the lobby is ready before the
-          // server has said whether the player still has a table. Holding a
-          // veil over it for that moment means an app closed mid-hand reopens
-          // onto the table, not onto the lobby with the table arriving a beat
-          // later.
-          IgnorePointer(
-            ignoring: !resuming,
-            child: AnimatedSwitcher(
-              duration: const Duration(milliseconds: 380),
-              child: resuming
-                  ? const _ResumeVeil(key: ValueKey('resume-veil'))
-                  : const SizedBox.shrink(key: ValueKey('no-veil')),
+            // On a cold start with a saved session the lobby is ready before the
+            // server has said whether the player still has a table. Holding a
+            // veil over it for that moment means an app closed mid-hand reopens
+            // onto the table, not onto the lobby with the table arriving a beat
+            // later.
+            IgnorePointer(
+              ignoring: !resuming,
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 380),
+                child: resuming
+                    ? const _ResumeVeil(key: ValueKey('resume-veil'))
+                    : const SizedBox.shrink(key: ValueKey('no-veil')),
+              ),
             ),
-          ),
-          // Above the resume veil: a player being returned to their table can
-          // read and confirm the statement while the table resolves behind it,
-          // and the game stays covered until they have.
-          IgnorePointer(
-            ignoring: !consent,
-            child: AnimatedSwitcher(
-              duration: const Duration(milliseconds: 380),
-              child: consent
-                  ? const _ConsentGate(key: ValueKey('consent-gate'))
-                  : const SizedBox.shrink(key: ValueKey('no-consent')),
+            // Above the resume veil: a player being returned to their table can
+            // read and confirm the statement while the table resolves behind it,
+            // and the game stays covered until they have.
+            IgnorePointer(
+              ignoring: !consent,
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 380),
+                child: consent
+                    ? const _ConsentGate(key: ValueKey('consent-gate'))
+                    : const SizedBox.shrink(key: ValueKey('no-consent')),
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
+}
+
+/// Closes whatever was opened over the table once the table has gone.
+///
+/// The store, an unlock dialog, the rules sheet and the leave question are all
+/// routes on the root Navigator, and swapping the screen under them — a kick,
+/// a closed room, a lost seat — left them standing over the lobby. The table's
+/// store rebuilt itself as the lobby's under the player's finger, and a tap
+/// aimed at an animated picture opened the unlock for a chip-priced one.
+/// Nothing opened at a table means anything once the player is not at it.
+class _TableRoutes extends StatefulWidget {
+  const _TableRoutes({required this.screen, required this.child});
+
+  final Screen screen;
+  final Widget child;
+
+  @override
+  State<_TableRoutes> createState() => _TableRoutesState();
+}
+
+class _TableRoutesState extends State<_TableRoutes> {
+  @override
+  void didUpdateWidget(covariant _TableRoutes oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.screen == Screen.table && widget.screen != Screen.table) {
+      // After the frame: this runs while the tree is building, and popping a
+      // route then would change the Navigator in the middle of its own build.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        Navigator.of(
+          context,
+          rootNavigator: true,
+        ).popUntil((route) => route.isFirst);
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }
 
 /// The one-time statement that stands between sign-in and the game: the
@@ -589,7 +631,19 @@ class _NoticeHostState extends State<_NoticeHost> {
           // it, and colouring a refusal red by guessing at its wording would
           // be wrong in five languages.
           ..showSnackBar(
-            NoticeToast.snackBar(context, message: _readable(context, notice)),
+            NoticeToast.snackBar(
+              context,
+              message: _readable(context, notice),
+              // Read as it is shown, not when it was raised: a kick moves the
+              // player to the lobby in the same breath as its notice. A screen
+              // with something standing at its foot names where a toast may
+              // stand instead; the others give it the foot as it is.
+              area: switch (context.read<GameState>().screen) {
+                Screen.table => tableNoticeArea(context),
+                Screen.lobby => lobbyNoticeArea(context),
+                _ => null,
+              },
+            ),
           );
         context.read<GameState>().clearNotice();
         _shown = null;

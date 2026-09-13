@@ -78,6 +78,49 @@ class LobbyScreen extends StatefulWidget {
 class _LobbyScreenState extends State<LobbyScreen> {
   _EndPanel _panel = _EndPanel.stats;
 
+  /// The private card's code field. Owned here because the rail is what has
+  /// to move while it has focus: the lobby is not resized for the keyboard, so
+  /// the rail lifts itself instead, and only for that one field.
+  final _codeFocus = FocusNode();
+
+  /// On the code field's box, so the lift can be measured against the field
+  /// itself rather than guessed from the card's layout.
+  final _codeField = GlobalKey();
+
+  /// On the private card, the box the code field is measured against.
+  final _privateCard = GlobalKey();
+
+  @override
+  void dispose() {
+    _codeFocus.dispose();
+    super.dispose();
+  }
+
+  /// How far below the private card's top edge its code field starts, or null
+  /// while either has no layout to measure.
+  ///
+  /// Measured against the card, never against the screen. The way to the
+  /// screen runs through the rail's sliver, and once the card has scrolled out
+  /// of view — kept alive only because its field still holds focus — the
+  /// sliver paints it with a zero transform. The point came back NaN, the lift
+  /// became NaN and stayed NaN, and the rail's Transform took the lobby down:
+  /// the rail vanished under a flood of "invalid matrix" errors, and then the
+  /// engine crashed. Where the card itself sits is known from the rail's own
+  /// layout, so this distance inside it is all that is measured.
+  double? _codeFieldInCard() {
+    final field = _codeField.currentContext?.findRenderObject();
+    final card = _privateCard.currentContext?.findRenderObject();
+    if (field is! RenderBox ||
+        card is! RenderBox ||
+        !field.attached ||
+        !field.hasSize ||
+        !card.hasSize) {
+      return null;
+    }
+    final dy = field.localToGlobal(Offset.zero, ancestor: card).dy;
+    return dy.isFinite ? dy : null;
+  }
+
   void _open(BuildContext context, _EndPanel panel) {
     setState(() => _panel = panel);
     Scaffold.of(context).openEndDrawer();
@@ -92,11 +135,37 @@ class _LobbyScreenState extends State<LobbyScreen> {
     var slot = 0;
     Widget entering(Widget child) => _Entrance(index: slot++, child: child);
 
+    // The milestone chip's height, measured from the two lines it holds at the
+    // current text scale: the rail keeps a band this tall clear at its foot,
+    // so the cards end above the chip instead of running under it.
+    final text = Theme.of(context).textTheme;
+    final scaler = MediaQuery.textScalerOf(context);
+    double line(TextStyle? style) =>
+        (scaler.scale(style?.fontSize ?? 14) * (style?.height ?? 1.2))
+            .ceilToDouble();
+    final band =
+        math.max(
+          Dim.minTouch,
+          line(text.labelSmall) + line(text.labelLarge) + 2 * Space.sm,
+        ) +
+        Space.xs;
+    // The system inset under the lobby's SafeArea, read out here because the
+    // SafeArea takes it out of the MediaQuery its children see.
+    final safeBottom = MediaQuery.paddingOf(context).bottom;
+    final screenH = MediaQuery.sizeOf(context).height;
+
     return Scaffold(
       key: state.lobbyScaffold,
       // The ground paints the page; the Scaffold's own flat surface would sit
       // between the two and cancel the vignette.
       backgroundColor: Colors.transparent,
+      // Never resized for the keyboard, as the table is not. Resized, the body
+      // squeezed the rail into a strip whose cards painted overflow stripes,
+      // and the rail's scroll offset was clamped to the shrunken extent, so it
+      // jumped back when the keyboard closed and left the private card a
+      // sliver. The Settings drawer and the code field clear the keyboard
+      // themselves.
+      resizeToAvoidBottomInset: false,
       endDrawer: _panel == _EndPanel.stats
           ? const _StatsDrawer()
           : const _SettingsDrawer(),
@@ -113,53 +182,123 @@ class _LobbyScreenState extends State<LobbyScreen> {
                 children: [
                   _TopBar(user: user, onOpen: _open),
                   Expanded(
-                    child: LayoutBuilder(
-                      builder: (context, box) {
-                        final h = MediaQuery.sizeOf(context).height;
-                        // The cards are square, so their height sets their
-                        // width; on a tablet an uncapped card grows until two
-                        // of them fill the screen. The rail is derived from the
-                        // card plus its own padding rather than the other way
-                        // round, so the card is never squeezed by the rail:
-                        // h=360 -> 259.2 | h=411 -> 295.9 | h=800 -> 400.0.
-                        final side = math.min(
-                          math.max(box.maxHeight - Space.xl, 0),
-                          Dim.lobbyCardSide(h),
-                        );
+                    // The milestone chip's band stays clear under the rail.
+                    // Floated over it, the chip covered the lower half of Join
+                    // and "Tap to sit down" and took the taps aimed at them.
+                    child: Padding(
+                      padding: EdgeInsets.only(bottom: band),
+                      child: LayoutBuilder(
+                        builder: (context, box) {
+                          final h = MediaQuery.sizeOf(context).height;
+                          // The cards are square, so their height sets their
+                          // width; on a tablet an uncapped card grows until two
+                          // of them fill the screen. The rail is derived from the
+                          // card plus its own padding rather than the other way
+                          // round, so the card is never squeezed by the rail.
+                          // The card's ceiling is h=360 -> 259.2 | h=411 -> 295.9
+                          // | h=800 -> 400.0; with the chip's band off the height
+                          // the two phones get about 231 and 273.
+                          final side = math.min(
+                            math.max(box.maxHeight - Space.xl, 0),
+                            Dim.lobbyCardSide(h),
+                          );
 
-                        return Center(
-                          child: SizedBox(
-                            height: side + Space.xl,
-                            child: ListView(
-                              scrollDirection: Axis.horizontal,
-                              padding: const EdgeInsets.fromLTRB(
-                                Space.xl,
-                                Space.md,
-                                Space.xl,
-                                Space.md,
+                          final rail = Center(
+                            child: SizedBox(
+                              height: side + Space.xl,
+                              child: ListView(
+                                scrollDirection: Axis.horizontal,
+                                // Holds its place while the cards change size
+                                // under it (_KeepsPlacePhysics).
+                                physics: const _KeepsPlacePhysics(),
+                                padding: const EdgeInsets.fromLTRB(
+                                  Space.xl,
+                                  Space.md,
+                                  Space.xl,
+                                  Space.md,
+                                ),
+                                children: [
+                                  // The server decides which rooms exist; the
+                                  // lobby decides the order a player meets them
+                                  // in. Seen first — it is where the game is
+                                  // explained — then the tables they can sit at
+                                  // today, then the ones shut to their stack,
+                                  // and the private card last. Putting a
+                                  // padlocked card between two open ones makes a
+                                  // player scroll past a wall to find the room
+                                  // they are actually allowed into; putting them
+                                  // at the end turns the same cards into the
+                                  // thing to play towards.
+                                  for (final (i, table) in _orderedTables(
+                                    state,
+                                  ).indexed)
+                                    entering(
+                                      _TableCard(table: table, index: i),
+                                    ),
+                                  entering(
+                                    _PrivateCard(
+                                      key: _privateCard,
+                                      codeFocus: _codeFocus,
+                                      codeFieldKey: _codeField,
+                                    ),
+                                  ),
+                                ],
                               ),
-                              children: [
-                                // The server decides which rooms exist; the
-                                // lobby decides the order a player meets them
-                                // in. Seen first — it is where the game is
-                                // explained — then the tables they can sit at
-                                // today, then the ones shut to their stack,
-                                // and the private card last. Putting a
-                                // padlocked card between two open ones makes a
-                                // player scroll past a wall to find the room
-                                // they are actually allowed into; putting them
-                                // at the end turns the same cards into the
-                                // thing to play towards.
-                                for (final (i, table) in _orderedTables(
-                                  state,
-                                ).indexed)
-                                  entering(_TableCard(table: table, index: i)),
-                                entering(const _PrivateCard()),
-                              ],
                             ),
-                          ),
-                        );
-                      },
+                          );
+
+                          // While the code field has focus the rail rises far
+                          // enough for the card's foot — the field and its
+                          // keys — to clear the keyboard, which the lobby no
+                          // longer makes room for by shrinking. Never so far
+                          // that the field leaves the top of the screen: on a
+                          // 360dp phone the keyboard leaves about 110dp, less
+                          // than the field and the keys need together, and the
+                          // field is what shows the code being typed (the
+                          // keyboard's Enter joins).
+                          return ListenableBuilder(
+                            listenable: _codeFocus,
+                            child: rail,
+                            builder: (context, child) {
+                              var lift = 0.0;
+                              final fieldInCard = _codeFocus.hasFocus
+                                  ? _codeFieldInCard()
+                                  : null;
+                              if (fieldInCard != null) {
+                                final keyboard = MediaQuery.viewInsetsOf(
+                                  context,
+                                ).bottom;
+                                // The card's foot, as a height above the
+                                // bottom of the screen, and so its top and
+                                // the field's, all at rest: the rail is
+                                // centred in its box and the card fills the
+                                // rail but for the list's padding. Worked out
+                                // rather than measured, so the lift is never
+                                // read back from a rail it has already moved.
+                                final footClear =
+                                    safeBottom +
+                                    band +
+                                    (box.maxHeight - side - Space.xl) / 2 +
+                                    Space.md;
+                                final fieldTop =
+                                    screenH - footClear - side + fieldInCard;
+                                lift = math.min(
+                                  keyboard + Space.md - footClear,
+                                  fieldTop - Space.md,
+                                );
+                              }
+                              // Written so that NaN fails it as well: a
+                              // non-finite offset in this Transform is what
+                              // blanked the rail and crashed the engine.
+                              if (!(lift > 0) || !lift.isFinite) lift = 0;
+                              return Transform.translate(
+                                offset: Offset(0, -lift),
+                                child: child,
+                              );
+                            },
+                          );
+                        },
+                      ),
                     ),
                   ),
                 ],
@@ -168,14 +307,16 @@ class _LobbyScreenState extends State<LobbyScreen> {
               // which lives in the top rail's own reserved slot. Both live in
               // the bottom-right corner, stacked rather than in a row: side by
               // side they would run off a narrow screen, and the rail of tables
-              // scrolls underneath them.
-              const Positioned(
+              // stops short of them (`band`), so no card's keys run under them.
+              Positioned(
                 bottom: Space.md,
                 right: Space.md,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   mainAxisSize: MainAxisSize.min,
-                  children: [_MilestoneChip()],
+                  // Keyed so a lobby toast can stand clear of it
+                  // (lobbyNoticeArea).
+                  children: [_MilestoneChip(key: _milestoneChip)],
                 ),
               ),
               // Sits last so it covers the chips and the rail. Collecting a
@@ -186,6 +327,64 @@ class _LobbyScreenState extends State<LobbyScreen> {
         ),
       ),
     );
+  }
+}
+
+/// The rail's physics: the platform's own, except that the rail keeps its
+/// place when its cards change size.
+///
+/// The cards are sized from the height the lobby has, and that height moves
+/// with nobody touching the rail: while the soft keyboard opens or closes,
+/// Android shows the navigation bar for a moment, the SafeArea takes its 24dp
+/// off the bottom, and every card shrinks and grows back. The rail's end came
+/// in with the cards, the offset was clamped to the nearer end, and nothing
+/// put it back when they grew: a player at the private card who touched its
+/// code field was left 120dp short of it, Join cut off at the screen's edge.
+/// At rest the offset now keeps its share of the travel instead — the end
+/// stays the end, the start the start, and a place in between returns exactly
+/// where it was.
+class _KeepsPlacePhysics extends ScrollPhysics {
+  const _KeepsPlacePhysics({super.parent});
+
+  @override
+  _KeepsPlacePhysics applyTo(ScrollPhysics? ancestor) =>
+      _KeepsPlacePhysics(parent: buildParent(ancestor));
+
+  @override
+  double adjustPositionForNewDimensions({
+    required ScrollMetrics oldPosition,
+    required ScrollMetrics newPosition,
+    required bool isScrolling,
+    required double velocity,
+  }) {
+    final oldTravel = oldPosition.maxScrollExtent - oldPosition.minScrollExtent;
+    final newTravel = newPosition.maxScrollExtent - newPosition.minScrollExtent;
+    final resized =
+        oldPosition.minScrollExtent != newPosition.minScrollExtent ||
+        oldPosition.maxScrollExtent != newPosition.maxScrollExtent;
+    final inRange =
+        oldPosition.pixels >= oldPosition.minScrollExtent &&
+        oldPosition.pixels <= oldPosition.maxScrollExtent;
+    // A drag or a fling owns the offset, and an overscroll is the platform's
+    // to settle; this speaks only for a rail at rest.
+    if (isScrolling ||
+        velocity != 0 ||
+        !resized ||
+        !inRange ||
+        oldTravel <= 0 ||
+        newTravel < 0) {
+      return super.adjustPositionForNewDimensions(
+        oldPosition: oldPosition,
+        newPosition: newPosition,
+        isScrolling: isScrolling,
+        velocity: velocity,
+      );
+    }
+    // From the old metrics alone, so the layout pass that follows the
+    // correction arrives at the same number and the rail settles at once.
+    final share =
+        (oldPosition.pixels - oldPosition.minScrollExtent) / oldTravel;
+    return newPosition.minScrollExtent + share * newTravel;
   }
 }
 
@@ -260,9 +459,17 @@ class _RewardCelebrationState extends State<_RewardCelebration>
       'bonus' => t.rewardComeBack,
       'purchase' => t.rewardPurchased,
       'diamonds' => t.rewardDiamondsPurchased,
+      'hammers' => t.rewardHammersPurchased,
       _ => t.rewardMilestoneAgain,
     };
-    final diamonds = won.kind == 'diamonds';
+    // The ink of the soft wallet that filled, or null for chips — which keep
+    // the spinning chip and the gold.
+    final softInk = switch (won.kind) {
+      'diamonds' => diamondInkOn(theme.brightness),
+      'hammers' => hammerInkOn(theme.brightness),
+      _ => null,
+    };
+    final softIcon = won.kind == 'hammers' ? Icons.hardware : Icons.diamond;
 
     return Positioned.fill(
       child: GestureDetector(
@@ -302,14 +509,11 @@ class _RewardCelebrationState extends State<_RewardCelebration>
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            // A gem for diamonds, the spinning chip for chips:
-                            // the hero says which wallet just filled.
-                            diamonds
-                                ? Icon(
-                                    Icons.diamond,
-                                    size: chip,
-                                    color: diamondInkOn(theme.brightness),
-                                  )
+                            // A gem for diamonds, a hammer for hammers, the
+                            // spinning chip for chips: the hero says which
+                            // wallet just filled.
+                            softInk != null
+                                ? Icon(softIcon, size: chip, color: softInk)
                                 : SpinningChip(
                                     colour: AppTheme.gold,
                                     size: chip,
@@ -327,9 +531,7 @@ class _RewardCelebrationState extends State<_RewardCelebration>
                               '+ ${formatChips(won.amount)}',
                               style: AppTheme.money(
                                 text.headlineMedium!,
-                                colour: diamonds
-                                    ? diamondInkOn(theme.brightness)
-                                    : _goldInk(theme.brightness),
+                                colour: softInk ?? _goldInk(theme.brightness),
                               ),
                             ),
                             const SizedBox(height: Space.md),
@@ -453,16 +655,12 @@ class _TopBar extends StatelessWidget {
                   ),
                   child: Row(
                     children: [
-                      // Requirement 26 keeps its corner, but as a real slot rather
-                      // than a 240dp pad in this bar and a literal 12dp offset in
-                      // the Stack — two numbers that used to break each other.
-                      SizedBox(
-                        width: slotW - Space.md,
-                        child: Align(
-                          alignment: Alignment.centerLeft,
-                          child: _BonusChip(maxWidth: slotW - Space.md),
-                        ),
-                      ),
+                      // Requirement 26 keeps its corner. The chip takes its own
+                      // width, capped at the slot the rail used to reserve, and the
+                      // picture follows straight after it (owner, 13 Sep 2026): the
+                      // reserved slot left a gap there that the name needed.
+                      _BonusChip(maxWidth: slotW - Space.md),
+                      const SizedBox(width: Space.md),
                       Tooltip(
                         message: state.t.yourPicture,
                         child: SizedBox(
@@ -490,94 +688,138 @@ class _TopBar extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(width: Space.md),
-                      // The name over the provider tag rather than beside it.
-                      // Side by side they competed for one line, and the tag —
-                      // which says something the player already knows — was
-                      // winning: the name ellipsised to "Gue…" on a Pixel while
-                      // GUEST sat beside it at full width. Stacked, the name
-                      // gets the room and the tag becomes the footnote it is.
-                      Flexible(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              user?.displayName ?? '',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              // A player's own name, in whatever script they
-                              // wrote it.
-                              style: AppTheme.label(text.titleMedium!),
-                            ),
-                            if (user != null && !tight)
-                              _ProviderPill(
-                                provider: user!.provider,
-                                compact: true,
+                      // The name and the balance share what the fixed keys leave,
+                      // and the balance is the one that knows its size: it takes
+                      // its natural width, scaling down only past 65% of that (half
+                      // on a tight bar), and the name gets everything else — so it
+                      // ellipsises only once it has truly run out. As a Flexible
+                      // beside a Spacer and a flex-4 balance the name was handed
+                      // a sixth of the free space and cut to "Gu…" next to a gap.
+                      Expanded(
+                        child: LayoutBuilder(
+                          builder: (context, room) => Row(
+                            children: [
+                              // The name over the provider tag rather than beside
+                              // it. Side by side they competed for one line, and
+                              // the tag — which says something the player already
+                              // knows — was winning: the name ellipsised to "Gue…"
+                              // on a Pixel while GUEST sat beside it at full width.
+                              // Stacked, the name gets the room and the tag becomes
+                              // the footnote it is.
+                              Expanded(
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      user?.displayName ?? '',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      // A player's own name, in whatever script
+                                      // they wrote it.
+                                      style: AppTheme.label(text.titleMedium!),
+                                    ),
+                                    if (user != null && !tight)
+                                      _ProviderPill(
+                                        provider: user!.provider,
+                                        compact: true,
+                                      ),
+                                  ],
+                                ),
                               ),
-                          ],
-                        ),
-                      ),
-                      const Spacer(),
-                      // The balance counts to its new value rather than snapping, so
-                      // a reward landing is something you see happen.
-                      //
-                      // Flexible + FittedBox: chips and diamonds side by side
-                      // outgrew the row on a 640dp phone once the chips read
-                      // "1.99 Lakh" and the action keys overflowed. It now
-                      // scales down to the room it has instead, and at full size
-                      // wherever it fits.
-                      Flexible(
-                        flex: 4,
-                        child: FittedBox(
-                          fit: BoxFit.scaleDown,
-                          alignment: Alignment.centerRight,
-                          child: RepaintBoundary(
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                PokerChip(colour: AppTheme.gold, size: 18),
-                                const SizedBox(width: Space.sm),
-                                TweenAnimationBuilder<double>(
-                                  tween: Tween(
-                                    end: (user?.chips ?? 0).toDouble(),
-                                  ),
-                                  duration: const Duration(milliseconds: 650),
-                                  curve: Motion.standard,
-                                  builder: (context, value, _) => Text(
-                                    formatChips(value.round()),
-                                    style: AppTheme.money(
-                                      text.titleMedium!,
-                                      colour: _goldInk(brightness),
+                              const SizedBox(width: Space.md),
+                              // The balance counts to its new value rather than
+                              // snapping, so a reward landing is something you see
+                              // happen. Past its cap it scales down (FittedBox),
+                              // and it is full size wherever it fits.
+                              //
+                              // The chips on one line, the diamonds and hammers
+                              // in small type under them (14 Sep 2026). All three
+                              // in a row made the balance wider than the chips
+                              // alone by two figures and two icons: on a 640dp
+                              // phone, where it was already at its cap, the chip
+                              // figure shrank to about half size (0.73 -> 0.54 of
+                              // titleMedium for 1.99 Lakh), and on wider bars,
+                              // where it was not, it took the extra width from
+                              // the name. Stacked, the balance is only as wide as
+                              // its chip line, so the name keeps every letter it
+                              // had before hammers came to the bar.
+                              ConstrainedBox(
+                                constraints: BoxConstraints(
+                                  maxWidth:
+                                      room.maxWidth * (tight ? 0.5 : 0.65),
+                                ),
+                                child: FittedBox(
+                                  fit: BoxFit.scaleDown,
+                                  alignment: Alignment.centerRight,
+                                  child: RepaintBoundary(
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      crossAxisAlignment: CrossAxisAlignment.end,
+                                      children: [
+                                        Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            PokerChip(
+                                              colour: AppTheme.gold,
+                                              size: 18,
+                                            ),
+                                            const SizedBox(width: Space.sm),
+                                            _CountUp(
+                                              value: user?.chips ?? 0,
+                                              format: formatChips,
+                                              style: AppTheme.money(
+                                                text.titleMedium!,
+                                                colour: _goldInk(brightness),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        // The second and third wallets: diamonds
+                                        // pay for what chips cannot and hammers
+                                        // for a Force Sideshow (owner, 13 Sep
+                                        // 2026), so a player sees both without
+                                        // opening the store — the lobby is where
+                                        // they decide whether to buy more before
+                                        // sitting down. Each in its own ink.
+                                        Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Icon(
+                                              Icons.diamond,
+                                              size: 13,
+                                              color: diamondInkOn(brightness),
+                                            ),
+                                            const SizedBox(width: Space.xxs),
+                                            _CountUp(
+                                              value: user?.diamond ?? 0,
+                                              style: AppTheme.money(
+                                                text.labelMedium!,
+                                                colour: diamondInkOn(brightness),
+                                              ),
+                                            ),
+                                            const SizedBox(width: Space.md),
+                                            Icon(
+                                              Icons.hardware,
+                                              size: 13,
+                                              color: hammerInkOn(brightness),
+                                            ),
+                                            const SizedBox(width: Space.xxs),
+                                            _CountUp(
+                                              value: user?.hammer ?? 0,
+                                              style: AppTheme.money(
+                                                text.labelMedium!,
+                                                colour: hammerInkOn(brightness),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ],
                                     ),
                                   ),
                                 ),
-                                // The second wallet beside the first: diamonds pay
-                                // for what chips cannot, so a player should not have
-                                // to open the picture picker to learn how many they
-                                // hold. Same type, same count-up, its own ink.
-                                SizedBox(width: tight ? Space.md : Space.lg),
-                                Icon(
-                                  Icons.diamond,
-                                  size: 18,
-                                  color: diamondInkOn(brightness),
-                                ),
-                                const SizedBox(width: Space.xs),
-                                TweenAnimationBuilder<double>(
-                                  tween: Tween(
-                                    end: (user?.diamond ?? 0).toDouble(),
-                                  ),
-                                  duration: const Duration(milliseconds: 650),
-                                  curve: Motion.standard,
-                                  builder: (context, value, _) => Text(
-                                    '${value.round()}',
-                                    style: AppTheme.money(
-                                      text.titleMedium!,
-                                      colour: diamondInkOn(brightness),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
+                              ),
+                            ],
                           ),
                         ),
                       ),
@@ -586,7 +828,8 @@ class _TopBar extends StatelessWidget {
                       // used to be a pill in the bottom-right corner, where it
                       // sat under the table rail and competed with the
                       // milestone chip for the same corner.
-                      const ShopButton(),
+                      // Icon-only on a tight bar, so the name keeps its letters.
+                      ShopButton(compact: tight),
                       const SizedBox(width: Space.md),
                       _BarActions(onOpen: onOpen),
                     ],
@@ -599,6 +842,28 @@ class _TopBar extends StatelessWidget {
       ),
     );
   }
+}
+
+/// A wallet figure in the top bar, counting to its new value rather than
+/// snapping to it, so a reward or a purchase landing is something you see
+/// happen.
+class _CountUp extends StatelessWidget {
+  const _CountUp({required this.value, required this.style, this.format});
+
+  final int value;
+  final TextStyle style;
+
+  /// How the figure is written; plain digits when null.
+  final String Function(int)? format;
+
+  @override
+  Widget build(BuildContext context) => TweenAnimationBuilder<double>(
+    tween: Tween(end: value.toDouble()),
+    duration: const Duration(milliseconds: 650),
+    curve: Motion.standard,
+    builder: (context, v, _) =>
+        Text(format?.call(v.round()) ?? '${v.round()}', style: style),
+  );
 }
 
 /// The player's picture with the edit mark tucked into its own corner.
@@ -972,130 +1237,182 @@ class _TableCard extends StatelessWidget {
                   children: [
                     Padding(
                       padding: EdgeInsets.all(pad),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          _CategoryBadge(
-                            label: blind ? t.blind : t.seen,
-                            palette: palette,
-                            height: plateH,
-                            // The two cards at the same stake sit side by side,
-                            // so their badges are offset rather than pulsing
-                            // together.
-                            delay: Duration(milliseconds: blind ? 900 : 0),
-                          ),
-                          SizedBox(height: gap),
-                          // Counts up on first paint, so the stake lands rather
-                          // than simply being there.
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.end,
-                            children: [
-                              LivelyChipStack(
-                                size: bootSize * 0.62,
-                                colours: [accent, palette.rimLow],
+                      child: LayoutBuilder(
+                        builder: (context, inner) => Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // Everything above the call to action is allowed
+                            // the height the capsule leaves and no more, and
+                            // scales down rather than overflowing past it. The
+                            // rows are sized from the card, but their text is
+                            // set in the player's script, and Devanagari
+                            // stands taller than Latin: the shut BLIND 10 Lakh
+                            // card on a 640dp phone ran 0.665px past its foot
+                            // in Hindi and striped its key. Wherever it fits
+                            // the scale is 1 and nothing moves.
+                            ConstrainedBox(
+                              constraints: BoxConstraints(
+                                maxHeight: math.max(
+                                  0.0,
+                                  inner.maxHeight - ctaH,
+                                ),
                               ),
-                              const SizedBox(width: Space.md),
-                              Expanded(
-                                child: RepaintBoundary(
-                                  child: TweenAnimationBuilder<double>(
-                                    tween: Tween(end: boot.toDouble()),
-                                    duration: const Duration(milliseconds: 700),
-                                    curve: Motion.standard,
-                                    builder: (context, value, _) => FittedBox(
-                                      fit: BoxFit.scaleDown,
-                                      alignment: Alignment.centerLeft,
-                                      child: Text(
-                                        formatChips(value.round()),
-                                        style: AppTheme.money(
-                                          text.displaySmall!,
-                                          fontSize: bootSize,
-                                          colour: _goldInk(brightness),
+                              child: FittedBox(
+                                fit: BoxFit.scaleDown,
+                                alignment: Alignment.topLeft,
+                                child: SizedBox(
+                                  width: inner.maxWidth,
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      _CategoryBadge(
+                                        label: blind ? t.blind : t.seen,
+                                        palette: palette,
+                                        height: plateH,
+                                        // The two cards at the same stake sit side by side,
+                                        // so their badges are offset rather than pulsing
+                                        // together.
+                                        delay: Duration(
+                                          milliseconds: blind ? 900 : 0,
                                         ),
                                       ),
-                                    ),
+                                      SizedBox(height: gap),
+                                      // Counts up on first paint, so the stake lands rather
+                                      // than simply being there.
+                                      Row(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.end,
+                                        children: [
+                                          LivelyChipStack(
+                                            size: bootSize * 0.62,
+                                            colours: [accent, palette.rimLow],
+                                          ),
+                                          const SizedBox(width: Space.md),
+                                          Expanded(
+                                            child: RepaintBoundary(
+                                              child: TweenAnimationBuilder<double>(
+                                                tween: Tween(
+                                                  end: boot.toDouble(),
+                                                ),
+                                                duration: const Duration(
+                                                  milliseconds: 700,
+                                                ),
+                                                curve: Motion.standard,
+                                                builder: (context, value, _) =>
+                                                    FittedBox(
+                                                      fit: BoxFit.scaleDown,
+                                                      alignment:
+                                                          Alignment.centerLeft,
+                                                      child: Text(
+                                                        formatChips(
+                                                          value.round(),
+                                                        ),
+                                                        style: AppTheme.money(
+                                                          text.displaySmall!,
+                                                          fontSize: bootSize,
+                                                          colour: _goldInk(
+                                                            brightness,
+                                                          ),
+                                                        ),
+                                                      ),
+                                                    ),
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      Text(
+                                        t.boot,
+                                        style: AppTheme.label(
+                                          text.labelSmall!,
+                                          colour: glass.textMuted,
+                                        ),
+                                      ),
+                                      SizedBox(height: gap),
+                                      Text(
+                                        blind
+                                            ? t.onlyYourChips
+                                            : t.everyoneChips,
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: text.bodySmall?.copyWith(
+                                          fontSize: blurbSize,
+                                          color: glass.textBody,
+                                        ),
+                                      ),
+                                      SizedBox(height: gap),
+
+                                      // What the room actually plays like, stated before the
+                                      // player sits down rather than discovered at the table.
+                                      _CardFact(
+                                        icon: Icons.visibility_off_rounded,
+                                        accent: accent,
+                                        label: t.maxBlindsLabel,
+                                        value: '${table.maxBlindMoves}',
+                                        height: factH,
+                                      ),
+                                      Padding(
+                                        padding: const EdgeInsets.symmetric(
+                                          vertical: Space.xs,
+                                        ),
+                                        child: Container(
+                                          height: Dim.hairline,
+                                          color: AppTheme.hairlineColour(
+                                            brightness,
+                                          ),
+                                        ),
+                                      ),
+                                      _CardFact(
+                                        icon: Icons.savings_rounded,
+                                        accent: accent,
+                                        label: t.potLimitLabel,
+                                        height: factH,
+                                        value: table.potUncapped
+                                            ? t.potUnlimited
+                                            : formatChips(table.maxPot),
+                                        // An uncapped pot is the headline on a blind table,
+                                        // so it is the one fact drawn in the table's colour.
+                                        highlight: table.potUncapped,
+                                      ),
+                                      Padding(
+                                        padding: const EdgeInsets.symmetric(
+                                          vertical: Space.xs,
+                                        ),
+                                        child: Container(
+                                          height: Dim.hairline,
+                                          color: AppTheme.hairlineColour(
+                                            brightness,
+                                          ),
+                                        ),
+                                      ),
+                                      _CardFact(
+                                        icon: Icons
+                                            .account_balance_wallet_rounded,
+                                        accent: accent,
+                                        label: t.entryLabel,
+                                        value: entryValue,
+                                        height: factH,
+                                        // A floor is the fact that makes a table
+                                        // aspirational, so it is worth the colour.
+                                        highlight: table.minChips > 0,
+                                      ),
+                                    ],
                                   ),
                                 ),
                               ),
-                            ],
-                          ),
-                          Text(
-                            t.boot,
-                            style: AppTheme.label(
-                              text.labelSmall!,
-                              colour: glass.textMuted,
                             ),
-                          ),
-                          SizedBox(height: gap),
-                          Text(
-                            blind ? t.onlyYourChips : t.everyoneChips,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: text.bodySmall?.copyWith(
-                              fontSize: blurbSize,
-                              color: glass.textBody,
+                            // Takes up whatever is left over, and nothing when
+                            // there is nothing left over.
+                            const Spacer(),
+                            _SitCapsule(
+                              label: t.tapToSit,
+                              height: ctaH,
+                              enabled: !shut,
                             ),
-                          ),
-                          SizedBox(height: gap),
-
-                          // What the room actually plays like, stated before the
-                          // player sits down rather than discovered at the table.
-                          _CardFact(
-                            icon: Icons.visibility_off_rounded,
-                            accent: accent,
-                            label: t.maxBlindsLabel,
-                            value: '${table.maxBlindMoves}',
-                            height: factH,
-                          ),
-                          Padding(
-                            padding: const EdgeInsets.symmetric(
-                              vertical: Space.xs,
-                            ),
-                            child: Container(
-                              height: Dim.hairline,
-                              color: AppTheme.hairlineColour(brightness),
-                            ),
-                          ),
-                          _CardFact(
-                            icon: Icons.savings_rounded,
-                            accent: accent,
-                            label: t.potLimitLabel,
-                            height: factH,
-                            value: table.potUncapped
-                                ? t.potUnlimited
-                                : formatChips(table.maxPot),
-                            // An uncapped pot is the headline on a blind table,
-                            // so it is the one fact drawn in the table's colour.
-                            highlight: table.potUncapped,
-                          ),
-                          Padding(
-                            padding: const EdgeInsets.symmetric(
-                              vertical: Space.xs,
-                            ),
-                            child: Container(
-                              height: Dim.hairline,
-                              color: AppTheme.hairlineColour(brightness),
-                            ),
-                          ),
-                          _CardFact(
-                            icon: Icons.account_balance_wallet_rounded,
-                            accent: accent,
-                            label: t.entryLabel,
-                            value: entryValue,
-                            height: factH,
-                            // A floor is the fact that makes a table
-                            // aspirational, so it is worth the colour.
-                            highlight: table.minChips > 0,
-                          ),
-
-                          // Takes up whatever is left over, and nothing when
-                          // there is nothing left over.
-                          const Spacer(),
-                          _SitCapsule(
-                            label: t.tapToSit,
-                            height: ctaH,
-                            enabled: !shut,
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
                   ],
@@ -1537,7 +1854,18 @@ class _CategoryBadgeState extends State<_CategoryBadge>
 /// tables, in the house emerald rather than a table's colour, so the rail has
 /// one rhythm and four identities rather than three products and a form.
 class _PrivateCard extends StatefulWidget {
-  const _PrivateCard();
+  const _PrivateCard({
+    super.key,
+    required this.codeFocus,
+    required this.codeFieldKey,
+  });
+
+  /// The code field's focus, which the lobby watches to lift the rail over the
+  /// keyboard while a code is being typed.
+  final FocusNode codeFocus;
+
+  /// On the code field's box, so the lobby can measure where the field sits.
+  final GlobalKey codeFieldKey;
 
   @override
   State<_PrivateCard> createState() => _PrivateCardState();
@@ -1647,44 +1975,59 @@ class _PrivateCardState extends State<_PrivateCard> {
                         ),
                         const SizedBox(height: Space.xs),
                         SizedBox(
+                          key: widget.codeFieldKey,
                           height: Dim.minTouch,
-                          child: GlassTextField(
-                            controller: _code,
-                            // Exactly the server's code: 8 letters or digits,
-                            // upper-cased as they are typed and nothing else
-                            // let in, so a space or a dash never reaches a join.
-                            maxLength: tableCodeLength,
-                            inputFormatters: [
-                              FilteringTextInputFormatter.allow(
-                                RegExp('[A-Za-z0-9]'),
-                              ),
-                              TextInputFormatter.withFunction(
-                                (_, value) => value.copyWith(
-                                  text: value.text.toUpperCase(),
+                          // Back, or Settings or the Shop closing over the
+                          // lobby, must not raise the keyboard again: that
+                          // lifted the rail over the top bar, and a swipe at
+                          // the rail typed into the code.
+                          child: KeyboardFocusGuard(
+                            child: GlassTextField(
+                              controller: _code,
+                              focusNode: widget.codeFocus,
+                              // Exactly the server's code: 8 letters or digits,
+                              // upper-cased as they are typed and nothing else
+                              // let in, so a space or a dash never reaches a join.
+                              maxLength: tableCodeLength,
+                              inputFormatters: [
+                                FilteringTextInputFormatter.allow(
+                                  RegExp('[A-Za-z0-9]'),
                                 ),
-                              ),
-                            ],
-                            // Rebuilds the card, so Join lights up at 8.
-                            onChanged: (_) => setState(() {}),
-                            onSubmitted: (value) {
-                              if (isValidTableCode(value)) {
-                                state.joinByCode(value);
-                              }
-                            },
-                            textAlign: TextAlign.center,
-                            textCapitalization: TextCapitalization.characters,
-                            // Tabular, tracked and centred: a room code is read
-                            // out loud and typed in, never scanned as a word.
-                            style: AppTheme.money(
-                              text.titleMedium!,
-                              colour: _goldInk(brightness),
-                            ).copyWith(letterSpacing: 6),
-                            hintText: state.t.tableCode,
-                            counterText: '',
-                            decoration: const InputDecoration(
-                              isDense: true,
-                              contentPadding: EdgeInsets.symmetric(
-                                horizontal: Space.md,
+                                TextInputFormatter.withFunction(
+                                  (_, value) => value.copyWith(
+                                    text: value.text.toUpperCase(),
+                                  ),
+                                ),
+                              ],
+                              // Rebuilds the card, so Join lights up at 8.
+                              onChanged: (_) => setState(() {}),
+                              onSubmitted: (value) {
+                                if (isValidTableCode(value)) {
+                                  state.joinByCode(value);
+                                }
+                              },
+                              textAlign: TextAlign.center,
+                              textCapitalization: TextCapitalization.characters,
+                              // Tabular, tracked and centred: a room code is read
+                              // out loud and typed in, never scanned as a word.
+                              style: AppTheme.money(
+                                text.titleMedium!,
+                                colour: _goldInk(brightness),
+                              ).copyWith(letterSpacing: 6),
+                              hintText: state.t.tableCode,
+                              counterText: '',
+                              decoration: InputDecoration(
+                                isDense: true,
+                                contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: Space.md,
+                                ),
+                                // The tracking is for the code's own letters and
+                                // digits. Spread over Devanagari or Gurmukhi it
+                                // pulls the vowel signs off their letters, and
+                                // the hint read "ट ब ल क ो ड".
+                                hintStyle: state.lang == AppLang.english
+                                    ? null
+                                    : const TextStyle(letterSpacing: 0),
                               ),
                             ),
                           ),
@@ -1780,8 +2123,8 @@ class _PrivateCardState extends State<_PrivateCard> {
   }
 }
 
-/// Requirement 21: the picture is chosen from the top bar, and the server
-/// refuses the change once the player is seated at a table.
+/// Requirement 21: the picture is chosen from the top bar. Since 13 Sep 2026 it
+/// may be changed at a table too, where it goes straight onto the seat.
 Future<void> _openPicturePicker(BuildContext context) async {
   // Owned by the caller, not the builder: the sheet's body is inside a
   // Consumer and rebuilds on every state change, and a controller made in
@@ -1877,7 +2220,7 @@ Future<void> _openPicturePicker(BuildContext context) async {
                                 Text(
                                   user == null || user.activePictureId == null
                                       ? 'Using your ${user?.provider ?? 'guest'} picture.'
-                                      : state.t.pictureLocked,
+                                      : state.t.pictureChangeAnytime,
                                   maxLines: 2,
                                   overflow: TextOverflow.ellipsis,
                                   style: text.bodySmall?.copyWith(
@@ -2046,9 +2389,17 @@ class _LobbyDrawer extends StatelessWidget {
           child: SafeArea(
             // Landscape leaves very little height, so this scrolls rather than
             // overflowing — which is what was clipping the name off the top.
-            child: ListView(
-              padding: const EdgeInsets.symmetric(vertical: Space.lg),
-              children: children,
+            // It also stops short of the keyboard: the lobby is not resized
+            // for it, so the list shrinks instead and scrolls a focused field
+            // (the display name) into what is left.
+            child: Padding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.viewInsetsOf(context).bottom,
+              ),
+              child: ListView(
+                padding: const EdgeInsets.symmetric(vertical: Space.lg),
+                children: children,
+              ),
             ),
           ),
         ),
@@ -2639,35 +2990,39 @@ class _SettingsDrawerState extends State<_SettingsDrawer> {
         const SizedBox(height: Space.xs),
         Padding(
           padding: const EdgeInsets.fromLTRB(Space.lg, 0, Space.lg, Space.xs),
-          child: GlassTextField(
-            controller: _name,
-            maxLength: 24,
-            textInputAction: TextInputAction.done,
-            labelText: t.displayName,
-            prefixIcon: const Icon(Icons.badge_outlined, size: 18),
-            counterText: '',
-            suffixIcon: _saving
-                ? const Padding(
-                    padding: EdgeInsets.all(Space.md),
-                    child: SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
+          // Let go when Back puts the keyboard away, so the selection handle
+          // does not stay standing under a field nobody is typing in.
+          child: KeyboardFocusGuard(
+            child: GlassTextField(
+              controller: _name,
+              maxLength: 24,
+              textInputAction: TextInputAction.done,
+              labelText: t.displayName,
+              prefixIcon: const Icon(Icons.badge_outlined, size: 18),
+              counterText: '',
+              suffixIcon: _saving
+                  ? const Padding(
+                      padding: EdgeInsets.all(Space.md),
+                      child: SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    )
+                  : IconButton(
+                      tooltip: t.save,
+                      icon: const Icon(Icons.check_rounded, size: 18),
+                      // A suffix icon cannot take a PressScale — scaling inside
+                      // the field's box clips — so the key gets the light
+                      // haptic on its callback instead.
+                      onPressed: () {
+                        tapHaptic(context);
+                        _save(state);
+                      },
                     ),
-                  )
-                : IconButton(
-                    tooltip: t.save,
-                    icon: const Icon(Icons.check_rounded, size: 18),
-                    // A suffix icon cannot take a PressScale — scaling inside
-                    // the field's box clips — so the key gets the light
-                    // haptic on its callback instead.
-                    onPressed: () {
-                      tapHaptic(context);
-                      _save(state);
-                    },
-                  ),
-            decoration: InputDecoration(isDense: true, errorText: _nameError),
-            onSubmitted: (_) => _save(state),
+              decoration: InputDecoration(isDense: true, errorText: _nameError),
+              onSubmitted: (_) => _save(state),
+            ),
           ),
         ),
         Padding(
@@ -3132,8 +3487,53 @@ class _HourglassPainter extends CustomPainter {
       old.colour != colour || old.drained != drained;
 }
 
+/// On the milestone chip, so [lobbyNoticeArea] can keep a toast off it.
+///
+/// Measured rather than worked out: the chip is as wide as its two lines of
+/// text in the player's language, which nothing outside it knows.
+final _milestoneChip = GlobalKey(debugLabel: 'milestone chip');
+
+/// Where a notice may stand in the lobby, in screen coordinates, or null for
+/// the plain foot of the screen.
+///
+/// The lobby's foot is empty but for the milestone chip in its right-hand
+/// corner, and a toast centred on a 640dp phone ran 5dp over the chip's rim.
+/// The toast keeps its width and its place at the foot and moves left only as
+/// far as the chip needs, narrowing only if the whole space beside the chip is
+/// smaller than it. With no chip laid out (no account yet) it is centred.
+///
+/// Read through the screen's fade-in, the chip measures a little nearer the
+/// middle than it comes to rest, which can only move the toast further off it.
+Rect? lobbyNoticeArea(BuildContext context) {
+  final chip = _milestoneChip.currentContext?.findRenderObject();
+  if (chip is! RenderBox ||
+      !chip.attached ||
+      !chip.hasSize ||
+      chip.size.isEmpty) {
+    return null;
+  }
+  final chipLeft = chip.localToGlobal(Offset.zero).dx;
+  if (!chipLeft.isFinite) return null;
+
+  final size = MediaQuery.sizeOf(context);
+  final safe = MediaQuery.paddingOf(context);
+  final width = Dim.toastW(size.width);
+  final start = safe.left + Space.md;
+  final end = chipLeft - Space.sm;
+  var left = (size.width - width) / 2;
+  var right = left + width;
+  if (right > end) {
+    right = end;
+    left = math.max(start, end - width);
+  }
+  if (right <= left) return null;
+  // Topped at the top of the screen, so the toast is never scaled down to fit:
+  // unlike the table's, this one has room to grow upward.
+  return Rect.fromLTRB(left, safe.top, right, size.height - Space.md);
+}
+
 class _MilestoneChip extends StatelessWidget {
-  const _MilestoneChip();
+  const _MilestoneChip({super.key});
 
   @override
   Widget build(BuildContext context) {

@@ -454,7 +454,7 @@ func TestPublicCreateIsValidatedLikeQuickJoin(t *testing.T) {
 	// DECISIONS.md §3: a public room:create goes through the lobby checks.
 	st := newStack(t, func(cfg *config.Config) {
 		cfg.Game.TableStakes = []int64{200, 5000}
-		cfg.Game.LobbyTables = []config.LobbyTable{{Category: "seen", BootAmount: 200}, {Category: "blind", BootAmount: 200}, {Category: "blind", BootAmount: 5000}}
+		cfg.Game.LobbyTables = []config.LobbyTable{{Category: "seen", BootAmount: 200}, {Category: "blind", BootAmount: 200}, {Category: "blind", BootAmount: 5000, MinChips: 1_000_000}}
 	})
 	p := st.player("Creator")
 	st.mustFail(p.c, EvRoomCreate, map[string]any{"isPrivate": false, "bootAmount": 7}, game.CodeInvalidStake)
@@ -465,6 +465,12 @@ func TestPublicCreateIsValidatedLikeQuickJoin(t *testing.T) {
 	ack := st.mustFail(p.c, EvRoomCreate, map[string]any{"isPrivate": null(), "bootAmount": 200, "category": "blind"}, game.CodeOverEntryCap)
 	if ack.Message != "Players with more than 500,000 chips cannot join this table" {
 		t.Fatalf("over_entry_cap message %q", ack.Message)
+	}
+	// The table's stack band too, as a quick join checks it: blind 5000 here is
+	// for 10 Lakh or more.
+	band := st.mustFail(p.c, EvRoomCreate, map[string]any{"isPrivate": false, "bootAmount": 5000, "category": "blind"}, game.CodeBelowTableMinimum)
+	if band.Message != "This table is for players with 1,000,000 chips or more" {
+		t.Fatalf("below_table_minimum message %q", band.Message)
 	}
 	// Exactly the cap is allowed; the table is public and at the asked boot.
 	st.users.setChips(p.user.ID, 500000)

@@ -1,14 +1,18 @@
 /// The picture shelf: the catalogue's filter, its grid of tiles, the unlock
-/// dialog and the diamond balance.
+/// dialog, the already-unlocked popup and the diamond balance.
 ///
-/// Shared by the two places a picture is chosen or bought — the picker behind
-/// the lobby's avatar and the store's Pictures tab — so the two can never
-/// disagree about what a locked tile looks like or what tapping one does.
+/// Shared by every place a picture is chosen or bought — the picker behind
+/// the lobby's avatar, the store's Pictures tab and its Animated tab at a
+/// table — so they can never disagree about what a locked tile looks like or
+/// what tapping one does.
 library;
+
+import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../l10n/strings.dart';
 import '../models/dtos.dart';
 import '../settings/feedback_settings.dart';
 import '../state/game_state.dart';
@@ -105,8 +109,17 @@ Widget pictureShelf({
             radius: radius,
             selected: user?.activePictureId == p.id,
             busy: state.buyingPicture == p.id,
-            onTap: () =>
-                p.locked ? unlockPicture(context, p) : state.chooseAvatar(p.id),
+            // One answer per kind of tile. A locked picture asks to be bought.
+            // A premium one already paid for stops to say so, and for how
+            // long, before it is worn: the tile's "12d left" is all its owner
+            // otherwise sees of the rental, and on the last day that pill
+            // cannot tell twenty hours from twenty minutes. A free picture has
+            // nothing to say, so a tap simply wears it.
+            onTap: () => p.locked
+                ? unlockPicture(context, p)
+                : p.free
+                ? state.chooseAvatar(p.id)
+                : showOwnedPicture(context, p),
           ),
       ],
     ),
@@ -306,6 +319,217 @@ Future<void> unlockPicture(BuildContext context, ProfilePicture picture) async {
   if (confirmed == true) await state.buyPicture(picture.id);
 }
 
+/// How long a premium picture this player owns has left, as the
+/// already-unlocked popup words it.
+///
+/// Two units at most, narrowing as the end nears — days and hours, then hours
+/// and minutes, then minutes — because "100 days" says nothing useful on the
+/// last afternoon and "2,399 hours" nothing useful on the first. The count is
+/// rounded UP to the minute, as [ProfilePicture.daysLeft] rounds up to the
+/// day, so a rental with seconds to go reads "1 minute left" rather than a
+/// "0 minutes" that is neither over nor running.
+///
+/// [expiresAt] is epoch ms, 0 for a picture that never runs out. [now] is
+/// passed in rather than read, so the wording can be tested without a clock.
+String rentalTimeLeft(Strings t, int expiresAt, DateTime now) {
+  if (expiresAt <= 0) return t.pictureKeeps;
+  final left = expiresAt - now.millisecondsSinceEpoch;
+  if (left <= 0) return t.rentalLapsed;
+  final total = (left / Duration.millisecondsPerMinute).ceil();
+  final days = total ~/ Duration.minutesPerDay;
+  final hours = total % Duration.minutesPerDay ~/ Duration.minutesPerHour;
+  final minutes = total % Duration.minutesPerHour;
+  return t.timeLeft(switch ((days, hours)) {
+    (> 0, _) => '${t.timeDays(days)} ${t.timeHours(hours)}',
+    (_, > 0) => '${t.timeHours(hours)} ${t.timeMinutes(minutes)}',
+    _ => t.timeMinutes(minutes),
+  });
+}
+
+/// The moment a rental ends, as the popup writes it: `dd/MM/yyyy HH:mm` on the
+/// phone's own clock.
+///
+/// Numbers only, so no month name has to be translated five times, and a
+/// 24-hour clock so there is no AM/PM word either. Day first, because that is
+/// how the players this game is written for write a date.
+String rentalEndDate(DateTime end) {
+  String two(int n) => n.toString().padLeft(2, '0');
+  final at = end.toLocal();
+  return '${two(at.day)}/${two(at.month)}/${at.year} '
+      '${two(at.hour)}:${two(at.minute)}';
+}
+
+/// Shows a premium picture this player has already paid for: that it is
+/// theirs, how long for, and a key to wear it.
+Future<void> showOwnedPicture(BuildContext context, ProfilePicture picture) =>
+    showDialog<void>(
+      context: context,
+      builder: (_) => _OwnedPictureDialog(picture: picture),
+    );
+
+class _OwnedPictureDialog extends StatelessWidget {
+  const _OwnedPictureDialog({required this.picture});
+
+  /// The picture as it was when tapped. Kept, rather than only looked up,
+  /// because the catalogue can be re-read under the open dialog and a rental
+  /// that has lapsed comes back unowned with no expiry at all — without the
+  /// deadline it was tapped with there would be no end date left to show.
+  final ProfilePicture picture;
+
+  @override
+  Widget build(BuildContext context) {
+    // Watched, not read: GameState notifies once a second, and that tick is
+    // the whole of what keeps the countdown live while the dialog is open.
+    final state = context.watch<GameState>();
+    final t = state.t;
+    final theme = Theme.of(context);
+    final now = DateTime.now();
+
+    var live = picture;
+    for (final p in state.pictures) {
+      if (p.id == picture.id) {
+        live = p;
+        break;
+      }
+    }
+    // Two ways a rental ends under the dialog: the clock passes the deadline,
+    // or a re-read catalogue (the lobby's rental watch) has already taken the
+    // picture back. The second is the server's word, so it wins even when this
+    // phone's clock disagrees.
+    final expiresAt = live.owned ? live.expiresAt : picture.expiresAt;
+    final lapsed =
+        !live.owned ||
+        (expiresAt > 0 && expiresAt <= now.millisecondsSinceEpoch);
+    final keeps = expiresAt <= 0 && !lapsed;
+    final worn = state.user?.activePictureId == picture.id;
+    final colour = lapsed ? theme.colorScheme.error : theme.colorScheme.primary;
+    const figures = [FontFeature.tabularFigures()];
+
+    return GlassDialog(
+      padding: const EdgeInsets.all(Space.xl),
+      title: Row(
+        children: [
+          Icon(Icons.lock_open, size: 20, color: theme.colorScheme.primary),
+          const SizedBox(width: Space.md),
+          Expanded(
+            child: Text(
+              t.pictureOwnedTitle,
+              style: AppTheme.label(
+                theme.textTheme.titleMedium ?? const TextStyle(),
+              ),
+            ),
+          ),
+        ],
+      ),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Sized exactly as in the unlock dialog, so buying a picture and
+          // coming back to it later show the same face at the same size. The
+          // ring is the shelf's: gold on the picture being worn, green on one
+          // that is paid for and waiting, and the plain hairline once a rental
+          // has run out — a green ring beside "your rental has run out" would
+          // say two opposite things at once.
+          Avatar(
+            url: state.absoluteUrl(picture.url),
+            format: picture.assetFormat,
+            fallback: picture.name,
+            radius: (MediaQuery.sizeOf(context).height * 0.15).clamp(
+              40.0,
+              80.0,
+            ),
+            ring: worn
+                ? AppTheme.goldBright
+                : lapsed
+                ? null
+                : theme.colorScheme.primary,
+            ringWidth: 2.5,
+            ringGap: 3,
+            animate: true,
+          ),
+          const SizedBox(height: Space.md),
+          Text(
+            picture.name,
+            textAlign: TextAlign.center,
+            style: AppTheme.label(
+              theme.textTheme.titleSmall ?? const TextStyle(),
+            ),
+          ),
+          const SizedBox(height: Space.xs),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                lapsed
+                    ? Icons.timer_off_outlined
+                    : keeps
+                    ? Icons.all_inclusive
+                    : Icons.schedule,
+                size: 16,
+                color: colour,
+              ),
+              const SizedBox(width: Space.xs),
+              Flexible(
+                child: Text(
+                  lapsed ? t.rentalLapsed : rentalTimeLeft(t, expiresAt, now),
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: colour,
+                    fontWeight: FontWeight.w600,
+                    fontFeatures: figures,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (expiresAt > 0) ...[
+            const SizedBox(height: Space.xxs),
+            Text(
+              lapsed
+                  ? t.rentalEnded(rentalEndDate(_at(expiresAt)))
+                  : t.rentalEnds(rentalEndDate(_at(expiresAt))),
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurface.withValues(
+                  alpha: AppTheme.inkMed,
+                ),
+                fontFeatures: figures,
+              ),
+            ),
+          ],
+        ],
+      ),
+      actions: [
+        GlassButton(
+          style: GlassButtonStyle.text,
+          label: t.close,
+          onPressed: () => Navigator.pop(context),
+        ),
+        // Off rather than hidden in both cases, so the dialog keeps its shape
+        // and the key itself says why: it is already on, or it can no longer
+        // be put on without buying it again.
+        GlassButton(
+          style: GlassButtonStyle.primary,
+          icon: worn ? const Icon(Icons.check, size: 18) : null,
+          label: worn ? t.wearing : t.wear,
+          onPressed: worn || lapsed
+              ? null
+              : () {
+                  // Not awaited: the dialog closes on the tap, and a refusal
+                  // (a rental the server has just taken back) arrives as a
+                  // notice, which is painted over whatever is open.
+                  unawaited(state.chooseAvatar(picture.id));
+                  Navigator.pop(context);
+                },
+        ),
+      ],
+    );
+  }
+
+  static DateTime _at(int epochMs) =>
+      DateTime.fromMillisecondsSinceEpoch(epochMs);
+}
+
 class PictureChoice extends StatelessWidget {
   const PictureChoice({
     super.key,
@@ -464,9 +688,10 @@ class _UnlockedTag extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    // The same green as the ring round an unlocked picture, so the badge and
-    // the outline read as one statement rather than two.
-    final green = theme.colorScheme.primary;
+    // Mint in both themes. The pill is ink whatever the theme, and the light
+    // scheme's primary — the dark seed green the ring round an unlocked
+    // picture wears — all but vanished on it (1.5:1).
+    const green = AppTheme.mintOnInk;
     final left = daysLeft;
     final label = left == null
         ? context.read<GameState>().t.pictureUnlocked
@@ -550,6 +775,117 @@ class DiamondBalance extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// The ink every hammer figure is drawn in on a dark pill: a pale copper, the
+/// colour of the tool's head in the lamp, and far enough from the chips' gold
+/// and the diamonds' ice blue that the three wallets never read as one.
+const _hammerInk = Color(0xFFFFC08A);
+
+/// The hammer ink for a surface that follows the theme. The pale copper is
+/// lost on frosted white, so the light theme gets a burnt one (4.5:1 there).
+Color hammerInkOn(Brightness brightness) =>
+    brightness == Brightness.dark ? _hammerInk : const Color(0xFFB0571F);
+
+/// The player's hammers, in the store's header on the Hammers shelf — the
+/// hammer twin of [DiamondBalance].
+class HammerBalance extends StatelessWidget {
+  const HammerBalance({super.key, required this.count});
+
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: Space.md,
+        vertical: Space.xs,
+      ),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(Radii.pill),
+        color: AppTheme.ink900.withValues(alpha: 0.82),
+        border: Border.all(color: _hammerInk.withValues(alpha: 0.55)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.hardware, size: 14, color: _hammerInk),
+          const SizedBox(width: Space.xs),
+          Text(
+            '$count',
+            style: theme.textTheme.labelMedium?.copyWith(
+              color: _hammerInk,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Both soft wallets in one dark pill — diamonds, then hammers — for the top
+/// right of the game table (owner, 13 Sep 2026).
+///
+/// A pill rather than two: at a table the corner has room for one small
+/// object, and a player glancing up mid-hand wants "what can I still spend"
+/// answered once. Dark with light ink in both brightnesses, like everything
+/// else standing on the table, and display only — the store is the Shop key's
+/// job, and a stray tap in a corner should never open a sheet mid-turn.
+class WalletPill extends StatelessWidget {
+  const WalletPill({
+    super.key,
+    required this.diamonds,
+    required this.hammers,
+    required this.semanticsLabel,
+  });
+
+  final int diamonds;
+  final int hammers;
+
+  /// What a screen reader says instead of two bare numbers.
+  final String semanticsLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final figure = theme.textTheme.labelMedium?.copyWith(
+      fontWeight: FontWeight.w700,
+      fontFeatures: const [FontFeature.tabularFigures()],
+    );
+
+    return Semantics(
+      label: semanticsLabel,
+      excludeSemantics: true,
+      child: Container(
+        padding: const EdgeInsets.symmetric(
+          horizontal: Space.md,
+          vertical: Space.xs,
+        ),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(Radii.pill),
+          color: AppTheme.ink900.withValues(alpha: 0.82),
+          border: Border.all(
+            color: AppTheme.goldBright.withValues(alpha: 0.28),
+            width: Dim.hairline,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.diamond, size: 14, color: _diamondInk),
+            const SizedBox(width: Space.xs),
+            Text('$diamonds', style: figure?.copyWith(color: _diamondInk)),
+            const SizedBox(width: Space.md),
+            const Icon(Icons.hardware, size: 14, color: _hammerInk),
+            const SizedBox(width: Space.xs),
+            Text('$hammers', style: figure?.copyWith(color: _hammerInk)),
+          ],
+        ),
       ),
     );
   }

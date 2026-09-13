@@ -576,7 +576,9 @@ func TestLiveHooksFeedTheLiveStoreMetrics(t *testing.T) {
 		t.Errorf("live buckets must run 0.0001 … 1: %s", e.body)
 	}
 	for _, v := range e.labelValues("op") {
-		if _, ok := LiveOps[v]; !ok && v != OtherLabel && v != OpCheckpoint && v != OpSettle {
+		_, isLive := LiveOps[v]
+		_, isLedger := LedgerOps[v]
+		if !isLive && !isLedger && v != OtherLabel {
 			t.Errorf("op label %q is outside the fixed set", v)
 		}
 	}

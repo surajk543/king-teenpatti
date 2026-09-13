@@ -118,11 +118,12 @@ var (
 	// ReconnectKinds are the `kind` values of game_reconnects_total.
 	ReconnectKinds = map[string]struct{}{"seat_held": {}, "offer": {}}
 	// LedgerOps are the `op` values of the db transaction metrics. Since
-	// 9 Sep 2026 a hand costs two kinds of transaction and no more: a
+	// 9 Sep 2026 a hand costs two kinds of chip transaction and no more: a
 	// per-player `checkpoint` (a pack, a leave or a switch) and the hand-end
 	// `settle`. `bet` and `boot` are retired — a bet and the deal write
-	// nothing.
-	LedgerOps = map[string]struct{}{OpCheckpoint: {}, OpSettle: {}}
+	// nothing. `hammer_spend` (13 Sep 2026) is the third op and not a chip
+	// write: the hammer a Force Sideshow takes.
+	LedgerOps = map[string]struct{}{OpCheckpoint: {}, OpSettle: {}, OpHammerSpend: {}}
 	// LiveOps are the `op` values of the live-store metrics: the live.Store
 	// method names in snake_case, and nothing else (SafeLabel folds any other
 	// value to "other").
@@ -165,6 +166,10 @@ const (
 	// OpSettle is the hand-end write: everyone still at the table, plus the
 	// hands row.
 	OpSettle = "settle"
+	// OpHammerSpend is the one hammer a Force Sideshow takes (db.Hammers). Not
+	// a chip write — it touches users.hammer and hammer_spends only — but a
+	// transaction the table blocks on all the same, so it is timed with them.
+	OpHammerSpend = "hammer_spend"
 )
 
 // Live-store op labels: one per live.Store method.

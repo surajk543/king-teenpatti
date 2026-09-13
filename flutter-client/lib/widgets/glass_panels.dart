@@ -13,6 +13,8 @@
 /// sit above anything passed as `home`. The small ones are tinted outright.
 library;
 
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
@@ -284,31 +286,77 @@ class NoticeToast extends StatelessWidget {
   /// A snack bar wearing this shell, sized to the screen rather than to a fixed
   /// 420dp that does not fit a 640dp phone.
   ///
-  /// The width is set through the side margins rather than `width` because the
-  /// bottom margin has to clear the keyboard: every toast is painted on the
-  /// Scaffold main.dart puts round the Navigator, which is never resized for
-  /// the keyboard, so one raised while somebody is typing would otherwise land
-  /// behind the keys.
+  /// It is placed through its margins rather than `width`, which leaves the
+  /// bottom margin free to say how high it stands. With no [area] it stands
+  /// centred at the foot of the screen. A screen with something at its foot
+  /// names where the toast may stand instead ([area], in screen coordinates):
+  /// the toast takes its width, stands on its floor, and sets its type smaller
+  /// rather than growing past its top. At a table the foot is the viewer's own
+  /// pod, hand and keys, so the area is the one patch of felt nobody reads
+  /// anything from, and even a long refusal on a 640dp phone covers no seat.
+  /// In the lobby it is the foot beside the milestone chip.
+  ///
+  /// Every toast is painted on the Scaffold main.dart puts round the
+  /// Navigator, which is never resized for the keyboard, so a toast lifts
+  /// itself clear of the keys. The lift is read live, inside the toast, rather
+  /// than baked into the margin when the toast is made: a margin worked out
+  /// while the keyboard was up stayed up after it closed, and left the toast
+  /// floating mid-screen over the consent panel and the lobby's cards.
   static SnackBar snackBar(
     BuildContext context, {
     required String message,
     NoticeTone tone = NoticeTone.neutral,
     IconData? icon,
+    Rect? area,
   }) {
-    final w = MediaQuery.sizeOf(context).width;
-    final side = ((w - Dim.toastW(w)) / 2).clamp(0.0, w / 2);
+    final size = MediaQuery.sizeOf(context);
+    final w = size.width;
+    final double left;
+    final double right;
+    final double bottom;
+    if (area == null) {
+      left = right = ((w - Dim.toastW(w)) / 2).clamp(0.0, w / 2);
+      bottom = Space.md;
+    } else {
+      // A floating snack bar stands inside a SafeArea, so its side margins
+      // count from the safe edges rather than the screen's. Counted from the
+      // screen, a toast meant for the gap between two seats landed a camera
+      // cutout's width (41dp on a Pixel 7 Pro) to the right of it.
+      final safe = MediaQuery.paddingOf(context);
+      left = math.max(0.0, area.left - safe.left);
+      right = math.max(0.0, w - area.right - safe.right);
+      bottom = math.max(0.0, size.height - area.bottom);
+    }
+    final toast = NoticeToast(message: message, tone: tone, icon: icon);
     return SnackBar(
-      content: NoticeToast(message: message, tone: tone, icon: icon),
+      content: Builder(
+        builder: (context) => AnimatedPadding(
+          duration: Motion.fast,
+          // Only as far as the keyboard actually reaches past the toast's foot:
+          // the whole keyboard at the floor, usually nothing at a table.
+          padding: EdgeInsets.only(
+            bottom: math.max(
+              0.0,
+              MediaQuery.viewInsetsOf(context).bottom + Space.md - bottom,
+            ),
+          ),
+          child: area == null
+              ? toast
+              : ConstrainedBox(
+                  constraints: BoxConstraints(maxHeight: area.height),
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.bottomCenter,
+                    child: SizedBox(width: area.width, child: toast),
+                  ),
+                ),
+        ),
+      ),
       backgroundColor: Colors.transparent,
       elevation: 0,
       padding: EdgeInsets.zero,
       behavior: SnackBarBehavior.floating,
-      margin: EdgeInsets.fromLTRB(
-        side,
-        Space.xs,
-        side,
-        Space.md + MediaQuery.viewInsetsOf(context).bottom,
-      ),
+      margin: EdgeInsets.fromLTRB(left, Space.xs, right, bottom),
     );
   }
 

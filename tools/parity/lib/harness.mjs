@@ -85,7 +85,7 @@ export const SEAT_KEYS = [
   'contributed', 'connected', 'cardCount',
 ];
 export const OPTIONS_KEYS = [
-  'canSee', 'canSideshow', 'sideshowWith', 'chaal', 'raise', 'raiseSteps', 'maxBet', 'show', 'canPack', 'isBlind',
+  'canSee', 'canSideshow', 'sideshowWith', 'canForceSideshow', 'chaal', 'raise', 'raiseSteps', 'maxBet', 'show', 'canPack', 'isBlind',
   'currentStake', 'chips', 'pot',
 ];
 export const CONFIG_KEYS = [

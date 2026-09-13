@@ -29,12 +29,21 @@ type playStore struct {
 	verifier *purchase.GoogleVerifier
 	db       *db.DB
 	users    *db.Users
-	// creditSeat adds the chips to the player's live seat when they are at a
-	// table. PostgreSQL alone is not enough: the seat is the live truth in
-	// Redis, and a player tops up mid-hand precisely because they are short at
-	// THIS table.
-	creditSeat func(userID string, amount int64) bool
-	logger     *slog.Logger
+	// credit banks a chip pack and adds it to the player's live seat as one
+	// step under the player's seat lock (app: rooms.CreditBoughtChips). bank
+	// is the database credit, handed the context it must use, and reports
+	// whether it credited this time; the answer says whether a seat was
+	// topped up.
+	//
+	// The seat is topped up because PostgreSQL alone is not enough: the seat
+	// is the live truth in Redis, and a player tops up mid-hand precisely
+	// because they are short at THIS table. Both run under the lock because
+	// they are two moments, and a lobby seat is taken from the wallet as read
+	// under that lock: a join that read the wallet after the credit and sat
+	// down before the top-up looked for a seat was given the pack twice.
+	// nil → there are no seats to top up, and bank runs on its own.
+	credit func(userID string, amount int64, bank func(ctx context.Context) bool) bool
+	logger *slog.Logger
 }
 
 func (s *playStore) Buy(ctx context.Context, userID, productID, purchaseToken string) (auth.PurchaseOutcome, error) {
@@ -72,20 +81,47 @@ func (s *playStore) Buy(ctx context.Context, userID, productID, purchaseToken st
 		}, nil
 	}
 
-	result, err := db.CreditPurchase(ctx, s.db, s.users, userID, product, purchaseToken)
+	// A hammer pack fills users.hammer through hammer_purchases, the same
+	// way. It is allowed at a table — hammers are not chips — and has no seat
+	// to top up: the table never holds a hammer count, it charges the wallet
+	// when a Force Sideshow is played.
+	if product.Hammers > 0 {
+		result, err := db.CreditHammerPurchase(ctx, s.db, s.users, userID, product, purchaseToken)
+		if err != nil {
+			return auth.PurchaseOutcome{}, err
+		}
+		_ = s.verifier.Acknowledge(ctx, productID, purchaseToken)
+		return auth.PurchaseOutcome{
+			Hammers:  result.Hammers,
+			Balance:  result.Balance,
+			Credited: result.Credited,
+			User:     result.User,
+		}, nil
+	}
+
+	// The wallet gets the chips; the seat is a separate copy of the truth.
+	// Only a fresh credit reaches the seat — a replayed receipt already moved
+	// both, and adding again would put chips in the seat that PostgreSQL does
+	// not have. The credit runs on the context the seat lock hands it, never
+	// on the request's: a client giving up while COMMIT was on the wire would
+	// end the call, and release the lock, before the outcome was known.
+	var result db.PurchaseResult
+	bank := func(bctx context.Context) bool {
+		result, err = db.CreditPurchase(bctx, s.db, s.users, userID, product, purchaseToken)
+		return err == nil && result.Credited
+	}
+	seated := false
+	if s.credit != nil {
+		seated = s.credit(userID, product.Chips, bank)
+	} else {
+		bank(context.WithoutCancel(ctx))
+	}
 	if err != nil {
 		return auth.PurchaseOutcome{}, err
 	}
-
-	// The wallet has the chips; the seat is a separate copy of the truth.
-	// Only on a fresh credit — a replayed receipt already moved both, and
-	// adding again here would put chips in the seat that PostgreSQL does not
-	// have.
-	if result.Credited && s.creditSeat != nil {
-		if s.creditSeat(userID, product.Chips) && s.logger != nil {
-			s.logger.Info("purchased chips added to a live seat",
-				"userId", userID, "chips", product.Chips)
-		}
+	if seated && s.logger != nil {
+		s.logger.Info("purchased chips added to a live seat",
+			"userId", userID, "chips", product.Chips)
 	}
 
 	// Best effort, and only now. A failure here is not the player's problem —

@@ -42,7 +42,16 @@ class GameAction {
   static const pack = 'pack';
   static const show = 'show';
   static const sideshow = 'sideshow';
+
+  /// A sideshow nobody is asked to accept (owner, 13 Sep 2026). It costs one
+  /// hammer, compares at once, and the server answers in the ack with the
+  /// hammers left — see `GameConnection.forceSideshow`.
+  static const forceSideshow = 'forceSideshow';
 }
+
+/// How many hammers a Force Sideshow spends. The server charges it; the client
+/// only needs the figure to grey the key and to write the price on it.
+const forceSideshowCost = 1;
 
 class Rewards {
   const Rewards({
@@ -91,6 +100,7 @@ class User {
     required this.displayName,
     required this.chips,
     required this.diamond,
+    this.hammer = 0,
     required this.avatarUrl,
     required this.providerAvatarUrl,
     required this.activePictureId,
@@ -112,6 +122,12 @@ class User {
   /// DIAMOND-priced catalogue rows.
   final int diamond;
 
+  /// What a Force Sideshow is paid in (owner, 13 Sep 2026). Every account,
+  /// new or old, starts with 20; more come in packs from the store. The
+  /// server is the authority on the count — this only greys the key at 0.
+  /// An older server sends no `hammer`, which reads as 0.
+  final int hammer;
+
   /// Already resolved by the server: the catalogue picture being worn if
   /// there is one, else the provider photo, else null.
   final String? avatarUrl;
@@ -132,12 +148,34 @@ class User {
   final int biggestPot;
   final Rewards? rewards;
 
+  /// The same account with a new hammer count — what a Force Sideshow's ack
+  /// reports, applied without waiting for the next `/api/auth/me`.
+  User withHammer(int hammer) => User(
+    id: id,
+    provider: provider,
+    displayName: displayName,
+    chips: chips,
+    diamond: diamond,
+    hammer: hammer < 0 ? 0 : hammer,
+    avatarUrl: avatarUrl,
+    providerAvatarUrl: providerAvatarUrl,
+    activePictureId: activePictureId,
+    handsPlayed: handsPlayed,
+    handsWon: handsWon,
+    handsLost: handsLost,
+    handsLeftMid: handsLeftMid,
+    totalWinnings: totalWinnings,
+    biggestPot: biggestPot,
+    rewards: rewards,
+  );
+
   factory User.fromJson(Map<String, dynamic> j) => User(
     id: _str(j['id']),
     provider: _str(j['provider']),
     displayName: _str(j['displayName']),
     chips: _int(j['chips']),
     diamond: _int(j['diamond']),
+    hammer: _int(j['hammer']),
     avatarUrl: j['avatarUrl'] as String?,
     providerAvatarUrl: j['providerAvatarUrl'] as String?,
     activePictureId: _intOrNull(j['activePictureId']),
@@ -391,6 +429,24 @@ class Seat {
   bool get occupied => status != SeatState.empty;
   bool get inHand => status == SeatState.active;
 
+  /// The same seat drawn with another status. For the table only, which holds
+  /// a Force Sideshow's fold back until the hammer has landed; nothing sent to
+  /// the server is ever built from one.
+  Seat withStatus(String status) => Seat(
+    seatIndex: seatIndex,
+    userId: userId,
+    displayName: displayName,
+    avatarUrl: avatarUrl,
+    chips: chips,
+    status: status,
+    isBlind: isBlind,
+    lastBet: lastBet,
+    lastAction: lastAction,
+    contributed: contributed,
+    connected: connected,
+    cardCount: cardCount,
+  );
+
   factory Seat.fromJson(Map<String, dynamic> j) => Seat(
     seatIndex: _int(j['seatIndex']),
     userId: j['userId'] as String?,
@@ -412,6 +468,7 @@ class TurnOptions {
     required this.canSee,
     required this.canPack,
     required this.canSideshow,
+    this.canForceSideshow = false,
     required this.sideshowWith,
     required this.raiseSteps,
     required this.show,
@@ -427,6 +484,14 @@ class TurnOptions {
   /// so the button only has to follow this.
   final bool canSideshow;
 
+  /// Whether a Force Sideshow would be allowed by the rules right now. Its
+  /// own key rather than read off [canSideshow], though the server sends the
+  /// two equal today: the rules are the same, and one ask per turn covers
+  /// both. It says nothing about hammers — the table never holds the wallet,
+  /// so the key is greyed from the viewer's own [User.hammer]. An older
+  /// server sends nothing, which reads as false and keeps the key dark.
+  final bool canForceSideshow;
+
   /// Who the request would go to: the player on the viewer's right.
   final String? sideshowWith;
 
@@ -441,6 +506,7 @@ class TurnOptions {
     canSee: j['canSee'] == true,
     canPack: j['canPack'] != false,
     canSideshow: j['canSideshow'] == true,
+    canForceSideshow: j['canForceSideshow'] == true,
     sideshowWith: j['sideshowWith'] as String?,
     raiseSteps: (j['raiseSteps'] as List?)?.map(_int).toList() ?? const <int>[],
     show: j['show'] == null ? null : _int(j['show']),
@@ -504,17 +570,45 @@ class SideshowHand {
 }
 
 class SideshowReveal {
-  const SideshowReveal({required this.hands, required this.packedUserId});
+  const SideshowReveal({
+    required this.hands,
+    required this.packedUserId,
+    this.reason = SideshowReason.accepted,
+  });
 
+  /// The asker's hand first, then the asked player's.
   final List<SideshowHand> hands;
   final String? packedUserId;
+
+  /// [SideshowReason.accepted], or [SideshowReason.forced] when the asker paid
+  /// a hammer and nobody was asked.
+  final String reason;
+
+  bool get forced => reason == SideshowReason.forced;
 
   factory SideshowReveal.fromJson(Map<String, dynamic> j) => SideshowReveal(
     hands: (j['hands'] as List? ?? const [])
         .map((e) => SideshowHand.fromJson(Map<String, dynamic>.from(e as Map)))
         .toList(),
     packedUserId: j['packedUserId'] as String?,
+    reason: _str(j['reason']).isEmpty
+        ? SideshowReason.accepted
+        : _str(j['reason']),
   );
+}
+
+/// How a sideshow ended, as `game:sideshowResolved.reason` and
+/// `game:sideshowReveal.reveal.reason` say it.
+class SideshowReason {
+  static const accepted = 'accepted';
+  static const declined = 'declined';
+  static const timeout = 'timeout';
+  static const left = 'left';
+
+  /// A Force Sideshow: paid for with a hammer, never asked, always compared.
+  /// It arrives with `accepted: true`, so a client that predates it shows the
+  /// reveal and no "declined" line.
+  static const forced = 'forced';
 }
 
 class Turn {

@@ -6,15 +6,20 @@ import 'package:flutter/scheduler.dart';
 import 'package:lottie/lottie.dart';
 import 'package:provider/provider.dart';
 
+import '../l10n/strings.dart';
 import '../models/dtos.dart';
 import '../settings/feedback_settings.dart';
 import '../state/game_state.dart';
+import '../state/hammer_strike.dart';
 import '../theme/app_theme.dart';
 import '../widgets/buy_chips.dart';
+import '../widgets/chip_store.dart';
 import '../widgets/drifting_chips.dart';
 import '../widgets/feedback_toggles.dart';
 import '../widgets/glass_components.dart';
 import '../widgets/glass_panels.dart';
+import '../widgets/hammer_flight.dart';
+import '../widgets/picture_shelf.dart';
 import '../widgets/playing_card.dart';
 import '../widgets/poker_chip.dart';
 import '../widgets/premium_surface.dart';
@@ -43,8 +48,38 @@ import '../widgets/table_ground.dart';
 /// brightnesses**, because the cloth is dark emerald in both. Only the chrome
 /// standing on the ground — the rail, the console, the drawers — follows the
 /// theme.
-/// Which of the two panels the left drawer is showing.
-enum _LeftPanel { menu, chat }
+/// Which of the three panels the left drawer is showing.
+enum _LeftPanel { menu, chat, quick }
+
+/// The left drawer's content, which tells the table when it has left the
+/// screen.
+///
+/// A [DrawerController] builds its child only while the drawer is at least
+/// partly open, so this slot is unmounted at the very moment the slide-out
+/// ends — the one moment the panel behind the edge can change without being
+/// seen to. A drag that crosses halfway and then settles open again never
+/// unmounts it, so nothing changes under a player's thumb.
+class _DrawerSlot extends StatefulWidget {
+  const _DrawerSlot({required this.onGone, required this.child});
+
+  /// Called from [State.dispose]: no setState here, only a request for later.
+  final VoidCallback onGone;
+  final Widget child;
+
+  @override
+  State<_DrawerSlot> createState() => _DrawerSlotState();
+}
+
+class _DrawerSlotState extends State<_DrawerSlot> {
+  @override
+  void dispose() {
+    widget.onGone();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
+}
 
 class TableScreen extends StatefulWidget {
   const TableScreen({super.key});
@@ -54,9 +89,15 @@ class TableScreen extends StatefulWidget {
 }
 
 class _TableScreenState extends State<TableScreen> {
-  /// The menu and the chat share one drawer rather than being a drawer and a
-  /// sheet: both are "the panel behind the left edge", and a Scaffold has only
-  /// one of those. Which one is showing is decided before it opens.
+  /// The menu, the chat and the quick messages share one drawer rather than
+  /// being a drawer and two sheets: all three are "the panel behind the left
+  /// edge", and a Scaffold has only one of those. Which one is showing is
+  /// decided before it opens — and one drawer is also what lets the back
+  /// gesture close any of them (`_BackGuard` asks only `isDrawerOpen`).
+  ///
+  /// At rest it is always the menu ([_drawerGone]): the rail's keys choose a
+  /// panel as they open the drawer, but a swipe in from the left edge chooses
+  /// nothing and finds whatever is there.
   _LeftPanel _panel = _LeftPanel.menu;
 
   /// Opening is driven from the rail, which sits inside this Scaffold, so the
@@ -66,9 +107,32 @@ class _TableScreenState extends State<TableScreen> {
       context.read<GameState>().tableScaffold;
 
   void _open(_LeftPanel panel) {
+    // Only the chat shows the conversation, so only the chat clears its
+    // badge. The quick panel sends into it without showing it, and a line
+    // nobody read yet is still unread after the player has said something.
     if (panel == _LeftPanel.chat) context.read<GameState>().markChatRead();
     setState(() => _panel = panel);
     _scaffold.currentState?.openDrawer();
+  }
+
+  /// Puts the menu back behind the edge once the drawer has finished closing.
+  ///
+  /// Left as it was, a swipe in from the edge after the quick messages would
+  /// open a panel where one stray tap talks to the whole table, and after the
+  /// chat it would show the conversation without clearing its badge. The
+  /// menu sends nothing and reads nothing, so it is what a swipe should find.
+  ///
+  /// `Scaffold.onDrawerChanged` cannot do this: it fires as the close starts,
+  /// with the panel still on screen, and swapping it there would flash the
+  /// menu across the slide-out. [_DrawerSlot] reports the end instead. It is
+  /// told while the tree is being finalised, where setState is not allowed,
+  /// hence the hop to after the frame — which still lands before any later
+  /// touch, because input is handled between frames.
+  void _drawerGone() {
+    if (_panel == _LeftPanel.menu) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) setState(() => _panel = _LeftPanel.menu);
+    });
   }
 
   @override
@@ -84,9 +148,14 @@ class _TableScreenState extends State<TableScreen> {
       // over the keyboard (`viewInsets`), which is the only thing that needs
       // to move.
       resizeToAvoidBottomInset: false,
-      drawer: _panel == _LeftPanel.menu
-          ? const _TableDrawer()
-          : const _ChatDrawer(),
+      drawer: _DrawerSlot(
+        onGone: _drawerGone,
+        child: switch (_panel) {
+          _LeftPanel.menu => const _TableDrawer(),
+          _LeftPanel.chat => const _ChatDrawer(),
+          _LeftPanel.quick => const _QuickDrawer(),
+        },
+      ),
       body: Stack(
         children: [
           // The room the table stands in — charcoal floor, one warm pool where
@@ -127,6 +196,15 @@ class _TableScreenState extends State<TableScreen> {
             top: Space.sm,
             child: SafeArea(child: ShopButton()),
           ),
+          // Diamonds and hammers, in the corner opposite the Shop key and on
+          // its line (owner, 13 Sep 2026): what the player can still spend at
+          // this table that is not chips. In the room rather than on the felt,
+          // like the Shop key, and outside every seat's column (_TableWallet).
+          const Positioned(
+            right: 0,
+            top: Space.sm,
+            child: SafeArea(child: _TableWallet()),
+          ),
           // The keys, floating over the bottom-right of the table instead of
           // sitting in a bar across the foot of it. Owner's decision,
           // 10 Sep 2026: the bar was a sixth of a landscape screen reserved
@@ -148,6 +226,80 @@ class _TableScreenState extends State<TableScreen> {
       ),
     );
   }
+}
+
+/// Diamonds and hammers, in the top-right corner of the room (owner,
+/// 13 Sep 2026).
+///
+/// It stands on the Shop key's line, right-aligned with the key cluster below
+/// it, and is never wider than the corner it has: from the felt's right edge
+/// back to the top-right seat's pod and the glow spilling out of that pod's
+/// corner ([_tableWalletRoom]). Three-digit counts at the 1.25 text ceiling
+/// on a 640dp phone would run past that, so there it scales down instead of
+/// running under the pod. The right-hand seat's column starts below it, and
+/// the notices stand between the top two seats ([tableNoticeArea]).
+/// test/table_wallet_layout_test.dart checks it at 640x360, 891x411 and
+/// 1280x800.
+class _TableWallet extends StatelessWidget {
+  const _TableWallet();
+
+  @override
+  Widget build(BuildContext context) {
+    // `select`, not `watch`: the counts change when a hammer is spent or a
+    // pack lands, never with the reward ticker. A record compares by value.
+    final (diamonds, hammers, lang) = context
+        .select<GameState, (int, int, AppLang)>(
+          (s) => (s.user?.diamond ?? 0, s.user?.hammer ?? 0, s.lang),
+        );
+    final width = MediaQuery.sizeOf(context).width;
+
+    // A row the Shop key's height with the pill in the middle of it, so the
+    // two corners share one centre line.
+    return Padding(
+      padding: EdgeInsets.only(right: Dim.feltPad(width)),
+      child: SizedBox(
+        height: Dim.minTouch,
+        child: Center(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxWidth: _tableWalletRoom(context)),
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerRight,
+              child: WalletPill(
+                diamonds: diamonds,
+                hammers: hammers,
+                semanticsLabel: Strings(lang).walletSummary(diamonds, hammers),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// How wide the table's wallet may be: from the felt's right edge back to the
+/// top-right seat's pod, less the sixth of a pod its orb spills out of that
+/// corner and a little air. Worked out from the numbers [_Felt] lays the seats
+/// out with, the way [tableNoticeArea] finds the notices' gap — about 95dp at
+/// 640x360, 144 at 891x411 and 227 at 1280x800.
+double _tableWalletRoom(BuildContext context) {
+  final size = MediaQuery.sizeOf(context);
+  final safe = MediaQuery.paddingOf(context);
+  final pad = Dim.feltPad(size.width);
+  final feltLeft = safe.left + Dim.railW(size.width) + pad;
+  final feltTop = safe.top + Space.xxs;
+  final w = size.width - safe.right - pad - feltLeft;
+  final h = size.height - safe.bottom - feltTop;
+  final podW = Dim.podW(w, h);
+
+  final topRight = _Felt._places[3];
+  final podLeft = (topRight.dx * w - podW / 2)
+      .clamp(0.0, math.max(0.0, w - podW))
+      .toDouble();
+  final clear = feltLeft + podLeft + podW + podW / 6 + Space.xs;
+  final right = size.width - safe.right - pad;
+  return math.max(Dim.minTouch, right - clear);
 }
 
 /// The floor of the room, carrying a whisper of the table's own colour.
@@ -188,7 +340,8 @@ class _RoomGround extends StatelessWidget {
 }
 
 /// The only chrome in the game room besides the Shop key in the corner above
-/// it: the menu, and the chat below it, stacked down the left edge.
+/// it: the menu, the chat below it and the quick messages below that, stacked
+/// down the left edge.
 ///
 /// Everything else that used to sit across the top — the table code, the
 /// category, the hand number — is in the drawer. None of it changed what a
@@ -209,6 +362,13 @@ class _SideRail extends StatelessWidget {
     // the whole column: 48.0x46.8 at 640x360, 54.0x53.4 at 891x411 and
     // 54.0x56.0 at 1280x800 — every one of them past the 44dp minimum, which
     // an inset key would not have been at the rail's 48dp floor.
+    //
+    // Three keys and two gaps, centred down the rail: 3x46.8 + 2x10 = 160.4dp
+    // at 640x360, so the column runs from y 99.8 to 260.2. The Shop key above
+    // it ends by y 50 (6dp inset, 44dp tall) and the Pack key below it starts
+    // at y 306 at the earliest (44dp tall, at most 10dp off the bottom), which
+    // leaves more than 45dp clear at each end on the tightest phone; at
+    // 891x411 the column is 180.2dp tall and the margins only grow.
     final railW = Dim.railW(size.width);
     final keyH = Dim.railButtonH(size.height);
 
@@ -242,17 +402,180 @@ class _SideRail extends StatelessWidget {
                 height: keyH,
                 onTap: () => onOpen(_LeftPanel.chat),
                 child: state.canChat
-                    ? const Icon(Icons.forum_rounded, size: 22)
+                    ? const _RailLottie(
+                        asset: 'assets/animations/Message.json',
+                        fallback: Icons.forum_rounded,
+                        recolour: _strokesInInk,
+                      )
                     : _ChatCountdown(
                         left: state.chatCooldownLeft,
                         total: GameState.chatCooldown.inSeconds,
                       ),
               ),
             ),
+            const SizedBox(height: Space.md),
+            // The quick messages (owner, 13 Sep 2026). They are chat, so they
+            // share the chat's cooldown, and the key shows the same countdown:
+            // the player sees the lines are resting before opening the panel.
+            _RailKey(
+              tooltip: state.canChat
+                  ? t.quickMessagesTip
+                  : '${t.quickMessagesTip} ${state.chatCooldownLeft}s',
+              width: railW,
+              height: keyH,
+              onTap: () => onOpen(_LeftPanel.quick),
+              child: state.canChat
+                  ? const _RailLottie(
+                      asset: 'assets/animations/Quick message.json',
+                      fallback: Icons.quickreply_rounded,
+                      recolour: _envelopeInInk,
+                      // Larger than the glyphs above it, in a key of the same
+                      // size (owner, 14 Sep 2026). With its disc hidden the
+                      // envelope fills about 45% of the canvas's width, centred
+                      // across it and a little below the middle, and the plane's
+                      // trail reaches out to its left; so the canvas is drawn at
+                      // 56dp and lifted 2dp, which centres the envelope in the
+                      // key and keeps the trail (about 22dp left of centre)
+                      // inside even a 48dp key.
+                      size: 30,
+                      art: 56,
+                      artShift: Offset(0, -2),
+                    )
+                  : _ChatCountdown(
+                      left: state.chatCooldownLeft,
+                      total: GameState.chatCooldown.inSeconds,
+                    ),
+            ),
           ],
         ),
       ),
     );
+  }
+}
+
+/// The chat bubble's strokes, in the rail's ink.
+List<ValueDelegate<Object>> _strokesInInk(Color ink, Color paper) => [
+  ValueDelegate.strokeColor(const ['**'], value: ink),
+];
+
+/// The quick-message envelope in the rail's ink (owner, 14 Sep 2026: black):
+/// the envelope, its flap, the @, the paper plane and its dotted trail take the
+/// ink, the letter takes the paper so it shows against the envelope it rises
+/// out of, and the disc behind it all is hidden, so the envelope stands on the
+/// key itself. Matched by layer and group name; test/message_glyph_test.dart
+/// fails if a replacement file renames them.
+List<ValueDelegate<Object>> _envelopeInInk(Color ink, Color paper) => [
+  ValueDelegate.transformOpacity(const ['background Outlines'], value: 0),
+  for (final layer in const [
+    'front Outlines',
+    'back Outlines',
+    'opener Outlines',
+    'plane Outlines',
+  ])
+    ValueDelegate.color([layer, '**'], value: ink),
+  ValueDelegate.color(const [
+    'mail inside Outlines',
+    'Group 1',
+    '**',
+  ], value: ink),
+  ValueDelegate.color(const [
+    'mail inside Outlines',
+    'Group 2',
+    '**',
+  ], value: paper),
+  ValueDelegate.strokeColor(const ['Shape Layer 1', '**'], value: ink),
+];
+
+/// A rail key's animated glyph (owner, 14 Sep 2026): the chat key plays
+/// `assets/animations/Message.json`, a speech bubble that writes its lines, and
+/// the quick-message key `assets/animations/Quick message.json`, an envelope
+/// that opens, sends a paper plane and closes. Each loops.
+///
+/// [recolour] gives the file's colours in terms of the rail's ink — the
+/// theme's onSurface at full strength, black on the light theme and white on
+/// the dark — and its paper, the surface. It is full strength because a colour
+/// handed to the delegates is painted solid: the key's translucent icon ink
+/// came out solid black on TP_Tall all the same. The rail rebuilds every second
+/// (it watches GameState for the chat cooldown), and a new [ValueDelegate]
+/// never compares equal to the last one, so the delegates are built once per
+/// pair of colours rather than once per build; otherwise every tick would
+/// re-resolve every path.
+class _RailLottie extends StatefulWidget {
+  const _RailLottie({
+    required this.asset,
+    required this.fallback,
+    this.recolour,
+    this.size = 26,
+    this.art,
+    this.artShift = Offset.zero,
+  });
+
+  final String asset;
+
+  /// The glyph the key had before; drawn if the file cannot be loaded.
+  final IconData fallback;
+
+  /// The file's colours in terms of the rail's ink and paper; null keeps the
+  /// file's own.
+  final List<ValueDelegate<Object>> Function(Color ink, Color paper)? recolour;
+
+  /// The square the glyph takes in the key's layout, in dp.
+  final double size;
+
+  /// The square the animation is drawn into when that is larger than [size]:
+  /// centred on it and painted past its edges, so the art grows while the key
+  /// keeps its size. Null draws it into [size].
+  final double? art;
+
+  /// Moves the art so its drawn content, rather than its canvas, is centred.
+  final Offset artShift;
+
+  @override
+  State<_RailLottie> createState() => _RailLottieState();
+}
+
+class _RailLottieState extends State<_RailLottie> {
+  (Color, Color)? _colours;
+  LottieDelegates? _delegates;
+
+  @override
+  Widget build(BuildContext context) {
+    final recolour = widget.recolour;
+    if (recolour == null) {
+      _colours = null;
+      _delegates = null;
+    } else {
+      final scheme = Theme.of(context).colorScheme;
+      final colours = (scheme.onSurface.withValues(alpha: 1), scheme.surface);
+      if (colours != _colours) {
+        _colours = colours;
+        _delegates = LottieDelegates(values: recolour(colours.$1, colours.$2));
+      }
+    }
+    final art = widget.art ?? widget.size;
+    Widget glyph = RepaintBoundary(
+      child: SizedBox.square(
+        dimension: art,
+        child: Lottie.asset(
+          widget.asset,
+          delegates: _delegates,
+          fit: BoxFit.contain,
+          // A missing or unreadable file must not leave a blank key.
+          errorBuilder: (context, error, stack) =>
+              Icon(widget.fallback, size: 22),
+        ),
+      ),
+    );
+    if (widget.art != null) {
+      glyph = OverflowBox(
+        minWidth: art,
+        maxWidth: art,
+        minHeight: art,
+        maxHeight: art,
+        child: Transform.translate(offset: widget.artShift, child: glyph),
+      );
+    }
+    return SizedBox.square(dimension: widget.size, child: glyph);
   }
 }
 
@@ -368,7 +691,7 @@ class _TableDrawer extends StatelessWidget {
                           style: AppTheme.smallCaps(
                             theme.textTheme.labelSmall ?? const TextStyle(),
                             colour: scheme.onSurface.withValues(
-                              alpha: AppTheme.inkLow,
+                              alpha: AppTheme.inkLowOn(theme.brightness),
                             ),
                           ),
                         ),
@@ -472,7 +795,7 @@ class _TableDrawer extends StatelessWidget {
                         Icons.palette_outlined,
                         size: 16,
                         color: scheme.onSurface.withValues(
-                          alpha: AppTheme.inkLow,
+                          alpha: AppTheme.inkLowOn(theme.brightness),
                         ),
                       ),
                       const SizedBox(width: Space.sm),
@@ -484,7 +807,7 @@ class _TableDrawer extends StatelessWidget {
                           style: AppTheme.label(
                             theme.textTheme.labelMedium ?? const TextStyle(),
                             colour: scheme.onSurface.withValues(
-                              alpha: AppTheme.inkLow,
+                              alpha: AppTheme.inkLowOn(theme.brightness),
                             ),
                           ),
                         ),
@@ -626,8 +949,13 @@ class _MenuRow extends StatelessWidget {
                     note!,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
+                    // Neutral ink even under a toned label: the error red at
+                    // the quiet alpha measured 2:1 under "Leave table", and
+                    // the red label above it already says the row costs.
                     style: theme.textTheme.bodySmall?.copyWith(
-                      color: ink.withValues(alpha: AppTheme.inkLow),
+                      color: scheme.onSurface.withValues(
+                        alpha: AppTheme.inkLowOn(theme.brightness),
+                      ),
                     ),
                   ),
               ],
@@ -856,6 +1184,76 @@ Future<void> _confirmLeave(
   if (leave == true) state.leaveTable();
 }
 
+/// Force Sideshow, from the key to the server (owner, 13 Sep 2026).
+///
+/// Asked first: a hammer is bought with real money, and a forced sideshow can
+/// pack the player who forced it. A player with no hammers is not asked that —
+/// they are offered the store's Hammers shelf instead, which is the only
+/// answer that helps. The server has the last word on both, and when its count
+/// turns out to be 0 after all the same offer follows.
+Future<void> _forceSideshow(BuildContext context, GameState state) async {
+  final t = state.t;
+  if (!state.hasHammer) {
+    await _offerHammers(context, state);
+    return;
+  }
+
+  final name = state.options?.sideshowWith ?? '';
+  final go = await showDialog<bool>(
+    context: context,
+    builder: (context) {
+      final theme = Theme.of(context);
+      return GlassDialog(
+        padding: const EdgeInsets.all(Space.xl),
+        title: _dialogTitle(context, Icons.hardware, t.forceSideshowTitle),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(t.forceSideshowBody(name)),
+            const SizedBox(height: Space.sm),
+            Text(
+              t.forceSideshowNote,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurface.withValues(
+                  alpha: AppTheme.inkLowOn(theme.brightness),
+                ),
+              ),
+            ),
+          ],
+        ),
+        actions: _dialogActions(context, stay: t.cancel, go: t.force),
+      );
+    },
+  );
+  if (go != true || !context.mounted) return;
+
+  // The turn clock kept running while the question was up. If the turn went,
+  // or this turn's ask was used, there is nothing left to force, and sending
+  // it anyway would only earn a refusal to read.
+  if (!state.canForceSideshow) return;
+  final result = await state.forceSideshow();
+  if (result == ForceSideshowResult.noHammers && context.mounted) {
+    await _offerHammers(context, state);
+  }
+}
+
+/// The store's Hammers shelf, offered to a player whose wallet is empty.
+Future<void> _offerHammers(BuildContext context, GameState state) async {
+  final t = state.t;
+  final shop = await showDialog<bool>(
+    context: context,
+    builder: (context) => GlassDialog(
+      padding: const EdgeInsets.all(Space.xl),
+      title: _dialogTitle(context, Icons.hardware, t.noHammersTitle),
+      content: Text(t.noHammersBody),
+      actions: _dialogActions(context, stay: t.cancel, go: t.getHammers),
+    ),
+  );
+  if (shop != true || !context.mounted) return;
+  await showChipStore(context, opensOn: StoreTab.hammers);
+}
+
 /// Gold as *ink*: champagne on charcoal, deep gold on parchment.
 ///
 /// Anything drawn on the cloth is always on charcoal, so it asks for
@@ -864,7 +1262,7 @@ Future<void> _confirmLeave(
 Color _goldInk(Brightness b) =>
     b == Brightness.dark ? AppTheme.goldBright : AppTheme.goldDeep;
 
-class _Felt extends StatelessWidget {
+class _Felt extends StatefulWidget {
   const _Felt();
 
   /// Where each seat sits on the felt, as a fraction of it, in view order:
@@ -917,6 +1315,11 @@ class _Felt extends StatelessWidget {
   /// speaks when no hand is running, so it can have the high ground.
   static const double _statusDy = 0.28;
 
+  /// Where the middle of the category tag is, as a fraction of the felt's
+  /// height. A name rather than a literal because the table's notices stand
+  /// under it too ([tableNoticeArea]).
+  static const double _tagDy = 0.075;
+
   /// Where a seat sits on the felt, given its index as the server numbers it.
   ///
   /// The table is drawn from the viewer's chair, so a server index has to be
@@ -939,8 +1342,116 @@ class _Felt extends StatelessWidget {
   }
 
   @override
+  State<_Felt> createState() => _FeltState();
+}
+
+/// The felt's one piece of state: a Force Sideshow's hammer, and where the
+/// pods it flies between actually stand.
+class _FeltState extends State<_Felt> with SingleTickerProviderStateMixin {
+  static const _places = _Felt._places;
+  static const _potDy = _Felt._potDy;
+  static const _statusDy = _Felt._statusDy;
+  static const _tagDy = _Felt._tagDy;
+  static Offset _seatCentre(
+    GameState state,
+    int seatIndex,
+    double w,
+    double h,
+    double podW,
+  ) => _Felt._seatCentre(state, seatIndex, w, h, podW);
+
+  /// One key per place, naming that place's pod. A column's middle is known
+  /// from [_places], but where the pod sits in it depends on everything under
+  /// it — cards, a hand name, a bet — so the hammer is aimed at the pod as it
+  /// was actually laid out, not at a guess.
+  final List<GlobalKey> _podKeys = List.generate(
+    _Felt._places.length,
+    (i) => GlobalKey(debugLabel: 'pod $i'),
+  );
+
+  /// The felt's Stack, which the pods are measured against and the hammer is
+  /// drawn in.
+  final GlobalKey _stageKey = GlobalKey(debugLabel: 'felt');
+
+  /// The strike's clock, 0 to 1 over [HammerTiming.total]. Created by the
+  /// first strike, never in advance and never by [dispose] (CLAUDE.md §12.3).
+  AnimationController? _hammer;
+
+  /// The strike being followed, by [HammerStrike.key].
+  String? _strikeKey;
+
+  /// Where the current hammer flies from and to, once the pods have been
+  /// measured; null when there is nothing in the air.
+  ({Rect from, Rect to, int targetView})? _flight;
+
+  @override
+  void initState() {
+    super.initState();
+    // Parsed while the table opens, so the first hammer is not the thing that
+    // waits for it.
+    unawaited(HammerArt.load());
+  }
+
+  @override
+  void dispose() {
+    _hammer?.dispose();
+    super.dispose();
+  }
+
+  /// Keeps the felt on the strike [GameState] is showing: a new one is launched
+  /// after this frame, when the pods have been laid out and can be measured;
+  /// one that has gone (the hand ended, the player left) is dropped at once.
+  void _follow(HammerStrike? strike) {
+    if (strike?.key == _strikeKey) return;
+    _strikeKey = strike?.key;
+    _flight = null;
+    // Stopped, not reset: resetting would notify the hit pod's jolt in the
+    // middle of this build. With no flight nothing listens to it any more.
+    _hammer?.stop();
+    if (strike == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) => _launch(strike));
+  }
+
+  void _launch(HammerStrike strike) {
+    if (!mounted || strike.key != _strikeKey) return;
+    // The strike's timers began when the event arrived; the frames start where
+    // those timers already are, so the cards turn over as the hammer lands.
+    final start = HammerTiming.share(
+      DateTime.now().difference(strike.startedAt),
+    );
+    if (start >= 1) return;
+    final stage = _stageKey.currentContext?.findRenderObject();
+    if (stage is! RenderBox || !stage.hasSize) return;
+
+    final seats = context.read<GameState>().seatsInViewOrder();
+    int viewOf(String userId) =>
+        seats.indexWhere((seat) => seat?.userId == userId);
+    Rect? podAt(int view) {
+      if (view < 0 || view >= _podKeys.length) return null;
+      final box = _podKeys[view].currentContext?.findRenderObject();
+      if (box is! RenderBox || !box.attached || !box.hasSize) return null;
+      return box.localToGlobal(Offset.zero, ancestor: stage) & box.size;
+    }
+
+    final targetView = viewOf(strike.toUserId);
+    final from = podAt(viewOf(strike.fromUserId));
+    final to = podAt(targetView);
+    // Either player already gone from the felt: nothing to throw between. The
+    // reveal and the fold still wait for the impact on GameState's timers.
+    if (from == null || to == null) return;
+
+    final clock = _hammer ??= AnimationController(
+      vsync: this,
+      duration: HammerTiming.total,
+    );
+    setState(() => _flight = (from: from, to: to, targetView: targetView));
+    clock.forward(from: start.clamp(0.0, 1.0));
+  }
+
+  @override
   Widget build(BuildContext context) {
     final state = context.watch<GameState>();
+    _follow(state.hammerStrike);
 
     final room = state.room;
     if (room == null) return const Center(child: CircularProgressIndicator());
@@ -954,7 +1465,8 @@ class _Felt extends StatelessWidget {
     // turn over where they sit, but a ranking over the loser's read as if that
     // were the result. The reveal itself says who was packed, so the label is
     // right from the first frame rather than after the snapshot that packs them.
-    final sideshow = state.sideshowReveal;
+    // A Force Sideshow's hands stay face down until its hammer has landed.
+    final sideshow = state.shownSideshowReveal;
     bool wonSideshow(String? userId) =>
         userId != null &&
         sideshow?.packedUserId != null &&
@@ -1009,7 +1521,15 @@ class _Felt extends StatelessWidget {
           final handH = Dim.handH(h);
 
           Widget pod(int viewIndex) {
-            final s = viewIndex < seats.length ? seats[viewIndex] : null;
+            final seated = viewIndex < seats.length ? seats[viewIndex] : null;
+            // A Force Sideshow's loser has already been packed by the server
+            // when the hammer sets off; their pod folds when it lands.
+            final s =
+                seated != null &&
+                    seated.status == SeatState.packed &&
+                    state.foldHeldFor(seated.userId)
+                ? seated.withStatus(SeatState.active)
+                : seated;
             // At a showdown the hand is drawn at the seat that played it, so
             // find this seat's reveal and hand it down. The server sends
             // reveals for the players still in the hand; everyone else keeps
@@ -1028,7 +1548,7 @@ class _Felt extends StatelessWidget {
             // client could not leak a card it was never sent.
             final peek = s == null || reveal != null
                 ? null
-                : state.sideshowReveal?.hands
+                : sideshow?.hands
                       .where((hand) => hand.userId == s.userId)
                       .firstOrNull;
 
@@ -1071,6 +1591,8 @@ class _Felt extends StatelessWidget {
                   : BubbleSide.left,
               // The bottom seat stacks upwards, or its chip runs off the felt.
               reversed: viewIndex == 0,
+              podKey: viewIndex < _podKeys.length ? _podKeys[viewIndex] : null,
+              impact: _flight?.targetView == viewIndex ? _hammer : null,
             );
           }
 
@@ -1106,6 +1628,7 @@ class _Felt extends StatelessWidget {
           // they were. Dropping the ClipRRect with it also means a pod at the
           // rim can no longer lose its edge to the oval's curve.
           return Stack(
+            key: _stageKey,
             clipBehavior: Clip.none,
             children: [
               // The overhead lamp, breathing slowly over the middle of the
@@ -1153,7 +1676,7 @@ class _Felt extends StatelessWidget {
               // than the tag or the pot label it might briefly cross, so
               // the seats paint on top.
               at(
-                const Offset(0.5, 0.075),
+                const Offset(0.5, _tagDy),
                 _CategoryTag(room: room),
                 width: w * 0.30,
               ),
@@ -1266,6 +1789,39 @@ class _Felt extends StatelessWidget {
                   ),
                 ),
 
+              // A forced sideshow is shown to everyone at the table at least
+              // the way an ordinary one is — the same link between the two
+              // players, with its comet running from the one who forced it —
+              // from the throw until the loser folds. A forced one never has a
+              // pending request, so without this a bystander would get nothing
+              // but the hammer itself.
+              if (_flight != null && state.hammerLinkShown)
+                Positioned.fill(
+                  child: RepaintBoundary(
+                    child: IgnorePointer(
+                      child: _SideshowLink(
+                        from: _flight!.from.center,
+                        to: _flight!.to.center,
+                      ),
+                    ),
+                  ),
+                ),
+
+              // A Force Sideshow's hammer, thrown from one pod to the other
+              // over everything else on the felt — the viewer's own hand
+              // included. Everyone at the table sees it; nobody sees a card
+              // they were not sent (the two hands come from the reveal, which
+              // only the two players get).
+              if (_flight != null && _hammer != null)
+                Positioned.fill(
+                  child: HammerFlight(
+                    clock: _hammer!,
+                    from: _flight!.from,
+                    target: _flight!.to,
+                    podWidth: podW,
+                  ),
+                ),
+
               // Only the player being asked gets the buttons.
               if (state.sideshowIsForMe)
                 Positioned.fill(child: _SideshowPrompt(state: state)),
@@ -1300,6 +1856,69 @@ class _Felt extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Where a notice may stand at the table, in screen coordinates: the open felt
+/// between the two top seats, under the category tag and over the pot.
+///
+/// The foot of the screen is the viewer's own pod, hand and keys, and a band
+/// 40% of the width over the pot ran across the top seats' card fans and their
+/// SEEN labels, hiding who had looked. Every seat's column is exactly a pod
+/// wide and placed from [_Felt._places], so the gap between the top pair is
+/// worked out here from the numbers [_Felt] lays them out with rather than
+/// guessed as a share of the screen: about 214dp wide on a Pixel 7 Pro, 150 on
+/// a 640dp phone and 370 on a tablet. Nothing is drawn there during a hand;
+/// between hands the waiting line stands in it, and a notice may cover that
+/// for the moment it shows.
+Rect tableNoticeArea(BuildContext context) {
+  final size = MediaQuery.sizeOf(context);
+  final safe = MediaQuery.paddingOf(context);
+  final scaler = MediaQuery.textScalerOf(context);
+  final text = Theme.of(context).textTheme;
+
+  // The felt's box as TableScreen lays it out: inside the SafeArea, right of
+  // the rail, inside the felt's own padding (_Felt.build).
+  final pad = Dim.feltPad(size.width);
+  final feltLeft = safe.left + Dim.railW(size.width) + pad;
+  final feltTop = safe.top + Space.xxs;
+  final w = size.width - safe.right - pad - feltLeft;
+  final h = size.height - safe.bottom - feltTop;
+  final podW = Dim.podW(w, h);
+
+  // A column's left edge, clamped inside the felt exactly as _Felt.at() does.
+  double columnLeft(Offset place) =>
+      (place.dx * w - podW / 2).clamp(0.0, math.max(0.0, w - podW)).toDouble();
+  final left = feltLeft + columnLeft(_Felt._places[2]) + podW + Space.md;
+  final right = feltLeft + columnLeft(_Felt._places[3]) - Space.md;
+
+  // The tag and the pot are each one line of type on a plate: the line, the
+  // plate's padding above and below it, and its hairline.
+  double plate(TextStyle? style) =>
+      scaler.scale(style?.fontSize ?? 14) * (style?.height ?? 1.3) +
+      2 * Space.xs +
+      2 * Dim.hairline;
+  final top =
+      feltTop + _Felt._tagDy * h + plate(text.labelMedium) / 2 + Space.sm;
+  final bottom =
+      feltTop + _Felt._potDy * h - plate(text.titleLarge) / 2 - Space.sm;
+
+  var area = Rect.fromLTRB(left, top, right, bottom);
+  // A screen too cramped for the gap still gets a toast that reads, centred
+  // where the gap is; a wide one never gets a wider toast than the lobby's.
+  final minW = 120.0;
+  final maxW = Dim.toastW(size.width);
+  if (!area.isFinite) {
+    area = Rect.fromCenter(
+      center: size.center(Offset.zero),
+      width: minW,
+      height: Dim.minTouch,
+    );
+  }
+  return Rect.fromCenter(
+    center: area.center,
+    width: area.width.clamp(minW, maxW).toDouble(),
+    height: math.max(area.height, Dim.minTouch),
+  );
 }
 
 /// The cloth and the rail around it.
@@ -2088,8 +2707,17 @@ class _OwnHand extends StatelessWidget {
     final you = state.room?.you;
     if (you == null) return const SizedBox.shrink();
 
-    final packed =
-        you.status == SeatState.packed || you.status == SeatState.lost;
+    // Folded and beaten are different endings. A pack is struck out — dimmed,
+    // under a PACKED plate. A hand beaten at a show was played to the end and
+    // is on the table to be compared, so it stays face up and clear with its
+    // name over it, like every other hand that showdown turned over. The
+    // server marks only a showdown loser `lost`; a fold stays `packed`.
+    // A Force Sideshow's loser folds when the hammer lands on them, not the
+    // moment before it sets off when the server packed them.
+    final held =
+        you.status == SeatState.packed && state.foldHeldFor(state.user?.id);
+    final packed = you.status == SeatState.packed && !held;
+    final beaten = you.status == SeatState.lost;
     // The hand that just took the pot is still on the table while the
     // celebration runs. The server moves the winner's seat to `won` the moment
     // it settles, and reading that as "not playing any more" swept the
@@ -2097,10 +2725,10 @@ class _OwnHand extends StatelessWidget {
     // they had won with them — the rim seats already count `won` as in-hand
     // (seat_pod.dart `_inHand`), and this is the copy that did not.
     final inHand =
-        you.status == SeatState.active || you.status == SeatState.won;
+        you.status == SeatState.active || you.status == SeatState.won || held;
     // A packed hand stays on the table, face down and struck out, so the player
     // can see what they folded rather than having it vanish.
-    if (!inHand && !packed) {
+    if (!inHand && !packed && !beaten) {
       return const SizedBox.shrink();
     }
 
@@ -2827,19 +3455,29 @@ class _MachinedKey extends StatelessWidget {
   const _MachinedKey({
     required this.width,
     required this.height,
-    required this.icon,
     required this.label,
     required this.onPressed,
+    this.icon,
+    this.glyph,
     this.amount,
     this.primary = false,
     this.edge,
     this.alive = false,
-  });
+    this.muted = false,
+    this.stackLabel = false,
+  }) : assert(icon != null || glyph != null, 'a key needs an icon or a glyph');
 
   final double width;
   final double height;
-  final IconData icon;
+  final IconData? icon;
+
+  /// Drawn in place of [icon]: an animated glyph, like Force Sideshow's hammer.
+  final Widget? glyph;
   final String label;
+
+  /// Puts a two-word [label] on two lines, so a long name keeps its size in a
+  /// narrow key (Force Sideshow, owner 14 Sep 2026: the whole name, not "Force").
+  final bool stackLabel;
 
   /// The second line: what the move costs, or who it is aimed at. Omitted
   /// leaves the label on its own.
@@ -2858,6 +3496,11 @@ class _MachinedKey extends StatelessWidget {
   /// Only ever set on keys that are actually pressable, so a lit key is always
   /// a promise that tapping it will do something.
   final bool alive;
+
+  /// Drawn as inert while it still answers a tap. For a move the rules allow
+  /// but the player cannot pay for — Force Sideshow with no hammers — where
+  /// the tap is what offers the way to pay.
+  final bool muted;
 
   @override
   Widget build(BuildContext context) {
@@ -2907,7 +3550,7 @@ class _MachinedKey extends StatelessWidget {
     final press = onPressed;
 
     return Opacity(
-      opacity: dead ? 0.42 : 1,
+      opacity: dead || muted ? 0.42 : 1,
       child: _KeyPulse(
         alive: alive,
         colour: halo,
@@ -2923,44 +3566,62 @@ class _MachinedKey extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.center,
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(icon, size: 18),
-                const SizedBox(width: Space.sm),
+                glyph ?? Icon(icon, size: 18),
+                SizedBox(width: stackLabel ? Space.xs : Space.sm),
                 Flexible(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      FittedBox(
-                        fit: BoxFit.scaleDown,
-                        alignment: Alignment.centerLeft,
-                        child: Text(
-                          // Translated, so it keeps its natural case.
-                          label,
-                          maxLines: 1,
-                          style: AppTheme.label(
-                            theme.textTheme.labelLarge ?? const TextStyle(),
-                            weight: FontWeight.w700,
-                          ),
-                        ),
-                      ),
-                      if (amount != null)
-                        // A crore-sized bet is a long word; it shrinks to fit rather
-                        // than losing its tail to an ellipsis.
-                        FittedBox(
+                  child: stackLabel
+                      // The two lines scale together, inside the key's width
+                      // and height, rather than each shrinking on its own.
+                      // A stacked label carries no amount line.
+                      ? FittedBox(
                           fit: BoxFit.scaleDown,
                           alignment: Alignment.centerLeft,
                           child: Text(
-                            amount!,
-                            maxLines: 1,
-                            style: AppTheme.money(
-                              theme.textTheme.bodySmall ?? const TextStyle(),
-                              weight: FontWeight.w600,
-                            ),
+                            label.replaceFirst(' ', '\n'),
+                            maxLines: 2,
+                            style: AppTheme.label(
+                              theme.textTheme.labelLarge ?? const TextStyle(),
+                              weight: FontWeight.w700,
+                            ).copyWith(height: 1.1),
                           ),
+                        )
+                      : Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            FittedBox(
+                              fit: BoxFit.scaleDown,
+                              alignment: Alignment.centerLeft,
+                              child: Text(
+                                // Translated, so it keeps its natural case.
+                                label,
+                                maxLines: 1,
+                                style: AppTheme.label(
+                                  theme.textTheme.labelLarge ??
+                                      const TextStyle(),
+                                  weight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                            if (amount != null)
+                              // A crore-sized bet is a long word; it shrinks to
+                              // fit rather than losing its tail to an ellipsis.
+                              FittedBox(
+                                fit: BoxFit.scaleDown,
+                                alignment: Alignment.centerLeft,
+                                child: Text(
+                                  amount!,
+                                  maxLines: 1,
+                                  style: AppTheme.money(
+                                    theme.textTheme.bodySmall ??
+                                        const TextStyle(),
+                                    weight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                          ],
                         ),
-                    ],
-                  ),
                 ),
               ],
             ),
@@ -3218,6 +3879,190 @@ class _ChatDrawerState extends State<_ChatDrawer> {
     // next is the table with their words over their own seat.
     FocusManager.instance.primaryFocus?.unfocus();
     Navigator.of(context).pop();
+  }
+}
+
+/// Set lines a player can say in one tap — "Please Play Blind.", "Please take
+/// show." and the rest of [Strings.quickMessages] (owner, 13 Sep 2026).
+///
+/// A panel of the left drawer rather than chips over the felt: ten sentences,
+/// in scripts that run long, need a column of room, and the felt has none to
+/// spare. Each goes out through [GameState.sendChat] exactly as typed chat
+/// does — free text in the sender's own language, so the protocol does not
+/// change — and lands as their bubble and in the chat like anything typed.
+class _QuickDrawer extends StatelessWidget {
+  const _QuickDrawer();
+
+  @override
+  Widget build(BuildContext context) {
+    // A watch is right here, unlike on the Scaffold: the once-a-second tick is
+    // what counts the cooldown down on the rows.
+    final state = context.watch<GameState>();
+    final theme = Theme.of(context);
+    final t = state.t;
+    final lines = t.quickMessages;
+    final canChat = state.canChat;
+    final left = state.chatCooldownLeft;
+
+    return GlassDrawerPanel(
+      padding: EdgeInsets.zero,
+      // Loose constraints from the panel's Align would leave the list no
+      // height to scroll in, as in the menu.
+      child: SizedBox.expand(
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                Space.lg,
+                Space.md,
+                Space.sm,
+                Space.xs,
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.quickreply_rounded,
+                    size: 18,
+                    color: _goldInk(theme.brightness),
+                  ),
+                  const SizedBox(width: Space.md),
+                  Expanded(
+                    child: Text(
+                      t.quickMessagesTitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTheme.label(
+                        theme.textTheme.titleMedium ?? const TextStyle(),
+                      ),
+                    ),
+                  ),
+                  if (!canChat) ...[
+                    _ChatCountdown(
+                      left: left,
+                      total: GameState.chatCooldown.inSeconds,
+                    ),
+                    const SizedBox(width: Space.xs),
+                  ],
+                  PressScale(
+                    child: IconButton(
+                      visualDensity: VisualDensity.compact,
+                      icon: const Icon(Icons.close_rounded),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const _MenuRule(),
+            Expanded(
+              child: ListView.builder(
+                padding: const EdgeInsets.symmetric(vertical: Space.xs),
+                itemCount: lines.length,
+                itemBuilder: (context, i) => _QuickLine(
+                  text: lines[i],
+                  secondsLeft: left,
+                  onTap: canChat ? () => _send(context, state, lines[i]) : null,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// The same ending as the chat's own send: once the line is out the drawer
+  /// goes, and what the player sees next is their words over their own seat.
+  /// A refusal (the cooldown caught between build and tap) leaves it open.
+  void _send(BuildContext context, GameState state, String line) {
+    if (!state.sendChat(line)) return;
+    Navigator.of(context).pop();
+  }
+}
+
+/// One sentence in the quick-message panel, the whole row its target.
+///
+/// While the cooldown runs the row is disabled and says how many seconds are
+/// left, rather than taking a tap that would do nothing and say nothing.
+class _QuickLine extends StatelessWidget {
+  const _QuickLine({
+    required this.text,
+    required this.secondsLeft,
+    required this.onTap,
+  });
+
+  final String text;
+  final int secondsLeft;
+
+  /// Null while the cooldown runs.
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final ink = theme.colorScheme.onSurface;
+    final live = onTap != null;
+
+    final row = ConstrainedBox(
+      // Taller than the 44dp floor: a line is picked mid-hand, by thumb, from
+      // a list, where a near miss says the wrong thing to the whole table.
+      constraints: const BoxConstraints(minHeight: Dim.minTouch + Space.md),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(
+          horizontal: Space.lg,
+          vertical: Space.sm,
+        ),
+        child: Row(
+          children: [
+            Icon(
+              Icons.chat_bubble_outline_rounded,
+              size: 18,
+              color: live
+                  ? _goldInk(theme.brightness)
+                  : ink.withValues(alpha: AppTheme.inkLow),
+            ),
+            const SizedBox(width: Space.lg),
+            Expanded(
+              child: Text(
+                text,
+                style: theme.textTheme.bodyLarge?.copyWith(
+                  color: ink.withValues(
+                    alpha: live ? AppTheme.inkHigh : AppTheme.inkLow,
+                  ),
+                ),
+              ),
+            ),
+            if (!live) ...[
+              const SizedBox(width: Space.md),
+              Text(
+                '${secondsLeft}s',
+                // Tabular, so 4-3-2-1 does not shift the row by a pixel.
+                style: AppTheme.money(
+                  theme.textTheme.labelMedium ?? const TextStyle(),
+                  colour: ink.withValues(alpha: AppTheme.inkMed),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+
+    return Semantics(
+      button: true,
+      enabled: live,
+      child: PressScale(
+        enabled: live,
+        child: InkWell(
+          // Material's click, gated on the Sound switch like every menu row.
+          enableFeedback: context.select<FeedbackSettings, bool>(
+            (f) => f.sound,
+          ),
+          onTap: onTap,
+          child: row,
+        ),
+      ),
+    );
   }
 }
 
@@ -4071,6 +4916,13 @@ class _ActionCluster extends StatelessWidget {
     final options = state.options;
     final showCost = options?.show;
     final canSideshow = live && (options?.canSideshow ?? false);
+    // A Force Sideshow has a sideshow's rules, and the server says so in an
+    // option of its own. Whether the player can PAY is their own count — the
+    // table never sees the wallet — so with no hammers the key is greyed but
+    // still answers a tap, with an offer of the store.
+    final canForce =
+        live && (options?.canForceSideshow ?? false) && !state.forcingSideshow;
+    final hasHammer = state.hasHammer;
     // Heads-up: a show is on offer, and a sideshow cannot be. One slot, two
     // jobs — a show needs exactly two players left and a sideshow three or
     // more, so they are never askable at the same moment.
@@ -4080,6 +4932,11 @@ class _ActionCluster extends StatelessWidget {
     final keyH = Dim.keyH(size.height);
     final keyW = Dim.keyW(size.width);
     final gap = Dim.gap(size.width);
+    // The force key is as wide as the two steppers and the gap between them,
+    // so the top row comes out exactly as wide as the − Chaal + row under it.
+    // The cluster's footprint — which the viewer's hand and the right-hand
+    // seat are laid out to clear — is the one it had with a single key on top.
+    final forceW = 2 * Dim.minTouch + gap;
 
     return Padding(
       padding: EdgeInsets.fromLTRB(gap, gap, Dim.feltPad(size.width), gap),
@@ -4087,30 +4944,66 @@ class _ActionCluster extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          headsUp
-              ? _MachinedKey(
-                  width: keyW,
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Tooltip(
+                message: t.forceSideshow,
+                child: _MachinedKey(
+                  width: forceW,
                   height: keyH,
-                  icon: Icons.visibility_rounded,
-                  label: t.show,
-                  alive: true,
-                  amount: formatChips(showCost),
-                  onPressed: () => state.show(showCost),
-                )
-              // Dead by default: it wakes only on your turn, with three in the
-              // hand and both you and the player on your right holding seen
-              // cards. All of that is the server's judgement, arriving as
-              // canSideshow — a lit key that refuses on tap is worse than a
-              // dark one.
-              : _MachinedKey(
-                  width: keyW,
-                  height: keyH,
-                  icon: Icons.compare_arrows_rounded,
-                  label: t.sideshow,
-                  amount: canSideshow ? options?.sideshowWith : null,
-                  alive: canSideshow,
-                  onPressed: canSideshow ? state.askSideshow : null,
+                  // The whole name beside the hammer Lottie, and nothing else
+                  // (owner, 14 Sep 2026): no Material icon and no cost line —
+                  // the confirmation says what it costs before anything is
+                  // spent. The hammer swings only while the key can be used.
+                  glyph: RepaintBoundary(
+                    child: SizedBox.square(
+                      dimension: 24,
+                      child: Lottie.asset(
+                        'assets/animations/Hammer.json',
+                        animate: canForce,
+                        fit: BoxFit.contain,
+                        errorBuilder: (context, error, stack) =>
+                            const Icon(Icons.hardware, size: 18),
+                      ),
+                    ),
+                  ),
+                  label: t.forceSideshow,
+                  stackLabel: true,
+                  alive: canForce && hasHammer,
+                  muted: canForce && !hasHammer,
+                  onPressed: canForce
+                      ? () => _forceSideshow(context, state)
+                      : null,
                 ),
+              ),
+              SizedBox(width: gap),
+              headsUp
+                  ? _MachinedKey(
+                      width: keyW,
+                      height: keyH,
+                      icon: Icons.visibility_rounded,
+                      label: t.show,
+                      alive: true,
+                      amount: formatChips(showCost),
+                      onPressed: () => state.show(showCost),
+                    )
+                  // Dead by default: it wakes only on your turn, with three
+                  // in the hand and both you and the player on your right
+                  // holding seen cards. All of that is the server's
+                  // judgement, arriving as canSideshow — a lit key that
+                  // refuses on tap is worse than a dark one.
+                  : _MachinedKey(
+                      width: keyW,
+                      height: keyH,
+                      icon: Icons.compare_arrows_rounded,
+                      label: t.sideshow,
+                      amount: canSideshow ? options?.sideshowWith : null,
+                      alive: canSideshow,
+                      onPressed: canSideshow ? state.askSideshow : null,
+                    ),
+            ],
+          ),
           SizedBox(height: gap),
           Row(
             mainAxisSize: MainAxisSize.min,

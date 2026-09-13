@@ -20,30 +20,48 @@ class GameConnection {
 
   final _state = StreamController<RoomState>.broadcast();
   final _session =
-      StreamController<({User user, GameConfig config, ResumeHint? resume})>.broadcast();
+      StreamController<
+        ({User user, GameConfig config, ResumeHint? resume})
+      >.broadcast();
   final _cards = StreamController<List<String>>.broadcast();
-  final _showdown = StreamController<
-      ({
-        List<Reveal> reveals,
-        String result,
-        String? winnerId,
-        String winnerName,
-        int pot,
-        int nextHandAt,
-      })>.broadcast();
+  final _showdown =
+      StreamController<
+        ({
+          List<Reveal> reveals,
+          String result,
+          String? winnerId,
+          String winnerName,
+          int pot,
+          int nextHandAt,
+        })
+      >.broadcast();
   final _sideshowAsked = StreamController<PendingSideshow>.broadcast();
   final _sideshowReveal = StreamController<SideshowReveal>.broadcast();
-  final _sideshowDone = StreamController<
-      ({String fromUserId, String toUserId, bool accepted, String reason, String? packedUserId})>.broadcast();
+  final _sideshowDone =
+      StreamController<
+        ({
+          String fromUserId,
+          String toUserId,
+          bool accepted,
+          String reason,
+          String? packedUserId,
+        })
+      >.broadcast();
+  final _action =
+      StreamController<
+        ({String userId, String action, String? reason})
+      >.broadcast();
   final _chat = StreamController<ChatMessage>.broadcast();
   final _chatHistory = StreamController<List<ChatMessage>>.broadcast();
-  final _errors = StreamController<String>.broadcast();
+  final _errors =
+      StreamController<({String? code, String message})>.broadcast();
   final _left = StreamController<void>.broadcast();
   final _kicked = StreamController<String>.broadcast();
   final _connected = StreamController<bool>.broadcast();
 
   /// A full table snapshot, already redacted for this viewer.
   Stream<RoomState> get onState => _state.stream;
+
   /// Who this is and how the game is configured; `resume` names a table to go
   /// straight back to when a held seat has already lapsed.
   Stream<({User user, GameConfig config, ResumeHint? resume})> get onSession =>
@@ -52,14 +70,17 @@ class GameConnection {
   /// This player's own three cards, sent only once they have looked.
   Stream<List<String>> get onCards => _cards.stream;
   Stream<
-      ({
-        List<Reveal> reveals,
-        String result,
-        String? winnerId,
-        String winnerName,
-        int pot,
-        int nextHandAt,
-      })> get onShowdown => _showdown.stream;
+    ({
+      List<Reveal> reveals,
+      String result,
+      String? winnerId,
+      String winnerName,
+      int pot,
+      int nextHandAt,
+    })
+  >
+  get onShowdown => _showdown.stream;
+
   /// Somebody asked for a sideshow. Everyone at the table hears this — it is
   /// what drives the animation between the two seats — but it carries no cards.
   Stream<PendingSideshow> get onSideshowAsked => _sideshowAsked.stream;
@@ -70,11 +91,30 @@ class GameConnection {
 
   /// How it ended, for the whole table: accepted or not, and who packed.
   Stream<
-      ({String fromUserId, String toUserId, bool accepted, String reason, String? packedUserId})>
-      get onSideshowDone => _sideshowDone.stream;
+    ({
+      String fromUserId,
+      String toUserId,
+      bool accepted,
+      String reason,
+      String? packedUserId,
+    })
+  >
+  get onSideshowDone => _sideshowDone.stream;
+
+  /// A move somebody made, as the room hears it. The table's state already
+  /// says what each move did, so the client reads this only for what a
+  /// snapshot cannot say: why a player packed. A pack with reason `sideshow`
+  /// that arrives while no sideshow was pending is a Force Sideshow's loser,
+  /// and it lands before the snapshot that folds them.
+  Stream<({String userId, String action, String? reason})> get onAction =>
+      _action.stream;
   Stream<ChatMessage> get onChat => _chat.stream;
   Stream<List<ChatMessage>> get onChatHistory => _chatHistory.stream;
-  Stream<String> get onError => _errors.stream;
+
+  /// A refusal or a failure. `code` is the server's snake_case code when it
+  /// sent one: its messages are English by design, so the client localises
+  /// by code and falls back to `message` for anything it has no words for.
+  Stream<({String? code, String message})> get onError => _errors.stream;
   Stream<void> get onLeft => _left.stream;
 
   /// The table showed this player out, with the reason to tell them.
@@ -99,7 +139,10 @@ class GameConnection {
 
     socket.onConnect((_) => _connected.add(true));
     socket.onDisconnect((_) => _connected.add(false));
-    socket.onConnectError((e) => _errors.add('Could not reach the table: $e'));
+    socket.onConnectError(
+      (e) =>
+          _errors.add((code: null, message: 'Could not reach the table: $e')),
+    );
 
     socket.on('session:ready', (data) {
       final j = _map(data);
@@ -108,7 +151,9 @@ class GameConnection {
         config: j['config'] is Map
             ? GameConfig.fromJson(_map(j['config']))
             : GameConfig.fallback,
-        resume: j['resume'] is Map ? ResumeHint.fromJson(_map(j['resume'])) : null,
+        resume: j['resume'] is Map
+            ? ResumeHint.fromJson(_map(j['resume']))
+            : null,
       ));
     });
 
@@ -149,8 +194,10 @@ class GameConnection {
       );
     });
 
-    socket.on('game:sideshowRequested',
-        (data) => _sideshowAsked.add(PendingSideshow.fromJson(_map(data))));
+    socket.on(
+      'game:sideshowRequested',
+      (data) => _sideshowAsked.add(PendingSideshow.fromJson(_map(data))),
+    );
     socket.on('game:sideshowReveal', (data) {
       final j = _map(data);
       if (j['reveal'] is Map) {
@@ -168,17 +215,39 @@ class GameConnection {
       ));
     });
 
-    socket.on('chat:message', (data) => _chat.add(ChatMessage.fromJson(_map(data))));
-    socket.on('chat:history', (data) {
+    socket.on('game:action', (data) {
       final j = _map(data);
-      _chatHistory.add((j['messages'] as List? ?? [])
-          .map((e) => ChatMessage.fromJson(_map(e)))
-          .toList());
+      _action.add((
+        userId: '${j['userId'] ?? ''}',
+        action: '${j['action'] ?? ''}',
+        reason: j['reason'] is String ? j['reason'] as String : null,
+      ));
     });
 
-    socket.on('game:error', (data) => _errors.add('${_map(data)['message']}'));
-    socket.on('session:replaced',
-        (data) => _errors.add('${_map(data)['message'] ?? 'Signed in elsewhere'}'));
+    socket.on(
+      'chat:message',
+      (data) => _chat.add(ChatMessage.fromJson(_map(data))),
+    );
+    socket.on('chat:history', (data) {
+      final j = _map(data);
+      _chatHistory.add(
+        (j['messages'] as List? ?? [])
+            .map((e) => ChatMessage.fromJson(_map(e)))
+            .toList(),
+      );
+    });
+
+    socket.on('game:error', (data) {
+      final j = _map(data);
+      _errors.add((code: _code(j), message: '${j['message']}'));
+    });
+    socket.on(
+      'session:replaced',
+      (data) => _errors.add((
+        code: null,
+        message: '${_map(data)['message'] ?? 'Signed in elsewhere'}',
+      )),
+    );
   }
 
   void _emitShowdown(dynamic data, String? result) {
@@ -224,10 +293,26 @@ class GameConnection {
   /// sent twice (a retry after a lost ack, a double tap) the second copy is
   /// refused rather than charged again.
   void act(String action, {int? amount}) => _emit('game:action', {
-        'action': action,
-        'amount': ?amount,
-        'actionId': _uuid.v4(),
-      });
+    'action': action,
+    'amount': ?amount,
+    'actionId': _uuid.v4(),
+  });
+
+  /// Forces a sideshow with the player on the viewer's right, and waits for
+  /// the answer (owner, 13 Sep 2026).
+  ///
+  /// Unlike [act] this hands the ack back, because the ack is where the
+  /// server says how many hammers are left: `{ok: true, action, toUserId,
+  /// packedUserId, hammers}`, or `{ok: false, code, message}`.
+  ///
+  /// The caller chooses [actionId] and must send the SAME one again when it
+  /// retries: the server keys the hammer it spends on it, so a retry after a
+  /// lost answer resolves the sideshow without charging a second hammer. A
+  /// fresh id per retry would be charged again.
+  Future<Map<String, dynamic>> forceSideshow(String actionId) => request(
+    'game:action',
+    {'action': GameAction.forceSideshow, 'actionId': actionId},
+  );
 
   /// Answers a sideshow. Only the player who was asked may; anyone else gets a
   /// refusal in the ack.
@@ -251,9 +336,13 @@ class GameConnection {
     if (socket == null) return {'ok': false, 'message': 'Not connected'};
 
     final done = Completer<Map<String, dynamic>>();
-    socket.emitWithAck(event, payload, ack: (dynamic response) {
-      if (!done.isCompleted) done.complete(_map(response));
-    });
+    socket.emitWithAck(
+      event,
+      payload,
+      ack: (dynamic response) {
+        if (!done.isCompleted) done.complete(_map(response));
+      },
+    );
 
     return done.future.timeout(
       const Duration(seconds: 8),
@@ -267,11 +356,24 @@ class GameConnection {
 
     // Every gameplay event is acknowledged, and a refusal comes back in the
     // ack rather than as a thrown error.
-    socket.emitWithAck(event, payload, ack: (dynamic response) {
-      final j = _map(response);
-      if (j['ok'] == false) _errors.add('${j['message'] ?? 'That move was refused'}');
-    });
+    socket.emitWithAck(
+      event,
+      payload,
+      ack: (dynamic response) {
+        final j = _map(response);
+        if (j['ok'] == false) {
+          _errors.add((
+            code: _code(j),
+            message: '${j['message'] ?? 'That move was refused'}',
+          ));
+        }
+      },
+    );
   }
+
+  /// The refusal's code, or null when the payload carries none.
+  static String? _code(Map<String, dynamic> j) =>
+      j['code'] is String ? j['code'] as String : null;
 
   void disconnect() {
     _socket?.dispose();
@@ -287,6 +389,7 @@ class GameConnection {
     _sideshowAsked.close();
     _sideshowReveal.close();
     _sideshowDone.close();
+    _action.close();
     _chat.close();
     _chatHistory.close();
     _errors.close();

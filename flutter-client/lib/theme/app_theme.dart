@@ -438,6 +438,16 @@ class AppTheme {
   static const double inkMed = 0.70;
   static const double inkLow = 0.46;
 
+  /// The quiet tier's alpha for text on a glass panel of this brightness.
+  ///
+  /// [inkLow] was measured against the bare ice ground, but a drawer or the
+  /// store laid over the table is frosted light glass over a dimmed room, and
+  /// that samples near #C0C0C0 rather than #F4F5F7: at 0.46 the table menu's
+  /// sub-lines, its header and the store's blurb measured 2.7–2.9:1. 0.68
+  /// holds 4.5:1 on that grey. Obsidian keeps [inkLow], which already reads
+  /// 4.6:1 there.
+  static double inkLowOn(Brightness b) => b == Brightness.light ? 0.68 : inkLow;
+
   /// Body ink as a colour rather than an alpha: the spec names it outright on
   /// the light side (#4A4D55), where an alpha of charcoal over slate would
   /// land a shade off. The text theme's body styles use this.
@@ -448,6 +458,12 @@ class AppTheme {
   /// is not yet a kick. The ends of that scale are `scheme.primary` and
   /// `scheme.error`, which stay far apart in both hue and luminance.
   static const Color amber = Color(0xFFE8A33C);
+
+  /// Mint for marks drawn on the picture shelf's ink pills, which are dark in
+  /// both themes. The light scheme's primary is the dark seed green, and on
+  /// those pills it measured 1.5:1, so the pills carry the dark scheme's
+  /// primary whichever theme is showing.
+  static const Color mintOnInk = Color(0xFF5FD3A0);
 
   /// Royal purple for the high-stakes blind table, one shade per brightness.
   static const Color _royal = Color(0xFF6D4BC4);

@@ -21,8 +21,11 @@ import (
 // them on every boot.
 func TestMigrationsAreVersionedOrderedAndSplitByKind(t *testing.T) {
 	migrations := db.Migrations()
-	if len(migrations) < 2 {
-		t.Fatalf("expected at least a baseline and a seed, got %d", len(migrations))
+	// Exactly two since the consolidation of 14 Sep 2026: one DDL script and
+	// one DML script build an empty database. A third is a new migration and
+	// belongs in a new file, so update this count with it.
+	if len(migrations) != 2 {
+		t.Fatalf("expected the baseline and the seed only, got %d scripts", len(migrations))
 	}
 
 	for i, m := range migrations {

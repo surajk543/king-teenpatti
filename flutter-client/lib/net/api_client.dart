@@ -193,7 +193,16 @@ class ApiClient {
   /// (a retry, or a purchase restored on a new install). That is success: the
   /// chips are in the wallet, and the caller should finish the Play
   /// transaction rather than leave it to be delivered again.
-  Future<({User? user, bool credited, int chips, int diamonds, int balance})>
+  Future<
+    ({
+      User? user,
+      bool credited,
+      int chips,
+      int diamonds,
+      int hammers,
+      int balance,
+    })
+  >
   redeemPurchase(String token, String productId, String purchaseToken) async {
     final r = await http.post(
       _uri('/api/purchases/google'),
@@ -210,9 +219,10 @@ class ApiClient {
           : null,
       credited: j['credited'] == true,
       chips: (j['chips'] as num?)?.toInt() ?? 0,
-      // A diamond pack answers with `diamonds` and zero chips; a chip pack
-      // the other way round. An older server sends no `diamonds` at all.
+      // Exactly one of chips, diamonds and hammers is non-zero: the product
+      // decides the wallet. An older server sends no `diamonds` or `hammers`.
       diamonds: (j['diamonds'] as num?)?.toInt() ?? 0,
+      hammers: (j['hammers'] as num?)?.toInt() ?? 0,
       balance: (j['balance'] as num?)?.toInt() ?? 0,
     );
   }
