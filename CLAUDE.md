@@ -37,7 +37,7 @@ A turn-based multiplayer **Teen Patti** (3-card Indian poker) game:
 | Node.js server | *(removed)* | The original implementation, removed from the repo on 8 Sep 2026 (`git log -- server/`, last commit `c19963b`; `multi_node` branch). Its behaviour is what §5–§7 document; its file names are what those sections cite. **No longer a rollback target at all** (12 Sep 2026): it reads and writes `users.avatar_choice`, which the schema dropped for `active_picture_id`, and knows nothing of the picture-catalogue tables — so it cannot run against this database. `ops/rollback-to-node.sh` was deleted rather than left as a recovery script that would fail when used; rolling back now means the previous **Go** tag (DEPLOY.md §5). |
 | Mobile client | `flutter-client/` | **The live client.** Flutter 3.44 / Dart 3.12, Material 3 via FlexColorScheme. Android is the shipping platform; `ios/` exists and is configured (`docs/ios-setup.md`) but has never been compiled — there is no macOS here. |
 | Browser client | `go-server/public/` | Zero-build vanilla-JS reference client served at `/` by the Go binary (`PUBLIC_DIR`) — **in dev only; production hides it** (`ROOT_REDIRECT=/dashboard/`, §7.4/§9) and serves just `privacy/`, `profiles/` from that dir. **Lags behind** — no sideshow, kick, rename, entry-cap or Indian-numbering UI. |
-| Tools | `tools/` | Small Node ≥ 20 package (`npm install` first): `npm run bot` (practice bots), `npm run ramp` (staged load test), `npm run parity` / `parity:diff` (black-box suites in `tools/parity/`). Clients of the server; also lend `node_modules` to two Go interop tests. `tools/lottie/flatten_orientation.py` (Python 3, stdlib) flattens a Lottie's 3D orientation for the phone players (§12.3). |
+| Tools | `tools/` | Small Node ≥ 20 package (`npm install` first): `npm run bot` (practice bots), `npm run ramp` (staged load test), `npm run parity` / `parity:diff` (black-box suites in `tools/parity/`). Clients of the server; also lend `node_modules` to two Go interop tests. `tools/lottie/flatten_orientation.py` (Python 3, stdlib) flattens a Lottie's 3D orientation and `tools/lottie/bake_loop_expressions.py` writes its `loopOut()` expressions out as keyframes, both for the phone players (§12.3). |
 | **Bot fleet** | `bot-play/` | The resident bots that keep production's lobby populated (`bot-play.service` on the game host, loopback to `:3000`): 198 guest identities, 75–95% online at once in sittings that come and go. They judge their cards with a port of `handrank.go` (verified on all 22,100 hands), raise up the server's ladder with strong hands, bluff by persona, and chat under a per-table budget. `npm test`; `bot-play/README.md` is the reference. Separate from `tools/bot.js`, the practice bots for manual testing. |
 | Load reports | `docs/load-reports/` | ramp-test HTML + JSON (the 2026‑09‑08 production runs, 1,000 → 4,000 players). |
 | Unity client | `unity-client/` | **Removed** (Sept 2026). A JS port of its Socket.IO parser survives as `tools/parity/lib/csharpJsonPort.js` and still exercises the raw wire protocol. |
@@ -81,7 +81,7 @@ king-teenpatti/
 │   │   ├── sio/                  our own Engine.IO v4 + Socket.IO v5 server, websocket only (protocol.go, conn.go, server.go)
 │   │   ├── socket/               the game protocol on sio: handler.go (Attach, guard, one method per event, grace, resume offers), wire.go (every event/ack), payload.go; testclient/
 │   │   ├── auth/                 tokens.go (JWT HS256), providers.go (Google/Facebook/guest/fake), http.go (routes, RequireAuth, WriteError), handlers.go (the 8 REST handlers), text.go
-│   │   ├── db/                   db.go (pgxpool, search_path as connection param, WithTx, DropSchema, Migrations), migration/ (embedded, Flyway-named V<version>__<name>.sql, applied in version order: V1.0.0__baseline.sql = DDL, V1.0.1__seed_profile_pictures.sql + V1.0.2__seed_animated_pictures.sql = DML, V1.0.3__diamond_purchases.sql = DDL), ledger.go (THE money transactions: Checkpoint / Settle), users.go (login upsert, rewards, names, the worn picture), pictures.go (the catalogue, ownership and the chip purchase); dbtest/
+│   │   ├── db/                   db.go (pgxpool, search_path as connection param, WithTx, DropSchema, Migrations), migration/ (embedded, Flyway-named V<version>__<name>.sql, applied in version order: V1.0.0__baseline.sql = DDL, V1.0.1__seed_profile_pictures.sql + V1.0.2__seed_animated_pictures.sql = DML, V1.0.3__diamond_purchases.sql = DDL, V1.0.4__seed_more_animated_pictures.sql = DML), ledger.go (THE money transactions: Checkpoint / Settle), users.go (login upsert, rewards, names, the worn picture), pictures.go (the catalogue, ownership and the chip purchase); dbtest/
 │   │   ├── metrics/              names.go (every game_* metric), metrics.go (registry, Bind*, Handler, HTTPMiddleware, SafeLabel)
 │   │   ├── app/                  app.go (mux, REST, socket endpoint, Start/Shutdown), health.go, static.go (PUBLIC_DIR + embedded assets/socket.io.min.js)
 │   │   └── util/                 UUID, RoomCode, slog JSON logger
@@ -308,6 +308,14 @@ and the transactions that DO run have this shape:
   2026): nothing at a table reads or writes `users.diamond`, so a DIAMOND picture may be bought at
   the table, and any picture may be worn there (`POST /api/profile/avatar` → `Deps.PictureWorn` →
   `RoomManager.SetPlayerAvatar` → `Table.SetAvatar`, which updates the seat and emits state).
+  **The lobby side is serialised with taking a seat** (13 Sep 2026, after a race that could create chips): every lobby door
+  (quickJoin, joinCode, create, the resume auto-join) reads the wallet (`RoomManagerOptions.LoadPlayer`) under the player's
+  seat-lock stripe, and every lobby-only wallet change — a COIN picture, the rewards — runs inside `RoomManager.WhileUnseated`
+  under the same stripe, as does a Play chip pack (`CreditBoughtChips`: the database credit and the seat top-up together), each
+  on a context of its own rather than the request's. A purchase can therefore never land between a join's wallet read and its
+  seat. While a table's refused hand-end settle is still retrying (`TableOptions.SettlementOwed` → the manager's `owed` count)
+  or a destroyed table is still settling a seat (`departing`), that player gets 409 `seated` for lobby wallet changes and the
+  Go-only `settlement_pending` ("Your last hand is still being saved; try again in a moment") for joins (DECISIONS.md §3).
 - **Resolve once, record twice.** A player who packs gets a `hand_packed` row and then a `hand_loss`
   row at the hand end whose delta computes to **zero** — the money moves once, while the outcome row
   still carries `hands_played`/`hands_lost`. A player who left is not in the hand-end write at all.
@@ -558,7 +566,10 @@ holds the catalogue rows. **There is no schema history table**: the server appli
 EVERY boot, so each one must be idempotent (IF NOT EXISTS / CREATE OR REPLACE / ON CONFLICT DO
 NOTHING / a catalogue lookup before an unguarded trigger). A script that is not idempotent does not
 fail the first time — it fails on the next restart, in production. The next change is a NEW file,
-never an edit to an applied one. **A column added to an existing database is a deliberate one-off
+never an edit to an applied one — with one sanctioned exception (13 Sep 2026): wrapping a statement in a catalogue guard so it
+skips work already done, because no new script can fix a statement that fails before it runs (the baseline's users index under
+DEPLOY.md §7, and V1.0.2 moving Butterfly Flapping's row to its Drive URL in place — a later script's move would be undone
+by V1.0.2 re-seeding the old path on the next boot and then collide on the UNIQUE asset_url). **A column added to an existing database is a deliberate one-off
 ALTER run by hand** (`CREATE TABLE IF NOT EXISTS` is a no-op where the table exists, so the baseline
 cannot add one), which is the trade the no-ALTER baseline makes.
 `withTransaction(fn)` = BEGIN/COMMIT/ROLLBACK. `dropSchema()` refuses `public`. **int8 and numeric
@@ -574,7 +585,7 @@ UNIQUE, `asset_format` IMAGE|SVG|LOTTIE|RIVE, `currency` COIN|DIAMOND, `type` FR
 `sort_order`) and **`user_profile_pictures`** (`user_id`, `profile_picture_id`, PK on the pair) —
 who has bought what. A FREE picture needs **no** ownership row: everyone may wear it, so the table
 holds only what somebody paid for. `V1.0.1__seed_profile_pictures.sql` seeds 15 hosted animals (2 free, 13 coin-priced rentals) and
-Orange Ballerina (a LOTTIE at 1 DIAMOND for 100 days); `V1.0.2__seed_animated_pictures.sql` adds five more LOTTIE rentals of 100 days — Butterfly Flapping (4 DIAMONDS, sort_order 170; served by this server as `/profiles/butterfly-flapping.json`, a server-relative URL, because the Drive original beats its wings with 3D orientation the phone players ignore — §12.3), Toucan Flying (a landscape 1920×1080 canvas, 3 DIAMONDS, 180), Live Chatbot (1 DIAMOND, 190), Paper Plane (1 DIAMOND, 200) and Bouncing Dots (1 DIAMOND, 210) — each script inserts with `ON CONFLICT (asset_url) DO NOTHING`, so re-pricing or retiring one is an UPDATE
+Orange Ballerina (a LOTTIE at 1 DIAMOND for 100 days); `V1.0.2__seed_animated_pictures.sql` adds five more LOTTIE rentals of 100 days — Butterfly Flapping (4 DIAMONDS, sort_order 170; its first Drive upload beats its wings with 3D orientation the phone players ignore — §12.3 — so it is served from a second Drive upload of the flattened copy. go-server/v1.3.0 served that copy itself as `/profiles/butterfly-flapping.json`; V1.0.2 now moves that row to the Drive URL in place at every boot, folding any rollback duplicate into the original id so no purchase or wearer is lost — `butterfly_drive_test.go`, DEPLOY.md §5), Toucan Flying (a landscape 1920×1080 canvas, 3 DIAMONDS, 180), Live Chatbot (1 DIAMOND, 190), Paper Plane (1 DIAMOND, 200) and Bouncing Dots (1 DIAMOND, 210); `V1.0.4__seed_more_animated_pictures.sql` adds nine more 100-day LOTTIE rentals that play on phones — Monarch Butterfly (4 DIAMONDS, sort_order 220), Lovestruck Cat (5 DIAMONDS, 230), Waving Tiger Cub (5 DIAMONDS, 240; a tiny `loopOut()` detail in its head holds still on phones, which run no expressions), Galloping Horse (1 DIAMOND, 250; a black silhouette flipbook, about 1.2:1 against the dark theme's picture circles), Gamer Raccoon (6 DIAMONDS, 260), Cool Cat (10 DIAMONDS, 270), Indian Flag (10 DIAMONDS, 280; it sits high and left in its canvas, so the round picture loses most of its pole), Jolly King (10 DIAMONDS, 290) and Jolly Queen (10 DIAMONDS, 300; both move only through `loopOut()` expressions, so both are served from Drive as copies baked by `tools/lottie/bake_loop_expressions.py`, not as their original uploads) — a new script because V1.0.2 had already run in production — each script inserts with `ON CONFLICT (asset_url) DO NOTHING`, so re-pricing or retiring one is an UPDATE
 the next boot will not undo. **`diamond_purchases`** (`V1.0.3__diamond_purchases.sql`: `purchase_token` PK, `user_id`, `product_id`, `diamonds`, `created_at`) is the replay guard and record for Play diamond packs — diamonds never enter `chip_ledger`. `users.avatar_choice` (the old free-text `/profiles/x.svg` path) is
 migrated into `active_picture_id` and dropped — **but only once every non-empty choice has found its
 catalogue row**, and any picture that was already being worn is granted an ownership row first so
@@ -599,7 +610,7 @@ owner's request, so nothing in the code deletes or pseudonymises a user. Removin
 deliberate privileged step: `sudo -u postgres psql gameplay`, `ALTER TABLE users DISABLE TRIGGER
 users_no_delete`, delete, re-enable. Prod's app role `gameplay_app` still **owns** the table and the
 function (it runs `schema.sql`), so it could disable the trigger; DEPLOY.md §7 has the one-time
-ownership transfer that closes that (owner → `postgres`, `GRANT SELECT, INSERT, UPDATE` back), which
+ownership transfer that closes that (owner → `postgres`, `GRANT SELECT, INSERT, UPDATE, REFERENCES` back — REFERENCES because a table a boot creates with a foreign key to users, such as `diamond_purchases`, needs it; and every migration statement that would need to OWN users, like the baseline's `idx_users_last_login`, is catalogue-guarded so it skips work already done, proven by `TestTheAppRoleBootsTwiceBeforeAndAfterUsersIsHandedToTheSuperuser` — tags up to go-server/v1.3.0 predate that guard and cannot boot once §7 is applied), which
 needs sudo on the host and is why the function is create-if-missing rather than CREATE OR REPLACE.
 Test: `TestUserRowsAreNeverDeleted` (`internal/db/users_delete_test.go`).
 
@@ -819,7 +830,13 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   rows (including **Entry**, the table's stack band: "Up to 5 Crore", "50 Crore or more", or "Open to all"),
   shut-table overlay — a padlock and `cappedTitle` when the player has outgrown the table, a rising arrow and
   `lockedTitle` when they have not grown into it, both faded to 0.42 so the stake stays readable;
-  `_TopBar` `fromLTRB(240,…)` clears the bonus chip, `tight` < 760; its balance shows chips then diamonds (gem + count, `_diamondInkOn` — pale blue on dark glass, deep blue on light);
+  `_TopBar` (owner, 13 Sep 2026, "more letters of the name"): the bonus chip takes its own width (capped at
+  `Dim.bonusSlotW − Space.md`) and the profile picture follows straight after it; the name and the balance share one
+  `Expanded` in which the balance keeps its natural width up to 65% of that room (50% when `tight`, i.e. less than
+  `Breaks.tightBar` 470dp left beside the bonus slot) and scales down past it, and the name takes the rest — it was a
+  `Flexible` beside a `Spacer` and a flex-4 balance, which handed it a sixth of the free space ("Gu…"). On a tight bar
+  the Shop key is icon-only (`ShopButton(compact: true)`, tooltip "Shop"). TP_Tall shows "Guest0E00B" whole; TP_Small
+  "Guest63…". The balance shows chips then diamonds (gem + count, `_diamondInkOn` — pale blue on dark glass, deep blue on light);
   `_MilestoneChip` above `BuyChipsButton` ("Coming soon"); one `endDrawer` for stats/settings.
 - **Table** (rebuilt around the felt on 10–11 Sep 2026 — `fb47ba4`, `b83b273`, `81a5981`; the bar
   across the foot and the cloth under it are both gone, and the screenshots in `docs/play-store/`
@@ -1104,7 +1121,12 @@ final t = state.t;` at the top of `build`; M3 roles via `theme.colorScheme`; `.w
   any browser) plays them. Butterfly Flapping beat its wings that way, and on a phone both wings sat still on top of each
   other. Before seeding a Lottie, look for `"or"`/`"rx"`/`"ry"` keyframes; `python3 tools/lottie/flatten_orientation.py
   in.json out.json` bakes them into 2D rotation and scale on null parents, exact frame for frame, and the result is
-  served from `go-server/public/profiles/`.
+  uploaded in place of the original (Butterfly Flapping's flattened copy lives on Drive). **Expressions do not run on phones either** (`"x"` fields — `loopOut()` is the
+  common one): Flutter's lottie logs "Lottie doesn't support expressions" and the property stops after its keyframes. Check
+  how much that shows (render with and without the loop baked in) before deciding a file needs reworking. When it
+  matters, `python3 tools/lottie/bake_loop_expressions.py in.json out.json` writes `loopOut()` / `loopOut('pingpong')`
+  out as keyframes (exact against lottie-web on Jolly King: 0 differing pixels at 251 frames); upload the result in place of the original
+  (Jolly King and Jolly Queen live on Drive this way) or serve it from `go-server/public/profiles/`.
 - `GameConfig.fromJson` ints fall to 0 → `config.maxPlayers == 0 ? 5 : …` guards.
 - `_PotChips` animates only on increase. `PlayingCard`
   flips only face-down↔up. Only 5 `_places`.
@@ -1221,7 +1243,7 @@ deploy runbook; `steps.txt` the six-line routine.
   `gomaxprocs`. Grafana's former "Node.js" row is now "Runtime"; alerts
   `GameServerSchedulerLatencyHigh` / `GameServerGoroutinesHigh` / `GameServerMemoryHigh` replaced
   the three `nodejs_*` ones (§7.5 bundle at `go-server/ops/monitoring/`, `MONITORING.md`).
-- Small honest deviations: `room:state` carries `isPrivate` (13 Sep 2026, for the Flutter drawer), a seated player may wear a picture and buy a diamond one, JSON 404 for unknown `/api/*`, 400 `invalid_json` for bad bodies,
+- Small honest deviations: `room:state` carries `isPrivate` (13 Sep 2026, for the Flutter drawer), a seated player may wear a picture and buy a diamond one, a join is refused `settlement_pending` while that player's last hand is still being settled, JSON 404 for unknown `/api/*`, 400 `invalid_json` for bad bodies,
   HS256-only JWT verification (Node also took HS384/512), room codes regenerated until unique,
   `room:create {isPrivate:false}` validated like `quickJoin`, `already_in_room` checked before a
   table is created. Full list: PORT_PLAN §9 + DECISIONS.md. **Anything else that differs is a bug.**
