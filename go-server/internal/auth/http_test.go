@@ -62,7 +62,7 @@ func (s *fakeStore) UpsertFromProfile(_ context.Context, p db.Profile) (*db.User
 	}
 	id := fmt.Sprintf("user-%d", len(s.users)+1)
 	u := &db.User{ID: id, Provider: p.Provider, DisplayName: p.DisplayName, Email: p.Email, AvatarURL: p.AvatarURL,
-		ProviderAvatarURL: p.AvatarURL, Chips: 200000, CreatedAt: s.now, LastLoginAt: s.now,
+		ProviderAvatarURL: p.AvatarURL, Chips: 200000, Diamond: 1, CreatedAt: s.now, LastLoginAt: s.now,
 		Rewards: db.Rewards{MilestoneReward: 25000, MilestoneEvery: 25, HandsToNextMilestone: 25, BonusAvailable: true, BonusReward: 10000, BonusIntervalMs: 14400000}}
 	s.users[id] = u
 	s.byIdent[key] = id
@@ -137,11 +137,14 @@ func (s *fakeStore) SetActivePicture(_ context.Context, userID string, pictureID
 // fakeCatalogue stands in for the profile_pictures table: two free pictures,
 // two premium ones, and a retired row that is still a valid id.
 var fakeCatalogue = map[int64]db.Picture{
-	1: {ID: 1, Name: "Bear", URL: "/profiles/bear.svg", AssetFormat: "SVG", Type: db.PictureFree, SortOrder: 10},
-	2: {ID: 2, Name: "Cat", URL: "/profiles/cat.svg", AssetFormat: "SVG", Type: db.PictureFree, SortOrder: 20},
-	3: {ID: 3, Name: "Wolf", URL: "/profiles/wolf.svg", AssetFormat: "SVG", Type: db.PicturePremium, Cost: 50000, DurationDays: 30, SortOrder: 30},
-	4: {ID: 4, Name: "Lion", URL: "/profiles/lion.svg", AssetFormat: "SVG", Type: db.PicturePremium, Cost: 25000, DurationDays: 30, SortOrder: 40},
-	9: {ID: 9, Name: "Dodo", URL: "/profiles/dodo.svg", AssetFormat: "SVG", Type: db.PicturePremium, Cost: 100, DurationDays: 30, SortOrder: 90},
+	1: {ID: 1, Name: "Bear", URL: "/profiles/bear.svg", Currency: "COIN", AssetFormat: "SVG", Type: db.PictureFree, SortOrder: 10},
+	2: {ID: 2, Name: "Cat", URL: "/profiles/cat.svg", Currency: "COIN", AssetFormat: "SVG", Type: db.PictureFree, SortOrder: 20},
+	3: {ID: 3, Name: "Wolf", URL: "/profiles/wolf.svg", Currency: "COIN", AssetFormat: "SVG", Type: db.PicturePremium, Cost: 50000, DurationDays: 30, SortOrder: 30},
+	4: {ID: 4, Name: "Lion", URL: "/profiles/lion.svg", Currency: "COIN", AssetFormat: "SVG", Type: db.PicturePremium, Cost: 25000, DurationDays: 30, SortOrder: 40},
+	// Diamond-priced, and deliberately not in List's id set: only the buy tests
+	// reach it, so the listing contract above stays exactly four rows.
+	5: {ID: 5, Name: "Ballerina", URL: "/profiles/ballerina.json", AssetFormat: "LOTTIE", Currency: "DIAMOND", Type: db.PicturePremium, Cost: 1, DurationDays: 100, SortOrder: 50},
+	9: {ID: 9, Name: "Dodo", URL: "/profiles/dodo.svg", Currency: "COIN", AssetFormat: "SVG", Type: db.PicturePremium, Cost: 100, DurationDays: 30, SortOrder: 90},
 }
 
 // fakePictures is the PictureStore the harness wires in: the catalogue above,
@@ -190,7 +193,8 @@ func (f *fakePictures) Find(_ context.Context, userID string, id int64) (db.Pict
 	return pic, !f.retired[id], nil
 }
 
-// expired is what ExpireLapsed should strip on the next login, keyed by user.
+// ExpireLapsed strips a worn premium picture the player no longer owns, as the
+// real sweep does at login, on /api/auth/me and on the listing.
 func (f *fakePictures) ExpireLapsed(_ context.Context, userID string) (bool, error) {
 	if f.failWith != nil {
 		return false, f.failWith
@@ -227,10 +231,18 @@ func (f *fakePictures) Buy(_ context.Context, userID string, id int64) (*db.Pict
 		pic.Owned = true
 		return &db.PicturePurchase{Picture: pic, Charged: false, Balance: user.Chips, User: user}, nil
 	}
-	if user.Chips < pic.Cost {
-		return nil, db.ErrPictureChips
+	// The row's currency names the wallet, as it does in the real store.
+	if pic.Currency == db.PictureCurrencyDiamond {
+		if int64(user.Diamond) < pic.Cost {
+			return nil, db.ErrPictureDiamonds
+		}
+		user.Diamond -= int(pic.Cost)
+	} else {
+		if user.Chips < pic.Cost {
+			return nil, db.ErrPictureChips
+		}
+		user.Chips -= pic.Cost
 	}
-	user.Chips -= pic.Cost
 	if f.owned[userID] == nil {
 		f.owned[userID] = map[int64]bool{}
 	}
@@ -356,7 +368,7 @@ func TestGuestLoginCreatesAnAccountWithTheWelcomeGrant(t *testing.T) {
 		t.Errorf("%s", res.raw)
 	}
 	user := res.body["user"].(map[string]any)
-	if user["chips"] != float64(200000) || user["provider"] != "guest" || user["displayName"] != "Suraj" {
+	if user["chips"] != float64(200000) || user["diamond"] != float64(1) || user["provider"] != "guest" || user["displayName"] != "Suraj" {
 		t.Errorf("user %v", user)
 	}
 	if ct := res.header.Get("Content-Type"); ct != "application/json; charset=utf-8" {
@@ -703,10 +715,10 @@ func TestProfilesListsTheCatalogue(t *testing.T) {
 		t.Fatalf("%d", res.status)
 	}
 	want := `{"profiles":[` +
-		`{"id":1,"name":"Bear","url":"/profiles/bear.svg","assetFormat":"SVG","type":"FREE","cost":0,"durationDays":0,"sortOrder":10,"owned":true,"expiresAt":0},` +
-		`{"id":2,"name":"Cat","url":"/profiles/cat.svg","assetFormat":"SVG","type":"FREE","cost":0,"durationDays":0,"sortOrder":20,"owned":true,"expiresAt":0},` +
-		`{"id":3,"name":"Wolf","url":"/profiles/wolf.svg","assetFormat":"SVG","type":"PREMIUM","cost":50000,"durationDays":30,"sortOrder":30,"owned":false,"expiresAt":0},` +
-		`{"id":4,"name":"Lion","url":"/profiles/lion.svg","assetFormat":"SVG","type":"PREMIUM","cost":25000,"durationDays":30,"sortOrder":40,"owned":false,"expiresAt":0}]}`
+		`{"id":1,"name":"Bear","url":"/profiles/bear.svg","assetFormat":"SVG","currency":"COIN","type":"FREE","cost":0,"durationDays":0,"sortOrder":10,"owned":true,"expiresAt":0},` +
+		`{"id":2,"name":"Cat","url":"/profiles/cat.svg","assetFormat":"SVG","currency":"COIN","type":"FREE","cost":0,"durationDays":0,"sortOrder":20,"owned":true,"expiresAt":0},` +
+		`{"id":3,"name":"Wolf","url":"/profiles/wolf.svg","assetFormat":"SVG","currency":"COIN","type":"PREMIUM","cost":50000,"durationDays":30,"sortOrder":30,"owned":false,"expiresAt":0},` +
+		`{"id":4,"name":"Lion","url":"/profiles/lion.svg","assetFormat":"SVG","currency":"COIN","type":"PREMIUM","cost":25000,"durationDays":30,"sortOrder":40,"owned":false,"expiresAt":0}]}`
 	if string(res.raw) != want {
 		t.Errorf("got  %s\nwant %s", res.raw, want)
 	}
@@ -804,6 +816,80 @@ func TestWearingAPicture(t *testing.T) {
 	h.seated[id] = false
 	expectError(t, h.do(http.MethodPost, "/api/profile/avatar", "{bad", bearer(token)...), 400, CodeInvalidJSON)
 	expectError(t, h.do(http.MethodPost, "/api/profile/avatar", map[string]any{"avatar": 1}), 401, CodeMissingToken)
+}
+
+// A saved session comes back through /api/auth/me, not login, so /me has to
+// take off a rental that ran out while the app was closed — before the socket
+// that follows reads the same row to seat the player.
+func TestMeTakesOffAPictureWhoseRentalHasRunOut(t *testing.T) {
+	h := newHarness(t)
+	token, user := h.login("device-rental-0001", "Renter")
+	id := user["id"].(string)
+	h.pictures.owned[id] = map[int64]bool{3: true}
+	res := h.do(http.MethodPost, "/api/profile/avatar", map[string]any{"avatar": 3}, bearer(token)...)
+	if res.status != 200 {
+		t.Fatalf("wear: %d %s", res.status, res.raw)
+	}
+
+	// Still rented: /me leaves it on.
+	res = h.do(http.MethodGet, "/api/auth/me", nil, bearer(token)...)
+	if res.status != 200 || res.body["user"].(map[string]any)["activePictureId"] != float64(3) {
+		t.Fatalf("an unexpired rental must stay on: %d %s", res.status, res.raw)
+	}
+
+	// The term runs out while the app is closed; the next /me takes it off and
+	// answers with the face the player is left with.
+	delete(h.pictures.owned[id], 3)
+	res = h.do(http.MethodGet, "/api/auth/me", nil, bearer(token)...)
+	if res.status != 200 {
+		t.Fatalf("me: %d %s", res.status, res.raw)
+	}
+	me := res.body["user"].(map[string]any)
+	if me["activePictureId"] != nil || me["avatarUrl"] == "/profiles/wolf.svg" {
+		t.Errorf("a lapsed rental must come off on /me: %s", res.raw)
+	}
+	if h.store.users[id].ActivePictureID != nil {
+		t.Errorf("the sweep must reach the store, not just the answer")
+	}
+}
+
+// A DIAMOND row is paid from the diamond wallet: chips never move, and a
+// shortage is the same 409 code as a chip shortage carrying the diamond
+// message — clients match on the code, a player reads the message.
+func TestBuyingADiamondPicture(t *testing.T) {
+	h := newHarness(t)
+	token, user := h.login("device-diamond-0001", "Gem")
+	if user["diamond"] != float64(1) {
+		t.Fatalf("a new account starts with %v diamonds, want 1", user["diamond"])
+	}
+
+	res := h.do(http.MethodPost, "/api/profile/picture/buy", map[string]any{"pictureId": 5}, bearer(token)...)
+	if res.status != 200 || res.body["charged"] != true || res.body["spent"] != float64(1) {
+		t.Fatalf("%d %s", res.status, res.raw)
+	}
+	if u := res.body["user"].(map[string]any); u["diamond"] != float64(0) || u["chips"] != float64(200000) {
+		t.Errorf("wallets after a diamond buy: %s", res.raw)
+	}
+	if pic := res.body["picture"].(map[string]any); pic["currency"] != "DIAMOND" || pic["assetFormat"] != "LOTTIE" || pic["owned"] != true {
+		t.Errorf("picture: %s", res.raw)
+	}
+
+	res = h.do(http.MethodPost, "/api/profile/picture/buy", map[string]any{"pictureId": 5}, bearer(token)...)
+	if res.status != 200 || res.body["charged"] != false {
+		t.Errorf("replay: %d %s", res.status, res.raw)
+	}
+
+	skintToken, skint := h.login("device-diamond-0002", "NoGem")
+	skintID := skint["id"].(string)
+	h.store.users[skintID].Diamond = 0
+	res = h.do(http.MethodPost, "/api/profile/picture/buy", map[string]any{"pictureId": 5}, bearer(skintToken)...)
+	expectError(t, res, 409, CodePictureChips)
+	if res.body["message"] != MsgPictureDiamonds {
+		t.Errorf("message: %s", res.raw)
+	}
+	if h.store.users[skintID].Chips != 200000 {
+		t.Error("a refused diamond purchase moved chips")
+	}
 }
 
 func TestBuyingAPremiumPicture(t *testing.T) {

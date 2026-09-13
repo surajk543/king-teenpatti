@@ -148,8 +148,9 @@ class _LobbyScreenState extends State<LobbyScreen> {
                                 // they are actually allowed into; putting them
                                 // at the end turns the same cards into the
                                 // thing to play towards.
-                                for (final (i, table)
-                                    in _orderedTables(state).indexed)
+                                for (final (i, table) in _orderedTables(
+                                  state,
+                                ).indexed)
                                   entering(_TableCard(table: table, index: i)),
                                 entering(const _PrivateCard()),
                               ],
@@ -523,6 +524,31 @@ class _TopBar extends StatelessWidget {
                                 ),
                               ),
                             ),
+                            // The second wallet beside the first: diamonds pay
+                            // for what chips cannot, so a player should not have
+                            // to open the picture picker to learn how many they
+                            // hold. Same type, same count-up, its own ink.
+                            SizedBox(width: tight ? Space.md : Space.lg),
+                            Icon(
+                              Icons.diamond,
+                              size: 18,
+                              color: _diamondInkOn(brightness),
+                            ),
+                            const SizedBox(width: Space.xs),
+                            TweenAnimationBuilder<double>(
+                              tween: Tween(
+                                end: (user?.diamond ?? 0).toDouble(),
+                              ),
+                              duration: const Duration(milliseconds: 650),
+                              curve: Motion.standard,
+                              builder: (context, value, _) => Text(
+                                '${value.round()}',
+                                style: AppTheme.money(
+                                  text.titleMedium!,
+                                  colour: _diamondInkOn(brightness),
+                                ),
+                              ),
+                            ),
                           ],
                         ),
                       ),
@@ -840,7 +866,10 @@ class _TableCard extends StatelessWidget {
     if (ceiling > 0) {
       entryValue = t.entryUpTo.replaceFirst('{cap}', formatChips(ceiling));
     } else if (table.minChips > 0) {
-      entryValue = t.entryFrom.replaceFirst('{min}', formatChips(table.minChips));
+      entryValue = t.entryFrom.replaceFirst(
+        '{min}',
+        formatChips(table.minChips),
+      );
     } else {
       entryValue = t.entryOpen;
     }
@@ -1703,6 +1732,11 @@ Future<void> _openPicturePicker(BuildContext context) async {
   // position the moment a purchase landed.
   final scroller = ScrollController();
 
+  // Which shelf the menu has open, owned here for the same reason. It opens on
+  // All, so the whole catalogue — and the tick on the picture being worn — is
+  // in view before anybody narrows it.
+  final shelf = ValueNotifier<_PictureFilter>(_PictureFilter.all);
+
   await showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
@@ -1737,145 +1771,172 @@ Future<void> _openPicturePicker(BuildContext context) async {
               child: ConstrainedBox(
                 constraints: BoxConstraints(maxHeight: size.height * 0.88),
                 child: PremiumGlassPanel(
-                mode: GlassMode.auto,
-                priority: 20,
-                radius: Radii.lg,
-                padding: const EdgeInsets.fromLTRB(
-                  Space.xl,
-                  Space.md,
-                  Space.xl,
-                  Space.lg,
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Center(
-                      child: Container(
-                        width: 36,
-                        height: 4,
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(Radii.pill),
-                          color: AppTheme.hairlineColour(
-                            theme.brightness,
-                            live: true,
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: Space.md),
-                    Row(
-                      children: [
-                        Avatar(
-                          url: state.avatarUrl,
-                          fallback: user?.displayName ?? '',
-                          radius: headR,
-                          animate: true,
-                        ),
-                        const SizedBox(width: Space.lg),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                state.t.yourPicture,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: AppTheme.label(text.titleSmall!),
-                              ),
-                              Text(
-                                user == null || user.activePictureId == null
-                                    ? 'Using your ${user?.provider ?? 'guest'} picture.'
-                                    : state.t.pictureLocked,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: text.bodySmall?.copyWith(
-                                  color: theme.colorScheme.onSurface.withValues(
-                                    alpha: AppTheme.inkMed,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        // "Use my own photo", as an icon in the header rather
-                        // than a labelled button under the grid: the sheet is
-                        // short in landscape and every fixed row above or below
-                        // the pictures comes straight out of the scrolling
-                        // area. The words survive as the tooltip, which is also
-                        // where a guest finds out WHY it is greyed out —
-                        // without that, a disabled icon says nothing at all.
-                        Builder(
-                          builder: (context) {
-                            final hasPhoto =
-                                (user?.providerAvatarUrl ?? '').isNotEmpty;
-                            final guest = (user?.provider ?? 'guest') == 'guest';
-                            final enabled = hasPhoto && !guest;
-
-                            return Tooltip(
-                              message: enabled
-                                  ? state.t.useSocialPicture
-                                  : state.t.guestNoSocial,
-                              child: IconButton(
-                                onPressed: enabled
-                                    ? () => state.chooseAvatar(null)
-                                    : null,
-                                iconSize: 22,
-                                visualDensity: VisualDensity.compact,
-                                tooltip: null,
-                                icon: const Icon(Icons.account_circle_outlined),
-                                color: theme.colorScheme.onSurface.withValues(
-                                  alpha: AppTheme.inkMed,
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: Space.md),
-                    // The pictures, grouped by what they cost and scrolling
-                    // vertically. Flexible rather than a fixed height: the grid
-                    // takes what the sheet has left after the header and the
-                    // button, so it is the part that shrinks on a short screen.
-                    Flexible(
-                      // The bar is always visible — it is the only thing that
-                      // says there is more below the fold — but wearing the
-                      // app's champagne rather than Material's primary, which
-                      // on this glass reads as a highlighter down the edge.
-                      child: ScrollbarTheme(
-                        data: ScrollbarThemeData(
-                          thickness: const WidgetStatePropertyAll(4),
-                          radius: const Radius.circular(Radii.pill),
-                          thumbColor: WidgetStatePropertyAll(
-                            AppTheme.hairlineColour(theme.brightness, live: true),
-                          ),
-                        ),
-                        child: Scrollbar(
-                          controller: scroller,
-                          thumbVisibility: true,
-                          child: SingleChildScrollView(
-                            controller: scroller,
-                            padding: const EdgeInsets.only(right: Space.md),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                for (final tier in [true, false])
-                                  ..._pictureTier(
-                                    context: context,
-                                    state: state,
-                                    free: tier,
-                                    radius: tileR,
-                                  ),
-                              ],
+                  mode: GlassMode.auto,
+                  priority: 20,
+                  radius: Radii.lg,
+                  padding: const EdgeInsets.fromLTRB(
+                    Space.xl,
+                    Space.md,
+                    Space.xl,
+                    Space.lg,
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Center(
+                        child: Container(
+                          width: 36,
+                          height: 4,
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(Radii.pill),
+                            color: AppTheme.hairlineColour(
+                              theme.brightness,
+                              live: true,
                             ),
                           ),
                         ),
                       ),
-                    ),
-                  ],
+                      const SizedBox(height: Space.md),
+                      Row(
+                        children: [
+                          Avatar(
+                            url: state.avatarUrl,
+                            fallback: user?.displayName ?? '',
+                            radius: headR,
+                            animate: true,
+                          ),
+                          const SizedBox(width: Space.lg),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  state.t.yourPicture,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: AppTheme.label(text.titleSmall!),
+                                ),
+                                Text(
+                                  user == null || user.activePictureId == null
+                                      ? 'Using your ${user?.provider ?? 'guest'} picture.'
+                                      : state.t.pictureLocked,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: text.bodySmall?.copyWith(
+                                    color: theme.colorScheme.onSurface
+                                        .withValues(alpha: AppTheme.inkMed),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          // What diamond-priced pictures are paid from, shown in
+                          // the one place diamonds are spent. Styled like the
+                          // price tags below, so the balance and the prices read
+                          // as one currency at a glance.
+                          _DiamondBalance(count: user?.diamond ?? 0),
+                          const SizedBox(width: Space.md),
+                          // "Use my own photo", as an icon in the header rather
+                          // than a labelled button under the grid: the sheet is
+                          // short in landscape and every fixed row above or below
+                          // the pictures comes straight out of the scrolling
+                          // area. The words survive as the tooltip, which is also
+                          // where a guest finds out WHY it is greyed out —
+                          // without that, a disabled icon says nothing at all.
+                          Builder(
+                            builder: (context) {
+                              final hasPhoto =
+                                  (user?.providerAvatarUrl ?? '').isNotEmpty;
+                              final guest =
+                                  (user?.provider ?? 'guest') == 'guest';
+                              final enabled = hasPhoto && !guest;
+
+                              return Tooltip(
+                                message: enabled
+                                    ? state.t.useSocialPicture
+                                    : state.t.guestNoSocial,
+                                child: IconButton(
+                                  onPressed: enabled
+                                      ? () => state.chooseAvatar(null)
+                                      : null,
+                                  iconSize: 22,
+                                  visualDensity: VisualDensity.compact,
+                                  tooltip: null,
+                                  icon: const Icon(
+                                    Icons.account_circle_outlined,
+                                  ),
+                                  color: theme.colorScheme.onSurface.withValues(
+                                    alpha: AppTheme.inkMed,
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: Space.md),
+                      // Which shelf: free, premium stills, or premium pictures
+                      // that move. Pinned above the grid rather than scrolling
+                      // with it, and it stands in for the headings the tiers
+                      // used to carry — one shelf is on show at a time.
+                      ValueListenableBuilder<_PictureFilter>(
+                        valueListenable: shelf,
+                        builder: (context, current, _) => _PictureFilterMenu(
+                          value: current,
+                          counts: {
+                            for (final f in _PictureFilter.values)
+                              f: state.pictures.where(f.holds).length,
+                          },
+                          onChanged: (f) {
+                            shelf.value = f;
+                            if (scroller.hasClients) scroller.jumpTo(0);
+                          },
+                        ),
+                      ),
+                      const SizedBox(height: Space.sm),
+                      // The shelf's pictures, scrolling vertically. Flexible
+                      // rather than a fixed height: the grid takes what the sheet
+                      // has left after the header and the menu, so it is the part
+                      // that shrinks on a short screen.
+                      Flexible(
+                        // The bar is always visible — it is the only thing that
+                        // says there is more below the fold — but wearing the
+                        // app's champagne rather than Material's primary, which
+                        // on this glass reads as a highlighter down the edge.
+                        child: ScrollbarTheme(
+                          data: ScrollbarThemeData(
+                            thickness: const WidgetStatePropertyAll(4),
+                            radius: const Radius.circular(Radii.pill),
+                            thumbColor: WidgetStatePropertyAll(
+                              AppTheme.hairlineColour(
+                                theme.brightness,
+                                live: true,
+                              ),
+                            ),
+                          ),
+                          child: Scrollbar(
+                            controller: scroller,
+                            thumbVisibility: true,
+                            child: SingleChildScrollView(
+                              controller: scroller,
+                              padding: const EdgeInsets.only(right: Space.md),
+                              child: ValueListenableBuilder<_PictureFilter>(
+                                valueListenable: shelf,
+                                builder: (context, current, _) => _pictureShelf(
+                                  context: context,
+                                  state: state,
+                                  filter: current,
+                                  radius: tileR,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
               ),
             ),
           );
@@ -1885,6 +1946,7 @@ Future<void> _openPicturePicker(BuildContext context) async {
   );
 
   scroller.dispose();
+  shelf.dispose();
 }
 
 /// The name of the picture the player is wearing, or null when they are on
@@ -1898,56 +1960,58 @@ String? _wornPictureName(GameState state) {
   return null;
 }
 
-/// One tier of the catalogue: a heading, then its pictures.
+/// The shelves of the picture picker: everything, then the three ways in.
 ///
-/// Returns the pieces rather than a widget so the two tiers sit in the same
-/// scrolling column and share its padding. A tier with nothing in it is left
-/// out entirely — an empty "Premium" heading would read as a bug, not as a
-/// catalogue the owner has priced at zero.
-List<Widget> _pictureTier({
+/// Premium is split by how a picture plays rather than by what it costs: a
+/// picture that moves — a Lottie or a Rive file — is its own thing to shop
+/// for. A free picture stays on the free shelf whatever its format.
+enum _PictureFilter {
+  all,
+  free,
+  premium,
+  animated;
+
+  bool holds(ProfilePicture p) => switch (this) {
+    _PictureFilter.all => true,
+    _PictureFilter.free => p.free,
+    _PictureFilter.premium => !p.free && !p.animated,
+    _PictureFilter.animated => !p.free && p.animated,
+  };
+}
+
+/// The pictures on one shelf.
+///
+/// An empty shelf says so rather than showing nothing: a blank space under
+/// the menu would read as a picker that failed to load.
+Widget _pictureShelf({
   required BuildContext context,
   required GameState state,
-  required bool free,
+  required _PictureFilter filter,
   required double radius,
 }) {
-  final pictures = state.pictures.where((p) => p.free == free).toList();
-  if (pictures.isEmpty) return const [];
-
-  final theme = Theme.of(context);
-  final t = state.t;
+  final pictures = state.pictures.where(filter.holds).toList();
   final user = state.user;
 
-  return [
-    Padding(
-      padding: const EdgeInsets.only(bottom: Space.sm, top: Space.xs),
-      child: Row(
-        children: [
-          Icon(
-            free ? Icons.lock_open : Icons.lock,
-            size: 13,
-            color: free
-                ? theme.colorScheme.onSurface.withValues(alpha: AppTheme.inkMed)
-                : AppTheme.goldBright,
-          ),
-          const SizedBox(width: Space.xs),
-          Text(
-            free ? t.pictureFree : t.picturePremium,
-            style: AppTheme.label(
-              theme.textTheme.labelMedium ?? const TextStyle(),
-              colour: free ? null : AppTheme.goldBright,
+  if (pictures.isEmpty) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: Space.xl),
+      child: Center(
+        child: Text(
+          state.t.pictureShelfEmpty,
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.onSurface.withValues(
+              alpha: AppTheme.inkMed,
             ),
           ),
-          const SizedBox(width: Space.sm),
-          Expanded(
-            child: Divider(
-              height: 1,
-              color: AppTheme.hairlineColour(theme.brightness),
-            ),
-          ),
-        ],
+        ),
       ),
-    ),
-    Wrap(
+    );
+  }
+
+  return Padding(
+    padding: const EdgeInsets.only(bottom: Space.md),
+    child: Wrap(
       spacing: Space.md,
       runSpacing: Space.sm,
       children: [
@@ -1963,8 +2027,97 @@ List<Widget> _pictureTier({
           ),
       ],
     ),
-    const SizedBox(height: Space.md),
-  ];
+  );
+}
+
+/// The shelf menu at the top of the picture picker.
+///
+/// A pill in the same dark ink as the price tags and the diamond balance, so
+/// the sheet's controls read as one set — which is also why its type is a
+/// fixed light ink rather than the theme's, which would vanish on it in the
+/// light theme. Each entry carries its shelf's count: that is what tells a
+/// player the animated shelf is worth opening.
+class _PictureFilterMenu extends StatelessWidget {
+  const _PictureFilterMenu({
+    required this.value,
+    required this.counts,
+    required this.onChanged,
+  });
+
+  final _PictureFilter value;
+  final Map<_PictureFilter, int> counts;
+  final ValueChanged<_PictureFilter> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final t = context.read<GameState>().t;
+    const ink = Color(0xE6FFFFFF);
+    const quiet = Color(0x99FFFFFF);
+
+    Widget entry(_PictureFilter f) {
+      final (IconData icon, Color colour, String label) = switch (f) {
+        _PictureFilter.all => (Icons.grid_view_rounded, ink, t.pictureAll),
+        _PictureFilter.free => (Icons.lock_open, ink, t.pictureFree),
+        _PictureFilter.premium => (
+          Icons.lock,
+          AppTheme.goldBright,
+          t.picturePremium,
+        ),
+        _PictureFilter.animated => (
+          Icons.auto_awesome,
+          AppTheme.goldBright,
+          t.picturePremiumAnimated,
+        ),
+      };
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: colour),
+          const SizedBox(width: Space.sm),
+          Text(
+            label,
+            style: AppTheme.label(
+              theme.textTheme.labelMedium ?? const TextStyle(),
+              colour: colour,
+            ),
+          ),
+          const SizedBox(width: Space.sm),
+          Text(
+            '${counts[f] ?? 0}',
+            style: theme.textTheme.labelSmall?.copyWith(color: quiet),
+          ),
+        ],
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.only(left: Space.md, right: Space.xs),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(Radii.pill),
+        color: AppTheme.ink900.withValues(alpha: 0.82),
+        border: Border.all(color: AppTheme.goldBright.withValues(alpha: 0.45)),
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<_PictureFilter>(
+          value: value,
+          isDense: true,
+          padding: const EdgeInsets.symmetric(vertical: Space.sm),
+          borderRadius: BorderRadius.circular(Radii.md),
+          dropdownColor: AppTheme.ink900,
+          iconEnabledColor: quiet,
+          icon: const Icon(Icons.expand_more, size: 18),
+          items: [
+            for (final f in _PictureFilter.values)
+              DropdownMenuItem(value: f, child: entry(f)),
+          ],
+          onChanged: (f) {
+            if (f != null) onChanged(f);
+          },
+        ),
+      ),
+    );
+  }
 }
 
 /// Asks before spending chips on a premium picture, then buys and wears it.
@@ -1972,7 +2125,10 @@ List<Widget> _pictureTier({
 /// A confirmation rather than a straight tap-to-buy: this is the only place in
 /// the lobby where a tap costs real chips, and a picker is somewhere people
 /// browse. Tapping a face should never be how a stack quietly goes down.
-Future<void> _unlockPicture(BuildContext context, ProfilePicture picture) async {
+Future<void> _unlockPicture(
+  BuildContext context,
+  ProfilePicture picture,
+) async {
   final state = context.read<GameState>();
   final t = state.t;
   final theme = Theme.of(context);
@@ -1995,19 +2151,58 @@ Future<void> _unlockPicture(BuildContext context, ProfilePicture picture) async 
           ),
         ],
       ),
-      content: Text(
-        // A rental and a purchase are different offers, and the dialog is the
-        // last place to say which this is before chips leave the wallet.
-        picture.rented
-            ? t.unlockRentBody(
-                picture.name,
-                formatChips(picture.cost),
-                picture.durationDays,
-              )
-            : t.unlockBody(picture.name, formatChips(picture.cost)),
-        style: theme.textTheme.bodyMedium?.copyWith(
-          color: theme.colorScheme.onSurface.withValues(alpha: AppTheme.inkMed),
-        ),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // The picture itself, large and at full colour, under the question.
+          // On the shelf a locked face is a dimmed thumbnail; this is the one
+          // place it is shown as what the chips actually buy — and an animated
+          // one plays here. Sized off the screen's height, the scarce axis in
+          // landscape; the dialog's body scrolls if it ever runs out.
+          Avatar(
+            url: state.absoluteUrl(picture.url),
+            format: picture.assetFormat,
+            fallback: picture.name,
+            radius: (MediaQuery.sizeOf(dialogContext).height * 0.15).clamp(
+              40.0,
+              80.0,
+            ),
+            ring: AppTheme.goldBright,
+            ringWidth: 2.5,
+            ringGap: 3,
+            animate: true,
+          ),
+          const SizedBox(height: Space.lg),
+          Text(
+            // A rental and a purchase are different offers, and the dialog is
+            // the last place to say which this is before chips leave the
+            // wallet. The currency names the wallet the cost leaves, so a
+            // diamond row must not be caught saying "chips".
+            picture.rented
+                ? (picture.currency == 'DIAMOND'
+                      ? t.unlockRentBodyDiamond(
+                          picture.name,
+                          formatChips(picture.cost),
+                          picture.durationDays,
+                        )
+                      : t.unlockRentBody(
+                          picture.name,
+                          formatChips(picture.cost),
+                          picture.durationDays,
+                        ))
+                : (picture.currency == 'DIAMOND'
+                      ? t.unlockBodyDiamond(
+                          picture.name,
+                          formatChips(picture.cost),
+                        )
+                      : t.unlockBody(picture.name, formatChips(picture.cost))),
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.onSurface.withValues(
+                alpha: AppTheme.inkMed,
+              ),
+            ),
+          ),
+        ],
       ),
       actions: [
         GlassButton(
@@ -2135,6 +2330,7 @@ class _PictureChoice extends StatelessWidget {
               if (!busy && locked)
                 _PriceTag(
                   cost: picture.cost,
+                  currency: picture.currency,
                   days: picture.rented ? picture.durationDays : null,
                 ),
               // A premium picture that HAS been paid for. Without this an
@@ -2148,9 +2344,13 @@ class _PictureChoice extends StatelessWidget {
                 const SizedBox(height: Space.xxs),
               // The catalogue gives every picture a name; showing it is what
               // turns a row of circles into a list somebody can talk about.
+              // Two lines, not one: the tile is only as wide as the portrait,
+              // and on a 640dp phone one line cut "Orange Ballerina" down to
+              // "Orange Baller…". The Wrap top-aligns its tiles, so a longer
+              // name only hangs lower — the faces stay in their row.
               Text(
                 picture.name,
-                maxLines: 1,
+                maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 textAlign: TextAlign.center,
                 style: theme.textTheme.labelSmall?.copyWith(
@@ -2225,10 +2425,63 @@ class _UnlockedTag extends StatelessWidget {
 }
 
 /// The padlock and price sitting on a premium picture nobody has bought yet.
+/// The ink every diamond figure is drawn in — the price tag's gem and the
+/// balance in the picker header — on the dark pill both sit on, so it holds its
+/// contrast in the light theme as well as the dark.
+const _diamondInk = Color(0xFFBFE3FF);
+
+/// The diamond ink for a surface that follows the theme — the top bar's glass —
+/// rather than the dark pill [_diamondInk] was chosen for: that pale blue is
+/// lost on frosted white, so the light theme gets a deeper one.
+Color _diamondInkOn(Brightness brightness) =>
+    brightness == Brightness.dark ? _diamondInk : const Color(0xFF2F6FB3);
+
+/// The player's diamonds, in the picture picker's header.
+class _DiamondBalance extends StatelessWidget {
+  const _DiamondBalance({required this.count});
+
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: Space.md,
+        vertical: Space.xs,
+      ),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(Radii.pill),
+        color: AppTheme.ink900.withValues(alpha: 0.82),
+        border: Border.all(color: _diamondInk.withValues(alpha: 0.55)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.diamond, size: 14, color: _diamondInk),
+          const SizedBox(width: Space.xs),
+          Text(
+            '$count',
+            style: theme.textTheme.labelMedium?.copyWith(
+              color: _diamondInk,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _PriceTag extends StatelessWidget {
-  const _PriceTag({required this.cost, this.days});
+  const _PriceTag({required this.cost, this.currency = 'COIN', this.days});
 
   final int cost;
+
+  /// Which wallet the cost leaves — 'COIN' or 'DIAMOND'. It decides the
+  /// pill's glyph: the padlock-plus-price reads as chips, the gem as a
+  /// diamond price.
+  final String currency;
 
   /// The rental term, or null when buying it keeps it for good. Shown under
   /// the price rather than beside it: the price is the decision, the term is
@@ -2255,7 +2508,9 @@ class _PriceTag extends StatelessWidget {
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.lock, size: 9, color: AppTheme.goldBright),
+              currency == 'DIAMOND'
+                  ? const Icon(Icons.diamond, size: 11, color: _diamondInk)
+                  : Icon(Icons.lock, size: 9, color: AppTheme.goldBright),
               const SizedBox(width: 2),
               Text(
                 formatChips(cost),

@@ -73,17 +73,21 @@ type User struct {
 	// ActivePictureID is users.active_picture_id: the profile_pictures row
 	// being worn, or null for none. Replaced avatarChoice, which carried the
 	// bare "/profiles/bear.svg" path before the catalogue existed.
-	ActivePictureID *int64  `json:"activePictureId"`
-	Chips           int64   `json:"chips"`
-	HandsPlayed     int     `json:"handsPlayed"`
-	HandsWon        int     `json:"handsWon"`
-	HandsLost       int     `json:"handsLost"`
-	HandsLeftMid    int     `json:"handsLeftMid"`
-	TotalWinnings   int64   `json:"totalWinnings"`
-	BiggestPot      int64   `json:"biggestPot"`
-	Rewards         Rewards `json:"rewards"`
-	CreatedAt       int64   `json:"createdAt"`   // epoch ms
-	LastLoginAt     int64   `json:"lastLoginAt"` // epoch ms
+	ActivePictureID *int64 `json:"activePictureId"`
+	Chips           int64  `json:"chips"`
+	// Diamond is the premium soft currency (users.diamond). Every account
+	// starts with 1. It is not chip_ledger's business: the ledger backs
+	// the chips invariant, and diamonds are not chips.
+	Diamond       int     `json:"diamond"`
+	HandsPlayed   int     `json:"handsPlayed"`
+	HandsWon      int     `json:"handsWon"`
+	HandsLost     int     `json:"handsLost"`
+	HandsLeftMid  int     `json:"handsLeftMid"`
+	TotalWinnings int64   `json:"totalWinnings"`
+	BiggestPot    int64   `json:"biggestPot"`
+	Rewards       Rewards `json:"rewards"`
+	CreatedAt     int64   `json:"createdAt"`   // epoch ms
+	LastLoginAt   int64   `json:"lastLoginAt"` // epoch ms
 }
 
 // Player converts to the seat-level view the RoomManager needs.
@@ -224,7 +228,7 @@ type queryer interface {
 // userRow without depending on `SELECT *` column ordering, followed by the
 // asset_url of the catalogue picture the player is wearing. Qualified with the
 // `u` alias because every read now goes through userFrom's join.
-const userColumns = `u.id, u.provider, u.provider_user_id, u.display_name, u.email, u.avatar_url, u.chips,
+const userColumns = `u.id, u.provider, u.provider_user_id, u.display_name, u.email, u.avatar_url, u.chips, u.diamond,
        u.hands_played, u.hands_won, u.hands_lost, u.hands_left_mid, u.total_winnings, u.biggest_pot,
        u.milestone_claimed, u.next_bonus_at, u.active_picture_id, u.created_at, u.updated_at, u.last_login_at,
        ap.asset_url`
@@ -247,6 +251,7 @@ type userRow struct {
 	activePictureID                   *int64
 	pictureAssetURL                   *string
 	chips                             int64
+	diamond                           int
 	handsPlayed, handsWon             int
 	handsLost, handsLeftMid           int
 	totalWinnings, biggestPot         int64
@@ -258,7 +263,7 @@ type userRow struct {
 // scanUser scans one row selected with userColumns; pgx.ErrNoRows → nil, nil.
 func scanUser(row pgx.Row) (*userRow, error) {
 	var r userRow
-	err := row.Scan(&r.id, &r.provider, &r.providerUserID, &r.displayName, &r.email, &r.avatarURL, &r.chips,
+	err := row.Scan(&r.id, &r.provider, &r.providerUserID, &r.displayName, &r.email, &r.avatarURL, &r.chips, &r.diamond,
 		&r.handsPlayed, &r.handsWon, &r.handsLost, &r.handsLeftMid, &r.totalWinnings, &r.biggestPot,
 		&r.milestoneClaimed, &r.nextBonusAt, &r.activePictureID, &r.createdAt, &r.updatedAt, &r.lastLoginAt,
 		&r.pictureAssetURL)
@@ -307,6 +312,7 @@ func (u *Users) publicUser(r *userRow) *User {
 		ProviderAvatarURL: r.avatarURL,
 		ActivePictureID:   r.activePictureID,
 		Chips:             r.chips,
+		Diamond:           r.diamond,
 		HandsPlayed:       r.handsPlayed,
 		HandsWon:          r.handsWon,
 		HandsLost:         r.handsLost,

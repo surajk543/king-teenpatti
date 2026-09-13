@@ -11,9 +11,10 @@ import '../theme/app_theme.dart';
 ///
 /// The catalogue set is SVG, a Google or Facebook picture is a bitmap, and a
 /// catalogue row may point at a Lottie animation, so three loaders are handled
-/// here. They are routed on the extension and must stay that way: an SVG
-/// through Image.network renders nothing, and a dotLottie is a zip that neither
-/// of the other two can read.
+/// here. The catalogue's declared format picks the loader when the caller has
+/// it; otherwise the downloaded bytes are read for their magic numbers
+/// ([pictureKindOf]). The routing matters: an SVG through Image renders
+/// nothing, and a dotLottie is a zip that neither of the other two can read.
 ///
 /// An animation only PLAYS where [animate] is set — the picker. Everywhere else
 /// it is drawn stopped on its first frame, which is still the player's picture
@@ -58,7 +59,7 @@ class Avatar extends StatelessWidget {
 
   /// The catalogue's declared render format — 'IMAGE', 'SVG', 'LOTTIE' or
   /// 'RIVE' — when it is known. The picker has it; a worn seat URL does not.
-  /// Given, it wins over extension sniffing; null keeps the old guess.
+  /// Given, it decides the loader; null lets the downloaded bytes decide.
   final String? format;
 
   /// Shown when there is no picture: normally the display name.
@@ -115,33 +116,17 @@ class Avatar extends StatelessWidget {
     );
 
     final link = url;
-    final extension = (link ?? '').toLowerCase();
-    // A dotLottie (.lottie) is a zip of manifest + animation + images; a raw
-    // Lottie is .json. LottieComposition.decodeZip is the default decoder and
-    // sniffs the PK magic bytes, so one call reads either.
-    final animated =
-        extension.endsWith('.lottie') || extension.endsWith('.json');
-    // The catalogue's declared format wins over extension sniffing when it
-    // is provided — hosted URLs usually have no extension to sniff.
-    final isSvg = extension.endsWith('.svg');
-    final useLottie = format == 'LOTTIE' || (format == null && animated);
-    final useSvg = format == 'SVG' || (format == null && isSvg);
-    // No Rive runtime ships in the app yet (no rive package), so a RIVE row
-    // cannot be played. Drawing the bundled default is honest; decoding a
-    // .riv as a bitmap is not. When the package lands, route RIVE to it here.
-    final unsupported = format == 'RIVE';
 
     // Bytes first, network second: PictureCache keeps a picture on the phone
     // once it has been fetched, so the second launch — and every rebuild of
-    // the five seat pods — paints from memory rather than the wire.
-    final Widget? picture =
-        link == null || link.isEmpty || unsupported
+    // the five seat pods — paints from memory rather than the wire. Which
+    // loader draws it is decided once the bytes are in hand, not from the URL.
+    final Widget? picture = link == null || link.isEmpty
         ? null
         : _CachedPicture(
             url: link,
+            format: format,
             size: radius * 2,
-            animated: useLottie,
-            isSvg: useSvg,
             animate: animate,
             placeholder: Center(child: initial),
             fallback: fallbackImage,
@@ -224,21 +209,19 @@ class Avatar extends StatelessWidget {
 class _CachedPicture extends StatefulWidget {
   const _CachedPicture({
     required this.url,
+    required this.format,
     required this.size,
-    required this.animated,
-    required this.isSvg,
     required this.animate,
     required this.placeholder,
     required this.fallback,
   });
 
   final String url;
-  final double size;
 
-  /// Routed on the extension, as before: an SVG through Image renders nothing,
-  /// and a dotLottie is a zip neither of the others can read.
-  final bool animated;
-  final bool isSvg;
+  /// The catalogue's declared format, or null when the caller has only a URL
+  /// (a seat pod, the top bar) — then the bytes decide ([pictureKindOf]).
+  final String? format;
+  final double size;
 
   /// Whether an animation plays, as opposed to resting on its first frame.
   final bool animate;
@@ -246,7 +229,7 @@ class _CachedPicture extends StatefulWidget {
   /// Held while the bytes are on their way — only ever on a first fetch.
   final Widget placeholder;
 
-  /// Shown when they cannot be had, or will not decode.
+  /// Shown when they cannot be had, will not decode, or cannot be played.
   final Widget fallback;
 
   @override
@@ -266,7 +249,7 @@ class _CachedPictureState extends State<_CachedPicture> {
   @override
   void didUpdateWidget(covariant _CachedPicture old) {
     super.didUpdateWidget(old);
-    if (old.url != widget.url) {
+    if (old.url != widget.url || old.format != widget.format) {
       _bytes = null;
       _failed = false;
       _resolve();
@@ -274,6 +257,11 @@ class _CachedPictureState extends State<_CachedPicture> {
   }
 
   void _resolve() {
+    // A declared RIVE row cannot be played, so there is nothing to fetch.
+    if (widget.format == 'RIVE') {
+      _failed = true;
+      return;
+    }
     final ready = PictureCache.peek(widget.url);
     if (ready != null) {
       _bytes = ready;
@@ -297,37 +285,40 @@ class _CachedPictureState extends State<_CachedPicture> {
     final bytes = _bytes;
     if (bytes == null) return widget.placeholder;
 
-    if (widget.animated) {
-      return Lottie.memory(
-        bytes,
-        width: widget.size,
-        height: widget.size,
-        fit: BoxFit.cover,
-        animate: widget.animate,
-        repeat: widget.animate,
-        frameBuilder: (_, child, composition) =>
-            composition == null ? widget.placeholder : child,
-        errorBuilder: (_, _, _) => widget.fallback,
-      );
+    switch (pictureKindOf(widget.format, bytes)) {
+      case PictureKind.lottie:
+        return Lottie.memory(
+          bytes,
+          width: widget.size,
+          height: widget.size,
+          fit: BoxFit.cover,
+          animate: widget.animate,
+          repeat: widget.animate,
+          frameBuilder: (_, child, composition) =>
+              composition == null ? widget.placeholder : child,
+          errorBuilder: (_, _, _) => widget.fallback,
+        );
+      case PictureKind.svg:
+        return SvgPicture.memory(
+          bytes,
+          width: widget.size,
+          height: widget.size,
+          fit: BoxFit.cover,
+          placeholderBuilder: (_) => widget.placeholder,
+          errorBuilder: (_, _, _) => widget.fallback,
+        );
+      case PictureKind.unsupported:
+        return widget.fallback;
+      case PictureKind.bitmap:
+        return Image.memory(
+          bytes,
+          width: widget.size,
+          height: widget.size,
+          fit: BoxFit.cover,
+          // Bytes that will not decode are the same problem as bytes that
+          // never arrived, and get the same answer.
+          errorBuilder: (_, _, _) => widget.fallback,
+        );
     }
-    if (widget.isSvg) {
-      return SvgPicture.memory(
-        bytes,
-        width: widget.size,
-        height: widget.size,
-        fit: BoxFit.cover,
-        placeholderBuilder: (_) => widget.placeholder,
-        errorBuilder: (_, _, _) => widget.fallback,
-      );
-    }
-    return Image.memory(
-      bytes,
-      width: widget.size,
-      height: widget.size,
-      fit: BoxFit.cover,
-      // Bytes that will not decode are the same problem as bytes that never
-      // arrived, and get the same answer.
-      errorBuilder: (_, _, _) => widget.fallback,
-    );
   }
 }

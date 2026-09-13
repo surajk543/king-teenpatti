@@ -87,7 +87,26 @@ class KingTeenPattiApp extends StatelessWidget {
         // One blur, app-wide. Whichever panel asks with the highest priority
         // gets it and every other GlassMode.auto surface renders tinted, so
         // opening a dialog over a drawer never stacks two filters.
-        child: GlassBudget(child: child ?? const SizedBox.shrink()),
+        child: GlassBudget(
+          // The surface every toast is painted on. A snack bar appears on the
+          // outermost Scaffold its messenger knows about, and the screens' own
+          // Scaffolds live inside the Navigator — under every route pushed
+          // over them — so a toast raised while the picture sheet was open was
+          // drawn beneath the sheet and never seen: a refused purchase looked
+          // like a tap that did nothing. This one wraps the Navigator, so it
+          // is the outermost, and a toast lands on top of whatever is showing.
+          //
+          // Transparent, and never resized for the keyboard: it is a surface
+          // for toasts, not a layout, and resizing it would squeeze every
+          // screen under it — the table included, which opts out of exactly
+          // that. NoticeToast.snackBar lifts the toast clear of the keyboard
+          // itself.
+          child: Scaffold(
+            backgroundColor: Colors.transparent,
+            resizeToAvoidBottomInset: false,
+            body: child ?? const SizedBox.shrink(),
+          ),
+        ),
       ),
       home: const _Root(),
     );

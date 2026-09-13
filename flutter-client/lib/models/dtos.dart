@@ -75,13 +75,13 @@ class Rewards {
   }
 
   factory Rewards.fromJson(Map<String, dynamic> j) => Rewards(
-        milestoneAvailable: j['milestoneAvailable'] == true,
-        milestoneReward: _int(j['milestoneReward']),
-        handsToNextMilestone: _int(j['handsToNextMilestone']),
-        bonusReward: _int(j['bonusReward']),
-        bonusReadyAt: _int(j['bonusReadyAt']),
-        bonusAvailable: j['bonusAvailable'] == true,
-      );
+    milestoneAvailable: j['milestoneAvailable'] == true,
+    milestoneReward: _int(j['milestoneReward']),
+    handsToNextMilestone: _int(j['handsToNextMilestone']),
+    bonusReward: _int(j['bonusReward']),
+    bonusReadyAt: _int(j['bonusReadyAt']),
+    bonusAvailable: j['bonusAvailable'] == true,
+  );
 }
 
 class User {
@@ -90,6 +90,7 @@ class User {
     required this.provider,
     required this.displayName,
     required this.chips,
+    required this.diamond,
     required this.avatarUrl,
     required this.providerAvatarUrl,
     required this.activePictureId,
@@ -106,6 +107,11 @@ class User {
   final String provider;
   final String displayName;
   final int chips;
+
+  /// Premium soft currency. Every account starts with 1; spends on
+  /// DIAMOND-priced catalogue rows.
+  final int diamond;
+
   /// Already resolved by the server: the catalogue picture being worn if
   /// there is one, else the provider photo, else null.
   final String? avatarUrl;
@@ -127,23 +133,24 @@ class User {
   final Rewards? rewards;
 
   factory User.fromJson(Map<String, dynamic> j) => User(
-        id: _str(j['id']),
-        provider: _str(j['provider']),
-        displayName: _str(j['displayName']),
-        chips: _int(j['chips']),
-        avatarUrl: j['avatarUrl'] as String?,
-        providerAvatarUrl: j['providerAvatarUrl'] as String?,
-        activePictureId: _intOrNull(j['activePictureId']),
-        handsPlayed: _int(j['handsPlayed']),
-        handsWon: _int(j['handsWon']),
-        handsLost: _int(j['handsLost']),
-        handsLeftMid: _int(j['handsLeftMid']),
-        totalWinnings: _int(j['totalWinnings']),
-        biggestPot: _int(j['biggestPot']),
-        rewards: j['rewards'] is Map
-            ? Rewards.fromJson(Map<String, dynamic>.from(j['rewards'] as Map))
-            : null,
-      );
+    id: _str(j['id']),
+    provider: _str(j['provider']),
+    displayName: _str(j['displayName']),
+    chips: _int(j['chips']),
+    diamond: _int(j['diamond']),
+    avatarUrl: j['avatarUrl'] as String?,
+    providerAvatarUrl: j['providerAvatarUrl'] as String?,
+    activePictureId: _intOrNull(j['activePictureId']),
+    handsPlayed: _int(j['handsPlayed']),
+    handsWon: _int(j['handsWon']),
+    handsLost: _int(j['handsLost']),
+    handsLeftMid: _int(j['handsLeftMid']),
+    totalWinnings: _int(j['totalWinnings']),
+    biggestPot: _int(j['biggestPot']),
+    rewards: j['rewards'] is Map
+        ? Rewards.fromJson(Map<String, dynamic>.from(j['rewards'] as Map))
+        : null,
+  );
 }
 
 /// One room on the lobby's menu.
@@ -185,7 +192,8 @@ class LobbyTable {
   /// of themselves, matching the server: exactly the ceiling still fits, and
   /// exactly the floor is enough.
   bool admits(int chips) =>
-      (minChips <= 0 || chips >= minChips) && (maxChips <= 0 || chips <= maxChips);
+      (minChips <= 0 || chips >= minChips) &&
+      (maxChips <= 0 || chips <= maxChips);
 
   /// Why they cannot, for a card that has to explain itself.
   bool tooRich(int chips) => maxChips > 0 && chips > maxChips;
@@ -195,13 +203,13 @@ class LobbyTable {
   bool get hasBand => minChips > 0 || maxChips > 0;
 
   factory LobbyTable.fromJson(Map<String, dynamic> j) => LobbyTable(
-        category: _str(j['category']),
-        bootAmount: _int(j['bootAmount']),
-        maxPot: _int(j['maxPot']),
-        maxBlindMoves: j['maxBlindMoves'] == null ? 4 : _int(j['maxBlindMoves']),
-        minChips: _int(j['minChips']),
-        maxChips: _int(j['maxChips']),
-      );
+    category: _str(j['category']),
+    bootAmount: _int(j['bootAmount']),
+    maxPot: _int(j['maxPot']),
+    maxBlindMoves: j['maxBlindMoves'] == null ? 4 : _int(j['maxBlindMoves']),
+    minChips: _int(j['minChips']),
+    maxChips: _int(j['maxChips']),
+  );
 }
 
 /// The table the server remembers a player falling off. It comes with
@@ -221,11 +229,11 @@ class ResumeHint {
   final int bootAmount;
 
   factory ResumeHint.fromJson(Map<String, dynamic> j) => ResumeHint(
-        roomId: '${j['roomId'] ?? ''}',
-        code: '${j['code'] ?? ''}',
-        category: '${j['category'] ?? 'seen'}',
-        bootAmount: (j['bootAmount'] as num?)?.toInt() ?? 0,
-      );
+    roomId: '${j['roomId'] ?? ''}',
+    code: '${j['code'] ?? ''}',
+    category: '${j['category'] ?? 'seen'}',
+    bootAmount: (j['bootAmount'] as num?)?.toInt() ?? 0,
+  );
 }
 
 class GameConfig {
@@ -295,44 +303,52 @@ class GameConfig {
     sideshowTimeoutMs: 6000,
     tables: [
       LobbyTable(
-          category: TableCategory.seen,
-          bootAmount: 200,
-          maxPot: 1200000,
-          maxBlindMoves: 4),
+        category: TableCategory.seen,
+        bootAmount: 200,
+        maxPot: 1200000,
+        maxBlindMoves: 4,
+      ),
       LobbyTable(
-          category: TableCategory.blind,
-          bootAmount: 200,
-          maxPot: 0,
-          maxBlindMoves: 4),
+        category: TableCategory.blind,
+        bootAmount: 200,
+        maxPot: 0,
+        maxBlindMoves: 4,
+      ),
       LobbyTable(
-          category: TableCategory.blind,
-          bootAmount: 5000,
-          maxPot: 0,
-          maxBlindMoves: 4),
+        category: TableCategory.blind,
+        bootAmount: 5000,
+        maxPot: 0,
+        maxBlindMoves: 4,
+      ),
     ],
   );
 
   factory GameConfig.fromJson(Map<String, dynamic> j) => GameConfig(
-        maxPlayers: _int(j['maxPlayers']),
-        minPlayers: _int(j['minPlayers']),
-        bootAmount: _int(j['bootAmount']),
-        turnTimeoutMs: _int(j['turnTimeoutMs']),
-        sideshowTimeoutMs:
-            j['sideshowTimeoutMs'] == null ? 6000 : _int(j['sideshowTimeoutMs']),
-        minClientBuild: _int(j['minClientBuild']),
-        categories: (j['categories'] as List?)?.map((e) => '$e').toList() ??
-            const [TableCategory.seen, TableCategory.blind],
-        stakes: (j['stakes'] as List?)?.map(_int).toList() ?? const [200, 5000],
-        tables: (j['tables'] as List?)
-                ?.map((e) => LobbyTable.fromJson(Map<String, dynamic>.from(e as Map)))
-                .toList() ??
-            fallback.tables,
-        privateBoot: _int(j['privateBoot']),
-        privateMaxPot: _int(j['privateMaxPot']),
-        entryCapBoot: _int(j['entryCapBoot']),
-        entryCapCategory: _str(j['entryCapCategory']),
-        entryCapMaxChips: _int(j['entryCapMaxChips']),
-      );
+    maxPlayers: _int(j['maxPlayers']),
+    minPlayers: _int(j['minPlayers']),
+    bootAmount: _int(j['bootAmount']),
+    turnTimeoutMs: _int(j['turnTimeoutMs']),
+    sideshowTimeoutMs: j['sideshowTimeoutMs'] == null
+        ? 6000
+        : _int(j['sideshowTimeoutMs']),
+    minClientBuild: _int(j['minClientBuild']),
+    categories:
+        (j['categories'] as List?)?.map((e) => '$e').toList() ??
+        const [TableCategory.seen, TableCategory.blind],
+    stakes: (j['stakes'] as List?)?.map(_int).toList() ?? const [200, 5000],
+    tables:
+        (j['tables'] as List?)
+            ?.map(
+              (e) => LobbyTable.fromJson(Map<String, dynamic>.from(e as Map)),
+            )
+            .toList() ??
+        fallback.tables,
+    privateBoot: _int(j['privateBoot']),
+    privateMaxPot: _int(j['privateMaxPot']),
+    entryCapBoot: _int(j['entryCapBoot']),
+    entryCapCategory: _str(j['entryCapCategory']),
+    entryCapMaxChips: _int(j['entryCapMaxChips']),
+  );
 }
 
 class Seat {
@@ -376,19 +392,19 @@ class Seat {
   bool get inHand => status == SeatState.active;
 
   factory Seat.fromJson(Map<String, dynamic> j) => Seat(
-        seatIndex: _int(j['seatIndex']),
-        userId: j['userId'] as String?,
-        displayName: _str(j['displayName']),
-        avatarUrl: j['avatarUrl'] as String?,
-        chips: j['chips'] == null ? null : _int(j['chips']),
-        status: _str(j['status']),
-        isBlind: j['isBlind'] == true,
-        lastBet: _int(j['lastBet']),
-        lastAction: j['lastAction'] as String?,
-        contributed: _int(j['contributed']),
-        connected: j['connected'] != false,
-        cardCount: _int(j['cardCount']),
-      );
+    seatIndex: _int(j['seatIndex']),
+    userId: j['userId'] as String?,
+    displayName: _str(j['displayName']),
+    avatarUrl: j['avatarUrl'] as String?,
+    chips: j['chips'] == null ? null : _int(j['chips']),
+    status: _str(j['status']),
+    isBlind: j['isBlind'] == true,
+    lastBet: _int(j['lastBet']),
+    lastAction: j['lastAction'] as String?,
+    contributed: _int(j['contributed']),
+    connected: j['connected'] != false,
+    cardCount: _int(j['cardCount']),
+  );
 }
 
 class TurnOptions {
@@ -422,16 +438,15 @@ class TurnOptions {
   final int currentStake;
 
   factory TurnOptions.fromJson(Map<String, dynamic> j) => TurnOptions(
-        canSee: j['canSee'] == true,
-        canPack: j['canPack'] != false,
-        canSideshow: j['canSideshow'] == true,
-        sideshowWith: j['sideshowWith'] as String?,
-        raiseSteps:
-            (j['raiseSteps'] as List?)?.map(_int).toList() ?? const <int>[],
-        show: j['show'] == null ? null : _int(j['show']),
-        chips: _int(j['chips']),
-        currentStake: _int(j['currentStake']),
-      );
+    canSee: j['canSee'] == true,
+    canPack: j['canPack'] != false,
+    canSideshow: j['canSideshow'] == true,
+    sideshowWith: j['sideshowWith'] as String?,
+    raiseSteps: (j['raiseSteps'] as List?)?.map(_int).toList() ?? const <int>[],
+    show: j['show'] == null ? null : _int(j['show']),
+    chips: _int(j['chips']),
+    currentStake: _int(j['currentStake']),
+  );
 }
 
 /// A sideshow waiting to be answered.
@@ -458,12 +473,12 @@ class PendingSideshow {
   final int expiresAt;
 
   factory PendingSideshow.fromJson(Map<String, dynamic> j) => PendingSideshow(
-        fromUserId: _str(j['fromUserId']),
-        fromSeat: _int(j['fromSeat']),
-        toUserId: _str(j['toUserId']),
-        toSeat: _int(j['toSeat']),
-        expiresAt: _int(j['expiresAt']),
-      );
+    fromUserId: _str(j['fromUserId']),
+    fromSeat: _int(j['fromSeat']),
+    toUserId: _str(j['toUserId']),
+    toSeat: _int(j['toSeat']),
+    expiresAt: _int(j['expiresAt']),
+  );
 }
 
 /// One hand in a sideshow reveal. Only ever sent to the two players involved.
@@ -481,11 +496,11 @@ class SideshowHand {
   final String handName;
 
   factory SideshowHand.fromJson(Map<String, dynamic> j) => SideshowHand(
-        userId: _str(j['userId']),
-        displayName: _str(j['displayName']),
-        cards: (j['cards'] as List? ?? const []).map((e) => '$e').toList(),
-        handName: _str(j['handName']),
-      );
+    userId: _str(j['userId']),
+    displayName: _str(j['displayName']),
+    cards: (j['cards'] as List? ?? const []).map((e) => '$e').toList(),
+    handName: _str(j['handName']),
+  );
 }
 
 class SideshowReveal {
@@ -495,15 +510,19 @@ class SideshowReveal {
   final String? packedUserId;
 
   factory SideshowReveal.fromJson(Map<String, dynamic> j) => SideshowReveal(
-        hands: (j['hands'] as List? ?? const [])
-            .map((e) => SideshowHand.fromJson(Map<String, dynamic>.from(e as Map)))
-            .toList(),
-        packedUserId: j['packedUserId'] as String?,
-      );
+    hands: (j['hands'] as List? ?? const [])
+        .map((e) => SideshowHand.fromJson(Map<String, dynamic>.from(e as Map)))
+        .toList(),
+    packedUserId: j['packedUserId'] as String?,
+  );
 }
 
 class Turn {
-  const Turn({required this.seatIndex, required this.userId, required this.deadline});
+  const Turn({
+    required this.seatIndex,
+    required this.userId,
+    required this.deadline,
+  });
 
   final int seatIndex;
   final String? userId;
@@ -513,10 +532,10 @@ class Turn {
   final int deadline;
 
   factory Turn.fromJson(Map<String, dynamic> j) => Turn(
-        seatIndex: _int(j['seatIndex']),
-        userId: j['userId'] as String?,
-        deadline: _int(j['deadline']),
-      );
+    seatIndex: _int(j['seatIndex']),
+    userId: j['userId'] as String?,
+    deadline: _int(j['deadline']),
+  );
 }
 
 class You {
@@ -573,22 +592,22 @@ class You {
   }
 
   factory You.fromJson(Map<String, dynamic> j) => You(
-        seatIndex: _int(j['seatIndex']),
-        chips: _int(j['chips']),
-        status: _str(j['status']),
-        isBlind: j['isBlind'] == true,
-        blindMovesLeft: _int(j['blindMovesLeft']),
-        contributed: _int(j['contributed']),
-        missedTurns: _int(j['missedTurns']),
-        maxMissedTurns:
-            j['maxMissedTurns'] == null ? 3 : _int(j['maxMissedTurns']),
-        cards: (j['cards'] as List?)?.map((e) => '$e').toList() ?? const [],
-        options: j['options'] is Map
-            ? TurnOptions.fromJson(Map<String, dynamic>.from(j['options'] as Map))
-            : null,
-        unfundedDeadline:
-            j['unfundedDeadline'] == null ? null : _int(j['unfundedDeadline']),
-      );
+    seatIndex: _int(j['seatIndex']),
+    chips: _int(j['chips']),
+    status: _str(j['status']),
+    isBlind: j['isBlind'] == true,
+    blindMovesLeft: _int(j['blindMovesLeft']),
+    contributed: _int(j['contributed']),
+    missedTurns: _int(j['missedTurns']),
+    maxMissedTurns: j['maxMissedTurns'] == null ? 3 : _int(j['maxMissedTurns']),
+    cards: (j['cards'] as List?)?.map((e) => '$e').toList() ?? const [],
+    options: j['options'] is Map
+        ? TurnOptions.fromJson(Map<String, dynamic>.from(j['options'] as Map))
+        : null,
+    unfundedDeadline: j['unfundedDeadline'] == null
+        ? null
+        : _int(j['unfundedDeadline']),
+  );
 }
 
 class RoomState {
@@ -637,35 +656,37 @@ class RoomState {
   bool get seated => you != null;
 
   factory RoomState.fromJson(Map<String, dynamic> j) => RoomState(
-        roomId: _str(j['roomId']),
-        code: _str(j['code']),
-        category: _str(j['category']),
-        chipsHidden: j['chipsHidden'] == true,
-        state: _str(j['state']),
-        handNo: _int(j['handNo']),
-        dealerSeat: _int(j['dealerSeat']),
-        minPlayers: _int(j['minPlayers']),
-        bootAmount: _int(j['bootAmount']),
-        turnTimeoutMs: _int(j['turnTimeoutMs']),
-        startsAt: _int(j['startsAt']),
-        pot: _int(j['pot']),
-        maxPot: _int(j['maxPot']),
-        stake: _int(j['stake']),
-        turn: j['turn'] is Map
-            ? Turn.fromJson(Map<String, dynamic>.from(j['turn'] as Map))
-            : null,
-        sideshow: j['sideshow'] is Map
-            ? PendingSideshow.fromJson(
-                Map<String, dynamic>.from(j['sideshow'] as Map))
-            : null,
-        you: j['you'] is Map
-            ? You.fromJson(Map<String, dynamic>.from(j['you'] as Map))
-            : null,
-        seats: (j['seats'] as List?)
-                ?.map((e) => Seat.fromJson(Map<String, dynamic>.from(e as Map)))
-                .toList() ??
-            const [],
-      );
+    roomId: _str(j['roomId']),
+    code: _str(j['code']),
+    category: _str(j['category']),
+    chipsHidden: j['chipsHidden'] == true,
+    state: _str(j['state']),
+    handNo: _int(j['handNo']),
+    dealerSeat: _int(j['dealerSeat']),
+    minPlayers: _int(j['minPlayers']),
+    bootAmount: _int(j['bootAmount']),
+    turnTimeoutMs: _int(j['turnTimeoutMs']),
+    startsAt: _int(j['startsAt']),
+    pot: _int(j['pot']),
+    maxPot: _int(j['maxPot']),
+    stake: _int(j['stake']),
+    turn: j['turn'] is Map
+        ? Turn.fromJson(Map<String, dynamic>.from(j['turn'] as Map))
+        : null,
+    sideshow: j['sideshow'] is Map
+        ? PendingSideshow.fromJson(
+            Map<String, dynamic>.from(j['sideshow'] as Map),
+          )
+        : null,
+    you: j['you'] is Map
+        ? You.fromJson(Map<String, dynamic>.from(j['you'] as Map))
+        : null,
+    seats:
+        (j['seats'] as List?)
+            ?.map((e) => Seat.fromJson(Map<String, dynamic>.from(e as Map)))
+            .toList() ??
+        const [],
+  );
 }
 
 class Reveal {
@@ -684,12 +705,12 @@ class Reveal {
   final bool won;
 
   factory Reveal.fromJson(Map<String, dynamic> j) => Reveal(
-        userId: _str(j['userId']),
-        displayName: _str(j['displayName']),
-        cards: (j['cards'] as List?)?.map((e) => '$e').toList() ?? const [],
-        handName: _str(j['handName']),
-        won: j['won'] == true,
-      );
+    userId: _str(j['userId']),
+    displayName: _str(j['displayName']),
+    cards: (j['cards'] as List?)?.map((e) => '$e').toList() ?? const [],
+    handName: _str(j['handName']),
+    won: j['won'] == true,
+  );
 }
 
 class ChatMessage {
@@ -706,11 +727,11 @@ class ChatMessage {
   final int at;
 
   factory ChatMessage.fromJson(Map<String, dynamic> j) => ChatMessage(
-        userId: _str(j['userId']),
-        displayName: _str(j['displayName']),
-        text: _str(j['text']),
-        at: _int(j['at']),
-      );
+    userId: _str(j['userId']),
+    displayName: _str(j['displayName']),
+    text: _str(j['text']),
+    at: _int(j['at']),
+  );
 }
 
 /// One row of the server's picture catalogue (GET /api/profiles).
@@ -720,6 +741,7 @@ class ProfilePicture {
     required this.name,
     required this.url,
     this.assetFormat = 'IMAGE',
+    this.currency = 'COIN',
     required this.type,
     required this.cost,
     required this.durationDays,
@@ -742,6 +764,10 @@ class ProfilePicture {
   /// server because hosted URLs rarely carry an extension to sniff.
   final String assetFormat;
 
+  /// Which wallet [cost] is paid from: 'COIN' (chips) or 'DIAMOND'. Always
+  /// 'COIN' for a free row — nothing is charged.
+  final String currency;
+
   /// 'FREE' or 'PREMIUM'.
   final String type;
 
@@ -763,6 +789,10 @@ class ProfilePicture {
 
   bool get free => type == 'FREE';
 
+  /// Whether it moves: a Lottie or a Rive file rather than a still. The picker
+  /// shelves premium pictures by this.
+  bool get animated => assetFormat == 'LOTTIE' || assetFormat == 'RIVE';
+
   /// Whether buying this one rents it rather than keeps it.
   bool get rented => durationDays > 0;
 
@@ -780,16 +810,17 @@ class ProfilePicture {
   bool get locked => !owned;
 
   factory ProfilePicture.fromJson(Map<String, dynamic> j) => ProfilePicture(
-        id: _int(j['id']),
-        name: _str(j['name']),
-        url: _str(j['url']),
-        assetFormat: _str(j['assetFormat'] ?? 'IMAGE'),
-        type: _str(j['type']).isEmpty ? 'FREE' : _str(j['type']),
-        cost: _int(j['cost']),
-        durationDays: _int(j['durationDays']),
-        expiresAt: _int(j['expiresAt']),
-        // Absent means the server did not say, and the safe reading of that is
-        // "not owned" — a free picture is only ever sent with owned true.
-        owned: j['owned'] == true,
-      );
+    id: _int(j['id']),
+    name: _str(j['name']),
+    url: _str(j['url']),
+    assetFormat: _str(j['assetFormat'] ?? 'IMAGE'),
+    currency: _str(j['currency'] ?? 'COIN'),
+    type: _str(j['type']).isEmpty ? 'FREE' : _str(j['type']),
+    cost: _int(j['cost']),
+    durationDays: _int(j['durationDays']),
+    expiresAt: _int(j['expiresAt']),
+    // Absent means the server did not say, and the safe reading of that is
+    // "not owned" — a free picture is only ever sent with owned true.
+    owned: j['owned'] == true,
+  );
 }

@@ -6,6 +6,59 @@ import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 
+/// The loaders a profile picture can be drawn with.
+enum PictureKind { bitmap, svg, lottie, unsupported }
+
+/// Which loader draws [bytes].
+///
+/// A declared [format] wins: it is the catalogue saying what the file is
+/// ('IMAGE' | 'SVG' | 'LOTTIE' | 'RIVE'). Without one the bytes are read for
+/// their magic numbers — reliable where a URL extension is not (hosted URLs
+/// rarely have one), and the only way a seat pod or the top bar can tell an
+/// animation from a photo, because a worn picture reaches them as a bare URL
+/// with no catalogue row beside it.
+///
+/// RIVE is [PictureKind.unsupported]: no Rive runtime ships in the app yet, so
+/// the bundled default is the honest answer — decoding a .riv as a bitmap is
+/// not.
+PictureKind pictureKindOf(String? format, Uint8List bytes) {
+  switch (format) {
+    case 'LOTTIE':
+      return PictureKind.lottie;
+    case 'SVG':
+      return PictureKind.svg;
+    case 'IMAGE':
+      return PictureKind.bitmap;
+    case 'RIVE':
+      return PictureKind.unsupported;
+  }
+  if (bytes.length >= 4) {
+    // "PK\x03\x04" is a zip, which in a picture slot is a dotLottie.
+    if (bytes[0] == 0x50 && bytes[1] == 0x4B && bytes[2] == 0x03 && bytes[3] == 0x04) {
+      return PictureKind.lottie;
+    }
+    // "RIVE" opens every Rive runtime file.
+    if (bytes[0] == 0x52 && bytes[1] == 0x49 && bytes[2] == 0x56 && bytes[3] == 0x45) {
+      return PictureKind.unsupported;
+    }
+  }
+  // Text formats: past a UTF-8 byte-order mark and leading whitespace, '{'
+  // opens a Lottie JSON and '<' an SVG (or the XML prolog before one).
+  var i = 0;
+  if (bytes.length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF) {
+    i = 3;
+  }
+  while (i < bytes.length &&
+      (bytes[i] == 0x20 || bytes[i] == 0x09 || bytes[i] == 0x0A || bytes[i] == 0x0D)) {
+    i++;
+  }
+  if (i < bytes.length) {
+    if (bytes[i] == 0x7B) return PictureKind.lottie;
+    if (bytes[i] == 0x3C) return PictureKind.svg;
+  }
+  return PictureKind.bitmap;
+}
+
 /// Profile pictures, kept on the phone after the first fetch.
 ///
 /// The catalogue is a set of remote URLs (requirement 21), and without this

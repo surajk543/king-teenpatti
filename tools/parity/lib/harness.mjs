@@ -91,7 +91,7 @@ export const OPTIONS_KEYS = [
 export const CONFIG_KEYS = [
   'maxPlayers', 'minPlayers', 'bootAmount', 'turnTimeoutMs', 'welcomeChips', 'maxBetRounds', 'sideshowTimeoutMs',
   'sideshowMinPlayers', 'categories', 'stakes', 'tables', 'entryCapBoot', 'entryCapCategory', 'entryCapMaxChips',
-  'privateBoot', 'privateMaxPot',
+  'privateBoot', 'privateMaxPot', 'minClientBuild',
 ];
 
 // ------------------------------------------------------------------- REST

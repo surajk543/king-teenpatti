@@ -209,7 +209,8 @@ nohup ./bin/gameplay > /tmp/server.log 2>&1 &        # start in a SEPARATE comma
 Useful Postgres checks:
 ```bash
 PGPASSWORD=postgres psql -h localhost -U postgres -d gameplay -c "select display_name, chips from users order by chips desc limit 10"
-# ledger must reconcile to wallets:
+# ledger must reconcile to wallets — exact only for accounts the purge has not touched: LEDGER_PURGE (§7.4) deletes
+# hand_* rows older than 10 min, so on a server up that long every account that played returns here (zero-sum across them)
 PGPASSWORD=postgres psql -h localhost -U postgres -d gameplay -Atc "select count(*) from users u join (select user_id, sum(delta) s from chip_ledger group by user_id) l on l.user_id=u.id where l.s <> u.chips"   # expect 0
 PGPASSWORD=postgres psql -h localhost -U postgres -d gameplay -c "select nspname from pg_namespace where nspname like 'test_%'"   # leftover test schemas (should be none)
 ```
@@ -501,10 +502,11 @@ with `room:joinCode`. Voluntary leave / kick never create an offer (the grace ti
 
 ### 7.2 REST (`auth/routes.js` → `internal/auth/http.go` + `handlers.go`)
 `POST /api/auth/login {provider: google|facebook|guest, idToken|accessToken|deviceId, displayName?}`
-→ `{token, user, isNew, welcomeChips}`; `GET /api/auth/me`; `POST /api/rewards/milestone|bonus`
+→ `{token, user, isNew, welcomeChips}`; `GET /api/auth/me` (takes off a worn rental that has run out, as
+login and `GET /api/profiles` do — a saved session comes back through here, never through login); `POST /api/rewards/milestone|bonus`
 (**409 `seated` while at a table** — rewards are lobby-only so a seated wallet only ever moves at the
 three checkpoints, §5.1); **`GET /api/profiles`** — the picture catalogue from `profile_pictures`, active rows only, in
-`sort_order` then `id`: `{profiles:[{id, name, url, assetFormat, type, cost, durationDays, sortOrder, owned, expiresAt}]}` — `assetFormat` is IMAGE (jpg/jpeg/png, one loader), SVG, LOTTIE (Lottie JSON/.lottie at the url) or RIVE (.riv binary), how the client renders what `url` serves. The token is
+`sort_order` then `id`: `{profiles:[{id, name, url, assetFormat, currency, type, cost, durationDays, sortOrder, owned, expiresAt}]}` — `assetFormat` is IMAGE (jpg/jpeg/png, one loader), SVG, LOTTIE (Lottie JSON/.lottie at the url) or RIVE (.riv binary), how the client renders what `url` serves; `currency` is COIN (chips) or DIAMOND (`users.diamond`), the wallet `cost` is paid from. The token is
 **optional**: without one every FREE row reads `owned:true` and every PREMIUM one `owned:false`;
 with one, `owned` also covers the premium pictures that player has bought. A bad token is ignored,
 not refused;
@@ -516,7 +518,10 @@ player has not bought → **403 `picture_locked`**;
 `picture_purchase` ledger row (`action_id` `picture:<userId>:<pictureId>`, UNIQUE, so a double click
 cannot charge twice) plus a `user_profile_pictures` row, in one transaction under the wallet lock.
 Answers `{user, picture, charged, spent}`; `charged:false` means it was already owned. Free → 400
-`picture_free`, too poor → 409 `picture_chips`. **Buying does not wear it** — that is a separate
+`picture_free`, too poor → 409 `picture_chips`. A **`currency: DIAMOND`** row is paid from `users.diamond` instead —
+debited in the same transaction under the same wallet lock, with **no ledger row** (`chip_ledger` backs
+the chips invariant and nothing else) — and a diamond shortage is the same 409 `picture_chips` code
+carrying a diamond message. **Buying does not wear it** — that is a separate
 avatar POST;
 `POST /api/profile/name {name}` (409 `seated` while at a table; these live in
 `playerRoutes({isSeated})`, **not** `authRoutes`);
@@ -549,14 +554,15 @@ are parsed to JS numbers** (`pg.types.setTypeParser(20|1700)`) — without that,
 come back as strings.
 
 Tables — **there are exactly four, and none of them is game state**: `users` (wallet = `chips BIGINT
-CHECK ≥ 0`, counters, `milestone_claimed`, `next_bonus_at`, `active_picture_id`, `deleted_at`),
+CHECK ≥ 0`, **`diamond INTEGER NOT NULL DEFAULT 1 CHECK ≥ 0`** — the premium currency, one per new account, never
+ledgered —, counters, `milestone_claimed`, `next_bonus_at`, `active_picture_id`, `deleted_at`),
 **`chip_ledger`** (`action_id UNIQUE`, `hand_id`, `delta`, `balance`, `reason`; append-only trigger),
 and the picture catalogue added 12 Sep 2026 (owner): **`profile_pictures`** (`name`, `asset_url`
-UNIQUE, `type` FREE|PREMIUM, `cost` with a CHECK that free is 0 and premium is > 0, `is_active`,
+UNIQUE, `asset_format` IMAGE|SVG|LOTTIE|RIVE, `currency` COIN|DIAMOND, `type` FREE|PREMIUM, `cost` with a CHECK that free is 0 and premium is > 0, `is_active`,
 `sort_order`) and **`user_profile_pictures`** (`user_id`, `profile_picture_id`, PK on the pair) —
 who has bought what. A FREE picture needs **no** ownership row: everyone may wear it, so the table
-holds only what somebody paid for. `schema.sql` seeds the 15 bundled animals (9 free, 6 premium at
-10k/25k/50k) with `ON CONFLICT (asset_url) DO NOTHING`, so re-pricing or retiring one is an UPDATE
+holds only what somebody paid for. `V1.0.1__seed_profile_pictures.sql` seeds 15 hosted animals (2 free, 13 coin-priced rentals) and
+Orange Ballerina (a LOTTIE at 1 DIAMOND for 100 days) with `ON CONFLICT (asset_url) DO NOTHING`, so re-pricing or retiring one is an UPDATE
 the next boot will not undo. `users.avatar_choice` (the old free-text `/profiles/x.svg` path) is
 migrated into `active_picture_id` and dropped — **but only once every non-empty choice has found its
 catalogue row**, and any picture that was already being worn is granted an ownership row first so
@@ -801,7 +807,7 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   rows (including **Entry**, the table's stack band: "Up to 5 Crore", "50 Crore or more", or "Open to all"),
   shut-table overlay — a padlock and `cappedTitle` when the player has outgrown the table, a rising arrow and
   `lockedTitle` when they have not grown into it, both faded to 0.42 so the stake stays readable;
-  `_TopBar` `fromLTRB(240,…)` clears the bonus chip, `tight` < 760;
+  `_TopBar` `fromLTRB(240,…)` clears the bonus chip, `tight` < 760; its balance shows chips then diamonds (gem + count, `_diamondInkOn` — pale blue on dark glass, deep blue on light);
   `_MilestoneChip` above `BuyChipsButton` ("Coming soon"); one `endDrawer` for stats/settings.
 - **Table** (rebuilt around the felt on 10–11 Sep 2026 — `fb47ba4`, `b83b273`, `81a5981`; the bar
   across the foot and the cloth under it are both gone, and the screenshots in `docs/play-store/`
@@ -892,10 +898,13 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   tinted `shadowFor`, transparent surfaceTint; text buttons flat. `PremiumSurface` = the one raised
   treatment (3 shadows + bevel + optional `Glint`).
 - **The picture picker** (`_openPicturePicker`, `_PictureChoice`, requirement 21): a horizontal strip
-  of every active catalogue row, free first. A picture the player has not bought is drawn at 0.55
-  opacity with a gold padlock-and-price pill (`_PriceTag`) — shown rather than hidden, because
+  of the active catalogue, one **shelf** at a time: a menu pinned above the grid (`_PictureFilterMenu`, 13 Sep 2026)
+  picks All (the default), Free, Premium (premium IMAGE/SVG) or Premium (Animated) (premium LOTTIE/RIVE,
+  `ProfilePicture.animated`), each with its count. A picture the player has not bought is drawn at 0.55
+  opacity with a gold padlock-and-price pill (`_PriceTag`; a DIAMOND row shows a gem instead, its unlock dialog says
+  diamonds, and the sheet's header carries the player's diamond balance, `_DiamondBalance`) — shown rather than hidden, because
   knowing what is behind the padlock is the whole reason anyone buys one. Tapping a locked one asks
-  first (`GlassDialog`, `t.unlockTitle`/`unlockBody`/`unlock`), then `GameState.buyPicture` buys it,
+  first (`GlassDialog`, `t.unlockTitle`/`unlockBody`/`unlock`, with the picture itself large and playing under the title), then `GameState.buyPicture` buys it,
   re-reads the catalogue (`owned` is per viewer) and wears it. The tick follows
   `user.activePictureId == p.id` — it used to compare the choice PATH to the picture's id, so
   nothing was ever ticked. `state.buyingPicture` puts a spinner on the one tile being bought.
@@ -903,7 +912,11 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   player's initial, which still says whose seat it is. A picture that was supposed to load and did
   not (a retired file, a dead Google URL, a phone that lost the network) → `assets/default_avatar.svg`,
   bundled rather than fetched because the whole point of it is to be there when a fetch has just
-  failed. Both `SvgPicture.network` and `Image.network` route their `errorBuilder` to it. Never a
+  failed. Every loader (`Image.memory`, `SvgPicture.memory`, `Lottie.memory`, fed by `PictureCache`) routes its
+  `errorBuilder` to it. Which loader runs is the catalogue's `assetFormat` when the caller has one (the
+  picker), otherwise the downloaded bytes' magic numbers (`pictureKindOf` in `net/picture_cache.dart`) —
+  a seat pod or the top bar receives a worn picture as a bare URL, often with no extension. A RIVE row
+  draws the default too: no Rive runtime ships yet. Never a
   broken box.
 - **i18n**: `AppLang` × 5; `Strings(lang)` with English → key fallback. **New keys go in all five
   maps + a getter.** Teen Patti vocabulary transliterated. Still-English strings: `'YOU'`, `'Table
@@ -1056,8 +1069,14 @@ final t = state.t;` at the top of `build`; M3 roles via `theme.colorScheme`; `.w
   (needed `heightFactor: 1`, `alignment: centerLeft`).
 - Both `game:showdown` and `game:handEnded` hit `onShowdown`; only the latter has `nextHandAt`.
 - Refused moves surface **twice** (ack + `game:error`).
+- **Toasts are painted above the Navigator** (13 Sep 2026). `main.dart`'s `builder` wraps the Navigator in a
+  transparent, never-resized `Scaffold`: a snack bar shows only on the outermost Scaffold its messenger knows, so
+  every `notice` lands on top of sheets, dialogs and drawers. Before it the screens' own Scaffolds painted toasts
+  *under* the picture sheet, and a refused unlock ("not enough diamonds") looked like a tap that did nothing.
+  `NoticeToast.snackBar` sets its width through side margins so the bottom margin can clear the keyboard, which
+  that Scaffold ignores. Never give it `resizeToAvoidBottomInset: true` — it would squeeze every screen, the table included.
 - `GameConfig.fromJson` ints fall to 0 → `config.maxPlayers == 0 ? 5 : …` guards.
-- `Avatar` SVG branch has no `errorBuilder`. `_PotChips` animates only on increase. `PlayingCard`
+- `_PotChips` animates only on increase. `PlayingCard`
   flips only face-down↔up. Only 5 `_places`.
 - Google sign-in works (`google_sign_in` 7.x, `net/social_sign_in.dart`); the **Web** client id is the
   `serverClientId` and arrives as `--dart-define=GOOGLE_SERVER_CLIENT_ID`, without which sign-in
@@ -1105,6 +1124,11 @@ final t = state.t;` at the top of `build`; M3 roles via `theme.colorScheme`; `.w
   writes one on the Mac at first build. `docs/ios-setup.md` §5 lists what is deliberately off there.
 - `flutter-client/test/widget_test.dart` was **deleted on purpose** (template counter test).
 - `tools/parity/lib/csharpJsonPort.js` / `protocol.test.js` guard a wire format whose C# original is gone.
+- **Parity has one known failure** (13 Sep 2026): `lobby.test.js` "the entry cap guards the cheapest blind table from
+  the lobby, not from a switch" tops a wallet up in PostgreSQL *while the player is seated* and expects `room:switch` to
+  seat them with it (500001); the Go switch carries the in-memory seat (1000). A seated wallet only moves at the three
+  checkpoints (§5.1), so this is a test-versus-design question for the owner, not a regression. Its sibling failure —
+  `session:ready.config` lacking `minClientBuild` — was a stale key list, fixed in `tools/parity/lib/harness.mjs`.
 - `GameConnection.onCards`/`requestCards()` wired but unused; `room:moved` `state` branch dead.
 - The Grafana dashboard JSON links to `go-server/ops/monitoring/MONITORING.md` on `master`; production's
   imported copy still carries the old `server/ops/monitoring` link until re-imported (DEPLOY.md §6).

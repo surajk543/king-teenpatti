@@ -196,11 +196,27 @@ class Strings {
   /// The premium-picture tier (requirement 21).
   String get unlock => _('unlock');
   String get unlockTitle => _('unlockTitle');
-  String unlockBody(String name, String cost) => _('unlockBody')
-      .replaceAll('{name}', name)
-      .replaceAll('{cost}', cost);
+  String unlockBody(String name, String cost) =>
+      _('unlockBody').replaceAll('{name}', name).replaceAll('{cost}', cost);
+
   /// The word on a premium picture this player has already paid for.
   String get pictureUnlocked => _('pictureUnlocked');
+
+  /// Diamond-priced wording: the same two offers, paid from the diamond
+  /// wallet instead of chips. `{s}` pluralises the English unit ("1 diamond",
+  /// "5 diamonds") and is absent from the other four languages, whose word
+  /// does not change with the number. [cost] arrives formatted, and "1" is the
+  /// only singular formatChips produces.
+  String unlockBodyDiamond(String name, String cost) => _('unlockBodyDiamond')
+      .replaceAll('{name}', name)
+      .replaceAll('{cost}', cost)
+      .replaceAll('{s}', cost == '1' ? '' : 's');
+  String unlockRentBodyDiamond(String name, String cost, int days) =>
+      _('unlockRentBodyDiamond')
+          .replaceAll('{name}', name)
+          .replaceAll('{cost}', cost)
+          .replaceAll('{s}', cost == '1' ? '' : 's')
+          .replaceAll('{days}', '$days');
 
   /// The caption under the big picture in Settings.
   String get tapToChangePicture => _('tapToChangePicture');
@@ -215,9 +231,12 @@ class Strings {
           .replaceAll('{cost}', cost)
           .replaceAll('{days}', '$days');
 
-  /// The two tiers, as section headings in the picture picker.
+  /// The picture picker's shelves, as named in the menu above its grid.
+  String get pictureAll => _('pictureAll');
   String get pictureFree => _('pictureFree');
   String get picturePremium => _('picturePremium');
+  String get picturePremiumAnimated => _('picturePremiumAnimated');
+  String get pictureShelfEmpty => _('pictureShelfEmpty');
   String get youAreWinner => _('youAreWinner');
   String get isTheWinner => _('isTheWinner');
 
@@ -422,13 +441,21 @@ class Strings {
       'unlock': 'Unlock',
       'unlockTitle': 'Unlock this picture?',
       'unlockBody': '{name} costs {cost} chips. Unlock it and wear it now?',
+      'unlockBodyDiamond':
+          '{name} costs {cost} diamond{s}. Unlock it and wear it now?',
       'pictureUnlocked': 'Unlocked',
       'tapToChangePicture': 'Tap to change your picture',
       'rentForDays': '{days} days',
       'daysLeft': '{days}d left',
-      'unlockRentBody': '{name} costs {cost} chips and is yours for {days} days. Unlock it and wear it now?',
+      'unlockRentBody':
+          '{name} costs {cost} chips and is yours for {days} days. Unlock it and wear it now?',
+      'unlockRentBodyDiamond':
+          '{name} costs {cost} diamond{s} and is yours for {days} days. Unlock it and wear it now?',
+      'pictureAll': 'All',
       'pictureFree': 'Free',
       'picturePremium': 'Premium',
+      'picturePremiumAnimated': 'Premium (Animated)',
+      'pictureShelfEmpty': 'No pictures here yet.',
       'youAreWinner': 'You are the winner',
       'isTheWinner': 'is the winner',
       'leaveTable': 'Leave table',
@@ -618,13 +645,21 @@ class Strings {
       'unlock': 'अनलॉक करें',
       'unlockTitle': 'यह तस्वीर अनलॉक करें?',
       'unlockBody': '{name} की कीमत {cost} चिप्स है। अभी अनलॉक करके लगाएँ?',
+      'unlockBodyDiamond':
+          '{name} की कीमत {cost} डायमंड है। अभी अनलॉक करके लगाएँ?',
       'pictureUnlocked': 'अनलॉक',
       'tapToChangePicture': 'तस्वीर बदलने के लिए टैप करें',
       'rentForDays': '{days} दिन',
       'daysLeft': '{days} दिन बाकी',
-      'unlockRentBody': '{name} की कीमत {cost} चिप्स है और यह {days} दिन तक आपका रहेगा। अभी अनलॉक करके लगाएँ?',
+      'unlockRentBody':
+          '{name} की कीमत {cost} चिप्स है और यह {days} दिन तक आपका रहेगा। अभी अनलॉक करके लगाएँ?',
+      'unlockRentBodyDiamond':
+          '{name} की कीमत {cost} डायमंड है और यह {days} दिन तक आपका रहेगा। अभी अनलॉक करके लगाएँ?',
+      'pictureAll': 'सभी',
       'pictureFree': 'मुफ़्त',
       'picturePremium': 'प्रीमियम',
+      'picturePremiumAnimated': 'प्रीमियम (एनिमेटेड)',
+      'pictureShelfEmpty': 'यहाँ अभी कोई तस्वीर नहीं है।',
       'themeDark': 'डार्क',
       'themeLight': 'लाइट',
       'waitingForPlayers': 'खिलाड़ियों का इंतज़ार',
@@ -813,13 +848,21 @@ class Strings {
       'unlock': 'আনলক করুন',
       'unlockTitle': 'এই ছবিটি আনলক করবেন?',
       'unlockBody': '{name} এর দাম {cost} চিপস। এখনই আনলক করে ব্যবহার করবেন?',
+      'unlockBodyDiamond':
+          '{name} এর দাম {cost} ডায়মন্ড। এখনই আনলক করে ব্যবহার করবেন?',
       'pictureUnlocked': 'আনলক',
       'tapToChangePicture': 'ছবি বদলাতে ট্যাপ করুন',
       'rentForDays': '{days} দিন',
       'daysLeft': '{days} দিন বাকি',
-      'unlockRentBody': '{name} এর দাম {cost} চিপস এবং এটি {days} দিন আপনার থাকবে। এখনই আনলক করে ব্যবহার করবেন?',
+      'unlockRentBody':
+          '{name} এর দাম {cost} চিপস এবং এটি {days} দিন আপনার থাকবে। এখনই আনলক করে ব্যবহার করবেন?',
+      'unlockRentBodyDiamond':
+          '{name} এর দাম {cost} ডায়মন্ড এবং এটি {days} দিন আপনার থাকবে। এখনই আনলক করে ব্যবহার করবেন?',
+      'pictureAll': 'সব',
       'pictureFree': 'ফ্রি',
       'picturePremium': 'প্রিমিয়াম',
+      'picturePremiumAnimated': 'প্রিমিয়াম (অ্যানিমেটেড)',
+      'pictureShelfEmpty': 'এখানে এখনও কোনো ছবি নেই।',
       'yourChips': 'আপনার চিপ',
       'maxPot': 'সর্বোচ্চ পট',
       'nightMode': 'রাত মোড',
@@ -1008,14 +1051,23 @@ class Strings {
       'welcomeBack': 'પરત સ્વાગત — તમે તમારા ટેબલ પર પાછા છો.',
       'unlock': 'અનલૉક કરો',
       'unlockTitle': 'આ ફોટો અનલૉક કરવો છે?',
-      'unlockBody': '{name} ની કિંમત {cost} ચિપ્સ છે. હમણાં અનલૉક કરીને વાપરવો?',
+      'unlockBody':
+          '{name} ની કિંમત {cost} ચિપ્સ છે. હમણાં અનલૉક કરીને વાપરવો?',
+      'unlockBodyDiamond':
+          '{name} ની કિંમત {cost} ડાયમંડ છે. હમણાં અનલૉક કરીને વાપરવો?',
       'pictureUnlocked': 'અનલૉક',
       'tapToChangePicture': 'ફોટો બદલવા ટૅપ કરો',
       'rentForDays': '{days} દિવસ',
       'daysLeft': '{days} દિવસ બાકી',
-      'unlockRentBody': '{name} ની કિંમત {cost} ચિપ્સ છે અને તે {days} દિવસ તમારો રહેશે. હમણાં અનલૉક કરીને વાપરવો?',
+      'unlockRentBody':
+          '{name} ની કિંમત {cost} ચિપ્સ છે અને તે {days} દિવસ તમારો રહેશે. હમણાં અનલૉક કરીને વાપરવો?',
+      'unlockRentBodyDiamond':
+          '{name} ની કિંમત {cost} ડાયમંડ છે અને તે {days} દિવસ તમારો રહેશે. હમણાં અનલૉક કરીને વાપરવો?',
+      'pictureAll': 'બધા',
       'pictureFree': 'મફત',
       'picturePremium': 'પ્રીમિયમ',
+      'picturePremiumAnimated': 'પ્રીમિયમ (એનિમેટેડ)',
+      'pictureShelfEmpty': 'અહીં હજી કોઈ ફોટો નથી.',
       'appVersion': 'એપ આવૃત્તિ',
       'tableLost': 'તમે દૂર હતા ત્યારે ટેબલ બંધ થઈ ગયું.',
       'winner': 'વિજેતા',
@@ -1206,13 +1258,21 @@ class Strings {
       'unlock': 'ਅਨਲਾਕ ਕਰੋ',
       'unlockTitle': 'ਇਹ ਤਸਵੀਰ ਅਨਲਾਕ ਕਰਨੀ ਹੈ?',
       'unlockBody': '{name} ਦੀ ਕੀਮਤ {cost} ਚਿਪਸ ਹੈ। ਹੁਣੇ ਅਨਲਾਕ ਕਰਕੇ ਲਗਾਉਣੀ ਹੈ?',
+      'unlockBodyDiamond':
+          '{name} ਦੀ ਕੀਮਤ {cost} ਹੀਰੇ ਹੈ। ਹੁਣੇ ਅਨਲਾਕ ਕਰਕੇ ਲਗਾਉਣੀ ਹੈ?',
       'pictureUnlocked': 'ਅਨਲਾਕ',
       'tapToChangePicture': 'ਤਸਵੀਰ ਬਦਲਣ ਲਈ ਟੈਪ ਕਰੋ',
       'rentForDays': '{days} ਦਿਨ',
       'daysLeft': '{days} ਦਿਨ ਬਾਕੀ',
-      'unlockRentBody': '{name} ਦੀ ਕੀਮਤ {cost} ਚਿਪਸ ਹੈ ਅਤੇ ਇਹ {days} ਦਿਨ ਤੁਹਾਡੀ ਰਹੇਗੀ। ਹੁਣੇ ਅਨਲਾਕ ਕਰਕੇ ਲਗਾਉਣੀ ਹੈ?',
+      'unlockRentBody':
+          '{name} ਦੀ ਕੀਮਤ {cost} ਚਿਪਸ ਹੈ ਅਤੇ ਇਹ {days} ਦਿਨ ਤੁਹਾਡੀ ਰਹੇਗੀ। ਹੁਣੇ ਅਨਲਾਕ ਕਰਕੇ ਲਗਾਉਣੀ ਹੈ?',
+      'unlockRentBodyDiamond':
+          '{name} ਦੀ ਕੀਮਤ {cost} ਹੀਰੇ ਹੈ ਅਤੇ ਇਹ {days} ਦਿਨ ਤੁਹਾਡੀ ਰਹੇਗੀ। ਹੁਣੇ ਅਨਲਾਕ ਕਰਕੇ ਲਗਾਉਣੀ ਹੈ?',
+      'pictureAll': 'ਸਾਰੇ',
       'pictureFree': 'ਮੁਫ਼ਤ',
       'picturePremium': 'ਪ੍ਰੀਮੀਅਮ',
+      'picturePremiumAnimated': 'ਪ੍ਰੀਮੀਅਮ (ਐਨੀਮੇਟਿਡ)',
+      'pictureShelfEmpty': 'ਇੱਥੇ ਹਾਲੇ ਕੋਈ ਤਸਵੀਰ ਨਹੀਂ ਹੈ।',
       'missedTurnsLabel': 'ਖੁੰਝੀਆਂ ਚਾਲਾਂ',
       'resumingTable': 'ਤੁਹਾਡੇ ਟੇਬਲ ਤੇ ਵਾਪਸ ਜਾ ਰਹੇ ਹਾਂ…',
       'welcomeBack': 'ਵਾਪਸੀ ਤੇ ਸਵਾਗਤ — ਤੁਸੀਂ ਆਪਣੇ ਟੇਬਲ ਤੇ ਵਾਪਸ ਹੋ।',
