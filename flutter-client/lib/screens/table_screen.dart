@@ -400,7 +400,11 @@ class _SideRail extends StatelessWidget {
                 height: keyH,
                 onTap: () => onOpen(_LeftPanel.chat),
                 child: state.canChat
-                    ? const Icon(Icons.forum_rounded, size: 22)
+                    ? const _RailLottie(
+                        asset: 'assets/animations/Message.json',
+                        fallback: Icons.forum_rounded,
+                        recolour: _strokesInInk,
+                      )
                     : _ChatCountdown(
                         left: state.chatCooldownLeft,
                         total: GameState.chatCooldown.inSeconds,
@@ -419,7 +423,22 @@ class _SideRail extends StatelessWidget {
               height: keyH,
               onTap: () => onOpen(_LeftPanel.quick),
               child: state.canChat
-                  ? const Icon(Icons.quickreply_rounded, size: 22)
+                  ? const _RailLottie(
+                      asset: 'assets/animations/Quick message.json',
+                      fallback: Icons.quickreply_rounded,
+                      recolour: _envelopeInInk,
+                      // Larger than the glyphs above it, in a key of the same
+                      // size (owner, 14 Sep 2026). With its disc hidden the
+                      // envelope fills about 45% of the canvas's width, centred
+                      // across it and a little below the middle, and the plane's
+                      // trail reaches out to its left; so the canvas is drawn at
+                      // 56dp and lifted 2dp, which centres the envelope in the
+                      // key and keeps the trail (about 22dp left of centre)
+                      // inside even a 48dp key.
+                      size: 30,
+                      art: 56,
+                      artShift: Offset(0, -2),
+                    )
                   : _ChatCountdown(
                       left: state.chatCooldownLeft,
                       total: GameState.chatCooldown.inSeconds,
@@ -429,6 +448,132 @@ class _SideRail extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+/// The chat bubble's strokes, in the rail's ink.
+List<ValueDelegate<Object>> _strokesInInk(Color ink, Color paper) => [
+  ValueDelegate.strokeColor(const ['**'], value: ink),
+];
+
+/// The quick-message envelope in the rail's ink (owner, 14 Sep 2026: black):
+/// the envelope, its flap, the @, the paper plane and its dotted trail take the
+/// ink, the letter takes the paper so it shows against the envelope it rises
+/// out of, and the disc behind it all is hidden, so the envelope stands on the
+/// key itself. Matched by layer and group name; test/message_glyph_test.dart
+/// fails if a replacement file renames them.
+List<ValueDelegate<Object>> _envelopeInInk(Color ink, Color paper) => [
+  ValueDelegate.transformOpacity(const ['background Outlines'], value: 0),
+  for (final layer in const [
+    'front Outlines',
+    'back Outlines',
+    'opener Outlines',
+    'plane Outlines',
+  ])
+    ValueDelegate.color([layer, '**'], value: ink),
+  ValueDelegate.color(const [
+    'mail inside Outlines',
+    'Group 1',
+    '**',
+  ], value: ink),
+  ValueDelegate.color(const [
+    'mail inside Outlines',
+    'Group 2',
+    '**',
+  ], value: paper),
+  ValueDelegate.strokeColor(const ['Shape Layer 1', '**'], value: ink),
+];
+
+/// A rail key's animated glyph (owner, 14 Sep 2026): the chat key plays
+/// `assets/animations/Message.json`, a speech bubble that writes its lines, and
+/// the quick-message key `assets/animations/Quick message.json`, an envelope
+/// that opens, sends a paper plane and closes. Each loops.
+///
+/// [recolour] gives the file's colours in terms of the rail's ink — the
+/// theme's onSurface at full strength, black on the light theme and white on
+/// the dark — and its paper, the surface. It is full strength because a colour
+/// handed to the delegates is painted solid: the key's translucent icon ink
+/// came out solid black on TP_Tall all the same. The rail rebuilds every second
+/// (it watches GameState for the chat cooldown), and a new [ValueDelegate]
+/// never compares equal to the last one, so the delegates are built once per
+/// pair of colours rather than once per build; otherwise every tick would
+/// re-resolve every path.
+class _RailLottie extends StatefulWidget {
+  const _RailLottie({
+    required this.asset,
+    required this.fallback,
+    this.recolour,
+    this.size = 26,
+    this.art,
+    this.artShift = Offset.zero,
+  });
+
+  final String asset;
+
+  /// The glyph the key had before; drawn if the file cannot be loaded.
+  final IconData fallback;
+
+  /// The file's colours in terms of the rail's ink and paper; null keeps the
+  /// file's own.
+  final List<ValueDelegate<Object>> Function(Color ink, Color paper)? recolour;
+
+  /// The square the glyph takes in the key's layout, in dp.
+  final double size;
+
+  /// The square the animation is drawn into when that is larger than [size]:
+  /// centred on it and painted past its edges, so the art grows while the key
+  /// keeps its size. Null draws it into [size].
+  final double? art;
+
+  /// Moves the art so its drawn content, rather than its canvas, is centred.
+  final Offset artShift;
+
+  @override
+  State<_RailLottie> createState() => _RailLottieState();
+}
+
+class _RailLottieState extends State<_RailLottie> {
+  (Color, Color)? _colours;
+  LottieDelegates? _delegates;
+
+  @override
+  Widget build(BuildContext context) {
+    final recolour = widget.recolour;
+    if (recolour == null) {
+      _colours = null;
+      _delegates = null;
+    } else {
+      final scheme = Theme.of(context).colorScheme;
+      final colours = (scheme.onSurface.withValues(alpha: 1), scheme.surface);
+      if (colours != _colours) {
+        _colours = colours;
+        _delegates = LottieDelegates(values: recolour(colours.$1, colours.$2));
+      }
+    }
+    final art = widget.art ?? widget.size;
+    Widget glyph = RepaintBoundary(
+      child: SizedBox.square(
+        dimension: art,
+        child: Lottie.asset(
+          widget.asset,
+          delegates: _delegates,
+          fit: BoxFit.contain,
+          // A missing or unreadable file must not leave a blank key.
+          errorBuilder: (context, error, stack) =>
+              Icon(widget.fallback, size: 22),
+        ),
+      ),
+    );
+    if (widget.art != null) {
+      glyph = OverflowBox(
+        minWidth: art,
+        maxWidth: art,
+        minHeight: art,
+        maxHeight: art,
+        child: Transform.translate(offset: widget.artShift, child: glyph),
+      );
+    }
+    return SizedBox.square(dimension: widget.size, child: glyph);
   }
 }
 
@@ -3151,20 +3296,29 @@ class _MachinedKey extends StatelessWidget {
   const _MachinedKey({
     required this.width,
     required this.height,
-    required this.icon,
     required this.label,
     required this.onPressed,
+    this.icon,
+    this.glyph,
     this.amount,
     this.primary = false,
     this.edge,
     this.alive = false,
     this.muted = false,
-  });
+    this.stackLabel = false,
+  }) : assert(icon != null || glyph != null, 'a key needs an icon or a glyph');
 
   final double width;
   final double height;
-  final IconData icon;
+  final IconData? icon;
+
+  /// Drawn in place of [icon]: an animated glyph, like Force Sideshow's hammer.
+  final Widget? glyph;
   final String label;
+
+  /// Puts a two-word [label] on two lines, so a long name keeps its size in a
+  /// narrow key (Force Sideshow, owner 14 Sep 2026: the whole name, not "Force").
+  final bool stackLabel;
 
   /// The second line: what the move costs, or who it is aimed at. Omitted
   /// leaves the label on its own.
@@ -3253,44 +3407,62 @@ class _MachinedKey extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.center,
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(icon, size: 18),
-                const SizedBox(width: Space.sm),
+                glyph ?? Icon(icon, size: 18),
+                SizedBox(width: stackLabel ? Space.xs : Space.sm),
                 Flexible(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      FittedBox(
-                        fit: BoxFit.scaleDown,
-                        alignment: Alignment.centerLeft,
-                        child: Text(
-                          // Translated, so it keeps its natural case.
-                          label,
-                          maxLines: 1,
-                          style: AppTheme.label(
-                            theme.textTheme.labelLarge ?? const TextStyle(),
-                            weight: FontWeight.w700,
-                          ),
-                        ),
-                      ),
-                      if (amount != null)
-                        // A crore-sized bet is a long word; it shrinks to fit rather
-                        // than losing its tail to an ellipsis.
-                        FittedBox(
+                  child: stackLabel
+                      // The two lines scale together, inside the key's width
+                      // and height, rather than each shrinking on its own.
+                      // A stacked label carries no amount line.
+                      ? FittedBox(
                           fit: BoxFit.scaleDown,
                           alignment: Alignment.centerLeft,
                           child: Text(
-                            amount!,
-                            maxLines: 1,
-                            style: AppTheme.money(
-                              theme.textTheme.bodySmall ?? const TextStyle(),
-                              weight: FontWeight.w600,
-                            ),
+                            label.replaceFirst(' ', '\n'),
+                            maxLines: 2,
+                            style: AppTheme.label(
+                              theme.textTheme.labelLarge ?? const TextStyle(),
+                              weight: FontWeight.w700,
+                            ).copyWith(height: 1.1),
                           ),
+                        )
+                      : Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            FittedBox(
+                              fit: BoxFit.scaleDown,
+                              alignment: Alignment.centerLeft,
+                              child: Text(
+                                // Translated, so it keeps its natural case.
+                                label,
+                                maxLines: 1,
+                                style: AppTheme.label(
+                                  theme.textTheme.labelLarge ??
+                                      const TextStyle(),
+                                  weight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                            if (amount != null)
+                              // A crore-sized bet is a long word; it shrinks to
+                              // fit rather than losing its tail to an ellipsis.
+                              FittedBox(
+                                fit: BoxFit.scaleDown,
+                                alignment: Alignment.centerLeft,
+                                child: Text(
+                                  amount!,
+                                  maxLines: 1,
+                                  style: AppTheme.money(
+                                    theme.textTheme.bodySmall ??
+                                        const TextStyle(),
+                                    weight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                          ],
                         ),
-                    ],
-                  ),
                 ),
               ],
             ),
@@ -4621,11 +4793,24 @@ class _ActionCluster extends StatelessWidget {
                 child: _MachinedKey(
                   width: forceW,
                   height: keyH,
-                  icon: Icons.hardware,
-                  label: t.force,
-                  // Its price, lit or not: a key that costs something says what
-                  // before it is pressed.
-                  amount: '🔨 $forceSideshowCost',
+                  // The whole name beside the hammer Lottie, and nothing else
+                  // (owner, 14 Sep 2026): no Material icon and no cost line —
+                  // the confirmation says what it costs before anything is
+                  // spent. The hammer swings only while the key can be used.
+                  glyph: RepaintBoundary(
+                    child: SizedBox.square(
+                      dimension: 24,
+                      child: Lottie.asset(
+                        'assets/animations/Hammer.json',
+                        animate: canForce,
+                        fit: BoxFit.contain,
+                        errorBuilder: (context, error, stack) =>
+                            const Icon(Icons.hardware, size: 18),
+                      ),
+                    ),
+                  ),
+                  label: t.forceSideshow,
+                  stackLabel: true,
                   alive: canForce && hasHammer,
                   muted: canForce && !hasHammer,
                   onPressed: canForce

@@ -564,7 +564,7 @@ class Strings {
       'sideshowYouLost': 'Your hand was lower — you packed',
       'sideshowYouWon': 'Your hand was higher — they packed',
       'force': 'Force',
-      'forceSideshow': 'Force sideshow',
+      'forceSideshow': 'Force Sideshow',
       'forceSideshowTitle': 'Force a sideshow?',
       'forceSideshowBody': 'Spend 1 hammer to force a sideshow with {name}?',
       'forceSideshowNote': 'They cannot refuse, and a tie goes against you.',

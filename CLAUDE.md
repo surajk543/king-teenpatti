@@ -855,9 +855,18 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   (`RoomState.isPrivate`, from the wire's `isPrivate`), since that code is how friends get in.
   **There is no `_ActionBar`.** The keys live in the corners they are pressed in: the lobby's `ShopButton`
   top-left (13 Sep 2026, replacing the gold `+` that headed the rail; it opens the store on Chips), `_SideRail`
-  (menu, then chat — each key fills the rail so the target stays
-  ≥44dp, which is why they sit flush to the screen edge on a 360dp phone), `_PackKey` bottom-left, and `_ActionCluster` bottom-right (`Sideshow` over
-  `− Chaal +`).
+  (menu, chat, quick messages — each key fills the rail so the target stays
+  ≥44dp, which is why they sit flush to the screen edge on a 360dp phone), `_PackKey` bottom-left, and `_ActionCluster` bottom-right (`Force Sideshow` and
+  `Sideshow` over `− Chaal +`). **The chat and quick-message keys play Lotties** (owner, 14 Sep 2026; `_RailLottie`):
+  `assets/animations/Message.json` (a speech bubble) and `assets/animations/Quick message.json` (an envelope sending a
+  paper plane), both drawn in the rail's ink by `ValueDelegate`s — onSurface at full strength, black on the light theme,
+  white on the dark — with the envelope's disc hidden and its letter in the surface colour (`_envelopeInInk`, matched
+  by layer and group name, pinned by `test/message_glyph_test.dart`). The envelope's canvas is drawn at 56dp inside a
+  30dp layout slot (`OverflowBox`), so it is larger than the other glyphs without growing its key. The chat cooldown
+  still replaces either glyph with `_ChatCountdown`. `Quick message.json` is a copy flattened by
+  `tools/lottie/flatten_orientation.py` (its flap opened with `rx`). **The Force key** reads "Force Sideshow" on two
+  lines (`_MachinedKey.stackLabel`) beside `assets/animations/Hammer.json` (`_MachinedKey.glyph`), which swings only
+  while the key can be used; no cost line — the confirmation states the hammer.
   `_Felt`: seats at fractional `_places` (5 only), viewer at view seat 0, `Dim.podW(feltW, feltH) =
   min(feltH*0.270, feltW*0.150).clamp(60,140)`, pods clamped inside. Overlays: `_CategoryTag`,
   `_Pot`/`_PotPulse` at `_potDy` 0.46, `_Status` at 0.28, `_SideshowLink/Prompt`, `_Showdown`.
@@ -1122,9 +1131,10 @@ final t = state.t;` at the top of `build`; M3 roles via `theme.colorScheme`; `.w
   *under* the picture sheet, and a refused unlock ("not enough diamonds") looked like a tap that did nothing.
   `NoticeToast.snackBar` sets its width through side margins so the bottom margin can clear the keyboard, which
   that Scaffold ignores. Never give it `resizeToAvoidBottomInset: true` — it would squeeze every screen, the table included.
-- **A Lottie that moves in 3D does not move on a phone.** Flutter's `lottie` (3.5.1) and lottie-android read only
-  `r`/`rz` rotation; a layer's `or` (orientation), `rx` and `ry` are ignored, where lottie-web (the LottieFiles preview,
-  any browser) plays them. Butterfly Flapping beat its wings that way, and on a phone both wings sat still on top of each
+- **A Lottie that moves in 3D does not move on a phone.** Flutter's `lottie` (3.5.1) ignores a layer's `or`
+  (orientation) and draws `rx`/`ry` only as a `cos()` stretch about the anchor (no shear, no perspective), where lottie-web
+  (the LottieFiles preview, any browser) plays the full 3D matrix — close for a lone flip (the quick-message envelope's flap
+  looked right either way), wrong once `or` or a second axis joins in. Butterfly Flapping beat its wings that way, and on a phone both wings sat still on top of each
   other. Before seeding a Lottie, look for `"or"`/`"rx"`/`"ry"` keyframes; `python3 tools/lottie/flatten_orientation.py
   in.json out.json` bakes them into 2D rotation and scale on null parents, exact frame for frame, and the result is
   uploaded in place of the original (Butterfly Flapping's flattened copy lives on Drive). **Expressions do not run on phones either** (`"x"` fields — `loopOut()` is the

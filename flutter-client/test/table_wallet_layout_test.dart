@@ -133,7 +133,7 @@ void main() {
           await tester.pump(const Duration(milliseconds: 50));
 
           final wallet = tester.getRect(find.byType(WalletPill));
-          final force = tester.getRect(find.byTooltip('Force sideshow'));
+          final force = tester.getRect(find.byTooltip('Force Sideshow'));
           final failures = <String>[];
           void clears(String label, Rect rect, String what, Rect other) {
             if (rect.overlaps(other)) {
