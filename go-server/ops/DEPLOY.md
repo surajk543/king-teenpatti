@@ -483,7 +483,7 @@ lock — before that release is deployed.
 
 Since 14 Sep 2026 `go-server/internal/db/migration/` holds exactly two scripts:
 `V1.0.0__baseline.sql` (every table, column, index, function and trigger) and
-`V1.0.1__seed_profile_pictures.sql` (the 30 catalogue rows). They build a database from nothing on
+`V1.0.1__seed_profile_pictures.sql` (the 35 catalogue rows). They build a database from nothing on
 the first boot, and nothing in them brings an older database forward any more: a database built by
 `go-server/v1.3.0` or older lacks `users.hammer`, and the first release carrying these scripts must
 start on an **empty** `public` schema. That deletes every account, wallet, ledger row, purchase
@@ -538,7 +538,7 @@ until curl -sf 127.0.0.1:3000/health >/dev/null; do sleep 1; done
 curl -s 127.0.0.1:3000/health | python3 -c 'import json,sys; h=json.load(sys.stdin); print(h["ok"], h["version"])'
 psql "$DB" -Atc "SET statement_timeout = '10s'" \
   -c "SELECT count(*) FROM pg_tables WHERE schemaname = 'public'" \
-  -c "SELECT count(*) FROM profile_pictures"                     # 7, then 30
+  -c "SELECT count(*) FROM profile_pictures"                     # 7, then 35
 journalctl -u gameplay -n 50 --no-pager | grep -iE 'restored|"level":"(WARN|ERROR)"'   # restored tables=0; no WARN or ERROR
 bash go-server/ops/prod-version.sh                                                     # IN SYNC
 ```
