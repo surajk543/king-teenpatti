@@ -81,7 +81,7 @@ king-teenpatti/
 │   │   ├── sio/                  our own Engine.IO v4 + Socket.IO v5 server, websocket only (protocol.go, conn.go, server.go)
 │   │   ├── socket/               the game protocol on sio: handler.go (Attach, guard, one method per event, grace, resume offers), wire.go (every event/ack), payload.go; testclient/
 │   │   ├── auth/                 tokens.go (JWT HS256), providers.go (Google/Facebook/guest/fake), http.go (routes, RequireAuth, WriteError), handlers.go (the 8 REST handlers), text.go
-│   │   ├── db/                   db.go (pgxpool, search_path as connection param, WithTx, DropSchema, Migrations), migration/ (embedded, Flyway-named V<version>__<name>.sql, applied in version order: V1.0.0__baseline.sql = DDL, V1.0.1__seed_profile_pictures.sql = DML), ledger.go (THE money transactions: Checkpoint / Settle), users.go (login upsert, rewards, names, the worn picture), pictures.go (the catalogue, ownership and the chip purchase); dbtest/
+│   │   ├── db/                   db.go (pgxpool, search_path as connection param, WithTx, DropSchema, Migrations), migration/ (embedded, Flyway-named V<version>__<name>.sql, applied in version order: V1.0.0__baseline.sql = DDL, V1.0.1__seed_profile_pictures.sql + V1.0.2__seed_butterfly_flapping.sql = DML), ledger.go (THE money transactions: Checkpoint / Settle), users.go (login upsert, rewards, names, the worn picture), pictures.go (the catalogue, ownership and the chip purchase); dbtest/
 │   │   ├── metrics/              names.go (every game_* metric), metrics.go (registry, Bind*, Handler, HTTPMiddleware, SafeLabel)
 │   │   ├── app/                  app.go (mux, REST, socket endpoint, Start/Shutdown), health.go, static.go (PUBLIC_DIR + embedded assets/socket.io.min.js)
 │   │   └── util/                 UUID, RoomCode, slog JSON logger
@@ -563,7 +563,7 @@ UNIQUE, `asset_format` IMAGE|SVG|LOTTIE|RIVE, `currency` COIN|DIAMOND, `type` FR
 `sort_order`) and **`user_profile_pictures`** (`user_id`, `profile_picture_id`, PK on the pair) —
 who has bought what. A FREE picture needs **no** ownership row: everyone may wear it, so the table
 holds only what somebody paid for. `V1.0.1__seed_profile_pictures.sql` seeds 15 hosted animals (2 free, 13 coin-priced rentals) and
-Orange Ballerina (a LOTTIE at 1 DIAMOND for 100 days) with `ON CONFLICT (asset_url) DO NOTHING`, so re-pricing or retiring one is an UPDATE
+Orange Ballerina (a LOTTIE at 1 DIAMOND for 100 days); `V1.0.2__seed_butterfly_flapping.sql` adds Butterfly Flapping (a LOTTIE, same price, sort_order 170) — each script inserts with `ON CONFLICT (asset_url) DO NOTHING`, so re-pricing or retiring one is an UPDATE
 the next boot will not undo. `users.avatar_choice` (the old free-text `/profiles/x.svg` path) is
 migrated into `active_picture_id` and dropped — **but only once every non-empty choice has found its
 catalogue row**, and any picture that was already being worn is granted an ownership row first so
