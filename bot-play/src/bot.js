@@ -534,11 +534,18 @@ export class Bot {
   /**
    * Gets up and finds another table in the same category.
    *
-   * This is not decoration. The server seats a player at the FULLEST table
+   * This is not decoration. A quick-join seats a player at the FULLEST table
    * with room, so without churn exactly one table in each category ever has a
    * free seat — and a real player arriving is always dropped into the same
    * one. Bots coming and going keep seats open across the whole lobby, which
    * is what a busy game actually looks like.
+   *
+   * Since 13 Sep 2026 the server sends a switch to a RANDOM other table of the
+   * same boot and category (Go `pickRandomTableLocked`), not the fullest, so a
+   * wandering bot now spreads itself evenly instead of piling onto the busiest
+   * table — which is exactly the churn this is for. `no_other_table` (every
+   * other table full, or none exists) is not an error worth logging: the bot
+   * simply stays where it is.
    */
   wander() {
     if (this.stopped || !this.seated || this.leaving) return;

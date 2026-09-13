@@ -116,6 +116,17 @@ class _TableScreenState extends State<TableScreen> {
               ],
             ),
           ),
+          // The store, as the same Shop key the lobby's top bar carries and in
+          // the same place — the top-left corner, clear of the felt (owner,
+          // 13 Sep 2026; it replaces the gold `+` that headed the rail). It
+          // opens the same store, on its Chips shelf: a seated player can
+          // neither buy nor change a picture, so the Pictures tab is not
+          // offered here.
+          const Positioned(
+            left: Space.md,
+            top: Space.sm,
+            child: SafeArea(child: ShopButton()),
+          ),
           // The keys, floating over the bottom-right of the table instead of
           // sitting in a bar across the foot of it. Owner's decision,
           // 10 Sep 2026: the bar was a sixth of a landscape screen reserved
@@ -132,15 +143,6 @@ class _TableScreenState extends State<TableScreen> {
             left: 0,
             bottom: 0,
             child: SafeArea(child: _PackKey()),
-          ),
-          // The strip spans the foot of the screen and places itself from the
-          // left, so it cannot live in a column beside the key — it is lifted
-          // over the key instead, by exactly the key's own height.
-          const Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            child: SafeArea(child: _MissedTurnsStrip()),
           ),
         ],
       ),
@@ -185,8 +187,8 @@ class _RoomGround extends StatelessWidget {
   }
 }
 
-/// The only chrome in the game room: the menu, and the chat below it, stacked
-/// down the left edge.
+/// The only chrome in the game room besides the Shop key in the corner above
+/// it: the menu, and the chat below it, stacked down the left edge.
 ///
 /// Everything else that used to sit across the top — the table code, the
 /// category, the hand number — is in the drawer. None of it changed what a
@@ -216,12 +218,6 @@ class _SideRail extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // Buying chips sits at the head of the rail rather than off in the
-            // opposite corner. It is the only control on the felt that is an
-            // offer rather than a move, and it now shares a column with the
-            // other two things that open something instead of playing a card.
-            const BuyChipsButton(compact: true),
-            const SizedBox(height: Space.md),
             _RailKey(
               tooltip: t.tableMenu,
               width: railW,
@@ -1660,156 +1656,12 @@ class _CategoryTag extends StatelessWidget {
   }
 }
 
-/// How many turns this player has let run out, how many blind bets they have
-/// left, and what happens if they let one more turn go.
-///
-/// Missing a turn is not obviously a countable thing while it is happening —
-/// the hand simply carries on without you — so the count is stated, and the
-/// last one is stated loudly. It is shown to nobody else: the server sends the
-/// figure only to the player it concerns.
-///
-/// Requirement 31, kept where the thumb already is: the count of turns
-/// auto-packed in a row sits over the Pack key, bottom left, and stays put at
-/// zero too, so the player can always see how the table is scoring them.
-///
-/// It takes no height of its own — it is drawn upward over the bottom-left
-/// corner of the felt, which nothing else uses — so the keys never shift under
-/// a hand as the count changes.
-class _MissedTurnsStrip extends StatelessWidget {
-  const _MissedTurnsStrip();
-
-  @override
-  Widget build(BuildContext context) {
-    final state = context.watch<GameState>();
-    final room = state.room;
-    final you = room?.you;
-    if (room == null || you == null) return const SizedBox.shrink();
-
-    // Blind moves are only a live question while the player is still blind
-    // and still in the hand; once they look, the row goes and the missed
-    // count settles back on its own.
-    final showBlind =
-        you.isBlind &&
-        you.status == SeatState.active &&
-        room.state == TableState.betting;
-    final maxBlind =
-        state.config.tables
-            .where(
-              (t) =>
-                  t.category == room.category &&
-                  t.bootAmount == room.bootAmount,
-            )
-            .map((t) => t.maxBlindMoves)
-            .firstOrNull ??
-        4;
-
-    // The corner the cluster lives in is only as wide as the gap between the
-    // felt's left edge and the viewer's pod, so its width is derived from the
-    // very same figures the felt lays that pod out with — rail, felt padding,
-    // console height, the pod formula — rather than from a share of the screen,
-    // which runs under the pod on a tablet.
-    final size = MediaQuery.sizeOf(context);
-    final inset = MediaQuery.paddingOf(context);
-    final screenW = size.width;
-    final railW = Dim.railW(screenW);
-    final feltPad = Dim.feltPad(screenW);
-    final feltW = screenW - inset.horizontal - railW - 2 * feltPad;
-    // No console under the felt any more, so nothing is subtracted for one.
-    final feltH = size.height - inset.vertical - Space.xxs;
-    final podW = Dim.podW(feltW, feltH);
-    final left = railW + feltPad;
-    final podLeft = left + _Felt._places[0].dx * feltW - podW / 2;
-    // Space.xl of clear felt between the cluster's edge and the pod, shadows
-    // included: 127.3 wide at 640x360, 200.1 at 891x411, 301.3 at 1280x800.
-    final maxW = (podLeft - left - Space.xl).clamp(110.0, 360.0);
-    // One line and no explanation where there is no room for two.
-    //
-    // The corner's own width decides it, not the screen's: below about 260 the
-    // explanation wraps to two lines that are still cut off ("and you leave
-    // …"), and those two lines grow the plate up into the left seat's caption,
-    // which then reads through the glass. A tablet's corner is 301 wide and
-    // fits the sentence on one line, with the felt above it to spare. The
-    // blind-moves row sharing the plate costs a row on any screen.
-    final compact =
-        Breaks.isCompact(screenW) ||
-        Breaks.isShort(size.height) ||
-        maxW < 260 ||
-        showBlind;
-    // How far the strip rides above the Pack key it shares a corner with.
-    final liftOverPack =
-        Dim.keyH(size.height) + 2 * Dim.gap(screenW) + Space.xs;
-
-    return SizedBox(
-      height: 0,
-      width: double.infinity,
-      child: OverflowBox(
-        alignment: Alignment.bottomLeft,
-        minHeight: 0,
-        // The ceiling has to include the lift over the Pack key, or the plate
-        // is given 120 to draw two rows in and then told to sit 70 higher —
-        // which is a RenderFlex overflow, and it showed as one.
-        maxHeight: 120 + liftOverPack,
-        child: Align(
-          alignment: Alignment.bottomLeft,
-          child: Padding(
-            // Clear of the Pack key beneath it: the key's height plus the
-            // padding it sits in, so the two never share a pixel.
-            padding: EdgeInsets.only(left: left, bottom: liftOverPack),
-            child: ConstrainedBox(
-              constraints: BoxConstraints(maxWidth: maxW),
-              child: _Plate(
-                radius: Radii.md,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: Space.md,
-                  vertical: Space.sm,
-                ),
-                accent: you.onLastWarning
-                    ? Theme.of(
-                        context,
-                      ).colorScheme.error.withValues(alpha: 0.75)
-                    : null,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (showBlind) ...[
-                      _BlindMoves(left: you.blindMovesLeft, max: maxBlind),
-                      const Padding(
-                        padding: EdgeInsets.symmetric(vertical: Space.sm),
-                        child: _ClusterRule(),
-                      ),
-                    ],
-                    _MissedTurns(you: you, compact: compact),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// What the console and its surround take out of the screen's height.
-///
-
-/// A hairline between the cluster's two rows.
-class _ClusterRule extends StatelessWidget {
-  const _ClusterRule();
-
-  @override
-  Widget build(BuildContext context) => SizedBox(
-    height: Dim.hairline,
-    child: ColoredBox(color: AppTheme.goldBright.withValues(alpha: 0.14)),
-  );
-}
-
 /// How many bets this player may still make without looking at their cards,
-/// as pips rather than a fraction: on a 25-second clock a row of dots is read
-/// at a glance and "3/4" is read twice.
-class _BlindMoves extends StatelessWidget {
-  const _BlindMoves({required this.left, required this.max});
+/// as dots rather than a fraction: on a 25-second clock a row of dots is read
+/// at a glance and "3/4" is read twice. It sits under "See cards" on the
+/// player's own hand, where the choice it counts down to is made.
+class _BlindDots extends StatelessWidget {
+  const _BlindDots({required this.left, required this.max});
 
   final int left;
   final int max;
@@ -1823,30 +1675,18 @@ class _BlindMoves extends StatelessWidget {
 
     return Semantics(
       label: '${t.blindMovesLabel} $left/$max',
-      // A private table sets its own allowance, so the row of pips shrinks to
-      // the plate rather than running off it.
-      child: FittedBox(
-        fit: BoxFit.scaleDown,
-        alignment: Alignment.centerLeft,
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.visibility_off_outlined,
-              size: 15,
-              color: AppTheme.boneInk.withValues(alpha: AppTheme.inkLow),
-            ),
-            const SizedBox(width: Space.md),
-            for (var i = 0; i < max; i++)
-              Padding(
-                padding: const EdgeInsets.only(right: Space.xs),
-                child: _Pip(
-                  filled: i < left,
-                  colour: lastOne ? AppTheme.amber : AppTheme.goldBright,
-                ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (var i = 0; i < max; i++)
+            Padding(
+              padding: EdgeInsets.only(left: i == 0 ? 0 : Space.xs),
+              child: _Pip(
+                filled: i < left,
+                colour: lastOne ? AppTheme.amber : AppTheme.goldBright,
               ),
-          ],
-        ),
+            ),
+        ],
       ),
     );
   }
@@ -1871,149 +1711,6 @@ class _Pip extends StatelessWidget {
           : Border.all(color: AppTheme.ink400, width: Dim.hairline),
     ),
   );
-}
-
-class _MissedTurns extends StatefulWidget {
-  const _MissedTurns({required this.you, this.compact = false});
-  final You you;
-
-  /// One line only, for a screen with no room for the explanation.
-  final bool compact;
-
-  @override
-  State<_MissedTurns> createState() => _MissedTurnsState();
-}
-
-class _MissedTurnsState extends State<_MissedTurns>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _pulse = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 1100),
-  );
-
-  @override
-  void initState() {
-    super.initState();
-    _sync();
-  }
-
-  @override
-  void didUpdateWidget(covariant _MissedTurns old) {
-    super.didUpdateWidget(old);
-    _sync();
-  }
-
-  /// Only the final warning breathes, and only then does the controller run.
-  /// A controller left repeating schedules a frame for ever, and below the last
-  /// warning this is information — information that pulses is just noise.
-  void _sync() {
-    final last = widget.you.onLastWarning;
-    if (last && !_pulse.isAnimating) {
-      _pulse.repeat(reverse: true);
-    } else if (!last && _pulse.isAnimating) {
-      _pulse.stop();
-      _pulse.value = 0;
-    }
-  }
-
-  @override
-  void dispose() {
-    _pulse.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    final t = context.watch<GameState>().t;
-
-    final missed = widget.you.missedTurns;
-    final limit = widget.you.maxMissedTurns;
-    final last = widget.you.onLastWarning;
-    // Anything above zero is a mark against the seat; the mark warms up with
-    // the count and turns red for the final warning.
-    final marked = missed > 0 && !last;
-
-    final foreground = last
-        ? scheme.error
-        : marked
-        ? AppTheme.amber
-        : AppTheme.boneInk.withValues(alpha: AppTheme.inkMed);
-
-    final row = Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(
-          last ? Icons.warning_amber_rounded : Icons.timer_off_outlined,
-          size: last ? 20 : 15,
-          color: foreground,
-        ),
-        const SizedBox(width: Space.md),
-        Flexible(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              FittedBox(
-                fit: BoxFit.scaleDown,
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  // "Missed turns 1/3" — the count is the whole point, so
-                  // it is always there, even at 0/3.
-                  '${last ? t.lastWarning : t.missedTurnsLabel} $missed/$limit',
-                  maxLines: 1,
-                  style: AppTheme.money(
-                    theme.textTheme.labelMedium ?? const TextStyle(),
-                    colour: foreground,
-                    weight: FontWeight.w600,
-                  ),
-                ),
-              ),
-              if (last && !widget.compact)
-                Text(
-                  t.missOneMore,
-                  // Two lines when the corner is narrow, rather than an
-                  // explanation cut off mid-sentence.
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: AppTheme.boneInk.withValues(alpha: AppTheme.inkMed),
-                  ),
-                ),
-            ],
-          ),
-        ),
-      ],
-    );
-
-    if (!last) return row;
-
-    // The alpha breathes and the blur does not: animating a blur radius
-    // regenerates the shadow's mask on every frame, while animating the alpha
-    // reuses one cached mask and looks the same at this size.
-    return RepaintBoundary(
-      child: AnimatedBuilder(
-        animation: _pulse,
-        builder: (context, child) => DecoratedBox(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(Radii.xs),
-            boxShadow: [
-              BoxShadow(
-                color: scheme.error.withValues(
-                  alpha: 0.18 + 0.26 * Motion.breathe.transform(_pulse.value),
-                ),
-                blurRadius: 12,
-                spreadRadius: 1,
-              ),
-            ],
-          ),
-          child: child,
-        ),
-        child: row,
-      ),
-    );
-  }
 }
 
 /// The pot travelling to whoever won it.
@@ -2377,6 +2074,19 @@ class _OwnHand extends StatelessWidget {
     // the server can only refuse.
     final stillBlind =
         you.isBlind && you.status == SeatState.active && cards.isEmpty;
+    // This table's blind allowance, from the menu the server sent with the
+    // room; 4 when the room is not on it (a private table).
+    final room = state.room!;
+    final maxBlind =
+        state.config.tables
+            .where(
+              (t) =>
+                  t.category == room.category &&
+                  t.bootAmount == room.bootAmount,
+            )
+            .map((t) => t.maxBlindMoves)
+            .firstOrNull ??
+        4;
 
     // The fan's own box. The cards overlap by 18% and the outer two lean out,
     // so the box pays for both the overlap and the lean; the cards cast their
@@ -2454,14 +2164,24 @@ class _OwnHand extends StatelessWidget {
                       ),
                       child: FittedBox(
                         fit: BoxFit.scaleDown,
-                        child: Text(
-                          state.t.seeCards,
-                          maxLines: 1,
-                          style: AppTheme.label(
-                            theme.textTheme.labelLarge ?? const TextStyle(),
-                            colour: AppTheme.goldBright,
-                            weight: FontWeight.w700,
-                          ),
+                        // The label, and under it the blind bets left: the
+                        // count lives on the key that ends it rather than in a
+                        // box of its own in the corner.
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              state.t.seeCards,
+                              maxLines: 1,
+                              style: AppTheme.label(
+                                theme.textTheme.labelLarge ?? const TextStyle(),
+                                colour: AppTheme.goldBright,
+                                weight: FontWeight.w700,
+                              ),
+                            ),
+                            const SizedBox(height: Space.xs),
+                            _BlindDots(left: you.blindMovesLeft, max: maxBlind),
+                          ],
                         ),
                       ),
                     ),
@@ -2653,7 +2373,8 @@ class _WinnerBurstState extends State<_WinnerBurst>
           // SHORTER side so it never runs off a wide felt, and overscaled a
           // little so the sparks clear the pod rather than stopping at it.
           final side =
-              math.min(box.maxWidth, box.maxHeight) * (widget.big ? 1.25 : 0.95);
+              math.min(box.maxWidth, box.maxHeight) *
+              (widget.big ? 1.25 : 0.95);
           final centre = widget.focus == null
               ? Offset(box.maxWidth / 2, box.maxHeight / 2)
               : Offset(

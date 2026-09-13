@@ -378,6 +378,7 @@ const (
 	MsgPictureRetired     = "That picture is no longer available."
 	MsgPictureFree        = "That picture is free — just choose it."
 	MsgPictureChips       = "You do not have enough chips for that picture."
+	MsgPictureDiamonds    = "You do not have enough diamonds for that picture."
 	MsgSeatedPicture      = "You cannot buy a picture while you are at a table."
 	MsgEmptyName          = "Your name cannot be empty."
 	MsgNameTooLongFormat  = "Keep it to %d characters or fewer."

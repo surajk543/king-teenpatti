@@ -268,10 +268,14 @@ test('joining while already seated, or a room that does not exist, is refused', 
 
   const loner = await guestLogin('device-parity-invalid-seat-c', 'Cara');
   const cl = await openClient(loner.token);
+  // A table code is exactly 8 letters or digits; any other shape is refused
+  // as not a code, and the right shape with no table is room_not_found.
   ack = await cl.emit('room:joinCode', { code: 'NOPE00' });
+  assert.deepEqual(ack, { ok: false, code: 'invalid_room_code', message: 'Table codes are 8 letters and numbers' });
+  ack = await cl.emit('room:joinCode', { code: 'NOPE0000' });
   assert.deepEqual(ack, { ok: false, code: 'room_not_found', message: 'No table with that code' });
   ack = await cl.emit('room:joinCode', { code: { $gt: '' } });
-  assert.equal(ack.code, 'room_not_found');
+  assert.equal(ack.code, 'invalid_room_code');
   ack = await cl.emit('room:quickJoin', { bootAmount: -5 });
   assert.deepEqual(ack, { ok: false, code: 'invalid_stake', message: 'That stake is not valid' });
   ack = await cl.emit('room:quickJoin', { bootAmount: 'lots' });

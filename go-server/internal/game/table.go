@@ -83,7 +83,7 @@ const reservedActionIDSeparator = ':'
 // TableOptions builds a Table.
 type TableOptions struct {
 	ID        string // util.UUID()
-	Code      string // util.RoomCode(6)
+	Code      string // util.RoomCode(8)
 	Config    TableConfig
 	IsPrivate bool // requirement 22; set by RoomManager, read by lobby filters
 	Ledger    Ledger

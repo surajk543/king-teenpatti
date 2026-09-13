@@ -11,15 +11,15 @@ import '../theme/app_theme.dart';
 ///
 /// The catalogue set is SVG, a Google or Facebook picture is a bitmap, and a
 /// catalogue row may point at a Lottie animation, so three loaders are handled
-/// here. They are routed on the extension and must stay that way: an SVG
-/// through Image.network renders nothing, and a dotLottie is a zip that neither
-/// of the other two can read.
+/// here. The catalogue's declared format picks the loader when the caller has
+/// it; otherwise the downloaded bytes are read for their magic numbers
+/// ([pictureKindOf]). The routing matters: an SVG through Image renders
+/// nothing, and a dotLottie is a zip that neither of the other two can read.
 ///
-/// An animation only PLAYS where [animate] is set — the picker. Everywhere else
-/// it is drawn stopped on its first frame, which is still the player's picture
-/// and costs no ticker: five looping animations around a felt that already runs
-/// per-frame turn clocks is a different question, and not one a profile picture
-/// should answer on its own.
+/// An animation only PLAYS where [animate] is set, and every place a player's
+/// picture appears sets it — the lobby's top bar and drawers, the picker, the
+/// unlock dialog, the store and the seat pods at the table. A still picture
+/// has no frames, so the flag costs a ticker only for a picture that moves.
 ///
 /// There are two different fallbacks and the difference matters. A player with
 /// NO picture gets their initial — it is something rather than nothing, and it
@@ -43,6 +43,7 @@ class Avatar extends StatelessWidget {
   const Avatar({
     super.key,
     required this.url,
+    this.format,
     required this.fallback,
     this.radius = 20,
     this.background,
@@ -54,6 +55,11 @@ class Avatar extends StatelessWidget {
 
   /// Absolute, or server-relative like "/profiles/ace.svg".
   final String? url;
+
+  /// The catalogue's declared render format — 'IMAGE', 'SVG', 'LOTTIE' or
+  /// 'RIVE' — when it is known. The picker has it; a worn seat URL does not.
+  /// Given, it decides the loader; null lets the downloaded bytes decide.
+  final String? format;
 
   /// Shown when there is no picture: normally the display name.
   final String fallback;
@@ -68,8 +74,8 @@ class Avatar extends StatelessWidget {
   /// that has to read as chosen rather than as an Android focus highlight.
   final double ringGap;
 
-  /// Whether a Lottie picture plays. Off everywhere but the picker; a stopped
-  /// animation still draws its first frame. Does nothing for SVG or bitmap
+  /// Whether a Lottie picture plays. A stopped animation still draws its first
+  /// frame. Does nothing for SVG or bitmap
   /// pictures, which have no frames to run.
   final bool animate;
 
@@ -109,23 +115,17 @@ class Avatar extends StatelessWidget {
     );
 
     final link = url;
-    final extension = (link ?? '').toLowerCase();
-    // A dotLottie (.lottie) is a zip of manifest + animation + images; a raw
-    // Lottie is .json. LottieComposition.decodeZip is the default decoder and
-    // sniffs the PK magic bytes, so one call reads either.
-    final animated =
-        extension.endsWith('.lottie') || extension.endsWith('.json');
 
     // Bytes first, network second: PictureCache keeps a picture on the phone
     // once it has been fetched, so the second launch — and every rebuild of
-    // the five seat pods — paints from memory rather than the wire.
+    // the five seat pods — paints from memory rather than the wire. Which
+    // loader draws it is decided once the bytes are in hand, not from the URL.
     final Widget? picture = link == null || link.isEmpty
         ? null
         : _CachedPicture(
             url: link,
+            format: format,
             size: radius * 2,
-            animated: animated,
-            isSvg: extension.endsWith('.svg'),
             animate: animate,
             placeholder: Center(child: initial),
             fallback: fallbackImage,
@@ -198,7 +198,6 @@ class Avatar extends StatelessWidget {
   }
 }
 
-
 /// One picture, drawn from [PictureCache].
 ///
 /// Held apart from [Avatar] because it needs state and Avatar does not: the
@@ -208,21 +207,19 @@ class Avatar extends StatelessWidget {
 class _CachedPicture extends StatefulWidget {
   const _CachedPicture({
     required this.url,
+    required this.format,
     required this.size,
-    required this.animated,
-    required this.isSvg,
     required this.animate,
     required this.placeholder,
     required this.fallback,
   });
 
   final String url;
-  final double size;
 
-  /// Routed on the extension, as before: an SVG through Image renders nothing,
-  /// and a dotLottie is a zip neither of the others can read.
-  final bool animated;
-  final bool isSvg;
+  /// The catalogue's declared format, or null when the caller has only a URL
+  /// (a seat pod, the top bar) — then the bytes decide ([pictureKindOf]).
+  final String? format;
+  final double size;
 
   /// Whether an animation plays, as opposed to resting on its first frame.
   final bool animate;
@@ -230,7 +227,7 @@ class _CachedPicture extends StatefulWidget {
   /// Held while the bytes are on their way — only ever on a first fetch.
   final Widget placeholder;
 
-  /// Shown when they cannot be had, or will not decode.
+  /// Shown when they cannot be had, will not decode, or cannot be played.
   final Widget fallback;
 
   @override
@@ -250,7 +247,7 @@ class _CachedPictureState extends State<_CachedPicture> {
   @override
   void didUpdateWidget(covariant _CachedPicture old) {
     super.didUpdateWidget(old);
-    if (old.url != widget.url) {
+    if (old.url != widget.url || old.format != widget.format) {
       _bytes = null;
       _failed = false;
       _resolve();
@@ -258,6 +255,11 @@ class _CachedPictureState extends State<_CachedPicture> {
   }
 
   void _resolve() {
+    // A declared RIVE row cannot be played, so there is nothing to fetch.
+    if (widget.format == 'RIVE') {
+      _failed = true;
+      return;
+    }
     final ready = PictureCache.peek(widget.url);
     if (ready != null) {
       _bytes = ready;
@@ -281,37 +283,40 @@ class _CachedPictureState extends State<_CachedPicture> {
     final bytes = _bytes;
     if (bytes == null) return widget.placeholder;
 
-    if (widget.animated) {
-      return Lottie.memory(
-        bytes,
-        width: widget.size,
-        height: widget.size,
-        fit: BoxFit.cover,
-        animate: widget.animate,
-        repeat: widget.animate,
-        frameBuilder: (_, child, composition) =>
-            composition == null ? widget.placeholder : child,
-        errorBuilder: (_, _, _) => widget.fallback,
-      );
+    switch (pictureKindOf(widget.format, bytes)) {
+      case PictureKind.lottie:
+        return Lottie.memory(
+          bytes,
+          width: widget.size,
+          height: widget.size,
+          fit: BoxFit.cover,
+          animate: widget.animate,
+          repeat: widget.animate,
+          frameBuilder: (_, child, composition) =>
+              composition == null ? widget.placeholder : child,
+          errorBuilder: (_, _, _) => widget.fallback,
+        );
+      case PictureKind.svg:
+        return SvgPicture.memory(
+          bytes,
+          width: widget.size,
+          height: widget.size,
+          fit: BoxFit.cover,
+          placeholderBuilder: (_) => widget.placeholder,
+          errorBuilder: (_, _, _) => widget.fallback,
+        );
+      case PictureKind.unsupported:
+        return widget.fallback;
+      case PictureKind.bitmap:
+        return Image.memory(
+          bytes,
+          width: widget.size,
+          height: widget.size,
+          fit: BoxFit.cover,
+          // Bytes that will not decode are the same problem as bytes that
+          // never arrived, and get the same answer.
+          errorBuilder: (_, _, _) => widget.fallback,
+        );
     }
-    if (widget.isSvg) {
-      return SvgPicture.memory(
-        bytes,
-        width: widget.size,
-        height: widget.size,
-        fit: BoxFit.cover,
-        placeholderBuilder: (_) => widget.placeholder,
-        errorBuilder: (_, _, _) => widget.fallback,
-      );
-    }
-    return Image.memory(
-      bytes,
-      width: widget.size,
-      height: widget.size,
-      fit: BoxFit.cover,
-      // Bytes that will not decode are the same problem as bytes that never
-      // arrived, and get the same answer.
-      errorBuilder: (_, _, _) => widget.fallback,
-    );
   }
 }

@@ -59,19 +59,36 @@
 -- the game offers: a FREE row is worn by anyone, a PREMIUM row costs chips a
 -- player has to spend before they may wear it.
 --
--- image_url is whatever a client can LOAD. That is a hosted URL for the art
+-- asset_url is whatever a client can LOAD. That is a hosted URL for the art
 -- the game ships with today; a server-relative path into PUBLIC_DIR
 -- ("/profiles/bear.svg") works just as well. It is UNIQUE because it is the
 -- natural key the seed below matches on; the BIGSERIAL id is what
 -- users.active_picture_id and user_profile_pictures point at.
+--
+-- asset_format tells the client HOW to play what asset_url serves, so no
+-- client ever has to guess from a file extension (hosted URLs often carry
+-- none): IMAGE is a bitmap — jpg, jpeg and png share one loader — SVG is
+-- vector art, LOTTIE is a Lottie JSON (or .lottie zip) the client downloads
+-- and plays, RIVE is a Rive .riv binary. The value rides the wire next to the
+-- URL as assetFormat, so a catalogue row can change loader without a client
+-- release.
 CREATE TABLE IF NOT EXISTS profile_pictures (
   id         BIGSERIAL PRIMARY KEY,
   name       TEXT    NOT NULL,
-  image_url  TEXT    NOT NULL UNIQUE,
+  asset_url  TEXT    NOT NULL UNIQUE,
+  -- How the client renders what asset_url serves. Defaults to IMAGE so a row
+  -- inserted without the column is a picture every client can draw.
+  asset_format TEXT   NOT NULL DEFAULT 'IMAGE'
+               CHECK (asset_format IN ('IMAGE', 'SVG', 'LOTTIE', 'RIVE')),
   type       TEXT    NOT NULL CHECK (type IN ('FREE', 'PREMIUM')),
   -- What it costs in chips. Paid through chip_ledger like every other chip
   -- movement, so SUM(delta) = users.chips still reconciles after a purchase.
   cost       BIGINT  NOT NULL DEFAULT 0 CHECK (cost >= 0),
+  -- Which wallet cost is paid from: COIN (chips, the default) or DIAMOND
+  -- (users.diamond). Meaningless on a FREE row — nothing is charged — and
+  -- the default keeps hand-inserted rows on the chips path.
+  currency   TEXT    NOT NULL DEFAULT 'COIN'
+             CHECK (currency IN ('COIN', 'DIAMOND')),
   -- How long a purchase of this picture lasts, in DAYS. 0 means for ever,
   -- which is what every free picture is and what a premium one is until
   -- somebody prices it as a rental.
@@ -119,6 +136,10 @@ CREATE TABLE IF NOT EXISTS users (
   -- The wallet. Every change goes through a transaction that locks this row,
   -- and the CHECK is the last line of defence against an overdraft.
   chips             BIGINT NOT NULL DEFAULT 0 CHECK (chips >= 0),
+  -- Premium soft currency. Starts at 1 so a fresh account can taste the
+  -- diamond shelf. NOT chip_ledger's business: the ledger backs the chips
+  -- invariant (SUM(delta) == chips), and diamonds are not chips.
+  diamond    INTEGER NOT NULL DEFAULT 1 CHECK (diamond >= 0),
   -- A hand only counts as "played" once the player has made a voluntary bet;
   -- posting the boot and folding immediately does not count.
   hands_played      INTEGER NOT NULL DEFAULT 0,

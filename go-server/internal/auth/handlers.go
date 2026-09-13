@@ -121,20 +121,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	// A failure here is logged and swallowed. Losing a picture is not worth
 	// refusing a login over, and the next read of the catalogue will still show
 	// the rental as lapsed.
-	if h.deps.Pictures != nil {
-		expired, err := h.deps.Pictures.ExpireLapsed(r.Context(), user.ID)
-		switch {
-		case err != nil && h.deps.Logger != nil:
-			h.deps.Logger.Warn("picture expiry sweep failed", "userId", user.ID, "error", err.Error())
-		case expired:
-			if fresh, ferr := h.deps.Users.FindByID(r.Context(), user.ID); ferr == nil && fresh != nil {
-				user = fresh
-			}
-			if h.deps.Logger != nil {
-				h.deps.Logger.Info("premium picture expired", "userId", user.ID)
-			}
-		}
-	}
+	user = h.takeOffLapsedPicture(r, user)
 
 	token, err := h.deps.Tokens.Issue(user)
 	if err != nil {
@@ -157,8 +144,40 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 
 // Me is GET /api/auth/me: {user} re-read from the store by RequireAuth on
 // every call, so chips and stats are fresh.
+//
+// It sweeps a lapsed rental exactly as Login does, because this — not login —
+// is how the app comes back: a saved session starts here and connects its
+// socket straight after. The catalogue listing sweeps too, but the client sends
+// that request alongside the socket connect rather than before it, so a slow
+// listing would let what follows — session:ready, a resumed seat — read the row
+// before the sweep reached it.
 func (h *Handler) Me(w http.ResponseWriter, r *http.Request, user *db.User) {
-	WriteJSON(w, http.StatusOK, UserResponse{User: user})
+	WriteJSON(w, http.StatusOK, UserResponse{User: h.takeOffLapsedPicture(r, user)})
+}
+
+// takeOffLapsedPicture takes off the premium picture a player is wearing when
+// its rental has run out, and returns the user as they now stand: re-read when
+// something changed, so the answer carries the face they actually have.
+//
+// A failure is logged and swallowed. Losing a picture is not worth refusing
+// the request over, and every ownership read tests the expiry itself.
+func (h *Handler) takeOffLapsedPicture(r *http.Request, user *db.User) *db.User {
+	if h.deps.Pictures == nil {
+		return user
+	}
+	expired, err := h.deps.Pictures.ExpireLapsed(r.Context(), user.ID)
+	switch {
+	case err != nil && h.deps.Logger != nil:
+		h.deps.Logger.Warn("picture expiry sweep failed", "userId", user.ID, "error", err.Error())
+	case expired:
+		if fresh, ferr := h.deps.Users.FindByID(r.Context(), user.ID); ferr == nil && fresh != nil {
+			user = fresh
+		}
+		if h.deps.Logger != nil {
+			h.deps.Logger.Info("premium picture expired", "userId", user.ID)
+		}
+	}
+	return user
 }
 
 // parseLimit reads a ?limit like Node's `parseInt(limit ?? '20') || 20` (the
@@ -496,6 +515,11 @@ func (h *Handler) BuyPicture(w http.ResponseWriter, r *http.Request, user *db.Us
 		return
 	case errors.Is(err, db.ErrPictureChips):
 		WriteJSON(w, http.StatusConflict, ErrorResponse{Error: CodePictureChips, Message: MsgPictureChips})
+		return
+	case errors.Is(err, db.ErrPictureDiamonds):
+		// Same wire code — clients match by code — but the message names the
+		// wallet that was actually short.
+		WriteJSON(w, http.StatusConflict, ErrorResponse{Error: CodePictureChips, Message: MsgPictureDiamonds})
 		return
 	case err != nil:
 		h.writeError(w, r, err)

@@ -283,19 +283,34 @@ class NoticeToast extends StatelessWidget {
 
   /// A snack bar wearing this shell, sized to the screen rather than to a fixed
   /// 420dp that does not fit a 640dp phone.
+  ///
+  /// The width is set through the side margins rather than `width` because the
+  /// bottom margin has to clear the keyboard: every toast is painted on the
+  /// Scaffold main.dart puts round the Navigator, which is never resized for
+  /// the keyboard, so one raised while somebody is typing would otherwise land
+  /// behind the keys.
   static SnackBar snackBar(
     BuildContext context, {
     required String message,
     NoticeTone tone = NoticeTone.neutral,
     IconData? icon,
-  }) => SnackBar(
-    content: NoticeToast(message: message, tone: tone, icon: icon),
-    backgroundColor: Colors.transparent,
-    elevation: 0,
-    padding: EdgeInsets.zero,
-    behavior: SnackBarBehavior.floating,
-    width: Dim.toastW(MediaQuery.sizeOf(context).width),
-  );
+  }) {
+    final w = MediaQuery.sizeOf(context).width;
+    final side = ((w - Dim.toastW(w)) / 2).clamp(0.0, w / 2);
+    return SnackBar(
+      content: NoticeToast(message: message, tone: tone, icon: icon),
+      backgroundColor: Colors.transparent,
+      elevation: 0,
+      padding: EdgeInsets.zero,
+      behavior: SnackBarBehavior.floating,
+      margin: EdgeInsets.fromLTRB(
+        side,
+        Space.xs,
+        side,
+        Space.md + MediaQuery.viewInsetsOf(context).bottom,
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {

@@ -10,7 +10,10 @@ import '../l10n/strings.dart';
 import '../state/game_state.dart';
 import '../theme/app_theme.dart';
 import '../theme/theme_colors.dart';
+import 'avatar.dart';
 import 'glass_components.dart';
+import 'glass_orb.dart';
+import 'picture_shelf.dart';
 import 'poker_chip.dart';
 import 'premium_surface.dart';
 
@@ -123,17 +126,6 @@ const chipPacks = <ChipPack>[
   ),
 ];
 
-/// The tallest pile any card carries, from the same expression the cards use.
-/// It is what every card's height is measured against, so they line up on one
-/// grid whatever their own pile does.
-final int _tallestPile = chipPacks
-    .map((p) => _pileFor(p))
-    .reduce((a, b) => a > b ? a : b);
-
-/// How many discs a pack's pile is. Unchanged: `colours.length` is layout in
-/// [LivelyChipStack], so this expression is the card's geometry, not a palette.
-int _pileFor(ChipPack p) => 3 + chipPacks.indexOf(p) ~/ 4;
-
 /// The painted height of one line of the type ramp, after the OS text scale
 /// (clamped app-wide to 0.9–1.25 in `main.dart`).
 ///
@@ -142,6 +134,99 @@ int _pileFor(ChipPack p) => 3 + chipPacks.indexOf(p) ~/ 4;
 /// measured to the fraction overflows by tenths of a pixel.
 double _line(TextScaler scaler, double size, double heightFactor) =>
     (scaler.scale(size) * heightFactor).ceilToDouble();
+
+/// The store's two shelves: chip packs, and the picture catalogue.
+enum _StoreTab { chips, pictures }
+
+/// The switch between the store's shelves, in the header beside the close key.
+///
+/// Two keys rather than a Material TabBar: the header is one 44dp row in
+/// landscape, and a TabBar is a row of its own taken straight out of the
+/// shelf. The key that is on is washed in gold, the house's one signal colour;
+/// the other is quiet ink on the glass.
+class _StoreTabs extends StatelessWidget {
+  const _StoreTabs({required this.value, required this.onChanged});
+
+  final _StoreTab value;
+  final ValueChanged<_StoreTab> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final t = context.read<GameState>().t;
+    final champagne = theme.brightness == Brightness.dark
+        ? AppTheme.goldBright
+        : AppTheme.goldDeep;
+    final quiet = theme.colorScheme.onSurface.withValues(
+      alpha: AppTheme.inkMed,
+    );
+
+    Widget key(_StoreTab tab, IconData icon, String label) {
+      final on = tab == value;
+      final ink = on ? champagne : quiet;
+      return PressScale(
+        child: Material(
+          type: MaterialType.transparency,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(Radii.pill),
+            enableFeedback: context.select<FeedbackSettings, bool>(
+              (f) => f.sound,
+            ),
+            onTap: on
+                ? null
+                : () {
+                    tapHaptic(context);
+                    onChanged(tab);
+                  },
+            child: AnimatedContainer(
+              duration: Motion.fast,
+              alignment: Alignment.center,
+              constraints: const BoxConstraints(minHeight: Dim.minTouch),
+              padding: const EdgeInsets.symmetric(horizontal: Space.md),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(Radii.pill),
+                color: on
+                    ? AppTheme.gold.withValues(alpha: 0.16)
+                    : Colors.transparent,
+                border: Border.all(
+                  color: on
+                      ? AppTheme.goldBright.withValues(alpha: 0.55)
+                      : AppTheme.hairlineColour(theme.brightness),
+                  width: Dim.hairline,
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(icon, size: 18, color: ink),
+                  const SizedBox(width: Space.xs),
+                  Text(
+                    label,
+                    maxLines: 1,
+                    style: AppTheme.label(
+                      theme.textTheme.labelLarge ?? const TextStyle(),
+                      colour: ink,
+                      weight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        key(_StoreTab.chips, Icons.toll_rounded, t.storeTabChips),
+        const SizedBox(width: Space.sm),
+        key(_StoreTab.pictures, Icons.face_rounded, t.storeTabPictures),
+      ],
+    );
+  }
+}
 
 /// Opens the store over whatever is behind it.
 ///
@@ -201,6 +286,20 @@ class _ChipStoreState extends State<_ChipStore> {
   /// dispose() is the teardown trap CLAUDE.md §12.3 documents.
   final ScrollController _scroller = ScrollController();
 
+  /// Which shelf is showing. The picture shelf is not offered at a table — a
+  /// seated player can neither buy nor change a picture (requirement 21) — so
+  /// the build falls back to chips there whatever this says.
+  _StoreTab _tab = _StoreTab.chips;
+
+  /// The picture shelf's filter, as in the picker; it opens on All.
+  PictureFilter _shelf = PictureFilter.all;
+
+  /// Back to the top when the shelf under the scrollbar changes, so a switch
+  /// never lands part-way down a list the player has not seen.
+  void _toTop() {
+    if (_scroller.hasClients) _scroller.jumpTo(0);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -224,8 +323,19 @@ class _ChipStoreState extends State<_ChipStore> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final t = context.watch<GameState>().t;
+    final state = context.watch<GameState>();
+    final t = state.t;
     final prices = _prices;
+    final picturesOffered = state.screen != Screen.table;
+    final tab = picturesOffered ? _tab : _StoreTab.chips;
+    final onPictures = tab == _StoreTab.pictures;
+    // The picture being worn, when it is one of the catalogue's, for the
+    // Pictures tab's header; null leaves the provider photo or the initial.
+    final wornMatches = state.pictures.where(
+      (p) => p.id == state.user?.activePictureId,
+    );
+    final worn = wornMatches.isEmpty ? null : wornMatches.first;
+    final wornR = (MediaQuery.sizeOf(context).height * 0.10).clamp(28.0, 48.0);
     final size = MediaQuery.sizeOf(context);
     final scaler = MediaQuery.textScalerOf(context);
 
@@ -244,175 +354,245 @@ class _ChipStoreState extends State<_ChipStore> {
       child: Align(
         alignment: Alignment.bottomCenter,
         child: Padding(
-        padding: const EdgeInsets.fromLTRB(Space.md, 0, Space.md, Space.md),
-        // Bounded, so the shelf cannot grow past the screen as packs are
-        // added; only the packs scroll.
-        child: ConstrainedBox(
-        constraints: BoxConstraints(maxHeight: size.height * 0.88),
-        child: PremiumGlassPanel(
-          // A modal, and the only one of its kind on screen: it may take the
-          // app's single blur if nothing louder has claimed it. The blur
-          // radius is the theme's own (GlassColors.sigma).
-          mode: GlassMode.auto,
-          priority: 20,
-          radius: Radii.lg,
-          padding: const EdgeInsets.fromLTRB(
-            Space.lg,
-            Space.md,
-            Space.lg,
-            Space.lg,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Center(
-                child: Container(
-                  width: 36,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(Radii.pill),
-                    color: AppTheme.hairlineColour(
-                      theme.brightness,
-                      live: true,
-                    ),
-                  ),
-                ),
+          padding: const EdgeInsets.fromLTRB(Space.md, 0, Space.md, Space.md),
+          // Bounded, so the shelf cannot grow past the screen as packs are
+          // added; only the packs scroll.
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxHeight: size.height * 0.88),
+            child: PremiumGlassPanel(
+              // A modal, and the only one of its kind on screen: it may take the
+              // app's single blur if nothing louder has claimed it. The blur
+              // radius is the theme's own (GlassColors.sigma).
+              mode: GlassMode.auto,
+              priority: 20,
+              radius: Radii.lg,
+              padding: const EdgeInsets.fromLTRB(
+                Space.lg,
+                Space.md,
+                Space.lg,
+                Space.lg,
               ),
-              const SizedBox(height: Space.md),
-              SizedBox(
-                height: headerH,
-                child: Row(
-                  children: [
-                    const PokerChip(colour: AppTheme.gold, size: 22),
-                    const SizedBox(width: Space.md),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Text(
-                            t.storeTitle,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: AppTheme.label(
-                              theme.textTheme.titleMedium ?? const TextStyle(),
-                            ),
-                          ),
-                          Text(
-                            t.storeBlurb,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: scheme.onSurface.withValues(
-                                alpha: AppTheme.inkLow,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    PressScale(
-                      child: IconButton(
-                        tooltip: t.close,
-                        onPressed: () => Navigator.pop(context),
-                        icon: const Icon(Icons.close_rounded, size: 20),
-                        // A Material icon button lays out at 48 whatever its
-                        // icon does, which is 4dp more than the header is
-                        // tall. The touch floor is Dim.minTouch, so say so.
-                        style: IconButton.styleFrom(
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                          minimumSize: const Size.square(Dim.minTouch),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 36,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(Radii.pill),
+                        color: AppTheme.hairlineColour(
+                          theme.brightness,
+                          live: true,
                         ),
                       ),
                     ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: Space.md),
-              Flexible(
-                child: ScrollbarTheme(
-                  data: ScrollbarThemeData(
-                    thickness: const WidgetStatePropertyAll(4),
-                    radius: const Radius.circular(Radii.pill),
-                    thumbColor: WidgetStatePropertyAll(
-                      AppTheme.hairlineColour(theme.brightness, live: true),
-                    ),
                   ),
-                  child: Scrollbar(
-                    controller: _scroller,
-                    thumbVisibility: true,
-                    child: SingleChildScrollView(
-                      controller: _scroller,
-                      padding: const EdgeInsets.only(right: Space.md),
-                      child: Wrap(
-                        spacing: Space.md,
-                        runSpacing: Space.md,
-                        children: [
-                          for (var i = 0; i < chipPacks.length; i++)
-                            SizedBox(
-                              height: _packHeight(scaler, size.height),
-                              child: _PackEntrance(
-                                index: i,
-                                child: _PackCard(
-                                  pack: chipPacks[i],
-                                  prices: prices,
-                                  width: Dim.packW(size.width),
+                  const SizedBox(height: Space.md),
+                  SizedBox(
+                    height: headerH,
+                    child: Row(
+                      children: [
+                        onPictures
+                            ? const Icon(
+                                Icons.face_rounded,
+                                size: 22,
+                                color: AppTheme.goldBright,
+                              )
+                            : const PokerChip(colour: AppTheme.gold, size: 22),
+                        const SizedBox(width: Space.md),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Text(
+                                onPictures ? t.storeTabPictures : t.storeTitle,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: AppTheme.label(
+                                  theme.textTheme.titleMedium ??
+                                      const TextStyle(),
                                 ),
                               ),
+                              Text(
+                                onPictures
+                                    ? t.storePicturesBlurb
+                                    : t.storeBlurb,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: scheme.onSurface.withValues(
+                                    alpha: AppTheme.inkLow,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        if (picturesOffered) ...[
+                          const SizedBox(width: Space.md),
+                          _StoreTabs(
+                            value: tab,
+                            onChanged: (next) => setState(() {
+                              _tab = next;
+                              _toTop();
+                            }),
+                          ),
+                        ],
+                        if (onPictures) ...[
+                          const SizedBox(width: Space.md),
+                          DiamondBalance(count: state.user?.diamond ?? 0),
+                        ],
+                        const SizedBox(width: Space.sm),
+                        PressScale(
+                          child: IconButton(
+                            tooltip: t.close,
+                            onPressed: () => Navigator.pop(context),
+                            icon: const Icon(Icons.close_rounded, size: 20),
+                            // A Material icon button lays out at 48 whatever its
+                            // icon does, which is 4dp more than the header is
+                            // tall. The touch floor is Dim.minTouch, so say so.
+                            style: IconButton.styleFrom(
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              minimumSize: const Size.square(Dim.minTouch),
                             ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: Space.md),
+                  // The picture shelf's filter, pinned above its grid exactly as
+                  // in the picker.
+                  if (onPictures) ...[
+                    // The picture being worn, large and centred at the top of the
+                    // tab, with the shelf's filter on the left of the same row: the
+                    // player shops with their current face in view, and the row costs
+                    // the sheet no more height than it has to.
+                    SizedBox(
+                      height: wornR * 2 + 11 + Space.xs + 18,
+                      child: Stack(
+                        children: [
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: PictureFilterMenu(
+                              value: _shelf,
+                              counts: {
+                                for (final f in PictureFilter.values)
+                                  f: state.pictures.where(f.holds).length,
+                              },
+                              onChanged: (f) => setState(() {
+                                _shelf = f;
+                                _toTop();
+                              }),
+                            ),
+                          ),
+                          Align(
+                            alignment: Alignment.center,
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Avatar(
+                                  url: state.avatarUrl,
+                                  format: worn?.assetFormat,
+                                  fallback: state.user?.displayName ?? '',
+                                  radius: wornR,
+                                  ring: AppTheme.goldBright,
+                                  ringWidth: 2.5,
+                                  ringGap: 3,
+                                  animate: true,
+                                ),
+                                const SizedBox(height: Space.xs),
+                                SizedBox(
+                                  // Capped, so a long name can never run into the menu.
+                                  width: wornR * 2 + 48,
+                                  child: Text(
+                                    worn?.name ?? t.yourPicture,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    textAlign: TextAlign.center,
+                                    style: AppTheme.label(
+                                      theme.textTheme.labelMedium!,
+                                      colour: scheme.onSurface.withValues(
+                                        alpha: AppTheme.inkMed,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
                         ],
                       ),
                     ),
+                    const SizedBox(height: Space.sm),
+                  ],
+                  Flexible(
+                    child: ScrollbarTheme(
+                      data: ScrollbarThemeData(
+                        thickness: const WidgetStatePropertyAll(4),
+                        radius: const Radius.circular(Radii.pill),
+                        thumbColor: WidgetStatePropertyAll(
+                          AppTheme.hairlineColour(theme.brightness, live: true),
+                        ),
+                      ),
+                      child: Scrollbar(
+                        controller: _scroller,
+                        thumbVisibility: true,
+                        child: SingleChildScrollView(
+                          controller: _scroller,
+                          padding: const EdgeInsets.only(right: Space.md),
+                          child: onPictures
+                              ? SizedBox(
+                                  // Full width, so the grid starts under its menu rather than
+                                  // centring in the sheet the way the pack shelf does.
+                                  width: double.infinity,
+                                  child: pictureShelf(
+                                    context: context,
+                                    state: state,
+                                    filter: _shelf,
+                                    // The picker's tile size, so a face is the same
+                                    // size wherever it is on sale.
+                                    radius: (size.height * 0.105).clamp(
+                                      32.0,
+                                      52.0,
+                                    ),
+                                  ),
+                                )
+                              : Wrap(
+                                  spacing: Space.md,
+                                  runSpacing: Space.md,
+                                  children: [
+                                    for (var i = 0; i < chipPacks.length; i++)
+                                      SizedBox(
+                                        // The lobby card's proportions: near square.
+                                        width: Dim.packW(size.width),
+                                        height: Dim.packW(size.width) * 1.05,
+                                        child: _PackEntrance(
+                                          index: i,
+                                          child: _PackCard(
+                                            pack: chipPacks[i],
+                                            index: i,
+                                            prices: prices,
+                                          ),
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                        ),
+                      ),
+                    ),
                   ),
-                ),
+                ],
               ),
-            ],
+            ),
           ),
-        ),
-        ),
         ),
       ),
     );
   }
 }
-
-/// A pack card's height, added up from what it holds rather than picked to
-/// look right on one device: the ribbon lane, the bonus plate, the tallest
-/// pile on the shelf, the figure, the price key, and the gaps between them.
-///
-/// Every card is given this height explicitly, and that is not decoration: the
-/// card's own Column contains a Flexible, which is illegal under an unbounded
-/// height constraint. It used to be bounded by the shelf's SizedBox; now that
-/// the cards wrap down the sheet inside a scroll view — which offers infinite
-/// height — each one has to carry its own bound or the whole subtree fails to
-/// lay out and the store opens empty.
-///
-/// 195.2dp at h=360, 200.4 at h=411, 210.7 at h=800 (all at the 1.25 text
-/// scale ceiling; the pile is the only part that grows with the screen).
-double _packHeight(TextScaler scaler, double screenH) {
-  final chip = _pileChip(screenH);
-
-  return _ribbonHeight(scaler) +
-      Space.sm +
-      _badgeHeight(scaler) +
-      Space.sm +
-      chip +
-      chip * 0.22 * (_tallestPile - 1) +
-      Space.sm +
-      _line(scaler, 17, 1.25) +
-      Space.md +
-      Dim.minTouch +
-      Space.md;
-}
-
-/// 19.3dp at h=360, 22 at h=411, 27.5 at h=800.
-double _pileChip(double screenH) => 22 * Dim.vScale(screenH);
-
-double _ribbonHeight(TextScaler scaler) =>
-    _line(scaler, 10.5, 1.15) + 2 * Space.xs;
-
-double _badgeHeight(TextScaler scaler) =>
-    _line(scaler, 10.5, 1.15) + 2 * Space.xs + 2 * Dim.hairline;
 
 /// Slides each pack up as the shelf is set out, one stagger apart.
 class _PackEntrance extends StatefulWidget {
@@ -466,11 +646,14 @@ class _PackEntranceState extends State<_PackEntrance>
 class _PackCard extends StatefulWidget {
   const _PackCard({
     required this.pack,
+    required this.index,
     required this.prices,
-    required this.width,
   });
 
   final ChipPack pack;
+
+  /// Where the pack sits in the range, which decides its colour.
+  final int index;
 
   /// What Play says these cost, keyed by product id. Empty when Play is
   /// unavailable or has not answered yet, and then the card falls back to the
@@ -478,39 +661,48 @@ class _PackCard extends StatefulWidget {
   /// is always shown on Play's own sheet before anyone is charged.
   final Map<String, ProductDetails> prices;
 
-  /// 140dp at w=640, 169.3 at w=891, 200 (the ceiling) at w=1280.
-  final double width;
-
   @override
   State<_PackCard> createState() => _PackCardState();
 }
 
+/// One pack, drawn as the same card as a lobby table.
+///
+/// The store's cards match the lobby's part for part: frosted white glass over
+/// a baked colour orb, a plate in the card's colour at the head, the figure
+/// large beside a chip stack, one line of small print, and a glass capsule
+/// along the foot — carrying the price where a table carries "Tap to sit
+/// down". Colour climbs the range the way it climbs the lobby rail: sapphire
+/// for the first three packs, royal purple for the next three, gold for the
+/// top three, so the shelf reads from modest to rich at a glance.
 class _PackCardState extends State<_PackCard> {
   bool _down = false;
 
-  String _markLabel(Strings t) => switch (widget.pack.mark) {
+  /// A marked pack names its place in the range; an unmarked one leads with
+  /// its bonus, which is the reason to pick it.
+  String _plateLabel(Strings t) => switch (widget.pack.mark) {
     ShelfMark.starter => t.posStarter,
     ShelfMark.popular => t.posPopular,
     ShelfMark.bestValue => t.posBestValue,
     ShelfMark.premium => t.posPremium,
-    ShelfMark.none => '',
+    ShelfMark.none => '${widget.pack.bonusPercent}% ${t.storeBonus}',
   };
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
+    final text = theme.textTheme;
+    final dark = theme.brightness == Brightness.dark;
     final state = context.watch<GameState>();
     final t = state.t;
     final p = widget.pack;
     final prices = widget.prices;
-    final scaler = MediaQuery.textScalerOf(context);
-    final screenH = MediaQuery.sizeOf(context).height;
-    // Champagne reads on charcoal and vanishes on bone, so the light scheme
-    // takes the deep end of the same gold.
-    final champagne = theme.brightness == Brightness.dark
-        ? AppTheme.goldBright
-        : AppTheme.goldDeep;
+    final palette = AppTheme.paletteFor(
+      theme.colorScheme,
+      category: widget.index >= 6 ? 'seen' : 'blind',
+      bootAmount: widget.index >= 3 ? 5000 : 200,
+    );
+    final accent = palette.accent;
+    final champagne = dark ? AppTheme.goldBright : AppTheme.goldDeep;
 
     void buy() {
       // Play is the only thing that can take money, and it is not always
@@ -534,30 +726,45 @@ class _PackCardState extends State<_PackCard> {
       scale: _down ? 0.955 : 1,
       duration: Motion.fast,
       curve: Motion.standard,
-      child: SizedBox(
-        width: widget.width,
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(Radii.lg),
-            // The top of the range sits in a still pool of gold. It used to
-            // breathe on a 2.4s loop in all nine cards at once, which is nine
-            // repeating controllers and a shelf that flickers.
-            boxShadow: p.featured
-                ? [
-                    BoxShadow(
-                      color: AppTheme.gold.withValues(alpha: 0.14),
-                      blurRadius: 22,
-                      spreadRadius: -4,
-                    ),
-                  ]
-                : null,
-          ),
-          child: PremiumGlassPanel(
+      child: LayoutBuilder(
+        builder: (context, box) {
+          final w = box.maxWidth;
+          final h = box.maxHeight;
+          final s = math.min(w, h);
+          final pad = (s * 0.075).clamp(8.0, 14.0);
+          final plateH = (s * 0.15).clamp(20.0, 28.0);
+          final figure = (s * 0.17).clamp(18.0, 30.0);
+          final factH = (s * 0.11).clamp(15.0, 20.0);
+          final ctaH = (s * 0.20).clamp(28.0, 36.0);
+
+          // Up and to the right, and almost wholly inside the card: the shelf
+          // scrolls, and a scroll view clips whatever spills past it.
+          final colours = orbColours(accent);
+          final orb = Rect.fromCenter(
+            center: Offset(w * 0.80, h * 0.34),
+            width: s * 0.62,
+            height: s * 0.62,
+          );
+
+          final panel = PremiumGlassPanel(
             mode: GlassMode.tinted,
             radius: Radii.lg,
             live: p.featured,
-            tint: p.featured ? AppTheme.gold : null,
             padding: EdgeInsets.zero,
+            tint: Colors.white,
+            behind: Stack(
+              children: [
+                Positioned.fromRect(
+                  rect: orb,
+                  child: GlassOrb(
+                    colours: colours,
+                    size: orb.width,
+                    soft: true,
+                    opacity: dark ? 0.62 : 0.46,
+                  ),
+                ),
+              ],
+            ),
             child: Material(
               type: MaterialType.transparency,
               child: InkWell(
@@ -566,8 +773,7 @@ class _PackCardState extends State<_PackCard> {
                 enableFeedback: context.select<FeedbackSettings, bool>(
                   (f) => f.sound,
                 ),
-                // The card has its own press-down scale (AnimatedScale
-                // above), so no PressScale here — only the light haptic.
+                borderRadius: BorderRadius.circular(Radii.lg),
                 onTap: () {
                   tapHaptic(context);
                   buy();
@@ -575,108 +781,100 @@ class _PackCardState extends State<_PackCard> {
                 onTapDown: (_) => setState(() => _down = true),
                 onTapCancel: () => setState(() => _down = false),
                 onTapUp: (_) => setState(() => _down = false),
-                splashColor: AppTheme.gold.withValues(alpha: 0.12),
-                highlightColor: AppTheme.gold.withValues(alpha: 0.06),
-                child: Column(
-                  children: [
-                    SizedBox(
-                      // The lane is reserved on every card, marked or not, so
-                      // nine cards line up on one grid.
-                      height: _ribbonHeight(scaler),
-                      width: double.infinity,
-                      child: p.mark == ShelfMark.none
-                          ? null
-                          : _Ribbon(label: _markLabel(t)),
-                    ),
-                    const SizedBox(height: Space.sm),
-                    SizedBox(
-                      height: _badgeHeight(scaler),
-                      child: _BonusBadge(pack: p),
-                    ),
-                    const SizedBox(height: Space.sm),
-                    // A taller pile as the packs get bigger, so the picture
-                    // agrees with the number. Flexible so a text scale the
-                    // arithmetic did not foresee shortens the pile instead of
-                    // overflowing the shelf.
-                    Flexible(
-                      child: FittedBox(
-                        fit: BoxFit.scaleDown,
-                        child: LivelyChipStack(
-                          // Two tones of the same metal. It used to alternate
-                          // gold and the theme's mint, which is where most of
-                          // the green on this card came from.
-                          colours: List.generate(
-                            _pileFor(p),
-                            (i) => i.isEven ? AppTheme.gold : AppTheme.goldDeep,
+                splashColor: accent.withValues(alpha: 0.12),
+                highlightColor: accent.withValues(alpha: 0.06),
+                child: Padding(
+                  padding: EdgeInsets.all(pad),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _PackPlate(
+                        label: _plateLabel(t),
+                        palette: palette,
+                        height: plateH,
+                      ),
+                      const Spacer(),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          LivelyChipStack(
+                            size: figure * 0.62,
+                            colours: [
+                              accent,
+                              Color.lerp(accent, AppTheme.ink900, 0.35)!,
+                              accent,
+                            ],
                           ),
-                          size: _pileChip(screenH),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: Space.sm),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: Space.sm),
-                      child: FittedBox(
-                        // The figure is the offer. It is the one string here
-                        // whose length is not ours — "5 Billion" and
-                        // "5,00,00,00,000" are the same card — so it shrinks
-                        // rather than wraps or ellipsises.
-                        fit: BoxFit.scaleDown,
-                        child: Text(
-                          formatChips(p.chips),
-                          maxLines: 1,
-                          style: AppTheme.money(
-                            theme.textTheme.titleMedium ?? const TextStyle(),
-                            colour: p.featured ? champagne : scheme.onSurface,
+                          const SizedBox(width: Space.sm),
+                          Expanded(
+                            child: RepaintBoundary(
+                              child: TweenAnimationBuilder<double>(
+                                tween: Tween(end: p.chips.toDouble()),
+                                duration: const Duration(milliseconds: 700),
+                                curve: Motion.standard,
+                                builder: (context, value, _) => FittedBox(
+                                  // "5 Billion" and "5,00,00,00,000" are the
+                                  // same card, so the figure shrinks rather
+                                  // than wraps or ellipsises.
+                                  fit: BoxFit.scaleDown,
+                                  alignment: Alignment.centerLeft,
+                                  child: Text(
+                                    formatChips(value.round()),
+                                    maxLines: 1,
+                                    style: AppTheme.money(
+                                      text.displaySmall!,
+                                      fontSize: figure,
+                                      colour: champagne,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
                           ),
-                        ),
+                        ],
                       ),
-                    ),
-                    const SizedBox(height: Space.md),
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(
-                        Space.md,
-                        0,
-                        Space.md,
-                        Space.md,
+                      const SizedBox(height: Space.sm),
+                      _PackFact(
+                        icon: Icons.redeem_rounded,
+                        label: t.storeBonus,
+                        value: p.bonusPercent == 0 ? '—' : '${p.bonusPercent}%',
+                        accent: accent,
+                        height: factH,
+                        highlight: p.bonusPercent > 0,
                       ),
-                      // Frosted, not filled. A mint key under a gold ribbon
-                      // put the app's two loudest colours on one small card,
-                      // and neither is what the store is selling: the money is
-                      // the gold, so the price wears it as ink on glass and the
-                      // card stops arguing with itself.
-                      child: GlassButton(
-                        onPressed: buy,
-                        style: GlassButtonStyle.glass,
-                        // The card already presses in on tap (AnimatedScale
-                        // above), so the key must not shrink a second time.
-                        pressScale: false,
-                        expand: true,
-                        buttonStyle: FilledButton.styleFrom(
-                          // shrinkWrap, or Material's padded tap target
-                          // silently makes this key 48 and the card 4dp
-                          // taller than the shelf it was measured for.
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                          minimumSize: const Size.fromHeight(Dim.minTouch),
-                          padding: EdgeInsets.zero,
-                        ),
-                        child: Text(
-                          prices[p.productId]?.price ??
-                              '₹${_grouped(p.rupees)}',
-                          maxLines: 1,
-                          style: AppTheme.money(
-                            theme.textTheme.titleSmall ?? const TextStyle(),
-                            colour: champagne,
-                          ),
-                        ),
+                      const Spacer(),
+                      _PriceCapsule(
+                        label:
+                            prices[p.productId]?.price ??
+                            '₹${_grouped(p.rupees)}',
+                        height: ctaH,
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
-          ),
-        ),
+          );
+
+          return Stack(
+            clipBehavior: Clip.none,
+            children: [
+              // The sharp orb, behind the card. Its softened twin is in the
+              // glass's `behind` slot at the same place.
+              Positioned.fromRect(
+                rect: orb,
+                child: IgnorePointer(
+                  child: GlassOrb(
+                    colours: colours,
+                    size: orb.width,
+                    opacity: dark ? 1.0 : 0.9,
+                  ),
+                ),
+              ),
+              panel,
+            ],
+          );
+        },
       ),
     );
   }
@@ -697,105 +895,185 @@ String _grouped(int n) {
   return '$buf,$tail';
 }
 
-/// The tier marker: one material for all four tiers.
+/// The plate at the head of a pack card: the lobby's category plate, still.
 ///
-/// It used to be five different accent colours, which made the shelf read as
-/// five unrelated offers. Gold is the house's one signal colour and the ribbon
-/// is where the store spends it.
-class _Ribbon extends StatelessWidget {
-  const _Ribbon({required this.label});
+/// The lobby's plate breathes and turns its chip; nine of them doing so at once
+/// is the flickering shelf the store's cards were rebuilt to get away from, so
+/// this one keeps the plate's colour and shape and none of its motion.
+class _PackPlate extends StatelessWidget {
+  const _PackPlate({
+    required this.label,
+    required this.palette,
+    required this.height,
+  });
 
   final String label;
+  final TablePalette palette;
+  final double height;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final h = height;
 
-    final glass = GlassColors.of(context);
-    final dark = theme.brightness == Brightness.dark;
-
-    return DecoratedBox(
-      // Frosted, not foil. A solid gold bar across the top of every card made
-      // the marker louder than the pack it marks; as glass with gold ink it
-      // still reads first without becoming the card.
+    return Container(
+      height: h,
+      padding: EdgeInsets.symmetric(horizontal: h * 0.30),
       decoration: BoxDecoration(
-        color: glass.fillStrong,
-        border: Border(
-          bottom: BorderSide(
-            color: AppTheme.goldBright.withValues(alpha: dark ? 0.30 : 0.42),
-            width: Dim.hairline,
-          ),
-        ),
+        color: palette.container,
+        borderRadius: BorderRadius.circular(Radii.sm),
       ),
-      child: Center(
-        child: Text(
-          label,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          textAlign: TextAlign.center,
-          // label, not smallCaps: these four words are translated, and adding
-          // tracking to Gujarati or Gurmukhi only pulls it apart.
-          style: AppTheme.label(
-            theme.textTheme.labelSmall ?? const TextStyle(),
-            colour: dark ? AppTheme.goldBright : AppTheme.goldDeep,
-            weight: FontWeight.w700,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          PokerChip(colour: palette.accent, size: h * 0.58),
+          SizedBox(width: h * 0.24),
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              // label, not smallCaps: these words are translated, and tracking
+              // pulls Gujarati or Gurmukhi apart.
+              style: AppTheme.label(
+                theme.textTheme.labelLarge!,
+                fontSize: (h * 0.40).clamp(9.5, 13.0),
+                colour: palette.onContainer,
+                weight: FontWeight.w700,
+              ),
+            ),
           ),
-        ),
+        ],
       ),
     );
   }
 }
 
-/// The bonus figure. The starter pack has nothing to claim and keeps the lane
-/// with a dash, so the nine cards stay on one grid.
-class _BonusBadge extends StatelessWidget {
-  const _BonusBadge({required this.pack});
+/// One line of small print on a pack card, in the lobby card's layout: an
+/// icon, what it is, and what it is set to.
+class _PackFact extends StatelessWidget {
+  const _PackFact({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.accent,
+    required this.height,
+    this.highlight = false,
+  });
 
-  final ChipPack pack;
+  final IconData icon;
+  final String label;
+  final String value;
+  final Color accent;
+  final double height;
+
+  /// Draws the value in the card's colour, for the fact worth noticing.
+  final bool highlight;
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    final glass = GlassColors.of(context);
+    final size = (height * 0.62).clamp(10.0, 13.0);
+
+    return SizedBox(
+      height: height,
+      child: Row(
+        children: [
+          Icon(icon, size: height * 0.80, color: glass.textMuted),
+          const SizedBox(width: Space.xs),
+          Expanded(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: text.bodySmall?.copyWith(
+                fontSize: size,
+                color: glass.textBody,
+              ),
+            ),
+          ),
+          const SizedBox(width: Space.xs),
+          Text(
+            value,
+            maxLines: 1,
+            style: AppTheme.money(
+              text.labelLarge!,
+              fontSize: size,
+              colour: highlight ? accent : glass.textDisplay,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The price along a pack card's foot: the lobby card's glass capsule.
+///
+/// Not a button of its own — the whole card is the target, as a lobby card is
+/// — so it carries no ink response.
+class _PriceCapsule extends StatelessWidget {
+  const _PriceCapsule({required this.label, required this.height});
+
+  final String label;
+  final double height;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    final t = context.watch<GameState>().t;
-    final champagne = theme.brightness == Brightness.dark
-        ? AppTheme.goldBright
-        : AppTheme.goldDeep;
+    final ink = GlassColors.of(context).textDisplay;
 
-    if (pack.bonusPercent == 0) {
-      return Center(
-        child: Text(
-          '—',
-          style: AppTheme.label(
-            theme.textTheme.labelSmall ?? const TextStyle(),
-            colour: scheme.onSurface.withValues(alpha: AppTheme.inkLow),
-          ),
+    return Container(
+      height: height,
+      width: double.infinity,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(Radii.pill),
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            Colors.white.withValues(alpha: 0.20),
+            Colors.white.withValues(alpha: 0.07),
+          ],
         ),
-      );
-    }
-
-    return Center(
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: AppTheme.gold.withValues(alpha: 0.14),
-          borderRadius: BorderRadius.circular(Radii.pill),
-          border: Border.all(
-            color: AppTheme.hairlineColour(theme.brightness, live: true),
-            width: Dim.hairline,
-          ),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.34),
+          width: 1.2,
         ),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: Space.md),
-          child: Text(
-            '${pack.bonusPercent}% ${t.storeBonus}',
-            maxLines: 1,
-            style: AppTheme.label(
-              theme.textTheme.labelSmall ?? const TextStyle(),
-              colour: champagne,
-              weight: FontWeight.w700,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.white.withValues(alpha: 0.16),
+            offset: const Offset(0, -0.5),
+            spreadRadius: -0.5,
+          ),
+          BoxShadow(
+            color: AppTheme.ink900.withValues(alpha: 0.30),
+            offset: const Offset(0, 2),
+            blurRadius: 8,
+            spreadRadius: -2,
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: AppTheme.money(
+                theme.textTheme.titleSmall!,
+                fontSize: (height * 0.42).clamp(12.0, 16.0),
+                colour: ink,
+              ),
             ),
           ),
-        ),
+          const SizedBox(width: Space.sm),
+          Icon(Icons.arrow_forward_rounded, size: height * 0.44, color: ink),
+        ],
       ),
     );
   }

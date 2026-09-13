@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:teenpatti/net/picture_cache.dart';
 
@@ -43,5 +46,35 @@ void main() {
   test('warming is safe with an empty catalogue and blank urls', () {
     expect(() => PictureCache.warm(const []), returnsNormally);
     expect(() => PictureCache.warm(const ['']), returnsNormally);
+  });
+
+  group('pictureKindOf', () {
+    Uint8List text(String t) => Uint8List.fromList(utf8.encode(t));
+
+    test('a declared format wins over what the bytes look like', () {
+      final png = Uint8List.fromList([0x89, 0x50, 0x4E, 0x47]);
+      expect(pictureKindOf('LOTTIE', png), PictureKind.lottie);
+      expect(pictureKindOf('SVG', text('{}')), PictureKind.svg);
+      expect(pictureKindOf('IMAGE', text('<svg/>')), PictureKind.bitmap);
+      expect(pictureKindOf('RIVE', text('{}')), PictureKind.unsupported);
+    });
+
+    test('without one, a worn picture is told apart by its bytes', () {
+      // What a seat pod gets: a bare URL, no catalogue row, so no format.
+      expect(pictureKindOf(null, text('{"v":"5.7.0","layers":[]}')), PictureKind.lottie);
+      expect(pictureKindOf(null, text('\uFEFF  \n{"v":"5.7.0"}')), PictureKind.lottie,
+          reason: 'a byte-order mark and whitespace do not hide the brace');
+      expect(pictureKindOf(null, text('<svg xmlns="http://www.w3.org/2000/svg"/>')), PictureKind.svg);
+      expect(pictureKindOf(null, text('<?xml version="1.0"?><svg/>')), PictureKind.svg);
+      expect(pictureKindOf(null, Uint8List.fromList([0x50, 0x4B, 0x03, 0x04, 0])), PictureKind.lottie,
+          reason: 'a zip in a picture slot is a dotLottie');
+      expect(pictureKindOf(null, text('RIVE\u0007')), PictureKind.unsupported);
+      expect(pictureKindOf(null, Uint8List.fromList([0x89, 0x50, 0x4E, 0x47, 0x0D])), PictureKind.bitmap);
+      expect(pictureKindOf(null, Uint8List.fromList([0xFF, 0xD8, 0xFF, 0xE0])), PictureKind.bitmap);
+    });
+
+    test('empty bytes fall to the bitmap loader, whose error shows the default', () {
+      expect(pictureKindOf(null, Uint8List(0)), PictureKind.bitmap);
+    });
   });
 }

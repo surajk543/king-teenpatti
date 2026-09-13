@@ -622,7 +622,10 @@ func TestRoomsSwitchFromPrivateTableRefused(t *testing.T) {
 	}
 }
 
-func TestRoomsSwitchPicksTheFullestOtherTable(t *testing.T) {
+// A switch lands on a random other table of the same kind, never the table
+// being left and never a full one: over many switches every eligible table is
+// reached, the fullest and the emptiest alike.
+func TestRoomsSwitchPicksARandomOtherTable(t *testing.T) {
 	f := newRoomsFixture(t, func(g *config.GameConfig, o *game.RoomManagerOptions) {
 		openMenu(g, o)
 		g.NextHandDelay = time.Hour // keep every table idle so seats stay put
@@ -641,18 +644,39 @@ func TestRoomsSwitchPicksTheFullestOtherTable(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		f.mustJoin(full, f.player("F", rmStart))
 	}
+	// A table of another kind at the same stake is never a destination.
+	seen := f.rooms.CreateTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "seen"})
+	f.mustJoin(seen, f.player("Seen", rmStart))
 
-	result, err := f.rooms.SwitchTable(mover)
-	if err != nil {
-		t.Fatal(err)
+	reached := map[*game.Table]int{}
+	from := home
+	for i := 0; i < 60; i++ {
+		result, err := f.rooms.SwitchTable(mover)
+		if err != nil {
+			t.Fatalf("switch %d: %v", i, err)
+		}
+		switch result.To {
+		case from:
+			t.Fatalf("switch %d stayed on the table it left", i)
+		case full, seen:
+			t.Fatalf("switch %d landed on an ineligible table %s", i, result.To.ID())
+		}
+		if f.rooms.GetTableForPlayer(mover.ID) != result.To {
+			t.Fatalf("switch %d: seat is not on the reported table", i)
+		}
+		reached[result.To]++
+		from = result.To
 	}
-	if result.To != busier {
-		t.Fatalf("switched to %s, want the busier table %s", result.To.ID(), busier.ID())
+	// Three eligible tables, each left by two routes: missing one in 60 draws
+	// of a fair coin is odds of about 2^-30.
+	for name, table := range map[string]*game.Table{"home": home, "sparse": sparse, "busier": busier} {
+		if reached[table] == 0 {
+			t.Fatalf("the %s table was never reached: %v", name, reached)
+		}
 	}
-	if home.PlayerCount() != 1 || busier.PlayerCount() != 4 {
-		t.Fatalf("home %d busier %d", home.PlayerCount(), busier.PlayerCount())
+	if full.PlayerCount() != 5 || seen.PlayerCount() != 1 {
+		t.Fatalf("full %d seen %d", full.PlayerCount(), seen.PlayerCount())
 	}
-	_ = sparse
 }
 
 func TestRoomsSwitchLeavesWithReasonMovedAndSkipsConsolidation(t *testing.T) {
@@ -660,12 +684,17 @@ func TestRoomsSwitchLeavesWithReasonMovedAndSkipsConsolidation(t *testing.T) {
 	home := f.rooms.CreateTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"})
 	mover := f.player("Mover", rmStart)
 	f.mustJoin(home, mover)
-	target := f.singleTable(rmBoot, game.CategoryBlind)
-	lonely := f.singleTable(rmBoot, game.CategoryBlind)
+	first := f.singleTable(rmBoot, game.CategoryBlind)
+	second := f.singleTable(rmBoot, game.CategoryBlind)
 
 	result, err := f.rooms.SwitchTable(mover)
 	if err != nil {
 		t.Fatal(err)
+	}
+	// The switch picks either lone table at random; the other stays lonely.
+	target, lonely := first, second
+	if result.To == second {
+		target, lonely = second, first
 	}
 	if result.From != home || result.To != target {
 		t.Fatalf("from %s to %s", result.From.ID(), result.To.ID())
@@ -1215,10 +1244,29 @@ func TestRoomsQuickJoinCheckOrder(t *testing.T) {
 
 func TestRoomsJoinByCodeUnknownCode(t *testing.T) {
 	f := newRoomsFixture(t, nil)
-	_, err := f.rooms.JoinByCode(f.player("P", rmStart), "ZZZZZZ")
+	_, err := f.rooms.JoinByCode(f.player("P", rmStart), "ZZZZZZZZ")
 	expectCode(t, err, game.CodeRoomNotFound)
 	if err.Error() != "No table with that code" {
 		t.Fatalf("message %q", err.Error())
+	}
+}
+
+// A table code is exactly 8 letters or digits. Any other shape is refused as
+// not a code before a table is looked up, while a well-formed code still
+// matches in either case and with spaces around it.
+func TestRoomsJoinByCodeRefusesAMalformedCode(t *testing.T) {
+	f := newRoomsFixture(t, nil)
+	for _, bad := range []string{"", "ZZZZZZ", "ZZZZZZZZZ", "ZZZZ-ZZZ", "ZZZZ ZZZ"} {
+		_, err := f.rooms.JoinByCode(f.player("P", rmStart), bad)
+		expectCode(t, err, game.CodeInvalidRoomCode)
+		if err.Error() != "Table codes are 8 letters and numbers" {
+			t.Fatalf("%q: message %q", bad, err.Error())
+		}
+	}
+	table := f.rooms.CreateTable(game.CreateTableOptions{IsPrivate: true})
+	joined, err := f.rooms.JoinByCode(f.player("Q", rmStart), "  "+strings.ToLower(table.Code())+" ")
+	if err != nil || joined != table {
+		t.Fatalf("well-formed code in lower case with spaces: %v", err)
 	}
 }
 
@@ -1606,12 +1654,12 @@ func TestRoomsListTablesFiltersPrivateAndCategory(t *testing.T) {
 	}
 }
 
-func TestRoomsRoomCodesAreUniqueSixLettersAndUpperCase(t *testing.T) {
+func TestRoomsRoomCodesAreUniqueEightCharactersAndUpperCase(t *testing.T) {
 	f := newRoomsFixture(t, nil)
 	seen := map[string]bool{}
 	for i := 0; i < 300; i++ {
 		code := f.rooms.CreateTable(game.CreateTableOptions{}).Code()
-		if len(code) != 6 || strings.ToUpper(code) != code {
+		if len(code) != 8 || strings.ToUpper(code) != code {
 			t.Fatalf("code %q", code)
 		}
 		if seen[code] {

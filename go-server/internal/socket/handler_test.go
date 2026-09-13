@@ -163,7 +163,7 @@ func TestQuickJoinDealsAHandAndRedactsCards(t *testing.T) {
 	if str(j1.Raw, "roomId") != str(j2.Raw, "roomId") {
 		t.Fatalf("different rooms: %s vs %s", j1.Raw, j2.Raw)
 	}
-	if !regexp.MustCompile(`^[A-Z2-9]{6}$`).MatchString(str(j1.Raw, "code")) {
+	if !regexp.MustCompile(`^[A-Z2-9]{8}$`).MatchString(str(j1.Raw, "code")) {
 		t.Fatalf("room code %q", str(j1.Raw, "code"))
 	}
 	if str(j1.Raw, "category") != "seen" {
@@ -412,7 +412,7 @@ func TestPrivateRoomCreateAndJoinByCode(t *testing.T) {
 	mark := host.c.Mark()
 	created := st.mustOK(host.c, EvRoomCreate, map[string]any{"isPrivate": true, "bootAmount": 9999})
 	code := str(created.Raw, "code")
-	if !regexp.MustCompile(`^[A-Z2-9]{6}$`).MatchString(code) {
+	if !regexp.MustCompile(`^[A-Z2-9]{8}$`).MatchString(code) {
 		t.Fatalf("code %q", code)
 	}
 	// room:create sends exactly room:joined + chat:history, no room:state.
@@ -439,7 +439,8 @@ func TestPrivateRoomCreateAndJoinByCode(t *testing.T) {
 		t.Fatalf("joinCode room %s != %s", j.Raw, created.Raw)
 	}
 	loner := st.player("Loner")
-	st.mustFail(loner.c, EvRoomJoinCode, map[string]any{"code": "ZZZZZZ"}, game.CodeRoomNotFound)
+	st.mustFail(loner.c, EvRoomJoinCode, map[string]any{"code": "ZZZZZZZZ"}, game.CodeRoomNotFound)
+	st.mustFail(loner.c, EvRoomJoinCode, map[string]any{"code": "ZZZZZZ"}, game.CodeInvalidRoomCode)
 	// A private table is never listed.
 	list := st.mustOK(loner.c, EvLobbyList, map[string]any{})
 	for _, row := range arr(list.Raw, "tables") {

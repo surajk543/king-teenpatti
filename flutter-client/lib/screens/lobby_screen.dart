@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -19,6 +20,7 @@ import '../widgets/drifting_chips.dart';
 import '../widgets/fireworks.dart';
 import '../widgets/glass_components.dart';
 import '../widgets/glass_panels.dart';
+import '../widgets/picture_shelf.dart';
 import '../widgets/poker_chip.dart';
 import '../widgets/premium_surface.dart';
 import '../widgets/rules_sheet.dart';
@@ -148,8 +150,9 @@ class _LobbyScreenState extends State<LobbyScreen> {
                                 // they are actually allowed into; putting them
                                 // at the end turns the same cards into the
                                 // thing to play towards.
-                                for (final (i, table)
-                                    in _orderedTables(state).indexed)
+                                for (final (i, table) in _orderedTables(
+                                  state,
+                                ).indexed)
                                   entering(_TableCard(table: table, index: i)),
                                 entering(const _PrivateCard()),
                               ],
@@ -523,6 +526,31 @@ class _TopBar extends StatelessWidget {
                                 ),
                               ),
                             ),
+                            // The second wallet beside the first: diamonds pay
+                            // for what chips cannot, so a player should not have
+                            // to open the picture picker to learn how many they
+                            // hold. Same type, same count-up, its own ink.
+                            SizedBox(width: tight ? Space.md : Space.lg),
+                            Icon(
+                              Icons.diamond,
+                              size: 18,
+                              color: diamondInkOn(brightness),
+                            ),
+                            const SizedBox(width: Space.xs),
+                            TweenAnimationBuilder<double>(
+                              tween: Tween(
+                                end: (user?.diamond ?? 0).toDouble(),
+                              ),
+                              duration: const Duration(milliseconds: 650),
+                              curve: Motion.standard,
+                              builder: (context, value, _) => Text(
+                                '${value.round()}',
+                                style: AppTheme.money(
+                                  text.titleMedium!,
+                                  colour: diamondInkOn(brightness),
+                                ),
+                              ),
+                            ),
                           ],
                         ),
                       ),
@@ -577,6 +605,10 @@ class _AvatarWithPip extends StatelessWidget {
           fallback: fallback,
           // Avatar's ring grows outwards, so the picture gives the ring back.
           radius: diameter / 2 - 1.5,
+          // The player's own picture plays where they see it in the lobby: an
+          // animated one they paid for, frozen on its first frame in the one
+          // place they look at it most, read as broken.
+          animate: true,
         ),
         Container(
           width: pip,
@@ -840,7 +872,10 @@ class _TableCard extends StatelessWidget {
     if (ceiling > 0) {
       entryValue = t.entryUpTo.replaceFirst('{cap}', formatChips(ceiling));
     } else if (table.minChips > 0) {
-      entryValue = t.entryFrom.replaceFirst('{min}', formatChips(table.minChips));
+      entryValue = t.entryFrom.replaceFirst(
+        '{min}',
+        formatChips(table.minChips),
+      );
     } else {
       entryValue = t.entryOpen;
     }
@@ -1588,7 +1623,27 @@ class _PrivateCardState extends State<_PrivateCard> {
                           height: Dim.minTouch,
                           child: GlassTextField(
                             controller: _code,
-                            maxLength: 6,
+                            // Exactly the server's code: 8 letters or digits,
+                            // upper-cased as they are typed and nothing else
+                            // let in, so a space or a dash never reaches a join.
+                            maxLength: tableCodeLength,
+                            inputFormatters: [
+                              FilteringTextInputFormatter.allow(
+                                RegExp('[A-Za-z0-9]'),
+                              ),
+                              TextInputFormatter.withFunction(
+                                (_, value) => value.copyWith(
+                                  text: value.text.toUpperCase(),
+                                ),
+                              ),
+                            ],
+                            // Rebuilds the card, so Join lights up at 8.
+                            onChanged: (_) => setState(() {}),
+                            onSubmitted: (value) {
+                              if (isValidTableCode(value)) {
+                                state.joinByCode(value);
+                              }
+                            },
                             textAlign: TextAlign.center,
                             textCapitalization: TextCapitalization.characters,
                             // Tabular, tracked and centred: a room code is read
@@ -1627,7 +1682,11 @@ class _PrivateCardState extends State<_PrivateCard> {
                                 height: Dim.minTouch,
                                 child: GlassButton(
                                   style: GlassButtonStyle.glass,
-                                  onPressed: () => state.joinByCode(_code.text),
+                                  // Held until the code is whole: 8 letters
+                                  // or digits, the only shape the server takes.
+                                  onPressed: isValidTableCode(_code.text)
+                                      ? () => state.joinByCode(_code.text)
+                                      : null,
                                   label: state.t.join,
                                 ),
                               ),
@@ -1703,6 +1762,11 @@ Future<void> _openPicturePicker(BuildContext context) async {
   // position the moment a purchase landed.
   final scroller = ScrollController();
 
+  // Which shelf the menu has open, owned here for the same reason. It opens on
+  // All, so the whole catalogue — and the tick on the picture being worn — is
+  // in view before anybody narrows it.
+  final shelf = ValueNotifier<PictureFilter>(PictureFilter.all);
+
   await showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
@@ -1737,145 +1801,172 @@ Future<void> _openPicturePicker(BuildContext context) async {
               child: ConstrainedBox(
                 constraints: BoxConstraints(maxHeight: size.height * 0.88),
                 child: PremiumGlassPanel(
-                mode: GlassMode.auto,
-                priority: 20,
-                radius: Radii.lg,
-                padding: const EdgeInsets.fromLTRB(
-                  Space.xl,
-                  Space.md,
-                  Space.xl,
-                  Space.lg,
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Center(
-                      child: Container(
-                        width: 36,
-                        height: 4,
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(Radii.pill),
-                          color: AppTheme.hairlineColour(
-                            theme.brightness,
-                            live: true,
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: Space.md),
-                    Row(
-                      children: [
-                        Avatar(
-                          url: state.avatarUrl,
-                          fallback: user?.displayName ?? '',
-                          radius: headR,
-                          animate: true,
-                        ),
-                        const SizedBox(width: Space.lg),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                state.t.yourPicture,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: AppTheme.label(text.titleSmall!),
-                              ),
-                              Text(
-                                user == null || user.activePictureId == null
-                                    ? 'Using your ${user?.provider ?? 'guest'} picture.'
-                                    : state.t.pictureLocked,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: text.bodySmall?.copyWith(
-                                  color: theme.colorScheme.onSurface.withValues(
-                                    alpha: AppTheme.inkMed,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        // "Use my own photo", as an icon in the header rather
-                        // than a labelled button under the grid: the sheet is
-                        // short in landscape and every fixed row above or below
-                        // the pictures comes straight out of the scrolling
-                        // area. The words survive as the tooltip, which is also
-                        // where a guest finds out WHY it is greyed out —
-                        // without that, a disabled icon says nothing at all.
-                        Builder(
-                          builder: (context) {
-                            final hasPhoto =
-                                (user?.providerAvatarUrl ?? '').isNotEmpty;
-                            final guest = (user?.provider ?? 'guest') == 'guest';
-                            final enabled = hasPhoto && !guest;
-
-                            return Tooltip(
-                              message: enabled
-                                  ? state.t.useSocialPicture
-                                  : state.t.guestNoSocial,
-                              child: IconButton(
-                                onPressed: enabled
-                                    ? () => state.chooseAvatar(null)
-                                    : null,
-                                iconSize: 22,
-                                visualDensity: VisualDensity.compact,
-                                tooltip: null,
-                                icon: const Icon(Icons.account_circle_outlined),
-                                color: theme.colorScheme.onSurface.withValues(
-                                  alpha: AppTheme.inkMed,
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: Space.md),
-                    // The pictures, grouped by what they cost and scrolling
-                    // vertically. Flexible rather than a fixed height: the grid
-                    // takes what the sheet has left after the header and the
-                    // button, so it is the part that shrinks on a short screen.
-                    Flexible(
-                      // The bar is always visible — it is the only thing that
-                      // says there is more below the fold — but wearing the
-                      // app's champagne rather than Material's primary, which
-                      // on this glass reads as a highlighter down the edge.
-                      child: ScrollbarTheme(
-                        data: ScrollbarThemeData(
-                          thickness: const WidgetStatePropertyAll(4),
-                          radius: const Radius.circular(Radii.pill),
-                          thumbColor: WidgetStatePropertyAll(
-                            AppTheme.hairlineColour(theme.brightness, live: true),
-                          ),
-                        ),
-                        child: Scrollbar(
-                          controller: scroller,
-                          thumbVisibility: true,
-                          child: SingleChildScrollView(
-                            controller: scroller,
-                            padding: const EdgeInsets.only(right: Space.md),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                for (final tier in [true, false])
-                                  ..._pictureTier(
-                                    context: context,
-                                    state: state,
-                                    free: tier,
-                                    radius: tileR,
-                                  ),
-                              ],
+                  mode: GlassMode.auto,
+                  priority: 20,
+                  radius: Radii.lg,
+                  padding: const EdgeInsets.fromLTRB(
+                    Space.xl,
+                    Space.md,
+                    Space.xl,
+                    Space.lg,
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Center(
+                        child: Container(
+                          width: 36,
+                          height: 4,
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(Radii.pill),
+                            color: AppTheme.hairlineColour(
+                              theme.brightness,
+                              live: true,
                             ),
                           ),
                         ),
                       ),
-                    ),
-                  ],
+                      const SizedBox(height: Space.md),
+                      Row(
+                        children: [
+                          Avatar(
+                            url: state.avatarUrl,
+                            fallback: user?.displayName ?? '',
+                            radius: headR,
+                            animate: true,
+                          ),
+                          const SizedBox(width: Space.lg),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  state.t.yourPicture,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: AppTheme.label(text.titleSmall!),
+                                ),
+                                Text(
+                                  user == null || user.activePictureId == null
+                                      ? 'Using your ${user?.provider ?? 'guest'} picture.'
+                                      : state.t.pictureLocked,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: text.bodySmall?.copyWith(
+                                    color: theme.colorScheme.onSurface
+                                        .withValues(alpha: AppTheme.inkMed),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          // What diamond-priced pictures are paid from, shown in
+                          // the one place diamonds are spent. Styled like the
+                          // price tags below, so the balance and the prices read
+                          // as one currency at a glance.
+                          DiamondBalance(count: user?.diamond ?? 0),
+                          const SizedBox(width: Space.md),
+                          // "Use my own photo", as an icon in the header rather
+                          // than a labelled button under the grid: the sheet is
+                          // short in landscape and every fixed row above or below
+                          // the pictures comes straight out of the scrolling
+                          // area. The words survive as the tooltip, which is also
+                          // where a guest finds out WHY it is greyed out —
+                          // without that, a disabled icon says nothing at all.
+                          Builder(
+                            builder: (context) {
+                              final hasPhoto =
+                                  (user?.providerAvatarUrl ?? '').isNotEmpty;
+                              final guest =
+                                  (user?.provider ?? 'guest') == 'guest';
+                              final enabled = hasPhoto && !guest;
+
+                              return Tooltip(
+                                message: enabled
+                                    ? state.t.useSocialPicture
+                                    : state.t.guestNoSocial,
+                                child: IconButton(
+                                  onPressed: enabled
+                                      ? () => state.chooseAvatar(null)
+                                      : null,
+                                  iconSize: 22,
+                                  visualDensity: VisualDensity.compact,
+                                  tooltip: null,
+                                  icon: const Icon(
+                                    Icons.account_circle_outlined,
+                                  ),
+                                  color: theme.colorScheme.onSurface.withValues(
+                                    alpha: AppTheme.inkMed,
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: Space.md),
+                      // Which shelf: free, premium stills, or premium pictures
+                      // that move. Pinned above the grid rather than scrolling
+                      // with it, and it stands in for the headings the tiers
+                      // used to carry — one shelf is on show at a time.
+                      ValueListenableBuilder<PictureFilter>(
+                        valueListenable: shelf,
+                        builder: (context, current, _) => PictureFilterMenu(
+                          value: current,
+                          counts: {
+                            for (final f in PictureFilter.values)
+                              f: state.pictures.where(f.holds).length,
+                          },
+                          onChanged: (f) {
+                            shelf.value = f;
+                            if (scroller.hasClients) scroller.jumpTo(0);
+                          },
+                        ),
+                      ),
+                      const SizedBox(height: Space.sm),
+                      // The shelf's pictures, scrolling vertically. Flexible
+                      // rather than a fixed height: the grid takes what the sheet
+                      // has left after the header and the menu, so it is the part
+                      // that shrinks on a short screen.
+                      Flexible(
+                        // The bar is always visible — it is the only thing that
+                        // says there is more below the fold — but wearing the
+                        // app's champagne rather than Material's primary, which
+                        // on this glass reads as a highlighter down the edge.
+                        child: ScrollbarTheme(
+                          data: ScrollbarThemeData(
+                            thickness: const WidgetStatePropertyAll(4),
+                            radius: const Radius.circular(Radii.pill),
+                            thumbColor: WidgetStatePropertyAll(
+                              AppTheme.hairlineColour(
+                                theme.brightness,
+                                live: true,
+                              ),
+                            ),
+                          ),
+                          child: Scrollbar(
+                            controller: scroller,
+                            thumbVisibility: true,
+                            child: SingleChildScrollView(
+                              controller: scroller,
+                              padding: const EdgeInsets.only(right: Space.md),
+                              child: ValueListenableBuilder<PictureFilter>(
+                                valueListenable: shelf,
+                                builder: (context, current, _) => pictureShelf(
+                                  context: context,
+                                  state: state,
+                                  filter: current,
+                                  radius: tileR,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
               ),
             ),
           );
@@ -1885,6 +1976,7 @@ Future<void> _openPicturePicker(BuildContext context) async {
   );
 
   scroller.dispose();
+  shelf.dispose();
 }
 
 /// The name of the picture the player is wearing, or null when they are on
@@ -1896,390 +1988,6 @@ String? _wornPictureName(GameState state) {
     if (p.id == id) return p.name;
   }
   return null;
-}
-
-/// One tier of the catalogue: a heading, then its pictures.
-///
-/// Returns the pieces rather than a widget so the two tiers sit in the same
-/// scrolling column and share its padding. A tier with nothing in it is left
-/// out entirely — an empty "Premium" heading would read as a bug, not as a
-/// catalogue the owner has priced at zero.
-List<Widget> _pictureTier({
-  required BuildContext context,
-  required GameState state,
-  required bool free,
-  required double radius,
-}) {
-  final pictures = state.pictures.where((p) => p.free == free).toList();
-  if (pictures.isEmpty) return const [];
-
-  final theme = Theme.of(context);
-  final t = state.t;
-  final user = state.user;
-
-  return [
-    Padding(
-      padding: const EdgeInsets.only(bottom: Space.sm, top: Space.xs),
-      child: Row(
-        children: [
-          Icon(
-            free ? Icons.lock_open : Icons.lock,
-            size: 13,
-            color: free
-                ? theme.colorScheme.onSurface.withValues(alpha: AppTheme.inkMed)
-                : AppTheme.goldBright,
-          ),
-          const SizedBox(width: Space.xs),
-          Text(
-            free ? t.pictureFree : t.picturePremium,
-            style: AppTheme.label(
-              theme.textTheme.labelMedium ?? const TextStyle(),
-              colour: free ? null : AppTheme.goldBright,
-            ),
-          ),
-          const SizedBox(width: Space.sm),
-          Expanded(
-            child: Divider(
-              height: 1,
-              color: AppTheme.hairlineColour(theme.brightness),
-            ),
-          ),
-        ],
-      ),
-    ),
-    Wrap(
-      spacing: Space.md,
-      runSpacing: Space.sm,
-      children: [
-        for (final p in pictures)
-          _PictureChoice(
-            picture: p,
-            radius: radius,
-            selected: user?.activePictureId == p.id,
-            busy: state.buyingPicture == p.id,
-            onTap: () => p.locked
-                ? _unlockPicture(context, p)
-                : state.chooseAvatar(p.id),
-          ),
-      ],
-    ),
-    const SizedBox(height: Space.md),
-  ];
-}
-
-/// Asks before spending chips on a premium picture, then buys and wears it.
-///
-/// A confirmation rather than a straight tap-to-buy: this is the only place in
-/// the lobby where a tap costs real chips, and a picker is somewhere people
-/// browse. Tapping a face should never be how a stack quietly goes down.
-Future<void> _unlockPicture(BuildContext context, ProfilePicture picture) async {
-  final state = context.read<GameState>();
-  final t = state.t;
-  final theme = Theme.of(context);
-
-  final confirmed = await showDialog<bool>(
-    context: context,
-    builder: (dialogContext) => GlassDialog(
-      padding: const EdgeInsets.all(Space.xl),
-      title: Row(
-        children: [
-          Icon(Icons.lock_open, size: 20, color: theme.colorScheme.primary),
-          const SizedBox(width: Space.md),
-          Expanded(
-            child: Text(
-              t.unlockTitle,
-              style: AppTheme.label(
-                theme.textTheme.titleMedium ?? const TextStyle(),
-              ),
-            ),
-          ),
-        ],
-      ),
-      content: Text(
-        // A rental and a purchase are different offers, and the dialog is the
-        // last place to say which this is before chips leave the wallet.
-        picture.rented
-            ? t.unlockRentBody(
-                picture.name,
-                formatChips(picture.cost),
-                picture.durationDays,
-              )
-            : t.unlockBody(picture.name, formatChips(picture.cost)),
-        style: theme.textTheme.bodyMedium?.copyWith(
-          color: theme.colorScheme.onSurface.withValues(alpha: AppTheme.inkMed),
-        ),
-      ),
-      actions: [
-        GlassButton(
-          style: GlassButtonStyle.text,
-          label: t.cancel,
-          onPressed: () => Navigator.pop(dialogContext, false),
-        ),
-        GlassButton(
-          style: GlassButtonStyle.primary,
-          label: t.unlock,
-          onPressed: () => Navigator.pop(dialogContext, true),
-        ),
-      ],
-    ),
-  );
-
-  // The server is the authority on whether it can be afforded and whether the
-  // player is seated; a refusal comes back as a notice rather than being
-  // guessed at here.
-  if (confirmed == true) await state.buyPicture(picture.id);
-}
-
-class _PictureChoice extends StatelessWidget {
-  const _PictureChoice({
-    required this.picture,
-    required this.radius,
-    required this.selected,
-    required this.busy,
-    required this.onTap,
-  });
-
-  final ProfilePicture picture;
-
-  /// The circle's radius. The tile is wider than 2r so the name underneath has
-  /// room, and every tile is the same width so the grid stays on its columns
-  /// whatever the names are.
-  final double radius;
-  final bool selected;
-
-  /// This picture is being bought right now.
-  final bool busy;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final url = context.read<GameState>().absoluteUrl(picture.url);
-    final locked = picture.locked;
-
-    // Three rings, and each says something different. Gold is the one being
-    // worn. Green is premium already paid for — the padlock is off, and at a
-    // glance down the shelf that is the line between what this player can use
-    // and what they would have to buy. Everything else keeps the champagne
-    // hairline every portrait in the app wears.
-    final unlockedRing = !picture.free && !locked;
-    Widget face = AnimatedSwitcher(
-      duration: Motion.base,
-      child: selected
-          ? Avatar(
-              key: const ValueKey(true),
-              url: url,
-              fallback: picture.name,
-              radius: radius - 3,
-              ring: AppTheme.goldBright,
-              ringWidth: 2.5,
-              ringGap: 2,
-              animate: true,
-            )
-          : Avatar(
-              key: ValueKey(unlockedRing),
-              url: url,
-              fallback: picture.name,
-              radius: radius,
-              ring: unlockedRing ? theme.colorScheme.primary : null,
-              ringWidth: unlockedRing ? 2 : 1.5,
-              animate: true,
-            ),
-    );
-
-    // A locked picture is shown, not hidden: knowing what is behind the
-    // padlock is the whole reason anybody buys one. It is just held back —
-    // dimmed, with the price on it — so it cannot be mistaken for a choice
-    // that is one tap away.
-    if (locked) {
-      face = Opacity(opacity: 0.55, child: face);
-    }
-
-    return PressScale(
-      child: InkWell(
-        // Material's own click, gated on the player's Sound switch —
-        // otherwise a silenced game would still tick on every tap.
-        enableFeedback: context.select<FeedbackSettings, bool>((f) => f.sound),
-        onTap: busy ? null : onTap,
-        borderRadius: BorderRadius.circular(Radii.md),
-        child: SizedBox(
-          width: radius * 2 + Space.lg,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // The picture, with nothing written on it. The price and the
-              // term used to sit over the bottom of the portrait, which put
-              // type on exactly the part of a face people look at; they are a
-              // line of their own underneath now.
-              SizedBox(
-                height: radius * 2 + 6,
-                child: Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    Center(child: face),
-                    if (busy)
-                      SizedBox(
-                        width: radius,
-                        height: radius,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: theme.colorScheme.primary,
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: Space.xxs),
-              if (!busy && locked)
-                _PriceTag(
-                  cost: picture.cost,
-                  days: picture.rented ? picture.durationDays : null,
-                ),
-              // A premium picture that HAS been paid for. Without this an
-              // unlocked one is indistinguishable from a free one, and the
-              // chips somebody spent stop showing anywhere. A rental says how
-              // long is left instead, because that is the thing its owner
-              // actually needs to know.
-              if (!busy && !locked && !picture.free)
-                _UnlockedTag(daysLeft: picture.daysLeft(DateTime.now())),
-              if (!busy && (locked || !picture.free))
-                const SizedBox(height: Space.xxs),
-              // The catalogue gives every picture a name; showing it is what
-              // turns a row of circles into a list somebody can talk about.
-              Text(
-                picture.name,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.center,
-                style: theme.textTheme.labelSmall?.copyWith(
-                  fontSize: 10,
-                  height: 1.1,
-                  color: theme.colorScheme.onSurface.withValues(
-                    alpha: selected ? AppTheme.inkHigh : AppTheme.inkMed,
-                  ),
-                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// The mark on a premium picture this player owns: an open padlock, in the
-/// same spot and the same shape as the price it replaces, so the eye reads the
-/// swap rather than a new kind of badge.
-class _UnlockedTag extends StatelessWidget {
-  const _UnlockedTag({this.daysLeft});
-
-  /// Days left on the rental, or null when it never runs out.
-  final int? daysLeft;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    // The same green as the ring round an unlocked picture, so the badge and
-    // the outline read as one statement rather than two.
-    final green = theme.colorScheme.primary;
-    final left = daysLeft;
-    final label = left == null
-        ? context.read<GameState>().t.pictureUnlocked
-        : context.read<GameState>().t.daysLeft(left);
-
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: Space.xs,
-        vertical: Space.xxs,
-      ),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(Radii.pill),
-        color: AppTheme.ink900.withValues(alpha: 0.82),
-        border: Border.all(color: green.withValues(alpha: 0.55)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            left == null ? Icons.lock_open : Icons.schedule,
-            size: 9,
-            color: green,
-          ),
-          const SizedBox(width: 2),
-          Text(
-            label,
-            style: theme.textTheme.labelSmall?.copyWith(
-              color: green,
-              fontWeight: FontWeight.w700,
-              fontSize: 9,
-              height: 1.1,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// The padlock and price sitting on a premium picture nobody has bought yet.
-class _PriceTag extends StatelessWidget {
-  const _PriceTag({required this.cost, this.days});
-
-  final int cost;
-
-  /// The rental term, or null when buying it keeps it for good. Shown under
-  /// the price rather than beside it: the price is the decision, the term is
-  /// the small print, and on a 60dp tile they cannot share a line.
-  final int? days;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: Space.xs,
-        vertical: Space.xxs,
-      ),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(Radii.pill),
-        color: AppTheme.ink900.withValues(alpha: 0.82),
-        border: Border.all(color: AppTheme.goldBright.withValues(alpha: 0.45)),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.lock, size: 9, color: AppTheme.goldBright),
-              const SizedBox(width: 2),
-              Text(
-                formatChips(cost),
-                style: theme.textTheme.labelSmall?.copyWith(
-                  color: AppTheme.goldBright,
-                  fontWeight: FontWeight.w700,
-                  fontSize: 9,
-                  height: 1.1,
-                ),
-              ),
-            ],
-          ),
-          if (days != null)
-            Text(
-              context.read<GameState>().t.rentForDays(days!),
-              style: theme.textTheme.labelSmall?.copyWith(
-                color: AppTheme.goldBright.withValues(alpha: 0.75),
-                fontWeight: FontWeight.w600,
-                fontSize: 8,
-                height: 1.15,
-              ),
-            ),
-        ],
-      ),
-    );
-  }
 }
 
 /// The shell both right-hand panels share.
@@ -2602,6 +2310,7 @@ class _StatsDrawer extends StatelessWidget {
             url: state.avatarUrl,
             fallback: user?.displayName ?? '',
             radius: 16,
+            animate: true,
           ),
           title: user?.displayName ?? '',
           subtitle: t.yourRecord,

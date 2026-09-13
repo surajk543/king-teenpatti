@@ -20,7 +20,7 @@ test.after(closeDb);
 const uniqueStake = stakeCounter(100);
 
 const USER_KEYS = [
-  'id', 'provider', 'displayName', 'email', 'avatarUrl', 'providerAvatarUrl', 'activePictureId', 'chips',
+  'id', 'provider', 'displayName', 'email', 'avatarUrl', 'providerAvatarUrl', 'activePictureId', 'chips', 'diamond',
   'handsPlayed', 'handsWon', 'handsLost', 'handsLeftMid', 'totalWinnings', 'biggestPot', 'rewards',
   'createdAt', 'lastLoginAt',
 ];
@@ -49,6 +49,7 @@ test('guest login creates an account with the welcome chip grant, in the exact p
   assert.equal(user.providerAvatarUrl, null);
   assert.equal(user.activePictureId, null);
   assert.equal(user.chips, profile.welcomeChips, 'a first-time player is granted 2 lakh chips');
+  assert.equal(user.diamond, 1, 'and one diamond, the premium currency');
   for (const counter of ['handsPlayed', 'handsWon', 'handsLost', 'handsLeftMid', 'totalWinnings', 'biggestPot']) {
     assert.equal(user[counter], 0, counter);
   }
@@ -340,11 +341,15 @@ test('the picture catalogue is listed, worn and cleared', async () => {
   assert.ok(profiles.length >= 1);
 
   for (const entry of profiles) {
-    assertKeys(entry, ['id', 'name', 'url', 'type', 'cost', 'durationDays', 'sortOrder', 'owned', 'expiresAt']);
+    assertKeys(entry, ['id', 'name', 'url', 'assetFormat', 'currency', 'type', 'cost', 'durationDays', 'sortOrder', 'owned', 'expiresAt']);
     // A premium picture is a rental; a free one never runs out, and nobody
     // owning nothing has an expiry.
     assert.equal(typeof entry.durationDays, 'number');
     if (entry.type === 'FREE') assert.equal(entry.durationDays, 0);
+    // How the client renders what url serves; IMAGE covers jpg/jpeg/png.
+    assert.ok(['IMAGE', 'SVG', 'LOTTIE', 'RIVE'].includes(entry.assetFormat), 'assetFormat');
+    // The wallet cost is paid from.
+    assert.ok(['COIN', 'DIAMOND'].includes(entry.currency), 'currency');
     assert.equal(entry.expiresAt, 0, 'an anonymous listing has no rental dates');
     assert.equal(typeof entry.id, 'number');
     assert.ok(entry.name.length > 0);
@@ -405,7 +410,10 @@ test('the picture catalogue is listed, worn and cleared', async () => {
 
 test('a premium picture is bought once, with chips, and then can be worn', async () => {
   const { profiles } = (await http('GET', '/api/profiles')).body;
-  const premium = profiles.filter((p) => p.type === 'PREMIUM').sort((a, b) => a.cost - b.cost)[0];
+  // Coin-priced only: a DIAMOND row can be cheaper in number (Orange Ballerina
+  // costs 1) and is paid from a different wallet — its own test is below.
+  const coinPremium = profiles.filter((p) => p.type === 'PREMIUM' && p.currency === 'COIN');
+  const premium = [...coinPremium].sort((a, b) => a.cost - b.cost)[0];
   const free = profiles.find((p) => p.type === 'FREE');
   assert.ok(premium, 'the seeded catalogue has a premium picture');
 
@@ -452,12 +460,53 @@ test('a premium picture is bought once, with chips, and then can be worn', async
   }
 
   // A wallet that cannot cover the price.
-  const dearest = profiles.filter((p) => p.type === 'PREMIUM').sort((a, b) => b.cost - a.cost)[0];
+  const dearest = [...coinPremium].sort((a, b) => b.cost - a.cost)[0];
   const poor = await guestLogin('device-picture-0002', 'Skint');
   await setWallet(poor.user.id, 1);
   r = await http('POST', '/api/profile/picture/buy', { token: poor.token, body: { pictureId: dearest.id } });
   assert.equal(r.status, 409);
   assert.deepEqual(r.body, { error: 'picture_chips', message: 'You do not have enough chips for that picture.' });
+});
+
+test('a diamond picture is paid in diamonds, never chips, and a new account can afford one', async () => {
+  const { profiles } = (await http('GET', '/api/profiles')).body;
+  const gem = profiles.find((p) => p.currency === 'DIAMOND');
+  assert.ok(gem, 'the seeded catalogue has a diamond-priced picture');
+  assert.equal(gem.type, 'PREMIUM');
+  assert.equal(gem.assetFormat, 'LOTTIE');
+
+  const { token, user } = await guestLogin('device-diamond-0001', 'Gem');
+  assert.equal(user.diamond, 1, 'every account starts with one diamond');
+  assert.ok(gem.cost <= user.diamond, 'which covers the seeded diamond picture');
+
+  let r = await http('POST', '/api/profile/picture/buy', { token, body: { pictureId: gem.id } });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.charged, true);
+  assert.equal(r.body.spent, gem.cost);
+  assert.equal(r.body.picture.owned, true);
+  assert.equal(r.body.picture.currency, 'DIAMOND');
+  assert.equal(r.body.user.diamond, user.diamond - gem.cost, 'the price came out of the diamonds');
+  assert.equal(r.body.user.chips, user.chips, 'and not out of the chips');
+  const { rows } = await query(
+    `SELECT count(*)::int AS n FROM chip_ledger WHERE user_id = $1 AND reason = 'picture_purchase'`, [user.id]);
+  assert.equal(rows[0].n, 0, 'diamonds are not chips: no ledger row');
+
+  r = await http('POST', '/api/profile/picture/buy', { token, body: { pictureId: gem.id } });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.charged, false, 'a second click costs nothing');
+  assert.equal(r.body.user.diamond, user.diamond - gem.cost);
+
+  r = await http('POST', '/api/profile/avatar', { token, body: { avatar: gem.id } });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.user.avatarUrl, gem.url);
+
+  // No diamonds: refused whatever the chip balance, with the diamond wording.
+  const skint = await guestLogin('device-diamond-0002', 'NoGem');
+  await query('UPDATE users SET diamond = 0 WHERE id = $1', [skint.user.id]);
+  r = await http('POST', '/api/profile/picture/buy', { token: skint.token, body: { pictureId: gem.id } });
+  assert.equal(r.status, 409);
+  assert.deepEqual(r.body, { error: 'picture_chips', message: 'You do not have enough diamonds for that picture.' });
+  assert.equal((await me(skint.token)).chips, skint.user.chips, 'the refusal moved no chips');
 });
 
 // ---------------------------------------------------------------- rewards

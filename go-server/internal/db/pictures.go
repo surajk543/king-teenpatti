@@ -16,6 +16,12 @@ import (
 const (
 	PictureFree    = "FREE"
 	PicturePremium = "PREMIUM"
+	// PictureCurrencyCoin / PictureCurrencyDiamond name the wallet a PREMIUM
+	// row's cost is paid from. COIN is chips and moves through chip_ledger;
+	// DIAMOND debits users.diamond directly — the chips invariant's ledger is
+	// not diamonds' business.
+	PictureCurrencyCoin    = "COIN"
+	PictureCurrencyDiamond = "DIAMOND"
 )
 
 // Picture is one catalogue row as a client sees it (GET /api/profiles).
@@ -29,10 +35,21 @@ type Picture struct {
 	ID   int64  `json:"id"`
 	Name string `json:"name"`
 	URL  string `json:"url"`
+	// AssetFormat tells the client how to play what URL serves: "IMAGE"
+	// (jpg/jpeg/png — one loader for all three), "SVG", "LOTTIE" (a Lottie
+	// JSON or .lottie zip fetched and played) or "RIVE" (a Rive .riv
+	// binary). It rides the wire so a catalogue row can change loader
+	// without a client release — hosted URLs rarely carry an extension to
+	// guess from.
+	AssetFormat string `json:"assetFormat"`
+	// Currency names the wallet Cost is paid from: "COIN" (chips) or
+	// "DIAMOND". Always "COIN" for a free row — nothing is charged.
+	Currency string `json:"currency"`
 	// Type is PictureFree or PicturePremium.
 	Type string `json:"type"`
-	// Cost in chips. Always 0 for a free picture (the schema's
-	// free_picture_cost_check makes that an invariant, not a convention).
+	// Cost in the row's Currency — chips or diamonds. Always 0 for a free
+	// picture (the schema's free_picture_cost_check makes that an invariant,
+	// not a convention).
 	Cost int64 `json:"cost"`
 	// DurationDays is how long a purchase lasts; 0 is for ever.
 	DurationDays int `json:"durationDays"`
@@ -65,6 +82,10 @@ var (
 	ErrPictureFree = errors.New("db: profile picture is free")
 	// ErrPictureChips is a wallet that cannot cover the price.
 	ErrPictureChips = errors.New("db: not enough chips for this picture")
+	// ErrPictureDiamonds is the diamond wallet that cannot cover the price.
+	// Same wire code as ErrPictureChips (clients match by code); the
+	// message names the currency that was actually short.
+	ErrPictureDiamonds = errors.New("db: not enough diamonds for this picture")
 	// ErrPictureLocked is a wear request for a premium picture the player has
 	// not bought.
 	ErrPictureLocked = errors.New("db: profile picture is not owned")
@@ -84,7 +105,7 @@ func NewPictures(d *DB, users *Users, clock func() time.Time) *Pictures {
 }
 
 // pictureColumns is the catalogue row, aliased p.
-const pictureColumns = `p.id, p.name, p.image_url, p.type, p.cost, p.duration_days, p.sort_order`
+const pictureColumns = `p.id, p.name, p.asset_url, p.asset_format, p.currency, p.type, p.cost, p.duration_days, p.sort_order`
 
 // ownedJoin resolves ownership for one viewer. $1 is the user id; an empty
 // string matches nobody, which is exactly right for an anonymous caller — they
@@ -142,7 +163,7 @@ func (p *Pictures) List(ctx context.Context, userID string) ([]Picture, error) {
 	pictures := []Picture{}
 	for rows.Next() {
 		var pic Picture
-		if err := rows.Scan(&pic.ID, &pic.Name, &pic.URL, &pic.Type, &pic.Cost,
+		if err := rows.Scan(&pic.ID, &pic.Name, &pic.URL, &pic.AssetFormat, &pic.Currency, &pic.Type, &pic.Cost,
 			&pic.DurationDays, &pic.SortOrder, &pic.Owned, &pic.ExpiresAt); err != nil {
 			return nil, err
 		}
@@ -162,7 +183,7 @@ func (p *Pictures) Find(ctx context.Context, userID string, id int64) (Picture, 
 		`SELECT `+pictureColumns+`, p.is_active, `+ownedExpr+`, `+expiryExpr+`
 		   FROM profile_pictures p`+p.ownedJoinNow()+`
 		  WHERE p.id = $2`, userID, id).
-		Scan(&pic.ID, &pic.Name, &pic.URL, &pic.Type, &pic.Cost, &pic.DurationDays,
+		Scan(&pic.ID, &pic.Name, &pic.URL, &pic.AssetFormat, &pic.Currency, &pic.Type, &pic.Cost, &pic.DurationDays,
 			&pic.SortOrder, &active, &pic.Owned, &pic.ExpiresAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Picture{}, false, ErrPictureUnknown
@@ -177,25 +198,29 @@ func (p *Pictures) Find(ctx context.Context, userID string, id int64) (Picture, 
 type PicturePurchase struct {
 	Picture Picture
 	// Charged is false when the player already owned it. The caller still
-	// answers with success — they do own it — but no chips moved this time.
+	// answers with success — they do own it — but nothing was spent this time.
 	Charged bool
-	Spent   int64
+	// Spent is what left the wallet, in the picture's Currency.
+	Spent int64
+	// Balance is the chip balance afterwards; a diamond buy leaves it as it was.
 	Balance int64
 	User    *User
 }
 
-// Buy unlocks a premium picture for a player, once, paying for it out of their
-// wallet through the ledger.
+// Buy unlocks a premium picture for a player, once, paying for it out of the
+// wallet its currency names.
 //
-// A picture is bought with chips, so it is a wallet movement, and every wallet
-// movement in this game is a chip_ledger row — `SUM(chip_ledger.delta) per user
-// == users.chips` is the invariant the whole money model is checked against
+// A COIN picture is bought with chips, so it is a wallet movement, and every
+// chip movement in this game is a chip_ledger row — `SUM(chip_ledger.delta) per
+// user == users.chips` is the invariant the whole money model is checked against
 // (CLAUDE.md §5.1), and a bare `UPDATE users SET chips` would break it silently.
-// The transaction is the same shape as every other one here:
+// A DIAMOND picture debits users.diamond instead and writes no ledger row: the
+// ownership row is its receipt. The COIN transaction is the same shape as every
+// other one here:
 //
 //	SELECT chips FROM users WHERE id = $1 FOR UPDATE    lock the wallet
 //	(read the catalogue row and the ownership row under that lock)
-//	INSERT chip_ledger (…, action_id 'picture:<user>:<id>', delta -cost)
+//	INSERT chip_ledger (…, action_id 'picture:<user>:<id>:<n>', delta -cost)
 //	UPDATE users SET chips = chips - cost
 //	INSERT user_profile_pictures
 //
@@ -214,9 +239,9 @@ func (p *Pictures) Buy(ctx context.Context, userID string, pictureID int64) (*Pi
 	out := &PicturePurchase{}
 
 	err := p.db.WithTx(ctx, func(tx pgx.Tx) error {
-		var chips int64
+		var chips, diamond int64
 		if err := tx.QueryRow(ctx,
-			`SELECT chips FROM users WHERE id = $1 AND deleted_at = 0 FOR UPDATE`, userID).Scan(&chips); err != nil {
+			`SELECT chips, diamond FROM users WHERE id = $1 AND deleted_at = 0 FOR UPDATE`, userID).Scan(&chips, &diamond); err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				return game.Errorf(game.CodeUnknownUser, "unknown user %s", userID)
 			}
@@ -232,7 +257,7 @@ func (p *Pictures) Buy(ctx context.Context, userID string, pictureID int64) (*Pi
 			`SELECT `+pictureColumns+`, p.is_active, `+ownedExpr+`, `+expiryExpr+`
 			   FROM profile_pictures p`+p.ownedJoinNow()+`
 			  WHERE p.id = $2`, userID, pictureID).
-			Scan(&pic.ID, &pic.Name, &pic.URL, &pic.Type, &pic.Cost, &pic.DurationDays,
+			Scan(&pic.ID, &pic.Name, &pic.URL, &pic.AssetFormat, &pic.Currency, &pic.Type, &pic.Cost, &pic.DurationDays,
 				&pic.SortOrder, &active, &pic.Owned, &pic.ExpiresAt)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrPictureUnknown
@@ -252,7 +277,18 @@ func (p *Pictures) Buy(ctx context.Context, userID string, pictureID int64) (*Pi
 			// replayed receipt: this is what makes a double-tap cost once.
 			out.Charged, out.Spent, out.Balance = false, 0, chips
 			return nil
-		case chips < pic.Cost:
+		}
+		// Which wallet pays is the row's currency, not a global: COIN spends
+		// chips through chip_ledger below; DIAMOND debits users.diamond
+		// directly and writes no ledger row — the chips invariant's ledger is
+		// about chips alone. The row lock above serialises double taps either
+		// way, and the owned check still makes the second an idempotent
+		// success.
+		if pic.Currency == PictureCurrencyDiamond {
+			if diamond < pic.Cost {
+				return ErrPictureDiamonds
+			}
+		} else if chips < pic.Cost {
 			return ErrPictureChips
 		}
 
@@ -270,20 +306,32 @@ func (p *Pictures) Buy(ctx context.Context, userID string, pictureID int64) (*Pi
 			return err
 		}
 
-		balance := chips - pic.Cost
-		// The purchase number, not just the pair, so a lapsed rental can be
-		// bought again: the first purchase's action id is already spent and
-		// UNIQUE would refuse the second. A double-tap never reaches here — the
-		// owned check above returns first, under the same row lock.
-		purchase := priorPurchases + 1
-		actionID := fmt.Sprintf("picture:%s:%d:%d", userID, pictureID, purchase)
-		if err := appendLedger(ctx, tx, userID, "", actionID,
-			-pic.Cost, balance, game.LedgerReasonPicturePurchase, stamp); err != nil {
-			return err
-		}
-		if _, err := tx.Exec(ctx,
-			`UPDATE users SET chips = $2, updated_at = $3 WHERE id = $1`, userID, balance, stamp); err != nil {
-			return err
+		balance := chips
+		if pic.Currency == PictureCurrencyDiamond {
+			// The ownership upsert below is the receipt; nothing else is
+			// written for a diamond buy.
+			if _, err := tx.Exec(ctx,
+				`UPDATE users SET diamond = diamond - $2, updated_at = $3 WHERE id = $1`,
+				userID, pic.Cost, stamp); err != nil {
+				return err
+			}
+		} else {
+			balance = chips - pic.Cost
+			// The purchase number, not just the pair, so a lapsed rental can
+			// be bought again: the first purchase's action id is already spent
+			// and UNIQUE would refuse the second. A double-tap never reaches
+			// here — the owned check above returns first, under the same row
+			// lock.
+			purchase := priorPurchases + 1
+			actionID := fmt.Sprintf("picture:%s:%d:%d", userID, pictureID, purchase)
+			if err := appendLedger(ctx, tx, userID, "", actionID,
+				-pic.Cost, balance, game.LedgerReasonPicturePurchase, stamp); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(ctx,
+				`UPDATE users SET chips = $2, updated_at = $3 WHERE id = $1`, userID, balance, stamp); err != nil {
+				return err
+			}
 		}
 
 		// A rental runs from NOW, not from whatever is left of a lapsed one:
@@ -345,9 +393,9 @@ func (p *Pictures) Buy(ctx context.Context, userID string, pictureID int64) (*Pi
 // expiry test passes through, so without this a player would keep a face they
 // have stopped paying for until they next opened the picker.
 //
-// Called at login, which is the natural moment: it is when the player comes
-// back, and it is the one path where a slightly slower query is invisible.
-// Free pictures are never touched — there is nothing to expire.
+// Called when the player comes back — at login, and on /api/auth/me, which is
+// how a saved session returns without logging in — and whenever the catalogue
+// is listed. Free pictures are never touched — there is nothing to expire.
 func (p *Pictures) ExpireLapsed(ctx context.Context, userID string) (bool, error) {
 	tag, err := p.db.Pool.Exec(ctx, `
 		UPDATE users u
