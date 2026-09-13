@@ -43,8 +43,38 @@ import '../widgets/table_ground.dart';
 /// brightnesses**, because the cloth is dark emerald in both. Only the chrome
 /// standing on the ground — the rail, the console, the drawers — follows the
 /// theme.
-/// Which of the two panels the left drawer is showing.
-enum _LeftPanel { menu, chat }
+/// Which of the three panels the left drawer is showing.
+enum _LeftPanel { menu, chat, quick }
+
+/// The left drawer's content, which tells the table when it has left the
+/// screen.
+///
+/// A [DrawerController] builds its child only while the drawer is at least
+/// partly open, so this slot is unmounted at the very moment the slide-out
+/// ends — the one moment the panel behind the edge can change without being
+/// seen to. A drag that crosses halfway and then settles open again never
+/// unmounts it, so nothing changes under a player's thumb.
+class _DrawerSlot extends StatefulWidget {
+  const _DrawerSlot({required this.onGone, required this.child});
+
+  /// Called from [State.dispose]: no setState here, only a request for later.
+  final VoidCallback onGone;
+  final Widget child;
+
+  @override
+  State<_DrawerSlot> createState() => _DrawerSlotState();
+}
+
+class _DrawerSlotState extends State<_DrawerSlot> {
+  @override
+  void dispose() {
+    widget.onGone();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
+}
 
 class TableScreen extends StatefulWidget {
   const TableScreen({super.key});
@@ -54,9 +84,15 @@ class TableScreen extends StatefulWidget {
 }
 
 class _TableScreenState extends State<TableScreen> {
-  /// The menu and the chat share one drawer rather than being a drawer and a
-  /// sheet: both are "the panel behind the left edge", and a Scaffold has only
-  /// one of those. Which one is showing is decided before it opens.
+  /// The menu, the chat and the quick messages share one drawer rather than
+  /// being a drawer and two sheets: all three are "the panel behind the left
+  /// edge", and a Scaffold has only one of those. Which one is showing is
+  /// decided before it opens — and one drawer is also what lets the back
+  /// gesture close any of them (`_BackGuard` asks only `isDrawerOpen`).
+  ///
+  /// At rest it is always the menu ([_drawerGone]): the rail's keys choose a
+  /// panel as they open the drawer, but a swipe in from the left edge chooses
+  /// nothing and finds whatever is there.
   _LeftPanel _panel = _LeftPanel.menu;
 
   /// Opening is driven from the rail, which sits inside this Scaffold, so the
@@ -66,9 +102,32 @@ class _TableScreenState extends State<TableScreen> {
       context.read<GameState>().tableScaffold;
 
   void _open(_LeftPanel panel) {
+    // Only the chat shows the conversation, so only the chat clears its
+    // badge. The quick panel sends into it without showing it, and a line
+    // nobody read yet is still unread after the player has said something.
     if (panel == _LeftPanel.chat) context.read<GameState>().markChatRead();
     setState(() => _panel = panel);
     _scaffold.currentState?.openDrawer();
+  }
+
+  /// Puts the menu back behind the edge once the drawer has finished closing.
+  ///
+  /// Left as it was, a swipe in from the edge after the quick messages would
+  /// open a panel where one stray tap talks to the whole table, and after the
+  /// chat it would show the conversation without clearing its badge. The
+  /// menu sends nothing and reads nothing, so it is what a swipe should find.
+  ///
+  /// `Scaffold.onDrawerChanged` cannot do this: it fires as the close starts,
+  /// with the panel still on screen, and swapping it there would flash the
+  /// menu across the slide-out. [_DrawerSlot] reports the end instead. It is
+  /// told while the tree is being finalised, where setState is not allowed,
+  /// hence the hop to after the frame — which still lands before any later
+  /// touch, because input is handled between frames.
+  void _drawerGone() {
+    if (_panel == _LeftPanel.menu) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) setState(() => _panel = _LeftPanel.menu);
+    });
   }
 
   @override
@@ -84,9 +143,14 @@ class _TableScreenState extends State<TableScreen> {
       // over the keyboard (`viewInsets`), which is the only thing that needs
       // to move.
       resizeToAvoidBottomInset: false,
-      drawer: _panel == _LeftPanel.menu
-          ? const _TableDrawer()
-          : const _ChatDrawer(),
+      drawer: _DrawerSlot(
+        onGone: _drawerGone,
+        child: switch (_panel) {
+          _LeftPanel.menu => const _TableDrawer(),
+          _LeftPanel.chat => const _ChatDrawer(),
+          _LeftPanel.quick => const _QuickDrawer(),
+        },
+      ),
       body: Stack(
         children: [
           // The room the table stands in — charcoal floor, one warm pool where
@@ -188,7 +252,8 @@ class _RoomGround extends StatelessWidget {
 }
 
 /// The only chrome in the game room besides the Shop key in the corner above
-/// it: the menu, and the chat below it, stacked down the left edge.
+/// it: the menu, the chat below it and the quick messages below that, stacked
+/// down the left edge.
 ///
 /// Everything else that used to sit across the top — the table code, the
 /// category, the hand number — is in the drawer. None of it changed what a
@@ -209,6 +274,13 @@ class _SideRail extends StatelessWidget {
     // the whole column: 48.0x46.8 at 640x360, 54.0x53.4 at 891x411 and
     // 54.0x56.0 at 1280x800 — every one of them past the 44dp minimum, which
     // an inset key would not have been at the rail's 48dp floor.
+    //
+    // Three keys and two gaps, centred down the rail: 3x46.8 + 2x10 = 160.4dp
+    // at 640x360, so the column runs from y 99.8 to 260.2. The Shop key above
+    // it ends by y 50 (6dp inset, 44dp tall) and the Pack key below it starts
+    // at y 306 at the earliest (44dp tall, at most 10dp off the bottom), which
+    // leaves more than 45dp clear at each end on the tightest phone; at
+    // 891x411 the column is 180.2dp tall and the margins only grow.
     final railW = Dim.railW(size.width);
     final keyH = Dim.railButtonH(size.height);
 
@@ -248,6 +320,24 @@ class _SideRail extends StatelessWidget {
                         total: GameState.chatCooldown.inSeconds,
                       ),
               ),
+            ),
+            const SizedBox(height: Space.md),
+            // The quick messages (owner, 13 Sep 2026). They are chat, so they
+            // share the chat's cooldown, and the key shows the same countdown:
+            // the player sees the lines are resting before opening the panel.
+            _RailKey(
+              tooltip: state.canChat
+                  ? t.quickMessagesTip
+                  : '${t.quickMessagesTip} ${state.chatCooldownLeft}s',
+              width: railW,
+              height: keyH,
+              onTap: () => onOpen(_LeftPanel.quick),
+              child: state.canChat
+                  ? const Icon(Icons.quickreply_rounded, size: 22)
+                  : _ChatCountdown(
+                      left: state.chatCooldownLeft,
+                      total: GameState.chatCooldown.inSeconds,
+                    ),
             ),
           ],
         ),
@@ -3296,6 +3386,190 @@ class _ChatDrawerState extends State<_ChatDrawer> {
     // next is the table with their words over their own seat.
     FocusManager.instance.primaryFocus?.unfocus();
     Navigator.of(context).pop();
+  }
+}
+
+/// Set lines a player can say in one tap — "Please Play Blind.", "Please take
+/// show." and the rest of [Strings.quickMessages] (owner, 13 Sep 2026).
+///
+/// A panel of the left drawer rather than chips over the felt: ten sentences,
+/// in scripts that run long, need a column of room, and the felt has none to
+/// spare. Each goes out through [GameState.sendChat] exactly as typed chat
+/// does — free text in the sender's own language, so the protocol does not
+/// change — and lands as their bubble and in the chat like anything typed.
+class _QuickDrawer extends StatelessWidget {
+  const _QuickDrawer();
+
+  @override
+  Widget build(BuildContext context) {
+    // A watch is right here, unlike on the Scaffold: the once-a-second tick is
+    // what counts the cooldown down on the rows.
+    final state = context.watch<GameState>();
+    final theme = Theme.of(context);
+    final t = state.t;
+    final lines = t.quickMessages;
+    final canChat = state.canChat;
+    final left = state.chatCooldownLeft;
+
+    return GlassDrawerPanel(
+      padding: EdgeInsets.zero,
+      // Loose constraints from the panel's Align would leave the list no
+      // height to scroll in, as in the menu.
+      child: SizedBox.expand(
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                Space.lg,
+                Space.md,
+                Space.sm,
+                Space.xs,
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.quickreply_rounded,
+                    size: 18,
+                    color: _goldInk(theme.brightness),
+                  ),
+                  const SizedBox(width: Space.md),
+                  Expanded(
+                    child: Text(
+                      t.quickMessagesTitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTheme.label(
+                        theme.textTheme.titleMedium ?? const TextStyle(),
+                      ),
+                    ),
+                  ),
+                  if (!canChat) ...[
+                    _ChatCountdown(
+                      left: left,
+                      total: GameState.chatCooldown.inSeconds,
+                    ),
+                    const SizedBox(width: Space.xs),
+                  ],
+                  PressScale(
+                    child: IconButton(
+                      visualDensity: VisualDensity.compact,
+                      icon: const Icon(Icons.close_rounded),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const _MenuRule(),
+            Expanded(
+              child: ListView.builder(
+                padding: const EdgeInsets.symmetric(vertical: Space.xs),
+                itemCount: lines.length,
+                itemBuilder: (context, i) => _QuickLine(
+                  text: lines[i],
+                  secondsLeft: left,
+                  onTap: canChat ? () => _send(context, state, lines[i]) : null,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// The same ending as the chat's own send: once the line is out the drawer
+  /// goes, and what the player sees next is their words over their own seat.
+  /// A refusal (the cooldown caught between build and tap) leaves it open.
+  void _send(BuildContext context, GameState state, String line) {
+    if (!state.sendChat(line)) return;
+    Navigator.of(context).pop();
+  }
+}
+
+/// One sentence in the quick-message panel, the whole row its target.
+///
+/// While the cooldown runs the row is disabled and says how many seconds are
+/// left, rather than taking a tap that would do nothing and say nothing.
+class _QuickLine extends StatelessWidget {
+  const _QuickLine({
+    required this.text,
+    required this.secondsLeft,
+    required this.onTap,
+  });
+
+  final String text;
+  final int secondsLeft;
+
+  /// Null while the cooldown runs.
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final ink = theme.colorScheme.onSurface;
+    final live = onTap != null;
+
+    final row = ConstrainedBox(
+      // Taller than the 44dp floor: a line is picked mid-hand, by thumb, from
+      // a list, where a near miss says the wrong thing to the whole table.
+      constraints: const BoxConstraints(minHeight: Dim.minTouch + Space.md),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(
+          horizontal: Space.lg,
+          vertical: Space.sm,
+        ),
+        child: Row(
+          children: [
+            Icon(
+              Icons.chat_bubble_outline_rounded,
+              size: 18,
+              color: live
+                  ? _goldInk(theme.brightness)
+                  : ink.withValues(alpha: AppTheme.inkLow),
+            ),
+            const SizedBox(width: Space.lg),
+            Expanded(
+              child: Text(
+                text,
+                style: theme.textTheme.bodyLarge?.copyWith(
+                  color: ink.withValues(
+                    alpha: live ? AppTheme.inkHigh : AppTheme.inkLow,
+                  ),
+                ),
+              ),
+            ),
+            if (!live) ...[
+              const SizedBox(width: Space.md),
+              Text(
+                '${secondsLeft}s',
+                // Tabular, so 4-3-2-1 does not shift the row by a pixel.
+                style: AppTheme.money(
+                  theme.textTheme.labelMedium ?? const TextStyle(),
+                  colour: ink.withValues(alpha: AppTheme.inkMed),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+
+    return Semantics(
+      button: true,
+      enabled: live,
+      child: PressScale(
+        enabled: live,
+        child: InkWell(
+          // Material's click, gated on the Sound switch like every menu row.
+          enableFeedback: context.select<FeedbackSettings, bool>(
+            (f) => f.sound,
+          ),
+          onTap: onTap,
+          child: row,
+        ),
+      ),
+    );
   }
 }
 

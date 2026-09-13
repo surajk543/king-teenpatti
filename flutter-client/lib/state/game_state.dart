@@ -478,7 +478,8 @@ class GameState extends ChangeNotifier {
         if (chat.length > 100) chat.removeAt(0);
         // Only other players' lines are unread. The server echoes the viewer's
         // own message back, and it lands after the chat drawer has closed on
-        // sending, so counting it raised a badge for something they wrote.
+        // sending (a quick message never opens the chat drawer at all), so
+        // counting it raised a badge for something they had just sent.
         if (m.userId != user?.id) unreadChat++;
 
         // Show it over the sender's seat for a moment, so a table that is
