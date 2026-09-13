@@ -89,6 +89,9 @@ var (
 	// ErrPictureLocked is a wear request for a premium picture the player has
 	// not bought.
 	ErrPictureLocked = errors.New("db: profile picture is not owned")
+	// ErrPictureAtTable is BuyAtTable refusing a COIN picture: a seated
+	// player's chips move only at the hand checkpoints.
+	ErrPictureAtTable = errors.New("db: a chip-priced picture cannot be bought at a table")
 )
 
 // Pictures is the profile-picture catalogue and who owns what.
@@ -231,10 +234,24 @@ type PicturePurchase struct {
 // on the index and rolls back rather than charging twice — the same mechanism
 // that stops a settle paying a winner twice.
 //
-// The caller must refuse this while the player is seated: a seated player's
-// wallet may only move at the three hand checkpoints (§5.1), and a purchase
-// landing mid-hand would be written over by the next checkpoint's delta.
+// A seated player buys through BuyAtTable instead: a seated player's chips may
+// only move at the three hand checkpoints (§5.1), and a chip purchase landing
+// mid-hand would be written over by the next checkpoint's delta.
 func (p *Pictures) Buy(ctx context.Context, userID string, pictureID int64) (*PicturePurchase, error) {
+	return p.buy(ctx, userID, pictureID, false)
+}
+
+// BuyAtTable is Buy for a player who is seated (owner, 13 Sep 2026). A DIAMOND
+// picture is sold exactly as in the lobby — nothing at a table reads or writes
+// diamonds — while a COIN picture is refused with ErrPictureAtTable. The rule
+// is decided inside the transaction, from the row about to be charged, so a
+// re-price between some earlier lookup and the charge cannot slip a chip debit
+// past it.
+func (p *Pictures) BuyAtTable(ctx context.Context, userID string, pictureID int64) (*PicturePurchase, error) {
+	return p.buy(ctx, userID, pictureID, true)
+}
+
+func (p *Pictures) buy(ctx context.Context, userID string, pictureID int64, atTable bool) (*PicturePurchase, error) {
 	stamp := now(p.clock)
 	out := &PicturePurchase{}
 
@@ -277,6 +294,8 @@ func (p *Pictures) Buy(ctx context.Context, userID string, pictureID int64) (*Pi
 			// replayed receipt: this is what makes a double-tap cost once.
 			out.Charged, out.Spent, out.Balance = false, 0, chips
 			return nil
+		case atTable && pic.Currency != PictureCurrencyDiamond:
+			return ErrPictureAtTable
 		}
 		// Which wallet pays is the row's currency, not a global: COIN spends
 		// chips through chip_ledger below; DIAMOND debits users.diamond

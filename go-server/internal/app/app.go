@@ -334,14 +334,15 @@ func New(opts Options) (*App, error) {
 	}
 
 	api := auth.NewHandler(auth.Deps{
-		Config:    cfg,
-		Users:     users,
-		Tokens:    tokens,
-		Verifier:  verifier,
-		IsSeated:  func(userID string) bool { return a.rooms.GetTableForPlayer(userID) != nil },
-		Purchases: chipStore,
-		Pictures:  pictures,
-		Logger:    logger,
+		Config:      cfg,
+		Users:       users,
+		Tokens:      tokens,
+		Verifier:    verifier,
+		IsSeated:    func(userID string) bool { return a.rooms.GetTableForPlayer(userID) != nil },
+		PictureWorn: func(userID string, avatarURL *string) { a.rooms.SetPlayerAvatar(userID, avatarURL) },
+		Purchases:   chipStore,
+		Pictures:    pictures,
+		Logger:      logger,
 	})
 	mux := http.NewServeMux()
 	if cfg.Metrics.Enabled {

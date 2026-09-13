@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -962,4 +963,48 @@ func TestSnapshotNeverCarriesChat(t *testing.T) {
 	}
 	eq(t, len(restored), 0, "empty room log after a restore from the snapshot")
 	eq(t, mustJSON(t, restored), "[]", "serialises as []")
+}
+
+// A picture worn at the table (owner, 13 Sep 2026) reaches every viewer's seat
+// list at once and is saved with the table, so a restored table keeps it.
+func TestAPictureWornAtTheTableReachesEverySeatAndTheSnapshot(t *testing.T) {
+	store := livetest.New()
+	h := newHarness(t, liveConfig(), withLive(store))
+	h.seat("a", 100_000)
+	h.seat("b", 100_000)
+	before := len(store.Saves())
+
+	url := "/profiles/butterfly-flapping.json"
+	if err := h.table.SetAvatar("a", &url); err != nil {
+		t.Fatal(err)
+	}
+	seatAvatar := func(viewer string) *string {
+		for _, s := range h.view(viewer).Seats {
+			if s.UserID == "a" {
+				return s.AvatarURL
+			}
+		}
+		return nil
+	}
+	for _, viewer := range []string{"a", "b"} {
+		if got := seatAvatar(viewer); got == nil || *got != url {
+			t.Fatalf("%s sees a's picture as %v, want %s", viewer, got, url)
+		}
+	}
+	saves := store.Saves()
+	eq(t, len(saves), before+1, "the change saved one snapshot")
+	if !strings.Contains(string(saves[len(saves)-1].Snapshot), url) {
+		t.Fatal("the snapshot does not carry the new picture")
+	}
+
+	// Taking it off works the same way; a player who is not seated is a no-op.
+	if err := h.table.SetAvatar("a", nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := seatAvatar("b"); got != nil {
+		t.Fatalf("a's picture after taking it off: %s", *got)
+	}
+	if err := h.table.SetAvatar("nobody", &url); err != nil {
+		t.Fatal(err)
+	}
 }

@@ -794,6 +794,28 @@ func (t *Table) SetChips(userID string, chips int64) error {
 	})
 }
 
+// SetAvatar puts a newly worn picture on a player's seat (owner, 13 Sep 2026:
+// a picture may be bought and worn at the table). Emits seatUpdated and state,
+// so every viewer sees the new face at once, and the state emit marks the
+// snapshot dirty, so a table restored from the live store keeps it. No-op when
+// not seated. No Node counterpart — requirement 21 locked the picker at a table.
+func (t *Table) SetAvatar(userID string, avatarURL *string) error {
+	var url *string
+	if avatarURL != nil {
+		u := *avatarURL
+		url = &u
+	}
+	return t.run(func() {
+		s := t.findSeat(userID)
+		if s == nil {
+			return
+		}
+		s.avatarURL = url
+		t.listener.OnSeatUpdated(t.view, s.seatIndex)
+		t.emitState()
+	})
+}
+
 // PostChat appends a player line (postChat). Error not_in_room when the user
 // is not seated (message MsgNotInRoom). Returns nil, nil when the text
 // sanitised to nothing (no event). Emits chat on success and mirrors the
@@ -3126,6 +3148,7 @@ func (t *Table) serializeFor(viewerID string) *TableView {
 	view := &TableView{
 		RoomID:        t.id,
 		Code:          t.code,
+		IsPrivate:     t.isPrivate,
 		Category:      t.cfg.Category,
 		ChipsHidden:   hideOthersChips,
 		State:         t.State(),

@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -19,6 +20,9 @@ type PurchaseResult struct {
 	Credited bool
 	// Chips is what the product is worth, whether or not this call banked it.
 	Chips int64
+	// Diamonds is what a diamond pack is worth, whether or not this call
+	// banked it. Zero for a chip pack.
+	Diamonds int64
 	// Balance is the wallet after the credit, or the current wallet when the
 	// purchase was already banked.
 	Balance int64
@@ -97,5 +101,73 @@ func CreditPurchase(ctx context.Context, d *DB, users *Users, userID string, p p
 		return PurchaseResult{}, err
 	}
 	out.User = user
+	return out, nil
+}
+
+// CreditDiamondPurchase adds a verified Google Play diamond pack to a player's
+// diamonds, once.
+//
+// Diamonds are not chips and never touch chip_ledger — that table backs the
+// `SUM(delta) == chips` invariant and nothing else — so the replay guard is a
+// table of its own: diamond_purchases, whose primary key is the Play purchase
+// token. The transaction:
+//
+//	SELECT diamond FROM users WHERE id = $1 FOR UPDATE      lock the wallet
+//	INSERT diamond_purchases (token, …) ON CONFLICT DO NOTHING
+//	UPDATE users SET diamond = diamond + $n                  only when the insert took
+//
+// A replayed receipt — a retry after a lost reply, Play restoring it on a new
+// install, or the same token sent from another account — finds its token
+// already there, inserts nothing, and reports Credited=false with the wallet
+// untouched. The count comes from the server-side catalogue, never the caller.
+func CreditDiamondPurchase(ctx context.Context, d *DB, users *Users, userID string, p purchase.Product, purchaseToken string) (PurchaseResult, error) {
+	if purchaseToken == "" {
+		return PurchaseResult{}, errors.New("db: empty purchase token")
+	}
+	if p.Diamonds <= 0 {
+		return PurchaseResult{}, fmt.Errorf("db: product %s grants no diamonds", p.ID)
+	}
+	now := time.Now().UnixMilli()
+	out := PurchaseResult{Diamonds: p.Diamonds}
+
+	err := d.WithTx(ctx, func(tx pgx.Tx) error {
+		var diamond int64
+		if err := tx.QueryRow(ctx,
+			`SELECT diamond FROM users WHERE id = $1 FOR UPDATE`, userID).Scan(&diamond); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return game.Errorf(game.CodeUnknownUser, "unknown user %s", userID)
+			}
+			return err
+		}
+		tag, err := tx.Exec(ctx,
+			`INSERT INTO diamond_purchases (purchase_token, user_id, product_id, diamonds, created_at)
+			 VALUES ($1, $2, $3, $4, $5)
+			 ON CONFLICT (purchase_token) DO NOTHING`,
+			purchaseToken, userID, p.ID, p.Diamonds, now)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() == 0 {
+			// Already banked: the diamonds are where the first call put them.
+			return nil
+		}
+		if _, err := tx.Exec(ctx,
+			`UPDATE users SET diamond = diamond + $2, updated_at = $3 WHERE id = $1`,
+			userID, p.Diamonds, now); err != nil {
+			return err
+		}
+		out.Credited = true
+		return nil
+	})
+	if err != nil {
+		return PurchaseResult{}, err
+	}
+
+	user, err := users.FindByID(ctx, userID)
+	if err != nil {
+		return PurchaseResult{}, err
+	}
+	out.User = user
+	out.Balance = user.Chips
 	return out, nil
 }

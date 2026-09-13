@@ -36,6 +36,33 @@ enum PictureFilter {
   };
 }
 
+/// The order a shelf draws its pictures in: the catalogue's own, except that
+/// the premium animated pictures run cheapest first (owner, 13 Sep 2026).
+///
+/// They are re-dealt into the slots they already hold, so on the All shelf the
+/// animated group stays where the catalogue put it. A chip price and a diamond
+/// price are not comparable figures, so chips come before diamonds; equal
+/// prices keep the catalogue's order — Dart's sort is not stable, hence the
+/// index as the last word.
+List<ProfilePicture> shelfOrder(List<ProfilePicture> pictures) {
+  final slots = [
+    for (var i = 0; i < pictures.length; i++)
+      if (!pictures[i].free && pictures[i].animated) i,
+  ];
+  final byCost = [...slots]
+    ..sort((i, k) {
+      final a = pictures[i], b = pictures[k];
+      if (a.currency != b.currency) return a.currency == 'COIN' ? -1 : 1;
+      final cost = a.cost.compareTo(b.cost);
+      return cost != 0 ? cost : i.compareTo(k);
+    });
+  final ordered = [...pictures];
+  for (var n = 0; n < slots.length; n++) {
+    ordered[slots[n]] = pictures[byCost[n]];
+  }
+  return ordered;
+}
+
 /// The pictures on one shelf.
 ///
 /// An empty shelf says so rather than showing nothing: a blank space under
@@ -46,7 +73,7 @@ Widget pictureShelf({
   required PictureFilter filter,
   required double radius,
 }) {
-  final pictures = state.pictures.where(filter.holds).toList();
+  final pictures = shelfOrder(state.pictures.where(filter.holds).toList());
   final user = state.user;
 
   if (pictures.isEmpty) {

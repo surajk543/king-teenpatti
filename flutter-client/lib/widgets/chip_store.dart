@@ -53,6 +53,46 @@ class ChipPack {
   bool get featured => mark == ShelfMark.bestValue || mark == ShelfMark.premium;
 }
 
+/// One purchasable diamond pack (owner, 13 Sep 2026).
+///
+/// Like [ChipPack], the count is only for display: `purchase.Catalogue` on the
+/// server decides what a product id is worth, and a diamond pack credits
+/// `users.diamond`, never chips.
+class DiamondPack {
+  const DiamondPack({
+    required this.productId,
+    required this.rupees,
+    required this.diamonds,
+    this.mark = ShelfMark.none,
+  });
+
+  /// The Play Console product id. It must match
+  /// internal/purchase/catalogue.go exactly.
+  final String productId;
+  final int rupees;
+  final int diamonds;
+  final ShelfMark mark;
+}
+
+/// The diamond shelf, cheapest first. ⭐ marks the popular pack, 🔥 the best
+/// value, as the owner set them.
+const diamondPacks = <DiamondPack>[
+  DiamondPack(productId: 'diamonds_1_49', rupees: 49, diamonds: 1),
+  DiamondPack(
+    productId: 'diamonds_5_199',
+    rupees: 199,
+    diamonds: 5,
+    mark: ShelfMark.popular,
+  ),
+  DiamondPack(
+    productId: 'diamonds_20_699',
+    rupees: 699,
+    diamonds: 20,
+    mark: ShelfMark.bestValue,
+  ),
+  DiamondPack(productId: 'diamonds_100_2999', rupees: 2999, diamonds: 100),
+];
+
 /// The shelf, in the owner's order. Cheapest first, so scrolling right is
 /// always "more".
 const chipPacks = <ChipPack>[
@@ -135,8 +175,8 @@ const chipPacks = <ChipPack>[
 double _line(TextScaler scaler, double size, double heightFactor) =>
     (scaler.scale(size) * heightFactor).ceilToDouble();
 
-/// The store's two shelves: chip packs, and the picture catalogue.
-enum _StoreTab { chips, pictures }
+/// The store's shelves: chip packs, diamond packs, and the picture catalogue.
+enum _StoreTab { chips, diamonds, pictures }
 
 /// The switch between the store's shelves, in the header beside the close key.
 ///
@@ -145,10 +185,19 @@ enum _StoreTab { chips, pictures }
 /// shelf. The key that is on is washed in gold, the house's one signal colour;
 /// the other is quiet ink on the glass.
 class _StoreTabs extends StatelessWidget {
-  const _StoreTabs({required this.value, required this.onChanged});
+  const _StoreTabs({
+    required this.value,
+    required this.onChanged,
+    this.animatedOnly = false,
+  });
 
   final _StoreTab value;
   final ValueChanged<_StoreTab> onChanged;
+
+  /// Whether the picture key sells the animated shelf alone, and is named for
+  /// it. True at a table (owner, 13 Sep 2026), where a seated player may buy
+  /// and wear an animated picture. Chips and diamonds are always on sale.
+  final bool animatedOnly;
 
   @override
   Widget build(BuildContext context) {
@@ -222,7 +271,15 @@ class _StoreTabs extends StatelessWidget {
       children: [
         key(_StoreTab.chips, Icons.toll_rounded, t.storeTabChips),
         const SizedBox(width: Space.sm),
-        key(_StoreTab.pictures, Icons.face_rounded, t.storeTabPictures),
+        key(_StoreTab.diamonds, Icons.diamond_rounded, t.storeTabDiamonds),
+        const SizedBox(width: Space.sm),
+        animatedOnly
+            ? key(
+                _StoreTab.pictures,
+                Icons.auto_awesome_rounded,
+                t.storeTabAnimated,
+              )
+            : key(_StoreTab.pictures, Icons.face_rounded, t.storeTabPictures),
       ],
     );
   }
@@ -286,12 +343,11 @@ class _ChipStoreState extends State<_ChipStore> {
   /// dispose() is the teardown trap CLAUDE.md §12.3 documents.
   final ScrollController _scroller = ScrollController();
 
-  /// Which shelf is showing. The picture shelf is not offered at a table — a
-  /// seated player can neither buy nor change a picture (requirement 21) — so
-  /// the build falls back to chips there whatever this says.
+  /// Which shelf is showing.
   _StoreTab _tab = _StoreTab.chips;
 
-  /// The picture shelf's filter, as in the picker; it opens on All.
+  /// The picture shelf's filter, as in the picker; it opens on All. At a table
+  /// the shelf is the animated one whatever this says.
   PictureFilter _shelf = PictureFilter.all;
 
   /// Back to the top when the shelf under the scrollbar changes, so a switch
@@ -313,9 +369,12 @@ class _ChipStoreState extends State<_ChipStore> {
   }
 
   Future<void> _loadPrices() async {
-    final got = await context.read<GameState>().purchases.priceList(
-      chipPacks.map((p) => p.productId).toSet(),
-    );
+    // One query for both shelves: Play answers per product id, and a player
+    // flicking between the Chips and Diamonds tabs should see prices at once.
+    final got = await context.read<GameState>().purchases.priceList({
+      ...chipPacks.map((p) => p.productId),
+      ...diamondPacks.map((p) => p.productId),
+    });
     if (mounted && got.isNotEmpty) setState(() => _prices = got);
   }
 
@@ -326,9 +385,13 @@ class _ChipStoreState extends State<_ChipStore> {
     final state = context.watch<GameState>();
     final t = state.t;
     final prices = _prices;
-    final picturesOffered = state.screen != Screen.table;
-    final tab = picturesOffered ? _tab : _StoreTab.chips;
+    // At a table the picture key sells the animated shelf alone, with no shelf
+    // menu (owner, 13 Sep 2026); the lobby keeps every shelf.
+    final atTable = state.screen == Screen.table;
+    final shelf = atTable ? PictureFilter.animated : _shelf;
+    final tab = _tab;
     final onPictures = tab == _StoreTab.pictures;
+    final onDiamonds = tab == _StoreTab.diamonds;
     // The picture being worn, when it is one of the catalogue's, for the
     // Pictures tab's header; null leaves the provider photo or the initial.
     final wornMatches = state.pictures.where(
@@ -399,6 +462,12 @@ class _ChipStoreState extends State<_ChipStore> {
                                 size: 22,
                                 color: AppTheme.goldBright,
                               )
+                            : onDiamonds
+                            ? Icon(
+                                Icons.diamond_rounded,
+                                size: 22,
+                                color: diamondInkOn(theme.brightness),
+                              )
                             : const PokerChip(colour: AppTheme.gold, size: 22),
                         const SizedBox(width: Space.md),
                         Expanded(
@@ -407,7 +476,13 @@ class _ChipStoreState extends State<_ChipStore> {
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
                               Text(
-                                onPictures ? t.storeTabPictures : t.storeTitle,
+                                onPictures
+                                    ? (atTable
+                                          ? t.picturePremiumAnimated
+                                          : t.storeTabPictures)
+                                    : onDiamonds
+                                    ? t.storeDiamondsTitle
+                                    : t.storeTitle,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: AppTheme.label(
@@ -418,6 +493,8 @@ class _ChipStoreState extends State<_ChipStore> {
                               Text(
                                 onPictures
                                     ? t.storePicturesBlurb
+                                    : onDiamonds
+                                    ? t.storeDiamondsBlurb
                                     : t.storeBlurb,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
@@ -430,17 +507,16 @@ class _ChipStoreState extends State<_ChipStore> {
                             ],
                           ),
                         ),
-                        if (picturesOffered) ...[
-                          const SizedBox(width: Space.md),
-                          _StoreTabs(
-                            value: tab,
-                            onChanged: (next) => setState(() {
-                              _tab = next;
-                              _toTop();
-                            }),
-                          ),
-                        ],
-                        if (onPictures) ...[
+                        const SizedBox(width: Space.md),
+                        _StoreTabs(
+                          value: tab,
+                          animatedOnly: atTable,
+                          onChanged: (next) => setState(() {
+                            _tab = next;
+                            _toTop();
+                          }),
+                        ),
+                        if (onPictures || onDiamonds) ...[
                           const SizedBox(width: Space.md),
                           DiamondBalance(count: state.user?.diamond ?? 0),
                         ],
@@ -476,17 +552,19 @@ class _ChipStoreState extends State<_ChipStore> {
                         children: [
                           Align(
                             alignment: Alignment.centerLeft,
-                            child: PictureFilterMenu(
-                              value: _shelf,
-                              counts: {
-                                for (final f in PictureFilter.values)
-                                  f: state.pictures.where(f.holds).length,
-                              },
-                              onChanged: (f) => setState(() {
-                                _shelf = f;
-                                _toTop();
-                              }),
-                            ),
+                            child: atTable
+                                ? const SizedBox.shrink()
+                                : PictureFilterMenu(
+                                    value: _shelf,
+                                    counts: {
+                                      for (final f in PictureFilter.values)
+                                        f: state.pictures.where(f.holds).length,
+                                    },
+                                    onChanged: (f) => setState(() {
+                                      _shelf = f;
+                                      _toTop();
+                                    }),
+                                  ),
                           ),
                           Align(
                             alignment: Alignment.center,
@@ -551,7 +629,7 @@ class _ChipStoreState extends State<_ChipStore> {
                                   child: pictureShelf(
                                     context: context,
                                     state: state,
-                                    filter: _shelf,
+                                    filter: shelf,
                                     // The picker's tile size, so a face is the same
                                     // size wherever it is on sale.
                                     radius: (size.height * 0.105).clamp(
@@ -559,6 +637,30 @@ class _ChipStoreState extends State<_ChipStore> {
                                       52.0,
                                     ),
                                   ),
+                                )
+                              : onDiamonds
+                              ? Wrap(
+                                  spacing: Space.md,
+                                  runSpacing: Space.md,
+                                  children: [
+                                    for (
+                                      var i = 0;
+                                      i < diamondPacks.length;
+                                      i++
+                                    )
+                                      SizedBox(
+                                        width: Dim.packW(size.width),
+                                        height: Dim.packW(size.width) * 1.05,
+                                        child: _PackEntrance(
+                                          index: i,
+                                          child: _DiamondPackCard(
+                                            pack: diamondPacks[i],
+                                            index: i,
+                                            prices: prices,
+                                          ),
+                                        ),
+                                      ),
+                                  ],
                                 )
                               : Wrap(
                                   spacing: Space.md,
@@ -893,6 +995,207 @@ String _grouped(int n) {
     buf.write(head[i]);
   }
   return '$buf,$tail';
+}
+
+/// One diamond pack, drawn as the same lobby-style card as a chip pack.
+///
+/// The plate names its place on the shelf (⭐ popular, 🔥 best value), the
+/// figure is the diamond count beside a gem, and the price rides the glass
+/// capsule along the foot. Colour climbs the shelf the way it climbs the chip
+/// packs — sapphire, sapphire, purple, gold — so the two shelves read as one
+/// store.
+class _DiamondPackCard extends StatefulWidget {
+  const _DiamondPackCard({
+    required this.pack,
+    required this.index,
+    required this.prices,
+  });
+
+  final DiamondPack pack;
+  final int index;
+
+  /// Play's prices by product id; empty until Play answers, when the card
+  /// falls back to the list price.
+  final Map<String, ProductDetails> prices;
+
+  @override
+  State<_DiamondPackCard> createState() => _DiamondPackCardState();
+}
+
+class _DiamondPackCardState extends State<_DiamondPackCard> {
+  bool _down = false;
+
+  String _plateLabel(Strings t) => switch (widget.pack.mark) {
+    ShelfMark.popular => '⭐ ${t.posPopular}',
+    ShelfMark.bestValue => '🔥 ${t.posBestValue}',
+    ShelfMark.starter => t.posStarter,
+    ShelfMark.premium => t.posPremium,
+    ShelfMark.none => t.storeTabDiamonds.toUpperCase(),
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final text = theme.textTheme;
+    final dark = theme.brightness == Brightness.dark;
+    final state = context.watch<GameState>();
+    final t = state.t;
+    final p = widget.pack;
+    final prices = widget.prices;
+    final palette = AppTheme.paletteFor(
+      theme.colorScheme,
+      category: widget.index >= 3 ? 'seen' : 'blind',
+      bootAmount: widget.index >= 2 ? 5000 : 200,
+    );
+    final accent = palette.accent;
+    final gem = diamondInkOn(theme.brightness);
+
+    void buy() {
+      // The same rule as a chip pack: Play is the only thing that takes money,
+      // and it is not always there. Say so rather than fail at the sheet.
+      final details = prices[p.productId];
+      if (!state.purchases.available || details == null) {
+        state.notice = t.storeNotLive;
+        Navigator.pop(context);
+        return;
+      }
+      // The result arrives on the purchase stream; the server credits the
+      // diamonds and the wallet updates from its answer.
+      state.purchases.buy(details);
+      Navigator.pop(context);
+    }
+
+    return AnimatedScale(
+      scale: _down ? 0.955 : 1,
+      duration: Motion.fast,
+      curve: Motion.standard,
+      child: LayoutBuilder(
+        builder: (context, box) {
+          final w = box.maxWidth;
+          final h = box.maxHeight;
+          final s = math.min(w, h);
+          final pad = (s * 0.075).clamp(8.0, 14.0);
+          final plateH = (s * 0.15).clamp(20.0, 28.0);
+          final figure = (s * 0.19).clamp(20.0, 34.0);
+          final ctaH = (s * 0.20).clamp(28.0, 36.0);
+
+          final colours = orbColours(accent);
+          final orb = Rect.fromCenter(
+            center: Offset(w * 0.80, h * 0.34),
+            width: s * 0.62,
+            height: s * 0.62,
+          );
+
+          final panel = PremiumGlassPanel(
+            mode: GlassMode.tinted,
+            radius: Radii.lg,
+            live: p.mark == ShelfMark.bestValue,
+            padding: EdgeInsets.zero,
+            tint: Colors.white,
+            behind: Stack(
+              children: [
+                Positioned.fromRect(
+                  rect: orb,
+                  child: GlassOrb(
+                    colours: colours,
+                    size: orb.width,
+                    soft: true,
+                    opacity: dark ? 0.62 : 0.46,
+                  ),
+                ),
+              ],
+            ),
+            child: Material(
+              type: MaterialType.transparency,
+              child: InkWell(
+                enableFeedback: context.select<FeedbackSettings, bool>(
+                  (f) => f.sound,
+                ),
+                borderRadius: BorderRadius.circular(Radii.lg),
+                onTap: () {
+                  tapHaptic(context);
+                  buy();
+                },
+                onTapDown: (_) => setState(() => _down = true),
+                onTapCancel: () => setState(() => _down = false),
+                onTapUp: (_) => setState(() => _down = false),
+                splashColor: accent.withValues(alpha: 0.12),
+                highlightColor: accent.withValues(alpha: 0.06),
+                child: Padding(
+                  padding: EdgeInsets.all(pad),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _PackPlate(
+                        label: _plateLabel(t),
+                        palette: palette,
+                        height: plateH,
+                      ),
+                      const Spacer(),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          Icon(Icons.diamond_rounded, size: figure, color: gem),
+                          const SizedBox(width: Space.sm),
+                          Expanded(
+                            child: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              alignment: Alignment.centerLeft,
+                              child: Text(
+                                '${p.diamonds}',
+                                maxLines: 1,
+                                style: AppTheme.money(
+                                  text.displaySmall!,
+                                  fontSize: figure,
+                                  colour: gem,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      Text(
+                        t.storeTabDiamonds,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: text.bodySmall?.copyWith(
+                          color: GlassColors.of(context).textBody,
+                        ),
+                      ),
+                      const Spacer(),
+                      _PriceCapsule(
+                        label:
+                            prices[p.productId]?.price ??
+                            '₹${_grouped(p.rupees)}',
+                        height: ctaH,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          );
+
+          return Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Positioned.fromRect(
+                rect: orb,
+                child: IgnorePointer(
+                  child: GlassOrb(
+                    colours: colours,
+                    size: orb.width,
+                    opacity: dark ? 1.0 : 0.9,
+                  ),
+                ),
+              ),
+              panel,
+            ],
+          );
+        },
+      ),
+    );
+  }
 }
 
 /// The plate at the head of a pack card: the lobby's category plate, still.

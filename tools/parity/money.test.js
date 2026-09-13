@@ -122,12 +122,14 @@ test('PostgreSQL holds no game state at all: money, audit and accounts only', as
   //
   // profile_pictures and user_profile_pictures are account facts, the same
   // kind of thing `users` holds — a catalogue and who has paid for what. They
-  // outlive every hand and no table ever reads them. The list is exact rather
-  // than a minimum, so a new table has to be argued for here first.
+  // outlive every hand and no table ever reads them. diamond_purchases
+  // (13 Sep 2026) is money: the record of a Play diamond pack and the guard
+  // that stops its token crediting twice. The list is exact rather than a
+  // minimum, so a new table has to be argued for here first.
   const { rows } = await query(
     `SELECT tablename FROM pg_tables WHERE schemaname = current_schema() ORDER BY tablename`);
   const tables = rows.map((r) => r.tablename);
-  assert.deepEqual(tables, ['chip_ledger', 'profile_pictures', 'user_profile_pictures', 'users'],
+  assert.deepEqual(tables, ['chip_ledger', 'diamond_purchases', 'profile_pictures', 'user_profile_pictures', 'users'],
     `the schema must hold money, audit and accounts only, got ${tables.join(', ')}`);
 });
 

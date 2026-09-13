@@ -688,6 +688,37 @@ func TestADiamondPictureIsPaidInDiamondsAndTheWalletsStayApart(t *testing.T) {
 	f.reconcile()
 }
 
+// A seated player buys through BuyAtTable (owner, 13 Sep 2026): a diamond
+// picture sells as in the lobby, while a chip-priced one is refused inside the
+// transaction and nothing moves — a seated wallet's chips change only at the
+// hand checkpoints.
+func TestAtTheTableOnlyDiamondsBuyAPicture(t *testing.T) {
+	f := newFixture(t)
+	user := newGuest(t, f)
+	chips := f.chips(user.ID)
+
+	coin := premiumPicture(t, f)
+	if _, err := f.pictures.BuyAtTable(f.ctx, user.ID, coin.ID); !errors.Is(err, db.ErrPictureAtTable) {
+		t.Fatalf("a chip-priced picture at the table: err = %v, want ErrPictureAtTable", err)
+	}
+	if f.chips(user.ID) != chips {
+		t.Fatal("a refused table purchase moved chips")
+	}
+	if n := f.count(`SELECT COUNT(*) FROM user_profile_pictures WHERE user_id = $1`, user.ID); n != 0 {
+		t.Fatalf("a refused table purchase left %d ownership row(s)", n)
+	}
+
+	gem := diamondPicture(t, f)
+	bought, err := f.pictures.BuyAtTable(f.ctx, user.ID, gem.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bought.Charged || bought.Spent != gem.Cost || f.chips(user.ID) != chips {
+		t.Fatalf("a diamond picture at the table: %+v, chips %d -> %d", bought, chips, f.chips(user.ID))
+	}
+	f.reconcile()
+}
+
 func TestAPremiumPictureIsARentalThatRunsOut(t *testing.T) {
 	f := newFixture(t)
 	user := newGuest(t, f)

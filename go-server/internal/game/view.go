@@ -14,9 +14,13 @@ import "encoding/json"
 //
 // Public everywhere: lastBet, lastAction, contributed, isBlind, connected, status.
 type TableView struct {
-	RoomID   string   `json:"roomId"`
-	Code     string   `json:"code"`
-	Category Category `json:"category"`
+	RoomID string `json:"roomId"`
+	Code   string `json:"code"`
+	// IsPrivate marks a table reached by its code alone (requirement 22). Go
+	// only (owner, 13 Sep 2026): the Flutter drawer shows a table's code only
+	// when it is private, since that code is how friends are let in.
+	IsPrivate bool     `json:"isPrivate"`
+	Category  Category `json:"category"`
 	// ChipsHidden is true on blind tables: other players' stacks are withheld.
 	ChipsHidden bool       `json:"chipsHidden"`
 	State       TableState `json:"state"`
