@@ -307,6 +307,7 @@ const (
 	msgStakeMustBeOneOf    = "Stake must be one of: %s"
 	msgLobbyOffers         = "The lobby offers: %s"
 	msgInsufficientToJoin  = "Not enough chips to join this table"
+	msgInvalidRoomCode     = "Table codes are 8 letters and numbers"
 	msgRoomNotFound        = "No table with that code"
 	msgThatTableFull       = "That table is full" // joinByCode; the Table's own is "This table is full"
 	msgNotAtATable         = "You are not at a table"
@@ -496,7 +497,7 @@ func (rm *RoomManager) AssertTableOffered(bootAmount int64, category Category) e
 //   - private (either category) then overrides MaxPot = PrivateMaxPot and
 //     MaxRaiseSteps = PrivateMaxRaiseSteps;
 //   - the rest of TableConfig copies config.Game / config.Chat;
-//   - id util.UUID(), code util.RoomCode(6) regenerated until unique among
+//   - id util.UUID(), code util.RoomCode(8) regenerated until unique among
 //     live tables (DECISIONS.md §3), Listener = rm's tableHooks.
 //
 // Registers the table, calls RoomListener.OnTableCreated, logs `table
@@ -782,7 +783,7 @@ func (rm *RoomManager) releaseHold(roomID string) {
 	rm.mu.Unlock()
 }
 
-// pickTableLocked is the candidate scan quickJoin and switchTable share: the
+// pickTableLocked is quickJoin's candidate scan: the
 // FULLEST public non-full table with the same boot AND category, excluding
 // excludeID, ties to the earliest created (Node's stable sort over a Map in
 // insertion order). Table state is not considered — a player may sit down
@@ -805,6 +806,31 @@ func (rm *RoomManager) pickTableLocked(bootAmount int64, category Category, excl
 		}
 	}
 	return best
+}
+
+// pickRandomTableLocked is switchTable's candidate scan: a table chosen
+// uniformly at random from every OTHER public non-full table with the same
+// boot AND category (owner, 13 Sep 2026). Node — and quickJoin still — sent a
+// switcher to the fullest table, which funnelled every switch at a stake onto
+// the same few tables; a random pick spreads switchers across all the tables
+// of that kind. The draw is crypto/rand (cryptoIntn), like the deck: which
+// table a player lands on should not be predictable. nil when none. mu held;
+// only lock-free getters are read.
+func (rm *RoomManager) pickRandomTableLocked(bootAmount int64, category Category, excludeID string) *Table {
+	var candidates []*Table
+	for id, t := range rm.tables {
+		if id == excludeID || t.IsPrivate() || rm.fullLocked(t) {
+			continue
+		}
+		if t.BootAmount() != bootAmount || t.Category() != category {
+			continue
+		}
+		candidates = append(candidates, t)
+	}
+	if len(candidates) == 0 {
+		return nil
+	}
+	return candidates[cryptoIntn(len(candidates))]
 }
 
 // QuickJoin (quickJoin) seats a player, creating a table if every one at the
@@ -883,14 +909,20 @@ func (rm *RoomManager) QuickJoin(user Player, opts QuickJoinOptions) (*Table, er
 	}
 }
 
-// JoinByCode (joinByCode): already_in_room → room_not_found ("No table with
-// that code") → table_full ("That table is full") → insufficient_chips →
+// JoinByCode (joinByCode): already_in_room → invalid_room_code (not exactly 8
+// letters or digits — owner, 13 Sep 2026; checked before any lookup) →
+// room_not_found ("No table with that code") → table_full ("That table is
+// full") → insufficient_chips →
 // entry cap (skipped for private tables: you were invited) → Join. Neither
 // the stake list nor the menu is consulted: any live table can be joined by
 // its code.
 func (rm *RoomManager) JoinByCode(user Player, code string) (*Table, error) {
 	if err := rm.assertNotSeated(user.ID); err != nil {
 		return nil, err
+	}
+	code = strings.ToUpper(strings.TrimSpace(code))
+	if !util.ValidRoomCode(code) {
+		return nil, NewGameError(CodeInvalidRoomCode, msgInvalidRoomCode)
 	}
 	table := rm.GetTableByCode(code)
 	if table == nil {
@@ -918,8 +950,9 @@ func (rm *RoomManager) JoinByCode(user Player, code string) (*Table, error) {
 }
 
 // SwitchTable (switchTable) moves a seated player sideways: not_in_room if
-// unseated; private_table if the current table is private; target = fullest
-// OTHER public non-full table with the same boot and category, else
+// unseated; private_table if the current table is private; target = a RANDOM
+// other public non-full table with the same boot and category
+// (pickRandomTableLocked; owner, 13 Sep 2026 — Node took the fullest), else
 // no_other_table ("No other <category> table at this stake has a free seat
 // right now"). The entry cap is deliberately NOT applied (requirement 30
 // guards the lobby door only: a player already seated at a table of this
@@ -952,7 +985,7 @@ func (rm *RoomManager) SwitchTable(user Player) (SwitchResult, error) {
 		return SwitchResult{From: current}, NewGameError(CodePrivateTable, msgPrivateTableSwitch)
 	}
 	bootAmount, category := current.BootAmount(), current.Category()
-	target := rm.pickTableLocked(bootAmount, category, current.ID())
+	target := rm.pickRandomTableLocked(bootAmount, category, current.ID())
 	if target == nil {
 		rm.mu.Unlock()
 		return SwitchResult{From: current}, Errorf(CodeNoOtherTable, msgNoOtherTableFormat, string(category))

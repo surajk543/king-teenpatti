@@ -112,17 +112,17 @@ king-teenpatti/
     │   │     `tableScaffold`/`lobbyScaffold` GlobalKeys: main.dart `_BackGuard` closes an open drawer/endDrawer first; only then asks leave (table) / quit (lobby).
     │   │     `_armSeatCheck()`: on a warm `session:ready` while `room != null`, if no snapshot follows within 1.8s the seat is gone (server restarted / room closed) → lobby + t.tableLost. Cold start uses the `resuming` veil instead.
     │   ├── theme/app_theme.dart `AppTheme.paletteFor(scheme, category, bootAmount)` → TablePalette: seen=gold, blind<1000=sapphire(tertiary), blind≥1000=royal purple; used by lobby card, felt, _CategoryTag ("BLIND · 5,000")
-    │   ├── screens/table_screen.dart `_MissedTurnsStrip` (zero-height OverflowBox over the Pack button: `_BlindMovesPill` + `_MissedTurns`, always visible), `_BetFlights` (chip from seat to pot on every contributed increase), `_AmbientGlow`
+    │   ├── screens/table_screen.dart `_BlindDots` (the blind bets left, as dots under "See cards" on the viewer's own hand — the missed-turns box over the Pack key was removed 13 Sep 2026, owner), `_BetFlights` (chip from seat to pot on every contributed increase), `_AmbientGlow`
     │   ├── screens/lobby_screen.dart `_DriftingChips` ambient background
     │   └── widgets/seat_pod.dart `BubbleSide {above,left,right}`: chat bubble hung off the column END in a zero-height OverflowBox — rim seats grow it up over their own cards/badge (max 1.7×podW, pointer tail up at the pod), the viewer's grows up from the column top (2.1×podW, tail down). Pods paint AFTER tag/pot/status in the felt Stack so a bubble is never hidden.
     │   │     GameState: bubbles hold `bubbleFor` = 8s; a second line from the same player queues in `_bubbleQueue` and shows when the first expires; `_clearBubbles()` on leave/kick.
-    │   │     `_MissedTurnsStrip`: width comes from the pod geometry, not a share of the screen — `podLeft - left - Space.xl`, clamped 110..360 (200.1 at 891x411, 301.3 at 1280x800). Compact (one line, no explanation) when that corner is under 260, on a compact/short screen, or when the blind-moves row is sharing the plate: four rows grew it up into the left seat's caption. `_CategoryTag` text shrinks via FittedBox (slot w*0.30).
+    │   │     `_CategoryTag` text shrinks via FittedBox (slot w*0.30).
     │   ├── net/game_connection.dart  Socket.IO streams; every move carries a fresh actionId
     │   ├── net/api_client.dart   REST
     │   ├── models/dtos.dart      wire DTOs mirroring server JSON
     │   ├── screens/{login,lobby,table}_screen.dart
     │   ├── widgets/              premium_surface, seat_pod, playing_card, poker_chip, liquid_fill,
-    │   │                         fireworks, avatar, buy_chips, rules_sheet
+    │   │                         fireworks, avatar, buy_chips, chip_store, picture_shelf, rules_sheet
     │   ├── theme/app_theme.dart  FlexColorScheme + shadow/lift helpers, Space/Radii/Motion/Breaks/Dim, Inter
     │   ├── theme/theme_colors.dart  GlassColors ThemeExtension (obsidian / frosted-ice tokens, §8.4)
     │   ├── widgets/glass_components.dart  tapHaptic, PressScale, GlassCard, GlassButton, GlassTextField, GlassThemeSwitcher
@@ -415,7 +415,8 @@ showRequestedBy, sideshow, lastDeparture, turnDeadline, turnToken, contributions
   `_assertUnderEntryCap` → **`assertWithinTableBand`** → fullest public non-full table with same boot+category,
   else `createTable`.
   Sync.
-- `switchTable` (**async**): same boot+category, **no entry cap**, leaves with reason `'moved'`
+- `switchTable` (**async**): same boot+category, a **random** other public non-full table (Go, owner 13 Sep 2026 —
+  `pickRandomTableLocked`, crypto/rand; Node took the fullest, which quickJoin still does), **no entry cap**, leaves with reason `'moved'`
   (skips consolidation). `leave`, `destroyTable`, `consolidateTables`, `sweepEmptyTables`,
   `_movePlayer`, `shutdown` are **async** and must be awaited. `leave` deletes `playerRooms` *before*
   awaiting the removal.
@@ -459,7 +460,7 @@ user (`session:replaced` to the old one). On connect: `session:ready {user, conf
 | `lobby:list` | `{category?}` | `{tables, options}` (used only by scratch/tests); each `options.tables[]` entry carries `minChips`/`maxChips`, the stack band |
 | `room:quickJoin` | `{bootAmount?, category?}` | `{roomId, code, category}` |
 | `room:create` | `{isPrivate=true, category?}` | `{roomId, code, category}` — boot ignored |
-| `room:joinCode` | `{code}` | `{roomId, code, category}` |
+| `room:joinCode` | `{code}` — exactly 8 letters or digits, any case (owner, 13 Sep 2026: every table's code is issued 8 long, `util.DefaultRoomCodeLength`; any other shape → `invalid_room_code` "Table codes are 8 letters and numbers" before any lookup; Flutter's field lets nothing else in and holds Join until 8) | `{roomId, code, category}` |
 | `room:switch` | `{}` | `{roomId, code, category}` |
 | `room:leave` | `{}` | `{roomId}` or `{}` |
 | `game:action` | `{action, amount?, actionId?}` | table.act result; `actionId` (≤64 chars) becomes the ledger row's unique id |
@@ -816,10 +817,10 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   to squeeze the rail and the chat panel until both painted overflow stripes; the chat drawer lifts
   its own composer over the keyboard and drops its title while typing.
   `_LeftPanel {menu, chat}` shares one `drawer`.
-  **There is no `_ActionBar`.** The keys live in the corners they are pressed in: `_SideRail`
-  (BuyChips `+` at the head, then menu, then chat — each key fills the rail so the target stays
-  ≥44dp, which is why they sit flush to the screen edge on a 360dp phone), `_PackKey` bottom-left
-  with `_MissedTurnsStrip` riding above it, and `_ActionCluster` bottom-right (`Sideshow` over
+  **There is no `_ActionBar`.** The keys live in the corners they are pressed in: the lobby's `ShopButton`
+  top-left (13 Sep 2026, replacing the gold `+` that headed the rail; it opens the store on Chips), `_SideRail`
+  (menu, then chat — each key fills the rail so the target stays
+  ≥44dp, which is why they sit flush to the screen edge on a 360dp phone), `_PackKey` bottom-left, and `_ActionCluster` bottom-right (`Sideshow` over
   `− Chaal +`).
   `_Felt`: seats at fractional `_places` (5 only), viewer at view seat 0, `Dim.podW(feltW, feltH) =
   min(feltH*0.270, feltW*0.150).clamp(60,140)`, pods clamped inside. Overlays: `_CategoryTag`,
@@ -897,7 +898,12 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   `_raisedButtons` = state-driven elevation (`liftElevation`: disabled 0, pressed rest/3, hover 2×),
   tinted `shadowFor`, transparent surfaceTint; text buttons flat. `PremiumSurface` = the one raised
   treatment (3 shadows + bevel + optional `Glint`).
-- **The picture picker** (`_openPicturePicker`, `_PictureChoice`, requirement 21): a horizontal strip
+- **The picture picker** (`_openPicturePicker`; its shelf — `PictureFilter`, `PictureFilterMenu`, `pictureShelf`,
+  `PictureChoice`, `unlockPicture`, `DiamondBalance` — lives in `widgets/picture_shelf.dart`, shared with the chip
+  store's **Pictures** tab (`chip_store.dart` `_StoreTabs`: Chips | Pictures in the header; the Pictures key is not
+  offered at a table, where a seated player cannot buy or change a picture; the chip packs are drawn as lobby table cards —
+  frosted glass over a baked orb, a still plate, count-up figure, one fact, a price capsule — coloured sapphire → purple → gold
+  up the range; the Pictures tab heads its grid with the worn picture, large and centred, beside the shelf menu); requirement 21): a horizontal strip
   of the active catalogue, one **shelf** at a time: a menu pinned above the grid (`_PictureFilterMenu`, 13 Sep 2026)
   picks All (the default), Free, Premium (premium IMAGE/SVG) or Premium (Animated) (premium LOTTIE/RIVE,
   `ProfilePicture.animated`), each with its count. A picture the player has not bought is drawn at 0.55

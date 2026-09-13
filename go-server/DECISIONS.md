@@ -50,6 +50,7 @@ server behaves differently from Node on purpose.
 | `room:create {isPrivate:false}` (public table at any boot, no chips check) | **Deviation (security).** A public create is validated like `quickJoin`: `invalid_stake`, `table_not_offered`, `insufficient_chips`, `over_entry_cap`, in that order. Private create is unchanged (boot forced to `privateBoot`). |
 | `room:create` by a seated player | **Deviation.** `already_in_room` is checked *before* any table is created. No orphan table. |
 | `switchTable` failure after leaving | **Deviation.** The seat on the source table is restored (as `_movePlayer` does). If the source is gone, the player gets `room:left` and the error. |
+| `switchTable` target | **Deviation (owner, 13 Sep 2026).** Node sent a switcher to the FULLEST other public non-full table of the same boot and category; Go picks one of those tables uniformly at random (`pickRandomTableLocked`, drawn with crypto/rand), so switchers spread across every table of that kind instead of piling onto one. `quickJoin` still takes the fullest. |
 | Room code collisions | **Deviation.** Codes are regenerated until unique among live tables. |
 | `LOBBY_TABLES` with an unknown category | **Deviation.** Rejected at config load with a clear error. |
 | Consolidation order and copying chips from the seat | Same as Node. |

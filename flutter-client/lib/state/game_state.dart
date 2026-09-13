@@ -21,6 +21,16 @@ import 'theme_preference.dart';
 
 enum Screen { splash, update, login, lobby, table }
 
+/// How long a table code is (owner, 13 Sep 2026): the server issues exactly
+/// this many letters and digits and refuses a join by any other shape.
+const tableCodeLength = 8;
+
+/// Whether [code] has the shape of a table code — [tableCodeLength] ASCII
+/// letters or digits, in either case, surrounding spaces ignored. Shape only:
+/// whether a table carries it is the server's answer.
+bool isValidTableCode(String code) =>
+    RegExp('^[A-Za-z0-9]{$tableCodeLength}\$').hasMatch(code.trim());
+
 /// Everything the UI reads, and the only place the two halves of the server —
 /// REST and socket — are stitched together.
 ///
@@ -832,9 +842,7 @@ class GameState extends ChangeNotifier {
     if (!premium) return;
 
     _rentalRefreshing = true;
-    unawaited(
-      _refreshPictures().whenComplete(() => _rentalRefreshing = false),
-    );
+    unawaited(_refreshPictures().whenComplete(() => _rentalRefreshing = false));
   }
 
   /// Guards the watch against stacking refreshes if one is slow.
@@ -1081,7 +1089,21 @@ class GameState extends ChangeNotifier {
 
   void quickJoin(int boot, String category) => _conn.quickJoin(boot, category);
   void createPrivate() => _conn.createPrivate(TableCategory.seen);
-  void joinByCode(String code) => _conn.joinByCode(code.trim().toUpperCase());
+
+  /// Joins a table by its code, once the code has the shape of one: exactly
+  /// [tableCodeLength] letters or digits. The server refuses anything else as
+  /// `invalid_room_code`; checking here as well saves the round trip and says
+  /// so in the player's own language.
+  void joinByCode(String code) {
+    final normal = code.trim().toUpperCase();
+    if (!isValidTableCode(normal)) {
+      notice = t.invalidTableCode;
+      notifyListeners();
+      return;
+    }
+    _conn.joinByCode(normal);
+  }
+
   void leaveTable() => _conn.leave();
 
   /// True while a table switch is in flight, so the brief moment between

@@ -75,6 +75,7 @@ class Strings {
   String get create => _('create');
   String get orJoinCode => _('orJoinCode');
   String get tableCode => _('tableCode');
+  String get invalidTableCode => _('invalidTableCode');
   String get join => _('join');
   String get yourPicture => _('yourPicture');
   String get yourRecord => _('yourRecord');
@@ -107,6 +108,9 @@ class Strings {
   // --- the chip store
   String get storeTitle => _('storeTitle');
   String get storeBlurb => _('storeBlurb');
+  String get storeTabChips => _('storeTabChips');
+  String get storeTabPictures => _('storeTabPictures');
+  String get storePicturesBlurb => _('storePicturesBlurb');
   String get storeBonus => _('storeBonus');
   String get storeNotLive => _('storeNotLive');
   String get posStarter => _('posStarter');
@@ -332,6 +336,7 @@ class Strings {
       'create': 'Create',
       'orJoinCode': 'Or join one with its code:',
       'tableCode': 'TABLE CODE',
+      'invalidTableCode': 'Table codes are 8 letters and numbers.',
       'join': 'Join',
       'yourPicture': 'Your picture',
       'yourRecord': 'Your record',
@@ -363,6 +368,9 @@ class Strings {
       'updateFailed': 'The update did not finish. Please try again.',
       'storeTitle': 'Chip Store',
       'storeBlurb': 'The bigger the pack, the bigger the bonus.',
+      'storeTabChips': 'Chips',
+      'storeTabPictures': 'Pictures',
+      'storePicturesBlurb': 'Unlock a picture with chips or diamonds.',
       'storeBonus': 'BONUS',
       'storeNotLive': 'Payments are not live yet — nothing was charged.',
       'posStarter': 'STARTER',
@@ -542,6 +550,7 @@ class Strings {
       'create': 'बनाएँ',
       'orJoinCode': 'या कोड से जुड़ें:',
       'tableCode': 'टेबल कोड',
+      'invalidTableCode': 'टेबल कोड 8 अक्षरों और अंकों का होता है।',
       'join': 'जुड़ें',
       'yourPicture': 'आपकी तस्वीर',
       'yourRecord': 'आपका रिकॉर्ड',
@@ -572,6 +581,9 @@ class Strings {
       'updateFailed': 'अपडेट पूरा नहीं हुआ। कृपया फिर कोशिश करें।',
       'storeTitle': 'चिप स्टोर',
       'storeBlurb': 'जितना बड़ा पैक, उतना बड़ा बोनस।',
+      'storeTabChips': 'चिप्स',
+      'storeTabPictures': 'तस्वीरें',
+      'storePicturesBlurb': 'चिप्स या हीरों से तस्वीर अनलॉक करें।',
       'storeBonus': 'बोनस',
       'storeNotLive': 'भुगतान अभी चालू नहीं है — कोई शुल्क नहीं लिया गया।',
       'posStarter': 'शुरुआत',
@@ -750,6 +762,7 @@ class Strings {
       'create': 'তৈরি করুন',
       'orJoinCode': 'অথবা কোড দিয়ে যোগ দিন:',
       'tableCode': 'টেবিল কোড',
+      'invalidTableCode': 'টেবিল কোড ৮টি অক্ষর ও সংখ্যা দিয়ে হয়।',
       'join': 'যোগ দিন',
       'yourPicture': 'আপনার ছবি',
       'yourRecord': 'আপনার রেকর্ড',
@@ -781,6 +794,9 @@ class Strings {
       'updateFailed': 'আপডেট শেষ হয়নি। আবার চেষ্টা করুন।',
       'storeTitle': 'চিপ স্টোর',
       'storeBlurb': 'প্যাক যত বড়, বোনাসও তত বড়।',
+      'storeTabChips': 'চিপস',
+      'storeTabPictures': 'ছবি',
+      'storePicturesBlurb': 'চিপস বা হীরে দিয়ে ছবি আনলক করুন।',
       'storeBonus': 'বোনাস',
       'storeNotLive': 'পেমেন্ট এখনও চালু নয় — কোনও চার্জ হয়নি।',
       'posStarter': 'শুরু',
@@ -961,6 +977,7 @@ class Strings {
       'create': 'બનાવો',
       'orJoinCode': 'અથવા કોડથી જોડાઓ:',
       'tableCode': 'ટેબલ કોડ',
+      'invalidTableCode': 'ટેબલ કોડ 8 અક્ષરો અને અંકોનો હોય છે.',
       'join': 'જોડાઓ',
       'yourPicture': 'તમારો ફોટો',
       'yourRecord': 'તમારો રેકોર્ડ',
@@ -991,6 +1008,9 @@ class Strings {
       'updateFailed': 'અપડેટ પૂરું થયું નથી. ફરી પ્રયાસ કરો.',
       'storeTitle': 'ચિપ સ્ટોર',
       'storeBlurb': 'પૅક જેટલું મોટું, બોનસ એટલું મોટું.',
+      'storeTabChips': 'ચિપ્સ',
+      'storeTabPictures': 'ફોટા',
+      'storePicturesBlurb': 'ચિપ્સ અથવા હીરાથી ફોટો અનલૉક કરો.',
       'storeBonus': 'બોનસ',
       'storeNotLive': 'પેમેન્ટ હજી ચાલુ નથી — કોઈ ચાર્જ લેવાયો નથી.',
       'posStarter': 'શરૂઆત',
@@ -1170,6 +1190,7 @@ class Strings {
       'create': 'ਬਣਾਓ',
       'orJoinCode': 'ਜਾਂ ਕੋਡ ਨਾਲ ਜੁੜੋ:',
       'tableCode': 'ਟੇਬਲ ਕੋਡ',
+      'invalidTableCode': 'ਟੇਬਲ ਕੋਡ 8 ਅੱਖਰਾਂ ਅਤੇ ਅੰਕਾਂ ਦਾ ਹੁੰਦਾ ਹੈ।',
       'join': 'ਜੁੜੋ',
       'yourPicture': 'ਤੁਹਾਡੀ ਤਸਵੀਰ',
       'yourRecord': 'ਤੁਹਾਡਾ ਰਿਕਾਰਡ',
@@ -1200,6 +1221,9 @@ class Strings {
       'updateFailed': 'ਅੱਪਡੇਟ ਪੂਰਾ ਨਹੀਂ ਹੋਇਆ। ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ।',
       'storeTitle': 'ਚਿੱਪ ਸਟੋਰ',
       'storeBlurb': 'ਪੈਕ ਜਿੰਨਾ ਵੱਡਾ, ਬੋਨਸ ਓਨਾ ਵੱਡਾ।',
+      'storeTabChips': 'ਚਿਪਸ',
+      'storeTabPictures': 'ਤਸਵੀਰਾਂ',
+      'storePicturesBlurb': 'ਚਿਪਸ ਜਾਂ ਹੀਰਿਆਂ ਨਾਲ ਤਸਵੀਰ ਅਨਲੌਕ ਕਰੋ।',
       'storeBonus': 'ਬੋਨਸ',
       'storeNotLive': 'ਭੁਗਤਾਨ ਹਾਲੇ ਚਾਲੂ ਨਹੀਂ — ਕੋਈ ਚਾਰਜ ਨਹੀਂ ਲਿਆ ਗਿਆ।',
       'posStarter': 'ਸ਼ੁਰੂਆਤ',

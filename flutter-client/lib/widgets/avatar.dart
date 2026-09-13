@@ -16,11 +16,10 @@ import '../theme/app_theme.dart';
 /// ([pictureKindOf]). The routing matters: an SVG through Image renders
 /// nothing, and a dotLottie is a zip that neither of the other two can read.
 ///
-/// An animation only PLAYS where [animate] is set — the picker. Everywhere else
-/// it is drawn stopped on its first frame, which is still the player's picture
-/// and costs no ticker: five looping animations around a felt that already runs
-/// per-frame turn clocks is a different question, and not one a profile picture
-/// should answer on its own.
+/// An animation only PLAYS where [animate] is set, and every place a player's
+/// picture appears sets it — the lobby's top bar and drawers, the picker, the
+/// unlock dialog, the store and the seat pods at the table. A still picture
+/// has no frames, so the flag costs a ticker only for a picture that moves.
 ///
 /// There are two different fallbacks and the difference matters. A player with
 /// NO picture gets their initial — it is something rather than nothing, and it
@@ -75,8 +74,8 @@ class Avatar extends StatelessWidget {
   /// that has to read as chosen rather than as an Android focus highlight.
   final double ringGap;
 
-  /// Whether a Lottie picture plays. Off everywhere but the picker; a stopped
-  /// animation still draws its first frame. Does nothing for SVG or bitmap
+  /// Whether a Lottie picture plays. A stopped animation still draws its first
+  /// frame. Does nothing for SVG or bitmap
   /// pictures, which have no frames to run.
   final bool animate;
 
@@ -198,7 +197,6 @@ class Avatar extends StatelessWidget {
     );
   }
 }
-
 
 /// One picture, drawn from [PictureCache].
 ///

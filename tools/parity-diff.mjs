@@ -245,7 +245,7 @@ const runScenario = async (side) => {
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const JWT = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/;
-const ROOM_CODE = /^[A-Z2-9]{6}$/;
+const ROOM_CODE = /^[A-Z2-9]{8}$/;
 const CARD = /^[2-9TJQKA][shdc]$/;
 const TIMESTAMP_KEYS = new Set(['at', 'createdAt', 'lastLoginAt', 'deadline', 'startsAt', 'expiresAt', 'nextHandAt', 'serverTime', 'updatedAt', 'bonusReadyAt', 'readyAt']);
 

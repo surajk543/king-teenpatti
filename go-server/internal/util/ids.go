@@ -16,8 +16,11 @@ import (
 // without confusion (server/src/util/ids.js).
 const RoomCodeAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 
-// DefaultRoomCodeLength is the length Node's roomCode() defaults to.
-const DefaultRoomCodeLength = 6
+// DefaultRoomCodeLength is how long every table code is: 8 characters (owner,
+// 13 Sep 2026). Node's roomCode() defaulted to 6; a private table's code is the
+// only key to it, so it was lengthened, and JoinByCode refuses any join whose
+// code is not exactly this shape (ValidRoomCode).
+const DefaultRoomCodeLength = 8
 
 // UUID returns a fresh random (v4) UUID in canonical lower-case form — the
 // id used for users, tables, hands, chat messages, turn tokens and any move
@@ -31,9 +34,9 @@ func UUID() string {
 // `randomBytes(length)[i] % 32`; 32 letters divide 256 exactly so the
 // modulus is unbiased — keep the alphabet at 32 characters).
 //
-// There is no collision check anywhere (CLAUDE.md §12.2) — RoomManager just
-// trusts the code is unique. A porter may add a retry loop in
-// RoomManager.CreateTable, but must not change the alphabet or length.
+// RoomManager.CreateTable regenerates a code until it is unique. Keep the
+// alphabet at 32 characters — the unbiased modulus above depends on it; the
+// length is DefaultRoomCodeLength.
 func RoomCode(length int) string {
 	if length <= 0 {
 		length = DefaultRoomCodeLength
@@ -49,4 +52,23 @@ func RoomCode(length int) string {
 		out[i] = RoomCodeAlphabet[int(b)%len(RoomCodeAlphabet)]
 	}
 	return string(out)
+}
+
+// ValidRoomCode reports whether code has the shape of a table code: exactly
+// DefaultRoomCodeLength ASCII letters or digits, in either case. It checks the
+// shape only — whether a table carries the code is RoomManager's question —
+// and it takes the whole of A–Z and 0–9 rather than RoomCodeAlphabet alone, so
+// a code misread with an O or a 1 in it is answered "no table with that code"
+// rather than "not a code".
+func ValidRoomCode(code string) bool {
+	if len(code) != DefaultRoomCodeLength {
+		return false
+	}
+	for i := 0; i < len(code); i++ {
+		c := code[i]
+		if !((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')) {
+			return false
+		}
+	}
+	return true
 }

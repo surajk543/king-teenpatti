@@ -488,6 +488,11 @@ class SeatPod extends StatelessWidget {
                     // rather than borders.
                     ring: onTurn ? beat : null,
                     ringWidth: onTurn ? 2 : 1.5,
+                    // An animated picture plays at the table too: it is what
+                    // the player paid for, and a still frame of it here read as
+                    // broken. A still picture has no frames, so this costs a
+                    // ticker only for the seats that wear one that moves.
+                    animate: true,
                   ),
                   if (knownStack) ...[
                     SizedBox(height: width * _kGap),

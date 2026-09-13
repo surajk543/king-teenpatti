@@ -437,7 +437,17 @@
 
   // A private table's boot is fixed by the server, so none is sent.
   $('createBtn').onclick = () => emit('room:create', { category: 'blind', isPrivate: true });
-  $('joinCodeBtn').onclick = () => emit('room:joinCode', { code: $('codeInput').value.trim().toUpperCase() });
+  $('joinCodeBtn').onclick = () => {
+    const code = $('codeInput').value.trim().toUpperCase();
+    // A table code is exactly 8 letters or digits; the server refuses any
+    // other shape, so say so here without the round trip.
+    if (!/^[A-Z0-9]{8}$/.test(code)) {
+      $('lobbyError').textContent = 'Table codes are 8 letters and numbers';
+      $('lobbyError').hidden = false;
+      return;
+    }
+    emit('room:joinCode', { code });
+  };
   /**
    * Requirement 25: leaving is confirmed first. The wording changes when a
    * hand is live, because that is when leaving actually costs the player

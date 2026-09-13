@@ -80,8 +80,9 @@ const (
 	// (config.LobbyTable.MinChips). The partner of over_entry_cap: one says
 	// the player has outgrown a table, this says they have not grown into it.
 	CodeBelowTableMinimum = "below_table_minimum"
-	CodePrivateTable      = "private_table"  // room:switch from a private table
-	CodeRoomNotFound      = "room_not_found" // unknown code
+	CodePrivateTable      = "private_table"     // room:switch from a private table
+	CodeInvalidRoomCode   = "invalid_room_code" // a code that is not exactly 8 letters or digits
+	CodeRoomNotFound      = "room_not_found"    // unknown code
 	CodeTableFull         = "table_full"
 	CodeTableNotOffered   = "table_not_offered" // category:boot pair not on LobbyTables
 	CodeUnknownAction     = "unknown_action"

@@ -318,12 +318,21 @@ func TestSeatingRefusals(t *testing.T) {
 	st.mustFail(d.onTurn.c, EvRoomSwitch, map[string]any{}, game.CodeNoOtherTable)
 
 	loner := st.player("Cara")
-	ack = st.mustFail(loner.c, EvRoomJoinCode, map[string]any{"code": "NOPE00"}, game.CodeRoomNotFound)
+	// A table code is exactly 8 letters or digits: anything else is refused as
+	// not a code, before any table is looked up.
+	ack = st.mustFail(loner.c, EvRoomJoinCode, map[string]any{"code": "NOPE00"}, game.CodeInvalidRoomCode)
+	if ack.Message != "Table codes are 8 letters and numbers" {
+		t.Fatalf("message %q", ack.Message)
+	}
+	for _, bad := range []any{"NOPE00000", "NOPE-000", "", map[string]any{"$gt": ""}} {
+		st.mustFail(loner.c, EvRoomJoinCode, map[string]any{"code": bad}, game.CodeInvalidRoomCode)
+	}
+	st.mustFail(loner.c, EvRoomJoinCode, map[string]any{}, game.CodeInvalidRoomCode)
+	// The right shape and no such table is still room_not_found.
+	ack = st.mustFail(loner.c, EvRoomJoinCode, map[string]any{"code": "NOPE0000"}, game.CodeRoomNotFound)
 	if ack.Message != "No table with that code" {
 		t.Fatalf("message %q", ack.Message)
 	}
-	st.mustFail(loner.c, EvRoomJoinCode, map[string]any{"code": map[string]any{"$gt": ""}}, game.CodeRoomNotFound)
-	st.mustFail(loner.c, EvRoomJoinCode, map[string]any{}, game.CodeRoomNotFound)
 	ack = st.mustFail(loner.c, EvRoomQuickJoin, map[string]any{"bootAmount": -5}, game.CodeInvalidStake)
 	if ack.Message != "That stake is not valid" {
 		t.Fatalf("message %q", ack.Message)

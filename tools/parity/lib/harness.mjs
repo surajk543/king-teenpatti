@@ -67,7 +67,7 @@ export const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** Card codes on the wire: rank 2-9 T J Q K A, suit s h d c. */
 export const CARD_CODE = /^[2-9TJQKA][shdc]$/;
-export const ROOM_CODE = /^[A-Z2-9]{6}$/;
+export const ROOM_CODE = /^[A-Z2-9]{8}$/;
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 export const HAND_NAMES = ['High Card', 'Pair', 'Color', 'Sequence', 'Pure Sequence', 'Trail'];
 
