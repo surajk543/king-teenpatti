@@ -429,6 +429,24 @@ class Seat {
   bool get occupied => status != SeatState.empty;
   bool get inHand => status == SeatState.active;
 
+  /// The same seat drawn with another status. For the table only, which holds
+  /// a Force Sideshow's fold back until the hammer has landed; nothing sent to
+  /// the server is ever built from one.
+  Seat withStatus(String status) => Seat(
+    seatIndex: seatIndex,
+    userId: userId,
+    displayName: displayName,
+    avatarUrl: avatarUrl,
+    chips: chips,
+    status: status,
+    isBlind: isBlind,
+    lastBet: lastBet,
+    lastAction: lastAction,
+    contributed: contributed,
+    connected: connected,
+    cardCount: cardCount,
+  );
+
   factory Seat.fromJson(Map<String, dynamic> j) => Seat(
     seatIndex: _int(j['seatIndex']),
     userId: j['userId'] as String?,

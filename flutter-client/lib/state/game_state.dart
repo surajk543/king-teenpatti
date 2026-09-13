@@ -17,6 +17,7 @@ import '../net/game_connection.dart';
 import '../net/purchases.dart';
 import '../net/social_sign_in.dart';
 import 'consent.dart';
+import 'hammer_strike.dart';
 import 'theme_preference.dart';
 
 enum Screen { splash, update, login, lobby, table }
@@ -250,6 +251,53 @@ class GameState extends ChangeNotifier {
   /// How long the two players get to look at the compared hands.
   static const revealFor = Duration(seconds: 5);
 
+  // ------------------------------------------------------------- the hammer
+
+  /// The Force Sideshow being struck across the table, from the moment either
+  /// of its events reaches this client until [HammerTiming.total] later.
+  ///
+  /// Everyone at the table sees the hammer — the two players and every
+  /// bystander — and only the two players ever get cards with it.
+  HammerStrike? hammerStrike;
+
+  /// Whether the hammer has landed. Until it has, the compared hands stay face
+  /// down even for the two players who were sent them.
+  bool _hammerLanded = false;
+
+  /// Whether the loser's fold and the table's notice have been shown.
+  bool _hammerResolved = false;
+
+  final List<Timer> _hammerTimers = [];
+
+  /// Every strike already shown this hand, by [HammerStrike.key]. A player
+  /// hears of one sideshow twice (the reveal, then the resolution) and must
+  /// see one hammer.
+  final Set<String> _hammersShown = {};
+
+  /// The player whose fold is drawn as not having happened yet, and the timer
+  /// that lets it show anyway if no strike follows the pack that set it.
+  String? _foldHeldFor;
+  Timer? _foldHoldTimer;
+
+  /// "X forced a sideshow on Y", waiting for the hammer to land.
+  String? _hammerNotice;
+
+  /// The sideshow reveal as the felt may draw it: nothing while a hammer is
+  /// still on its way to the pod, so the cards turn over when it lands.
+  SideshowReveal? get shownSideshowReveal =>
+      hammerStrike != null && !_hammerLanded ? null : sideshowReveal;
+
+  /// Whether [userId]'s pack is being held back until the hammer has landed.
+  /// The server has already packed them; the table draws them still playing
+  /// for the second and a bit it takes the hammer to get there.
+  bool foldHeldFor(String? userId) => userId != null && userId == _foldHeldFor;
+
+  /// Whether a strike is still playing out: from the throw until the loser
+  /// folds. For that long the felt links the two players' pods, the way it
+  /// links an ordinary sideshow's two seats while the request waits — so the
+  /// whole table, not just the two in it, can see who the sideshow is between.
+  bool get hammerLinkShown => hammerStrike != null && !_hammerResolved;
+
   /// The request currently waiting for an answer, straight from the table
   /// snapshot so a reconnect mid-request still shows the prompt.
   PendingSideshow? get sideshow => room?.sideshow;
@@ -412,50 +460,15 @@ class GameState extends ChangeNotifier {
         }
         notifyListeners();
       }),
-      _conn.onState.listen((s) {
-        final restored = resuming;
-        _snapshotSinceSession = true;
-        _seatCheck?.cancel();
-        final newHand = room?.handNo != s.handNo;
-        // A different room id means a different table — a switch, a resume
-        // onto another table, or sitting down for the first time. All three
-        // are a new sitting as far as the drawer's clock is concerned.
-        final newTable = room?.roomId != s.roomId;
-        // The server sends options to the player on turn and to nobody else,
-        // so options arriving where there were none is this seat's turn
-        // beginning.
-        final myTurnBegan =
-            room?.you?.options == null && s.you?.options != null;
-        room = s;
-        if (newTable) seatedAt = DateTime.now();
-        if (newHand) {
-          // A fresh deal cuts the last celebration short.
-          _clearSideshow();
-          _clearCelebration();
-        }
-        // Every turn opens on the plain chaal. The stepper used to keep the
-        // rung it was left on until the next deal, so a raise made on one turn
-        // was quietly made again when the turn came back round — and for more,
-        // because the ladder had climbed with the stake it had just raised. On
-        // a blind table, where the ladder runs to the whole stack, that is a
-        // hand-sized bet the player never asked for.
-        if (newHand || myTurnBegan) raiseIndex = 0;
-        final steps = s.you?.options?.raiseSteps ?? const [];
-        if (steps.isNotEmpty && raiseIndex > steps.length - 1) {
-          raiseIndex = steps.length - 1;
-        }
-        if (screen != Screen.table) {
-          screen = Screen.table;
-          chat.clear();
-          unreadChat = 0;
-        }
-        if (restored) _endResume(welcome: true);
-        notifyListeners();
-      }),
+      _conn.onState.listen(handleState),
       _conn.onShowdown.listen((s) {
         // The hand is over, so a sideshow reveal still on its five seconds is
-        // dropped rather than left to stack under the winner's banner.
+        // dropped rather than left to stack under the winner's banner. A
+        // hammer still in the air goes with it, but the news it was carrying
+        // is still news.
+        final hammerNews = _hammerNotice;
         _clearSideshow();
+        if (hammerNews != null) notice = hammerNews;
         if (s.reveals.isNotEmpty) showdown = s.reveals;
         if (s.result.isNotEmpty) showdownResult = s.result;
         if (s.winnerId != null) {
@@ -503,36 +516,9 @@ class GameState extends ChangeNotifier {
         // is only the cue to tick the clock the prompt counts down.
         notifyListeners();
       }),
-      _conn.onSideshowReveal.listen((reveal) {
-        sideshowReveal = reveal;
-        _revealTimer?.cancel();
-        _revealTimer = Timer(revealFor, () {
-          sideshowReveal = null;
-          notifyListeners();
-        });
-        notifyListeners();
-      }),
-      _conn.onSideshowDone.listen((done) {
-        if (done.reason == SideshowReason.forced) {
-          // A forced sideshow is news to the whole table. Nobody saw a
-          // request, so without a line the only sign of it is a player
-          // packing out of turn. The two who compared hands are told too:
-          // their cards alone read like a sideshow one of them agreed to.
-          final line = forcedSideshowLine(
-            t,
-            viewerId: user?.id,
-            fromUserId: done.fromUserId,
-            toUserId: done.toUserId,
-            seats: room?.seats ?? const [],
-          );
-          if (line != null) notice = line;
-        } else if (done.fromUserId == user?.id || done.toUserId == user?.id) {
-          // An ordinary one tells only the two in it, and only when it did
-          // not happen: one that did is already on screen as their cards.
-          if (!done.accepted) notice = _sideshowRefusedLine(done.reason);
-        }
-        notifyListeners();
-      }),
+      _conn.onSideshowReveal.listen(handleSideshowReveal),
+      _conn.onSideshowDone.listen(handleSideshowDone),
+      _conn.onAction.listen(handleTableAction),
       _conn.onChat.listen((m) {
         chat.add(m);
         // The room keeps at most a hundred messages, and so does this.
@@ -581,6 +567,222 @@ class GameState extends ChangeNotifier {
       }),
       _conn.onConnected.listen((_) => notifyListeners()),
     ]);
+  }
+
+  /// A table snapshot, already redacted for this viewer.
+  @visibleForTesting
+  void handleState(RoomState s) {
+    final restored = resuming;
+    _snapshotSinceSession = true;
+    _seatCheck?.cancel();
+    final newHand = room?.handNo != s.handNo;
+    // A different room id means a different table — a switch, a resume
+    // onto another table, or sitting down for the first time. All three
+    // are a new sitting as far as the drawer's clock is concerned.
+    final newTable = room?.roomId != s.roomId;
+    // The server sends options to the player on turn and to nobody else,
+    // so options arriving where there were none is this seat's turn
+    // beginning.
+    final myTurnBegan = room?.you?.options == null && s.you?.options != null;
+    room = s;
+    if (newTable) seatedAt = DateTime.now();
+    if (newHand) {
+      // A fresh deal cuts the last celebration short — a hammer still in
+      // the air included.
+      _clearSideshow();
+      _clearCelebration();
+    }
+    // Every turn opens on the plain chaal. The stepper used to keep the
+    // rung it was left on until the next deal, so a raise made on one turn
+    // was quietly made again when the turn came back round — and for more,
+    // because the ladder had climbed with the stake it had just raised. On
+    // a blind table, where the ladder runs to the whole stack, that is a
+    // hand-sized bet the player never asked for.
+    if (newHand || myTurnBegan) raiseIndex = 0;
+    final steps = s.you?.options?.raiseSteps ?? const [];
+    if (steps.isNotEmpty && raiseIndex > steps.length - 1) {
+      raiseIndex = steps.length - 1;
+    }
+    if (screen != Screen.table) {
+      screen = Screen.table;
+      chat.clear();
+      unreadChat = 0;
+    }
+    if (restored) _endResume(welcome: true);
+    notifyListeners();
+  }
+
+  /// The two hands of a sideshow this player was part of.
+  @visibleForTesting
+  void handleSideshowReveal(SideshowReveal reveal) {
+    sideshowReveal = reveal;
+    // A forced one is thrown across the table first, and its hands stay face
+    // down until the hammer lands ([shownSideshowReveal]).
+    if (reveal.forced && reveal.hands.length >= 2) {
+      _strikeHammer(
+        fromUserId: reveal.hands[0].userId,
+        toUserId: reveal.hands[1].userId,
+        packedUserId: reveal.packedUserId,
+      );
+    }
+    _revealTimer?.cancel();
+    // The five seconds to look are counted from when the cards turn over,
+    // which for a forced one is when the hammer lands.
+    _revealTimer = Timer(
+      reveal.forced && hammerStrike != null
+          ? revealFor + HammerTiming.impact
+          : revealFor,
+      () {
+        sideshowReveal = null;
+        notifyListeners();
+      },
+    );
+    notifyListeners();
+  }
+
+  /// How a sideshow ended, as the whole table hears it.
+  @visibleForTesting
+  void handleSideshowDone(
+    ({
+      String fromUserId,
+      String toUserId,
+      bool accepted,
+      String reason,
+      String? packedUserId,
+    })
+    done,
+  ) {
+    if (done.reason == SideshowReason.forced) {
+      // Everyone but the two players hears of a forced sideshow here first,
+      // so this is where their hammer is thrown. A player's was thrown by the
+      // reveal a moment ago, and the same sideshow is not struck twice.
+      _strikeHammer(
+        fromUserId: done.fromUserId,
+        toUserId: done.toUserId,
+        packedUserId: done.packedUserId,
+      );
+      // A forced sideshow is news to the whole table. Nobody saw a
+      // request, so without a line the only sign of it is a player
+      // packing out of turn. The two who compared hands are told too:
+      // their cards alone read like a sideshow one of them agreed to.
+      final line = forcedSideshowLine(
+        t,
+        viewerId: user?.id,
+        fromUserId: done.fromUserId,
+        toUserId: done.toUserId,
+        seats: room?.seats ?? const [],
+      );
+      if (line != null) {
+        // Said once the hammer has landed and the loser has folded: said
+        // before, it gives away the result the hammer is on its way to show.
+        if (hammerStrike != null && !_hammerResolved) {
+          _hammerNotice = line;
+        } else {
+          notice = line;
+        }
+      }
+    } else if (done.fromUserId == user?.id || done.toUserId == user?.id) {
+      // An ordinary one tells only the two in it, and only when it did
+      // not happen: one that did is already on screen as their cards.
+      if (!done.accepted) notice = _sideshowRefusedLine(done.reason);
+    }
+    notifyListeners();
+  }
+
+  /// A move as the room hears it; read only for a Force Sideshow's pack.
+  ///
+  /// The server packs the loser before it says the sideshow was resolved, so
+  /// a bystander's snapshot folds that player a moment before this client
+  /// knows there is a hammer to wait for. A pack for a sideshow with no
+  /// sideshow pending can only be a forced one — an ordinary one is in the
+  /// snapshot from its request until after this pack — so the fold is held
+  /// from here. The two players heard the reveal first and are already held.
+  @visibleForTesting
+  void handleTableAction(({String userId, String action, String? reason}) a) {
+    final r = room;
+    if (r == null ||
+        r.sideshow != null ||
+        a.action != GameAction.pack ||
+        a.reason != _packReasonSideshow ||
+        a.userId.isEmpty ||
+        _foldHeldFor == a.userId) {
+      return;
+    }
+    _foldHeldFor = a.userId;
+    _foldHoldTimer?.cancel();
+    // The resolution follows within the same breath. If it never comes — an
+    // older server, a dropped frame — the fold shows after all.
+    _foldHoldTimer = Timer(const Duration(seconds: 1), () {
+      if (hammerStrike == null && _foldHeldFor == a.userId) {
+        _foldHeldFor = null;
+        notifyListeners();
+      }
+    });
+  }
+
+  /// `game:action.reason` on the loser's pack, forced or not.
+  static const _packReasonSideshow = 'sideshow';
+
+  /// Throws the hammer for one forced sideshow, once, however many of its
+  /// events arrive.
+  void _strikeHammer({
+    required String fromUserId,
+    required String toUserId,
+    required String? packedUserId,
+  }) {
+    final r = room;
+    if (r == null || fromUserId.isEmpty || toUserId.isEmpty) return;
+    if (!_hammersShown.add(
+      HammerStrike.keyFor(r.handNo, fromUserId, toUserId),
+    )) {
+      return;
+    }
+    _clearHammer();
+    hammerStrike = HammerStrike(
+      handNo: r.handNo,
+      fromUserId: fromUserId,
+      toUserId: toUserId,
+      packedUserId: packedUserId,
+      startedAt: DateTime.now(),
+    );
+    _foldHeldFor = packedUserId;
+    _hammerTimers.addAll([
+      // The hit: the cards turn over.
+      Timer(HammerTiming.impact, () {
+        _hammerLanded = true;
+        notifyListeners();
+      }),
+      // The result: the loser folds and the table is told.
+      Timer(HammerTiming.result, () {
+        _hammerResolved = true;
+        _foldHeldFor = null;
+        final news = _hammerNotice;
+        _hammerNotice = null;
+        if (news != null) notice = news;
+        notifyListeners();
+      }),
+      Timer(HammerTiming.total, () {
+        hammerStrike = null;
+        _hammerTimers.clear();
+        notifyListeners();
+      }),
+    ]);
+  }
+
+  /// Drops a strike and everything it was holding back, for a hand, a table
+  /// or a seat that is over.
+  void _clearHammer() {
+    for (final timer in _hammerTimers) {
+      timer.cancel();
+    }
+    _hammerTimers.clear();
+    _foldHoldTimer?.cancel();
+    _foldHoldTimer = null;
+    hammerStrike = null;
+    _hammerLanded = false;
+    _hammerResolved = false;
+    _foldHeldFor = null;
+    _hammerNotice = null;
   }
 
   // --------------------------------------------------------------- bubbles
@@ -1541,6 +1743,8 @@ class GameState extends ChangeNotifier {
     _revealTimer?.cancel();
     _revealTimer = null;
     sideshowReveal = null;
+    _clearHammer();
+    _hammersShown.clear();
   }
 
   @override

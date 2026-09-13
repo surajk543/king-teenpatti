@@ -8,6 +8,7 @@ import '../models/dtos.dart';
 import '../state/game_state.dart';
 import '../theme/app_theme.dart';
 import 'avatar.dart';
+import 'hammer_flight.dart';
 import 'liquid_fill.dart';
 import 'playing_card.dart';
 import 'poker_chip.dart';
@@ -139,7 +140,18 @@ class SeatPod extends StatelessWidget {
     this.bubbleSide = BubbleSide.above,
     this.reversed = false,
     this.orbCorner = OrbCorner.topLeft,
+    this.podKey,
+    this.impact,
   });
+
+  /// Names the pod itself — the glass plaque, not the column of cards and bets
+  /// under it — so the table can find where it stands on the felt: where a
+  /// Force Sideshow's hammer is thrown from, and where it lands.
+  final Key? podKey;
+
+  /// The hammer's clock while this is the pod being hit, else null
+  /// ([PodImpact]).
+  final Animation<double>? impact;
 
   final Seat? seat;
   final bool isMe;
@@ -531,24 +543,29 @@ class SeatPod extends StatelessWidget {
       ),
     );
 
-    return Stack(
-      clipBehavior: Clip.none,
-      children: [
-        // The sharp orb, behind the pod. Its softened twin is in the glass's
-        // `behind` slot at the same place.
-        if (orbCorner != OrbCorner.contained)
-          Positioned.fromRect(
-            rect: orb,
-            child: IgnorePointer(
-              child: GlassOrb(
-                colours: colours,
-                size: orb.width,
-                opacity: dark ? 0.95 : 0.85,
+    return PodImpact(
+      key: podKey,
+      clock: impact,
+      width: width,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          // The sharp orb, behind the pod. Its softened twin is in the glass's
+          // `behind` slot at the same place.
+          if (orbCorner != OrbCorner.contained)
+            Positioned.fromRect(
+              rect: orb,
+              child: IgnorePointer(
+                child: GlassOrb(
+                  colours: colours,
+                  size: orb.width,
+                  opacity: dark ? 0.95 : 0.85,
+                ),
               ),
             ),
-          ),
-        panel,
-      ],
+          panel,
+        ],
+      ),
     );
   }
 

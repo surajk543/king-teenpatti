@@ -10,6 +10,7 @@ import '../l10n/strings.dart';
 import '../models/dtos.dart';
 import '../settings/feedback_settings.dart';
 import '../state/game_state.dart';
+import '../state/hammer_strike.dart';
 import '../theme/app_theme.dart';
 import '../widgets/buy_chips.dart';
 import '../widgets/chip_store.dart';
@@ -17,6 +18,7 @@ import '../widgets/drifting_chips.dart';
 import '../widgets/feedback_toggles.dart';
 import '../widgets/glass_components.dart';
 import '../widgets/glass_panels.dart';
+import '../widgets/hammer_flight.dart';
 import '../widgets/picture_shelf.dart';
 import '../widgets/playing_card.dart';
 import '../widgets/poker_chip.dart';
@@ -1260,7 +1262,7 @@ Future<void> _offerHammers(BuildContext context, GameState state) async {
 Color _goldInk(Brightness b) =>
     b == Brightness.dark ? AppTheme.goldBright : AppTheme.goldDeep;
 
-class _Felt extends StatelessWidget {
+class _Felt extends StatefulWidget {
   const _Felt();
 
   /// Where each seat sits on the felt, as a fraction of it, in view order:
@@ -1340,8 +1342,116 @@ class _Felt extends StatelessWidget {
   }
 
   @override
+  State<_Felt> createState() => _FeltState();
+}
+
+/// The felt's one piece of state: a Force Sideshow's hammer, and where the
+/// pods it flies between actually stand.
+class _FeltState extends State<_Felt> with SingleTickerProviderStateMixin {
+  static const _places = _Felt._places;
+  static const _potDy = _Felt._potDy;
+  static const _statusDy = _Felt._statusDy;
+  static const _tagDy = _Felt._tagDy;
+  static Offset _seatCentre(
+    GameState state,
+    int seatIndex,
+    double w,
+    double h,
+    double podW,
+  ) => _Felt._seatCentre(state, seatIndex, w, h, podW);
+
+  /// One key per place, naming that place's pod. A column's middle is known
+  /// from [_places], but where the pod sits in it depends on everything under
+  /// it — cards, a hand name, a bet — so the hammer is aimed at the pod as it
+  /// was actually laid out, not at a guess.
+  final List<GlobalKey> _podKeys = List.generate(
+    _Felt._places.length,
+    (i) => GlobalKey(debugLabel: 'pod $i'),
+  );
+
+  /// The felt's Stack, which the pods are measured against and the hammer is
+  /// drawn in.
+  final GlobalKey _stageKey = GlobalKey(debugLabel: 'felt');
+
+  /// The strike's clock, 0 to 1 over [HammerTiming.total]. Created by the
+  /// first strike, never in advance and never by [dispose] (CLAUDE.md §12.3).
+  AnimationController? _hammer;
+
+  /// The strike being followed, by [HammerStrike.key].
+  String? _strikeKey;
+
+  /// Where the current hammer flies from and to, once the pods have been
+  /// measured; null when there is nothing in the air.
+  ({Rect from, Rect to, int targetView})? _flight;
+
+  @override
+  void initState() {
+    super.initState();
+    // Parsed while the table opens, so the first hammer is not the thing that
+    // waits for it.
+    unawaited(HammerArt.load());
+  }
+
+  @override
+  void dispose() {
+    _hammer?.dispose();
+    super.dispose();
+  }
+
+  /// Keeps the felt on the strike [GameState] is showing: a new one is launched
+  /// after this frame, when the pods have been laid out and can be measured;
+  /// one that has gone (the hand ended, the player left) is dropped at once.
+  void _follow(HammerStrike? strike) {
+    if (strike?.key == _strikeKey) return;
+    _strikeKey = strike?.key;
+    _flight = null;
+    // Stopped, not reset: resetting would notify the hit pod's jolt in the
+    // middle of this build. With no flight nothing listens to it any more.
+    _hammer?.stop();
+    if (strike == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) => _launch(strike));
+  }
+
+  void _launch(HammerStrike strike) {
+    if (!mounted || strike.key != _strikeKey) return;
+    // The strike's timers began when the event arrived; the frames start where
+    // those timers already are, so the cards turn over as the hammer lands.
+    final start = HammerTiming.share(
+      DateTime.now().difference(strike.startedAt),
+    );
+    if (start >= 1) return;
+    final stage = _stageKey.currentContext?.findRenderObject();
+    if (stage is! RenderBox || !stage.hasSize) return;
+
+    final seats = context.read<GameState>().seatsInViewOrder();
+    int viewOf(String userId) =>
+        seats.indexWhere((seat) => seat?.userId == userId);
+    Rect? podAt(int view) {
+      if (view < 0 || view >= _podKeys.length) return null;
+      final box = _podKeys[view].currentContext?.findRenderObject();
+      if (box is! RenderBox || !box.attached || !box.hasSize) return null;
+      return box.localToGlobal(Offset.zero, ancestor: stage) & box.size;
+    }
+
+    final targetView = viewOf(strike.toUserId);
+    final from = podAt(viewOf(strike.fromUserId));
+    final to = podAt(targetView);
+    // Either player already gone from the felt: nothing to throw between. The
+    // reveal and the fold still wait for the impact on GameState's timers.
+    if (from == null || to == null) return;
+
+    final clock = _hammer ??= AnimationController(
+      vsync: this,
+      duration: HammerTiming.total,
+    );
+    setState(() => _flight = (from: from, to: to, targetView: targetView));
+    clock.forward(from: start.clamp(0.0, 1.0));
+  }
+
+  @override
   Widget build(BuildContext context) {
     final state = context.watch<GameState>();
+    _follow(state.hammerStrike);
 
     final room = state.room;
     if (room == null) return const Center(child: CircularProgressIndicator());
@@ -1355,7 +1465,8 @@ class _Felt extends StatelessWidget {
     // turn over where they sit, but a ranking over the loser's read as if that
     // were the result. The reveal itself says who was packed, so the label is
     // right from the first frame rather than after the snapshot that packs them.
-    final sideshow = state.sideshowReveal;
+    // A Force Sideshow's hands stay face down until its hammer has landed.
+    final sideshow = state.shownSideshowReveal;
     bool wonSideshow(String? userId) =>
         userId != null &&
         sideshow?.packedUserId != null &&
@@ -1410,7 +1521,15 @@ class _Felt extends StatelessWidget {
           final handH = Dim.handH(h);
 
           Widget pod(int viewIndex) {
-            final s = viewIndex < seats.length ? seats[viewIndex] : null;
+            final seated = viewIndex < seats.length ? seats[viewIndex] : null;
+            // A Force Sideshow's loser has already been packed by the server
+            // when the hammer sets off; their pod folds when it lands.
+            final s =
+                seated != null &&
+                    seated.status == SeatState.packed &&
+                    state.foldHeldFor(seated.userId)
+                ? seated.withStatus(SeatState.active)
+                : seated;
             // At a showdown the hand is drawn at the seat that played it, so
             // find this seat's reveal and hand it down. The server sends
             // reveals for the players still in the hand; everyone else keeps
@@ -1429,7 +1548,7 @@ class _Felt extends StatelessWidget {
             // client could not leak a card it was never sent.
             final peek = s == null || reveal != null
                 ? null
-                : state.sideshowReveal?.hands
+                : sideshow?.hands
                       .where((hand) => hand.userId == s.userId)
                       .firstOrNull;
 
@@ -1472,6 +1591,8 @@ class _Felt extends StatelessWidget {
                   : BubbleSide.left,
               // The bottom seat stacks upwards, or its chip runs off the felt.
               reversed: viewIndex == 0,
+              podKey: viewIndex < _podKeys.length ? _podKeys[viewIndex] : null,
+              impact: _flight?.targetView == viewIndex ? _hammer : null,
             );
           }
 
@@ -1507,6 +1628,7 @@ class _Felt extends StatelessWidget {
           // they were. Dropping the ClipRRect with it also means a pod at the
           // rim can no longer lose its edge to the oval's curve.
           return Stack(
+            key: _stageKey,
             clipBehavior: Clip.none,
             children: [
               // The overhead lamp, breathing slowly over the middle of the
@@ -1664,6 +1786,39 @@ class _Felt extends StatelessWidget {
                         ),
                       ),
                     ),
+                  ),
+                ),
+
+              // A forced sideshow is shown to everyone at the table at least
+              // the way an ordinary one is — the same link between the two
+              // players, with its comet running from the one who forced it —
+              // from the throw until the loser folds. A forced one never has a
+              // pending request, so without this a bystander would get nothing
+              // but the hammer itself.
+              if (_flight != null && state.hammerLinkShown)
+                Positioned.fill(
+                  child: RepaintBoundary(
+                    child: IgnorePointer(
+                      child: _SideshowLink(
+                        from: _flight!.from.center,
+                        to: _flight!.to.center,
+                      ),
+                    ),
+                  ),
+                ),
+
+              // A Force Sideshow's hammer, thrown from one pod to the other
+              // over everything else on the felt — the viewer's own hand
+              // included. Everyone at the table sees it; nobody sees a card
+              // they were not sent (the two hands come from the reveal, which
+              // only the two players get).
+              if (_flight != null && _hammer != null)
+                Positioned.fill(
+                  child: HammerFlight(
+                    clock: _hammer!,
+                    from: _flight!.from,
+                    target: _flight!.to,
+                    podWidth: podW,
                   ),
                 ),
 
@@ -2557,7 +2712,11 @@ class _OwnHand extends StatelessWidget {
     // is on the table to be compared, so it stays face up and clear with its
     // name over it, like every other hand that showdown turned over. The
     // server marks only a showdown loser `lost`; a fold stays `packed`.
-    final packed = you.status == SeatState.packed;
+    // A Force Sideshow's loser folds when the hammer lands on them, not the
+    // moment before it sets off when the server packed them.
+    final held =
+        you.status == SeatState.packed && state.foldHeldFor(state.user?.id);
+    final packed = you.status == SeatState.packed && !held;
     final beaten = you.status == SeatState.lost;
     // The hand that just took the pot is still on the table while the
     // celebration runs. The server moves the winner's seat to `won` the moment
@@ -2566,7 +2725,7 @@ class _OwnHand extends StatelessWidget {
     // they had won with them — the rim seats already count `won` as in-hand
     // (seat_pod.dart `_inHand`), and this is the copy that did not.
     final inHand =
-        you.status == SeatState.active || you.status == SeatState.won;
+        you.status == SeatState.active || you.status == SeatState.won || held;
     // A packed hand stays on the table, face down and struck out, so the player
     // can see what they folded rather than having it vanish.
     if (!inHand && !packed && !beaten) {
