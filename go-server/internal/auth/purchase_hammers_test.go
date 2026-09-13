@@ -50,7 +50,7 @@ func TestAHammerPackAnswersWithItsHammers(t *testing.T) {
 	token, user := h.login("device-hammer-0001", "Hammer")
 	if user["hammer"] != float64(0) {
 		// The fake store makes accounts with no hammers; the real default of
-		// 20 is the database's (V1.0.5) and is tested there.
+		// 20 is the database's (users.hammer's default) and is tested there.
 		t.Fatalf("fake account hammers %v", user["hammer"])
 	}
 	// Seated or not, a hammer pack sells: hammers are not chips.

@@ -80,7 +80,7 @@ type User struct {
 	// the chips invariant, and diamonds are not chips.
 	Diamond int `json:"diamond"`
 	// Hammer is users.hammer, the currency a Force Sideshow is paid in (owner,
-	// 13 Sep 2026): 20 for every account, new or existing (V1.0.5), and bought
+	// 13 Sep 2026): 20 for every account (the column's default), and bought
 	// in packs on Play. Like diamonds, never chip_ledger's business.
 	Hammer        int     `json:"hammer"`
 	HandsPlayed   int     `json:"handsPlayed"`
@@ -228,8 +228,9 @@ type queryer interface {
 	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
 }
 
-// userColumns is every users column, in DDL order (hammer, which V1.0.5 adds
-// at the end of the table, is listed beside diamond), so a row scans into
+// userColumns is every users column, in DDL order (a database built before the
+// consolidated baseline has hammer at the end of the table; it is listed beside
+// diamond, where the baseline declares it), so a row scans into
 // userRow without depending on `SELECT *` column ordering, followed by the
 // asset_url of the catalogue picture the player is wearing. Qualified with the
 // `u` alias because every read now goes through userFrom's join.

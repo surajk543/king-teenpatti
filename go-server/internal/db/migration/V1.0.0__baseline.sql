@@ -1,13 +1,18 @@
 -- King Teen Patti — PostgreSQL schema, baseline (DDL).
 --
+-- Every table, column, check, index, function and trigger the server needs, in
+-- one file. Consolidated on 14 Sep 2026 (owner) for a production deploy onto an
+-- EMPTY database: the structure that used to arrive over three scripts — this
+-- baseline, V1.0.3__diamond_purchases.sql and V1.0.5__hammers.sql — is declared
+-- here, and every row the server seeds is in V1.0.1__seed_profile_pictures.sql.
+-- The blocks that brought an older database forward (the guarded hammer ALTER,
+-- Butterfly Flapping's move to Drive) went with them; they are in git history
+-- (ccff445 and earlier).
+--
 -- Flyway naming: V<version>__<description>.sql. Scripts are applied in
--- ascending version order, so the next change is a NEW file (V1.0.1__….sql)
--- rather than an edit to this one — an applied migration is history and
--- editing history is how two environments quietly stop matching. (One
--- sanctioned exception, 13 Sep 2026: the catalogue guard around
--- idx_users_last_login below, which only skips work already done — the comment
--- there says why no new script could have fixed it. It is not a precedent for
--- changing what a script creates.)
+-- ascending version order, so the next change is a NEW file (V1.0.2__….sql)
+-- rather than an edit to this one — once a script has run somewhere, editing it
+-- is how two environments quietly stop matching.
 --
 -- EVERY SCRIPT MUST BE IDEMPOTENT, including this one. Flyway would keep a
 -- schema history table and skip what it has already run, but this server has
@@ -24,14 +29,15 @@
 -- statements and no migration blocks — the file describes the shape the
 -- database should have, not the steps some older database takes to reach it.
 --
--- READ THIS BEFORE RUNNING IT ON A DATABASE THAT ALREADY HAS DATA.
--- `CREATE TABLE IF NOT EXISTS` does nothing when the table is already there,
--- so a column added to `users` here will NOT appear on an existing database.
--- That is the whole reason the previous version of this file carried guarded
--- ALTERs. Bringing an older database up to this shape is now a deliberate,
--- one-off step run by hand (ops/DEPLOY.md), not something a boot does behind
--- your back. A fresh database — a test schema, a new environment, a reset —
--- gets everything from here and needs nothing else.
+-- FOR AN EMPTY DATABASE. `CREATE TABLE IF NOT EXISTS` does nothing when the
+-- table is already there, so a column declared here will NOT appear on a
+-- database that already has the table. A database built by the scripts of
+-- go-server/v1.3.0 or older lacks users.hammer, and booting this build against
+-- it fails the first time a player is read; bringing such a database to this
+-- shape is a deliberate one-off step run by hand, or a fresh start
+-- (ops/DEPLOY.md §8), never something a boot does behind your back. A database
+-- built by the scripts as they stood at ccff445 already has this shape and
+-- boots unchanged.
 --
 -- THIS FILE IS DDL ONLY — tables, constraints, indexes, functions, triggers.
 -- Data lives in its own script (V1.0.1__seed_profile_pictures.sql). Keeping
@@ -40,8 +46,9 @@
 -- reopening a structural migration.
 --
 -- Order matters: `profile_pictures` is created before `users` because
--- `users.active_picture_id` references it, and `user_profile_pictures` and
--- `chip_ledger` come after both for the same reason.
+-- `users.active_picture_id` references it, and `user_profile_pictures`,
+-- `chip_ledger` and the purchase and spend tables come after both for the same
+-- reason.
 --
 -- Timestamps are epoch milliseconds (BIGINT) to match the Date.now() values
 -- the server works in everywhere else — never TIMESTAMPTZ. One column in a
@@ -60,13 +67,13 @@
 -- ---------------------------------------------------------------- pictures
 
 -- The profile-picture catalogue (requirements 20 and 21). One row per picture
--- the game offers: a FREE row is worn by anyone, a PREMIUM row costs chips a
--- player has to spend before they may wear it.
+-- the game offers: a FREE row is worn by anyone, a PREMIUM row costs chips or
+-- diamonds a player has to spend before they may wear it.
 --
 -- asset_url is whatever a client can LOAD. That is a hosted URL for the art
 -- the game ships with today; a server-relative path into PUBLIC_DIR
 -- ("/profiles/bear.svg") works just as well. It is UNIQUE because it is the
--- natural key the seed below matches on; the BIGSERIAL id is what
+-- natural key the seed matches on; the BIGSERIAL id is what
 -- users.active_picture_id and user_profile_pictures point at.
 --
 -- asset_format tells the client HOW to play what asset_url serves, so no
@@ -85,8 +92,9 @@ CREATE TABLE IF NOT EXISTS profile_pictures (
   asset_format TEXT   NOT NULL DEFAULT 'IMAGE'
                CHECK (asset_format IN ('IMAGE', 'SVG', 'LOTTIE', 'RIVE')),
   type       TEXT    NOT NULL CHECK (type IN ('FREE', 'PREMIUM')),
-  -- What it costs in chips. Paid through chip_ledger like every other chip
-  -- movement, so SUM(delta) = users.chips still reconciles after a purchase.
+  -- What it costs, in the wallet `currency` names. A chip price is paid through
+  -- chip_ledger like every other chip movement, so SUM(delta) = users.chips
+  -- still reconciles after a purchase.
   cost       BIGINT  NOT NULL DEFAULT 0 CHECK (cost >= 0),
   -- Which wallet cost is paid from: COIN (chips, the default) or DIAMOND
   -- (users.diamond). Meaningless on a FREE row — nothing is charged — and
@@ -143,7 +151,12 @@ CREATE TABLE IF NOT EXISTS users (
   -- Premium soft currency. Starts at 1 so a fresh account can taste the
   -- diamond shelf. NOT chip_ledger's business: the ledger backs the chips
   -- invariant (SUM(delta) == chips), and diamonds are not chips.
-  diamond    INTEGER NOT NULL DEFAULT 1 CHECK (diamond >= 0),
+  diamond           INTEGER NOT NULL DEFAULT 1 CHECK (diamond >= 0),
+  -- The currency a Force Sideshow is paid in, one hammer each (owner, 13 Sep
+  -- 2026). Every account starts with 20, and more are sold on Google Play in
+  -- packs (internal/purchase/catalogue.go). Like diamonds, never chip_ledger's
+  -- business: hammer_purchases and hammer_spends below are its receipts.
+  hammer            INTEGER NOT NULL DEFAULT 20 CHECK (hammer >= 0),
   -- A hand only counts as "played" once the player has made a voluntary bet;
   -- posting the boot and folding immediately does not count.
   hands_played      INTEGER NOT NULL DEFAULT 0,
@@ -174,17 +187,11 @@ CREATE TABLE IF NOT EXISTS users (
 -- Behind a catalogue lookup, not a bare IF NOT EXISTS. PostgreSQL checks that
 -- the caller OWNS the table before it looks for the index, so once users is
 -- handed to the postgres superuser (ops/DEPLOY.md §7) the bare statement
--- failed on every boot as gameplay_app — "must be owner of table users" —
--- even though the index was already there and the statement would have done
--- nothing. The lookup skips it wherever the index exists on this schema's
--- users, and a fresh database runs the original statement exactly as before.
---
--- This is an edit to an applied script, which is otherwise never done. It is
--- the one sanctioned exception, for two reasons: no NEW script could fix it,
--- because scripts run in version order and this one fails first; and the edit
--- only skips work that was already a no-op, so no database built from the old
--- text differs from one built from this. Tested as a non-superuser role under
--- the §7 arrangement: TestTheAppRoleBootsTwiceBeforeAndAfterUsersIsHandedToTheSuperuser.
+-- fails on every boot as gameplay_app — "must be owner of table users" — even
+-- though the index is already there and the statement would do nothing. The
+-- lookup skips it wherever the index exists on this schema's users, and a
+-- fresh database runs the statement. Tested as a non-superuser role under the
+-- §7 arrangement: TestTheAppRoleBootsTwiceBeforeAndAfterUsersIsHandedToTheSuperuser.
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -249,7 +256,7 @@ $$;
 
 -- Who owns which premium picture, and until when. A FREE picture needs no row
 -- — everyone may wear it — so this table holds only what somebody paid for,
--- one row per player per picture, written in the same transaction as the chip
+-- one row per player per picture, written in the same transaction as the
 -- debit.
 --
 -- The row is never deleted when it lapses. It is the record of a purchase, it
@@ -352,3 +359,67 @@ BEGIN
   END IF;
 END;
 $$;
+
+
+-- --------------------------------------------------------------- diamonds
+
+-- One row per Play diamond pack banked (owner, 13 Sep 2026: packs of 1, 5, 20
+-- and 100, internal/purchase/catalogue.go).
+--
+-- Why a table of its own. A chip pack is credited through chip_ledger, whose
+-- UNIQUE action_id ("gplay:<token>") is what stops a replayed receipt paying
+-- twice. Diamonds never enter chip_ledger — it backs the
+-- `SUM(delta) == users.chips` invariant and nothing else — so they need the
+-- same guarantee somewhere else. Here the Play purchase token IS the primary
+-- key: db.CreditDiamondPurchase inserts it ON CONFLICT DO NOTHING and adds the
+-- diamonds only when the insert took, so a retry, a restore on a new install or
+-- the same token sent from another account credits nothing.
+--
+-- It is also the record of what was bought, for support and for reconciling a
+-- Play payout report: who, which product, how many diamonds, when.
+CREATE TABLE IF NOT EXISTS diamond_purchases (
+  purchase_token TEXT    PRIMARY KEY,
+  user_id        TEXT    NOT NULL REFERENCES users (id),
+  product_id     TEXT    NOT NULL,
+  diamonds       INTEGER NOT NULL CHECK (diamonds > 0),
+  created_at     BIGINT  NOT NULL
+);
+
+-- A player's purchase history, newest first, for support.
+CREATE INDEX IF NOT EXISTS diamond_purchases_user_idx ON diamond_purchases (user_id, created_at);
+
+
+-- ---------------------------------------------------------------- hammers
+
+-- One row per Play hammer pack banked (packs of 20, 50, 100 and 250), keyed on
+-- the purchase token: the replay guard (db.CreditHammerPurchase inserts ON
+-- CONFLICT DO NOTHING and adds the hammers only when the insert took) and the
+-- record of what was bought. The twin of diamond_purchases, for the same
+-- reason — a pack that never enters chip_ledger needs its double-credit guard
+-- somewhere else.
+CREATE TABLE IF NOT EXISTS hammer_purchases (
+  purchase_token TEXT    PRIMARY KEY,
+  user_id        TEXT    NOT NULL REFERENCES users (id),
+  product_id     TEXT    NOT NULL,
+  hammers        INTEGER NOT NULL CHECK (hammers > 0),
+  created_at     BIGINT  NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS hammer_purchases_user_idx ON hammer_purchases (user_id, created_at);
+
+-- One row per Force Sideshow paid for. action_id is the spend's idempotency key,
+-- "<handId>:force:<userId>:<client actionId>" (game.ForceSideshowSpendID):
+-- db.Hammers.SpendHammer inserts it in the same transaction that takes the
+-- hammer, so a retry whose first attempt committed finds its row and is charged
+-- nothing. hand_id says which hand it was spent in, for support.
+--
+-- This is not game state — nothing reads it back to play a hand. It is the audit
+-- of a currency and the guard against spending it twice.
+CREATE TABLE IF NOT EXISTS hammer_spends (
+  action_id  TEXT   PRIMARY KEY,
+  user_id    TEXT   NOT NULL REFERENCES users (id),
+  hand_id    TEXT   NOT NULL,
+  created_at BIGINT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS hammer_spends_user_idx ON hammer_spends (user_id, created_at);

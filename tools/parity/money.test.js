@@ -125,7 +125,7 @@ test('PostgreSQL holds no game state at all: money, audit and accounts only', as
   // outlive every hand and no table ever reads them. diamond_purchases
   // (13 Sep 2026) is money: the record of a Play diamond pack and the guard
   // that stops its token crediting twice. hammer_purchases and hammer_spends
-  // (V1.0.5, 13 Sep 2026) are the same for hammers: a Play hammer pack's replay
+  // (13 Sep 2026) are the same for hammers: a Play hammer pack's replay
   // guard, and the one-row-per-key receipt a Force Sideshow's hammer is spent
   // against — nothing reads either back to play a hand. The list is exact
   // rather than a minimum, so a new table has to be argued for here first.

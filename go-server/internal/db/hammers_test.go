@@ -94,6 +94,42 @@ func TestAHammerSpendIsChargedOncePerKeyAndNeverGoesBelowZero(t *testing.T) {
 	f.reconcile()
 }
 
+// The key a Force Sideshow is charged under names the hand and the player as
+// well as the client's actionId (game.ForceSideshowSpendID): the same id in the
+// next hand, or from another player, is a spend of its own and takes a hammer.
+// Only the same player's retry in the same hand is free.
+func TestTheSameClientActionIdIsANewHammerSpendInAnotherHandOrForAnotherPlayer(t *testing.T) {
+	f := newFixture(t)
+	a, b := f.user("force-key-a"), f.user("force-key-b")
+	wallet := db.NewHammers(f.d, nil, nil)
+	for _, c := range []struct {
+		what    string
+		handID  string
+		user    *db.User
+		charged bool
+		left    int64
+	}{
+		{"the first spend", "hand-1", a, true, 19},
+		{"the same id in the next hand", "hand-2", a, true, 18},
+		{"the same id from another player", "hand-1", b, true, 19},
+		{"the same player's retry in the same hand", "hand-1", a, false, 18},
+	} {
+		got, err := wallet.SpendHammer(f.ctx, game.HammerSpend{
+			RoomID: "room-k", HandID: c.handID, UserID: c.user.ID,
+			ActionID: game.ForceSideshowSpendID(c.handID, c.user.ID, "same-client-id"),
+		})
+		if err != nil || got.Charged != c.charged || got.Remaining != c.left {
+			t.Fatalf("%s: %+v %v, want charged=%v with %d left", c.what, got, err, c.charged, c.left)
+		}
+	}
+	if f.hammersOf(a.ID) != 18 || f.hammersOf(b.ID) != 19 {
+		t.Fatalf("wallets hold %d and %d, want 18 and 19", f.hammersOf(a.ID), f.hammersOf(b.ID))
+	}
+	if n := f.count(`SELECT count(*) FROM hammer_spends WHERE user_id IN ($1, $2)`, a.ID, b.ID); n != 3 {
+		t.Fatalf("%d spend rows, want 3", n)
+	}
+}
+
 // Spends from one wallet racing each other queue on the wallet lock: exactly
 // as many succeed as there were hammers, and the rest are refused.
 func TestConcurrentHammerSpendsNeverTakeMoreThanTheWalletHolds(t *testing.T) {
@@ -187,50 +223,22 @@ func TestAHammerPackIsBankedOnceAndNeverTouchesChips(t *testing.T) {
 	f.reconcile()
 }
 
-// V1.0.5 gives every account 20 hammers — the accounts that existed before it
-// as well as the ones made after — and boots again and again without adding a
-// second column or a second CHECK.
-func TestEveryAccountHoldsTwentyHammersTheOnesBeforeV105Included(t *testing.T) {
-	schema, conn := butterflySchema(t) // a plain throwaway schema the test boots itself
-	ctx := context.Background()
-	d := bootNow(t, schema)
-	fresh, isNew, err := db.NewUsers(d, welcome, nil).UpsertFromProfile(ctx, db.Profile{
-		Provider: db.ProviderGuest, ProviderUserID: "hammer-fresh-" + randomSuffix(t), DisplayName: "Fresh",
-	})
-	if err != nil || !isNew || fresh.Hammer != 20 {
-		t.Fatalf("a new account on a fresh database: %+v isNew=%v %v", fresh, isNew, err)
+// A new account holds 20 hammers, and booting again adds no second column or
+// CHECK: the baseline declares users.hammer once, in CREATE TABLE users.
+func TestANewAccountHoldsTwentyHammersAndABootAddsNoSecondCheck(t *testing.T) {
+	f := newFixture(t)
+	u := f.user("hammer-fresh")
+	if u.Hammer != 20 || f.hammersOf(u.ID) != 20 {
+		t.Fatalf("a new account holds %d hammers (row %d), want 20", u.Hammer, f.hammersOf(u.ID))
 	}
-
-	// The database as it stood before V1.0.5: no hammer column, and an account
-	// made then.
-	if _, err := conn.Exec(ctx, `ALTER TABLE users DROP COLUMN hammer`); err != nil {
-		t.Fatal(err)
+	again, err := db.Open(f.ctx, db.Options{URL: testURL(), Schema: f.d.Schema, PoolMax: 2})
+	if err != nil {
+		t.Fatalf("second boot: %v", err)
 	}
-	if _, err := conn.Exec(ctx, `INSERT INTO users (id, provider, provider_user_id, display_name, chips, created_at, updated_at, last_login_at)
-		VALUES ('before-v105', 'guest', 'hammer-old-device', 'Old', 0, 1, 1, 1)`); err != nil {
-		t.Fatal(err)
-	}
-
-	for boot := 1; boot <= 2; boot++ {
-		bootNow(t, schema)
-		var old, made int64
-		if err := conn.QueryRow(ctx, `SELECT (SELECT hammer FROM users WHERE id = 'before-v105'), (SELECT hammer FROM users WHERE id = $1)`, fresh.ID).Scan(&old, &made); err != nil {
-			t.Fatal(err)
-		}
-		if old != 20 || made != 20 {
-			t.Fatalf("boot %d: the account from before V1.0.5 holds %d hammers and the later one %d, want 20 each", boot, old, made)
-		}
-		var checks int64
-		var def string
-		if err := conn.QueryRow(ctx, `
-			SELECT (SELECT count(*) FROM pg_constraint
-			         WHERE conrelid = 'users'::regclass AND contype = 'c' AND pg_get_constraintdef(oid) LIKE '%hammer%'),
-			       (SELECT column_default FROM information_schema.columns
-			         WHERE table_schema = $1 AND table_name = 'users' AND column_name = 'hammer')`, schema).Scan(&checks, &def); err != nil {
-			t.Fatal(err)
-		}
-		if checks != 1 || def != "20" {
-			t.Fatalf("boot %d: %d CHECKs on hammer, default %q — want one CHECK and default 20", boot, checks, def)
-		}
+	again.Close()
+	checks := f.scalar(`SELECT count(*) FROM pg_constraint
+		WHERE conrelid = 'users'::regclass AND contype = 'c' AND pg_get_constraintdef(oid) LIKE '%hammer%'`)
+	if checks != 1 {
+		t.Fatalf("%d CHECKs on users.hammer after two boots, want 1", checks)
 	}
 }

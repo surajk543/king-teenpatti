@@ -81,7 +81,7 @@ king-teenpatti/
 │   │   ├── sio/                  our own Engine.IO v4 + Socket.IO v5 server, websocket only (protocol.go, conn.go, server.go)
 │   │   ├── socket/               the game protocol on sio: handler.go (Attach, guard, one method per event, grace, resume offers), wire.go (every event/ack), payload.go; testclient/
 │   │   ├── auth/                 tokens.go (JWT HS256), providers.go (Google/Facebook/guest/fake), http.go (routes, RequireAuth, WriteError), handlers.go (the 8 REST handlers), text.go
-│   │   ├── db/                   db.go (pgxpool, search_path as connection param, WithTx, DropSchema, Migrations), migration/ (embedded, Flyway-named V<version>__<name>.sql, applied in version order: V1.0.0__baseline.sql = DDL, V1.0.1__seed_profile_pictures.sql + V1.0.2__seed_animated_pictures.sql = DML, V1.0.3__diamond_purchases.sql = DDL, V1.0.4__seed_more_animated_pictures.sql = DML), ledger.go (THE money transactions: Checkpoint / Settle), users.go (login upsert, rewards, names, the worn picture), pictures.go (the catalogue, ownership and the chip purchase); dbtest/
+│   │   ├── db/                   db.go (pgxpool, search_path as connection param, WithTx, DropSchema, Migrations), migration/ (embedded, Flyway-named V<version>__<name>.sql, applied in version order — exactly two since 14 Sep 2026: V1.0.0__baseline.sql = all DDL, V1.0.1__seed_profile_pictures.sql = all DML), ledger.go (THE money transactions: Checkpoint / Settle), users.go (login upsert, rewards, names, the worn picture), pictures.go (the catalogue, ownership and the chip purchase); dbtest/
 │   │   ├── metrics/              names.go (every game_* metric), metrics.go (registry, Bind*, Handler, HTTPMiddleware, SafeLabel)
 │   │   ├── app/                  app.go (mux, REST, socket endpoint, Start/Shutdown), health.go, static.go (PUBLIC_DIR + embedded assets/socket.io.min.js)
 │   │   └── util/                 UUID, RoomCode, slog JSON logger
@@ -565,28 +565,34 @@ table in full (no ALTERs; a fresh database is built from it alone) and `V1.0.1__
 holds the catalogue rows. **There is no schema history table**: the server applies EVERY script on
 EVERY boot, so each one must be idempotent (IF NOT EXISTS / CREATE OR REPLACE / ON CONFLICT DO
 NOTHING / a catalogue lookup before an unguarded trigger). A script that is not idempotent does not
-fail the first time — it fails on the next restart, in production. The next change is a NEW file,
-never an edit to an applied one — with one sanctioned exception (13 Sep 2026): wrapping a statement in a catalogue guard so it
-skips work already done, because no new script can fix a statement that fails before it runs (the baseline's users index under
-DEPLOY.md §7, and V1.0.2 moving Butterfly Flapping's row to its Drive URL in place — a later script's move would be undone
-by V1.0.2 re-seeding the old path on the next boot and then collide on the UNIQUE asset_url). **A column added to an existing database is a deliberate one-off
+fail the first time — it fails on the next restart, in production. **Consolidated on 14 Sep 2026 (owner), for a
+production deploy onto an empty database:** there are exactly two scripts — `V1.0.0__baseline.sql` (every table, column,
+index, function and trigger, `users.hammer` and the purchase and spend tables included) and
+`V1.0.1__seed_profile_pictures.sql` (all 30 catalogue rows) — and V1.0.2–V1.0.5 are gone, with the blocks that brought
+older databases forward (V1.0.2's Butterfly Flapping move/fold, V1.0.5's guarded hammer ALTER; git history, `ccff445`).
+They build an EMPTY database, and boot unchanged on one built by `ccff445`'s scripts; a database from go-server/v1.3.0 or
+older lacks `users.hammer`, so production starts over (DEPLOY.md §8). `db_test.go` pins the count at two. The next change
+is a NEW file (`V1.0.2__…`), never an edit to an applied one. The catalogue guards that remain (the baseline's
+`idx_users_last_login`, `users_no_delete` created only when missing) are for DEPLOY.md §7, where the app role no longer
+owns `users`. **A column added to an existing database is a deliberate one-off
 ALTER run by hand** (`CREATE TABLE IF NOT EXISTS` is a no-op where the table exists, so the baseline
 cannot add one), which is the trade the no-ALTER baseline makes.
 `withTransaction(fn)` = BEGIN/COMMIT/ROLLBACK. `dropSchema()` refuses `public`. **int8 and numeric
 are parsed to JS numbers** (`pg.types.setTypeParser(20|1700)`) — without that, `chips` and `SUM()`
 come back as strings.
 
-Tables — **there are exactly five, and none of them is game state** (the fifth, `diamond_purchases`, is below): `users` (wallet = `chips BIGINT
+Tables — **there are exactly seven, and none of them is game state** (`diamond_purchases`, `hammer_purchases` and `hammer_spends` are below): `users` (wallet = `chips BIGINT
 CHECK ≥ 0`, **`diamond INTEGER NOT NULL DEFAULT 1 CHECK ≥ 0`** — the premium currency, one per new account, never
-ledgered —, counters, `milestone_claimed`, `next_bonus_at`, `active_picture_id`, `deleted_at`),
+ledgered —, **`hammer INTEGER NOT NULL DEFAULT 20 CHECK ≥ 0`** — what a Force Sideshow costs, 20 per account, never ledgered —,
+counters, `milestone_claimed`, `next_bonus_at`, `active_picture_id`, `deleted_at`),
 **`chip_ledger`** (`action_id UNIQUE`, `hand_id`, `delta`, `balance`, `reason`; append-only trigger),
 and the picture catalogue added 12 Sep 2026 (owner): **`profile_pictures`** (`name`, `asset_url`
 UNIQUE, `asset_format` IMAGE|SVG|LOTTIE|RIVE, `currency` COIN|DIAMOND, `type` FREE|PREMIUM, `cost` with a CHECK that free is 0 and premium is > 0, `is_active`,
 `sort_order`) and **`user_profile_pictures`** (`user_id`, `profile_picture_id`, PK on the pair) —
 who has bought what. A FREE picture needs **no** ownership row: everyone may wear it, so the table
 holds only what somebody paid for. `V1.0.1__seed_profile_pictures.sql` seeds 15 hosted animals (2 free, 13 coin-priced rentals) and
-Orange Ballerina (a LOTTIE at 1 DIAMOND for 100 days); `V1.0.2__seed_animated_pictures.sql` adds five more LOTTIE rentals of 100 days — Butterfly Flapping (4 DIAMONDS, sort_order 170; its first Drive upload beats its wings with 3D orientation the phone players ignore — §12.3 — so it is served from a second Drive upload of the flattened copy. go-server/v1.3.0 served that copy itself as `/profiles/butterfly-flapping.json`; V1.0.2 now moves that row to the Drive URL in place at every boot, folding any rollback duplicate into the original id so no purchase or wearer is lost — `butterfly_drive_test.go`, DEPLOY.md §5), Toucan Flying (a landscape 1920×1080 canvas, 3 DIAMONDS, 180), Live Chatbot (1 DIAMOND, 190), Paper Plane (1 DIAMOND, 200) and Bouncing Dots (1 DIAMOND, 210); `V1.0.4__seed_more_animated_pictures.sql` adds nine more 100-day LOTTIE rentals that play on phones — Monarch Butterfly (4 DIAMONDS, sort_order 220), Lovestruck Cat (5 DIAMONDS, 230), Waving Tiger Cub (5 DIAMONDS, 240; a tiny `loopOut()` detail in its head holds still on phones, which run no expressions), Galloping Horse (1 DIAMOND, 250; a black silhouette flipbook, about 1.2:1 against the dark theme's picture circles), Gamer Raccoon (6 DIAMONDS, 260), Cool Cat (10 DIAMONDS, 270), Indian Flag (10 DIAMONDS, 280; it sits high and left in its canvas, so the round picture loses most of its pole), Jolly King (10 DIAMONDS, 290) and Jolly Queen (10 DIAMONDS, 300; both move only through `loopOut()` expressions, so both are served from Drive as copies baked by `tools/lottie/bake_loop_expressions.py`, not as their original uploads) — a new script because V1.0.2 had already run in production — each script inserts with `ON CONFLICT (asset_url) DO NOTHING`, so re-pricing or retiring one is an UPDATE
-the next boot will not undo. **`diamond_purchases`** (`V1.0.3__diamond_purchases.sql`: `purchase_token` PK, `user_id`, `product_id`, `diamonds`, `created_at`) is the replay guard and record for Play diamond packs — diamonds never enter `chip_ledger`. `users.avatar_choice` (the old free-text `/profiles/x.svg` path) is
+15 LOTTIE rentals of 100 days priced in DIAMONDS — Orange Ballerina (1, sort_order 160), Butterfly Flapping (4, 170; its first Drive upload beats its wings with 3D orientation the phone players ignore — §12.3 — so the row points at a second Drive upload of the flattened copy; go-server/v1.3.0 served that copy itself as `/profiles/butterfly-flapping.json`, and a rollback to that tag seeds the path again as a second row — DEPLOY.md §5), Toucan Flying (a landscape 1920×1080 canvas, 3, 180), Live Chatbot (1, 190), Paper Plane (1, 200), Bouncing Dots (1, 210), Monarch Butterfly (4, 220), Lovestruck Cat (5, 230), Waving Tiger Cub (5, 240; a tiny `loopOut()` detail in its head holds still on phones, which run no expressions), Galloping Horse (1, 250; a black silhouette flipbook, about 1.2:1 against the dark theme's picture circles), Gamer Raccoon (6, 260), Cool Cat (10, 270), Indian Flag (10, 280; it sits high and left in its canvas, so the round picture loses most of its pole), Jolly King (10, 290) and Jolly Queen (10, 300; both move only through `loopOut()` expressions, so both are served from Drive as copies baked by `tools/lottie/bake_loop_expressions.py`, not as their original uploads) — inserted with `ON CONFLICT (asset_url) DO NOTHING`, so re-pricing or retiring one is an UPDATE
+the next boot will not undo; on an empty database they number 1 (Bear) to 30 (Jolly Queen). **`diamond_purchases`** (`purchase_token` PK, `user_id`, `product_id`, `diamonds`, `created_at`) is the replay guard and record for Play diamond packs — diamonds never enter `chip_ledger`; **`hammer_purchases`** is its twin for Play hammer packs, and **`hammer_spends`** (`action_id` PK — `<handId>:force:<userId>:<client actionId>` —, `user_id`, `hand_id`, `created_at`) is the one row per spend a Force Sideshow's hammer is charged against. `users.avatar_choice` (the old free-text `/profiles/x.svg` path) is
 migrated into `active_picture_id` and dropped — **but only once every non-empty choice has found its
 catalogue row**, and any picture that was already being worn is granted an ownership row first so
 seeding it as premium cannot confiscate it. Every statement naming `avatar_choice` goes through
