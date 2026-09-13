@@ -344,6 +344,59 @@ func TestReplayingADeliveredForceSideshowIsRefusedOnALaterTurn(t *testing.T) {
 	eq(t, wallet.Charges(), 2, "a new id is a new hammer")
 }
 
+// The spend key names the hand, not only the client's id: the same actionId
+// sent in the next hand is a new forced sideshow and a new hammer. A key
+// without the hand would find the first hand's spend already paid for and hand
+// out a free forced sideshow in every hand after it.
+func TestTheSameActionIdInTheNextHandCostsAnotherHammer(t *testing.T) {
+	h, ids, wallet := forcedTable(t, 4)
+	actor := h.turnUser()
+	h.mustAct(actor, ActionForceSideshow, force("every-hand"))
+	eq(t, wallet.Balance(actor), int64(19), "the first hand's hammer")
+
+	for h.hasHand() {
+		h.mustAct(h.turnUser(), ActionPack, ActRequest{})
+	}
+	h.advance(sideshowConfig().NextHandDelay)
+	eq(t, h.handNo(), 2, "the next hand is dealt")
+	for _, id := range ids {
+		h.mustAct(id, ActionSee, ActRequest{})
+	}
+	for h.turnUser() != actor {
+		h.mustAct(h.turnUser(), ActionChaal, ActRequest{})
+	}
+	eq(t, h.blockedReason(actor), "", "a forced sideshow is allowed again")
+
+	res := h.mustAct(actor, ActionForceSideshow, force("every-hand"))
+	eq(t, wallet.Charges(), 2, "a second hammer is taken")
+	eq(t, wallet.Balance(actor), int64(18), "from the same player")
+	eq(t, *res.Hammers, int64(18), "the ack reports it")
+	eq(t, len(h.sideshowResolved()), 2, "one forced sideshow in each hand")
+}
+
+// …and names the player. An id this hand delivered is refused duplicate_action
+// to everyone before the wallet is asked, but one whose answer was lost was
+// never delivered: another player may send the very same actionId later in the
+// hand, and it is their forced sideshow and their hammer — not a free ride on
+// the spend the first player already paid for.
+func TestAnotherPlayersForceSideshowWithTheSameActionIdCostsTheirOwnHammer(t *testing.T) {
+	h, _, wallet := forcedTable(t, 4)
+	first := h.turnUser()
+	wallet.LoseAck = func(req HammerSpend) bool { return req.UserID == first }
+	_, err := h.act(first, ActionForceSideshow, force("shared-id"))
+	codeIs(t, err, CodePersistFailed)
+	eq(t, wallet.Balance(first), int64(19), "the first player's hammer is spent")
+
+	h.mustAct(first, ActionChaal, ActRequest{})
+	second := h.turnUser()
+	eq(t, h.blockedReason(second), "", "the next player may force a sideshow")
+	res := h.mustAct(second, ActionForceSideshow, force("shared-id"))
+	eq(t, wallet.Charges(), 2, "a second hammer is taken")
+	eq(t, wallet.Balance(second), int64(19), "from the player who forced this one")
+	eq(t, *res.Hammers, int64(19), "the ack reports their own count")
+	eq(t, wallet.Balance(first), int64(19), "the first player paid once")
+}
+
 // ------------------------------------------------------------- once per turn
 
 func TestOneAskPerTurnCoversOrdinaryAndForcedSideshowsAlike(t *testing.T) {

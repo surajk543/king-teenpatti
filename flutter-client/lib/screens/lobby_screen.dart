@@ -730,10 +730,20 @@ class _TopBar extends StatelessWidget {
                               const SizedBox(width: Space.md),
                               // The balance counts to its new value rather than
                               // snapping, so a reward landing is something you see
-                              // happen. FittedBox: chips and diamonds side by side
-                              // outgrew a 640dp phone once the chips read "1.99
-                              // Lakh"; past its cap it scales down instead, and it
-                              // is full size wherever it fits.
+                              // happen. Past its cap it scales down (FittedBox),
+                              // and it is full size wherever it fits.
+                              //
+                              // The chips on one line, the diamonds and hammers
+                              // in small type under them (14 Sep 2026). All three
+                              // in a row made the balance wider than the chips
+                              // alone by two figures and two icons: on a 640dp
+                              // phone, where it was already at its cap, the chip
+                              // figure shrank to about half size (0.73 -> 0.54 of
+                              // titleMedium for 1.99 Lakh), and on wider bars,
+                              // where it was not, it took the extra width from
+                              // the name. Stacked, the balance is only as wide as
+                              // its chip line, so the name keeps every letter it
+                              // had before hammers came to the bar.
                               ConstrainedBox(
                                 constraints: BoxConstraints(
                                   maxWidth:
@@ -743,93 +753,66 @@ class _TopBar extends StatelessWidget {
                                   fit: BoxFit.scaleDown,
                                   alignment: Alignment.centerRight,
                                   child: RepaintBoundary(
-                                    child: Row(
+                                    child: Column(
                                       mainAxisSize: MainAxisSize.min,
+                                      crossAxisAlignment: CrossAxisAlignment.end,
                                       children: [
-                                        PokerChip(
-                                          colour: AppTheme.gold,
-                                          size: 18,
-                                        ),
-                                        const SizedBox(width: Space.sm),
-                                        TweenAnimationBuilder<double>(
-                                          tween: Tween(
-                                            end: (user?.chips ?? 0).toDouble(),
-                                          ),
-                                          duration: const Duration(
-                                            milliseconds: 650,
-                                          ),
-                                          curve: Motion.standard,
-                                          builder: (context, value, _) => Text(
-                                            formatChips(value.round()),
-                                            style: AppTheme.money(
-                                              text.titleMedium!,
-                                              colour: _goldInk(brightness),
+                                        Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            PokerChip(
+                                              colour: AppTheme.gold,
+                                              size: 18,
                                             ),
-                                          ),
-                                        ),
-                                        // The second wallet beside the first:
-                                        // diamonds pay for what chips cannot, so a
-                                        // player should not have to open the
-                                        // picture picker to learn how many they
-                                        // hold. Same type, same count-up, its own
-                                        // ink.
-                                        SizedBox(
-                                          width: tight ? Space.md : Space.lg,
-                                        ),
-                                        Icon(
-                                          Icons.diamond,
-                                          size: 18,
-                                          color: diamondInkOn(brightness),
-                                        ),
-                                        const SizedBox(width: Space.xs),
-                                        TweenAnimationBuilder<double>(
-                                          tween: Tween(
-                                            end: (user?.diamond ?? 0)
-                                                .toDouble(),
-                                          ),
-                                          duration: const Duration(
-                                            milliseconds: 650,
-                                          ),
-                                          curve: Motion.standard,
-                                          builder: (context, value, _) => Text(
-                                            '${value.round()}',
-                                            style: AppTheme.money(
-                                              text.titleMedium!,
-                                              colour: diamondInkOn(brightness),
+                                            const SizedBox(width: Space.sm),
+                                            _CountUp(
+                                              value: user?.chips ?? 0,
+                                              format: formatChips,
+                                              style: AppTheme.money(
+                                                text.titleMedium!,
+                                                colour: _goldInk(brightness),
+                                              ),
                                             ),
-                                          ),
+                                          ],
                                         ),
-                                        // The third wallet after the second
-                                        // (owner, 13 Sep 2026): hammers pay for
-                                        // a Force Sideshow, and the lobby is
-                                        // where a player sees whether to buy
-                                        // more before sitting down. Inside the
-                                        // same FittedBox, so the name keeps
-                                        // the room it has.
-                                        SizedBox(
-                                          width: tight ? Space.md : Space.lg,
-                                        ),
-                                        Icon(
-                                          Icons.hardware,
-                                          size: 18,
-                                          color: hammerInkOn(brightness),
-                                        ),
-                                        const SizedBox(width: Space.xs),
-                                        TweenAnimationBuilder<double>(
-                                          tween: Tween(
-                                            end: (user?.hammer ?? 0).toDouble(),
-                                          ),
-                                          duration: const Duration(
-                                            milliseconds: 650,
-                                          ),
-                                          curve: Motion.standard,
-                                          builder: (context, value, _) => Text(
-                                            '${value.round()}',
-                                            style: AppTheme.money(
-                                              text.titleMedium!,
-                                              colour: hammerInkOn(brightness),
+                                        // The second and third wallets: diamonds
+                                        // pay for what chips cannot and hammers
+                                        // for a Force Sideshow (owner, 13 Sep
+                                        // 2026), so a player sees both without
+                                        // opening the store — the lobby is where
+                                        // they decide whether to buy more before
+                                        // sitting down. Each in its own ink.
+                                        Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Icon(
+                                              Icons.diamond,
+                                              size: 13,
+                                              color: diamondInkOn(brightness),
                                             ),
-                                          ),
+                                            const SizedBox(width: Space.xxs),
+                                            _CountUp(
+                                              value: user?.diamond ?? 0,
+                                              style: AppTheme.money(
+                                                text.labelMedium!,
+                                                colour: diamondInkOn(brightness),
+                                              ),
+                                            ),
+                                            const SizedBox(width: Space.md),
+                                            Icon(
+                                              Icons.hardware,
+                                              size: 13,
+                                              color: hammerInkOn(brightness),
+                                            ),
+                                            const SizedBox(width: Space.xxs),
+                                            _CountUp(
+                                              value: user?.hammer ?? 0,
+                                              style: AppTheme.money(
+                                                text.labelMedium!,
+                                                colour: hammerInkOn(brightness),
+                                              ),
+                                            ),
+                                          ],
                                         ),
                                       ],
                                     ),
@@ -859,6 +842,28 @@ class _TopBar extends StatelessWidget {
       ),
     );
   }
+}
+
+/// A wallet figure in the top bar, counting to its new value rather than
+/// snapping to it, so a reward or a purchase landing is something you see
+/// happen.
+class _CountUp extends StatelessWidget {
+  const _CountUp({required this.value, required this.style, this.format});
+
+  final int value;
+  final TextStyle style;
+
+  /// How the figure is written; plain digits when null.
+  final String Function(int)? format;
+
+  @override
+  Widget build(BuildContext context) => TweenAnimationBuilder<double>(
+    tween: Tween(end: value.toDouble()),
+    duration: const Duration(milliseconds: 650),
+    curve: Motion.standard,
+    builder: (context, v, _) =>
+        Text(format?.call(v.round()) ?? '${v.round()}', style: style),
+  );
 }
 
 /// The player's picture with the edit mark tucked into its own corner.
