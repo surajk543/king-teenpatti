@@ -119,9 +119,9 @@ class _TableScreenState extends State<TableScreen> {
           // The store, as the same Shop key the lobby's top bar carries and in
           // the same place — the top-left corner, clear of the felt (owner,
           // 13 Sep 2026; it replaces the gold `+` that headed the rail). It
-          // opens the same store, on its Chips shelf: a seated player can
-          // neither buy nor change a picture, so the Pictures tab is not
-          // offered here.
+          // opens the same store, on its Chips shelf; its picture key sells
+          // the animated shelf alone here, bought with diamonds and worn on
+          // the seat at once.
           const Positioned(
             left: Space.md,
             top: Space.sm,
@@ -342,16 +342,24 @@ class _TableDrawer extends StatelessWidget {
               ),
               child: Row(
                 children: [
+                  // Light or dark in one tap, where the table code was (owner,
+                  // 13 Sep 2026). The System · Dark · Light choice stays at the
+                  // foot of the menu.
+                  _ThemeFlip(tooltip: t.switchTheme),
+                  const SizedBox(width: Space.xs),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          'Table ${room.code}',
-                          style: AppTheme.money(
-                            theme.textTheme.titleMedium ?? const TextStyle(),
+                        // Only a private table keeps its code here: it is how
+                        // friends are let in, and nothing else shows it.
+                        if (room.isPrivate)
+                          Text(
+                            'Table ${room.code}',
+                            style: AppTheme.money(
+                              theme.textTheme.titleMedium ?? const TextStyle(),
+                            ),
                           ),
-                        ),
                         Text(
                           // The category is server-owned ASCII, so tracked
                           // capitals are safe on it; the hand number is not
@@ -489,6 +497,38 @@ class _TableDrawer extends StatelessWidget {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The drawer's light/dark key. One tap flips the theme the table is drawn in;
+/// from the System setting it flips away from whatever the phone is showing
+/// ([GameState.toggleTheme]). It shows where the tap goes — a moon in the
+/// light theme, a sun in the dark.
+class _ThemeFlip extends StatelessWidget {
+  const _ThemeFlip({required this.tooltip});
+
+  final String tooltip;
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    return PressScale(
+      child: IconButton(
+        tooltip: tooltip,
+        onPressed: () {
+          tapHaptic(context);
+          context.read<GameState>().toggleTheme();
+        },
+        icon: AnimatedSwitcher(
+          duration: Motion.fast,
+          child: Icon(
+            dark ? Icons.light_mode_rounded : Icons.dark_mode_rounded,
+            key: ValueKey(dark),
+            color: dark ? AppTheme.goldBright : AppTheme.goldDeep,
+          ),
         ),
       ),
     );

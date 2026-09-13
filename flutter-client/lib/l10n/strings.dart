@@ -111,6 +111,7 @@ class Strings {
   String get storeBlurb => _('storeBlurb');
   String get storeTabChips => _('storeTabChips');
   String get storeTabPictures => _('storeTabPictures');
+  String get storeTabAnimated => _('storeTabAnimated');
   String get storePicturesBlurb => _('storePicturesBlurb');
   String get storeTabDiamonds => _('storeTabDiamonds');
   String get storeDiamondsTitle => _('storeDiamondsTitle');
@@ -376,6 +377,7 @@ class Strings {
       'storeBlurb': 'The bigger the pack, the bigger the bonus.',
       'storeTabChips': 'Chips',
       'storeTabPictures': 'Pictures',
+      'storeTabAnimated': 'Animated',
       'storePicturesBlurb': 'Unlock a picture with chips or diamonds.',
       'storeTabDiamonds': 'Diamonds',
       'storeDiamondsTitle': 'Diamond Store',
@@ -593,6 +595,7 @@ class Strings {
       'storeBlurb': 'जितना बड़ा पैक, उतना बड़ा बोनस।',
       'storeTabChips': 'चिप्स',
       'storeTabPictures': 'तस्वीरें',
+      'storeTabAnimated': 'एनिमेटेड',
       'storePicturesBlurb': 'चिप्स या हीरों से तस्वीर अनलॉक करें।',
       'storeTabDiamonds': 'हीरे',
       'storeDiamondsTitle': 'हीरा स्टोर',
@@ -810,6 +813,7 @@ class Strings {
       'storeBlurb': 'প্যাক যত বড়, বোনাসও তত বড়।',
       'storeTabChips': 'চিপস',
       'storeTabPictures': 'ছবি',
+      'storeTabAnimated': 'অ্যানিমেটেড',
       'storePicturesBlurb': 'চিপস বা হীরে দিয়ে ছবি আনলক করুন।',
       'storeTabDiamonds': 'হীরে',
       'storeDiamondsTitle': 'হীরের দোকান',
@@ -1028,6 +1032,7 @@ class Strings {
       'storeBlurb': 'પૅક જેટલું મોટું, બોનસ એટલું મોટું.',
       'storeTabChips': 'ચિપ્સ',
       'storeTabPictures': 'ફોટા',
+      'storeTabAnimated': 'એનિમેટેડ',
       'storePicturesBlurb': 'ચિપ્સ અથવા હીરાથી ફોટો અનલૉક કરો.',
       'storeTabDiamonds': 'હીરા',
       'storeDiamondsTitle': 'હીરા સ્ટોર',
@@ -1245,6 +1250,7 @@ class Strings {
       'storeBlurb': 'ਪੈਕ ਜਿੰਨਾ ਵੱਡਾ, ਬੋਨਸ ਓਨਾ ਵੱਡਾ।',
       'storeTabChips': 'ਚਿਪਸ',
       'storeTabPictures': 'ਤਸਵੀਰਾਂ',
+      'storeTabAnimated': 'ਐਨੀਮੇਟਿਡ',
       'storePicturesBlurb': 'ਚਿਪਸ ਜਾਂ ਹੀਰਿਆਂ ਨਾਲ ਤਸਵੀਰ ਅਨਲੌਕ ਕਰੋ।',
       'storeTabDiamonds': 'ਹੀਰੇ',
       'storeDiamondsTitle': 'ਹੀਰਾ ਸਟੋਰ',

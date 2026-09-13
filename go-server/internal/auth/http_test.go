@@ -251,6 +251,25 @@ func (f *fakePictures) Buy(_ context.Context, userID string, id int64) (*db.Pict
 	return &db.PicturePurchase{Picture: pic, Charged: true, Spent: pic.Cost, Balance: user.Chips, User: user}, nil
 }
 
+// BuyAtTable refuses a COIN row that would be charged, in the real store's
+// order (unknown, retired, free and owned answer as Buy does first).
+func (f *fakePictures) BuyAtTable(ctx context.Context, userID string, id int64) (*db.PicturePurchase, error) {
+	if f.failWith != nil {
+		return nil, f.failWith
+	}
+	pic, ok := fakeCatalogue[id]
+	if ok && !f.retired[id] && !pic.Free() && !f.owned[userID][id] && pic.Currency != db.PictureCurrencyDiamond {
+		return nil, db.ErrPictureAtTable
+	}
+	return f.Buy(ctx, userID, id)
+}
+
+// wornPicture is one call of Deps.PictureWorn.
+type wornPicture struct {
+	userID string
+	url    *string
+}
+
 // harness is a mux with the 8 routes plus the app-side /api/ 404, a fake
 // store and a profiles directory holding the bundled picture names.
 type harness struct {
@@ -261,6 +280,7 @@ type harness struct {
 	tokens   *Tokens
 	cfg      *config.Config
 	seated   map[string]bool
+	worn     []wornPicture
 	logs     *bytes.Buffer
 }
 
@@ -278,7 +298,10 @@ func newHarness(t *testing.T) *harness {
 		Tokens:   h.tokens,
 		Verifier: NewVerifier(cfg),
 		IsSeated: func(id string) bool { return h.seated[id] },
-		Logger:   slog.New(slog.NewJSONHandler(h.logs, nil)),
+		PictureWorn: func(id string, url *string) {
+			h.worn = append(h.worn, wornPicture{userID: id, url: url})
+		},
+		Logger: slog.New(slog.NewJSONHandler(h.logs, nil)),
 	})
 	handler.Register(h.mux)
 	h.mux.Handle("/api/", NotFoundHandler())
@@ -806,12 +829,22 @@ func TestWearingAPicture(t *testing.T) {
 		t.Errorf("absent avatar must clear: %d %s", res.status, res.raw)
 	}
 
-	// Seated → 409 before any validation (requirement 21).
+	// Seated: allowed (owner, 13 Sep 2026 — it was 409 seated), and the new face
+	// is handed on for the seat. The hook hears every successful change; a
+	// player in the lobby is the room manager's no-op, not the handler's call.
 	h.seated[id] = true
-	res = h.do(http.MethodPost, "/api/profile/avatar", map[string]any{"avatar": 404}, bearer(token)...)
-	expectError(t, res, 409, CodeSeated)
-	if res.body["message"] != MsgSeatedAvatar {
-		t.Errorf("%s", res.raw)
+	h.worn = nil
+	res = h.do(http.MethodPost, "/api/profile/avatar", map[string]any{"avatar": 1}, bearer(token)...)
+	if res.status != 200 || res.body["user"].(map[string]any)["avatarUrl"] != "/profiles/bear.svg" {
+		t.Errorf("seated wear: %d %s", res.status, res.raw)
+	}
+	if len(h.worn) != 1 || h.worn[0].userID != id || h.worn[0].url == nil || *h.worn[0].url != "/profiles/bear.svg" {
+		t.Errorf("the seat was not told about the new picture: %+v", h.worn)
+	}
+	// A refused change tells the seat nothing.
+	expectError(t, h.do(http.MethodPost, "/api/profile/avatar", map[string]any{"avatar": 404}, bearer(token)...), 400, CodeUnknownAvatar)
+	if len(h.worn) != 1 {
+		t.Errorf("a refused change reached the seat: %+v", h.worn)
 	}
 	h.seated[id] = false
 	expectError(t, h.do(http.MethodPost, "/api/profile/avatar", "{bad", bearer(token)...), 400, CodeInvalidJSON)
@@ -890,6 +923,15 @@ func TestBuyingADiamondPicture(t *testing.T) {
 	if h.store.users[skintID].Chips != 200000 {
 		t.Error("a refused diamond purchase moved chips")
 	}
+
+	// At a table diamonds still buy (owner, 13 Sep 2026): nothing there reads
+	// or writes them.
+	seatedToken, seatedUser := h.login("device-diamond-0003", "SeatedGem")
+	h.seated[seatedUser["id"].(string)] = true
+	res = h.do(http.MethodPost, "/api/profile/picture/buy", map[string]any{"pictureId": 5}, bearer(seatedToken)...)
+	if res.status != 200 || res.body["charged"] != true {
+		t.Errorf("a seated diamond buy: %d %s", res.status, res.raw)
+	}
 }
 
 func TestBuyingAPremiumPicture(t *testing.T) {
@@ -941,8 +983,9 @@ func TestBuyingAPremiumPicture(t *testing.T) {
 		expectError(t, h.do(http.MethodPost, "/api/profile/picture/buy", map[string]any{"pictureId": bad}, bearer(token)...), 400, CodeUnknownAvatar)
 	}
 
-	// Seated → 409 before anything else. A seated wallet may only move at the
-	// three hand checkpoints, so the till is shut at the table.
+	// Seated: a chip-priced picture waits for the lobby, because a seated
+	// wallet's chips may only move at the three hand checkpoints. A diamond one
+	// still sells (TestBuyingADiamondPicture).
 	h.seated[id] = true
 	res = h.do(http.MethodPost, "/api/profile/picture/buy", map[string]any{"pictureId": 4}, bearer(token)...)
 	expectError(t, res, 409, CodeSeated)

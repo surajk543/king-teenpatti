@@ -188,16 +188,16 @@ class _StoreTabs extends StatelessWidget {
   const _StoreTabs({
     required this.value,
     required this.onChanged,
-    this.pictures = true,
+    this.animatedOnly = false,
   });
 
   final _StoreTab value;
   final ValueChanged<_StoreTab> onChanged;
 
-  /// Whether the Pictures key is offered. Not at a table, where a seated
-  /// player can neither buy nor change a picture; chips and diamonds are
-  /// always on sale.
-  final bool pictures;
+  /// Whether the picture key sells the animated shelf alone, and is named for
+  /// it. True at a table (owner, 13 Sep 2026), where a seated player may buy
+  /// and wear an animated picture. Chips and diamonds are always on sale.
+  final bool animatedOnly;
 
   @override
   Widget build(BuildContext context) {
@@ -272,10 +272,14 @@ class _StoreTabs extends StatelessWidget {
         key(_StoreTab.chips, Icons.toll_rounded, t.storeTabChips),
         const SizedBox(width: Space.sm),
         key(_StoreTab.diamonds, Icons.diamond_rounded, t.storeTabDiamonds),
-        if (pictures) ...[
-          const SizedBox(width: Space.sm),
-          key(_StoreTab.pictures, Icons.face_rounded, t.storeTabPictures),
-        ],
+        const SizedBox(width: Space.sm),
+        animatedOnly
+            ? key(
+                _StoreTab.pictures,
+                Icons.auto_awesome_rounded,
+                t.storeTabAnimated,
+              )
+            : key(_StoreTab.pictures, Icons.face_rounded, t.storeTabPictures),
       ],
     );
   }
@@ -339,12 +343,11 @@ class _ChipStoreState extends State<_ChipStore> {
   /// dispose() is the teardown trap CLAUDE.md §12.3 documents.
   final ScrollController _scroller = ScrollController();
 
-  /// Which shelf is showing. The picture shelf is not offered at a table — a
-  /// seated player can neither buy nor change a picture (requirement 21) — so
-  /// the build falls back to chips there whatever this says.
+  /// Which shelf is showing.
   _StoreTab _tab = _StoreTab.chips;
 
-  /// The picture shelf's filter, as in the picker; it opens on All.
+  /// The picture shelf's filter, as in the picker; it opens on All. At a table
+  /// the shelf is the animated one whatever this says.
   PictureFilter _shelf = PictureFilter.all;
 
   /// Back to the top when the shelf under the scrollbar changes, so a switch
@@ -382,10 +385,11 @@ class _ChipStoreState extends State<_ChipStore> {
     final state = context.watch<GameState>();
     final t = state.t;
     final prices = _prices;
-    final picturesOffered = state.screen != Screen.table;
-    final tab = !picturesOffered && _tab == _StoreTab.pictures
-        ? _StoreTab.chips
-        : _tab;
+    // At a table the picture key sells the animated shelf alone, with no shelf
+    // menu (owner, 13 Sep 2026); the lobby keeps every shelf.
+    final atTable = state.screen == Screen.table;
+    final shelf = atTable ? PictureFilter.animated : _shelf;
+    final tab = _tab;
     final onPictures = tab == _StoreTab.pictures;
     final onDiamonds = tab == _StoreTab.diamonds;
     // The picture being worn, when it is one of the catalogue's, for the
@@ -473,7 +477,9 @@ class _ChipStoreState extends State<_ChipStore> {
                             children: [
                               Text(
                                 onPictures
-                                    ? t.storeTabPictures
+                                    ? (atTable
+                                          ? t.picturePremiumAnimated
+                                          : t.storeTabPictures)
                                     : onDiamonds
                                     ? t.storeDiamondsTitle
                                     : t.storeTitle,
@@ -504,7 +510,7 @@ class _ChipStoreState extends State<_ChipStore> {
                         const SizedBox(width: Space.md),
                         _StoreTabs(
                           value: tab,
-                          pictures: picturesOffered,
+                          animatedOnly: atTable,
                           onChanged: (next) => setState(() {
                             _tab = next;
                             _toTop();
@@ -546,17 +552,19 @@ class _ChipStoreState extends State<_ChipStore> {
                         children: [
                           Align(
                             alignment: Alignment.centerLeft,
-                            child: PictureFilterMenu(
-                              value: _shelf,
-                              counts: {
-                                for (final f in PictureFilter.values)
-                                  f: state.pictures.where(f.holds).length,
-                              },
-                              onChanged: (f) => setState(() {
-                                _shelf = f;
-                                _toTop();
-                              }),
-                            ),
+                            child: atTable
+                                ? const SizedBox.shrink()
+                                : PictureFilterMenu(
+                                    value: _shelf,
+                                    counts: {
+                                      for (final f in PictureFilter.values)
+                                        f: state.pictures.where(f.holds).length,
+                                    },
+                                    onChanged: (f) => setState(() {
+                                      _shelf = f;
+                                      _toTop();
+                                    }),
+                                  ),
                           ),
                           Align(
                             alignment: Alignment.center,
@@ -621,7 +629,7 @@ class _ChipStoreState extends State<_ChipStore> {
                                   child: pictureShelf(
                                     context: context,
                                     state: state,
-                                    filter: _shelf,
+                                    filter: shelf,
                                     // The picker's tile size, so a face is the same
                                     // size wherever it is on sale.
                                     radius: (size.height * 0.105).clamp(

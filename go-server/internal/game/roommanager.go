@@ -652,6 +652,17 @@ func (rm *RoomManager) GetTableForPlayer(userID string) *Table {
 	return t
 }
 
+// SetPlayerAvatar puts a player's newly worn picture on their seat, when they
+// have one. The avatar endpoint calls it after the choice is saved, so for a
+// player in the lobby it does nothing: their next seat reads the picture from
+// the user row like any other join. A table destroyed between the lookup and
+// the call has no seat to update, so that error is not one.
+func (rm *RoomManager) SetPlayerAvatar(userID string, avatarURL *string) {
+	if t := rm.GetTableForPlayer(userID); t != nil {
+		_ = t.SetAvatar(userID, avatarURL)
+	}
+}
+
 // seatedTableLocked is getTableForPlayer under mu: the table the index
 // points at, or nil. An index entry naming a table that is no longer
 // registered is stale (Node's getTable returned null for it too) and is

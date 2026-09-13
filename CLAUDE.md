@@ -37,7 +37,7 @@ A turn-based multiplayer **Teen Patti** (3-card Indian poker) game:
 | Node.js server | *(removed)* | The original implementation, removed from the repo on 8 Sep 2026 (`git log -- server/`, last commit `c19963b`; `multi_node` branch). Its behaviour is what §5–§7 document; its file names are what those sections cite. **No longer a rollback target at all** (12 Sep 2026): it reads and writes `users.avatar_choice`, which the schema dropped for `active_picture_id`, and knows nothing of the picture-catalogue tables — so it cannot run against this database. `ops/rollback-to-node.sh` was deleted rather than left as a recovery script that would fail when used; rolling back now means the previous **Go** tag (DEPLOY.md §5). |
 | Mobile client | `flutter-client/` | **The live client.** Flutter 3.44 / Dart 3.12, Material 3 via FlexColorScheme. Android is the shipping platform; `ios/` exists and is configured (`docs/ios-setup.md`) but has never been compiled — there is no macOS here. |
 | Browser client | `go-server/public/` | Zero-build vanilla-JS reference client served at `/` by the Go binary (`PUBLIC_DIR`) — **in dev only; production hides it** (`ROOT_REDIRECT=/dashboard/`, §7.4/§9) and serves just `privacy/`, `profiles/` from that dir. **Lags behind** — no sideshow, kick, rename, entry-cap or Indian-numbering UI. |
-| Tools | `tools/` | Small Node ≥ 20 package (`npm install` first): `npm run bot` (practice bots), `npm run ramp` (staged load test), `npm run parity` / `parity:diff` (black-box suites in `tools/parity/`). Clients of the server; also lend `node_modules` to two Go interop tests. |
+| Tools | `tools/` | Small Node ≥ 20 package (`npm install` first): `npm run bot` (practice bots), `npm run ramp` (staged load test), `npm run parity` / `parity:diff` (black-box suites in `tools/parity/`). Clients of the server; also lend `node_modules` to two Go interop tests. `tools/lottie/flatten_orientation.py` (Python 3, stdlib) flattens a Lottie's 3D orientation for the phone players (§12.3). |
 | **Bot fleet** | `bot-play/` | The resident bots that keep production's lobby populated (`bot-play.service` on the game host, loopback to `:3000`): 198 guest identities, 75–95% online at once in sittings that come and go. They judge their cards with a port of `handrank.go` (verified on all 22,100 hands), raise up the server's ladder with strong hands, bluff by persona, and chat under a per-table budget. `npm test`; `bot-play/README.md` is the reference. Separate from `tools/bot.js`, the practice bots for manual testing. |
 | Load reports | `docs/load-reports/` | ramp-test HTML + JSON (the 2026‑09‑08 production runs, 1,000 → 4,000 players). |
 | Unity client | `unity-client/` | **Removed** (Sept 2026). A JS port of its Socket.IO parser survives as `tools/parity/lib/csharpJsonPort.js` and still exercises the raw wire protocol. |
@@ -298,11 +298,16 @@ and the transactions that DO run have this shape:
   (`chipsWritten` on the hand's contribution record, so it lives in the snapshot and survives a
   restart). It is never `SET chips = <live value>`: a reward credits PostgreSQL without touching the
   Redis seat, and an absolute overwrite at the next checkpoint would erase it.
-- **Rewards and picture purchases are lobby-only.** `POST /api/rewards/milestone|bonus` and
-  `POST /api/profile/picture/buy` return **409 `seated`** before any DB work, matching the rule
-  display name and avatar already had. That closes the concurrent-credit
-  hole at its source; the delta above is the belt to that pair of braces. Its real value is that it
-  makes an invariant true: *a seated player's wallet cannot change except at these three moments.*
+- **Rewards and chip-priced picture purchases are lobby-only.** `POST /api/rewards/milestone|bonus`
+  return **409 `seated`** before any DB work, matching the rule display name already had, and
+  `POST /api/profile/picture/buy` refuses a **COIN** picture to a seated player with the same 409 —
+  decided inside the purchase transaction (`db.Pictures.BuyAtTable` → `ErrPictureAtTable`), from the
+  row being charged. That closes the concurrent-credit hole at its source; the delta above is the
+  belt to that pair of braces. Its real value is that it makes an invariant true: *a seated player's
+  chips cannot change except at these three moments.* **Diamonds are outside it** (owner, 13 Sep
+  2026): nothing at a table reads or writes `users.diamond`, so a DIAMOND picture may be bought at
+  the table, and any picture may be worn there (`POST /api/profile/avatar` → `Deps.PictureWorn` →
+  `RoomManager.SetPlayerAvatar` → `Table.SetAvatar`, which updates the seat and emits state).
 - **Resolve once, record twice.** A player who packs gets a `hand_packed` row and then a `hand_loss`
   row at the hand end whose delta computes to **zero** — the money moves once, while the outcome row
   still carries `hands_played`/`hands_lost`. A player who left is not in the hand-end write at all.
@@ -514,7 +519,8 @@ not refused;
 `POST /api/profile/avatar {avatar|null}` — `avatar` is a **profile_pictures id** (a JSON number or
 its text; it was a bundled file name before the catalogue existed). null/absent takes the picture
 off. Unknown id → 400 `unknown_avatar`, retired row → 400 `picture_retired`, a premium picture the
-player has not bought → **403 `picture_locked`**;
+player has not bought → **403 `picture_locked`**. **Allowed while seated** (owner, 13 Sep 2026; it was 409
+`seated`): the new face goes straight onto the seat — `Table.SetAvatar` updates it, emits state, saves the snapshot;
 **`POST /api/profile/picture/buy {pictureId}`** — unlocks a premium picture with chips: one
 `picture_purchase` ledger row (`action_id` `picture:<userId>:<pictureId>`, UNIQUE, so a double click
 cannot charge twice) plus a `user_profile_pictures` row, in one transaction under the wallet lock.
@@ -523,7 +529,8 @@ Answers `{user, picture, charged, spent}`; `charged:false` means it was already 
 debited in the same transaction under the same wallet lock, with **no ledger row** (`chip_ledger` backs
 the chips invariant and nothing else) — and a diamond shortage is the same 409 `picture_chips` code
 carrying a diamond message. **Buying does not wear it** — that is a separate
-avatar POST;
+avatar POST. **At a table** only a DIAMOND picture sells (`Pictures.BuyAtTable`); a COIN one → 409 `seated`
+"You can only buy a chip-priced picture in the lobby.";
 `POST /api/profile/name {name}` (409 `seated` while at a table; these live in
 `playerRoutes({isSeated})`, **not** `authRoutes`);
 `GET /api/rooms` (no client);
@@ -567,7 +574,7 @@ UNIQUE, `asset_format` IMAGE|SVG|LOTTIE|RIVE, `currency` COIN|DIAMOND, `type` FR
 `sort_order`) and **`user_profile_pictures`** (`user_id`, `profile_picture_id`, PK on the pair) —
 who has bought what. A FREE picture needs **no** ownership row: everyone may wear it, so the table
 holds only what somebody paid for. `V1.0.1__seed_profile_pictures.sql` seeds 15 hosted animals (2 free, 13 coin-priced rentals) and
-Orange Ballerina (a LOTTIE at 1 DIAMOND for 100 days); `V1.0.2__seed_animated_pictures.sql` adds four more LOTTIE rentals of 100 days — Butterfly Flapping (4 DIAMONDS, sort_order 170), Toucan Flying (a landscape 1920×1080 canvas, 3 DIAMONDS, 180), Live Chatbot (1 DIAMOND, 190) and Paper Plane (1 DIAMOND, 200) — each script inserts with `ON CONFLICT (asset_url) DO NOTHING`, so re-pricing or retiring one is an UPDATE
+Orange Ballerina (a LOTTIE at 1 DIAMOND for 100 days); `V1.0.2__seed_animated_pictures.sql` adds five more LOTTIE rentals of 100 days — Butterfly Flapping (4 DIAMONDS, sort_order 170; served by this server as `/profiles/butterfly-flapping.json`, a server-relative URL, because the Drive original beats its wings with 3D orientation the phone players ignore — §12.3), Toucan Flying (a landscape 1920×1080 canvas, 3 DIAMONDS, 180), Live Chatbot (1 DIAMOND, 190), Paper Plane (1 DIAMOND, 200) and Bouncing Dots (1 DIAMOND, 210) — each script inserts with `ON CONFLICT (asset_url) DO NOTHING`, so re-pricing or retiring one is an UPDATE
 the next boot will not undo. **`diamond_purchases`** (`V1.0.3__diamond_purchases.sql`: `purchase_token` PK, `user_id`, `product_id`, `diamonds`, `created_at`) is the replay guard and record for Play diamond packs — diamonds never enter `chip_ledger`. `users.avatar_choice` (the old free-text `/profiles/x.svg` path) is
 migrated into `active_picture_id` and dropped — **but only once every non-empty choice has found its
 catalogue row**, and any picture that was already being worn is granted an ownership row first so
@@ -820,7 +827,9 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   destroyed the open drawer) and sets **`resizeToAvoidBottomInset: false`** — the soft keyboard used
   to squeeze the rail and the chat panel until both painted overflow stripes; the chat drawer lifts
   its own composer over the keyboard and drops its title while typing.
-  `_LeftPanel {menu, chat}` shares one `drawer`.
+  `_LeftPanel {menu, chat}` shares one `drawer`. The menu (`_TableDrawer`) heads with `_ThemeFlip`, a one-tap
+  light/dark key, where the table code was (owner, 13 Sep 2026); only a **private** table still shows `Table <code>`
+  (`RoomState.isPrivate`, from the wire's `isPrivate`), since that code is how friends get in.
   **There is no `_ActionBar`.** The keys live in the corners they are pressed in: the lobby's `ShopButton`
   top-left (13 Sep 2026, replacing the gold `+` that headed the rail; it opens the store on Chips), `_SideRail`
   (menu, then chat — each key fills the rail so the target stays
@@ -904,13 +913,14 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   treatment (3 shadows + bevel + optional `Glint`).
 - **The picture picker** (`_openPicturePicker`; its shelf — `PictureFilter`, `PictureFilterMenu`, `pictureShelf`,
   `PictureChoice`, `unlockPicture`, `DiamondBalance` — lives in `widgets/picture_shelf.dart`, shared with the chip
-  store's **Pictures** tab (`chip_store.dart` `_StoreTabs`: Chips | Diamonds | Pictures in the header — the **Diamonds** tab (`diamondPacks`, `_DiamondPackCard`: 1/₹49, 5/₹199 ⭐, 20/₹699 🔥, 100/₹2,999) is offered at a table too, and a credited pack celebrates as `rewardWon.kind == 'diamonds'`; the Pictures key is not
-  offered at a table, where a seated player cannot buy or change a picture; the chip packs are drawn as lobby table cards —
+  store's **Pictures** tab (`chip_store.dart` `_StoreTabs`: Chips | Diamonds | Pictures in the header — the **Diamonds** tab (`diamondPacks`, `_DiamondPackCard`: 1/₹49, 5/₹199 ⭐, 20/₹699 🔥, 100/₹2,999) is offered at a table too, and a credited pack celebrates as `rewardWon.kind == 'diamonds'`; at a table the picture key
+  is **Animated** (`_StoreTabs.animatedOnly`, owner 13 Sep 2026): the animated shelf alone, no shelf menu, bought with diamonds and worn on the seat at once; the chip packs are drawn as lobby table cards —
   frosted glass over a baked orb, a still plate, count-up figure, one fact, a price capsule — coloured sapphire → purple → gold
   up the range; the Pictures tab heads its grid with the worn picture, large and centred, beside the shelf menu); requirement 21): a horizontal strip
   of the active catalogue, one **shelf** at a time: a menu pinned above the grid (`_PictureFilterMenu`, 13 Sep 2026)
   picks All (the default), Free, Premium (premium IMAGE/SVG) or Premium (Animated) (premium LOTTIE/RIVE,
-  `ProfilePicture.animated`), each with its count. A picture the player has not bought is drawn at 0.55
+  `ProfilePicture.animated`), each with its count; the premium animated pictures run cheapest first (`shelfOrder`,
+  owner 13 Sep 2026 — re-dealt into their own slots, so on All the group stays where the catalogue put it). A picture the player has not bought is drawn at 0.55
   opacity with a gold padlock-and-price pill (`_PriceTag`; a DIAMOND row shows a gem instead, its unlock dialog says
   diamonds, and the sheet's header carries the player's diamond balance, `_DiamondBalance`) — shown rather than hidden, because
   knowing what is behind the padlock is the whole reason anyone buys one. Tapping a locked one asks
@@ -928,6 +938,10 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   a seat pod or the top bar receives a worn picture as a bare URL, often with no extension. A RIVE row
   draws the default too: no Rive runtime ships yet. Never a
   broken box.
+- **A picture is downloaded once per URL and kept on the phone** (owner, 13 Sep 2026: opening the store must never
+  fetch pictures again). `PictureCache` answers from memory, then `<app support>/pictures/<sha1(url)>`, and only then
+  the network, writing through a `.part` rename; `GameState` warms it when the catalogue arrives. A URL's contents are
+  treated as immutable, so **a changed picture needs a new URL** — a file replaced in place is never re-fetched.
 - **i18n**: `AppLang` × 5; `Strings(lang)` with English → key fallback. **New keys go in all five
   maps + a getter.** Teen Patti vocabulary transliterated. Still-English strings: `'YOU'`, `'Table
   ${code}'`, `'hand N'`, private-card body, picture-picker labels, `'Switch theme'`, chat `'You'`,
@@ -973,8 +987,8 @@ idToken**; against production it is a guaranteed 401 `missing_token` — not a s
 9 +/− stepper · 10 auto-pack · **(no 11)** · 12 collapsible chat · 13 Blind/Seen × 200/5000 ·
 14 Show reveal · 15 pot to last leaver · 16 stats (played = made a chaal) · 17 25k/25 hands ·
 18 4h 10k bonus · 19 Seen: one double, forced showdown (brief 10 moves / code 7 rounds) ·
-20 provider avatar · 21 avatar picker, locked when seated (a DB catalogue since 12 Sep 2026: free
-pictures plus premium ones bought with chips) · 22 private table · 23 landscape/M3 ·
+20 provider avatar · 21 avatar picker (a DB catalogue since 12 Sep 2026: free
+pictures plus premium ones bought with chips or diamonds; not locked when seated since 13 Sep 2026 — worn at the table, and a diamond one bought there) · 22 private table · 23 landscape/M3 ·
 24 merge lone rooms · 25 leave confirm · 26 4h reward top-left · 27 milestone bottom-right ·
 28 square cards + sweep · 29 display name · 30 entry cap (not on switch; generalised 12 Sep 2026 to a per-table
 **stack band** — `config.LobbyTable.MinChips/MaxChips`, enforced by `assertWithinTableBand` on every route into a
@@ -1085,6 +1099,12 @@ final t = state.t;` at the top of `build`; M3 roles via `theme.colorScheme`; `.w
   *under* the picture sheet, and a refused unlock ("not enough diamonds") looked like a tap that did nothing.
   `NoticeToast.snackBar` sets its width through side margins so the bottom margin can clear the keyboard, which
   that Scaffold ignores. Never give it `resizeToAvoidBottomInset: true` — it would squeeze every screen, the table included.
+- **A Lottie that moves in 3D does not move on a phone.** Flutter's `lottie` (3.5.1) and lottie-android read only
+  `r`/`rz` rotation; a layer's `or` (orientation), `rx` and `ry` are ignored, where lottie-web (the LottieFiles preview,
+  any browser) plays them. Butterfly Flapping beat its wings that way, and on a phone both wings sat still on top of each
+  other. Before seeding a Lottie, look for `"or"`/`"rx"`/`"ry"` keyframes; `python3 tools/lottie/flatten_orientation.py
+  in.json out.json` bakes them into 2D rotation and scale on null parents, exact frame for frame, and the result is
+  served from `go-server/public/profiles/`.
 - `GameConfig.fromJson` ints fall to 0 → `config.maxPlayers == 0 ? 5 : …` guards.
 - `_PotChips` animates only on increase. `PlayingCard`
   flips only face-down↔up. Only 5 `_places`.
@@ -1201,7 +1221,7 @@ deploy runbook; `steps.txt` the six-line routine.
   `gomaxprocs`. Grafana's former "Node.js" row is now "Runtime"; alerts
   `GameServerSchedulerLatencyHigh` / `GameServerGoroutinesHigh` / `GameServerMemoryHigh` replaced
   the three `nodejs_*` ones (§7.5 bundle at `go-server/ops/monitoring/`, `MONITORING.md`).
-- Small honest deviations: JSON 404 for unknown `/api/*`, 400 `invalid_json` for bad bodies,
+- Small honest deviations: `room:state` carries `isPrivate` (13 Sep 2026, for the Flutter drawer), a seated player may wear a picture and buy a diamond one, JSON 404 for unknown `/api/*`, 400 `invalid_json` for bad bodies,
   HS256-only JWT verification (Node also took HS384/512), room codes regenerated until unique,
   `room:create {isPrivate:false}` validated like `quickJoin`, `already_in_room` checked before a
   table is created. Full list: PORT_PLAN §9 + DECISIONS.md. **Anything else that differs is a bug.**

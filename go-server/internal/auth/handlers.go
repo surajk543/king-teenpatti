@@ -428,18 +428,19 @@ func pictureIDFrom(text string) (int64, bool) {
 }
 
 // Avatar is POST /api/profile/avatar {avatar: <picture id> | null}
-// (requirement 21). Order: seated → 409; null/absent clears the picture; an id
-// that is not in the catalogue → 400 unknown_avatar; a retired one → 400
-// picture_retired; a premium one the player has not bought → 403
-// picture_locked; then SetActivePicture → 200 {user}.
+// (requirement 21). Order: null/absent clears the picture; an id that is not
+// in the catalogue → 400 unknown_avatar; a retired one → 400 picture_retired;
+// a premium one the player has not bought → 403 picture_locked; then
+// SetActivePicture → 200 {user}, and the new face goes onto the player's seat
+// if they are at a table (Deps.PictureWorn).
+//
+// A seated player may change their picture (owner, 13 Sep 2026; it was 409
+// seated — requirement 21's "locked when seated"). Wearing a picture moves no
+// wallet, and the seat is updated in place, so the table sees it at once.
 //
 // Ownership is checked here rather than in the store because the refusal has
 // to reach the player as a sentence. The foreign key stays the backstop.
 func (h *Handler) Avatar(w http.ResponseWriter, r *http.Request, user *db.User) {
-	if h.isSeated(user.ID) {
-		WriteJSON(w, http.StatusConflict, ErrorResponse{Error: CodeSeated, Message: MsgSeatedAvatar})
-		return
-	}
 	var req AvatarRequest
 	if err := ReadJSONBody(r, &req); err != nil {
 		h.writeError(w, r, err)
@@ -476,27 +477,28 @@ func (h *Handler) Avatar(w http.ResponseWriter, r *http.Request, user *db.User) 
 		h.writeError(w, r, err)
 		return
 	}
+	if h.deps.PictureWorn != nil {
+		h.deps.PictureWorn(user.ID, updated.AvatarURL)
+	}
 	WriteJSON(w, http.StatusOK, UserResponse{User: updated})
 }
 
 // BuyPicture is POST /api/profile/picture/buy {pictureId}: unlocks a premium
 // picture by spending chips on it.
 //
-// Refused while seated, and that is a money rule rather than a UI one. A
-// seated player's wallet may only move at the three hand checkpoints
-// (CLAUDE.md §5.1) — the live seat holds the authoritative stack mid-hand, and
-// a debit written to `users` behind its back is overwritten by the next
-// checkpoint's delta, handing the picture over for free. Buying belongs in the
-// lobby with the rewards, for exactly the same reason they do.
+// A seated player may buy a DIAMOND picture (owner, 13 Sep 2026) but not a COIN
+// one, and that is a money rule rather than a UI one. A seated player's chips
+// may only move at the three hand checkpoints (CLAUDE.md §5.1) — the live seat
+// holds the authoritative stack mid-hand, and a debit written to `users` behind
+// its back is overwritten by the next checkpoint's delta, handing the picture
+// over for free. Diamonds are no part of that: nothing at a table reads or
+// writes them. The rule is applied inside the purchase transaction
+// (db.Pictures.BuyAtTable) → 409 seated.
 //
 // Buying does NOT put the picture on. It is a separate POST to
 // /api/profile/avatar, so the two refusals stay separate and a player who buys
 // a picture to save for later is not forced to wear it.
 func (h *Handler) BuyPicture(w http.ResponseWriter, r *http.Request, user *db.User) {
-	if h.isSeated(user.ID) {
-		WriteJSON(w, http.StatusConflict, ErrorResponse{Error: CodeSeated, Message: MsgSeatedPicture})
-		return
-	}
 	var req BuyPictureRequest
 	if err := ReadJSONBody(r, &req); err != nil {
 		h.writeError(w, r, err)
@@ -512,8 +514,15 @@ func (h *Handler) BuyPicture(w http.ResponseWriter, r *http.Request, user *db.Us
 		return
 	}
 
-	bought, err := h.deps.Pictures.Buy(r.Context(), user.ID, id)
+	buy := h.deps.Pictures.Buy
+	if h.isSeated(user.ID) {
+		buy = h.deps.Pictures.BuyAtTable
+	}
+	bought, err := buy(r.Context(), user.ID, id)
 	switch {
+	case errors.Is(err, db.ErrPictureAtTable):
+		WriteJSON(w, http.StatusConflict, ErrorResponse{Error: CodeSeated, Message: MsgSeatedPicture})
+		return
 	case errors.Is(err, db.ErrPictureUnknown):
 		WriteJSON(w, http.StatusBadRequest, ErrorResponse{Error: CodeUnknownAvatar, Message: MsgUnknownAvatar})
 		return

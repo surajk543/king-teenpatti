@@ -307,7 +307,7 @@ test('the display name endpoint applies the lobby name rules with exact messages
   assert.equal(fresh.displayName, '123', 'the last successful rename stuck');
 });
 
-test('name and picture changes are refused while seated (409 seated)', async () => {
+test('at a table a rename and a chip-priced picture are refused (409 seated); a picture is worn, and bought with diamonds', async () => {
   const account = await guestLogin('device-profile-seated-01', 'Seated');
   const client = await openClient(account.token);
   const joined = await client.emit('room:quickJoin', { bootAmount: uniqueStake() });
@@ -317,15 +317,32 @@ test('name and picture changes are refused while seated (409 seated)', async () 
   assert.equal(name.status, 409);
   assert.deepEqual(name.body, { error: 'seated', message: 'You can only change your name in the lobby.' });
 
-  const avatar = await http('POST', '/api/profile/avatar', { token: account.token, body: { avatar: 1 } });
-  assert.equal(avatar.status, 409);
-  assert.deepEqual(avatar.body, { error: 'seated', message: 'You cannot change your picture while you are at a table.' });
+  const { profiles } = (await http('GET', '/api/profiles')).body;
+  const free = profiles.find((p) => p.type === 'FREE');
+  const coin = profiles.find((p) => p.type === 'PREMIUM' && p.currency === 'COIN');
+  const gem = profiles.filter((p) => p.type === 'PREMIUM' && p.currency === 'DIAMOND').sort((a, b) => a.cost - b.cost)[0];
+  assert.ok(free && coin && gem, 'the seeded catalogue has a free, a chip-priced and a diamond picture');
 
-  // A seated wallet may only move at the three hand checkpoints, so the
-  // picture shop is shut at the table too.
-  const buy = await http('POST', '/api/profile/picture/buy', { token: account.token, body: { pictureId: 1 } });
+  // Wearing a picture moves no wallet (owner, 13 Sep 2026): allowed, and the
+  // seat shows it without anyone rejoining.
+  const avatar = await http('POST', '/api/profile/avatar', { token: account.token, body: { avatar: free.id } });
+  assert.equal(avatar.status, 200);
+  assert.equal(avatar.body.user.avatarUrl, free.url);
+  const seatAvatar = () => client.state()?.seats?.find((s) => s.userId === account.user.id)?.avatarUrl;
+  for (let i = 0; i < 40 && seatAvatar() !== free.url; i++) await pause(50);
+  assert.equal(seatAvatar(), free.url, 'the seat carries the new picture');
+
+  // A seated wallet's chips may only move at the three hand checkpoints, so a
+  // chip-priced picture waits for the lobby ...
+  const buy = await http('POST', '/api/profile/picture/buy', { token: account.token, body: { pictureId: coin.id } });
   assert.equal(buy.status, 409);
-  assert.deepEqual(buy.body, { error: 'seated', message: 'You cannot buy a picture while you are at a table.' });
+  assert.deepEqual(buy.body, { error: 'seated', message: 'You can only buy a chip-priced picture in the lobby.' });
+
+  // ... while diamonds, which nothing at a table touches, still buy.
+  const bought = await http('POST', '/api/profile/picture/buy', { token: account.token, body: { pictureId: gem.id } });
+  assert.equal(bought.status, 200);
+  assert.equal(bought.body.charged, true);
+  assert.equal(bought.body.user.diamond, account.user.diamond - gem.cost);
 
   await client.close();
   await pause(50);
@@ -354,9 +371,10 @@ test('the picture catalogue is listed, worn and cleared', async () => {
     assert.equal(typeof entry.id, 'number');
     assert.ok(entry.name.length > 0);
     // image_url is whatever a client can load: a path into PUBLIC_DIR for the
-    // bundled art, or an absolute URL when a picture is hosted elsewhere (the
-    // animated ones are dotLottie on lottie.host).
-    assert.match(entry.url, /^(\/profiles\/.+\.(svg|png|jpg|jpeg|webp)|https?:\/\/.+)$/i);
+    // art this server serves (bundled SVGs, and a Lottie JSON reworked to play
+    // on a phone, such as Butterfly Flapping), or an absolute URL when a
+    // picture is hosted elsewhere.
+    assert.match(entry.url, /^(\/profiles\/.+\.(svg|png|jpg|jpeg|webp|json|lottie|riv)|https?:\/\/.+)$/i);
     assert.ok(['FREE', 'PREMIUM'].includes(entry.type));
     // The schema's own CHECK, seen from the outside.
     if (entry.type === 'FREE') assert.equal(entry.cost, 0);

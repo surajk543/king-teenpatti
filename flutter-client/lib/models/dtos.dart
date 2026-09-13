@@ -614,6 +614,7 @@ class RoomState {
   const RoomState({
     required this.roomId,
     required this.code,
+    this.isPrivate = false,
     required this.category,
     required this.chipsHidden,
     required this.state,
@@ -634,6 +635,10 @@ class RoomState {
 
   final String roomId;
   final String code;
+
+  /// A table reached by its code alone (requirement 22). Its code is worth
+  /// showing, since it is how friends are let in; a public table's is not.
+  final bool isPrivate;
   final String category;
   final bool chipsHidden;
   final String state;
@@ -658,6 +663,7 @@ class RoomState {
   factory RoomState.fromJson(Map<String, dynamic> j) => RoomState(
     roomId: _str(j['roomId']),
     code: _str(j['code']),
+    isPrivate: j['isPrivate'] == true,
     category: _str(j['category']),
     chipsHidden: j['chipsHidden'] == true,
     state: _str(j['state']),

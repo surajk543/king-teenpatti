@@ -31,6 +31,8 @@ type PictureStore interface {
 	List(ctx context.Context, userID string) ([]db.Picture, error)
 	Find(ctx context.Context, userID string, id int64) (db.Picture, bool, error)
 	Buy(ctx context.Context, userID string, id int64) (*db.PicturePurchase, error)
+	// BuyAtTable is Buy for a seated player: diamonds only (db.ErrPictureAtTable).
+	BuyAtTable(ctx context.Context, userID string, id int64) (*db.PicturePurchase, error)
 	// ExpireLapsed takes off a picture whose rental has run out, at login.
 	ExpireLapsed(ctx context.Context, userID string) (bool, error)
 }
@@ -42,9 +44,13 @@ type Deps struct {
 	Tokens   *Tokens
 	Verifier *Verifier
 	// IsSeated is injected by the app (rooms.GetTableForPlayer(id) != nil) so
-	// the avatar and name endpoints can refuse a change mid-table (routes.js
-	// playerRoutes({isSeated})).
+	// the name endpoint, the rewards and a chip-priced picture can refuse a
+	// change mid-table (routes.js playerRoutes({isSeated})).
 	IsSeated func(userID string) bool
+	// PictureWorn puts a newly worn picture on the player's seat when they are
+	// at a table (app: rooms.SetPlayerAvatar, a no-op for a player in the
+	// lobby). Nil = nobody to tell.
+	PictureWorn func(userID string, avatarURL *string)
 	// Pictures is the profile-picture catalogue. It replaced a live listing
 	// of <PublicDir>/profiles: the files are still served from there, but
 	// what is on offer, what it is called and what it costs are rows now.
@@ -269,7 +275,7 @@ type ProfilesResponse struct {
 // AvatarRequest ← POST /api/profile/avatar {avatar: <picture id> | null}.
 // nil clears the choice (falls back to the provider picture); an id that is
 // not in the catalogue → 400 unknown_avatar; a premium picture the player has
-// not bought → 403 picture_locked; while seated → 409 seated.
+// not bought → 403 picture_locked. Allowed while seated (owner, 13 Sep 2026).
 //
 // The id was a bundled file name ("bear.svg") before the catalogue existed and
 // is a profile_pictures id now. Decoding is unchanged — absent or null → nil,
@@ -368,7 +374,6 @@ func (n *NameRequest) UnmarshalJSON(data []byte) error {
 const (
 	MsgRewardNotAvailable = "No milestone reward is waiting yet."
 	MsgRewardNotReady     = "The bonus is still recharging."
-	MsgSeatedAvatar       = "You cannot change your picture while you are at a table."
 	MsgSeatedName         = "You can only change your name in the lobby."
 	MsgSeatedMilestone    = "Collect your milestone reward from the lobby, not while you are at a table."
 	MsgSeatedBonus        = "Collect your reward from the lobby, not while you are at a table."
@@ -382,7 +387,7 @@ const (
 	MsgPictureFree        = "That picture is free — just choose it."
 	MsgPictureChips       = "You do not have enough chips for that picture."
 	MsgPictureDiamonds    = "You do not have enough diamonds for that picture."
-	MsgSeatedPicture      = "You cannot buy a picture while you are at a table."
+	MsgSeatedPicture      = "You can only buy a chip-priced picture in the lobby."
 	MsgEmptyName          = "Your name cannot be empty."
 	MsgNameTooLongFormat  = "Keep it to %d characters or fewer."
 	MsgInvalidName        = "Letters, numbers and spaces only."
