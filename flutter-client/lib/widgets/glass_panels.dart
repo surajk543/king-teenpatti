@@ -287,13 +287,14 @@ class NoticeToast extends StatelessWidget {
   /// 420dp that does not fit a 640dp phone.
   ///
   /// It is placed through its margins rather than `width`, which leaves the
-  /// bottom margin free to say how high it stands. With no [area] it stands at
-  /// the foot of the screen, which is empty in the lobby. At a table the foot
-  /// is the viewer's own pod, hand and keys, so the table names the one patch
-  /// of felt nobody reads anything from ([area], in screen coordinates): the
-  /// toast takes its width, stands on its floor, and sets its type smaller
-  /// rather than growing past its top, so even a long refusal on a 640dp
-  /// phone covers no seat.
+  /// bottom margin free to say how high it stands. With no [area] it stands
+  /// centred at the foot of the screen. A screen with something at its foot
+  /// names where the toast may stand instead ([area], in screen coordinates):
+  /// the toast takes its width, stands on its floor, and sets its type smaller
+  /// rather than growing past its top. At a table the foot is the viewer's own
+  /// pod, hand and keys, so the area is the one patch of felt nobody reads
+  /// anything from, and even a long refusal on a 640dp phone covers no seat.
+  /// In the lobby it is the foot beside the milestone chip.
   ///
   /// Every toast is painted on the Scaffold main.dart puts round the
   /// Navigator, which is never resized for the keyboard, so a toast lifts

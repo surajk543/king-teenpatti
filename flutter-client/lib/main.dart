@@ -635,10 +635,14 @@ class _NoticeHostState extends State<_NoticeHost> {
               context,
               message: _readable(context, notice),
               // Read as it is shown, not when it was raised: a kick moves the
-              // player to the lobby in the same breath as its notice.
-              area: context.read<GameState>().screen == Screen.table
-                  ? tableNoticeArea(context)
-                  : null,
+              // player to the lobby in the same breath as its notice. A screen
+              // with something standing at its foot names where a toast may
+              // stand instead; the others give it the foot as it is.
+              area: switch (context.read<GameState>().screen) {
+                Screen.table => tableNoticeArea(context),
+                Screen.lobby => lobbyNoticeArea(context),
+                _ => null,
+              },
             ),
           );
         context.read<GameState>().clearNotice();

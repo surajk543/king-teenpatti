@@ -460,6 +460,80 @@ class GlassTextField extends StatelessWidget {
   }
 }
 
+/// Keeps a text field's soft keyboard to the times the player is typing in it.
+///
+/// Left to itself Flutter brought the keyboard back uninvited, two ways. Back
+/// puts the keyboard away but leaves its field focused, cursor and all. And a
+/// focused field is remembered by the screen it is on, so when anything opened
+/// over that screen closes — a drawer, the store, a dialog — focus is handed
+/// back to the field and the keyboard comes up with it. In the lobby that
+/// raised the keyboard and lifted the rail over the top bar every time Settings
+/// or the Shop closed, and a swipe meant for the rail landed on the keyboard
+/// and glide-typed into the table code.
+///
+/// So the field is let go when its keyboard is put away. And once focus has
+/// gone elsewhere, the scope the field sits in is built afresh: a scope taken
+/// out of the tree is taken out of every focus history with it, so whatever
+/// closes next has nothing here to hand focus back to, and the field answers
+/// its next tap as it always did. Marking the scope unable to take focus does
+/// not do instead — that takes its descendants down with it, and a field that
+/// cannot take focus stops answering taps altogether.
+class KeyboardFocusGuard extends StatefulWidget {
+  const KeyboardFocusGuard({super.key, required this.child});
+
+  /// The field, or anything holding it.
+  final Widget child;
+
+  @override
+  State<KeyboardFocusGuard> createState() => _KeyboardFocusGuardState();
+}
+
+class _KeyboardFocusGuardState extends State<KeyboardFocusGuard> {
+  /// Below this, a bottom inset is not taken for a keyboard. Even a landscape
+  /// phone's keyboard is several times as tall.
+  static const double _keyboardHeight = 64;
+
+  /// Which scope this is; moved on to replace the scope once focus leaves it.
+  int _generation = 0;
+
+  /// Whether focus is anywhere inside the scope: on the field, or on the scope
+  /// itself once the field has been let go.
+  bool _hasFocus = false;
+
+  /// Set once the keyboard has been seen up, and cleared once it is fully down,
+  /// so the field is let go at the end of the keyboard's way down rather than
+  /// at some point on its way up.
+  bool _keyboardUp = false;
+
+  void _focusChanged(bool has) {
+    if (_hasFocus && !has && mounted) setState(() => _generation++);
+    _hasFocus = has;
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final inset = MediaQuery.viewInsetsOf(context).bottom;
+    if (inset >= _keyboardHeight) {
+      _keyboardUp = true;
+    } else if (inset == 0 && _keyboardUp) {
+      _keyboardUp = false;
+      // Only when it was this field's keyboard: another field closing its own
+      // is none of this one's business. Once let go, focus rests on the scope
+      // itself, and a scope has nothing further to let go of.
+      final primary = FocusManager.instance.primaryFocus;
+      if (_hasFocus && primary is! FocusScopeNode) primary?.unfocus();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => FocusScope(
+    key: ValueKey(_generation),
+    onFocusChange: _focusChanged,
+    child: widget.child,
+  );
+}
+
 // ---------------------------------------------------------------- switcher
 
 /// System · Dark · Light, as one segmented glass control.

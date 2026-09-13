@@ -308,13 +308,15 @@ class _LobbyScreenState extends State<LobbyScreen> {
               // the bottom-right corner, stacked rather than in a row: side by
               // side they would run off a narrow screen, and the rail of tables
               // stops short of them (`band`), so no card's keys run under them.
-              const Positioned(
+              Positioned(
                 bottom: Space.md,
                 right: Space.md,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   mainAxisSize: MainAxisSize.min,
-                  children: [_MilestoneChip()],
+                  // Keyed so a lobby toast can stand clear of it
+                  // (lobbyNoticeArea).
+                  children: [_MilestoneChip(key: _milestoneChip)],
                 ),
               ),
               // Sits last so it covers the chips and the rail. Collecting a
@@ -1935,44 +1937,57 @@ class _PrivateCardState extends State<_PrivateCard> {
                         SizedBox(
                           key: widget.codeFieldKey,
                           height: Dim.minTouch,
-                          child: GlassTextField(
-                            controller: _code,
-                            focusNode: widget.codeFocus,
-                            // Exactly the server's code: 8 letters or digits,
-                            // upper-cased as they are typed and nothing else
-                            // let in, so a space or a dash never reaches a join.
-                            maxLength: tableCodeLength,
-                            inputFormatters: [
-                              FilteringTextInputFormatter.allow(
-                                RegExp('[A-Za-z0-9]'),
-                              ),
-                              TextInputFormatter.withFunction(
-                                (_, value) => value.copyWith(
-                                  text: value.text.toUpperCase(),
+                          // Back, or Settings or the Shop closing over the
+                          // lobby, must not raise the keyboard again: that
+                          // lifted the rail over the top bar, and a swipe at
+                          // the rail typed into the code.
+                          child: KeyboardFocusGuard(
+                            child: GlassTextField(
+                              controller: _code,
+                              focusNode: widget.codeFocus,
+                              // Exactly the server's code: 8 letters or digits,
+                              // upper-cased as they are typed and nothing else
+                              // let in, so a space or a dash never reaches a join.
+                              maxLength: tableCodeLength,
+                              inputFormatters: [
+                                FilteringTextInputFormatter.allow(
+                                  RegExp('[A-Za-z0-9]'),
                                 ),
-                              ),
-                            ],
-                            // Rebuilds the card, so Join lights up at 8.
-                            onChanged: (_) => setState(() {}),
-                            onSubmitted: (value) {
-                              if (isValidTableCode(value)) {
-                                state.joinByCode(value);
-                              }
-                            },
-                            textAlign: TextAlign.center,
-                            textCapitalization: TextCapitalization.characters,
-                            // Tabular, tracked and centred: a room code is read
-                            // out loud and typed in, never scanned as a word.
-                            style: AppTheme.money(
-                              text.titleMedium!,
-                              colour: _goldInk(brightness),
-                            ).copyWith(letterSpacing: 6),
-                            hintText: state.t.tableCode,
-                            counterText: '',
-                            decoration: const InputDecoration(
-                              isDense: true,
-                              contentPadding: EdgeInsets.symmetric(
-                                horizontal: Space.md,
+                                TextInputFormatter.withFunction(
+                                  (_, value) => value.copyWith(
+                                    text: value.text.toUpperCase(),
+                                  ),
+                                ),
+                              ],
+                              // Rebuilds the card, so Join lights up at 8.
+                              onChanged: (_) => setState(() {}),
+                              onSubmitted: (value) {
+                                if (isValidTableCode(value)) {
+                                  state.joinByCode(value);
+                                }
+                              },
+                              textAlign: TextAlign.center,
+                              textCapitalization: TextCapitalization.characters,
+                              // Tabular, tracked and centred: a room code is read
+                              // out loud and typed in, never scanned as a word.
+                              style: AppTheme.money(
+                                text.titleMedium!,
+                                colour: _goldInk(brightness),
+                              ).copyWith(letterSpacing: 6),
+                              hintText: state.t.tableCode,
+                              counterText: '',
+                              decoration: InputDecoration(
+                                isDense: true,
+                                contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: Space.md,
+                                ),
+                                // The tracking is for the code's own letters and
+                                // digits. Spread over Devanagari or Gurmukhi it
+                                // pulls the vowel signs off their letters, and
+                                // the hint read "ट ब ल क ो ड".
+                                hintStyle: state.lang == AppLang.english
+                                    ? null
+                                    : const TextStyle(letterSpacing: 0),
                               ),
                             ),
                           ),
@@ -2935,35 +2950,39 @@ class _SettingsDrawerState extends State<_SettingsDrawer> {
         const SizedBox(height: Space.xs),
         Padding(
           padding: const EdgeInsets.fromLTRB(Space.lg, 0, Space.lg, Space.xs),
-          child: GlassTextField(
-            controller: _name,
-            maxLength: 24,
-            textInputAction: TextInputAction.done,
-            labelText: t.displayName,
-            prefixIcon: const Icon(Icons.badge_outlined, size: 18),
-            counterText: '',
-            suffixIcon: _saving
-                ? const Padding(
-                    padding: EdgeInsets.all(Space.md),
-                    child: SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
+          // Let go when Back puts the keyboard away, so the selection handle
+          // does not stay standing under a field nobody is typing in.
+          child: KeyboardFocusGuard(
+            child: GlassTextField(
+              controller: _name,
+              maxLength: 24,
+              textInputAction: TextInputAction.done,
+              labelText: t.displayName,
+              prefixIcon: const Icon(Icons.badge_outlined, size: 18),
+              counterText: '',
+              suffixIcon: _saving
+                  ? const Padding(
+                      padding: EdgeInsets.all(Space.md),
+                      child: SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    )
+                  : IconButton(
+                      tooltip: t.save,
+                      icon: const Icon(Icons.check_rounded, size: 18),
+                      // A suffix icon cannot take a PressScale — scaling inside
+                      // the field's box clips — so the key gets the light
+                      // haptic on its callback instead.
+                      onPressed: () {
+                        tapHaptic(context);
+                        _save(state);
+                      },
                     ),
-                  )
-                : IconButton(
-                    tooltip: t.save,
-                    icon: const Icon(Icons.check_rounded, size: 18),
-                    // A suffix icon cannot take a PressScale — scaling inside
-                    // the field's box clips — so the key gets the light
-                    // haptic on its callback instead.
-                    onPressed: () {
-                      tapHaptic(context);
-                      _save(state);
-                    },
-                  ),
-            decoration: InputDecoration(isDense: true, errorText: _nameError),
-            onSubmitted: (_) => _save(state),
+              decoration: InputDecoration(isDense: true, errorText: _nameError),
+              onSubmitted: (_) => _save(state),
+            ),
           ),
         ),
         Padding(
@@ -3428,8 +3447,53 @@ class _HourglassPainter extends CustomPainter {
       old.colour != colour || old.drained != drained;
 }
 
+/// On the milestone chip, so [lobbyNoticeArea] can keep a toast off it.
+///
+/// Measured rather than worked out: the chip is as wide as its two lines of
+/// text in the player's language, which nothing outside it knows.
+final _milestoneChip = GlobalKey(debugLabel: 'milestone chip');
+
+/// Where a notice may stand in the lobby, in screen coordinates, or null for
+/// the plain foot of the screen.
+///
+/// The lobby's foot is empty but for the milestone chip in its right-hand
+/// corner, and a toast centred on a 640dp phone ran 5dp over the chip's rim.
+/// The toast keeps its width and its place at the foot and moves left only as
+/// far as the chip needs, narrowing only if the whole space beside the chip is
+/// smaller than it. With no chip laid out (no account yet) it is centred.
+///
+/// Read through the screen's fade-in, the chip measures a little nearer the
+/// middle than it comes to rest, which can only move the toast further off it.
+Rect? lobbyNoticeArea(BuildContext context) {
+  final chip = _milestoneChip.currentContext?.findRenderObject();
+  if (chip is! RenderBox ||
+      !chip.attached ||
+      !chip.hasSize ||
+      chip.size.isEmpty) {
+    return null;
+  }
+  final chipLeft = chip.localToGlobal(Offset.zero).dx;
+  if (!chipLeft.isFinite) return null;
+
+  final size = MediaQuery.sizeOf(context);
+  final safe = MediaQuery.paddingOf(context);
+  final width = Dim.toastW(size.width);
+  final start = safe.left + Space.md;
+  final end = chipLeft - Space.sm;
+  var left = (size.width - width) / 2;
+  var right = left + width;
+  if (right > end) {
+    right = end;
+    left = math.max(start, end - width);
+  }
+  if (right <= left) return null;
+  // Topped at the top of the screen, so the toast is never scaled down to fit:
+  // unlike the table's, this one has room to grow upward.
+  return Rect.fromLTRB(left, safe.top, right, size.height - Space.md);
+}
+
 class _MilestoneChip extends StatelessWidget {
-  const _MilestoneChip();
+  const _MilestoneChip({super.key});
 
   @override
   Widget build(BuildContext context) {
