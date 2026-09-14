@@ -871,7 +871,7 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   top-left (13 Sep 2026, replacing the gold `+` that headed the rail; it opens the store on Chips), `_SideRail`
   (menu, chat — each key fills the rail so the target stays
   ≥44dp, which is why they sit flush to the screen edge on a 360dp phone), `_PackKey` bottom-left with the Missile key directly above it, and `_ActionCluster` bottom-right (`Force Sideshow` and
-  `Sideshow` over `− Chaal +`). **The quick messages are a tab of the chat drawer** (owner, 14 Sep 2026; they had a third rail
+  `Sideshow` over `− Chaal +`; Chaal is dark on the player's own turn when they cannot pay the chaal — `GameState.canChaal`, an empty server ladder — and keeps showing the price, owner 14 Sep 2026). **The quick messages are a tab of the chat drawer** (owner, 14 Sep 2026; they had a third rail
   key and a `_QuickDrawer` of their own): `_ChatDrawer` heads with two `_ChatTab`s, Table chat and Quick messages,
   opens on the chat every time, and sends a quick line through `sendChat` and closes, as a typed one does.
   **The chat key and both tabs play Lotties** (`_RailLottie`, `animate` only on the selected tab):
@@ -884,7 +884,7 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   `tools/lottie/flatten_orientation.py` (its flap opened with `rx`). **The Force key** reads "Force Sideshow" on two
   lines (`_MachinedKey.stackLabel`) beside `assets/animations/Hammer.json` (`_MachinedKey.glyph`), which swings only
   while the key can be used; no cost line — the confirmation states the hammer.
-  **Missiles** (owner, 14 Sep 2026; rules in §6.1): the Missile key over Pack plays `assets/animations/Missile.json` (a copy
+  **Missiles** (owner, 14 Sep 2026; rules in §6.1): the Missile key over Pack carries its cost as its second line, as Chaal carries its bet — the rocket mark and 1 (the missile a shot spends), then a chip and the chips a show would cost the player (`_MissileCost`, drawn through `_MachinedKey.detail`) (`GameState.missileChips`: the server's first rung on turn, else the stake's chaal; owner, 14 Sep 2026 — §6.1's server refuses a missile to a player short of it), plays `assets/animations/Missile.json` (a copy
   with its one `loopOut()` baked; the nose points up-right, frames 30–60 loop) while `canMissile`, is greyed with no
   missiles and then offers the store's **Missiles** tab (between Hammers and Pictures, diamonds for missiles: 1 for 10, 5 for 48, 10 for 90, 20 for 170), and asks
   first (`_fireMissile`). Every viewer sees the volley (`state/missile_strike.dart`, `widgets/missile_flight.dart`): one

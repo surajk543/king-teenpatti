@@ -3774,6 +3774,7 @@ class _MachinedKey extends StatelessWidget {
     this.icon,
     this.glyph,
     this.amount,
+    this.detail,
     this.primary = false,
     this.edge,
     this.alive = false,
@@ -3796,6 +3797,11 @@ class _MachinedKey extends StatelessWidget {
   /// The second line: what the move costs, or who it is aimed at. Omitted
   /// leaves the label on its own.
   final String? amount;
+
+  /// A second line drawn rather than written, in [amount]'s type: a cost that
+  /// is more than one figure (the Missile key's missile and chips). Takes the
+  /// place of [amount].
+  final Widget Function(TextStyle style)? detail;
   final VoidCallback? onPressed;
 
   /// The one gold-filled key on the screen. There is never a second.
@@ -3824,6 +3830,10 @@ class _MachinedKey extends StatelessWidget {
     final ink = primary ? AppTheme.ink900 : scheme.onSurface;
     final live = edge ?? AppTheme.hairlineColour(brightness, live: true);
     final halo = edge ?? (primary ? AppTheme.gold : AppTheme.goldBright);
+    final amountStyle = AppTheme.money(
+      theme.textTheme.bodySmall ?? const TextStyle(),
+      weight: FontWeight.w600,
+    );
 
     final style =
         FilledButton.styleFrom(
@@ -3918,21 +3928,19 @@ class _MachinedKey extends StatelessWidget {
                                 ),
                               ),
                             ),
-                            if (amount != null)
+                            if (detail != null || amount != null)
                               // A crore-sized bet is a long word; it shrinks to
                               // fit rather than losing its tail to an ellipsis.
                               FittedBox(
                                 fit: BoxFit.scaleDown,
                                 alignment: Alignment.centerLeft,
-                                child: Text(
-                                  amount!,
-                                  maxLines: 1,
-                                  style: AppTheme.money(
-                                    theme.textTheme.bodySmall ??
-                                        const TextStyle(),
-                                    weight: FontWeight.w600,
-                                  ),
-                                ),
+                                child:
+                                    detail?.call(amountStyle) ??
+                                    Text(
+                                      amount!,
+                                      maxLines: 1,
+                                      style: amountStyle,
+                                    ),
                               ),
                           ],
                         ),
@@ -5211,9 +5219,12 @@ class _ActionCluster extends StatelessWidget {
                 height: keyH,
                 icon: Icons.arrow_forward_rounded,
                 label: t.chaal,
-                alive: live,
+                // Dark when the player cannot pay the chaal, even on their own
+                // turn (owner, 14 Sep 2026); the figure stays, so they can see
+                // what it would take.
+                alive: state.canChaal,
                 amount: formatChips(state.betAmount),
-                onPressed: live ? state.bet : null,
+                onPressed: state.canChaal ? state.bet : null,
                 primary: true,
               ),
               SizedBox(width: gap),
@@ -5292,12 +5303,58 @@ class _MissileKey extends StatelessWidget {
           height: Dim.keyH(size.height),
           glyph: _MissileGlyph(animate: canFire),
           label: t.missile,
+          // What firing takes, under its name as Chaal's bet is (owner,
+          // 14 Sep 2026): one missile, and the chips a show would cost — held
+          // by the server's rule, not paid.
+          detail: (style) => _MissileCost(
+            missiles: missileCost,
+            chips: state.missileChips,
+            style: style,
+          ),
           edge: missileInkOn(theme.brightness).withValues(alpha: 0.5),
           alive: canFire && hasMissile,
           muted: canFire && !hasMissile,
           onPressed: canFire ? () => _fireMissile(context, state) : null,
         ),
       ),
+    );
+  }
+}
+
+/// The Missile key's second line: the missile a shot spends and the chips it
+/// needs the player to hold, each beside its mark — the rocket the wallets
+/// count missiles with, and a chip (owner, 14 Sep 2026).
+class _MissileCost extends StatelessWidget {
+  const _MissileCost({
+    required this.missiles,
+    required this.chips,
+    required this.style,
+  });
+
+  final int missiles;
+  final int chips;
+  final TextStyle style;
+
+  @override
+  Widget build(BuildContext context) {
+    final mark = (style.fontSize ?? 12) * 1.05;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(
+          missileIcon,
+          size: mark,
+          color: missileInkOn(Theme.of(context).brightness),
+        ),
+        const SizedBox(width: 2),
+        Text('$missiles', maxLines: 1, style: style),
+        if (chips > 0) ...[
+          const SizedBox(width: Space.sm),
+          PokerChip(colour: AppTheme.gold, size: mark),
+          const SizedBox(width: 3),
+          Text(formatChips(chips), maxLines: 1, style: style),
+        ],
+      ],
     );
   }
 }

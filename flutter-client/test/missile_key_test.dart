@@ -12,68 +12,74 @@ import 'package:teenpatti/screens/table_screen.dart';
 import 'package:teenpatti/settings/feedback_settings.dart';
 import 'package:teenpatti/state/game_state.dart';
 import 'package:teenpatti/theme/app_theme.dart';
+import 'package:teenpatti/widgets/picture_shelf.dart';
+import 'package:teenpatti/widgets/poker_chip.dart';
 import 'package:teenpatti/widgets/premium_surface.dart';
 
 /// A table of three, the viewer (u0) in seat 0.
-RoomState _room({required bool onTurn, bool canMissile = true}) =>
-    RoomState.fromJson({
-      'roomId': 'r1',
-      'code': 'ABCD2345',
-      'category': 'blind',
-      'chipsHidden': true,
-      'state': 'betting',
-      'handNo': 2,
-      'dealerSeat': 1,
-      'minPlayers': 2,
-      'bootAmount': 200,
-      'turnTimeoutMs': 25000,
-      'startsAt': 0,
-      'pot': 600,
-      'maxPot': 0,
-      'stake': 200,
-      'turn': {
-        'seatIndex': onTurn ? 0 : 1,
-        'userId': onTurn ? 'u0' : 'u1',
-        'deadline': 0,
-      },
-      'you': {
-        'seatIndex': 0,
+RoomState _room({
+  required bool onTurn,
+  bool canMissile = true,
+  bool seen = false,
+  bool broke = false,
+}) => RoomState.fromJson({
+  'roomId': 'r1',
+  'code': 'ABCD2345',
+  'category': 'blind',
+  'chipsHidden': true,
+  'state': 'betting',
+  'handNo': 2,
+  'dealerSeat': 1,
+  'minPlayers': 2,
+  'bootAmount': 200,
+  'turnTimeoutMs': 25000,
+  'startsAt': 0,
+  'pot': 600,
+  'maxPot': 0,
+  'stake': 200,
+  'turn': {
+    'seatIndex': onTurn ? 0 : 1,
+    'userId': onTurn ? 'u0' : 'u1',
+    'deadline': 0,
+  },
+  'you': {
+    'seatIndex': 0,
+    'chips': 200000,
+    'status': 'active',
+    'isBlind': !seen,
+    'blindMovesLeft': 4,
+    'contributed': 200,
+    'missedTurns': 0,
+    'maxMissedTurns': 3,
+    'cards': const [],
+    'canMissile': onTurn && canMissile,
+    if (onTurn)
+      'options': {
+        'canSee': true,
+        'canPack': true,
+        'canSideshow': false,
+        'raiseSteps': broke ? <int>[] : (seen ? [400, 800] : [200, 400]),
         'chips': 200000,
+        'currentStake': 200,
+      },
+  },
+  'seats': [
+    for (var i = 0; i < 3; i++)
+      {
+        'seatIndex': i,
+        'userId': 'u$i',
+        'displayName': 'Player $i',
+        'chips': i == 0 ? 200000 : null,
         'status': 'active',
         'isBlind': true,
-        'blindMovesLeft': 4,
+        'lastBet': 200,
+        'lastAction': 'chaal',
         'contributed': 200,
-        'missedTurns': 0,
-        'maxMissedTurns': 3,
-        'cards': const [],
-        'canMissile': onTurn && canMissile,
-        if (onTurn)
-          'options': {
-            'canSee': true,
-            'canPack': true,
-            'canSideshow': false,
-            'raiseSteps': [200, 400],
-            'chips': 200000,
-            'currentStake': 200,
-          },
+        'connected': true,
+        'cardCount': 3,
       },
-      'seats': [
-        for (var i = 0; i < 3; i++)
-          {
-            'seatIndex': i,
-            'userId': 'u$i',
-            'displayName': 'Player $i',
-            'chips': i == 0 ? 200000 : null,
-            'status': 'active',
-            'isBlind': true,
-            'lastBet': 200,
-            'lastAction': 'chaal',
-            'contributed': 200,
-            'connected': true,
-            'cardCount': 3,
-          },
-      ],
-    });
+  ],
+});
 
 GameState _newState({required int missiles, required RoomState room}) {
   // Play is never started here; the override only keeps the purchase plugin
@@ -162,6 +168,87 @@ void main() {
     expect(missile.bottom, lessThan(pack.top));
     expect(pack.top - missile.bottom, lessThanOrEqualTo(12));
     expect(find.text('Missile'), findsOneWidget);
+
+    await _teardown(tester, state);
+  });
+
+  // A missile needs the chips a show would cost (owner, 14 Sep 2026), and the
+  // key says how many under its name, on turn and off, as Chaal shows its bet.
+  // A player without the chips for the chaal gets a dark Chaal key on their own
+  // turn (owner, 14 Sep 2026); the server's ladder is empty for them, and the
+  // key still shows what the chaal would take.
+  testWidgets('Chaal is disabled when the player cannot afford the chaal', (
+    tester,
+  ) async {
+    FilledButton chaal() => tester.widget<FilledButton>(
+      find.ancestor(
+        of: find.text('Chaal'),
+        matching: find.byType(FilledButton),
+      ),
+    );
+
+    final state = _newState(
+      missiles: 1,
+      room: _room(onTurn: true, broke: true),
+    );
+    await _pumpTable(tester, state);
+    expect(state.canChaal, isFalse);
+    expect(chaal().onPressed, isNull, reason: 'short of the chaal');
+    expect(
+      find.descendant(
+        of: find.ancestor(
+          of: find.text('Chaal'),
+          matching: find.byType(FilledButton),
+        ),
+        matching: find.text('200'),
+      ),
+      findsOneWidget,
+      reason: 'the price still shows',
+    );
+
+    state.handleState(_room(onTurn: true));
+    await tester.pump();
+    expect(state.canChaal, isTrue);
+    expect(chaal().onPressed, isNotNull, reason: 'able to pay');
+
+    state.handleState(_room(onTurn: false));
+    await tester.pump();
+    expect(chaal().onPressed, isNull, reason: 'off turn');
+
+    await _teardown(tester, state);
+  });
+
+  testWidgets('carries the chips a show would cost', (tester) async {
+    Finder figure(String text) =>
+        find.descendant(of: _key, matching: find.text(text));
+
+    final state = _newState(missiles: 1, room: _room(onTurn: true));
+    await _pumpTable(tester, state);
+    expect(figure('200'), findsOneWidget, reason: 'blind, on turn');
+    // One missile a shot, by the rocket the wallets use, and the chips by a
+    // chip (owner, 14 Sep 2026).
+    expect(figure('1'), findsOneWidget, reason: 'one missile a shot');
+    expect(
+      find.descendant(of: _key, matching: find.byIcon(missileIcon)),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: _key, matching: find.byType(PokerChip)),
+      findsOneWidget,
+    );
+
+    state.handleState(_room(onTurn: false));
+    await tester.pump();
+    expect(figure('200'), findsOneWidget, reason: 'blind, off turn');
+
+    state.handleState(_room(onTurn: true, seen: true));
+    await tester.pump();
+    expect(figure('400'), findsOneWidget, reason: 'seen, on turn');
+    expect(figure('200'), findsNothing);
+
+    state.handleState(_room(onTurn: false, seen: true));
+    await tester.pump();
+    expect(figure('400'), findsOneWidget, reason: 'seen, off turn');
 
     await _teardown(tester, state);
   });
