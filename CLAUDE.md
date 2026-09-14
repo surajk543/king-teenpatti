@@ -898,7 +898,7 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   `_Felt`: seats at fractional `_places` (5 only), viewer at view seat 0, `Dim.podW(feltW, feltH) =
   min(feltH*0.270, feltW*0.150).clamp(60,140)`, pods clamped inside. Overlays: `_CategoryTag`,
   `_Pot`/`_PotPulse` at `_potDy` 0.46, `_Status` at 0.28, `_SideshowLink/Prompt`, `_Showdown`.
-  **`_Showdown` is now only `_WinnerBurst(focus: winner)` + `_PotToWinner`** — since 12 Sep 2026 the
+  **`_Showdown` is now only `_WinnerBurst(focus: winner)` + `PotFlight`** (`widgets/pot_flight.dart`, rebuilt 14 Sep 2026 when the owner found the winner's coins not smooth: each of the 9 chips makes the same 0.9 s trip 60 ms behind the one before, so none overtakes — the old `_PotToWinner` gave each what was left of one 1.7 s clock — fades and grows in at the pot and out on the seat, drags no ghost copy, and the run is ONE `CustomPainter` repainting off its controller through `PokerChipBrush` instead of 18 widgets with an Opacity and a rotated raster each; `test/pot_flight_test.dart`) — since 12 Sep 2026 the
   burst is **`assets/animations/Fireworks.json` through `Lottie.asset`**, played ONCE per win (keyed
   on `handNo`, so the one-second reward tick cannot restart it) and centred on the winner's seat;
   the hand-painted `Fireworks` widget stays in `widgets/fireworks.dart` for the lobby's win banner.
@@ -1205,7 +1205,7 @@ final t = state.t;` at the top of `build`; M3 roles via `theme.colorScheme`; `.w
   runs there, `vsync: this` looks up `TickerMode` on a deactivated element, the throw lands inside
   `_InactiveElements._unmount` and leaves the tree half unmounted — and the *next* screen dies on an
   `_ElementLifecycle.inactive` assertion when it reuses `tableScaffold` (the red screen after sit alone →
-  Leave → join a hand, 11 Sep 2026). `_DealFlights` touches its controller only when a deal arrives, so
+  Leave → join a hand, 11 Sep 2026). `DealFlights` (`widgets/deal_flight.dart` since 14 Sep 2026, rebuilt when the owner found the deal not smooth: each card the same 0.8 s trip 115 ms behind the last, on a clock as long as the deal needs — the old one-clock version cut the last cards off mid-air at four or five players — and the back rendered once into an image that one painter draws, instead of a whole `PlayingCard` with shadows, an SVG, an Opacity and a rotation per card per frame, and only to seats with a player in the hand (`dealtSeats`) where both versions had dealt cards to empty chairs too; `test/deal_flight_test.dart`) touches its controller only when a deal arrives, so
   it is nullable and created on demand (`_controller ??=`, `_controller?.dispose()`). Any controller not
   read in `initState` or on every build path needs the same. The stack showed in `flutter run`'s
   console, not in `adb logcat`.
