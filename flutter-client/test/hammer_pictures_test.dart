@@ -573,6 +573,112 @@ void main() {
     });
   });
 
+  group('the picture menu', () {
+    testWidgets('offers All and a Premium shelf per wallet, and filters by '
+        'it', (tester) async {
+      _setScreen(tester, const Size(891, 411));
+      final state = _state()
+        ..pictures = [
+          ..._catalogue,
+          const ProfilePicture(
+            id: 6,
+            name: 'Cat',
+            url: '',
+            assetFormat: 'SVG',
+            currency: PictureCurrency.coin,
+            type: 'FREE',
+            cost: 0,
+            durationDays: 0,
+            owned: true,
+            expiresAt: 0,
+          ),
+        ];
+      final feedback = FeedbackSettings();
+      final host = await _host(tester, state, feedback);
+      unawaited(openPicturePicker(host));
+      await _settle(tester);
+
+      // The sheet is headed by the player's name, not "Your picture".
+      expect(find.text('Ravi'), findsOneWidget);
+      expect(find.text('Your picture'), findsNothing);
+
+      // All, then Premium in chips, hammers and diamonds (owner, 14 Sep
+      // 2026) — no Free shelf and no Premium (Animated) one.
+      final dropdown = tester.widget<DropdownButton<PictureFilter>>(
+        find.byType(DropdownButton<PictureFilter>),
+      );
+      expect(
+        [for (final item in dropdown.items!) item.value],
+        [
+          PictureFilter.all,
+          PictureFilter.chips,
+          PictureFilter.hammers,
+          PictureFilter.diamonds,
+        ],
+      );
+      expect(
+        tester.widget<PictureFilterMenu>(find.byType(PictureFilterMenu)).counts,
+        {
+          PictureFilter.all: 6,
+          PictureFilter.chips: 2,
+          PictureFilter.hammers: 2,
+          PictureFilter.diamonds: 1,
+        },
+      );
+
+      Set<String> onShelf() => {
+        for (final tile in tester.widgetList<PictureChoice>(
+          find.byType(PictureChoice),
+        ))
+          tile.picture.name,
+      };
+      Future<void> pick(PictureFilter shelf) async {
+        tester
+            .widget<PictureFilterMenu>(find.byType(PictureFilterMenu))
+            .onChanged(shelf);
+        await _settle(tester);
+      }
+
+      expect(onShelf(), {
+        'Bear',
+        'Toucan Flying',
+        'Blazing Fire',
+        'Jolly King',
+        'Dancing Chip',
+        'Cat',
+      });
+      await pick(PictureFilter.chips);
+      expect(onShelf(), {'Bear', 'Dancing Chip'});
+      await pick(PictureFilter.hammers);
+      expect(onShelf(), {'Toucan Flying', 'Blazing Fire'});
+      await pick(PictureFilter.diamonds);
+      expect(onShelf(), {'Jolly King'});
+      expect(tester.takeException(), isNull);
+
+      await _close(tester, state, feedback);
+    });
+
+    testWidgets('draws a locked picture at full colour', (tester) async {
+      _setScreen(tester, const Size(891, 411));
+      final state = _state();
+      final feedback = FeedbackSettings();
+      final host = await _host(tester, state, feedback);
+      unawaited(openPicturePicker(host));
+      await _settle(tester);
+
+      final tiles = find.byType(PictureChoice);
+      expect(tiles, findsNWidgets(_catalogue.length));
+      final faded = tester
+          .widgetList<Opacity>(
+            find.descendant(of: tiles, matching: find.byType(Opacity)),
+          )
+          .where((o) => o.opacity < 1);
+      expect(faded, isEmpty);
+
+      await _close(tester, state, feedback);
+    });
+  });
+
   group('at a table', () {
     testWidgets('a hammer picture is for sale and a chip-priced one is not', (
       tester,

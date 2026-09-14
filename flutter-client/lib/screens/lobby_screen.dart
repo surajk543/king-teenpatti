@@ -2355,7 +2355,13 @@ Future<void> openPicturePicker(BuildContext context) async {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  state.t.yourPicture,
+                                  // Whose picture this is, by name (owner,
+                                  // 14 Sep 2026; it read "Your picture").
+                                  // The generic line stays for a sheet
+                                  // opened with no name to show.
+                                  user == null || user.displayName.isEmpty
+                                      ? state.t.yourPicture
+                                      : user.displayName,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: AppTheme.label(text.titleSmall!),
@@ -2428,16 +2434,17 @@ Future<void> openPicturePicker(BuildContext context) async {
                         ],
                       ),
                       const SizedBox(height: Space.md),
-                      // Which shelf: free, premium stills, or premium pictures
-                      // that move. Pinned above the grid rather than scrolling
-                      // with it, and it stands in for the headings the tiers
-                      // used to carry — one shelf is on show at a time.
+                      // Which shelf: everything, or the premium pictures of one
+                      // wallet — chips, hammers or diamonds. Pinned above the
+                      // grid rather than scrolling with it, and it stands in for
+                      // the headings the tiers used to carry — one shelf is on
+                      // show at a time.
                       ValueListenableBuilder<PictureFilter>(
                         valueListenable: shelf,
                         builder: (context, current, _) => PictureFilterMenu(
                           value: current,
                           counts: {
-                            for (final f in PictureFilter.values)
+                            for (final f in PictureFilter.menu)
                               f: state.pictures.where(f.holds).length,
                           },
                           onChanged: (f) {

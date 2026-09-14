@@ -975,17 +975,18 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   `_raisedButtons` = state-driven elevation (`liftElevation`: disabled 0, pressed rest/3, hover 2×),
   tinted `shadowFor`, transparent surfaceTint; text buttons flat. `PremiumSurface` = the one raised
   treatment (3 shadows + bevel + optional `Glint`).
-- **The picture picker** (`openPicturePicker`, with a day/night `DayNightSwitch` — sun, switch, moon, `GameState.toggleTheme` — at the top of its header since 14 Sep 2026 (owner); its shelf — `PictureFilter`, `PictureFilterMenu`, `pictureShelf`,
+- **The picture picker** (`openPicturePicker`, with a day/night `DayNightSwitch` — sun, switch, moon, `GameState.toggleTheme` — at the top of its header since 14 Sep 2026 (owner), and headed by the player's display name where it read "Your picture" (owner, the same day); its shelf — `PictureFilter`, `PictureFilterMenu`, `pictureShelf`,
   `PictureChoice`, `unlockPicture`, `DiamondBalance` — lives in `widgets/picture_shelf.dart`, shared with the chip
   store's **Pictures** tab (`chip_store.dart` `_StoreTabs`: Chips | Diamonds | Pictures in the header — the **Diamonds** tab (`diamondPacks`, `_DiamondPackCard`: 1/₹49, 5/₹199 ⭐, 20/₹699 🔥, 100/₹2,999) is offered at a table too, and a credited pack celebrates as `rewardWon.kind == 'diamonds'`; at a table the picture key
   is **Animated** (`_StoreTabs.animatedOnly`, owner 13 Sep 2026): the animated shelf alone, no shelf menu, bought with hammers (since 14 Sep 2026; diamonds before) and worn on the seat at once; the chip packs are drawn as lobby table cards —
   frosted glass over a baked orb, a still plate, count-up figure, one fact, a price capsule — coloured sapphire → purple → gold
   up the range; the Pictures tab heads its grid with the worn picture, large and centred, beside the shelf menu); requirement 21): a horizontal strip
   of the active catalogue, one **shelf** at a time: a menu pinned above the grid (`_PictureFilterMenu`, 13 Sep 2026)
-  picks All (the default), Free, Premium (premium IMAGE/SVG) or Premium (Animated) (premium LOTTIE/RIVE,
-  `ProfilePicture.animated`), each with its count; the premium animated pictures run cheapest first (`shelfOrder`,
-  owner 13 Sep 2026 — re-dealt into their own slots, so on All the group stays where the catalogue put it). A picture the player has not bought is drawn at 0.55
-  opacity with a gold padlock-and-price pill (`_PriceTag`; a DIAMOND row shows a gem instead and a HAMMER row the hammer
+  picks All (the default) or Premium in one wallet — chips (a poker-chip glyph), hammers (the hammer) or diamonds (the gem),
+  `PictureFilter.menu` (owner, 14 Sep 2026; it offered Free, Premium (IMAGE/SVG) and Premium (Animated) before, so a free
+  picture is now on All alone; `PictureFilter.animated` survives only as the store's at-table shelf), each with its count; the premium animated pictures run cheapest first (`shelfOrder`,
+  owner 13 Sep 2026 — re-dealt into their own slots, so on All the group stays where the catalogue put it). A picture the player has not bought is drawn at
+  full colour (owner, 14 Sep 2026; dimmed to 0.55 before) with a gold padlock-and-price pill (`_PriceTag`; a DIAMOND row shows a gem instead and a HAMMER row the hammer
   glyph, each with its unlock dialog in its own currency — "Toucan Flying costs 30 hammers and is yours for 100 days", a singular
   line for 1 — and the sheet's and the store's Pictures header carry diamonds and hammers together in one pill, stacked where a
   row would cut the blurb; a player short of the picture's currency is offered that currency's store tab, switched in place when

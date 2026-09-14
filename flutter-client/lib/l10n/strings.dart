@@ -484,7 +484,6 @@ class Strings {
 
   /// The picture picker's shelves, as named in the menu above its grid.
   String get pictureAll => _('pictureAll');
-  String get pictureFree => _('pictureFree');
   String get picturePremium => _('picturePremium');
   String get picturePremiumAnimated => _('picturePremiumAnimated');
   String get pictureShelfEmpty => _('pictureShelfEmpty');
@@ -865,7 +864,6 @@ class Strings {
       'pictureChipsLobbyOnly':
           'You can only buy a chip-priced picture in the lobby.',
       'pictureAll': 'All',
-      'pictureFree': 'Free',
       'picturePremium': 'Premium',
       'picturePremiumAnimated': 'Premium (Animated)',
       'pictureShelfEmpty': 'No pictures here yet.',
@@ -1201,7 +1199,6 @@ class Strings {
       'pictureChipsLobbyOnly':
           'चिप्स वाली तस्वीर सिर्फ़ लॉबी में खरीदी जा सकती है।',
       'pictureAll': 'सभी',
-      'pictureFree': 'मुफ़्त',
       'picturePremium': 'प्रीमियम',
       'picturePremiumAnimated': 'प्रीमियम (एनिमेटेड)',
       'pictureShelfEmpty': 'यहाँ अभी कोई तस्वीर नहीं है।',
@@ -1540,7 +1537,6 @@ class Strings {
           '{name} এর দাম {cost}টি হীরে। আরও হীরে নেবেন?',
       'pictureChipsLobbyOnly': 'চিপসের দামের ছবি শুধু লবিতে কেনা যায়।',
       'pictureAll': 'সব',
-      'pictureFree': 'ফ্রি',
       'picturePremium': 'প্রিমিয়াম',
       'picturePremiumAnimated': 'প্রিমিয়াম (অ্যানিমেটেড)',
       'pictureShelfEmpty': 'এখানে এখনও কোনো ছবি নেই।',
@@ -1856,7 +1852,6 @@ class Strings {
       'pictureChipsLobbyOnly':
           'ચિપ્સની કિંમતવાળો ફોટો ફક્ત લૉબીમાં ખરીદી શકાય છે.',
       'pictureAll': 'બધા',
-      'pictureFree': 'મફત',
       'picturePremium': 'પ્રીમિયમ',
       'picturePremiumAnimated': 'પ્રીમિયમ (એનિમેટેડ)',
       'pictureShelfEmpty': 'અહીં હજી કોઈ ફોટો નથી.',
@@ -2195,7 +2190,6 @@ class Strings {
       'pictureChipsLobbyOnly':
           'ਚਿਪਸ ਵਾਲੀ ਤਸਵੀਰ ਸਿਰਫ਼ ਲਾਬੀ ਵਿੱਚ ਖਰੀਦੀ ਜਾ ਸਕਦੀ ਹੈ।',
       'pictureAll': 'ਸਾਰੇ',
-      'pictureFree': 'ਮੁਫ਼ਤ',
       'picturePremium': 'ਪ੍ਰੀਮੀਅਮ',
       'picturePremiumAnimated': 'ਪ੍ਰੀਮੀਅਮ (ਐਨੀਮੇਟਿਡ)',
       'pictureShelfEmpty': 'ਇੱਥੇ ਹਾਲੇ ਕੋਈ ਤਸਵੀਰ ਨਹੀਂ ਹੈ।',

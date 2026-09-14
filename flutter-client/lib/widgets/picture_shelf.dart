@@ -23,22 +23,39 @@ import 'avatar.dart';
 import 'chip_store.dart';
 import 'glass_components.dart';
 import 'glass_panels.dart';
+import 'poker_chip.dart';
 
-/// The shelves of the picture picker: everything, then the three ways in.
+/// The shelves of a picture list: everything, then the premium pictures by
+/// the wallet they are bought from — chips, hammers, diamonds (owner, 14 Sep
+/// 2026; the menu offered Free, Premium and Premium (Animated) before). A free
+/// picture is on All alone. A currency this build does not know is shelved
+/// with chips, as its price tag is drawn.
 ///
-/// Premium is split by how a picture plays rather than by what it costs: a
-/// picture that moves — a Lottie or a Rive file — is its own thing to shop
-/// for. A free picture stays on the free shelf whatever its format.
+/// [animated] is not in the menu ([menu]): it is the shelf the store sells at
+/// a table, where the moving pictures alone are on offer.
 enum PictureFilter {
   all,
-  free,
-  premium,
+  chips,
+  hammers,
+  diamonds,
   animated;
+
+  /// The shelves the menu offers, in its order.
+  static const menu = [
+    PictureFilter.all,
+    PictureFilter.chips,
+    PictureFilter.hammers,
+    PictureFilter.diamonds,
+  ];
 
   bool holds(ProfilePicture p) => switch (this) {
     PictureFilter.all => true,
-    PictureFilter.free => p.free,
-    PictureFilter.premium => !p.free && !p.animated,
+    PictureFilter.chips =>
+      !p.free &&
+          p.currency != PictureCurrency.hammer &&
+          p.currency != PictureCurrency.diamond,
+    PictureFilter.hammers => !p.free && p.currency == PictureCurrency.hammer,
+    PictureFilter.diamonds => !p.free && p.currency == PictureCurrency.diamond,
     PictureFilter.animated => !p.free && p.animated,
   };
 }
@@ -176,38 +193,69 @@ class PictureFilterMenu extends StatelessWidget {
     const quiet = Color(0x99FFFFFF);
 
     Widget entry(PictureFilter f) {
-      final (IconData icon, Color colour, String label) = switch (f) {
-        PictureFilter.all => (Icons.grid_view_rounded, ink, t.pictureAll),
-        PictureFilter.free => (Icons.lock_open, ink, t.pictureFree),
-        PictureFilter.premium => (
-          Icons.lock,
+      // Each premium shelf wears its wallet's own glyph, as the price tags and
+      // the balances do: a chip, the hammer, the gem. All three say
+      // "Premium", so a screen reader is told the wallet as well.
+      final (
+        Widget glyph,
+        Color colour,
+        String label,
+        String? wallet,
+      ) = switch (f) {
+        PictureFilter.all => (
+          const Icon(Icons.grid_view_rounded, size: 14, color: ink),
+          ink,
+          t.pictureAll,
+          null,
+        ),
+        PictureFilter.chips => (
+          const PokerChip(colour: AppTheme.gold, size: 14),
           AppTheme.goldBright,
           t.picturePremium,
+          t.storeTabChips,
+        ),
+        PictureFilter.hammers => (
+          const Icon(Icons.hardware, size: 14, color: _hammerInk),
+          AppTheme.goldBright,
+          t.picturePremium,
+          t.storeTabHammers,
+        ),
+        PictureFilter.diamonds => (
+          const Icon(Icons.diamond, size: 14, color: _diamondInk),
+          AppTheme.goldBright,
+          t.picturePremium,
+          t.storeTabDiamonds,
         ),
         PictureFilter.animated => (
-          Icons.auto_awesome,
+          const Icon(Icons.auto_awesome, size: 14, color: AppTheme.goldBright),
           AppTheme.goldBright,
           t.picturePremiumAnimated,
+          null,
         ),
       };
-      return Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 14, color: colour),
-          const SizedBox(width: Space.sm),
-          Text(
-            label,
-            style: AppTheme.label(
-              theme.textTheme.labelMedium ?? const TextStyle(),
-              colour: colour,
+      final count = counts[f] ?? 0;
+      return Semantics(
+        label: wallet == null ? '$label, $count' : '$label ($wallet), $count',
+        excludeSemantics: true,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            glyph,
+            const SizedBox(width: Space.sm),
+            Text(
+              label,
+              style: AppTheme.label(
+                theme.textTheme.labelMedium ?? const TextStyle(),
+                colour: colour,
+              ),
             ),
-          ),
-          const SizedBox(width: Space.sm),
-          Text(
-            '${counts[f] ?? 0}',
-            style: theme.textTheme.labelSmall?.copyWith(color: quiet),
-          ),
-        ],
+            const SizedBox(width: Space.sm),
+            Text(
+              '$count',
+              style: theme.textTheme.labelSmall?.copyWith(color: quiet),
+            ),
+          ],
+        ),
       );
     }
 
@@ -228,7 +276,7 @@ class PictureFilterMenu extends StatelessWidget {
           iconEnabledColor: quiet,
           icon: const Icon(Icons.expand_more, size: 18),
           items: [
-            for (final f in PictureFilter.values)
+            for (final f in PictureFilter.menu)
               DropdownMenuItem(value: f, child: entry(f)),
           ],
           onChanged: (f) {
@@ -765,7 +813,7 @@ class PictureChoice extends StatelessWidget {
     // and what they would have to buy. Everything else keeps the champagne
     // hairline every portrait in the app wears.
     final unlockedRing = !picture.free && !locked;
-    Widget face = AnimatedSwitcher(
+    final Widget face = AnimatedSwitcher(
       duration: Motion.base,
       child: selected
           ? Avatar(
@@ -791,13 +839,10 @@ class PictureChoice extends StatelessWidget {
             ),
     );
 
-    // A locked picture is shown, not hidden: knowing what is behind the
-    // padlock is the whole reason anybody buys one. It is just held back —
-    // dimmed, with the price on it — so it cannot be mistaken for a choice
-    // that is one tap away.
-    if (locked) {
-      face = Opacity(opacity: 0.55, child: face);
-    }
+    // A locked picture is shown, not hidden, and at full colour (owner,
+    // 14 Sep 2026; it was dimmed to 0.55): knowing what is behind the padlock
+    // is the whole reason anybody buys one. The price tag under it is what
+    // says it is not one tap away.
 
     return PressScale(
       child: InkWell(

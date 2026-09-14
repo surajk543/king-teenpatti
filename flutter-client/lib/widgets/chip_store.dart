@@ -1002,7 +1002,7 @@ class _ChipStoreState extends State<_ChipStore> {
                                 : PictureFilterMenu(
                                     value: _shelf,
                                     counts: {
-                                      for (final f in PictureFilter.values)
+                                      for (final f in PictureFilter.menu)
                                         f: state.pictures.where(f.holds).length,
                                     },
                                     onChanged: (f) => setState(() {
