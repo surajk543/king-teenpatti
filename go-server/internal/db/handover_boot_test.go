@@ -237,7 +237,7 @@ func TestTheAppRoleBootsTwiceBeforeAndAfterUsersIsHandedToTheSuperuser(t *testin
 
 	// 6. Missiles too: the account holds the 9 diamonds and 1 missile every
 	// new account gets, can fire it, and can trade for more — the superuser
-	// sets its wallet to the cheapest pack's 5 diamonds first, so the trade's
+	// sets its wallet to the cheapest pack's 10 diamonds first, so the trade's
 	// result is exact.
 	var diamonds, missiles int64
 	if err := admin.QueryRow(ctx, `SELECT diamond, missile FROM `+qualified("users")+` WHERE id = $1`, u.ID).Scan(&diamonds, &missiles); err != nil {
@@ -253,7 +253,7 @@ func TestTheAppRoleBootsTwiceBeforeAndAfterUsersIsHandedToTheSuperuser(t *testin
 	if err != nil || fired.Remaining != 0 {
 		t.Fatalf("a missile must be spendable on §7's grants: %+v %v", fired, err)
 	}
-	if _, err := admin.Exec(ctx, `UPDATE `+qualified("users")+` SET diamond = 5 WHERE id = $1`, u.ID); err != nil {
+	if _, err := admin.Exec(ctx, `UPDATE `+qualified("users")+` SET diamond = 10 WHERE id = $1`, u.ID); err != nil {
 		t.Fatal(err)
 	}
 	if trade, err := store.TradeMissiles(ctx, u.ID, "missiles_1", "handover-"+suffix); err != nil || !trade.Charged || trade.User.Diamond != 0 || trade.User.Missile != 1 {

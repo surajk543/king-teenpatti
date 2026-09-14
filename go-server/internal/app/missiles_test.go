@@ -62,13 +62,13 @@ func TestTheMissileStoreTradesDiamondsForMissilesOverHTTP(t *testing.T) {
 		return u
 	}
 
-	// The wallet is set to 7 diamonds so the first trade, the 5-diamond pack,
+	// The wallet is set to 12 diamonds so the first trade, the 10-diamond pack,
 	// leaves exactly 2.
-	if _, err := database.Pool.Exec(ctx, `UPDATE users SET diamond = 7 WHERE id = $1`, id); err != nil {
+	if _, err := database.Pool.Exec(ctx, `UPDATE users SET diamond = 12 WHERE id = $1`, id); err != nil {
 		t.Fatal(err)
 	}
 	r := trade(map[string]any{"packId": "missiles_1", "requestId": "trade-1"})
-	if r.status != http.StatusOK || len(r.body) != 4 || r.body["charged"] != true || r.body["diamonds"] != float64(5) || r.body["missiles"] != float64(1) {
+	if r.status != http.StatusOK || len(r.body) != 4 || r.body["charged"] != true || r.body["diamonds"] != float64(10) || r.body["missiles"] != float64(1) {
 		t.Fatalf("first trade: %d %v", r.status, r.body)
 	}
 	if u := userOf(r); u["diamond"] != float64(2) || u["missile"] != float64(2) || u["id"] != id {
@@ -83,15 +83,15 @@ func TestTheMissileStoreTradesDiamondsForMissilesOverHTTP(t *testing.T) {
 		t.Fatalf("a replay's user: %v", u)
 	}
 
-	r = trade(map[string]any{"packId": "missiles_6", "requestId": "trade-2"})
-	if r.status != http.StatusConflict || r.body["error"] != "not_enough_diamonds" || r.body["message"] != "You need 25 diamonds for this pack" {
+	r = trade(map[string]any{"packId": "missiles_5", "requestId": "trade-2"})
+	if r.status != http.StatusConflict || r.body["error"] != "not_enough_diamonds" || r.body["message"] != "You need 48 diamonds for this pack" {
 		t.Fatalf("a short wallet: %d %v", r.status, r.body)
 	}
-	if r = trade(map[string]any{"packId": "missiles_1", "requestId": "trade-2b"}); r.status != http.StatusConflict || r.body["message"] != "You need 5 diamonds for this pack" {
+	if r = trade(map[string]any{"packId": "missiles_1", "requestId": "trade-2b"}); r.status != http.StatusConflict || r.body["message"] != "You need 10 diamonds for this pack" {
 		t.Fatalf("the cheapest pack from a short wallet: %d %v", r.status, r.body)
 	}
-	// An id never on sale, and the ids of the earlier packs.
-	for _, pack := range []string{"missiles_3", "missiles_2", "missiles_50", "missiles_5", "missiles_10", "missiles_20"} {
+	// An id never on sale, and ids only earlier price lists had.
+	for _, pack := range []string{"missiles_3", "missiles_2", "missiles_50", "missiles_6", "missiles_13", "missiles_30"} {
 		r = trade(map[string]any{"packId": pack, "requestId": "trade-3"})
 		if r.status != http.StatusBadRequest || r.body["error"] != "unknown_pack" || r.body["message"] != "That missile pack does not exist" {
 			t.Fatalf("an unknown pack %s: %d %v", pack, r.status, r.body)
@@ -106,7 +106,7 @@ func TestTheMissileStoreTradesDiamondsForMissilesOverHTTP(t *testing.T) {
 			t.Fatalf("requestId %q: %d %v", bad, r.status, r.body)
 		}
 	}
-	if r = trade(map[string]any{"packId": "missiles_6", "requestId": strings.Repeat("r", 64)}); r.status != http.StatusConflict || r.body["error"] != "not_enough_diamonds" {
+	if r = trade(map[string]any{"packId": "missiles_5", "requestId": strings.Repeat("r", 64)}); r.status != http.StatusConflict || r.body["error"] != "not_enough_diamonds" {
 		t.Fatalf("a 64-character requestId is valid (and this wallet is short): %d %v", r.status, r.body)
 	}
 
@@ -138,14 +138,14 @@ func TestTheMissileStoreTradesDiamondsForMissilesOverHTTP(t *testing.T) {
 	c := dial(t, ts.URL, token)
 	mustOK(t, c, socket.EvRoomQuickJoin, map[string]any{"bootAmount": 200, "category": "seen"})
 	seatBefore := seatOf(t, a, id)
-	if _, err := database.Pool.Exec(ctx, `UPDATE users SET diamond = 50 WHERE id = $1`, id); err != nil {
+	if _, err := database.Pool.Exec(ctx, `UPDATE users SET diamond = 90 WHERE id = $1`, id); err != nil {
 		t.Fatal(err)
 	}
-	r = trade(map[string]any{"packId": "missiles_13", "requestId": "trade-seated"})
-	if r.status != http.StatusOK || r.body["charged"] != true || r.body["diamonds"] != float64(50) || r.body["missiles"] != float64(13) {
+	r = trade(map[string]any{"packId": "missiles_10", "requestId": "trade-seated"})
+	if r.status != http.StatusOK || r.body["charged"] != true || r.body["diamonds"] != float64(90) || r.body["missiles"] != float64(10) {
 		t.Fatalf("a seated trade: %d %v", r.status, r.body)
 	}
-	if u := userOf(r); u["diamond"] != float64(0) || u["missile"] != float64(15) {
+	if u := userOf(r); u["diamond"] != float64(0) || u["missile"] != float64(12) {
 		t.Fatalf("a seated trade's user: %v", u)
 	}
 	if a.Rooms().GetTableForPlayer(id) == nil || seatOf(t, a, id) != seatBefore {

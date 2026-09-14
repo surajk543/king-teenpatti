@@ -21,16 +21,16 @@ type MissilePack struct {
 }
 
 // MissilePacks is the missile store's catalogue, by pack id (owner, 14 Sep
-// 2026). Each pack is named by the missiles it gives, and the bigger packs give
-// more missiles a diamond: missiles_1 costs 5 diamonds, missiles_6 25,
-// missiles_13 50 and missiles_30 100. Earlier the same day the store was a flat
-// 5 diamonds a missile (packs of 1, 5, 10 and 20), and before that 1 diamond
-// bought 2 missiles; none of those other ids is on sale.
+// 2026). Each pack is named by the missiles it gives, and the bigger packs cost
+// less a missile: missiles_1 costs 10 diamonds, missiles_5 48, missiles_10 90
+// and missiles_20 170. The owner re-priced the store several times that day
+// (1 diamond = 2 missiles, a flat 5 diamonds a missile, then packs of 1, 6, 13
+// and 30); only these four ids are on sale, whatever they cost before.
 var MissilePacks = map[string]MissilePack{
-	"missiles_1":  {ID: "missiles_1", Missiles: 1, Diamonds: 5},
-	"missiles_6":  {ID: "missiles_6", Missiles: 6, Diamonds: 25},
-	"missiles_13": {ID: "missiles_13", Missiles: 13, Diamonds: 50},
-	"missiles_30": {ID: "missiles_30", Missiles: 30, Diamonds: 100},
+	"missiles_1":  {ID: "missiles_1", Missiles: 1, Diamonds: 10},
+	"missiles_5":  {ID: "missiles_5", Missiles: 5, Diamonds: 48},
+	"missiles_10": {ID: "missiles_10", Missiles: 10, Diamonds: 90},
+	"missiles_20": {ID: "missiles_20", Missiles: 20, Diamonds: 170},
 }
 
 // LookupMissilePack returns the pack with this id, or false.

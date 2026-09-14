@@ -449,7 +449,7 @@ const (
 	MsgUnknownMissilePack = "That missile pack does not exist"
 	MsgInvalidRequestID   = "A missile trade needs a request id of 1 to 64 characters"
 	// MsgNotEnoughDiamondsFormat is fmt.Sprintf'd with the pack's diamonds.
-	// It is always plural: the cheapest pack in db.MissilePacks costs 5
+	// It is always plural: the cheapest pack in db.MissilePacks costs 10
 	// diamonds, so none costs a single diamond.
 	MsgNotEnoughDiamondsFormat = "You need %d diamonds for this pack"
 	MsgEmptyName               = "Your name cannot be empty."
