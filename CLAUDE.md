@@ -556,8 +556,8 @@ the pack through a `purchase` ledger row (action_id `gplay:<token>`), so a repla
 guarded by `diamond_purchases` (PK = the purchase token, `ON CONFLICT DO NOTHING`), and the answer carries `diamonds`
 beside `chips` (one of them 0). All four product ids must exist as managed products in the Play Console. **There
 is no Apple counterpart**, which is why the Flutter chip store does not start on iOS (§8.4);
-**`POST /api/store/missiles {packId, requestId}`** (owner, 14 Sep 2026) — trades diamonds for missiles at 5 diamonds = 1
-missile: `missiles_1` (5 diamonds), `missiles_5` (25), `missiles_10` (50), `missiles_20` (100), in one transaction under the
+**`POST /api/store/missiles {packId, requestId}`** (owner, 14 Sep 2026) — trades diamonds for missiles in
+packs: `missiles_1` (5 diamonds for 1), `missiles_6` (25 for 6), `missiles_13` (50 for 13), `missiles_30` (100 for 30), in one transaction under the
 wallet lock (`db.Missiles.TradeMissiles`), replay-guarded by `missile_purchases` (`request_id` = `<userId>:<requestId>`).
 Answers `{user, charged, diamonds, missiles}` — `charged:false` with 0 and 0 on a replay; 400 `unknown_pack` /
 `invalid_request_id`, 409 `not_enough_diamonds`. Allowed while seated: diamonds and missiles sit outside §5.1;
@@ -886,7 +886,7 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   while the key can be used; no cost line — the confirmation states the hammer.
   **Missiles** (owner, 14 Sep 2026; rules in §6.1): the Missile key over Pack plays `assets/animations/Missile.json` (a copy
   with its one `loopOut()` baked; the nose points up-right, frames 30–60 loop) while `canMissile`, is greyed with no
-  missiles and then offers the store's **Missiles** tab (between Hammers and Pictures, diamonds for missiles at 5 diamonds = 1 missile), and asks
+  missiles and then offers the store's **Missiles** tab (between Hammers and Pictures, diamonds for missiles: 1 for 5, 6 for 25, 13 for 50, 30 for 100), and asks
   first (`_fireMissile`). Every viewer sees the volley (`state/missile_strike.dart`, `widgets/missile_flight.dart`): one
   missile from the firer's pod to each player still in, 70 ms apart, **1.3 s in the air**, then
   `assets/animations/explosion.json` on each pod for **0.44 s** (its own length), and only then (`MissileTiming.reveal`)

@@ -589,8 +589,8 @@ func (h *Handler) BuyPicture(w http.ResponseWriter, r *http.Request, user *db.Us
 }
 
 // TradeMissiles is POST /api/store/missiles {packId, requestId} (owner, 14 Sep
-// 2026): the missile store, where diamonds become missiles at 5 diamonds = 1
-// missile (db.DiamondsPerMissile), in the packs of db.MissilePacks.
+// 2026): the missile store, where diamonds become missiles in the packs of
+// db.MissilePacks (1 missile for 5 diamonds, 6 for 25, 13 for 50, 30 for 100).
 //
 // Order: no store → 503; body (400 invalid_json); a pack the catalogue does
 // not hold → 400 unknown_pack; a requestId empty or longer than

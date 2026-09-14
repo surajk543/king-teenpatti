@@ -578,7 +578,7 @@ were in it, so at least two remain.
 A showdown the player on turn forces, paid for with one missile (`users.missile`, §3.1): every hand
 still in is shown and the best takes the pot. Rules engine: `internal/game/table.go` `fireMissile`;
 the socket layer handles it like any other action (§6.1 steps 1–5,
-`game_moves_total{action="missile"}` on success). Missiles are bought with diamonds, 5 diamonds a missile,
+`game_moves_total{action="missile"}` on success). Missiles are bought with diamonds (1 for 5, 6 for 25, 13 for 50, 30 for 100),
 through `POST /api/store/missiles {packId, requestId}`, or come with a premium package on Play
 (`premium_1_9999` … `premium_6_99999`, beside its chips and hammers) (DECISIONS.md §5).
 
