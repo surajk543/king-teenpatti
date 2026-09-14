@@ -138,6 +138,8 @@ class Strings {
   String get posPremium => _('posPremium');
   String get comingSoonBody => _('comingSoonBody');
   String get handsToGo => _('handsToGo');
+  String get handToGo => _('handToGo');
+  String get forceSideshowTooLate => _('forceSideshowTooLate');
   String get settings => _('settings');
   String get language => _('language');
 
@@ -151,6 +153,12 @@ class Strings {
   String get unitBillion => _('unitBillion');
   String get switchTheme => _('switchTheme');
   String get signOut => _('signOut');
+  String get signOutQ => _('signOutQ');
+  String get signOutBody => _('signOutBody');
+  String get providerGuest => _('providerGuest');
+  String get unitHourShort => _('unitHourShort');
+  String get unitMinuteShort => _('unitMinuteShort');
+  String get unitSecondShort => _('unitSecondShort');
   String get serviceUnavailable => _('serviceUnavailable');
   String get soundLabel => _('soundLabel');
   String get vibrationLabel => _('vibrationLabel');
@@ -217,9 +225,71 @@ class Strings {
       _('sideshowForcedOn').replaceAll('{from}', from).replaceAll('{to}', to);
 
   /// The table's wallet pill, as a screen reader says it.
-  String walletSummary(int diamonds, int hammers) => _(
-    'walletSummary',
-  ).replaceAll('{diamonds}', '$diamonds').replaceAll('{hammers}', '$hammers');
+  String walletSummary(int diamonds, int hammers, int missiles) =>
+      _('walletSummary')
+          .replaceAll('{diamonds}', '$diamonds')
+          .replaceAll('{hammers}', '$hammers')
+          .replaceAll('{missiles}', '$missiles');
+
+  // --- the missile, paid for with missiles traded for diamonds (owner,
+  // 14 Sep 2026)
+
+  /// The key's word, and the move's name in its tooltip.
+  String get missile => _('missile');
+
+  /// The confirmation: its question, what it does, and the small print.
+  String get fireMissileTitle => _('fireMissileTitle');
+  String get fireMissileBody => _('fireMissileBody');
+  String get fireMissileNote => _('fireMissileNote');
+
+  /// The confirmation's acting key.
+  String get fire => _('fire');
+
+  /// Confirmed after the turn had already moved on: nothing was fired.
+  String get missileTooLate => _('missileTooLate');
+
+  /// The offer of the store to a player with no missiles.
+  String get noMissilesTitle => _('noMissilesTitle');
+  String get noMissilesBody => _('noMissilesBody');
+  String get getMissiles => _('getMissiles');
+
+  /// The server's `no_missiles` and `too_few_players` refusals.
+  String get noMissiles => _('noMissiles');
+  String get tooFewPlayers => _('tooFewPlayers');
+
+  /// What a missile says at the table: to the player who fired it, and to
+  /// everyone else.
+  String get missileFiredByYou => _('missileFiredByYou');
+  String missileFiredBy(String name) =>
+      _('missileFiredBy').replaceAll('{name}', name);
+
+  /// The store's Missiles shelf.
+  String get storeTabMissiles => _('storeTabMissiles');
+  String get storeMissilesTitle => _('storeMissilesTitle');
+  String get storeMissilesBlurb => _('storeMissilesBlurb');
+
+  /// Trading diamonds for a missile pack. `{s}` pluralises the English
+  /// "diamond" and is absent from the other four languages, whose word does
+  /// not change with the number.
+  String get tradeMissilesTitle => _('tradeMissilesTitle');
+  String tradeMissilesBody(int diamonds, int missiles) => _('tradeMissilesBody')
+      .replaceAll('{diamonds}', '$diamonds')
+      .replaceAll('{missiles}', '$missiles')
+      .replaceAll('{s}', diamonds == 1 ? '' : 's');
+  String get trade => _('trade');
+
+  /// The offer of the Diamonds shelf to a player who cannot pay for a trade.
+  String get notEnoughDiamondsTitle => _('notEnoughDiamondsTitle');
+  String notEnoughDiamondsBody(int diamonds) => _('notEnoughDiamondsBody')
+      .replaceAll('{diamonds}', '$diamonds')
+      .replaceAll('{s}', diamonds == 1 ? '' : 's');
+  String get getDiamonds => _('getDiamonds');
+
+  /// A trade made at a table, where there is no celebration to show it.
+  String missilesAdded(int n) => _('missilesAdded').replaceAll('{n}', '$n');
+
+  /// The celebration's line for a trade made in the lobby.
+  String get rewardMissilesTraded => _('rewardMissilesTraded');
   String get seeCards => _('seeCards');
   String get blindMovesLeft => _('blindMovesLeft');
   String get blindMovesLabel => _('blindMovesLabel');
@@ -239,6 +309,11 @@ class Strings {
   String get welcomeBack => _('welcomeBack');
   String get appVersion => _('appVersion');
   String get tableLost => _('tableLost');
+  String get notConnected => _('notConnected');
+  String get reconnecting => _('reconnecting');
+  String get kickedNoChips => _('kickedNoChips');
+  String kickedIdle(int turns) => _('kickedIdle').replaceAll('{n}', '$turns');
+  String get leaveStakeStays => _('leaveStakeStays');
   String get winner => _('winner');
   String get tableChat => _('tableChat');
   String get saySomething => _('saySomething');
@@ -519,7 +594,8 @@ class Strings {
       'storeHammersBlurb': 'A hammer forces a sideshow — nobody is asked.',
       'rewardHammersPurchased':
           'The hammers are in your wallet. Force a sideshow at the table.',
-      'walletSummary': '{diamonds} diamonds, {hammers} hammers',
+      'walletSummary':
+          '{diamonds} diamonds, {hammers} hammers, {missiles} missiles',
       'storeBonus': 'BONUS',
       'storeNotLive': 'Payments are not live yet — nothing was charged.',
       'posStarter': 'STARTER',
@@ -529,6 +605,9 @@ class Strings {
       'comingSoonBody':
           'Buying chips is not open yet. Collect your rewards in the meantime.',
       'handsToGo': 'hands to go',
+      'handToGo': 'hand to go',
+      'forceSideshowTooLate':
+          'Too late — that sideshow is no longer open. No hammer was spent.',
       'settings': 'Settings',
       'language': 'Language',
       'numberSystem': 'Number format',
@@ -540,6 +619,13 @@ class Strings {
       'unitBillion': 'Billion',
       'switchTheme': 'Switch theme',
       'signOut': 'Sign out',
+      'signOutQ': 'Sign out?',
+      'signOutBody':
+          'Your chips, diamonds, hammers and pictures stay with this account.',
+      'providerGuest': 'Guest',
+      'unitHourShort': 'h',
+      'unitMinuteShort': 'm',
+      'unitSecondShort': 's',
       'serviceUnavailable': 'Service not available',
       'soundLabel': 'Sound',
       'vibrationLabel': 'Vibration',
@@ -576,6 +662,36 @@ class Strings {
       'sideshowForcedByYou': 'You forced a sideshow with {name}',
       'sideshowForcedOnYou': '{name} forced a sideshow with you',
       'sideshowForcedOn': '{from} forced a sideshow on {to}',
+      'missile': 'Missile',
+      'fireMissileTitle': 'Fire a missile?',
+      'fireMissileBody':
+          'Every player still in the hand shows their cards and the best hand takes the pot. Costs 1 missile.',
+      'fireMissileNote': 'A tie goes against you.',
+      'fire': 'Fire',
+      'missileTooLate':
+          'Too late — the missile was not fired. No missile was spent.',
+      'noMissilesTitle': 'No missiles left',
+      'noMissilesBody':
+          'Firing a missile costs 1 missile. Trade diamonds for more in the store?',
+      'getMissiles': 'Get missiles',
+      'noMissiles': 'You need a missile to fire one',
+      'tooFewPlayers': 'That needs at least 3 players still in the hand',
+      'missileFiredByYou': 'You fired a missile',
+      'missileFiredBy': '{name} fired a missile',
+      'storeTabMissiles': 'Missiles',
+      'storeMissilesTitle': 'Missile Store',
+      'storeMissilesBlurb': 'Trade diamonds: 1 diamond = 2 missiles.',
+      'tradeMissilesTitle': 'Trade diamonds?',
+      'tradeMissilesBody':
+          'Trade {diamonds} diamond{s} for {missiles} missiles?',
+      'trade': 'Trade',
+      'notEnoughDiamondsTitle': 'Not enough diamonds',
+      'notEnoughDiamondsBody':
+          'This trade needs {diamonds} diamond{s}. Get more diamonds?',
+      'getDiamonds': 'Get diamonds',
+      'missilesAdded': '{n} missiles added to your wallet',
+      'rewardMissilesTraded':
+          'The missiles are in your wallet. Fire one at the table.',
       'seeCards': 'See cards',
       'blindMovesLeft': 'blind moves left',
       'blindMovesLabel': 'Blind moves left',
@@ -592,7 +708,12 @@ class Strings {
       'resumingTable': 'Returning to your table…',
       'welcomeBack': "Welcome back — you're back at your table.",
       'appVersion': 'App version',
-      'tableLost': 'The table closed while you were away.',
+      'tableLost': 'You lost your seat while you were away.',
+      'notConnected': 'No connection. That did not go through.',
+      'reconnecting': 'Connection lost. Reconnecting…',
+      'kickedNoChips': "You don't have enough chips to stay at this table.",
+      'kickedIdle': 'You left the table after {n} missed turns.',
+      'leaveStakeStays': 'Your stake stays in the pot',
       'winner': 'Winner',
       'tableChat': 'Table chat',
       'saySomething': 'Say something…',
@@ -788,7 +909,7 @@ class Strings {
       'storeHammersBlurb': 'हथौड़े से साइडशो बिना पूछे होता है।',
       'rewardHammersPurchased':
           'हथौड़े आपके वॉलेट में हैं। टेबल पर फ़ोर्स साइडशो करें।',
-      'walletSummary': '{diamonds} हीरे, {hammers} हथौड़े',
+      'walletSummary': '{diamonds} हीरे, {hammers} हथौड़े, {missiles} मिसाइलें',
       'storeBonus': 'बोनस',
       'storeNotLive': 'भुगतान अभी चालू नहीं है — कोई शुल्क नहीं लिया गया।',
       'posStarter': 'शुरुआत',
@@ -798,6 +919,9 @@ class Strings {
       'comingSoonBody':
           'चिप्स खरीदना अभी शुरू नहीं हुआ है। तब तक अपने इनाम लेते रहें।',
       'handsToGo': 'हाथ बाकी',
+      'handToGo': 'हाथ बाकी',
+      'forceSideshowTooLate':
+          'देर हो गई — अब वह साइडशो नहीं हो सकता। कोई हथौड़ा खर्च नहीं हुआ।',
       'settings': 'सेटिंग्स',
       'language': 'भाषा',
       'numberSystem': 'संख्या प्रारूप',
@@ -809,6 +933,13 @@ class Strings {
       'unitBillion': 'बिलियन',
       'switchTheme': 'थीम बदलें',
       'signOut': 'साइन आउट',
+      'signOutQ': 'साइन आउट करें?',
+      'signOutBody':
+          'आपके चिप्स, हीरे, हथौड़े और तस्वीरें इसी खाते में रहेंगे।',
+      'providerGuest': 'मेहमान',
+      'unitHourShort': 'घं',
+      'unitMinuteShort': 'मि',
+      'unitSecondShort': 'से',
       'serviceUnavailable': 'सेवा उपलब्ध नहीं है',
       'soundLabel': 'आवाज़',
       'vibrationLabel': 'कंपन',
@@ -845,6 +976,35 @@ class Strings {
       'sideshowForcedByYou': 'आपने {name} के साथ फ़ोर्स साइडशो किया',
       'sideshowForcedOnYou': '{name} ने आपके साथ फ़ोर्स साइडशो किया',
       'sideshowForcedOn': '{from} ने {to} पर फ़ोर्स साइडशो किया',
+      'missile': 'मिसाइल',
+      'fireMissileTitle': 'मिसाइल दागें?',
+      'fireMissileBody':
+          'हाथ में बचे सभी खिलाड़ियों के पत्ते खुलेंगे और सबसे अच्छे पत्ते पॉट जीतेंगे। 1 मिसाइल लगेगी।',
+      'fireMissileNote': 'बराबरी पर आप हारेंगे।',
+      'fire': 'दागें',
+      'missileTooLate':
+          'देर हो गई — मिसाइल नहीं दागी गई। कोई मिसाइल खर्च नहीं हुई।',
+      'noMissilesTitle': 'कोई मिसाइल नहीं बची',
+      'noMissilesBody':
+          'मिसाइल दागने में 1 मिसाइल लगती है। स्टोर में हीरों से और लें?',
+      'getMissiles': 'मिसाइलें लें',
+      'noMissiles': 'मिसाइल दागने के लिए मिसाइल चाहिए',
+      'tooFewPlayers': 'इसके लिए हाथ में कम से कम 3 खिलाड़ी होने चाहिए',
+      'missileFiredByYou': 'आपने मिसाइल दागी',
+      'missileFiredBy': '{name} ने मिसाइल दागी',
+      'storeTabMissiles': 'मिसाइलें',
+      'storeMissilesTitle': 'मिसाइल स्टोर',
+      'storeMissilesBlurb': 'हीरे बदलें: 1 हीरा = 2 मिसाइलें।',
+      'tradeMissilesTitle': 'हीरे बदलें?',
+      'tradeMissilesBody': '{diamonds} हीरे देकर {missiles} मिसाइलें लें?',
+      'trade': 'बदलें',
+      'notEnoughDiamondsTitle': 'पर्याप्त हीरे नहीं',
+      'notEnoughDiamondsBody':
+          'इस सौदे के लिए {diamonds} हीरे चाहिए। और हीरे लें?',
+      'getDiamonds': 'हीरे लें',
+      'missilesAdded': '{n} मिसाइलें आपके वॉलेट में जुड़ गईं',
+      'rewardMissilesTraded':
+          'मिसाइलें आपके वॉलेट में हैं। टेबल पर मिसाइल दागें।',
       'seeCards': 'पत्ते देखें',
       'blindMovesLeft': 'ब्लाइंड चालें बाकी',
       'blindMovesLabel': 'ब्लाइंड चालें बाकी',
@@ -861,7 +1021,13 @@ class Strings {
       'resumingTable': 'आपकी टेबल पर वापस जा रहे हैं…',
       'welcomeBack': 'वापसी पर स्वागत है — आप अपनी टेबल पर वापस हैं।',
       'appVersion': 'ऐप संस्करण',
-      'tableLost': 'आप दूर थे तब टेबल बंद हो गई।',
+      'tableLost': 'आप दूर थे तब आपकी सीट छूट गई।',
+      'notConnected': 'कनेक्शन नहीं है। यह नहीं भेजा गया।',
+      'reconnecting': 'कनेक्शन टूट गया। फिर से जुड़ रहे हैं…',
+      'kickedNoChips':
+          'इस टेबल पर बने रहने के लिए आपके पास पर्याप्त चिप्स नहीं हैं।',
+      'kickedIdle': 'लगातार {n} चालें चूकने पर आप टेबल से हट गए।',
+      'leaveStakeStays': 'आपका दांव पॉट में रहेगा',
       'winner': 'विजेता',
       'tableChat': 'टेबल चैट',
       'saySomething': 'कुछ कहें…',
@@ -1019,7 +1185,7 @@ class Strings {
       'totalWinnings': 'মোট জেতা',
       'biggestPot': 'সবচেয়ে বড় পট',
       'playedNote': 'কোনো চাল দিলে তবেই হাতটি গোনা হয়।',
-      'fourHourBonus': '৪-ঘণ্টার বোনাস',
+      'fourHourBonus': '4-ঘণ্টার বোনাস',
       'milestone': 'মাইলস্টোন',
       'collect': 'নিন',
       'rewardCollected': 'পুরস্কার সংগ্রহ হয়েছে!',
@@ -1054,7 +1220,8 @@ class Strings {
       'storeHammersBlurb': 'হাতুড়ি দিয়ে না জিজ্ঞেস করেই সাইডশো হয়।',
       'rewardHammersPurchased':
           'হাতুড়ি আপনার ওয়ালেটে আছে। টেবিলে ফোর্স সাইডশো করুন।',
-      'walletSummary': '{diamonds}টি হীরে, {hammers}টি হাতুড়ি',
+      'walletSummary':
+          '{diamonds}টি হীরে, {hammers}টি হাতুড়ি, {missiles}টি মিসাইল',
       'storeBonus': 'বোনাস',
       'storeNotLive': 'পেমেন্ট এখনও চালু নয় — কোনও চার্জ হয়নি।',
       'posStarter': 'শুরু',
@@ -1064,6 +1231,9 @@ class Strings {
       'comingSoonBody':
           'চিপ কেনা এখনও চালু হয়নি। ততক্ষণ আপনার পুরস্কার নিতে থাকুন।',
       'handsToGo': 'হাত বাকি',
+      'handToGo': 'হাত বাকি',
+      'forceSideshowTooLate':
+          'দেরি হয়ে গেছে — সেই সাইডশো আর সম্ভব নয়। কোনো হাতুড়ি খরচ হয়নি।',
       'settings': 'সেটিংস',
       'language': 'ভাষা',
       'numberSystem': 'সংখ্যা বিন্যাস',
@@ -1075,6 +1245,12 @@ class Strings {
       'unitBillion': 'বিলিয়ন',
       'switchTheme': 'থিম বদলান',
       'signOut': 'সাইন আউট',
+      'signOutQ': 'সাইন আউট করবেন?',
+      'signOutBody': 'আপনার চিপস, হীরে, হাতুড়ি আর ছবি এই অ্যাকাউন্টেই থাকবে।',
+      'providerGuest': 'অতিথি',
+      'unitHourShort': 'ঘ',
+      'unitMinuteShort': 'মি',
+      'unitSecondShort': 'সে',
       'serviceUnavailable': 'পরিষেবা উপলব্ধ নেই',
       'soundLabel': 'শব্দ',
       'vibrationLabel': 'কম্পন',
@@ -1112,6 +1288,35 @@ class Strings {
       'sideshowForcedByYou': 'আপনি {name}-এর সঙ্গে ফোর্স সাইডশো করলেন',
       'sideshowForcedOnYou': '{name} আপনার সঙ্গে ফোর্স সাইডশো করলেন',
       'sideshowForcedOn': '{from} {to}-এর সঙ্গে ফোর্স সাইডশো করলেন',
+      'missile': 'মিসাইল',
+      'fireMissileTitle': 'মিসাইল ছুড়বেন?',
+      'fireMissileBody':
+          'হাতে থাকা সব খেলোয়াড়ের তাস খুলবে এবং সেরা হাত পট জিতবে। খরচ 1টি মিসাইল।',
+      'fireMissileNote': 'টাই হলে আপনি হারবেন।',
+      'fire': 'ছুড়ুন',
+      'missileTooLate':
+          'দেরি হয়ে গেছে — মিসাইল ছোড়া হয়নি। কোনো মিসাইল খরচ হয়নি।',
+      'noMissilesTitle': 'কোনো মিসাইল বাকি নেই',
+      'noMissilesBody':
+          'মিসাইল ছুড়তে 1টি মিসাইল লাগে। স্টোরে হীরে দিয়ে আরও নেবেন?',
+      'getMissiles': 'মিসাইল নিন',
+      'noMissiles': 'মিসাইল ছুড়তে একটি মিসাইল লাগবে',
+      'tooFewPlayers': 'এর জন্য হাতে অন্তত 3 জন খেলোয়াড় থাকতে হবে',
+      'missileFiredByYou': 'আপনি মিসাইল ছুড়লেন',
+      'missileFiredBy': '{name} মিসাইল ছুড়লেন',
+      'storeTabMissiles': 'মিসাইল',
+      'storeMissilesTitle': 'মিসাইল স্টোর',
+      'storeMissilesBlurb': 'হীরে বদলান: 1টি হীরে = 2টি মিসাইল।',
+      'tradeMissilesTitle': 'হীরে বদলাবেন?',
+      'tradeMissilesBody': '{diamonds}টি হীরে দিয়ে {missiles}টি মিসাইল নেবেন?',
+      'trade': 'বদলান',
+      'notEnoughDiamondsTitle': 'যথেষ্ট হীরে নেই',
+      'notEnoughDiamondsBody':
+          'এই বিনিময়ে {diamonds}টি হীরে লাগবে। আরও হীরে নেবেন?',
+      'getDiamonds': 'হীরে নিন',
+      'missilesAdded': '{n}টি মিসাইল আপনার ওয়ালেটে যোগ হয়েছে',
+      'rewardMissilesTraded':
+          'মিসাইল আপনার ওয়ালেটে আছে। টেবিলে মিসাইল ছুড়ুন।',
       'seeCards': 'তাস দেখুন',
       'blindMovesLeft': 'ব্লাইন্ড চাল বাকি',
       'blindMovesLabel': 'ব্লাইন্ড চাল বাকি',
@@ -1128,7 +1333,12 @@ class Strings {
       'resumingTable': 'আপনার টেবিলে ফিরছি…',
       'welcomeBack': 'ফিরে আসায় স্বাগত — আপনি আপনার টেবিলে ফিরে এসেছেন।',
       'appVersion': 'অ্যাপ সংস্করণ',
-      'tableLost': 'আপনি দূরে থাকাকালীন টেবিল বন্ধ হয়ে গেছে।',
+      'tableLost': 'আপনি দূরে থাকাকালীন আপনার আসন চলে গেছে।',
+      'notConnected': 'সংযোগ নেই। এটি পাঠানো যায়নি।',
+      'reconnecting': 'সংযোগ বিচ্ছিন্ন। আবার যুক্ত হচ্ছে…',
+      'kickedNoChips': 'এই টেবিলে থাকার মতো যথেষ্ট চিপ আপনার নেই।',
+      'kickedIdle': 'পরপর {n}টি চাল মিস করায় আপনি টেবিল ছেড়েছেন।',
+      'leaveStakeStays': 'আপনার বাজি পটেই থাকবে',
       'winner': 'বিজয়ী',
       'tableChat': 'টেবিল চ্যাট',
       'saySomething': 'কিছু বলুন…',
@@ -1321,7 +1531,7 @@ class Strings {
       'storeHammersBlurb': 'હથોડીથી પૂછ્યા વગર સાઇડશો થાય છે.',
       'rewardHammersPurchased':
           'હથોડી તમારા વૉલેટમાં છે. ટેબલ પર ફોર્સ સાઇડશો કરો.',
-      'walletSummary': '{diamonds} હીરા, {hammers} હથોડી',
+      'walletSummary': '{diamonds} હીરા, {hammers} હથોડી, {missiles} મિસાઇલ',
       'storeBonus': 'બોનસ',
       'storeNotLive': 'પેમેન્ટ હજી ચાલુ નથી — કોઈ ચાર્જ લેવાયો નથી.',
       'posStarter': 'શરૂઆત',
@@ -1331,6 +1541,9 @@ class Strings {
       'comingSoonBody':
           'ચિપ્સ ખરીદવાનું હજી શરૂ થયું નથી. ત્યાં સુધી તમારાં ઇનામ લેતા રહો.',
       'handsToGo': 'હાથ બાકી',
+      'handToGo': 'હાથ બાકી',
+      'forceSideshowTooLate':
+          'મોડું થઈ ગયું — હવે એ સાઇડશો શક્ય નથી. કોઈ હથોડી વપરાઈ નથી.',
       'settings': 'સેટિંગ્સ',
       'language': 'ભાષા',
       'numberSystem': 'સંખ્યા ફોર્મેટ',
@@ -1342,6 +1555,12 @@ class Strings {
       'unitBillion': 'બિલિયન',
       'switchTheme': 'થીમ બદલો',
       'signOut': 'સાઇન આઉટ',
+      'signOutQ': 'સાઇન આઉટ કરશો?',
+      'signOutBody': 'તમારી ચિપ્સ, હીરા, હથોડી અને ફોટા આ જ ખાતામાં રહેશે.',
+      'providerGuest': 'મહેમાન',
+      'unitHourShort': 'ક',
+      'unitMinuteShort': 'મિ',
+      'unitSecondShort': 'સે',
       'serviceUnavailable': 'સેવા ઉપલબ્ધ નથી',
       'soundLabel': 'અવાજ',
       'vibrationLabel': 'કંપન',
@@ -1377,6 +1596,34 @@ class Strings {
       'sideshowForcedByYou': 'તમે {name} સાથે ફોર્સ સાઇડશો કર્યો',
       'sideshowForcedOnYou': '{name} એ તમારી સાથે ફોર્સ સાઇડશો કર્યો',
       'sideshowForcedOn': '{from} એ {to} સાથે ફોર્સ સાઇડશો કર્યો',
+      'missile': 'મિસાઇલ',
+      'fireMissileTitle': 'મિસાઇલ છોડશો?',
+      'fireMissileBody':
+          'હાથમાં બાકી બધા ખેલાડીઓના પત્તા ખુલશે અને શ્રેષ્ઠ હાથ પોટ જીતશે. 1 મિસાઇલ લાગશે.',
+      'fireMissileNote': 'ટાઇ થાય તો તમે હારશો.',
+      'fire': 'છોડો',
+      'missileTooLate':
+          'મોડું થઈ ગયું — મિસાઇલ છોડાઈ નથી. કોઈ મિસાઇલ વપરાઈ નથી.',
+      'noMissilesTitle': 'કોઈ મિસાઇલ બાકી નથી',
+      'noMissilesBody':
+          'મિસાઇલ છોડવા 1 મિસાઇલ લાગે છે. સ્ટોરમાં હીરાથી વધુ લેશો?',
+      'getMissiles': 'મિસાઇલ લો',
+      'noMissiles': 'મિસાઇલ છોડવા માટે મિસાઇલ જોઈએ',
+      'tooFewPlayers': 'આ માટે હાથમાં ઓછામાં ઓછા 3 ખેલાડી હોવા જોઈએ',
+      'missileFiredByYou': 'તમે મિસાઇલ છોડી',
+      'missileFiredBy': '{name} એ મિસાઇલ છોડી',
+      'storeTabMissiles': 'મિસાઇલ',
+      'storeMissilesTitle': 'મિસાઇલ સ્ટોર',
+      'storeMissilesBlurb': 'હીરા બદલો: 1 હીરો = 2 મિસાઇલ.',
+      'tradeMissilesTitle': 'હીરા બદલશો?',
+      'tradeMissilesBody': '{diamonds} હીરા આપીને {missiles} મિસાઇલ લેશો?',
+      'trade': 'બદલો',
+      'notEnoughDiamondsTitle': 'પૂરતા હીરા નથી',
+      'notEnoughDiamondsBody':
+          'આ સોદા માટે {diamonds} હીરા જોઈએ. વધુ હીરા લેશો?',
+      'getDiamonds': 'હીરા લો',
+      'missilesAdded': '{n} મિસાઇલ તમારા વૉલેટમાં ઉમેરાઈ',
+      'rewardMissilesTraded': 'મિસાઇલ તમારા વૉલેટમાં છે. ટેબલ પર મિસાઇલ છોડો.',
       'seeCards': 'પત્તા જુઓ',
       'blindMovesLeft': 'બ્લાઇન્ડ ચાલ બાકી',
       'blindMovesLabel': 'બ્લાઇન્ડ ચાલ બાકી',
@@ -1426,7 +1673,12 @@ class Strings {
       'wear': 'વાપરો',
       'wearing': 'વપરાય છે',
       'appVersion': 'એપ આવૃત્તિ',
-      'tableLost': 'તમે દૂર હતા ત્યારે ટેબલ બંધ થઈ ગયું.',
+      'tableLost': 'તમે દૂર હતા ત્યારે તમારી બેઠક જતી રહી.',
+      'notConnected': 'કનેક્શન નથી. આ મોકલાયું નથી.',
+      'reconnecting': 'કનેક્શન તૂટી ગયું. ફરી જોડાઈ રહ્યા છીએ…',
+      'kickedNoChips': 'આ ટેબલ પર રહેવા માટે તમારી પાસે પૂરતી ચિપ્સ નથી.',
+      'kickedIdle': 'સળંગ {n} ચાલ ચૂકી જતાં તમે ટેબલ છોડ્યું.',
+      'leaveStakeStays': 'તમારો દાવ પોટમાં જ રહેશે',
       'winner': 'વિજેતા',
       'tableChat': 'ટેબલ ચૅટ',
       'saySomething': 'કંઈક કહો…',
@@ -1586,7 +1838,7 @@ class Strings {
       'storeHammersBlurb': 'ਹਥੌੜੇ ਨਾਲ ਬਿਨਾਂ ਪੁੱਛੇ ਸਾਈਡਸ਼ੋ ਹੁੰਦਾ ਹੈ।',
       'rewardHammersPurchased':
           'ਹਥੌੜੇ ਤੁਹਾਡੇ ਵਾਲਿਟ ਵਿੱਚ ਹਨ। ਟੇਬਲ ’ਤੇ ਫੋਰਸ ਸਾਈਡਸ਼ੋ ਕਰੋ।',
-      'walletSummary': '{diamonds} ਹੀਰੇ, {hammers} ਹਥੌੜੇ',
+      'walletSummary': '{diamonds} ਹੀਰੇ, {hammers} ਹਥੌੜੇ, {missiles} ਮਿਜ਼ਾਈਲਾਂ',
       'storeBonus': 'ਬੋਨਸ',
       'storeNotLive': 'ਭੁਗਤਾਨ ਹਾਲੇ ਚਾਲੂ ਨਹੀਂ — ਕੋਈ ਚਾਰਜ ਨਹੀਂ ਲਿਆ ਗਿਆ।',
       'posStarter': 'ਸ਼ੁਰੂਆਤ',
@@ -1596,6 +1848,9 @@ class Strings {
       'comingSoonBody':
           'ਚਿਪਸ ਖਰੀਦਣਾ ਅਜੇ ਸ਼ੁਰੂ ਨਹੀਂ ਹੋਇਆ। ਉਦੋਂ ਤੱਕ ਆਪਣੇ ਇਨਾਮ ਲੈਂਦੇ ਰਹੋ।',
       'handsToGo': 'ਹੱਥ ਬਾਕੀ',
+      'handToGo': 'ਹੱਥ ਬਾਕੀ',
+      'forceSideshowTooLate':
+          'ਦੇਰ ਹੋ ਗਈ — ਹੁਣ ਉਹ ਸਾਈਡਸ਼ੋ ਨਹੀਂ ਹੋ ਸਕਦਾ। ਕੋਈ ਹਥੌੜਾ ਖਰਚ ਨਹੀਂ ਹੋਇਆ।',
       'settings': 'ਸੈਟਿੰਗਾਂ',
       'language': 'ਭਾਸ਼ਾ',
       'numberSystem': 'ਨੰਬਰ ਫਾਰਮੈਟ',
@@ -1607,6 +1862,13 @@ class Strings {
       'unitBillion': 'ਬਿਲੀਅਨ',
       'switchTheme': 'ਥੀਮ ਬਦਲੋ',
       'signOut': 'ਸਾਈਨ ਆਊਟ',
+      'signOutQ': 'ਸਾਈਨ ਆਊਟ ਕਰਨਾ ਹੈ?',
+      'signOutBody':
+          'ਤੁਹਾਡੇ ਚਿਪਸ, ਹੀਰੇ, ਹਥੌੜੇ ਅਤੇ ਤਸਵੀਰਾਂ ਇਸੇ ਖਾਤੇ ਵਿੱਚ ਰਹਿਣਗੇ।',
+      'providerGuest': 'ਮਹਿਮਾਨ',
+      'unitHourShort': 'ਘੰ',
+      'unitMinuteShort': 'ਮਿੰ',
+      'unitSecondShort': 'ਸ',
       'serviceUnavailable': 'ਸੇਵਾ ਉਪਲਬਧ ਨਹੀਂ ਹੈ',
       'soundLabel': 'ਆਵਾਜ਼',
       'vibrationLabel': 'ਕੰਪਨ',
@@ -1643,6 +1905,36 @@ class Strings {
       'sideshowForcedByYou': 'ਤੁਸੀਂ {name} ਨਾਲ ਫੋਰਸ ਸਾਈਡਸ਼ੋ ਕੀਤਾ',
       'sideshowForcedOnYou': '{name} ਨੇ ਤੁਹਾਡੇ ਨਾਲ ਫੋਰਸ ਸਾਈਡਸ਼ੋ ਕੀਤਾ',
       'sideshowForcedOn': '{from} ਨੇ {to} ਨਾਲ ਫੋਰਸ ਸਾਈਡਸ਼ੋ ਕੀਤਾ',
+      'missile': 'ਮਿਜ਼ਾਈਲ',
+      'fireMissileTitle': 'ਮਿਜ਼ਾਈਲ ਚਲਾਉਣੀ ਹੈ?',
+      'fireMissileBody':
+          'ਹੱਥ ਵਿੱਚ ਬਾਕੀ ਸਾਰੇ ਖਿਡਾਰੀਆਂ ਦੇ ਪੱਤੇ ਖੁੱਲ੍ਹਣਗੇ ਅਤੇ ਸਭ ਤੋਂ ਵਧੀਆ ਹੱਥ ਪੌਟ ਜਿੱਤੇਗਾ। 1 ਮਿਜ਼ਾਈਲ ਲੱਗੇਗੀ।',
+      'fireMissileNote': 'ਬਰਾਬਰੀ ’ਤੇ ਤੁਸੀਂ ਹਾਰੋਗੇ।',
+      'fire': 'ਚਲਾਓ',
+      'missileTooLate':
+          'ਦੇਰ ਹੋ ਗਈ — ਮਿਜ਼ਾਈਲ ਨਹੀਂ ਚਲਾਈ ਗਈ। ਕੋਈ ਮਿਜ਼ਾਈਲ ਖਰਚ ਨਹੀਂ ਹੋਈ।',
+      'noMissilesTitle': 'ਕੋਈ ਮਿਜ਼ਾਈਲ ਬਾਕੀ ਨਹੀਂ',
+      'noMissilesBody':
+          'ਮਿਜ਼ਾਈਲ ਚਲਾਉਣ ਲਈ 1 ਮਿਜ਼ਾਈਲ ਲੱਗਦੀ ਹੈ। ਸਟੋਰ ਵਿੱਚ ਹੀਰਿਆਂ ਨਾਲ ਹੋਰ ਲਓ?',
+      'getMissiles': 'ਮਿਜ਼ਾਈਲਾਂ ਲਓ',
+      'noMissiles': 'ਮਿਜ਼ਾਈਲ ਚਲਾਉਣ ਲਈ ਮਿਜ਼ਾਈਲ ਚਾਹੀਦੀ ਹੈ',
+      'tooFewPlayers': 'ਇਸ ਲਈ ਹੱਥ ਵਿੱਚ ਘੱਟੋ-ਘੱਟ 3 ਖਿਡਾਰੀ ਹੋਣੇ ਚਾਹੀਦੇ ਹਨ',
+      'missileFiredByYou': 'ਤੁਸੀਂ ਮਿਜ਼ਾਈਲ ਚਲਾਈ',
+      'missileFiredBy': '{name} ਨੇ ਮਿਜ਼ਾਈਲ ਚਲਾਈ',
+      'storeTabMissiles': 'ਮਿਜ਼ਾਈਲਾਂ',
+      'storeMissilesTitle': 'ਮਿਜ਼ਾਈਲ ਸਟੋਰ',
+      'storeMissilesBlurb': 'ਹੀਰੇ ਬਦਲੋ: 1 ਹੀਰਾ = 2 ਮਿਜ਼ਾਈਲਾਂ।',
+      'tradeMissilesTitle': 'ਹੀਰੇ ਬਦਲਣੇ ਹਨ?',
+      'tradeMissilesBody':
+          '{diamonds} ਹੀਰੇ ਦੇ ਕੇ {missiles} ਮਿਜ਼ਾਈਲਾਂ ਲੈਣੀਆਂ ਹਨ?',
+      'trade': 'ਬਦਲੋ',
+      'notEnoughDiamondsTitle': 'ਕਾਫ਼ੀ ਹੀਰੇ ਨਹੀਂ',
+      'notEnoughDiamondsBody':
+          'ਇਸ ਸੌਦੇ ਲਈ {diamonds} ਹੀਰੇ ਚਾਹੀਦੇ ਹਨ। ਹੋਰ ਹੀਰੇ ਲਓ?',
+      'getDiamonds': 'ਹੀਰੇ ਲਓ',
+      'missilesAdded': '{n} ਮਿਜ਼ਾਈਲਾਂ ਤੁਹਾਡੇ ਵਾਲਿਟ ਵਿੱਚ ਜੁੜ ਗਈਆਂ',
+      'rewardMissilesTraded':
+          'ਮਿਜ਼ਾਈਲਾਂ ਤੁਹਾਡੇ ਵਾਲਿਟ ਵਿੱਚ ਹਨ। ਟੇਬਲ ’ਤੇ ਮਿਜ਼ਾਈਲ ਚਲਾਓ।',
       'seeCards': 'ਪੱਤੇ ਵੇਖੋ',
       'blindMovesLeft': 'ਬਲਾਈਂਡ ਚਾਲਾਂ ਬਾਕੀ',
       'blindMovesLabel': 'ਬਲਾਈਂਡ ਚਾਲਾਂ ਬਾਕੀ',
@@ -1691,7 +1983,12 @@ class Strings {
       'resumingTable': 'ਤੁਹਾਡੇ ਟੇਬਲ ਤੇ ਵਾਪਸ ਜਾ ਰਹੇ ਹਾਂ…',
       'welcomeBack': 'ਵਾਪਸੀ ਤੇ ਸਵਾਗਤ — ਤੁਸੀਂ ਆਪਣੇ ਟੇਬਲ ਤੇ ਵਾਪਸ ਹੋ।',
       'appVersion': 'ਐਪ ਵਰਜਨ',
-      'tableLost': 'ਤੁਸੀਂ ਦੂਰ ਸੀ ਤਾਂ ਟੇਬਲ ਬੰਦ ਹੋ ਗਿਆ।',
+      'tableLost': 'ਤੁਸੀਂ ਦੂਰ ਸੀ ਤਾਂ ਤੁਹਾਡੀ ਸੀਟ ਚਲੀ ਗਈ।',
+      'notConnected': 'ਕਨੈਕਸ਼ਨ ਨਹੀਂ ਹੈ। ਇਹ ਨਹੀਂ ਭੇਜਿਆ ਗਿਆ।',
+      'reconnecting': 'ਕਨੈਕਸ਼ਨ ਟੁੱਟ ਗਿਆ। ਮੁੜ ਜੁੜ ਰਹੇ ਹਾਂ…',
+      'kickedNoChips': 'ਇਸ ਟੇਬਲ ਉੱਤੇ ਰਹਿਣ ਲਈ ਤੁਹਾਡੇ ਕੋਲ ਲੋੜੀਂਦੇ ਚਿਪਸ ਨਹੀਂ ਹਨ।',
+      'kickedIdle': 'ਲਗਾਤਾਰ {n} ਚਾਲਾਂ ਖੁੰਝਣ ਕਾਰਨ ਤੁਸੀਂ ਟੇਬਲ ਛੱਡ ਦਿੱਤਾ।',
+      'leaveStakeStays': 'ਤੁਹਾਡਾ ਦਾਅ ਪੌਟ ਵਿੱਚ ਹੀ ਰਹੇਗਾ',
       'winner': 'ਜੇਤੂ',
       'tableChat': 'ਟੇਬਲ ਚੈਟ',
       'saySomething': 'ਕੁਝ ਕਹੋ…',

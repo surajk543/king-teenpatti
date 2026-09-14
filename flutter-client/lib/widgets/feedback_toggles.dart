@@ -75,53 +75,63 @@ class _FeedbackSwitch extends StatelessWidget {
     // sees BOTH. Left to tap for itself it would buzz twice for a thumb tap
     // and once for everything else. So the two targets tap for themselves and
     // the scale stays silent.
-    return PressScale(
-      haptic: false,
-      child: InkWell(
-        // Material's own click, gated on the player's Sound switch —
-        // otherwise a silenced game would still tick on every tap.
-        enableFeedback: context.select<FeedbackSettings, bool>((f) => f.sound),
-        onTap: () {
-          // Read before the flip, so silencing vibration still acknowledges
-          // the tap that silenced it.
-          tapHaptic(context);
-          onChanged(!value);
-        },
-        child: Padding(
-          padding: const EdgeInsets.symmetric(
-            horizontal: Space.lg,
-            vertical: Space.sm,
+    // MergeSemantics: the row's InkWell is its own semantics node, so a screen
+    // reader landed on the row and heard a button with no on/off state while
+    // the Switch's toggled state sat on a separate node beside it. Merged, the
+    // row reads as one switch that says whether it is on.
+    return MergeSemantics(
+      child: PressScale(
+        haptic: false,
+        child: InkWell(
+          // Material's own click, gated on the player's Sound switch —
+          // otherwise a silenced game would still tick on every tap.
+          enableFeedback: context.select<FeedbackSettings, bool>(
+            (f) => f.sound,
           ),
-          child: Row(
-            children: [
-              // The icon carries the state as well as the switch does — a
-              // crossed-out speaker is readable at a glance where a switch
-              // position alone is not.
-              Icon(
-                icon,
-                size: 20,
-                color: value ? ink : ink.withValues(alpha: AppTheme.inkLow),
-              ),
-              const SizedBox(width: Space.lg),
-              Expanded(
-                child: Text(
-                  label,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: value ? ink : ink.withValues(alpha: AppTheme.inkMed),
+          onTap: () {
+            // Read before the flip, so silencing vibration still acknowledges
+            // the tap that silenced it.
+            tapHaptic(context);
+            onChanged(!value);
+          },
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: Space.lg,
+              vertical: Space.sm,
+            ),
+            child: Row(
+              children: [
+                // The icon carries the state as well as the switch does — a
+                // crossed-out speaker is readable at a glance where a switch
+                // position alone is not.
+                Icon(
+                  icon,
+                  size: 20,
+                  color: value ? ink : ink.withValues(alpha: AppTheme.inkLow),
+                ),
+                const SizedBox(width: Space.lg),
+                Expanded(
+                  child: Text(
+                    label,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: value
+                          ? ink
+                          : ink.withValues(alpha: AppTheme.inkMed),
+                    ),
                   ),
                 ),
-              ),
-              // The thumb is its own gesture: a tap on it never reaches the
-              // row's InkWell. It taps for itself, then hands the caller's
-              // callback the value exactly once.
-              Switch(
-                value: value,
-                onChanged: (v) {
-                  tapHaptic(context);
-                  onChanged(v);
-                },
-              ),
-            ],
+                // The thumb is its own gesture: a tap on it never reaches the
+                // row's InkWell. It taps for itself, then hands the caller's
+                // callback the value exactly once.
+                Switch(
+                  value: value,
+                  onChanged: (v) {
+                    tapHaptic(context);
+                    onChanged(v);
+                  },
+                ),
+              ],
+            ),
           ),
         ),
       ),

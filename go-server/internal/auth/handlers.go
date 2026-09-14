@@ -581,6 +581,72 @@ func (h *Handler) BuyPicture(w http.ResponseWriter, r *http.Request, user *db.Us
 	})
 }
 
+// TradeMissiles is POST /api/store/missiles {packId, requestId} (owner, 14 Sep
+// 2026): the missile store, where diamonds become missiles at 1 diamond = 2
+// missiles, in the packs of db.MissilePacks.
+//
+// Order: no store → 503; body (400 invalid_json); a pack the catalogue does
+// not hold → 400 unknown_pack; a requestId empty or longer than
+// MissileRequestIDMaxLength → 400 invalid_request_id; then the trade, where a
+// wallet short of the pack's diamonds → 409 not_enough_diamonds. A request
+// already traded answers 200 with charged:false and 0 of each, and the account
+// as it stands.
+//
+// There is no seated check, deliberately: diamonds sit outside the seated
+// wallet invariant (CLAUDE.md §5.1) as a DIAMOND picture does, and a table
+// never holds a missile count — it charges the wallet when one is fired. A
+// player who runs out at a table can trade for more without leaving it.
+func (h *Handler) TradeMissiles(w http.ResponseWriter, r *http.Request, user *db.User) {
+	if h.deps.Missiles == nil {
+		WriteJSON(w, http.StatusServiceUnavailable, ErrorResponse{Error: CodeStoreUnavailable, Message: MsgMissileStoreClosed})
+		return
+	}
+	var req MissileTradeRequest
+	if err := ReadJSONBody(r, &req); err != nil {
+		h.writeError(w, r, err)
+		return
+	}
+	pack, ok := db.LookupMissilePack(req.PackID)
+	if !ok {
+		WriteJSON(w, http.StatusBadRequest, ErrorResponse{Error: CodeUnknownPack, Message: MsgUnknownMissilePack})
+		return
+	}
+	if n := utf16Len(req.RequestID); n == 0 || n > MissileRequestIDMaxLength {
+		WriteJSON(w, http.StatusBadRequest, ErrorResponse{Error: CodeInvalidRequestID, Message: MsgInvalidRequestID})
+		return
+	}
+
+	trade, err := h.deps.Missiles.TradeMissiles(r.Context(), user.ID, pack.ID, req.RequestID)
+	switch {
+	case errors.Is(err, db.ErrNotEnoughDiamonds):
+		message := fmt.Sprintf(MsgNotEnoughDiamondsFormat, pack.Diamonds)
+		if pack.Diamonds == 1 {
+			message = MsgNotEnoughDiamondOne
+		}
+		WriteJSON(w, http.StatusConflict, ErrorResponse{Error: CodeNotEnoughDiamonds, Message: message})
+		return
+	case errors.Is(err, db.ErrMissilePackUnknown):
+		WriteJSON(w, http.StatusBadRequest, ErrorResponse{Error: CodeUnknownPack, Message: MsgUnknownMissilePack})
+		return
+	case errors.Is(err, db.ErrMissileRequestID):
+		WriteJSON(w, http.StatusBadRequest, ErrorResponse{Error: CodeInvalidRequestID, Message: MsgInvalidRequestID})
+		return
+	case err != nil:
+		h.writeError(w, r, err)
+		return
+	}
+	if trade.Charged && h.deps.Logger != nil {
+		h.deps.Logger.Info("missiles traded",
+			"userId", user.ID, "packId", pack.ID, "diamonds", trade.Diamonds, "missiles", trade.Missiles)
+	}
+	WriteJSON(w, http.StatusOK, MissileTradeResponse{
+		User:     trade.User,
+		Charged:  trade.Charged,
+		Diamonds: trade.Diamonds,
+		Missiles: trade.Missiles,
+	})
+}
+
 // Name is POST /api/profile/name {name} (requirement 29). Order: seated →
 // 409 ("You can only change your name in the lobby."); db.NormalizeDisplayName
 // failure → 400 {error: empty_name|name_too_long|invalid_name, message}; then

@@ -65,6 +65,7 @@ void main() {
         StoreTab.chips,
         StoreTab.diamonds,
         StoreTab.hammers,
+        StoreTab.missiles,
         StoreTab.pictures,
       ]);
     });

@@ -194,7 +194,11 @@ type RoomManagerOptions struct {
 	// Production: db.Hammers. nil → each table's empty default, which refuses
 	// every Force Sideshow no_hammers.
 	Hammers HammerWallet
-	Clock   Clock // nil → RealClock{}
+	// Missiles is the wallet every Table fires a missile from. Production:
+	// db.Missiles. nil → each table's empty default, which refuses every
+	// missile no_missiles.
+	Missiles MissileWallet
+	Clock    Clock // nil → RealClock{}
 	// TableListener receives every Table's events (the socket layer). The
 	// RoomManager wraps it (see tableHooks) so that it can act on OnKick,
 	// OnPersistError and OnError itself, then forwards every call unchanged.
@@ -294,16 +298,17 @@ type RoomManagerOptions struct {
 //
 // All methods Node marked async are ordinary blocking methods here.
 type RoomManager struct {
-	game    config.GameConfig
-	chat    config.ChatConfig
-	ledger  Ledger
-	hammers HammerWallet
-	clock   Clock
-	tl      Listener
-	rl      RoomListener
-	log     *slog.Logger
-	mx      MetricsHooks
-	hooks   *tableHooks
+	game     config.GameConfig
+	chat     config.ChatConfig
+	ledger   Ledger
+	hammers  HammerWallet
+	missiles MissileWallet
+	clock    Clock
+	tl       Listener
+	rl       RoomListener
+	log      *slog.Logger
+	mx       MetricsHooks
+	hooks    *tableHooks
 
 	// loadPlayer is RoomManagerOptions.LoadPlayer (nil → the caller's Player).
 	loadPlayer func(ctx context.Context, userID string) (Player, error)
@@ -443,6 +448,7 @@ func NewRoomManager(opts RoomManagerOptions) *RoomManager {
 		chat:        opts.Chat,
 		ledger:      ledger,
 		hammers:     opts.Hammers,
+		missiles:    opts.Missiles,
 		loadPlayer:  opts.LoadPlayer,
 		clock:       clock,
 		tl:          tl,
@@ -628,6 +634,7 @@ func (rm *RoomManager) newTableLocked(opts CreateTableOptions) *Table {
 		SideshowMinPlayers: g.SideshowMinPlayers,
 		NextHandDelay:      g.NextHandDelay,
 		UnfundedGrace:      g.UnfundedGrace,
+		MissileRevealExtra: g.MissileRevealExtra,
 		ChatMaxHistory:     rm.chat.MaxHistory,
 		ChatMaxLength:      rm.chat.MaxLength,
 	}
@@ -650,12 +657,14 @@ func (rm *RoomManager) newTableLocked(opts CreateTableOptions) *Table {
 }
 
 // tableOptions completes a table's options with everything every table of
-// this manager shares: ledger, hammer wallet, clock, the hooks Listener and
-// the live store. A restored table gets them through here too, so a Force
-// Sideshow on a table brought back from the live store is charged like any other.
+// this manager shares: ledger, hammer and missile wallets, clock, the hooks
+// Listener and the live store. A restored table gets them through here too, so
+// a Force Sideshow or a missile on a table brought back from the live store is
+// charged like any other.
 func (rm *RoomManager) tableOptions(opts TableOptions) TableOptions {
 	opts.Ledger = rm.ledger
 	opts.Hammers = rm.hammers
+	opts.Missiles = rm.missiles
 	opts.Clock = rm.clock
 	opts.Listener = rm.hooks
 	opts.Live = rm.live

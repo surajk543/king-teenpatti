@@ -258,10 +258,14 @@ class _HammerPainter extends CustomPainter {
     return Offset(_lerp(x, at.dx, settle), y);
   }
 
-  /// The furthest any part of the drawing gets from the face, at any
-  /// rotation, as a share of the canvas: the claw's tip at the top of the
-  /// wind-up.
-  static const double _flyingReach = 0.68;
+  /// How far above the face the floor keeps the drawing while it flies, as a
+  /// share of the canvas. 0.68 — the claw's tip at the top of the wind-up —
+  /// still let the handle's end leave the top edge for three frames of a
+  /// left-to-top-right flight on a 640dp phone (QA 14 Sep 2026), half-turned
+  /// between head-first and upright; 0.95 covers the handle at that angle, and
+  /// the floor still eases to [HammerArt.reachAbove] on arrival, so the face
+  /// lands where it did.
+  static const double _flyingReach = 0.95;
 
   void _paintHammer(
     Canvas canvas,

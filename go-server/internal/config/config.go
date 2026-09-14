@@ -283,7 +283,12 @@ type GameConfig struct {
 	// longer cover the boot is held between hands before the
 	// insufficient_chips kick (requirements 31/32), so a player buying chips
 	// has time to finish the purchase and stay. 0 = at once (Node's rule).
-	UnfundedGrace       time.Duration
+	UnfundedGrace time.Duration
+	// MissileRevealExtra is MISSILE_REVEAL_EXTRA_MS 3000 (Go only, owner 14 Sep
+	// 2026): added to NextHandDelay after a missile showdown, so the next deal
+	// waits for the client's flight and explosions (about 1.6 s) and gives
+	// everyone time to look at the revealed hands. 0 = the ordinary delay.
+	MissileRevealExtra  time.Duration
 	ConsolidateInterval time.Duration // CONSOLIDATE_INTERVAL_MS 15000 (requirement 24 sweeper)
 	ReconnectGrace      time.Duration // RECONNECT_GRACE_MS 60000 (seat held after a drop)
 	// ResumeOffer is RESUME_OFFER_MS 600000: after the held seat lapses, how
@@ -407,6 +412,7 @@ func Defaults() *Config {
 			PrivateBoot:             200,
 			NextHandDelay:           4 * time.Second,
 			UnfundedGrace:           30 * time.Second,
+			MissileRevealExtra:      3 * time.Second,
 			ConsolidateInterval:     15 * time.Second,
 			ReconnectGrace:          60 * time.Second,
 			ResumeOffer:             10 * time.Minute,
@@ -592,6 +598,7 @@ func FromEnv(lookup Lookup) (*Config, error) {
 	g.PrivateBoot = r.int64("PRIVATE_BOOT", g.PrivateBoot)
 	g.NextHandDelay = r.millis("NEXT_HAND_DELAY_MS", g.NextHandDelay)
 	g.UnfundedGrace = r.millis("UNFUNDED_GRACE_MS", g.UnfundedGrace)
+	g.MissileRevealExtra = r.millis("MISSILE_REVEAL_EXTRA_MS", g.MissileRevealExtra)
 	g.ConsolidateInterval = r.millis("CONSOLIDATE_INTERVAL_MS", g.ConsolidateInterval)
 	g.ReconnectGrace = r.millis("RECONNECT_GRACE_MS", g.ReconnectGrace)
 	g.ResumeOffer = r.millis("RESUME_OFFER_MS", g.ResumeOffer)

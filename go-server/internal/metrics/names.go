@@ -122,8 +122,9 @@ var (
 	// per-player `checkpoint` (a pack, a leave or a switch) and the hand-end
 	// `settle`. `bet` and `boot` are retired — a bet and the deal write
 	// nothing. `hammer_spend` (13 Sep 2026) is the third op and not a chip
-	// write: the hammer a Force Sideshow takes.
-	LedgerOps = map[string]struct{}{OpCheckpoint: {}, OpSettle: {}, OpHammerSpend: {}}
+	// write: the hammer a Force Sideshow takes. `missile_spend` (14 Sep 2026)
+	// is its twin: the missile a missile showdown takes.
+	LedgerOps = map[string]struct{}{OpCheckpoint: {}, OpSettle: {}, OpHammerSpend: {}, OpMissileSpend: {}}
 	// LiveOps are the `op` values of the live-store metrics: the live.Store
 	// method names in snake_case, and nothing else (SafeLabel folds any other
 	// value to "other").
@@ -170,6 +171,9 @@ const (
 	// a chip write — it touches users.hammer and hammer_spends only — but a
 	// transaction the table blocks on all the same, so it is timed with them.
 	OpHammerSpend = "hammer_spend"
+	// OpMissileSpend is the one missile a missile takes (db.Missiles): users.
+	// missile and missile_spends only, timed because the table blocks on it.
+	OpMissileSpend = "missile_spend"
 )
 
 // Live-store op labels: one per live.Store method.

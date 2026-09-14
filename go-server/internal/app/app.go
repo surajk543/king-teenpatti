@@ -220,6 +220,7 @@ func New(opts Options) (*App, error) {
 	pictures := db.NewPictures(opts.DB, users, clock.Now)
 	ledger := db.NewLedger(opts.DB, a.metrics, clock.Now)
 	hammers := db.NewHammers(opts.DB, a.metrics, clock.Now)
+	missiles := db.NewMissiles(opts.DB, users, a.metrics, clock.Now)
 	tokens := auth.NewTokens(cfg.JWT.Secret, cfg.JWT.ExpiresIn, clock.Now)
 	verifier := auth.NewVerifier(cfg)
 
@@ -251,7 +252,10 @@ func New(opts Options) (*App, error) {
 		Ledger: ledger,
 		// Every table charges a Force Sideshow's hammer here, on its actor,
 		// before it resolves (game.HammerWallet).
-		Hammers:       hammers,
+		Hammers: hammers,
+		// …and fires a missile from this wallet, the same way
+		// (game.MissileWallet).
+		Missiles:      missiles,
 		Clock:         clock,
 		TableListener: a.sockets,
 		Listener:      a.sockets,
@@ -360,6 +364,7 @@ func New(opts Options) (*App, error) {
 		IsSeated:    func(userID string) bool { return a.rooms.GetTableForPlayer(userID) != nil },
 		PictureWorn: func(userID string, avatarURL *string) { a.rooms.SetPlayerAvatar(userID, avatarURL) },
 		Purchases:   chipStore,
+		Missiles:    missiles,
 		Pictures:    pictures,
 		Logger:      logger,
 

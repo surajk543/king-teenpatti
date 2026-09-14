@@ -76,13 +76,19 @@ type User struct {
 	ActivePictureID *int64 `json:"activePictureId"`
 	Chips           int64  `json:"chips"`
 	// Diamond is the premium soft currency (users.diamond). Every account
-	// starts with 1. It is not chip_ledger's business: the ledger backs
-	// the chips invariant, and diamonds are not chips.
+	// created since V1.0.2 starts with 2 (1 before it). It is not
+	// chip_ledger's business: the ledger backs the chips invariant, and
+	// diamonds are not chips.
 	Diamond int `json:"diamond"`
 	// Hammer is users.hammer, the currency a Force Sideshow is paid in (owner,
 	// 13 Sep 2026): 20 for every account (the column's default), and bought
 	// in packs on Play. Like diamonds, never chip_ledger's business.
-	Hammer        int     `json:"hammer"`
+	Hammer int `json:"hammer"`
+	// Missile is users.missile, what a missile costs (owner, 14 Sep 2026): 1
+	// for every account created since V1.0.2, 0 for one created before it,
+	// and traded for diamonds at 2 missiles a diamond (POST
+	// /api/store/missiles). Never chip_ledger's business.
+	Missile       int     `json:"missile"`
 	HandsPlayed   int     `json:"handsPlayed"`
 	HandsWon      int     `json:"handsWon"`
 	HandsLost     int     `json:"handsLost"`
@@ -230,11 +236,12 @@ type queryer interface {
 
 // userColumns is every users column, in DDL order (a database built before the
 // consolidated baseline has hammer at the end of the table; it is listed beside
-// diamond, where the baseline declares it), so a row scans into
+// diamond, where the baseline declares it — and missile, which V1.0.2 adds at
+// the end of every table, beside hammer), so a row scans into
 // userRow without depending on `SELECT *` column ordering, followed by the
 // asset_url of the catalogue picture the player is wearing. Qualified with the
 // `u` alias because every read now goes through userFrom's join.
-const userColumns = `u.id, u.provider, u.provider_user_id, u.display_name, u.email, u.avatar_url, u.chips, u.diamond, u.hammer,
+const userColumns = `u.id, u.provider, u.provider_user_id, u.display_name, u.email, u.avatar_url, u.chips, u.diamond, u.hammer, u.missile,
        u.hands_played, u.hands_won, u.hands_lost, u.hands_left_mid, u.total_winnings, u.biggest_pot,
        u.milestone_claimed, u.next_bonus_at, u.active_picture_id, u.created_at, u.updated_at, u.last_login_at,
        ap.asset_url`
@@ -259,6 +266,7 @@ type userRow struct {
 	chips                             int64
 	diamond                           int
 	hammer                            int
+	missile                           int
 	handsPlayed, handsWon             int
 	handsLost, handsLeftMid           int
 	totalWinnings, biggestPot         int64
@@ -270,7 +278,7 @@ type userRow struct {
 // scanUser scans one row selected with userColumns; pgx.ErrNoRows → nil, nil.
 func scanUser(row pgx.Row) (*userRow, error) {
 	var r userRow
-	err := row.Scan(&r.id, &r.provider, &r.providerUserID, &r.displayName, &r.email, &r.avatarURL, &r.chips, &r.diamond, &r.hammer,
+	err := row.Scan(&r.id, &r.provider, &r.providerUserID, &r.displayName, &r.email, &r.avatarURL, &r.chips, &r.diamond, &r.hammer, &r.missile,
 		&r.handsPlayed, &r.handsWon, &r.handsLost, &r.handsLeftMid, &r.totalWinnings, &r.biggestPot,
 		&r.milestoneClaimed, &r.nextBonusAt, &r.activePictureID, &r.createdAt, &r.updatedAt, &r.lastLoginAt,
 		&r.pictureAssetURL)
@@ -321,6 +329,7 @@ func (u *Users) publicUser(r *userRow) *User {
 		Chips:             r.chips,
 		Diamond:           r.diamond,
 		Hammer:            r.hammer,
+		Missile:           r.missile,
 		HandsPlayed:       r.handsPlayed,
 		HandsWon:          r.handsWon,
 		HandsLost:         r.handsLost,

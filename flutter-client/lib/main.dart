@@ -11,7 +11,6 @@ import 'screens/splash_screen.dart';
 import 'screens/update_screen.dart';
 import 'screens/lobby_screen.dart';
 import 'screens/table_screen.dart';
-import 'models/dtos.dart';
 import 'settings/feedback_settings.dart';
 import 'state/game_state.dart';
 import 'theme/app_theme.dart';
@@ -519,16 +518,15 @@ class _BackGuard extends StatelessWidget {
         }
 
         if (screen == Screen.table) {
-          final room = state.room;
-          final midHand =
-              room?.state == TableState.betting &&
-              room?.you?.status == SeatState.active;
-
           final leave = await _ask(
             context,
             icon: Icons.logout,
             title: t.leaveTableQ,
-            body: midHand ? t.leaveMidHand : t.leaveAnytime,
+            body: t.leaveAnytime,
+            // Read live, not when the dialog opened: a hand dealt while it is
+            // up makes leaving cost the boot, and the text said it was free
+            // (QA PIX-4, 14 Sep 2026).
+            liveBody: (s) => s.inLiveHand ? s.t.leaveMidHand : s.t.leaveAnytime,
             confirm: t.leave,
             cancel: t.stay,
           );
@@ -557,6 +555,7 @@ class _BackGuard extends StatelessWidget {
     required String body,
     required String confirm,
     required String cancel,
+    String Function(GameState state)? liveBody,
   }) {
     final theme = Theme.of(context);
 
@@ -578,11 +577,15 @@ class _BackGuard extends StatelessWidget {
             ),
           ],
         ),
-        content: Text(
-          body,
-          style: theme.textTheme.bodyMedium?.copyWith(
-            color: theme.colorScheme.onSurface.withValues(
-              alpha: AppTheme.inkMed,
+        content: Builder(
+          builder: (context) => Text(
+            liveBody == null
+                ? body
+                : context.select<GameState, String>(liveBody),
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.onSurface.withValues(
+                alpha: AppTheme.inkMed,
+              ),
             ),
           ),
         ),
@@ -616,10 +619,26 @@ class _NoticeHost extends StatefulWidget {
 
 class _NoticeHostState extends State<_NoticeHost> {
   String? _shown;
+  Screen? _screen;
 
   @override
   Widget build(BuildContext context) {
     final notice = context.select<GameState, String?>((s) => s.notice);
+
+    // A toast belongs to the screen it was raised on. The lobby's "Left the
+    // table after 3 missed turns" stayed up after the player sat down again,
+    // over their own chips and the − key (QA 14 Sep 2026). When the screen
+    // changes with nothing new to say, the old toast goes; when it changes
+    // WITH news — a kick lands in the lobby together with its reason — the
+    // news replaces it below as before.
+    final screen = context.select<GameState, Screen>((s) => s.screen);
+    final moved = _screen != null && _screen != screen;
+    _screen = screen;
+    if (moved && notice == null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) ScaffoldMessenger.of(context).clearSnackBars();
+      });
+    }
 
     if (notice != null && notice != _shown) {
       _shown = notice;

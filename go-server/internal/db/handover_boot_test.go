@@ -190,11 +190,11 @@ func TestTheAppRoleBootsTwiceBeforeAndAfterUsersIsHandedToTheSuperuser(t *testin
 	}
 
 	// 4. Tables created while postgres owns users, with a foreign key to it.
-	// diamond_purchases, hammer_purchases and hammer_spends stand in for every
-	// such table a later release adds: dropped here, the baseline creates them
-	// again on the next boot. That takes REFERENCES on users, which an owner
-	// has and a grantee must be given.
-	referencing := []string{"diamond_purchases", "hammer_purchases", "hammer_spends"}
+	// diamond_purchases, hammer_purchases, hammer_spends, missile_purchases and
+	// missile_spends stand in for every such table a later release adds:
+	// dropped here, the migrations create them again on the next boot. That
+	// takes REFERENCES on users, which an owner has and a grantee must be given.
+	referencing := []string{"diamond_purchases", "hammer_purchases", "hammer_spends", "missile_purchases", "missile_spends"}
 	for _, table := range referencing {
 		if _, err := admin.Exec(ctx, `DROP TABLE `+qualified(table)); err != nil {
 			t.Fatal(err)
@@ -233,6 +233,27 @@ func TestTheAppRoleBootsTwiceBeforeAndAfterUsersIsHandedToTheSuperuser(t *testin
 	})
 	if err != nil || spent.Remaining != 19 {
 		t.Fatalf("a Force Sideshow's hammer must be spendable on §7's grants: %+v %v", spent, err)
+	}
+
+	// 6. Missiles too (V1.0.2): its guarded ALTERs ran in step 1 and were
+	// skipped by every boot since, so the account holds the 2 diamonds and 1
+	// missile every new account gets, can fire it, and can trade for more.
+	var diamonds, missiles int64
+	if err := admin.QueryRow(ctx, `SELECT diamond, missile FROM `+qualified("users")+` WHERE id = $1`, u.ID).Scan(&diamonds, &missiles); err != nil {
+		t.Fatal(err)
+	}
+	if diamonds != 2 || missiles != 1 {
+		t.Fatalf("a new account holds %d diamonds and %d missiles, want 2 and 1", diamonds, missiles)
+	}
+	store := db.NewMissiles(d, db.NewUsers(d, welcome, nil), nil, nil)
+	fired, err := store.SpendMissile(ctx, game.MissileSpend{
+		HandID: "handover", UserID: u.ID, ActionID: game.MissileSpendID("handover", u.ID, suffix),
+	})
+	if err != nil || fired.Remaining != 0 {
+		t.Fatalf("a missile must be spendable on §7's grants: %+v %v", fired, err)
+	}
+	if trade, err := store.TradeMissiles(ctx, u.ID, "missiles_2", "handover-"+suffix); err != nil || !trade.Charged || trade.User.Missile != 2 {
+		t.Fatalf("a missile trade must work on §7's grants: %+v %v", trade, err)
 	}
 }
 

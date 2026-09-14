@@ -92,7 +92,7 @@ test('quick-join: ack shape, snapshot shape, and the joiner hears room:state bef
   assertKeys(joined.you, YOU_KEYS, 'you');
   assert.deepEqual(joined.you, {
     seatIndex: 0, chips: profile.welcomeChips, status: 'waiting', isBlind: true, blindMovesLeft: 4, contributed: 0,
-    missedTurns: 0, maxMissedTurns: 3, cards: [], options: null,
+    missedTurns: 0, maxMissedTurns: 3, canMissile: false, cards: [], options: null,
   });
   assert.equal(joined.seats.length, 5);
   assertKeys(joined.seats[0], SEAT_KEYS, 'seat');

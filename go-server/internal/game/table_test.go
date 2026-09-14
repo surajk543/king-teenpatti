@@ -252,6 +252,7 @@ type harnessOptions struct {
 	liveErrors func(op string, err error)
 	owed       func(req SettleRequest, owed bool)
 	hammers    HammerWallet
+	missiles   MissileWallet
 }
 
 type harnessOption func(*harnessOptions)
@@ -317,6 +318,7 @@ func newHarness(t *testing.T, cfg TableConfig, opts ...harnessOption) *harness {
 		Config:     cfg,
 		Ledger:     ledger,
 		Hammers:    o.hammers,
+		Missiles:   o.missiles,
 		Clock:      h.clock,
 		Listener:   h.rec,
 		Live:       o.live,

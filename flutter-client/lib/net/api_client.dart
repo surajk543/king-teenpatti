@@ -7,8 +7,15 @@ import '../models/dtos.dart';
 /// Thrown when the server refuses a request. The message is the server's own,
 /// so it is safe to put in front of the player.
 class ApiException implements Exception {
-  ApiException(this.message);
+  ApiException(this.message, {this.code, this.status});
   final String message;
+
+  /// The server's snake_case code (`{error: code, message}`), when it sent
+  /// one: what a caller branches on, since the message is English.
+  final String? code;
+
+  /// The HTTP status, when the refusal came from a response.
+  final int? status;
   @override
   String toString() => message;
 }
@@ -40,10 +47,17 @@ class ApiClient {
     if (r.statusCode >= 400) {
       final error = map['error'];
       final message = error is Map ? error['message'] : map['message'];
+      final code = error is String
+          ? error
+          : error is Map && error['code'] is String
+          ? error['code'] as String
+          : null;
       throw ApiException(
         '$message'.isEmpty || message == null
             ? 'Request failed (${r.statusCode})'
             : '$message',
+        code: code,
+        status: r.statusCode,
       );
     }
     return map;
@@ -168,6 +182,36 @@ class ApiClient {
       user: User.fromJson(Map<String, dynamic>.from(j['user'] as Map)),
       charged: j['charged'] == true,
       spent: (j['spent'] as num?)?.toInt() ?? 0,
+    );
+  }
+
+  /// Trades diamonds for missiles (owner, 14 Sep 2026): `POST
+  /// /api/store/missiles {packId, requestId}`, in the lobby or at a table.
+  ///
+  /// No counts are sent — the server holds the packs (1 diamond = 2
+  /// missiles) and answers with what it spent and gave. [requestId] is minted
+  /// once per attempt and sent again on a retry of that attempt: a replay
+  /// answers `charged: false` and charges nothing twice.
+  ///
+  /// Refusals arrive as [ApiException] with a [ApiException.code]:
+  /// `not_enough_diamonds` (409), `unknown_pack` or `invalid_request_id`
+  /// (400).
+  Future<({User user, bool charged, int diamonds, int missiles})> tradeMissiles(
+    String token,
+    String packId,
+    String requestId,
+  ) async {
+    final r = await http.post(
+      _uri('/api/store/missiles'),
+      headers: _headers(token),
+      body: jsonEncode({'packId': packId, 'requestId': requestId}),
+    );
+    final j = _decode(r);
+    return (
+      user: User.fromJson(Map<String, dynamic>.from(j['user'] as Map)),
+      charged: j['charged'] == true,
+      diamonds: (j['diamonds'] as num?)?.toInt() ?? 0,
+      missiles: (j['missiles'] as num?)?.toInt() ?? 0,
     );
   }
 

@@ -184,6 +184,7 @@ Produced by `publicUser(row)` from a `users` row. Key order and types (MUST MATC
   "chips": <integer>,                              // BIGINT parsed to a JS number
   "diamond": <integer>,                            // Go only: users.diamond, the premium currency
   "hammer": <integer>,                             // Go only (owner, 13 Sep 2026): users.hammer, what a Force Sideshow costs (§6.1.1); 20 per account
+  "missile": <integer>,                            // Go only (owner, 14 Sep 2026): users.missile, what a missile costs (§6.1.2); 1 per new account
   "handsPlayed": <integer>,
   "handsWon": <integer>,
   "handsLost": <integer>,                          // row.hands_lost ?? 0
@@ -206,9 +207,12 @@ Produced by `publicUser(row)` from a `users` row. Key order and types (MUST MATC
 }
 ```
 
-Go today (`internal/db/users.go` `User`): `diamond` and `hammer` follow `chips` as marked, and
-`activePictureId` stands where `avatarChoice` was. `hammer` is the count as of that read; a Force
-Sideshow's ack carries the count left after it (§6.1.1).
+Go today (`internal/db/users.go` `User`): `diamond`, `hammer` and `missile` follow `chips` as marked,
+and `activePictureId` stands where `avatarChoice` was. `hammer` is the count as of that read; a Force
+Sideshow's ack carries the count left after it (§6.1.1). `missile` likewise: a missile's ack carries
+the count left (§6.1.2), and `POST /api/store/missiles` (diamonds → missiles) answers with the whole
+user. New accounts start with 2 diamonds and 1 missile; accounts older than `V1.0.2__missiles.sql`
+hold 0 missiles.
 
 ### 3.2 `session:ready` payload (`sock:430-434`, `sock:733-745`)
 
@@ -323,7 +327,7 @@ MUST MATCH:
 
 `KNOWN_ERROR_CODES` (`sock:55-101`) exists only to fold metric labels; the ack always carries the
 real code. INCIDENTAL, but `metrics.test.js:613-615` asserts every `code` label is `^[a-z][a-z0-9_]*$`.
-Go's `KnownErrorCodes` (`internal/socket/wire.go`) adds `no_hammers` (§6.1.1).
+Go's `KnownErrorCodes` (`internal/socket/wire.go`) adds `no_hammers` (§6.1.1) and `no_missiles` (§6.1.2).
 
 ---
 
@@ -473,15 +477,16 @@ Payload `{action, amount?, actionId?}`. Checks in this exact order (each throws 
    'sideshow'}` (`constants.js:126-133`); else `unknown_action` with message
    `` `Unknown action "${action}"` `` (string interpolation: `undefined` → `Unknown action
    "undefined"`, an object → `Unknown action "[object Object]"`). `'__proto__'` is refused (a `Set`
-   lookup, not a property lookup). **Go adds `'forceSideshow'`** (`game.AllActions`, §6.1.1),
-   matched case-sensitively like the rest: `'ForceSideshow'` is `unknown_action`.
+   lookup, not a property lookup). **Go adds `'forceSideshow'` and `'missile'`** (`game.AllActions`,
+   §6.1.1, §6.1.2), matched case-sensitively like the rest: `'ForceSideshow'` and `'Missile'` are
+   `unknown_action`.
 2. `rooms.getTableForPlayer(user.id)` null → `not_in_room` "You are not at a table".
 3. Amount typing: `parsed = (amount === undefined || amount === null) ? undefined : amount`; if
    `parsed !== undefined && (typeof parsed !== 'number' || !Number.isSafeInteger(parsed))` →
    `invalid_bet` "Bet amount must be a whole number". Refuses strings (`"100"`, `"1e3"`), booleans,
    arrays, objects, `1.5`, and anything beyond ±2^53−1. Negative integers and `0` pass this check
    and are refused later by the ladder. **This check runs for every action, including `pack`,
-   `see`, `sideshow`** (and in Go `forceSideshow`) — `{action:'pack', amount:'x'}` is `invalid_bet`.
+   `see`, `sideshow`** (and in Go `forceSideshow` and `missile`) — `{action:'pack', amount:'x'}` is `invalid_bet`.
 4. `id = (typeof actionId === 'string' && actionId.length > 0 && actionId.length <= 64) ? actionId
    : undefined` — anything else is silently dropped and the table generates a `uuid()` for the
    ledger row (`table.js:849`), which removes idempotency protection for that move. Length is
@@ -506,6 +511,7 @@ Per-action results (the ack is `{ok:true, ...result}`), MUST MATCH:
 | `show` | `show_unavailable` "A show needs exactly two players left"; `insufficient_chips` "Not enough chips to pay for the show" (cost null or unaffordable); ledger refusals as above | `{action:'show', amount:<cost>}` |
 | `sideshow` | `sideshowBlockedReason` (`table.js:558-578`) in order `no_hand`, `not_in_hand`, `not_your_turn`, `sideshow_pending`, `already_asked`, `too_few_players`, `you_are_blind`, `no_neighbour`, `neighbour_is_blind`; messages (`table.js:1153-1161`): `sideshow_pending` "A sideshow is already in progress", `already_asked` "You have already asked for a sideshow this turn", `too_few_players` "A sideshow needs at least 3 players in the hand", `you_are_blind` "See your cards before asking for a sideshow", `neighbour_is_blind` "The player on your right has not seen their cards", `no_neighbour` "There is nobody on your right to ask", others "You cannot ask for a sideshow now" | `{action:'sideshow', toUserId:<id>}` |
 | `forceSideshow` (**Go only**, §6.1.1) | `sideshowBlockedReason` exactly as for `sideshow` — same codes, messages and order (its `no_hand`, `not_in_hand` and `not_your_turn` are already caught by `_act`); then `duplicate_action` "That move was already applied" when this hand has already delivered that `actionId`, from any move by any player; then the hammer spend: `no_hammers` "You need a hammer to force a sideshow", anything else `persist_failed` "The move could not be recorded, so nothing was changed". Every refusal spends nothing and leaves the table exactly as it was | `{action:'forceSideshow', toUserId:<asked>, packedUserId:<the loser>, hammers:<int left, present at 0>}` |
+| `missile` (**Go only**, §6.1.2) | after `_act`'s `no_hand`, `not_in_hand` and `not_your_turn`: `sideshow_pending` "A sideshow is already in progress"; `too_few_players` "A missile needs at least 3 players in the hand"; `duplicate_action` "That move was already applied" when this hand has already delivered that `actionId`; then the missile spend: `no_missiles` "You need a missile to fire", anything else `persist_failed` "The move could not be recorded, so nothing was changed". Every refusal spends nothing and leaves the table exactly as it was | `{action:'missile', missiles:<int left, present at 0>}` |
 
 When `amount` is omitted for `chaal`/`raise`, the table uses `options.chaal` / `options.raise`
 (`table.js:1030-1031`); Flutter omits `amount` for `see`/`pack` and sends it for bets/show; the
@@ -564,6 +570,55 @@ S→C  431[{"ok":true,"action":"forceSideshow","toUserId":"<asked>","packedUserI
 
 While `SIDESHOW_MIN_PLAYERS` is at least 3 (the default) the pack cannot end the hand: at least three
 were in it, so at least two remain.
+
+#### 6.1.2 `missile` (Go only — owner, 14 Sep 2026; DECISIONS.md §2)
+
+A showdown the player on turn forces, paid for with one missile (`users.missile`, §3.1): every hand
+still in is shown and the best takes the pot. Rules engine: `internal/game/table.go` `fireMissile`;
+the socket layer handles it like any other action (§6.1 steps 1–5,
+`game_moves_total{action="missile"}` on success). Missiles are bought with diamonds, 2 a diamond,
+through `POST /api/store/missiles {packId, requestId}` (DECISIONS.md §5).
+
+```
+C→S  421["game:action",{"action":"missile","actionId":"<uuid>"}]
+```
+
+`amount` is ignored (but still type-checked, step 3). `actionId` keys the spend:
+`<handId>:missile:<userId>:<actionId>` (`game.MissileSpendID`, the `missile_spends` primary key), so
+only the same player resending the same id in the same hand is free. Blind and seen players may both
+fire.
+
+Order of work, all on the table's actor:
+
+1. `_act`'s checks, then `missileBlockedReason`: `sideshow_pending`, then `too_few_players` (fewer
+   than `game.MissileMinPlayers` = 3 active seats, the firer included). `you.canMissile` and
+   `you.options.canMissile` are this same check (§8.1, §8.2) and say nothing about the wallet.
+2. `hand.actionIDs` already holds the id → `duplicate_action`.
+3. `MissileWallet.SpendMissile` (`db.Missiles`: the wallet row `FOR UPDATE`, `INSERT … missile_spends
+   ON CONFLICT DO NOTHING`, then `missile - 1`). A key already paid for succeeds uncharged, with the
+   balance as it stands. A short wallet → `no_missiles`; any other failure → `persist_failed` and
+   `persistError` (reason `missile_spend`). Nothing has been emitted yet.
+4. Paid: the id joins `hand.actionIDs`, the turn clock stops, and the hand resolves through
+   `resolveShowdown(active seats, 'missile', firer)` — the forced and pot-limit showdowns' path, so the
+   reveals, the settlement and the ledger rows are any showdown's. The firer takes the show payer's
+   place in the tie order: **an exact tie goes against the firer**.
+
+On the wire, in this order (the ack last, §11):
+
+| To | Event |
+|---|---|
+| room | `game:action {userId:<firer>, action:'missile', amount:0, pot, stake, roomId}` |
+| room | `game:showdown {reveals:[every active seat's {userId, seatIndex, cards, handName, category, won}], reason:'missile', roomId}` |
+| room | `game:handEnded {handId, handNo, winnerId, winnerName, pot, reason:'missile', reveals, summary, nextHandAt, roomId}` |
+| each | `room:state` ×2 — the hand over, then the countdown (`state:'starting'`, `startsAt` = `nextHandAt`) |
+
+```
+S→C  431[{"ok":true,"action":"missile","missiles":0}]
+```
+
+`nextHandAt` is now + `NEXT_HAND_DELAY_MS` + `MISSILE_REVEAL_EXTRA_MS` (Go-only key, default 3000),
+and the countdown that follows is held to it (`Table.holdStartUntil`), so the client can play the
+missile's flight and explosions and everyone can read the hands before the next deal.
 
 ### 6.2 `game:sideshowRespond` (`sock:636-640`)
 
@@ -701,6 +756,7 @@ Sequence`, `Trail`; `category` is the integer 0–5. MUST MATCH (Flutter shows t
     "seatIndex", "chips": <int>, "status", "isBlind": <bool>,
     "blindMovesLeft": <isBlind ? max(0, maxBlindMoves - blindMoves) : 0>,
     "contributed": <int>, "missedTurns": <int>, "maxMissedTurns": 3,
+    "canMissile": <bool>,                   // Go only (owner, 14 Sep 2026; §6.1.2): always present; missileBlockedReason is empty — not the missile count
     "cards": <isBlind ? [] : ["As","Kd","7c"]>,
     "options": <turnOptions(viewer) when hand && turnSeat === viewer.seatIndex && status === 'active', else null>
   } | null,
@@ -724,6 +780,7 @@ only under `you`; `sideshow` never carries cards.
 ```jsonc
 { "canSee": <isBlind>, "canSideshow": <bool>, "sideshowWith": <displayName|null>,
   "canForceSideshow": <bool>,   // Go only, see below
+  "canMissile": <bool>,         // Go only (§6.1.2): repeats you.canMissile
   "chaal": <int|null>, "raise": <int|null>, "raiseSteps": [<int>…], "maxBet": <int|null>,
   "show": <int|null>,   // only with exactly 2 active seats and affordable; else null
   "canPack": true, "isBlind": <bool>, "currentStake": <int>, "chips": <int>, "pot": <int> }
@@ -733,6 +790,10 @@ only under `you`; `sideshow` never carries cards.
 `sideshowBlockedReason` as `canSideshow`, so today the two are always equal, but it is its own key so a
 client never infers one from the other. It says nothing about hammers: the table does not hold the
 wallet, so a client greys its key on its own `user.hammer`, and the server refuses `no_hammers`.
+
+**Go only (owner, 14 Sep 2026):** `canMissile` follows `canForceSideshow` and repeats `you.canMissile`
+(§8.1): `missileBlockedReason` is empty. It says nothing about missiles, for the reason
+`canForceSideshow` says nothing about hammers.
 
 Flutter derives its whole action bar from `you.options` in `room:state` and never listens to
 `game:yourTurn`/`game:turn`; bots and the browser act on `game:yourTurn.options`
@@ -867,6 +928,7 @@ receives `session:replaced` then `41` then the TCP close.
 | bet | room | `game:action`, [`player:cards`+`game:action{see,auto:true}` if 4th blind move], `game:turn`/`game:yourTurn` or showdown, `room:state` ×2 (from `_advanceTurn` and `_bet`); ack |
 | kick | self | [removal traffic while still tracked], `room:kicked`; others `room:state` |
 | `forceSideshow` ok (Go) | the two / room / self | the §6.1.1 sequence for its outcome, then the ack; no `game:sideshowRequested` |
+| `missile` ok (Go) | room / self | `game:action{missile}`, `game:showdown{reason:'missile'}`, `game:handEnded{reason:'missile'}`, `room:state` ×2 (§6.1.2), then the ack |
 
 Acks are always written **after** every emit the handler performed (Socket.IO preserves order on one
 connection).
@@ -893,8 +955,14 @@ Go adds `game_moves_total{action="forceSideshow"}` and
 `game.AllActions`), and `game_invalid_moves_total{code="no_hammers"}`. Fed by `db.Hammers` rather than by
 this layer: `game_db_transaction_duration_seconds{op="hammer_spend"}` and
 `game_db_transaction_errors_total{op="hammer_spend",code}`. `op` ∈ `metrics.LedgerOps`
-(`checkpoint`, `settle`, `hammer_spend`), and a wallet with no hammers is a refusal, not a transaction
-error.
+(`checkpoint`, `settle`, `hammer_spend`, `missile_spend`), and a wallet with no hammers is a refusal,
+not a transaction error.
+
+Missiles (§6.1.2) add the same set: `game_moves_total{action="missile"}`,
+`game_move_processing_duration_seconds{action="missile"}`, `game_invalid_moves_total{code="no_missiles"}`,
+`game_games_completed_total{category,reason="missile"}`, and from `db.Missiles`
+`game_db_transaction_duration_seconds{op="missile_spend"}` and
+`game_db_transaction_errors_total{op="missile_spend",code}`. An empty wallet is a refusal here too.
 
 ---
 
@@ -1157,6 +1225,15 @@ guests (`POST /api/auth/login {provider:'guest', deviceId, displayName}`).
 | `internal/socket/forcesideshow_test.go` | guard, `unknown_action` for `ForceSideshow`, `no_hammers` acked and emitted as `game:error`, an ack of exactly five keys, the reveal to the two only, no `game:sideshowRequested`, the move and refusal metrics |
 | `internal/db/hammers_test.go` | a key charged once and never below zero; the key names the hand and the player; concurrent spends take no more than the wallet holds |
 | `tools/parity/invalid.test.js` "a forced sideshow needs no answer, costs one hammer, and is refused without one" | the same over real sockets against the built binary |
+
+### 15.6 Missile (Go only, §6.1.2)
+
+| Test | Assertion |
+|---|---|
+| `internal/game/missile_test.go` | every hand still in is shown and the best is paid, in the order `action, showdown, handEnded`, with the ack `{action, missiles}`; `nextHandAt` and the countdown carry `MISSILE_REVEAL_EXTRA_MS` and the next countdown is ordinary; a tie goes against the firer whoever deals; blind players may fire; `too_few_players`, `not_your_turn`, `not_in_hand`, `no_hand` and `sideshow_pending` spend nothing; `no_missiles` and `persist_failed` leave the snapshot byte-identical; a retry after a lost answer is not charged, and the same id in the next hand is; `canMissile` is true exactly when a missile would be let through; a snapshot round trip keeps the reveal countdown |
+| `internal/socket/missile_test.go` | guard, `unknown_action` for `Missile`, `no_missiles` acked and emitted as `game:error`, an ack of exactly three keys, the three events in order to every player, `nextHandAt` and the deal keeping to it, the move and hand metrics |
+| `internal/db/missiles_test.go` | a spend charged once per key and never below zero; a trade debits diamonds and credits missiles once per requestId (racing requests included); a short wallet is refused and recorded nowhere; a new account holds 2 diamonds and 1 missile; V1.0.2 on a V1.0.0 + V1.0.1 database gives existing accounts 0 missiles |
+| `internal/app/missiles_test.go` | `POST /api/store/missiles` over HTTP (success, replay, `unknown_pack`, `invalid_request_id`, `not_enough_diamonds`, `invalid_json`, seated allowed); a missile through the socket charged to `missile_spends`, with the books balanced |
 
 ---
 

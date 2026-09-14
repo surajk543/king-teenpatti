@@ -11,6 +11,7 @@ import '../models/dtos.dart';
 import '../settings/feedback_settings.dart';
 import '../state/game_state.dart';
 import '../state/hammer_strike.dart';
+import '../state/missile_strike.dart';
 import '../theme/app_theme.dart';
 import '../widgets/buy_chips.dart';
 import '../widgets/chip_store.dart';
@@ -19,6 +20,7 @@ import '../widgets/feedback_toggles.dart';
 import '../widgets/glass_components.dart';
 import '../widgets/glass_panels.dart';
 import '../widgets/hammer_flight.dart';
+import '../widgets/missile_flight.dart';
 import '../widgets/picture_shelf.dart';
 import '../widgets/playing_card.dart';
 import '../widgets/poker_chip.dart';
@@ -48,8 +50,8 @@ import '../widgets/table_ground.dart';
 /// brightnesses**, because the cloth is dark emerald in both. Only the chrome
 /// standing on the ground — the rail, the console, the drawers — follows the
 /// theme.
-/// Which of the three panels the left drawer is showing.
-enum _LeftPanel { menu, chat, quick }
+/// Which of the two panels the left drawer is showing.
+enum _LeftPanel { menu, chat }
 
 /// The left drawer's content, which tells the table when it has left the
 /// screen.
@@ -89,9 +91,9 @@ class TableScreen extends StatefulWidget {
 }
 
 class _TableScreenState extends State<TableScreen> {
-  /// The menu, the chat and the quick messages share one drawer rather than
-  /// being a drawer and two sheets: all three are "the panel behind the left
-  /// edge", and a Scaffold has only one of those. Which one is showing is
+  /// The menu and the chat (with its quick messages tab) share one drawer
+  /// rather than being a drawer and a sheet: both are "the panel behind the
+  /// left edge", and a Scaffold has only one of those. Which one is showing is
   /// decided before it opens — and one drawer is also what lets the back
   /// gesture close any of them (`_BackGuard` asks only `isDrawerOpen`).
   ///
@@ -108,8 +110,8 @@ class _TableScreenState extends State<TableScreen> {
 
   void _open(_LeftPanel panel) {
     // Only the chat shows the conversation, so only the chat clears its
-    // badge. The quick panel sends into it without showing it, and a line
-    // nobody read yet is still unread after the player has said something.
+    // badge. It always opens on the conversation, even though its quick
+    // messages tab sends into it without showing it.
     if (panel == _LeftPanel.chat) context.read<GameState>().markChatRead();
     setState(() => _panel = panel);
     _scaffold.currentState?.openDrawer();
@@ -117,10 +119,10 @@ class _TableScreenState extends State<TableScreen> {
 
   /// Puts the menu back behind the edge once the drawer has finished closing.
   ///
-  /// Left as it was, a swipe in from the edge after the quick messages would
-  /// open a panel where one stray tap talks to the whole table, and after the
-  /// chat it would show the conversation without clearing its badge. The
-  /// menu sends nothing and reads nothing, so it is what a swipe should find.
+  /// Left as it was, a swipe in from the edge after the chat would show the
+  /// conversation without clearing its badge, a tab away from quick messages
+  /// where one stray tap talks to the whole table. The menu sends nothing and
+  /// reads nothing, so it is what a swipe should find.
   ///
   /// `Scaffold.onDrawerChanged` cannot do this: it fires as the close starts,
   /// with the panel still on screen, and swapping it there would flash the
@@ -153,7 +155,6 @@ class _TableScreenState extends State<TableScreen> {
         child: switch (_panel) {
           _LeftPanel.menu => const _TableDrawer(),
           _LeftPanel.chat => const _ChatDrawer(),
-          _LeftPanel.quick => const _QuickDrawer(),
         },
       ),
       body: Stack(
@@ -212,24 +213,35 @@ class _TableScreenState extends State<TableScreen> {
           const Positioned(
             right: 0,
             bottom: 0,
-            child: SafeArea(child: _ActionCluster()),
+            child: SafeArea(child: _WhileOnline(child: _ActionCluster())),
           ),
           // Pack sits in the opposite corner from everything else, which is
           // the point: folding is the one action you never want under a thumb
-          // reaching for Chaal.
+          // reaching for Chaal. The Missile key stands on it (owner, 14 Sep
+          // 2026) — the other move that is pressed once and ends the hand,
+          // kept away from the keys pressed every turn.
           const Positioned(
             left: 0,
             bottom: 0,
-            child: SafeArea(child: _PackKey()),
+            child: SafeArea(
+              child: _WhileOnline(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [_MissileKey(), _PackKey()],
+                ),
+              ),
+            ),
           ),
+          const Positioned.fill(child: SafeArea(child: _Reconnecting())),
         ],
       ),
     );
   }
 }
 
-/// Diamonds and hammers, in the top-right corner of the room (owner,
-/// 13 Sep 2026).
+/// Diamonds, hammers and missiles, in the top-right corner of the room (owner,
+/// 13 and 14 Sep 2026).
 ///
 /// It stands on the Shop key's line, right-aligned with the key cluster below
 /// it, and is never wider than the corner it has: from the felt's right edge
@@ -247,11 +259,30 @@ class _TableWallet extends StatelessWidget {
   Widget build(BuildContext context) {
     // `select`, not `watch`: the counts change when a hammer is spent or a
     // pack lands, never with the reward ticker. A record compares by value.
-    final (diamonds, hammers, lang) = context
-        .select<GameState, (int, int, AppLang)>(
-          (s) => (s.user?.diamond ?? 0, s.user?.hammer ?? 0, s.lang),
+    final (diamonds, hammers, missiles, lang) = context
+        .select<GameState, (int, int, int, AppLang)>(
+          (s) => (
+            s.user?.diamond ?? 0,
+            s.user?.hammer ?? 0,
+            s.user?.missile ?? 0,
+            s.lang,
+          ),
         );
     final width = MediaQuery.sizeOf(context).width;
+    final room = _tableWalletRoom(context);
+    // Three counts on one line fit a tablet and most phones. Where that line
+    // would have to shrink past [_walletLineScale] to fit the corner — a
+    // 640dp phone — the missiles take a second line under the other two, and
+    // the pill keeps the size two counts had.
+    final stacked =
+        room <
+        WalletPill.rowWidth(
+              context,
+              diamonds: diamonds,
+              hammers: hammers,
+              missiles: missiles,
+            ) *
+            _walletLineScale;
 
     // A row the Shop key's height with the pill in the middle of it, so the
     // two corners share one centre line.
@@ -261,14 +292,18 @@ class _TableWallet extends StatelessWidget {
         height: Dim.minTouch,
         child: Center(
           child: ConstrainedBox(
-            constraints: BoxConstraints(maxWidth: _tableWalletRoom(context)),
+            constraints: BoxConstraints(maxWidth: room),
             child: FittedBox(
               fit: BoxFit.scaleDown,
               alignment: Alignment.centerRight,
               child: WalletPill(
                 diamonds: diamonds,
                 hammers: hammers,
-                semanticsLabel: Strings(lang).walletSummary(diamonds, hammers),
+                missiles: missiles,
+                stacked: stacked,
+                semanticsLabel: Strings(
+                  lang,
+                ).walletSummary(diamonds, hammers, missiles),
               ),
             ),
           ),
@@ -277,6 +312,10 @@ class _TableWallet extends StatelessWidget {
     );
   }
 }
+
+/// The smallest a one-line wallet may be scaled to fit its corner before the
+/// missiles go to a second line.
+const double _walletLineScale = 0.85;
 
 /// How wide the table's wallet may be: from the felt's right edge back to the
 /// top-right seat's pod, less the sixth of a pod its orb spills out of that
@@ -300,6 +339,95 @@ double _tableWalletRoom(BuildContext context) {
   final clear = feltLeft + podLeft + podW + podW / 6 + Space.xs;
   final right = size.width - safe.right - pad;
   return math.max(Dim.minTouch, right - clear);
+}
+
+/// Said over the table while the connection is down (QA PIX-2, 14 Sep 2026).
+///
+/// The socket reconnects by itself, but until it does nothing reaches the
+/// server, and the table on screen stops where it was — a turn clock still
+/// running on a hand the server has already moved past. With no word of it the
+/// app looked frozen, or deaf to the keys. This says what is happening, and
+/// [_WhileOnline] rests the keys beneath it.
+///
+/// It shows once the socket reports the loss. On a network that simply goes
+/// dark that is the Engine.IO ping timeout — the server's 20s interval plus
+/// its 25s grace — not the instant the signal goes.
+class _Reconnecting extends StatelessWidget {
+  const _Reconnecting();
+
+  @override
+  Widget build(BuildContext context) {
+    final (offline, lang) = context.select<GameState, (bool, AppLang)>(
+      (s) => (s.offline, s.lang),
+    );
+    final theme = Theme.of(context);
+
+    return IgnorePointer(
+      child: Align(
+        // Over the status line, between the top seats and the pot.
+        alignment: const Alignment(0, -0.42),
+        child: AnimatedSwitcher(
+          duration: Motion.base,
+          child: !offline
+              ? const SizedBox.shrink()
+              : Semantics(
+                  liveRegion: true,
+                  child: _Plate(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: Space.lg,
+                      vertical: Space.md,
+                    ),
+                    opacity: 0.88,
+                    accent: AppTheme.goldBright.withValues(alpha: 0.55),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        SizedBox.square(
+                          dimension: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor: AlwaysStoppedAnimation(AppTheme.gold),
+                          ),
+                        ),
+                        const SizedBox(width: Space.md),
+                        Text(
+                          Strings(lang).reconnecting,
+                          style: theme.textTheme.titleSmall?.copyWith(
+                            // Light ink on a dark plate, in both brightnesses.
+                            color: Colors.white.withValues(alpha: 0.92),
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Rests a corner's keys while the connection is down: dimmed, and deaf to
+/// touches, since a move then could only be refused (QA PIX-1/PIX-2,
+/// 14 Sep 2026). [_Reconnecting] says why.
+class _WhileOnline extends StatelessWidget {
+  const _WhileOnline({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final offline = context.select<GameState, bool>((s) => s.offline);
+    return AbsorbPointer(
+      absorbing: offline,
+      child: AnimatedOpacity(
+        duration: Motion.base,
+        opacity: offline ? 0.45 : 1,
+        child: child,
+      ),
+    );
+  }
 }
 
 /// The floor of the room, carrying a whisper of the table's own colour.
@@ -340,8 +468,8 @@ class _RoomGround extends StatelessWidget {
 }
 
 /// The only chrome in the game room besides the Shop key in the corner above
-/// it: the menu, the chat below it and the quick messages below that, stacked
-/// down the left edge.
+/// it: the menu and the chat below it, stacked down the left edge. The quick
+/// messages are a tab of the chat drawer.
 ///
 /// Everything else that used to sit across the top — the table code, the
 /// category, the hand number — is in the drawer. None of it changed what a
@@ -363,12 +491,14 @@ class _SideRail extends StatelessWidget {
     // 54.0x56.0 at 1280x800 — every one of them past the 44dp minimum, which
     // an inset key would not have been at the rail's 48dp floor.
     //
-    // Three keys and two gaps, centred down the rail: 3x46.8 + 2x10 = 160.4dp
-    // at 640x360, so the column runs from y 99.8 to 260.2. The Shop key above
+    // Two keys and a gap, centred down the rail: 2x46.8 + 10 = 103.6dp at
+    // 640x360, so the column runs from y 128.2 to 231.8. The Shop key above
     // it ends by y 50 (6dp inset, 44dp tall) and the Pack key below it starts
     // at y 306 at the earliest (44dp tall, at most 10dp off the bottom), which
-    // leaves more than 45dp clear at each end on the tightest phone; at
-    // 891x411 the column is 180.2dp tall and the margins only grow.
+    // leaves more than 74dp clear at each end on the tightest phone; at
+    // 891x411 the column is 116.8dp tall and the margins only grow. The quick
+    // messages had a third key here until 14 Sep 2026 (owner); they are a tab
+    // of the chat drawer now.
     final railW = Dim.railW(size.width);
     final keyH = Dim.railButtonH(size.height);
 
@@ -413,39 +543,6 @@ class _SideRail extends StatelessWidget {
                       ),
               ),
             ),
-            const SizedBox(height: Space.md),
-            // The quick messages (owner, 13 Sep 2026). They are chat, so they
-            // share the chat's cooldown, and the key shows the same countdown:
-            // the player sees the lines are resting before opening the panel.
-            _RailKey(
-              tooltip: state.canChat
-                  ? t.quickMessagesTip
-                  : '${t.quickMessagesTip} ${state.chatCooldownLeft}s',
-              width: railW,
-              height: keyH,
-              onTap: () => onOpen(_LeftPanel.quick),
-              child: state.canChat
-                  ? const _RailLottie(
-                      asset: 'assets/animations/Quick message.json',
-                      fallback: Icons.quickreply_rounded,
-                      recolour: _envelopeInInk,
-                      // Larger than the glyphs above it, in a key of the same
-                      // size (owner, 14 Sep 2026). With its disc hidden the
-                      // envelope fills about 45% of the canvas's width, centred
-                      // across it and a little below the middle, and the plane's
-                      // trail reaches out to its left; so the canvas is drawn at
-                      // 56dp and lifted 2dp, which centres the envelope in the
-                      // key and keeps the trail (about 22dp left of centre)
-                      // inside even a 48dp key.
-                      size: 30,
-                      art: 56,
-                      artShift: Offset(0, -2),
-                    )
-                  : _ChatCountdown(
-                      left: state.chatCooldownLeft,
-                      total: GameState.chatCooldown.inSeconds,
-                    ),
-            ),
           ],
         ),
       ),
@@ -458,7 +555,7 @@ List<ValueDelegate<Object>> _strokesInInk(Color ink, Color paper) => [
   ValueDelegate.strokeColor(const ['**'], value: ink),
 ];
 
-/// The quick-message envelope in the rail's ink (owner, 14 Sep 2026: black):
+/// The quick-message envelope in the drawer's ink (owner, 14 Sep 2026: black):
 /// the envelope, its flap, the @, the paper plane and its dotted trail take the
 /// ink, the letter takes the paper so it shows against the envelope it rises
 /// out of, and the disc behind it all is hidden, so the envelope stands on the
@@ -466,13 +563,21 @@ List<ValueDelegate<Object>> _strokesInInk(Color ink, Color paper) => [
 /// fails if a replacement file renames them.
 List<ValueDelegate<Object>> _envelopeInInk(Color ink, Color paper) => [
   ValueDelegate.transformOpacity(const ['background Outlines'], value: 0),
-  for (final layer in const [
-    'front Outlines',
-    'back Outlines',
-    'opener Outlines',
-    'plane Outlines',
+  // The flap, the front's centre and the plane in the ink; the front's side
+  // folds and the inside of the back in a lighter shade of it. All in the one
+  // ink, a closed envelope was a featureless bar for much of the loop (QA 14
+  // Sep 2026); the second shade draws its folds back in.
+  for (final path in const [
+    ['front Outlines', 'Group 2', '**'],
+    ['opener Outlines', '**'],
+    ['plane Outlines', '**'],
   ])
-    ValueDelegate.color([layer, '**'], value: ink),
+    ValueDelegate.color(path, value: ink),
+  for (final path in const [
+    ['front Outlines', 'Group 1', '**'],
+    ['back Outlines', '**'],
+  ])
+    ValueDelegate.color(path, value: Color.lerp(ink, paper, 0.45)!),
   ValueDelegate.color(const [
     'mail inside Outlines',
     'Group 1',
@@ -486,10 +591,11 @@ List<ValueDelegate<Object>> _envelopeInInk(Color ink, Color paper) => [
   ValueDelegate.strokeColor(const ['Shape Layer 1', '**'], value: ink),
 ];
 
-/// A rail key's animated glyph (owner, 14 Sep 2026): the chat key plays
-/// `assets/animations/Message.json`, a speech bubble that writes its lines, and
-/// the quick-message key `assets/animations/Quick message.json`, an envelope
-/// that opens, sends a paper plane and closes. Each loops.
+/// An animated chat glyph (owner, 14 Sep 2026): the rail's chat key and the
+/// chat drawer's first tab play `assets/animations/Message.json`, a speech
+/// bubble that writes its lines, and the drawer's quick-message tab
+/// `assets/animations/Quick message.json`, an envelope that opens, sends a
+/// paper plane and closes. Each loops while [animate].
 ///
 /// [recolour] gives the file's colours in terms of the rail's ink — the
 /// theme's onSurface at full strength, black on the light theme and white on
@@ -508,6 +614,7 @@ class _RailLottie extends StatefulWidget {
     this.size = 26,
     this.art,
     this.artShift = Offset.zero,
+    this.animate = true,
   });
 
   final String asset;
@@ -529,6 +636,9 @@ class _RailLottie extends StatefulWidget {
 
   /// Moves the art so its drawn content, rather than its canvas, is centred.
   final Offset artShift;
+
+  /// False holds the glyph on its current frame.
+  final bool animate;
 
   @override
   State<_RailLottie> createState() => _RailLottieState();
@@ -559,6 +669,7 @@ class _RailLottieState extends State<_RailLottie> {
         child: Lottie.asset(
           widget.asset,
           delegates: _delegates,
+          animate: widget.animate,
           fit: BoxFit.contain,
           // A missing or unreadable file must not leave a blank key.
           errorBuilder: (context, error, stack) =>
@@ -676,11 +787,21 @@ class _TableDrawer extends StatelessWidget {
                       children: [
                         // Only a private table keeps its code here: it is how
                         // friends are let in, and nothing else shows it.
+                        // One line, shrunk to fit rather than broken: a code
+                        // split across two lines ("Table CMU4 / 2LFF" on a
+                        // 640dp phone, QA 14 Sep 2026) reads as two codes.
                         if (room.isPrivate)
-                          Text(
-                            'Table ${room.code}',
-                            style: AppTheme.money(
-                              theme.textTheme.titleMedium ?? const TextStyle(),
+                          FittedBox(
+                            fit: BoxFit.scaleDown,
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              'Table ${room.code}',
+                              maxLines: 1,
+                              softWrap: false,
+                              style: AppTheme.money(
+                                theme.textTheme.titleMedium ??
+                                    const TextStyle(),
+                              ),
                             ),
                           ),
                         Text(
@@ -688,6 +809,8 @@ class _TableDrawer extends StatelessWidget {
                           // capitals are safe on it; the hand number is not
                           // translated either.
                           '${room.category.toUpperCase()}  ·  hand ${room.handNo}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                           style: AppTheme.smallCaps(
                             theme.textTheme.labelSmall ?? const TextStyle(),
                             colour: scheme.onSurface.withValues(
@@ -713,29 +836,39 @@ class _TableDrawer extends StatelessWidget {
                 ],
               ),
             ),
-            _MenuRow(
-              icon: Icons.swap_horiz_rounded,
-              leading: state.switching
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : null,
-              label: t.switchTable,
-              note: '${t.switchTable} · ${room.category}',
-              onTap: state.switching
-                  ? null
-                  : () async {
-                      Navigator.pop(context);
-                      await _confirmSwitch(context, state, room);
-                    },
-            ),
-            const _MenuRule(),
+            // A private table cannot be swapped for another — the server
+            // refuses it — so it is not offered there, rather than offered and
+            // then refused with a toast (QA 14 Sep 2026).
+            if (!room.isPrivate) ...[
+              _MenuRow(
+                icon: Icons.swap_horiz_rounded,
+                leading: state.switching
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : null,
+                label: t.switchTable,
+                // Which stake the new table will be: it repeated its own
+                // title before, with the category left in English.
+                note:
+                    '${room.category == 'blind' ? t.blind : t.seen} · ${formatChips(room.bootAmount)}',
+                onTap: state.switching
+                    ? null
+                    : () async {
+                        Navigator.pop(context);
+                        await _confirmSwitch(context, state, room);
+                      },
+              ),
+              const _MenuRule(),
+            ],
             _MenuRow(
               icon: Icons.logout_rounded,
               label: t.leaveTable,
-              note: t.joinAnother,
+              // What leaving costs right now (QA PIX-4, 14 Sep 2026): it said
+              // "join another straight away" in the middle of a hand too.
+              note: state.inLiveHand ? t.leaveStakeStays : t.joinAnother,
               tone: scheme.error,
               onTap: () async {
                 // Close the menu first, so the dialog is not stacked on top of
@@ -1168,15 +1301,20 @@ Future<void> _confirmLeave(
   GameState state,
   RoomState room,
 ) async {
-  final midHand =
-      room.state == TableState.betting && room.you?.status == SeatState.active;
-
   final leave = await showDialog<bool>(
     context: context,
     builder: (context) => GlassDialog(
       padding: const EdgeInsets.all(Space.xl),
       title: _dialogTitle(context, Icons.logout_rounded, state.t.leaveTableQ),
-      content: Text(midHand ? state.t.leaveMidHand : state.t.leaveAnytime),
+      // Read live: a hand can be dealt while the dialog is up, and then
+      // leaving costs the boot (QA PIX-4, 14 Sep 2026).
+      content: Builder(
+        builder: (context) => Text(
+          context.select<GameState, bool>((s) => s.inLiveHand)
+              ? state.t.leaveMidHand
+              : state.t.leaveAnytime,
+        ),
+      ),
       actions: _dialogActions(context, stay: state.t.stay, go: state.t.leave),
     ),
   );
@@ -1199,42 +1337,94 @@ Future<void> _forceSideshow(BuildContext context, GameState state) async {
   }
 
   final name = state.options?.sideshowWith ?? '';
+  // Worth asking only while this turn can still force a sideshow on this same
+  // neighbour. The turn clock keeps running under the question: it used to
+  // stay up after the turn timed out and on into the next hand, still naming a
+  // player it might no longer reach, and a late Force closed it with nothing
+  // sent and nothing said (QA 14 Sep 2026).
+  bool stillOpen(GameState s) =>
+      s.canForceSideshow && (s.options?.sideshowWith ?? '') == name;
   final go = await showDialog<bool>(
     context: context,
     builder: (context) {
       final theme = Theme.of(context);
-      return GlassDialog(
-        padding: const EdgeInsets.all(Space.xl),
-        title: _dialogTitle(context, Icons.hardware, t.forceSideshowTitle),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(t.forceSideshowBody(name)),
-            const SizedBox(height: Space.sm),
-            Text(
-              t.forceSideshowNote,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurface.withValues(
-                  alpha: AppTheme.inkLowOn(theme.brightness),
+      return _WhileStillOpen(
+        open: stillOpen,
+        child: GlassDialog(
+          padding: const EdgeInsets.all(Space.xl),
+          title: _dialogTitle(context, Icons.hardware, t.forceSideshowTitle),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(t.forceSideshowBody(name)),
+              const SizedBox(height: Space.sm),
+              Text(
+                t.forceSideshowNote,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurface.withValues(
+                    alpha: AppTheme.inkLowOn(theme.brightness),
+                  ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
+          actions: _dialogActions(context, stay: t.cancel, go: t.force),
         ),
-        actions: _dialogActions(context, stay: t.cancel, go: t.force),
       );
     },
   );
-  if (go != true || !context.mounted) return;
-
-  // The turn clock kept running while the question was up. If the turn went,
-  // or this turn's ask was used, there is nothing left to force, and sending
-  // it anyway would only earn a refusal to read.
-  if (!state.canForceSideshow) return;
+  if (!context.mounted) return;
+  // Closed because the move went, or confirmed a moment after it did: nothing
+  // is sent, so no hammer is spent — and the player is told so rather than
+  // left wondering why Force did nothing. A Cancel is not answered.
+  if (!stillOpen(state)) {
+    if (go != false) state.say(t.forceSideshowTooLate);
+    return;
+  }
+  if (go != true) return;
   final result = await state.forceSideshow();
   if (result == ForceSideshowResult.noHammers && context.mounted) {
     await _offerHammers(context, state);
+  }
+}
+
+/// Keeps a dialog up only while [open] holds, and closes it the frame it stops
+/// holding — for a question about a move the table can take away while it is
+/// on screen.
+class _WhileStillOpen extends StatefulWidget {
+  const _WhileStillOpen({required this.open, required this.child});
+
+  final bool Function(GameState) open;
+  final Widget child;
+
+  @override
+  State<_WhileStillOpen> createState() => _WhileStillOpenState();
+}
+
+class _WhileStillOpenState extends State<_WhileStillOpen> {
+  bool _closing = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final open = context.select<GameState, bool>(widget.open);
+    if (!open && !_closing) {
+      _closing = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        // Only while this dialog is still the one on top. A dialog already on
+        // its way out — Fire or Cancel tapped a moment before the move was
+        // taken away, which is exactly what firing does, since the answer
+        // ends the hand — has left the navigator's history but is still
+        // mounted for its exit animation, and a pop from here would take the
+        // screen underneath with it: the table went black on the phone that
+        // fired a missile (14 Sep 2026).
+        if (ModalRoute.of(context)?.isCurrent ?? false) {
+          Navigator.of(context).pop();
+        }
+      });
+    }
+    return widget.child;
   }
 }
 
@@ -1252,6 +1442,84 @@ Future<void> _offerHammers(BuildContext context, GameState state) async {
   );
   if (shop != true || !context.mounted) return;
   await showChipStore(context, opensOn: StoreTab.hammers);
+}
+
+/// A missile, from the key to the server (owner, 14 Sep 2026).
+///
+/// Asked first: a missile ends the hand for everyone still in it, and a tie
+/// goes against the player who fired. A player with no missiles is not asked
+/// that — they are offered the store's Missiles shelf instead. The server has
+/// the last word on both, and when its count turns out to be 0 after all the
+/// same offer follows.
+Future<void> _fireMissile(BuildContext context, GameState state) async {
+  final t = state.t;
+  if (!state.hasMissile) {
+    await _offerMissiles(context, state);
+    return;
+  }
+
+  // Worth asking only while the turn can still fire it: the turn clock keeps
+  // running under the question, as it does under Force Sideshow's.
+  bool stillOpen(GameState s) => s.canMissile;
+  final go = await showDialog<bool>(
+    context: context,
+    builder: (context) {
+      final theme = Theme.of(context);
+      return _WhileStillOpen(
+        open: stillOpen,
+        child: GlassDialog(
+          padding: const EdgeInsets.all(Space.xl),
+          title: _dialogTitle(context, missileIcon, t.fireMissileTitle),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(t.fireMissileBody),
+              const SizedBox(height: Space.sm),
+              Text(
+                t.fireMissileNote,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurface.withValues(
+                    alpha: AppTheme.inkLowOn(theme.brightness),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          actions: _dialogActions(context, stay: t.cancel, go: t.fire),
+        ),
+      );
+    },
+  );
+  if (!context.mounted) return;
+  // Closed because the turn went, or confirmed a moment after it did: nothing
+  // is sent and nothing is spent, and the player is told so. A Cancel is not
+  // answered.
+  if (!stillOpen(state)) {
+    if (go != false) state.say(t.missileTooLate);
+    return;
+  }
+  if (go != true) return;
+  final result = await state.fireMissile();
+  if (result == MissileResult.noMissiles && context.mounted) {
+    await _offerMissiles(context, state);
+  }
+}
+
+/// The store's Missiles shelf, offered to a player whose wallet is empty.
+Future<void> _offerMissiles(BuildContext context, GameState state) async {
+  final t = state.t;
+  final shop = await showDialog<bool>(
+    context: context,
+    builder: (context) => GlassDialog(
+      padding: const EdgeInsets.all(Space.xl),
+      title: _dialogTitle(context, missileIcon, t.noMissilesTitle),
+      content: Text(t.noMissilesBody),
+      actions: _dialogActions(context, stay: t.cancel, go: t.getMissiles),
+    ),
+  );
+  if (shop != true || !context.mounted) return;
+  await showChipStore(context, opensOn: StoreTab.missiles);
 }
 
 /// Gold as *ink*: champagne on charcoal, deep gold on parchment.
@@ -1345,9 +1613,9 @@ class _Felt extends StatefulWidget {
   State<_Felt> createState() => _FeltState();
 }
 
-/// The felt's one piece of state: a Force Sideshow's hammer, and where the
-/// pods it flies between actually stand.
-class _FeltState extends State<_Felt> with SingleTickerProviderStateMixin {
+/// The felt's state: a Force Sideshow's hammer, a missile volley, and where
+/// the pods they fly between actually stand.
+class _FeltState extends State<_Felt> with TickerProviderStateMixin {
   static const _places = _Felt._places;
   static const _potDy = _Felt._potDy;
   static const _statusDy = _Felt._statusDy;
@@ -1384,18 +1652,122 @@ class _FeltState extends State<_Felt> with SingleTickerProviderStateMixin {
   /// measured; null when there is nothing in the air.
   ({Rect from, Rect to, int targetView})? _flight;
 
+  /// A missile volley's clock, 0 to 1 over [MissileTiming.total]. Created by
+  /// the first volley, never in advance and never by [dispose].
+  AnimationController? _missile;
+
+  /// The volley being followed, by [MissileStrike.key].
+  String? _volleyKey;
+
+  /// Where the current volley flies from and to, once the pods have been
+  /// measured; null when there is nothing in the air.
+  ({Rect from, List<({Rect rect, int index})> targets, int count})? _volley;
+
+  /// Each pod the volley hits, by view index, with its jolt's clock.
+  Map<int, Animation<double>> _volleyJolts = const {};
+
+  /// When the missile aimed at the viewer lands, as a share of the volley's
+  /// clock; null when none is, or once its buzz has gone.
+  double? _buzzAt;
+
   @override
   void initState() {
     super.initState();
-    // Parsed while the table opens, so the first hammer is not the thing that
-    // waits for it.
+    // Parsed while the table opens, so the first hammer or missile is not the
+    // thing that waits for it.
     unawaited(HammerArt.load());
+    unawaited(MissileArt.load());
   }
 
   @override
   void dispose() {
     _hammer?.dispose();
+    _missile?.dispose();
     super.dispose();
+  }
+
+  /// Keeps the felt on the volley [GameState] is showing, as [_follow] does
+  /// for the hammer.
+  void _followMissile(MissileStrike? strike) {
+    if (strike?.key == _volleyKey) return;
+    _volleyKey = strike?.key;
+    _volley = null;
+    _volleyJolts = const {};
+    _buzzAt = null;
+    _missile?.stop();
+    if (strike == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) => _launchVolley(strike));
+  }
+
+  void _launchVolley(MissileStrike strike) {
+    if (!mounted || strike.key != _volleyKey) return;
+    final total = MissileTiming.total(strike.count);
+    // The volley's timers began when the event arrived; the frames start where
+    // those timers already are, so the cards turn over as the last one lands.
+    final start =
+        DateTime.now().difference(strike.startedAt).inMicroseconds /
+        total.inMicroseconds;
+    if (start >= 1) return;
+    final stage = _stageKey.currentContext?.findRenderObject();
+    if (stage is! RenderBox || !stage.hasSize) return;
+
+    final state = context.read<GameState>();
+    final seats = state.seatsInViewOrder();
+    int viewOf(String userId) =>
+        seats.indexWhere((seat) => seat?.userId == userId);
+    Rect? podAt(int view) {
+      if (view < 0 || view >= _podKeys.length) return null;
+      final box = _podKeys[view].currentContext?.findRenderObject();
+      if (box is! RenderBox || !box.attached || !box.hasSize) return null;
+      return box.localToGlobal(Offset.zero, ancestor: stage) & box.size;
+    }
+
+    final from = podAt(viewOf(strike.fromUserId));
+    // The firer already gone from the felt: nothing to fire from. The reveal
+    // still waits for the last impact on GameState's timers.
+    if (from == null) return;
+    final targets = <({Rect rect, int index})>[];
+    final views = <int, int>{};
+    for (final (index, userId) in strike.targetUserIds.indexed) {
+      final view = viewOf(userId);
+      final rect = podAt(view);
+      if (rect == null) continue;
+      targets.add((rect: rect, index: index));
+      views[view] = index;
+    }
+    if (targets.isEmpty) return;
+
+    final clock = _missile ??= AnimationController(vsync: this)
+      ..addListener(_buzzIfHit);
+    clock.duration = total;
+    final mine = strike.indexOf(state.user?.id);
+    final buzzAt = mine < 0
+        ? null
+        : MissileTiming.share(MissileTiming.impact(mine), strike.count);
+    setState(() {
+      _volley = (from: from, targets: targets, count: strike.count);
+      _volleyJolts = {
+        for (final MapEntry(key: view, value: index) in views.entries)
+          view: MissileImpactClock(
+            parent: clock,
+            index: index,
+            count: strike.count,
+          ),
+      };
+      // A volley joined after the viewer was already hit does not buzz late.
+      _buzzAt = buzzAt != null && buzzAt > start ? buzzAt : null;
+    });
+    clock.forward(from: start.clamp(0.0, 1.0));
+  }
+
+  /// A light buzz as the missile aimed at the viewer lands, gated on the
+  /// player's Vibration switch like every other haptic in the game.
+  void _buzzIfHit() {
+    final at = _buzzAt;
+    final clock = _missile;
+    if (at == null || clock == null || clock.value < at) return;
+    _buzzAt = null;
+    if (mounted) tapHaptic(context);
   }
 
   /// Keeps the felt on the strike [GameState] is showing: a new one is launched
@@ -1452,6 +1824,7 @@ class _FeltState extends State<_Felt> with SingleTickerProviderStateMixin {
   Widget build(BuildContext context) {
     final state = context.watch<GameState>();
     _follow(state.hammerStrike);
+    _followMissile(state.missileStrike);
 
     final room = state.room;
     if (room == null) return const Center(child: CircularProgressIndicator());
@@ -1497,11 +1870,18 @@ class _FeltState extends State<_Felt> with SingleTickerProviderStateMixin {
     // A hand is on the table until the celebration for it has finished, not
     // just until the server stops dealing — the seats keep their bets and
     // statuses through the winner's moment, and drop them with it.
+    // A missile volley keeps it on the table too: the server has settled the
+    // hand before the missiles land, and the bets and seats stay up until they
+    // have.
     final handLive =
         room.state == TableState.betting ||
         room.state == TableState.showdown ||
+        state.missileStrike != null ||
         state.showdown.isNotEmpty ||
         state.showdownResult.isNotEmpty;
+    // The pot as the felt shows it: the one the missile was fired over until
+    // the missiles have landed.
+    final pot = state.heldPot ?? room.pot;
 
     return Padding(
       padding: EdgeInsets.fromLTRB(pad, Space.xxs, pad, 0),
@@ -1523,13 +1903,10 @@ class _FeltState extends State<_Felt> with SingleTickerProviderStateMixin {
           Widget pod(int viewIndex) {
             final seated = viewIndex < seats.length ? seats[viewIndex] : null;
             // A Force Sideshow's loser has already been packed by the server
-            // when the hammer sets off; their pod folds when it lands.
-            final s =
-                seated != null &&
-                    seated.status == SeatState.packed &&
-                    state.foldHeldFor(seated.userId)
-                ? seated.withStatus(SeatState.active)
-                : seated;
+            // when the hammer sets off; their pod folds when it lands. A
+            // missile's winner and losers are already settled when the volley
+            // sets off; their pods say so when the last one lands.
+            final s = state.seatAsShown(seated);
             // At a showdown the hand is drawn at the seat that played it, so
             // find this seat's reveal and hand it down. The server sends
             // reveals for the players still in the hand; everyone else keeps
@@ -1592,7 +1969,9 @@ class _FeltState extends State<_Felt> with SingleTickerProviderStateMixin {
               // The bottom seat stacks upwards, or its chip runs off the felt.
               reversed: viewIndex == 0,
               podKey: viewIndex < _podKeys.length ? _podKeys[viewIndex] : null,
-              impact: _flight?.targetView == viewIndex ? _hammer : null,
+              impact: _flight?.targetView == viewIndex
+                  ? _hammer
+                  : _volleyJolts[viewIndex],
             );
           }
 
@@ -1687,9 +2066,10 @@ class _FeltState extends State<_Felt> with SingleTickerProviderStateMixin {
               at(
                 const Offset(0.5, _potDy),
                 _PotPulse(
-                  pot: room.pot,
+                  pot: pot,
                   child: _Pot(
                     room: room,
+                    pot: pot,
                     chipSize: (podW * 0.17).clamp(12.0, 20.0),
                   ),
                 ),
@@ -1747,7 +2127,7 @@ class _FeltState extends State<_Felt> with SingleTickerProviderStateMixin {
                       // far end of a landscape screen, and it earns a size the
                       // rim seats' copies do not.
                       SeatBet(
-                        seat: seats[0]!,
+                        seat: state.seatAsShown(seats[0])!,
                         width: podW * 1.22,
                         totalFirst: true,
                       ),
@@ -1818,6 +2198,21 @@ class _FeltState extends State<_Felt> with SingleTickerProviderStateMixin {
                     clock: _hammer!,
                     from: _flight!.from,
                     target: _flight!.to,
+                    podWidth: podW,
+                  ),
+                ),
+
+              // A missile volley: one missile from the firer's pod to every
+              // other pod still in the hand, over everything on the felt — the
+              // viewer's own hand included. Everyone at the table sees it; the
+              // cards come with the showdown, which waits for the last impact.
+              if (_volley != null && _missile != null)
+                Positioned.fill(
+                  child: MissileFlight(
+                    clock: _missile!,
+                    count: _volley!.count,
+                    from: _volley!.from,
+                    targets: _volley!.targets,
                     podWidth: podW,
                   ),
                 ),
@@ -2471,9 +2866,13 @@ class _PotToWinnerState extends State<_PotToWinner>
 
 /// The pot, on a plinth in the middle of the cloth.
 class _Pot extends StatelessWidget {
-  const _Pot({required this.room, required this.chipSize});
+  const _Pot({required this.room, required this.chipSize, required this.pot});
 
   final RoomState room;
+
+  /// The figure to show: the table's pot, or the one a missile was fired over
+  /// while its volley is still in the air.
+  final int pot;
 
   /// The same figure the chips flying in are drawn at, so the pile and the
   /// chips landing on it are the same size.
@@ -2508,14 +2907,14 @@ class _Pot extends StatelessWidget {
             children: [
               // The pile grows as the pot does — a nudge upward each time chips
               // land, so the middle of the table is where the eye goes.
-              _PotChips(pot: room.pot, size: chipSize),
+              _PotChips(pot: pot, size: chipSize),
               const SizedBox(width: Space.sm),
               Flexible(
                 // Chips arriving in the pot is the thing players watch, so the
                 // number travels to its new value instead of jumping. Tabular
                 // figures are what stop it jittering sideways while it counts.
                 child: TweenAnimationBuilder<double>(
-                  tween: Tween(end: room.pot.toDouble()),
+                  tween: Tween(end: pot.toDouble()),
                   duration: const Duration(milliseconds: 550),
                   curve: Motion.standard,
                   builder: (context, value, _) => FittedBox(
@@ -2608,6 +3007,10 @@ class _Status extends StatelessWidget {
     final state = context.watch<GameState>();
     final theme = Theme.of(context);
 
+    // The server has already moved on while a missile volley is in the air;
+    // "Starting game" under it would say so before the missiles land.
+    if (state.missileStrike != null) return const SizedBox.shrink();
+
     final text = switch (room.state) {
       TableState.waiting => '${state.t.waitingForPlayers} (${room.minPlayers})',
       TableState.starting => state.t.startingGame,
@@ -2660,7 +3063,13 @@ class _Status extends StatelessWidget {
                     ? AppTheme.amber
                     : mine
                     ? AppTheme.goldBright
-                    : AppTheme.boneInk.withValues(alpha: 0.82),
+                    // The felt is pale on the light theme, and white text
+                    // on it all but vanished ("Waiting for players", QA 14
+                    // Sep 2026); dark ink there, as on every other light
+                    // surface.
+                    : theme.brightness == Brightness.dark
+                    ? AppTheme.boneInk.withValues(alpha: 0.82)
+                    : AppTheme.inkOnLight.withValues(alpha: 0.78),
                 weight: FontWeight.w700,
               ).copyWith(
                 // The only glowing text in the app, on the only line that has a
@@ -3695,8 +4104,16 @@ class _ChatDrawer extends StatefulWidget {
   State<_ChatDrawer> createState() => _ChatDrawerState();
 }
 
+/// The chat drawer's two pages.
+enum _ChatView { chat, quick }
+
 class _ChatDrawerState extends State<_ChatDrawer> {
   final _input = TextEditingController();
+
+  /// Which page is up. Every opening starts on the conversation — the drawer
+  /// goes back to the menu once it closes, so this state is new each time —
+  /// because the conversation is what the rail's key promised.
+  _ChatView _view = _ChatView.chat;
 
   @override
   void dispose() {
@@ -3708,6 +4125,7 @@ class _ChatDrawerState extends State<_ChatDrawer> {
   Widget build(BuildContext context) {
     final state = context.watch<GameState>();
     final theme = Theme.of(context);
+    final t = state.t;
     // On a landscape phone the soft keyboard leaves the panel about a
     // hundred and fifty points tall — less than the title, the rule and the
     // composer need, and the shortfall painted overflow stripes across the
@@ -3730,24 +4148,47 @@ class _ChatDrawerState extends State<_ChatDrawer> {
               if (!typing)
                 Padding(
                   padding: const EdgeInsets.fromLTRB(
-                    Space.lg,
                     Space.md,
-                    Space.sm,
+                    Space.md,
+                    Space.xs,
                     Space.xs,
                   ),
+                  // The quick messages are a tab here (owner, 14 Sep 2026;
+                  // they had a rail key and a drawer of their own). Both are
+                  // how a player talks to the table, and from the top of the
+                  // one drawer either is a tap away.
                   child: Row(
                     children: [
-                      Icon(
-                        Icons.forum_rounded,
-                        size: 18,
-                        color: _goldInk(theme.brightness),
-                      ),
-                      const SizedBox(width: Space.md),
                       Expanded(
-                        child: Text(
-                          state.t.tableChat,
-                          style: AppTheme.label(
-                            theme.textTheme.titleMedium ?? const TextStyle(),
+                        child: _ChatTab(
+                          label: t.tableChat,
+                          selected: _view == _ChatView.chat,
+                          onTap: () => setState(() => _view = _ChatView.chat),
+                          glyph: _RailLottie(
+                            asset: 'assets/animations/Message.json',
+                            fallback: Icons.forum_rounded,
+                            recolour: _strokesInInk,
+                            size: 24,
+                            animate: _view == _ChatView.chat,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: Space.xs),
+                      Expanded(
+                        child: _ChatTab(
+                          label: t.quickMessagesTitle,
+                          selected: _view == _ChatView.quick,
+                          onTap: () => setState(() => _view = _ChatView.quick),
+                          // The rail's proportions (a 56dp canvas in a 30dp
+                          // slot, lifted 2dp), scaled to the tab.
+                          glyph: _RailLottie(
+                            asset: 'assets/animations/Quick message.json',
+                            fallback: Icons.quickreply_rounded,
+                            recolour: _envelopeInInk,
+                            size: 24,
+                            art: 45,
+                            artShift: const Offset(0, -1.6),
+                            animate: _view == _ChatView.quick,
                           ),
                         ),
                       ),
@@ -3762,114 +4203,155 @@ class _ChatDrawerState extends State<_ChatDrawer> {
                   ),
                 ),
               if (!typing) const _MenuRule(),
-              Expanded(
-                child: ListView.builder(
-                  reverse: true,
+              if (_view == _ChatView.quick)
+                Expanded(child: _quickLines(state))
+              else ...[
+                Expanded(
+                  child: ListView.builder(
+                    reverse: true,
+                    padding: const EdgeInsets.fromLTRB(
+                      Space.lg,
+                      Space.sm,
+                      Space.lg,
+                      Space.sm,
+                    ),
+                    itemCount: state.chat.length,
+                    itemBuilder: (context, i) {
+                      final m = state.chat[state.chat.length - 1 - i];
+                      final mine = m.userId == state.user?.id;
+                      // Everyone gets their own colour, kept from their id so a
+                      // player looks the same every time they speak.
+                      final colour = state.colourFor(
+                        m.userId,
+                        theme.colorScheme,
+                      );
+
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(
+                          vertical: Space.xxs,
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Container(
+                              width: 3,
+                              height: 18,
+                              margin: const EdgeInsets.only(
+                                right: Space.md,
+                                top: 3,
+                              ),
+                              decoration: BoxDecoration(
+                                color: colour,
+                                borderRadius: BorderRadius.circular(Radii.xs),
+                              ),
+                            ),
+                            Expanded(
+                              child: RichText(
+                                text: TextSpan(
+                                  style: theme.textTheme.bodyMedium,
+                                  children: [
+                                    TextSpan(
+                                      text: '${mine ? 'You' : m.displayName}: ',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                        color: colour,
+                                      ),
+                                    ),
+                                    TextSpan(text: m.text),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                Padding(
                   padding: const EdgeInsets.fromLTRB(
                     Space.lg,
                     Space.sm,
                     Space.lg,
-                    Space.sm,
+                    Space.md,
                   ),
-                  itemCount: state.chat.length,
-                  itemBuilder: (context, i) {
-                    final m = state.chat[state.chat.length - 1 - i];
-                    final mine = m.userId == state.user?.id;
-                    // Everyone gets their own colour, kept from their id so a
-                    // player looks the same every time they speak.
-                    final colour = state.colourFor(m.userId, theme.colorScheme);
-
-                    return Padding(
-                      padding: const EdgeInsets.symmetric(vertical: Space.xxs),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Container(
-                            width: 3,
-                            height: 18,
-                            margin: const EdgeInsets.only(
-                              right: Space.md,
-                              top: 3,
-                            ),
-                            decoration: BoxDecoration(
-                              color: colour,
-                              borderRadius: BorderRadius.circular(Radii.xs),
-                            ),
-                          ),
-                          Expanded(
-                            child: RichText(
-                              text: TextSpan(
-                                style: theme.textTheme.bodyMedium,
-                                children: [
-                                  TextSpan(
-                                    text: '${mine ? 'You' : m.displayName}: ',
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.w700,
-                                      color: colour,
-                                    ),
-                                  ),
-                                  TextSpan(text: m.text),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    );
-                  },
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(
-                  Space.lg,
-                  Space.sm,
-                  Space.lg,
-                  Space.md,
-                ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      // The composer on glass: the same controller, limit,
-                      // hint and submit, with the field's fill from the
-                      // glass tokens rather than the bare input theme. The
-                      // counter stays hidden (the component's default).
-                      child: GlassTextField(
-                        controller: _input,
-                        maxLength: 200,
-                        hintText: state.t.saySomething,
-                        decoration: const InputDecoration(isDense: true),
-                        onSubmitted: (_) => _send(state),
-                      ),
-                    ),
-                    const SizedBox(width: Space.md),
-                    PressScale(
-                      enabled: state.canChat,
-                      child: IconButton.filled(
-                        tooltip: state.canChat
-                            ? null
-                            : '${state.chatCooldownLeft}s',
-                        onPressed: state.canChat ? () => _send(state) : null,
-                        style: _stepperStyle(theme).copyWith(
-                          minimumSize: const WidgetStatePropertyAll(
-                            Size(Dim.minTouch, Dim.minTouch),
-                          ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        // The composer on glass: the same controller, limit,
+                        // hint and submit, with the field's fill from the
+                        // glass tokens rather than the bare input theme. The
+                        // counter stays hidden (the component's default).
+                        child: GlassTextField(
+                          controller: _input,
+                          maxLength: 200,
+                          hintText: t.saySomething,
+                          decoration: const InputDecoration(isDense: true),
+                          onSubmitted: (_) => _send(state),
                         ),
-                        icon: state.canChat
-                            ? const Icon(Icons.send_rounded)
-                            : _ChatCountdown(
-                                left: state.chatCooldownLeft,
-                                total: GameState.chatCooldown.inSeconds,
-                              ),
                       ),
-                    ),
-                  ],
+                      const SizedBox(width: Space.md),
+                      PressScale(
+                        enabled: state.canChat,
+                        child: IconButton.filled(
+                          tooltip: state.canChat
+                              ? null
+                              : '${state.chatCooldownLeft}s',
+                          onPressed: state.canChat ? () => _send(state) : null,
+                          style: _stepperStyle(theme).copyWith(
+                            minimumSize: const WidgetStatePropertyAll(
+                              Size(Dim.minTouch, Dim.minTouch),
+                            ),
+                          ),
+                          icon: state.canChat
+                              ? const Icon(Icons.send_rounded)
+                              : _ChatCountdown(
+                                  left: state.chatCooldownLeft,
+                                  total: GameState.chatCooldown.inSeconds,
+                                ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
+              ],
             ],
           ),
         ),
       ),
     );
+  }
+
+  /// The quick messages page: set lines a player can say in one tap —
+  /// "Please Play Blind.", "Please take show." and the rest of
+  /// [Strings.quickMessages] (owner, 13 Sep 2026).
+  ///
+  /// A column of the drawer rather than chips over the felt: ten sentences, in
+  /// scripts that run long, need a column of room, and the felt has none to
+  /// spare. Each goes out through [GameState.sendChat] exactly as typed chat
+  /// does — free text in the sender's own language, so the protocol does not
+  /// change — and lands as their bubble and in the chat like anything typed.
+  /// They share the chat's cooldown, and each row counts it down.
+  Widget _quickLines(GameState state) {
+    final lines = state.t.quickMessages;
+    final left = state.chatCooldownLeft;
+    return ListView.builder(
+      padding: const EdgeInsets.symmetric(vertical: Space.xs),
+      itemCount: lines.length,
+      itemBuilder: (context, i) => _QuickLine(
+        text: lines[i],
+        secondsLeft: left,
+        onTap: state.canChat ? () => _sendQuick(state, lines[i]) : null,
+      ),
+    );
+  }
+
+  /// The same ending as a typed line: once it is out the drawer goes, and what
+  /// the player sees next is their words over their own seat. A refusal (the
+  /// cooldown caught between build and tap) leaves it open.
+  void _sendQuick(GameState state, String line) {
+    if (!state.sendChat(line)) return;
+    Navigator.of(context).pop();
   }
 
   void _send(GameState state) {
@@ -3882,105 +4364,93 @@ class _ChatDrawerState extends State<_ChatDrawer> {
   }
 }
 
-/// Set lines a player can say in one tap — "Please Play Blind.", "Please take
-/// show." and the rest of [Strings.quickMessages] (owner, 13 Sep 2026).
-///
-/// A panel of the left drawer rather than chips over the felt: ten sentences,
-/// in scripts that run long, need a column of room, and the felt has none to
-/// spare. Each goes out through [GameState.sendChat] exactly as typed chat
-/// does — free text in the sender's own language, so the protocol does not
-/// change — and lands as their bubble and in the chat like anything typed.
-class _QuickDrawer extends StatelessWidget {
-  const _QuickDrawer();
+/// One of the chat drawer's two tabs, the conversation or the quick messages:
+/// a glyph over its name, the whole tab the target. The tab that is up is
+/// washed and ringed in gold, and only its glyph plays. The name shrinks to
+/// fit rather than being cut: two tabs share a 260dp drawer on a 640dp phone.
+class _ChatTab extends StatelessWidget {
+  const _ChatTab({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+    required this.glyph,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+  final Widget glyph;
 
   @override
   Widget build(BuildContext context) {
-    // A watch is right here, unlike on the Scaffold: the once-a-second tick is
-    // what counts the cooldown down on the rows.
-    final state = context.watch<GameState>();
     final theme = Theme.of(context);
-    final t = state.t;
-    final lines = t.quickMessages;
-    final canChat = state.canChat;
-    final left = state.chatCooldownLeft;
+    final ink = theme.colorScheme.onSurface;
+    final gold = _goldInk(theme.brightness);
+    final radius = BorderRadius.circular(Radii.md);
 
-    return GlassDrawerPanel(
-      padding: EdgeInsets.zero,
-      // Loose constraints from the panel's Align would leave the list no
-      // height to scroll in, as in the menu.
-      child: SizedBox.expand(
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(
-                Space.lg,
-                Space.md,
-                Space.sm,
-                Space.xs,
+    return Semantics(
+      button: true,
+      selected: selected,
+      child: PressScale(
+        child: Material(
+          type: MaterialType.transparency,
+          child: InkWell(
+            borderRadius: radius,
+            enableFeedback: context.select<FeedbackSettings, bool>(
+              (f) => f.sound,
+            ),
+            onTap: onTap,
+            child: AnimatedContainer(
+              duration: Motion.fast,
+              constraints: const BoxConstraints(minHeight: Dim.minTouch),
+              padding: const EdgeInsets.symmetric(
+                horizontal: Space.xs,
+                vertical: Space.xs,
               ),
-              child: Row(
+              decoration: BoxDecoration(
+                borderRadius: radius,
+                color: selected
+                    ? ink.withValues(alpha: 0.07)
+                    : ink.withValues(alpha: 0),
+                border: Border.all(
+                  color: selected
+                      ? gold.withValues(alpha: 0.75)
+                      : gold.withValues(alpha: 0),
+                  width: Dim.hairline,
+                ),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(
-                    Icons.quickreply_rounded,
-                    size: 18,
-                    color: _goldInk(theme.brightness),
-                  ),
-                  const SizedBox(width: Space.md),
-                  Expanded(
+                  glyph,
+                  const SizedBox(height: Space.xxs),
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
                     child: Text(
-                      t.quickMessagesTitle,
+                      label,
                       maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppTheme.label(
-                        theme.textTheme.titleMedium ?? const TextStyle(),
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        fontWeight: selected
+                            ? FontWeight.w700
+                            : FontWeight.w500,
+                        color: ink.withValues(
+                          alpha: selected ? AppTheme.inkHigh : AppTheme.inkMed,
+                        ),
                       ),
-                    ),
-                  ),
-                  if (!canChat) ...[
-                    _ChatCountdown(
-                      left: left,
-                      total: GameState.chatCooldown.inSeconds,
-                    ),
-                    const SizedBox(width: Space.xs),
-                  ],
-                  PressScale(
-                    child: IconButton(
-                      visualDensity: VisualDensity.compact,
-                      icon: const Icon(Icons.close_rounded),
-                      onPressed: () => Navigator.pop(context),
                     ),
                   ),
                 ],
               ),
             ),
-            const _MenuRule(),
-            Expanded(
-              child: ListView.builder(
-                padding: const EdgeInsets.symmetric(vertical: Space.xs),
-                itemCount: lines.length,
-                itemBuilder: (context, i) => _QuickLine(
-                  text: lines[i],
-                  secondsLeft: left,
-                  onTap: canChat ? () => _send(context, state, lines[i]) : null,
-                ),
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     );
   }
-
-  /// The same ending as the chat's own send: once the line is out the drawer
-  /// goes, and what the player sees next is their words over their own seat.
-  /// A refusal (the cooldown caught between build and tap) leaves it open.
-  void _send(BuildContext context, GameState state, String line) {
-    if (!state.sendChat(line)) return;
-    Navigator.of(context).pop();
-  }
 }
 
-/// One sentence in the quick-message panel, the whole row its target.
+/// One sentence on the chat drawer's quick messages tab, the whole row its
+/// target.
 ///
 /// While the cooldown runs the row is disabled and says how many seconds are
 /// left, rather than taking a tap that would do nothing and say nothing.
@@ -4926,7 +5396,12 @@ class _ActionCluster extends StatelessWidget {
     // Heads-up: a show is on offer, and a sideshow cannot be. One slot, two
     // jobs — a show needs exactly two players left and a sideshow three or
     // more, so they are never askable at the same moment.
-    final headsUp = live && showCost != null && showCost > 0;
+    // Held back while a Force Sideshow's hammer is still in the air: the
+    // loser has already been packed server-side, so the table turning heads-up
+    // under the key would give away who lost before the hammer lands (QA 14
+    // Sep 2026), as the fold itself is held back on the felt.
+    final headsUp =
+        live && showCost != null && showCost > 0 && !state.hammerLinkShown;
 
     final size = MediaQuery.sizeOf(context);
     final keyH = Dim.keyH(size.height);
@@ -5065,6 +5540,134 @@ class _PackKey extends StatelessWidget {
         alive: canPack,
         edge: theme.colorScheme.error.withValues(alpha: 0.45),
         onPressed: canPack ? state.pack : null,
+      ),
+    );
+  }
+}
+
+/// Missile, standing on the Pack key in the bottom-left corner (owner,
+/// 14 Sep 2026).
+///
+/// Lit on the viewer's turn when the server says a missile is allowed —
+/// `you.canMissile`: three or more still in the hand, blind or seen alike.
+/// Whether the player can PAY is their own count; with no missiles the key is
+/// greyed but still answers a tap, with an offer of the store.
+class _MissileKey extends StatelessWidget {
+  const _MissileKey();
+
+  @override
+  Widget build(BuildContext context) {
+    final state = context.watch<GameState>();
+    final theme = Theme.of(context);
+    final size = MediaQuery.sizeOf(context);
+    final gap = Dim.gap(size.width);
+    final canFire = state.canMissile && !state.firingMissile;
+    final hasMissile = state.hasMissile;
+    final t = state.t;
+
+    return Padding(
+      // Pack's own padding carries the gap between the two keys.
+      padding: EdgeInsets.fromLTRB(Dim.feltPad(size.width), gap, gap, 0),
+      child: Tooltip(
+        message: t.missile,
+        child: _MachinedKey(
+          width: Dim.keyW(size.width),
+          height: Dim.keyH(size.height),
+          glyph: _MissileGlyph(animate: canFire),
+          label: t.missile,
+          edge: missileInkOn(theme.brightness).withValues(alpha: 0.5),
+          alive: canFire && hasMissile,
+          muted: canFire && !hasMissile,
+          onPressed: canFire ? () => _fireMissile(context, state) : null,
+        ),
+      ),
+    );
+  }
+}
+
+/// The Missile key's glyph: `assets/animations/Missile.json`, flying in from
+/// its corner on a loop while the key can be used — the second half of the
+/// file, where the rocket is on its canvas — and resting in the middle of its
+/// box while it cannot. A key that simply stopped would show frame 0, where the rocket
+/// is still off the canvas — an empty key.
+class _MissileGlyph extends StatefulWidget {
+  const _MissileGlyph({required this.animate});
+
+  final bool animate;
+
+  @override
+  State<_MissileGlyph> createState() => _MissileGlyphState();
+}
+
+class _MissileGlyphState extends State<_MissileGlyph>
+    with SingleTickerProviderStateMixin {
+  /// Made in initState, never lazily (CLAUDE.md §12.3).
+  late final AnimationController _controller;
+
+  /// [MissileArt.restFrame] as a share of the file, once it is known.
+  double _rest = 0.95;
+
+  /// [MissileArt.glyphLoopFrom] as a share of the file, and how long the file
+  /// takes to play from there, once it is known.
+  double _loopFrom = 0.5;
+  Duration _loopPeriod = const Duration(seconds: 1);
+  bool _loaded = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(vsync: this, value: _rest);
+  }
+
+  @override
+  void didUpdateWidget(covariant _MissileGlyph old) {
+    super.didUpdateWidget(old);
+    if (old.animate != widget.animate) _apply();
+  }
+
+  void _apply() {
+    if (!_loaded) return;
+    if (widget.animate) {
+      _controller.repeat(min: _loopFrom, max: 1, period: _loopPeriod);
+    } else {
+      _controller
+        ..stop()
+        ..value = _rest;
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return RepaintBoundary(
+      child: SizedBox.square(
+        dimension: 26,
+        child: Lottie.asset(
+          MissileArt.missileAsset,
+          controller: _controller,
+          fit: BoxFit.contain,
+          onLoaded: (composition) {
+            _controller.duration = composition.duration;
+            _rest =
+                ((MissileArt.restFrame - composition.startFrame) /
+                        composition.durationFrames)
+                    .clamp(0.0, 1.0);
+            _loopFrom =
+                ((MissileArt.glyphLoopFrom - composition.startFrame) /
+                        composition.durationFrames)
+                    .clamp(0.0, 1.0);
+            _loopPeriod = composition.duration * (1 - _loopFrom);
+            _loaded = true;
+            _apply();
+          },
+          errorBuilder: (context, error, stack) =>
+              const Icon(missileIcon, size: 18),
+        ),
       ),
     );
   }
