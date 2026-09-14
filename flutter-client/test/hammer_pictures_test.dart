@@ -658,6 +658,62 @@ void main() {
       await _close(tester, state, feedback);
     });
 
+    testWidgets('draws its pill in the theme it is in, day or night', (
+      tester,
+    ) async {
+      _setScreen(tester, const Size(891, 411));
+      final state = _state();
+      final feedback = FeedbackSettings();
+
+      // The pill's fill and the ink of its "All" label, in [theme].
+      Future<(Color, Color)> paint(ThemeData theme) async {
+        await tester.pumpWidget(
+          MultiProvider(
+            providers: [
+              ChangeNotifierProvider<GameState>.value(value: state),
+              ChangeNotifierProvider<FeedbackSettings>.value(value: feedback),
+            ],
+            child: MaterialApp(
+              theme: theme,
+              home: Scaffold(
+                body: Center(
+                  child: PictureFilterMenu(
+                    value: PictureFilter.all,
+                    counts: const {},
+                    onChanged: (_) {},
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+        // MaterialApp cross-fades one theme into the next; measure after it.
+        await tester.pump();
+        await tester.pump(const Duration(seconds: 1));
+        final pill = tester.widget<Container>(
+          find
+              .descendant(
+                of: find.byType(PictureFilterMenu),
+                matching: find.byType(Container),
+              )
+              .first,
+        );
+        final all = tester.widget<Text>(find.text('All'));
+        return ((pill.decoration! as BoxDecoration).color!, all.style!.color!);
+      }
+
+      // It was the same dark pill in both themes (owner, 14 Sep 2026).
+      final (nightPill, nightInk) = await paint(AppTheme.dark(sound: false));
+      final (dayPill, dayInk) = await paint(AppTheme.light(sound: false));
+      expect(nightPill.computeLuminance(), lessThan(0.1));
+      expect(nightInk.computeLuminance(), greaterThan(0.6));
+      expect(dayPill.computeLuminance(), greaterThan(0.6));
+      expect(dayInk.computeLuminance(), lessThan(0.1));
+      expect(tester.takeException(), isNull);
+
+      await _close(tester, state, feedback);
+    });
+
     testWidgets('draws a locked picture at full colour', (tester) async {
       _setScreen(tester, const Size(891, 411));
       final state = _state();

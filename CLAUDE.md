@@ -983,7 +983,7 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   up the range; the Pictures tab heads its grid with the worn picture, large and centred, beside the shelf menu); requirement 21): a horizontal strip
   of the active catalogue, one **shelf** at a time: a menu pinned above the grid (`_PictureFilterMenu`, 13 Sep 2026)
   picks All (the default) or Premium in one wallet — chips (a poker-chip glyph), hammers (the hammer) or diamonds (the gem),
-  `PictureFilter.menu` (owner, 14 Sep 2026; it offered Free, Premium (IMAGE/SVG) and Premium (Animated) before, so a free
+  `PictureFilter.menu`, in a pill that follows the theme — a slate well with charcoal type and deep gold by day, charcoal with light type and pale gold at night; it was the dark pill in both until the owner caught it (owner, 14 Sep 2026; it offered Free, Premium (IMAGE/SVG) and Premium (Animated) before, so a free
   picture is now on All alone; `PictureFilter.animated` survives only as the store's at-table shelf), each with its count; the premium animated pictures run cheapest first (`shelfOrder`,
   owner 13 Sep 2026 — re-dealt into their own slots, so on All the group stays where the catalogue put it). A picture the player has not bought is drawn at
   full colour (owner, 14 Sep 2026; dimmed to 0.55 before) with a gold padlock-and-price pill (`_PriceTag`; a DIAMOND row shows a gem instead and a HAMMER row the hammer

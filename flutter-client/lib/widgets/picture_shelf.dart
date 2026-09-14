@@ -19,6 +19,7 @@ import '../models/dtos.dart';
 import '../settings/feedback_settings.dart';
 import '../state/game_state.dart';
 import '../theme/app_theme.dart';
+import '../theme/theme_colors.dart';
 import 'avatar.dart';
 import 'chip_store.dart';
 import 'glass_components.dart';
@@ -168,11 +169,12 @@ Widget pictureShelf({
 
 /// The shelf menu at the top of the picture picker.
 ///
-/// A pill in the same dark ink as the price tags and the diamond balance, so
-/// the sheet's controls read as one set — which is also why its type is a
-/// fixed light ink rather than the theme's, which would vanish on it in the
-/// light theme. Each entry carries its shelf's count: that is what tells a
-/// player the animated shelf is worth opening.
+/// A pill in the theme's own colours (owner, 14 Sep 2026; it was the price
+/// tags' dark ink in both themes, so the day sheet carried a night pill):
+/// charcoal with light type at night, a slate well with charcoal type by day,
+/// gold-rimmed in both. The wallet glyphs take each theme's ink for their
+/// currency, as the balances do. Each entry carries its shelf's count: that is
+/// what tells a player a shelf is worth opening.
 class PictureFilterMenu extends StatelessWidget {
   const PictureFilterMenu({
     super.key,
@@ -189,8 +191,13 @@ class PictureFilterMenu extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final t = context.read<GameState>().t;
-    const ink = Color(0xE6FFFFFF);
-    const quiet = Color(0x99FFFFFF);
+    final brightness = theme.brightness;
+    final night = brightness == Brightness.dark;
+    final glass = GlassColors.of(context);
+    final ink = night ? const Color(0xE6FFFFFF) : glass.textDisplay;
+    final quiet = night ? const Color(0x99FFFFFF) : glass.textMuted;
+    // The gold that reads on the pill: pale on charcoal, deep on slate.
+    final gold = night ? AppTheme.goldBright : AppTheme.goldDeep;
 
     Widget entry(PictureFilter f) {
       // Each premium shelf wears its wallet's own glyph, as the price tags and
@@ -203,32 +210,32 @@ class PictureFilterMenu extends StatelessWidget {
         String? wallet,
       ) = switch (f) {
         PictureFilter.all => (
-          const Icon(Icons.grid_view_rounded, size: 14, color: ink),
+          Icon(Icons.grid_view_rounded, size: 14, color: ink),
           ink,
           t.pictureAll,
           null,
         ),
         PictureFilter.chips => (
           const PokerChip(colour: AppTheme.gold, size: 14),
-          AppTheme.goldBright,
+          gold,
           t.picturePremium,
           t.storeTabChips,
         ),
         PictureFilter.hammers => (
-          const Icon(Icons.hardware, size: 14, color: _hammerInk),
-          AppTheme.goldBright,
+          Icon(Icons.hardware, size: 14, color: hammerInkOn(brightness)),
+          gold,
           t.picturePremium,
           t.storeTabHammers,
         ),
         PictureFilter.diamonds => (
-          const Icon(Icons.diamond, size: 14, color: _diamondInk),
-          AppTheme.goldBright,
+          Icon(Icons.diamond, size: 14, color: diamondInkOn(brightness)),
+          gold,
           t.picturePremium,
           t.storeTabDiamonds,
         ),
         PictureFilter.animated => (
-          const Icon(Icons.auto_awesome, size: 14, color: AppTheme.goldBright),
-          AppTheme.goldBright,
+          Icon(Icons.auto_awesome, size: 14, color: gold),
+          gold,
           t.picturePremiumAnimated,
           null,
         ),
@@ -263,8 +270,8 @@ class PictureFilterMenu extends StatelessWidget {
       padding: const EdgeInsets.only(left: Space.md, right: Space.xs),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(Radii.pill),
-        color: AppTheme.ink900.withValues(alpha: 0.82),
-        border: Border.all(color: AppTheme.goldBright.withValues(alpha: 0.45)),
+        color: night ? AppTheme.ink900.withValues(alpha: 0.82) : glass.wellFill,
+        border: Border.all(color: gold.withValues(alpha: night ? 0.45 : 0.55)),
       ),
       child: DropdownButtonHideUnderline(
         child: DropdownButton<PictureFilter>(
@@ -272,7 +279,7 @@ class PictureFilterMenu extends StatelessWidget {
           isDense: true,
           padding: const EdgeInsets.symmetric(vertical: Space.sm),
           borderRadius: BorderRadius.circular(Radii.md),
-          dropdownColor: AppTheme.ink900,
+          dropdownColor: night ? AppTheme.ink900 : Colors.white,
           iconEnabledColor: quiet,
           icon: const Icon(Icons.expand_more, size: 18),
           items: [
