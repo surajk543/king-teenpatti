@@ -2379,6 +2379,11 @@ Future<void> openPicturePicker(BuildContext context) async {
                           // (owner, 14 Sep 2026), hammers. Styled like the price
                           // tags below, so the balances and the prices read as
                           // one set at a glance.
+                          // Day or night, switched from the top of the menu
+                          // (owner, 14 Sep 2026): the pictures are chosen by
+                          // how they look, and they look different on each.
+                          const DayNightSwitch(),
+                          const SizedBox(width: Space.sm),
                           PictureWalletBalances(
                             diamonds: user?.diamond ?? 0,
                             hammers: user?.hammer ?? 0,

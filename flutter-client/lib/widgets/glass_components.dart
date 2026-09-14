@@ -783,3 +783,59 @@ class _Segment extends StatelessWidget {
     );
   }
 }
+
+/// A day/night switch: a sun, a switch that is on in the dark theme, and a
+/// moon (owner, 14 Sep 2026: at the top of the picture menu). It flips the
+/// theme the way the table menu's key does ([GameState.toggleTheme]): from the
+/// System setting it flips away from whatever the phone is showing. Its label
+/// says which mode is on, and its tooltip what it does.
+class DayNightSwitch extends StatelessWidget {
+  const DayNightSwitch({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    // Selecting on `lang` keeps the one-second tick out of it; the theme is
+    // read from context, so a flip rebuilds this through Theme.
+    final t = Strings(context.select<GameState, AppLang>((s) => s.lang));
+    final theme = Theme.of(context);
+    final dark = theme.brightness == Brightness.dark;
+    final gold = dark ? AppTheme.goldBright : AppTheme.goldDeep;
+    final quiet = theme.colorScheme.onSurface.withValues(
+      alpha: AppTheme.inkLow,
+    );
+
+    void flip() {
+      tapHaptic(context);
+      context.read<GameState>().toggleTheme();
+    }
+
+    return Tooltip(
+      message: t.switchTheme,
+      child: MergeSemantics(
+        child: Semantics(
+          label: dark ? t.nightMode : t.dayMode,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.light_mode_rounded,
+                size: 18,
+                color: dark ? quiet : gold,
+              ),
+              Switch(
+                value: dark,
+                onChanged: (_) => flip(),
+                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+              Icon(
+                Icons.dark_mode_rounded,
+                size: 18,
+                color: dark ? gold : quiet,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}

@@ -23,7 +23,9 @@ import 'package:teenpatti/screens/lobby_screen.dart';
 import 'package:teenpatti/settings/feedback_settings.dart';
 import 'package:teenpatti/state/game_state.dart';
 import 'package:teenpatti/theme/app_theme.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:teenpatti/widgets/chip_store.dart';
+import 'package:teenpatti/widgets/glass_components.dart';
 import 'package:teenpatti/widgets/glass_panels.dart';
 import 'package:teenpatti/widgets/picture_shelf.dart';
 import 'package:teenpatti/widgets/premium_surface.dart';
@@ -685,5 +687,32 @@ void main() {
         }
       });
     }
+  });
+
+  group('the picture sheet header', () {
+    testWidgets('carries a day/night switch that flips the theme', (
+      tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({});
+      _setScreen(tester, const Size(640, 360));
+      final state = _state();
+      final feedback = FeedbackSettings();
+      final host = await _host(tester, state, feedback);
+      unawaited(openPicturePicker(host));
+      await _settle(tester);
+
+      final dayNight = find.byType(DayNightSwitch);
+      expect(dayNight, findsOneWidget);
+      final before = state.themeMode;
+      await tester.tap(
+        find.descendant(of: dayNight, matching: find.byType(Switch)),
+      );
+      await _settle(tester);
+      expect(state.themeMode, isNot(before));
+      expect(state.themeMode, anyOf(ThemeMode.dark, ThemeMode.light));
+      expect(tester.takeException(), isNull);
+
+      await _close(tester, state, feedback);
+    });
   });
 }
