@@ -23,20 +23,24 @@ const (
 	MilestoneReward int64 = 25000
 	// MilestoneEvery is the hands-played step between milestones.
 	MilestoneEvery = 25
-	// TimedBonusReward is the chips of the daily bonus: 1,00,000 every 24
-	// hours, with TimedBonusHammers beside them (owner, 14 Sep 2026;
-	// requirement 18 paid 10,000 chips every four hours).
-	TimedBonusReward int64 = 100000
-	// TimedBonusHammers is what the daily bonus adds to users.hammer.
-	TimedBonusHammers = 1
+	// TimedBonusReward is the 4-hourly bonus (requirement 18), POST
+	// /api/rewards/bonus.
+	TimedBonusReward int64 = 10000
 	// TimedBonusInterval is how long the timed bonus takes to recharge.
-	TimedBonusInterval = 24 * time.Hour
+	TimedBonusInterval = 4 * time.Hour
+	// DailyBonusReward and DailyBonusHammers are the daily bonus beside it:
+	// 1,00,000 chips and a hammer every DailyBonusInterval, POST
+	// /api/rewards/daily. Go only (owner, 14 Sep 2026).
+	DailyBonusReward   int64 = 100000
+	DailyBonusHammers        = 1
+	DailyBonusInterval       = 24 * time.Hour
 )
 
-// The milestones of user_milestones (V1.0.0): what each player has collected,
-// one row per player per milestone, updated in place.
+// The milestones of user_milestones (V1.0.0; TIMED_BONUS since V1.0.2): what
+// each player has collected, one row per player per milestone, updated in place.
 const (
 	MilestoneHandsPlayed = "HANDS_PLAYED"
+	MilestoneTimedBonus  = "TIMED_BONUS"
 	MilestoneDailyBonus  = "DAILY_BONUS"
 )
 
@@ -59,15 +63,21 @@ type Rewards struct {
 	// HandsToNextMilestone is 25 - (hands_played % 25) — NOTE it says 25, not
 	// 0, at an exact multiple (CLAUDE.md §12.2); clients use MilestoneAvailable.
 	HandsToNextMilestone int `json:"handsToNextMilestone"`
-	// BonusReadyAt is the player's DAILY_BONUS next_claim_at in
+	// BonusReadyAt is the player's TIMED_BONUS next_claim_at in
 	// user_milestones (epoch ms); 0 = ready now, as with no row.
-	BonusReadyAt   int64 `json:"bonusReadyAt"`
-	BonusAvailable bool  `json:"bonusAvailable"` // now >= BonusReadyAt
-	BonusReward    int64 `json:"bonusReward"`
-	// BonusHammers is the hammers the bonus pays beside BonusReward's chips.
-	// Go only (owner, 14 Sep 2026).
-	BonusHammers    int   `json:"bonusHammers"`
+	BonusReadyAt    int64 `json:"bonusReadyAt"`
+	BonusAvailable  bool  `json:"bonusAvailable"` // now >= BonusReadyAt
+	BonusReward     int64 `json:"bonusReward"`
 	BonusIntervalMs int64 `json:"bonusIntervalMs"`
+	// DailyReadyAt … DailyIntervalMs are the daily bonus as the Bonus* fields
+	// are the four-hour one — DAILY_BONUS's next_claim_at, 0 with no row — and
+	// DailyHammers the hammers it pays beside its chips. Go only (owner, 14 Sep
+	// 2026).
+	DailyReadyAt    int64 `json:"dailyReadyAt"`
+	DailyAvailable  bool  `json:"dailyAvailable"` // now >= DailyReadyAt
+	DailyReward     int64 `json:"dailyReward"`
+	DailyHammers    int   `json:"dailyHammers"`
+	DailyIntervalMs int64 `json:"dailyIntervalMs"`
 }
 
 // User is the account as every client sees it (users.js publicUser) — the
@@ -253,18 +263,19 @@ type queryer interface {
 // diamond, where the baseline declares them; a database built by older scripts
 // has them at the end of the table), so a row scans into
 // userRow without depending on `SELECT *` column ordering, followed by the
-// asset_url of the catalogue picture the player is wearing. The two reward
+// asset_url of the catalogue picture the player is wearing. The reward
 // milestones come from user_milestones, where milestone_claimed and
 // next_bonus_at sat until 14 Sep 2026, and read 0 for a player with no row.
 // Qualified with the `u` alias because every read now goes through userFrom's
 // joins.
 const userColumns = `u.id, u.provider, u.provider_user_id, u.display_name, u.email, u.avatar_url, u.chips, u.diamond, u.hammer, u.missile,
        u.hands_played, u.hands_won, u.hands_lost, u.hands_left_mid, u.total_winnings, u.biggest_pot,
-       COALESCE(mh.claimed_up_to, 0), COALESCE(mb.next_claim_at, 0), u.active_picture_id, u.created_at, u.updated_at, u.last_login_at,
+       COALESCE(mh.claimed_up_to, 0), COALESCE(mt.next_claim_at, 0), COALESCE(mb.next_claim_at, 0),
+       u.active_picture_id, u.created_at, u.updated_at, u.last_login_at,
        ap.asset_url`
 
 // userFrom joins the picture the player is wearing so publicUser can resolve
-// avatarUrl without a second round trip, and the player's two rows of
+// avatarUrl without a second round trip, and the player's three rows of
 // user_milestones for the rewards. LEFT, because most players wear nothing and
 // a new one has collected nothing, and every one of them must still come back
 // from these queries.
@@ -274,6 +285,7 @@ const userColumns = `u.id, u.provider, u.provider_user_id, u.display_name, u.ema
 // each other for no reason.
 const userFrom = ` FROM users u LEFT JOIN profile_pictures ap ON ap.id = u.active_picture_id
   LEFT JOIN user_milestones mh ON mh.user_id = u.id AND mh.milestone = 'HANDS_PLAYED'
+  LEFT JOIN user_milestones mt ON mt.user_id = u.id AND mt.milestone = 'TIMED_BONUS'
   LEFT JOIN user_milestones mb ON mb.user_id = u.id AND mb.milestone = 'DAILY_BONUS' `
 
 // userRow is one users row as stored (snake_case columns).
@@ -291,10 +303,12 @@ type userRow struct {
 	handsPlayed, handsWon     int
 	handsLost, handsLeftMid   int
 	totalWinnings, biggestPot int64
-	// milestoneClaimed is the HANDS_PLAYED claimed_up_to and nextBonusAt the
-	// DAILY_BONUS next_claim_at, from user_milestones; 0 with no row.
+	// milestoneClaimed is the HANDS_PLAYED claimed_up_to, nextBonusAt the
+	// TIMED_BONUS next_claim_at and nextDailyAt the DAILY_BONUS one, from
+	// user_milestones; 0 with no row.
 	milestoneClaimed                  int
 	nextBonusAt                       int64
+	nextDailyAt                       int64
 	createdAt, updatedAt, lastLoginAt int64
 }
 
@@ -303,7 +317,7 @@ func scanUser(row pgx.Row) (*userRow, error) {
 	var r userRow
 	err := row.Scan(&r.id, &r.provider, &r.providerUserID, &r.displayName, &r.email, &r.avatarURL, &r.chips, &r.diamond, &r.hammer, &r.missile,
 		&r.handsPlayed, &r.handsWon, &r.handsLost, &r.handsLeftMid, &r.totalWinnings, &r.biggestPot,
-		&r.milestoneClaimed, &r.nextBonusAt, &r.activePictureID, &r.createdAt, &r.updatedAt, &r.lastLoginAt,
+		&r.milestoneClaimed, &r.nextBonusAt, &r.nextDailyAt, &r.activePictureID, &r.createdAt, &r.updatedAt, &r.lastLoginAt,
 		&r.pictureAssetURL)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
@@ -368,8 +382,12 @@ func (u *Users) publicUser(r *userRow) *User {
 			BonusReadyAt:         r.nextBonusAt,
 			BonusAvailable:       now(u.clock) >= r.nextBonusAt,
 			BonusReward:          TimedBonusReward,
-			BonusHammers:         TimedBonusHammers,
 			BonusIntervalMs:      TimedBonusInterval.Milliseconds(),
+			DailyReadyAt:         r.nextDailyAt,
+			DailyAvailable:       now(u.clock) >= r.nextDailyAt,
+			DailyReward:          DailyBonusReward,
+			DailyHammers:         DailyBonusHammers,
+			DailyIntervalMs:      DailyBonusInterval.Milliseconds(),
 		},
 		CreatedAt:   r.createdAt,
 		LastLoginAt: r.lastLoginAt,
@@ -538,7 +556,7 @@ func (u *Users) ApplyChipDelta(ctx context.Context, userID string, delta int64, 
 // updated in place every time after (owner, 14 Sep 2026) — chip_ledger is the
 // record of each payment, so a row per claim would only repeat it. claimedUpTo
 // is the hands-played multiple for HANDS_PLAYED and nextClaimAt the recharge
-// for DAILY_BONUS; the other is 0. Run under the wallet lock, which serialises
+// for TIMED_BONUS and DAILY_BONUS; the other is 0. Run under the wallet lock, which serialises
 // one player's claims, so two first claims cannot race to insert.
 func collectMilestone(ctx context.Context, tx pgx.Tx, userID, milestone string, claimedUpTo int, nextClaimAt, timestamp int64) error {
 	_, err := tx.Exec(ctx,
@@ -610,13 +628,11 @@ func (u *Users) ClaimMilestoneReward(ctx context.Context, userID string) (*Rewar
 	return result, nil
 }
 
-// ClaimTimedBonus (requirement 18, as the owner re-set it on 14 Sep 2026: the
-// daily bonus): lock the row; if now < the DAILY_BONUS next_claim_at →
-// {Claimed false, Reason "not_ready", ReadyAt next_claim_at, User}. Else chips
-// += TimedBonusReward and hammer += TimedBonusHammers, next_claim_at = now +
-// 24h (collectMilestone), ledger row for the chips (action_id NULL, reason
-// timed_bonus; hammers are never ledgered) → {Claimed true, Amount, ReadyAt,
-// User}. Amount is the chips; the hammer shows in User.
+// ClaimTimedBonus (requirement 18): lock the row; if now < the TIMED_BONUS
+// next_claim_at → {Claimed false, Reason "not_ready", ReadyAt next_claim_at,
+// User}. Else chips += TimedBonusReward, next_claim_at = now + 4h
+// (collectMilestone), ledger row (action_id NULL, reason timed_bonus) →
+// {Claimed true, Amount, ReadyAt, User}.
 //
 // The next unlock time lives in the database, so the countdown survives a
 // restart and cannot be reset by reinstalling the client.
@@ -640,11 +656,11 @@ func (u *Users) ClaimTimedBonus(ctx context.Context, userID string) (*RewardResu
 		balance := row.chips + TimedBonusReward
 		readyAt := timestamp + TimedBonusInterval.Milliseconds()
 
-		if _, err := tx.Exec(ctx, `UPDATE users SET chips = $1, hammer = hammer + $2, updated_at = $3 WHERE id = $4`,
-			balance, TimedBonusHammers, timestamp, userID); err != nil {
+		if _, err := tx.Exec(ctx, `UPDATE users SET chips = $1, updated_at = $2 WHERE id = $3`,
+			balance, timestamp, userID); err != nil {
 			return err
 		}
-		if err := collectMilestone(ctx, tx, userID, MilestoneDailyBonus, 0, readyAt, timestamp); err != nil {
+		if err := collectMilestone(ctx, tx, userID, MilestoneTimedBonus, 0, readyAt, timestamp); err != nil {
 			return err
 		}
 		// No action_id: the next_claim_at check under the row lock is the guard.
@@ -657,6 +673,58 @@ func (u *Users) ClaimTimedBonus(ctx context.Context, userID string) (*RewardResu
 			return err
 		}
 		result = &RewardResult{Claimed: true, Amount: TimedBonusReward, ReadyAt: readyAt, User: u.publicUser(fresh)}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// ClaimDailyBonus is the daily bonus beside the timed one (owner, 14 Sep 2026;
+// Go only): lock the row; if now < the DAILY_BONUS next_claim_at → {Claimed
+// false, Reason "not_ready", ReadyAt next_claim_at, User}. Else chips +=
+// DailyBonusReward and hammer += DailyBonusHammers, next_claim_at = now + 24h
+// (collectMilestone), ledger row for the chips (action_id NULL, reason
+// daily_bonus; hammers are never ledgered) → {Claimed true, Amount, ReadyAt,
+// User}. Amount is the chips; the hammer shows in User.
+func (u *Users) ClaimDailyBonus(ctx context.Context, userID string) (*RewardResult, error) {
+	var result *RewardResult
+	err := u.db.WithTx(ctx, func(tx pgx.Tx) error {
+		row, err := scanUser(tx.QueryRow(ctx, `SELECT `+userColumns+userFrom+` WHERE u.id = $1 FOR UPDATE OF u`, userID))
+		if err != nil {
+			return err
+		}
+		if row == nil {
+			return fmt.Errorf("unknown user %s", userID)
+		}
+
+		timestamp := now(u.clock)
+		if timestamp < row.nextDailyAt {
+			result = &RewardResult{Claimed: false, Reason: RewardNotReady, ReadyAt: row.nextDailyAt, User: u.publicUser(row)}
+			return nil
+		}
+
+		balance := row.chips + DailyBonusReward
+		readyAt := timestamp + DailyBonusInterval.Milliseconds()
+
+		if _, err := tx.Exec(ctx, `UPDATE users SET chips = $1, hammer = hammer + $2, updated_at = $3 WHERE id = $4`,
+			balance, DailyBonusHammers, timestamp, userID); err != nil {
+			return err
+		}
+		if err := collectMilestone(ctx, tx, userID, MilestoneDailyBonus, 0, readyAt, timestamp); err != nil {
+			return err
+		}
+		// No action_id: the next_claim_at check under the row lock is the guard.
+		if err := appendLedger(ctx, tx, userID, "", "", DailyBonusReward, balance, game.LedgerReasonDailyBonus, timestamp); err != nil {
+			return err
+		}
+
+		fresh, err := selectUser(ctx, tx, userID)
+		if err != nil {
+			return err
+		}
+		result = &RewardResult{Claimed: true, Amount: DailyBonusReward, ReadyAt: readyAt, User: u.publicUser(fresh)}
 		return nil
 	})
 	if err != nil {

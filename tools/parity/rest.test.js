@@ -26,7 +26,8 @@ const USER_KEYS = [
 ];
 const REWARD_KEYS = [
   'milestoneAvailable', 'milestoneAt', 'milestoneReward', 'milestoneEvery', 'handsToNextMilestone',
-  'bonusReadyAt', 'bonusAvailable', 'bonusReward', 'bonusHammers', 'bonusIntervalMs',
+  'bonusReadyAt', 'bonusAvailable', 'bonusReward', 'bonusIntervalMs',
+  'dailyReadyAt', 'dailyAvailable', 'dailyReward', 'dailyHammers', 'dailyIntervalMs',
 ];
 
 // ------------------------------------------------------------------ login
@@ -63,9 +64,13 @@ test('guest login creates an account with the welcome chip grant, in the exact p
     handsToNextMilestone: 25,
     bonusReadyAt: 0,
     bonusAvailable: true,
-    bonusReward: 100000,
-    bonusHammers: 1,
-    bonusIntervalMs: 86400000,
+    bonusReward: 10000,
+    bonusIntervalMs: 14400000,
+    dailyReadyAt: 0,
+    dailyAvailable: true,
+    dailyReward: 100000,
+    dailyHammers: 1,
+    dailyIntervalMs: 86400000,
   });
   assert.equal(typeof user.createdAt, 'number');
   assert.equal(typeof user.lastLoginAt, 'number');
@@ -498,10 +503,11 @@ test('a premium picture is bought once, with chips, and then can be worn', async
 test('a hammer picture is paid in hammers, never chips or diamonds, and a new account can afford one', async () => {
   const { profiles } = (await http('GET', '/api/profiles')).body;
   const hammered = profiles.filter((p) => p.currency === 'HAMMER');
-  // Sixteen of the 25 seeded animated pictures: the owner priced five in
-  // diamonds and four in chips (14 Sep 2026), and Love and Kiss joined the
-  // hammer shelf the same day.
-  assert.equal(hammered.length, 16, 'the seeded animated pictures are priced in hammers');
+  // Nineteen of the 30 seeded animated pictures: the owner priced five in
+  // diamonds and six in chips (14 Sep 2026; two of them appended after launch),
+  // and Love and Kiss and then Dog Dancing, Dance and Cockroach (appended after
+  // launch too) joined the hammer shelf the same day.
+  assert.equal(hammered.length, 19, 'the seeded animated pictures are priced in hammers');
   const pic = hammered.find((p) => p.cost === 10);
   assert.ok(pic, 'one of them costs 10 hammers');
   assert.equal(pic.type, 'PREMIUM');
@@ -659,7 +665,7 @@ test('the milestone reward is refused until 25 played hands, then paid exactly o
   assert.deepEqual(milestones.rows, [{ milestone: 'HANDS_PLAYED', claimed_up_to: 75, times_claimed: 2 }]);
 });
 
-test('the daily bonus pays 1 lakh chips and a hammer at once, then recharges for 24 hours in the database', async () => {
+test('the timed bonus pays 10,000 at once, then recharges for four hours in the database', async () => {
   const { token, user } = await guestLogin('device-bonus-0001', 'Bonus');
   const before = user.chips;
   const hammers = user.hammer;
@@ -670,12 +676,13 @@ test('the daily bonus pays 1 lakh chips and a hammer at once, then recharges for
   assert.equal(r.status, 200);
   assertKeys(r.body, ['claimed', 'amount', 'readyAt', 'user']);
   assert.equal(r.body.claimed, true);
-  assert.equal(r.body.amount, 100000);
-  assert.ok(Math.abs(r.body.readyAt - (started + 24 * 3600 * 1000)) < 2000, `readyAt ${r.body.readyAt} is now + 24h`);
-  assert.equal(r.body.user.chips, before + 100000);
-  assert.equal(r.body.user.hammer, hammers + 1, 'and one hammer');
+  assert.equal(r.body.amount, 10000);
+  assert.ok(Math.abs(r.body.readyAt - (started + 4 * 3600 * 1000)) < 2000, `readyAt ${r.body.readyAt} is now + 4h`);
+  assert.equal(r.body.user.chips, before + 10000);
+  assert.equal(r.body.user.hammer, hammers, 'the four-hour bonus is chips alone');
   assert.equal(r.body.user.rewards.bonusAvailable, false);
   assert.equal(r.body.user.rewards.bonusReadyAt, r.body.readyAt);
+  assert.equal(r.body.user.rewards.dailyAvailable, true, 'and leaves the daily bonus waiting');
   const { readyAt } = r.body;
 
   r = await http('POST', '/api/rewards/bonus', { token });
@@ -684,11 +691,10 @@ test('the daily bonus pays 1 lakh chips and a hammer at once, then recharges for
   assert.equal(r.body.error, 'reward_not_ready');
   assert.equal(r.body.message, 'The bonus is still recharging.');
   assert.equal(r.body.readyAt, readyAt);
-  assert.equal(r.body.user.chips, before + 100000);
-  assert.equal(r.body.user.hammer, hammers + 1);
+  assert.equal(r.body.user.chips, before + 10000);
 
   const { rows } = await query(
-    "SELECT next_claim_at, times_claimed FROM user_milestones WHERE user_id = $1 AND milestone = 'DAILY_BONUS'",
+    "SELECT next_claim_at, times_claimed FROM user_milestones WHERE user_id = $1 AND milestone = 'TIMED_BONUS'",
     [user.id],
   );
   assert.equal(rows.length, 1);
@@ -697,21 +703,57 @@ test('the daily bonus pays 1 lakh chips and a hammer at once, then recharges for
 
   const ledger = await query("SELECT delta, action_id FROM chip_ledger WHERE user_id = $1 AND reason = 'timed_bonus'", [user.id]);
   assert.equal(ledger.rows.length, 1);
-  assert.equal(ledger.rows[0].delta, 100000);
+  assert.equal(ledger.rows[0].delta, 10000);
   assert.equal(ledger.rows[0].action_id, null);
 
-  await query("UPDATE user_milestones SET next_claim_at = $1 WHERE user_id = $2 AND milestone = 'DAILY_BONUS'", [Date.now() - 1, user.id]);
+  await query("UPDATE user_milestones SET next_claim_at = $1 WHERE user_id = $2 AND milestone = 'TIMED_BONUS'", [Date.now() - 1, user.id]);
   assert.equal((await me(token)).rewards.bonusAvailable, true);
   r = await http('POST', '/api/rewards/bonus', { token });
   assert.equal(r.status, 200);
-  assert.equal(r.body.user.chips, before + 200000);
-  assert.equal(r.body.user.hammer, hammers + 2);
+  assert.equal(r.body.user.chips, before + 20000);
   const again = await query('SELECT times_claimed FROM user_milestones WHERE user_id = $1', [user.id]);
   assert.deepEqual(again.rows, [{ times_claimed: 2 }], 'the same row, updated');
 });
 
+test('the daily bonus pays 1 lakh chips and a hammer, then recharges for 24 hours beside the timed bonus', async () => {
+  const { token, user } = await guestLogin('device-daily-bonus-0001', 'Daily');
+  const before = user.chips;
+  const hammers = user.hammer;
+  assert.equal(user.rewards.dailyAvailable, true);
+
+  const started = Date.now();
+  let r = await http('POST', '/api/rewards/daily', { token, body: {} });
+  assert.equal(r.status, 200);
+  assertKeys(r.body, ['claimed', 'amount', 'readyAt', 'user']);
+  assert.equal(r.body.claimed, true);
+  assert.equal(r.body.amount, 100000);
+  assert.ok(Math.abs(r.body.readyAt - (started + 24 * 3600 * 1000)) < 2000, `readyAt ${r.body.readyAt} is now + 24h`);
+  assert.equal(r.body.user.chips, before + 100000);
+  assert.equal(r.body.user.hammer, hammers + 1, 'and one hammer');
+  assert.equal(r.body.user.rewards.dailyAvailable, false);
+  assert.equal(r.body.user.rewards.dailyReadyAt, r.body.readyAt);
+  assert.equal(r.body.user.rewards.bonusAvailable, true, 'the timed bonus keeps its own clock');
+
+  r = await http('POST', '/api/rewards/daily', { token });
+  assert.equal(r.status, 409);
+  assertKeys(r.body, ['error', 'message', 'readyAt', 'user']);
+  assert.equal(r.body.error, 'reward_not_ready');
+  assert.equal(r.body.user.hammer, hammers + 1);
+
+  const ledger = await query("SELECT delta, action_id FROM chip_ledger WHERE user_id = $1 AND reason = 'daily_bonus'", [user.id]);
+  assert.equal(ledger.rows.length, 1);
+  assert.equal(ledger.rows[0].delta, 100000);
+  assert.equal(ledger.rows[0].action_id, null);
+
+  r = await http('POST', '/api/rewards/bonus', { token });
+  assert.equal(r.status, 200, 'the timed bonus is still there to collect');
+  const { rows } = await query('SELECT milestone, times_claimed FROM user_milestones WHERE user_id = $1 ORDER BY milestone', [user.id]);
+  assert.deepEqual(rows, [{ milestone: 'DAILY_BONUS', times_claimed: 1 }, { milestone: 'TIMED_BONUS', times_claimed: 1 }]);
+  assert.equal(await wallet(user.id), before + 110000);
+});
+
 test('reward and profile routes need a session', async () => {
-  for (const path of ['/api/rewards/milestone', '/api/rewards/bonus', '/api/profile/name', '/api/profile/avatar']) {
+  for (const path of ['/api/rewards/milestone', '/api/rewards/bonus', '/api/rewards/daily', '/api/profile/name', '/api/profile/avatar']) {
     const r = await http('POST', path, { body: {} });
     assert.equal(r.status, 401, path);
     assert.equal(r.body.error, 'missing_token');

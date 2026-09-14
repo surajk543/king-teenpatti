@@ -1644,7 +1644,7 @@ class GameState extends ChangeNotifier {
           missiles: 0,
           // The daily bonus pays a hammer beside its chips (owner, 14 Sep
           // 2026), and the celebration shows it under them.
-          hammers: kind == 'bonus' ? (user?.rewards?.bonusHammers ?? 0) : 0,
+          hammers: kind == 'daily' ? (user?.rewards?.dailyHammers ?? 0) : 0,
         );
       } else {
         notice = r.message.isEmpty ? t.rewardRefused : r.message;

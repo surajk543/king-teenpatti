@@ -24,10 +24,11 @@ func TestMigrationsAreVersionedOrderedAndSplitByKind(t *testing.T) {
 	// The consolidation of 14 Sep 2026 left one DDL script and one DML script
 	// to build an empty database. V1.0.2__new_account_diamonds.sql, added the
 	// same day, was folded back into the baseline with the pictures' HAMMER
-	// currency, for another fresh production start (DEPLOY.md §8). The next
-	// migration is a new file, so update this count with it.
+	// currency, for another fresh production start (DEPLOY.md §8), and so, after
+	// production had run the pair, were V1.0.2__timed_bonus_milestone.sql (into
+	// the baseline) and V1.0.3__seed_new_pictures.sql (into the seed).
 	if len(migrations) != 2 {
-		t.Fatalf("expected the baseline and the seed, got %d scripts", len(migrations))
+		t.Fatalf("expected one DDL script and one DML script, got %d", len(migrations))
 	}
 
 	for i, m := range migrations {
@@ -69,11 +70,14 @@ func TestMigrationsAreVersionedOrderedAndSplitByKind(t *testing.T) {
 
 	// The missile column and tables are the baseline's too (folded in from
 	// V1.0.2__missiles.sql on 14 Sep 2026), as are the new-account diamonds
-	// (from V1.0.2__new_account_diamonds.sql) and the pictures' third currency.
+	// (from V1.0.2__new_account_diamonds.sql), the pictures' third currency and
+	// the four-hour bonus's TIMED_BONUS milestone (from
+	// V1.0.2__timed_bonus_milestone.sql).
 	for _, want := range []string{
 		"DEFAULT 1 CHECK (missile >= 0)", "CREATE TABLE IF NOT EXISTS missile_purchases", "CREATE TABLE IF NOT EXISTS missile_spends",
 		"DEFAULT 9 CHECK (diamond >= 0)", "DEFAULT 20 CHECK (hammer >= 0)",
 		"CHECK (currency IN ('COIN', 'DIAMOND', 'HAMMER'))",
+		"CHECK (milestone IN ('HANDS_PLAYED', 'TIMED_BONUS', 'DAILY_BONUS'))",
 	} {
 		if !strings.Contains(baseline, want) {
 			t.Errorf("%s lacks %q", migrations[0].File, want)

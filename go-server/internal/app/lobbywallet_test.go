@@ -109,7 +109,7 @@ func TestALobbyPictureAndAJoinCannotSeatAStaleWallet(t *testing.T) {
 	if res := postJSON(ts.URL, token, "/api/profile/picture/buy", map[string]any{"pictureId": mule}); res.err != nil || res.status != http.StatusConflict || res.body["error"] != auth.CodeSeated {
 		t.Errorf("seated coin buy: %d %v %v", res.status, res.body, res.err)
 	}
-	for _, path := range []string{"/api/rewards/milestone", "/api/rewards/bonus"} {
+	for _, path := range []string{"/api/rewards/milestone", "/api/rewards/bonus", "/api/rewards/daily"} {
 		if res := postJSON(ts.URL, token, path, map[string]any{}); res.err != nil || res.status != http.StatusConflict || res.body["error"] != auth.CodeSeated {
 			t.Errorf("seated %s: %d %v %v", path, res.status, res.body, res.err)
 		}

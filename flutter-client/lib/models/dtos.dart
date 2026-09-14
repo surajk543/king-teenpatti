@@ -67,27 +67,35 @@ class Rewards {
     required this.milestoneReward,
     required this.handsToNextMilestone,
     required this.bonusReward,
-    this.bonusHammers = 0,
     required this.bonusReadyAt,
     required this.bonusAvailable,
+    this.dailyReward = 0,
+    this.dailyHammers = 0,
+    this.dailyReadyAt = 0,
+    this.dailyAvailable = false,
   });
 
   final bool milestoneAvailable;
   final int milestoneReward;
   final int handsToNextMilestone;
-
-  /// The daily bonus: [bonusReward] chips and [bonusHammers] hammers, every
-  /// 24 hours (owner, 14 Sep 2026; 10,000 chips every four hours before). A
-  /// server that sends no hammers means 0.
   final int bonusReward;
-  final int bonusHammers;
 
-  /// Epoch ms the daily bonus unlocks; 0 means it is ready now. The server
+  /// Epoch ms the four-hour bonus unlocks; 0 means it is ready now. The server
   /// calls this `bonusReadyAt`.
   final int bonusReadyAt;
 
   /// The server's own verdict, which is what actually gates the claim.
   final bool bonusAvailable;
+
+  /// The daily bonus beside it (owner, 14 Sep 2026): [dailyReward] chips and
+  /// [dailyHammers] hammers every 24 hours, collected through
+  /// `POST /api/rewards/daily`. A server that sends none of it offers none.
+  final int dailyReward;
+  final int dailyHammers;
+
+  /// Epoch ms the daily bonus unlocks; 0 means it is ready now.
+  final int dailyReadyAt;
+  final bool dailyAvailable;
 
   bool get bonusReady =>
       bonusAvailable || bonusReadyAt <= DateTime.now().millisecondsSinceEpoch;
@@ -97,14 +105,28 @@ class Rewards {
     return Duration(milliseconds: ms < 0 ? 0 : ms);
   }
 
+  /// Whether the server offers a daily bonus at all (one that predates it
+  /// sends no reward), and whether it can be collected now.
+  bool get hasDaily => dailyReward > 0;
+  bool get dailyReady =>
+      dailyAvailable || dailyReadyAt <= DateTime.now().millisecondsSinceEpoch;
+
+  Duration get untilDaily {
+    final ms = dailyReadyAt - DateTime.now().millisecondsSinceEpoch;
+    return Duration(milliseconds: ms < 0 ? 0 : ms);
+  }
+
   factory Rewards.fromJson(Map<String, dynamic> j) => Rewards(
     milestoneAvailable: j['milestoneAvailable'] == true,
     milestoneReward: _int(j['milestoneReward']),
     handsToNextMilestone: _int(j['handsToNextMilestone']),
     bonusReward: _int(j['bonusReward']),
-    bonusHammers: _int(j['bonusHammers']),
     bonusReadyAt: _int(j['bonusReadyAt']),
     bonusAvailable: j['bonusAvailable'] == true,
+    dailyReward: _int(j['dailyReward']),
+    dailyHammers: _int(j['dailyHammers']),
+    dailyReadyAt: _int(j['dailyReadyAt']),
+    dailyAvailable: j['dailyAvailable'] == true,
   );
 }
 

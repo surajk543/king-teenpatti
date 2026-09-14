@@ -631,6 +631,9 @@ class _ChipStoreState extends State<_ChipStore> {
   /// the shelf is the animated one whatever this says.
   PictureFilter _shelf = PictureFilter.all;
 
+  /// Which way the Pictures tab's prices run (owner, 14 Sep 2026).
+  PictureSort _order = PictureSort.lowToHigh;
+
   /// Back to the top when the shelf under the scrollbar changes, so a switch
   /// never lands part-way down a list the player has not seen.
   void _toTop() {
@@ -1047,6 +1050,18 @@ class _ChipStoreState extends State<_ChipStore> {
                               ],
                             ),
                           ),
+                          // Which way the shelf's prices run, on the right of
+                          // the row (owner, 14 Sep 2026).
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: PictureSortMenu(
+                              value: _order,
+                              onChanged: (s) => setState(() {
+                                _order = s;
+                                _toTop();
+                              }),
+                            ),
+                          ),
                         ],
                       ),
                     ),
@@ -1078,6 +1093,7 @@ class _ChipStoreState extends State<_ChipStore> {
                                     context: context,
                                     state: state,
                                     filter: shelf,
+                                    sort: _order,
                                     // The picker's tile size, so a face is the same
                                     // size wherever it is on sale.
                                     radius: (size.height * 0.105).clamp(

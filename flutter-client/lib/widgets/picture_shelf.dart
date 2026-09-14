@@ -61,40 +61,43 @@ enum PictureFilter {
   };
 }
 
-/// The order a shelf draws its pictures in: the catalogue's own, except that
-/// the premium animated pictures run cheapest first (owner, 13 Sep 2026).
+/// The orders a shelf can be drawn in, picked from the menu on the right of
+/// the shelf menu ([PictureSortMenu], owner 14 Sep 2026): by price, cheapest
+/// first (the default) or dearest first.
+enum PictureSort { lowToHigh, highToLow }
+
+/// The order a shelf draws its pictures in: by price, [sort] deciding which
+/// way (owner, 14 Sep 2026; until then the catalogue's own order, with only
+/// the premium animated pictures re-dealt cheapest first).
 ///
-/// They are re-dealt into the slots they already hold, so on the All shelf the
-/// animated group stays where the catalogue put it. Chip, hammer and diamond
-/// prices are not comparable figures, so the currencies keep an order of their
-/// own ([_currencyRank]) and only within one does the price decide; equal
-/// prices keep the catalogue's order — Dart's sort is not stable, hence the
-/// index as the last word.
-List<ProfilePicture> shelfOrder(List<ProfilePicture> pictures) {
-  final slots = [
-    for (var i = 0; i < pictures.length; i++)
-      if (!pictures[i].free && pictures[i].animated) i,
-  ];
-  final byCost = [...slots]
+/// Chip, hammer and diamond prices are not comparable figures, so on a shelf
+/// holding more than one wallet each wallet's pictures are sorted among
+/// themselves and the wallets keep an order of their own ([_currencyRank]):
+/// chips, then hammers, then diamonds, whichever way the prices run. A free
+/// picture is the cheapest of all — first low to high, last high to low.
+/// Equal prices keep the catalogue's order: Dart's sort is not stable, hence
+/// the index as the last word.
+List<ProfilePicture> shelfOrder(
+  List<ProfilePicture> pictures, [
+  PictureSort sort = PictureSort.lowToHigh,
+]) {
+  final down = sort == PictureSort.highToLow;
+  int group(ProfilePicture p) =>
+      p.free ? (down ? 3 : -1) : _currencyRank(p.currency);
+  final order = [for (var i = 0; i < pictures.length; i++) i]
     ..sort((i, k) {
       final a = pictures[i], b = pictures[k];
-      final rank = _currencyRank(
-        a.currency,
-      ).compareTo(_currencyRank(b.currency));
-      if (rank != 0) return rank;
-      final cost = a.cost.compareTo(b.cost);
-      return cost != 0 ? cost : i.compareTo(k);
+      final byGroup = group(a).compareTo(group(b));
+      if (byGroup != 0) return byGroup;
+      final byCost = down ? b.cost.compareTo(a.cost) : a.cost.compareTo(b.cost);
+      return byCost != 0 ? byCost : i.compareTo(k);
     });
-  final ordered = [...pictures];
-  for (var n = 0; n < slots.length; n++) {
-    ordered[slots[n]] = pictures[byCost[n]];
-  }
-  return ordered;
+  return [for (final i in order) pictures[i]];
 }
 
-/// Where a currency's pictures stand among the animated ones: chips first — a
-/// currency this build does not know with them, since it is drawn as chips —
-/// then hammers, then the diamonds that cost real money.
+/// Where a currency's pictures stand on a shelf: chips first — a currency this
+/// build does not know with them, since it is drawn as chips — then hammers,
+/// then the diamonds that cost real money.
 int _currencyRank(String currency) => switch (currency) {
   PictureCurrency.hammer => 1,
   PictureCurrency.diamond => 2,
@@ -107,15 +110,20 @@ int _currencyRank(String currency) => switch (currency) {
 /// the menu would read as a picker that failed to load. [openStore] is how a
 /// shelf inside the store moves the store to the Hammers or Diamonds shelf
 /// when a picture's wallet is short ([unlockPicture]); elsewhere it is null
-/// and the store is opened instead.
+/// and the store is opened instead. [sort] is the order menu's choice
+/// ([shelfOrder]).
 Widget pictureShelf({
   required BuildContext context,
   required GameState state,
   required PictureFilter filter,
   required double radius,
+  PictureSort sort = PictureSort.lowToHigh,
   ValueChanged<StoreTab>? openStore,
 }) {
-  final pictures = shelfOrder(state.pictures.where(filter.holds).toList());
+  final pictures = shelfOrder(
+    state.pictures.where(filter.holds).toList(),
+    sort,
+  );
   final user = state.user;
 
   if (pictures.isEmpty) {
@@ -266,6 +274,39 @@ class PictureFilterMenu extends StatelessWidget {
       );
     }
 
+    return _ShelfPill(
+      child: DropdownButton<PictureFilter>(
+        value: value,
+        isDense: true,
+        padding: const EdgeInsets.symmetric(vertical: Space.sm),
+        borderRadius: BorderRadius.circular(Radii.md),
+        dropdownColor: night ? AppTheme.ink900 : Colors.white,
+        iconEnabledColor: quiet,
+        icon: const Icon(Icons.expand_more, size: 18),
+        items: [
+          for (final f in PictureFilter.menu)
+            DropdownMenuItem(value: f, child: entry(f)),
+        ],
+        onChanged: (f) {
+          if (f != null) onChanged(f);
+        },
+      ),
+    );
+  }
+}
+
+/// The pill the shelf's menus sit in: charcoal at night, a slate well by day,
+/// gold-rimmed in both ([PictureFilterMenu], [PictureSortMenu]).
+class _ShelfPill extends StatelessWidget {
+  const _ShelfPill({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final night = Theme.of(context).brightness == Brightness.dark;
+    final glass = GlassColors.of(context);
+    final gold = night ? AppTheme.goldBright : AppTheme.goldDeep;
     return Container(
       padding: const EdgeInsets.only(left: Space.md, right: Space.xs),
       decoration: BoxDecoration(
@@ -273,23 +314,75 @@ class PictureFilterMenu extends StatelessWidget {
         color: night ? AppTheme.ink900.withValues(alpha: 0.82) : glass.wellFill,
         border: Border.all(color: gold.withValues(alpha: night ? 0.45 : 0.55)),
       ),
-      child: DropdownButtonHideUnderline(
-        child: DropdownButton<PictureFilter>(
-          value: value,
-          isDense: true,
-          padding: const EdgeInsets.symmetric(vertical: Space.sm),
-          borderRadius: BorderRadius.circular(Radii.md),
-          dropdownColor: night ? AppTheme.ink900 : Colors.white,
-          iconEnabledColor: quiet,
-          icon: const Icon(Icons.expand_more, size: 18),
-          items: [
-            for (final f in PictureFilter.menu)
-              DropdownMenuItem(value: f, child: entry(f)),
-          ],
-          onChanged: (f) {
-            if (f != null) onChanged(f);
-          },
+      child: DropdownButtonHideUnderline(child: child),
+    );
+  }
+}
+
+/// The order menu on the right of the shelf menu (owner, 14 Sep 2026): price
+/// low to high, or high to low, on whichever shelf is showing ([shelfOrder]).
+/// The same pill as [PictureFilterMenu], so the two read as one row of
+/// controls; the arrow says which way the prices run.
+class PictureSortMenu extends StatelessWidget {
+  const PictureSortMenu({
+    super.key,
+    required this.value,
+    required this.onChanged,
+  });
+
+  final PictureSort value;
+  final ValueChanged<PictureSort> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final t = context.read<GameState>().t;
+    final night = theme.brightness == Brightness.dark;
+    final glass = GlassColors.of(context);
+    final ink = night ? const Color(0xE6FFFFFF) : glass.textDisplay;
+    final quiet = night ? const Color(0x99FFFFFF) : glass.textMuted;
+    final gold = night ? AppTheme.goldBright : AppTheme.goldDeep;
+
+    Widget entry(PictureSort s) {
+      final (icon, label) = switch (s) {
+        PictureSort.lowToHigh => (Icons.arrow_upward_rounded, t.priceLowToHigh),
+        PictureSort.highToLow => (
+          Icons.arrow_downward_rounded,
+          t.priceHighToLow,
         ),
+      };
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: gold),
+          const SizedBox(width: Space.sm),
+          Text(
+            label,
+            style: AppTheme.label(
+              theme.textTheme.labelMedium ?? const TextStyle(),
+              colour: ink,
+            ),
+          ),
+        ],
+      );
+    }
+
+    return _ShelfPill(
+      child: DropdownButton<PictureSort>(
+        value: value,
+        isDense: true,
+        padding: const EdgeInsets.symmetric(vertical: Space.sm),
+        borderRadius: BorderRadius.circular(Radii.md),
+        dropdownColor: night ? AppTheme.ink900 : Colors.white,
+        iconEnabledColor: quiet,
+        icon: const Icon(Icons.expand_more, size: 18),
+        items: [
+          for (final s in PictureSort.values)
+            DropdownMenuItem(value: s, child: entry(s)),
+        ],
+        onChanged: (s) {
+          if (s != null) onChanged(s);
+        },
       ),
     );
   }

@@ -21,6 +21,7 @@ type UserStore interface {
 	UpsertFromProfile(ctx context.Context, p db.Profile) (*db.User, bool, error)
 	ClaimMilestoneReward(ctx context.Context, userID string) (*db.RewardResult, error)
 	ClaimTimedBonus(ctx context.Context, userID string) (*db.RewardResult, error)
+	ClaimDailyBonus(ctx context.Context, userID string) (*db.RewardResult, error)
 	SetDisplayName(ctx context.Context, userID, displayName string) (*db.User, error)
 	SetActivePicture(ctx context.Context, userID string, pictureID *int64) (*db.User, error)
 }
@@ -127,6 +128,7 @@ type PurchaseOutcome struct {
 //	GET  /api/auth/me           → Me            (RequireAuth)
 //	POST /api/rewards/milestone → Milestone     (RequireAuth)
 //	POST /api/rewards/bonus     → Bonus         (RequireAuth)
+//	POST /api/rewards/daily     → Daily         (RequireAuth; Go only)
 //	GET  /api/profiles          → Profiles      (token optional)
 //	POST /api/profile/avatar    → Avatar        (RequireAuth)
 //	POST /api/profile/picture/buy → BuyPicture  (RequireAuth)
@@ -162,6 +164,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.Handle("/api/auth/me", methods(http.MethodGet, h.RequireAuth(h.Me)))
 	mux.Handle("/api/rewards/milestone", methods(http.MethodPost, h.RequireAuth(h.Milestone)))
 	mux.Handle("/api/rewards/bonus", methods(http.MethodPost, h.RequireAuth(h.Bonus)))
+	mux.Handle("/api/rewards/daily", methods(http.MethodPost, h.RequireAuth(h.Daily)))
 	mux.Handle("/api/purchases/google", methods(http.MethodPost, h.RequireAuth(h.BuyChips)))
 	mux.Handle("/api/profiles", methods(http.MethodGet, http.HandlerFunc(h.Profiles)))
 	mux.Handle("/api/profile/avatar", methods(http.MethodPost, h.RequireAuth(h.Avatar)))

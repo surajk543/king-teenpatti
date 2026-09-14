@@ -651,9 +651,65 @@ void main() {
       expect(onShelf(), {'Bear', 'Dancing Chip'});
       await pick(PictureFilter.hammers);
       expect(onShelf(), {'Toucan Flying', 'Blazing Fire'});
+
+      // The order menu on the right (owner, 14 Sep 2026): price low to high
+      // by default, high to low on request, on whichever shelf is showing.
+      List<String> inOrder() => [
+        for (final tile in tester.widgetList<PictureChoice>(
+          find.byType(PictureChoice),
+        ))
+          tile.picture.name,
+      ];
+      final hammers = state.pictures.where(PictureFilter.hammers.holds).toList()
+        ..sort((a, b) => a.cost.compareTo(b.cost));
+      expect(
+        tester.widget<PictureSortMenu>(find.byType(PictureSortMenu)).value,
+        PictureSort.lowToHigh,
+      );
+      expect(inOrder(), [for (final p in hammers) p.name]);
+      tester
+          .widget<PictureSortMenu>(find.byType(PictureSortMenu))
+          .onChanged(PictureSort.highToLow);
+      await _settle(tester);
+      expect(
+        tester.widget<PictureSortMenu>(find.byType(PictureSortMenu)).value,
+        PictureSort.highToLow,
+      );
+      expect(inOrder(), [for (final p in hammers.reversed) p.name]);
       await pick(PictureFilter.diamonds);
       expect(onShelf(), {'Jolly King'});
       expect(tester.takeException(), isNull);
+
+      await _close(tester, state, feedback);
+    });
+
+    testWidgets('closes cleanly after its pictures were put in another order', (
+      tester,
+    ) async {
+      _setScreen(tester, const Size(891, 411));
+      final state = _state();
+      final feedback = FeedbackSettings();
+      final host = await _host(tester, state, feedback);
+      unawaited(openPicturePicker(host));
+      await _settle(tester);
+
+      // Dearest first, on the All shelf, then the sheet is closed as Back
+      // closes it: the tiles have swapped pictures in place before the sheet
+      // goes (14 Sep 2026, a red screen on both emulators).
+      tester
+          .widget<PictureSortMenu>(find.byType(PictureSortMenu))
+          .onChanged(PictureSort.highToLow);
+      await _settle(tester);
+      Navigator.of(host).pop();
+      // The sheet is still animating out when the picker has already disposed
+      // its notifiers, and the lobby's one-second tick rebuilds it then: a
+      // grid that re-subscribed on that rebuild used a disposed notifier.
+      await tester.pump();
+      state.say('tick');
+      await tester.pump(const Duration(milliseconds: 50));
+      await _settle(tester);
+      expect(tester.takeException(), isNull);
+      expect(find.byType(PictureSortMenu), findsNothing);
 
       await _close(tester, state, feedback);
     });

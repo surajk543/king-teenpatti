@@ -11,7 +11,10 @@
 -- (ccff445 and earlier). Later the same day, for a third fresh deploy, the
 -- pictures gained a third currency (HAMMER) and V1.0.2__new_account_diamonds.sql
 -- (the new-account diamond default of 9, a guarded ALTER) was folded in as
--- well, so this file is again the only DDL there is.
+-- well, and after production had run this file so was
+-- V1.0.2__timed_bonus_milestone.sql (TIMED_BONUS in user_milestones' CHECK;
+-- FOR AN EMPTY DATABASE, below, says what that means for production), so this
+-- file is again the only DDL there is.
 --
 -- Flyway naming: V<version>__<description>.sql. Scripts are applied in
 -- ascending version order, so the next change is a NEW file (V1.0.2__….sql)
@@ -42,9 +45,18 @@
 -- — keeps profile_pictures_currency_check at ('COIN', 'DIAMOND'), and this
 -- build's seed refuses to boot on it: PostgreSQL checks a row's CHECKs before
 -- ON CONFLICT DO NOTHING looks for the existing row, so the HAMMER rows fail
--- even where their asset_url is already there. Bringing such a database to this
--- shape is a deliberate one-off step run by hand, or a fresh start
--- (ops/DEPLOY.md §8), never something a boot does behind your back.
+-- even where their asset_url is already there. A database built by the scripts
+-- of go-server/v1.1.0 — production's, deployed fresh on 14 Sep 2026 — has
+-- user_milestones_milestone_check without TIMED_BONUS, so every four-hour bonus
+-- claim there fails that CHECK and rolls back, paying nothing, until:
+--
+--   ALTER TABLE user_milestones DROP CONSTRAINT user_milestones_milestone_check;
+--   ALTER TABLE user_milestones ADD CONSTRAINT user_milestones_milestone_check
+--     CHECK (milestone IN ('HANDS_PLAYED', 'TIMED_BONUS', 'DAILY_BONUS'));
+--
+-- Bringing such a database to this shape is a deliberate one-off step run by
+-- hand, or a fresh start (ops/DEPLOY.md §8), never something a boot does behind
+-- your back.
 --
 -- THIS FILE IS DDL ONLY — tables, constraints, indexes, functions, triggers.
 -- Data lives in its own script (V1.0.1__seed_profile_pictures.sql). Keeping
@@ -309,17 +321,27 @@ CREATE INDEX IF NOT EXISTS idx_owned_pictures_expiry
 -- UPDATED in place every time after — never a row per claim, because
 -- chip_ledger already records every payment. They were users.milestone_claimed
 -- and users.next_bonus_at until then. No row means nothing collected yet: no
--- hands-played milestone, and a daily bonus that is ready now.
+-- hands-played milestone, and both bonuses ready now.
+--
+-- TIMED_BONUS joined the CHECK later the same day, when the owner brought the
+-- four-hour bonus back beside the daily one. It arrived as
+-- V1.0.2__timed_bonus_milestone.sql and was folded in here (owner). A table
+-- built before that — production's, from go-server/v1.1.0 — keeps the
+-- two-value CHECK, since CREATE TABLE IF NOT EXISTS leaves an existing table
+-- alone, and refuses every four-hour bonus claim until it is rebuilt or the
+-- CHECK is replaced by hand (the header's FOR AN EMPTY DATABASE).
 CREATE TABLE IF NOT EXISTS user_milestones (
   user_id         TEXT    NOT NULL REFERENCES users (id) ON DELETE CASCADE,
   -- HANDS_PLAYED: 25,000 chips for every 25 hands played (requirement 17).
+  -- TIMED_BONUS: 10,000 chips, once every 4 hours (requirement 18).
   -- DAILY_BONUS: 1,00,000 chips and 1 hammer, once every 24 hours.
-  milestone       TEXT    NOT NULL CHECK (milestone IN ('HANDS_PLAYED', 'DAILY_BONUS')),
+  milestone       TEXT    NOT NULL CHECK (milestone IN ('HANDS_PLAYED', 'TIMED_BONUS', 'DAILY_BONUS')),
   -- HANDS_PLAYED: the highest multiple of 25 hands collected. A claim jumps it
   -- straight to the current multiple, so a skipped one is forfeited. 0 on a
-  -- DAILY_BONUS row.
+  -- bonus row.
   claimed_up_to   INTEGER NOT NULL DEFAULT 0 CHECK (claimed_up_to >= 0),
-  -- DAILY_BONUS: epoch ms it may next be collected. 0 on a HANDS_PLAYED row.
+  -- TIMED_BONUS and DAILY_BONUS: epoch ms it may next be collected. 0 on a
+  -- HANDS_PLAYED row.
   next_claim_at   BIGINT  NOT NULL DEFAULT 0,
   -- How many times this milestone has been collected, and when last.
   times_claimed   INTEGER NOT NULL DEFAULT 0 CHECK (times_claimed >= 0),

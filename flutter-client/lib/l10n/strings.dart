@@ -92,6 +92,7 @@ class Strings {
   String get totalWinnings => _('totalWinnings');
   String get biggestPot => _('biggestPot');
   String get playedNote => _('playedNote');
+  String get fourHourBonus => _('fourHourBonus');
   String get dailyBonus => _('dailyBonus');
   String get milestone => _('milestone');
   String get collect => _('collect');
@@ -99,6 +100,14 @@ class Strings {
   // --- collecting a reward
   String get rewardCollected => _('rewardCollected');
   String get rewardComeBack => _('rewardComeBack');
+  String get rewardComeBackDaily => _('rewardComeBackDaily');
+
+  // --- a bonus tapped while it is still counting down
+  String get bonusYouGet => _('bonusYouGet');
+  String get bonusNextIn => _('bonusNextIn');
+  String get bonusReadyNow => _('bonusReadyNow');
+  String get bonusEveryFourHours => _('bonusEveryFourHours');
+  String get bonusEveryDay => _('bonusEveryDay');
   String get rewardMilestoneAgain => _('rewardMilestoneAgain');
   String get rewardRefused => _('rewardRefused');
   String get rewardPurchased => _('rewardPurchased');
@@ -509,6 +518,10 @@ class Strings {
   /// The picture picker's shelves, as named in the menu above its grid.
   String get pictureAll => _('pictureAll');
   String get picturePremium => _('picturePremium');
+
+  /// The order menu beside the shelf menu (owner, 14 Sep 2026).
+  String get priceLowToHigh => _('priceLowToHigh');
+  String get priceHighToLow => _('priceHighToLow');
   String get picturePremiumAnimated => _('picturePremiumAnimated');
   String get pictureShelfEmpty => _('pictureShelfEmpty');
 
@@ -656,11 +669,18 @@ class Strings {
       'totalWinnings': 'Total winnings',
       'biggestPot': 'Biggest pot',
       'playedNote': 'A hand counts as played once you have made a move in it.',
+      'fourHourBonus': '4-HOUR BONUS',
       'dailyBonus': 'DAILY BONUS',
       'milestone': 'MILESTONE',
       'collect': 'Collect',
       'rewardCollected': 'Reward collected!',
-      'rewardComeBack': 'Come again after 24 hours.',
+      'rewardComeBack': 'Come again after 4 hours.',
+      'rewardComeBackDaily': 'Come again after 24 hours.',
+      'bonusYouGet': 'You will get',
+      'bonusNextIn': 'Next reward in',
+      'bonusReadyNow': 'Ready to collect now',
+      'bonusEveryFourHours': 'A new bonus every 4 hours.',
+      'bonusEveryDay': 'A new bonus every 24 hours.',
       'rewardPurchased': 'The chips are in your wallet. Good luck.',
       'rewardDiamondsPurchased':
           'The diamonds are in your wallet. Trade them for missiles.',
@@ -894,6 +914,8 @@ class Strings {
           'You can only buy a chip-priced picture in the lobby.',
       'pictureAll': 'All',
       'picturePremium': 'Premium',
+      'priceLowToHigh': 'Price: Low to High',
+      'priceHighToLow': 'Price: High to Low',
       'picturePremiumAnimated': 'Premium (Animated)',
       'pictureShelfEmpty': 'No pictures here yet.',
       'pictureOwnedTitle': 'Already unlocked',
@@ -1009,11 +1031,18 @@ class Strings {
       'totalWinnings': 'कुल जीत',
       'biggestPot': 'सबसे बड़ा पॉट',
       'playedNote': 'हाथ तभी गिना जाता है जब आपने उसमें कोई चाल चली हो।',
+      'fourHourBonus': '4-घंटे का बोनस',
       'dailyBonus': 'दैनिक बोनस',
       'milestone': 'माइलस्टोन',
       'collect': 'लें',
       'rewardCollected': 'इनाम मिल गया!',
-      'rewardComeBack': '24 घंटे बाद फिर आइए।',
+      'rewardComeBack': '4 घंटे बाद फिर आइए।',
+      'rewardComeBackDaily': '24 घंटे बाद फिर आइए।',
+      'bonusYouGet': 'आपको मिलेगा',
+      'bonusNextIn': 'अगला इनाम मिलेगा',
+      'bonusReadyNow': 'अभी लेने के लिए तैयार',
+      'bonusEveryFourHours': 'हर 4 घंटे में नया बोनस।',
+      'bonusEveryDay': 'हर 24 घंटे में नया बोनस।',
       'rewardPurchased': 'चिप्स आपके वॉलेट में हैं। शुभकामनाएँ।',
       'rewardDiamondsPurchased': 'हीरे आपके वॉलेट में हैं। इनसे मिसाइलें लें।',
       'rewardMilestoneAgain': 'अगले के लिए 25 हाथ और खेलें।',
@@ -1233,6 +1262,8 @@ class Strings {
           'चिप्स वाली तस्वीर सिर्फ़ लॉबी में खरीदी जा सकती है।',
       'pictureAll': 'सभी',
       'picturePremium': 'प्रीमियम',
+      'priceLowToHigh': 'कीमत: कम से ज़्यादा',
+      'priceHighToLow': 'कीमत: ज़्यादा से कम',
       'picturePremiumAnimated': 'प्रीमियम (एनिमेटेड)',
       'pictureShelfEmpty': 'यहाँ अभी कोई तस्वीर नहीं है।',
       'pictureOwnedTitle': 'पहले से अनलॉक है',
@@ -1352,11 +1383,18 @@ class Strings {
       'totalWinnings': 'মোট জেতা',
       'biggestPot': 'সবচেয়ে বড় পট',
       'playedNote': 'কোনো চাল দিলে তবেই হাতটি গোনা হয়।',
+      'fourHourBonus': '4-ঘণ্টার বোনাস',
       'dailyBonus': 'দৈনিক বোনাস',
       'milestone': 'মাইলস্টোন',
       'collect': 'নিন',
       'rewardCollected': 'পুরস্কার সংগ্রহ হয়েছে!',
-      'rewardComeBack': '২৪ ঘণ্টা পরে আবার আসুন।',
+      'rewardComeBack': '৪ ঘণ্টা পরে আবার আসুন।',
+      'rewardComeBackDaily': '২৪ ঘণ্টা পরে আবার আসুন।',
+      'bonusYouGet': 'আপনি পাবেন',
+      'bonusNextIn': 'পরের পুরস্কার পাবেন',
+      'bonusReadyNow': 'এখনই নেওয়া যাবে',
+      'bonusEveryFourHours': 'প্রতি ৪ ঘণ্টায় নতুন বোনাস।',
+      'bonusEveryDay': 'প্রতি ২৪ ঘণ্টায় নতুন বোনাস।',
       'rewardPurchased': 'চিপ আপনার ওয়ালেটে আছে। শুভকামনা।',
       'rewardDiamondsPurchased':
           'হীরে আপনার ওয়ালেটে আছে। এগুলো দিয়ে মিসাইল নিন।',
@@ -1575,6 +1613,8 @@ class Strings {
       'pictureChipsLobbyOnly': 'চিপসের দামের ছবি শুধু লবিতে কেনা যায়।',
       'pictureAll': 'সব',
       'picturePremium': 'প্রিমিয়াম',
+      'priceLowToHigh': 'দাম: কম থেকে বেশি',
+      'priceHighToLow': 'দাম: বেশি থেকে কম',
       'picturePremiumAnimated': 'প্রিমিয়াম (অ্যানিমেটেড)',
       'pictureShelfEmpty': 'এখানে এখনও কোনো ছবি নেই।',
       'pictureOwnedTitle': 'আগেই আনলক করা',
@@ -1701,11 +1741,18 @@ class Strings {
       'totalWinnings': 'કુલ જીત',
       'biggestPot': 'સૌથી મોટો પોટ',
       'playedNote': 'કોઈ ચાલ ચાલો ત્યારે જ હાથ ગણાય છે.',
+      'fourHourBonus': '4-કલાકનું બોનસ',
       'dailyBonus': 'દૈનિક બોનસ',
       'milestone': 'માઇલસ્ટોન',
       'collect': 'લો',
       'rewardCollected': 'ઇનામ મળી ગયું!',
-      'rewardComeBack': '24 કલાક પછી ફરી આવો.',
+      'rewardComeBack': '4 કલાક પછી ફરી આવો.',
+      'rewardComeBackDaily': '24 કલાક પછી ફરી આવો.',
+      'bonusYouGet': 'તમને મળશે',
+      'bonusNextIn': 'આગલું ઇનામ મળશે',
+      'bonusReadyNow': 'હવે લઈ શકો છો',
+      'bonusEveryFourHours': 'દર 4 કલાકે નવું બોનસ.',
+      'bonusEveryDay': 'દર 24 કલાકે નવું બોનસ.',
       'rewardPurchased': 'ચિપ્સ તમારા વૉલેટમાં છે. શુભકામના.',
       'rewardDiamondsPurchased': 'હીરા તમારા વૉલેટમાં છે. તેનાથી મિસાઇલ લો.',
       'rewardMilestoneAgain': 'આગલા માટે વધુ 25 હાથ.',
@@ -1894,6 +1941,8 @@ class Strings {
           'ચિપ્સની કિંમતવાળો ફોટો ફક્ત લૉબીમાં ખરીદી શકાય છે.',
       'pictureAll': 'બધા',
       'picturePremium': 'પ્રીમિયમ',
+      'priceLowToHigh': 'કિંમત: ઓછીથી વધુ',
+      'priceHighToLow': 'કિંમત: વધુથી ઓછી',
       'picturePremiumAnimated': 'પ્રીમિયમ (એનિમેટેડ)',
       'pictureShelfEmpty': 'અહીં હજી કોઈ ફોટો નથી.',
       'pictureOwnedTitle': 'પહેલેથી અનલૉક છે',
@@ -2042,11 +2091,18 @@ class Strings {
       'totalWinnings': 'ਕੁੱਲ ਜਿੱਤ',
       'biggestPot': 'ਸਭ ਤੋਂ ਵੱਡਾ ਪੌਟ',
       'playedNote': 'ਹੱਥ ਤਾਂ ਹੀ ਗਿਣਿਆ ਜਾਂਦਾ ਹੈ ਜਦੋਂ ਤੁਸੀਂ ਕੋਈ ਚਾਲ ਚੱਲੀ ਹੋਵੇ।',
+      'fourHourBonus': '4-ਘੰਟੇ ਦਾ ਬੋਨਸ',
       'dailyBonus': 'ਰੋਜ਼ਾਨਾ ਬੋਨਸ',
       'milestone': 'ਮਾਈਲਸਟੋਨ',
       'collect': 'ਲਓ',
       'rewardCollected': 'ਇਨਾਮ ਮਿਲ ਗਿਆ!',
-      'rewardComeBack': '24 ਘੰਟੇ ਬਾਅਦ ਫਿਰ ਆਓ।',
+      'rewardComeBack': '4 ਘੰਟੇ ਬਾਅਦ ਫਿਰ ਆਓ।',
+      'rewardComeBackDaily': '24 ਘੰਟੇ ਬਾਅਦ ਫਿਰ ਆਓ।',
+      'bonusYouGet': 'ਤੁਹਾਨੂੰ ਮਿਲੇਗਾ',
+      'bonusNextIn': 'ਅਗਲਾ ਇਨਾਮ ਮਿਲੇਗਾ',
+      'bonusReadyNow': 'ਹੁਣੇ ਲੈ ਸਕਦੇ ਹੋ',
+      'bonusEveryFourHours': 'ਹਰ 4 ਘੰਟੇ ਬਾਅਦ ਨਵਾਂ ਬੋਨਸ।',
+      'bonusEveryDay': 'ਹਰ 24 ਘੰਟੇ ਬਾਅਦ ਨਵਾਂ ਬੋਨਸ।',
       'rewardPurchased': 'ਚਿੱਪਾਂ ਤੁਹਾਡੇ ਵਾਲਿਟ ਵਿੱਚ ਹਨ। ਸ਼ੁਭਕਾਮਨਾਵਾਂ।',
       'rewardDiamondsPurchased':
           'ਹੀਰੇ ਤੁਹਾਡੇ ਵਾਲਿਟ ਵਿੱਚ ਹਨ। ਇਨ੍ਹਾਂ ਨਾਲ ਮਿਜ਼ਾਈਲਾਂ ਲਓ।',
@@ -2236,6 +2292,8 @@ class Strings {
           'ਚਿਪਸ ਵਾਲੀ ਤਸਵੀਰ ਸਿਰਫ਼ ਲਾਬੀ ਵਿੱਚ ਖਰੀਦੀ ਜਾ ਸਕਦੀ ਹੈ।',
       'pictureAll': 'ਸਾਰੇ',
       'picturePremium': 'ਪ੍ਰੀਮੀਅਮ',
+      'priceLowToHigh': 'ਕੀਮਤ: ਘੱਟ ਤੋਂ ਵੱਧ',
+      'priceHighToLow': 'ਕੀਮਤ: ਵੱਧ ਤੋਂ ਘੱਟ',
       'picturePremiumAnimated': 'ਪ੍ਰੀਮੀਅਮ (ਐਨੀਮੇਟਿਡ)',
       'pictureShelfEmpty': 'ਇੱਥੇ ਹਾਲੇ ਕੋਈ ਤਸਵੀਰ ਨਹੀਂ ਹੈ।',
       'pictureOwnedTitle': 'ਪਹਿਲਾਂ ਹੀ ਅਨਲਾਕ ਹੈ',
