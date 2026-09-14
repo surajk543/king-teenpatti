@@ -258,9 +258,10 @@ class MissilePack {
 }
 
 /// The missile store's base rate: what a single missile costs, and the rate
-/// the shelf's blurb states ("10 diamonds = 1 missile"). The bigger packs give
+/// the shelf's blurb states ("15 diamonds = 1 missile"). The bigger packs give
 /// more a diamond than this, so no pack is priced from it but the first.
-const diamondsPerMissile = 10;
+/// Raised from 10 to 15 by the owner on 14 Sep 2026.
+const diamondsPerMissile = 15;
 
 /// The missile shelf, cheapest first — the server's `db.MissilePacks`, each
 /// named by the missiles it gives (owner, 14 Sep 2026). Not a flat rate: the

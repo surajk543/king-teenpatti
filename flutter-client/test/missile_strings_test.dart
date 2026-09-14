@@ -85,7 +85,7 @@ void main() {
     );
     expect(t.missileFiredByYou, 'You fired a missile');
     expect(t.missileFiredBy('Meera'), 'Meera fired a missile');
-    expect(t.storeMissilesBlurb, 'Trade diamonds: 10 diamonds = 1 missile.');
+    expect(t.storeMissilesBlurb, 'Trade diamonds: 15 diamonds = 1 missile.');
     expect(t.tradeMissilesBody(25, 5), 'Trade 25 diamonds for 5 missiles?');
     expect(t.tradeMissilesBody(5, 1), 'Trade 5 diamonds for 1 missile?');
     // {s} still follows the diamonds.
