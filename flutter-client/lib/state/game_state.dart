@@ -73,6 +73,19 @@ enum MissileTradeResult {
   refused,
 }
 
+/// What became of buying a premium picture, for the tile that asked.
+enum PictureBuyResult {
+  /// Bought (or already owned) and put on.
+  bought,
+
+  /// Too few hammers or diamonds for it: the store's shelf for that wallet is
+  /// the useful answer, and nothing has been said yet.
+  notEnough,
+
+  /// Anything else. The player has already been told why.
+  refused,
+}
+
 /// The line a missile leaves at the table, or null when there is nobody to
 /// name: "You fired a missile" to the player who fired, "{name} fired a
 /// missile" to everyone else. `game:action` carries an id and no name, so the
@@ -1386,10 +1399,12 @@ class GameState extends ChangeNotifier {
   ///
   /// Two requests rather than one: the server sells and dresses separately so
   /// the refusals stay separate, and this is the one place that wants both.
-  /// Returns true when the player ends up wearing it.
-  Future<bool> buyPicture(int id) async {
+  /// Says [PictureBuyResult.bought] when the player ends up wearing it.
+  Future<PictureBuyResult> buyPicture(int id) async {
     final token = _token;
-    if (token == null || buyingPicture != null) return false;
+    if (token == null || buyingPicture != null) {
+      return PictureBuyResult.refused;
+    }
     buyingPicture = id;
     notifyListeners();
     try {
@@ -1399,23 +1414,51 @@ class GameState extends ChangeNotifier {
       // before the picker can stop drawing a padlock on what was just bought.
       await _refreshPictures();
       await chooseAvatar(id);
-      return true;
+      return PictureBuyResult.bought;
     } on ApiException catch (e) {
-      notice = e.message;
-      return false;
+      return pictureRefused(id, e);
     } catch (_) {
       notice = 'Could not reach the server.';
-      return false;
+      return PictureBuyResult.refused;
     } finally {
       buyingPicture = null;
       notifyListeners();
     }
   }
 
+  /// What a refused purchase of picture [id] means to the player.
+  ///
+  /// The server answers every shortage with the one code `picture_chips`,
+  /// whichever wallet came up short, in an English sentence — so the
+  /// picture's own currency decides, never the message (owner, 14 Sep 2026).
+  /// A hammer or diamond picture is not a notice but the offer of that
+  /// wallet's shelf, which the caller makes; the count held here was wrong, so
+  /// it is read again. A chip shortage keeps the server's sentence, and a
+  /// chip-priced picture refused at a table (`seated`) is said in the player's
+  /// language.
+  @visibleForTesting
+  PictureBuyResult pictureRefused(int id, ApiException e) {
+    final picture = pictures.where((p) => p.id == id).firstOrNull;
+    if (e.code == 'picture_chips' &&
+        picture != null &&
+        (picture.pricedInHammers || picture.pricedInDiamonds)) {
+      unawaited(refreshUser());
+      return PictureBuyResult.notEnough;
+    }
+    notice = e.code == 'seated' ? t.pictureChipsLobbyOnly : e.message;
+    return PictureBuyResult.refused;
+  }
+
   /// The reward just collected, while its celebration is on screen. Null the
   /// rest of the time. `readyAt` is epoch ms for the timed bonus and 0 for the
   /// milestone, which has no clock.
-  ({String kind, int amount, int readyAt})? rewardWon;
+  ///
+  /// `amount` is the headline figure. `missiles` and `hammers` are what a
+  /// Premium Package (kind `premium`, owner 14 Sep 2026) brought with its
+  /// chips, shown under that figure; every other kind carries 0 or repeats
+  /// its own count there.
+  ({String kind, int amount, int readyAt, int missiles, int hammers})?
+  rewardWon;
 
   /// Closes the celebration. The overlay calls this when the player dismisses
   /// it or its own timer runs out.
@@ -1503,14 +1546,12 @@ class GameState extends ChangeNotifier {
       // Still a success: the chips are in the wallet and the transaction
       // should be finished rather than delivered again.
       if (r.credited) {
-        // The product decided the wallet, and the answer says which: a
-        // hammer pack celebrates hammers, a diamond pack diamonds, and a chip
-        // pack chips.
-        rewardWon = r.hammers > 0
-            ? (kind: 'hammers', amount: r.hammers, readyAt: 0)
-            : r.diamonds > 0
-            ? (kind: 'diamonds', amount: r.diamonds, readyAt: 0)
-            : (kind: 'purchase', amount: r.chips, readyAt: 0);
+        announcePurchase(
+          chips: r.chips,
+          diamonds: r.diamonds,
+          hammers: r.hammers,
+          missiles: r.missiles,
+        );
       }
       notifyListeners();
       return true;
@@ -1531,6 +1572,61 @@ class GameState extends ChangeNotifier {
     }
   }
 
+  /// Tells the player what a credited Play purchase put in their wallet
+  /// (the caller notifies).
+  ///
+  /// The product decided the wallets, and the server's answer says which: a
+  /// Premium Package brings chips with missiles and hammers, a hammer pack
+  /// hammers, a diamond pack diamonds, and a chip pack chips. Each is
+  /// celebrated. A Premium Package bought at a table, where the celebration is
+  /// not drawn, is a notice naming all three instead — as a missile trade
+  /// there is.
+  @visibleForTesting
+  void announcePurchase({
+    required int chips,
+    required int diamonds,
+    required int hammers,
+    required int missiles,
+  }) {
+    if (chips > 0 && (missiles > 0 || hammers > 0)) {
+      if (screen == Screen.table) {
+        notice = t.premiumAdded(formatChips(chips), missiles, hammers);
+      } else {
+        rewardWon = (
+          kind: 'premium',
+          amount: chips,
+          readyAt: 0,
+          missiles: missiles,
+          hammers: hammers,
+        );
+      }
+      return;
+    }
+    rewardWon = hammers > 0
+        ? (
+            kind: 'hammers',
+            amount: hammers,
+            readyAt: 0,
+            missiles: 0,
+            hammers: hammers,
+          )
+        : diamonds > 0
+        ? (
+            kind: 'diamonds',
+            amount: diamonds,
+            readyAt: 0,
+            missiles: 0,
+            hammers: 0,
+          )
+        : (
+            kind: 'purchase',
+            amount: chips,
+            readyAt: 0,
+            missiles: 0,
+            hammers: 0,
+          );
+  }
+
   Future<void> claimReward(String kind) async {
     final token = _token;
     if (token == null) return;
@@ -1541,7 +1637,13 @@ class GameState extends ChangeNotifier {
       // server does not send. A refusal keeps the server's own wording, which
       // is already specific ("Come back later", "You are at a table").
       if (r.claimed) {
-        rewardWon = (kind: kind, amount: r.amount, readyAt: r.readyAt);
+        rewardWon = (
+          kind: kind,
+          amount: r.amount,
+          readyAt: r.readyAt,
+          missiles: 0,
+          hammers: 0,
+        );
       } else {
         notice = r.message.isEmpty ? t.rewardRefused : r.message;
       }
@@ -1931,8 +2033,8 @@ class GameState extends ChangeNotifier {
   /// progress on that one card and refuse a second tap.
   String? tradingMissiles;
 
-  /// Trades diamonds for the missile pack [packId] (owner, 14 Sep 2026: 1
-  /// diamond = 2 missiles), in the lobby or at a table.
+  /// Trades diamonds for the missile pack [packId] (owner, 14 Sep 2026: from
+  /// 1 missile for 5 diamonds to 30 for 100), in the lobby or at a table.
   ///
   /// One requestId per attempt, sent again if the request itself fails and is
   /// retried: the server answers a replay `charged: false` without charging
@@ -1964,7 +2066,13 @@ class GameState extends ChangeNotifier {
         if (screen == Screen.table) {
           notice = t.missilesAdded(r.missiles);
         } else {
-          rewardWon = (kind: 'missiles', amount: r.missiles, readyAt: 0);
+          rewardWon = (
+            kind: 'missiles',
+            amount: r.missiles,
+            readyAt: 0,
+            missiles: r.missiles,
+            hammers: 0,
+          );
         }
       }
       return MissileTradeResult.traded;
@@ -2278,10 +2386,14 @@ String formatChips(int n) {
 /// Two decimals at most, and none of the trailing zeros that come with them:
 /// 3.24 Lakh, 12 Lakh, 32.77 Crore. Two is what a player can take in at a
 /// glance across the table; the exact figure is always a tap away in the menu.
+/// The whole part is grouped like any other figure, so 10,500 Crore reads the
+/// way the owner writes it (the premium packages printed "10500 Crore").
 String _trim(double value) {
-  final text = value.toStringAsFixed(2);
-  if (!text.contains('.')) return text;
-  return text.replaceFirst(RegExp(r'\.?0+$'), '');
+  var text = value.toStringAsFixed(2);
+  if (text.contains('.')) text = text.replaceFirst(RegExp(r'\.?0+$'), '');
+  final dot = text.indexOf('.');
+  final whole = _grouped(int.parse(dot < 0 ? text : text.substring(0, dot)));
+  return dot < 0 ? whole : '$whole${text.substring(dot)}';
 }
 
 String _grouped(int n) {

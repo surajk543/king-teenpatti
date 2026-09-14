@@ -89,17 +89,32 @@ void main() {
       expect(
         [for (final p in missilePacks) (p.packId, p.diamonds, p.missiles)],
         [
-          ('missiles_2', 1, 2),
-          ('missiles_10', 5, 10),
-          ('missiles_20', 10, 20),
-          ('missiles_50', 25, 50),
+          ('missiles_1', 10, 1),
+          ('missiles_5', 48, 5),
+          ('missiles_10', 90, 10),
+          ('missiles_20', 170, 20),
         ],
       );
     });
 
-    test('gives exactly 2 missiles a diamond, and names each by its count', () {
+    test('starts at 10 diamonds a missile, and gives more a diamond up the '
+        'shelf', () {
+      // The base rate the blurb states is the single missile's price.
+      expect(diamondsPerMissile, 10);
+      expect(missilePacks.first.diamonds, diamondsPerMissile);
+      expect(missilePacks.first.missiles, 1);
+      // Not a flat rate any more (owner, 14 Sep 2026): each pack buys more
+      // missiles a diamond than the one before it.
+      for (var i = 1; i < missilePacks.length; i++) {
+        final before = missilePacks[i - 1];
+        final pack = missilePacks[i];
+        expect(
+          pack.missiles / pack.diamonds,
+          greaterThan(before.missiles / before.diamonds),
+          reason: pack.packId,
+        );
+      }
       for (final p in missilePacks) {
-        expect(p.missiles, 2 * p.diamonds, reason: p.packId);
         expect(p.packId, 'missiles_${p.missiles}');
       }
       final ids = [
@@ -250,7 +265,7 @@ void main() {
           jsonEncode({
             'user': _user(missile: 11, diamond: 0),
             'charged': true,
-            'diamonds': 5,
+            'diamonds': 90,
             'missiles': 10,
           }),
           200,
@@ -271,7 +286,7 @@ void main() {
         'requestId': 'req-1',
       });
       expect(r.charged, isTrue);
-      expect(r.diamonds, 5);
+      expect(r.diamonds, 90);
       expect(r.missiles, 10);
       expect(r.user.missile, 11);
       expect(r.user.diamond, 0);
@@ -283,7 +298,7 @@ void main() {
           jsonEncode({
             'user': _user(missile: 11),
             'charged': false,
-            'diamonds': 5,
+            'diamonds': 90,
             'missiles': 10,
           }),
           200,
@@ -315,7 +330,7 @@ void main() {
           http.runWithClient(
             () => ApiClient(
               'http://api.test',
-            ).tradeMissiles('tok', 'missiles_50', 'r'),
+            ).tradeMissiles('tok', 'missiles_20', 'r'),
             () => client,
           ),
           throwsA(

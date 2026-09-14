@@ -20,7 +20,20 @@ import 'premium_surface.dart';
 
 /// Where a pack sits in the range. Drives the ribbon across its top edge, and
 /// nothing else — the price and the chips are the offer, this is the signpost.
-enum ShelfMark { none, starter, popular, bestValue, premium }
+///
+/// [crown] is the top of the Premium Packages (owner, 14 Sep 2026): 👑, as
+/// [popular] is ⭐ and [bestValue] 🔥.
+enum ShelfMark { none, starter, popular, bestValue, premium, crown }
+
+/// The glyph a mark is shown with, or null for a mark that is a word alone:
+/// ⭐ popular, 🔥 best value, 👑 the crown. One place, so a mark reads the
+/// same on every shelf it appears on.
+String? shelfMarkGlyph(ShelfMark mark) => switch (mark) {
+  ShelfMark.popular => '⭐',
+  ShelfMark.bestValue => '🔥',
+  ShelfMark.crown => '👑',
+  ShelfMark.none || ShelfMark.starter || ShelfMark.premium => null,
+};
 
 /// One purchasable pack.
 ///
@@ -51,8 +64,90 @@ class ChipPack {
   final int bonusPercent;
   final ShelfMark mark;
 
-  bool get featured => mark == ShelfMark.bestValue || mark == ShelfMark.premium;
+  bool get featured =>
+      mark == ShelfMark.bestValue ||
+      mark == ShelfMark.premium ||
+      mark == ShelfMark.crown;
 }
+
+/// One Premium Package (owner, 14 Sep 2026): chips, missiles and hammers in
+/// one Play purchase, sold on the Chips shelf under its own heading.
+///
+/// Like [ChipPack], every figure here is for display only: the server's
+/// `purchase.Catalogue` decides what a product id is worth, credits all three
+/// wallets from one receipt, and answers with what it gave.
+class PremiumPack {
+  const PremiumPack({
+    required this.productId,
+    required this.rupees,
+    required this.chips,
+    required this.missiles,
+    required this.hammers,
+    this.mark = ShelfMark.none,
+  });
+
+  /// The Play Console product id. It must match
+  /// internal/purchase/catalogue.go exactly.
+  final String productId;
+  final int rupees;
+
+  /// Rendered through [formatChips], never as a baked "650 Cr".
+  final int chips;
+  final int missiles;
+  final int hammers;
+
+  /// ⭐ or 👑 beside the chips figure, on the two the owner marked.
+  final ShelfMark mark;
+}
+
+/// The Premium Packages, cheapest first, as the owner set them: ⭐ on the
+/// ₹49,999 package and 👑 on the ₹99,999 one. 1 Crore is 1,00,00,000 chips.
+const premiumPacks = <PremiumPack>[
+  PremiumPack(
+    productId: 'premium_1_9999',
+    rupees: 9999,
+    chips: 6500000000,
+    missiles: 1,
+    hammers: 10,
+  ),
+  PremiumPack(
+    productId: 'premium_2_14999',
+    rupees: 14999,
+    chips: 10500000000,
+    missiles: 2,
+    hammers: 15,
+  ),
+  PremiumPack(
+    productId: 'premium_3_19999',
+    rupees: 19999,
+    chips: 15000000000,
+    missiles: 4,
+    hammers: 21,
+  ),
+  PremiumPack(
+    productId: 'premium_4_29999',
+    rupees: 29999,
+    chips: 25000000000,
+    missiles: 6,
+    hammers: 30,
+  ),
+  PremiumPack(
+    productId: 'premium_5_49999',
+    rupees: 49999,
+    chips: 47500000000,
+    missiles: 11,
+    hammers: 45,
+    mark: ShelfMark.popular,
+  ),
+  PremiumPack(
+    productId: 'premium_6_99999',
+    rupees: 99999,
+    chips: 105000000000,
+    missiles: 50,
+    hammers: 100,
+    mark: ShelfMark.crown,
+  ),
+];
 
 /// One purchasable diamond pack (owner, 13 Sep 2026).
 ///
@@ -136,8 +231,8 @@ const hammerPacks = <HammerPack>[
   HammerPack(productId: 'hammers_250_2999', rupees: 2999, hammers: 250),
 ];
 
-/// One trade of diamonds for missiles (owner, 14 Sep 2026): 1 diamond buys 2
-/// missiles, and a missile pays for firing one at the table.
+/// One trade of diamonds for missiles (owner, 14 Sep 2026): from 1 missile for
+/// 5 diamonds to 30 for 100, and a missile pays for firing one at the table.
 ///
 /// Not a Play product. Nothing here costs money: the store spends diamonds the
 /// player already holds through `POST /api/store/missiles`, and the server
@@ -162,12 +257,19 @@ class MissilePack {
   final ShelfMark mark;
 }
 
-/// The missile shelf, cheapest first, at exactly 2 missiles a diamond.
+/// The missile store's base rate: what a single missile costs, and the rate
+/// the shelf's blurb states ("10 diamonds = 1 missile"). The bigger packs give
+/// more a diamond than this, so no pack is priced from it but the first.
+const diamondsPerMissile = 10;
+
+/// The missile shelf, cheapest first — the server's `db.MissilePacks`, each
+/// named by the missiles it gives (owner, 14 Sep 2026). Not a flat rate: the
+/// more diamonds traded at once, the more missiles each one buys.
 const missilePacks = <MissilePack>[
-  MissilePack(packId: 'missiles_2', diamonds: 1, missiles: 2),
-  MissilePack(packId: 'missiles_10', diamonds: 5, missiles: 10),
-  MissilePack(packId: 'missiles_20', diamonds: 10, missiles: 20),
-  MissilePack(packId: 'missiles_50', diamonds: 25, missiles: 50),
+  MissilePack(packId: 'missiles_1', diamonds: diamondsPerMissile, missiles: 1),
+  MissilePack(packId: 'missiles_5', diamonds: 48, missiles: 5),
+  MissilePack(packId: 'missiles_10', diamonds: 90, missiles: 10),
+  MissilePack(packId: 'missiles_20', diamonds: 170, missiles: 20),
 ];
 
 /// The shelf, in the owner's order. Cheapest first, so scrolling right is
@@ -569,9 +671,10 @@ class _ChipStoreState extends State<_ChipStore> {
   Future<void> _loadPrices() async {
     // One query for every shelf: Play answers per product id, and a player
     // flicking between the Chips, Diamonds and Hammers tabs should see prices
-    // at once.
+    // at once. The Premium Packages sit on the Chips shelf.
     final got = await context.read<GameState>().purchases.priceList({
       ...chipPacks.map((p) => p.productId),
+      ...premiumPacks.map((p) => p.productId),
       ...diamondPacks.map((p) => p.productId),
       ...hammerPacks.map((p) => p.productId),
     });
@@ -621,16 +724,33 @@ class _ChipStoreState extends State<_ChipStore> {
     final safe = MediaQuery.paddingOf(context);
     final headerW =
         size.width - safe.left - safe.right - 2 * Space.md - 2 * Space.lg;
+    //
+    // The Pictures shelf heads with two wallets, diamonds and hammers, in one
+    // pill (owner, 14 Sep 2026: the animated pictures cost hammers). It is
+    // counted here as it is when stacked — no wider than one balance — and
+    // laid out in a row only where the widest blurb still keeps its line
+    // beside the row.
     const balanceW = 72.0;
     const titleFloor = 96.0;
+    final diamonds = state.user?.diamond ?? 0;
+    final hammers = state.user?.hammer ?? 0;
+    final walletPairRowW = PictureWalletBalances.width(
+      context,
+      diamonds: diamonds,
+      hammers: hammers,
+      stacked: false,
+    );
+    final walletW = math.max(
+      balanceW,
+      PictureWalletBalances.width(
+        context,
+        diamonds: diamonds,
+        hammers: hammers,
+        stacked: true,
+      ),
+    );
     final fixedW =
-        22 +
-        Space.md +
-        Space.md +
-        balanceW +
-        Space.md +
-        Space.sm +
-        Dim.minTouch;
+        22 + Space.md + Space.md + walletW + Space.md + Space.sm + Dim.minTouch;
     final blurbStyle = theme.textTheme.bodySmall ?? const TextStyle();
     var blurbW = 0.0;
     for (final blurb in [
@@ -663,6 +783,8 @@ class _ChipStoreState extends State<_ChipStore> {
         ? _StoreTabs.compactWidth(animatedOnly: atTable)
         : labelledW;
     final blurbLines = headerW - fixedW - tabsW >= blurbW ? 1 : 2;
+    final walletPairInRow =
+        headerW - fixedW - tabsW - (walletPairRowW - walletW) >= blurbW;
     final headerH = math.max(
       Dim.minTouch,
       _line(scaler, 17, 1.25) + blurbLines * _line(scaler, 12, 1.35),
@@ -808,21 +930,30 @@ class _ChipStoreState extends State<_ChipStore> {
                           ),
                         ),
                         const SizedBox(width: Space.md),
-                        // The diamond balance stands before the tabs, not after
-                        // them. It shows on Diamonds and Pictures only, and
-                        // between the tabs and the close key its coming and
-                        // going slid the whole tab row sideways, so a tap on a
-                        // tab where it had just been landed on the balance.
-                        // Here the title gives up the room instead, and the
-                        // tabs stay anchored to the close key on every shelf.
-                        // The Missiles shelf is paid for in diamonds, so it
-                        // heads with the diamonds there are to trade.
-                        if (onPictures || onDiamonds || onMissiles) ...[
-                          DiamondBalance(count: state.user?.diamond ?? 0),
+                        // A shelf's balance stands before the tabs, not after
+                        // them. Chips shows none, and between the tabs and the
+                        // close key its coming and going slid the whole tab
+                        // row sideways, so a tap on a tab where it had just
+                        // been landed on the balance. Here the title gives up
+                        // the room instead, and the tabs stay anchored to the
+                        // close key on every shelf. The Missiles shelf is paid
+                        // for in diamonds, so it heads with the diamonds there
+                        // are to trade; Pictures with both wallets a picture
+                        // can cost besides chips.
+                        if (onPictures) ...[
+                          PictureWalletBalances(
+                            diamonds: diamonds,
+                            hammers: hammers,
+                            stacked: !walletPairInRow,
+                          ),
+                          const SizedBox(width: Space.md),
+                        ],
+                        if (onDiamonds || onMissiles) ...[
+                          DiamondBalance(count: diamonds),
                           const SizedBox(width: Space.md),
                         ],
                         if (onHammers) ...[
-                          HammerBalance(count: state.user?.hammer ?? 0),
+                          HammerBalance(count: hammers),
                           const SizedBox(width: Space.md),
                         ],
                         _StoreTabs(
@@ -871,7 +1002,7 @@ class _ChipStoreState extends State<_ChipStore> {
                                 : PictureFilterMenu(
                                     value: _shelf,
                                     counts: {
-                                      for (final f in PictureFilter.values)
+                                      for (final f in PictureFilter.menu)
                                         f: state.pictures.where(f.holds).length,
                                     },
                                     onChanged: (f) => setState(() {
@@ -952,6 +1083,16 @@ class _ChipStoreState extends State<_ChipStore> {
                                       32.0,
                                       52.0,
                                     ),
+                                    // A picture whose wallet is short sends
+                                    // the player to its shelf in this store,
+                                    // not to a second store over it.
+                                    openStore: (next) {
+                                      if (!mounted) return;
+                                      setState(() {
+                                        _tab = next;
+                                        _toTop();
+                                      });
+                                    },
                                   ),
                                 )
                               : onDiamonds
@@ -981,24 +1122,66 @@ class _ChipStoreState extends State<_ChipStore> {
                                       onTrade: () => _trade(p),
                                     ),
                                 ])
-                              : Wrap(
-                                  spacing: Space.md,
-                                  runSpacing: Space.md,
+                              : Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  // Both grids hold cards of one width, so
+                                  // their rows line up; the heading starts
+                                  // where they do.
+                                  crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    for (var i = 0; i < chipPacks.length; i++)
-                                      SizedBox(
-                                        // The lobby card's proportions: near square.
-                                        width: Dim.packW(size.width),
-                                        height: Dim.packW(size.width) * 1.05,
-                                        child: _PackEntrance(
-                                          index: i,
-                                          child: _PackCard(
-                                            pack: chipPacks[i],
-                                            index: i,
-                                            prices: prices,
+                                    Wrap(
+                                      spacing: Space.md,
+                                      runSpacing: Space.md,
+                                      children: [
+                                        for (
+                                          var i = 0;
+                                          i < chipPacks.length;
+                                          i++
+                                        )
+                                          SizedBox(
+                                            // The lobby card's proportions: near square.
+                                            width: Dim.packW(size.width),
+                                            height:
+                                                Dim.packW(size.width) * 1.05,
+                                            child: _PackEntrance(
+                                              index: i,
+                                              child: _PackCard(
+                                                pack: chipPacks[i],
+                                                index: i,
+                                                prices: prices,
+                                              ),
+                                            ),
                                           ),
-                                        ),
-                                      ),
+                                      ],
+                                    ),
+                                    // The Premium Packages (owner, 14 Sep
+                                    // 2026): a category of their own under
+                                    // the chip packs, set out after them.
+                                    const SizedBox(height: Space.xl),
+                                    _PremiumHeading(label: t.premiumPackages),
+                                    const SizedBox(height: Space.md),
+                                    Wrap(
+                                      spacing: Space.md,
+                                      runSpacing: Space.md,
+                                      children: [
+                                        for (final (i, p)
+                                            in premiumPacks.indexed)
+                                          SizedBox(
+                                            key: ValueKey('premium-$i'),
+                                            width: Dim.packW(size.width),
+                                            height:
+                                                Dim.packW(size.width) *
+                                                premiumPackAspect,
+                                            child: _PackEntrance(
+                                              index: chipPacks.length + i,
+                                              child: _PremiumPackCard(
+                                                pack: p,
+                                                prices: prices,
+                                              ),
+                                            ),
+                                          ),
+                                      ],
+                                    ),
                                   ],
                                 ),
                         ),
@@ -1018,8 +1201,8 @@ class _ChipStoreState extends State<_ChipStore> {
 /// Where the store goes after a missile trade.
 enum _TradeOutcome { done, toDiamonds, stay }
 
-/// Trades diamonds for [pack], asking first (owner, 14 Sep 2026: "Trade 5
-/// diamonds for 10 missiles?").
+/// Trades diamonds for [pack], asking first (owner, 14 Sep 2026: "Trade 48
+/// diamonds for 5 missiles?").
 ///
 /// A player without the diamonds is not asked that — they are offered the
 /// Diamonds shelf, which is the only answer that helps — and neither is one
@@ -1095,7 +1278,7 @@ List<Widget> _storeDialogActions(
   ),
 ];
 
-/// "Trade 5 diamonds for 10 missiles?", with what the player holds of both
+/// "Trade 48 diamonds for 5 missiles?", with what the player holds of both
 /// under it — as figures beside their glyphs, so no word has to change with
 /// the number.
 class _TradeDialog extends StatelessWidget {
@@ -1274,7 +1457,7 @@ class _PackCardState extends State<_PackCard> {
     ShelfMark.starter => t.posStarter,
     ShelfMark.popular => t.posPopular,
     ShelfMark.bestValue => t.posBestValue,
-    ShelfMark.premium => t.posPremium,
+    ShelfMark.premium || ShelfMark.crown => t.posPremium,
     ShelfMark.none => '${widget.pack.bonusPercent}% ${t.storeBonus}',
   };
 
@@ -1471,6 +1654,322 @@ class _PackCardState extends State<_PackCard> {
   }
 }
 
+/// How much taller than wide a Premium Package card is: a chip pack's card
+/// (1.05) with two more lines under the figure — the missiles and the hammers.
+/// Public so the layout tests measure the card the store draws.
+const double premiumPackAspect = 1.28;
+
+/// The heading over the Premium Packages on the Chips shelf: the crowned
+/// badge and the words, in champagne.
+class _PremiumHeading extends StatelessWidget {
+  const _PremiumHeading({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final champagne = theme.brightness == Brightness.dark
+        ? AppTheme.goldBright
+        : AppTheme.goldDeep;
+    return Semantics(
+      header: true,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.workspace_premium_rounded, size: 20, color: champagne),
+          const SizedBox(width: Space.sm),
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: AppTheme.label(
+                theme.textTheme.titleMedium ?? const TextStyle(),
+                colour: champagne,
+                weight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PremiumPackCard extends StatefulWidget {
+  const _PremiumPackCard({required this.pack, required this.prices});
+
+  final PremiumPack pack;
+
+  /// Play's prices by product id; empty until Play answers, when the card
+  /// falls back to the list price, as a chip pack does.
+  final Map<String, ProductDetails> prices;
+
+  @override
+  State<_PremiumPackCard> createState() => _PremiumPackCardState();
+}
+
+/// One Premium Package, drawn as a chip pack's card: frosted white glass over
+/// a baked orb, a still plate at the head, the chips figure large, and the
+/// price in the glass capsule along the foot.
+///
+/// What sets it apart is what it holds and where it sits: the plate reads
+/// "Premium Package" on every one, the figure carries ⭐ or 👑 beside it on the
+/// two the owner marked, two lines under it name the missiles and hammers that
+/// come with the chips — each beside the glyph the table's wallet pill marks
+/// that wallet with — and the card is gold with a live hairline, the top of
+/// the range the chip shelf climbs to.
+class _PremiumPackCardState extends State<_PremiumPackCard> {
+  bool _down = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final text = theme.textTheme;
+    final brightness = theme.brightness;
+    final dark = brightness == Brightness.dark;
+    final state = context.watch<GameState>();
+    final t = state.t;
+    final p = widget.pack;
+    final prices = widget.prices;
+    // The top of the range, where the chip shelf's colour ends: gold.
+    final palette = AppTheme.paletteFor(
+      theme.colorScheme,
+      category: 'seen',
+      bootAmount: 5000,
+    );
+    final accent = palette.accent;
+    final champagne = dark ? AppTheme.goldBright : AppTheme.goldDeep;
+    final glyph = shelfMarkGlyph(p.mark);
+
+    void buy() {
+      // The chip pack's rule: Play is the only thing that takes money, and it
+      // is not always there. Say so rather than fail at the billing sheet.
+      final details = prices[p.productId];
+      if (!state.purchases.available || details == null) {
+        state.notice = t.storeNotLive;
+        Navigator.pop(context);
+        return;
+      }
+      // The result arrives on the purchase stream; the server credits all
+      // three wallets from the one receipt, and at a table tops up the seat.
+      state.purchases.buy(details);
+      Navigator.pop(context);
+    }
+
+    return AnimatedScale(
+      scale: _down ? 0.955 : 1,
+      duration: Motion.fast,
+      curve: Motion.standard,
+      child: LayoutBuilder(
+        builder: (context, box) {
+          final w = box.maxWidth;
+          final h = box.maxHeight;
+          final s = math.min(w, h);
+          final pad = (s * 0.075).clamp(8.0, 14.0);
+          final plateH = (s * 0.15).clamp(20.0, 28.0);
+          final figure = (s * 0.19).clamp(20.0, 34.0);
+          final bonusH = (s * 0.11).clamp(15.0, 20.0);
+          final ctaH = (s * 0.20).clamp(28.0, 36.0);
+
+          final colours = orbColours(accent);
+          final orb = Rect.fromCenter(
+            center: Offset(w * 0.80, h * 0.30),
+            width: s * 0.62,
+            height: s * 0.62,
+          );
+
+          final panel = PremiumGlassPanel(
+            mode: GlassMode.tinted,
+            radius: Radii.lg,
+            live: true,
+            padding: EdgeInsets.zero,
+            tint: Colors.white,
+            behind: Stack(
+              children: [
+                Positioned.fromRect(
+                  rect: orb,
+                  child: GlassOrb(
+                    colours: colours,
+                    size: orb.width,
+                    soft: true,
+                    opacity: dark ? 0.62 : 0.46,
+                  ),
+                ),
+              ],
+            ),
+            child: Material(
+              type: MaterialType.transparency,
+              child: InkWell(
+                enableFeedback: context.select<FeedbackSettings, bool>(
+                  (f) => f.sound,
+                ),
+                borderRadius: BorderRadius.circular(Radii.lg),
+                onTap: () {
+                  tapHaptic(context);
+                  buy();
+                },
+                onTapDown: (_) => setState(() => _down = true),
+                onTapCancel: () => setState(() => _down = false),
+                onTapUp: (_) => setState(() => _down = false),
+                splashColor: accent.withValues(alpha: 0.12),
+                highlightColor: accent.withValues(alpha: 0.06),
+                child: Padding(
+                  padding: EdgeInsets.all(pad),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _PackPlate(
+                        label: t.posPremiumPackage,
+                        palette: palette,
+                        height: plateH,
+                        shrinkToFit: true,
+                      ),
+                      const Spacer(),
+                      // A box of fixed height the figure shrinks into, so
+                      // "10500 Crore 👑" and "105 Billion 👑" are the same
+                      // card at every text scale.
+                      SizedBox(
+                        width: double.infinity,
+                        height: figure * 1.3,
+                        child: RepaintBoundary(
+                          child: TweenAnimationBuilder<double>(
+                            tween: Tween(end: p.chips.toDouble()),
+                            duration: const Duration(milliseconds: 700),
+                            curve: Motion.standard,
+                            builder: (context, value, _) => FittedBox(
+                              fit: BoxFit.scaleDown,
+                              alignment: Alignment.centerLeft,
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    formatChips(value.round()),
+                                    maxLines: 1,
+                                    style: AppTheme.money(
+                                      text.displaySmall!,
+                                      fontSize: figure,
+                                      colour: champagne,
+                                    ),
+                                  ),
+                                  if (glyph != null) ...[
+                                    SizedBox(width: figure * 0.22),
+                                    Text(
+                                      glyph,
+                                      maxLines: 1,
+                                      style: TextStyle(
+                                        fontSize: figure * 0.8,
+                                        height: 1,
+                                      ),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: Space.xs),
+                      _PackBonus(
+                        icon: missileIcon,
+                        ink: missileInkOn(brightness),
+                        label: t.plusMissiles(p.missiles),
+                        height: bonusH,
+                      ),
+                      const SizedBox(height: Space.xxs),
+                      _PackBonus(
+                        icon: Icons.hardware,
+                        ink: hammerInkOn(brightness),
+                        label: t.plusHammers(p.hammers),
+                        height: bonusH,
+                      ),
+                      const Spacer(),
+                      _PriceCapsule(
+                        label:
+                            prices[p.productId]?.price ??
+                            '₹${_grouped(p.rupees)}',
+                        height: ctaH,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          );
+
+          return Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Positioned.fromRect(
+                rect: orb,
+                child: IgnorePointer(
+                  child: GlassOrb(
+                    colours: colours,
+                    size: orb.width,
+                    opacity: dark ? 1.0 : 0.9,
+                  ),
+                ),
+              ),
+              panel,
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+/// One thing a Premium Package brings besides its chips — "+1 Missile",
+/// "+10 Hammers" — beside the glyph the table's wallet pill marks that wallet
+/// with, in the wallet's own ink on the store's glass.
+///
+/// Fixed in height and shrunk to fit rather than wrapped or cut off: the line
+/// is a count, and at the 1.25 text ceiling in Punjabi it is still one line on
+/// the same card.
+class _PackBonus extends StatelessWidget {
+  const _PackBonus({
+    required this.icon,
+    required this.ink,
+    required this.label,
+    required this.height,
+  });
+
+  final IconData icon;
+  final Color ink;
+  final String label;
+  final double height;
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    return SizedBox(
+      height: height,
+      child: Row(
+        children: [
+          Icon(icon, size: height * 0.80, color: ink),
+          const SizedBox(width: Space.xs),
+          Flexible(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text(
+                label,
+                maxLines: 1,
+                style: AppTheme.money(
+                  text.labelLarge!,
+                  fontSize: (height * 0.72).clamp(11.0, 14.0),
+                  colour: ink,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 /// "1,499" — the Indian grouping for a rupee figure, which is a price and so
 /// never abbreviated the way a chip balance is.
 String _grouped(int n) {
@@ -1576,8 +2075,9 @@ class _CountPackCard extends StatefulWidget {
   /// The wallet's ink on the store's glass, by brightness.
   final Color Function(Brightness) inkOn;
 
-  /// The wallet's name in the player's language, under the figure.
-  final String Function(Strings) unit;
+  /// The wallet's name in the player's language, under the figure and on the
+  /// plate, given the card's [count] so a single missile is not "1 Missiles".
+  final String Function(Strings t, int count) unit;
   final int index;
 
   /// Play's prices by product id; empty until Play answers, when the card
@@ -1595,19 +2095,21 @@ class _CountPackCard extends StatefulWidget {
   State<_CountPackCard> createState() => _CountPackCardState();
 }
 
-String _diamondsWord(Strings t) => t.storeTabDiamonds;
-String _hammersWord(Strings t) => t.storeTabHammers;
-String _missilesWord(Strings t) => t.storeTabMissiles;
+String _diamondsWord(Strings t, int count) => t.storeTabDiamonds;
+String _hammersWord(Strings t, int count) => t.storeTabHammers;
+String _missilesWord(Strings t, int count) =>
+    count == 1 ? t.missile : t.storeTabMissiles;
 
 class _CountPackCardState extends State<_CountPackCard> {
   bool _down = false;
 
   String _plateLabel(Strings t) => switch (widget.mark) {
-    ShelfMark.popular => '⭐ ${t.posPopular}',
-    ShelfMark.bestValue => '🔥 ${t.posBestValue}',
+    ShelfMark.popular => '${shelfMarkGlyph(widget.mark)} ${t.posPopular}',
+    ShelfMark.bestValue => '${shelfMarkGlyph(widget.mark)} ${t.posBestValue}',
+    ShelfMark.crown => '${shelfMarkGlyph(widget.mark)} ${t.posPremium}',
     ShelfMark.starter => t.posStarter,
     ShelfMark.premium => t.posPremium,
-    ShelfMark.none => widget.unit(t).toUpperCase(),
+    ShelfMark.none => widget.unit(t, widget.count).toUpperCase(),
   };
 
   @override
@@ -1742,7 +2244,7 @@ class _CountPackCardState extends State<_CountPackCard> {
                         ],
                       ),
                       Text(
-                        widget.unit(t),
+                        widget.unit(t, widget.count),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: text.bodySmall?.copyWith(
@@ -1806,16 +2308,35 @@ class _PackPlate extends StatelessWidget {
     required this.label,
     required this.palette,
     required this.height,
+    this.shrinkToFit = false,
   });
 
   final String label;
   final TablePalette palette;
   final double height;
 
+  /// Shrinks a label that does not fit rather than cutting it off. The
+  /// Premium Package plate is the whole of what marks that card out, so
+  /// "PREMIUM PACKA…" on a 640dp phone would lose the point of it.
+  final bool shrinkToFit;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final h = height;
+    final words = Text(
+      label,
+      maxLines: 1,
+      overflow: shrinkToFit ? TextOverflow.visible : TextOverflow.ellipsis,
+      // label, not smallCaps: these words are translated, and tracking
+      // pulls Gujarati or Gurmukhi apart.
+      style: AppTheme.label(
+        theme.textTheme.labelLarge!,
+        fontSize: (h * 0.40).clamp(9.5, 13.0),
+        colour: palette.onContainer,
+        weight: FontWeight.w700,
+      ),
+    );
 
     return Container(
       height: h,
@@ -1830,19 +2351,13 @@ class _PackPlate extends StatelessWidget {
           PokerChip(colour: palette.accent, size: h * 0.58),
           SizedBox(width: h * 0.24),
           Flexible(
-            child: Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              // label, not smallCaps: these words are translated, and tracking
-              // pulls Gujarati or Gurmukhi apart.
-              style: AppTheme.label(
-                theme.textTheme.labelLarge!,
-                fontSize: (h * 0.40).clamp(9.5, 13.0),
-                colour: palette.onContainer,
-                weight: FontWeight.w700,
-              ),
-            ),
+            child: shrinkToFit
+                ? FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: words,
+                  )
+                : words,
           ),
         ],
       ),

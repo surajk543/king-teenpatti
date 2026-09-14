@@ -202,7 +202,7 @@ type LobbyTable struct {
 // with .Milliseconds() wherever the value goes on the wire (turnTimeoutMs,
 // sideshowTimeoutMs, …) — see PORT_PLAN.md §Time.
 type GameConfig struct {
-	WelcomeChips int64 // WELCOME_CHIPS 200000 (requirement 5)
+	WelcomeChips int64 // WELCOME_CHIPS 300000 (requirement 5; 2 lakh until 14 Sep 2026, owner)
 	BootAmount   int64 // BOOT_AMOUNT 200 — the default stake
 
 	// TableStakes is TABLE_STAKES (200,5000): the stakes quick-join accepts.
@@ -371,7 +371,7 @@ func Defaults() *Config {
 			LedgerPurgeAfter:    10 * time.Minute,
 		},
 		Game: GameConfig{
-			WelcomeChips: 200000,
+			WelcomeChips: 300000,
 			BootAmount:   200,
 			TableStakes:  []int64{200, 5000, 50000, 1000000},
 			// The blind ladder is banded by stack as well as by stake, so a

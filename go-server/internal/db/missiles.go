@@ -11,10 +11,6 @@ import (
 	"github.com/surajk543/king-teenpatti/go-server/internal/metrics"
 )
 
-// MissilesPerDiamond is the exchange rate of the missile store (owner, 14 Sep
-// 2026): 1 diamond = 2 missiles, in every pack.
-const MissilesPerDiamond = 2
-
 // MissilePack is one trade the missile store offers: Diamonds taken, Missiles
 // given. The server's catalogue is the only source of either figure — a client
 // names a pack, never an amount.
@@ -24,12 +20,17 @@ type MissilePack struct {
 	Missiles int64
 }
 
-// MissilePacks is the missile store's catalogue, by pack id.
+// MissilePacks is the missile store's catalogue, by pack id (owner, 14 Sep
+// 2026). Each pack is named by the missiles it gives, and the bigger packs cost
+// less a missile: missiles_1 costs 10 diamonds, missiles_5 48, missiles_10 90
+// and missiles_20 170. The owner re-priced the store several times that day
+// (1 diamond = 2 missiles, a flat 5 diamonds a missile, then packs of 1, 6, 13
+// and 30); only these four ids are on sale, whatever they cost before.
 var MissilePacks = map[string]MissilePack{
-	"missiles_2":  {ID: "missiles_2", Diamonds: 1, Missiles: 1 * MissilesPerDiamond},
-	"missiles_10": {ID: "missiles_10", Diamonds: 5, Missiles: 5 * MissilesPerDiamond},
-	"missiles_20": {ID: "missiles_20", Diamonds: 10, Missiles: 10 * MissilesPerDiamond},
-	"missiles_50": {ID: "missiles_50", Diamonds: 25, Missiles: 25 * MissilesPerDiamond},
+	"missiles_1":  {ID: "missiles_1", Missiles: 1, Diamonds: 10},
+	"missiles_5":  {ID: "missiles_5", Missiles: 5, Diamonds: 48},
+	"missiles_10": {ID: "missiles_10", Missiles: 10, Diamonds: 90},
+	"missiles_20": {ID: "missiles_20", Missiles: 20, Diamonds: 170},
 }
 
 // LookupMissilePack returns the pack with this id, or false.

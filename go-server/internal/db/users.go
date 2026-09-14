@@ -85,7 +85,7 @@ type User struct {
 	// in packs on Play. Like diamonds, never chip_ledger's business.
 	Hammer int `json:"hammer"`
 	// Missile is users.missile, what a missile costs (owner, 14 Sep 2026): 1
-	// for every account (the column's default), and traded for diamonds at 2 missiles a diamond (POST
+	// for every account (the column's default), and traded for diamonds in the missile store's packs (POST
 	// /api/store/missiles). Never chip_ledger's business.
 	Missile       int     `json:"missile"`
 	HandsPlayed   int     `json:"handsPlayed"`

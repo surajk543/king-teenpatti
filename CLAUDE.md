@@ -81,7 +81,7 @@ king-teenpatti/
 │   │   ├── sio/                  our own Engine.IO v4 + Socket.IO v5 server, websocket only (protocol.go, conn.go, server.go)
 │   │   ├── socket/               the game protocol on sio: handler.go (Attach, guard, one method per event, grace, resume offers), wire.go (every event/ack), payload.go; testclient/
 │   │   ├── auth/                 tokens.go (JWT HS256), providers.go (Google/Facebook/guest/fake), http.go (routes, RequireAuth, WriteError), handlers.go (the 8 REST handlers), text.go
-│   │   ├── db/                   db.go (pgxpool, search_path as connection param, WithTx, DropSchema, Migrations), migration/ (embedded, Flyway-named V<version>__<name>.sql, applied in version order — V1.0.0__baseline.sql = all DDL and V1.0.1__seed_profile_pictures.sql = all DML (consolidated 14 Sep 2026, missiles included)), ledger.go (THE money transactions: Checkpoint / Settle), users.go (login upsert, rewards, names, the worn picture), pictures.go (the catalogue, ownership and the chip purchase); dbtest/
+│   │   ├── db/                   db.go (pgxpool, search_path as connection param, WithTx, DropSchema, Migrations), migration/ (embedded, Flyway-named V<version>__<name>.sql, applied in version order — V1.0.0__baseline.sql = all DDL and V1.0.1__seed_profile_pictures.sql = all DML (consolidated 14 Sep 2026: missiles, the 9-diamond default and the HAMMER picture currency included)), ledger.go (THE money transactions: Checkpoint / Settle), users.go (login upsert, rewards, names, the worn picture), pictures.go (the catalogue, ownership and the chip purchase); dbtest/
 │   │   ├── metrics/              names.go (every game_* metric), metrics.go (registry, Bind*, Handler, HTTPMiddleware, SafeLabel)
 │   │   ├── app/                  app.go (mux, REST, socket endpoint, Start/Shutdown), health.go, static.go (PUBLIC_DIR + embedded assets/socket.io.min.js)
 │   │   └── util/                 UUID, RoomCode, slog JSON logger
@@ -527,7 +527,7 @@ with `room:joinCode`. Voluntary leave / kick never create an offer (the grace ti
 login and `GET /api/profiles` do — a saved session comes back through here, never through login); `POST /api/rewards/milestone|bonus`
 (**409 `seated` while at a table** — rewards are lobby-only so a seated wallet only ever moves at the
 three checkpoints, §5.1); **`GET /api/profiles`** — the picture catalogue from `profile_pictures`, active rows only, in
-`sort_order` then `id`: `{profiles:[{id, name, url, assetFormat, currency, type, cost, durationDays, sortOrder, owned, expiresAt}]}` — `assetFormat` is IMAGE (jpg/jpeg/png, one loader), SVG, LOTTIE (Lottie JSON/.lottie at the url) or RIVE (.riv binary), how the client renders what `url` serves; `currency` is COIN (chips) or DIAMOND (`users.diamond`), the wallet `cost` is paid from. The token is
+`sort_order` then `id`: `{profiles:[{id, name, url, assetFormat, currency, type, cost, durationDays, sortOrder, owned, expiresAt}]}` — `assetFormat` is IMAGE (jpg/jpeg/png, one loader), SVG, LOTTIE (Lottie JSON/.lottie at the url) or RIVE (.riv binary), how the client renders what `url` serves; `currency` is COIN (chips), DIAMOND (`users.diamond`) or HAMMER (`users.hammer`, owner 14 Sep 2026), the wallet `cost` is paid from. The token is
 **optional**: without one every FREE row reads `owned:true` and every PREMIUM one `owned:false`;
 with one, `owned` also covers the premium pictures that player has bought. A bad token is ignored,
 not refused;
@@ -540,11 +540,11 @@ player has not bought → **403 `picture_locked`**. **Allowed while seated** (ow
 `picture_purchase` ledger row (`action_id` `picture:<userId>:<pictureId>`, UNIQUE, so a double click
 cannot charge twice) plus a `user_profile_pictures` row, in one transaction under the wallet lock.
 Answers `{user, picture, charged, spent}`; `charged:false` means it was already owned. Free → 400
-`picture_free`, too poor → 409 `picture_chips`. A **`currency: DIAMOND`** row is paid from `users.diamond` instead —
+`picture_free`, too poor → 409 `picture_chips`. A **`currency: DIAMOND`** row is paid from `users.diamond` instead, and a **`currency: HAMMER`** row from `users.hammer` —
 debited in the same transaction under the same wallet lock, with **no ledger row** (`chip_ledger` backs
-the chips invariant and nothing else) — and a diamond shortage is the same 409 `picture_chips` code
-carrying a diamond message. **Buying does not wear it** — that is a separate
-avatar POST. **At a table** only a DIAMOND picture sells (`Pictures.BuyAtTable`); a COIN one → 409 `seated`
+the chips invariant and nothing else; a hammer picture writes no `hammer_spends` row either) — and a shortage of either is the same 409 `picture_chips` code
+carrying that currency's message ("You need 30 hammers to unlock this picture."). **Buying does not wear it** — that is a separate
+avatar POST. **At a table** a DIAMOND or HAMMER picture sells (`Pictures.BuyAtTable`, `Picture.PaidInChips()`); a COIN one → 409 `seated`
 "You can only buy a chip-priced picture in the lobby.";
 `POST /api/profile/name {name}` (409 `seated` while at a table; these live in
 `playerRoutes({isSeated})`, **not** `authRoutes`);
@@ -556,8 +556,8 @@ the pack through a `purchase` ledger row (action_id `gplay:<token>`), so a repla
 guarded by `diamond_purchases` (PK = the purchase token, `ON CONFLICT DO NOTHING`), and the answer carries `diamonds`
 beside `chips` (one of them 0). All four product ids must exist as managed products in the Play Console. **There
 is no Apple counterpart**, which is why the Flutter chip store does not start on iOS (§8.4);
-**`POST /api/store/missiles {packId, requestId}`** (owner, 14 Sep 2026) — trades diamonds for missiles at 1 diamond = 2
-missiles: `missiles_2` (1 diamond), `missiles_10` (5), `missiles_20` (10), `missiles_50` (25), in one transaction under the
+**`POST /api/store/missiles {packId, requestId}`** (owner, 14 Sep 2026) — trades diamonds for missiles in
+packs: `missiles_1` (10 diamonds for 1), `missiles_5` (48 for 5), `missiles_10` (90 for 10), `missiles_20` (170 for 20), in one transaction under the
 wallet lock (`db.Missiles.TradeMissiles`), replay-guarded by `missile_purchases` (`request_id` = `<userId>:<requestId>`).
 Answers `{user, charged, diamonds, missiles}` — `charged:false` with 0 and 0 on a replay; 400 `unknown_pack` /
 `invalid_request_id`, 409 `not_enough_diamonds`. Allowed while seated: diamonds and missiles sit outside §5.1;
@@ -585,7 +585,7 @@ older databases forward (V1.0.2's Butterfly Flapping move/fold, V1.0.5's guarded
 They build an EMPTY database, and boot unchanged on one built by master's scripts at `c8cd055` (which added the missiles as V1.0.2); a database from go-server/v1.3.0 or
 older lacks `users.hammer`, and one from go-server/v1.0.0 or older `users.missile` — the missiles were folded into the
 baseline the same day, for a second fresh production deploy — so production starts over (DEPLOY.md §8). `db_test.go`
-pins the count at two. The next change is a NEW file (`V1.0.2__…`), never an edit to an applied one. The catalogue guards that remain (the baseline's
+pins the count at two. Later the same day the 9-diamond default arrived as `V1.0.2__new_account_diamonds.sql` and was folded back into the baseline together with the HAMMER picture currency, for another fresh production deploy: a database built before that has the old `profile_pictures_currency_check` and cannot take the seed (DEPLOY.md §8). The next change is a NEW file (`V1.0.2__…`), never an edit to an applied one. The catalogue guards that remain (the baseline's
 `idx_users_last_login`, `users_no_delete` created only when missing) are for DEPLOY.md §7, where the app role no longer
 owns `users`. **A column added to an existing database is a deliberate one-off
 ALTER run by hand** (`CREATE TABLE IF NOT EXISTS` is a no-op where the table exists, so the baseline
@@ -595,17 +595,17 @@ are parsed to JS numbers** (`pg.types.setTypeParser(20|1700)`) — without that,
 come back as strings.
 
 Tables — **there are exactly nine, and none of them is game state** (`diamond_purchases`, `hammer_purchases`, `hammer_spends`, `missile_purchases` and `missile_spends` are below): `users` (wallet = `chips BIGINT
-CHECK ≥ 0`, **`diamond INTEGER NOT NULL DEFAULT 2 CHECK ≥ 0`** — the premium currency, two per new account (one before 14 Sep 2026), never
+CHECK ≥ 0`, **`diamond INTEGER NOT NULL DEFAULT 9 CHECK ≥ 0`** — the premium currency, nine per new account (owner, 14 Sep 2026; two, and one before that, earlier the same day), never
 ledgered —, **`hammer INTEGER NOT NULL DEFAULT 20 CHECK ≥ 0`** — what a Force Sideshow costs, 20 per account, never ledgered —, **`missile INTEGER NOT NULL DEFAULT 1 CHECK ≥ 0`** — what a missile costs, one per new account, never ledgered —,
 counters, `milestone_claimed`, `next_bonus_at`, `active_picture_id`, `deleted_at`),
 **`chip_ledger`** (`action_id UNIQUE`, `hand_id`, `delta`, `balance`, `reason`; append-only trigger),
 and the picture catalogue added 12 Sep 2026 (owner): **`profile_pictures`** (`name`, `asset_url`
-UNIQUE, `asset_format` IMAGE|SVG|LOTTIE|RIVE, `currency` COIN|DIAMOND, `type` FREE|PREMIUM, `cost` with a CHECK that free is 0 and premium is > 0, `is_active`,
+UNIQUE, `asset_format` IMAGE|SVG|LOTTIE|RIVE, `currency` COIN|DIAMOND|HAMMER, `type` FREE|PREMIUM, `cost` with a CHECK that free is 0 and premium is > 0, `is_active`,
 `sort_order`) and **`user_profile_pictures`** (`user_id`, `profile_picture_id`, PK on the pair) —
 who has bought what. A FREE picture needs **no** ownership row: everyone may wear it, so the table
 holds only what somebody paid for. `V1.0.1__seed_profile_pictures.sql` seeds 15 hosted animals (2 free, 13 coin-priced rentals) and
-20 LOTTIE rentals of 100 days priced in DIAMONDS — Orange Ballerina (1, sort_order 160), Butterfly Flapping (4, 170; its first Drive upload beats its wings with 3D orientation the phone players ignore — §12.3 — so the row points at a second Drive upload of the flattened copy; go-server/v1.3.0 served that copy itself as `/profiles/butterfly-flapping.json`, and a rollback to that tag seeds the path again as a second row — DEPLOY.md §5), Toucan Flying (a landscape 1920×1080 canvas, 3, 180), Live Chatbot (1, 190), Paper Plane (1, 200), Bouncing Dots (1, 210), Monarch Butterfly (4, 220), Lovestruck Cat (5, 230), Waving Tiger Cub (5, 240; a tiny `loopOut()` detail in its head holds still on phones, which run no expressions), Galloping Horse (1, 250; a black silhouette flipbook, about 1.2:1 against the dark theme's picture circles), Gamer Raccoon (6, 260), Cool Cat (10, 270), Indian Flag (10, 280; it sits high and left in its canvas, so the round picture loses most of its pole), Jolly King (10, 290), Jolly Queen (10, 300; both move only through `loopOut()` expressions, so both are served from Drive as copies baked by `tools/lottie/bake_loop_expressions.py`, not as their original uploads), Shooting Game (8, 310; a video turned into a 28-frame flipbook of embedded WebP images with no transparency, so its round picture is a white disc), Spider (8, 320; a landscape 3840×2160 canvas whose centre square is the whole spider; its dark legs fade on the dark theme), Swirling Dots (3, 330; uploaded as "Dots Loader"), Sporty Avocado (9, 340; black line art that all but disappears on the dark theme; its 12 "Kleaner" overshoot expressions do not run on phones, which looked the same) and Blazing Fire (1, 350; the animated Noto Emoji 🔥, CC BY 4.0) — inserted with `ON CONFLICT (asset_url) DO NOTHING`, so re-pricing or retiring one is an UPDATE
-the next boot will not undo; on an empty database they number 1 (Bear) to 35 (Blazing Fire). The last five were added to the consolidated seed on 14 Sep 2026, before production had run it; once it has, a new picture is a new script. **`diamond_purchases`** (`purchase_token` PK, `user_id`, `product_id`, `diamonds`, `created_at`) is the replay guard and record for Play diamond packs — diamonds never enter `chip_ledger`; **`hammer_purchases`** is its twin for Play hammer packs, and **`hammer_spends`** (`action_id` PK — `<handId>:force:<userId>:<client actionId>` —, `user_id`, `hand_id`, `created_at`) is the one row per spend a Force Sideshow's hammer is charged against. **`missile_purchases`** (`request_id` PK, `user_id`, `diamonds`, `missiles`, `created_at`) and **`missile_spends`** (`action_id` PK, `user_id`, `hand_id`, `created_at`) are the same pair for missiles: a diamonds-for-missiles trade and a missile fired. `users.avatar_choice` (the old free-text `/profiles/x.svg` path) is
+20 LOTTIE rentals, 15 priced in HAMMERS and 5 in DIAMONDS (owner, 14 Sep 2026: a hammer picture costs ten times the figure in brackets below, which was its diamond price until then, and is rented for as many days as it costs — Swirling Dots 30 hammers for 50 days; Butterfly Flapping, Waving Tiger Cub, Indian Flag, Jolly King and Jolly Queen are priced in diamonds instead, at 4, 3, 5, 5 and 5, for 100 days. The seed now runs free → chip-priced → hammer-priced → diamond-priced with sort_order 10–350 in that order, so the sort_orders in brackets below are the old ones; the seed's header table is the current list) — Orange Ballerina (1, sort_order 160), Butterfly Flapping (4, 170; its first Drive upload beats its wings with 3D orientation the phone players ignore — §12.3 — so the row points at a second Drive upload of the flattened copy; go-server/v1.3.0 served that copy itself as `/profiles/butterfly-flapping.json`, and a rollback to that tag seeds the path again as a second row — DEPLOY.md §5), Toucan Flying (a landscape 1920×1080 canvas, 3, 180), Live Chatbot (1, 190), Paper Plane (1, 200), Bouncing Dots (1, 210), Monarch Butterfly (4, 220), Lovestruck Cat (5, 230), Waving Tiger Cub (5, 240; a tiny `loopOut()` detail in its head holds still on phones, which run no expressions), Galloping Horse (1, 250; a black silhouette flipbook, about 1.2:1 against the dark theme's picture circles), Gamer Raccoon (6, 260), Cool Cat (10, 270), Indian Flag (10, 280; it sits high and left in its canvas, so the round picture loses most of its pole), Jolly King (10, 290), Jolly Queen (10, 300; both move only through `loopOut()` expressions, so both are served from Drive as copies baked by `tools/lottie/bake_loop_expressions.py`, not as their original uploads), Shooting Game (8, 310; a video turned into a 28-frame flipbook of embedded WebP images with no transparency, so its round picture is a white disc), Spider (8, 320; a landscape 3840×2160 canvas whose centre square is the whole spider; its dark legs fade on the dark theme), Swirling Dots (3, 330; uploaded as "Dots Loader"), Sporty Avocado (9, 340; black line art that all but disappears on the dark theme; its 12 "Kleaner" overshoot expressions do not run on phones, which looked the same) and Blazing Fire (1, 350; the animated Noto Emoji 🔥, CC BY 4.0) — inserted with `ON CONFLICT (asset_url) DO NOTHING`, so re-pricing or retiring one is an UPDATE
+the next boot will not undo; on an empty database they number 1 (Bear) to 35 (Jolly Queen). The last five were added to the consolidated seed on 14 Sep 2026, before production had run it; once it has, a new picture is a new script. **`diamond_purchases`** (`purchase_token` PK, `user_id`, `product_id`, `diamonds`, `created_at`) is the replay guard and record for Play diamond packs — diamonds never enter `chip_ledger`; **`hammer_purchases`** is its twin for Play hammer packs, and **`hammer_spends`** (`action_id` PK — `<handId>:force:<userId>:<client actionId>` —, `user_id`, `hand_id`, `created_at`) is the one row per spend a Force Sideshow's hammer is charged against. **`missile_purchases`** (`request_id` PK, `user_id`, `diamonds`, `missiles`, `created_at`) and **`missile_spends`** (`action_id` PK, `user_id`, `hand_id`, `created_at`) are the same pair for missiles: a diamonds-for-missiles trade and a missile fired. `users.avatar_choice` (the old free-text `/profiles/x.svg` path) is
 migrated into `active_picture_id` and dropped — **but only once every non-empty choice has found its
 catalogue row**, and any picture that was already being worn is granted an ownership row first so
 seeding it as premium cannot confiscate it. Every statement naming `avatar_choice` goes through
@@ -667,7 +667,7 @@ fallback `go-server/public`; not in `.env.example` — `config.go` documents it)
 | `PG_STATEMENT_TIMEOUT_MS` | 15000 | **Go server only**: Postgres `statement_timeout` per pooled connection so a hung query fails one ledger write instead of freezing a table; 0 = no limit (Node behaviour) |
 | **`LEDGER_PURGE_INTERVAL_MS`** | 300000 (5 min) | **Go server only.** How often the in-process purge goroutine runs (`App.startLedgerPurge`, a `time.NewTicker`, first pass one interval *after* boot — a server restarted more often never purges). **0 is the only way to turn the job off.** |
 | **`LEDGER_PURGE_AFTER_MS`** | 600000 (10 min) | **Go server only.** A `chip_ledger` row is deleted once older than this — but **only** `hand_win`/`hand_loss`/`hand_packed`/`hand_left` (`db.purgeableReasons`, hardcoded in the query): `purchase`, `picture_purchase`, `milestone_reward`, `timed_bonus`, `welcome_bonus` are never purged, since their UNIQUE `action_id` is a standing double-credit guard. Deletion is allowed only inside `PurgeLedger`'s own transaction, which sets `app.ledger_purge`; the append-only trigger refuses every other DELETE and every UPDATE. **Trap: 0 does NOT disable it** — the cutoff becomes `now`, so the next pass takes every purgeable row. Now equal to `RESUME_OFFER_MS`, so a retry at the edge of the resume window can find its `action_id` already gone (was 24h for that margin). |
-| `WELCOME_CHIPS` / `BOOT_AMOUNT` | 200000 / 200 | |
+| `WELCOME_CHIPS` / `BOOT_AMOUNT` | 300000 / 200 | the 3 lakh welcome (owner, 14 Sep 2026; 2 lakh before). **Production's `.env` sets `WELCOME_CHIPS` explicitly**, so a new default changes nothing there until that line does |
 | `TABLE_STAKES` | `200,5000,50000,1000000` | empty = any (tests) |
 | **`LOBBY_TABLES`** | `seen:200,blind:200,blind:5000:max=50000000,blind:50000:max=1000000000,blind:1000000:min=500000000` | the menu; empty = any pair (tests). Each entry is `category:boot` plus an optional **stack band** — `max=N` shuts the table to a player holding MORE than N, `min=N` to one holding LESS. Exactly the limit is allowed at either end. A band whose min exceeds its max fails at load (it would advertise a table nobody could join). |
 | `MAX_PLAYERS_PER_ROOM` / `MIN_PLAYERS_TO_START` | 5 / 2 | 5 is also hardcoded in Flutter `_places` and browser CSS |
@@ -886,7 +886,7 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   while the key can be used; no cost line — the confirmation states the hammer.
   **Missiles** (owner, 14 Sep 2026; rules in §6.1): the Missile key over Pack plays `assets/animations/Missile.json` (a copy
   with its one `loopOut()` baked; the nose points up-right, frames 30–60 loop) while `canMissile`, is greyed with no
-  missiles and then offers the store's **Missiles** tab (between Hammers and Pictures, diamonds for missiles), and asks
+  missiles and then offers the store's **Missiles** tab (between Hammers and Pictures, diamonds for missiles: 1 for 10, 5 for 48, 10 for 90, 20 for 170), and asks
   first (`_fireMissile`). Every viewer sees the volley (`state/missile_strike.dart`, `widgets/missile_flight.dart`): one
   missile from the firer's pod to each player still in, 70 ms apart, **1.3 s in the air**, then
   `assets/animations/explosion.json` on each pod for **0.44 s** (its own length), and only then (`MissileTiming.reveal`)
@@ -917,8 +917,12 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   green** (`AppTheme.cardSeenBack`, applied as `PlayingCard.tint` through `BlendMode.color` so the
   printed crown survives) and the word is written in that same green (`AppTheme.seenInk`); BLIND
   keeps the quiet ink. None of it applies to a packed seat or to face-up cards — at a showdown or a
-  sideshow peek the hand answers the question itself, with `_handName` above it (suppressed on the
-  winner, whose `_WinnerFlash` ribbon already carries the ranking). A **sideshow** names only the hand that
+  sideshow peek the hand answers the question itself, with `_handName` laid over the foot of the face-up fan as a capsule (suppressed on the
+  winner, whose `_WinnerFlash` ribbon already carries the ranking). **A seat's column must not change height at the
+  reveal** (owner, 14 Sep 2026): `_Felt` places it by its middle, so the name used to take a line above the cards and a
+  loser's bet badge dropped out below them, and every beaten player's cards jumped down the felt when a missile's result
+  came in. The name now rides on the cards, and `_betShown` keeps a showdown loser's badge while the finished hand is on
+  show (`test/seat_reveal_layout_test.dart`). A **sideshow** names only the hand that
   **won** it (the reveal's `packedUserId` marks the loser): the loser's cards still turn face up but
   carry no ranking, and when the viewer wins, `_OwnHandName` names their hand over their own cards
   (it used to appear only at a showdown, so a sideshow the viewer won put the label on the loser).
@@ -971,20 +975,25 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   `_raisedButtons` = state-driven elevation (`liftElevation`: disabled 0, pressed rest/3, hover 2×),
   tinted `shadowFor`, transparent surfaceTint; text buttons flat. `PremiumSurface` = the one raised
   treatment (3 shadows + bevel + optional `Glint`).
-- **The picture picker** (`_openPicturePicker`; its shelf — `PictureFilter`, `PictureFilterMenu`, `pictureShelf`,
+- **The picture picker** (`openPicturePicker`, with a day/night `DayNightSwitch` — sun, switch, moon, `GameState.toggleTheme` — at the top of its header since 14 Sep 2026 (owner), and headed by the player's display name where it read "Your picture" (owner, the same day); its shelf — `PictureFilter`, `PictureFilterMenu`, `pictureShelf`,
   `PictureChoice`, `unlockPicture`, `DiamondBalance` — lives in `widgets/picture_shelf.dart`, shared with the chip
   store's **Pictures** tab (`chip_store.dart` `_StoreTabs`: Chips | Diamonds | Pictures in the header — the **Diamonds** tab (`diamondPacks`, `_DiamondPackCard`: 1/₹49, 5/₹199 ⭐, 20/₹699 🔥, 100/₹2,999) is offered at a table too, and a credited pack celebrates as `rewardWon.kind == 'diamonds'`; at a table the picture key
-  is **Animated** (`_StoreTabs.animatedOnly`, owner 13 Sep 2026): the animated shelf alone, no shelf menu, bought with diamonds and worn on the seat at once; the chip packs are drawn as lobby table cards —
+  is **Animated** (`_StoreTabs.animatedOnly`, owner 13 Sep 2026): the animated shelf alone, no shelf menu, bought with hammers (since 14 Sep 2026; diamonds before) and worn on the seat at once; the chip packs are drawn as lobby table cards —
   frosted glass over a baked orb, a still plate, count-up figure, one fact, a price capsule — coloured sapphire → purple → gold
   up the range; the Pictures tab heads its grid with the worn picture, large and centred, beside the shelf menu); requirement 21): a horizontal strip
   of the active catalogue, one **shelf** at a time: a menu pinned above the grid (`_PictureFilterMenu`, 13 Sep 2026)
-  picks All (the default), Free, Premium (premium IMAGE/SVG) or Premium (Animated) (premium LOTTIE/RIVE,
-  `ProfilePicture.animated`), each with its count; the premium animated pictures run cheapest first (`shelfOrder`,
-  owner 13 Sep 2026 — re-dealt into their own slots, so on All the group stays where the catalogue put it). A picture the player has not bought is drawn at 0.55
-  opacity with a gold padlock-and-price pill (`_PriceTag`; a DIAMOND row shows a gem instead, its unlock dialog says
-  diamonds, and the sheet's header carries the player's diamond balance, `_DiamondBalance`) — shown rather than hidden, because
+  picks All (the default) or Premium in one wallet — chips (a poker-chip glyph), hammers (the hammer) or diamonds (the gem),
+  `PictureFilter.menu`, in a pill that follows the theme — a slate well with charcoal type and deep gold by day, charcoal with light type and pale gold at night; it was the dark pill in both until the owner caught it (owner, 14 Sep 2026; it offered Free, Premium (IMAGE/SVG) and Premium (Animated) before, so a free
+  picture is now on All alone; `PictureFilter.animated` survives only as the store's at-table shelf), each with its count; the premium animated pictures run cheapest first (`shelfOrder`,
+  owner 13 Sep 2026 — re-dealt into their own slots, so on All the group stays where the catalogue put it). A picture the player has not bought is drawn at
+  full colour (owner, 14 Sep 2026; dimmed to 0.55 before) with a gold padlock-and-price pill (`_PriceTag`; a DIAMOND row shows a gem instead and a HAMMER row the hammer
+  glyph, each with its unlock dialog in its own currency — "Toucan Flying costs 30 hammers and is yours for 100 days", a singular
+  line for 1 — and the sheet's and the store's Pictures header carry diamonds and hammers together in one pill, stacked where a
+  row would cut the blurb; a player short of the picture's currency is offered that currency's store tab, switched in place when
+  the store is already open, and at a table the app refuses a COIN picture itself; `GameState.buyPicture` answers
+  `bought | notEnough | refused`) — shown rather than hidden, because
   knowing what is behind the padlock is the whole reason anyone buys one. Tapping a locked one asks
-  first (`GlassDialog`, `t.unlockTitle`/`unlockBody`/`unlock`, with the picture itself large and playing under the title), then `GameState.buyPicture` buys it,
+  first (`GlassDialog`, `t.unlockTitle`/`unlockBody`/`unlock`, with the picture itself large and playing under the title — `_PictureOnOffer`, which the "Not enough hammers/diamonds" offer of the store's shelf shows too, owner 14 Sep 2026), then `GameState.buyPicture` buys it,
   re-reads the catalogue (`owned` is per viewer) and wears it. The tick follows
   `user.activePictureId == p.id` — it used to compare the choice PATH to the picture's id, so
   nothing was ever ticked. `state.buyingPicture` puts a spinner on the one tile being bought.
@@ -1043,12 +1052,12 @@ idToken**; against production it is a guaranteed 401 `missing_token` — not a s
 
 ## 10. Requirements index (`Requirements.txt`)
 1 login providers · 2 DB per identity (brief says SQLite; **now Postgres by owner's decision**) ·
-3 ≤5/room · 4 ≥2 to start · 5 2 lakh welcome · 6a–g core play · 7 persistence · 8 room chat ·
+3 ≤5/room · 4 ≥2 to start · 5 3 lakh welcome (2 lakh until 14 Sep 2026; with 9 diamonds, 20 hammers and 1 missile) · 6a–g core play · 7 persistence · 8 room chat ·
 9 +/− stepper · 10 auto-pack · **(no 11)** · 12 collapsible chat · 13 Blind/Seen × 200/5000 ·
 14 Show reveal · 15 pot to last leaver · 16 stats (played = made a chaal) · 17 25k/25 hands ·
 18 4h 10k bonus · 19 Seen: one double, forced showdown (brief 10 moves / code 7 rounds) ·
 20 provider avatar · 21 avatar picker (a DB catalogue since 12 Sep 2026: free
-pictures plus premium ones bought with chips or diamonds; not locked when seated since 13 Sep 2026 — worn at the table, and a diamond one bought there) · 22 private table · 23 landscape/M3 ·
+pictures plus premium ones bought with chips, diamonds or (since 14 Sep 2026) hammers; not locked when seated since 13 Sep 2026 — worn at the table, and a diamond or hammer one bought there) · 22 private table · 23 landscape/M3 ·
 24 merge lone rooms · 25 leave confirm · 26 4h reward top-left · 27 milestone bottom-right ·
 28 square cards + sweep · 29 display name · 30 entry cap (not on switch; generalised 12 Sep 2026 to a per-table
 **stack band** — `config.LobbyTable.MinChips/MaxChips`, enforced by `assertWithinTableBand` on every route into a

@@ -29,7 +29,8 @@ type playStore struct {
 	verifier *purchase.GoogleVerifier
 	db       *db.DB
 	users    *db.Users
-	// credit banks a chip pack and adds it to the player's live seat as one
+	// credit banks a chip pack (or a premium package, whose missiles and
+	// hammers bank with its chips) and adds the chips to the player's live seat as one
 	// step under the player's seat lock (app: rooms.CreditBoughtChips). bank
 	// is the database credit, handed the context it must use, and reports
 	// whether it credited this time; the answer says whether a seat was
@@ -85,7 +86,11 @@ func (s *playStore) Buy(ctx context.Context, userID, productID, purchaseToken st
 	// way. It is allowed at a table — hammers are not chips — and has no seat
 	// to top up: the table never holds a hammer count, it charges the wallet
 	// when a Force Sideshow is played.
-	if product.Hammers > 0 {
+	//
+	// A premium package carries hammers as well, and must NOT come in here:
+	// it is chips first, and goes down the chip path below, where
+	// db.CreditPurchase banks its missiles and hammers with the chips.
+	if product.Hammers > 0 && !product.Premium() {
 		result, err := db.CreditHammerPurchase(ctx, s.db, s.users, userID, product, purchaseToken)
 		if err != nil {
 			return auth.PurchaseOutcome{}, err
@@ -99,7 +104,10 @@ func (s *playStore) Buy(ctx context.Context, userID, productID, purchaseToken st
 		}, nil
 	}
 
-	// The wallet gets the chips; the seat is a separate copy of the truth.
+	// A chip pack or a premium package. The wallet gets the chips (and a
+	// premium package's missiles and hammers, in the same transaction); the
+	// seat is a separate copy of the chips alone — a table holds no missile or
+	// hammer count.
 	// Only a fresh credit reaches the seat — a replayed receipt already moved
 	// both, and adding again would put chips in the seat that PostgreSQL does
 	// not have. The credit runs on the context the seat lock hands it, never
@@ -121,7 +129,8 @@ func (s *playStore) Buy(ctx context.Context, userID, productID, purchaseToken st
 	}
 	if seated && s.logger != nil {
 		s.logger.Info("purchased chips added to a live seat",
-			"userId", userID, "chips", product.Chips)
+			"userId", userID, "productId", productID, "chips", product.Chips,
+			"missiles", product.Missiles, "hammers", product.Hammers)
 	}
 
 	// Best effort, and only now. A failure here is not the player's problem —
@@ -131,6 +140,8 @@ func (s *playStore) Buy(ctx context.Context, userID, productID, purchaseToken st
 
 	return auth.PurchaseOutcome{
 		Chips:    result.Chips,
+		Missiles: result.Missiles,
+		Hammers:  result.Hammers,
 		Balance:  result.Balance,
 		Credited: result.Credited,
 		User:     result.User,

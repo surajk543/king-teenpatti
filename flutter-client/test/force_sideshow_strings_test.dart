@@ -30,32 +30,52 @@ const _newKeys = <String, List<String>>{
   'walletSummary': ['{diamonds}', '{hammers}', '{missiles}'],
 };
 
+/// The words pictures priced in hammers brought with them (owner, 14 Sep
+/// 2026), with the placeholders each must keep. A `…One` line writes its 1
+/// out, so it keeps no `{cost}`.
+const _pictureKeys = <String, List<String>>{
+  'unlockBodyHammers': ['{name}', '{cost}'],
+  'unlockBodyHammerOne': ['{name}'],
+  'unlockRentBodyHammers': ['{name}', '{cost}', '{days}'],
+  'unlockRentBodyHammerOne': ['{name}', '{days}'],
+  'notEnoughHammersTitle': [],
+  'notEnoughHammersBody': ['{name}', '{cost}'],
+  'notEnoughHammersBodyOne': ['{name}'],
+  'notEnoughDiamondsPictureBody': ['{name}', '{cost}'],
+  'pictureChipsLobbyOnly': [],
+};
+
+/// Every key in [keys] is this language's own, non-empty, keeps its
+/// placeholders, and — outside English — is not the English left in place.
+void _writtenIn(AppLang lang, Map<String, List<String>> keys) {
+  final t = Strings(lang);
+  const english = Strings(AppLang.english);
+  for (final MapEntry(key: key, value: placeholders) in keys.entries) {
+    final own = t.ownEntry(key);
+    expect(own, isNotNull, reason: '${lang.code} has no "$key"');
+    expect(own!.trim(), isNotEmpty, reason: '${lang.code} "$key"');
+    for (final placeholder in placeholders) {
+      expect(
+        own,
+        contains(placeholder),
+        reason: '${lang.code} "$key" lost $placeholder',
+      );
+    }
+    if (lang != AppLang.english) {
+      expect(
+        own,
+        isNot(english.ownEntry(key)),
+        reason: '${lang.code} "$key" is still the English',
+      );
+    }
+  }
+}
+
 void main() {
   group('the Force Sideshow and hammer words', () {
     for (final lang in AppLang.values) {
       test('are all written in ${lang.englishName}', () {
-        final t = Strings(lang);
-        const english = Strings(AppLang.english);
-        for (final MapEntry(key: key, value: placeholders)
-            in _newKeys.entries) {
-          final own = t.ownEntry(key);
-          expect(own, isNotNull, reason: '${lang.code} has no "$key"');
-          expect(own!.trim(), isNotEmpty, reason: '${lang.code} "$key"');
-          for (final placeholder in placeholders) {
-            expect(
-              own,
-              contains(placeholder),
-              reason: '${lang.code} "$key" lost $placeholder',
-            );
-          }
-          if (lang != AppLang.english) {
-            expect(
-              own,
-              isNot(english.ownEntry(key)),
-              reason: '${lang.code} "$key" is still the English',
-            );
-          }
-        }
+        _writtenIn(lang, _newKeys);
       });
     }
 
@@ -84,6 +104,146 @@ void main() {
           t.walletSummary(3, 20, 4),
         ]) {
           expect(line, isNot(contains('{')), reason: '${lang.code}: $line');
+        }
+      }
+    });
+  });
+
+  group('the words of a picture priced in hammers', () {
+    for (final lang in AppLang.values) {
+      test('are all written in ${lang.englishName}', () {
+        _writtenIn(lang, _pictureKeys);
+      });
+    }
+
+    test('say what the owner asked for in English', () {
+      const t = Strings(AppLang.english);
+      expect(
+        t.unlockRentBodyHammers('Toucan Flying', 30, 100),
+        'Toucan Flying costs 30 hammers and is yours for 100 days. Unlock it '
+        'and wear it now?',
+      );
+      expect(
+        t.unlockBodyHammers('Cool Cat', 10),
+        'Cool Cat costs 10 hammers. Unlock it and wear it now?',
+      );
+      expect(t.notEnoughHammersTitle, 'Not enough hammers');
+      expect(
+        t.notEnoughHammersBody('Jolly Queen', 100),
+        'Jolly Queen costs 100 hammers. Get more hammers?',
+      );
+      expect(t.getHammers, 'Get hammers');
+      expect(
+        t.notEnoughDiamondsPictureBody('Jolly King', '1'),
+        'Jolly King costs 1 diamond. Get more diamonds?',
+      );
+      expect(
+        t.notEnoughDiamondsPictureBody('Jolly King', '4'),
+        'Jolly King costs 4 diamonds. Get more diamonds?',
+      );
+      expect(
+        t.pictureChipsLobbyOnly,
+        'You can only buy a chip-priced picture in the lobby.',
+      );
+      // The animated pictures no longer cost diamonds, and the copy that said
+      // they did has moved on.
+      expect(t.storePicturesBlurb, 'Unlock a picture with chips or hammers.');
+      expect(t.storeAnimatedBlurb, 'Unlock an animated picture with hammers.');
+      expect(t.storeDiamondsBlurb, 'Diamonds trade for missiles.');
+      expect(
+        t.rewardDiamondsPurchased,
+        'The diamonds are in your wallet. Trade them for missiles.',
+      );
+    });
+
+    test('say one hammer in the singular, in every language', () {
+      for (final lang in AppLang.values) {
+        final t = Strings(lang);
+        String own(String key) => t.ownEntry(key)!;
+        expect(
+          t.unlockBodyHammers('Blazing Fire', 1),
+          own('unlockBodyHammerOne').replaceAll('{name}', 'Blazing Fire'),
+          reason: lang.code,
+        );
+        expect(
+          t.unlockRentBodyHammers('Blazing Fire', 1, 100),
+          own(
+            'unlockRentBodyHammerOne',
+          ).replaceAll('{name}', 'Blazing Fire').replaceAll('{days}', '100'),
+          reason: lang.code,
+        );
+        expect(
+          t.notEnoughHammersBody('Blazing Fire', 1),
+          own('notEnoughHammersBodyOne').replaceAll('{name}', 'Blazing Fire'),
+          reason: lang.code,
+        );
+        // And more than one keeps the plural lines.
+        expect(
+          t.unlockBodyHammers('Cool Cat', 10),
+          own(
+            'unlockBodyHammers',
+          ).replaceAll('{name}', 'Cool Cat').replaceAll('{cost}', '10'),
+          reason: lang.code,
+        );
+        expect(
+          t.unlockRentBodyHammers('Cool Cat', 10, 100),
+          isNot(t.unlockRentBodyHammers('Cool Cat', 1, 100)),
+          reason: lang.code,
+        );
+      }
+      // The plural nouns that must never follow a 1.
+      for (final (lang, plural) in [
+        (AppLang.english, '1 hammers'),
+        (AppLang.hindi, '1 हथौड़े'),
+        (AppLang.punjabi, '1 ਹਥੌੜੇ'),
+      ]) {
+        final t = Strings(lang);
+        for (final line in [
+          t.unlockBodyHammers('Blazing Fire', 1),
+          t.unlockRentBodyHammers('Blazing Fire', 1, 100),
+          t.notEnoughHammersBody('Blazing Fire', 1),
+        ]) {
+          expect(line, isNot(contains(plural)), reason: '${lang.code}: $line');
+          expect(line, contains('1'), reason: '${lang.code}: $line');
+        }
+      }
+    });
+
+    test('fill in every placeholder, in every language', () {
+      for (final lang in AppLang.values) {
+        final t = Strings(lang);
+        for (final line in [
+          t.unlockBodyHammers('Cool Cat', 10),
+          t.unlockBodyHammers('Blazing Fire', 1),
+          t.unlockRentBodyHammers('Cool Cat', 10, 100),
+          t.unlockRentBodyHammers('Blazing Fire', 1, 100),
+          t.notEnoughHammersBody('Cool Cat', 10),
+          t.notEnoughHammersBody('Blazing Fire', 1),
+          t.notEnoughDiamondsPictureBody('Jolly King', '4'),
+          t.notEnoughDiamondsPictureBody('Jolly King', '1'),
+        ]) {
+          expect(line, isNot(contains('{')), reason: '${lang.code}: $line');
+          expect(line, contains(RegExp('Cool Cat|Blazing Fire|Jolly King')));
+        }
+      }
+    });
+
+    test('price the pictures shelves in hammers, not diamonds, everywhere', () {
+      for (final (lang, hammer, diamond) in [
+        (AppLang.english, 'hammer', 'diamond'),
+        (AppLang.hindi, 'हथौड़', 'हीर'),
+        (AppLang.bengali, 'হাতুড়ি', 'হীরে'),
+        (AppLang.gujarati, 'હથોડી', 'હીરા'),
+        (AppLang.punjabi, 'ਹਥੌੜ', 'ਹੀਰ'),
+      ]) {
+        final t = Strings(lang);
+        for (final blurb in [t.storePicturesBlurb, t.storeAnimatedBlurb]) {
+          expect(blurb, contains(hammer), reason: '${lang.code}: $blurb');
+          expect(
+            blurb,
+            isNot(contains(diamond)),
+            reason: '${lang.code}: $blurb',
+          );
         }
       }
     });

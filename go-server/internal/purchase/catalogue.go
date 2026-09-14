@@ -1,4 +1,5 @@
-// Package purchase turns a Google Play purchase into chips or diamonds.
+// Package purchase turns a Google Play purchase into chips, diamonds, hammers
+// or — for a premium package — chips, missiles and hammers together.
 //
 // Two rules shape everything here.
 //
@@ -25,30 +26,43 @@ import "fmt"
 type Product struct {
 	// ID is the Play Console product id. It must match exactly.
 	ID string
-	// Chips is what the account is credited for a chip pack. This is the
-	// authoritative figure. Zero for a diamond pack.
+	// Chips is what the account is credited for a chip pack or a premium
+	// package. This is the authoritative figure. Zero for a diamond or hammer
+	// pack.
+	//
+	// A chip, diamond or hammer pack fills exactly one wallet; a premium
+	// package (owner, 14 Sep 2026) fills three — Chips, Missiles and Hammers
+	// together, all positive. The gateway branches on which (app: playStore).
 	Chips int64
 	// Diamonds is what the account is credited for a diamond pack (owner,
-	// 13 Sep 2026). Zero for any other pack: every product fills exactly one
-	// wallet, and the gateway branches on which.
+	// 13 Sep 2026). Zero for any other product.
 	Diamonds int64
 	// Hammers is what the account is credited for a hammer pack (owner,
-	// 13 Sep 2026) — the currency a Force Sideshow is paid in. Zero for any
-	// other pack.
+	// 13 Sep 2026) — the currency a Force Sideshow is paid in — or, beside
+	// its chips and missiles, for a premium package. Zero for any other pack.
 	Hammers int64
+	// Missiles is what a premium package credits beside its chips and
+	// hammers (owner, 14 Sep 2026). Zero for every other product: missiles
+	// are otherwise traded for diamonds (POST /api/store/missiles), never
+	// sold on Play alone.
+	Missiles int64
 	// Rupees is the list price at launch, for logs and reconciliation only.
 	Rupees int
-	// Pack is the owner's letter for the shelf position (A…I), so a support
-	// question about "pack D" is answerable.
+	// Pack is the owner's letter for the shelf position (A…I, D1…, H20…,
+	// P1…P6), so a support question about "pack D" is answerable.
 	Pack string
 }
 
+// Premium reports whether p is a premium package: chips with missiles and
+// hammers, credited together through the chip path (db.CreditPurchase).
+func (p Product) Premium() bool { return p.Chips > 0 && (p.Missiles > 0 || p.Hammers > 0) }
+
 // Catalogue is the shelf, keyed by Play product id.
 //
-// The ids follow `chips_<pack>_<rupees>`: readable in the Play Console, in a
-// payout report and in a log line without a lookup table. Creating these nine
-// managed products in the Play Console, with these exact ids, is a manual step
-// — the server refuses any id it does not know.
+// The chip ids follow `chips_<pack>_<rupees>`: readable in the Play Console,
+// in a payout report and in a log line without a lookup table. Creating every
+// product below as a managed product in the Play Console, with these exact
+// ids, is a manual step — the server refuses any id it does not know.
 var Catalogue = map[string]Product{
 	"chips_a_99":   {ID: "chips_a_99", Pack: "A", Rupees: 99, Chips: 19_200_000},
 	"chips_b_199":  {ID: "chips_b_199", Pack: "B", Rupees: 199, Chips: 52_800_000},
@@ -76,6 +90,19 @@ var Catalogue = map[string]Product{
 	"hammers_50_699":   {ID: "hammers_50_699", Pack: "H50", Rupees: 699, Hammers: 50},
 	"hammers_100_1299": {ID: "hammers_100_1299", Pack: "H100", Rupees: 1299, Hammers: 100},
 	"hammers_250_2999": {ID: "hammers_250_2999", Pack: "H250", Rupees: 2999, Hammers: 250},
+
+	// Premium packages (owner, 14 Sep 2026), `premium_<n>_<rupees>`: the
+	// store's "Premium Package" category in the coin section. Each credits
+	// chips, missiles and hammers in ONE transaction: the chips through the
+	// `purchase` chip_ledger row whose UNIQUE action_id (gplay:<token>) is the
+	// replay guard for all three, and users.missile and users.hammer beside it
+	// only when that row went in. 1 Crore = 1,00,00,000 chips.
+	"premium_1_9999":  {ID: "premium_1_9999", Pack: "P1", Rupees: 9999, Chips: 6_500_000_000, Missiles: 1, Hammers: 10},       // 650 Cr
+	"premium_2_14999": {ID: "premium_2_14999", Pack: "P2", Rupees: 14999, Chips: 10_500_000_000, Missiles: 2, Hammers: 15},    // 1,050 Cr
+	"premium_3_19999": {ID: "premium_3_19999", Pack: "P3", Rupees: 19999, Chips: 15_000_000_000, Missiles: 4, Hammers: 21},    // 1,500 Cr
+	"premium_4_29999": {ID: "premium_4_29999", Pack: "P4", Rupees: 29999, Chips: 25_000_000_000, Missiles: 6, Hammers: 30},    // 2,500 Cr
+	"premium_5_49999": {ID: "premium_5_49999", Pack: "P5", Rupees: 49999, Chips: 47_500_000_000, Missiles: 11, Hammers: 45},   // 4,750 Cr
+	"premium_6_99999": {ID: "premium_6_99999", Pack: "P6", Rupees: 99999, Chips: 105_000_000_000, Missiles: 50, Hammers: 100}, // 10,500 Cr
 }
 
 // Lookup returns the product for a Play product id.

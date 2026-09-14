@@ -147,7 +147,7 @@ end sees bets that made sense for the cards that turn over.
 
   Only the **FREE** ones, and never a `RIVE` row (`wearableIds`): the app ships
   no Rive runtime yet, so one would show as the default face. A row's
-  `currency` (COIN or DIAMOND) only prices PREMIUM pictures, which are never
+  `currency` (COIN, DIAMOND or HAMMER) only prices PREMIUM pictures, which are never
   taken. The catalogue is rows in `profile_pictures` now, and a
   PREMIUM picture costs chips: a fleet buying its way through it would be two
   hundred accounts quietly draining the chip economy on decoration every
@@ -192,7 +192,7 @@ does not:
   and the fleet quietly shrinks over weeks.
 - **`--on-broke rotate`** (default) gives that bot a fresh guest identity,
   which the server greets with `WELCOME_CHIPS`. The fleet stays at full
-  strength and **this creates chips** — every rotation adds 200,000 to the
+  strength and **this creates chips** — every rotation adds `WELCOME_CHIPS` (3 lakh in production) to the
   economy out of nothing.
 
 The running total is printed on every rotation and in the five-minute

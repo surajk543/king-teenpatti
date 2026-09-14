@@ -29,8 +29,8 @@ func (g *hammerGateway) Buy(ctx context.Context, userID, productID, purchaseToke
 var _ PurchaseGateway = (*hammerGateway)(nil)
 
 // POST /api/purchases/google answers a hammer pack with the hammers it
-// credited beside chips and diamonds — all three keys, one of them non-zero —
-// and logs it as hammers, not chips.
+// credited beside chips, diamonds and missiles — all four keys, one of them
+// non-zero — and logs it as hammers, not chips.
 func TestAHammerPackAnswersWithItsHammers(t *testing.T) {
 	h := newHarness(t)
 	gateway := &hammerGateway{store: h.store}
@@ -61,15 +61,15 @@ func TestAHammerPackAnswersWithItsHammers(t *testing.T) {
 	if res.status != 200 {
 		t.Fatalf("buy: %d %s", res.status, res.raw)
 	}
-	for _, key := range []string{"credited", "chips", "diamonds", "hammers", "balance", "user"} {
+	for _, key := range []string{"credited", "chips", "diamonds", "hammers", "missiles", "balance", "user"} {
 		if _, ok := res.body[key]; !ok {
 			t.Fatalf("the answer lacks %q: %s", key, res.raw)
 		}
 	}
-	if len(res.body) != 6 {
-		t.Fatalf("the answer has %d keys, want 6: %s", len(res.body), res.raw)
+	if len(res.body) != 7 {
+		t.Fatalf("the answer has %d keys, want 7: %s", len(res.body), res.raw)
 	}
-	if res.body["hammers"] != float64(50) || res.body["chips"] != float64(0) || res.body["diamonds"] != float64(0) || res.body["credited"] != true {
+	if res.body["hammers"] != float64(50) || res.body["chips"] != float64(0) || res.body["diamonds"] != float64(0) || res.body["missiles"] != float64(0) || res.body["credited"] != true {
 		t.Fatalf("a hammer pack answers %s", res.raw)
 	}
 	if u := res.body["user"].(map[string]any); u["hammer"] != float64(50) {

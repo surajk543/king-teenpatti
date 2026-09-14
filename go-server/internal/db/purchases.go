@@ -23,9 +23,12 @@ type PurchaseResult struct {
 	// Diamonds is what a diamond pack is worth, whether or not this call
 	// banked it. Zero for any other pack.
 	Diamonds int64
-	// Hammers is what a hammer pack is worth, whether or not this call banked
-	// it. Zero for any other pack.
+	// Hammers is what a hammer pack or a premium package is worth, whether or
+	// not this call banked it. Zero for any other pack.
 	Hammers int64
+	// Missiles is what a premium package is worth beside its chips and
+	// hammers, whether or not this call banked it. Zero for any other product.
+	Missiles int64
 	// Balance is the wallet after the credit, or the current wallet when the
 	// purchase was already banked.
 	Balance int64
@@ -44,13 +47,25 @@ type PurchaseResult struct {
 // reused here because a paid purchase is exactly the case where crediting
 // twice must be impossible.
 //
-// The amount comes from the server-side catalogue via the product id, never
+// It banks a chip pack and a premium package alike (owner, 14 Sep 2026). A
+// premium package's missiles and hammers go into users.missile and
+// users.hammer in the SAME transaction, after the ledger row: the row's UNIQUE
+// action id is the replay guard for all three, so a replayed token rolls the
+// whole transaction back and moves none of them. Missiles and hammers never
+// enter chip_ledger, which backs the chips invariant only, and need no guard
+// table of their own — the ledger row already makes the token single-use.
+//
+// The figures come from the server-side catalogue via the product id, never
 // from the caller. The transaction:
 //
 //	SELECT chips FROM users WHERE id = $1 FOR UPDATE   lock the wallet
 //	INSERT chip_ledger (…, action_id 'gplay:<token>')  UNIQUE → replay rolls back
-//	UPDATE users SET chips = chips + $n                credit
+//	UPDATE users SET chips = chips + $n,               credit (missiles and
+//	       missile = missile + $m, hammer = hammer + $h  hammers +0 for a chip pack)
 func CreditPurchase(ctx context.Context, d *DB, users *Users, userID string, p purchase.Product, purchaseToken string) (PurchaseResult, error) {
+	if p.Chips <= 0 || p.Diamonds > 0 {
+		return PurchaseResult{}, fmt.Errorf("db: product %s is not a chip pack or a premium package", p.ID)
+	}
 	if purchaseToken == "" {
 		return PurchaseResult{}, errors.New("db: empty purchase token")
 	}
@@ -59,6 +74,8 @@ func CreditPurchase(ctx context.Context, d *DB, users *Users, userID string, p p
 
 	var out PurchaseResult
 	out.Chips = p.Chips
+	out.Missiles = p.Missiles
+	out.Hammers = p.Hammers
 
 	err := d.WithTx(ctx, func(tx pgx.Tx) error {
 		var chips int64
@@ -75,9 +92,11 @@ func CreditPurchase(ctx context.Context, d *DB, users *Users, userID string, p p
 			p.Chips, balance, game.LedgerReasonPurchase, now); err != nil {
 			return err
 		}
+		// Reached only when the ledger row went in: a replay has already
+		// failed on its UNIQUE action_id, and none of the three moves.
 		if _, err := tx.Exec(ctx,
-			`UPDATE users SET chips = $2, updated_at = $3 WHERE id = $1`,
-			userID, balance, now); err != nil {
+			`UPDATE users SET chips = $2, missile = missile + $4, hammer = hammer + $5, updated_at = $3 WHERE id = $1`,
+			userID, balance, now, p.Missiles, p.Hammers); err != nil {
 			return err
 		}
 		out.Credited = true
@@ -93,7 +112,7 @@ func CreditPurchase(ctx context.Context, d *DB, users *Users, userID string, p p
 		if ferr != nil {
 			return PurchaseResult{}, ferr
 		}
-		return PurchaseResult{Credited: false, Chips: p.Chips, Balance: user.Chips, User: user}, nil
+		return PurchaseResult{Credited: false, Chips: p.Chips, Missiles: p.Missiles, Hammers: p.Hammers, Balance: user.Chips, User: user}, nil
 	}
 	if err != nil {
 		return PurchaseResult{}, err
@@ -145,9 +164,16 @@ func CreditDiamondPurchase(ctx context.Context, d *DB, users *Users, userID stri
 // Hammers are not chips: no chip_ledger row, no seat to top up (a table never
 // holds a hammer count), and so no seat lock either — a pack bought at a table
 // lands in the wallet the next Force Sideshow is charged to.
+//
+// A premium package carries hammers too, and is refused here: it is banked by
+// CreditPurchase, with its chips and missiles, or its hammers would be credited
+// alone under a guard its chips know nothing of.
 func CreditHammerPurchase(ctx context.Context, d *DB, users *Users, userID string, p purchase.Product, purchaseToken string) (PurchaseResult, error) {
 	if p.Hammers <= 0 {
 		return PurchaseResult{}, fmt.Errorf("db: product %s grants no hammers", p.ID)
+	}
+	if p.Chips > 0 || p.Missiles > 0 {
+		return PurchaseResult{}, fmt.Errorf("db: product %s is a premium package, banked by CreditPurchase", p.ID)
 	}
 	out := PurchaseResult{Hammers: p.Hammers}
 	if err := creditSoftPack(ctx, d, users, userID, p.ID, p.Hammers, purchaseToken, hammerPack, &out); err != nil {

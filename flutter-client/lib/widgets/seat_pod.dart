@@ -232,17 +232,16 @@ class SeatPod extends StatelessWidget {
 
     final gap = width * _kPad;
     final status = _status(t, s);
+    // Nothing in this column may change height as a hand is shown down. A seat
+    // is placed by its column's MIDDLE (_Felt `at`), so a column that grows or
+    // shrinks at the reveal moves the whole seat: with the hand's name added as
+    // a line above the cards and a loser's bet badge dropping out below them,
+    // every beaten player's cards jumped down the felt the moment a missile's
+    // result came in (owner, 14 Sep 2026). The name rides on the cards instead
+    // (_cards), and the badge stays while the finished hand is on show.
     final below = <Widget>[
       if (s.cardCount > 0 && !isMe) ...[
         SizedBox(height: gap),
-        // Above the cards, not under them. At a showdown the eye lands on the
-        // hand first and reads the label second, and a label underneath sat
-        // between one seat's cards and the next seat's pod — which is the one
-        // place on a crowded table it could be mistaken for either.
-        // Not on the winner: their ribbon already carries the ranking, and
-        // the same words twice, six lines apart, read as a glitch.
-        if (revealedHand != null && s.status != SeatState.won)
-          _handName(context, revealedHand!),
         _cards(context, t, s),
       ],
       // The viewer's badge and total are not in their column: they are drawn
@@ -250,7 +249,7 @@ class SeatPod extends StatelessWidget {
       // floor beside a fanned hand, so a stack under it grows towards the
       // screen edge, while the space above the cards is empty and is where
       // their eye already is.
-      if (_inHand(s) && !isMe) ...[
+      if (_betShown(s) && !isMe) ...[
         SizedBox(height: gap),
         SeatBet(seat: s, width: width, withCategory: false),
       ] else if (status != null) ...[
@@ -659,7 +658,27 @@ class SeatPod extends StatelessWidget {
     // hand to describe: face-up cards at a showdown or a sideshow peek are the
     // answer to the same question, and a capsule over them would be covering
     // the very thing the player leaned in to read.
-    if (show != null || !_inHand(s)) return fan;
+    //
+    // What the revealed hand is called rides on it too, across the foot of
+    // the fan where it covers the least of each card — not as a line of its
+    // own above the cards, which made the column taller at the reveal and
+    // moved the seat (see `below` in build). Not on the winner: their ribbon
+    // already carries the ranking, and the same words twice read as a glitch.
+    if (show != null || !_inHand(s)) {
+      final name = revealedHand;
+      if (name == null || s.status == SeatState.won) return fan;
+      return Stack(
+        alignment: Alignment.bottomCenter,
+        clipBehavior: Clip.none,
+        children: [
+          fan,
+          Padding(
+            padding: EdgeInsets.only(bottom: width * 0.03),
+            child: _handName(context, name),
+          ),
+        ],
+      );
+    }
 
     return Stack(
       alignment: Alignment.center,
@@ -712,16 +731,26 @@ class SeatPod extends StatelessWidget {
     );
   }
 
-  /// The hand's name, above the cards, at a showdown — or on the hand that
-  /// won a sideshow (the loser's cards turn over with no name).
+  /// The hand's name, on the foot of the revealed cards, at a showdown — or
+  /// on the hand that won a sideshow (the loser's cards turn over with no
+  /// name).
   ///
-  /// Champagne on charcoal, deep gold on parchment: the table is pale in the
-  /// light scheme, and [AppTheme.goldBright] on it is very nearly invisible.
+  /// In the BLIND / SEEN capsule's own plaque, because it now lies over white
+  /// card faces rather than the cloth. Champagne on the dark plaque, deep gold
+  /// on the pale one.
   Widget _handName(BuildContext context, String name) {
     final theme = Theme.of(context);
     final dark = theme.brightness == Brightness.dark;
-    return Padding(
-      padding: EdgeInsets.only(top: width * 0.04),
+    return Container(
+      padding: EdgeInsets.symmetric(
+        horizontal: width * 0.055,
+        vertical: width * 0.018,
+      ),
+      decoration: BoxDecoration(
+        color: AppTheme.plaque(theme.brightness).withValues(alpha: 0.92),
+        borderRadius: BorderRadius.circular(width * 0.08),
+        border: Border.all(color: AppTheme.hairlineColour(theme.brightness)),
+      ),
       child: FittedBox(
         fit: BoxFit.scaleDown,
         child: Text(
@@ -971,6 +1000,16 @@ class SeatPod extends StatelessWidget {
 
   bool _inHand(Seat s) =>
       handLive && (s.status == SeatState.active || s.status == SeatState.won);
+
+  /// Whether the bet badge hangs under this seat: while it is in the hand,
+  /// and — unlike [_inHand] — still after it has lost a showdown, for as long
+  /// as the finished hand is on show. Taking a beaten player's badge away at
+  /// the reveal shortened their column and moved their seat.
+  bool _betShown(Seat s) =>
+      handLive &&
+      (s.status == SeatState.active ||
+          s.status == SeatState.won ||
+          s.status == SeatState.lost);
 
   String? _status(Strings t, Seat s) {
     if (!s.connected) return t.offline;

@@ -252,7 +252,7 @@ with nothing, so the shelf gains **a second Butterfly Flapping**, locked for eve
 diamonds. While v1.3.0 runs nobody can force a sideshow or buy a hammer pack: neither exists in that
 build. Only v1.3.0 was checked. Any build from before the missiles (`go-server/v1.0.0` and older)
 likewise never reads `users.missile`, `missile_purchases` or `missile_spends`; while it runs nobody can fire a missile or
-trade for one, and new accounts still get 2 diamonds and 1 missile from the column defaults.
+trade for one, and new accounts still get 9 diamonds and 1 missile from the column defaults.
 
 Coming forward again does **not** remove the second row — the consolidated seed carries no clean-up —
 so retire it with the second query below, either during the rollback or after it (`UPDATE 1` retires
@@ -267,6 +267,23 @@ psql "$(sed -n 's/^DATABASE_URL=//p' go-server/.env)" -Atc "SET statement_timeou
   -c "SELECT id, asset_url, is_active FROM profile_pictures WHERE name = 'Butterfly Flapping' ORDER BY id"   # one row at the Drive URL; two after a v1.3.0 boot
 psql "$(sed -n 's/^DATABASE_URL=//p' go-server/.env)" -Atc "SET statement_timeout = '10s'" \
   -c "UPDATE profile_pictures SET is_active = FALSE WHERE asset_url = '/profiles/butterfly-flapping.json'"   # UPDATE 1 retires the rollback's copy; UPDATE 0 = nothing to retire
+```
+
+**Hammer-priced pictures under an older build.** Every release before the pictures' `HAMMER`
+currency (14 Sep 2026) knows only `COIN` and `DIAMOND`, and its purchase code treats any row that is
+not `DIAMOND` as chips. Booted on a database this build seeded, it sells the 15 hammer-priced animated pictures
+in the lobby **for chips at their hammer figures** — 10 to 100 chips — through ordinary `picture_purchase`
+ledger rows, and refuses them at a table as chip-priced. No chips are created and the books still
+reconcile, but the animated shelf is all but free while the rollback lasts. Take those rows off sale
+before the rollback's restart and put them back once this build runs again (`UPDATE 20` each time,
+unless some were retired on purpose — then re-activate by id). Retiring leaves every bought rental and
+every worn picture where it is:
+
+```bash
+psql "$(sed -n 's/^DATABASE_URL=//p' go-server/.env)" -Atc "SET statement_timeout = '10s'" \
+  -c "UPDATE profile_pictures SET is_active = FALSE WHERE currency = 'HAMMER'"   # before rolling back
+psql "$(sed -n 's/^DATABASE_URL=//p' go-server/.env)" -Atc "SET statement_timeout = '10s'" \
+  -c "UPDATE profile_pictures SET is_active = TRUE WHERE currency = 'HAMMER'"    # after coming forward again
 ```
 
 **Under §7, older tags cannot start.** Once `postgres` owns `users` (§7), every tag up to and
@@ -473,23 +490,31 @@ done. This is also why the trigger function is created only when missing rather 
 guarded statement whose work production has not done yet (it builds its schema as the owner first),
 which is exactly why that one-off run as `postgres` comes before the deploy.
 
-**Releases that need that one-off run: none.** The migrations were consolidated on 14 Sep 2026 into
-one DDL script and one DML script (§8); the missiles, added the same day, were folded into the
-baseline before any production database ran a script that alters `users`, so the baseline declares
-`users.hammer` and `users.missile` in `CREATE TABLE users` itself. Any later ALTER or index on
-`users` goes behind a catalogue lookup in its script, and is run once as `postgres` here first.
+**Releases that need that one-off run: none today.** The migrations are one DDL script and one DML
+script (§8), and everything they do to `users` — `users.hammer`, `users.missile` and the new-account
+`diamond` default of 9 — is declared in the baseline's `CREATE TABLE users`, which a database started
+over under §8 builds as its owner on the first boot. (For a day a `V1.0.2__new_account_diamonds.sql`
+moved the default with a guarded ALTER that needed this run; it is folded into the baseline now, so
+there is nothing to run for it.) The next script that ALTERs or indexes `users` goes behind a
+catalogue lookup, and is run once as `postgres` here before its release is deployed.
 
 ## 8. Starting production on an empty database
 
-Since 14 Sep 2026 `go-server/internal/db/migration/` holds two scripts:
-`V1.0.0__baseline.sql` (every table, column, index, function and trigger, as consolidated — the
-missile column and tables included) and `V1.0.1__seed_profile_pictures.sql` (the 35 catalogue rows).
-They build a database from nothing on the first boot. Nothing in them brings an older database
-forward: a database built by `go-server/v1.0.0` or older lacks `users.missile` (and one from
-`go-server/v1.3.0` or older, `users.hammer`), so the first release carrying these scripts must start
-on an **empty** `public` schema. That deletes every
+Since 14 Sep 2026 `go-server/internal/db/migration/` holds two scripts: `V1.0.0__baseline.sql`
+(every table, column, check, index, function and trigger, as consolidated — the missile column and
+tables, the new-account `diamond` default of 9 and the pictures' `COIN`/`DIAMOND`/`HAMMER` currency
+check included) and `V1.0.1__seed_profile_pictures.sql` (the 35 catalogue rows: the 15 animals priced
+in chips, 15 animated pictures in hammers and 5 in diamonds). They build a database from nothing on the first boot.
+Nothing in them brings an older database forward, and no older database boots this build: one built
+by `go-server/v1.0.0` or older lacks `users.missile` (and one from `go-server/v1.3.0` or older,
+`users.hammer`), and every database built before the hammer pictures — **production's included** —
+keeps `profile_pictures_currency_check` at `COIN`/`DIAMOND`, so the seed's first `HAMMER` row fails the
+boot with `violates check constraint "profile_pictures_currency_check"` (PostgreSQL checks a row
+before `ON CONFLICT DO NOTHING` can skip it, so rows already present do not save it). The release
+carrying these scripts must therefore start on an **empty** `public` schema. That deletes every
 account, wallet, ledger row, purchase record and owned picture — players come back as new accounts
-with the welcome chips, 2 diamonds, 20 hammers and 1 missile. Take the backup.
+with the welcome chips (3 lakh — production's `.env` sets `WELCOME_CHIPS=300000`), 9 diamonds, 20
+hammers and 1 missile. Take the backup.
 
 This is the order that worked on 13 Sep 2026 (`go-server/v1.2.0`), as `deploy`, no sudo. The facts
 that shape it: `gameplay_app` owns every table and function but not the `public` schema, so "empty

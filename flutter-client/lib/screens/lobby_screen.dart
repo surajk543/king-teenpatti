@@ -453,14 +453,19 @@ class _RewardCelebrationState extends State<_RewardCelebration>
     // h=360 -> 19.8 / 30.6 / 57.6 | 411 -> 22.6 / 34.9 / 65.8 | 800 -> 28 / 44 / 68.
     final padV = (size.height * 0.055).clamp(16.0, 28.0);
     final padH = (size.height * 0.085).clamp(24.0, 44.0);
-    final chip = (size.height * 0.16).clamp(40.0, 68.0);
+    // A Premium Package has a line more to show — the missiles and hammers
+    // under its chips — and on a 360dp phone at the 1.25 text ceiling that
+    // line is paid for by a smaller hero chip and a tighter gap under it.
+    final premium = won.kind == 'premium';
+    final chip = (size.height * 0.16).clamp(40.0, 68.0) * (premium ? 0.75 : 1);
 
     final blurb = switch (won.kind) {
       'bonus' => t.rewardComeBack,
       'purchase' => t.rewardPurchased,
+      'premium' => t.rewardPremiumPurchased,
       'diamonds' => t.rewardDiamondsPurchased,
       'hammers' => t.rewardHammersPurchased,
-      'missiles' => t.rewardMissilesTraded,
+      'missiles' => t.rewardMissilesTraded(won.amount),
       _ => t.rewardMilestoneAgain,
     };
     // The ink of the soft wallet that filled, or null for chips — which keep
@@ -526,7 +531,7 @@ class _RewardCelebrationState extends State<_RewardCelebration>
                                     turn: const Duration(milliseconds: 900),
                                     rest: const Duration(milliseconds: 260),
                                   ),
-                            const SizedBox(height: Space.lg),
+                            SizedBox(height: premium ? Space.md : Space.lg),
                             Text(
                               t.rewardCollected,
                               textAlign: TextAlign.center,
@@ -540,6 +545,45 @@ class _RewardCelebrationState extends State<_RewardCelebration>
                                 colour: softInk ?? _goldInk(theme.brightness),
                               ),
                             ),
+                            // A Premium Package's chips are the headline; the
+                            // missiles and hammers that came with them follow,
+                            // each in its wallet's mark and ink.
+                            if (premium) ...[
+                              const SizedBox(height: Space.xs),
+                              Wrap(
+                                alignment: WrapAlignment.center,
+                                spacing: Space.lg,
+                                runSpacing: Space.xs,
+                                children: [
+                                  for (final (icon, ink, label) in [
+                                    (
+                                      missileIcon,
+                                      missileInkOn(theme.brightness),
+                                      t.plusMissiles(won.missiles),
+                                    ),
+                                    (
+                                      Icons.hardware,
+                                      hammerInkOn(theme.brightness),
+                                      t.plusHammers(won.hammers),
+                                    ),
+                                  ])
+                                    Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(icon, size: 20, color: ink),
+                                        const SizedBox(width: Space.xs),
+                                        Text(
+                                          label,
+                                          style: AppTheme.money(
+                                            text.titleMedium!,
+                                            colour: ink,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                ],
+                              ),
+                            ],
                             const SizedBox(height: Space.md),
                             Text(
                               blurb,
@@ -681,7 +725,7 @@ class _TopBar extends StatelessWidget {
                                     (f) => f.sound,
                                   ),
                               customBorder: const CircleBorder(),
-                              onTap: () => _openPicturePicker(context),
+                              onTap: () => openPicturePicker(context),
                               child: Center(
                                 child: _AvatarWithPip(
                                   url: state.avatarUrl,
@@ -2221,7 +2265,10 @@ class _PrivateCardState extends State<_PrivateCard> {
 
 /// Requirement 21: the picture is chosen from the top bar. Since 13 Sep 2026 it
 /// may be changed at a table too, where it goes straight onto the seat.
-Future<void> _openPicturePicker(BuildContext context) async {
+///
+/// Public so its header can be laid out under test on the screens the game is
+/// checked on.
+Future<void> openPicturePicker(BuildContext context) async {
   // Owned by the caller, not the builder: the sheet's body is inside a
   // Consumer and rebuilds on every state change, and a controller made in
   // there would be a new one each time — the Scrollbar would lose its
@@ -2308,7 +2355,13 @@ Future<void> _openPicturePicker(BuildContext context) async {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  state.t.yourPicture,
+                                  // Whose picture this is, by name (owner,
+                                  // 14 Sep 2026; it read "Your picture").
+                                  // The generic line stays for a sheet
+                                  // opened with no name to show.
+                                  user == null || user.displayName.isEmpty
+                                      ? state.t.yourPicture
+                                      : user.displayName,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: AppTheme.label(text.titleSmall!),
@@ -2327,11 +2380,20 @@ Future<void> _openPicturePicker(BuildContext context) async {
                               ],
                             ),
                           ),
-                          // What diamond-priced pictures are paid from, shown in
-                          // the one place diamonds are spent. Styled like the
-                          // price tags below, so the balance and the prices read
-                          // as one currency at a glance.
-                          DiamondBalance(count: user?.diamond ?? 0),
+                          // What premium pictures are paid from besides chips —
+                          // diamonds and, since the animated ones were re-priced
+                          // (owner, 14 Sep 2026), hammers. Styled like the price
+                          // tags below, so the balances and the prices read as
+                          // one set at a glance.
+                          // Day or night, switched from the top of the menu
+                          // (owner, 14 Sep 2026): the pictures are chosen by
+                          // how they look, and they look different on each.
+                          const DayNightSwitch(),
+                          const SizedBox(width: Space.sm),
+                          PictureWalletBalances(
+                            diamonds: user?.diamond ?? 0,
+                            hammers: user?.hammer ?? 0,
+                          ),
                           const SizedBox(width: Space.md),
                           // "Use my own photo", as an icon in the header rather
                           // than a labelled button under the grid: the sheet is
@@ -2372,16 +2434,17 @@ Future<void> _openPicturePicker(BuildContext context) async {
                         ],
                       ),
                       const SizedBox(height: Space.md),
-                      // Which shelf: free, premium stills, or premium pictures
-                      // that move. Pinned above the grid rather than scrolling
-                      // with it, and it stands in for the headings the tiers
-                      // used to carry — one shelf is on show at a time.
+                      // Which shelf: everything, or the premium pictures of one
+                      // wallet — chips, hammers or diamonds. Pinned above the
+                      // grid rather than scrolling with it, and it stands in for
+                      // the headings the tiers used to carry — one shelf is on
+                      // show at a time.
                       ValueListenableBuilder<PictureFilter>(
                         valueListenable: shelf,
                         builder: (context, current, _) => PictureFilterMenu(
                           value: current,
                           counts: {
-                            for (final f in PictureFilter.values)
+                            for (final f in PictureFilter.menu)
                               f: state.pictures.where(f.holds).length,
                           },
                           onChanged: (f) {
@@ -3050,7 +3113,7 @@ class _SettingsDrawerState extends State<_SettingsDrawer> {
                   // leaving the drawer open behind it stacks two overlays that
                   // dismiss in an order nobody expects.
                   Navigator.pop(context);
-                  _openPicturePicker(context);
+                  openPicturePicker(context);
                 },
                 child: Padding(
                   padding: const EdgeInsets.symmetric(vertical: Space.sm),

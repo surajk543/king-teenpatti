@@ -16,12 +16,15 @@ import (
 const (
 	PictureFree    = "FREE"
 	PicturePremium = "PREMIUM"
-	// PictureCurrencyCoin / PictureCurrencyDiamond name the wallet a PREMIUM
-	// row's cost is paid from. COIN is chips and moves through chip_ledger;
-	// DIAMOND debits users.diamond directly — the chips invariant's ledger is
-	// not diamonds' business.
+	// PictureCurrencyCoin / PictureCurrencyDiamond / PictureCurrencyHammer
+	// name the wallet a PREMIUM row's cost is paid from. COIN is chips and
+	// moves through chip_ledger; DIAMOND debits users.diamond and HAMMER
+	// (owner, 14 Sep 2026) users.hammer directly — the chips invariant's
+	// ledger is not their business, and a hammer picture writes no
+	// hammer_spends row either: those are Force Sideshows.
 	PictureCurrencyCoin    = "COIN"
 	PictureCurrencyDiamond = "DIAMOND"
+	PictureCurrencyHammer  = "HAMMER"
 )
 
 // Picture is one catalogue row as a client sees it (GET /api/profiles).
@@ -42,12 +45,12 @@ type Picture struct {
 	// without a client release — hosted URLs rarely carry an extension to
 	// guess from.
 	AssetFormat string `json:"assetFormat"`
-	// Currency names the wallet Cost is paid from: "COIN" (chips) or
-	// "DIAMOND". Always "COIN" for a free row — nothing is charged.
+	// Currency names the wallet Cost is paid from: "COIN" (chips), "DIAMOND"
+	// or "HAMMER". Always "COIN" for a free row — nothing is charged.
 	Currency string `json:"currency"`
 	// Type is PictureFree or PicturePremium.
 	Type string `json:"type"`
-	// Cost in the row's Currency — chips or diamonds. Always 0 for a free
+	// Cost in the row's Currency — chips, diamonds or hammers. Always 0 for a free
 	// picture (the schema's free_picture_cost_check makes that an invariant,
 	// not a convention).
 	Cost int64 `json:"cost"`
@@ -66,6 +69,14 @@ type Picture struct {
 
 // Free reports whether the picture costs nothing and needs no ownership row.
 func (p Picture) Free() bool { return p.Type == PictureFree }
+
+// PaidInChips reports whether buying the picture moves chips. Only a DIAMOND
+// or HAMMER row is paid from a wallet no seat holds, which is what lets a
+// seated player buy one (BuyAtTable); anything else is treated as chips, so a
+// currency this build does not know is refused at a table rather than sold.
+func (p Picture) PaidInChips() bool {
+	return p.Currency != PictureCurrencyDiamond && p.Currency != PictureCurrencyHammer
+}
 
 // Catalogue failures the HTTP layer maps to its own codes and messages. They
 // are values rather than strings so a caller compares with errors.Is and never
@@ -86,6 +97,11 @@ var (
 	// Same wire code as ErrPictureChips (clients match by code); the
 	// message names the currency that was actually short.
 	ErrPictureDiamonds = errors.New("db: not enough diamonds for this picture")
+	// ErrPictureHammers is the hammer wallet that cannot cover the price — the
+	// same wire code again. Buy returns it as a *PictureHammerShortage, which
+	// errors.Is matches to this and which carries the price, so the refusal
+	// can say how many hammers the picture takes.
+	ErrPictureHammers = errors.New("db: not enough hammers for this picture")
 	// ErrPictureLocked is a wear request for a premium picture the player has
 	// not bought.
 	ErrPictureLocked = errors.New("db: profile picture is not owned")
@@ -93,6 +109,21 @@ var (
 	// player's chips move only at the hand checkpoints.
 	ErrPictureAtTable = errors.New("db: a chip-priced picture cannot be bought at a table")
 )
+
+// PictureHammerShortage is Buy refusing a HAMMER picture the hammer wallet
+// cannot cover. errors.Is(err, ErrPictureHammers) is true of it; Cost is the
+// picture's price in hammers, read under the same wallet lock as the balance
+// it was compared with.
+type PictureHammerShortage struct {
+	Cost int64
+}
+
+func (e *PictureHammerShortage) Error() string {
+	return fmt.Sprintf("%v: it costs %d", ErrPictureHammers, e.Cost)
+}
+
+// Unwrap makes errors.Is(err, ErrPictureHammers) true.
+func (e *PictureHammerShortage) Unwrap() error { return ErrPictureHammers }
 
 // Pictures is the profile-picture catalogue and who owns what.
 type Pictures struct {
@@ -205,7 +236,8 @@ type PicturePurchase struct {
 	Charged bool
 	// Spent is what left the wallet, in the picture's Currency.
 	Spent int64
-	// Balance is the chip balance afterwards; a diamond buy leaves it as it was.
+	// Balance is the chip balance afterwards; a diamond or hammer buy leaves it
+	// as it was.
 	Balance int64
 	User    *User
 }
@@ -217,9 +249,10 @@ type PicturePurchase struct {
 // chip movement in this game is a chip_ledger row — `SUM(chip_ledger.delta) per
 // user == users.chips` is the invariant the whole money model is checked against
 // (CLAUDE.md §5.1), and a bare `UPDATE users SET chips` would break it silently.
-// A DIAMOND picture debits users.diamond instead and writes no ledger row: the
-// ownership row is its receipt. The COIN transaction is the same shape as every
-// other one here:
+// A DIAMOND picture debits users.diamond instead, and a HAMMER picture
+// users.hammer, and neither writes a ledger row — nor, for hammers, a
+// hammer_spends row, which records a Force Sideshow: the ownership row is the
+// receipt. The COIN transaction is the same shape as every other one here:
 //
 //	SELECT chips FROM users WHERE id = $1 FOR UPDATE    lock the wallet
 //	(read the catalogue row and the ownership row under that lock)
@@ -242,8 +275,10 @@ func (p *Pictures) Buy(ctx context.Context, userID string, pictureID int64) (*Pi
 }
 
 // BuyAtTable is Buy for a player who is seated (owner, 13 Sep 2026). A DIAMOND
-// picture is sold exactly as in the lobby — nothing at a table reads or writes
-// diamonds — while a COIN picture is refused with ErrPictureAtTable. The rule
+// picture, and since 14 Sep 2026 a HAMMER one, is sold exactly as in the lobby
+// — no seat holds either count: a Force Sideshow takes its hammer straight off
+// users.hammer as a delta, as this does — while a COIN picture is refused with
+// ErrPictureAtTable. The rule
 // is decided inside the transaction, from the row about to be charged, so a
 // re-price between some earlier lookup and the charge cannot slip a chip debit
 // past it.
@@ -256,9 +291,9 @@ func (p *Pictures) buy(ctx context.Context, userID string, pictureID int64, atTa
 	out := &PicturePurchase{}
 
 	err := p.db.WithTx(ctx, func(tx pgx.Tx) error {
-		var chips, diamond int64
+		var chips, diamond, hammer int64
 		if err := tx.QueryRow(ctx,
-			`SELECT chips, diamond FROM users WHERE id = $1 AND deleted_at = 0 FOR UPDATE`, userID).Scan(&chips, &diamond); err != nil {
+			`SELECT chips, diamond, hammer FROM users WHERE id = $1 AND deleted_at = 0 FOR UPDATE`, userID).Scan(&chips, &diamond, &hammer); err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				return game.Errorf(game.CodeUnknownUser, "unknown user %s", userID)
 			}
@@ -294,21 +329,28 @@ func (p *Pictures) buy(ctx context.Context, userID string, pictureID int64, atTa
 			// replayed receipt: this is what makes a double-tap cost once.
 			out.Charged, out.Spent, out.Balance = false, 0, chips
 			return nil
-		case atTable && pic.Currency != PictureCurrencyDiamond:
+		case atTable && pic.PaidInChips():
 			return ErrPictureAtTable
 		}
 		// Which wallet pays is the row's currency, not a global: COIN spends
-		// chips through chip_ledger below; DIAMOND debits users.diamond
-		// directly and writes no ledger row — the chips invariant's ledger is
-		// about chips alone. The row lock above serialises double taps either
-		// way, and the owned check still makes the second an idempotent
-		// success.
-		if pic.Currency == PictureCurrencyDiamond {
+		// chips through chip_ledger below; DIAMOND and HAMMER debit
+		// users.diamond or users.hammer directly and write no ledger row — the
+		// chips invariant's ledger is about chips alone. The row lock above
+		// serialises double taps either way, and the owned check still makes
+		// the second an idempotent success.
+		switch pic.Currency {
+		case PictureCurrencyDiamond:
 			if diamond < pic.Cost {
 				return ErrPictureDiamonds
 			}
-		} else if chips < pic.Cost {
-			return ErrPictureChips
+		case PictureCurrencyHammer:
+			if hammer < pic.Cost {
+				return &PictureHammerShortage{Cost: pic.Cost}
+			}
+		default:
+			if chips < pic.Cost {
+				return ErrPictureChips
+			}
 		}
 
 		// How many times this player has bought this picture BEFORE now, read
@@ -326,7 +368,8 @@ func (p *Pictures) buy(ctx context.Context, userID string, pictureID int64, atTa
 		}
 
 		balance := chips
-		if pic.Currency == PictureCurrencyDiamond {
+		switch pic.Currency {
+		case PictureCurrencyDiamond:
 			// The ownership upsert below is the receipt; nothing else is
 			// written for a diamond buy.
 			if _, err := tx.Exec(ctx,
@@ -334,7 +377,17 @@ func (p *Pictures) buy(ctx context.Context, userID string, pictureID int64, atTa
 				userID, pic.Cost, stamp); err != nil {
 				return err
 			}
-		} else {
+		case PictureCurrencyHammer:
+			// Likewise for hammers: a delta under the wallet lock, so a Force
+			// Sideshow's hammer taken at the same moment is never written over,
+			// and no hammer_spends row — that table is one row per Force
+			// Sideshow, keyed on the hand, and a picture is neither.
+			if _, err := tx.Exec(ctx,
+				`UPDATE users SET hammer = hammer - $2, updated_at = $3 WHERE id = $1`,
+				userID, pic.Cost, stamp); err != nil {
+				return err
+			}
+		default:
 			balance = chips - pic.Cost
 			// The purchase number, not just the pair, so a lapsed rental can
 			// be bought again: the first purchase's action id is already spent

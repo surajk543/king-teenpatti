@@ -24,7 +24,7 @@ let cached = null;
  * can draw. The catalogue declares each row's `assetFormat` (IMAGE, SVG,
  * LOTTIE or RIVE); the app ships no Rive runtime yet, so a RIVE picture shows
  * as the default face — a bot wearing one would be the faceless bot this
- * module exists to prevent. `currency` (COIN or DIAMOND) never matters here:
+ * module exists to prevent. `currency` (COIN, DIAMOND or HAMMER) never matters here:
  * it only prices PREMIUM rows, and those are never taken.
  */
 export function wearableIds(profiles) {
