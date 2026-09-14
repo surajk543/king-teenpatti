@@ -250,8 +250,8 @@ and the columns and tables that build does not know (`users.hammer`, `hammer_pur
 Flapping at `/profiles/butterfly-flapping.json`, the file its checkout serves, and that URL conflicts
 with nothing, so the shelf gains **a second Butterfly Flapping**, locked for everyone and on sale at 4
 diamonds. While v1.3.0 runs nobody can force a sideshow or buy a hammer pack: neither exists in that
-build. Only v1.3.0 was checked. Any build from before `V1.0.2__missiles.sql` likewise never reads
-`users.missile`, `missile_purchases` or `missile_spends`; while it runs nobody can fire a missile or
+build. Only v1.3.0 was checked. Any build from before the missiles (`go-server/v1.0.0` and older)
+likewise never reads `users.missile`, `missile_purchases` or `missile_spends`; while it runs nobody can fire a missile or
 trade for one, and new accounts still get 2 diamonds and 1 missile from the column defaults.
 
 Coming forward again does **not** remove the second row — the consolidated seed carries no clean-up —
@@ -473,42 +473,21 @@ done. This is also why the trigger function is created only when missing rather 
 guarded statement whose work production has not done yet (it builds its schema as the owner first),
 which is exactly why that one-off run as `postgres` comes before the deploy.
 
-**Releases that need that one-off run: the first one carrying `V1.0.2__missiles.sql`.** The
-migrations were consolidated on 14 Sep 2026 into one DDL script and one DML script (§8), and the
-baseline declares `users.hammer` in `CREATE TABLE users` itself. `V1.0.2` (missiles, the same day) is
-the first script since to change `users`: it adds `users.missile` and moves the `missile` and
-`diamond` defaults, each ALTER behind a catalogue lookup. Where `users` still belongs to
-`gameplay_app` (the owner query in §5 answers `gameplay_app`) nothing needs doing — the first boot
-runs them. On a database this section has been applied to, run them once as `postgres` before that
-release is deployed — under `SET lock_timeout` and `SET statement_timeout`, because `ALTER TABLE
-users` queues every login and checkpoint behind its lock — or its boot fails with `must be owner of
-table users`:
-
-```bash
-sudo -u postgres psql gameplay -v ON_ERROR_STOP=1 <<'SQL'
-SET lock_timeout = '5s';
-SET statement_timeout = '30s';
-ALTER TABLE users ADD COLUMN IF NOT EXISTS missile INTEGER NOT NULL DEFAULT 0 CHECK (missile >= 0);
-ALTER TABLE users ALTER COLUMN missile SET DEFAULT 1;
-ALTER TABLE users ALTER COLUMN diamond SET DEFAULT 2;
-SQL
-```
-
-Every existing account gets 0 missiles and keeps its diamonds; accounts created afterwards start with
-2 diamonds and 1 missile. Any later ALTER or index on `users` goes the same way: behind a catalogue
-lookup in its script, and run once as `postgres` here first.
+**Releases that need that one-off run: none.** The migrations were consolidated on 14 Sep 2026 into
+one DDL script and one DML script (§8); the missiles, added the same day, were folded into the
+baseline before any production database ran a script that alters `users`, so the baseline declares
+`users.hammer` and `users.missile` in `CREATE TABLE users` itself. Any later ALTER or index on
+`users` goes behind a catalogue lookup in its script, and is run once as `postgres` here first.
 
 ## 8. Starting production on an empty database
 
-Since 14 Sep 2026 `go-server/internal/db/migration/` holds three scripts:
-`V1.0.0__baseline.sql` (every table, column, index, function and trigger, as consolidated),
-`V1.0.1__seed_profile_pictures.sql` (the 35 catalogue rows) and `V1.0.2__missiles.sql`
-(`users.missile`, the new `missile` and `diamond` defaults, `missile_purchases` and `missile_spends`).
-They build a database from nothing on the first boot. `V1.0.2` also brings a database the first two
-built forward in place — existing accounts get 0 missiles and keep their diamonds — so it needs no
-start-over, only §7's one-off run where §7 is applied. Nothing in them brings an older database
-forward: a database built by `go-server/v1.3.0` or older lacks `users.hammer`, and the first release
-carrying the consolidated scripts must start on an **empty** `public` schema. That deletes every
+Since 14 Sep 2026 `go-server/internal/db/migration/` holds two scripts:
+`V1.0.0__baseline.sql` (every table, column, index, function and trigger, as consolidated — the
+missile column and tables included) and `V1.0.1__seed_profile_pictures.sql` (the 35 catalogue rows).
+They build a database from nothing on the first boot. Nothing in them brings an older database
+forward: a database built by `go-server/v1.0.0` or older lacks `users.missile` (and one from
+`go-server/v1.3.0` or older, `users.hammer`), so the first release carrying these scripts must start
+on an **empty** `public` schema. That deletes every
 account, wallet, ledger row, purchase record and owned picture — players come back as new accounts
 with the welcome chips, 2 diamonds, 20 hammers and 1 missile. Take the backup.
 

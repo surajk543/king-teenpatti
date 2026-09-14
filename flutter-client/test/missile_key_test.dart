@@ -224,9 +224,11 @@ void main() {
   });
 
   // Firing ends the hand, so the answer takes the missile away while the
-  // question is still animating out. The closing question used to pop again
-  // from there — past itself, taking the table with it — and the phone that
-  // fired was left with a black screen (14 Sep 2026).
+  // question is still animating out, and the table must still be there after.
+  // On a phone the closing question's second pop took the table with it (a
+  // black screen on the phone that fired, 14 Sep 2026). This test does not
+  // reproduce that timing — it passes without the fix too — so the fix in
+  // _WhileStillOpen was verified on an emulator; this guards the outcome.
   testWidgets('firing takes the question away without taking the table with '
       'it', (tester) async {
     final state = _newState(missiles: 1, room: _room(onTurn: true));

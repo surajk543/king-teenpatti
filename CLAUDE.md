@@ -81,7 +81,7 @@ king-teenpatti/
 │   │   ├── sio/                  our own Engine.IO v4 + Socket.IO v5 server, websocket only (protocol.go, conn.go, server.go)
 │   │   ├── socket/               the game protocol on sio: handler.go (Attach, guard, one method per event, grace, resume offers), wire.go (every event/ack), payload.go; testclient/
 │   │   ├── auth/                 tokens.go (JWT HS256), providers.go (Google/Facebook/guest/fake), http.go (routes, RequireAuth, WriteError), handlers.go (the 8 REST handlers), text.go
-│   │   ├── db/                   db.go (pgxpool, search_path as connection param, WithTx, DropSchema, Migrations), migration/ (embedded, Flyway-named V<version>__<name>.sql, applied in version order — exactly two since 14 Sep 2026: V1.0.0__baseline.sql = all DDL, V1.0.1__seed_profile_pictures.sql = all DML), ledger.go (THE money transactions: Checkpoint / Settle), users.go (login upsert, rewards, names, the worn picture), pictures.go (the catalogue, ownership and the chip purchase); dbtest/
+│   │   ├── db/                   db.go (pgxpool, search_path as connection param, WithTx, DropSchema, Migrations), migration/ (embedded, Flyway-named V<version>__<name>.sql, applied in version order — V1.0.0__baseline.sql = all DDL and V1.0.1__seed_profile_pictures.sql = all DML (consolidated 14 Sep 2026, missiles included)), ledger.go (THE money transactions: Checkpoint / Settle), users.go (login upsert, rewards, names, the worn picture), pictures.go (the catalogue, ownership and the chip purchase); dbtest/
 │   │   ├── metrics/              names.go (every game_* metric), metrics.go (registry, Bind*, Handler, HTTPMiddleware, SafeLabel)
 │   │   ├── app/                  app.go (mux, REST, socket endpoint, Start/Shutdown), health.go, static.go (PUBLIC_DIR + embedded assets/socket.io.min.js)
 │   │   └── util/                 UUID, RoomCode, slog JSON logger
@@ -402,6 +402,13 @@ showRequestedBy, sideshow, lastDeparture, turnDeadline, turnToken, contributions
   `sideshowAskedThisTurn` survives (one ask per turn). Participant leaving → resolved `'left'`;
   `_endHand` clears the timer. The sideshow is **free** (the brief specified no bet — flagged as an
   exploit vs. standard rules).
+- **Missile** (owner, 14 Sep 2026; Go only): `ActionMissile`, on the firer's turn with **at least 3 players still in the
+  hand** (the firer included; blind or seen), costs 1 missile and no chips (`MissileWallet.SpendMissile`, charged once per
+  `<handId>:missile:<userId>:<actionId>` in `missile_spends`) and ends the hand: every player still in shows, the best
+  hand takes the pot, exact ties go against the firer (win reason `missile`). Refusals in order `no_hand | not_in_hand |
+  not_your_turn | sideshow_pending | too_few_players | duplicate_action | no_missiles | persist_failed`. `you.canMissile`
+  (also in `you.options`) is the rules-minus-the-count answer. The next deal waits `NEXT_HAND_DELAY_MS +
+  MISSILE_REVEAL_EXTRA_MS` so the client's volley and the reveal fit before it.
 - **Leaving mid-hand** = pack; stake stays; `leftMidHand=true`; `lastDeparture` gets the pot if all
   leave (`ALL_LEFT`). Winner identified by **userId**, not seat.
 - `_sweepUnfunded` only between hands (`if (this.hand) return`); it sets `seat.kickPending` so a
@@ -476,7 +483,7 @@ user (`session:replaced` to the old one). On connect: `session:ready {user, conf
 | `room:joinCode` | `{code}` — exactly 8 letters or digits, any case (owner, 13 Sep 2026: every table's code is issued 8 long, `util.DefaultRoomCodeLength`; any other shape → `invalid_room_code` "Table codes are 8 letters and numbers" before any lookup; Flutter's field lets nothing else in and holds Join until 8) | `{roomId, code, category}` |
 | `room:switch` | `{}` | `{roomId, code, category}` |
 | `room:leave` | `{}` | `{roomId}` or `{}` |
-| `game:action` | `{action, amount?, actionId?}` | table.act result; `actionId` (≤64 chars) becomes the ledger row's unique id |
+| `game:action` | `{action, amount?, actionId?}` | table.act result; `actionId` (≤64 chars) becomes the ledger row's unique id; `action:"missile"` acks `{ok, action, missiles}` (§6.1) |
 | `game:sideshowRespond` | `{accept}` (only `=== true` accepts) | `{accepted, packedUserId}` |
 | `player:requestCards` | `{}` | `{cards}` (empty unless seen) |
 | `chat:message` | `{text}` | `{messageId}` — own 5/5s limiter (`chat_rate_limited`) |
@@ -549,6 +556,11 @@ the pack through a `purchase` ledger row (action_id `gplay:<token>`), so a repla
 guarded by `diamond_purchases` (PK = the purchase token, `ON CONFLICT DO NOTHING`), and the answer carries `diamonds`
 beside `chips` (one of them 0). All four product ids must exist as managed products in the Play Console. **There
 is no Apple counterpart**, which is why the Flutter chip store does not start on iOS (§8.4);
+**`POST /api/store/missiles {packId, requestId}`** (owner, 14 Sep 2026) — trades diamonds for missiles at 1 diamond = 2
+missiles: `missiles_2` (1 diamond), `missiles_10` (5), `missiles_20` (10), `missiles_50` (25), in one transaction under the
+wallet lock (`db.Missiles.TradeMissiles`), replay-guarded by `missile_purchases` (`request_id` = `<userId>:<requestId>`).
+Answers `{user, charged, diamonds, missiles}` — `charged:false` with 0 and 0 on a replay; 400 `unknown_pack` /
+`invalid_request_id`, 409 `not_enough_diamonds`. Allowed while seated: diamonds and missiles sit outside §5.1;
 `GET /health`. Errors `{error: code, message}`. Guest id = `sha256('teenpatti:'+deviceId)`, deviceId
 ≥ 8 chars. `AUTH_ALLOW_FAKE_PROVIDERS=true` lets google/facebook skip verification (tests, browser
 stubs). **A refused login is logged** (`login refused` WARN: provider, code, status, reason with the
@@ -567,12 +579,13 @@ EVERY boot, so each one must be idempotent (IF NOT EXISTS / CREATE OR REPLACE / 
 NOTHING / a catalogue lookup before an unguarded trigger). A script that is not idempotent does not
 fail the first time — it fails on the next restart, in production. **Consolidated on 14 Sep 2026 (owner), for a
 production deploy onto an empty database:** there are exactly two scripts — `V1.0.0__baseline.sql` (every table, column,
-index, function and trigger, `users.hammer` and the purchase and spend tables included) and
+index, function and trigger, `users.hammer`, `users.missile` and the purchase, spend and missile tables included) and
 `V1.0.1__seed_profile_pictures.sql` (all 35 catalogue rows) — and V1.0.2–V1.0.5 are gone, with the blocks that brought
 older databases forward (V1.0.2's Butterfly Flapping move/fold, V1.0.5's guarded hammer ALTER; git history, `ccff445`).
-They build an EMPTY database, and boot unchanged on one built by `ccff445`'s scripts; a database from go-server/v1.3.0 or
-older lacks `users.hammer`, so production starts over (DEPLOY.md §8). `db_test.go` pins the count at two. The next change
-is a NEW file (`V1.0.2__…`), never an edit to an applied one. The catalogue guards that remain (the baseline's
+They build an EMPTY database, and boot unchanged on one built by master's scripts at `c8cd055` (which added the missiles as V1.0.2); a database from go-server/v1.3.0 or
+older lacks `users.hammer`, and one from go-server/v1.0.0 or older `users.missile` — the missiles were folded into the
+baseline the same day, for a second fresh production deploy — so production starts over (DEPLOY.md §8). `db_test.go`
+pins the count at two. The next change is a NEW file (`V1.0.2__…`), never an edit to an applied one. The catalogue guards that remain (the baseline's
 `idx_users_last_login`, `users_no_delete` created only when missing) are for DEPLOY.md §7, where the app role no longer
 owns `users`. **A column added to an existing database is a deliberate one-off
 ALTER run by hand** (`CREATE TABLE IF NOT EXISTS` is a no-op where the table exists, so the baseline
@@ -581,9 +594,9 @@ cannot add one), which is the trade the no-ALTER baseline makes.
 are parsed to JS numbers** (`pg.types.setTypeParser(20|1700)`) — without that, `chips` and `SUM()`
 come back as strings.
 
-Tables — **there are exactly seven, and none of them is game state** (`diamond_purchases`, `hammer_purchases` and `hammer_spends` are below): `users` (wallet = `chips BIGINT
-CHECK ≥ 0`, **`diamond INTEGER NOT NULL DEFAULT 1 CHECK ≥ 0`** — the premium currency, one per new account, never
-ledgered —, **`hammer INTEGER NOT NULL DEFAULT 20 CHECK ≥ 0`** — what a Force Sideshow costs, 20 per account, never ledgered —,
+Tables — **there are exactly nine, and none of them is game state** (`diamond_purchases`, `hammer_purchases`, `hammer_spends`, `missile_purchases` and `missile_spends` are below): `users` (wallet = `chips BIGINT
+CHECK ≥ 0`, **`diamond INTEGER NOT NULL DEFAULT 2 CHECK ≥ 0`** — the premium currency, two per new account (one before 14 Sep 2026), never
+ledgered —, **`hammer INTEGER NOT NULL DEFAULT 20 CHECK ≥ 0`** — what a Force Sideshow costs, 20 per account, never ledgered —, **`missile INTEGER NOT NULL DEFAULT 1 CHECK ≥ 0`** — what a missile costs, one per new account, never ledgered —,
 counters, `milestone_claimed`, `next_bonus_at`, `active_picture_id`, `deleted_at`),
 **`chip_ledger`** (`action_id UNIQUE`, `hand_id`, `delta`, `balance`, `reason`; append-only trigger),
 and the picture catalogue added 12 Sep 2026 (owner): **`profile_pictures`** (`name`, `asset_url`
@@ -592,7 +605,7 @@ UNIQUE, `asset_format` IMAGE|SVG|LOTTIE|RIVE, `currency` COIN|DIAMOND, `type` FR
 who has bought what. A FREE picture needs **no** ownership row: everyone may wear it, so the table
 holds only what somebody paid for. `V1.0.1__seed_profile_pictures.sql` seeds 15 hosted animals (2 free, 13 coin-priced rentals) and
 20 LOTTIE rentals of 100 days priced in DIAMONDS — Orange Ballerina (1, sort_order 160), Butterfly Flapping (4, 170; its first Drive upload beats its wings with 3D orientation the phone players ignore — §12.3 — so the row points at a second Drive upload of the flattened copy; go-server/v1.3.0 served that copy itself as `/profiles/butterfly-flapping.json`, and a rollback to that tag seeds the path again as a second row — DEPLOY.md §5), Toucan Flying (a landscape 1920×1080 canvas, 3, 180), Live Chatbot (1, 190), Paper Plane (1, 200), Bouncing Dots (1, 210), Monarch Butterfly (4, 220), Lovestruck Cat (5, 230), Waving Tiger Cub (5, 240; a tiny `loopOut()` detail in its head holds still on phones, which run no expressions), Galloping Horse (1, 250; a black silhouette flipbook, about 1.2:1 against the dark theme's picture circles), Gamer Raccoon (6, 260), Cool Cat (10, 270), Indian Flag (10, 280; it sits high and left in its canvas, so the round picture loses most of its pole), Jolly King (10, 290), Jolly Queen (10, 300; both move only through `loopOut()` expressions, so both are served from Drive as copies baked by `tools/lottie/bake_loop_expressions.py`, not as their original uploads), Shooting Game (8, 310; a video turned into a 28-frame flipbook of embedded WebP images with no transparency, so its round picture is a white disc), Spider (8, 320; a landscape 3840×2160 canvas whose centre square is the whole spider; its dark legs fade on the dark theme), Swirling Dots (3, 330; uploaded as "Dots Loader"), Sporty Avocado (9, 340; black line art that all but disappears on the dark theme; its 12 "Kleaner" overshoot expressions do not run on phones, which looked the same) and Blazing Fire (1, 350; the animated Noto Emoji 🔥, CC BY 4.0) — inserted with `ON CONFLICT (asset_url) DO NOTHING`, so re-pricing or retiring one is an UPDATE
-the next boot will not undo; on an empty database they number 1 (Bear) to 35 (Blazing Fire). The last five were added to the consolidated seed on 14 Sep 2026, before production had run it; once it has, a new picture is a new script. **`diamond_purchases`** (`purchase_token` PK, `user_id`, `product_id`, `diamonds`, `created_at`) is the replay guard and record for Play diamond packs — diamonds never enter `chip_ledger`; **`hammer_purchases`** is its twin for Play hammer packs, and **`hammer_spends`** (`action_id` PK — `<handId>:force:<userId>:<client actionId>` —, `user_id`, `hand_id`, `created_at`) is the one row per spend a Force Sideshow's hammer is charged against. `users.avatar_choice` (the old free-text `/profiles/x.svg` path) is
+the next boot will not undo; on an empty database they number 1 (Bear) to 35 (Blazing Fire). The last five were added to the consolidated seed on 14 Sep 2026, before production had run it; once it has, a new picture is a new script. **`diamond_purchases`** (`purchase_token` PK, `user_id`, `product_id`, `diamonds`, `created_at`) is the replay guard and record for Play diamond packs — diamonds never enter `chip_ledger`; **`hammer_purchases`** is its twin for Play hammer packs, and **`hammer_spends`** (`action_id` PK — `<handId>:force:<userId>:<client actionId>` —, `user_id`, `hand_id`, `created_at`) is the one row per spend a Force Sideshow's hammer is charged against. **`missile_purchases`** (`request_id` PK, `user_id`, `diamonds`, `missiles`, `created_at`) and **`missile_spends`** (`action_id` PK, `user_id`, `hand_id`, `created_at`) are the same pair for missiles: a diamonds-for-missiles trade and a missile fired. `users.avatar_choice` (the old free-text `/profiles/x.svg` path) is
 migrated into `active_picture_id` and dropped — **but only once every non-empty choice has found its
 catalogue row**, and any picture that was already being worn is granted an ownership row first so
 seeding it as premium cannot confiscate it. Every statement naming `avatar_choice` goes through
@@ -665,6 +678,7 @@ fallback `go-server/public`; not in `.env.example` — `config.go` documents it)
 | `ENTRY_CAP_BOOT` / `ENTRY_CAP_CATEGORY` / `ENTRY_CAP_MAX_CHIPS` | 200 / blind / 500000 | Requirement 30, and now the oldest case of the band above: `RoomManager.tableMaxChips` folds this trio into the matching menu entry's `maxChips`, so the lobby draws it from the same field as every other table. A `max=` on that entry in `LOBBY_TABLES` wins, being the more specific statement. |
 | `MAX_MISSED_TURNS` | 3 | |
 | **`UNFUNDED_GRACE_MS`** | 30000 | **Go-only.** How long a seat that can no longer cover the boot is held between hands before the `insufficient_chips` kick, so a player can buy chips and stay; `you.unfundedDeadline` carries the deadline to that player and the Flutter status line counts it down. 0 = kicked at once (Node's rule). |
+| **`MISSILE_REVEAL_EXTRA_MS`** | 3000 | **Go-only.** Added to `NEXT_HAND_DELAY_MS` after a missile showdown (§6.1), so the client's volley, its explosions and a look at every hand fit before the next deal. |
 | **`MIN_CLIENT_BUILD`** | 0 | The oldest client build allowed to play, sent to every client in `session:ready.config.minClientBuild`. A client below it is held on the update screen with no way past (Flutter `_belowMinimumBuild`/`_forceUpdate`). **0 = no floor**, which is what production runs; raise it only after the newer build is actually live in the store, or the floor locks everyone out of a version they cannot yet install. This is the server-authoritative gate — Play's own in-app check (`AppUpdate`) is a separate, best-effort nudge that fails open. |
 | `SIDESHOW_TIMEOUT_MS` / `SIDESHOW_MIN_PLAYERS` | 6000 / 3 | |
 | `DISPLAY_NAME_MAX` | 24 | also hardcoded: providers.js `.slice(0,24)`, Flutter login/lobby `maxLength: 24` |
@@ -856,7 +870,7 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   **There is no `_ActionBar`.** The keys live in the corners they are pressed in: the lobby's `ShopButton`
   top-left (13 Sep 2026, replacing the gold `+` that headed the rail; it opens the store on Chips), `_SideRail`
   (menu, chat — each key fills the rail so the target stays
-  ≥44dp, which is why they sit flush to the screen edge on a 360dp phone), `_PackKey` bottom-left, and `_ActionCluster` bottom-right (`Force Sideshow` and
+  ≥44dp, which is why they sit flush to the screen edge on a 360dp phone), `_PackKey` bottom-left with the Missile key directly above it, and `_ActionCluster` bottom-right (`Force Sideshow` and
   `Sideshow` over `− Chaal +`). **The quick messages are a tab of the chat drawer** (owner, 14 Sep 2026; they had a third rail
   key and a `_QuickDrawer` of their own): `_ChatDrawer` heads with two `_ChatTab`s, Table chat and Quick messages,
   opens on the chat every time, and sends a quick line through `sendChat` and closes, as a typed one does.
@@ -870,6 +884,17 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   `tools/lottie/flatten_orientation.py` (its flap opened with `rx`). **The Force key** reads "Force Sideshow" on two
   lines (`_MachinedKey.stackLabel`) beside `assets/animations/Hammer.json` (`_MachinedKey.glyph`), which swings only
   while the key can be used; no cost line — the confirmation states the hammer.
+  **Missiles** (owner, 14 Sep 2026; rules in §6.1): the Missile key over Pack plays `assets/animations/Missile.json` (a copy
+  with its one `loopOut()` baked; the nose points up-right, frames 30–60 loop) while `canMissile`, is greyed with no
+  missiles and then offers the store's **Missiles** tab (between Hammers and Pictures, diamonds for missiles), and asks
+  first (`_fireMissile`). Every viewer sees the volley (`state/missile_strike.dart`, `widgets/missile_flight.dart`): one
+  missile from the firer's pod to each player still in, 70 ms apart, **1.3 s in the air**, then
+  `assets/animations/explosion.json` on each pod for **0.44 s** (its own length), and only then (`MissileTiming.reveal`)
+  are the held `game:showdown`/`game:handEnded` let go — the cards turn over and the winner is celebrated, never over the
+  blasts (owner). The table's wallet pill and the lobby bar count diamonds · hammers · missiles. `_WhileStillOpen`, which
+  closes a Force Sideshow or missile question when the move is taken away, pops only while its dialog is still the current
+  route: firing ends the hand while the question is still animating out, and its unconditional pop used to take the table
+  with it — a black screen on the phone that fired (14 Sep 2026).
   `_Felt`: seats at fractional `_places` (5 only), viewer at view seat 0, `Dim.podW(feltW, feltH) =
   min(feltH*0.270, feltW*0.150).clamp(60,140)`, pods clamped inside. Overlays: `_CategoryTag`,
   `_Pot`/`_PotPulse` at `_potDy` 0.46, `_Status` at 0.28, `_SideshowLink/Prompt`, `_Showdown`.

@@ -76,7 +76,7 @@ type User struct {
 	ActivePictureID *int64 `json:"activePictureId"`
 	Chips           int64  `json:"chips"`
 	// Diamond is the premium soft currency (users.diamond). Every account
-	// created since V1.0.2 starts with 2 (1 before it). It is not
+	// starts with 2 (owner, 14 Sep 2026; it was 1). It is not
 	// chip_ledger's business: the ledger backs the chips invariant, and
 	// diamonds are not chips.
 	Diamond int `json:"diamond"`
@@ -85,8 +85,7 @@ type User struct {
 	// in packs on Play. Like diamonds, never chip_ledger's business.
 	Hammer int `json:"hammer"`
 	// Missile is users.missile, what a missile costs (owner, 14 Sep 2026): 1
-	// for every account created since V1.0.2, 0 for one created before it,
-	// and traded for diamonds at 2 missiles a diamond (POST
+	// for every account (the column's default), and traded for diamonds at 2 missiles a diamond (POST
 	// /api/store/missiles). Never chip_ledger's business.
 	Missile       int     `json:"missile"`
 	HandsPlayed   int     `json:"handsPlayed"`
@@ -234,10 +233,9 @@ type queryer interface {
 	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
 }
 
-// userColumns is every users column, in DDL order (a database built before the
-// consolidated baseline has hammer at the end of the table; it is listed beside
-// diamond, where the baseline declares it — and missile, which V1.0.2 adds at
-// the end of every table, beside hammer), so a row scans into
+// userColumns is every users column, in DDL order (hammer and missile beside
+// diamond, where the baseline declares them; a database built by older scripts
+// has them at the end of the table), so a row scans into
 // userRow without depending on `SELECT *` column ordering, followed by the
 // asset_url of the catalogue picture the player is wearing. Qualified with the
 // `u` alias because every read now goes through userFrom's join.

@@ -211,8 +211,7 @@ Go today (`internal/db/users.go` `User`): `diamond`, `hammer` and `missile` foll
 and `activePictureId` stands where `avatarChoice` was. `hammer` is the count as of that read; a Force
 Sideshow's ack carries the count left after it (§6.1.1). `missile` likewise: a missile's ack carries
 the count left (§6.1.2), and `POST /api/store/missiles` (diamonds → missiles) answers with the whole
-user. New accounts start with 2 diamonds and 1 missile; accounts older than `V1.0.2__missiles.sql`
-hold 0 missiles.
+user. New accounts start with 2 diamonds and 1 missile.
 
 ### 3.2 `session:ready` payload (`sock:430-434`, `sock:733-745`)
 
