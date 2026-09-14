@@ -909,20 +909,23 @@ func TestAShortHammerWalletIsRefusedAndNothingMoves(t *testing.T) {
 }
 
 // The catalogue as the owner seeded it on 14 Sep 2026: the 15 animals priced in
-// chips (two of them free) and the 20 animated pictures priced in hammers at
-// the owner's figures, 35 rows and nothing in diamonds.
-func TestTheSeededCatalogueHas15CoinAnd20HammerPicturesAtTheOwnersPrices(t *testing.T) {
+// chips (two of them free), 15 of the 20 animated pictures priced in hammers and
+// the other five in diamonds, at the owner's figures, 35 rows.
+func TestTheSeededCatalogueHas15Coin15HammerAnd5DiamondPicturesAtTheOwnersPrices(t *testing.T) {
 	f := newFixture(t)
 	all, err := f.pictures.List(f.ctx, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	hammerPrices := map[string]int64{
-		"Orange Ballerina": 10, "Butterfly Flapping": 40, "Toucan Flying": 30, "Live Chatbot": 10,
+		"Orange Ballerina": 10, "Toucan Flying": 30, "Live Chatbot": 10,
 		"Paper Plane": 10, "Bouncing Dots": 10, "Monarch Butterfly": 40, "Lovestruck Cat": 50,
-		"Waving Tiger Cub": 50, "Galloping Horse": 10, "Gamer Raccoon": 60, "Cool Cat": 100,
-		"Indian Flag": 100, "Jolly King": 100, "Jolly Queen": 100, "Shooting Game": 80,
-		"Spider": 80, "Swirling Dots": 30, "Sporty Avocado": 90, "Blazing Fire": 1,
+		"Galloping Horse": 10, "Gamer Raccoon": 60, "Cool Cat": 100,
+		"Shooting Game": 80,
+		"Spider":        80, "Swirling Dots": 30, "Sporty Avocado": 90, "Blazing Fire": 1,
+	}
+	diamondPrices := map[string]int64{
+		"Butterfly Flapping": 4, "Waving Tiger Cub": 3, "Indian Flag": 5, "Jolly King": 5, "Jolly Queen": 5,
 	}
 	if len(all) != 35 {
 		t.Fatalf("the seeded catalogue lists %d pictures, want 35", len(all))
@@ -946,15 +949,26 @@ func TestTheSeededCatalogueHas15CoinAnd20HammerPicturesAtTheOwnersPrices(t *test
 				t.Errorf("%q = %d hammers, %s %s for %d days; want %d hammers, a PREMIUM LOTTIE for 100 days",
 					p.Name, p.Cost, p.Type, p.AssetFormat, p.DurationDays, want)
 			}
+		case db.PictureCurrencyDiamond:
+			want, ok := diamondPrices[p.Name]
+			if !ok {
+				t.Errorf("%q is priced in diamonds but is not one of the owner's five", p.Name)
+				continue
+			}
+			delete(diamondPrices, p.Name)
+			if p.Cost != want || p.Type != db.PicturePremium || p.AssetFormat != "LOTTIE" || p.DurationDays != 100 {
+				t.Errorf("%q = %d diamonds, %s %s for %d days; want %d diamonds, a PREMIUM LOTTIE for 100 days",
+					p.Name, p.Cost, p.Type, p.AssetFormat, p.DurationDays, want)
+			}
 		default:
 			t.Errorf("%q is priced in %s", p.Name, p.Currency)
 		}
 	}
-	if byCurrency[db.PictureCurrencyCoin] != 15 || byCurrency[db.PictureCurrencyHammer] != 20 {
-		t.Errorf("currencies = %v, want 15 COIN and 20 HAMMER", byCurrency)
+	if byCurrency[db.PictureCurrencyCoin] != 15 || byCurrency[db.PictureCurrencyHammer] != 15 || byCurrency[db.PictureCurrencyDiamond] != 5 {
+		t.Errorf("currencies = %v, want 15 COIN, 15 HAMMER and 5 DIAMOND", byCurrency)
 	}
-	if len(hammerPrices) != 0 {
-		t.Errorf("missing from the catalogue: %v", hammerPrices)
+	if len(hammerPrices) != 0 || len(diamondPrices) != 0 {
+		t.Errorf("missing from the catalogue: %v %v", hammerPrices, diamondPrices)
 	}
 }
 

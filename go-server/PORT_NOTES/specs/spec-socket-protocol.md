@@ -213,7 +213,7 @@ Sideshow's ack carries the count left after it (§6.1.1). `missile` likewise: a 
 the count left (§6.1.2), and `POST /api/store/missiles` (diamonds → missiles) answers with the whole
 user. New accounts start with 9 diamonds, 20 hammers and 1 missile. A catalogue picture
 (`GET /api/profiles`) is priced in the wallet its `currency` names — `COIN` (chips), `DIAMOND` or
-`HAMMER` (owner, 14 Sep 2026; the seed prices its 20 animated pictures in hammers) — with `cost` in
+`HAMMER` (owner, 14 Sep 2026; the seed prices 15 of its 20 animated pictures in hammers and 5 in diamonds) — with `cost` in
 that currency; `POST /api/profile/picture/buy` takes a `DIAMOND` or `HAMMER` price off `diamond` or
 `hammer` (no `chip_ledger` row, and a hammer picture no `hammer_spends` row), sells it at a table too,
 and answers `{user, picture, charged, spent}` with `spent` in that currency. A shortage of any of the
@@ -1258,7 +1258,7 @@ guests (`POST /api/auth/login {provider:'guest', deviceId, displayName}`).
 
 | Test | Assertion |
 |---|---|
-| `internal/db/users_test.go` | the seed: 35 pictures, 15 COIN and 20 HAMMER at the owner's figures; a hammer picture paid from `users.hammer` alone — chips, `chip_ledger`, diamonds and `hammer_spends` untouched — with its rental row, `charged:false` while it runs, worn, and a lapsed rental bought afresh; a short hammer wallet refused with its price, in the lobby and at a table, nothing moved; at a table hammer and diamond pictures sell and a coin one does not; the diamond path on a row the test prices itself |
+| `internal/db/users_test.go` | the seed: 35 pictures, 15 COIN, 15 HAMMER and 5 DIAMOND at the owner's figures; a hammer picture paid from `users.hammer` alone — chips, `chip_ledger`, diamonds and `hammer_spends` untouched — with its rental row, `charged:false` while it runs, worn, and a lapsed rental bought afresh; a short hammer wallet refused with its price, in the lobby and at a table, nothing moved; at a table hammer and diamond pictures sell and a coin one does not; the diamond path on a row the test prices itself |
 | `internal/db/db_test.go` | exactly two scripts; the baseline carries the three-currency CHECK and the defaults diamond 9, hammer 20, missile 1 |
 | `internal/auth/http_test.go` | `TestBuyingAHammerPicture`: the four-key answer with `spent` in hammers, a replay, 409 `picture_chips` "You need 30 hammers to unlock this picture." (and the singular), a seated buy and wear |
 | `internal/app/hammerpictures_test.go` | on the real wiring: `GET /api/profiles` lists HAMMER, a lobby buy, a replay, the shortage 409, and at a table a coin picture 409 `seated` while a hammer picture sells and is worn on the seat, no chips moved |

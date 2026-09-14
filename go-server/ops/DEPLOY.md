@@ -271,8 +271,8 @@ psql "$(sed -n 's/^DATABASE_URL=//p' go-server/.env)" -Atc "SET statement_timeou
 
 **Hammer-priced pictures under an older build.** Every release before the pictures' `HAMMER`
 currency (14 Sep 2026) knows only `COIN` and `DIAMOND`, and its purchase code treats any row that is
-not `DIAMOND` as chips. Booted on a database this build seeded, it sells the 20 animated pictures in
-the lobby **for chips at their hammer figures** — 1 to 100 chips — through ordinary `picture_purchase`
+not `DIAMOND` as chips. Booted on a database this build seeded, it sells the 15 hammer-priced animated pictures
+in the lobby **for chips at their hammer figures** — 1 to 100 chips — through ordinary `picture_purchase`
 ledger rows, and refuses them at a table as chip-priced. No chips are created and the books still
 reconcile, but the animated shelf is all but free while the rollback lasts. Take those rows off sale
 before the rollback's restart and put them back once this build runs again (`UPDATE 20` each time,
@@ -504,7 +504,7 @@ Since 14 Sep 2026 `go-server/internal/db/migration/` holds two scripts: `V1.0.0_
 (every table, column, check, index, function and trigger, as consolidated — the missile column and
 tables, the new-account `diamond` default of 9 and the pictures' `COIN`/`DIAMOND`/`HAMMER` currency
 check included) and `V1.0.1__seed_profile_pictures.sql` (the 35 catalogue rows: the 15 animals priced
-in chips, the 20 animated pictures in hammers). They build a database from nothing on the first boot.
+in chips, 15 animated pictures in hammers and 5 in diamonds). They build a database from nothing on the first boot.
 Nothing in them brings an older database forward, and no older database boots this build: one built
 by `go-server/v1.0.0` or older lacks `users.missile` (and one from `go-server/v1.3.0` or older,
 `users.hammer`), and every database built before the hammer pictures — **production's included** —
