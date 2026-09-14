@@ -24,6 +24,7 @@ import 'package:teenpatti/settings/feedback_settings.dart';
 import 'package:teenpatti/state/game_state.dart';
 import 'package:teenpatti/theme/app_theme.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:teenpatti/widgets/avatar.dart';
 import 'package:teenpatti/widgets/chip_store.dart';
 import 'package:teenpatti/widgets/glass_components.dart';
 import 'package:teenpatti/widgets/glass_panels.dart';
@@ -490,6 +491,20 @@ void main() {
         ),
         findsOneWidget,
       );
+      // The picture they were after is shown in the offer, large and playing,
+      // as the unlock question shows it (owner, 14 Sep 2026).
+      final shown = tester
+          .widgetList<Avatar>(
+            find.descendant(
+              of: find.byType(GlassDialog),
+              matching: find.byType(Avatar),
+            ),
+          )
+          .toList();
+      expect(shown, hasLength(1));
+      expect(shown.single.fallback, 'Toucan Flying');
+      expect(shown.single.animate, isTrue);
+      expect(shown.single.radius, greaterThanOrEqualTo(40));
       await tester.tap(find.text('Cancel'));
       await _settle(tester);
       expect(find.text('Not enough hammers'), findsNothing);

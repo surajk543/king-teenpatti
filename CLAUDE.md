@@ -992,7 +992,7 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   the store is already open, and at a table the app refuses a COIN picture itself; `GameState.buyPicture` answers
   `bought | notEnough | refused`) — shown rather than hidden, because
   knowing what is behind the padlock is the whole reason anyone buys one. Tapping a locked one asks
-  first (`GlassDialog`, `t.unlockTitle`/`unlockBody`/`unlock`, with the picture itself large and playing under the title), then `GameState.buyPicture` buys it,
+  first (`GlassDialog`, `t.unlockTitle`/`unlockBody`/`unlock`, with the picture itself large and playing under the title — `_PictureOnOffer`, which the "Not enough hammers/diamonds" offer of the store's shelf shows too, owner 14 Sep 2026), then `GameState.buyPicture` buys it,
   re-reads the catalogue (`owned` is per viewer) and wears it. The tick follows
   `user.activePictureId == p.id` — it used to compare the choice PATH to the picture's id, so
   nothing was ever ticked. `state.buyingPicture` puts a spinner on the one tile being bought.

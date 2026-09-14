@@ -358,24 +358,7 @@ Future<void> unlockPicture(
       content: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // The picture itself, large and at full colour, under the question.
-          // On the shelf a locked face is a dimmed thumbnail; this is the one
-          // place it is shown as what the chips actually buy — and an animated
-          // one plays here. Sized off the screen's height, the scarce axis in
-          // landscape; the dialog's body scrolls if it ever runs out.
-          Avatar(
-            url: state.absoluteUrl(picture.url),
-            format: picture.assetFormat,
-            fallback: picture.name,
-            radius: (MediaQuery.sizeOf(dialogContext).height * 0.15).clamp(
-              40.0,
-              80.0,
-            ),
-            ring: AppTheme.goldBright,
-            ringWidth: 2.5,
-            ringGap: 3,
-            animate: true,
-          ),
+          _PictureOnOffer(picture: picture),
           const SizedBox(height: Space.lg),
           Text(
             // A rental and a purchase are different offers, and the dialog is
@@ -420,9 +403,35 @@ Future<void> unlockPicture(
   }
 }
 
+/// A premium picture as its dialogs show it: large, at full colour, and
+/// playing when animated.
+///
+/// On the shelf a locked face is a dimmed thumbnail; the unlock question and
+/// the "not enough" offer are where it is shown as what the wallet buys. Sized
+/// off the screen's height, the scarce axis in landscape; a dialog's body
+/// scrolls if it ever runs out.
+class _PictureOnOffer extends StatelessWidget {
+  const _PictureOnOffer({required this.picture});
+
+  final ProfilePicture picture;
+
+  @override
+  Widget build(BuildContext context) => Avatar(
+    url: context.read<GameState>().absoluteUrl(picture.url),
+    format: picture.assetFormat,
+    fallback: picture.name,
+    radius: (MediaQuery.sizeOf(context).height * 0.15).clamp(40.0, 80.0),
+    ring: AppTheme.goldBright,
+    ringWidth: 2.5,
+    ringGap: 3,
+    animate: true,
+  );
+}
+
 /// The store's shelf for the wallet [picture] is priced in, offered to a
-/// player who cannot pay for it: "Not enough hammers", what it costs, what
-/// they hold, and a key to the Hammers shelf — or the same for diamonds.
+/// player who cannot pay for it: "Not enough hammers", the picture, what it
+/// costs, what they hold, and a key to the Hammers shelf — or the same for
+/// diamonds.
 ///
 /// [openStore] moves a store that is already open to that shelf, rather than
 /// opening a second store over it; without one the store opens on it.
@@ -467,6 +476,11 @@ Future<void> _offerWalletShelf(
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            // The picture they were after, as the unlock question shows it
+            // (owner, 14 Sep 2026): the offer is of hammers or diamonds, but
+            // what the player wants is this face.
+            _PictureOnOffer(picture: picture),
+            const SizedBox(height: Space.lg),
             Text(
               hammers
                   ? t.notEnoughHammersBody(picture.name, picture.cost)
