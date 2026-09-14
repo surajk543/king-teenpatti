@@ -21,12 +21,13 @@ import (
 // them on every boot.
 func TestMigrationsAreVersionedOrderedAndSplitByKind(t *testing.T) {
 	migrations := db.Migrations()
-	// Two since the consolidation of 14 Sep 2026 — one DDL script and one DML
-	// script build an empty database; the missiles were folded into the
-	// baseline the same day, for a fresh production deploy. The next migration
-	// is a new file, so update this count with it.
-	if len(migrations) != 2 {
-		t.Fatalf("expected the baseline and the seed, got %d scripts", len(migrations))
+	// The consolidation of 14 Sep 2026 left one DDL script and one DML script
+	// to build an empty database (the missiles folded into the baseline), and a
+	// third, V1.0.2__new_account_diamonds.sql, followed the same day, after
+	// production had run the first two. The next migration is a new file too,
+	// so update this count with it.
+	if len(migrations) != 3 {
+		t.Fatalf("expected the baseline, the seed and the diamonds default, got %d scripts", len(migrations))
 	}
 
 	for i, m := range migrations {
@@ -71,6 +72,23 @@ func TestMigrationsAreVersionedOrderedAndSplitByKind(t *testing.T) {
 	for _, want := range []string{"DEFAULT 1 CHECK (missile >= 0)", "CREATE TABLE IF NOT EXISTS missile_purchases", "CREATE TABLE IF NOT EXISTS missile_spends"} {
 		if !strings.Contains(baseline, want) {
 			t.Errorf("%s lacks %q", migrations[0].File, want)
+		}
+	}
+	// V1.0.2 is DDL and holds no rows. It is the one script that ALTERs an
+	// existing table, so every ALTER in it must sit inside a catalogue-guarded
+	// DO block — a bare one would fail every boot once users belongs to the
+	// superuser (DEPLOY.md §7).
+	diamonds := migrations[2]
+	if diamonds.File != "V1.0.2__new_account_diamonds.sql" {
+		t.Fatalf("the third script is %s", diamonds.File)
+	}
+	body := statementsOf(diamonds.SQL)
+	if strings.Contains(body, "INSERT INTO") || !strings.Contains(body, "SET DEFAULT 9") {
+		t.Errorf("%s should set the diamond default and hold no rows", diamonds.File)
+	}
+	for _, block := range strings.Split(body, "$$;") {
+		if strings.Contains(block, "ALTER TABLE") && !strings.Contains(block, "IF NOT EXISTS (") {
+			t.Errorf("%s has an ALTER outside a catalogue lookup:\n%s", diamonds.File, block)
 		}
 	}
 	if !strings.Contains(db.SchemaSQL(), "chip_ledger_no_rewrite") {

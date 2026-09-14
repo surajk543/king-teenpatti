@@ -42,7 +42,7 @@ func TestDefaultsMatchNode(t *testing.T) {
 		// turn it off, and the window is what decides how long a replayed
 		// action_id is still refused as the duplicate it is.
 		"DB.LedgerPurgeInterval": 5 * time.Minute, "DB.LedgerPurgeAfter": 10 * time.Minute,
-		"Game.WelcomeChips": int64(200000), "Game.BootAmount": int64(200),
+		"Game.WelcomeChips": int64(300000), "Game.BootAmount": int64(200),
 		"Game.TableStakes": []int64{200, 5000, 50000, 1000000},
 		"Game.LobbyTables": []LobbyTable{
 			{Category: "seen", BootAmount: 200},
@@ -209,7 +209,7 @@ func TestEveryKey(t *testing.T) {
 func TestEmptyIntegerKeepsDefault(t *testing.T) {
 	// Node: Number.parseInt('') is NaN → fallback. `PORT=` in a .env is harmless.
 	cfg := mustLoad(t, map[string]string{"PORT": "", "TURN_TIMEOUT_MS": "", "WELCOME_CHIPS": ""})
-	if cfg.Port != 3000 || cfg.Game.TurnTimeout != 25*time.Second || cfg.Game.WelcomeChips != 200000 {
+	if cfg.Port != 3000 || cfg.Game.TurnTimeout != 25*time.Second || cfg.Game.WelcomeChips != 300000 {
 		t.Errorf("empty integers must keep defaults: %+v", cfg)
 	}
 }
@@ -382,7 +382,7 @@ func TestTableRules(t *testing.T) {
 func TestPublicGameConfigValues(t *testing.T) {
 	g := mustLoad(t, nil).Game
 	if g.MaxPlayers != 5 || g.MinPlayers != 2 || g.BootAmount != 200 || g.TurnTimeout.Milliseconds() != 25000 ||
-		g.WelcomeChips != 200000 || g.MaxBetRounds != 20 || g.SideshowTimeout.Milliseconds() != 6000 || g.SideshowMinPlayers != 3 ||
+		g.WelcomeChips != 300000 || g.MaxBetRounds != 20 || g.SideshowTimeout.Milliseconds() != 6000 || g.SideshowMinPlayers != 3 ||
 		g.EntryCapBoot != 200 || g.EntryCapCategory != "blind" || g.EntryCapMaxChips != 500000 || g.PrivateBoot != 200 || g.PrivateMaxPot != 500000 ||
 		g.MaxBlindMoves != 4 {
 		t.Errorf("public game config scalars drifted: %+v", g)

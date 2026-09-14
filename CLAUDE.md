@@ -81,7 +81,7 @@ king-teenpatti/
 │   │   ├── sio/                  our own Engine.IO v4 + Socket.IO v5 server, websocket only (protocol.go, conn.go, server.go)
 │   │   ├── socket/               the game protocol on sio: handler.go (Attach, guard, one method per event, grace, resume offers), wire.go (every event/ack), payload.go; testclient/
 │   │   ├── auth/                 tokens.go (JWT HS256), providers.go (Google/Facebook/guest/fake), http.go (routes, RequireAuth, WriteError), handlers.go (the 8 REST handlers), text.go
-│   │   ├── db/                   db.go (pgxpool, search_path as connection param, WithTx, DropSchema, Migrations), migration/ (embedded, Flyway-named V<version>__<name>.sql, applied in version order — V1.0.0__baseline.sql = all DDL and V1.0.1__seed_profile_pictures.sql = all DML (consolidated 14 Sep 2026, missiles included)), ledger.go (THE money transactions: Checkpoint / Settle), users.go (login upsert, rewards, names, the worn picture), pictures.go (the catalogue, ownership and the chip purchase); dbtest/
+│   │   ├── db/                   db.go (pgxpool, search_path as connection param, WithTx, DropSchema, Migrations), migration/ (embedded, Flyway-named V<version>__<name>.sql, applied in version order — V1.0.0__baseline.sql = all DDL and V1.0.1__seed_profile_pictures.sql = all DML (consolidated 14 Sep 2026, missiles included), then V1.0.2__new_account_diamonds.sql), ledger.go (THE money transactions: Checkpoint / Settle), users.go (login upsert, rewards, names, the worn picture), pictures.go (the catalogue, ownership and the chip purchase); dbtest/
 │   │   ├── metrics/              names.go (every game_* metric), metrics.go (registry, Bind*, Handler, HTTPMiddleware, SafeLabel)
 │   │   ├── app/                  app.go (mux, REST, socket endpoint, Start/Shutdown), health.go, static.go (PUBLIC_DIR + embedded assets/socket.io.min.js)
 │   │   └── util/                 UUID, RoomCode, slog JSON logger
@@ -556,8 +556,8 @@ the pack through a `purchase` ledger row (action_id `gplay:<token>`), so a repla
 guarded by `diamond_purchases` (PK = the purchase token, `ON CONFLICT DO NOTHING`), and the answer carries `diamonds`
 beside `chips` (one of them 0). All four product ids must exist as managed products in the Play Console. **There
 is no Apple counterpart**, which is why the Flutter chip store does not start on iOS (§8.4);
-**`POST /api/store/missiles {packId, requestId}`** (owner, 14 Sep 2026) — trades diamonds for missiles at 1 diamond = 2
-missiles: `missiles_2` (1 diamond), `missiles_10` (5), `missiles_20` (10), `missiles_50` (25), in one transaction under the
+**`POST /api/store/missiles {packId, requestId}`** (owner, 14 Sep 2026) — trades diamonds for missiles at 5 diamonds = 1
+missile: `missiles_1` (5 diamonds), `missiles_5` (25), `missiles_10` (50), `missiles_20` (100), in one transaction under the
 wallet lock (`db.Missiles.TradeMissiles`), replay-guarded by `missile_purchases` (`request_id` = `<userId>:<requestId>`).
 Answers `{user, charged, diamonds, missiles}` — `charged:false` with 0 and 0 on a replay; 400 `unknown_pack` /
 `invalid_request_id`, 409 `not_enough_diamonds`. Allowed while seated: diamonds and missiles sit outside §5.1;
@@ -585,7 +585,7 @@ older databases forward (V1.0.2's Butterfly Flapping move/fold, V1.0.5's guarded
 They build an EMPTY database, and boot unchanged on one built by master's scripts at `c8cd055` (which added the missiles as V1.0.2); a database from go-server/v1.3.0 or
 older lacks `users.hammer`, and one from go-server/v1.0.0 or older `users.missile` — the missiles were folded into the
 baseline the same day, for a second fresh production deploy — so production starts over (DEPLOY.md §8). `db_test.go`
-pins the count at two. The next change is a NEW file (`V1.0.2__…`), never an edit to an applied one. The catalogue guards that remain (the baseline's
+pinned the count at two until **`V1.0.2__new_account_diamonds.sql`** (14 Sep 2026, after production had run those two): every account created from then on starts with 9 diamonds (`users.diamond` `SET DEFAULT 9`, behind a catalogue lookup; existing accounts keep theirs; DEPLOY.md §7 has the one-off SQL for a handed-over database). `db_test.go` pins the count at three. The next change is a NEW file (`V1.0.3__…`), never an edit to an applied one. The catalogue guards that remain (the baseline's
 `idx_users_last_login`, `users_no_delete` created only when missing) are for DEPLOY.md §7, where the app role no longer
 owns `users`. **A column added to an existing database is a deliberate one-off
 ALTER run by hand** (`CREATE TABLE IF NOT EXISTS` is a no-op where the table exists, so the baseline
@@ -595,7 +595,7 @@ are parsed to JS numbers** (`pg.types.setTypeParser(20|1700)`) — without that,
 come back as strings.
 
 Tables — **there are exactly nine, and none of them is game state** (`diamond_purchases`, `hammer_purchases`, `hammer_spends`, `missile_purchases` and `missile_spends` are below): `users` (wallet = `chips BIGINT
-CHECK ≥ 0`, **`diamond INTEGER NOT NULL DEFAULT 2 CHECK ≥ 0`** — the premium currency, two per new account (one before 14 Sep 2026), never
+CHECK ≥ 0`, **`diamond INTEGER NOT NULL DEFAULT 9 CHECK ≥ 0`** — the premium currency, nine per new account (V1.0.2; the baseline declares 2, and it was 1 before 14 Sep 2026), never
 ledgered —, **`hammer INTEGER NOT NULL DEFAULT 20 CHECK ≥ 0`** — what a Force Sideshow costs, 20 per account, never ledgered —, **`missile INTEGER NOT NULL DEFAULT 1 CHECK ≥ 0`** — what a missile costs, one per new account, never ledgered —,
 counters, `milestone_claimed`, `next_bonus_at`, `active_picture_id`, `deleted_at`),
 **`chip_ledger`** (`action_id UNIQUE`, `hand_id`, `delta`, `balance`, `reason`; append-only trigger),
@@ -667,7 +667,7 @@ fallback `go-server/public`; not in `.env.example` — `config.go` documents it)
 | `PG_STATEMENT_TIMEOUT_MS` | 15000 | **Go server only**: Postgres `statement_timeout` per pooled connection so a hung query fails one ledger write instead of freezing a table; 0 = no limit (Node behaviour) |
 | **`LEDGER_PURGE_INTERVAL_MS`** | 300000 (5 min) | **Go server only.** How often the in-process purge goroutine runs (`App.startLedgerPurge`, a `time.NewTicker`, first pass one interval *after* boot — a server restarted more often never purges). **0 is the only way to turn the job off.** |
 | **`LEDGER_PURGE_AFTER_MS`** | 600000 (10 min) | **Go server only.** A `chip_ledger` row is deleted once older than this — but **only** `hand_win`/`hand_loss`/`hand_packed`/`hand_left` (`db.purgeableReasons`, hardcoded in the query): `purchase`, `picture_purchase`, `milestone_reward`, `timed_bonus`, `welcome_bonus` are never purged, since their UNIQUE `action_id` is a standing double-credit guard. Deletion is allowed only inside `PurgeLedger`'s own transaction, which sets `app.ledger_purge`; the append-only trigger refuses every other DELETE and every UPDATE. **Trap: 0 does NOT disable it** — the cutoff becomes `now`, so the next pass takes every purgeable row. Now equal to `RESUME_OFFER_MS`, so a retry at the edge of the resume window can find its `action_id` already gone (was 24h for that margin). |
-| `WELCOME_CHIPS` / `BOOT_AMOUNT` | 200000 / 200 | |
+| `WELCOME_CHIPS` / `BOOT_AMOUNT` | 300000 / 200 | the 3 lakh welcome (owner, 14 Sep 2026; 2 lakh before). **Production's `.env` sets `WELCOME_CHIPS` explicitly**, so a new default changes nothing there until that line does |
 | `TABLE_STAKES` | `200,5000,50000,1000000` | empty = any (tests) |
 | **`LOBBY_TABLES`** | `seen:200,blind:200,blind:5000:max=50000000,blind:50000:max=1000000000,blind:1000000:min=500000000` | the menu; empty = any pair (tests). Each entry is `category:boot` plus an optional **stack band** — `max=N` shuts the table to a player holding MORE than N, `min=N` to one holding LESS. Exactly the limit is allowed at either end. A band whose min exceeds its max fails at load (it would advertise a table nobody could join). |
 | `MAX_PLAYERS_PER_ROOM` / `MIN_PLAYERS_TO_START` | 5 / 2 | 5 is also hardcoded in Flutter `_places` and browser CSS |
@@ -886,7 +886,7 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   while the key can be used; no cost line — the confirmation states the hammer.
   **Missiles** (owner, 14 Sep 2026; rules in §6.1): the Missile key over Pack plays `assets/animations/Missile.json` (a copy
   with its one `loopOut()` baked; the nose points up-right, frames 30–60 loop) while `canMissile`, is greyed with no
-  missiles and then offers the store's **Missiles** tab (between Hammers and Pictures, diamonds for missiles), and asks
+  missiles and then offers the store's **Missiles** tab (between Hammers and Pictures, diamonds for missiles at 5 diamonds = 1 missile), and asks
   first (`_fireMissile`). Every viewer sees the volley (`state/missile_strike.dart`, `widgets/missile_flight.dart`): one
   missile from the firer's pod to each player still in, 70 ms apart, **1.3 s in the air**, then
   `assets/animations/explosion.json` on each pod for **0.44 s** (its own length), and only then (`MissileTiming.reveal`)
@@ -917,8 +917,12 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   green** (`AppTheme.cardSeenBack`, applied as `PlayingCard.tint` through `BlendMode.color` so the
   printed crown survives) and the word is written in that same green (`AppTheme.seenInk`); BLIND
   keeps the quiet ink. None of it applies to a packed seat or to face-up cards — at a showdown or a
-  sideshow peek the hand answers the question itself, with `_handName` above it (suppressed on the
-  winner, whose `_WinnerFlash` ribbon already carries the ranking). A **sideshow** names only the hand that
+  sideshow peek the hand answers the question itself, with `_handName` laid over the foot of the face-up fan as a capsule (suppressed on the
+  winner, whose `_WinnerFlash` ribbon already carries the ranking). **A seat's column must not change height at the
+  reveal** (owner, 14 Sep 2026): `_Felt` places it by its middle, so the name used to take a line above the cards and a
+  loser's bet badge dropped out below them, and every beaten player's cards jumped down the felt when a missile's result
+  came in. The name now rides on the cards, and `_betShown` keeps a showdown loser's badge while the finished hand is on
+  show (`test/seat_reveal_layout_test.dart`). A **sideshow** names only the hand that
   **won** it (the reveal's `packedUserId` marks the loser): the loser's cards still turn face up but
   carry no ranking, and when the viewer wins, `_OwnHandName` names their hand over their own cards
   (it used to appear only at a showdown, so a sideshow the viewer won put the label on the loser).
@@ -1043,7 +1047,7 @@ idToken**; against production it is a guaranteed 401 `missing_token` — not a s
 
 ## 10. Requirements index (`Requirements.txt`)
 1 login providers · 2 DB per identity (brief says SQLite; **now Postgres by owner's decision**) ·
-3 ≤5/room · 4 ≥2 to start · 5 2 lakh welcome · 6a–g core play · 7 persistence · 8 room chat ·
+3 ≤5/room · 4 ≥2 to start · 5 3 lakh welcome (2 lakh until 14 Sep 2026; with 9 diamonds, 20 hammers and 1 missile) · 6a–g core play · 7 persistence · 8 room chat ·
 9 +/− stepper · 10 auto-pack · **(no 11)** · 12 collapsible chat · 13 Blind/Seen × 200/5000 ·
 14 Show reveal · 15 pot to last leaver · 16 stats (played = made a chaal) · 17 25k/25 hands ·
 18 4h 10k bonus · 19 Seen: one double, forced showdown (brief 10 moves / code 7 rounds) ·

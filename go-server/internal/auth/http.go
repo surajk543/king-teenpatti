@@ -101,10 +101,13 @@ type PurchaseOutcome struct {
 	// Diamonds is what a diamond pack credited (or would have, on a replay).
 	// Zero for any other pack.
 	Diamonds int64
-	// Hammers is what a hammer pack credited (or would have, on a replay).
-	// Zero for any other pack.
+	// Hammers is what a hammer pack or a premium package credited (or would
+	// have, on a replay). Zero for any other pack.
 	Hammers int64
-	Balance int64
+	// Missiles is what a premium package credited beside its chips and
+	// hammers (or would have, on a replay). Zero for any other product.
+	Missiles int64
+	Balance  int64
 	// Credited is false when this receipt had already been banked. The client
 	// still treats it as success — the chips are in the wallet — and finishes
 	// the Play transaction so the player is not asked again.
@@ -445,11 +448,10 @@ const (
 	MsgMissileStoreClosed = "The missile store is not open yet."
 	MsgUnknownMissilePack = "That missile pack does not exist"
 	MsgInvalidRequestID   = "A missile trade needs a request id of 1 to 64 characters"
-	// MsgNotEnoughDiamondsFormat is fmt.Sprintf'd with the pack's diamonds;
-	// MsgNotEnoughDiamondOne is the one-diamond pack's, which that would
-	// render as "1 diamonds".
+	// MsgNotEnoughDiamondsFormat is fmt.Sprintf'd with the pack's diamonds.
+	// It is always plural: every pack costs db.DiamondsPerMissile (5) diamonds
+	// a missile, so none costs a single diamond.
 	MsgNotEnoughDiamondsFormat = "You need %d diamonds for this pack"
-	MsgNotEnoughDiamondOne     = "You need 1 diamond for this pack"
 	MsgEmptyName               = "Your name cannot be empty."
 	MsgNameTooLongFormat       = "Keep it to %d characters or fewer."
 	MsgInvalidName             = "Letters, numbers and spaces only."

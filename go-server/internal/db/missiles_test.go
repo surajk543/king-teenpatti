@@ -15,7 +15,7 @@ import (
 
 // Missiles (owner, 14 Sep 2026): users.missile, spent one per missile fired
 // under a key that names the hand, the player and the client's actionId, and
-// filled from users.diamond at 2 missiles a diamond under a key that names the
+// filled from users.diamond at 5 diamonds a missile under a key that names the
 // player and the client's requestId. Neither ever touches chips or chip_ledger.
 
 // missilesOf and diamondsOf read the wallet straight from the row.
@@ -153,7 +153,7 @@ func TestAMissileTradeDebitsDiamondsAndCreditsMissilesExactlyOncePerRequestId(t 
 	u, other := f.user("trader"), f.user("other-trader")
 	store := f.missileStore()
 	startRows := len(f.ledgerRows(u.ID))
-	if _, err := f.d.Pool.Exec(f.ctx, `UPDATE users SET diamond = 12 WHERE id = $1`, u.ID); err != nil {
+	if _, err := f.d.Pool.Exec(f.ctx, `UPDATE users SET diamond = 60 WHERE id = $1`, u.ID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -161,39 +161,49 @@ func TestAMissileTradeDebitsDiamondsAndCreditsMissilesExactlyOncePerRequestId(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !first.Charged || first.Diamonds != 5 || first.Missiles != 10 || first.User == nil || first.User.Diamond != 7 || first.User.Missile != 11 {
+	if !first.Charged || first.Diamonds != 50 || first.Missiles != 10 || first.User == nil || first.User.Diamond != 10 || first.User.Missile != 11 {
 		t.Fatalf("first trade: %+v (user %+v)", first, first.User)
 	}
-	if f.diamondsOf(u.ID) != 7 || f.missilesOf(u.ID) != 11 {
+	if f.diamondsOf(u.ID) != 10 || f.missilesOf(u.ID) != 11 {
 		t.Fatalf("wallet after the trade: %d diamonds, %d missiles", f.diamondsOf(u.ID), f.missilesOf(u.ID))
 	}
-	if n := f.count(`SELECT count(*) FROM missile_purchases WHERE request_id = $1 AND user_id = $2 AND diamonds = 5 AND missiles = 10`,
+	if n := f.count(`SELECT count(*) FROM missile_purchases WHERE request_id = $1 AND user_id = $2 AND diamonds = 50 AND missiles = 10`,
 		db.MissileTradeID(u.ID, "req-1"), u.ID); n != 1 {
 		t.Fatalf("missile_purchases rows %d", n)
 	}
 
-	for _, pack := range []string{"missiles_10", "missiles_2"} {
+	for _, pack := range []string{"missiles_10", "missiles_1"} {
 		replay, err := store.TradeMissiles(f.ctx, u.ID, pack, "req-1")
-		if err != nil || replay.Charged || replay.Diamonds != 0 || replay.Missiles != 0 || replay.User.Diamond != 7 || replay.User.Missile != 11 {
+		if err != nil || replay.Charged || replay.Diamonds != 0 || replay.Missiles != 0 || replay.User.Diamond != 10 || replay.User.Missile != 11 {
 			t.Fatalf("a replay (%s) moved something: %+v %v", pack, replay, err)
 		}
 	}
-	if f.diamondsOf(u.ID) != 7 || f.missilesOf(u.ID) != 11 || f.count(`SELECT count(*) FROM missile_purchases WHERE user_id = $1`, u.ID) != 1 {
+	if f.diamondsOf(u.ID) != 10 || f.missilesOf(u.ID) != 11 || f.count(`SELECT count(*) FROM missile_purchases WHERE user_id = $1`, u.ID) != 1 {
 		t.Fatal("a replay moved the wallet or recorded a second trade")
 	}
 
-	// Every pack is exactly 1 diamond = 2 missiles.
+	// Every pack is exactly 5 diamonds = 1 missile, and is named by the
+	// missiles it gives: missiles_1, missiles_5, missiles_10 and missiles_20.
 	for id, pack := range db.MissilePacks {
-		if pack.ID != id || pack.Missiles != pack.Diamonds*db.MissilesPerDiamond {
+		if pack.ID != id || pack.ID != fmt.Sprintf("missiles_%d", pack.Missiles) || pack.Diamonds != pack.Missiles*db.DiamondsPerMissile {
 			t.Fatalf("pack %s = %+v", id, pack)
 		}
 	}
 	if len(db.MissilePacks) != 4 {
 		t.Fatalf("%d packs, want 4", len(db.MissilePacks))
 	}
+	for _, missiles := range []int64{1, 5, 10, 20} {
+		if pack, ok := db.LookupMissilePack(fmt.Sprintf("missiles_%d", missiles)); !ok || pack.Diamonds != 5*missiles {
+			t.Fatalf("the %d-missile pack: %+v %v", missiles, pack, ok)
+		}
+	}
 
-	theirs, err := store.TradeMissiles(f.ctx, other.ID, "missiles_2", "req-1")
-	if err != nil || !theirs.Charged || theirs.User.Diamond != 1 || theirs.User.Missile != 3 {
+	// The other account is given exactly the cheapest pack's 5 diamonds.
+	if _, err := f.d.Pool.Exec(f.ctx, `UPDATE users SET diamond = 5 WHERE id = $1`, other.ID); err != nil {
+		t.Fatal(err)
+	}
+	theirs, err := store.TradeMissiles(f.ctx, other.ID, "missiles_1", "req-1")
+	if err != nil || !theirs.Charged || theirs.User.Diamond != 0 || theirs.User.Missile != 2 {
 		t.Fatalf("another player's requestId is their own trade: %+v %v", theirs, err)
 	}
 
@@ -205,7 +215,7 @@ func TestAMissileTradeDebitsDiamondsAndCreditsMissilesExactlyOncePerRequestId(t 
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			got, err := store.TradeMissiles(context.Background(), u.ID, "missiles_2", "req-race")
+			got, err := store.TradeMissiles(context.Background(), u.ID, "missiles_1", "req-race")
 			if err != nil {
 				t.Errorf("racing trade: %v", err)
 				return
@@ -218,7 +228,7 @@ func TestAMissileTradeDebitsDiamondsAndCreditsMissilesExactlyOncePerRequestId(t 
 		}()
 	}
 	wg.Wait()
-	if charged != 1 || f.diamondsOf(u.ID) != 6 || f.missilesOf(u.ID) != 13 {
+	if charged != 1 || f.diamondsOf(u.ID) != 5 || f.missilesOf(u.ID) != 12 {
 		t.Fatalf("%d racing trades charged; wallet %d diamonds, %d missiles", charged, f.diamondsOf(u.ID), f.missilesOf(u.ID))
 	}
 
@@ -237,13 +247,13 @@ func TestAShortDiamondWalletIsRefusedAndRecordsNoTrade(t *testing.T) {
 	store := f.missileStore()
 
 	if _, err := store.TradeMissiles(f.ctx, u.ID, "missiles_20", "short-1"); !errors.Is(err, db.ErrNotEnoughDiamonds) {
-		t.Fatalf("10 diamonds from a wallet of 2: %v, want ErrNotEnoughDiamonds", err)
+		t.Fatalf("100 diamonds from a wallet of 9: %v, want ErrNotEnoughDiamonds", err)
 	}
-	if f.diamondsOf(u.ID) != 2 || f.missilesOf(u.ID) != 1 || f.count(`SELECT count(*) FROM missile_purchases WHERE user_id = $1`, u.ID) != 0 {
+	if f.diamondsOf(u.ID) != 9 || f.missilesOf(u.ID) != 1 || f.count(`SELECT count(*) FROM missile_purchases WHERE user_id = $1`, u.ID) != 0 {
 		t.Fatal("a refused trade moved the wallet or recorded a trade")
 	}
 
-	if _, err := f.d.Pool.Exec(f.ctx, `UPDATE users SET diamond = 10 WHERE id = $1`, u.ID); err != nil {
+	if _, err := f.d.Pool.Exec(f.ctx, `UPDATE users SET diamond = 100 WHERE id = $1`, u.ID); err != nil {
 		t.Fatal(err)
 	}
 	done, err := store.TradeMissiles(f.ctx, u.ID, "missiles_20", "short-1")
@@ -251,24 +261,28 @@ func TestAShortDiamondWalletIsRefusedAndRecordsNoTrade(t *testing.T) {
 		t.Fatalf("the same request with the diamonds there: %+v %v", done, err)
 	}
 
-	if _, err := store.TradeMissiles(f.ctx, u.ID, "missiles_3", "x"); !errors.Is(err, db.ErrMissilePackUnknown) {
-		t.Fatalf("unknown pack: %v", err)
+	// An id the catalogue never held, and the ids of the old 1 diamond = 2
+	// missiles packs, are unknown.
+	for _, pack := range []string{"missiles_3", "missiles_2", "missiles_50"} {
+		if _, err := store.TradeMissiles(f.ctx, u.ID, pack, "x"); !errors.Is(err, db.ErrMissilePackUnknown) {
+			t.Fatalf("unknown pack %s: %v", pack, err)
+		}
 	}
-	if _, err := store.TradeMissiles(f.ctx, u.ID, "missiles_2", ""); !errors.Is(err, db.ErrMissileRequestID) {
+	if _, err := store.TradeMissiles(f.ctx, u.ID, "missiles_1", ""); !errors.Is(err, db.ErrMissileRequestID) {
 		t.Fatalf("empty requestId: %v", err)
 	}
-	if _, err := store.TradeMissiles(f.ctx, "no-such-user", "missiles_2", "x"); game.CodeOf(err, "") != game.CodeUnknownUser {
+	if _, err := store.TradeMissiles(f.ctx, "no-such-user", "missiles_1", "x"); game.CodeOf(err, "") != game.CodeUnknownUser {
 		t.Fatalf("unknown account: %v", err)
 	}
 }
 
-// A new account holds 2 diamonds and 1 missile, and booting again adds no
+// A new account holds 9 diamonds and 1 missile, and booting again adds no
 // second CHECK and changes neither default.
-func TestANewAccountHoldsTwoDiamondsAndOneMissile(t *testing.T) {
+func TestANewAccountHoldsNineDiamondsAndOneMissile(t *testing.T) {
 	f := newFixture(t)
 	u := f.user("missile-fresh")
-	if u.Diamond != 2 || u.Missile != 1 || f.diamondsOf(u.ID) != 2 || f.missilesOf(u.ID) != 1 {
-		t.Fatalf("a new account holds %d diamonds and %d missiles (wire %d, %d), want 2 and 1",
+	if u.Diamond != 9 || u.Missile != 1 || f.diamondsOf(u.ID) != 9 || f.missilesOf(u.ID) != 1 {
+		t.Fatalf("a new account holds %d diamonds and %d missiles (wire %d, %d), want 9 and 1",
 			f.diamondsOf(u.ID), f.missilesOf(u.ID), u.Diamond, u.Missile)
 	}
 	again, err := db.Open(f.ctx, db.Options{URL: testURL(), Schema: f.d.Schema, PoolMax: 2})
@@ -281,7 +295,7 @@ func TestANewAccountHoldsTwoDiamondsAndOneMissile(t *testing.T) {
 	if checks != 1 {
 		t.Fatalf("%d CHECKs on users.missile after two boots, want 1", checks)
 	}
-	if later := f.user("missile-later"); later.Diamond != 2 || later.Missile != 1 {
+	if later := f.user("missile-later"); later.Diamond != 9 || later.Missile != 1 {
 		t.Fatalf("after a second boot a new account holds %d diamonds and %d missiles", later.Diamond, later.Missile)
 	}
 }

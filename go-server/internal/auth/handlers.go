@@ -300,9 +300,12 @@ func (h *Handler) Bonus(w http.ResponseWriter, r *http.Request, user *db.User) {
 
 // BuyChips is POST /api/purchases/google {productId, purchaseToken}.
 //
-// It serves chip, diamond and hammer packs alike: the product id decides which
-// wallet is filled (purchase.Catalogue), and the answer carries all three
-// figures — chips, diamonds, hammers — exactly one of them non-zero.
+// It serves chip, diamond and hammer packs and premium packages alike: the
+// product id decides which wallets are filled (purchase.Catalogue), and the
+// answer carries all four figures — chips, diamonds, hammers, missiles. A
+// chip, diamond or hammer pack sets exactly one of them; a premium package
+// (owner, 14 Sep 2026) sets chips, missiles and hammers, and the user in the
+// answer holds all three.
 //
 // The client sends only what Play gave it: which product, and the purchase
 // token. It does NOT send an amount, and the server would not read one if it
@@ -348,16 +351,19 @@ func (h *Handler) BuyChips(w http.ResponseWriter, r *http.Request, user *db.User
 		return
 	}
 	if h.deps.Logger != nil && out.Credited {
+		// A premium package carries hammers too, but it is a chip purchase
+		// with missiles and hammers beside it, not a hammer pack.
 		switch {
-		case out.Hammers > 0:
-			h.deps.Logger.Info("hammers purchased",
-				"userId", user.ID, "productId", body.ProductID, "hammers", out.Hammers)
 		case out.Diamonds > 0:
 			h.deps.Logger.Info("diamonds purchased",
 				"userId", user.ID, "productId", body.ProductID, "diamonds", out.Diamonds)
+		case out.Hammers > 0 && out.Chips == 0:
+			h.deps.Logger.Info("hammers purchased",
+				"userId", user.ID, "productId", body.ProductID, "hammers", out.Hammers)
 		default:
 			h.deps.Logger.Info("chips purchased",
-				"userId", user.ID, "productId", body.ProductID, "chips", out.Chips)
+				"userId", user.ID, "productId", body.ProductID, "chips", out.Chips,
+				"missiles", out.Missiles, "hammers", out.Hammers)
 		}
 	}
 	WriteJSON(w, http.StatusOK, map[string]any{
@@ -365,6 +371,7 @@ func (h *Handler) BuyChips(w http.ResponseWriter, r *http.Request, user *db.User
 		"chips":    out.Chips,
 		"diamonds": out.Diamonds,
 		"hammers":  out.Hammers,
+		"missiles": out.Missiles,
 		"balance":  out.Balance,
 		"user":     out.User,
 	})
@@ -582,8 +589,8 @@ func (h *Handler) BuyPicture(w http.ResponseWriter, r *http.Request, user *db.Us
 }
 
 // TradeMissiles is POST /api/store/missiles {packId, requestId} (owner, 14 Sep
-// 2026): the missile store, where diamonds become missiles at 1 diamond = 2
-// missiles, in the packs of db.MissilePacks.
+// 2026): the missile store, where diamonds become missiles at 5 diamonds = 1
+// missile (db.DiamondsPerMissile), in the packs of db.MissilePacks.
 //
 // Order: no store → 503; body (400 invalid_json); a pack the catalogue does
 // not hold → 400 unknown_pack; a requestId empty or longer than
@@ -620,9 +627,6 @@ func (h *Handler) TradeMissiles(w http.ResponseWriter, r *http.Request, user *db
 	switch {
 	case errors.Is(err, db.ErrNotEnoughDiamonds):
 		message := fmt.Sprintf(MsgNotEnoughDiamondsFormat, pack.Diamonds)
-		if pack.Diamonds == 1 {
-			message = MsgNotEnoughDiamondOne
-		}
 		WriteJSON(w, http.StatusConflict, ErrorResponse{Error: CodeNotEnoughDiamonds, Message: message})
 		return
 	case errors.Is(err, db.ErrMissilePackUnknown):

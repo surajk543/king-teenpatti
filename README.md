@@ -104,7 +104,7 @@ npm run ramp -- --url http://localhost:3000 --stages 10,50,200,1000 --hold 40 --
 | 2 | Persistent storage per provider identity — **PostgreSQL** (the brief said SQLite; changed by the owner) | [schema.sql](go-server/internal/db/schema.sql), [ledger.go](go-server/internal/db/ledger.go), [users.go](go-server/internal/db/users.go) |
 | 3 | Rooms of at most 5 players | [table.go](go-server/internal/game/table.go), [roommanager.go](go-server/internal/game/roommanager.go) |
 | 4 | 2 players minimum to start; many rooms | [table.go](go-server/internal/game/table.go) |
-| 5 | 2 lakh welcome chips on first login | [users.go](go-server/internal/db/users.go) |
+| 5 | 3 lakh welcome chips on first login, with 9 diamonds, 20 hammers and 1 missile | [users.go](go-server/internal/db/users.go) |
 | 6a | 3 hidden cards each | [deck.go](go-server/internal/game/deck.go), [table.go](go-server/internal/game/table.go) |
 | 6b | Clockwise turn rotation | [table.go](go-server/internal/game/table.go) |
 | 6c | Bet the same amount or double | [table.go](go-server/internal/game/table.go) |

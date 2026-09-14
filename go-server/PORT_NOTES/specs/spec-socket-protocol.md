@@ -211,7 +211,10 @@ Go today (`internal/db/users.go` `User`): `diamond`, `hammer` and `missile` foll
 and `activePictureId` stands where `avatarChoice` was. `hammer` is the count as of that read; a Force
 Sideshow's ack carries the count left after it (§6.1.1). `missile` likewise: a missile's ack carries
 the count left (§6.1.2), and `POST /api/store/missiles` (diamonds → missiles) answers with the whole
-user. New accounts start with 2 diamonds and 1 missile.
+user. New accounts start with 9 diamonds and 1 missile. A premium package bought on Play
+(`POST /api/purchases/google`, owner 14 Sep 2026) adds to `chips`, `missile` and `hammer` at once, and
+its answer `{credited, chips, diamonds, hammers, missiles, balance, user}` carries the whole user
+(DECISIONS.md §5).
 
 ### 3.2 `session:ready` payload (`sock:430-434`, `sock:733-745`)
 
@@ -575,8 +578,9 @@ were in it, so at least two remain.
 A showdown the player on turn forces, paid for with one missile (`users.missile`, §3.1): every hand
 still in is shown and the best takes the pot. Rules engine: `internal/game/table.go` `fireMissile`;
 the socket layer handles it like any other action (§6.1 steps 1–5,
-`game_moves_total{action="missile"}` on success). Missiles are bought with diamonds, 2 a diamond,
-through `POST /api/store/missiles {packId, requestId}` (DECISIONS.md §5).
+`game_moves_total{action="missile"}` on success). Missiles are bought with diamonds, 5 diamonds a missile,
+through `POST /api/store/missiles {packId, requestId}`, or come with a premium package on Play
+(`premium_1_9999` … `premium_6_99999`, beside its chips and hammers) (DECISIONS.md §5).
 
 ```
 C→S  421["game:action",{"action":"missile","actionId":"<uuid>"}]
@@ -1233,6 +1237,15 @@ guests (`POST /api/auth/login {provider:'guest', deviceId, displayName}`).
 | `internal/socket/missile_test.go` | guard, `unknown_action` for `Missile`, `no_missiles` acked and emitted as `game:error`, an ack of exactly three keys, the three events in order to every player, `nextHandAt` and the deal keeping to it, the move and hand metrics |
 | `internal/db/missiles_test.go` | a spend charged once per key and never below zero; a trade debits diamonds and credits missiles once per requestId (racing requests included); a short wallet is refused and recorded nowhere; a new account holds 2 diamonds and 1 missile; V1.0.2 on a V1.0.0 + V1.0.1 database gives existing accounts 0 missiles |
 | `internal/app/missiles_test.go` | `POST /api/store/missiles` over HTTP (success, replay, `unknown_pack`, `invalid_request_id`, `not_enough_diamonds`, `invalid_json`, seated allowed); a missile through the socket charged to `missile_spends`, with the books balanced |
+
+### 15.7 Premium packages (Go only, DECISIONS.md §5)
+
+| Test | Assertion |
+|---|---|
+| `internal/purchase/catalogue_test.go` | the six `premium_*` ids with exactly the owner's chips, missiles, hammers and rupees; every other product fills one wallet and none sells missiles; 23 products in all |
+| `internal/db/purchase_premium_test.go` | one `purchase` ledger row, `users.missile` and `users.hammer` credited in the same transaction, once; a replay or the same token from another account moves none of the three; no soft-pack guard rows; the books reconcile; chip, hammer and diamond packs fill only their own wallet; a premium package is refused by the hammer and diamond credits |
+| `internal/app/premium_test.go` | through `playStore` with a fake Play: the outcome's chips, missiles, hammers and user; the chips topped up on a seated buyer's live seat once and a replay reaching neither the wallets nor the seat; a lobby purchase seats nobody |
+| `internal/auth/purchase_premium_test.go` | the answer's seven keys and figures, the user holding the package, `chips purchased` logged with `missiles` and `hammers`, a replay `credited:false` and not logged |
 
 ---
 

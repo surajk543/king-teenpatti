@@ -161,7 +161,7 @@ CREATE TABLE IF NOT EXISTS users (
   -- business: hammer_purchases and hammer_spends below are its receipts.
   hammer            INTEGER NOT NULL DEFAULT 20 CHECK (hammer >= 0),
   -- What a missile costs, one each (owner, 14 Sep 2026): every account starts
-  -- with 1, and more are traded for diamonds at 2 missiles a diamond (POST
+  -- with 1, and more are traded for diamonds at 5 diamonds a missile (POST
   -- /api/store/missiles). Like diamonds, never chip_ledger's business:
   -- missile_purchases and missile_spends below are its receipts.
   missile           INTEGER NOT NULL DEFAULT 1 CHECK (missile >= 0),
