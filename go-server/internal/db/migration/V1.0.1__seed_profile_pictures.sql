@@ -3,10 +3,13 @@
 -- Every row the server seeds, in one file. Consolidated on 14 Sep 2026 (owner)
 -- for a production deploy onto an empty database (V1.0.0's header): the rows
 -- V1.0.2__seed_animated_pictures.sql and V1.0.4__seed_more_animated_pictures.sql
--- used to add are here, in the order they always went in, so a fresh database
--- numbers the catalogue as before — Bear is 1, Jolly Queen is 30. Shooting Game
--- (31), Spider (32), Swirling Dots (33), Sporty Avocado (34) and Blazing Fire
--- (35) were added to this file the same day, rather than in a new script,
+-- used to add are here. The rows run free first, then the animals priced in
+-- chips, then the animated pictures priced in hammers, then those priced in
+-- diamonds (owner, 14 Sep 2026), and sort_order follows that order in steps of
+-- ten, so a fresh database numbers the catalogue the same way: Bear is 1, Wolf
+-- 15, Orange Ballerina 16, Blazing Fire 30, Butterfly Flapping 31 and Jolly
+-- Queen 35. Shooting Game, Spider, Swirling Dots, Sporty Avocado and Blazing
+-- Fire were added to this file the same day, rather than in a new script,
 -- because no environment that matters had run it yet: production starts from
 -- an empty database (ops/DEPLOY.md §8). Once production has run this file, the
 -- next picture goes in a new script.
@@ -33,35 +36,36 @@
 -- day as well as rarer. The free pair never lapses. They are hosted bitmaps
 -- (asset_format IMAGE) priced in COIN.
 --
--- THE ANIMATED PICTURES are Lottie animations (asset_format LOTTIE) on a
--- 100-day rental, the Premium (Animated) shelf. The owner priced 15 of them in
--- HAMMERs on 14 Sep 2026 (they had been diamonds, at a tenth of these figures)
--- and kept five in DIAMONDs: Butterfly Flapping, Waving Tiger Cub, Indian Flag,
--- Jolly King and Jolly Queen. Every new
--- account starts with 20 hammers, which covers Blazing Fire at 1 or any one of
--- the pictures at 10 — though a hammer spent on a picture is one fewer Force
--- Sideshow.
+-- THE ANIMATED PICTURES are Lottie animations (asset_format LOTTIE), the
+-- Premium (Animated) shelf, all rentals. The owner priced 15 of them in HAMMERs
+-- on 14 Sep 2026 — they had been diamonds, at a tenth of these figures — each
+-- rented for as many days as it costs hammers (Swirling Dots: 30 hammers for 50
+-- days), and kept five in DIAMONDs on a 100-day rental: Butterfly Flapping,
+-- Waving Tiger Cub, Indian Flag, Jolly King and Jolly Queen. Every new account
+-- starts with 20 hammers and 9 diamonds, which covers any two of the 10-hammer
+-- pictures or any one diamond picture — though a hammer spent on a picture is
+-- one fewer Force Sideshow.
 --
---   Orange Ballerina                                      10 HAMMERS   sort_order 160
---   Butterfly Flapping  1000×1000, 5 s,    Lottie 4.8.0    4 DIAMONDS   sort_order 170
---   Toucan Flying       1920×1080, 4 s,    Lottie 5.5.7   30 HAMMERS   sort_order 180
---   Live Chatbot         952×784,  3 s,    Lottie 5.9.6   10 HAMMERS   sort_order 190
---   Paper Plane          800×600,  3 s,    Lottie 5.5.8   10 HAMMERS   sort_order 200
---   Bouncing Dots        256×256,  1.3 s,  Lottie 4.6.8   10 HAMMERS   sort_order 210
---   Monarch Butterfly    450×450,  2.7 s,  Lottie 4.8.0   40 HAMMERS   sort_order 220
---   Lovestruck Cat       500×500,  6 s,    Lottie 5.9.6   50 HAMMERS   sort_order 230
---   Waving Tiger Cub    1400×1400, 6 s,    Lottie 5.7.8    3 DIAMONDS   sort_order 240
---   Galloping Horse     1556×2048, 0.5 s,  Lottie 4.8.0   10 HAMMERS   sort_order 250
---   Gamer Raccoon        512×512,  3 s,    Lottie 5.12.1  60 HAMMERS   sort_order 260
---   Cool Cat             512×512,  2.1 s,  Lottie 5.9.6  100 HAMMERS   sort_order 270
---   Indian Flag         1000×1000, 2 s,    Lottie 4.8.0    5 DIAMONDS   sort_order 280
---   Jolly King          1080×1080, 6.2 s,  Lottie 5.9.0    5 DIAMONDS   sort_order 290
---   Jolly Queen         1080×1080, 6.2 s,  Lottie 5.9.0    5 DIAMONDS   sort_order 300
---   Shooting Game        400×400,  0.85 s, Lottie 5.5.2   80 HAMMERS   sort_order 310
---   Spider              3840×2160, 6 s,    Lottie 5.12.1  80 HAMMERS   sort_order 320
---   Swirling Dots       1080×1080, 2.8 s,  Lottie 5.9.3   30 HAMMERS   sort_order 330
---   Sporty Avocado       256×256,  3.2 s,  Lottie 5.7.11  90 HAMMERS   sort_order 340
---   Blazing Fire         500×690,  1.1 s,  Lottie 5.9.0    1 HAMMER    sort_order 350
+--   Orange Ballerina                                      10 HAMMERS   10 days   sort_order 160
+--   Toucan Flying       1920×1080, 4 s,    Lottie 5.5.7   30 HAMMERS   30 days   sort_order 170
+--   Live Chatbot        952×784,  3 s,    Lottie 5.9.6    10 HAMMERS   10 days   sort_order 180
+--   Paper Plane         800×600,  3 s,    Lottie 5.5.8    10 HAMMERS   10 days   sort_order 190
+--   Bouncing Dots       256×256,  1.3 s,  Lottie 4.6.8    10 HAMMERS   10 days   sort_order 200
+--   Monarch Butterfly   450×450,  2.7 s,  Lottie 4.8.0    40 HAMMERS   40 days   sort_order 210
+--   Lovestruck Cat      500×500,  6 s,    Lottie 5.9.6    50 HAMMERS   50 days   sort_order 220
+--   Galloping Horse     1556×2048, 0.5 s,  Lottie 4.8.0   10 HAMMERS   10 days   sort_order 230
+--   Gamer Raccoon       512×512,  3 s,    Lottie 5.12.1   60 HAMMERS   60 days   sort_order 240
+--   Cool Cat            512×512,  2.1 s,  Lottie 5.9.6   100 HAMMERS  100 days   sort_order 250
+--   Shooting Game       400×400,  0.85 s, Lottie 5.5.2    80 HAMMERS   80 days   sort_order 260
+--   Spider              3840×2160, 6 s,    Lottie 5.12.1  80 HAMMERS   80 days   sort_order 270
+--   Swirling Dots       1080×1080, 2.8 s,  Lottie 5.9.3   30 HAMMERS   50 days   sort_order 280
+--   Sporty Avocado      256×256,  3.2 s,  Lottie 5.7.11   90 HAMMERS   90 days   sort_order 290
+--   Blazing Fire        500×690,  1.1 s,  Lottie 5.9.0    10 HAMMERS   10 days   sort_order 300
+--   Butterfly Flapping  1000×1000, 5 s,    Lottie 4.8.0   4 DIAMONDS  100 days   sort_order 310
+--   Waving Tiger Cub    1400×1400, 6 s,    Lottie 5.7.8   3 DIAMONDS  100 days   sort_order 320
+--   Indian Flag         1000×1000, 2 s,    Lottie 4.8.0   5 DIAMONDS  100 days   sort_order 330
+--   Jolly King          1080×1080, 6.2 s,  Lottie 5.9.0   5 DIAMONDS  100 days   sort_order 340
+--   Jolly Queen         1080×1080, 6.2 s,  Lottie 5.9.0   5 DIAMONDS  100 days   sort_order 350
 --
 -- Every one moves with what the phone players draw (Flutter's lottie and
 -- lottie-android), checked frame by frame against lottie-web — some only
@@ -129,11 +133,12 @@ SELECT name, asset_url, asset_format, currency, type, cost, duration_days, is_ac
        (EXTRACT(EPOCH FROM now()) * 1000)::bigint,
        (EXTRACT(EPOCH FROM now()) * 1000)::bigint
   FROM (VALUES
-    -- The animals.
+    -- Free: everyone may wear these.
     ('Bear',     'https://lh3.googleusercontent.com/d/1cMAxBlDvKxPpPyOKffLsjM0RDxPUdC-_=s256',
      'IMAGE',  'COIN',    'FREE', 0::bigint, 0, TRUE, 10),
     ('Cat',      'https://lh3.googleusercontent.com/d/1fTFvJGmCOaFF-mCm_4XAdyjaRFw3Sf9a=s256',
      'IMAGE',  'COIN',    'FREE', 0::bigint, 0, TRUE, 20),
+    -- The animals priced in chips.
     ('Dog',      'https://lh3.googleusercontent.com/d/1hZ2iw1UkqHJN18MLUhRTZGbgLBm-7dBS=s256',
      'IMAGE',  'COIN',    'PREMIUM', 25000::bigint, 3, TRUE, 30),
     ('Frog',     'https://lh3.googleusercontent.com/d/1JNMYRv7JtMkfkhEebxLIpTEx4TVMIV-7=s256',
@@ -160,46 +165,47 @@ SELECT name, asset_url, asset_format, currency, type, cost, duration_days, is_ac
      'IMAGE',  'COIN',    'PREMIUM', 200000::bigint, 7, TRUE, 140),
     ('Wolf',     'https://lh3.googleusercontent.com/d/1LB0wQaR_rq3bYk9oN5P6RWsEm5-oIXae=s256',
      'IMAGE',  'COIN',    'PREMIUM', 200000::bigint, 7, TRUE, 150),
-    -- The animated pictures.
+    -- The animated pictures priced in hammers.
     ('Orange Ballerina',   'https://drive.google.com/uc?export=download&id=1TNa5MuHshDXimN4ItUUQBB4VrW8xfmFH',
-     'LOTTIE', 'HAMMER', 'PREMIUM', 10::bigint, 100, TRUE, 160),
-    ('Butterfly Flapping', 'https://drive.google.com/uc?export=download&id=19mQ9PjStBJUoFyThaSe97fEcfzARw_Ar',
-     'LOTTIE', 'DIAMOND', 'PREMIUM', 4::bigint, 100, TRUE, 170),
+     'LOTTIE', 'HAMMER', 'PREMIUM', 10::bigint, 10, TRUE, 160),
     ('Toucan Flying',      'https://drive.google.com/uc?export=download&id=1HdjPRNx4vPO3EI-_U1Z1UQa8mprLdRNM',
-     'LOTTIE', 'HAMMER', 'PREMIUM', 30::bigint, 100, TRUE, 180),
+     'LOTTIE', 'HAMMER', 'PREMIUM', 30::bigint, 30, TRUE, 170),
     ('Live Chatbot',       'https://drive.google.com/uc?export=download&id=1msaoUAeJipCWCy0q8TABPKxWc8ExLMjm',
-     'LOTTIE', 'HAMMER', 'PREMIUM', 10::bigint, 100, TRUE, 190),
+     'LOTTIE', 'HAMMER', 'PREMIUM', 10::bigint, 10, TRUE, 180),
     ('Paper Plane',        'https://drive.google.com/uc?export=download&id=1PmclJnzKyczYNi3YSIxAStPWLI60f3-8',
-     'LOTTIE', 'HAMMER', 'PREMIUM', 10::bigint, 100, TRUE, 200),
+     'LOTTIE', 'HAMMER', 'PREMIUM', 10::bigint, 10, TRUE, 190),
     ('Bouncing Dots',      'https://drive.google.com/uc?export=download&id=1FfiTWCqv_r0_wllt9GXKDhwVKxSZ823V',
-     'LOTTIE', 'HAMMER', 'PREMIUM', 10::bigint, 100, TRUE, 210),
+     'LOTTIE', 'HAMMER', 'PREMIUM', 10::bigint, 10, TRUE, 200),
     ('Monarch Butterfly',  'https://drive.google.com/uc?export=download&id=16CuzIvYWioJW4xTyI4ukYVkHWnJFLyt-',
-     'LOTTIE', 'HAMMER', 'PREMIUM', 40::bigint, 100, TRUE, 220),
+     'LOTTIE', 'HAMMER', 'PREMIUM', 40::bigint, 40, TRUE, 210),
     ('Lovestruck Cat',     'https://drive.google.com/uc?export=download&id=1KOKAFftNzGhnG6ISbnb7ylz1uTf87Er3',
-     'LOTTIE', 'HAMMER', 'PREMIUM', 50::bigint, 100, TRUE, 230),
-    ('Waving Tiger Cub',   'https://drive.google.com/uc?export=download&id=1vg1xUlnF0vLAYh-w8F4dHRUsQ1sTPTgB',
-     'LOTTIE', 'DIAMOND', 'PREMIUM', 3::bigint, 100, TRUE, 240),
+     'LOTTIE', 'HAMMER', 'PREMIUM', 50::bigint, 50, TRUE, 220),
     ('Galloping Horse',    'https://drive.google.com/uc?export=download&id=1hYp8vPfH07C7JeJlmJZI5JyazvRd7Qbg',
-     'LOTTIE', 'HAMMER', 'PREMIUM', 10::bigint, 100, TRUE, 250),
+     'LOTTIE', 'HAMMER', 'PREMIUM', 10::bigint, 10, TRUE, 230),
     ('Gamer Raccoon',      'https://drive.google.com/uc?export=download&id=1uchuXzcjzIq6_WKIp2jHVkJ2D4AGxH8g',
-     'LOTTIE', 'HAMMER', 'PREMIUM', 60::bigint, 100, TRUE, 260),
+     'LOTTIE', 'HAMMER', 'PREMIUM', 60::bigint, 60, TRUE, 240),
     ('Cool Cat',           'https://drive.google.com/uc?export=download&id=15UkZwIjVdEquW_smNseUStfciYikMH37',
-     'LOTTIE', 'HAMMER', 'PREMIUM', 100::bigint, 100, TRUE, 270),
-    ('Indian Flag',        'https://drive.google.com/uc?export=download&id=11oXU9B5LeWF9OMEcCYihLkKcrj0Zl4Gn',
-     'LOTTIE', 'DIAMOND', 'PREMIUM', 5::bigint, 100, TRUE, 280),
-    ('Jolly King',         'https://drive.google.com/uc?export=download&id=1oDAJP-qC9GNxt6tW6WLMldl0EV6YtcWn',
-     'LOTTIE', 'DIAMOND', 'PREMIUM', 5::bigint, 100, TRUE, 290),
-    ('Jolly Queen',        'https://drive.google.com/uc?export=download&id=1PXnoJzPxQtn7v5JkjUVemUNdbA4gSa73',
-     'LOTTIE', 'DIAMOND', 'PREMIUM', 5::bigint, 100, TRUE, 300),
+     'LOTTIE', 'HAMMER', 'PREMIUM', 100::bigint, 100, TRUE, 250),
     ('Shooting Game',      'https://drive.google.com/uc?export=download&id=1awnG6ysbh0QRWXQpDN-5yIsTj0IXFJbO',
-     'LOTTIE', 'HAMMER', 'PREMIUM', 80::bigint, 100, TRUE, 310),
+     'LOTTIE', 'HAMMER', 'PREMIUM', 80::bigint, 80, TRUE, 260),
     ('Spider',             'https://drive.google.com/uc?export=download&id=1JRg3ayCimSPi3SsJNSRFj53S65BdMzpY',
-     'LOTTIE', 'HAMMER', 'PREMIUM', 80::bigint, 100, TRUE, 320),
+     'LOTTIE', 'HAMMER', 'PREMIUM', 80::bigint, 80, TRUE, 270),
     ('Swirling Dots',      'https://drive.google.com/uc?export=download&id=10vbKXtV7-ZT8Gf-m7giwWNbi0nP67juF',
-     'LOTTIE', 'HAMMER', 'PREMIUM', 30::bigint, 100, TRUE, 330),
+     'LOTTIE', 'HAMMER', 'PREMIUM', 30::bigint, 50, TRUE, 280),
     ('Sporty Avocado',     'https://drive.google.com/uc?export=download&id=1cal_8xZS9Tz4TCDt1leTtG36mqZhH98Q',
-     'LOTTIE', 'HAMMER', 'PREMIUM', 90::bigint, 100, TRUE, 340),
+     'LOTTIE', 'HAMMER', 'PREMIUM', 90::bigint, 90, TRUE, 290),
     ('Blazing Fire',       'https://drive.google.com/uc?export=download&id=1sWLmx0skXzrQ6d_ZitT_OTZMmSd_c6LA',
-     'LOTTIE', 'HAMMER', 'PREMIUM', 1::bigint, 100, TRUE, 350)
+     'LOTTIE', 'HAMMER', 'PREMIUM', 10::bigint, 10, TRUE, 300),
+    -- The animated pictures priced in diamonds.
+    ('Butterfly Flapping', 'https://drive.google.com/uc?export=download&id=19mQ9PjStBJUoFyThaSe97fEcfzARw_Ar',
+     'LOTTIE', 'DIAMOND', 'PREMIUM', 4::bigint, 100, TRUE, 310),
+    ('Waving Tiger Cub',   'https://drive.google.com/uc?export=download&id=1vg1xUlnF0vLAYh-w8F4dHRUsQ1sTPTgB',
+     'LOTTIE', 'DIAMOND', 'PREMIUM', 3::bigint, 100, TRUE, 320),
+    ('Indian Flag',        'https://drive.google.com/uc?export=download&id=11oXU9B5LeWF9OMEcCYihLkKcrj0Zl4Gn',
+     'LOTTIE', 'DIAMOND', 'PREMIUM', 5::bigint, 100, TRUE, 330),
+    ('Jolly King',         'https://drive.google.com/uc?export=download&id=1oDAJP-qC9GNxt6tW6WLMldl0EV6YtcWn',
+     'LOTTIE', 'DIAMOND', 'PREMIUM', 5::bigint, 100, TRUE, 340),
+    ('Jolly Queen',        'https://drive.google.com/uc?export=download&id=1PXnoJzPxQtn7v5JkjUVemUNdbA4gSa73',
+     'LOTTIE', 'DIAMOND', 'PREMIUM', 5::bigint, 100, TRUE, 350)
   ) AS seed(name, asset_url, asset_format, currency, type, cost, duration_days, is_active, sort_order)
     ON CONFLICT (asset_url) DO NOTHING;

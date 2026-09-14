@@ -272,7 +272,7 @@ psql "$(sed -n 's/^DATABASE_URL=//p' go-server/.env)" -Atc "SET statement_timeou
 **Hammer-priced pictures under an older build.** Every release before the pictures' `HAMMER`
 currency (14 Sep 2026) knows only `COIN` and `DIAMOND`, and its purchase code treats any row that is
 not `DIAMOND` as chips. Booted on a database this build seeded, it sells the 15 hammer-priced animated pictures
-in the lobby **for chips at their hammer figures** — 1 to 100 chips — through ordinary `picture_purchase`
+in the lobby **for chips at their hammer figures** — 10 to 100 chips — through ordinary `picture_purchase`
 ledger rows, and refuses them at a table as chip-priced. No chips are created and the books still
 reconcile, but the animated shelf is all but free while the rollback lasts. Take those rows off sale
 before the rollback's restart and put them back once this build runs again (`UPDATE 20` each time,

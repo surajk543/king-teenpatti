@@ -769,8 +769,8 @@ func TestAHammerPictureIsPaidInHammersAndTheOtherWalletsStayAsTheyWere(t *testin
 	f := newFixture(t)
 	user := newGuest(t, f)
 	pic := hammerPicture(t, f)
-	if pic.Type != db.PicturePremium || pic.AssetFormat != "LOTTIE" || pic.Cost != 10 || pic.DurationDays != 100 {
-		t.Fatalf("seeded hammer picture = %+v, want a PREMIUM LOTTIE at 10 hammers for 100 days", pic)
+	if pic.Type != db.PicturePremium || pic.AssetFormat != "LOTTIE" || pic.Cost != 10 || pic.DurationDays != 10 {
+		t.Fatalf("seeded hammer picture = %+v, want a PREMIUM LOTTIE at 10 hammers for 10 days", pic)
 	}
 	if user.Hammer != 20 || f.hammersOf(user.ID) != 20 {
 		t.Fatalf("a new account holds %d hammers (wire %d), want 20", f.hammersOf(user.ID), user.Hammer)
@@ -922,7 +922,7 @@ func TestTheSeededCatalogueHas15Coin15HammerAnd5DiamondPicturesAtTheOwnersPrices
 		"Paper Plane": 10, "Bouncing Dots": 10, "Monarch Butterfly": 40, "Lovestruck Cat": 50,
 		"Galloping Horse": 10, "Gamer Raccoon": 60, "Cool Cat": 100,
 		"Shooting Game": 80,
-		"Spider":        80, "Swirling Dots": 30, "Sporty Avocado": 90, "Blazing Fire": 1,
+		"Spider":        80, "Swirling Dots": 30, "Sporty Avocado": 90, "Blazing Fire": 10,
 	}
 	diamondPrices := map[string]int64{
 		"Butterfly Flapping": 4, "Waving Tiger Cub": 3, "Indian Flag": 5, "Jolly King": 5, "Jolly Queen": 5,
@@ -945,9 +945,15 @@ func TestTheSeededCatalogueHas15Coin15HammerAnd5DiamondPicturesAtTheOwnersPrices
 				continue
 			}
 			delete(hammerPrices, p.Name)
-			if p.Cost != want || p.Type != db.PicturePremium || p.AssetFormat != "LOTTIE" || p.DurationDays != 100 {
-				t.Errorf("%q = %d hammers, %s %s for %d days; want %d hammers, a PREMIUM LOTTIE for 100 days",
-					p.Name, p.Cost, p.Type, p.AssetFormat, p.DurationDays, want)
+			// Rented for as many days as it costs hammers, but for Swirling
+			// Dots: 30 hammers for 50 days.
+			wantDays := want
+			if p.Name == "Swirling Dots" {
+				wantDays = 50
+			}
+			if p.Cost != want || p.Type != db.PicturePremium || p.AssetFormat != "LOTTIE" || int64(p.DurationDays) != wantDays {
+				t.Errorf("%q = %d hammers, %s %s for %d days; want %d hammers, a PREMIUM LOTTIE for %d days",
+					p.Name, p.Cost, p.Type, p.AssetFormat, p.DurationDays, want, wantDays)
 			}
 		case db.PictureCurrencyDiamond:
 			want, ok := diamondPrices[p.Name]
@@ -969,6 +975,29 @@ func TestTheSeededCatalogueHas15Coin15HammerAnd5DiamondPicturesAtTheOwnersPrices
 	}
 	if len(hammerPrices) != 0 || len(diamondPrices) != 0 {
 		t.Errorf("missing from the catalogue: %v %v", hammerPrices, diamondPrices)
+	}
+
+	// The seed's order (owner, 14 Sep 2026): the free pictures, then the
+	// chip-priced animals, then the hammer-priced pictures, then the
+	// diamond-priced ones, with sort_order 10 to 350 in steps of ten.
+	rank := func(p db.Picture) int {
+		switch {
+		case p.Type == db.PictureFree:
+			return 0
+		case p.Currency == db.PictureCurrencyCoin:
+			return 1
+		case p.Currency == db.PictureCurrencyHammer:
+			return 2
+		}
+		return 3
+	}
+	for i, p := range all {
+		if int64(p.SortOrder) != int64((i+1)*10) {
+			t.Errorf("%q has sort_order %d, want %d", p.Name, p.SortOrder, (i+1)*10)
+		}
+		if i > 0 && rank(all[i-1]) > rank(p) {
+			t.Errorf("%q (%s %s) comes after %q (%s %s)", p.Name, p.Type, p.Currency, all[i-1].Name, all[i-1].Type, all[i-1].Currency)
+		}
 	}
 }
 
