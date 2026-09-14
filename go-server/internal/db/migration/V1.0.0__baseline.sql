@@ -8,7 +8,10 @@
 -- and every row the server seeds is in V1.0.1__seed_profile_pictures.sql.
 -- The blocks that brought an older database forward (the guarded hammer ALTER,
 -- Butterfly Flapping's move to Drive) went with them; they are in git history
--- (ccff445 and earlier).
+-- (ccff445 and earlier). Later the same day, for a third fresh deploy, the
+-- pictures gained a third currency (HAMMER) and V1.0.2__new_account_diamonds.sql
+-- (the new-account diamond default of 9, a guarded ALTER) was folded in as
+-- well, so this file is again the only DDL there is.
 --
 -- Flyway naming: V<version>__<description>.sql. Scripts are applied in
 -- ascending version order, so the next change is a NEW file (V1.0.2__….sql)
@@ -31,15 +34,17 @@
 -- database should have, not the steps some older database takes to reach it.
 --
 -- FOR AN EMPTY DATABASE. `CREATE TABLE IF NOT EXISTS` does nothing when the
--- table is already there, so a column declared here will NOT appear on a
--- database that already has the table. A database built by the scripts of
--- go-server/v1.0.0 or older lacks users.missile (v1.3.0 or older, users.hammer
+-- table is already there, so a column, default or CHECK declared here will NOT
+-- reach a database that already has the table. A database built by the scripts
+-- of go-server/v1.0.0 or older lacks users.missile (v1.3.0 or older, users.hammer
 -- too), and booting this build against it fails the first time a player is
--- read; bringing such a database to this shape is a deliberate one-off step
--- run by hand, or a fresh start (ops/DEPLOY.md §8), never something a boot
--- does behind your back. A database built by master's three scripts at c8cd055
--- (the missiles as V1.0.2__missiles.sql) already has this shape, with missile
--- at the end of users, and boots unchanged.
+-- read. A database built by ANY earlier set of scripts — production's included
+-- — keeps profile_pictures_currency_check at ('COIN', 'DIAMOND'), and this
+-- build's seed refuses to boot on it: PostgreSQL checks a row's CHECKs before
+-- ON CONFLICT DO NOTHING looks for the existing row, so the HAMMER rows fail
+-- even where their asset_url is already there. Bringing such a database to this
+-- shape is a deliberate one-off step run by hand, or a fresh start
+-- (ops/DEPLOY.md §8), never something a boot does behind your back.
 --
 -- THIS FILE IS DDL ONLY — tables, constraints, indexes, functions, triggers.
 -- Data lives in its own script (V1.0.1__seed_profile_pictures.sql). Keeping
@@ -69,8 +74,8 @@
 -- ---------------------------------------------------------------- pictures
 
 -- The profile-picture catalogue (requirements 20 and 21). One row per picture
--- the game offers: a FREE row is worn by anyone, a PREMIUM row costs chips or
--- diamonds a player has to spend before they may wear it.
+-- the game offers: a FREE row is worn by anyone, a PREMIUM row costs chips,
+-- diamonds or hammers a player has to spend before they may wear it.
 --
 -- asset_url is whatever a client can LOAD. That is a hosted URL for the art
 -- the game ships with today; a server-relative path into PUBLIC_DIR
@@ -96,13 +101,17 @@ CREATE TABLE IF NOT EXISTS profile_pictures (
   type       TEXT    NOT NULL CHECK (type IN ('FREE', 'PREMIUM')),
   -- What it costs, in the wallet `currency` names. A chip price is paid through
   -- chip_ledger like every other chip movement, so SUM(delta) = users.chips
-  -- still reconciles after a purchase.
+  -- still reconciles after a purchase. A diamond or hammer price is taken
+  -- straight off its column, with the ownership row as its receipt.
   cost       BIGINT  NOT NULL DEFAULT 0 CHECK (cost >= 0),
-  -- Which wallet cost is paid from: COIN (chips, the default) or DIAMOND
-  -- (users.diamond). Meaningless on a FREE row — nothing is charged — and
-  -- the default keeps hand-inserted rows on the chips path.
+  -- Which wallet cost is paid from: COIN (chips, the default), DIAMOND
+  -- (users.diamond) or HAMMER (users.hammer, owner 14 Sep 2026 — the same
+  -- hammers a Force Sideshow spends, but a picture writes no hammer_spends
+  -- row). Only a COIN price is chips, so only a COIN picture is refused to a
+  -- seated player. Meaningless on a FREE row — nothing is charged — and the
+  -- default keeps hand-inserted rows on the chips path.
   currency   TEXT    NOT NULL DEFAULT 'COIN'
-             CHECK (currency IN ('COIN', 'DIAMOND')),
+             CHECK (currency IN ('COIN', 'DIAMOND', 'HAMMER')),
   -- How long a purchase of this picture lasts, in DAYS. 0 means for ever,
   -- which is what every free picture is and what a premium one is until
   -- somebody prices it as a rental.
@@ -150,15 +159,18 @@ CREATE TABLE IF NOT EXISTS users (
   -- The wallet. Every change goes through a transaction that locks this row,
   -- and the CHECK is the last line of defence against an overdraft.
   chips             BIGINT NOT NULL DEFAULT 0 CHECK (chips >= 0),
-  -- Premium soft currency. Starts at 2 (owner, 14 Sep 2026; it was 1) so a
-  -- fresh account can taste the diamond shelf. NOT chip_ledger's business: the
+  -- Premium soft currency. Starts at 9 (owner, 14 Sep 2026; it was 2, and 1
+  -- before that), which with the 20 hammers and 1 missile below and the
+  -- WELCOME_CHIPS grant is the whole welcome. NOT chip_ledger's business: the
   -- ledger backs the chips invariant (SUM(delta) == chips), and diamonds are
   -- not chips.
-  diamond           INTEGER NOT NULL DEFAULT 2 CHECK (diamond >= 0),
+  diamond           INTEGER NOT NULL DEFAULT 9 CHECK (diamond >= 0),
   -- The currency a Force Sideshow is paid in, one hammer each (owner, 13 Sep
-  -- 2026). Every account starts with 20, and more are sold on Google Play in
-  -- packs (internal/purchase/catalogue.go). Like diamonds, never chip_ledger's
-  -- business: hammer_purchases and hammer_spends below are its receipts.
+  -- 2026), and since 14 Sep 2026 what the animated pictures are priced in.
+  -- Every account starts with 20, and more are sold on Google Play in packs
+  -- (internal/purchase/catalogue.go). Like diamonds, never chip_ledger's
+  -- business: hammer_purchases and hammer_spends below are its receipts, and a
+  -- picture's is its user_profile_pictures row.
   hammer            INTEGER NOT NULL DEFAULT 20 CHECK (hammer >= 0),
   -- What a missile costs, one each (owner, 14 Sep 2026): every account starts
   -- with 1, and more are traded for diamonds in the missile store's packs (POST

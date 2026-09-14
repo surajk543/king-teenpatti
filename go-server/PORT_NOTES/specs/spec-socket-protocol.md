@@ -183,7 +183,7 @@ Produced by `publicUser(row)` from a `users` row. Key order and types (MUST MATC
   "avatarChoice": "<avatar_choice>" | null,
   "chips": <integer>,                              // BIGINT parsed to a JS number
   "diamond": <integer>,                            // Go only: users.diamond, the premium currency
-  "hammer": <integer>,                             // Go only (owner, 13 Sep 2026): users.hammer, what a Force Sideshow costs (§6.1.1); 20 per account
+  "hammer": <integer>,                             // Go only (owner, 13 Sep 2026): users.hammer, what a Force Sideshow costs (§6.1.1) and the animated pictures are priced in; 20 per account
   "missile": <integer>,                            // Go only (owner, 14 Sep 2026): users.missile, what a missile costs (§6.1.2); 1 per new account
   "handsPlayed": <integer>,
   "handsWon": <integer>,
@@ -211,7 +211,14 @@ Go today (`internal/db/users.go` `User`): `diamond`, `hammer` and `missile` foll
 and `activePictureId` stands where `avatarChoice` was. `hammer` is the count as of that read; a Force
 Sideshow's ack carries the count left after it (§6.1.1). `missile` likewise: a missile's ack carries
 the count left (§6.1.2), and `POST /api/store/missiles` (diamonds → missiles) answers with the whole
-user. New accounts start with 9 diamonds and 1 missile. A premium package bought on Play
+user. New accounts start with 9 diamonds, 20 hammers and 1 missile. A catalogue picture
+(`GET /api/profiles`) is priced in the wallet its `currency` names — `COIN` (chips), `DIAMOND` or
+`HAMMER` (owner, 14 Sep 2026; the seed prices its 20 animated pictures in hammers) — with `cost` in
+that currency; `POST /api/profile/picture/buy` takes a `DIAMOND` or `HAMMER` price off `diamond` or
+`hammer` (no `chip_ledger` row, and a hammer picture no `hammer_spends` row), sells it at a table too,
+and answers `{user, picture, charged, spent}` with `spent` in that currency. A shortage of any of the
+three is `409 picture_chips`; a hammer one says "You need N hammers to unlock this picture." ("1
+hammer" at a price of one). A premium package bought on Play
 (`POST /api/purchases/google`, owner 14 Sep 2026) adds to `chips`, `missile` and `hammer` at once, and
 its answer `{credited, chips, diamonds, hammers, missiles, balance, user}` carries the whole user
 (DECISIONS.md §5).
@@ -1235,7 +1242,7 @@ guests (`POST /api/auth/login {provider:'guest', deviceId, displayName}`).
 |---|---|
 | `internal/game/missile_test.go` | every hand still in is shown and the best is paid, in the order `action, showdown, handEnded`, with the ack `{action, missiles}`; `nextHandAt` and the countdown carry `MISSILE_REVEAL_EXTRA_MS` and the next countdown is ordinary; a tie goes against the firer whoever deals; blind players may fire; `too_few_players`, `not_your_turn`, `not_in_hand`, `no_hand` and `sideshow_pending` spend nothing; `no_missiles` and `persist_failed` leave the snapshot byte-identical; a retry after a lost answer is not charged, and the same id in the next hand is; `canMissile` is true exactly when a missile would be let through; a snapshot round trip keeps the reveal countdown |
 | `internal/socket/missile_test.go` | guard, `unknown_action` for `Missile`, `no_missiles` acked and emitted as `game:error`, an ack of exactly three keys, the three events in order to every player, `nextHandAt` and the deal keeping to it, the move and hand metrics |
-| `internal/db/missiles_test.go` | a spend charged once per key and never below zero; a trade debits diamonds and credits missiles once per requestId (racing requests included); a short wallet is refused and recorded nowhere; a new account holds 2 diamonds and 1 missile; V1.0.2 on a V1.0.0 + V1.0.1 database gives existing accounts 0 missiles |
+| `internal/db/missiles_test.go` | a spend charged once per key and never below zero; a trade debits diamonds and credits missiles once per requestId (racing requests included); a short wallet is refused and recorded nowhere; a new account holds 9 diamonds and 1 missile, and a second boot adds no second CHECK |
 | `internal/app/missiles_test.go` | `POST /api/store/missiles` over HTTP (success, replay, `unknown_pack`, `invalid_request_id`, `not_enough_diamonds`, `invalid_json`, seated allowed); a missile through the socket charged to `missile_spends`, with the books balanced |
 
 ### 15.7 Premium packages (Go only, DECISIONS.md §5)
@@ -1246,6 +1253,16 @@ guests (`POST /api/auth/login {provider:'guest', deviceId, displayName}`).
 | `internal/db/purchase_premium_test.go` | one `purchase` ledger row, `users.missile` and `users.hammer` credited in the same transaction, once; a replay or the same token from another account moves none of the three; no soft-pack guard rows; the books reconcile; chip, hammer and diamond packs fill only their own wallet; a premium package is refused by the hammer and diamond credits |
 | `internal/app/premium_test.go` | through `playStore` with a fake Play: the outcome's chips, missiles, hammers and user; the chips topped up on a seated buyer's live seat once and a replay reaching neither the wallets nor the seat; a lobby purchase seats nobody |
 | `internal/auth/purchase_premium_test.go` | the answer's seven keys and figures, the user holding the package, `chips purchased` logged with `missiles` and `hammers`, a replay `credited:false` and not logged |
+
+### 15.8 Pictures priced in hammers (Go only, DECISIONS.md §5)
+
+| Test | Assertion |
+|---|---|
+| `internal/db/users_test.go` | the seed: 35 pictures, 15 COIN and 20 HAMMER at the owner's figures; a hammer picture paid from `users.hammer` alone — chips, `chip_ledger`, diamonds and `hammer_spends` untouched — with its rental row, `charged:false` while it runs, worn, and a lapsed rental bought afresh; a short hammer wallet refused with its price, in the lobby and at a table, nothing moved; at a table hammer and diamond pictures sell and a coin one does not; the diamond path on a row the test prices itself |
+| `internal/db/db_test.go` | exactly two scripts; the baseline carries the three-currency CHECK and the defaults diamond 9, hammer 20, missile 1 |
+| `internal/auth/http_test.go` | `TestBuyingAHammerPicture`: the four-key answer with `spent` in hammers, a replay, 409 `picture_chips` "You need 30 hammers to unlock this picture." (and the singular), a seated buy and wear |
+| `internal/app/hammerpictures_test.go` | on the real wiring: `GET /api/profiles` lists HAMMER, a lobby buy, a replay, the shortage 409, and at a table a coin picture 409 `seated` while a hammer picture sells and is worn on the seat, no chips moved |
+| `tools/parity/rest.test.js` | the same over HTTP against the built binary; the diamond picture test prices a row of its own |
 
 ---
 

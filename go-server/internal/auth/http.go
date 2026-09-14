@@ -31,7 +31,8 @@ type PictureStore interface {
 	List(ctx context.Context, userID string) ([]db.Picture, error)
 	Find(ctx context.Context, userID string, id int64) (db.Picture, bool, error)
 	Buy(ctx context.Context, userID string, id int64) (*db.PicturePurchase, error)
-	// BuyAtTable is Buy for a seated player: diamonds only (db.ErrPictureAtTable).
+	// BuyAtTable is Buy for a seated player: diamonds or hammers only
+	// (db.ErrPictureAtTable).
 	BuyAtTable(ctx context.Context, userID string, id int64) (*db.PicturePurchase, error)
 	// ExpireLapsed takes off a picture whose rental has run out, at login.
 	ExpireLapsed(ctx context.Context, userID string) (bool, error)
@@ -445,9 +446,15 @@ const (
 	MsgPictureChips       = "You do not have enough chips for that picture."
 	MsgPictureDiamonds    = "You do not have enough diamonds for that picture."
 	MsgSeatedPicture      = "You can only buy a chip-priced picture in the lobby."
-	MsgMissileStoreClosed = "The missile store is not open yet."
-	MsgUnknownMissilePack = "That missile pack does not exist"
-	MsgInvalidRequestID   = "A missile trade needs a request id of 1 to 64 characters"
+	// A hammer shortage names the price (PictureHammersMessage): the singular
+	// for a picture that costs one hammer, the format for any other price.
+	// MsgPictureHammers is what is said when the refusal carries no price.
+	MsgPictureHammer        = "You need 1 hammer to unlock this picture."
+	MsgPictureHammersFormat = "You need %d hammers to unlock this picture."
+	MsgPictureHammers       = "You do not have enough hammers for that picture."
+	MsgMissileStoreClosed   = "The missile store is not open yet."
+	MsgUnknownMissilePack   = "That missile pack does not exist"
+	MsgInvalidRequestID     = "A missile trade needs a request id of 1 to 64 characters"
 	// MsgNotEnoughDiamondsFormat is fmt.Sprintf'd with the pack's diamonds.
 	// It is always plural: the cheapest pack in db.MissilePacks costs 10
 	// diamonds, so none costs a single diamond.

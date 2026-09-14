@@ -578,20 +578,43 @@ func TestBuyingAPremiumPictureMovesChipsThroughTheLedgerExactlyOnce(t *testing.T
 	}
 }
 
-// diamondPicture returns the seeded DIAMOND-priced row, looked up by currency
-// for the same reason premiumPicture looks up by type.
+// diamondPicture adds a DIAMOND-priced row of its own — a 1-diamond LOTTIE on
+// a 100-day rental — and returns it. Since 14 Sep 2026 the seeded catalogue
+// prices nothing in diamonds (its animated pictures moved to hammers), but the
+// diamond path is still live: any row can be priced in diamonds with an UPDATE,
+// so it keeps its tests. Sorted after the whole seed, so pictureOfType still
+// finds a seeded row first.
 func diamondPicture(t *testing.T, f *fixture) db.Picture {
+	t.Helper()
+	var id int64
+	if err := f.d.Pool.QueryRow(f.ctx,
+		`INSERT INTO profile_pictures (name, asset_url, asset_format, currency, type, cost, duration_days, sort_order, created_at, updated_at)
+		 VALUES ('Test Gem', $1, 'LOTTIE', 'DIAMOND', 'PREMIUM', 1, 100, 10000, 0, 0) RETURNING id`,
+		"/profiles/test-gem-"+randomSuffix(t)+".json").Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	pic, _, err := f.pictures.Find(f.ctx, "", id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return pic
+}
+
+// hammerPicture returns the first HAMMER-priced row the seeded catalogue lists
+// (Orange Ballerina, 10 hammers for 100 days), looked up by currency for the
+// same reason premiumPicture looks up by type.
+func hammerPicture(t *testing.T, f *fixture) db.Picture {
 	t.Helper()
 	all, err := f.pictures.List(f.ctx, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, p := range all {
-		if p.Currency == db.PictureCurrencyDiamond {
+		if p.Currency == db.PictureCurrencyHammer {
 			return p
 		}
 	}
-	t.Fatal("no DIAMOND picture in the seeded catalogue")
+	t.Fatal("no HAMMER picture in the seeded catalogue")
 	return db.Picture{}
 }
 
@@ -608,13 +631,14 @@ func TestADiamondPictureIsPaidInDiamondsAndTheWalletsStayApart(t *testing.T) {
 		return f.scalar(`SELECT diamond FROM users WHERE id = $1`, id)
 	}
 
-	// Every account starts with nine diamonds (V1.0.2__new_account_diamonds.sql;
-	// two, and one before that, earlier), and the seeded diamond picture costs one.
+	// Every account starts with nine diamonds (the baseline's users.diamond
+	// default; two, and one before that, earlier), and this diamond picture
+	// costs one.
 	if user.Diamond != 9 || diamonds(user.ID) != 9 {
 		t.Fatalf("a new account holds %d diamonds (wire %d), want 9", diamonds(user.ID), user.Diamond)
 	}
-	if pic.Type != db.PicturePremium || pic.AssetFormat != "LOTTIE" || pic.Cost != 1 || pic.DurationDays != 100 {
-		t.Fatalf("seeded diamond picture = %+v, want a PREMIUM LOTTIE at 1 diamond for 100 days", pic)
+	if pic.Type != db.PicturePremium || pic.AssetFormat != "LOTTIE" || pic.Currency != db.PictureCurrencyDiamond || pic.Cost != 1 || pic.DurationDays != 100 {
+		t.Fatalf("diamond picture = %+v, want a PREMIUM LOTTIE at 1 diamond for 100 days", pic)
 	}
 
 	chipsBefore := f.chips(user.ID)
@@ -689,15 +713,18 @@ func TestADiamondPictureIsPaidInDiamondsAndTheWalletsStayApart(t *testing.T) {
 }
 
 // A seated player buys through BuyAtTable (owner, 13 Sep 2026): a diamond
-// picture sells as in the lobby, while a chip-priced one is refused inside the
-// transaction and nothing moves — a seated wallet's chips change only at the
-// hand checkpoints.
-func TestAtTheTableOnlyDiamondsBuyAPicture(t *testing.T) {
+// picture — and, since 14 Sep 2026, a hammer one — sells as in the lobby, while
+// a chip-priced one is refused inside the transaction and nothing moves — a
+// seated wallet's chips change only at the hand checkpoints.
+func TestAtTheTableDiamondsAndHammersBuyAPictureButChipsDoNot(t *testing.T) {
 	f := newFixture(t)
 	user := newGuest(t, f)
 	chips := f.chips(user.ID)
 
 	coin := premiumPicture(t, f)
+	if coin.Currency != db.PictureCurrencyCoin {
+		t.Fatalf("premiumPicture returned a %s row", coin.Currency)
+	}
 	if _, err := f.pictures.BuyAtTable(f.ctx, user.ID, coin.ID); !errors.Is(err, db.ErrPictureAtTable) {
 		t.Fatalf("a chip-priced picture at the table: err = %v, want ErrPictureAtTable", err)
 	}
@@ -716,7 +743,219 @@ func TestAtTheTableOnlyDiamondsBuyAPicture(t *testing.T) {
 	if !bought.Charged || bought.Spent != gem.Cost || f.chips(user.ID) != chips {
 		t.Fatalf("a diamond picture at the table: %+v, chips %d -> %d", bought, chips, f.chips(user.ID))
 	}
+
+	hammer := hammerPicture(t, f)
+	hammers := f.hammersOf(user.ID)
+	bought, err = f.pictures.BuyAtTable(f.ctx, user.ID, hammer.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bought.Charged || bought.Spent != hammer.Cost || !bought.Picture.Owned ||
+		f.chips(user.ID) != chips || f.hammersOf(user.ID) != hammers-hammer.Cost {
+		t.Fatalf("a hammer picture at the table: %+v, chips %d -> %d, hammers %d -> %d",
+			bought, chips, f.chips(user.ID), hammers, f.hammersOf(user.ID))
+	}
 	f.reconcile()
+}
+
+// A HAMMER-priced picture (owner, 14 Sep 2026) is paid from users.hammer and
+// from nothing else: the chips, chip_ledger and the diamonds stay as they were,
+// and it writes no hammer_spends row — that table is one row per Force
+// Sideshow. Its receipt is the ownership row, a rental on the row's term, as a
+// diamond picture's is; buying it again while it runs costs nothing, it is worn
+// like any other picture, and once it has run out it is bought, and paid for,
+// afresh.
+func TestAHammerPictureIsPaidInHammersAndTheOtherWalletsStayAsTheyWere(t *testing.T) {
+	f := newFixture(t)
+	user := newGuest(t, f)
+	pic := hammerPicture(t, f)
+	if pic.Type != db.PicturePremium || pic.AssetFormat != "LOTTIE" || pic.Cost != 10 || pic.DurationDays != 100 {
+		t.Fatalf("seeded hammer picture = %+v, want a PREMIUM LOTTIE at 10 hammers for 100 days", pic)
+	}
+	if user.Hammer != 20 || f.hammersOf(user.ID) != 20 {
+		t.Fatalf("a new account holds %d hammers (wire %d), want 20", f.hammersOf(user.ID), user.Hammer)
+	}
+
+	chips, diamonds := f.chips(user.ID), f.diamondsOf(user.ID)
+	ledgerRows := f.count(`SELECT COUNT(*) FROM chip_ledger WHERE user_id = $1`, user.ID)
+	untouched := func(when string) {
+		t.Helper()
+		if got := f.chips(user.ID); got != chips {
+			t.Fatalf("%s: chips %d -> %d", when, chips, got)
+		}
+		if got := f.diamondsOf(user.ID); got != diamonds {
+			t.Fatalf("%s: diamonds %d -> %d", when, diamonds, got)
+		}
+		if got := f.count(`SELECT COUNT(*) FROM chip_ledger WHERE user_id = $1`, user.ID); got != ledgerRows {
+			t.Fatalf("%s: chip_ledger rows %d -> %d", when, ledgerRows, got)
+		}
+		if got := f.count(`SELECT COUNT(*) FROM hammer_spends WHERE user_id = $1`, user.ID); got != 0 {
+			t.Fatalf("%s: a picture wrote %d hammer_spends row(s)", when, got)
+		}
+		f.reconcile()
+	}
+
+	bought, err := f.pictures.Buy(f.ctx, user.ID, pic.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bought.Charged || bought.Spent != 10 || !bought.Picture.Owned || bought.Picture.Currency != db.PictureCurrencyHammer || bought.Balance != chips {
+		t.Fatalf("purchase = %+v, want a 10-hammer charge leaving the chip balance at %d", bought, chips)
+	}
+	if got := f.hammersOf(user.ID); got != 10 {
+		t.Fatalf("hammers after the purchase = %d, want 10", got)
+	}
+	if bought.User == nil || bought.User.Hammer != 10 || bought.User.Chips != chips || bought.User.Diamond != int(diamonds) {
+		t.Fatalf("the response user does not show the purchase: %+v", bought.User)
+	}
+	untouched("after the purchase")
+
+	// The rental is the row's term, stamped at the moment of purchase.
+	span := f.scalar(`SELECT expires_at - acquired_at FROM user_profile_pictures
+	                   WHERE user_id = $1 AND profile_picture_id = $2`, user.ID, pic.ID)
+	if span != int64(pic.DurationDays)*db.DayMs || bought.Picture.ExpiresAt == 0 {
+		t.Fatalf("rental spans %d ms (expiresAt %d), want %d days", span, bought.Picture.ExpiresAt, pic.DurationDays)
+	}
+
+	// Buying it again while it runs is success with nothing charged.
+	again, err := f.pictures.Buy(f.ctx, user.ID, pic.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.Charged || again.Spent != 0 || f.hammersOf(user.ID) != 10 {
+		t.Fatalf("a second buy charged: %+v, hammers %d", again, f.hammersOf(user.ID))
+	}
+
+	// Worn like any other picture.
+	worn, err := f.users.SetActivePicture(f.ctx, user.ID, &pic.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if worn.AvatarURL == nil || *worn.AvatarURL != pic.URL {
+		t.Fatalf("avatarUrl = %v, want %s", worn.AvatarURL, pic.URL)
+	}
+
+	// The term runs out: the sweep takes it off, and buying it again is a fresh
+	// purchase at the full price, on a fresh term.
+	if _, err := f.d.Pool.Exec(f.ctx,
+		`UPDATE user_profile_pictures SET expires_at = 1 WHERE user_id = $1 AND profile_picture_id = $2`, user.ID, pic.ID); err != nil {
+		t.Fatal(err)
+	}
+	if swept, err := f.pictures.ExpireLapsed(f.ctx, user.ID); err != nil || !swept {
+		t.Fatalf("the sweep did not take the lapsed hammer picture off: %v %v", swept, err)
+	}
+	renewed, err := f.pictures.Buy(f.ctx, user.ID, pic.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !renewed.Charged || renewed.Spent != 10 || f.hammersOf(user.ID) != 0 || renewed.Picture.ExpiresAt <= 1 {
+		t.Fatalf("a lapsed rental renewed as %+v, hammers %d; want a fresh 10-hammer charge", renewed, f.hammersOf(user.ID))
+	}
+	if n := f.scalar(`SELECT purchases FROM user_profile_pictures WHERE user_id = $1 AND profile_picture_id = $2`, user.ID, pic.ID); n != 2 {
+		t.Fatalf("purchases = %d after a renewal, want 2", n)
+	}
+	untouched("after the renewal")
+}
+
+// A hammer wallet short of the price refuses the picture with
+// ErrPictureHammers — carrying the price, for the message — whatever the chips
+// and diamonds say, in the lobby and at a table alike, and nothing moves: no
+// wallet, no ownership row, no ledger row, no hammer_spends row.
+func TestAShortHammerWalletIsRefusedAndNothingMoves(t *testing.T) {
+	f := newFixture(t)
+	user := newGuest(t, f)
+	pic := hammerPicture(t, f)
+	if _, err := f.d.Pool.Exec(f.ctx, `UPDATE users SET hammer = $2 WHERE id = $1`, user.ID, pic.Cost-1); err != nil {
+		t.Fatal(err)
+	}
+	chips, diamonds := f.chips(user.ID), f.diamondsOf(user.ID)
+
+	refused := func(where string, err error) {
+		t.Helper()
+		if !errors.Is(err, db.ErrPictureHammers) || errors.Is(err, db.ErrPictureChips) || errors.Is(err, db.ErrPictureDiamonds) {
+			t.Fatalf("%s: err = %v, want ErrPictureHammers alone", where, err)
+		}
+		var short *db.PictureHammerShortage
+		if !errors.As(err, &short) || short.Cost != pic.Cost {
+			t.Fatalf("%s: the refusal does not carry the price %d: %#v", where, pic.Cost, err)
+		}
+	}
+	_, err := f.pictures.Buy(f.ctx, user.ID, pic.ID)
+	refused("in the lobby", err)
+	_, err = f.pictures.BuyAtTable(f.ctx, user.ID, pic.ID)
+	refused("at a table", err)
+
+	if f.hammersOf(user.ID) != pic.Cost-1 || f.chips(user.ID) != chips || f.diamondsOf(user.ID) != diamonds {
+		t.Fatal("a refused hammer purchase moved a wallet")
+	}
+	for _, q := range []string{
+		`SELECT COUNT(*) FROM user_profile_pictures WHERE user_id = $1`,
+		`SELECT COUNT(*) FROM chip_ledger WHERE user_id = $1 AND reason = 'picture_purchase'`,
+		`SELECT COUNT(*) FROM hammer_spends WHERE user_id = $1`,
+	} {
+		if n := f.count(q, user.ID); n != 0 {
+			t.Fatalf("a refused hammer purchase left %d row(s): %s", n, q)
+		}
+	}
+	f.reconcile()
+
+	// Exactly the price is enough.
+	if _, err := f.d.Pool.Exec(f.ctx, `UPDATE users SET hammer = $2 WHERE id = $1`, user.ID, pic.Cost); err != nil {
+		t.Fatal(err)
+	}
+	if bought, err := f.pictures.Buy(f.ctx, user.ID, pic.ID); err != nil || !bought.Charged || f.hammersOf(user.ID) != 0 {
+		t.Fatalf("a wallet holding exactly the price: %+v %v, hammers %d", bought, err, f.hammersOf(user.ID))
+	}
+}
+
+// The catalogue as the owner seeded it on 14 Sep 2026: the 15 animals priced in
+// chips (two of them free) and the 20 animated pictures priced in hammers at
+// the owner's figures, 35 rows and nothing in diamonds.
+func TestTheSeededCatalogueHas15CoinAnd20HammerPicturesAtTheOwnersPrices(t *testing.T) {
+	f := newFixture(t)
+	all, err := f.pictures.List(f.ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	hammerPrices := map[string]int64{
+		"Orange Ballerina": 10, "Butterfly Flapping": 40, "Toucan Flying": 30, "Live Chatbot": 10,
+		"Paper Plane": 10, "Bouncing Dots": 10, "Monarch Butterfly": 40, "Lovestruck Cat": 50,
+		"Waving Tiger Cub": 50, "Galloping Horse": 10, "Gamer Raccoon": 60, "Cool Cat": 100,
+		"Indian Flag": 100, "Jolly King": 100, "Jolly Queen": 100, "Shooting Game": 80,
+		"Spider": 80, "Swirling Dots": 30, "Sporty Avocado": 90, "Blazing Fire": 1,
+	}
+	if len(all) != 35 {
+		t.Fatalf("the seeded catalogue lists %d pictures, want 35", len(all))
+	}
+	byCurrency := map[string]int{}
+	for _, p := range all {
+		byCurrency[p.Currency]++
+		switch p.Currency {
+		case db.PictureCurrencyCoin:
+			if p.AssetFormat != "IMAGE" {
+				t.Errorf("chip-priced %q is a %s, want one of the IMAGE animals", p.Name, p.AssetFormat)
+			}
+		case db.PictureCurrencyHammer:
+			want, ok := hammerPrices[p.Name]
+			if !ok {
+				t.Errorf("%q is priced in hammers but is not one of the owner's animated pictures", p.Name)
+				continue
+			}
+			delete(hammerPrices, p.Name)
+			if p.Cost != want || p.Type != db.PicturePremium || p.AssetFormat != "LOTTIE" || p.DurationDays != 100 {
+				t.Errorf("%q = %d hammers, %s %s for %d days; want %d hammers, a PREMIUM LOTTIE for 100 days",
+					p.Name, p.Cost, p.Type, p.AssetFormat, p.DurationDays, want)
+			}
+		default:
+			t.Errorf("%q is priced in %s", p.Name, p.Currency)
+		}
+	}
+	if byCurrency[db.PictureCurrencyCoin] != 15 || byCurrency[db.PictureCurrencyHammer] != 20 {
+		t.Errorf("currencies = %v, want 15 COIN and 20 HAMMER", byCurrency)
+	}
+	if len(hammerPrices) != 0 {
+		t.Errorf("missing from the catalogue: %v", hammerPrices)
+	}
 }
 
 func TestAPremiumPictureIsARentalThatRunsOut(t *testing.T) {

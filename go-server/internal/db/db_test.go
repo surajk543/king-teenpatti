@@ -22,12 +22,12 @@ import (
 func TestMigrationsAreVersionedOrderedAndSplitByKind(t *testing.T) {
 	migrations := db.Migrations()
 	// The consolidation of 14 Sep 2026 left one DDL script and one DML script
-	// to build an empty database (the missiles folded into the baseline), and a
-	// third, V1.0.2__new_account_diamonds.sql, followed the same day, after
-	// production had run the first two. The next migration is a new file too,
-	// so update this count with it.
-	if len(migrations) != 3 {
-		t.Fatalf("expected the baseline, the seed and the diamonds default, got %d scripts", len(migrations))
+	// to build an empty database. V1.0.2__new_account_diamonds.sql, added the
+	// same day, was folded back into the baseline with the pictures' HAMMER
+	// currency, for another fresh production start (DEPLOY.md §8). The next
+	// migration is a new file, so update this count with it.
+	if len(migrations) != 2 {
+		t.Fatalf("expected the baseline and the seed, got %d scripts", len(migrations))
 	}
 
 	for i, m := range migrations {
@@ -68,27 +68,15 @@ func TestMigrationsAreVersionedOrderedAndSplitByKind(t *testing.T) {
 	}
 
 	// The missile column and tables are the baseline's too (folded in from
-	// V1.0.2__missiles.sql on 14 Sep 2026).
-	for _, want := range []string{"DEFAULT 1 CHECK (missile >= 0)", "CREATE TABLE IF NOT EXISTS missile_purchases", "CREATE TABLE IF NOT EXISTS missile_spends"} {
+	// V1.0.2__missiles.sql on 14 Sep 2026), as are the new-account diamonds
+	// (from V1.0.2__new_account_diamonds.sql) and the pictures' third currency.
+	for _, want := range []string{
+		"DEFAULT 1 CHECK (missile >= 0)", "CREATE TABLE IF NOT EXISTS missile_purchases", "CREATE TABLE IF NOT EXISTS missile_spends",
+		"DEFAULT 9 CHECK (diamond >= 0)", "DEFAULT 20 CHECK (hammer >= 0)",
+		"CHECK (currency IN ('COIN', 'DIAMOND', 'HAMMER'))",
+	} {
 		if !strings.Contains(baseline, want) {
 			t.Errorf("%s lacks %q", migrations[0].File, want)
-		}
-	}
-	// V1.0.2 is DDL and holds no rows. It is the one script that ALTERs an
-	// existing table, so every ALTER in it must sit inside a catalogue-guarded
-	// DO block — a bare one would fail every boot once users belongs to the
-	// superuser (DEPLOY.md §7).
-	diamonds := migrations[2]
-	if diamonds.File != "V1.0.2__new_account_diamonds.sql" {
-		t.Fatalf("the third script is %s", diamonds.File)
-	}
-	body := statementsOf(diamonds.SQL)
-	if strings.Contains(body, "INSERT INTO") || !strings.Contains(body, "SET DEFAULT 9") {
-		t.Errorf("%s should set the diamond default and hold no rows", diamonds.File)
-	}
-	for _, block := range strings.Split(body, "$$;") {
-		if strings.Contains(block, "ALTER TABLE") && !strings.Contains(block, "IF NOT EXISTS (") {
-			t.Errorf("%s has an ALTER outside a catalogue lookup:\n%s", diamonds.File, block)
 		}
 	}
 	if !strings.Contains(db.SchemaSQL(), "chip_ledger_no_rewrite") {

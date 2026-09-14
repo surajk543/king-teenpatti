@@ -144,6 +144,8 @@ var fakeCatalogue = map[int64]db.Picture{
 	// Diamond-priced, and deliberately not in List's id set: only the buy tests
 	// reach it, so the listing contract above stays exactly four rows.
 	5: {ID: 5, Name: "Ballerina", URL: "/profiles/ballerina.json", AssetFormat: "LOTTIE", Currency: "DIAMOND", Type: db.PicturePremium, Cost: 1, DurationDays: 100, SortOrder: 50},
+	// Hammer-priced (owner, 14 Sep 2026), kept out of List's id set likewise.
+	6: {ID: 6, Name: "Toucan", URL: "/profiles/toucan.json", AssetFormat: "LOTTIE", Currency: "HAMMER", Type: db.PicturePremium, Cost: 30, DurationDays: 100, SortOrder: 60},
 	9: {ID: 9, Name: "Dodo", URL: "/profiles/dodo.svg", Currency: "COIN", AssetFormat: "SVG", Type: db.PicturePremium, Cost: 100, DurationDays: 30, SortOrder: 90},
 }
 
@@ -232,12 +234,18 @@ func (f *fakePictures) Buy(_ context.Context, userID string, id int64) (*db.Pict
 		return &db.PicturePurchase{Picture: pic, Charged: false, Balance: user.Chips, User: user}, nil
 	}
 	// The row's currency names the wallet, as it does in the real store.
-	if pic.Currency == db.PictureCurrencyDiamond {
+	switch pic.Currency {
+	case db.PictureCurrencyDiamond:
 		if int64(user.Diamond) < pic.Cost {
 			return nil, db.ErrPictureDiamonds
 		}
 		user.Diamond -= int(pic.Cost)
-	} else {
+	case db.PictureCurrencyHammer:
+		if int64(user.Hammer) < pic.Cost {
+			return nil, &db.PictureHammerShortage{Cost: pic.Cost}
+		}
+		user.Hammer -= int(pic.Cost)
+	default:
 		if user.Chips < pic.Cost {
 			return nil, db.ErrPictureChips
 		}
@@ -258,7 +266,7 @@ func (f *fakePictures) BuyAtTable(ctx context.Context, userID string, id int64) 
 		return nil, f.failWith
 	}
 	pic, ok := fakeCatalogue[id]
-	if ok && !f.retired[id] && !pic.Free() && !f.owned[userID][id] && pic.Currency != db.PictureCurrencyDiamond {
+	if ok && !f.retired[id] && !pic.Free() && !f.owned[userID][id] && pic.PaidInChips() {
 		return nil, db.ErrPictureAtTable
 	}
 	return f.Buy(ctx, userID, id)
@@ -931,6 +939,67 @@ func TestBuyingADiamondPicture(t *testing.T) {
 	res = h.do(http.MethodPost, "/api/profile/picture/buy", map[string]any{"pictureId": 5}, bearer(seatedToken)...)
 	if res.status != 200 || res.body["charged"] != true {
 		t.Errorf("a seated diamond buy: %d %s", res.status, res.raw)
+	}
+}
+
+// A HAMMER row is paid from the hammer wallet (owner, 14 Sep 2026): chips and
+// diamonds never move, the answer's spent is in hammers, a shortage is the same
+// 409 code with a message naming the price, and at a table it sells — and is
+// worn — as a diamond picture is.
+func TestBuyingAHammerPicture(t *testing.T) {
+	h := newHarness(t)
+	token, user := h.login("device-hammer-0001", "Hammer")
+	id := user["id"].(string)
+	h.store.users[id].Hammer = 40
+
+	res := h.do(http.MethodPost, "/api/profile/picture/buy", map[string]any{"pictureId": 6}, bearer(token)...)
+	if res.status != 200 || res.body["charged"] != true || res.body["spent"] != float64(30) || len(res.body) != 4 {
+		t.Fatalf("%d %s", res.status, res.raw)
+	}
+	if u := res.body["user"].(map[string]any); u["hammer"] != float64(10) || u["diamond"] != float64(1) || u["chips"] != float64(200000) {
+		t.Errorf("wallets after a hammer buy: %s", res.raw)
+	}
+	if pic := res.body["picture"].(map[string]any); pic["currency"] != "HAMMER" || pic["cost"] != float64(30) || pic["owned"] != true {
+		t.Errorf("picture: %s", res.raw)
+	}
+
+	res = h.do(http.MethodPost, "/api/profile/picture/buy", map[string]any{"pictureId": 6}, bearer(token)...)
+	if res.status != 200 || res.body["charged"] != false || res.body["spent"] != float64(0) || h.store.users[id].Hammer != 10 {
+		t.Errorf("replay: %d %s", res.status, res.raw)
+	}
+
+	skintToken, skint := h.login("device-hammer-0002", "NoHammer")
+	skintID := skint["id"].(string)
+	h.store.users[skintID].Hammer = 29
+	res = h.do(http.MethodPost, "/api/profile/picture/buy", map[string]any{"pictureId": 6}, bearer(skintToken)...)
+	expectError(t, res, 409, CodePictureChips)
+	if res.body["message"] != "You need 30 hammers to unlock this picture." {
+		t.Errorf("message: %s", res.raw)
+	}
+	if u := h.store.users[skintID]; u.Hammer != 29 || u.Chips != 200000 || u.Diamond != 1 {
+		t.Errorf("a refused hammer purchase moved a wallet: %+v", u)
+	}
+	// The singular for a one-hammer picture, and the words for a refusal that
+	// carries no price.
+	if got := PictureHammersMessage(1); got != "You need 1 hammer to unlock this picture." {
+		t.Errorf("one hammer: %q", got)
+	}
+	if got := pictureHammersRefusal(db.ErrPictureHammers); got != MsgPictureHammers {
+		t.Errorf("no price: %q", got)
+	}
+
+	// At a table hammers buy (no seat holds them), and the picture is worn there.
+	seatedToken, seatedUser := h.login("device-hammer-0003", "SeatedHammer")
+	seatedID := seatedUser["id"].(string)
+	h.store.users[seatedID].Hammer = 30
+	h.seated[seatedID] = true
+	res = h.do(http.MethodPost, "/api/profile/picture/buy", map[string]any{"pictureId": 6}, bearer(seatedToken)...)
+	if res.status != 200 || res.body["charged"] != true || h.store.users[seatedID].Hammer != 0 {
+		t.Errorf("a seated hammer buy: %d %s", res.status, res.raw)
+	}
+	res = h.do(http.MethodPost, "/api/profile/avatar", map[string]any{"avatar": 6}, bearer(seatedToken)...)
+	if res.status != 200 || res.body["user"].(map[string]any)["activePictureId"] != float64(6) {
+		t.Errorf("wearing a hammer picture at a table: %d %s", res.status, res.raw)
 	}
 }
 

@@ -147,7 +147,7 @@ end sees bets that made sense for the cards that turn over.
 
   Only the **FREE** ones, and never a `RIVE` row (`wearableIds`): the app ships
   no Rive runtime yet, so one would show as the default face. A row's
-  `currency` (COIN or DIAMOND) only prices PREMIUM pictures, which are never
+  `currency` (COIN, DIAMOND or HAMMER) only prices PREMIUM pictures, which are never
   taken. The catalogue is rows in `profile_pictures` now, and a
   PREMIUM picture costs chips: a fleet buying its way through it would be two
   hundred accounts quietly draining the chip economy on decoration every

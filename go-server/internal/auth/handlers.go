@@ -509,16 +509,20 @@ func (h *Handler) Avatar(w http.ResponseWriter, r *http.Request, user *db.User) 
 }
 
 // BuyPicture is POST /api/profile/picture/buy {pictureId}: unlocks a premium
-// picture by spending chips on it.
+// picture by spending chips, diamonds or hammers on it — whichever wallet the
+// row's currency names. The answer is {user, picture, charged, spent}, spent
+// in that currency. Every shortage is 409 picture_chips; the message names the
+// wallet that was short, and for hammers the price (PictureHammersMessage).
 //
-// A seated player may buy a DIAMOND picture (owner, 13 Sep 2026) but not a COIN
-// one, and that is a money rule rather than a UI one. A seated player's chips
-// may only move at the three hand checkpoints (CLAUDE.md §5.1) — the live seat
-// holds the authoritative stack mid-hand, and a debit written to `users` behind
-// its back is overwritten by the next checkpoint's delta, handing the picture
-// over for free. Diamonds are no part of that: nothing at a table reads or
-// writes them. The rule is applied inside the purchase transaction
-// (db.Pictures.BuyAtTable) → 409 seated.
+// A seated player may buy a DIAMOND picture (owner, 13 Sep 2026) or a HAMMER
+// one (14 Sep 2026) but not a COIN one, and that is a money rule rather than a
+// UI one. A seated player's chips may only move at the three hand checkpoints
+// (CLAUDE.md §5.1) — the live seat holds the authoritative stack mid-hand, and
+// a debit written to `users` behind its back is overwritten by the next
+// checkpoint's delta, handing the picture over for free. Diamonds and hammers
+// are no part of that: no seat holds either, and a Force Sideshow takes its
+// hammer off users.hammer as a delta, as a picture does. The rule is applied
+// inside the purchase transaction (db.Pictures.BuyAtTable) → 409 seated.
 //
 // In the lobby the purchase runs under the player's seat lock
 // (Deps.WhileUnseated), and that is what makes "in the lobby" true for the
@@ -575,6 +579,11 @@ func (h *Handler) BuyPicture(w http.ResponseWriter, r *http.Request, user *db.Us
 		// wallet that was actually short.
 		WriteJSON(w, http.StatusConflict, ErrorResponse{Error: CodePictureChips, Message: MsgPictureDiamonds})
 		return
+	case errors.Is(err, db.ErrPictureHammers):
+		// The same code once more. Clients decide what to show from the
+		// picture's currency, never from this text.
+		WriteJSON(w, http.StatusConflict, ErrorResponse{Error: CodePictureChips, Message: pictureHammersRefusal(err)})
+		return
 	case err != nil:
 		h.writeError(w, r, err)
 		return
@@ -586,6 +595,26 @@ func (h *Handler) BuyPicture(w http.ResponseWriter, r *http.Request, user *db.Us
 		Charged: bought.Charged,
 		Spent:   bought.Spent,
 	})
+}
+
+// PictureHammersMessage is the refusal for a hammer picture the player cannot
+// afford: "You need 30 hammers to unlock this picture.", or the singular for a
+// price of one.
+func PictureHammersMessage(cost int64) string {
+	if cost == 1 {
+		return MsgPictureHammer
+	}
+	return fmt.Sprintf(MsgPictureHammersFormat, cost)
+}
+
+// pictureHammersRefusal reads the price off a db.PictureHammerShortage, and
+// falls back to a message without one for a refusal that carries none.
+func pictureHammersRefusal(err error) string {
+	var short *db.PictureHammerShortage
+	if errors.As(err, &short) && short.Cost > 0 {
+		return PictureHammersMessage(short.Cost)
+	}
+	return MsgPictureHammers
 }
 
 // TradeMissiles is POST /api/store/missiles {packId, requestId} (owner, 14 Sep

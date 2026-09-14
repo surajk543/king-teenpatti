@@ -269,6 +269,23 @@ psql "$(sed -n 's/^DATABASE_URL=//p' go-server/.env)" -Atc "SET statement_timeou
   -c "UPDATE profile_pictures SET is_active = FALSE WHERE asset_url = '/profiles/butterfly-flapping.json'"   # UPDATE 1 retires the rollback's copy; UPDATE 0 = nothing to retire
 ```
 
+**Hammer-priced pictures under an older build.** Every release before the pictures' `HAMMER`
+currency (14 Sep 2026) knows only `COIN` and `DIAMOND`, and its purchase code treats any row that is
+not `DIAMOND` as chips. Booted on a database this build seeded, it sells the 20 animated pictures in
+the lobby **for chips at their hammer figures** — 1 to 100 chips — through ordinary `picture_purchase`
+ledger rows, and refuses them at a table as chip-priced. No chips are created and the books still
+reconcile, but the animated shelf is all but free while the rollback lasts. Take those rows off sale
+before the rollback's restart and put them back once this build runs again (`UPDATE 20` each time,
+unless some were retired on purpose — then re-activate by id). Retiring leaves every bought rental and
+every worn picture where it is:
+
+```bash
+psql "$(sed -n 's/^DATABASE_URL=//p' go-server/.env)" -Atc "SET statement_timeout = '10s'" \
+  -c "UPDATE profile_pictures SET is_active = FALSE WHERE currency = 'HAMMER'"   # before rolling back
+psql "$(sed -n 's/^DATABASE_URL=//p' go-server/.env)" -Atc "SET statement_timeout = '10s'" \
+  -c "UPDATE profile_pictures SET is_active = TRUE WHERE currency = 'HAMMER'"    # after coming forward again
+```
+
 **Under §7, older tags cannot start.** Once `postgres` owns `users` (§7), every tag up to and
 including `go-server/v1.3.0` fails at boot with `must be owner of table users`, because its baseline
 creates `idx_users_last_login` without the ownership-proof lookup. That is what the owner query at the
@@ -473,36 +490,28 @@ done. This is also why the trigger function is created only when missing rather 
 guarded statement whose work production has not done yet (it builds its schema as the owner first),
 which is exactly why that one-off run as `postgres` comes before the deploy.
 
-**Releases that need that one-off run: the first one carrying `V1.0.2__new_account_diamonds.sql`.**
-The migrations were consolidated on 14 Sep 2026 into one DDL script and one DML script (§8), with
-`users.hammer` and `users.missile` declared in the baseline's `CREATE TABLE users`. `V1.0.2` (the same
-day) is the first script since to change `users`: it moves the `diamond` default to 9, behind a
-catalogue lookup. Where `users` still belongs to `gameplay_app` (the owner query in §5 answers
-`gameplay_app`) nothing needs doing — the first boot runs it. On a database this section has been
-applied to, run it once as `postgres` before that release is deployed, or its boot fails with
-`must be owner of table users`:
-
-```bash
-sudo -u postgres psql gameplay -v ON_ERROR_STOP=1 <<'SQL'
-SET lock_timeout = '5s';
-SET statement_timeout = '30s';
-ALTER TABLE users ALTER COLUMN diamond SET DEFAULT 9;
-SQL
-```
-
-Existing accounts keep their diamonds; accounts created afterwards start with 9. Any later ALTER or
-index on `users` goes behind a catalogue lookup in its script, and is run once as `postgres` here first.
+**Releases that need that one-off run: none today.** The migrations are one DDL script and one DML
+script (§8), and everything they do to `users` — `users.hammer`, `users.missile` and the new-account
+`diamond` default of 9 — is declared in the baseline's `CREATE TABLE users`, which a database started
+over under §8 builds as its owner on the first boot. (For a day a `V1.0.2__new_account_diamonds.sql`
+moved the default with a guarded ALTER that needed this run; it is folded into the baseline now, so
+there is nothing to run for it.) The next script that ALTERs or indexes `users` goes behind a
+catalogue lookup, and is run once as `postgres` here before its release is deployed.
 
 ## 8. Starting production on an empty database
 
-Since 14 Sep 2026 `go-server/internal/db/migration/` holds three scripts:
-`V1.0.0__baseline.sql` (every table, column, index, function and trigger, as consolidated — the
-missile column and tables included), `V1.0.1__seed_profile_pictures.sql` (the 35 catalogue rows) and
-`V1.0.2__new_account_diamonds.sql` (the new-account `diamond` default of 9). They build a database from
-nothing on the first boot, and `V1.0.2` also brings a database the first two built forward in place. Nothing in them brings an older database
-forward: a database built by `go-server/v1.0.0` or older lacks `users.missile` (and one from
-`go-server/v1.3.0` or older, `users.hammer`), so the first release carrying these scripts must start
-on an **empty** `public` schema. That deletes every
+Since 14 Sep 2026 `go-server/internal/db/migration/` holds two scripts: `V1.0.0__baseline.sql`
+(every table, column, check, index, function and trigger, as consolidated — the missile column and
+tables, the new-account `diamond` default of 9 and the pictures' `COIN`/`DIAMOND`/`HAMMER` currency
+check included) and `V1.0.1__seed_profile_pictures.sql` (the 35 catalogue rows: the 15 animals priced
+in chips, the 20 animated pictures in hammers). They build a database from nothing on the first boot.
+Nothing in them brings an older database forward, and no older database boots this build: one built
+by `go-server/v1.0.0` or older lacks `users.missile` (and one from `go-server/v1.3.0` or older,
+`users.hammer`), and every database built before the hammer pictures — **production's included** —
+keeps `profile_pictures_currency_check` at `COIN`/`DIAMOND`, so the seed's first `HAMMER` row fails the
+boot with `violates check constraint "profile_pictures_currency_check"` (PostgreSQL checks a row
+before `ON CONFLICT DO NOTHING` can skip it, so rows already present do not save it). The release
+carrying these scripts must therefore start on an **empty** `public` schema. That deletes every
 account, wallet, ledger row, purchase record and owned picture — players come back as new accounts
 with the welcome chips (3 lakh — production's `.env` sets `WELCOME_CHIPS=300000`), 9 diamonds, 20
 hammers and 1 missile. Take the backup.
