@@ -27,7 +27,7 @@ const _newKeys = <String, List<String>>{
   'storeHammersTitle': [],
   'storeHammersBlurb': [],
   'rewardHammersPurchased': [],
-  'walletSummary': ['{diamonds}', '{hammers}'],
+  'walletSummary': ['{diamonds}', '{hammers}', '{missiles}'],
 };
 
 void main() {
@@ -69,7 +69,10 @@ void main() {
         english.sideshowForcedOn('Ravi', 'Meera'),
         'Ravi forced a sideshow on Meera',
       );
-      expect(english.walletSummary(3, 20), '3 diamonds, 20 hammers');
+      expect(
+        english.walletSummary(3, 20, 4),
+        '3 diamonds, 20 hammers, 4 missiles',
+      );
 
       for (final lang in AppLang.values) {
         final t = Strings(lang);
@@ -78,7 +81,7 @@ void main() {
           t.sideshowForcedByYou('Meera'),
           t.sideshowForcedOnYou('Ravi'),
           t.sideshowForcedOn('Ravi', 'Meera'),
-          t.walletSummary(3, 20),
+          t.walletSummary(3, 20, 4),
         ]) {
           expect(line, isNot(contains('{')), reason: '${lang.code}: $line');
         }

@@ -13,6 +13,7 @@ import '../theme/theme_colors.dart';
 import 'avatar.dart';
 import 'glass_components.dart';
 import 'glass_orb.dart';
+import 'glass_panels.dart';
 import 'picture_shelf.dart';
 import 'poker_chip.dart';
 import 'premium_surface.dart';
@@ -135,6 +136,40 @@ const hammerPacks = <HammerPack>[
   HammerPack(productId: 'hammers_250_2999', rupees: 2999, hammers: 250),
 ];
 
+/// One trade of diamonds for missiles (owner, 14 Sep 2026): 1 diamond buys 2
+/// missiles, and a missile pays for firing one at the table.
+///
+/// Not a Play product. Nothing here costs money: the store spends diamonds the
+/// player already holds through `POST /api/store/missiles`, and the server
+/// holds the packs — these counts are for display, and [packId] is all that is
+/// sent.
+class MissilePack {
+  const MissilePack({
+    required this.packId,
+    required this.diamonds,
+    required this.missiles,
+    this.mark = ShelfMark.none,
+  });
+
+  /// The server's name for the pack.
+  final String packId;
+
+  /// What it costs, in diamonds.
+  final int diamonds;
+
+  /// What it gives.
+  final int missiles;
+  final ShelfMark mark;
+}
+
+/// The missile shelf, cheapest first, at exactly 2 missiles a diamond.
+const missilePacks = <MissilePack>[
+  MissilePack(packId: 'missiles_2', diamonds: 1, missiles: 2),
+  MissilePack(packId: 'missiles_10', diamonds: 5, missiles: 10),
+  MissilePack(packId: 'missiles_20', diamonds: 10, missiles: 20),
+  MissilePack(packId: 'missiles_50', diamonds: 25, missiles: 50),
+];
+
 /// The shelf, in the owner's order. Cheapest first, so scrolling right is
 /// always "more".
 const chipPacks = <ChipPack>[
@@ -218,10 +253,11 @@ double _line(TextScaler scaler, double size, double heightFactor) =>
     (scaler.scale(size) * heightFactor).ceilToDouble();
 
 /// The store's shelves, in the order their keys sit in the header: chip packs,
-/// diamond packs, hammer packs and the picture catalogue. Public so a caller
-/// can open the store on the shelf it is sending the player to — the table's
-/// Force Sideshow key sends a player with no hammers to [hammers].
-enum StoreTab { chips, diamonds, hammers, pictures }
+/// diamond packs, hammer packs, missile trades and the picture catalogue.
+/// Public so a caller can open the store on the shelf it is sending the player
+/// to — the table's Force Sideshow key sends a player with no hammers to
+/// [hammers], and its Missile key one with no missiles to [missiles].
+enum StoreTab { chips, diamonds, hammers, missiles, pictures }
 
 /// The switch between the store's shelves, in the header beside the close key.
 ///
@@ -353,6 +389,7 @@ class _StoreTabs extends StatelessWidget {
       label: t.storeTabDiamonds,
     ),
     (tab: StoreTab.hammers, icon: Icons.hardware, label: t.storeTabHammers),
+    (tab: StoreTab.missiles, icon: missileIcon, label: t.storeTabMissiles),
     animatedOnly
         ? (
             tab: StoreTab.pictures,
@@ -510,6 +547,25 @@ class _ChipStoreState extends State<_ChipStore> {
     super.dispose();
   }
 
+  /// Trades for one missile pack, from its card: asks first, and on the way
+  /// out closes the store (it worked), moves it to the Diamonds shelf (the
+  /// player could not pay), or leaves it as it is.
+  Future<void> _trade(MissilePack pack) async {
+    final outcome = await _tradeMissilePack(context, pack);
+    if (!mounted) return;
+    switch (outcome) {
+      case _TradeOutcome.done:
+        Navigator.pop(context);
+      case _TradeOutcome.toDiamonds:
+        setState(() {
+          _tab = StoreTab.diamonds;
+          _toTop();
+        });
+      case _TradeOutcome.stay:
+        break;
+    }
+  }
+
   Future<void> _loadPrices() async {
     // One query for every shelf: Play answers per product id, and a player
     // flicking between the Chips, Diamonds and Hammers tabs should see prices
@@ -537,6 +593,7 @@ class _ChipStoreState extends State<_ChipStore> {
     final onPictures = tab == StoreTab.pictures;
     final onDiamonds = tab == StoreTab.diamonds;
     final onHammers = tab == StoreTab.hammers;
+    final onMissiles = tab == StoreTab.missiles;
     // The picture being worn, when it is one of the catalogue's, for the
     // Pictures tab's header; null leaves the provider photo or the initial.
     final wornMatches = state.pictures.where(
@@ -580,6 +637,7 @@ class _ChipStoreState extends State<_ChipStore> {
       t.storeBlurb,
       t.storeDiamondsBlurb,
       t.storeHammersBlurb,
+      t.storeMissilesBlurb,
       atTable ? t.storeAnimatedBlurb : t.storePicturesBlurb,
     ]) {
       final painter = TextPainter(
@@ -694,6 +752,12 @@ class _ChipStoreState extends State<_ChipStore> {
                                 size: 22,
                                 color: hammerInkOn(theme.brightness),
                               )
+                            : onMissiles
+                            ? Icon(
+                                missileIcon,
+                                size: 22,
+                                color: missileInkOn(theme.brightness),
+                              )
                             : const PokerChip(colour: AppTheme.gold, size: 22),
                         const SizedBox(width: Space.md),
                         Expanded(
@@ -710,6 +774,8 @@ class _ChipStoreState extends State<_ChipStore> {
                                     ? t.storeDiamondsTitle
                                     : onHammers
                                     ? t.storeHammersTitle
+                                    : onMissiles
+                                    ? t.storeMissilesTitle
                                     : t.storeTitle,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
@@ -727,6 +793,8 @@ class _ChipStoreState extends State<_ChipStore> {
                                     ? t.storeDiamondsBlurb
                                     : onHammers
                                     ? t.storeHammersBlurb
+                                    : onMissiles
+                                    ? t.storeMissilesBlurb
                                     : t.storeBlurb,
                                 maxLines: blurbLines,
                                 overflow: TextOverflow.ellipsis,
@@ -747,7 +815,9 @@ class _ChipStoreState extends State<_ChipStore> {
                         // tab where it had just been landed on the balance.
                         // Here the title gives up the room instead, and the
                         // tabs stay anchored to the close key on every shelf.
-                        if (onPictures || onDiamonds) ...[
+                        // The Missiles shelf is paid for in diamonds, so it
+                        // heads with the diamonds there are to trade.
+                        if (onPictures || onDiamonds || onMissiles) ...[
                           DiamondBalance(count: state.user?.diamond ?? 0),
                           const SizedBox(width: Space.md),
                         ],
@@ -902,6 +972,15 @@ class _ChipStoreState extends State<_ChipStore> {
                                       prices: prices,
                                     ),
                                 ])
+                              : onMissiles
+                              ? packShelf(StoreTab.missiles, [
+                                  for (final (i, p) in missilePacks.indexed)
+                                    _CountPackCard.missiles(
+                                      p,
+                                      index: i,
+                                      onTrade: () => _trade(p),
+                                    ),
+                                ])
                               : Wrap(
                                   spacing: Space.md,
                                   runSpacing: Space.md,
@@ -934,6 +1013,176 @@ class _ChipStoreState extends State<_ChipStore> {
       ),
     );
   }
+}
+
+/// Where the store goes after a missile trade.
+enum _TradeOutcome { done, toDiamonds, stay }
+
+/// Trades diamonds for [pack], asking first (owner, 14 Sep 2026: "Trade 5
+/// diamonds for 10 missiles?").
+///
+/// A player without the diamonds is not asked that — they are offered the
+/// Diamonds shelf, which is the only answer that helps — and neither is one
+/// the server finds short after all. [context] is the store's.
+Future<_TradeOutcome> _tradeMissilePack(
+  BuildContext context,
+  MissilePack pack,
+) async {
+  final state = context.read<GameState>();
+  if ((state.user?.diamond ?? 0) < pack.diamonds) {
+    return await _offerDiamonds(context, pack)
+        ? _TradeOutcome.toDiamonds
+        : _TradeOutcome.stay;
+  }
+
+  final go = await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) => _TradeDialog(pack: pack),
+  );
+  if (go != true || !context.mounted) return _TradeOutcome.stay;
+
+  final result = await state.tradeMissiles(pack.packId);
+  if (!context.mounted) return _TradeOutcome.stay;
+  return switch (result) {
+    MissileTradeResult.traded => _TradeOutcome.done,
+    MissileTradeResult.notEnoughDiamonds =>
+      await _offerDiamonds(context, pack)
+          ? _TradeOutcome.toDiamonds
+          : _TradeOutcome.stay,
+    MissileTradeResult.refused => _TradeOutcome.stay,
+  };
+}
+
+/// The title row of a store dialog: a glyph in its wallet's ink, and the
+/// question.
+Widget _storeDialogTitle(
+  BuildContext context,
+  IconData icon,
+  Color ink,
+  String text,
+) {
+  final theme = Theme.of(context);
+  return Row(
+    children: [
+      Icon(icon, size: 20, color: ink),
+      const SizedBox(width: Space.md),
+      Expanded(
+        child: Text(
+          text,
+          style: AppTheme.label(
+            theme.textTheme.titleMedium ?? const TextStyle(),
+          ),
+        ),
+      ),
+    ],
+  );
+}
+
+List<Widget> _storeDialogActions(
+  BuildContext context, {
+  required String stay,
+  required String go,
+}) => [
+  GlassButton(
+    style: GlassButtonStyle.text,
+    label: stay,
+    onPressed: () => Navigator.pop(context, false),
+  ),
+  GlassButton(
+    style: GlassButtonStyle.primary,
+    label: go,
+    onPressed: () => Navigator.pop(context, true),
+  ),
+];
+
+/// "Trade 5 diamonds for 10 missiles?", with what the player holds of both
+/// under it — as figures beside their glyphs, so no word has to change with
+/// the number.
+class _TradeDialog extends StatelessWidget {
+  const _TradeDialog({required this.pack});
+
+  final MissilePack pack;
+
+  @override
+  Widget build(BuildContext context) {
+    final state = context.watch<GameState>();
+    final t = state.t;
+    final theme = Theme.of(context);
+    final brightness = theme.brightness;
+    final quiet = theme.textTheme.labelLarge?.copyWith(
+      fontWeight: FontWeight.w700,
+      fontFeatures: const [FontFeature.tabularFigures()],
+    );
+
+    Widget holding(IconData icon, Color ink, int count) => Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 16, color: ink),
+        const SizedBox(width: Space.xs),
+        Text('$count', style: quiet?.copyWith(color: ink)),
+      ],
+    );
+
+    return GlassDialog(
+      padding: const EdgeInsets.all(Space.xl),
+      title: _storeDialogTitle(
+        context,
+        missileIcon,
+        missileInkOn(brightness),
+        t.tradeMissilesTitle,
+      ),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(t.tradeMissilesBody(pack.diamonds, pack.missiles)),
+          const SizedBox(height: Space.md),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              holding(
+                Icons.diamond_rounded,
+                diamondInkOn(brightness),
+                state.user?.diamond ?? 0,
+              ),
+              const SizedBox(width: Space.lg),
+              holding(
+                missileIcon,
+                missileInkOn(brightness),
+                state.user?.missile ?? 0,
+              ),
+            ],
+          ),
+        ],
+      ),
+      actions: _storeDialogActions(context, stay: t.cancel, go: t.trade),
+    );
+  }
+}
+
+/// The Diamonds shelf, offered to a player who cannot pay for [pack]. True
+/// when they took the offer.
+Future<bool> _offerDiamonds(BuildContext context, MissilePack pack) async {
+  final t = context.read<GameState>().t;
+  final go = await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) => GlassDialog(
+      padding: const EdgeInsets.all(Space.xl),
+      title: _storeDialogTitle(
+        dialogContext,
+        Icons.diamond_rounded,
+        diamondInkOn(Theme.of(dialogContext).brightness),
+        t.notEnoughDiamondsTitle,
+      ),
+      content: Text(t.notEnoughDiamondsBody(pack.diamonds)),
+      actions: _storeDialogActions(
+        dialogContext,
+        stay: t.cancel,
+        go: t.getDiamonds,
+      ),
+    ),
+  );
+  return go == true;
 }
 
 /// Slides each pack up as the shelf is set out, one stagger apart.
@@ -1257,6 +1506,8 @@ class _CountPackCard extends StatefulWidget {
     required this.unit,
     required this.index,
     required this.prices,
+    this.diamondCost,
+    this.onTrade,
   });
 
   _CountPackCard.diamonds(
@@ -1291,6 +1542,26 @@ class _CountPackCard extends StatefulWidget {
          prices: prices,
        );
 
+  /// A missile trade: priced in diamonds rather than rupees, and tapped
+  /// through [onTrade] rather than Play.
+  _CountPackCard.missiles(
+    MissilePack pack, {
+    required int index,
+    required VoidCallback onTrade,
+  }) : this(
+         productId: pack.packId,
+         rupees: 0,
+         count: pack.missiles,
+         mark: pack.mark,
+         icon: missileIcon,
+         inkOn: missileInkOn,
+         unit: _missilesWord,
+         index: index,
+         prices: const {},
+         diamondCost: pack.diamonds,
+         onTrade: onTrade,
+       );
+
   /// The Play Console product id, which is also the key into [prices].
   final String productId;
 
@@ -1313,12 +1584,20 @@ class _CountPackCard extends StatefulWidget {
   /// falls back to the list price.
   final Map<String, ProductDetails> prices;
 
+  /// What a missile trade costs in diamonds, which the capsule shows in place
+  /// of a price; null for a pack Play sells.
+  final int? diamondCost;
+
+  /// Called instead of Play when the card is tapped: a missile trade.
+  final VoidCallback? onTrade;
+
   @override
   State<_CountPackCard> createState() => _CountPackCardState();
 }
 
 String _diamondsWord(Strings t) => t.storeTabDiamonds;
 String _hammersWord(Strings t) => t.storeTabHammers;
+String _missilesWord(Strings t) => t.storeTabMissiles;
 
 class _CountPackCardState extends State<_CountPackCard> {
   bool _down = false;
@@ -1346,8 +1625,17 @@ class _CountPackCardState extends State<_CountPackCard> {
     );
     final accent = palette.accent;
     final ink = widget.inkOn(theme.brightness);
+    final cost = widget.diamondCost;
+    // This card's trade is with the server: its capsule spins and it takes no
+    // second tap until the answer is in.
+    final busy = cost != null && state.tradingMissiles == widget.productId;
 
     void buy() {
+      final trade = widget.onTrade;
+      if (trade != null) {
+        trade();
+        return;
+      }
       // The same rule as a chip pack: Play is the only thing that takes money,
       // and it is not always there. Say so rather than fail at the sheet.
       final details = prices[widget.productId];
@@ -1409,10 +1697,12 @@ class _CountPackCardState extends State<_CountPackCard> {
                   (f) => f.sound,
                 ),
                 borderRadius: BorderRadius.circular(Radii.lg),
-                onTap: () {
-                  tapHaptic(context);
-                  buy();
-                },
+                onTap: busy
+                    ? null
+                    : () {
+                        tapHaptic(context);
+                        buy();
+                      },
                 onTapDown: (_) => setState(() => _down = true),
                 onTapCancel: () => setState(() => _down = false),
                 onTapUp: (_) => setState(() => _down = false),
@@ -1461,9 +1751,20 @@ class _CountPackCardState extends State<_CountPackCard> {
                       ),
                       const Spacer(),
                       _PriceCapsule(
-                        label:
-                            prices[widget.productId]?.price ??
-                            '₹${_grouped(widget.rupees)}',
+                        // A trade is priced in diamonds: a gem and the count,
+                        // never a rupee sign.
+                        label: cost != null
+                            ? '$cost'
+                            : prices[widget.productId]?.price ??
+                                  '₹${_grouped(widget.rupees)}',
+                        leading: cost == null
+                            ? null
+                            : Icon(
+                                Icons.diamond_rounded,
+                                size: (ctaH * 0.46).clamp(13.0, 17.0),
+                                color: diamondInkOn(theme.brightness),
+                              ),
+                        busy: busy,
                         height: ctaH,
                       ),
                     ],
@@ -1614,10 +1915,21 @@ class _PackFact extends StatelessWidget {
 /// Not a button of its own — the whole card is the target, as a lobby card is
 /// — so it carries no ink response.
 class _PriceCapsule extends StatelessWidget {
-  const _PriceCapsule({required this.label, required this.height});
+  const _PriceCapsule({
+    required this.label,
+    required this.height,
+    this.leading,
+    this.busy = false,
+  });
 
   final String label;
   final double height;
+
+  /// Drawn before the label: the gem on a price in diamonds.
+  final Widget? leading;
+
+  /// A spinner in place of the price, while the purchase is with the server.
+  final bool busy;
 
   @override
   Widget build(BuildContext context) {
@@ -1656,25 +1968,38 @@ class _PriceCapsule extends StatelessWidget {
           ),
         ],
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Flexible(
-            child: Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: AppTheme.money(
-                theme.textTheme.titleSmall!,
-                fontSize: (height * 0.42).clamp(12.0, 16.0),
-                colour: ink,
-              ),
+      child: busy
+          ? SizedBox.square(
+              dimension: height * 0.44,
+              child: CircularProgressIndicator(strokeWidth: 2, color: ink),
+            )
+          : Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (leading != null) ...[
+                  leading!,
+                  const SizedBox(width: Space.xs),
+                ],
+                Flexible(
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTheme.money(
+                      theme.textTheme.titleSmall!,
+                      fontSize: (height * 0.42).clamp(12.0, 16.0),
+                      colour: ink,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: Space.sm),
+                Icon(
+                  Icons.arrow_forward_rounded,
+                  size: height * 0.44,
+                  color: ink,
+                ),
+              ],
             ),
-          ),
-          const SizedBox(width: Space.sm),
-          Icon(Icons.arrow_forward_rounded, size: height * 0.44, color: ink),
-        ],
-      ),
     );
   }
 }

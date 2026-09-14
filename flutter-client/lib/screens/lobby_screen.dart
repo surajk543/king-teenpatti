@@ -460,6 +460,7 @@ class _RewardCelebrationState extends State<_RewardCelebration>
       'purchase' => t.rewardPurchased,
       'diamonds' => t.rewardDiamondsPurchased,
       'hammers' => t.rewardHammersPurchased,
+      'missiles' => t.rewardMissilesTraded,
       _ => t.rewardMilestoneAgain,
     };
     // The ink of the soft wallet that filled, or null for chips — which keep
@@ -467,9 +468,14 @@ class _RewardCelebrationState extends State<_RewardCelebration>
     final softInk = switch (won.kind) {
       'diamonds' => diamondInkOn(theme.brightness),
       'hammers' => hammerInkOn(theme.brightness),
+      'missiles' => missileInkOn(theme.brightness),
       _ => null,
     };
-    final softIcon = won.kind == 'hammers' ? Icons.hardware : Icons.diamond;
+    final softIcon = switch (won.kind) {
+      'hammers' => Icons.hardware,
+      'missiles' => missileIcon,
+      _ => Icons.diamond,
+    };
 
     return Positioned.fill(
       child: GestureDetector(
@@ -813,6 +819,24 @@ class _TopBar extends StatelessWidget {
                                               style: AppTheme.money(
                                                 text.labelMedium!,
                                                 colour: hammerInkOn(brightness),
+                                              ),
+                                            ),
+                                            // Missiles, which fire at the
+                                            // table (owner, 14 Sep 2026).
+                                            const SizedBox(width: Space.md),
+                                            Icon(
+                                              missileIcon,
+                                              size: 13,
+                                              color: missileInkOn(brightness),
+                                            ),
+                                            const SizedBox(width: Space.xxs),
+                                            _CountUp(
+                                              value: user?.missile ?? 0,
+                                              style: AppTheme.money(
+                                                text.labelMedium!,
+                                                colour: missileInkOn(
+                                                  brightness,
+                                                ),
                                               ),
                                             ),
                                           ],

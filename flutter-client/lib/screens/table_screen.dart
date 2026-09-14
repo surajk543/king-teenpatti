@@ -11,6 +11,7 @@ import '../models/dtos.dart';
 import '../settings/feedback_settings.dart';
 import '../state/game_state.dart';
 import '../state/hammer_strike.dart';
+import '../state/missile_strike.dart';
 import '../theme/app_theme.dart';
 import '../widgets/buy_chips.dart';
 import '../widgets/chip_store.dart';
@@ -19,6 +20,7 @@ import '../widgets/feedback_toggles.dart';
 import '../widgets/glass_components.dart';
 import '../widgets/glass_panels.dart';
 import '../widgets/hammer_flight.dart';
+import '../widgets/missile_flight.dart';
 import '../widgets/picture_shelf.dart';
 import '../widgets/playing_card.dart';
 import '../widgets/poker_chip.dart';
@@ -215,11 +217,21 @@ class _TableScreenState extends State<TableScreen> {
           ),
           // Pack sits in the opposite corner from everything else, which is
           // the point: folding is the one action you never want under a thumb
-          // reaching for Chaal.
+          // reaching for Chaal. The Missile key stands on it (owner, 14 Sep
+          // 2026) — the other move that is pressed once and ends the hand,
+          // kept away from the keys pressed every turn.
           const Positioned(
             left: 0,
             bottom: 0,
-            child: SafeArea(child: _WhileOnline(child: _PackKey())),
+            child: SafeArea(
+              child: _WhileOnline(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [_MissileKey(), _PackKey()],
+                ),
+              ),
+            ),
           ),
           const Positioned.fill(child: SafeArea(child: _Reconnecting())),
         ],
@@ -228,8 +240,8 @@ class _TableScreenState extends State<TableScreen> {
   }
 }
 
-/// Diamonds and hammers, in the top-right corner of the room (owner,
-/// 13 Sep 2026).
+/// Diamonds, hammers and missiles, in the top-right corner of the room (owner,
+/// 13 and 14 Sep 2026).
 ///
 /// It stands on the Shop key's line, right-aligned with the key cluster below
 /// it, and is never wider than the corner it has: from the felt's right edge
@@ -247,11 +259,30 @@ class _TableWallet extends StatelessWidget {
   Widget build(BuildContext context) {
     // `select`, not `watch`: the counts change when a hammer is spent or a
     // pack lands, never with the reward ticker. A record compares by value.
-    final (diamonds, hammers, lang) = context
-        .select<GameState, (int, int, AppLang)>(
-          (s) => (s.user?.diamond ?? 0, s.user?.hammer ?? 0, s.lang),
+    final (diamonds, hammers, missiles, lang) = context
+        .select<GameState, (int, int, int, AppLang)>(
+          (s) => (
+            s.user?.diamond ?? 0,
+            s.user?.hammer ?? 0,
+            s.user?.missile ?? 0,
+            s.lang,
+          ),
         );
     final width = MediaQuery.sizeOf(context).width;
+    final room = _tableWalletRoom(context);
+    // Three counts on one line fit a tablet and most phones. Where that line
+    // would have to shrink past [_walletLineScale] to fit the corner — a
+    // 640dp phone — the missiles take a second line under the other two, and
+    // the pill keeps the size two counts had.
+    final stacked =
+        room <
+        WalletPill.rowWidth(
+              context,
+              diamonds: diamonds,
+              hammers: hammers,
+              missiles: missiles,
+            ) *
+            _walletLineScale;
 
     // A row the Shop key's height with the pill in the middle of it, so the
     // two corners share one centre line.
@@ -261,14 +292,18 @@ class _TableWallet extends StatelessWidget {
         height: Dim.minTouch,
         child: Center(
           child: ConstrainedBox(
-            constraints: BoxConstraints(maxWidth: _tableWalletRoom(context)),
+            constraints: BoxConstraints(maxWidth: room),
             child: FittedBox(
               fit: BoxFit.scaleDown,
               alignment: Alignment.centerRight,
               child: WalletPill(
                 diamonds: diamonds,
                 hammers: hammers,
-                semanticsLabel: Strings(lang).walletSummary(diamonds, hammers),
+                missiles: missiles,
+                stacked: stacked,
+                semanticsLabel: Strings(
+                  lang,
+                ).walletSummary(diamonds, hammers, missiles),
               ),
             ),
           ),
@@ -277,6 +312,10 @@ class _TableWallet extends StatelessWidget {
     );
   }
 }
+
+/// The smallest a one-line wallet may be scaled to fit its corner before the
+/// missiles go to a second line.
+const double _walletLineScale = 0.85;
 
 /// How wide the table's wallet may be: from the felt's right edge back to the
 /// top-right seat's pod, less the sixth of a pod its orb spills out of that
@@ -1372,7 +1411,17 @@ class _WhileStillOpenState extends State<_WhileStillOpen> {
     if (!open && !_closing) {
       _closing = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) Navigator.of(context).pop();
+        if (!mounted) return;
+        // Only while this dialog is still the one on top. A dialog already on
+        // its way out — Fire or Cancel tapped a moment before the move was
+        // taken away, which is exactly what firing does, since the answer
+        // ends the hand — has left the navigator's history but is still
+        // mounted for its exit animation, and a pop from here would take the
+        // screen underneath with it: the table went black on the phone that
+        // fired a missile (14 Sep 2026).
+        if (ModalRoute.of(context)?.isCurrent ?? false) {
+          Navigator.of(context).pop();
+        }
       });
     }
     return widget.child;
@@ -1393,6 +1442,84 @@ Future<void> _offerHammers(BuildContext context, GameState state) async {
   );
   if (shop != true || !context.mounted) return;
   await showChipStore(context, opensOn: StoreTab.hammers);
+}
+
+/// A missile, from the key to the server (owner, 14 Sep 2026).
+///
+/// Asked first: a missile ends the hand for everyone still in it, and a tie
+/// goes against the player who fired. A player with no missiles is not asked
+/// that — they are offered the store's Missiles shelf instead. The server has
+/// the last word on both, and when its count turns out to be 0 after all the
+/// same offer follows.
+Future<void> _fireMissile(BuildContext context, GameState state) async {
+  final t = state.t;
+  if (!state.hasMissile) {
+    await _offerMissiles(context, state);
+    return;
+  }
+
+  // Worth asking only while the turn can still fire it: the turn clock keeps
+  // running under the question, as it does under Force Sideshow's.
+  bool stillOpen(GameState s) => s.canMissile;
+  final go = await showDialog<bool>(
+    context: context,
+    builder: (context) {
+      final theme = Theme.of(context);
+      return _WhileStillOpen(
+        open: stillOpen,
+        child: GlassDialog(
+          padding: const EdgeInsets.all(Space.xl),
+          title: _dialogTitle(context, missileIcon, t.fireMissileTitle),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(t.fireMissileBody),
+              const SizedBox(height: Space.sm),
+              Text(
+                t.fireMissileNote,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurface.withValues(
+                    alpha: AppTheme.inkLowOn(theme.brightness),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          actions: _dialogActions(context, stay: t.cancel, go: t.fire),
+        ),
+      );
+    },
+  );
+  if (!context.mounted) return;
+  // Closed because the turn went, or confirmed a moment after it did: nothing
+  // is sent and nothing is spent, and the player is told so. A Cancel is not
+  // answered.
+  if (!stillOpen(state)) {
+    if (go != false) state.say(t.missileTooLate);
+    return;
+  }
+  if (go != true) return;
+  final result = await state.fireMissile();
+  if (result == MissileResult.noMissiles && context.mounted) {
+    await _offerMissiles(context, state);
+  }
+}
+
+/// The store's Missiles shelf, offered to a player whose wallet is empty.
+Future<void> _offerMissiles(BuildContext context, GameState state) async {
+  final t = state.t;
+  final shop = await showDialog<bool>(
+    context: context,
+    builder: (context) => GlassDialog(
+      padding: const EdgeInsets.all(Space.xl),
+      title: _dialogTitle(context, missileIcon, t.noMissilesTitle),
+      content: Text(t.noMissilesBody),
+      actions: _dialogActions(context, stay: t.cancel, go: t.getMissiles),
+    ),
+  );
+  if (shop != true || !context.mounted) return;
+  await showChipStore(context, opensOn: StoreTab.missiles);
 }
 
 /// Gold as *ink*: champagne on charcoal, deep gold on parchment.
@@ -1486,9 +1613,9 @@ class _Felt extends StatefulWidget {
   State<_Felt> createState() => _FeltState();
 }
 
-/// The felt's one piece of state: a Force Sideshow's hammer, and where the
-/// pods it flies between actually stand.
-class _FeltState extends State<_Felt> with SingleTickerProviderStateMixin {
+/// The felt's state: a Force Sideshow's hammer, a missile volley, and where
+/// the pods they fly between actually stand.
+class _FeltState extends State<_Felt> with TickerProviderStateMixin {
   static const _places = _Felt._places;
   static const _potDy = _Felt._potDy;
   static const _statusDy = _Felt._statusDy;
@@ -1525,18 +1652,122 @@ class _FeltState extends State<_Felt> with SingleTickerProviderStateMixin {
   /// measured; null when there is nothing in the air.
   ({Rect from, Rect to, int targetView})? _flight;
 
+  /// A missile volley's clock, 0 to 1 over [MissileTiming.total]. Created by
+  /// the first volley, never in advance and never by [dispose].
+  AnimationController? _missile;
+
+  /// The volley being followed, by [MissileStrike.key].
+  String? _volleyKey;
+
+  /// Where the current volley flies from and to, once the pods have been
+  /// measured; null when there is nothing in the air.
+  ({Rect from, List<({Rect rect, int index})> targets, int count})? _volley;
+
+  /// Each pod the volley hits, by view index, with its jolt's clock.
+  Map<int, Animation<double>> _volleyJolts = const {};
+
+  /// When the missile aimed at the viewer lands, as a share of the volley's
+  /// clock; null when none is, or once its buzz has gone.
+  double? _buzzAt;
+
   @override
   void initState() {
     super.initState();
-    // Parsed while the table opens, so the first hammer is not the thing that
-    // waits for it.
+    // Parsed while the table opens, so the first hammer or missile is not the
+    // thing that waits for it.
     unawaited(HammerArt.load());
+    unawaited(MissileArt.load());
   }
 
   @override
   void dispose() {
     _hammer?.dispose();
+    _missile?.dispose();
     super.dispose();
+  }
+
+  /// Keeps the felt on the volley [GameState] is showing, as [_follow] does
+  /// for the hammer.
+  void _followMissile(MissileStrike? strike) {
+    if (strike?.key == _volleyKey) return;
+    _volleyKey = strike?.key;
+    _volley = null;
+    _volleyJolts = const {};
+    _buzzAt = null;
+    _missile?.stop();
+    if (strike == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) => _launchVolley(strike));
+  }
+
+  void _launchVolley(MissileStrike strike) {
+    if (!mounted || strike.key != _volleyKey) return;
+    final total = MissileTiming.total(strike.count);
+    // The volley's timers began when the event arrived; the frames start where
+    // those timers already are, so the cards turn over as the last one lands.
+    final start =
+        DateTime.now().difference(strike.startedAt).inMicroseconds /
+        total.inMicroseconds;
+    if (start >= 1) return;
+    final stage = _stageKey.currentContext?.findRenderObject();
+    if (stage is! RenderBox || !stage.hasSize) return;
+
+    final state = context.read<GameState>();
+    final seats = state.seatsInViewOrder();
+    int viewOf(String userId) =>
+        seats.indexWhere((seat) => seat?.userId == userId);
+    Rect? podAt(int view) {
+      if (view < 0 || view >= _podKeys.length) return null;
+      final box = _podKeys[view].currentContext?.findRenderObject();
+      if (box is! RenderBox || !box.attached || !box.hasSize) return null;
+      return box.localToGlobal(Offset.zero, ancestor: stage) & box.size;
+    }
+
+    final from = podAt(viewOf(strike.fromUserId));
+    // The firer already gone from the felt: nothing to fire from. The reveal
+    // still waits for the last impact on GameState's timers.
+    if (from == null) return;
+    final targets = <({Rect rect, int index})>[];
+    final views = <int, int>{};
+    for (final (index, userId) in strike.targetUserIds.indexed) {
+      final view = viewOf(userId);
+      final rect = podAt(view);
+      if (rect == null) continue;
+      targets.add((rect: rect, index: index));
+      views[view] = index;
+    }
+    if (targets.isEmpty) return;
+
+    final clock = _missile ??= AnimationController(vsync: this)
+      ..addListener(_buzzIfHit);
+    clock.duration = total;
+    final mine = strike.indexOf(state.user?.id);
+    final buzzAt = mine < 0
+        ? null
+        : MissileTiming.share(MissileTiming.impact(mine), strike.count);
+    setState(() {
+      _volley = (from: from, targets: targets, count: strike.count);
+      _volleyJolts = {
+        for (final MapEntry(key: view, value: index) in views.entries)
+          view: MissileImpactClock(
+            parent: clock,
+            index: index,
+            count: strike.count,
+          ),
+      };
+      // A volley joined after the viewer was already hit does not buzz late.
+      _buzzAt = buzzAt != null && buzzAt > start ? buzzAt : null;
+    });
+    clock.forward(from: start.clamp(0.0, 1.0));
+  }
+
+  /// A light buzz as the missile aimed at the viewer lands, gated on the
+  /// player's Vibration switch like every other haptic in the game.
+  void _buzzIfHit() {
+    final at = _buzzAt;
+    final clock = _missile;
+    if (at == null || clock == null || clock.value < at) return;
+    _buzzAt = null;
+    if (mounted) tapHaptic(context);
   }
 
   /// Keeps the felt on the strike [GameState] is showing: a new one is launched
@@ -1593,6 +1824,7 @@ class _FeltState extends State<_Felt> with SingleTickerProviderStateMixin {
   Widget build(BuildContext context) {
     final state = context.watch<GameState>();
     _follow(state.hammerStrike);
+    _followMissile(state.missileStrike);
 
     final room = state.room;
     if (room == null) return const Center(child: CircularProgressIndicator());
@@ -1638,11 +1870,18 @@ class _FeltState extends State<_Felt> with SingleTickerProviderStateMixin {
     // A hand is on the table until the celebration for it has finished, not
     // just until the server stops dealing — the seats keep their bets and
     // statuses through the winner's moment, and drop them with it.
+    // A missile volley keeps it on the table too: the server has settled the
+    // hand before the missiles land, and the bets and seats stay up until they
+    // have.
     final handLive =
         room.state == TableState.betting ||
         room.state == TableState.showdown ||
+        state.missileStrike != null ||
         state.showdown.isNotEmpty ||
         state.showdownResult.isNotEmpty;
+    // The pot as the felt shows it: the one the missile was fired over until
+    // the missiles have landed.
+    final pot = state.heldPot ?? room.pot;
 
     return Padding(
       padding: EdgeInsets.fromLTRB(pad, Space.xxs, pad, 0),
@@ -1664,13 +1903,10 @@ class _FeltState extends State<_Felt> with SingleTickerProviderStateMixin {
           Widget pod(int viewIndex) {
             final seated = viewIndex < seats.length ? seats[viewIndex] : null;
             // A Force Sideshow's loser has already been packed by the server
-            // when the hammer sets off; their pod folds when it lands.
-            final s =
-                seated != null &&
-                    seated.status == SeatState.packed &&
-                    state.foldHeldFor(seated.userId)
-                ? seated.withStatus(SeatState.active)
-                : seated;
+            // when the hammer sets off; their pod folds when it lands. A
+            // missile's winner and losers are already settled when the volley
+            // sets off; their pods say so when the last one lands.
+            final s = state.seatAsShown(seated);
             // At a showdown the hand is drawn at the seat that played it, so
             // find this seat's reveal and hand it down. The server sends
             // reveals for the players still in the hand; everyone else keeps
@@ -1733,7 +1969,9 @@ class _FeltState extends State<_Felt> with SingleTickerProviderStateMixin {
               // The bottom seat stacks upwards, or its chip runs off the felt.
               reversed: viewIndex == 0,
               podKey: viewIndex < _podKeys.length ? _podKeys[viewIndex] : null,
-              impact: _flight?.targetView == viewIndex ? _hammer : null,
+              impact: _flight?.targetView == viewIndex
+                  ? _hammer
+                  : _volleyJolts[viewIndex],
             );
           }
 
@@ -1828,9 +2066,10 @@ class _FeltState extends State<_Felt> with SingleTickerProviderStateMixin {
               at(
                 const Offset(0.5, _potDy),
                 _PotPulse(
-                  pot: room.pot,
+                  pot: pot,
                   child: _Pot(
                     room: room,
+                    pot: pot,
                     chipSize: (podW * 0.17).clamp(12.0, 20.0),
                   ),
                 ),
@@ -1888,7 +2127,7 @@ class _FeltState extends State<_Felt> with SingleTickerProviderStateMixin {
                       // far end of a landscape screen, and it earns a size the
                       // rim seats' copies do not.
                       SeatBet(
-                        seat: seats[0]!,
+                        seat: state.seatAsShown(seats[0])!,
                         width: podW * 1.22,
                         totalFirst: true,
                       ),
@@ -1959,6 +2198,21 @@ class _FeltState extends State<_Felt> with SingleTickerProviderStateMixin {
                     clock: _hammer!,
                     from: _flight!.from,
                     target: _flight!.to,
+                    podWidth: podW,
+                  ),
+                ),
+
+              // A missile volley: one missile from the firer's pod to every
+              // other pod still in the hand, over everything on the felt — the
+              // viewer's own hand included. Everyone at the table sees it; the
+              // cards come with the showdown, which waits for the last impact.
+              if (_volley != null && _missile != null)
+                Positioned.fill(
+                  child: MissileFlight(
+                    clock: _missile!,
+                    count: _volley!.count,
+                    from: _volley!.from,
+                    targets: _volley!.targets,
                     podWidth: podW,
                   ),
                 ),
@@ -2612,9 +2866,13 @@ class _PotToWinnerState extends State<_PotToWinner>
 
 /// The pot, on a plinth in the middle of the cloth.
 class _Pot extends StatelessWidget {
-  const _Pot({required this.room, required this.chipSize});
+  const _Pot({required this.room, required this.chipSize, required this.pot});
 
   final RoomState room;
+
+  /// The figure to show: the table's pot, or the one a missile was fired over
+  /// while its volley is still in the air.
+  final int pot;
 
   /// The same figure the chips flying in are drawn at, so the pile and the
   /// chips landing on it are the same size.
@@ -2649,14 +2907,14 @@ class _Pot extends StatelessWidget {
             children: [
               // The pile grows as the pot does — a nudge upward each time chips
               // land, so the middle of the table is where the eye goes.
-              _PotChips(pot: room.pot, size: chipSize),
+              _PotChips(pot: pot, size: chipSize),
               const SizedBox(width: Space.sm),
               Flexible(
                 // Chips arriving in the pot is the thing players watch, so the
                 // number travels to its new value instead of jumping. Tabular
                 // figures are what stop it jittering sideways while it counts.
                 child: TweenAnimationBuilder<double>(
-                  tween: Tween(end: room.pot.toDouble()),
+                  tween: Tween(end: pot.toDouble()),
                   duration: const Duration(milliseconds: 550),
                   curve: Motion.standard,
                   builder: (context, value, _) => FittedBox(
@@ -2748,6 +3006,10 @@ class _Status extends StatelessWidget {
   Widget build(BuildContext context) {
     final state = context.watch<GameState>();
     final theme = Theme.of(context);
+
+    // The server has already moved on while a missile volley is in the air;
+    // "Starting game" under it would say so before the missiles land.
+    if (state.missileStrike != null) return const SizedBox.shrink();
 
     final text = switch (room.state) {
       TableState.waiting => '${state.t.waitingForPlayers} (${room.minPlayers})',
@@ -5278,6 +5540,134 @@ class _PackKey extends StatelessWidget {
         alive: canPack,
         edge: theme.colorScheme.error.withValues(alpha: 0.45),
         onPressed: canPack ? state.pack : null,
+      ),
+    );
+  }
+}
+
+/// Missile, standing on the Pack key in the bottom-left corner (owner,
+/// 14 Sep 2026).
+///
+/// Lit on the viewer's turn when the server says a missile is allowed —
+/// `you.canMissile`: three or more still in the hand, blind or seen alike.
+/// Whether the player can PAY is their own count; with no missiles the key is
+/// greyed but still answers a tap, with an offer of the store.
+class _MissileKey extends StatelessWidget {
+  const _MissileKey();
+
+  @override
+  Widget build(BuildContext context) {
+    final state = context.watch<GameState>();
+    final theme = Theme.of(context);
+    final size = MediaQuery.sizeOf(context);
+    final gap = Dim.gap(size.width);
+    final canFire = state.canMissile && !state.firingMissile;
+    final hasMissile = state.hasMissile;
+    final t = state.t;
+
+    return Padding(
+      // Pack's own padding carries the gap between the two keys.
+      padding: EdgeInsets.fromLTRB(Dim.feltPad(size.width), gap, gap, 0),
+      child: Tooltip(
+        message: t.missile,
+        child: _MachinedKey(
+          width: Dim.keyW(size.width),
+          height: Dim.keyH(size.height),
+          glyph: _MissileGlyph(animate: canFire),
+          label: t.missile,
+          edge: missileInkOn(theme.brightness).withValues(alpha: 0.5),
+          alive: canFire && hasMissile,
+          muted: canFire && !hasMissile,
+          onPressed: canFire ? () => _fireMissile(context, state) : null,
+        ),
+      ),
+    );
+  }
+}
+
+/// The Missile key's glyph: `assets/animations/Missile.json`, flying in from
+/// its corner on a loop while the key can be used — the second half of the
+/// file, where the rocket is on its canvas — and resting in the middle of its
+/// box while it cannot. A key that simply stopped would show frame 0, where the rocket
+/// is still off the canvas — an empty key.
+class _MissileGlyph extends StatefulWidget {
+  const _MissileGlyph({required this.animate});
+
+  final bool animate;
+
+  @override
+  State<_MissileGlyph> createState() => _MissileGlyphState();
+}
+
+class _MissileGlyphState extends State<_MissileGlyph>
+    with SingleTickerProviderStateMixin {
+  /// Made in initState, never lazily (CLAUDE.md §12.3).
+  late final AnimationController _controller;
+
+  /// [MissileArt.restFrame] as a share of the file, once it is known.
+  double _rest = 0.95;
+
+  /// [MissileArt.glyphLoopFrom] as a share of the file, and how long the file
+  /// takes to play from there, once it is known.
+  double _loopFrom = 0.5;
+  Duration _loopPeriod = const Duration(seconds: 1);
+  bool _loaded = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(vsync: this, value: _rest);
+  }
+
+  @override
+  void didUpdateWidget(covariant _MissileGlyph old) {
+    super.didUpdateWidget(old);
+    if (old.animate != widget.animate) _apply();
+  }
+
+  void _apply() {
+    if (!_loaded) return;
+    if (widget.animate) {
+      _controller.repeat(min: _loopFrom, max: 1, period: _loopPeriod);
+    } else {
+      _controller
+        ..stop()
+        ..value = _rest;
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return RepaintBoundary(
+      child: SizedBox.square(
+        dimension: 26,
+        child: Lottie.asset(
+          MissileArt.missileAsset,
+          controller: _controller,
+          fit: BoxFit.contain,
+          onLoaded: (composition) {
+            _controller.duration = composition.duration;
+            _rest =
+                ((MissileArt.restFrame - composition.startFrame) /
+                        composition.durationFrames)
+                    .clamp(0.0, 1.0);
+            _loopFrom =
+                ((MissileArt.glyphLoopFrom - composition.startFrame) /
+                        composition.durationFrames)
+                    .clamp(0.0, 1.0);
+            _loopPeriod = composition.duration * (1 - _loopFrom);
+            _loaded = true;
+            _apply();
+          },
+          errorBuilder: (context, error, stack) =>
+              const Icon(missileIcon, size: 18),
+        ),
       ),
     );
   }

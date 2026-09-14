@@ -1,6 +1,7 @@
-// Where the table's two new pieces stand (owner, 13 Sep 2026): the diamonds
-// and hammers pill in the top-right corner, and the Force Sideshow key at the
-// top of the key cluster.
+// Where the table's newer pieces stand (owner, 13 and 14 Sep 2026): the
+// diamonds, hammers and missiles pill in the top-right corner, the Force
+// Sideshow key at the top of the key cluster, and the Missile key on the Pack
+// key in the bottom-left corner.
 //
 // Laid out for real rather than reasoned about: the whole TableScreen is
 // pumped around a full table — five seated players who have all bet, seen
@@ -13,6 +14,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
+import 'package:teenpatti/l10n/strings.dart';
 import 'package:teenpatti/models/dtos.dart';
 import 'package:teenpatti/screens/table_screen.dart';
 import 'package:teenpatti/settings/feedback_settings.dart';
@@ -87,7 +89,8 @@ void main() {
     for (final scale in [1.0, 1.25]) {
       final name = '${screen.width.toInt()}x${screen.height.toInt()}';
       testWidgets(
-        'at $name, text x$scale, the wallet and the force key clear the table',
+        'at $name, text x$scale, the wallet, the force key and the missile '
+        'key clear the table',
         (tester) async {
           tester.view.physicalSize = screen;
           tester.view.devicePixelRatio = 1;
@@ -112,6 +115,7 @@ void main() {
               'chips': 12500000,
               'diamond': 100,
               'hammer': 250,
+              'missile': 50,
             })
             ..room = _fullTable()
             ..screen = Screen.table;
@@ -134,6 +138,8 @@ void main() {
 
           final wallet = tester.getRect(find.byType(WalletPill));
           final force = tester.getRect(find.byTooltip('Force Sideshow'));
+          final missile = tester.getRect(find.byTooltip('Missile'));
+          const t = Strings(AppLang.english);
           final failures = <String>[];
           void clears(String label, Rect rect, String what, Rect other) {
             if (rect.overlaps(other)) {
@@ -145,6 +151,7 @@ void main() {
           for (final (label, rect) in [
             ('wallet', wallet),
             ('force key', force),
+            ('missile key', missile),
           ]) {
             if (whole.intersect(rect) != rect) {
               failures.add('the $label $rect is not wholly on the screen');
@@ -187,6 +194,44 @@ void main() {
             'pack key': tester.getRect(_private('_PackKey')),
             'wallet': wallet,
           }.forEach((what, rect) => clears('force key', force, what, rect));
+
+          // The missile key stands on the Pack key, under the rail's two keys
+          // and left of the viewer's pod and cards.
+          final pack = tester.getRect(
+            find.descendant(
+              of: _private('_PackKey'),
+              matching: find.byType(FilledButton),
+            ),
+          );
+          <String, Rect>{
+            for (final (i, seat) in seats.indexed) 'seat $i': seat,
+            "viewer's cards": cards,
+            "viewer's bet": tester.getRect(find.byType(SeatBet).last),
+            'menu key': tester.getRect(find.byTooltip(t.tableMenu)),
+            'chat key': tester.getRect(find.byTooltip(t.tableChat)),
+            'pack key': pack,
+            'key cluster': tester.getRect(_private('_ActionCluster')),
+            'wallet': wallet,
+          }.forEach((what, rect) => clears('missile key', missile, what, rect));
+          if (missile.bottom > pack.top ||
+              (missile.left - pack.left).abs() > 0.5) {
+            failures.add(
+              'the missile key $missile is not on the pack key $pack',
+            );
+          }
+
+          // The pill carries all three counts.
+          for (final count in ['100', '250', '50']) {
+            if (find
+                .descendant(
+                  of: find.byType(WalletPill),
+                  matching: find.text(count),
+                )
+                .evaluate()
+                .isEmpty) {
+              failures.add('the wallet does not show $count');
+            }
+          }
 
           // The force key and the − Chaal + row make one block: the top row
           // ends where the bottom one does.

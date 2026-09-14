@@ -5,6 +5,19 @@ import 'package:uuid/uuid.dart';
 
 import '../models/dtos.dart';
 
+/// A hand's reveal or its end, as `game:showdown` and `game:handEnded` carry
+/// them. `reason` is the server's (`missile` for a hand a missile ended);
+/// empty when it sent none.
+typedef ShowdownNews = ({
+  List<Reveal> reveals,
+  String result,
+  String? winnerId,
+  String winnerName,
+  int pot,
+  int nextHandAt,
+  String reason,
+});
+
 /// The live half of the server: one Socket.IO connection carrying the whole
 /// game.
 ///
@@ -24,17 +37,7 @@ class GameConnection {
         ({User user, GameConfig config, ResumeHint? resume})
       >.broadcast();
   final _cards = StreamController<List<String>>.broadcast();
-  final _showdown =
-      StreamController<
-        ({
-          List<Reveal> reveals,
-          String result,
-          String? winnerId,
-          String winnerName,
-          int pot,
-          int nextHandAt,
-        })
-      >.broadcast();
+  final _showdown = StreamController<ShowdownNews>.broadcast();
   final _sideshowAsked = StreamController<PendingSideshow>.broadcast();
   final _sideshowReveal = StreamController<SideshowReveal>.broadcast();
   final _sideshowDone =
@@ -70,17 +73,7 @@ class GameConnection {
 
   /// This player's own three cards, sent only once they have looked.
   Stream<List<String>> get onCards => _cards.stream;
-  Stream<
-    ({
-      List<Reveal> reveals,
-      String result,
-      String? winnerId,
-      String winnerName,
-      int pot,
-      int nextHandAt,
-    })
-  >
-  get onShowdown => _showdown.stream;
+  Stream<ShowdownNews> get onShowdown => _showdown.stream;
 
   /// Somebody asked for a sideshow. Everyone at the table hears this — it is
   /// what drives the animation between the two seats — but it carries no cards.
@@ -284,6 +277,7 @@ class GameConnection {
       // Only the hand-ended frame carries this; the reveal that precedes it
       // does not, and 0 means "not stated".
       nextHandAt: (j['nextHandAt'] as num?)?.toInt() ?? 0,
+      reason: j['reason'] is String ? j['reason'] as String : '',
     ));
   }
 
@@ -330,6 +324,17 @@ class GameConnection {
   Future<Map<String, dynamic>> forceSideshow(String actionId) => request(
     'game:action',
     {'action': GameAction.forceSideshow, 'actionId': actionId},
+  );
+
+  /// Fires a missile, and waits for the answer (owner, 14 Sep 2026).
+  ///
+  /// The ack is `{ok: true, action: "missile", missiles}` — the missiles left
+  /// — or `{ok: false, code, message}`. Like [forceSideshow], the caller
+  /// chooses [actionId] and sends the SAME one on a retry of that attempt, so
+  /// a retry after a lost answer is not charged a second missile.
+  Future<Map<String, dynamic>> fireMissile(String actionId) => request(
+    'game:action',
+    {'action': GameAction.missile, 'actionId': actionId},
   );
 
   /// Answers a sideshow. Only the player who was asked may; anyone else gets a

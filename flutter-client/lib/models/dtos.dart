@@ -47,11 +47,19 @@ class GameAction {
   /// hammer, compares at once, and the server answers in the ack with the
   /// hammers left — see `GameConnection.forceSideshow`.
   static const forceSideshow = 'forceSideshow';
+
+  /// Every player still in the hand shows, and the best hand takes the pot
+  /// (owner, 14 Sep 2026). Costs one missile and no chips; the ack carries
+  /// the missiles left — see `GameConnection.fireMissile`.
+  static const missile = 'missile';
 }
 
 /// How many hammers a Force Sideshow spends. The server charges it; the client
 /// only needs the figure to grey the key and to write the price on it.
 const forceSideshowCost = 1;
+
+/// How many missiles firing one spends. The server charges it.
+const missileCost = 1;
 
 class Rewards {
   const Rewards({
@@ -101,6 +109,7 @@ class User {
     required this.chips,
     required this.diamond,
     this.hammer = 0,
+    this.missile = 0,
     required this.avatarUrl,
     required this.providerAvatarUrl,
     required this.activePictureId,
@@ -127,6 +136,11 @@ class User {
   /// server is the authority on the count — this only greys the key at 0.
   /// An older server sends no `hammer`, which reads as 0.
   final int hammer;
+
+  /// What firing a missile is paid in (owner, 14 Sep 2026): 1 diamond trades
+  /// for 2 in the store, and a new account starts with 1. The server's count
+  /// is the one spent; an older server sends no `missile`, which reads as 0.
+  final int missile;
 
   /// Already resolved by the server: the catalogue picture being worn if
   /// there is one, else the provider photo, else null.
@@ -157,6 +171,29 @@ class User {
     chips: chips,
     diamond: diamond,
     hammer: hammer < 0 ? 0 : hammer,
+    missile: missile,
+    avatarUrl: avatarUrl,
+    providerAvatarUrl: providerAvatarUrl,
+    activePictureId: activePictureId,
+    handsPlayed: handsPlayed,
+    handsWon: handsWon,
+    handsLost: handsLost,
+    handsLeftMid: handsLeftMid,
+    totalWinnings: totalWinnings,
+    biggestPot: biggestPot,
+    rewards: rewards,
+  );
+
+  /// The same account with a new missile count — what firing one reports in
+  /// its ack, applied without waiting for the next `/api/auth/me`.
+  User withMissile(int missile) => User(
+    id: id,
+    provider: provider,
+    displayName: displayName,
+    chips: chips,
+    diamond: diamond,
+    hammer: hammer,
+    missile: missile < 0 ? 0 : missile,
     avatarUrl: avatarUrl,
     providerAvatarUrl: providerAvatarUrl,
     activePictureId: activePictureId,
@@ -176,6 +213,7 @@ class User {
     chips: _int(j['chips']),
     diamond: _int(j['diamond']),
     hammer: _int(j['hammer']),
+    missile: _int(j['missile']),
     avatarUrl: j['avatarUrl'] as String?,
     providerAvatarUrl: j['providerAvatarUrl'] as String?,
     activePictureId: _intOrNull(j['activePictureId']),
@@ -469,6 +507,7 @@ class TurnOptions {
     required this.canPack,
     required this.canSideshow,
     this.canForceSideshow = false,
+    this.canMissile = false,
     required this.sideshowWith,
     required this.raiseSteps,
     required this.show,
@@ -492,6 +531,10 @@ class TurnOptions {
   /// server sends nothing, which reads as false and keeps the key dark.
   final bool canForceSideshow;
 
+  /// A copy of [You.canMissile], read only when the server puts it among the
+  /// options rather than on `you` itself. Absent reads as false.
+  final bool canMissile;
+
   /// Who the request would go to: the player on the viewer's right.
   final String? sideshowWith;
 
@@ -507,6 +550,7 @@ class TurnOptions {
     canPack: j['canPack'] != false,
     canSideshow: j['canSideshow'] == true,
     canForceSideshow: j['canForceSideshow'] == true,
+    canMissile: j['canMissile'] == true,
     sideshowWith: j['sideshowWith'] as String?,
     raiseSteps: (j['raiseSteps'] as List?)?.map(_int).toList() ?? const <int>[],
     show: j['show'] == null ? null : _int(j['show']),
@@ -645,12 +689,20 @@ class You {
     required this.cards,
     required this.options,
     this.unfundedDeadline,
+    this.canMissile = false,
   });
 
   final int seatIndex;
   final int chips;
   final String status;
   final bool isBlind;
+
+  /// Whether the rules allow this player to fire a missile right now — their
+  /// turn, three or more still in the hand, nothing pending (owner, 14 Sep
+  /// 2026). It says nothing about the wallet: the key is greyed from the
+  /// viewer's own [User.missile]. An older server sends nothing, which reads
+  /// as false and keeps the key dark.
+  final bool canMissile;
 
   /// Blind bets still allowed before the cards turn face up by themselves.
   final int blindMovesLeft;
@@ -686,6 +738,11 @@ class You {
   }
 
   factory You.fromJson(Map<String, dynamic> j) => You(
+    // `you.canMissile` is the contract; the same flag among the options is
+    // accepted too, so either placement lights the key.
+    canMissile:
+        j['canMissile'] == true ||
+        (j['options'] is Map && (j['options'] as Map)['canMissile'] == true),
     seatIndex: _int(j['seatIndex']),
     chips: _int(j['chips']),
     status: _str(j['status']),

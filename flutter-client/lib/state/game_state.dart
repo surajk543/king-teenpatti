@@ -18,6 +18,7 @@ import '../net/purchases.dart';
 import '../net/social_sign_in.dart';
 import 'consent.dart';
 import 'hammer_strike.dart';
+import 'missile_strike.dart';
 import 'theme_preference.dart';
 
 enum Screen { splash, update, login, lobby, table }
@@ -44,6 +45,51 @@ enum ForceSideshowResult {
   /// Anything else — the move is no longer allowed, or the server could not
   /// be reached. The player has already been told which.
   refused,
+}
+
+/// What became of a missile, for the key that fired it.
+enum MissileResult {
+  /// The server took it; the volley and the showdown follow for everyone.
+  fired,
+
+  /// The wallet was empty after all. Nothing was spent, so the store's
+  /// Missiles shelf is the useful answer.
+  noMissiles,
+
+  /// Anything else — the move is no longer allowed, or the server could not
+  /// be reached. The player has already been told which.
+  refused,
+}
+
+/// What became of a trade of diamonds for missiles, for the store card.
+enum MissileTradeResult {
+  /// The missiles are in the wallet (or already were, from a replay).
+  traded,
+
+  /// Too few diamonds: the store's Diamonds shelf is the useful answer.
+  notEnoughDiamonds,
+
+  /// Anything else. The player has already been told why.
+  refused,
+}
+
+/// The line a missile leaves at the table, or null when there is nobody to
+/// name: "You fired a missile" to the player who fired, "{name} fired a
+/// missile" to everyone else. `game:action` carries an id and no name, so the
+/// name comes from the seats.
+String? missileFiredLine(
+  Strings t, {
+  required String? viewerId,
+  required String fromUserId,
+  required List<Seat> seats,
+}) {
+  if (viewerId != null && viewerId == fromUserId) return t.missileFiredByYou;
+  for (final seat in seats) {
+    if (seat.userId == fromUserId && seat.displayName.isNotEmpty) {
+      return t.missileFiredBy(seat.displayName);
+    }
+  }
+  return null;
 }
 
 /// The line a Force Sideshow leaves at the table, or null when there is nobody
@@ -298,6 +344,59 @@ class GameState extends ChangeNotifier {
   /// whole table, not just the two in it, can see who the sideshow is between.
   bool get hammerLinkShown => hammerStrike != null && !_hammerResolved;
 
+  // ------------------------------------------------------------ the missile
+
+  /// The missile volley crossing the table, from the `game:action` that
+  /// announced it until [MissileTiming.total] later (owner, 14 Sep 2026).
+  ///
+  /// Every viewer sees it — the player who fired and everyone they fired at —
+  /// and the showdown that the server sends straight after is held back until
+  /// the explosions have played out ([missileHoldsReveal]).
+  MissileStrike? missileStrike;
+
+  /// Whether the winner has been told, and the held showdown gone out.
+  bool _missileLanded = false;
+
+  final List<Timer> _missileTimers = [];
+
+  /// Every volley already shown, by [MissileStrike.key], so a `game:action`
+  /// delivered twice launches one volley.
+  final Set<String> _missilesShown = {};
+
+  /// `game:showdown` and `game:handEnded` that arrived while the missiles were
+  /// still in the air, in the order they came.
+  final List<ShowdownNews> _heldShowdowns = [];
+
+  /// The pot as it stood when the missile was fired. The server settles it at
+  /// once, and a plinth emptying before the missiles land would say the hand
+  /// was over before the table has been shown how.
+  int? _missilePot;
+
+  /// True from the missile's `game:action` until [MissileTiming.reveal]: the
+  /// cards, the winner and the seats' won/lost are all held back until the
+  /// explosions have played out.
+  bool get missileHoldsReveal => missileStrike != null && !_missileLanded;
+
+  /// The pot the felt should draw: the one the missile was fired over, while
+  /// the reveal is held; the table's own otherwise.
+  int? get heldPot => missileHoldsReveal ? _missilePot : null;
+
+  /// [seat] as the felt should draw it while a volley holds the reveal: a seat
+  /// the server has already marked won or lost is still playing until the
+  /// missiles land. Everything else, and every seat outside a volley, is drawn
+  /// as it is.
+  Seat? seatAsShown(Seat? seat) {
+    if (seat == null) return null;
+    if (seat.status == SeatState.packed && foldHeldFor(seat.userId)) {
+      return seat.withStatus(SeatState.active);
+    }
+    if (missileHoldsReveal &&
+        (seat.status == SeatState.won || seat.status == SeatState.lost)) {
+      return seat.withStatus(SeatState.active);
+    }
+    return seat;
+  }
+
   /// The request currently waiting for an answer, straight from the table
   /// snapshot so a reconnect mid-request still shows the prompt.
   PendingSideshow? get sideshow => room?.sideshow;
@@ -485,25 +584,7 @@ class GameState extends ChangeNotifier {
         notifyListeners();
       }),
       _conn.onState.listen(handleState),
-      _conn.onShowdown.listen((s) {
-        // The hand is over, so a sideshow reveal still on its five seconds is
-        // dropped rather than left to stack under the winner's banner. A
-        // hammer still in the air goes with it, but the news it was carrying
-        // is still news.
-        final hammerNews = _hammerNotice;
-        _clearSideshow();
-        if (hammerNews != null) notice = hammerNews;
-        if (s.reveals.isNotEmpty) showdown = s.reveals;
-        if (s.result.isNotEmpty) showdownResult = s.result;
-        if (s.winnerId != null) {
-          winnerId = s.winnerId;
-          winnerName = s.winnerName;
-          winnerPot = s.pot;
-        }
-        _armCelebration(s.nextHandAt);
-        notifyListeners();
-        unawaited(refreshUser());
-      }),
+      _conn.onShowdown.listen(handleShowdown),
       // Requirements 31 and 32: idled out, or out of chips for this table.
       // Shown out is not the same as leaving, so the reason is carried back to
       // the lobby rather than the player simply finding themselves there.
@@ -515,6 +596,7 @@ class GameState extends ChangeNotifier {
         chat.clear();
         _clearBubbles();
         _clearSideshow();
+        _clearMissile();
         _clearCelebration();
         screen = Screen.lobby;
         notifyListeners();
@@ -530,6 +612,7 @@ class GameState extends ChangeNotifier {
         chat.clear();
         _clearBubbles();
         _clearSideshow();
+        _clearMissile();
         _clearCelebration();
         screen = Screen.lobby;
         notifyListeners();
@@ -583,7 +666,7 @@ class GameState extends ChangeNotifier {
         // server sends first: no_hammers turns into an offer of the store and
         // persist_failed into a retry. Their game:error copies would only put
         // a toast over that.
-        if (_forceQuiet(e.code)) return;
+        if (_forceQuiet(e.code) || _missileQuiet(e.code)) return;
         notice = refusalText(e.code, e.message);
         // A refused rejoin is an answer too: there is nothing to resume.
         if (resuming) _endResume();
@@ -594,6 +677,41 @@ class GameState extends ChangeNotifier {
         notifyListeners();
       }),
     ]);
+  }
+
+  /// A hand's reveal, or its end.
+  ///
+  /// Held back while a missile volley is still in the air: the server sends
+  /// the showdown in the same breath as the missile, and turning the cards over
+  /// before the missiles land would show the result the volley is on its way
+  /// to deliver. The held ones go out, in order, at the last impact.
+  @visibleForTesting
+  void handleShowdown(ShowdownNews s) {
+    if (missileHoldsReveal) {
+      _heldShowdowns.add(s);
+      return;
+    }
+    _applyShowdown(s);
+  }
+
+  void _applyShowdown(ShowdownNews s) {
+    // The hand is over, so a sideshow reveal still on its five seconds is
+    // dropped rather than left to stack under the winner's banner. A hammer
+    // still in the air goes with it, but the news it was carrying is still
+    // news.
+    final hammerNews = _hammerNotice;
+    _clearSideshow();
+    if (hammerNews != null) notice = hammerNews;
+    if (s.reveals.isNotEmpty) showdown = s.reveals;
+    if (s.result.isNotEmpty) showdownResult = s.result;
+    if (s.winnerId != null) {
+      winnerId = s.winnerId;
+      winnerName = s.winnerName;
+      winnerPot = s.pot;
+    }
+    _armCelebration(s.nextHandAt);
+    notifyListeners();
+    unawaited(refreshUser());
   }
 
   /// A table snapshot, already redacted for this viewer.
@@ -621,9 +739,10 @@ class GameState extends ChangeNotifier {
     room = s;
     if (newTable) seatedAt = DateTime.now();
     if (newHand) {
-      // A fresh deal cuts the last celebration short — a hammer still in
-      // the air included.
+      // A fresh deal cuts the last celebration short — a hammer or a missile
+      // still in the air included.
       _clearSideshow();
+      _clearMissile();
       _clearCelebration();
     }
     // Every turn opens on the plain chaal. The stepper used to keep the
@@ -730,7 +849,8 @@ class GameState extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// A move as the room hears it; read only for a Force Sideshow's pack.
+  /// A move as the room hears it; read for a missile, which every viewer sees
+  /// fly, and for a Force Sideshow's pack.
   ///
   /// The server packs the loser before it says the sideshow was resolved, so
   /// a bystander's snapshot folds that player a moment before this client
@@ -740,6 +860,10 @@ class GameState extends ChangeNotifier {
   /// from here. The two players heard the reveal first and are already held.
   @visibleForTesting
   void handleTableAction(({String userId, String action, String? reason}) a) {
+    if (a.action == GameAction.missile) {
+      _launchMissile(a.userId);
+      return;
+    }
     final r = room;
     if (r == null ||
         r.sideshow != null ||
@@ -810,6 +934,84 @@ class GameState extends ChangeNotifier {
     ]);
   }
 
+  /// Launches the volley for one missile, once, however many copies of its
+  /// `game:action` arrive.
+  ///
+  /// Aimed at every other seat still in the hand as the table last showed it.
+  /// Won and lost count as in the hand too: a snapshot that settled the hand
+  /// can beat the action here.
+  void _launchMissile(String fromUserId) {
+    final r = room;
+    if (r == null || fromUserId.isEmpty) return;
+    if (!_missilesShown.add(MissileStrike.keyFor(r.handNo, fromUserId))) {
+      return;
+    }
+    final targets = [
+      for (final seat in r.seats)
+        if (seat.userId != null &&
+            seat.userId!.isNotEmpty &&
+            seat.userId != fromUserId &&
+            (seat.status == SeatState.active ||
+                seat.status == SeatState.won ||
+                seat.status == SeatState.lost))
+          seat.userId!,
+    ];
+    if (targets.isEmpty) return;
+
+    _clearMissile();
+    final strike = MissileStrike(
+      handNo: r.handNo,
+      fromUserId: fromUserId,
+      targetUserIds: targets,
+      startedAt: DateTime.now(),
+    );
+    missileStrike = strike;
+    _missilePot = r.pot;
+    // Said at the launch: who fired is news, and it gives nothing away.
+    final line = missileFiredLine(
+      t,
+      viewerId: user?.id,
+      fromUserId: fromUserId,
+      seats: r.seats,
+    );
+    if (line != null) notice = line;
+    _missileTimers.addAll([
+      // The explosions have played out, and a beat after: the cards turn
+      // over and the winner is told (owner, 14 Sep 2026 — not the moment the
+      // missiles land, over the blasts).
+      Timer(MissileTiming.reveal(strike.count), () {
+        _missileLanded = true;
+        _missilePot = null;
+        final held = List.of(_heldShowdowns);
+        _heldShowdowns.clear();
+        for (final news in held) {
+          _applyShowdown(news);
+        }
+        notifyListeners();
+      }),
+      Timer(MissileTiming.total(strike.count), () {
+        missileStrike = null;
+        _missileTimers.clear();
+        notifyListeners();
+      }),
+    ]);
+    notifyListeners();
+  }
+
+  /// Drops a volley and everything it was holding back, for a hand, a table or
+  /// a seat that is over. A held showdown belongs to the hand that is gone,
+  /// so it is dropped with it rather than shown over the next.
+  void _clearMissile() {
+    for (final timer in _missileTimers) {
+      timer.cancel();
+    }
+    _missileTimers.clear();
+    _heldShowdowns.clear();
+    missileStrike = null;
+    _missileLanded = false;
+    _missilePot = null;
+  }
+
   /// Drops a strike and everything it was holding back, for a hand, a table
   /// or a seat that is over.
   void _clearHammer() {
@@ -869,6 +1071,7 @@ class GameState extends ChangeNotifier {
       chat.clear();
       _clearBubbles();
       _clearSideshow();
+      _clearMissile();
       _clearCelebration();
       switching = false;
       notice = t.tableLost;
@@ -1468,6 +1671,10 @@ class GameState extends ChangeNotifier {
   /// server's own message.
   String refusalText(String? code, String message) {
     if (code == 'no_hammers') return t.noHammers;
+    if (code == 'no_missiles') return t.noMissiles;
+    // A missile's refusal, and a sideshow's: both need three in the hand, so
+    // one sentence serves either.
+    if (code == 'too_few_players') return t.tooFewPlayers;
     if (code == GameConnection.notConnected) return t.notConnected;
     if (code == 'over_entry_cap' || code == 'below_table_minimum') {
       // The server writes the limit with Western grouping ("500,000"); the
@@ -1630,6 +1837,154 @@ class GameState extends ChangeNotifier {
   static bool _worthRetrying(Map<String, dynamic> reply) =>
       reply['ok'] != true &&
       (reply['code'] == null || reply['code'] == 'persist_failed');
+
+  // --------------------------------------------------------------- missile
+
+  /// Whether the rules allow a missile right now: the server's word, through
+  /// `you.canMissile`, on this player's turn. Paying for it is a separate
+  /// question — [hasMissile].
+  bool get canMissile => myTurn && (room?.you?.canMissile ?? false);
+
+  /// Whether this player holds the missile firing one costs, by the last
+  /// count the server gave. The server checks again.
+  bool get hasMissile => (user?.missile ?? 0) >= missileCost;
+
+  /// Set while a missile is with the server, so the key cannot fire a second
+  /// before the first is answered.
+  bool firingMissile = false;
+
+  /// Until when a missile refusal's game:error belongs to a missile this state
+  /// is already dealing with from its ack — see [_forceQuietUntil].
+  DateTime? _missileQuietUntil;
+
+  bool _missileQuiet(String? code) {
+    final until = _missileQuietUntil;
+    return (code == 'no_missiles' ||
+            code == 'too_few_players' ||
+            code == 'persist_failed') &&
+        until != null &&
+        DateTime.now().isBefore(until);
+  }
+
+  /// Fires a missile: one missile, no chips, every hand still in shown and the
+  /// best one takes the pot (owner, 14 Sep 2026).
+  ///
+  /// The table hears it as `game:action` and the showdown after it, which is
+  /// what draws the volley — for this player as for everyone else. What this
+  /// adds is the count the ack reports.
+  ///
+  /// One actionId serves the move and its retry, as for [forceSideshow]: a
+  /// missile spent whose table move was not (`persist_failed`), or an answer
+  /// that never came, is sent again once with the same id, and only while the
+  /// table still offers the move.
+  Future<MissileResult> fireMissile() async {
+    if (firingMissile || !canMissile) return MissileResult.refused;
+    firingMissile = true;
+    notifyListeners();
+    final actionId = const Uuid().v4();
+    try {
+      var reply = await _sendMissile(actionId);
+      if (_worthRetrying(reply)) {
+        await Future<void>.delayed(const Duration(milliseconds: 700));
+        if (canMissile) reply = await _sendMissile(actionId);
+      }
+
+      if (reply['ok'] == true) {
+        final left = reply['missiles'];
+        final u = user;
+        if (left is num && u != null) user = u.withMissile(left.toInt());
+        return MissileResult.fired;
+      }
+
+      unawaited(refreshUser());
+      final code = reply['code'] is String ? reply['code'] as String : null;
+      if (code == 'no_missiles') {
+        final u = user;
+        if (u != null) user = u.withMissile(0);
+        return MissileResult.noMissiles;
+      }
+      // The refusals quieted above are said here, and so is a request that
+      // was never answered — but only while nothing has happened at the
+      // table, since a missile that did land explains itself.
+      final message = '${reply['message'] ?? ''}';
+      if (message.isNotEmpty &&
+          (code == 'too_few_players' ||
+              code == 'persist_failed' ||
+              (code == null && canMissile))) {
+        notice = refusalText(code, message);
+      }
+      return MissileResult.refused;
+    } finally {
+      firingMissile = false;
+      notifyListeners();
+    }
+  }
+
+  Future<Map<String, dynamic>> _sendMissile(String actionId) async {
+    _missileQuietUntil = DateTime.now().add(const Duration(seconds: 3));
+    final reply = await _conn.fireMissile(actionId);
+    _missileQuietUntil = DateTime.now().add(const Duration(seconds: 3));
+    return reply;
+  }
+
+  /// The pack id of a trade that is with the server, so the store can show
+  /// progress on that one card and refuse a second tap.
+  String? tradingMissiles;
+
+  /// Trades diamonds for the missile pack [packId] (owner, 14 Sep 2026: 1
+  /// diamond = 2 missiles), in the lobby or at a table.
+  ///
+  /// One requestId per attempt, sent again if the request itself fails and is
+  /// retried: the server answers a replay `charged: false` without charging
+  /// twice. The wallet takes the server's figures. In the lobby the missiles
+  /// are celebrated the way a pack from Play is; at a table, where the
+  /// celebration is not drawn, they are a notice.
+  Future<MissileTradeResult> tradeMissiles(String packId) async {
+    final token = _token;
+    if (token == null || tradingMissiles != null) {
+      return MissileTradeResult.refused;
+    }
+    tradingMissiles = packId;
+    notifyListeners();
+    final requestId = const Uuid().v4();
+    try {
+      ({User user, bool charged, int diamonds, int missiles}) r;
+      try {
+        r = await _api.tradeMissiles(token, packId, requestId);
+      } on ApiException {
+        rethrow;
+      } catch (_) {
+        // The request never got an answer: it may or may not have landed,
+        // and asking again with the same id is safe either way.
+        await Future<void>.delayed(const Duration(milliseconds: 700));
+        r = await _api.tradeMissiles(token, packId, requestId);
+      }
+      user = r.user;
+      if (r.missiles > 0) {
+        if (screen == Screen.table) {
+          notice = t.missilesAdded(r.missiles);
+        } else {
+          rewardWon = (kind: 'missiles', amount: r.missiles, readyAt: 0);
+        }
+      }
+      return MissileTradeResult.traded;
+    } on ApiException catch (e) {
+      if (e.code == 'not_enough_diamonds') {
+        // The diamonds held here were wrong, so they are read again.
+        unawaited(refreshUser());
+        return MissileTradeResult.notEnoughDiamonds;
+      }
+      notice = e.message;
+      return MissileTradeResult.refused;
+    } catch (_) {
+      unawaited(refreshUser());
+      notice = t.notConnected;
+      return MissileTradeResult.refused;
+    } finally {
+      tradingMissiles = null;
+      notifyListeners();
+    }
+  }
 
   void answerSideshow(bool accept) => _conn.respondToSideshow(accept);
 
@@ -1837,6 +2192,7 @@ class GameState extends ChangeNotifier {
     unawaited(purchases.dispose());
     _rentalWatch?.cancel();
     _clearSideshow();
+    _clearMissile();
     _resumeTimer?.cancel();
     _seatCheck?.cancel();
     _chatCooldownTimer?.cancel();

@@ -831,8 +831,23 @@ class HammerBalance extends StatelessWidget {
   }
 }
 
-/// Both soft wallets in one dark pill — diamonds, then hammers — for the top
-/// right of the game table (owner, 13 Sep 2026).
+/// The ink every missile figure is drawn in on a dark pill: the coral of the
+/// missile's own body (assets/animations/Missile.json), rosier than the
+/// hammers' copper so the three soft wallets never read as one.
+const _missileInk = Color(0xFFFF9A8E);
+
+/// The missile ink for a surface that follows the theme. The pale coral is
+/// lost on frosted white, so the light theme gets a brick red.
+Color missileInkOn(Brightness brightness) =>
+    brightness == Brightness.dark ? _missileInk : const Color(0xFFB53A2C);
+
+/// The glyph a missile count is marked with wherever it is written small —
+/// the table's wallet, the lobby's bar, the store's tab. The Lottie is the
+/// key's; at 14dp its strokes would vanish, so a count wears the icon.
+const IconData missileIcon = Icons.rocket_launch_rounded;
+
+/// The three soft wallets in one dark pill — diamonds, hammers, then missiles
+/// — for the top right of the game table (owner, 13 and 14 Sep 2026).
 ///
 /// A pill rather than two: at a table the corner has room for one small
 /// object, and a player glancing up mid-hand wants "what can I still spend"
@@ -844,22 +859,71 @@ class WalletPill extends StatelessWidget {
     super.key,
     required this.diamonds,
     required this.hammers,
+    this.missiles = 0,
+    this.stacked = false,
     required this.semanticsLabel,
   });
 
   final int diamonds;
   final int hammers;
+  final int missiles;
+
+  /// Missiles on a second line under the other two, for a corner too narrow
+  /// for all three in a row at a size that still reads
+  /// ([WalletPill.rowWidth]).
+  final bool stacked;
 
   /// What a screen reader says instead of two bare numbers.
   final String semanticsLabel;
 
+  static TextStyle? _figure(ThemeData theme) =>
+      theme.textTheme.labelMedium?.copyWith(
+        fontWeight: FontWeight.w700,
+        fontFeatures: const [FontFeature.tabularFigures()],
+      );
+
+  static const double _icon = 14;
+
+  /// How wide the pill is with all three counts on one line, at this text
+  /// scale — so the table can put the missiles on a line of their own where
+  /// one line would have to shrink past reading.
+  static double rowWidth(
+    BuildContext context, {
+    required int diamonds,
+    required int hammers,
+    required int missiles,
+  }) {
+    final style = _figure(Theme.of(context));
+    var width = 2 * Space.md + 2 * Dim.hairline + 2 * Space.md;
+    for (final count in [diamonds, hammers, missiles]) {
+      final painter = TextPainter(
+        text: TextSpan(text: '$count', style: style),
+        textDirection: Directionality.of(context),
+        textScaler: MediaQuery.textScalerOf(context),
+        maxLines: 1,
+      )..layout();
+      width += _icon + Space.xs + painter.width;
+      painter.dispose();
+    }
+    return width.ceilToDouble();
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final figure = theme.textTheme.labelMedium?.copyWith(
-      fontWeight: FontWeight.w700,
-      fontFeatures: const [FontFeature.tabularFigures()],
+    final figure = _figure(theme);
+
+    Widget count(IconData icon, Color ink, int value) => Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: _icon, color: ink),
+        const SizedBox(width: Space.xs),
+        Text('$value', style: figure?.copyWith(color: ink)),
+      ],
     );
+    final gems = count(Icons.diamond, _diamondInk, diamonds);
+    final tools = count(Icons.hardware, _hammerInk, hammers);
+    final rockets = count(missileIcon, _missileInk, missiles);
 
     return Semantics(
       label: semanticsLabel,
@@ -870,25 +934,41 @@ class WalletPill extends StatelessWidget {
           vertical: Space.xs,
         ),
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(Radii.pill),
+          // Two lines are a rounded panel rather than a capsule: a pill's
+          // radius on a box twice as tall would round its ends into a lozenge.
+          borderRadius: BorderRadius.circular(stacked ? Radii.md : Radii.pill),
           color: AppTheme.ink900.withValues(alpha: 0.82),
           border: Border.all(
             color: AppTheme.goldBright.withValues(alpha: 0.28),
             width: Dim.hairline,
           ),
         ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.diamond, size: 14, color: _diamondInk),
-            const SizedBox(width: Space.xs),
-            Text('$diamonds', style: figure?.copyWith(color: _diamondInk)),
-            const SizedBox(width: Space.md),
-            const Icon(Icons.hardware, size: 14, color: _hammerInk),
-            const SizedBox(width: Space.xs),
-            Text('$hammers', style: figure?.copyWith(color: _hammerInk)),
-          ],
-        ),
+        child: stacked
+            ? Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      gems,
+                      const SizedBox(width: Space.md),
+                      tools,
+                    ],
+                  ),
+                  rockets,
+                ],
+              )
+            : Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  gems,
+                  const SizedBox(width: Space.md),
+                  tools,
+                  const SizedBox(width: Space.md),
+                  rockets,
+                ],
+              ),
       ),
     );
   }
