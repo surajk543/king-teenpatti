@@ -8,13 +8,22 @@
 -- diamonds (owner, 14 Sep 2026), and sort_order follows that order in steps of
 -- ten, so a fresh database numbers the catalogue the same way: Bear is 1, Wolf
 -- 15, Love Sheep 16, Anima Bot 19, Orange Ballerina 20, Love and Kiss 35,
--- Butterfly Flapping 36 and Jolly Queen 40. Shooting Game, Spider, Swirling
--- Dots, Sporty Avocado and Blazing Fire, and after them Love Sheep, Love Birds,
--- Error 404, Anima Bot and Love and Kiss, were added to this file the same day,
--- rather than in a new script,
+-- Butterfly Flapping 36 and Jolly Queen 40, and the five appended after launch
+-- 41 to 45. Shooting Game, Spider, Swirling Dots, Sporty Avocado and Blazing
+-- Fire, and after them Love Sheep, Love Birds, Error 404, Anima Bot and Love and
+-- Kiss, were added to this file the same day, rather than in a new script,
 -- because no environment that matters had run it yet: production starts from
--- an empty database (ops/DEPLOY.md §8). Once production has run this file, the
--- next picture goes in a new script.
+-- an empty database (ops/DEPLOY.md §8).
+--
+-- AFTER LAUNCH. go-server/v1.1.0 put production on this file the same day, and
+-- the owner has gone on adding to it rather than to new scripts: the five
+-- pictures of V1.0.3__seed_new_pictures.sql were folded back in (owner, 14 Sep
+-- 2026). That works for a NEW row — every boot runs this file, and ON CONFLICT
+-- DO NOTHING skips only the rows a database already has, so a row appended
+-- here reaches production at its next boot. It does NOT work for a CHANGED row:
+-- Love and Kiss was re-priced here from 2 hammers to 25 after production had
+-- the row, so only a database built from scratch sells it at 25, and
+-- production keeps 2 until an UPDATE is run there (owner's choice).
 --
 -- Data, not structure: V1.0.0__baseline.sql builds the tables, this fills one
 -- of them. Separate on purpose — a price change or a new picture is a row, and
@@ -24,10 +33,9 @@
 -- and runs all of them on every boot, so this must be indistinguishable from
 -- having run once. ON CONFLICT on the natural key (asset_url) does that, and
 -- it also means the seed never rewrites a row the owner has since re-priced,
--- renamed, reordered or retired. Editing the catalogue afterwards is an
+-- renamed, reordered or retired. Editing a row a database already has is an
 -- UPDATE (`UPDATE profile_pictures SET type = …, cost = … WHERE name = …`),
--- not a code change, and a new picture is a row in a NEW script: this one only
--- ever puts the starting set there.
+-- not a code change.
 --
 -- THE ANIMALS. Which ones cost chips is a product decision, not a technical
 -- one. Two are free — everyone has a face from the first launch — and the rest
@@ -87,12 +95,33 @@
 --   Swirling Dots       1080×1080, 2.8 s,  Lottie 5.9.3   30 HAMMERS   50 days   sort_order 320
 --   Sporty Avocado      256×256,  3.2 s,  Lottie 5.7.11   90 HAMMERS   90 days   sort_order 330
 --   Blazing Fire        500×690,  1.1 s,  Lottie 5.9.0    10 HAMMERS   10 days   sort_order 340
---   Love and Kiss       512×512,  3 s,    Lottie 5.4.4     2 HAMMERS   10 days   sort_order 350
+--   Love and Kiss       512×512,  3 s,    Lottie 5.4.4    25 HAMMERS   10 days   sort_order 350
 --   Butterfly Flapping  1000×1000, 5 s,    Lottie 4.8.0   4 DIAMONDS  100 days   sort_order 360
 --   Waving Tiger Cub    1400×1400, 6 s,    Lottie 5.7.8   3 DIAMONDS  100 days   sort_order 370
 --   Indian Flag         1000×1000, 2 s,    Lottie 4.8.0   5 DIAMONDS  100 days   sort_order 380
 --   Jolly King          1080×1080, 6.2 s,  Lottie 5.9.0   5 DIAMONDS  100 days   sort_order 390
 --   Jolly Queen         1080×1080, 6.2 s,  Lottie 5.9.0   5 DIAMONDS  100 days   sort_order 400
+--
+-- THE PICTURES APPENDED AFTER LAUNCH (owner, 14 Sep 2026) are five more Lottie
+-- rentals, at the end of the list below (AFTER LAUNCH, above):
+--
+--   Bodybuilder         512×512,  3.3 s,  Lottie 5.7.11   50 CRORE     50 days   sort_order 195
+--   Butterfly           1000×1000, 2 s,    Lottie 5.9.6   100 CRORE    100 days   sort_order 197
+--   Dog Dancing         256×256,  3.2 s,  Lottie 5.12.1   30 HAMMERS   30 days   sort_order 352
+--   Dance               512×512,  3.2 s,  Lottie 5.12.1   20 HAMMERS   10 days   sort_order 354
+--   Cockroach           1024×1024, 2.2 s,  Lottie 5.8.1   10 HAMMERS   15 days   sort_order 356
+--
+-- Bodybuilder and Butterfly are the two dearest pictures in the catalogue,
+-- priced in chips and so sold in the lobby only. Bodybuilder was uploaded as
+-- "Bodybuilder lifting heavy barbell" and is named shorter, as Love Birds was;
+-- Butterfly is a different animation from Butterfly Flapping and Monarch
+-- Butterfly. Dog Dancing is rented for as many days as it costs and Dance and
+-- Cockroach are not; Cockroach was first priced at 80 Crore chips for 50 days,
+-- then sent again at 10 hammers for 15. The rest are named as uploaded. None
+-- has 3D layers, expressions or embedded images, and Butterfly's four merge
+-- paths are plain merges, which the phone players draw identically. sort_order
+-- files the chip pair after Anima Bot and the hammer three after Love and Kiss,
+-- so the catalogue still runs free → chips → hammers → diamonds.
 --
 -- Every one moves with what the phone players draw (Flutter's lottie and
 -- lottie-android), checked frame by frame against lottie-web — some only
@@ -233,7 +262,7 @@ SELECT name, asset_url, asset_format, currency, type, cost, duration_days, durat
     ('Blazing Fire',       'https://drive.google.com/uc?export=download&id=1sWLmx0skXzrQ6d_ZitT_OTZMmSd_c6LA',
      'LOTTIE', 'HAMMER', 'PREMIUM', 10::bigint, 10, 0, TRUE, 340),
     ('Love and Kiss',      'https://drive.google.com/uc?export=download&id=1Mw_0tq2l_2FN3c7X_sDvrV_nZqIsafVM',
-     'LOTTIE', 'HAMMER', 'PREMIUM', 2::bigint, 10, 0, TRUE, 350),
+     'LOTTIE', 'HAMMER', 'PREMIUM', 25::bigint, 10, 0, TRUE, 350),
     -- The animated pictures priced in diamonds.
     ('Butterfly Flapping', 'https://drive.google.com/uc?export=download&id=19mQ9PjStBJUoFyThaSe97fEcfzARw_Ar',
      'LOTTIE', 'DIAMOND', 'PREMIUM', 4::bigint, 100, 0, TRUE, 360),
@@ -244,6 +273,19 @@ SELECT name, asset_url, asset_format, currency, type, cost, duration_days, durat
     ('Jolly King',         'https://drive.google.com/uc?export=download&id=1oDAJP-qC9GNxt6tW6WLMldl0EV6YtcWn',
      'LOTTIE', 'DIAMOND', 'PREMIUM', 5::bigint, 100, 0, TRUE, 390),
     ('Jolly Queen',        'https://drive.google.com/uc?export=download&id=1PXnoJzPxQtn7v5JkjUVemUNdbA4gSa73',
-     'LOTTIE', 'DIAMOND', 'PREMIUM', 5::bigint, 100, 0, TRUE, 400)
+     'LOTTIE', 'DIAMOND', 'PREMIUM', 5::bigint, 100, 0, TRUE, 400),
+    -- Appended after launch (owner, 14 Sep 2026). At the end, so the ids an
+    -- empty database gives the rows above stay the ones the header lists;
+    -- sort_order files each among its currency's pictures.
+    ('Bodybuilder',        'https://drive.google.com/uc?export=download&id=1rpYEPGB5MqjPq-V-1wKPP0waPy3iYGxq',
+     'LOTTIE', 'COIN',    'PREMIUM', 500000000::bigint, 50, 0, TRUE, 195),
+    ('Butterfly',          'https://drive.google.com/uc?export=download&id=1j_sD1jKZZwbgTOquWLhRS96gqJ8xS67c',
+     'LOTTIE', 'COIN',    'PREMIUM', 1000000000::bigint, 100, 0, TRUE, 197),
+    ('Dog Dancing',        'https://drive.google.com/uc?export=download&id=1i5EKv2S01ARvRaZT2l3fIvQyhMOu4sFd',
+     'LOTTIE', 'HAMMER', 'PREMIUM', 30::bigint, 30, 0, TRUE, 352),
+    ('Dance',              'https://drive.google.com/uc?export=download&id=1vBB46I0BL-58G03kwqwf5EGpqUxq2vpQ',
+     'LOTTIE', 'HAMMER', 'PREMIUM', 20::bigint, 10, 0, TRUE, 354),
+    ('Cockroach',          'https://drive.google.com/uc?export=download&id=13Zw4aYOI2tF1ULv_HBpc7ovS7VKHQd6m',
+     'LOTTIE', 'HAMMER', 'PREMIUM', 10::bigint, 15, 0, TRUE, 356)
   ) AS seed(name, asset_url, asset_format, currency, type, cost, duration_days, duration_hours, is_active, sort_order)
     ON CONFLICT (asset_url) DO NOTHING;

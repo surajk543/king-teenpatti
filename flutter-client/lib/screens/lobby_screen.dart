@@ -303,14 +303,14 @@ class _LobbyScreenState extends State<LobbyScreen> {
                   ),
                 ],
               ),
-              // The daily bonus in the bottom-left corner (owner, 14 Sep 2026:
-              // it was a chip leading the top bar), a key that counts down its
-              // 24 hours and collects when they are up. Keyed so a lobby toast
-              // can stand clear of it (lobbyNoticeArea).
+              // The daily bonus in the bottom-left corner (owner, 14 Sep 2026),
+              // a key that counts down its 24 hours and collects when they are
+              // up; the 4-hour bonus keeps its chip in the top bar. Keyed so a
+              // lobby toast can stand clear of it (lobbyNoticeArea).
               Positioned(
                 bottom: Space.md,
                 left: Space.md,
-                child: _BonusChip(key: _bonusChip),
+                child: _DailyBonusChip(key: _dailyChip),
               ),
               // Requirement 27: the milestone sits in the bottom-right corner,
               // opposite the daily bonus. The rail of tables stops short of
@@ -470,6 +470,7 @@ class _RewardCelebrationState extends State<_RewardCelebration>
 
     final blurb = switch (won.kind) {
       'bonus' => t.rewardComeBack,
+      'daily' => t.rewardComeBackDaily,
       'purchase' => t.rewardPurchased,
       'premium' => t.rewardPremiumPurchased,
       'diamonds' => t.rewardDiamondsPurchased,
@@ -701,14 +702,13 @@ class _TopBar extends StatelessWidget {
             ),
             LayoutBuilder(
               builder: (context, box) {
+                final slotW = Dim.bonusSlotW(box.maxWidth);
                 // The provider tag folds on what the row actually has left,
                 // not on the screen width. It matters more now that the Shop
                 // key shares this bar: on a 640dp screen the tag was rendering
                 // as "GUE…", which tells nobody anything — better absent than
-                // truncated. The bar leads with the picture: the daily bonus
-                // that sat before it moved to the lobby's bottom-left corner
-                // (owner, 14 Sep 2026).
-                final tight = Breaks.isTightBar(box.maxWidth);
+                // truncated.
+                final tight = Breaks.isTightBar(box.maxWidth - slotW);
 
                 return Padding(
                   padding: EdgeInsets.symmetric(
@@ -717,6 +717,14 @@ class _TopBar extends StatelessWidget {
                   ),
                   child: Row(
                     children: [
+                      // Requirement 26 keeps its corner: the 4-hour bonus. The
+                      // chip takes its own width, capped at the slot the rail
+                      // used to reserve, and the picture follows straight after
+                      // it (owner, 13 Sep 2026): the reserved slot left a gap
+                      // there that the name needed. The daily bonus is the chip
+                      // in the lobby's bottom-left corner (14 Sep 2026).
+                      _BonusChip(maxWidth: slotW - Space.md),
+                      const SizedBox(width: Space.md),
                       Tooltip(
                         message: state.t.yourPicture,
                         child: SizedBox(
@@ -2285,6 +2293,14 @@ Future<void> openPicturePicker(BuildContext context) async {
   // All, so the whole catalogue — and the tick on the picture being worn — is
   // in view before anybody narrows it.
   final shelf = ValueNotifier<PictureFilter>(PictureFilter.all);
+  final order = ValueNotifier<PictureSort>(PictureSort.lowToHigh);
+
+  // The grid follows both through ONE merged listenable, made here. A
+  // Listenable.merge built in the sheet's builder is a new object on every
+  // rebuild, so the grid re-subscribed each time — and the lobby's one-second
+  // tick rebuilds the sheet while it animates out, after the notifiers are
+  // disposed below: a red screen on closing the picker (14 Sep 2026).
+  final shelfAndOrder = Listenable.merge([shelf, order]);
 
   await showModalBottomSheet<void>(
     context: context,
@@ -2441,23 +2457,41 @@ Future<void> openPicturePicker(BuildContext context) async {
                       ),
                       const SizedBox(height: Space.md),
                       // Which shelf: everything, or the premium pictures of one
-                      // wallet — chips, hammers or diamonds. Pinned above the
-                      // grid rather than scrolling with it, and it stands in for
-                      // the headings the tiers used to carry — one shelf is on
-                      // show at a time.
-                      ValueListenableBuilder<PictureFilter>(
-                        valueListenable: shelf,
-                        builder: (context, current, _) => PictureFilterMenu(
-                          value: current,
-                          counts: {
-                            for (final f in PictureFilter.menu)
-                              f: state.pictures.where(f.holds).length,
-                          },
-                          onChanged: (f) {
-                            shelf.value = f;
-                            if (scroller.hasClients) scroller.jumpTo(0);
-                          },
-                        ),
+                      // wallet — chips, hammers or diamonds — and, on the right,
+                      // which way its prices run (owner, 14 Sep 2026). Pinned
+                      // above the grid rather than scrolling with it, and it
+                      // stands in for the headings the tiers used to carry — one
+                      // shelf is on show at a time.
+                      Row(
+                        children: [
+                          ValueListenableBuilder<PictureFilter>(
+                            valueListenable: shelf,
+                            builder: (context, current, _) => PictureFilterMenu(
+                              value: current,
+                              counts: {
+                                for (final f in PictureFilter.menu)
+                                  f: state.pictures.where(f.holds).length,
+                              },
+                              onChanged: (f) {
+                                shelf.value = f;
+                                if (scroller.hasClients) scroller.jumpTo(0);
+                              },
+                            ),
+                          ),
+                          const Spacer(),
+                          ValueListenableBuilder<PictureSort>(
+                            valueListenable: order,
+                            builder: (context, current, _) => PictureSortMenu(
+                              value: current,
+                              onChanged: (s) {
+                                order.value = s;
+                                if (scroller.hasClients) scroller.jumpTo(0);
+                              },
+                            ),
+                          ),
+                          // In line with the grid's edge, clear of its scrollbar.
+                          const SizedBox(width: Space.md),
+                        ],
                       ),
                       const SizedBox(height: Space.sm),
                       // The shelf's pictures, scrolling vertically. Flexible
@@ -2486,12 +2520,13 @@ Future<void> openPicturePicker(BuildContext context) async {
                             child: SingleChildScrollView(
                               controller: scroller,
                               padding: const EdgeInsets.only(right: Space.md),
-                              child: ValueListenableBuilder<PictureFilter>(
-                                valueListenable: shelf,
-                                builder: (context, current, _) => pictureShelf(
+                              child: ListenableBuilder(
+                                listenable: shelfAndOrder,
+                                builder: (context, _) => pictureShelf(
                                   context: context,
                                   state: state,
-                                  filter: current,
+                                  filter: shelf.value,
+                                  sort: order.value,
                                   radius: tileR,
                                 ),
                               ),
@@ -2512,6 +2547,7 @@ Future<void> openPicturePicker(BuildContext context) async {
 
   scroller.dispose();
   shelf.dispose();
+  order.dispose();
 }
 
 /// The name of the picture the player is wearing, or null when they are on
@@ -3482,7 +3518,11 @@ class _PressableState extends State<_Pressable> {
 }
 
 class _BonusChip extends StatelessWidget {
-  const _BonusChip({super.key});
+  const _BonusChip({this.maxWidth});
+
+  /// The slot the top rail keeps for it. A long translated subtitle used to
+  /// grow this pill under the bar; here it ellipsises instead.
+  final double? maxWidth;
 
   @override
   Widget build(BuildContext context) {
@@ -3494,16 +3534,192 @@ class _BonusChip extends StatelessWidget {
     return _CornerChip(
       icon: Icons.hourglass_bottom,
       leadingBuilder: (fg) => _Hourglass(colour: fg, running: !ready),
+      title: state.t.fourHourBonus,
+      subtitle: ready
+          ? '${state.t.collect} ${formatChips(r.bonusReward)}'
+          : formatCountdown(r.untilBonus, state.t),
+      enabled: ready,
+      maxWidth: maxWidth,
+      onTap: () => state.claimReward('bonus'),
+      onWaitTap: () => openBonusDetails(context, 'bonus'),
+    );
+  }
+}
+
+/// The daily bonus (owner, 14 Sep 2026): 1 lakh chips and a hammer every 24
+/// hours, in the lobby's bottom-left corner, beside the 4-hour [_BonusChip] in
+/// the top bar. A gift rather than the hourglass, so the two read as two
+/// rewards at a glance. Absent when the server offers no daily bonus.
+class _DailyBonusChip extends StatelessWidget {
+  const _DailyBonusChip({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final state = context.watch<GameState>();
+    final r = state.user?.rewards;
+    if (r == null || !r.hasDaily) return const SizedBox.shrink();
+
+    final ready = r.dailyReady;
+    return _CornerChip(
+      icon: Icons.redeem,
       title: state.t.dailyBonus,
       subtitle: ready
           ? [
               state.t.collect,
-              formatChips(r.bonusReward),
-              if (r.bonusHammers > 0) state.t.plusHammers(r.bonusHammers),
+              formatChips(r.dailyReward),
+              if (r.dailyHammers > 0) state.t.plusHammers(r.dailyHammers),
             ].join(' ')
-          : formatCountdown(r.untilBonus, state.t),
+          : formatCountdown(r.untilDaily, state.t),
       enabled: ready,
-      onTap: () => state.claimReward('bonus'),
+      onTap: () => state.claimReward('daily'),
+      onWaitTap: () => openBonusDetails(context, 'daily'),
+    );
+  }
+}
+
+/// A bonus tapped while it is still counting down (owner, 14 Sep 2026): what it
+/// pays — its chips, and the daily bonus's hammer — and how long is left,
+/// ticking with the lobby's one-second clock. If the wait runs out while it is
+/// open it offers Collect, which closes it first so the celebration has the
+/// screen.
+///
+/// [kind] is the reward's name on the wire, `bonus` or `daily`, as
+/// [GameState.claimReward] takes it.
+Future<void> openBonusDetails(BuildContext context, String kind) =>
+    showDialog<void>(
+      context: context,
+      builder: (context) => _BonusDetails(kind: kind),
+    );
+
+class _BonusDetails extends StatelessWidget {
+  const _BonusDetails({required this.kind});
+
+  final String kind;
+
+  @override
+  Widget build(BuildContext context) {
+    // Watched, so the countdown moves with the lobby's one-second tick.
+    final state = context.watch<GameState>();
+    final t = state.t;
+    final r = state.user?.rewards;
+    if (r == null) return const SizedBox.shrink();
+
+    final theme = Theme.of(context);
+    final text = theme.textTheme;
+    final onSurface = theme.colorScheme.onSurface;
+    final quiet = onSurface.withValues(alpha: AppTheme.inkLow);
+    final gold = _goldInk(theme.brightness);
+    final hammerInk = hammerInkOn(theme.brightness);
+
+    final daily = kind == 'daily';
+    final ready = daily ? r.dailyReady : r.bonusReady;
+    final chips = daily ? r.dailyReward : r.bonusReward;
+    final hammers = daily ? r.dailyHammers : 0;
+
+    return GlassDialog(
+      padding: const EdgeInsets.all(Space.xl),
+      title: Row(
+        children: [
+          // The chip's own mark, so the popup reads as that chip opened up.
+          if (daily)
+            Icon(Icons.redeem, size: 20, color: gold)
+          else
+            _Hourglass(colour: gold, running: !ready),
+          const SizedBox(width: Space.md),
+          Expanded(
+            child: Text(
+              daily ? t.dailyBonus : t.fourHourBonus,
+              style: AppTheme.label(text.titleMedium ?? const TextStyle()),
+            ),
+          ),
+        ],
+      ),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            t.bonusYouGet,
+            textAlign: TextAlign.center,
+            style: AppTheme.label(text.labelMedium!, colour: quiet),
+          ),
+          const SizedBox(height: Space.sm),
+          Wrap(
+            alignment: WrapAlignment.center,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: Space.lg,
+            runSpacing: Space.xs,
+            children: [
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const PokerChip(colour: AppTheme.gold, size: 26),
+                  const SizedBox(width: Space.sm),
+                  Text(
+                    formatChips(chips),
+                    style: AppTheme.money(text.headlineSmall!, colour: gold),
+                  ),
+                ],
+              ),
+              if (hammers > 0)
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.hardware, size: 22, color: hammerInk),
+                    const SizedBox(width: Space.xs),
+                    Text(
+                      t.plusHammers(hammers),
+                      style: AppTheme.money(
+                        text.titleMedium!,
+                        colour: hammerInk,
+                      ),
+                    ),
+                  ],
+                ),
+            ],
+          ),
+          const SizedBox(height: Space.lg),
+          Text(
+            ready ? t.bonusReadyNow : t.bonusNextIn,
+            textAlign: TextAlign.center,
+            style: AppTheme.label(
+              text.labelMedium!,
+              colour: ready ? gold : quiet,
+            ),
+          ),
+          if (!ready) ...[
+            const SizedBox(height: Space.xs),
+            Text(
+              formatCountdown(daily ? r.untilDaily : r.untilBonus, t),
+              textAlign: TextAlign.center,
+              style: AppTheme.money(text.headlineMedium!, colour: onSurface),
+            ),
+          ],
+          const SizedBox(height: Space.md),
+          Text(
+            daily ? t.bonusEveryDay : t.bonusEveryFourHours,
+            textAlign: TextAlign.center,
+            style: text.bodyMedium?.copyWith(
+              color: onSurface.withValues(alpha: AppTheme.inkMed),
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        GlassButton(
+          style: GlassButtonStyle.text,
+          label: t.close,
+          onPressed: () => Navigator.pop(context),
+        ),
+        if (ready)
+          GlassButton(
+            style: GlassButtonStyle.primary,
+            label: t.collect,
+            onPressed: () {
+              Navigator.pop(context);
+              state.claimReward(kind);
+            },
+          ),
+      ],
     );
   }
 }
@@ -3677,7 +3893,7 @@ class _HourglassPainter extends CustomPainter {
 final _milestoneChip = GlobalKey(debugLabel: 'milestone chip');
 
 /// On the daily bonus key in the opposite corner, for the same reason.
-final _bonusChip = GlobalKey(debugLabel: 'bonus chip');
+final _dailyChip = GlobalKey(debugLabel: 'bonus chip');
 
 /// Where a notice may stand in the lobby, in screen coordinates, or null for
 /// the plain foot of the screen.
@@ -3706,7 +3922,7 @@ Rect? lobbyNoticeArea(BuildContext context) {
   final safe = MediaQuery.paddingOf(context);
   final width = Dim.toastW(size.width);
   var start = safe.left + Space.md;
-  final bonus = _bonusChip.currentContext?.findRenderObject();
+  final bonus = _dailyChip.currentContext?.findRenderObject();
   if (bonus is RenderBox &&
       bonus.attached &&
       bonus.hasSize &&
@@ -3766,6 +3982,8 @@ class _CornerChip extends StatelessWidget {
     required this.enabled,
     required this.onTap,
     this.leadingBuilder,
+    this.maxWidth,
+    this.onWaitTap,
   });
 
   final IconData icon;
@@ -3779,6 +3997,16 @@ class _CornerChip extends StatelessWidget {
   final bool enabled;
   final VoidCallback onTap;
 
+  /// What a tap does while the chip is not [enabled] — the two bonuses open
+  /// their popup with the reward and the time left (owner, 14 Sep 2026). Null
+  /// leaves a chip that is still counting down deaf to the finger, as the
+  /// milestone's is.
+  final VoidCallback? onWaitTap;
+
+  /// A finite cap so the two lines can ellipsise. Without one this pill sizes
+  /// to its longest translation and runs off the screen.
+  final double? maxWidth;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -3788,16 +4016,15 @@ class _CornerChip extends StatelessWidget {
     final fg = enabled
         ? gold
         : theme.colorScheme.onSurface.withValues(alpha: AppTheme.inkMed);
-    // A finite cap so the two lines can ellipsise. Without one this pill sizes
-    // to its longest translation and runs off the screen.
-    final cap = Dim.bonusSlotW(MediaQuery.sizeOf(context).width);
+    final cap = maxWidth ?? Dim.bonusSlotW(MediaQuery.sizeOf(context).width);
 
     return ConstrainedBox(
       constraints: BoxConstraints(maxWidth: cap),
-      // Presses in only while it can be taken; a chip still counting down
-      // stays still under the finger, which is what says it is not a key yet.
+      // Presses in while a tap does something: taking the reward, or opening a
+      // bonus's popup. A chip with neither (the milestone, still counting
+      // hands) stays still under the finger, which says it is not a key yet.
       child: PressScale(
-        enabled: enabled,
+        enabled: enabled || onWaitTap != null,
         child: DecoratedBox(
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(Radii.pill),
@@ -3816,7 +4043,7 @@ class _CornerChip extends StatelessWidget {
             // Both states are the same size, so a chip becoming claimable does
             // not shove the row it is in.
             minHeight: Dim.minTouch,
-            onTap: enabled ? onTap : null,
+            onTap: enabled ? onTap : onWaitTap,
             padding: const EdgeInsets.symmetric(
               horizontal: Space.lg,
               vertical: Space.sm,

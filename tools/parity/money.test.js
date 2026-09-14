@@ -34,7 +34,7 @@ test.after(closeDb);
 // The vocabulary of chip_ledger.reason. `boot`, `bet` and `show` are retired
 // (they belonged to the per-bet model) and must not appear in a fresh schema.
 const REASONS = new Set([
-  'welcome_bonus', 'hand_win', 'hand_loss', 'hand_packed', 'hand_left', 'milestone_reward', 'timed_bonus',
+  'welcome_bonus', 'hand_win', 'hand_loss', 'hand_packed', 'hand_left', 'milestone_reward', 'timed_bonus', 'daily_bonus',
   'picture_purchase', 'test_fixture',
 ]);
 const CHECKPOINT_REASONS = new Set(['hand_win', 'hand_loss', 'hand_packed', 'hand_left']);
@@ -75,7 +75,7 @@ test('every ledger row has a known reason, a balance that follows the running to
       assert.equal(row.action_id, `${row.hand_id}:${verb}:${row.user_id}`,
         'every checkpoint action id is server-minted — no client id ever reaches the ledger');
     }
-    if (['welcome_bonus', 'milestone_reward', 'timed_bonus'].includes(row.reason)) assert.ok(row.delta > 0);
+    if (['welcome_bonus', 'milestone_reward', 'timed_bonus', 'daily_bonus'].includes(row.reason)) assert.ok(row.delta > 0);
     // A premium picture is a chip SINK: the row only ever takes chips away.
     if (row.reason === 'picture_purchase') {
       assert.ok(row.delta < 0, 'buying a picture only ever takes chips');

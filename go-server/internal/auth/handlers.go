@@ -298,6 +298,34 @@ func (h *Handler) Bonus(w http.ResponseWriter, r *http.Request, user *db.User) {
 	WriteJSON(w, http.StatusOK, result)
 }
 
+// Daily is POST /api/rewards/daily, the daily bonus beside the four-hour one
+// (owner, 14 Sep 2026; Go only): 1,00,000 chips and a hammer every 24 hours.
+// Its order and answers are Bonus's — seated → 409 {error:"seated"}; claimed →
+// 200 {claimed:true, amount, readyAt, user} and log `daily bonus claimed`
+// {userId}; not ready → 409 {error:"reward_not_ready", message, readyAt, user}
+// — and so are its seated check and lock, for the reasons given on Milestone.
+func (h *Handler) Daily(w http.ResponseWriter, r *http.Request, user *db.User) {
+	var result *db.RewardResult
+	var err error
+	if !h.whileUnseated(r.Context(), user.ID, func(ctx context.Context) { result, err = h.deps.Users.ClaimDailyBonus(ctx, user.ID) }) {
+		WriteJSON(w, http.StatusConflict, ErrorResponse{Error: CodeSeated, Message: MsgSeatedBonus})
+		return
+	}
+	if err != nil {
+		h.writeError(w, r, err)
+		return
+	}
+	if !result.Claimed {
+		readyAt := result.ReadyAt
+		WriteJSON(w, http.StatusConflict, ErrorResponse{Error: CodeRewardNotReady, Message: MsgRewardNotReady, ReadyAt: &readyAt, User: result.User})
+		return
+	}
+	if h.deps.Logger != nil {
+		h.deps.Logger.Info("daily bonus claimed", "userId", user.ID)
+	}
+	WriteJSON(w, http.StatusOK, result)
+}
+
 // BuyChips is POST /api/purchases/google {productId, purchaseToken}.
 //
 // It serves chip, diamond and hammer packs and premium packages alike: the

@@ -26,6 +26,7 @@ type fakeStore struct {
 	users    map[string]*db.User // by id
 	byIdent  map[string]string   // provider|providerUserId → id
 	milestOK map[string]bool     // ClaimMilestoneReward succeeds
+	dailyAt  map[string]int64    // ClaimDailyBonus's next unlock (made on first use)
 	bonusAt  map[string]int64
 	failWith error // every call returns this when set
 	now      int64
@@ -63,7 +64,8 @@ func (s *fakeStore) UpsertFromProfile(_ context.Context, p db.Profile) (*db.User
 	id := fmt.Sprintf("user-%d", len(s.users)+1)
 	u := &db.User{ID: id, Provider: p.Provider, DisplayName: p.DisplayName, Email: p.Email, AvatarURL: p.AvatarURL,
 		ProviderAvatarURL: p.AvatarURL, Chips: 200000, Diamond: 1, CreatedAt: s.now, LastLoginAt: s.now,
-		Rewards: db.Rewards{MilestoneReward: 25000, MilestoneEvery: 25, HandsToNextMilestone: 25, BonusAvailable: true, BonusReward: 10000, BonusIntervalMs: 14400000}}
+		Rewards: db.Rewards{MilestoneReward: 25000, MilestoneEvery: 25, HandsToNextMilestone: 25, BonusAvailable: true, BonusReward: 10000, BonusIntervalMs: 14400000,
+			DailyAvailable: true, DailyReward: 100000, DailyHammers: 1, DailyIntervalMs: 86400000}}
 	s.users[id] = u
 	s.byIdent[key] = id
 	copied := *u
@@ -94,6 +96,23 @@ func (s *fakeStore) ClaimTimedBonus(_ context.Context, userID string) (*db.Rewar
 	s.bonusAt[userID] = s.now + 14400000
 	u.Chips += 10000
 	return &db.RewardResult{Claimed: true, Amount: 10000, ReadyAt: s.bonusAt[userID], User: u}, nil
+}
+
+func (s *fakeStore) ClaimDailyBonus(_ context.Context, userID string) (*db.RewardResult, error) {
+	if s.failWith != nil {
+		return nil, s.failWith
+	}
+	if s.dailyAt == nil {
+		s.dailyAt = map[string]int64{}
+	}
+	u := s.users[userID]
+	if s.now < s.dailyAt[userID] {
+		return &db.RewardResult{Claimed: false, Reason: "not_ready", ReadyAt: s.dailyAt[userID], User: u}, nil
+	}
+	s.dailyAt[userID] = s.now + 86400000
+	u.Chips += 100000
+	u.Hammer++
+	return &db.RewardResult{Claimed: true, Amount: 100000, ReadyAt: s.dailyAt[userID], User: u}, nil
 }
 
 func (s *fakeStore) SetDisplayName(_ context.Context, userID, displayName string) (*db.User, error) {
@@ -736,6 +755,36 @@ func TestTimedBonus(t *testing.T) {
 	}
 }
 
+// POST /api/rewards/daily is the daily bonus beside the four-hour one (owner,
+// 14 Sep 2026; Go only): the Bonus handler's answers, its own store call and
+// log line, and a countdown of its own.
+func TestDailyBonus(t *testing.T) {
+	h := newHarness(t)
+	token, user := h.login("device-guest-0001", "Suraj")
+	id := user["id"].(string)
+	res := h.do(http.MethodPost, "/api/rewards/daily", nil, bearer(token)...)
+	if res.status != 200 || res.body["claimed"] != true || res.body["amount"] != float64(100000) {
+		t.Fatalf("%d %s", res.status, res.raw)
+	}
+	readyAt := res.body["readyAt"].(float64)
+	if int64(readyAt) != h.store.now+86400000 || res.body["user"].(map[string]any)["hammer"] != float64(h.store.users[id].Hammer) {
+		t.Errorf("%s", res.raw)
+	}
+	if !strings.Contains(h.logs.String(), `"msg":"daily bonus claimed"`) {
+		t.Errorf("log %s", h.logs.String())
+	}
+	// The four-hour bonus runs its own clock: still collectable.
+	if res := h.do(http.MethodPost, "/api/rewards/bonus", nil, bearer(token)...); res.status != 200 || res.body["amount"] != float64(10000) {
+		t.Errorf("the four-hour bonus after the daily one: %d %s", res.status, res.raw)
+	}
+	// Inside its own countdown → 409 {error, message, readyAt, user}.
+	res = h.do(http.MethodPost, "/api/rewards/daily", map[string]any{}, bearer(token)...)
+	expectError(t, res, 409, CodeRewardNotReady)
+	if res.body["message"] != MsgRewardNotReady || res.body["readyAt"] != readyAt || res.body["user"].(map[string]any)["id"] != id || len(res.body) != 4 {
+		t.Errorf("%s", res.raw)
+	}
+}
+
 func TestProfilesListsTheCatalogue(t *testing.T) {
 	h := newHarness(t)
 
@@ -1341,6 +1390,7 @@ func TestRewardsAreRefusedWhileSeated(t *testing.T) {
 	}{
 		{"/api/rewards/milestone", MsgSeatedMilestone},
 		{"/api/rewards/bonus", MsgSeatedBonus},
+		{"/api/rewards/daily", MsgSeatedBonus},
 	} {
 		res := h.do(http.MethodPost, tc.path, map[string]any{}, bearer(token)...)
 		expectError(t, res, 409, CodeSeated)
@@ -1362,5 +1412,9 @@ func TestRewardsAreRefusedWhileSeated(t *testing.T) {
 	res = h.do(http.MethodPost, "/api/rewards/bonus", map[string]any{}, bearer(token)...)
 	if res.status != 200 || res.body["claimed"] != true {
 		t.Fatalf("bonus from the lobby: %d %s", res.status, res.raw)
+	}
+	res = h.do(http.MethodPost, "/api/rewards/daily", map[string]any{}, bearer(token)...)
+	if res.status != 200 || res.body["claimed"] != true {
+		t.Fatalf("daily bonus from the lobby: %d %s", res.status, res.raw)
 	}
 }

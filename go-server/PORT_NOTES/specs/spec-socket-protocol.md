@@ -197,11 +197,15 @@ Produced by `publicUser(row)` from a `users` row. Key order and types (MUST MATC
     "milestoneReward": 25000,
     "milestoneEvery": 25,
     "handsToNextMilestone": <integer>,             // 25 - (handsPlayed % 25)  (says 25, not 0, at an exact multiple)
-    "bonusReadyAt": <epoch ms integer>,            // user_milestones DAILY_BONUS next_claim_at ?? 0; Node: users.next_bonus_at
+    "bonusReadyAt": <epoch ms integer>,            // user_milestones TIMED_BONUS next_claim_at ?? 0; Node: users.next_bonus_at
     "bonusAvailable": <bool>,                      // Date.now() >= bonusReadyAt
-    "bonusReward": 100000,                         // the daily bonus's chips (owner, 14 Sep 2026; Node: 10000)
-    "bonusHammers": 1,                             // Go only (owner, 14 Sep 2026): and its hammer
-    "bonusIntervalMs": 86400000                    // 24 hours (Node: 14400000, four)
+    "bonusReward": 10000,
+    "bonusIntervalMs": 14400000,
+    "dailyReadyAt": <epoch ms integer>,            // Go only (owner, 14 Sep 2026): the daily bonus, user_milestones DAILY_BONUS next_claim_at ?? 0
+    "dailyAvailable": <bool>,                      // Go only: Date.now() >= dailyReadyAt
+    "dailyReward": 100000,                         // Go only: the chips of POST /api/rewards/daily
+    "dailyHammers": 1,                             // Go only: and its hammer
+    "dailyIntervalMs": 86400000                    // Go only: 24 hours
   },
   "createdAt": <epoch ms>,
   "lastLoginAt": <epoch ms>

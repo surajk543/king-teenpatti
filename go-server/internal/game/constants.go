@@ -183,6 +183,9 @@ const (
 	LedgerReasonShow            = "show"
 	LedgerReasonMilestoneReward = "milestone_reward"
 	LedgerReasonTimedBonus      = "timed_bonus"
+	// LedgerReasonDailyBonus is the chips of the daily bonus, beside the
+	// four-hour timed_bonus (owner, 14 Sep 2026; Go only).
+	LedgerReasonDailyBonus = "daily_bonus"
 	// LedgerReasonPurchase is chips bought with real money through Google
 	// Play. Its action_id is "gplay:<purchaseToken>", and the UNIQUE index on
 	// action_id is what stops one purchase being credited twice — see

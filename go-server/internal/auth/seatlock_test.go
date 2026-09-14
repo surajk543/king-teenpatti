@@ -127,6 +127,11 @@ func (u *gatedUsers) ClaimTimedBonus(ctx context.Context, userID string) (*db.Re
 	return u.fakeStore.ClaimTimedBonus(ctx, userID)
 }
 
+func (u *gatedUsers) ClaimDailyBonus(ctx context.Context, userID string) (*db.RewardResult, error) {
+	u.gate.record(ctx, "daily")
+	return u.fakeStore.ClaimDailyBonus(ctx, userID)
+}
+
 // newGatedHarness is newHarness with the seat lock wired in. IsSeated always
 // answers "no": a handler that still decided a money route by that look alone
 // would sell to a seated player here, and the tests would see it.
@@ -182,12 +187,12 @@ func TestLobbyOnlyWalletChangesRunUnderTheSeatLock(t *testing.T) {
 	if res.status != 200 || res.body["charged"] != true {
 		t.Fatalf("a lobby buy: %d %s", res.status, res.raw)
 	}
-	for _, path := range []string{"/api/rewards/milestone", "/api/rewards/bonus"} {
+	for _, path := range []string{"/api/rewards/milestone", "/api/rewards/bonus", "/api/rewards/daily"} {
 		if res := h.do(http.MethodPost, path, map[string]any{}, bearer(token)...); res.status != 200 || res.body["claimed"] != true {
 			t.Fatalf("%s from the lobby: %d %s", path, res.status, res.raw)
 		}
 	}
-	if got, want := gate.log(), []string{"buy:locked", "milestone:locked", "bonus:locked"}; !reflect.DeepEqual(got, want) {
+	if got, want := gate.log(), []string{"buy:locked", "milestone:locked", "bonus:locked", "daily:locked"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("store calls = %v, want %v", got, want)
 	}
 
@@ -207,6 +212,7 @@ func TestLobbyOnlyWalletChangesRunUnderTheSeatLock(t *testing.T) {
 	for _, tc := range []struct{ path, msg string }{
 		{"/api/rewards/milestone", MsgSeatedMilestone},
 		{"/api/rewards/bonus", MsgSeatedBonus},
+		{"/api/rewards/daily", MsgSeatedBonus},
 	} {
 		res := h.do(http.MethodPost, tc.path, map[string]any{}, bearer(token)...)
 		expectError(t, res, http.StatusConflict, CodeSeated)
@@ -221,7 +227,7 @@ func TestLobbyOnlyWalletChangesRunUnderTheSeatLock(t *testing.T) {
 	if h.store.users[id].Chips != chips {
 		t.Errorf("chips moved while seated: %d → %d", chips, h.store.users[id].Chips)
 	}
-	want := []string{"buy:locked", "milestone:locked", "bonus:locked", "atTable:unlocked", "atTable:unlocked"}
+	want := []string{"buy:locked", "milestone:locked", "bonus:locked", "daily:locked", "atTable:unlocked", "atTable:unlocked"}
 	if got := gate.log(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("store calls = %v, want %v (no claim may reach the store while seated)", got, want)
 	}
