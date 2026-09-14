@@ -259,6 +259,7 @@ class Strings {
   /// The server's `no_missiles` and `too_few_players` refusals.
   String get noMissiles => _('noMissiles');
   String get tooFewPlayers => _('tooFewPlayers');
+  String get missileNeedsShowChips => _('missileNeedsShowChips');
 
   /// What a missile says at the table: to the player who fired it, and to
   /// everyone else.
@@ -750,6 +751,8 @@ class Strings {
       'getMissiles': 'Get missiles',
       'noMissiles': 'You need a missile to fire one',
       'tooFewPlayers': 'That needs at least 3 players still in the hand',
+      'missileNeedsShowChips':
+          'You need enough chips for a show to fire a missile',
       'missileFiredByYou': 'You fired a missile',
       'missileFiredBy': '{name} fired a missile',
       'storeTabMissiles': 'Missiles',
@@ -1095,6 +1098,7 @@ class Strings {
       'getMissiles': 'मिसाइलें लें',
       'noMissiles': 'मिसाइल दागने के लिए मिसाइल चाहिए',
       'tooFewPlayers': 'इसके लिए हाथ में कम से कम 3 खिलाड़ी होने चाहिए',
+      'missileNeedsShowChips': 'मिसाइल दागने के लिए शो जितनी चिप्स चाहिए',
       'missileFiredByYou': 'आपने मिसाइल दागी',
       'missileFiredBy': '{name} ने मिसाइल दागी',
       'storeTabMissiles': 'मिसाइलें',
@@ -1437,6 +1441,7 @@ class Strings {
       'getMissiles': 'মিসাইল নিন',
       'noMissiles': 'মিসাইল ছুড়তে একটি মিসাইল লাগবে',
       'tooFewPlayers': 'এর জন্য হাতে অন্তত 3 জন খেলোয়াড় থাকতে হবে',
+      'missileNeedsShowChips': 'মিসাইল ছুড়তে শো-এর মতো চিপ লাগবে',
       'missileFiredByYou': 'আপনি মিসাইল ছুড়লেন',
       'missileFiredBy': '{name} মিসাইল ছুড়লেন',
       'storeTabMissiles': 'মিসাইল',
@@ -1777,6 +1782,7 @@ class Strings {
       'getMissiles': 'મિસાઇલ લો',
       'noMissiles': 'મિસાઇલ છોડવા માટે મિસાઇલ જોઈએ',
       'tooFewPlayers': 'આ માટે હાથમાં ઓછામાં ઓછા 3 ખેલાડી હોવા જોઈએ',
+      'missileNeedsShowChips': 'મિસાઇલ છોડવા માટે શો જેટલી ચિપ્સ જોઈએ',
       'missileFiredByYou': 'તમે મિસાઇલ છોડી',
       'missileFiredBy': '{name} એ મિસાઇલ છોડી',
       'storeTabMissiles': 'મિસાઇલ',
@@ -2117,6 +2123,7 @@ class Strings {
       'getMissiles': 'ਮਿਜ਼ਾਈਲਾਂ ਲਓ',
       'noMissiles': 'ਮਿਜ਼ਾਈਲ ਚਲਾਉਣ ਲਈ ਮਿਜ਼ਾਈਲ ਚਾਹੀਦੀ ਹੈ',
       'tooFewPlayers': 'ਇਸ ਲਈ ਹੱਥ ਵਿੱਚ ਘੱਟੋ-ਘੱਟ 3 ਖਿਡਾਰੀ ਹੋਣੇ ਚਾਹੀਦੇ ਹਨ',
+      'missileNeedsShowChips': 'ਮਿਜ਼ਾਈਲ ਚਲਾਉਣ ਲਈ ਸ਼ੋ ਜਿੰਨੀਆਂ ਚਿਪਸ ਚਾਹੀਦੀਆਂ ਹਨ',
       'missileFiredByYou': 'ਤੁਸੀਂ ਮਿਜ਼ਾਈਲ ਚਲਾਈ',
       'missileFiredBy': '{name} ਨੇ ਮਿਜ਼ਾਈਲ ਚਲਾਈ',
       'storeTabMissiles': 'ਮਿਜ਼ਾਈਲਾਂ',

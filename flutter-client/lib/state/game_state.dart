@@ -1963,6 +1963,7 @@ class GameState extends ChangeNotifier {
     final until = _missileQuietUntil;
     return (code == 'no_missiles' ||
             code == 'too_few_players' ||
+            code == 'insufficient_chips' ||
             code == 'persist_failed') &&
         until != null &&
         DateTime.now().isBefore(until);
@@ -2004,6 +2005,13 @@ class GameState extends ChangeNotifier {
         final u = user;
         if (u != null) user = u.withMissile(0);
         return MissileResult.noMissiles;
+      }
+      // A missile needs the chips a show would cost the firer, held rather
+      // than paid (owner, 14 Sep 2026). The key is dark while they are short,
+      // so this is only met when the stack changed as the missile was sent.
+      if (code == 'insufficient_chips') {
+        notice = t.missileNeedsShowChips;
+        return MissileResult.refused;
       }
       // The refusals quieted above are said here, and so is a request that
       // was never answered — but only while nothing has happened at the

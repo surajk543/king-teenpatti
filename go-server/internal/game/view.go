@@ -86,7 +86,8 @@ type YouView struct {
 	UnfundedDeadline *int64 `json:"unfundedDeadline,omitempty"`
 	// CanMissile says the rules would let the viewer fire a missile right now
 	// (Table.missileBlockedReason == ""): a live hand, their turn, still in it,
-	// no sideshow pending and at least MissileMinPlayers in the hand. Go only
+	// no sideshow pending, at least MissileMinPlayers in the hand, and the chips
+	// a show would cost them. Go only
 	// (owner, 14 Sep 2026). Always present. It says nothing about missiles:
 	// the table does not hold the wallet, the client greys the key on its own
 	// user.missile, and the server refuses no_missiles.

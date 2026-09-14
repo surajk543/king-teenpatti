@@ -403,10 +403,10 @@ showRequestedBy, sideshow, lastDeparture, turnDeadline, turnToken, contributions
   `_endHand` clears the timer. The sideshow is **free** (the brief specified no bet — flagged as an
   exploit vs. standard rules).
 - **Missile** (owner, 14 Sep 2026; Go only): `ActionMissile`, on the firer's turn with **at least 3 players still in the
-  hand** (the firer included; blind or seen), costs 1 missile and no chips (`MissileWallet.SpendMissile`, charged once per
+  hand** (the firer included; blind or seen) and **holding the chips a show would cost them** (`Table.showCost`, their chaal — held, not paid; owner, 14 Sep 2026), costs 1 missile and no chips (`MissileWallet.SpendMissile`, charged once per
   `<handId>:missile:<userId>:<actionId>` in `missile_spends`) and ends the hand: every player still in shows, the best
   hand takes the pot, exact ties go against the firer (win reason `missile`). Refusals in order `no_hand | not_in_hand |
-  not_your_turn | sideshow_pending | too_few_players | duplicate_action | no_missiles | persist_failed`. `you.canMissile`
+  not_your_turn | sideshow_pending | too_few_players | insufficient_chips | duplicate_action | no_missiles | persist_failed`. `you.canMissile`
   (also in `you.options`) is the rules-minus-the-count answer. The next deal waits `NEXT_HAND_DELAY_MS +
   MISSILE_REVEAL_EXTRA_MS` so the client's volley and the reveal fit before it.
 - **Leaving mid-hand** = pack; stake stays; `leftMidHand=true`; `lastDeparture` gets the pot if all
