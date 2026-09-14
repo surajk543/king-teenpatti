@@ -90,9 +90,9 @@ void main() {
         [for (final p in missilePacks) (p.packId, p.diamonds, p.missiles)],
         [
           ('missiles_1', 15, 1),
-          ('missiles_5', 48, 5),
-          ('missiles_10', 90, 10),
-          ('missiles_20', 170, 20),
+          ('missiles_5', 73, 5),
+          ('missiles_10', 140, 10),
+          ('missiles_20', 220, 20),
         ],
       );
     });
@@ -274,7 +274,7 @@ void main() {
           jsonEncode({
             'user': _user(missile: 11, diamond: 0),
             'charged': true,
-            'diamonds': 90,
+            'diamonds': 140,
             'missiles': 10,
           }),
           200,
@@ -295,7 +295,7 @@ void main() {
         'requestId': 'req-1',
       });
       expect(r.charged, isTrue);
-      expect(r.diamonds, 90);
+      expect(r.diamonds, 140);
       expect(r.missiles, 10);
       expect(r.user.missile, 11);
       expect(r.user.diamond, 0);
@@ -307,7 +307,7 @@ void main() {
           jsonEncode({
             'user': _user(missile: 11),
             'charged': false,
-            'diamonds': 90,
+            'diamonds': 140,
             'missiles': 10,
           }),
           200,

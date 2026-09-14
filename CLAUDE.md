@@ -557,7 +557,7 @@ guarded by `diamond_purchases` (PK = the purchase token, `ON CONFLICT DO NOTHING
 beside `chips` (one of them 0). All four product ids must exist as managed products in the Play Console. **There
 is no Apple counterpart**, which is why the Flutter chip store does not start on iOS (§8.4);
 **`POST /api/store/missiles {packId, requestId}`** (owner, 14 Sep 2026) — trades diamonds for missiles in
-packs: `missiles_1` (15 diamonds for 1 — 10 until the owner raised it later on 14 Sep 2026), `missiles_5` (48 for 5), `missiles_10` (90 for 10), `missiles_20` (170 for 20), in one transaction under the
+packs: `missiles_1` (15 diamonds for 1 — 10 until the owner raised it later on 14 Sep 2026), `missiles_5` (73 for 5), `missiles_10` (140 for 10), `missiles_20` (220 for 20), in one transaction under the
 wallet lock (`db.Missiles.TradeMissiles`), replay-guarded by `missile_purchases` (`request_id` = `<userId>:<requestId>`).
 Answers `{user, charged, diamonds, missiles}` — `charged:false` with 0 and 0 on a replay; 400 `unknown_pack` /
 `invalid_request_id`, 409 `not_enough_diamonds`. Allowed while seated: diamonds and missiles sit outside §5.1;
@@ -886,7 +886,7 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   while the key can be used; no cost line — the confirmation states the hammer.
   **Missiles** (owner, 14 Sep 2026; rules in §6.1): the Missile key over Pack carries its cost as its second line, as Chaal carries its bet — the rocket mark and 1 (the missile a shot spends), then a chip and the chips a show would cost the player (`_MissileCost`, drawn through `_MachinedKey.detail`) (`GameState.missileChips`: the server's first rung on turn, else the stake's chaal; owner, 14 Sep 2026 — §6.1's server refuses a missile to a player short of it), plays `assets/animations/Missile.json` (a copy
   with its one `loopOut()` baked; the nose points up-right, frames 30–60 loop) while `canMissile`, is greyed with no
-  missiles and then offers the store's **Missiles** tab (between Hammers and Pictures, diamonds for missiles: 1 for 15, 5 for 48, 10 for 90, 20 for 170), and asks
+  missiles and then offers the store's **Missiles** tab (between Hammers and Pictures, diamonds for missiles: 1 for 15, 5 for 73, 10 for 140, 20 for 220), and asks
   first (`_fireMissile`). Every viewer sees the volley (`state/missile_strike.dart`, `widgets/missile_flight.dart`): one
   missile from the firer's pod to each player still in, 70 ms apart, **1.3 s in the air**, then
   `assets/animations/explosion.json` on each pod for **0.44 s** (its own length), and only then (`MissileTiming.reveal`)

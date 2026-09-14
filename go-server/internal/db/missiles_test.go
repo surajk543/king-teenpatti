@@ -153,7 +153,7 @@ func TestAMissileTradeDebitsDiamondsAndCreditsMissilesExactlyOncePerRequestId(t 
 	u, other := f.user("trader"), f.user("other-trader")
 	store := f.missileStore()
 	startRows := len(f.ledgerRows(u.ID))
-	if _, err := f.d.Pool.Exec(f.ctx, `UPDATE users SET diamond = 63 WHERE id = $1`, u.ID); err != nil {
+	if _, err := f.d.Pool.Exec(f.ctx, `UPDATE users SET diamond = 88 WHERE id = $1`, u.ID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -161,13 +161,13 @@ func TestAMissileTradeDebitsDiamondsAndCreditsMissilesExactlyOncePerRequestId(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !first.Charged || first.Diamonds != 48 || first.Missiles != 5 || first.User == nil || first.User.Diamond != 15 || first.User.Missile != 6 {
+	if !first.Charged || first.Diamonds != 73 || first.Missiles != 5 || first.User == nil || first.User.Diamond != 15 || first.User.Missile != 6 {
 		t.Fatalf("first trade: %+v (user %+v)", first, first.User)
 	}
 	if f.diamondsOf(u.ID) != 15 || f.missilesOf(u.ID) != 6 {
 		t.Fatalf("wallet after the trade: %d diamonds, %d missiles", f.diamondsOf(u.ID), f.missilesOf(u.ID))
 	}
-	if n := f.count(`SELECT count(*) FROM missile_purchases WHERE request_id = $1 AND user_id = $2 AND diamonds = 48 AND missiles = 5`,
+	if n := f.count(`SELECT count(*) FROM missile_purchases WHERE request_id = $1 AND user_id = $2 AND diamonds = 73 AND missiles = 5`,
 		db.MissileTradeID(u.ID, "req-1"), u.ID); n != 1 {
 		t.Fatalf("missile_purchases rows %d", n)
 	}
@@ -184,7 +184,7 @@ func TestAMissileTradeDebitsDiamondsAndCreditsMissilesExactlyOncePerRequestId(t 
 
 	// The catalogue exactly as the owner set it: each pack named by the
 	// missiles it gives, the bigger ones giving more missiles a diamond.
-	wantPacks := map[string][2]int64{"missiles_1": {15, 1}, "missiles_5": {48, 5}, "missiles_10": {90, 10}, "missiles_20": {170, 20}}
+	wantPacks := map[string][2]int64{"missiles_1": {15, 1}, "missiles_5": {73, 5}, "missiles_10": {140, 10}, "missiles_20": {220, 20}}
 	if len(db.MissilePacks) != len(wantPacks) {
 		t.Fatalf("%d packs, want %d", len(db.MissilePacks), len(wantPacks))
 	}
@@ -244,13 +244,13 @@ func TestAShortDiamondWalletIsRefusedAndRecordsNoTrade(t *testing.T) {
 	store := f.missileStore()
 
 	if _, err := store.TradeMissiles(f.ctx, u.ID, "missiles_20", "short-1"); !errors.Is(err, db.ErrNotEnoughDiamonds) {
-		t.Fatalf("170 diamonds from a wallet of 9: %v, want ErrNotEnoughDiamonds", err)
+		t.Fatalf("220 diamonds from a wallet of 9: %v, want ErrNotEnoughDiamonds", err)
 	}
 	if f.diamondsOf(u.ID) != 9 || f.missilesOf(u.ID) != 1 || f.count(`SELECT count(*) FROM missile_purchases WHERE user_id = $1`, u.ID) != 0 {
 		t.Fatal("a refused trade moved the wallet or recorded a trade")
 	}
 
-	if _, err := f.d.Pool.Exec(f.ctx, `UPDATE users SET diamond = 170 WHERE id = $1`, u.ID); err != nil {
+	if _, err := f.d.Pool.Exec(f.ctx, `UPDATE users SET diamond = 220 WHERE id = $1`, u.ID); err != nil {
 		t.Fatal(err)
 	}
 	done, err := store.TradeMissiles(f.ctx, u.ID, "missiles_20", "short-1")
