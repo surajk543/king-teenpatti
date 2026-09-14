@@ -6,7 +6,7 @@
 // game is checked on, in all five languages, at the normal text scale and the
 // 1.25 ceiling, in Indian and international numbering. A RenderFlex overflow
 // fails a test by itself; the cards are also measured, so the widest figure —
-// "10500 Crore 👑", "105 Billion 👑" — is seen to sit inside its card.
+// "10,500 Crore 👑", "105 Billion 👑" — is seen to sit inside its card.
 import 'dart:async';
 import 'dart:convert';
 
@@ -187,11 +187,11 @@ void main() {
         [for (final p in premiumPacks) formatChips(p.chips)],
         [
           '650 Crore',
-          '1050 Crore',
-          '1500 Crore',
-          '2500 Crore',
-          '4750 Crore',
-          '10500 Crore',
+          '1,050 Crore',
+          '1,500 Crore',
+          '2,500 Crore',
+          '4,750 Crore',
+          '10,500 Crore',
         ],
       );
       _publishNumbers(AppLang.english, NumberSystem.international);
@@ -336,7 +336,7 @@ void main() {
         );
         expect(
           state.notice,
-          t.premiumAdded('10500 ${t.unitCrore}', 50, 100),
+          t.premiumAdded('10,500 ${t.unitCrore}', 50, 100),
           reason: lang.code,
         );
         state.dispose();
@@ -347,8 +347,8 @@ void main() {
         'Premium Package added: 650 Crore chips, 1 missile and 10 hammers',
       );
       expect(
-        english.premiumAdded('10500 Crore', 50, 100),
-        'Premium Package added: 10500 Crore chips, 50 missiles and 100 hammers',
+        english.premiumAdded('10,500 Crore', 50, 100),
+        'Premium Package added: 10,500 Crore chips, 50 missiles and 100 hammers',
       );
     });
 
@@ -475,11 +475,11 @@ void main() {
         }
         for (final (i, (figure, missiles, hammers)) in [
           ('650 Crore', '+1 Missile', '+10 Hammers'),
-          ('1050 Crore', '+2 Missiles', '+15 Hammers'),
-          ('1500 Crore', '+4 Missiles', '+21 Hammers'),
-          ('2500 Crore', '+6 Missiles', '+30 Hammers'),
-          ('4750 Crore', '+11 Missiles', '+45 Hammers'),
-          ('10500 Crore', '+50 Missiles', '+100 Hammers'),
+          ('1,050 Crore', '+2 Missiles', '+15 Hammers'),
+          ('1,500 Crore', '+4 Missiles', '+21 Hammers'),
+          ('2,500 Crore', '+6 Missiles', '+30 Hammers'),
+          ('4,750 Crore', '+11 Missiles', '+45 Hammers'),
+          ('10,500 Crore', '+50 Missiles', '+100 Hammers'),
         ].indexed) {
           for (final line in [figure, missiles, hammers]) {
             expect(
@@ -512,8 +512,8 @@ void main() {
         expect(find.text('⭐'), findsOneWidget);
         expect(find.text('👑'), findsOneWidget);
         for (final (i, glyph, figure) in [
-          (4, '⭐', '4750 Crore'),
-          (5, '👑', '10500 Crore'),
+          (4, '⭐', '4,750 Crore'),
+          (5, '👑', '10,500 Crore'),
         ]) {
           final mark = tester.getRect(
             find.descendant(

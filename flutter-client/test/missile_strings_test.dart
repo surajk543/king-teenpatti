@@ -117,8 +117,8 @@ void main() {
       'Premium Package added: 650 Crore chips, 1 missile and 10 hammers',
     );
     expect(
-      t.premiumAdded('4750 Crore', 11, 45),
-      'Premium Package added: 4750 Crore chips, 11 missiles and 45 hammers',
+      t.premiumAdded('4,750 Crore', 11, 45),
+      'Premium Package added: 4,750 Crore chips, 11 missiles and 45 hammers',
     );
   });
 
@@ -204,7 +204,7 @@ void main() {
         t.plusMissiles(50),
         t.plusHammers(100),
         t.premiumAdded('650 Crore', 1, 10),
-        t.premiumAdded('10500 Crore', 50, 100),
+        t.premiumAdded('10,500 Crore', 50, 100),
       ]) {
         expect(line, isNot(contains('{')), reason: '${lang.code}: $line');
       }

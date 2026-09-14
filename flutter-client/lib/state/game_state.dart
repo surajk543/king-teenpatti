@@ -2386,10 +2386,14 @@ String formatChips(int n) {
 /// Two decimals at most, and none of the trailing zeros that come with them:
 /// 3.24 Lakh, 12 Lakh, 32.77 Crore. Two is what a player can take in at a
 /// glance across the table; the exact figure is always a tap away in the menu.
+/// The whole part is grouped like any other figure, so 10,500 Crore reads the
+/// way the owner writes it (the premium packages printed "10500 Crore").
 String _trim(double value) {
-  final text = value.toStringAsFixed(2);
-  if (!text.contains('.')) return text;
-  return text.replaceFirst(RegExp(r'\.?0+$'), '');
+  var text = value.toStringAsFixed(2);
+  if (text.contains('.')) text = text.replaceFirst(RegExp(r'\.?0+$'), '');
+  final dot = text.indexOf('.');
+  final whole = _grouped(int.parse(dot < 0 ? text : text.substring(0, dot)));
+  return dot < 0 ? whole : '$whole${text.substring(dot)}';
 }
 
 String _grouped(int n) {

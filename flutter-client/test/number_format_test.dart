@@ -25,8 +25,16 @@ void main() {
     expect(formatChips(595200), '5.95 Lakh');
     expect(formatChips(10000000), '1 Crore');
     expect(formatChips(25000000), '2.5 Crore');
-    expect(formatChips(327690000), '32.77 Crore', reason: 'rounded, not truncated');
+    expect(
+      formatChips(327690000),
+      '32.77 Crore',
+      reason: 'rounded, not truncated',
+    );
     expect(formatChips(500495800), '50.05 Crore');
+    // A thousand crore and up is grouped like any other figure.
+    expect(formatChips(10500000000), '1,050 Crore');
+    expect(formatChips(105000000000), '10,500 Crore');
+    expect(formatChips(123456780000), '12,345.68 Crore');
   });
 
   test('the international system names million and billion', () {
@@ -36,6 +44,7 @@ void main() {
     expect(formatChips(1200000), '1.2 Million');
     expect(formatChips(10000000), '10 Million');
     expect(formatChips(2500000000), '2.5 Billion');
+    expect(formatChips(1050000000000), '1,050 Billion');
   });
 
   test('the same figure reads differently in each system', () {
@@ -55,7 +64,11 @@ void main() {
     chipNumberSystem = NumberSystem.indian;
     chipUnits = (lakh: 'लाख', crore: 'करोड़', million: 'x', billion: 'y');
     expect(formatChips(1200000), '12 लाख');
-    chipUnits =
-        (lakh: 'Lakh', crore: 'Crore', million: 'Million', billion: 'Billion');
+    chipUnits = (
+      lakh: 'Lakh',
+      crore: 'Crore',
+      million: 'Million',
+      billion: 'Billion',
+    );
   });
 }
