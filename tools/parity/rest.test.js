@@ -493,7 +493,9 @@ test('a premium picture is bought once, with chips, and then can be worn', async
 test('a hammer picture is paid in hammers, never chips or diamonds, and a new account can afford one', async () => {
   const { profiles } = (await http('GET', '/api/profiles')).body;
   const hammered = profiles.filter((p) => p.currency === 'HAMMER');
-  assert.equal(hammered.length, 20, 'the seeded animated pictures are priced in hammers');
+  // Fifteen of the twenty seeded animated pictures; the owner priced the other
+  // five in diamonds (14 Sep 2026).
+  assert.equal(hammered.length, 15, 'the seeded animated pictures are priced in hammers');
   const pic = hammered.find((p) => p.cost === 10);
   assert.ok(pic, 'one of them costs 10 hammers');
   assert.equal(pic.type, 'PREMIUM');
@@ -539,8 +541,9 @@ test('a hammer picture is paid in hammers, never chips or diamonds, and a new ac
 });
 
 test('a diamond picture is paid in diamonds, never chips, and a new account can afford one', async () => {
-  // The seed prices nothing in diamonds since 14 Sep 2026, so this test prices
-  // a row of its own; the path is live for any row re-priced in diamonds.
+  // Five seeded pictures are priced in diamonds (owner, 14 Sep 2026); this test
+  // still prices a row of its own at 1, so it does not hang on which seeded
+  // row is cheapest or what it costs.
   const { rows: [{ id: gemId }] } = await query(
     `INSERT INTO profile_pictures (name, asset_url, asset_format, currency, type, cost, duration_days, sort_order, created_at, updated_at)
      VALUES ('Parity Gem', '/profiles/parity-gem.json', 'LOTTIE', 'DIAMOND', 'PREMIUM', 1, 100, 10000, 0, 0)
