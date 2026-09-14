@@ -78,14 +78,14 @@ export const SNAPSHOT_KEYS = [
 ];
 export const YOU_KEYS = [
   'seatIndex', 'chips', 'status', 'isBlind', 'blindMovesLeft', 'contributed', 'missedTurns', 'maxMissedTurns',
-  'cards', 'options',
+  'canMissile', 'cards', 'options',
 ];
 export const SEAT_KEYS = [
   'seatIndex', 'userId', 'displayName', 'avatarUrl', 'chips', 'status', 'isBlind', 'lastBet', 'lastAction',
   'contributed', 'connected', 'cardCount',
 ];
 export const OPTIONS_KEYS = [
-  'canSee', 'canSideshow', 'sideshowWith', 'canForceSideshow', 'chaal', 'raise', 'raiseSteps', 'maxBet', 'show', 'canPack', 'isBlind',
+  'canSee', 'canSideshow', 'sideshowWith', 'canForceSideshow', 'canMissile', 'chaal', 'raise', 'raiseSteps', 'maxBet', 'show', 'canPack', 'isBlind',
   'currentStake', 'chips', 'pot',
 ];
 export const CONFIG_KEYS = [

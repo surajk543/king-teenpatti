@@ -20,7 +20,7 @@ test.after(closeDb);
 const uniqueStake = stakeCounter(100);
 
 const USER_KEYS = [
-  'id', 'provider', 'displayName', 'email', 'avatarUrl', 'providerAvatarUrl', 'activePictureId', 'chips', 'diamond', 'hammer',
+  'id', 'provider', 'displayName', 'email', 'avatarUrl', 'providerAvatarUrl', 'activePictureId', 'chips', 'diamond', 'hammer', 'missile',
   'handsPlayed', 'handsWon', 'handsLost', 'handsLeftMid', 'totalWinnings', 'biggestPot', 'rewards',
   'createdAt', 'lastLoginAt',
 ];
@@ -49,7 +49,8 @@ test('guest login creates an account with the welcome chip grant, in the exact p
   assert.equal(user.providerAvatarUrl, null);
   assert.equal(user.activePictureId, null);
   assert.equal(user.chips, profile.welcomeChips, 'a first-time player is granted 2 lakh chips');
-  assert.equal(user.diamond, 1, 'and one diamond, the premium currency');
+  assert.equal(user.diamond, 2, 'and two diamonds, the premium currency');
+  assert.equal(user.missile, 1, 'and one missile');
   for (const counter of ['handsPlayed', 'handsWon', 'handsLost', 'handsLeftMid', 'totalWinnings', 'biggestPot']) {
     assert.equal(user[counter], 0, counter);
   }
@@ -494,7 +495,7 @@ test('a diamond picture is paid in diamonds, never chips, and a new account can 
   assert.equal(gem.assetFormat, 'LOTTIE');
 
   const { token, user } = await guestLogin('device-diamond-0001', 'Gem');
-  assert.equal(user.diamond, 1, 'every account starts with one diamond');
+  assert.equal(user.diamond, 2, 'every account starts with two diamonds');
   assert.ok(gem.cost <= user.diamond, 'which covers the seeded diamond picture');
 
   let r = await http('POST', '/api/profile/picture/buy', { token, body: { pictureId: gem.id } });

@@ -65,13 +65,18 @@ const (
 	// sideshow would. It costs ForceSideshowCost hammers (owner, 13 Sep 2026;
 	// Go only — Node had no such action, DECISIONS.md §2).
 	ActionForceSideshow Action = "forceSideshow"
+	// ActionMissile shows every hand still in and pays the best of them, at
+	// once: a showdown the player on turn forces, paid for with MissileCost
+	// missiles (owner, 14 Sep 2026; Go only — DECISIONS.md §2). It needs
+	// MissileMinPlayers still in the hand and moves no chips of its own.
+	ActionMissile Action = "missile"
 )
 
 // AllActions is the set game:action validates against (socket VALID_ACTIONS,
-// plus forceSideshow).
+// plus forceSideshow and missile).
 var AllActions = map[Action]struct{}{
 	ActionSee: {}, ActionChaal: {}, ActionRaise: {}, ActionPack: {}, ActionShow: {}, ActionSideshow: {},
-	ActionForceSideshow: {},
+	ActionForceSideshow: {}, ActionMissile: {},
 }
 
 // BetKind names the two bet flavours _bet() distinguishes ("chaal" | "raise").
@@ -93,6 +98,9 @@ const (
 	WinForcedShowdown WinReason = "forced_showdown" // the round cap was reached
 	WinAllLeft        WinReason = "all_left"        // everyone abandoned the hand; last leaver takes it (req. 15)
 	WinPotLimit       WinReason = "pot_limit"       // the table's maximum pot was reached (req. 22)
+	// WinMissile: a player fired a missile, every hand still in was shown and
+	// the best took the pot (owner, 14 Sep 2026; Go only).
+	WinMissile WinReason = "missile"
 )
 
 // Pack reasons (plain strings in Node, carried in ActionEvent.Reason on a

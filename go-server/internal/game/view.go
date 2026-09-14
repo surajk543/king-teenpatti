@@ -84,6 +84,13 @@ type YouView struct {
 	// boot and the table is holding their seat for a chip purchase
 	// (UNFUNDED_GRACE_MS); absent otherwise.
 	UnfundedDeadline *int64 `json:"unfundedDeadline,omitempty"`
+	// CanMissile says the rules would let the viewer fire a missile right now
+	// (Table.missileBlockedReason == ""): a live hand, their turn, still in it,
+	// no sideshow pending and at least MissileMinPlayers in the hand. Go only
+	// (owner, 14 Sep 2026). Always present. It says nothing about missiles:
+	// the table does not hold the wallet, the client greys the key on its own
+	// user.missile, and the server refuses no_missiles.
+	CanMissile bool `json:"canMissile"`
 	// Cards is the viewer's hand once seen, else [] — NEVER null (Flutter
 	// reads it as a list). Marshal an empty non-nil slice.
 	Cards []string `json:"cards"`
@@ -108,6 +115,9 @@ type TurnOptions struct {
 	// the table does not hold the wallet, the client greys the key when its
 	// own count is 0, and the server refuses no_hammers if it is.
 	CanForceSideshow bool `json:"canForceSideshow"`
+	// CanMissile is YouView.CanMissile, repeated here beside canForceSideshow
+	// so game:yourTurn carries it too. Go only (owner, 14 Sep 2026).
+	CanMissile bool `json:"canMissile"`
 	// Chaal is steps[0] or null when the player cannot afford the base.
 	Chaal *int64 `json:"chaal"`
 	// Raise is steps[1] or null.

@@ -112,6 +112,11 @@ const (
 	// was spent and nothing changed at the table.
 	CodeNoHammers = "no_hammers"
 
+	// CodeNoMissiles: a missile from a player whose wallet holds fewer than
+	// MissileCost missiles. Go only (owner, 14 Sep 2026). Nothing was spent and
+	// nothing changed at the table.
+	CodeNoMissiles = "no_missiles"
+
 	// Chat
 	CodeChatRateLimited = "chat_rate_limited"
 
@@ -176,5 +181,9 @@ const (
 	MsgSideshowNoNeighbour  = "There is nobody on your right to ask"
 	MsgSideshowGeneric      = "You cannot ask for a sideshow now"
 	MsgNoHammers            = "You need a hammer to force a sideshow" // Go only
-	MsgUnknownActionFormat  = "Unknown action \"%s\""
+	MsgNoMissiles           = "You need a missile to fire"            // Go only
+	// MsgMissileTooFewFormat is fmt.Sprintf'd with MissileMinPlayers. Its code
+	// is too_few_players, the sideshow's, with a message of its own.
+	MsgMissileTooFewFormat = "A missile needs at least %d players in the hand" // Go only
+	MsgUnknownActionFormat = "Unknown action \"%s\""
 )

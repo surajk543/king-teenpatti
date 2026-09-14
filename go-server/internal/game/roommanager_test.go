@@ -901,6 +901,7 @@ func TestRoomsCreateTableConfigIsExplicit(t *testing.T) {
 		SideshowTimeout:    g.SideshowTimeout,
 		SideshowMinPlayers: g.SideshowMinPlayers,
 		NextHandDelay:      g.NextHandDelay,
+		MissileRevealExtra: g.MissileRevealExtra,
 		ChatMaxHistory:     100,
 		ChatMaxLength:      140,
 	}

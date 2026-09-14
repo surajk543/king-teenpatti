@@ -458,8 +458,9 @@ func TestPostgresHoldsNoGameState(t *testing.T) {
 	// diamond pack and the guard that stops its token crediting twice.
 	// hammer_purchases and hammer_spends (13 Sep 2026) are the same for hammers:
 	// a pack's replay guard, and the one-hammer-per-key record a Force
-	// Sideshow is charged against — receipts, not game state.
-	want := []string{"chip_ledger", "diamond_purchases", "hammer_purchases", "hammer_spends", "profile_pictures", "user_profile_pictures", "users"}
+	// Sideshow is charged against — receipts, not game state. missile_purchases
+	// and missile_spends (14 Sep 2026) are the same for missiles.
+	want := []string{"chip_ledger", "diamond_purchases", "hammer_purchases", "hammer_spends", "missile_purchases", "missile_spends", "profile_pictures", "user_profile_pictures", "users"}
 	if !slices.Equal(tables, want) {
 		t.Fatalf("schema tables = %v, want %v", tables, want)
 	}

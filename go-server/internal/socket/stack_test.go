@@ -182,12 +182,14 @@ type stack struct {
 	// hammers is every table's Force Sideshow wallet; accounts start with
 	// none, so a test gives its players what it needs.
 	hammers *game.MemoryHammers
-	tokens  *auth.Tokens
-	h       *Handler
-	rooms   *game.RoomManager
-	srv     *sio.Server
-	ts      *httptest.Server
-	metrics *metrics.Metrics
+	// missiles is every table's missile wallet; accounts start with none.
+	missiles *game.MemoryMissiles
+	tokens   *auth.Tokens
+	h        *Handler
+	rooms    *game.RoomManager
+	srv      *sio.Server
+	ts       *httptest.Server
+	metrics  *metrics.Metrics
 	// live is the Handler's live store (presence, resume offers), a fake
 	// whose ttl clock is the Handler's clock.
 	live *livetest.Fake
@@ -235,7 +237,7 @@ func newStackWithClock(t *testing.T, mutate func(cfg *config.Config), clock game
 	users := newFakeUsers()
 	bk := &books{actionIDs: map[string]int{}, users: users}
 	m := metrics.New(metrics.Options{})
-	st := &stack{t: t, cfg: cfg, users: users, books: bk, metrics: m, hammers: game.NewMemoryHammers(nil)}
+	st := &stack{t: t, cfg: cfg, users: users, books: bk, metrics: m, hammers: game.NewMemoryHammers(nil), missiles: game.NewMemoryMissiles(nil)}
 	st.stakes.Store(1000)
 	st.tokens = auth.NewTokens(cfg.JWT.Secret, cfg.JWT.ExpiresIn, nil)
 	if clock != nil {
@@ -260,6 +262,7 @@ func newStackWithClock(t *testing.T, mutate func(cfg *config.Config), clock game
 		Chat:          cfg.Chat,
 		Ledger:        game.NewMemoryLedger(game.MemoryLedgerHooks{Checkpoint: bk.persist, Settle: bk.settle}),
 		Hammers:       st.hammers,
+		Missiles:      st.missiles,
 		TableListener: st.h,
 		Listener:      st.h,
 		Logger:        logger,

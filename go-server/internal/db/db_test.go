@@ -21,11 +21,12 @@ import (
 // them on every boot.
 func TestMigrationsAreVersionedOrderedAndSplitByKind(t *testing.T) {
 	migrations := db.Migrations()
-	// Exactly two since the consolidation of 14 Sep 2026: one DDL script and
-	// one DML script build an empty database. A third is a new migration and
-	// belongs in a new file, so update this count with it.
-	if len(migrations) != 2 {
-		t.Fatalf("expected the baseline and the seed only, got %d scripts", len(migrations))
+	// Two since the consolidation of 14 Sep 2026 — one DDL script and one DML
+	// script build an empty database — and a third, V1.0.2__missiles.sql, the
+	// same day, after production had run the first two. The next migration is
+	// a new file too, so update this count with it.
+	if len(migrations) != 3 {
+		t.Fatalf("expected the baseline, the seed and the missiles, got %d scripts", len(migrations))
 	}
 
 	for i, m := range migrations {
@@ -62,6 +63,29 @@ func TestMigrationsAreVersionedOrderedAndSplitByKind(t *testing.T) {
 	for _, ddl := range []string{"CREATE TABLE", "ALTER TABLE", "CREATE INDEX"} {
 		if strings.Contains(seed, ddl) {
 			t.Errorf("%s is DML and must not %s", migrations[1].File, ddl)
+		}
+	}
+
+	// V1.0.2 is DDL: the missile tables and the users columns it changes, and
+	// no rows. It is the one script that ALTERs an existing table, so every
+	// ALTER in it must sit inside a catalogue-guarded DO block — a bare one
+	// would fail every boot once users belongs to the superuser (DEPLOY.md §7).
+	missiles := migrations[2]
+	if missiles.File != "V1.0.2__missiles.sql" {
+		t.Fatalf("the third script is %s", missiles.File)
+	}
+	body := statementsOf(missiles.SQL)
+	if strings.Contains(body, "INSERT INTO") {
+		t.Errorf("%s is DDL and must hold no rows", missiles.File)
+	}
+	for _, want := range []string{"CREATE TABLE IF NOT EXISTS missile_purchases", "CREATE TABLE IF NOT EXISTS missile_spends"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("%s lacks %q", missiles.File, want)
+		}
+	}
+	for _, block := range strings.Split(body, "$$;") {
+		if strings.Contains(block, "ALTER TABLE") && !strings.Contains(block, "IF NOT EXISTS (") {
+			t.Errorf("%s has an ALTER outside a catalogue lookup:\n%s", missiles.File, block)
 		}
 	}
 	if !strings.Contains(db.SchemaSQL(), "chip_ledger_no_rewrite") {

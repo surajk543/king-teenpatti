@@ -516,13 +516,13 @@ test('cardinality: no label carries an identifier, address or raw path', async (
   for (const event of gameValues('event')) assert.match(event, /^[a-z]+:[a-zA-Z]+$/, `event "${event}" is not a wire event name`);
   for (const category of gameValues('category')) assert.ok(['seen', 'blind', 'other'].includes(category), `category "${category}" is not fixed`);
   for (const method of gameValues('method')) assert.match(method, /^[A-Z]+$/, `method "${method}" is not an HTTP verb`);
-  for (const action of gameValues('action')) assert.ok(['see', 'chaal', 'raise', 'pack', 'show', 'sideshow', 'forceSideshow', 'other'].includes(action), `action "${action}"`);
+  for (const action of gameValues('action')) assert.ok(['see', 'chaal', 'raise', 'pack', 'show', 'sideshow', 'forceSideshow', 'missile', 'other'].includes(action), `action "${action}"`);
   for (const route of gameValues('route')) assert.match(route, /^(\/[a-z/]+|static|unmatched|quick_join|code|create|switch|resume)$/, `route "${route}"`);
   // `op` names a database transaction (metrics.LedgerOps: checkpoint|settle|
-  // hammer_spend) or a live-store call
+  // hammer_spend|missile_spend) or a live-store call
   // (LIVE_STATE_PLAN.md). Both are fixed vocabularies of method names — the
   // point of the check is that no identifier can ever appear here.
-  const DB_OPS = ['checkpoint', 'settle', 'hammer_spend'];
+  const DB_OPS = ['checkpoint', 'settle', 'hammer_spend', 'missile_spend'];
   const LIVE_OPS = ['save_table', 'load_table', 'delete_table', 'list_tables', 'count_tables', 'list_summaries', 'list_seats', 'append_chat', 'load_chat',
     'delete_chat', 'set_seated', 'clear_seated', 'seat_of', 'set_online', 'set_offline', 'online_count',
     'put_resume_offer', 'take_resume_offer', 'delete_resume_offer', 'publish_table', 'retire_table',

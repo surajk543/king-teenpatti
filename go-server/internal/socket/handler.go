@@ -1583,7 +1583,7 @@ var (
 	knownCategories = map[string]struct{}{string(game.CategoryBlind): {}, string(game.CategorySeen): {}}
 	knownWinReasons = map[string]struct{}{
 		string(game.WinLastStanding): {}, string(game.WinShow): {}, string(game.WinForcedShowdown): {},
-		string(game.WinAllLeft): {}, string(game.WinPotLimit): {},
+		string(game.WinAllLeft): {}, string(game.WinPotLimit): {}, string(game.WinMissile): {},
 	}
 )
 

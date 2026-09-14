@@ -57,6 +57,11 @@ type TableConfig struct {
 	// before the insufficient_chips kick; 0 = at once (requirements 31/32).
 	UnfundedGrace time.Duration
 
+	// MissileRevealExtra is added to NextHandDelay after a missile showdown,
+	// so the next deal waits for the client's flight and explosions and for
+	// everyone to read the revealed hands (MISSILE_REVEAL_EXTRA_MS; Go only).
+	MissileRevealExtra time.Duration
+
 	ChatMaxHistory int // RoomChat caps; 0 → chat.js defaults (100 / 140)
 	ChatMaxLength  int
 }
@@ -90,7 +95,11 @@ type TableOptions struct {
 	// Hammers is the wallet a Force Sideshow is paid from. Production:
 	// db.Hammers. nil → a wallet with nothing in it, so every Force Sideshow is
 	// refused no_hammers rather than given away.
-	Hammers  HammerWallet
+	Hammers HammerWallet
+	// Missiles is the wallet a missile is fired from. Production: db.Missiles.
+	// nil → a wallet with nothing in it, so every missile is refused
+	// no_missiles rather than fired free.
+	Missiles MissileWallet
 	Clock    Clock    // nil → RealClock{}
 	Listener Listener // nil → NopListener{}
 
@@ -156,6 +165,7 @@ type ActRequest struct {
 //	show     → {action:"show", amount}
 //	sideshow → {action:"sideshow", toUserId}
 //	forceSideshow → {action:"forceSideshow", toUserId, packedUserId, hammers}
+//	missile  → {action:"missile", missiles}
 type ActResult struct {
 	Action   string `json:"action"`
 	Auto     *bool  `json:"auto,omitempty"`     // see: always present
@@ -169,6 +179,9 @@ type ActResult struct {
 	// Hammers is the asker's hammers left after paying for a forced sideshow
 	// (forceSideshow only, and present at 0) — the client's new count.
 	Hammers *int64 `json:"hammers,omitempty"`
+	// Missiles is the firer's missiles left after paying for a missile
+	// (missile only, and present at 0) — the client's new count.
+	Missiles *int64 `json:"missiles,omitempty"`
 }
 
 // SideshowOutcome is respondToSideshow's return: ack `{ok:true, accepted,
@@ -300,6 +313,7 @@ type Table struct {
 	isPrivate bool
 	ledger    Ledger
 	hammers   HammerWallet
+	missiles  MissileWallet
 	clock     Clock
 	listener  Listener
 	createdAt time.Time
@@ -344,9 +358,16 @@ type Table struct {
 	hand       *hand
 	dealerSeat int        // -1 before the first hand
 	startsAt   *time.Time // countdown target while state == starting
-	chat       *RoomChat
-	turnTimer  Timer
-	startTimer Timer
+	// holdStartUntil is the earliest a countdown started by maybeStart may end:
+	// set by a missile showdown to its hand end + NextHandDelay +
+	// MissileRevealExtra, the nextHandAt its handEnded promised. Zero = no
+	// hold. Not snapshotted: a countdown that is running is (startsAt), and a
+	// hold still pending when the table is saved waiting is a few seconds of
+	// animation, not state.
+	holdStartUntil time.Time
+	chat           *RoomChat
+	turnTimer      Timer
+	startTimer     Timer
 	// startTimerGen names the armed start timer, so a callback whose timer
 	// was stopped a moment too late (time.AfterFunc's Stop can lose that
 	// race) is recognised as stale — the same guard hand.turnToken gives
@@ -431,6 +452,10 @@ func newTableCore(opts TableOptions) *Table {
 	if opts.Hammers != nil {
 		hammers = opts.Hammers
 	}
+	var missiles MissileWallet = noMissileWallet{}
+	if opts.Missiles != nil {
+		missiles = opts.Missiles
+	}
 	cfg := opts.Config
 	if cfg.MaxPlayers < 0 {
 		cfg.MaxPlayers = 0
@@ -459,6 +484,7 @@ func newTableCore(opts TableOptions) *Table {
 		isPrivate:   opts.IsPrivate,
 		ledger:      ledger,
 		hammers:     hammers,
+		missiles:    missiles,
 		clock:       clock,
 		listener:    listener,
 		createdAt:   clock.Now(),
@@ -912,6 +938,14 @@ func (t *Table) StartHand() error {
 //	           anything else is persist_failed — both leave the table as it
 //	           was); then it resolves at once as an accepted sideshow does,
 //	           with reason "forced".
+//	missile  → fireMissile: sideshow_pending, then too_few_players (fewer
+//	           than MissileMinPlayers active); duplicate_action for an
+//	           actionId this hand already delivered; then
+//	           MissileWallet.SpendMissile (no_missiles passes through,
+//	           anything else is persist_failed — both leave the table as it
+//	           was); then emit action MISSILE (amount 0) and
+//	           resolveShowdown(active, WinMissile, userId): every hand in is
+//	           shown, the best takes the pot, the firer loses an exact tie.
 //	other    → unknown_action.
 //
 // missedTurns is reset to 0 only AFTER the move succeeded.
@@ -1231,8 +1265,9 @@ func (t *Table) removePlayer(userID, reason string) *SeatInfo {
 
 // maybeStart (table.js _maybeStart): if destroyed, state != waiting, or a
 // start timer is armed → return. sweepUnfunded(). If funded seats <
-// MinPlayers → return. state = starting, startsAt = now + NextHandDelay,
-// emit state, arm startTimer(NextHandDelay) → run(startHand).
+// MinPlayers → return. state = starting, startsAt = now + NextHandDelay
+// (or holdStartUntil when a missile showdown holds the deal later), emit
+// state, arm startTimer(startsAt - now) → run(startHand).
 func (t *Table) maybeStart() {
 	if t.destroyed.Load() {
 		return
@@ -1254,11 +1289,19 @@ func (t *Table) maybeStart() {
 	}
 
 	t.setState(TableStarting)
-	startsAt := t.clock.Now().Add(t.cfg.NextHandDelay)
+	now := t.clock.Now()
+	startsAt := now.Add(t.cfg.NextHandDelay)
+	// A missile showdown promised its players a longer look at the cards
+	// (handEnded.nextHandAt); the countdown keeps that promise. Once the hold
+	// has passed it is spent, and a later countdown is an ordinary one.
+	if t.holdStartUntil.After(startsAt) {
+		startsAt = t.holdStartUntil
+	}
+	t.holdStartUntil = time.Time{}
 	t.startsAt = &startsAt
 	t.emitState()
 
-	t.armStartTimer(func() { t.startHand() })
+	t.armStartTimerAfter(startsAt.Sub(now), func() { t.startHand() })
 }
 
 // armStartTimer arms the single start timer for NextHandDelay; when it fires,
@@ -1875,6 +1918,7 @@ func (t *Table) turnOptions(s *seat) TurnOptions {
 		SideshowWith: sideshowWith,
 		// One eligibility for both: a Force Sideshow only skips the asking.
 		CanForceSideshow: blocked == "",
+		CanMissile:       t.missileBlockedReason(s) == "",
 		Chaal:            options.Chaal,
 		Raise:            options.Raise,
 		RaiseSteps:       options.Steps,
@@ -2100,6 +2144,8 @@ func (t *Table) act(userID string, action Action, req ActRequest) (ActResult, er
 		result, err = t.requestSideshow(s)
 	case ActionForceSideshow:
 		result, err = t.forceSideshow(s, req.ActionID)
+	case ActionMissile:
+		result, err = t.fireMissile(s, req.ActionID)
 	default:
 		return ActResult{}, Errorf(CodeUnknownAction, MsgUnknownActionFormat, string(action))
 	}
@@ -2482,6 +2528,117 @@ func (t *Table) forceSideshow(s *seat, actionID string) (ActResult, error) {
 	}, nil
 }
 
+// missileBlockedReason returns "" when s may fire a missile now, else the first
+// failing check IN THIS ORDER: no_hand, not_in_hand, not_your_turn,
+// sideshow_pending, too_few_players (active < MissileMinPlayers). The missile
+// count is not a rule of the table — the wallet refuses no_missiles — so it is
+// not checked here, and canMissile says nothing about it.
+//
+// A reason rather than a boolean, as sideshowBlockedReason is, so the key the
+// client lights and the refusal the server sends are the same decision. Blind
+// and seen players alike may fire: a missile reveals every hand, including the
+// firer's own.
+func (t *Table) missileBlockedReason(s *seat) string {
+	if t.hand == nil {
+		return CodeNoHand
+	}
+	if s.status != SeatActive {
+		return CodeNotInHand
+	}
+	if t.hand.turnSeat != s.seatIndex {
+		return CodeNotYourTurn
+	}
+	// The asked player is still deciding; a showdown now would answer for them.
+	if t.hand.sideshow != nil {
+		return CodeSideshowPending
+	}
+	if len(t.activeSeats()) < MissileMinPlayers {
+		return CodeTooFewPlayers
+	}
+	return ""
+}
+
+// missileRefusal is the GameError for a missileBlockedReason.
+func missileRefusal(blocked string) *GameError {
+	switch blocked {
+	case CodeNoHand:
+		return NewGameError(CodeNoHand, MsgNoHand)
+	case CodeNotInHand:
+		return NewGameError(CodeNotInHand, MsgNotInHand)
+	case CodeNotYourTurn:
+		return NewGameError(CodeNotYourTurn, MsgNotYourTurn)
+	case CodeSideshowPending:
+		return NewGameError(CodeSideshowPending, MsgSideshowPending)
+	default:
+		return Errorf(CodeTooFewPlayers, MsgMissileTooFewFormat, MissileMinPlayers)
+	}
+}
+
+// fireMissile is the Missile (owner, 14 Sep 2026): the player on turn pays one
+// missile and every hand still in is shown at once, the best taking the pot.
+//
+//   - eligibility is missileBlockedReason, in its order;
+//   - an actionId this hand already delivered is refused duplicate_action before
+//     anything is spent (a missile ends the hand, so in practice only a
+//     same-closure replay could meet one — it is the rule every paid move keeps);
+//   - the missile is spent BEFORE the table changes, on the actor, as the
+//     Force Sideshow's hammer is: a refusal (no_missiles, or persist_failed
+//     when the wallet cannot be written) leaves the table exactly as it was, and
+//     a retry of a spend whose answer was lost is not charged again;
+//   - then the room hears the move (game:action, amount 0) and the hand is
+//     resolved through resolveShowdown with reason missile — the same path the
+//     pot-limit and forced showdowns take, so the reveals, the settlement and
+//     the ledger rows are exactly any showdown's. The firer stands where a show
+//     payer stands in the tie order: an exact tie goes against them.
+//
+// No chips move for the missile itself and nothing is written to chip_ledger
+// for it; the hand end writes what every hand end writes.
+func (t *Table) fireMissile(s *seat, actionID string) (ActResult, error) {
+	if blocked := t.missileBlockedReason(s); blocked != "" {
+		return ActResult{}, missileRefusal(blocked)
+	}
+	// The same rule chargeToPot applies to a bet's id: an empty id, or one
+	// shaped like a server key, is replaced and protects nothing.
+	if actionID == "" || strings.ContainsRune(actionID, reservedActionIDSeparator) {
+		actionID = util.UUID()
+	}
+	if _, seen := t.hand.actionIDs[actionID]; seen {
+		return ActResult{}, &GameError{Code: CodeDuplicateAction, Message: MsgDuplicateAction}
+	}
+
+	spend, err := t.missiles.SpendMissile(t.ctx, MissileSpend{
+		RoomID:   t.id,
+		HandID:   t.hand.id,
+		UserID:   s.userID,
+		ActionID: MissileSpendID(t.hand.id, s.userID, actionID),
+	})
+	if err != nil {
+		if CodeOf(err, "") == CodeNoMissiles {
+			return ActResult{}, NewGameError(CodeNoMissiles, MsgNoMissiles)
+		}
+		t.listener.OnPersistError(t.view, PersistErrorEvent{Reason: PersistReasonMissileSpend, UserID: s.userID, HandID: t.hand.id, Err: err})
+		return ActResult{}, &GameError{Code: CodePersistFailed, Message: MsgPersistFailed, Cause: err}
+	}
+
+	// Paid for: from here on it happens.
+	t.hand.actionIDs[actionID] = struct{}{}
+	active := t.activeSeats()
+
+	t.listener.OnAction(t.view, ActionEvent{
+		UserID: s.userID,
+		Action: ActionMissile,
+		Amount: 0,
+		Pot:    t.hand.pot,
+		Stake:  t.hand.stake,
+	})
+
+	t.clearTurnTimer()
+	t.resolveShowdown(active, WinMissile, StrPtr(s.userID))
+
+	remaining := spend.Remaining
+	return ActResult{Action: string(ActionMissile), Missiles: &remaining}, nil
+}
+
 // resolveSideshow (_resolveSideshow) settles the pending sideshow — see
 // RespondToSideshow. Returns ok=false when nothing was pending (a late timer
 // is a no-op). It stops the request's timer, clears it from the hand and hands
@@ -2848,6 +3005,12 @@ func (t *Table) endHand(winnerID *string, reason WinReason, reveals []Reveal) {
 	t.setState(TableWaiting)
 
 	nextHandAt := t.clock.Now().Add(t.cfg.NextHandDelay)
+	if reason == WinMissile && t.cfg.MissileRevealExtra > 0 {
+		// The flight, the explosions and a look at every revealed hand. The
+		// countdown maybeStart arms below is held to the same instant.
+		nextHandAt = nextHandAt.Add(t.cfg.MissileRevealExtra)
+		t.holdStartUntil = nextHandAt
+	}
 	var wireWinner *string
 	if winnerID != nil {
 		wireWinner = StrPtr(*winnerID)
@@ -3259,6 +3422,8 @@ func snapshotConfig(cfg TableConfig) SnapshotConfig {
 		UnfundedGraceMs:    cfg.UnfundedGrace.Milliseconds(),
 		ChatMaxHistory:     cfg.ChatMaxHistory,
 		ChatMaxLength:      cfg.ChatMaxLength,
+
+		MissileRevealExtraMs: cfg.MissileRevealExtra.Milliseconds(),
 	}
 }
 
@@ -3280,6 +3445,7 @@ func tableConfigFrom(c SnapshotConfig) TableConfig {
 		SideshowMinPlayers: c.SideshowMinPlayers,
 		NextHandDelay:      time.Duration(c.NextHandDelayMs) * time.Millisecond,
 		UnfundedGrace:      time.Duration(c.UnfundedGraceMs) * time.Millisecond,
+		MissileRevealExtra: time.Duration(c.MissileRevealExtraMs) * time.Millisecond,
 		ChatMaxHistory:     c.ChatMaxHistory,
 		ChatMaxLength:      c.ChatMaxLength,
 	}
@@ -3369,6 +3535,7 @@ func (t *Table) serializeFor(viewerID string) *TableView {
 			options := t.turnOptions(viewer)
 			you.Options = &options
 		}
+		you.CanMissile = t.missileBlockedReason(viewer) == ""
 		view.You = you
 	}
 

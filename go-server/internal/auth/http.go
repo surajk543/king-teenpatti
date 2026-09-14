@@ -77,7 +77,15 @@ type Deps struct {
 	// has no Play credentials, and then the endpoint refuses every request
 	// rather than crediting on the client's word.
 	Purchases PurchaseGateway
-	Logger    *slog.Logger
+	// Missiles is the missile store: diamonds traded for missiles. Nil → the
+	// endpoint answers 503 store_unavailable.
+	Missiles MissileStore
+	Logger   *slog.Logger
+}
+
+// MissileStore is the slice of db.Missiles the missile store endpoint uses.
+type MissileStore interface {
+	TradeMissiles(ctx context.Context, userID, packID, requestID string) (*db.MissileTrade, error)
 }
 
 // PurchaseGateway is the store side of the server: verify a receipt with
@@ -119,6 +127,7 @@ type PurchaseOutcome struct {
 //	POST /api/profile/avatar    → Avatar        (RequireAuth)
 //	POST /api/profile/picture/buy → BuyPicture  (RequireAuth)
 //	POST /api/profile/name      → Name          (RequireAuth)
+//	POST /api/store/missiles    → TradeMissiles (RequireAuth; Go only)
 //
 // Responses are JSON; errors are ErrorResponse. Body parsing (ReadJSONBody):
 // JSON only, UTF-8 only, 32 KiB limit (express.json({limit:'32kb'})); a
@@ -154,6 +163,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.Handle("/api/profile/avatar", methods(http.MethodPost, h.RequireAuth(h.Avatar)))
 	mux.Handle("/api/profile/picture/buy", methods(http.MethodPost, h.RequireAuth(h.BuyPicture)))
 	mux.Handle("/api/profile/name", methods(http.MethodPost, h.RequireAuth(h.Name)))
+	mux.Handle("/api/store/missiles", methods(http.MethodPost, h.RequireAuth(h.TradeMissiles)))
 }
 
 // methods lets `method` (and HEAD when method is GET) through to next and
@@ -363,6 +373,29 @@ type BuyPictureResponse struct {
 	Spent   int64      `json:"spent"`
 }
 
+// MissileTradeRequest ← POST /api/store/missiles {packId, requestId}. packId
+// names a pack of db.MissilePacks; requestId is the client's idempotency key
+// for this trade (1 to MissileRequestIDMaxLength UTF-16 units), so a retried
+// request is not charged twice.
+type MissileTradeRequest struct {
+	PackID    string `json:"packId"`
+	RequestID string `json:"requestId"`
+}
+
+// MissileRequestIDMaxLength is the longest requestId a missile trade accepts —
+// the socket layer's limit on a move's actionId.
+const MissileRequestIDMaxLength = 64
+
+// MissileTradeResponse ← POST /api/store/missiles. Charged is false when this
+// requestId had already been traded; Diamonds and Missiles are what THIS call
+// took and gave, so both are 0 on a replay.
+type MissileTradeResponse struct {
+	User     *db.User `json:"user"`
+	Charged  bool     `json:"charged"`
+	Diamonds int64    `json:"diamonds"`
+	Missiles int64    `json:"missiles"`
+}
+
 // NameRequest ← POST /api/profile/name {name} (requirement 29). While seated
 // → 409 seated ("You can only change your name in the lobby."). Validation
 // via db.NormalizeDisplayName(name, config.Game.DisplayNameMaxLength) → 400
@@ -409,10 +442,18 @@ const (
 	MsgPictureChips       = "You do not have enough chips for that picture."
 	MsgPictureDiamonds    = "You do not have enough diamonds for that picture."
 	MsgSeatedPicture      = "You can only buy a chip-priced picture in the lobby."
-	MsgEmptyName          = "Your name cannot be empty."
-	MsgNameTooLongFormat  = "Keep it to %d characters or fewer."
-	MsgInvalidName        = "Letters, numbers and spaces only."
-	MsgNameUnusable       = "That name cannot be used."
-	MsgInternalError      = "Something went wrong"
-	MsgUnknownUser        = "This account no longer exists"
+	MsgMissileStoreClosed = "The missile store is not open yet."
+	MsgUnknownMissilePack = "That missile pack does not exist"
+	MsgInvalidRequestID   = "A missile trade needs a request id of 1 to 64 characters"
+	// MsgNotEnoughDiamondsFormat is fmt.Sprintf'd with the pack's diamonds;
+	// MsgNotEnoughDiamondOne is the one-diamond pack's, which that would
+	// render as "1 diamonds".
+	MsgNotEnoughDiamondsFormat = "You need %d diamonds for this pack"
+	MsgNotEnoughDiamondOne     = "You need 1 diamond for this pack"
+	MsgEmptyName               = "Your name cannot be empty."
+	MsgNameTooLongFormat       = "Keep it to %d characters or fewer."
+	MsgInvalidName             = "Letters, numbers and spaces only."
+	MsgNameUnusable            = "That name cannot be used."
+	MsgInternalError           = "Something went wrong"
+	MsgUnknownUser             = "This account no longer exists"
 )

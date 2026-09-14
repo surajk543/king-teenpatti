@@ -608,10 +608,10 @@ func TestADiamondPictureIsPaidInDiamondsAndTheWalletsStayApart(t *testing.T) {
 		return f.scalar(`SELECT diamond FROM users WHERE id = $1`, id)
 	}
 
-	// Every account starts with one diamond, which is what the seeded diamond
-	// picture costs.
-	if user.Diamond != 1 || diamonds(user.ID) != 1 {
-		t.Fatalf("a new account holds %d diamonds (wire %d), want 1", diamonds(user.ID), user.Diamond)
+	// Every account starts with two diamonds (V1.0.2; one before it), and the
+	// seeded diamond picture costs one.
+	if user.Diamond != 2 || diamonds(user.ID) != 2 {
+		t.Fatalf("a new account holds %d diamonds (wire %d), want 2", diamonds(user.ID), user.Diamond)
 	}
 	if pic.Type != db.PicturePremium || pic.AssetFormat != "LOTTIE" || pic.Cost != 1 || pic.DurationDays != 100 {
 		t.Fatalf("seeded diamond picture = %+v, want a PREMIUM LOTTIE at 1 diamond for 100 days", pic)
@@ -625,13 +625,13 @@ func TestADiamondPictureIsPaidInDiamondsAndTheWalletsStayApart(t *testing.T) {
 	if !bought.Charged || bought.Spent != 1 || !bought.Picture.Owned {
 		t.Fatalf("charged=%v spent=%d owned=%v, want a 1-diamond charge", bought.Charged, bought.Spent, bought.Picture.Owned)
 	}
-	if got := diamonds(user.ID); got != 0 {
-		t.Fatalf("diamonds after the purchase = %d, want 0", got)
+	if got := diamonds(user.ID); got != 1 {
+		t.Fatalf("diamonds after the purchase = %d, want 1", got)
 	}
 	if got := f.chips(user.ID); got != chipsBefore {
 		t.Fatalf("a diamond purchase moved chips %d -> %d", chipsBefore, got)
 	}
-	if bought.User == nil || bought.User.Diamond != 0 || bought.User.Chips != chipsBefore {
+	if bought.User == nil || bought.User.Diamond != 1 || bought.User.Chips != chipsBefore {
 		t.Fatalf("the response user does not show the purchase: %+v", bought.User)
 	}
 	if n := f.count(`SELECT COUNT(*) FROM chip_ledger WHERE user_id = $1 AND reason = 'picture_purchase'`, user.ID); n != 0 {
@@ -651,12 +651,12 @@ func TestADiamondPictureIsPaidInDiamondsAndTheWalletsStayApart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if again.Charged || diamonds(user.ID) != 0 {
+	if again.Charged || diamonds(user.ID) != 1 {
 		t.Fatalf("a second buy charged: %+v, diamonds %d", again, diamonds(user.ID))
 	}
 
-	// A coin purchase by the same player leaves the (now empty) diamond wallet
-	// alone and moves chips through the ledger as it always has.
+	// A coin purchase by the same player leaves the diamond wallet alone and
+	// moves chips through the ledger as it always has.
 	coin := premiumPicture(t, f)
 	if coin.Currency != db.PictureCurrencyCoin {
 		t.Fatalf("premiumPicture returned a %s row", coin.Currency)
@@ -664,7 +664,7 @@ func TestADiamondPictureIsPaidInDiamondsAndTheWalletsStayApart(t *testing.T) {
 	if _, err := f.pictures.Buy(f.ctx, user.ID, coin.ID); err != nil {
 		t.Fatal(err)
 	}
-	if diamonds(user.ID) != 0 || f.chips(user.ID) != chipsBefore-coin.Cost {
+	if diamonds(user.ID) != 1 || f.chips(user.ID) != chipsBefore-coin.Cost {
 		t.Fatalf("after a coin buy: diamonds %d, chips %d", diamonds(user.ID), f.chips(user.ID))
 	}
 	f.reconcile()
@@ -1176,7 +1176,7 @@ func TestUserMarshalsToThePublicUserShape(t *testing.T) {
 	if err := json.Unmarshal(out, &m); err != nil {
 		t.Fatal(err)
 	}
-	wantKeys := []string{"id", "provider", "displayName", "email", "avatarUrl", "providerAvatarUrl", "activePictureId", "chips", "diamond", "hammer",
+	wantKeys := []string{"id", "provider", "displayName", "email", "avatarUrl", "providerAvatarUrl", "activePictureId", "chips", "diamond", "hammer", "missile",
 		"handsPlayed", "handsWon", "handsLost", "handsLeftMid", "totalWinnings", "biggestPot", "rewards", "createdAt", "lastLoginAt"}
 	if len(m) != len(wantKeys) {
 		t.Fatalf("user has %d keys, want %d: %s", len(m), len(wantKeys), out)

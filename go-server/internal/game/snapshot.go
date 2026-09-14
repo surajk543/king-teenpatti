@@ -65,8 +65,11 @@ type SnapshotConfig struct {
 	SideshowMinPlayers int      `json:"sideshowMinPlayers"`
 	NextHandDelayMs    int64    `json:"nextHandDelayMs"`
 	UnfundedGraceMs    int64    `json:"unfundedGraceMs,omitempty"`
-	ChatMaxHistory     int      `json:"chatMaxHistory"`
-	ChatMaxLength      int      `json:"chatMaxLength"`
+	// MissileRevealExtraMs is TableConfig.MissileRevealExtra; absent (0) in a
+	// snapshot saved before missiles existed, which restores without the extra.
+	MissileRevealExtraMs int64 `json:"missileRevealExtraMs,omitempty"`
+	ChatMaxHistory       int   `json:"chatMaxHistory"`
+	ChatMaxLength        int   `json:"chatMaxLength"`
 }
 
 // SnapshotHand is Snapshot.hand.

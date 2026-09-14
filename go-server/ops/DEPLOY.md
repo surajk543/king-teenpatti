@@ -250,7 +250,9 @@ and the columns and tables that build does not know (`users.hammer`, `hammer_pur
 Flapping at `/profiles/butterfly-flapping.json`, the file its checkout serves, and that URL conflicts
 with nothing, so the shelf gains **a second Butterfly Flapping**, locked for everyone and on sale at 4
 diamonds. While v1.3.0 runs nobody can force a sideshow or buy a hammer pack: neither exists in that
-build. Only v1.3.0 was checked.
+build. Only v1.3.0 was checked. Any build from before `V1.0.2__missiles.sql` likewise never reads
+`users.missile`, `missile_purchases` or `missile_spends`; while it runs nobody can fire a missile or
+trade for one, and new accounts still get 2 diamonds and 1 missile from the column defaults.
 
 Coming forward again does **not** remove the second row — the consolidated seed carries no clean-up —
 so retire it with the second query below, either during the rollback or after it (`UPDATE 1` retires
@@ -401,8 +403,8 @@ sudo journalctl -u gameplay -n 20 --no-pager     # "database ready" then "king-t
 ```
 
 **Why REFERENCES.** The app role creates tables at boot, and creating a table with a foreign key to
-`users` — `diamond_purchases`, `hammer_purchases` and `hammer_spends` each have one, and a later table
-may — needs the REFERENCES privilege on `users`. An owner holds it implicitly; once `postgres` owns
+`users` — `diamond_purchases`, `hammer_purchases`, `hammer_spends`, `missile_purchases` and
+`missile_spends` each have one, and a later table may — needs the REFERENCES privilege on `users`. An owner holds it implicitly; once `postgres` owns
 the table, `gameplay_app` holds it only if granted. Its absence does not show on the day this section
 is run: `CREATE TABLE IF NOT EXISTS` skips a table that already exists before it checks anything. It
 shows on the first boot that has to *create* such a table — `permission denied for table users` —
@@ -416,8 +418,8 @@ referencing `users` still crash-loops. What covers a checkout's scripts is
 `TestTheAppRoleBootsTwiceBeforeAndAfterUsersIsHandedToTheSuperuser` (`internal/db`; needs a local
 PostgreSQL superuser). It reads the SQL block above out of this file, applies it to a throwaway
 schema, and boots every migration twice as a role that is not a superuser, before and after — then
-twice more while re-creating the three tables that reference `users` under the new ownership, and
-spends a hammer on the new grants. Run it before deploying a
+twice more while re-creating the five tables that reference `users` under the new ownership, and
+spends a hammer and a missile and trades diamonds for missiles on the new grants. Run it before deploying a
 release that touches `users` or adds a table referencing it:
 
 ```bash
@@ -471,24 +473,44 @@ done. This is also why the trigger function is created only when missing rather 
 guarded statement whose work production has not done yet (it builds its schema as the owner first),
 which is exactly why that one-off run as `postgres` comes before the deploy.
 
-**Releases that need that one-off run: none.** The migrations were consolidated on 14 Sep 2026 into
-one DDL script and one DML script (§8), and the baseline declares `users.hammer` in `CREATE TABLE
-users` itself, so a database built from it has every column from its first boot. Any ALTER or index a
-later release adds to `users` goes behind a catalogue lookup, and on a database this section has been
-applied to, its statement is run once as `postgres` — under `SET lock_timeout` and
-`SET statement_timeout`, because `ALTER TABLE users` queues every login and checkpoint behind its
-lock — before that release is deployed.
+**Releases that need that one-off run: the first one carrying `V1.0.2__missiles.sql`.** The
+migrations were consolidated on 14 Sep 2026 into one DDL script and one DML script (§8), and the
+baseline declares `users.hammer` in `CREATE TABLE users` itself. `V1.0.2` (missiles, the same day) is
+the first script since to change `users`: it adds `users.missile` and moves the `missile` and
+`diamond` defaults, each ALTER behind a catalogue lookup. Where `users` still belongs to
+`gameplay_app` (the owner query in §5 answers `gameplay_app`) nothing needs doing — the first boot
+runs them. On a database this section has been applied to, run them once as `postgres` before that
+release is deployed — under `SET lock_timeout` and `SET statement_timeout`, because `ALTER TABLE
+users` queues every login and checkpoint behind its lock — or its boot fails with `must be owner of
+table users`:
+
+```bash
+sudo -u postgres psql gameplay -v ON_ERROR_STOP=1 <<'SQL'
+SET lock_timeout = '5s';
+SET statement_timeout = '30s';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS missile INTEGER NOT NULL DEFAULT 0 CHECK (missile >= 0);
+ALTER TABLE users ALTER COLUMN missile SET DEFAULT 1;
+ALTER TABLE users ALTER COLUMN diamond SET DEFAULT 2;
+SQL
+```
+
+Every existing account gets 0 missiles and keeps its diamonds; accounts created afterwards start with
+2 diamonds and 1 missile. Any later ALTER or index on `users` goes the same way: behind a catalogue
+lookup in its script, and run once as `postgres` here first.
 
 ## 8. Starting production on an empty database
 
-Since 14 Sep 2026 `go-server/internal/db/migration/` holds exactly two scripts:
-`V1.0.0__baseline.sql` (every table, column, index, function and trigger) and
-`V1.0.1__seed_profile_pictures.sql` (the 35 catalogue rows). They build a database from nothing on
-the first boot, and nothing in them brings an older database forward any more: a database built by
-`go-server/v1.3.0` or older lacks `users.hammer`, and the first release carrying these scripts must
-start on an **empty** `public` schema. That deletes every account, wallet, ledger row, purchase
-record and owned picture — players come back as new accounts with the welcome chips, 1 diamond and
-20 hammers. Take the backup.
+Since 14 Sep 2026 `go-server/internal/db/migration/` holds three scripts:
+`V1.0.0__baseline.sql` (every table, column, index, function and trigger, as consolidated),
+`V1.0.1__seed_profile_pictures.sql` (the 35 catalogue rows) and `V1.0.2__missiles.sql`
+(`users.missile`, the new `missile` and `diamond` defaults, `missile_purchases` and `missile_spends`).
+They build a database from nothing on the first boot. `V1.0.2` also brings a database the first two
+built forward in place — existing accounts get 0 missiles and keep their diamonds — so it needs no
+start-over, only §7's one-off run where §7 is applied. Nothing in them brings an older database
+forward: a database built by `go-server/v1.3.0` or older lacks `users.hammer`, and the first release
+carrying the consolidated scripts must start on an **empty** `public` schema. That deletes every
+account, wallet, ledger row, purchase record and owned picture — players come back as new accounts
+with the welcome chips, 2 diamonds, 20 hammers and 1 missile. Take the backup.
 
 This is the order that worked on 13 Sep 2026 (`go-server/v1.2.0`), as `deploy`, no sudo. The facts
 that shape it: `gameplay_app` owns every table and function but not the `public` schema, so "empty
@@ -538,7 +560,7 @@ until curl -sf 127.0.0.1:3000/health >/dev/null; do sleep 1; done
 curl -s 127.0.0.1:3000/health | python3 -c 'import json,sys; h=json.load(sys.stdin); print(h["ok"], h["version"])'
 psql "$DB" -Atc "SET statement_timeout = '10s'" \
   -c "SELECT count(*) FROM pg_tables WHERE schemaname = 'public'" \
-  -c "SELECT count(*) FROM profile_pictures"                     # 7, then 35
+  -c "SELECT count(*) FROM profile_pictures"                     # 9, then 35
 journalctl -u gameplay -n 50 --no-pager | grep -iE 'restored|"level":"(WARN|ERROR)"'   # restored tables=0; no WARN or ERROR
 bash go-server/ops/prod-version.sh                                                     # IN SYNC
 ```
