@@ -235,9 +235,8 @@ func TestTheAppRoleBootsTwiceBeforeAndAfterUsersIsHandedToTheSuperuser(t *testin
 		t.Fatalf("a Force Sideshow's hammer must be spendable on §7's grants: %+v %v", spent, err)
 	}
 
-	// 6. Missiles too (V1.0.2): its guarded ALTERs ran in step 1 and were
-	// skipped by every boot since, so the account holds the 2 diamonds and 1
-	// missile every new account gets, can fire it, and can trade for more.
+	// 6. Missiles too: the account holds the 2 diamonds and 1 missile every
+	// new account gets, can fire it, and can trade for more.
 	var diamonds, missiles int64
 	if err := admin.QueryRow(ctx, `SELECT diamond, missile FROM `+qualified("users")+` WHERE id = $1`, u.ID).Scan(&diamonds, &missiles); err != nil {
 		t.Fatal(err)

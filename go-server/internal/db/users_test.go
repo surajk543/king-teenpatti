@@ -608,7 +608,7 @@ func TestADiamondPictureIsPaidInDiamondsAndTheWalletsStayApart(t *testing.T) {
 		return f.scalar(`SELECT diamond FROM users WHERE id = $1`, id)
 	}
 
-	// Every account starts with two diamonds (V1.0.2; one before it), and the
+	// Every account starts with two diamonds (one before 14 Sep 2026), and the
 	// seeded diamond picture costs one.
 	if user.Diamond != 2 || diamonds(user.ID) != 2 {
 		t.Fatalf("a new account holds %d diamonds (wire %d), want 2", diamonds(user.ID), user.Diamond)

@@ -4,16 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"sync"
 	"testing"
-	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/surajk543/king-teenpatti/go-server/internal/db"
-	"github.com/surajk543/king-teenpatti/go-server/internal/db/dbtest"
 	"github.com/surajk543/king-teenpatti/go-server/internal/game"
 )
 
@@ -287,98 +283,5 @@ func TestANewAccountHoldsTwoDiamondsAndOneMissile(t *testing.T) {
 	}
 	if later := f.user("missile-later"); later.Diamond != 2 || later.Missile != 1 {
 		t.Fatalf("after a second boot a new account holds %d diamonds and %d missiles", later.Diamond, later.Missile)
-	}
-}
-
-// V1.0.2 on a database V1.0.0 and V1.0.1 built — production's, the day it
-// shipped: every account that already exists gets 0 missiles and keeps its
-// diamonds, and only accounts created afterwards start with 2 diamonds and
-// 1 missile. A boot after that is a no-op.
-func TestAnAccountFromBeforeV102GetsNoMissilesAndKeepsItsDiamonds(t *testing.T) {
-	_ = dbtest.Open(t, "db") // skips when Postgres is unreachable
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	migrations := db.Migrations()
-	if len(migrations) < 3 || !strings.HasPrefix(migrations[2].File, "V1.0.2__") {
-		t.Fatalf("expected V1.0.2 third, got %d scripts", len(migrations))
-	}
-	schema := "test_db_v102_" + randomSuffix(t)
-	conn, err := pgx.Connect(ctx, testURL())
-	if err != nil {
-		t.Skipf("connect: %v", err)
-	}
-	defer func() { _ = conn.Close(context.Background()) }()
-	ident := pgx.Identifier{schema}.Sanitize()
-	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		c, err := pgx.Connect(ctx, testURL())
-		if err != nil {
-			t.Errorf("cleanup connect: %v", err)
-			return
-		}
-		defer func() { _ = c.Close(ctx) }()
-		if _, err := c.Exec(ctx, `DROP SCHEMA IF EXISTS `+ident+` CASCADE`); err != nil {
-			t.Errorf("drop schema %s: %v", schema, err)
-		}
-	})
-
-	// The database production had before this release: V1.0.0 and V1.0.1 only.
-	for _, stmt := range []string{`CREATE SCHEMA ` + ident, `SET search_path TO ` + ident + `, public`, migrations[0].SQL, migrations[1].SQL} {
-		if _, err := conn.Exec(ctx, stmt); err != nil {
-			t.Fatalf("building the pre-V1.0.2 database: %v", err)
-		}
-	}
-	var hasMissile bool
-	if err := conn.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM information_schema.columns
-		WHERE table_schema = $1 AND table_name = 'users' AND column_name = 'missile')`, schema).Scan(&hasMissile); err != nil {
-		t.Fatal(err)
-	}
-	if hasMissile {
-		t.Fatal("V1.0.0 already declares users.missile; this test builds the wrong database")
-	}
-	const oldID = "pre-v102-account"
-	if _, err := conn.Exec(ctx, `INSERT INTO users (id, provider, provider_user_id, display_name, chips, created_at, updated_at, last_login_at)
-		VALUES ($1, 'guest', $1, 'Old Timer', 1000, 1, 1, 1)`, oldID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := conn.Exec(ctx, `UPDATE users SET diamond = 7 WHERE id = $1`, oldID); err != nil {
-		t.Fatal(err)
-	}
-
-	// The boot that ships V1.0.2, and one after it.
-	for boot := 1; boot <= 2; boot++ {
-		d, err := db.Open(ctx, db.Options{URL: testURL(), Schema: schema, PoolMax: 2})
-		if err != nil {
-			t.Fatalf("boot %d with V1.0.2: %v", boot, err)
-		}
-		users := db.NewUsers(d, welcome, nil)
-		old, err := users.FindByID(ctx, oldID)
-		if err != nil || old == nil {
-			d.Close()
-			t.Fatalf("boot %d: the old account: %+v %v", boot, old, err)
-		}
-		if old.Missile != 0 || old.Diamond != 7 {
-			d.Close()
-			t.Fatalf("boot %d: the old account holds %d missiles and %d diamonds, want 0 and 7", boot, old.Missile, old.Diamond)
-		}
-		fresh, _, err := users.UpsertFromProfile(ctx, db.Profile{Provider: db.ProviderGuest, ProviderUserID: fmt.Sprintf("post-v102-%d", boot), DisplayName: "New"})
-		if err != nil || fresh.Diamond != 2 || fresh.Missile != 1 {
-			d.Close()
-			t.Fatalf("boot %d: a new account %+v %v, want 2 diamonds and 1 missile", boot, fresh, err)
-		}
-		var missileDefault, diamondDefault string
-		if err := d.Pool.QueryRow(ctx, `SELECT
-			(SELECT column_default FROM information_schema.columns WHERE table_schema = $1 AND table_name = 'users' AND column_name = 'missile'),
-			(SELECT column_default FROM information_schema.columns WHERE table_schema = $1 AND table_name = 'users' AND column_name = 'diamond')`,
-			schema).Scan(&missileDefault, &diamondDefault); err != nil {
-			d.Close()
-			t.Fatal(err)
-		}
-		d.Close()
-		if missileDefault != "1" || diamondDefault != "2" {
-			t.Fatalf("boot %d: defaults missile=%s diamond=%s, want 1 and 2", boot, missileDefault, diamondDefault)
-		}
 	}
 }

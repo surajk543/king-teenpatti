@@ -2,9 +2,10 @@
 --
 -- Every table, column, check, index, function and trigger the server needs, in
 -- one file. Consolidated on 14 Sep 2026 (owner) for a production deploy onto an
--- EMPTY database: the structure that used to arrive over three scripts — this
--- baseline, V1.0.3__diamond_purchases.sql and V1.0.5__hammers.sql — is declared
--- here, and every row the server seeds is in V1.0.1__seed_profile_pictures.sql.
+-- EMPTY database: the structure that used to arrive over four scripts — this
+-- baseline, V1.0.3__diamond_purchases.sql, V1.0.5__hammers.sql and, folded in the
+-- same day for a second fresh deploy, V1.0.2__missiles.sql — is declared here,
+-- and every row the server seeds is in V1.0.1__seed_profile_pictures.sql.
 -- The blocks that brought an older database forward (the guarded hammer ALTER,
 -- Butterfly Flapping's move to Drive) went with them; they are in git history
 -- (ccff445 and earlier).
@@ -32,12 +33,13 @@
 -- FOR AN EMPTY DATABASE. `CREATE TABLE IF NOT EXISTS` does nothing when the
 -- table is already there, so a column declared here will NOT appear on a
 -- database that already has the table. A database built by the scripts of
--- go-server/v1.3.0 or older lacks users.hammer, and booting this build against
--- it fails the first time a player is read; bringing such a database to this
--- shape is a deliberate one-off step run by hand, or a fresh start
--- (ops/DEPLOY.md §8), never something a boot does behind your back. A database
--- built by the scripts as they stood at ccff445 already has this shape and
--- boots unchanged.
+-- go-server/v1.0.0 or older lacks users.missile (v1.3.0 or older, users.hammer
+-- too), and booting this build against it fails the first time a player is
+-- read; bringing such a database to this shape is a deliberate one-off step
+-- run by hand, or a fresh start (ops/DEPLOY.md §8), never something a boot
+-- does behind your back. A database built by master's three scripts at c8cd055
+-- (the missiles as V1.0.2__missiles.sql) already has this shape, with missile
+-- at the end of users, and boots unchanged.
 --
 -- THIS FILE IS DDL ONLY — tables, constraints, indexes, functions, triggers.
 -- Data lives in its own script (V1.0.1__seed_profile_pictures.sql). Keeping
@@ -148,15 +150,21 @@ CREATE TABLE IF NOT EXISTS users (
   -- The wallet. Every change goes through a transaction that locks this row,
   -- and the CHECK is the last line of defence against an overdraft.
   chips             BIGINT NOT NULL DEFAULT 0 CHECK (chips >= 0),
-  -- Premium soft currency. Starts at 1 so a fresh account can taste the
-  -- diamond shelf. NOT chip_ledger's business: the ledger backs the chips
-  -- invariant (SUM(delta) == chips), and diamonds are not chips.
-  diamond           INTEGER NOT NULL DEFAULT 1 CHECK (diamond >= 0),
+  -- Premium soft currency. Starts at 2 (owner, 14 Sep 2026; it was 1) so a
+  -- fresh account can taste the diamond shelf. NOT chip_ledger's business: the
+  -- ledger backs the chips invariant (SUM(delta) == chips), and diamonds are
+  -- not chips.
+  diamond           INTEGER NOT NULL DEFAULT 2 CHECK (diamond >= 0),
   -- The currency a Force Sideshow is paid in, one hammer each (owner, 13 Sep
   -- 2026). Every account starts with 20, and more are sold on Google Play in
   -- packs (internal/purchase/catalogue.go). Like diamonds, never chip_ledger's
   -- business: hammer_purchases and hammer_spends below are its receipts.
   hammer            INTEGER NOT NULL DEFAULT 20 CHECK (hammer >= 0),
+  -- What a missile costs, one each (owner, 14 Sep 2026): every account starts
+  -- with 1, and more are traded for diamonds at 2 missiles a diamond (POST
+  -- /api/store/missiles). Like diamonds, never chip_ledger's business:
+  -- missile_purchases and missile_spends below are its receipts.
+  missile           INTEGER NOT NULL DEFAULT 1 CHECK (missile >= 0),
   -- A hand only counts as "played" once the player has made a voluntary bet;
   -- posting the boot and folding immediately does not count.
   hands_played      INTEGER NOT NULL DEFAULT 0,
@@ -423,3 +431,42 @@ CREATE TABLE IF NOT EXISTS hammer_spends (
 );
 
 CREATE INDEX IF NOT EXISTS hammer_spends_user_idx ON hammer_spends (user_id, created_at);
+
+
+-- ---------------------------------------------------------------- missiles
+
+-- One row per diamonds-for-missiles trade (db.Missiles.TradeMissiles). The
+-- replay guard and the record in one: request_id is the trade's idempotency
+-- key, "<userId>:<client requestId>" (db.MissileTradeID), inserted ON CONFLICT
+-- DO NOTHING in the same transaction that takes the diamonds and adds the
+-- missiles, so a retried request whose first attempt committed finds its row
+-- and is charged nothing. A trade refused for want of diamonds rolls its row
+-- back with it, so the same request may be sent again once the player has
+-- them.
+CREATE TABLE IF NOT EXISTS missile_purchases (
+  request_id TEXT    PRIMARY KEY,
+  user_id    TEXT    NOT NULL REFERENCES users (id),
+  diamonds   INTEGER NOT NULL CHECK (diamonds > 0),
+  missiles   INTEGER NOT NULL CHECK (missiles > 0),
+  created_at BIGINT  NOT NULL
+);
+
+-- A player's trade history, for support.
+CREATE INDEX IF NOT EXISTS missile_purchases_user_idx ON missile_purchases (user_id, created_at);
+
+-- One row per missile fired. action_id is the spend's idempotency key,
+-- "<handId>:missile:<userId>:<client actionId>" (game.MissileSpendID):
+-- db.Missiles.SpendMissile inserts it in the same transaction that takes the
+-- missile, so a retry whose first attempt committed finds its row and is
+-- charged nothing. hand_id says which hand it was fired in, for support.
+--
+-- Not game state — nothing reads it back to play a hand. The audit of a
+-- currency and the guard against spending it twice, as hammer_spends is.
+CREATE TABLE IF NOT EXISTS missile_spends (
+  action_id  TEXT   PRIMARY KEY,
+  user_id    TEXT   NOT NULL REFERENCES users (id),
+  hand_id    TEXT   NOT NULL,
+  created_at BIGINT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS missile_spends_user_idx ON missile_spends (user_id, created_at);
