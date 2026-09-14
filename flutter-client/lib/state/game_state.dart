@@ -1415,7 +1415,13 @@ class GameState extends ChangeNotifier {
   /// The reward just collected, while its celebration is on screen. Null the
   /// rest of the time. `readyAt` is epoch ms for the timed bonus and 0 for the
   /// milestone, which has no clock.
-  ({String kind, int amount, int readyAt})? rewardWon;
+  ///
+  /// `amount` is the headline figure. `missiles` and `hammers` are what a
+  /// Premium Package (kind `premium`, owner 14 Sep 2026) brought with its
+  /// chips, shown under that figure; every other kind carries 0 or repeats
+  /// its own count there.
+  ({String kind, int amount, int readyAt, int missiles, int hammers})?
+  rewardWon;
 
   /// Closes the celebration. The overlay calls this when the player dismisses
   /// it or its own timer runs out.
@@ -1503,14 +1509,12 @@ class GameState extends ChangeNotifier {
       // Still a success: the chips are in the wallet and the transaction
       // should be finished rather than delivered again.
       if (r.credited) {
-        // The product decided the wallet, and the answer says which: a
-        // hammer pack celebrates hammers, a diamond pack diamonds, and a chip
-        // pack chips.
-        rewardWon = r.hammers > 0
-            ? (kind: 'hammers', amount: r.hammers, readyAt: 0)
-            : r.diamonds > 0
-            ? (kind: 'diamonds', amount: r.diamonds, readyAt: 0)
-            : (kind: 'purchase', amount: r.chips, readyAt: 0);
+        announcePurchase(
+          chips: r.chips,
+          diamonds: r.diamonds,
+          hammers: r.hammers,
+          missiles: r.missiles,
+        );
       }
       notifyListeners();
       return true;
@@ -1531,6 +1535,61 @@ class GameState extends ChangeNotifier {
     }
   }
 
+  /// Tells the player what a credited Play purchase put in their wallet
+  /// (the caller notifies).
+  ///
+  /// The product decided the wallets, and the server's answer says which: a
+  /// Premium Package brings chips with missiles and hammers, a hammer pack
+  /// hammers, a diamond pack diamonds, and a chip pack chips. Each is
+  /// celebrated. A Premium Package bought at a table, where the celebration is
+  /// not drawn, is a notice naming all three instead — as a missile trade
+  /// there is.
+  @visibleForTesting
+  void announcePurchase({
+    required int chips,
+    required int diamonds,
+    required int hammers,
+    required int missiles,
+  }) {
+    if (chips > 0 && (missiles > 0 || hammers > 0)) {
+      if (screen == Screen.table) {
+        notice = t.premiumAdded(formatChips(chips), missiles, hammers);
+      } else {
+        rewardWon = (
+          kind: 'premium',
+          amount: chips,
+          readyAt: 0,
+          missiles: missiles,
+          hammers: hammers,
+        );
+      }
+      return;
+    }
+    rewardWon = hammers > 0
+        ? (
+            kind: 'hammers',
+            amount: hammers,
+            readyAt: 0,
+            missiles: 0,
+            hammers: hammers,
+          )
+        : diamonds > 0
+        ? (
+            kind: 'diamonds',
+            amount: diamonds,
+            readyAt: 0,
+            missiles: 0,
+            hammers: 0,
+          )
+        : (
+            kind: 'purchase',
+            amount: chips,
+            readyAt: 0,
+            missiles: 0,
+            hammers: 0,
+          );
+  }
+
   Future<void> claimReward(String kind) async {
     final token = _token;
     if (token == null) return;
@@ -1541,7 +1600,13 @@ class GameState extends ChangeNotifier {
       // server does not send. A refusal keeps the server's own wording, which
       // is already specific ("Come back later", "You are at a table").
       if (r.claimed) {
-        rewardWon = (kind: kind, amount: r.amount, readyAt: r.readyAt);
+        rewardWon = (
+          kind: kind,
+          amount: r.amount,
+          readyAt: r.readyAt,
+          missiles: 0,
+          hammers: 0,
+        );
       } else {
         notice = r.message.isEmpty ? t.rewardRefused : r.message;
       }
@@ -1931,8 +1996,8 @@ class GameState extends ChangeNotifier {
   /// progress on that one card and refuse a second tap.
   String? tradingMissiles;
 
-  /// Trades diamonds for the missile pack [packId] (owner, 14 Sep 2026: 1
-  /// diamond = 2 missiles), in the lobby or at a table.
+  /// Trades diamonds for the missile pack [packId] (owner, 14 Sep 2026: from
+  /// 1 missile for 5 diamonds to 30 for 100), in the lobby or at a table.
   ///
   /// One requestId per attempt, sent again if the request itself fails and is
   /// retried: the server answers a replay `charged: false` without charging
@@ -1964,7 +2029,13 @@ class GameState extends ChangeNotifier {
         if (screen == Screen.table) {
           notice = t.missilesAdded(r.missiles);
         } else {
-          rewardWon = (kind: 'missiles', amount: r.missiles, readyAt: 0);
+          rewardWon = (
+            kind: 'missiles',
+            amount: r.missiles,
+            readyAt: 0,
+            missiles: r.missiles,
+            hammers: 0,
+          );
         }
       }
       return MissileTradeResult.traded;

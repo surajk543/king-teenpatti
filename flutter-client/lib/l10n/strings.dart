@@ -224,9 +224,11 @@ class Strings {
   String sideshowForcedOn(String from, String to) =>
       _('sideshowForcedOn').replaceAll('{from}', from).replaceAll('{to}', to);
 
-  /// The table's wallet pill, as a screen reader says it.
+  /// The table's wallet pill, as a screen reader says it. A single missile —
+  /// what every new account holds — has its own line, so it is never read as
+  /// "1 missiles".
   String walletSummary(int diamonds, int hammers, int missiles) =>
-      _('walletSummary')
+      _(missiles == 1 ? 'walletSummaryOneMissile' : 'walletSummary')
           .replaceAll('{diamonds}', '$diamonds')
           .replaceAll('{hammers}', '$hammers')
           .replaceAll('{missiles}', '$missiles');
@@ -270,12 +272,16 @@ class Strings {
 
   /// Trading diamonds for a missile pack. `{s}` pluralises the English
   /// "diamond" and is absent from the other four languages, whose word does
-  /// not change with the number.
+  /// not change with the number. A pack of one missile has its own line in
+  /// every language (`tradeMissileBodyOne`): Hindi and Punjabi change the
+  /// noun and the verb with the number, so "1 missiles" cannot be avoided by
+  /// substitution alone.
   String get tradeMissilesTitle => _('tradeMissilesTitle');
-  String tradeMissilesBody(int diamonds, int missiles) => _('tradeMissilesBody')
-      .replaceAll('{diamonds}', '$diamonds')
-      .replaceAll('{missiles}', '$missiles')
-      .replaceAll('{s}', diamonds == 1 ? '' : 's');
+  String tradeMissilesBody(int diamonds, int missiles) =>
+      _(missiles == 1 ? 'tradeMissileBodyOne' : 'tradeMissilesBody')
+          .replaceAll('{diamonds}', '$diamonds')
+          .replaceAll('{missiles}', '$missiles')
+          .replaceAll('{s}', diamonds == 1 ? '' : 's');
   String get trade => _('trade');
 
   /// The offer of the Diamonds shelf to a player who cannot pay for a trade.
@@ -285,11 +291,45 @@ class Strings {
       .replaceAll('{s}', diamonds == 1 ? '' : 's');
   String get getDiamonds => _('getDiamonds');
 
-  /// A trade made at a table, where there is no celebration to show it.
-  String missilesAdded(int n) => _('missilesAdded').replaceAll('{n}', '$n');
+  /// A trade made at a table, where there is no celebration to show it. One
+  /// missile has its own line (`missileAddedOne`).
+  String missilesAdded(int n) =>
+      _(n == 1 ? 'missileAddedOne' : 'missilesAdded').replaceAll('{n}', '$n');
 
-  /// The celebration's line for a trade made in the lobby.
-  String get rewardMissilesTraded => _('rewardMissilesTraded');
+  /// The celebration's line for a trade of [n] missiles made in the lobby.
+  /// One missile has its own line (`rewardMissileTradedOne`).
+  String rewardMissilesTraded(int n) =>
+      _(n == 1 ? 'rewardMissileTradedOne' : 'rewardMissilesTraded');
+
+  // --- Premium Packages: chips, missiles and hammers in one Play purchase
+  // (owner, 14 Sep 2026)
+
+  /// The heading over them on the Chips shelf.
+  String get premiumPackages => _('premiumPackages');
+
+  /// The plate across the top of each package's card.
+  String get posPremiumPackage => _('posPremiumPackage');
+
+  /// "+11 Missiles" under a package's chips. One missile has its own line in
+  /// every language (`plusMissileOne`), so it is never "+1 Missiles".
+  String plusMissiles(int n) =>
+      _(n == 1 ? 'plusMissileOne' : 'plusMissiles').replaceAll('{n}', '$n');
+
+  /// "+10 Hammers" under a package's chips. Every package holds at least ten.
+  String plusHammers(int n) => _('plusHammers').replaceAll('{n}', '$n');
+
+  /// The celebration's line for a package bought in the lobby. It names the
+  /// package rather than its wallets, so no word has to change with a count.
+  String get rewardPremiumPurchased => _('rewardPremiumPurchased');
+
+  /// A package bought at a table, where there is no celebration to show it.
+  /// [chips] arrives already written out by `formatChips`. One missile has
+  /// its own line (`premiumAddedOneMissile`).
+  String premiumAdded(String chips, int missiles, int hammers) =>
+      _(missiles == 1 ? 'premiumAddedOneMissile' : 'premiumAdded')
+          .replaceAll('{chips}', chips)
+          .replaceAll('{missiles}', '$missiles')
+          .replaceAll('{hammers}', '$hammers');
   String get seeCards => _('seeCards');
   String get blindMovesLeft => _('blindMovesLeft');
   String get blindMovesLabel => _('blindMovesLabel');
@@ -680,18 +720,35 @@ class Strings {
       'missileFiredBy': '{name} fired a missile',
       'storeTabMissiles': 'Missiles',
       'storeMissilesTitle': 'Missile Store',
-      'storeMissilesBlurb': 'Trade diamonds: 1 diamond = 2 missiles.',
+      'storeMissilesBlurb': 'Trade diamonds: 10 diamonds = 1 missile.',
       'tradeMissilesTitle': 'Trade diamonds?',
       'tradeMissilesBody':
           'Trade {diamonds} diamond{s} for {missiles} missiles?',
+      'tradeMissileBodyOne': 'Trade {diamonds} diamond{s} for 1 missile?',
       'trade': 'Trade',
       'notEnoughDiamondsTitle': 'Not enough diamonds',
       'notEnoughDiamondsBody':
           'This trade needs {diamonds} diamond{s}. Get more diamonds?',
       'getDiamonds': 'Get diamonds',
       'missilesAdded': '{n} missiles added to your wallet',
+      'missileAddedOne': '1 missile added to your wallet',
+      'rewardMissileTradedOne':
+          'The missile is in your wallet. Fire it at the table.',
+      'walletSummaryOneMissile':
+          '{diamonds} diamonds, {hammers} hammers, 1 missile',
       'rewardMissilesTraded':
           'The missiles are in your wallet. Fire one at the table.',
+      'premiumPackages': 'Premium Packages',
+      'posPremiumPackage': 'PREMIUM PACKAGE',
+      'plusMissileOne': '+1 Missile',
+      'plusMissiles': '+{n} Missiles',
+      'plusHammers': '+{n} Hammers',
+      'rewardPremiumPurchased':
+          'Your Premium Package is in your wallet. Good luck.',
+      'premiumAdded':
+          'Premium Package added: {chips} chips, {missiles} missiles and {hammers} hammers',
+      'premiumAddedOneMissile':
+          'Premium Package added: {chips} chips, 1 missile and {hammers} hammers',
       'seeCards': 'See cards',
       'blindMovesLeft': 'blind moves left',
       'blindMovesLabel': 'Blind moves left',
@@ -994,17 +1051,32 @@ class Strings {
       'missileFiredBy': '{name} ने मिसाइल दागी',
       'storeTabMissiles': 'मिसाइलें',
       'storeMissilesTitle': 'मिसाइल स्टोर',
-      'storeMissilesBlurb': 'हीरे बदलें: 1 हीरा = 2 मिसाइलें।',
+      'storeMissilesBlurb': 'हीरे बदलें: 10 हीरे = 1 मिसाइल।',
       'tradeMissilesTitle': 'हीरे बदलें?',
       'tradeMissilesBody': '{diamonds} हीरे देकर {missiles} मिसाइलें लें?',
+      'tradeMissileBodyOne': '{diamonds} हीरे देकर 1 मिसाइल लें?',
       'trade': 'बदलें',
       'notEnoughDiamondsTitle': 'पर्याप्त हीरे नहीं',
       'notEnoughDiamondsBody':
           'इस सौदे के लिए {diamonds} हीरे चाहिए। और हीरे लें?',
       'getDiamonds': 'हीरे लें',
       'missilesAdded': '{n} मिसाइलें आपके वॉलेट में जुड़ गईं',
+      'missileAddedOne': '1 मिसाइल आपके वॉलेट में जुड़ गई',
+      'rewardMissileTradedOne': 'मिसाइल आपके वॉलेट में है। टेबल पर इसे दागें।',
+      'walletSummaryOneMissile': '{diamonds} हीरे, {hammers} हथौड़े, 1 मिसाइल',
       'rewardMissilesTraded':
           'मिसाइलें आपके वॉलेट में हैं। टेबल पर मिसाइल दागें।',
+      'premiumPackages': 'प्रीमियम पैकेज',
+      'posPremiumPackage': 'प्रीमियम पैकेज',
+      'plusMissileOne': '+1 मिसाइल',
+      'plusMissiles': '+{n} मिसाइलें',
+      'plusHammers': '+{n} हथौड़े',
+      'rewardPremiumPurchased':
+          'आपका प्रीमियम पैकेज आपके वॉलेट में है। शुभकामनाएँ।',
+      'premiumAdded':
+          'प्रीमियम पैकेज जुड़ गया: {chips} चिप्स, {missiles} मिसाइलें और {hammers} हथौड़े',
+      'premiumAddedOneMissile':
+          'प्रीमियम पैकेज जुड़ गया: {chips} चिप्स, 1 मिसाइल और {hammers} हथौड़े',
       'seeCards': 'पत्ते देखें',
       'blindMovesLeft': 'ब्लाइंड चालें बाकी',
       'blindMovesLabel': 'ब्लाइंड चालें बाकी',
@@ -1306,17 +1378,34 @@ class Strings {
       'missileFiredBy': '{name} মিসাইল ছুড়লেন',
       'storeTabMissiles': 'মিসাইল',
       'storeMissilesTitle': 'মিসাইল স্টোর',
-      'storeMissilesBlurb': 'হীরে বদলান: 1টি হীরে = 2টি মিসাইল।',
+      'storeMissilesBlurb': 'হীরে বদলান: 10টি হীরে = 1টি মিসাইল।',
       'tradeMissilesTitle': 'হীরে বদলাবেন?',
       'tradeMissilesBody': '{diamonds}টি হীরে দিয়ে {missiles}টি মিসাইল নেবেন?',
+      'tradeMissileBodyOne': '{diamonds}টি হীরে দিয়ে 1টি মিসাইল নেবেন?',
       'trade': 'বদলান',
       'notEnoughDiamondsTitle': 'যথেষ্ট হীরে নেই',
       'notEnoughDiamondsBody':
           'এই বিনিময়ে {diamonds}টি হীরে লাগবে। আরও হীরে নেবেন?',
       'getDiamonds': 'হীরে নিন',
       'missilesAdded': '{n}টি মিসাইল আপনার ওয়ালেটে যোগ হয়েছে',
+      'missileAddedOne': '1টি মিসাইল আপনার ওয়ালেটে যোগ হয়েছে',
+      'rewardMissileTradedOne':
+          'মিসাইলটি আপনার ওয়ালেটে আছে। টেবিলে এটি ছুড়ুন।',
+      'walletSummaryOneMissile':
+          '{diamonds}টি হীরে, {hammers}টি হাতুড়ি, 1টি মিসাইল',
       'rewardMissilesTraded':
           'মিসাইল আপনার ওয়ালেটে আছে। টেবিলে মিসাইল ছুড়ুন।',
+      'premiumPackages': 'প্রিমিয়াম প্যাকেজ',
+      'posPremiumPackage': 'প্রিমিয়াম প্যাকেজ',
+      'plusMissileOne': '+1টি মিসাইল',
+      'plusMissiles': '+{n}টি মিসাইল',
+      'plusHammers': '+{n}টি হাতুড়ি',
+      'rewardPremiumPurchased':
+          'আপনার প্রিমিয়াম প্যাকেজ ওয়ালেটে আছে। শুভকামনা।',
+      'premiumAdded':
+          'প্রিমিয়াম প্যাকেজ যোগ হয়েছে: {chips} চিপ, {missiles}টি মিসাইল ও {hammers}টি হাতুড়ি',
+      'premiumAddedOneMissile':
+          'প্রিমিয়াম প্যাকেজ যোগ হয়েছে: {chips} চিপ, 1টি মিসাইল ও {hammers}টি হাতুড়ি',
       'seeCards': 'তাস দেখুন',
       'blindMovesLeft': 'ব্লাইন্ড চাল বাকি',
       'blindMovesLabel': 'ব্লাইন্ড চাল বাকি',
@@ -1614,16 +1703,31 @@ class Strings {
       'missileFiredBy': '{name} એ મિસાઇલ છોડી',
       'storeTabMissiles': 'મિસાઇલ',
       'storeMissilesTitle': 'મિસાઇલ સ્ટોર',
-      'storeMissilesBlurb': 'હીરા બદલો: 1 હીરો = 2 મિસાઇલ.',
+      'storeMissilesBlurb': 'હીરા બદલો: 10 હીરા = 1 મિસાઇલ.',
       'tradeMissilesTitle': 'હીરા બદલશો?',
       'tradeMissilesBody': '{diamonds} હીરા આપીને {missiles} મિસાઇલ લેશો?',
+      'tradeMissileBodyOne': '{diamonds} હીરા આપીને 1 મિસાઇલ લેશો?',
       'trade': 'બદલો',
       'notEnoughDiamondsTitle': 'પૂરતા હીરા નથી',
       'notEnoughDiamondsBody':
           'આ સોદા માટે {diamonds} હીરા જોઈએ. વધુ હીરા લેશો?',
       'getDiamonds': 'હીરા લો',
       'missilesAdded': '{n} મિસાઇલ તમારા વૉલેટમાં ઉમેરાઈ',
+      'missileAddedOne': '1 મિસાઇલ તમારા વૉલેટમાં ઉમેરાઈ',
+      'rewardMissileTradedOne': 'મિસાઇલ તમારા વૉલેટમાં છે. ટેબલ પર તેને છોડો.',
+      'walletSummaryOneMissile': '{diamonds} હીરા, {hammers} હથોડી, 1 મિસાઇલ',
       'rewardMissilesTraded': 'મિસાઇલ તમારા વૉલેટમાં છે. ટેબલ પર મિસાઇલ છોડો.',
+      'premiumPackages': 'પ્રીમિયમ પૅકેજ',
+      'posPremiumPackage': 'પ્રીમિયમ પૅકેજ',
+      'plusMissileOne': '+1 મિસાઇલ',
+      'plusMissiles': '+{n} મિસાઇલ',
+      'plusHammers': '+{n} હથોડી',
+      'rewardPremiumPurchased':
+          'તમારું પ્રીમિયમ પૅકેજ તમારા વૉલેટમાં છે. શુભકામના.',
+      'premiumAdded':
+          'પ્રીમિયમ પૅકેજ ઉમેરાયું: {chips} ચિપ્સ, {missiles} મિસાઇલ અને {hammers} હથોડી',
+      'premiumAddedOneMissile':
+          'પ્રીમિયમ પૅકેજ ઉમેરાયું: {chips} ચિપ્સ, 1 મિસાઇલ અને {hammers} હથોડી',
       'seeCards': 'પત્તા જુઓ',
       'blindMovesLeft': 'બ્લાઇન્ડ ચાલ બાકી',
       'blindMovesLabel': 'બ્લાઇન્ડ ચાલ બાકી',
@@ -1923,18 +2027,34 @@ class Strings {
       'missileFiredBy': '{name} ਨੇ ਮਿਜ਼ਾਈਲ ਚਲਾਈ',
       'storeTabMissiles': 'ਮਿਜ਼ਾਈਲਾਂ',
       'storeMissilesTitle': 'ਮਿਜ਼ਾਈਲ ਸਟੋਰ',
-      'storeMissilesBlurb': 'ਹੀਰੇ ਬਦਲੋ: 1 ਹੀਰਾ = 2 ਮਿਜ਼ਾਈਲਾਂ।',
+      'storeMissilesBlurb': 'ਹੀਰੇ ਬਦਲੋ: 10 ਹੀਰੇ = 1 ਮਿਜ਼ਾਈਲ।',
       'tradeMissilesTitle': 'ਹੀਰੇ ਬਦਲਣੇ ਹਨ?',
       'tradeMissilesBody':
           '{diamonds} ਹੀਰੇ ਦੇ ਕੇ {missiles} ਮਿਜ਼ਾਈਲਾਂ ਲੈਣੀਆਂ ਹਨ?',
+      'tradeMissileBodyOne': '{diamonds} ਹੀਰੇ ਦੇ ਕੇ 1 ਮਿਜ਼ਾਈਲ ਲੈਣੀ ਹੈ?',
       'trade': 'ਬਦਲੋ',
       'notEnoughDiamondsTitle': 'ਕਾਫ਼ੀ ਹੀਰੇ ਨਹੀਂ',
       'notEnoughDiamondsBody':
           'ਇਸ ਸੌਦੇ ਲਈ {diamonds} ਹੀਰੇ ਚਾਹੀਦੇ ਹਨ। ਹੋਰ ਹੀਰੇ ਲਓ?',
       'getDiamonds': 'ਹੀਰੇ ਲਓ',
       'missilesAdded': '{n} ਮਿਜ਼ਾਈਲਾਂ ਤੁਹਾਡੇ ਵਾਲਿਟ ਵਿੱਚ ਜੁੜ ਗਈਆਂ',
+      'missileAddedOne': '1 ਮਿਜ਼ਾਈਲ ਤੁਹਾਡੇ ਵਾਲਿਟ ਵਿੱਚ ਜੁੜ ਗਈ',
+      'rewardMissileTradedOne':
+          'ਮਿਜ਼ਾਈਲ ਤੁਹਾਡੇ ਵਾਲਿਟ ਵਿੱਚ ਹੈ। ਟੇਬਲ ’ਤੇ ਇਸਨੂੰ ਚਲਾਓ।',
+      'walletSummaryOneMissile': '{diamonds} ਹੀਰੇ, {hammers} ਹਥੌੜੇ, 1 ਮਿਜ਼ਾਈਲ',
       'rewardMissilesTraded':
           'ਮਿਜ਼ਾਈਲਾਂ ਤੁਹਾਡੇ ਵਾਲਿਟ ਵਿੱਚ ਹਨ। ਟੇਬਲ ’ਤੇ ਮਿਜ਼ਾਈਲ ਚਲਾਓ।',
+      'premiumPackages': 'ਪ੍ਰੀਮੀਅਮ ਪੈਕੇਜ',
+      'posPremiumPackage': 'ਪ੍ਰੀਮੀਅਮ ਪੈਕੇਜ',
+      'plusMissileOne': '+1 ਮਿਜ਼ਾਈਲ',
+      'plusMissiles': '+{n} ਮਿਜ਼ਾਈਲਾਂ',
+      'plusHammers': '+{n} ਹਥੌੜੇ',
+      'rewardPremiumPurchased':
+          'ਤੁਹਾਡਾ ਪ੍ਰੀਮੀਅਮ ਪੈਕੇਜ ਤੁਹਾਡੇ ਵਾਲਿਟ ਵਿੱਚ ਹੈ। ਸ਼ੁਭਕਾਮਨਾਵਾਂ।',
+      'premiumAdded':
+          'ਪ੍ਰੀਮੀਅਮ ਪੈਕੇਜ ਜੁੜ ਗਿਆ: {chips} ਚਿੱਪਾਂ, {missiles} ਮਿਜ਼ਾਈਲਾਂ ਅਤੇ {hammers} ਹਥੌੜੇ',
+      'premiumAddedOneMissile':
+          'ਪ੍ਰੀਮੀਅਮ ਪੈਕੇਜ ਜੁੜ ਗਿਆ: {chips} ਚਿੱਪਾਂ, 1 ਮਿਜ਼ਾਈਲ ਅਤੇ {hammers} ਹਥੌੜੇ',
       'seeCards': 'ਪੱਤੇ ਵੇਖੋ',
       'blindMovesLeft': 'ਬਲਾਈਂਡ ਚਾਲਾਂ ਬਾਕੀ',
       'blindMovesLabel': 'ਬਲਾਈਂਡ ਚਾਲਾਂ ਬਾਕੀ',

@@ -188,10 +188,10 @@ class ApiClient {
   /// Trades diamonds for missiles (owner, 14 Sep 2026): `POST
   /// /api/store/missiles {packId, requestId}`, in the lobby or at a table.
   ///
-  /// No counts are sent — the server holds the packs (1 diamond = 2
-  /// missiles) and answers with what it spent and gave. [requestId] is minted
-  /// once per attempt and sent again on a retry of that attempt: a replay
-  /// answers `charged: false` and charges nothing twice.
+  /// No counts are sent — the server holds the packs (1 missile for 5
+  /// diamonds, up to 30 for 100) and answers with what it spent and gave.
+  /// [requestId] is minted once per attempt and sent again on a retry of that
+  /// attempt: a replay answers `charged: false` and charges nothing twice.
   ///
   /// Refusals arrive as [ApiException] with a [ApiException.code]:
   /// `not_enough_diamonds` (409), `unknown_pack` or `invalid_request_id`
@@ -244,6 +244,7 @@ class ApiClient {
       int chips,
       int diamonds,
       int hammers,
+      int missiles,
       int balance,
     })
   >
@@ -263,10 +264,13 @@ class ApiClient {
           : null,
       credited: j['credited'] == true,
       chips: (j['chips'] as num?)?.toInt() ?? 0,
-      // Exactly one of chips, diamonds and hammers is non-zero: the product
-      // decides the wallet. An older server sends no `diamonds` or `hammers`.
+      // The product decides the wallets. A chip, diamond or hammer pack fills
+      // one of them and a Premium Package (owner, 14 Sep 2026) three at once:
+      // chips, missiles and hammers, all non-zero together. An older server
+      // sends no `diamonds`, `hammers` or `missiles`.
       diamonds: (j['diamonds'] as num?)?.toInt() ?? 0,
       hammers: (j['hammers'] as num?)?.toInt() ?? 0,
+      missiles: (j['missiles'] as num?)?.toInt() ?? 0,
       balance: (j['balance'] as num?)?.toInt() ?? 0,
     );
   }

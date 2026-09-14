@@ -81,7 +81,7 @@ Future<void> _close(
 
 GameState _state({
   Screen screen = Screen.lobby,
-  int diamonds = 100,
+  int diamonds = 120,
   int missiles = 1,
 }) {
   debugDefaultTargetPlatformOverride = TargetPlatform.linux;
@@ -118,31 +118,39 @@ void main() {
 
     expect(find.text('Missile Store'), findsOneWidget);
     expect(
-      find.text('Trade diamonds: 1 diamond = 2 missiles.'),
+      find.text('Trade diamonds: 10 diamonds = 1 missile.'),
       findsOneWidget,
     );
     // The header heads with the diamonds there are to trade.
     expect(
       find.descendant(
         of: find.byType(DiamondBalance),
-        matching: find.text('100'),
+        matching: find.text('120'),
       ),
       findsOneWidget,
     );
     // Priced in diamonds — a gem and a count — and never in rupees.
     expect(find.textContaining('₹'), findsNothing);
-    for (final (text, times) in [
-      ('1', 1), // 1 diamond
-      ('2', 1), // 2 missiles
-      ('5', 1), // 5 diamonds
-      ('10', 2), // 10 missiles, and 10 diamonds
-      ('20', 1),
-      ('25', 1),
-      ('50', 1),
+    // Each pack's own figures (owner, 14 Sep 2026): no longer a flat rate.
+    for (final text in [
+      '1', // 1 missile for 10 diamonds
+      '5', '48', // 5 missiles for 48 diamonds
+      '90', // 10 missiles for 90 diamonds
+      '20', '170', // 20 missiles for 170 diamonds
     ]) {
-      expect(find.text(text), findsNWidgets(times), reason: text);
+      expect(find.text(text), findsOneWidget, reason: text);
     }
-    expect(find.text('MISSILES'), findsNWidgets(4));
+    // 10 twice: the single missile's price, and the 10-missile pack.
+    expect(find.text('10'), findsNWidgets(2));
+    // Packs from earlier price lists are gone from the shelf.
+    for (final gone in ['6', '13', '25', '30', '50', '100']) {
+      expect(find.text(gone), findsNothing, reason: gone);
+    }
+    // A single missile is named in the singular, on its plate and under its
+    // figure.
+    expect(find.text('MISSILES'), findsNWidgets(3));
+    expect(find.text('MISSILE'), findsOneWidget);
+    expect(find.text('Missile'), findsOneWidget);
 
     await _close(tester, state, feedback);
   });
@@ -164,8 +172,15 @@ void main() {
         );
         expect(find.text('Chip Store'), findsOneWidget);
 
+        // The tab's own glyph: the Premium Packages on the Chips shelf mark
+        // their missiles with the same one.
         final tab = find.ancestor(
-          of: find.byIcon(missileIcon),
+          of: find.descendant(
+            of: find.byWidgetPredicate(
+              (w) => w.runtimeType.toString() == '_StoreTabs',
+            ),
+            matching: find.byIcon(missileIcon),
+          ),
           matching: find.byType(InkWell),
         );
         expect(tab, findsOneWidget);
@@ -183,7 +198,7 @@ void main() {
   testWidgets('a trade is asked first, with both wallets in view', (
     tester,
   ) async {
-    final state = _state(diamonds: 7, missiles: 3);
+    final state = _state(diamonds: 60, missiles: 3);
     final feedback = FeedbackSettings();
     await _openStore(
       tester,
@@ -192,14 +207,15 @@ void main() {
       tab: StoreTab.missiles,
     );
 
-    await tester.tap(find.text('5'));
+    // The 5-missile pack, by its price.
+    await tester.tap(find.text('48'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
     expect(find.text('Trade diamonds?'), findsOneWidget);
-    expect(find.text('Trade 5 diamonds for 10 missiles?'), findsOneWidget);
+    expect(find.text('Trade 48 diamonds for 5 missiles?'), findsOneWidget);
     expect(find.text('Trade'), findsOneWidget);
     // What the player holds, under the question.
-    expect(find.text('7'), findsWidgets);
+    expect(find.text('60'), findsWidgets);
     expect(find.text('3'), findsOneWidget);
 
     await tester.tap(find.text('Cancel'));
@@ -207,6 +223,17 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
     expect(find.text('Trade diamonds?'), findsNothing);
     expect(find.text('Missile Store'), findsOneWidget);
+    expect(state.tradingMissiles, isNull);
+
+    // The one-missile pack, by its figure: asked in the singular.
+    await tester.tap(find.text('1'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('Trade 10 diamonds for 1 missile?'), findsOneWidget);
+    await tester.tap(find.text('Cancel'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('Trade diamonds?'), findsNothing);
     expect(state.tradingMissiles, isNull);
 
     await _close(tester, state, feedback);
@@ -224,13 +251,14 @@ void main() {
       tab: StoreTab.missiles,
     );
 
-    await tester.tap(find.text('5'));
+    // The cheapest pack — 1 missile for 10 diamonds — by its figure.
+    await tester.tap(find.text('1'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
     expect(find.text('Trade diamonds?'), findsNothing);
     expect(find.text('Not enough diamonds'), findsOneWidget);
     expect(
-      find.text('This trade needs 5 diamonds. Get more diamonds?'),
+      find.text('This trade needs 10 diamonds. Get more diamonds?'),
       findsOneWidget,
     );
 

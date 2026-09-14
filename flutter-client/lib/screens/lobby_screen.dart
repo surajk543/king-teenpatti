@@ -453,14 +453,19 @@ class _RewardCelebrationState extends State<_RewardCelebration>
     // h=360 -> 19.8 / 30.6 / 57.6 | 411 -> 22.6 / 34.9 / 65.8 | 800 -> 28 / 44 / 68.
     final padV = (size.height * 0.055).clamp(16.0, 28.0);
     final padH = (size.height * 0.085).clamp(24.0, 44.0);
-    final chip = (size.height * 0.16).clamp(40.0, 68.0);
+    // A Premium Package has a line more to show — the missiles and hammers
+    // under its chips — and on a 360dp phone at the 1.25 text ceiling that
+    // line is paid for by a smaller hero chip and a tighter gap under it.
+    final premium = won.kind == 'premium';
+    final chip = (size.height * 0.16).clamp(40.0, 68.0) * (premium ? 0.75 : 1);
 
     final blurb = switch (won.kind) {
       'bonus' => t.rewardComeBack,
       'purchase' => t.rewardPurchased,
+      'premium' => t.rewardPremiumPurchased,
       'diamonds' => t.rewardDiamondsPurchased,
       'hammers' => t.rewardHammersPurchased,
-      'missiles' => t.rewardMissilesTraded,
+      'missiles' => t.rewardMissilesTraded(won.amount),
       _ => t.rewardMilestoneAgain,
     };
     // The ink of the soft wallet that filled, or null for chips — which keep
@@ -526,7 +531,7 @@ class _RewardCelebrationState extends State<_RewardCelebration>
                                     turn: const Duration(milliseconds: 900),
                                     rest: const Duration(milliseconds: 260),
                                   ),
-                            const SizedBox(height: Space.lg),
+                            SizedBox(height: premium ? Space.md : Space.lg),
                             Text(
                               t.rewardCollected,
                               textAlign: TextAlign.center,
@@ -540,6 +545,45 @@ class _RewardCelebrationState extends State<_RewardCelebration>
                                 colour: softInk ?? _goldInk(theme.brightness),
                               ),
                             ),
+                            // A Premium Package's chips are the headline; the
+                            // missiles and hammers that came with them follow,
+                            // each in its wallet's mark and ink.
+                            if (premium) ...[
+                              const SizedBox(height: Space.xs),
+                              Wrap(
+                                alignment: WrapAlignment.center,
+                                spacing: Space.lg,
+                                runSpacing: Space.xs,
+                                children: [
+                                  for (final (icon, ink, label) in [
+                                    (
+                                      missileIcon,
+                                      missileInkOn(theme.brightness),
+                                      t.plusMissiles(won.missiles),
+                                    ),
+                                    (
+                                      Icons.hardware,
+                                      hammerInkOn(theme.brightness),
+                                      t.plusHammers(won.hammers),
+                                    ),
+                                  ])
+                                    Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(icon, size: 20, color: ink),
+                                        const SizedBox(width: Space.xs),
+                                        Text(
+                                          label,
+                                          style: AppTheme.money(
+                                            text.titleMedium!,
+                                            colour: ink,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                ],
+                              ),
+                            ],
                             const SizedBox(height: Space.md),
                             Text(
                               blurb,
