@@ -36,8 +36,8 @@ const _newKeys = <String, List<String>>{
 const _pictureKeys = <String, List<String>>{
   'unlockBodyHammers': ['{name}', '{cost}'],
   'unlockBodyHammerOne': ['{name}'],
-  'unlockRentBodyHammers': ['{name}', '{cost}', '{days}'],
-  'unlockRentBodyHammerOne': ['{name}', '{days}'],
+  'unlockRentBodyHammers': ['{name}', '{cost}', '{time}'],
+  'unlockRentBodyHammerOne': ['{name}', '{time}'],
   'notEnoughHammersTitle': [],
   'notEnoughHammersBody': ['{name}', '{cost}'],
   'notEnoughHammersBodyOne': ['{name}'],
@@ -167,9 +167,9 @@ void main() {
         );
         expect(
           t.unlockRentBodyHammers('Blazing Fire', 1, 100),
-          own(
-            'unlockRentBodyHammerOne',
-          ).replaceAll('{name}', 'Blazing Fire').replaceAll('{days}', '100'),
+          own('unlockRentBodyHammerOne')
+              .replaceAll('{name}', 'Blazing Fire')
+              .replaceAll('{time}', t.timeDays(100)),
           reason: lang.code,
         );
         expect(

@@ -130,12 +130,13 @@ test('PostgreSQL holds no game state at all: money, audit and accounts only', as
   // against — nothing reads either back to play a hand. missile_purchases and
   // missile_spends (14 Sep 2026) are the missiles' twins: the record and
   // replay guard of a diamonds-for-missiles trade, and the receipt a fired
-  // missile is spent against. The list is exact
+  // missile is spent against. user_milestones (14 Sep 2026) is an account fact
+  // too: which rewards a player has collected, moved off users. The list is exact
   // rather than a minimum, so a new table has to be argued for here first.
   const { rows } = await query(
     `SELECT tablename FROM pg_tables WHERE schemaname = current_schema() ORDER BY tablename`);
   const tables = rows.map((r) => r.tablename);
-  assert.deepEqual(tables, ['chip_ledger', 'diamond_purchases', 'hammer_purchases', 'hammer_spends', 'missile_purchases', 'missile_spends', 'profile_pictures', 'user_profile_pictures', 'users'],
+  assert.deepEqual(tables, ['chip_ledger', 'diamond_purchases', 'hammer_purchases', 'hammer_spends', 'missile_purchases', 'missile_spends', 'profile_pictures', 'user_milestones', 'user_profile_pictures', 'users'],
     `the schema must hold money, audit and accounts only, got ${tables.join(', ')}`);
 });
 

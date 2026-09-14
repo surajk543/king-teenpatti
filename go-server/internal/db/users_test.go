@@ -191,6 +191,16 @@ func TestReachingTheNextMilestoneUnlocksTheRewardAgain(t *testing.T) {
 	if r, _ := f.users.ClaimMilestoneReward(f.ctx, player.ID); !r.Claimed {
 		t.Fatal("claim at 50")
 	}
+	// One row for the milestone, updated in place — not a row per claim.
+	if n := f.count(`SELECT COUNT(*) FROM user_milestones WHERE user_id = $1`, player.ID); n != 1 {
+		t.Fatalf("user_milestones rows = %d, want the one HANDS_PLAYED row", n)
+	}
+	if upTo := f.scalar(`SELECT claimed_up_to FROM user_milestones WHERE user_id = $1 AND milestone = 'HANDS_PLAYED'`, player.ID); upTo != 50 {
+		t.Fatalf("claimed_up_to = %d, want 50", upTo)
+	}
+	if times := f.scalar(`SELECT times_claimed FROM user_milestones WHERE user_id = $1 AND milestone = 'HANDS_PLAYED'`, player.ID); times != 2 {
+		t.Fatalf("times_claimed = %d, want 2", times)
+	}
 }
 
 func TestSkippedMilestonesAreForfeited(t *testing.T) {
@@ -209,7 +219,7 @@ func TestSkippedMilestonesAreForfeited(t *testing.T) {
 		t.Fatalf("second = %+v", r)
 	}
 	if again, _ := f.users.ClaimMilestoneReward(f.ctx, player.ID); again.Claimed {
-		t.Fatal("milestone_claimed must jump to 75; the skipped 50 pays nothing")
+		t.Fatal("claimed_up_to must jump to 75; the skipped 50 pays nothing")
 	}
 	if f.find(player.ID).Chips != welcome+50000 {
 		t.Fatalf("chips = %d", f.find(player.ID).Chips)
@@ -246,7 +256,7 @@ func TestClaimingForAnUnknownUserIsAnError(t *testing.T) {
 	}
 }
 
-// ----------------------------------------------------- timed bonus (req 18)
+// ------------------------------------- daily bonus (req 18, owner 14 Sep 2026)
 
 func TestANewAccountCanCollectTheTimedBonusStraightAway(t *testing.T) {
 	f := newFixture(t)
@@ -255,27 +265,31 @@ func TestANewAccountCanCollectTheTimedBonusStraightAway(t *testing.T) {
 	if !rewards.BonusAvailable {
 		t.Fatal("no waiting on a brand new account")
 	}
-	if rewards.BonusReward != 10000 || rewards.BonusIntervalMs != 4*60*60*1000 || rewards.BonusReadyAt != 0 {
+	if rewards.BonusReward != 100000 || rewards.BonusHammers != 1 || rewards.BonusIntervalMs != 24*60*60*1000 || rewards.BonusReadyAt != 0 {
 		t.Fatalf("rewards = %+v", rewards)
+	}
+	// Nothing collected, nothing written: a new account has no milestone rows.
+	if n := f.count(`SELECT COUNT(*) FROM user_milestones WHERE user_id = $1`, player.ID); n != 0 {
+		t.Fatalf("user_milestones rows = %d", n)
 	}
 }
 
-func TestCollectingTheBonusGrants10000ChipsAndStartsA4HourCountdown(t *testing.T) {
+func TestCollectingTheDailyBonusGrantsALakhChipsAndAHammerAndStartsA24HourCountdown(t *testing.T) {
 	f := newFixture(t)
 	player := f.user("Bonus")
-	before := f.find(player.ID).Chips
+	before := f.find(player.ID)
 
 	claimedAt := nowMs()
 	result, err := f.users.ClaimTimedBonus(f.ctx, player.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.Claimed || result.Amount != 10000 || result.User.Chips != before+10000 {
+	if !result.Claimed || result.Amount != 100000 || result.User.Chips != before.Chips+100000 || result.User.Hammer != before.Hammer+1 {
 		t.Fatalf("result = %+v", result)
 	}
-	fourHours := int64(4 * 60 * 60 * 1000)
-	if result.ReadyAt < claimedAt+fourHours-1000 || result.ReadyAt > nowMs()+fourHours+1000 {
-		t.Fatalf("readyAt %d is not ~4h out from %d", result.ReadyAt, claimedAt)
+	day := int64(24 * 60 * 60 * 1000)
+	if result.ReadyAt < claimedAt+day-1000 || result.ReadyAt > nowMs()+day+1000 {
+		t.Fatalf("readyAt %d is not ~24h out from %d", result.ReadyAt, claimedAt)
 	}
 	if result.User.Rewards.BonusAvailable {
 		t.Fatal("and is not collectable now")
@@ -292,7 +306,7 @@ func TestTheBonusCannotBeCollectedTwiceInsideTheCountdown(t *testing.T) {
 	if _, err := f.users.ClaimTimedBonus(f.ctx, player.ID); err != nil {
 		t.Fatal(err)
 	}
-	before := f.find(player.ID).Chips
+	before := f.find(player.ID)
 	second, err := f.users.ClaimTimedBonus(f.ctx, player.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -300,13 +314,13 @@ func TestTheBonusCannotBeCollectedTwiceInsideTheCountdown(t *testing.T) {
 	if second.Claimed || second.Reason != db.RewardNotReady || second.ReadyAt <= nowMs() || second.User == nil {
 		t.Fatalf("second = %+v", second)
 	}
-	if f.find(player.ID).Chips != before {
-		t.Fatal("no chips moved")
+	if after := f.find(player.ID); after.Chips != before.Chips || after.Hammer != before.Hammer {
+		t.Fatal("no chips or hammers moved")
 	}
 	// The bonus row has no action id (the row lock is its only guard).
 	rows := f.ledgerRows(player.ID)
 	last := rows[len(rows)-1]
-	if last.Reason != "timed_bonus" || last.Delta != 10000 || last.ActionID != nil || last.HandID != nil {
+	if last.Reason != "timed_bonus" || last.Delta != 100000 || last.ActionID != nil || last.HandID != nil {
 		t.Fatalf("bonus row = %+v", last)
 	}
 }
@@ -318,23 +332,35 @@ func TestTheCountdownLivesInTheDatabase(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stored := f.scalar(`SELECT next_bonus_at FROM users WHERE id = $1`, player.ID); stored != result.ReadyAt {
-		t.Fatalf("next_bonus_at %d != readyAt %d — the unlock time is persisted, not held in memory", stored, result.ReadyAt)
+	const nextClaimAt = `SELECT next_claim_at FROM user_milestones WHERE user_id = $1 AND milestone = 'DAILY_BONUS'`
+	if stored := f.scalar(nextClaimAt, player.ID); stored != result.ReadyAt {
+		t.Fatalf("next_claim_at %d != readyAt %d — the unlock time is persisted, not held in memory", stored, result.ReadyAt)
 	}
 	// Once the stored time passes, it is collectable again.
-	if err := f.d.Exec(f.ctx, `UPDATE users SET next_bonus_at = $1 WHERE id = $2`, nowMs()-1, player.ID); err != nil {
+	if err := f.d.Exec(f.ctx, `UPDATE user_milestones SET next_claim_at = $1 WHERE user_id = $2 AND milestone = 'DAILY_BONUS'`, nowMs()-1, player.ID); err != nil {
 		t.Fatal(err)
 	}
 	if !f.find(player.ID).Rewards.BonusAvailable {
 		t.Fatal("bonusAvailable is evaluated against now")
 	}
-	if r, _ := f.users.ClaimTimedBonus(f.ctx, player.ID); !r.Claimed {
+	r, _ := f.users.ClaimTimedBonus(f.ctx, player.ID)
+	if !r.Claimed {
 		t.Fatal("claim after the countdown")
+	}
+	// The second claim updated the one DAILY_BONUS row rather than adding one.
+	if n := f.count(`SELECT COUNT(*) FROM user_milestones WHERE user_id = $1`, player.ID); n != 1 {
+		t.Fatalf("user_milestones rows = %d, want the one DAILY_BONUS row", n)
+	}
+	if times := f.scalar(`SELECT times_claimed FROM user_milestones WHERE user_id = $1 AND milestone = 'DAILY_BONUS'`, player.ID); times != 2 {
+		t.Fatalf("times_claimed = %d, want 2", times)
+	}
+	if stored := f.scalar(nextClaimAt, player.ID); stored != r.ReadyAt {
+		t.Fatalf("next_claim_at %d != the second readyAt %d", stored, r.ReadyAt)
 	}
 }
 
 // A fixed clock proves every row of a claim shares one timestamp and that
-// readyAt = now + 4h exactly.
+// readyAt = now + 24h exactly.
 func TestRewardsUseOneTimestampPerTransaction(t *testing.T) {
 	f := newFixture(t)
 	fixed := time.UnixMilli(1_800_000_000_000)
@@ -354,6 +380,9 @@ func TestRewardsUseOneTimestampPerTransaction(t *testing.T) {
 	}
 	if f.scalar(`SELECT updated_at FROM users WHERE id = $1`, player.ID) != fixed.UnixMilli() {
 		t.Fatal("users.updated_at differs from the ledger row")
+	}
+	if f.scalar(`SELECT last_claimed_at FROM user_milestones WHERE user_id = $1 AND milestone = 'DAILY_BONUS'`, player.ID) != fixed.UnixMilli() {
+		t.Fatal("user_milestones.last_claimed_at differs from the ledger row")
 	}
 	// With the clock frozen before readyAt the bonus reads as unavailable.
 	if r.User.Rewards.BonusAvailable {
@@ -909,13 +938,24 @@ func TestAShortHammerWalletIsRefusedAndNothingMoves(t *testing.T) {
 }
 
 // The catalogue as the owner seeded it on 14 Sep 2026: the 15 animals priced in
-// chips (two of them free), 15 of the 20 animated pictures priced in hammers and
-// the other five in diamonds, at the owner's figures, 35 rows.
-func TestTheSeededCatalogueHas15Coin15HammerAnd5DiamondPicturesAtTheOwnersPrices(t *testing.T) {
+// chips (two of them free) and four animated pictures priced in chips, two of
+// them rented by the hour, then 16 animated pictures priced in hammers and five
+// in diamonds, at the owner's figures, 40 rows.
+func TestTheSeededCatalogueHas19Coin16HammerAnd5DiamondPicturesAtTheOwnersPrices(t *testing.T) {
 	f := newFixture(t)
 	all, err := f.pictures.List(f.ctx, "")
 	if err != nil {
 		t.Fatal(err)
+	}
+	// The animated pictures priced in chips, each with its term in days and
+	// hours.
+	type term struct {
+		cost        int64
+		days, hours int
+	}
+	chipAnimated := map[string]term{
+		"Love Sheep": {1_000_000, 0, 1}, "Love Birds": {3_000_000, 0, 3},
+		"Error 404": {10_000_000, 10, 0}, "Anima Bot": {10_000_000, 5, 0},
 	}
 	hammerPrices := map[string]int64{
 		"Orange Ballerina": 10, "Toucan Flying": 30, "Live Chatbot": 10,
@@ -923,20 +963,32 @@ func TestTheSeededCatalogueHas15Coin15HammerAnd5DiamondPicturesAtTheOwnersPrices
 		"Galloping Horse": 10, "Gamer Raccoon": 60, "Cool Cat": 100,
 		"Shooting Game": 80,
 		"Spider":        80, "Swirling Dots": 30, "Sporty Avocado": 90, "Blazing Fire": 10,
+		"Love and Kiss": 2,
 	}
 	diamondPrices := map[string]int64{
 		"Butterfly Flapping": 4, "Waving Tiger Cub": 3, "Indian Flag": 5, "Jolly King": 5, "Jolly Queen": 5,
 	}
-	if len(all) != 35 {
-		t.Fatalf("the seeded catalogue lists %d pictures, want 35", len(all))
+	if len(all) != 40 {
+		t.Fatalf("the seeded catalogue lists %d pictures, want 40", len(all))
 	}
 	byCurrency := map[string]int{}
 	for _, p := range all {
 		byCurrency[p.Currency]++
 		switch p.Currency {
 		case db.PictureCurrencyCoin:
-			if p.AssetFormat != "IMAGE" {
-				t.Errorf("chip-priced %q is a %s, want one of the IMAGE animals", p.Name, p.AssetFormat)
+			if p.AssetFormat == "IMAGE" {
+				continue
+			}
+			want, ok := chipAnimated[p.Name]
+			if !ok {
+				t.Errorf("chip-priced %q is a %s, want one of the IMAGE animals or the owner's four animated ones", p.Name, p.AssetFormat)
+				continue
+			}
+			delete(chipAnimated, p.Name)
+			if p.Cost != want.cost || p.Type != db.PicturePremium || p.AssetFormat != "LOTTIE" ||
+				p.DurationDays != want.days || p.DurationHours != want.hours {
+				t.Errorf("%q = %d chips, %s %s for %d days %d hours; want %d chips, a PREMIUM LOTTIE for %d days %d hours",
+					p.Name, p.Cost, p.Type, p.AssetFormat, p.DurationDays, p.DurationHours, want.cost, want.days, want.hours)
 			}
 		case db.PictureCurrencyHammer:
 			want, ok := hammerPrices[p.Name]
@@ -946,10 +998,13 @@ func TestTheSeededCatalogueHas15Coin15HammerAnd5DiamondPicturesAtTheOwnersPrices
 			}
 			delete(hammerPrices, p.Name)
 			// Rented for as many days as it costs hammers, but for Swirling
-			// Dots: 30 hammers for 50 days.
+			// Dots (30 hammers for 50 days) and Love and Kiss (2 for 10).
 			wantDays := want
-			if p.Name == "Swirling Dots" {
+			switch p.Name {
+			case "Swirling Dots":
 				wantDays = 50
+			case "Love and Kiss":
+				wantDays = 10
 			}
 			if p.Cost != want || p.Type != db.PicturePremium || p.AssetFormat != "LOTTIE" || int64(p.DurationDays) != wantDays {
 				t.Errorf("%q = %d hammers, %s %s for %d days; want %d hammers, a PREMIUM LOTTIE for %d days",
@@ -970,16 +1025,16 @@ func TestTheSeededCatalogueHas15Coin15HammerAnd5DiamondPicturesAtTheOwnersPrices
 			t.Errorf("%q is priced in %s", p.Name, p.Currency)
 		}
 	}
-	if byCurrency[db.PictureCurrencyCoin] != 15 || byCurrency[db.PictureCurrencyHammer] != 15 || byCurrency[db.PictureCurrencyDiamond] != 5 {
-		t.Errorf("currencies = %v, want 15 COIN, 15 HAMMER and 5 DIAMOND", byCurrency)
+	if byCurrency[db.PictureCurrencyCoin] != 19 || byCurrency[db.PictureCurrencyHammer] != 16 || byCurrency[db.PictureCurrencyDiamond] != 5 {
+		t.Errorf("currencies = %v, want 19 COIN, 16 HAMMER and 5 DIAMOND", byCurrency)
 	}
-	if len(hammerPrices) != 0 || len(diamondPrices) != 0 {
-		t.Errorf("missing from the catalogue: %v %v", hammerPrices, diamondPrices)
+	if len(chipAnimated) != 0 || len(hammerPrices) != 0 || len(diamondPrices) != 0 {
+		t.Errorf("missing from the catalogue: %v %v %v", chipAnimated, hammerPrices, diamondPrices)
 	}
 
 	// The seed's order (owner, 14 Sep 2026): the free pictures, then the
-	// chip-priced animals, then the hammer-priced pictures, then the
-	// diamond-priced ones, with sort_order 10 to 350 in steps of ten.
+	// chip-priced ones, then the hammer-priced pictures, then the
+	// diamond-priced ones, with sort_order 10 to 400 in steps of ten.
 	rank := func(p db.Picture) int {
 		switch {
 		case p.Type == db.PictureFree:
@@ -997,6 +1052,49 @@ func TestTheSeededCatalogueHas15Coin15HammerAnd5DiamondPicturesAtTheOwnersPrices
 		}
 		if i > 0 && rank(all[i-1]) > rank(p) {
 			t.Errorf("%q (%s %s) comes after %q (%s %s)", p.Name, p.Type, p.Currency, all[i-1].Name, all[i-1].Type, all[i-1].Currency)
+		}
+	}
+}
+
+// A rental's term is its days plus its hours (owner, 14 Sep 2026: pictures
+// rented by the hour): the ownership row runs out that long after the purchase,
+// and the catalogue reads both columns back.
+func TestARentalRunsOutAfterItsDaysPlusItsHours(t *testing.T) {
+	f := newFixture(t)
+	pic := premiumPicture(t, f)
+	for _, term := range []struct {
+		days, hours int
+		want        int64
+	}{
+		{0, 1, db.HourMs},
+		{0, 3, 3 * db.HourMs},
+		{1, 12, db.DayMs + 12*db.HourMs},
+	} {
+		if _, err := f.d.Pool.Exec(f.ctx,
+			`UPDATE profile_pictures SET duration_days = $2, duration_hours = $3 WHERE id = $1`,
+			pic.ID, term.days, term.hours); err != nil {
+			t.Fatal(err)
+		}
+		listed, _, err := f.pictures.Find(f.ctx, "", pic.ID)
+		if err != nil || listed.DurationDays != term.days || listed.DurationHours != term.hours {
+			t.Fatalf("the catalogue reads %d days %d hours (%v), want %d and %d",
+				listed.DurationDays, listed.DurationHours, err, term.days, term.hours)
+		}
+
+		user := newGuest(t, f)
+		bought, err := f.pictures.Buy(f.ctx, user.ID, pic.ID)
+		if err != nil || !bought.Charged {
+			t.Fatalf("%d days %d hours: %+v %v", term.days, term.hours, bought, err)
+		}
+		var acquired, expires int64
+		if err := f.d.Pool.QueryRow(f.ctx,
+			`SELECT acquired_at, expires_at FROM user_profile_pictures
+			  WHERE user_id = $1 AND profile_picture_id = $2`, user.ID, pic.ID).Scan(&acquired, &expires); err != nil {
+			t.Fatal(err)
+		}
+		if expires-acquired != term.want || bought.Picture.ExpiresAt != expires {
+			t.Errorf("%d days %d hours ran for %d ms (answered %d, stored %d), want %d",
+				term.days, term.hours, expires-acquired, bought.Picture.ExpiresAt, expires, term.want)
 		}
 	}
 }
@@ -1494,7 +1592,7 @@ func TestUserMarshalsToThePublicUserShape(t *testing.T) {
 	}
 	for k, want := range map[string]string{
 		"milestoneAvailable": "false", "milestoneAt": "0", "milestoneReward": "25000", "milestoneEvery": "25",
-		"handsToNextMilestone": "25", "bonusReadyAt": "0", "bonusAvailable": "true", "bonusReward": "10000", "bonusIntervalMs": "14400000",
+		"handsToNextMilestone": "25", "bonusReadyAt": "0", "bonusAvailable": "true", "bonusReward": "100000", "bonusHammers": "1", "bonusIntervalMs": "86400000",
 	} {
 		if string(rewards[k]) != want {
 			t.Fatalf("rewards.%s = %s, want %s", k, rewards[k], want)

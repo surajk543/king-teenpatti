@@ -303,11 +303,18 @@ class _LobbyScreenState extends State<LobbyScreen> {
                   ),
                 ],
               ),
-              // Requirement 27: the milestone sits opposite the four-hour bonus,
-              // which lives in the top rail's own reserved slot. Both live in
-              // the bottom-right corner, stacked rather than in a row: side by
-              // side they would run off a narrow screen, and the rail of tables
-              // stops short of them (`band`), so no card's keys run under them.
+              // The daily bonus in the bottom-left corner (owner, 14 Sep 2026:
+              // it was a chip leading the top bar), a key that counts down its
+              // 24 hours and collects when they are up. Keyed so a lobby toast
+              // can stand clear of it (lobbyNoticeArea).
+              Positioned(
+                bottom: Space.md,
+                left: Space.md,
+                child: _BonusChip(key: _bonusChip),
+              ),
+              // Requirement 27: the milestone sits in the bottom-right corner,
+              // opposite the daily bonus. The rail of tables stops short of
+              // both (`band`), so no card's keys run under either.
               Positioned(
                 bottom: Space.md,
                 right: Space.md,
@@ -457,7 +464,9 @@ class _RewardCelebrationState extends State<_RewardCelebration>
     // under its chips — and on a 360dp phone at the 1.25 text ceiling that
     // line is paid for by a smaller hero chip and a tighter gap under it.
     final premium = won.kind == 'premium';
-    final chip = (size.height * 0.16).clamp(40.0, 68.0) * (premium ? 0.75 : 1);
+    // The daily bonus has that line too, for its hammer (owner, 14 Sep 2026).
+    final wallets = premium || won.hammers > 0;
+    final chip = (size.height * 0.16).clamp(40.0, 68.0) * (wallets ? 0.75 : 1);
 
     final blurb = switch (won.kind) {
       'bonus' => t.rewardComeBack,
@@ -531,7 +540,7 @@ class _RewardCelebrationState extends State<_RewardCelebration>
                                     turn: const Duration(milliseconds: 900),
                                     rest: const Duration(milliseconds: 260),
                                   ),
-                            SizedBox(height: premium ? Space.md : Space.lg),
+                            SizedBox(height: wallets ? Space.md : Space.lg),
                             Text(
                               t.rewardCollected,
                               textAlign: TextAlign.center,
@@ -547,8 +556,9 @@ class _RewardCelebrationState extends State<_RewardCelebration>
                             ),
                             // A Premium Package's chips are the headline; the
                             // missiles and hammers that came with them follow,
-                            // each in its wallet's mark and ink.
-                            if (premium) ...[
+                            // each in its wallet's mark and ink — as the daily
+                            // bonus's hammer does.
+                            if (wallets) ...[
                               const SizedBox(height: Space.xs),
                               Wrap(
                                 alignment: WrapAlignment.center,
@@ -556,11 +566,12 @@ class _RewardCelebrationState extends State<_RewardCelebration>
                                 runSpacing: Space.xs,
                                 children: [
                                   for (final (icon, ink, label) in [
-                                    (
-                                      missileIcon,
-                                      missileInkOn(theme.brightness),
-                                      t.plusMissiles(won.missiles),
-                                    ),
+                                    if (premium)
+                                      (
+                                        missileIcon,
+                                        missileInkOn(theme.brightness),
+                                        t.plusMissiles(won.missiles),
+                                      ),
                                     (
                                       Icons.hardware,
                                       hammerInkOn(theme.brightness),
@@ -690,13 +701,14 @@ class _TopBar extends StatelessWidget {
             ),
             LayoutBuilder(
               builder: (context, box) {
-                final slotW = Dim.bonusSlotW(box.maxWidth);
                 // The provider tag folds on what the row actually has left,
                 // not on the screen width. It matters more now that the Shop
                 // key shares this bar: on a 640dp screen the tag was rendering
                 // as "GUE…", which tells nobody anything — better absent than
-                // truncated.
-                final tight = Breaks.isTightBar(box.maxWidth - slotW);
+                // truncated. The bar leads with the picture: the daily bonus
+                // that sat before it moved to the lobby's bottom-left corner
+                // (owner, 14 Sep 2026).
+                final tight = Breaks.isTightBar(box.maxWidth);
 
                 return Padding(
                   padding: EdgeInsets.symmetric(
@@ -705,12 +717,6 @@ class _TopBar extends StatelessWidget {
                   ),
                   child: Row(
                     children: [
-                      // Requirement 26 keeps its corner. The chip takes its own
-                      // width, capped at the slot the rail used to reserve, and the
-                      // picture follows straight after it (owner, 13 Sep 2026): the
-                      // reserved slot left a gap there that the name needed.
-                      _BonusChip(maxWidth: slotW - Space.md),
-                      const SizedBox(width: Space.md),
                       Tooltip(
                         message: state.t.yourPicture,
                         child: SizedBox(
@@ -3476,11 +3482,7 @@ class _PressableState extends State<_Pressable> {
 }
 
 class _BonusChip extends StatelessWidget {
-  const _BonusChip({this.maxWidth});
-
-  /// The slot the top rail keeps for it. A long translated subtitle used to
-  /// grow this pill under the bar; here it ellipsises instead.
-  final double? maxWidth;
+  const _BonusChip({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -3492,12 +3494,15 @@ class _BonusChip extends StatelessWidget {
     return _CornerChip(
       icon: Icons.hourglass_bottom,
       leadingBuilder: (fg) => _Hourglass(colour: fg, running: !ready),
-      title: state.t.fourHourBonus,
+      title: state.t.dailyBonus,
       subtitle: ready
-          ? '${state.t.collect} ${formatChips(r.bonusReward)}'
+          ? [
+              state.t.collect,
+              formatChips(r.bonusReward),
+              if (r.bonusHammers > 0) state.t.plusHammers(r.bonusHammers),
+            ].join(' ')
           : formatCountdown(r.untilBonus, state.t),
       enabled: ready,
-      maxWidth: maxWidth,
       onTap: () => state.claimReward('bonus'),
     );
   }
@@ -3671,14 +3676,18 @@ class _HourglassPainter extends CustomPainter {
 /// text in the player's language, which nothing outside it knows.
 final _milestoneChip = GlobalKey(debugLabel: 'milestone chip');
 
+/// On the daily bonus key in the opposite corner, for the same reason.
+final _bonusChip = GlobalKey(debugLabel: 'bonus chip');
+
 /// Where a notice may stand in the lobby, in screen coordinates, or null for
 /// the plain foot of the screen.
 ///
 /// The lobby's foot is empty but for the milestone chip in its right-hand
-/// corner, and a toast centred on a 640dp phone ran 5dp over the chip's rim.
-/// The toast keeps its width and its place at the foot and moves left only as
-/// far as the chip needs, narrowing only if the whole space beside the chip is
-/// smaller than it. With no chip laid out (no account yet) it is centred.
+/// corner and, since 14 Sep 2026, the daily bonus in its left-hand one, and a
+/// toast centred on a 640dp phone ran 5dp over the milestone chip's rim. The
+/// toast keeps its width and its place at the foot and moves aside only as far
+/// as a chip needs, narrowing only if the whole space between them is smaller
+/// than it. With no chip laid out (no account yet) it is centred.
 ///
 /// Read through the screen's fade-in, the chip measures a little nearer the
 /// middle than it comes to rest, which can only move the toast further off it.
@@ -3696,13 +3705,25 @@ Rect? lobbyNoticeArea(BuildContext context) {
   final size = MediaQuery.sizeOf(context);
   final safe = MediaQuery.paddingOf(context);
   final width = Dim.toastW(size.width);
-  final start = safe.left + Space.md;
+  var start = safe.left + Space.md;
+  final bonus = _bonusChip.currentContext?.findRenderObject();
+  if (bonus is RenderBox &&
+      bonus.attached &&
+      bonus.hasSize &&
+      !bonus.size.isEmpty) {
+    final bonusRight = bonus.localToGlobal(Offset(bonus.size.width, 0)).dx;
+    if (bonusRight.isFinite) start = math.max(start, bonusRight + Space.sm);
+  }
   final end = chipLeft - Space.sm;
   var left = (size.width - width) / 2;
   var right = left + width;
   if (right > end) {
     right = end;
     left = math.max(start, end - width);
+  }
+  if (left < start) {
+    left = start;
+    right = math.min(end, start + width);
   }
   if (right <= left) return null;
   // Topped at the top of the screen, so the toast is never scaled down to fit:
@@ -3745,7 +3766,6 @@ class _CornerChip extends StatelessWidget {
     required this.enabled,
     required this.onTap,
     this.leadingBuilder,
-    this.maxWidth,
   });
 
   final IconData icon;
@@ -3759,10 +3779,6 @@ class _CornerChip extends StatelessWidget {
   final bool enabled;
   final VoidCallback onTap;
 
-  /// A finite cap so the two lines can ellipsise. Without one this pill sizes
-  /// to its longest translation and runs off the screen.
-  final double? maxWidth;
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -3772,7 +3788,9 @@ class _CornerChip extends StatelessWidget {
     final fg = enabled
         ? gold
         : theme.colorScheme.onSurface.withValues(alpha: AppTheme.inkMed);
-    final cap = maxWidth ?? Dim.bonusSlotW(MediaQuery.sizeOf(context).width);
+    // A finite cap so the two lines can ellipsise. Without one this pill sizes
+    // to its longest translation and runs off the screen.
+    final cap = Dim.bonusSlotW(MediaQuery.sizeOf(context).width);
 
     return ConstrainedBox(
       constraints: BoxConstraints(maxWidth: cap),

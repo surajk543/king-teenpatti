@@ -112,19 +112,22 @@ CREATE TABLE IF NOT EXISTS profile_pictures (
   -- default keeps hand-inserted rows on the chips path.
   currency   TEXT    NOT NULL DEFAULT 'COIN'
              CHECK (currency IN ('COIN', 'DIAMOND', 'HAMMER')),
-  -- How long a purchase of this picture lasts, in DAYS. 0 means for ever,
-  -- which is what every free picture is and what a premium one is until
-  -- somebody prices it as a rental.
+  -- How long a purchase of this picture lasts: duration_days DAYS plus
+  -- duration_hours HOURS. Both 0 means for ever, which is what every free
+  -- picture is and what a premium one is until somebody prices it as a rental.
+  -- The hours arrived on 14 Sep 2026 (owner), for pictures rented by the hour;
+  -- a picture rented for days leaves them at 0.
   --
-  -- Days, not the milliseconds every other duration in this server is measured
-  -- in, and deliberately: this is a catalogue column an owner edits by hand,
-  -- and `duration_days = 30` cannot be misread the way `duration_ms = 30`
-  -- silently can. The server converts once, on purchase.
+  -- Days and hours, not the milliseconds every other duration in this server
+  -- is measured in, and deliberately: this is a catalogue column an owner edits
+  -- by hand, and `duration_days = 30` cannot be misread the way
+  -- `duration_ms = 30` silently can. The server converts once, on purchase.
   --
-  -- Changing it re-prices the SHELF, never a rental already sold: the expiry
-  -- is stamped onto the ownership row at the moment of purchase, so a player
-  -- keeps the terms they bought under.
-  duration_days INTEGER NOT NULL DEFAULT 0 CHECK (duration_days >= 0),
+  -- Changing either re-prices the SHELF, never a rental already sold: the
+  -- expiry is stamped onto the ownership row at the moment of purchase, so a
+  -- player keeps the terms they bought under.
+  duration_days  INTEGER NOT NULL DEFAULT 0 CHECK (duration_days >= 0),
+  duration_hours INTEGER NOT NULL DEFAULT 0 CHECK (duration_hours >= 0),
   -- FALSE retires a picture: it disappears from the catalogue the clients are
   -- offered, but the rows owning it and the players wearing it are untouched.
   is_active  BOOLEAN NOT NULL DEFAULT TRUE,
@@ -187,10 +190,8 @@ CREATE TABLE IF NOT EXISTS users (
   -- Gross chips taken in pots won, over the account's lifetime.
   total_winnings    BIGINT NOT NULL DEFAULT 0,
   biggest_pot       BIGINT NOT NULL DEFAULT 0,
-  -- Highest "hands played" milestone already collected (a multiple of 25).
-  milestone_claimed INTEGER NOT NULL DEFAULT 0,
-  -- Epoch ms when the timed bonus may next be collected. 0 = collectable now.
-  next_bonus_at     BIGINT NOT NULL DEFAULT 0,
+  -- The reward milestones a player has collected live in user_milestones
+  -- (below), not here (owner, 14 Sep 2026).
   created_at        BIGINT NOT NULL,
   updated_at        BIGINT NOT NULL,
   last_login_at     BIGINT NOT NULL,
@@ -288,7 +289,7 @@ CREATE TABLE IF NOT EXISTS user_profile_pictures (
   profile_picture_id BIGINT NOT NULL REFERENCES profile_pictures (id) ON DELETE CASCADE,
   acquired_at        BIGINT NOT NULL,
   -- Epoch ms the rental runs out; 0 means it never does. Stamped from the
-  -- picture's duration_days at the moment of purchase, so re-pricing the shelf
+  -- picture's duration_days and duration_hours at the moment of purchase, so re-pricing the shelf
   -- afterwards cannot shorten or extend what somebody already bought.
   expires_at         BIGINT NOT NULL DEFAULT 0,
   -- How many times this player has bought this picture. It is what makes the
@@ -302,6 +303,31 @@ CREATE TABLE IF NOT EXISTS user_profile_pictures (
 -- Finds the rentals that have run out, for the sweep at login.
 CREATE INDEX IF NOT EXISTS idx_owned_pictures_expiry
   ON user_profile_pictures (expires_at) WHERE expires_at > 0;
+
+-- The reward milestones each player has collected (owner, 14 Sep 2026): one
+-- row per player per milestone, inserted the first time it is collected and
+-- UPDATED in place every time after — never a row per claim, because
+-- chip_ledger already records every payment. They were users.milestone_claimed
+-- and users.next_bonus_at until then. No row means nothing collected yet: no
+-- hands-played milestone, and a daily bonus that is ready now.
+CREATE TABLE IF NOT EXISTS user_milestones (
+  user_id         TEXT    NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  -- HANDS_PLAYED: 25,000 chips for every 25 hands played (requirement 17).
+  -- DAILY_BONUS: 1,00,000 chips and 1 hammer, once every 24 hours.
+  milestone       TEXT    NOT NULL CHECK (milestone IN ('HANDS_PLAYED', 'DAILY_BONUS')),
+  -- HANDS_PLAYED: the highest multiple of 25 hands collected. A claim jumps it
+  -- straight to the current multiple, so a skipped one is forfeited. 0 on a
+  -- DAILY_BONUS row.
+  claimed_up_to   INTEGER NOT NULL DEFAULT 0 CHECK (claimed_up_to >= 0),
+  -- DAILY_BONUS: epoch ms it may next be collected. 0 on a HANDS_PLAYED row.
+  next_claim_at   BIGINT  NOT NULL DEFAULT 0,
+  -- How many times this milestone has been collected, and when last.
+  times_claimed   INTEGER NOT NULL DEFAULT 0 CHECK (times_claimed >= 0),
+  last_claimed_at BIGINT  NOT NULL DEFAULT 0,
+  created_at      BIGINT  NOT NULL,
+  updated_at      BIGINT  NOT NULL,
+  PRIMARY KEY (user_id, milestone)
+);
 
 
 -- ------------------------------------------------------------------ money

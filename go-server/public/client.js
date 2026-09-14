@@ -784,8 +784,8 @@
 
   /**
    * Renders both rewards. The milestone unlocks every 25 hands played; the
-   * bonus recharges over 4 hours, and its unlock time comes from the server so
-   * the countdown cannot be skipped by reloading.
+   * daily bonus recharges over 24 hours, and its unlock time comes from the
+   * server so the countdown cannot be skipped by reloading.
    */
   function renderRewards(user) {
     const rewards = user?.rewards;
@@ -800,13 +800,14 @@
       ? `Collect ${rewards.milestoneReward.toLocaleString()}`
       : `${rewards.handsToNextMilestone} hand${rewards.handsToNextMilestone === 1 ? '' : 's'} to go`;
 
-    // Top-left: the 4-hour bonus, counting down in seconds (requirement 26).
+    // Top-left: the daily bonus, counting down in seconds (requirement 26).
     const bonusReady = Date.now() >= rewards.bonusReadyAt;
     const bonus = $('bonusCorner');
     bonus.classList.toggle('ready', bonusReady);
     bonus.disabled = !bonusReady;
+    const hammers = rewards.bonusHammers ?? 0;
     $('bonusMeta').textContent = bonusReady
-      ? `Collect ${rewards.bonusReward.toLocaleString()}`
+      ? `Collect ${rewards.bonusReward.toLocaleString()}${hammers ? ` + ${hammers} hammer${hammers === 1 ? '' : 's'}` : ''}`
       : formatCountdown(rewards.bonusReadyAt - Date.now());
   }
 

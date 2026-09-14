@@ -333,18 +333,24 @@ StoreTab? pictureWalletShelf(ProfilePicture picture) =>
 String unlockPictureBody(Strings t, ProfilePicture picture) {
   final cost = formatChips(picture.cost);
   final days = picture.durationDays;
+  final hours = picture.durationHours;
   return switch (picture.currency) {
     PictureCurrency.hammer =>
       picture.rented
-          ? t.unlockRentBodyHammers(picture.name, picture.cost, days)
+          ? t.unlockRentBodyHammers(
+              picture.name,
+              picture.cost,
+              days,
+              hours: hours,
+            )
           : t.unlockBodyHammers(picture.name, picture.cost),
     PictureCurrency.diamond =>
       picture.rented
-          ? t.unlockRentBodyDiamond(picture.name, cost, days)
+          ? t.unlockRentBodyDiamond(picture.name, cost, days, hours: hours)
           : t.unlockBodyDiamond(picture.name, cost),
     _ =>
       picture.rented
-          ? t.unlockRentBody(picture.name, cost, days)
+          ? t.unlockRentBody(picture.name, cost, days, hours: hours)
           : t.unlockBody(picture.name, cost),
   };
 }
@@ -600,6 +606,26 @@ String rentalTimeLeft(Strings t, int expiresAt, DateTime now) {
     (_, > 0) => '${t.timeHours(hours)} ${t.timeMinutes(minutes)}',
     _ => t.timeMinutes(minutes),
   });
+}
+
+/// The short time left on an owned rental's tag, or null for a picture that
+/// never runs out: whole days while more than a day is left, then hours while
+/// more than 59 minutes are, then minutes (owner, 14 Sep 2026: pictures rented
+/// by the hour, whose tag read "1d left" for all of their hour). Each rounds
+/// UP, as [rentalTimeLeft] does, so a running rental never reads 0 and an hour
+/// just bought reads "1h left" rather than "60m left".
+String? rentalTagLeft(Strings t, int expiresAt, DateTime now) {
+  if (expiresAt <= 0) return null;
+  final left = expiresAt - now.millisecondsSinceEpoch;
+  if (left > Duration.millisecondsPerDay) {
+    return t.daysLeft((left / Duration.millisecondsPerDay).ceil());
+  }
+  if (left > 59 * Duration.millisecondsPerMinute) {
+    return t.hoursLeft((left / Duration.millisecondsPerHour).ceil());
+  }
+  return t.minutesLeft(
+    left <= 0 ? 0 : (left / Duration.millisecondsPerMinute).ceil(),
+  );
 }
 
 /// The moment a rental ends, as the popup writes it: `dd/MM/yyyy HH:mm` on the
@@ -891,6 +917,7 @@ class PictureChoice extends StatelessWidget {
                   cost: picture.cost,
                   currency: picture.currency,
                   days: picture.rented ? picture.durationDays : null,
+                  hours: picture.durationHours,
                 ),
               // A premium picture that HAS been paid for. Without this an
               // unlocked one is indistinguishable from a free one, and the
@@ -898,7 +925,7 @@ class PictureChoice extends StatelessWidget {
               // long is left instead, because that is the thing its owner
               // actually needs to know.
               if (!busy && !locked && !picture.free)
-                _UnlockedTag(daysLeft: picture.daysLeft(DateTime.now())),
+                _UnlockedTag(expiresAt: picture.expiresAt),
               if (!busy && (locked || !picture.free))
                 const SizedBox(height: Space.xxs),
               // The catalogue gives every picture a name; showing it is what
@@ -933,10 +960,10 @@ class PictureChoice extends StatelessWidget {
 /// same spot and the same shape as the price it replaces, so the eye reads the
 /// swap rather than a new kind of badge.
 class _UnlockedTag extends StatelessWidget {
-  const _UnlockedTag({this.daysLeft});
+  const _UnlockedTag({required this.expiresAt});
 
-  /// Days left on the rental, or null when it never runs out.
-  final int? daysLeft;
+  /// Epoch ms the rental runs out, or 0 when it never does.
+  final int expiresAt;
 
   @override
   Widget build(BuildContext context) {
@@ -945,10 +972,9 @@ class _UnlockedTag extends StatelessWidget {
     // scheme's primary — the dark seed green the ring round an unlocked
     // picture wears — all but vanished on it (1.5:1).
     const green = AppTheme.mintOnInk;
-    final left = daysLeft;
-    final label = left == null
-        ? context.read<GameState>().t.pictureUnlocked
-        : context.read<GameState>().t.daysLeft(left);
+    final t = context.read<GameState>().t;
+    final label =
+        rentalTagLeft(t, expiresAt, DateTime.now()) ?? t.pictureUnlocked;
 
     return Container(
       padding: const EdgeInsets.symmetric(
@@ -964,7 +990,7 @@ class _UnlockedTag extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(
-            left == null ? Icons.lock_open : Icons.schedule,
+            expiresAt <= 0 ? Icons.lock_open : Icons.schedule,
             size: 9,
             color: green,
           ),
@@ -1345,7 +1371,12 @@ class WalletPill extends StatelessWidget {
 }
 
 class _PriceTag extends StatelessWidget {
-  const _PriceTag({required this.cost, this.currency = 'COIN', this.days});
+  const _PriceTag({
+    required this.cost,
+    this.currency = 'COIN',
+    this.days,
+    this.hours = 0,
+  });
 
   final int cost;
 
@@ -1360,6 +1391,9 @@ class _PriceTag extends StatelessWidget {
   /// the price rather than beside it: the price is the decision, the term is
   /// the small print, and on a 60dp tile they cannot share a line.
   final int? days;
+
+  /// The hours of the rental term, beside [days].
+  final int hours;
 
   @override
   Widget build(BuildContext context) {
@@ -1408,7 +1442,7 @@ class _PriceTag extends StatelessWidget {
           ),
           if (days != null)
             Text(
-              context.read<GameState>().t.rentForDays(days!),
+              context.read<GameState>().t.rentForDays(days!, hours: hours),
               style: theme.textTheme.labelSmall?.copyWith(
                 color: AppTheme.goldBright.withValues(alpha: 0.75),
                 fontWeight: FontWeight.w600,

@@ -746,10 +746,10 @@ func TestProfilesListsTheCatalogue(t *testing.T) {
 		t.Fatalf("%d", res.status)
 	}
 	want := `{"profiles":[` +
-		`{"id":1,"name":"Bear","url":"/profiles/bear.svg","assetFormat":"SVG","currency":"COIN","type":"FREE","cost":0,"durationDays":0,"sortOrder":10,"owned":true,"expiresAt":0},` +
-		`{"id":2,"name":"Cat","url":"/profiles/cat.svg","assetFormat":"SVG","currency":"COIN","type":"FREE","cost":0,"durationDays":0,"sortOrder":20,"owned":true,"expiresAt":0},` +
-		`{"id":3,"name":"Wolf","url":"/profiles/wolf.svg","assetFormat":"SVG","currency":"COIN","type":"PREMIUM","cost":50000,"durationDays":30,"sortOrder":30,"owned":false,"expiresAt":0},` +
-		`{"id":4,"name":"Lion","url":"/profiles/lion.svg","assetFormat":"SVG","currency":"COIN","type":"PREMIUM","cost":25000,"durationDays":30,"sortOrder":40,"owned":false,"expiresAt":0}]}`
+		`{"id":1,"name":"Bear","url":"/profiles/bear.svg","assetFormat":"SVG","currency":"COIN","type":"FREE","cost":0,"durationDays":0,"durationHours":0,"sortOrder":10,"owned":true,"expiresAt":0},` +
+		`{"id":2,"name":"Cat","url":"/profiles/cat.svg","assetFormat":"SVG","currency":"COIN","type":"FREE","cost":0,"durationDays":0,"durationHours":0,"sortOrder":20,"owned":true,"expiresAt":0},` +
+		`{"id":3,"name":"Wolf","url":"/profiles/wolf.svg","assetFormat":"SVG","currency":"COIN","type":"PREMIUM","cost":50000,"durationDays":30,"durationHours":0,"sortOrder":30,"owned":false,"expiresAt":0},` +
+		`{"id":4,"name":"Lion","url":"/profiles/lion.svg","assetFormat":"SVG","currency":"COIN","type":"PREMIUM","cost":25000,"durationDays":30,"durationHours":0,"sortOrder":40,"owned":false,"expiresAt":0}]}`
 	if string(res.raw) != want {
 		t.Errorf("got  %s\nwant %s", res.raw, want)
 	}

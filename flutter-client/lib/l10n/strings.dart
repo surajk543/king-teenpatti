@@ -92,7 +92,7 @@ class Strings {
   String get totalWinnings => _('totalWinnings');
   String get biggestPot => _('biggestPot');
   String get playedNote => _('playedNote');
-  String get fourHourBonus => _('fourHourBonus');
+  String get dailyBonus => _('dailyBonus');
   String get milestone => _('milestone');
   String get collect => _('collect');
 
@@ -318,7 +318,8 @@ class Strings {
       _(n == 1 ? 'plusMissileOne' : 'plusMissiles').replaceAll('{n}', '$n');
 
   /// "+10 Hammers" under a package's chips. Every package holds at least ten.
-  String plusHammers(int n) => _('plusHammers').replaceAll('{n}', '$n');
+  String plusHammers(int n) =>
+      _(n == 1 ? 'plusHammerOne' : 'plusHammers').replaceAll('{n}', '$n');
 
   /// The celebration's line for a package bought in the lobby. It names the
   /// package rather than its wallets, so no word has to change with a count.
@@ -429,12 +430,16 @@ class Strings {
       .replaceAll('{name}', name)
       .replaceAll('{cost}', cost)
       .replaceAll('{s}', cost == '1' ? '' : 's');
-  String unlockRentBodyDiamond(String name, String cost, int days) =>
-      _('unlockRentBodyDiamond')
-          .replaceAll('{name}', name)
-          .replaceAll('{cost}', cost)
-          .replaceAll('{s}', cost == '1' ? '' : 's')
-          .replaceAll('{days}', '$days');
+  String unlockRentBodyDiamond(
+    String name,
+    String cost,
+    int days, {
+    int hours = 0,
+  }) => _('unlockRentBodyDiamond')
+      .replaceAll('{name}', name)
+      .replaceAll('{cost}', cost)
+      .replaceAll('{s}', cost == '1' ? '' : 's')
+      .replaceAll('{time}', rentalTerm(days, hours));
 
   /// Hammer-priced wording (owner, 14 Sep 2026: the animated rentals are paid
   /// for in hammers). One hammer has its own line in every language
@@ -444,11 +449,15 @@ class Strings {
   String unlockBodyHammers(String name, int hammers) => _(
     hammers == 1 ? 'unlockBodyHammerOne' : 'unlockBodyHammers',
   ).replaceAll('{name}', name).replaceAll('{cost}', '$hammers');
-  String unlockRentBodyHammers(String name, int hammers, int days) =>
-      _(hammers == 1 ? 'unlockRentBodyHammerOne' : 'unlockRentBodyHammers')
-          .replaceAll('{name}', name)
-          .replaceAll('{cost}', '$hammers')
-          .replaceAll('{days}', '$days');
+  String unlockRentBodyHammers(
+    String name,
+    int hammers,
+    int days, {
+    int hours = 0,
+  }) => _(hammers == 1 ? 'unlockRentBodyHammerOne' : 'unlockRentBodyHammers')
+      .replaceAll('{name}', name)
+      .replaceAll('{cost}', '$hammers')
+      .replaceAll('{time}', rentalTerm(days, hours));
 
   /// The offer of the store's Hammers shelf to a player who cannot pay for a
   /// hammer-priced picture: its title, and its body with one hammer on a line
@@ -473,15 +482,29 @@ class Strings {
   /// The caption under the big picture in Settings.
   String get tapToChangePicture => _('tapToChangePicture');
 
-  /// Rental wording for a premium picture.
-  String rentForDays(int days) =>
-      _('rentForDays').replaceAll('{days}', '$days');
+  /// Rental wording for a premium picture. A term is days, hours or both
+  /// (owner, 14 Sep 2026: pictures rented by the hour); a term of days alone
+  /// keeps the price tag's short form.
+  String rentForDays(int days, {int hours = 0}) => hours > 0
+      ? rentalTerm(days, hours)
+      : _('rentForDays').replaceAll('{days}', '$days');
   String daysLeft(int days) => _('daysLeft').replaceAll('{days}', '$days');
-  String unlockRentBody(String name, String cost, int days) =>
+  String hoursLeft(int hours) => _('hoursLeft').replaceAll('{n}', '$hours');
+  String minutesLeft(int minutes) =>
+      _('minutesLeft').replaceAll('{n}', '$minutes');
+  String unlockRentBody(String name, String cost, int days, {int hours = 0}) =>
       _('unlockRentBody')
           .replaceAll('{name}', name)
           .replaceAll('{cost}', cost)
-          .replaceAll('{days}', '$days');
+          .replaceAll('{time}', rentalTerm(days, hours));
+
+  /// A rental term in words — "10 days", "1 hour", "1 day 12 hours" — the
+  /// `{time}` of the unlock sentences.
+  String rentalTerm(int days, int hours) => switch ((days, hours)) {
+    (> 0, > 0) => '${timeDays(days)} ${timeHours(hours)}',
+    (_, > 0) => timeHours(hours),
+    _ => timeDays(days),
+  };
 
   /// The picture picker's shelves, as named in the menu above its grid.
   String get pictureAll => _('pictureAll');
@@ -633,11 +656,11 @@ class Strings {
       'totalWinnings': 'Total winnings',
       'biggestPot': 'Biggest pot',
       'playedNote': 'A hand counts as played once you have made a move in it.',
-      'fourHourBonus': '4-HOUR BONUS',
+      'dailyBonus': 'DAILY BONUS',
       'milestone': 'MILESTONE',
       'collect': 'Collect',
       'rewardCollected': 'Reward collected!',
-      'rewardComeBack': 'Come again after 4 hours.',
+      'rewardComeBack': 'Come again after 24 hours.',
       'rewardPurchased': 'The chips are in your wallet. Good luck.',
       'rewardDiamondsPurchased':
           'The diamonds are in your wallet. Trade them for missiles.',
@@ -780,6 +803,7 @@ class Strings {
       'plusMissileOne': '+1 Missile',
       'plusMissiles': '+{n} Missiles',
       'plusHammers': '+{n} Hammers',
+      'plusHammerOne': '+{n} Hammer',
       'rewardPremiumPurchased':
           'Your Premium Package is in your wallet. Good luck.',
       'premiumAdded':
@@ -847,18 +871,20 @@ class Strings {
       'tapToChangePicture': 'Tap to change your picture',
       'rentForDays': '{days} days',
       'daysLeft': '{days}d left',
+      'hoursLeft': '{n}h left',
+      'minutesLeft': '{n}m left',
       'unlockRentBody':
-          '{name} costs {cost} chips and is yours for {days} days. Unlock it and wear it now?',
+          '{name} costs {cost} chips and is yours for {time}. Unlock it and wear it now?',
       'unlockRentBodyDiamond':
-          '{name} costs {cost} diamond{s} and is yours for {days} days. Unlock it and wear it now?',
+          '{name} costs {cost} diamond{s} and is yours for {time}. Unlock it and wear it now?',
       'unlockBodyHammers':
           '{name} costs {cost} hammers. Unlock it and wear it now?',
       'unlockBodyHammerOne':
           '{name} costs 1 hammer. Unlock it and wear it now?',
       'unlockRentBodyHammers':
-          '{name} costs {cost} hammers and is yours for {days} days. Unlock it and wear it now?',
+          '{name} costs {cost} hammers and is yours for {time}. Unlock it and wear it now?',
       'unlockRentBodyHammerOne':
-          '{name} costs 1 hammer and is yours for {days} days. Unlock it and wear it now?',
+          '{name} costs 1 hammer and is yours for {time}. Unlock it and wear it now?',
       'notEnoughHammersTitle': 'Not enough hammers',
       'notEnoughHammersBody': '{name} costs {cost} hammers. Get more hammers?',
       'notEnoughHammersBodyOne': '{name} costs 1 hammer. Get more hammers?',
@@ -983,11 +1009,11 @@ class Strings {
       'totalWinnings': 'कुल जीत',
       'biggestPot': 'सबसे बड़ा पॉट',
       'playedNote': 'हाथ तभी गिना जाता है जब आपने उसमें कोई चाल चली हो।',
-      'fourHourBonus': '4-घंटे का बोनस',
+      'dailyBonus': 'दैनिक बोनस',
       'milestone': 'माइलस्टोन',
       'collect': 'लें',
       'rewardCollected': 'इनाम मिल गया!',
-      'rewardComeBack': '4 घंटे बाद फिर आइए।',
+      'rewardComeBack': '24 घंटे बाद फिर आइए।',
       'rewardPurchased': 'चिप्स आपके वॉलेट में हैं। शुभकामनाएँ।',
       'rewardDiamondsPurchased': 'हीरे आपके वॉलेट में हैं। इनसे मिसाइलें लें।',
       'rewardMilestoneAgain': 'अगले के लिए 25 हाथ और खेलें।',
@@ -1123,6 +1149,7 @@ class Strings {
       'plusMissileOne': '+1 मिसाइल',
       'plusMissiles': '+{n} मिसाइलें',
       'plusHammers': '+{n} हथौड़े',
+      'plusHammerOne': '+{n} हथौड़ा',
       'rewardPremiumPurchased':
           'आपका प्रीमियम पैकेज आपके वॉलेट में है। शुभकामनाएँ।',
       'premiumAdded':
@@ -1183,18 +1210,20 @@ class Strings {
       'tapToChangePicture': 'तस्वीर बदलने के लिए टैप करें',
       'rentForDays': '{days} दिन',
       'daysLeft': '{days} दिन बाकी',
+      'hoursLeft': '{n} घंटे बाकी',
+      'minutesLeft': '{n} मिनट बाकी',
       'unlockRentBody':
-          '{name} की कीमत {cost} चिप्स है और यह {days} दिन तक आपका रहेगा। अभी अनलॉक करके लगाएँ?',
+          '{name} की कीमत {cost} चिप्स है और यह {time} तक आपका रहेगा। अभी अनलॉक करके लगाएँ?',
       'unlockRentBodyDiamond':
-          '{name} की कीमत {cost} डायमंड है और यह {days} दिन तक आपका रहेगा। अभी अनलॉक करके लगाएँ?',
+          '{name} की कीमत {cost} डायमंड है और यह {time} तक आपका रहेगा। अभी अनलॉक करके लगाएँ?',
       'unlockBodyHammers':
           '{name} की कीमत {cost} हथौड़े है। अभी अनलॉक करके लगाएँ?',
       'unlockBodyHammerOne':
           '{name} की कीमत 1 हथौड़ा है। अभी अनलॉक करके लगाएँ?',
       'unlockRentBodyHammers':
-          '{name} की कीमत {cost} हथौड़े है और यह {days} दिन तक आपका रहेगा। अभी अनलॉक करके लगाएँ?',
+          '{name} की कीमत {cost} हथौड़े है और यह {time} तक आपका रहेगा। अभी अनलॉक करके लगाएँ?',
       'unlockRentBodyHammerOne':
-          '{name} की कीमत 1 हथौड़ा है और यह {days} दिन तक आपका रहेगा। अभी अनलॉक करके लगाएँ?',
+          '{name} की कीमत 1 हथौड़ा है और यह {time} तक आपका रहेगा। अभी अनलॉक करके लगाएँ?',
       'notEnoughHammersTitle': 'पर्याप्त हथौड़े नहीं',
       'notEnoughHammersBody': '{name} की कीमत {cost} हथौड़े है। और हथौड़े लें?',
       'notEnoughHammersBodyOne': '{name} की कीमत 1 हथौड़ा है। और हथौड़े लें?',
@@ -1323,11 +1352,11 @@ class Strings {
       'totalWinnings': 'মোট জেতা',
       'biggestPot': 'সবচেয়ে বড় পট',
       'playedNote': 'কোনো চাল দিলে তবেই হাতটি গোনা হয়।',
-      'fourHourBonus': '4-ঘণ্টার বোনাস',
+      'dailyBonus': 'দৈনিক বোনাস',
       'milestone': 'মাইলস্টোন',
       'collect': 'নিন',
       'rewardCollected': 'পুরস্কার সংগ্রহ হয়েছে!',
-      'rewardComeBack': '৪ ঘণ্টা পরে আবার আসুন।',
+      'rewardComeBack': '২৪ ঘণ্টা পরে আবার আসুন।',
       'rewardPurchased': 'চিপ আপনার ওয়ালেটে আছে। শুভকামনা।',
       'rewardDiamondsPurchased':
           'হীরে আপনার ওয়ালেটে আছে। এগুলো দিয়ে মিসাইল নিন।',
@@ -1468,6 +1497,7 @@ class Strings {
       'plusMissileOne': '+1টি মিসাইল',
       'plusMissiles': '+{n}টি মিসাইল',
       'plusHammers': '+{n}টি হাতুড়ি',
+      'plusHammerOne': '+{n}টি হাতুড়ি',
       'rewardPremiumPurchased':
           'আপনার প্রিমিয়াম প্যাকেজ ওয়ালেটে আছে। শুভকামনা।',
       'premiumAdded':
@@ -1521,18 +1551,20 @@ class Strings {
       'tapToChangePicture': 'ছবি বদলাতে ট্যাপ করুন',
       'rentForDays': '{days} দিন',
       'daysLeft': '{days} দিন বাকি',
+      'hoursLeft': '{n} ঘণ্টা বাকি',
+      'minutesLeft': '{n} মিনিট বাকি',
       'unlockRentBody':
-          '{name} এর দাম {cost} চিপস এবং এটি {days} দিন আপনার থাকবে। এখনই আনলক করে ব্যবহার করবেন?',
+          '{name} এর দাম {cost} চিপস এবং এটি {time} আপনার থাকবে। এখনই আনলক করে ব্যবহার করবেন?',
       'unlockRentBodyDiamond':
-          '{name} এর দাম {cost} ডায়মন্ড এবং এটি {days} দিন আপনার থাকবে। এখনই আনলক করে ব্যবহার করবেন?',
+          '{name} এর দাম {cost} ডায়মন্ড এবং এটি {time} আপনার থাকবে। এখনই আনলক করে ব্যবহার করবেন?',
       'unlockBodyHammers':
           '{name} এর দাম {cost}টি হাতুড়ি। এখনই আনলক করে ব্যবহার করবেন?',
       'unlockBodyHammerOne':
           '{name} এর দাম 1টি হাতুড়ি। এখনই আনলক করে ব্যবহার করবেন?',
       'unlockRentBodyHammers':
-          '{name} এর দাম {cost}টি হাতুড়ি এবং এটি {days} দিন আপনার থাকবে। এখনই আনলক করে ব্যবহার করবেন?',
+          '{name} এর দাম {cost}টি হাতুড়ি এবং এটি {time} আপনার থাকবে। এখনই আনলক করে ব্যবহার করবেন?',
       'unlockRentBodyHammerOne':
-          '{name} এর দাম 1টি হাতুড়ি এবং এটি {days} দিন আপনার থাকবে। এখনই আনলক করে ব্যবহার করবেন?',
+          '{name} এর দাম 1টি হাতুড়ি এবং এটি {time} আপনার থাকবে। এখনই আনলক করে ব্যবহার করবেন?',
       'notEnoughHammersTitle': 'যথেষ্ট হাতুড়ি নেই',
       'notEnoughHammersBody':
           '{name} এর দাম {cost}টি হাতুড়ি। আরও হাতুড়ি নেবেন?',
@@ -1669,11 +1701,11 @@ class Strings {
       'totalWinnings': 'કુલ જીત',
       'biggestPot': 'સૌથી મોટો પોટ',
       'playedNote': 'કોઈ ચાલ ચાલો ત્યારે જ હાથ ગણાય છે.',
-      'fourHourBonus': '4-કલાકનું બોનસ',
+      'dailyBonus': 'દૈનિક બોનસ',
       'milestone': 'માઇલસ્ટોન',
       'collect': 'લો',
       'rewardCollected': 'ઇનામ મળી ગયું!',
-      'rewardComeBack': '4 કલાક પછી ફરી આવો.',
+      'rewardComeBack': '24 કલાક પછી ફરી આવો.',
       'rewardPurchased': 'ચિપ્સ તમારા વૉલેટમાં છે. શુભકામના.',
       'rewardDiamondsPurchased': 'હીરા તમારા વૉલેટમાં છે. તેનાથી મિસાઇલ લો.',
       'rewardMilestoneAgain': 'આગલા માટે વધુ 25 હાથ.',
@@ -1806,6 +1838,7 @@ class Strings {
       'plusMissileOne': '+1 મિસાઇલ',
       'plusMissiles': '+{n} મિસાઇલ',
       'plusHammers': '+{n} હથોડી',
+      'plusHammerOne': '+{n} હથોડી',
       'rewardPremiumPurchased':
           'તમારું પ્રીમિયમ પૅકેજ તમારા વૉલેટમાં છે. શુભકામના.',
       'premiumAdded':
@@ -1837,18 +1870,20 @@ class Strings {
       'tapToChangePicture': 'ફોટો બદલવા ટૅપ કરો',
       'rentForDays': '{days} દિવસ',
       'daysLeft': '{days} દિવસ બાકી',
+      'hoursLeft': '{n} કલાક બાકી',
+      'minutesLeft': '{n} મિનિટ બાકી',
       'unlockRentBody':
-          '{name} ની કિંમત {cost} ચિપ્સ છે અને તે {days} દિવસ તમારો રહેશે. હમણાં અનલૉક કરીને વાપરવો?',
+          '{name} ની કિંમત {cost} ચિપ્સ છે અને તે {time} તમારો રહેશે. હમણાં અનલૉક કરીને વાપરવો?',
       'unlockRentBodyDiamond':
-          '{name} ની કિંમત {cost} ડાયમંડ છે અને તે {days} દિવસ તમારો રહેશે. હમણાં અનલૉક કરીને વાપરવો?',
+          '{name} ની કિંમત {cost} ડાયમંડ છે અને તે {time} તમારો રહેશે. હમણાં અનલૉક કરીને વાપરવો?',
       'unlockBodyHammers':
           '{name} ની કિંમત {cost} હથોડી છે. હમણાં અનલૉક કરીને વાપરવો?',
       'unlockBodyHammerOne':
           '{name} ની કિંમત 1 હથોડી છે. હમણાં અનલૉક કરીને વાપરવો?',
       'unlockRentBodyHammers':
-          '{name} ની કિંમત {cost} હથોડી છે અને તે {days} દિવસ તમારો રહેશે. હમણાં અનલૉક કરીને વાપરવો?',
+          '{name} ની કિંમત {cost} હથોડી છે અને તે {time} તમારો રહેશે. હમણાં અનલૉક કરીને વાપરવો?',
       'unlockRentBodyHammerOne':
-          '{name} ની કિંમત 1 હથોડી છે અને તે {days} દિવસ તમારો રહેશે. હમણાં અનલૉક કરીને વાપરવો?',
+          '{name} ની કિંમત 1 હથોડી છે અને તે {time} તમારો રહેશે. હમણાં અનલૉક કરીને વાપરવો?',
       'notEnoughHammersTitle': 'પૂરતી હથોડી નથી',
       'notEnoughHammersBody':
           '{name} ની કિંમત {cost} હથોડી છે. વધુ હથોડી લેશો?',
@@ -2007,11 +2042,11 @@ class Strings {
       'totalWinnings': 'ਕੁੱਲ ਜਿੱਤ',
       'biggestPot': 'ਸਭ ਤੋਂ ਵੱਡਾ ਪੌਟ',
       'playedNote': 'ਹੱਥ ਤਾਂ ਹੀ ਗਿਣਿਆ ਜਾਂਦਾ ਹੈ ਜਦੋਂ ਤੁਸੀਂ ਕੋਈ ਚਾਲ ਚੱਲੀ ਹੋਵੇ।',
-      'fourHourBonus': '4-ਘੰਟੇ ਦਾ ਬੋਨਸ',
+      'dailyBonus': 'ਰੋਜ਼ਾਨਾ ਬੋਨਸ',
       'milestone': 'ਮਾਈਲਸਟੋਨ',
       'collect': 'ਲਓ',
       'rewardCollected': 'ਇਨਾਮ ਮਿਲ ਗਿਆ!',
-      'rewardComeBack': '4 ਘੰਟੇ ਬਾਅਦ ਫਿਰ ਆਓ।',
+      'rewardComeBack': '24 ਘੰਟੇ ਬਾਅਦ ਫਿਰ ਆਓ।',
       'rewardPurchased': 'ਚਿੱਪਾਂ ਤੁਹਾਡੇ ਵਾਲਿਟ ਵਿੱਚ ਹਨ। ਸ਼ੁਭਕਾਮਨਾਵਾਂ।',
       'rewardDiamondsPurchased':
           'ਹੀਰੇ ਤੁਹਾਡੇ ਵਾਲਿਟ ਵਿੱਚ ਹਨ। ਇਨ੍ਹਾਂ ਨਾਲ ਮਿਜ਼ਾਈਲਾਂ ਲਓ।',
@@ -2150,6 +2185,7 @@ class Strings {
       'plusMissileOne': '+1 ਮਿਜ਼ਾਈਲ',
       'plusMissiles': '+{n} ਮਿਜ਼ਾਈਲਾਂ',
       'plusHammers': '+{n} ਹਥੌੜੇ',
+      'plusHammerOne': '+{n} ਹਥੌੜਾ',
       'rewardPremiumPurchased':
           'ਤੁਹਾਡਾ ਪ੍ਰੀਮੀਅਮ ਪੈਕੇਜ ਤੁਹਾਡੇ ਵਾਲਿਟ ਵਿੱਚ ਹੈ। ਸ਼ੁਭਕਾਮਨਾਵਾਂ।',
       'premiumAdded':
@@ -2177,18 +2213,20 @@ class Strings {
       'tapToChangePicture': 'ਤਸਵੀਰ ਬਦਲਣ ਲਈ ਟੈਪ ਕਰੋ',
       'rentForDays': '{days} ਦਿਨ',
       'daysLeft': '{days} ਦਿਨ ਬਾਕੀ',
+      'hoursLeft': '{n} ਘੰਟੇ ਬਾਕੀ',
+      'minutesLeft': '{n} ਮਿੰਟ ਬਾਕੀ',
       'unlockRentBody':
-          '{name} ਦੀ ਕੀਮਤ {cost} ਚਿਪਸ ਹੈ ਅਤੇ ਇਹ {days} ਦਿਨ ਤੁਹਾਡੀ ਰਹੇਗੀ। ਹੁਣੇ ਅਨਲਾਕ ਕਰਕੇ ਲਗਾਉਣੀ ਹੈ?',
+          '{name} ਦੀ ਕੀਮਤ {cost} ਚਿਪਸ ਹੈ ਅਤੇ ਇਹ {time} ਤੁਹਾਡੀ ਰਹੇਗੀ। ਹੁਣੇ ਅਨਲਾਕ ਕਰਕੇ ਲਗਾਉਣੀ ਹੈ?',
       'unlockRentBodyDiamond':
-          '{name} ਦੀ ਕੀਮਤ {cost} ਹੀਰੇ ਹੈ ਅਤੇ ਇਹ {days} ਦਿਨ ਤੁਹਾਡੀ ਰਹੇਗੀ। ਹੁਣੇ ਅਨਲਾਕ ਕਰਕੇ ਲਗਾਉਣੀ ਹੈ?',
+          '{name} ਦੀ ਕੀਮਤ {cost} ਹੀਰੇ ਹੈ ਅਤੇ ਇਹ {time} ਤੁਹਾਡੀ ਰਹੇਗੀ। ਹੁਣੇ ਅਨਲਾਕ ਕਰਕੇ ਲਗਾਉਣੀ ਹੈ?',
       'unlockBodyHammers':
           '{name} ਦੀ ਕੀਮਤ {cost} ਹਥੌੜੇ ਹੈ। ਹੁਣੇ ਅਨਲਾਕ ਕਰਕੇ ਲਗਾਉਣੀ ਹੈ?',
       'unlockBodyHammerOne':
           '{name} ਦੀ ਕੀਮਤ 1 ਹਥੌੜਾ ਹੈ। ਹੁਣੇ ਅਨਲਾਕ ਕਰਕੇ ਲਗਾਉਣੀ ਹੈ?',
       'unlockRentBodyHammers':
-          '{name} ਦੀ ਕੀਮਤ {cost} ਹਥੌੜੇ ਹੈ ਅਤੇ ਇਹ {days} ਦਿਨ ਤੁਹਾਡੀ ਰਹੇਗੀ। ਹੁਣੇ ਅਨਲਾਕ ਕਰਕੇ ਲਗਾਉਣੀ ਹੈ?',
+          '{name} ਦੀ ਕੀਮਤ {cost} ਹਥੌੜੇ ਹੈ ਅਤੇ ਇਹ {time} ਤੁਹਾਡੀ ਰਹੇਗੀ। ਹੁਣੇ ਅਨਲਾਕ ਕਰਕੇ ਲਗਾਉਣੀ ਹੈ?',
       'unlockRentBodyHammerOne':
-          '{name} ਦੀ ਕੀਮਤ 1 ਹਥੌੜਾ ਹੈ ਅਤੇ ਇਹ {days} ਦਿਨ ਤੁਹਾਡੀ ਰਹੇਗੀ। ਹੁਣੇ ਅਨਲਾਕ ਕਰਕੇ ਲਗਾਉਣੀ ਹੈ?',
+          '{name} ਦੀ ਕੀਮਤ 1 ਹਥੌੜਾ ਹੈ ਅਤੇ ਇਹ {time} ਤੁਹਾਡੀ ਰਹੇਗੀ। ਹੁਣੇ ਅਨਲਾਕ ਕਰਕੇ ਲਗਾਉਣੀ ਹੈ?',
       'notEnoughHammersTitle': 'ਕਾਫ਼ੀ ਹਥੌੜੇ ਨਹੀਂ',
       'notEnoughHammersBody': '{name} ਦੀ ਕੀਮਤ {cost} ਹਥੌੜੇ ਹੈ। ਹੋਰ ਹਥੌੜੇ ਲਓ?',
       'notEnoughHammersBodyOne': '{name} ਦੀ ਕੀਮਤ 1 ਹਥੌੜਾ ਹੈ। ਹੋਰ ਹਥੌੜੇ ਲਓ?',
