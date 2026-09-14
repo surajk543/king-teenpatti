@@ -724,16 +724,33 @@ class _ChipStoreState extends State<_ChipStore> {
     final safe = MediaQuery.paddingOf(context);
     final headerW =
         size.width - safe.left - safe.right - 2 * Space.md - 2 * Space.lg;
+    //
+    // The Pictures shelf heads with two wallets, diamonds and hammers, in one
+    // pill (owner, 14 Sep 2026: the animated pictures cost hammers). It is
+    // counted here as it is when stacked — no wider than one balance — and
+    // laid out in a row only where the widest blurb still keeps its line
+    // beside the row.
     const balanceW = 72.0;
     const titleFloor = 96.0;
+    final diamonds = state.user?.diamond ?? 0;
+    final hammers = state.user?.hammer ?? 0;
+    final walletPairRowW = PictureWalletBalances.width(
+      context,
+      diamonds: diamonds,
+      hammers: hammers,
+      stacked: false,
+    );
+    final walletW = math.max(
+      balanceW,
+      PictureWalletBalances.width(
+        context,
+        diamonds: diamonds,
+        hammers: hammers,
+        stacked: true,
+      ),
+    );
     final fixedW =
-        22 +
-        Space.md +
-        Space.md +
-        balanceW +
-        Space.md +
-        Space.sm +
-        Dim.minTouch;
+        22 + Space.md + Space.md + walletW + Space.md + Space.sm + Dim.minTouch;
     final blurbStyle = theme.textTheme.bodySmall ?? const TextStyle();
     var blurbW = 0.0;
     for (final blurb in [
@@ -766,6 +783,8 @@ class _ChipStoreState extends State<_ChipStore> {
         ? _StoreTabs.compactWidth(animatedOnly: atTable)
         : labelledW;
     final blurbLines = headerW - fixedW - tabsW >= blurbW ? 1 : 2;
+    final walletPairInRow =
+        headerW - fixedW - tabsW - (walletPairRowW - walletW) >= blurbW;
     final headerH = math.max(
       Dim.minTouch,
       _line(scaler, 17, 1.25) + blurbLines * _line(scaler, 12, 1.35),
@@ -911,21 +930,30 @@ class _ChipStoreState extends State<_ChipStore> {
                           ),
                         ),
                         const SizedBox(width: Space.md),
-                        // The diamond balance stands before the tabs, not after
-                        // them. It shows on Diamonds and Pictures only, and
-                        // between the tabs and the close key its coming and
-                        // going slid the whole tab row sideways, so a tap on a
-                        // tab where it had just been landed on the balance.
-                        // Here the title gives up the room instead, and the
-                        // tabs stay anchored to the close key on every shelf.
-                        // The Missiles shelf is paid for in diamonds, so it
-                        // heads with the diamonds there are to trade.
-                        if (onPictures || onDiamonds || onMissiles) ...[
-                          DiamondBalance(count: state.user?.diamond ?? 0),
+                        // A shelf's balance stands before the tabs, not after
+                        // them. Chips shows none, and between the tabs and the
+                        // close key its coming and going slid the whole tab
+                        // row sideways, so a tap on a tab where it had just
+                        // been landed on the balance. Here the title gives up
+                        // the room instead, and the tabs stay anchored to the
+                        // close key on every shelf. The Missiles shelf is paid
+                        // for in diamonds, so it heads with the diamonds there
+                        // are to trade; Pictures with both wallets a picture
+                        // can cost besides chips.
+                        if (onPictures) ...[
+                          PictureWalletBalances(
+                            diamonds: diamonds,
+                            hammers: hammers,
+                            stacked: !walletPairInRow,
+                          ),
+                          const SizedBox(width: Space.md),
+                        ],
+                        if (onDiamonds || onMissiles) ...[
+                          DiamondBalance(count: diamonds),
                           const SizedBox(width: Space.md),
                         ],
                         if (onHammers) ...[
-                          HammerBalance(count: state.user?.hammer ?? 0),
+                          HammerBalance(count: hammers),
                           const SizedBox(width: Space.md),
                         ],
                         _StoreTabs(
@@ -1055,6 +1083,16 @@ class _ChipStoreState extends State<_ChipStore> {
                                       32.0,
                                       52.0,
                                     ),
+                                    // A picture whose wallet is short sends
+                                    // the player to its shelf in this store,
+                                    // not to a second store over it.
+                                    openStore: (next) {
+                                      if (!mounted) return;
+                                      setState(() {
+                                        _tab = next;
+                                        _toTop();
+                                      });
+                                    },
                                   ),
                                 )
                               : onDiamonds

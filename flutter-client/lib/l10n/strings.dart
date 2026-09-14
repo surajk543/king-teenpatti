@@ -122,7 +122,8 @@ class Strings {
   String get storePicturesBlurb => _('storePicturesBlurb');
 
   /// The Pictures tab's blurb at a table, where the key sells the animated
-  /// shelf alone and every picture on it is paid for in diamonds.
+  /// shelf alone and every picture on it is paid for in hammers (owner,
+  /// 14 Sep 2026; they were diamonds before).
   String get storeAnimatedBlurb => _('storeAnimatedBlurb');
   String get storeTabDiamonds => _('storeTabDiamonds');
   String get storeDiamondsTitle => _('storeDiamondsTitle');
@@ -434,6 +435,40 @@ class Strings {
           .replaceAll('{s}', cost == '1' ? '' : 's')
           .replaceAll('{days}', '$days');
 
+  /// Hammer-priced wording (owner, 14 Sep 2026: the animated rentals are paid
+  /// for in hammers). One hammer has its own line in every language
+  /// (`…HammerOne`), as one missile does: Hindi and Punjabi change the noun
+  /// with the number, so "1 hammers" cannot be avoided by substitution alone.
+  /// [hammers] is a bare count, never large enough to want lakh grouping.
+  String unlockBodyHammers(String name, int hammers) => _(
+    hammers == 1 ? 'unlockBodyHammerOne' : 'unlockBodyHammers',
+  ).replaceAll('{name}', name).replaceAll('{cost}', '$hammers');
+  String unlockRentBodyHammers(String name, int hammers, int days) =>
+      _(hammers == 1 ? 'unlockRentBodyHammerOne' : 'unlockRentBodyHammers')
+          .replaceAll('{name}', name)
+          .replaceAll('{cost}', '$hammers')
+          .replaceAll('{days}', '$days');
+
+  /// The offer of the store's Hammers shelf to a player who cannot pay for a
+  /// hammer-priced picture: its title, and its body with one hammer on a line
+  /// of its own. A diamond-priced picture's offer reuses
+  /// [notEnoughDiamondsTitle] and [getDiamonds] around a body of its own,
+  /// whose [cost] arrives written out as in [unlockBodyDiamond].
+  String get notEnoughHammersTitle => _('notEnoughHammersTitle');
+  String notEnoughHammersBody(String name, int hammers) => _(
+    hammers == 1 ? 'notEnoughHammersBodyOne' : 'notEnoughHammersBody',
+  ).replaceAll('{name}', name).replaceAll('{cost}', '$hammers');
+  String notEnoughDiamondsPictureBody(String name, String cost) =>
+      _('notEnoughDiamondsPictureBody')
+          .replaceAll('{name}', name)
+          .replaceAll('{cost}', cost)
+          .replaceAll('{s}', cost == '1' ? '' : 's');
+
+  /// Said instead of asking when a chip-priced picture is tapped at a table:
+  /// the server sells a seated player only the pictures priced in hammers or
+  /// diamonds, whose wallets sit outside the table's chip checkpoints.
+  String get pictureChipsLobbyOnly => _('pictureChipsLobbyOnly');
+
   /// The caption under the big picture in Settings.
   String get tapToChangePicture => _('tapToChangePicture');
 
@@ -605,7 +640,7 @@ class Strings {
       'rewardComeBack': 'Come again after 4 hours.',
       'rewardPurchased': 'The chips are in your wallet. Good luck.',
       'rewardDiamondsPurchased':
-          'The diamonds are in your wallet. Pick a picture.',
+          'The diamonds are in your wallet. Trade them for missiles.',
       'rewardMilestoneAgain': 'Another 25 hands earns the next one.',
       'rewardRefused': 'Not ready to collect yet.',
       'tapToClose': 'Tap to close',
@@ -624,11 +659,11 @@ class Strings {
       'storeTabChips': 'Chips',
       'storeTabPictures': 'Pictures',
       'storeTabAnimated': 'Animated',
-      'storePicturesBlurb': 'Unlock a picture with chips or diamonds.',
-      'storeAnimatedBlurb': 'Unlock an animated picture with diamonds.',
+      'storePicturesBlurb': 'Unlock a picture with chips or hammers.',
+      'storeAnimatedBlurb': 'Unlock an animated picture with hammers.',
       'storeTabDiamonds': 'Diamonds',
       'storeDiamondsTitle': 'Diamond Store',
-      'storeDiamondsBlurb': 'Diamonds unlock animated pictures.',
+      'storeDiamondsBlurb': 'Diamonds trade for missiles.',
       'storeTabHammers': 'Hammers',
       'storeHammersTitle': 'Hammer Store',
       'storeHammersBlurb': 'A hammer forces a sideshow — nobody is asked.',
@@ -814,6 +849,21 @@ class Strings {
           '{name} costs {cost} chips and is yours for {days} days. Unlock it and wear it now?',
       'unlockRentBodyDiamond':
           '{name} costs {cost} diamond{s} and is yours for {days} days. Unlock it and wear it now?',
+      'unlockBodyHammers':
+          '{name} costs {cost} hammers. Unlock it and wear it now?',
+      'unlockBodyHammerOne':
+          '{name} costs 1 hammer. Unlock it and wear it now?',
+      'unlockRentBodyHammers':
+          '{name} costs {cost} hammers and is yours for {days} days. Unlock it and wear it now?',
+      'unlockRentBodyHammerOne':
+          '{name} costs 1 hammer and is yours for {days} days. Unlock it and wear it now?',
+      'notEnoughHammersTitle': 'Not enough hammers',
+      'notEnoughHammersBody': '{name} costs {cost} hammers. Get more hammers?',
+      'notEnoughHammersBodyOne': '{name} costs 1 hammer. Get more hammers?',
+      'notEnoughDiamondsPictureBody':
+          '{name} costs {cost} diamond{s}. Get more diamonds?',
+      'pictureChipsLobbyOnly':
+          'You can only buy a chip-priced picture in the lobby.',
       'pictureAll': 'All',
       'pictureFree': 'Free',
       'picturePremium': 'Premium',
@@ -938,7 +988,7 @@ class Strings {
       'rewardCollected': 'इनाम मिल गया!',
       'rewardComeBack': '4 घंटे बाद फिर आइए।',
       'rewardPurchased': 'चिप्स आपके वॉलेट में हैं। शुभकामनाएँ।',
-      'rewardDiamondsPurchased': 'हीरे आपके वॉलेट में हैं। कोई तस्वीर चुनें।',
+      'rewardDiamondsPurchased': 'हीरे आपके वॉलेट में हैं। इनसे मिसाइलें लें।',
       'rewardMilestoneAgain': 'अगले के लिए 25 हाथ और खेलें।',
       'rewardRefused': 'अभी लेने के लिए तैयार नहीं।',
       'tapToClose': 'बंद करने के लिए टैप करें',
@@ -956,11 +1006,11 @@ class Strings {
       'storeTabChips': 'चिप्स',
       'storeTabPictures': 'तस्वीरें',
       'storeTabAnimated': 'एनिमेटेड',
-      'storePicturesBlurb': 'चिप्स या हीरों से तस्वीर अनलॉक करें।',
-      'storeAnimatedBlurb': 'हीरों से एनिमेटेड तस्वीर अनलॉक करें।',
+      'storePicturesBlurb': 'चिप्स या हथौड़ों से तस्वीर अनलॉक करें।',
+      'storeAnimatedBlurb': 'हथौड़ों से एनिमेटेड तस्वीर अनलॉक करें।',
       'storeTabDiamonds': 'हीरे',
       'storeDiamondsTitle': 'हीरा स्टोर',
-      'storeDiamondsBlurb': 'हीरों से एनिमेटेड तस्वीरें अनलॉक करें।',
+      'storeDiamondsBlurb': 'हीरे देकर मिसाइलें लें।',
       'storeTabHammers': 'हथौड़े',
       'storeHammersTitle': 'हथौड़ा स्टोर',
       'storeHammersBlurb': 'हथौड़े से साइडशो बिना पूछे होता है।',
@@ -1135,6 +1185,21 @@ class Strings {
           '{name} की कीमत {cost} चिप्स है और यह {days} दिन तक आपका रहेगा। अभी अनलॉक करके लगाएँ?',
       'unlockRentBodyDiamond':
           '{name} की कीमत {cost} डायमंड है और यह {days} दिन तक आपका रहेगा। अभी अनलॉक करके लगाएँ?',
+      'unlockBodyHammers':
+          '{name} की कीमत {cost} हथौड़े है। अभी अनलॉक करके लगाएँ?',
+      'unlockBodyHammerOne':
+          '{name} की कीमत 1 हथौड़ा है। अभी अनलॉक करके लगाएँ?',
+      'unlockRentBodyHammers':
+          '{name} की कीमत {cost} हथौड़े है और यह {days} दिन तक आपका रहेगा। अभी अनलॉक करके लगाएँ?',
+      'unlockRentBodyHammerOne':
+          '{name} की कीमत 1 हथौड़ा है और यह {days} दिन तक आपका रहेगा। अभी अनलॉक करके लगाएँ?',
+      'notEnoughHammersTitle': 'पर्याप्त हथौड़े नहीं',
+      'notEnoughHammersBody': '{name} की कीमत {cost} हथौड़े है। और हथौड़े लें?',
+      'notEnoughHammersBodyOne': '{name} की कीमत 1 हथौड़ा है। और हथौड़े लें?',
+      'notEnoughDiamondsPictureBody':
+          '{name} की कीमत {cost} डायमंड है। और हीरे लें?',
+      'pictureChipsLobbyOnly':
+          'चिप्स वाली तस्वीर सिर्फ़ लॉबी में खरीदी जा सकती है।',
       'pictureAll': 'सभी',
       'pictureFree': 'मुफ़्त',
       'picturePremium': 'प्रीमियम',
@@ -1263,7 +1328,8 @@ class Strings {
       'rewardCollected': 'পুরস্কার সংগ্রহ হয়েছে!',
       'rewardComeBack': '৪ ঘণ্টা পরে আবার আসুন।',
       'rewardPurchased': 'চিপ আপনার ওয়ালেটে আছে। শুভকামনা।',
-      'rewardDiamondsPurchased': 'হীরে আপনার ওয়ালেটে আছে। একটি ছবি বেছে নিন।',
+      'rewardDiamondsPurchased':
+          'হীরে আপনার ওয়ালেটে আছে। এগুলো দিয়ে মিসাইল নিন।',
       'rewardMilestoneAgain': 'পরেরটির জন্য আরও ২৫ হাত।',
       'rewardRefused': 'এখনও নেওয়ার জন্য প্রস্তুত নয়।',
       'tapToClose': 'বন্ধ করতে ট্যাপ করুন',
@@ -1282,11 +1348,11 @@ class Strings {
       'storeTabChips': 'চিপস',
       'storeTabPictures': 'ছবি',
       'storeTabAnimated': 'অ্যানিমেটেড',
-      'storePicturesBlurb': 'চিপস বা হীরে দিয়ে ছবি আনলক করুন।',
-      'storeAnimatedBlurb': 'হীরে দিয়ে একটি অ্যানিমেটেড ছবি আনলক করুন।',
+      'storePicturesBlurb': 'চিপস বা হাতুড়ি দিয়ে ছবি আনলক করুন।',
+      'storeAnimatedBlurb': 'হাতুড়ি দিয়ে একটি অ্যানিমেটেড ছবি আনলক করুন।',
       'storeTabDiamonds': 'হীরে',
       'storeDiamondsTitle': 'হীরের দোকান',
-      'storeDiamondsBlurb': 'হীরে দিয়ে অ্যানিমেটেড ছবি আনলক করুন।',
+      'storeDiamondsBlurb': 'হীরে দিয়ে মিসাইল নিন।',
       'storeTabHammers': 'হাতুড়ি',
       'storeHammersTitle': 'হাতুড়ি স্টোর',
       'storeHammersBlurb': 'হাতুড়ি দিয়ে না জিজ্ঞেস করেই সাইডশো হয়।',
@@ -1457,6 +1523,22 @@ class Strings {
           '{name} এর দাম {cost} চিপস এবং এটি {days} দিন আপনার থাকবে। এখনই আনলক করে ব্যবহার করবেন?',
       'unlockRentBodyDiamond':
           '{name} এর দাম {cost} ডায়মন্ড এবং এটি {days} দিন আপনার থাকবে। এখনই আনলক করে ব্যবহার করবেন?',
+      'unlockBodyHammers':
+          '{name} এর দাম {cost}টি হাতুড়ি। এখনই আনলক করে ব্যবহার করবেন?',
+      'unlockBodyHammerOne':
+          '{name} এর দাম 1টি হাতুড়ি। এখনই আনলক করে ব্যবহার করবেন?',
+      'unlockRentBodyHammers':
+          '{name} এর দাম {cost}টি হাতুড়ি এবং এটি {days} দিন আপনার থাকবে। এখনই আনলক করে ব্যবহার করবেন?',
+      'unlockRentBodyHammerOne':
+          '{name} এর দাম 1টি হাতুড়ি এবং এটি {days} দিন আপনার থাকবে। এখনই আনলক করে ব্যবহার করবেন?',
+      'notEnoughHammersTitle': 'যথেষ্ট হাতুড়ি নেই',
+      'notEnoughHammersBody':
+          '{name} এর দাম {cost}টি হাতুড়ি। আরও হাতুড়ি নেবেন?',
+      'notEnoughHammersBodyOne':
+          '{name} এর দাম 1টি হাতুড়ি। আরও হাতুড়ি নেবেন?',
+      'notEnoughDiamondsPictureBody':
+          '{name} এর দাম {cost}টি হীরে। আরও হীরে নেবেন?',
+      'pictureChipsLobbyOnly': 'চিপসের দামের ছবি শুধু লবিতে কেনা যায়।',
       'pictureAll': 'সব',
       'pictureFree': 'ফ্রি',
       'picturePremium': 'প্রিমিয়াম',
@@ -1592,7 +1674,7 @@ class Strings {
       'rewardCollected': 'ઇનામ મળી ગયું!',
       'rewardComeBack': '4 કલાક પછી ફરી આવો.',
       'rewardPurchased': 'ચિપ્સ તમારા વૉલેટમાં છે. શુભકામના.',
-      'rewardDiamondsPurchased': 'હીરા તમારા વૉલેટમાં છે. કોઈ ફોટો પસંદ કરો.',
+      'rewardDiamondsPurchased': 'હીરા તમારા વૉલેટમાં છે. તેનાથી મિસાઇલ લો.',
       'rewardMilestoneAgain': 'આગલા માટે વધુ 25 હાથ.',
       'rewardRefused': 'હજી લેવા માટે તૈયાર નથી.',
       'tapToClose': 'બંધ કરવા ટૅપ કરો',
@@ -1610,11 +1692,11 @@ class Strings {
       'storeTabChips': 'ચિપ્સ',
       'storeTabPictures': 'ફોટા',
       'storeTabAnimated': 'એનિમેટેડ',
-      'storePicturesBlurb': 'ચિપ્સ અથવા હીરાથી ફોટો અનલૉક કરો.',
-      'storeAnimatedBlurb': 'હીરાથી એનિમેટેડ ફોટો અનલૉક કરો.',
+      'storePicturesBlurb': 'ચિપ્સ અથવા હથોડીથી ફોટો અનલૉક કરો.',
+      'storeAnimatedBlurb': 'હથોડીથી એનિમેટેડ ફોટો અનલૉક કરો.',
       'storeTabDiamonds': 'હીરા',
       'storeDiamondsTitle': 'હીરા સ્ટોર',
-      'storeDiamondsBlurb': 'હીરાથી એનિમેટેડ ફોટા અનલૉક કરો.',
+      'storeDiamondsBlurb': 'હીરા આપીને મિસાઇલ લો.',
       'storeTabHammers': 'હથોડી',
       'storeHammersTitle': 'હથોડી સ્ટોર',
       'storeHammersBlurb': 'હથોડીથી પૂછ્યા વગર સાઇડશો થાય છે.',
@@ -1757,6 +1839,22 @@ class Strings {
           '{name} ની કિંમત {cost} ચિપ્સ છે અને તે {days} દિવસ તમારો રહેશે. હમણાં અનલૉક કરીને વાપરવો?',
       'unlockRentBodyDiamond':
           '{name} ની કિંમત {cost} ડાયમંડ છે અને તે {days} દિવસ તમારો રહેશે. હમણાં અનલૉક કરીને વાપરવો?',
+      'unlockBodyHammers':
+          '{name} ની કિંમત {cost} હથોડી છે. હમણાં અનલૉક કરીને વાપરવો?',
+      'unlockBodyHammerOne':
+          '{name} ની કિંમત 1 હથોડી છે. હમણાં અનલૉક કરીને વાપરવો?',
+      'unlockRentBodyHammers':
+          '{name} ની કિંમત {cost} હથોડી છે અને તે {days} દિવસ તમારો રહેશે. હમણાં અનલૉક કરીને વાપરવો?',
+      'unlockRentBodyHammerOne':
+          '{name} ની કિંમત 1 હથોડી છે અને તે {days} દિવસ તમારો રહેશે. હમણાં અનલૉક કરીને વાપરવો?',
+      'notEnoughHammersTitle': 'પૂરતી હથોડી નથી',
+      'notEnoughHammersBody':
+          '{name} ની કિંમત {cost} હથોડી છે. વધુ હથોડી લેશો?',
+      'notEnoughHammersBodyOne': '{name} ની કિંમત 1 હથોડી છે. વધુ હથોડી લેશો?',
+      'notEnoughDiamondsPictureBody':
+          '{name} ની કિંમત {cost} હીરા છે. વધુ હીરા લેશો?',
+      'pictureChipsLobbyOnly':
+          'ચિપ્સની કિંમતવાળો ફોટો ફક્ત લૉબીમાં ખરીદી શકાય છે.',
       'pictureAll': 'બધા',
       'pictureFree': 'મફત',
       'picturePremium': 'પ્રીમિયમ',
@@ -1914,7 +2012,8 @@ class Strings {
       'rewardCollected': 'ਇਨਾਮ ਮਿਲ ਗਿਆ!',
       'rewardComeBack': '4 ਘੰਟੇ ਬਾਅਦ ਫਿਰ ਆਓ।',
       'rewardPurchased': 'ਚਿੱਪਾਂ ਤੁਹਾਡੇ ਵਾਲਿਟ ਵਿੱਚ ਹਨ। ਸ਼ੁਭਕਾਮਨਾਵਾਂ।',
-      'rewardDiamondsPurchased': 'ਹੀਰੇ ਤੁਹਾਡੇ ਵਾਲਿਟ ਵਿੱਚ ਹਨ। ਕੋਈ ਤਸਵੀਰ ਚੁਣੋ।',
+      'rewardDiamondsPurchased':
+          'ਹੀਰੇ ਤੁਹਾਡੇ ਵਾਲਿਟ ਵਿੱਚ ਹਨ। ਇਨ੍ਹਾਂ ਨਾਲ ਮਿਜ਼ਾਈਲਾਂ ਲਓ।',
       'rewardMilestoneAgain': 'ਅਗਲੇ ਲਈ ਹੋਰ 25 ਹੱਥ।',
       'rewardRefused': 'ਹਾਲੇ ਲੈਣ ਲਈ ਤਿਆਰ ਨਹੀਂ।',
       'tapToClose': 'ਬੰਦ ਕਰਨ ਲਈ ਟੈਪ ਕਰੋ',
@@ -1932,11 +2031,11 @@ class Strings {
       'storeTabChips': 'ਚਿਪਸ',
       'storeTabPictures': 'ਤਸਵੀਰਾਂ',
       'storeTabAnimated': 'ਐਨੀਮੇਟਿਡ',
-      'storePicturesBlurb': 'ਚਿਪਸ ਜਾਂ ਹੀਰਿਆਂ ਨਾਲ ਤਸਵੀਰ ਅਨਲੌਕ ਕਰੋ।',
-      'storeAnimatedBlurb': 'ਹੀਰਿਆਂ ਨਾਲ ਐਨੀਮੇਟਿਡ ਤਸਵੀਰ ਅਨਲੌਕ ਕਰੋ।',
+      'storePicturesBlurb': 'ਚਿਪਸ ਜਾਂ ਹਥੌੜਿਆਂ ਨਾਲ ਤਸਵੀਰ ਅਨਲੌਕ ਕਰੋ।',
+      'storeAnimatedBlurb': 'ਹਥੌੜਿਆਂ ਨਾਲ ਐਨੀਮੇਟਿਡ ਤਸਵੀਰ ਅਨਲੌਕ ਕਰੋ।',
       'storeTabDiamonds': 'ਹੀਰੇ',
       'storeDiamondsTitle': 'ਹੀਰਾ ਸਟੋਰ',
-      'storeDiamondsBlurb': 'ਹੀਰਿਆਂ ਨਾਲ ਐਨੀਮੇਟਿਡ ਤਸਵੀਰਾਂ ਅਨਲੌਕ ਕਰੋ।',
+      'storeDiamondsBlurb': 'ਹੀਰੇ ਦੇ ਕੇ ਮਿਜ਼ਾਈਲਾਂ ਲਓ।',
       'storeTabHammers': 'ਹਥੌੜੇ',
       'storeHammersTitle': 'ਹਥੌੜਾ ਸਟੋਰ',
       'storeHammersBlurb': 'ਹਥੌੜੇ ਨਾਲ ਬਿਨਾਂ ਪੁੱਛੇ ਸਾਈਡਸ਼ੋ ਹੁੰਦਾ ਹੈ।',
@@ -2080,6 +2179,21 @@ class Strings {
           '{name} ਦੀ ਕੀਮਤ {cost} ਚਿਪਸ ਹੈ ਅਤੇ ਇਹ {days} ਦਿਨ ਤੁਹਾਡੀ ਰਹੇਗੀ। ਹੁਣੇ ਅਨਲਾਕ ਕਰਕੇ ਲਗਾਉਣੀ ਹੈ?',
       'unlockRentBodyDiamond':
           '{name} ਦੀ ਕੀਮਤ {cost} ਹੀਰੇ ਹੈ ਅਤੇ ਇਹ {days} ਦਿਨ ਤੁਹਾਡੀ ਰਹੇਗੀ। ਹੁਣੇ ਅਨਲਾਕ ਕਰਕੇ ਲਗਾਉਣੀ ਹੈ?',
+      'unlockBodyHammers':
+          '{name} ਦੀ ਕੀਮਤ {cost} ਹਥੌੜੇ ਹੈ। ਹੁਣੇ ਅਨਲਾਕ ਕਰਕੇ ਲਗਾਉਣੀ ਹੈ?',
+      'unlockBodyHammerOne':
+          '{name} ਦੀ ਕੀਮਤ 1 ਹਥੌੜਾ ਹੈ। ਹੁਣੇ ਅਨਲਾਕ ਕਰਕੇ ਲਗਾਉਣੀ ਹੈ?',
+      'unlockRentBodyHammers':
+          '{name} ਦੀ ਕੀਮਤ {cost} ਹਥੌੜੇ ਹੈ ਅਤੇ ਇਹ {days} ਦਿਨ ਤੁਹਾਡੀ ਰਹੇਗੀ। ਹੁਣੇ ਅਨਲਾਕ ਕਰਕੇ ਲਗਾਉਣੀ ਹੈ?',
+      'unlockRentBodyHammerOne':
+          '{name} ਦੀ ਕੀਮਤ 1 ਹਥੌੜਾ ਹੈ ਅਤੇ ਇਹ {days} ਦਿਨ ਤੁਹਾਡੀ ਰਹੇਗੀ। ਹੁਣੇ ਅਨਲਾਕ ਕਰਕੇ ਲਗਾਉਣੀ ਹੈ?',
+      'notEnoughHammersTitle': 'ਕਾਫ਼ੀ ਹਥੌੜੇ ਨਹੀਂ',
+      'notEnoughHammersBody': '{name} ਦੀ ਕੀਮਤ {cost} ਹਥੌੜੇ ਹੈ। ਹੋਰ ਹਥੌੜੇ ਲਓ?',
+      'notEnoughHammersBodyOne': '{name} ਦੀ ਕੀਮਤ 1 ਹਥੌੜਾ ਹੈ। ਹੋਰ ਹਥੌੜੇ ਲਓ?',
+      'notEnoughDiamondsPictureBody':
+          '{name} ਦੀ ਕੀਮਤ {cost} ਹੀਰੇ ਹੈ। ਹੋਰ ਹੀਰੇ ਲਓ?',
+      'pictureChipsLobbyOnly':
+          'ਚਿਪਸ ਵਾਲੀ ਤਸਵੀਰ ਸਿਰਫ਼ ਲਾਬੀ ਵਿੱਚ ਖਰੀਦੀ ਜਾ ਸਕਦੀ ਹੈ।',
       'pictureAll': 'ਸਾਰੇ',
       'pictureFree': 'ਮੁਫ਼ਤ',
       'picturePremium': 'ਪ੍ਰੀਮੀਅਮ',

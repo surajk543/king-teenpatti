@@ -1,5 +1,6 @@
 /// The picture shelf: the catalogue's filter, its grid of tiles, the unlock
-/// dialog, the already-unlocked popup and the diamond balance.
+/// dialog and the store's offer when a wallet is short, the already-unlocked
+/// popup, and the wallet balances.
 ///
 /// Shared by every place a picture is chosen or bought — the picker behind
 /// the lobby's avatar, the store's Pictures tab and its Animated tab at a
@@ -8,6 +9,7 @@
 library;
 
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -18,6 +20,7 @@ import '../settings/feedback_settings.dart';
 import '../state/game_state.dart';
 import '../theme/app_theme.dart';
 import 'avatar.dart';
+import 'chip_store.dart';
 import 'glass_components.dart';
 import 'glass_panels.dart';
 
@@ -44,8 +47,9 @@ enum PictureFilter {
 /// the premium animated pictures run cheapest first (owner, 13 Sep 2026).
 ///
 /// They are re-dealt into the slots they already hold, so on the All shelf the
-/// animated group stays where the catalogue put it. A chip price and a diamond
-/// price are not comparable figures, so chips come before diamonds; equal
+/// animated group stays where the catalogue put it. Chip, hammer and diamond
+/// prices are not comparable figures, so the currencies keep an order of their
+/// own ([_currencyRank]) and only within one does the price decide; equal
 /// prices keep the catalogue's order — Dart's sort is not stable, hence the
 /// index as the last word.
 List<ProfilePicture> shelfOrder(List<ProfilePicture> pictures) {
@@ -56,7 +60,10 @@ List<ProfilePicture> shelfOrder(List<ProfilePicture> pictures) {
   final byCost = [...slots]
     ..sort((i, k) {
       final a = pictures[i], b = pictures[k];
-      if (a.currency != b.currency) return a.currency == 'COIN' ? -1 : 1;
+      final rank = _currencyRank(
+        a.currency,
+      ).compareTo(_currencyRank(b.currency));
+      if (rank != 0) return rank;
       final cost = a.cost.compareTo(b.cost);
       return cost != 0 ? cost : i.compareTo(k);
     });
@@ -67,15 +74,28 @@ List<ProfilePicture> shelfOrder(List<ProfilePicture> pictures) {
   return ordered;
 }
 
+/// Where a currency's pictures stand among the animated ones: chips first — a
+/// currency this build does not know with them, since it is drawn as chips —
+/// then hammers, then the diamonds that cost real money.
+int _currencyRank(String currency) => switch (currency) {
+  PictureCurrency.hammer => 1,
+  PictureCurrency.diamond => 2,
+  _ => 0,
+};
+
 /// The pictures on one shelf.
 ///
 /// An empty shelf says so rather than showing nothing: a blank space under
-/// the menu would read as a picker that failed to load.
+/// the menu would read as a picker that failed to load. [openStore] is how a
+/// shelf inside the store moves the store to the Hammers or Diamonds shelf
+/// when a picture's wallet is short ([unlockPicture]); elsewhere it is null
+/// and the store is opened instead.
 Widget pictureShelf({
   required BuildContext context,
   required GameState state,
   required PictureFilter filter,
   required double radius,
+  ValueChanged<StoreTab>? openStore,
 }) {
   final pictures = shelfOrder(state.pictures.where(filter.holds).toList());
   final user = state.user;
@@ -119,7 +139,7 @@ Widget pictureShelf({
             // cannot tell twenty hours from twenty minutes. A free picture has
             // nothing to say, so a tap simply wears it.
             onTap: () => p.locked
-                ? unlockPicture(context, p)
+                ? unlockPicture(context, p, openStore: openStore)
                 : p.free
                 ? state.chooseAvatar(p.id)
                 : showOwnedPicture(context, p),
@@ -220,15 +240,102 @@ class PictureFilterMenu extends StatelessWidget {
   }
 }
 
-/// Asks before spending chips on a premium picture, then buys and wears it.
+/// Whether [picture] may be bought where the player is: anywhere, except a
+/// chip-priced one at a table (owner, 14 Sep 2026). A seated player's chips
+/// move only at the table's checkpoints, so the server sells them only the
+/// pictures priced in hammers or diamonds. Only an exact 'COIN' is held back
+/// here — a currency this build does not know is left for the server to
+/// answer.
+bool pictureSellsHere(ProfilePicture picture, {required bool atTable}) =>
+    !atTable || picture.currency != PictureCurrency.coin;
+
+/// Whether [user] holds enough for [picture], as far as this phone knows.
+///
+/// Only the hammer and diamond wallets are counted: they are what the store's
+/// shelves refill, so a shortage is worth offering one before the question is
+/// asked. Chips — and a currency this build does not know — are left to the
+/// server, as they always were.
+bool canAffordPicture(ProfilePicture picture, User? user) =>
+    switch (picture.currency) {
+      PictureCurrency.hammer => (user?.hammer ?? 0) >= picture.cost,
+      PictureCurrency.diamond => (user?.diamond ?? 0) >= picture.cost,
+      _ => true,
+    };
+
+/// The store shelf that refills the wallet [picture] is priced in: Hammers or
+/// Diamonds, or null for a chip-priced picture, which no offer is made for.
+StoreTab? pictureWalletShelf(ProfilePicture picture) =>
+    switch (picture.currency) {
+      PictureCurrency.hammer => StoreTab.hammers,
+      PictureCurrency.diamond => StoreTab.diamonds,
+      _ => null,
+    };
+
+/// The unlock dialog's sentence for [picture]: what it costs, in the wallet
+/// that pays, and for how long when it is a rental. Chip and diamond prices
+/// are written out by [formatChips]; a hammer price is a bare count, and one
+/// hammer is said in the singular in every language.
+String unlockPictureBody(Strings t, ProfilePicture picture) {
+  final cost = formatChips(picture.cost);
+  final days = picture.durationDays;
+  return switch (picture.currency) {
+    PictureCurrency.hammer =>
+      picture.rented
+          ? t.unlockRentBodyHammers(picture.name, picture.cost, days)
+          : t.unlockBodyHammers(picture.name, picture.cost),
+    PictureCurrency.diamond =>
+      picture.rented
+          ? t.unlockRentBodyDiamond(picture.name, cost, days)
+          : t.unlockBodyDiamond(picture.name, cost),
+    _ =>
+      picture.rented
+          ? t.unlockRentBody(picture.name, cost, days)
+          : t.unlockBody(picture.name, cost),
+  };
+}
+
+/// What the player holds of the wallet [picture] is priced in, as its dialogs
+/// show it, or null for chips.
+Widget? _walletBalance(GameState state, ProfilePicture picture) =>
+    switch (picture.currency) {
+      PictureCurrency.hammer => HammerBalance(count: state.user?.hammer ?? 0),
+      PictureCurrency.diamond => DiamondBalance(
+        count: state.user?.diamond ?? 0,
+      ),
+      _ => null,
+    };
+
+/// Asks before spending on a premium picture, then buys and wears it.
 ///
 /// A confirmation rather than a straight tap-to-buy: this is the only place in
 /// the lobby where a tap costs real chips, and a picker is somewhere people
 /// browse. Tapping a face should never be how a stack quietly goes down.
-Future<void> unlockPicture(BuildContext context, ProfilePicture picture) async {
+///
+/// Two answers can come before the question (owner, 14 Sep 2026). A
+/// chip-priced picture tapped at a table is refused on the spot
+/// ([pictureSellsHere]). One priced in hammers or diamonds the player has too
+/// few of is not offered for sale: the store's shelf for that wallet is
+/// ([canAffordPicture]), which is also what follows the server's own shortage
+/// when this phone's count was out of date. [openStore] moves an open store
+/// to that shelf; without it the store is opened on it.
+Future<void> unlockPicture(
+  BuildContext context,
+  ProfilePicture picture, {
+  ValueChanged<StoreTab>? openStore,
+}) async {
   final state = context.read<GameState>();
   final t = state.t;
   final theme = Theme.of(context);
+
+  if (!pictureSellsHere(picture, atTable: state.screen == Screen.table)) {
+    state.say(t.pictureChipsLobbyOnly);
+    return;
+  }
+  if (!canAffordPicture(picture, state.user)) {
+    await _offerWalletShelf(context, picture, openStore);
+    return;
+  }
+  final balance = _walletBalance(state, picture);
 
   final confirmed = await showDialog<bool>(
     context: context,
@@ -272,33 +379,19 @@ Future<void> unlockPicture(BuildContext context, ProfilePicture picture) async {
           const SizedBox(height: Space.lg),
           Text(
             // A rental and a purchase are different offers, and the dialog is
-            // the last place to say which this is before chips leave the
+            // the last place to say which this is before anything leaves the
             // wallet. The currency names the wallet the cost leaves, so a
-            // diamond row must not be caught saying "chips".
-            picture.rented
-                ? (picture.currency == 'DIAMOND'
-                      ? t.unlockRentBodyDiamond(
-                          picture.name,
-                          formatChips(picture.cost),
-                          picture.durationDays,
-                        )
-                      : t.unlockRentBody(
-                          picture.name,
-                          formatChips(picture.cost),
-                          picture.durationDays,
-                        ))
-                : (picture.currency == 'DIAMOND'
-                      ? t.unlockBodyDiamond(
-                          picture.name,
-                          formatChips(picture.cost),
-                        )
-                      : t.unlockBody(picture.name, formatChips(picture.cost))),
+            // hammer or diamond row must not be caught saying "chips".
+            unlockPictureBody(t, picture),
             style: theme.textTheme.bodyMedium?.copyWith(
               color: theme.colorScheme.onSurface.withValues(
                 alpha: AppTheme.inkMed,
               ),
             ),
           ),
+          // What the player holds of that wallet, under the price, so the sum
+          // is done before Unlock rather than after a refusal.
+          if (balance != null) ...[const SizedBox(height: Space.md), balance],
         ],
       ),
       actions: [
@@ -317,9 +410,100 @@ Future<void> unlockPicture(BuildContext context, ProfilePicture picture) async {
   );
 
   // The server is the authority on whether it can be afforded and whether the
-  // player is seated; a refusal comes back as a notice rather than being
-  // guessed at here.
-  if (confirmed == true) await state.buyPicture(picture.id);
+  // player is seated. A refusal comes back as a notice — or, for a wallet the
+  // store refills, as the offer of its shelf — rather than being guessed at
+  // here.
+  if (confirmed != true) return;
+  final result = await state.buyPicture(picture.id);
+  if (result == PictureBuyResult.notEnough && context.mounted) {
+    await _offerWalletShelf(context, picture, openStore);
+  }
+}
+
+/// The store's shelf for the wallet [picture] is priced in, offered to a
+/// player who cannot pay for it: "Not enough hammers", what it costs, what
+/// they hold, and a key to the Hammers shelf — or the same for diamonds.
+///
+/// [openStore] moves a store that is already open to that shelf, rather than
+/// opening a second store over it; without one the store opens on it.
+Future<void> _offerWalletShelf(
+  BuildContext context,
+  ProfilePicture picture,
+  ValueChanged<StoreTab>? openStore,
+) async {
+  final shelf = pictureWalletShelf(picture);
+  if (shelf == null) return;
+  final state = context.read<GameState>();
+  final t = state.t;
+  final hammers = shelf == StoreTab.hammers;
+  final balance = _walletBalance(state, picture);
+
+  final go = await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) {
+      final theme = Theme.of(dialogContext);
+      return GlassDialog(
+        padding: const EdgeInsets.all(Space.xl),
+        title: Row(
+          children: [
+            Icon(
+              hammers ? Icons.hardware : Icons.diamond_rounded,
+              size: 20,
+              color: hammers
+                  ? hammerInkOn(theme.brightness)
+                  : diamondInkOn(theme.brightness),
+            ),
+            const SizedBox(width: Space.md),
+            Expanded(
+              child: Text(
+                hammers ? t.notEnoughHammersTitle : t.notEnoughDiamondsTitle,
+                style: AppTheme.label(
+                  theme.textTheme.titleMedium ?? const TextStyle(),
+                ),
+              ),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              hammers
+                  ? t.notEnoughHammersBody(picture.name, picture.cost)
+                  : t.notEnoughDiamondsPictureBody(
+                      picture.name,
+                      formatChips(picture.cost),
+                    ),
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurface.withValues(
+                  alpha: AppTheme.inkMed,
+                ),
+              ),
+            ),
+            if (balance != null) ...[const SizedBox(height: Space.md), balance],
+          ],
+        ),
+        actions: [
+          GlassButton(
+            style: GlassButtonStyle.text,
+            label: t.cancel,
+            onPressed: () => Navigator.pop(dialogContext, false),
+          ),
+          GlassButton(
+            style: GlassButtonStyle.primary,
+            label: hammers ? t.getHammers : t.getDiamonds,
+            onPressed: () => Navigator.pop(dialogContext, true),
+          ),
+        ],
+      );
+    },
+  );
+  if (go != true || !context.mounted) return;
+  if (openStore != null) {
+    openStore(shelf);
+  } else {
+    await showChipStore(context, opensOn: shelf);
+  }
 }
 
 /// How long a premium picture this player owns has left, as the
@@ -746,7 +930,8 @@ const _diamondInk = Color(0xFFBFE3FF);
 Color diamondInkOn(Brightness brightness) =>
     brightness == Brightness.dark ? _diamondInk : const Color(0xFF2F6FB3);
 
-/// The player's diamonds, in the picture picker's header.
+/// The player's diamonds: in the header of the store's Diamonds and Missiles
+/// shelves, and in a diamond-priced picture's dialogs.
 class DiamondBalance extends StatelessWidget {
   const DiamondBalance({super.key, required this.count});
 
@@ -793,8 +978,8 @@ const _hammerInk = Color(0xFFFFC08A);
 Color hammerInkOn(Brightness brightness) =>
     brightness == Brightness.dark ? _hammerInk : const Color(0xFFB0571F);
 
-/// The player's hammers, in the store's header on the Hammers shelf — the
-/// hammer twin of [DiamondBalance].
+/// The player's hammers, in the store's header on the Hammers shelf and in a
+/// hammer-priced picture's dialogs — the hammer twin of [DiamondBalance].
 class HammerBalance extends StatelessWidget {
   const HammerBalance({super.key, required this.count});
 
@@ -827,6 +1012,125 @@ class HammerBalance extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// The two wallets a premium picture is paid from besides chips — diamonds,
+/// then hammers — in one dark pill, for the picture sheet's header and the
+/// store's Pictures shelf (owner, 14 Sep 2026: the animated pictures were
+/// re-priced in hammers, so the hammer count joined the diamond one there).
+///
+/// One pill rather than a [DiamondBalance] beside a [HammerBalance]: on a
+/// 640dp phone a second pill took the store header's blurb down to a few
+/// words. Where even one row is too wide the counts stand one over the other
+/// ([stacked]), no wider than a single balance, as the table's [WalletPill]
+/// does with its three.
+class PictureWalletBalances extends StatelessWidget {
+  const PictureWalletBalances({
+    super.key,
+    required this.diamonds,
+    required this.hammers,
+    this.stacked = false,
+  });
+
+  final int diamonds;
+  final int hammers;
+
+  /// Hammers on a line under the diamonds rather than beside them.
+  final bool stacked;
+
+  static const double _icon = 14;
+
+  static TextStyle? _figure(ThemeData theme) =>
+      theme.textTheme.labelMedium?.copyWith(
+        fontWeight: FontWeight.w700,
+        fontFeatures: const [FontFeature.tabularFigures()],
+      );
+
+  /// How wide the pill is at this text scale, in a row or [stacked].
+  ///
+  /// Each count is measured as at least three figures — tabular, so any three
+  /// are one width — because the store header's sums must not change when a
+  /// purchase takes 100 hammers down to 70: its tabs would slide under the
+  /// finger that bought the picture.
+  static double width(
+    BuildContext context, {
+    required int diamonds,
+    required int hammers,
+    required bool stacked,
+  }) {
+    final style = _figure(Theme.of(context));
+    double count(int value) {
+      final painter = TextPainter(
+        text: TextSpan(text: '$value'.padLeft(3, '0'), style: style),
+        textDirection: Directionality.of(context),
+        textScaler: MediaQuery.textScalerOf(context),
+        maxLines: 1,
+      )..layout();
+      final w = _icon + Space.xs + painter.width;
+      painter.dispose();
+      return w;
+    }
+
+    final gems = count(diamonds);
+    final tools = count(hammers);
+    final content = stacked ? math.max(gems, tools) : gems + Space.md + tools;
+    return (2 * _sidePad(stacked) + 2 * Dim.hairline + content).ceilToDouble();
+  }
+
+  /// The pill's padding either side. Narrower when stacked, so two lines are
+  /// no wider than the one balance the store header counts on every shelf:
+  /// at the full padding they took 3dp more from the Pictures blurb on a
+  /// 640dp phone.
+  static double _sidePad(bool stacked) => stacked ? Space.sm : Space.md;
+
+  @override
+  Widget build(BuildContext context) {
+    final figure = _figure(Theme.of(context));
+
+    Widget count(IconData icon, Color ink, int value) => Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: _icon, color: ink),
+        const SizedBox(width: Space.xs),
+        Text('$value', style: figure?.copyWith(color: ink)),
+      ],
+    );
+    final gems = count(Icons.diamond, _diamondInk, diamonds);
+    final tools = count(Icons.hardware, _hammerInk, hammers);
+
+    return Container(
+      // Two lines keep to the header's height at the 1.25 text ceiling only
+      // with the thinner padding.
+      padding: EdgeInsets.symmetric(
+        horizontal: _sidePad(stacked),
+        vertical: stacked ? Space.xxs : Space.xs,
+      ),
+      decoration: BoxDecoration(
+        // A rounded panel for two lines, as the table's wallet: a pill's
+        // radius on a box twice as tall rounds its ends into a lozenge.
+        borderRadius: BorderRadius.circular(stacked ? Radii.md : Radii.pill),
+        color: AppTheme.ink900.withValues(alpha: 0.82),
+        border: Border.all(
+          color: AppTheme.goldBright.withValues(alpha: 0.28),
+          width: Dim.hairline,
+        ),
+      ),
+      child: stacked
+          ? Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [gems, tools],
+            )
+          : Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                gems,
+                const SizedBox(width: Space.md),
+                tools,
+              ],
+            ),
     );
   }
 }
@@ -979,9 +1283,11 @@ class _PriceTag extends StatelessWidget {
 
   final int cost;
 
-  /// Which wallet the cost leaves — 'COIN' or 'DIAMOND'. It decides the
-  /// pill's glyph: the padlock-plus-price reads as chips, the gem as a
-  /// diamond price.
+  /// Which wallet the cost leaves — [PictureCurrency.coin], `diamond` or
+  /// `hammer`. It decides the pill's glyph: the padlock-plus-price reads as
+  /// chips, the gem as a diamond price, and the hammer — the wallet pill's
+  /// and the Hammers shelf's glyph — as a hammer price. A currency this build
+  /// does not know keeps the padlock.
   final String currency;
 
   /// The rental term, or null when buying it keeps it for good. Shown under
@@ -1009,9 +1315,19 @@ class _PriceTag extends StatelessWidget {
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              currency == 'DIAMOND'
-                  ? const Icon(Icons.diamond, size: 11, color: _diamondInk)
-                  : Icon(Icons.lock, size: 9, color: AppTheme.goldBright),
+              switch (currency) {
+                PictureCurrency.diamond => const Icon(
+                  Icons.diamond,
+                  size: 11,
+                  color: _diamondInk,
+                ),
+                PictureCurrency.hammer => const Icon(
+                  Icons.hardware,
+                  size: 11,
+                  color: _hammerInk,
+                ),
+                _ => Icon(Icons.lock, size: 9, color: AppTheme.goldBright),
+              },
               const SizedBox(width: 2),
               Text(
                 formatChips(cost),

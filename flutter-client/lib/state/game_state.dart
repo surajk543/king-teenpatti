@@ -73,6 +73,19 @@ enum MissileTradeResult {
   refused,
 }
 
+/// What became of buying a premium picture, for the tile that asked.
+enum PictureBuyResult {
+  /// Bought (or already owned) and put on.
+  bought,
+
+  /// Too few hammers or diamonds for it: the store's shelf for that wallet is
+  /// the useful answer, and nothing has been said yet.
+  notEnough,
+
+  /// Anything else. The player has already been told why.
+  refused,
+}
+
 /// The line a missile leaves at the table, or null when there is nobody to
 /// name: "You fired a missile" to the player who fired, "{name} fired a
 /// missile" to everyone else. `game:action` carries an id and no name, so the
@@ -1386,10 +1399,12 @@ class GameState extends ChangeNotifier {
   ///
   /// Two requests rather than one: the server sells and dresses separately so
   /// the refusals stay separate, and this is the one place that wants both.
-  /// Returns true when the player ends up wearing it.
-  Future<bool> buyPicture(int id) async {
+  /// Says [PictureBuyResult.bought] when the player ends up wearing it.
+  Future<PictureBuyResult> buyPicture(int id) async {
     final token = _token;
-    if (token == null || buyingPicture != null) return false;
+    if (token == null || buyingPicture != null) {
+      return PictureBuyResult.refused;
+    }
     buyingPicture = id;
     notifyListeners();
     try {
@@ -1399,17 +1414,39 @@ class GameState extends ChangeNotifier {
       // before the picker can stop drawing a padlock on what was just bought.
       await _refreshPictures();
       await chooseAvatar(id);
-      return true;
+      return PictureBuyResult.bought;
     } on ApiException catch (e) {
-      notice = e.message;
-      return false;
+      return pictureRefused(id, e);
     } catch (_) {
       notice = 'Could not reach the server.';
-      return false;
+      return PictureBuyResult.refused;
     } finally {
       buyingPicture = null;
       notifyListeners();
     }
+  }
+
+  /// What a refused purchase of picture [id] means to the player.
+  ///
+  /// The server answers every shortage with the one code `picture_chips`,
+  /// whichever wallet came up short, in an English sentence — so the
+  /// picture's own currency decides, never the message (owner, 14 Sep 2026).
+  /// A hammer or diamond picture is not a notice but the offer of that
+  /// wallet's shelf, which the caller makes; the count held here was wrong, so
+  /// it is read again. A chip shortage keeps the server's sentence, and a
+  /// chip-priced picture refused at a table (`seated`) is said in the player's
+  /// language.
+  @visibleForTesting
+  PictureBuyResult pictureRefused(int id, ApiException e) {
+    final picture = pictures.where((p) => p.id == id).firstOrNull;
+    if (e.code == 'picture_chips' &&
+        picture != null &&
+        (picture.pricedInHammers || picture.pricedInDiamonds)) {
+      unawaited(refreshUser());
+      return PictureBuyResult.notEnough;
+    }
+    notice = e.code == 'seated' ? t.pictureChipsLobbyOnly : e.message;
+    return PictureBuyResult.refused;
   }
 
   /// The reward just collected, while its celebration is on screen. Null the

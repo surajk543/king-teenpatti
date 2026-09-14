@@ -891,6 +891,18 @@ class ChatMessage {
   );
 }
 
+/// The wallets a catalogue picture can be priced in (GET /api/profiles).
+///
+/// Hammers joined chips and diamonds on 14 Sep 2026 (owner), when the
+/// animated rentals were re-priced in them. A currency this build does not
+/// know is kept as the server sent it and drawn as chips, which is how every
+/// row read before the soft currencies existed.
+class PictureCurrency {
+  static const String coin = 'COIN';
+  static const String diamond = 'DIAMOND';
+  static const String hammer = 'HAMMER';
+}
+
 /// One row of the server's picture catalogue (GET /api/profiles).
 class ProfilePicture {
   const ProfilePicture({
@@ -921,14 +933,17 @@ class ProfilePicture {
   /// server because hosted URLs rarely carry an extension to sniff.
   final String assetFormat;
 
-  /// Which wallet [cost] is paid from: 'COIN' (chips) or 'DIAMOND'. Always
-  /// 'COIN' for a free row — nothing is charged.
+  /// Which wallet [cost] is paid from: [PictureCurrency.coin] (chips),
+  /// [PictureCurrency.diamond] or [PictureCurrency.hammer]. Always 'COIN' for
+  /// a free row — nothing is charged. Kept as the server sent it, so a
+  /// currency this build does not know survives parsing and is drawn as chips.
   final String currency;
 
   /// 'FREE' or 'PREMIUM'.
   final String type;
 
-  /// Chips it costs. Always 0 when [free].
+  /// What it costs, in [currency]: chips, diamonds or hammers. Always 0 when
+  /// [free].
   final int cost;
 
   /// How long a purchase lasts. 0 means for ever, which every free picture is
@@ -952,6 +967,11 @@ class ProfilePicture {
 
   /// Whether buying this one rents it rather than keeps it.
   bool get rented => durationDays > 0;
+
+  /// Priced in diamonds, or in hammers. A picture that is neither — chips,
+  /// or a currency this build does not know — is drawn and worded as chips.
+  bool get pricedInDiamonds => currency == PictureCurrency.diamond;
+  bool get pricedInHammers => currency == PictureCurrency.hammer;
 
   /// Whole days left on this player's rental, or null when it never runs out.
   /// Rounded UP, so the last few hours read as "1 day left" rather than "0".

@@ -725,7 +725,7 @@ class _TopBar extends StatelessWidget {
                                     (f) => f.sound,
                                   ),
                               customBorder: const CircleBorder(),
-                              onTap: () => _openPicturePicker(context),
+                              onTap: () => openPicturePicker(context),
                               child: Center(
                                 child: _AvatarWithPip(
                                   url: state.avatarUrl,
@@ -2265,7 +2265,10 @@ class _PrivateCardState extends State<_PrivateCard> {
 
 /// Requirement 21: the picture is chosen from the top bar. Since 13 Sep 2026 it
 /// may be changed at a table too, where it goes straight onto the seat.
-Future<void> _openPicturePicker(BuildContext context) async {
+///
+/// Public so its header can be laid out under test on the screens the game is
+/// checked on.
+Future<void> openPicturePicker(BuildContext context) async {
   // Owned by the caller, not the builder: the sheet's body is inside a
   // Consumer and rebuilds on every state change, and a controller made in
   // there would be a new one each time — the Scrollbar would lose its
@@ -2371,11 +2374,15 @@ Future<void> _openPicturePicker(BuildContext context) async {
                               ],
                             ),
                           ),
-                          // What diamond-priced pictures are paid from, shown in
-                          // the one place diamonds are spent. Styled like the
-                          // price tags below, so the balance and the prices read
-                          // as one currency at a glance.
-                          DiamondBalance(count: user?.diamond ?? 0),
+                          // What premium pictures are paid from besides chips —
+                          // diamonds and, since the animated ones were re-priced
+                          // (owner, 14 Sep 2026), hammers. Styled like the price
+                          // tags below, so the balances and the prices read as
+                          // one set at a glance.
+                          PictureWalletBalances(
+                            diamonds: user?.diamond ?? 0,
+                            hammers: user?.hammer ?? 0,
+                          ),
                           const SizedBox(width: Space.md),
                           // "Use my own photo", as an icon in the header rather
                           // than a labelled button under the grid: the sheet is
@@ -3094,7 +3101,7 @@ class _SettingsDrawerState extends State<_SettingsDrawer> {
                   // leaving the drawer open behind it stacks two overlays that
                   // dismiss in an order nobody expects.
                   Navigator.pop(context);
-                  _openPicturePicker(context);
+                  openPicturePicker(context);
                 },
                 child: Padding(
                   padding: const EdgeInsets.symmetric(vertical: Space.sm),
