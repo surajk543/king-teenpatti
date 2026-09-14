@@ -503,8 +503,8 @@ catalogue lookup, and is run once as `postgres` here before its release is deplo
 Since 14 Sep 2026 `go-server/internal/db/migration/` holds two scripts: `V1.0.0__baseline.sql`
 (every table, column, check, index, function and trigger, as consolidated — the missile column and
 tables, the new-account `diamond` default of 9 and the pictures' `COIN`/`DIAMOND`/`HAMMER` currency
-check included) and `V1.0.1__seed_profile_pictures.sql` (the 35 catalogue rows: the 15 animals priced
-in chips, 15 animated pictures in hammers and 5 in diamonds). They build a database from nothing on the first boot.
+check included) and `V1.0.1__seed_profile_pictures.sql` (the 40 catalogue rows: the 15 animals and 4 animated
+pictures priced in chips, 16 animated pictures in hammers and 5 in diamonds). They build a database from nothing on the first boot.
 Nothing in them brings an older database forward, and no older database boots this build: one built
 by `go-server/v1.0.0` or older lacks `users.missile` (and one from `go-server/v1.3.0` or older,
 `users.hammer`), and every database built before the hammer pictures — **production's included** —

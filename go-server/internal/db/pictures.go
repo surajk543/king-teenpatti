@@ -54,9 +54,12 @@ type Picture struct {
 	// picture (the schema's free_picture_cost_check makes that an invariant,
 	// not a convention).
 	Cost int64 `json:"cost"`
-	// DurationDays is how long a purchase lasts; 0 is for ever.
-	DurationDays int `json:"durationDays"`
-	SortOrder    int `json:"sortOrder"`
+	// DurationDays and DurationHours are how long a purchase lasts, added
+	// together; both 0 is for ever. The hours arrived on 14 Sep 2026 (owner),
+	// for pictures rented by the hour.
+	DurationDays  int `json:"durationDays"`
+	DurationHours int `json:"durationHours"`
+	SortOrder     int `json:"sortOrder"`
 	// Owned is whether this viewer may wear it RIGHT NOW: every free picture,
 	// plus the premium ones they have bought and whose rental has not run out.
 	// False everywhere for an anonymous caller.
@@ -139,7 +142,7 @@ func NewPictures(d *DB, users *Users, clock func() time.Time) *Pictures {
 }
 
 // pictureColumns is the catalogue row, aliased p.
-const pictureColumns = `p.id, p.name, p.asset_url, p.asset_format, p.currency, p.type, p.cost, p.duration_days, p.sort_order`
+const pictureColumns = `p.id, p.name, p.asset_url, p.asset_format, p.currency, p.type, p.cost, p.duration_days, p.duration_hours, p.sort_order`
 
 // ownedJoin resolves ownership for one viewer. $1 is the user id; an empty
 // string matches nobody, which is exactly right for an anonymous caller — they
@@ -170,9 +173,13 @@ func (p *Pictures) ownedJoinNow() string {
 	return fmt.Sprintf(ownedJoin, now(p.clock))
 }
 
-// DayMs is a rental day. Durations are stored in days because a human edits
-// them; everything the server does with one is milliseconds.
-const DayMs int64 = 24 * 60 * 60 * 1000
+// DayMs and HourMs are a rental day and a rental hour. Durations are stored in
+// days and hours because a human edits them; everything the server does with
+// one is milliseconds.
+const (
+	DayMs  int64 = 24 * HourMs
+	HourMs int64 = 60 * 60 * 1000
+)
 
 // List returns every picture still on offer, in catalogue order, each marked
 // with whether this player may wear it. userID may be "" for an unauthenticated
@@ -198,7 +205,7 @@ func (p *Pictures) List(ctx context.Context, userID string) ([]Picture, error) {
 	for rows.Next() {
 		var pic Picture
 		if err := rows.Scan(&pic.ID, &pic.Name, &pic.URL, &pic.AssetFormat, &pic.Currency, &pic.Type, &pic.Cost,
-			&pic.DurationDays, &pic.SortOrder, &pic.Owned, &pic.ExpiresAt); err != nil {
+			&pic.DurationDays, &pic.DurationHours, &pic.SortOrder, &pic.Owned, &pic.ExpiresAt); err != nil {
 			return nil, err
 		}
 		pictures = append(pictures, pic)
@@ -217,7 +224,7 @@ func (p *Pictures) Find(ctx context.Context, userID string, id int64) (Picture, 
 		`SELECT `+pictureColumns+`, p.is_active, `+ownedExpr+`, `+expiryExpr+`
 		   FROM profile_pictures p`+p.ownedJoinNow()+`
 		  WHERE p.id = $2`, userID, id).
-		Scan(&pic.ID, &pic.Name, &pic.URL, &pic.AssetFormat, &pic.Currency, &pic.Type, &pic.Cost, &pic.DurationDays,
+		Scan(&pic.ID, &pic.Name, &pic.URL, &pic.AssetFormat, &pic.Currency, &pic.Type, &pic.Cost, &pic.DurationDays, &pic.DurationHours,
 			&pic.SortOrder, &active, &pic.Owned, &pic.ExpiresAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Picture{}, false, ErrPictureUnknown
@@ -309,7 +316,7 @@ func (p *Pictures) buy(ctx context.Context, userID string, pictureID int64, atTa
 			`SELECT `+pictureColumns+`, p.is_active, `+ownedExpr+`, `+expiryExpr+`
 			   FROM profile_pictures p`+p.ownedJoinNow()+`
 			  WHERE p.id = $2`, userID, pictureID).
-			Scan(&pic.ID, &pic.Name, &pic.URL, &pic.AssetFormat, &pic.Currency, &pic.Type, &pic.Cost, &pic.DurationDays,
+			Scan(&pic.ID, &pic.Name, &pic.URL, &pic.AssetFormat, &pic.Currency, &pic.Type, &pic.Cost, &pic.DurationDays, &pic.DurationHours,
 				&pic.SortOrder, &active, &pic.Owned, &pic.ExpiresAt)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrPictureUnknown
@@ -410,8 +417,8 @@ func (p *Pictures) buy(ctx context.Context, userID string, pictureID int64, atTa
 		// the old term is over, and adding to it would pay the player for
 		// having let it run out.
 		var expiresAt int64
-		if pic.DurationDays > 0 {
-			expiresAt = stamp + int64(pic.DurationDays)*DayMs
+		if term := int64(pic.DurationDays)*DayMs + int64(pic.DurationHours)*HourMs; term > 0 {
+			expiresAt = stamp + term
 		}
 		if _, err := tx.Exec(ctx,
 			`INSERT INTO user_profile_pictures (user_id, profile_picture_id, acquired_at, expires_at, purchases)

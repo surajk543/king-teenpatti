@@ -67,6 +67,7 @@ class Rewards {
     required this.milestoneReward,
     required this.handsToNextMilestone,
     required this.bonusReward,
+    this.bonusHammers = 0,
     required this.bonusReadyAt,
     required this.bonusAvailable,
   });
@@ -74,9 +75,14 @@ class Rewards {
   final bool milestoneAvailable;
   final int milestoneReward;
   final int handsToNextMilestone;
-  final int bonusReward;
 
-  /// Epoch ms the four-hour bonus unlocks; 0 means it is ready now. The server
+  /// The daily bonus: [bonusReward] chips and [bonusHammers] hammers, every
+  /// 24 hours (owner, 14 Sep 2026; 10,000 chips every four hours before). A
+  /// server that sends no hammers means 0.
+  final int bonusReward;
+  final int bonusHammers;
+
+  /// Epoch ms the daily bonus unlocks; 0 means it is ready now. The server
   /// calls this `bonusReadyAt`.
   final int bonusReadyAt;
 
@@ -96,6 +102,7 @@ class Rewards {
     milestoneReward: _int(j['milestoneReward']),
     handsToNextMilestone: _int(j['handsToNextMilestone']),
     bonusReward: _int(j['bonusReward']),
+    bonusHammers: _int(j['bonusHammers']),
     bonusReadyAt: _int(j['bonusReadyAt']),
     bonusAvailable: j['bonusAvailable'] == true,
   );
@@ -914,6 +921,7 @@ class ProfilePicture {
     required this.type,
     required this.cost,
     required this.durationDays,
+    this.durationHours = 0,
     required this.owned,
     required this.expiresAt,
   });
@@ -946,9 +954,14 @@ class ProfilePicture {
   /// [free].
   final int cost;
 
-  /// How long a purchase lasts. 0 means for ever, which every free picture is
-  /// and a premium one is until somebody prices it as a rental.
+  /// How long a purchase lasts: [durationDays] days plus [durationHours] hours.
+  /// Both 0 means for ever, which every free picture is and a premium one is
+  /// until somebody prices it as a rental.
   final int durationDays;
+
+  /// The hours of the term, beside [durationDays] — 1 for a picture rented for
+  /// an hour (owner, 14 Sep 2026). A server that does not send it means 0.
+  final int durationHours;
 
   /// Whether this player may wear it: every free picture, plus the premium
   /// ones they have bought. The server decides this per viewer — the client
@@ -966,7 +979,7 @@ class ProfilePicture {
   bool get animated => assetFormat == 'LOTTIE' || assetFormat == 'RIVE';
 
   /// Whether buying this one rents it rather than keeps it.
-  bool get rented => durationDays > 0;
+  bool get rented => durationDays > 0 || durationHours > 0;
 
   /// Priced in diamonds, or in hammers. A picture that is neither — chips,
   /// or a currency this build does not know — is drawn and worded as chips.
@@ -995,6 +1008,7 @@ class ProfilePicture {
     type: _str(j['type']).isEmpty ? 'FREE' : _str(j['type']),
     cost: _int(j['cost']),
     durationDays: _int(j['durationDays']),
+    durationHours: _int(j['durationHours']),
     expiresAt: _int(j['expiresAt']),
     // Absent means the server did not say, and the safe reading of that is
     // "not owned" — a free picture is only ever sent with owned true.

@@ -89,18 +89,18 @@ void main() {
       expect(
         [for (final p in missilePacks) (p.packId, p.diamonds, p.missiles)],
         [
-          ('missiles_1', 10, 1),
-          ('missiles_5', 48, 5),
-          ('missiles_10', 90, 10),
-          ('missiles_20', 170, 20),
+          ('missiles_1', 15, 1),
+          ('missiles_5', 73, 5),
+          ('missiles_10', 140, 10),
+          ('missiles_20', 220, 20),
         ],
       );
     });
 
-    test('starts at 10 diamonds a missile, and gives more a diamond up the '
+    test('starts at 15 diamonds a missile, and gives more a diamond up the '
         'shelf', () {
       // The base rate the blurb states is the single missile's price.
-      expect(diamondsPerMissile, 10);
+      expect(diamondsPerMissile, 15);
       expect(missilePacks.first.diamonds, diamondsPerMissile);
       expect(missilePacks.first.missiles, 1);
       // Not a flat rate any more (owner, 14 Sep 2026): each pack buys more
@@ -274,7 +274,7 @@ void main() {
           jsonEncode({
             'user': _user(missile: 11, diamond: 0),
             'charged': true,
-            'diamonds': 90,
+            'diamonds': 140,
             'missiles': 10,
           }),
           200,
@@ -295,7 +295,7 @@ void main() {
         'requestId': 'req-1',
       });
       expect(r.charged, isTrue);
-      expect(r.diamonds, 90);
+      expect(r.diamonds, 140);
       expect(r.missiles, 10);
       expect(r.user.missile, 11);
       expect(r.user.diamond, 0);
@@ -307,7 +307,7 @@ void main() {
           jsonEncode({
             'user': _user(missile: 11),
             'charged': false,
-            'diamonds': 90,
+            'diamonds': 140,
             'missiles': 10,
           }),
           200,

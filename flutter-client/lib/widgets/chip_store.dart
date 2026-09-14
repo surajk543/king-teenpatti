@@ -258,18 +258,19 @@ class MissilePack {
 }
 
 /// The missile store's base rate: what a single missile costs, and the rate
-/// the shelf's blurb states ("10 diamonds = 1 missile"). The bigger packs give
+/// the shelf's blurb states ("15 diamonds = 1 missile"). The bigger packs give
 /// more a diamond than this, so no pack is priced from it but the first.
-const diamondsPerMissile = 10;
+/// Raised from 10 to 15 by the owner on 14 Sep 2026.
+const diamondsPerMissile = 15;
 
 /// The missile shelf, cheapest first — the server's `db.MissilePacks`, each
 /// named by the missiles it gives (owner, 14 Sep 2026). Not a flat rate: the
 /// more diamonds traded at once, the more missiles each one buys.
 const missilePacks = <MissilePack>[
   MissilePack(packId: 'missiles_1', diamonds: diamondsPerMissile, missiles: 1),
-  MissilePack(packId: 'missiles_5', diamonds: 48, missiles: 5),
-  MissilePack(packId: 'missiles_10', diamonds: 90, missiles: 10),
-  MissilePack(packId: 'missiles_20', diamonds: 170, missiles: 20),
+  MissilePack(packId: 'missiles_5', diamonds: 73, missiles: 5),
+  MissilePack(packId: 'missiles_10', diamonds: 140, missiles: 10),
+  MissilePack(packId: 'missiles_20', diamonds: 220, missiles: 20),
 ];
 
 /// The shelf, in the owner's order. Cheapest first, so scrolling right is
@@ -1201,7 +1202,7 @@ class _ChipStoreState extends State<_ChipStore> {
 /// Where the store goes after a missile trade.
 enum _TradeOutcome { done, toDiamonds, stay }
 
-/// Trades diamonds for [pack], asking first (owner, 14 Sep 2026: "Trade 48
+/// Trades diamonds for [pack], asking first (owner, 14 Sep 2026: "Trade 73
 /// diamonds for 5 missiles?").
 ///
 /// A player without the diamonds is not asked that — they are offered the
@@ -1278,7 +1279,7 @@ List<Widget> _storeDialogActions(
   ),
 ];
 
-/// "Trade 48 diamonds for 5 missiles?", with what the player holds of both
+/// "Trade 73 diamonds for 5 missiles?", with what the player holds of both
 /// under it — as figures beside their glyphs, so no word has to change with
 /// the number.
 class _TradeDialog extends StatelessWidget {

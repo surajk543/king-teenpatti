@@ -192,15 +192,16 @@ Produced by `publicUser(row)` from a `users` row. Key order and types (MUST MATC
   "totalWinnings": <integer>,                      // row.total_winnings ?? 0
   "biggestPot": <integer>,
   "rewards": {
-    "milestoneAvailable": <bool>,                  // floor(handsPlayed/25)*25 > (milestone_claimed ?? 0)
+    "milestoneAvailable": <bool>,                  // floor(handsPlayed/25)*25 > (user_milestones HANDS_PLAYED claimed_up_to ?? 0); Node: users.milestone_claimed
     "milestoneAt": <integer>,                      // floor(handsPlayed/25)*25
     "milestoneReward": 25000,
     "milestoneEvery": 25,
     "handsToNextMilestone": <integer>,             // 25 - (handsPlayed % 25)  (says 25, not 0, at an exact multiple)
-    "bonusReadyAt": <epoch ms integer>,            // row.next_bonus_at ?? 0
+    "bonusReadyAt": <epoch ms integer>,            // user_milestones DAILY_BONUS next_claim_at ?? 0; Node: users.next_bonus_at
     "bonusAvailable": <bool>,                      // Date.now() >= bonusReadyAt
-    "bonusReward": 10000,
-    "bonusIntervalMs": 14400000
+    "bonusReward": 100000,                         // the daily bonus's chips (owner, 14 Sep 2026; Node: 10000)
+    "bonusHammers": 1,                             // Go only (owner, 14 Sep 2026): and its hammer
+    "bonusIntervalMs": 86400000                    // 24 hours (Node: 14400000, four)
   },
   "createdAt": <epoch ms>,
   "lastLoginAt": <epoch ms>
@@ -585,7 +586,7 @@ were in it, so at least two remain.
 A showdown the player on turn forces, paid for with one missile (`users.missile`, §3.1): every hand
 still in is shown and the best takes the pot. Rules engine: `internal/game/table.go` `fireMissile`;
 the socket layer handles it like any other action (§6.1 steps 1–5,
-`game_moves_total{action="missile"}` on success). Missiles are bought with diamonds (1 for 10, 5 for 48, 10 for 90, 20 for 170),
+`game_moves_total{action="missile"}` on success). Missiles are bought with diamonds (1 for 15, 5 for 73, 10 for 140, 20 for 220),
 through `POST /api/store/missiles {packId, requestId}`, or come with a premium package on Play
 (`premium_1_9999` … `premium_6_99999`, beside its chips and hammers) (DECISIONS.md §5).
 
@@ -1258,7 +1259,7 @@ guests (`POST /api/auth/login {provider:'guest', deviceId, displayName}`).
 
 | Test | Assertion |
 |---|---|
-| `internal/db/users_test.go` | the seed: 35 pictures, 15 COIN, 15 HAMMER and 5 DIAMOND at the owner's figures; a hammer picture paid from `users.hammer` alone — chips, `chip_ledger`, diamonds and `hammer_spends` untouched — with its rental row, `charged:false` while it runs, worn, and a lapsed rental bought afresh; a short hammer wallet refused with its price, in the lobby and at a table, nothing moved; at a table hammer and diamond pictures sell and a coin one does not; the diamond path on a row the test prices itself |
+| `internal/db/users_test.go` | the seed: 40 pictures, 19 COIN (four of them animated, two rented by the hour), 16 HAMMER and 5 DIAMOND at the owner's figures; a rental's term is its days plus its hours, read back from the catalogue and stamped onto the ownership row; a hammer picture paid from `users.hammer` alone — chips, `chip_ledger`, diamonds and `hammer_spends` untouched — with its rental row, `charged:false` while it runs, worn, and a lapsed rental bought afresh; a short hammer wallet refused with its price, in the lobby and at a table, nothing moved; at a table hammer and diamond pictures sell and a coin one does not; the diamond path on a row the test prices itself |
 | `internal/db/db_test.go` | exactly two scripts; the baseline carries the three-currency CHECK and the defaults diamond 9, hammer 20, missile 1 |
 | `internal/auth/http_test.go` | `TestBuyingAHammerPicture`: the four-key answer with `spent` in hammers, a replay, 409 `picture_chips` "You need 30 hammers to unlock this picture." (and the singular), a seated buy and wear |
 | `internal/app/hammerpictures_test.go` | on the real wiring: `GET /api/profiles` lists HAMMER, a lobby buy, a replay, the shortage 409, and at a table a coin picture 409 `seated` while a hammer picture sells and is worn on the seat, no chips moved |
