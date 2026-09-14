@@ -15,6 +15,7 @@ import '../state/missile_strike.dart';
 import '../theme/app_theme.dart';
 import '../widgets/buy_chips.dart';
 import '../widgets/chip_store.dart';
+import '../widgets/deal_flight.dart';
 import '../widgets/drifting_chips.dart';
 import '../widgets/feedback_toggles.dart';
 import '../widgets/glass_components.dart';
@@ -24,6 +25,7 @@ import '../widgets/missile_flight.dart';
 import '../widgets/picture_shelf.dart';
 import '../widgets/playing_card.dart';
 import '../widgets/poker_chip.dart';
+import '../widgets/pot_flight.dart';
 import '../widgets/premium_surface.dart';
 import '../widgets/rules_sheet.dart';
 import '../widgets/seat_pod.dart';
@@ -2026,7 +2028,7 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
               Positioned.fill(
                 child: RepaintBoundary(
                   child: IgnorePointer(
-                    child: _DealFlights(
+                    child: DealFlights(
                       seats: room.seats,
                       roomId: room.roomId,
                       handNo: room.handNo,
@@ -2235,7 +2237,7 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
                     // The pot going where it was won.
                     potFlight: winnerSeat == null || state.winnerPot <= 0
                         ? null
-                        : _PotToWinner(
+                        : PotFlight(
                             key: ValueKey(
                               'pot-${room.handNo}-${state.winnerId}',
                             ),
@@ -2765,103 +2767,6 @@ class _Pip extends StatelessWidget {
           : Border.all(color: AppTheme.ink400, width: Dim.hairline),
     ),
   );
-}
-
-/// The pot travelling to whoever won it.
-///
-/// A row of chips leaves the middle of the table and lands on the winner's
-/// seat, one after another. It runs once — the pot moves once — and the arc
-/// carries them wide of the straight line, so a handful of chips reads as a
-/// pile being pushed across rather than a swarm.
-class _PotToWinner extends StatefulWidget {
-  const _PotToWinner({
-    super.key,
-    required this.from,
-    required this.to,
-    required this.size,
-  });
-
-  final Offset from;
-  final Offset to;
-  final double size;
-
-  @override
-  State<_PotToWinner> createState() => _PotToWinnerState();
-}
-
-class _PotToWinnerState extends State<_PotToWinner>
-    with SingleTickerProviderStateMixin {
-  static const int _chips = 9;
-
-  late final AnimationController _c = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 1700),
-  )..forward();
-
-  @override
-  void dispose() {
-    _c.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    // The bow in the flight path, at right angles to it.
-    final line = widget.to - widget.from;
-    final normal =
-        Offset(-line.dy, line.dx) / (line.distance == 0 ? 1 : line.distance);
-
-    return RepaintBoundary(
-      child: AnimatedBuilder(
-        animation: _c,
-        builder: (context, _) => Stack(
-          children: [for (var i = 0; i < _chips; i++) ..._chip(i, normal)],
-        ),
-      ),
-    );
-  }
-
-  List<Widget> _chip(int i, Offset normal) {
-    // Each chip leaves a moment after the one before it.
-    final start = i / (_chips * 1.6);
-    final local = ((_c.value - start) / (1 - start)).clamp(0.0, 1.0);
-    if (local <= 0) return const [];
-
-    final eased = Motion.travel.transform(local);
-    // Alternating sides, so the chips fan out instead of following one another.
-    final bow = (i.isEven ? 1 : -1) * widget.size * (1.4 + i * 0.25);
-
-    // The chip, and one ghost of where it was a moment ago: a pile being
-    // pushed leaves a trail, a swarm does not.
-    return [
-      for (final (double back, double alpha) in const [
-        (0.05, 0.22),
-        (0.0, 1.0),
-      ])
-        () {
-          final at = (eased - back).clamp(0.0, 1.0);
-          // Zero at both ends, widest in the middle: the arc, not a drift.
-          final arc = math.sin(at * math.pi) * bow;
-          final pos = Offset.lerp(widget.from, widget.to, at)! + normal * arc;
-
-          return Positioned(
-            left: pos.dx - widget.size / 2,
-            top: pos.dy - widget.size / 2,
-            child: Opacity(
-              // It holds until it lands on the seat, then goes: the chips are
-              // absorbed by the winner rather than evaporating in mid-air.
-              opacity: (alpha * (1 - math.max(0.0, (eased - 0.94) / 0.06)))
-                  .clamp(0.0, 1.0)
-                  .toDouble(),
-              child: Transform.rotate(
-                angle: eased * math.pi * (i.isEven ? 2 : -2),
-                child: PokerChip(colour: AppTheme.gold, size: widget.size),
-              ),
-            ),
-          );
-        }(),
-    ];
-  }
 }
 
 /// The pot, on a plinth in the middle of the cloth.
@@ -3869,6 +3774,7 @@ class _MachinedKey extends StatelessWidget {
     this.icon,
     this.glyph,
     this.amount,
+    this.detail,
     this.primary = false,
     this.edge,
     this.alive = false,
@@ -3891,6 +3797,11 @@ class _MachinedKey extends StatelessWidget {
   /// The second line: what the move costs, or who it is aimed at. Omitted
   /// leaves the label on its own.
   final String? amount;
+
+  /// A second line drawn rather than written, in [amount]'s type: a cost that
+  /// is more than one figure (the Missile key's missile and chips). Takes the
+  /// place of [amount].
+  final Widget Function(TextStyle style)? detail;
   final VoidCallback? onPressed;
 
   /// The one gold-filled key on the screen. There is never a second.
@@ -3919,6 +3830,10 @@ class _MachinedKey extends StatelessWidget {
     final ink = primary ? AppTheme.ink900 : scheme.onSurface;
     final live = edge ?? AppTheme.hairlineColour(brightness, live: true);
     final halo = edge ?? (primary ? AppTheme.gold : AppTheme.goldBright);
+    final amountStyle = AppTheme.money(
+      theme.textTheme.bodySmall ?? const TextStyle(),
+      weight: FontWeight.w600,
+    );
 
     final style =
         FilledButton.styleFrom(
@@ -4013,21 +3928,19 @@ class _MachinedKey extends StatelessWidget {
                                 ),
                               ),
                             ),
-                            if (amount != null)
+                            if (detail != null || amount != null)
                               // A crore-sized bet is a long word; it shrinks to
                               // fit rather than losing its tail to an ellipsis.
                               FittedBox(
                                 fit: BoxFit.scaleDown,
                                 alignment: Alignment.centerLeft,
-                                child: Text(
-                                  amount!,
-                                  maxLines: 1,
-                                  style: AppTheme.money(
-                                    theme.textTheme.bodySmall ??
-                                        const TextStyle(),
-                                    weight: FontWeight.w600,
-                                  ),
-                                ),
+                                child:
+                                    detail?.call(amountStyle) ??
+                                    Text(
+                                      amount!,
+                                      maxLines: 1,
+                                      style: amountStyle,
+                                    ),
                               ),
                           ],
                         ),
@@ -4942,194 +4855,6 @@ class _TurnBuzzerState extends State<_TurnBuzzer> {
   }
 }
 
-/// Three cards to each seat when a hand is dealt.
-///
-/// Purely presentation: the cards it draws are face-down blanks flying from
-/// the middle of the cloth to each occupied seat, and the real hand is already
-/// in the snapshot that triggered it. Nothing here decides who gets what.
-///
-/// Keyed on handNo, the same signal _BetFlights uses, so a deal is "the hand
-/// number changed" and not a guess from card counts. A player who sits down
-/// mid-hand sees nothing: their handNo arrives already set, and dealing cards
-/// for a hand that started before they arrived would be a lie.
-class _DealFlights extends StatefulWidget {
-  const _DealFlights({
-    required this.seats,
-    required this.roomId,
-    required this.handNo,
-    required this.centreOf,
-    required this.deck,
-    required this.cardHeight,
-  });
-
-  final List<Seat?> seats;
-
-  /// Which table this is. A switch changes it, and a hand already in progress
-  /// at the new table was not dealt to anyone here.
-  final String roomId;
-  final int handNo;
-  final Offset Function(int seatIndex) centreOf;
-
-  /// Where the cards come from — just above the middle, where a dealer's hands
-  /// would be.
-  final Offset deck;
-  final double cardHeight;
-
-  @override
-  State<_DealFlights> createState() => _DealFlightsState();
-}
-
-class _DealFlightsState extends State<_DealFlights>
-    with SingleTickerProviderStateMixin {
-  static const _cardsEach = 3;
-
-  /// Created by the first deal, never in advance — and never by [dispose].
-  ///
-  /// A table left before any hand is dealt (the player sat alone and walked
-  /// away) never touched this, so as a `late final` its first read was
-  /// `dispose()`, which ran the initialiser mid-teardown. A ticker needs a
-  /// TickerMode lookup, that lookup is illegal on a deactivated element, and
-  /// the throw stopped `_InactiveElements._unmount` half-way: the table's
-  /// scaffold was left half-unmounted, and the NEXT table to mount reused its
-  /// GlobalKey and died on an `_ElementLifecycle` assertion — a red screen on
-  /// the table joined after the one left. The same trap as `_TurnRing` in
-  /// seat_pod.dart. Keep the null check.
-  AnimationController? _controller;
-
-  AnimationController get _run => _controller ??= _createRun();
-
-  AnimationController _createRun() =>
-      AnimationController(
-        vsync: this,
-        // Slower than feels necessary on paper. Dealing is the moment the hand
-        // begins, and rushing it is the difference between cards being dealt and
-        // cards appearing — the whole point of drawing it at all.
-        duration: const Duration(milliseconds: 2000),
-      )..addStatusListener((status) {
-        if (status == AnimationStatus.completed && mounted) {
-          setState(() => _flights = const []);
-        }
-      });
-
-  List<({Offset to, double delay})> _flights = const [];
-  int _dealt = 0;
-
-  @override
-  void dispose() {
-    _controller?.dispose();
-    super.dispose();
-  }
-
-  @override
-  void didUpdateWidget(_DealFlights old) {
-    super.didUpdateWidget(old);
-    // A new hand, at the SAME table, and not the first frame after mounting.
-    //
-    // The room check is what makes a switch quiet. This widget is not rebuilt
-    // from scratch when a player moves — it keeps its state and simply sees
-    // handNo go from the old table's number to the new one's, which is
-    // indistinguishable from a deal unless the table is compared too. Landing
-    // mid-hand and being shown cards flying to seats that are already holding
-    // them is worse than showing nothing.
-    if (widget.roomId != old.roomId) return;
-    if (widget.handNo == old.handNo || old.handNo == 0) return;
-    _deal();
-  }
-
-  void _deal() {
-    final seated = <int>[
-      for (var i = 0; i < widget.seats.length; i++)
-        if (widget.seats[i] != null) i,
-    ];
-    if (seated.isEmpty) return;
-
-    // One card to each seat in turn, three times round — the order a hand is
-    // actually dealt in, which is what makes it read as dealing rather than as
-    // cards appearing.
-    final flights = <({Offset to, double delay})>[];
-    var n = 0;
-    for (var round = 0; round < _cardsEach; round++) {
-      for (final seat in seated) {
-        flights.add((to: widget.centreOf(seat), delay: n * 0.062));
-        n++;
-      }
-    }
-    setState(() {
-      _flights = flights;
-      _dealt = 0;
-    });
-    _run.forward(from: 0);
-  }
-
-  /// A click as each card lands, through the settings so it honours the
-  /// player's switch. Not one sound per deal: the rhythm of the cards landing
-  /// IS the sound of dealing, and a single clip cannot follow a table that has
-  /// two players at one moment and five at the next.
-  void _sound(int landed) {
-    if (landed <= _dealt) return;
-    final feedback = context.read<FeedbackSettings>();
-    for (var i = _dealt; i < landed; i++) {
-      feedback.tap();
-    }
-    _dealt = landed;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (_flights.isEmpty) return const SizedBox.shrink();
-
-    return AnimatedBuilder(
-      animation: _run,
-      builder: (context, _) {
-        final t = _run.value;
-        var landed = 0;
-        final cards = <Widget>[];
-        for (final flight in _flights) {
-          // Each card has the same short travel, started at its own offset.
-          // A long travel window per card, overlapping its neighbours: the
-          // hand reads as one continuous motion round the table rather than as
-          // fifteen separate darts.
-          final local = ((t - flight.delay) / 0.46).clamp(0.0, 1.0);
-          if (local <= 0) continue;
-          if (local >= 1) {
-            landed++;
-            continue;
-          }
-          // Eased at BOTH ends. easeOutCubic leaves at full speed, which is
-          // what made the cards look flicked; this lets each one gather and
-          // settle.
-          final eased = Curves.easeInOutCubic.transform(local);
-          final at = Offset.lerp(widget.deck, flight.to, eased)!;
-          cards.add(
-            Positioned(
-              left: at.dx - widget.cardHeight * 0.35,
-              top: at.dy - widget.cardHeight / 2,
-              child: Opacity(
-                // Fades out as it arrives, so the flying card hands over to
-                // the one the pod draws rather than doubling it.
-                // Holds its opacity most of the way and only lets go at the
-                // very end, so the card is visible for the whole flight
-                // instead of fading through the middle of it.
-                opacity: (1 - eased * eased * eased * eased).clamp(0.0, 1.0),
-                child: Transform.rotate(
-                  angle: (1 - eased) * 0.38,
-                  child: PlayingCard(height: widget.cardHeight),
-                ),
-              ),
-            ),
-          );
-        }
-        if (landed > _dealt) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) _sound(landed);
-          });
-        }
-        return Stack(children: cards);
-      },
-    );
-  }
-}
-
 /// A soft pulse around an action key while that move is available.
 ///
 /// The same idea as the pod's turn ring and deliberately quieter: the ring
@@ -5494,9 +5219,12 @@ class _ActionCluster extends StatelessWidget {
                 height: keyH,
                 icon: Icons.arrow_forward_rounded,
                 label: t.chaal,
-                alive: live,
+                // Dark when the player cannot pay the chaal, even on their own
+                // turn (owner, 14 Sep 2026); the figure stays, so they can see
+                // what it would take.
+                alive: state.canChaal,
                 amount: formatChips(state.betAmount),
-                onPressed: live ? state.bet : null,
+                onPressed: state.canChaal ? state.bet : null,
                 primary: true,
               ),
               SizedBox(width: gap),
@@ -5575,12 +5303,58 @@ class _MissileKey extends StatelessWidget {
           height: Dim.keyH(size.height),
           glyph: _MissileGlyph(animate: canFire),
           label: t.missile,
+          // What firing takes, under its name as Chaal's bet is (owner,
+          // 14 Sep 2026): one missile, and the chips a show would cost — held
+          // by the server's rule, not paid.
+          detail: (style) => _MissileCost(
+            missiles: missileCost,
+            chips: state.missileChips,
+            style: style,
+          ),
           edge: missileInkOn(theme.brightness).withValues(alpha: 0.5),
           alive: canFire && hasMissile,
           muted: canFire && !hasMissile,
           onPressed: canFire ? () => _fireMissile(context, state) : null,
         ),
       ),
+    );
+  }
+}
+
+/// The Missile key's second line: the missile a shot spends and the chips it
+/// needs the player to hold, each beside its mark — the rocket the wallets
+/// count missiles with, and a chip (owner, 14 Sep 2026).
+class _MissileCost extends StatelessWidget {
+  const _MissileCost({
+    required this.missiles,
+    required this.chips,
+    required this.style,
+  });
+
+  final int missiles;
+  final int chips;
+  final TextStyle style;
+
+  @override
+  Widget build(BuildContext context) {
+    final mark = (style.fontSize ?? 12) * 1.05;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(
+          missileIcon,
+          size: mark,
+          color: missileInkOn(Theme.of(context).brightness),
+        ),
+        const SizedBox(width: 2),
+        Text('$missiles', maxLines: 1, style: style),
+        if (chips > 0) ...[
+          const SizedBox(width: Space.sm),
+          PokerChip(colour: AppTheme.gold, size: mark),
+          const SizedBox(width: 3),
+          Text(formatChips(chips), maxLines: 1, style: style),
+        ],
+      ],
     );
   }
 }

@@ -217,6 +217,15 @@ void main() {
           state.refusalText('too_few_players', 'Too few players'),
           t.tooFewPlayers,
         );
+        // A missile needs the chips a show would cost (owner, 14 Sep 2026).
+        expect(t.missileNeedsShowChips, isNot('missileNeedsShowChips'));
+        if (lang != AppLang.english) {
+          expect(
+            t.missileNeedsShowChips,
+            isNot(const Strings(AppLang.english).missileNeedsShowChips),
+            reason: '${lang.name} has words of its own',
+          );
+        }
       }
       // A code with no words of its own keeps the server's message.
       expect(

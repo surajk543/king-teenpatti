@@ -939,7 +939,8 @@ func (t *Table) StartHand() error {
 //	           was); then it resolves at once as an accepted sideshow does,
 //	           with reason "forced".
 //	missile  → fireMissile: sideshow_pending, then too_few_players (fewer
-//	           than MissileMinPlayers active); duplicate_action for an
+//	           than MissileMinPlayers active), then insufficient_chips (short
+//	           of what a show would cost them); duplicate_action for an
 //	           actionId this hand already delivered; then
 //	           MissileWallet.SpendMissile (no_missiles passes through,
 //	           anything else is persist_failed — both leave the table as it
@@ -2530,9 +2531,12 @@ func (t *Table) forceSideshow(s *seat, actionID string) (ActResult, error) {
 
 // missileBlockedReason returns "" when s may fire a missile now, else the first
 // failing check IN THIS ORDER: no_hand, not_in_hand, not_your_turn,
-// sideshow_pending, too_few_players (active < MissileMinPlayers). The missile
-// count is not a rule of the table — the wallet refuses no_missiles — so it is
-// not checked here, and canMissile says nothing about it.
+// sideshow_pending, too_few_players (active < MissileMinPlayers),
+// insufficient_chips (s holds less than a show would cost them — showCost,
+// their chaal. Owner, 14 Sep 2026: a missile is a show for everyone, so the
+// firer must be able to afford one, though firing charges no chips). The
+// missile count is not a rule of the table — the wallet refuses no_missiles —
+// so it is not checked here, and canMissile says nothing about it.
 //
 // A reason rather than a boolean, as sideshowBlockedReason is, so the key the
 // client lights and the refusal the server sends are the same decision. Blind
@@ -2555,6 +2559,10 @@ func (t *Table) missileBlockedReason(s *seat) string {
 	if len(t.activeSeats()) < MissileMinPlayers {
 		return CodeTooFewPlayers
 	}
+	// The price of a show, held rather than paid (owner, 14 Sep 2026).
+	if cost := t.showCost(s); cost == nil || s.chips < *cost {
+		return CodeInsufficientChips
+	}
 	return ""
 }
 
@@ -2569,6 +2577,8 @@ func missileRefusal(blocked string) *GameError {
 		return NewGameError(CodeNotYourTurn, MsgNotYourTurn)
 	case CodeSideshowPending:
 		return NewGameError(CodeSideshowPending, MsgSideshowPending)
+	case CodeInsufficientChips:
+		return NewGameError(CodeInsufficientChips, MsgMissileNeedsShowChips)
 	default:
 		return Errorf(CodeTooFewPlayers, MsgMissileTooFewFormat, MissileMinPlayers)
 	}

@@ -22,9 +22,10 @@ const int _defaultDashes = 6;
 /// shading on the shaded one. A translucent chip is not money.
 ///
 /// The art fills the box edge to edge with nothing painted outside it, because
-/// `_BetFlights` and `_PotToWinner` position a chip by `size / 2` and would
-/// land it off-centre otherwise. Everything is a fraction of [size], and the
-/// smallest chip the app asks for is the seat's bet pill at `podW * 0.14` —
+/// `_BetFlights` positions a chip by `size / 2` and `PotFlight` paints one about
+/// its centre, and both would land it off-centre otherwise. Everything is a
+/// fraction of [size], and the smallest chip the app asks for is the seat's
+/// bet pill at `podW * 0.14` —
 /// 360 -> 12.3 | 411 -> 14.3 | 800 -> 20.7 — so every hairline here carries a
 /// floor that keeps it a line rather than a smear at 12dp.
 class PokerChip extends StatelessWidget {
@@ -194,7 +195,11 @@ void _paintChip(
   );
 
   // The recessed face, and the ring that cuts it in.
-  canvas.drawCircle(centre, r * 0.62, Paint()..color = _fade(tones.face, alpha));
+  canvas.drawCircle(
+    centre,
+    r * 0.62,
+    Paint()..color = _fade(tones.face, alpha),
+  );
   canvas.drawCircle(
     centre,
     r * 0.62,
@@ -274,6 +279,37 @@ class _ChipPainter extends CustomPainter {
       old.tones != tones || old.dashes != dashes || old.grounded != grounded;
 }
 
+/// A chip painted straight onto another painter's canvas.
+///
+/// For a painter that moves many chips each frame — the pot's flight to the
+/// winner — where a [PokerChip] widget per chip would mean a layer, a layout
+/// and a rotated raster per chip, per frame. The art is the same as
+/// [PokerChip]'s, and [paint]'s `alpha` fades it as a colour multiplier, not
+/// through a layer.
+@immutable
+class PokerChipBrush {
+  PokerChipBrush(Color colour, {this.dashes = _defaultDashes})
+    : _tones = _ChipTones.of(colour);
+
+  final _ChipTones _tones;
+  final int dashes;
+
+  /// One chip of [radius], centred on [centre].
+  void paint(Canvas canvas, Offset centre, double radius, {double alpha = 1}) {
+    if (alpha <= 0 || radius <= 0) return;
+    _paintChip(canvas, centre, radius, _tones, dashes, alpha: alpha);
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is PokerChipBrush &&
+      other._tones == _tones &&
+      other.dashes == dashes;
+
+  @override
+  int get hashCode => Object.hash(_tones, dashes);
+}
+
 /// Chips stacked, for a stake rather than a single coin.
 class ChipStack extends StatelessWidget {
   const ChipStack({super.key, required this.colours, this.size = 22});
@@ -336,7 +372,10 @@ class _PilePainter extends CustomPainter {
       final alpha = alphas == null ? 1.0 : alphas![k].clamp(0.0, 1.0);
       if (alpha <= 0) continue;
 
-      final centre = Offset(x, floor - lift * k + (drop == null ? 0 : drop![k]));
+      final centre = Offset(
+        x,
+        floor - lift * k + (drop == null ? 0 : drop![k]),
+      );
 
       // Cast onto the chip below before that chip is covered: what stays
       // visible is the crescent under this one's lower edge.
@@ -441,7 +480,9 @@ class _SpinningChipState extends State<SpinningChip>
             // through the rest.
             final angle = t >= _spinsUntil
                 ? 0.0
-                : Curves.easeInOutCubic.transform(t / _spinsUntil) * math.pi * 2;
+                : Curves.easeInOutCubic.transform(t / _spinsUntil) *
+                      math.pi *
+                      2;
 
             return CustomPaint(
               painter: _SpinPainter(tones: tones, angle: angle),
@@ -491,7 +532,12 @@ class _SpinPainter extends CustomPainter {
       final start = side > 0 ? -math.pi / 2 : math.pi / 2;
       final wall = Path()
         ..addArc(face, start, math.pi)
-        ..arcTo(face.translate(side * band, 0), start + math.pi, -math.pi, false)
+        ..arcTo(
+          face.translate(side * band, 0),
+          start + math.pi,
+          -math.pi,
+          false,
+        )
         ..close();
 
       canvas.drawPath(

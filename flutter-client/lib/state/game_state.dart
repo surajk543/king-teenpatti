@@ -1951,6 +1951,19 @@ class GameState extends ChangeNotifier {
   /// count the server gave. The server checks again.
   bool get hasMissile => (user?.missile ?? 0) >= missileCost;
 
+  /// The chips a missile needs this player to hold: what a show would cost
+  /// them, their chaal (owner, 14 Sep 2026 — held, not paid; the server refuses
+  /// a missile to a player short of it). The Missile key carries it as the
+  /// Chaal key carries its bet. On turn it is the server's first rung; off turn,
+  /// or when the player cannot reach even that, the chaal from the table's
+  /// stake, which is in blind units and doubles for a seen player.
+  int get missileChips {
+    final steps = options?.raiseSteps ?? const [];
+    if (steps.isNotEmpty) return steps.first;
+    final stake = room?.stake ?? 0;
+    return room?.you?.isBlind == false ? stake * 2 : stake;
+  }
+
   /// Set while a missile is with the server, so the key cannot fire a second
   /// before the first is answered.
   bool firingMissile = false;
@@ -1963,6 +1976,7 @@ class GameState extends ChangeNotifier {
     final until = _missileQuietUntil;
     return (code == 'no_missiles' ||
             code == 'too_few_players' ||
+            code == 'insufficient_chips' ||
             code == 'persist_failed') &&
         until != null &&
         DateTime.now().isBefore(until);
@@ -2004,6 +2018,13 @@ class GameState extends ChangeNotifier {
         final u = user;
         if (u != null) user = u.withMissile(0);
         return MissileResult.noMissiles;
+      }
+      // A missile needs the chips a show would cost the firer, held rather
+      // than paid (owner, 14 Sep 2026). The key is dark while they are short,
+      // so this is only met when the stack changed as the missile was sent.
+      if (code == 'insufficient_chips') {
+        notice = t.missileNeedsShowChips;
+        return MissileResult.refused;
       }
       // The refusals quieted above are said here, and so is a request that
       // was never answered — but only while nothing has happened at the
@@ -2173,6 +2194,13 @@ class GameState extends ChangeNotifier {
     }
     return steps[raiseIndex.clamp(0, steps.length - 1)];
   }
+
+  /// Whether the Chaal key can place a bet: it is this player's turn and the
+  /// server offered at least one rung they can pay (owner, 14 Sep 2026: a
+  /// player without the chips for the chaal gets a dark key, not one that does
+  /// nothing when tapped). The server builds the ladder from the chips the seat
+  /// holds, so an empty one is exactly "cannot afford the chaal".
+  bool get canChaal => myTurn && (options?.raiseSteps.isNotEmpty ?? false);
 
   bool get canStepDown => myTurn && raiseIndex > 0;
   bool get canStepUp =>

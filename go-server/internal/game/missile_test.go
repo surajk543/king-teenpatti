@@ -300,6 +300,54 @@ func TestAMissileNeedsYourTurnAndNoSideshowPending(t *testing.T) {
 	})
 }
 
+// A missile needs the chips a show would cost the firer (owner, 14 Sep 2026):
+// their chaal, held rather than paid. A chip short, the key is dark and the move
+// is refused insufficient_chips with nothing spent and the turn unmoved; holding
+// exactly the price is enough. Blind and seen firers each price it their own way.
+func TestAMissileNeedsTheChipsAShowWouldCost(t *testing.T) {
+	for _, seen := range []bool{false, true} {
+		name := "blind"
+		if seen {
+			name = "seen"
+		}
+		t.Run(name, func(t *testing.T) {
+			h, _, wallet := missileTable(t, 3, seen)
+			actor := h.turnUser()
+			var cost int64
+			h.read(func() {
+				if c := h.table.showCost(h.table.findSeat(actor)); c != nil {
+					cost = *c
+				}
+			})
+			if cost <= 0 {
+				t.Fatalf("a show has a price at this table, got %d", cost)
+			}
+
+			if err := h.table.SetChips(actor, cost-1); err != nil {
+				t.Fatal(err)
+			}
+			eq(t, h.view(actor).You.CanMissile, false, "canMissile a chip short")
+			_, err := h.act(actor, ActionMissile, fire("short"))
+			codeIs(t, err, CodeInsufficientChips)
+			var ge *GameError
+			if errors.As(err, &ge) {
+				eq(t, ge.Message, "You need enough chips for a show to fire a missile", "message")
+			}
+			eq(t, wallet.Charges(), 0, "nothing spent")
+			eq(t, h.hasHand(), true, "the hand goes on")
+			eq(t, h.turnUser(), actor, "the turn did not move")
+
+			if err := h.table.SetChips(actor, cost); err != nil {
+				t.Fatal(err)
+			}
+			eq(t, h.view(actor).You.CanMissile, true, "canMissile with exactly the price")
+			h.mustAct(actor, ActionMissile, fire("enough"))
+			eq(t, wallet.Charges(), 1, "fired")
+			eq(t, h.hasHand(), false, "the hand is over")
+		})
+	}
+}
+
 func TestAMissileWithNoMissilesIsRefusedAndChangesNothing(t *testing.T) {
 	h, _, wallet := missileTable(t, 3, true)
 	actor := h.turnUser()

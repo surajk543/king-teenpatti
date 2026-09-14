@@ -185,5 +185,9 @@ const (
 	// MsgMissileTooFewFormat is fmt.Sprintf'd with MissileMinPlayers. Its code
 	// is too_few_players, the sideshow's, with a message of its own.
 	MsgMissileTooFewFormat = "A missile needs at least %d players in the hand" // Go only
-	MsgUnknownActionFormat = "Unknown action \"%s\""
+	// MsgMissileNeedsShowChips: a missile from a player holding less than a
+	// show would cost them (owner, 14 Sep 2026). Its code is insufficient_chips,
+	// the show's own.
+	MsgMissileNeedsShowChips = "You need enough chips for a show to fire a missile" // Go only
+	MsgUnknownActionFormat   = "Unknown action \"%s\""
 )

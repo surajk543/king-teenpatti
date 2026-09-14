@@ -403,10 +403,10 @@ showRequestedBy, sideshow, lastDeparture, turnDeadline, turnToken, contributions
   `_endHand` clears the timer. The sideshow is **free** (the brief specified no bet — flagged as an
   exploit vs. standard rules).
 - **Missile** (owner, 14 Sep 2026; Go only): `ActionMissile`, on the firer's turn with **at least 3 players still in the
-  hand** (the firer included; blind or seen), costs 1 missile and no chips (`MissileWallet.SpendMissile`, charged once per
+  hand** (the firer included; blind or seen) and **holding the chips a show would cost them** (`Table.showCost`, their chaal — held, not paid; owner, 14 Sep 2026), costs 1 missile and no chips (`MissileWallet.SpendMissile`, charged once per
   `<handId>:missile:<userId>:<actionId>` in `missile_spends`) and ends the hand: every player still in shows, the best
   hand takes the pot, exact ties go against the firer (win reason `missile`). Refusals in order `no_hand | not_in_hand |
-  not_your_turn | sideshow_pending | too_few_players | duplicate_action | no_missiles | persist_failed`. `you.canMissile`
+  not_your_turn | sideshow_pending | too_few_players | insufficient_chips | duplicate_action | no_missiles | persist_failed`. `you.canMissile`
   (also in `you.options`) is the rules-minus-the-count answer. The next deal waits `NEXT_HAND_DELAY_MS +
   MISSILE_REVEAL_EXTRA_MS` so the client's volley and the reveal fit before it.
 - **Leaving mid-hand** = pack; stake stays; `leftMidHand=true`; `lastDeparture` gets the pot if all
@@ -871,7 +871,7 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   top-left (13 Sep 2026, replacing the gold `+` that headed the rail; it opens the store on Chips), `_SideRail`
   (menu, chat — each key fills the rail so the target stays
   ≥44dp, which is why they sit flush to the screen edge on a 360dp phone), `_PackKey` bottom-left with the Missile key directly above it, and `_ActionCluster` bottom-right (`Force Sideshow` and
-  `Sideshow` over `− Chaal +`). **The quick messages are a tab of the chat drawer** (owner, 14 Sep 2026; they had a third rail
+  `Sideshow` over `− Chaal +`; Chaal is dark on the player's own turn when they cannot pay the chaal — `GameState.canChaal`, an empty server ladder — and keeps showing the price, owner 14 Sep 2026). **The quick messages are a tab of the chat drawer** (owner, 14 Sep 2026; they had a third rail
   key and a `_QuickDrawer` of their own): `_ChatDrawer` heads with two `_ChatTab`s, Table chat and Quick messages,
   opens on the chat every time, and sends a quick line through `sendChat` and closes, as a typed one does.
   **The chat key and both tabs play Lotties** (`_RailLottie`, `animate` only on the selected tab):
@@ -884,7 +884,7 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   `tools/lottie/flatten_orientation.py` (its flap opened with `rx`). **The Force key** reads "Force Sideshow" on two
   lines (`_MachinedKey.stackLabel`) beside `assets/animations/Hammer.json` (`_MachinedKey.glyph`), which swings only
   while the key can be used; no cost line — the confirmation states the hammer.
-  **Missiles** (owner, 14 Sep 2026; rules in §6.1): the Missile key over Pack plays `assets/animations/Missile.json` (a copy
+  **Missiles** (owner, 14 Sep 2026; rules in §6.1): the Missile key over Pack carries its cost as its second line, as Chaal carries its bet — the rocket mark and 1 (the missile a shot spends), then a chip and the chips a show would cost the player (`_MissileCost`, drawn through `_MachinedKey.detail`) (`GameState.missileChips`: the server's first rung on turn, else the stake's chaal; owner, 14 Sep 2026 — §6.1's server refuses a missile to a player short of it), plays `assets/animations/Missile.json` (a copy
   with its one `loopOut()` baked; the nose points up-right, frames 30–60 loop) while `canMissile`, is greyed with no
   missiles and then offers the store's **Missiles** tab (between Hammers and Pictures, diamonds for missiles: 1 for 10, 5 for 48, 10 for 90, 20 for 170), and asks
   first (`_fireMissile`). Every viewer sees the volley (`state/missile_strike.dart`, `widgets/missile_flight.dart`): one
@@ -898,7 +898,7 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   `_Felt`: seats at fractional `_places` (5 only), viewer at view seat 0, `Dim.podW(feltW, feltH) =
   min(feltH*0.270, feltW*0.150).clamp(60,140)`, pods clamped inside. Overlays: `_CategoryTag`,
   `_Pot`/`_PotPulse` at `_potDy` 0.46, `_Status` at 0.28, `_SideshowLink/Prompt`, `_Showdown`.
-  **`_Showdown` is now only `_WinnerBurst(focus: winner)` + `_PotToWinner`** — since 12 Sep 2026 the
+  **`_Showdown` is now only `_WinnerBurst(focus: winner)` + `PotFlight`** (`widgets/pot_flight.dart`, rebuilt 14 Sep 2026 when the owner found the winner's coins not smooth: each of the 9 chips makes the same 0.9 s trip 60 ms behind the one before, so none overtakes — the old `_PotToWinner` gave each what was left of one 1.7 s clock — fades and grows in at the pot and out on the seat, drags no ghost copy, and the run is ONE `CustomPainter` repainting off its controller through `PokerChipBrush` instead of 18 widgets with an Opacity and a rotated raster each; `test/pot_flight_test.dart`) — since 12 Sep 2026 the
   burst is **`assets/animations/Fireworks.json` through `Lottie.asset`**, played ONCE per win (keyed
   on `handNo`, so the one-second reward tick cannot restart it) and centred on the winner's seat;
   the hand-painted `Fireworks` widget stays in `widgets/fireworks.dart` for the lobby's win banner.
@@ -1205,7 +1205,7 @@ final t = state.t;` at the top of `build`; M3 roles via `theme.colorScheme`; `.w
   runs there, `vsync: this` looks up `TickerMode` on a deactivated element, the throw lands inside
   `_InactiveElements._unmount` and leaves the tree half unmounted — and the *next* screen dies on an
   `_ElementLifecycle.inactive` assertion when it reuses `tableScaffold` (the red screen after sit alone →
-  Leave → join a hand, 11 Sep 2026). `_DealFlights` touches its controller only when a deal arrives, so
+  Leave → join a hand, 11 Sep 2026). `DealFlights` (`widgets/deal_flight.dart` since 14 Sep 2026, rebuilt when the owner found the deal not smooth: each card the same 0.8 s trip 115 ms behind the last, on a clock as long as the deal needs — the old one-clock version cut the last cards off mid-air at four or five players — and the back rendered once into an image that one painter draws, instead of a whole `PlayingCard` with shadows, an SVG, an Opacity and a rotation per card per frame, and only to seats with a player in the hand (`dealtSeats`) where both versions had dealt cards to empty chairs too; `test/deal_flight_test.dart`) touches its controller only when a deal arrives, so
   it is nullable and created on demand (`_controller ??=`, `_controller?.dispose()`). Any controller not
   read in `initState` or on every build path needs the same. The stack showed in `flutter run`'s
   console, not in `adb logcat`.
