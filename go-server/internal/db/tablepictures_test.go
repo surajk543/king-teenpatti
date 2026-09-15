@@ -52,11 +52,11 @@ func (f *fixture) laid(userID string) int64 {
 	return f.scalar(`SELECT COALESCE((SELECT table_picture_id FROM user_table_choice WHERE user_id = $1), 0)`, userID)
 }
 
-// The seed (V1.0.3__seed_table_pictures.sql) holds the owner's own art: three
+// The seed (V1.0.3__seed_table_pictures.sql) holds the owner's own art: four
 // Lotties hosted on Drive, all rented for chips — Lines Background (re-priced
 // from hammers on 16 Sep 2026) and Background Pattern, each in a day file and
-// a night file, and Welcome, whose rainbow is its own night file. An anonymous
-// viewer owns none of them.
+// a night file, and Welcome and Thank You, whose rainbow and gold are their
+// own night files. An anonymous viewer owns none of them.
 func TestTheSeededTablePicturesAreTheOwnersOwn(t *testing.T) {
 	f := newFixture(t)
 	pictures, err := f.tables.List(f.ctx, "")
@@ -71,11 +71,14 @@ func TestTheSeededTablePicturesAreTheOwnersOwn(t *testing.T) {
 		patternDay   = "https://drive.google.com/uc?export=download&id=1SZ9uuV6AuJB5vYqjMmbRq0Qi7ILr7O3_"
 		patternNight = "https://drive.google.com/uc?export=download&id=1jysl9afLqlbeIO1SS8ypASb1TQkUFl2C"
 	)
-	const welcome = "https://drive.google.com/uc?export=download&id=1iEyjVt07WkoblcgnX-DdWlqYp-Hsc3Wy"
-	if len(pictures) != 3 {
-		t.Fatalf("the seed lists %d table pictures, want 3", len(pictures))
+	const (
+		welcome  = "https://drive.google.com/uc?export=download&id=1iEyjVt07WkoblcgnX-DdWlqYp-Hsc3Wy"
+		thankYou = "https://drive.google.com/uc?export=download&id=1Iowysv9_-BE4qont-qLkZRi3XhfF6uc4"
+	)
+	if len(pictures) != 4 {
+		t.Fatalf("the seed lists %d table pictures, want 4", len(pictures))
 	}
-	lines, pattern, word := pictures[0], pictures[1], pictures[2]
+	lines, pattern, word, thanks := pictures[0], pictures[1], pictures[2], pictures[3]
 	if lines.Name != "Lines Background" || lines.Currency != db.PictureCurrencyCoin || lines.Type != db.PicturePremium || lines.Cost != 10000 ||
 		lines.DurationDays != 7 || lines.DurationHours != 0 || lines.AssetFormat != "LOTTIE" || lines.SortOrder != 75 ||
 		lines.DayURL != day || lines.NightURL != night || lines.Owned || lines.ExpiresAt != 0 {
@@ -91,6 +94,12 @@ func TestTheSeededTablePicturesAreTheOwnersOwn(t *testing.T) {
 		word.DurationDays != 2 || word.DurationHours != 0 || word.AssetFormat != "LOTTIE" || word.SortOrder != 85 ||
 		word.DayURL != welcome || word.NightURL != welcome || word.Owned || word.ExpiresAt != 0 {
 		t.Fatalf("the seeded Welcome = %+v", word)
+	}
+	// Gold reads on both grounds too: the night file is the day file.
+	if thanks.Name != "Thank You" || thanks.Currency != db.PictureCurrencyCoin || thanks.Type != db.PicturePremium || thanks.Cost != 1000000 ||
+		thanks.DurationDays != 10 || thanks.DurationHours != 0 || thanks.AssetFormat != "LOTTIE" || thanks.SortOrder != 90 ||
+		thanks.DayURL != thankYou || thanks.NightURL != thankYou || thanks.Owned || thanks.ExpiresAt != 0 {
+		t.Fatalf("the seeded Thank You = %+v", thanks)
 	}
 }
 

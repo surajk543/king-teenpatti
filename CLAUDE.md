@@ -661,10 +661,10 @@ foreign key to `users` needs only the REFERENCES grant §7 gives; `handover_boot
 **`user_table_choice`** (`user_id` PK → `table_picture_id`: the picture each player has LAID, one row or none; this is
 `users.active_picture_id` for the table, kept as a side table because a `users` column would be an `ALTER TABLE users` and a §7
 one-off on every deploy that carries it; `ON DELETE CASCADE` on the picture, so deleting a catalogue row clears the tables it was on).
-The seed holds **three rows, the owner's own art** (owner, 15 Sep 2026: "apply this only"), all LOTTIE, all hosted in the owner's Drive
+The seed holds **four rows, the owner's own art** (owner, 15 Sep 2026: "apply this only"), all LOTTIE, all hosted in the owner's Drive
 `table_pictures` folder (`uc?export=download&id=…`, never the `/file/d/…/view` page), all rented for chips — so sold in the lobby only
 (§5.1). The first two have a night file made here, where a Drive upload travels through a tool call and size is the constraint; the
-third reads on both grounds and is its own night file. **Lines
+other two read on both grounds and are their own night files. **Lines
 Background** — 10,000 chips / 7 days, sort_order 75 (seeded at 10 hammers / 30 days and re-priced by the owner on 16 Sep 2026; a database
 that ran the seed in between keeps the hammer price until the UPDATE in the seed's header): 23 layers of black lines on a transparent
 1500×1500 canvas, no 3D and no expressions; its **night file** ("Lines Background Night.json") has the lines in white — 22 strokes
@@ -682,7 +682,10 @@ blue (#E3F2FD, a tint that all but vanishes on the light ground) for a navy (#1B
 the mid blue. **Welcome** — 1 lakh chips / 2 days, sort_order 85 (owner, 16 Sep 2026): the word written on in a rainbow gradient stroke
 over 7.6 s on a transparent 428×123 banner canvas (Lottie 4.8.0, one layer, no 3D, no expressions), the owner's own upload
 ("Welcome.json"); a rainbow reads on both grounds, so `night_asset_url` repeats `day_asset_url` (only the day URL is UNIQUE), and its
-banner shape is fitted whole on the felt (§8.4 `pictureFitFor`) rather than cropped to two letters. **A file uploaded from here is private
+banner shape is fitted whole on the felt (§8.4 `pictureFitFor`) rather than cropped to two letters. **Thank You** — 10 lakh chips /
+10 days, sort_order 90 (owner, 16 Sep 2026): the words in gold (#FCC700) with 35 gold shapes around them on a 1080×1080 canvas (Lottie
+5.11.0, 10 s, 728 KB — the heaviest file; its text layer embeds its glyphs as `chars`, so no font is needed), the owner's own upload,
+public, gold being its own night file. **A file uploaded from here is private
 until the owner sets "Anyone with the link"** (the connector cannot; a phone gets Google's sign-in page instead of the file until then — and
 kept it as the picture until §8.4's `looksLikeHtml` guard, 16 Sep 2026); the owner shared all three Drive night/day files that day. There is no free row and none is needed:
 "Flowing chips", the game as it comes, is always on the shelf. Eight SVG designs with a day and a night file each were drawn for this shelf by

@@ -33,6 +33,7 @@
 --   Lines Background    10,000 chips  7 days  sort_order 75  LOTTIE, on Drive
 --   Background Pattern  5 lakh chips  7 days  sort_order 80  LOTTIE, on Drive
 --   Welcome             1 lakh chips  2 days  sort_order 85  LOTTIE, on Drive
+--   Thank You           10 lakh chips 10 days sort_order 90  LOTTIE, on Drive
 --
 -- LINES BACKGROUND (owner, 15 Sep 2026) is a Lottie of 23 layers of black
 -- lines moving over a transparent 1500×1500 canvas (Lottie 5.12.1, 60 fps,
@@ -76,6 +77,13 @@
 -- (pictureFitFor, 16 Sep 2026: wider than 1.6:1 or taller than 1:1.6 is
 -- contained, a squarer canvas covers the square), so the word lies across the
 -- pot's width rather than showing two letters of its middle.
+--
+-- THANK YOU (owner, 16 Sep 2026) is a Lottie of the words "Thank You" in gold
+-- (#FCC700) with 35 gold shapes animating around them on a transparent
+-- 1080×1080 canvas (Lottie 5.11.0, 30 fps, 10 s), the owner's own upload
+-- ("Thank You.json", public, 728 KB). No 3D, no expressions; its text layer
+-- carries its nine glyphs as shapes (`chars`), so the phones need no font.
+-- Gold reads on both grounds, so its NIGHT file is its day file too.
 
 INSERT INTO table_pictures (name, day_asset_url, night_asset_url, asset_format, currency, type, cost, duration_days, duration_hours, is_active, sort_order, created_at, updated_at)
 SELECT name, day_asset_url, night_asset_url, asset_format, currency, type, cost, duration_days, duration_hours, is_active, sort_order,
@@ -85,7 +93,7 @@ SELECT name, day_asset_url, night_asset_url, asset_format, currency, type, cost,
     ('Lines Background',
      'https://drive.google.com/uc?export=download&id=1r26ntLyDxKVbu7NAcsAQ3P3Sh8qF-oN-',
      'https://drive.google.com/uc?export=download&id=1mBnzYABRNRvP7aaEOk2JrBdQC7Lw--fB',
-     'LOTTIE', 'COIN', 'PREMIUM', 10000::bigint,  7, 0, TRUE, 75),
+     'LOTTIE', 'COIN', 'PREMIUM', 100000::bigint,  7, 0, TRUE, 75),
     ('Background Pattern',
      'https://drive.google.com/uc?export=download&id=1SZ9uuV6AuJB5vYqjMmbRq0Qi7ILr7O3_',
      'https://drive.google.com/uc?export=download&id=1jysl9afLqlbeIO1SS8ypASb1TQkUFl2C',
@@ -93,6 +101,10 @@ SELECT name, day_asset_url, night_asset_url, asset_format, currency, type, cost,
     ('Welcome',
      'https://drive.google.com/uc?export=download&id=1iEyjVt07WkoblcgnX-DdWlqYp-Hsc3Wy',
      'https://drive.google.com/uc?export=download&id=1iEyjVt07WkoblcgnX-DdWlqYp-Hsc3Wy',
-     'LOTTIE', 'COIN', 'PREMIUM', 100000::bigint, 2, 0, TRUE, 85)
+     'LOTTIE', 'COIN', 'PREMIUM', 100000::bigint, 7, 0, TRUE, 85),
+    ('Thank You',
+     'https://drive.google.com/uc?export=download&id=1Iowysv9_-BE4qont-qLkZRi3XhfF6uc4',
+     'https://drive.google.com/uc?export=download&id=1Iowysv9_-BE4qont-qLkZRi3XhfF6uc4',
+     'LOTTIE', 'COIN', 'PREMIUM', 3000000::bigint, 7, 0, TRUE, 90)
   ) AS seed(name, day_asset_url, night_asset_url, asset_format, currency, type, cost, duration_days, duration_hours, is_active, sort_order)
     ON CONFLICT (day_asset_url) DO NOTHING;
