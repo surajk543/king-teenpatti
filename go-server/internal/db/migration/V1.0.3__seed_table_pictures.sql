@@ -30,10 +30,10 @@
 -- remain, and a row for any of them is the shape of the ones below with
 -- '/tables/<slug>-day.svg' and '/tables/<slug>-night.svg' as its two URLs.
 --
---   Lines Background    10,000 chips  7 days  sort_order 75  LOTTIE, on Drive
---   Background Pattern  5 lakh chips  7 days  sort_order 80  LOTTIE, on Drive
---   Welcome             1 lakh chips  2 days  sort_order 85  LOTTIE, on Drive
---   Thank You           10 lakh chips 10 days sort_order 90  LOTTIE, on Drive
+--   Lines Background    1 lakh chips   7 days  sort_order 75  LOTTIE, on Drive
+--   Background Pattern  5 lakh chips   7 days  sort_order 80  LOTTIE, on Drive
+--   Welcome             1 lakh chips   7 days  sort_order 85  LOTTIE, on Drive
+--   Thank You           30 lakh chips  7 days  sort_order 90  LOTTIE, on Drive
 --
 -- LINES BACKGROUND (owner, 15 Sep 2026) is a Lottie of 23 layers of black
 -- lines moving over a transparent 1500×1500 canvas (Lottie 5.12.1, 60 fps,
@@ -46,11 +46,11 @@
 -- trim-offset keyframes re-encoded as the same curve sampled adaptively within
 -- 1° (a hold across the 360→0 wrap), 30 KB against 101. The day file stays
 -- the owner's original. Seeded at 10 hammers for 30 days and re-priced by the
--- owner in chips the next day (10,000 for 7 days) — which a database that ran
+-- owner in chips the next day (1 lakh for 7 days) — which a database that ran
 -- the seed in between keeps as an UPDATE, the row being matched on
 -- day_asset_url:
 --
---   UPDATE table_pictures SET currency = 'COIN', cost = 10000, duration_days = 7
+--   UPDATE table_pictures SET currency = 'COIN', cost = 100000, duration_days = 7
 --    WHERE name = 'Lines Background';
 --
 -- BACKGROUND PATTERN (owner, 16 Sep 2026) is a Lottie of 96 rounded tiles in

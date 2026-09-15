@@ -79,7 +79,7 @@ func TestTheSeededTablePicturesAreTheOwnersOwn(t *testing.T) {
 		t.Fatalf("the seed lists %d table pictures, want 4", len(pictures))
 	}
 	lines, pattern, word, thanks := pictures[0], pictures[1], pictures[2], pictures[3]
-	if lines.Name != "Lines Background" || lines.Currency != db.PictureCurrencyCoin || lines.Type != db.PicturePremium || lines.Cost != 10000 ||
+	if lines.Name != "Lines Background" || lines.Currency != db.PictureCurrencyCoin || lines.Type != db.PicturePremium || lines.Cost != 100000 ||
 		lines.DurationDays != 7 || lines.DurationHours != 0 || lines.AssetFormat != "LOTTIE" || lines.SortOrder != 75 ||
 		lines.DayURL != day || lines.NightURL != night || lines.Owned || lines.ExpiresAt != 0 {
 		t.Fatalf("the seeded Lines Background = %+v", lines)
@@ -91,13 +91,13 @@ func TestTheSeededTablePicturesAreTheOwnersOwn(t *testing.T) {
 	}
 	// A rainbow reads on both grounds: the night file is the day file.
 	if word.Name != "Welcome" || word.Currency != db.PictureCurrencyCoin || word.Type != db.PicturePremium || word.Cost != 100000 ||
-		word.DurationDays != 2 || word.DurationHours != 0 || word.AssetFormat != "LOTTIE" || word.SortOrder != 85 ||
+		word.DurationDays != 7 || word.DurationHours != 0 || word.AssetFormat != "LOTTIE" || word.SortOrder != 85 ||
 		word.DayURL != welcome || word.NightURL != welcome || word.Owned || word.ExpiresAt != 0 {
 		t.Fatalf("the seeded Welcome = %+v", word)
 	}
 	// Gold reads on both grounds too: the night file is the day file.
-	if thanks.Name != "Thank You" || thanks.Currency != db.PictureCurrencyCoin || thanks.Type != db.PicturePremium || thanks.Cost != 1000000 ||
-		thanks.DurationDays != 10 || thanks.DurationHours != 0 || thanks.AssetFormat != "LOTTIE" || thanks.SortOrder != 90 ||
+	if thanks.Name != "Thank You" || thanks.Currency != db.PictureCurrencyCoin || thanks.Type != db.PicturePremium || thanks.Cost != 3000000 ||
+		thanks.DurationDays != 7 || thanks.DurationHours != 0 || thanks.AssetFormat != "LOTTIE" || thanks.SortOrder != 90 ||
 		thanks.DayURL != thankYou || thanks.NightURL != thankYou || thanks.Owned || thanks.ExpiresAt != 0 {
 		t.Fatalf("the seeded Thank You = %+v", thanks)
 	}
