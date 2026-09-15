@@ -134,6 +134,50 @@ class Strings {
   /// shelf alone and every picture on it is paid for in hammers (owner,
   /// 14 Sep 2026; they were diamonds before).
   String get storeAnimatedBlurb => _('storeAnimatedBlurb');
+
+  /// The store's Tables shelf (owner, 15 Sep 2026): the cloths a player lays
+  /// on their own table, each a day and a night picture.
+  String get storeTabTables => _('storeTabTables');
+  String get storeTablesTitle => _('storeTablesTitle');
+  String get storeTablesBlurb => _('storeTablesBlurb');
+
+  /// The first tile of that shelf — the default background, the chips drifting
+  /// across the room, which laying no picture restores (owner, 15 Sep 2026)
+  /// — and the word on the tile that is in use.
+  String get tableDefault => _('tableDefault');
+  String get tableDefaultHint => _('tableDefaultHint');
+  String get tableInUse => _('tableInUse');
+
+  /// The unlock question for a table picture, with the price written out by
+  /// [priceIn] and, for a rental, its term by [rentalTerm].
+  String get unlockTableTitle => _('unlockTableTitle');
+  String unlockTableBody(String name, String price) => _('unlockTableBody')
+      .replaceAll('{name}', name)
+      .replaceAll('{price}', price);
+  String unlockTableRentBody(String name, String price, String time) =>
+      _('unlockTableRentBody')
+          .replaceAll('{name}', name)
+          .replaceAll('{price}', price)
+          .replaceAll('{time}', time);
+
+  /// Said instead of asking when a chip-priced table picture is tapped at a
+  /// table, as [pictureChipsLobbyOnly] is for a face.
+  String get tableChipsLobbyOnly => _('tableChipsLobbyOnly');
+
+  /// A price with its wallet's word: "50,000 chips", "5 diamonds", "1 hammer".
+  /// [cost] arrives formatted for chips and diamonds; a hammer count is bare,
+  /// and one hammer has its own line in every language, as elsewhere. `{s}`
+  /// pluralises the English diamond and is absent from the other four.
+  String priceIn(String currency, String cost) => switch (currency) {
+    'HAMMER' =>
+      cost == '1'
+          ? _('priceHammerOne')
+          : _('priceHammers').replaceAll('{cost}', cost),
+    'DIAMOND' => _(
+      'priceDiamonds',
+    ).replaceAll('{cost}', cost).replaceAll('{s}', cost == '1' ? '' : 's'),
+    _ => _('priceChips').replaceAll('{cost}', cost),
+  };
   String get storeTabDiamonds => _('storeTabDiamonds');
   String get storeDiamondsTitle => _('storeDiamondsTitle');
   String get storeDiamondsBlurb => _('storeDiamondsBlurb');
@@ -704,6 +748,22 @@ class Strings {
       'storeTabAnimated': 'Animated',
       'storePicturesBlurb': 'Unlock a picture with chips or hammers.',
       'storeAnimatedBlurb': 'Unlock an animated picture with hammers.',
+      'storeTabTables': 'Tables',
+      'storeTablesTitle': 'Table Pictures',
+      'storeTablesBlurb': 'Dress your table — one look for day, one for night.',
+      'tableDefault': 'Flowing chips',
+      'tableDefaultHint': 'The default background',
+      'tableInUse': 'In use',
+      'unlockTableTitle': 'Unlock this table?',
+      'unlockTableBody': '{name} costs {price}. Unlock it and use it now?',
+      'unlockTableRentBody':
+          '{name} costs {price} and dresses your table for {time}. Unlock it and use it now?',
+      'tableChipsLobbyOnly':
+          'You can only buy a chip-priced table picture in the lobby.',
+      'priceChips': '{cost} chips',
+      'priceDiamonds': '{cost} diamond{s}',
+      'priceHammers': '{cost} hammers',
+      'priceHammerOne': '1 hammer',
       'storeTabDiamonds': 'Diamonds',
       'storeDiamondsTitle': 'Diamond Store',
       'storeDiamondsBlurb': 'Diamonds trade for missiles.',
@@ -1064,6 +1124,22 @@ class Strings {
       'storeTabAnimated': 'एनिमेटेड',
       'storePicturesBlurb': 'चिप्स या हथौड़ों से तस्वीर अनलॉक करें।',
       'storeAnimatedBlurb': 'हथौड़ों से एनिमेटेड तस्वीर अनलॉक करें।',
+      'storeTabTables': 'टेबल',
+      'storeTablesTitle': 'टेबल की तस्वीरें',
+      'storeTablesBlurb': 'अपनी टेबल सजाएँ — एक रूप दिन के लिए, एक रात के लिए।',
+      'tableDefault': 'बहती चिप्स',
+      'tableDefaultHint': 'डिफ़ॉल्ट बैकग्राउंड',
+      'tableInUse': 'लगी हुई',
+      'unlockTableTitle': 'यह टेबल अनलॉक करें?',
+      'unlockTableBody': '{name} की कीमत {price} है। अभी अनलॉक करके लगाएँ?',
+      'unlockTableRentBody':
+          '{name} की कीमत {price} है और {time} तक आपकी टेबल सजाती है। अभी अनलॉक करके लगाएँ?',
+      'tableChipsLobbyOnly':
+          'चिप्स की कीमत वाली टेबल तस्वीर सिर्फ़ लॉबी में खरीदी जा सकती है।',
+      'priceChips': '{cost} चिप्स',
+      'priceDiamonds': '{cost} हीरे',
+      'priceHammers': '{cost} हथौड़े',
+      'priceHammerOne': '1 हथौड़ा',
       'storeTabDiamonds': 'हीरे',
       'storeDiamondsTitle': 'हीरा स्टोर',
       'storeDiamondsBlurb': 'हीरे देकर मिसाइलें लें।',
@@ -1418,6 +1494,21 @@ class Strings {
       'storeTabAnimated': 'অ্যানিমেটেড',
       'storePicturesBlurb': 'চিপস বা হাতুড়ি দিয়ে ছবি আনলক করুন।',
       'storeAnimatedBlurb': 'হাতুড়ি দিয়ে একটি অ্যানিমেটেড ছবি আনলক করুন।',
+      'storeTabTables': 'টেবিল',
+      'storeTablesTitle': 'টেবিলের ছবি',
+      'storeTablesBlurb': 'আপনার টেবিল সাজান — একটি রূপ দিনের, একটি রাতের।',
+      'tableDefault': 'ভাসমান চিপস',
+      'tableDefaultHint': 'ডিফল্ট ব্যাকগ্রাউন্ড',
+      'tableInUse': 'ব্যবহারে',
+      'unlockTableTitle': 'এই টেবিলটি আনলক করবেন?',
+      'unlockTableBody': '{name} এর দাম {price}। এখনই আনলক করে ব্যবহার করবেন?',
+      'unlockTableRentBody':
+          '{name} এর দাম {price} এবং {time} আপনার টেবিল সাজায়। এখনই আনলক করে ব্যবহার করবেন?',
+      'tableChipsLobbyOnly': 'চিপসের দামের টেবিল ছবি শুধু লবিতে কেনা যায়।',
+      'priceChips': '{cost} চিপস',
+      'priceDiamonds': '{cost}টি হীরে',
+      'priceHammers': '{cost}টি হাতুড়ি',
+      'priceHammerOne': '1টি হাতুড়ি',
       'storeTabDiamonds': 'হীরে',
       'storeDiamondsTitle': 'হীরের দোকান',
       'storeDiamondsBlurb': 'হীরে দিয়ে মিসাইল নিন।',
@@ -1774,6 +1865,22 @@ class Strings {
       'storeTabAnimated': 'એનિમેટેડ',
       'storePicturesBlurb': 'ચિપ્સ અથવા હથોડીથી ફોટો અનલૉક કરો.',
       'storeAnimatedBlurb': 'હથોડીથી એનિમેટેડ ફોટો અનલૉક કરો.',
+      'storeTabTables': 'ટેબલ',
+      'storeTablesTitle': 'ટેબલના ફોટા',
+      'storeTablesBlurb': 'તમારું ટેબલ સજાવો — એક દેખાવ દિવસ માટે, એક રાત માટે.',
+      'tableDefault': 'વહેતી ચિપ્સ',
+      'tableDefaultHint': 'ડિફૉલ્ટ બૅકગ્રાઉન્ડ',
+      'tableInUse': 'વપરાશમાં',
+      'unlockTableTitle': 'આ ટેબલ અનલૉક કરવું છે?',
+      'unlockTableBody': '{name} ની કિંમત {price} છે. હમણાં અનલૉક કરીને વાપરવું છે?',
+      'unlockTableRentBody':
+          '{name} ની કિંમત {price} છે અને {time} સુધી તમારું ટેબલ સજાવે છે. હમણાં અનલૉક કરીને વાપરવું છે?',
+      'tableChipsLobbyOnly':
+          'ચિપ્સની કિંમતવાળો ટેબલ ફોટો ફક્ત લૉબીમાં ખરીદી શકાય છે.',
+      'priceChips': '{cost} ચિપ્સ',
+      'priceDiamonds': '{cost} હીરા',
+      'priceHammers': '{cost} હથોડી',
+      'priceHammerOne': '1 હથોડી',
       'storeTabDiamonds': 'હીરા',
       'storeDiamondsTitle': 'હીરા સ્ટોર',
       'storeDiamondsBlurb': 'હીરા આપીને મિસાઇલ લો.',
@@ -2125,6 +2232,22 @@ class Strings {
       'storeTabAnimated': 'ਐਨੀਮੇਟਿਡ',
       'storePicturesBlurb': 'ਚਿਪਸ ਜਾਂ ਹਥੌੜਿਆਂ ਨਾਲ ਤਸਵੀਰ ਅਨਲੌਕ ਕਰੋ।',
       'storeAnimatedBlurb': 'ਹਥੌੜਿਆਂ ਨਾਲ ਐਨੀਮੇਟਿਡ ਤਸਵੀਰ ਅਨਲੌਕ ਕਰੋ।',
+      'storeTabTables': 'ਟੇਬਲ',
+      'storeTablesTitle': 'ਟੇਬਲ ਦੀਆਂ ਤਸਵੀਰਾਂ',
+      'storeTablesBlurb': 'ਆਪਣਾ ਟੇਬਲ ਸਜਾਓ — ਇੱਕ ਰੂਪ ਦਿਨ ਲਈ, ਇੱਕ ਰਾਤ ਲਈ।',
+      'tableDefault': 'ਵਗਦੀਆਂ ਚਿਪਸ',
+      'tableDefaultHint': 'ਡਿਫ਼ਾਲਟ ਬੈਕਗ੍ਰਾਊਂਡ',
+      'tableInUse': 'ਲੱਗੀ ਹੋਈ',
+      'unlockTableTitle': 'ਇਹ ਟੇਬਲ ਅਨਲਾਕ ਕਰਨਾ ਹੈ?',
+      'unlockTableBody': '{name} ਦੀ ਕੀਮਤ {price} ਹੈ। ਹੁਣੇ ਅਨਲਾਕ ਕਰਕੇ ਲਗਾਉਣਾ ਹੈ?',
+      'unlockTableRentBody':
+          '{name} ਦੀ ਕੀਮਤ {price} ਹੈ ਅਤੇ {time} ਤੱਕ ਤੁਹਾਡਾ ਟੇਬਲ ਸਜਾਉਂਦੀ ਹੈ। ਹੁਣੇ ਅਨਲਾਕ ਕਰਕੇ ਲਗਾਉਣਾ ਹੈ?',
+      'tableChipsLobbyOnly':
+          'ਚਿਪਸ ਦੀ ਕੀਮਤ ਵਾਲੀ ਟੇਬਲ ਤਸਵੀਰ ਸਿਰਫ਼ ਲੌਬੀ ਵਿੱਚ ਖਰੀਦੀ ਜਾ ਸਕਦੀ ਹੈ।',
+      'priceChips': '{cost} ਚਿਪਸ',
+      'priceDiamonds': '{cost} ਹੀਰੇ',
+      'priceHammers': '{cost} ਹਥੌੜੇ',
+      'priceHammerOne': '1 ਹਥੌੜਾ',
       'storeTabDiamonds': 'ਹੀਰੇ',
       'storeDiamondsTitle': 'ਹੀਰਾ ਸਟੋਰ',
       'storeDiamondsBlurb': 'ਹੀਰੇ ਦੇ ਕੇ ਮਿਜ਼ਾਈਲਾਂ ਲਓ।',

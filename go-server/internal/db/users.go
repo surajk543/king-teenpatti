@@ -100,7 +100,13 @@ type User struct {
 	// being worn, or null for none. Replaced avatarChoice, which carried the
 	// bare "/profiles/bear.svg" path before the catalogue existed.
 	ActivePictureID *int64 `json:"activePictureId"`
-	Chips           int64  `json:"chips"`
+	// TablePicture is the table picture the player has laid (owner, 15 Sep
+	// 2026; user_table_choice joined to table_pictures), or null for the table
+	// as it comes. Resolved here, as AvatarURL is, so the felt can be drawn
+	// from the account alone — before the catalogue has arrived, and for a row
+	// since retired from it. Go only.
+	TablePicture *LaidTablePicture `json:"tablePicture"`
+	Chips        int64             `json:"chips"`
 	// Diamond is the premium soft currency (users.diamond). Every account
 	// starts with 2 (owner, 14 Sep 2026; it was 1). It is not
 	// chip_ledger's business: the ledger backs the chips invariant, and
@@ -125,9 +131,37 @@ type User struct {
 	LastLoginAt   int64   `json:"lastLoginAt"` // epoch ms
 }
 
+// LaidTablePicture is user.tablePicture on the wire: the table picture a
+// player has laid, with both URLs so the client can draw the one its theme
+// wants without a second request. AssetFormat is the catalogue's, for the
+// loader (TablePicture.AssetFormat).
+type LaidTablePicture struct {
+	ID          int64  `json:"id"`
+	DayURL      string `json:"dayUrl"`
+	NightURL    string `json:"nightUrl"`
+	AssetFormat string `json:"assetFormat"`
+	// Currency and Cost are the catalogue row's, carried so a table can rank
+	// the pictures its players have laid (game.TablePicture): diamonds over
+	// hammers over coins, then the dearer.
+	Currency string `json:"currency"`
+	Cost     int64  `json:"cost"`
+}
+
+// ForTable is the laid picture as it goes onto a seat, tagged with the player
+// who laid it; nil for nil.
+func (l *LaidTablePicture) ForTable(userID string) *game.TablePicture {
+	if l == nil {
+		return nil
+	}
+	return &game.TablePicture{
+		ID: l.ID, DayURL: l.DayURL, NightURL: l.NightURL, AssetFormat: l.AssetFormat,
+		Currency: l.Currency, Cost: l.Cost, UserID: userID,
+	}
+}
+
 // Player converts to the seat-level view the RoomManager needs.
 func (u *User) Player() game.Player {
-	return game.Player{ID: u.ID, DisplayName: u.DisplayName, AvatarURL: u.AvatarURL, Chips: u.Chips}
+	return game.Player{ID: u.ID, DisplayName: u.DisplayName, AvatarURL: u.AvatarURL, TablePicture: u.TablePicture.ForTable(u.ID), Chips: u.Chips}
 }
 
 // Profile is a verified login identity (auth providers → UpsertFromProfile).
@@ -263,7 +297,9 @@ type queryer interface {
 // diamond, where the baseline declares them; a database built by older scripts
 // has them at the end of the table), so a row scans into
 // userRow without depending on `SELECT *` column ordering, followed by the
-// asset_url of the catalogue picture the player is wearing. The reward
+// asset_url of the catalogue picture the player is wearing and the table
+// picture they have laid (user_table_choice → table_pictures; owner, 15 Sep
+// 2026). The reward
 // milestones come from user_milestones, where milestone_claimed and
 // next_bonus_at sat until 14 Sep 2026, and read 0 for a player with no row.
 // Qualified with the `u` alias because every read now goes through userFrom's
@@ -272,10 +308,12 @@ const userColumns = `u.id, u.provider, u.provider_user_id, u.display_name, u.ema
        u.hands_played, u.hands_won, u.hands_lost, u.hands_left_mid, u.total_winnings, u.biggest_pot,
        COALESCE(mh.claimed_up_to, 0), COALESCE(mt.next_claim_at, 0), COALESCE(mb.next_claim_at, 0),
        u.active_picture_id, u.created_at, u.updated_at, u.last_login_at,
-       ap.asset_url`
+       ap.asset_url,
+       tp.id, tp.day_asset_url, tp.night_asset_url, tp.asset_format, tp.currency, tp.cost`
 
 // userFrom joins the picture the player is wearing so publicUser can resolve
-// avatarUrl without a second round trip, and the player's three rows of
+// avatarUrl without a second round trip, the table picture they have laid for
+// the same reason, and the player's three rows of
 // user_milestones for the rewards. LEFT, because most players wear nothing and
 // a new one has collected nothing, and every one of them must still come back
 // from these queries.
@@ -284,6 +322,8 @@ const userColumns = `u.id, u.provider, u.provider_user_id, u.display_name, u.ema
 // catalogue row too, and two players buying the same picture would queue behind
 // each other for no reason.
 const userFrom = ` FROM users u LEFT JOIN profile_pictures ap ON ap.id = u.active_picture_id
+  LEFT JOIN user_table_choice tc ON tc.user_id = u.id
+  LEFT JOIN table_pictures tp ON tp.id = tc.table_picture_id
   LEFT JOIN user_milestones mh ON mh.user_id = u.id AND mh.milestone = 'HANDS_PLAYED'
   LEFT JOIN user_milestones mt ON mt.user_id = u.id AND mt.milestone = 'TIMED_BONUS'
   LEFT JOIN user_milestones mb ON mb.user_id = u.id AND mb.milestone = 'DAILY_BONUS' `
@@ -294,15 +334,22 @@ type userRow struct {
 	email, avatarURL                          *string
 	// activePictureID is the catalogue row worn; pictureAssetURL is that
 	// row's asset_url, carried along by userFrom's join.
-	activePictureID           *int64
-	pictureAssetURL           *string
-	chips                     int64
-	diamond                   int
-	hammer                    int
-	missile                   int
-	handsPlayed, handsWon     int
-	handsLost, handsLeftMid   int
-	totalWinnings, biggestPot int64
+	activePictureID *int64
+	pictureAssetURL *string
+	// tablePictureID and the three beside it are the table picture laid,
+	// carried by userFrom's joins; all nil for the table as it comes.
+	tablePictureID             *int64
+	tableDayURL, tableNightURL *string
+	tableAssetFormat           *string
+	tableCurrency              *string
+	tableCost                  *int64
+	chips                      int64
+	diamond                    int
+	hammer                     int
+	missile                    int
+	handsPlayed, handsWon      int
+	handsLost, handsLeftMid    int
+	totalWinnings, biggestPot  int64
 	// milestoneClaimed is the HANDS_PLAYED claimed_up_to, nextBonusAt the
 	// TIMED_BONUS next_claim_at and nextDailyAt the DAILY_BONUS one, from
 	// user_milestones; 0 with no row.
@@ -318,7 +365,8 @@ func scanUser(row pgx.Row) (*userRow, error) {
 	err := row.Scan(&r.id, &r.provider, &r.providerUserID, &r.displayName, &r.email, &r.avatarURL, &r.chips, &r.diamond, &r.hammer, &r.missile,
 		&r.handsPlayed, &r.handsWon, &r.handsLost, &r.handsLeftMid, &r.totalWinnings, &r.biggestPot,
 		&r.milestoneClaimed, &r.nextBonusAt, &r.nextDailyAt, &r.activePictureID, &r.createdAt, &r.updatedAt, &r.lastLoginAt,
-		&r.pictureAssetURL)
+		&r.pictureAssetURL,
+		&r.tablePictureID, &r.tableDayURL, &r.tableNightURL, &r.tableAssetFormat, &r.tableCurrency, &r.tableCost)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -355,6 +403,21 @@ func (u *Users) publicUser(r *userRow) *User {
 	if r.pictureAssetURL != nil && *r.pictureAssetURL != "" {
 		avatarURL = r.pictureAssetURL
 	}
+	// The table picture laid, when the join found its catalogue row; a choice
+	// whose row has gone (the cascade is on the way) reads as no table.
+	var table *LaidTablePicture
+	if r.tablePictureID != nil && r.tableDayURL != nil && r.tableNightURL != nil {
+		table = &LaidTablePicture{ID: *r.tablePictureID, DayURL: *r.tableDayURL, NightURL: *r.tableNightURL}
+		if r.tableAssetFormat != nil {
+			table.AssetFormat = *r.tableAssetFormat
+		}
+		if r.tableCurrency != nil {
+			table.Currency = *r.tableCurrency
+		}
+		if r.tableCost != nil {
+			table.Cost = *r.tableCost
+		}
+	}
 	return &User{
 		ID:                r.id,
 		Provider:          r.provider,
@@ -363,6 +426,7 @@ func (u *Users) publicUser(r *userRow) *User {
 		AvatarURL:         avatarURL,
 		ProviderAvatarURL: r.avatarURL,
 		ActivePictureID:   r.activePictureID,
+		TablePicture:      table,
 		Chips:             r.chips,
 		Diamond:           r.diamond,
 		Hammer:            r.hammer,

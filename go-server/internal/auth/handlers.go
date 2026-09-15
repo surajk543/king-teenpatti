@@ -156,26 +156,43 @@ func (h *Handler) Me(w http.ResponseWriter, r *http.Request, user *db.User) {
 	WriteJSON(w, http.StatusOK, UserResponse{User: h.takeOffLapsedPicture(r, user)})
 }
 
-// takeOffLapsedPicture takes off the premium picture a player is wearing when
-// its rental has run out, and returns the user as they now stand: re-read when
-// something changed, so the answer carries the face they actually have.
+// takeOffLapsedPicture takes off the premium picture a player is wearing, and
+// the premium table picture they have laid (owner, 15 Sep 2026), when its
+// rental has run out, and returns the user as they now stand: re-read when
+// something changed, so the answer carries the face and the table they
+// actually have.
 //
 // A failure is logged and swallowed. Losing a picture is not worth refusing
 // the request over, and every ownership read tests the expiry itself.
 func (h *Handler) takeOffLapsedPicture(r *http.Request, user *db.User) *db.User {
-	if h.deps.Pictures == nil {
-		return user
+	changed := false
+	if h.deps.Pictures != nil {
+		expired, err := h.deps.Pictures.ExpireLapsed(r.Context(), user.ID)
+		switch {
+		case err != nil && h.deps.Logger != nil:
+			h.deps.Logger.Warn("picture expiry sweep failed", "userId", user.ID, "error", err.Error())
+		case expired:
+			changed = true
+			if h.deps.Logger != nil {
+				h.deps.Logger.Info("premium picture expired", "userId", user.ID)
+			}
+		}
 	}
-	expired, err := h.deps.Pictures.ExpireLapsed(r.Context(), user.ID)
-	switch {
-	case err != nil && h.deps.Logger != nil:
-		h.deps.Logger.Warn("picture expiry sweep failed", "userId", user.ID, "error", err.Error())
-	case expired:
+	if h.deps.TablePictures != nil {
+		expired, err := h.deps.TablePictures.ExpireLapsed(r.Context(), user.ID)
+		switch {
+		case err != nil && h.deps.Logger != nil:
+			h.deps.Logger.Warn("table picture expiry sweep failed", "userId", user.ID, "error", err.Error())
+		case expired:
+			changed = true
+			if h.deps.Logger != nil {
+				h.deps.Logger.Info("premium table picture expired", "userId", user.ID)
+			}
+		}
+	}
+	if changed {
 		if fresh, ferr := h.deps.Users.FindByID(r.Context(), user.ID); ferr == nil && fresh != nil {
 			user = fresh
-		}
-		if h.deps.Logger != nil {
-			h.deps.Logger.Info("premium picture expired", "userId", user.ID)
 		}
 	}
 	return user
@@ -706,6 +723,170 @@ func (h *Handler) TradeMissiles(w http.ResponseWriter, r *http.Request, user *db
 		Diamonds: trade.Diamonds,
 		Missiles: trade.Missiles,
 	})
+}
+
+// TablePictures is GET /api/table-pictures (owner, 15 Sep 2026; Go only): the
+// table-picture catalogue in display order, as Profiles is the face catalogue.
+// The token is optional for the same reasons — the catalogue is not private,
+// and a token buys the `owned` flag per row; a bad one is ignored, not
+// refused. Listing is also where a lapsed rental on the laid table is noticed
+// for a player who never passes through login.
+func (h *Handler) TablePictures(w http.ResponseWriter, r *http.Request) {
+	viewer := ""
+	if claims, err := h.deps.Tokens.Verify(TokenFromRequest(r)); err == nil {
+		viewer = claims.Subject
+	}
+	if viewer != "" {
+		if _, err := h.deps.TablePictures.ExpireLapsed(r.Context(), viewer); err != nil && h.deps.Logger != nil {
+			h.deps.Logger.Warn("table picture expiry sweep failed", "userId", viewer, "error", err.Error())
+		}
+	}
+	pictures, err := h.deps.TablePictures.List(r.Context(), viewer)
+	if err != nil {
+		h.writeError(w, r, err)
+		return
+	}
+	WriteJSON(w, http.StatusOK, TablePicturesResponse{TablePictures: pictures})
+}
+
+// UseTablePicture is POST /api/table-pictures/use {pictureId: <id> | null}
+// (owner, 15 Sep 2026; Go only): Avatar for the table. Order: null/absent
+// takes the picture off; an id not in the catalogue → 400
+// unknown_table_picture; a retired one → 400 picture_retired; a premium one
+// the player has not bought → 403 picture_locked; then TablePictures.Use →
+// 200 {user}, whose tablePicture carries the pair of URLs to draw.
+//
+// Allowed while seated: the table shows the highest-ranking picture its
+// players have laid to every viewer (owner, 15 Sep 2026), so a seated player's
+// change goes straight onto their seat (Deps.TablePictureLaid) and the table
+// re-decides what it shows. No wallet moves.
+func (h *Handler) UseTablePicture(w http.ResponseWriter, r *http.Request, user *db.User) {
+	var req TablePictureRequest
+	if err := ReadJSONBody(r, &req); err != nil {
+		h.writeError(w, r, err)
+		return
+	}
+
+	var choice *int64
+	if req.PictureID != nil {
+		id, ok := pictureIDFrom(*req.PictureID)
+		if !ok {
+			WriteJSON(w, http.StatusBadRequest, ErrorResponse{Error: CodeUnknownTablePicture, Message: MsgUnknownTablePicture})
+			return
+		}
+		picture, active, err := h.deps.TablePictures.Find(r.Context(), user.ID, id)
+		switch {
+		case errors.Is(err, db.ErrTablePictureUnknown):
+			WriteJSON(w, http.StatusBadRequest, ErrorResponse{Error: CodeUnknownTablePicture, Message: MsgUnknownTablePicture})
+			return
+		case err != nil:
+			h.writeError(w, r, err)
+			return
+		case !active:
+			WriteJSON(w, http.StatusBadRequest, ErrorResponse{Error: CodePictureRetired, Message: MsgTablePictureRetired})
+			return
+		case !picture.Owned:
+			WriteJSON(w, http.StatusForbidden, ErrorResponse{Error: CodePictureLocked, Message: MsgTablePictureLocked})
+			return
+		}
+		choice = &id
+	}
+
+	updated, err := h.deps.TablePictures.Use(r.Context(), user.ID, choice)
+	if err != nil {
+		h.writeError(w, r, err)
+		return
+	}
+	if h.deps.TablePictureLaid != nil {
+		h.deps.TablePictureLaid(user.ID, updated.TablePicture.ForTable(user.ID))
+	}
+	WriteJSON(w, http.StatusOK, UserResponse{User: updated})
+}
+
+// BuyTablePicture is POST /api/table-pictures/buy {pictureId} (owner, 15 Sep
+// 2026; Go only): BuyPicture for a table picture, with the same rules and the
+// same codes. The answer is {user, picture, charged, spent}; every shortage is
+// 409 picture_chips with the wallet that was short named in the message. A
+// seated player buys a DIAMOND or HAMMER picture and is refused a COIN one
+// (409 seated) — the money rule BuyPicture explains — and in the lobby the
+// purchase runs under the player's seat lock (Deps.WhileUnseated) for the
+// reason given there. Buying does not lay it: that is /api/table-pictures/use.
+func (h *Handler) BuyTablePicture(w http.ResponseWriter, r *http.Request, user *db.User) {
+	var req TablePictureRequest
+	if err := ReadJSONBody(r, &req); err != nil {
+		h.writeError(w, r, err)
+		return
+	}
+	if req.PictureID == nil {
+		WriteJSON(w, http.StatusBadRequest, ErrorResponse{Error: CodeUnknownTablePicture, Message: MsgUnknownTablePicture})
+		return
+	}
+	id, ok := pictureIDFrom(*req.PictureID)
+	if !ok {
+		WriteJSON(w, http.StatusBadRequest, ErrorResponse{Error: CodeUnknownTablePicture, Message: MsgUnknownTablePicture})
+		return
+	}
+
+	var bought *db.TablePicturePurchase
+	var err error
+	if !h.whileUnseated(r.Context(), user.ID, func(ctx context.Context) { bought, err = h.deps.TablePictures.Buy(ctx, user.ID, id) }) {
+		bought, err = h.deps.TablePictures.BuyAtTable(r.Context(), user.ID, id)
+	}
+	switch {
+	case errors.Is(err, db.ErrPictureAtTable):
+		WriteJSON(w, http.StatusConflict, ErrorResponse{Error: CodeSeated, Message: MsgSeatedTablePicture})
+		return
+	case errors.Is(err, db.ErrTablePictureUnknown):
+		WriteJSON(w, http.StatusBadRequest, ErrorResponse{Error: CodeUnknownTablePicture, Message: MsgUnknownTablePicture})
+		return
+	case errors.Is(err, db.ErrPictureInactive):
+		WriteJSON(w, http.StatusBadRequest, ErrorResponse{Error: CodePictureRetired, Message: MsgTablePictureRetired})
+		return
+	case errors.Is(err, db.ErrPictureFree):
+		WriteJSON(w, http.StatusBadRequest, ErrorResponse{Error: CodePictureFree, Message: MsgTablePictureFree})
+		return
+	case errors.Is(err, db.ErrPictureChips):
+		WriteJSON(w, http.StatusConflict, ErrorResponse{Error: CodePictureChips, Message: MsgTablePictureChips})
+		return
+	case errors.Is(err, db.ErrPictureDiamonds):
+		WriteJSON(w, http.StatusConflict, ErrorResponse{Error: CodePictureChips, Message: MsgTablePictureDiamonds})
+		return
+	case errors.Is(err, db.ErrPictureHammers):
+		WriteJSON(w, http.StatusConflict, ErrorResponse{Error: CodePictureChips, Message: tablePictureHammersRefusal(err)})
+		return
+	case err != nil:
+		h.writeError(w, r, err)
+		return
+	}
+
+	if bought.Charged && h.deps.Logger != nil {
+		h.deps.Logger.Info("table picture bought",
+			"userId", user.ID, "pictureId", id, "currency", bought.Picture.Currency, "spent", bought.Spent)
+	}
+	WriteJSON(w, http.StatusOK, BuyTablePictureResponse{
+		User:    bought.User,
+		Picture: bought.Picture,
+		Charged: bought.Charged,
+		Spent:   bought.Spent,
+	})
+}
+
+// TablePictureHammersMessage is PictureHammersMessage for a table picture:
+// "You need 30 hammers to unlock this table picture.", or the singular.
+func TablePictureHammersMessage(cost int64) string {
+	if cost == 1 {
+		return MsgTablePictureHammer
+	}
+	return fmt.Sprintf(MsgTablePictureHammersFmt, cost)
+}
+
+// tablePictureHammersRefusal reads the price off a db.PictureHammerShortage.
+func tablePictureHammersRefusal(err error) string {
+	var short *db.PictureHammerShortage
+	if errors.As(err, &short) && short.Cost > 0 {
+		return TablePictureHammersMessage(short.Cost)
+	}
+	return MsgTablePictureHammers
 }
 
 // Name is POST /api/profile/name {name} (requirement 29). Order: seated →

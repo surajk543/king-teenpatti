@@ -23,7 +23,10 @@ type Player struct {
 	ID          string
 	DisplayName string
 	AvatarURL   *string
-	Chips       int64
+	// TablePicture is the table picture the player has laid on their
+	// account, or nil (owner, 15 Sep 2026); it goes onto their seat.
+	TablePicture *TablePicture
+	Chips        int64
 }
 
 // LobbyOptions is RoomManager.lobbyOptions(): the menu the client renders
@@ -800,6 +803,17 @@ func (rm *RoomManager) SetPlayerAvatar(userID string, avatarURL *string) {
 	}
 }
 
+// SetPlayerTablePicture puts the table picture a player has just laid (nil:
+// taken off) on their seat, when they have one, so the table can show it to
+// everyone (Table.SetTablePicture). For a player in the lobby it does
+// nothing: their next seat reads the picture from the user row like any
+// other join.
+func (rm *RoomManager) SetPlayerTablePicture(userID string, pic *TablePicture) {
+	if t := rm.GetTableForPlayer(userID); t != nil {
+		_ = t.SetTablePicture(userID, pic)
+	}
+}
+
 // seatedTableLocked is getTableForPlayer under mu: the table the index
 // points at, or nil. An index entry naming a table that is no longer
 // registered is stale (Node's getTable returned null for it too) and is
@@ -1440,11 +1454,12 @@ func (rm *RoomManager) seatHeld(table *Table, user Player, socketID string) erro
 	rm.mu.Unlock()
 
 	_, err := table.AddPlayer(NewPlayer{
-		UserID:      user.ID,
-		DisplayName: user.DisplayName,
-		AvatarURL:   user.AvatarURL,
-		Chips:       user.Chips,
-		SocketID:    socketID,
+		UserID:       user.ID,
+		DisplayName:  user.DisplayName,
+		AvatarURL:    user.AvatarURL,
+		TablePicture: user.TablePicture,
+		Chips:        user.Chips,
+		SocketID:     socketID,
 	})
 
 	rm.mu.Lock()
@@ -1898,10 +1913,11 @@ func (rm *RoomManager) movePlayer(source, target *Table) (*PlayerMove, error) {
 	}
 	seat := seats[0]
 	player := Player{
-		ID:          seat.UserID,
-		DisplayName: seat.DisplayName,
-		AvatarURL:   seat.AvatarURL,
-		Chips:       seat.Chips,
+		ID:           seat.UserID,
+		DisplayName:  seat.DisplayName,
+		AvatarURL:    seat.AvatarURL,
+		TablePicture: seat.TablePicture,
+		Chips:        seat.Chips,
 	}
 	socketID := seat.SocketID
 	fromRoomID := source.ID()

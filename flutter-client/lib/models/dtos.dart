@@ -7,6 +7,8 @@
 /// distinguishable from "broke".
 library;
 
+import 'dart:ui' show Brightness;
+
 int _int(dynamic v) => v is num ? v.toInt() : 0;
 
 /// Null stays null: a picture id of 0 would be a real-looking id the server
@@ -142,6 +144,7 @@ class User {
     required this.avatarUrl,
     required this.providerAvatarUrl,
     required this.activePictureId,
+    this.tablePicture,
     required this.handsPlayed,
     required this.handsWon,
     required this.handsLost,
@@ -183,6 +186,15 @@ class User {
   /// picker ticks — it used to be the `/profiles/x.svg` path, which never
   /// matched the id the picker had and so nothing ever showed as selected.
   final int? activePictureId;
+
+  /// The table picture laid on this player's table (owner, 15 Sep 2026), or
+  /// null for the table as it comes. Resolved by the server with both URLs,
+  /// so the felt is drawn from the account alone — before the catalogue is
+  /// down, and for a row since retired from it. An older server sends none.
+  final LaidTablePicture? tablePicture;
+
+  /// Which [TablePicture] is laid, or null: what the store's Tables tab ticks.
+  int? get activeTablePictureId => tablePicture?.id;
   final int handsPlayed;
   final int handsWon;
   final int handsLost;
@@ -204,6 +216,7 @@ class User {
     avatarUrl: avatarUrl,
     providerAvatarUrl: providerAvatarUrl,
     activePictureId: activePictureId,
+    tablePicture: tablePicture,
     handsPlayed: handsPlayed,
     handsWon: handsWon,
     handsLost: handsLost,
@@ -226,6 +239,7 @@ class User {
     avatarUrl: avatarUrl,
     providerAvatarUrl: providerAvatarUrl,
     activePictureId: activePictureId,
+    tablePicture: tablePicture,
     handsPlayed: handsPlayed,
     handsWon: handsWon,
     handsLost: handsLost,
@@ -246,6 +260,11 @@ class User {
     avatarUrl: j['avatarUrl'] as String?,
     providerAvatarUrl: j['providerAvatarUrl'] as String?,
     activePictureId: _intOrNull(j['activePictureId']),
+    tablePicture: j['tablePicture'] is Map
+        ? LaidTablePicture.fromJson(
+            Map<String, dynamic>.from(j['tablePicture'] as Map),
+          )
+        : null,
     handsPlayed: _int(j['handsPlayed']),
     handsWon: _int(j['handsWon']),
     handsLost: _int(j['handsLost']),
@@ -811,6 +830,7 @@ class RoomState {
     required this.sideshow,
     required this.you,
     required this.seats,
+    this.tablePicture,
   });
 
   final String roomId;
@@ -819,6 +839,12 @@ class RoomState {
   /// A table reached by its code alone (requirement 22). Its code is worth
   /// showing, since it is how friends are let in; a public table's is not.
   final bool isPrivate;
+
+  /// The table picture the table shows — the server's pick among the
+  /// pictures its seated players have laid, the same for every viewer,
+  /// tagged with who laid it — or null when nobody has (owner, 15 Sep 2026).
+  /// The felt draws this, never the viewer's own choice on its own.
+  final LaidTablePicture? tablePicture;
   final String category;
   final bool chipsHidden;
   final String state;
@@ -872,6 +898,11 @@ class RoomState {
             ?.map((e) => Seat.fromJson(Map<String, dynamic>.from(e as Map)))
             .toList() ??
         const [],
+    tablePicture: j['tablePicture'] is Map
+        ? LaidTablePicture.fromJson(
+            Map<String, dynamic>.from(j['tablePicture'] as Map),
+          )
+        : null,
   );
 }
 
@@ -917,6 +948,118 @@ class ChatMessage {
     displayName: _str(j['displayName']),
     text: _str(j['text']),
     at: _int(j['at']),
+  );
+}
+
+/// The table picture a player has laid, as `user.tablePicture` carries it:
+/// the pair of files and how to draw them. [dayUrl] is drawn on the light
+/// theme, [nightUrl] on the dark one ([forBrightness]).
+class LaidTablePicture {
+  const LaidTablePicture({
+    required this.id,
+    required this.dayUrl,
+    required this.nightUrl,
+    this.assetFormat = 'IMAGE',
+    this.userId = '',
+  });
+
+  final int id;
+  final String dayUrl;
+  final String nightUrl;
+
+  /// 'IMAGE' | 'SVG' | 'LOTTIE' | 'RIVE', one loader for both files.
+  final String assetFormat;
+
+  /// Who laid it, on `room:state.tablePicture` — the table shows the
+  /// server's pick among everyone seated (owner, 15 Sep 2026) — and empty on
+  /// the account's own `user.tablePicture`.
+  final String userId;
+
+  /// The file the theme wants: a pale cloth for dark ink by day, a deep one
+  /// for light ink by night. Server-relative or absolute, as sent.
+  String forBrightness(Brightness brightness) =>
+      brightness == Brightness.dark ? nightUrl : dayUrl;
+
+  factory LaidTablePicture.fromJson(Map<String, dynamic> j) =>
+      LaidTablePicture(
+        id: _int(j['id']),
+        dayUrl: _str(j['dayUrl']),
+        nightUrl: _str(j['nightUrl']),
+        assetFormat: _str(j['assetFormat'] ?? 'IMAGE'),
+        userId: _str(j['userId']),
+      );
+}
+
+/// One row of the server's table-picture catalogue (GET /api/table-pictures,
+/// owner 15 Sep 2026): a cloth for the player's own table, in two palettes.
+///
+/// [ProfilePicture] with the one URL split in two: [dayUrl] for the light
+/// theme and [nightUrl] for the dark one, since the ink on the table follows
+/// the theme and one picture cannot read under both. Everything else — the
+/// wallet, the price, the term, who owns it — is the same catalogue.
+class TablePicture {
+  const TablePicture({
+    required this.id,
+    required this.name,
+    required this.dayUrl,
+    required this.nightUrl,
+    this.assetFormat = 'IMAGE',
+    this.currency = 'COIN',
+    required this.type,
+    required this.cost,
+    required this.durationDays,
+    this.durationHours = 0,
+    required this.owned,
+    required this.expiresAt,
+  });
+
+  final int id;
+  final String name;
+  final String dayUrl;
+  final String nightUrl;
+  final String assetFormat;
+
+  /// Which wallet [cost] is paid from — [PictureCurrency.coin], `diamond` or
+  /// `hammer`; 'COIN' on a free row.
+  final String currency;
+
+  /// 'FREE' or 'PREMIUM'.
+  final String type;
+  final int cost;
+  final int durationDays;
+  final int durationHours;
+
+  /// Whether this player may lay it: every free picture, plus the premium
+  /// ones they have bought whose rental is running. Decided by the server.
+  final bool owned;
+
+  /// Epoch ms this player's rental runs out; 0 when they do not own it, or
+  /// own it for ever.
+  final int expiresAt;
+
+  bool get free => type == 'FREE';
+  bool get locked => !owned;
+  bool get rented => durationDays > 0 || durationHours > 0;
+  bool get pricedInDiamonds => currency == PictureCurrency.diamond;
+  bool get pricedInHammers => currency == PictureCurrency.hammer;
+
+  /// The file the theme wants ([LaidTablePicture.forBrightness]).
+  String forBrightness(Brightness brightness) =>
+      brightness == Brightness.dark ? nightUrl : dayUrl;
+
+  factory TablePicture.fromJson(Map<String, dynamic> j) => TablePicture(
+    id: _int(j['id']),
+    name: _str(j['name']),
+    dayUrl: _str(j['dayUrl']),
+    nightUrl: _str(j['nightUrl']),
+    assetFormat: _str(j['assetFormat'] ?? 'IMAGE'),
+    currency: _str(j['currency'] ?? 'COIN'),
+    type: _str(j['type']).isEmpty ? 'FREE' : _str(j['type']),
+    cost: _int(j['cost']),
+    durationDays: _int(j['durationDays']),
+    durationHours: _int(j['durationHours']),
+    expiresAt: _int(j['expiresAt']),
+    owned: j['owned'] == true,
   );
 }
 

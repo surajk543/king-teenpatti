@@ -26,9 +26,13 @@ func TestMigrationsAreVersionedOrderedAndSplitByKind(t *testing.T) {
 	// same day, was folded back into the baseline with the pictures' HAMMER
 	// currency, for another fresh production start (DEPLOY.md §8), and so, after
 	// production had run the pair, were V1.0.2__timed_bonus_milestone.sql (into
-	// the baseline) and V1.0.3__seed_new_pictures.sql (into the seed).
-	if len(migrations) != 2 {
-		t.Fatalf("expected one DDL script and one DML script, got %d", len(migrations))
+	// the baseline) and V1.0.3__seed_new_pictures.sql (into the seed). The table
+	// pictures (owner, 15 Sep 2026) are the first change production has to be
+	// brought forward to rather than started over on, so they are a new pair —
+	// V1.0.2__table_pictures.sql (DDL) and V1.0.3__seed_table_pictures.sql
+	// (DML) — and the baseline and its seed are untouched.
+	if len(migrations) != 4 {
+		t.Fatalf("expected two DDL scripts and two DML scripts, got %d", len(migrations))
 	}
 
 	for i, m := range migrations {
@@ -65,6 +69,36 @@ func TestMigrationsAreVersionedOrderedAndSplitByKind(t *testing.T) {
 	for _, ddl := range []string{"CREATE TABLE", "ALTER TABLE", "CREATE INDEX"} {
 		if strings.Contains(seed, ddl) {
 			t.Errorf("%s is DML and must not %s", migrations[1].File, ddl)
+		}
+	}
+
+	// The table pictures' pair keeps the same discipline, and — because
+	// production has run the baseline — touches nothing that exists: no ALTER,
+	// nothing on users (which ops/DEPLOY.md §7 may have handed to the
+	// superuser), only new tables and their rows.
+	tablesDDL, tablesSeed := statementsOf(migrations[2].SQL), statementsOf(migrations[3].SQL)
+	for _, want := range []string{
+		"CREATE TABLE IF NOT EXISTS table_pictures", "CREATE TABLE IF NOT EXISTS user_table_pictures",
+		"CREATE TABLE IF NOT EXISTS user_table_choice", "day_asset_url", "night_asset_url",
+		"CHECK (currency IN ('COIN', 'DIAMOND', 'HAMMER'))",
+	} {
+		if !strings.Contains(tablesDDL, want) {
+			t.Errorf("%s lacks %q", migrations[2].File, want)
+		}
+	}
+	// REFERENCES users (id) is allowed — it needs only the REFERENCES grant —
+	// but nothing may alter, index or re-declare users itself.
+	for _, banned := range []string{"INSERT INTO", "ALTER TABLE", "TABLE users", " ON users"} {
+		if strings.Contains(tablesDDL, banned) {
+			t.Errorf("%s must not %s", migrations[2].File, banned)
+		}
+	}
+	if !strings.Contains(tablesSeed, "INSERT INTO table_pictures") {
+		t.Errorf("%s should seed the table pictures", migrations[3].File)
+	}
+	for _, ddl := range []string{"CREATE TABLE", "ALTER TABLE", "CREATE INDEX"} {
+		if strings.Contains(tablesSeed, ddl) {
+			t.Errorf("%s is DML and must not %s", migrations[3].File, ddl)
 		}
 	}
 

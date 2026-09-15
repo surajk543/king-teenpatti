@@ -1389,6 +1389,37 @@ class _TableCard extends StatelessWidget {
                       ),
                 child: Stack(
                   children: [
+                    // The table's category as a ribbon across the top-right
+                    // corner (owner, 16 Sep 2026: "move the SEEN text to the
+                    // right and rotate it diagonal at the card corner, same
+                    // for BLIND"): the badge stretched to a band four plates
+                    // long and turned 45°, its centre 1.2 plates in from the
+                    // corner along the diagonal, so the band meets the top
+                    // edge and the right edge 2.4 plates out from the corner
+                    // and the panel's own clip cuts its ends. The column
+                    // keeps a plate's height where the badge stood.
+                    Positioned(
+                      top: plateH * 1.2 - plateH / 2,
+                      right: plateH * 1.2 - plateH * 2,
+                      child: IgnorePointer(
+                        child: Transform.rotate(
+                          angle: math.pi / 4,
+                          child: SizedBox(
+                            width: plateH * 4,
+                            height: plateH,
+                            child: _CategoryBadge(
+                              label: blind ? t.blind : t.seen,
+                              palette: palette,
+                              height: plateH,
+                              // The two cards at the same stake sit side by
+                              // side, so their badges are offset rather than
+                              // pulsing together.
+                              delay: Duration(milliseconds: blind ? 900 : 0),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
                     Padding(
                       padding: EdgeInsets.all(pad),
                       child: LayoutBuilder(
@@ -1421,17 +1452,11 @@ class _TableCard extends StatelessWidget {
                                     crossAxisAlignment:
                                         CrossAxisAlignment.start,
                                     children: [
-                                      _CategoryBadge(
-                                        label: blind ? t.blind : t.seen,
-                                        palette: palette,
-                                        height: plateH,
-                                        // The two cards at the same stake sit side by side,
-                                        // so their badges are offset rather than pulsing
-                                        // together.
-                                        delay: Duration(
-                                          milliseconds: blind ? 900 : 0,
-                                        ),
-                                      ),
+                                      // Where the category badge stood until the
+                                      // owner moved it to the corner as a ribbon
+                                      // (16 Sep 2026, below): its height is kept
+                                      // so nothing else on the card moves.
+                                      SizedBox(height: plateH),
                                       SizedBox(height: gap),
                                       // Counts up on first paint, so the stake lands rather
                                       // than simply being there.
@@ -1941,6 +1966,10 @@ class _CategoryBadgeState extends State<_CategoryBadge>
                 children: [
                   Container(
                     height: h,
+                    // Centred, so the label sits mid-band when the badge is
+                    // stretched into the card's corner ribbon; at its natural
+                    // width this changes nothing.
+                    alignment: Alignment.center,
                     padding: EdgeInsets.symmetric(horizontal: h * 0.30),
                     color: palette.container,
                     child: Row(

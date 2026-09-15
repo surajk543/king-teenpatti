@@ -352,6 +352,7 @@ func restoreTable(snap *Snapshot, opts TableOptions) (*Table, error) {
 		if ss.AvatarURL != nil {
 			s.avatarURL = StrPtr(*ss.AvatarURL)
 		}
+		s.tablePicture = ss.TablePicture.clone()
 		if ss.LastAction != nil {
 			s.lastAction = ActionPtr(*ss.LastAction)
 		}

@@ -39,6 +39,22 @@ type PictureStore interface {
 	ExpireLapsed(ctx context.Context, userID string) (bool, error)
 }
 
+// TablePictureStore is the slice of db.TablePictures the handlers use (owner,
+// 15 Sep 2026; Go only): the catalogue of cloths a player lays on their own
+// table, the till they are bought at, and the choice itself.
+type TablePictureStore interface {
+	List(ctx context.Context, userID string) ([]db.TablePicture, error)
+	Find(ctx context.Context, userID string, id int64) (db.TablePicture, bool, error)
+	Buy(ctx context.Context, userID string, id int64) (*db.TablePicturePurchase, error)
+	// BuyAtTable is Buy for a seated player: diamonds or hammers only
+	// (db.ErrPictureAtTable).
+	BuyAtTable(ctx context.Context, userID string, id int64) (*db.TablePicturePurchase, error)
+	// Use lays a picture (nil takes it off) and returns the fresh user.
+	Use(ctx context.Context, userID string, id *int64) (*db.User, error)
+	// ExpireLapsed takes off a laid picture whose rental has run out.
+	ExpireLapsed(ctx context.Context, userID string) (bool, error)
+}
+
 // Deps wires a Handler.
 type Deps struct {
 	Config   *config.Config
@@ -71,10 +87,19 @@ type Deps struct {
 	// at a table (app: rooms.SetPlayerAvatar, a no-op for a player in the
 	// lobby). Nil = nobody to tell.
 	PictureWorn func(userID string, avatarURL *string)
+	// TablePictureLaid puts the table picture a player has just laid (nil:
+	// taken off) on their seat when they are at a table, so the table can
+	// show it to everyone (app: rooms.SetPlayerTablePicture; owner, 15 Sep
+	// 2026). Nil = nobody to tell.
+	TablePictureLaid func(userID string, pic *game.TablePicture)
 	// Pictures is the profile-picture catalogue. It replaced a live listing
 	// of <PublicDir>/profiles: the files are still served from there, but
 	// what is on offer, what it is called and what it costs are rows now.
 	Pictures PictureStore
+	// TablePictures is the table-picture catalogue (owner, 15 Sep 2026). Nil
+	// only in tests that never reach its routes; the lapsed-rental sweep
+	// skips it then.
+	TablePictures TablePictureStore
 	// Purchases credits a verified Google Play purchase. Nil when the server
 	// has no Play credentials, and then the endpoint refuses every request
 	// rather than crediting on the client's word.
@@ -134,6 +159,9 @@ type PurchaseOutcome struct {
 //	POST /api/profile/picture/buy → BuyPicture  (RequireAuth)
 //	POST /api/profile/name      → Name          (RequireAuth)
 //	POST /api/store/missiles    → TradeMissiles (RequireAuth; Go only)
+//	GET  /api/table-pictures     → TablePictures    (token optional; Go only)
+//	POST /api/table-pictures/use → UseTablePicture  (RequireAuth; Go only)
+//	POST /api/table-pictures/buy → BuyTablePicture  (RequireAuth; Go only)
 //
 // Responses are JSON; errors are ErrorResponse. Body parsing (ReadJSONBody):
 // JSON only, UTF-8 only, 32 KiB limit (express.json({limit:'32kb'})); a
@@ -171,6 +199,9 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.Handle("/api/profile/picture/buy", methods(http.MethodPost, h.RequireAuth(h.BuyPicture)))
 	mux.Handle("/api/profile/name", methods(http.MethodPost, h.RequireAuth(h.Name)))
 	mux.Handle("/api/store/missiles", methods(http.MethodPost, h.RequireAuth(h.TradeMissiles)))
+	mux.Handle("/api/table-pictures", methods(http.MethodGet, http.HandlerFunc(h.TablePictures)))
+	mux.Handle("/api/table-pictures/use", methods(http.MethodPost, h.RequireAuth(h.UseTablePicture)))
+	mux.Handle("/api/table-pictures/buy", methods(http.MethodPost, h.RequireAuth(h.BuyTablePicture)))
 }
 
 // methods lets `method` (and HEAD when method is GET) through to next and
@@ -380,6 +411,51 @@ type BuyPictureResponse struct {
 	Spent   int64      `json:"spent"`
 }
 
+// TablePicturesResponse ← GET /api/table-pictures: the table-picture
+// catalogue in display order, each row marked with whether this caller may
+// lay it (owner, 15 Sep 2026; Go only). Anonymous callers see the free ones as
+// owned and nothing else.
+type TablePicturesResponse struct {
+	TablePictures []db.TablePicture `json:"tablePictures"` // [] when empty, never null
+}
+
+// TablePictureRequest ← POST /api/table-pictures/use {pictureId: <id> | null}
+// and POST /api/table-pictures/buy {pictureId}. Decoded the forgiving way
+// AvatarRequest is — a JSON number or its text — since the id came off a
+// listing this server produced. nil is "take the picture off" on use and a
+// missing id on buy.
+type TablePictureRequest struct {
+	PictureID *string `json:"pictureId"`
+}
+
+// UnmarshalJSON applies AvatarRequest's coercion to pictureId.
+func (r *TablePictureRequest) UnmarshalJSON(data []byte) error {
+	*r = TablePictureRequest{}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		if bytes.HasPrefix(bytes.TrimSpace(data), []byte("[")) {
+			return nil
+		}
+		return err
+	}
+	value, ok := raw["pictureId"]
+	if !ok || string(value) == "null" {
+		return nil
+	}
+	text := jsString(value)
+	r.PictureID = &text
+	return nil
+}
+
+// BuyTablePictureResponse ← POST /api/table-pictures/buy: BuyPictureResponse
+// for a table picture. Charged is false when the player already owned it.
+type BuyTablePictureResponse struct {
+	User    *db.User        `json:"user"`
+	Picture db.TablePicture `json:"picture"`
+	Charged bool            `json:"charged"`
+	Spent   int64           `json:"spent"`
+}
+
 // MissileTradeRequest ← POST /api/store/missiles {packId, requestId}. packId
 // names a pack of db.MissilePacks; requestId is the client's idempotency key
 // for this trade (1 to MissileRequestIDMaxLength UTF-16 units), so a retried
@@ -455,9 +531,21 @@ const (
 	MsgPictureHammer        = "You need 1 hammer to unlock this picture."
 	MsgPictureHammersFormat = "You need %d hammers to unlock this picture."
 	MsgPictureHammers       = "You do not have enough hammers for that picture."
-	MsgMissileStoreClosed   = "The missile store is not open yet."
-	MsgUnknownMissilePack   = "That missile pack does not exist"
-	MsgInvalidRequestID     = "A missile trade needs a request id of 1 to 64 characters"
+	// The table pictures' refusals (owner, 15 Sep 2026) word the profile
+	// pictures' rules for the table; the codes are shared, the sentences not.
+	MsgUnknownTablePicture    = "That table picture is not available."
+	MsgTablePictureLocked     = "Unlock that table picture before you can use it."
+	MsgTablePictureRetired    = "That table picture is no longer available."
+	MsgTablePictureFree       = "That table picture is free — just choose it."
+	MsgTablePictureChips      = "You do not have enough chips for that table picture."
+	MsgTablePictureDiamonds   = "You do not have enough diamonds for that table picture."
+	MsgTablePictureHammer     = "You need 1 hammer to unlock this table picture."
+	MsgTablePictureHammersFmt = "You need %d hammers to unlock this table picture."
+	MsgTablePictureHammers    = "You do not have enough hammers for that table picture."
+	MsgSeatedTablePicture     = "You can only buy a chip-priced table picture in the lobby."
+	MsgMissileStoreClosed     = "The missile store is not open yet."
+	MsgUnknownMissilePack     = "That missile pack does not exist"
+	MsgInvalidRequestID       = "A missile trade needs a request id of 1 to 64 characters"
 	// MsgNotEnoughDiamondsFormat is fmt.Sprintf'd with the pack's diamonds.
 	// It is always plural: the cheapest pack in db.MissilePacks costs 10
 	// diamonds, so none costs a single diamond.

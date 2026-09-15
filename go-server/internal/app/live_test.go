@@ -461,7 +461,11 @@ func TestPostgresHoldsNoGameState(t *testing.T) {
 	// Sideshow is charged against — receipts, not game state. missile_purchases
 	// and missile_spends (14 Sep 2026) are the same for missiles. user_milestones
 	// (14 Sep 2026) is which rewards a player has collected, moved off users.
-	want := []string{"chip_ledger", "diamond_purchases", "hammer_purchases", "hammer_spends", "missile_purchases", "missile_spends", "profile_pictures", "user_milestones", "user_profile_pictures", "users"}
+	// table_pictures, user_table_pictures and user_table_choice (15 Sep 2026)
+	// are the table-picture catalogue, who has bought which, and which each
+	// player has laid — a catalogue, receipts and a choice, no game state.
+	want := []string{"chip_ledger", "diamond_purchases", "hammer_purchases", "hammer_spends", "missile_purchases", "missile_spends", "profile_pictures",
+		"table_pictures", "user_milestones", "user_profile_pictures", "user_table_choice", "user_table_pictures", "users"}
 	if !slices.Equal(tables, want) {
 		t.Fatalf("schema tables = %v, want %v", tables, want)
 	}

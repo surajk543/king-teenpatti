@@ -37,7 +37,7 @@ A turn-based multiplayer **Teen Patti** (3-card Indian poker) game:
 | Node.js server | *(removed)* | The original implementation, removed from the repo on 8 Sep 2026 (`git log -- server/`, last commit `c19963b`; `multi_node` branch). Its behaviour is what §5–§7 document; its file names are what those sections cite. **No longer a rollback target at all** (12 Sep 2026): it reads and writes `users.avatar_choice`, which the schema dropped for `active_picture_id`, and knows nothing of the picture-catalogue tables — so it cannot run against this database. `ops/rollback-to-node.sh` was deleted rather than left as a recovery script that would fail when used; rolling back now means the previous **Go** tag (DEPLOY.md §5). |
 | Mobile client | `flutter-client/` | **The live client.** Flutter 3.44 / Dart 3.12, Material 3 via FlexColorScheme. Android is the shipping platform; `ios/` exists and is configured (`docs/ios-setup.md`) but has never been compiled — there is no macOS here. |
 | Browser client | `go-server/public/` | Zero-build vanilla-JS reference client served at `/` by the Go binary (`PUBLIC_DIR`) — **in dev only; production hides it** (`ROOT_REDIRECT=/dashboard/`, §7.4/§9) and serves just `privacy/`, `profiles/` from that dir. **Lags behind** — no sideshow, kick, rename, entry-cap or Indian-numbering UI. |
-| Tools | `tools/` | Small Node ≥ 20 package (`npm install` first): `npm run bot` (practice bots), `npm run ramp` (staged load test), `npm run parity` / `parity:diff` (black-box suites in `tools/parity/`). Clients of the server; also lend `node_modules` to two Go interop tests. `tools/lottie/flatten_orientation.py` (Python 3, stdlib) flattens a Lottie's 3D orientation and `tools/lottie/bake_loop_expressions.py` writes its `loopOut()` expressions out as keyframes, both for the phone players (§12.3). |
+| Tools | `tools/` | Small Node ≥ 20 package (`npm install` first): `npm run bot` (practice bots), `npm run ramp` (staged load test), `npm run parity` / `parity:diff` (black-box suites in `tools/parity/`). Clients of the server; also lend `node_modules` to two Go interop tests. `tools/lottie/flatten_orientation.py` (Python 3, stdlib) flattens a Lottie's 3D orientation and `tools/lottie/bake_loop_expressions.py` writes its `loopOut()` expressions out as keyframes, both for the phone players (§12.3). `tools/tables/make_table_pictures.py` (Python 3, stdlib) draws the 16 SVG table pictures in `go-server/public/tables/` — eight designs, a day and a night file each (§7.3); `tools/tables/make_background_pattern.py` re-encodes the owner's Background Pattern Lottie (`background-pattern.json`, 122 KB) into the two 31 KB Drive files beside it, day and night (§7.3). |
 | **Bot fleet** | `bot-play/` | The resident bots that keep production's lobby populated (`bot-play.service` on the game host, loopback to `:3000`): 198 guest identities, 75–95% online at once in sittings that come and go. They judge their cards with a port of `handrank.go` (verified on all 22,100 hands), raise up the server's ladder with strong hands, bluff by persona, and chat under a per-table budget. `npm test`; `bot-play/README.md` is the reference. Separate from `tools/bot.js`, the practice bots for manual testing. |
 | Load reports | `docs/load-reports/` | ramp-test HTML + JSON (the 2026‑09‑08 production runs, 1,000 → 4,000 players). |
 | Unity client | `unity-client/` | **Removed** (Sept 2026). A JS port of its Socket.IO parser survives as `tools/parity/lib/csharpJsonPort.js` and still exercises the raw wire protocol. |
@@ -81,11 +81,11 @@ king-teenpatti/
 │   │   ├── sio/                  our own Engine.IO v4 + Socket.IO v5 server, websocket only (protocol.go, conn.go, server.go)
 │   │   ├── socket/               the game protocol on sio: handler.go (Attach, guard, one method per event, grace, resume offers), wire.go (every event/ack), payload.go; testclient/
 │   │   ├── auth/                 tokens.go (JWT HS256), providers.go (Google/Facebook/guest/fake), http.go (routes, RequireAuth, WriteError), handlers.go (the 8 REST handlers), text.go
-│   │   ├── db/                   db.go (pgxpool, search_path as connection param, WithTx, DropSchema, Migrations), migration/ (embedded, Flyway-named V<version>__<name>.sql, applied in version order — V1.0.0__baseline.sql = all DDL and V1.0.1__seed_profile_pictures.sql = all DML (consolidated 14 Sep 2026: missiles, the 9-diamond default and the HAMMER picture currency included)), ledger.go (THE money transactions: Checkpoint / Settle), users.go (login upsert, rewards, names, the worn picture), pictures.go (the catalogue, ownership and the chip purchase); dbtest/
+│   │   ├── db/                   db.go (pgxpool, search_path as connection param, WithTx, DropSchema, Migrations), migration/ (embedded, Flyway-named V<version>__<name>.sql, applied in version order — V1.0.0__baseline.sql = the DDL and V1.0.1__seed_profile_pictures.sql = the DML production launched on (consolidated 14 Sep 2026: missiles, the 9-diamond default and the HAMMER picture currency included); V1.0.2__table_pictures.sql + V1.0.3__seed_table_pictures.sql = the table pictures, 15 Sep 2026, the first pair that brings production FORWARD (new tables only, no ALTER)), ledger.go (THE money transactions: Checkpoint / Settle), users.go (login upsert, rewards, names, the worn picture, the laid table), pictures.go (the catalogue, ownership and the chip purchase), tablepictures.go (the same for the table pictures: List/Find/Buy/BuyAtTable/Use/ExpireLapsed); dbtest/
 │   │   ├── metrics/              names.go (every game_* metric), metrics.go (registry, Bind*, Handler, HTTPMiddleware, SafeLabel)
 │   │   ├── app/                  app.go (mux, REST, socket endpoint, Start/Shutdown), health.go, static.go (PUBLIC_DIR + embedded assets/socket.io.min.js)
 │   │   └── util/                 UUID, RoomCode, slog JSON logger
-│   ├── public/                   browser client (index.html, client.js, style.css, theme.css) + profiles/ (15 Noto Emoji animal SVGs, Apache 2.0)
+│   ├── public/                   browser client (index.html, client.js, style.css, theme.css) + profiles/ (15 Noto Emoji animal SVGs, Apache 2.0) + tables/ (16 generated SVG table pictures, §7.3; served in production like profiles/)
 │   ├── .env.example              every env key the server reads, with defaults (+ Go-only PG_STATEMENT_TIMEOUT_MS)
 │   ├── ops/                      build.sh, release.sh, prod-version.sh, gameplay-go.service, install-go-server.sh, lib.sh, DEPLOY.md
 │   │   └── monitoring/           Prometheus + Grafana + alerts + nginx bundle, MONITORING.md (formerly server/ops/monitoring)
@@ -94,7 +94,8 @@ king-teenpatti/
 │   └── go.mod, go.sum
 ├── tools/                        Node package (npm install here first): bot.js, ramptest.mjs, parity.mjs, parity-diff.mjs
 │   ├── package.json              scripts: bot / ramp / parity / parity:diff; deps socket.io-client, ws, pg, jsonwebtoken
-│   └── parity/                   black-box suites (game, money, lobby, stakes, rest, protocol, resume, invalid, metrics) + lib/ (harness, launch, raw client, csharpJsonPort.js)
+│   ├── parity/                   black-box suites (game, money, lobby, stakes, rest, protocol, resume, invalid, metrics) + lib/ (harness, launch, raw client, csharpJsonPort.js)
+│   └── tables/                   make_table_pictures.py (the 16 unseeded SVGs), make_background_pattern.py + background-pattern.json (the owner's export) and the -day/-night files it writes — the two on Drive (§7.3)
 ├── bot-play/                     the resident bot fleet (Node, socket.io-client) — README.md is its reference
 │   ├── src/                      index (start + heartbeat), fleet (who is online), bot (one player), brain (decisions),
 │   │                             handrank (port of handrank.go), persona, chat, config, identities, profiles, random
@@ -225,7 +226,7 @@ flutter build apk --debug       # ~7s incremental; build/app/outputs/flutter-apk
 flutter build apk --debug --dart-define=SERVER_URL=http://10.0.2.2:3000   # local server on the emulator
 flutter build apk --debug --dart-define=SERVER_URL=http://192.168.1.10:3000  # local server, real device
 adb install -r build/app/outputs/flutter-apk/app-debug.apk
-adb shell monkey -p com.sungamestudio.kingteenpatti -c android.intent.category.LAUNCHER 1   # launch
+adb shell am start -n com.sungamestudio.kingteenpatti/.MainActivity   # launch (monkey … 1 also launches it but injects ONE random event — it once opened the store and an unlock question)
 adb shell am force-stop com.sungamestudio.kingteenpatti
 ```
 
@@ -549,6 +550,22 @@ avatar POST. **At a table** a DIAMOND or HAMMER picture sells (`Pictures.BuyAtTa
 `POST /api/profile/name {name}` (409 `seated` while at a table; these live in
 `playerRoutes({isSeated})`, **not** `authRoutes`);
 `GET /api/rooms` (no client);
+**Table pictures** (owner, 15 Sep 2026; Go only) — the cloth a player lays on their OWN table, drawn by their client alone
+(nobody else sees it, so no seat or table state is involved). `GET /api/table-pictures` (token optional, like `/api/profiles`) →
+`{tablePictures:[{id, name, dayUrl, nightUrl, assetFormat, currency, type, cost, durationDays, durationHours, sortOrder, owned, expiresAt}]}` —
+TWO urls per row: `dayUrl` is drawn on the light theme and `nightUrl` on the dark one, because the ink on the table follows the
+theme and one picture cannot read under both. `POST /api/table-pictures/use {pictureId|null}` lays it (null = the table as it comes;
+400 `unknown_table_picture`, 400 `picture_retired`, 403 `picture_locked`; **allowed while seated**) → `{user}`, whose
+**`user.tablePicture`** (`{id, dayUrl, nightUrl, assetFormat, currency, cost}` or null — a new key on the wire user, also on
+`session:ready`) is the player's own choice. **What the table draws is TABLE state** (owner, 15 Sep 2026: "visible to the other players
+also"): the laid picture rides on the seat (`game.TablePicture`, from `Player.TablePicture` at the join — `db.User.Player()` — and
+`Table.SetTablePicture` when a seated player changes it through `Deps.TablePictureLaid` → `RoomManager.SetPlayerTablePicture`; snapshotted
+with the seat), and every `room:state`/`room:joined` carries **`tablePicture`** — the highest-ranking one among the seats (DIAMOND >
+HAMMER > COIN, then the higher cost, the lower seat on a tie; `tablepicture.go`) tagged with `userId`, the same for every viewer, or null.
+A player leaving takes theirs with them, so the table falls back to the next or to the flowing chips. `POST /api/table-pictures/buy {pictureId}` → `{user, picture, charged, spent}` with exactly the profile pictures' money
+rules and codes (COIN in the lobby only under `WhileUnseated` → 409 `seated` at a table; DIAMOND/HAMMER anywhere; shortages 409
+`picture_chips` with the wallet named; ledger reason **`table_picture_purchase`**, action_id `table:<userId>:<pictureId>:<n>`). The lapsed-rental
+sweep (`TablePictures.ExpireLapsed`) runs beside the profile one on login, `/api/auth/me` and the listing;
 **`POST /api/purchases/google {productId, purchaseToken}`** — verifies the token with Google and banks
 the pack through a `purchase` ledger row (action_id `gplay:<token>`), so a replay credits once. The same endpoint sells
 **diamond packs** (owner, 13 Sep 2026): `diamonds_1_49`, `diamonds_5_199`, `diamonds_20_699`, `diamonds_100_2999`
@@ -594,7 +611,7 @@ cannot add one), which is the trade the no-ALTER baseline makes.
 are parsed to JS numbers** (`pg.types.setTypeParser(20|1700)`) — without that, `chips` and `SUM()`
 come back as strings.
 
-Tables — **there are exactly ten, and none of them is game state** (`user_milestones`, `diamond_purchases`, `hammer_purchases`, `hammer_spends`, `missile_purchases` and `missile_spends` are below): `users` (wallet = `chips BIGINT
+Tables — **there are exactly thirteen, and none of them is game state** (`user_milestones`, `diamond_purchases`, `hammer_purchases`, `hammer_spends`, `missile_purchases` and `missile_spends` are below; the three table-picture tables are at the end of this section): `users` (wallet = `chips BIGINT
 CHECK ≥ 0`, **`diamond INTEGER NOT NULL DEFAULT 9 CHECK ≥ 0`** — the premium currency, nine per new account (owner, 14 Sep 2026; two, and one before that, earlier the same day), never
 ledgered —, **`hammer INTEGER NOT NULL DEFAULT 20 CHECK ≥ 0`** — what a Force Sideshow costs, 20 per account, never ledgered —, **`missile INTEGER NOT NULL DEFAULT 1 CHECK ≥ 0`** — what a missile costs, one per new account, never ledgered —,
 counters, `active_picture_id`, `deleted_at`),
@@ -634,10 +651,51 @@ ownership transfer that closes that (owner → `postgres`, `GRANT SELECT, INSERT
 needs sudo on the host and is why the function is create-if-missing rather than CREATE OR REPLACE.
 Test: `TestUserRowsAreNeverDeleted` (`internal/db/users_delete_test.go`).
 
+**The table pictures (owner, 15 Sep 2026)** live in `V1.0.2__table_pictures.sql` (DDL) and `V1.0.3__seed_table_pictures.sql` (DML) —
+NEW scripts, since production has run the baseline pair, and deliberately nothing but `CREATE TABLE IF NOT EXISTS`: no ALTER and
+nothing on `users`, so they boot as `gameplay_app` whether or not DEPLOY.md §7 has handed `users` to the superuser (a table with a
+foreign key to `users` needs only the REFERENCES grant §7 gives; `handover_boot_test.go` re-creates them under §7). Three tables:
+**`table_pictures`** (`profile_pictures` with `asset_url` split into `day_asset_url` UNIQUE — the seed's conflict key — and
+`night_asset_url`; same `asset_format`/`currency`/`type`/`cost`/`duration_days`/`duration_hours`/`is_active`/`sort_order` and CHECKs),
+**`user_table_pictures`** (who bought which, `expires_at`, `purchases` — the twin of `user_profile_pictures`) and
+**`user_table_choice`** (`user_id` PK → `table_picture_id`: the picture each player has LAID, one row or none; this is
+`users.active_picture_id` for the table, kept as a side table because a `users` column would be an `ALTER TABLE users` and a §7
+one-off on every deploy that carries it; `ON DELETE CASCADE` on the picture, so deleting a catalogue row clears the tables it was on).
+The seed holds **three rows, the owner's own art** (owner, 15 Sep 2026: "apply this only"), all LOTTIE, all hosted in the owner's Drive
+`table_pictures` folder (`uc?export=download&id=…`, never the `/file/d/…/view` page), all rented for chips — so sold in the lobby only
+(§5.1). The first two have a night file made here, where a Drive upload travels through a tool call and size is the constraint; the
+third reads on both grounds and is its own night file. **Lines
+Background** — 10,000 chips / 7 days, sort_order 75 (seeded at 10 hammers / 30 days and re-priced by the owner on 16 Sep 2026; a database
+that ran the seed in between keeps the hammer price until the UPDATE in the seed's header): 23 layers of black lines on a transparent
+1500×1500 canvas, no 3D and no expressions; its **night file** ("Lines Background Night.json") has the lines in white — 22 strokes
+recoloured, editor metadata dropped, each layer's 120 per-frame trim-offset keyframes re-encoded as the same curve sampled adaptively
+within 1° with a hold across the 360→0 wrap — 30 KB against 101. **Background Pattern** — 5 lakh chips / 7 days, sort_order 80 (owner,
+16 Sep 2026): 96 rounded tiles in two blues that pop in one after another over four seconds on a transparent 1500×1000 canvas, hold, and
+shrink away together (Lottie 5.5.3, 25 fps, 6 s — a screenshot can land in the empty half-second at the loop's end and show a bare felt).
+The owner's 122 KB export is kept as `tools/tables/background-pattern.json` and **both** Drive files ("Background Pattern.json",
+"Background Pattern Night.json") are made from it by `tools/tables/make_background_pattern.py`, committed beside it: the pop-in written
+once per colour as a precomp and each tile an instance of it started at its own frame — `st` shifts a precomp's contents and nothing
+else, the convention of every Bodymovin export (Fireworks.json's shifted layers carry their keyframes in composition time) and of both
+players — with the shared shrink-out as the instance's own keyframes, the two double-bouncing tiles (55, 64) kept whole, and the path as
+the `rc` it is; 31 KB each, checked keyframe for keyframe against the export and byte for byte after upload. Its night file swaps the pale
+blue (#E3F2FD, a tint that all but vanishes on the light ground) for a navy (#1B2F42) that sits on the dark ground the same way and keeps
+the mid blue. **Welcome** — 1 lakh chips / 2 days, sort_order 85 (owner, 16 Sep 2026): the word written on in a rainbow gradient stroke
+over 7.6 s on a transparent 428×123 banner canvas (Lottie 4.8.0, one layer, no 3D, no expressions), the owner's own upload
+("Welcome.json"); a rainbow reads on both grounds, so `night_asset_url` repeats `day_asset_url` (only the day URL is UNIQUE), and its
+banner shape is fitted whole on the felt (§8.4 `pictureFitFor`) rather than cropped to two letters. **A file uploaded from here is private
+until the owner sets "Anyone with the link"** (the connector cannot; a phone gets Google's sign-in page instead of the file until then — and
+kept it as the picture until §8.4's `looksLikeHtml` guard, 16 Sep 2026); the owner shared all three Drive night/day files that day. There is no free row and none is needed:
+"Flowing chips", the game as it comes, is always on the shelf. Eight SVG designs with a day and a night file each were drawn for this shelf by
+`tools/tables/make_table_pictures.py` into `go-server/public/tables/<slug>-{day,night}.svg` (served like `profiles/`, §9) and seeded
+that day; the owner took their rows out, keeping the catalogue to their own art — the files and the script remain, unseeded, and a row for
+one is the seeded row's shape with the two `/tables/` paths (the DAY file a pale cloth for the light theme's dark ink, the NIGHT file a
+deep one for the dark theme's light ink; a picture's art must read on its own ground or the words on the table go with it).
+
 Ledger `reason` values: `welcome_bonus, hand_packed, hand_left, hand_win, hand_loss,
-milestone_reward, timed_bonus, daily_bonus, purchase, picture_purchase, account_deleted, legacy_reconciliation,
+milestone_reward, timed_bonus, daily_bonus, purchase, picture_purchase, table_picture_purchase, account_deleted, legacy_reconciliation,
 test_fixture`. (`picture_purchase` is a premium profile picture bought with chips — a chip **sink**,
-always a negative delta, action_id `picture:<userId>:<pictureId>`.)
+always a negative delta, action_id `picture:<userId>:<pictureId>`; `table_picture_purchase` is the same for a table picture,
+action_id `table:<userId>:<pictureId>:<n>`.)
 (`purchase` is a Google Play chip pack, action_id `gplay:<token>`; `account_deleted` empties the
 wallet when a player deletes their account, action_id `delete:<userId>` — chips leave the economy
 there, which is correct, the player has gone.) The first three of the hand
@@ -847,7 +905,11 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   stable and the server's order decides the rest. `GameState.tableShut(table)` is the single
   eligibility answer used by both the ordering and the card, so the rail can never file a card under
   "you can join these" and then draw it padlocked;
-  `_CategoryBadge` (sheen + `SpinningChip`, blind delayed 900ms), `LivelyChipStack`, `_CardFact`
+  `_CategoryBadge` (sheen + `SpinningChip`, blind delayed 900ms — since 16 Sep 2026 a **ribbon across the card's top-right corner**,
+  owner: "move the SEEN text to the right and rotate it diagonal at the card corner, same for BLIND": the badge stretched to four plates
+  and turned 45° as the first child of the card's Stack, its centre 1.2 plates in from the corner along the diagonal so it meets both
+  edges 2.4 plates out and the glass panel's own clip cuts its ends; the column keeps a plate's height where the badge stood, so nothing
+  else on the card moved), `LivelyChipStack`, `_CardFact`
   rows (including **Entry**, the table's stack band: "Up to 5 Crore", "50 Crore or more", or "Open to all"),
   shut-table overlay — a padlock and `cappedTitle` when the player has outgrown the table, a rising arrow and
   `lockedTitle` when they have not grown into it, both faded to 0.42 so the stake stays readable;
@@ -1003,6 +1065,36 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   re-reads the catalogue (`owned` is per viewer) and wears it. The tick follows
   `user.activePictureId == p.id` — it used to compare the choice PATH to the picture's id, so
   nothing was ever ticked. `state.buyingPicture` puts a spinner on the one tile being bought.
+- **The Tables tab** (`StoreTab.tables`, owner 15 Sep 2026; `widgets/table_picture_shelf.dart`): the sixth store shelf sells the
+  cloths a player lays on their OWN table. Each tile (`TablePictureChoice`, the pack cards' width, wider than tall) shows the pair
+  split down the middle — the day file on the left, the night file on the right (`TablePicturePreview`, a sun and a moon in the
+  corners) — under the picture shelf's own `PriceTag` / `UnlockedTag` (made public for it) or an "In use" tick; the first tile is
+  **Flowing chips — the default background** (owner: "an option to restore the default flowing chips"), drawn as the real
+  `DriftingChips` over the split ground, and a tap lays nothing (`chooseTablePicture(null)`). A right-aligned `DayNightSwitch` sits over the
+  shelf (owner, 16 Sep 2026: "one button for switching day to dark mode"), flipping the theme as the picture menu's does, so either half of
+  every tile can be seen whole on its own ground. Locked → `unlockTablePicture` (the same three answers as
+  `unlockPicture`: chip-priced at a table says `tableChipsLobbyOnly`, a short hammer/diamond wallet gets `offerWalletShelf` — now shared
+  and taking a `preview` — else the question with `unlockTableBody`, whose price is `Strings.priceIn(currency, cost)`), then
+  `GameState.buyTablePicture` → `chooseTablePicture`. Owned → laid at once, no "already unlocked" stop. `tableShelfOrder` runs free →
+  chips → hammers → diamonds, cheapest first. **On the table it is a small square centred on the pot** (owner, 15 Sep 2026 — it was
+  the whole room in place of the flowing chips for an hour, then "at the centre of the pot, small, square"): `_TableCentrepiece` in
+  `_Felt`'s Stack at `(0.5, _potDy)`, side `min(w*0.37, h*0.53)` (`0.32/0.46` until the owner asked for "a little bit" bigger on
+  16 Sep 2026), under the tag and the pot plinth and over the flights, painting
+  `TablePictureGround` (not `TableGround`, the room's floor) with `GameState.tablePictureUrl(brightness)` — the day url on the light theme,
+  the night url on the dark — from **`room.tablePicture`** (`GameState.shownTablePicture`: the table's pick among everyone seated, §7.2),
+  not the viewer's own `user.tablePicture` (`laidTablePicture`, which only the store tick reads); nothing when the table shows none. **The
+  `DriftingChips` show only while the table shows no picture** (`_RoomBackdrop`, a `select` on `shownTablePicture != null`; owner: "remove
+  the flowing coins, we have applied the one we bought") — they come back when the last picture is taken off or its owner leaves. A Lottie plays. **No box** (owner: "it should look like part of the background"):
+  a `dstIn` `ShaderMask` fades it radially from `backdropStrength` (0.85 — 0.55, then 0.7, until the owner asked twice for "a little bit" more on 16 Sep 2026) at the middle (`featherFrom` 0.35 of the half-side) to nothing at
+  the inscribed circle's rim, so the square's corners are clear and no edge is ever drawn — an offscreen pass the size of the square,
+  not the screen, which is what makes it affordable under a playing Lottie (a full-screen `Opacity` would not be). The store tile shows the pair at full strength, each half on its theme's ground
+  (`_SplitGround`: bone left, obsidian right), so a transparent canvas previews as it will look. `CachedPictureBox` is `Avatar`'s loader
+  for a rectangle, and shows NOTHING on a failed fetch rather than a placeholder. **A Lottie's fit follows its canvas** (16 Sep 2026:
+  `pictureFitFor(lottieCanvasAspect(bytes))`, the `w`/`h` read off the file's head): near enough square covers the box, cropped — Lines
+  Background 1:1, Background Pattern 3:2 — while a banner or a column past 1.6:1 is `contain`ed whole (Welcome, 428×123; cropped it was two
+  letters of the middle). SVGs and bitmaps still cover. **The header's tab strip scrolls** when six keys would crowd the blurb off its two lines (a 640dp
+  phone at the 1.25 text ceiling): `_ChipStoreState` cuts `tabsShown` a key at a time until `blurbLinesAt(...) <= 2`, and `_revealTab`
+  jumps the strip to the key that is on. `_loadPictures` loads both catalogues; the lobby rental watch covers a laid premium table too.
 - **`Avatar` has two different fallbacks and the difference is deliberate.** No picture at all → the
   player's initial, which still says whose seat it is. A picture that was supposed to load and did
   not (a retired file, a dead Google URL, a phone that lost the network) → `assets/default_avatar.svg`,
@@ -1016,7 +1108,12 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
 - **A picture is downloaded once per URL and kept on the phone** (owner, 13 Sep 2026: opening the store must never
   fetch pictures again). `PictureCache` answers from memory, then `<app support>/pictures/<sha1(url)>`, and only then
   the network, writing through a `.part` rename; `GameState` warms it when the catalogue arrives. A URL's contents are
-  treated as immutable, so **a changed picture needs a new URL** — a file replaced in place is never re-fetched.
+  treated as immutable, so **a changed picture needs a new URL** — a file replaced in place is never re-fetched. **A web
+  page is never kept** (16 Sep 2026): a host that will not hand a file out answers 200 with a page — Drive's sign-in for a
+  file not (yet) shared, a quota notice, a captive portal — and one such answer used to be cached as the picture for good
+  (TP_Tall fetched Background Pattern's day file in the minute before the owner shared it and drew a bare felt from then on).
+  `_download` now refuses `text/html` and anything `looksLikeHtml` (`<!doctype html` / `<html`, not an SVG's `<!DOCTYPE svg`),
+  and `_read` deletes such a file it finds on disk and fetches again; `test/picture_cache_test.dart` pins the sniff.
 - **i18n**: `AppLang` × 5; `Strings(lang)` with English → key fallback. **New keys go in all five
   maps + a getter.** Teen Patti vocabulary transliterated. Still-English strings: `'YOU'`, `'Table
   ${code}'`, `'hand N'`, private-card body, picture-picker labels, `'Switch theme'`, chat `'You'`,
@@ -1302,7 +1399,7 @@ deploy runbook; `steps.txt` the six-line routine.
   `gomaxprocs`. Grafana's former "Node.js" row is now "Runtime"; alerts
   `GameServerSchedulerLatencyHigh` / `GameServerGoroutinesHigh` / `GameServerMemoryHigh` replaced
   the three `nodejs_*` ones (§7.5 bundle at `go-server/ops/monitoring/`, `MONITORING.md`).
-- Small honest deviations: `room:state` carries `isPrivate` (13 Sep 2026, for the Flutter drawer), a seated player may wear a picture and buy a diamond one, a join is refused `settlement_pending` while that player's last hand is still being settled, JSON 404 for unknown `/api/*`, 400 `invalid_json` for bad bodies,
+- Small honest deviations: `room:state` carries `isPrivate` (13 Sep 2026, for the Flutter drawer), a seated player may wear a picture and buy a diamond one, the wire `user` carries `tablePicture` and the three `/api/table-pictures*` routes exist (15 Sep 2026, §7.2; `tools/parity/rest.test.js` USER_KEYS lists the key), a join is refused `settlement_pending` while that player's last hand is still being settled, JSON 404 for unknown `/api/*`, 400 `invalid_json` for bad bodies,
   HS256-only JWT verification (Node also took HS384/512), room codes regenerated until unique,
   `room:create {isPrivate:false}` validated like `quickJoin`, `already_in_room` checked before a
   table is created. Full list: PORT_PLAN §9 + DECISIONS.md. **Anything else that differs is a bug.**

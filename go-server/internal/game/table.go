@@ -139,8 +139,11 @@ type NewPlayer struct {
 	UserID      string
 	DisplayName string
 	AvatarURL   *string
-	Chips       int64
-	SocketID    string // "" when seated by consolidation without a live socket
+	// TablePicture is the table picture the player has laid, from their
+	// account, or nil (owner, 15 Sep 2026).
+	TablePicture *TablePicture
+	Chips        int64
+	SocketID     string // "" when seated by consolidation without a live socket
 }
 
 // ActRequest is the client's move (socket game:action → table.act payload).
@@ -194,10 +197,13 @@ type SideshowOutcome struct {
 // seat is the actor-owned state of one occupied seat (table.js addPlayer).
 // SeatInfo is its exported copy. Only the actor goroutine touches it.
 type seat struct {
-	seatIndex             int
-	userID                string
-	displayName           string
-	avatarURL             *string
+	seatIndex   int
+	userID      string
+	displayName string
+	avatarURL   *string
+	// tablePicture is the table picture this player has laid, or nil; the
+	// table shows the highest-ranking one among its seats (tablepicture.go).
+	tablePicture          *TablePicture
 	chips                 int64
 	socketID              string
 	connected             bool
@@ -1116,6 +1122,7 @@ func (s *seat) info() *SeatInfo {
 		UserID:                s.userID,
 		DisplayName:           s.displayName,
 		AvatarURL:             avatar,
+		TablePicture:          s.tablePicture.clone(),
 		Chips:                 s.chips,
 		SocketID:              s.socketID,
 		Connected:             s.connected,
@@ -1157,18 +1164,23 @@ func (t *Table) addPlayer(p NewPlayer) (*SeatInfo, error) {
 		a := *p.AvatarURL
 		avatar = &a
 	}
+	pic := p.TablePicture.clone()
+	if pic != nil {
+		pic.UserID = p.UserID
+	}
 	s := &seat{
-		seatIndex:   seatIndex,
-		userID:      p.UserID,
-		displayName: p.DisplayName,
-		avatarURL:   avatar,
-		chips:       p.Chips,
-		socketID:    p.SocketID,
-		connected:   true,
-		status:      SeatWaiting,
-		cards:       []Card{},
-		isBlind:     true,
-		joinedAt:    t.clock.Now(),
+		seatIndex:    seatIndex,
+		userID:       p.UserID,
+		displayName:  p.DisplayName,
+		avatarURL:    avatar,
+		tablePicture: pic,
+		chips:        p.Chips,
+		socketID:     p.SocketID,
+		connected:    true,
+		status:       SeatWaiting,
+		cards:        []Card{},
+		isBlind:      true,
+		joinedAt:     t.clock.Now(),
 	}
 	t.seats[seatIndex] = s
 	t.refreshPlayerCount()
@@ -3312,6 +3324,7 @@ func (t *Table) snapshot() *Snapshot {
 		if s.avatarURL != nil {
 			snap.AvatarURL = StrPtr(*s.avatarURL)
 		}
+		snap.TablePicture = s.tablePicture.clone()
 		if s.lastAction != nil {
 			snap.LastAction = ActionPtr(*s.lastAction)
 		}
@@ -3478,6 +3491,7 @@ func (t *Table) serializeFor(viewerID string) *TableView {
 		RoomID:        t.id,
 		Code:          t.code,
 		IsPrivate:     t.isPrivate,
+		TablePicture:  t.tablePicture(),
 		Category:      t.cfg.Category,
 		ChipsHidden:   hideOthersChips,
 		State:         t.State(),

@@ -30,6 +30,7 @@ import '../widgets/premium_surface.dart';
 import '../widgets/rules_sheet.dart';
 import '../widgets/seat_pod.dart';
 import '../widgets/table_ground.dart';
+import '../widgets/table_picture_shelf.dart';
 
 /// The game room: an emerald table in a champagne rail, standing in a charcoal
 /// room under one overhead lamp, with the players around it, the pot in the
@@ -170,10 +171,11 @@ class _TableScreenState extends State<TableScreen> {
           // direction each one runs. They live in the margin around the felt —
           // the only part of this screen with nothing in it — so the room reads
           // as somewhere a game is happening rather than as a blank ground.
-          // Behind everything and untouchable.
-          const Positioned.fill(
-            child: IgnorePointer(child: DriftingChips(strength: 2.6)),
-          ),
+          // Behind everything and untouchable — and only while no table
+          // picture is laid: a bought picture (_TableCentrepiece, behind the
+          // pot) takes their place, and the store's "Flowing chips" tile
+          // brings them back (owner, 15 Sep 2026).
+          const Positioned.fill(child: IgnorePointer(child: _RoomBackdrop())),
           SafeArea(
             child: Column(
               children: [
@@ -465,6 +467,59 @@ class _RoomGround extends StatelessWidget {
               bootAmount: table.boot,
             ).accent,
       child: const SizedBox.expand(),
+    );
+  }
+}
+
+/// What drifts across the room behind the felt: the chips, while the table
+/// shows no picture, and nothing once it does — the picture the table shows
+/// ([_TableCentrepiece]) is its background then (owner, 15 Sep 2026: "remove
+/// the flowing coins, we have applied the one we bought"). The table shows
+/// the server's pick among everyone seated, so the chips come back when the
+/// last player with a picture takes it off or leaves.
+///
+/// `select`, as [_RoomGround] does: the screen's own build watches nothing,
+/// and this rebuilds only when the table's picture comes or goes.
+class _RoomBackdrop extends StatelessWidget {
+  const _RoomBackdrop();
+
+  @override
+  Widget build(BuildContext context) {
+    final shown = context.select<GameState, bool>(
+      (s) => s.shownTablePicture != null,
+    );
+    return shown ? const SizedBox.shrink() : const DriftingChips(strength: 2.6);
+  }
+}
+
+/// The picture the table shows — the server's pick among the pictures its
+/// players have laid, the same for everyone at it — as a square centred on
+/// the pot (owner, 15 Sep 2026: "at the centre of the pot, small, square"):
+/// the day file on the light theme, the night file on the dark, fading out
+/// towards its rim, and nothing when the table shows none. The pot's plinth
+/// paints over its middle.
+///
+/// `select`, as [_RoomGround] does, so the felt's per-move rebuilds never
+/// rebuild the picture: only the shown pair or the theme does.
+class _TableCentrepiece extends StatelessWidget {
+  const _TableCentrepiece({required this.side});
+
+  /// The square's side, from the felt's own box.
+  final double side;
+
+  @override
+  Widget build(BuildContext context) {
+    final brightness = Theme.of(context).brightness;
+    final (url, format) = context.select<GameState, (String?, String?)>(
+      (s) => (s.tablePictureUrl(brightness), s.shownTablePicture?.assetFormat),
+    );
+    if (url == null) return SizedBox(width: side, height: side);
+    return SizedBox(
+      width: side,
+      height: side,
+      child: RepaintBoundary(
+        child: TablePictureGround(url: url, format: format),
+      ),
     );
   }
 }
@@ -2051,6 +2106,19 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
                     ),
                   ),
                 ),
+              ),
+              // The table picture the player has laid: a square under the
+              // pot, centred where the pot is, fading out towards its rim so
+              // it reads as part of the ground (owner, 15 Sep 2026). Under the
+              // tag and the plinth, over the flights, and sized off the felt's
+              // short side; the fade is what lets it reach towards the seats
+              // above without an edge arriving there.
+              at(
+                const Offset(0.5, _potDy),
+                IgnorePointer(
+                  child: _TableCentrepiece(side: math.min(w * 0.37, h * 0.53)),
+                ),
+                width: math.min(w * 0.37, h * 0.53),
               ),
               // The table's furniture first, the seats after it: a seat's
               // speech bubble or bet chip is a moment that matters more

@@ -20,7 +20,7 @@ test.after(closeDb);
 const uniqueStake = stakeCounter(100);
 
 const USER_KEYS = [
-  'id', 'provider', 'displayName', 'email', 'avatarUrl', 'providerAvatarUrl', 'activePictureId', 'chips', 'diamond', 'hammer', 'missile',
+  'id', 'provider', 'displayName', 'email', 'avatarUrl', 'providerAvatarUrl', 'activePictureId', 'tablePicture', 'chips', 'diamond', 'hammer', 'missile',
   'handsPlayed', 'handsWon', 'handsLost', 'handsLeftMid', 'totalWinnings', 'biggestPot', 'rewards',
   'createdAt', 'lastLoginAt',
 ];
@@ -49,6 +49,7 @@ test('guest login creates an account with the welcome chip grant, in the exact p
   assert.equal(user.avatarUrl, null);
   assert.equal(user.providerAvatarUrl, null);
   assert.equal(user.activePictureId, null);
+  assert.equal(user.tablePicture, null, 'the table as it comes, until a table picture is laid');
   assert.equal(user.chips, profile.welcomeChips, 'a first-time player is granted 2 lakh chips');
   assert.equal(user.diamond, 9, 'and nine diamonds, the premium currency');
   assert.equal(user.hammer, 20, 'and twenty hammers');

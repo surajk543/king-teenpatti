@@ -150,14 +150,18 @@ type SnapshotSeat struct {
 
 	// ---- added for the live store / restore ----
 
-	AvatarURL             *string `json:"avatarUrl"`
-	LastBet               int64   `json:"lastBet"`
-	LastAction            *Action `json:"lastAction"`
-	MissedTurns           int     `json:"missedTurns"`
-	SideshowAskedThisTurn bool    `json:"sideshowAskedThisTurn"`
-	KickPending           bool    `json:"kickPending"`
-	UnfundedUntil         *int64  `json:"unfundedUntil,omitempty"` // epoch ms: end of the unfunded grace
-	JoinedAt              int64   `json:"joinedAt"`                // epoch ms
+	AvatarURL *string `json:"avatarUrl"`
+	// TablePicture is the table picture the player has laid (owner, 15 Sep
+	// 2026); absent when none. A snapshot written before it existed reads as
+	// none.
+	TablePicture          *TablePicture `json:"tablePicture,omitempty"`
+	LastBet               int64         `json:"lastBet"`
+	LastAction            *Action       `json:"lastAction"`
+	MissedTurns           int           `json:"missedTurns"`
+	SideshowAskedThisTurn bool          `json:"sideshowAskedThisTurn"`
+	KickPending           bool          `json:"kickPending"`
+	UnfundedUntil         *int64        `json:"unfundedUntil,omitempty"` // epoch ms: end of the unfunded grace
+	JoinedAt              int64         `json:"joinedAt"`                // epoch ms
 }
 
 // HandSummaryEntry is one contributor in hands.summary_json and in the
