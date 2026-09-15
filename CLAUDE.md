@@ -37,7 +37,7 @@ A turn-based multiplayer **Teen Patti** (3-card Indian poker) game:
 | Node.js server | *(removed)* | The original implementation, removed from the repo on 8 Sep 2026 (`git log -- server/`, last commit `c19963b`; `multi_node` branch). Its behaviour is what §5–§7 document; its file names are what those sections cite. **No longer a rollback target at all** (12 Sep 2026): it reads and writes `users.avatar_choice`, which the schema dropped for `active_picture_id`, and knows nothing of the picture-catalogue tables — so it cannot run against this database. `ops/rollback-to-node.sh` was deleted rather than left as a recovery script that would fail when used; rolling back now means the previous **Go** tag (DEPLOY.md §5). |
 | Mobile client | `flutter-client/` | **The live client.** Flutter 3.44 / Dart 3.12, Material 3 via FlexColorScheme. Android is the shipping platform; `ios/` exists and is configured (`docs/ios-setup.md`) but has never been compiled — there is no macOS here. |
 | Browser client | `go-server/public/` | Zero-build vanilla-JS reference client served at `/` by the Go binary (`PUBLIC_DIR`) — **in dev only; production hides it** (`ROOT_REDIRECT=/dashboard/`, §7.4/§9) and serves just `privacy/`, `profiles/` from that dir. **Lags behind** — no sideshow, kick, rename, entry-cap or Indian-numbering UI. |
-| Tools | `tools/` | Small Node ≥ 20 package (`npm install` first): `npm run bot` (practice bots), `npm run ramp` (staged load test), `npm run parity` / `parity:diff` (black-box suites in `tools/parity/`). Clients of the server; also lend `node_modules` to two Go interop tests. `tools/lottie/flatten_orientation.py` (Python 3, stdlib) flattens a Lottie's 3D orientation and `tools/lottie/bake_loop_expressions.py` writes its `loopOut()` expressions out as keyframes, both for the phone players (§12.3). `tools/tables/make_table_pictures.py` (Python 3, stdlib) draws the 16 SVG table pictures in `go-server/public/tables/` — eight designs, a day and a night file each (§7.3); `tools/tables/make_background_pattern.py` re-encodes the owner's Background Pattern Lottie (`background-pattern.json`, 122 KB) into the two 31 KB Drive files beside it, day and night (§7.3). |
+| Tools | `tools/` | Small Node ≥ 20 package (`npm install` first): `npm run bot` (practice bots), `npm run ramp` (staged load test), `npm run parity` / `parity:diff` (black-box suites in `tools/parity/`). Clients of the server; also lend `node_modules` to two Go interop tests. `tools/lottie/flatten_orientation.py` (Python 3, stdlib) flattens a Lottie's 3D orientation and `tools/lottie/bake_loop_expressions.py` writes its `loopOut()` expressions out as keyframes, both for the phone players (§12.3). `tools/tables/make_table_pictures.py` (Python 3, stdlib) draws the 16 SVG table pictures in `go-server/public/tables/` — eight designs, a day and a night file each (§7.3); `tools/tables/make_background_pattern.py` re-encodes the owner's Background Pattern Lottie (`background-pattern.json`, 122 KB) into the two 31 KB Drive files beside it, day and night (§7.3); `tools/tables/make_thank_you_day.py` recolours the owner's Thank You Lottie into its day file, deep gold for the light ground (§7.3). |
 | **Bot fleet** | `bot-play/` | The resident bots that keep production's lobby populated (`bot-play.service` on the game host, loopback to `:3000`): 198 guest identities, 75–95% online at once in sittings that come and go. They judge their cards with a port of `handrank.go` (verified on all 22,100 hands), raise up the server's ladder with strong hands, bluff by persona, and chat under a per-table budget. `npm test`; `bot-play/README.md` is the reference. Separate from `tools/bot.js`, the practice bots for manual testing. |
 | Load reports | `docs/load-reports/` | ramp-test HTML + JSON (the 2026‑09‑08 production runs, 1,000 → 4,000 players). |
 | Unity client | `unity-client/` | **Removed** (Sept 2026). A JS port of its Socket.IO parser survives as `tools/parity/lib/csharpJsonPort.js` and still exercises the raw wire protocol. |
@@ -95,7 +95,7 @@ king-teenpatti/
 ├── tools/                        Node package (npm install here first): bot.js, ramptest.mjs, parity.mjs, parity-diff.mjs
 │   ├── package.json              scripts: bot / ramp / parity / parity:diff; deps socket.io-client, ws, pg, jsonwebtoken
 │   ├── parity/                   black-box suites (game, money, lobby, stakes, rest, protocol, resume, invalid, metrics) + lib/ (harness, launch, raw client, csharpJsonPort.js)
-│   └── tables/                   make_table_pictures.py (the 16 unseeded SVGs), make_background_pattern.py + background-pattern.json (the owner's export) and the -day/-night files it writes — the two on Drive (§7.3)
+│   └── tables/                   make_table_pictures.py (the 16 unseeded SVGs), make_background_pattern.py + background-pattern.json (the owner's export) and the -day/-night files it writes — the two on Drive (§7.3); make_thank_you_day.py writes the Thank You day file to ~/Downloads for the owner to upload
 ├── bot-play/                     the resident bot fleet (Node, socket.io-client) — README.md is its reference
 │   ├── src/                      index (start + heartbeat), fleet (who is online), bot (one player), brain (decisions),
 │   │                             handrank (port of handrank.go), persona, chat, config, identities, profiles, random
@@ -663,8 +663,8 @@ foreign key to `users` needs only the REFERENCES grant §7 gives; `handover_boot
 one-off on every deploy that carries it; `ON DELETE CASCADE` on the picture, so deleting a catalogue row clears the tables it was on).
 The seed holds **four rows, the owner's own art** (owner, 15 Sep 2026: "apply this only"), all LOTTIE, all hosted in the owner's Drive
 `table_pictures` folder (`uc?export=download&id=…`, never the `/file/d/…/view` page), all rented for chips — so sold in the lobby only
-(§5.1). The first two have a night file made here, where a Drive upload travels through a tool call and size is the constraint; the
-other two read on both grounds and are their own night files. **Lines
+(§5.1). The first two have a night file made here, where a Drive upload travels through a tool call and size is the constraint; Welcome
+reads on both grounds and is its own night file; Thank You has a day file made here that the owner uploaded (729 KB). **Lines
 Background** — 1 lakh chips / 7 days, sort_order 75 (seeded at 10 hammers / 30 days and re-priced by the owner on 16 Sep 2026; a database
 that ran the seed in between keeps the hammer price until the UPDATE in the seed's header): 23 layers of black lines on a transparent
 1500×1500 canvas, no 3D and no expressions; its **night file** ("Lines Background Night.json") has the lines in white — 22 strokes
@@ -679,13 +679,20 @@ else, the convention of every Bodymovin export (Fireworks.json's shifted layers 
 players — with the shared shrink-out as the instance's own keyframes, the two double-bouncing tiles (55, 64) kept whole, and the path as
 the `rc` it is; 31 KB each, checked keyframe for keyframe against the export and byte for byte after upload. Its night file swaps the pale
 blue (#E3F2FD, a tint that all but vanishes on the light ground) for a navy (#1B2F42) that sits on the dark ground the same way and keeps
-the mid blue. **Welcome** — 1 lakh chips / 7 days, sort_order 85 (owner, 16 Sep 2026): the word written on in a rainbow gradient stroke
+the mid blue. **Welcome** — 1.5 lakh chips / 7 days, sort_order 85 (owner, 16 Sep 2026; 1 lakh for a few hours that day): the word written on in a rainbow gradient stroke
 over 7.6 s on a transparent 428×123 banner canvas (Lottie 4.8.0, one layer, no 3D, no expressions), the owner's own upload
 ("Welcome.json"); a rainbow reads on both grounds, so `night_asset_url` repeats `day_asset_url` (only the day URL is UNIQUE), and its
 banner shape is fitted whole on the felt (§8.4 `pictureFitFor`) rather than cropped to two letters. **Thank You** — 30 lakh chips /
 7 days, sort_order 90 (owner, 16 Sep 2026): the words in gold (#FCC700) with 35 gold shapes around them on a 1080×1080 canvas (Lottie
 5.11.0, 10 s, 728 KB — the heaviest file; its text layer embeds its glyphs as `chars`, so no font is needed), the owner's own upload,
-public, gold being its own night file. **A file uploaded from here is private
+public — the NIGHT file. That gold all but vanishes on the light ground (owner, 16 Sep 2026: "Thank you text not visible in Day mode"),
+so the DAY file ("Thank You Day.json") is the same Lottie with its 140 shape fills and its text fill in `AppTheme.goldDeep` #8A6A18,
+written by `tools/tables/make_thank_you_day.py`, which checks that nothing else differs; its 7,722 per-frame keyframes cannot be
+re-sampled without changing the twinkle, so at 729 KB it is far above what a Drive upload from here carries and the owner uploaded it
+("Thank You Day.json", same folder, public; proved on TP_Small in the light theme from a scratch `http.server` first and from Drive
+after). **Changing a seeded row's day URL changes its conflict key**: Thank You was seeded with the upload as both files first, so the
+seed carries a guarded UPDATE that moves such a row onto the day file before the INSERT (a no-op elsewhere) — without it the next
+boot of a database that ran the earlier seed would add a second Thank You. **A file uploaded from here is private
 until the owner sets "Anyone with the link"** (the connector cannot; a phone gets Google's sign-in page instead of the file until then — and
 kept it as the picture until §8.4's `looksLikeHtml` guard, 16 Sep 2026); the owner shared all three Drive night/day files that day. There is no free row and none is needed:
 "Flowing chips", the game as it comes, is always on the shelf. Eight SVG designs with a day and a night file each were drawn for this shelf by

@@ -55,8 +55,9 @@ func (f *fixture) laid(userID string) int64 {
 // The seed (V1.0.3__seed_table_pictures.sql) holds the owner's own art: four
 // Lotties hosted on Drive, all rented for chips — Lines Background (re-priced
 // from hammers on 16 Sep 2026) and Background Pattern, each in a day file and
-// a night file, and Welcome and Thank You, whose rainbow and gold are their
-// own night files. An anonymous viewer owns none of them.
+// a night file, Welcome, whose rainbow is its own night file, and Thank You,
+// whose gold upload is the night file and whose day file is the same Lottie
+// in the light theme's deep gold. An anonymous viewer owns none of them.
 func TestTheSeededTablePicturesAreTheOwnersOwn(t *testing.T) {
 	f := newFixture(t)
 	pictures, err := f.tables.List(f.ctx, "")
@@ -72,8 +73,9 @@ func TestTheSeededTablePicturesAreTheOwnersOwn(t *testing.T) {
 		patternNight = "https://drive.google.com/uc?export=download&id=1jysl9afLqlbeIO1SS8ypASb1TQkUFl2C"
 	)
 	const (
-		welcome  = "https://drive.google.com/uc?export=download&id=1iEyjVt07WkoblcgnX-DdWlqYp-Hsc3Wy"
-		thankYou = "https://drive.google.com/uc?export=download&id=1Iowysv9_-BE4qont-qLkZRi3XhfF6uc4"
+		welcome     = "https://drive.google.com/uc?export=download&id=1iEyjVt07WkoblcgnX-DdWlqYp-Hsc3Wy"
+		thankYou    = "https://drive.google.com/uc?export=download&id=1Iowysv9_-BE4qont-qLkZRi3XhfF6uc4"
+		thankYouDay = "https://drive.google.com/uc?export=download&id=19egvyPjBfCFbtEna7cL-_U1kQLVra6e8"
 	)
 	if len(pictures) != 4 {
 		t.Fatalf("the seed lists %d table pictures, want 4", len(pictures))
@@ -90,16 +92,52 @@ func TestTheSeededTablePicturesAreTheOwnersOwn(t *testing.T) {
 		t.Fatalf("the seeded Background Pattern = %+v", pattern)
 	}
 	// A rainbow reads on both grounds: the night file is the day file.
-	if word.Name != "Welcome" || word.Currency != db.PictureCurrencyCoin || word.Type != db.PicturePremium || word.Cost != 100000 ||
+	if word.Name != "Welcome" || word.Currency != db.PictureCurrencyCoin || word.Type != db.PicturePremium || word.Cost != 150000 ||
 		word.DurationDays != 7 || word.DurationHours != 0 || word.AssetFormat != "LOTTIE" || word.SortOrder != 85 ||
 		word.DayURL != welcome || word.NightURL != welcome || word.Owned || word.ExpiresAt != 0 {
 		t.Fatalf("the seeded Welcome = %+v", word)
 	}
-	// Gold reads on both grounds too: the night file is the day file.
+	// The gold upload reads on the dark ground only: it is the night file, and
+	// the day file is its recolour (tools/tables/make_thank_you_day.py).
 	if thanks.Name != "Thank You" || thanks.Currency != db.PictureCurrencyCoin || thanks.Type != db.PicturePremium || thanks.Cost != 3000000 ||
 		thanks.DurationDays != 7 || thanks.DurationHours != 0 || thanks.AssetFormat != "LOTTIE" || thanks.SortOrder != 90 ||
-		thanks.DayURL != thankYou || thanks.NightURL != thankYou || thanks.Owned || thanks.ExpiresAt != 0 {
+		thanks.DayURL != thankYouDay || thanks.NightURL != thankYou || thanks.Owned || thanks.ExpiresAt != 0 {
 		t.Fatalf("the seeded Thank You = %+v", thanks)
+	}
+}
+
+// Thank You was seeded first with the upload as both files (16 Sep 2026, for
+// a few hours). day_asset_url is the seed's conflict key, so on a database
+// that ran that seed the changed row would not conflict and the next boot
+// would add a second Thank You — the guarded UPDATE the seed carries moves the
+// old row onto the day file before the INSERT. A boot is every script run
+// again in order, which is what this does.
+func TestABootMovesAThankYouSeededWithOneFileOntoItsDayFile(t *testing.T) {
+	f := newFixture(t)
+	const (
+		thankYou    = "https://drive.google.com/uc?export=download&id=1Iowysv9_-BE4qont-qLkZRi3XhfF6uc4"
+		thankYouDay = "https://drive.google.com/uc?export=download&id=19egvyPjBfCFbtEna7cL-_U1kQLVra6e8"
+	)
+	// The row as the earlier seed left it.
+	if _, err := f.d.Pool.Exec(f.ctx, `UPDATE table_pictures SET day_asset_url = $1 WHERE name = 'Thank You'`, thankYou); err != nil {
+		t.Fatal(err)
+	}
+	before := f.scalar(`SELECT id FROM table_pictures WHERE name = 'Thank You'`)
+	for _, m := range db.Migrations() {
+		if _, err := f.d.Pool.Exec(f.ctx, m.SQL); err != nil {
+			t.Fatalf("%s: %v", m.File, err)
+		}
+	}
+	pictures, err := f.tables.List(f.ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pictures) != 4 {
+		t.Fatalf("after the boot the seed lists %d table pictures, want 4 — a second Thank You?", len(pictures))
+	}
+	thanks := pictures[3]
+	if thanks.Name != "Thank You" || thanks.ID != before || thanks.DayURL != thankYouDay || thanks.NightURL != thankYou {
+		t.Fatalf("after the boot Thank You = %+v, want row %d moved onto the day file", thanks, before)
 	}
 }
 

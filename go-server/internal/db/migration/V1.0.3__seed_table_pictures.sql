@@ -32,7 +32,7 @@
 --
 --   Lines Background    1 lakh chips   7 days  sort_order 75  LOTTIE, on Drive
 --   Background Pattern  5 lakh chips   7 days  sort_order 80  LOTTIE, on Drive
---   Welcome             1 lakh chips   7 days  sort_order 85  LOTTIE, on Drive
+--   Welcome             1.5 lakh chips 7 days  sort_order 85  LOTTIE, on Drive
 --   Thank You           30 lakh chips  7 days  sort_order 90  LOTTIE, on Drive
 --
 -- LINES BACKGROUND (owner, 15 Sep 2026) is a Lottie of 23 layers of black
@@ -83,7 +83,26 @@
 -- 1080×1080 canvas (Lottie 5.11.0, 30 fps, 10 s), the owner's own upload
 -- ("Thank You.json", public, 728 KB). No 3D, no expressions; its text layer
 -- carries its nine glyphs as shapes (`chars`), so the phones need no font.
--- Gold reads on both grounds, so its NIGHT file is its day file too.
+-- That gold reads on the dark ground and all but vanishes on the light one
+-- (owner, 16 Sep 2026: "Thank you text not visible in Day mode"), so the
+-- upload is the NIGHT file and the DAY file is the same Lottie with its 140
+-- shape fills and its text fill in the light theme's deep gold (#8A6A18,
+-- AppTheme.goldDeep) — "Thank You Day.json", the owner's upload to the same
+-- folder, 729 KB, written by tools/tables/make_thank_you_day.py, which checks
+-- that nothing else differs from the original (the twinkle's 7,722 per-frame
+-- keyframes are kept as they are). It was seeded first with the original as
+-- both files, and day_asset_url is the conflict key: a database that ran that
+-- seed would take the changed row as a NEW picture and show two Thank Yous.
+-- So this one change to a seeded row is in the script — the guarded UPDATE
+-- below the header moves such a row onto the day file before the INSERT and
+-- is a no-op everywhere else. (Lines Background's re-price above stays a hand
+-- step: it does not touch the key.)
+
+UPDATE table_pictures
+   SET day_asset_url = 'https://drive.google.com/uc?export=download&id=19egvyPjBfCFbtEna7cL-_U1kQLVra6e8',
+       updated_at    = (EXTRACT(EPOCH FROM now()) * 1000)::bigint
+ WHERE name = 'Thank You'
+   AND day_asset_url = 'https://drive.google.com/uc?export=download&id=1Iowysv9_-BE4qont-qLkZRi3XhfF6uc4';
 
 INSERT INTO table_pictures (name, day_asset_url, night_asset_url, asset_format, currency, type, cost, duration_days, duration_hours, is_active, sort_order, created_at, updated_at)
 SELECT name, day_asset_url, night_asset_url, asset_format, currency, type, cost, duration_days, duration_hours, is_active, sort_order,
@@ -101,9 +120,9 @@ SELECT name, day_asset_url, night_asset_url, asset_format, currency, type, cost,
     ('Welcome',
      'https://drive.google.com/uc?export=download&id=1iEyjVt07WkoblcgnX-DdWlqYp-Hsc3Wy',
      'https://drive.google.com/uc?export=download&id=1iEyjVt07WkoblcgnX-DdWlqYp-Hsc3Wy',
-     'LOTTIE', 'COIN', 'PREMIUM', 100000::bigint, 7, 0, TRUE, 85),
+     'LOTTIE', 'COIN', 'PREMIUM', 150000::bigint, 7, 0, TRUE, 85),
     ('Thank You',
-     'https://drive.google.com/uc?export=download&id=1Iowysv9_-BE4qont-qLkZRi3XhfF6uc4',
+     'https://drive.google.com/uc?export=download&id=19egvyPjBfCFbtEna7cL-_U1kQLVra6e8',
      'https://drive.google.com/uc?export=download&id=1Iowysv9_-BE4qont-qLkZRi3XhfF6uc4',
      'LOTTIE', 'COIN', 'PREMIUM', 3000000::bigint, 7, 0, TRUE, 90)
   ) AS seed(name, day_asset_url, night_asset_url, asset_format, currency, type, cost, duration_days, duration_hours, is_active, sort_order)
