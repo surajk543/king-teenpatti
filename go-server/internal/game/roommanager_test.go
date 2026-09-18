@@ -1011,6 +1011,9 @@ func TestRoomsLobbyOffersExactlyTheDefaultMenu(t *testing.T) {
 		// ("in all variation tables, do not keep any pot limit").
 		{Category: "variation", BootAmount: 50000, MaxPot: 0, MaxBlindMoves: 4, MaxChips: 1000000000},
 		{Category: "variation", BootAmount: 1000000, MaxPot: 0, MaxBlindMoves: 4, MinChips: 500000000},
+		// A second seen table (owner, 19 Sep 2026): boot 50,000, open to all,
+		// with a 5 Crore pot limit of its own rather than seen's 20 Lakh.
+		{Category: "seen", BootAmount: 50000, MaxPot: 50000000, MaxBlindMoves: 4},
 	}
 	if len(o.Tables) != len(wantTables) {
 		t.Fatalf("tables %+v", o.Tables)
@@ -1034,7 +1037,7 @@ func TestRoomsLobbyOffersExactlyTheDefaultMenu(t *testing.T) {
 		`{"category":"blind","bootAmount":50000,"maxPot":0,"maxBlindMoves":4,"minChips":0,"maxChips":1000000000},` +
 		`{"category":"blind","bootAmount":1000000,"maxPot":0,"maxBlindMoves":4,"minChips":500000000,"maxChips":0},` +
 		`{"category":"variation","bootAmount":50000,"maxPot":0,"maxBlindMoves":4,"minChips":0,"maxChips":1000000000},` +
-		`{"category":"variation","bootAmount":1000000,"maxPot":0,"maxBlindMoves":4,"minChips":500000000,"maxChips":0}],` +
+		`{"category":"variation","bootAmount":1000000,"maxPot":0,"maxBlindMoves":4,"minChips":500000000,"maxChips":0},{"category":"seen","bootAmount":50000,"maxPot":50000000,"maxBlindMoves":4,"minChips":0,"maxChips":0}],` +
 		`"entryCapBoot":200,"entryCapCategory":"blind","entryCapMaxChips":500000,"privateBoot":200,"privateMaxPot":500000}`
 	if string(raw) != want {
 		t.Fatalf("json\n got  %s\n want %s", raw, want)
@@ -1090,7 +1093,7 @@ func TestRoomsEveryMenuRoomCanBeJoined(t *testing.T) {
 			t.Fatalf("%+v vs %s %d", entry, table.Category(), table.BootAmount())
 		}
 	}
-	if n := len(f.rooms.ListTables(game.ListOptions{})); n != 7 {
+	if n := len(f.rooms.ListTables(game.ListOptions{})); n != 8 {
 		t.Fatalf("listTables %d", n)
 	}
 }
@@ -1100,7 +1103,7 @@ func TestRoomsPairNotOnMenuRefused(t *testing.T) {
 	// Both halves are offered on their own; the pair is not.
 	_, err := f.rooms.QuickJoin(f.player("P", rmStart), game.QuickJoinOptions{BootAmount: 5000, Category: "seen"})
 	expectCode(t, err, game.CodeTableNotOffered)
-	if want := "The lobby offers: seen 200, blind 200, blind 5000, blind 50000, blind 1000000, variation 50000, variation 1000000"; err.Error() != want {
+	if want := "The lobby offers: seen 200, blind 200, blind 5000, blind 50000, blind 1000000, variation 50000, variation 1000000, seen 50000"; err.Error() != want {
 		t.Fatalf("message %q", err.Error())
 	}
 	if n := len(f.rooms.ListTables(game.ListOptions{})); n != 0 {

@@ -149,6 +149,11 @@ before the restart. Keep the pull, the build and the restart back to back.
 
 ### The first deploy that carries Variation Teen Patti — check `LOBBY_TABLES` first
 
+The same check covers the second seen table (19 Sep 2026): the default menu now also ends with
+`seen:50000:pot=50000000` — boot 50,000, open to all, a 5 Crore pot limit of its own. A `.env` that
+names `LOBBY_TABLES` needs that entry added by hand to offer it, and a Go tag older than this
+build cannot parse `pot=` and will refuse to boot on it.
+
 The build's **default** menu ends with two variation tables —
 `variation:50000:max=1000000000,variation:1000000:min=500000000` — so what the restart does
 depends on production's `.env`:

@@ -54,6 +54,8 @@ func TestDefaultsMatchNode(t *testing.T) {
 			// tables, 50,000 and 10 Lakh, behind blind's bands for those stakes.
 			{Category: "variation", BootAmount: 50000, MaxChips: 1000000000},
 			{Category: "variation", BootAmount: 1000000, MinChips: 500000000},
+			// A second seen table with a pot cap of its own (owner, 19 Sep 2026).
+			{Category: "seen", BootAmount: 50000, MaxPot: 50000000},
 		},
 		"Game.MaxPlayers": 5, "Game.MinPlayers": 2, "Game.TurnTimeout": 25 * time.Second,
 		"Game.MaxBetRounds": 20, "Game.PotLimitMultiplier": int64(1024), "Game.MaxRaiseSteps": 8,
@@ -146,6 +148,11 @@ func TestEveryKey(t *testing.T) {
 			[]LobbyTable{{Category: "blind", BootAmount: 1000000, MinChips: 500000000}}},
 		{"LOBBY_TABLES", "blind:5000:max=900:min=100", "Game.LobbyTables",
 			[]LobbyTable{{Category: "blind", BootAmount: 5000, MinChips: 100, MaxChips: 900}}},
+		// A table's own pot cap, alone and beside a band.
+		{"LOBBY_TABLES", "seen:50000:pot=50000000", "Game.LobbyTables",
+			[]LobbyTable{{Category: "seen", BootAmount: 50000, MaxPot: 50000000}}},
+		{"LOBBY_TABLES", "seen:50000: pot = 7 :max=900", "Game.LobbyTables",
+			[]LobbyTable{{Category: "seen", BootAmount: 50000, MaxChips: 900, MaxPot: 7}}},
 		{"MAX_PLAYERS_PER_ROOM", "3", "Game.MaxPlayers", 3},
 		{"MIN_PLAYERS_TO_START", "3", "Game.MinPlayers", 3},
 		{"TURN_TIMEOUT_MS", "500", "Game.TurnTimeout", 500 * time.Millisecond},
@@ -523,6 +530,8 @@ func TestPublicGameConfigValues(t *testing.T) {
 		// bands blind's tables of the same stakes have.
 		{Category: "variation", BootAmount: 50000, MaxChips: 1000000000},
 		{Category: "variation", BootAmount: 1000000, MinChips: 500000000},
+		// Seen at 50,000: open to all, its own 5 Crore pot limit.
+		{Category: "seen", BootAmount: 50000, MaxPot: 50000000},
 	}
 	if !reflect.DeepEqual(g.LobbyTables, menu) {
 		t.Errorf("menu %v", g.LobbyTables)
@@ -530,9 +539,13 @@ func TestPublicGameConfigValues(t *testing.T) {
 	for i, entry := range g.LobbyTables {
 		// Capped: the seen table alone, at its fixed 20 Lakh. Blind tables
 		// never were, and variation tables are not (owner, 18 Sep 2026).
+		// The seen table at 50,000 sets a cap of its own, which wins.
 		wantPot := int64(0)
 		if entry.Category == "seen" {
 			wantPot = 2000000
+		}
+		if entry.MaxPot > 0 {
+			wantPot = entry.MaxPot
 		}
 		if got := g.MenuMaxPot(entry.Category, entry.BootAmount); got != wantPot {
 			t.Errorf("tables[%d].maxPot = %d, want %d", i, got, wantPot)
@@ -713,5 +726,35 @@ func TestLoadPublicDirDefault(t *testing.T) {
 	t.Setenv("PUBLIC_DIR", "/nowhere/at/all")
 	if cfg, _ = Load(); cfg.PublicDir != "/nowhere/at/all" {
 		t.Errorf("explicit PUBLIC_DIR must win: %q", cfg.PublicDir)
+	}
+}
+
+// A menu entry's own pot cap wins over its category's for the PUBLIC table of
+// that category and boot — and for nothing else: the other seen table keeps
+// SEEN_MAX_POT, a private table keeps PRIVATE_MAX_POT, the ladder and rounds
+// stay the category's, and the card advertises what the table plays to (owner,
+// 19 Sep 2026: seen 50,000 with a 5 Crore pot limit).
+func TestATableCanCarryAPotCapOfItsOwn(t *testing.T) {
+	g := Defaults().Game
+	big := g.TableRules("seen", 50000, false)
+	if big.MaxPot != 50000000 || big.MaxRaiseSteps != g.SeenMaxRaiseSteps || big.MaxBetRounds != g.SeenMaxBetRounds || big.BootAmount != 50000 {
+		t.Fatalf("seen 50000 = %+v", big)
+	}
+	if got := g.MenuMaxPot("seen", 50000); got != big.MaxPot {
+		t.Fatalf("the card says %d, the table plays to %d", got, big.MaxPot)
+	}
+	if small := g.TableRules("seen", 200, false); small.MaxPot != g.SeenMaxPot {
+		t.Fatalf("seen 200 maxPot %d, want SEEN_MAX_POT %d", small.MaxPot, g.SeenMaxPot)
+	}
+	if private := g.TableRules("seen", 50000, true); private.MaxPot != g.PrivateMaxPot {
+		t.Fatalf("private maxPot %d, want %d", private.MaxPot, g.PrivateMaxPot)
+	}
+	if blind := g.TableRules("blind", 50000, false); blind.MaxPot != 0 {
+		t.Fatalf("blind 50000 took seen's cap: %d", blind.MaxPot)
+	}
+	for _, bad := range []string{"seen:50000:pot=-1", "seen:50000:pot=x", "seen:50000:pot"} {
+		if _, err := parseLobbyTables(bad); err == nil {
+			t.Errorf("%q parsed", bad)
+		}
 	}
 }

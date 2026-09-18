@@ -37,6 +37,8 @@ const MENU = [
   // VARIATION_MAX_POT_BOOTS=0).
   { category: 'variation', bootAmount: 50000, maxPot: 0, maxBlindMoves: 4, minChips: 0, maxChips: 1000000000 },
   { category: 'variation', bootAmount: 1000000, maxPot: 0, maxBlindMoves: 4, minChips: 500000000, maxChips: 0 },
+  // A second seen table (owner, 19 Sep 2026): open to all, its own 5 Crore pot limit.
+  { category: 'seen', bootAmount: 50000, maxPot: 50000000, maxBlindMoves: 4, minChips: 0, maxChips: 0 },
 ];
 
 /** A stack that covers an entry's boot and sits inside its band. */
@@ -120,7 +122,7 @@ test('a stake and category that is not a room on the menu is refused, and no roo
   const client = await openClient(account.token);
   // Both halves are offered on their own; the pair is not.
   const ack = await client.emit('room:quickJoin', { bootAmount: 5000, category: 'seen' });
-  assert.deepEqual(ack, { ok: false, code: 'table_not_offered', message: 'The lobby offers: seen 200, blind 200, blind 5000, blind 50000, blind 1000000, variation 50000, variation 1000000' });
+  assert.deepEqual(ack, { ok: false, code: 'table_not_offered', message: 'The lobby offers: seen 200, blind 200, blind 5000, blind 50000, blind 1000000, variation 50000, variation 1000000, seen 50000' });
   const listed = await client.emit('lobby:list', {});
   assert.ok(!listed.tables.some((t) => t.category === 'seen' && t.bootAmount === 5000), 'no seen table at 5,000 exists');
   assert.equal(client.count('room:joined'), 0);

@@ -202,6 +202,15 @@ type LobbyTable struct {
 	// Exactly the limit is allowed at both ends — the rules are "more than"
 	// and "less than", not "at least" and "at most".
 	MaxChips int64
+	// MaxPot is this table's OWN pot cap ("pot=N"), 0 for "whatever its
+	// category gives it" (owner, 19 Sep 2026: a seen table at boot 50,000
+	// with a 5 Crore pot limit beside the 200 table's 20 Lakh). One figure
+	// per category stopped fitting the day seen got a second stake: 20 Lakh
+	// is forty boots at 50,000, and every hand there would be dealt a few
+	// bets from the POT_LIMIT showdown. It overrides the category's cap and
+	// nothing else — the ladder and the rounds stay the category's — and a
+	// private table never reads it.
+	MaxPot int64
 }
 
 // GameConfig ← config.game. Durations replace Node's *Ms integers; convert
@@ -417,6 +426,10 @@ func Defaults() *Config {
 				// same stakes have.
 				{Category: "variation", BootAmount: 50000, MaxChips: 1000000000},
 				{Category: "variation", BootAmount: 1000000, MinChips: 500000000},
+				// A second seen table (owner, 19 Sep 2026): boot 50,000, a pot
+				// limit of 5 Crore, open to all. Last in the list like every
+				// later addition; the lobby files it under Seen by category.
+				{Category: "seen", BootAmount: 50000, MaxPot: 50000000},
 			},
 			MaxPlayers:              5,
 			MinPlayers:              2,
@@ -791,6 +804,11 @@ func (g GameConfig) TableRules(category string, bootAmount int64, isPrivate bool
 		rules.MaxBetRounds = g.SeenMaxBetRounds
 		rules.MaxPot = g.SeenMaxPot
 	}
+	// A menu entry may carry a pot cap of its own, which wins over its
+	// category's. Looked up by the boot the table will really use.
+	if own := g.menuPotFor(category, rules.BootAmount); own > 0 {
+		rules.MaxPot = own
+	}
 	if isPrivate {
 		rules.BootAmount = g.PrivateBoot
 		rules.MaxPot = g.PrivateMaxPot
@@ -806,6 +824,12 @@ func (g GameConfig) TableRules(category string, bootAmount int64, isPrivate bool
 // one pot limit over a table that plays to another is a lie told in chips —
 // so a variation entry needs its boot.
 func (g GameConfig) MenuMaxPot(category string, bootAmount int64) int64 {
+	if bootAmount == 0 {
+		bootAmount = g.BootAmount
+	}
+	if own := g.menuPotFor(category, bootAmount); own > 0 {
+		return own
+	}
 	switch category {
 	case CategorySeen:
 		return g.SeenMaxPot
@@ -814,6 +838,18 @@ func (g GameConfig) MenuMaxPot(category string, bootAmount int64) int64 {
 			bootAmount = g.BootAmount
 		}
 		return g.VariationMaxPot(bootAmount)
+	}
+	return 0
+}
+
+// menuPotFor is the pot cap the LOBBY_TABLES entry for this category and boot
+// sets for itself ("pot=N"), 0 when there is no such entry or it sets none.
+func (g GameConfig) menuPotFor(category string, bootAmount int64) int64 {
+	category = NormalizeCategory(category)
+	for _, entry := range g.LobbyTables {
+		if NormalizeCategory(entry.Category) == category && entry.BootAmount == bootAmount {
+			return entry.MaxPot
+		}
 	}
 	return 0
 }
