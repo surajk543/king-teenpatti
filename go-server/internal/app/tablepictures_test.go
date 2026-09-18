@@ -67,21 +67,24 @@ func TestTablePicturesAreServedBoughtAndLaidOverREST(t *testing.T) {
 	ctx := context.Background()
 	welcome := a.cfg.Game.WelcomeChips
 
+	// The seed's own rows come first (the owner's Drive Lotties, however many
+	// the seed holds today); this test's three are found by name.
+	seeded := len(tableCatalogue(t, ts.URL))
 	insertTablePicture(t, database, "Classic", db.PictureCurrencyCoin, db.PictureFree, 0, 0)
 	insertTablePicture(t, database, "Sapphire", db.PictureCurrencyCoin, db.PicturePremium, 50000, 7)
 	insertTablePicture(t, database, "Lattice", db.PictureCurrencyHammer, db.PicturePremium, 20, 20)
 	catalogue := tableCatalogue(t, ts.URL)
-	if len(catalogue) != 4 {
-		t.Fatalf("the catalogue lists %d table pictures, want the seeded row and 3 of this test's", len(catalogue))
+	if len(catalogue) != seeded+3 {
+		t.Fatalf("the catalogue lists %d table pictures, want the %d seeded rows and 3 of this test's", len(catalogue), seeded)
 	}
 	var free, coin, hammer db.TablePicture
 	for _, p := range catalogue {
 		switch {
-		case free.ID == 0 && p.Type == db.PictureFree:
+		case p.Name == "Classic" && p.Type == db.PictureFree:
 			free = p
-		case coin.ID == 0 && p.Type == db.PicturePremium && p.Currency == db.PictureCurrencyCoin:
+		case p.Name == "Sapphire" && p.Type == db.PicturePremium && p.Currency == db.PictureCurrencyCoin:
 			coin = p
-		case hammer.ID == 0 && p.Currency == db.PictureCurrencyHammer && p.Name == "Lattice":
+		case p.Name == "Lattice" && p.Currency == db.PictureCurrencyHammer:
 			hammer = p
 		}
 	}
