@@ -124,7 +124,8 @@ king-teenpatti/
     │   ├── models/dtos.dart      wire DTOs mirroring server JSON
     │   ├── screens/{login,lobby,table}_screen.dart
     │   ├── widgets/              premium_surface, seat_pod, playing_card, poker_chip, liquid_fill,
-    │   │                         fireworks, avatar, buy_chips, chip_store, picture_shelf, rules_sheet
+    │   │                         fireworks, avatar, buy_chips, chip_store, picture_shelf, rules_sheet,
+    │   │                         variation_prompt (the variation table's on-felt picker, "is selecting" line, announcement, wild-card edge — §8.4)
     │   ├── theme/app_theme.dart  FlexColorScheme + shadow/lift helpers, Space/Radii/Motion/Breaks/Dim, Inter
     │   ├── theme/theme_colors.dart  GlassColors ThemeExtension (obsidian / frosted-ice tokens, §8.4)
     │   ├── widgets/glass_components.dart  tapHaptic, PressScale, GlassCard, GlassButton, GlassTextField, GlassThemeSwitcher
@@ -814,6 +815,11 @@ Production's lives at `/var/www/gameplay/king-teenpatti/go-server/.env` (`PG_POO
     `integration`/`socketProtocol`/`stakes`/`statsAndRewards`/`metrics` process suites (real sockets through
     `socket/testclient`, `/health`, `/metrics`, static files, review_headers); `internal/db` = ledger transactions
     (`duplicate_action`, `stale_state`), users/rewards, `NormalizeDisplayName`, `statement_timeout`, review_money.
+  - **Variation Teen Patti** (§6.1, §6.4): `internal/game/variation_test.go` (the six rule sets; a wild never makes a hand
+    worse, never duplicates a held card, three wilds against an exhaustive search) and `table_variation_test.go` (the window:
+    the six picks, timeout → MUFLIS, who may choose, the pick-versus-clock race run 200 times under `-race`, chooser leaves,
+    hand/table ends mid-window, restart mid-window keeping the ORIGINAL deadline, and "a seen table's JSON has no variation
+    key"); `internal/socket/variation_test.go` is the same over real sockets.
   - `internal/socket` (invalid moves, hostile payloads, leaks, money, concurrency, stack), `internal/sio` (framing, server,
     concurrency), `internal/auth`, `internal/config`, `internal/metrics` (the label rule), `cmd/gameplay` (version stamp).
   - **Node-assisted tests, all `t.Skip` without their prerequisite:** `internal/auth/nodeinterop_test.go` (tokens minted by
@@ -830,6 +836,14 @@ Production's lives at `/var/www/gameplay/king-teenpatti/go-server/.env` (`PG_POO
   `--keep` (logs + schemas), `--serve [--profile main]`, `--verbose`. `npm run parity:diff -- --a go --b <url|go>` drives one fixed
   scenario against two servers and diffs the normalised recordings (uuids/codes/JWTs/timestamps/cards masked, consecutive
   identical `room:state` collapsed; `--out <dir>` keeps them). The Node target is gone — the last Node-vs-Go run was 141/141.
+- **Parity profiles `variation` and `variation-timeout`** run `tools/parity/variation.test.js` (each runs its own half and
+  skips the other's — a profile is one server process with one window length) plus the `money` audit over the books those
+  hands wrote. On macOS two `metrics.test.js` tests fail for reasons that predate this (`bind 127.0.0.2`, no
+  `process_resident_memory_bytes`); proven against a HEAD build on 18 Sep 2026.
+- **`tools/bot.js`** also takes `--category variation` and **`--variation <MUFLIS|AK47|JOKER|HUKAM|LOWEST_JOKER|HIGHEST_JOKER|random|none>`**
+  (default `random`): the chooser's pick, made once per table-and-hand from `room:state`; `none` never answers, which is how
+  to watch the server's timeout choose Muflis. The resident fleet (`bot-play/`) joins a hard-coded seen/blind list and
+  cannot sit at a variation table.
 - **`tools/bot.js`** (`npm run bot -- …`) flags: `--count --boot --category --url --offset --churn`. **16** fixed identities
   (Ravi Meera Arjun Kavya Vikram Anita Rohit Neha Priya Aman Sneha Karan Pooja Rahul Isha Dev; device id `practice-bot-<slot>-<name>`);
   groups use `--offset 0/4/8/12` — a second group **must** use `--offset`. Bots always `see`, ask sideshow 45%, answer 75/15/10
@@ -967,6 +981,27 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   over the middle of the table were removed (owner, 10 Sep 2026): the scrim greyed every revealed
   hand a player wanted to compare against, and the result is announced on the winner's own pod by
   `_WinnerFlash` instead. `handLive` gates bet pills. While `you.unfundedDeadline` is set, `_Status` shows `buyChipsToStay` (amber, counting down) in place of the waiting/starting line.
+- **Variation tables** (owner, 18 Sep 2026; server side §6.1/§6.4). Everything is drawn from `room:state.variation`
+  (`VariationState` in `dtos.dart`; `GameState.variation`, `variationSelecting`, `variationIsMine`, `shownVariation`,
+  `shownTurnUp`) — the two `game:variation*` events only say the same thing a moment sooner, so a reconnect mid-window
+  rebuilds the right view with the server's ORIGINAL deadline. **The picker is a panel in the felt's Stack
+  (`widgets/variation_prompt.dart` `VariationPrompt`), never a `showDialog` route** — no route can outlive the move it
+  asked about (the missile question's black screen, above): title "Choose Variation", whole seconds counting down from
+  `deadline − now` on its own controller (visual only; the server's clock decides), a draining bar, six keys three to a
+  row, a one-line rule under each where the screen is not short. It takes the top 64% of the felt so the chooser's own
+  hand and "See cards" stay usable (the server allows `see` in the window). A tap darkens all six and
+  `GameState.selectVariation` **awaits the ack**: taken → dark until the snapshot removes the panel however slow the link;
+  refused or unanswered → the keys come back. As the window opens for the viewer, the drawers close and any sheet over
+  the table is popped (`popUntil(isFirst)`, as `_TableRoutes` does). Everyone else gets `VariationSelectingLine` in
+  `_Status` ("Ravi is selecting variation…" + the seconds) and the chooser's pod is on the clock. When it closes,
+  `variationAnnounced` holds "Variation: AK47" for 3 s — once per hand whether the event, the snapshot or both said so —
+  with "Time ran out — Muflis was chosen" (`TIMEOUT`) or "<name> left — Muflis was chosen" (`LEFT`) under it, and
+  `_CategoryTag` reads "VARIATION · AK47" / "· Joker · 10" / "· Hukam · ♥" through the showdown (`lastVariation`, cleared
+  by the next deal, a change of table, or the celebration ending). At a reveal the cards that played as wild carry a gold
+  edge (`WildEdge`, from the reveal's `wild`). Palette: rani pink (`AppTheme.paletteFor` — `_rani`/`_raniDark`,
+  `Icons.shuffle_rounded`); the lobby card says `variationTableNote` as its ONE blurb line. A seen or blind table draws
+  exactly what it did. Tests: `test/variation_table_test.dart` (640x360 at text x1.25 in all five languages),
+  `variation_strings_test.dart`, `variation_palette_test.dart`.
 - **The seat pod** (`widgets/seat_pod.dart`) carries the rest of it. An unoccupied place draws
   `_emptySeat()` — a dashed outline and a chair, never a blank pod. The viewer's badge and total are
   **not** in their column: they hang over their own fanned hand (`SeatBet(totalFirst: true)`), and

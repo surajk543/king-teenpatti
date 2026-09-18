@@ -1502,37 +1502,33 @@ class _TableCard extends StatelessWidget {
                                         ),
                                       ),
                                       SizedBox(height: gap),
-                                      // What makes this table different goes
-                                      // first and in the stronger ink; the
-                                      // chips line under it is the seen
-                                      // card's, because the chips are as
-                                      // visible here as there. On the smallest
-                                      // phone the extra lines take the column
-                                      // past its room and the FittedBox above
-                                      // scales it down rather than striping
-                                      // the key.
-                                      if (variation) ...[
-                                        Text(
-                                          t.variationTableNote,
-                                          maxLines: 2,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: text.bodySmall?.copyWith(
-                                            fontSize: blurbSize,
-                                            fontWeight: FontWeight.w600,
-                                            color: glass.textDisplay,
-                                          ),
-                                        ),
-                                        const SizedBox(height: Space.xs),
-                                      ],
+                                      // One blurb line a card, so every card
+                                      // keeps the same rhythm down to its
+                                      // key: a variation card says what makes
+                                      // it different, in the stronger ink,
+                                      // and leaves the chips line to the seen
+                                      // card — chips are as visible here as
+                                      // there, and only a blind table has to
+                                      // say otherwise. With both lines the
+                                      // Entry row sat against the key, and the
+                                      // smallest phone scaled the whole column
+                                      // down to fit.
                                       Text(
-                                        blind
+                                        variation
+                                            ? t.variationTableNote
+                                            : blind
                                             ? t.onlyYourChips
                                             : t.everyoneChips,
                                         maxLines: 2,
                                         overflow: TextOverflow.ellipsis,
                                         style: text.bodySmall?.copyWith(
                                           fontSize: blurbSize,
-                                          color: glass.textBody,
+                                          fontWeight: variation
+                                              ? FontWeight.w600
+                                              : null,
+                                          color: variation
+                                              ? glass.textDisplay
+                                              : glass.textBody,
                                         ),
                                       ),
                                       SizedBox(height: gap),

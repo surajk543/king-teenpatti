@@ -37,7 +37,8 @@ tokens with the real `jsonwebtoken`, and the Socket.IO server test connects the 
 | `--url` | `http://localhost:3000` | Server base URL. |
 | `--count` | 2 | Bots to start (max 16 identities per offset range). |
 | `--boot` | 200 | Table stake: 200 or 5000 on the production menu. |
-| `--category` | seen | `seen` or `blind`. |
+| `--category` | seen | `seen`, `blind` or `variation` (Variation Teen Patti; the server's menu must offer it). |
+| `--variation` | random | Variation tables only: what a bot picks when it is the chooser — `MUFLIS`, `AK47`, `JOKER`, `HUKAM`, `LOWEST_JOKER`, `HIGHEST_JOKER`, `random`, or `none` to never answer and let the server's 10-second clock choose Muflis. |
 | `--offset` | 0 | Identity offset. A second bot group must use its own offset (`0`, `4`, `8`, `12`) or the accounts collide. |
 | `--churn` | 0 | Seconds between table hops. Makes bots leave and quick-join elsewhere, which exercises consolidation and `room:switch`. |
 
