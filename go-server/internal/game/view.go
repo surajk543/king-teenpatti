@@ -41,6 +41,10 @@ type TableView struct {
 	Round int   `json:"round"` // hand.round or 0
 	// Sideshow is the request awaiting an answer, or null.
 	Sideshow *SideshowView `json:"sideshow"`
+	// Variation is the hand's variation window and its outcome. ABSENT — not
+	// null — on a seen or blind table and between hands, so those snapshots are
+	// byte for byte what they were before variation tables existed. Go only.
+	Variation *VariationView `json:"variation,omitempty"`
 	// Turn is null between hands.
 	Turn *TurnView `json:"turn"`
 	// You is null for a viewer who is not seated (a spectator socket never
@@ -57,6 +61,36 @@ type SideshowView struct {
 	ToUserID   string `json:"toUserId"`
 	ToSeat     int    `json:"toSeat"`
 	ExpiresAt  int64  `json:"expiresAt"` // epoch ms
+}
+
+// VariationView is TableView.variation: public facts only, the same for every
+// viewer. While Selecting, nobody is on turn (TableView.turn.seatIndex is -1)
+// and the chooser alone may answer with game:selectVariation. It is everything
+// a client needs to draw the chooser's picker, everyone else's "<name> is
+// selecting…" and both countdowns, from a snapshot alone — a reconnect has
+// nothing else.
+type VariationView struct {
+	// Selecting is true while the window is open.
+	Selecting bool `json:"selecting"`
+	// UserID / DisplayName / SeatIndex are the CHOOSER, and stay so after the
+	// window has closed, however it closed.
+	UserID      string `json:"userId"`
+	DisplayName string `json:"displayName"`
+	SeatIndex   int    `json:"seatIndex"`
+	StartedAt   int64  `json:"startedAt"` // epoch ms
+	// Deadline (epoch ms) is when the server chooses instead; null when the
+	// window never lapses.
+	Deadline  *int64 `json:"deadline"`
+	TimeoutMs int64  `json:"timeoutMs"`
+	// Options is the menu in the order it is offered — NEVER null.
+	Options []Variation `json:"options"`
+	// Selected / SelectedBy are null while Selecting.
+	Selected   *Variation           `json:"selected"`
+	SelectedBy *VariationSelectedBy `json:"selectedBy"`
+	// TurnUp is the turned-up card, present only once a variation decided by
+	// it has been chosen (JOKER: its rank is wild; HUKAM: its suit). Until
+	// then the card is the server's alone.
+	TurnUp *string `json:"turnUp,omitempty"`
 }
 
 // TurnView is TableView.turn.

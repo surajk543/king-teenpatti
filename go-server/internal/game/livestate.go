@@ -149,6 +149,7 @@ func (t *Table) fence(seq int64, cause error) {
 		t.hand.sideshow.timer.Stop()
 		t.hand.sideshow.timer = nil
 	}
+	t.stopVariationTimer()
 	err := &FencedError{RoomID: t.id, Seq: seq, Err: cause}
 	if t.liveErrors != nil {
 		t.liveErrors(LiveOpSaveTable, err)
@@ -223,6 +224,7 @@ func (t *Table) suspend() {
 		t.hand.sideshow.timer.Stop()
 		t.hand.sideshow.timer = nil
 	}
+	t.stopVariationTimer()
 	for gen, entry := range t.retryTimers {
 		delete(t.retryTimers, gen)
 		stopped := entry.timer.Stop()
@@ -419,6 +421,7 @@ func restoreTable(snap *Snapshot, opts TableOptions) (*Table, error) {
 				expiresAt:  FromMillis(p.ExpiresAt),
 			}
 		}
+		h.variation = variationFrom(sh.Variation)
 		t.setHand(h)
 		t.setState(TableBetting)
 	} else if snap.State == TableStarting {
@@ -450,6 +453,15 @@ func (t *Table) resumeTimers() {
 	now := t.clock.Now()
 
 	switch {
+	case t.hand != nil && t.resumeVariation(now):
+		// A variation table still inside its window: nobody is on turn yet, so
+		// there is no turn clock to re-arm and — above all — play must not be
+		// opened by the "no turn recorded" branch below. resumeVariation has
+		// re-armed the window's own clock for what is left of it. (A window
+		// whose deadline passed while the process was down was closed by that
+		// same call, which gave the chooser their turn with a full clock; that
+		// returns false, and the hand falls through to the next case, which
+		// finds the turn it was just given and leaves it alone.)
 	case t.hand != nil:
 		h := t.hand
 		if p := h.sideshow; p != nil {
@@ -623,6 +635,26 @@ func validateSnapshot(snap *Snapshot) error {
 		}
 		if !seatOK(p.ToSeat) || snap.Seats[p.ToSeat].UserID != p.ToUserID {
 			return fmt.Errorf("snapshot %s: sideshow target %s is not at seat %d", snap.RoomID, p.ToUserID, p.ToSeat)
+		}
+	}
+	if w := h.Variation; w != nil {
+		if err := validCardCodes([]string{w.TurnUp}); err != nil {
+			return fmt.Errorf("snapshot %s: variation turn-up card: %w", snap.RoomID, err)
+		}
+		if w.Open {
+			// An open window must name a chooser who is there to be given the
+			// turn when it closes.
+			if !seatOK(w.ChooserSeat) || snap.Seats[w.ChooserSeat].UserID != w.ChooserID {
+				return fmt.Errorf("snapshot %s: variation chooser %s is not at seat %d", snap.RoomID, w.ChooserID, w.ChooserSeat)
+			}
+			if w.Selected != "" {
+				return fmt.Errorf("snapshot %s: variation window is open but %q is already selected", snap.RoomID, w.Selected)
+			}
+		} else if w.Selected != "" {
+			// "" is legal for a closed window only in a hand that is ending.
+			if _, ok := ParseVariation(string(w.Selected)); !ok {
+				return fmt.Errorf("snapshot %s: variation %q is not one this server plays", snap.RoomID, w.Selected)
+			}
 		}
 	}
 	return nil

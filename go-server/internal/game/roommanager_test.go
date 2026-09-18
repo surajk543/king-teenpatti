@@ -991,7 +991,10 @@ func TestRoomsLobbyOffersExactlyTheDefaultMenu(t *testing.T) {
 	if !equalInt64s(o.Stakes, []int64{200, 5000, 50000, 1000000}) {
 		t.Fatalf("stakes %v", o.Stakes)
 	}
-	if len(o.Categories) != 2 || o.Categories[0] != game.CategorySeen || o.Categories[1] != game.CategoryBlind {
+	// seen and blind as ever, in their old order, and the third only because
+	// the default menu now offers a variation table (LobbyOptions derives it).
+	if len(o.Categories) != 3 || o.Categories[0] != game.CategorySeen || o.Categories[1] != game.CategoryBlind ||
+		o.Categories[2] != game.CategoryVariation {
 		t.Fatalf("categories %v", o.Categories)
 	}
 	// Each blind table carries the stack band it is for; requirement 30's cap
@@ -1002,6 +1005,9 @@ func TestRoomsLobbyOffersExactlyTheDefaultMenu(t *testing.T) {
 		{Category: "blind", BootAmount: 5000, MaxPot: 0, MaxBlindMoves: 4, MaxChips: 50000000},
 		{Category: "blind", BootAmount: 50000, MaxPot: 0, MaxBlindMoves: 4, MaxChips: 1000000000},
 		{Category: "blind", BootAmount: 1000000, MaxPot: 0, MaxBlindMoves: 4, MinChips: 500000000},
+		// Variation Teen Patti (owner, 18 Sep 2026): LAST, so the five entries
+		// above keep their places, and capped exactly as the seen table is.
+		{Category: "variation", BootAmount: 200, MaxPot: 2000000, MaxBlindMoves: 4},
 	}
 	if len(o.Tables) != len(wantTables) {
 		t.Fatalf("tables %+v", o.Tables)
@@ -1016,12 +1022,15 @@ func TestRoomsLobbyOffersExactlyTheDefaultMenu(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := `{"categories":["seen","blind"],"stakes":[200,5000,50000,1000000],"tables":[` +
+	// The five entries that existed before variation tables are byte for byte
+	// what they were: a variation entry adds a row and adds no field to theirs.
+	want := `{"categories":["seen","blind","variation"],"stakes":[200,5000,50000,1000000],"tables":[` +
 		`{"category":"seen","bootAmount":200,"maxPot":2000000,"maxBlindMoves":4,"minChips":0,"maxChips":0},` +
 		`{"category":"blind","bootAmount":200,"maxPot":0,"maxBlindMoves":4,"minChips":0,"maxChips":500000},` +
 		`{"category":"blind","bootAmount":5000,"maxPot":0,"maxBlindMoves":4,"minChips":0,"maxChips":50000000},` +
 		`{"category":"blind","bootAmount":50000,"maxPot":0,"maxBlindMoves":4,"minChips":0,"maxChips":1000000000},` +
-		`{"category":"blind","bootAmount":1000000,"maxPot":0,"maxBlindMoves":4,"minChips":500000000,"maxChips":0}],` +
+		`{"category":"blind","bootAmount":1000000,"maxPot":0,"maxBlindMoves":4,"minChips":500000000,"maxChips":0},` +
+		`{"category":"variation","bootAmount":200,"maxPot":2000000,"maxBlindMoves":4,"minChips":0,"maxChips":0}],` +
 		`"entryCapBoot":200,"entryCapCategory":"blind","entryCapMaxChips":500000,"privateBoot":200,"privateMaxPot":500000}`
 	if string(raw) != want {
 		t.Fatalf("json\n got  %s\n want %s", raw, want)
@@ -1077,7 +1086,7 @@ func TestRoomsEveryMenuRoomCanBeJoined(t *testing.T) {
 			t.Fatalf("%+v vs %s %d", entry, table.Category(), table.BootAmount())
 		}
 	}
-	if n := len(f.rooms.ListTables(game.ListOptions{})); n != 5 {
+	if n := len(f.rooms.ListTables(game.ListOptions{})); n != 6 {
 		t.Fatalf("listTables %d", n)
 	}
 }
@@ -1087,7 +1096,7 @@ func TestRoomsPairNotOnMenuRefused(t *testing.T) {
 	// Both halves are offered on their own; the pair is not.
 	_, err := f.rooms.QuickJoin(f.player("P", rmStart), game.QuickJoinOptions{BootAmount: 5000, Category: "seen"})
 	expectCode(t, err, game.CodeTableNotOffered)
-	if want := "The lobby offers: seen 200, blind 200, blind 5000, blind 50000, blind 1000000"; err.Error() != want {
+	if want := "The lobby offers: seen 200, blind 200, blind 5000, blind 50000, blind 1000000, variation 200"; err.Error() != want {
 		t.Fatalf("message %q", err.Error())
 	}
 	if n := len(f.rooms.ListTables(game.ListOptions{})); n != 0 {
@@ -1212,6 +1221,97 @@ func TestRoomsUnknownCategoryIsSeen(t *testing.T) {
 	}
 	if game.NormalizeCategory("blind") != game.CategoryBlind {
 		t.Fatal("blind is blind")
+	}
+}
+
+// Variation Teen Patti (owner, 18 Sep 2026): the third category, and the
+// set is still closed.
+func TestRoomsVariationIsACategoryOfItsOwnAndNothingElseIs(t *testing.T) {
+	if got := game.NormalizeCategory("variation"); got != game.CategoryVariation {
+		t.Fatalf("variation → %s", got)
+	}
+	// Exact match only. A near miss is a SEEN table — it never opens a
+	// variation window by accident, and it never hides chips either.
+	for _, c := range []string{"Variation", "VARIATION", " variation", "variation ", "variations", "var"} {
+		if got := game.NormalizeCategory(c); got != game.CategorySeen {
+			t.Fatalf("%q → %s, want seen", c, got)
+		}
+	}
+}
+
+func TestRoomsAVariationQuickJoinSitsAtAVariationTableAndNeverASeenOne(t *testing.T) {
+	f := newRoomsFixture(t, nil)
+	seen := f.mustQuickJoin(f.player("S", rmStart), 200, "seen")
+	variation := f.mustQuickJoin(f.player("V1", rmStart), 200, "variation")
+
+	if variation.Category() != game.CategoryVariation {
+		t.Fatalf("a variation quick-join opened a %s table", variation.Category())
+	}
+	if variation.ID() == seen.ID() {
+		t.Fatal("a variation quick-join was seated at the seen table of the same boot")
+	}
+	cfg := variation.Config()
+	if cfg.VariationSelectTimeout != 10*time.Second {
+		t.Fatalf("window = %s, want the configured 10s", cfg.VariationSelectTimeout)
+	}
+	// It bets exactly as a seen table does: the same ladder, rounds and cap.
+	seenCfg := seen.Config()
+	if cfg.MaxRaiseSteps != seenCfg.MaxRaiseSteps || cfg.MaxBetRounds != seenCfg.MaxBetRounds ||
+		cfg.MaxPot != seenCfg.MaxPot || cfg.PotLimitMultiplier != seenCfg.PotLimitMultiplier {
+		t.Fatalf("variation rules %+v differ from seen rules %+v", cfg, seenCfg)
+	}
+	// And a seen table is given no window at all.
+	if seenCfg.VariationSelectTimeout != 0 {
+		t.Fatalf("a seen table was given a variation window of %s", seenCfg.VariationSelectTimeout)
+	}
+
+	// The two pools never mix, in either direction.
+	if again := f.mustQuickJoin(f.player("V2", rmStart), 200, "variation"); again.ID() != variation.ID() {
+		t.Fatal("a second variation player was not seated with the first")
+	}
+	if again := f.mustQuickJoin(f.player("S2", rmStart), 200, "seen"); again.ID() != seen.ID() {
+		t.Fatal("a second seen player was not seated with the first")
+	}
+}
+
+func TestRoomsAVariationTableIsOnlyOfferedAtTheBootOnTheMenu(t *testing.T) {
+	f := newRoomsFixture(t, nil)
+	_, err := f.rooms.QuickJoin(f.player("P", rmStart), game.QuickJoinOptions{BootAmount: 5000, Category: "variation"})
+	expectCode(t, err, game.CodeTableNotOffered)
+}
+
+func TestRoomsAMenuWithNoVariationEntryAdvertisesNoVariationCategory(t *testing.T) {
+	// A deployment that has not opted in tells its clients exactly what it
+	// always did: two categories.
+	f := newRoomsFixture(t, func(g *config.GameConfig, _ *game.RoomManagerOptions) {
+		g.LobbyTables = []config.LobbyTable{{Category: "seen", BootAmount: 200}, {Category: "blind", BootAmount: 200}}
+	})
+	o := f.rooms.LobbyOptions()
+	if len(o.Categories) != 2 || o.Categories[0] != game.CategorySeen || o.Categories[1] != game.CategoryBlind {
+		t.Fatalf("categories %v, want [seen blind]", o.Categories)
+	}
+	_, err := f.rooms.QuickJoin(f.player("P", rmStart), game.QuickJoinOptions{BootAmount: 200, Category: "variation"})
+	expectCode(t, err, game.CodeTableNotOffered)
+
+	// A private table is no way round the menu: the public doors are refused
+	// above, and a private create folds to seen as an unknown category does.
+	private := f.rooms.CreateTable(game.CreateTableOptions{IsPrivate: true, Category: "variation"})
+	if private.Category() != game.CategorySeen {
+		t.Fatalf("private table category %q, want seen", private.Category())
+	}
+	if got := private.Config().VariationSelectTimeout; got != 0 {
+		t.Fatalf("a seen table was given a variation window of %v", got)
+	}
+}
+
+func TestRoomsAPrivateVariationTableOpensWhereTheMenuOffersOne(t *testing.T) {
+	f := newRoomsFixture(t, nil)
+	private := f.rooms.CreateTable(game.CreateTableOptions{IsPrivate: true, Category: "variation"})
+	if private.Category() != game.CategoryVariation {
+		t.Fatalf("private table category %q, want variation", private.Category())
+	}
+	if got := private.Config().VariationSelectTimeout; got <= 0 {
+		t.Fatalf("a variation table with no window: %v", got)
 	}
 }
 

@@ -18,6 +18,13 @@ typedef ShowdownNews = ({
   String reason,
 });
 
+/// A variation window closing, as the room hears it: `game:variationSelected`,
+/// and the `variation`/`turnUp` a variation table's `game:showdown` and
+/// `game:handEnded` repeat. [selectedBy] is a [VariationSelectedBy] value, or
+/// empty on the showdown's copy, which does not say. [turnUp] is the card
+/// turned up from the deck ("9h"), sent only under Joker and Hukam.
+typedef VariationNews = ({String variation, String selectedBy, String? turnUp});
+
 /// The live half of the server: one Socket.IO connection carrying the whole
 /// game.
 ///
@@ -50,6 +57,9 @@ class GameConnection {
           String? packedUserId,
         })
       >.broadcast();
+  final _variationSelecting = StreamController<VariationState>.broadcast();
+  final _variationSelected = StreamController<VariationNews>.broadcast();
+  final _variationAtShowdown = StreamController<VariationNews>.broadcast();
   final _action =
       StreamController<
         ({String userId, String action, String? reason})
@@ -94,6 +104,22 @@ class GameConnection {
     })
   >
   get onSideshowDone => _sideshowDone.stream;
+
+  /// A variation table's window opening: who is choosing and until when.
+  /// Public, and only a repeat of what the snapshot that follows says — a
+  /// client that reconnects mid-window never hears it and loses nothing.
+  Stream<VariationState> get onVariationSelecting => _variationSelecting.stream;
+
+  /// The window closing: what was chosen, and whether a player chose it.
+  /// Again only a repeat of the snapshot, which is the truth.
+  Stream<VariationNews> get onVariationSelected => _variationSelected.stream;
+
+  /// The variation a finished hand was played under, as its `game:showdown`
+  /// and `game:handEnded` name it. Its own stream rather than two more fields
+  /// on [ShowdownNews]: a seen or blind table's showdown carries neither, and
+  /// the celebration has no use for them.
+  Stream<VariationNews> get onVariationAtShowdown =>
+      _variationAtShowdown.stream;
 
   /// A move somebody made, as the room hears it. The table's state already
   /// says what each move did, so the client reads this only for what a
@@ -226,6 +252,19 @@ class GameConnection {
       ));
     });
 
+    socket.on('game:variationSelecting', (data) {
+      // The event's fields are the snapshot block's own, minus the three that
+      // say the window is open — which receiving it already does.
+      final j = _map(data);
+      _variationSelecting.add(
+        VariationState.fromJson({...j, 'selecting': true}),
+      );
+    });
+    socket.on('game:variationSelected', (data) {
+      final news = _variationNews(_map(data));
+      if (news != null) _variationSelected.add(news);
+    });
+
     socket.on('game:action', (data) {
       final j = _map(data);
       _action.add((
@@ -261,8 +300,24 @@ class GameConnection {
     );
   }
 
+  /// What a payload says of the hand's variation, or null when it names none
+  /// (every seen and blind table, and a hand that ended before one was chosen).
+  static VariationNews? _variationNews(Map<String, dynamic> j) {
+    final variation = j['variation'];
+    if (variation is! String || variation.isEmpty) return null;
+    return (
+      variation: variation,
+      selectedBy: j['selectedBy'] is String ? j['selectedBy'] as String : '',
+      turnUp: j['turnUp'] is String ? j['turnUp'] as String : null,
+    );
+  }
+
   void _emitShowdown(dynamic data, String? result) {
     final j = _map(data);
+    // Before the reveal it belongs to, so the hands turn over already knowing
+    // what they were played under.
+    final played = _variationNews(j);
+    if (played != null) _variationAtShowdown.add(played);
     final reveals = (j['reveals'] as List? ?? [])
         .map((e) => Reveal.fromJson(_map(e)))
         .toList();
@@ -342,6 +397,17 @@ class GameConnection {
   void respondToSideshow(bool accept) =>
       _emit('game:sideshowRespond', {'accept': accept});
 
+  /// Chooses the variation this hand is played under. Only the player the
+  /// window is open for may, and only while it is open: anyone else, a second
+  /// tap, or a tap the server's clock beat gets a refusal in the ack
+  /// (`not_selecting`, `variation_already_selected`, `variation_expired`).
+  /// No player id is sent — the server takes it from the socket.
+  ///
+  /// Awaited, unlike a bet: the picker keeps its keys dark until it knows
+  /// whether the choice stood, and only the ack can say so.
+  Future<Map<String, dynamic>> selectVariation(String variation) =>
+      request('game:selectVariation', {'variation': variation});
+
   void requestCards() => _emit('player:requestCards', const {});
 
   void sendChat(String text) => _emit('chat:message', {'text': text});
@@ -419,6 +485,9 @@ class GameConnection {
     _sideshowAsked.close();
     _sideshowReveal.close();
     _sideshowDone.close();
+    _variationSelecting.close();
+    _variationSelected.close();
+    _variationAtShowdown.close();
     _action.close();
     _chat.close();
     _chatHistory.close();

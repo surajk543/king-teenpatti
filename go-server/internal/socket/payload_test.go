@@ -271,6 +271,33 @@ func TestDecodeLobbyListAndSideshow(t *testing.T) {
 	}
 }
 
+// game:selectVariation carries ONE field and only a JSON string survives the
+// decoder: every other shape — and no payload at all — reaches the Table as "",
+// which its allowlist refuses invalid_variation exactly as it does a misspelt
+// name. The string itself is passed on untouched: no trimming and no case
+// folding here, because the match is exact and the Table is what judges it.
+func TestDecodeSelectVariation(t *testing.T) {
+	for _, exact := range []string{"MUFLIS", "AK47", "LOWEST_JOKER", "muflis", " AK47 ", "Lowest Joker", ""} {
+		payload, _ := json.Marshal(map[string]string{"variation": exact})
+		if r := decodeSelectVariation(args(string(payload))); r.Variation != exact {
+			t.Errorf("the string %q arrived as %q", exact, r.Variation)
+		}
+	}
+	for _, notAString := range []string{"null", "42", "0", "true", "false", `["AK47"]`, `{"variation":"AK47"}`, "1e400"} {
+		if r := decodeSelectVariation(args(`{"variation":` + notAString + `}`)); r.Variation != "" {
+			t.Errorf("non-string %s must decode to the empty string, got %q", notAString, r.Variation)
+		}
+	}
+	for _, payload := range []string{`{}`, `null`, `42`, `"AK47"`, `[]`, `["AK47"]`, `{"Variation":"AK47"}`, `{"playerId":"someone-else"}`} {
+		if r := decodeSelectVariation(args(payload)); r.Variation != "" {
+			t.Errorf("payload %s must decode to the empty string, got %q", payload, r.Variation)
+		}
+	}
+	if r := decodeSelectVariation(nil); r.Variation != "" {
+		t.Errorf("no payload at all must decode to the empty string, got %q", r.Variation)
+	}
+}
+
 // The thousands grouping in refusal messages moved to the RoomManager with the
 // public-create checks (game.formatThousands); only utf16Len is left here.
 func TestUTF16Len(t *testing.T) {

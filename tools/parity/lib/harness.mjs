@@ -52,6 +52,7 @@ export const profile = {
   reconnectGraceMs: Number(process.env.PARITY_RECONNECT_GRACE_MS ?? 400),
   sideshowTimeoutMs: Number(process.env.PARITY_SIDESHOW_TIMEOUT_MS ?? 1500),
   welcomeChips: Number(process.env.PARITY_WELCOME_CHIPS ?? 200000),
+  variationSelectTimeoutMs: Number(process.env.PARITY_VARIATION_SELECT_TIMEOUT_MS ?? 10000),
   maxPlayers: 5,
   minPlayers: 2,
   maxMissedTurns: 3,
@@ -76,6 +77,20 @@ export const SNAPSHOT_KEYS = [
   'roomId', 'code', 'isPrivate', 'category', 'chipsHidden', 'state', 'handNo', 'dealerSeat', 'maxPlayers', 'minPlayers',
   'bootAmount', 'turnTimeoutMs', 'startsAt', 'pot', 'maxPot', 'stake', 'round', 'sideshow', 'turn', 'you', 'seats',
 ];
+/**
+ * Variation tables only (Go only; owner, 18 Sep 2026): room:state gains ONE
+ * optional key, `variation`, present during a hand at a variation table and
+ * absent — not null — everywhere else. SNAPSHOT_KEYS above is therefore still
+ * the exact key set of a seen or blind table, which is the point: those
+ * tables' wire did not change. `turnUp` joins the block only once JOKER or
+ * HUKAM has been chosen.
+ */
+export const VARIATION_SNAPSHOT_KEYS = [...SNAPSHOT_KEYS, 'variation'];
+export const VARIATION_KEYS = [
+  'selecting', 'userId', 'displayName', 'seatIndex', 'startedAt', 'deadline', 'timeoutMs', 'options', 'selected', 'selectedBy',
+];
+/** The six canonical wire values, in menu order — what the server sends as `options`. */
+export const VARIATIONS = ['MUFLIS', 'AK47', 'JOKER', 'HUKAM', 'LOWEST_JOKER', 'HIGHEST_JOKER'];
 export const YOU_KEYS = [
   'seatIndex', 'chips', 'status', 'isBlind', 'blindMovesLeft', 'contributed', 'missedTurns', 'maxMissedTurns',
   'canMissile', 'cards', 'options',

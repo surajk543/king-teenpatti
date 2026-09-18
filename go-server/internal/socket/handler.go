@@ -436,6 +436,9 @@ func (h *Handler) onConnection(s *sio.Socket) {
 	s.On(EvGameSideshowResp, h.guard(s, EvGameSideshowResp, func(args []json.RawMessage) (any, error) {
 		return h.sideshowRespond(s, decodeSideshowRespond(args))
 	}))
+	s.On(EvGameSelectVariation, h.guard(s, EvGameSelectVariation, func(args []json.RawMessage) (any, error) {
+		return h.selectVariation(s, decodeSelectVariation(args))
+	}))
 	s.On(EvPlayerReqCards, h.guard(s, EvPlayerReqCards, func([]json.RawMessage) (any, error) {
 		return h.requestCards(s)
 	}))
@@ -477,7 +480,7 @@ func (h *Handler) guard(s *sio.Socket, event string, fn func(args []json.RawMess
 			code, message := refusalOf(err)
 			label := metrics.SafeLabel(code, KnownErrorCodes, metrics.OtherLabel)
 			h.incSocketError(label)
-			if event == EvGameAction {
+			if event == EvGameAction || event == EvGameSelectVariation {
 				h.incInvalidMove(label)
 			}
 			if ack != nil {
@@ -896,6 +899,27 @@ func (h *Handler) action(s *sio.Socket, req ActionRequest) (any, error) {
 	}
 	h.incMove(label)
 	return ActionAck{OK: true, ActResult: result}, nil
+}
+
+// selectVariation is game:selectVariation — the chooser's answer on a variation
+// table. The player is the socket's authenticated user and nothing the client
+// sent: there is no playerId in the payload to trust. Every question the brief
+// asks of the request — is this player at a table, is a window open, is it
+// open for THEM, has it already closed, has its deadline passed, is this one
+// of the six variations — is answered by Table.SelectVariation on the table's
+// actor, in one closure, which is what makes the answer consistent with
+// whatever the window's own clock is doing at that instant.
+func (h *Handler) selectVariation(s *sio.Socket, req SelectVariationRequest) (any, error) {
+	user := sessionOf(s).user
+	table := h.rooms().GetTableForPlayer(user.ID)
+	if table == nil {
+		return nil, notAtTable()
+	}
+	result, err := table.SelectVariation(user.ID, req.Variation)
+	if err != nil {
+		return nil, err
+	}
+	return VariationAck{OK: true, VariationResult: result}, nil
 }
 
 // sideshowRespond: table (not_in_room); table.RespondToSideshow(user, accept
@@ -1580,7 +1604,9 @@ func observe(obs prometheus.Observer, started time.Time) {
 // knownCategories / knownWinReasons are the label sets for the per-table
 // counters (socket/index.js KNOWN_CATEGORIES / KNOWN_WIN_REASONS).
 var (
-	knownCategories = map[string]struct{}{string(game.CategoryBlind): {}, string(game.CategorySeen): {}}
+	knownCategories = map[string]struct{}{
+		string(game.CategoryBlind): {}, string(game.CategorySeen): {}, string(game.CategoryVariation): {},
+	}
 	knownWinReasons = map[string]struct{}{
 		string(game.WinLastStanding): {}, string(game.WinShow): {}, string(game.WinForcedShowdown): {},
 		string(game.WinAllLeft): {}, string(game.WinPotLimit): {}, string(game.WinMissile): {},
@@ -1688,6 +1714,17 @@ func (h *Handler) OnSideshowReveal(v *game.View, e game.SideshowRevealEvent) {
 // OnSideshowResolved → room game:sideshowResolved.
 func (h *Handler) OnSideshowResolved(v *game.View, e game.SideshowResolvedEvent) {
 	h.emitToRoom(v.ID(), EvGameSideshowRes, SideshowResolvedEvent{SideshowResolvedEvent: e, RoomID: v.ID()})
+}
+
+// OnVariationSelecting / OnVariationSelected: both public, both to the room.
+func (h *Handler) OnVariationSelecting(v *game.View, e game.VariationSelectingEvent) {
+	if e.Options == nil {
+		e.Options = []game.Variation{}
+	}
+	h.emitToRoom(v.ID(), EvGameVariationSelecting, VariationSelectingEvent{VariationSelectingEvent: e, RoomID: v.ID()})
+}
+func (h *Handler) OnVariationSelected(v *game.View, e game.VariationSelectedEvent) {
+	h.emitToRoom(v.ID(), EvGameVariationSelected, VariationSelectedEvent{VariationSelectedEvent: e, RoomID: v.ID()})
 }
 
 // OnShowdown → room game:showdown.

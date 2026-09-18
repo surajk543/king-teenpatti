@@ -127,7 +127,8 @@ type CreateTableOptions struct {
 	// when IsPrivate.
 	BootAmount int64
 	IsPrivate  bool
-	// Category is normalised: anything but "blind" is seen.
+	// Category is normalised: anything but "blind" or "variation" is seen,
+	// and so is "variation" on a lobby whose menu does not offer it.
 	Category string
 }
 
@@ -526,12 +527,19 @@ func (rm *RoomManager) stopSweeper() {
 	}
 }
 
-// NormalizeCategory: "blind" → CategoryBlind; anything else → CategorySeen.
+// NormalizeCategory: "blind" → CategoryBlind; "variation" → CategoryVariation
+// (Go only); anything else → CategorySeen. Exact matches only — the set is
+// closed, and an unknown category never hides chips or opens a variation
+// window by accident.
 func NormalizeCategory(category string) Category {
-	if category == string(CategoryBlind) {
+	switch category {
+	case string(CategoryBlind):
 		return CategoryBlind
+	case string(CategoryVariation):
+		return CategoryVariation
+	default:
+		return CategorySeen
 	}
-	return CategorySeen
 }
 
 // AssertStakeAllowed (static assertStakeAllowed): invalid_stake when boot ≤ 0
@@ -605,6 +613,21 @@ func (rm *RoomManager) CreateTable(opts CreateTableOptions) *Table {
 	return table
 }
 
+// offersVariation reports whether this lobby has a variation table on its
+// menu. An empty menu means "any pair" (tests), which includes it. It reads
+// only the immutable config, so it needs no lock.
+func (rm *RoomManager) offersVariation() bool {
+	if len(rm.game.LobbyTables) == 0 {
+		return true
+	}
+	for _, entry := range rm.game.LobbyTables {
+		if entry.Category == string(CategoryVariation) {
+			return true
+		}
+	}
+	return false
+}
+
 // newTableLocked is _createTable up to and including `tables.set`: builds
 // the TableConfig, picks a code no live table uses, constructs the Table and
 // registers it. mu held — the code is chosen and the table registered under
@@ -616,6 +639,14 @@ func (rm *RoomManager) CreateTable(opts CreateTableOptions) *Table {
 func (rm *RoomManager) newTableLocked(opts CreateTableOptions) *Table {
 	g := rm.game
 	resolved := NormalizeCategory(opts.Category)
+	// Leaving `variation:` off the menu switches the category off, and a
+	// private table is no way round that: AssertTableOffered guards only the
+	// public doors, so a private create naming a category this lobby does not
+	// offer is folded to seen — what an unknown category has always become.
+	if resolved == CategoryVariation && !rm.offersVariation() {
+		resolved = CategorySeen
+		opts.Category = string(CategorySeen)
+	}
 	rules := g.TableRules(opts.Category, opts.BootAmount, opts.IsPrivate)
 
 	cfg := TableConfig{
@@ -637,6 +668,12 @@ func (rm *RoomManager) newTableLocked(opts CreateTableOptions) *Table {
 		MissileRevealExtra: g.MissileRevealExtra,
 		ChatMaxHistory:     rm.chat.MaxHistory,
 		ChatMaxLength:      rm.chat.MaxLength,
+	}
+	// Only a variation table is given the window's length: a seen or blind
+	// table's config — and so its snapshot in the live store — is exactly what
+	// it was before variation tables existed.
+	if resolved.HasVariation() {
+		cfg.VariationSelectTimeout = g.VariationSelectTimeout
 	}
 
 	id := util.UUID()
@@ -878,8 +915,16 @@ func (rm *RoomManager) LobbyOptions() LobbyOptions {
 			MaxChips:      rm.tableMaxChips(entry),
 		})
 	}
+	// The two categories every client has always been told of, and the third
+	// only where this lobby actually offers it: a menu with no variation entry
+	// advertises exactly what it did before variation tables existed. An empty
+	// menu means "any pair" (tests), which includes it.
+	categories := []Category{CategorySeen, CategoryBlind}
+	if rm.offersVariation() {
+		categories = append(categories, CategoryVariation)
+	}
 	return LobbyOptions{
-		Categories:       []Category{CategorySeen, CategoryBlind},
+		Categories:       categories,
 		Stakes:           stakes,
 		Tables:           tables,
 		EntryCapBoot:     g.EntryCapBoot,
@@ -2121,6 +2166,12 @@ func (h *tableHooks) OnSideshowRequested(v *View, e SideshowRequestedEvent) {
 }
 func (h *tableHooks) OnSideshowResolved(v *View, e SideshowResolvedEvent) {
 	h.rm.tl.OnSideshowResolved(v, e)
+}
+func (h *tableHooks) OnVariationSelecting(v *View, e VariationSelectingEvent) {
+	h.rm.tl.OnVariationSelecting(v, e)
+}
+func (h *tableHooks) OnVariationSelected(v *View, e VariationSelectedEvent) {
+	h.rm.tl.OnVariationSelected(v, e)
 }
 
 // OnKick removes the player in a new goroutine — see the type comment. The

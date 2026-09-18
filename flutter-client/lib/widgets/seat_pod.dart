@@ -14,6 +14,7 @@ import 'playing_card.dart';
 import 'poker_chip.dart';
 import 'glass_orb.dart';
 import 'premium_surface.dart';
+import 'variation_prompt.dart';
 
 /// Every proportion in the pod, named once.
 ///
@@ -136,6 +137,7 @@ class SeatPod extends StatelessWidget {
     required this.avatarUrl,
     this.revealed,
     this.revealedHand,
+    this.wild = const [],
     this.saying,
     this.bubbleSide = BubbleSide.above,
     this.reversed = false,
@@ -170,6 +172,11 @@ class SeatPod extends StatelessWidget {
   /// the cards at the showdown, because three cards read at pod scale from
   /// across a table are not a hand anyone can name at a glance.
   final String? revealedHand;
+
+  /// Which of [revealed] played as wild cards — a variation table only, and
+  /// empty everywhere else. They get a gold edge, which is what explains a
+  /// ranking the three faces alone would not make.
+  final List<String> wild;
 
   /// How much of this player's turn has gone, 0 to 1, or null when unknown.
   /// Used for the colour; the fill level is worked out per frame from the
@@ -642,14 +649,21 @@ class SeatPod extends StatelessWidget {
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         for (var i = 0; i < count; i++)
-          PlayingCard(
-            height: width * 0.42,
-            dimmed: dim,
-            code: show != null && i < show.length ? show[i] : null,
-            // Green backs say this player has looked at their hand, which is
-            // the one thing about an opponent that changes how you bet. Not
-            // while they are out of it: a packed seat's cards are history.
-            tint: !s.isBlind && _inHand(s) ? AppTheme.cardSeenBack : null,
+          // A foreground edge on the card's own box, so a wild card takes no
+          // more room than any other: the column must not move at the reveal.
+          WildEdge(
+            wild: show != null && i < show.length && wild.contains(show[i]),
+            cardHeight: width * 0.42,
+            label: t.wildCard,
+            child: PlayingCard(
+              height: width * 0.42,
+              dimmed: dim,
+              code: show != null && i < show.length ? show[i] : null,
+              // Green backs say this player has looked at their hand, which is
+              // the one thing about an opponent that changes how you bet. Not
+              // while they are out of it: a packed seat's cards are history.
+              tint: !s.isBlind && _inHand(s) ? AppTheme.cardSeenBack : null,
+            ),
           ),
       ],
     );

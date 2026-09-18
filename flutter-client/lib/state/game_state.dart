@@ -418,6 +418,72 @@ class GameState extends ChangeNotifier {
   bool get sideshowIsForMe =>
       sideshow != null && sideshow!.toUserId == user?.id;
 
+  // ------------------------------------------------------------- variation
+
+  /// A variation table's window and what came of it, straight from the table
+  /// snapshot — never a copy kept here — so a reconnect mid-window rebuilds
+  /// the picker, the "… is selecting" line and both countdowns from the one
+  /// snapshot it is sent. Null on seen and blind tables and between hands.
+  VariationState? get variation => room?.variation;
+
+  bool get onVariationTable => room?.category == TableCategory.variation;
+
+  /// True while the hand is waiting for somebody to choose its rules. Nobody
+  /// is on turn for as long as this is.
+  bool get variationSelecting => variation?.selecting == true;
+
+  /// True when the viewer is the one choosing, and so the one who gets the six
+  /// keys. Everyone else is only told who is.
+  bool get variationIsMine =>
+      variationSelecting && variation!.userId == user?.id;
+
+  /// How far through the window the chooser is, 0 to 1, or null when no window
+  /// is open or it has no deadline. The chooser's pod fills with it exactly as
+  /// a pod fills on a turn ([turnProgress]): they are the one on the clock.
+  double? get variationProgress {
+    final v = variation;
+    if (v == null || !v.selecting || v.deadline <= 0 || v.timeoutMs <= 0) {
+      return null;
+    }
+    final left = v.deadline - DateTime.now().millisecondsSinceEpoch;
+    return (1 - left / v.timeoutMs).clamp(0.0, 1.0);
+  }
+
+  /// The window that has just closed, for the few seconds the table says so:
+  /// what was chosen, and whether the server had to choose. Set from
+  /// `game:variationSelected` or from seeing the snapshot go from selecting to
+  /// selected — whichever comes first, once per hand — so a client that
+  /// missed the event still announces it.
+  VariationNews? variationAnnounced;
+  Timer? _variationTimer;
+
+  /// The hand [variationAnnounced] was last raised for, so the event and the
+  /// snapshot that repeats it make one announcement between them.
+  int? _variationAnnouncedFor;
+
+  /// How long the announcement stands in the middle of the table.
+  static const variationAnnouncedFor = Duration(seconds: 3);
+
+  /// The variation the hand on the table was played under, and the card that
+  /// was turned up for it, remembered past the hand's end: the snapshot drops
+  /// its variation block the moment the hand is over, but the winner is
+  /// celebrated — and the hands lie face up — for seconds after, and "why did
+  /// THAT win?" is asked exactly then. Dropped with the celebration.
+  String? lastVariation;
+  String? lastTurnUp;
+
+  /// What the table's tag names: the live hand's variation, or the one the
+  /// hand still being celebrated was played under.
+  String? get shownVariation => variation?.selected ?? lastVariation;
+
+  /// The turned-up card that goes with [shownVariation]; null unless that is
+  /// Joker or Hukam.
+  String? get shownTurnUp {
+    final v = shownVariation;
+    if (!Variation.usesTurnUp(v)) return null;
+    return variation?.selected != null ? variation?.turnUp : lastTurnUp;
+  }
+
   String? _token;
   String _deviceId = '';
   Timer? _ticker;
@@ -609,6 +675,7 @@ class GameState extends ChangeNotifier {
         chat.clear();
         _clearBubbles();
         _clearSideshow();
+        _clearVariation();
         _clearMissile();
         _clearCelebration();
         screen = Screen.lobby;
@@ -625,6 +692,7 @@ class GameState extends ChangeNotifier {
         chat.clear();
         _clearBubbles();
         _clearSideshow();
+        _clearVariation();
         _clearMissile();
         _clearCelebration();
         screen = Screen.lobby;
@@ -638,6 +706,13 @@ class GameState extends ChangeNotifier {
       }),
       _conn.onSideshowReveal.listen(handleSideshowReveal),
       _conn.onSideshowDone.listen(handleSideshowDone),
+      _conn.onVariationSelecting.listen((_) {
+        // As with a sideshow request: the window itself is in the snapshot
+        // that follows, and this is only the cue to start its clock.
+        notifyListeners();
+      }),
+      _conn.onVariationSelected.listen(handleVariationSelected),
+      _conn.onVariationAtShowdown.listen(handleVariationAtShowdown),
       _conn.onAction.listen(handleTableAction),
       _conn.onChat.listen((m) {
         chat.add(m);
@@ -749,14 +824,23 @@ class GameState extends ChangeNotifier {
     // so options arriving where there were none is this seat's turn
     // beginning.
     final myTurnBegan = room?.you?.options == null && s.you?.options != null;
+    // A variation window seen open and now seen closed, within one hand.
+    final windowClosed =
+        !newHand && room?.variation?.selecting == true && !newTable;
+    final wasChoosing = variationIsMine;
     room = s;
     if (newTable) seatedAt = DateTime.now();
     if (newHand) {
       // A fresh deal cuts the last celebration short — a hammer or a missile
       // still in the air included.
       _clearSideshow();
+      _clearVariation();
       _clearMissile();
       _clearCelebration();
+    } else if (newTable) {
+      // Another table whose hand happens to carry the same number: what was
+      // remembered of the last table's variation is not this one's.
+      _clearVariation();
     }
     // Every turn opens on the plain chaal. The stepper used to keep the
     // rung it was left on until the next deal, so a raise made on one turn
@@ -765,6 +849,24 @@ class GameState extends ChangeNotifier {
     // a blind table, where the ladder runs to the whole stack, that is a
     // hand-sized bet the player never asked for.
     if (newHand || myTurnBegan) raiseIndex = 0;
+    _followVariation(s, windowClosed: windowClosed);
+    // The picker is drawn on the felt, and a drawer left open — the chat,
+    // usually — or a sheet opened between hands — the store, the rules — lies
+    // over the felt: the chooser would spend their ten seconds not knowing
+    // they had been asked. Closed once, as the window opens. The table itself
+    // is the first route and is never popped (main.dart's _TableRoutes does
+    // the same when the table goes).
+    if (!wasChoosing && variationIsMine) {
+      tableScaffold.currentState?.closeDrawer();
+      tableScaffold.currentState?.closeEndDrawer();
+      final table = tableScaffold.currentContext;
+      if (table != null && table.mounted) {
+        Navigator.of(
+          table,
+          rootNavigator: true,
+        ).popUntil((route) => route.isFirst);
+      }
+    }
     final steps = s.you?.options?.raiseSteps ?? const [];
     if (steps.isNotEmpty && raiseIndex > steps.length - 1) {
       raiseIndex = steps.length - 1;
@@ -776,6 +878,81 @@ class GameState extends ChangeNotifier {
     }
     if (restored) _endResume(welcome: true);
     notifyListeners();
+  }
+
+  /// What a snapshot says of the hand's variation.
+  ///
+  /// The snapshot is the truth, so the remembered variation is taken from it
+  /// whenever it names one, and the announcement is raised from it when the
+  /// window is seen to close — the event says the same thing a moment sooner,
+  /// when it arrives at all.
+  void _followVariation(RoomState s, {required bool windowClosed}) {
+    final v = s.variation;
+    final selected = v?.selected;
+    if (v == null || v.selecting || selected == null) return;
+    lastVariation = selected;
+    lastTurnUp = v.turnUp;
+    if (windowClosed) {
+      _announceVariation((
+        variation: selected,
+        selectedBy: v.selectedBy ?? '',
+        turnUp: v.turnUp,
+      ));
+    }
+  }
+
+  /// `game:variationSelected`: the window has closed.
+  @visibleForTesting
+  void handleVariationSelected(VariationNews news) {
+    if (room == null) return;
+    lastVariation = news.variation;
+    lastTurnUp = news.turnUp;
+    _announceVariation(news);
+    notifyListeners();
+  }
+
+  /// The variation a hand's `game:showdown` or `game:handEnded` names. Only
+  /// remembered, never announced: the hand is over, and the tag is where a
+  /// player looks to see what it was decided by.
+  @visibleForTesting
+  void handleVariationAtShowdown(VariationNews news) {
+    if (room == null) return;
+    lastVariation = news.variation;
+    lastTurnUp = news.turnUp;
+    notifyListeners();
+  }
+
+  /// Raises the announcement, once per hand however many times it is heard.
+  void _announceVariation(VariationNews news) {
+    final hand = room?.handNo;
+    if (hand == null || _variationAnnouncedFor == hand) return;
+    _variationAnnouncedFor = hand;
+    variationAnnounced = news;
+    _variationTimer?.cancel();
+    _variationTimer = Timer(variationAnnouncedFor, () {
+      variationAnnounced = null;
+      notifyListeners();
+    });
+  }
+
+  /// Chooses the variation for this hand, and answers whether the server took
+  /// it. Nothing is assumed here: the server decides whether the choice stood
+  /// — its clock may already have chosen — and the snapshot that follows is
+  /// what the table draws. A refusal is a toast like any other (the server
+  /// echoes it as `game:error`); one that never reached the server has no echo,
+  /// so it is said here.
+  Future<bool> selectVariation(String variation) async {
+    final reply = await _conn.selectVariation(variation);
+    if (reply['ok'] == true) return true;
+    final code = reply['code'];
+    if (code == GameConnection.notConnected) {
+      notice = t.notConnected;
+      notifyListeners();
+    } else if (code is! String) {
+      notice = '${reply['message'] ?? t.notConnected}';
+      notifyListeners();
+    }
+    return false;
   }
 
   /// The two hands of a sideshow this player was part of.
@@ -1084,6 +1261,7 @@ class GameState extends ChangeNotifier {
       chat.clear();
       _clearBubbles();
       _clearSideshow();
+      _clearVariation();
       _clearMissile();
       _clearCelebration();
       switching = false;
@@ -1798,7 +1976,12 @@ class GameState extends ChangeNotifier {
       final category = room?.category;
       if (category == null) return message;
       return t.noOtherTable(
-        (category == TableCategory.blind ? t.blind : t.seen).toLowerCase(),
+        (category == TableCategory.blind
+                ? t.blind
+                : category == TableCategory.variation
+                ? t.variation
+                : t.seen)
+            .toLowerCase(),
       );
     }
     return message;
@@ -2303,6 +2486,9 @@ class GameState extends ChangeNotifier {
     _celebrationTimer?.cancel();
     _celebrationTimer = Timer(left.isNegative ? Duration.zero : left, () {
       _clearCelebration();
+      // The hand's variation was kept only for this; the next deal picks its
+      // own.
+      if (room?.variation == null) _clearVariation();
       notifyListeners();
     });
   }
@@ -2315,6 +2501,18 @@ class GameState extends ChangeNotifier {
     winnerId = null;
     winnerName = '';
     winnerPot = 0;
+  }
+
+  /// Drops everything remembered about a hand's variation. Not called by the
+  /// showdown, unlike [_clearSideshow]: the variation is what the showdown is
+  /// read by.
+  void _clearVariation() {
+    _variationTimer?.cancel();
+    _variationTimer = null;
+    variationAnnounced = null;
+    _variationAnnouncedFor = null;
+    lastVariation = null;
+    lastTurnUp = null;
   }
 
   void _clearSideshow() {
@@ -2330,6 +2528,7 @@ class GameState extends ChangeNotifier {
     unawaited(purchases.dispose());
     _rentalWatch?.cancel();
     _clearSideshow();
+    _clearVariation();
     _clearMissile();
     _resumeTimer?.cancel();
     _seatCheck?.cancel();

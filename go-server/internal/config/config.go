@@ -47,6 +47,11 @@ const FallbackPublicDir = "go-server/public"
 const (
 	CategorySeen  = "seen"
 	CategoryBlind = "blind"
+	// CategoryVariation is Variation Teen Patti (Go only; owner, 18 Sep 2026):
+	// a seen table in every rule this package composes — open stacks, the same
+	// capped ladder and pot — whose hands open with a window in which one
+	// player chooses the variation they are decided by (game/variation.go).
+	CategoryVariation = "variation"
 )
 
 // Config is the whole configuration. Field groups mirror the Node object
@@ -288,9 +293,17 @@ type GameConfig struct {
 	// 2026): added to NextHandDelay after a missile showdown, so the next deal
 	// waits for the client's flight and explosions (about 1.6 s) and gives
 	// everyone time to look at the revealed hands. 0 = the ordinary delay.
-	MissileRevealExtra  time.Duration
-	ConsolidateInterval time.Duration // CONSOLIDATE_INTERVAL_MS 15000 (requirement 24 sweeper)
-	ReconnectGrace      time.Duration // RECONNECT_GRACE_MS 60000 (seat held after a drop)
+	MissileRevealExtra time.Duration
+	// VariationSelectTimeout is VARIATION_SELECT_TIMEOUT_MS 10000 (Go only,
+	// owner 18 Sep 2026): how long the player who opens a variation table's
+	// hand has to choose its rules before the server chooses Muflis for them.
+	// The clock is the server's — the client's countdown is decoration. 0 = the
+	// window never lapses on its own (it still closes when the chooser leaves),
+	// which no deployment wants: a chooser who walks away from their phone
+	// would hold the table for the whole reconnect grace.
+	VariationSelectTimeout time.Duration
+	ConsolidateInterval    time.Duration // CONSOLIDATE_INTERVAL_MS 15000 (requirement 24 sweeper)
+	ReconnectGrace         time.Duration // RECONNECT_GRACE_MS 60000 (seat held after a drop)
 	// ResumeOffer is RESUME_OFFER_MS 600000: after the held seat lapses, how
 	// long session:ready.resume still offers the table back. 0 disables.
 	ResumeOffer time.Duration
@@ -385,6 +398,9 @@ func Defaults() *Config {
 				{Category: "blind", BootAmount: 5000, MaxChips: 50000000},     // over 5 Cr must move up
 				{Category: "blind", BootAmount: 50000, MaxChips: 1000000000},  // over 100 Cr must move up
 				{Category: "blind", BootAmount: 1000000, MinChips: 500000000}, // 50 Cr or more to enter
+				// Variation Teen Patti (owner, 18 Sep 2026). Last, so the five
+				// entries before it keep their places on every client's rail.
+				{Category: "variation", BootAmount: 200},
 			},
 			MaxPlayers:              5,
 			MinPlayers:              2,
@@ -413,6 +429,7 @@ func Defaults() *Config {
 			NextHandDelay:           4 * time.Second,
 			UnfundedGrace:           30 * time.Second,
 			MissileRevealExtra:      3 * time.Second,
+			VariationSelectTimeout:  10 * time.Second,
 			ConsolidateInterval:     15 * time.Second,
 			ReconnectGrace:          60 * time.Second,
 			ResumeOffer:             10 * time.Minute,
@@ -599,6 +616,7 @@ func FromEnv(lookup Lookup) (*Config, error) {
 	g.NextHandDelay = r.millis("NEXT_HAND_DELAY_MS", g.NextHandDelay)
 	g.UnfundedGrace = r.millis("UNFUNDED_GRACE_MS", g.UnfundedGrace)
 	g.MissileRevealExtra = r.millis("MISSILE_REVEAL_EXTRA_MS", g.MissileRevealExtra)
+	g.VariationSelectTimeout = r.millis("VARIATION_SELECT_TIMEOUT_MS", g.VariationSelectTimeout)
 	g.ConsolidateInterval = r.millis("CONSOLIDATE_INTERVAL_MS", g.ConsolidateInterval)
 	g.ReconnectGrace = r.millis("RECONNECT_GRACE_MS", g.ReconnectGrace)
 	g.ResumeOffer = r.millis("RESUME_OFFER_MS", g.ResumeOffer)
@@ -680,12 +698,18 @@ type TableRules struct {
 }
 
 // NormalizeCategory is RoomManager.normalizeCategory: "blind" iff the value
-// is exactly "blind", otherwise "seen" (unknown and empty included).
+// is exactly "blind", "variation" iff it is exactly "variation" (Go only),
+// otherwise "seen" (unknown and empty included). The set is closed: nothing a
+// client sends can name a fourth category.
 func NormalizeCategory(category string) string {
-	if category == CategoryBlind {
+	switch category {
+	case CategoryBlind:
 		return CategoryBlind
+	case CategoryVariation:
+		return CategoryVariation
+	default:
+		return CategorySeen
 	}
-	return CategorySeen
 }
 
 // TableRules composes the rules for one table exactly as Node does
@@ -715,14 +739,19 @@ func (g GameConfig) TableRules(category string, bootAmount int64, isPrivate bool
 	if rules.BootAmount == 0 {
 		rules.BootAmount = g.BootAmount
 	}
-	if NormalizeCategory(category) == CategorySeen {
-		rules.MaxRaiseSteps = g.SeenMaxRaiseSteps
-		rules.MaxBetRounds = g.SeenMaxBetRounds
-		rules.MaxPot = g.SeenMaxPot
-	} else {
+	switch NormalizeCategory(category) {
+	case CategoryBlind:
 		rules.MaxRaiseSteps = g.BlindMaxRaiseSteps
 		rules.MaxBetRounds = g.BlindMaxBetRounds
 		rules.PotLimitMultiplier = g.BlindPotLimitMultiplier
+	default:
+		// Seen, and variation: a variation table bets exactly as a seen one
+		// does — the SEEN_* keys ARE its rules, there are no VARIATION_* twins
+		// to keep in step — so a hand whose winner is decided by an unfamiliar
+		// rule is also one whose pot is capped.
+		rules.MaxRaiseSteps = g.SeenMaxRaiseSteps
+		rules.MaxBetRounds = g.SeenMaxBetRounds
+		rules.MaxPot = g.SeenMaxPot
 	}
 	if isPrivate {
 		rules.BootAmount = g.PrivateBoot
@@ -736,7 +765,8 @@ func (g GameConfig) TableRules(category string, bootAmount int64, isPrivate bool
 // (roomManager.js lobbyOptions 196-223): SeenMaxPot for a seen entry, 0 for
 // anything else.
 func (g GameConfig) MenuMaxPot(category string) int64 {
-	if category == CategorySeen {
+	// A variation entry advertises the cap TableRules gives its tables.
+	if category == CategorySeen || category == CategoryVariation {
 		return g.SeenMaxPot
 	}
 	return 0

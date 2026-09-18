@@ -409,6 +409,13 @@ func decodeAction(args []json.RawMessage) ActionRequest {
 	return req
 }
 
+// decodeSelectVariation reads game:selectVariation. See SelectVariationRequest
+// for why every non-string collapses to "".
+func decodeSelectVariation(args []json.RawMessage) SelectVariationRequest {
+	p := decodePayload(args)
+	return SelectVariationRequest{Variation: stringArg(p.field("variation"))}
+}
+
 func decodeSideshowRespond(args []json.RawMessage) SideshowRespondRequest {
 	p := decodePayload(args)
 	raw, kind := p.field("accept")

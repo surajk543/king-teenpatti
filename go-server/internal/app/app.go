@@ -155,7 +155,7 @@ const (
 //     GET  {metricsPath}     → m.Handler(Guard{Token, AllowIPs})
 //     GET  /health           → Health
 //     auth.Handler.Register(mux)   (the 8 API routes)
-//     GET  /api/rooms        → {tables: ListTables({category: ?category if blind|seen}), options}
+//     GET  /api/rooms        → {tables: ListTables({category: ?category if blind|seen|variation}), options}
 //     /socket.io/            → sio
 //     /                      → the browser client from cfg.PublicDir (staticHandler)
 //     wrapped in m.HTTPMiddleware(metricsPath, metrics.RouteLabelFor, mux)
@@ -829,9 +829,13 @@ type RoomsResponse struct {
 }
 
 // roomsHandler is GET /api/rooms?category= (index.js:87-97): the category
-// filter applies only to the exact strings "blind" / "seen" given once —
-// Express's 'simple' query parser turned a repeated key into an array, which
-// matched neither, so it is no filter either.
+// filter applies only to the exact strings "blind" / "seen" — and, Go only
+// since 18 Sep 2026, "variation" — given once. Express's 'simple' query parser
+// turned a repeated key into an array, which matched none of them, so it is no
+// filter either. Any other value is no filter as well: this route never did
+// fold an unknown category to seen the way a join does (NormalizeCategory), and
+// leaving "variation" out of the switch would have answered a question about
+// variation tables with every table in the building.
 func (a *App) roomsHandler(w http.ResponseWriter, r *http.Request) {
 	var category game.Category
 	if values := r.URL.Query()["category"]; len(values) == 1 {
@@ -840,6 +844,8 @@ func (a *App) roomsHandler(w http.ResponseWriter, r *http.Request) {
 			category = game.CategoryBlind
 		case string(game.CategorySeen):
 			category = game.CategorySeen
+		case string(game.CategoryVariation):
+			category = game.CategoryVariation
 		}
 	}
 	tables := a.rooms.ListTables(game.ListOptions{Category: category})

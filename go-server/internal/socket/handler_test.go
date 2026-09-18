@@ -106,8 +106,10 @@ func TestHandshakeTokenSources(t *testing.T) {
 		t.Fatalf("resume must be ABSENT without an offer: %s", ready)
 	}
 	// config carries the lobby menu spread in (integration.test.js:512).
+	// seen and blind in their old places; variation third because this
+	// stack's menu (the defaults) offers a variation table.
 	cats := arr(ready, "config.categories")
-	if len(cats) != 2 || cats[0] != "seen" || cats[1] != "blind" {
+	if len(cats) != 3 || cats[0] != "seen" || cats[1] != "blind" || cats[2] != "variation" {
 		t.Fatalf("config.categories = %v", cats)
 	}
 	if field(ready, "config.stakes") == nil || field(ready, "config.tables") == nil {
@@ -1478,7 +1480,9 @@ func TestGameMetrics(t *testing.T) {
 					t.Fatalf("event label %q", value)
 				}
 			case "category":
-				if value != "seen" && value != "blind" && value != "other" {
+				// "variation" since 18 Sep 2026 (owner): the third table
+				// category. Still a fixed set — a category is never free text.
+				if value != "seen" && value != "blind" && value != "variation" && value != "other" {
 					t.Fatalf("category label %q", value)
 				}
 			case "reason":

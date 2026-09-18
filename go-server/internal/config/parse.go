@@ -119,7 +119,7 @@ func parseTableStakes(raw string) ([]int64, error) {
 
 // parseLobbyTables is config/index.js:85-90: each entry is "category:boot",
 // both halves trimmed. Under DECISIONS.md §3/§5 an entry without exactly one
-// colon, with a category other than seen|blind, or with a non-integer boot is
+// colon, with a category other than seen|blind|variation, or with a non-integer boot is
 // an error (Node dropped the NaN cases silently and kept unknown categories).
 // A boot of 0 or less passes, as Number.isInteger let it through. The result
 // is never nil.
@@ -131,8 +131,8 @@ func parseLobbyTables(raw string) ([]LobbyTable, error) {
 			return nil, fmt.Errorf("entry %q must be category:boot", entry)
 		}
 		category := strings.TrimSpace(parts[0])
-		if category != CategorySeen && category != CategoryBlind {
-			return nil, fmt.Errorf("entry %q: category must be seen or blind", entry)
+		if category != CategorySeen && category != CategoryBlind && category != CategoryVariation {
+			return nil, fmt.Errorf("entry %q: category must be seen, blind or variation", entry)
 		}
 		boot, err := parseInt(parts[1])
 		if err != nil {

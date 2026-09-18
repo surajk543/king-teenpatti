@@ -70,7 +70,9 @@ king-teenpatti/
 │   │   │   ├── events.go         Listener (one method per table event) + payload structs
 │   │   │   ├── snapshot.go       the server-side full state (cards, bets, deadlines) saved to Redis; never sent to clients
 │   │   │   ├── roommanager.go    lobby menu, quick-join, switch, consolidation, sweeper; injects the Ledger
-│   │   │   ├── handrank.go       Evaluate/Compare/PickWinner
+│   │   │   ├── handrank.go       Evaluate/Compare/PickWinner — the ONE hand ranking
+│   │   │   ├── variation.go      Variation Teen Patti's rules (§6.4): the six variations as a wild rule + a comparison direction laid over Evaluate
+│   │   │   ├── table_variation.go  the variation WINDOW: who chooses, the server's clock, closeVariation (exactly once), SelectVariation, snapshot/restore
 │   │   │   ├── deck.go           52 cards, crypto/rand shuffle, 2-char wire codes ("As","Td")
 │   │   │   ├── chat.go           in-memory per-room chat buffer (actor-owned)
 │   │   │   ├── constants.go      Category / TableState / SeatState / Action / WinReason + verbatim messages
@@ -409,6 +411,20 @@ showRequestedBy, sideshow, lastDeparture, turnDeadline, turnToken, contributions
   not_your_turn | sideshow_pending | too_few_players | insufficient_chips | duplicate_action | no_missiles | persist_failed`. `you.canMissile`
   (also in `you.options`) is the rules-minus-the-count answer. The next deal waits `NEXT_HAND_DELAY_MS +
   MISSILE_REVEAL_EXTRA_MS` so the client's volley and the reveal fit before it.
+- **Variation window** (owner, 18 Sep 2026; Go only; rules in §6.4): on a `CategoryVariation` table `startHand` deals as
+  always and then calls `beginVariation(firstSeat, undealt[0])` INSTEAD of `setTurn`: the player to the dealer's left has
+  `VARIATION_SELECT_TIMEOUT_MS` (10 s) to choose the hand's variation. **While the window is open nobody is on turn** —
+  `hand.turnSeat` stays -1, no turn clock runs, `you.options` is null — and `act` refuses everything but `see` with
+  `variation_pending`. `closeVariation` is the ONE place it closes, guarded by `window.open`, reached by three closures on
+  the actor: `SelectVariation` (`PLAYER`), the window's timer (`TIMEOUT` → `MUFLIS`), the chooser leaving (`LEFT` →
+  `MUFLIS`, then `advanceTurn` past their seat). They are serialised by the actor, so a pick and a timeout in the same
+  instant choose once — whichever runs first wins, the other finds the window closed; a pick that reaches the actor at or
+  past the deadline loses to the clock even before the timer's closure has run (`variation_expired`). Closing gives the
+  chooser a FRESH turn with a full clock; a lapse is not a missed turn. `SelectVariation` refusals in order `no_hand |
+  not_seated | no_variation | variation_already_selected | not_selecting | invalid_variation | variation_expired`.
+  `endHand`/`destroy`/`suspend`/`fence` stop the window's timer; `resumeTimers` re-arms it for what is LEFT of the original
+  deadline (or closes it at once) and must run BEFORE the "no turn recorded → open play" branch. The window and the
+  turned-up card live in `SnapshotHand.variation`.
 - **Leaving mid-hand** = pack; stake stays; `leftMidHand=true`; `lastDeparture` gets the pot if all
   leave (`ALL_LEFT`). Winner identified by **userId**, not seat.
 - `_sweepUnfunded` only between hands (`if (this.hand) return`); it sets `seat.kickPending` so a
@@ -431,7 +447,9 @@ showRequestedBy, sideshow, lastDeparture, turnDeadline, turnToken, contributions
 
 ### 6.2 `roomManager.js` (→ `roommanager.go`; DECISIONS §3 lists the few deliberate differences)
 - `quickJoin`: `_assertNotSeated` → `assertStakeAllowed` (`tableStakes`) → `normalizeCategory`
-  (unknown → **seen**) → `assertTableOffered` (`lobbyTables` pair) → chips ≥ boot →
+  (exactly `blind` → blind, exactly `variation` → variation (Go only), anything else → **seen**; the set is closed at
+  three and normalised in THREE places that must agree — `config.NormalizeCategory`, `game.NormalizeCategory` and
+  `NewTable`, which is also where a table restored from Redis gets its category back) → `assertTableOffered` (`lobbyTables` pair) → chips ≥ boot →
   `_assertUnderEntryCap` → **`assertWithinTableBand`** → fullest public non-full table with same boot+category,
   else `createTable`.
   Sync.
@@ -454,6 +472,32 @@ showRequestedBy, sideshow, lastDeparture, turnDeadline, turnToken, contributions
 … > 4-3-2**. Suits never break ties. `pickWinner` is exported but `table.js` re-implements the tie
 loop — keep consistent. Wire hand names are the **English** `CATEGORY_NAMES` and Flutter shows them
 untranslated.
+
+### 6.4 Variation Teen Patti — the rules (`variation.go`; Go only, owner 18 Sep 2026)
+A third category, **`variation`**: a seen table in every betting rule (`config.TableRules` gives it the `SEEN_*` rules —
+open stacks, the two-rung ladder, 7 rounds, the 20 Lakh pot cap; there are no `VARIATION_*` rule keys) whose every hand
+is decided by one of six variations, chosen in the window §6.1 describes. Wire values, matched EXACTLY by
+`ParseVariation` (no trimming, no case folding — `muflis` and `Lowest Joker` are `invalid_variation`): `MUFLIS`, `AK47`,
+`JOKER`, `HUKAM`, `LOWEST_JOKER`, `HIGHEST_JOKER`.
+- **One ranking, not seven.** Every variation but Muflis is classic Teen Patti with some cards WILD, and Muflis is
+  classic compared the other way round. `VariationRules{Variation, WildRank, WildSuit}` carries a wild rule and a
+  direction; its **zero value is classic**, which is what a seen or blind table holds, so `resolveShowdown` and
+  `settleSideshow` — the only two places hands are compared — call `t.handRules().EvaluateHand/CompareHands`
+  unconditionally and nothing changes for the old categories.
+- **`evaluateWithWilds` searches rather than reasons**: each wild may stand for any card of the deck that is not a
+  natural card of the same hand (never a duplicate of one it holds; it MAY be a card another player holds — jokers are
+  per hand), no two wilds for the same card, every candidate goes to the one `Evaluate`, the strongest wins. ≤ 50
+  evaluations for one wild, 1,275 for two; three wilds are answered from a constant (a trail of aces) that a test holds
+  to the exhaustive search. The result keeps the player's REAL cards in `Cards`, names the wild ones in `Wild`, and takes
+  `Category`/`Name`/`Score` from the hand they made.
+- **MUFLIS** `Compare(b, a)`; the ace stays high, so 5-3-2 off-suit is the best hand there is and A-A-A the worst.
+  **AK47** every A, K, 4, 7. **JOKER** every card of the RANK of the turned-up card. **HUKAM** every card of its SUIT
+  (a wild suit — the brief said "trump/wild"; `EvaluateHukam` is where a true trump rule would go). **LOWEST_JOKER** /
+  **HIGHEST_JOKER** per hand: its lowest / highest rank and every duplicate of it (3-3-K → both threes; a trail → all
+  three); the ace is high.
+- **The turned-up card** is `Deal`'s own `remaining[0]` — the top of the deck the hands came from, so it is in nobody's
+  hand — kept on every variation hand and put on the wire (`turnUp`) ONLY once JOKER or HUKAM has been chosen.
+- Exact ties are unchanged: the show-payer / missile firer loses, else nearest the dealer's left; a sideshow's asker loses.
 
 ---
 
@@ -485,6 +529,7 @@ user (`session:replaced` to the old one). On connect: `session:ready {user, conf
 | `room:leave` | `{}` | `{roomId}` or `{}` |
 | `game:action` | `{action, amount?, actionId?}` | table.act result; `actionId` (≤64 chars) becomes the ledger row's unique id; `action:"missile"` acks `{ok, action, missiles}` (§6.1) |
 | `game:sideshowRespond` | `{accept}` (only `=== true` accepts) | `{accepted, packedUserId}` |
+| `game:selectVariation` (**Go only**, variation tables, §6.1/§6.4) | `{variation}` — one of the six exact wire values; **no player id**, the chooser is the socket's user; any non-string is `""` → `invalid_variation` | `{variation, selectedBy, turnUp?}` |
 | `player:requestCards` | `{}` | `{cards}` (empty unless seen) |
 | `chat:message` | `{text}` | `{messageId}` — own 5/5s limiter (`chat_rate_limited`) |
 | `chat:history` | `{}` | `{count}` (no client sends it) |
@@ -503,6 +548,7 @@ user (`session:replaced` to the old one). On connect: `session:ready {user, conf
 | `game:action {userId, action, amount, pot, stake, reason?\|auto?}` | room |
 | `game:sideshowRequested` / `game:sideshowResolved` | room (no cards) |
 | `game:sideshowReveal {reveal}` | **the two players only** |
+| `game:variationSelecting {userId, displayName, seatIndex, startedAt, deadline, timeoutMs, options}` / `game:variationSelected {userId, displayName, seatIndex, variation, selectedBy: PLAYER\|TIMEOUT\|LEFT, turnUp?}` (**Go only**) — both only repeat `room:state.variation`, which is all a reconnecting client has | room |
 | `game:showdown {reveals, reason}` / `game:handEnded {…nextHandAt}` | room |
 | `chat:message` / `chat:history` / `game:error` | room / socket / socket |
 
@@ -511,6 +557,13 @@ Client coverage: **Flutter** never sends `lobby:list`, `chat:history`, `ping:rtt
 to `game:handStarted`, `player:hand`, `game:turn`, `game:yourTurn` — it derives turn and options
 from `room:state.turn` / `you.options`. Changing `you.options` affects Flutter; changing
 `game:yourTurn` does not. **Browser** ignores `room:kicked` and all `game:sideshow*`.
+**Variation tables on the wire** (Go only): `room:state.variation {selecting, userId, displayName, seatIndex, startedAt,
+deadline, timeoutMs, options, selected, selectedBy, turnUp?}` — public, identical for every viewer, **ABSENT (not null) on
+seen and blind tables and between hands**, so those snapshots are byte for byte what they were. While `selecting`,
+`turn.seatIndex` is -1 and `you.options` null. `game:showdown`/`game:handEnded` gain `variation` + `turnUp`, and each
+reveal (and sideshow-reveal hand) gains `wild` — which of its cards played wild; `handName`/`category` are what the hand
+MADE. All omitted where they do not apply. `session:ready.config.categories` is `[seen, blind]` plus `variation` only
+when the menu offers one.
 Input guards (`socket/index.js`): `game:action.amount` must be a JS number and safe integer (strings/arrays/booleans → `invalid_bet`);
 rate-limited requests are acked `{ok:false, code:'rate_limited'}`; `RoomManager.join()` asserts one seat per player (also closes
 `room:create` to a seated player); `player:requestCards` outside a table → `not_in_room`. Covered by `internal/socket/invalidmoves_test.go` and `tools/parity/invalid.test.js`.
@@ -670,7 +723,7 @@ fallback `go-server/public`; not in `.env.example` — `config.go` documents it)
 | **`LEDGER_PURGE_AFTER_MS`** | 600000 (10 min) | **Go server only.** A `chip_ledger` row is deleted once older than this — but **only** `hand_win`/`hand_loss`/`hand_packed`/`hand_left` (`db.purgeableReasons`, hardcoded in the query): `purchase`, `picture_purchase`, `milestone_reward`, `timed_bonus`, `welcome_bonus` are never purged, since their UNIQUE `action_id` is a standing double-credit guard. Deletion is allowed only inside `PurgeLedger`'s own transaction, which sets `app.ledger_purge`; the append-only trigger refuses every other DELETE and every UPDATE. **Trap: 0 does NOT disable it** — the cutoff becomes `now`, so the next pass takes every purgeable row. Now equal to `RESUME_OFFER_MS`, so a retry at the edge of the resume window can find its `action_id` already gone (was 24h for that margin). |
 | `WELCOME_CHIPS` / `BOOT_AMOUNT` | 300000 / 200 | the 3 lakh welcome (owner, 14 Sep 2026; 2 lakh before). **Production's `.env` sets `WELCOME_CHIPS` explicitly**, so a new default changes nothing there until that line does |
 | `TABLE_STAKES` | `200,5000,50000,1000000` | empty = any (tests) |
-| **`LOBBY_TABLES`** | `seen:200,blind:200,blind:5000:max=50000000,blind:50000:max=1000000000,blind:1000000:min=500000000` | the menu; empty = any pair (tests). Each entry is `category:boot` plus an optional **stack band** — `max=N` shuts the table to a player holding MORE than N, `min=N` to one holding LESS. Exactly the limit is allowed at either end. A band whose min exceeds its max fails at load (it would advertise a table nobody could join). |
+| **`LOBBY_TABLES`** | `seen:200,blind:200,blind:5000:max=50000000,blind:50000:max=1000000000,blind:1000000:min=500000000,variation:200` | the menu; empty = any pair (tests). Categories are `seen`, `blind` and (Go only, 18 Sep 2026) **`variation`** — anything else stops the boot. The variation entry is LAST so the five before it keep their places on every client's rail, and clients are told of the category (`config.categories`) only when it is listed. **Rollout:** an installed app older than the build that knows the category draws that card as a seen table and never shows the picker, so every hand there is a server-chosen Muflis — raise `MIN_CLIENT_BUILD` first. **Production's `.env` sets `LOBBY_TABLES` explicitly**, so the new default changes nothing there until that line does; a Go tag older than this cannot boot on a `.env` that lists `variation:`. Each entry is `category:boot` plus an optional **stack band** — `max=N` shuts the table to a player holding MORE than N, `min=N` to one holding LESS. Exactly the limit is allowed at either end. A band whose min exceeds its max fails at load (it would advertise a table nobody could join). |
 | `MAX_PLAYERS_PER_ROOM` / `MIN_PLAYERS_TO_START` | 5 / 2 | 5 is also hardcoded in Flutter `_places` and browser CSS |
 | `TURN_TIMEOUT_MS` | 25000 | |
 | `MAX_BET_ROUNDS` / `POT_LIMIT_MULTIPLIER` / `MAX_RAISE_STEPS` | 20 / 1024 / 8 | defaults only; `createTable` overrides all three per category (seen: 7 / 1024 / 2, blind: 0 / 0 / 0) |
@@ -679,6 +732,7 @@ fallback `go-server/public`; not in `.env.example` — `config.go` documents it)
 | `ENTRY_CAP_BOOT` / `ENTRY_CAP_CATEGORY` / `ENTRY_CAP_MAX_CHIPS` | 200 / blind / 500000 | Requirement 30, and now the oldest case of the band above: `RoomManager.tableMaxChips` folds this trio into the matching menu entry's `maxChips`, so the lobby draws it from the same field as every other table. A `max=` on that entry in `LOBBY_TABLES` wins, being the more specific statement. |
 | `MAX_MISSED_TURNS` | 3 | |
 | **`UNFUNDED_GRACE_MS`** | 30000 | **Go-only.** How long a seat that can no longer cover the boot is held between hands before the `insufficient_chips` kick, so a player can buy chips and stay; `you.unfundedDeadline` carries the deadline to that player and the Flutter status line counts it down. 0 = kicked at once (Node's rule). |
+| **`VARIATION_SELECT_TIMEOUT_MS`** | 10000 | **Go-only.** How long the player who opens a variation table's hand has to choose its variation before the SERVER chooses Muflis. The client's countdown is decoration. 0 = the window never lapses on its own (it still closes when the chooser leaves) — never in production: a chooser who walks away holds the table for the whole reconnect grace. Given to variation tables only; a seen or blind table's `TableConfig` and snapshot are unchanged. |
 | **`MISSILE_REVEAL_EXTRA_MS`** | 3000 | **Go-only.** Added to `NEXT_HAND_DELAY_MS` after a missile showdown (§6.1), so the client's volley, its explosions and a look at every hand fit before the next deal. |
 | **`MIN_CLIENT_BUILD`** | 0 | The oldest client build allowed to play, sent to every client in `session:ready.config.minClientBuild`. A client below it is held on the update screen with no way past (Flutter `_belowMinimumBuild`/`_forceUpdate`). **0 = no floor**, which is what production runs; raise it only after the newer build is actually live in the store, or the floor locks everyone out of a version they cannot yet install. This is the server-authoritative gate — Play's own in-app check (`AppUpdate`) is a separate, best-effort nudge that fails open. |
 | `SIDESHOW_TIMEOUT_MS` / `SIDESHOW_MIN_PLAYERS` | 6000 / 3 | |
@@ -1059,7 +1113,9 @@ idToken**; against production it is a guaranteed 401 `missing_token` — not a s
 ## 10. Requirements index (`Requirements.txt`)
 1 login providers · 2 DB per identity (brief says SQLite; **now Postgres by owner's decision**) ·
 3 ≤5/room · 4 ≥2 to start · 5 3 lakh welcome (2 lakh until 14 Sep 2026; with 9 diamonds, 20 hammers and 1 missile) · 6a–g core play · 7 persistence · 8 room chat ·
-9 +/− stepper · 10 auto-pack · **(no 11)** · 12 collapsible chat · 13 Blind/Seen × 200/5000 ·
+9 +/− stepper · 10 auto-pack · **(no 11)** · 12 collapsible chat · 13 Blind/Seen × 200/5000 (and, since 18 Sep 2026, a third
+category **Variation** × 200 — §6.4: the first player to act picks Muflis, AK47, Joker, Hukam, Lowest Joker or Highest Joker
+for the hand in a server-timed 10 s, else the server picks Muflis) ·
 14 Show reveal · 15 pot to last leaver · 16 stats (played = made a chaal) · 17 25k/25 hands ·
 18 4h 10k bonus (and beside it, since 14 Sep 2026, a daily bonus of 1 lakh + 1 hammer every 24h) · 19 Seen: one double, forced showdown (brief 10 moves / code 7 rounds) ·
 20 provider avatar · 21 avatar picker (a DB catalogue since 12 Sep 2026: free
@@ -1302,7 +1358,9 @@ deploy runbook; `steps.txt` the six-line routine.
   `gomaxprocs`. Grafana's former "Node.js" row is now "Runtime"; alerts
   `GameServerSchedulerLatencyHigh` / `GameServerGoroutinesHigh` / `GameServerMemoryHigh` replaced
   the three `nodejs_*` ones (§7.5 bundle at `go-server/ops/monitoring/`, `MONITORING.md`).
-- Small honest deviations: `room:state` carries `isPrivate` (13 Sep 2026, for the Flutter drawer), a seated player may wear a picture and buy a diamond one, a join is refused `settlement_pending` while that player's last hand is still being settled, JSON 404 for unknown `/api/*`, 400 `invalid_json` for bad bodies,
+- Small honest deviations: **Variation Teen Patti** — the `variation` category, `game:selectVariation`, the two
+  `game:variation*` broadcasts, `room:state.variation`, `variation`/`turnUp`/`wild` on reveals (§6.1, §6.4, §7.1; all of it
+  ABSENT on seen and blind tables, whose wire is unchanged); `room:state` carries `isPrivate` (13 Sep 2026, for the Flutter drawer), a seated player may wear a picture and buy a diamond one, a join is refused `settlement_pending` while that player's last hand is still being settled, JSON 404 for unknown `/api/*`, 400 `invalid_json` for bad bodies,
   HS256-only JWT verification (Node also took HS384/512), room codes regenerated until unique,
   `room:create {isPrivate:false}` validated like `quickJoin`, `already_in_room` checked before a
   table is created. Full list: PORT_PLAN §9 + DECISIONS.md. **Anything else that differs is a bug.**

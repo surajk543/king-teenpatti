@@ -50,6 +50,8 @@ func TestDefaultsMatchNode(t *testing.T) {
 			{Category: "blind", BootAmount: 5000, MaxChips: 50000000},
 			{Category: "blind", BootAmount: 50000, MaxChips: 1000000000},
 			{Category: "blind", BootAmount: 1000000, MinChips: 500000000},
+			// Variation Teen Patti (Go only; owner, 18 Sep 2026), last.
+			{Category: "variation", BootAmount: 200},
 		},
 		"Game.MaxPlayers": 5, "Game.MinPlayers": 2, "Game.TurnTimeout": 25 * time.Second,
 		"Game.MaxBetRounds": 20, "Game.PotLimitMultiplier": int64(1024), "Game.MaxRaiseSteps": 8,
@@ -61,7 +63,9 @@ func TestDefaultsMatchNode(t *testing.T) {
 		"Game.DisplayNameMaxLength": 24,
 		"Game.PrivateMaxPot":        int64(500000), "Game.PrivateMaxRaiseSteps": 2, "Game.PrivateBoot": int64(200),
 		"Game.NextHandDelay": 4 * time.Second, "Game.MissileRevealExtra": 3 * time.Second, "Game.ConsolidateInterval": 15 * time.Second,
-		"Game.ReconnectGrace": 60 * time.Second, "Game.ResumeOffer": 10 * time.Minute,
+		// The variation window is the SERVER's clock: ten seconds, then Muflis.
+		"Game.VariationSelectTimeout": 10 * time.Second,
+		"Game.ReconnectGrace":         60 * time.Second, "Game.ResumeOffer": 10 * time.Minute,
 		"Metrics.Enabled": true, "Metrics.Path": "/metrics", "Metrics.Prefix": "game_server_", "Metrics.Token": "",
 		"Chat.MaxHistory": 100, "Chat.MaxLength": 140, "Chat.RateLimit": 5, "Chat.RateWindow": 5 * time.Second,
 		"LogLevel": "info", "PublicDir": "./public", "RedisURL": "",
@@ -165,6 +169,12 @@ func TestEveryKey(t *testing.T) {
 		{"UNFUNDED_GRACE_MS", "0", "Game.UnfundedGrace", time.Duration(0)},
 		{"MISSILE_REVEAL_EXTRA_MS", "0", "Game.MissileRevealExtra", time.Duration(0)},
 		{"MISSILE_REVEAL_EXTRA_MS", "1500", "Game.MissileRevealExtra", 1500 * time.Millisecond},
+		{"VARIATION_SELECT_TIMEOUT_MS", "3000", "Game.VariationSelectTimeout", 3 * time.Second},
+		{"VARIATION_SELECT_TIMEOUT_MS", "0", "Game.VariationSelectTimeout", time.Duration(0)},
+		{"LOBBY_TABLES", "variation:200", "Game.LobbyTables", []LobbyTable{{Category: "variation", BootAmount: 200}}},
+		{"LOBBY_TABLES", "seen:200,variation:5000:max=900", "Game.LobbyTables", []LobbyTable{
+			{Category: "seen", BootAmount: 200}, {Category: "variation", BootAmount: 5000, MaxChips: 900},
+		}},
 		{"CONSOLIDATE_INTERVAL_MS", "40", "Game.ConsolidateInterval", 40 * time.Millisecond},
 		{"RECONNECT_GRACE_MS", "150", "Game.ReconnectGrace", 150 * time.Millisecond},
 		{"RESUME_OFFER_MS", "0", "Game.ResumeOffer", time.Duration(0)},
@@ -236,6 +246,11 @@ func TestMalformedIntegersFailStartup(t *testing.T) {
 		// join, so it stops the boot rather than the player.
 		{"LOBBY_TABLES": "blind:5000:min=900:max=100"},
 		{"LOBBY_TABLES": "foo:200"}, // DECISIONS.md §3: unknown category
+		// The set is closed at three. A near miss of the third is as unknown
+		// as anything else: the boot stops rather than seat players at a table
+		// that silently deals classic hands.
+		{"LOBBY_TABLES": "Variation:200"},
+		{"LOBBY_TABLES": "variations:200"},
 		{"JWT_EXPIRES_IN": "soon"},
 		{"JWT_EXPIRES_IN": ""},
 		{"JWT_EXPIRES_IN": "0"},
@@ -354,6 +369,11 @@ func TestTableRules(t *testing.T) {
 		{"private seen ignores the asked boot", "seen", 5000, true, TableRules{200, 2, 7, 1024, 500000}},
 		{"private blind", "blind", 5000, true, TableRules{200, 2, 0, 0, 500000}},
 		{"unknown category is seen", "BLIND", 200, false, TableRules{200, 2, 7, 1024, 2000000}},
+		// A variation table bets exactly as a seen one: there are no
+		// VARIATION_* rule keys, the SEEN_* ones are its rules.
+		{"public variation", "variation", 200, false, TableRules{200, 2, 7, 1024, 2000000}},
+		{"private variation", "variation", 5000, true, TableRules{200, 2, 7, 1024, 500000}},
+		{"a near miss of variation is seen", "Variation", 200, false, TableRules{200, 2, 7, 1024, 2000000}},
 		{"zero boot is the default", "seen", 0, false, TableRules{200, 2, 7, 1024, 2000000}},
 	} {
 		if got := g.TableRules(tc.category, tc.boot, tc.private); got != tc.want {
@@ -371,7 +391,12 @@ func TestTableRules(t *testing.T) {
 	if NormalizeCategory("blind") != "blind" || NormalizeCategory("seen") != "seen" || NormalizeCategory("") != "seen" || NormalizeCategory("Blind") != "seen" {
 		t.Error("NormalizeCategory")
 	}
-	if g.MenuMaxPot("seen") != 2000000 || g.MenuMaxPot("blind") != 0 {
+	if NormalizeCategory("variation") != "variation" || NormalizeCategory("Variation") != "seen" || NormalizeCategory(" variation") != "seen" {
+		t.Error("NormalizeCategory: variation is matched exactly, like blind")
+	}
+	// The cap the lobby ADVERTISES for a variation entry is the cap TableRules
+	// GIVES its tables: fix one without the other and the card lies.
+	if g.MenuMaxPot("seen") != 2000000 || g.MenuMaxPot("blind") != 0 || g.MenuMaxPot("variation") != g.TableRules("variation", 200, false).MaxPot {
 		t.Error("MenuMaxPot")
 	}
 }
@@ -399,13 +424,15 @@ func TestPublicGameConfigValues(t *testing.T) {
 		{Category: "blind", BootAmount: 5000, MaxChips: 50000000},
 		{Category: "blind", BootAmount: 50000, MaxChips: 1000000000},
 		{Category: "blind", BootAmount: 1000000, MinChips: 500000000},
+		{Category: "variation", BootAmount: 200},
 	}
 	if !reflect.DeepEqual(g.LobbyTables, menu) {
 		t.Errorf("menu %v", g.LobbyTables)
 	}
 	for i, entry := range g.LobbyTables {
+		// Capped: the seen table, and the variation table, which bets as one.
 		wantPot := int64(0)
-		if i == 0 {
+		if entry.Category == "seen" || entry.Category == "variation" {
 			wantPot = 2000000
 		}
 		if g.MenuMaxPot(entry.Category) != wantPot {

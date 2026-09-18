@@ -33,6 +33,44 @@ class TableState {
 class TableCategory {
   static const seen = 'seen';
   static const blind = 'blind';
+
+  /// Variation Teen Patti: a table that bets as a seen one does, and whose
+  /// every hand opens with one player choosing the rules it is decided by
+  /// ([Variation], [VariationState]).
+  static const variation = 'variation';
+}
+
+/// The six rule sets a variation table's hand can be played under.
+///
+/// These are the server's wire values and they are matched EXACTLY — the
+/// server refuses `muflis`, `Lowest Joker` and every other near miss as
+/// `invalid_variation` rather than guessing. The client never invents one: the
+/// picker is drawn from the list the server sends ([VariationState.options]),
+/// and these constants exist for naming them in the player's language.
+class Variation {
+  static const muflis = 'MUFLIS';
+  static const ak47 = 'AK47';
+  static const joker = 'JOKER';
+  static const hukam = 'HUKAM';
+  static const lowestJoker = 'LOWEST_JOKER';
+  static const highestJoker = 'HIGHEST_JOKER';
+
+  /// The menu in the server's order, for a snapshot that carries no options.
+  static const all = [muflis, ak47, joker, hukam, lowestJoker, highestJoker];
+
+  /// Whether the variation is decided by the card turned up from the deck.
+  static bool usesTurnUp(String? v) => v == joker || v == hukam;
+}
+
+/// How a variation window closed.
+class VariationSelectedBy {
+  static const player = 'PLAYER';
+
+  /// The ten seconds ran out and the server chose Muflis.
+  static const timeout = 'TIMEOUT';
+
+  /// The chooser left the table and the server chose Muflis.
+  static const left = 'LEFT';
 }
 
 class GameAction {
@@ -620,6 +658,100 @@ class PendingSideshow {
   );
 }
 
+/// A variation table's window, and what came of it: `room:state.variation`.
+///
+/// Absent from the snapshot of a seen or blind table and between hands, so
+/// [RoomState.variation] is null there and nothing about those tables changes.
+///
+/// While [selecting], nobody is on turn: the server has dealt the hand and is
+/// waiting for [userId] to choose its rules, until [deadline]. That deadline is
+/// the SERVER's — the countdown drawn from it is a readout, never the thing
+/// that decides, exactly as a sideshow's is. Everything a client needs to draw
+/// the chooser's picker, everyone else's "… is selecting variation", and both
+/// countdowns is here, which is what lets a player who reconnects mid-window
+/// rebuild all of it from one snapshot.
+class VariationState {
+  const VariationState({
+    required this.selecting,
+    required this.userId,
+    required this.displayName,
+    required this.seatIndex,
+    required this.startedAt,
+    required this.deadline,
+    required this.timeoutMs,
+    required this.options,
+    required this.selected,
+    required this.selectedBy,
+    required this.turnUp,
+  });
+
+  /// True while the window is open.
+  final bool selecting;
+
+  /// The CHOOSER — and still the chooser after the window has closed, however
+  /// it closed.
+  final String userId;
+  final String displayName;
+  final int seatIndex;
+
+  /// Unix ms.
+  final int startedAt;
+
+  /// Unix ms, or 0 when the server runs the window with no timeout.
+  final int deadline;
+  final int timeoutMs;
+
+  /// The menu, in the order the server offers it. Never empty: a snapshot
+  /// without one falls back to [Variation.all].
+  final List<String> options;
+
+  /// Null while [selecting].
+  final String? selected;
+
+  /// A [VariationSelectedBy] value; null while [selecting].
+  final String? selectedBy;
+
+  /// The card turned up from the deck ("9h"), present only once a variation
+  /// decided by it has been chosen: its rank is wild under Joker, its suit
+  /// under Hukam. Until then the card is the server's alone.
+  final String? turnUp;
+
+  /// Seconds left on the window, never negative; 0 when it has no deadline.
+  int get secondsLeft {
+    if (!selecting || deadline <= 0) return 0;
+    final ms = deadline - DateTime.now().millisecondsSinceEpoch;
+    return ms <= 0 ? 0 : (ms / 1000).ceil();
+  }
+
+  /// Whether the server chose because the player did not.
+  bool get chosenByServer =>
+      selectedBy == VariationSelectedBy.timeout ||
+      selectedBy == VariationSelectedBy.left;
+
+  factory VariationState.fromJson(Map<String, dynamic> j) {
+    // `is List`, not `as List?`: a cast throws on a value that is present but
+    // is not a list, and a snapshot that cannot be parsed takes the whole
+    // table down with it. Anything unusable falls back to the full menu.
+    final raw = j['options'];
+    final options = raw is List
+        ? raw.whereType<String>().where((e) => e.isNotEmpty).toList()
+        : const <String>[];
+    return VariationState(
+      selecting: j['selecting'] == true,
+      userId: _str(j['userId']),
+      displayName: _str(j['displayName']),
+      seatIndex: _int(j['seatIndex']),
+      startedAt: _int(j['startedAt']),
+      deadline: _int(j['deadline']),
+      timeoutMs: _int(j['timeoutMs']),
+      options: options.isEmpty ? Variation.all : options,
+      selected: j['selected'] is String ? j['selected'] as String : null,
+      selectedBy: j['selectedBy'] is String ? j['selectedBy'] as String : null,
+      turnUp: j['turnUp'] is String ? j['turnUp'] as String : null,
+    );
+  }
+}
+
 /// One hand in a sideshow reveal. Only ever sent to the two players involved.
 class SideshowHand {
   const SideshowHand({
@@ -627,6 +759,7 @@ class SideshowHand {
     required this.displayName,
     required this.cards,
     required this.handName,
+    this.wild = const [],
   });
 
   final String userId;
@@ -634,11 +767,17 @@ class SideshowHand {
   final List<String> cards;
   final String handName;
 
+  /// Which of [cards] played as wild cards — a variation table only, and only
+  /// under a variation that has any. [handName] is what the hand MADE with
+  /// them, so it can differ from what the bare cards would be.
+  final List<String> wild;
+
   factory SideshowHand.fromJson(Map<String, dynamic> j) => SideshowHand(
     userId: _str(j['userId']),
     displayName: _str(j['displayName']),
     cards: (j['cards'] as List? ?? const []).map((e) => '$e').toList(),
     handName: _str(j['handName']),
+    wild: (j['wild'] as List? ?? const []).map((e) => '$e').toList(),
   );
 }
 
@@ -795,6 +934,7 @@ class RoomState {
     required this.roomId,
     required this.code,
     this.isPrivate = false,
+    this.variation,
     required this.category,
     required this.chipsHidden,
     required this.state,
@@ -835,6 +975,10 @@ class RoomState {
 
   /// The sideshow awaiting an answer, if any. At most one at a time.
   final PendingSideshow? sideshow;
+
+  /// A variation table's window and its outcome; null on every other table
+  /// and between hands.
+  final VariationState? variation;
   final You? you;
   final List<Seat> seats;
 
@@ -864,6 +1008,13 @@ class RoomState {
             Map<String, dynamic>.from(j['sideshow'] as Map),
           )
         : null,
+    // Absent on a seen or blind table, and anything that is not an object —
+    // a string, a list, null — is no window rather than a crash.
+    variation: j['variation'] is Map
+        ? VariationState.fromJson(
+            Map<String, dynamic>.from(j['variation'] as Map),
+          )
+        : null,
     you: j['you'] is Map
         ? You.fromJson(Map<String, dynamic>.from(j['you'] as Map))
         : null,
@@ -882,6 +1033,7 @@ class Reveal {
     required this.cards,
     required this.handName,
     required this.won,
+    this.wild = const [],
   });
 
   final String userId;
@@ -890,12 +1042,16 @@ class Reveal {
   final String handName;
   final bool won;
 
+  /// Which of [cards] played as wild cards (see [SideshowHand.wild]).
+  final List<String> wild;
+
   factory Reveal.fromJson(Map<String, dynamic> j) => Reveal(
     userId: _str(j['userId']),
     displayName: _str(j['displayName']),
     cards: (j['cards'] as List?)?.map((e) => '$e').toList() ?? const [],
     handName: _str(j['handName']),
     won: j['won'] == true,
+    wild: (j['wild'] as List?)?.map((e) => '$e').toList() ?? const [],
   );
 }
 

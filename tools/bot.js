@@ -10,6 +10,16 @@
  *   node tools/bot.js --count 3 --boot 5000 --category blind --offset 4
  *   node tools/bot.js --count 4 --boot 200 --url http://localhost:3000
  *   node tools/bot.js --count 8 --boot 200 --category blind --churn 45
+ *   node tools/bot.js --count 3 --boot 200 --category variation --offset 8
+ *   node tools/bot.js --count 3 --boot 200 --category variation --variation AK47
+ *   node tools/bot.js --count 3 --boot 200 --category variation --variation none
+ *
+ * Flags: --count N  --boot N  --category seen|blind|variation  --url URL
+ *        --offset N  --churn SECONDS
+ *        --variation MUFLIS|AK47|JOKER|HUKAM|LOWEST_JOKER|HIGHEST_JOKER|random|none
+ *          what a bot picks when IT opens a hand at a variation table
+ *          (default random; none never answers, so the server's timeout and
+ *          its MUFLIS default can be watched). Ignored at seen and blind tables.
  */
 import { io } from 'socket.io-client';
 
@@ -22,8 +32,28 @@ const args = Object.fromEntries(
 
 const COUNT = Number.parseInt(args.count ?? '2', 10);
 const BOOT = Number.parseInt(args.boot ?? '200', 10);
-/** "seen" shows every stack at the table; "blind" hides all but your own. */
-const CATEGORY = args.category === 'blind' ? 'blind' : 'seen';
+/**
+ * "seen" shows every stack at the table; "blind" hides all but your own;
+ * "variation" bets as a seen table does, but every hand opens with one player
+ * choosing the variation it is decided by. Anything else is a seen table,
+ * which is also what the server makes of a category it does not know.
+ */
+const CATEGORY = ['blind', 'variation'].includes(args.category) ? args.category : 'seen';
+
+/** The six canonical wire values. The server matches them exactly — no case folding. */
+const VARIATIONS = ['MUFLIS', 'AK47', 'JOKER', 'HUKAM', 'LOWEST_JOKER', 'HIGHEST_JOKER'];
+/**
+ * What a bot answers when it is the chooser at a variation table: one of the
+ * six, "random" (a fresh pick every hand, the default), or "none" — never
+ * answer, so the server's window runs out and its MUFLIS default can be
+ * watched. A misspelt value stops the run here rather than quietly becoming
+ * ten-second timeouts at the table.
+ */
+const VARIATION = args.variation ?? 'random';
+if (![...VARIATIONS, 'random', 'none'].includes(VARIATION)) {
+  console.error(`--variation must be one of ${[...VARIATIONS, 'random', 'none'].join(', ')} (got ${VARIATION})`);
+  process.exit(2);
+}
 const BASE_URL = args.url ?? 'http://localhost:3000';
 /**
  * Shifts which bot identities this run uses. A bot account can only sit at one
@@ -87,6 +117,9 @@ function decide(options) {
   return 'pack';
 }
 
+/** Variation windows already reported closed, as "<roomId>:<handNo>", so each is logged once for the whole run. */
+const closedWindows = new Set();
+
 const CHATTER = [
   'good luck all',
   'nice hand',
@@ -148,9 +181,67 @@ async function startBot(index) {
     wander();
   }
 
+  /**
+   * The latest snapshot. Only a variation table's carries a `variation` block,
+   * so everything that reads it is a no-op at a seen or blind table.
+   */
+  let table = null;
+  /**
+   * The hand whose window this bot has already answered — one pick per hand, however many snapshots repeat it.
+   * Keyed by table as well: every fresh table starts at hand 1, and a bot under --churn changes tables.
+   */
+  let answeredHand = null;
+
+  // The variation window is driven from room:state, not from
+  // game:variationSelecting: the snapshot is the source of truth, and it is
+  // all a bot that reconnects into an open window is ever sent.
+  const onSnapshot = (state) => {
+    table = state;
+    const variation = state?.variation;
+    if (!variation) return;
+
+    if (!variation.selecting) {
+      // Every bot at the table is sent the same block, and with --churn they
+      // may be at different tables, so the line is keyed by table and hand
+      // rather than spoken by bot 0 alone.
+      const key = `${state.roomId}:${state.handNo}`;
+      if (variation.selected && !closedWindows.has(key)) {
+        closedWindows.add(key);
+        const turnUp = variation.turnUp ? ` (turned up ${variation.turnUp})` : '';
+        console.log(`  variation ${variation.selected} chosen by ${variation.selectedBy}${turnUp} — ${variation.displayName} opens`);
+      }
+      return;
+    }
+
+    const handKey = `${state.roomId}:${state.handNo}`;
+    if (variation.userId !== user.id || answeredHand === handKey) return;
+    answeredHand = handKey;
+    if (VARIATION === 'none') {
+      console.log(`${name} is the chooser and is letting the window run out (--variation none)`);
+      return;
+    }
+    const options = variation.options?.length ? variation.options : VARIATIONS;
+    const pick = VARIATION === 'random' ? options[Math.floor(Math.random() * options.length)] : VARIATION;
+    // A person reads six names before tapping one: one to three seconds.
+    setTimeout(() => {
+      socket.emit('game:selectVariation', { variation: pick }, (ack) => {
+        if (ack?.ok) console.log(`${name} picked ${ack.variation}`);
+        else console.log(`${name} could not pick ${pick}: ${ack?.message ?? 'no answer'}`);
+      });
+    }, 1000 + Math.random() * 2000);
+  };
+  socket.on('room:state', onSnapshot);
+  socket.on('room:joined', onSnapshot);
+
   socket.on('game:yourTurn', ({ options }) => {
     // Human-ish think time, so the table does not resolve instantly.
-    setTimeout(() => socket.emit('game:action', { action: decide(options) }), 700 + Math.random() * 1600);
+    setTimeout(() => {
+      // Nobody is on turn while a variation is being chosen, so this cannot
+      // fire then — but a move sent into the window would only collect a
+      // variation_pending refusal, so it is never sent.
+      if (table?.variation?.selecting) return;
+      socket.emit('game:action', { action: decide(options) });
+    }, 700 + Math.random() * 1600);
   });
 
   // Somebody asked this bot for a sideshow. Mostly accept, so the compare-and-

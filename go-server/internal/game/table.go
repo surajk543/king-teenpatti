@@ -62,6 +62,13 @@ type TableConfig struct {
 	// everyone to read the revealed hands (MISSILE_REVEAL_EXTRA_MS; Go only).
 	MissileRevealExtra time.Duration
 
+	// VariationSelectTimeout is how long the player who opens a variation
+	// table's hand has to choose its rules before the server chooses
+	// VariationDefault for them (VARIATION_SELECT_TIMEOUT_MS, 10 s; Go only).
+	// 0 = the window never lapses, as SideshowTimeout 0 means of a sideshow.
+	// Read only by a table whose Category HasVariation.
+	VariationSelectTimeout time.Duration
+
 	ChatMaxHistory int // RoomChat caps; 0 → chat.js defaults (100 / 140)
 	ChatMaxLength  int
 }
@@ -283,6 +290,9 @@ type hand struct {
 	// index can no longer refuse a replayed move: this set does it in memory
 	// (duplicate_action). It is in the snapshot, so it survives a restart.
 	actionIDs map[string]struct{}
+	// variation is the variation window and, once it has closed, the rules this
+	// hand is decided by. nil on a seen or blind table — see table_variation.go.
+	variation *variationWindow
 }
 
 // Table is one Teen Patti table — the port of `class Table` in table.js.
@@ -462,7 +472,13 @@ func newTableCore(opts TableOptions) *Table {
 	}
 	// Node: `config.category === 'blind' ? BLIND : SEEN` — an absent or
 	// unknown category never hides chips by accident (categories.test.js).
-	if cfg.Category != CategoryBlind {
+	// The set is closed at three: this is also where a table restored from the
+	// live store gets its category back, so a variation table that was
+	// rewritten to seen here would come back from a restart dealing classic
+	// hands with nothing anywhere to say why.
+	switch cfg.Category {
+	case CategoryBlind, CategoryVariation:
+	default:
 		cfg.Category = CategorySeen
 	}
 	chatHistory, chatLength := cfg.ChatMaxHistory, cfg.ChatMaxLength
@@ -1196,6 +1212,14 @@ func (t *Table) removePlayer(userID, reason string) *SeatInfo {
 
 	wasOnTurn := t.hand != nil && t.hand.turnSeat == s.seatIndex
 	wasActive := s.status == SeatActive
+	// The player choosing a variation table's rules is leaving mid-window. The
+	// table must not wait out a clock for someone who has gone: the server
+	// chooses for them now, and — since nobody was on turn yet — play opens
+	// with whoever is next, exactly as if they had been on turn and left.
+	wasChoosing := t.variationPending() && t.hand.variation.chooserID == userID
+	if wasChoosing {
+		t.closeVariation(VariationDefault, VariationByLeft, false)
+	}
 
 	// A sideshow one of them is no longer around for cannot be answered, so
 	// it is dropped now rather than left to expire — otherwise the other
@@ -1248,7 +1272,7 @@ func (t *Table) removePlayer(userID, reason string) *SeatInfo {
 		if t.resolveIfOnlyOneLeft() {
 			return s.info()
 		}
-		if wasOnTurn {
+		if wasOnTurn || wasChoosing {
 			t.clearTurnTimer()
 			t.advanceTurn(s.seatIndex)
 		}
@@ -1384,7 +1408,7 @@ func (t *Table) startHand() {
 	handID := util.UUID()
 	handNo := t.handNo + 1
 	dealerSeat := t.nextOccupiedSeat(t.dealerSeat, participants)
-	deals, _ := Deal(len(participants), 3)
+	deals, undealt := Deal(len(participants), 3)
 
 	h := &hand{
 		id:            handID,
@@ -1467,7 +1491,16 @@ func (t *Table) startHand() {
 	// Play opens to the dealer's left and rotates clockwise from there.
 	firstSeat := t.nextActiveSeat(t.dealerSeat)
 	h.startSeat = firstSeat
-	t.setTurn(firstSeat, true)
+	if t.cfg.Category.HasVariation() && len(undealt) > 0 {
+		// A variation table: that player first chooses the rules of the hand.
+		// Nobody is on turn until they have (or the clock has for them), and
+		// closeVariation hands them the turn this line would have. The card
+		// turned up for Joker and Hukam is the top of the deck the hands were
+		// just dealt from, so it can be in nobody's hand.
+		t.beginVariation(firstSeat, undealt[0])
+	} else {
+		t.setTurn(firstSeat, true)
+	}
 	t.emitState()
 	if t.onHandStart != nil {
 		t.onHandStart(t.clock.Now().Sub(started))
@@ -2121,6 +2154,14 @@ func (t *Table) act(userID string, action Action, req ActRequest) (ActResult, er
 		return ActResult{}, NewGameError(CodeNotInHand, MsgNotInHand)
 	}
 
+	// A variation table between its deal and its first turn: the rules of the
+	// hand are still being chosen, so nothing that depends on them may happen
+	// yet. A look at one's own cards is still not a move — the chooser may well
+	// want one before deciding — and is the only thing let through.
+	if action != ActionSee && t.variationPending() {
+		return ActResult{}, NewGameError(CodeVariationPending, MsgVariationPending)
+	}
+
 	// Seeing your own cards is not a move: it costs nothing, changes nothing
 	// for anyone else, and a player may look whenever they like. Everything
 	// that does change the hand still waits for their turn.
@@ -2680,11 +2721,15 @@ func (t *Table) settleSideshow(pending *pendingSideshow, accepted bool, reason s
 	bothInHand := asker != nil && asked != nil && asker.status == SeatActive && asked.status == SeatActive
 
 	if accepted && bothInHand {
-		a := Evaluate(asker.cards, EvaluateOptions{})
-		b := Evaluate(asked.cards, EvaluateOptions{})
+		// Under the hand's rules: classic on a seen or blind table, the chosen
+		// variation on a variation table (a sideshow cannot be asked while the
+		// window is open, so the rules are always settled by now).
+		rules := t.handRules()
+		a := rules.EvaluateHand(asker.cards)
+		b := rules.EvaluateHand(asked.cards)
 		// A tie goes against the player who asked.
 		loser := asker
-		if Compare(a, b) > 0 {
+		if rules.CompareHands(a, b) > 0 {
 			loser = asked
 		}
 		packedUserID = StrPtr(loser.userID)
@@ -2696,8 +2741,8 @@ func (t *Table) settleSideshow(pending *pendingSideshow, accepted bool, reason s
 				Reason:       reason,
 				PackedUserID: loser.userID,
 				Hands: []SideshowHand{
-					{UserID: asker.userID, DisplayName: asker.displayName, Cards: CardCodes(asker.cards), HandName: a.Name},
-					{UserID: asked.userID, DisplayName: asked.displayName, Cards: CardCodes(asked.cards), HandName: b.Name},
+					{UserID: asker.userID, DisplayName: asker.displayName, Cards: CardCodes(asker.cards), HandName: a.Name, Wild: a.Wild},
+					{UserID: asked.userID, DisplayName: asked.displayName, Cards: CardCodes(asked.cards), HandName: b.Name, Wild: b.Wild},
 				},
 			},
 		})
@@ -2786,9 +2831,11 @@ func (t *Table) resolveShowdown(contenders []*seat, reason WinReason, showReques
 		seat *seat
 		hand EvaluatedHand
 	}
+	// The hand's rules: the zero value (classic) on a seen or blind table.
+	rules := t.handRules()
 	scored := make([]scoredSeat, 0, len(contenders))
 	for _, s := range contenders {
-		scored = append(scored, scoredSeat{seat: s, hand: Evaluate(s.cards, EvaluateOptions{})})
+		scored = append(scored, scoredSeat{seat: s, hand: rules.EvaluateHand(s.cards)})
 	}
 
 	// Preference order for exact ties: the dealer's own seat first (distance
@@ -2820,7 +2867,7 @@ func (t *Table) resolveShowdown(contenders []*seat, reason WinReason, showReques
 	best := scored[0]
 	tied := []scoredSeat{best}
 	for _, candidate := range scored[1:] {
-		diff := Compare(candidate.hand, best.hand)
+		diff := rules.CompareHands(candidate.hand, best.hand)
 		if diff > 0 {
 			best = candidate
 			tied = []scoredSeat{candidate}
@@ -2844,10 +2891,16 @@ func (t *Table) resolveShowdown(contenders []*seat, reason WinReason, showReques
 			HandName:  entry.hand.Name,
 			Category:  entry.hand.Category,
 			Won:       entry.seat.userID == best.seat.userID,
+			Wild:      entry.hand.Wild,
 		})
 	}
 
-	t.listener.OnShowdown(t.view, ShowdownEvent{Reveals: reveals, Reason: reason})
+	t.listener.OnShowdown(t.view, ShowdownEvent{
+		Reveals:   reveals,
+		Reason:    reason,
+		Variation: rules.Variation,
+		TurnUp:    t.hand.variation.turnUpCode(),
+	})
 
 	for _, entry := range scored {
 		if entry.seat.userID != best.seat.userID {
@@ -2897,6 +2950,15 @@ func (t *Table) endHand(winnerID *string, reason WinReason, reveals []Reveal) {
 		h.sideshow.timer.Stop()
 	}
 	h.sideshow = nil
+	// A hand can end with its variation window still open — everyone else
+	// walked out while one player was choosing. The window dies with the hand:
+	// its clock is stopped and it is marked closed, so a callback that was
+	// already on its way finds nothing to do. Nothing was chosen and nothing is
+	// announced; with one player left there were no hands to compare.
+	t.stopVariationTimer()
+	if h.variation != nil {
+		h.variation.open = false
+	}
 	h.endedAt = t.clock.Now()
 
 	var winnerSeat *seat
@@ -3035,6 +3097,8 @@ func (t *Table) endHand(winnerID *string, reason WinReason, reveals []Reveal) {
 		Reveals:    reveals,
 		Summary:    summary,
 		NextHandAt: Millis(nextHandAt),
+		Variation:  h.variation.rules().Variation,
+		TurnUp:     h.variation.turnUpCode(),
 	})
 
 	t.emitState()
@@ -3249,6 +3313,8 @@ func (t *Table) destroy() {
 		t.hand.sideshow.timer.Stop()
 		t.hand.sideshow.timer = nil
 	}
+	// The same for a variation window's clock (endHand stops it otherwise).
+	t.stopVariationTimer()
 	// A settlement the database has not accepted yet is still owed whatever
 	// happens to the table: every stopped retry continues off the actor. A
 	// timer that had already fired is left to its own callback, which finds
@@ -3370,6 +3436,7 @@ func (t *Table) snapshot() *Snapshot {
 			PackedUserIDs: packed,
 			SeatOrder:     seatOrder,
 			ActionIDs:     actionIDs,
+			Variation:     h.variation.snapshot(),
 		}
 		if h.showRequestedBy != nil {
 			snapHand.ShowRequestedBy = StrPtr(*h.showRequestedBy)
@@ -3434,6 +3501,8 @@ func snapshotConfig(cfg TableConfig) SnapshotConfig {
 		ChatMaxLength:      cfg.ChatMaxLength,
 
 		MissileRevealExtraMs: cfg.MissileRevealExtra.Milliseconds(),
+
+		VariationSelectTimeoutMs: cfg.VariationSelectTimeout.Milliseconds(),
 	}
 }
 
@@ -3456,8 +3525,11 @@ func tableConfigFrom(c SnapshotConfig) TableConfig {
 		NextHandDelay:      time.Duration(c.NextHandDelayMs) * time.Millisecond,
 		UnfundedGrace:      time.Duration(c.UnfundedGraceMs) * time.Millisecond,
 		MissileRevealExtra: time.Duration(c.MissileRevealExtraMs) * time.Millisecond,
-		ChatMaxHistory:     c.ChatMaxHistory,
-		ChatMaxLength:      c.ChatMaxLength,
+
+		VariationSelectTimeout: time.Duration(c.VariationSelectTimeoutMs) * time.Millisecond,
+
+		ChatMaxHistory: c.ChatMaxHistory,
+		ChatMaxLength:  c.ChatMaxLength,
 	}
 }
 
@@ -3472,7 +3544,7 @@ func (t *Table) serializeFor(viewerID string) *TableView {
 
 	// On a blind table another player's stack is never put on the wire, so it
 	// cannot be read out of a tampered client. Your own is always sent.
-	hideOthersChips := t.cfg.Category == CategoryBlind
+	hideOthersChips := t.cfg.Category.HidesChips()
 
 	view := &TableView{
 		RoomID:        t.id,
@@ -3509,6 +3581,9 @@ func (t *Table) serializeFor(viewerID string) *TableView {
 				ExpiresAt:  Millis(h.sideshow.expiresAt),
 			}
 		}
+		// The variation window, on a variation table: who is choosing and
+		// until when, or what was chosen. Public, and nil everywhere else.
+		view.Variation = t.variationView()
 		turn := &TurnView{SeatIndex: h.turnSeat}
 		if h.turnSeat >= 0 && h.turnSeat < len(t.seats) {
 			if s := t.seats[h.turnSeat]; s != nil {

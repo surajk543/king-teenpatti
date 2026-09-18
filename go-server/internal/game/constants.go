@@ -21,12 +21,28 @@ package game
 // It controls CHIP VISIBILITY, not how betting works: on a seen table every
 // stack is public; on a blind table only your own is. SerializeFor enforces it
 // by sending other seats' chips as null with chipsHidden:true.
+//
+// CategoryVariation (Go only; owner, 18 Sep 2026) is the one category that
+// does change the game: every hand opens with a window in which the player to
+// act first chooses the rules it is decided by (table_variation.go,
+// variation.go). Everything else about it is a seen table's — open stacks, the
+// same capped ladder — so a category is still one of a CLOSED set of three and
+// anything unrecognised is still seen (NormalizeCategory, NewTable).
 type Category string
 
 const (
-	CategoryBlind Category = "blind"
-	CategorySeen  Category = "seen"
+	CategoryBlind     Category = "blind"
+	CategorySeen      Category = "seen"
+	CategoryVariation Category = "variation"
 )
+
+// HidesChips reports whether other players' stacks are withheld from a viewer.
+func (c Category) HidesChips() bool { return c == CategoryBlind }
+
+// HasVariation reports whether a hand at this table opens with the variation
+// window. It IS the switch: there is no second flag that could disagree with
+// the category a table was created under.
+func (c Category) HasVariation() bool { return c == CategoryVariation }
 
 // TableState is the table lifecycle (TABLE_STATE).
 type TableState string

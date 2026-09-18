@@ -131,11 +131,43 @@ const PROFILES = [
     },
     suites: ['stakes'],
   },
+  // Variation Teen Patti (Go only). The window's length is read once at start
+  // like every other clock, so the one suite runs against two servers: a
+  // window that stays open while picks are refused and accepted, and one short
+  // enough to watch the server choose MUFLIS. variation.test.js reads
+  // PARITY_VARIATION_SELECT_TIMEOUT_MS and skips whichever half is not its.
+  {
+    name: 'variation',
+    description: 'a 60 s variation window and long clocks, so no refusal can be blamed on a timeout',
+    env: {
+      TURN_TIMEOUT_MS: '60000',
+      SIDESHOW_TIMEOUT_MS: '60000',
+      VARIATION_SELECT_TIMEOUT_MS: '60000',
+      CONSOLIDATE_INTERVAL_MS: '600000',
+      TABLE_STAKES: '',
+      LOBBY_TABLES: '',
+    },
+    suites: ['variation'],
+  },
+  {
+    name: 'variation-timeout',
+    description: 'an 800 ms variation window, so the server is seen choosing MUFLIS',
+    env: {
+      TURN_TIMEOUT_MS: '60000',
+      SIDESHOW_TIMEOUT_MS: '60000',
+      VARIATION_SELECT_TIMEOUT_MS: '800',
+      CONSOLIDATE_INTERVAL_MS: '600000',
+      TABLE_STAKES: '',
+      LOBBY_TABLES: '',
+    },
+    suites: ['variation'],
+  },
 ];
 
 /** The books audit that closes every profile. */
 const MONEY_SUITE = 'money';
-const ALL_SUITES = [...PROFILES.flatMap((p) => p.suites), MONEY_SUITE];
+// A suite may run in more than one profile (variation does), so the names are de-duplicated.
+const ALL_SUITES = [...new Set([...PROFILES.flatMap((p) => p.suites), MONEY_SUITE])];
 
 // --------------------------------------------------------------- helpers
 
@@ -161,6 +193,7 @@ const suiteEnv = ({ baseUrl, schema, env }) => ({
   PARITY_RECONNECT_GRACE_MS: env.RECONNECT_GRACE_MS ?? '60000',
   PARITY_SIDESHOW_TIMEOUT_MS: env.SIDESHOW_TIMEOUT_MS ?? '6000',
   PARITY_WELCOME_CHIPS: env.WELCOME_CHIPS ?? '200000',
+  PARITY_VARIATION_SELECT_TIMEOUT_MS: env.VARIATION_SELECT_TIMEOUT_MS ?? '10000',
 });
 
 /** Runs one suite file with node --test; resolves with parsed TAP totals. */

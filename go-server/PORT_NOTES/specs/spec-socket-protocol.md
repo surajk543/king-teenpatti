@@ -341,7 +341,7 @@ MUST MATCH:
 
 `KNOWN_ERROR_CODES` (`sock:55-101`) exists only to fold metric labels; the ack always carries the
 real code. INCIDENTAL, but `metrics.test.js:613-615` asserts every `code` label is `^[a-z][a-z0-9_]*$`.
-Go's `KnownErrorCodes` (`internal/socket/wire.go`) adds `no_hammers` (§6.1.1) and `no_missiles` (§6.1.2).
+Go's `KnownErrorCodes` (`internal/socket/wire.go`) adds `no_hammers` (§6.1.1) and `no_missiles` (§6.1.2). and, for variation tables (§6.2.1), `no_variation`, `variation_already_selected`, `not_selecting`, `invalid_variation`, `variation_expired` and `variation_pending`; `KnownEvents` adds `game:selectVariation`.
 
 ---
 
@@ -642,6 +642,63 @@ Payload `{accept}`; `not_in_room` if unseated; `table.respondToSideshow(user.id,
 sideshow was not asked of you" → `_resolveSideshow(accept, accept ? 'accepted' : 'declined')`.
 **Only the literal boolean `true` accepts**; `1`, `"true"`, `{}` decline. Ack
 `{ok:true, accepted:<bool>, packedUserId:<id>|null}`.
+
+### 6.2.1 `game:selectVariation` (Go only — owner, 18 Sep 2026; DECISIONS.md §2)
+
+The chooser's answer on a **variation table** — category `variation`, a seen table in every betting
+rule whose every hand opens with a window in which the player to the dealer's left chooses the
+variation the hand is decided by. Rules: `internal/game/variation.go`; the window:
+`internal/game/table_variation.go`; this handler: `internal/socket/handler.go` `selectVariation`.
+
+```
+S→C  42["game:handStarted",{…}]                       the hand is dealt (three cards each), as always
+S→C  42["game:variationSelecting",{"userId":"<chooser>","displayName":"Rahul","seatIndex":2,
+        "startedAt":1700000000000,"deadline":1700000010000,"timeoutMs":10000,
+        "options":["MUFLIS","AK47","JOKER","HUKAM","LOWEST_JOKER","HIGHEST_JOKER"],"roomId":"…"}]
+S→C  42["room:state",{…,"turn":{"seatIndex":-1,"userId":null,"deadline":null},
+        "variation":{"selecting":true,"userId":"<chooser>",…,"selected":null,"selectedBy":null}}]
+C→S  421["game:selectVariation",{"variation":"AK47"}]           the chooser only
+S→C  431[{"ok":true,"variation":"AK47","selectedBy":"PLAYER"}]
+S→C  42["game:variationSelected",{"userId":"<chooser>","displayName":"Rahul","seatIndex":2,
+        "variation":"AK47","selectedBy":"PLAYER","roomId":"…"}]
+S→C  42["game:turn",{…}] / 42["game:yourTurn",{…}]              the chooser's ordinary first turn, full clock
+S→C  42["room:state",{…,"variation":{"selecting":false,…,"selected":"AK47","selectedBy":"PLAYER"}}]
+```
+
+1. **Payload** `{variation}`. There is NO player id: the player is the socket's session user. `variation`
+   is read with `stringArg` — the string as sent, or `""` for ANY non-string (number, boolean, array,
+   object, null, absent) — and matched EXACTLY against the six canonical values (`game.ParseVariation`:
+   no trimming, no case folding, no aliases), so `"muflis"`, `"Lowest Joker"`, `"LowestJoker"` and every
+   hostile shape are all `invalid_variation`.
+2. **Refusals, in order**: `not_in_room` (socket layer) → `no_hand` → `not_seated` → `no_variation`
+   "This table does not play variations" (the hand has no window: a seen or blind table) →
+   `variation_already_selected` "The variation has already been chosen" (the window has closed, however
+   it closed — a second tap included) → `not_selecting` "It is not your turn to choose the variation"
+   → `invalid_variation` "That is not a variation this table offers" → `variation_expired` "Time ran
+   out, so Muflis was chosen" (the request reached the table at or past `deadline` before the timer's
+   own closure had run: the server's choice is made by this call, and the request refused). Every
+   refusal is acked `{ok:false, code, message}` AND echoed as `game:error`, like any other, and counts
+   in `game_invalid_moves_total{code}`.
+3. **While the window is open nobody is on turn**: `turn.seatIndex` is `-1`, `you.options` is null, no
+   `game:turn` has been sent, and every `game:action` but `see` is refused `variation_pending` "The
+   variation is still being chosen". `see` is free as ever — the chooser may look before choosing —
+   and does not close the window.
+4. **The window closes exactly once**, by whichever of three things the table's actor runs first: the
+   chooser's pick (`selectedBy:"PLAYER"`), the server's clock at `deadline` (`"TIMEOUT"` → `MUFLIS`),
+   or the chooser leaving the table (`"LEFT"` → `MUFLIS`, and play opens with the next player). A pick
+   and a timeout in the same instant produce ONE `game:variationSelected`; the loser of that race is
+   refused `variation_already_selected` / `variation_expired`, or is a timer that finds the window
+   closed and does nothing. The client's countdown is decoration.
+5. **`turnUp`** (a card code) is on the wire — in the ack, `game:variationSelected`, `room:state.variation`,
+   `game:showdown` and `game:handEnded` — ONLY once `JOKER` (its rank is wild) or `HUKAM` (its suit is
+   wild) has been chosen. It is the top of the deck the hands were dealt from, so nobody holds it.
+6. **A disconnect changes nothing**: the seat is held as usual and the server's clock chooses at the
+   deadline. A reconnect inside the window receives `room:joined` whose `variation` block still says
+   `selecting` with the ORIGINAL deadline. So does a table restored from the live store after a restart.
+7. **Reveals**: `game:showdown` / `game:handEnded` gain `variation` (and `turnUp`); each reveal, and each
+   hand of a `game:sideshowReveal`, gains `wild` — which of its `cards` played as wild cards. `handName`
+   and `category` are what the hand MADE with them. All of these are ABSENT on a seen or blind table,
+   whose payloads are unchanged, as `room:state.variation` is.
 
 ### 6.3 `player:requestCards` (`sock:643-651`)
 

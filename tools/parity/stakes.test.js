@@ -30,6 +30,10 @@ const MENU = [
   { category: 'blind', bootAmount: 5000, maxPot: 0, maxBlindMoves: 4, minChips: 0, maxChips: 50000000 },
   { category: 'blind', bootAmount: 50000, maxPot: 0, maxBlindMoves: 4, minChips: 0, maxChips: 1000000000 },
   { category: 'blind', bootAmount: 1000000, maxPot: 0, maxBlindMoves: 4, minChips: 500000000, maxChips: 0 },
+  // Variation Teen Patti (Go only; owner, 18 Sep 2026). Last on the menu, so
+  // the five rows above keep the places they always had. It bets as a seen
+  // table does, which is why it advertises the seen pot cap.
+  { category: 'variation', bootAmount: 200, maxPot: 2000000, maxBlindMoves: 4, minChips: 0, maxChips: 0 },
 ];
 
 /** A stack that covers an entry's boot and sits inside its band. */
@@ -40,12 +44,12 @@ const legalStack = (entry) => {
   return stack;
 };
 
-test('the lobby offers exactly the four stakes and the five rooms, in menu order, with their rules and bands', async () => {
+test('the lobby offers exactly the four stakes and the six rooms, in menu order, with their rules and bands', async () => {
   const account = await guestLogin('device-parity-menu-config', 'Menu');
   const client = await openClient(account.token);
   const ready = await client.wait('session:ready');
   assert.deepEqual(ready.config.stakes, [200, 5000, 50000, 1000000]);
-  assert.deepEqual(ready.config.categories, ['seen', 'blind']);
+  assert.deepEqual(ready.config.categories, ['seen', 'blind', 'variation']);
   assert.deepEqual(ready.config.tables, MENU);
   for (const entry of ready.config.tables) assert.deepEqual(Object.keys(entry), ['category', 'bootAmount', 'maxPot', 'maxBlindMoves', 'minChips', 'maxChips'], 'key order');
   assert.equal(ready.config.bootAmount, 200, 'the default boot');
@@ -84,6 +88,8 @@ test('every room on the menu can be joined, and the ceiling a card advertises is
     assert.equal(joined.category, entry.category);
     assert.equal(joined.maxPot, entry.maxPot, `${entry.category} ${entry.bootAmount} maxPot`);
     assert.equal(joined.you.blindMovesLeft, entry.maxBlindMoves);
+    // Only a blind table hides stacks: a variation table bets as a seen one
+    // does, open chips included.
     assert.equal(joined.chipsHidden, entry.category === 'blind');
     clients.push(client);
   }
@@ -110,7 +116,7 @@ test('a stake and category that is not a room on the menu is refused, and no roo
   const client = await openClient(account.token);
   // Both halves are offered on their own; the pair is not.
   const ack = await client.emit('room:quickJoin', { bootAmount: 5000, category: 'seen' });
-  assert.deepEqual(ack, { ok: false, code: 'table_not_offered', message: 'The lobby offers: seen 200, blind 200, blind 5000, blind 50000, blind 1000000' });
+  assert.deepEqual(ack, { ok: false, code: 'table_not_offered', message: 'The lobby offers: seen 200, blind 200, blind 5000, blind 50000, blind 1000000, variation 200' });
   const listed = await client.emit('lobby:list', {});
   assert.ok(!listed.tables.some((t) => t.category === 'seen' && t.bootAmount === 5000), 'no seen table at 5,000 exists');
   assert.equal(client.count('room:joined'), 0);

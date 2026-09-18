@@ -436,7 +436,7 @@ func TestNoLabelCarriesAnIdentifier(t *testing.T) {
 	// before they reach a label.
 	uuid := "7c2f1a2e-9b3d-4c1f-8a6e-0f1e2d3c4b5a"
 	knownCodes := map[string]struct{}{"not_your_turn": {}, "unknown_action": {}}
-	knownCategories := map[string]struct{}{"seen": {}, "blind": {}}
+	knownCategories := map[string]struct{}{"seen": {}, "blind": {}, "variation": {}}
 	m.SocketErrorsTotal.WithLabelValues(SafeLabel(uuid, knownCodes, OtherLabel)).Inc()
 	m.KicksTotal.WithLabelValues(SafeLabel("10.0.0.7", game.KnownKickReasons, OtherLabel)).Inc()
 	m.GamesStartedTotal.WithLabelValues(SafeLabel("ABC234", knownCategories, OtherLabel)).Inc()
@@ -497,7 +497,8 @@ func TestNoLabelCarriesAnIdentifier(t *testing.T) {
 		}
 	}
 	for _, c := range e.labelValues("category") {
-		if c != "seen" && c != "blind" && c != "other" {
+		// "variation" since 18 Sep 2026 (owner): the third table category.
+		if c != "seen" && c != "blind" && c != "variation" && c != "other" {
 			t.Errorf("category %q is not fixed", c)
 		}
 	}

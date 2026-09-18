@@ -29,9 +29,9 @@ import '../widgets/table_ground.dart';
 /// The lobby: every choice is a card on one horizontal rail, so a phone held in
 /// landscape never has to scroll down — swipe sideways instead.
 ///
-/// The rail is a shelf of four *products*, not a stack of panels: each table is
-/// a solid lit object in its own colour (gold, sapphire, royal purple) and the
-/// private room is the emerald fourth. Glass is spent only on what covers the
+/// The rail is a shelf of *products*, not a stack of panels: each table is
+/// a solid lit object in its own colour (gold, sapphire, royal purple, and rani
+/// pink for the variation table) and the private room is the emerald last. Glass is spent only on what covers the
 /// shelf — the two drawers and the picture sheet, which blur, and the top bar,
 /// its pill of keys and the two corner chips, which are tinted panes — and
 /// never on the cards themselves, which would flatten three identities into one
@@ -1240,6 +1240,10 @@ class _BarActions extends StatelessWidget {
 /// Bucketed rather than sorted because Dart's List.sort is not stable, and
 /// within each group the server's own order is the one to keep — it decides
 /// which stake comes before which.
+///
+/// Only the seen table is pulled to the front. A variation table is filed with
+/// the joinable ones (or the shut ones, by the same [GameState.tableShut]), so
+/// it stands after the blind cards it follows on the server's menu.
 List<LobbyTable> _orderedTables(GameState state) {
   final seen = <LobbyTable>[];
   final open = <LobbyTable>[];
@@ -1279,6 +1283,10 @@ class _TableCard extends StatelessWidget {
     final state = context.watch<GameState>();
     final t = state.t;
     final blind = category == TableCategory.blind;
+    // A third category, not "the one that is not blind": a variation table
+    // shows everyone's chips as a seen table does, but it is a card of its own
+    // with its own name and its own line about what happens there.
+    final variation = category == TableCategory.variation;
     // Each table has a colour of its own — gold, sapphire, royal purple — and
     // the room the card leads to is painted in the same one.
     final palette = AppTheme.paletteFor(
@@ -1422,14 +1430,23 @@ class _TableCard extends StatelessWidget {
                                         CrossAxisAlignment.start,
                                     children: [
                                       _CategoryBadge(
-                                        label: blind ? t.blind : t.seen,
+                                        label: variation
+                                            ? t.variation
+                                            : blind
+                                            ? t.blind
+                                            : t.seen,
                                         palette: palette,
                                         height: plateH,
                                         // The two cards at the same stake sit side by side,
                                         // so their badges are offset rather than pulsing
-                                        // together.
+                                        // together. The variation card takes
+                                        // the beat between them.
                                         delay: Duration(
-                                          milliseconds: blind ? 900 : 0,
+                                          milliseconds: blind
+                                              ? 900
+                                              : variation
+                                              ? 450
+                                              : 0,
                                         ),
                                       ),
                                       SizedBox(height: gap),
@@ -1485,6 +1502,28 @@ class _TableCard extends StatelessWidget {
                                         ),
                                       ),
                                       SizedBox(height: gap),
+                                      // What makes this table different goes
+                                      // first and in the stronger ink; the
+                                      // chips line under it is the seen
+                                      // card's, because the chips are as
+                                      // visible here as there. On the smallest
+                                      // phone the extra lines take the column
+                                      // past its room and the FittedBox above
+                                      // scales it down rather than striping
+                                      // the key.
+                                      if (variation) ...[
+                                        Text(
+                                          t.variationTableNote,
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: text.bodySmall?.copyWith(
+                                            fontSize: blurbSize,
+                                            fontWeight: FontWeight.w600,
+                                            color: glass.textDisplay,
+                                          ),
+                                        ),
+                                        const SizedBox(height: Space.xs),
+                                      ],
                                       Text(
                                         blind
                                             ? t.onlyYourChips

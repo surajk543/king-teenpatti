@@ -43,6 +43,11 @@ type EvaluatedHand struct {
 	Name     string   // CategoryNames[Category]
 	Score    []int    // [category, tiebreak...]
 	Cards    []string // wire codes of the input, same order
+	// Wild names the cards (wire codes, a subset of Cards) that played as wild
+	// cards. Go only, and only ever set by a variation's evaluator
+	// (variation.go): Evaluate itself knows no wild card and leaves it nil, so
+	// on a seen or blind table it is always nil.
+	Wild []string
 }
 
 // EvaluateOptions carries the one variant switch. AceLowIsLowest=false (the

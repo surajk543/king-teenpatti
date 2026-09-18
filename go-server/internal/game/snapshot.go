@@ -68,8 +68,11 @@ type SnapshotConfig struct {
 	// MissileRevealExtraMs is TableConfig.MissileRevealExtra; absent (0) in a
 	// snapshot saved before missiles existed, which restores without the extra.
 	MissileRevealExtraMs int64 `json:"missileRevealExtraMs,omitempty"`
-	ChatMaxHistory       int   `json:"chatMaxHistory"`
-	ChatMaxLength        int   `json:"chatMaxLength"`
+	// VariationSelectTimeoutMs is TableConfig.VariationSelectTimeout; absent
+	// (0) in every snapshot of a seen or blind table.
+	VariationSelectTimeoutMs int64 `json:"variationSelectTimeoutMs,omitempty"`
+	ChatMaxHistory           int   `json:"chatMaxHistory"`
+	ChatMaxLength            int   `json:"chatMaxLength"`
 }
 
 // SnapshotHand is Snapshot.hand.
@@ -102,6 +105,27 @@ type SnapshotHand struct {
 	// chip_ledger UNIQUE index no longer refuses a replay — this does, and it
 	// has to survive a restart to keep doing it. Never nil.
 	ActionIDs []string `json:"actionIds"`
+	// Variation is the hand's variation window (a variation table only);
+	// absent otherwise, so a seen or blind hand's snapshot is unchanged.
+	Variation *SnapshotVariation `json:"variation,omitempty"`
+}
+
+// SnapshotVariation is SnapshotHand.variation: the window without its timer.
+// It holds the turned-up card ALWAYS — this is the server's own state in the
+// live store and never reaches a client — so a table that comes back from a
+// restart decides Joker and Hukam by the card that was drawn at the deal.
+type SnapshotVariation struct {
+	Open        bool   `json:"open"`
+	ChooserID   string `json:"chooserId"`
+	ChooserName string `json:"chooserName"`
+	ChooserSeat int    `json:"chooserSeat"`
+	StartedAt   int64  `json:"startedAt"` // epoch ms
+	// Deadline is null when the window never lapses.
+	Deadline *int64 `json:"deadline"`
+	TurnUp   string `json:"turnUp"` // wire code
+	// Selected is "" while Open.
+	Selected   Variation           `json:"selected"`
+	SelectedBy VariationSelectedBy `json:"selectedBy"`
 }
 
 // SnapshotSideshow is SnapshotHand.sideshow (hand.sideshow without the timer).

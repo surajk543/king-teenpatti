@@ -47,6 +47,12 @@ type Listener interface {
 	OnSideshowReveal(v *View, e SideshowRevealEvent)
 	// OnSideshowResolved: public outcome.
 	OnSideshowResolved(v *View, e SideshowResolvedEvent)
+	// OnVariationSelecting: public — a variation table's hand has been dealt
+	// and this player is choosing its rules, until when. Go only.
+	OnVariationSelecting(v *View, e VariationSelectingEvent)
+	// OnVariationSelected: public — the window closed: what was chosen and
+	// how (the player, the clock, or the player leaving). Go only.
+	OnVariationSelected(v *View, e VariationSelectedEvent)
 	// OnShowdown: cards revealed before the hand is settled.
 	OnShowdown(v *View, e ShowdownEvent)
 	// OnHandEnded: settled (or settlement retrying in the background).
@@ -67,21 +73,23 @@ type Listener interface {
 // NopListener implements Listener with no-ops; embed it to implement a subset.
 type NopListener struct{}
 
-func (NopListener) OnState(*View)                                     {}
-func (NopListener) OnSeatUpdated(*View, int)                          {}
-func (NopListener) OnChat(*View, *ChatMessage)                        {}
-func (NopListener) OnHandStarted(*View, HandStartedEvent)             {}
-func (NopListener) OnCards(*View, CardsEvent)                         {}
-func (NopListener) OnTurn(*View, TurnEvent)                           {}
-func (NopListener) OnAction(*View, ActionEvent)                       {}
-func (NopListener) OnSideshowRequested(*View, SideshowRequestedEvent) {}
-func (NopListener) OnSideshowReveal(*View, SideshowRevealEvent)       {}
-func (NopListener) OnSideshowResolved(*View, SideshowResolvedEvent)   {}
-func (NopListener) OnShowdown(*View, ShowdownEvent)                   {}
-func (NopListener) OnHandEnded(*View, HandEndedEvent)                 {}
-func (NopListener) OnKick(*View, KickEvent)                           {}
-func (NopListener) OnPersistError(*View, PersistErrorEvent)           {}
-func (NopListener) OnError(*View, error)                              {}
+func (NopListener) OnState(*View)                                       {}
+func (NopListener) OnSeatUpdated(*View, int)                            {}
+func (NopListener) OnChat(*View, *ChatMessage)                          {}
+func (NopListener) OnHandStarted(*View, HandStartedEvent)               {}
+func (NopListener) OnCards(*View, CardsEvent)                           {}
+func (NopListener) OnTurn(*View, TurnEvent)                             {}
+func (NopListener) OnAction(*View, ActionEvent)                         {}
+func (NopListener) OnSideshowRequested(*View, SideshowRequestedEvent)   {}
+func (NopListener) OnSideshowReveal(*View, SideshowRevealEvent)         {}
+func (NopListener) OnSideshowResolved(*View, SideshowResolvedEvent)     {}
+func (NopListener) OnVariationSelecting(*View, VariationSelectingEvent) {}
+func (NopListener) OnVariationSelected(*View, VariationSelectedEvent)   {}
+func (NopListener) OnShowdown(*View, ShowdownEvent)                     {}
+func (NopListener) OnHandEnded(*View, HandEndedEvent)                   {}
+func (NopListener) OnKick(*View, KickEvent)                             {}
+func (NopListener) OnPersistError(*View, PersistErrorEvent)             {}
+func (NopListener) OnError(*View, error)                                {}
 
 var _ Listener = NopListener{}
 
@@ -143,12 +151,48 @@ type SideshowRequestedEvent struct {
 	TimeoutMs  int64  `json:"timeoutMs"` // SideshowTimeout in ms
 }
 
+// VariationSelectingEvent → game:variationSelecting: a variation table's hand
+// has been dealt and UserID is choosing the rules it is decided by. Public.
+// Go only (owner, 18 Sep 2026). A client must not depend on it: everything
+// here is also in room:state's `variation` block, which is what a reconnecting
+// client has.
+type VariationSelectingEvent struct {
+	UserID      string `json:"userId"`
+	DisplayName string `json:"displayName"`
+	SeatIndex   int    `json:"seatIndex"`
+	StartedAt   int64  `json:"startedAt"` // epoch ms
+	// Deadline (epoch ms) is when the server chooses instead; null on a table
+	// whose window never lapses (VariationSelectTimeout 0).
+	Deadline  *int64 `json:"deadline"`
+	TimeoutMs int64  `json:"timeoutMs"`
+	// Options is the menu, in the order it is offered — NEVER null.
+	Options []Variation `json:"options"`
+}
+
+// VariationSelectedEvent → game:variationSelected: the window has closed.
+// UserID is always the CHOOSER, including when the server chose for them —
+// SelectedBy says which.
+type VariationSelectedEvent struct {
+	UserID      string              `json:"userId"`
+	DisplayName string              `json:"displayName"`
+	SeatIndex   int                 `json:"seatIndex"`
+	Variation   Variation           `json:"variation"`
+	SelectedBy  VariationSelectedBy `json:"selectedBy"`
+	// TurnUp is the card turned up from the undealt deck, present only when
+	// the chosen variation is decided by it: its rank is wild under JOKER, its
+	// suit under HUKAM.
+	TurnUp *string `json:"turnUp,omitempty"`
+}
+
 // SideshowHand is one of the two hands in a SideshowReveal.
 type SideshowHand struct {
 	UserID      string   `json:"userId"`
 	DisplayName string   `json:"displayName"`
 	Cards       []string `json:"cards"`
 	HandName    string   `json:"handName"`
+	// Wild names which of Cards played as wild cards. Only on a variation
+	// table, and only under a variation that has wild cards; absent otherwise.
+	Wild []string `json:"wild,omitempty"`
 }
 
 // SideshowReveal is the private payload (game:sideshowReveal.reveal).
@@ -187,12 +231,21 @@ type Reveal struct {
 	HandName  string       `json:"handName"`
 	Category  HandCategory `json:"category"`
 	Won       bool         `json:"won"`
+	// Wild names which of Cards played as wild cards — see SideshowHand.Wild.
+	// HandName and Category are what the hand MADE with them, so under a
+	// variation they can differ from what the bare cards would be.
+	Wild []string `json:"wild,omitempty"`
 }
 
 // ShowdownEvent ← 'showdown' → game:showdown.
 type ShowdownEvent struct {
 	Reveals []Reveal  `json:"reveals"`
 	Reason  WinReason `json:"reason"`
+	// Variation is the rules the hands were compared under; absent on a seen
+	// or blind table, whose payload is unchanged. Go only.
+	Variation Variation `json:"variation,omitempty"`
+	// TurnUp is the turned-up card when Variation is decided by it.
+	TurnUp *string `json:"turnUp,omitempty"`
 }
 
 // HandEndedEvent ← 'handEnded' → game:handEnded.
@@ -212,6 +265,12 @@ type HandEndedEvent struct {
 	// NextHandAt is now + NextHandDelay (epoch ms); the client's celebration
 	// timer keys off it.
 	NextHandAt int64 `json:"nextHandAt"`
+	// Variation is the rules the hand was played under — "" (absent) on a seen
+	// or blind table, and on a variation table's hand that ended before anyone
+	// had chosen. Go only.
+	Variation Variation `json:"variation,omitempty"`
+	// TurnUp is the turned-up card when Variation is decided by it.
+	TurnUp *string `json:"turnUp,omitempty"`
 }
 
 // KickEvent ← 'kick'.

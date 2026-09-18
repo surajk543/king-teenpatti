@@ -514,7 +514,7 @@ test('cardinality: no label carries an identifier, address or raw path', async (
     .map((s) => s.labels[labelName]));
   for (const code of gameValues('code')) assert.match(code, /^[a-z][a-z0-9_]*$/, `code "${code}" is not a snake_case error code`);
   for (const event of gameValues('event')) assert.match(event, /^[a-z]+:[a-zA-Z]+$/, `event "${event}" is not a wire event name`);
-  for (const category of gameValues('category')) assert.ok(['seen', 'blind', 'other'].includes(category), `category "${category}" is not fixed`);
+  for (const category of gameValues('category')) assert.ok(['seen', 'blind', 'variation', 'other'].includes(category), `category "${category}" is not fixed`);
   for (const method of gameValues('method')) assert.match(method, /^[A-Z]+$/, `method "${method}" is not an HTTP verb`);
   for (const action of gameValues('action')) assert.ok(['see', 'chaal', 'raise', 'pack', 'show', 'sideshow', 'forceSideshow', 'missile', 'other'].includes(action), `action "${action}"`);
   for (const route of gameValues('route')) assert.match(route, /^(\/[a-z/]+|static|unmatched|quick_join|code|create|switch|resume)$/, `route "${route}"`);

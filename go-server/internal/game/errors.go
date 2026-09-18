@@ -117,6 +117,15 @@ const (
 	// nothing changed at the table.
 	CodeNoMissiles = "no_missiles"
 
+	// Variation window (Go only; owner, 18 Sep 2026) — Table.SelectVariation,
+	// and CodeVariationPending from Table.Act while the window is open.
+	CodeNoVariation              = "no_variation"               // this hand has no window: not a variation table
+	CodeVariationAlreadySelected = "variation_already_selected" // the window has closed, however it closed
+	CodeNotSelecting             = "not_selecting"              // the window is open for somebody else
+	CodeInvalidVariation         = "invalid_variation"          // not one of the six canonical values
+	CodeVariationExpired         = "variation_expired"          // past the deadline: the server chose instead
+	CodeVariationPending         = "variation_pending"          // a move while the variation is still being chosen
+
 	// Chat
 	CodeChatRateLimited = "chat_rate_limited"
 
@@ -190,4 +199,12 @@ const (
 	// the show's own.
 	MsgMissileNeedsShowChips = "You need enough chips for a show to fire a missile" // Go only
 	MsgUnknownActionFormat   = "Unknown action \"%s\""
+
+	// Variation window (Go only).
+	MsgNoVariation              = "This table does not play variations"
+	MsgVariationAlreadySelected = "The variation has already been chosen"
+	MsgNotSelecting             = "It is not your turn to choose the variation"
+	MsgInvalidVariation         = "That is not a variation this table offers"
+	MsgVariationExpired         = "Time ran out, so Muflis was chosen"
+	MsgVariationPending         = "The variation is still being chosen"
 )

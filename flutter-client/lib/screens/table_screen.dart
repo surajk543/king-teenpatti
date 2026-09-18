@@ -30,6 +30,7 @@ import '../widgets/premium_surface.dart';
 import '../widgets/rules_sheet.dart';
 import '../widgets/seat_pod.dart';
 import '../widgets/table_ground.dart';
+import '../widgets/variation_prompt.dart';
 
 /// The game room: an emerald table in a champagne rail, standing in a charcoal
 /// room under one overhead lamp, with the players around it, the pot in the
@@ -855,7 +856,11 @@ class _TableDrawer extends StatelessWidget {
                 // Which stake the new table will be: it repeated its own
                 // title before, with the category left in English.
                 note:
-                    '${room.category == 'blind' ? t.blind : t.seen} · ${formatChips(room.bootAmount)}',
+                    '${room.category == TableCategory.blind
+                        ? t.blind
+                        : room.category == TableCategory.variation
+                        ? t.variation
+                        : t.seen} · ${formatChips(room.bootAmount)}',
                 onTap: state.switching
                     ? null
                     : () async {
@@ -1931,8 +1936,20 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
                       .where((hand) => hand.userId == s.userId)
                       .firstOrNull;
 
+            // While a variation window is open nobody is on turn, and the
+            // one player the table is waiting for is the chooser: their pod
+            // rings and fills against the window's clock, as a pod on turn
+            // does against the turn's.
+            final choosing =
+                s != null &&
+                room.state == TableState.betting &&
+                state.variationSelecting &&
+                s.userId == state.variation!.userId;
+
             return SeatPod(
               revealed: reveal?.cards ?? peek?.cards,
+              // Which of those cards played as wild ones (a variation table).
+              wild: reveal?.wild ?? peek?.wild ?? const [],
               revealedHand:
                   reveal?.handName ??
                   (wonSideshow(peek?.userId) ? peek?.handName : null),
@@ -1949,10 +1966,18 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
                   : OrbCorner.topLeft,
               isMe: s?.userId != null && s!.userId == state.user?.id,
               isDealer: s?.seatIndex == room.dealerSeat,
-              onTurn: onTurn(s),
-              progress: onTurn(s) ? progress : null,
-              deadlineMs: room.turn?.deadline ?? 0,
-              totalMs: room.turnTimeoutMs,
+              onTurn: onTurn(s) || choosing,
+              progress: choosing
+                  ? state.variationProgress
+                  : onTurn(s)
+                  ? progress
+                  : null,
+              deadlineMs: choosing
+                  ? state.variation!.deadline
+                  : room.turn?.deadline ?? 0,
+              totalMs: choosing
+                  ? state.variation!.timeoutMs
+                  : room.turnTimeoutMs,
               chipsHidden: room.chipsHidden,
               handLive: handLive,
               width: podW,
@@ -2139,7 +2164,11 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
                     // paid for a show while still blind sees what they were
                     // holding: the server withholds `you.cards` until they
                     // look, and it never turns that off.
-                    _OwnHand(cardHeight: handH, revealed: myReveal?.cards),
+                    _OwnHand(
+                      cardHeight: handH,
+                      revealed: myReveal?.cards,
+                      wild: myReveal?.wild ?? myPeek?.wild ?? const [],
+                    ),
                   ],
                 ),
               ),
@@ -2222,6 +2251,56 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
               // Only the player being asked gets the buttons.
               if (state.sideshowIsForMe)
                 Positioned.fill(child: _SideshowPrompt(state: state)),
+
+              // A variation table's picker, for the one player choosing. In
+              // the Stack rather than a dialog, so it is gone with the very
+              // snapshot that says the window has closed and no route is left
+              // behind to pop (see VariationPrompt).
+              //
+              // The scrim dims the felt only, takes no touch, and fades out
+              // above the foot: the chooser may look at their cards first, so
+              // their hand and its "See cards" key stay lit and live. The
+              // picker itself keeps to the top 64% of the felt for the same
+              // reason — the viewer's column (hand, badge and floor margin)
+              // is 0.235h + about 40dp, under 0.36h at every height there is.
+              if (state.variationIsMine) ...[
+                const Positioned.fill(
+                  child: IgnorePointer(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [
+                            Color(0x8C000000),
+                            Color(0x8C000000),
+                            Color(0x00000000),
+                          ],
+                          stops: [0, 0.58, 0.72],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  top: 0,
+                  height: h * 0.64,
+                  child: VariationPrompt(
+                    // One picker per window, so a key marked in one hand is
+                    // not still marked in the next.
+                    key: ValueKey('variation-${room.handNo}'),
+                    title: state.t.variationChooseTitle,
+                    options: state.variation!.options,
+                    nameOf: state.t.variationName,
+                    noteOf: state.t.variationNote,
+                    deadlineMs: state.variation!.deadline,
+                    totalMs: state.variation!.timeoutMs,
+                    onSelect: state.selectVariation,
+                  ),
+                ),
+              ],
 
               if (state.showdown.isNotEmpty || state.showdownResult.isNotEmpty)
                 Positioned.fill(
@@ -2661,8 +2740,10 @@ class _CategoryTag extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final t = context.watch<GameState>().t;
+    final state = context.watch<GameState>();
+    final t = state.t;
     final blind = room.category == TableCategory.blind;
+    final variation = room.category == TableCategory.variation;
     final palette = AppTheme.paletteFor(
       theme.colorScheme,
       category: room.category,
@@ -2695,7 +2776,20 @@ class _CategoryTag extends StatelessWidget {
                   // stake to an ellipsis. The category word is translated, so
                   // it keeps its natural case — tracked capitals are a no-op on
                   // Devanagari and would only mismatch the tracking beside it.
-                  '${blind ? t.blind : t.seen} · ${formatChips(room.bootAmount)}',
+                  //
+                  // A variation table names the rules of the hand in place of
+                  // the stake once they are chosen, and keeps naming them
+                  // through the showdown ("Variation · Joker · 9"): they are
+                  // what the hands on the table are being read by.
+                  variation
+                      ? variationTagText(
+                          category: t.variation,
+                          boot: formatChips(room.bootAmount),
+                          selected: state.shownVariation,
+                          turnUp: state.shownTurnUp,
+                          nameOf: t.variationName,
+                        )
+                      : '${blind ? t.blind : t.seen} · ${formatChips(room.bootAmount)}',
                   maxLines: 1,
                   style: AppTheme.label(
                     theme.textTheme.labelMedium ?? const TextStyle(),
@@ -2932,6 +3026,46 @@ class _Status extends StatelessWidget {
     // A seat the table is holding for a chip purchase outranks the rest: it
     // is the one line here with the player's own seat riding on it.
     final graceLeft = room.you?.unfundedSecondsLeft(DateTime.now());
+
+    // A variation table has two things to say during a hand, in the slot that
+    // is otherwise blank for it: who the table is waiting on while the window
+    // is open — to everyone but the chooser, who has the picker instead — and,
+    // for a few seconds after, what the hand is being played under. Without
+    // the first the table simply looks frozen for ten seconds: nobody is on
+    // turn, so no pod would be ringing.
+    final window = state.variation;
+    if (graceLeft == null &&
+        window != null &&
+        window.selecting &&
+        !state.variationIsMine) {
+      return VariationSelectingLine(
+        text: state.t.variationSelectingBy(window.displayName),
+        deadlineMs: window.deadline,
+        totalMs: window.timeoutMs,
+      );
+    }
+    final chosen = state.variationAnnounced;
+    if (graceLeft == null && chosen != null) {
+      // Why the server chose, when it did — and the two causes are different
+      // sentences. "Time ran out" is only true of the clock; a chooser who
+      // walked away from the table did not run it out, and the players left
+      // behind should be told what actually happened. The name comes from the
+      // window's own block, which the snapshot keeps for the rest of the hand
+      // (the seat is gone, so it cannot come from there).
+      final chooser = state.variation?.displayName ?? '';
+      final detail = switch (chosen.selectedBy) {
+        VariationSelectedBy.timeout => state.t.variationAutoChosen,
+        VariationSelectedBy.left =>
+          chooser.isEmpty
+              ? state.t.variationAutoChosen
+              : state.t.variationLeftChosen(chooser),
+        _ => null,
+      };
+      return VariationChosenLine(
+        text: state.t.variationChosen(state.t.variationName(chosen.variation)),
+        detail: detail,
+      );
+    }
     final line = graceLeft != null ? state.t.buyChipsToStay(graceLeft) : text;
 
     if (line.isEmpty) return const SizedBox.shrink();
@@ -2998,7 +3132,17 @@ class _Status extends StatelessWidget {
 /// cards" laid over them: looking at your hand is something you do to the
 /// cards, and once you have looked the key has no reason to still be there.
 class _OwnHand extends StatelessWidget {
-  const _OwnHand({required this.cardHeight, this.revealed});
+  const _OwnHand({
+    required this.cardHeight,
+    this.revealed,
+    this.wild = const [],
+  });
+
+  /// Which of the hand's cards played as wild ones, once a showdown or a
+  /// sideshow has said so (a variation table). Empty until then: the viewer
+  /// sees their own cards all hand, but which of them were wild is the
+  /// server's to say, with the reveal.
+  final List<String> wild;
   final double cardHeight;
 
   /// The viewer's own cards as the showdown turned them over.
@@ -3092,10 +3236,15 @@ class _OwnHand extends StatelessWidget {
                 key: ValueKey('${state.room?.handNo}-$i'),
                 index: i,
                 restAngle: (i - 1) * _fan,
-                child: PlayingCard(
-                  height: cardHeight,
-                  code: i < cards.length ? cards[i] : null,
-                  dimmed: packed,
+                child: WildEdge(
+                  wild: i < cards.length && wild.contains(cards[i]),
+                  cardHeight: cardHeight,
+                  label: state.t.wildCard,
+                  child: PlayingCard(
+                    height: cardHeight,
+                    code: i < cards.length ? cards[i] : null,
+                    dimmed: packed,
+                  ),
                 ),
               ),
             ),

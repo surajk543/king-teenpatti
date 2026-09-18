@@ -487,7 +487,8 @@ func (m *Metrics) poolStats() (stats PoolStats) {
 // re-counted every table on each scrape, so a category/stake pair with no
 // table disappears from the exposition rather than reading 0. A custom
 // Collector emitting one const metric per live pair has exactly that shape.
-// `category` is the raw table category (always seen/blind) and `stake` the
+// `category` is the raw table category (always seen, blind or — Go only,
+// since 18 Sep 2026 — variation: game.Category is a closed set) and `stake` the
 // boot as a decimal string, as in Node — neither goes through SafeLabel.
 type tablesCollector struct {
 	m    *Metrics

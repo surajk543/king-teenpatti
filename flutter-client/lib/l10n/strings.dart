@@ -193,6 +193,53 @@ class Strings {
   String get sideshowWith => _('sideshowWith');
   String get sideshowAsksYou => _('sideshowAsksYou');
   String get sideshowRunning => _('sideshowRunning');
+
+  // --- variation tables: the first player picks the rules of the hand
+  /// The category's name, on the lobby card and over the pot.
+  String get variation => _('variation');
+  String get variationTableNote => _('variationTableNote');
+  String get variationChooseTitle => _('variationChooseTitle');
+
+  /// What everyone but the chooser reads in the middle of the table.
+  String variationSelectingBy(String name) =>
+      _('variationSelectingBy').replaceAll('{name}', name);
+
+  /// "Variation: AK47" — [variation] is already in the player's language.
+  String variationChosen(String variation) =>
+      _('variationChosen').replaceAll('{variation}', variation);
+
+  /// The server chose because nobody did (the clock, or the chooser leaving).
+  String get variationAutoChosen => _('variationAutoChosen');
+
+  /// The server chose because the chooser LEFT the table — the clock did not
+  /// run out, so saying that it did would be a small lie.
+  String variationLeftChosen(String name) =>
+      _('variationLeftChosen').replaceAll('{name}', name);
+  String get wildCard => _('wildCard');
+
+  /// A variation's name from its wire value. An unknown one — a server newer
+  /// than this build — is shown as sent rather than hidden.
+  String variationName(String wire) => switch (wire) {
+    'MUFLIS' => _('varMuflis'),
+    'AK47' => _('varAk47'),
+    'JOKER' => _('varJoker'),
+    'HUKAM' => _('varHukam'),
+    'LOWEST_JOKER' => _('varLowestJoker'),
+    'HIGHEST_JOKER' => _('varHighestJoker'),
+    _ => wire,
+  };
+
+  /// One line on what the variation changes; empty for one this build does
+  /// not know.
+  String variationNote(String wire) => switch (wire) {
+    'MUFLIS' => _('varMuflisNote'),
+    'AK47' => _('varAk47Note'),
+    'JOKER' => _('varJokerNote'),
+    'HUKAM' => _('varHukamNote'),
+    'LOWEST_JOKER' => _('varLowestJokerNote'),
+    'HIGHEST_JOKER' => _('varHighestJokerNote'),
+    _ => '',
+  };
   String get accept => _('accept');
   String get decline => _('decline');
   String get sideshowDeclined => _('sideshowDeclined');
@@ -759,6 +806,27 @@ class Strings {
       'sideshow': 'Sideshow',
       'sideshowWith': 'Compare with',
       'sideshowAsksYou': 'wants to compare hands with you',
+      // variation tables: the first player picks the rules of the hand
+      'variation': 'VARIATION',
+      'variationTableNote': 'First player picks each hand\'s rules',
+      'variationChooseTitle': 'Choose Variation',
+      'variationSelectingBy': '{name} is selecting variation…',
+      'variationChosen': 'Variation: {variation}',
+      'variationLeftChosen': '{name} left the table — Muflis was chosen',
+      'variationAutoChosen': 'Time ran out — Muflis was chosen',
+      'varMuflis': 'Muflis',
+      'varAk47': 'AK47',
+      'varJoker': 'Joker',
+      'varHukam': 'Hukam',
+      'varLowestJoker': 'Lowest Joker',
+      'varHighestJoker': 'Highest Joker',
+      'varMuflisNote': 'Lowest hand wins',
+      'varAk47Note': 'A, K, 4 and 7 are wild',
+      'varJokerNote': 'The turned-up rank is wild',
+      'varHukamNote': 'The turned-up suit is wild',
+      'varLowestJokerNote': 'Your lowest card is wild',
+      'varHighestJokerNote': 'Your highest card is wild',
+      'wildCard': 'Wild',
       'sideshowRunning': 'Sideshow',
       'accept': 'Accept',
       'decline': 'Decline',
@@ -1118,6 +1186,27 @@ class Strings {
       'sideshow': 'साइडशो',
       'sideshowWith': 'तुलना करें',
       'sideshowAsksYou': 'आपके साथ पत्ते मिलाना चाहता है',
+      // variation tables: the first player picks the rules of the hand
+      'variation': 'वेरिएशन',
+      'variationTableNote': 'हर हाथ के नियम पहला खिलाड़ी चुनता है',
+      'variationChooseTitle': 'वेरिएशन चुनें',
+      'variationSelectingBy': '{name} वेरिएशन चुन रहे हैं…',
+      'variationChosen': 'वेरिएशन: {variation}',
+      'variationLeftChosen': '{name} टेबल छोड़ गए — मुफ़लिस चुना गया',
+      'variationAutoChosen': 'समय समाप्त — मुफ़लिस चुना गया',
+      'varMuflis': 'मुफ़लिस',
+      'varAk47': 'AK47',
+      'varJoker': 'जोकर',
+      'varHukam': 'हुकुम',
+      'varLowestJoker': 'सबसे छोटा जोकर',
+      'varHighestJoker': 'सबसे बड़ा जोकर',
+      'varMuflisNote': 'सबसे कमज़ोर हाथ जीतता है',
+      'varAk47Note': 'A, K, 4 और 7 जोकर हैं',
+      'varJokerNote': 'खुले पत्ते की रैंक जोकर है',
+      'varHukamNote': 'खुले पत्ते का रंग जोकर है',
+      'varLowestJokerNote': 'आपका सबसे छोटा पत्ता जोकर है',
+      'varHighestJokerNote': 'आपका सबसे बड़ा पत्ता जोकर है',
+      'wildCard': 'जोकर',
       'sideshowRunning': 'साइडशो',
       'accept': 'स्वीकारें',
       'decline': 'मना करें',
@@ -1472,6 +1561,28 @@ class Strings {
       'sideshow': 'সাইডশো',
       'sideshowWith': 'তুলনা করুন',
       'sideshowAsksYou': 'আপনার সঙ্গে তাস মেলাতে চায়',
+      // variation tables: the first player picks the rules of the hand
+      'variation': 'ভেরিয়েশন',
+      'variationTableNote': 'প্রতিটি হাতের নিয়ম প্রথম খেলোয়াড় বেছে নেন',
+      'variationChooseTitle': 'ভেরিয়েশন বেছে নিন',
+      'variationSelectingBy': '{name} ভেরিয়েশন বেছে নিচ্ছেন…',
+      'variationChosen': 'ভেরিয়েশন: {variation}',
+      'variationLeftChosen':
+          '{name} টেবিল ছেড়ে গেছেন — মুফলিস বেছে নেওয়া হলো',
+      'variationAutoChosen': 'সময় শেষ — মুফলিস বেছে নেওয়া হলো',
+      'varMuflis': 'মুফলিস',
+      'varAk47': 'AK47',
+      'varJoker': 'জোকার',
+      'varHukam': 'হুকুম',
+      'varLowestJoker': 'সবচেয়ে ছোট জোকার',
+      'varHighestJoker': 'সবচেয়ে বড় জোকার',
+      'varMuflisNote': 'সবচেয়ে দুর্বল হাত জেতে',
+      'varAk47Note': 'A, K, 4 ও 7 জোকার',
+      'varJokerNote': 'খোলা তাসের র‍্যাঙ্ক জোকার',
+      'varHukamNote': 'খোলা তাসের রং জোকার',
+      'varLowestJokerNote': 'আপনার সবচেয়ে ছোট তাস জোকার',
+      'varHighestJokerNote': 'আপনার সবচেয়ে বড় তাস জোকার',
+      'wildCard': 'জোকার',
       'sideshowRunning': 'সাইডশো',
       'accept': 'গ্রহণ করুন',
       'decline': 'প্রত্যাখ্যান',
@@ -1827,6 +1938,27 @@ class Strings {
       'sideshow': 'સાઇડશો',
       'sideshowWith': 'સરખાવો',
       'sideshowAsksYou': 'તમારી સાથે પત્તાં સરખાવવા માંગે છે',
+      // variation tables: the first player picks the rules of the hand
+      'variation': 'વેરિએશન',
+      'variationTableNote': 'દરેક હાથના નિયમ પહેલો ખેલાડી પસંદ કરે છે',
+      'variationChooseTitle': 'વેરિએશન પસંદ કરો',
+      'variationSelectingBy': '{name} વેરિએશન પસંદ કરી રહ્યા છે…',
+      'variationChosen': 'વેરિએશન: {variation}',
+      'variationLeftChosen': '{name} ટેબલ છોડી ગયા — મુફલિસ પસંદ થયું',
+      'variationAutoChosen': 'સમય પૂરો — મુફલિસ પસંદ થયું',
+      'varMuflis': 'મુફલિસ',
+      'varAk47': 'AK47',
+      'varJoker': 'જોકર',
+      'varHukam': 'હુકમ',
+      'varLowestJoker': 'સૌથી નાનો જોકર',
+      'varHighestJoker': 'સૌથી મોટો જોકર',
+      'varMuflisNote': 'સૌથી નબળો હાથ જીતે છે',
+      'varAk47Note': 'A, K, 4 અને 7 જોકર છે',
+      'varJokerNote': 'ખુલ્લા પત્તાનો રેન્ક જોકર છે',
+      'varHukamNote': 'ખુલ્લા પત્તાનો રંગ જોકર છે',
+      'varLowestJokerNote': 'તમારું સૌથી નાનું પત્તું જોકર છે',
+      'varHighestJokerNote': 'તમારું સૌથી મોટું પત્તું જોકર છે',
+      'wildCard': 'જોકર',
       'sideshowRunning': 'સાઇડશો',
       'accept': 'સ્વીકારો',
       'decline': 'નકારો',
@@ -2179,6 +2311,27 @@ class Strings {
       'sideshow': 'ਸਾਈਡਸ਼ੋ',
       'sideshowWith': 'ਮਿਲਾਓ',
       'sideshowAsksYou': 'ਤੁਹਾਡੇ ਨਾਲ ਪੱਤੇ ਮਿਲਾਉਣਾ ਚਾਹੁੰਦਾ ਹੈ',
+      // variation tables: the first player picks the rules of the hand
+      'variation': 'ਵੇਰੀਏਸ਼ਨ',
+      'variationTableNote': 'ਹਰ ਹੱਥ ਦੇ ਨਿਯਮ ਪਹਿਲਾ ਖਿਡਾਰੀ ਚੁਣਦਾ ਹੈ',
+      'variationChooseTitle': 'ਵੇਰੀਏਸ਼ਨ ਚੁਣੋ',
+      'variationSelectingBy': '{name} ਵੇਰੀਏਸ਼ਨ ਚੁਣ ਰਹੇ ਹਨ…',
+      'variationChosen': 'ਵੇਰੀਏਸ਼ਨ: {variation}',
+      'variationLeftChosen': '{name} ਟੇਬਲ ਛੱਡ ਗਏ — ਮੁਫ਼ਲਿਸ ਚੁਣਿਆ ਗਿਆ',
+      'variationAutoChosen': 'ਸਮਾਂ ਖਤਮ — ਮੁਫ਼ਲਿਸ ਚੁਣਿਆ ਗਿਆ',
+      'varMuflis': 'ਮੁਫ਼ਲਿਸ',
+      'varAk47': 'AK47',
+      'varJoker': 'ਜੋਕਰ',
+      'varHukam': 'ਹੁਕਮ',
+      'varLowestJoker': 'ਸਭ ਤੋਂ ਛੋਟਾ ਜੋਕਰ',
+      'varHighestJoker': 'ਸਭ ਤੋਂ ਵੱਡਾ ਜੋਕਰ',
+      'varMuflisNote': 'ਸਭ ਤੋਂ ਕਮਜ਼ੋਰ ਹੱਥ ਜਿੱਤਦਾ ਹੈ',
+      'varAk47Note': 'A, K, 4 ਅਤੇ 7 ਜੋਕਰ ਹਨ',
+      'varJokerNote': 'ਖੁੱਲ੍ਹੇ ਪੱਤੇ ਦਾ ਰੈਂਕ ਜੋਕਰ ਹੈ',
+      'varHukamNote': 'ਖੁੱਲ੍ਹੇ ਪੱਤੇ ਦਾ ਰੰਗ ਜੋਕਰ ਹੈ',
+      'varLowestJokerNote': 'ਤੁਹਾਡਾ ਸਭ ਤੋਂ ਛੋਟਾ ਪੱਤਾ ਜੋਕਰ ਹੈ',
+      'varHighestJokerNote': 'ਤੁਹਾਡਾ ਸਭ ਤੋਂ ਵੱਡਾ ਪੱਤਾ ਜੋਕਰ ਹੈ',
+      'wildCard': 'ਜੋਕਰ',
       'sideshowRunning': 'ਸਾਈਡਸ਼ੋ',
       'accept': 'ਮੰਨੋ',
       'decline': 'ਨਾਂਹ ਕਰੋ',
