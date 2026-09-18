@@ -1089,8 +1089,17 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   clears every index; a three-card fan computes to exactly its old lefts, bottoms and size (pinned by a test). The two
   top-up cards arrive through the existing `_Dealt` entrance, not pop. Once `you.hand.best` names three of FIVE those
   three rise 0.08h and the other two are set back (`SetBack` in `variation_prompt.dart`: a wash and an 8% shrink that
-  never changes the card's box or the tree shape, so `WildTransform`/`PlayingCard` state survives) — natural fan order
-  is kept so every index stays readable, which means a set-back card overlaps the lifted one to its left. After the hand
+  never changes the card's box or the tree shape, so `WildTransform`/`PlayingCard` state survives). **The choice is acted
+  out, once per hand** (owner, 18 Sep 2026: "the two cards are low and then rearrange the cards that bring the selected
+  cards at top"; `_BestThreeStage`, stages `held → aside → arranged`): the faces turn over in the order held (650 ms), the
+  two that do not count dip 0.06h and are set back (520 ms), then the fan is RE-DEALT — those two take the left places,
+  underneath and tucked 0.24 of a card apart, and the best three the right ones, on top and raised, 0.58 of a card apart
+  instead of the five-card 0.41, so each one's middle pip reads as well as its corner (owner, 19 Sep 2026: "the front three
+  cards' symbols are not visible properly"); the first and last card keep their places, so the box is unchanged. Each group
+  keeps the order held. Places, lean and paint
+  order follow the SLOT; each card stays keyed by the index it was dealt at, so it slides with its flip and wild state
+  intact, and every index still reads. A fan built already knowing (a reconnect, a blind hand's showdown arriving with
+  the table) opens arranged with no animation. After the hand
   it falls back to the reveal's or the sideshow peek's `best`. Rim seats (`seat_pod.dart`): three cards or fewer take
   the old `Row` untouched; four or five overlap inside the same width and height, so a five-card reveal does not move
   the seat's column (`test/seat_reveal_layout_test.dart` has the case), with the cards not in `best` set back. **The

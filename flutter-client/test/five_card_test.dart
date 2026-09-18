@@ -362,11 +362,14 @@ void main() {
         expect(tester.takeException(), isNull);
 
         expect(_inOwnHand(PlayingCard), findsNWidgets(5));
+        // Built already knowing the best three, the fan opens re-dealt: the
+        // two that do not count underneath on the left, the three that do on
+        // top on the right (painted last), each group in the order held.
         expect(
           tester
               .widgetList<PlayingCard>(_inOwnHand(PlayingCard))
               .map((c) => c.code),
-          _five,
+          ['7d', '7c', 'As', 'Ks', 'Qs'],
         );
         expect(
           tester.getRect(_ownHand),
@@ -380,26 +383,31 @@ void main() {
         expect(slots, hasLength(5));
         expect(slots.first.left, threeSlots.first.left);
         expect(slots.last.left, closeTo(threeSlots.last.left, 0.001));
-        final step = slots[1].left - slots[0].left;
-        for (var i = 1; i < slots.length; i++) {
-          expect(slots[i].left - slots[i - 1].left, closeTo(step, 0.001));
-        }
-        // Each card's index — rank over suit, 0.265 of its height across —
-        // stays clear of the card laid over it.
+        // The two set aside are tucked close together; the three that count
+        // share the rest of the run evenly, far enough apart that each one's
+        // index (0.265 of a card's height across) AND its middle pip are clear
+        // of the card laid over it.
         final cardH = tester.getSize(_inOwnHand(PlayingCard).first).height;
-        expect(step, greaterThan(cardH * 0.265));
+        final cardW = cardH * PlayingCard.aspect;
+        expect(slots[1].left - slots[0].left, closeTo(cardW * 0.24, 0.001));
+        expect(slots[2].left - slots[1].left, closeTo(cardW * 0.24, 0.001));
+        final wide = slots[3].left - slots[2].left;
+        expect(slots[4].left - slots[3].left, closeTo(wide, 0.001));
+        expect(wide, closeTo(cardW * 0.58, 0.001));
+        expect(wide, greaterThan(cardH * 0.265));
 
         // The best three are lifted; the other two are left down, set back.
         expect(slots.map((s) => s.bottom > 0), [
-          true,
-          true,
-          true,
           false,
           false,
+          true,
+          true,
+          true,
         ]);
+        expect(slots.take(2).map((s) => s.bottom), everyElement(0));
         expect(
           tester.widgetList<SetBack>(_inOwnHand(SetBack)).map((w) => w.setBack),
-          [false, false, false, true, true],
+          [true, true, false, false, false],
         );
         // And the hand is named, as any variation hand is.
         expect(find.text('Pure Sequence'), findsOneWidget);
@@ -470,7 +478,7 @@ void main() {
         tester
             .widgetList<PlayingCard>(_inOwnHand(PlayingCard))
             .map((c) => c.code),
-        _five,
+        unorderedEquals(_five),
       );
       expect(
         tester.getRect(_ownHand),
@@ -548,14 +556,130 @@ void main() {
         tester.getRect(_ownHand),
         rectMoreOrLessEquals(box, epsilon: 0.01),
       );
-      // The best three are whichever the server named, wherever they sit.
+      // The best three are whichever the server named, wherever they were
+      // held: once the fan has been re-dealt they are the three on top.
+      expect(
+        tester
+            .widgetList<PlayingCard>(_inOwnHand(PlayingCard))
+            .map((c) => c.code),
+        ['7d', '7c', 'As', 'Ks', 'Qs'],
+      );
       expect(_slots(tester).map((s) => s.bottom > 0), [
-        true,
+        false,
         false,
         true,
         true,
-        false,
+        true,
       ]);
+
+      await _teardown(tester, state);
+    });
+
+    // Owner, 18 Sep 2026: "show an animation that the two cards are low and
+    // then rearrange the cards that bring the selected cards at top".
+    testWidgets('tapping See cards acts the choice out: the faces turn in the '
+        'order held, the two that do not count go low, then the best three '
+        'come to the top', (tester) async {
+      const held = ['As', '7d', 'Ks', '7c', 'Qs'];
+      final state = _newState(
+        _room(
+          variation: _variation(selected: Variation.fiveCard),
+          cardCount: 5,
+        ),
+      );
+      await _pumpTable(
+        tester,
+        state,
+        screen: const Size(640, 360),
+        textScale: 1.25,
+      );
+      await _settle(tester);
+      final box = tester.getRect(_ownHand);
+      final rest = _slots(tester);
+
+      List<String?> codes() => tester
+          .widgetList<PlayingCard>(_inOwnHand(PlayingCard))
+          .map((c) => c.code)
+          .toList();
+      List<bool> setBack() => tester
+          .widgetList<SetBack>(_inOwnHand(SetBack))
+          .map((w) => w.setBack)
+          .toList();
+
+      // They look.
+      state.handleState(
+        _room(
+          variation: _variation(selected: Variation.fiveCard),
+          cards: held,
+          cardCount: 5,
+          hand: {
+            'handName': 'Pure Sequence',
+            'wild': const <String>[],
+            'playsAs': held,
+            'best': _best,
+          },
+        ),
+      );
+      await tester.pump();
+
+      // 1. The faces turn over where they lie; nothing is singled out yet.
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(codes(), held);
+      expect(setBack(), everyElement(isFalse));
+      expect(_slots(tester), rest);
+
+      // 2. The two that do not count go low and are set back; nobody has
+      //    moved along the fan and nothing has risen.
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(codes(), held);
+      expect(setBack(), [false, true, false, true, false]);
+      final low = _slots(tester);
+      expect(low.map((s) => s.left), rest.map((s) => s.left));
+      expect(low.map((s) => s.bottom < 0), [false, true, false, true, false]);
+      expect(low.map((s) => s.bottom > 0), everyElement(isFalse));
+
+      // 3. The fan is re-dealt: the three that count are on top, raised, in
+      //    the order they were held; the other two are underneath, back on
+      //    the cloth's line.
+      await tester.pump(const Duration(milliseconds: 600));
+      await _settle(tester);
+      expect(tester.takeException(), isNull);
+      expect(codes(), ['7d', '7c', 'As', 'Ks', 'Qs']);
+      expect(setBack(), [true, true, false, false, false]);
+      final dealt = _slots(tester);
+      // Same first and last place; the three that count stand wider apart
+      // than the five did, so their faces read.
+      expect(dealt.first.left, rest.first.left);
+      expect(dealt.last.left, closeTo(rest.last.left, 0.001));
+      expect(
+        dealt[3].left - dealt[2].left,
+        greaterThan((rest[1].left - rest[0].left) * 1.3),
+      );
+      expect(dealt.map((s) => s.bottom > 0), [false, false, true, true, true]);
+      expect(dealt.take(2).map((s) => s.bottom), everyElement(0));
+      expect(
+        tester.getRect(_ownHand),
+        rectMoreOrLessEquals(box, epsilon: 0.01),
+        reason: 'the hand never takes more of the felt',
+      );
+
+      // It plays once: another snapshot of the same hand moves nothing.
+      state.handleState(
+        _room(
+          variation: _variation(selected: Variation.fiveCard),
+          cards: held,
+          cardCount: 5,
+          hand: {
+            'handName': 'Pure Sequence',
+            'wild': const <String>[],
+            'playsAs': held,
+            'best': _best,
+          },
+        ),
+      );
+      await tester.pump();
+      expect(codes(), ['7d', '7c', 'As', 'Ks', 'Qs']);
+      expect(_slots(tester), dealt);
 
       await _teardown(tester, state);
     });

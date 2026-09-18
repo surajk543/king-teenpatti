@@ -3173,8 +3173,13 @@ class _Status extends StatelessWidget {
 /// exactly as it always did.
 ///
 /// **What is being played is shown, not asked.** Once `you.hand.best` names
-/// three of five, those three rise a little and the other two are set back
-/// ([SetBack]); the server chose them and the player chooses nothing.
+/// three of five, the server's choice is ACTED OUT (owner, 18 Sep 2026: "show
+/// an animation that the two cards are low and then rearrange the cards that
+/// bring the selected cards at top") — [_BestThreeStage]: the faces turn over
+/// in the order held, then the two that do not count sink and are set back
+/// ([SetBack]), then the fan is re-dealt so those two slide under to the left
+/// and the three that count come to the front of the fan and rise. The server
+/// chose them and the player chooses nothing.
 class _OwnHand extends StatelessWidget {
   const _OwnHand({
     required this.cardHeight,
@@ -3214,6 +3219,19 @@ class _OwnHand extends StatelessWidget {
   /// height: the middle card of a plain hand, and the best three of five.
   static const double _proud = 0.04;
   static const double _lifted = 0.08;
+
+  /// How far a card that does not count dips while it is being set aside,
+  /// before the fan is re-dealt and it comes back to the cloth's line.
+  static const double _sunk = 0.06;
+
+  /// How far apart the cards that do NOT count stand once the fan is re-dealt,
+  /// in card widths. Tight — they are out of the hand and only their rank has
+  /// to read — so that the run they give up goes to the three that count: those
+  /// stand 0.58 of a card apart instead of 0.41, which shows each one's middle
+  /// pip as well as its corner (owner, 19 Sep 2026: "the front three cards'
+  /// symbols are not visible properly"). The first and the last card stay where
+  /// every hand's are, so the fan's box is what it was.
+  static const double _tucked = 0.24;
 
   @override
   Widget build(BuildContext context) {
@@ -3313,136 +3331,278 @@ class _OwnHand extends StatelessWidget {
     final width = cardW + run + 2 * lean;
     final mid = (count - 1) / 2;
 
-    return SizedBox(
-      width: width,
-      height: cardHeight * 1.12,
-      child: Stack(
-        // A wild card's halo and sparks are painted past its own box
-        // (WildTransform), and the cards' shadows already were.
-        clipBehavior: Clip.none,
-        children: [
-          for (var i = 0; i < count; i++)
-            // Animated, so that when a hand is topped up to five the three
-            // already held slide together to make room rather than jumping,
-            // and the best three rise rather than snap. At rest it is the
-            // plain Positioned it replaced.
-            AnimatedPositioned(
-              key: ValueKey('own-card-${state.room?.handNo}-$i'),
-              duration: Motion.slow,
-              curve: Motion.standard,
-              left: lean + i * step,
-              // The middle card sits a little proud of its neighbours — until
-              // the hand has three that count, and then those do instead.
-              bottom: picking
-                  ? (counted.contains(cards[i]) ? cardHeight * _lifted : 0)
-                  : (i == mid ? cardHeight * _proud : 0),
-              child: _Dealt(
-                key: ValueKey('${state.room?.handNo}-$i'),
-                // The two cards of a top-up arrive as the first two of a deal
-                // did, not after a pause for three cards that are not coming.
-                index: i < 3 ? i : i - 3,
-                restAngle: (i - mid) * (_fan / mid),
-                // On a variation table a wild card turns into the card it
-                // played as, once the server says what that was — `you.hand`,
-                // sent to this player alone when they have looked and the
-                // variation is chosen. Everywhere else, and for every card
-                // that is not wild, this is the plain card it always was.
-                child: SetBack(
-                  setBack: picking && !counted.contains(cards[i]),
-                  cardHeight: cardHeight,
-                  child: WildTransform(
-                    height: cardHeight,
-                    code: i < cards.length ? cards[i] : null,
-                    standIn: i < cards.length
-                        ? you.hand?.standInFor(cards[i], i)
-                        : null,
-                    wild:
-                        i < cards.length &&
-                        (wild.contains(cards[i]) ||
-                            (you.hand?.wild.contains(cards[i]) ?? false)),
-                    index: i,
-                    label: state.t.wildCard,
-                    dimmed: packed,
-                  ),
-                ),
-              ),
-            ),
-          if (packed)
-            Positioned.fill(
-              child: Center(
-                child: _Plate(
-                  radius: Radii.sm,
-                  opacity: 0.68,
-                  accent: theme.colorScheme.error.withValues(alpha: 0.45),
-                  padding: EdgeInsets.symmetric(
-                    horizontal: cardHeight * 0.18,
-                    vertical: cardHeight * 0.07,
-                  ),
-                  child: Text(
-                    state.t.packed,
-                    style: AppTheme.label(
-                      theme.textTheme.titleSmall ?? const TextStyle(),
-                      colour: theme.colorScheme.error,
-                      weight: FontWeight.w700,
+    return _BestThreeStage(
+      picking: picking,
+      handNo: state.room?.handNo ?? 0,
+      builder: (context, stage) {
+        // Which place in the fan each card holds. In the order held, until the
+        // last stage re-deals them: the cards that do not count take the left
+        // places — underneath, since a fan paints left to right — and the three
+        // that count take the right ones, on top, each keeping its order.
+        final sorting = picking && stage == _PickStage.arranged;
+        final slotOf = List<int>.generate(count, (i) => i);
+        if (sorting) {
+          final aside = [
+            for (var i = 0; i < count; i++)
+              if (!counted.contains(cards[i])) i,
+          ];
+          final playing = [
+            for (var i = 0; i < count; i++)
+              if (counted.contains(cards[i])) i,
+          ];
+          for (final (slot, i) in [...aside, ...playing].indexed) {
+            slotOf[i] = slot;
+          }
+        }
+        // Painted in slot order, so the card in the rightmost place is on top.
+        // Every card is keyed by the index it was DEALT at, so a card that
+        // changes places keeps its state — its flip, its wild turn — and
+        // slides rather than being rebuilt somewhere else.
+        final order = List<int>.generate(count, (i) => i)
+          ..sort((a, b) => slotOf[a].compareTo(slotOf[b]));
+        // Where each place stands along the run. Even steps, until the fan is
+        // re-dealt; then the set-aside cards are tucked close together and the
+        // three that count share what is left, ending where the run ends.
+        final asideCount = sorting ? count - counted.length : 0;
+        final wide = asideCount > 0 && counted.length > 1
+            ? (run - asideCount * cardW * _tucked) / (counted.length - 1)
+            : step;
+        double placeOf(int slot) => !sorting || asideCount == 0
+            ? slot * step
+            : slot < asideCount
+            ? slot * cardW * _tucked
+            : asideCount * cardW * _tucked + (slot - asideCount) * wide;
+        final setAside = picking && stage != _PickStage.held;
+
+        return SizedBox(
+          width: width,
+          height: cardHeight * 1.12,
+          child: Stack(
+            // A wild card's halo and sparks are painted past its own box
+            // (WildTransform), and the cards' shadows already were.
+            clipBehavior: Clip.none,
+            children: [
+              for (final i in order)
+                // Animated, so that when a hand is topped up to five the three
+                // already held slide together to make room rather than jumping,
+                // and the best three rise rather than snap. At rest it is the
+                // plain Positioned it replaced.
+                AnimatedPositioned(
+                  key: ValueKey('own-card-${state.room?.handNo}-$i'),
+                  duration: sorting ? Motion.arrive : Motion.slow,
+                  curve: Motion.standard,
+                  left: lean + placeOf(slotOf[i]),
+                  // The middle card sits a little proud of its neighbours — until
+                  // the hand has three that count. Then the two that do not dip
+                  // as they are set aside, and once the fan is re-dealt the three
+                  // that do stand proud instead.
+                  bottom: !setAside
+                      ? (i == mid ? cardHeight * _proud : 0)
+                      : counted.contains(cards[i])
+                      ? (sorting ? cardHeight * _lifted : 0)
+                      : (sorting ? 0 : -cardHeight * _sunk),
+                  child: _Dealt(
+                    key: ValueKey('${state.room?.handNo}-$i'),
+                    // The two cards of a top-up arrive as the first two of a deal
+                    // did, not after a pause for three cards that are not coming.
+                    index: i < 3 ? i : i - 3,
+                    // A card leans by where it stands along the run, which for
+                    // even steps is the lean it always had.
+                    restAngle: sorting && asideCount > 0
+                        ? (placeOf(slotOf[i]) / run - 0.5) * 2 * _fan
+                        : (slotOf[i] - mid) * (_fan / mid),
+                    // On a variation table a wild card turns into the card it
+                    // played as, once the server says what that was — `you.hand`,
+                    // sent to this player alone when they have looked and the
+                    // variation is chosen. Everywhere else, and for every card
+                    // that is not wild, this is the plain card it always was.
+                    child: SetBack(
+                      setBack: setAside && !counted.contains(cards[i]),
+                      cardHeight: cardHeight,
+                      child: WildTransform(
+                        height: cardHeight,
+                        code: i < cards.length ? cards[i] : null,
+                        standIn: i < cards.length
+                            ? you.hand?.standInFor(cards[i], i)
+                            : null,
+                        wild:
+                            i < cards.length &&
+                            (wild.contains(cards[i]) ||
+                                (you.hand?.wild.contains(cards[i]) ?? false)),
+                        index: i,
+                        label: state.t.wildCard,
+                        dimmed: packed,
+                      ),
                     ),
                   ),
                 ),
-              ),
-            )
-          else if (stillBlind)
-            Positioned.fill(
-              child: Center(
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(maxWidth: width - Space.md),
-                  // The press feel only; the ghost styling under it is
-                  // untouched, and the tap is still `state.see`, once.
-                  child: PressScale(
-                    child: FilledButton(
-                      onPressed: () => state.see(),
-                      style: FilledButton.styleFrom(
-                        // A ghost key, so it no longer hides the artwork it is
-                        // laid over.
-                        minimumSize: Size(cardW * 1.6, Dim.minTouch),
-                        backgroundColor: AppTheme.ink900.withValues(
-                          alpha: 0.62,
-                        ),
-                        foregroundColor: AppTheme.goldBright,
-                        side: BorderSide(
-                          color: AppTheme.goldBright.withValues(alpha: 0.55),
-                          width: 1.4,
+              if (packed)
+                Positioned.fill(
+                  child: Center(
+                    child: _Plate(
+                      radius: Radii.sm,
+                      opacity: 0.68,
+                      accent: theme.colorScheme.error.withValues(alpha: 0.45),
+                      padding: EdgeInsets.symmetric(
+                        horizontal: cardHeight * 0.18,
+                        vertical: cardHeight * 0.07,
+                      ),
+                      child: Text(
+                        state.t.packed,
+                        style: AppTheme.label(
+                          theme.textTheme.titleSmall ?? const TextStyle(),
+                          colour: theme.colorScheme.error,
+                          weight: FontWeight.w700,
                         ),
                       ),
-                      child: FittedBox(
-                        fit: BoxFit.scaleDown,
-                        // The label, and under it the blind bets left: the
-                        // count lives on the key that ends it rather than in a
-                        // box of its own in the corner.
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              state.t.seeCards,
-                              maxLines: 1,
-                              style: AppTheme.label(
-                                theme.textTheme.labelLarge ?? const TextStyle(),
-                                colour: AppTheme.goldBright,
-                                weight: FontWeight.w700,
-                              ),
+                    ),
+                  ),
+                )
+              else if (stillBlind)
+                Positioned.fill(
+                  child: Center(
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(maxWidth: width - Space.md),
+                      // The press feel only; the ghost styling under it is
+                      // untouched, and the tap is still `state.see`, once.
+                      child: PressScale(
+                        child: FilledButton(
+                          onPressed: () => state.see(),
+                          style: FilledButton.styleFrom(
+                            // A ghost key, so it no longer hides the artwork it is
+                            // laid over.
+                            minimumSize: Size(cardW * 1.6, Dim.minTouch),
+                            backgroundColor: AppTheme.ink900.withValues(
+                              alpha: 0.62,
                             ),
-                            const SizedBox(height: Space.xs),
-                            _BlindDots(left: you.blindMovesLeft, max: maxBlind),
-                          ],
+                            foregroundColor: AppTheme.goldBright,
+                            side: BorderSide(
+                              color: AppTheme.goldBright.withValues(
+                                alpha: 0.55,
+                              ),
+                              width: 1.4,
+                            ),
+                          ),
+                          child: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            // The label, and under it the blind bets left: the
+                            // count lives on the key that ends it rather than in a
+                            // box of its own in the corner.
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  state.t.seeCards,
+                                  maxLines: 1,
+                                  style: AppTheme.label(
+                                    theme.textTheme.labelLarge ??
+                                        const TextStyle(),
+                                    colour: AppTheme.goldBright,
+                                    weight: FontWeight.w700,
+                                  ),
+                                ),
+                                const SizedBox(height: Space.xs),
+                                _BlindDots(
+                                  left: you.blindMovesLeft,
+                                  max: maxBlind,
+                                ),
+                              ],
+                            ),
+                          ),
                         ),
                       ),
                     ),
                   ),
                 ),
-              ),
-            ),
-        ],
-      ),
+            ],
+          ),
+        );
+      },
     );
   }
+}
+
+/// Where the acting-out of a five-card hand's best three has got to.
+enum _PickStage {
+  /// The order held, nothing singled out: the faces are still turning over.
+  held,
+
+  /// The two cards that do not count have sunk and are set back.
+  aside,
+
+  /// The fan is re-dealt: those two underneath on the left, the three that
+  /// count on top on the right, raised.
+  arranged,
+}
+
+/// Paces [_OwnHand]'s showing of the best three of five (owner, 18 Sep 2026).
+///
+/// It plays ONCE per hand, from the moment the hand first has three that count
+/// — the tap on "See cards", or 5-Card being chosen for a player already
+/// looking. A fan BUILT already knowing (a reconnect, a rebuilt table, the
+/// showdown of a hand played blind) opens on the finished arrangement: the
+/// animation explains a change, and there was none to see. A three-card hand
+/// never leaves [_PickStage.held], which is what it always drew.
+class _BestThreeStage extends StatefulWidget {
+  const _BestThreeStage({
+    required this.picking,
+    required this.handNo,
+    required this.builder,
+  });
+
+  final bool picking;
+  final int handNo;
+  final Widget Function(BuildContext context, _PickStage stage) builder;
+
+  /// Long enough for the faces to turn over ([Motion.enter]) or a top-up to be
+  /// dealt in before anything is set aside.
+  static const Duration beforeAside = Duration(milliseconds: 650);
+
+  /// How long the two set-aside cards are held low before the fan is re-dealt.
+  static const Duration beforeArranged = Duration(milliseconds: 520);
+
+  @override
+  State<_BestThreeStage> createState() => _BestThreeStageState();
+}
+
+class _BestThreeStageState extends State<_BestThreeStage> {
+  late _PickStage _stage = widget.picking
+      ? _PickStage.arranged
+      : _PickStage.held;
+  Timer? _next;
+
+  @override
+  void didUpdateWidget(_BestThreeStage old) {
+    super.didUpdateWidget(old);
+    final newHand = widget.handNo != old.handNo;
+    if (widget.picking && (!old.picking || newHand)) {
+      _play();
+    } else if (!widget.picking && _stage != _PickStage.held) {
+      _next?.cancel();
+      _stage = _PickStage.held;
+    }
+  }
+
+  void _play() {
+    _next?.cancel();
+    _stage = _PickStage.held;
+    _next = Timer(_BestThreeStage.beforeAside, () {
+      if (!mounted) return;
+      setState(() => _stage = _PickStage.aside);
+      _next = Timer(_BestThreeStage.beforeArranged, () {
+        if (mounted) setState(() => _stage = _PickStage.arranged);
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _next?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.builder(context, _stage);
 }
 
 /// Tosses a card in from the middle of the table, staggered, so a hand looks
