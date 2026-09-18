@@ -29,6 +29,33 @@ const _newKeys = <String, List<String>>{
   'varHukamNote': [],
   'varLowestJokerNote': [],
   'varHighestJokerNote': [],
+  // The lobby's two levels and the rules sheet's variation section.
+  'viewTables': [],
+  'tablesLabel': [],
+  'openToYouLabel': [],
+  'backToCategories': [],
+  'variationRulesTitle': [],
+  'variationRulesIntro': [],
+  // A table card's info popup.
+  'tableInfoTitle': [],
+  'categoryLabel': [],
+  'playersLabel': [],
+  'turnTimeLabel': [],
+  'yourChipsLabel': [],
+  'canSitHere': [],
+  'playersUpTo': ['{n}'],
+  'secondsEach': ['{n}'],
+  // A table card's rules key.
+  'tableRulesTitle': [],
+  'tableRulesKey': [],
+  'ruleBlindMoves': ['{n}'],
+  'ruleRaiseOnce': [],
+  'ruleRaiseFree': [],
+  'rulePotCapped': ['{pot}'],
+  'rulePotOpen': [],
+  'ruleRoundsEnd': [],
+  'ruleShowTwo': [],
+  'ruleVariationPick': [],
 };
 
 /// Written the same in every script: a rifle's model number is not a word.

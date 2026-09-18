@@ -700,6 +700,16 @@ S→C  42["room:state",{…,"variation":{"selecting":false,…,"selected":"AK47"
    and `category` are what the hand MADE with them. All of these are ABSENT on a seen or blind table,
    whose payloads are unchanged, as `room:state.variation` is.
 
+
+**Later the same day (owner, 18 Sep 2026), all Go only:** a variation table hides other players'
+stacks exactly as a blind one does (`chipsHidden: true`, other seats' `chips: null` — §8.1's
+`chipsHidden` is `category !== 'seen'` on the Go server); it has no pot limit (`maxPot: 0`,
+`VARIATION_MAX_POT_BOOTS`); the default menu offers it at 50,000 and 10 Lakh only; and the viewer's
+own `you` block gains `hand: {handName, category, wild: string[], playsAs: string[]}` once they have
+seen their cards AND the variation is chosen — `playsAs` is `you.cards` index for index with each
+wild card replaced by the card it stood for. `hand` is ABSENT otherwise and on every seen or blind
+table, is never sent to anybody else, and its arrays are `[]`, never null.
+
 ### 6.3 `player:requestCards` (`sock:643-651`)
 
 Payload ignored. `not_in_room` if unseated. `seat = table.findSeat(user.id)`; if no seat, or

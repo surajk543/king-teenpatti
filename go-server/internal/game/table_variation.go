@@ -184,6 +184,28 @@ func (t *Table) handRules() VariationRules {
 	return t.hand.variation.rules()
 }
 
+// ownHandView is YouView.Hand: what a viewer's own SEEN cards make under the
+// hand's variation, nil until a variation has been chosen (and so always nil on
+// a seen or blind table, whose hands never have one). Called on the actor from
+// serializeFor, for a viewer who is not blind.
+func (t *Table) ownHandView(viewer *seat) *YouHand {
+	if t.hand == nil || t.hand.variation == nil || t.hand.variation.selected == "" || len(viewer.cards) != 3 {
+		return nil
+	}
+	hand := t.handRules().EvaluateHand(viewer.cards)
+	view := &YouHand{
+		HandName: hand.Name,
+		Category: hand.Category,
+		Wild:     []string{},
+		PlaysAs:  CardCodes(viewer.cards),
+	}
+	if len(hand.Wild) > 0 {
+		view.Wild = hand.Wild
+		view.PlaysAs = hand.PlaysAs
+	}
+	return view
+}
+
 // beginVariation opens the window for the seat that is to act first. Called by
 // startHand in place of setTurn.
 func (t *Table) beginVariation(seatIndex int, turnUp Card) {

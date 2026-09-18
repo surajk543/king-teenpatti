@@ -36,8 +36,13 @@ const (
 	CategoryVariation Category = "variation"
 )
 
-// HidesChips reports whether other players' stacks are withheld from a viewer.
-func (c Category) HidesChips() bool { return c == CategoryBlind }
+// HidesChips reports whether other players' stacks are withheld from a viewer:
+// on a blind table, and on a variation one (owner, 18 Sep 2026 — "keep the same
+// thing as blind table that no one can see other player amount"). A variation
+// table takes its BETTING from the seen table (the two-rung ladder, the rounds,
+// a pot cap) and its SECRECY from the blind one; only a seen table shows every
+// stack.
+func (c Category) HidesChips() bool { return c == CategoryBlind || c == CategoryVariation }
 
 // HasVariation reports whether a hand at this table opens with the variation
 // window. It IS the switch: there is no second flag that could disagree with

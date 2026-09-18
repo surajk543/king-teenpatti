@@ -283,12 +283,27 @@ func evaluateWithWilds(cards []Card, wild [3]bool) EvaluatedHand {
 	} else {
 		best = bestCompletion(naturals, len(wildCodes))
 	}
+	// best.Cards is the winning candidate in the order it was built: the
+	// natural cards, then what the wilds stood for. Dealt back into the
+	// player's own order, each wild card takes the next stand-in.
+	standIns := best.Cards[len(naturals):]
+	playsAs := make([]string, len(cards))
+	next := 0
+	for i, c := range cards {
+		if wild[i] {
+			playsAs[i] = standIns[next]
+			next++
+		} else {
+			playsAs[i] = c.Code()
+		}
+	}
 	return EvaluatedHand{
 		Category: best.Category,
 		Name:     best.Name,
 		Score:    best.Score,
 		Cards:    CardCodes(cards),
 		Wild:     wildCodes,
+		PlaysAs:  playsAs,
 	}
 }
 

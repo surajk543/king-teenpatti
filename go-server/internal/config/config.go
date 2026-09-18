@@ -12,6 +12,7 @@ package config
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"regexp"
 	"strconv"
@@ -302,8 +303,19 @@ type GameConfig struct {
 	// which no deployment wants: a chooser who walks away from their phone
 	// would hold the table for the whole reconnect grace.
 	VariationSelectTimeout time.Duration
-	ConsolidateInterval    time.Duration // CONSOLIDATE_INTERVAL_MS 15000 (requirement 24 sweeper)
-	ReconnectGrace         time.Duration // RECONNECT_GRACE_MS 60000 (seat held after a drop)
+	// VariationMaxPotBoots is VARIATION_MAX_POT_BOOTS 0 (Go only, owner 18 Sep
+	// 2026: "in all variation tables, do not keep any pot limit"): a public
+	// variation table's pot cap, counted in BOOTS of that table, 0 = UNCAPPED,
+	// which is the default. It is a count of boots and not a figure because a
+	// variation table is offered at four stakes: a deployment that does want a
+	// cap cannot use one number for them — the seen table's fixed 20 Lakh is
+	// two boots at the 10 Lakh table, and every hand there would be dealt
+	// straight into the POT_LIMIT showdown. A variation table still takes the
+	// seen table's ladder and its rounds (SeenMaxRaiseSteps, SeenMaxBetRounds),
+	// so a hand ends at the forced showdown whatever the pot has grown to.
+	VariationMaxPotBoots int64
+	ConsolidateInterval  time.Duration // CONSOLIDATE_INTERVAL_MS 15000 (requirement 24 sweeper)
+	ReconnectGrace       time.Duration // RECONNECT_GRACE_MS 60000 (seat held after a drop)
 	// ResumeOffer is RESUME_OFFER_MS 600000: after the held seat lapses, how
 	// long session:ready.resume still offers the table back. 0 disables.
 	ResumeOffer time.Duration
@@ -400,7 +412,11 @@ func Defaults() *Config {
 				{Category: "blind", BootAmount: 1000000, MinChips: 500000000}, // 50 Cr or more to enter
 				// Variation Teen Patti (owner, 18 Sep 2026). Last, so the five
 				// entries before it keep their places on every client's rail.
-				{Category: "variation", BootAmount: 200},
+				// Two tables only — "in variation keep only two tables, 50000
+				// and 10 Lakh" — behind the stack bands blind's tables of the
+				// same stakes have.
+				{Category: "variation", BootAmount: 50000, MaxChips: 1000000000},
+				{Category: "variation", BootAmount: 1000000, MinChips: 500000000},
 			},
 			MaxPlayers:              5,
 			MinPlayers:              2,
@@ -430,6 +446,7 @@ func Defaults() *Config {
 			UnfundedGrace:           30 * time.Second,
 			MissileRevealExtra:      3 * time.Second,
 			VariationSelectTimeout:  10 * time.Second,
+			VariationMaxPotBoots:    0,
 			ConsolidateInterval:     15 * time.Second,
 			ReconnectGrace:          60 * time.Second,
 			ResumeOffer:             10 * time.Minute,
@@ -617,6 +634,23 @@ func FromEnv(lookup Lookup) (*Config, error) {
 	g.UnfundedGrace = r.millis("UNFUNDED_GRACE_MS", g.UnfundedGrace)
 	g.MissileRevealExtra = r.millis("MISSILE_REVEAL_EXTRA_MS", g.MissileRevealExtra)
 	g.VariationSelectTimeout = r.millis("VARIATION_SELECT_TIMEOUT_MS", g.VariationSelectTimeout)
+	g.VariationMaxPotBoots = r.int64("VARIATION_MAX_POT_BOOTS", g.VariationMaxPotBoots)
+	// A cap that does not fit an int64 would wrap to a small or negative pot
+	// limit and end every hand at the deal, so it is a boot failure instead —
+	// checked against every boot this lobby can open a variation table at.
+	if raw, _ := lookup("VARIATION_MAX_POT_BOOTS"); g.VariationMaxPotBoots < 0 {
+		r.fail("VARIATION_MAX_POT_BOOTS", raw, "must be 0 (uncapped) or more")
+	} else {
+		for _, table := range g.LobbyTables {
+			if table.Category != CategoryVariation {
+				continue
+			}
+			if _, ok := variationMaxPot(table.BootAmount, g.VariationMaxPotBoots); !ok {
+				r.fail("VARIATION_MAX_POT_BOOTS", raw, fmt.Sprintf(
+					"%d boots of %d overflows the pot cap", g.VariationMaxPotBoots, table.BootAmount))
+			}
+		}
+	}
 	g.ConsolidateInterval = r.millis("CONSOLIDATE_INTERVAL_MS", g.ConsolidateInterval)
 	g.ReconnectGrace = r.millis("RECONNECT_GRACE_MS", g.ReconnectGrace)
 	g.ResumeOffer = r.millis("RESUME_OFFER_MS", g.ResumeOffer)
@@ -744,11 +778,15 @@ func (g GameConfig) TableRules(category string, bootAmount int64, isPrivate bool
 		rules.MaxRaiseSteps = g.BlindMaxRaiseSteps
 		rules.MaxBetRounds = g.BlindMaxBetRounds
 		rules.PotLimitMultiplier = g.BlindPotLimitMultiplier
+	case CategoryVariation:
+		// A variation table bets exactly as a seen one does — the SEEN_* ladder
+		// and rounds ARE its rules, with no VARIATION_* twins to keep in step.
+		// Only the pot cap is its own: NONE by default (owner, 18 Sep 2026), or
+		// VariationMaxPotBoots of its own boots where a deployment sets one.
+		rules.MaxRaiseSteps = g.SeenMaxRaiseSteps
+		rules.MaxBetRounds = g.SeenMaxBetRounds
+		rules.MaxPot = g.VariationMaxPot(rules.BootAmount)
 	default:
-		// Seen, and variation: a variation table bets exactly as a seen one
-		// does — the SEEN_* keys ARE its rules, there are no VARIATION_* twins
-		// to keep in step — so a hand whose winner is decided by an unfamiliar
-		// rule is also one whose pot is capped.
 		rules.MaxRaiseSteps = g.SeenMaxRaiseSteps
 		rules.MaxBetRounds = g.SeenMaxBetRounds
 		rules.MaxPot = g.SeenMaxPot
@@ -762,14 +800,47 @@ func (g GameConfig) TableRules(category string, bootAmount int64, isPrivate bool
 }
 
 // MenuMaxPot is the `maxPot` a lobby menu entry advertises
-// (roomManager.js lobbyOptions 196-223): SeenMaxPot for a seen entry, 0 for
-// anything else.
-func (g GameConfig) MenuMaxPot(category string) int64 {
-	// A variation entry advertises the cap TableRules gives its tables.
-	if category == CategorySeen || category == CategoryVariation {
+// (roomManager.js lobbyOptions 196-223): SeenMaxPot for a seen entry, the
+// boot-scaled cap for a variation one, 0 for anything else. It must be the
+// figure TableRules gives the table that entry opens — a card that promises
+// one pot limit over a table that plays to another is a lie told in chips —
+// so a variation entry needs its boot.
+func (g GameConfig) MenuMaxPot(category string, bootAmount int64) int64 {
+	switch category {
+	case CategorySeen:
 		return g.SeenMaxPot
+	case CategoryVariation:
+		if bootAmount == 0 {
+			bootAmount = g.BootAmount
+		}
+		return g.VariationMaxPot(bootAmount)
 	}
 	return 0
+}
+
+// VariationMaxPot is a public variation table's pot cap at bootAmount:
+// bootAmount × VariationMaxPotBoots, 0 (uncapped) when the key is 0. Load
+// refuses a configuration whose product overflows for any variation table on
+// the menu; for a boot that is not on it (tests, an empty menu) an overflow is
+// answered as uncapped rather than as a wrapped, tiny cap.
+func (g GameConfig) VariationMaxPot(bootAmount int64) int64 {
+	maxPot, ok := variationMaxPot(bootAmount, g.VariationMaxPotBoots)
+	if !ok {
+		return 0
+	}
+	return maxPot
+}
+
+// variationMaxPot multiplies with the overflow check VariationMaxPot and the
+// loader share.
+func variationMaxPot(bootAmount, boots int64) (int64, bool) {
+	if bootAmount <= 0 || boots <= 0 {
+		return 0, true
+	}
+	if bootAmount > math.MaxInt64/boots {
+		return 0, false
+	}
+	return bootAmount * boots, true
 }
 
 // list is Node's `list()`: split on ",", trim each entry, drop empties.

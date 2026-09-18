@@ -96,12 +96,16 @@ const waitClosed = (client, waitMs = 4000) =>
 test('a variation table deals, announces the window, and room:state carries all of it with nobody on turn', held, async () => {
   const { chooser, other, clients, started, roomId, bootAmount } = await variationTable('open');
 
-  for (const { client } of [chooser, other]) {
+  for (const { client, user } of [chooser, other]) {
     const state = client.state();
     assertKeys(state, VARIATION_SNAPSHOT_KEYS, 'room:state at a variation table');
     assert.equal(state.category, 'variation');
-    assert.equal(state.chipsHidden, false, 'a variation table bets as a seen one does: open chips');
-    assert.equal(state.maxPot, profile.seenMaxPot, 'and under the seen pot cap');
+    assert.equal(state.chipsHidden, true, 'a variation table hides other stacks, as a blind one does');
+    for (const seat of state.seats.filter((s) => s.userId && s.userId !== user.id)) {
+      assert.equal(seat.chips, null, 'another player\'s stack is withheld: null, never 0');
+    }
+    // No variation table has a pot limit (owner, 18 Sep 2026).
+    assert.equal(state.maxPot, 0, 'a variation table has no pot limit');
     assert.equal(state.state, 'betting', 'the hand is live; there is no separate table state for the window');
     assert.equal(state.handNo, started.handNo);
     assert.equal(state.pot, bootAmount * 2, 'the boots are in before anyone chooses');
@@ -184,12 +188,40 @@ test('no move but see is taken while the variation is being chosen', held, async
     const state = await client.waitState((p) => p.you.isBlind === false);
     assert.equal(state.you.cards.length, 3);
     for (const code of state.you.cards) assert.match(code, CARD_CODE);
+    // Seen, but with no variation chosen there is no rule to count the hand by.
+    assert.equal('hand' in state.you, false, 'you.hand is absent until the variation is chosen');
   }
 
   const after = chooser.client.state();
   assert.equal(after.variation.selecting, true, 'looking does not end the window');
   assert.equal(after.turn.userId, null);
   assert.equal(after.pot, pot, 'and nothing was bet');
+
+  // The choice lands, and each player who has looked is told — privately — what
+  // their OWN cards make under it: which played wild and what they stood for
+  // (owner, 18 Sep 2026; the client turns the wild cards over with it).
+  const pick = await chooser.client.emit('game:selectVariation', { variation: 'AK47' });
+  assert.equal(pick.ok, true, JSON.stringify(pick));
+  for (const { client } of [chooser, other]) {
+    const state = await client.waitState((p) => p.you.hand);
+    const { hand, cards } = state.you;
+    assert.deepEqual(Object.keys(hand).sort(), ['category', 'handName', 'playsAs', 'wild']);
+    assert.equal(typeof hand.handName, 'string');
+    assert.ok(hand.handName.length > 0);
+    assert.ok(Array.isArray(hand.wild), 'wild is [] when nothing was wild, never null');
+    assert.equal(hand.playsAs.length, 3, 'three cards, index for index with you.cards');
+    for (const code of hand.playsAs) assert.match(code, CARD_CODE);
+    for (const code of hand.wild) {
+      assert.ok(cards.includes(code), 'a wild card is one of the player\'s own');
+      assert.match(code, /^[AK47]/, 'and under AK47 it is an A, K, 4 or 7');
+    }
+    cards.forEach((code, i) => {
+      if (!hand.wild.includes(code)) assert.equal(hand.playsAs[i], code, 'a natural card plays as itself');
+      else assert.ok(!cards.includes(hand.playsAs[i]) || hand.playsAs[i] === code, 'a stand-in is not another card of the same hand');
+    });
+    // Nothing of it is in anybody's public seat row.
+    for (const seat of state.seats) assert.equal('hand' in seat, false);
+  }
   await closeAll(...clients);
 });
 

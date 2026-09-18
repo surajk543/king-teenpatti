@@ -21,7 +21,8 @@ type TableView struct {
 	// when it is private, since that code is how friends are let in.
 	IsPrivate bool     `json:"isPrivate"`
 	Category  Category `json:"category"`
-	// ChipsHidden is true on blind tables: other players' stacks are withheld.
+	// ChipsHidden is true on blind and variation tables: other players' stacks
+	// are withheld (Category.HidesChips).
 	ChipsHidden bool       `json:"chipsHidden"`
 	State       TableState `json:"state"`
 	HandNo      int        `json:"handNo"`
@@ -132,6 +133,29 @@ type YouView struct {
 	// Options is non-nil only when a hand is live, it is this viewer's turn
 	// and they are active. Flutter derives its whole action bar from it.
 	Options *TurnOptions `json:"options"`
+	// Hand is what the viewer's own cards make under the hand's variation
+	// (owner, 18 Sep 2026). Go only, variation tables only, and only once BOTH
+	// are true: the viewer has seen their cards and the variation is chosen —
+	// a player who looked during the window gets it the moment the choice
+	// lands. ABSENT otherwise, so a seen or blind table's `you` is byte for byte
+	// what it was. It is the viewer's own cards run through a public rule, so
+	// it tells them nothing they could not work out and tells nobody else
+	// anything at all: it is in `you`, which is per viewer.
+	Hand *YouHand `json:"hand,omitempty"`
+}
+
+// YouHand is YouView.Hand: the viewer's own hand as the variation counts it.
+type YouHand struct {
+	// HandName / Category are what the hand MADE ("Sequence"), wilds included.
+	HandName string       `json:"handName"`
+	Category HandCategory `json:"category"`
+	// Wild names which of you.cards played as wild cards — [] when none did
+	// (Muflis has none; an AK47 hand need not hold an A, K, 4 or 7). Never null.
+	Wild []string `json:"wild"`
+	// PlaysAs is you.cards as they were counted, index for index: a wild card
+	// replaced by the card it stood for. Equal to you.cards when Wild is empty.
+	// Never null.
+	PlaysAs []string `json:"playsAs"`
 }
 
 // TurnOptions is what the player on turn may do (table.js turnOptions) —

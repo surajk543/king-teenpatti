@@ -3615,6 +3615,7 @@ func (t *Table) serializeFor(viewerID string) *TableView {
 			you.BlindMovesLeft = max(0, t.cfg.MaxBlindMoves-viewer.blindMoves)
 		} else {
 			you.Cards = CardCodes(viewer.cards)
+			you.Hand = t.ownHandView(viewer)
 		}
 		if t.hand != nil && t.hand.turnSeat == viewer.seatIndex && viewer.status == SeatActive {
 			options := t.turnOptions(viewer)

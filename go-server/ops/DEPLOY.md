@@ -149,24 +149,27 @@ before the restart. Keep the pull, the build and the restart back to back.
 
 ### The first deploy that carries Variation Teen Patti — check `LOBBY_TABLES` first
 
-The build's **default** menu ends with `variation:200`, so what the restart does depends on
-production's `.env`:
+The build's **default** menu ends with two variation tables —
+`variation:50000:max=1000000000,variation:1000000:min=500000000` — so what the restart does
+depends on production's `.env`:
 
 ```bash
 grep -n '^LOBBY_TABLES' /var/www/gameplay/king-teenpatti/go-server/.env
 ```
 
 - **A line comes back** — production keeps exactly the menu it names. Nothing changes until
-  `,variation:200` is added to it (and the server restarted).
-- **Nothing comes back** — the restart puts the variation table in every lobby at once,
+  the two `variation:` entries are added to it (and the server restarted).
+- **Nothing comes back** — the restart puts the variation tables in every lobby at once,
   including phones whose installed app has never heard of the category.
 
-An app older than the first build with the picker draws that card as a second "SEEN · 200"
-table, shows no "Choose Variation" panel, and so every hand one of its players opens is timed
+An app older than the first build with the picker draws those cards as extra "SEEN" tables (at
+50,000 and 10 Lakh), shows no "Choose Variation" panel, and so every hand one of its players opens is timed
 out into a server-chosen **Muflis** — the weakest hand wins, with nothing on screen to say why.
 So, in order: ship the new app, wait until it is the version the store actually serves, raise
 `MIN_CLIENT_BUILD` to that build number (§7.4 of `CLAUDE.md`; it holds older apps on the update
-screen), and only then list `variation:200`. To deploy this server *before* that, pin the old
+screen), and only then list the `variation:` entries. That same build is the one with the
+lobby's category chooser, the hidden stacks and the wild-card turn, all of which an older app
+lacks. To deploy this server *before* that, pin the old
 menu explicitly so the default cannot reach anyone:
 
 ```bash

@@ -48,6 +48,13 @@ type EvaluatedHand struct {
 	// (variation.go): Evaluate itself knows no wild card and leaves it nil, so
 	// on a seen or blind table it is always nil.
 	Wild []string
+	// PlaysAs is the hand as it was COUNTED: three wire codes, index for index
+	// with Cards, a wild card replaced by the card it stood for and every other
+	// card itself. Go only, set with Wild and nil whenever Wild is (no wild
+	// card, a seen or blind table). It is what lets a client turn a player's
+	// wild 4♠ into the K it made their sequence with (owner, 18 Sep 2026)
+	// instead of leaving them to work out why J-Q-4 is called a Sequence.
+	PlaysAs []string
 }
 
 // EvaluateOptions carries the one variant switch. AceLowIsLowest=false (the

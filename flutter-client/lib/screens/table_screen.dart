@@ -31,6 +31,7 @@ import '../widgets/rules_sheet.dart';
 import '../widgets/seat_pod.dart';
 import '../widgets/table_ground.dart';
 import '../widgets/variation_prompt.dart';
+import '../widgets/wild_transform.dart';
 
 /// The game room: an emerald table in a champagne rail, standing in a charcoal
 /// room under one overhead lamp, with the players around it, the pot in the
@@ -1854,9 +1855,20 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
     final myPeek = sideshow?.hands
         .where((h) => h.userId == state.user?.id)
         .firstOrNull;
+    // On a variation table the hand is named as soon as it CAN be — the player
+    // has looked and the variation is chosen (`you.hand`) — because with wild
+    // cards in it the name is not something three faces tell you. Held back
+    // until the wild cards have turned, so the name arrives as the answer to
+    // what the player has just watched.
+    final liveHandName = room.you?.hand?.handName;
     final ownHandName =
         myReveal?.handName ??
-        (wonSideshow(myPeek?.userId) ? myPeek?.handName : null);
+        (wonSideshow(myPeek?.userId) ? myPeek?.handName : null) ??
+        (liveHandName == null || liveHandName.isEmpty ? null : liveHandName);
+    final ownHandNameIsLive =
+        myReveal == null &&
+        !wonSideshow(myPeek?.userId) &&
+        ownHandName != null;
     final turnSeat = room.turn?.seatIndex;
     final progress = state.turnProgress;
     final pad = Dim.feltPad(MediaQuery.sizeOf(context).width);
@@ -2145,7 +2157,18 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
                     // one seat that has to work out what it won with — and
                     // after a sideshow they won, which it names the same way.
                     if (ownHandName != null) ...[
-                      _OwnHandName(name: ownHandName),
+                      if (ownHandNameIsLive)
+                        // Keyed on the hand, so the one-second tick cannot
+                        // restart the wait.
+                        _AfterTheTurn(
+                          key: ValueKey('own-hand-name-${room.handNo}'),
+                          // Nothing turns in a hand with no wild card, so
+                          // there is nothing to wait for but the flip.
+                          turns: room.you?.hand?.wild.isNotEmpty ?? false,
+                          child: _OwnHandName(name: ownHandName),
+                        )
+                      else
+                        _OwnHandName(name: ownHandName),
                       const SizedBox(height: Space.xxs),
                     ],
                     if (seats.isNotEmpty && seats[0] != null && handLive) ...[
@@ -3226,6 +3249,9 @@ class _OwnHand extends StatelessWidget {
       width: width,
       height: cardHeight * 1.12,
       child: Stack(
+        // A wild card's halo and sparks are painted past its own box
+        // (WildTransform), and the cards' shadows already were.
+        clipBehavior: Clip.none,
         children: [
           for (var i = 0; i < 3; i++)
             Positioned(
@@ -3236,15 +3262,24 @@ class _OwnHand extends StatelessWidget {
                 key: ValueKey('${state.room?.handNo}-$i'),
                 index: i,
                 restAngle: (i - 1) * _fan,
-                child: WildEdge(
-                  wild: i < cards.length && wild.contains(cards[i]),
-                  cardHeight: cardHeight,
+                // On a variation table a wild card turns into the card it
+                // played as, once the server says what that was — `you.hand`,
+                // sent to this player alone when they have looked and the
+                // variation is chosen. Everywhere else, and for every card
+                // that is not wild, this is the plain card it always was.
+                child: WildTransform(
+                  height: cardHeight,
+                  code: i < cards.length ? cards[i] : null,
+                  standIn: i < cards.length
+                      ? you.hand?.standInFor(cards[i], i)
+                      : null,
+                  wild:
+                      i < cards.length &&
+                      (wild.contains(cards[i]) ||
+                          (you.hand?.wild.contains(cards[i]) ?? false)),
+                  index: i,
                   label: state.t.wildCard,
-                  child: PlayingCard(
-                    height: cardHeight,
-                    code: i < cards.length ? cards[i] : null,
-                    dimmed: packed,
-                  ),
+                  dimmed: packed,
                 ),
               ),
             ),
@@ -5594,6 +5629,54 @@ class _MissileGlyphState extends State<_MissileGlyph>
       ),
     );
   }
+}
+
+/// Fades its child in once the wild cards of the viewer's hand have had time
+/// to turn ([WildTransform]): three cards staggered along the fan, after the
+/// cards' own face-up flip. It keeps the child's box from the first frame, so
+/// the column it stands in does not jump when the name appears.
+class _AfterTheTurn extends StatefulWidget {
+  const _AfterTheTurn({super.key, required this.child, this.turns = true});
+
+  final Widget child;
+
+  /// Whether any card of the hand is going to turn.
+  final bool turns;
+
+  @override
+  State<_AfterTheTurn> createState() => _AfterTheTurnState();
+}
+
+class _AfterTheTurnState extends State<_AfterTheTurn>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c;
+
+  @override
+  void initState() {
+    super.initState();
+    final wait = widget.turns
+        ? Motion.enter + WildTransform.turnFor + WildTransform.stagger * 2
+        : Motion.enter;
+    _c = AnimationController(
+      vsync: this,
+      duration: wait + const Duration(milliseconds: 260),
+    )..forward();
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => FadeTransition(
+    opacity: CurvedAnimation(
+      parent: _c,
+      curve: const Interval(0.86, 1, curve: Curves.easeOut),
+    ),
+    child: widget.child,
+  );
 }
 
 /// The viewer's hand name at a showdown — "Pair", "Colour", "Run".

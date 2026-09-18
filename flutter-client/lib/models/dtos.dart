@@ -34,8 +34,9 @@ class TableCategory {
   static const seen = 'seen';
   static const blind = 'blind';
 
-  /// Variation Teen Patti: a table that bets as a seen one does, and whose
-  /// every hand opens with one player choosing the rules it is decided by
+  /// Variation Teen Patti: a table that bets as a seen one does, hides other
+  /// players' stacks as a blind one does (owner, 18 Sep 2026), and whose every
+  /// hand opens with one player choosing the rules it is decided by
   /// ([Variation], [VariationState]).
   static const variation = 'variation';
 }
@@ -844,6 +845,53 @@ class Turn {
   );
 }
 
+/// `you.hand`: the viewer's own seen cards as the hand's variation counts them
+/// (owner, 18 Sep 2026). The server sends it to that player alone.
+///
+/// [playsAs] runs index for index with `you.cards`: a wild card is replaced by
+/// the card it stood for — under AK47 a J-Q-4 is a Sequence because the 4
+/// played as a king — and every other card is itself. It is what the table
+/// turns the wild cards into once the player has looked.
+class OwnHand {
+  const OwnHand({
+    required this.handName,
+    required this.wild,
+    required this.playsAs,
+  });
+
+  /// What the hand made, wild cards included: "Sequence". English, like every
+  /// hand name on the wire.
+  final String handName;
+
+  /// Which of `you.cards` played as wild cards. Empty when none did.
+  final List<String> wild;
+
+  /// `you.cards` as they were counted.
+  final List<String> playsAs;
+
+  /// The card [code] (one of `you.cards`, at [index]) stood for, or null when
+  /// it is not wild, the server said nothing usable, or it stood for itself.
+  String? standInFor(String code, int index) {
+    if (!wild.contains(code) || index < 0 || index >= playsAs.length) {
+      return null;
+    }
+    final stood = playsAs[index];
+    return stood.length < 2 || stood == code ? null : stood;
+  }
+
+  /// Tolerant, like every DTO here: anything unusable reads as "nothing wild".
+  factory OwnHand.fromJson(Map<String, dynamic> j) {
+    List<String> codes(Object? raw) => raw is List
+        ? raw.whereType<String>().where((e) => e.length >= 2).toList()
+        : const [];
+    return OwnHand(
+      handName: _str(j['handName']),
+      wild: codes(j['wild']),
+      playsAs: codes(j['playsAs']),
+    );
+  }
+}
+
 class You {
   const You({
     required this.seatIndex,
@@ -858,12 +906,19 @@ class You {
     required this.options,
     this.unfundedDeadline,
     this.canMissile = false,
+    this.hand,
   });
 
   final int seatIndex;
   final int chips;
   final String status;
   final bool isBlind;
+
+  /// What this player's own cards make under the hand's variation — which of
+  /// them played wild and what they stood for. Only on a variation table, and
+  /// only once the player has looked AND the variation is chosen; null
+  /// otherwise, and always on a seen or blind table.
+  final OwnHand? hand;
 
   /// Whether the rules allow this player to fire a missile right now — their
   /// turn, three or more still in the hand, nothing pending (owner, 14 Sep
@@ -922,6 +977,9 @@ class You {
     cards: (j['cards'] as List?)?.map((e) => '$e').toList() ?? const [],
     options: j['options'] is Map
         ? TurnOptions.fromJson(Map<String, dynamic>.from(j['options'] as Map))
+        : null,
+    hand: j['hand'] is Map
+        ? OwnHand.fromJson(Map<String, dynamic>.from(j['hand'] as Map))
         : null,
     unfundedDeadline: j['unfundedDeadline'] == null
         ? null

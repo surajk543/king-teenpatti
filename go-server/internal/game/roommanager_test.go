@@ -1006,8 +1006,11 @@ func TestRoomsLobbyOffersExactlyTheDefaultMenu(t *testing.T) {
 		{Category: "blind", BootAmount: 50000, MaxPot: 0, MaxBlindMoves: 4, MaxChips: 1000000000},
 		{Category: "blind", BootAmount: 1000000, MaxPot: 0, MaxBlindMoves: 4, MinChips: 500000000},
 		// Variation Teen Patti (owner, 18 Sep 2026): LAST, so the five entries
-		// above keep their places, and capped exactly as the seen table is.
-		{Category: "variation", BootAmount: 200, MaxPot: 2000000, MaxBlindMoves: 4},
+		// above keep their places; two tables only, 50,000 and 10 Lakh, behind
+		// the bands blind's tables of those stakes have; and with NO pot limit
+		// ("in all variation tables, do not keep any pot limit").
+		{Category: "variation", BootAmount: 50000, MaxPot: 0, MaxBlindMoves: 4, MaxChips: 1000000000},
+		{Category: "variation", BootAmount: 1000000, MaxPot: 0, MaxBlindMoves: 4, MinChips: 500000000},
 	}
 	if len(o.Tables) != len(wantTables) {
 		t.Fatalf("tables %+v", o.Tables)
@@ -1030,7 +1033,8 @@ func TestRoomsLobbyOffersExactlyTheDefaultMenu(t *testing.T) {
 		`{"category":"blind","bootAmount":5000,"maxPot":0,"maxBlindMoves":4,"minChips":0,"maxChips":50000000},` +
 		`{"category":"blind","bootAmount":50000,"maxPot":0,"maxBlindMoves":4,"minChips":0,"maxChips":1000000000},` +
 		`{"category":"blind","bootAmount":1000000,"maxPot":0,"maxBlindMoves":4,"minChips":500000000,"maxChips":0},` +
-		`{"category":"variation","bootAmount":200,"maxPot":2000000,"maxBlindMoves":4,"minChips":0,"maxChips":0}],` +
+		`{"category":"variation","bootAmount":50000,"maxPot":0,"maxBlindMoves":4,"minChips":0,"maxChips":1000000000},` +
+		`{"category":"variation","bootAmount":1000000,"maxPot":0,"maxBlindMoves":4,"minChips":500000000,"maxChips":0}],` +
 		`"entryCapBoot":200,"entryCapCategory":"blind","entryCapMaxChips":500000,"privateBoot":200,"privateMaxPot":500000}`
 	if string(raw) != want {
 		t.Fatalf("json\n got  %s\n want %s", raw, want)
@@ -1086,7 +1090,7 @@ func TestRoomsEveryMenuRoomCanBeJoined(t *testing.T) {
 			t.Fatalf("%+v vs %s %d", entry, table.Category(), table.BootAmount())
 		}
 	}
-	if n := len(f.rooms.ListTables(game.ListOptions{})); n != 6 {
+	if n := len(f.rooms.ListTables(game.ListOptions{})); n != 7 {
 		t.Fatalf("listTables %d", n)
 	}
 }
@@ -1096,7 +1100,7 @@ func TestRoomsPairNotOnMenuRefused(t *testing.T) {
 	// Both halves are offered on their own; the pair is not.
 	_, err := f.rooms.QuickJoin(f.player("P", rmStart), game.QuickJoinOptions{BootAmount: 5000, Category: "seen"})
 	expectCode(t, err, game.CodeTableNotOffered)
-	if want := "The lobby offers: seen 200, blind 200, blind 5000, blind 50000, blind 1000000, variation 200"; err.Error() != want {
+	if want := "The lobby offers: seen 200, blind 200, blind 5000, blind 50000, blind 1000000, variation 50000, variation 1000000"; err.Error() != want {
 		t.Fatalf("message %q", err.Error())
 	}
 	if n := len(f.rooms.ListTables(game.ListOptions{})); n != 0 {
@@ -1240,7 +1244,11 @@ func TestRoomsVariationIsACategoryOfItsOwnAndNothingElseIs(t *testing.T) {
 }
 
 func TestRoomsAVariationQuickJoinSitsAtAVariationTableAndNeverASeenOne(t *testing.T) {
-	f := newRoomsFixture(t, nil)
+	// A menu with both categories at ONE stake, which is where they could be
+	// confused; the default menu keeps variation to 50,000 and 10 Lakh.
+	f := newRoomsFixture(t, func(g *config.GameConfig, _ *game.RoomManagerOptions) {
+		g.LobbyTables = []config.LobbyTable{{Category: "seen", BootAmount: 200}, {Category: "variation", BootAmount: 200}}
+	})
 	seen := f.mustQuickJoin(f.player("S", rmStart), 200, "seen")
 	variation := f.mustQuickJoin(f.player("V1", rmStart), 200, "variation")
 
@@ -1254,11 +1262,19 @@ func TestRoomsAVariationQuickJoinSitsAtAVariationTableAndNeverASeenOne(t *testin
 	if cfg.VariationSelectTimeout != 10*time.Second {
 		t.Fatalf("window = %s, want the configured 10s", cfg.VariationSelectTimeout)
 	}
-	// It bets exactly as a seen table does: the same ladder, rounds and cap.
+	// It bets as a seen table does — the same ladder, rounds and per-bet
+	// ceiling — but with no pot limit (owner, 18 Sep 2026), where the seen
+	// table keeps its 20 Lakh.
 	seenCfg := seen.Config()
 	if cfg.MaxRaiseSteps != seenCfg.MaxRaiseSteps || cfg.MaxBetRounds != seenCfg.MaxBetRounds ||
-		cfg.MaxPot != seenCfg.MaxPot || cfg.PotLimitMultiplier != seenCfg.PotLimitMultiplier {
+		cfg.PotLimitMultiplier != seenCfg.PotLimitMultiplier {
 		t.Fatalf("variation rules %+v differ from seen rules %+v", cfg, seenCfg)
+	}
+	if cfg.MaxPot != 0 {
+		t.Fatalf("a variation table's pot is capped at %d", cfg.MaxPot)
+	}
+	if seenCfg.MaxPot != 2000000 {
+		t.Fatalf("the seen table's cap moved: %d", seenCfg.MaxPot)
 	}
 	// And a seen table is given no window at all.
 	if seenCfg.VariationSelectTimeout != 0 {
@@ -1275,9 +1291,87 @@ func TestRoomsAVariationQuickJoinSitsAtAVariationTableAndNeverASeenOne(t *testin
 }
 
 func TestRoomsAVariationTableIsOnlyOfferedAtTheBootOnTheMenu(t *testing.T) {
-	f := newRoomsFixture(t, nil)
+	// A menu that lists variation at one stake offers it at no other, however
+	// many stakes the lobby allows for other categories.
+	f := newRoomsFixture(t, func(g *config.GameConfig, _ *game.RoomManagerOptions) {
+		g.LobbyTables = []config.LobbyTable{
+			{Category: "seen", BootAmount: 200}, {Category: "blind", BootAmount: 5000}, {Category: "variation", BootAmount: 200},
+		}
+	})
 	_, err := f.rooms.QuickJoin(f.player("P", rmStart), game.QuickJoinOptions{BootAmount: 5000, Category: "variation"})
 	expectCode(t, err, game.CodeTableNotOffered)
+}
+
+// TestRoomsAVariationHandAtTenLakhIsPlayedNotEndedAtTheDeal is why a variation
+// table cannot share the seen table's fixed 20 Lakh cap — and, since the owner
+// asked for no pot limit on any variation table (18 Sep 2026), has none: five
+// boots of 10 Lakh are already past 20 Lakh, so the hand would be dealt
+// straight into the POT_LIMIT showdown and nobody would ever bet.
+func TestRoomsAVariationHandAtTenLakhIsPlayedNotEndedAtTheDeal(t *testing.T) {
+	f := newRoomsFixture(t, nil)
+	const boot, stack = int64(1000000), int64(600000000) // 10 Lakh; 60 Crore each
+	var table *game.Table
+	for i := 0; i < 5; i++ {
+		table = f.mustQuickJoin(f.player(fmt.Sprintf("High%d", i), stack), boot, "variation")
+	}
+	if got := table.MaxPot(); got != 0 {
+		t.Fatalf("maxPot %d, want no limit", got)
+	}
+	f.clock.Advance(10 * time.Second)
+	if !table.HasHand() || table.State() != game.TableBetting {
+		t.Fatalf("no live hand after the deal: hasHand=%v state=%s", table.HasHand(), table.State())
+	}
+	view, err := table.SerializeFor("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.Pot != 5*boot {
+		t.Fatalf("pot %d, want five boots", view.Pot)
+	}
+	if view.Variation == nil || !view.Variation.Selecting {
+		t.Fatalf("the hand did not open with its window: %+v", view.Variation)
+	}
+	chooser := view.Variation.UserID
+	if _, err := table.SelectVariation(chooser, "AK47"); err != nil {
+		t.Fatalf("pick: %v", err)
+	}
+	// The chooser is on turn with a real ladder, and a full round of chaals
+	// leaves the hand still running.
+	for i := 0; i < 5; i++ {
+		if _, err := table.Act(turnUser(t, table), game.ActionChaal, game.ActRequest{}); err != nil {
+			t.Fatalf("chaal %d: %v", i, err)
+		}
+	}
+	if !table.HasHand() || table.State() != game.TableBetting {
+		t.Fatalf("the hand ended inside its first round: hasHand=%v state=%s", table.HasHand(), table.State())
+	}
+}
+
+// Owner, 18 Sep 2026: "in variation keep only two tables, 50000 and 10 Lakh".
+func TestRoomsVariationKeepsTwoTablesBehindBlindsBandsForThoseStakes(t *testing.T) {
+	f := newRoomsFixture(t, nil)
+	// 2 Lakh covers the 50,000 boot and sits there, at a table with a window.
+	table := f.mustQuickJoin(f.player("P", rmStart), 50000, "variation")
+	if table.Category() != game.CategoryVariation || table.BootAmount() != 50000 {
+		t.Fatalf("sat at %s %d", table.Category(), table.BootAmount())
+	}
+	if table.Config().VariationSelectTimeout <= 0 {
+		t.Fatal("a variation table with no window")
+	}
+	// The two cheaper stakes are blind's and seen's, not variation's.
+	for _, boot := range []int64{200, 5000} {
+		_, err := f.rooms.QuickJoin(f.player(fmt.Sprintf("Low%d", boot), rmStart), game.QuickJoinOptions{BootAmount: boot, Category: "variation"})
+		expectCode(t, err, game.CodeTableNotOffered)
+	}
+	// 40 Crore has not grown into the 10 Lakh table (50 Crore to enter) …
+	_, err := f.rooms.QuickJoin(f.player("Small", 400000000), game.QuickJoinOptions{BootAmount: 1000000, Category: "variation"})
+	expectCode(t, err, game.CodeBelowTableMinimum)
+	// … and a stack over 100 Crore has outgrown the 50,000 one.
+	_, err = f.rooms.QuickJoin(f.player("Big", 1000000001), game.QuickJoinOptions{BootAmount: 50000, Category: "variation"})
+	expectCode(t, err, game.CodeOverEntryCap)
+	// Exactly the limit is allowed at either end.
+	f.mustQuickJoin(f.player("AtMax", 1000000000), 50000, "variation")
+	f.mustQuickJoin(f.player("AtMin", 500000000), 1000000, "variation")
 }
 
 func TestRoomsAMenuWithNoVariationEntryAdvertisesNoVariationCategory(t *testing.T) {

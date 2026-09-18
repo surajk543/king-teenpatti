@@ -822,15 +822,186 @@ func TestAVariationTableKeepsItsCategoryAcrossARestore(t *testing.T) {
 
 // ------------------------------------------------------------ the category
 
-func TestAVariationTableShowsEveryStackLikeASeenOne(t *testing.T) {
+// Owner, 18 Sep 2026: "in variation all players are able to see each other's
+// amounts, which should not be — keep the same thing as the blind table, that
+// no one can see another player's amount."
+func TestAVariationTableHidesEveryoneElsesStackLikeABlindOne(t *testing.T) {
 	h, ids, _ := variationTable(t, 3)
-	view := h.view(ids[0])
-	eq(t, view.ChipsHidden, false, "chips are not hidden")
-	eq(t, view.Category, CategoryVariation, "the snapshot names the category")
-	for _, s := range view.Seats {
-		if !s.Empty && s.Chips == nil {
-			t.Fatalf("%s's stack is withheld on a variation table", s.UserID)
+	for _, viewer := range ids {
+		view := h.view(viewer)
+		eq(t, view.ChipsHidden, true, "chips are hidden")
+		eq(t, view.Category, CategoryVariation, "the snapshot names the category")
+		eq(t, view.You.Chips > 0, true, "a player still sees their own stack")
+		for _, s := range view.Seats {
+			if s.Empty {
+				continue
+			}
+			if s.UserID == viewer {
+				if s.Chips == nil {
+					t.Fatalf("%s cannot see their own stack", viewer)
+				}
+				continue
+			}
+			// null, never 0: a withheld stack is not an empty one.
+			if s.Chips != nil {
+				t.Fatalf("%s can see %s's stack (%d) on a variation table", viewer, s.UserID, *s.Chips)
+			}
 		}
+	}
+	raw := mustJSON(t, h.view(ids[0]))
+	if !strings.Contains(raw, `"chipsHidden":true`) {
+		t.Fatalf("chipsHidden is not on the wire: %s", raw)
+	}
+	// Nobody at the table is sent another player's stack in any form.
+	spectator := h.view("")
+	for _, s := range spectator.Seats {
+		if !s.Empty && s.Chips != nil {
+			t.Fatalf("a spectator can see %s's stack", s.UserID)
+		}
+	}
+}
+
+// ------------------------------------------------ what your own cards make
+
+// Owner, 18 Sep 2026: once a player has seen their cards the client turns
+// their wild cards into what they played as. It can only do that if the server
+// says what that was — privately, to that player alone.
+func TestYourOwnHandIsNamedOnceYouHaveSeenItAndTheVariationIsChosen(t *testing.T) {
+	h, ids, chooser := variationTable(t, 3)
+	h.setCards(chooser, "Jh", "Qs", "4s") // under AK47 the 4 is wild: J-Q-K
+
+	// Dealt, blind, window open: nothing.
+	if you := h.view(chooser).You; you.Hand != nil {
+		t.Fatalf("a blind player was told their hand: %+v", you.Hand)
+	}
+	// Seen during the window, no variation yet: the cards, and still nothing —
+	// there is no rule to count them by.
+	h.mustAct(chooser, ActionSee, ActRequest{})
+	you := h.view(chooser).You
+	eq(t, len(you.Cards), 3, "the cards are face up")
+	if you.Hand != nil {
+		t.Fatalf("a hand was named before the variation was chosen: %+v", you.Hand)
+	}
+
+	// The choice lands: the hand is named at once, with nothing more to do.
+	if _, err := h.table.SelectVariation(chooser, "AK47"); err != nil {
+		t.Fatal(err)
+	}
+	hand := h.view(chooser).You.Hand
+	if hand == nil {
+		t.Fatal("no hand after the variation was chosen")
+	}
+	eq(t, hand.HandName, "Sequence", "J-Q and a wild 4 make a run")
+	eq(t, strings.Join(hand.Wild, ","), "4s", "which card played wild")
+	eq(t, len(hand.PlaysAs), 3, "three cards, index for index")
+	eq(t, hand.PlaysAs[0], "Jh", "a natural card is itself")
+	eq(t, hand.PlaysAs[1], "Qs", "a natural card is itself")
+	if hand.PlaysAs[2][0] != 'K' {
+		t.Fatalf("the wild 4 should have stood for a king, got %s", hand.PlaysAs[2])
+	}
+
+	// It is that player's alone: nobody else's snapshot carries it or the cards.
+	for _, other := range ids {
+		if other == chooser {
+			continue
+		}
+		raw := mustJSON(t, h.view(other))
+		for _, leak := range []string{`"playsAs"`, `"4s"`, `"Jh"`, `"Qs"`, "Sequence"} {
+			if strings.Contains(raw, leak) {
+				t.Fatalf("%s's snapshot leaks %s of %s's hand", other, leak, chooser)
+			}
+		}
+		if h.view(other).You.Hand != nil {
+			t.Fatalf("%s is blind and was told a hand", other)
+		}
+	}
+}
+
+func TestAHandWithNoWildCardPlaysAsItself(t *testing.T) {
+	h, _, chooser := variationTable(t, 2)
+	h.setCards(chooser, "9h", "8d", "2c")
+	h.mustAct(chooser, ActionSee, ActRequest{})
+	if _, err := h.table.SelectVariation(chooser, "AK47"); err != nil {
+		t.Fatal(err)
+	}
+	hand := h.view(chooser).You.Hand
+	if hand == nil {
+		t.Fatal("no hand")
+	}
+	eq(t, hand.HandName, "High Card", "nothing wild in 9-8-2")
+	eq(t, len(hand.Wild), 0, "no wild card")
+	eq(t, strings.Join(hand.PlaysAs, ","), "9h,8d,2c", "the cards as they are")
+	// [] on the wire, never null: the client reads both as lists.
+	raw := mustJSON(t, h.view(chooser))
+	if !strings.Contains(raw, `"wild":[]`) || !strings.Contains(raw, `"playsAs":["9h","8d","2c"]`) {
+		t.Fatalf("wire shape: %s", raw)
+	}
+}
+
+func TestEveryWildVariationSaysWhatYourCardsPlayAs(t *testing.T) {
+	for _, tc := range []struct {
+		variation string
+		turnUp    string
+		cards     []string
+		wild      string
+		name      string
+	}{
+		{"AK47", "", []string{"Ah", "Kd", "7c"}, "Ah,Kd,7c", "Trail"},
+		{"JOKER", "9d", []string{"9h", "5s", "5c"}, "9h", "Trail"},
+		{"HUKAM", "2h", []string{"8h", "Qs", "Js"}, "8h", "Pure Sequence"},
+		{"LOWEST_JOKER", "", []string{"3h", "8d", "Ks"}, "3h", "Pair"},
+		{"HIGHEST_JOKER", "", []string{"3h", "8d", "Ks"}, "Ks", "Pair"},
+		{"MUFLIS", "", []string{"Ah", "Kd", "7c"}, "", "High Card"},
+	} {
+		h, _, chooser := variationTable(t, 2)
+		if tc.turnUp != "" {
+			h.setTurnUp(tc.turnUp)
+		}
+		h.setCards(chooser, tc.cards...)
+		h.mustAct(chooser, ActionSee, ActRequest{})
+		if _, err := h.table.SelectVariation(chooser, tc.variation); err != nil {
+			t.Fatalf("%s: %v", tc.variation, err)
+		}
+		hand := h.view(chooser).You.Hand
+		if hand == nil {
+			t.Fatalf("%s: no hand", tc.variation)
+		}
+		eq(t, hand.HandName, tc.name, tc.variation+": what the hand made")
+		eq(t, strings.Join(hand.Wild, ","), tc.wild, tc.variation+": which cards were wild")
+		eq(t, len(hand.PlaysAs), 3, tc.variation+": three cards")
+		// A stand-in is never a card the hand already holds, and a natural
+		// card is always itself.
+		held := map[string]bool{}
+		for _, c := range tc.cards {
+			held[c] = true
+		}
+		wild := map[string]bool{}
+		for _, c := range hand.Wild {
+			wild[c] = true
+		}
+		for i, c := range tc.cards {
+			if !wild[c] && hand.PlaysAs[i] != c {
+				t.Fatalf("%s: natural %s plays as %s", tc.variation, c, hand.PlaysAs[i])
+			}
+		}
+		// What it plays as really is the hand it was named.
+		if got := Evaluate(ParseCards(hand.PlaysAs), EvaluateOptions{}).Name; got != tc.name {
+			t.Fatalf("%s: plays as %v, which is a %s, not a %s", tc.variation, hand.PlaysAs, got, tc.name)
+		}
+	}
+}
+
+func TestASeenTablesYouBlockCarriesNoHand(t *testing.T) {
+	h := newHarness(t, sideshowConfig(), withLedger(emptyLedger))
+	h.seat("a", sideshowStart)
+	h.seat("b", sideshowStart)
+	h.advance(sideshowConfig().NextHandDelay)
+	h.mustAct("a", ActionSee, ActRequest{})
+	if you := h.view("a").You; you.Hand != nil {
+		t.Fatalf("a seen table named a hand: %+v", you.Hand)
+	}
+	if raw := mustJSON(t, h.view("a")); strings.Contains(raw, `"hand":`) || strings.Contains(raw, "playsAs") {
+		t.Fatalf("a seen table's you block changed: %s", raw)
 	}
 }
 

@@ -198,6 +198,57 @@ class Strings {
   /// The category's name, on the lobby card and over the pot.
   String get variation => _('variation');
   String get variationTableNote => _('variationTableNote');
+
+  /// The lobby's two levels (owner, 18 Sep 2026): the categories first, then
+  /// one category's tables. [viewTables] is the category card's key, as
+  /// [tapToSit] is the table card's; [tablesLabel] and [openToYouLabel] are its
+  /// two facts; [backToCategories] is what the tile at the head of a
+  /// category's rail is called.
+  String get viewTables => _('viewTables');
+  String get tablesLabel => _('tablesLabel');
+  String get openToYouLabel => _('openToYouLabel');
+  String get backToCategories => _('backToCategories');
+
+  /// The rules sheet's second section (owner, 18 Sep 2026): what a variation
+  /// table is, above the six variations, each named and explained by
+  /// [variationName] and [variationNote].
+  String get variationRulesTitle => _('variationRulesTitle');
+  String get variationRulesIntro => _('variationRulesIntro');
+
+  /// A table card's info popup (owner, 18 Sep 2026: "every table give an info
+  /// icon on the right top side … it tells all info"). The rows it shares with
+  /// the card reuse the card's own labels ([boot], [entryLabel],
+  /// [maxBlindsLabel], [potLimitLabel]).
+  String get tableInfoTitle => _('tableInfoTitle');
+  String get categoryLabel => _('categoryLabel');
+  String get playersLabel => _('playersLabel');
+  String get turnTimeLabel => _('turnTimeLabel');
+  String get yourChipsLabel => _('yourChipsLabel');
+  String get canSitHere => _('canSitHere');
+  String playersUpTo(int n) => _('playersUpTo').replaceFirst('{n}', '$n');
+  String secondsEach(int n) => _('secondsEach').replaceFirst('{n}', '$n');
+
+  /// A table card's rules key (owner, 18 Sep 2026: "one more icon on the card;
+  /// clicking it shows the rules according to the table he selected"): how THAT
+  /// table plays, one sentence a rule, with the table's own figures in them.
+  /// The word a table category goes by: SEEN, BLIND or VARIATION.
+  String variationOrCategory(String category) => switch (category) {
+    'blind' => blind,
+    'variation' => variation,
+    _ => seen,
+  };
+
+  String get tableRulesTitle => _('tableRulesTitle');
+  String get tableRulesKey => _('tableRulesKey');
+  String ruleBlindMoves(int n) => _('ruleBlindMoves').replaceFirst('{n}', '$n');
+  String get ruleRaiseOnce => _('ruleRaiseOnce');
+  String get ruleRaiseFree => _('ruleRaiseFree');
+  String rulePotCapped(String pot) =>
+      _('rulePotCapped').replaceFirst('{pot}', pot);
+  String get rulePotOpen => _('rulePotOpen');
+  String get ruleRoundsEnd => _('ruleRoundsEnd');
+  String get ruleShowTwo => _('ruleShowTwo');
+  String get ruleVariationPick => _('ruleVariationPick');
   String get variationChooseTitle => _('variationChooseTitle');
 
   /// What everyone but the chooser reads in the middle of the table.
@@ -809,6 +860,41 @@ class Strings {
       // variation tables: the first player picks the rules of the hand
       'variation': 'VARIATION',
       'variationTableNote': 'First player picks each hand\'s rules',
+      'viewTables': 'View tables',
+      'tablesLabel': 'tables',
+      'openToYouLabel': 'open to you',
+      'backToCategories': 'All games',
+      'variationRulesTitle': 'Variation tables',
+      'tableInfoTitle': 'Table info',
+      'tableRulesTitle':
+          'How this table plays',
+      'tableRulesKey':
+          'Table rules',
+      'ruleBlindMoves':
+          'You can bet blind up to {n} times; after that your cards open for you.',
+      'ruleRaiseOnce':
+          'On your turn: chaal, or raise once to double.',
+      'ruleRaiseFree':
+          'On your turn: chaal, or keep doubling the raise as far as your chips go.',
+      'rulePotCapped':
+          'When the pot reaches {pot}, every hand is shown and the best one wins.',
+      'rulePotOpen':
+          'The pot has no limit.',
+      'ruleRoundsEnd':
+          'If the betting runs all its rounds, every hand is shown and the best one wins.',
+      'ruleShowTwo':
+          'When only two players are left, either can pay for a show.',
+      'ruleVariationPick':
+          'The first player to act has 10 seconds to choose how the hand is decided; otherwise it is Muflis.',
+      'categoryLabel': 'game',
+      'playersLabel': 'players',
+      'turnTimeLabel': 'turn time',
+      'yourChipsLabel': 'your chips',
+      'canSitHere': 'You can sit at this table.',
+      'playersUpTo': 'Up to {n}',
+      'secondsEach': '{n} seconds',
+      'variationRulesIntro':
+          'The first player to act has 10 seconds to choose how the hand is decided; if they do not, it is Muflis. A wild card counts as whichever card makes your hand best. Other players\' chips are hidden and the pot has no limit.',
       'variationChooseTitle': 'Choose Variation',
       'variationSelectingBy': '{name} is selecting variation…',
       'variationChosen': 'Variation: {variation}',
@@ -1189,6 +1275,41 @@ class Strings {
       // variation tables: the first player picks the rules of the hand
       'variation': 'वेरिएशन',
       'variationTableNote': 'हर हाथ के नियम पहला खिलाड़ी चुनता है',
+      'viewTables': 'टेबल देखें',
+      'tablesLabel': 'टेबल',
+      'openToYouLabel': 'आपके लिए खुली',
+      'backToCategories': 'सभी खेल',
+      'variationRulesTitle': 'वेरिएशन टेबल',
+      'tableInfoTitle': 'टेबल की जानकारी',
+      'tableRulesTitle':
+          'यह टेबल कैसे खेली जाती है',
+      'tableRulesKey':
+          'टेबल के नियम',
+      'ruleBlindMoves':
+          'आप {n} बार तक ब्लाइंड चाल चल सकते हैं; उसके बाद आपके पत्ते आपके लिए खुल जाते हैं।',
+      'ruleRaiseOnce':
+          'अपनी बारी पर: चाल, या एक बार दुगना रेज़।',
+      'ruleRaiseFree':
+          'अपनी बारी पर: चाल, या जितने चिप्स हों उतना दुगना करते जाएँ।',
+      'rulePotCapped':
+          'पॉट {pot} पहुँचते ही सभी हाथ दिखाए जाते हैं और सबसे अच्छा हाथ जीतता है।',
+      'rulePotOpen':
+          'पॉट की कोई सीमा नहीं है।',
+      'ruleRoundsEnd':
+          'सारे राउंड पूरे हो जाएँ तो सभी हाथ दिखाए जाते हैं और सबसे अच्छा हाथ जीतता है।',
+      'ruleShowTwo':
+          'जब सिर्फ़ दो खिलाड़ी बचें, तो कोई भी शो के लिए भुगतान कर सकता है।',
+      'ruleVariationPick':
+          'पहली चाल वाले खिलाड़ी के पास 10 सेकंड होते हैं यह चुनने के लिए कि हाथ कैसे तय होगा; वरना मुफ़लिस।',
+      'categoryLabel': 'खेल',
+      'playersLabel': 'खिलाड़ी',
+      'turnTimeLabel': 'चाल का समय',
+      'yourChipsLabel': 'आपके चिप्स',
+      'canSitHere': 'आप इस टेबल पर बैठ सकते हैं।',
+      'playersUpTo': '{n} तक',
+      'secondsEach': '{n} सेकंड',
+      'variationRulesIntro':
+          'पहली चाल वाले खिलाड़ी के पास यह चुनने के लिए 10 सेकंड होते हैं कि हाथ किस नियम से तय होगा; न चुनने पर मुफ़लिस खेला जाता है। जोकर पत्ता वही पत्ता माना जाता है जिससे आपका हाथ सबसे अच्छा बने। दूसरों के चिप्स छिपे रहते हैं और पॉट की कोई सीमा नहीं है।',
       'variationChooseTitle': 'वेरिएशन चुनें',
       'variationSelectingBy': '{name} वेरिएशन चुन रहे हैं…',
       'variationChosen': 'वेरिएशन: {variation}',
@@ -1564,6 +1685,41 @@ class Strings {
       // variation tables: the first player picks the rules of the hand
       'variation': 'ভেরিয়েশন',
       'variationTableNote': 'প্রতিটি হাতের নিয়ম প্রথম খেলোয়াড় বেছে নেন',
+      'viewTables': 'টেবিল দেখুন',
+      'tablesLabel': 'টেবিল',
+      'openToYouLabel': 'আপনার জন্য খোলা',
+      'backToCategories': 'সব খেলা',
+      'variationRulesTitle': 'ভেরিয়েশন টেবিল',
+      'tableInfoTitle': 'টেবিলের তথ্য',
+      'tableRulesTitle':
+          'এই টেবিল যেভাবে খেলা হয়',
+      'tableRulesKey':
+          'টেবিলের নিয়ম',
+      'ruleBlindMoves':
+          'আপনি {n} বার পর্যন্ত ব্লাইন্ড চাল দিতে পারেন; তারপর আপনার তাস আপনার জন্য খুলে যায়।',
+      'ruleRaiseOnce':
+          'নিজের পালায়: চাল, অথবা একবার দ্বিগুণ রেইজ।',
+      'ruleRaiseFree':
+          'নিজের পালায়: চাল, অথবা চিপস যতদূর যায় ততবার দ্বিগুণ করুন।',
+      'rulePotCapped':
+          'পট {pot} হলে সব হাত দেখানো হয় এবং সেরা হাত জেতে।',
+      'rulePotOpen':
+          'পটের কোনো সীমা নেই।',
+      'ruleRoundsEnd':
+          'সব রাউন্ড শেষ হলে সব হাত দেখানো হয় এবং সেরা হাত জেতে।',
+      'ruleShowTwo':
+          'মাত্র দুজন খেলোয়াড় বাকি থাকলে যে কেউ শো-এর জন্য দিতে পারেন।',
+      'ruleVariationPick':
+          'প্রথম চালের খেলোয়াড় ১০ সেকেন্ড সময় পান হাত কীভাবে ঠিক হবে তা বাছতে; নইলে মুফলিস।',
+      'categoryLabel': 'খেলা',
+      'playersLabel': 'খেলোয়াড়',
+      'turnTimeLabel': 'চালের সময়',
+      'yourChipsLabel': 'আপনার চিপস',
+      'canSitHere': 'আপনি এই টেবিলে বসতে পারেন।',
+      'playersUpTo': '{n} জন পর্যন্ত',
+      'secondsEach': '{n} সেকেন্ড',
+      'variationRulesIntro':
+          'প্রথম চালের খেলোয়াড় ১০ সেকেন্ড সময় পান হাতটি কোন নিয়মে ঠিক হবে তা বেছে নিতে; না বাছলে মুফলিস খেলা হয়। জোকার তাস সেই তাস হিসেবে গণ্য হয় যাতে আপনার হাত সবচেয়ে ভালো হয়। অন্যদের চিপস লুকানো থাকে এবং পটের কোনো সীমা নেই।',
       'variationChooseTitle': 'ভেরিয়েশন বেছে নিন',
       'variationSelectingBy': '{name} ভেরিয়েশন বেছে নিচ্ছেন…',
       'variationChosen': 'ভেরিয়েশন: {variation}',
@@ -1941,6 +2097,41 @@ class Strings {
       // variation tables: the first player picks the rules of the hand
       'variation': 'વેરિએશન',
       'variationTableNote': 'દરેક હાથના નિયમ પહેલો ખેલાડી પસંદ કરે છે',
+      'viewTables': 'ટેબલ જુઓ',
+      'tablesLabel': 'ટેબલ',
+      'openToYouLabel': 'તમારા માટે ખુલ્લાં',
+      'backToCategories': 'બધી રમતો',
+      'variationRulesTitle': 'વેરિએશન ટેબલ',
+      'tableInfoTitle': 'ટેબલની માહિતી',
+      'tableRulesTitle':
+          'આ ટેબલ કેવી રીતે રમાય છે',
+      'tableRulesKey':
+          'ટેબલના નિયમો',
+      'ruleBlindMoves':
+          'તમે {n} વખત સુધી બ્લાઇન્ડ ચાલ ચાલી શકો છો; પછી તમારાં પત્તાં તમારા માટે ખૂલી જાય છે.',
+      'ruleRaiseOnce':
+          'તમારા વારામાં: ચાલ, અથવા એક વાર બમણો રેઇઝ.',
+      'ruleRaiseFree':
+          'તમારા વારામાં: ચાલ, અથવા ચિપ્સ હોય ત્યાં સુધી બમણું કરતા જાઓ.',
+      'rulePotCapped':
+          'પોટ {pot} થાય ત્યારે બધા હાથ બતાવાય છે અને શ્રેષ્ઠ હાથ જીતે છે.',
+      'rulePotOpen':
+          'પોટની કોઈ મર્યાદા નથી.',
+      'ruleRoundsEnd':
+          'બધા રાઉન્ડ પૂરા થાય તો બધા હાથ બતાવાય છે અને શ્રેષ્ઠ હાથ જીતે છે.',
+      'ruleShowTwo':
+          'ફક્ત બે ખેલાડી બાકી રહે ત્યારે કોઈ પણ શો માટે ચૂકવી શકે છે.',
+      'ruleVariationPick':
+          'પહેલી ચાલવાળા ખેલાડીને હાથ કેવી રીતે નક્કી થશે તે પસંદ કરવા 10 સેકન્ડ મળે છે; નહીંતર મુફલિસ.',
+      'categoryLabel': 'રમત',
+      'playersLabel': 'ખેલાડીઓ',
+      'turnTimeLabel': 'ચાલનો સમય',
+      'yourChipsLabel': 'તમારી ચિપ્સ',
+      'canSitHere': 'તમે આ ટેબલ પર બેસી શકો છો.',
+      'playersUpTo': '{n} સુધી',
+      'secondsEach': '{n} સેકન્ડ',
+      'variationRulesIntro':
+          'પહેલી ચાલવાળા ખેલાડીને હાથ કયા નિયમથી નક્કી થશે તે પસંદ કરવા 10 સેકન્ડ મળે છે; ન પસંદ કરે તો મુફલિસ રમાય છે. જોકર પત્તું એ પત્તું ગણાય છે જેનાથી તમારો હાથ સૌથી સારો બને. બીજાની ચિપ્સ છુપાયેલી રહે છે અને પોટની કોઈ મર્યાદા નથી.',
       'variationChooseTitle': 'વેરિએશન પસંદ કરો',
       'variationSelectingBy': '{name} વેરિએશન પસંદ કરી રહ્યા છે…',
       'variationChosen': 'વેરિએશન: {variation}',
@@ -2314,6 +2505,41 @@ class Strings {
       // variation tables: the first player picks the rules of the hand
       'variation': 'ਵੇਰੀਏਸ਼ਨ',
       'variationTableNote': 'ਹਰ ਹੱਥ ਦੇ ਨਿਯਮ ਪਹਿਲਾ ਖਿਡਾਰੀ ਚੁਣਦਾ ਹੈ',
+      'viewTables': 'ਟੇਬਲ ਵੇਖੋ',
+      'tablesLabel': 'ਟੇਬਲ',
+      'openToYouLabel': 'ਤੁਹਾਡੇ ਲਈ ਖੁੱਲ੍ਹੇ',
+      'backToCategories': 'ਸਾਰੀਆਂ ਖੇਡਾਂ',
+      'variationRulesTitle': 'ਵੇਰੀਏਸ਼ਨ ਟੇਬਲ',
+      'tableInfoTitle': 'ਟੇਬਲ ਦੀ ਜਾਣਕਾਰੀ',
+      'tableRulesTitle':
+          'ਇਹ ਟੇਬਲ ਕਿਵੇਂ ਖੇਡੀ ਜਾਂਦੀ ਹੈ',
+      'tableRulesKey':
+          'ਟੇਬਲ ਦੇ ਨਿਯਮ',
+      'ruleBlindMoves':
+          'ਤੁਸੀਂ {n} ਵਾਰ ਤੱਕ ਬਲਾਇੰਡ ਚਾਲ ਚੱਲ ਸਕਦੇ ਹੋ; ਉਸ ਤੋਂ ਬਾਅਦ ਤੁਹਾਡੇ ਪੱਤੇ ਤੁਹਾਡੇ ਲਈ ਖੁੱਲ੍ਹ ਜਾਂਦੇ ਹਨ।',
+      'ruleRaiseOnce':
+          'ਆਪਣੀ ਵਾਰੀ ਤੇ: ਚਾਲ, ਜਾਂ ਇੱਕ ਵਾਰ ਦੁੱਗਣਾ ਰੇਜ਼।',
+      'ruleRaiseFree':
+          'ਆਪਣੀ ਵਾਰੀ ਤੇ: ਚਾਲ, ਜਾਂ ਜਿੰਨੇ ਚਿਪਸ ਹੋਣ ਓਨਾ ਦੁੱਗਣਾ ਕਰਦੇ ਜਾਓ।',
+      'rulePotCapped':
+          'ਪੌਟ {pot} ਹੁੰਦੇ ਹੀ ਸਾਰੇ ਹੱਥ ਦਿਖਾਏ ਜਾਂਦੇ ਹਨ ਅਤੇ ਸਭ ਤੋਂ ਵਧੀਆ ਹੱਥ ਜਿੱਤਦਾ ਹੈ।',
+      'rulePotOpen':
+          'ਪੌਟ ਦੀ ਕੋਈ ਸੀਮਾ ਨਹੀਂ।',
+      'ruleRoundsEnd':
+          'ਸਾਰੇ ਰਾਊਂਡ ਪੂਰੇ ਹੋ ਜਾਣ ਤਾਂ ਸਾਰੇ ਹੱਥ ਦਿਖਾਏ ਜਾਂਦੇ ਹਨ ਅਤੇ ਸਭ ਤੋਂ ਵਧੀਆ ਹੱਥ ਜਿੱਤਦਾ ਹੈ।',
+      'ruleShowTwo':
+          'ਜਦੋਂ ਸਿਰਫ਼ ਦੋ ਖਿਡਾਰੀ ਬਚਣ, ਕੋਈ ਵੀ ਸ਼ੋਅ ਲਈ ਭੁਗਤਾਨ ਕਰ ਸਕਦਾ ਹੈ।',
+      'ruleVariationPick':
+          'ਪਹਿਲੀ ਚਾਲ ਵਾਲੇ ਖਿਡਾਰੀ ਕੋਲ 10 ਸਕਿੰਟ ਹੁੰਦੇ ਹਨ ਇਹ ਚੁਣਨ ਲਈ ਕਿ ਹੱਥ ਕਿਵੇਂ ਤੈਅ ਹੋਵੇਗਾ; ਨਹੀਂ ਤਾਂ ਮੁਫ਼ਲਿਸ।',
+      'categoryLabel': 'ਖੇਡ',
+      'playersLabel': 'ਖਿਡਾਰੀ',
+      'turnTimeLabel': 'ਚਾਲ ਦਾ ਸਮਾਂ',
+      'yourChipsLabel': 'ਤੁਹਾਡੇ ਚਿਪਸ',
+      'canSitHere': 'ਤੁਸੀਂ ਇਸ ਟੇਬਲ ਤੇ ਬੈਠ ਸਕਦੇ ਹੋ।',
+      'playersUpTo': '{n} ਤੱਕ',
+      'secondsEach': '{n} ਸਕਿੰਟ',
+      'variationRulesIntro':
+          'ਪਹਿਲੀ ਚਾਲ ਵਾਲੇ ਖਿਡਾਰੀ ਕੋਲ ਇਹ ਚੁਣਨ ਲਈ 10 ਸਕਿੰਟ ਹੁੰਦੇ ਹਨ ਕਿ ਹੱਥ ਕਿਸ ਨਿਯਮ ਨਾਲ ਤੈਅ ਹੋਵੇਗਾ; ਨਾ ਚੁਣੇ ਤਾਂ ਮੁਫ਼ਲਿਸ ਖੇਡਿਆ ਜਾਂਦਾ ਹੈ। ਜੋਕਰ ਪੱਤਾ ਉਹੀ ਪੱਤਾ ਗਿਣਿਆ ਜਾਂਦਾ ਹੈ ਜਿਸ ਨਾਲ ਤੁਹਾਡਾ ਹੱਥ ਸਭ ਤੋਂ ਵਧੀਆ ਬਣੇ। ਦੂਜਿਆਂ ਦੇ ਚਿਪਸ ਲੁਕੇ ਰਹਿੰਦੇ ਹਨ ਅਤੇ ਪੌਟ ਦੀ ਕੋਈ ਸੀਮਾ ਨਹੀਂ।',
       'variationChooseTitle': 'ਵੇਰੀਏਸ਼ਨ ਚੁਣੋ',
       'variationSelectingBy': '{name} ਵੇਰੀਏਸ਼ਨ ਚੁਣ ਰਹੇ ਹਨ…',
       'variationChosen': 'ਵੇਰੀਏਸ਼ਨ: {variation}',

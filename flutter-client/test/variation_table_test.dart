@@ -72,7 +72,8 @@ RoomState _room({
   'roomId': roomId,
   'code': 'ABCD2345',
   'category': category,
-  'chipsHidden': false,
+  // A variation table keeps stacks to their owners, as a blind one does.
+  'chipsHidden': true,
   'state': state,
   'handNo': handNo,
   'dealerSeat': 4,

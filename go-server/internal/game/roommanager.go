@@ -50,7 +50,8 @@ type LobbyOptions struct {
 type LobbyTableOption struct {
 	Category   string `json:"category"`
 	BootAmount int64  `json:"bootAmount"`
-	// MaxPot is SeenMaxPot for seen entries, 0 (uncapped) for blind.
+	// MaxPot is SeenMaxPot for seen entries, the boot-scaled cap for variation
+	// ones (config.VariationMaxPot), 0 (uncapped) for blind.
 	MaxPot        int64 `json:"maxPot"`
 	MaxBlindMoves int   `json:"maxBlindMoves"`
 	// MinChips / MaxChips are the stack band for this table, 0 for no limit
@@ -909,7 +910,7 @@ func (rm *RoomManager) LobbyOptions() LobbyOptions {
 		tables = append(tables, LobbyTableOption{
 			Category:      entry.Category,
 			BootAmount:    entry.BootAmount,
-			MaxPot:        g.MenuMaxPot(entry.Category), // 0 means the pot is uncapped
+			MaxPot:        g.MenuMaxPot(entry.Category, entry.BootAmount), // 0 means the pot is uncapped
 			MaxBlindMoves: g.MaxBlindMoves,
 			MinChips:      rm.tableMinChips(entry),
 			MaxChips:      rm.tableMaxChips(entry),

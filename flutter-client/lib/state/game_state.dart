@@ -622,6 +622,12 @@ class GameState extends ChangeNotifier {
       _conn.onSession.listen((s) {
         user = s.user;
         config = s.config;
+        // A menu that no longer lists the category the lobby was showing
+        // (the server changed what it offers across a reconnect) would leave
+        // the player looking at an empty rail with only a way back.
+        if (lobbyCategory != null && !lobbyCategories.contains(lobbyCategory)) {
+          lobbyCategory = null;
+        }
         _snapshotSinceSession = false;
         // The server's own floor, checked the moment it tells us what it is.
         // Play's update check answers "is there something newer"; this answers
@@ -1409,6 +1415,8 @@ class GameState extends ChangeNotifier {
     seatedAt = null;
     user = null;
     consentPending = false;
+    // The next account starts at the categories, not where this one stood.
+    lobbyCategory = null;
     screen = Screen.login;
     notifyListeners();
   }
@@ -1499,6 +1507,83 @@ class GameState extends ChangeNotifier {
     return table.tooRich(chips) ||
         table.tooPoor(chips) ||
         cappedOut(table.bootAmount, table.category);
+  }
+
+  // ------------------------------------------------------ lobby categories
+
+  /// The category whose tables the lobby is showing, or null while it shows
+  /// the categories themselves (owner, 18 Sep 2026: "in lobby give 3 category
+  /// — Seen, Blind, Variation — and when the user selects Blind go into that
+  /// and show all the Blind table cards").
+  ///
+  /// Kept here rather than in the lobby's own State for two reasons: the
+  /// system Back key (main.dart's `_BackGuard`) has to know a category is open
+  /// so it can close it before it offers to quit, and it has to outlive the
+  /// lobby widget — a player who leaves a Blind table comes back to the Blind
+  /// tables, not to the front door. It is a place in the app, not a
+  /// preference, so it is not saved: a fresh launch opens on the categories.
+  String? lobbyCategory;
+
+  /// The order the categories are shown in, whatever order the server lists
+  /// its tables in.
+  static const lobbyCategoryOrder = [
+    TableCategory.seen,
+    TableCategory.blind,
+    TableCategory.variation,
+  ];
+
+  /// The category a menu entry is filed under. A category this build has never
+  /// heard of is a seen table everywhere else in the client (its card, its
+  /// felt, its rules line), so it is one here too.
+  static String lobbyCategoryOf(LobbyTable table) =>
+      lobbyCategoryOrder.contains(table.category)
+      ? table.category
+      : TableCategory.seen;
+
+  /// The categories the server offers at least one table in, in
+  /// [lobbyCategoryOrder]. A category it does not list is simply absent.
+  List<String> get lobbyCategories {
+    final offered = {for (final table in config.tables) lobbyCategoryOf(table)};
+    return [
+      for (final category in lobbyCategoryOrder)
+        if (offered.contains(category)) category,
+    ];
+  }
+
+  /// One category's tables as the lobby shows them: the ones this player can
+  /// sit at, then the ones shut to their stack, each group in the server's
+  /// order — which is the order of the stakes.
+  ///
+  /// Bucketed rather than sorted because Dart's List.sort is not stable.
+  /// Putting a padlocked card between two open ones makes a player scroll past
+  /// a wall to reach a room they are allowed into; putting them last turns the
+  /// same cards into the thing to play towards.
+  List<LobbyTable> lobbyTablesIn(String category) {
+    final open = <LobbyTable>[];
+    final shut = <LobbyTable>[];
+    for (final table in config.tables) {
+      if (lobbyCategoryOf(table) != category) continue;
+      (tableShut(table) ? shut : open).add(table);
+    }
+    return [...open, ...shut];
+  }
+
+  /// Goes into [category]. A category the server does not offer is ignored.
+  void openLobbyCategory(String category) {
+    if (lobbyCategory == category || !lobbyCategories.contains(category)) {
+      return;
+    }
+    lobbyCategory = category;
+    notifyListeners();
+  }
+
+  /// Back to the categories. Answers whether there was a category to close,
+  /// which is how the Back key knows it has been used.
+  bool closeLobbyCategory() {
+    if (lobbyCategory == null) return false;
+    lobbyCategory = null;
+    notifyListeners();
+    return true;
   }
 
   /// Wears a catalogue picture, or null to go back to the provider photo.

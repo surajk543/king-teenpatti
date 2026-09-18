@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../l10n/strings.dart';
+import '../models/dtos.dart';
 import '../state/game_state.dart';
 import '../theme/app_theme.dart';
 import '../theme/theme_colors.dart';
@@ -8,25 +10,59 @@ import 'glass_components.dart';
 import 'glass_panels.dart';
 import 'playing_card.dart';
 import 'premium_surface.dart';
+import 'variation_prompt.dart';
 
 /// The hand rankings, shown over whatever the player was looking at.
 ///
 /// Deliberately translucent: it is a reference, not a place you go. The table
 /// or the lobby stays visible behind it so a player can check what beats what
 /// without losing their place.
-Future<void> showRules(BuildContext context) {
+///
+/// With a [table] — the rules key on a lobby table card (owner, 18 Sep 2026:
+/// "clicking it shows the rules according to the table he selected") — the
+/// sheet opens on how THAT table plays, with the table's own figures in the
+/// sentences, and carries the six variations only when it is a variation
+/// table. Without one (the Rules button) it is the whole reference.
+Future<void> showRules(BuildContext context, {LobbyTable? table}) {
   return showDialog<void>(
     context: context,
     // One ink for both themes, at a light alpha (lighter than the store's
     // 0.72): the light theme's own ground would not dim the table at all, so
     // the barrier darkens it either way and the table stays readable behind.
     barrierColor: AppTheme.ink900.withValues(alpha: 0.45),
-    builder: (context) => const _RulesSheet(),
+    builder: (context) => _RulesSheet(table: table),
   );
 }
 
 class _RulesSheet extends StatelessWidget {
-  const _RulesSheet();
+  const _RulesSheet({this.table});
+
+  /// The table whose rules were asked for, or null for the general sheet.
+  final LobbyTable? table;
+
+  /// How [table] plays, a sentence a rule. Every figure is the server's own
+  /// menu entry, so the sheet cannot state a term the table does not keep; what
+  /// the menu does not carry (the number of betting rounds) is not given a
+  /// number here.
+  static List<String> _tableRules(Strings t, LobbyTable table) {
+    final category = GameState.lobbyCategoryOf(table);
+    final seen = category == TableCategory.seen;
+    final blind = category == TableCategory.blind;
+    return [
+      if (category == TableCategory.variation) t.ruleVariationPick,
+      seen ? t.everyoneChips : t.onlyYourChips,
+      t.ruleBlindMoves(table.maxBlindMoves),
+      // A blind table's ladder runs to the stack; seen and variation tables
+      // raise once a turn.
+      blind ? t.ruleRaiseFree : t.ruleRaiseOnce,
+      table.potUncapped
+          ? t.rulePotOpen
+          : t.rulePotCapped(formatChips(table.maxPot)),
+      // Blind tables have no forced showdown; the other two do.
+      if (!blind) t.ruleRoundsEnd,
+      t.ruleShowTwo,
+    ];
+  }
 
   /// Every ranking, strongest first, each with a hand that shows it. The order
   /// and the names are the server's own — this is a picture of how the
@@ -38,6 +74,23 @@ class _RulesSheet extends StatelessWidget {
     ('color', ['As', '9s', '4s']),
     ('pair', ['Qh', 'Qc', '7d']),
     ('high', ['Ad', 'Jc', '8s']),
+  ];
+
+  /// The six variations of a variation table (owner, 18 Sep 2026), in the
+  /// server's menu order, each with a hand that shows it and which of its
+  /// cards play wild there. The names and the one-line rules are the ones the
+  /// table's own picker shows ([Strings.variationName], [Strings.variationNote]).
+  static const List<(String, List<String>, List<String>)> _variations = [
+    // The best hand there is when the lowest hand wins.
+    (Variation.muflis, ['5s', '3h', '2d'], []),
+    // The 4 is wild: J-Q and a wild card make a sequence.
+    (Variation.ak47, ['Jh', 'Qs', '4s'], ['4s']),
+    // A nine was turned up, so the nine is wild: a trail of fives.
+    (Variation.joker, ['9h', '5s', '5c'], ['9h']),
+    // A heart was turned up, so the heart is wild: a pure sequence in spades.
+    (Variation.hukam, ['8h', 'Qs', 'Js'], ['8h']),
+    (Variation.lowestJoker, ['3h', '8d', 'Ks'], ['3h']),
+    (Variation.highestJoker, ['3h', '8d', 'Ks'], ['Ks']),
   ];
 
   @override
@@ -73,7 +126,13 @@ class _RulesSheet extends StatelessWidget {
           const SizedBox(width: Space.md),
           Expanded(
             child: Text(
-              t.rulesTitle,
+              table == null
+                  ? t.rulesTitle
+                  : '${t.rulesTitle} · '
+                        '${t.variationOrCategory(GameState.lobbyCategoryOf(table!))} '
+                        '${formatChips(table!.bootAmount)}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: AppTheme.label(
                 theme.textTheme.titleMedium ?? const TextStyle(),
               ),
@@ -97,6 +156,48 @@ class _RulesSheet extends StatelessWidget {
       content: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // The chosen table first: that is what the player asked about.
+          if (table != null) ...[
+            Text(
+              t.tableRulesTitle,
+              style: AppTheme.label(
+                theme.textTheme.titleSmall ?? const TextStyle(),
+              ),
+            ),
+            const SizedBox(height: Space.sm),
+            for (final rule in _tableRules(t, table!))
+              Padding(
+                padding: const EdgeInsets.only(bottom: Space.xs),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.only(top: 6),
+                      child: Container(
+                        width: 5,
+                        height: 5,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: champagne,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: Space.md),
+                    Expanded(
+                      child: Text(
+                        rule,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: scheme.onSurface.withValues(
+                            alpha: AppTheme.inkMed,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            const SizedBox(height: Space.lg),
+          ],
           Text(
             t.rulesBeats,
             style: theme.textTheme.bodySmall?.copyWith(
@@ -144,6 +245,49 @@ class _RulesSheet extends StatelessWidget {
               ],
             ),
           ),
+
+          // Variation tables: what they are, then the six ways a hand can be
+          // decided there. Under the rankings because every one of them IS
+          // those rankings — with some cards wild, or read the other way up.
+          // Left out of a seen or blind table's own rules: it is not how that
+          // table plays.
+          if (table == null ||
+              GameState.lobbyCategoryOf(table!) == TableCategory.variation) ...[
+            const SizedBox(height: Space.xl),
+            Row(
+              children: [
+                Icon(Icons.shuffle_rounded, size: 18, color: champagne),
+                const SizedBox(width: Space.md),
+                Expanded(
+                  child: Text(
+                    t.variationRulesTitle,
+                    style: AppTheme.label(
+                      theme.textTheme.titleSmall ?? const TextStyle(),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: Space.sm),
+            Text(
+              t.variationRulesIntro,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: scheme.onSurface.withValues(alpha: AppTheme.inkMed),
+              ),
+            ),
+            const SizedBox(height: Space.sm),
+            for (var i = 0; i < _variations.length; i++)
+              _Row(
+                name: t.variationName(_variations[i].$1),
+                note: t.variationNote(_variations[i].$1),
+                cards: _variations[i].$2,
+                wild: _variations[i].$3,
+                wildLabel: t.wildCard,
+                cardHeight: cardH,
+                numeral: champagne,
+                ruled: i < _variations.length - 1,
+              ),
+          ],
         ],
       ),
     );
@@ -152,16 +296,26 @@ class _RulesSheet extends StatelessWidget {
 
 class _Row extends StatelessWidget {
   const _Row({
-    required this.place,
+    this.place,
     required this.name,
     required this.note,
     required this.cards,
     required this.cardHeight,
     required this.numeral,
     required this.ruled,
+    this.wild = const [],
+    this.wildLabel = '',
   });
 
-  final int place;
+  /// Where the hand ranks, or null for a row that is not one of an order — the
+  /// variations are six alternatives, not six places.
+  final int? place;
+
+  /// Which of [cards] play wild in this example, drawn with the gold edge a
+  /// wild card carries on the felt ([WildEdge]); [wildLabel] is its name for a
+  /// screen reader.
+  final List<String> wild;
+  final String wildLabel;
   final String name;
   final String note;
   final List<String> cards;
@@ -186,7 +340,7 @@ class _Row extends StatelessWidget {
                 // right edge and the rows read as one column of places.
                 width: 22,
                 child: Text(
-                  '$place',
+                  place == null ? '•' : '$place',
                   textAlign: TextAlign.right,
                   style: AppTheme.money(
                     theme.textTheme.titleMedium ?? const TextStyle(),
@@ -224,7 +378,12 @@ class _Row extends StatelessWidget {
               for (final c in cards)
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: Space.xxs),
-                  child: PlayingCard(height: cardHeight, code: c),
+                  child: WildEdge(
+                    wild: wild.contains(c),
+                    cardHeight: cardHeight,
+                    label: wildLabel,
+                    child: PlayingCard(height: cardHeight, code: c),
+                  ),
                 ),
             ],
           ),

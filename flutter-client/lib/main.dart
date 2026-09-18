@@ -534,6 +534,16 @@ class _BackGuard extends StatelessWidget {
           return;
         }
 
+        // Inside one of the lobby's categories Back goes back to the
+        // categories, as the tile at the head of that rail does; only the
+        // front of the lobby offers to quit. Not while the no-winnings panel
+        // is up: it covers the lobby, and Back there is the quit question.
+        if (screen == Screen.lobby &&
+            !state.consentPending &&
+            state.closeLobbyCategory()) {
+          return;
+        }
+
         final quit = await _ask(
           context,
           icon: Icons.exit_to_app,

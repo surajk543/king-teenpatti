@@ -203,46 +203,86 @@ class _LobbyScreenState extends State<LobbyScreen> {
                             Dim.lobbyCardSide(h),
                           );
 
+                          // Two levels in the one rail (owner, 18 Sep
+                          // 2026). The front of the lobby is the CATEGORIES
+                          // the server offers a table in — Seen, Blind,
+                          // Variation — and the private card; going into one
+                          // shows that category's tables behind a tile that
+                          // leads back. The server decides which rooms exist;
+                          // the lobby decides how a player meets them, and
+                          // nine cards in a row had become a walk.
+                          final category = state.lobbyCategory;
                           final rail = Center(
                             child: SizedBox(
                               height: side + Space.xl,
-                              child: ListView(
-                                scrollDirection: Axis.horizontal,
-                                // Holds its place while the cards change size
-                                // under it (_KeepsPlacePhysics).
-                                physics: const _KeepsPlacePhysics(),
-                                padding: const EdgeInsets.fromLTRB(
-                                  Space.xl,
-                                  Space.md,
-                                  Space.xl,
-                                  Space.md,
-                                ),
-                                children: [
-                                  // The server decides which rooms exist; the
-                                  // lobby decides the order a player meets them
-                                  // in. Seen first — it is where the game is
-                                  // explained — then the tables they can sit at
-                                  // today, then the ones shut to their stack,
-                                  // and the private card last. Putting a
-                                  // padlocked card between two open ones makes a
-                                  // player scroll past a wall to find the room
-                                  // they are actually allowed into; putting them
-                                  // at the end turns the same cards into the
-                                  // thing to play towards.
-                                  for (final (i, table) in _orderedTables(
-                                    state,
-                                  ).indexed)
-                                    entering(
-                                      _TableCard(table: table, index: i),
-                                    ),
-                                  entering(
-                                    _PrivateCard(
-                                      key: _privateCard,
-                                      codeFocus: _codeFocus,
-                                      codeFieldKey: _codeField,
-                                    ),
+                              // Each level is a ListView of its own, so a
+                              // category opens at its first table rather than
+                              // wherever the categories were scrolled to, and
+                              // its cards make their entrance as the lobby's
+                              // did. Keyed on the level and on nothing that
+                              // ticks: GameState notifies every second, and a
+                              // key that changed with it would restart this
+                              // fade once a second.
+                              child: AnimatedSwitcher(
+                                duration: Motion.base,
+                                switchInCurve: Motion.standard,
+                                switchOutCurve: Motion.standard,
+                                child: ListView(
+                                  key: ValueKey('lobby-rail:${category ?? ''}'),
+                                  scrollDirection: Axis.horizontal,
+                                  // Holds its place while the cards change
+                                  // size under it (_KeepsPlacePhysics).
+                                  physics: const _KeepsPlacePhysics(),
+                                  padding: const EdgeInsets.fromLTRB(
+                                    Space.xl,
+                                    Space.md,
+                                    Space.xl,
+                                    Space.md,
                                   ),
-                                ],
+                                  children: category == null
+                                      ? [
+                                          for (final (i, name)
+                                              in state.lobbyCategories.indexed)
+                                            entering(
+                                              _CategoryCard(
+                                                category: name,
+                                                index: i,
+                                              ),
+                                            ),
+                                          // Last, as it always was: a private
+                                          // table is not one of the server's
+                                          // categories but a door of its own.
+                                          entering(
+                                            _PrivateCard(
+                                              key: _privateCard,
+                                              codeFocus: _codeFocus,
+                                              codeFieldKey: _codeField,
+                                            ),
+                                          ),
+                                        ]
+                                      : [
+                                          entering(
+                                            _BackTile(category: category),
+                                          ),
+                                          // The tables this player can sit at,
+                                          // then the ones shut to their stack
+                                          // (GameState.lobbyTablesIn).
+                                          for (final (i, table)
+                                              in state
+                                                  .lobbyTablesIn(category)
+                                                  .indexed)
+                                            entering(
+                                              // The first card's orb spills
+                                              // LEFT, which here would be over
+                                              // the back tile; every card
+                                              // takes a right-hand place.
+                                              _TableCard(
+                                                table: table,
+                                                index: i + 1,
+                                              ),
+                                            ),
+                                        ],
+                                ),
                               ),
                             ),
                           );
@@ -1235,29 +1275,349 @@ class _BarActions extends StatelessWidget {
 /// hue are three charcoal rectangles; these differ in the colour of the plate,
 /// the crest bled into the corner, the wash through the body and the two-tone
 /// rim, so the room a player lands in is recognisably the card they tapped.
-/// The menu in the order the lobby shows it: seen, then joinable, then shut.
+/// The name a category goes by: the word on its tables' badges.
+String _categoryName(Strings t, String category) => switch (category) {
+  TableCategory.blind => t.blind,
+  TableCategory.variation => t.variation,
+  _ => t.seen,
+};
+
+/// The one line that says what a category's tables are like — the line each of
+/// its table cards carries.
+String _categoryBlurb(Strings t, String category) => switch (category) {
+  TableCategory.blind => t.onlyYourChips,
+  TableCategory.variation => t.variationTableNote,
+  _ => t.everyoneChips,
+};
+
+/// A category's colour: that of its cheapest table, which is the one every
+/// player has seen — gold, sapphire, rani pink.
+TablePalette _categoryPalette(ColorScheme scheme, String category) =>
+    AppTheme.paletteFor(scheme, category: category, bootAmount: 200);
+
+/// One of the lobby's categories — Seen, Blind, Variation (owner, 18 Sep 2026).
 ///
-/// Bucketed rather than sorted because Dart's List.sort is not stable, and
-/// within each group the server's own order is the one to keep — it decides
-/// which stake comes before which.
+/// The same square of frosted glass over a baked orb as a [_TableCard], in the
+/// category's colour, so the front of the lobby and the inside of a category
+/// are visibly the same place. It states what a player needs to choose between
+/// categories and nothing a table card will say better: what the tables are
+/// like (the blurb every one of its table cards carries), the stakes it runs
+/// from and to, how many tables it has, and how many of them this player's
+/// stack can sit at today. The whole card is the key.
 ///
-/// Only the seen table is pulled to the front. A variation table is filed with
-/// the joinable ones (or the shut ones, by the same [GameState.tableShut]), so
-/// it stands after the blind cards it follows on the server's menu.
-List<LobbyTable> _orderedTables(GameState state) {
-  final seen = <LobbyTable>[];
-  final open = <LobbyTable>[];
-  final shut = <LobbyTable>[];
-  for (final table in state.config.tables) {
-    if (table.category == TableCategory.seen) {
-      seen.add(table);
-    } else if (state.tableShut(table)) {
-      shut.add(table);
-    } else {
-      open.add(table);
-    }
+/// A category whose every table is shut to the player is NOT padlocked. Its
+/// tables are where the padlocks are, each saying what it would take to sit
+/// there; a locked category would hide exactly that.
+class _CategoryCard extends StatelessWidget {
+  const _CategoryCard({required this.category, required this.index});
+
+  final String category;
+
+  /// Where the card sits in the rail, which decides where its orb sits.
+  final int index;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final text = theme.textTheme;
+    final brightness = theme.brightness;
+    final glass = GlassColors.of(context);
+    final state = context.watch<GameState>();
+    final t = state.t;
+    final palette = _categoryPalette(theme.colorScheme, category);
+    final accent = palette.accent;
+
+    final tables = state.lobbyTablesIn(category);
+    final open = tables.where((table) => !state.tableShut(table)).length;
+    final boots = [for (final table in tables) table.bootAmount]..sort();
+    final bootRange = boots.isEmpty
+        ? '—'
+        : boots.first == boots.last
+        ? formatChips(boots.first)
+        : '${formatChips(boots.first)} – ${formatChips(boots.last)}';
+
+    Widget rule() => Padding(
+      padding: const EdgeInsets.symmetric(vertical: Space.xs),
+      child: Container(
+        height: Dim.hairline,
+        color: AppTheme.hairlineColour(brightness),
+      ),
+    );
+
+    return Padding(
+      padding: const EdgeInsets.only(right: Space.lg),
+      child: AspectRatio(
+        aspectRatio: 1,
+        child: Semantics(
+          button: true,
+          label: '${_categoryName(t, category)}. ${t.viewTables}',
+          child: _Pressable(
+            onTap: () {
+              tapHaptic(context);
+              context.read<GameState>().openLobbyCategory(category);
+            },
+            child: LayoutBuilder(
+              builder: (context, box) {
+                // The table card's own proportions, so the two kinds of card
+                // are one family. This column is shorter than that one — a
+                // name, a line, three facts against a badge, a stake, a line
+                // and three facts — so wherever a table card fits, this does.
+                final s = box.maxHeight;
+                final compact = s < 280;
+                final pad = compact ? Space.md : Space.lg;
+                final gap = (s * 0.038).clamp(8.0, 20.0);
+                final nameSize = (s * 0.115).clamp(22.0, 40.0);
+                final factH = (s * 0.072).clamp(17.0, 24.0);
+                final ctaH = (s * 0.125).clamp(28.0, 38.0);
+                final blurbSize = (s * 0.047).clamp(11.5, 15.0);
+
+                final colours = orbColours(accent);
+                final orb = _orbPlace(index, s);
+                final dark = brightness == Brightness.dark;
+                final panel = PremiumGlassPanel(
+                  mode: GlassMode.tinted,
+                  padding: EdgeInsets.zero,
+                  tint: Colors.white,
+                  behind: Stack(
+                    children: [
+                      Positioned.fromRect(
+                        rect: orb,
+                        child: GlassOrb(
+                          colours: colours,
+                          size: orb.width,
+                          soft: true,
+                          opacity: dark ? 0.62 : 0.46,
+                        ),
+                      ),
+                    ],
+                  ),
+                  child: Padding(
+                    padding: EdgeInsets.all(pad),
+                    child: LayoutBuilder(
+                      builder: (context, inner) => Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // Allowed the height the key leaves and no more, and
+                          // scaled down rather than overflowing past it — the
+                          // table card's own guard, for the same reason:
+                          // Devanagari stands taller than Latin.
+                          ConstrainedBox(
+                            constraints: BoxConstraints(
+                              maxHeight: math.max(0.0, inner.maxHeight - ctaH),
+                            ),
+                            child: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              alignment: Alignment.topLeft,
+                              child: SizedBox(
+                                width: inner.maxWidth,
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.center,
+                                      children: [
+                                        LivelyChipStack(
+                                          size: nameSize * 0.62,
+                                          colours: [accent, palette.rimLow],
+                                        ),
+                                        const SizedBox(width: Space.md),
+                                        Expanded(
+                                          child: FittedBox(
+                                            fit: BoxFit.scaleDown,
+                                            alignment: Alignment.centerLeft,
+                                            child: Text(
+                                              _categoryName(t, category),
+                                              maxLines: 1,
+                                              style: AppTheme.label(
+                                                text.displaySmall!,
+                                                colour: _goldInk(brightness),
+                                              ).copyWith(fontSize: nameSize),
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    SizedBox(height: gap),
+                                    Text(
+                                      _categoryBlurb(t, category),
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: text.bodySmall?.copyWith(
+                                        fontSize: blurbSize,
+                                        color: glass.textBody,
+                                      ),
+                                    ),
+                                    SizedBox(height: gap),
+                                    _CardFact(
+                                      icon: Icons.toll_rounded,
+                                      accent: accent,
+                                      label: t.boot,
+                                      value: bootRange,
+                                      height: factH,
+                                    ),
+                                    rule(),
+                                    _CardFact(
+                                      icon: Icons.table_restaurant_rounded,
+                                      accent: accent,
+                                      label: t.tablesLabel,
+                                      value: '${tables.length}',
+                                      height: factH,
+                                    ),
+                                    rule(),
+                                    _CardFact(
+                                      icon: Icons.lock_open_rounded,
+                                      accent: accent,
+                                      label: t.openToYouLabel,
+                                      value: '$open',
+                                      height: factH,
+                                      // Every table open is the good news.
+                                      highlight:
+                                          open > 0 && open == tables.length,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                          const Spacer(),
+                          _SitCapsule(
+                            label: t.viewTables,
+                            height: ctaH,
+                            enabled: true,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+
+                return Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    // The sharp orb, behind the card; its softened twin is in
+                    // the glass's `behind` slot at the same place.
+                    Positioned.fromRect(
+                      rect: orb,
+                      child: IgnorePointer(
+                        child: GlassOrb(
+                          colours: colours,
+                          size: orb.width,
+                          opacity: dark ? 1.0 : 0.9,
+                        ),
+                      ),
+                    ),
+                    panel,
+                  ],
+                );
+              },
+            ),
+          ),
+        ),
+      ),
+    );
   }
-  return [...seen, ...open, ...shut];
+}
+
+/// The way back from a category to the categories: a slim tile of the same
+/// glass at the head of that category's rail, in the category's colour, naming
+/// where the player is. The system Back key does the same (main.dart's
+/// `_BackGuard`).
+///
+/// A tile in the rail rather than a bar above it: the rail's height is what
+/// the square cards are cut from, and on a 360dp phone there is none to spare.
+class _BackTile extends StatelessWidget {
+  const _BackTile({required this.category});
+
+  final String category;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final text = theme.textTheme;
+    final glass = GlassColors.of(context);
+    final t = context.select<GameState, Strings>((s) => s.t);
+    final accent = _categoryPalette(theme.colorScheme, category).accent;
+
+    return Padding(
+      padding: const EdgeInsets.only(right: Space.lg),
+      child: LayoutBuilder(
+        builder: (context, box) {
+          // A quarter of a card, and never less than a finger and its margins.
+          final side = box.maxHeight;
+          final width = math.max(Dim.minTouch + Space.xl, side * 0.26);
+          final disc = math.min(width - Space.lg, 56.0);
+          return SizedBox(
+            width: width,
+            child: Semantics(
+              button: true,
+              label: t.backToCategories,
+              child: _Pressable(
+                onTap: () {
+                  tapHaptic(context);
+                  context.read<GameState>().closeLobbyCategory();
+                },
+                child: PremiumGlassPanel(
+                  mode: GlassMode.tinted,
+                  tint: Colors.white,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: Space.sm,
+                    vertical: Space.md,
+                  ),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Container(
+                        width: disc,
+                        height: disc,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: accent.withValues(alpha: 0.16),
+                          border: Border.all(
+                            color: accent.withValues(alpha: 0.55),
+                          ),
+                        ),
+                        child: Icon(
+                          Icons.arrow_back_rounded,
+                          size: disc * 0.5,
+                          color: glass.textDisplay,
+                        ),
+                      ),
+                      const SizedBox(height: Space.md),
+                      // Where the player is, which is also where Back leaves.
+                      FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text(
+                          _categoryName(t, category),
+                          maxLines: 1,
+                          style: AppTheme.label(
+                            text.labelLarge!,
+                            colour: accent,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: Space.xs),
+                      FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text(
+                          t.backToCategories,
+                          maxLines: 1,
+                          style: text.labelSmall?.copyWith(
+                            color: glass.textMuted,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
 }
 
 class _TableCard extends StatelessWidget {
@@ -1284,8 +1644,9 @@ class _TableCard extends StatelessWidget {
     final t = state.t;
     final blind = category == TableCategory.blind;
     // A third category, not "the one that is not blind": a variation table
-    // shows everyone's chips as a seen table does, but it is a card of its own
-    // with its own name and its own line about what happens there.
+    // bets as a seen table does and keeps stacks hidden as a blind one does
+    // (owner, 18 Sep 2026), and it is a card of its own with its own name and
+    // its own line about what happens there.
     final variation = category == TableCategory.variation;
     // Each table has a colour of its own — gold, sapphire, royal purple — and
     // the room the card leads to is painted in the same one.
@@ -1506,13 +1867,10 @@ class _TableCard extends StatelessWidget {
                                       // keeps the same rhythm down to its
                                       // key: a variation card says what makes
                                       // it different, in the stronger ink,
-                                      // and leaves the chips line to the seen
-                                      // card — chips are as visible here as
-                                      // there, and only a blind table has to
-                                      // say otherwise. With both lines the
-                                      // Entry row sat against the key, and the
-                                      // smallest phone scaled the whole column
-                                      // down to fit.
+                                      // rather than the chips line — with both
+                                      // lines the Entry row sat against the
+                                      // key, and the smallest phone scaled the
+                                      // whole column down to fit.
                                       Text(
                                         variation
                                             ? t.variationTableNote
@@ -1633,76 +1991,372 @@ class _TableCard extends StatelessWidget {
       ),
     );
 
-    if (!shut) return card;
+    // The info key rides over the card's top-right corner, above everything —
+    // the shut card's fade and its caption included, because a table a player
+    // is being kept out of is the one whose terms they most want to read.
+    Widget withInfo(Widget body) => Stack(
+      children: [
+        body,
+        Positioned(
+          top: Space.xs,
+          // Inside the card, which ends Space.lg short of its slot.
+          right: Space.lg + Space.xs,
+          // Two keys, one over the other, so each keeps a full 44dp target
+          // and neither reaches the badge: what the table IS, and how it
+          // PLAYS.
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _CardCornerKey(
+                icon: Icons.info_outline_rounded,
+                label: state.t.tableInfoTitle,
+                accent: accent,
+                onTap: () => _showTableInfo(
+                  context,
+                  table: table,
+                  entryValue: entryValue,
+                ),
+              ),
+              _CardCornerKey(
+                icon: Icons.menu_book_outlined,
+                label: state.t.tableRulesKey,
+                accent: accent,
+                onTap: () => showRules(context, table: table),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+
+    if (!shut) return withInfo(card);
 
     // Faded back and captioned. Translucent rather than opaque, so the stake is
     // still readable — a player should be able to see the table they are being
     // kept out of — and reserved rather than alarmed: being under the entry cap
     // is a rule of the room, not a mistake the player made.
-    return Stack(
-      children: [
-        Opacity(opacity: 0.42, child: card),
-        Positioned.fill(
-          child: Padding(
-            padding: const EdgeInsets.only(right: Space.lg),
-            child: Center(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: Space.lg),
-                child: PremiumGlassPanel(
-                  mode: GlassMode.tinted,
-                  radius: Radii.md,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: Space.lg,
-                    vertical: Space.md,
-                  ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        locked
-                            ? Icons.trending_up_rounded
-                            : Icons.lock_outline_rounded,
-                        size: 20,
-                        color: scheme.onSurface.withValues(
-                          alpha: AppTheme.inkMed,
-                        ),
-                      ),
-                      const SizedBox(height: Space.sm),
-                      Text(
-                        locked ? t.lockedTitle : t.cappedTitle,
-                        textAlign: TextAlign.center,
-                        style: AppTheme.label(text.titleSmall!),
-                      ),
-                      const SizedBox(height: Space.xs),
-                      Text(
-                        locked
-                            ? t.lockedBody.replaceFirst(
-                                '{min}',
-                                formatChips(table.minChips),
-                              )
-                            : t.cappedBody.replaceFirst(
-                                '{cap}',
-                                formatChips(
-                                  table.maxChips > 0
-                                      ? table.maxChips
-                                      : state.config.entryCapMaxChips,
-                                ),
-                              ),
-                        textAlign: TextAlign.center,
-                        style: text.bodySmall?.copyWith(
+    return withInfo(
+      Stack(
+        children: [
+          Opacity(opacity: 0.42, child: card),
+          Positioned.fill(
+            child: Padding(
+              padding: const EdgeInsets.only(right: Space.lg),
+              child: Center(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: Space.lg),
+                  child: PremiumGlassPanel(
+                    mode: GlassMode.tinted,
+                    radius: Radii.md,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: Space.lg,
+                      vertical: Space.md,
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          locked
+                              ? Icons.trending_up_rounded
+                              : Icons.lock_outline_rounded,
+                          size: 20,
                           color: scheme.onSurface.withValues(
                             alpha: AppTheme.inkMed,
                           ),
                         ),
-                      ),
-                    ],
+                        const SizedBox(height: Space.sm),
+                        Text(
+                          locked ? t.lockedTitle : t.cappedTitle,
+                          textAlign: TextAlign.center,
+                          style: AppTheme.label(text.titleSmall!),
+                        ),
+                        const SizedBox(height: Space.xs),
+                        Text(
+                          locked
+                              ? t.lockedBody.replaceFirst(
+                                  '{min}',
+                                  formatChips(table.minChips),
+                                )
+                              : t.cappedBody.replaceFirst(
+                                  '{cap}',
+                                  formatChips(
+                                    table.maxChips > 0
+                                        ? table.maxChips
+                                        : state.config.entryCapMaxChips,
+                                  ),
+                                ),
+                          textAlign: TextAlign.center,
+                          style: text.bodySmall?.copyWith(
+                            color: scheme.onSurface.withValues(
+                              alpha: AppTheme.inkMed,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
             ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+/// A key on a table card's top-right corner. There are two, one over the other
+/// (owner, 18 Sep 2026): **ⓘ** — "every table give an info icon on the right top
+/// side; on clicking it, it will open a pop up showing table info … it tells all
+/// info" — and the **rules** key under it — "one more icon on the card; clicking
+/// it shows the rules according to the table he selected".
+///
+/// Each is a key of its own inside a card that is itself one big key: the inner
+/// tap wins the gesture arena, so touching one opens its popup and never sits
+/// the player down. A full 44dp target around a small glyph.
+class _CardCornerKey extends StatelessWidget {
+  const _CardCornerKey({
+    required this.icon,
+    required this.label,
+    required this.accent,
+    required this.onTap,
+  });
+
+  final IconData icon;
+
+  /// What the key is called, for a screen reader and for tests.
+  final String label;
+  final Color accent;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final glass = GlassColors.of(context);
+    return Semantics(
+      button: true,
+      label: label,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () {
+          tapHaptic(context);
+          onTap();
+        },
+        child: SizedBox.square(
+          dimension: Dim.minTouch,
+          child: Center(
+            child: Container(
+              width: 26,
+              height: 26,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: accent.withValues(alpha: 0.14),
+                border: Border.all(color: accent.withValues(alpha: 0.55)),
+              ),
+              child: Icon(icon, size: 16, color: glass.textDisplay),
+            ),
+          ),
         ),
-      ],
+      ),
+    );
+  }
+}
+
+/// Everything the server says about one table, in a popup over the lobby.
+///
+/// Every figure is the menu's own ([LobbyTable], [GameConfig]) — the numbers
+/// the door enforces — so the popup cannot promise terms the table does not
+/// keep. It closes itself if the player is taken to a table while it is open
+/// (main.dart's `_TableRoutes` pops what was opened over a screen that went).
+Future<void> _showTableInfo(
+  BuildContext context, {
+  required LobbyTable table,
+  required String entryValue,
+}) {
+  return showDialog<void>(
+    context: context,
+    barrierColor: AppTheme.ink900.withValues(alpha: 0.55),
+    builder: (context) =>
+        _TableInfoDialog(table: table, entryValue: entryValue),
+  );
+}
+
+class _TableInfoDialog extends StatelessWidget {
+  const _TableInfoDialog({required this.table, required this.entryValue});
+
+  final LobbyTable table;
+  final String entryValue;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final text = theme.textTheme;
+    final glass = GlassColors.of(context);
+    final state = context.watch<GameState>();
+    final t = state.t;
+    final category = GameState.lobbyCategoryOf(table);
+    final palette = AppTheme.paletteFor(
+      theme.colorScheme,
+      category: table.category,
+      bootAmount: table.bootAmount,
+    );
+    final accent = palette.accent;
+    final chips = state.user?.chips ?? 0;
+    final shut = state.tableShut(table);
+    final players = state.config.maxPlayers == 0 ? 5 : state.config.maxPlayers;
+    final turnSeconds = (state.config.turnTimeoutMs / 1000).round();
+
+    // Only a seen table shows every stack; blind and variation keep them to
+    // their owners.
+    final chipsShown = category == TableCategory.seen
+        ? t.everyoneChips
+        : t.onlyYourChips;
+
+    // Whether this player can sit, and if not, what it would take.
+    final String standing;
+    if (!shut) {
+      standing = chips >= table.bootAmount ? t.canSitHere : '';
+    } else if (table.tooPoor(chips)) {
+      standing = t.lockedBody.replaceFirst(
+        '{min}',
+        formatChips(table.minChips),
+      );
+    } else {
+      standing = t.cappedBody.replaceFirst(
+        '{cap}',
+        formatChips(
+          table.maxChips > 0 ? table.maxChips : state.config.entryCapMaxChips,
+        ),
+      );
+    }
+
+    Widget fact(
+      IconData icon,
+      String label,
+      String value, {
+      bool bold = false,
+    }) => _CardFact(
+      icon: icon,
+      accent: accent,
+      label: label,
+      value: value,
+      height: 26,
+      highlight: bold,
+    );
+    Widget rule() => Padding(
+      padding: const EdgeInsets.symmetric(vertical: Space.xs),
+      child: Container(
+        height: Dim.hairline,
+        color: AppTheme.hairlineColour(theme.brightness),
+      ),
+    );
+
+    final facts = <Widget>[
+      fact(Icons.style_rounded, t.categoryLabel, _categoryName(t, category)),
+      fact(Icons.toll_rounded, t.boot, formatChips(table.bootAmount)),
+      fact(
+        Icons.account_balance_wallet_rounded,
+        t.entryLabel,
+        entryValue,
+        bold: table.minChips > 0,
+      ),
+      fact(
+        Icons.visibility_off_rounded,
+        t.maxBlindsLabel,
+        '${table.maxBlindMoves}',
+      ),
+      fact(
+        Icons.savings_rounded,
+        t.potLimitLabel,
+        table.potUncapped ? t.potUnlimited : formatChips(table.maxPot),
+        bold: table.potUncapped,
+      ),
+      fact(Icons.groups_rounded, t.playersLabel, t.playersUpTo(players)),
+      if (turnSeconds > 0)
+        fact(Icons.timer_outlined, t.turnTimeLabel, t.secondsEach(turnSeconds)),
+      fact(Icons.account_balance_rounded, t.yourChipsLabel, formatChips(chips)),
+    ];
+
+    return GlassDialog(
+      padding: const EdgeInsets.all(Space.xl),
+      maxWidth: 420,
+      title: Row(
+        children: [
+          Icon(Icons.info_outline_rounded, size: 20, color: accent),
+          const SizedBox(width: Space.md),
+          Expanded(
+            child: Text(
+              '${t.tableInfoTitle} · ${_categoryName(t, category)} '
+              '${formatChips(table.bootAmount)}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: AppTheme.label(text.titleMedium ?? const TextStyle()),
+            ),
+          ),
+          PressScale(
+            child: IconButton(
+              tooltip: t.close,
+              icon: const Icon(Icons.close_rounded, size: 20),
+              onPressed: () => Navigator.pop(context),
+              style: IconButton.styleFrom(
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                minimumSize: const Size.square(Dim.minTouch),
+              ),
+            ),
+          ),
+        ],
+      ),
+      content: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // What happens at this kind of table, then who sees whose chips.
+          if (category == TableCategory.variation) ...[
+            Text(
+              t.variationTableNote,
+              style: text.bodyMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+                color: glass.textDisplay,
+              ),
+            ),
+            const SizedBox(height: Space.xxs),
+          ],
+          Text(
+            chipsShown,
+            style: text.bodySmall?.copyWith(color: glass.textBody),
+          ),
+          const SizedBox(height: Space.md),
+          for (final (i, row) in facts.indexed) ...[if (i > 0) rule(), row],
+          if (standing.isNotEmpty) ...[
+            const SizedBox(height: Space.md),
+            PremiumGlassPanel(
+              mode: GlassMode.tinted,
+              radius: Radii.sm,
+              elevated: false,
+              padding: const EdgeInsets.all(Space.md),
+              child: Row(
+                children: [
+                  Icon(
+                    shut
+                        ? (table.tooPoor(chips)
+                              ? Icons.trending_up_rounded
+                              : Icons.lock_outline_rounded)
+                        : Icons.check_circle_outline_rounded,
+                    size: 18,
+                    color: shut ? glass.textMuted : accent,
+                  ),
+                  const SizedBox(width: Space.md),
+                  Expanded(
+                    child: Text(
+                      standing,
+                      style: text.bodySmall?.copyWith(color: glass.textBody),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
     );
   }
 }

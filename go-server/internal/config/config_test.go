@@ -50,8 +50,10 @@ func TestDefaultsMatchNode(t *testing.T) {
 			{Category: "blind", BootAmount: 5000, MaxChips: 50000000},
 			{Category: "blind", BootAmount: 50000, MaxChips: 1000000000},
 			{Category: "blind", BootAmount: 1000000, MinChips: 500000000},
-			// Variation Teen Patti (Go only; owner, 18 Sep 2026), last.
-			{Category: "variation", BootAmount: 200},
+			// Variation Teen Patti (Go only; owner, 18 Sep 2026), last: two
+			// tables, 50,000 and 10 Lakh, behind blind's bands for those stakes.
+			{Category: "variation", BootAmount: 50000, MaxChips: 1000000000},
+			{Category: "variation", BootAmount: 1000000, MinChips: 500000000},
 		},
 		"Game.MaxPlayers": 5, "Game.MinPlayers": 2, "Game.TurnTimeout": 25 * time.Second,
 		"Game.MaxBetRounds": 20, "Game.PotLimitMultiplier": int64(1024), "Game.MaxRaiseSteps": 8,
@@ -65,7 +67,9 @@ func TestDefaultsMatchNode(t *testing.T) {
 		"Game.NextHandDelay": 4 * time.Second, "Game.MissileRevealExtra": 3 * time.Second, "Game.ConsolidateInterval": 15 * time.Second,
 		// The variation window is the SERVER's clock: ten seconds, then Muflis.
 		"Game.VariationSelectTimeout": 10 * time.Second,
-		"Game.ReconnectGrace":         60 * time.Second, "Game.ResumeOffer": 10 * time.Minute,
+		// A variation table has no pot limit (owner, 18 Sep 2026).
+		"Game.VariationMaxPotBoots": int64(0),
+		"Game.ReconnectGrace":       60 * time.Second, "Game.ResumeOffer": 10 * time.Minute,
 		"Metrics.Enabled": true, "Metrics.Path": "/metrics", "Metrics.Prefix": "game_server_", "Metrics.Token": "",
 		"Chat.MaxHistory": 100, "Chat.MaxLength": 140, "Chat.RateLimit": 5, "Chat.RateWindow": 5 * time.Second,
 		"LogLevel": "info", "PublicDir": "./public", "RedisURL": "",
@@ -369,9 +373,16 @@ func TestTableRules(t *testing.T) {
 		{"private seen ignores the asked boot", "seen", 5000, true, TableRules{200, 2, 7, 1024, 500000}},
 		{"private blind", "blind", 5000, true, TableRules{200, 2, 0, 0, 500000}},
 		{"unknown category is seen", "BLIND", 200, false, TableRules{200, 2, 7, 1024, 2000000}},
-		// A variation table bets exactly as a seen one: there are no
-		// VARIATION_* rule keys, the SEEN_* ones are its rules.
-		{"public variation", "variation", 200, false, TableRules{200, 2, 7, 1024, 2000000}},
+		// A variation table bets exactly as a seen one — the SEEN_* ladder and
+		// rounds are its rules — except that it has NO pot limit (owner, 18 Sep
+		// 2026: "in all variation tables, do not keep any pot limit").
+		{"public variation", "variation", 200, false, TableRules{200, 2, 7, 1024, 0}},
+		{"public variation 5,000", "variation", 5000, false, TableRules{5000, 2, 7, 1024, 0}},
+		{"public variation 50,000", "variation", 50000, false, TableRules{50000, 2, 7, 1024, 0}},
+		{"public variation 10 Lakh", "variation", 1000000, false, TableRules{1000000, 2, 7, 1024, 0}},
+		{"variation at the default boot", "variation", 0, false, TableRules{200, 2, 7, 1024, 0}},
+		// A seen table keeps its fixed cap at any boot: only variation differs.
+		{"public seen 5,000", "seen", 5000, false, TableRules{5000, 2, 7, 1024, 2000000}},
 		{"private variation", "variation", 5000, true, TableRules{200, 2, 7, 1024, 500000}},
 		{"a near miss of variation is seen", "Variation", 200, false, TableRules{200, 2, 7, 1024, 2000000}},
 		{"zero boot is the default", "seen", 0, false, TableRules{200, 2, 7, 1024, 2000000}},
@@ -396,8 +407,92 @@ func TestTableRules(t *testing.T) {
 	}
 	// The cap the lobby ADVERTISES for a variation entry is the cap TableRules
 	// GIVES its tables: fix one without the other and the card lies.
-	if g.MenuMaxPot("seen") != 2000000 || g.MenuMaxPot("blind") != 0 || g.MenuMaxPot("variation") != g.TableRules("variation", 200, false).MaxPot {
-		t.Error("MenuMaxPot")
+	if g.MenuMaxPot("seen", 200) != 2000000 || g.MenuMaxPot("blind", 5000) != 0 {
+		t.Error("MenuMaxPot: seen and blind")
+	}
+	for _, boot := range []int64{0, 200, 5000, 50000, 1000000} {
+		if got, want := g.MenuMaxPot("variation", boot), g.TableRules("variation", boot, false).MaxPot; got != want || got != 0 {
+			t.Errorf("MenuMaxPot(variation, %d) = %d, the table gets %d; both should be uncapped", boot, got, want)
+		}
+	}
+	// And where a deployment does set a cap, the card still says what the table gets.
+	capped := mustLoad(t, map[string]string{"VARIATION_MAX_POT_BOOTS": "10000"}).Game
+	for _, boot := range []int64{0, 200, 5000, 50000, 1000000} {
+		if got, want := capped.MenuMaxPot("variation", boot), capped.TableRules("variation", boot, false).MaxPot; got != want || got == 0 {
+			t.Errorf("capped: MenuMaxPot(variation, %d) = %d, the table gets %d", boot, got, want)
+		}
+	}
+}
+
+// TestAVariationTableHasNoPotLimitAndACapIsCountedInBoots: by default no
+// variation table is capped (owner, 18 Sep 2026). Where a deployment sets
+// VARIATION_MAX_POT_BOOTS the cap is a count of THAT table's boots, because one
+// fixed figure cannot fit four stakes — the seen table's 20 Lakh is two boots at
+// the 10 Lakh table, and every hand there would end at the deal.
+func TestAVariationTableHasNoPotLimitAndACapIsCountedInBoots(t *testing.T) {
+	g := mustLoad(t, nil).Game
+	for _, entry := range g.LobbyTables {
+		if entry.Category != "variation" {
+			continue
+		}
+		if maxPot := g.TableRules(entry.Category, entry.BootAmount, false).MaxPot; maxPot != 0 {
+			t.Errorf("variation %d: pot capped at %d, want no limit", entry.BootAmount, maxPot)
+		}
+	}
+	counted := mustLoad(t, map[string]string{"VARIATION_MAX_POT_BOOTS": "10000"}).Game
+	for _, entry := range counted.LobbyTables {
+		if entry.Category != "variation" {
+			continue
+		}
+		if maxPot := counted.TableRules(entry.Category, entry.BootAmount, false).MaxPot; maxPot != entry.BootAmount*10000 {
+			t.Errorf("variation %d: cap %d, want 10000 boots", entry.BootAmount, maxPot)
+		}
+	}
+
+	// 0, the default, lifts the cap, as SEEN_MAX_POT=0 does for a seen table.
+	uncapped := mustLoad(t, map[string]string{"VARIATION_MAX_POT_BOOTS": "0"}).Game
+	if got := uncapped.TableRules("variation", 1000000, false).MaxPot; got != 0 {
+		t.Errorf("VARIATION_MAX_POT_BOOTS=0: cap %d, want uncapped", got)
+	}
+	if got := uncapped.MenuMaxPot("variation", 1000000); got != 0 {
+		t.Errorf("VARIATION_MAX_POT_BOOTS=0: the card advertises %d", got)
+	}
+	// It moves the variation cap and nothing else.
+	custom := mustLoad(t, map[string]string{"VARIATION_MAX_POT_BOOTS": "500"}).Game
+	if got := custom.TableRules("variation", 5000, false).MaxPot; got != 2500000 {
+		t.Errorf("500 boots of 5000 = %d", got)
+	}
+	if got := custom.TableRules("seen", 200, false).MaxPot; got != 2000000 {
+		t.Errorf("the seen cap moved with it: %d", got)
+	}
+	if got := custom.TableRules("variation", 200, true).MaxPot; got != 500000 {
+		t.Errorf("a private variation table keeps PRIVATE_MAX_POT, got %d", got)
+	}
+}
+
+// TestAVariationPotCapThatOverflowsStopsTheBoot: a product past int64 would
+// wrap into a tiny or negative cap, so it is refused at load with the key named.
+func TestAVariationPotCapThatOverflowsStopsTheBoot(t *testing.T) {
+	for _, vars := range []map[string]string{
+		{"VARIATION_MAX_POT_BOOTS": "9223372036854775807"},
+		{"VARIATION_MAX_POT_BOOTS": "-1"},
+	} {
+		_, err := FromEnv(env(vars))
+		if err == nil || !strings.Contains(err.Error(), "VARIATION_MAX_POT_BOOTS") {
+			t.Errorf("%v: err = %v, want a refusal naming the key", vars, err)
+		}
+	}
+	// A huge figure is fine where no variation table can overflow it …
+	if _, err := FromEnv(env(map[string]string{
+		"VARIATION_MAX_POT_BOOTS": "9223372036854775807", "LOBBY_TABLES": "seen:200,blind:200",
+	})); err != nil {
+		t.Errorf("no variation table on the menu: %v", err)
+	}
+	// … and a boot off the menu answers uncapped rather than a wrapped cap.
+	g := Defaults().Game
+	g.VariationMaxPotBoots = 9223372036854775807
+	if got := g.VariationMaxPot(1000000); got != 0 {
+		t.Errorf("an overflowing cap came back as %d", got)
 	}
 }
 
@@ -424,19 +519,23 @@ func TestPublicGameConfigValues(t *testing.T) {
 		{Category: "blind", BootAmount: 5000, MaxChips: 50000000},
 		{Category: "blind", BootAmount: 50000, MaxChips: 1000000000},
 		{Category: "blind", BootAmount: 1000000, MinChips: 500000000},
-		{Category: "variation", BootAmount: 200},
+		// Variation keeps two tables only (owner, 18 Sep 2026), behind the
+		// bands blind's tables of the same stakes have.
+		{Category: "variation", BootAmount: 50000, MaxChips: 1000000000},
+		{Category: "variation", BootAmount: 1000000, MinChips: 500000000},
 	}
 	if !reflect.DeepEqual(g.LobbyTables, menu) {
 		t.Errorf("menu %v", g.LobbyTables)
 	}
 	for i, entry := range g.LobbyTables {
-		// Capped: the seen table, and the variation table, which bets as one.
+		// Capped: the seen table alone, at its fixed 20 Lakh. Blind tables
+		// never were, and variation tables are not (owner, 18 Sep 2026).
 		wantPot := int64(0)
-		if entry.Category == "seen" || entry.Category == "variation" {
+		if entry.Category == "seen" {
 			wantPot = 2000000
 		}
-		if g.MenuMaxPot(entry.Category) != wantPot {
-			t.Errorf("tables[%d].maxPot = %d, want %d", i, g.MenuMaxPot(entry.Category), wantPot)
+		if got := g.MenuMaxPot(entry.Category, entry.BootAmount); got != wantPot {
+			t.Errorf("tables[%d].maxPot = %d, want %d", i, got, wantPot)
 		}
 	}
 }
