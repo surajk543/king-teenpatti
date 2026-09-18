@@ -16,7 +16,7 @@
  *
  * Flags: --count N  --boot N  --category seen|blind|variation  --url URL
  *        --offset N  --churn SECONDS
- *        --variation MUFLIS|AK47|JOKER|HUKAM|LOWEST_JOKER|HIGHEST_JOKER|random|none
+ *        --variation MUFLIS|AK47|JOKER|HUKAM|LOWEST_JOKER|HIGHEST_JOKER|FIVE_CARD|random|none
  *          what a bot picks when IT opens a hand at a variation table
  *          (default random; none never answers, so the server's timeout and
  *          its MUFLIS default can be watched). Ignored at seen and blind tables.
@@ -40,11 +40,16 @@ const BOOT = Number.parseInt(args.boot ?? '200', 10);
  */
 const CATEGORY = ['blind', 'variation'].includes(args.category) ? args.category : 'seen';
 
-/** The six canonical wire values. The server matches them exactly — no case folding. */
-const VARIATIONS = ['MUFLIS', 'AK47', 'JOKER', 'HUKAM', 'LOWEST_JOKER', 'HIGHEST_JOKER'];
+/**
+ * The seven canonical wire values, FIVE_CARD last as on the server's menu. The
+ * server matches them exactly — no case folding. Under FIVE_CARD the server
+ * tops every hand up to five cards and plays the best three itself; a bot never
+ * reads its cards to decide a move, so choosing it is all a bot has to know.
+ */
+const VARIATIONS = ['MUFLIS', 'AK47', 'JOKER', 'HUKAM', 'LOWEST_JOKER', 'HIGHEST_JOKER', 'FIVE_CARD'];
 /**
  * What a bot answers when it is the chooser at a variation table: one of the
- * six, "random" (a fresh pick every hand, the default), or "none" — never
+ * seven, "random" (a fresh pick every hand from the options the server sent, the default), or "none" — never
  * answer, so the server's window runs out and its MUFLIS default can be
  * watched. A misspelt value stops the run here rather than quietly becoming
  * ten-second timeouts at the table.
@@ -222,7 +227,7 @@ async function startBot(index) {
     }
     const options = variation.options?.length ? variation.options : VARIATIONS;
     const pick = VARIATION === 'random' ? options[Math.floor(Math.random() * options.length)] : VARIATION;
-    // A person reads six names before tapping one: one to three seconds.
+    // A person reads seven names before tapping one: one to three seconds.
     setTimeout(() => {
       socket.emit('game:selectVariation', { variation: pick }, (ack) => {
         if (ack?.ok) console.log(`${name} picked ${ack.variation}`);

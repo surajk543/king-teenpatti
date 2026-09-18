@@ -9,6 +9,7 @@ import 'package:teenpatti/l10n/strings.dart';
 import 'package:teenpatti/models/dtos.dart';
 import 'package:teenpatti/state/game_state.dart';
 import 'package:teenpatti/theme/app_theme.dart';
+import 'package:teenpatti/widgets/playing_card.dart';
 import 'package:teenpatti/widgets/premium_surface.dart';
 import 'package:teenpatti/widgets/rules_sheet.dart';
 import 'package:teenpatti/widgets/variation_prompt.dart';
@@ -71,8 +72,8 @@ void main() {
   ]) {
     for (final lang in AppLang.values) {
       testWidgets('at ${screen.width.toInt()}x${screen.height.toInt()} x$scale '
-          'in ${lang.englishName} the rules name and explain all six '
-          'variations', (tester) async {
+          'in ${lang.englishName} the rules name and explain every '
+          'variation', (tester) async {
         final state = _state(lang);
         final t = Strings(lang);
         await _openRules(tester, state, screen: screen, textScale: scale);
@@ -103,10 +104,7 @@ void main() {
 
         // It scrolls into view with nothing striped.
         await tester.ensureVisible(
-          find.text(
-            t.variationName(Variation.highestJoker),
-            skipOffstage: false,
-          ),
+          find.text(t.variationName(Variation.fiveCard), skipOffstage: false),
         );
         await tester.pump(const Duration(milliseconds: 300));
         expect(tester.takeException(), isNull);
@@ -129,6 +127,38 @@ void main() {
     // AK47, Joker, Hukam, Lowest Joker, Highest Joker: one wild card each.
     // Muflis has none, and nor has any hand in the rankings above.
     expect(edged, 5);
+    await tester.pumpWidget(const SizedBox.shrink());
+    state.dispose();
+  });
+
+  testWidgets('the 5-Card example holds five cards, and the two that do not '
+      'count are set back', (tester) async {
+    final state = _state(AppLang.english);
+    await _openRules(tester, state, screen: const Size(640, 360));
+    expect(tester.takeException(), isNull);
+    final setBack = tester
+        .widgetList<SetBack>(find.byType(SetBack, skipOffstage: false))
+        .where((w) => w.setBack)
+        .toList();
+    expect(setBack, hasLength(2));
+    final codes = [
+      for (final w in setBack)
+        tester
+            .widget<PlayingCard>(
+              find.descendant(
+                of: find.byWidget(w, skipOffstage: false),
+                matching: find.byType(PlayingCard, skipOffstage: false),
+              ),
+            )
+            .code,
+    ];
+    expect(codes, ['7d', '7c']);
+    // The row scrolls into view with nothing striped, on the tightest screen.
+    await tester.ensureVisible(
+      find.text(state.t.variationName(Variation.fiveCard), skipOffstage: false),
+    );
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
     state.dispose();
   });

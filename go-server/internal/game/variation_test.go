@@ -1,7 +1,10 @@
 package game
 
 import (
+	"math/rand"
 	"reflect"
+	"sort"
+	"strings"
 	"testing"
 )
 
@@ -17,21 +20,30 @@ func wins(r VariationRules, a, b []Card) bool {
 
 // ------------------------------------------------------------ the allowlist
 
-func TestOnlyTheSixCanonicalVariationsParse(t *testing.T) {
+func TestOnlyTheSevenCanonicalVariationsParse(t *testing.T) {
 	for _, v := range Variations {
 		got, ok := ParseVariation(string(v))
 		if !ok || got != v {
 			t.Errorf("ParseVariation(%q) = %q, %v; want it accepted", v, got, ok)
 		}
 	}
-	if len(Variations) != 6 {
-		t.Fatalf("the menu has %d variations, want 6", len(Variations))
+	if len(Variations) != 7 {
+		t.Fatalf("the menu has %d variations, want 7", len(Variations))
+	}
+	// 5-Card Teen Patti was ADDED to the end: the six before it keep their
+	// places, so an older client's menu is a prefix of this one.
+	want := []Variation{"MUFLIS", "AK47", "JOKER", "HUKAM", "LOWEST_JOKER", "HIGHEST_JOKER", "FIVE_CARD"}
+	for i, v := range want {
+		if Variations[i] != v {
+			t.Fatalf("menu[%d] = %s, want %s", i, Variations[i], v)
+		}
 	}
 	// One canonical spelling. Everything else is refused rather than understood.
 	for _, raw := range []string{
 		"", " ", "muflis", "Muflis", "MUFLIS ", " MUFLIS", "ak47", "Ak47",
 		"LOWEST JOKER", "Lowest Joker", "Lowest Joke", "LowestJoker", "lowest_joker",
 		"HIGHESTJOKER", "JOKERS", "CLASSIC", "null", "undefined", "0", "MUFLIS\x00",
+		"5-Card Teen Patti", "5_CARD", "FIVECARD", "five_card", "FIVE CARD", "FIVE_CARDS",
 	} {
 		if got, ok := ParseVariation(raw); ok {
 			t.Errorf("ParseVariation(%q) accepted it as %q", raw, got)
@@ -371,6 +383,182 @@ func TestEvaluationIsDeterministic(t *testing.T) {
 	for i := 0; i < 20; i++ {
 		if got := EvaluateAK47(cards); !reflect.DeepEqual(got, first) {
 			t.Fatalf("run %d gave %+v, first gave %+v", i, got, first)
+		}
+	}
+}
+
+// ----------------------------------------------------- 5-Card Teen Patti
+//
+// Owner, 18 Sep 2026: every player holds five cards and plays the best three of
+// them, which the SERVER finds — "bestHand = max(all 10 threeCardCombinations)"
+// by the existing ranking, never a second one.
+
+func TestFiveCardIsTheOnlyVariationThatHoldsFiveCards(t *testing.T) {
+	for _, v := range Variations {
+		want := 3
+		if v == VariationFiveCard {
+			want = 5
+		}
+		if got := v.CardsPerPlayer(); got != want {
+			t.Errorf("%s holds %d cards, want %d", v, got, want)
+		}
+	}
+	if Variation("").CardsPerPlayer() != 3 || Variation("NOPE").CardsPerPlayer() != 3 {
+		t.Error("a hand with no variation holds three")
+	}
+	if VariationFiveCard.UsesTurnUp() {
+		t.Error("5-Card is not decided by the turned-up card")
+	}
+}
+
+func TestFiveCardsMakeExactlyTenUniqueThreeCardCombinations(t *testing.T) {
+	hand := cardsOf("As", "Ks", "Qs", "7d", "7c")
+	combos := ThreeCardCombinations(hand)
+	if len(combos) != 10 {
+		t.Fatalf("%d combinations, want C(5,3) = 10", len(combos))
+	}
+	seen := map[string]bool{}
+	for _, c := range combos {
+		if len(c) != 3 {
+			t.Fatalf("a combination of %d cards", len(c))
+		}
+		if c[0] == c[1] || c[1] == c[2] || c[0] == c[2] {
+			t.Fatalf("a combination repeats a card: %v", CardCodes(c))
+		}
+		codes := CardCodes(c)
+		sort.Strings(codes)
+		key := strings.Join(codes, " ")
+		if seen[key] {
+			t.Fatalf("combination %s twice", key)
+		}
+		seen[key] = true
+	}
+	if n := len(ThreeCardCombinations(cardsOf("As", "Ks", "Qs"))); n != 1 {
+		t.Fatalf("three cards make %d combinations, want 1", n)
+	}
+}
+
+func TestFiveCardPlaysTheBestThreeOfTheFive(t *testing.T) {
+	for _, tc := range []struct {
+		why   string
+		cards []string
+		name  string
+		best  []string
+	}{
+		// The brief's own examples.
+		{"a pure sequence beats the pair beside it", []string{"As", "Ks", "Qs", "7d", "7c"}, "Pure Sequence", []string{"As", "Ks", "Qs"}},
+		{"a trail", []string{"7s", "7h", "7d", "Kc", "2s"}, "Trail", []string{"7s", "7h", "7d"}},
+		{"a pair, with the best kicker there is", []string{"As", "Ah", "Kd", "8c", "3s"}, "Pair", []string{"As", "Ah", "Kd"}},
+		{"a sequence — and the highest of the two on offer (A-K-Q, not K-Q-J)", []string{"As", "Kh", "Qd", "Jc", "3s"}, "Sequence", []string{"As", "Kh", "Qd"}},
+		// The strongest three are NOT the first three dealt.
+		{"the trail is the last three", []string{"2c", "9d", "5h", "5s", "5d"}, "Trail", []string{"5h", "5s", "5d"}},
+		{"the pure sequence is cards 1, 3 and 5", []string{"9h", "2c", "8h", "Kd", "7h"}, "Pure Sequence", []string{"9h", "8h", "7h"}},
+		{"the colour skips the second and fourth", []string{"Ad", "2s", "9d", "Kc", "4d"}, "Color", []string{"Ad", "9d", "4d"}},
+		// Two possible pairs: the higher pair, then the highest kicker left.
+		{"two pairs on offer", []string{"9s", "9h", "Kd", "Kc", "3s"}, "Pair", []string{"9s", "Kd", "Kc"}},
+		// Several colours: five of one suit, the three highest of them.
+		{"five of a suit", []string{"2h", "Jh", "5h", "Kh", "8h"}, "Color", []string{"Jh", "Kh", "8h"}},
+		// A sequence and a colour both possible: sequence ranks higher.
+		{"sequence over colour", []string{"4s", "5d", "6s", "Js", "2c"}, "Sequence", []string{"4s", "5d", "6s"}},
+		// Nothing at all: the three highest cards.
+		{"high card", []string{"2c", "9d", "5h", "Ks", "7d"}, "High Card", []string{"9d", "Ks", "7d"}},
+		// A-2-3 is a run (second only to A-K-Q), found among five.
+		{"ace low run", []string{"Ah", "9c", "2d", "Kc", "3s"}, "Sequence", []string{"Ah", "2d", "3s"}},
+	} {
+		hand := EvaluateBest(cardsOf(tc.cards...))
+		if hand.Name != tc.name {
+			t.Errorf("%s: %v is a %s, want %s", tc.why, tc.cards, hand.Name, tc.name)
+		}
+		if strings.Join(hand.Best, " ") != strings.Join(tc.best, " ") {
+			t.Errorf("%s: best three %v, want %v", tc.why, hand.Best, tc.best)
+		}
+		// The player's real hand is kept whole, in the order it was held.
+		if strings.Join(hand.Cards, " ") != strings.Join(tc.cards, " ") {
+			t.Errorf("%s: cards %v, want all five as dealt", tc.why, hand.Cards)
+		}
+		if len(hand.Wild) != 0 || len(hand.PlaysAs) != 0 {
+			t.Errorf("%s: 5-Card has no wild card, got wild %v", tc.why, hand.Wild)
+		}
+		// Through the rules, as the table calls it.
+		if via := RulesFor(VariationFiveCard, Card{}).EvaluateHand(cardsOf(tc.cards...)); via.Name != tc.name {
+			t.Errorf("%s: through VariationRules it is a %s", tc.why, via.Name)
+		}
+	}
+}
+
+// The heart of it: the best of five is EXACTLY the best of its ten three-card
+// hands by the one classic ranking — checked against that definition, written
+// out the long way, on thousands of random hands.
+func TestEvaluateBestIsTheMaximumOfTheTenClassicHands(t *testing.T) {
+	deck := NewDeck()
+	rng := rand.New(rand.NewSource(20260918))
+	for n := 0; n < 5000; n++ {
+		rng.Shuffle(len(deck), func(i, j int) { deck[i], deck[j] = deck[j], deck[i] })
+		hand := append([]Card(nil), deck[:5]...)
+		got := EvaluateBest(hand)
+
+		var want EvaluatedHand
+		for i, combo := range ThreeCardCombinations(hand) {
+			scored := Evaluate(combo, EvaluateOptions{})
+			if i == 0 || Compare(scored, want) > 0 {
+				want = scored
+			}
+		}
+		if Compare(got, want) != 0 || got.Name != want.Name {
+			t.Fatalf("%v: EvaluateBest says %s %v, the ten hands' best is %s %v", CardCodes(hand), got.Name, got.Score, want.Name, want.Score)
+		}
+		// The three it names really are three of the five, and really are that hand.
+		if len(got.Best) != 3 {
+			t.Fatalf("%v: best = %v", CardCodes(hand), got.Best)
+		}
+		held := map[string]bool{}
+		for _, c := range hand {
+			held[c.Code()] = true
+		}
+		for _, code := range got.Best {
+			if !held[code] {
+				t.Fatalf("%v: best names %s, which is not in the hand", CardCodes(hand), code)
+			}
+		}
+		if again := Evaluate(ParseCards(got.Best), EvaluateOptions{}); Compare(again, got) != 0 {
+			t.Fatalf("%v: the named three %v score %v, the hand %v", CardCodes(hand), got.Best, again.Score, got.Score)
+		}
+		// Order of the five does not change what they are worth.
+		rng.Shuffle(len(hand), func(i, j int) { hand[i], hand[j] = hand[j], hand[i] })
+		if Compare(EvaluateBest(hand), got) != 0 {
+			t.Fatalf("%v: a different order of the same five scored differently", CardCodes(hand))
+		}
+	}
+}
+
+func TestFiveCardWinnersAreComparedOnTheirBestThree(t *testing.T) {
+	rules := RulesFor(VariationFiveCard, Card{})
+	// B's first three cards are rubbish and A's are a pair — but B holds a
+	// trail further along, and that is the hand B plays.
+	a := cardsOf("Qs", "Qh", "4d", "9c", "2s")
+	b := cardsOf("2c", "9d", "5h", "5s", "5d")
+	if !wins(rules, b, a) {
+		t.Fatal("a trail found among five should beat a pair")
+	}
+	// Equal-strength best hands are an exact tie, whatever else is held: the
+	// two cards that are not played break nothing.
+	c := cardsOf("As", "Kd", "9h", "4c", "6d")
+	d := cardsOf("Ah", "Kc", "9s", "5d", "2c")
+	if got := rules.CompareHands(rules.EvaluateHand(c), rules.EvaluateHand(d)); got != 0 {
+		t.Fatalf("A-K-9 against A-K-9 should tie, got %d", got)
+	}
+	// It is classic Teen Patti, not Muflis: the higher hand wins.
+	if wins(rules, cardsOf("2c", "3d", "5h", "7s", "8d"), cardsOf("Ac", "Ad", "5s", "7h", "8c")) {
+		t.Fatal("a high-card hand beat a pair of aces under 5-Card")
+	}
+}
+
+func TestAThreeCardHandIsEvaluatedAsItAlwaysWas(t *testing.T) {
+	for _, codes := range [][]string{{"As", "Ks", "Qs"}, {"7s", "7h", "2d"}, {"2c", "9d", "5h"}} {
+		classic := Evaluate(cardsOf(codes...), EvaluateOptions{})
+		best := EvaluateBest(cardsOf(codes...))
+		if Compare(classic, best) != 0 || best.Name != classic.Name || best.Best != nil {
+			t.Errorf("%v: EvaluateBest %+v differs from Evaluate %+v", codes, best, classic)
 		}
 	}
 }

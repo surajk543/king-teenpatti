@@ -14,6 +14,13 @@ int _int(dynamic v) => v is num ? v.toInt() : 0;
 int? _intOrNull(dynamic v) => v is num ? v.toInt() : null;
 String _str(dynamic v) => v is String ? v : '';
 
+/// A list of card codes off the wire ("As", "Td"), tolerant as every DTO here:
+/// anything that is not a list reads as empty, and anything in it that is not
+/// a usable code is dropped rather than drawn as a broken card.
+List<String> cardCodes(Object? raw) => raw is List
+    ? raw.whereType<String>().where((e) => e.length >= 2).toList()
+    : const [];
+
 class SeatState {
   static const empty = 'empty';
   static const waiting = 'waiting';
@@ -41,7 +48,7 @@ class TableCategory {
   static const variation = 'variation';
 }
 
-/// The six rule sets a variation table's hand can be played under.
+/// The seven rule sets a variation table's hand can be played under.
 ///
 /// These are the server's wire values and they are matched EXACTLY — the
 /// server refuses `muflis`, `Lowest Joker` and every other near miss as
@@ -56,8 +63,25 @@ class Variation {
   static const lowestJoker = 'LOWEST_JOKER';
   static const highestJoker = 'HIGHEST_JOKER';
 
+  /// 5-Card Teen Patti (owner, 18 Sep 2026): every player holds FIVE cards and
+  /// plays the best three of them. The SERVER finds those three — the strongest
+  /// of the ten three-card hands the five hold, by the ordinary ranking — and
+  /// names them in `best`; the player never picks, and the client never decides
+  /// how many cards anybody holds ([VariationState.cardsPerPlayer]).
+  static const fiveCard = 'FIVE_CARD';
+
   /// The menu in the server's order, for a snapshot that carries no options.
-  static const all = [muflis, ak47, joker, hukam, lowestJoker, highestJoker];
+  /// [fiveCard] is last, as the server lists it, so the six older keys keep
+  /// their places on the picker.
+  static const all = [
+    muflis,
+    ak47,
+    joker,
+    hukam,
+    lowestJoker,
+    highestJoker,
+    fiveCard,
+  ];
 
   /// Whether the variation is decided by the card turned up from the deck.
   static bool usesTurnUp(String? v) => v == joker || v == hukam;
@@ -684,7 +708,17 @@ class VariationState {
     required this.selected,
     required this.selectedBy,
     required this.turnUp,
+    this.cardsPerPlayer = 3,
   });
+
+  /// How many cards each player in the hand holds: 3 while the window is open
+  /// and under the six older variations, 5 once [Variation.fiveCard] has been
+  /// chosen — every hand is dealt three and the server tops each up to five at
+  /// that moment. It is the server's figure and the only one the table draws
+  /// face-down cards from; a server that predates it sends nothing, which reads
+  /// as three. Held to 3..5 so a nonsense value can never draw a fan the felt
+  /// has no room for.
+  final int cardsPerPlayer;
 
   /// True while the window is open.
   final bool selecting;
@@ -749,8 +783,15 @@ class VariationState {
       selected: j['selected'] is String ? j['selected'] as String : null,
       selectedBy: j['selectedBy'] is String ? j['selectedBy'] as String : null,
       turnUp: j['turnUp'] is String ? j['turnUp'] as String : null,
+      cardsPerPlayer: _cardsPerPlayer(j['cardsPerPlayer']),
     );
   }
+
+  /// Absent, not a number, or out of range → the nearest sane figure. Read
+  /// from the raw value rather than through `_int`, whose 0 for "absent" would
+  /// be indistinguishable from a server that really said 0.
+  static int _cardsPerPlayer(Object? raw) =>
+      raw is num && raw.isFinite ? raw.toInt().clamp(3, 5) : 3;
 }
 
 /// One hand in a sideshow reveal. Only ever sent to the two players involved.
@@ -761,6 +802,7 @@ class SideshowHand {
     required this.cards,
     required this.handName,
     this.wild = const [],
+    this.best = const [],
   });
 
   final String userId;
@@ -773,12 +815,17 @@ class SideshowHand {
   /// them, so it can differ from what the bare cards would be.
   final List<String> wild;
 
+  /// The three of [cards] that were counted, under 5-Card only (where [cards]
+  /// holds five). Empty everywhere else.
+  final List<String> best;
+
   factory SideshowHand.fromJson(Map<String, dynamic> j) => SideshowHand(
     userId: _str(j['userId']),
     displayName: _str(j['displayName']),
     cards: (j['cards'] as List? ?? const []).map((e) => '$e').toList(),
     handName: _str(j['handName']),
     wild: (j['wild'] as List? ?? const []).map((e) => '$e').toList(),
+    best: cardCodes(j['best']),
   );
 }
 
@@ -857,7 +904,14 @@ class OwnHand {
     required this.handName,
     required this.wild,
     required this.playsAs,
+    this.best = const [],
   });
+
+  /// The codes of the `you.cards` that are COUNTED, in the order held: all
+  /// three of a three-card hand, the best three of five under 5-Card. The
+  /// server chooses them; the table only lifts them. Empty from a server that
+  /// predates it, which draws the hand with nothing singled out.
+  final List<String> best;
 
   /// What the hand made, wild cards included: "Sequence". English, like every
   /// hand name on the wire.
@@ -881,13 +935,11 @@ class OwnHand {
 
   /// Tolerant, like every DTO here: anything unusable reads as "nothing wild".
   factory OwnHand.fromJson(Map<String, dynamic> j) {
-    List<String> codes(Object? raw) => raw is List
-        ? raw.whereType<String>().where((e) => e.length >= 2).toList()
-        : const [];
     return OwnHand(
       handName: _str(j['handName']),
-      wild: codes(j['wild']),
-      playsAs: codes(j['playsAs']),
+      wild: cardCodes(j['wild']),
+      playsAs: cardCodes(j['playsAs']),
+      best: cardCodes(j['best']),
     );
   }
 }
@@ -1092,6 +1144,7 @@ class Reveal {
     required this.handName,
     required this.won,
     this.wild = const [],
+    this.best = const [],
   });
 
   final String userId;
@@ -1103,6 +1156,10 @@ class Reveal {
   /// Which of [cards] played as wild cards (see [SideshowHand.wild]).
   final List<String> wild;
 
+  /// The three of [cards] that were counted — present only under 5-Card, where
+  /// [cards] holds all five. Empty on every other table and variation.
+  final List<String> best;
+
   factory Reveal.fromJson(Map<String, dynamic> j) => Reveal(
     userId: _str(j['userId']),
     displayName: _str(j['displayName']),
@@ -1110,6 +1167,7 @@ class Reveal {
     handName: _str(j['handName']),
     won: j['won'] == true,
     wild: (j['wild'] as List?)?.map((e) => '$e').toList() ?? const [],
+    best: cardCodes(j['best']),
   );
 }
 

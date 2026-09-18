@@ -486,9 +486,10 @@ from the blind one (`Category.HidesChips`: other stacks are `null`), and it has 
 figure cannot fit several stakes: the seen table's 20 Lakh is two boots at the 10 Lakh table, where every hand would be
 dealt straight into the POT_LIMIT showdown; a private variation table keeps `PRIVATE_MAX_POT`). The default menu offers
 it at **two stakes only, 50,000 and 10 Lakh**, behind the stack bands blind's tables of those stakes have. Every hand
-is decided by one of six variations, chosen in the window §6.1 describes. Wire values, matched EXACTLY by
+is decided by one of **seven** variations, chosen in the window §6.1 describes. Wire values, matched EXACTLY by
 `ParseVariation` (no trimming, no case folding — `muflis` and `Lowest Joker` are `invalid_variation`): `MUFLIS`, `AK47`,
-`JOKER`, `HUKAM`, `LOWEST_JOKER`, `HIGHEST_JOKER`.
+`JOKER`, `HUKAM`, `LOWEST_JOKER`, `HIGHEST_JOKER`, and — added LAST, so the six before it keep their places —
+`FIVE_CARD`.
 - **One ranking, not seven.** Every variation but Muflis is classic Teen Patti with some cards WILD, and Muflis is
   classic compared the other way round. `VariationRules{Variation, WildRank, WildSuit}` carries a wild rule and a
   direction; its **zero value is classic**, which is what a seen or blind table holds, so `resolveShowdown` and
@@ -508,6 +509,25 @@ is decided by one of six variations, chosen in the window §6.1 describes. Wire 
 - **The turned-up card** is `Deal`'s own `remaining[0]` — the top of the deck the hands came from, so it is in nobody's
   hand — kept on every variation hand and put on the wire (`turnUp`) ONLY once JOKER or HUKAM has been chosen.
 - Exact ties are unchanged: the show-payer / missile firer loses, else nearest the dealer's left; a sideshow's asker loses.
+- **FIVE_CARD — 5-Card Teen Patti** (owner, 18 Sep 2026): every player HOLDS five cards and PLAYS the best three,
+  which the server finds; nobody picks. **`Variation.CardsPerPlayer()` is the one place that number lives** (5 for
+  FIVE_CARD, `BaseCardsPerPlayer` 3 for everything else) — the engine carries no "3" of its own. The flow stays
+  deal → window → choice, so **every hand is still DEALT three**: `beginVariation(firstSeat, undealt)` takes the
+  turned-up card from `undealt[0]` and draws a two-card **top-up** per player from `undealt[1:]`, round the table in
+  deal order (`drawExtraCards` → `variationWindow.extra`, `SnapshotVariation.Extra`). Drawn at the deal, not at the
+  choice, so it is part of the hand: a restart mid-window deals the same two cards, and nothing about the choice can
+  influence them. It is server-only until dealt. `closeVariation` announces, then — when the chosen variation's
+  `CardsPerPlayer()` is more than three — `dealExtraCards` appends each seat's top-up to `seat.cards` AND the hand's
+  `contribution.cards` (a fresh slice, never an append into the deal's backing array), re-sends `cards` to a player
+  already looking, and `extra` is dropped either way. A player who left during the window has no seat to deal to; a
+  timeout or a departed chooser is still MUFLIS with three cards each. `extra` is nil when the deck could not cover
+  everyone (no table the lobby opens: 5×3 + 1 + 5×2 = 26 of 52), and then FIVE_CARD is neither on that hand's menu
+  (`variationWindow.options`) nor accepted (`invalid_variation`). `validateSnapshot` refuses a top-up that is not two
+  real cards each or repeats a card in play. **`EvaluateBest(cards)`** is the evaluator: every three-card combination
+  (`ThreeCardCombinations`, C(5,3) = 10) scored by the ONE classic `Evaluate` and the strongest kept by the ONE classic
+  `Compare` — no second ranking to drift. It keeps all five in `Cards` and names the counted three in **`Best`**, in
+  the order held; combinations are walked in index order and a later one must be STRICTLY better, so which three are
+  named is deterministic among ties, and being ties it cannot change who wins. No card is wild and nothing is reversed.
 - **`PlaysAs`** (`EvaluatedHand`, set with `Wild`, nil without a wild card): the hand as it was COUNTED, index for index
   with `Cards` — a wild card replaced by the stand-in the search chose (`best.Cards[len(naturals):]` dealt back into the
   player's own order), every other card itself. `Table.ownHandView` puts it in **`you.hand`** for a viewer who is not
@@ -545,7 +565,7 @@ user (`session:replaced` to the old one). On connect: `session:ready {user, conf
 | `room:leave` | `{}` | `{roomId}` or `{}` |
 | `game:action` | `{action, amount?, actionId?}` | table.act result; `actionId` (≤64 chars) becomes the ledger row's unique id; `action:"missile"` acks `{ok, action, missiles}` (§6.1) |
 | `game:sideshowRespond` | `{accept}` (only `=== true` accepts) | `{accepted, packedUserId}` |
-| `game:selectVariation` (**Go only**, variation tables, §6.1/§6.4) | `{variation}` — one of the six exact wire values; **no player id**, the chooser is the socket's user; any non-string is `""` → `invalid_variation` | `{variation, selectedBy, turnUp?}` |
+| `game:selectVariation` (**Go only**, variation tables, §6.1/§6.4) | `{variation}` — one of the seven exact wire values; **no player id**, the chooser is the socket's user; any non-string is `""` → `invalid_variation` | `{variation, selectedBy, turnUp?, cardsPerPlayer}` |
 | `player:requestCards` | `{}` | `{cards}` (empty unless seen) |
 | `chat:message` | `{text}` | `{messageId}` — own 5/5s limiter (`chat_rate_limited`) |
 | `chat:history` | `{}` | `{count}` (no client sends it) |
@@ -579,8 +599,14 @@ seen and blind tables and between hands**, so those snapshots are byte for byte 
 `turn.seatIndex` is -1 and `you.options` null. `game:showdown`/`game:handEnded` gain `variation` + `turnUp`, and each
 reveal (and sideshow-reveal hand) gains `wild` — which of its cards played wild; `handName`/`category` are what the hand
 MADE. All omitted where they do not apply. `session:ready.config.categories` is `[seen, blind]` plus `variation` only
-when the menu offers one. A variation table's snapshot has `chipsHidden:true` and `maxPot:0`, and its `you` gains
-**`hand {handName, category, wild:[], playsAs:[]}`** (never null arrays; ABSENT on seen and blind tables, while the viewer
+when the menu offers one. `variation.options` is the menu THIS hand offers (seven values, `FIVE_CARD` last) and
+**`variation.cardsPerPlayer`** is what every player in the hand holds right now — 3 from the deal and under the six
+three-card variations, 5 once FIVE_CARD is chosen and the server has topped each hand up; the ack and
+`game:variationSelected` carry it too, `seats[].cardCount` and `you.cards` follow it, and a client never decides it. A
+variation table's snapshot has `chipsHidden:true` and `maxPot:0`, and its `you` gains
+**`hand {handName, category, wild:[], playsAs:[], best:[]}`** — `best` is the three of `you.cards` that are counted (all
+three of a three-card hand, the strongest three of five); showdown `reveals[]` and the two sideshow-reveal hands gain
+`best` only under FIVE_CARD, where `cards` holds all five — (never null arrays; ABSENT on seen and blind tables, while the viewer
 is blind, and until the variation is chosen) — what the Flutter table turns the viewer's wild cards into.
 Input guards (`socket/index.js`): `game:action.amount` must be a JS number and safe integer (strings/arrays/booleans → `invalid_bet`);
 rate-limited requests are acked `{ok:false, code:'rate_limited'}`; `RoomManager.join()` asserts one seat per player (also closes
@@ -858,9 +884,12 @@ Production's lives at `/var/www/gameplay/king-teenpatti/go-server/.env` (`PG_POO
   skips the other's — a profile is one server process with one window length) plus the `money` audit over the books those
   hands wrote. On macOS two `metrics.test.js` tests fail for reasons that predate this (`bind 127.0.0.2`, no
   `process_resident_memory_bytes`); proven against a HEAD build on 18 Sep 2026.
-- **`tools/bot.js`** also takes `--category variation` and **`--variation <MUFLIS|AK47|JOKER|HUKAM|LOWEST_JOKER|HIGHEST_JOKER|random|none>`**
-  (default `random`): the chooser's pick, made once per table-and-hand from `room:state`; `none` never answers, which is how
-  to watch the server's timeout choose Muflis. The resident fleet (`bot-play/`) joins a hard-coded seen/blind list and
+- **`tools/bot.js`** also takes `--category variation` and **`--variation <MUFLIS|AK47|JOKER|HUKAM|LOWEST_JOKER|HIGHEST_JOKER|FIVE_CARD|random|none>`**
+  (default `random`, which picks from the `options` the SERVER sent, so FIVE_CARD is chosen only where it is offered): the
+  chooser's pick, made once per table-and-hand from `room:state`; `none` never answers, which is how to watch the server's
+  timeout choose Muflis. Bots never read their cards, so 5-Card needed nothing else. `variation.test.js` uses
+  `bot-play/src/handrank.js` as an INDEPENDENT oracle that a FIVE_CARD `best` really is the best of the ten
+  combinations, and deep-scans every frame a client received for card codes that are not that player's own — keep both. The resident fleet (`bot-play/`) joins a hard-coded seen/blind list and
   cannot sit at a variation table.
 - **`tools/bot.js`** (`npm run bot -- …`) flags: `--count --boot --category --url --offset --churn`. **16** fixed identities
   (Ravi Meera Arjun Kavya Vikram Anita Rohit Neha Priya Aman Sneha Karan Pooja Rahul Isha Dev; device id `practice-bot-<slot>-<name>`);
@@ -1040,7 +1069,7 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   edge (`WildEdge`, from the reveal's `wild`). Palette: rani pink (`AppTheme.paletteFor` — `_rani`/`_raniDark`,
   `Icons.shuffle_rounded`); the lobby card says `variationTableNote` as its ONE blurb line. A seen or blind table draws
   exactly what it did. Tests: `test/variation_table_test.dart` (640x360 at text x1.25 in all five languages),
-  `variation_strings_test.dart`, `variation_palette_test.dart`. **A wild card of the viewer's own hand turns into the
+  `variation_strings_test.dart`, `variation_palette_test.dart`, `five_card_test.dart`. **A wild card of the viewer's own hand turns into the
   card it played as** (owner, 18 Sep 2026; `widgets/wild_transform.dart` `WildTransform`, fed by `you.hand` —
   `OwnHand.standInFor`): it gathers gold light, lifts, turns a quarter on its long axis with the face swapped edge-on,
   and comes back under a ring of sparks (1.15 s, 190 ms apart along the fan), then STAYS turned — gold edge, a "WILD"
@@ -1049,7 +1078,25 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   it shows the finished state; and it keeps the last stand-in when `you.hand` goes at the hand's end, so the hand does
   not turn back under the showdown. It adds nothing to the card's box (the fan's Stack is `Clip.none` for its halo).
   `_OwnHandName` names the live hand from `you.hand.handName`, faded in after the turn (`_AfterTheTurn`, keyed on
-  `handNo`). `test/wild_transform_test.dart`. The rules sheet (`rules_sheet.dart`) has a **Variation tables** section
+  `handNo`). `test/wild_transform_test.dart`. **5-Card Teen Patti on the felt** (owner, 18 Sep 2026; server §6.4): the
+  client never decides how many cards anybody holds. Face down, `_OwnHand` draws the viewer's own `seats[].cardCount`
+  backs, then `variation.cardsPerPlayer` (`VariationState.cardsPerPlayer`: absent or garbage reads 3, clamped 3..5),
+  then 3 — the seat's count FIRST, because the server drops the variation block the moment a hand ends while the cards
+  stay until the next deal, and a blind winner's fan fell to three backs beside four seats showing five. Face up it
+  draws whatever `you.cards` (or the reveal) carries. **A five-card fan stands in the SAME box as the three-card one**
+  (on a 640dp phone the hand sits between the viewer's pod and the action keys with nothing to spare): the outer cards
+  keep a three-card hand's places and lean and the inner ones share the run, a step of 0.41 card widths, which still
+  clears every index; a three-card fan computes to exactly its old lefts, bottoms and size (pinned by a test). The two
+  top-up cards arrive through the existing `_Dealt` entrance, not pop. Once `you.hand.best` names three of FIVE those
+  three rise 0.08h and the other two are set back (`SetBack` in `variation_prompt.dart`: a wash and an 8% shrink that
+  never changes the card's box or the tree shape, so `WildTransform`/`PlayingCard` state survives) — natural fan order
+  is kept so every index stays readable, which means a set-back card overlaps the lifted one to its left. After the hand
+  it falls back to the reveal's or the sideshow peek's `best`. Rim seats (`seat_pod.dart`): three cards or fewer take
+  the old `Row` untouched; four or five overlap inside the same width and height, so a five-card reveal does not move
+  the seat's column (`test/seat_reveal_layout_test.dart` has the case), with the cards not in `best` set back. **The
+  picker is always two rows**: `VariationPrompt.perRowFor(n) = max(3, ceil(n/2))` — seven keys stand four over three in
+  a panel 72% of the screen wide (clamped 340..600; six or fewer keep three across at 60%), so it grows sideways and
+  its 169dp height at 640x360 is unchanged. `test/five_card_test.dart`. The rules sheet (`rules_sheet.dart`) has a **Variation tables** section
   under the rankings: an intro and the six variations, each with an example hand whose wild cards carry `WildEdge`
   (`test/rules_variation_test.dart`).
 - **The seat pod** (`widgets/seat_pod.dart`) carries the rest of it. An unoccupied place draws

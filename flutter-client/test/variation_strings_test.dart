@@ -23,12 +23,14 @@ const _newKeys = <String, List<String>>{
   'varHukam': [],
   'varLowestJoker': [],
   'varHighestJoker': [],
+  'varFiveCard': [],
   'varMuflisNote': [],
   'varAk47Note': [],
   'varJokerNote': [],
   'varHukamNote': [],
   'varLowestJokerNote': [],
   'varHighestJokerNote': [],
+  'varFiveCardNote': [],
   // The lobby's two levels and the rules sheet's variation section.
   'viewTables': [],
   'tablesLabel': [],
@@ -87,7 +89,7 @@ void main() {
       }
     });
 
-    test('${lang.englishName} names and explains all six variations', () {
+    test('${lang.englishName} names and explains every variation', () {
       final t = Strings(lang);
       for (final wire in Variation.all) {
         // A name that came back as the wire value is the unknown-variation
@@ -107,6 +109,8 @@ void main() {
     expect(t.variationSelectingBy('Rahul'), 'Rahul is selecting variation…');
     expect(t.variationChosen(t.variationName('AK47')), 'Variation: AK47');
     expect(t.variationName('LOWEST_JOKER'), 'Lowest Joker');
+    expect(t.variationName('FIVE_CARD'), '5-Card');
+    expect(t.variationNote('FIVE_CARD'), 'Best 3 of your 5 cards');
   });
 
   test('a variation this build has never heard of is shown as sent', () {

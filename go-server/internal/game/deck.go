@@ -119,7 +119,8 @@ func cryptoIntn(n int) int {
 // Deal shuffles a fresh deck and deals `count` hands of `cardsPer` cards
 // one card at a time round the table, as at a real table (deck.js deal):
 // hands[seat][round] = deck[round*count + seat]. `remaining` is the rest of
-// the deck in order. The Table always calls Deal(len(participants), 3).
+// the deck in order. The Table always deals BaseCardsPerPlayer (3); a variation
+// that plays more tops each hand up from `remaining` (table_variation.go).
 func Deal(count, cardsPer int) (hands [][]Card, remaining []Card) {
 	if count < 0 {
 		count = 0

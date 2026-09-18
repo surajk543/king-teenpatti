@@ -64,7 +64,7 @@ int _secondsLeft(int deadlineMs) {
 /// taking a level from the game state, which republishes about once a second:
 /// a bar stepping in whole seconds stutters, and digits driven by that tick
 /// can sit on "3" for most of two seconds. Unlike the sideshow's it shows the
-/// number — ten seconds with six things to read is long enough to want to
+/// number — ten seconds with seven things to read is long enough to want to
 /// know how long is left, not merely that it is running out.
 ///
 /// The deadline is the server's. This only draws it: at zero the server has
@@ -205,7 +205,7 @@ class _VariationCountdownState extends State<VariationCountdown>
   }
 }
 
-/// The chooser's picker: six keys and a clock, on the felt.
+/// The chooser's picker: the server's menu as keys, and a clock, on the felt.
 ///
 /// **On the felt, not a dialog.** The table puts this in its Stack while the
 /// snapshot says the window is open for this player and takes it out the
@@ -214,8 +214,8 @@ class _VariationCountdownState extends State<VariationCountdown>
 /// that is the black screen a missile's question once left behind (14 Sep
 /// 2026), and the reason the sideshow prompt is built this way too.
 ///
-/// **Nothing is assumed about the choice.** A tap marks its key, darkens all
-/// six and sends the choice; the server decides whether it stood, and the
+/// **Nothing is assumed about the choice.** A tap marks its key, darkens them
+/// all and sends the choice; the server decides whether it stood, and the
 /// snapshot that says so is what removes the panel. The keys stay dark until
 /// the server has answered: accepted, and they stay dark until that snapshot
 /// lands however slow the link; refused — the toast says why — or never
@@ -238,6 +238,18 @@ class _VariationCountdownState extends State<VariationCountdown>
 /// short (411 and up) gets 56dp keys with a line under each name saying what
 /// the variation does, and a 40dp header: 28 + 3 + 40 + 6 + 6 + 10 + 118 =
 /// 211dp into a box of at least 259.
+///
+/// **Always two rows** (owner, 18 Sep 2026, when 5-Card made the menu seven).
+/// A third row of 44 + 6 would still have fitted the 640x360 box (219 of 226)
+/// but with nothing to spare for a felt a few dp shorter, and it would put the
+/// last key on a line of its own. So the panel grows SIDEWAYS instead, where a
+/// landscape felt has room: up to six keys stand three to a row in a panel
+/// 60% of the screen wide (640 -> 384, keys of 117dp), and seven or eight
+/// stand four to a row in one 72% wide (640 -> 461: inside the padding 441,
+/// less three gaps of 6, four keys of 105dp; 891 and up -> 600, keys of
+/// 138dp). The height arithmetic above is therefore the same for six keys and
+/// for seven. A short last row — three keys under four — is centred, its keys
+/// the width of those above it.
 class VariationPrompt extends StatefulWidget {
   const VariationPrompt({
     super.key,
@@ -252,7 +264,7 @@ class VariationPrompt extends StatefulWidget {
 
   final String title;
 
-  /// The menu, in the server's order. Drawn three to a row.
+  /// The menu, in the server's order. Drawn in two rows ([perRowFor]).
   final List<String> options;
   final String Function(String wire) nameOf;
   final String Function(String wire) noteOf;
@@ -261,6 +273,11 @@ class VariationPrompt extends StatefulWidget {
 
   /// Sends the choice and answers whether the server took it.
   final Future<bool> Function(String wire) onSelect;
+
+  /// How many keys stand in a row for a menu of [count]: three, as the six
+  /// older variations always had, until that would need a third row — then as
+  /// many as keep it to two.
+  static int perRowFor(int count) => math.max(3, (count / 2).ceil());
 
   @override
   State<VariationPrompt> createState() => _VariationPromptState();
@@ -290,7 +307,8 @@ class _VariationPromptState extends State<VariationPrompt> {
     final headerH = roomy ? 40.0 : 30.0;
     final pad = roomy ? Space.lg : Space.md;
 
-    const perRow = 3;
+    final perRow = VariationPrompt.perRowFor(widget.options.length);
+    const gap = Space.sm;
     final rows = <List<String>>[
       for (var i = 0; i < widget.options.length; i += perRow)
         widget.options.sublist(i, math.min(i + perRow, widget.options.length)),
@@ -299,11 +317,20 @@ class _VariationPromptState extends State<VariationPrompt> {
     return LayoutBuilder(
       builder: (context, box) {
         // Wider than the sideshow's panel, which holds two keys to this one's
-        // three across: 640 -> 384 (keys of 117) | 891 -> 520 | 1280 -> 520,
-        // and never wider than the felt it stands on.
+        // three across: 640 -> 384 (keys of 117) | 891 -> 520 | 1280 -> 520.
+        // Four across: 640 -> 461 (keys of 105) | 891 -> 600 | 1280 -> 600.
+        // Never wider than the felt it stands on.
         final width = math.min(
-          (screen.width * 0.60).clamp(340.0, 520.0),
+          perRow <= 3
+              ? (screen.width * 0.60).clamp(340.0, 520.0)
+              : (screen.width * 0.72).clamp(340.0, 600.0),
           math.max(0.0, box.maxWidth - 2 * Space.md),
+        );
+        // Every key the same width, worked out rather than left to Expanded,
+        // so a short last row can be centred without its keys stretching.
+        final keyW = math.max(
+          0.0,
+          (width - 2 * pad - (perRow - 1) * gap) / perRow,
         );
 
         return Center(
@@ -380,10 +407,12 @@ class _VariationPromptState extends State<VariationPrompt> {
                     for (final (r, row) in rows.indexed) ...[
                       if (r > 0) const SizedBox(height: Space.sm),
                       Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           for (final (i, wire) in row.indexed) ...[
-                            if (i > 0) const SizedBox(width: Space.sm),
-                            Expanded(
+                            if (i > 0) const SizedBox(width: gap),
+                            SizedBox(
+                              width: keyW,
                               child: _VariationKey(
                                 key: ValueKey('variation-option-$wire'),
                                 name: widget.nameOf(wire),
@@ -394,12 +423,6 @@ class _VariationPromptState extends State<VariationPrompt> {
                                 onTap: () => _choose(wire),
                               ),
                             ),
-                          ],
-                          // A short last row keeps its keys the width of the
-                          // rows above it rather than stretching them.
-                          for (var i = row.length; i < perRow; i++) ...[
-                            const SizedBox(width: Space.sm),
-                            const Spacer(),
                           ],
                         ],
                       ),
@@ -455,7 +478,7 @@ class _VariationKey extends StatelessWidget {
         // choice, so it cannot fire for a tap that chose nothing.
         haptic: false,
         child: Opacity(
-          // The five not chosen step back; the one chosen stays lit, so the
+          // The ones not chosen step back; the one chosen stays lit, so the
           // player sees what they sent while the server answers.
           opacity: enabled || chosen ? 1 : 0.42,
           child: Material(
@@ -530,7 +553,7 @@ class _VariationKey extends StatelessWidget {
 /// What everyone but the chooser reads while the window is open: "Rahul is
 /// selecting variation…" with the seconds left beneath it.
 ///
-/// Never the six keys — they are the chooser's — and never in the way: no
+/// Never the keys — they are the chooser's — and never in the way: no
 /// scrim, and nothing here takes a touch, because the rest of the table may
 /// still look at their cards while they wait. It stands where the waiting line
 /// stands between hands, a slot that is blank during one.
@@ -696,6 +719,62 @@ class WildEdge extends StatelessWidget {
           ),
         ),
         child: child,
+      ),
+    );
+  }
+}
+
+/// A card that is held but does not count, set back behind the ones that do.
+///
+/// Under 5-Card a player holds five cards and plays the best three, and the
+/// SERVER says which three (`best`). The other two stay in the hand — they
+/// were dealt, and a player wants to see what they did not need — but darker
+/// and a little smaller, standing on the same foot, so the three that are
+/// being played read at a glance. Nobody chooses anything by it.
+///
+/// Like [WildEdge] it adds nothing to the card's box: the wash is a foreground
+/// decoration and the shrink a paint-time transform, so neither the viewer's
+/// fan nor a seat's column moves when it happens. It eases in when [setBack]
+/// turns true, and a widget BUILT already set back (a reconnect, the table
+/// rebuilt) is drawn that way at once and does not replay. With [setBack]
+/// false it paints the child exactly as it came — a scale of one under a wash
+/// of nothing — and keeps one tree shape in both states, so the card under it
+/// keeps its State (its flip, its wild turn) across the change.
+class SetBack extends StatelessWidget {
+  const SetBack({
+    super.key,
+    required this.setBack,
+    required this.cardHeight,
+    required this.child,
+  });
+
+  final bool setBack;
+  final double cardHeight;
+  final Widget child;
+
+  /// How much smaller a set-back card is drawn, and how dark its wash is.
+  static const double shrink = 0.08;
+  static const double wash = 0.52;
+
+  @override
+  Widget build(BuildContext context) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween<double>(end: setBack ? 1 : 0),
+      duration: Motion.slow,
+      curve: Motion.standard,
+      child: child,
+      builder: (context, t, child) => Transform.scale(
+        scale: 1 - shrink * t,
+        alignment: Alignment.bottomCenter,
+        child: DecoratedBox(
+          position: DecorationPosition.foreground,
+          decoration: BoxDecoration(
+            // The card's own corner (PlayingCard draws 0.055 of its height).
+            borderRadius: BorderRadius.circular(cardHeight * 0.055),
+            color: AppTheme.ink900.withValues(alpha: wash * t),
+          ),
+          child: child,
+        ),
       ),
     );
   }

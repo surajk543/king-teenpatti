@@ -2,8 +2,11 @@
  * Variation Teen Patti over the socket (Go only; owner, 18 Sep 2026): the
  * third table category. It bets exactly as a seen table does; the one
  * difference is that every hand opens with a server-timed window in which the
- * player who would have acted first picks one of six variations, and the
- * server picks MUFLIS if they do not.
+ * player who would have acted first picks one of seven variations, and the
+ * server picks MUFLIS if they do not. The seventh, FIVE_CARD (5-Card Teen
+ * Patti), is the one that changes how many cards a player HOLDS: every hand is
+ * still dealt three, the server tops each up to five the moment it is chosen,
+ * and the server — never the player, never the client — finds the best three.
  *
  * What is pinned here is the wire: the `variation` block on room:state (the
  * source of truth — a reconnect has nothing else), the two announcements that
@@ -25,9 +28,13 @@ import assert from 'node:assert/strict';
 import {
   guestLogin, openClient, closeAll, closeOpenClients, stakeCounter, dealtTable, profile, pause,
   assertKeys, assertOrder, CARD_CODE, HAND_NAMES, SNAPSHOT_KEYS, VARIATION_SNAPSHOT_KEYS, VARIATION_KEYS, VARIATIONS,
-  OPTIONS_KEYS,
+  THREE_CARD_VARIATIONS, YOU_HAND_KEYS, OPTIONS_KEYS,
 } from './lib/harness.mjs';
 import { closeDb } from './lib/db.mjs';
+// An independent oracle for the three-card ranking: bot-play's port of
+// handrank.go, verified there against all 22,100 hands. Used only to check that
+// the three cards the server says it counted really are the best of the five.
+import { evaluate, compare } from '../../bot-play/src/handrank.js';
 
 test.after(async () => {
   await closeOpenClients();
@@ -91,6 +98,62 @@ const variationTable = async (tag, { count = 2, wantOpen = true } = {}) => {
 const waitClosed = (client, waitMs = 4000) =>
   client.waitState((p) => p.variation && p.variation.selecting === false && p.turn?.userId, waitMs);
 
+
+/** Chaals round a two-player table until the server offers a show, takes it, and hands back the game:showdown. */
+const playToShowdown = async (chooser, other) => {
+  const byId = { [chooser.user.id]: chooser.client, [other.user.id]: other.client };
+  for (let move = 0; move < 12; move += 1) {
+    const turnId = chooser.client.state().turn.userId;
+    const client = byId[turnId];
+    const state = await client.waitState((p) => p.turn?.userId === turnId && p.you.options);
+    const mark = chooser.client.mark();
+    if (state.you.options.show !== null) {
+      const ack = await client.emit('game:action', { action: 'show' });
+      assert.equal(ack.ok, true, JSON.stringify(ack));
+      return chooser.client.waitNext('game:showdown', () => true, 4000, mark);
+    }
+    const ack = await client.emit('game:action', { action: 'chaal', amount: state.you.options.chaal });
+    assert.equal(ack.ok, true, JSON.stringify(ack));
+    await chooser.client.waitNext('room:state', (p) => p.turn?.userId !== turnId || p.state !== 'betting', 4000, mark);
+  }
+  return null;
+};
+
+/** Every string anywhere inside `value` that is a card code. */
+const cardCodesIn = (value, found = []) => {
+  if (typeof value === 'string') {
+    if (CARD_CODE.test(value)) found.push(value);
+  } else if (value && typeof value === 'object') {
+    for (const inner of Object.values(value)) cardCodesIn(inner, found);
+  }
+  return found;
+};
+
+/** The ten ways of taking three cards from five, as index triples in ascending order. */
+const THREES_OF_FIVE = [];
+for (let a = 0; a < 5; a += 1) for (let b = a + 1; b < 5; b += 1) for (let c = b + 1; c < 5; c += 1) THREES_OF_FIVE.push([a, b, c]);
+
+/**
+ * `best` is three of `cards`, in the order they are held, and no other three of
+ * the five beats them — the server found the best hand, the player did not pick.
+ */
+const assertBestOfFive = (cards, best, handName, label) => {
+  assert.equal(cards.length, 5, `${label}: five cards held`);
+  assert.equal(new Set(cards).size, 5, `${label}: five different cards`);
+  for (const code of cards) assert.match(code, CARD_CODE);
+  assert.equal(best.length, 3, `${label}: three are counted`);
+  const places = best.map((code) => cards.indexOf(code));
+  assert.ok(places.every((i) => i >= 0), `${label}: every counted card is one of the five held`);
+  assert.deepEqual(places, [...places].sort((x, y) => x - y), `${label}: best keeps the order the cards are held in`);
+  assert.equal(new Set(places).size, 3);
+  const made = evaluate(best);
+  assert.equal(made.name, handName, `${label}: the hand is named for its best three`);
+  for (const triple of THREES_OF_FIVE) {
+    const rival = evaluate(triple.map((i) => cards[i]));
+    assert.ok(compare(made, rival) >= 0, `${label}: ${best} is beaten by ${triple.map((i) => cards[i])}`);
+  }
+};
+
 // ------------------------------------------------------------- the window
 
 test('a variation table deals, announces the window, and room:state carries all of it with nobody on turn', held, async () => {
@@ -116,7 +179,8 @@ test('a variation table deals, announces the window, and room:state carries all 
     assert.equal(block.userId, chooser.user.id);
     assert.equal(block.displayName, chooser.user.displayName);
     assert.equal(block.seatIndex, chooser.client.state().you.seatIndex);
-    assert.deepEqual(block.options, VARIATIONS, 'the six canonical values, in menu order');
+    assert.deepEqual(block.options, VARIATIONS, 'the seven canonical values, in menu order, FIVE_CARD last');
+    assert.equal(block.cardsPerPlayer, 3, 'every hand is dealt three; only a FIVE_CARD choice makes it five');
     assert.equal(block.timeoutMs, profile.variationSelectTimeoutMs);
     assert.equal(block.deadline - block.startedAt, block.timeoutMs);
     assert.ok(Math.abs(block.startedAt - Date.now()) < 5000, 'startedAt is epoch ms');
@@ -136,7 +200,8 @@ test('a variation table deals, announces the window, and room:state carries all 
   // The announcement only repeats the block, and comes after the deal and before the snapshot.
   for (const { client } of [chooser, other]) {
     const event = client.last('game:variationSelecting');
-    const { selecting, selected, selectedBy, ...announced } = client.state().variation;
+    // cardsPerPlayer is the block's alone: the announcement opens a window, and no hand has grown yet.
+    const { selecting, selected, selectedBy, cardsPerPlayer, ...announced } = client.state().variation;
     assert.deepEqual(event, { ...announced, roomId });
     assertOrder(client.events(), ['game:handStarted', 'player:hand', 'game:variationSelecting', 'room:state']);
     assert.equal(client.count('game:turn'), 0, 'no turn is announced while the variation is being chosen');
@@ -205,7 +270,8 @@ test('no move but see is taken while the variation is being chosen', held, async
   for (const { client } of [chooser, other]) {
     const state = await client.waitState((p) => p.you.hand);
     const { hand, cards } = state.you;
-    assert.deepEqual(Object.keys(hand).sort(), ['category', 'handName', 'playsAs', 'wild']);
+    assertKeys(hand, YOU_HAND_KEYS, 'you.hand');
+    assert.deepEqual(hand.best, cards, 'a three-card hand counts all three, in the order held');
     assert.equal(typeof hand.handName, 'string');
     assert.ok(hand.handName.length > 0);
     assert.ok(Array.isArray(hand.wild), 'wild is [] when nothing was wild, never null');
@@ -231,7 +297,7 @@ test('the pick is acked, announced, then the state has it and the chooser is on 
   const marks = new Map(clients.map((client) => [client, client.mark()]));
 
   const ack = await chooser.client.emit('game:selectVariation', { variation: 'AK47' });
-  assert.deepEqual(ack, { ok: true, variation: 'AK47', selectedBy: 'PLAYER' }, 'no turnUp: AK47 turns no card up');
+  assert.deepEqual(ack, { ok: true, variation: 'AK47', selectedBy: 'PLAYER', cardsPerPlayer: 3 }, 'no turnUp: AK47 turns no card up');
 
   for (const { client } of [chooser, other]) {
     const state = await waitClosed(client);
@@ -246,7 +312,7 @@ test('the pick is acked, announced, then the state has it and the chooser is on 
     const selected = client.last('game:variationSelected');
     assert.deepEqual(selected, {
       userId: chooser.user.id, displayName: chooser.user.displayName, seatIndex: open.seatIndex,
-      variation: 'AK47', selectedBy: 'PLAYER', roomId,
+      variation: 'AK47', selectedBy: 'PLAYER', cardsPerPlayer: 3, roomId,
     });
     assertOrder(client.eventsSince(marks.get(client)), ['game:variationSelected', 'game:turn', 'room:state']);
   }
@@ -276,11 +342,12 @@ test('JOKER and HUKAM turn a card up — in the ack, the announcement and the st
     const state = await waitClosed(other.client);
     const event = other.client.last('game:variationSelected');
     if (variation === 'LOWEST_JOKER') {
-      assert.deepEqual(ack, { ok: true, variation, selectedBy: 'PLAYER' });
+      assert.deepEqual(ack, { ok: true, variation, selectedBy: 'PLAYER', cardsPerPlayer: 3 });
       assert.ok(!('turnUp' in state.variation), 'turnUp is absent, not null');
       assert.ok(!('turnUp' in event));
     } else {
-      assertKeys(ack, ['ok', 'variation', 'selectedBy', 'turnUp'], `${variation} ack`);
+      assertKeys(ack, ['ok', 'variation', 'selectedBy', 'turnUp', 'cardsPerPlayer'], `${variation} ack`);
+      assert.equal(ack.cardsPerPlayer, 3);
       assert.match(ack.turnUp, CARD_CODE);
       assertKeys(state.variation, [...VARIATION_KEYS, 'turnUp'], `room:state.variation after ${variation}`);
       assert.equal(state.variation.turnUp, ack.turnUp);
@@ -310,7 +377,7 @@ test('room:state alone rebuilds the window: a second connection is handed the sa
 
   // And the window it describes is real: the new socket answers it.
   const ack = await again.emit('game:selectVariation', { variation: 'HIGHEST_JOKER' });
-  assert.deepEqual(ack, { ok: true, variation: 'HIGHEST_JOKER', selectedBy: 'PLAYER' });
+  assert.deepEqual(ack, { ok: true, variation: 'HIGHEST_JOKER', selectedBy: 'PLAYER', cardsPerPlayer: 3 });
   const state = await waitClosed(other.client);
   assert.equal(state.variation.selected, 'HIGHEST_JOKER');
   assert.equal(state.turn.userId, chooser.user.id);
@@ -334,7 +401,7 @@ test('a chooser who leaves mid-window has MUFLIS chosen for them at once, and th
   const selected = watcher.since(mark).find((e) => e.event === 'game:variationSelected').payload;
   assert.deepEqual(selected, {
     userId: chooser.user.id, displayName: chooser.user.displayName, seatIndex: open.seatIndex,
-    variation: 'MUFLIS', selectedBy: 'LEFT', roomId,
+    variation: 'MUFLIS', selectedBy: 'LEFT', cardsPerPlayer: 3, roomId,
   });
   await closeAll(...clients);
 });
@@ -347,23 +414,7 @@ test('a showdown names the variation, marks the wild cards inside each hand, and
   await waitClosed(chooser.client);
 
   // Chaal round the table until the server offers a show, then take it.
-  const byId = { [chooser.user.id]: chooser.client, [other.user.id]: other.client };
-  let showdown = null;
-  for (let move = 0; move < 12 && !showdown; move += 1) {
-    const turnId = chooser.client.state().turn.userId;
-    const client = byId[turnId];
-    const state = await client.waitState((p) => p.turn?.userId === turnId && p.you.options);
-    const mark = chooser.client.mark();
-    if (state.you.options.show !== null) {
-      const ack = await client.emit('game:action', { action: 'show' });
-      assert.equal(ack.ok, true, JSON.stringify(ack));
-      showdown = await chooser.client.waitNext('game:showdown', () => true, 4000, mark);
-    } else {
-      const ack = await client.emit('game:action', { action: 'chaal', amount: state.you.options.chaal });
-      assert.equal(ack.ok, true, JSON.stringify(ack));
-      await chooser.client.waitNext('room:state', (p) => p.turn?.userId !== turnId || p.state !== 'betting', 4000, mark);
-    }
-  }
+  const showdown = await playToShowdown(chooser, other);
   assert.ok(showdown, 'the hand reached a show');
 
   assertKeys(showdown, ['reveals', 'reason', 'variation', 'roomId'], 'game:showdown at a variation table (AK47: no turnUp)');
@@ -372,6 +423,8 @@ test('a showdown names the variation, marks the wild cards inside each hand, and
   for (const reveal of showdown.reveals) {
     const expected = ['userId', 'seatIndex', 'cards', 'handName', 'category', 'won'];
     assertKeys(reveal, 'wild' in reveal ? [...expected, 'wild'] : expected, 'reveal');
+    assert.equal(reveal.cards.length, 3);
+    assert.ok(!('best' in reveal), 'best is FIVE_CARD\'s alone: absent, not null, under every other variation');
     // What the hand MADE, in the same six English names every table uses.
     assert.equal(HAND_NAMES[reveal.category], reveal.handName);
     const wildRanks = reveal.cards.filter((code) => 'AK47'.includes(code[0]));
@@ -396,6 +449,229 @@ test('a showdown names the variation, marks the wild cards inside each hand, and
   const between = chooser.client.all('room:state').find((p) => p.handNo === ended.handNo && p.state !== 'betting');
   if (between) assertKeys(between, SNAPSHOT_KEYS, 'room:state between hands');
   await closeAll(...clients);
+});
+
+
+// ------------------------------------------------------ 5-Card Teen Patti
+
+test('FIVE_CARD is acked and announced with five cards each, every seat counts five, all twenty-five differ, and nobody is sent another player\'s', held, async () => {
+  const { chooser, entries, clients, roomId } = await variationTable('five', { count: 5 });
+  const open = chooser.client.state().variation;
+  assert.equal(open.cardsPerPlayer, 3);
+  for (const { client } of entries) {
+    for (const seat of client.state().seats.filter((r) => r.userId)) assert.equal(seat.cardCount, 3, 'dealt three, as every hand is');
+  }
+  const marks = new Map(clients.map((client) => [client, client.mark()]));
+
+  const ack = await chooser.client.emit('game:selectVariation', { variation: 'FIVE_CARD' });
+  assert.deepEqual(ack, { ok: true, variation: 'FIVE_CARD', selectedBy: 'PLAYER', cardsPerPlayer: 5 }, 'no turnUp: FIVE_CARD turns no card up');
+
+  for (const { client, user } of entries) {
+    const state = await waitClosed(client);
+    assertKeys(state.variation, VARIATION_KEYS, 'room:state.variation after a FIVE_CARD pick');
+    assert.deepEqual(state.variation, { ...open, selecting: false, selected: 'FIVE_CARD', selectedBy: 'PLAYER', cardsPerPlayer: 5 });
+    assert.deepEqual(client.last('game:variationSelected'), {
+      userId: chooser.user.id, displayName: chooser.user.displayName, seatIndex: open.seatIndex,
+      variation: 'FIVE_CARD', selectedBy: 'PLAYER', cardsPerPlayer: 5, roomId,
+    });
+    assertOrder(client.eventsSince(marks.get(client)), ['game:variationSelected', 'game:turn', 'room:state']);
+    assert.equal(state.turn.userId, chooser.user.id, 'the chooser still opens the betting');
+
+    const seated = state.seats.filter((seat) => seat.userId);
+    assert.equal(seated.length, 5);
+    for (const seat of seated) {
+      assert.equal(seat.cardCount, 5, `seat ${seat.seatIndex} holds five`);
+      assert.equal('cards' in seat, false, 'a seat row never carries cards');
+    }
+    assert.equal(state.you.isBlind, true);
+    assert.equal(cardCodesIn(state.you).length, 0, `${user.displayName} has not looked, so is sent no card`);
+    assert.equal('hand' in state.you, false);
+  }
+
+  // Everyone looks: five each, and across the table no card twice.
+  const held5 = new Map();
+  for (const { client, user } of entries) {
+    const seen = await client.emit('game:action', { action: 'see' });
+    assert.equal(seen.ok, true, JSON.stringify(seen));
+    const state = await client.waitState((p) => p.you.isBlind === false);
+    assert.equal(state.you.cards.length, 5);
+    held5.set(user.id, state.you.cards);
+  }
+  const everyCard = [...held5.values()].flat();
+  assert.equal(everyCard.length, 25);
+  assert.equal(new Set(everyCard).size, 25, 'twenty-five cards, all different: the extra two came from the same deck');
+
+  // Nothing any player was sent — no snapshot, no event, no ack — names a card that is not their own.
+  await pause(100);
+  for (const { client, user } of entries) {
+    const mine = new Set(held5.get(user.id));
+    for (const { event, payload } of client.since(0)) {
+      for (const code of cardCodesIn(payload)) assert.ok(mine.has(code), `${user.displayName} was sent ${code} in ${event}`);
+    }
+    for (const seat of client.state().seats.filter((r) => r.userId)) assert.equal(seat.cardCount, 5);
+  }
+  await closeAll(...clients);
+});
+
+test('a player who looked during the window holds three, then five with the first three in place; player:cards is sent again; you.hand.best is three of their own', held, async () => {
+  const { chooser, other, clients } = await variationTable('grow');
+  const first = new Map();
+  for (const { client, user } of [chooser, other]) {
+    const ack = await client.emit('game:action', { action: 'see' });
+    assert.equal(ack.ok, true, JSON.stringify(ack));
+    const state = await client.waitState((p) => p.you.isBlind === false);
+    assert.equal(state.you.cards.length, 3, 'three while the window is open');
+    assert.equal(state.variation.cardsPerPlayer, 3);
+    const dealt = await client.wait('player:cards');
+    assert.deepEqual(dealt.cards, state.you.cards);
+    first.set(user.id, state.you.cards);
+  }
+  const marks = new Map(clients.map((client) => [client, client.mark()]));
+
+  const ack = await chooser.client.emit('game:selectVariation', { variation: 'FIVE_CARD' });
+  assert.equal(ack.cardsPerPlayer, 5, JSON.stringify(ack));
+
+  for (const { client, user } of [chooser, other]) {
+    const state = await waitClosed(client);
+    const { cards, hand } = state.you;
+    assert.equal(cards.length, 5);
+    assert.deepEqual(cards.slice(0, 3), first.get(user.id), 'the three already looked at stay where they were; the new two follow');
+
+    // No snapshot is ever half way: three cards with the window open, five from the one that says FIVE_CARD.
+    for (const { event, payload } of client.since(marks.get(client))) {
+      if (event !== 'room:state') continue;
+      const want = payload.variation?.selected === 'FIVE_CARD' ? 5 : 3;
+      assert.equal(payload.you.cards.length, want, `a snapshot with selected ${payload.variation?.selected}`);
+      assert.equal(payload.variation.cardsPerPlayer, want);
+    }
+
+    // The player was already looking, so the two new cards are dealt to them face up.
+    const resent = await client.waitNext('player:cards', () => true, 4000, marks.get(client));
+    assert.deepEqual(resent.cards, cards, 'player:cards again, with all five');
+
+    assertKeys(hand, YOU_HAND_KEYS, 'you.hand under FIVE_CARD');
+    assert.deepEqual(hand.wild, [], 'FIVE_CARD has no wild cards');
+    assert.deepEqual(hand.playsAs, cards, 'so every card plays as itself');
+    assert.equal(HAND_NAMES[hand.category], hand.handName);
+    assertBestOfFive(cards, hand.best, hand.handName, user.displayName);
+    for (const seat of state.seats) assert.equal('hand' in seat, false, 'and none of it is public');
+  }
+  assert.equal(new Set([...chooser.client.state().you.cards, ...other.client.state().you.cards]).size, 10);
+  await closeAll(...clients);
+});
+
+test('a FIVE_CARD showdown reveals all five cards and the best three of each hand, and pays exactly one winner', held, async () => {
+  const { chooser, other, clients, roomId } = await variationTable('show5');
+  await chooser.client.emit('game:selectVariation', { variation: 'FIVE_CARD' });
+  await waitClosed(chooser.client);
+  const held5 = new Map();
+  for (const { client, user } of [chooser, other]) {
+    await client.emit('game:action', { action: 'see' });
+    held5.set(user.id, (await client.waitState((p) => p.you.isBlind === false)).you.cards);
+  }
+
+  const showdown = await playToShowdown(chooser, other);
+  assert.ok(showdown, 'the hand reached a show');
+  assertKeys(showdown, ['reveals', 'reason', 'variation', 'roomId'], 'game:showdown under FIVE_CARD (no turnUp)');
+  assert.equal(showdown.variation, 'FIVE_CARD');
+  assert.equal(showdown.reveals.length, 2);
+  for (const reveal of showdown.reveals) {
+    assertKeys(reveal, ['userId', 'seatIndex', 'cards', 'handName', 'category', 'won', 'best'], 'a FIVE_CARD reveal: best, and no wild');
+    assert.deepEqual(reveal.cards, held5.get(reveal.userId), 'the five the player held, in the order they held them');
+    assert.equal(HAND_NAMES[reveal.category], reveal.handName);
+    assertBestOfFive(reveal.cards, reveal.best, reveal.handName, `reveal of seat ${reveal.seatIndex}`);
+  }
+  assert.equal(new Set(showdown.reveals.flatMap((r) => r.cards)).size, 10, 'ten cards, all different');
+  const winners = showdown.reveals.filter((r) => r.won);
+  assert.equal(winners.length, 1, 'exactly one winner, never a split pot');
+  const loser = showdown.reveals.find((r) => !r.won);
+  assert.ok(compare(evaluate(winners[0].best), evaluate(loser.best)) >= 0, 'and the winner\'s best three are not the weaker');
+
+  const ended = await chooser.client.wait('game:handEnded', (p) => p.roomId === roomId);
+  assert.equal(ended.variation, 'FIVE_CARD');
+  assert.ok(!('turnUp' in ended));
+  assert.equal(ended.winnerId, winners[0].userId);
+  assert.deepEqual(ended.reveals, showdown.reveals, 'game:handEnded repeats the same reveals');
+  await closeAll(...clients);
+});
+
+test('a FIVE_CARD sideshow shows the two players five cards and a best three each, and the room none of it', held, async () => {
+  const { chooser, entries, clients } = await variationTable('side5', { count: 3 });
+  await chooser.client.emit('game:selectVariation', { variation: 'FIVE_CARD' });
+  await waitClosed(chooser.client);
+  const held5 = new Map();
+  for (const { client, user } of entries) {
+    await client.emit('game:action', { action: 'see' });
+    held5.set(user.id, (await client.waitState((p) => p.you.isBlind === false)).you.cards);
+  }
+
+  // The chooser is on turn; the player on their right is the next seat DOWN, wrapping.
+  const seatOf = (entry) => entry.client.state().you.seatIndex;
+  const seats = entries.map(seatOf).sort((a, b) => a - b);
+  const below = seats.filter((seat) => seat < seatOf(chooser));
+  const askedSeat = below.length ? below[below.length - 1] : seats[seats.length - 1];
+  const asked = entries.find((entry) => seatOf(entry) === askedSeat);
+  const bystander = entries.find((entry) => entry !== chooser && entry !== asked);
+
+  let ack = await chooser.client.emit('game:action', { action: 'sideshow' });
+  assert.deepEqual(ack, { ok: true, action: 'sideshow', toUserId: asked.user.id });
+  ack = await asked.client.emit('game:sideshowRespond', { accept: true });
+  assert.equal(ack.ok, true, JSON.stringify(ack));
+  assert.equal(ack.accepted, true);
+
+  for (const { client } of [chooser, asked]) {
+    const { reveal } = await client.wait('game:sideshowReveal');
+    assert.deepEqual(reveal.hands.map((hand) => hand.userId), [chooser.user.id, asked.user.id]);
+    for (const hand of reveal.hands) {
+      assertKeys(hand, ['userId', 'displayName', 'cards', 'handName', 'best'], 'a FIVE_CARD sideshow hand: best, and no wild');
+      assert.deepEqual(hand.cards, held5.get(hand.userId));
+      assertBestOfFive(hand.cards, hand.best, hand.handName, `sideshow hand of ${hand.displayName}`);
+    }
+    const [askerHand, askedHand] = reveal.hands.map((hand) => evaluate(hand.best));
+    // A tie goes against the asker, so the asker survives only by being strictly better.
+    assert.equal(reveal.packedUserId, compare(askerHand, askedHand) > 0 ? asked.user.id : chooser.user.id);
+  }
+  await pause(100);
+  assert.equal(bystander.client.count('game:sideshowReveal'), 0, 'the room never sees the cards');
+  const mine = new Set(held5.get(bystander.user.id));
+  for (const { event, payload } of bystander.client.since(0)) {
+    for (const code of cardCodesIn(payload)) assert.ok(mine.has(code), `the bystander was sent ${code} in ${event}`);
+  }
+  await closeAll(...clients);
+});
+
+test('each of the six older variations leaves every hand at the three cards it was dealt', held, async () => {
+  for (const variation of THREE_CARD_VARIATIONS) {
+    const { chooser, other, clients } = await variationTable(`three${variation.replace('_', '').slice(0, 6).toLowerCase()}`);
+    // The chooser looks first, so a top-up — were there one — would have somebody to be re-sent to.
+    await chooser.client.emit('game:action', { action: 'see' });
+    await chooser.client.waitState((p) => p.you.isBlind === false);
+    const before = chooser.client.state().you.cards;
+    const mark = chooser.client.mark();
+
+    const ack = await chooser.client.emit('game:selectVariation', { variation });
+    assert.equal(ack.ok, true, JSON.stringify(ack));
+    assert.equal(ack.cardsPerPlayer, 3, `${variation} ack`);
+    for (const { client } of [chooser, other]) {
+      const state = await waitClosed(client);
+      assert.equal(state.variation.selected, variation);
+      assert.equal(state.variation.cardsPerPlayer, 3, `${variation} block`);
+      assert.equal(client.last('game:variationSelected').cardsPerPlayer, 3, `${variation} announcement`);
+      for (const seat of state.seats.filter((r) => r.userId)) assert.equal(seat.cardCount, 3, `${variation}: seat ${seat.seatIndex}`);
+    }
+    await other.client.emit('game:action', { action: 'see' });
+    const theirs = await other.client.waitState((p) => p.you.hand);
+    assert.equal(theirs.you.cards.length, 3);
+    assert.deepEqual(theirs.you.hand.best, theirs.you.cards, `${variation}: all three are counted`);
+
+    const mine = await chooser.client.waitState((p) => p.you.hand);
+    assert.deepEqual(mine.you.cards, before, `${variation}: the hand looked at is the hand played`);
+    assert.deepEqual(mine.you.hand.best, before);
+    await pause(100);
+    assert.equal(chooser.client.eventsSince(mark).filter((event) => event === 'player:cards').length, 0,
+      `${variation}: nothing was dealt, so player:cards is not sent again`);
+    await closeAll(...clients);
+  }
 });
 
 // ------------------------------------------------- every other table is as it was
@@ -445,13 +721,13 @@ test('a window nobody answers closes on the server clock: MUFLIS, TIMEOUT, and t
     assert.deepEqual(state.variation, {
       selecting: false, userId: chooser.user.id, displayName: chooser.user.displayName,
       seatIndex: chooser.client.state().you.seatIndex, startedAt, deadline, timeoutMs, options: VARIATIONS,
-      selected: 'MUFLIS', selectedBy: 'TIMEOUT',
+      selected: 'MUFLIS', selectedBy: 'TIMEOUT', cardsPerPlayer: 3,
     });
     assert.equal(state.turn.userId, chooser.user.id, 'missing the window costs the chooser the choice, not the turn');
     assert.ok(state.turn.deadline - Date.now() > profile.turnTimeoutMs - 5000, 'and the turn clock is a full one');
     assert.deepEqual(client.last('game:variationSelected'), {
       userId: chooser.user.id, displayName: chooser.user.displayName, seatIndex: state.variation.seatIndex,
-      variation: 'MUFLIS', selectedBy: 'TIMEOUT', roomId,
+      variation: 'MUFLIS', selectedBy: 'TIMEOUT', cardsPerPlayer: 3, roomId,
     });
     assertOrder(client.events(), ['game:variationSelecting', 'game:variationSelected', 'game:turn']);
   }
@@ -479,5 +755,26 @@ test('every hand at the table opens a window of its own, and the chooser moves r
   assert.equal(closed.handNo, next.handNo);
   assert.equal(closed.variation.selectedBy, 'TIMEOUT');
   assert.equal(closed.turn.userId, other.user.id);
+  await closeAll(...clients);
+});
+
+test('a lapsed window never becomes 5-Card: MUFLIS, and every hand stays at three cards', lapsing, async () => {
+  const { chooser, other, clients } = await variationTable('lapse3', { count: 3, wantOpen: false });
+  // Read from the announcement of the OPEN window, which always describes it;
+  // with an 800 ms window the latest snapshot may already be the closed one.
+  assert.ok(chooser.client.last('game:variationSelecting').options.includes('FIVE_CARD'), 'FIVE_CARD was on offer');
+  for (const { client } of [chooser, other]) {
+    const state = await waitClosed(client, profile.variationSelectTimeoutMs + 4000);
+    assert.equal(state.variation.selected, 'MUFLIS');
+    assert.equal(state.variation.selectedBy, 'TIMEOUT');
+    assert.equal(state.variation.cardsPerPlayer, 3);
+    for (const seat of state.seats.filter((r) => r.userId)) assert.equal(seat.cardCount, 3);
+
+    await client.emit('game:action', { action: 'see' });
+    const seen = await client.waitState((p) => p.you.hand);
+    assert.equal(seen.you.cards.length, 3);
+    assert.deepEqual(seen.you.hand.best, seen.you.cards);
+    assert.deepEqual(seen.you.hand.wild, [], 'Muflis has no wild cards');
+  }
   await closeAll(...clients);
 });

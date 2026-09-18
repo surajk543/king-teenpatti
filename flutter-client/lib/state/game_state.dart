@@ -432,7 +432,7 @@ class GameState extends ChangeNotifier {
   /// is on turn for as long as this is.
   bool get variationSelecting => variation?.selecting == true;
 
-  /// True when the viewer is the one choosing, and so the one who gets the six
+  /// True when the viewer is the one choosing, and so the one who gets the
   /// keys. Everyone else is only told who is.
   bool get variationIsMine =>
       variationSelecting && variation!.userId == user?.id;

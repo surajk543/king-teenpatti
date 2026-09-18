@@ -1408,7 +1408,10 @@ func (t *Table) startHand() {
 	handID := util.UUID()
 	handNo := t.handNo + 1
 	dealerSeat := t.nextOccupiedSeat(t.dealerSeat, participants)
-	deals, undealt := Deal(len(participants), 3)
+	// Every hand is dealt three. A variation that plays more (5-Card Teen
+	// Patti) has each hand topped up when it is chosen, from the cards left
+	// here (beginVariation draws them now, so they are part of the hand).
+	deals, undealt := Deal(len(participants), BaseCardsPerPlayer)
 
 	h := &hand{
 		id:            handID,
@@ -1497,7 +1500,7 @@ func (t *Table) startHand() {
 		// closeVariation hands them the turn this line would have. The card
 		// turned up for Joker and Hukam is the top of the deck the hands were
 		// just dealt from, so it can be in nobody's hand.
-		t.beginVariation(firstSeat, undealt[0])
+		t.beginVariation(firstSeat, undealt)
 	} else {
 		t.setTurn(firstSeat, true)
 	}
@@ -2741,8 +2744,8 @@ func (t *Table) settleSideshow(pending *pendingSideshow, accepted bool, reason s
 				Reason:       reason,
 				PackedUserID: loser.userID,
 				Hands: []SideshowHand{
-					{UserID: asker.userID, DisplayName: asker.displayName, Cards: CardCodes(asker.cards), HandName: a.Name, Wild: a.Wild},
-					{UserID: asked.userID, DisplayName: asked.displayName, Cards: CardCodes(asked.cards), HandName: b.Name, Wild: b.Wild},
+					{UserID: asker.userID, DisplayName: asker.displayName, Cards: CardCodes(asker.cards), HandName: a.Name, Wild: a.Wild, Best: a.Best},
+					{UserID: asked.userID, DisplayName: asked.displayName, Cards: CardCodes(asked.cards), HandName: b.Name, Wild: b.Wild, Best: b.Best},
 				},
 			},
 		})
@@ -2892,6 +2895,7 @@ func (t *Table) resolveShowdown(contenders []*seat, reason WinReason, showReques
 			Category:  entry.hand.Category,
 			Won:       entry.seat.userID == best.seat.userID,
 			Wild:      entry.hand.Wild,
+			Best:      entry.hand.Best,
 		})
 	}
 

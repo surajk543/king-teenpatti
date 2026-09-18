@@ -83,14 +83,26 @@ export const SNAPSHOT_KEYS = [
  * absent — not null — everywhere else. SNAPSHOT_KEYS above is therefore still
  * the exact key set of a seen or blind table, which is the point: those
  * tables' wire did not change. `turnUp` joins the block only once JOKER or
- * HUKAM has been chosen.
+ * HUKAM has been chosen. `cardsPerPlayer` (added with 5-Card Teen Patti) is
+ * ALWAYS in the block: 3 while the window is open and under the six older
+ * variations, 5 once FIVE_CARD is chosen — the server says how many cards a
+ * player holds, a client never decides it.
  */
 export const VARIATION_SNAPSHOT_KEYS = [...SNAPSHOT_KEYS, 'variation'];
 export const VARIATION_KEYS = [
   'selecting', 'userId', 'displayName', 'seatIndex', 'startedAt', 'deadline', 'timeoutMs', 'options', 'selected', 'selectedBy',
+  'cardsPerPlayer',
 ];
-/** The six canonical wire values, in menu order — what the server sends as `options`. */
-export const VARIATIONS = ['MUFLIS', 'AK47', 'JOKER', 'HUKAM', 'LOWEST_JOKER', 'HIGHEST_JOKER'];
+/**
+ * The seven canonical wire values, in menu order — what the server sends as
+ * `options`. FIVE_CARD is LAST, so the six before it keep their places on
+ * every client's picker.
+ */
+export const VARIATIONS = ['MUFLIS', 'AK47', 'JOKER', 'HUKAM', 'LOWEST_JOKER', 'HIGHEST_JOKER', 'FIVE_CARD'];
+/** The six that leave every hand at the three cards it was dealt. */
+export const THREE_CARD_VARIATIONS = VARIATIONS.filter((v) => v !== 'FIVE_CARD');
+/** What you.hand carries once the viewer has looked and a variation is chosen. */
+export const YOU_HAND_KEYS = ['handName', 'category', 'wild', 'playsAs', 'best'];
 export const YOU_KEYS = [
   'seatIndex', 'chips', 'status', 'isBlind', 'blindMovesLeft', 'contributed', 'missedTurns', 'maxMissedTurns',
   'canMissile', 'cards', 'options',

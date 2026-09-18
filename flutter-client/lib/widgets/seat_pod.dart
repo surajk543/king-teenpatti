@@ -138,6 +138,7 @@ class SeatPod extends StatelessWidget {
     this.revealed,
     this.revealedHand,
     this.wild = const [],
+    this.best = const [],
     this.saying,
     this.bubbleSide = BubbleSide.above,
     this.reversed = false,
@@ -177,6 +178,11 @@ class SeatPod extends StatelessWidget {
   /// empty everywhere else. They get a gold edge, which is what explains a
   /// ranking the three faces alone would not make.
   final List<String> wild;
+
+  /// Which three of a FIVE-card [revealed] hand were counted (5-Card, a
+  /// variation table) — the server's choice, sent with the reveal. The other
+  /// two are drawn set back. Empty for every three-card hand.
+  final List<String> best;
 
   /// How much of this player's turn has gone, 0 to 1, or null when unknown.
   /// Used for the colour; the fill level is worked out per frame from the
@@ -640,33 +646,81 @@ class SeatPod extends StatelessWidget {
     final dim = s.status == SeatState.packed || s.status == SeatState.lost;
     final show = revealed;
     // At a showdown the pod draws the real hand and the card flips where it
-    // sits. Guarded on length: cardCount is what the server says this seat
-    // holds, and a reveal that disagrees is not something to index past.
-    final count = show != null && show.length >= s.cardCount
-        ? s.cardCount
-        : s.cardCount;
-    final fan = Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        for (var i = 0; i < count; i++)
-          // A foreground edge on the card's own box, so a wild card takes no
-          // more room than any other: the column must not move at the reveal.
-          WildEdge(
-            wild: show != null && i < show.length && wild.contains(show[i]),
-            cardHeight: width * 0.42,
-            label: t.wildCard,
-            child: PlayingCard(
-              height: width * 0.42,
-              dimmed: dim,
-              code: show != null && i < show.length ? show[i] : null,
-              // Green backs say this player has looked at their hand, which is
-              // the one thing about an opponent that changes how you bet. Not
-              // while they are out of it: a packed seat's cards are history.
-              tint: !s.isBlind && _inHand(s) ? AppTheme.cardSeenBack : null,
-            ),
-          ),
-      ],
+    // sits. How many cards is the server's to say — `cardCount`, three on
+    // every table but a 5-Card hand's five — and a reveal that carries more
+    // than the seat was last said to hold is believed, so a five-card hand is
+    // never shown as its first three. Never past five: that is all the fan has
+    // room for, and all the server deals.
+    final count = math.min(
+      5,
+      show != null && show.length > s.cardCount ? show.length : s.cardCount,
     );
+    final cardH = width * 0.42;
+    // The three that count, once there are more than three to choose from.
+    final picking =
+        show != null &&
+        show.length > 3 &&
+        best.isNotEmpty &&
+        best.length < show.length;
+
+    Widget card(int i) =>
+        // A foreground edge on the card's own box, so a wild card takes no
+        // more room than any other: the column must not move at the reveal.
+        WildEdge(
+          wild: show != null && i < show.length && wild.contains(show[i]),
+          cardHeight: cardH,
+          label: t.wildCard,
+          child: PlayingCard(
+            height: cardH,
+            dimmed: dim,
+            code: show != null && i < show.length ? show[i] : null,
+            // Green backs say this player has looked at their hand, which is
+            // the one thing about an opponent that changes how you bet. Not
+            // while they are out of it: a packed seat's cards are history.
+            tint: !s.isBlind && _inHand(s) ? AppTheme.cardSeenBack : null,
+          ),
+        );
+
+    final Widget fan;
+    if (count <= 3) {
+      fan = Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [for (var i = 0; i < count; i++) card(i)],
+      );
+    } else {
+      // Four or five cards in the width three take (owner, 18 Sep 2026): the
+      // pod's column is as wide as the pod and three cards already fill nine
+      // tenths of it, so a longer hand overlaps instead of spreading. Each
+      // card after the first shows its left half — a step of 0.15 of the pod,
+      // against an index 0.11 wide — which is the half its rank and suit are
+      // printed in. The same height as the row of three, so the column is the
+      // same height whatever the hand, face down and face up alike.
+      final cardW = cardH * PlayingCard.aspect;
+      final step = 2 * cardW / (count - 1);
+      fan = SizedBox(
+        width: 3 * cardW,
+        height: cardH,
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            for (var i = 0; i < count; i++)
+              Positioned(
+                left: i * step,
+                top: 0,
+                // The two that do not count step back where they stand; the
+                // three that do are simply left as they are. Nothing rises:
+                // there is a pod above this fan and a badge below it.
+                child: SetBack(
+                  setBack:
+                      picking && i < show.length && !best.contains(show[i]),
+                  cardHeight: cardH,
+                  child: card(i),
+                ),
+              ),
+          ],
+        ),
+      );
+    }
 
     // BLIND / SEEN rides on the hand it describes, and only while there is a
     // hand to describe: face-up cards at a showdown or a sideshow peek are the

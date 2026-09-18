@@ -210,7 +210,7 @@ class Strings {
   String get backToCategories => _('backToCategories');
 
   /// The rules sheet's second section (owner, 18 Sep 2026): what a variation
-  /// table is, above the six variations, each named and explained by
+  /// table is, above the variations, each named and explained by
   /// [variationName] and [variationNote].
   String get variationRulesTitle => _('variationRulesTitle');
   String get variationRulesIntro => _('variationRulesIntro');
@@ -277,6 +277,7 @@ class Strings {
     'HUKAM' => _('varHukam'),
     'LOWEST_JOKER' => _('varLowestJoker'),
     'HIGHEST_JOKER' => _('varHighestJoker'),
+    'FIVE_CARD' => varFiveCard,
     _ => wire,
   };
 
@@ -289,8 +290,15 @@ class Strings {
     'HUKAM' => _('varHukamNote'),
     'LOWEST_JOKER' => _('varLowestJokerNote'),
     'HIGHEST_JOKER' => _('varHighestJokerNote'),
+    'FIVE_CARD' => varFiveCardNote,
     _ => '',
   };
+
+  /// 5-Card Teen Patti (owner, 18 Sep 2026): every player holds five cards
+  /// and the best three are played. The name is short because it is a picker
+  /// key, one of four across on a 640dp phone; the note is its one-line rule.
+  String get varFiveCard => _('varFiveCard');
+  String get varFiveCardNote => _('varFiveCardNote');
   String get accept => _('accept');
   String get decline => _('decline');
   String get sideshowDeclined => _('sideshowDeclined');
@@ -866,20 +874,16 @@ class Strings {
       'backToCategories': 'All games',
       'variationRulesTitle': 'Variation tables',
       'tableInfoTitle': 'Table info',
-      'tableRulesTitle':
-          'How this table plays',
-      'tableRulesKey':
-          'Table rules',
+      'tableRulesTitle': 'How this table plays',
+      'tableRulesKey': 'Table rules',
       'ruleBlindMoves':
           'You can bet blind up to {n} times; after that your cards open for you.',
-      'ruleRaiseOnce':
-          'On your turn: chaal, or raise once to double.',
+      'ruleRaiseOnce': 'On your turn: chaal, or raise once to double.',
       'ruleRaiseFree':
           'On your turn: chaal, or keep doubling the raise as far as your chips go.',
       'rulePotCapped':
           'When the pot reaches {pot}, every hand is shown and the best one wins.',
-      'rulePotOpen':
-          'The pot has no limit.',
+      'rulePotOpen': 'The pot has no limit.',
       'ruleRoundsEnd':
           'If the betting runs all its rounds, every hand is shown and the best one wins.',
       'ruleShowTwo':
@@ -906,12 +910,14 @@ class Strings {
       'varHukam': 'Hukam',
       'varLowestJoker': 'Lowest Joker',
       'varHighestJoker': 'Highest Joker',
+      'varFiveCard': '5-Card',
       'varMuflisNote': 'Lowest hand wins',
       'varAk47Note': 'A, K, 4 and 7 are wild',
       'varJokerNote': 'The turned-up rank is wild',
       'varHukamNote': 'The turned-up suit is wild',
       'varLowestJokerNote': 'Your lowest card is wild',
       'varHighestJokerNote': 'Your highest card is wild',
+      'varFiveCardNote': 'Best 3 of your 5 cards',
       'wildCard': 'Wild',
       'sideshowRunning': 'Sideshow',
       'accept': 'Accept',
@@ -1281,20 +1287,16 @@ class Strings {
       'backToCategories': 'सभी खेल',
       'variationRulesTitle': 'वेरिएशन टेबल',
       'tableInfoTitle': 'टेबल की जानकारी',
-      'tableRulesTitle':
-          'यह टेबल कैसे खेली जाती है',
-      'tableRulesKey':
-          'टेबल के नियम',
+      'tableRulesTitle': 'यह टेबल कैसे खेली जाती है',
+      'tableRulesKey': 'टेबल के नियम',
       'ruleBlindMoves':
           'आप {n} बार तक ब्लाइंड चाल चल सकते हैं; उसके बाद आपके पत्ते आपके लिए खुल जाते हैं।',
-      'ruleRaiseOnce':
-          'अपनी बारी पर: चाल, या एक बार दुगना रेज़।',
+      'ruleRaiseOnce': 'अपनी बारी पर: चाल, या एक बार दुगना रेज़।',
       'ruleRaiseFree':
           'अपनी बारी पर: चाल, या जितने चिप्स हों उतना दुगना करते जाएँ।',
       'rulePotCapped':
           'पॉट {pot} पहुँचते ही सभी हाथ दिखाए जाते हैं और सबसे अच्छा हाथ जीतता है।',
-      'rulePotOpen':
-          'पॉट की कोई सीमा नहीं है।',
+      'rulePotOpen': 'पॉट की कोई सीमा नहीं है।',
       'ruleRoundsEnd':
           'सारे राउंड पूरे हो जाएँ तो सभी हाथ दिखाए जाते हैं और सबसे अच्छा हाथ जीतता है।',
       'ruleShowTwo':
@@ -1321,12 +1323,14 @@ class Strings {
       'varHukam': 'हुकुम',
       'varLowestJoker': 'सबसे छोटा जोकर',
       'varHighestJoker': 'सबसे बड़ा जोकर',
+      'varFiveCard': '5-पत्ती',
       'varMuflisNote': 'सबसे कमज़ोर हाथ जीतता है',
       'varAk47Note': 'A, K, 4 और 7 जोकर हैं',
       'varJokerNote': 'खुले पत्ते की रैंक जोकर है',
       'varHukamNote': 'खुले पत्ते का रंग जोकर है',
       'varLowestJokerNote': 'आपका सबसे छोटा पत्ता जोकर है',
       'varHighestJokerNote': 'आपका सबसे बड़ा पत्ता जोकर है',
+      'varFiveCardNote': 'आपके 5 पत्तों में से सबसे अच्छे 3',
       'wildCard': 'जोकर',
       'sideshowRunning': 'साइडशो',
       'accept': 'स्वीकारें',
@@ -1691,22 +1695,16 @@ class Strings {
       'backToCategories': 'সব খেলা',
       'variationRulesTitle': 'ভেরিয়েশন টেবিল',
       'tableInfoTitle': 'টেবিলের তথ্য',
-      'tableRulesTitle':
-          'এই টেবিল যেভাবে খেলা হয়',
-      'tableRulesKey':
-          'টেবিলের নিয়ম',
+      'tableRulesTitle': 'এই টেবিল যেভাবে খেলা হয়',
+      'tableRulesKey': 'টেবিলের নিয়ম',
       'ruleBlindMoves':
           'আপনি {n} বার পর্যন্ত ব্লাইন্ড চাল দিতে পারেন; তারপর আপনার তাস আপনার জন্য খুলে যায়।',
-      'ruleRaiseOnce':
-          'নিজের পালায়: চাল, অথবা একবার দ্বিগুণ রেইজ।',
+      'ruleRaiseOnce': 'নিজের পালায়: চাল, অথবা একবার দ্বিগুণ রেইজ।',
       'ruleRaiseFree':
           'নিজের পালায়: চাল, অথবা চিপস যতদূর যায় ততবার দ্বিগুণ করুন।',
-      'rulePotCapped':
-          'পট {pot} হলে সব হাত দেখানো হয় এবং সেরা হাত জেতে।',
-      'rulePotOpen':
-          'পটের কোনো সীমা নেই।',
-      'ruleRoundsEnd':
-          'সব রাউন্ড শেষ হলে সব হাত দেখানো হয় এবং সেরা হাত জেতে।',
+      'rulePotCapped': 'পট {pot} হলে সব হাত দেখানো হয় এবং সেরা হাত জেতে।',
+      'rulePotOpen': 'পটের কোনো সীমা নেই।',
+      'ruleRoundsEnd': 'সব রাউন্ড শেষ হলে সব হাত দেখানো হয় এবং সেরা হাত জেতে।',
       'ruleShowTwo':
           'মাত্র দুজন খেলোয়াড় বাকি থাকলে যে কেউ শো-এর জন্য দিতে পারেন।',
       'ruleVariationPick':
@@ -1732,12 +1730,14 @@ class Strings {
       'varHukam': 'হুকুম',
       'varLowestJoker': 'সবচেয়ে ছোট জোকার',
       'varHighestJoker': 'সবচেয়ে বড় জোকার',
+      'varFiveCard': '৫-তাস',
       'varMuflisNote': 'সবচেয়ে দুর্বল হাত জেতে',
       'varAk47Note': 'A, K, 4 ও 7 জোকার',
       'varJokerNote': 'খোলা তাসের র‍্যাঙ্ক জোকার',
       'varHukamNote': 'খোলা তাসের রং জোকার',
       'varLowestJokerNote': 'আপনার সবচেয়ে ছোট তাস জোকার',
       'varHighestJokerNote': 'আপনার সবচেয়ে বড় তাস জোকার',
+      'varFiveCardNote': 'আপনার ৫ তাসের সেরা ৩টি',
       'wildCard': 'জোকার',
       'sideshowRunning': 'সাইডশো',
       'accept': 'গ্রহণ করুন',
@@ -2103,20 +2103,16 @@ class Strings {
       'backToCategories': 'બધી રમતો',
       'variationRulesTitle': 'વેરિએશન ટેબલ',
       'tableInfoTitle': 'ટેબલની માહિતી',
-      'tableRulesTitle':
-          'આ ટેબલ કેવી રીતે રમાય છે',
-      'tableRulesKey':
-          'ટેબલના નિયમો',
+      'tableRulesTitle': 'આ ટેબલ કેવી રીતે રમાય છે',
+      'tableRulesKey': 'ટેબલના નિયમો',
       'ruleBlindMoves':
           'તમે {n} વખત સુધી બ્લાઇન્ડ ચાલ ચાલી શકો છો; પછી તમારાં પત્તાં તમારા માટે ખૂલી જાય છે.',
-      'ruleRaiseOnce':
-          'તમારા વારામાં: ચાલ, અથવા એક વાર બમણો રેઇઝ.',
+      'ruleRaiseOnce': 'તમારા વારામાં: ચાલ, અથવા એક વાર બમણો રેઇઝ.',
       'ruleRaiseFree':
           'તમારા વારામાં: ચાલ, અથવા ચિપ્સ હોય ત્યાં સુધી બમણું કરતા જાઓ.',
       'rulePotCapped':
           'પોટ {pot} થાય ત્યારે બધા હાથ બતાવાય છે અને શ્રેષ્ઠ હાથ જીતે છે.',
-      'rulePotOpen':
-          'પોટની કોઈ મર્યાદા નથી.',
+      'rulePotOpen': 'પોટની કોઈ મર્યાદા નથી.',
       'ruleRoundsEnd':
           'બધા રાઉન્ડ પૂરા થાય તો બધા હાથ બતાવાય છે અને શ્રેષ્ઠ હાથ જીતે છે.',
       'ruleShowTwo':
@@ -2143,12 +2139,14 @@ class Strings {
       'varHukam': 'હુકમ',
       'varLowestJoker': 'સૌથી નાનો જોકર',
       'varHighestJoker': 'સૌથી મોટો જોકર',
+      'varFiveCard': '5-પત્તી',
       'varMuflisNote': 'સૌથી નબળો હાથ જીતે છે',
       'varAk47Note': 'A, K, 4 અને 7 જોકર છે',
       'varJokerNote': 'ખુલ્લા પત્તાનો રેન્ક જોકર છે',
       'varHukamNote': 'ખુલ્લા પત્તાનો રંગ જોકર છે',
       'varLowestJokerNote': 'તમારું સૌથી નાનું પત્તું જોકર છે',
       'varHighestJokerNote': 'તમારું સૌથી મોટું પત્તું જોકર છે',
+      'varFiveCardNote': 'તમારાં 5 પત્તાંમાંથી શ્રેષ્ઠ 3',
       'wildCard': 'જોકર',
       'sideshowRunning': 'સાઇડશો',
       'accept': 'સ્વીકારો',
@@ -2511,20 +2509,16 @@ class Strings {
       'backToCategories': 'ਸਾਰੀਆਂ ਖੇਡਾਂ',
       'variationRulesTitle': 'ਵੇਰੀਏਸ਼ਨ ਟੇਬਲ',
       'tableInfoTitle': 'ਟੇਬਲ ਦੀ ਜਾਣਕਾਰੀ',
-      'tableRulesTitle':
-          'ਇਹ ਟੇਬਲ ਕਿਵੇਂ ਖੇਡੀ ਜਾਂਦੀ ਹੈ',
-      'tableRulesKey':
-          'ਟੇਬਲ ਦੇ ਨਿਯਮ',
+      'tableRulesTitle': 'ਇਹ ਟੇਬਲ ਕਿਵੇਂ ਖੇਡੀ ਜਾਂਦੀ ਹੈ',
+      'tableRulesKey': 'ਟੇਬਲ ਦੇ ਨਿਯਮ',
       'ruleBlindMoves':
           'ਤੁਸੀਂ {n} ਵਾਰ ਤੱਕ ਬਲਾਇੰਡ ਚਾਲ ਚੱਲ ਸਕਦੇ ਹੋ; ਉਸ ਤੋਂ ਬਾਅਦ ਤੁਹਾਡੇ ਪੱਤੇ ਤੁਹਾਡੇ ਲਈ ਖੁੱਲ੍ਹ ਜਾਂਦੇ ਹਨ।',
-      'ruleRaiseOnce':
-          'ਆਪਣੀ ਵਾਰੀ ਤੇ: ਚਾਲ, ਜਾਂ ਇੱਕ ਵਾਰ ਦੁੱਗਣਾ ਰੇਜ਼।',
+      'ruleRaiseOnce': 'ਆਪਣੀ ਵਾਰੀ ਤੇ: ਚਾਲ, ਜਾਂ ਇੱਕ ਵਾਰ ਦੁੱਗਣਾ ਰੇਜ਼।',
       'ruleRaiseFree':
           'ਆਪਣੀ ਵਾਰੀ ਤੇ: ਚਾਲ, ਜਾਂ ਜਿੰਨੇ ਚਿਪਸ ਹੋਣ ਓਨਾ ਦੁੱਗਣਾ ਕਰਦੇ ਜਾਓ।',
       'rulePotCapped':
           'ਪੌਟ {pot} ਹੁੰਦੇ ਹੀ ਸਾਰੇ ਹੱਥ ਦਿਖਾਏ ਜਾਂਦੇ ਹਨ ਅਤੇ ਸਭ ਤੋਂ ਵਧੀਆ ਹੱਥ ਜਿੱਤਦਾ ਹੈ।',
-      'rulePotOpen':
-          'ਪੌਟ ਦੀ ਕੋਈ ਸੀਮਾ ਨਹੀਂ।',
+      'rulePotOpen': 'ਪੌਟ ਦੀ ਕੋਈ ਸੀਮਾ ਨਹੀਂ।',
       'ruleRoundsEnd':
           'ਸਾਰੇ ਰਾਊਂਡ ਪੂਰੇ ਹੋ ਜਾਣ ਤਾਂ ਸਾਰੇ ਹੱਥ ਦਿਖਾਏ ਜਾਂਦੇ ਹਨ ਅਤੇ ਸਭ ਤੋਂ ਵਧੀਆ ਹੱਥ ਜਿੱਤਦਾ ਹੈ।',
       'ruleShowTwo':
@@ -2551,12 +2545,14 @@ class Strings {
       'varHukam': 'ਹੁਕਮ',
       'varLowestJoker': 'ਸਭ ਤੋਂ ਛੋਟਾ ਜੋਕਰ',
       'varHighestJoker': 'ਸਭ ਤੋਂ ਵੱਡਾ ਜੋਕਰ',
+      'varFiveCard': '5-ਪੱਤੀ',
       'varMuflisNote': 'ਸਭ ਤੋਂ ਕਮਜ਼ੋਰ ਹੱਥ ਜਿੱਤਦਾ ਹੈ',
       'varAk47Note': 'A, K, 4 ਅਤੇ 7 ਜੋਕਰ ਹਨ',
       'varJokerNote': 'ਖੁੱਲ੍ਹੇ ਪੱਤੇ ਦਾ ਰੈਂਕ ਜੋਕਰ ਹੈ',
       'varHukamNote': 'ਖੁੱਲ੍ਹੇ ਪੱਤੇ ਦਾ ਰੰਗ ਜੋਕਰ ਹੈ',
       'varLowestJokerNote': 'ਤੁਹਾਡਾ ਸਭ ਤੋਂ ਛੋਟਾ ਪੱਤਾ ਜੋਕਰ ਹੈ',
       'varHighestJokerNote': 'ਤੁਹਾਡਾ ਸਭ ਤੋਂ ਵੱਡਾ ਪੱਤਾ ਜੋਕਰ ਹੈ',
+      'varFiveCardNote': 'ਤੁਹਾਡੇ 5 ਪੱਤਿਆਂ ਵਿੱਚੋਂ ਸਭ ਤੋਂ ਵਧੀਆ 3',
       'wildCard': 'ਜੋਕਰ',
       'sideshowRunning': 'ਸਾਈਡਸ਼ੋ',
       'accept': 'ਮੰਨੋ',

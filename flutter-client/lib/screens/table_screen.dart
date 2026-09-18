@@ -1866,9 +1866,7 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
         (wonSideshow(myPeek?.userId) ? myPeek?.handName : null) ??
         (liveHandName == null || liveHandName.isEmpty ? null : liveHandName);
     final ownHandNameIsLive =
-        myReveal == null &&
-        !wonSideshow(myPeek?.userId) &&
-        ownHandName != null;
+        myReveal == null && !wonSideshow(myPeek?.userId) && ownHandName != null;
     final turnSeat = room.turn?.seatIndex;
     final progress = state.turnProgress;
     final pad = Dim.feltPad(MediaQuery.sizeOf(context).width);
@@ -1962,6 +1960,8 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
               revealed: reveal?.cards ?? peek?.cards,
               // Which of those cards played as wild ones (a variation table).
               wild: reveal?.wild ?? peek?.wild ?? const [],
+              // Which three of five were counted (5-Card only).
+              best: reveal?.best ?? peek?.best ?? const [],
               revealedHand:
                   reveal?.handName ??
                   (wonSideshow(peek?.userId) ? peek?.handName : null),
@@ -2191,6 +2191,7 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
                       cardHeight: handH,
                       revealed: myReveal?.cards,
                       wild: myReveal?.wild ?? myPeek?.wild ?? const [],
+                      best: myReveal?.best ?? myPeek?.best ?? const [],
                     ),
                   ],
                 ),
@@ -3151,15 +3152,42 @@ class _Status extends StatelessWidget {
   }
 }
 
-/// The viewer's own three cards, resting on the cloth in a fan, with "See
-/// cards" laid over them: looking at your hand is something you do to the
-/// cards, and once you have looked the key has no reason to still be there.
+/// The viewer's own cards, resting on the cloth in a fan, with "See cards"
+/// laid over them: looking at your hand is something you do to the cards, and
+/// once you have looked the key has no reason to still be there.
+///
+/// **How many cards is the server's to say, never assumed** (owner, 18 Sep
+/// 2026). Three on every table but one: under 5-Card every hand is topped up
+/// to FIVE the moment that variation is chosen, and the best three of them are
+/// played. Face up, the fan is `you.cards`, however many that is; face down it
+/// is `variation.cardsPerPlayer` backs — three where there is no variation
+/// block or the server predates the figure.
+///
+/// **Five cards stand in the box three do.** On a 640dp phone the hand sits
+/// between the viewer's pod and the action keys with nothing to spare, so a
+/// longer hand is fanned TIGHTER, not wider: the first and last card stay
+/// where a three-card hand's are and lean as far, and the rest share the run
+/// between them — a step of 0.41 of a card instead of 0.82, which still clears
+/// the index in each card's corner (0.265 of a card's height, 0.37 of its
+/// width). A three-card hand is laid out by the same arithmetic and comes out
+/// exactly as it always did.
+///
+/// **What is being played is shown, not asked.** Once `you.hand.best` names
+/// three of five, those three rise a little and the other two are set back
+/// ([SetBack]); the server chose them and the player chooses nothing.
 class _OwnHand extends StatelessWidget {
   const _OwnHand({
     required this.cardHeight,
     this.revealed,
     this.wild = const [],
+    this.best = const [],
   });
+
+  /// The cards of a showdown's or a sideshow's five-card hand that counted,
+  /// for when `you.hand` cannot say: the server drops that block the moment
+  /// the hand ends, while the cards are still on the felt being compared.
+  /// Empty on every three-card hand.
+  final List<String> best;
 
   /// Which of the hand's cards played as wild ones, once a showdown or a
   /// sideshow has said so (a variation table). Empty until then: the viewer
@@ -3177,9 +3205,15 @@ class _OwnHand extends StatelessWidget {
   /// they are being told they won with it.
   final List<String>? revealed;
 
-  /// How far each card is turned out of the fan, in radians. Small: three
-  /// cards held in one hand are barely splayed at all.
+  /// How far the OUTER cards are turned out of the fan, in radians. Small:
+  /// cards held in one hand are barely splayed at all. The cards between are
+  /// turned in proportion, so five cards splay no wider than three.
   static const double _fan = 0.078;
+
+  /// How far a card that counts stands proud of the fan, as a share of its
+  /// height: the middle card of a plain hand, and the best three of five.
+  static const double _proud = 0.04;
+  static const double _lifted = 0.08;
 
   @override
   Widget build(BuildContext context) {
@@ -3237,13 +3271,47 @@ class _OwnHand extends StatelessWidget {
             .firstOrNull ??
         4;
 
-    // The fan's own box. The cards overlap by 18% and the outer two lean out,
-    // so the box pays for both the overlap and the lean; the cards cast their
-    // shadows onto the cloth, so nothing here may clip tightly to a card.
+    // How many cards to draw. Face up, what the server sent. Face down, what
+    // the viewer's own seat is said to hold (`cardCount`, the figure the rim
+    // pods draw from), and only then what the variation block says everybody
+    // holds: the server drops that block the moment the hand ends while the
+    // cards stay on the felt until the next deal, so a player who never looked
+    // under 5-Card — winning because everyone else packed, or sitting out the
+    // rest of a hand they folded — had their own fan fall from five backs to
+    // three beside four seats still showing five. Held to 3..5: fewer than
+    // three is a snapshot caught mid-change and drawn as the hand it is about
+    // to be, and the felt has no room for a sixth.
+    final seatCards =
+        room.seats
+            .where((s) => s.seatIndex == you.seatIndex)
+            .firstOrNull
+            ?.cardCount ??
+        0;
+    final count =
+        (cards.isNotEmpty
+                ? cards.length
+                : seatCards > 0
+                ? seatCards
+                : state.variation?.cardsPerPlayer ?? 3)
+            .clamp(3, 5);
+    // The three that count, once there are more than three to choose from.
+    final counted = (you.hand?.best.isNotEmpty ?? false)
+        ? you.hand!.best
+        : best;
+    final picking =
+        cards.length > 3 && counted.isNotEmpty && counted.length < cards.length;
+
+    // The fan's own box. Three cards overlap by 18% and the outer two lean
+    // out, so the box pays for both the overlap and the lean; the cards cast
+    // their shadows onto the cloth, so nothing here may clip tightly to a
+    // card. More than three share the same run between the same two outer
+    // cards, so the box is the same whatever the hand.
     final cardW = cardHeight * PlayingCard.aspect;
-    final step = cardW * 0.82;
+    final run = 2 * cardW * 0.82;
+    final step = run / (count - 1);
     final lean = cardHeight * 0.09;
-    final width = cardW + 2 * step + 2 * lean;
+    final width = cardW + run + 2 * lean;
+    final mid = (count - 1) / 2;
 
     return SizedBox(
       width: width,
@@ -3253,33 +3321,49 @@ class _OwnHand extends StatelessWidget {
         // (WildTransform), and the cards' shadows already were.
         clipBehavior: Clip.none,
         children: [
-          for (var i = 0; i < 3; i++)
-            Positioned(
+          for (var i = 0; i < count; i++)
+            // Animated, so that when a hand is topped up to five the three
+            // already held slide together to make room rather than jumping,
+            // and the best three rise rather than snap. At rest it is the
+            // plain Positioned it replaced.
+            AnimatedPositioned(
+              key: ValueKey('own-card-${state.room?.handNo}-$i'),
+              duration: Motion.slow,
+              curve: Motion.standard,
               left: lean + i * step,
-              // The middle card sits a little proud of its neighbours.
-              bottom: i == 1 ? cardHeight * 0.04 : 0,
+              // The middle card sits a little proud of its neighbours — until
+              // the hand has three that count, and then those do instead.
+              bottom: picking
+                  ? (counted.contains(cards[i]) ? cardHeight * _lifted : 0)
+                  : (i == mid ? cardHeight * _proud : 0),
               child: _Dealt(
                 key: ValueKey('${state.room?.handNo}-$i'),
-                index: i,
-                restAngle: (i - 1) * _fan,
+                // The two cards of a top-up arrive as the first two of a deal
+                // did, not after a pause for three cards that are not coming.
+                index: i < 3 ? i : i - 3,
+                restAngle: (i - mid) * (_fan / mid),
                 // On a variation table a wild card turns into the card it
                 // played as, once the server says what that was — `you.hand`,
                 // sent to this player alone when they have looked and the
                 // variation is chosen. Everywhere else, and for every card
                 // that is not wild, this is the plain card it always was.
-                child: WildTransform(
-                  height: cardHeight,
-                  code: i < cards.length ? cards[i] : null,
-                  standIn: i < cards.length
-                      ? you.hand?.standInFor(cards[i], i)
-                      : null,
-                  wild:
-                      i < cards.length &&
-                      (wild.contains(cards[i]) ||
-                          (you.hand?.wild.contains(cards[i]) ?? false)),
-                  index: i,
-                  label: state.t.wildCard,
-                  dimmed: packed,
+                child: SetBack(
+                  setBack: picking && !counted.contains(cards[i]),
+                  cardHeight: cardHeight,
+                  child: WildTransform(
+                    height: cardHeight,
+                    code: i < cards.length ? cards[i] : null,
+                    standIn: i < cards.length
+                        ? you.hand?.standInFor(cards[i], i)
+                        : null,
+                    wild:
+                        i < cards.length &&
+                        (wild.contains(cards[i]) ||
+                            (you.hand?.wild.contains(cards[i]) ?? false)),
+                    index: i,
+                    label: state.t.wildCard,
+                    dimmed: packed,
+                  ),
                 ),
               ),
             ),
@@ -3415,15 +3499,25 @@ class _DealtState extends State<_Dealt> with SingleTickerProviderStateMixin {
         ).animate(curved),
         child: ScaleTransition(
           scale: Tween(begin: 0.85, end: 1.0).animate(curved),
-          child: AnimatedBuilder(
-            animation: curved,
-            builder: (context, child) => Transform.rotate(
-              // Turning into its place in the fan as it lands.
-              angle: -0.18 + (widget.restAngle + 0.18) * curved.value,
-              alignment: Alignment.bottomCenter,
+          // The resting angle is eased as well as the landing: a hand topped
+          // up from three cards to five closes its fan, and the cards already
+          // held should turn to their new places rather than flick to them.
+          // Built at its end value, so a hand that never changes never moves.
+          child: TweenAnimationBuilder<double>(
+            tween: Tween<double>(end: widget.restAngle),
+            duration: Motion.slow,
+            curve: Motion.standard,
+            child: widget.child,
+            builder: (context, rest, child) => AnimatedBuilder(
+              animation: curved,
+              builder: (context, child) => Transform.rotate(
+                // Turning into its place in the fan as it lands.
+                angle: -0.18 + (rest + 0.18) * curved.value,
+                alignment: Alignment.bottomCenter,
+                child: child,
+              ),
               child: child,
             ),
-            child: widget.child,
           ),
         ),
       ),

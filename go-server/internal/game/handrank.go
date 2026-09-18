@@ -55,6 +55,12 @@ type EvaluatedHand struct {
 	// wild 4♠ into the K it made their sequence with (owner, 18 Sep 2026)
 	// instead of leaving them to work out why J-Q-4 is called a Sequence.
 	PlaysAs []string
+	// Best names the three cards (wire codes, a subset of Cards, in Cards'
+	// order) that were COUNTED when the hand holds more than three — 5-Card
+	// Teen Patti, where a player is dealt five and plays the best three of them
+	// (owner, 18 Sep 2026). Go only, set by EvaluateBest, and nil for a
+	// three-card hand, which plays all of itself.
+	Best []string
 }
 
 // EvaluateOptions carries the one variant switch. AceLowIsLowest=false (the

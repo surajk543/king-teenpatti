@@ -701,6 +701,20 @@ S→C  42["room:state",{…,"variation":{"selecting":false,…,"selected":"AK47"
    whose payloads are unchanged, as `room:state.variation` is.
 
 
+**5-Card Teen Patti (owner, 18 Sep 2026), Go only, all additive.** A seventh wire value,
+`FIVE_CARD`, LAST in `variation.options`. Every hand is still dealt three; when FIVE_CARD is chosen
+the server tops every hand in play up to five. `room:state.variation.cardsPerPlayer` (always in the
+block) is 3 while the window is open and under the six three-card variations, 5 after a FIVE_CARD
+choice; the `game:selectVariation` ack and `game:variationSelected` carry the same key.
+`seats[].cardCount` becomes 5, `you.cards` holds five codes for a viewer who has looked (their first
+three unchanged and in place), and `player:cards` is re-sent with all five to a player who was
+already looking. `you.hand` gains `best: string[]` — the three of `you.cards` that are counted (all
+three of a three-card hand). `game:showdown` / `game:handEnded` `reveals[]` and the two hands of a
+`game:sideshowReveal` carry all five `cards` and gain `best` (three codes) ONLY under FIVE_CARD. The
+two cards a player would be topped up with are drawn at the deal and live in the server's snapshot
+only; they are in no payload until they are dealt. A timeout or a departed chooser is still MUFLIS,
+three cards each.
+
 **Later the same day (owner, 18 Sep 2026), all Go only:** a variation table hides other players'
 stacks exactly as a blind one does (`chipsHidden: true`, other seats' `chips: null` — §8.1's
 `chipsHidden` is `category !== 'seen'` on the Go server); it has no pot limit (`maxPot: 0`,

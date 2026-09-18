@@ -126,6 +126,14 @@ type SnapshotVariation struct {
 	// Selected is "" while Open.
 	Selected   Variation           `json:"selected"`
 	SelectedBy VariationSelectedBy `json:"selectedBy"`
+	// Extra is the top-up drawn at the deal for a variation that plays more
+	// than three cards (FIVE_CARD), by user id; present only while the window
+	// is open — it is dealt or dropped the moment a variation is chosen.
+	Extra map[string][]string `json:"extra,omitempty"`
+	// Options is the menu the hand opened with (variationWindow.menu), kept so
+	// a restored table reports the same one. Absent in a snapshot written
+	// before it was kept.
+	Options []Variation `json:"options,omitempty"`
 }
 
 // SnapshotSideshow is SnapshotHand.sideshow (hand.sideshow without the timer).

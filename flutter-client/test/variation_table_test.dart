@@ -3,7 +3,7 @@
 // The server deals the hand and then waits up to ten seconds for ONE player —
 // the one who would have acted first — to choose the rules it is played under.
 // Everything the client draws of that comes from the `variation` block of the
-// table snapshot: the chooser's six keys and their clock, everyone else's
+// table snapshot: the chooser's keys and their clock, everyone else's
 // "… is selecting variation", the announcement once it closes, and the tag
 // that names the variation for the rest of the hand and through the showdown.
 //
@@ -564,7 +564,7 @@ void main() {
 
     for (final lang in AppLang.values) {
       testWidgets(
-        'fits 640x360 at text x1.25 in ${lang.englishName}, six keys of 44dp',
+        'fits 640x360 at text x1.25 in ${lang.englishName}, seven keys of 44dp',
         (tester) async {
           await pump(
             tester,
@@ -573,12 +573,38 @@ void main() {
             lang: lang,
           );
           expect(tester.takeException(), isNull);
-          expect(_optionKeys, findsNWidgets(6));
+          expect(_optionKeys, findsNWidgets(7));
           for (final element in _optionKeys.evaluate()) {
             final size = element.size!;
             expect(size.height, greaterThanOrEqualTo(44));
             expect(size.width, greaterThanOrEqualTo(44));
           }
+          // Two rows, four keys then three — never a third row, which is
+          // what the panel's height arithmetic depends on.
+          final tops = {
+            for (final element in _optionKeys.evaluate())
+              (element.renderObject! as RenderBox)
+                  .localToGlobal(Offset.zero)
+                  .dy
+                  .round(),
+          };
+          expect(tops, hasLength(2));
+          // 5-Card is one of them, named in this language.
+          expect(
+            find.text(Strings(lang).variationName(Variation.fiveCard)),
+            findsOneWidget,
+          );
+          // Nothing in it grows with the text scale: the panel is the 169dp
+          // its doc comment adds up to, inside the 230dp it is given.
+          final plate = tester.getRect(
+            find
+                .descendant(
+                  of: find.byType(VariationPrompt),
+                  matching: find.byType(DecoratedBox),
+                )
+                .first,
+          );
+          expect(plate.height, lessThanOrEqualTo(170));
           final panel = tester.getRect(find.byType(VariationPrompt));
           for (final element in _optionKeys.evaluate()) {
             final box = element.renderObject! as RenderBox;
@@ -619,7 +645,7 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
     });
 
-    testWidgets('sends one choice, and darkens all six while it waits', (
+    testWidgets('sends one choice, and darkens every key while it waits', (
       tester,
     ) async {
       final sent = await pump(tester, screen: const Size(891, 411));
@@ -681,14 +707,14 @@ void main() {
       (const Size(1280, 800), 1.0),
     ]) {
       final name = '${screen.width.toInt()}x${screen.height.toInt()} x$scale';
-      testWidgets('at $name the chooser gets six keys, clear of their hand', (
+      testWidgets('at $name the chooser gets seven keys, clear of their hand', (
         tester,
       ) async {
         final state = _newState(room: _room(variation: _selecting('u0')));
         await _pumpTable(tester, state, screen: screen, textScale: scale);
         expect(tester.takeException(), isNull);
 
-        expect(_optionKeys, findsNWidgets(6));
+        expect(_optionKeys, findsNWidgets(7));
         expect(find.text(state.t.variationChooseTitle), findsOneWidget);
         // Their own cards and the See key stay in reach under it.
         final panel = tester.getRect(

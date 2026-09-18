@@ -650,7 +650,53 @@ func validateSnapshot(snap *Snapshot) error {
 			if w.Selected != "" {
 				return fmt.Errorf("snapshot %s: variation window is open but %q is already selected", snap.RoomID, w.Selected)
 			}
-		} else if w.Selected != "" {
+			// The top-up a five-card variation would deal: real cards, the
+			// same number for everyone, and none of them a card already in
+			// play — a hand topped up with a card somebody else holds would
+			// put two of one card on the table.
+			inPlay := map[string]bool{w.TurnUp: true}
+			for _, seat := range snap.Seats {
+				if seat == nil { // an empty chair
+					continue
+				}
+				for _, code := range seat.Cards {
+					inPlay[code] = true
+				}
+			}
+			// All or nothing, as it was drawn: a top-up for some players and
+			// not others would restore into a hand where some hold five and
+			// others three.
+			if len(w.Extra) > 0 {
+				for _, seat := range snap.Seats {
+					if seat == nil || len(seat.Cards) == 0 {
+						continue
+					}
+					if _, ok := w.Extra[seat.UserID]; !ok {
+						return fmt.Errorf("snapshot %s: variation top-up has nothing for %s, who holds cards", snap.RoomID, seat.UserID)
+					}
+				}
+			}
+			for userID, codes := range w.Extra {
+				if err := validCardCodes(codes); err != nil {
+					return fmt.Errorf("snapshot %s: variation top-up for %s: %w", snap.RoomID, userID, err)
+				}
+				if len(codes) != MaxCardsPerPlayer-BaseCardsPerPlayer {
+					return fmt.Errorf("snapshot %s: variation top-up for %s holds %d cards", snap.RoomID, userID, len(codes))
+				}
+				for _, code := range codes {
+					if inPlay[code] {
+						return fmt.Errorf("snapshot %s: variation top-up card %s is already in play", snap.RoomID, code)
+					}
+					inPlay[code] = true
+				}
+			}
+		}
+		for _, v := range w.Options {
+			if _, ok := ParseVariation(string(v)); !ok {
+				return fmt.Errorf("snapshot %s: variation menu offers %q, which this server does not play", snap.RoomID, v)
+			}
+		}
+		if !w.Open && w.Selected != "" {
 			// "" is legal for a closed window only in a hand that is ending.
 			if _, ok := ParseVariation(string(w.Selected)); !ok {
 				return fmt.Errorf("snapshot %s: variation %q is not one this server plays", snap.RoomID, w.Selected)

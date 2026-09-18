@@ -21,7 +21,7 @@ import 'variation_prompt.dart';
 /// With a [table] — the rules key on a lobby table card (owner, 18 Sep 2026:
 /// "clicking it shows the rules according to the table he selected") — the
 /// sheet opens on how THAT table plays, with the table's own figures in the
-/// sentences, and carries the six variations only when it is a variation
+/// sentences, and carries the variations only when it is a variation
 /// table. Without one (the Rules button) it is the whole reference.
 Future<void> showRules(BuildContext context, {LobbyTable? table}) {
   return showDialog<void>(
@@ -76,21 +76,27 @@ class _RulesSheet extends StatelessWidget {
     ('high', ['Ad', 'Jc', '8s']),
   ];
 
-  /// The six variations of a variation table (owner, 18 Sep 2026), in the
-  /// server's menu order, each with a hand that shows it and which of its
-  /// cards play wild there. The names and the one-line rules are the ones the
-  /// table's own picker shows ([Strings.variationName], [Strings.variationNote]).
-  static const List<(String, List<String>, List<String>)> _variations = [
+  /// The variations of a variation table (owner, 18 Sep 2026), in the
+  /// server's menu order, each with a hand that shows it, which of its cards
+  /// play wild there, and which are held but do not count. The names and the
+  /// one-line rules are the ones the table's own picker shows
+  /// ([Strings.variationName], [Strings.variationNote]).
+  static const List<(String, List<String>, List<String>, List<String>)>
+  _variations = [
     // The best hand there is when the lowest hand wins.
-    (Variation.muflis, ['5s', '3h', '2d'], []),
+    (Variation.muflis, ['5s', '3h', '2d'], [], []),
     // The 4 is wild: J-Q and a wild card make a sequence.
-    (Variation.ak47, ['Jh', 'Qs', '4s'], ['4s']),
+    (Variation.ak47, ['Jh', 'Qs', '4s'], ['4s'], []),
     // A nine was turned up, so the nine is wild: a trail of fives.
-    (Variation.joker, ['9h', '5s', '5c'], ['9h']),
+    (Variation.joker, ['9h', '5s', '5c'], ['9h'], []),
     // A heart was turned up, so the heart is wild: a pure sequence in spades.
-    (Variation.hukam, ['8h', 'Qs', 'Js'], ['8h']),
-    (Variation.lowestJoker, ['3h', '8d', 'Ks'], ['3h']),
-    (Variation.highestJoker, ['3h', '8d', 'Ks'], ['Ks']),
+    (Variation.hukam, ['8h', 'Qs', 'Js'], ['8h'], []),
+    (Variation.lowestJoker, ['3h', '8d', 'Ks'], ['3h'], []),
+    (Variation.highestJoker, ['3h', '8d', 'Ks'], ['Ks'], []),
+    // The owner's own example: five cards held, and the pure sequence in
+    // spades is what is played — the pair of sevens is set back, as the two
+    // cards that do not count are on the felt ([SetBack]).
+    (Variation.fiveCard, ['As', 'Ks', 'Qs', '7d', '7c'], [], ['7d', '7c']),
   ];
 
   @override
@@ -246,7 +252,7 @@ class _RulesSheet extends StatelessWidget {
             ),
           ),
 
-          // Variation tables: what they are, then the six ways a hand can be
+          // Variation tables: what they are, then the ways a hand can be
           // decided there. Under the rankings because every one of them IS
           // those rankings — with some cards wild, or read the other way up.
           // Left out of a seen or blind table's own rules: it is not how that
@@ -282,6 +288,7 @@ class _RulesSheet extends StatelessWidget {
                 note: t.variationNote(_variations[i].$1),
                 cards: _variations[i].$2,
                 wild: _variations[i].$3,
+                setBack: _variations[i].$4,
                 wildLabel: t.wildCard,
                 cardHeight: cardH,
                 numeral: champagne,
@@ -305,10 +312,15 @@ class _Row extends StatelessWidget {
     required this.ruled,
     this.wild = const [],
     this.wildLabel = '',
+    this.setBack = const [],
   });
 
+  /// Which of [cards] are held but not counted — the two of a 5-Card hand that
+  /// are not among its best three — drawn set back as they are on the felt.
+  final List<String> setBack;
+
   /// Where the hand ranks, or null for a row that is not one of an order — the
-  /// variations are six alternatives, not six places.
+  /// variations are alternatives, not places.
   final int? place;
 
   /// Which of [cards] play wild in this example, drawn with the gold edge a
@@ -378,11 +390,15 @@ class _Row extends StatelessWidget {
               for (final c in cards)
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: Space.xxs),
-                  child: WildEdge(
-                    wild: wild.contains(c),
+                  child: SetBack(
+                    setBack: setBack.contains(c),
                     cardHeight: cardHeight,
-                    label: wildLabel,
-                    child: PlayingCard(height: cardHeight, code: c),
+                    child: WildEdge(
+                      wild: wild.contains(c),
+                      cardHeight: cardHeight,
+                      label: wildLabel,
+                      child: PlayingCard(height: cardHeight, code: c),
+                    ),
                   ),
                 ),
             ],

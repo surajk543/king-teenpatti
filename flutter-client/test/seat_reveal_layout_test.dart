@@ -15,8 +15,9 @@ import 'package:teenpatti/theme/app_theme.dart';
 import 'package:teenpatti/widgets/playing_card.dart';
 import 'package:teenpatti/widgets/premium_surface.dart';
 import 'package:teenpatti/widgets/seat_pod.dart';
+import 'package:teenpatti/widgets/variation_prompt.dart';
 
-Seat _seat(String status) => Seat.fromJson({
+Seat _seat(String status, {int cardCount = 3}) => Seat.fromJson({
   'seatIndex': 1,
   'userId': 'u1',
   'displayName': 'Anita',
@@ -28,7 +29,7 @@ Seat _seat(String status) => Seat.fromJson({
   'lastAction': 'chaal',
   'contributed': 600,
   'connected': true,
-  'cardCount': 3,
+  'cardCount': cardCount,
 });
 
 GameState _newState() {
@@ -44,6 +45,7 @@ Future<({Size seat, Offset card})> _measure(
   required Seat seat,
   List<String>? revealed,
   String? revealedHand,
+  List<String> best = const [],
 }) async {
   await tester.pumpWidget(
     ChangeNotifierProvider<GameState>.value(
@@ -70,6 +72,7 @@ Future<({Size seat, Offset card})> _measure(
                   avatarUrl: null,
                   revealed: revealed,
                   revealedHand: revealedHand,
+                  best: best,
                 ),
               ),
             ),
@@ -112,6 +115,73 @@ void main() {
     expect(find.text('High Card'), findsOneWidget);
     expect(after.seat, before.seat, reason: 'the column changed height');
     expect(after.card, before.card, reason: 'the cards moved');
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(seconds: 2));
+    state.dispose();
+  });
+
+  // 5-Card (owner, 18 Sep 2026): a seat holds five cards in the width three
+  // take, and at the reveal all five turn over with the two that did not
+  // count set back — none of which may move the seat either.
+  testWidgets('a seat holding five cards is the size of one holding three, '
+      'and keeps it when all five are shown down', (tester) async {
+    tester.view.physicalSize = const Size(891, 411);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final state = _newState();
+
+    final three = await _measure(tester, state, seat: _seat('active'));
+    expect(find.byType(PlayingCard), findsNWidgets(3));
+    expect(find.byType(SetBack), findsNothing, reason: 'a three-card fan');
+
+    final five = await _measure(
+      tester,
+      state,
+      seat: _seat('active', cardCount: 5),
+    );
+    expect(tester.takeException(), isNull);
+    expect(find.byType(PlayingCard), findsNWidgets(5));
+    expect(five.seat, three.seat, reason: 'five backs made the seat larger');
+    expect(five.card.dy, three.card.dy, reason: 'the cards moved down');
+    // The five stand inside the pod's own width.
+    final pod = tester.getRect(find.byType(SeatPod));
+    for (final element in find.byType(PlayingCard).evaluate()) {
+      final box = element.renderObject! as RenderBox;
+      final rect = box.localToGlobal(Offset.zero) & box.size;
+      expect(rect.left, greaterThanOrEqualTo(pod.left - 0.01));
+      expect(rect.right, lessThanOrEqualTo(pod.right + 0.01));
+    }
+    expect(
+      tester.widgetList<SetBack>(find.byType(SetBack)).any((w) => w.setBack),
+      isFalse,
+      reason: 'nothing is set back while the cards are face down',
+    );
+
+    final shown = await _measure(
+      tester,
+      state,
+      seat: _seat('lost', cardCount: 5),
+      revealed: const ['As', 'Ks', 'Qs', '7d', '7c'],
+      revealedHand: 'Pure Sequence',
+      best: const ['As', 'Ks', 'Qs'],
+    );
+    expect(tester.takeException(), isNull);
+    expect(find.text('Pure Sequence'), findsOneWidget);
+    expect(find.byType(PlayingCard), findsNWidgets(5));
+    expect(
+      tester
+          .widgetList<PlayingCard>(find.byType(PlayingCard))
+          .map((c) => c.code),
+      ['As', 'Ks', 'Qs', '7d', '7c'],
+    );
+    expect(
+      tester.widgetList<SetBack>(find.byType(SetBack)).map((w) => w.setBack),
+      [false, false, false, true, true],
+      reason: 'the best three stand, the other two are set back',
+    );
+    expect(shown.seat, five.seat, reason: 'the column changed height');
+    expect(shown.card, five.card, reason: 'the cards moved');
 
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump(const Duration(seconds: 2));

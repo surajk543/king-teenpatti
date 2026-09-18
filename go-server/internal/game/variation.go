@@ -27,7 +27,7 @@ package game
 // That is what lets the Table call one evaluator and one comparator everywhere
 // and have a seen or blind table behave exactly as it did before this existed.
 
-// Variation is one of the six rule sets a variation table's hand can be played
+// Variation is one of the seven rule sets a variation table's hand can be played
 // under. The values are the wire contract — game:selectVariation carries one,
 // room:state and game:variationSelected echo it — and they are compared
 // EXACTLY: there is one canonical spelling and no case folding, so "muflis",
@@ -54,7 +54,32 @@ const (
 	VariationLowestJoker Variation = "LOWEST_JOKER"
 	// VariationHighestJoker — the same, with the highest-ranked card.
 	VariationHighestJoker Variation = "HIGHEST_JOKER"
+	// VariationFiveCard — 5-Card Teen Patti (owner, 18 Sep 2026): every player
+	// holds FIVE cards and plays the best three of them, found by the server —
+	// nobody picks. No card is wild and nothing is reversed: it is classic Teen
+	// Patti with ten hands to choose from (EvaluateBest). It is the one
+	// variation whose CardsPerPlayer is not three.
+	VariationFiveCard Variation = "FIVE_CARD"
 )
+
+// The sizes a hand can be. Every hand is DEALT BaseCardsPerPlayer; a variation
+// whose CardsPerPlayer is more has each hand topped up to it, from the same
+// shuffled deck, when it is chosen (Table.closeVariation).
+const (
+	BaseCardsPerPlayer = 3
+	MaxCardsPerPlayer  = 5
+)
+
+// CardsPerPlayer is how many cards a player HOLDS under this variation. It is
+// the single place that number lives — the deal, the top-up, the snapshot the
+// client draws its fan from and the validator all read it — so no part of the
+// engine carries a "3" of its own. Whatever is held, three are played.
+func (v Variation) CardsPerPlayer() int {
+	if v == VariationFiveCard {
+		return MaxCardsPerPlayer
+	}
+	return BaseCardsPerPlayer
+}
 
 // Variations is the menu in the order the chooser is shown it. It is sent to
 // the client (room:state variation.options) so the client renders what the
@@ -66,13 +91,14 @@ var Variations = []Variation{
 	VariationHukam,
 	VariationLowestJoker,
 	VariationHighestJoker,
+	VariationFiveCard,
 }
 
 // VariationDefault is what the SERVER chooses when the window closes with no
 // answer — the clock ran out, or the chooser left the table.
 const VariationDefault = VariationMuflis
 
-// ParseVariation is the allowlist. It accepts exactly the six canonical values
+// ParseVariation is the allowlist. It accepts exactly the seven canonical values
 // and nothing else: no trimming, no case folding, no aliases.
 func ParseVariation(raw string) (Variation, bool) {
 	for _, v := range Variations {
@@ -143,9 +169,69 @@ func (r VariationRules) EvaluateHand(cards []Card) EvaluatedHand {
 		return EvaluateLowestJoker(cards)
 	case VariationHighestJoker:
 		return EvaluateHighestJoker(cards)
+	case VariationFiveCard:
+		return EvaluateBest(cards)
 	default:
 		return Evaluate(cards, EvaluateOptions{})
 	}
+}
+
+// EvaluateBest is 5-Card Teen Patti's evaluator, and the general "best three of
+// what you hold": it scores EVERY three-card combination of cards with the one
+// classic Evaluate and returns the strongest by the one classic Compare — ten
+// combinations for five cards, C(n,3) for n. There is no second ranking here to
+// drift from the first: a hand of five is worth exactly what its best three
+// cards are worth at any other table.
+//
+// The result keeps the player's real cards, all of them, in Cards, and names
+// the three that were counted in Best (in the order they were held). Combinations
+// are walked in index order and a later one must be STRICTLY better to displace
+// an earlier one, so which three are named is deterministic even when several
+// tie (two equal pairs, say) — and since they tie, the hand's worth does not
+// depend on it. A three-card hand is simply evaluated (Best stays nil); fewer
+// than three is a programming error, as it is for Evaluate.
+func EvaluateBest(cards []Card) EvaluatedHand {
+	if len(cards) < BaseCardsPerPlayer {
+		panic("a Teen Patti hand must be at least 3 cards")
+	}
+	if len(cards) == BaseCardsPerPlayer {
+		return Evaluate(cards, EvaluateOptions{})
+	}
+	var best EvaluatedHand
+	var bestAt [3]int
+	found := false
+	for i := 0; i < len(cards)-2; i++ {
+		for j := i + 1; j < len(cards)-1; j++ {
+			for k := j + 1; k < len(cards); k++ {
+				scored := Evaluate([]Card{cards[i], cards[j], cards[k]}, EvaluateOptions{})
+				if !found || Compare(scored, best) > 0 {
+					best, bestAt, found = scored, [3]int{i, j, k}, true
+				}
+			}
+		}
+	}
+	return EvaluatedHand{
+		Category: best.Category,
+		Name:     best.Name,
+		Score:    best.Score,
+		Cards:    CardCodes(cards),
+		Best:     []string{cards[bestAt[0]].Code(), cards[bestAt[1]].Code(), cards[bestAt[2]].Code()},
+	}
+}
+
+// ThreeCardCombinations is every way of choosing three of cards, in index
+// order: ten for a hand of five. EvaluateBest walks the same order without
+// building the list; this is the list itself, for the tests that count it.
+func ThreeCardCombinations(cards []Card) [][]Card {
+	var out [][]Card
+	for i := 0; i < len(cards)-2; i++ {
+		for j := i + 1; j < len(cards)-1; j++ {
+			for k := j + 1; k < len(cards); k++ {
+				out = append(out, []Card{cards[i], cards[j], cards[k]})
+			}
+		}
+	}
+	return out
 }
 
 // CompareHands returns > 0 when a wins, < 0 when b wins, 0 on an exact tie —

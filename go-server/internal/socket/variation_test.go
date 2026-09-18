@@ -155,7 +155,8 @@ func TestTheDealOpensTheVariationWindowToTheWholeRoom(t *testing.T) {
 	if now := float64(time.Now().UnixMilli()); startedAt > now || startedAt < now-float64(eventTimeout.Milliseconds()) {
 		t.Fatalf("startedAt %v is not an epoch-ms instant just past (now %v)", startedAt, now)
 	}
-	options := `["MUFLIS","AK47","JOKER","HUKAM","LOWEST_JOKER","HIGHEST_JOKER"]`
+	// Seven: 5-Card Teen Patti joined the end of the menu (owner, 18 Sep 2026).
+	options := `["MUFLIS","AK47","JOKER","HUKAM","LOWEST_JOKER","HIGHEST_JOKER","FIVE_CARD"]`
 
 	for _, p := range f.players {
 		who := p.user.DisplayName
@@ -164,8 +165,11 @@ func TestTheDealOpensTheVariationWindowToTheWholeRoom(t *testing.T) {
 		if err := json.Unmarshal(obj2(state)["variation"], &block); err != nil {
 			t.Fatalf("%s: variation block: %s", who, state)
 		}
-		if len(block) != 10 {
-			t.Fatalf("%s: an open window has exactly ten keys (turnUp is not one of them): %s", who, obj2(state)["variation"])
+		if len(block) != 11 {
+			t.Fatalf("%s: an open window has exactly eleven keys (turnUp is not one of them): %s", who, obj2(state)["variation"])
+		}
+		if num(state, "variation.cardsPerPlayer") != 3 {
+			t.Fatalf("%s: every hand is dealt three: %s", who, obj2(state)["variation"])
 		}
 		if str(state, "variation.userId") != f.chooser.user.ID || str(state, "variation.displayName") != f.chooser.user.DisplayName {
 			t.Fatalf("%s was told of another chooser: %s", who, state)
@@ -277,7 +281,8 @@ func TestOnlyTheChooserClosesTheWindowAndTheRoomHearsIt(t *testing.T) {
 		t.Fatal(err)
 	}
 	// AK47 is not decided by the turned-up card, so the ack has no turnUp.
-	if len(body) != 3 || body["ok"] != true || body["variation"] != "AK47" || body["selectedBy"] != "PLAYER" {
+	if len(body) != 4 || body["ok"] != true || body["variation"] != "AK47" || body["selectedBy"] != "PLAYER" ||
+		body["cardsPerPlayer"] != float64(3) {
 		t.Fatalf("ack %s", ack.Raw)
 	}
 
@@ -288,8 +293,8 @@ func TestOnlyTheChooserClosesTheWindowAndTheRoomHearsIt(t *testing.T) {
 			t.Fatalf("%s heard no game:variationSelected: %v", who, err)
 		}
 		var evBody map[string]any
-		if err := json.Unmarshal(ev, &evBody); err != nil || len(evBody) != 6 {
-			t.Fatalf("%s: game:variationSelected has six keys under AK47 (no turnUp): %s", who, ev)
+		if err := json.Unmarshal(ev, &evBody); err != nil || len(evBody) != 7 || evBody["cardsPerPlayer"] != float64(3) {
+			t.Fatalf("%s: game:variationSelected has seven keys under AK47 (no turnUp): %s", who, ev)
 		}
 		if str(ev, "userId") != f.chooser.user.ID || str(ev, "displayName") != f.chooser.user.DisplayName ||
 			num(ev, "seatIndex") != num(f.states[p], "variation.seatIndex") ||
@@ -670,7 +675,7 @@ func TestAVariationShowdownNamesItsRulesAndItsWildCards(t *testing.T) {
 	ack := st.mustOK(f.chooser.c, EvGameSelectVariation, map[string]any{"variation": "HUKAM"})
 	turnUp := str(ack.Raw, "turnUp")
 	var body map[string]any
-	if err := json.Unmarshal(ack.Raw, &body); err != nil || len(body) != 4 || body["variation"] != "HUKAM" || body["selectedBy"] != "PLAYER" {
+	if err := json.Unmarshal(ack.Raw, &body); err != nil || len(body) != 5 || body["variation"] != "HUKAM" || body["selectedBy"] != "PLAYER" {
 		t.Fatalf("ack %s", ack.Raw)
 	}
 	if len(turnUp) != 2 || !strings.ContainsRune("23456789TJQKA", rune(turnUp[0])) || !strings.ContainsRune("shdc", rune(turnUp[1])) {
@@ -757,4 +762,122 @@ func obj2(raw json.RawMessage) map[string]json.RawMessage {
 		return nil
 	}
 	return m
+}
+
+// 5-Card Teen Patti over real sockets (owner, 18 Sep 2026): the chooser picks
+// FIVE_CARD, the SERVER tops every hand up to five, each player is shown only
+// their own five, and the showdown names the three of each hand that counted.
+func TestFiveCardDealsFiveToEveryoneAndShowsTheBestThree(t *testing.T) {
+	st := newStack(t, nil)
+	f := st.variationTable(2)
+
+	// Dealt three, as every hand is; the snapshot says so.
+	for _, p := range f.players {
+		if num(f.states[p], "variation.cardsPerPlayer") != 3 {
+			t.Fatalf("%s: dealt %v cards", p.user.DisplayName, num(f.states[p], "variation.cardsPerPlayer"))
+		}
+	}
+
+	marks := f.marks()
+	ack := st.mustOK(f.chooser.c, EvGameSelectVariation, map[string]any{"variation": "FIVE_CARD"})
+	if str(ack.Raw, "variation") != "FIVE_CARD" || num(ack.Raw, "cardsPerPlayer") != 5 || has(ack.Raw, "turnUp") {
+		t.Fatalf("ack %s", ack.Raw)
+	}
+	for _, p := range f.players {
+		who := p.user.DisplayName
+		ev, err := p.c.WaitFrom(marks[p], EvGameVariationSelected, nil, eventTimeout)
+		if err != nil || str(ev, "variation") != "FIVE_CARD" || num(ev, "cardsPerPlayer") != 5 {
+			t.Fatalf("%s: game:variationSelected %s (%v)", who, ev, err)
+		}
+		state, err := p.c.WaitFrom(marks[p], EvRoomState, selected(game.VariationFiveCard), eventTimeout)
+		if err != nil || num(state, "variation.cardsPerPlayer") != 5 {
+			t.Fatalf("%s: room:state %s (%v)", who, state, err)
+		}
+		// Everyone can see that every hand holds five; nobody is sent a card.
+		for _, seat := range arr(state, "seats") {
+			s, _ := json.Marshal(seat)
+			if str(s, "status") == "empty" {
+				continue
+			}
+			if num(s, "cardCount") != 5 {
+				t.Fatalf("%s: a seat holds %v cards: %s", who, num(s, "cardCount"), s)
+			}
+		}
+		if len(arr(state, "you.cards")) != 0 || has(state, "you.hand") {
+			t.Fatalf("%s is blind and was sent cards: %s", who, state)
+		}
+	}
+
+	// Each player looks, and is shown five of their own — and which three count.
+	seen := map[string][]any{}
+	for _, p := range f.players {
+		who := p.user.DisplayName
+		mark := p.c.Mark()
+		st.mustOK(p.c, EvGameAction, map[string]any{"action": "see", "actionId": "five-see-" + p.user.ID})
+		cards, err := p.c.WaitFrom(mark, EvPlayerCards, nil, eventTimeout)
+		if err != nil || len(arr(cards, "cards")) != 5 {
+			t.Fatalf("%s: player:cards %s (%v)", who, cards, err)
+		}
+		state, err := p.c.WaitFrom(mark, EvRoomState, func(raw json.RawMessage) bool { return has(raw, "you.hand") }, eventTimeout)
+		if err != nil {
+			t.Fatalf("%s: no you.hand after looking: %v", who, err)
+		}
+		mine := arr(state, "you.cards")
+		best := arr(state, "you.hand.best")
+		if len(mine) != 5 || len(best) != 3 || len(arr(state, "you.hand.wild")) != 0 || str(state, "you.hand.handName") == "" {
+			t.Fatalf("%s: you %s", who, obj2(state)["you"])
+		}
+		held := map[any]bool{}
+		for _, c := range mine {
+			held[c] = true
+		}
+		for _, c := range best {
+			if !held[c] {
+				t.Fatalf("%s: best names %v, which is not in %v", who, c, mine)
+			}
+		}
+		seen[p.user.ID] = mine
+	}
+	// Ten different cards between the two of them.
+	all := map[any]bool{}
+	for _, cards := range seen {
+		for _, c := range cards {
+			if all[c] {
+				t.Fatalf("%v is in two hands", c)
+			}
+			all[c] = true
+		}
+	}
+
+	marks = f.marks()
+	st.mustOK(f.chooser.c, EvGameAction, map[string]any{"action": "show", "actionId": "five-show"})
+	for _, p := range f.players {
+		who := p.user.DisplayName
+		showdown, err := p.c.WaitFrom(marks[p], EvGameShowdown, nil, eventTimeout)
+		if err != nil || str(showdown, "variation") != "FIVE_CARD" || has(showdown, "turnUp") {
+			t.Fatalf("%s: showdown %s (%v)", who, showdown, err)
+		}
+		var e struct {
+			Reveals []game.Reveal `json:"reveals"`
+		}
+		if err := json.Unmarshal(showdown, &e); err != nil || len(e.Reveals) != 2 {
+			t.Fatalf("%s: reveals %s", who, showdown)
+		}
+		winners := 0
+		for _, r := range e.Reveals {
+			if len(r.Cards) != 5 || len(r.Best) != 3 || len(r.Wild) != 0 || r.HandName == "" {
+				t.Fatalf("%s: reveal %+v", who, r)
+			}
+			// Named for its best three by the one classic ranking.
+			if got := game.EvaluateBest(game.ParseCards(r.Cards)); got.Name != r.HandName || strings.Join(got.Best, ",") != strings.Join(r.Best, ",") {
+				t.Fatalf("%s: %v was called %s on %v; the ranking says %s on %v", who, r.Cards, r.HandName, r.Best, got.Name, got.Best)
+			}
+			if r.Won {
+				winners++
+			}
+		}
+		if winners != 1 {
+			t.Fatalf("%s: %d winners", who, winners)
+		}
+	}
 }

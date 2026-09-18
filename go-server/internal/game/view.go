@@ -92,6 +92,10 @@ type VariationView struct {
 	// it has been chosen (JOKER: its rank is wild; HUKAM: its suit). Until
 	// then the card is the server's alone.
 	TurnUp *string `json:"turnUp,omitempty"`
+	// CardsPerPlayer is how many cards every player in the hand holds right
+	// now: 3 from the deal, and 5 once FIVE_CARD has been chosen and the server
+	// has topped every hand up. Always present in the block.
+	CardsPerPlayer int `json:"cardsPerPlayer"`
 }
 
 // TurnView is TableView.turn.
@@ -156,6 +160,10 @@ type YouHand struct {
 	// replaced by the card it stood for. Equal to you.cards when Wild is empty.
 	// Never null.
 	PlaysAs []string `json:"playsAs"`
+	// Best is the three of you.cards that are COUNTED: all of them for a
+	// three-card hand, the strongest three of five under FIVE_CARD (the server
+	// finds them; the player never picks). Never null.
+	Best []string `json:"best"`
 }
 
 // TurnOptions is what the player on turn may do (table.js turnOptions) —
@@ -231,7 +239,7 @@ type SeatView struct {
 	LastAction  *Action   `json:"lastAction"` // null until the player acts this hand
 	Contributed int64     `json:"contributed"`
 	Connected   bool      `json:"connected"`
-	CardCount   int       `json:"cardCount"` // 0 or 3; never the cards
+	CardCount   int       `json:"cardCount"` // 0, 3, or 5 under FIVE_CARD; never the cards
 }
 
 type seatViewFull SeatView

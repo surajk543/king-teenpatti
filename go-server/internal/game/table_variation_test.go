@@ -109,7 +109,7 @@ func TestAVariationHandIsDealtThreeCardsEachAndOpensWithTheWindow(t *testing.T) 
 	if e.Deadline == nil || *e.Deadline != e.StartedAt+10_000 {
 		t.Fatalf("deadline = %v, want startedAt %d + 10s", e.Deadline, e.StartedAt)
 	}
-	eq(t, len(e.Options), 6, "six options")
+	eq(t, len(e.Options), 7, "seven options")
 
 	// Every viewer's snapshot says the same thing — it is all a reconnecting
 	// client has.
@@ -121,7 +121,8 @@ func TestAVariationHandIsDealtThreeCardsEachAndOpensWithTheWindow(t *testing.T) 
 		eq(t, w.Selecting, true, id+" sees the window open")
 		eq(t, w.UserID, chooser, id+" sees who is choosing")
 		eq(t, *w.Deadline, *e.Deadline, id+" sees the server's deadline")
-		eq(t, len(w.Options), 6, id+" sees the menu")
+		eq(t, len(w.Options), 7, id+" sees the menu")
+		eq(t, w.CardsPerPlayer, 3, id+" is told the hand holds three cards")
 		if w.Selected != nil || w.SelectedBy != nil || w.TurnUp != nil {
 			t.Fatalf("%s's open window already names a choice: %+v", id, w)
 		}
@@ -1054,4 +1055,486 @@ func TestTheWireShapeOfTheVariationBlock(t *testing.T) {
 	eq(t, closed["selected"], any("HUKAM"), "selected")
 	eq(t, closed["selectedBy"], any("PLAYER"), "selectedBy")
 	eq(t, closed["turnUp"], any("9h"), "turnUp")
+}
+
+// ----------------------------------------------------- 5-Card Teen Patti
+//
+// Owner, 18 Sep 2026. The deal is always three; choosing FIVE_CARD has the
+// server top every hand up to five from the same shuffled deck, and every
+// comparison is then made on each player's best three.
+
+// extra is the top-up drawn for a player at the deal (server-side only).
+func (h *harness) extra(id string) []string {
+	var out []string
+	h.read(func() {
+		if w := h.table.hand.variation; w != nil {
+			out = CardCodes(w.extra[id])
+		}
+	})
+	return out
+}
+
+// setExtra forces a player's top-up, as setCards forces their hand.
+func (h *harness) setExtra(id string, codes ...string) {
+	h.t.Helper()
+	h.read(func() { h.table.hand.variation.extra[id] = ParseCards(codes) })
+}
+
+func TestEveryOtherVariationLeavesEveryHandAtThreeCards(t *testing.T) {
+	for _, v := range Variations {
+		if v == VariationFiveCard {
+			continue
+		}
+		h, ids, chooser := variationTable(t, 4)
+		result, err := h.table.SelectVariation(chooser, string(v))
+		if err != nil {
+			t.Fatalf("%s: %v", v, err)
+		}
+		eq(t, result.CardsPerPlayer, 3, string(v)+": the ack says three")
+		eq(t, h.selected()[0].CardsPerPlayer, 3, string(v)+": the announcement says three")
+		for _, info := range mustSeats(t, h.table) {
+			eq(t, len(info.Cards), 3, string(v)+": "+info.UserID+" holds three")
+		}
+		for _, id := range ids {
+			view := h.view(id)
+			eq(t, view.Variation.CardsPerPlayer, 3, string(v)+": the snapshot says three")
+			for _, s := range view.Seats {
+				if !s.Empty {
+					eq(t, s.CardCount, 3, string(v)+": cardCount")
+				}
+			}
+		}
+		// The top-up that was drawn is dropped, not kept lying about.
+		if got := h.extra(chooser); len(got) != 0 {
+			t.Fatalf("%s: an undealt top-up survived the choice: %v", v, got)
+		}
+	}
+}
+
+func TestChoosingFiveCardDealsEveryPlayerTwoMoreFromTheSameDeck(t *testing.T) {
+	h, ids, chooser := variationTable(t, 5)
+
+	// Before the choice: three each, and the top-up drawn but dealt to nobody.
+	before := map[string][]string{}
+	dealt := map[string]bool{}
+	for _, info := range mustSeats(t, h.table) {
+		eq(t, len(info.Cards), 3, info.UserID+" is dealt three")
+		before[info.UserID] = CardCodes(info.Cards)
+		for _, c := range CardCodes(info.Cards) {
+			dealt[c] = true
+		}
+	}
+	tops := map[string][]string{}
+	for _, id := range ids {
+		tops[id] = h.extra(id)
+		eq(t, len(tops[id]), 2, id+" has a top-up of two waiting")
+	}
+
+	result, err := h.table.SelectVariation(chooser, "FIVE_CARD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	eq(t, result.Variation, VariationFiveCard, "the ack names it")
+	eq(t, result.CardsPerPlayer, 5, "and says five")
+	eq(t, result.TurnUp == nil, true, "no turned-up card: 5-Card does not use one")
+	eq(t, h.selected()[0].CardsPerPlayer, 5, "the announcement says five")
+
+	// After: five each — the three they had, in place, then their own two.
+	all := map[string]bool{}
+	for _, info := range mustSeats(t, h.table) {
+		eq(t, len(info.Cards), 5, info.UserID+" now holds five")
+		codes := CardCodes(info.Cards)
+		eq(t, strings.Join(codes[:3], " "), strings.Join(before[info.UserID], " "), info.UserID+" keeps the three they were dealt")
+		eq(t, strings.Join(codes[3:], " "), strings.Join(tops[info.UserID], " "), info.UserID+" is dealt the two drawn for them")
+		for _, c := range codes {
+			if all[c] {
+				t.Fatalf("%s is on the table twice", c)
+			}
+			all[c] = true
+		}
+	}
+	eq(t, len(all), 25, "twenty-five different cards for five players")
+
+	// Everyone can see that hands are five now; nobody can see anyone's cards.
+	for _, id := range ids {
+		view := h.view(id)
+		eq(t, view.Variation.CardsPerPlayer, 5, id+": the snapshot says five")
+		eq(t, len(view.You.Cards), 0, id+" is still blind: no cards")
+		for _, s := range view.Seats {
+			if !s.Empty {
+				eq(t, s.CardCount, 5, id+" sees cardCount 5 for "+s.UserID)
+			}
+		}
+	}
+	// Play begins as after any choice: the chooser on turn, a full clock.
+	eq(t, h.turnUser(), chooser, "the chooser opens the betting")
+}
+
+func TestTheTopUpIsSecretUntilItIsDealtAndThenOnlyItsOwnersToSee(t *testing.T) {
+	h, ids, chooser := variationTable(t, 3)
+	// Every hand and every top-up is pinned, not only the chooser's: the test
+	// looks for "2c" and "2d" in other people's snapshots, and a random deal
+	// puts one of them in somebody's own legitimate hand about one run in
+	// eight — which is a player seeing their own card, not a leak.
+	hands := [][]string{{"As", "Kd", "9h"}, {"Qs", "Jd", "8h"}, {"Ts", "7d", "6h"}}
+	tops := [][]string{{"3c", "3d"}, {"4c", "4d"}, {"5c", "5d"}}
+	for i, id := range ids {
+		h.setCards(id, hands[i]...)
+		h.setExtra(id, tops[i]...)
+	}
+	h.setExtra(chooser, "2c", "2d")
+	h.mustAct(chooser, ActionSee, ActRequest{}) // looking during the window
+
+	// Window open: the chooser sees their three, and the top-up is nowhere.
+	for _, id := range ids {
+		raw := mustJSON(t, h.view(id))
+		if strings.Contains(raw, `"2c"`) || strings.Contains(raw, `"2d"`) || strings.Contains(raw, "extra") {
+			t.Fatalf("%s's snapshot shows an undealt top-up: %s", id, raw)
+		}
+	}
+	eq(t, len(h.view(chooser).You.Cards), 3, "three while the window is open")
+
+	if _, err := h.table.SelectVariation(chooser, "FIVE_CARD"); err != nil {
+		t.Fatal(err)
+	}
+	// The player who was already looking is shown all five at once, and sent
+	// the same cards event a See sends.
+	mine := h.view(chooser).You.Cards
+	eq(t, len(mine), 5, "five, without having to look again")
+	eq(t, strings.Join(mine[3:], " "), "2c 2d", "their own top-up")
+	cardEvents := h.rec.all("cards")
+	last := cardEvents[len(cardEvents)-1].(CardsEvent)
+	eq(t, last.UserID, chooser, "the cards event is theirs")
+	eq(t, len(last.Cards), 5, "and carries all five")
+	// Nobody else is sent them, in any form.
+	for _, id := range ids {
+		if id == chooser {
+			continue
+		}
+		if raw := mustJSON(t, h.view(id)); strings.Contains(raw, `"2c"`) || strings.Contains(raw, `"2d"`) {
+			t.Fatalf("%s can see %s's cards", id, chooser)
+		}
+	}
+	// A blind player who looks later gets five too.
+	other := ids[0]
+	if other == chooser {
+		other = ids[1]
+	}
+	h.mustAct(other, ActionSee, ActRequest{})
+	eq(t, len(h.view(other).You.Cards), 5, "a later See shows five")
+}
+
+func TestYourOwnFiveCardHandNamesItsBestThree(t *testing.T) {
+	h, _, chooser := variationTable(t, 2)
+	h.setCards(chooser, "As", "7d", "Ks")
+	h.setExtra(chooser, "7c", "Qs")
+	h.mustAct(chooser, ActionSee, ActRequest{})
+	if _, err := h.table.SelectVariation(chooser, "FIVE_CARD"); err != nil {
+		t.Fatal(err)
+	}
+	hand := h.view(chooser).You.Hand
+	if hand == nil {
+		t.Fatal("no hand")
+	}
+	eq(t, hand.HandName, "Pure Sequence", "A-K-Q of spades, not the pair of sevens")
+	eq(t, strings.Join(hand.Best, " "), "As Ks Qs", "the three that count, in the order they are held")
+	eq(t, len(hand.Wild), 0, "nothing is wild")
+	eq(t, len(hand.PlaysAs), 5, "every card plays as itself")
+
+	// A three-card variation names all three.
+	h2, _, c2 := variationTable(t, 2)
+	h2.setCards(c2, "9h", "8d", "2c")
+	h2.mustAct(c2, ActionSee, ActRequest{})
+	if _, err := h2.table.SelectVariation(c2, "MUFLIS"); err != nil {
+		t.Fatal(err)
+	}
+	eq(t, strings.Join(h2.view(c2).You.Hand.Best, " "), "9h 8d 2c", "three cards, all three counted")
+}
+
+func TestAFiveCardShowdownComparesEveryPlayersBestThree(t *testing.T) {
+	h, ids, chooser := variationTable(t, 3)
+	a, b, c := ids[0], ids[1], ids[2]
+	// A's first three are the best three dealt; B's and C's are rubbish.
+	h.setCards(a, "Qs", "Qh", "4d")
+	h.setExtra(a, "9c", "2s") // A: a pair of queens
+	h.setCards(b, "2c", "9d", "5h")
+	h.setExtra(b, "5s", "5d") // B: a trail of fives, found in cards 3-5
+	h.setCards(c, "Ah", "3c", "8d")
+	h.setExtra(c, "Kh", "6s") // C: ace high
+	if _, err := h.table.SelectVariation(chooser, "FIVE_CARD"); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range ids {
+		h.mustAct(id, ActionSee, ActRequest{})
+	}
+	// Play it down to two, then show.
+	h.mustAct(h.turnUser(), ActionChaal, ActRequest{})
+	h.mustAct(h.turnUser(), ActionChaal, ActRequest{})
+	h.mustAct(h.turnUser(), ActionChaal, ActRequest{})
+	packer := c
+	for h.turnUser() != packer {
+		h.mustAct(h.turnUser(), ActionChaal, ActRequest{})
+	}
+	h.mustAct(packer, ActionPack, ActRequest{})
+	h.mustAct(h.turnUser(), ActionShow, ActRequest{})
+
+	showdowns := h.rec.all("showdown")
+	eq(t, len(showdowns), 1, "one showdown")
+	sd := showdowns[0].(ShowdownEvent)
+	if sd.Variation != VariationFiveCard {
+		t.Fatalf("the showdown does not name FIVE_CARD: %q", sd.Variation)
+	}
+	eq(t, len(sd.Reveals), 2, "the two players still in show")
+	for _, r := range sd.Reveals {
+		eq(t, len(r.Cards), 5, r.UserID+" shows all five")
+		eq(t, len(r.Best), 3, r.UserID+" is told which three counted")
+		switch r.UserID {
+		case a:
+			eq(t, r.HandName, "Pair", "A plays the pair of queens")
+			eq(t, r.Won, false, "and loses")
+		case b:
+			eq(t, r.HandName, "Trail", "B plays the trail found among the five")
+			eq(t, strings.Join(r.Best, " "), "5h 5s 5d", "those three")
+			eq(t, r.Won, true, "and wins")
+		}
+	}
+	ended := h.rec.all("handEnded")
+	winner := ended[len(ended)-1].(HandEndedEvent).WinnerID
+	if winner == nil || *winner != b {
+		t.Fatalf("the pot went to %v, want the trail's owner %s", winner, b)
+	}
+}
+
+func TestASideshowUnderFiveCardComparesBestThrees(t *testing.T) {
+	h, ids, chooser := variationTable(t, 3)
+	for i, id := range ids {
+		// Everyone's first three are the same kind of nothing …
+		h.setCards(id, []string{"2c", "2d", "2h"}[i], []string{"9d", "9h", "9s"}[i], []string{"5h", "5s", "5c"}[i])
+	}
+	if _, err := h.table.SelectVariation(chooser, "FIVE_CARD"); err != nil {
+		t.Fatal(err)
+	}
+	// (the forced hands above replaced only the first three; the two dealt
+	// from the deck stay whatever they are — the comparison below asks the
+	// engine what it made of all five rather than assuming.)
+	for _, id := range ids {
+		h.mustAct(id, ActionSee, ActRequest{})
+	}
+	h.mustAct(h.turnUser(), ActionChaal, ActRequest{})
+	asker := h.turnUser()
+	if _, err := h.act(asker, ActionSideshow, ActRequest{}); err != nil {
+		t.Fatalf("sideshow: %v", err)
+	}
+	var asked string
+	h.read(func() { asked = h.table.hand.sideshow.toUserID })
+	if _, err := h.table.RespondToSideshow(asked, true); err != nil {
+		t.Fatal(err)
+	}
+	reveals := h.rec.all("sideshowReveal")
+	eq(t, len(reveals), 1, "one reveal")
+	reveal := reveals[0].(SideshowRevealEvent).Reveal
+	rules := RulesFor(VariationFiveCard, Card{})
+	var hands [2]EvaluatedHand
+	for i, hand := range reveal.Hands {
+		eq(t, len(hand.Cards), 5, hand.UserID+" shows five to the other")
+		eq(t, len(hand.Best), 3, hand.UserID+": which three counted")
+		hands[i] = rules.EvaluateHand(ParseCards(hand.Cards))
+		eq(t, hand.HandName, hands[i].Name, hand.UserID+": named for its best three")
+	}
+	// The loser is whoever the best-three comparison says (a tie goes against
+	// the asker), not whoever a three-card comparison would have said.
+	loser := asked
+	if rules.CompareHands(hands[0], hands[1]) <= 0 {
+		loser = asker
+	}
+	eq(t, reveal.PackedUserID, loser, "the sideshow was decided on best threes")
+}
+
+func TestARestartDuringTheWindowStillDealsTheSameTopUp(t *testing.T) {
+	h, ids, chooser := variationTable(t, 3)
+	tops := map[string][]string{}
+	for _, id := range ids {
+		tops[id] = h.extra(id)
+	}
+	snap := roundTrip(t, mustSnapshot(h))
+	r := restoreHarness(t, snap, newFakeClock(h.clock.Now().Add(time.Second)), withLedger(emptyLedger))
+	for _, id := range ids {
+		eq(t, strings.Join(r.extra(id), " "), strings.Join(tops[id], " "), id+"'s top-up came back with the table")
+	}
+	if _, err := r.table.SelectVariation(chooser, "FIVE_CARD"); err != nil {
+		t.Fatal(err)
+	}
+	for _, info := range mustSeats(t, r.table) {
+		eq(t, len(info.Cards), 5, info.UserID+" holds five after the restart")
+		eq(t, strings.Join(CardCodes(info.Cards)[3:], " "), strings.Join(tops[info.UserID], " "), "the two that were drawn at the deal")
+	}
+	// And a restart AFTER the choice keeps the five-card hands and the count.
+	again := restoreHarness(t, roundTrip(t, mustSnapshot(r)), newFakeClock(r.clock.Now().Add(time.Second)), withLedger(emptyLedger))
+	for _, info := range mustSeats(t, again.table) {
+		eq(t, len(info.Cards), 5, info.UserID+" still holds five")
+	}
+	eq(t, again.window(chooser).CardsPerPlayer, 5, "and the snapshot still says five")
+	if raw := mustJSON(t, mustSnapshot(again)); strings.Contains(raw, `"extra"`) {
+		t.Fatal("a dealt top-up is still in the snapshot")
+	}
+}
+
+func TestARestoreRefusesATopUpThatDuplicatesACardInPlay(t *testing.T) {
+	h, ids, _ := variationTable(t, 2)
+	var held string
+	for _, info := range mustSeats(t, h.table) {
+		if info.UserID == ids[0] {
+			held = info.Cards[0].Code()
+		}
+	}
+	snap := roundTrip(t, mustSnapshot(h))
+	snap.Hand.Variation.Extra[ids[1]][0] = held
+	if _, err := RestoreTable(snap, TableOptions{Clock: h.clock, Ledger: NewMemoryLedger(MemoryLedgerHooks{})}); err == nil {
+		t.Fatal("a snapshot whose top-up repeats a dealt card was restored")
+	}
+	short := roundTrip(t, mustSnapshot(h))
+	short.Hand.Variation.Extra[ids[1]] = short.Hand.Variation.Extra[ids[1]][:1]
+	if _, err := RestoreTable(short, TableOptions{Clock: h.clock, Ledger: NewMemoryLedger(MemoryLedgerHooks{})}); err == nil {
+		t.Fatal("a snapshot with a one-card top-up was restored")
+	}
+}
+
+func TestATimeoutStillChoosesMuflisAndDealsNobodyMoreCards(t *testing.T) {
+	h, _, _ := variationTable(t, 3)
+	h.advance(variationWindowMS)
+	got := h.selected()
+	eq(t, len(got), 1, "the server chose")
+	eq(t, got[0].Variation, VariationMuflis, "Muflis, as ever — not 5-Card")
+	eq(t, got[0].CardsPerPlayer, 3, "three cards")
+	for _, info := range mustSeats(t, h.table) {
+		eq(t, len(info.Cards), 3, info.UserID+" holds three")
+	}
+}
+
+func TestAPlayerWhoLeftDuringTheWindowIsDealtNothing(t *testing.T) {
+	h, ids, chooser := variationTable(t, 4)
+	leaver := ids[0]
+	if leaver == chooser {
+		leaver = ids[1]
+	}
+	if _, err := h.table.RemovePlayer(leaver, "left"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.table.SelectVariation(chooser, "FIVE_CARD"); err != nil {
+		t.Fatal(err)
+	}
+	for _, info := range mustSeats(t, h.table) {
+		if info.UserID == leaver {
+			t.Fatalf("%s left and is still seated", leaver)
+		}
+		eq(t, len(info.Cards), 5, info.UserID+" holds five")
+	}
+}
+
+func TestSevenPlayersWorthOfCardsStillFitTheDeck(t *testing.T) {
+	// 5 players × 3 + the turned-up card + 5 × 2 = 26 of 52: a full table can
+	// always be topped up, so FIVE_CARD is always on a real table's menu.
+	h, _, chooser := variationTable(t, 5)
+	found := false
+	for _, v := range h.window(chooser).Options {
+		if v == VariationFiveCard {
+			found = true
+		}
+	}
+	eq(t, found, true, "FIVE_CARD is offered at a full table")
+	// And where the deck could NOT cover it, it is neither offered nor taken.
+	order := make([]string, 30)
+	for i := range order {
+		order[i] = "p" + string(rune('A'+i))
+	}
+	if extra := drawExtraCards(order, NewDeck()[:40]); extra != nil {
+		t.Fatalf("a top-up for 30 players was drawn from 40 cards: %d hands", len(extra))
+	}
+	w := &variationWindow{open: true, menu: menuFor(false)}
+	if w.offers(VariationFiveCard) {
+		t.Fatal("a window with no top-up offers 5-Card")
+	}
+	eq(t, len(w.options()), 6, "the six three-card variations remain")
+	eq(t, len(menuFor(true)), 7, "and with a top-up, all seven")
+}
+
+// The menu is a fact about the HAND, decided when the window opens. It used to
+// be read off whether the top-up was still undealt — which is also true once it
+// has been spent — so every closed window's menu shrank to six and a snapshot
+// could say selected:"FIVE_CARD" beside a menu without it.
+func TestTheMenuIsTheSameBeforeAndAfterTheChoiceHoweverItIsMade(t *testing.T) {
+	menu := func(h *harness, id string) string {
+		var out []string
+		for _, v := range h.window(id).Options {
+			out = append(out, string(v))
+		}
+		return strings.Join(out, ",")
+	}
+	const seven = "MUFLIS,AK47,JOKER,HUKAM,LOWEST_JOKER,HIGHEST_JOKER,FIVE_CARD"
+
+	for _, pick := range []string{"FIVE_CARD", "AK47", "MUFLIS"} {
+		h, ids, chooser := variationTable(t, 3)
+		eq(t, menu(h, chooser), seven, pick+": seven while the window is open")
+		if _, err := h.table.SelectVariation(chooser, pick); err != nil {
+			t.Fatal(err)
+		}
+		for _, id := range ids {
+			eq(t, menu(h, id), seven, pick+": and the same seven once it is chosen, for "+id)
+		}
+		// A table restored after the choice reports it too.
+		r := restoreHarness(t, roundTrip(t, mustSnapshot(h)), newFakeClock(h.clock.Now()), withLedger(emptyLedger))
+		eq(t, menu(r, chooser), seven, pick+": and after a restart")
+		if sel := r.window(chooser).Selected; sel == nil || string(*sel) != pick {
+			t.Fatalf("%s: the restored window selected %v", pick, sel)
+		}
+	}
+
+	// The clock choosing, and the chooser walking out, are no different.
+	h, _, chooser := variationTable(t, 3)
+	h.advance(variationWindowMS)
+	eq(t, menu(h, chooser), seven, "after a timeout")
+	h2, ids2, chooser2 := variationTable(t, 3)
+	if _, err := h2.table.RemovePlayer(chooser2, "left"); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range ids2 {
+		if id != chooser2 {
+			eq(t, menu(h2, id), seven, "after the chooser left")
+		}
+	}
+}
+
+func TestARestoreRefusesATopUpThatLeavesAPlayerOut(t *testing.T) {
+	h, ids, _ := variationTable(t, 3)
+	snap := roundTrip(t, mustSnapshot(h))
+	delete(snap.Hand.Variation.Extra, ids[2])
+	if _, err := RestoreTable(snap, TableOptions{Clock: h.clock, Ledger: NewMemoryLedger(MemoryLedgerHooks{})}); err == nil {
+		t.Fatal("a top-up for two of three players was restored: some would hold five and one three")
+	}
+	// A snapshot from before top-ups existed has none at all, and that is fine:
+	// the hand simply does not offer 5-Card.
+	old := roundTrip(t, mustSnapshot(h))
+	old.Hand.Variation.Extra = nil
+	old.Hand.Variation.Options = nil
+	r := restoreHarness(t, old, newFakeClock(h.clock.Now()), withLedger(emptyLedger))
+	chooser := r.chooser()
+	for _, v := range r.window(chooser).Options {
+		if v == VariationFiveCard {
+			t.Fatal("a hand with no top-up to deal offers 5-Card")
+		}
+	}
+	if _, err := r.table.SelectVariation(chooser, "FIVE_CARD"); err == nil {
+		t.Fatal("5-Card was accepted on a hand that cannot deal it")
+	} else if got := CodeOf(err, "<nil>"); got != CodeInvalidVariation {
+		t.Fatalf("5-Card on a hand that cannot deal it: %s, want %s", got, CodeInvalidVariation)
+	}
+	// The window is still open for a real choice.
+	if _, err := r.table.SelectVariation(chooser, "AK47"); err != nil {
+		t.Fatalf("a three-card variation was refused afterwards: %v", err)
+	}
+	bad := roundTrip(t, mustSnapshot(h))
+	bad.Hand.Variation.Options = []Variation{"MUFLIS", "SEVEN_CARD_STUD"}
+	if _, err := RestoreTable(bad, TableOptions{Clock: h.clock, Ledger: NewMemoryLedger(MemoryLedgerHooks{})}); err == nil {
+		t.Fatal("a menu naming a variation this server does not play was restored")
+	}
 }

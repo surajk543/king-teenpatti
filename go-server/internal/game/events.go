@@ -182,6 +182,8 @@ type VariationSelectedEvent struct {
 	// the chosen variation is decided by it: its rank is wild under JOKER, its
 	// suit under HUKAM.
 	TurnUp *string `json:"turnUp,omitempty"`
+	// CardsPerPlayer is how many cards every player in the hand now holds.
+	CardsPerPlayer int `json:"cardsPerPlayer"`
 }
 
 // SideshowHand is one of the two hands in a SideshowReveal.
@@ -193,6 +195,9 @@ type SideshowHand struct {
 	// Wild names which of Cards played as wild cards. Only on a variation
 	// table, and only under a variation that has wild cards; absent otherwise.
 	Wild []string `json:"wild,omitempty"`
+	// Best names the three of Cards that were counted, when Cards holds more
+	// than three (FIVE_CARD); absent otherwise.
+	Best []string `json:"best,omitempty"`
 }
 
 // SideshowReveal is the private payload (game:sideshowReveal.reveal).
@@ -235,6 +240,10 @@ type Reveal struct {
 	// HandName and Category are what the hand MADE with them, so under a
 	// variation they can differ from what the bare cards would be.
 	Wild []string `json:"wild,omitempty"`
+	// Best names the three of Cards that were counted — see SideshowHand.Best.
+	// Under FIVE_CARD Cards holds all five the player was dealt and HandName is
+	// what the best three of them made.
+	Best []string `json:"best,omitempty"`
 }
 
 // ShowdownEvent ← 'showdown' → game:showdown.
