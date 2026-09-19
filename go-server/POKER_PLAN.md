@@ -15,7 +15,10 @@ proof, and they are run after every phase.
 > (the shared core: `game.Room`, `RoomFactory`, `Actor`/`LiveState`/`Settler`, the poker categories
 > and config) is `b0966a3`; the server-side family (`internal/poker`, `socket/poker.go`, the
 > migration, the unit tests) is `028f344`; the black-box suite, the bots, the rollback guard
-> (`pokerConfig`, §9 risk 1) and the docs are `a74856f`. `go test -race ./...` is green across all
+> (`pokerConfig`, §9 risk 1) and the docs are `a74856f`; the Flutter client is `0f0358e`; the menu the
+> owner asked for (ONE table per game, all four at 50,000) and two money fixes an adversarial review
+> found — the antes refunded when every player folded to the dealer, and a refused `hand_left`
+> checkpoint that nothing ever retried — are `159b4fc`. `go test -race ./...` is green across all
 > 14 packages; parity is 195/217 with the four failures that predate this work (CLAUDE.md §13, plus
 > two macOS-only metrics tests). CLAUDE.md §6.5 is now the reference for how the family behaves;
 > this file stays as the record of why it is shaped the way it is.
