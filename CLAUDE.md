@@ -1399,8 +1399,13 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   `mipmap-anydpi-v26/ic_launcher.xml` (adaptive, bg `@color/ic_launcher_background` #2B363B), `drawable-*/splash_icon.png`,
   and the 200×80dp `splash_branding.png` (DejaVu Sans, light/night variants). `values-v31` sets `windowSplashScreenAnimatedIcon`
   + `windowSplashScreenBrandingImage`; pre-12 uses `drawable(-night)(-v21)/launch_background.xml` layer-lists. The Flutter
-  `SplashScreen` shows the same SVG + line; the login title carries the SVG at 40dp. Release **signed with debug keys**
-  (TODO in `build.gradle.kts`).
+  `SplashScreen` shows the same SVG + line; the login title carries the SVG at 40dp. **Release is signed with the upload
+  key** (`android/key.properties` → the CN=Sun Game Studio keystore, SHA-1 `7C:D8:…:55:8A`, `docs/social-login-setup.md`
+  §2): `build.gradle.kts` reads that file when it exists and **falls back to debug signing when it does not**, so a clone
+  without the key still builds `--release` and cannot accidentally ship — Play refuses a debug-signed upload. Both the
+  file and the keystore are git-ignored, and losing either means never being able to update the listing again.
+  `flutter build apk --release` / `flutter build appbundle --release` both want
+  `--dart-define=GOOGLE_SERVER_CLIENT_ID=…` or Google sign-in returns no `idToken` (§12.3).
 - **iOS** (`flutter-client/ios/`, added 11 Sep 2026, **never compiled — no macOS on this box**): same bundle id as the
   Android `applicationId`, `CFBundleDisplayName` "King Teen Patti", landscape-only in `Info.plist` (SystemChrome only
   narrows what the system already allows, so a portrait entry would let the launch screen appear sideways),
