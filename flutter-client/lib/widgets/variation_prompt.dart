@@ -989,9 +989,9 @@ class _CardPickPromptState extends State<CardPickPrompt> {
                         child: Text(
                           widget.hint,
                           maxLines: 1,
-                          style: (theme.textTheme.bodySmall ??
-                                  const TextStyle())
-                              .copyWith(color: Colors.white70),
+                          style:
+                              (theme.textTheme.bodySmall ?? const TextStyle())
+                                  .copyWith(color: Colors.white70),
                         ),
                       ),
                     ],
@@ -1070,21 +1070,33 @@ class _PickableCard extends StatelessWidget {
     return SizedBox(
       width: height * PlayingCard.aspect,
       height: height + lift,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: enabled ? onTap : null,
-        child: AnimatedAlign(
-          duration: Motion.base,
-          curve: Motion.standard,
-          alignment: marked ? Alignment.topCenter : Alignment.bottomCenter,
-          child: SetBack(
-            setBack: !marked,
-            cardHeight: height,
-            child: WildEdge(
-              wild: marked,
+      // A card being chosen is a control, so it says which card it is and
+      // whether it is marked (owner, 19 Sep 2026). PlayingCard itself draws
+      // pips and paints nothing a screen reader can read, so without this the
+      // five cards of the picker were five unlabelled boxes — and nothing an
+      // automated run could tap either.
+      child: Semantics(
+        button: true,
+        selected: marked,
+        enabled: enabled,
+        label: cardLabel(code),
+        excludeSemantics: true,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: enabled ? onTap : null,
+          child: AnimatedAlign(
+            duration: Motion.base,
+            curve: Motion.standard,
+            alignment: marked ? Alignment.topCenter : Alignment.bottomCenter,
+            child: SetBack(
+              setBack: !marked,
               cardHeight: height,
-              label: label,
-              child: PlayingCard(code: code, height: height),
+              child: WildEdge(
+                wild: marked,
+                cardHeight: height,
+                label: label,
+                child: PlayingCard(code: code, height: height),
+              ),
             ),
           ),
         ),
@@ -1092,6 +1104,12 @@ class _PickableCard extends StatelessWidget {
     );
   }
 }
+
+/// A card's face as a screen reader should say it: "A♠", "10♥". The rank and
+/// the suit symbol the card itself is printed with, so what is heard and what
+/// is seen are the same thing.
+String cardLabel(String code) =>
+    '${PlayingCard.rankOf(code)}${PlayingCard.suitSymbol(PlayingCard.suitOf(code))}';
 
 /// The verdict, for the few seconds after a hand's three are settled: "you
 /// played the best combination", or what was played beside what would have
@@ -1221,7 +1239,6 @@ class PickVerdict extends StatelessWidget {
   }
 }
 
-
 /// One of the verdict's two hands: a caption over three small cards. The best
 /// three take the gold edge a chosen card takes in the picker, so the eye goes
 /// to them; what was played is drawn plainly beside them.
@@ -1260,11 +1277,15 @@ class _VerdictHand extends StatelessWidget {
           children: [
             for (final (i, code) in cards.indexed) ...[
               if (i > 0) const SizedBox(width: Space.xs),
-              WildEdge(
-                wild: marked,
-                cardHeight: cardHeight,
-                label: label,
-                child: PlayingCard(code: code, height: cardHeight),
+              Semantics(
+                label: '$label ${cardLabel(code)}',
+                excludeSemantics: true,
+                child: WildEdge(
+                  wild: marked,
+                  cardHeight: cardHeight,
+                  label: label,
+                  child: PlayingCard(code: code, height: cardHeight),
+                ),
               ),
             ],
           ],

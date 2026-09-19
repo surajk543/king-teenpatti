@@ -256,14 +256,60 @@ void main() {
       }
     }
 
+    // Owner, 19 Sep 2026. A card being chosen is a control, and PlayingCard
+    // paints pips that no screen reader can read: without a label the picker
+    // was five unlabelled boxes.
+    testWidgets('says which card each one is, and which are marked', (
+      tester,
+    ) async {
+      final state = _newState(_room(hand: _picking()));
+      await _pumpTable(tester, state, screen: const Size(891, 411));
+
+      // Every one of the five names its own face.
+      for (final code in _five) {
+        expect(
+          find.descendant(
+            of: find.byKey(ValueKey('pick-card-$code')),
+            matching: find.bySemanticsLabel(cardLabel(code)),
+          ),
+          findsOneWidget,
+          reason: code,
+        );
+      }
+      expect(cardLabel('As'), 'A♠');
+      expect(cardLabel('Td'), '10♦');
+
+      // Marked or not is said too, so a screen reader can tell which three
+      // are being played.
+      final handle = tester.ensureSemantics();
+      Finder selected(String code) => find.byWidgetPredicate(
+        (w) =>
+            w is Semantics &&
+            w.properties.label == cardLabel(code) &&
+            w.properties.selected == true,
+      );
+      expect(selected('As'), findsNothing, reason: 'nothing is marked yet');
+      await tester.tap(find.byKey(const ValueKey('pick-card-As')));
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(
+        selected('As'),
+        findsOneWidget,
+        reason: 'a marked card says it is marked',
+      );
+      expect(
+        selected('Ks'),
+        findsNothing,
+        reason: 'and an unmarked one does not',
+      );
+      handle.dispose();
+
+      await _teardown(tester, state);
+    });
+
     testWidgets('marks a card on a tap, unmarks it on another, and stops at '
         'three', (tester) async {
       final state = _newState(_room(hand: _picking()));
-      await _pumpTable(
-        tester,
-        state,
-        screen: const Size(891, 411),
-      );
+      await _pumpTable(tester, state, screen: const Size(891, 411));
       expect(state.pickSelection, isEmpty);
 
       Future<void> tap(String code) async {
@@ -321,21 +367,23 @@ void main() {
       await _teardown(tester, state);
     });
 
-    testWidgets('is gone once the choice is made, and the felt names the hand',
-        (tester) async {
-      final state = _newState(_room(hand: _picking()));
-      await _pumpTable(tester, state, screen: const Size(891, 411));
-      expect(_prompt, findsOneWidget);
+    testWidgets(
+      'is gone once the choice is made, and the felt names the hand',
+      (tester) async {
+        final state = _newState(_room(hand: _picking()));
+        await _pumpTable(tester, state, screen: const Size(891, 411));
+        expect(_prompt, findsOneWidget);
 
-      state.handleState(_room(hand: _picked(['As', '7d', '7c'])));
-      await tester.pump();
-      await _settle(tester);
-      expect(tester.takeException(), isNull);
-      expect(_prompt, findsNothing);
-      expect(find.text('Pair'), findsWidgets);
+        state.handleState(_room(hand: _picked(['As', '7d', '7c'])));
+        await tester.pump();
+        await _settle(tester);
+        expect(tester.takeException(), isNull);
+        expect(_prompt, findsNothing);
+        expect(find.text('Pair'), findsWidgets);
 
-      await _teardown(tester, state);
-    });
+        await _teardown(tester, state);
+      },
+    );
 
     // A hand that never asked — three cards — never shows the picker.
     testWidgets('never stands over a three-card hand', (tester) async {
@@ -441,11 +489,7 @@ void main() {
     testWidgets('is told who the table is waiting on', (tester) async {
       // Seat 2 is on turn and still choosing; the viewer is seat 0.
       final state = _newState(
-        _room(
-          hand: _picked(_bestThree),
-          turnSeat: 2,
-          pickingSeat: 2,
-        ),
+        _room(hand: _picked(_bestThree), turnSeat: 2, pickingSeat: 2),
       );
       await _pumpTable(
         tester,
