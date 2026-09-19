@@ -127,7 +127,7 @@ func applyCheckpoint(ctx context.Context, tx pgx.Tx, entry game.SettleEntry, han
 
 	// A zero delta is still recorded: the row is what says this player was in
 	// the hand and how it ended for them.
-	if err := appendLedger(ctx, tx, entry.UserID, handID, entry.ActionID, entry.Delta, balance, entry.Reason, at); err != nil {
+	if err := appendLedgerFor(ctx, tx, entry.UserID, handID, entry.ActionID, entry.Delta, balance, entry.Reason, at, string(entry.Game), string(entry.Variant)); err != nil {
 		return 0, err
 	}
 	return balance, nil
@@ -247,9 +247,18 @@ func lockWallet(ctx context.Context, tx pgx.Tx, userID string) (int64, error) {
 
 // appendLedger inserts one chip_ledger row. handID/actionID "" → NULL.
 func appendLedger(ctx context.Context, tx pgx.Tx, userID, handID, actionID string, delta, balance int64, reason string, at int64) error {
-	_, err := tx.Exec(ctx, `INSERT INTO chip_ledger (user_id, hand_id, action_id, delta, balance, reason, created_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-		userID, nullIfEmpty(handID), nullIfEmpty(actionID), delta, balance, reason, at)
+	return appendLedgerFor(ctx, tx, userID, handID, actionID, delta, balance, reason, at, "", "")
+}
+
+// appendLedgerFor is appendLedger with the row's game family and variant
+// (chip_ledger.game / .variant, V1.0.2): NULL for a Teen Patti row and for
+// every non-hand row, so those rows are byte for byte what they were; the
+// poker family and its variant for a poker room's checkpoint (POKER_PLAN.md
+// §6).
+func appendLedgerFor(ctx context.Context, tx pgx.Tx, userID, handID, actionID string, delta, balance int64, reason string, at int64, gameFamily, variant string) error {
+	_, err := tx.Exec(ctx, `INSERT INTO chip_ledger (user_id, hand_id, action_id, delta, balance, reason, created_at, game, variant)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+		userID, nullIfEmpty(handID), nullIfEmpty(actionID), delta, balance, reason, at, nullIfEmpty(gameFamily), nullIfEmpty(variant))
 	return err
 }
 

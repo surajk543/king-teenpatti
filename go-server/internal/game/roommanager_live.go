@@ -55,7 +55,7 @@ type RestoreReport struct {
 // OnTableCreated for every restored table in any case (the socket layer
 // treats both alike), and OnTableRestored as well when implemented.
 type TableRestoreListener interface {
-	OnTableRestored(t *Table)
+	OnTableRestored(r Room)
 }
 
 // Restore rebuilds every stored table (LIVE_STATE_PLAN.md startup step 2)
@@ -101,7 +101,7 @@ func (rm *RoomManager) restoreFromLive(ctx context.Context, report *RestoreRepor
 		rm.liveError(LiveOpListTables, err)
 		return fmt.Errorf("live store: list tables: %w", err)
 	}
-	loaded := make([]*Snapshot, 0, len(refs))
+	loaded := make([]storedRoom, 0, len(refs))
 	for _, ref := range refs {
 		seq, data, err := rm.live.LoadTable(ctx, ref.RoomID)
 		if errors.Is(err, live.ErrNotFound) {
@@ -113,25 +113,102 @@ func (rm *RoomManager) restoreFromLive(ctx context.Context, report *RestoreRepor
 			report.Failed++
 			continue
 		}
-		snap, err := parseStoredSnapshot(ref.RoomID, data)
-		if err != nil {
-			rm.dropStored(ctx, ref.RoomID, nil, err)
+		// The family FIRST, before any parser sees the document (POKER_PLAN.md
+		// §9 risk 1): a Teen Patti snapshot has no `game` key; a factory's room
+		// names its family; anything else is a document this build cannot
+		// rebuild and is dropped like an unparseable one.
+		var header storedRoomHeader
+		if err := json.Unmarshal(data, &header); err != nil {
+			rm.dropStored(ctx, ref.RoomID, nil, fmt.Errorf("unparseable snapshot: %w", err))
 			report.Dropped++
 			continue
 		}
-		if snap.Seq < seq {
-			snap.Seq = seq
+		switch {
+		case header.Game == "" || header.Game == GameTeenPatti:
+			snap, err := parseStoredSnapshot(ref.RoomID, data)
+			if err != nil {
+				rm.dropStored(ctx, ref.RoomID, nil, err)
+				report.Dropped++
+				continue
+			}
+			if snap.Seq < seq {
+				snap.Seq = seq
+			}
+			loaded = append(loaded, storedRoom{roomID: snap.RoomID, createdAt: snap.CreatedAt, snap: snap})
+		case rm.factories != nil && rm.factories[header.Game] != nil:
+			if header.RoomID != ref.RoomID {
+				rm.dropStored(ctx, ref.RoomID, nil, fmt.Errorf("snapshot names room %s", header.RoomID))
+				report.Dropped++
+				continue
+			}
+			loaded = append(loaded, storedRoom{roomID: ref.RoomID, createdAt: header.CreatedAt, game: header.Game, data: data, seq: seq})
+		default:
+			rm.dropStored(ctx, ref.RoomID, nil, fmt.Errorf("snapshot is of game %q, which this server does not run", header.Game))
+			report.Dropped++
 		}
-		loaded = append(loaded, snap)
 	}
-	sortSnapshotsByAge(loaded)
-	for _, snap := range loaded {
-		switch rm.restoreOne(ctx, snap, report) {
-		case restoreDropped:
-			rm.dropStored(ctx, snap.RoomID, snap, errors.New("could not be rebuilt"))
+	sortStoredByAge(loaded)
+	for _, stored := range loaded {
+		var outcome restoreOutcome
+		if stored.snap != nil {
+			outcome = rm.restoreOne(ctx, stored.snap, report)
+		} else {
+			outcome = rm.restoreForeign(ctx, stored, report)
+		}
+		if outcome == restoreDropped {
+			rm.dropStored(ctx, stored.roomID, stored.snap, errors.New("could not be rebuilt"))
 		}
 	}
 	return nil
+}
+
+// storedRoom is one document restoreFromLive loaded: a parsed Teen Patti
+// snapshot (snap), or the raw document of another family with the factory
+// that will rebuild it (game, data).
+type storedRoom struct {
+	roomID    string
+	createdAt int64
+	snap      *Snapshot
+	game      Game
+	data      []byte
+	seq       int64
+}
+
+// sortStoredByAge is sortSnapshotsByAge over every family at once.
+func sortStoredByAge(rooms []storedRoom) {
+	sort.SliceStable(rooms, func(i, j int) bool {
+		if rooms[i].createdAt != rooms[j].createdAt {
+			return rooms[i].createdAt < rooms[j].createdAt
+		}
+		return rooms[i].roomID < rooms[j].roomID
+	})
+}
+
+// restoreForeign is restoreOne for a factory's room: the factory rebuilds it
+// from the raw document, and registration, chat, clocks and publication are
+// registerRestored's, exactly as for a Teen Patti table.
+func (rm *RoomManager) restoreForeign(ctx context.Context, stored storedRoom, report *RestoreReport) restoreOutcome {
+	rm.mu.Lock()
+	_, exists := rm.tables[stored.roomID]
+	rm.mu.Unlock()
+	if exists {
+		report.Skipped++
+		return restoreSkipped
+	}
+	room, info, err := rm.factories[stored.game].Restore(stored.data, rm.roomDeps())
+	if err != nil {
+		rm.log.Error("table restore: could not rebuild", "roomId", stored.roomID, "game", string(stored.game), "error", err.Error())
+		report.Dropped++
+		return restoreDropped
+	}
+	if room.ID() != stored.roomID {
+		_ = room.Destroy()
+		rm.log.Error("table restore: rebuilt room names another id", "roomId", stored.roomID, "got", room.ID())
+		report.Dropped++
+		return restoreDropped
+	}
+	rm.registerRestored(ctx, room, info.Seats, info.HandID, report)
+	return restoreDone
 }
 
 // parseStoredSnapshot decodes and validates one stored snapshot for roomID.
@@ -184,16 +261,27 @@ func (rm *RoomManager) restoreOne(ctx context.Context, snap *Snapshot, report *R
 		report.Dropped++
 		return restoreDropped
 	}
-	rm.restoreChat(ctx, table)
-
-	// Register: the table, its creation order, and every seat in the index
-	// — before a single clock is re-armed.
 	var seats []string
 	for _, s := range snap.Seats {
 		if s != nil {
 			seats = append(seats, s.UserID)
 		}
 	}
+	handID := ""
+	if snap.Hand != nil {
+		handID = snap.Hand.ID
+	}
+	rm.registerRestored(ctx, table, seats, handID, report)
+	return restoreDone
+}
+
+// registerRestored is the second half of a restore for a room of any family:
+// chat, registration (the room, its creation order, every seat in the index
+// — before a single clock is re-armed), the clocks, the listeners and the
+// lobby index.
+func (rm *RoomManager) registerRestored(ctx context.Context, table Room, seats []string, handID string, report *RestoreReport) {
+	rm.restoreChat(ctx, table)
+
 	var duplicates []string
 	rm.mu.Lock()
 	if rm.codeTakenLocked(table.Code()) {
@@ -227,15 +315,15 @@ func (rm *RoomManager) restoreOne(ctx context.Context, snap *Snapshot, report *R
 	}
 
 	report.Tables++
-	if snap.Hand != nil {
+	if handID != "" {
 		report.HandsInProgress++
-		report.HandIDs = append(report.HandIDs, snap.Hand.ID)
+		report.HandIDs = append(report.HandIDs, handID)
 	}
 
 	// Second phase: clocks. Anything that fires now (a lapsed turn, a kick)
 	// runs against a registered table. The first save that follows (seq + 1)
 	// claims the table in the live store.
-	if err := table.resume(); err != nil && !errors.Is(err, ErrTableDestroyed) {
+	if err := table.Resume(); err != nil && !errors.Is(err, ErrTableDestroyed) {
 		rm.log.Error("table restore: resume failed", "roomId", table.ID(), "error", err.Error())
 	}
 
@@ -251,10 +339,9 @@ func (rm *RoomManager) restoreOne(ctx context.Context, snap *Snapshot, report *R
 		"category", string(table.Category()),
 		"isPrivate", table.IsPrivate(),
 		"seats", len(seats)-len(duplicates),
-		"handInProgress", snap.Hand != nil,
+		"handInProgress", handID != "",
 		"state", string(table.State()),
 	)
-	return restoreDone
 }
 
 // ReconcileReport is what ReconcileLive did.
@@ -454,7 +541,7 @@ func (rm *RoomManager) Suspend(ctx context.Context) error {
 	}
 	done := make(chan error, 1)
 	go func() {
-		var suspended []*Table
+		var suspended []Room
 		var first error
 		for {
 			rm.mu.Lock()
@@ -562,14 +649,14 @@ func (rm *RoomManager) liveClearSeated(userID string) {
 }
 
 // summaryOf renders the matchmaking row from lock-free getters.
-func (rm *RoomManager) summaryOf(t *Table) live.TableSummary {
+func (rm *RoomManager) summaryOf(t Room) live.TableSummary {
 	return live.TableSummary{
 		RoomID:     t.ID(),
 		Code:       t.Code(),
 		Category:   string(t.Category()),
 		BootAmount: t.BootAmount(),
 		Players:    t.PlayerCount(),
-		MaxPlayers: t.Config().MaxPlayers,
+		MaxPlayers: t.MaxPlayers(),
 		IsPrivate:  t.IsPrivate(),
 		State:      string(t.State()),
 		CreatedAt:  Millis(t.CreatedAt()),
@@ -580,7 +667,7 @@ func (rm *RoomManager) summaryOf(t *Table) live.TableSummary {
 // publishTable pushes a public table to the matchmaking index
 // unconditionally (creation, restore). Private tables are never indexed
 // (requirement 22: reached by code only).
-func (rm *RoomManager) publishTable(t *Table) {
+func (rm *RoomManager) publishTable(t Room) {
 	if rm.live == nil || t.IsPrivate() || t.Fenced() || t.Destroyed() {
 		return
 	}
@@ -598,8 +685,8 @@ func (rm *RoomManager) publishTable(t *Table) {
 // publishFromActor is tableHooks.OnState's publish: only when the player
 // count or state differs from what the index last heard. Runs on the
 // table's actor — lock-free getters and pubMu only.
-func (rm *RoomManager) publishFromActor(t *Table) {
-	if rm.live == nil || t.IsPrivate() || t.fenced.Load() || t.destroyed.Load() {
+func (rm *RoomManager) publishFromActor(t Room) {
+	if rm.live == nil || t.IsPrivate() || t.Fenced() || t.Destroyed() {
 		return
 	}
 	players, state := t.PlayerCount(), t.State()
@@ -619,7 +706,7 @@ func (rm *RoomManager) publishFromActor(t *Table) {
 }
 
 // retireTable removes a public table from the matchmaking index (destroy).
-func (rm *RoomManager) retireTable(t *Table) {
+func (rm *RoomManager) retireTable(t Room) {
 	rm.pubMu.Lock()
 	delete(rm.published, t.ID())
 	rm.pubMu.Unlock()
@@ -680,7 +767,7 @@ func (rm *RoomManager) dropStored(ctx context.Context, roomID string, snap *Snap
 
 // restoreChat loads the mirrored chat log onto a restored table. A line that
 // does not parse is skipped; a load failure leaves the log empty (logged).
-func (rm *RoomManager) restoreChat(ctx context.Context, t *Table) {
+func (rm *RoomManager) restoreChat(ctx context.Context, t Room) {
 	raw, err := rm.live.LoadChat(ctx, t.ID())
 	if err != nil {
 		if !errors.Is(err, live.ErrNotFound) {
@@ -697,7 +784,7 @@ func (rm *RoomManager) restoreChat(ctx context.Context, t *Table) {
 		}
 		history = append(history, msg)
 	}
-	if err := t.restoreChat(history); err != nil {
+	if err := t.RestoreChat(history); err != nil {
 		rm.log.Warn("table restore: chat not restored", "roomId", t.ID(), "error", err.Error())
 	}
 }

@@ -131,8 +131,8 @@ func parseLobbyTables(raw string) ([]LobbyTable, error) {
 			return nil, fmt.Errorf("entry %q must be category:boot", entry)
 		}
 		category := strings.TrimSpace(parts[0])
-		if category != CategorySeen && category != CategoryBlind && category != CategoryVariation {
-			return nil, fmt.Errorf("entry %q: category must be seen, blind or variation", entry)
+		if category != CategorySeen && category != CategoryBlind && category != CategoryVariation && !IsPokerCategory(category) {
+			return nil, fmt.Errorf("entry %q: category must be seen, blind, variation, three_card_poker, five_card_draw, texas_holdem or omaha", entry)
 		}
 		boot, err := parseInt(parts[1])
 		if err != nil {

@@ -820,9 +820,9 @@ func TestHTTPMiddlewareUnknownMethodFallsToRouting(t *testing.T) {
 
 // ------------------------------------------------------------- scrape gauges
 
-type fakeRooms struct{ tables []*game.Table }
+type fakeRooms struct{ tables []game.Room }
 
-func (f fakeRooms) LiveTables() []*game.Table { return f.tables }
+func (f fakeRooms) LiveTables() []game.Room { return f.tables }
 
 func TestPoolGaugesReadTheBoundSourceAndSwallowPanics(t *testing.T) {
 	m := newMetrics(t)
@@ -843,14 +843,14 @@ func TestPoolGaugesReadTheBoundSourceAndSwallowPanics(t *testing.T) {
 
 func TestTableGaugesRecountLiveTables(t *testing.T) {
 	m := newMetrics(t)
-	var tables []*game.Table
+	var tables []game.Room
 	func() {
 		defer func() {
 			if r := recover(); r != nil {
 				t.Skipf("game.NewTable is not ported yet: %v", r)
 			}
 		}()
-		mk := func(category game.Category, boot int64) *game.Table {
+		mk := func(category game.Category, boot int64) game.Room {
 			return game.NewTable(game.TableOptions{
 				ID: "room-" + string(category) + strconv.FormatInt(boot, 10), Code: "ABC" + strconv.FormatInt(boot, 10),
 				Config: game.TableConfig{Category: category, BootAmount: boot, MaxPlayers: 5, MinPlayers: 2,
@@ -858,7 +858,7 @@ func TestTableGaugesRecountLiveTables(t *testing.T) {
 				Ledger: game.NewMemoryLedger(game.MemoryLedgerHooks{}),
 			})
 		}
-		tables = []*game.Table{mk(game.CategorySeen, 200), mk(game.CategoryBlind, 200), mk(game.CategoryBlind, 5000), mk(game.CategoryBlind, 5000)}
+		tables = []game.Room{mk(game.CategorySeen, 200), mk(game.CategoryBlind, 200), mk(game.CategoryBlind, 5000), mk(game.CategoryBlind, 5000)}
 	}()
 	t.Cleanup(func() {
 		for _, tb := range tables {

@@ -52,7 +52,7 @@ type PoolStats struct {
 
 // RoomsSource is what the table gauges read at scrape time.
 type RoomsSource interface {
-	LiveTables() []*game.Table
+	LiveTables() []game.Room
 }
 
 // Metrics holds every collector. Fields are exported so the socket layer,
@@ -456,7 +456,7 @@ func (m *Metrics) BindPool(fn func() PoolStats) {
 }
 
 // liveTables is Node's liveTables(): every table, or none before BindRooms.
-func (m *Metrics) liveTables() []*game.Table {
+func (m *Metrics) liveTables() []game.Room {
 	m.mu.RLock()
 	rooms := m.rooms
 	m.mu.RUnlock()

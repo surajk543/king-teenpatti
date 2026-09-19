@@ -430,7 +430,7 @@ func (st *stack) dealtTable(category string) *dealt {
 		}
 	}
 	roomID := field(joined.Raw, "roomId").(string)
-	table := st.rooms.GetTable(roomID)
+	table := game.AsTable(st.rooms.GetTable(roomID))
 	if table == nil {
 		st.t.Fatalf("table %s not found", roomID)
 	}
@@ -448,9 +448,9 @@ func (st *stack) dealtTable(category string) *dealt {
 }
 
 // turnSeat reads the live turn seat from the table.
-func (st *stack) turnSeat(table *game.Table, viewer string) int {
+func (st *stack) turnSeat(table game.Room, viewer string) int {
 	st.t.Helper()
-	view, err := table.SerializeFor(viewer)
+	view, err := game.AsTable(table).SerializeFor(viewer)
 	if err != nil {
 		st.t.Fatalf("serialize: %v", err)
 	}
@@ -460,9 +460,9 @@ func (st *stack) turnSeat(table *game.Table, viewer string) int {
 	return view.Turn.SeatIndex
 }
 
-func (st *stack) view(table *game.Table, viewer string) *game.TableView {
+func (st *stack) view(table game.Room, viewer string) *game.TableView {
 	st.t.Helper()
-	view, err := table.SerializeFor(viewer)
+	view, err := game.AsTable(table).SerializeFor(viewer)
 	if err != nil {
 		st.t.Fatalf("serialize: %v", err)
 	}

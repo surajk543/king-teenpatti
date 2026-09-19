@@ -380,7 +380,7 @@ func (h *Handler) onConnection(s *sio.Socket) {
 
 	// 4. restore a player who was mid-hand when their connection dropped; if
 	// the seat has already lapsed, `resume` names the table they were at.
-	var existing *game.Table
+	var existing game.Room
 	if rooms := h.rooms(); rooms != nil {
 		existing = rooms.GetTableForPlayer(user.ID)
 	}
@@ -404,7 +404,7 @@ func (h *Handler) onConnection(s *sio.Socket) {
 		if _, err := existing.SetConnected(user.ID, true, s.ID()); err != nil {
 			h.log.Warn("resume: setConnected failed", "userId", user.ID, "roomId", existing.ID(), "error", err.Error())
 		}
-		if view, err := existing.SerializeFor(user.ID); err == nil {
+		if view, err := existing.ViewFor(user.ID); err == nil {
 			h.emitTo(s, EvRoomJoined, view)
 		}
 		h.observeJoin(metrics.RouteResume, started)
@@ -538,6 +538,24 @@ func (h *Handler) fail(s *sio.Socket, err error) {
 // notAtTable is the not_in_room refusal every gameplay handler starts with.
 func notAtTable() error { return game.NewGameError(game.CodeNotInRoom, MsgNotAtTable) }
 
+// teenPattiTable is the *game.Table the user is seated at, for the events
+// only Teen Patti answers (game:action, game:sideshowRespond,
+// game:selectVariation, player:requestCards): not_in_room when unseated, and
+// wrong_game at a room of another family — a poker client that sent a Teen
+// Patti event, or a stale one — so the poker room never sees a move it does
+// not know (POKER_PLAN.md §7).
+func (h *Handler) teenPattiTable(userID string) (*game.Table, error) {
+	room := h.rooms().GetTableForPlayer(userID)
+	if room == nil {
+		return nil, notAtTable()
+	}
+	table := game.AsTable(room)
+	if table == nil {
+		return nil, game.NewGameError(game.CodeWrongGame, game.MsgWrongGame)
+	}
+	return table, nil
+}
+
 // freshUser re-reads the account (the seat needs CURRENT chips, not the
 // handshake snapshot). A vanished row is an internal error, as Node's
 // TypeError on `null.id` was.
@@ -582,7 +600,7 @@ func (h *Handler) lobbyList(_ *sio.Socket, req LobbyListRequest) (any, error) {
 func (h *Handler) quickJoin(s *sio.Socket, req QuickJoinRequest) (any, error) {
 	user := sessionOf(s).user
 	started := time.Now()
-	var table *game.Table
+	var table game.Room
 	err := func() error {
 		fresh, err := h.freshUser(user.ID)
 		if err != nil {
@@ -613,12 +631,12 @@ func (h *Handler) quickJoin(s *sio.Socket, req QuickJoinRequest) (any, error) {
 // SetConnected(true, socketId) — which emits state, so every viewer including
 // this socket receives room:state first — then room:joined with this
 // viewer's own snapshot.
-func (h *Handler) seatSocket(table *game.Table, s *sio.Socket, userID string) error {
+func (h *Handler) seatSocket(table game.Room, s *sio.Socket, userID string) error {
 	h.trackRoom(table.ID(), s)
 	if _, err := table.SetConnected(userID, true, s.ID()); err != nil {
 		return err
 	}
-	view, err := table.SerializeFor(userID)
+	view, err := table.ViewFor(userID)
 	if err != nil {
 		return err
 	}
@@ -639,7 +657,7 @@ func (h *Handler) seatSocket(table *game.Table, s *sio.Socket, userID string) er
 // the account's live socket to the seat (a sign-in that arrived before the
 // seat existed found nothing to restore), or, with no live socket, mark the
 // seat disconnected and arm the grace timer so it lapses like any other.
-func (h *Handler) orphanedSeat(table *game.Table, dead *sio.Socket, userID string) {
+func (h *Handler) orphanedSeat(table game.Room, dead *sio.Socket, userID string) {
 	roomID := table.ID()
 	h.mu.Lock()
 	live := h.userSockets[userID]
@@ -654,7 +672,7 @@ func (h *Handler) orphanedSeat(table *game.Table, dead *sio.Socket, userID strin
 		if _, err := table.SetConnected(userID, true, live.ID()); err != nil {
 			return
 		}
-		if view, err := table.SerializeFor(userID); err == nil {
+		if view, err := table.ViewFor(userID); err == nil {
 			h.emitTo(live, EvRoomJoined, view)
 		}
 		h.sendChatHistory(table, live)
@@ -669,7 +687,7 @@ func (h *Handler) orphanedSeat(table *game.Table, dead *sio.Socket, userID strin
 }
 
 // roomAck is the {roomId, code, category} every join route answers with.
-func roomAck(table *game.Table) RoomAck {
+func roomAck(table game.Room) RoomAck {
 	return RoomAck{OK: true, RoomID: table.ID(), Code: table.Code(), Category: table.Category()}
 }
 
@@ -690,7 +708,7 @@ func roomAck(table *game.Table) RoomAck {
 func (h *Handler) create(s *sio.Socket, req CreateRequest) (any, error) {
 	user := sessionOf(s).user
 	started := time.Now()
-	var table *game.Table
+	var table game.Room
 	err := func() error {
 		fresh, err := h.freshUser(user.ID)
 		if err != nil {
@@ -709,7 +727,7 @@ func (h *Handler) create(s *sio.Socket, req CreateRequest) (any, error) {
 			return err
 		}
 		h.trackRoom(table.ID(), s)
-		view, err := table.SerializeFor(user.ID)
+		view, err := table.ViewFor(user.ID)
 		if err != nil {
 			return err
 		}
@@ -729,7 +747,7 @@ func (h *Handler) create(s *sio.Socket, req CreateRequest) (any, error) {
 func (h *Handler) joinCode(s *sio.Socket, req JoinCodeRequest) (any, error) {
 	user := sessionOf(s).user
 	started := time.Now()
-	var table *game.Table
+	var table game.Room
 	err := func() error {
 		fresh, err := h.freshUser(user.ID)
 		if err != nil {
@@ -858,9 +876,9 @@ func (h *Handler) action(s *sio.Socket, req ActionRequest) (any, error) {
 	if _, ok := game.AllActions[game.Action(req.Action)]; !ok {
 		return nil, game.Errorf(game.CodeUnknownAction, game.MsgUnknownActionFormat, req.Action)
 	}
-	table := h.rooms().GetTableForPlayer(user.ID)
-	if table == nil {
-		return nil, notAtTable()
+	table, err := h.teenPattiTable(user.ID)
+	if err != nil {
+		return nil, err
 	}
 
 	// `amount` is what the player picked with the +/- stepper. The table
@@ -911,9 +929,9 @@ func (h *Handler) action(s *sio.Socket, req ActionRequest) (any, error) {
 // whatever the window's own clock is doing at that instant.
 func (h *Handler) selectVariation(s *sio.Socket, req SelectVariationRequest) (any, error) {
 	user := sessionOf(s).user
-	table := h.rooms().GetTableForPlayer(user.ID)
-	if table == nil {
-		return nil, notAtTable()
+	table, err := h.teenPattiTable(user.ID)
+	if err != nil {
+		return nil, err
 	}
 	result, err := table.SelectVariation(user.ID, req.Variation)
 	if err != nil {
@@ -926,9 +944,9 @@ func (h *Handler) selectVariation(s *sio.Socket, req SelectVariationRequest) (an
 // === true); ack SideshowAck.
 func (h *Handler) sideshowRespond(s *sio.Socket, req SideshowRespondRequest) (any, error) {
 	user := sessionOf(s).user
-	table := h.rooms().GetTableForPlayer(user.ID)
-	if table == nil {
-		return nil, notAtTable()
+	table, err := h.teenPattiTable(user.ID)
+	if err != nil {
+		return nil, err
 	}
 	outcome, err := table.RespondToSideshow(user.ID, acceptsSideshow(req.Accept))
 	if err != nil {
@@ -942,9 +960,9 @@ func (h *Handler) sideshowRespond(s *sio.Socket, req SideshowRespondRequest) (an
 // player:cards {roomId, cards}; CardsAck{cards}.
 func (h *Handler) requestCards(s *sio.Socket) (any, error) {
 	user := sessionOf(s).user
-	table := h.rooms().GetTableForPlayer(user.ID)
-	if table == nil {
-		return nil, notAtTable()
+	table, err := h.teenPattiTable(user.ID)
+	if err != nil {
+		return nil, err
 	}
 	seat, err := table.FindSeat(user.ID)
 	if err != nil {
@@ -1153,7 +1171,7 @@ func (h *Handler) graceExpired(userID string) {
 // RESUME_OFFER_MS of 0 disables offers (Node: every offer was already older
 // than 0 ms), so nothing is written. A store failure is logged: the player
 // simply gets no offer, never an error.
-func (h *Handler) putResumeOffer(userID string, table *game.Table) {
+func (h *Handler) putResumeOffer(userID string, table game.Room) {
 	ttl := h.cfg().Game.ResumeOffer
 	if ttl <= 0 {
 		return
@@ -1342,7 +1360,7 @@ func (h *Handler) viewers(roomID string) []*sio.Socket {
 // counted ONCE in socket_emits_total{room:state}. From a game.Listener
 // callback use broadcastView (the View computes inline); from a handler use
 // this, which posts SerializeFor per viewer.
-func (h *Handler) broadcastState(t *game.Table) {
+func (h *Handler) broadcastState(t game.Room) {
 	h.incEmit(EvRoomState)
 	started := time.Now()
 	for _, s := range h.viewers(t.ID()) {
@@ -1350,7 +1368,7 @@ func (h *Handler) broadcastState(t *game.Table) {
 		if sess == nil {
 			continue
 		}
-		view, err := t.SerializeFor(sess.user.ID)
+		view, err := t.ViewFor(sess.user.ID)
 		if err != nil {
 			break // the table is gone; nothing more to send
 		}
@@ -1375,7 +1393,7 @@ func (h *Handler) broadcastView(v *game.View) {
 
 // sendChatHistory emits chat:history {roomId, messages} to one socket and
 // returns the number of messages sent (the chat:history ack's count).
-func (h *Handler) sendChatHistory(t *game.Table, s *sio.Socket) int {
+func (h *Handler) sendChatHistory(t game.Room, s *sio.Socket) int {
 	messages, err := t.ChatHistory()
 	if err != nil || messages == nil {
 		messages = []game.ChatMessage{}
@@ -1606,6 +1624,8 @@ func observe(obs prometheus.Observer, started time.Time) {
 var (
 	knownCategories = map[string]struct{}{
 		string(game.CategoryBlind): {}, string(game.CategorySeen): {}, string(game.CategoryVariation): {},
+		string(game.CategoryThreeCardPoker): {}, string(game.CategoryFiveCardDraw): {},
+		string(game.CategoryTexasHoldem): {}, string(game.CategoryOmaha): {},
 	}
 	knownWinReasons = map[string]struct{}{
 		string(game.WinLastStanding): {}, string(game.WinShow): {}, string(game.WinForcedShowdown): {},
@@ -1780,7 +1800,7 @@ func (h *Handler) OnError(v *game.View, err error) {}
 var _ game.RoomListener = (*Handler)(nil)
 
 // OnTableCreated: nothing to wire (the listener is set at construction).
-func (h *Handler) OnTableCreated(t *game.Table) {}
+func (h *Handler) OnTableCreated(t game.Room) {}
 
 // OnTableDestroyed: room:closed {roomId} to every tracked viewer (counted
 // once if any), sio Leave, drop roomSockets[roomId].
@@ -1829,7 +1849,7 @@ func (h *Handler) OnPlayerMoved(m game.PlayerMove) {
 	h.emitTo(s, EvRoomMoved, RoomMovedEvent{
 		FromRoomID: m.FromRoomID, ToRoomID: m.ToRoomID, Code: target.Code(), Message: MsgMovedToBusier,
 	})
-	if view, err := target.SerializeFor(m.UserID); err == nil {
+	if view, err := target.ViewFor(m.UserID); err == nil {
 		h.emitTo(s, EvRoomJoined, view)
 	}
 	h.sendChatHistory(target, s)

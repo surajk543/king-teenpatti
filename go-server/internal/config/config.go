@@ -53,6 +53,17 @@ const (
 	// capped ladder and pot — whose hands open with a window in which one
 	// player chooses the variation they are decided by (game/variation.go).
 	CategoryVariation = "variation"
+
+	// The poker family (Go only; owner, 19 Sep 2026 — POKER_PLAN.md): four
+	// categories whose tables run on internal/poker, not on game.Table. This
+	// package composes no betting rules for them — a poker room reads
+	// GameConfig.Poker and its variant's own table — but LOBBY_TABLES lists
+	// them, quick-join routes on them and the lobby advertises them exactly as
+	// it does the three above.
+	CategoryThreeCardPoker = "three_card_poker"
+	CategoryFiveCardDraw   = "five_card_draw"
+	CategoryTexasHoldem    = "texas_holdem"
+	CategoryOmaha          = "omaha"
 )
 
 // Config is the whole configuration. Field groups mirror the Node object
@@ -323,11 +334,35 @@ type GameConfig struct {
 	// seen table's ladder and its rounds (SeenMaxRaiseSteps, SeenMaxBetRounds),
 	// so a hand ends at the forced showdown whatever the pot has grown to.
 	VariationMaxPotBoots int64
-	ConsolidateInterval  time.Duration // CONSOLIDATE_INTERVAL_MS 15000 (requirement 24 sweeper)
-	ReconnectGrace       time.Duration // RECONNECT_GRACE_MS 60000 (seat held after a drop)
+	// Poker is the poker family's own knobs (Go only; owner, 19 Sep 2026).
+	Poker               PokerConfig
+	ConsolidateInterval time.Duration // CONSOLIDATE_INTERVAL_MS 15000 (requirement 24 sweeper)
+	ReconnectGrace      time.Duration // RECONNECT_GRACE_MS 60000 (seat held after a drop)
 	// ResumeOffer is RESUME_OFFER_MS 600000: after the held seat lapses, how
 	// long session:ready.resume still offers the table back. 0 disables.
 	ResumeOffer time.Duration
+}
+
+// PokerConfig is the poker family's configuration (POKER_PLAN.md §5). A poker
+// table's STAKE is its LOBBY_TABLES boot, one of TABLE_STAKES like every other
+// table: the big blind at a Hold'em or Omaha table (the small blind is half),
+// the ante at a 3-Card Poker or 5-Card Draw table. Everything else about how a
+// variant plays is that variant's own fixed table (poker.VariantConfig) — the
+// keys here are the few figures a deployment might reasonably tune.
+type PokerConfig struct {
+	// TurnTimeout is POKER_TURN_TIMEOUT_MS: how long a poker player has to act
+	// on each decision (a street, a draw, the play-or-fold choice). 0 = the
+	// table's TURN_TIMEOUT_MS, which is the default.
+	TurnTimeout time.Duration
+	// MinBuyInBoots is POKER_MIN_BUYIN_BOOTS 10: the smallest stack a player
+	// may sit down with, in boots of that table (ten big blinds, or ten antes).
+	// A player who cannot cover the boot at all is refused as everywhere; this
+	// is the floor above it, and a seat that falls below the boot between hands
+	// gets the same UNFUNDED_GRACE_MS every table gives.
+	MinBuyInBoots int64
+	// MaxDiscards is POKER_MAX_DISCARDS 3: how many cards a 5-Card Draw player
+	// may exchange at the draw. 0..5; the brief asked for it to be configurable.
+	MaxDiscards int
 }
 
 // MetricsConfig ← config.metrics (requirement 35).
@@ -460,9 +495,14 @@ func Defaults() *Config {
 			MissileRevealExtra:      3 * time.Second,
 			VariationSelectTimeout:  10 * time.Second,
 			VariationMaxPotBoots:    0,
-			ConsolidateInterval:     15 * time.Second,
-			ReconnectGrace:          60 * time.Second,
-			ResumeOffer:             10 * time.Minute,
+			Poker: PokerConfig{
+				TurnTimeout:   0, // the table's TURN_TIMEOUT_MS
+				MinBuyInBoots: 10,
+				MaxDiscards:   3,
+			},
+			ConsolidateInterval: 15 * time.Second,
+			ReconnectGrace:      60 * time.Second,
+			ResumeOffer:         10 * time.Minute,
 		},
 		Metrics: MetricsConfig{
 			Enabled: true,
@@ -664,6 +704,15 @@ func FromEnv(lookup Lookup) (*Config, error) {
 			}
 		}
 	}
+	g.Poker.TurnTimeout = r.millis("POKER_TURN_TIMEOUT_MS", g.Poker.TurnTimeout)
+	g.Poker.MinBuyInBoots = r.int64("POKER_MIN_BUYIN_BOOTS", g.Poker.MinBuyInBoots)
+	g.Poker.MaxDiscards = r.integer("POKER_MAX_DISCARDS", g.Poker.MaxDiscards)
+	if raw, _ := lookup("POKER_MAX_DISCARDS"); g.Poker.MaxDiscards < 0 || g.Poker.MaxDiscards > 5 {
+		r.fail("POKER_MAX_DISCARDS", raw, "must be between 0 and 5")
+	}
+	if raw, _ := lookup("POKER_MIN_BUYIN_BOOTS"); g.Poker.MinBuyInBoots < 1 {
+		r.fail("POKER_MIN_BUYIN_BOOTS", raw, "must be at least 1")
+	}
 	g.ConsolidateInterval = r.millis("CONSOLIDATE_INTERVAL_MS", g.ConsolidateInterval)
 	g.ReconnectGrace = r.millis("RECONNECT_GRACE_MS", g.ReconnectGrace)
 	g.ResumeOffer = r.millis("RESUME_OFFER_MS", g.ResumeOffer)
@@ -745,18 +794,31 @@ type TableRules struct {
 }
 
 // NormalizeCategory is RoomManager.normalizeCategory: "blind" iff the value
-// is exactly "blind", "variation" iff it is exactly "variation" (Go only),
+// is exactly "blind", "variation" iff it is exactly "variation" (Go only), one
+// of the four poker categories iff it is exactly that (Go only, POKER_PLAN.md),
 // otherwise "seen" (unknown and empty included). The set is closed: nothing a
-// client sends can name a fourth category.
+// client sends can name an eighth category.
 func NormalizeCategory(category string) string {
 	switch category {
 	case CategoryBlind:
 		return CategoryBlind
 	case CategoryVariation:
 		return CategoryVariation
+	case CategoryThreeCardPoker, CategoryFiveCardDraw, CategoryTexasHoldem, CategoryOmaha:
+		return category
 	default:
 		return CategorySeen
 	}
+}
+
+// IsPokerCategory reports whether category names a table of the poker family
+// (game.Category.IsPoker, for the config package which cannot import game).
+func IsPokerCategory(category string) bool {
+	switch category {
+	case CategoryThreeCardPoker, CategoryFiveCardDraw, CategoryTexasHoldem, CategoryOmaha:
+		return true
+	}
+	return false
 }
 
 // TableRules composes the rules for one table exactly as Node does

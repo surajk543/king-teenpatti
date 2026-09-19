@@ -150,7 +150,7 @@ func TestRoomsIndexFollowsTheMovedPlayer(t *testing.T) {
 func TestRoomsMovedPlayerKeepsSeatChipsAndSocket(t *testing.T) {
 	f := newRoomsFixture(t, nil)
 	f.singleTable(rmBoot, game.CategoryBlind)
-	second := f.rooms.CreateTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"})
+	second := f.createTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"})
 	mover := f.player("Mover", 4321)
 	if err := f.rooms.Join(second, mover, "sock-mover"); err != nil {
 		t.Fatal(err)
@@ -202,7 +202,7 @@ func TestRoomsConsolidationEventOrder(t *testing.T) {
 
 func TestRoomsConsolidationNeverDisturbsALiveHand(t *testing.T) {
 	f := newRoomsFixture(t, nil)
-	busy := f.rooms.CreateTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"})
+	busy := f.createTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"})
 	f.mustJoin(busy, f.player("Busy1", rmStart))
 	f.mustJoin(busy, f.player("Busy2", rmStart))
 	f.clock.Advance(10 * time.Second)
@@ -223,7 +223,7 @@ func TestRoomsConsolidationNeverDisturbsALiveHand(t *testing.T) {
 
 func TestRoomsLeaveMidHandResolvesBeforeAnyMerge(t *testing.T) {
 	f := newRoomsFixture(t, nil)
-	table := f.rooms.CreateTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"})
+	table := f.createTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"})
 	f.mustJoin(table, f.player("P1", rmStart))
 	f.mustJoin(table, f.player("P2", rmStart))
 	f.clock.Advance(10 * time.Second)
@@ -273,9 +273,9 @@ func TestRoomsBlindAndSeenNeverMerge(t *testing.T) {
 
 func TestRoomsPrivateTablesAreLeftAlone(t *testing.T) {
 	f := newRoomsFixture(t, nil)
-	one := f.rooms.CreateTable(game.CreateTableOptions{IsPrivate: true, Category: "blind"})
+	one := f.createTable(game.CreateTableOptions{IsPrivate: true, Category: "blind"})
 	f.mustJoin(one, f.player("Host1", rmStart))
-	two := f.rooms.CreateTable(game.CreateTableOptions{IsPrivate: true, Category: "blind"})
+	two := f.createTable(game.CreateTableOptions{IsPrivate: true, Category: "blind"})
 	f.mustJoin(two, f.player("Host2", rmStart))
 
 	if moves := f.mustConsolidate(); len(moves) != 0 {
@@ -288,7 +288,7 @@ func TestRoomsPrivateTablesAreLeftAlone(t *testing.T) {
 
 func TestRoomsFullDestinationStopsTakingPlayers(t *testing.T) {
 	f := newRoomsFixture(t, nil)
-	target := f.rooms.CreateTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"})
+	target := f.createTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"})
 	for i := 0; i < 5; i++ {
 		f.mustJoin(target, f.player(fmt.Sprintf("Seat%d", i), rmStart))
 	}
@@ -341,10 +341,10 @@ func TestRoomsMergedTableAnnouncesTheCountdown(t *testing.T) {
 
 func TestRoomsLeavingTriggersAMergeImmediately(t *testing.T) {
 	f := newRoomsFixture(t, nil)
-	a := f.rooms.CreateTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"})
+	a := f.createTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"})
 	f.mustJoin(a, f.player("A1", rmStart))
 	f.mustJoin(a, f.player("A2", rmStart))
-	b := f.rooms.CreateTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"})
+	b := f.createTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"})
 	f.mustJoin(b, f.player("B1", rmStart))
 
 	f.mustLeave(seatedIDs(t, a)[0], game.LeaveReasonLeft)
@@ -469,8 +469,8 @@ func TestRoomsSwitchIgnoresTheStackBand(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newRoomsFixture(t, nil)
-			first := f.rooms.CreateTable(game.CreateTableOptions{BootAmount: tc.boot, Category: "blind"})
-			second := f.rooms.CreateTable(game.CreateTableOptions{BootAmount: tc.boot, Category: "blind"})
+			first := f.createTable(game.CreateTableOptions{BootAmount: tc.boot, Category: "blind"})
+			second := f.createTable(game.CreateTableOptions{BootAmount: tc.boot, Category: "blind"})
 			f.mustJoin(second, f.player("Other", tc.seated))
 
 			mover := f.player("Mover", tc.seated)
@@ -549,7 +549,7 @@ func TestRoomsSwitchIgnoresTheEntryCap(t *testing.T) {
 	rich := f.player("Rich", f.cfg.EntryCapMaxChips+1)
 
 	first := f.mustQuickJoin(f.player("P", 1000), f.cfg.EntryCapBoot, f.cfg.EntryCapCategory)
-	second := f.rooms.CreateTable(game.CreateTableOptions{BootAmount: f.cfg.EntryCapBoot, Category: f.cfg.EntryCapCategory})
+	second := f.createTable(game.CreateTableOptions{BootAmount: f.cfg.EntryCapBoot, Category: f.cfg.EntryCapCategory})
 	f.mustJoin(second, f.player("Q", 2000))
 
 	// The rich player got in before their stack grew.
@@ -571,8 +571,8 @@ func TestRoomsSwitchNeverChangesStakeOrCategory(t *testing.T) {
 	f := newRoomsFixture(t, nil)
 	home := f.mustQuickJoin(f.player("P", 1000), f.cfg.EntryCapBoot, f.cfg.EntryCapCategory)
 	// Tables of a different kind are not candidates, however empty they are.
-	f.rooms.CreateTable(game.CreateTableOptions{BootAmount: f.cfg.EntryCapBoot, Category: "seen"})
-	f.rooms.CreateTable(game.CreateTableOptions{BootAmount: 5000, Category: f.cfg.EntryCapCategory})
+	f.createTable(game.CreateTableOptions{BootAmount: f.cfg.EntryCapBoot, Category: "seen"})
+	f.createTable(game.CreateTableOptions{BootAmount: 5000, Category: f.cfg.EntryCapCategory})
 	mover := f.player("Mover", 1000)
 	f.mustJoin(home, mover)
 
@@ -610,7 +610,7 @@ func TestRoomsUnseatedPlayerCannotSwitch(t *testing.T) {
 
 func TestRoomsSwitchFromPrivateTableRefused(t *testing.T) {
 	f := newRoomsFixture(t, nil)
-	private := f.rooms.CreateTable(game.CreateTableOptions{IsPrivate: true})
+	private := f.createTable(game.CreateTableOptions{IsPrivate: true})
 	host := f.player("Host", rmStart)
 	f.mustJoin(private, host)
 	f.singleTable(f.cfg.PrivateBoot, game.CategorySeen)
@@ -630,26 +630,26 @@ func TestRoomsSwitchPicksARandomOtherTable(t *testing.T) {
 		openMenu(g, o)
 		g.NextHandDelay = time.Hour // keep every table idle so seats stay put
 	})
-	home := f.rooms.CreateTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"})
+	home := f.createTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"})
 	mover := f.player("Mover", rmStart)
 	f.mustJoin(home, mover)
 	f.mustJoin(home, f.player("Stay", rmStart))
-	sparse := f.rooms.CreateTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"})
+	sparse := f.createTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"})
 	f.mustJoin(sparse, f.player("S1", rmStart))
-	busier := f.rooms.CreateTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"})
+	busier := f.createTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"})
 	for i := 0; i < 3; i++ {
 		f.mustJoin(busier, f.player("B", rmStart))
 	}
-	full := f.rooms.CreateTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"})
+	full := f.createTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"})
 	for i := 0; i < 5; i++ {
 		f.mustJoin(full, f.player("F", rmStart))
 	}
 	// A table of another kind at the same stake is never a destination.
-	seen := f.rooms.CreateTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "seen"})
+	seen := f.createTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "seen"})
 	f.mustJoin(seen, f.player("Seen", rmStart))
 
-	reached := map[*game.Table]int{}
-	from := home
+	reached := map[game.Room]int{}
+	var from game.Room = home
 	for i := 0; i < 60; i++ {
 		result, err := f.rooms.SwitchTable(mover)
 		if err != nil {
@@ -669,7 +669,7 @@ func TestRoomsSwitchPicksARandomOtherTable(t *testing.T) {
 	}
 	// Three eligible tables, each left by two routes: missing one in 60 draws
 	// of a fair coin is odds of about 2^-30.
-	for name, table := range map[string]*game.Table{"home": home, "sparse": sparse, "busier": busier} {
+	for name, table := range map[string]game.Room{"home": home, "sparse": sparse, "busier": busier} {
 		if reached[table] == 0 {
 			t.Fatalf("the %s table was never reached: %v", name, reached)
 		}
@@ -681,7 +681,7 @@ func TestRoomsSwitchPicksARandomOtherTable(t *testing.T) {
 
 func TestRoomsSwitchLeavesWithReasonMovedAndSkipsConsolidation(t *testing.T) {
 	f := newRoomsFixture(t, nil)
-	home := f.rooms.CreateTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"})
+	home := f.createTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"})
 	mover := f.player("Mover", rmStart)
 	f.mustJoin(home, mover)
 	first := f.singleTable(rmBoot, game.CategoryBlind)
@@ -719,7 +719,7 @@ func TestRoomsSwitchLeavesWithReasonMovedAndSkipsConsolidation(t *testing.T) {
 
 func TestRoomsSwitchMidHandPacksWithReasonMoved(t *testing.T) {
 	f := newRoomsFixture(t, nil)
-	home := f.rooms.CreateTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"})
+	home := f.createTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"})
 	mover := f.player("Mover", rmStart)
 	f.mustJoin(home, mover)
 	f.mustJoin(home, f.player("Stay", rmStart))
@@ -750,7 +750,7 @@ func TestRoomsSwitchMidHandPacksWithReasonMoved(t *testing.T) {
 func TestRoomsPrivateTableAlwaysUsesTheFixedBoot(t *testing.T) {
 	f := newRoomsFixture(t, nil)
 	for _, asked := range []int64{50, 199, 200, 1000, 99999, 0} {
-		table := f.rooms.CreateTable(game.CreateTableOptions{BootAmount: asked, IsPrivate: true})
+		table := f.createTable(game.CreateTableOptions{BootAmount: asked, IsPrivate: true})
 		if table.BootAmount() != 200 || table.Config().BootAmount != 200 {
 			t.Fatalf("asking for %d still gives 200, got %d", asked, table.BootAmount())
 		}
@@ -762,13 +762,13 @@ func TestRoomsPrivateTableAlwaysUsesTheFixedBoot(t *testing.T) {
 
 func TestRoomsPublicTableKeepsItsStake(t *testing.T) {
 	f := newRoomsFixture(t, nil)
-	if got := f.rooms.CreateTable(game.CreateTableOptions{BootAmount: 100}).BootAmount(); got != 100 {
+	if got := f.createTable(game.CreateTableOptions{BootAmount: 100}).BootAmount(); got != 100 {
 		t.Fatalf("boot %d", got)
 	}
-	if got := f.rooms.CreateTable(game.CreateTableOptions{BootAmount: 5000}).BootAmount(); got != 5000 {
+	if got := f.createTable(game.CreateTableOptions{BootAmount: 5000}).BootAmount(); got != 5000 {
 		t.Fatalf("boot %d", got)
 	}
-	if got := f.rooms.CreateTable(game.CreateTableOptions{}).BootAmount(); got != f.cfg.BootAmount {
+	if got := f.createTable(game.CreateTableOptions{}).BootAmount(); got != f.cfg.BootAmount {
 		t.Fatalf("an unspecified boot is the default: %d", got)
 	}
 }
@@ -783,7 +783,7 @@ func TestRoomsLobbyAdvertisesPrivateBootAndMaxPot(t *testing.T) {
 
 func TestRoomsPrivateTableAllowsASingleDouble(t *testing.T) {
 	f := newRoomsFixture(t, nil)
-	table := f.rooms.CreateTable(game.CreateTableOptions{BootAmount: 200, IsPrivate: true, Category: "blind"})
+	table := f.createTable(game.CreateTableOptions{BootAmount: 200, IsPrivate: true, Category: "blind"})
 	seatTwoAndDeal(t, f, table, 2_000_000)
 
 	who := turnUser(t, table)
@@ -797,7 +797,7 @@ func TestRoomsPrivateTableAllowsASingleDouble(t *testing.T) {
 
 func TestRoomsPublicBlindKeepsTheFullLadder(t *testing.T) {
 	f := newRoomsFixture(t, nil)
-	table := f.rooms.CreateTable(game.CreateTableOptions{BootAmount: 200, Category: "blind"})
+	table := f.createTable(game.CreateTableOptions{BootAmount: 200, Category: "blind"})
 	seatTwoAndDeal(t, f, table, 2_000_000)
 	opts := optionsFor(t, table, turnUser(t, table))
 	if len(opts.RaiseSteps) <= 2 {
@@ -818,7 +818,7 @@ func TestRoomsPotCeilingsPerKind(t *testing.T) {
 		{"public blind", game.CreateTableOptions{BootAmount: 200, Category: "blind"}, 0},
 	}
 	for _, c := range cases {
-		if got := f.rooms.CreateTable(c.opts).MaxPot(); got != c.want {
+		if got := f.createTable(c.opts).MaxPot(); got != c.want {
 			t.Fatalf("%s: maxPot %d, want %d", c.name, got, c.want)
 		}
 	}
@@ -826,7 +826,7 @@ func TestRoomsPotCeilingsPerKind(t *testing.T) {
 
 func TestRoomsCeilingReportedInSnapshot(t *testing.T) {
 	f := newRoomsFixture(t, nil)
-	table := f.rooms.CreateTable(game.CreateTableOptions{BootAmount: 200, IsPrivate: true})
+	table := f.createTable(game.CreateTableOptions{BootAmount: 200, IsPrivate: true})
 	a, _ := seatTwoAndDeal(t, f, table, 2_000_000)
 	if got := viewOf(t, table, a.ID).MaxPot; got != 500000 {
 		t.Fatalf("maxPot %d", got)
@@ -835,7 +835,7 @@ func TestRoomsCeilingReportedInSnapshot(t *testing.T) {
 
 func TestRoomsUncappedBlindLadderRunsToTheStack(t *testing.T) {
 	f := newRoomsFixture(t, nil)
-	table := f.rooms.CreateTable(game.CreateTableOptions{BootAmount: 200, Category: "blind"})
+	table := f.createTable(game.CreateTableOptions{BootAmount: 200, Category: "blind"})
 	seatTwoAndDeal(t, f, table, 2_000_000)
 	who := turnUser(t, table)
 	opts := optionsFor(t, table, who)
@@ -855,7 +855,7 @@ func TestRoomsUncappedBlindLadderRunsToTheStack(t *testing.T) {
 
 func TestRoomsSeenTableAllowsASingleDouble(t *testing.T) {
 	f := newRoomsFixture(t, nil)
-	table := f.rooms.CreateTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "seen"})
+	table := f.createTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "seen"})
 	if table.Config().MaxBetRounds != 7 {
 		t.Fatalf("seven rounds each, then everyone shows: %d", table.Config().MaxBetRounds)
 	}
@@ -871,7 +871,7 @@ func TestRoomsSeenTableAllowsASingleDouble(t *testing.T) {
 
 func TestRoomsBlindTableKeepsTheDoublingLadder(t *testing.T) {
 	f := newRoomsFixture(t, nil)
-	table := f.rooms.CreateTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"})
+	table := f.createTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"})
 	seatTwoAndDeal(t, f, table, rmStart)
 	opts := optionsFor(t, table, turnUser(t, table))
 	if len(opts.RaiseSteps) <= 2 || opts.RaiseSteps[2] != rmBoot*4 {
@@ -881,7 +881,7 @@ func TestRoomsBlindTableKeepsTheDoublingLadder(t *testing.T) {
 
 func TestRoomsBlindTableConfigIsOpenEnded(t *testing.T) {
 	f := newRoomsFixture(t, nil)
-	cfg := f.rooms.CreateTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"}).Config()
+	cfg := f.createTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"}).Config()
 	if cfg.MaxBetRounds != 0 || cfg.MaxRaiseSteps != 0 || cfg.PotLimitMultiplier != 0 || cfg.MaxPot != 0 {
 		t.Fatalf("%+v", cfg)
 	}
@@ -929,7 +929,7 @@ func TestRoomsCreateTableConfigIsExplicit(t *testing.T) {
 		{"unknown category is seen", game.CreateTableOptions{BootAmount: 200, Category: "BLIND"}, seen},
 	}
 	for _, c := range cases {
-		if got := f.rooms.CreateTable(c.opts).Config(); got != c.want {
+		if got := f.createTable(c.opts).Config(); got != c.want {
 			t.Fatalf("%s:\n got  %+v\n want %+v", c.name, got, c.want)
 		}
 	}
@@ -937,7 +937,7 @@ func TestRoomsCreateTableConfigIsExplicit(t *testing.T) {
 
 func TestRoomsBlindTableNeverForcesAShowdown(t *testing.T) {
 	f := newRoomsFixture(t, nil)
-	table := f.rooms.CreateTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"})
+	table := f.createTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"})
 	seatTwoAndDeal(t, f, table, rmStart)
 
 	for i := 0; i < 120 && table.HasHand(); i++ {
@@ -958,7 +958,7 @@ func TestRoomsBlindTableNeverForcesAShowdown(t *testing.T) {
 
 func TestRoomsSeenTableForcesAShowdownAfterSevenRounds(t *testing.T) {
 	f := newRoomsFixture(t, nil)
-	table := f.rooms.CreateTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "seen"})
+	table := f.createTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "seen"})
 	seatTwoAndDeal(t, f, table, rmStart)
 
 	for i := 0; i < 60 && table.HasHand(); i++ {
@@ -1171,9 +1171,9 @@ func TestRoomsQuickJoinPrefersTheFullestAndBreaksTiesByAge(t *testing.T) {
 		openMenu(g, o)
 		g.NextHandDelay = time.Hour
 	})
-	older := f.rooms.CreateTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"})
+	older := f.createTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"})
 	f.mustJoin(older, f.player("O", rmStart))
-	newer := f.rooms.CreateTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"})
+	newer := f.createTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"})
 	f.mustJoin(newer, f.player("N", rmStart))
 	if got := f.mustQuickJoin(f.player("P", rmStart), rmBoot, "blind"); got != older {
 		t.Fatal("ties go to the earliest created table")
@@ -1202,7 +1202,7 @@ func TestRoomsQuickJoinPrefersTheFullestAndBreaksTiesByAge(t *testing.T) {
 
 func TestRoomsQuickJoinNeverPicksAPrivateTable(t *testing.T) {
 	f := newRoomsFixture(t, nil)
-	private := f.rooms.CreateTable(game.CreateTableOptions{IsPrivate: true, Category: "seen"})
+	private := f.createTable(game.CreateTableOptions{IsPrivate: true, Category: "seen"})
 	f.mustJoin(private, f.player("Host", rmStart))
 	if got := f.mustQuickJoin(f.player("P", rmStart), 200, "seen"); got == private {
 		t.Fatal("a private table is reached by code only")
@@ -1392,7 +1392,7 @@ func TestRoomsAMenuWithNoVariationEntryAdvertisesNoVariationCategory(t *testing.
 
 	// A private table is no way round the menu: the public doors are refused
 	// above, and a private create folds to seen as an unknown category does.
-	private := f.rooms.CreateTable(game.CreateTableOptions{IsPrivate: true, Category: "variation"})
+	private := f.createTable(game.CreateTableOptions{IsPrivate: true, Category: "variation"})
 	if private.Category() != game.CategorySeen {
 		t.Fatalf("private table category %q, want seen", private.Category())
 	}
@@ -1403,7 +1403,7 @@ func TestRoomsAMenuWithNoVariationEntryAdvertisesNoVariationCategory(t *testing.
 
 func TestRoomsAPrivateVariationTableOpensWhereTheMenuOffersOne(t *testing.T) {
 	f := newRoomsFixture(t, nil)
-	private := f.rooms.CreateTable(game.CreateTableOptions{IsPrivate: true, Category: "variation"})
+	private := f.createTable(game.CreateTableOptions{IsPrivate: true, Category: "variation"})
 	if private.Category() != game.CategoryVariation {
 		t.Fatalf("private table category %q, want variation", private.Category())
 	}
@@ -1461,7 +1461,7 @@ func TestRoomsJoinByCodeRefusesAMalformedCode(t *testing.T) {
 			t.Fatalf("%q: message %q", bad, err.Error())
 		}
 	}
-	table := f.rooms.CreateTable(game.CreateTableOptions{IsPrivate: true})
+	table := f.createTable(game.CreateTableOptions{IsPrivate: true})
 	joined, err := f.rooms.JoinByCode(f.player("Q", rmStart), "  "+strings.ToLower(table.Code())+" ")
 	if err != nil || joined != table {
 		t.Fatalf("well-formed code in lower case with spaces: %v", err)
@@ -1470,7 +1470,7 @@ func TestRoomsJoinByCodeRefusesAMalformedCode(t *testing.T) {
 
 func TestRoomsJoinByCodeFullTableSaysThatTableIsFull(t *testing.T) {
 	f := newRoomsFixture(t, nil)
-	table := f.rooms.CreateTable(game.CreateTableOptions{IsPrivate: true})
+	table := f.createTable(game.CreateTableOptions{IsPrivate: true})
 	for i := 0; i < 5; i++ {
 		f.mustJoin(table, f.player("P", rmStart))
 	}
@@ -1483,7 +1483,7 @@ func TestRoomsJoinByCodeFullTableSaysThatTableIsFull(t *testing.T) {
 
 func TestRoomsJoinByCodeIsCaseInsensitive(t *testing.T) {
 	f := newRoomsFixture(t, nil)
-	table := f.rooms.CreateTable(game.CreateTableOptions{IsPrivate: true})
+	table := f.createTable(game.CreateTableOptions{IsPrivate: true})
 	got, err := f.rooms.JoinByCode(f.player("P", rmStart), strings.ToLower(table.Code()))
 	if err != nil || got != table {
 		t.Fatalf("%v %v", got, err)
@@ -1495,14 +1495,14 @@ func TestRoomsJoinByCodeIsCaseInsensitive(t *testing.T) {
 
 func TestRoomsJoinByCodeInsufficientChips(t *testing.T) {
 	f := newRoomsFixture(t, nil)
-	table := f.rooms.CreateTable(game.CreateTableOptions{BootAmount: 5000, Category: "blind"})
+	table := f.createTable(game.CreateTableOptions{BootAmount: 5000, Category: "blind"})
 	_, err := f.rooms.JoinByCode(f.player("Poor", 4999), table.Code())
 	expectCode(t, err, game.CodeInsufficientChips)
 }
 
 func TestRoomsJoinByCodePrivateSkipsEntryCap(t *testing.T) {
 	f := newRoomsFixture(t, nil)
-	private := f.rooms.CreateTable(game.CreateTableOptions{IsPrivate: true, Category: f.cfg.EntryCapCategory})
+	private := f.createTable(game.CreateTableOptions{IsPrivate: true, Category: f.cfg.EntryCapCategory})
 	if private.BootAmount() != f.cfg.EntryCapBoot {
 		t.Skip("the private boot is not the capped boot in this config")
 	}
@@ -1516,7 +1516,7 @@ func TestRoomsJoinByCodeSeatedRefused(t *testing.T) {
 	f := newRoomsFixture(t, nil)
 	p := f.player("P", rmStart)
 	table := f.mustQuickJoin(p, 200, "seen")
-	other := f.rooms.CreateTable(game.CreateTableOptions{IsPrivate: true})
+	other := f.createTable(game.CreateTableOptions{IsPrivate: true})
 	_, err := f.rooms.JoinByCode(p, other.Code())
 	expectCode(t, err, game.CodeAlreadyInRoom)
 	if f.rooms.GetTableForPlayer(p.ID) != table {
@@ -1528,8 +1528,8 @@ func TestRoomsJoinByCodeSeatedRefused(t *testing.T) {
 
 func TestRoomsJoinRefusesASecondSeat(t *testing.T) {
 	f := newRoomsFixture(t, nil)
-	a := f.rooms.CreateTable(game.CreateTableOptions{})
-	b := f.rooms.CreateTable(game.CreateTableOptions{})
+	a := f.createTable(game.CreateTableOptions{})
+	b := f.createTable(game.CreateTableOptions{})
 	p := f.player("P", rmStart)
 	f.mustJoin(a, p)
 	expectCode(t, f.rooms.Join(b, p, ""), game.CodeAlreadyInRoom)
@@ -1544,7 +1544,7 @@ func TestRoomsJoinRefusesASecondSeat(t *testing.T) {
 
 func TestRoomsJoinRollsBackTheIndexWhenTheTableRefuses(t *testing.T) {
 	f := newRoomsFixture(t, nil)
-	table := f.rooms.CreateTable(game.CreateTableOptions{})
+	table := f.createTable(game.CreateTableOptions{})
 	p := f.player("P", rmStart)
 	// Seated behind the manager's back (no index entry): the Table refuses
 	// with already_seated and the reservation is rolled back.
@@ -1556,7 +1556,7 @@ func TestRoomsJoinRollsBackTheIndexWhenTheTableRefuses(t *testing.T) {
 		t.Fatal("the reservation was removed")
 	}
 	// A full table refuses too, and the index stays clean.
-	full := f.rooms.CreateTable(game.CreateTableOptions{})
+	full := f.createTable(game.CreateTableOptions{})
 	for i := 0; i < 5; i++ {
 		f.mustJoin(full, f.player("F", rmStart))
 	}
@@ -1569,7 +1569,7 @@ func TestRoomsJoinRollsBackTheIndexWhenTheTableRefuses(t *testing.T) {
 
 func TestRoomsJoinOnADestroyedTableIsRefused(t *testing.T) {
 	f := newRoomsFixture(t, nil)
-	table := f.rooms.CreateTable(game.CreateTableOptions{})
+	table := f.createTable(game.CreateTableOptions{})
 	if err := f.rooms.DestroyTable(table.ID()); err != nil {
 		t.Fatal(err)
 	}
@@ -1595,7 +1595,7 @@ func TestRoomsLeaveUnseatedIsANoOp(t *testing.T) {
 
 func TestRoomsLeaveReasonReachesTheWire(t *testing.T) {
 	f := newRoomsFixture(t, nil)
-	table := f.rooms.CreateTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"})
+	table := f.createTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"})
 	for i := 0; i < 3; i++ {
 		f.mustJoin(table, f.player("P", rmStart))
 	}
@@ -1653,7 +1653,7 @@ func TestRoomsLeaveDestroysAnEmptiedTable(t *testing.T) {
 
 func TestRoomsLeaveWithReasonMovedSkipsConsolidation(t *testing.T) {
 	f := newRoomsFixture(t, nil)
-	a := f.rooms.CreateTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"})
+	a := f.createTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"})
 	f.mustJoin(a, f.player("A1", rmStart))
 	f.mustJoin(a, f.player("A2", rmStart))
 	f.singleTable(rmBoot, game.CategoryBlind)
@@ -1672,8 +1672,8 @@ func TestRoomsLeaveWithReasonMovedSkipsConsolidation(t *testing.T) {
 
 func TestRoomsSweepEmptyTablesUsesTheThirtySecondAge(t *testing.T) {
 	f := newRoomsFixture(t, nil)
-	old := f.rooms.CreateTable(game.CreateTableOptions{})
-	occupiedOld := f.rooms.CreateTable(game.CreateTableOptions{})
+	old := f.createTable(game.CreateTableOptions{})
+	occupiedOld := f.createTable(game.CreateTableOptions{})
 	f.mustJoin(occupiedOld, f.player("P", rmStart))
 	f.clock.Advance(29 * time.Second)
 	if err := f.rooms.SweepEmptyTables(); err != nil {
@@ -1689,7 +1689,7 @@ func TestRoomsSweepEmptyTablesUsesTheThirtySecondAge(t *testing.T) {
 	if f.rooms.GetTable(old.ID()) == nil {
 		t.Fatal("exactly 30 s is not older than 30 s")
 	}
-	young := f.rooms.CreateTable(game.CreateTableOptions{})
+	young := f.createTable(game.CreateTableOptions{})
 	f.clock.Advance(time.Millisecond)
 	if err := f.rooms.SweepEmptyTables(); err != nil {
 		t.Fatal(err)
@@ -1708,7 +1708,7 @@ func TestRoomsSweeperRunsOnTheIntervalUntilShutdown(t *testing.T) {
 	f.rooms.StartSweeper()
 	f.rooms.StartSweeper() // safe to call twice
 
-	empty := f.rooms.CreateTable(game.CreateTableOptions{})
+	empty := f.createTable(game.CreateTableOptions{})
 	f.singleTable(rmBoot, game.CategoryBlind)
 	f.singleTable(rmBoot, game.CategoryBlind)
 
@@ -1743,7 +1743,7 @@ func TestRoomsSweeperRunsOnTheIntervalUntilShutdown(t *testing.T) {
 	if n := len(f.rooms.LiveTables()); n != 0 {
 		t.Fatalf("shutdown destroys everything: %d", n)
 	}
-	later := f.rooms.CreateTable(game.CreateTableOptions{})
+	later := f.createTable(game.CreateTableOptions{})
 	f.clock.Advance(10 * interval)
 	if f.rooms.GetTable(later.ID()) == nil {
 		t.Fatal("the sweeper is stopped")
@@ -1755,13 +1755,13 @@ func TestRoomsSweeperRunsOnTheIntervalUntilShutdown(t *testing.T) {
 
 func TestRoomsShutdownSettlesLiveHands(t *testing.T) {
 	f := newRoomsFixture(t, nil)
-	table := f.rooms.CreateTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"})
+	table := f.createTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"})
 	a, b := seatTwoAndDeal(t, f, table, rmStart)
 	if _, err := table.Act(turnUser(t, table), game.ActionChaal, game.ActRequest{}); err != nil {
 		t.Fatal(err)
 	}
 	pot := viewOf(t, table, "").Pot
-	idle := f.rooms.CreateTable(game.CreateTableOptions{})
+	idle := f.createTable(game.CreateTableOptions{})
 	if s := f.rooms.Stats(); s.Tables != 2 || s.Players != 2 || s.ActiveHands != 1 {
 		t.Fatalf("%+v", s)
 	}
@@ -1796,7 +1796,7 @@ func TestRoomsShutdownSettlesLiveHands(t *testing.T) {
 
 func TestRoomsShutdownHonoursAnExpiredContext(t *testing.T) {
 	f := newRoomsFixture(t, nil)
-	f.rooms.CreateTable(game.CreateTableOptions{})
+	f.createTable(game.CreateTableOptions{})
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	// Returns at once (either the destroys already finished, or ctx.Err());
@@ -1812,10 +1812,10 @@ func TestRoomsStats(t *testing.T) {
 	if s := f.rooms.Stats(); s != (game.Stats{}) {
 		t.Fatalf("%+v", s)
 	}
-	busy := f.rooms.CreateTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"})
+	busy := f.createTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"})
 	seatTwoAndDeal(t, f, busy, rmStart)
 	f.singleTable(rmBoot, game.CategorySeen)
-	f.rooms.CreateTable(game.CreateTableOptions{IsPrivate: true})
+	f.createTable(game.CreateTableOptions{IsPrivate: true})
 	if s := f.rooms.Stats(); s != (game.Stats{Tables: 3, Players: 3, ActiveHands: 1}) {
 		t.Fatalf("%+v", s)
 	}
@@ -1827,9 +1827,9 @@ func TestRoomsStats(t *testing.T) {
 
 func TestRoomsListTablesFiltersPrivateAndCategory(t *testing.T) {
 	f := newRoomsFixture(t, nil)
-	seen := f.rooms.CreateTable(game.CreateTableOptions{Category: "seen"})
-	blind := f.rooms.CreateTable(game.CreateTableOptions{Category: "blind"})
-	private := f.rooms.CreateTable(game.CreateTableOptions{IsPrivate: true, Category: "blind"})
+	seen := f.createTable(game.CreateTableOptions{Category: "seen"})
+	blind := f.createTable(game.CreateTableOptions{Category: "blind"})
+	private := f.createTable(game.CreateTableOptions{IsPrivate: true, Category: "blind"})
 	f.mustJoin(blind, f.player("P", rmStart))
 
 	all := f.rooms.ListTables(game.ListOptions{})
@@ -1856,7 +1856,7 @@ func TestRoomsRoomCodesAreUniqueEightCharactersAndUpperCase(t *testing.T) {
 	f := newRoomsFixture(t, nil)
 	seen := map[string]bool{}
 	for i := 0; i < 300; i++ {
-		code := f.rooms.CreateTable(game.CreateTableOptions{}).Code()
+		code := f.createTable(game.CreateTableOptions{}).Code()
 		if len(code) != 8 || strings.ToUpper(code) != code {
 			t.Fatalf("code %q", code)
 		}
@@ -1875,7 +1875,7 @@ func TestRoomsCreateTableIsTimedAndAnnounced(t *testing.T) {
 	f := newRoomsFixture(t, func(_ *config.GameConfig, o *game.RoomManagerOptions) {
 		o.Metrics = game.MetricsHooks{ObserveCreation: func(d time.Duration) { observed = append(observed, d) }}
 	})
-	table := f.rooms.CreateTable(game.CreateTableOptions{BootAmount: 5000, Category: "blind"})
+	table := f.createTable(game.CreateTableOptions{BootAmount: 5000, Category: "blind"})
 	if len(observed) != 1 {
 		t.Fatalf("observed %v", observed)
 	}
@@ -1897,7 +1897,7 @@ func TestRoomsCreateTableIsTimedAndAnnounced(t *testing.T) {
 
 func TestRoomsKickForInsufficientChipsLeavesAndReports(t *testing.T) {
 	f := newRoomsFixture(t, nil)
-	table := f.rooms.CreateTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"})
+	table := f.createTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"})
 	f.mustJoin(table, f.player("Funded", rmStart))
 	poor := f.player("Poor", rmBoot-1)
 	// Join does not check chips (Node's join did not either); the Table's
@@ -1920,7 +1920,7 @@ func TestRoomsKickForInsufficientChipsLeavesAndReports(t *testing.T) {
 
 func TestRoomsIdleKickAfterMissedTurns(t *testing.T) {
 	f := newRoomsFixture(t, func(g *config.GameConfig, _ *game.RoomManagerOptions) { g.MaxMissedTurns = 1 })
-	table := f.rooms.CreateTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"})
+	table := f.createTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"})
 	seatTwoAndDeal(t, f, table, rmStart)
 	idle := turnUser(t, table)
 
@@ -1943,7 +1943,7 @@ func TestRoomsKickIgnoresAPlayerWhoAlreadyLeft(t *testing.T) {
 	// A kick for a player the index no longer has (they left, or were kicked
 	// already) does nothing and reports nothing.
 	f := newRoomsFixture(t, nil)
-	table := f.rooms.CreateTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"})
+	table := f.createTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"})
 	f.mustJoin(table, f.player("Funded", rmStart))
 	poor := f.player("Poor", rmBoot-1)
 	f.mustJoin(table, poor)
@@ -1978,7 +1978,7 @@ func TestRoomsPersistErrorAndErrorAreLogged(t *testing.T) {
 			},
 		}
 	})
-	table := f.rooms.CreateTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"})
+	table := f.createTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"})
 	f.mustJoin(table, f.player("A", rmStart))
 	f.mustJoin(table, f.player("B", rmStart))
 	f.clock.Advance(f.cfg.NextHandDelay)
@@ -2010,7 +2010,7 @@ func TestRoomsSettlementAbandonedIsLoggedAsTableError(t *testing.T) {
 			Settle: func(game.SettleRequest, []game.SettleEntry) (map[string]int64, error) { return nil, refuse },
 		})
 	})
-	table := f.rooms.CreateTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"})
+	table := f.createTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"})
 	a, b := seatTwoAndDeal(t, f, table, rmStart)
 	if _, err := table.Act(turnUser(t, table), game.ActionPack, game.ActRequest{}); err != nil {
 		t.Fatal(err)
@@ -2050,7 +2050,7 @@ func TestRoomsConcurrentQuickJoinsNeverDoubleSeatOrOverfill(t *testing.T) {
 	const players = 50
 	var wg sync.WaitGroup
 	errs := make(chan error, players)
-	seatedAt := make([]*game.Table, players)
+	seatedAt := make([]game.Room, players)
 	for i := 0; i < players; i++ {
 		p := game.Player{ID: fmt.Sprintf("rush-%02d", i), DisplayName: "Rush", Chips: rmStart}
 		wg.Add(1)
@@ -2135,7 +2135,7 @@ func TestRoomsConcurrentJoinsOfOneAccountSeatItOnce(t *testing.T) {
 			case 1:
 				_, err = f.rooms.QuickJoin(p, game.QuickJoinOptions{BootAmount: 200, Category: "blind"})
 			default:
-				table := f.rooms.CreateTable(game.CreateTableOptions{IsPrivate: true})
+				table := f.createTable(game.CreateTableOptions{IsPrivate: true})
 				if err = f.rooms.Join(table, p, ""); err != nil {
 					_ = f.rooms.DestroyTable(table.ID())
 				}
@@ -2181,7 +2181,7 @@ func TestRoomsKickedPlayersLeaveWhileTablesAreBusy(t *testing.T) {
 		go func(i int) {
 			defer wg.Done()
 			// A distinct stake per table keeps consolidation out of the way.
-			table := f.rooms.CreateTable(game.CreateTableOptions{BootAmount: rmBoot + int64(i), Category: "blind"})
+			table := f.createTable(game.CreateTableOptions{BootAmount: rmBoot + int64(i), Category: "blind"})
 			// One funded player first, so the kick never empties the table
 			// (an emptied table is destroyed, as in Node). The poor player
 			// sits while the table is still waiting: the sweep on their own
@@ -2235,7 +2235,7 @@ func TestRoomsConcurrentLeaveAndConsolidationNeverStrandASeat(t *testing.T) {
 	for round := 0; round < 10; round++ {
 		var ids []string
 		for i := 0; i < 6; i++ {
-			table := f.rooms.CreateTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"})
+			table := f.createTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"})
 			p := game.Player{ID: fmt.Sprintf("lone-%d-%d", round, i), DisplayName: "Lone", Chips: rmStart}
 			f.mustJoin(table, p)
 			ids = append(ids, p.ID)

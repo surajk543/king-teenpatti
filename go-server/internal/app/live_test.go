@@ -15,6 +15,7 @@ import (
 	dto "github.com/prometheus/client_model/go"
 
 	"github.com/surajk543/king-teenpatti/go-server/internal/db/dbtest"
+	"github.com/surajk543/king-teenpatti/go-server/internal/game"
 	"github.com/surajk543/king-teenpatti/go-server/internal/livetest"
 	"github.com/surajk543/king-teenpatti/go-server/internal/socket"
 	"github.com/surajk543/king-teenpatti/go-server/internal/socket/testclient"
@@ -265,7 +266,7 @@ func TestRestartRestoresTablesAndHoldsSeats(t *testing.T) {
 // mustSnapshotOfApp reads a table's server-side snapshot as JSON.
 func mustSnapshotOfApp(t *testing.T, a *App, roomID string) json.RawMessage {
 	t.Helper()
-	table := a.Rooms().GetTable(roomID)
+	table := game.AsTable(a.Rooms().GetTable(roomID))
 	if table == nil {
 		t.Fatalf("table %s not registered", roomID)
 	}

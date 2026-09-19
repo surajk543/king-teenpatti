@@ -90,8 +90,8 @@ func withTimeout(t *testing.T, d time.Duration, what string, fn func()) {
 func TestReviewKickGoroutineMustNotFollowThePlayerToAnotherTable(t *testing.T) {
 	rm, rl, _ := newReviewRooms(t)
 
-	x := rm.CreateTable(CreateTableOptions{BootAmount: 200, Category: "blind"})
-	y := rm.CreateTable(CreateTableOptions{BootAmount: 5000, Category: "blind"})
+	x := AsTable(rm.CreateTable(CreateTableOptions{BootAmount: 200, Category: "blind"}))
+	y := AsTable(rm.CreateTable(CreateTableOptions{BootAmount: 5000, Category: "blind"}))
 	u := Player{ID: "u-kicked", DisplayName: "U", Chips: 1_000_000}
 	for _, p := range []struct {
 		t *Table
@@ -301,7 +301,7 @@ func TestReviewShutdownSettlesLiveHands(t *testing.T) {
 
 	tables := make([]*Table, 0, 5)
 	for i := 0; i < 5; i++ {
-		tb := rm.CreateTable(CreateTableOptions{BootAmount: 200, Category: "seen"})
+		tb := AsTable(rm.CreateTable(CreateTableOptions{BootAmount: 200, Category: "seen"}))
 		tables = append(tables, tb)
 		for _, id := range []string{"a", "b"} {
 			p := Player{ID: id + "-" + tb.ID(), DisplayName: id, Chips: 100_000}

@@ -1,14 +1,11 @@
 package game
 
 import (
-	"context"
-	"errors"
+	"encoding/json"
 	"fmt"
 	"math"
-	"runtime/debug"
 	"sort"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -80,11 +77,7 @@ const (
 	defaultChatMaxLength  = 140
 )
 
-// settleMaxAttempts is how often _retrySettle tries before giving up, loudly.
-const settleMaxAttempts = 10
-
-// settleRetryMaxDelay caps the settle back-off (Node: Math.min(30_000, …)).
-const settleRetryMaxDelay = 30 * time.Second
+// settleMaxAttempts and settleRetryMaxDelay live in actor.go with the Settler.
 
 // reservedActionIDSeparator is the character every server-generated
 // chip_ledger.action_id (BootActionID, SettleActionID, the users store's
@@ -328,41 +321,24 @@ type Table struct {
 	listener  Listener
 	createdAt time.Time
 
-	// live is the live-state store (nil → no-op), liveTTL the snapshot
-	// expiry, liveErrors the error hook — see TableOptions.
-	live        live.Store
-	liveTTL     time.Duration
-	liveErrors  func(op string, err error)
 	onHandStart func(d time.Duration)
 
-	// ctx is cancelled by Destroy; posts select on it so callers of a
-	// destroyed table get ErrTableDestroyed instead of blocking forever. It is
-	// also the ctx handed to the Ledger.
-	ctx    context.Context
-	cancel context.CancelFunc
-	posts  chan func()
+	// The family-neutral shell (actor.go), shared with every other room kind:
+	// the mailbox (ctx, posts, destroyed, fenced), the live-state side (live
+	// store, liveSeq, liveDirty, flush and fence) and the settle-retry chain.
+	// Their fields are promoted, so the rules engine reads t.destroyed,
+	// t.liveDirty and t.liveSeq exactly as it did when they were its own.
+	*Actor
+	*LiveState
+	*Settler
 
 	// Lock-free summaries maintained by the actor after every mutation.
 	playerCount atomic.Int32
 	hasHand     atomic.Bool
 	state       atomic.Value // TableState
 	version     atomic.Int64 // rises by one per committed ledger write
-	destroyed   atomic.Bool
-	// liveSeq is the sequence number of the last snapshot saved to the live
-	// store (restored from the snapshot; 0 for a table never saved).
-	liveSeq atomic.Int64
-	// fenced is set when the live store refused a save with live.ErrStale:
-	// another process owns this table. Every post but Destroy is refused
-	// (ErrTableDestroyed), and destroy neither settles nor deletes the
-	// store's copy — both belong to the owner now.
-	fenced atomic.Bool
 
 	// ---- actor-owned state: touch ONLY from closures run by loop ----
-	// liveDirty marks that observable state changed inside the running
-	// closure; run() saves one snapshot to the LIVE store when the closure
-	// ends. The live store is the ONLY place game state is kept — nothing
-	// about a table is ever written to PostgreSQL (LIVE_STATE_PLAN.md).
-	liveDirty  bool
 	seats      []*seat // len == cfg.MaxPlayers; nil = empty
 	handNo     int
 	hand       *hand
@@ -388,46 +364,7 @@ type Table struct {
 	// way startTimerGen does.
 	unfundedTimer    Timer
 	unfundedTimerGen uint64
-	// retryTimers are the armed settle back-offs (timer + the write it owes),
-	// so Destroy can stop them and hand the writes to settleDetached rather
-	// than lose them (Node let them fire into `_destroyed` checks and the
-	// pot was never banked).
-	retryTimers map[uint64]*settleRetry
-	retryGen    uint64
-	// detachedMu guards the bookkeeping of settlement chains still being
-	// retried after Destroy (settleDetached): detachedOpen is how many are
-	// running, detachedDone is broadcast when one finishes, landed/abandoned
-	// record the outcomes for WaitSettlements.
-	detachedMu   sync.Mutex
-	detachedDone *sync.Cond
-	detachedOpen int
-	landed       []string // hand ids settled after Destroy
-	abandoned    []string // hand ids given up after settleMaxAttempts
-	// settlementOwed is TableOptions.SettlementOwed (nil → nobody to tell).
-	settlementOwed func(req SettleRequest, owed bool)
-	view           *View // the single View handed to listeners
-}
-
-// settleRetry is one armed settlement back-off: the timer and the exact
-// write it will attempt when it fires. claimed (under detachedMu) records
-// that the retry has been counted as a detached chain — by destroy() or by
-// the timer's own callback, whichever reaches it first when the table goes
-// down with the write still owed — so it is counted exactly once.
-type settleRetry struct {
-	timer   Timer
-	req     SettleRequest
-	attempt int
-	claimed bool
-}
-
-// claimDetached counts a retry as an open detached chain, once.
-func (t *Table) claimDetached(entry *settleRetry) {
-	t.detachedMu.Lock()
-	if !entry.claimed {
-		entry.claimed = true
-		t.detachedOpen++
-	}
-	t.detachedMu.Unlock()
+	view             *View // the single View handed to listeners
 }
 
 // NewTable constructs the table and starts its actor goroutine. State is
@@ -436,7 +373,7 @@ func (t *Table) claimDetached(entry *settleRetry) {
 // store until the first mutation.
 func NewTable(opts TableOptions) *Table {
 	t := newTableCore(opts)
-	go t.loop()
+	go t.Loop()
 	return t
 }
 
@@ -488,11 +425,6 @@ func newTableCore(opts TableOptions) *Table {
 	if chatLength <= 0 {
 		chatLength = defaultChatMaxLength
 	}
-	liveTTL := opts.LiveTTL
-	if liveTTL <= 0 {
-		liveTTL = DefaultLiveTTL
-	}
-
 	t := &Table{
 		id:          opts.ID,
 		code:        opts.Code,
@@ -504,94 +436,46 @@ func newTableCore(opts TableOptions) *Table {
 		clock:       clock,
 		listener:    listener,
 		createdAt:   clock.Now(),
-		live:        opts.Live,
-		liveTTL:     liveTTL,
-		liveErrors:  opts.LiveErrors,
 		onHandStart: opts.ObserveHandStart,
-		posts:       make(chan func()),
 		seats:       make([]*seat, cfg.MaxPlayers),
 		dealerSeat:  -1,
 		chat:        NewRoomChat(chatHistory, chatLength, clock),
-		retryTimers: map[uint64]*settleRetry{},
-
-		settlementOwed: opts.SettlementOwed,
 	}
-	t.ctx, t.cancel = context.WithCancel(context.Background())
-	t.detachedDone = sync.NewCond(&t.detachedMu)
+	t.Actor = NewActor(opts.ID, t.flushLive)
+	t.LiveState = NewLiveState(opts.ID, opts.Live, opts.LiveTTL, opts.LiveErrors, t.Actor, LiveHooks{
+		Snapshot: func(seq int64) ([]byte, error) {
+			snap := t.snapshot()
+			snap.Seq = seq
+			return json.Marshal(snap)
+		},
+		Fenced: t.onFenced,
+		Failed: func(reason string, err error) {
+			t.listener.OnPersistError(t.view, PersistErrorEvent{Reason: reason, Err: err})
+		},
+	})
+	t.Settler = NewSettler(ledger, clock, t.Actor, cfg.NextHandDelay, &t.version, opts.SettlementOwed, SettlerHooks{
+		Landed:      t.onSettleLanded,
+		RetryFailed: t.onSettleRetryFailed,
+		Abandoned:   t.onSettleAbandoned,
+	})
 	t.state.Store(TableWaiting)
 	t.view = &View{t: t}
 	return t
 }
 
-// run posts fn to the actor and waits for it to finish. Returns
+// run posts fn to the actor and waits for it to finish (Actor.Run). Returns
 // ErrTableDestroyed (without running fn) once the table is destroyed — or
 // fenced (Fenced): a table another process owns accepts nothing but Destroy.
 // NEVER call from inside a closure already running on the actor (deadlock).
-//
-// A panic inside fn is recovered on the actor and handed back to the poster
-// as an internal_error GameError, so a programming error in one move rejects
-// that move (as Node's promise rejection did) instead of taking the whole
-// process down with it. The actor keeps running.
 //
 // When fn is done the actor saves one Snapshot to the live store if the
 // closure changed observable state (flushLive) — after the Listener has seen
 // every event, so the store is never ahead of the clients, and once per
 // posted closure however many state events it emitted.
-func (t *Table) run(fn func()) error { return t.post(fn, false) }
+func (t *Table) run(fn func()) error { return t.Actor.Run(fn) }
 
-// post is run; force lets Destroy through the fence.
-func (t *Table) post(fn func(), force bool) error {
-	if t.destroyed.Load() || (!force && t.fenced.Load()) {
-		return ErrTableDestroyed
-	}
-	done := make(chan struct{})
-	var failure error
-	job := func() {
-		defer close(done)
-		defer t.flushLive()
-		defer func() {
-			if r := recover(); r != nil {
-				failure = &GameError{
-					Code:    CodeInternalError,
-					Message: fmt.Sprintf("table %s: %v", t.id, r),
-					Cause:   &actorPanic{value: r, stack: debug.Stack()},
-				}
-			}
-		}()
-		fn()
-	}
-	// Blocked senders on an unbuffered channel are served first-in first-out,
-	// which is exactly Node's `_queue` ordering.
-	select {
-	case t.posts <- job:
-	case <-t.ctx.Done():
-		return ErrTableDestroyed
-	}
-	<-done
-	return failure
-}
-
-// actorPanic is the Cause of the internal_error a recovered panic becomes.
-type actorPanic struct {
-	value any
-	stack []byte
-}
-
-func (p *actorPanic) Error() string { return fmt.Sprintf("panic: %v\n%s", p.value, p.stack) }
-
-// loop is the actor goroutine: executes posted closures one at a time until
-// destroy() has run, then drains/cancels so blocked posters wake with
-// ErrTableDestroyed.
-func (t *Table) loop() {
-	for job := range t.posts {
-		job()
-		if t.destroyed.Load() {
-			// destroy() cancelled ctx before returning; every poster still
-			// waiting in run()'s select wakes up with ErrTableDestroyed.
-			return
-		}
-	}
-}
+// post is run; force lets Destroy through the fence (Actor.Post).
+func (t *Table) post(fn func(), force bool) error { return t.Actor.Post(fn, force) }
 
 // Settled posts a no-op and waits: every mutation queued before it has
 // finished. For tests (Node: `await table.settled()` after an indirect
@@ -606,14 +490,20 @@ func (t *Table) ID() string { return t.id }
 // Code is the 6-letter join code.
 func (t *Table) Code() string { return t.code }
 
-// Category is blind or seen.
+// Category is blind, seen or variation.
 func (t *Table) Category() Category { return t.cfg.Category }
+
+// Game is GameTeenPatti: every *Table is a Teen Patti table (Room).
+func (t *Table) Game() Game { return GameTeenPatti }
 
 // IsPrivate: reached by code only, boot fixed, pot capped (requirement 22).
 func (t *Table) IsPrivate() bool { return t.isPrivate }
 
 // Config returns the (immutable) table configuration.
 func (t *Table) Config() TableConfig { return t.cfg }
+
+// MaxPlayers is cfg.MaxPlayers (Room).
+func (t *Table) MaxPlayers() int { return t.cfg.MaxPlayers }
 
 // BootAmount is cfg.BootAmount (used by lobby matching and metrics labels).
 func (t *Table) BootAmount() int64 { return t.cfg.BootAmount }
@@ -649,25 +539,11 @@ func (t *Table) State() TableState {
 // per-table sequence is LiveSeq.
 func (t *Table) Version() int64 { return t.version.Load() }
 
-// LiveSeq is the sequence number of the last Snapshot the actor offered to
-// the live store (0 before the first; restored tables continue from the
-// stored value). Every attempt takes a number, landed or not, so the durable
-// writer's version guard stays monotonic; gaps are harmless.
-func (t *Table) LiveSeq() int64 { return t.liveSeq.Load() }
-
 // SaveLive posts a save of the current snapshot to the live store (and the
 // durable sink) whether or not anything changed — RoomManager.ReconcileLive
 // uses it to refill a store that came back empty. ErrTableDestroyed once the
 // table is gone.
 func (t *Table) SaveLive() error { return t.run(func() { t.liveDirty = true }) }
-
-// Fenced reports that the live store refused a save with live.ErrStale —
-// another process owns this table — so every post but Destroy is refused
-// with ErrTableDestroyed. RoomManager destroys a fenced table.
-func (t *Table) Fenced() bool { return t.fenced.Load() }
-
-// Destroyed reports whether Destroy has completed.
-func (t *Table) Destroyed() bool { return t.destroyed.Load() }
 
 // ------------------------------------------------------------- posting reads
 
@@ -677,6 +553,16 @@ func (t *Table) SerializeFor(viewerID string) (*TableView, error) {
 	var view *TableView
 	err := t.run(func() { view = t.serializeFor(viewerID) })
 	return view, err
+}
+
+// ViewFor is SerializeFor as the Room interface spells it: the same
+// *TableView, typed as `any` for a socket layer that serves every family.
+func (t *Table) ViewFor(viewerID string) (any, error) {
+	view, err := t.SerializeFor(viewerID)
+	if err != nil {
+		return nil, err
+	}
+	return view, nil
 }
 
 // Summary posts a read and returns the lobby row.
@@ -2103,7 +1989,7 @@ func (t *Table) checkpoint(entry *contribution, reason string, actionID string, 
 			LeftMidHand: entry.leftMidHand,
 		},
 	}
-	if _, err := t.ledger.Checkpoint(t.ctx, req); err != nil {
+	if _, err := t.ledger.Checkpoint(t.Context(), req); err != nil {
 		t.listener.OnPersistError(t.view, PersistErrorEvent{UserID: entry.userID, Delta: delta, Reason: reason, HandID: t.hand.id, Err: err})
 		return
 	}
@@ -2536,7 +2422,7 @@ func (t *Table) forceSideshow(s *seat, actionID string) (ActResult, error) {
 	}
 	target := t.seats[t.rightActiveSeat(s.seatIndex)]
 
-	spend, err := t.hammers.SpendHammer(t.ctx, HammerSpend{
+	spend, err := t.hammers.SpendHammer(t.Context(), HammerSpend{
 		RoomID:   t.id,
 		HandID:   t.hand.id,
 		UserID:   s.userID,
@@ -2660,7 +2546,7 @@ func (t *Table) fireMissile(s *seat, actionID string) (ActResult, error) {
 		return ActResult{}, &GameError{Code: CodeDuplicateAction, Message: MsgDuplicateAction}
 	}
 
-	spend, err := t.missiles.SpendMissile(t.ctx, MissileSpend{
+	spend, err := t.missiles.SpendMissile(t.Context(), MissileSpend{
 		RoomID:   t.id,
 		HandID:   t.hand.id,
 		UserID:   s.userID,
@@ -3046,7 +2932,7 @@ func (t *Table) endHand(winnerID *string, reason WinReason, reveals []Reveal) {
 	// the winner's seat and every stack is final. The write only makes the
 	// wallets agree.
 	settleReq := SettleRequest{RoomID: t.id, HandID: h.id, Entries: entries}
-	_, err := t.ledger.Settle(t.ctx, settleReq)
+	_, err := t.ledger.Settle(t.Context(), settleReq)
 	if err != nil {
 		t.listener.OnPersistError(t.view, PersistErrorEvent{Reason: "settle", HandID: h.id, Err: err})
 		// Keep trying — the write is idempotent (per-player action ids), so a
@@ -3059,8 +2945,8 @@ func (t *Table) endHand(winnerID *string, reason WinReason, reveals []Reveal) {
 		// writes nothing — and ask for that wallet in the lobby. So the write
 		// is reported owed here, on the actor, before any RemovePlayer queued
 		// behind this closure can run.
-		t.owe(settleReq, true)
-		t.retrySettle(settleReq, 1)
+		t.Settler.Owe(settleReq, true)
+		t.Settler.Retry(settleReq, 1)
 	} else {
 		t.version.Add(1)
 		for _, entry := range contributors {
@@ -3110,187 +2996,32 @@ func (t *Table) endHand(winnerID *string, reason WinReason, reveals []Reveal) {
 	t.maybeStart()
 }
 
-// retrySettle (_retrySettle): if destroyed return. attempt > 10 → emit error
-// (OnError) with "settlement of hand <id> failed after 10 attempts". delay =
-// min(30s, NextHandDelay × attempt). AfterFunc(delay) → run(): Settle again;
-// on success version++, adopt balances ONLY onto seats that are not active
-// (a live stake is in play), emit state; on error emit
-// persistError{settle_retry, attempt} and retrySettle(attempt+1). Unlike
-// Node, the retry body runs ON the actor (Node ran it outside the queue and
-// mutated seats concurrently — a bug the port does not copy).
-//
-// DECISIONS.md §2: a retry refused with duplicate_action means the write
-// already landed (the per-player settle action ids are UNIQUE), so it counts
-// as success and the chain stops.
-//
-// A retry the table no longer owns — Destroy ran first, or ran while the
-// timer's callback was already on its way to the actor — is not dropped: the
-// losers' stakes are already banked and the winner is still owed the pot, so
-// the write continues off the actor in settleDetached (Node's `if
-// (this._destroyed) return` silently orphaned the pot).
-func (t *Table) retrySettle(req SettleRequest, attempt int) {
-	if t.destroyed.Load() {
-		t.settleDetached(req, attempt)
-		return
-	}
-	if attempt > settleMaxAttempts {
-		// Given up: nothing will write this hand now, so the wallets as they
-		// stand are the last word and nobody need wait for them any longer.
-		t.owe(req, false)
-		t.listener.OnError(t.view, fmt.Errorf("settlement of hand %s failed after %d attempts", req.HandID, settleMaxAttempts))
-		return
-	}
+// The Settler's hooks (actor.go): what a retry that landed, failed or was
+// abandoned does to THIS table, on the actor. Node's _retrySettle ran the
+// retry body outside its queue and mutated seats concurrently — a bug the
+// port does not copy.
 
-	t.retryGen++
-	gen := t.retryGen
-	entry := &settleRetry{req: req, attempt: attempt}
-	t.retryTimers[gen] = entry
-	entry.timer = t.clock.AfterFunc(t.settleRetryDelay(attempt), func() {
-		err := t.run(func() {
-			delete(t.retryTimers, gen)
-			balances, err := t.ledger.Settle(t.ctx, req)
-			if err != nil && CodeOf(err, "") != CodeDuplicateAction {
-				t.listener.OnPersistError(t.view, PersistErrorEvent{Reason: "settle_retry", HandID: req.HandID, Attempt: attempt, Err: err})
-				t.retrySettle(req, attempt+1)
-				return
-			}
-			t.owe(req, false) // landed: first, so nothing below can skip it
-			t.version.Add(1)
-			for userID, balance := range balances {
-				s := t.findSeat(userID)
-				// Only correct a seat that is not mid-hand; a live stake is in play.
-				if s != nil && s.status != SeatActive {
-					s.chips = balance
-				}
-			}
-			t.emitState()
-		})
-		if errors.Is(err, ErrTableDestroyed) {
-			// The timer fired in the same instant destroy() was tearing the
-			// table down: Stop() reported "already fired" to destroy, so the
-			// chain is ours to run. Whichever of us got to the entry first
-			// counted it (claimDetached); it is counted once either way.
-			t.claimDetached(entry)
-			t.settleDetachedFrom(req, attempt)
+// onSettleLanded adopts the balances a landed retry returned ONLY onto seats
+// that are not active (a live stake is in play), then emits state.
+func (t *Table) onSettleLanded(req SettleRequest, balances SettleResult) {
+	for userID, balance := range balances {
+		s := t.findSeat(userID)
+		// Only correct a seat that is not mid-hand; a live stake is in play.
+		if s != nil && s.status != SeatActive {
+			s.chips = balance
 		}
-	})
-}
-
-// owe reports a refused settlement to TableOptions.SettlementOwed: owed as its
-// retries begin (endHand), !owed when they end. Every chain is reported once
-// each way, because it begins in exactly one place and ends at exactly one of
-// three: a retry that landed on the actor, the attempt cap reached on the
-// actor, or finishDetached for a chain that outlived its table. A chain the
-// timer's callback and Destroy both reach is still one chain (claimDetached).
-func (t *Table) owe(req SettleRequest, owed bool) {
-	if t.settlementOwed != nil {
-		t.settlementOwed(req, owed)
 	}
+	t.emitState()
 }
 
-// settleRetryDelay is min(30s, NextHandDelay × attempt) — Node's back-off.
-func (t *Table) settleRetryDelay(attempt int) time.Duration {
-	delay := t.cfg.NextHandDelay * time.Duration(attempt)
-	if delay > settleRetryMaxDelay || delay < 0 {
-		delay = settleRetryMaxDelay
-	}
-	return delay
+// onSettleRetryFailed reports attempt n's failure (persistError settle_retry).
+func (t *Table) onSettleRetryFailed(req SettleRequest, attempt int, err error) {
+	t.listener.OnPersistError(t.view, PersistErrorEvent{Reason: "settle_retry", HandID: req.HandID, Attempt: attempt, Err: err})
 }
 
-// settleDetached keeps retrying a settlement whose table has been destroyed
-// (Go addition; see retrySettle). It runs entirely off the actor: there are
-// no seats to correct, no state to broadcast and — Destroy's contract — no
-// Listener event is ever delivered again; the outcome is reported to whoever
-// calls WaitSettlements instead. Only the idempotent write itself remains,
-// with the same back-off, attempt numbering and cap as retrySettle, and a
-// context that outlives the table's. A landed write still counts in Version.
-func (t *Table) settleDetached(req SettleRequest, attempt int) {
-	t.detachedMu.Lock()
-	t.detachedOpen++
-	t.detachedMu.Unlock()
-	t.settleDetachedFrom(req, attempt)
-}
-
-// settleDetachedFrom is one link of a settleDetached chain; the chain was
-// counted in detachedOpen once, by whoever started it, and is released here
-// when it lands or is abandoned.
-func (t *Table) settleDetachedFrom(req SettleRequest, attempt int) {
-	if attempt > settleMaxAttempts {
-		t.finishDetached(req, false)
-		return
-	}
-	t.clock.AfterFunc(t.settleRetryDelay(attempt), func() {
-		_, err := t.ledger.Settle(context.WithoutCancel(t.ctx), req)
-		if err != nil && CodeOf(err, "") != CodeDuplicateAction {
-			t.settleDetachedFrom(req, attempt+1)
-			return
-		}
-		t.version.Add(1)
-		t.finishDetached(req, true)
-	})
-}
-
-// finishDetached ends a chain: the settlement stops being owed, its outcome
-// is recorded, and WaitSettlements wakes. The owed mark goes first, so whoever
-// has seen WaitSettlements return also finds the wallets final.
-func (t *Table) finishDetached(req SettleRequest, landed bool) {
-	t.owe(req, false)
-	t.detachedMu.Lock()
-	if landed {
-		t.landed = append(t.landed, req.HandID)
-	} else {
-		t.abandoned = append(t.abandoned, req.HandID)
-	}
-	t.detachedOpen--
-	t.detachedDone.Broadcast()
-	t.detachedMu.Unlock()
-}
-
-// PendingSettlements reports how many settlements are still being retried
-// off the actor after Destroy (0 before Destroy, and 0 once every one has
-// landed or been abandoned).
-func (t *Table) PendingSettlements() int {
-	t.detachedMu.Lock()
-	defer t.detachedMu.Unlock()
-	return t.detachedOpen
-}
-
-// WaitSettlements blocks until every settlement still being retried after
-// Destroy has landed or been abandoned, or ctx expires (ctx.Err()). It then
-// reports the hands whose settlement was abandoned after settleMaxAttempts as
-// an error naming them, or nil when everything landed. Before Destroy it
-// returns at once. RoomManager.Shutdown calls it so a process does not exit
-// with a winner's pot still unbanked while the database is merely slow;
-// RoomManager.destroyTable logs its result.
-func (t *Table) WaitSettlements(ctx context.Context) error {
-	done := make(chan struct{})
-	go func() {
-		t.detachedMu.Lock()
-		for t.detachedOpen > 0 {
-			t.detachedDone.Wait()
-		}
-		t.detachedMu.Unlock()
-		close(done)
-	}()
-	select {
-	case <-done:
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-	t.detachedMu.Lock()
-	defer t.detachedMu.Unlock()
-	if len(t.abandoned) == 0 {
-		return nil
-	}
-	return fmt.Errorf("settlement of hand(s) %s abandoned after %d attempts each", strings.Join(t.abandoned, ", "), settleMaxAttempts)
-}
-
-// SettlementsLanded returns the hand ids whose settlement landed only after
-// Destroy (for logs and tests).
-func (t *Table) SettlementsLanded() []string {
-	t.detachedMu.Lock()
-	defer t.detachedMu.Unlock()
-	return append([]string(nil), t.landed...)
+// onSettleAbandoned reports the chain given up after settleMaxAttempts (OnError).
+func (t *Table) onSettleAbandoned(req SettleRequest, err error) {
+	t.listener.OnError(t.view, err)
 }
 
 // destroy (_destroy) — see Destroy.
@@ -3307,7 +3038,7 @@ func (t *Table) destroy() {
 		t.endHand(winnerID, WinAllLeft, []Reveal{})
 	}
 
-	t.destroyed.Store(true)
+	t.MarkDestroyed()
 	t.clearTurnTimer()
 	t.clearStartTimer()
 	t.clearUnfundedTimer()
@@ -3320,21 +3051,9 @@ func (t *Table) destroy() {
 	// The same for a variation window's clock (endHand stops it otherwise).
 	t.stopVariationTimer()
 	// A settlement the database has not accepted yet is still owed whatever
-	// happens to the table: every stopped retry continues off the actor. A
-	// timer that had already fired is left to its own callback, which finds
-	// the table destroyed and does the same.
-	for gen, entry := range t.retryTimers {
-		delete(t.retryTimers, gen)
-		stopped := entry.timer.Stop()
-		// Counted here, before Destroy returns, so a WaitSettlements that
-		// starts the moment it does cannot miss the chain — even one whose
-		// timer had already fired and whose callback is on its way to run()
-		// to be told ErrTableDestroyed; that callback then runs the chain.
-		t.claimDetached(entry)
-		if stopped {
-			t.settleDetachedFrom(entry.req, entry.attempt)
-		}
-	}
+	// happens to the table: every stopped retry continues off the actor
+	// (Settler.Detach).
+	t.Settler.Detach()
 	// The room is gone, and so is its chat: history exists only for as long as
 	// the room does. The live store's copy goes with it — unless another
 	// process owns the table, in which case the copy is theirs.
@@ -3343,7 +3062,7 @@ func (t *Table) destroy() {
 		t.liveDelete()
 	}
 	t.liveDirty = false
-	t.cancel()
+	t.Cancel()
 }
 
 // ------------------------------------------------------------ snapshots

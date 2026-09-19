@@ -94,7 +94,7 @@ func (l *flakyLedger) Settle(_ context.Context, req game.SettleRequest) (game.Se
 // owed. Returns the table, the hand id and the winner.
 func endHandWithTheDatabaseDown(t *testing.T, f *roomsFixture, ledger *flakyLedger) (*game.Table, string, string, string) {
 	t.Helper()
-	table := f.rooms.CreateTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "seen"})
+	table := f.createTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "seen"})
 	a, b := seatTwoAndDeal(t, f, table, rmStart)
 	if viewOf(t, table, a.ID).State != game.TableBetting {
 		t.Fatal("expected a live betting hand")

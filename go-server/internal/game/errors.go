@@ -86,6 +86,10 @@ const (
 	CodeTableFull         = "table_full"
 	CodeTableNotOffered   = "table_not_offered" // category:boot pair not on LobbyTables
 	CodeUnknownAction     = "unknown_action"
+	// CodeWrongGame: a Teen Patti event (game:action, game:sideshowRespond,
+	// game:selectVariation, player:requestCards) sent at a poker room, or a
+	// poker:* event sent at a Teen Patti table. Go only (POKER_PLAN.md §7).
+	CodeWrongGame = "wrong_game"
 
 	// Moves (table.js)
 	CodeAlreadySeen     = "already_seen"
@@ -199,6 +203,7 @@ const (
 	// the show's own.
 	MsgMissileNeedsShowChips = "You need enough chips for a show to fire a missile" // Go only
 	MsgUnknownActionFormat   = "Unknown action \"%s\""
+	MsgWrongGame             = "That move belongs to a different game" // Go only
 
 	// Variation window (Go only).
 	MsgNoVariation              = "This table does not play variations"

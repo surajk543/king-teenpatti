@@ -97,6 +97,7 @@ var KnownErrorCodes = map[string]struct{}{
 	"already_in_room": {}, "already_seated": {}, "insufficient_chips": {}, "invalid_stake": {},
 	"no_other_table": {}, "not_in_room": {}, "not_seated": {}, "over_entry_cap": {}, "private_table": {},
 	"invalid_room_code": {}, "room_not_found": {}, "table_full": {}, "table_not_offered": {}, "unknown_action": {},
+	"wrong_game": {},
 	// moves
 	"already_seen": {}, "duplicate_action": {}, "invalid_bet": {}, "no_hand": {}, "not_in_hand": {},
 	"not_your_turn": {}, "persist_failed": {}, "show_unavailable": {},

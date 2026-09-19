@@ -27,8 +27,13 @@ func TestMigrationsAreVersionedOrderedAndSplitByKind(t *testing.T) {
 	// currency, for another fresh production start (DEPLOY.md §8), and so, after
 	// production had run the pair, were V1.0.2__timed_bonus_milestone.sql (into
 	// the baseline) and V1.0.3__seed_new_pictures.sql (into the seed).
-	if len(migrations) != 2 {
-		t.Fatalf("expected one DDL script and one DML script, got %d", len(migrations))
+	// V1.0.2__chip_ledger_game.sql (owner, 19 Sep 2026) is the first script
+	// written AFTER production ran the pair, and so the first that must reach
+	// an existing database: two ADD COLUMN IF NOT EXISTS on chip_ledger, which
+	// the baseline's CREATE TABLE IF NOT EXISTS could never add (POKER_PLAN.md
+	// §6).
+	if len(migrations) != 3 {
+		t.Fatalf("expected one DDL script, one DML script and the chip_ledger game columns, got %d", len(migrations))
 	}
 
 	for i, m := range migrations {
@@ -47,7 +52,29 @@ func TestMigrationsAreVersionedOrderedAndSplitByKind(t *testing.T) {
 	// SQL in their comments — the baseline documents the manual
 	// `ALTER TABLE users DISABLE TRIGGER` a superuser needs to delete a row —
 	// and a test that reads prose as code fails on documentation.
-	baseline, seed := statementsOf(migrations[0].SQL), statementsOf(migrations[1].SQL)
+	baseline, seed, columns := statementsOf(migrations[0].SQL), statementsOf(migrations[1].SQL), statementsOf(migrations[2].SQL)
+	// The third script adds two columns to a table the baseline already
+	// built, idempotently, and does nothing else.
+	for _, want := range []string{
+		"EXECUTE 'ALTER TABLE chip_ledger ADD COLUMN game TEXT'",
+		"EXECUTE 'ALTER TABLE chip_ledger ADD COLUMN variant TEXT'",
+		"column_name = 'game'", "column_name = 'variant'",
+	} {
+		if !strings.Contains(columns, want) {
+			t.Errorf("%s lacks %q", migrations[2].File, want)
+		}
+	}
+	// Guarded by a catalogue lookup, never `ADD COLUMN IF NOT EXISTS`: that
+	// form takes ACCESS EXCLUSIVE even when it does nothing, and a restart
+	// would queue behind any reader (TestABootSurvivesALongReaderHoldingTheTables).
+	if strings.Contains(columns, "IF NOT EXISTS game") || strings.Contains(columns, "IF NOT EXISTS variant") {
+		t.Errorf("%s must guard its ALTERs with a catalogue lookup, not ADD COLUMN IF NOT EXISTS", migrations[2].File)
+	}
+	for _, forbidden := range []string{"CREATE TABLE", "INSERT INTO", "DROP"} {
+		if strings.Contains(columns, forbidden) {
+			t.Errorf("%s must only add the two columns, found %s", migrations[2].File, forbidden)
+		}
+	}
 	if !strings.Contains(baseline, "CREATE TABLE IF NOT EXISTS users") {
 		t.Error("the baseline does not create users")
 	}

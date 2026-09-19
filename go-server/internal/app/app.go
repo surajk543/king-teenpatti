@@ -839,13 +839,10 @@ type RoomsResponse struct {
 func (a *App) roomsHandler(w http.ResponseWriter, r *http.Request) {
 	var category game.Category
 	if values := r.URL.Query()["category"]; len(values) == 1 {
-		switch values[0] {
-		case string(game.CategoryBlind):
-			category = game.CategoryBlind
-		case string(game.CategorySeen):
-			category = game.CategorySeen
-		case string(game.CategoryVariation):
-			category = game.CategoryVariation
+		// Exact spellings only — the seven the server knows (the four poker
+		// categories since 19 Sep 2026); anything else is no filter.
+		if c := game.Category(values[0]); c.Known() {
+			category = c
 		}
 	}
 	tables := a.rooms.ListTables(game.ListOptions{Category: category})

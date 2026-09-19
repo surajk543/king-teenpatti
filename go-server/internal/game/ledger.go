@@ -111,8 +111,16 @@ type SettleEntry struct {
 	// LeftMidHand drives hands_left_mid, and excludes the row from hands_lost.
 	LeftMidHand bool
 	// Pot is the hand's pot, used for total_winnings/biggest_pot when
-	// IsWinner.
+	// IsWinner. With several winners (a poker split or side pot) it is THIS
+	// winner's share: the database counts per entry, so each winning entry
+	// carries what its player took.
 	Pot int64
+	// Game and Variant name the family and variant the row was written by
+	// (chip_ledger.game / .variant, V1.0.2): "" for a Teen Patti table, whose
+	// rows are byte for byte what they were; GamePoker and the poker category
+	// for a poker room (POKER_PLAN.md §6).
+	Game    Game
+	Variant Category
 }
 
 // CheckpointRequest is one player's pack or leave checkpoint.

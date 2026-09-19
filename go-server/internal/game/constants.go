@@ -22,26 +22,84 @@ package game
 // stack is public; on a blind table only your own is. SerializeFor enforces it
 // by sending other seats' chips as null with chipsHidden:true.
 //
-// CategoryVariation (Go only; owner, 18 Sep 2026) is the one category that
-// does change the game: every hand opens with a window in which the player to
-// act first chooses the rules it is decided by (table_variation.go,
-// variation.go). Everything else about it is a seen table's — open stacks, the
-// same capped ladder — so a category is still one of a CLOSED set of three and
-// anything unrecognised is still seen (NormalizeCategory, NewTable).
+// CategoryVariation (Go only; owner, 18 Sep 2026) is the one Teen Patti
+// category that does change the game: every hand opens with a window in which
+// the player to act first chooses the rules it is decided by
+// (table_variation.go, variation.go). Everything else about it is a seen
+// table's — the same capped ladder — with a blind table's secrecy.
+//
+// The four POKER categories (Go only; owner, 19 Sep 2026 — POKER_PLAN.md) name
+// a different game family altogether: a table of one of them is not a
+// *Table at all but a poker room (internal/poker), built through
+// RoomManagerOptions.Factories. The category is still the ONE routing key —
+// lobby menu, matchmaking bucket, resume offer, room ack — and Game() says
+// which family it belongs to. The set stays CLOSED: seven values, and anything
+// unrecognised is still seen (NormalizeCategory, NewTable).
 type Category string
 
 const (
 	CategoryBlind     Category = "blind"
 	CategorySeen      Category = "seen"
 	CategoryVariation Category = "variation"
+
+	// The Poker family. Wire values are the lower-case names a LOBBY_TABLES
+	// entry, a room:quickJoin payload and a metrics label all carry.
+	CategoryThreeCardPoker Category = "three_card_poker"
+	CategoryFiveCardDraw   Category = "five_card_draw"
+	CategoryTexasHoldem    Category = "texas_holdem"
+	CategoryOmaha          Category = "omaha"
 )
+
+// Game is a game FAMILY: which rules engine a category's tables run on.
+type Game string
+
+const (
+	// GameTeenPatti is every table *Table implements: seen, blind, variation.
+	// It is the absent value on the wire and in the live store — a Teen Patti
+	// snapshot carries no `game` key, so it is byte for byte what it was before
+	// poker existed.
+	GameTeenPatti Game = "teen_patti"
+	// GamePoker is the poker family (internal/poker): 3-Card Poker, 5-Card
+	// Draw, Texas Hold'em and Omaha.
+	GamePoker Game = "poker"
+)
+
+// Game is the family this category's tables belong to.
+func (c Category) Game() Game {
+	if c.IsPoker() {
+		return GamePoker
+	}
+	return GameTeenPatti
+}
+
+// IsPoker reports whether this is one of the four poker categories.
+func (c Category) IsPoker() bool {
+	switch c {
+	case CategoryThreeCardPoker, CategoryFiveCardDraw, CategoryTexasHoldem, CategoryOmaha:
+		return true
+	}
+	return false
+}
+
+// PokerCategories lists the poker family in the order the lobby shows it.
+var PokerCategories = []Category{CategoryThreeCardPoker, CategoryFiveCardDraw, CategoryTexasHoldem, CategoryOmaha}
+
+// Known reports whether c is one of the seven categories the server knows.
+func (c Category) Known() bool {
+	switch c {
+	case CategoryBlind, CategorySeen, CategoryVariation:
+		return true
+	}
+	return c.IsPoker()
+}
 
 // HidesChips reports whether other players' stacks are withheld from a viewer:
 // on a blind table, and on a variation one (owner, 18 Sep 2026 — "keep the same
 // thing as blind table that no one can see other player amount"). A variation
 // table takes its BETTING from the seen table (the two-rung ladder, the rounds,
 // a pot cap) and its SECRECY from the blind one; only a seen table shows every
-// stack.
+// stack. Every poker table shows every stack: a stack is public information in
+// poker, and the pot maths (all-ins, side pots) depend on everyone seeing it.
 func (c Category) HidesChips() bool { return c == CategoryBlind || c == CategoryVariation }
 
 // HasVariation reports whether a hand at this table opens with the variation

@@ -14,6 +14,7 @@ import (
 
 	"github.com/surajk543/king-teenpatti/go-server/internal/config"
 	"github.com/surajk543/king-teenpatti/go-server/internal/db"
+	"github.com/surajk543/king-teenpatti/go-server/internal/game"
 	"github.com/surajk543/king-teenpatti/go-server/internal/socket"
 	"github.com/surajk543/king-teenpatti/go-server/internal/socket/testclient"
 )
@@ -191,7 +192,7 @@ func TestAMissileFiredThroughTheSocketIsChargedToPostgreSQLAndSettlesTheHand(t *
 	}, 6*time.Second); err != nil {
 		t.Fatalf("no three-player hand: %v", err)
 	}
-	table := a.Rooms().GetTableForPlayer(players[0].id)
+	table := game.AsTable(a.Rooms().GetTableForPlayer(players[0].id))
 	view, err := table.SerializeFor(players[0].id)
 	if err != nil || view.Turn == nil || view.Turn.UserID == nil {
 		t.Fatalf("no turn: %v %+v", err, view)

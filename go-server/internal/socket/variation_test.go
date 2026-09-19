@@ -80,7 +80,7 @@ func (st *stack) variationTable(n int) *variationFixture {
 		}
 		f.states[p] = state
 	}
-	f.table = st.rooms.GetTable(f.roomID)
+	f.table = game.AsTable(st.rooms.GetTable(f.roomID))
 	if f.table == nil {
 		st.t.Fatalf("table %s not found", f.roomID)
 	}
