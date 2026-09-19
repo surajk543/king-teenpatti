@@ -582,8 +582,11 @@ house), **`five_card_draw`**, **`texas_holdem`** and **`omaha`**. `Category.Game
   game, all four at 50,000** (owner, 19 Sep 2026), so the buy-in is 5 Lakh everywhere — above the welcome (§7.4). `PokerConfig` (§7.4) holds the three
   deployment knobs: `POKER_TURN_TIMEOUT_MS` (0 = `TURN_TIMEOUT_MS`), `POKER_MIN_BUYIN_BOOTS` (10 — a stack below
   `minBuyIn` cannot sit, `insufficient_chips`, and a seated one is held for `UNFUNDED_GRACE_MS` then kicked, as a short
-  Teen Patti seat is) and `POKER_MAX_DISCARDS` (3, 0..5). A poker room has **no pot limit** (`MaxPot()` 0) and its
-  stacks are **public** (`chipsHidden:false`, `seats[].chips` always set).
+  Teen Patti seat is) and `POKER_MAX_DISCARDS` (3, 0..5). A poker room has **no pot limit** (`MaxPot()` 0) and
+  **hides every other stack** (owner, 19 Sep 2026: "in poker do not show opponent chips"): `Category.HidesChips()` is
+  true for the four poker categories as it is for blind and variation, so `chipsHidden:true` and every `seats[].chips`
+  but the viewer's own is **`null`** (never 0). The lobby card, the table info dialog and the rules sheet all say
+  "Only your own chips are visible".
 - **Hold'em / Omaha**: button, small and big blind posted at the deal (a short stack posts what it has, all-in),
   streets `preflop → flop → turn → river`, first to act preflop is left of the big blind, after it left of the button;
   bets are TO an amount (`raise` = the whole street bet after it; `minRaise` = the last raise size, at least the big
@@ -616,7 +619,12 @@ house), **`five_card_draw`**, **`texas_holdem`** and **`omaha`**. `Category.Game
   a viewer arriving mid-celebration); the board is public. `you.options` — `{street, fold, check, call, callAmount,
   bet, minBet, maxBet, raise, minRaise, maxRaise, allIn, allInAmount, play, playAmount, draw, maxDiscards}` — is what
   the player on turn may do **with every amount the server will accept**; the client draws its keys from it and the
-  server validates the move against the same figures. `you.hand {handName, category, best}` names what the viewer's
+  server validates the move against the same figures. **There is no all-in move** (owner, 19 Sep 2026: "remove the
+  option ALL in one button"): `ActionAllIn` is refused, `applyAllIn` is gone and `Options` carries no
+  `allIn`/`allInAmount`, because every amount is already capped at the player's stack — the maximum bet or raise IS
+  the shove, a call short of the bet is the all-in call, and a stack smaller than the minimum bet is offered that
+  stack as the minimum. The boolean `allIn` on a seat, an ack and a `poker:action` event, which marks a move that put
+  the last chip in, is a different thing and stays. `you.hand {handName, category, best}` names what the viewer's
   own cards make right now. `poker.pots` mid-hand are the chips COLLECTED at the ends of streets; the current street's
   bets are `seats[].streetBet` (what a card room leaves in front of the players); `pot` is everything.
 - **Refusals**: the Teen Patti codes where they mean the same (`no_hand`, `not_seated`, `not_in_hand`,

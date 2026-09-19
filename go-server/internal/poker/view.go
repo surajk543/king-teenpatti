@@ -23,7 +23,10 @@ type TableView struct {
 	IsPrivate   bool            `json:"isPrivate"`
 	Game        game.Game       `json:"game"` // always "poker"
 	Category    game.Category   `json:"category"`
-	ChipsHidden bool            `json:"chipsHidden"` // always false: poker stacks are public
+	// ChipsHidden is true at every poker room (owner, 19 Sep 2026): a viewer
+	// is told their own stack and nobody else's, as at a blind or variation
+	// Teen Patti table (Category.HidesChips).
+	ChipsHidden bool `json:"chipsHidden"`
 	State       game.TableState `json:"state"`
 	HandNo      int             `json:"handNo"`
 	DealerSeat  int             `json:"dealerSeat"` // the button; -1 before the first hand
@@ -135,9 +138,6 @@ type Options struct {
 	Raise    bool  `json:"raise"`
 	MinRaise int64 `json:"minRaise"`
 	MaxRaise int64 `json:"maxRaise"`
-	// AllIn puts AllInAmount (the whole stack) in.
-	AllIn       bool  `json:"allIn"`
-	AllInAmount int64 `json:"allInAmount"`
 	// Play is 3-Card Poker's play bet of PlayAmount against the dealer.
 	Play       bool  `json:"play"`
 	PlayAmount int64 `json:"playAmount"`
@@ -155,7 +155,10 @@ type SeatView struct {
 	UserID      string         `json:"userId"`
 	DisplayName string         `json:"displayName"`
 	AvatarURL   *string        `json:"avatarUrl"`
-	Chips       *int64         `json:"chips"` // always set on a poker table (stacks are public)
+	// Chips is null for everyone but the viewer while the room hides stacks
+	// (ChipsHidden) — null, never 0, so a client cannot draw a figure that
+	// was withheld as if it were a number.
+	Chips *int64 `json:"chips"`
 	Status      game.SeatState `json:"status"`
 	Connected   bool           `json:"connected"`
 	CardCount   int            `json:"cardCount"` // never the cards
@@ -188,7 +191,7 @@ func (t *Table) serializeFor(viewerID string) *TableView {
 		IsPrivate:     t.isPrivate,
 		Game:          game.GamePoker,
 		Category:      t.cfg.Category,
-		ChipsHidden:   false,
+		ChipsHidden:   t.cfg.Category.HidesChips(),
 		State:         t.State(),
 		HandNo:        t.handNo,
 		DealerSeat:    t.button,
@@ -272,6 +275,7 @@ func (t *Table) serializeFor(viewerID string) *TableView {
 		view.You = you
 	}
 
+	hideChips := t.cfg.Category.HidesChips()
 	view.Seats = make([]SeatView, len(t.seats))
 	for index, s := range t.seats {
 		if s == nil {
@@ -283,6 +287,7 @@ func (t *Table) serializeFor(viewerID string) *TableView {
 			UserID:      s.userID,
 			DisplayName: s.displayName,
 			Chips:       game.Int64Ptr(s.chips),
+			// Filled in below; a hidden stack is null rather than a figure.
 			Status:      s.status,
 			Connected:   s.connected,
 			CardCount:   len(s.cards),
@@ -290,6 +295,9 @@ func (t *Table) serializeFor(viewerID string) *TableView {
 			StreetBet:   s.streetBet,
 			AllIn:       s.allIn,
 			Dealer:      t.hand != nil && t.button == index,
+		}
+		if hideChips && (viewer == nil || s.userID != viewer.userID) {
+			entry.Chips = nil
 		}
 		if s.avatarURL != nil {
 			entry.AvatarURL = game.StrPtr(*s.avatarURL)

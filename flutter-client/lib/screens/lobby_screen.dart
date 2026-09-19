@@ -2302,10 +2302,10 @@ class _TableInfoDialog extends StatelessWidget {
     final players = state.config.maxPlayers == 0 ? 5 : state.config.maxPlayers;
     final turnSeconds = (state.config.turnTimeoutMs / 1000).round();
 
-    // Only a seen table shows every stack; blind and variation keep them to
-    // their owners. A poker table shows every stack, as poker does.
+    // Only a seen table shows every stack. Blind, variation and every poker
+    // room (owner, 19 Sep 2026) keep them to their owners.
     final poker = table.isPoker;
-    final chipsShown = category == TableCategory.seen || poker
+    final chipsShown = category == TableCategory.seen && !poker
         ? t.everyoneChips
         : t.onlyYourChips;
     // What the popup calls the table: a poker game by its own name, a Teen

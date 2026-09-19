@@ -518,7 +518,6 @@ class GameState extends ChangeNotifier {
   bool get canPokerBet => pokerOptions?.bet == true;
   bool get canPokerRaise => pokerOptions?.raise == true;
   bool get canPokerBetOrRaise => canPokerBet || canPokerRaise;
-  bool get canAllIn => pokerOptions?.allIn == true;
   bool get canPlay => pokerOptions?.play == true;
   bool get canDraw => pokerOptions?.draw == true;
 
@@ -605,10 +604,6 @@ class GameState extends ChangeNotifier {
     final chips = room?.you?.chips ?? 0;
     return owed.clamp(0, chips);
   }
-
-  /// The whole stack, which is what an all-in puts in.
-  int get pokerAllInAmount =>
-      pokerOptions?.allInAmount ?? room?.you?.chips ?? 0;
 
   /// What Play costs in 3-Card Poker: the ante again.
   int get pokerPlayAmount {
@@ -777,7 +772,6 @@ class GameState extends ChangeNotifier {
   void pokerRaise() =>
       _conn.pokerAct(PokerAction.raise, amount: pokerBetAmount);
   void pokerBetOrRaise() => pokerBetIsRaise ? pokerRaise() : pokerBet();
-  void pokerAllIn() => _conn.pokerAct(PokerAction.allIn);
   void pokerPlay() => _conn.pokerAct(PokerAction.play);
 
   /// Exchanges [codes] — or stands pat with none — and drops the selection,

@@ -122,7 +122,6 @@ class PokerAction {
   static const call = 'call';
   static const bet = 'bet';
   static const raise = 'raise';
-  static const allIn = 'allIn';
 
   /// 3-Card Poker: match the ante to play the hand against the dealer.
   static const play = 'play';
@@ -764,9 +763,10 @@ class Seat {
 ///
 /// The booleans say which moves the server will accept; the amounts are what
 /// it accepts them at. [minBet]/[maxBet] and [minRaise]/[maxRaise] are TOTAL
-/// street bets — a raise is "raise TO", never "raise BY" — and [allInAmount] is
-/// the whole stack. The client never computes a legal amount of its own: the
-/// stepper walks between the server's two ends.
+/// street bets — a raise is "raise TO", never "raise BY". The client never
+/// computes a legal amount of its own: the stepper walks between the server's
+/// two ends, and its top end IS the whole stack, which is why there is no
+/// separate all-in move (owner, 19 Sep 2026).
 class PokerOptions {
   const PokerOptions({
     required this.street,
@@ -780,8 +780,6 @@ class PokerOptions {
     required this.raise,
     required this.minRaise,
     required this.maxRaise,
-    required this.allIn,
-    required this.allInAmount,
     required this.play,
     required this.playAmount,
     required this.draw,
@@ -799,8 +797,6 @@ class PokerOptions {
   final bool raise;
   final int minRaise;
   final int maxRaise;
-  final bool allIn;
-  final int allInAmount;
 
   /// 3-Card Poker's decision: match the ante and play, or fold.
   final bool play;
@@ -830,8 +826,6 @@ class PokerOptions {
     raise: j['raise'] == true,
     minRaise: _int(j['minRaise']),
     maxRaise: _int(j['maxRaise']),
-    allIn: j['allIn'] == true,
-    allInAmount: _int(j['allInAmount']),
     play: j['play'] == true,
     playAmount: _int(j['playAmount']),
     draw: j['draw'] == true,

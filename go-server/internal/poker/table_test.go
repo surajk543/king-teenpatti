@@ -465,8 +465,10 @@ func TestHoldemAllInRunsTheBoardOutAndBuildsSidePots(t *testing.T) {
 	h.setCards("b", "Kh", "Kd")
 	h.setCards("c", "7c", "2d")
 	h.setDeck("Qc", "Jc", "9h", "3s", "5d")
-	// Button a; b small, c big; a acts first and shoves 1,000.
-	h.mustAct("a", ActionAllIn)
+	// Button a; b small, c big; a acts first and shoves its whole 1,000 — a
+	// raise TO its stack, since there is no All-in key any more (owner,
+	// 19 Sep 2026) and every option's amounts are capped at the stack.
+	h.mustAct("a", ActionRaise, h.options("a").MaxRaise)
 	// b raises to 3,000, c calls.
 	h.mustAct("b", ActionRaise, 3_000)
 	h.mustAct("c", ActionCall)
@@ -506,7 +508,7 @@ func TestHoldemWhenEveryoneIsAllInTheBoardRunsOutWithNoTurns(t *testing.T) {
 	h.setCards("a", "As", "Ad")
 	h.setCards("b", "Kh", "Kd")
 	h.setDeck("2c", "3c", "9h", "3s", "5d")
-	h.mustAct("a", ActionAllIn)
+	h.mustAct("a", ActionRaise, h.options("a").MaxRaise) // the whole stack
 	h.mustAct("b", ActionCall)
 	ended, ok := h.rec.last("handEnded").(HandEndedEvent)
 	if !ok || ended.Reason != WinShowdown || len(ended.Community) != 5 {
@@ -929,12 +931,28 @@ func TestASeatBelowTheBuyInIsRefusedAndTheViewIsRedacted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if view.Game != game.GamePoker || view.Category != game.CategoryTexasHoldem || view.ChipsHidden || len(view.You.Cards) != 2 {
+	// A poker room withholds every other stack (owner, 19 Sep 2026), as a
+	// blind or variation Teen Patti table does: the viewer is told their own
+	// and nobody else's, and a withheld one is NULL rather than a figure.
+	if view.Game != game.GamePoker || view.Category != game.CategoryTexasHoldem || !view.ChipsHidden || len(view.You.Cards) != 2 {
 		t.Fatalf("%+v", view)
 	}
+	if view.You.Chips != 10_000-h.cfg.BootAmount && view.You.Chips != 10_000-h.cfg.BootAmount/2 {
+		t.Fatalf("the viewer is not told their own stack: %d", view.You.Chips)
+	}
 	for _, s := range view.Seats {
-		if s.UserID == "b" && (s.CardCount != 2 || s.Chips == nil) {
-			t.Fatalf("seat b %+v", s)
+		if s.Empty {
+			continue
+		}
+		switch s.UserID {
+		case "a":
+			if s.Chips == nil {
+				t.Fatal("the viewer's own seat withheld their stack")
+			}
+		case "b":
+			if s.CardCount != 2 || s.Chips != nil {
+				t.Fatalf("seat b shows a stack: %+v", s)
+			}
 		}
 	}
 	if view.Poker.Variant != TexasHoldem || view.Poker.BigBlind != 200 || view.Poker.SmallBlind != 100 || view.Poker.HoleCards != 2 {

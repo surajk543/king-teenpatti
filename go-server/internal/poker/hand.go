@@ -485,10 +485,12 @@ func (t *Table) act(userID string, action Action, req ActRequest) (ActResult, er
 		}
 		result, err = t.applyBet(s, action, req.Amount)
 	case ActionAllIn:
-		if !street.IsBetting() {
-			return ActResult{}, errInvalid(MsgActionOffStreet)
-		}
-		result, err = t.applyAllIn(s)
+		// Removed from the game (owner, 19 Sep 2026: "remove the option ALL in
+		// one button"). Nothing is lost: every option's amounts are already
+		// capped at the player's stack, so betting or raising the maximum IS
+		// the shove, a call short of the bet is the all-in call, and a stack
+		// smaller than the minimum bet is offered that stack as the minimum.
+		return ActResult{}, errInvalid(MsgActionOffStreet)
 	case ActionPlay:
 		if street != StreetDecision {
 			return ActResult{}, errInvalid(MsgNotDecision)
@@ -536,10 +538,6 @@ func (t *Table) options(s *seat) Options {
 			o.Raise = true
 			o.MinRaise = min(h.currentBet+h.minRaise, s.streetBet+s.chips)
 			o.MaxRaise = s.streetBet + s.chips
-		}
-		if s.chips > 0 {
-			o.AllIn = true
-			o.AllInAmount = s.streetBet + s.chips
 		}
 	case street == StreetDecision:
 		o.Fold = true
@@ -635,33 +633,6 @@ func (t *Table) applyBet(s *seat, action Action, amount int64) (ActResult, error
 	}
 	bet, allIn := t.raiseTo(s, amount, action)
 	return ActResult{Action: action, Amount: game.Int64Ptr(bet), AllIn: allIn}, nil
-}
-
-// applyAllIn puts the whole stack in: a raise when it beats the street's bet,
-// otherwise a call for less.
-func (t *Table) applyAllIn(s *seat) (ActResult, error) {
-	h := t.hand
-	if s.chips <= 0 {
-		return ActResult{}, errInvalid(MsgActionOffStreet)
-	}
-	total := s.streetBet + s.chips
-	if total > h.currentBet {
-		action := ActionRaise
-		if h.currentBet == 0 {
-			action = ActionBet
-		}
-		bet, _ := t.raiseTo(s, total, action)
-		return ActResult{Action: ActionAllIn, Amount: game.Int64Ptr(bet), AllIn: true}, nil
-	}
-	t.stake(s, s.chips)
-	s.acted = true
-	s.lastAction = actionPtr(ActionAllIn)
-	t.markPlayed(s)
-	amount := s.streetBet
-	t.listener.OnAction(t.view, ActionEvent{UserID: s.userID, SeatIndex: s.seatIndex, Action: ActionAllIn, Amount: amount, Street: h.street(), Pot: h.pot, AllIn: true})
-	t.clearTurnTimer()
-	t.advanceAfter(s.seatIndex)
-	return ActResult{Action: ActionAllIn, Amount: game.Int64Ptr(amount), AllIn: true}, nil
 }
 
 // raiseTo sets the street's bet to amount from this seat and reopens the

@@ -1312,17 +1312,6 @@ class _PokerKeys extends StatelessWidget {
                       ? state.pokerCall
                       : null,
                 ),
-                SizedBox(width: gap),
-                MachinedKey(
-                  width: halfW,
-                  height: keyH,
-                  icon: Icons.local_fire_department_rounded,
-                  label: t.allIn,
-                  amount: formatChips(state.pokerAllInAmount),
-                  alive: state.canAllIn,
-                  edge: AppTheme.amber.withValues(alpha: 0.55),
-                  onPressed: state.canAllIn ? state.pokerAllIn : null,
-                ),
               ],
             ),
           SizedBox(height: gap),

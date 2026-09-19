@@ -316,8 +316,6 @@ void main() {
       expect(o.raise, isTrue);
       expect(o.minRaise, 600);
       expect(o.maxRaise, 20200);
-      expect(o.allIn, isTrue);
-      expect(o.allInAmount, 20000);
       expect(o.play, isFalse);
       expect(o.draw, isFalse);
     });

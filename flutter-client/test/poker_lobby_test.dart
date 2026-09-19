@@ -402,7 +402,9 @@ void main() {
     expect(find.text(t.blindsLabel), findsWidgets);
     expect(find.text(t.buyInFrom(formatChips(_buyIn))), findsWidgets);
     expect(find.text(t.holeCardsLabel), findsWidgets);
-    expect(find.text(t.everyoneChips), findsWidgets);
+    // A poker room keeps every stack to its owner (owner, 19 Sep 2026).
+    expect(find.text(t.onlyYourChips), findsWidgets);
+    expect(find.text(t.everyoneChips), findsNothing);
     expect(find.text(t.playersUpTo(5)), findsOneWidget);
     expect(find.text(t.canSitHere), findsOneWidget);
     expect(find.text(t.maxBlindsLabel), findsNothing);

@@ -107,12 +107,13 @@ test('every room on the menu can be joined, and the ceiling a card advertises is
     assert.equal(joined.bootAmount, entry.bootAmount);
     assert.equal(joined.category, entry.category);
     if (entry.game === 'poker') {
-      // A poker room: its own snapshot, stacks public, the family named.
+      // A poker room: its own snapshot, every stack kept to its owner
+      // (owner, 19 Sep 2026), the family named.
       assert.equal(joined.game, 'poker');
       assert.equal(joined.poker.variant, entry.category);
       assert.equal(joined.poker.minBuyIn, entry.minBuyIn);
       assert.equal(joined.poker.holeCards, entry.holeCards);
-      assert.equal(joined.chipsHidden, false);
+      assert.equal(joined.chipsHidden, true);
       assert.equal('maxPot' in joined, false, 'a poker snapshot has no pot cap');
     } else {
       assert.equal('game' in joined, false, 'a Teen Patti snapshot names no family');

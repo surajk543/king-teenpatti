@@ -110,7 +110,8 @@ class _RulesSheet extends StatelessWidget {
         _ => t.rulePokerBestHandWins,
       },
       if (threeCard) t.rulePokerDealerQualifies else t.rulePokerBestHandWins,
-      t.everyoneChips,
+      // Owner, 19 Sep 2026: "in poker do not show opponent chips".
+      t.onlyYourChips,
     ];
   }
 

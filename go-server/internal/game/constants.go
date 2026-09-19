@@ -100,7 +100,12 @@ func (c Category) Known() bool {
 // a pot cap) and its SECRECY from the blind one; only a seen table shows every
 // stack. Every poker table shows every stack: a stack is public information in
 // poker, and the pot maths (all-ins, side pots) depend on everyone seeing it.
-func (c Category) HidesChips() bool { return c == CategoryBlind || c == CategoryVariation }
+func (c Category) HidesChips() bool {
+	// Blind and Variation Teen Patti, and every poker room (owner, 19 Sep
+	// 2026: "in poker do not show opponent chips"): a viewer is told their
+	// own stack and nobody else's.
+	return c == CategoryBlind || c == CategoryVariation || c.IsPoker()
+}
 
 // HasVariation reports whether a hand at this table opens with the variation
 // window. It IS the switch: there is no second flag that could disagree with

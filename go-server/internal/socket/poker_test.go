@@ -90,17 +90,25 @@ func TestPokerQuickJoinOpensAPokerRoomWithItsOwnSnapshot(t *testing.T) {
 	if num(raw, "poker.bigBlind") != float64(f.boot) || num(raw, "poker.smallBlind") != float64(f.boot/2) || num(raw, "poker.holeCards") != 2 {
 		t.Fatalf("%s", raw)
 	}
-	if field(raw, "chipsHidden") != false || len(arr(raw, "you.cards")) != 2 {
+	// A poker room withholds every other stack (owner, 19 Sep 2026).
+	if field(raw, "chipsHidden") != true || len(arr(raw, "you.cards")) != 2 {
 		t.Fatalf("%s", raw)
 	}
-	// Other seats carry a card count, never cards; stacks are public.
+	if field(raw, "you.chips") == nil {
+		t.Fatalf("the viewer is not told their own stack: %s", raw)
+	}
+	// Other seats carry a card count, never cards, and never a stack.
 	for _, s := range arr(raw, "seats") {
 		seat := s.(map[string]any)
 		if seat["userId"] == f.players[0].user.ID || seat["status"] == "empty" {
 			continue
 		}
-		if seat["cardCount"] != float64(2) || seat["chips"] == nil {
+		if seat["cardCount"] != float64(2) {
 			t.Fatalf("seat %v", seat)
+		}
+		chips, has := seat["chips"]
+		if !has || chips != nil {
+			t.Fatalf("another player's stack is on the wire: %v", seat)
 		}
 		if _, leaked := seat["cards"]; leaked {
 			t.Fatalf("seat carries cards: %v", seat)

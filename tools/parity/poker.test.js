@@ -48,8 +48,8 @@ export const POKER_SEAT_KEYS = [
   'streetBet', 'allIn', 'lastAction', 'dealer',
 ];
 export const POKER_OPTIONS_KEYS = [
-  'street', 'fold', 'check', 'call', 'callAmount', 'bet', 'minBet', 'maxBet', 'raise', 'minRaise', 'maxRaise', 'allIn',
-  'allInAmount', 'play', 'playAmount', 'draw', 'maxDiscards',
+  'street', 'fold', 'check', 'call', 'callAmount', 'bet', 'minBet', 'maxBet', 'raise', 'minRaise', 'maxRaise',
+  'play', 'playAmount', 'draw', 'maxDiscards',
 ];
 const VARIANTS = ['three_card_poker', 'five_card_draw', 'texas_holdem', 'omaha'];
 const HOLE = { three_card_poker: 3, five_card_draw: 5, texas_holdem: 2, omaha: 4 };
@@ -138,7 +138,7 @@ test('a poker room has its own snapshot, with exactly these keys, and a Teen Pat
   assert.equal(state.game, 'poker');
   assert.equal(state.category, 'texas_holdem');
   assert.equal(state.poker.variant, 'texas_holdem');
-  assert.equal(state.chipsHidden, false, 'poker stacks are public');
+  assert.equal(state.chipsHidden, true, 'a poker room keeps every stack to its owner');
   assert.equal(state.poker.bigBlind, t.bootAmount);
   assert.equal(state.poker.smallBlind, t.bootAmount / 2);
   assert.equal(state.poker.ante, 0);
@@ -155,7 +155,19 @@ test('a poker room has its own snapshot, with exactly these keys, and a Teen Pat
   for (const seat of state.seats) {
     if (seat.status === 'empty') continue;
     assert.equal(seat.cardCount, 2);
-    assert.equal(typeof seat.chips, 'number', 'every stack is a figure');
+    // The viewer is told their own stack and nobody else's, and a withheld
+    // one is null rather than a figure (owner, 19 Sep 2026).
+    assert.equal('chips' in seat, true, 'the key is always there');
+    assert.equal(
+      seat.chips === null || typeof seat.chips === 'number',
+      true,
+      'a stack is a figure or null',
+    );
+    if (seat.seatIndex !== state.you.seatIndex) {
+      assert.equal(seat.chips, null, `${seat.userId}'s stack is on the wire`);
+    } else {
+      assert.equal(typeof seat.chips, 'number', 'the viewer sees their own stack');
+    }
   }
   // A Teen Patti table's snapshot is exactly what it was: no game key, no poker block.
   const tp = await dealtTable('poker-shape-tp', uniqueStake, { category: 'seen' });
@@ -206,9 +218,12 @@ test('Texas Hold\'em: blinds, the options on each street, the board dealt in pub
   let state = await myTurn(first);
   const o = state.you.options;
   assert.equal(o.street, 'preflop');
-  assert.deepEqual([o.fold, o.check, o.call, o.callAmount, o.bet, o.raise, o.allIn], [true, false, true, t.bootAmount / 2, false, true, true]);
+  assert.deepEqual([o.fold, o.check, o.call, o.callAmount, o.bet, o.raise], [true, false, true, t.bootAmount / 2, false, true]);
   assert.equal(o.minRaise, t.bootAmount * 2, 'a raise is at least a big blind more');
-  assert.equal(o.maxRaise, o.allInAmount);
+  // There is no all-in move (owner, 19 Sep 2026): the top of the raise range
+  // IS the whole stack, which is what a shove was.
+  assert.equal('allIn' in o, false, 'the all-in option is gone');
+  assert.equal(o.maxRaise, state.you.chips + state.you.streetBet, 'the raise reaches the whole stack');
   assert.equal(o.play, false);
   assert.equal(o.draw, false);
 
@@ -283,9 +298,12 @@ test('Texas Hold\'em: blinds, the options on each street, the board dealt in pub
   const final = t.clients[0].all('room:state').find((p) => p.handNo === ended.handNo && p.state !== 'betting')
     ?? await t.clients[0].waitState((p) => p.state !== 'betting', 4000);
   let total = 0;
-  for (const seat of final.seats) {
-    if (seat.status === 'empty') continue;
-    assert.equal(await wallet(seat.userId), seat.chips, `${seat.displayName}'s wallet follows the seat`);
+  // A stack is on the wire only for its owner, so each player's own snapshot
+  // is where their seat is read from (owner, 19 Sep 2026).
+  for (const entry of t.entries) {
+    const mine = entry.client.state();
+    const seat = mine.seats.find((s) => s.userId === entry.user.id);
+    assert.equal(await wallet(entry.user.id), seat.chips, `${entry.user.displayName}'s wallet follows the seat`);
     total += seat.chips;
   }
   assert.equal(total, Object.values(before).reduce((a, b) => a + b, 0), 'chips were neither created nor lost');
@@ -447,9 +465,10 @@ test('3-Card Poker: an ante, a decision each against the dealer, and a verdict t
   // The snapshot that followed the hand's end — the seats hold the result.
   const final = t.clients[0].all('room:state').find((p) => p.handNo === ended.handNo && p.state !== 'betting')
     ?? await t.clients[0].waitState((p) => p.state !== 'betting', 4000);
-  for (const seat of final.seats) {
-    if (seat.status === 'empty') continue;
-    assert.equal(await wallet(seat.userId), seat.chips, `${seat.displayName}'s wallet follows the seat`);
+  for (const entry of t.entries) {
+    const mine = entry.client.state();
+    const seat = mine.seats.find((s) => s.userId === entry.user.id);
+    assert.equal(await wallet(entry.user.id), seat.chips, `${entry.user.displayName}'s wallet follows the seat`);
   }
   await closeAll(...t.clients);
 });

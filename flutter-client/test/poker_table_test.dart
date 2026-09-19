@@ -268,8 +268,13 @@ void main() {
       expect(_key(tester, t.call).amount, formatChips(200));
       expect(_key(tester, t.raise).alive, isTrue);
       expect(_key(tester, t.raise).amount, formatChips(600));
-      expect(_key(tester, t.allIn).alive, isTrue);
       expect(_key(tester, t.fold).alive, isTrue);
+      // There is no All-in key (owner, 19 Sep 2026): the raise stepper's top
+      // end is the whole stack, so the shove is the maximum raise.
+      expect(
+        find.byWidgetPredicate((w) => w is MachinedKey && w.label == t.allIn),
+        findsNothing,
+      );
       expect(
         find.text(
           '${t.pokerVariantName('texas_holdem')} · '
@@ -517,13 +522,15 @@ void main() {
     final holdem = _newState(_room(options: _holdemOptions));
     await _pumpTable(tester, holdem);
     final withRow = tester.getRect(_private('_PokerKeys'));
-    expect(keyLabelled(t.allIn), findsOneWidget);
+    // The betting streets draw the Check/Call row; there is no All-in key on
+    // any street (owner, 19 Sep 2026).
+    expect(keyLabelled(t.call), findsOneWidget);
+    expect(keyLabelled(t.allIn), findsNothing);
     await _teardown(tester, holdem);
 
     final draw = _newState(drawRoom());
     await _pumpTable(tester, draw);
     expect(tester.takeException(), isNull);
-    expect(keyLabelled(t.allIn), findsNothing);
     expect(keyLabelled(t.call), findsNothing);
     expect(keyLabelled(t.check), findsNothing);
     expect(keyLabelled(t.standPat), findsOneWidget);
@@ -1166,8 +1173,6 @@ extension on RoomState {
           'raise': you!.pokerOptions!.raise,
           'minRaise': you!.pokerOptions!.minRaise,
           'maxRaise': you!.pokerOptions!.maxRaise,
-          'allIn': you!.pokerOptions!.allIn,
-          'allInAmount': you!.pokerOptions!.allInAmount,
           'play': you!.pokerOptions!.play,
           'playAmount': you!.pokerOptions!.playAmount,
           'draw': you!.pokerOptions!.draw,
