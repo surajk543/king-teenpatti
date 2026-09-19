@@ -465,6 +465,19 @@ func Defaults() *Config {
 				// limit of 5 Crore, open to all. Last in the list like every
 				// later addition; the lobby files it under Seen by category.
 				{Category: "seen", BootAmount: 50000, MaxPot: 50000000},
+				// The Poker family (owner, 19 Sep 2026; POKER_PLAN.md): the boot
+				// is the big blind (Hold'em, Omaha) or the ante (3-Card Poker,
+				// 5-Card Draw), the buy-in POKER_MIN_BUYIN_BOOTS of it. Last, so
+				// every entry above keeps its place; the lobby files them all
+				// under one Poker card. Production's .env lists the menu itself,
+				// so nothing changes there until it does — and MIN_CLIENT_BUILD
+				// must be raised to the first poker-aware build first.
+				{Category: "three_card_poker", BootAmount: 200},
+				{Category: "five_card_draw", BootAmount: 200},
+				{Category: "texas_holdem", BootAmount: 200},
+				{Category: "texas_holdem", BootAmount: 5000},
+				{Category: "omaha", BootAmount: 200},
+				{Category: "omaha", BootAmount: 5000},
 			},
 			MaxPlayers:              5,
 			MinPlayers:              2,

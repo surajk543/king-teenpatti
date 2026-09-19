@@ -25,6 +25,7 @@ import (
 	"github.com/surajk543/king-teenpatti/go-server/internal/game"
 	"github.com/surajk543/king-teenpatti/go-server/internal/livetest"
 	"github.com/surajk543/king-teenpatti/go-server/internal/metrics"
+	"github.com/surajk543/king-teenpatti/go-server/internal/poker"
 	"github.com/surajk543/king-teenpatti/go-server/internal/sio"
 	"github.com/surajk543/king-teenpatti/go-server/internal/socket/testclient"
 )
@@ -265,6 +266,7 @@ func newStackWithClock(t *testing.T, mutate func(cfg *config.Config), clock game
 		Missiles:      st.missiles,
 		TableListener: st.h,
 		Listener:      st.h,
+		Factories:     map[game.Game]game.RoomFactory{game.GamePoker: &poker.Factory{Listener: st.h.PokerListener()}},
 		Logger:        logger,
 		Metrics: game.MetricsHooks{
 			ObserveCreation: func(d time.Duration) { metrics.Observe(m.CreationDuration, d) },

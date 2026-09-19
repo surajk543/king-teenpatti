@@ -39,7 +39,19 @@ const MENU = [
   { category: 'variation', bootAmount: 1000000, maxPot: 0, maxBlindMoves: 4, minChips: 500000000, maxChips: 0 },
   // A second seen table (owner, 19 Sep 2026): open to all, its own 5 Crore pot limit.
   { category: 'seen', bootAmount: 50000, maxPot: 50000000, maxBlindMoves: 4, minChips: 0, maxChips: 0 },
+  // The Poker family (Go only; owner, 19 Sep 2026 — go-server/POKER_PLAN.md).
+  // Last, so every row above keeps its place. A poker entry carries its own
+  // facts — game, the blinds or the ante, the buy-in, the hole cards, the
+  // draw limit — and none of Teen Patti's figures mean anything at it
+  // (maxPot 0, maxBlindMoves 0); minChips is raised to the buy-in.
+  { category: 'three_card_poker', bootAmount: 200, maxPot: 0, maxBlindMoves: 0, minChips: 2000, maxChips: 0, game: 'poker', ante: 200, minBuyIn: 2000, holeCards: 3 },
+  { category: 'five_card_draw', bootAmount: 200, maxPot: 0, maxBlindMoves: 0, minChips: 2000, maxChips: 0, game: 'poker', ante: 200, minBuyIn: 2000, holeCards: 5, maxDiscards: 3 },
+  { category: 'texas_holdem', bootAmount: 200, maxPot: 0, maxBlindMoves: 0, minChips: 2000, maxChips: 0, game: 'poker', smallBlind: 100, bigBlind: 200, minBuyIn: 2000, holeCards: 2 },
+  { category: 'texas_holdem', bootAmount: 5000, maxPot: 0, maxBlindMoves: 0, minChips: 50000, maxChips: 0, game: 'poker', smallBlind: 2500, bigBlind: 5000, minBuyIn: 50000, holeCards: 2 },
+  { category: 'omaha', bootAmount: 200, maxPot: 0, maxBlindMoves: 0, minChips: 2000, maxChips: 0, game: 'poker', smallBlind: 100, bigBlind: 200, minBuyIn: 2000, holeCards: 4 },
+  { category: 'omaha', bootAmount: 5000, maxPot: 0, maxBlindMoves: 0, minChips: 50000, maxChips: 0, game: 'poker', smallBlind: 2500, bigBlind: 5000, minBuyIn: 50000, holeCards: 4 },
 ];
+const TEEN_PATTI_KEYS = ['category', 'bootAmount', 'maxPot', 'maxBlindMoves', 'minChips', 'maxChips'];
 
 /** A stack that covers an entry's boot and sits inside its band. */
 const legalStack = (entry) => {
@@ -54,9 +66,14 @@ test('the lobby offers exactly the four stakes and the six rooms, in menu order,
   const client = await openClient(account.token);
   const ready = await client.wait('session:ready');
   assert.deepEqual(ready.config.stakes, [200, 5000, 50000, 1000000]);
-  assert.deepEqual(ready.config.categories, ['seen', 'blind', 'variation']);
+  assert.deepEqual(ready.config.categories, ['seen', 'blind', 'variation', 'three_card_poker', 'five_card_draw', 'texas_holdem', 'omaha']);
   assert.deepEqual(ready.config.tables, MENU);
-  for (const entry of ready.config.tables) assert.deepEqual(Object.keys(entry), ['category', 'bootAmount', 'maxPot', 'maxBlindMoves', 'minChips', 'maxChips'], 'key order');
+  for (const [i, entry] of ready.config.tables.entries()) {
+    // A Teen Patti entry has exactly the six keys it always had, in that order;
+    // a poker entry those six first and then its own.
+    assert.deepEqual(Object.keys(entry).slice(0, 6), TEEN_PATTI_KEYS, 'key order');
+    assert.deepEqual(Object.keys(entry), Object.keys(MENU[i]), `keys of ${entry.category} ${entry.bootAmount}`);
+  }
   assert.equal(ready.config.bootAmount, 200, 'the default boot');
   assert.equal(ready.config.entryCapBoot, 200);
   assert.equal(ready.config.entryCapCategory, 'blind');
@@ -91,12 +108,23 @@ test('every room on the menu can be joined, and the ceiling a card advertises is
     const joined = client.last('room:joined');
     assert.equal(joined.bootAmount, entry.bootAmount);
     assert.equal(joined.category, entry.category);
-    assert.equal(joined.maxPot, entry.maxPot, `${entry.category} ${entry.bootAmount} maxPot`);
-    assert.equal(joined.you.blindMovesLeft, entry.maxBlindMoves);
-    // Only a seen table shows every stack. A variation table BETS as a seen
-    // one does, but keeps stacks to their owners as a blind one does (owner,
-    // 18 Sep 2026).
-    assert.equal(joined.chipsHidden, entry.category !== 'seen');
+    if (entry.game === 'poker') {
+      // A poker room: its own snapshot, stacks public, the family named.
+      assert.equal(joined.game, 'poker');
+      assert.equal(joined.poker.variant, entry.category);
+      assert.equal(joined.poker.minBuyIn, entry.minBuyIn);
+      assert.equal(joined.poker.holeCards, entry.holeCards);
+      assert.equal(joined.chipsHidden, false);
+      assert.equal('maxPot' in joined, false, 'a poker snapshot has no pot cap');
+    } else {
+      assert.equal('game' in joined, false, 'a Teen Patti snapshot names no family');
+      assert.equal(joined.maxPot, entry.maxPot, `${entry.category} ${entry.bootAmount} maxPot`);
+      assert.equal(joined.you.blindMovesLeft, entry.maxBlindMoves);
+      // Only a seen table shows every stack. A variation table BETS as a seen
+      // one does, but keeps stacks to their owners as a blind one does (owner,
+      // 18 Sep 2026).
+      assert.equal(joined.chipsHidden, entry.category !== 'seen');
+    }
     clients.push(client);
   }
   const listed = await clients[0].emit('lobby:list', {});
@@ -122,7 +150,7 @@ test('a stake and category that is not a room on the menu is refused, and no roo
   const client = await openClient(account.token);
   // Both halves are offered on their own; the pair is not.
   const ack = await client.emit('room:quickJoin', { bootAmount: 5000, category: 'seen' });
-  assert.deepEqual(ack, { ok: false, code: 'table_not_offered', message: 'The lobby offers: seen 200, blind 200, blind 5000, blind 50000, blind 1000000, variation 50000, variation 1000000, seen 50000' });
+  assert.deepEqual(ack, { ok: false, code: 'table_not_offered', message: 'The lobby offers: seen 200, blind 200, blind 5000, blind 50000, blind 1000000, variation 50000, variation 1000000, seen 50000, three_card_poker 200, five_card_draw 200, texas_holdem 200, texas_holdem 5000, omaha 200, omaha 5000' });
   const listed = await client.emit('lobby:list', {});
   assert.ok(!listed.tables.some((t) => t.category === 'seen' && t.bootAmount === 5000), 'no seen table at 5,000 exists');
   assert.equal(client.count('room:joined'), 0);

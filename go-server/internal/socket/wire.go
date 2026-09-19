@@ -109,6 +109,8 @@ var KnownErrorCodes = map[string]struct{}{
 	// variation tables (Go only)
 	"no_variation": {}, "variation_already_selected": {}, "not_selecting": {}, "invalid_variation": {},
 	"variation_expired": {}, "variation_pending": {},
+	// poker rooms (Go only)
+	"invalid_action": {}, "invalid_amount": {}, "invalid_discard": {},
 	// chat
 	"chat_rate_limited": {},
 	// auth
@@ -123,7 +125,7 @@ var KnownErrorCodes = map[string]struct{}{
 var KnownEvents = map[string]struct{}{
 	EvLobbyList: {}, EvRoomQuickJoin: {}, EvRoomCreate: {}, EvRoomJoinCode: {}, EvRoomSwitch: {},
 	EvRoomLeave: {}, EvGameAction: {}, EvGameSideshowResp: {}, EvPlayerReqCards: {}, EvChatMessage: {},
-	EvChatHistory: {}, EvPingRTT: {}, EvGameSelectVariation: {},
+	EvChatHistory: {}, EvPingRTT: {}, EvGameSelectVariation: {}, EvPokerAction: {},
 }
 
 // ---- inbound payloads ----

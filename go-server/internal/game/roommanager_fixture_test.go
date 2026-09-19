@@ -16,6 +16,7 @@ import (
 	"github.com/surajk543/king-teenpatti/go-server/internal/config"
 	"github.com/surajk543/king-teenpatti/go-server/internal/game"
 	"github.com/surajk543/king-teenpatti/go-server/internal/game/testclock"
+	"github.com/surajk543/king-teenpatti/go-server/internal/poker"
 )
 
 const (
@@ -235,7 +236,10 @@ func newRoomsFixture(t *testing.T, mutate func(*config.GameConfig, *game.RoomMan
 		Clock:         f.clock,
 		TableListener: f.tables,
 		Listener:      f.events,
-		Logger:        logger,
+		// The poker family, as the app wires it, so the default menu's poker
+		// entries open poker rooms here too.
+		Factories: map[game.Game]game.RoomFactory{game.GamePoker: &poker.Factory{}},
+		Logger:    logger,
 	}
 	if mutate != nil {
 		mutate(&f.cfg, &opts)

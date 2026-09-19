@@ -56,6 +56,14 @@ func TestDefaultsMatchNode(t *testing.T) {
 			{Category: "variation", BootAmount: 1000000, MinChips: 500000000},
 			// A second seen table with a pot cap of its own (owner, 19 Sep 2026).
 			{Category: "seen", BootAmount: 50000, MaxPot: 50000000},
+			// The Poker family (owner, 19 Sep 2026), last: the boot is the big
+			// blind or the ante.
+			{Category: "three_card_poker", BootAmount: 200},
+			{Category: "five_card_draw", BootAmount: 200},
+			{Category: "texas_holdem", BootAmount: 200},
+			{Category: "texas_holdem", BootAmount: 5000},
+			{Category: "omaha", BootAmount: 200},
+			{Category: "omaha", BootAmount: 5000},
 		},
 		"Game.MaxPlayers": 5, "Game.MinPlayers": 2, "Game.TurnTimeout": 25 * time.Second,
 		"Game.MaxBetRounds": 20, "Game.PotLimitMultiplier": int64(1024), "Game.MaxRaiseSteps": 8,
@@ -532,6 +540,13 @@ func TestPublicGameConfigValues(t *testing.T) {
 		{Category: "variation", BootAmount: 1000000, MinChips: 500000000},
 		// Seen at 50,000: open to all, its own 5 Crore pot limit.
 		{Category: "seen", BootAmount: 50000, MaxPot: 50000000},
+		// The Poker family (owner, 19 Sep 2026), last.
+		{Category: "three_card_poker", BootAmount: 200},
+		{Category: "five_card_draw", BootAmount: 200},
+		{Category: "texas_holdem", BootAmount: 200},
+		{Category: "texas_holdem", BootAmount: 5000},
+		{Category: "omaha", BootAmount: 200},
+		{Category: "omaha", BootAmount: 5000},
 	}
 	if !reflect.DeepEqual(g.LobbyTables, menu) {
 		t.Errorf("menu %v", g.LobbyTables)

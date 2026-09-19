@@ -442,6 +442,9 @@ func (h *Handler) onConnection(s *sio.Socket) {
 	s.On(EvPlayerReqCards, h.guard(s, EvPlayerReqCards, func([]json.RawMessage) (any, error) {
 		return h.requestCards(s)
 	}))
+	s.On(EvPokerAction, h.guard(s, EvPokerAction, func(args []json.RawMessage) (any, error) {
+		return h.pokerAction(s, decodePokerAction(args))
+	}))
 	s.On(EvChatMessage, h.guard(s, EvChatMessage, func(args []json.RawMessage) (any, error) {
 		return h.chatMessage(s, decodeChat(args))
 	}))
@@ -480,7 +483,7 @@ func (h *Handler) guard(s *sio.Socket, event string, fn func(args []json.RawMess
 			code, message := refusalOf(err)
 			label := metrics.SafeLabel(code, KnownErrorCodes, metrics.OtherLabel)
 			h.incSocketError(label)
-			if event == EvGameAction || event == EvGameSelectVariation {
+			if _, isMove := invalidMoveEvents[event]; isMove {
 				h.incInvalidMove(label)
 			}
 			if ack != nil {

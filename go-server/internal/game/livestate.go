@@ -151,6 +151,9 @@ func (c *RoomChat) restore(history []ChatMessage) {
 	copy(c.messages, history)
 }
 
+// Restore is restore for another package's room (poker). Actor only.
+func (c *RoomChat) Restore(history []ChatMessage) { c.restore(history) }
+
 // restoreChat posts the loaded chat history onto the actor (RoomManager.Restore).
 func (t *Table) restoreChat(history []ChatMessage) error {
 	return t.run(func() { t.chat.restore(history) })
@@ -620,6 +623,9 @@ func validSeatState(s SeatState) bool {
 	}
 	return false
 }
+
+// ValidCardCodes is validCardCodes for another package's restore (poker).
+func ValidCardCodes(codes []string) error { return validCardCodes(codes) }
 
 // validCardCodes accepts [] or exactly parseable 2-char codes (ParseCard
 // trusts its input; a restore must not).

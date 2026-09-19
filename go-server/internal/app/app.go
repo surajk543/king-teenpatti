@@ -23,6 +23,7 @@ import (
 	"github.com/surajk543/king-teenpatti/go-server/internal/game"
 	"github.com/surajk543/king-teenpatti/go-server/internal/live"
 	"github.com/surajk543/king-teenpatti/go-server/internal/metrics"
+	"github.com/surajk543/king-teenpatti/go-server/internal/poker"
 	"github.com/surajk543/king-teenpatti/go-server/internal/purchase"
 	"github.com/surajk543/king-teenpatti/go-server/internal/sio"
 	"github.com/surajk543/king-teenpatti/go-server/internal/socket"
@@ -259,10 +260,16 @@ func New(opts Options) (*App, error) {
 		Clock:         clock,
 		TableListener: a.sockets,
 		Listener:      a.sockets,
-		Logger:        logger,
-		Live:          a.live,
-		Instance:      cfg.LiveInstanceID,
-		LiveTTL:       cfg.LiveStateTTL,
+		// The poker family's rooms (POKER_PLAN.md): opened and restored by
+		// this factory, their events reaching the same socket layer through
+		// its poker.Listener.
+		Factories: map[game.Game]game.RoomFactory{
+			game.GamePoker: &poker.Factory{Listener: a.sockets.PokerListener()},
+		},
+		Logger:   logger,
+		Live:     a.live,
+		Instance: cfg.LiveInstanceID,
+		LiveTTL:  cfg.LiveStateTTL,
 		Metrics: game.MetricsHooks{
 			ObserveCreation: func(d time.Duration) { metrics.Observe(a.metrics.CreationDuration, d) },
 			// game_hand_start_duration_seconds used to be timed around the

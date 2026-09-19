@@ -991,11 +991,19 @@ func TestRoomsLobbyOffersExactlyTheDefaultMenu(t *testing.T) {
 	if !equalInt64s(o.Stakes, []int64{200, 5000, 50000, 1000000}) {
 		t.Fatalf("stakes %v", o.Stakes)
 	}
-	// seen and blind as ever, in their old order, and the third only because
-	// the default menu now offers a variation table (LobbyOptions derives it).
-	if len(o.Categories) != 3 || o.Categories[0] != game.CategorySeen || o.Categories[1] != game.CategoryBlind ||
-		o.Categories[2] != game.CategoryVariation {
+	// seen and blind as ever, in their old order, the third because the default
+	// menu offers a variation table, and the four poker categories after them,
+	// in the lobby's order, because it lists a table of each (LobbyOptions
+	// derives all of it from the menu).
+	want := []game.Category{game.CategorySeen, game.CategoryBlind, game.CategoryVariation,
+		game.CategoryThreeCardPoker, game.CategoryFiveCardDraw, game.CategoryTexasHoldem, game.CategoryOmaha}
+	if len(o.Categories) != len(want) {
 		t.Fatalf("categories %v", o.Categories)
+	}
+	for i := range want {
+		if o.Categories[i] != want[i] {
+			t.Fatalf("categories %v", o.Categories)
+		}
 	}
 	// Each blind table carries the stack band it is for; requirement 30's cap
 	// on the 200 table is the same field, folded in from ENTRY_CAP_*.
@@ -1014,6 +1022,16 @@ func TestRoomsLobbyOffersExactlyTheDefaultMenu(t *testing.T) {
 		// A second seen table (owner, 19 Sep 2026): boot 50,000, open to all,
 		// with a 5 Crore pot limit of its own rather than seen's 20 Lakh.
 		{Category: "seen", BootAmount: 50000, MaxPot: 50000000, MaxBlindMoves: 4},
+		// The Poker family (owner, 19 Sep 2026): each entry carries its own
+		// facts — blinds or ante, buy-in, hole cards, the draw limit — and none
+		// of Teen Patti's (no pot cap, no blind moves). Last, so every entry
+		// above keeps its place.
+		{Category: "three_card_poker", BootAmount: 200, Game: game.GamePoker, Ante: 200, MinBuyIn: 2000, MinChips: 2000, HoleCards: 3},
+		{Category: "five_card_draw", BootAmount: 200, Game: game.GamePoker, Ante: 200, MinBuyIn: 2000, MinChips: 2000, HoleCards: 5, MaxDiscards: 3},
+		{Category: "texas_holdem", BootAmount: 200, Game: game.GamePoker, SmallBlind: 100, BigBlind: 200, MinBuyIn: 2000, MinChips: 2000, HoleCards: 2},
+		{Category: "texas_holdem", BootAmount: 5000, Game: game.GamePoker, SmallBlind: 2500, BigBlind: 5000, MinBuyIn: 50000, MinChips: 50000, HoleCards: 2},
+		{Category: "omaha", BootAmount: 200, Game: game.GamePoker, SmallBlind: 100, BigBlind: 200, MinBuyIn: 2000, MinChips: 2000, HoleCards: 4},
+		{Category: "omaha", BootAmount: 5000, Game: game.GamePoker, SmallBlind: 2500, BigBlind: 5000, MinBuyIn: 50000, MinChips: 50000, HoleCards: 4},
 	}
 	if len(o.Tables) != len(wantTables) {
 		t.Fatalf("tables %+v", o.Tables)
@@ -1028,19 +1046,26 @@ func TestRoomsLobbyOffersExactlyTheDefaultMenu(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The five entries that existed before variation tables are byte for byte
-	// what they were: a variation entry adds a row and adds no field to theirs.
-	want := `{"categories":["seen","blind","variation"],"stakes":[200,5000,50000,1000000],"tables":[` +
+	// The entries that existed before variation and poker tables are byte for
+	// byte what they were: a later entry adds a row and adds no field to theirs
+	// (a poker entry's own fields are omitempty and absent here).
+	wantJSON := `{"categories":["seen","blind","variation","three_card_poker","five_card_draw","texas_holdem","omaha"],"stakes":[200,5000,50000,1000000],"tables":[` +
 		`{"category":"seen","bootAmount":200,"maxPot":2000000,"maxBlindMoves":4,"minChips":0,"maxChips":0},` +
 		`{"category":"blind","bootAmount":200,"maxPot":0,"maxBlindMoves":4,"minChips":0,"maxChips":500000},` +
 		`{"category":"blind","bootAmount":5000,"maxPot":0,"maxBlindMoves":4,"minChips":0,"maxChips":50000000},` +
 		`{"category":"blind","bootAmount":50000,"maxPot":0,"maxBlindMoves":4,"minChips":0,"maxChips":1000000000},` +
 		`{"category":"blind","bootAmount":1000000,"maxPot":0,"maxBlindMoves":4,"minChips":500000000,"maxChips":0},` +
 		`{"category":"variation","bootAmount":50000,"maxPot":0,"maxBlindMoves":4,"minChips":0,"maxChips":1000000000},` +
-		`{"category":"variation","bootAmount":1000000,"maxPot":0,"maxBlindMoves":4,"minChips":500000000,"maxChips":0},{"category":"seen","bootAmount":50000,"maxPot":50000000,"maxBlindMoves":4,"minChips":0,"maxChips":0}],` +
+		`{"category":"variation","bootAmount":1000000,"maxPot":0,"maxBlindMoves":4,"minChips":500000000,"maxChips":0},{"category":"seen","bootAmount":50000,"maxPot":50000000,"maxBlindMoves":4,"minChips":0,"maxChips":0},` +
+		`{"category":"three_card_poker","bootAmount":200,"maxPot":0,"maxBlindMoves":0,"minChips":2000,"maxChips":0,"game":"poker","ante":200,"minBuyIn":2000,"holeCards":3},` +
+		`{"category":"five_card_draw","bootAmount":200,"maxPot":0,"maxBlindMoves":0,"minChips":2000,"maxChips":0,"game":"poker","ante":200,"minBuyIn":2000,"holeCards":5,"maxDiscards":3},` +
+		`{"category":"texas_holdem","bootAmount":200,"maxPot":0,"maxBlindMoves":0,"minChips":2000,"maxChips":0,"game":"poker","smallBlind":100,"bigBlind":200,"minBuyIn":2000,"holeCards":2},` +
+		`{"category":"texas_holdem","bootAmount":5000,"maxPot":0,"maxBlindMoves":0,"minChips":50000,"maxChips":0,"game":"poker","smallBlind":2500,"bigBlind":5000,"minBuyIn":50000,"holeCards":2},` +
+		`{"category":"omaha","bootAmount":200,"maxPot":0,"maxBlindMoves":0,"minChips":2000,"maxChips":0,"game":"poker","smallBlind":100,"bigBlind":200,"minBuyIn":2000,"holeCards":4},` +
+		`{"category":"omaha","bootAmount":5000,"maxPot":0,"maxBlindMoves":0,"minChips":50000,"maxChips":0,"game":"poker","smallBlind":2500,"bigBlind":5000,"minBuyIn":50000,"holeCards":4}],` +
 		`"entryCapBoot":200,"entryCapCategory":"blind","entryCapMaxChips":500000,"privateBoot":200,"privateMaxPot":500000}`
-	if string(raw) != want {
-		t.Fatalf("json\n got  %s\n want %s", raw, want)
+	if string(raw) != wantJSON {
+		t.Fatalf("json\n got  %s\n want %s", raw, wantJSON)
 	}
 }
 
@@ -1075,6 +1100,9 @@ func legalStackFor(entry game.LobbyTableOption) int64 {
 func TestRoomsAdvertisedCeilingMatchesTheTableBuilt(t *testing.T) {
 	f := newRoomsFixture(t, nil)
 	for _, entry := range f.rooms.LobbyOptions().Tables {
+		if entry.Game == game.GamePoker {
+			continue // a poker room has no pot cap and no blind moves to match
+		}
 		table := f.mustQuickJoin(f.player("P", legalStackFor(entry)), entry.BootAmount, entry.Category)
 		if table.MaxPot() != entry.MaxPot {
 			t.Fatalf("%s %d: maxPot %d, card says %d", entry.Category, entry.BootAmount, table.MaxPot(), entry.MaxPot)
@@ -1088,12 +1116,19 @@ func TestRoomsAdvertisedCeilingMatchesTheTableBuilt(t *testing.T) {
 func TestRoomsEveryMenuRoomCanBeJoined(t *testing.T) {
 	f := newRoomsFixture(t, nil)
 	for _, entry := range f.rooms.LobbyOptions().Tables {
-		table := f.mustQuickJoin(f.player("P", legalStackFor(entry)), entry.BootAmount, entry.Category)
-		if table.BootAmount() != entry.BootAmount || string(table.Category()) != entry.Category {
-			t.Fatalf("%+v vs %s %d", entry, table.Category(), table.BootAmount())
+		// A poker entry opens a poker room, which is a Room and not a *Table.
+		room, err := f.rooms.QuickJoin(f.player("P", legalStackFor(entry)), game.QuickJoinOptions{BootAmount: entry.BootAmount, Category: entry.Category})
+		if err != nil {
+			t.Fatalf("quickJoin %+v: %v", entry, err)
+		}
+		if room.BootAmount() != entry.BootAmount || string(room.Category()) != entry.Category {
+			t.Fatalf("%+v vs %s %d", entry, room.Category(), room.BootAmount())
+		}
+		if (entry.Game == game.GamePoker) != (room.Game() == game.GamePoker) {
+			t.Fatalf("%+v opened a %s room", entry, room.Game())
 		}
 	}
-	if n := len(f.rooms.ListTables(game.ListOptions{})); n != 8 {
+	if n := len(f.rooms.ListTables(game.ListOptions{})); n != 14 {
 		t.Fatalf("listTables %d", n)
 	}
 }
@@ -1103,7 +1138,7 @@ func TestRoomsPairNotOnMenuRefused(t *testing.T) {
 	// Both halves are offered on their own; the pair is not.
 	_, err := f.rooms.QuickJoin(f.player("P", rmStart), game.QuickJoinOptions{BootAmount: 5000, Category: "seen"})
 	expectCode(t, err, game.CodeTableNotOffered)
-	if want := "The lobby offers: seen 200, blind 200, blind 5000, blind 50000, blind 1000000, variation 50000, variation 1000000, seen 50000"; err.Error() != want {
+	if want := "The lobby offers: seen 200, blind 200, blind 5000, blind 50000, blind 1000000, variation 50000, variation 1000000, seen 50000, three_card_poker 200, five_card_draw 200, texas_holdem 200, texas_holdem 5000, omaha 200, omaha 5000"; err.Error() != want {
 		t.Fatalf("message %q", err.Error())
 	}
 	if n := len(f.rooms.ListTables(game.ListOptions{})); n != 0 {
