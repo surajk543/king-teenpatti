@@ -45,6 +45,7 @@ class _RulesSheet extends StatelessWidget {
   /// the menu does not carry (the number of betting rounds) is not given a
   /// number here.
   static List<String> _tableRules(Strings t, LobbyTable table) {
+    if (table.isPoker) return _pokerTableRules(t, table);
     final category = GameState.lobbyCategoryOf(table);
     final seen = category == TableCategory.seen;
     final blind = category == TableCategory.blind;
@@ -63,6 +64,54 @@ class _RulesSheet extends StatelessWidget {
       t.ruleShowTwo,
     ];
   }
+
+  /// How a poker table plays: its game's line, the blinds or the ante, the
+  /// buy-in, the cards dealt, and how its winner is found. Every figure is
+  /// the server's menu entry.
+  static List<String> _pokerTableRules(Strings t, LobbyTable table) {
+    final variant = table.category;
+    return [
+      t.pokerVariantNote(variant),
+      if (table.smallBlind > 0 || table.bigBlind > 0)
+        t.rulePokerBlinds(
+          formatChips(table.smallBlind),
+          formatChips(table.bigBlind > 0 ? table.bigBlind : table.bootAmount),
+        )
+      else
+        t.rulePokerAnte(formatChips(table.ante > 0 ? table.ante : table.bootAmount)),
+      if (table.minBuyIn > 0) t.rulePokerBuyIn(formatChips(table.minBuyIn)),
+      if (table.holeCards > 0) t.rulePokerHoleCards(table.holeCards),
+      switch (variant) {
+        PokerVariant.texasHoldem => t.rulePokerHoldemWin,
+        PokerVariant.omaha => t.rulePokerOmahaWin,
+        PokerVariant.fiveCardDraw => t.rulePokerDrawWin(
+          table.maxDiscards > 0 ? table.maxDiscards : 5,
+        ),
+        PokerVariant.threeCardPoker => t.rulePokerThreeCardWin,
+        _ => t.rulePokerBestHandWins,
+      },
+      if (variant == PokerVariant.threeCardPoker)
+        t.rulePokerDealerQualifies
+      else
+        t.rulePokerBestHandWins,
+      t.everyoneChips,
+    ];
+  }
+
+  /// The poker ranking, strongest first, each with a five-card hand that
+  /// shows it (go-server/internal/poker). The names are the server's own.
+  static const List<(String, List<String>)> _pokerExamples = [
+    ('royalFlush', ['As', 'Ks', 'Qs', 'Js', 'Ts']),
+    ('straightFlush', ['9h', '8h', '7h', '6h', '5h']),
+    ('fourOfAKind', ['Kc', 'Kd', 'Kh', 'Ks', '3d']),
+    ('fullHouse', ['Qs', 'Qh', 'Qd', '7c', '7d']),
+    ('flush', ['Ad', 'Jd', '8d', '5d', '2d']),
+    ('straight', ['Tc', '9d', '8s', '7h', '6c']),
+    ('threeOfAKind', ['8s', '8h', '8d', 'Kc', '4d']),
+    ('twoPair', ['Jh', 'Jc', '5s', '5d', 'Ac']),
+    ('pair', ['Ah', 'Ad', '9c', '6s', '3h']),
+    ('highCard', ['Kd', 'Jc', '8s', '5h', '2c']),
+  ];
 
   /// Every ranking, strongest first, each with a hand that shows it. The order
   /// and the names are the server's own — this is a picture of how the
@@ -135,7 +184,7 @@ class _RulesSheet extends StatelessWidget {
               table == null
                   ? t.rulesTitle
                   : '${t.rulesTitle} · '
-                        '${t.variationOrCategory(GameState.lobbyCategoryOf(table!))} '
+                        '${table!.isPoker ? t.pokerVariantName(table!.category) : t.variationOrCategory(GameState.lobbyCategoryOf(table!))} '
                         '${formatChips(table!.bootAmount)}',
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
@@ -204,53 +253,136 @@ class _RulesSheet extends StatelessWidget {
               ),
             const SizedBox(height: Space.lg),
           ],
-          Text(
-            t.rulesBeats,
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: scheme.onSurface.withValues(alpha: AppTheme.inkLow),
+          // A poker table's rules are the poker ranking alone: the Teen Patti
+          // rankings are not how that table scores.
+          if (table == null || !table!.isPoker) ...[
+            Text(
+              t.rulesBeats,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: scheme.onSurface.withValues(alpha: AppTheme.inkLow),
+              ),
             ),
-          ),
-          const SizedBox(height: Space.md),
-          for (var i = 0; i < _examples.length; i++)
-            _Row(
-              place: i + 1,
-              name: labels[_examples[i].$1]!.$1,
-              note: labels[_examples[i].$1]!.$2,
-              cards: _examples[i].$2,
-              cardHeight: cardH,
-              numeral: champagne,
-              // A rule under every rank but the last: the list is ordered, and
-              // the numerals already say which way.
-              ruled: i < _examples.length - 1,
-            ),
-          const SizedBox(height: Space.md),
-          // An inner well of tinted glass — tinted, never blurred: the dialog
-          // around it already holds the app's one blur, and a nested filter
-          // would sample the dialog's own layer every frame.
-          PremiumGlassPanel(
-            mode: GlassMode.tinted,
-            radius: Radii.sm,
-            elevated: false,
-            padding: const EdgeInsets.all(Space.md),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  t.runOrder,
-                  style: AppTheme.label(
-                    theme.textTheme.labelLarge ?? const TextStyle(),
+            const SizedBox(height: Space.md),
+            for (var i = 0; i < _examples.length; i++)
+              _Row(
+                place: i + 1,
+                name: labels[_examples[i].$1]!.$1,
+                note: labels[_examples[i].$1]!.$2,
+                cards: _examples[i].$2,
+                cardHeight: cardH,
+                numeral: champagne,
+                // A rule under every rank but the last: the list is ordered,
+                // and the numerals already say which way.
+                ruled: i < _examples.length - 1,
+              ),
+            const SizedBox(height: Space.md),
+            // An inner well of tinted glass — tinted, never blurred: the
+            // dialog around it already holds the app's one blur, and a nested
+            // filter would sample the dialog's own layer every frame.
+            PremiumGlassPanel(
+              mode: GlassMode.tinted,
+              radius: Radii.sm,
+              elevated: false,
+              padding: const EdgeInsets.all(Space.md),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    t.runOrder,
+                    style: AppTheme.label(
+                      theme.textTheme.labelLarge ?? const TextStyle(),
+                    ),
                   ),
-                ),
-                const SizedBox(height: Space.xxs),
-                Text(
-                  t.runOrderNote,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: scheme.onSurface.withValues(alpha: AppTheme.inkMed),
+                  const SizedBox(height: Space.xxs),
+                  Text(
+                    t.runOrderNote,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: scheme.onSurface.withValues(
+                        alpha: AppTheme.inkMed,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+
+          // The poker family: its five-card ranking, strongest first, and the
+          // two rules that differ by game. On the general sheet and on a poker
+          // table's own; never on a Teen Patti table's.
+          if (table == null || table!.isPoker) ...[
+            if (table == null) const SizedBox(height: Space.xl),
+            Row(
+              children: [
+                Icon(Icons.casino_rounded, size: 18, color: champagne),
+                const SizedBox(width: Space.md),
+                Expanded(
+                  child: Text(
+                    t.pokerRulesTitle,
+                    style: AppTheme.label(
+                      theme.textTheme.titleSmall ?? const TextStyle(),
+                    ),
                   ),
                 ),
               ],
             ),
-          ),
+            const SizedBox(height: Space.sm),
+            Text(
+              t.pokerRulesIntro,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: scheme.onSurface.withValues(alpha: AppTheme.inkMed),
+              ),
+            ),
+            const SizedBox(height: Space.sm),
+            for (var i = 0; i < _pokerExamples.length; i++)
+              _Row(
+                place: i + 1,
+                name: t.pokerRankName(_pokerExamples[i].$1),
+                note: '',
+                cards: _pokerExamples[i].$2,
+                cardHeight: cardH * 0.8,
+                numeral: champagne,
+                ruled: i < _pokerExamples.length - 1,
+              ),
+            const SizedBox(height: Space.md),
+            PremiumGlassPanel(
+              mode: GlassMode.tinted,
+              radius: Radii.sm,
+              elevated: false,
+              padding: const EdgeInsets.all(Space.md),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    t.pokerThreeCardRanking,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: scheme.onSurface.withValues(
+                        alpha: AppTheme.inkMed,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: Space.xxs),
+                  Text(
+                    t.rulePokerOmahaWin,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: scheme.onSurface.withValues(
+                        alpha: AppTheme.inkMed,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: Space.xxs),
+                  Text(
+                    t.rulePokerDealerQualifies,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: scheme.onSurface.withValues(
+                        alpha: AppTheme.inkMed,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
 
           // Variation tables: what they are, then the ways a hand can be
           // decided there. Under the rankings because every one of them IS

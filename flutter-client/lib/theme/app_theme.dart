@@ -482,6 +482,30 @@ class AppTheme {
   static const Color _rani = Color(0xFFC2297A);
   static const Color _raniDark = Color(0xFFFF9CCB);
 
+  /// Teal for the poker family, one shade per brightness: the four poker
+  /// games and their one lobby card wear it together. Hue near 181, between
+  /// the private room's emerald (150) and blind's sapphire (200), and the one
+  /// stretch of the wheel the other tables leave open. The light shade clears
+  /// 3.5:1 on the table tag's ink plate; the dark one is pale for obsidian.
+  static const Color _teal = Color(0xFF0F8B8D);
+  static const Color _tealDark = Color(0xFF7FE0D6);
+
+  /// The poker family's palette, for the four wire categories and for the
+  /// lobby's `poker` family card alike.
+  static TablePalette _pokerPalette(ColorScheme scheme) {
+    final dark = scheme.brightness == Brightness.dark;
+    return TablePalette(
+      accent: dark ? _tealDark : _teal,
+      container: dark ? const Color(0xFF0E3A3B) : const Color(0xFFCFF3F0),
+      onContainer: dark ? const Color(0xFFDDFBF8) : const Color(0xFF073032),
+      // Dice: the one mark that says "casino card game" without saying Teen
+      // Patti — the eye, the crossed eye and the crossing arrows are all
+      // spoken for by the three categories that keep the Teen Patti rules.
+      icon: Icons.casino_rounded,
+      tint: dark ? 0.14 : 0.12,
+    );
+  }
+
   /// The palette for a table of this category and stake. Blind tables at or
   /// above 1,000 boot are the high-stakes ones and wear the purple; a
   /// variation table wears the pink at every stake. Anything else — a category
@@ -496,6 +520,15 @@ class AppTheme {
     required int bootAmount,
   }) {
     final dark = scheme.brightness == Brightness.dark;
+    // The poker family, by any of its four games or by the family itself,
+    // before the fall-through that draws an unknown category as seen.
+    if (category == 'poker' ||
+        category == 'texas_holdem' ||
+        category == 'omaha' ||
+        category == 'five_card_draw' ||
+        category == 'three_card_poker') {
+      return _pokerPalette(scheme);
+    }
     if (category == 'variation') {
       return TablePalette(
         accent: dark ? _raniDark : _rani,

@@ -25,6 +25,29 @@ typedef ShowdownNews = ({
 /// turned up from the deck ("9h"), sent only under Joker and Hukam.
 typedef VariationNews = ({String variation, String selectedBy, String? turnUp});
 
+/// A poker hand's reveal or its end, as `poker:showdown` and `poker:handEnded`
+/// carry them. [ended] is true for the hand-ended frame, the only one with
+/// [nextHandAt] (0 means "not stated") and the pots' winners. The showdown
+/// frame carries the reveals a moment sooner and no `handId`, so [result]'s
+/// may be empty there.
+typedef PokerShowdownNews = ({
+  PokerResult result,
+  int nextHandAt,
+  String reason,
+  bool ended,
+});
+
+/// A poker move as the room hears it (`poker:action`). Read only for what a
+/// snapshot cannot say: that a fold was the clock's (`reason: timeout`).
+typedef PokerActionNews = ({
+  String userId,
+  int seatIndex,
+  String action,
+  int amount,
+  String street,
+  String? reason,
+});
+
 /// The live half of the server: one Socket.IO connection carrying the whole
 /// game.
 ///
@@ -64,6 +87,9 @@ class GameConnection {
       StreamController<
         ({String userId, String action, String? reason})
       >.broadcast();
+  final _pokerCards = StreamController<List<String>>.broadcast();
+  final _pokerShowdown = StreamController<PokerShowdownNews>.broadcast();
+  final _pokerAction = StreamController<PokerActionNews>.broadcast();
   final _chat = StreamController<ChatMessage>.broadcast();
   final _chatHistory = StreamController<List<ChatMessage>>.broadcast();
   final _errors =
@@ -128,6 +154,20 @@ class GameConnection {
   /// and it lands before the snapshot that folds them.
   Stream<({String userId, String action, String? reason})> get onAction =>
       _action.stream;
+
+  /// A poker player's own hole cards: at the deal, and again after a draw.
+  /// The snapshot carries the same cards (`you.cards`), so this is only the
+  /// cue that they have changed.
+  Stream<List<String>> get onPokerCards => _pokerCards.stream;
+
+  /// A poker hand's reveal (`poker:showdown`) and its end
+  /// (`poker:handEnded`), both as one [PokerShowdownNews]. The snapshot's
+  /// `poker.result` says the same and stays until the next deal; these are
+  /// what start the celebration and say when the next hand is due.
+  Stream<PokerShowdownNews> get onPokerShowdown => _pokerShowdown.stream;
+
+  /// A poker move as the whole room hears it.
+  Stream<PokerActionNews> get onPokerAction => _pokerAction.stream;
   Stream<ChatMessage> get onChat => _chat.stream;
   Stream<List<ChatMessage>> get onChatHistory => _chatHistory.stream;
 
@@ -274,6 +314,27 @@ class GameConnection {
       ));
     });
 
+    // The poker family (go-server/internal/poker). The snapshot is the source
+    // of truth for all of it; these events say the same a moment sooner, and
+    // the hand-ended one says when the next deal is due.
+    socket.on('poker:cards', (data) {
+      final j = _map(data);
+      _pokerCards.add(cardCodes(j['cards']));
+    });
+    socket.on('poker:showdown', (data) => _emitPokerShowdown(data, false));
+    socket.on('poker:handEnded', (data) => _emitPokerShowdown(data, true));
+    socket.on('poker:action', (data) {
+      final j = _map(data);
+      _pokerAction.add((
+        userId: '${j['userId'] ?? ''}',
+        seatIndex: (j['seatIndex'] as num?)?.toInt() ?? -1,
+        action: '${j['action'] ?? ''}',
+        amount: (j['amount'] as num?)?.toInt() ?? 0,
+        street: '${j['street'] ?? ''}',
+        reason: j['reason'] is String ? j['reason'] as String : null,
+      ));
+    });
+
     socket.on(
       'chat:message',
       (data) => _chat.add(ChatMessage.fromJson(_map(data))),
@@ -336,6 +397,21 @@ class GameConnection {
     ));
   }
 
+  /// A poker hand's reveal or its end. Both frames carry reveals, the board
+  /// and (on 3-Card Poker) the dealer; only the hand-ended one carries the
+  /// pots' winners and `nextHandAt`.
+  void _emitPokerShowdown(dynamic data, bool ended) {
+    final j = _map(data);
+    final result = PokerResult.fromJson(j);
+    if (result.reveals.isEmpty && result.pots.isEmpty && !ended) return;
+    _pokerShowdown.add((
+      result: result,
+      nextHandAt: (j['nextHandAt'] as num?)?.toInt() ?? 0,
+      reason: j['reason'] is String ? j['reason'] as String : '',
+      ended: ended,
+    ));
+  }
+
   // ------------------------------------------------------------ intent
 
   /// Sits the player at any table with this stake and category, opening one if
@@ -364,6 +440,20 @@ class GameConnection {
     'amount': ?amount,
     'actionId': _uuid.v4(),
   });
+
+  /// Sends a poker move (`poker:action`), the way [act] sends a Teen Patti
+  /// one: a fresh [actionId] per move, so a copy sent twice is refused rather
+  /// than played twice. [amount] is the TOTAL street bet for a bet or a raise
+  /// (raise TO); [cards] are the codes to exchange on a draw — absent or empty
+  /// stands pat. The server validates every one of them against its own
+  /// options, so a tampered client gains nothing.
+  void pokerAct(String action, {int? amount, List<String>? cards}) =>
+      _emit('poker:action', {
+        'action': action,
+        'amount': ?amount,
+        'cards': ?cards,
+        'actionId': _uuid.v4(),
+      });
 
   /// Forces a sideshow with the player on the viewer's right, and waits for
   /// the answer (owner, 13 Sep 2026).
@@ -489,6 +579,9 @@ class GameConnection {
     _variationSelected.close();
     _variationAtShowdown.close();
     _action.close();
+    _pokerCards.close();
+    _pokerShowdown.close();
+    _pokerAction.close();
     _chat.close();
     _chatHistory.close();
     _errors.close();

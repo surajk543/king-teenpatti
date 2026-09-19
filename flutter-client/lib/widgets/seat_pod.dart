@@ -145,7 +145,16 @@ class SeatPod extends StatelessWidget {
     this.orbCorner = OrbCorner.topLeft,
     this.podKey,
     this.impact,
+    this.poker = false,
   });
+
+  /// A seat at a poker table (go-server/internal/poker). Nothing about it is
+  /// blind or seen: no BLIND / SEEN word rides on its cards and no back turns
+  /// green, a fold reads as "Fold" rather than "Pack", its bet badge carries
+  /// what it has put in on this street ([Seat.streetBet]), and a seat with its
+  /// whole stack in wears an all-in ribbon. False on every Teen Patti table,
+  /// where nothing here changes.
+  final bool poker;
 
   /// Names the pod itself — the glass plaque, not the column of cards and bets
   /// under it — so the table can find where it stands on the felt: where a
@@ -264,7 +273,7 @@ class SeatPod extends StatelessWidget {
       // their eye already is.
       if (_betShown(s) && !isMe) ...[
         SizedBox(height: gap),
-        SeatBet(seat: s, width: width, withCategory: false),
+        SeatBet(seat: s, width: width, withCategory: false, poker: poker),
       ] else if (status != null) ...[
         SizedBox(height: gap),
         _statusTag(context, s, status),
@@ -540,6 +549,16 @@ class SeatPod extends StatelessWidget {
                 ],
               ),
             ),
+            // A poker seat with its whole stack in: the ribbon lies over the
+            // stack pill, which reads 0 for exactly that player. Only a poker
+            // snapshot ever sets the flag.
+            if (s.allIn && !won)
+              Positioned(
+                left: width * _kPad,
+                right: width * _kPad,
+                bottom: width * _kPad,
+                child: IgnorePointer(child: _AllInRibbon(width: width)),
+              ),
             // The result, on the winner rather than over the middle of the
             // table — and LAST in this stack, so it sits above the face and
             // the plaque. Placed before them it was painted over by the
@@ -677,7 +696,10 @@ class SeatPod extends StatelessWidget {
             // Green backs say this player has looked at their hand, which is
             // the one thing about an opponent that changes how you bet. Not
             // while they are out of it: a packed seat's cards are history.
-            tint: !s.isBlind && _inHand(s) ? AppTheme.cardSeenBack : null,
+            // Never at poker, where every hand is looked at.
+            tint: !poker && !s.isBlind && _inHand(s)
+                ? AppTheme.cardSeenBack
+                : null,
           ),
         );
 
@@ -747,6 +769,9 @@ class SeatPod extends StatelessWidget {
         ],
       );
     }
+
+    // A poker hand is neither blind nor seen: the backs alone.
+    if (poker) return fan;
 
     return Stack(
       alignment: Alignment.center,
@@ -843,12 +868,16 @@ class SeatPod extends StatelessWidget {
     Seat s,
     double width, {
     required bool withCategory,
+    bool poker = false,
   }) {
     final theme = Theme.of(context);
     final dark = theme.brightness == Brightness.dark;
     final label = s.isBlind ? t.blind : t.seen;
     final size = math.max(_kBadgeFloor, width * _kBadge);
     final ink = dark ? AppTheme.boneInk : AppTheme.inkOnLight;
+    // A poker badge carries this street's bet; a Teen Patti one the last
+    // move's. Its chip is gold: there is no blind or seen to colour it by.
+    final figure = poker ? s.streetBet : s.lastBet;
 
     return Container(
       padding: EdgeInsets.symmetric(
@@ -867,7 +896,9 @@ class SeatPod extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           PokerChip(
-            colour: s.isBlind
+            colour: poker
+                ? AppTheme.gold
+                : s.isBlind
                 ? theme.colorScheme.tertiary
                 : theme.colorScheme.secondary,
             size: width * 0.14,
@@ -889,7 +920,7 @@ class SeatPod extends StatelessWidget {
                   child: FadeTransition(opacity: anim, child: child),
                 ),
                 child: Row(
-                  key: ValueKey('${s.lastBet}-${s.isBlind}'),
+                  key: ValueKey('$figure-${s.isBlind}'),
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     // Two styles rather than one string: the label is
@@ -906,10 +937,10 @@ class SeatPod extends StatelessWidget {
                           colour: ink.withValues(alpha: AppTheme.inkMed),
                         ),
                       ),
-                    if (s.lastBet > 0) ...[
+                    if (figure > 0) ...[
                       if (withCategory) SizedBox(width: width * 0.04),
                       Text(
-                        formatChips(s.lastBet),
+                        formatChips(figure),
                         maxLines: 1,
                         style: AppTheme.money(
                           theme.textTheme.labelMedium!,
@@ -1082,11 +1113,51 @@ class SeatPod extends StatelessWidget {
   String? _status(Strings t, Seat s) {
     if (!s.connected) return t.offline;
     return switch (s.status) {
-      SeatState.packed => t.pack,
+      // A poker player folds; a Teen Patti player packs.
+      SeatState.packed => poker ? t.fold : t.pack,
       SeatState.won => t.winner,
       SeatState.waiting => t.waiting,
       _ => null,
     };
+  }
+}
+
+/// ALL-IN across the foot of a poker seat whose whole stack is in the pot.
+/// It lies over the stack pill, which reads 0 for exactly that player, in the
+/// amber the app keeps for "committed, not yet decided".
+class _AllInRibbon extends StatelessWidget {
+  const _AllInRibbon({required this.width});
+
+  final double width;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final t = context.read<GameState>().t;
+    return Container(
+      padding: EdgeInsets.symmetric(
+        vertical: width * 0.012,
+        horizontal: width * 0.04,
+      ),
+      decoration: BoxDecoration(
+        color: AppTheme.ink900.withValues(alpha: 0.86),
+        borderRadius: BorderRadius.circular(width * 0.075),
+        border: Border.all(color: AppTheme.amber.withValues(alpha: 0.75)),
+      ),
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        child: Text(
+          t.allIn,
+          maxLines: 1,
+          style: AppTheme.label(
+            theme.textTheme.labelMedium!,
+            fontSize: math.max(_kStackFloor, width * _kStack),
+            colour: AppTheme.amber,
+            weight: FontWeight.w800,
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -1447,9 +1518,14 @@ class SeatBet extends StatelessWidget {
     required this.width,
     this.totalFirst = false,
     this.withCategory = true,
+    this.poker = false,
   });
 
   final Seat seat;
+
+  /// A poker seat's badge: this street's bet on a gold chip, and never the
+  /// word BLIND or SEEN (see [SeatPod.poker]).
+  final bool poker;
 
   /// Whether "In Pot" sits above the badge rather than below it.
   ///
@@ -1483,8 +1559,16 @@ class SeatBet extends StatelessWidget {
     // holding one chip and nothing else — an empty box rather than a fact.
     // The word was carrying it; now the figure has to, and until there is one
     // the badge stands down and `In Pot` speaks for the seat.
-    final badge = withCategory || seat.lastBet > 0
-        ? SeatPod._lastBet(context, t, seat, width, withCategory: withCategory)
+    final figure = poker ? seat.streetBet : seat.lastBet;
+    final badge = (withCategory && !poker) || figure > 0
+        ? SeatPod._lastBet(
+            context,
+            t,
+            seat,
+            width,
+            withCategory: withCategory && !poker,
+            poker: poker,
+          )
         : null;
 
     return Column(

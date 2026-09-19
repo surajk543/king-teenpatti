@@ -484,6 +484,282 @@ class GameState extends ChangeNotifier {
     return variation?.selected != null ? variation?.turnUp : lastTurnUp;
   }
 
+  // ----------------------------------------------------------------- poker
+
+  /// A poker room's own block, straight from the table snapshot — never a
+  /// copy kept here — so a reconnect mid-hand rebuilds the board, the pots,
+  /// the turn and the keys from the one snapshot it is sent. Null on every
+  /// Teen Patti table.
+  PokerState? get poker => room?.poker;
+
+  bool get isPokerTable => room?.isPoker == true;
+
+  /// The moves the server offers this player right now, and only on their
+  /// turn: `you.options` at a poker table. Null off turn.
+  PokerOptions? get pokerOptions =>
+      isPokerTable ? room?.you?.pokerOptions : null;
+
+  bool get myPokerTurn => pokerOptions != null;
+
+  /// A [PokerStreet]; empty between hands and on a Teen Patti table.
+  String get pokerStreet => poker?.street ?? PokerStreet.none;
+
+  /// The board, in the order dealt; empty when there is none.
+  List<String> get community => poker?.community ?? const [];
+
+  /// The main pot first, then the side pots.
+  List<PokerPot> get pots => poker?.pots ?? const [];
+
+  // The keys, each lit only when the server offers the move. A key that
+  // refuses on tap is worse than a dark one.
+  bool get canFold => pokerOptions?.fold == true;
+  bool get canCheck => pokerOptions?.check == true;
+  bool get canCall => pokerOptions?.call == true;
+  bool get canPokerBet => pokerOptions?.bet == true;
+  bool get canPokerRaise => pokerOptions?.raise == true;
+  bool get canPokerBetOrRaise => canPokerBet || canPokerRaise;
+  bool get canAllIn => pokerOptions?.allIn == true;
+  bool get canPlay => pokerOptions?.play == true;
+  bool get canDraw => pokerOptions?.draw == true;
+
+  /// Whether the bet key says Raise rather than Bet: on turn the server's
+  /// word, off turn whether anyone has bet this street.
+  bool get pokerBetIsRaise {
+    final o = pokerOptions;
+    if (o != null) return o.raise && !o.bet;
+    return (poker?.currentBet ?? 0) > 0;
+  }
+
+  /// The bet step: the big blind on a blinds game, the ante on the others,
+  /// the boot when the block says neither.
+  int get pokerBetStep {
+    final p = poker;
+    if (p == null) return 0;
+    if (p.bigBlind > 0) return p.bigBlind;
+    if (p.ante > 0) return p.ante;
+    return room?.bootAmount ?? 0;
+  }
+
+  /// The least and most the bet key may place, as the server offers them —
+  /// the bet's ends when a bet is offered, the raise's when a raise is. Off
+  /// turn the ends are worked out from the block, so the dark key still
+  /// reads a sensible figure: the big blind (or ante) to open, else the bet
+  /// to match plus the least raise.
+  (int, int) get pokerBetRange {
+    final o = pokerOptions;
+    if (o != null) {
+      if (o.bet) return (o.minBet, o.maxBet);
+      if (o.raise) return (o.minRaise, o.maxRaise);
+    }
+    final p = poker;
+    final chips = room?.you?.chips ?? 0;
+    final mine = room?.you?.streetBet ?? 0;
+    if (p == null) return (0, 0);
+    final min = p.currentBet > 0
+        ? p.currentBet + (p.minRaise > 0 ? p.minRaise : pokerBetStep)
+        : pokerBetStep;
+    final max = mine + chips;
+    return (min.clamp(0, max), max);
+  }
+
+  /// Where the stepper was last put, as a total street bet; null means the
+  /// least the server allows. Reset with every turn and every deal.
+  int? _pokerBetTo;
+
+  /// What the bet / raise key will place: the stepper's figure, held between
+  /// the server's two ends.
+  int get pokerBetAmount {
+    final (min, max) = pokerBetRange;
+    if (max <= min) return min;
+    return (_pokerBetTo ?? min).clamp(min, max);
+  }
+
+  bool get canPokerStepDown => myPokerTurn && pokerBetAmount > pokerBetRange.$1;
+  bool get canPokerStepUp => myPokerTurn && pokerBetAmount < pokerBetRange.$2;
+
+  /// Moves the bet by one step — the big blind or the ante — and never past
+  /// either end.
+  void pokerStepBet(int direction) {
+    final (min, max) = pokerBetRange;
+    if (max <= min) return;
+    final step = pokerBetStep > 0 ? pokerBetStep : 1;
+    _pokerBetTo = (pokerBetAmount + direction * step).clamp(min, max);
+    notifyListeners();
+  }
+
+  /// Puts the bet at [amount] (a slider), held between the server's ends.
+  void pokerBetTo(int amount) {
+    final (min, max) = pokerBetRange;
+    _pokerBetTo = max <= min ? min : amount.clamp(min, max);
+    notifyListeners();
+  }
+
+  /// What a call costs right now: the server's figure on turn, the bet to
+  /// match less what this seat already has in, off it.
+  int get pokerCallAmount {
+    final o = pokerOptions;
+    if (o != null) return o.callAmount;
+    final p = poker;
+    if (p == null) return 0;
+    final owed = p.currentBet - (room?.you?.streetBet ?? 0);
+    final chips = room?.you?.chips ?? 0;
+    return owed.clamp(0, chips);
+  }
+
+  /// The whole stack, which is what an all-in puts in.
+  int get pokerAllInAmount =>
+      pokerOptions?.allInAmount ?? room?.you?.chips ?? 0;
+
+  /// What Play costs in 3-Card Poker: the ante again.
+  int get pokerPlayAmount {
+    final o = pokerOptions;
+    if (o != null && o.playAmount > 0) return o.playAmount;
+    return poker?.ante ?? room?.bootAmount ?? 0;
+  }
+
+  /// 5-Card Draw: the cards this player has marked to exchange, by code.
+  /// Cleared with every deal and whenever the street is not the draw.
+  final Set<String> discardSelection = {};
+
+  /// How many cards may be exchanged: the server's figure on turn, the
+  /// table's otherwise.
+  int get maxDiscards => pokerOptions?.maxDiscards ?? poker?.maxDiscards ?? 0;
+
+  /// Marks or unmarks [code] for the draw. Refuses a sixth card past the
+  /// table's limit rather than letting the server refuse the whole draw.
+  void toggleDiscard(String code) {
+    if (!discardSelection.remove(code)) {
+      if (discardSelection.length >= maxDiscards) return;
+      discardSelection.add(code);
+    }
+    notifyListeners();
+  }
+
+  void clearDiscards() {
+    if (discardSelection.isEmpty) return;
+    discardSelection.clear();
+    notifyListeners();
+  }
+
+  /// The finished hand as `poker:handEnded` (or `poker:showdown`) carried it,
+  /// while its celebration is up. The snapshot's own copy (`poker.result`)
+  /// stays until the next deal, so this is only a head start on it.
+  PokerResult? _pokerResultNews;
+
+  /// The hand whose result has been celebrated, by the table's hand number,
+  /// so the event and the snapshot that repeats it start one celebration
+  /// between them — and a lone winner's result, which the snapshot keeps for
+  /// as long as nobody else sits down, is not celebrated again on every
+  /// snapshot after.
+  int? _pokerCelebratedFor;
+
+  /// True from the hand's end until the next deal is due (or six seconds):
+  /// the reveals are on the felt, the winners are marked and the pot flies.
+  bool pokerCelebrating = false;
+
+  /// The finished poker hand to draw: the event's copy, else the snapshot's.
+  PokerResult? get pokerResult => _pokerResultNews ?? room?.poker?.result;
+
+  /// Whether the finished hand is on show: cards face up, winners marked.
+  bool get pokerShowing => pokerCelebrating && pokerResult != null;
+
+  /// What a snapshot says of a finished poker hand: a result seen for the
+  /// first time this hand starts the celebration, exactly as the event does,
+  /// so a reconnect into the celebration still gets one — timed to the next
+  /// deal the snapshot names, or six seconds.
+  void _followPoker(RoomState s, {required bool newHand}) {
+    if (newHand) _pokerCelebratedFor = null;
+    if (s.poker?.street != PokerStreet.draw) discardSelection.clear();
+    final result = s.poker?.result;
+    if (result == null || _pokerCelebratedFor == s.handNo) return;
+    _pokerCelebratedFor = s.handNo;
+    pokerCelebrating = true;
+    _armCelebration(s.startsAt);
+  }
+
+  /// `poker:showdown` and `poker:handEnded`: the reveal, then the result.
+  @visibleForTesting
+  void handlePokerShowdown(PokerShowdownNews news) {
+    final r = room;
+    if (r == null) return;
+    // The showdown frame comes first with the reveals; the hand-ended frame
+    // brings the pots and the winners. The later one is the fuller, and
+    // either alone is enough to draw the hand.
+    _pokerResultNews = news.result;
+    _pokerCelebratedFor = r.handNo;
+    pokerCelebrating = true;
+    // For the sounds and the fireworks: whether this player is among the
+    // winners, and what they took.
+    final me = user?.id;
+    final mine = news.result.wonBy(me);
+    final first = news.result.winners.firstOrNull;
+    if (mine > 0 && me != null) {
+      winnerId = me;
+      winnerName = user?.displayName ?? '';
+      winnerPot = mine;
+    } else if (first != null) {
+      winnerId = first.userId;
+      winnerName = r.seats
+          .where((seat) => seat.userId == first.userId)
+          .map((seat) => seat.displayName)
+          .firstOrNull ??
+          '';
+      winnerPot = first.amount;
+    }
+    if (news.ended || showdownResult.isEmpty) {
+      // A marker rather than a sentence: the poker felt draws the result
+      // from [pokerResult], and this only says a hand has ended.
+      showdownResult = news.reason.isEmpty ? 'poker' : news.reason;
+    }
+    _armCelebration(news.nextHandAt);
+    notifyListeners();
+    if (news.ended) unawaited(refreshUser());
+  }
+
+  /// A poker move as the room hears it. The snapshot already says what each
+  /// move did; this only tells the player whose clock ran out that it did.
+  @visibleForTesting
+  void handlePokerAction(PokerActionNews a) {
+    if (room == null) return;
+    if (a.reason == 'timeout' && a.userId == user?.id) {
+      notice = t.pokerTimedOut;
+      notifyListeners();
+    }
+  }
+
+  /// Drops what a poker hand left behind, for a deal or a table that is
+  /// over. The celebration is cleared by [_clearCelebration].
+  void _clearPokerHand() {
+    _pokerCelebratedFor = null;
+    _pokerBetTo = null;
+    discardSelection.clear();
+  }
+
+  void pokerFold() => _conn.pokerAct(PokerAction.fold);
+  void pokerCheck() => _conn.pokerAct(PokerAction.check);
+  void pokerCall() => _conn.pokerAct(PokerAction.call);
+
+  /// Bets the stepper's figure — a bet when nobody has bet this street, a
+  /// raise TO that figure when somebody has. The server offers exactly one of
+  /// the two, and its refusal is a toast like any other.
+  void pokerBet() => _conn.pokerAct(PokerAction.bet, amount: pokerBetAmount);
+  void pokerRaise() =>
+      _conn.pokerAct(PokerAction.raise, amount: pokerBetAmount);
+  void pokerBetOrRaise() => pokerBetIsRaise ? pokerRaise() : pokerBet();
+  void pokerAllIn() => _conn.pokerAct(PokerAction.allIn);
+  void pokerPlay() => _conn.pokerAct(PokerAction.play);
+
+  /// Exchanges [codes] — or stands pat with none — and drops the selection,
+  /// which the snapshot that follows would drop anyway.
+  void pokerDraw(List<String> codes) {
+    _conn.pokerAct(PokerAction.draw, cards: codes);
+    discardSelection.clear();
+    notifyListeners();
+  }
+
+  /// Draws whatever is marked.
+  void pokerDrawSelected() => pokerDraw(discardSelection.toList());
+
   String? _token;
   String _deviceId = '';
   Timer? _ticker;
@@ -506,8 +782,14 @@ class GameState extends ChangeNotifier {
   bool get inLiveHand =>
       room?.state == TableState.betting &&
       room?.you?.status == SeatState.active;
-  TurnOptions? get options => room?.you?.options;
-  bool get myTurn => options != null;
+
+  /// The Teen Patti ladder on this player's turn. Null at a poker table
+  /// whatever the snapshot says: none of the Teen Patti keys may light there
+  /// (the poker keys read [pokerOptions]).
+  TurnOptions? get options => isPokerTable ? null : room?.you?.options;
+
+  /// Whether it is this player's turn, whichever game the table plays.
+  bool get myTurn => isPokerTable ? myPokerTurn : options != null;
 
   // ------------------------------------------------------------- lifecycle
 
@@ -684,6 +966,7 @@ class GameState extends ChangeNotifier {
         _clearVariation();
         _clearMissile();
         _clearCelebration();
+        _clearPokerHand();
         screen = Screen.lobby;
         notifyListeners();
         unawaited(refreshUser());
@@ -701,6 +984,7 @@ class GameState extends ChangeNotifier {
         _clearVariation();
         _clearMissile();
         _clearCelebration();
+        _clearPokerHand();
         screen = Screen.lobby;
         notifyListeners();
         unawaited(refreshUser());
@@ -720,6 +1004,11 @@ class GameState extends ChangeNotifier {
       _conn.onVariationSelected.listen(handleVariationSelected),
       _conn.onVariationAtShowdown.listen(handleVariationAtShowdown),
       _conn.onAction.listen(handleTableAction),
+      _conn.onPokerShowdown.listen(handlePokerShowdown),
+      // The cards themselves are in the snapshot that follows; this is only
+      // the cue that they changed (a draw).
+      _conn.onPokerCards.listen((_) => notifyListeners()),
+      _conn.onPokerAction.listen(handlePokerAction),
       _conn.onChat.listen((m) {
         chat.add(m);
         // The room keeps at most a hundred messages, and so does this.
@@ -828,8 +1117,11 @@ class GameState extends ChangeNotifier {
     final newTable = room?.roomId != s.roomId;
     // The server sends options to the player on turn and to nobody else,
     // so options arriving where there were none is this seat's turn
-    // beginning.
-    final myTurnBegan = room?.you?.options == null && s.you?.options != null;
+    // beginning — the Teen Patti ladder or the poker moves, whichever the
+    // table deals in.
+    final myTurnBegan =
+        (room?.you?.options == null && s.you?.options != null) ||
+        (room?.you?.pokerOptions == null && s.you?.pokerOptions != null);
     // A variation window seen open and now seen closed, within one hand.
     final windowClosed =
         !newHand && room?.variation?.selecting == true && !newTable;
@@ -843,10 +1135,12 @@ class GameState extends ChangeNotifier {
       _clearVariation();
       _clearMissile();
       _clearCelebration();
+      _clearPokerHand();
     } else if (newTable) {
       // Another table whose hand happens to carry the same number: what was
       // remembered of the last table's variation is not this one's.
       _clearVariation();
+      _clearPokerHand();
     }
     // Every turn opens on the plain chaal. The stepper used to keep the
     // rung it was left on until the next deal, so a raise made on one turn
@@ -854,15 +1148,27 @@ class GameState extends ChangeNotifier {
     // because the ladder had climbed with the stake it had just raised. On
     // a blind table, where the ladder runs to the whole stack, that is a
     // hand-sized bet the player never asked for.
-    if (newHand || myTurnBegan) raiseIndex = 0;
-    _followVariation(s, windowClosed: windowClosed);
+    if (newHand || myTurnBegan) {
+      raiseIndex = 0;
+      // The poker stepper opens on the smallest bet or raise the server
+      // offers, for the same reason.
+      _pokerBetTo = null;
+    }
+    // A poker snapshot has no variation, no sideshow and no missile; a Teen
+    // Patti one has no poker block. Each game's follow-ups run on its own
+    // snapshots and never on the other's.
+    if (s.isPoker) {
+      _followPoker(s, newHand: newHand || newTable);
+    } else {
+      _followVariation(s, windowClosed: windowClosed);
+    }
     // The picker is drawn on the felt, and a drawer left open — the chat,
     // usually — or a sheet opened between hands — the store, the rules — lies
     // over the felt: the chooser would spend their ten seconds not knowing
     // they had been asked. Closed once, as the window opens. The table itself
     // is the first route and is never popped (main.dart's _TableRoutes does
     // the same when the table goes).
-    if (!wasChoosing && variationIsMine) {
+    if (!s.isPoker && !wasChoosing && variationIsMine) {
       tableScaffold.currentState?.closeDrawer();
       tableScaffold.currentState?.closeEndDrawer();
       final table = tableScaffold.currentContext;
@@ -1270,6 +1576,7 @@ class GameState extends ChangeNotifier {
       _clearVariation();
       _clearMissile();
       _clearCelebration();
+      _clearPokerHand();
       switching = false;
       notice = t.tableLost;
       screen = Screen.lobby;
@@ -1530,15 +1837,22 @@ class GameState extends ChangeNotifier {
     TableCategory.seen,
     TableCategory.blind,
     TableCategory.variation,
+    // The poker FAMILY: one front card for the four poker games, which are
+    // filed under it by [lobbyCategoryOf].
+    TableCategory.pokerFamily,
   ];
 
-  /// The category a menu entry is filed under. A category this build has never
-  /// heard of is a seen table everywhere else in the client (its card, its
-  /// felt, its rules line), so it is one here too.
-  static String lobbyCategoryOf(LobbyTable table) =>
-      lobbyCategoryOrder.contains(table.category)
-      ? table.category
-      : TableCategory.seen;
+  /// The category a menu entry is filed under. The four poker games go under
+  /// the one Poker card. A category this build has never heard of is a seen
+  /// table everywhere else in the client (its card, its felt, its rules
+  /// line), so it is one here too.
+  static String lobbyCategoryOf(LobbyTable table) {
+    if (table.isPoker) return TableCategory.pokerFamily;
+    return lobbyCategoryOrder.contains(table.category) &&
+            table.category != TableCategory.pokerFamily
+        ? table.category
+        : TableCategory.seen;
+  }
 
   /// The categories the server offers at least one table in, in
   /// [lobbyCategoryOrder]. A category it does not list is simply absent.
@@ -2037,6 +2351,13 @@ class GameState extends ChangeNotifier {
   /// same and still show as one toast. A code with no words here keeps the
   /// server's own message.
   String refusalText(String? code, String message) {
+    // The poker family's refusals, said in the player's language — at a poker
+    // table only, so a Teen Patti refusal that shares a code
+    // (`insufficient_chips` on a show) keeps the sentence it always had.
+    if (isPokerTable) {
+      final poker = t.pokerRefusal(code);
+      if (poker != null) return poker;
+    }
     if (code == 'no_hammers') return t.noHammers;
     if (code == 'no_missiles') return t.noMissiles;
     // A missile's refusal, and a sideshow's: both need three in the hand, so
@@ -2060,13 +2381,17 @@ class GameState extends ChangeNotifier {
       // case ("seen" in the English sentence, सीन in the Hindi one).
       final category = room?.category;
       if (category == null) return message;
+      // A poker game keeps its proper name ("Texas Hold'em"); the Teen Patti
+      // categories are written lower case, as the English sentence has them.
       return t.noOtherTable(
-        (category == TableCategory.blind
-                ? t.blind
-                : category == TableCategory.variation
-                ? t.variation
-                : t.seen)
-            .toLowerCase(),
+        TableCategory.isPoker(category)
+            ? t.pokerVariantName(category)
+            : (category == TableCategory.blind
+                      ? t.blind
+                      : category == TableCategory.variation
+                      ? t.variation
+                      : t.seen)
+                  .toLowerCase(),
       );
     }
     return message;
@@ -2586,6 +2911,10 @@ class GameState extends ChangeNotifier {
     winnerId = null;
     winnerName = '';
     winnerPot = 0;
+    // The poker hand's result stays in the snapshot until the next deal;
+    // only the celebration of it ends here.
+    pokerCelebrating = false;
+    _pokerResultNews = null;
   }
 
   /// Drops everything remembered about a hand's variation. Not called by the

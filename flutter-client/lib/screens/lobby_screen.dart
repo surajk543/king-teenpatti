@@ -1279,14 +1279,17 @@ class _BarActions extends StatelessWidget {
 String _categoryName(Strings t, String category) => switch (category) {
   TableCategory.blind => t.blind,
   TableCategory.variation => t.variation,
+  TableCategory.pokerFamily => t.poker,
   _ => t.seen,
 };
 
 /// The one line that says what a category's tables are like — the line each of
-/// its table cards carries.
+/// its table cards carries. The poker card names its four games instead: its
+/// tables each carry their own game's line.
 String _categoryBlurb(Strings t, String category) => switch (category) {
   TableCategory.blind => t.onlyYourChips,
   TableCategory.variation => t.variationTableNote,
+  TableCategory.pokerFamily => t.pokerTableNote,
   _ => t.everyoneChips,
 };
 
@@ -1648,6 +1651,12 @@ class _TableCard extends StatelessWidget {
     // (owner, 18 Sep 2026), and it is a card of its own with its own name and
     // its own line about what happens there.
     final variation = category == TableCategory.variation;
+    // A poker table is a different game altogether: its badge names the game
+    // (Texas Hold'em, Omaha, 5-Card Draw, 3-Card Poker), its blurb says how
+    // that game is played, and its facts are the blinds or the ante, the
+    // buy-in and the cards each player is dealt — there are no blind moves
+    // and no pot limit to state.
+    final poker = table.isPoker;
     // Each table has a colour of its own — gold, sapphire, royal purple — and
     // the room the card leads to is painted in the same one.
     final palette = AppTheme.paletteFor(
@@ -1791,7 +1800,9 @@ class _TableCard extends StatelessWidget {
                                         CrossAxisAlignment.start,
                                     children: [
                                       _CategoryBadge(
-                                        label: variation
+                                        label: poker
+                                            ? t.pokerVariantName(category)
+                                            : variation
                                             ? t.variation
                                             : blind
                                             ? t.blind
@@ -1807,6 +1818,8 @@ class _TableCard extends StatelessWidget {
                                               ? 900
                                               : variation
                                               ? 450
+                                              : poker
+                                              ? 300
                                               : 0,
                                         ),
                                       ),
@@ -1872,7 +1885,9 @@ class _TableCard extends StatelessWidget {
                                       // key, and the smallest phone scaled the
                                       // whole column down to fit.
                                       Text(
-                                        variation
+                                        poker
+                                            ? t.pokerVariantNote(category)
+                                            : variation
                                             ? t.variationTableNote
                                             : blind
                                             ? t.onlyYourChips
@@ -1881,10 +1896,10 @@ class _TableCard extends StatelessWidget {
                                         overflow: TextOverflow.ellipsis,
                                         style: text.bodySmall?.copyWith(
                                           fontSize: blurbSize,
-                                          fontWeight: variation
+                                          fontWeight: variation || poker
                                               ? FontWeight.w600
                                               : null,
-                                          color: variation
+                                          color: variation || poker
                                               ? glass.textDisplay
                                               : glass.textBody,
                                         ),
@@ -1893,36 +1908,64 @@ class _TableCard extends StatelessWidget {
 
                                       // What the room actually plays like, stated before the
                                       // player sits down rather than discovered at the table.
-                                      _CardFact(
-                                        icon: Icons.visibility_off_rounded,
-                                        accent: accent,
-                                        label: t.maxBlindsLabel,
-                                        value: '${table.maxBlindMoves}',
-                                        height: factH,
-                                      ),
-                                      Padding(
-                                        padding: const EdgeInsets.symmetric(
-                                          vertical: Space.xs,
+                                      // A poker table states its own terms.
+                                      if (poker) ...[
+                                        for (final fact
+                                            in _pokerFacts(t, table).indexed) ...[
+                                          if (fact.$1 > 0)
+                                            Padding(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                    vertical: Space.xs,
+                                                  ),
+                                              child: Container(
+                                                height: Dim.hairline,
+                                                color: AppTheme.hairlineColour(
+                                                  brightness,
+                                                ),
+                                              ),
+                                            ),
+                                          _CardFact(
+                                            icon: fact.$2.icon,
+                                            accent: accent,
+                                            label: fact.$2.label,
+                                            value: fact.$2.value,
+                                            height: factH,
+                                            highlight: fact.$2.highlight,
+                                          ),
+                                        ],
+                                      ] else ...[
+                                        _CardFact(
+                                          icon: Icons.visibility_off_rounded,
+                                          accent: accent,
+                                          label: t.maxBlindsLabel,
+                                          value: '${table.maxBlindMoves}',
+                                          height: factH,
                                         ),
-                                        child: Container(
-                                          height: Dim.hairline,
-                                          color: AppTheme.hairlineColour(
-                                            brightness,
+                                        Padding(
+                                          padding: const EdgeInsets.symmetric(
+                                            vertical: Space.xs,
+                                          ),
+                                          child: Container(
+                                            height: Dim.hairline,
+                                            color: AppTheme.hairlineColour(
+                                              brightness,
+                                            ),
                                           ),
                                         ),
-                                      ),
-                                      _CardFact(
-                                        icon: Icons.savings_rounded,
-                                        accent: accent,
-                                        label: t.potLimitLabel,
-                                        height: factH,
-                                        value: table.potUncapped
-                                            ? t.potUnlimited
-                                            : formatChips(table.maxPot),
-                                        // An uncapped pot is the headline on a blind table,
-                                        // so it is the one fact drawn in the table's colour.
-                                        highlight: table.potUncapped,
-                                      ),
+                                        _CardFact(
+                                          icon: Icons.savings_rounded,
+                                          accent: accent,
+                                          label: t.potLimitLabel,
+                                          height: factH,
+                                          value: table.potUncapped
+                                              ? t.potUnlimited
+                                              : formatChips(table.maxPot),
+                                          // An uncapped pot is the headline on a blind table,
+                                          // so it is the one fact drawn in the table's colour.
+                                          highlight: table.potUncapped,
+                                        ),
+                                      ],
                                       Padding(
                                         padding: const EdgeInsets.symmetric(
                                           vertical: Space.xs,
@@ -2105,6 +2148,60 @@ class _TableCard extends StatelessWidget {
   }
 }
 
+/// One fact on a poker table's card or in its info popup.
+typedef _PokerFact = ({
+  IconData icon,
+  String label,
+  String value,
+  bool highlight,
+});
+
+/// What a poker table's card states in place of blind moves and a pot limit:
+/// the blinds ("100 / 200") or the ante, the buy-in and the cards dealt to
+/// each player — and, on 5-Card Draw alone, how many may be exchanged. Every
+/// figure is the server's own menu entry.
+List<_PokerFact> _pokerFacts(Strings t, LobbyTable table) => [
+  if (table.smallBlind > 0 || table.bigBlind > 0)
+    (
+      icon: Icons.toll_rounded,
+      label: t.blindsLabel,
+      value:
+          '${formatChips(table.smallBlind)} / '
+          '${formatChips(table.bigBlind > 0 ? table.bigBlind : table.bootAmount)}',
+      highlight: false,
+    )
+  else
+    (
+      icon: Icons.toll_rounded,
+      label: t.anteLabel,
+      value: formatChips(table.ante > 0 ? table.ante : table.bootAmount),
+      highlight: false,
+    ),
+  (
+    icon: Icons.login_rounded,
+    label: t.buyInLabel,
+    value: table.minBuyIn > 0
+        ? t.buyInFrom(formatChips(table.minBuyIn))
+        : t.entryOpen,
+    // The buy-in is what makes a table one to play towards.
+    highlight: table.minBuyIn > 0,
+  ),
+  if (table.holeCards > 0)
+    (
+      icon: Icons.style_rounded,
+      label: t.holeCardsLabel,
+      value: '${table.holeCards}',
+      highlight: false,
+    ),
+  if (table.maxDiscards > 0)
+    (
+      icon: Icons.swap_horiz_rounded,
+      label: t.maxDiscardsLabel,
+      value: '${table.maxDiscards}',
+      highlight: false,
+    ),
+];
+
 /// A key on a table card's top-right corner. There are two, one over the other
 /// (owner, 18 Sep 2026): **ⓘ** — "every table give an info icon on the right top
 /// side; on clicking it, it will open a pop up showing table info … it tells all
@@ -2206,10 +2303,16 @@ class _TableInfoDialog extends StatelessWidget {
     final turnSeconds = (state.config.turnTimeoutMs / 1000).round();
 
     // Only a seen table shows every stack; blind and variation keep them to
-    // their owners.
-    final chipsShown = category == TableCategory.seen
+    // their owners. A poker table shows every stack, as poker does.
+    final poker = table.isPoker;
+    final chipsShown = category == TableCategory.seen || poker
         ? t.everyoneChips
         : t.onlyYourChips;
+    // What the popup calls the table: a poker game by its own name, a Teen
+    // Patti table by its category.
+    final name = poker
+        ? t.pokerVariantName(table.category)
+        : _categoryName(t, category);
 
     // Whether this player can sit, and if not, what it would take.
     final String standing;
@@ -2251,25 +2354,35 @@ class _TableInfoDialog extends StatelessWidget {
     );
 
     final facts = <Widget>[
-      fact(Icons.style_rounded, t.categoryLabel, _categoryName(t, category)),
-      fact(Icons.toll_rounded, t.boot, formatChips(table.bootAmount)),
+      fact(Icons.style_rounded, t.categoryLabel, name),
+      // A poker table's own terms — the blinds or the ante, the buy-in, the
+      // cards dealt — in place of the boot, the blind moves and the pot limit
+      // it does not have.
+      if (poker) ...[
+        for (final row in _pokerFacts(t, table))
+          fact(row.icon, row.label, row.value, bold: row.highlight),
+      ] else ...[
+        fact(Icons.toll_rounded, t.boot, formatChips(table.bootAmount)),
+      ],
       fact(
         Icons.account_balance_wallet_rounded,
         t.entryLabel,
         entryValue,
         bold: table.minChips > 0,
       ),
-      fact(
-        Icons.visibility_off_rounded,
-        t.maxBlindsLabel,
-        '${table.maxBlindMoves}',
-      ),
-      fact(
-        Icons.savings_rounded,
-        t.potLimitLabel,
-        table.potUncapped ? t.potUnlimited : formatChips(table.maxPot),
-        bold: table.potUncapped,
-      ),
+      if (!poker) ...[
+        fact(
+          Icons.visibility_off_rounded,
+          t.maxBlindsLabel,
+          '${table.maxBlindMoves}',
+        ),
+        fact(
+          Icons.savings_rounded,
+          t.potLimitLabel,
+          table.potUncapped ? t.potUnlimited : formatChips(table.maxPot),
+          bold: table.potUncapped,
+        ),
+      ],
       fact(Icons.groups_rounded, t.playersLabel, t.playersUpTo(players)),
       if (turnSeconds > 0)
         fact(Icons.timer_outlined, t.turnTimeLabel, t.secondsEach(turnSeconds)),
@@ -2285,8 +2398,7 @@ class _TableInfoDialog extends StatelessWidget {
           const SizedBox(width: Space.md),
           Expanded(
             child: Text(
-              '${t.tableInfoTitle} · ${_categoryName(t, category)} '
-              '${formatChips(table.bootAmount)}',
+              '${t.tableInfoTitle} · $name ${formatChips(table.bootAmount)}',
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: AppTheme.label(text.titleMedium ?? const TextStyle()),
@@ -2310,9 +2422,9 @@ class _TableInfoDialog extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           // What happens at this kind of table, then who sees whose chips.
-          if (category == TableCategory.variation) ...[
+          if (category == TableCategory.variation || poker) ...[
             Text(
-              t.variationTableNote,
+              poker ? t.pokerVariantNote(table.category) : t.variationTableNote,
               style: text.bodyMedium?.copyWith(
                 fontWeight: FontWeight.w600,
                 color: glass.textDisplay,
