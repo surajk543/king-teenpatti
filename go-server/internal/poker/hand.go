@@ -146,12 +146,20 @@ func (t *Table) blindSeats(participants []*seat) (sb, bb *seat) {
 }
 
 // post takes a forced bet (blind or ante) from a seat: as much as the seat
-// has, marking it all-in when that is less.
+// has, marking it all-in when that is less. A BLIND is a bet on the first
+// street and stays in front of the player; an ANTE is collected into the pot
+// before the deal, so it is not part of any street's bet — without that, a
+// 5-Card Draw player opens the betting with the ante already counted as
+// their street bet, and the minimum bet the server advertises (and accepts)
+// moves no chips at all.
 func (t *Table) post(s *seat, amount int64) {
 	if s == nil || amount <= 0 {
 		return
 	}
-	t.stake(s, amount)
+	taken := t.stake(s, amount)
+	if !t.cfg.Variant.Blinds {
+		s.streetBet -= taken
+	}
 }
 
 // stake moves chips from a seat into the pot: the street bet, the hand's
@@ -195,12 +203,24 @@ func (t *Table) beginStreet(i int) {
 		t.showdown()
 		return
 	}
-	for _, s := range t.seatsInHand() {
-		s.acted = false
-		s.drew = false
+	// Street bets are cleared for EVERY seat dealt into the hand, not just
+	// the ones still in it: a seat that folded mid-street has no bet in front
+	// of it any more — those chips were collected into the pot the moment the
+	// street ended. Leaving the figure behind put a phantom bet on a packed
+	// seat for the rest of the hand and made potsNow subtract it twice, so
+	// poker.pots came out short of the pot beside it.
+	for _, s := range t.seats {
+		if s == nil || h.contributions[s.userID] == nil {
+			continue
+		}
 		if i > 0 {
 			s.streetBet = 0
 		}
+		if !s.inHand() {
+			continue
+		}
+		s.acted = false
+		s.drew = false
 	}
 	if i > 0 {
 		h.currentBet = 0
@@ -872,7 +892,7 @@ func (t *Table) endHandWithWinners(reason WinReason, hands map[int]Hand, reveals
 	if reason == WinShowdown || dealer != nil {
 		t.listener.OnShowdown(t.view, ShowdownEvent{Reveals: reveals, Community: game.CardCodes(h.community), Dealer: dealer, Reason: reason})
 	}
-	t.settle(reason, winners, results, reveals, dealer)
+	t.settle(reason, winners, nil, results, reveals, dealer)
 }
 
 // endHandRefunded ends a hand nobody could win (the room destroyed under a
@@ -886,6 +906,15 @@ func (t *Table) endHandRefunded(reason WinReason) {
 		if entry.contributed <= 0 {
 			continue
 		}
+		if entry.leftMidHand {
+			// Someone who walked out mid-hand was resolved when they walked:
+			// their stake stays in the pot (CLAUDE.md §5.1) and their wallet
+			// was written through at their own checkpoint. Crediting them
+			// here would move chips no seat holds, under an action id their
+			// leave has already spent — the refund would be refused as a
+			// duplicate and silently lost.
+			continue
+		}
 		entry.chips += entry.contributed
 		entry.won = entry.contributed
 		if s := t.findSeat(entry.userID); s != nil {
@@ -896,31 +925,14 @@ func (t *Table) endHandRefunded(reason WinReason) {
 			}
 		}
 	}
-	t.settle(reason, map[string]bool{}, []PotResult{}, []Reveal{}, nil)
+	t.settle(reason, map[string]bool{}, nil, []PotResult{}, []Reveal{}, nil)
 }
 
 // settle is CHECKPOINT 3 of 3 — the hand end: one Settle for everyone who
 // put chips in, then the announcement and the next countdown.
-func (t *Table) settle(reason WinReason, winners map[string]bool, pots []PotResult, reveals []Reveal, dealer *DealerReveal) {
+func (t *Table) settle(reason WinReason, winners map[string]bool, pushes map[string]bool, pots []PotResult, reveals []Reveal, dealer *DealerReveal) {
 	h := t.hand
 	t.clearTurnTimer()
-	// A player who left mid-hand is skipped below, because their stake was
-	// banked by their own hand_left checkpoint. When that checkpoint was
-	// REFUSED, nothing retries it — a checkpoint has no retry chain, only the
-	// hand-end settle does — so their stake would stay unbanked while the
-	// winner is paid a pot that includes it, and the books would gain chips.
-	// Bank it here instead, under the SAME action id the leave used, so a
-	// write whose acknowledgement was lost comes back duplicate_action and
-	// the money still moves exactly once. A checkpoint that landed leaves
-	// chips == chipsWritten and nothing to do, so the ordinary hand writes
-	// the same rows it always did.
-	for _, userID := range h.contribOrder {
-		entry := h.contributions[userID]
-		if entry == nil || !entry.leftMidHand || entry.chips == entry.chipsWritten {
-			continue
-		}
-		t.checkpoint(entry, game.LedgerReasonHandLeft, game.LeftActionID(h.id, userID), true)
-	}
 	entries := make([]game.SettleEntry, 0, len(h.contribOrder))
 	summary := make([]HandSummaryEntry, 0, len(h.contribOrder))
 	for _, userID := range h.contribOrder {
@@ -929,23 +941,47 @@ func (t *Table) settle(reason WinReason, winners map[string]bool, pots []PotResu
 			continue
 		}
 		isWinner := winners[userID]
+		isPush := pushes[userID]
 		summary = append(summary, HandSummaryEntry{UserID: userID, DisplayName: entry.displayName, SeatIndex: entry.seatIndex, Contributed: entry.contributed, Won: entry.won, Status: entry.status})
-		if entry.leftMidHand && !isWinner {
-			continue // resolved by their own leave checkpoint
-		}
 		rowReason := game.LedgerReasonHandLoss
+		outcome := true
 		var pot int64
-		if isWinner {
+		switch {
+		case isWinner:
 			rowReason = game.LedgerReasonHandWin
 			pot = entry.won
+		case isPush:
+			// Against the house a tie returns both bets: the hand is resolved
+			// and the money came back, so the row records it as a hand that
+			// ended level — never a win (which would move hands_won,
+			// total_winnings and biggest_pot for a hand nothing was won in)
+			// and never a loss.
+			rowReason = game.LedgerReasonHandWin
+		case entry.leftMidHand:
+			// Their stake was banked when they walked out, so ordinarily
+			// there is nothing to write here and the hand's books are the
+			// same as they always were. The exception is a checkpoint the
+			// ledger REFUSED: nothing else retries one — only the hand-end
+			// settle has a retry chain — so their stake would stay unbanked
+			// while the winner is paid a pot that includes it, and the books
+			// would gain chips out of nowhere. Whatever is still owed
+			// therefore rides THIS request, and so the retry chain, as a
+			// money-only row: the counters were the leave's to move, and the
+			// settle's own action id is used because the leave's is either
+			// spent or about to be by a write of ours that landed unheard.
+			if entry.chips == entry.chipsWritten {
+				continue
+			}
+			outcome = false
 		}
 		entries = append(entries, game.SettleEntry{
 			UserID:      userID,
 			Delta:       entry.chips - entry.chipsWritten,
 			ActionID:    game.SettleActionID(h.id, userID),
 			Reason:      rowReason,
-			Outcome:     true,
+			Outcome:     outcome,
 			IsWinner:    isWinner,
+			Push:        isPush,
 			DidChaal:    entry.played,
 			LeftMidHand: entry.leftMidHand,
 			Pot:         pot,

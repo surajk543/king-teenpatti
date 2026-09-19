@@ -106,6 +106,12 @@ type SettleEntry struct {
 	Outcome bool
 	// IsWinner drives hands_won, total_winnings and biggest_pot.
 	IsWinner bool
+	// Push marks a hand that ended level for this player: 3-Card Poker's tie
+	// against the house, where both bets come back (internal/poker). It is
+	// neither a win nor a loss, so it moves no counter at all — without it a
+	// push counted as one or the other, and a player's lifetime winnings grew
+	// by a stake that was only handed back. Never set by Teen Patti.
+	Push bool
 	// DidChaal drives hands_played on an outcome row (requirement 16).
 	DidChaal bool
 	// LeftMidHand drives hands_left_mid, and excludes the row from hands_lost.

@@ -35,6 +35,9 @@ func (t *Table) resolveDealer() {
 
 	reveals := []Reveal{}
 	winners := map[string]bool{}
+	// A tie returns both bets: the hand resolves like a win, but nothing was
+	// won, so it must not move hands_won, total_winnings or biggest_pot.
+	pushes := map[string]bool{}
 	pots := []PotResult{}
 	for _, s := range t.seatsInHand() {
 		entry := h.contributions[s.userID]
@@ -70,12 +73,21 @@ func (t *Table) resolveDealer() {
 			s.chips += back
 			entry.chips = s.chips
 			entry.won = back
-			h.pot -= min(back, h.pot)
 		}
-		if outcome == "win" || outcome == "push" {
+		// h.pot is NOT drawn down as the house pays. It is what was STAKED,
+		// which is what poker:handEnded reports as the hand's pot (events.go
+		// says "everything that was on the table") and what every other
+		// variant sends; draining it here told the client a hand whose pot
+		// was 800 had a pot of 0. The payouts travel in pots[].winners and
+		// reveals[].won.
+		switch outcome {
+		case "win":
 			winners[s.userID] = true
 			s.status = game.SeatWon
-		} else {
+		case "push":
+			pushes[s.userID] = true
+			s.status = game.SeatWon
+		default:
 			s.status = game.SeatLost
 		}
 		entry.status = s.status
@@ -84,7 +96,7 @@ func (t *Table) resolveDealer() {
 	}
 	// Folded players: their ante is the house's.
 	t.listener.OnShowdown(t.view, ShowdownEvent{Reveals: reveals, Community: []string{}, Dealer: dealer, Reason: WinDealer})
-	t.settle(WinDealer, winners, pots, reveals, dealer)
+	t.settle(WinDealer, winners, pushes, pots, reveals, dealer)
 }
 
 func potWinnersFor(s *seat, back int64, handName string) []PotWinner {

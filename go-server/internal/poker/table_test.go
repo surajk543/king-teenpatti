@@ -1,6 +1,7 @@
 package poker
 
 import (
+	"context"
 	"encoding/json"
 	"sync"
 	"testing"
@@ -1047,11 +1048,11 @@ func TestEveryPlayerFoldingToTheDealerCostsThemTheirAntes(t *testing.T) {
 	}
 }
 
-// A hand_left checkpoint the ledger refuses is retried at the hand's end,
-// under the same action id. Nothing else would ever write it — a checkpoint
-// has no retry chain — and the hand end skips a player who left, so the
-// stake they had already put in stayed unbanked while the winner was paid a
-// pot that included it: the books gained chips out of nowhere.
+// A hand_left checkpoint the ledger refuses is carried by the hand-end
+// settle. Nothing else would ever write it — a checkpoint has no retry chain
+// — and the hand end skips a player who left, so the stake they had already
+// put in stayed unbanked while the winner was paid a pot that included it:
+// the books gained chips out of nowhere.
 func TestALeaveCheckpointTheLedgerRefusedIsBankedAtTheHandEnd(t *testing.T) {
 	h := newHarness(t, TexasHoldem)
 	h.seat("a", 10_000)
@@ -1117,4 +1118,241 @@ func TestACheckpointRefusedAsADuplicateCountsAsWrittenThrough(t *testing.T) {
 		}
 	}
 	h.books.mu.Unlock()
+}
+
+// The same fault, lasting longer: the ledger is down when the player leaves
+// AND still down when the hand ends. The settle is refused too, so the money
+// owed has to ride the SETTLE's retry chain — a checkpoint has none. Writing
+// it as a one-shot checkpoint at the hand's end (which is what the first fix
+// did) left it unwritten for good, and the winner was still paid a pot that
+// included the leaver's stake.
+func TestALeaveRefusedRightThroughTheHandEndLandsWhenTheLedgerComesBack(t *testing.T) {
+	h := newHarness(t, TexasHoldem)
+	h.seat("a", 10_000)
+	h.seat("b", 10_000)
+	h.seat("c", 10_000)
+	h.deal()
+	h.mustAct("a", ActionRaise, 1_000)
+	h.mustAct("b", ActionCall)
+
+	h.books.mu.Lock()
+	h.books.refuse = true // the database goes down here...
+	h.books.mu.Unlock()
+	if _, err := h.table.RemovePlayer("b", game.LeaveReasonLeft); err != nil {
+		t.Fatal(err)
+	}
+	h.mustAct("c", ActionFold) // ...and stays down through the hand's end
+
+	// Nothing landed while the ledger refused: the leaver is still banked at
+	// the figure they sat down with, and the pot they contributed to has been
+	// paid in memory only.
+	if got := h.books.wallets["b"]; got != 10_000 {
+		t.Fatalf("the refused leave wrote something after all: b banked at %d", got)
+	}
+	h.books.mu.Lock()
+	h.books.refuse = false // the database comes back
+	h.books.mu.Unlock()
+	// The settle's retry chain re-sends the request it was refused.
+	for i := 0; i < 6; i++ {
+		h.clock.Advance(h.cfg.NextHandDelay * 4)
+		h.books.mu.Lock()
+		banked := h.books.wallets["b"]
+		h.books.mu.Unlock()
+		if banked != 10_000 {
+			break
+		}
+	}
+
+	if total := h.books.total(); total != 30_000 {
+		h.books.mu.Lock()
+		for _, r := range h.books.rows {
+			t.Logf("row %s %s delta=%d", r.UserID, r.Reason, r.Delta)
+		}
+		h.books.mu.Unlock()
+		t.Fatalf("the books hold %d, want 30,000: the leaver's stake was never banked", total)
+	}
+	if got := h.books.wallets["b"]; got != 9_000 {
+		t.Fatalf("the leaver is banked at %d, want 9,000 (their stake stays in the pot)", got)
+	}
+}
+
+// A room destroyed with a hand live refunds each stake to the seat that put
+// it in — but NOT to someone who had already left: their stake stayed in the
+// pot when they walked out (CLAUDE.md §5.1) and their wallet was written
+// through at their own checkpoint. Crediting them here moved chips no seat
+// held, under an action id their leave had already spent, so the write was
+// refused as a duplicate and the money simply vanished from the books.
+func TestADestroyedRoomDoesNotRefundSomeoneWhoAlreadyLeft(t *testing.T) {
+	h := newHarness(t, TexasHoldem)
+	h.seat("a", 10_000)
+	h.seat("b", 10_000)
+	h.seat("c", 10_000)
+	h.deal()
+	h.mustAct("a", ActionRaise, 1_000)
+	if _, err := h.table.RemovePlayer("a", game.LeaveReasonLeft); err != nil {
+		t.Fatal(err)
+	}
+	if got := h.books.wallets["a"]; got != 9_000 {
+		t.Fatalf("the leaver is banked at %d, want 9,000", got)
+	}
+	if err := h.table.Destroy(); err != nil {
+		t.Fatal(err)
+	}
+	h.table.WaitSettlements(context.Background())
+
+	if got := h.books.wallets["a"]; got != 9_000 {
+		t.Fatalf("the leaver is banked at %d after the destroy, want 9,000: their stake was resolved when they left", got)
+	}
+	if total := h.books.total(); total != 30_000-1_000 {
+		h.books.mu.Lock()
+		for _, r := range h.books.rows {
+			t.Logf("row %s %s delta=%d", r.UserID, r.Reason, r.Delta)
+		}
+		h.books.mu.Unlock()
+		t.Fatalf("the books hold %d, want %d (everyone still in is refunded; the leaver's 1,000 stays where it was)", total, 30_000-1_000)
+	}
+}
+
+// A seat that folds mid-street has no bet in front of it afterwards: those
+// chips were collected into the pot when the street ended. Keeping the
+// figure put a phantom bet on a packed seat for the rest of the hand and
+// made potsNow subtract it a second time, so poker.pots came out short of
+// the `pot` in the same snapshot.
+func TestAFoldedSeatKeepsNoStreetBetAndThePotsStillAddUp(t *testing.T) {
+	h := newHarness(t, TexasHoldem)
+	h.seat("a", 10_000)
+	h.seat("b", 10_000)
+	h.seat("c", 10_000)
+	h.deal()
+	// Preflop: everyone in for the big blind (the blind itself only checks).
+	for h.street() == StreetPreflop {
+		id := h.turn()
+		if id == "" {
+			break
+		}
+		view, _ := h.table.SerializeFor(id)
+		if view.You != nil && view.You.Options != nil && view.You.Options.Call {
+			h.mustAct(id, ActionCall)
+			continue
+		}
+		h.mustAct(id, ActionCheck)
+	}
+	if h.street() != StreetFlop {
+		t.Fatalf("street %s, want the flop", h.street())
+	}
+	// On the flop: the first bets, the second calls, the third folds with
+	// chips of its own already in front of it — so it folds AFTER betting.
+	h.mustAct(h.turn(), ActionBet, 400)
+	h.mustAct(h.turn(), ActionCall)
+	h.mustAct(h.turn(), ActionFold)
+
+	view, _ := h.table.SerializeFor("a")
+	var pots int64
+	for _, p := range view.Poker.Pots {
+		pots += p.Amount
+	}
+	var street int64
+	for _, s := range view.Seats {
+		if s.Empty {
+			continue
+		}
+		street += s.StreetBet
+		if s.Status == game.SeatPacked && s.StreetBet != 0 {
+			t.Fatalf("seat %d folded and still shows a street bet of %d", s.SeatIndex, s.StreetBet)
+		}
+	}
+	if pots+street != view.Pot {
+		t.Fatalf("pots %d + street bets %d = %d, but the pot is %d", pots, street, pots+street, view.Pot)
+	}
+}
+
+// An ante is COLLECTED into the pot before the deal, not left in front of
+// the player: it is not part of the first street's bet. It used to sit in
+// seat.streetBet, so on 5-Card Draw's first street every seat already
+// "matched" the ante and the minimum bet the server advertised — and
+// accepted — moved no chips at all.
+func TestAnAnteIsCollectedSoTheSmallestBetActuallyCostsChips(t *testing.T) {
+	h := newHarness(t, FiveCardDraw)
+	h.seat("a", 10_000)
+	h.seat("b", 10_000)
+	h.deal()
+	ante := h.cfg.BootAmount
+
+	first := h.turn()
+	view, _ := h.table.SerializeFor(first)
+	if view.You.StreetBet != 0 {
+		t.Fatalf("the ante is sitting in the street bet (%d): it was collected into the pot", view.You.StreetBet)
+	}
+	options := view.You.Options
+	if options == nil || !options.Bet {
+		t.Fatalf("no bet offered: %+v", options)
+	}
+	if options.MinBet != ante {
+		t.Fatalf("minBet %d, want the ante %d", options.MinBet, ante)
+	}
+	before := h.chips(first)
+	h.mustAct(first, ActionBet, options.MinBet)
+	if spent := before - h.chips(first); spent != ante {
+		t.Fatalf("the smallest bet cost %d, want %d", spent, ante)
+	}
+}
+
+// 3-Card Poker's tie is a PUSH: both bets come back and nothing is won. It
+// used to be booked as a win — hands_won, total_winnings and biggest_pot all
+// moved for a hand in which the player ended exactly level, so a run of ties
+// inflated their lifetime winnings by the stake they had merely been handed
+// back. The row still records the hand; it just moves no counter.
+func TestAThreeCardPokerPushIsNeitherWonNorLost(t *testing.T) {
+	h := newHarness(t, ThreeCardPoker)
+	h.seat("a", 10_000)
+	h.seat("b", 10_000)
+	h.deal()
+	ante := h.cfg.BootAmount
+	h.setCards("a", "Qs", "Th", "2d")
+	h.setCards("b", "9s", "5h", "3d")
+	h.setDealer("Qh", "Td", "2s") // exactly a's hand, suit for suit in rank
+
+	for i := 0; i < 2; i++ {
+		id := h.turn()
+		if id == "" {
+			break
+		}
+		h.mustAct(id, ActionPlay)
+	}
+
+	if got := h.chips("a"); got != 10_000 {
+		t.Fatalf("the push left a at %d, want 10,000 — a tie returns both bets", got)
+	}
+	var row *game.SettleEntry
+	h.books.mu.Lock()
+	for i := range h.books.rows {
+		if h.books.rows[i].UserID == "a" {
+			row = &h.books.rows[i]
+		}
+	}
+	h.books.mu.Unlock()
+	if row == nil {
+		t.Fatal("the push wrote no row at all: the hand must still be recorded")
+	}
+	if row.IsWinner {
+		t.Fatalf("the push is booked as a win (%+v): hands_won and total_winnings would move", *row)
+	}
+	if !row.Push {
+		t.Fatalf("the push is not marked as one (%+v): it would count as a loss", *row)
+	}
+	if row.Pot != 0 {
+		t.Fatalf("the push carries a pot of %d: nothing was won", row.Pot)
+	}
+	if row.Delta != 0 {
+		t.Fatalf("the push moved %d chips", row.Delta)
+	}
+
+	// And the hand reports the pot that was STAKED, not the house's residue.
+	ended, ok := h.rec.last("handEnded").(HandEndedEvent)
+	if !ok {
+		t.Fatal("no hand ended")
+	}
+	if want := 4 * ante; ended.Pot != want {
+		t.Fatalf("handEnded says the pot was %d, want %d (two antes and two play bets)", ended.Pot, want)
+	}
 }

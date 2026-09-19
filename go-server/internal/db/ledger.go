@@ -99,12 +99,14 @@ func applyCheckpoint(ctx context.Context, tx pgx.Tx, entry game.SettleEntry, han
 	// checkpoint moves money only. "Played" means chips beyond the boot —
 	// posting the ante and folding straight away is not a hand played
 	// (requirement 16).
+	// A push (3-Card Poker's tie) is neither won nor lost: Push suppresses
+	// both, so only hands_played moves.
 	played, won, lost, left := 0, 0, 0, 0
 	var gross int64
 	if entry.Outcome {
 		played = boolToInt(entry.DidChaal)
 		won = boolToInt(entry.IsWinner)
-		lost = boolToInt(!entry.IsWinner && !entry.LeftMidHand)
+		lost = boolToInt(!entry.IsWinner && !entry.LeftMidHand && !entry.Push)
 		left = boolToInt(entry.LeftMidHand)
 		if entry.IsWinner {
 			gross = entry.Pot
