@@ -8,10 +8,12 @@ import '../models/dtos.dart';
 import '../state/game_state.dart';
 import '../theme/app_theme.dart';
 import '../widgets/buy_chips.dart';
+import '../widgets/deal_flight.dart';
 import '../widgets/drifting_chips.dart';
 import '../widgets/playing_card.dart';
 import '../widgets/poker_chip.dart';
 import '../widgets/pot_flight.dart';
+import '../widgets/rules_sheet.dart';
 import '../widgets/seat_pod.dart';
 import '../widgets/table_chrome.dart';
 import '../widgets/variation_prompt.dart';
@@ -59,6 +61,18 @@ class _PokerTableScreenState extends State<PokerTableScreen> {
     _scaffold.currentState?.openDrawer();
   }
 
+  /// The rulebook key in the rail (owner, 19 Sep 2026). It opens the sheet
+  /// scoped to THIS room — only this game's rules and only its ranking, never
+  /// the other three or Teen Patti's — by handing `showRules` the menu entry
+  /// the room would have had ([LobbyTable.ofRoom]). Nothing happens at a table
+  /// whose snapshot has not arrived yet.
+  void _openRules() {
+    final room = context.read<GameState>().room;
+    final table = room == null ? null : LobbyTable.ofRoom(room);
+    if (table == null) return;
+    showRules(context, table: table);
+  }
+
   /// Puts the menu back behind the edge once the drawer has finished closing
   /// (see the Teen Patti table's `_drawerGone`).
   void _drawerGone() {
@@ -96,7 +110,7 @@ class _PokerTableScreenState extends State<PokerTableScreen> {
                 Expanded(
                   child: Row(
                     children: [
-                      SideRail(onOpen: _open),
+                      SideRail(onOpen: _open, onRules: _openRules),
                       const Expanded(child: _PokerFelt()),
                     ],
                   ),
@@ -151,11 +165,30 @@ class _PokerFelt extends StatelessWidget {
   /// the waiting line stands when no hand is running.
   static const double _boardDy = 0.29;
 
-  /// The waiting / starting line when the felt is empty, and the line the
-  /// viewer is asked something on ("Choose up to 3 cards to exchange") while
-  /// a hand is on the table — the latter below the pot, clear of the board.
+  /// The waiting / starting line when the felt is empty: between the two top
+  /// seats, where the board would be.
   static const double _statusDy = 0.28;
-  static const double _promptDy = 0.585;
+
+  /// The same line while a hand is on the table — "Choose up to 3 cards to
+  /// exchange", "Play or fold?", "Starting game…" over a finished hand — in
+  /// the one pocket of open felt a live hand leaves: right of the pot, under
+  /// the top-right seat's column and above the key cluster, short of the
+  /// right seat's column. It used to sit under the pot in the middle, which
+  /// is where the viewer's own hand name and bet stand (Pixel 6, 19 Sep
+  /// 2026). Two lines at most, scaled to the pocket (`_promptW`) — measured
+  /// at `_promptWrap` times that width first, so "Choose up to 3 cards to
+  /// exchange" breaks in two and is brought down once instead of being
+  /// squashed onto a single line a pocket wide.
+  static const double _promptDx = 0.74;
+  static const double _promptDy = 0.615;
+  static const double _promptW = 0.195;
+  static const double _promptWrap = 1.9;
+
+  /// Where the dealer's hand (3-Card Poker) ends: its FOOT, above the pot's
+  /// plinth. Anchored there rather than by its middle because the reveal adds
+  /// a line under its cards, and a column anchored by its middle grew down
+  /// across the plinth's top edge (Pixel 6, 19 Sep 2026).
+  static const double _dealerFootDy = 0.375;
 
   /// The street tag's line, the category tag's on the Teen Patti felt.
   static const double _tagDy = 0.075;
@@ -186,9 +219,15 @@ class _PokerFelt extends StatelessWidget {
     }
     final t = state.t;
     final seats = state.seatsInViewOrder();
-    // The finished hand, while its celebration is up. The snapshot keeps the
-    // result until the next deal; the celebration is what says to draw it.
-    final result = state.pokerShowing ? state.pokerResult : null;
+    // The finished hand, until the next deal takes its place. The SNAPSHOT is
+    // what says a hand is over — the server keeps `poker.result` from the
+    // settle until the next `startHand` clears it (internal/poker/hand.go
+    // `t.lastResult`), and after the settle it is the ONLY record of the
+    // reveals and of 3-Card Poker's dealer. The celebration's own clock runs
+    // to the deal the server *scheduled*, so keying the reveals on it took
+    // every turned-over hand off the felt a beat early. [GameState.pokerResult]
+    // prefers the event's copy, which arrives a moment sooner.
+    final result = state.pokerResult;
     final turnSeat = room.turn?.seatIndex;
     final progress = state.turnProgress;
     final pad = Dim.feltPad(MediaQuery.sizeOf(context).width);
@@ -198,16 +237,20 @@ class _PokerFelt extends StatelessWidget {
         room.state == TableState.betting &&
         s.seatIndex == turnSeat;
 
-    // A hand is on the table until its celebration has finished: the seats
-    // keep their bets and their cards through the winner's moment.
+    // A hand is on the table until the next deal replaces it: the seats keep
+    // their bets and their cards through the winner's moment and for as long
+    // as the finished hand is on show.
     final handLive =
         room.state == TableState.betting ||
         room.state == TableState.showdown ||
-        state.pokerShowing;
+        result != null;
     final board = result != null && result.community.isNotEmpty
         ? result.community
         : poker.community;
-    final dealer = result?.dealer ?? poker.dealer;
+    final dealer = PokerDealer.shown(
+      live: poker.dealer,
+      finished: result?.dealer,
+    );
     final threeCard = poker.variant == PokerVariant.threeCardPoker;
 
     return Padding(
@@ -306,6 +349,25 @@ class _PokerFelt extends StatelessWidget {
           return Stack(
             clipBehavior: Clip.none,
             children: [
+              // The deal: a back flies from the deck to every seat in the
+              // hand, as many as the game deals each, before the cards are
+              // shown. The Teen Patti felt's own layer, with the count from
+              // the poker block.
+              Positioned.fill(
+                child: RepaintBoundary(
+                  child: IgnorePointer(
+                    child: DealFlights(
+                      seats: room.seats,
+                      roomId: room.roomId,
+                      handNo: room.handNo,
+                      centreOf: seatCentre,
+                      deck: Offset(w / 2, h * 0.42),
+                      cardHeight: (podW * 0.42).clamp(18.0, 46.0),
+                      cards: poker.holeCards > 0 ? poker.holeCards : 3,
+                    ),
+                  ),
+                ),
+              ),
               at(
                 const Offset(0.5, _tagDy),
                 _StreetTag(room: room, poker: poker),
@@ -320,14 +382,19 @@ class _PokerFelt extends StatelessWidget {
                   width: boardW,
                 )
               else if (threeCard && dealer != null)
-                at(
-                  const Offset(0.5, _boardDy),
-                  _DealerHand(
+                Positioned(
+                  left: (0.5 * w - boardW / 2)
+                      .clamp(0.0, math.max(0.0, w - boardW))
+                      .toDouble(),
+                  width: boardW,
+                  bottom: h * (1 - _dealerFootDy),
+                  child: _DealerHand(
                     dealer: dealer,
-                    revealed: result != null,
+                    // Face up exactly when the cards are in hand, so the
+                    // verdict is never written under three backs.
+                    revealed: dealer.cards.isNotEmpty,
                     cardHeight: boardCardH,
                   ),
-                  width: boardW,
                 ),
               at(
                 const Offset(0.5, _potDy),
@@ -336,15 +403,29 @@ class _PokerFelt extends StatelessWidget {
                   pots: result != null && result.pots.isNotEmpty
                       ? result.pots
                       : poker.pots,
+                  // A dealer game's pots are one per player against the
+                  // house, not a main pot and side pots: no capsules.
+                  dealerGame: threeCard || poker.dealer != null,
                   chipSize: (podW * 0.17).clamp(12.0, 20.0),
                 ),
                 width: w * 0.24,
               ),
-              at(
-                Offset(0.5, handLive ? _promptDy : _statusDy),
-                _PokerStatus(room: room),
-                width: w * 0.28,
-              ),
+              if (handLive)
+                at(
+                  const Offset(_promptDx, _promptDy),
+                  _PokerStatus(
+                    room: room,
+                    pocket: true,
+                    wrapAt: w * _promptW * _promptWrap,
+                  ),
+                  width: w * _promptW,
+                )
+              else
+                at(
+                  const Offset(0.5, _statusDy),
+                  _PokerStatus(room: room, pocket: false),
+                  width: w * 0.28,
+                ),
 
               for (var i = 1; i < seatPlaces.length; i++)
                 at(seatPlaces[i], pod(i)),
@@ -522,24 +603,31 @@ class _EmptySlot extends StatelessWidget {
   );
 }
 
-/// A card landing on the board: it grows and fades in where it lies, once,
-/// keyed on the card so a redraw never replays it.
+/// A card landing where it lies — on the board, or in the viewer's hand: it
+/// grows and fades in, once, keyed on the card so a redraw never replays it.
+/// [delay] holds it invisible first, so a hand's cards arrive one after
+/// another rather than all at once.
 class _Arrive extends StatelessWidget {
-  const _Arrive({super.key, required this.child});
+  const _Arrive({super.key, required this.child, this.delay = Duration.zero});
 
   final Widget child;
+  final Duration delay;
 
   @override
-  Widget build(BuildContext context) => TweenAnimationBuilder<double>(
-    tween: Tween(begin: 0, end: 1),
-    duration: Motion.enter,
-    curve: Motion.settle,
-    child: child,
-    builder: (context, v, child) => Opacity(
-      opacity: v.clamp(0.0, 1.0),
-      child: Transform.scale(scale: 0.7 + 0.3 * v, child: child),
-    ),
-  );
+  Widget build(BuildContext context) {
+    final total = delay + Motion.enter;
+    final from = delay.inMicroseconds / total.inMicroseconds;
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: 1),
+      duration: total,
+      curve: Interval(from, 1, curve: Motion.settle),
+      child: child,
+      builder: (context, v, child) => Opacity(
+        opacity: v.clamp(0.0, 1.0),
+        child: Transform.scale(scale: 0.7 + 0.3 * v, child: child),
+      ),
+    );
+  }
 }
 
 /// 3-Card Poker's house hand, at the top of the felt: three backs while the
@@ -619,11 +707,21 @@ class _DealerHand extends StatelessWidget {
 /// short stack has split it, each pot as a capsule beneath: the main pot
 /// first, then the side pots.
 class _Pots extends StatelessWidget {
-  const _Pots({required this.room, required this.pots, required this.chipSize});
+  const _Pots({
+    required this.room,
+    required this.pots,
+    required this.chipSize,
+    this.dealerGame = false,
+  });
 
   final RoomState room;
   final List<PokerPot> pots;
   final double chipSize;
+
+  /// A game against the house (3-Card Poker): every player's stake is a pot
+  /// of its own, so the plinth alone says what is on the table and no
+  /// "side pot" capsules are drawn.
+  final bool dealerGame;
 
   @override
   Widget build(BuildContext context) {
@@ -676,7 +774,7 @@ class _Pots extends StatelessWidget {
             ],
           ),
         ),
-        if (pots.length > 1) ...[
+        if (pots.length > 1 && !dealerGame) ...[
           const SizedBox(height: Space.xxs),
           Wrap(
             alignment: WrapAlignment.center,
@@ -732,9 +830,24 @@ class _PotCapsule extends StatelessWidget {
 /// decision against the dealer), or that their seat is being held for a chip
 /// purchase.
 class _PokerStatus extends StatelessWidget {
-  const _PokerStatus({required this.room});
+  const _PokerStatus({
+    required this.room,
+    required this.pocket,
+    this.wrapAt = 0,
+  });
 
   final RoomState room;
+
+  /// Drawn in the pocket right of the pot (a hand on the table) rather than
+  /// across the top of the felt: the line takes two lines there, and the pair
+  /// is scaled to the pocket's width.
+  final bool pocket;
+
+  /// The width the pocket's line is measured at before it is scaled down to
+  /// fit — wider than the pocket itself, so a sentence breaks into two and is
+  /// brought down once rather than being squashed onto one line. Ignored
+  /// unless [pocket].
+  final double wrapAt;
 
   @override
   Widget build(BuildContext context) {
@@ -742,6 +855,11 @@ class _PokerStatus extends StatelessWidget {
     final theme = Theme.of(context);
     final t = state.t;
     final graceLeft = room.you?.unfundedSecondsLeft(DateTime.now());
+    // The clock folded this player's hand: said here for the rest of the
+    // hand, where a toast is one glance long.
+    final timedOut =
+        state.pokerTimedOutHand == room.handNo &&
+        room.you?.status == SeatState.packed;
 
     final String line;
     if (graceLeft != null) {
@@ -750,6 +868,8 @@ class _PokerStatus extends StatelessWidget {
       line = t.exchangeUpTo(state.maxDiscards);
     } else if (state.canPlay) {
       line = t.playOrFold;
+    } else if (timedOut && room.state == TableState.betting) {
+      line = t.pokerTimedOut;
     } else {
       line = switch (room.state) {
         TableState.waiting => '${t.waitingForPlayers} (${room.minPlayers})',
@@ -775,32 +895,44 @@ class _PokerStatus extends StatelessWidget {
           child: child,
         ),
       ),
+      // Scaled down to whatever room the place has, never cut. In the pocket
+      // the line is WRAPPED first and scaled after: a sentence squeezed onto
+      // one line of a 100dp pocket is a third the size of the same sentence
+      // across two, and [wrapAt] is the width it is measured at before the
+      // whole block is brought down to the slot.
       child: FittedBox(
         key: ValueKey(graceLeft != null ? 'unfunded-grace' : line),
         fit: BoxFit.scaleDown,
-        child: Text(
-          line,
-          style:
-              AppTheme.label(
-                base,
-                colour: graceLeft != null
-                    ? AppTheme.amber
-                    : mine
-                    ? AppTheme.goldBright
-                    : theme.brightness == Brightness.dark
-                    ? AppTheme.boneInk.withValues(alpha: 0.82)
-                    : AppTheme.inkOnLight.withValues(alpha: 0.78),
-                weight: FontWeight.w700,
-              ).copyWith(
-                shadows: mine
-                    ? [
-                        Shadow(
-                          color: AppTheme.goldBright.withValues(alpha: 0.22),
-                          blurRadius: 6,
-                        ),
-                      ]
-                    : null,
-              ),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: pocket && wrapAt > 0 ? wrapAt : double.infinity,
+          ),
+          child: Text(
+            line,
+            maxLines: pocket ? 2 : 1,
+            textAlign: TextAlign.center,
+            style:
+                AppTheme.label(
+                  base,
+                  colour: graceLeft != null
+                      ? AppTheme.amber
+                      : mine
+                      ? AppTheme.goldBright
+                      : theme.brightness == Brightness.dark
+                      ? AppTheme.boneInk.withValues(alpha: 0.82)
+                      : AppTheme.inkOnLight.withValues(alpha: 0.78),
+                  weight: FontWeight.w700,
+                ).copyWith(
+                  shadows: mine
+                      ? [
+                          Shadow(
+                            color: AppTheme.goldBright.withValues(alpha: 0.22),
+                            blurRadius: 6,
+                          ),
+                        ]
+                      : null,
+                ),
+          ),
         ),
       ),
     );
@@ -987,10 +1119,20 @@ class _PokerHand extends StatelessWidget {
                       wild: i < cards.length && marked.contains(cards[i]),
                       cardHeight: cardHeight,
                       label: t.draw,
-                      child: PlayingCard(
-                        height: cardHeight,
-                        code: i < cards.length ? cards[i] : null,
-                        dimmed: packed,
+                      // Each card arrives a beat after the one before it,
+                      // once per card: keyed on the card itself, so a hand
+                      // re-dealt after a draw brings only its new cards in.
+                      child: _Arrive(
+                        key: ValueKey(
+                          'own-${room.handNo}-$i-'
+                          '${i < cards.length ? cards[i] : 'back'}',
+                        ),
+                        delay: DealFlights.stagger * i,
+                        child: PlayingCard(
+                          height: cardHeight,
+                          code: i < cards.length ? cards[i] : null,
+                          dimmed: packed,
+                        ),
                       ),
                     ),
                   ),
@@ -1144,38 +1286,45 @@ class _PokerKeys extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              MachinedKey(
-                width: halfW,
-                height: keyH,
-                icon: checking
-                    ? Icons.check_rounded
-                    : Icons.arrow_forward_rounded,
-                label: checking ? t.check : t.call,
-                amount: checking ? null : formatChips(callAmount),
-                alive: canMatch,
-                primary: !bottomPrimary,
-                onPressed: state.canCheck
-                    ? state.pokerCheck
-                    : state.canCall
-                    ? state.pokerCall
-                    : null,
-              ),
-              SizedBox(width: gap),
-              MachinedKey(
-                width: halfW,
-                height: keyH,
-                icon: Icons.local_fire_department_rounded,
-                label: t.allIn,
-                amount: formatChips(state.pokerAllInAmount),
-                alive: state.canAllIn,
-                edge: AppTheme.amber.withValues(alpha: 0.55),
-                onPressed: state.canAllIn ? state.pokerAllIn : null,
-              ),
-            ],
-          ),
+          // On the draw and decision streets there is nothing to check, call
+          // or shove: the row stands empty rather than dark ("Call 0",
+          // "All-in 0" over the Draw key, Pixel 6, 19 Sep 2026), and keeps
+          // its height so the cluster — and the felt above it — do not jump.
+          if (bottomPrimary)
+            SizedBox(width: rowW, height: keyH)
+          else
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                MachinedKey(
+                  width: halfW,
+                  height: keyH,
+                  icon: checking
+                      ? Icons.check_rounded
+                      : Icons.arrow_forward_rounded,
+                  label: checking ? t.check : t.call,
+                  amount: checking ? null : formatChips(callAmount),
+                  alive: canMatch,
+                  primary: true,
+                  onPressed: state.canCheck
+                      ? state.pokerCheck
+                      : state.canCall
+                      ? state.pokerCall
+                      : null,
+                ),
+                SizedBox(width: gap),
+                MachinedKey(
+                  width: halfW,
+                  height: keyH,
+                  icon: Icons.local_fire_department_rounded,
+                  label: t.allIn,
+                  amount: formatChips(state.pokerAllInAmount),
+                  alive: state.canAllIn,
+                  edge: AppTheme.amber.withValues(alpha: 0.55),
+                  onPressed: state.canAllIn ? state.pokerAllIn : null,
+                ),
+              ],
+            ),
           SizedBox(height: gap),
           if (drawStreet)
             MachinedKey(

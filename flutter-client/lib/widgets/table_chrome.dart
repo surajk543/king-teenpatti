@@ -305,9 +305,16 @@ class RoomGround extends StatelessWidget {
 /// player does next, and a rail costs width, which a landscape screen has, in
 /// place of height, which it does not.
 class SideRail extends StatelessWidget {
-  const SideRail({super.key, required this.onOpen});
+  const SideRail({super.key, required this.onOpen, this.onRules});
 
   final void Function(LeftPanel) onOpen;
+
+  /// A third key, under the chat: the rules of the game being played. Given
+  /// only by the poker table (owner, 19 Sep 2026: "in each poker gameplay add
+  /// an icon of rulebook"), where every game on the menu has different rules
+  /// and the only way to them was the drawer. The Teen Patti table passes
+  /// nothing and keeps two keys.
+  final VoidCallback? onRules;
 
   @override
   Widget build(BuildContext context) {
@@ -328,6 +335,12 @@ class SideRail extends StatelessWidget {
     // 891x411 the column is 116.8dp tall and the margins only grow. The quick
     // messages had a third key here until 14 Sep 2026 (owner); they are a tab
     // of the chat drawer now.
+    //
+    // A poker table puts the rulebook back in that third place: three keys and
+    // two gaps are 3x46.8 + 20 = 160.4dp at 640x360, running y 97.8 to 258.2
+    // in a 356dp column — still clear of the Shop key above and the Fold key
+    // below, and every key still fills the rail, so each target is the whole
+    // 48dp width.
     final railW = Dim.railW(size.width);
     final keyH = Dim.railButtonH(size.height);
 
@@ -372,6 +385,19 @@ class SideRail extends StatelessWidget {
                       ),
               ),
             ),
+            if (onRules != null) ...[
+              const SizedBox(height: Space.md),
+              RailKey(
+                // The lobby table cards' rules glyph, so the key a player
+                // pressed to read the rules before sitting down is the same
+                // key once they are at the table.
+                tooltip: t.tableRulesKey,
+                width: railW,
+                height: keyH,
+                onTap: onRules!,
+                child: const Icon(Icons.menu_book_outlined, size: 22),
+              ),
+            ],
           ],
         ),
       ),
@@ -635,20 +661,41 @@ class TableDrawer extends StatelessWidget {
                               ),
                             ),
                           ),
-                        Text(
-                          // The category is server-owned ASCII, so tracked
-                          // capitals are safe on it; the hand number is not
-                          // translated either.
-                          '${room.isPoker ? t.pokerVariantName(room.category) : room.category.toUpperCase()}  ·  hand ${room.handNo}',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: AppTheme.smallCaps(
-                            theme.textTheme.labelSmall ?? const TextStyle(),
-                            colour: scheme.onSurface.withValues(
-                              alpha: AppTheme.inkLowOn(theme.brightness),
+                        if (room.isPoker)
+                          // A poker game's name is long ("Texas Hold'em ·
+                          // hand 12"): shrunk to the line rather than cut to
+                          // "Texas Hold'em · …" before the clock beside it.
+                          FittedBox(
+                            fit: BoxFit.scaleDown,
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              '${t.pokerVariantName(room.category)}  ·  hand ${room.handNo}',
+                              maxLines: 1,
+                              softWrap: false,
+                              style: AppTheme.smallCaps(
+                                theme.textTheme.labelSmall ??
+                                    const TextStyle(),
+                                colour: scheme.onSurface.withValues(
+                                  alpha: AppTheme.inkLowOn(theme.brightness),
+                                ),
+                              ),
+                            ),
+                          )
+                        else
+                          Text(
+                            // The category is server-owned ASCII, so tracked
+                            // capitals are safe on it; the hand number is not
+                            // translated either.
+                            '${room.category.toUpperCase()}  ·  hand ${room.handNo}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppTheme.smallCaps(
+                              theme.textTheme.labelSmall ?? const TextStyle(),
+                              colour: scheme.onSurface.withValues(
+                                alpha: AppTheme.inkLowOn(theme.brightness),
+                              ),
                             ),
                           ),
-                        ),
                       ],
                     ),
                   ),
@@ -725,8 +772,8 @@ class TableDrawer extends StatelessWidget {
               // A poker room's figure is its big blind or its ante.
               label: room.isPoker
                   ? (room.poker?.usesBlinds ?? false
-                        ? t.blindsLabel
-                        : t.anteLabel)
+                        ? t.blindsTitle
+                        : t.anteTitle)
                   : t.boot,
               value: formatChips(room.bootAmount),
             ),

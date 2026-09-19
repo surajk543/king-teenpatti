@@ -65,22 +65,41 @@ class _RulesSheet extends StatelessWidget {
     ];
   }
 
-  /// How a poker table plays: its game's line, the blinds or the ante, the
-  /// buy-in, the cards dealt, and how its winner is found. Every figure is
-  /// the server's menu entry.
+  /// How a poker table plays: enough of THAT game to sit down and play it —
+  /// the blinds or the ante, the buy-in, the cards dealt, the streets in the
+  /// order they come, what a bet names, and how the hand is decided. Every
+  /// figure is the server's own (the menu entry, or the room's `poker` block
+  /// through [LobbyTable.ofRoom]), so the sheet cannot state a term the table
+  /// does not keep.
+  ///
+  /// Only the table's own game is described. At a poker table this is the
+  /// whole sheet bar its ranking (owner, 19 Sep 2026: "tells about that
+  /// specific table gameplay not other").
   static List<String> _pokerTableRules(Strings t, LobbyTable table) {
     final variant = table.category;
+    final threeCard = variant == PokerVariant.threeCardPoker;
+    final blinds = table.smallBlind > 0 || table.bigBlind > 0;
     return [
       t.pokerVariantNote(variant),
-      if (table.smallBlind > 0 || table.bigBlind > 0)
+      if (blinds)
         t.rulePokerBlinds(
           formatChips(table.smallBlind),
           formatChips(table.bigBlind > 0 ? table.bigBlind : table.bootAmount),
         )
       else
-        t.rulePokerAnte(formatChips(table.ante > 0 ? table.ante : table.bootAmount)),
+        t.rulePokerAnte(
+          formatChips(table.ante > 0 ? table.ante : table.bootAmount),
+        ),
       if (table.minBuyIn > 0) t.rulePokerBuyIn(formatChips(table.minBuyIn)),
       if (table.holeCards > 0) t.rulePokerHoleCards(table.holeCards),
+      // The betting rounds, in order, and then what a figure on a key means.
+      switch (variant) {
+        PokerVariant.texasHoldem || PokerVariant.omaha => t.rulePokerStreets,
+        PokerVariant.fiveCardDraw => t.rulePokerDrawStreets,
+        PokerVariant.threeCardPoker => t.rulePokerPlayBet,
+        _ => t.rulePokerBestHandWins,
+      },
+      if (!threeCard) t.rulePokerBetTo,
       switch (variant) {
         PokerVariant.texasHoldem => t.rulePokerHoldemWin,
         PokerVariant.omaha => t.rulePokerOmahaWin,
@@ -90,13 +109,24 @@ class _RulesSheet extends StatelessWidget {
         PokerVariant.threeCardPoker => t.rulePokerThreeCardWin,
         _ => t.rulePokerBestHandWins,
       },
-      if (variant == PokerVariant.threeCardPoker)
-        t.rulePokerDealerQualifies
-      else
-        t.rulePokerBestHandWins,
+      if (threeCard) t.rulePokerDealerQualifies else t.rulePokerBestHandWins,
       t.everyoneChips,
     ];
   }
+
+  /// 3-Card Poker's ranking, strongest first, each with a three-card hand
+  /// that shows it (go-server/internal/poker/eval3.go `CategoryNames3`). It is
+  /// NEITHER of the other two orders on this sheet: a straight beats a flush
+  /// (Teen Patti's does not) and three of a kind beats a straight flush in
+  /// Teen Patti but loses to it here.
+  static const List<(String, List<String>)> _threeCardExamples = [
+    ('straightFlush', ['Qs', 'Js', 'Ts']),
+    ('threeOfAKind', ['8s', '8h', '8d']),
+    ('straight', ['Ac', 'Kd', 'Qs']),
+    ('flush', ['Ad', 'Jd', '5d']),
+    ('pair', ['Kh', 'Kc', '7d']),
+    ('highCard', ['Kd', 'Jc', '8s']),
+  ];
 
   /// The poker ranking, strongest first, each with a five-card hand that
   /// shows it (go-server/internal/poker). The names are the server's own.
@@ -147,6 +177,37 @@ class _RulesSheet extends StatelessWidget {
     // cards that do not count are on the felt ([SetBack]).
     (Variation.fiveCard, ['As', 'Ks', 'Qs', '7d', '7c'], [], ['7d', '7c']),
   ];
+
+  /// Whether the sheet is scoped to a 3-Card Poker table, which alone is
+  /// scored by [_threeCardExamples].
+  bool get _threeCardTable =>
+      table != null && table!.category == PokerVariant.threeCardPoker;
+
+  /// The ranking this sheet shows.
+  List<(String, List<String>)> get _ranking =>
+      _threeCardTable ? _threeCardExamples : _pokerExamples;
+
+  /// The notes under the ranking: on the general sheet every rule that
+  /// differs by game, and on one table's sheet only what is true there.
+  List<String> _rankingNotes(Strings t) {
+    if (table == null) {
+      return [
+        t.pokerThreeCardRanking,
+        t.rulePokerOmahaWin,
+        t.rulePokerDealerQualifies,
+      ];
+    }
+    return switch (table!.category) {
+      PokerVariant.threeCardPoker => [
+        t.pokerThreeCardRanking,
+        t.rulePokerThreeCardRuns,
+      ],
+      PokerVariant.omaha => [t.rulePokerOmahaWin],
+      PokerVariant.texasHoldem => [t.rulePokerHoldemWin],
+      PokerVariant.fiveCardDraw => [t.rulePokerBestHandWins],
+      _ => [t.rulePokerBestHandWins],
+    };
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -307,9 +368,13 @@ class _RulesSheet extends StatelessWidget {
             ),
           ],
 
-          // The poker family: its five-card ranking, strongest first, and the
-          // two rules that differ by game. On the general sheet and on a poker
-          // table's own; never on a Teen Patti table's.
+          // The poker ranking. On the general sheet it is the family's
+          // five-card one with the footnotes that differ by game; on ONE
+          // table's sheet it is that table's ranking and nothing else —
+          // three-card at 3-Card Poker (`eval3.go`, a different order from
+          // both the five-card one and Teen Patti's), five-card everywhere
+          // else — with no mention of the other three games (owner, 19 Sep
+          // 2026). Never on a Teen Patti table's.
           if (table == null || table!.isPoker) ...[
             if (table == null) const SizedBox(height: Space.xl),
             Row(
@@ -318,7 +383,7 @@ class _RulesSheet extends StatelessWidget {
                 const SizedBox(width: Space.md),
                 Expanded(
                   child: Text(
-                    t.pokerRulesTitle,
+                    table == null ? t.pokerRulesTitle : t.pokerTableRankingTitle,
                     style: AppTheme.label(
                       theme.textTheme.titleSmall ?? const TextStyle(),
                     ),
@@ -328,23 +393,29 @@ class _RulesSheet extends StatelessWidget {
             ),
             const SizedBox(height: Space.sm),
             Text(
-              t.pokerRulesIntro,
+              table == null
+                  ? t.pokerRulesIntro
+                  : _threeCardTable
+                  ? t.pokerThreeCardRankingIntro
+                  : t.pokerTableRankingIntro,
               style: theme.textTheme.bodySmall?.copyWith(
                 color: scheme.onSurface.withValues(alpha: AppTheme.inkMed),
               ),
             ),
             const SizedBox(height: Space.sm),
-            for (var i = 0; i < _pokerExamples.length; i++)
+            for (var i = 0; i < _ranking.length; i++)
               _Row(
                 place: i + 1,
-                name: t.pokerRankName(_pokerExamples[i].$1),
+                name: t.pokerRankName(_ranking[i].$1),
                 note: '',
-                cards: _pokerExamples[i].$2,
-                cardHeight: cardH * 0.8,
+                cards: _ranking[i].$2,
+                cardHeight: cardH * (_threeCardTable ? 1.0 : 0.8),
                 numeral: champagne,
-                ruled: i < _pokerExamples.length - 1,
+                ruled: i < _ranking.length - 1,
               ),
             const SizedBox(height: Space.md),
+            // The footnotes: the whole set on the general sheet, and on one
+            // table's sheet only what is true of THAT game.
             PremiumGlassPanel(
               mode: GlassMode.tinted,
               radius: Radii.sm,
@@ -353,32 +424,17 @@ class _RulesSheet extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    t.pokerThreeCardRanking,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: scheme.onSurface.withValues(
-                        alpha: AppTheme.inkMed,
+                  for (final (i, note) in _rankingNotes(t).indexed) ...[
+                    if (i > 0) const SizedBox(height: Space.xxs),
+                    Text(
+                      note,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: scheme.onSurface.withValues(
+                          alpha: AppTheme.inkMed,
+                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: Space.xxs),
-                  Text(
-                    t.rulePokerOmahaWin,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: scheme.onSurface.withValues(
-                        alpha: AppTheme.inkMed,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: Space.xxs),
-                  Text(
-                    t.rulePokerDealerQualifies,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: scheme.onSurface.withValues(
-                        alpha: AppTheme.inkMed,
-                      ),
-                    ),
-                  ),
+                  ],
                 ],
               ),
             ),

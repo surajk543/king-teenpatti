@@ -338,6 +338,11 @@ class Strings {
   /// A poker table card's facts.
   String get blindsLabel => _('blindsLabel');
   String get anteLabel => _('anteLabel');
+
+  /// The same two as row titles in the table menu, beside "Your chips":
+  /// capitalised where the script has case.
+  String get blindsTitle => _('blindsTitle');
+  String get anteTitle => _('anteTitle');
   String get buyInLabel => _('buyInLabel');
   String get holeCardsLabel => _('holeCardsLabel');
   String get maxDiscardsLabel => _('maxDiscardsLabel');
@@ -438,6 +443,20 @@ class Strings {
   String get rulePokerThreeCardWin => _('rulePokerThreeCardWin');
   String get rulePokerDealerQualifies => _('rulePokerDealerQualifies');
   String get rulePokerBestHandWins => _('rulePokerBestHandWins');
+
+  /// Enough of each game to play it: the streets in order, that a bet names
+  /// the total for the street, and 3-Card Poker's second bet.
+  String get rulePokerStreets => _('rulePokerStreets');
+  String get rulePokerBetTo => _('rulePokerBetTo');
+  String get rulePokerDrawStreets => _('rulePokerDrawStreets');
+  String get rulePokerPlayBet => _('rulePokerPlayBet');
+  String get rulePokerThreeCardRuns => _('rulePokerThreeCardRuns');
+
+  /// The ranking shown on ONE poker table's own sheet: five cards at
+  /// Hold'em, Omaha and 5-Card Draw, three at 3-Card Poker.
+  String get pokerTableRankingTitle => _('pokerTableRankingTitle');
+  String get pokerTableRankingIntro => _('pokerTableRankingIntro');
+  String get pokerThreeCardRankingIntro => _('pokerThreeCardRankingIntro');
 
   /// The poker server's refusals, by code, in the player's language; null
   /// for a code this has no words for, which keeps the server's sentence.
@@ -1325,6 +1344,8 @@ class Strings {
       'pokerThreeCardPokerNote': 'Three cards each, against the dealer',
       'blindsLabel': 'blinds',
       'anteLabel': 'ante',
+      'blindsTitle': 'Blinds',
+      'anteTitle': 'Ante',
       'buyInLabel': 'buy-in',
       'holeCardsLabel': 'cards each',
       'maxDiscardsLabel': 'exchange up to',
@@ -1397,6 +1418,25 @@ class Strings {
       'rulePokerBestHandWins':
           'The best hand at the showdown takes the pot; the last player '
           'standing takes it without one',
+      'rulePokerStreets':
+          'Betting runs pre-flop, then again on the flop, the turn and the '
+          'river',
+      'rulePokerBetTo':
+          'A bet or a raise names the TOTAL you want in for this street, not '
+          'the amount on top of it',
+      'rulePokerDrawStreets':
+          'Bet once before the draw and once after it',
+      'rulePokerPlayBet':
+          'Playing costs a second bet the size of the ante; folding leaves '
+          'your ante with the house',
+      'pokerTableRankingTitle': 'What beats what here',
+      'pokerTableRankingIntro':
+          'Your hand is the best five cards you can make, ranked like this.',
+      'pokerThreeCardRankingIntro':
+          'Three cards each, on their own ladder — not the five-card order, '
+          'and not Teen Patti\'s.',
+      'rulePokerThreeCardRuns':
+          'A-K-Q is the best run and A-2-3 the lowest',
       'refuseNotYourTurn': 'It is not your turn',
       'refuseInvalidAction': 'That move is not allowed right now',
       'refuseInvalidAmount': 'That amount is not allowed',
@@ -1827,6 +1867,8 @@ class Strings {
       'pokerThreeCardPokerNote': 'हर एक को तीन पत्ते, डीलर के खिलाफ़',
       'blindsLabel': 'ब्लाइंड्स',
       'anteLabel': 'एंटी',
+      'blindsTitle': 'ब्लाइंड्स',
+      'anteTitle': 'एंटी',
       'buyInLabel': 'बाय-इन',
       'holeCardsLabel': 'हर एक को पत्ते',
       'maxDiscardsLabel': 'अधिकतम बदलें',
@@ -1895,6 +1937,19 @@ class Strings {
           'एंटी जीतती है',
       'rulePokerBestHandWins':
           'शोडाउन में सबसे अच्छा हाथ पॉट लेता है; अकेला बचा खिलाड़ी बिना शोडाउन के',
+      'rulePokerStreets':
+          'दांव प्री-फ्लॉप, फिर फ्लॉप, टर्न और रिवर पर लगते हैं',
+      'rulePokerBetTo':
+          'बेट या रेज़ इस स्ट्रीट के लिए आपकी कुल रकम बताता है, ऊपर से जोड़ी गई रकम नहीं',
+      'rulePokerDrawStreets': 'ड्रॉ से पहले एक बार और उसके बाद एक बार दांव',
+      'rulePokerPlayBet':
+          'प्ले करने पर एंटी जितना दूसरा दांव लगता है; फ़ोल्ड करने पर एंटी घर के पास रह जाती है',
+      'pokerTableRankingTitle': 'यहाँ क्या किससे बड़ा है',
+      'pokerTableRankingIntro':
+          'आपका हाथ आपके सबसे अच्छे पाँच पत्ते होते हैं, इस क्रम में।',
+      'pokerThreeCardRankingIntro':
+          'हर एक को तीन पत्ते, अपनी अलग सीढ़ी पर — न पाँच पत्तों का क्रम, न तीन पत्ती का।',
+      'rulePokerThreeCardRuns': 'A-K-Q सबसे बड़ी रन है और A-2-3 सबसे छोटी',
       'refuseNotYourTurn': 'आपकी बारी नहीं है',
       'refuseInvalidAction': 'यह चाल अभी नहीं चल सकती',
       'refuseInvalidAmount': 'यह रकम मान्य नहीं है',
@@ -2330,6 +2385,8 @@ class Strings {
       'pokerThreeCardPokerNote': 'প্রত্যেকের তিনটি তাস, ডিলারের বিরুদ্ধে',
       'blindsLabel': 'ব্লাইন্ডস',
       'anteLabel': 'অ্যান্টি',
+      'blindsTitle': 'ব্লাইন্ডস',
+      'anteTitle': 'অ্যান্টি',
       'buyInLabel': 'বাই-ইন',
       'holeCardsLabel': 'প্রত্যেকের তাস',
       'maxDiscardsLabel': 'সর্বোচ্চ বদল',
@@ -2400,6 +2457,19 @@ class Strings {
           'জেতে',
       'rulePokerBestHandWins':
           'শোডাউনে সেরা হাত পট নেয়; একা টিকে থাকা খেলোয়াড় শোডাউন ছাড়াই',
+      'rulePokerStreets':
+          'বাজি প্রি-ফ্লপে, তারপর ফ্লপ, টার্ন ও রিভারে',
+      'rulePokerBetTo':
+          'বেট বা রেইজ এই স্ট্রিটের জন্য আপনার মোট অঙ্ক বলে, তার উপরে যোগ করা অঙ্ক নয়',
+      'rulePokerDrawStreets': 'ড্র-এর আগে একবার আর পরে একবার বাজি',
+      'rulePokerPlayBet':
+          'প্লে করলে অ্যান্টির সমান দ্বিতীয় বাজি লাগে; ফোল্ড করলে অ্যান্টি ঘরের থাকে',
+      'pokerTableRankingTitle': 'এখানে কোনটা কাকে হারায়',
+      'pokerTableRankingIntro':
+          'আপনার হাত মানে আপনার সেরা পাঁচটি তাস, এই ক্রমে।',
+      'pokerThreeCardRankingIntro':
+          'প্রত্যেকের তিনটি তাস, নিজস্ব ক্রমে — পাঁচ তাসের ক্রম নয়, তিন পাত্তিরও নয়।',
+      'rulePokerThreeCardRuns': 'A-K-Q সেরা রান আর A-2-3 সবচেয়ে ছোট',
       'refuseNotYourTurn': 'আপনার পালা নয়',
       'refuseInvalidAction': 'এই চাল এখন দেওয়া যাবে না',
       'refuseInvalidAmount': 'এই পরিমাণ গ্রহণযোগ্য নয়',
@@ -2828,6 +2898,8 @@ class Strings {
       'pokerThreeCardPokerNote': 'દરેકને ત્રણ પત્તાં, ડીલર સામે',
       'blindsLabel': 'બ્લાઇન્ડ્સ',
       'anteLabel': 'એન્ટી',
+      'blindsTitle': 'બ્લાઇન્ડ્સ',
+      'anteTitle': 'એન્ટી',
       'buyInLabel': 'બાય-ઇન',
       'holeCardsLabel': 'દરેકને પત્તાં',
       'maxDiscardsLabel': 'મહત્તમ બદલો',
@@ -2896,6 +2968,19 @@ class Strings {
           'જીતે',
       'rulePokerBestHandWins':
           'શોડાઉનમાં શ્રેષ્ઠ હાથ પોટ લે છે; એકલો બચેલો ખેલાડી શોડાઉન વિના',
+      'rulePokerStreets':
+          'દાવ પ્રી-ફ્લોપ, પછી ફ્લોપ, ટર્ન અને રિવર પર લાગે છે',
+      'rulePokerBetTo':
+          'બેટ કે રેઝ આ સ્ટ્રીટ માટે તમારી કુલ રકમ કહે છે, ઉપરથી ઉમેરેલી રકમ નહીં',
+      'rulePokerDrawStreets': 'ડ્રો પહેલાં એક વાર અને પછી એક વાર દાવ',
+      'rulePokerPlayBet':
+          'પ્લે કરવાનો ખર્ચ એન્ટી જેટલો બીજો દાવ; ફોલ્ડ કરો તો એન્ટી ઘર પાસે રહે છે',
+      'pokerTableRankingTitle': 'અહીં શું કોને હરાવે છે',
+      'pokerTableRankingIntro':
+          'તમારો હાથ એટલે તમારા શ્રેષ્ઠ પાંચ પત્તાં, આ ક્રમમાં.',
+      'pokerThreeCardRankingIntro':
+          'દરેકને ત્રણ પત્તાં, પોતાના ક્રમમાં — પાંચ પત્તાંનો ક્રમ નહીં, તીન પત્તીનો પણ નહીં.',
+      'rulePokerThreeCardRuns': 'A-K-Q શ્રેષ્ઠ રન છે અને A-2-3 સૌથી નીચો',
       'refuseNotYourTurn': 'તમારો વારો નથી',
       'refuseInvalidAction': 'આ ચાલ અત્યારે ચાલી શકે નહીં',
       'refuseInvalidAmount': 'આ રકમ માન્ય નથી',
@@ -3329,6 +3414,8 @@ class Strings {
       'pokerThreeCardPokerNote': 'ਹਰੇਕ ਨੂੰ ਤਿੰਨ ਪੱਤੇ, ਡੀਲਰ ਦੇ ਖ਼ਿਲਾਫ਼',
       'blindsLabel': 'ਬਲਾਈਂਡਸ',
       'anteLabel': 'ਐਂਟੀ',
+      'blindsTitle': 'ਬਲਾਈਂਡਸ',
+      'anteTitle': 'ਐਂਟੀ',
       'buyInLabel': 'ਬਾਇ-ਇਨ',
       'holeCardsLabel': 'ਹਰੇਕ ਨੂੰ ਪੱਤੇ',
       'maxDiscardsLabel': 'ਵੱਧ ਤੋਂ ਵੱਧ ਬਦਲੋ',
@@ -3400,6 +3487,19 @@ class Strings {
       'rulePokerBestHandWins':
           'ਸ਼ੋਡਾਊਨ ਵਿੱਚ ਸਭ ਤੋਂ ਵਧੀਆ ਹੱਥ ਪੌਟ ਲੈਂਦਾ ਹੈ; ਇਕੱਲਾ ਬਚਿਆ ਖਿਡਾਰੀ ਬਿਨਾਂ '
           'ਸ਼ੋਡਾਊਨ ਦੇ',
+      'rulePokerStreets':
+          'ਦਾਅ ਪ੍ਰੀ-ਫਲੌਪ, ਫਿਰ ਫਲੌਪ, ਟਰਨ ਅਤੇ ਰਿਵਰ ਉੱਤੇ ਲੱਗਦੇ ਹਨ',
+      'rulePokerBetTo':
+          'ਬੈੱਟ ਜਾਂ ਰੇਜ਼ ਇਸ ਸਟ੍ਰੀਟ ਲਈ ਤੁਹਾਡੀ ਕੁੱਲ ਰਕਮ ਦੱਸਦਾ ਹੈ, ਉੱਤੋਂ ਜੋੜੀ ਰਕਮ ਨਹੀਂ',
+      'rulePokerDrawStreets': 'ਡਰਾਅ ਤੋਂ ਪਹਿਲਾਂ ਇੱਕ ਵਾਰ ਅਤੇ ਬਾਅਦ ਇੱਕ ਵਾਰ ਦਾਅ',
+      'rulePokerPlayBet':
+          'ਪਲੇ ਕਰਨ ਦਾ ਖ਼ਰਚ ਐਂਟੀ ਜਿੰਨਾ ਦੂਜਾ ਦਾਅ; ਫ਼ੋਲਡ ਕਰੋ ਤਾਂ ਐਂਟੀ ਘਰ ਕੋਲ ਰਹਿ ਜਾਂਦੀ ਹੈ',
+      'pokerTableRankingTitle': 'ਇੱਥੇ ਕੀ ਕਿਸ ਨੂੰ ਹਰਾਉਂਦਾ ਹੈ',
+      'pokerTableRankingIntro':
+          'ਤੁਹਾਡਾ ਹੱਥ ਤੁਹਾਡੇ ਸਭ ਤੋਂ ਵਧੀਆ ਪੰਜ ਪੱਤੇ ਹੁੰਦੇ ਹਨ, ਇਸ ਕ੍ਰਮ ਵਿੱਚ।',
+      'pokerThreeCardRankingIntro':
+          'ਹਰੇਕ ਨੂੰ ਤਿੰਨ ਪੱਤੇ, ਆਪਣੇ ਵੱਖਰੇ ਕ੍ਰਮ ਵਿੱਚ — ਨਾ ਪੰਜ ਪੱਤਿਆਂ ਦਾ ਕ੍ਰਮ, ਨਾ ਤੀਨ ਪੱਤੀ ਦਾ।',
+      'rulePokerThreeCardRuns': 'A-K-Q ਸਭ ਤੋਂ ਵੱਡੀ ਰਨ ਹੈ ਅਤੇ A-2-3 ਸਭ ਤੋਂ ਛੋਟੀ',
       'refuseNotYourTurn': 'ਤੁਹਾਡੀ ਵਾਰੀ ਨਹੀਂ ਹੈ',
       'refuseInvalidAction': 'ਇਹ ਚਾਲ ਹੁਣ ਨਹੀਂ ਚੱਲ ਸਕਦੀ',
       'refuseInvalidAmount': 'ਇਹ ਰਕਮ ਮਨਜ਼ੂਰ ਨਹੀਂ ਹੈ',

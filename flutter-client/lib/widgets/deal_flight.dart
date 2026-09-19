@@ -41,9 +41,14 @@ class DealFlights extends StatefulWidget {
     required this.centreOf,
     required this.deck,
     required this.cardHeight,
+    this.cards = cardsEach,
   });
 
   final List<Seat?> seats;
+
+  /// How many cards each seat is dealt: the Teen Patti three unless the
+  /// table says otherwise (a poker room deals two, three, four or five).
+  final int cards;
 
   /// Which table this is. A switch changes it, and a hand already in progress
   /// at the new table was not dealt to anyone here.
@@ -203,7 +208,7 @@ class _DealFlightsState extends State<DealFlights>
     if (seated.isEmpty) return;
 
     final targets = [
-      for (var round = 0; round < DealFlights.cardsEach; round++)
+      for (var round = 0; round < widget.cards; round++)
         for (final seat in seated) widget.centreOf(seat),
     ];
     setState(() {

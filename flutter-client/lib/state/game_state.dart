@@ -672,8 +672,14 @@ class GameState extends ChangeNotifier {
     if (s.poker?.street != PokerStreet.draw) discardSelection.clear();
     final result = s.poker?.result;
     if (result == null || _pokerCelebratedFor == s.handNo) return;
+    // The server sends `poker:showdown`, settles, sends `poker:handEnded`
+    // and only then the snapshot that repeats the result — so a client that
+    // was connected has already celebrated this hand (above) and skips here;
+    // one that reconnected into the celebration gets it from the snapshot
+    // alone, timed to the deal the snapshot names.
     _pokerCelebratedFor = s.handNo;
     pokerCelebrating = true;
+    _notePokerWinners(result, s);
     _armCelebration(s.startsAt);
   }
 
@@ -684,28 +690,16 @@ class GameState extends ChangeNotifier {
     if (r == null) return;
     // The showdown frame comes first with the reveals; the hand-ended frame
     // brings the pots and the winners. The later one is the fuller, and
-    // either alone is enough to draw the hand.
-    _pokerResultNews = news.result;
+    // either alone is enough to draw the hand — but a reveal frame must
+    // never REPLACE a hand already drawn in full, or a client that had the
+    // snapshot first would lose the pots it was about to pay out.
+    final held = pokerResult;
+    if (news.ended || held == null || held.reveals.isEmpty) {
+      _pokerResultNews = news.result;
+    }
     _pokerCelebratedFor = r.handNo;
     pokerCelebrating = true;
-    // For the sounds and the fireworks: whether this player is among the
-    // winners, and what they took.
-    final me = user?.id;
-    final mine = news.result.wonBy(me);
-    final first = news.result.winners.firstOrNull;
-    if (mine > 0 && me != null) {
-      winnerId = me;
-      winnerName = user?.displayName ?? '';
-      winnerPot = mine;
-    } else if (first != null) {
-      winnerId = first.userId;
-      winnerName = r.seats
-          .where((seat) => seat.userId == first.userId)
-          .map((seat) => seat.displayName)
-          .firstOrNull ??
-          '';
-      winnerPot = first.amount;
-    }
+    _notePokerWinners(news.result, r);
     if (news.ended || showdownResult.isEmpty) {
       // A marker rather than a sentence: the poker felt draws the result
       // from [pokerResult], and this only says a hand has ended.
@@ -716,12 +710,48 @@ class GameState extends ChangeNotifier {
     if (news.ended) unawaited(refreshUser());
   }
 
+  /// For the sounds and the fireworks: whether this player is among the
+  /// winners, and what they took — from the event or from the snapshot,
+  /// whichever said so first.
+  void _notePokerWinners(PokerResult result, RoomState r) {
+    final me = user?.id;
+    final mine = result.wonBy(me);
+    final first = result.winners.firstOrNull;
+    if (mine > 0 && me != null) {
+      winnerId = me;
+      winnerName = user?.displayName ?? '';
+      winnerPot = mine;
+    } else if (first != null) {
+      winnerId = first.userId;
+      winnerName =
+          r.seats
+              .where((seat) => seat.userId == first.userId)
+              .map((seat) => seat.displayName)
+              .firstOrNull ??
+          '';
+      winnerPot = first.amount;
+    }
+    if (showdownResult.isEmpty) {
+      showdownResult = result.reason.isEmpty ? 'poker' : result.reason;
+    }
+  }
+
+  /// The hand this player's clock folded, so the felt can say so for the
+  /// rest of it — a toast is one glance long, and the fold is the one move
+  /// at the table the player did not make. Null until it happens; cleared
+  /// with the next deal.
+  int? pokerTimedOutHand;
+
   /// A poker move as the room hears it. The snapshot already says what each
   /// move did; this only tells the player whose clock ran out that it did.
   @visibleForTesting
   void handlePokerAction(PokerActionNews a) {
-    if (room == null) return;
-    if (a.reason == 'timeout' && a.userId == user?.id) {
+    final r = room;
+    if (r == null) return;
+    if (a.reason == 'timeout' &&
+        a.action == PokerAction.fold &&
+        a.userId == user?.id) {
+      pokerTimedOutHand = r.handNo;
       notice = t.pokerTimedOut;
       notifyListeners();
     }
@@ -732,6 +762,7 @@ class GameState extends ChangeNotifier {
   void _clearPokerHand() {
     _pokerCelebratedFor = null;
     _pokerBetTo = null;
+    pokerTimedOutHand = null;
     discardSelection.clear();
   }
 

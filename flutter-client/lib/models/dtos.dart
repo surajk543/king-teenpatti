@@ -7,6 +7,8 @@
 /// distinguishable from "broke".
 library;
 
+import 'dart:math' as math;
+
 int _int(dynamic v) => v is num ? v.toInt() : 0;
 
 /// Null stays null: a picture id of 0 would be a real-looking id the server
@@ -500,6 +502,33 @@ class LobbyTable {
     holeCards: _int(j['holeCards']),
     maxDiscards: _int(j['maxDiscards']),
   );
+
+  /// The menu entry a poker ROOM would have had, read off the room's own
+  /// snapshot.
+  ///
+  /// The rules sheet is written against a [LobbyTable] and a player sitting at
+  /// a table has a [RoomState] instead — but `room:state.poker` carries every
+  /// term the menu entry did (the blinds, the ante, the buy-in, the cards
+  /// dealt, the exchange limit), so the sheet can be opened on the table being
+  /// played without a second copy of the rules text. Null for a Teen Patti
+  /// room, which has its own sheet.
+  static LobbyTable? ofRoom(RoomState room) {
+    final p = room.poker;
+    if (p == null || !room.isPoker) return null;
+    return LobbyTable(
+      category: p.variant.isNotEmpty ? p.variant : room.category,
+      bootAmount: room.bootAmount,
+      maxPot: 0, // a poker room has no pot limit (§6.5)
+      maxBlindMoves: 0,
+      game: 'poker',
+      smallBlind: p.smallBlind,
+      bigBlind: p.bigBlind,
+      ante: p.ante,
+      minBuyIn: p.minBuyIn,
+      holeCards: p.holeCards,
+      maxDiscards: p.maxDiscards,
+    );
+  }
 }
 
 /// The table the server remembers a player falling off. It comes with
@@ -886,6 +915,36 @@ class PokerDealer {
     category: _int(j['category']),
     qualified: j['qualified'] is bool ? j['qualified'] as bool : null,
   );
+
+  /// The dealer's hand to draw, from the **two** places the wire puts it.
+  ///
+  /// While the hand runs it is `poker.dealer` ([live]): the card count before
+  /// the reveal, the cards and the verdict at it. The moment the hand is
+  /// SETTLED the server empties that block — `internal/poker/view.go` takes
+  /// the `else if v.HasDealer` branch and sends `{cardCount: 0, cards: []}` —
+  /// and the revealed dealer lives only in `poker.result.dealer`
+  /// ([finished]), which is kept until the next deal. Neither is right at
+  /// every instant, so this takes the cards and the verdict from whichever
+  /// holds them and the count from whichever knows it. Null only when the
+  /// game has no dealer at all.
+  static PokerDealer? shown({PokerDealer? live, PokerDealer? finished}) {
+    if (live == null) return finished;
+    if (finished == null) return live;
+    final held = finished.cards.isNotEmpty ? finished : live;
+    final named = finished.handName.isNotEmpty || finished.qualified != null
+        ? finished
+        : live;
+    return PokerDealer(
+      cardCount: math.max(
+        math.max(live.cardCount, finished.cardCount),
+        held.cards.length,
+      ),
+      cards: held.cards,
+      handName: named.handName,
+      category: named.category,
+      qualified: named.qualified,
+    );
+  }
 }
 
 /// One hand turned over at a poker showdown.
