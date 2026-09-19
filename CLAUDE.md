@@ -1256,6 +1256,17 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   Note the poker clock is `POKER_TURN_TIMEOUT_MS` (25 s by default): the first emulator hand folded me on the clock
   while I was reading screenshots, which is correct — run the dev server with `POKER_TURN_TIMEOUT_MS=90000` to play by
   hand.
+  **The rulebook key** (owner, 19 Sep 2026: "in each poker gameplay add an icon of rulebook and which tells about that
+  specific table gameplay not other"): the poker rail carries a THIRD key under menu and chat, the book glyph the lobby's
+  table cards use, and it opens `showRules` scoped to the room being played — "How this table plays" with that table's own
+  figures, then that table's ranking and nothing else. **3-Card Poker shows the THREE-card order** (`_threeCardExamples`,
+  from `eval3.go`: Straight Flush, Three of a Kind, Straight, Flush, Pair, High Card, with A-K-Q the best straight and
+  A-2-3 the worst — neither the five-card order nor Teen Patti's, where a Trail beats a Pure Sequence); the other three
+  keep the five-card list. The heading is `pokerTableRankingTitle` on one table's sheet and `pokerRulesTitle` ("Poker
+  tables") only on the general one. A poker table's drawer Rules row is scoped the same way; a **Teen Patti table grows no
+  key and its drawer still opens the whole reference** — the rankings, the seven variations and the poker family.
+  `test/poker_rules_test.dart` (the key at each variant, the three-card ranking, the Teen Patti control, every sheet in all
+  five languages), `poker_lobby_test.dart`, `poker_dtos_test.dart`, `poker_strings_test.dart`.
 - **The seat pod** (`widgets/seat_pod.dart`) carries the rest of it. An unoccupied place draws
   `_emptySeat()` — a dashed outline and a chair, never a blank pod. The viewer's badge and total are
   **not** in their column: they hang over their own fanned hand (`SeatBet(totalFirst: true)`), and
