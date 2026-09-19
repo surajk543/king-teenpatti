@@ -12,6 +12,7 @@ package config
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"regexp"
 	"strconv"
@@ -47,6 +48,22 @@ const FallbackPublicDir = "go-server/public"
 const (
 	CategorySeen  = "seen"
 	CategoryBlind = "blind"
+	// CategoryVariation is Variation Teen Patti (Go only; owner, 18 Sep 2026):
+	// a seen table in every rule this package composes — open stacks, the same
+	// capped ladder and pot — whose hands open with a window in which one
+	// player chooses the variation they are decided by (game/variation.go).
+	CategoryVariation = "variation"
+
+	// The poker family (Go only; owner, 19 Sep 2026 — POKER_PLAN.md): four
+	// categories whose tables run on internal/poker, not on game.Table. This
+	// package composes no betting rules for them — a poker room reads
+	// GameConfig.Poker and its variant's own table — but LOBBY_TABLES lists
+	// them, quick-join routes on them and the lobby advertises them exactly as
+	// it does the three above.
+	CategoryThreeCardPoker = "three_card_poker"
+	CategoryFiveCardDraw   = "five_card_draw"
+	CategoryTexasHoldem    = "texas_holdem"
+	CategoryOmaha          = "omaha"
 )
 
 // Config is the whole configuration. Field groups mirror the Node object
@@ -196,6 +213,15 @@ type LobbyTable struct {
 	// Exactly the limit is allowed at both ends — the rules are "more than"
 	// and "less than", not "at least" and "at most".
 	MaxChips int64
+	// MaxPot is this table's OWN pot cap ("pot=N"), 0 for "whatever its
+	// category gives it" (owner, 19 Sep 2026: a seen table at boot 50,000
+	// with a 5 Crore pot limit beside the 200 table's 20 Lakh). One figure
+	// per category stopped fitting the day seen got a second stake: 20 Lakh
+	// is forty boots at 50,000, and every hand there would be dealt a few
+	// bets from the POT_LIMIT showdown. It overrides the category's cap and
+	// nothing else — the ladder and the rounds stay the category's — and a
+	// private table never reads it.
+	MaxPot int64
 }
 
 // GameConfig ← config.game. Durations replace Node's *Ms integers; convert
@@ -288,12 +314,72 @@ type GameConfig struct {
 	// 2026): added to NextHandDelay after a missile showdown, so the next deal
 	// waits for the client's flight and explosions (about 1.6 s) and gives
 	// everyone time to look at the revealed hands. 0 = the ordinary delay.
-	MissileRevealExtra  time.Duration
+	MissileRevealExtra time.Duration
+	// VariationSelectTimeout is VARIATION_SELECT_TIMEOUT_MS 10000 (Go only,
+	// owner 18 Sep 2026): how long the player who opens a variation table's
+	// hand has to choose its rules before the server chooses Muflis for them.
+	// The clock is the server's — the client's countdown is decoration. 0 = the
+	// window never lapses on its own (it still closes when the chooser leaves),
+	// which no deployment wants: a chooser who walks away from their phone
+	// would hold the table for the whole reconnect grace.
+	VariationSelectTimeout time.Duration
+	// VariationMaxPotBoots is VARIATION_MAX_POT_BOOTS 0 (Go only, owner 18 Sep
+	// 2026: "in all variation tables, do not keep any pot limit"): a public
+	// variation table's pot cap, counted in BOOTS of that table, 0 = UNCAPPED,
+	// which is the default. It is a count of boots and not a figure because a
+	// variation table is offered at four stakes: a deployment that does want a
+	// cap cannot use one number for them — the seen table's fixed 20 Lakh is
+	// two boots at the 10 Lakh table, and every hand there would be dealt
+	// straight into the POT_LIMIT showdown. A variation table still takes the
+	// seen table's ladder and its rounds (SeenMaxRaiseSteps, SeenMaxBetRounds),
+	// so a hand ends at the forced showdown whatever the pot has grown to.
+	VariationMaxPotBoots int64
+	// FiveCardPickTimeout is FIVE_CARD_PICK_TIMEOUT_MS 8000 (Go only, owner
+	// 19 Sep 2026: "give only 8 second window to pick"): the EXTRA time a
+	// player gets, once their five cards are in
+	// front of them under 5-Card Teen Patti, to choose which three of them
+	// play. It runs per player and per hand from the moment they can see the
+	// five — the tap on "See cards", or the top-up landing on a player who was
+	// already looking — and when it lapses the server plays the first three
+	// they were dealt, which is also what a player who never looks plays.
+	//
+	// A player whose turn is running while they choose has that turn pushed
+	// out to cover the whole window and a full turn after it, so choosing
+	// never costs them the time to act on the choice.
+	//
+	// 0 = the window never lapses on its own, and a hand could then sit on a
+	// player who has looked and will not choose until their turn clock packs
+	// them. Never in production.
+	FiveCardPickTimeout time.Duration
+	// Poker is the poker family's own knobs (Go only; owner, 19 Sep 2026).
+	Poker               PokerConfig
 	ConsolidateInterval time.Duration // CONSOLIDATE_INTERVAL_MS 15000 (requirement 24 sweeper)
 	ReconnectGrace      time.Duration // RECONNECT_GRACE_MS 60000 (seat held after a drop)
 	// ResumeOffer is RESUME_OFFER_MS 600000: after the held seat lapses, how
 	// long session:ready.resume still offers the table back. 0 disables.
 	ResumeOffer time.Duration
+}
+
+// PokerConfig is the poker family's configuration (POKER_PLAN.md §5). A poker
+// table's STAKE is its LOBBY_TABLES boot, one of TABLE_STAKES like every other
+// table: the big blind at a Hold'em or Omaha table (the small blind is half),
+// the ante at a 3-Card Poker or 5-Card Draw table. Everything else about how a
+// variant plays is that variant's own fixed table (poker.VariantConfig) — the
+// keys here are the few figures a deployment might reasonably tune.
+type PokerConfig struct {
+	// TurnTimeout is POKER_TURN_TIMEOUT_MS: how long a poker player has to act
+	// on each decision (a street, a draw, the play-or-fold choice). 0 = the
+	// table's TURN_TIMEOUT_MS, which is the default.
+	TurnTimeout time.Duration
+	// MinBuyInBoots is POKER_MIN_BUYIN_BOOTS 10: the smallest stack a player
+	// may sit down with, in boots of that table (ten big blinds, or ten antes).
+	// A player who cannot cover the boot at all is refused as everywhere; this
+	// is the floor above it, and a seat that falls below the boot between hands
+	// gets the same UNFUNDED_GRACE_MS every table gives.
+	MinBuyInBoots int64
+	// MaxDiscards is POKER_MAX_DISCARDS 3: how many cards a 5-Card Draw player
+	// may exchange at the draw. 0..5; the brief asked for it to be configurable.
+	MaxDiscards int
 }
 
 // MetricsConfig ← config.metrics (requirement 35).
@@ -385,6 +471,36 @@ func Defaults() *Config {
 				{Category: "blind", BootAmount: 5000, MaxChips: 50000000},     // over 5 Cr must move up
 				{Category: "blind", BootAmount: 50000, MaxChips: 1000000000},  // over 100 Cr must move up
 				{Category: "blind", BootAmount: 1000000, MinChips: 500000000}, // 50 Cr or more to enter
+				// Variation Teen Patti (owner, 18 Sep 2026). Last, so the five
+				// entries before it keep their places on every client's rail.
+				// Two tables only — "in variation keep only two tables, 50000
+				// and 10 Lakh" — behind the stack bands blind's tables of the
+				// same stakes have.
+				{Category: "variation", BootAmount: 50000, MaxChips: 1000000000},
+				{Category: "variation", BootAmount: 1000000, MinChips: 500000000},
+				// A second seen table (owner, 19 Sep 2026): boot 50,000, a pot
+				// limit of 5 Crore, open to all. Last in the list like every
+				// later addition; the lobby files it under Seen by category.
+				{Category: "seen", BootAmount: 50000, MaxPot: 50000000},
+				// The Poker family (owner, 19 Sep 2026; POKER_PLAN.md): the boot
+				// is the big blind (Hold'em, Omaha) or the ante (3-Card Poker,
+				// 5-Card Draw), the buy-in POKER_MIN_BUYIN_BOOTS of it. Last, so
+				// every entry above keeps its place; the lobby files them all
+				// under one Poker card. Production's .env lists the menu itself,
+				// so nothing changes there until it does — and MIN_CLIENT_BUILD
+				// must be raised to the first poker-aware build first.
+				//
+				// ONE table per game, all four at 50,000 (owner, 19 Sep 2026:
+				// "in poker category only keep one table 50000 for each
+				// gameplay"). The buy-in is therefore 5,00,000 at every poker
+				// table (10 boots), which is more than the 3,00,000 welcome:
+				// a brand-new account sees the Poker cards shut until it has
+				// won 5 Lakh. Lower POKER_MIN_BUYIN_BOOTS to change that
+				// without touching the stake.
+				{Category: "three_card_poker", BootAmount: 50000},
+				{Category: "five_card_draw", BootAmount: 50000},
+				{Category: "texas_holdem", BootAmount: 50000},
+				{Category: "omaha", BootAmount: 50000},
 			},
 			MaxPlayers:              5,
 			MinPlayers:              2,
@@ -413,9 +529,17 @@ func Defaults() *Config {
 			NextHandDelay:           4 * time.Second,
 			UnfundedGrace:           30 * time.Second,
 			MissileRevealExtra:      3 * time.Second,
-			ConsolidateInterval:     15 * time.Second,
-			ReconnectGrace:          60 * time.Second,
-			ResumeOffer:             10 * time.Minute,
+			VariationSelectTimeout:  10 * time.Second,
+			VariationMaxPotBoots:    0,
+			FiveCardPickTimeout:     8 * time.Second,
+			Poker: PokerConfig{
+				TurnTimeout:   0, // the table's TURN_TIMEOUT_MS
+				MinBuyInBoots: 10,
+				MaxDiscards:   3,
+			},
+			ConsolidateInterval: 15 * time.Second,
+			ReconnectGrace:      60 * time.Second,
+			ResumeOffer:         10 * time.Minute,
 		},
 		Metrics: MetricsConfig{
 			Enabled: true,
@@ -599,6 +723,34 @@ func FromEnv(lookup Lookup) (*Config, error) {
 	g.NextHandDelay = r.millis("NEXT_HAND_DELAY_MS", g.NextHandDelay)
 	g.UnfundedGrace = r.millis("UNFUNDED_GRACE_MS", g.UnfundedGrace)
 	g.MissileRevealExtra = r.millis("MISSILE_REVEAL_EXTRA_MS", g.MissileRevealExtra)
+	g.VariationSelectTimeout = r.millis("VARIATION_SELECT_TIMEOUT_MS", g.VariationSelectTimeout)
+	g.VariationMaxPotBoots = r.int64("VARIATION_MAX_POT_BOOTS", g.VariationMaxPotBoots)
+	g.FiveCardPickTimeout = r.millis("FIVE_CARD_PICK_TIMEOUT_MS", g.FiveCardPickTimeout)
+	// A cap that does not fit an int64 would wrap to a small or negative pot
+	// limit and end every hand at the deal, so it is a boot failure instead —
+	// checked against every boot this lobby can open a variation table at.
+	if raw, _ := lookup("VARIATION_MAX_POT_BOOTS"); g.VariationMaxPotBoots < 0 {
+		r.fail("VARIATION_MAX_POT_BOOTS", raw, "must be 0 (uncapped) or more")
+	} else {
+		for _, table := range g.LobbyTables {
+			if table.Category != CategoryVariation {
+				continue
+			}
+			if _, ok := variationMaxPot(table.BootAmount, g.VariationMaxPotBoots); !ok {
+				r.fail("VARIATION_MAX_POT_BOOTS", raw, fmt.Sprintf(
+					"%d boots of %d overflows the pot cap", g.VariationMaxPotBoots, table.BootAmount))
+			}
+		}
+	}
+	g.Poker.TurnTimeout = r.millis("POKER_TURN_TIMEOUT_MS", g.Poker.TurnTimeout)
+	g.Poker.MinBuyInBoots = r.int64("POKER_MIN_BUYIN_BOOTS", g.Poker.MinBuyInBoots)
+	g.Poker.MaxDiscards = r.integer("POKER_MAX_DISCARDS", g.Poker.MaxDiscards)
+	if raw, _ := lookup("POKER_MAX_DISCARDS"); g.Poker.MaxDiscards < 0 || g.Poker.MaxDiscards > 5 {
+		r.fail("POKER_MAX_DISCARDS", raw, "must be between 0 and 5")
+	}
+	if raw, _ := lookup("POKER_MIN_BUYIN_BOOTS"); g.Poker.MinBuyInBoots < 1 {
+		r.fail("POKER_MIN_BUYIN_BOOTS", raw, "must be at least 1")
+	}
 	g.ConsolidateInterval = r.millis("CONSOLIDATE_INTERVAL_MS", g.ConsolidateInterval)
 	g.ReconnectGrace = r.millis("RECONNECT_GRACE_MS", g.ReconnectGrace)
 	g.ResumeOffer = r.millis("RESUME_OFFER_MS", g.ResumeOffer)
@@ -680,12 +832,31 @@ type TableRules struct {
 }
 
 // NormalizeCategory is RoomManager.normalizeCategory: "blind" iff the value
-// is exactly "blind", otherwise "seen" (unknown and empty included).
+// is exactly "blind", "variation" iff it is exactly "variation" (Go only), one
+// of the four poker categories iff it is exactly that (Go only, POKER_PLAN.md),
+// otherwise "seen" (unknown and empty included). The set is closed: nothing a
+// client sends can name an eighth category.
 func NormalizeCategory(category string) string {
-	if category == CategoryBlind {
+	switch category {
+	case CategoryBlind:
 		return CategoryBlind
+	case CategoryVariation:
+		return CategoryVariation
+	case CategoryThreeCardPoker, CategoryFiveCardDraw, CategoryTexasHoldem, CategoryOmaha:
+		return category
+	default:
+		return CategorySeen
 	}
-	return CategorySeen
+}
+
+// IsPokerCategory reports whether category names a table of the poker family
+// (game.Category.IsPoker, for the config package which cannot import game).
+func IsPokerCategory(category string) bool {
+	switch category {
+	case CategoryThreeCardPoker, CategoryFiveCardDraw, CategoryTexasHoldem, CategoryOmaha:
+		return true
+	}
+	return false
 }
 
 // TableRules composes the rules for one table exactly as Node does
@@ -715,14 +886,28 @@ func (g GameConfig) TableRules(category string, bootAmount int64, isPrivate bool
 	if rules.BootAmount == 0 {
 		rules.BootAmount = g.BootAmount
 	}
-	if NormalizeCategory(category) == CategorySeen {
-		rules.MaxRaiseSteps = g.SeenMaxRaiseSteps
-		rules.MaxBetRounds = g.SeenMaxBetRounds
-		rules.MaxPot = g.SeenMaxPot
-	} else {
+	switch NormalizeCategory(category) {
+	case CategoryBlind:
 		rules.MaxRaiseSteps = g.BlindMaxRaiseSteps
 		rules.MaxBetRounds = g.BlindMaxBetRounds
 		rules.PotLimitMultiplier = g.BlindPotLimitMultiplier
+	case CategoryVariation:
+		// A variation table bets exactly as a seen one does — the SEEN_* ladder
+		// and rounds ARE its rules, with no VARIATION_* twins to keep in step.
+		// Only the pot cap is its own: NONE by default (owner, 18 Sep 2026), or
+		// VariationMaxPotBoots of its own boots where a deployment sets one.
+		rules.MaxRaiseSteps = g.SeenMaxRaiseSteps
+		rules.MaxBetRounds = g.SeenMaxBetRounds
+		rules.MaxPot = g.VariationMaxPot(rules.BootAmount)
+	default:
+		rules.MaxRaiseSteps = g.SeenMaxRaiseSteps
+		rules.MaxBetRounds = g.SeenMaxBetRounds
+		rules.MaxPot = g.SeenMaxPot
+	}
+	// A menu entry may carry a pot cap of its own, which wins over its
+	// category's. Looked up by the boot the table will really use.
+	if own := g.menuPotFor(category, rules.BootAmount); own > 0 {
+		rules.MaxPot = own
 	}
 	if isPrivate {
 		rules.BootAmount = g.PrivateBoot
@@ -733,13 +918,65 @@ func (g GameConfig) TableRules(category string, bootAmount int64, isPrivate bool
 }
 
 // MenuMaxPot is the `maxPot` a lobby menu entry advertises
-// (roomManager.js lobbyOptions 196-223): SeenMaxPot for a seen entry, 0 for
-// anything else.
-func (g GameConfig) MenuMaxPot(category string) int64 {
-	if category == CategorySeen {
+// (roomManager.js lobbyOptions 196-223): SeenMaxPot for a seen entry, the
+// boot-scaled cap for a variation one, 0 for anything else. It must be the
+// figure TableRules gives the table that entry opens — a card that promises
+// one pot limit over a table that plays to another is a lie told in chips —
+// so a variation entry needs its boot.
+func (g GameConfig) MenuMaxPot(category string, bootAmount int64) int64 {
+	if bootAmount == 0 {
+		bootAmount = g.BootAmount
+	}
+	if own := g.menuPotFor(category, bootAmount); own > 0 {
+		return own
+	}
+	switch category {
+	case CategorySeen:
 		return g.SeenMaxPot
+	case CategoryVariation:
+		if bootAmount == 0 {
+			bootAmount = g.BootAmount
+		}
+		return g.VariationMaxPot(bootAmount)
 	}
 	return 0
+}
+
+// menuPotFor is the pot cap the LOBBY_TABLES entry for this category and boot
+// sets for itself ("pot=N"), 0 when there is no such entry or it sets none.
+func (g GameConfig) menuPotFor(category string, bootAmount int64) int64 {
+	category = NormalizeCategory(category)
+	for _, entry := range g.LobbyTables {
+		if NormalizeCategory(entry.Category) == category && entry.BootAmount == bootAmount {
+			return entry.MaxPot
+		}
+	}
+	return 0
+}
+
+// VariationMaxPot is a public variation table's pot cap at bootAmount:
+// bootAmount × VariationMaxPotBoots, 0 (uncapped) when the key is 0. Load
+// refuses a configuration whose product overflows for any variation table on
+// the menu; for a boot that is not on it (tests, an empty menu) an overflow is
+// answered as uncapped rather than as a wrapped, tiny cap.
+func (g GameConfig) VariationMaxPot(bootAmount int64) int64 {
+	maxPot, ok := variationMaxPot(bootAmount, g.VariationMaxPotBoots)
+	if !ok {
+		return 0
+	}
+	return maxPot
+}
+
+// variationMaxPot multiplies with the overflow check VariationMaxPot and the
+// loader share.
+func variationMaxPot(bootAmount, boots int64) (int64, bool) {
+	if bootAmount <= 0 || boots <= 0 {
+		return 0, true
+	}
+	if bootAmount > math.MaxInt64/boots {
+		return 0, false
+	}
+	return bootAmount * boots, true
 }
 
 // list is Node's `list()`: split on ",", trim each entry, drop empties.

@@ -68,8 +68,17 @@ type SnapshotConfig struct {
 	// MissileRevealExtraMs is TableConfig.MissileRevealExtra; absent (0) in a
 	// snapshot saved before missiles existed, which restores without the extra.
 	MissileRevealExtraMs int64 `json:"missileRevealExtraMs,omitempty"`
-	ChatMaxHistory       int   `json:"chatMaxHistory"`
-	ChatMaxLength        int   `json:"chatMaxLength"`
+	// VariationSelectTimeoutMs is TableConfig.VariationSelectTimeout; absent
+	// (0) in every snapshot of a seen or blind table.
+	VariationSelectTimeoutMs int64 `json:"variationSelectTimeoutMs,omitempty"`
+	// FiveCardPickTimeoutMs is TableConfig.FiveCardPickTimeout; absent (0) in
+	// every snapshot of a seen or blind table, and in one saved before the
+	// 5-Card pick existed — which restores with no clock on the window, so an
+	// open one waits for its player rather than closing the instant it comes
+	// back.
+	FiveCardPickTimeoutMs int64 `json:"fiveCardPickTimeoutMs,omitempty"`
+	ChatMaxHistory        int   `json:"chatMaxHistory"`
+	ChatMaxLength         int   `json:"chatMaxLength"`
 }
 
 // SnapshotHand is Snapshot.hand.
@@ -102,6 +111,35 @@ type SnapshotHand struct {
 	// chip_ledger UNIQUE index no longer refuses a replay — this does, and it
 	// has to survive a restart to keep doing it. Never nil.
 	ActionIDs []string `json:"actionIds"`
+	// Variation is the hand's variation window (a variation table only);
+	// absent otherwise, so a seen or blind hand's snapshot is unchanged.
+	Variation *SnapshotVariation `json:"variation,omitempty"`
+}
+
+// SnapshotVariation is SnapshotHand.variation: the window without its timer.
+// It holds the turned-up card ALWAYS — this is the server's own state in the
+// live store and never reaches a client — so a table that comes back from a
+// restart decides Joker and Hukam by the card that was drawn at the deal.
+type SnapshotVariation struct {
+	Open        bool   `json:"open"`
+	ChooserID   string `json:"chooserId"`
+	ChooserName string `json:"chooserName"`
+	ChooserSeat int    `json:"chooserSeat"`
+	StartedAt   int64  `json:"startedAt"` // epoch ms
+	// Deadline is null when the window never lapses.
+	Deadline *int64 `json:"deadline"`
+	TurnUp   string `json:"turnUp"` // wire code
+	// Selected is "" while Open.
+	Selected   Variation           `json:"selected"`
+	SelectedBy VariationSelectedBy `json:"selectedBy"`
+	// Extra is the top-up drawn at the deal for a variation that plays more
+	// than three cards (FIVE_CARD), by user id; present only while the window
+	// is open — it is dealt or dropped the moment a variation is chosen.
+	Extra map[string][]string `json:"extra,omitempty"`
+	// Options is the menu the hand opened with (variationWindow.menu), kept so
+	// a restored table reports the same one. Absent in a snapshot written
+	// before it was kept.
+	Options []Variation `json:"options,omitempty"`
 }
 
 // SnapshotSideshow is SnapshotHand.sideshow (hand.sideshow without the timer).
@@ -157,7 +195,17 @@ type SnapshotSeat struct {
 	SideshowAskedThisTurn bool    `json:"sideshowAskedThisTurn"`
 	KickPending           bool    `json:"kickPending"`
 	UnfundedUntil         *int64  `json:"unfundedUntil,omitempty"` // epoch ms: end of the unfunded grace
-	JoinedAt              int64   `json:"joinedAt"`                // epoch ms
+	// The 5-Card pick (owner, 19 Sep 2026; table_fivecard.go). Picking is a
+	// window still owed a choice, Picked the three that play once one is made,
+	// PickedBy who made it and PickUntil when the server makes it for them
+	// (epoch ms; absent when no clock runs). All four are absent on every hand
+	// that plays what it holds, so a seen or blind table's snapshot is exactly
+	// what it was.
+	Picking   bool     `json:"picking,omitempty"`
+	Picked    []string `json:"picked,omitempty"`
+	PickedBy  string   `json:"pickedBy,omitempty"`
+	PickUntil *int64   `json:"pickUntil,omitempty"`
+	JoinedAt  int64    `json:"joinedAt"` // epoch ms
 }
 
 // HandSummaryEntry is one contributor in hands.summary_json and in the

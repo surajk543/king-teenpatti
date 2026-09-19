@@ -300,8 +300,9 @@ class Dim {
 
 /// The colours one table is told apart by.
 ///
-/// Three tables, three identities: the seen table is gold, the small blind
-/// table is sapphire, the high-stakes blind table is royal purple. The lobby
+/// Four tables, four identities: the seen table is gold, the small blind
+/// table is sapphire, the high-stakes blind table is royal purple and the
+/// variation table is rani pink. The lobby
 /// card, the felt, the tag over the pot and the badges all draw from the same
 /// palette, so the room a player sits down in matches the card they tapped.
 class TablePalette {
@@ -320,7 +321,8 @@ class TablePalette {
   final Color container;
   final Color onContainer;
 
-  /// The mark the table carries: an eye, a crossed eye, or a crown.
+  /// The mark the table carries: an eye, a crossed eye, a crown, or the
+  /// crossing arrows of the variation table.
   final IconData icon;
 
   /// How deeply the felt and the card are washed in the accent.
@@ -469,8 +471,46 @@ class AppTheme {
   static const Color _royal = Color(0xFF6D4BC4);
   static const Color _royalDark = Color(0xFFC9B3FF);
 
+  /// Rani pink for the variation table, one shade per brightness. The orbs
+  /// tell tables apart by hue alone (`orbColours` flattens saturation and
+  /// lightness), and the hues already spoken for are gold near 48, the private
+  /// room's emerald near 150, sapphire near 200 and purple near 257 — magenta,
+  /// near 328, is the middle of the widest gap left. The light shade is the
+  /// deepest that still clears 3.5:1 on the table tag's ink plate, which is
+  /// dark in both themes, while reading on frosted ice; the dark shade is pale
+  /// for obsidian, the same split as the purple's.
+  static const Color _rani = Color(0xFFC2297A);
+  static const Color _raniDark = Color(0xFFFF9CCB);
+
+  /// Teal for the poker family, one shade per brightness: the four poker
+  /// games and their one lobby card wear it together. Hue near 181, between
+  /// the private room's emerald (150) and blind's sapphire (200), and the one
+  /// stretch of the wheel the other tables leave open. The light shade clears
+  /// 3.5:1 on the table tag's ink plate; the dark one is pale for obsidian.
+  static const Color _teal = Color(0xFF0F8B8D);
+  static const Color _tealDark = Color(0xFF7FE0D6);
+
+  /// The poker family's palette, for the four wire categories and for the
+  /// lobby's `poker` family card alike.
+  static TablePalette _pokerPalette(ColorScheme scheme) {
+    final dark = scheme.brightness == Brightness.dark;
+    return TablePalette(
+      accent: dark ? _tealDark : _teal,
+      container: dark ? const Color(0xFF0E3A3B) : const Color(0xFFCFF3F0),
+      onContainer: dark ? const Color(0xFFDDFBF8) : const Color(0xFF073032),
+      // Dice: the one mark that says "casino card game" without saying Teen
+      // Patti — the eye, the crossed eye and the crossing arrows are all
+      // spoken for by the three categories that keep the Teen Patti rules.
+      icon: Icons.casino_rounded,
+      tint: dark ? 0.14 : 0.12,
+    );
+  }
+
   /// The palette for a table of this category and stake. Blind tables at or
-  /// above 1,000 boot are the high-stakes ones and wear the purple.
+  /// above 1,000 boot are the high-stakes ones and wear the purple; a
+  /// variation table wears the pink at every stake. Anything else — a category
+  /// this build has never heard of included — is drawn as the seen table,
+  /// which is also how the server plays an unknown category.
   ///
   /// The tints are far lower than they were: the cloth is emerald baize now and
   /// the table's identity is carried by its rim, not by washing the felt.
@@ -480,6 +520,27 @@ class AppTheme {
     required int bootAmount,
   }) {
     final dark = scheme.brightness == Brightness.dark;
+    // The poker family, by any of its four games or by the family itself,
+    // before the fall-through that draws an unknown category as seen.
+    if (category == 'poker' ||
+        category == 'texas_holdem' ||
+        category == 'omaha' ||
+        category == 'five_card_draw' ||
+        category == 'three_card_poker') {
+      return _pokerPalette(scheme);
+    }
+    if (category == 'variation') {
+      return TablePalette(
+        accent: dark ? _raniDark : _rani,
+        container: dark ? const Color(0xFF4A1230) : const Color(0xFFFFD9E8),
+        onContainer: dark ? const Color(0xFFFFE3EF) : const Color(0xFF3E0A25),
+        // Crossing arrows: the one thing this table does that no other does
+        // is change the rules from hand to hand. A sparkle says "special",
+        // which the crown already says; dice would promise luck, not rules.
+        icon: Icons.shuffle_rounded,
+        tint: dark ? 0.14 : 0.12,
+      );
+    }
     if (category != 'blind') {
       return TablePalette(
         accent: _gold,

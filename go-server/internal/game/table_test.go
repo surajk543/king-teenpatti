@@ -159,10 +159,16 @@ func (r *recorder) OnSideshowRequested(_ *View, e SideshowRequestedEvent) {
 }
 func (r *recorder) OnSideshowReveal(_ *View, e SideshowRevealEvent)     { r.add("sideshowReveal", e) }
 func (r *recorder) OnSideshowResolved(_ *View, e SideshowResolvedEvent) { r.add("sideshowResolved", e) }
-func (r *recorder) OnShowdown(_ *View, e ShowdownEvent)                 { r.add("showdown", e) }
-func (r *recorder) OnHandEnded(_ *View, e HandEndedEvent)               { r.add("handEnded", e) }
-func (r *recorder) OnPersistError(_ *View, e PersistErrorEvent)         { r.add("persistError", e) }
-func (r *recorder) OnError(_ *View, err error)                          { r.add("error", err) }
+func (r *recorder) OnVariationSelecting(_ *View, e VariationSelectingEvent) {
+	r.add("variationSelecting", e)
+}
+func (r *recorder) OnVariationSelected(_ *View, e VariationSelectedEvent) {
+	r.add("variationSelected", e)
+}
+func (r *recorder) OnShowdown(_ *View, e ShowdownEvent)         { r.add("showdown", e) }
+func (r *recorder) OnHandEnded(_ *View, e HandEndedEvent)       { r.add("handEnded", e) }
+func (r *recorder) OnPersistError(_ *View, e PersistErrorEvent) { r.add("persistError", e) }
+func (r *recorder) OnError(_ *View, err error)                  { r.add("error", err) }
 func (r *recorder) OnKick(_ *View, e KickEvent) {
 	r.add("kick", e)
 	if r.onKick != nil {

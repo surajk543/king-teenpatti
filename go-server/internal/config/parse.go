@@ -119,7 +119,7 @@ func parseTableStakes(raw string) ([]int64, error) {
 
 // parseLobbyTables is config/index.js:85-90: each entry is "category:boot",
 // both halves trimmed. Under DECISIONS.md §3/§5 an entry without exactly one
-// colon, with a category other than seen|blind, or with a non-integer boot is
+// colon, with a category other than seen|blind|variation, or with a non-integer boot is
 // an error (Node dropped the NaN cases silently and kept unknown categories).
 // A boot of 0 or less passes, as Number.isInteger let it through. The result
 // is never nil.
@@ -131,23 +131,23 @@ func parseLobbyTables(raw string) ([]LobbyTable, error) {
 			return nil, fmt.Errorf("entry %q must be category:boot", entry)
 		}
 		category := strings.TrimSpace(parts[0])
-		if category != CategorySeen && category != CategoryBlind {
-			return nil, fmt.Errorf("entry %q: category must be seen or blind", entry)
+		if category != CategorySeen && category != CategoryBlind && category != CategoryVariation && !IsPokerCategory(category) {
+			return nil, fmt.Errorf("entry %q: category must be seen, blind, variation, three_card_poker, five_card_draw, texas_holdem or omaha", entry)
 		}
 		boot, err := parseInt(parts[1])
 		if err != nil {
 			return nil, fmt.Errorf("entry %q: boot is not an integer", entry)
 		}
 		table := LobbyTable{Category: category, BootAmount: boot}
-		// Anything after the boot is a stack band: "blind:5000:max=50000000"
-		// or "blind:1000000:min=500000000", in either order and both
-		// optional. Suffixes rather than more colon-positions because a
+		// Anything after the boot is a stack band — "blind:5000:max=50000000"
+		// or "blind:1000000:min=500000000" — or the table's own pot cap,
+		// "seen:50000:pot=50000000"; in any order and all optional. Suffixes rather than more colon-positions because a
 		// bare third number would be unreadable at a glance, and because
 		// "category:boot" has to keep parsing exactly as it always did.
 		for _, extra := range parts[2:] {
 			key, value, found := strings.Cut(strings.TrimSpace(extra), "=")
 			if !found {
-				return nil, fmt.Errorf("entry %q: %q must be min=N or max=N", entry, extra)
+				return nil, fmt.Errorf("entry %q: %q must be min=N, max=N or pot=N", entry, extra)
 			}
 			n, err := parseInt(value)
 			if err != nil {
@@ -161,8 +161,11 @@ func parseLobbyTables(raw string) ([]LobbyTable, error) {
 				table.MinChips = n
 			case "max":
 				table.MaxChips = n
+			case "pot":
+				// This table's own pot cap, over its category's (0 = none set).
+				table.MaxPot = n
 			default:
-				return nil, fmt.Errorf("entry %q: unknown limit %q (want min or max)", entry, key)
+				return nil, fmt.Errorf("entry %q: unknown limit %q (want min, max or pot)", entry, key)
 			}
 		}
 		// A band nobody can satisfy would take the table off the menu at run

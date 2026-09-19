@@ -129,7 +129,7 @@ func bookedRooms(t *testing.T, book *walletBook, mutate func(*config.GameConfig,
 type lobbyDoor struct {
 	name  string
 	frame string
-	open  func(f *roomsFixture) func(p game.Player) (*game.Table, error)
+	open  func(f *roomsFixture) func(p game.Player) (game.Room, error)
 }
 
 // lobbyDoors are every door into a seat from the lobby. room:joinCode is also
@@ -142,24 +142,24 @@ func lobbyDoors() []lobbyDoor {
 		{
 			name:  "room:quickJoin",
 			frame: "(*RoomManager).QuickJoin(",
-			open: func(f *roomsFixture) func(game.Player) (*game.Table, error) {
-				return func(p game.Player) (*game.Table, error) { return f.rooms.QuickJoin(p, seenAt200) }
+			open: func(f *roomsFixture) func(game.Player) (game.Room, error) {
+				return func(p game.Player) (game.Room, error) { return f.rooms.QuickJoin(p, seenAt200) }
 			},
 		},
 		{
 			name:  "room:joinCode",
 			frame: "(*RoomManager).JoinByCode(",
-			open: func(f *roomsFixture) func(game.Player) (*game.Table, error) {
-				code := f.rooms.CreateTable(game.CreateTableOptions{BootAmount: 200, Category: "seen"}).Code()
-				return func(p game.Player) (*game.Table, error) { return f.rooms.JoinByCode(p, code) }
+			open: func(f *roomsFixture) func(game.Player) (game.Room, error) {
+				code := f.createTable(game.CreateTableOptions{BootAmount: 200, Category: "seen"}).Code()
+				return func(p game.Player) (game.Room, error) { return f.rooms.JoinByCode(p, code) }
 			},
 		},
 		{
 			// The socket layer's room:create; isPrivate defaults to true.
 			name:  "room:create",
 			frame: "(*RoomManager).CreateAndJoin(",
-			open: func(f *roomsFixture) func(game.Player) (*game.Table, error) {
-				return func(p game.Player) (*game.Table, error) {
+			open: func(f *roomsFixture) func(game.Player) (game.Room, error) {
+				return func(p game.Player) (game.Room, error) {
 					return f.rooms.CreateAndJoin(p, game.CreateTableOptions{BootAmount: 200, IsPrivate: true, Category: "seen"}, "sock-"+p.ID)
 				}
 			},
@@ -168,8 +168,8 @@ func lobbyDoors() []lobbyDoor {
 			// A public create, whose chip checks read the same wallet.
 			name:  "room:create public",
 			frame: "(*RoomManager).CreateAndJoin(",
-			open: func(f *roomsFixture) func(game.Player) (*game.Table, error) {
-				return func(p game.Player) (*game.Table, error) {
+			open: func(f *roomsFixture) func(game.Player) (game.Room, error) {
+				return func(p game.Player) (game.Room, error) {
 					return f.rooms.CreateAndJoin(p, game.CreateTableOptions{BootAmount: 200, Category: "seen"}, "sock-"+p.ID)
 				}
 			},
@@ -179,9 +179,9 @@ func lobbyDoors() []lobbyDoor {
 			// event uses it any more, but it is still a door that reads a wallet.
 			name:  "Join",
 			frame: "(*RoomManager).Join(",
-			open: func(f *roomsFixture) func(game.Player) (*game.Table, error) {
-				table := f.rooms.CreateTable(game.CreateTableOptions{BootAmount: 200, Category: "seen"})
-				return func(p game.Player) (*game.Table, error) { return table, f.rooms.Join(table, p, "sock-"+p.ID) }
+			open: func(f *roomsFixture) func(game.Player) (game.Room, error) {
+				table := f.createTable(game.CreateTableOptions{BootAmount: 200, Category: "seen"})
+				return func(p game.Player) (game.Room, error) { return table, f.rooms.Join(table, p, "sock-"+p.ID) }
 			},
 		},
 	}
@@ -277,11 +277,11 @@ var seenAt200 = game.QuickJoinOptions{BootAmount: 200, Category: "seen"}
 const chipPack = 100_000
 
 type joinOutcome struct {
-	table *game.Table
+	table game.Room
 	err   error
 }
 
-func seatChips(t *testing.T, table *game.Table, userID string) int64 {
+func seatChips(t *testing.T, table game.Room, userID string) int64 {
 	t.Helper()
 	if table == nil {
 		t.Fatalf("no table for %s", userID)
@@ -611,9 +611,9 @@ func TestAChipPackLandingWhileAConsolidationWaitsMovesWithThePlayer(t *testing.T
 	host, mover := f.player("Host", 250_000), f.player("Mover", 250_000)
 	book.set(host.ID, 250_000)
 	book.set(mover.ID, 250_000)
-	older := f.rooms.CreateTable(game.CreateTableOptions{BootAmount: 200, Category: "seen"})
+	older := f.createTable(game.CreateTableOptions{BootAmount: 200, Category: "seen"})
 	f.mustJoin(older, host)
-	newer := f.rooms.CreateTable(game.CreateTableOptions{BootAmount: 200, Category: "seen"})
+	newer := f.createTable(game.CreateTableOptions{BootAmount: 200, Category: "seen"})
 	f.mustJoin(newer, mover)
 
 	paused, gate := make(chan struct{}), make(chan struct{})
@@ -670,10 +670,10 @@ func TestALobbyPurchaseCannotSlipIntoTheGapOfATableSwitch(t *testing.T) {
 	for _, p := range []game.Player{mover, stayer, host} {
 		book.set(p.ID, 250_000)
 	}
-	source := f.rooms.CreateTable(game.CreateTableOptions{BootAmount: 200, Category: "seen"})
+	source := f.createTable(game.CreateTableOptions{BootAmount: 200, Category: "seen"})
 	f.mustJoin(source, mover)
 	f.mustJoin(source, stayer)
-	target := f.rooms.CreateTable(game.CreateTableOptions{BootAmount: 200, Category: "seen"})
+	target := f.createTable(game.CreateTableOptions{BootAmount: 200, Category: "seen"})
 	f.mustJoin(target, host)
 
 	pause.arm(source.ID())
@@ -812,7 +812,7 @@ func TestALobbyChangeOrSeatIsRefusedUntilADestroyedTablesSettlementHasLanded(t *
 		})
 	})
 	release := releaseOnce(t, gate)
-	table := f.rooms.CreateTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"})
+	table := f.createTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"})
 	a, _ := seatTwoAndDeal(t, f, table, rmStart)
 
 	destroyed := make(chan error, 1)
@@ -863,7 +863,7 @@ func TestALobbyChangeWaitsOutASettlementADestroyLeftRetrying(t *testing.T) {
 			},
 		})
 	})
-	table := f.rooms.CreateTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"})
+	table := f.createTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"})
 	a, _ := seatTwoAndDeal(t, f, table, rmStart)
 
 	if err := f.rooms.DestroyTable(table.ID()); err != nil {
@@ -1218,7 +1218,7 @@ func (l *clampingLedger) clampedChips() int64 {
 // settlement is left retrying.
 func refusedSettlement(t *testing.T, f *roomsFixture, ledger *clampingLedger) (table *game.Table, winner, loser game.Player) {
 	t.Helper()
-	table = f.rooms.CreateTable(game.CreateTableOptions{BootAmount: 200, Category: "seen"})
+	table = f.createTable(game.CreateTableOptions{BootAmount: 200, Category: "seen"})
 	a, b := f.player("A", 10_000), f.player("B", 10_000)
 	for _, p := range []game.Player{a, b} {
 		ledger.book.set(p.ID, 10_000)

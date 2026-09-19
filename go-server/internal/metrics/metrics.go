@@ -52,7 +52,7 @@ type PoolStats struct {
 
 // RoomsSource is what the table gauges read at scrape time.
 type RoomsSource interface {
-	LiveTables() []*game.Table
+	LiveTables() []game.Room
 }
 
 // Metrics holds every collector. Fields are exported so the socket layer,
@@ -456,7 +456,7 @@ func (m *Metrics) BindPool(fn func() PoolStats) {
 }
 
 // liveTables is Node's liveTables(): every table, or none before BindRooms.
-func (m *Metrics) liveTables() []*game.Table {
+func (m *Metrics) liveTables() []game.Room {
 	m.mu.RLock()
 	rooms := m.rooms
 	m.mu.RUnlock()
@@ -487,7 +487,8 @@ func (m *Metrics) poolStats() (stats PoolStats) {
 // re-counted every table on each scrape, so a category/stake pair with no
 // table disappears from the exposition rather than reading 0. A custom
 // Collector emitting one const metric per live pair has exactly that shape.
-// `category` is the raw table category (always seen/blind) and `stake` the
+// `category` is the raw table category (always seen, blind or — Go only,
+// since 18 Sep 2026 — variation: game.Category is a closed set) and `stake` the
 // boot as a decimal string, as in Node — neither goes through SafeLabel.
 type tablesCollector struct {
 	m    *Metrics

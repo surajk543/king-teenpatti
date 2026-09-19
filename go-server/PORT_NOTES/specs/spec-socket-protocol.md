@@ -341,7 +341,7 @@ MUST MATCH:
 
 `KNOWN_ERROR_CODES` (`sock:55-101`) exists only to fold metric labels; the ack always carries the
 real code. INCIDENTAL, but `metrics.test.js:613-615` asserts every `code` label is `^[a-z][a-z0-9_]*$`.
-Go's `KnownErrorCodes` (`internal/socket/wire.go`) adds `no_hammers` (§6.1.1) and `no_missiles` (§6.1.2).
+Go's `KnownErrorCodes` (`internal/socket/wire.go`) adds `no_hammers` (§6.1.1) and `no_missiles` (§6.1.2). and, for variation tables (§6.2.1), `no_variation`, `variation_already_selected`, `not_selecting`, `invalid_variation`, `variation_expired` and `variation_pending`; `KnownEvents` adds `game:selectVariation`.
 
 ---
 
@@ -643,12 +643,114 @@ sideshow was not asked of you" → `_resolveSideshow(accept, accept ? 'accepted'
 **Only the literal boolean `true` accepts**; `1`, `"true"`, `{}` decline. Ack
 `{ok:true, accepted:<bool>, packedUserId:<id>|null}`.
 
+### 6.2.1 `game:selectVariation` (Go only — owner, 18 Sep 2026; DECISIONS.md §2)
+
+The chooser's answer on a **variation table** — category `variation`, a seen table in every betting
+rule whose every hand opens with a window in which the player to the dealer's left chooses the
+variation the hand is decided by. Rules: `internal/game/variation.go`; the window:
+`internal/game/table_variation.go`; this handler: `internal/socket/handler.go` `selectVariation`.
+
+```
+S→C  42["game:handStarted",{…}]                       the hand is dealt (three cards each), as always
+S→C  42["game:variationSelecting",{"userId":"<chooser>","displayName":"Rahul","seatIndex":2,
+        "startedAt":1700000000000,"deadline":1700000010000,"timeoutMs":10000,
+        "options":["MUFLIS","AK47","JOKER","HUKAM","LOWEST_JOKER","HIGHEST_JOKER"],"roomId":"…"}]
+S→C  42["room:state",{…,"turn":{"seatIndex":-1,"userId":null,"deadline":null},
+        "variation":{"selecting":true,"userId":"<chooser>",…,"selected":null,"selectedBy":null}}]
+C→S  421["game:selectVariation",{"variation":"AK47"}]           the chooser only
+S→C  431[{"ok":true,"variation":"AK47","selectedBy":"PLAYER"}]
+S→C  42["game:variationSelected",{"userId":"<chooser>","displayName":"Rahul","seatIndex":2,
+        "variation":"AK47","selectedBy":"PLAYER","roomId":"…"}]
+S→C  42["game:turn",{…}] / 42["game:yourTurn",{…}]              the chooser's ordinary first turn, full clock
+S→C  42["room:state",{…,"variation":{"selecting":false,…,"selected":"AK47","selectedBy":"PLAYER"}}]
+```
+
+1. **Payload** `{variation}`. There is NO player id: the player is the socket's session user. `variation`
+   is read with `stringArg` — the string as sent, or `""` for ANY non-string (number, boolean, array,
+   object, null, absent) — and matched EXACTLY against the six canonical values (`game.ParseVariation`:
+   no trimming, no case folding, no aliases), so `"muflis"`, `"Lowest Joker"`, `"LowestJoker"` and every
+   hostile shape are all `invalid_variation`.
+2. **Refusals, in order**: `not_in_room` (socket layer) → `no_hand` → `not_seated` → `no_variation`
+   "This table does not play variations" (the hand has no window: a seen or blind table) →
+   `variation_already_selected` "The variation has already been chosen" (the window has closed, however
+   it closed — a second tap included) → `not_selecting` "It is not your turn to choose the variation"
+   → `invalid_variation` "That is not a variation this table offers" → `variation_expired` "Time ran
+   out, so Muflis was chosen" (the request reached the table at or past `deadline` before the timer's
+   own closure had run: the server's choice is made by this call, and the request refused). Every
+   refusal is acked `{ok:false, code, message}` AND echoed as `game:error`, like any other, and counts
+   in `game_invalid_moves_total{code}`.
+3. **While the window is open nobody is on turn**: `turn.seatIndex` is `-1`, `you.options` is null, no
+   `game:turn` has been sent, and every `game:action` but `see` is refused `variation_pending` "The
+   variation is still being chosen". `see` is free as ever — the chooser may look before choosing —
+   and does not close the window.
+4. **The window closes exactly once**, by whichever of three things the table's actor runs first: the
+   chooser's pick (`selectedBy:"PLAYER"`), the server's clock at `deadline` (`"TIMEOUT"` → `MUFLIS`),
+   or the chooser leaving the table (`"LEFT"` → `MUFLIS`, and play opens with the next player). A pick
+   and a timeout in the same instant produce ONE `game:variationSelected`; the loser of that race is
+   refused `variation_already_selected` / `variation_expired`, or is a timer that finds the window
+   closed and does nothing. The client's countdown is decoration.
+5. **`turnUp`** (a card code) is on the wire — in the ack, `game:variationSelected`, `room:state.variation`,
+   `game:showdown` and `game:handEnded` — ONLY once `JOKER` (its rank is wild) or `HUKAM` (its suit is
+   wild) has been chosen. It is the top of the deck the hands were dealt from, so nobody holds it.
+6. **A disconnect changes nothing**: the seat is held as usual and the server's clock chooses at the
+   deadline. A reconnect inside the window receives `room:joined` whose `variation` block still says
+   `selecting` with the ORIGINAL deadline. So does a table restored from the live store after a restart.
+7. **Reveals**: `game:showdown` / `game:handEnded` gain `variation` (and `turnUp`); each reveal, and each
+   hand of a `game:sideshowReveal`, gains `wild` — which of its `cards` played as wild cards. `handName`
+   and `category` are what the hand MADE with them. All of these are ABSENT on a seen or blind table,
+   whose payloads are unchanged, as `room:state.variation` is.
+
+
+**5-Card Teen Patti (owner, 18 Sep 2026), Go only, all additive.** A seventh wire value,
+`FIVE_CARD`, LAST in `variation.options`. Every hand is still dealt three; when FIVE_CARD is chosen
+the server tops every hand in play up to five. `room:state.variation.cardsPerPlayer` (always in the
+block) is 3 while the window is open and under the six three-card variations, 5 after a FIVE_CARD
+choice; the `game:selectVariation` ack and `game:variationSelected` carry the same key.
+`seats[].cardCount` becomes 5, `you.cards` holds five codes for a viewer who has looked (their first
+three unchanged and in place), and `player:cards` is re-sent with all five to a player who was
+already looking. `you.hand` gains `best: string[]` — the three of `you.cards` that are counted (all
+three of a three-card hand). `game:showdown` / `game:handEnded` `reveals[]` and the two hands of a
+`game:sideshowReveal` carry all five `cards` and gain `best` (three codes) ONLY under FIVE_CARD. The
+two cards a player would be topped up with are drawn at the deal and live in the server's snapshot
+only; they are in no payload until they are dealt. A timeout or a departed chooser is still MUFLIS,
+three cards each.
+
+**Later the same day (owner, 18 Sep 2026), all Go only:** a variation table hides other players'
+stacks exactly as a blind one does (`chipsHidden: true`, other seats' `chips: null` — §8.1's
+`chipsHidden` is `category !== 'seen'` on the Go server); it has no pot limit (`maxPot: 0`,
+`VARIATION_MAX_POT_BOOTS`); the default menu offers it at 50,000 and 10 Lakh only; and the viewer's
+own `you` block gains `hand: {handName, category, wild: string[], playsAs: string[]}` once they have
+seen their cards AND the variation is chosen — `playsAs` is `you.cards` index for index with each
+wild card replaced by the card it stood for. `hand` is ABSENT otherwise and on every seen or blind
+table, is never sent to anybody else, and its arrays are `[]`, never null.
+
 ### 6.3 `player:requestCards` (`sock:643-651`)
 
 Payload ignored. `not_in_room` if unseated. `seat = table.findSeat(user.id)`; if no seat, or
 `seat.isBlind`, or `seat.cards.length === 0` → ack `{ok:true, cards: []}` with **no** emit.
 Otherwise `cards = table.serializeFor(user.id).you.cards`, emit `player:cards {roomId, cards}` to
 this socket, ack `{ok:true, cards}`. Flutter wires but never calls it.
+
+### 6.4 `poker:action` (Go only — the Poker family, owner 19 Sep 2026; `internal/socket/poker.go`, CLAUDE.md §6.5)
+
+Payload `{action, amount?, cards?, actionId?}`; `action` is `String(action)` and must be one of
+`fold | check | call | bet | raise | allIn | play | draw` (else `unknown_action`, the `game:action`
+message). Then `not_in_room` if unseated, **`wrong_game`** ("That move belongs to a different game")
+at a Teen Patti table. `amount` follows `game:action`'s safe-integer rule (a string, array, boolean
+or fraction → `invalid_amount` "Bet must be a whole number"); it is the player's TOTAL street bet
+for `bet` / `raise` and ignored otherwise. `cards` is the array's string elements (a non-string
+element names no card and is refused `invalid_discard`); absent or not an array = stand pat.
+`actionId` hygiene as `game:action` (≤ 64 UTF-16 units, no `:`). Then `poker.Table.Act`, whose
+refusals in order are `no_hand`, `not_seated`, `not_in_hand`, `not_your_turn`, `duplicate_action`,
+then per action: `invalid_action` (a check facing a bet, a call with nothing to call, a bet on a
+street already bet, a raise with nothing to raise or no chips beyond the call, a draw outside the
+draw, a play outside the decision), `invalid_amount` (outside `[min, max]` of `you.options`),
+`invalid_discard` (a card not held, one twice, more than `maxDiscards`), `insufficient_chips` (3-Card
+Poker's play bet), `persist_failed`. Ack `{ok:true, action, amount?, allIn?, discarded?}`. Every
+refusal feeds `invalid_moves_total{code}`; the move feeds `moves_total{action}` and
+`move_processing_duration_seconds{action}` under the poker action labels. Conversely `game:action`,
+`game:sideshowRespond` and `game:selectVariation` at a poker room are refused `wrong_game` before any
+rule runs, and `player:requestCards` answers `{cards: []}` there.
 
 ---
 
@@ -750,6 +852,29 @@ raw `socket.emit` and count manually: `broadcastState` (`sock:192-199`) and the 
 
 Hand names (`handRank.js:16-23`) are English: `High Card`, `Pair`, `Color`, `Sequence`, `Pure
 Sequence`, `Trail`; `category` is the integer 0–5. MUST MATCH (Flutter shows them untranslated).
+
+**Poker rooms** (Go only, 19 Sep 2026; `internal/socket/poker.go`, `internal/poker/events.go`) send
+the room-level events above (`room:*`, `chat:*`, `session:*`, `game:error`) exactly as a Teen Patti
+table does, and in place of every `game:*` / `player:*` game event these — all with `roomId`:
+
+| Event | Audience | Payload |
+|---|---|---|
+| `poker:handStarted` | room | `{handId, handNo, variant, dealerSeat, smallBlind, bigBlind, ante, pot, participants:[userId…]}` |
+| `poker:cards` | owner only | `{cards}` — at the deal, and the NEW hand after a draw |
+| `poker:turn` | room | `{userId, seatIndex, street, deadline, timeoutMs}` (no options) |
+| `poker:yourTurn` | player on turn | `{street, deadline, timeoutMs, options}` — `options` is `you.options` (CLAUDE.md §6.5) |
+| `poker:action` | room | `{userId, seatIndex, action, amount, street, pot, allIn?, reason?, discarded?}` — `amount` is the street bet after a bet/raise/call/all-in, the play bet for `play`, 0 for fold/check/draw; `reason` only on a fold the player did not choose (`timeout`, a leave reason); `discarded` only on a draw |
+| `poker:street` | room | `{street, community, pot}` — the whole board so far, `[]` on a game with none |
+| `poker:draw` | room | `{userId, seatIndex, discarded}` — how many, never which |
+| `poker:showdown` | room | `{reveals:[{userId, seatIndex, cards, best, handName, category, won, outcome?}], community, dealer?:{cards, handName, category, qualified}, reason}` |
+| `poker:handEnded` | room | `{handId, handNo, variant, reason, pot, pots:[{amount, eligible:[seatIndex…], winners:[{userId, seatIndex, amount, handName}]}], reveals, community, dealer?, summary:[{userId, displayName, seatIndex, contributed, won, status}], nextHandAt}`; `reason` ∈ `showdown | last_standing | dealer | all_left` |
+
+Five-card hand names (`eval5.go`): `High Card`, `Pair`, `Two Pair`, `Three of a Kind`, `Straight`,
+`Flush`, `Full House`, `Four of a Kind`, `Straight Flush`, `Royal Flush` (`category` 0–9); 3-Card
+Poker's (`eval3.go`): `High Card`, `Pair`, `Flush`, `Straight`, `Three of a Kind`, `Straight Flush`
+(0–5). A poker room's `room:state` is `poker.TableView` (CLAUDE.md §6.5): the Teen Patti keys of the
+same meaning kept name for name, plus `game:"poker"` and `poker {…}`; a Teen Patti table's snapshot
+carries neither key.
 
 ### 8.1 `serializeFor(viewerId)` (`table.js:1642-1739`) — MUST MATCH, including redaction
 

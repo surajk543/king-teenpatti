@@ -25,10 +25,18 @@ const (
 	EvRoomLeave        = "room:leave"           // {} → {roomId} or {}
 	EvGameAction       = "game:action"          // {action, amount?, actionId?} → game.ActResult
 	EvGameSideshowResp = "game:sideshowRespond" // {accept} → game.SideshowOutcome
-	EvPlayerReqCards   = "player:requestCards"  // {} → {cards}
-	EvChatMessage      = "chat:message"         // {text} → {messageId} or {}
-	EvChatHistory      = "chat:history"         // {} → {count}
-	EvPingRTT          = "ping:rtt"             // sentAt (number) → {sentAt, serverTime} — UNGUARDED, no `ok`
+	// EvGameSelectVariation is the chooser's answer on a variation table (Go
+	// only; owner, 18 Sep 2026). WHO is choosing is never in the payload: it is
+	// the socket's authenticated user, and the Table decides whether that is
+	// the player the window is open for.
+	EvGameSelectVariation = "game:selectVariation" // {variation} → game.VariationResult
+	// EvGameSelectCards is a player's choice of which three of their five
+	// cards play under 5-Card Teen Patti (Go only; owner, 19 Sep 2026).
+	EvGameSelectCards = "game:selectCards"    // {cards:[3]} → game.PickResult
+	EvPlayerReqCards  = "player:requestCards" // {} → {cards}
+	EvChatMessage     = "chat:message"        // {text} → {messageId} or {}
+	EvChatHistory     = "chat:history"        // {} → {count}
+	EvPingRTT         = "ping:rtt"            // sentAt (number) → {sentAt, serverTime} — UNGUARDED, no `ok`
 )
 
 // Server → client events.
@@ -50,11 +58,16 @@ const (
 	EvGameSideshowReq = "game:sideshowRequested"
 	EvGameSideshowRev = "game:sideshowReveal" // the two players only
 	EvGameSideshowRes = "game:sideshowResolved"
-	EvGameShowdown    = "game:showdown"
-	EvGameHandEnded   = "game:handEnded"
-	EvChatMessageOut  = "chat:message"
-	EvChatHistoryOut  = "chat:history"
-	EvGameError       = "game:error" // socket: {code, message}
+	// Variation tables (Go only). Both are public and carry no cards but the
+	// turned-up one, and both only repeat what room:state's `variation` block
+	// says — a client that reconnects mid-window has the block and nothing else.
+	EvGameVariationSelecting = "game:variationSelecting" // room: who is choosing, until when
+	EvGameVariationSelected  = "game:variationSelected"  // room: what was chosen, and by whom or what
+	EvGameShowdown           = "game:showdown"
+	EvGameHandEnded          = "game:handEnded"
+	EvChatMessageOut         = "chat:message"
+	EvChatHistoryOut         = "chat:history"
+	EvGameError              = "game:error" // socket: {code, message}
 )
 
 // Messages the socket layer itself puts on the wire.
@@ -87,6 +100,7 @@ var KnownErrorCodes = map[string]struct{}{
 	"already_in_room": {}, "already_seated": {}, "insufficient_chips": {}, "invalid_stake": {},
 	"no_other_table": {}, "not_in_room": {}, "not_seated": {}, "over_entry_cap": {}, "private_table": {},
 	"invalid_room_code": {}, "room_not_found": {}, "table_full": {}, "table_not_offered": {}, "unknown_action": {},
+	"wrong_game": {},
 	// moves
 	"already_seen": {}, "duplicate_action": {}, "invalid_bet": {}, "no_hand": {}, "not_in_hand": {},
 	"not_your_turn": {}, "persist_failed": {}, "show_unavailable": {},
@@ -95,6 +109,11 @@ var KnownErrorCodes = map[string]struct{}{
 	"not_your_sideshow": {}, "sideshow_pending": {}, "too_few_players": {}, "you_are_blind": {},
 	// force sideshow and missile (Go only)
 	"no_hammers": {}, "no_missiles": {},
+	// variation tables (Go only)
+	"no_variation": {}, "variation_already_selected": {}, "not_selecting": {}, "invalid_variation": {},
+	"variation_expired": {}, "variation_pending": {},
+	// poker rooms (Go only)
+	"invalid_action": {}, "invalid_amount": {}, "invalid_discard": {},
 	// chat
 	"chat_rate_limited": {},
 	// auth
@@ -109,7 +128,7 @@ var KnownErrorCodes = map[string]struct{}{
 var KnownEvents = map[string]struct{}{
 	EvLobbyList: {}, EvRoomQuickJoin: {}, EvRoomCreate: {}, EvRoomJoinCode: {}, EvRoomSwitch: {},
 	EvRoomLeave: {}, EvGameAction: {}, EvGameSideshowResp: {}, EvPlayerReqCards: {}, EvChatMessage: {},
-	EvChatHistory: {}, EvPingRTT: {},
+	EvChatHistory: {}, EvPingRTT: {}, EvGameSelectVariation: {}, EvGameSelectCards: {}, EvPokerAction: {},
 }
 
 // ---- inbound payloads ----
@@ -176,6 +195,15 @@ type SideshowRespondRequest struct {
 	Accept json.RawMessage `json:"accept"`
 }
 
+// SelectVariationRequest ← game:selectVariation. Variation is the string sent,
+// or "" for ANYTHING that is not a JSON string — a number, a boolean, an array,
+// an object, null, or no field at all — so every hostile shape arrives at the
+// Table as the empty string and is refused invalid_variation by the same
+// allowlist a misspelt one is (game.ParseVariation; exact match, no folding).
+type SelectVariationRequest struct {
+	Variation string `json:"variation"`
+}
+
 // ChatRequest ← chat:message. Text is the string sent, a number's decimal
 // string, or "" for anything else (DECISIONS.md §4); the Table sanitises it.
 type ChatRequest struct {
@@ -228,6 +256,26 @@ type ActionAck struct {
 type SideshowAck struct {
 	OK bool `json:"ok"`
 	game.SideshowOutcome
+}
+
+// VariationAck ← game:selectVariation: {ok:true, variation, selectedBy, turnUp?}.
+type VariationAck struct {
+	OK bool `json:"ok"`
+	game.VariationResult
+}
+
+// SelectCardsRequest ← game:selectCards. Cards is the list as sent; any entry
+// that is not a string becomes "", which names no card, so the table refuses
+// the whole pick as not the player's own cards rather than guessing at it.
+type SelectCardsRequest struct {
+	Cards []string
+}
+
+// PickAck ← game:selectCards: the three that now play, the best three those
+// five could have made, and whether they are the same.
+type PickAck struct {
+	OK bool `json:"ok"`
+	game.PickResult
 }
 
 // CardsAck ← player:requestCards: [] unless seen.
@@ -384,6 +432,18 @@ type SideshowRevealEvent struct {
 
 type SideshowResolvedEvent struct {
 	game.SideshowResolvedEvent
+	RoomID string `json:"roomId"`
+}
+
+// VariationSelectingEvent is game:variationSelecting.
+type VariationSelectingEvent struct {
+	game.VariationSelectingEvent
+	RoomID string `json:"roomId"`
+}
+
+// VariationSelectedEvent is game:variationSelected.
+type VariationSelectedEvent struct {
+	game.VariationSelectedEvent
 	RoomID string `json:"roomId"`
 }
 

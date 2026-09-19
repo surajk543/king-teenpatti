@@ -24,8 +24,8 @@ func TestSwitchingTablesCarriesTheReducedStackNotTheStaleWallet(t *testing.T) {
 	f := newRoomsFixture(t, nil)
 
 	const start int64 = 2_000_000
-	home := f.rooms.CreateTable(game.CreateTableOptions{BootAmount: 200, Category: "blind"})
-	away := f.rooms.CreateTable(game.CreateTableOptions{BootAmount: 200, Category: "blind"})
+	home := f.createTable(game.CreateTableOptions{BootAmount: 200, Category: "blind"})
+	away := f.createTable(game.CreateTableOptions{BootAmount: 200, Category: "blind"})
 	a, b := seatTwoAndDeal(t, f, home, start)
 
 	// Whoever is on turn plays a chaal, so their seat is now demonstrably
@@ -71,8 +71,8 @@ func TestSwitchingBetweenHandsKeepsTheFullStack(t *testing.T) {
 	f := newRoomsFixture(t, nil)
 
 	const start int64 = 2_000_000
-	home := f.rooms.CreateTable(game.CreateTableOptions{BootAmount: 200, Category: "blind"})
-	away := f.rooms.CreateTable(game.CreateTableOptions{BootAmount: 200, Category: "blind"})
+	home := f.createTable(game.CreateTableOptions{BootAmount: 200, Category: "blind"})
+	away := f.createTable(game.CreateTableOptions{BootAmount: 200, Category: "blind"})
 
 	mover := f.player("Mover", start)
 	f.mustJoin(home, mover)

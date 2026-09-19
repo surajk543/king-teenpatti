@@ -7,14 +7,10 @@ package game
 // counted and reported, never turned into a refused move.
 
 import (
-	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"runtime/debug"
 	"time"
 
-	"github.com/surajk543/king-teenpatti/go-server/internal/live"
 	"github.com/surajk543/king-teenpatti/go-server/internal/util"
 )
 
@@ -77,71 +73,21 @@ func (e *FencedError) Unwrap() error { return e.Err }
 
 // ---------------------------------------------------------------- saving
 
-// flushLive runs at the end of every posted closure (run): if the closure
-// changed observable state (liveDirty, set by emitState and the few
-// mutations that do not emit state) the full Snapshot is serialised ONCE
-// under the next sequence number and saved to the LIVE store. One save per
-// closure however many state events were emitted, after the Listener has
-// seen them all. Reads never save.
-//
-// The live store is the ONLY home of game state: PostgreSQL holds money and
-// audit (users, chip_ledger, pots, hands) and nothing about a table
-// (LIVE_STATE_PLAN.md). If the live store is lost the tables are lost with
-// it, players re-join, and the open pots are refunded (RefundOrphanedPots).
-//
-// Failure handling: a live-store error is counted (LiveErrors), reported
-// (OnPersistError live_save) and the table stays dirty so the next post —
-// any post, a read included — tries again under a fresh seq.
-// live.ErrStale fences the table (see fence). Nothing here ever refuses a
-// move; the move is already committed and applied.
-func (t *Table) flushLive() {
-	defer func() {
-		// The store is somebody else's code running on our actor; a panic
-		// in it must not take the table down with it.
-		if r := recover(); r != nil {
-			t.liveFailed(LiveOpSaveTable, PersistReasonLiveSave, fmt.Errorf("live store panicked: %v\n%s", r, debug.Stack()))
-		}
-	}()
-	if !t.liveDirty {
-		return
-	}
-	if t.live == nil || t.destroyed.Load() || t.fenced.Load() {
-		t.liveDirty = false
-		return
-	}
-	seq := t.liveSeq.Add(1)
-	snap := t.snapshot()
-	snap.Seq = seq
-	data, err := json.Marshal(snap)
-	if err != nil {
-		// Will never marshal better; do not loop on it.
-		t.liveDirty = false
-		t.liveFailed(LiveOpSaveTable, PersistReasonLiveSave, err)
-		return
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), liveCallTimeout)
-	err = t.live.SaveTable(ctx, t.id, seq, data, t.liveTTL)
-	cancel()
-	switch {
-	case err == nil:
-		t.liveDirty = false
-	case errors.Is(err, live.ErrStale):
-		t.liveDirty = false
-		t.fence(seq, err)
-	default:
-		// Stay dirty: the next post retries.
-		t.liveFailed(LiveOpSaveTable, PersistReasonLiveSave, err)
-	}
-}
+// flushLive runs at the end of every posted closure (Actor.after →
+// LiveState.Flush): if the closure changed observable state (liveDirty, set
+// by emitState and the few mutations that do not emit state) the full
+// Snapshot is serialised ONCE under the next sequence number and saved to the
+// LIVE store. See LiveState.Flush for the failure handling; live.ErrStale
+// fences the table (onFenced).
+func (t *Table) flushLive() { t.LiveState.Flush() }
 
-// fence marks the table as owned by another process (live.ErrStale on a
-// save): every clock is stopped, every later post but Destroy is refused
-// with ErrTableDestroyed, and OnError carries a *FencedError so the
-// RoomManager destroys the table. The hand in progress is not settled here
-// and the store's copy is not deleted — both are the owner's now
+// onFenced is LiveHooks.Fenced: the live store refused a save with
+// live.ErrStale (another process owns this table), the actor is already
+// marked fenced, and every clock is stopped here; OnError carries the
+// *FencedError so the RoomManager destroys the table. The hand in progress is
+// not settled and the store's copy is not deleted — both are the owner's now
 // (LIVE_STATE_PLAN.md invariant 5).
-func (t *Table) fence(seq int64, cause error) {
-	t.fenced.Store(true)
+func (t *Table) onFenced(err *FencedError) {
 	t.clearTurnTimer()
 	t.clearStartTimer()
 	t.clearUnfundedTimer()
@@ -149,54 +95,17 @@ func (t *Table) fence(seq int64, cause error) {
 		t.hand.sideshow.timer.Stop()
 		t.hand.sideshow.timer = nil
 	}
-	err := &FencedError{RoomID: t.id, Seq: seq, Err: cause}
-	if t.liveErrors != nil {
-		t.liveErrors(LiveOpSaveTable, err)
-	}
+	t.stopVariationTimer()
+	t.stopPickTimer()
 	t.listener.OnError(t.view, err)
-}
-
-// liveFailed counts and reports one failed live-store call.
-func (t *Table) liveFailed(op, reason string, err error) {
-	if t.liveErrors != nil {
-		t.liveErrors(op, err)
-	}
-	t.listener.OnPersistError(t.view, PersistErrorEvent{Reason: reason, Err: err})
 }
 
 // liveAppendChat mirrors one chat line (player or system) to the store,
 // capped at the room's ChatMaxHistory. Actor only.
-func (t *Table) liveAppendChat(msg *ChatMessage) {
-	if t.live == nil || msg == nil || t.destroyed.Load() || t.fenced.Load() {
-		return
-	}
-	data, err := json.Marshal(msg)
-	if err != nil {
-		t.liveFailed(LiveOpAppendChat, PersistReasonLiveChat, err)
-		return
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), liveCallTimeout)
-	err = t.live.AppendChat(ctx, t.id, data, t.chat.MaxHistory)
-	cancel()
-	if err != nil {
-		t.liveFailed(LiveOpAppendChat, PersistReasonLiveChat, err)
-	}
-}
+func (t *Table) liveAppendChat(msg *ChatMessage) { t.LiveState.AppendChat(msg, t.chat.MaxHistory) }
 
 // liveDelete forgets the table in the store (destroy): snapshot and chat.
-func (t *Table) liveDelete() {
-	if t.live == nil {
-		return
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), liveCallTimeout)
-	defer cancel()
-	if err := t.live.DeleteTable(ctx, t.id); err != nil {
-		t.liveFailed(LiveOpDeleteTable, PersistReasonLiveDelete, err)
-	}
-	if err := t.live.DeleteChat(ctx, t.id); err != nil {
-		t.liveFailed(LiveOpDeleteChat, PersistReasonLiveDelete, err)
-	}
-}
+func (t *Table) liveDelete() { t.LiveState.Delete() }
 
 // Suspend stops the table for a graceful restart WITHOUT ending its hand or
 // forgetting it in the live store: a final snapshot is saved, every clock is
@@ -212,7 +121,7 @@ func (t *Table) Suspend() error {
 
 // suspend is Suspend's actor body.
 func (t *Table) suspend() {
-	if t.live == nil || t.fenced.Load() {
+	if t.LiveState.Store() == nil || t.Fenced() {
 		t.destroy()
 		return
 	}
@@ -223,20 +132,15 @@ func (t *Table) suspend() {
 		t.hand.sideshow.timer.Stop()
 		t.hand.sideshow.timer = nil
 	}
-	for gen, entry := range t.retryTimers {
-		delete(t.retryTimers, gen)
-		stopped := entry.timer.Stop()
-		t.claimDetached(entry)
-		if stopped {
-			t.settleDetachedFrom(entry.req, entry.attempt)
-		}
-	}
+	t.stopVariationTimer()
+	t.stopPickTimer()
+	t.Settler.Detach()
 	// The last word on this table before the process goes: saved now, while
 	// the table is still ours (run's flushLive would skip a destroyed table).
 	t.liveDirty = true
 	t.flushLive()
-	t.destroyed.Store(true)
-	t.cancel()
+	t.MarkDestroyed()
+	t.Cancel()
 }
 
 // restoreChat replaces the room log with the lines loaded from the store
@@ -249,10 +153,20 @@ func (c *RoomChat) restore(history []ChatMessage) {
 	copy(c.messages, history)
 }
 
+// Restore is restore for another package's room (poker). Actor only.
+func (c *RoomChat) Restore(history []ChatMessage) { c.restore(history) }
+
 // restoreChat posts the loaded chat history onto the actor (RoomManager.Restore).
 func (t *Table) restoreChat(history []ChatMessage) error {
 	return t.run(func() { t.chat.restore(history) })
 }
+
+// RestoreChat is restoreChat for the Room interface.
+func (t *Table) RestoreChat(history []ChatMessage) error { return t.restoreChat(history) }
+
+// Resume is resume for the Room interface: RestoreTable's second phase, run
+// by the RoomManager once the restored table is registered.
+func (t *Table) Resume() error { return t.resume() }
 
 // --------------------------------------------------------------- restore
 
@@ -359,6 +273,18 @@ func restoreTable(snap *Snapshot, opts TableOptions) (*Table, error) {
 			until := FromMillis(*ss.UnfundedUntil)
 			s.unfundedUntil = &until
 		}
+		// The 5-Card pick comes back as it was: a choice already made stands,
+		// and a window still open keeps its ORIGINAL deadline, so a restart
+		// neither re-asks a player who has answered nor hands one who has not
+		// a fresh clock (resumeTimers re-arms the sweep).
+		s.picking = ss.Picking
+		s.pickedBy = PickedBy(ss.PickedBy)
+		if len(ss.Picked) > 0 {
+			s.picked = ParseCards(ss.Picked)
+		}
+		if ss.PickUntil != nil {
+			s.pickUntil = FromMillis(*ss.PickUntil)
+		}
 		t.seats[index] = s
 	}
 	t.refreshPlayerCount()
@@ -419,6 +345,7 @@ func restoreTable(snap *Snapshot, opts TableOptions) (*Table, error) {
 				expiresAt:  FromMillis(p.ExpiresAt),
 			}
 		}
+		h.variation = variationFrom(sh.Variation)
 		t.setHand(h)
 		t.setState(TableBetting)
 	} else if snap.State == TableStarting {
@@ -432,7 +359,7 @@ func restoreTable(snap *Snapshot, opts TableOptions) (*Table, error) {
 		t.setState(TableWaiting)
 	}
 
-	go t.loop()
+	go t.Loop()
 	return t, nil
 }
 
@@ -449,7 +376,24 @@ func (t *Table) resumeTimers() {
 	t.liveDirty = true
 	now := t.clock.Now()
 
+	// Every 5-Card window that is still open comes back on the one sweep
+	// clock, for what is LEFT of its original deadline; any that lapsed while
+	// the process was down plays its first three now (expirePicks, which
+	// armPickTimer reaches through a zero delay).
+	if t.hand != nil {
+		t.armPickTimer()
+	}
+
 	switch {
+	case t.hand != nil && t.resumeVariation(now):
+		// A variation table still inside its window: nobody is on turn yet, so
+		// there is no turn clock to re-arm and — above all — play must not be
+		// opened by the "no turn recorded" branch below. resumeVariation has
+		// re-armed the window's own clock for what is left of it. (A window
+		// whose deadline passed while the process was down was closed by that
+		// same call, which gave the chooser their turn with a full clock; that
+		// returns false, and the hand falls through to the next case, which
+		// finds the turn it was just given and leaves it alone.)
 	case t.hand != nil:
 		h := t.hand
 		if p := h.sideshow; p != nil {
@@ -576,6 +520,17 @@ func validateSnapshot(snap *Snapshot) error {
 		if err := validCardCodes(s.Cards); err != nil {
 			return fmt.Errorf("snapshot %s: seat %d: %w", snap.RoomID, index, err)
 		}
+		// A 5-Card choice must be three of the cards that seat actually holds:
+		// restored unchecked, it would let a rebuilt table play cards nobody
+		// was dealt.
+		if len(s.Picked) > 0 {
+			if err := validCardCodes(s.Picked); err != nil {
+				return fmt.Errorf("snapshot %s: seat %d picked: %w", snap.RoomID, index, err)
+			}
+			if _, ok := pickFrom(ParseCards(s.Cards), s.Picked); !ok {
+				return fmt.Errorf("snapshot %s: seat %d picked cards it does not hold", snap.RoomID, index)
+			}
+		}
 	}
 	h := snap.Hand
 	if h == nil {
@@ -625,6 +580,72 @@ func validateSnapshot(snap *Snapshot) error {
 			return fmt.Errorf("snapshot %s: sideshow target %s is not at seat %d", snap.RoomID, p.ToUserID, p.ToSeat)
 		}
 	}
+	if w := h.Variation; w != nil {
+		if err := validCardCodes([]string{w.TurnUp}); err != nil {
+			return fmt.Errorf("snapshot %s: variation turn-up card: %w", snap.RoomID, err)
+		}
+		if w.Open {
+			// An open window must name a chooser who is there to be given the
+			// turn when it closes.
+			if !seatOK(w.ChooserSeat) || snap.Seats[w.ChooserSeat].UserID != w.ChooserID {
+				return fmt.Errorf("snapshot %s: variation chooser %s is not at seat %d", snap.RoomID, w.ChooserID, w.ChooserSeat)
+			}
+			if w.Selected != "" {
+				return fmt.Errorf("snapshot %s: variation window is open but %q is already selected", snap.RoomID, w.Selected)
+			}
+			// The top-up a five-card variation would deal: real cards, the
+			// same number for everyone, and none of them a card already in
+			// play — a hand topped up with a card somebody else holds would
+			// put two of one card on the table.
+			inPlay := map[string]bool{w.TurnUp: true}
+			for _, seat := range snap.Seats {
+				if seat == nil { // an empty chair
+					continue
+				}
+				for _, code := range seat.Cards {
+					inPlay[code] = true
+				}
+			}
+			// All or nothing, as it was drawn: a top-up for some players and
+			// not others would restore into a hand where some hold five and
+			// others three.
+			if len(w.Extra) > 0 {
+				for _, seat := range snap.Seats {
+					if seat == nil || len(seat.Cards) == 0 {
+						continue
+					}
+					if _, ok := w.Extra[seat.UserID]; !ok {
+						return fmt.Errorf("snapshot %s: variation top-up has nothing for %s, who holds cards", snap.RoomID, seat.UserID)
+					}
+				}
+			}
+			for userID, codes := range w.Extra {
+				if err := validCardCodes(codes); err != nil {
+					return fmt.Errorf("snapshot %s: variation top-up for %s: %w", snap.RoomID, userID, err)
+				}
+				if len(codes) != MaxCardsPerPlayer-BaseCardsPerPlayer {
+					return fmt.Errorf("snapshot %s: variation top-up for %s holds %d cards", snap.RoomID, userID, len(codes))
+				}
+				for _, code := range codes {
+					if inPlay[code] {
+						return fmt.Errorf("snapshot %s: variation top-up card %s is already in play", snap.RoomID, code)
+					}
+					inPlay[code] = true
+				}
+			}
+		}
+		for _, v := range w.Options {
+			if _, ok := ParseVariation(string(v)); !ok {
+				return fmt.Errorf("snapshot %s: variation menu offers %q, which this server does not play", snap.RoomID, v)
+			}
+		}
+		if !w.Open && w.Selected != "" {
+			// "" is legal for a closed window only in a hand that is ending.
+			if _, ok := ParseVariation(string(w.Selected)); !ok {
+				return fmt.Errorf("snapshot %s: variation %q is not one this server plays", snap.RoomID, w.Selected)
+			}
+		}
+	}
 	return nil
 }
 
@@ -635,6 +656,9 @@ func validSeatState(s SeatState) bool {
 	}
 	return false
 }
+
+// ValidCardCodes is validCardCodes for another package's restore (poker).
+func ValidCardCodes(codes []string) error { return validCardCodes(codes) }
 
 // validCardCodes accepts [] or exactly parseable 2-char codes (ParseCard
 // trusts its input; a restore must not).

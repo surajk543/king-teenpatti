@@ -43,6 +43,24 @@ type EvaluatedHand struct {
 	Name     string   // CategoryNames[Category]
 	Score    []int    // [category, tiebreak...]
 	Cards    []string // wire codes of the input, same order
+	// Wild names the cards (wire codes, a subset of Cards) that played as wild
+	// cards. Go only, and only ever set by a variation's evaluator
+	// (variation.go): Evaluate itself knows no wild card and leaves it nil, so
+	// on a seen or blind table it is always nil.
+	Wild []string
+	// PlaysAs is the hand as it was COUNTED: three wire codes, index for index
+	// with Cards, a wild card replaced by the card it stood for and every other
+	// card itself. Go only, set with Wild and nil whenever Wild is (no wild
+	// card, a seen or blind table). It is what lets a client turn a player's
+	// wild 4♠ into the K it made their sequence with (owner, 18 Sep 2026)
+	// instead of leaving them to work out why J-Q-4 is called a Sequence.
+	PlaysAs []string
+	// Best names the three cards (wire codes, a subset of Cards, in Cards'
+	// order) that were COUNTED when the hand holds more than three — 5-Card
+	// Teen Patti, where a player is dealt five and plays the best three of them
+	// (owner, 18 Sep 2026). Go only, set by EvaluateBest, and nil for a
+	// three-card hand, which plays all of itself.
+	Best []string
 }
 
 // EvaluateOptions carries the one variant switch. AceLowIsLowest=false (the

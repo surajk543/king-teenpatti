@@ -50,7 +50,8 @@ type LobbyOptions struct {
 type LobbyTableOption struct {
 	Category   string `json:"category"`
 	BootAmount int64  `json:"bootAmount"`
-	// MaxPot is SeenMaxPot for seen entries, 0 (uncapped) for blind.
+	// MaxPot is SeenMaxPot for seen entries, the boot-scaled cap for variation
+	// ones (config.VariationMaxPot), 0 (uncapped) for blind.
 	MaxPot        int64 `json:"maxPot"`
 	MaxBlindMoves int   `json:"maxBlindMoves"`
 	// MinChips / MaxChips are the stack band for this table, 0 for no limit
@@ -61,6 +62,26 @@ type LobbyTableOption struct {
 	// into a seat.
 	MinChips int64 `json:"minChips"`
 	MaxChips int64 `json:"maxChips"`
+
+	// ---- poker entries only (POKER_PLAN.md §4); ABSENT on every Teen Patti
+	// entry, whose bytes are unchanged ----
+
+	// Game is GamePoker on a poker entry (the client files it under the Poker
+	// card and reads the fields below), absent otherwise.
+	Game Game `json:"game,omitempty"`
+	// SmallBlind / BigBlind are a Hold'em or Omaha table's blinds (the big
+	// blind IS the boot); Ante a 3-Card Poker or 5-Card Draw table's ante
+	// (the boot). Whichever the variant does not post is absent.
+	SmallBlind int64 `json:"smallBlind,omitempty"`
+	BigBlind   int64 `json:"bigBlind,omitempty"`
+	Ante       int64 `json:"ante,omitempty"`
+	// MinBuyIn is the smallest stack that may sit down (POKER_MIN_BUYIN_BOOTS
+	// × boot); MinChips is raised to it, so the band and the buy-in agree.
+	MinBuyIn int64 `json:"minBuyIn,omitempty"`
+	// HoleCards is how many cards each player holds (2, 4, 5 or 3);
+	// MaxDiscards how many a 5-Card Draw player may exchange (absent elsewhere).
+	HoleCards   int `json:"holeCards,omitempty"`
+	MaxDiscards int `json:"maxDiscards,omitempty"`
 }
 
 // PlayerMove ← 'playerMoved' {userId, fromRoomId, toRoomId} (requirement 24).
@@ -91,7 +112,7 @@ type RoomListener interface {
 	// Node's socket layer used it to `wireTable`; the Go socket layer needs
 	// nothing here because the Table's Listener is set at construction, but
 	// it may use it to prime its per-room socket set.
-	OnTableCreated(t *Table)
+	OnTableCreated(r Room)
 	// OnTableDestroyed: every viewer gets room:closed {roomId} and the
 	// per-room socket set is dropped.
 	OnTableDestroyed(roomID string)
@@ -106,7 +127,7 @@ type RoomListener interface {
 // NopRoomListener is a no-op RoomListener to embed.
 type NopRoomListener struct{}
 
-func (NopRoomListener) OnTableCreated(*Table)       {}
+func (NopRoomListener) OnTableCreated(Room)         {}
 func (NopRoomListener) OnTableDestroyed(string)     {}
 func (NopRoomListener) OnPlayerMoved(PlayerMove)    {}
 func (NopRoomListener) OnPlayerKicked(PlayerKicked) {}
@@ -127,7 +148,8 @@ type CreateTableOptions struct {
 	// when IsPrivate.
 	BootAmount int64
 	IsPrivate  bool
-	// Category is normalised: anything but "blind" is seen.
+	// Category is normalised: anything but "blind" or "variation" is seen,
+	// and so is "variation" on a lobby whose menu does not offer it.
 	Category string
 }
 
@@ -154,8 +176,8 @@ type ListOptions struct {
 // may be set (the table the player was — and after a restore still is —
 // seated at).
 type SwitchResult struct {
-	From *Table
-	To   *Table
+	From Room
+	To   Room
 }
 
 // MetricsHooks lets the RoomManager feed the histogram Node observed from
@@ -247,6 +269,13 @@ type RoomManagerOptions struct {
 	// LiveTTL is the snapshot expiry handed to every table
 	// (LIVE_STATE_TTL_MS); 0 → DefaultLiveTTL.
 	LiveTTL time.Duration
+
+	// Factories opens and restores the rooms of every game family but Teen
+	// Patti, keyed by family (POKER_PLAN.md §4): the app wires
+	// poker.Factory under GamePoker. A poker category on the menu with no
+	// factory behind it is logged at construction and its tables are folded
+	// to seen, which is what an unknown category has always become.
+	Factories map[Game]RoomFactory
 }
 
 // RoomManager owns every live table in this process (roomManager.js).
@@ -309,12 +338,16 @@ type RoomManager struct {
 	log      *slog.Logger
 	mx       MetricsHooks
 	hooks    *tableHooks
+	// factories is RoomManagerOptions.Factories; roomHooks the RoomHooks every
+	// factory-built room reports to (the family-neutral half of tableHooks).
+	factories map[Game]RoomFactory
+	roomHooks *roomHooks
 
 	// loadPlayer is RoomManagerOptions.LoadPlayer (nil → the caller's Player).
 	loadPlayer func(ctx context.Context, userID string) (Player, error)
 
 	mu          sync.Mutex
-	tables      map[string]*Table // roomId → table
+	tables      map[string]Room   // roomId → room (a *Table or a factory's room)
 	playerRooms map[string]string // userId → roomId
 	// departing is userId → seats of theirs that destroyTable or Suspend has
 	// taken off the index without the player's stripe and whose last write
@@ -455,7 +488,7 @@ func NewRoomManager(opts RoomManagerOptions) *RoomManager {
 		rl:          rl,
 		log:         logger,
 		mx:          opts.Metrics,
-		tables:      map[string]*Table{},
+		tables:      map[string]Room{},
 		playerRooms: map[string]string{},
 		departing:   map[string]int{},
 		owed:        map[string]int{},
@@ -465,9 +498,43 @@ func NewRoomManager(opts RoomManagerOptions) *RoomManager {
 		instance:    opts.Instance,
 		liveTTL:     liveTTL,
 		published:   map[string]publishedSummary{},
+		factories:   opts.Factories,
 	}
 	rm.hooks = &tableHooks{rm: rm}
+	rm.roomHooks = &roomHooks{rm: rm}
+	for _, entry := range opts.Game.LobbyTables {
+		if c := Category(entry.Category); c.IsPoker() && rm.factoryFor(c) == nil {
+			logger.Warn("lobby menu lists a poker table but no poker factory is wired; its tables would open as seen",
+				"category", entry.Category, "bootAmount", entry.BootAmount)
+		}
+	}
 	return rm
+}
+
+// factoryFor is the RoomFactory for a category's family, nil for Teen Patti
+// (which the manager builds itself) and for a family nobody wired.
+func (rm *RoomManager) factoryFor(category Category) RoomFactory {
+	if category.Game() == GameTeenPatti || rm.factories == nil {
+		return nil
+	}
+	return rm.factories[category.Game()]
+}
+
+// roomDeps is RoomDeps for a factory-built room: the same ledger, clock,
+// live store and hooks every *Table gets through tableOptions.
+func (rm *RoomManager) roomDeps() RoomDeps {
+	return RoomDeps{
+		Game:             rm.game,
+		Chat:             rm.chat,
+		Clock:            rm.clock,
+		Ledger:           rm.ledger,
+		Live:             rm.live,
+		LiveTTL:          rm.liveTTL,
+		LiveErrors:       rm.liveErrorHook,
+		ObserveHandStart: rm.mx.ObserveHandStart,
+		SettlementOwed:   rm.settlementOwed,
+		Hooks:            rm.roomHooks,
+	}
 }
 
 // StartSweeper runs ConsolidateTables then SweepEmptyTables every
@@ -526,12 +593,24 @@ func (rm *RoomManager) stopSweeper() {
 	}
 }
 
-// NormalizeCategory: "blind" → CategoryBlind; anything else → CategorySeen.
+// NormalizeCategory: "blind" → CategoryBlind; "variation" → CategoryVariation
+// (Go only); anything else → CategorySeen. Exact matches only — the set is
+// closed, and an unknown category never hides chips or opens a variation
+// window by accident.
 func NormalizeCategory(category string) Category {
-	if category == string(CategoryBlind) {
+	switch category {
+	case string(CategoryBlind):
 		return CategoryBlind
+	case string(CategoryVariation):
+		return CategoryVariation
+	case string(CategoryThreeCardPoker), string(CategoryFiveCardDraw), string(CategoryTexasHoldem), string(CategoryOmaha):
+		// The poker family (Go only; owner, 19 Sep 2026). Exact matches, as
+		// for the three above: a poker room is a different engine, and nothing a
+		// client sends may open one by accident.
+		return Category(category)
+	default:
+		return CategorySeen
 	}
-	return CategorySeen
 }
 
 // AssertStakeAllowed (static assertStakeAllowed): invalid_stake when boot ≤ 0
@@ -596,13 +675,40 @@ func (rm *RoomManager) AssertTableOffered(bootAmount int64, category Category) e
 //
 // Registers the table, calls RoomListener.OnTableCreated, logs `table
 // created {roomId, code, bootAmount, category, isPrivate, maxPot}`.
-func (rm *RoomManager) CreateTable(opts CreateTableOptions) *Table {
+func (rm *RoomManager) CreateTable(opts CreateTableOptions) Room {
 	started := time.Now()
 	rm.mu.Lock()
 	table := rm.newTableLocked(opts)
 	rm.mu.Unlock()
 	rm.announceCreated(table, started)
 	return table
+}
+
+// offersVariation reports whether this lobby has a variation table on its
+// menu. An empty menu means "any pair" (tests), which includes it. It reads
+// only the immutable config, so it needs no lock.
+func (rm *RoomManager) offersVariation() bool {
+	if len(rm.game.LobbyTables) == 0 {
+		return true
+	}
+	for _, entry := range rm.game.LobbyTables {
+		if entry.Category == string(CategoryVariation) {
+			return true
+		}
+	}
+	return false
+}
+
+// offersCategory reports whether the menu lists at least one table of c.
+// Unlike offersVariation an EMPTY menu does not count as offering it: it is
+// asked only of poker categories, which need a factory to open at all.
+func (rm *RoomManager) offersCategory(c Category) bool {
+	for _, entry := range rm.game.LobbyTables {
+		if entry.Category == string(c) {
+			return true
+		}
+	}
+	return false
 }
 
 // newTableLocked is _createTable up to and including `tables.set`: builds
@@ -613,9 +719,48 @@ func (rm *RoomManager) CreateTable(opts CreateTableOptions) *Table {
 // NewTable only allocates and starts the actor goroutine — it never posts to
 // it — so holding mu across it does not break the "never call into a Table
 // under mu" rule.
-func (rm *RoomManager) newTableLocked(opts CreateTableOptions) *Table {
+func (rm *RoomManager) newTableLocked(opts CreateTableOptions) Room {
 	g := rm.game
 	resolved := NormalizeCategory(opts.Category)
+	// Leaving `variation:` off the menu switches the category off, and a
+	// private table is no way round that: AssertTableOffered guards only the
+	// public doors, so a private create naming a category this lobby does not
+	// offer is folded to seen — what an unknown category has always become.
+	if resolved == CategoryVariation && !rm.offersVariation() {
+		resolved = CategorySeen
+		opts.Category = string(CategorySeen)
+	}
+	// A poker category opens a room of the poker family through its factory
+	// (POKER_PLAN.md §4). Without one — a deployment that never wired it —
+	// it is folded to seen exactly as an unknown category is, and was logged
+	// at construction. The factory is called under mu as NewTable is: it
+	// starts the room's actor and never posts to it.
+	if resolved.IsPoker() {
+		if factory := rm.factoryFor(resolved); factory != nil {
+			id := util.UUID()
+			code := util.RoomCode(util.DefaultRoomCodeLength)
+			for rm.codeTakenLocked(code) {
+				code = util.RoomCode(util.DefaultRoomCodeLength)
+			}
+			boot := opts.BootAmount
+			if boot == 0 {
+				boot = g.BootAmount
+			}
+			if opts.IsPrivate {
+				boot = g.PrivateBoot
+			}
+			room, err := factory.New(RoomSpec{ID: id, Code: code, Category: resolved, BootAmount: boot, IsPrivate: opts.IsPrivate}, rm.roomDeps())
+			if err == nil {
+				rm.nextSeq++
+				rm.tables[id] = room
+				rm.order[id] = rm.nextSeq
+				return room
+			}
+			rm.log.Error("poker room could not be opened; opening a seen table instead", "category", string(resolved), "error", err.Error())
+		}
+		resolved = CategorySeen
+		opts.Category = string(CategorySeen)
+	}
 	rules := g.TableRules(opts.Category, opts.BootAmount, opts.IsPrivate)
 
 	cfg := TableConfig{
@@ -637,6 +782,13 @@ func (rm *RoomManager) newTableLocked(opts CreateTableOptions) *Table {
 		MissileRevealExtra: g.MissileRevealExtra,
 		ChatMaxHistory:     rm.chat.MaxHistory,
 		ChatMaxLength:      rm.chat.MaxLength,
+	}
+	// Only a variation table is given the window's length: a seen or blind
+	// table's config — and so its snapshot in the live store — is exactly what
+	// it was before variation tables existed.
+	if resolved.HasVariation() {
+		cfg.VariationSelectTimeout = g.VariationSelectTimeout
+		cfg.FiveCardPickTimeout = g.FiveCardPickTimeout
 	}
 
 	id := util.UUID()
@@ -677,7 +829,7 @@ func (rm *RoomManager) tableOptions(opts TableOptions) TableOptions {
 
 // announceCreated is the tail of _createTable, outside mu: emit
 // tableCreated, log, observe the creation duration, publish to the index.
-func (rm *RoomManager) announceCreated(table *Table, started time.Time) {
+func (rm *RoomManager) announceCreated(table Room, started time.Time) {
 	rm.publishTable(table)
 	rm.rl.OnTableCreated(table)
 	var maxPot any // Node: `table.maxPot || null`
@@ -708,14 +860,14 @@ func (rm *RoomManager) codeTakenLocked(code string) bool {
 }
 
 // GetTable returns the table or nil.
-func (rm *RoomManager) GetTable(roomID string) *Table {
+func (rm *RoomManager) GetTable(roomID string) Room {
 	rm.mu.Lock()
 	defer rm.mu.Unlock()
 	return rm.tables[roomID]
 }
 
 // GetTableByCode matches the upper-cased code, or nil.
-func (rm *RoomManager) GetTableByCode(code string) *Table {
+func (rm *RoomManager) GetTableByCode(code string) Room {
 	wanted := strings.ToUpper(code)
 	rm.mu.Lock()
 	defer rm.mu.Unlock()
@@ -779,7 +931,7 @@ func (rm *RoomManager) creditSeat(userID string, amount int64) bool {
 
 // GetTableForPlayer returns the table the user is seated at (via
 // playerRooms), or nil.
-func (rm *RoomManager) GetTableForPlayer(userID string) *Table {
+func (rm *RoomManager) GetTableForPlayer(userID string) Room {
 	rm.mu.Lock()
 	t, dropped := rm.seatedTableLocked(userID)
 	rm.mu.Unlock()
@@ -808,7 +960,7 @@ func (rm *RoomManager) SetPlayerAvatar(userID string, avatarURL *string) {
 // store's mirror of that entry (liveClearSeated). Seat keys carry no ttl, so
 // one dropped silently is one that stays in Redis for good — the
 // `kt:seat:<userId>` leak found on production, 9 Sep 2026.
-func (rm *RoomManager) seatedTableLocked(userID string) (t *Table, dropped bool) {
+func (rm *RoomManager) seatedTableLocked(userID string) (t Room, dropped bool) {
 	roomID, ok := rm.playerRooms[userID]
 	if !ok {
 		return nil, false
@@ -822,8 +974,8 @@ func (rm *RoomManager) seatedTableLocked(userID string) (t *Table, dropped bool)
 }
 
 // tablesLocked returns every registered table in creation order. mu held.
-func (rm *RoomManager) tablesLocked() []*Table {
-	out := make([]*Table, 0, len(rm.tables))
+func (rm *RoomManager) tablesLocked() []Room {
+	out := make([]Room, 0, len(rm.tables))
 	for _, t := range rm.tables {
 		out = append(out, t)
 	}
@@ -869,17 +1021,47 @@ func (rm *RoomManager) LobbyOptions() LobbyOptions {
 	// same source the table is built from.
 	tables := make([]LobbyTableOption, 0, len(g.LobbyTables))
 	for _, entry := range g.LobbyTables {
-		tables = append(tables, LobbyTableOption{
+		option := LobbyTableOption{
 			Category:      entry.Category,
 			BootAmount:    entry.BootAmount,
-			MaxPot:        g.MenuMaxPot(entry.Category), // 0 means the pot is uncapped
+			MaxPot:        g.MenuMaxPot(entry.Category, entry.BootAmount), // 0 means the pot is uncapped
 			MaxBlindMoves: g.MaxBlindMoves,
 			MinChips:      rm.tableMinChips(entry),
 			MaxChips:      rm.tableMaxChips(entry),
-		})
+		}
+		// A poker entry carries its family's own facts (blinds, ante, buy-in,
+		// hole cards) instead of the Teen Patti ones, which mean nothing at a
+		// poker table: its factory fills them in and zeroes the rest.
+		if c := Category(entry.Category); c.IsPoker() {
+			option.Game = GamePoker
+			option.MaxPot = 0
+			option.MaxBlindMoves = 0
+			if factory := rm.factoryFor(c); factory != nil {
+				factory.MenuEntry(entry, g, &option)
+			}
+			if option.MinChips < option.MinBuyIn {
+				option.MinChips = option.MinBuyIn
+			}
+		}
+		tables = append(tables, option)
+	}
+	// The two categories every client has always been told of, the third
+	// only where this lobby actually offers it, and each poker category only
+	// where the menu lists a table of it: a menu with no variation or poker
+	// entry advertises exactly what it did before they existed. An empty menu
+	// means "any pair" (tests), which includes variation but not poker (a
+	// poker room needs a factory, which an empty menu says nothing about).
+	categories := []Category{CategorySeen, CategoryBlind}
+	if rm.offersVariation() {
+		categories = append(categories, CategoryVariation)
+	}
+	for _, c := range PokerCategories {
+		if rm.offersCategory(c) {
+			categories = append(categories, c)
+		}
 	}
 	return LobbyOptions{
-		Categories:       []Category{CategorySeen, CategoryBlind},
+		Categories:       categories,
 		Stakes:           stakes,
 		Tables:           tables,
 		EntryCapBoot:     g.EntryCapBoot,
@@ -893,7 +1075,7 @@ func (rm *RoomManager) LobbyOptions() LobbyOptions {
 // LiveTables returns every table (for metric gauges: players online, active /
 // waiting games, tables{category,stake}). The gauges read only lock-free
 // getters on the result.
-func (rm *RoomManager) LiveTables() []*Table {
+func (rm *RoomManager) LiveTables() []Room {
 	rm.mu.Lock()
 	defer rm.mu.Unlock()
 	return rm.tablesLocked()
@@ -901,19 +1083,19 @@ func (rm *RoomManager) LiveTables() []*Table {
 
 // occupancyLocked is the seats taken plus the seats held by joins in flight
 // — what the table will hold once every pending AddPlayer lands. mu held.
-func (rm *RoomManager) occupancyLocked(t *Table) int {
+func (rm *RoomManager) occupancyLocked(t Room) int {
 	return t.PlayerCount() + rm.pending[t.ID()]
 }
 
 // fullLocked is IsFull counting held seats. mu held.
-func (rm *RoomManager) fullLocked(t *Table) bool {
-	return rm.occupancyLocked(t) >= t.Config().MaxPlayers
+func (rm *RoomManager) fullLocked(t Room) bool {
+	return rm.occupancyLocked(t) >= t.MaxPlayers()
 }
 
 // holdLocked takes one seat on t for a join that is about to follow (mu
 // held). Every hold is consumed by seatHeld or given back by
 // releaseHoldLocked; the table's own AddPlayer is what actually seats.
-func (rm *RoomManager) holdLocked(t *Table) { rm.pending[t.ID()]++ }
+func (rm *RoomManager) holdLocked(t Room) { rm.pending[t.ID()]++ }
 
 // releaseHoldLocked gives a held seat back. mu held.
 func (rm *RoomManager) releaseHoldLocked(roomID string) {
@@ -937,8 +1119,8 @@ func (rm *RoomManager) releaseHold(roomID string) {
 // insertion order). Table state is not considered — a player may sit down
 // mid-hand and wait for the next deal. nil when none. mu held; only
 // lock-free getters are read.
-func (rm *RoomManager) pickTableLocked(bootAmount int64, category Category, excludeID string) *Table {
-	var best *Table
+func (rm *RoomManager) pickTableLocked(bootAmount int64, category Category, excludeID string) Room {
+	var best Room
 	var bestSeq uint64
 	var bestOccupancy int
 	for id, t := range rm.tables {
@@ -964,8 +1146,8 @@ func (rm *RoomManager) pickTableLocked(bootAmount int64, category Category, excl
 // of that kind. The draw is crypto/rand (cryptoIntn), like the deck: which
 // table a player lands on should not be predictable. nil when none. mu held;
 // only lock-free getters are read.
-func (rm *RoomManager) pickRandomTableLocked(bootAmount int64, category Category, excludeID string) *Table {
-	var candidates []*Table
+func (rm *RoomManager) pickRandomTableLocked(bootAmount int64, category Category, excludeID string) Room {
+	var candidates []Room
 	for id, t := range rm.tables {
 		if id == excludeID || t.IsPrivate() || rm.fullLocked(t) {
 			continue
@@ -998,7 +1180,7 @@ func (rm *RoomManager) pickRandomTableLocked(bootAmount int64, category Category
 // (freshPlayer, LoadPlayer): a lobby-only wallet change holds the same lock
 // (WhileUnseated), so it lands wholly before the read or is refused once the
 // seat is reserved.
-func (rm *RoomManager) QuickJoin(user Player, opts QuickJoinOptions) (*Table, error) {
+func (rm *RoomManager) QuickJoin(user Player, opts QuickJoinOptions) (Room, error) {
 	ul := rm.userLock(user.ID)
 	ul.Lock()
 	defer ul.Unlock()
@@ -1075,7 +1257,7 @@ func (rm *RoomManager) QuickJoin(user Player, opts QuickJoinOptions) (*Table, er
 // the stake list nor the menu is consulted: any live table can be joined by
 // its code. As in QuickJoin, the player's stripe is held from the first check,
 // so the chips checked and seated are the wallet read under it.
-func (rm *RoomManager) JoinByCode(user Player, code string) (*Table, error) {
+func (rm *RoomManager) JoinByCode(user Player, code string) (Room, error) {
 	ul := rm.userLock(user.ID)
 	ul.Lock()
 	defer ul.Unlock()
@@ -1224,7 +1406,7 @@ func (rm *RoomManager) SwitchTable(user Player) (SwitchResult, error) {
 // by a join in flight (table_full, "This table is full", the Table's own
 // wording for the same refusal a moment later). The seat starts from the
 // wallet as read under the player's stripe (freshPlayer), not from user.Chips.
-func (rm *RoomManager) Join(table *Table, user Player, socketID string) error {
+func (rm *RoomManager) Join(table Room, user Player, socketID string) error {
 	ul := rm.userLock(user.ID)
 	ul.Lock()
 	defer ul.Unlock()
@@ -1353,7 +1535,7 @@ func (rm *RoomManager) WhileUnseated(userID string, fn func(ctx context.Context)
 // (requirement 30) or outside the table's band. A refused create opens no
 // table; a seat refused once the table is open (a shutdown destroying it under
 // us) takes the empty table away again rather than leaving it to the sweeper.
-func (rm *RoomManager) CreateAndJoin(user Player, opts CreateTableOptions, socketID string) (*Table, error) {
+func (rm *RoomManager) CreateAndJoin(user Player, opts CreateTableOptions, socketID string) (Room, error) {
 	ul := rm.userLock(user.ID)
 	ul.Lock()
 	defer ul.Unlock()
@@ -1396,7 +1578,7 @@ func (rm *RoomManager) CreateAndJoin(user Player, opts CreateTableOptions, socke
 // seat is Join's body for callers already holding the player's stripe: take
 // a hold (refusing already_in_room / table_destroyed / table_full under mu)
 // and convert it into the seat.
-func (rm *RoomManager) seat(table *Table, user Player, socketID string) error {
+func (rm *RoomManager) seat(table Room, user Player, socketID string) error {
 	if table == nil {
 		return ErrTableDestroyed
 	}
@@ -1422,7 +1604,7 @@ func (rm *RoomManager) seat(table *Table, user Player, socketID string) error {
 // reserve the index, AddPlayer, release the hold; on any refusal the index
 // entry is removed again. The hold is consumed whatever happens. Caller
 // holds the player's stripe, not mu.
-func (rm *RoomManager) seatHeld(table *Table, user Player, socketID string) error {
+func (rm *RoomManager) seatHeld(table Room, user Player, socketID string) error {
 	roomID := table.ID()
 
 	rm.mu.Lock()
@@ -1466,7 +1648,7 @@ func (rm *RoomManager) seatHeld(table *Table, user Player, socketID string) erro
 // ConsolidateTables (a departure is exactly when a table can drop to one
 // player). Returns the table left. The reason string reaches the wire as the
 // pack's game:action.reason when the player was in a live hand.
-func (rm *RoomManager) Leave(userID, reason string) (*Table, error) {
+func (rm *RoomManager) Leave(userID, reason string) (Room, error) {
 	return rm.leaveFrom(userID, "", reason)
 }
 
@@ -1477,7 +1659,7 @@ func (rm *RoomManager) Leave(userID, reason string) (*Table, error) {
 // Leave a moment later can straddle a leave + join of the same player and
 // take the seat they have just sat down at somewhere else. "" means any
 // table (Leave).
-func (rm *RoomManager) leaveFrom(userID, roomID, reason string) (*Table, error) {
+func (rm *RoomManager) leaveFrom(userID, roomID, reason string) (Room, error) {
 	ul := rm.userLock(userID)
 	ul.Lock()
 	table, _, err := rm.vacateFrom(userID, roomID, reason)
@@ -1504,7 +1686,7 @@ func (rm *RoomManager) leaveFrom(userID, roomID, reason string) (*Table, error) 
 // stripe: off the index, then off the table. nil, nil when unseated. A
 // table destroyed under us (shutdown, sweep) counts as done — nobody is
 // seated there any more, which is all a leave asks for.
-func (rm *RoomManager) vacate(userID, reason string) (*Table, error) {
+func (rm *RoomManager) vacate(userID, reason string) (Room, error) {
 	table, _, err := rm.vacateFrom(userID, "", reason)
 	return table, err
 }
@@ -1512,14 +1694,14 @@ func (rm *RoomManager) vacate(userID, reason string) (*Table, error) {
 // vacateSeat is vacate for the one caller that needs the seat back: a table
 // switch, which has to re-seat the player and must do so with the chips the
 // checkpoint just banked rather than the wallet as it was read beforehand.
-func (rm *RoomManager) vacateSeat(userID, reason string) (*Table, *SeatInfo, error) {
+func (rm *RoomManager) vacateSeat(userID, reason string) (Room, *SeatInfo, error) {
 	return rm.vacateFrom(userID, "", reason)
 }
 
 // vacateFrom is vacate limited to roomID ("" = wherever they are): the index
 // is checked and deleted in one critical section, so the caller's decision
 // and the removal cannot be split by another transition of the same player.
-func (rm *RoomManager) vacateFrom(userID, roomID, reason string) (*Table, *SeatInfo, error) {
+func (rm *RoomManager) vacateFrom(userID, roomID, reason string) (Room, *SeatInfo, error) {
 	rm.mu.Lock()
 	table, dropped := rm.seatedTableLocked(userID)
 	if table == nil || (roomID != "" && table.ID() != roomID) {
@@ -1817,7 +1999,7 @@ func (rm *RoomManager) walletUnfinishedLocked(userID string) bool {
 // what stops a player being moved out from under a live game.
 func (rm *RoomManager) ConsolidateTables() ([]PlayerMove, error) {
 	rm.mu.Lock()
-	var singles []*Table
+	var singles []Room
 	for _, t := range rm.tablesLocked() {
 		if !t.IsPrivate() && !t.HasHand() && t.State() == TableWaiting && t.PlayerCount() == 1 {
 			singles = append(singles, t)
@@ -1833,7 +2015,7 @@ func (rm *RoomManager) ConsolidateTables() ([]PlayerMove, error) {
 	// to a different stake or category than the one they chose. Groups keep
 	// the order in which they were first seen (Node's Map).
 	var keys []string
-	groups := map[string][]*Table{}
+	groups := map[string][]Room{}
 	for _, t := range singles {
 		key := string(t.Category()) + ":" + strconv.FormatInt(t.BootAmount(), 10)
 		if _, seen := groups[key]; !seen {
@@ -1885,7 +2067,7 @@ func (rm *RoomManager) ConsolidateTables() ([]PlayerMove, error) {
 // start countdown, state), then OnTableDestroyed(source), then
 // OnPlayerMoved — so a mover's room:closed always precedes room:moved /
 // room:joined (DECISIONS.md §1).
-func (rm *RoomManager) movePlayer(source, target *Table) (*PlayerMove, error) {
+func (rm *RoomManager) movePlayer(source, target Room) (*PlayerMove, error) {
 	seats, err := source.Seats()
 	if err != nil {
 		if errors.Is(err, ErrTableDestroyed) {
@@ -2028,7 +2210,7 @@ func (rm *RoomManager) Shutdown(ctx context.Context) error {
 
 	done := make(chan error, 1)
 	go func() {
-		var destroyed []*Table
+		var destroyed []Room
 		var first error
 		for {
 			rm.mu.Lock()
@@ -2122,6 +2304,12 @@ func (h *tableHooks) OnSideshowRequested(v *View, e SideshowRequestedEvent) {
 func (h *tableHooks) OnSideshowResolved(v *View, e SideshowResolvedEvent) {
 	h.rm.tl.OnSideshowResolved(v, e)
 }
+func (h *tableHooks) OnVariationSelecting(v *View, e VariationSelectingEvent) {
+	h.rm.tl.OnVariationSelecting(v, e)
+}
+func (h *tableHooks) OnVariationSelected(v *View, e VariationSelectedEvent) {
+	h.rm.tl.OnVariationSelected(v, e)
+}
 
 // OnKick removes the player in a new goroutine — see the type comment. The
 // Table only announces the kick; this is where the seat is actually vacated
@@ -2130,9 +2318,13 @@ func (h *tableHooks) OnSideshowResolved(v *View, e SideshowResolvedEvent) {
 // table — the Go guard requires exactly that, so a kick that lands after the
 // player has already left and sat down elsewhere does not follow them).
 func (h *tableHooks) OnKick(v *View, e KickEvent) {
-	roomID := v.ID()
 	h.rm.tl.OnKick(v, e)
-	rm := h.rm
+	h.rm.kickHook(v.ID(), e)
+}
+
+// kickHook is OnKick's family-neutral body: the removal, in a new goroutine,
+// for a Teen Patti table and a factory-built room alike (roomHooks).
+func (rm *RoomManager) kickHook(roomID string, e KickEvent) {
 	go func() {
 		// "Still seated at the kicking table" is decided under the player's
 		// stripe, atomically with the index deletion (leaveFrom): checking
@@ -2161,17 +2353,22 @@ func (h *tableHooks) OnKick(v *View, e KickEvent) {
 // behind — so it is logged as `live store write failed` rather than as a
 // refused write.
 func (h *tableHooks) OnPersistError(v *View, e PersistErrorEvent) {
+	h.rm.persistErrorHook(v.ID(), e)
+	h.rm.tl.OnPersistError(v, e)
+}
+
+// persistErrorHook is OnPersistError's log line, for every family.
+func (rm *RoomManager) persistErrorHook(roomID string, e PersistErrorEvent) {
 	var errText any // Node: error?.message
 	if e.Err != nil {
 		errText = e.Err.Error()
 	}
 	switch e.Reason {
 	case PersistReasonLiveSave, PersistReasonLiveChat, PersistReasonLiveDelete:
-		h.rm.log.Warn("live store write failed", "roomId", v.ID(), "reason", e.Reason, "error", errText)
+		rm.log.Warn("live store write failed", "roomId", roomID, "reason", e.Reason, "error", errText)
 	default:
-		h.rm.log.Warn("table write refused", "roomId", v.ID(), "reason", e.Reason, "error", errText)
+		rm.log.Warn("table write refused", "roomId", roomID, "reason", e.Reason, "error", errText)
 	}
-	h.rm.tl.OnPersistError(v, e)
 }
 
 // OnError logs at error and forwards. A *FencedError (the live store refused
@@ -2180,16 +2377,20 @@ func (h *tableHooks) OnPersistError(v *View, e PersistErrorEvent) {
 // delivering this event. Its viewers get room:closed and find their seats
 // again on the owning process.
 func (h *tableHooks) OnError(v *View, err error) {
+	h.rm.errorHook(v.ID(), err)
+	h.rm.tl.OnError(v, err)
+}
+
+// errorHook is OnError's family-neutral body: the log line and, for a fence,
+// the destroy in a goroutine of its own.
+func (rm *RoomManager) errorHook(roomID string, err error) {
 	text := ""
 	if err != nil {
 		text = err.Error()
 	}
-	h.rm.log.Error("table error", "roomId", v.ID(), "error", text)
-	h.rm.tl.OnError(v, err)
+	rm.log.Error("table error", "roomId", roomID, "error", text)
 	var fenced *FencedError
 	if errors.As(err, &fenced) {
-		roomID := v.ID()
-		rm := h.rm
 		go func() {
 			if derr := rm.DestroyTable(roomID); derr != nil {
 				rm.log.Error("fenced table could not be destroyed", "roomId", roomID, "error", derr.Error())
@@ -2197,6 +2398,22 @@ func (h *tableHooks) OnError(v *View, err error) {
 		}()
 	}
 }
+
+// roomHooks is the RoomHooks every factory-built room is given (RoomDeps):
+// the family-neutral half of tableHooks, so a poker room's kicks, refused
+// writes, fences and index publishes are handled exactly as a Teen Patti
+// table's are. The room delivers its own game events to its own listener (the
+// socket layer) itself.
+type roomHooks struct {
+	rm *RoomManager
+}
+
+var _ RoomHooks = (*roomHooks)(nil)
+
+func (h *roomHooks) OnRoomState(r Room)                             { h.rm.publishFromActor(r) }
+func (h *roomHooks) OnRoomKick(r Room, e KickEvent)                 { h.rm.kickHook(r.ID(), e) }
+func (h *roomHooks) OnRoomPersistError(r Room, e PersistErrorEvent) { h.rm.persistErrorHook(r.ID(), e) }
+func (h *roomHooks) OnRoomError(r Room, err error)                  { h.rm.errorHook(r.ID(), err) }
 
 // String makes a PlayerMove readable in logs and test failures.
 func (m PlayerMove) String() string {

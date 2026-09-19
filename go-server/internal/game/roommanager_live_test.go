@@ -89,7 +89,7 @@ func TestRoomsMirrorSeatsAndPublishToTheLiveStore(t *testing.T) {
 	}
 
 	// Private tables are never indexed.
-	private := f.rooms.CreateTable(game.CreateTableOptions{IsPrivate: true, Category: "seen"})
+	private := f.createTable(game.CreateTableOptions{IsPrivate: true, Category: "seen"})
 	c := f.player("C", rmStart)
 	f.mustJoin(private, c)
 	if _, indexed := store.Index()[private.ID()]; indexed {
@@ -101,7 +101,7 @@ func TestRoomsMirrorSeatsAndPublishToTheLiveStore(t *testing.T) {
 
 	// Kick: the seat index follows.
 	d := f.player("D", rmBoot-1)
-	pub := f.rooms.CreateTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"})
+	pub := f.createTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"})
 	f.mustJoin(pub, d)
 	f.awaitKick(2 * time.Second)
 	eventually(t, 2*time.Second, func() bool { _, seated := store.Seats()[d.ID]; return !seated }, "ClearSeated after the kick")
@@ -138,17 +138,17 @@ func playingFixture(t *testing.T, store *livetest.Store) (*roomsFixture, []strin
 	f.clock.Advance(time.Second)
 	e := f.player("E", rmStart)
 	players["E"] = e
-	t3 := f.rooms.CreateTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "seen"})
+	t3 := f.createTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "seen"})
 	f.mustJoin(t3, e)
 
 	f.clock.Advance(time.Second)
 	d := f.player("D", rmStart)
 	players["D"] = d
-	t4 := f.rooms.CreateTable(game.CreateTableOptions{IsPrivate: true, Category: "seen"})
+	t4 := f.createTable(game.CreateTableOptions{IsPrivate: true, Category: "seen"})
 	f.mustJoin(t4, d)
 
 	f.clock.Advance(time.Second)
-	t5 := f.rooms.CreateTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"})
+	t5 := f.createTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"})
 
 	return f, []string{t1.ID(), t2.ID(), t3.ID(), t4.ID(), t5.ID()}, players
 }
@@ -156,7 +156,7 @@ func playingFixture(t *testing.T, store *livetest.Store) (*roomsFixture, []strin
 func TestRoomsRestoreRebuildsTablesSeatsCodesAndOrder(t *testing.T) {
 	store := livetest.New()
 	f1, ids, players := playingFixture(t, store)
-	t1 := f1.rooms.GetTable(ids[0])
+	t1 := game.AsTable(f1.rooms.GetTable(ids[0]))
 	code1 := t1.Code()
 	onTurn := turnUser(t, t1)
 	deadline := *viewOf(t, t1, onTurn).Turn.Deadline
@@ -245,7 +245,7 @@ func TestRoomsRestoreRebuildsTablesSeatsCodesAndOrder(t *testing.T) {
 
 	// The hand goes on where it was: same turn, same deadline, seats held
 	// disconnected, chat back.
-	r1 := f2.rooms.GetTable(ids[0])
+	r1 := game.AsTable(f2.rooms.GetTable(ids[0]))
 	eq(t, r1.HasHand(), true, "hand live")
 	eq(t, turnUser(t, r1), onTurn, "same player on turn")
 	eq(t, *viewOf(t, r1, onTurn).Turn.Deadline, deadline, "same deadline")
@@ -287,16 +287,16 @@ func TestRoomsRestoreRebuildsTablesSeatsCodesAndOrder(t *testing.T) {
 	eq(t, again.Skipped >= 4, true, "already registered")
 }
 
-func mustSnapshotOf(t *testing.T, table *game.Table) *game.Snapshot {
+func mustSnapshotOf(t *testing.T, room game.Room) *game.Snapshot {
 	t.Helper()
-	snap, err := table.Snapshot()
+	snap, err := game.AsTable(room).Snapshot()
 	if err != nil {
 		t.Fatal(err)
 	}
 	return snap
 }
 
-func seatsOf(t *testing.T, table *game.Table) []game.SeatInfo {
+func seatsOf(t *testing.T, table game.Room) []game.SeatInfo {
 	t.Helper()
 	seats, err := table.Seats()
 	if err != nil {
@@ -400,7 +400,7 @@ func TestRoomsRestoreDropsSnapshotsItCannotRebuild(t *testing.T) {
 func TestRoomsAStaleWriterFencesItselfAndLetsGo(t *testing.T) {
 	store := livetest.New()
 	f1, ids, players := playingFixture(t, store)
-	t1 := f1.rooms.GetTable(ids[0])
+	t1 := game.AsTable(f1.rooms.GetTable(ids[0]))
 	onTurn := turnUser(t, t1)
 
 	// A second process restores the same store while the first is alive
@@ -410,7 +410,7 @@ func TestRoomsAStaleWriterFencesItselfAndLetsGo(t *testing.T) {
 	if _, err := f2.rooms.Restore(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	r1 := f2.rooms.GetTable(ids[0])
+	r1 := game.AsTable(f2.rooms.GetTable(ids[0]))
 	eq(t, r1.HasHand(), true, "the new owner has the hand")
 
 	// The old process applies a move: the ledger commits, the move stands,
@@ -452,7 +452,7 @@ func TestRoomsAStaleWriterFencesItselfAndLetsGo(t *testing.T) {
 
 func TestRoomsSuspendWithoutAStoreIsAShutdown(t *testing.T) {
 	f := newRoomsFixture(t, openMenu)
-	table := f.rooms.CreateTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"})
+	table := f.createTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"})
 	seatTwoAndDeal(t, f, table, rmStart)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -520,7 +520,7 @@ func TestRoomsReconcileLiveRefillsAnEmptiedStore(t *testing.T) {
 	f.mustQuickJoin(b, rmBoot, "blind")
 	f.clock.Advance(f.cfg.NextHandDelay)
 	t2 := f.mustQuickJoin(c, rmBoot, "seen")
-	private := f.rooms.CreateTable(game.CreateTableOptions{IsPrivate: true, Category: "seen"})
+	private := f.createTable(game.CreateTableOptions{IsPrivate: true, Category: "seen"})
 	f.mustJoin(private, f.player("D", rmStart))
 
 	// Redis restarted empty (or somebody ran FLUSHALL).
@@ -536,7 +536,7 @@ func TestRoomsReconcileLiveRefillsAnEmptiedStore(t *testing.T) {
 	eq(t, report.Published, 2, "public tables re-published")
 	eq(t, report.Seats, 4, "every seat re-set")
 	eq(t, report.Errors, 0, "no errors")
-	for _, table := range []*game.Table{t1, t2, private} {
+	for _, table := range []game.Room{t1, t2, private} {
 		stored, ok := store.Stored(table.ID())
 		if !ok {
 			t.Fatalf("%s not re-saved", table.ID())
@@ -618,17 +618,17 @@ func TestAFullLifecycleLeavesNoSeatOrSummaryBehind(t *testing.T) {
 	// 2. kick: a player who cannot cover the boot is shown out by the table
 	// and removed by the manager's hook.
 	c := f.player("C", rmBoot-1)
-	t2 := f.rooms.CreateTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"})
+	t2 := f.createTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"})
 	f.mustJoin(t2, c)
 	f.awaitKick(2 * time.Second)
 	eventually(t, 2*time.Second, func() bool { _, seated := store.Seats()[c.ID]; return !seated }, "kick clears the seat")
 
 	// 3. consolidation: two idle singles merge, and the emptied table goes.
 	d, e := f.player("D", rmStart), f.player("E", rmStart)
-	t3 := f.rooms.CreateTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "seen"})
+	t3 := f.createTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "seen"})
 	f.mustJoin(t3, d)
 	f.clock.Advance(time.Second)
-	t4 := f.rooms.CreateTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "seen"})
+	t4 := f.createTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "seen"})
 	f.mustJoin(t4, e)
 	if moves := f.mustConsolidate(); len(moves) == 0 {
 		t.Fatal("the two singles should have merged")
@@ -638,7 +638,7 @@ func TestAFullLifecycleLeavesNoSeatOrSummaryBehind(t *testing.T) {
 	}
 
 	// 4. the empty-table sweep.
-	t5 := f.rooms.CreateTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"})
+	t5 := f.createTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"})
 	if _, indexed := store.Index()[t5.ID()]; !indexed {
 		t.Fatal("a new public table publishes a summary")
 	}
@@ -652,7 +652,7 @@ func TestAFullLifecycleLeavesNoSeatOrSummaryBehind(t *testing.T) {
 
 	// 5. shutdown, with players still seated and a private table open.
 	g := f.player("G", rmStart)
-	private := f.rooms.CreateTable(game.CreateTableOptions{IsPrivate: true, Category: "seen"})
+	private := f.createTable(game.CreateTableOptions{IsPrivate: true, Category: "seen"})
 	f.mustJoin(private, g)
 	shutdownCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -680,7 +680,7 @@ func TestReconcileLiveSweepsStraySeatsAndSummaries(t *testing.T) {
 
 	a, b := f.player("A", rmStart), f.player("B", rmStart)
 	t1 := f.mustQuickJoin(a, rmBoot, "blind")
-	private := f.rooms.CreateTable(game.CreateTableOptions{IsPrivate: true, Category: "seen"})
+	private := f.createTable(game.CreateTableOptions{IsPrivate: true, Category: "seen"})
 	f.mustJoin(private, b)
 
 	// What a previous process left in the store: seats for players nobody

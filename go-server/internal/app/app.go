@@ -23,6 +23,7 @@ import (
 	"github.com/surajk543/king-teenpatti/go-server/internal/game"
 	"github.com/surajk543/king-teenpatti/go-server/internal/live"
 	"github.com/surajk543/king-teenpatti/go-server/internal/metrics"
+	"github.com/surajk543/king-teenpatti/go-server/internal/poker"
 	"github.com/surajk543/king-teenpatti/go-server/internal/purchase"
 	"github.com/surajk543/king-teenpatti/go-server/internal/sio"
 	"github.com/surajk543/king-teenpatti/go-server/internal/socket"
@@ -155,7 +156,7 @@ const (
 //     GET  {metricsPath}     → m.Handler(Guard{Token, AllowIPs})
 //     GET  /health           → Health
 //     auth.Handler.Register(mux)   (the 8 API routes)
-//     GET  /api/rooms        → {tables: ListTables({category: ?category if blind|seen}), options}
+//     GET  /api/rooms        → {tables: ListTables({category: ?category if blind|seen|variation}), options}
 //     /socket.io/            → sio
 //     /                      → the browser client from cfg.PublicDir (staticHandler)
 //     wrapped in m.HTTPMiddleware(metricsPath, metrics.RouteLabelFor, mux)
@@ -259,10 +260,16 @@ func New(opts Options) (*App, error) {
 		Clock:         clock,
 		TableListener: a.sockets,
 		Listener:      a.sockets,
-		Logger:        logger,
-		Live:          a.live,
-		Instance:      cfg.LiveInstanceID,
-		LiveTTL:       cfg.LiveStateTTL,
+		// The poker family's rooms (POKER_PLAN.md): opened and restored by
+		// this factory, their events reaching the same socket layer through
+		// its poker.Listener.
+		Factories: map[game.Game]game.RoomFactory{
+			game.GamePoker: &poker.Factory{Listener: a.sockets.PokerListener()},
+		},
+		Logger:   logger,
+		Live:     a.live,
+		Instance: cfg.LiveInstanceID,
+		LiveTTL:  cfg.LiveStateTTL,
 		Metrics: game.MetricsHooks{
 			ObserveCreation: func(d time.Duration) { metrics.Observe(a.metrics.CreationDuration, d) },
 			// game_hand_start_duration_seconds used to be timed around the
@@ -829,17 +836,20 @@ type RoomsResponse struct {
 }
 
 // roomsHandler is GET /api/rooms?category= (index.js:87-97): the category
-// filter applies only to the exact strings "blind" / "seen" given once —
-// Express's 'simple' query parser turned a repeated key into an array, which
-// matched neither, so it is no filter either.
+// filter applies only to the exact strings "blind" / "seen" — and, Go only
+// since 18 Sep 2026, "variation" — given once. Express's 'simple' query parser
+// turned a repeated key into an array, which matched none of them, so it is no
+// filter either. Any other value is no filter as well: this route never did
+// fold an unknown category to seen the way a join does (NormalizeCategory), and
+// leaving "variation" out of the switch would have answered a question about
+// variation tables with every table in the building.
 func (a *App) roomsHandler(w http.ResponseWriter, r *http.Request) {
 	var category game.Category
 	if values := r.URL.Query()["category"]; len(values) == 1 {
-		switch values[0] {
-		case string(game.CategoryBlind):
-			category = game.CategoryBlind
-		case string(game.CategorySeen):
-			category = game.CategorySeen
+		// Exact spellings only — the seven the server knows (the four poker
+		// categories since 19 Sep 2026); anything else is no filter.
+		if c := game.Category(values[0]); c.Known() {
+			category = c
 		}
 	}
 	tables := a.rooms.ListTables(game.ListOptions{Category: category})

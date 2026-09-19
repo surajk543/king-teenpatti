@@ -7,12 +7,21 @@
 /// distinguishable from "broke".
 library;
 
+import 'dart:math' as math;
+
 int _int(dynamic v) => v is num ? v.toInt() : 0;
 
 /// Null stays null: a picture id of 0 would be a real-looking id the server
 /// never issues, so "wearing nothing" must not collapse into it.
 int? _intOrNull(dynamic v) => v is num ? v.toInt() : null;
 String _str(dynamic v) => v is String ? v : '';
+
+/// A list of card codes off the wire ("As", "Td"), tolerant as every DTO here:
+/// anything that is not a list reads as empty, and anything in it that is not
+/// a usable code is dropped rather than drawn as a broken card.
+List<String> cardCodes(Object? raw) => raw is List
+    ? raw.whereType<String>().where((e) => e.length >= 2).toList()
+    : const [];
 
 class SeatState {
   static const empty = 'empty';
@@ -33,6 +42,142 @@ class TableState {
 class TableCategory {
   static const seen = 'seen';
   static const blind = 'blind';
+
+  /// Variation Teen Patti: a table that bets as a seen one does, hides other
+  /// players' stacks as a blind one does (owner, 18 Sep 2026), and whose every
+  /// hand opens with one player choosing the rules it is decided by
+  /// ([Variation], [VariationState]).
+  static const variation = 'variation';
+
+  /// The POKER family (server side: go-server/internal/poker). Four wire
+  /// categories, each a game of its own at the table and one card each in the
+  /// lobby's Poker category. A poker room's snapshot carries `game: "poker"`
+  /// and a `poker` block ([PokerState]); a Teen Patti room's carries neither.
+  static const threeCardPoker = 'three_card_poker';
+  static const fiveCardDraw = 'five_card_draw';
+  static const texasHoldem = 'texas_holdem';
+  static const omaha = 'omaha';
+
+  /// The lobby's name for the poker FAMILY — the front card the four poker
+  /// tables are filed under. Never a wire category: the server knows only the
+  /// four above.
+  static const pokerFamily = 'poker';
+
+  /// The four poker categories, in the order the lobby and the rules name
+  /// them.
+  static const pokerCategories = [
+    texasHoldem,
+    omaha,
+    fiveCardDraw,
+    threeCardPoker,
+  ];
+
+  /// Whether [category] is one of the poker games.
+  static bool isPoker(String category) => pokerCategories.contains(category);
+}
+
+/// The four poker games, by the string the server uses for both the lobby
+/// category and `poker.variant`. The same values as [TableCategory]'s poker
+/// constants, named here for the table.
+class PokerVariant {
+  static const texasHoldem = TableCategory.texasHoldem;
+  static const omaha = TableCategory.omaha;
+  static const fiveCardDraw = TableCategory.fiveCardDraw;
+  static const threeCardPoker = TableCategory.threeCardPoker;
+
+  /// Blinds rather than an ante: Hold'em and Omaha.
+  static bool usesBlinds(String variant) =>
+      variant == texasHoldem || variant == omaha;
+
+  /// A board of five community cards: Hold'em and Omaha.
+  static bool hasBoard(String variant) => usesBlinds(variant);
+}
+
+/// The streets a poker hand moves through, as `poker.street` names them.
+/// Empty between hands.
+class PokerStreet {
+  static const none = '';
+
+  // Hold'em and Omaha.
+  static const preflop = 'preflop';
+  static const flop = 'flop';
+  static const turn = 'turn';
+  static const river = 'river';
+
+  // 5-Card Draw.
+  static const predraw = 'predraw';
+  static const draw = 'draw';
+  static const postdraw = 'postdraw';
+
+  // 3-Card Poker: play for the ante, or fold.
+  static const decision = 'decision';
+
+  static const showdown = 'showdown';
+}
+
+/// The moves a poker player can make, as `poker:action.action` names them.
+class PokerAction {
+  static const fold = 'fold';
+  static const check = 'check';
+  static const call = 'call';
+  static const bet = 'bet';
+  static const raise = 'raise';
+
+  /// 3-Card Poker: match the ante to play the hand against the dealer.
+  static const play = 'play';
+
+  /// 5-Card Draw: exchange the cards named, or none to stand pat.
+  static const draw = 'draw';
+}
+
+/// The seven rule sets a variation table's hand can be played under.
+///
+/// These are the server's wire values and they are matched EXACTLY — the
+/// server refuses `muflis`, `Lowest Joker` and every other near miss as
+/// `invalid_variation` rather than guessing. The client never invents one: the
+/// picker is drawn from the list the server sends ([VariationState.options]),
+/// and these constants exist for naming them in the player's language.
+class Variation {
+  static const muflis = 'MUFLIS';
+  static const ak47 = 'AK47';
+  static const joker = 'JOKER';
+  static const hukam = 'HUKAM';
+  static const lowestJoker = 'LOWEST_JOKER';
+  static const highestJoker = 'HIGHEST_JOKER';
+
+  /// 5-Card Teen Patti (owner, 18 Sep 2026): every player holds FIVE cards and
+  /// plays the best three of them. The SERVER finds those three — the strongest
+  /// of the ten three-card hands the five hold, by the ordinary ranking — and
+  /// names them in `best`; the player never picks, and the client never decides
+  /// how many cards anybody holds ([VariationState.cardsPerPlayer]).
+  static const fiveCard = 'FIVE_CARD';
+
+  /// The menu in the server's order, for a snapshot that carries no options.
+  /// [fiveCard] is last, as the server lists it, so the six older keys keep
+  /// their places on the picker.
+  static const all = [
+    muflis,
+    ak47,
+    joker,
+    hukam,
+    lowestJoker,
+    highestJoker,
+    fiveCard,
+  ];
+
+  /// Whether the variation is decided by the card turned up from the deck.
+  static bool usesTurnUp(String? v) => v == joker || v == hukam;
+}
+
+/// How a variation window closed.
+class VariationSelectedBy {
+  static const player = 'PLAYER';
+
+  /// The ten seconds ran out and the server chose Muflis.
+  static const timeout = 'TIMEOUT';
+
+  /// The chooser left the table and the server chose Muflis.
+  static const left = 'LEFT';
 }
 
 class GameAction {
@@ -271,10 +416,44 @@ class LobbyTable {
     required this.maxBlindMoves,
     this.minChips = 0,
     this.maxChips = 0,
+    this.game = '',
+    this.smallBlind = 0,
+    this.bigBlind = 0,
+    this.ante = 0,
+    this.minBuyIn = 0,
+    this.holeCards = 0,
+    this.maxDiscards = 0,
   });
 
   final String category;
   final int bootAmount;
+
+  /// `"poker"` on a poker table's entry, empty on a Teen Patti one (the server
+  /// sends nothing there). [isPoker] is the question to ask.
+  final String game;
+
+  /// A poker table's blinds (Hold'em, Omaha; the big blind is [bootAmount])
+  /// or its ante (5-Card Draw, 3-Card Poker; the ante is [bootAmount]). Zero
+  /// where the game has none, and on every Teen Patti table.
+  final int smallBlind;
+  final int bigBlind;
+  final int ante;
+
+  /// The smallest stack that may sit at a poker table. The server has already
+  /// raised [minChips] to it, so the door and the card agree; this is the
+  /// figure the card names as the buy-in.
+  final int minBuyIn;
+
+  /// How many cards each poker player is dealt: 2 (Hold'em), 4 (Omaha),
+  /// 5 (5-Card Draw) or 3 (3-Card Poker). 0 on a Teen Patti table.
+  final int holeCards;
+
+  /// 5-Card Draw only: how many cards a player may exchange. 0 elsewhere.
+  final int maxDiscards;
+
+  /// Whether this is a poker table: the server says so with `game`, and a
+  /// poker category says the same without it.
+  bool get isPoker => game == 'poker' || TableCategory.isPoker(category);
 
   /// The pot ceiling on this table, or 0 when the pot is uncapped. It comes
   /// from the server alongside the room itself, so the card and the table it
@@ -314,7 +493,41 @@ class LobbyTable {
     maxBlindMoves: j['maxBlindMoves'] == null ? 4 : _int(j['maxBlindMoves']),
     minChips: _int(j['minChips']),
     maxChips: _int(j['maxChips']),
+    game: _str(j['game']),
+    smallBlind: _int(j['smallBlind']),
+    bigBlind: _int(j['bigBlind']),
+    ante: _int(j['ante']),
+    minBuyIn: _int(j['minBuyIn']),
+    holeCards: _int(j['holeCards']),
+    maxDiscards: _int(j['maxDiscards']),
   );
+
+  /// The menu entry a poker ROOM would have had, read off the room's own
+  /// snapshot.
+  ///
+  /// The rules sheet is written against a [LobbyTable] and a player sitting at
+  /// a table has a [RoomState] instead — but `room:state.poker` carries every
+  /// term the menu entry did (the blinds, the ante, the buy-in, the cards
+  /// dealt, the exchange limit), so the sheet can be opened on the table being
+  /// played without a second copy of the rules text. Null for a Teen Patti
+  /// room, which has its own sheet.
+  static LobbyTable? ofRoom(RoomState room) {
+    final p = room.poker;
+    if (p == null || !room.isPoker) return null;
+    return LobbyTable(
+      category: p.variant.isNotEmpty ? p.variant : room.category,
+      bootAmount: room.bootAmount,
+      maxPot: 0, // a poker room has no pot limit (§6.5)
+      maxBlindMoves: 0,
+      game: 'poker',
+      smallBlind: p.smallBlind,
+      bigBlind: p.bigBlind,
+      ante: p.ante,
+      minBuyIn: p.minBuyIn,
+      holeCards: p.holeCards,
+      maxDiscards: p.maxDiscards,
+    );
+  }
 }
 
 /// The table the server remembers a player falling off. It comes with
@@ -470,6 +683,10 @@ class Seat {
     required this.contributed,
     required this.connected,
     required this.cardCount,
+    this.picking = false,
+    this.streetBet = 0,
+    this.allIn = false,
+    this.dealer = false,
   });
 
   final int seatIndex;
@@ -493,6 +710,18 @@ class Seat {
   final bool connected;
   final int cardCount;
 
+  /// 5-Card Teen Patti: this player is still choosing which three of their
+  /// five cards play (owner, 19 Sep 2026). Public so the table can say who it
+  /// is waiting on; WHICH cards they are choosing is never public.
+  final bool picking;
+
+  /// A poker seat: what it has put in on the CURRENT street, whether its
+  /// whole stack is in, and whether it holds the dealer button. A Teen Patti
+  /// snapshot sends none of these, and they read 0 / false there.
+  final int streetBet;
+  final bool allIn;
+  final bool dealer;
+
   bool get occupied => status != SeatState.empty;
   bool get inHand => status == SeatState.active;
 
@@ -512,6 +741,10 @@ class Seat {
     contributed: contributed,
     connected: connected,
     cardCount: cardCount,
+    picking: picking,
+    streetBet: streetBet,
+    allIn: allIn,
+    dealer: dealer,
   );
 
   factory Seat.fromJson(Map<String, dynamic> j) => Seat(
@@ -527,8 +760,397 @@ class Seat {
     contributed: _int(j['contributed']),
     connected: j['connected'] != false,
     cardCount: _int(j['cardCount']),
+    picking: j['picking'] == true,
+    streetBet: _int(j['streetBet']),
+    allIn: j['allIn'] == true,
+    dealer: j['dealer'] == true,
   );
 }
+
+/// What a poker player may do on their turn: `you.options` at a poker table.
+///
+/// The booleans say which moves the server will accept; the amounts are what
+/// it accepts them at. [minBet]/[maxBet] and [minRaise]/[maxRaise] are TOTAL
+/// street bets — a raise is "raise TO", never "raise BY". The client never
+/// computes a legal amount of its own: the stepper walks between the server's
+/// two ends, and its top end IS the whole stack, which is why there is no
+/// separate all-in move (owner, 19 Sep 2026).
+class PokerOptions {
+  const PokerOptions({
+    required this.street,
+    required this.fold,
+    required this.check,
+    required this.call,
+    required this.callAmount,
+    required this.bet,
+    required this.minBet,
+    required this.maxBet,
+    required this.raise,
+    required this.minRaise,
+    required this.maxRaise,
+    required this.play,
+    required this.playAmount,
+    required this.draw,
+    required this.maxDiscards,
+  });
+
+  final String street;
+  final bool fold;
+  final bool check;
+  final bool call;
+  final int callAmount;
+  final bool bet;
+  final int minBet;
+  final int maxBet;
+  final bool raise;
+  final int minRaise;
+  final int maxRaise;
+
+  /// 3-Card Poker's decision: match the ante and play, or fold.
+  final bool play;
+  final int playAmount;
+
+  /// 5-Card Draw's draw street: exchange up to [maxDiscards] cards.
+  final bool draw;
+  final int maxDiscards;
+
+  /// Whether the map is a poker player's options at all: a Teen Patti ladder
+  /// has no street and none of the fold / check / call keys.
+  static bool isPokerMap(Map<String, dynamic> j) =>
+      j.containsKey('street') ||
+      j.containsKey('fold') ||
+      j.containsKey('check') ||
+      j.containsKey('call');
+
+  factory PokerOptions.fromJson(Map<String, dynamic> j) => PokerOptions(
+    street: _str(j['street']),
+    fold: j['fold'] == true,
+    check: j['check'] == true,
+    call: j['call'] == true,
+    callAmount: _int(j['callAmount']),
+    bet: j['bet'] == true,
+    minBet: _int(j['minBet']),
+    maxBet: _int(j['maxBet']),
+    raise: j['raise'] == true,
+    minRaise: _int(j['minRaise']),
+    maxRaise: _int(j['maxRaise']),
+    play: j['play'] == true,
+    playAmount: _int(j['playAmount']),
+    draw: j['draw'] == true,
+    maxDiscards: _int(j['maxDiscards']),
+  );
+}
+
+/// One pot on a poker table — the main pot, or a side pot a short stack could
+/// not reach — and who may win it. In a finished hand's [PokerResult] it also
+/// says who did.
+class PokerPot {
+  const PokerPot({
+    required this.amount,
+    required this.eligible,
+    this.winners = const [],
+  });
+
+  final int amount;
+
+  /// The seat indexes still in for this pot.
+  final List<int> eligible;
+
+  /// Who took it, once the hand is decided; empty while it is being played.
+  final List<PokerPotWinner> winners;
+
+  factory PokerPot.fromJson(Map<String, dynamic> j) => PokerPot(
+    amount: _int(j['amount']),
+    eligible: _ints(j['eligible']),
+    winners: _list(j['winners'], PokerPotWinner.fromJson),
+  );
+}
+
+/// One winner of one pot, and their share of it.
+class PokerPotWinner {
+  const PokerPotWinner({
+    required this.userId,
+    required this.seatIndex,
+    required this.amount,
+    required this.handName,
+  });
+
+  final String userId;
+  final int seatIndex;
+  final int amount;
+
+  /// What they won with; empty when the hand never reached a showdown.
+  final String handName;
+
+  factory PokerPotWinner.fromJson(Map<String, dynamic> j) => PokerPotWinner(
+    userId: _str(j['userId']),
+    seatIndex: _int(j['seatIndex']),
+    amount: _int(j['amount']),
+    handName: _str(j['handName']),
+  );
+}
+
+/// 3-Card Poker's dealer: a house hand every player plays against. Face down
+/// ([cards] empty, [cardCount] backs) until the reveal.
+class PokerDealer {
+  const PokerDealer({
+    required this.cardCount,
+    required this.cards,
+    required this.handName,
+    required this.category,
+    required this.qualified,
+  });
+
+  final int cardCount;
+  final List<String> cards;
+  final String handName;
+  final int category;
+
+  /// Whether the dealer's hand reaches Queen-high, which is what it needs to
+  /// play; null until the reveal says.
+  final bool? qualified;
+
+  factory PokerDealer.fromJson(Map<String, dynamic> j) => PokerDealer(
+    cardCount: _int(j['cardCount']),
+    cards: cardCodes(j['cards']),
+    handName: _str(j['handName']),
+    category: _int(j['category']),
+    qualified: j['qualified'] is bool ? j['qualified'] as bool : null,
+  );
+
+  /// The dealer's hand to draw, from the **two** places the wire puts it.
+  ///
+  /// While the hand runs it is `poker.dealer` ([live]): the card count before
+  /// the reveal, the cards and the verdict at it. The moment the hand is
+  /// SETTLED the server empties that block — `internal/poker/view.go` takes
+  /// the `else if v.HasDealer` branch and sends `{cardCount: 0, cards: []}` —
+  /// and the revealed dealer lives only in `poker.result.dealer`
+  /// ([finished]), which is kept until the next deal. Neither is right at
+  /// every instant, so this takes the cards and the verdict from whichever
+  /// holds them and the count from whichever knows it. Null only when the
+  /// game has no dealer at all.
+  static PokerDealer? shown({PokerDealer? live, PokerDealer? finished}) {
+    if (live == null) return finished;
+    if (finished == null) return live;
+    final held = finished.cards.isNotEmpty ? finished : live;
+    final named = finished.handName.isNotEmpty || finished.qualified != null
+        ? finished
+        : live;
+    return PokerDealer(
+      cardCount: math.max(
+        math.max(live.cardCount, finished.cardCount),
+        held.cards.length,
+      ),
+      cards: held.cards,
+      handName: named.handName,
+      category: named.category,
+      qualified: named.qualified,
+    );
+  }
+}
+
+/// One hand turned over at a poker showdown.
+class PokerReveal {
+  const PokerReveal({
+    required this.userId,
+    required this.seatIndex,
+    required this.cards,
+    required this.best,
+    required this.handName,
+    required this.category,
+    required this.won,
+    required this.outcome,
+  });
+
+  final String userId;
+  final int seatIndex;
+
+  /// The hole cards.
+  final List<String> cards;
+
+  /// The cards that made the hand — hole cards and board cards together on a
+  /// board game, the best three of five in 5-Card Draw.
+  final List<String> best;
+  final String handName;
+  final int category;
+
+  /// What this player took from the pots; 0 for a loser.
+  final int won;
+
+  /// 3-Card Poker: `win`, `lose` or `push` against the dealer. Null on the
+  /// other games, where the pots say it.
+  final String? outcome;
+
+  factory PokerReveal.fromJson(Map<String, dynamic> j) => PokerReveal(
+    userId: _str(j['userId']),
+    seatIndex: _int(j['seatIndex']),
+    cards: cardCodes(j['cards']),
+    best: cardCodes(j['best']),
+    handName: _str(j['handName']),
+    category: _int(j['category']),
+    won: _int(j['won']),
+    outcome: j['outcome'] is String ? j['outcome'] as String : null,
+  );
+}
+
+/// A poker player's outcome against the dealer (3-Card Poker).
+class PokerOutcome {
+  static const win = 'win';
+  static const lose = 'lose';
+  static const push = 'push';
+}
+
+/// How a poker hand ended: `poker.result`, and the body of `poker:showdown`
+/// and `poker:handEnded`. The snapshot keeps it until the next deal, so a
+/// player who reconnects into the celebration can draw the finished hand.
+class PokerResult {
+  const PokerResult({
+    required this.handId,
+    required this.reason,
+    required this.pots,
+    required this.reveals,
+    required this.community,
+    required this.dealer,
+  });
+
+  final String handId;
+
+  /// `showdown`, `last_standing`, `dealer` or `all_left`.
+  final String reason;
+  final List<PokerPot> pots;
+  final List<PokerReveal> reveals;
+  final List<String> community;
+  final PokerDealer? dealer;
+
+  /// Every winner across every pot, each once, in pot order.
+  List<PokerPotWinner> get winners {
+    final seen = <String>{};
+    return [
+      for (final pot in pots)
+        for (final w in pot.winners)
+          if (seen.add(w.userId)) w,
+    ];
+  }
+
+  /// What [userId] took across every pot.
+  int wonBy(String? userId) {
+    if (userId == null) return 0;
+    var total = 0;
+    for (final pot in pots) {
+      for (final w in pot.winners) {
+        if (w.userId == userId) total += w.amount;
+      }
+    }
+    return total;
+  }
+
+  /// This player's reveal, if their hand was turned over.
+  PokerReveal? revealOf(String? userId) =>
+      userId == null ? null : reveals.where((r) => r.userId == userId).firstOrNull;
+
+  factory PokerResult.fromJson(Map<String, dynamic> j) => PokerResult(
+    handId: _str(j['handId']),
+    reason: _str(j['reason']),
+    pots: _list(j['pots'], PokerPot.fromJson),
+    reveals: _list(j['reveals'], PokerReveal.fromJson),
+    community: cardCodes(j['community']),
+    dealer: j['dealer'] is Map
+        ? PokerDealer.fromJson(Map<String, dynamic>.from(j['dealer'] as Map))
+        : null,
+  );
+}
+
+/// A poker room's own block of the snapshot: `room:state.poker`. Absent on
+/// every Teen Patti table, so [RoomState.poker] is null there and nothing
+/// about those tables changes.
+class PokerState {
+  const PokerState({
+    required this.variant,
+    required this.street,
+    required this.community,
+    required this.pots,
+    required this.currentBet,
+    required this.minRaise,
+    required this.smallBlind,
+    required this.bigBlind,
+    required this.ante,
+    required this.holeCards,
+    required this.maxDiscards,
+    required this.minBuyIn,
+    required this.dealer,
+    required this.result,
+  });
+
+  /// The game, the same string as the room's category ([PokerVariant]).
+  final String variant;
+
+  /// A [PokerStreet]; empty between hands.
+  final String street;
+
+  /// The board, in the order dealt. Empty when there is none yet, and on the
+  /// games that have none.
+  final List<String> community;
+
+  /// The main pot first, then any side pots.
+  final List<PokerPot> pots;
+
+  /// The bet to match on this street, and the least a raise may add to it.
+  final int currentBet;
+  final int minRaise;
+  final int smallBlind;
+  final int bigBlind;
+  final int ante;
+  final int holeCards;
+  final int maxDiscards;
+  final int minBuyIn;
+
+  /// 3-Card Poker's house hand; null on the other games.
+  final PokerDealer? dealer;
+
+  /// The finished hand, kept until the next deal; null while one is played.
+  final PokerResult? result;
+
+  /// Everything in the pots.
+  int get potTotal => pots.fold(0, (sum, pot) => sum + pot.amount);
+
+  bool get usesBlinds => PokerVariant.usesBlinds(variant);
+  bool get hasBoard => PokerVariant.hasBoard(variant);
+
+  factory PokerState.fromJson(Map<String, dynamic> j) => PokerState(
+    variant: _str(j['variant']),
+    street: _str(j['street']),
+    community: cardCodes(j['community']),
+    pots: _list(j['pots'], PokerPot.fromJson),
+    currentBet: _int(j['currentBet']),
+    minRaise: _int(j['minRaise']),
+    smallBlind: _int(j['smallBlind']),
+    bigBlind: _int(j['bigBlind']),
+    ante: _int(j['ante']),
+    holeCards: _int(j['holeCards']),
+    maxDiscards: _int(j['maxDiscards']),
+    minBuyIn: _int(j['minBuyIn']),
+    dealer: j['dealer'] is Map
+        ? PokerDealer.fromJson(Map<String, dynamic>.from(j['dealer'] as Map))
+        : null,
+    result: j['result'] is Map
+        ? PokerResult.fromJson(Map<String, dynamic>.from(j['result'] as Map))
+        : null,
+  );
+}
+
+/// A list of whole numbers off the wire; anything else reads as empty.
+List<int> _ints(Object? raw) =>
+    raw is List ? [for (final e in raw) if (e is num) e.toInt()] : const [];
+
+/// A list of objects off the wire, each parsed by [parse]; anything that is
+/// not an object is dropped, and anything that is not a list is empty.
+List<T> _list<T>(Object? raw, T Function(Map<String, dynamic>) parse) =>
+    raw is List
+    ? [
+        for (final e in raw)
+          if (e is Map) parse(Map<String, dynamic>.from(e)),
+      ]
+    : const [];
 
 class TurnOptions {
   const TurnOptions({
@@ -620,6 +1242,117 @@ class PendingSideshow {
   );
 }
 
+/// A variation table's window, and what came of it: `room:state.variation`.
+///
+/// Absent from the snapshot of a seen or blind table and between hands, so
+/// [RoomState.variation] is null there and nothing about those tables changes.
+///
+/// While [selecting], nobody is on turn: the server has dealt the hand and is
+/// waiting for [userId] to choose its rules, until [deadline]. That deadline is
+/// the SERVER's — the countdown drawn from it is a readout, never the thing
+/// that decides, exactly as a sideshow's is. Everything a client needs to draw
+/// the chooser's picker, everyone else's "… is selecting variation", and both
+/// countdowns is here, which is what lets a player who reconnects mid-window
+/// rebuild all of it from one snapshot.
+class VariationState {
+  const VariationState({
+    required this.selecting,
+    required this.userId,
+    required this.displayName,
+    required this.seatIndex,
+    required this.startedAt,
+    required this.deadline,
+    required this.timeoutMs,
+    required this.options,
+    required this.selected,
+    required this.selectedBy,
+    required this.turnUp,
+    this.cardsPerPlayer = 3,
+  });
+
+  /// How many cards each player in the hand holds: 3 while the window is open
+  /// and under the six older variations, 5 once [Variation.fiveCard] has been
+  /// chosen — every hand is dealt three and the server tops each up to five at
+  /// that moment. It is the server's figure and the only one the table draws
+  /// face-down cards from; a server that predates it sends nothing, which reads
+  /// as three. Held to 3..5 so a nonsense value can never draw a fan the felt
+  /// has no room for.
+  final int cardsPerPlayer;
+
+  /// True while the window is open.
+  final bool selecting;
+
+  /// The CHOOSER — and still the chooser after the window has closed, however
+  /// it closed.
+  final String userId;
+  final String displayName;
+  final int seatIndex;
+
+  /// Unix ms.
+  final int startedAt;
+
+  /// Unix ms, or 0 when the server runs the window with no timeout.
+  final int deadline;
+  final int timeoutMs;
+
+  /// The menu, in the order the server offers it. Never empty: a snapshot
+  /// without one falls back to [Variation.all].
+  final List<String> options;
+
+  /// Null while [selecting].
+  final String? selected;
+
+  /// A [VariationSelectedBy] value; null while [selecting].
+  final String? selectedBy;
+
+  /// The card turned up from the deck ("9h"), present only once a variation
+  /// decided by it has been chosen: its rank is wild under Joker, its suit
+  /// under Hukam. Until then the card is the server's alone.
+  final String? turnUp;
+
+  /// Seconds left on the window, never negative; 0 when it has no deadline.
+  int get secondsLeft {
+    if (!selecting || deadline <= 0) return 0;
+    final ms = deadline - DateTime.now().millisecondsSinceEpoch;
+    return ms <= 0 ? 0 : (ms / 1000).ceil();
+  }
+
+  /// Whether the server chose because the player did not.
+  bool get chosenByServer =>
+      selectedBy == VariationSelectedBy.timeout ||
+      selectedBy == VariationSelectedBy.left;
+
+  factory VariationState.fromJson(Map<String, dynamic> j) {
+    // `is List`, not `as List?`: a cast throws on a value that is present but
+    // is not a list, and a snapshot that cannot be parsed takes the whole
+    // table down with it. Anything unusable falls back to the full menu.
+    final raw = j['options'];
+    final options = raw is List
+        ? raw.whereType<String>().where((e) => e.isNotEmpty).toList()
+        : const <String>[];
+    return VariationState(
+      selecting: j['selecting'] == true,
+      userId: _str(j['userId']),
+      displayName: _str(j['displayName']),
+      seatIndex: _int(j['seatIndex']),
+      startedAt: _int(j['startedAt']),
+      deadline: _int(j['deadline']),
+      timeoutMs: _int(j['timeoutMs']),
+      options: options.isEmpty ? Variation.all : options,
+      selected: j['selected'] is String ? j['selected'] as String : null,
+      selectedBy: j['selectedBy'] is String ? j['selectedBy'] as String : null,
+      turnUp: j['turnUp'] is String ? j['turnUp'] as String : null,
+      cardsPerPlayer: _cardsPerPlayer(j['cardsPerPlayer']),
+    );
+  }
+
+  /// Absent, not a number, or out of range → the nearest sane figure. Read
+  /// from the raw value rather than through `_int`, whose 0 for "absent" would
+  /// be indistinguishable from a server that really said 0.
+  static int _cardsPerPlayer(Object? raw) =>
+      raw is num && raw.isFinite ? raw.toInt().clamp(3, 5) : 3;
+}
+
 /// One hand in a sideshow reveal. Only ever sent to the two players involved.
 class SideshowHand {
   const SideshowHand({
@@ -627,6 +1360,8 @@ class SideshowHand {
     required this.displayName,
     required this.cards,
     required this.handName,
+    this.wild = const [],
+    this.best = const [],
   });
 
   final String userId;
@@ -634,11 +1369,22 @@ class SideshowHand {
   final List<String> cards;
   final String handName;
 
+  /// Which of [cards] played as wild cards — a variation table only, and only
+  /// under a variation that has any. [handName] is what the hand MADE with
+  /// them, so it can differ from what the bare cards would be.
+  final List<String> wild;
+
+  /// The three of [cards] that were counted, under 5-Card only (where [cards]
+  /// holds five). Empty everywhere else.
+  final List<String> best;
+
   factory SideshowHand.fromJson(Map<String, dynamic> j) => SideshowHand(
     userId: _str(j['userId']),
     displayName: _str(j['displayName']),
     cards: (j['cards'] as List? ?? const []).map((e) => '$e').toList(),
     handName: _str(j['handName']),
+    wild: (j['wild'] as List? ?? const []).map((e) => '$e').toList(),
+    best: cardCodes(j['best']),
   );
 }
 
@@ -705,6 +1451,97 @@ class Turn {
   );
 }
 
+/// `you.hand`: the viewer's own seen cards as the hand's variation counts them
+/// (owner, 18 Sep 2026). The server sends it to that player alone.
+///
+/// [playsAs] runs index for index with `you.cards`: a wild card is replaced by
+/// the card it stood for — under AK47 a J-Q-4 is a Sequence because the 4
+/// played as a king — and every other card is itself. It is what the table
+/// turns the wild cards into once the player has looked.
+class OwnHand {
+  const OwnHand({
+    required this.handName,
+    required this.wild,
+    required this.playsAs,
+    this.best = const [],
+    this.picking = false,
+    this.pickDeadline = 0,
+    this.pickTimeoutMs = 0,
+    this.pickedBy = '',
+    this.bestPossible = const [],
+  });
+
+  /// The codes of the `you.cards` that are COUNTED, in the order held: all
+  /// three of a three-card hand, the best three of five under 5-Card. The
+  /// server chooses them; the table only lifts them. Empty from a server that
+  /// predates it, which draws the hand with nothing singled out.
+  final List<String> best;
+
+  /// What the hand made, wild cards included: "Sequence". English, like every
+  /// hand name on the wire.
+  final String handName;
+
+  /// Which of `you.cards` played as wild cards. Empty when none did.
+  final List<String> wild;
+
+  /// `you.cards` as they were counted.
+  final List<String> playsAs;
+
+  /// 5-Card Teen Patti: true while this player still owes a choice of which
+  /// three of their five cards play (owner, 19 Sep 2026). [handName] and
+  /// [best] are both empty while it is true — naming the hand would hand the
+  /// player the answer — so the felt asks instead of showing.
+  final bool picking;
+
+  /// When the server plays the first three for them, epoch ms, and how long
+  /// was left when the snapshot was made. Both 0 when no clock is running.
+  final int pickDeadline;
+  final int pickTimeoutMs;
+
+  /// "PLAYER" when they chose and "TIMEOUT" when the clock did; empty until
+  /// the choice is made.
+  final String pickedBy;
+
+  /// The strongest three those five could have made, sent only once the choice
+  /// is made. Equal to [best] when they chose well, which is how the table
+  /// knows whether to congratulate them or show them what they missed.
+  final List<String> bestPossible;
+
+  /// Whether the three that play are the strongest three that could have.
+  /// True when nothing better was on offer, and true for a three-card hand,
+  /// which plays all of itself.
+  bool get pickedTheBest =>
+      bestPossible.isEmpty ||
+      (best.length == bestPossible.length &&
+          List.generate(best.length, (i) => best[i] == bestPossible[i])
+              .every((same) => same));
+
+  /// The card [code] (one of `you.cards`, at [index]) stood for, or null when
+  /// it is not wild, the server said nothing usable, or it stood for itself.
+  String? standInFor(String code, int index) {
+    if (!wild.contains(code) || index < 0 || index >= playsAs.length) {
+      return null;
+    }
+    final stood = playsAs[index];
+    return stood.length < 2 || stood == code ? null : stood;
+  }
+
+  /// Tolerant, like every DTO here: anything unusable reads as "nothing wild".
+  factory OwnHand.fromJson(Map<String, dynamic> j) {
+    return OwnHand(
+      handName: _str(j['handName']),
+      wild: cardCodes(j['wild']),
+      playsAs: cardCodes(j['playsAs']),
+      best: cardCodes(j['best']),
+      picking: j['picking'] == true,
+      pickDeadline: _int(j['pickDeadline']),
+      pickTimeoutMs: _int(j['pickTimeoutMs']),
+      pickedBy: _str(j['pickedBy']),
+      bestPossible: cardCodes(j['bestPossible']),
+    );
+  }
+}
+
 class You {
   const You({
     required this.seatIndex,
@@ -719,12 +1556,33 @@ class You {
     required this.options,
     this.unfundedDeadline,
     this.canMissile = false,
+    this.hand,
+    this.streetBet = 0,
+    this.allIn = false,
+    this.pokerOptions,
   });
 
   final int seatIndex;
   final int chips;
   final String status;
   final bool isBlind;
+
+  /// A poker seat's bet on the current street, and whether the whole stack is
+  /// in. 0 / false on a Teen Patti table, which sends neither.
+  final int streetBet;
+  final bool allIn;
+
+  /// A poker player's moves, on their turn and only then ([PokerOptions]).
+  /// The server sends one `options` map whatever the game; a map with a poker
+  /// street in it is read as this and NEVER as [options], so no Teen Patti key
+  /// — `canPack`, which reads true when absent — can light at a poker table.
+  final PokerOptions? pokerOptions;
+
+  /// What this player's own cards make under the hand's variation — which of
+  /// them played wild and what they stood for. Only on a variation table, and
+  /// only once the player has looked AND the variation is chosen; null
+  /// otherwise, and always on a seen or blind table.
+  final OwnHand? hand;
 
   /// Whether the rules allow this player to fire a missile right now — their
   /// turn, three or more still in the hand, nothing pending (owner, 14 Sep
@@ -766,28 +1624,44 @@ class You {
     return ms <= 0 ? 0 : (ms / 1000).ceil();
   }
 
-  factory You.fromJson(Map<String, dynamic> j) => You(
-    // `you.canMissile` is the contract; the same flag among the options is
-    // accepted too, so either placement lights the key.
-    canMissile:
-        j['canMissile'] == true ||
-        (j['options'] is Map && (j['options'] as Map)['canMissile'] == true),
-    seatIndex: _int(j['seatIndex']),
-    chips: _int(j['chips']),
-    status: _str(j['status']),
-    isBlind: j['isBlind'] == true,
-    blindMovesLeft: _int(j['blindMovesLeft']),
-    contributed: _int(j['contributed']),
-    missedTurns: _int(j['missedTurns']),
-    maxMissedTurns: j['maxMissedTurns'] == null ? 3 : _int(j['maxMissedTurns']),
-    cards: (j['cards'] as List?)?.map((e) => '$e').toList() ?? const [],
-    options: j['options'] is Map
-        ? TurnOptions.fromJson(Map<String, dynamic>.from(j['options'] as Map))
-        : null,
-    unfundedDeadline: j['unfundedDeadline'] == null
-        ? null
-        : _int(j['unfundedDeadline']),
-  );
+  factory You.fromJson(Map<String, dynamic> j) {
+    // One `options` map, two games: a poker one carries a street and is read
+    // as poker options ALONE; anything else is a Teen Patti ladder.
+    final rawOptions = j['options'] is Map
+        ? Map<String, dynamic>.from(j['options'] as Map)
+        : null;
+    final pokerMap = rawOptions != null && PokerOptions.isPokerMap(rawOptions);
+    return You(
+      // `you.canMissile` is the contract; the same flag among the options is
+      // accepted too, so either placement lights the key.
+      canMissile:
+          j['canMissile'] == true ||
+          (rawOptions != null && rawOptions['canMissile'] == true),
+      seatIndex: _int(j['seatIndex']),
+      chips: _int(j['chips']),
+      status: _str(j['status']),
+      isBlind: j['isBlind'] == true,
+      blindMovesLeft: _int(j['blindMovesLeft']),
+      contributed: _int(j['contributed']),
+      missedTurns: _int(j['missedTurns']),
+      maxMissedTurns: j['maxMissedTurns'] == null
+          ? 3
+          : _int(j['maxMissedTurns']),
+      cards: (j['cards'] as List?)?.map((e) => '$e').toList() ?? const [],
+      options: rawOptions != null && !pokerMap
+          ? TurnOptions.fromJson(rawOptions)
+          : null,
+      pokerOptions: pokerMap ? PokerOptions.fromJson(rawOptions) : null,
+      hand: j['hand'] is Map
+          ? OwnHand.fromJson(Map<String, dynamic>.from(j['hand'] as Map))
+          : null,
+      unfundedDeadline: j['unfundedDeadline'] == null
+          ? null
+          : _int(j['unfundedDeadline']),
+      streetBet: _int(j['streetBet']),
+      allIn: j['allIn'] == true,
+    );
+  }
 }
 
 class RoomState {
@@ -795,6 +1669,9 @@ class RoomState {
     required this.roomId,
     required this.code,
     this.isPrivate = false,
+    this.variation,
+    this.game = '',
+    this.poker,
     required this.category,
     required this.chipsHidden,
     required this.state,
@@ -835,15 +1712,34 @@ class RoomState {
 
   /// The sideshow awaiting an answer, if any. At most one at a time.
   final PendingSideshow? sideshow;
+
+  /// A variation table's window and its outcome; null on every other table
+  /// and between hands.
+  final VariationState? variation;
+
+  /// `"poker"` on a poker room, empty on a Teen Patti one.
+  final String game;
+
+  /// A poker room's own block; null on every Teen Patti table, whose snapshot
+  /// never carries one.
+  final PokerState? poker;
   final You? you;
   final List<Seat> seats;
 
   bool get seated => you != null;
 
+  /// Whether this is a poker room. Either mark is enough: the server sends
+  /// both, and a snapshot with one and not the other is still a poker table.
+  bool get isPoker => game == 'poker' || poker != null;
+
   factory RoomState.fromJson(Map<String, dynamic> j) => RoomState(
     roomId: _str(j['roomId']),
     code: _str(j['code']),
     isPrivate: j['isPrivate'] == true,
+    game: _str(j['game']),
+    poker: j['poker'] is Map
+        ? PokerState.fromJson(Map<String, dynamic>.from(j['poker'] as Map))
+        : null,
     category: _str(j['category']),
     chipsHidden: j['chipsHidden'] == true,
     state: _str(j['state']),
@@ -864,6 +1760,13 @@ class RoomState {
             Map<String, dynamic>.from(j['sideshow'] as Map),
           )
         : null,
+    // Absent on a seen or blind table, and anything that is not an object —
+    // a string, a list, null — is no window rather than a crash.
+    variation: j['variation'] is Map
+        ? VariationState.fromJson(
+            Map<String, dynamic>.from(j['variation'] as Map),
+          )
+        : null,
     you: j['you'] is Map
         ? You.fromJson(Map<String, dynamic>.from(j['you'] as Map))
         : null,
@@ -882,6 +1785,8 @@ class Reveal {
     required this.cards,
     required this.handName,
     required this.won,
+    this.wild = const [],
+    this.best = const [],
   });
 
   final String userId;
@@ -890,12 +1795,21 @@ class Reveal {
   final String handName;
   final bool won;
 
+  /// Which of [cards] played as wild cards (see [SideshowHand.wild]).
+  final List<String> wild;
+
+  /// The three of [cards] that were counted — present only under 5-Card, where
+  /// [cards] holds all five. Empty on every other table and variation.
+  final List<String> best;
+
   factory Reveal.fromJson(Map<String, dynamic> j) => Reveal(
     userId: _str(j['userId']),
     displayName: _str(j['displayName']),
     cards: (j['cards'] as List?)?.map((e) => '$e').toList() ?? const [],
     handName: _str(j['handName']),
     won: j['won'] == true,
+    wild: (j['wild'] as List?)?.map((e) => '$e').toList() ?? const [],
+    best: cardCodes(j['best']),
   );
 }
 

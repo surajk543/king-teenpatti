@@ -33,7 +33,7 @@ A turn-based multiplayer **Teen Patti** (3-card Indian poker) game:
 
 | Part | Path | Status |
 |---|---|---|
-| **Game server** | `go-server/` | **The server** — live in production since `go-server/ops/DEPLOY.md` was run (Sept 2026). Go 1.27, one static binary, **PostgreSQL 18** via `pgx`. Database-first money model (§5). Wire-identical to the Node original it replaced — same protocol, JWTs, schema, ledger rows, `/health`, `game_*` metrics (141/141 black-box parity suites). §5–§7 describe its behaviour; §14 its shape. |
+| **Game server** | `go-server/` | **The server** — live in production since `go-server/ops/DEPLOY.md` was run (Sept 2026). Go 1.27, one static binary, **PostgreSQL 18** via `pgx`. Database-first money model (§5). Wire-identical to the Node original it replaced — same protocol, JWTs, schema, ledger rows, `/health`, `game_*` metrics (141/141 black-box parity suites). §5–§7 describe its behaviour; §14 its shape. **Since 19 Sep 2026 it also runs the Poker family** (§6.5): 3-Card Poker, 5-Card Draw, Texas Hold'em and Omaha as rooms beside the Teen Patti tables, in `internal/poker/`. |
 | Node.js server | *(removed)* | The original implementation, removed from the repo on 8 Sep 2026 (`git log -- server/`, last commit `c19963b`; `multi_node` branch). Its behaviour is what §5–§7 document; its file names are what those sections cite. **No longer a rollback target at all** (12 Sep 2026): it reads and writes `users.avatar_choice`, which the schema dropped for `active_picture_id`, and knows nothing of the picture-catalogue tables — so it cannot run against this database. `ops/rollback-to-node.sh` was deleted rather than left as a recovery script that would fail when used; rolling back now means the previous **Go** tag (DEPLOY.md §5). |
 | Mobile client | `flutter-client/` | **The live client.** Flutter 3.44 / Dart 3.12, Material 3 via FlexColorScheme. Android is the shipping platform; `ios/` exists and is configured (`docs/ios-setup.md`) but has never been compiled — there is no macOS here. |
 | Browser client | `go-server/public/` | Zero-build vanilla-JS reference client served at `/` by the Go binary (`PUBLIC_DIR`) — **in dev only; production hides it** (`ROOT_REDIRECT=/dashboard/`, §7.4/§9) and serves just `privacy/`, `profiles/` from that dir. **Lags behind** — no sideshow, kick, rename, entry-cap or Indian-numbering UI. |
@@ -65,12 +65,16 @@ king-teenpatti/
 │   ├── internal/
 │   │   ├── config/config.go      ALL env → one immutable Config (Defaults(); strict integer parsing); parse.go
 │   │   ├── game/
-│   │   │   ├── table.go          THE rules engine (actor; Table, run(), every Node _method minus the underscore)
+│   │   │   ├── room.go           the Room interface every table implements (Teen Patti AND poker), RoomFactory/RoomSpec/RoomDeps/RoomHooks, AsTable (§6.5)
+│   │   │   ├── actor.go          the shell a room is built on: Actor (one goroutine, run/post), LiveState (Redis snapshot + fence), Settler (the hand-end retry chain)
+│   │   │   ├── table.go          THE Teen Patti rules engine (embeds the three above; Table, run(), every Node _method minus the underscore)
 │   │   │   ├── view.go           serializeFor / betOptions / turnOptions / summary — the redacted wire structs
 │   │   │   ├── events.go         Listener (one method per table event) + payload structs
 │   │   │   ├── snapshot.go       the server-side full state (cards, bets, deadlines) saved to Redis; never sent to clients
 │   │   │   ├── roommanager.go    lobby menu, quick-join, switch, consolidation, sweeper; injects the Ledger
-│   │   │   ├── handrank.go       Evaluate/Compare/PickWinner
+│   │   │   ├── handrank.go       Evaluate/Compare/PickWinner — the ONE hand ranking
+│   │   │   ├── variation.go      Variation Teen Patti's rules (§6.4): the six variations as a wild rule + a comparison direction laid over Evaluate
+│   │   │   ├── table_variation.go  the variation WINDOW: who chooses, the server's clock, closeVariation (exactly once), SelectVariation, snapshot/restore
 │   │   │   ├── deck.go           52 cards, crypto/rand shuffle, 2-char wire codes ("As","Td")
 │   │   │   ├── chat.go           in-memory per-room chat buffer (actor-owned)
 │   │   │   ├── constants.go      Category / TableState / SeatState / Action / WinReason + verbatim messages
@@ -78,8 +82,14 @@ king-teenpatti/
 │   │   │   ├── ledger.go         Ledger interface (Checkpoint/Settle — the three checkpoints, §5.1) + MemoryLedger for unit tests
 │   │   │   ├── clock.go          Clock interface, RealClock, Millis;  testclock/ = deterministic clock (Advance)
 │   │   │   └── *_test.go         table, tablerules, sideshow, settlement, roommanager, handrank, deck, chat, wire, review_*, interop (needs NODE_REFERENCE_DIR)
+│   │   ├── poker/                THE POKER FAMILY (§6.5; Go only, owner 19 Sep 2026): variant.go (the four VariantConfigs, streets, actions, win reasons),
+│   │   │                         eval5.go (Evaluate5 / BestOf / BestHoldem / BestOmaha — the five-card ranking), eval3.go (3-Card Poker's, over game.Evaluate),
+│   │   │                         pot.go (SidePots, Award), table.go (the room: seats, join/leave, clocks, the three checkpoints), hand.go (the deal, the streets,
+│   │   │                         every move, the showdown, settle), flow_threecard.go (against the house), view.go (TableView — the redacted wire), events.go
+│   │   │                         (poker.Listener + payloads), snapshot.go ("game":"poker" first), factory.go (RoomFactory, ConfigFor, the menu entry), errors.go
 │   │   ├── sio/                  our own Engine.IO v4 + Socket.IO v5 server, websocket only (protocol.go, conn.go, server.go)
-│   │   ├── socket/               the game protocol on sio: handler.go (Attach, guard, one method per event, grace, resume offers), wire.go (every event/ack), payload.go; testclient/
+│   │   ├── socket/               the game protocol on sio: handler.go (Attach, guard, one method per event, grace, resume offers), wire.go (every event/ack), payload.go,
+│   │   │                         poker.go (poker:action in, the poker:* events out — the Handler's poker.Listener); testclient/
 │   │   ├── auth/                 tokens.go (JWT HS256), providers.go (Google/Facebook/guest/fake), http.go (routes, RequireAuth, WriteError), handlers.go (the 8 REST handlers), text.go
 │   │   ├── db/                   db.go (pgxpool, search_path as connection param, WithTx, DropSchema, Migrations), migration/ (embedded, Flyway-named V<version>__<name>.sql, applied in version order — V1.0.0__baseline.sql = all DDL and V1.0.1__seed_profile_pictures.sql = all DML (consolidated 14 Sep 2026: missiles, the 9-diamond default and the HAMMER picture currency included)), ledger.go (THE money transactions: Checkpoint / Settle), users.go (login upsert, rewards, names, the worn picture), pictures.go (the catalogue, ownership and the chip purchase); dbtest/
 │   │   ├── metrics/              names.go (every game_* metric), metrics.go (registry, Bind*, Handler, HTTPMiddleware, SafeLabel)
@@ -90,11 +100,13 @@ king-teenpatti/
 │   ├── ops/                      build.sh, release.sh, prod-version.sh, gameplay-go.service, install-go-server.sh, lib.sh, DEPLOY.md
 │   │   └── monitoring/           Prometheus + Grafana + alerts + nginx bundle, MONITORING.md (formerly server/ops/monitoring)
 │   ├── PORT_PLAN.md / DECISIONS.md / PORT_NOTES/   architecture + Node→Go file map + concurrency rules; every settled ambiguity; per-package port notes + specs/ (cite the removed Node source)
+│   ├── POKER_PLAN.md             the Poker family's design report (10 sections: what is reused, what was generalised, the events, the state, the risks, the phases)
 │   ├── bin/                      build output (git-ignored: bin/, .env, *.log)
 │   └── go.mod, go.sum
 ├── tools/                        Node package (npm install here first): bot.js, ramptest.mjs, parity.mjs, parity-diff.mjs
 │   ├── package.json              scripts: bot / ramp / parity / parity:diff; deps socket.io-client, ws, pg, jsonwebtoken
-│   └── parity/                   black-box suites (game, money, lobby, stakes, rest, protocol, resume, invalid, metrics) + lib/ (harness, launch, raw client, csharpJsonPort.js)
+│   └── parity/                   black-box suites (game, money, lobby, stakes, rest, protocol, resume, invalid, metrics, variation, poker) + lib/ (harness, launch, raw client,
+│                                 csharpJsonPort.js, poker5.mjs — an independent five-card and three-card evaluator, the poker suite's oracle)
 ├── bot-play/                     the resident bot fleet (Node, socket.io-client) — README.md is its reference
 │   ├── src/                      index (start + heartbeat), fleet (who is online), bot (one player), brain (decisions),
 │   │                             handrank (port of handrank.go), persona, chat, config, identities, profiles, random
@@ -120,9 +132,12 @@ king-teenpatti/
     │   ├── net/game_connection.dart  Socket.IO streams; every move carries a fresh actionId
     │   ├── net/api_client.dart   REST
     │   ├── models/dtos.dart      wire DTOs mirroring server JSON
-    │   ├── screens/{login,lobby,table}_screen.dart
+    │   ├── screens/{login,lobby,table}_screen.dart; screens/poker_table_screen.dart (the poker felt, mounted by table_screen when room.isPoker — §8.4)
+    │   ├── widgets/table_chrome.dart  the chrome both felts share (rail, drawers, keys, wallet, reconnecting veil), moved out of table_screen.dart
     │   ├── widgets/              premium_surface, seat_pod, playing_card, poker_chip, liquid_fill,
-    │   │                         fireworks, avatar, buy_chips, chip_store, picture_shelf, rules_sheet
+    │   │                         fireworks, avatar, buy_chips, chip_store, picture_shelf, rules_sheet,
+    │   │                         variation_prompt (the variation table's on-felt picker, "is selecting" line, announcement, wild-card edge — §8.4),
+    │   │                         wild_transform (a wild card of the viewer's own hand turning into the card it played as — §8.4)
     │   ├── theme/app_theme.dart  FlexColorScheme + shadow/lift helpers, Space/Radii/Motion/Breaks/Dim, Inter
     │   ├── theme/theme_colors.dart  GlassColors ThemeExtension (obsidian / frosted-ice tokens, §8.4)
     │   ├── widgets/glass_components.dart  tapHaptic, PressScale, GlassCard, GlassButton, GlassTextField, GlassThemeSwitcher
@@ -130,7 +145,7 @@ king-teenpatti/
     │   └── l10n/strings.dart     hand-written 5-language table (en/hi/bn/gu/pa)
     ├── assets/card_back.svg, assets/app_icon.svg, assets/fonts/ (Inter 400/500/600/700 + OFL licence), assets/sfx/,
     │                         assets/animations/Fireworks.json (Lottie 5.5.7, 512x512, 2.43s — the winner's burst)
-    ├── test/  number_format, connection_failure, consent, theme_preference
+    ├── test/  number_format, connection_failure, consent, theme_preference, … poker_table (§8.4)
     ├── android/                  applicationId com.sungamestudio.kingteenpatti, sensorLandscape, cleartext on
     └── ios/                      bundle id com.sungamestudio.kingteenpatti, landscape-only, status bar hidden,
                                   NSAllowsLocalNetworking; GIDClientID + URL scheme come from Flutter/*.xcconfig.
@@ -363,7 +378,10 @@ After every mutation the table emits `state`; the socket layer sends each viewer
 
 Written against the Node source and kept as the behavioural spec. Go equivalents: `table.js` →
 `table.go` (+ `view.go`, `events.go`, `snapshot.go`), `roomManager.js` → `roommanager.go`,
-`handRank.js` → `handrank.go`, `deck.js` → `deck.go`; `_method` → `method`.
+`handRank.js` → `handrank.go`, `deck.js` → `deck.go`; `_method` → `method`. Since 19 Sep 2026 the
+RoomManager holds **`game.Room`s** (`room.go`), of which `*game.Table` is the Teen Patti kind and
+`*poker.Table` the poker kind (§6.5); `game.AsTable(room)` is how code that needs the Teen Patti
+table gets it. Nothing in §6.1–§6.4 changed for it.
 
 ### 6.1 `table.js` (→ `table.go`)
 **Seat:** `{ userId, displayName, avatarUrl, chips, status, isBlind, blindMoves, cards, lastBet,
@@ -409,6 +427,20 @@ showRequestedBy, sideshow, lastDeparture, turnDeadline, turnToken, contributions
   not_your_turn | sideshow_pending | too_few_players | insufficient_chips | duplicate_action | no_missiles | persist_failed`. `you.canMissile`
   (also in `you.options`) is the rules-minus-the-count answer. The next deal waits `NEXT_HAND_DELAY_MS +
   MISSILE_REVEAL_EXTRA_MS` so the client's volley and the reveal fit before it.
+- **Variation window** (owner, 18 Sep 2026; Go only; rules in §6.4): on a `CategoryVariation` table `startHand` deals as
+  always and then calls `beginVariation(firstSeat, undealt[0])` INSTEAD of `setTurn`: the player to the dealer's left has
+  `VARIATION_SELECT_TIMEOUT_MS` (10 s) to choose the hand's variation. **While the window is open nobody is on turn** —
+  `hand.turnSeat` stays -1, no turn clock runs, `you.options` is null — and `act` refuses everything but `see` with
+  `variation_pending`. `closeVariation` is the ONE place it closes, guarded by `window.open`, reached by three closures on
+  the actor: `SelectVariation` (`PLAYER`), the window's timer (`TIMEOUT` → `MUFLIS`), the chooser leaving (`LEFT` →
+  `MUFLIS`, then `advanceTurn` past their seat). They are serialised by the actor, so a pick and a timeout in the same
+  instant choose once — whichever runs first wins, the other finds the window closed; a pick that reaches the actor at or
+  past the deadline loses to the clock even before the timer's closure has run (`variation_expired`). Closing gives the
+  chooser a FRESH turn with a full clock; a lapse is not a missed turn. `SelectVariation` refusals in order `no_hand |
+  not_seated | no_variation | variation_already_selected | not_selecting | invalid_variation | variation_expired`.
+  `endHand`/`destroy`/`suspend`/`fence` stop the window's timer; `resumeTimers` re-arms it for what is LEFT of the original
+  deadline (or closes it at once) and must run BEFORE the "no turn recorded → open play" branch. The window and the
+  turned-up card live in `SnapshotHand.variation`.
 - **Leaving mid-hand** = pack; stake stays; `leftMidHand=true`; `lastDeparture` gets the pot if all
   leave (`ALL_LEFT`). Winner identified by **userId**, not seat.
 - `_sweepUnfunded` only between hands (`if (this.hand) return`); it sets `seat.kickPending` so a
@@ -420,7 +452,10 @@ showRequestedBy, sideshow, lastDeparture, turnDeadline, turnToken, contributions
   never beat the kick; `Table.CreditChips` drops the grace once the boot is covered and calls
   `maybeStart`. A seat sitting a hand out is shown out mid-hand when its grace lapses.
 - **`serializeFor` redaction (do not break)**: `you.cards` only when `!viewer.isBlind`; other seats
-  carry only `cardCount`; on BLIND tables others' `chips` is **`null`** (not 0) + `chipsHidden:true`;
+  carry only `cardCount`; on BLIND **and VARIATION** tables (`Category.HidesChips`; variation since 18 Sep 2026, owner:
+  "no one can see other player amount") others' `chips` is **`null`** (not 0) + `chipsHidden:true`;
+  `you.hand {handName, category, wild, playsAs}` (Go only, §6.4) is the viewer's OWN hand as the variation counts it and
+  is in `you` alone, present only once they have seen their cards AND the variation is chosen;
   `missedTurns/maxMissedTurns/options` (and `unfundedDeadline` while a short seat is held) only in `you`; `sideshow` carries ids/seats/`expiresAt`, never
   cards. Public everywhere: `lastBet, lastAction, contributed, isBlind, connected, status`.
 - `_snapshot()` is the *server-side* full state (cards and the hand's per-player unbanked bets
@@ -431,7 +466,9 @@ showRequestedBy, sideshow, lastDeparture, turnDeadline, turnToken, contributions
 
 ### 6.2 `roomManager.js` (→ `roommanager.go`; DECISIONS §3 lists the few deliberate differences)
 - `quickJoin`: `_assertNotSeated` → `assertStakeAllowed` (`tableStakes`) → `normalizeCategory`
-  (unknown → **seen**) → `assertTableOffered` (`lobbyTables` pair) → chips ≥ boot →
+  (exactly `blind` → blind, exactly `variation` → variation (Go only), anything else → **seen**; the set is closed at
+  three and normalised in THREE places that must agree — `config.NormalizeCategory`, `game.NormalizeCategory` and
+  `NewTable`, which is also where a table restored from Redis gets its category back) → `assertTableOffered` (`lobbyTables` pair) → chips ≥ boot →
   `_assertUnderEntryCap` → **`assertWithinTableBand`** → fullest public non-full table with same boot+category,
   else `createTable`.
   Sync.
@@ -454,6 +491,159 @@ showRequestedBy, sideshow, lastDeparture, turnDeadline, turnToken, contributions
 … > 4-3-2**. Suits never break ties. `pickWinner` is exported but `table.js` re-implements the tie
 loop — keep consistent. Wire hand names are the **English** `CATEGORY_NAMES` and Flutter shows them
 untranslated.
+
+### 6.4 Variation Teen Patti — the rules (`variation.go`; Go only, owner 18 Sep 2026)
+A third category, **`variation`**: it takes its BETTING from the seen table (`config.TableRules` gives it
+`SEEN_MAX_RAISE_STEPS` and `SEEN_MAX_BET_ROUNDS` — the two-rung ladder, 7 rounds then the forced showdown) and its SECRECY
+from the blind one (`Category.HidesChips`: other stacks are `null`), and it has **NO pot limit** (owner, 18 Sep 2026;
+`VARIATION_MAX_POT_BOOTS` 0 — the one variation-only rule key, a cap counted in that table's own BOOTS because one fixed
+figure cannot fit several stakes: the seen table's 20 Lakh is two boots at the 10 Lakh table, where every hand would be
+dealt straight into the POT_LIMIT showdown; a private variation table keeps `PRIVATE_MAX_POT`). The default menu offers
+it at **two stakes only, 50,000 and 10 Lakh**, behind the stack bands blind's tables of those stakes have. Every hand
+is decided by one of **seven** variations, chosen in the window §6.1 describes. Wire values, matched EXACTLY by
+`ParseVariation` (no trimming, no case folding — `muflis` and `Lowest Joker` are `invalid_variation`): `MUFLIS`, `AK47`,
+`JOKER`, `HUKAM`, `LOWEST_JOKER`, `HIGHEST_JOKER`, and — added LAST, so the six before it keep their places —
+`FIVE_CARD`.
+- **One ranking, not seven.** Every variation but Muflis is classic Teen Patti with some cards WILD, and Muflis is
+  classic compared the other way round. `VariationRules{Variation, WildRank, WildSuit}` carries a wild rule and a
+  direction; its **zero value is classic**, which is what a seen or blind table holds, so `resolveShowdown` and
+  `settleSideshow` — the only two places hands are compared — call `t.handRules().EvaluateHand/CompareHands`
+  unconditionally and nothing changes for the old categories.
+- **`evaluateWithWilds` searches rather than reasons**: each wild may stand for any card of the deck that is not a
+  natural card of the same hand (never a duplicate of one it holds; it MAY be a card another player holds — jokers are
+  per hand), no two wilds for the same card, every candidate goes to the one `Evaluate`, the strongest wins. ≤ 50
+  evaluations for one wild, 1,275 for two; three wilds are answered from a constant (a trail of aces) that a test holds
+  to the exhaustive search. The result keeps the player's REAL cards in `Cards`, names the wild ones in `Wild`, and takes
+  `Category`/`Name`/`Score` from the hand they made.
+- **MUFLIS** `Compare(b, a)`; the ace stays high, so 5-3-2 off-suit is the best hand there is and A-A-A the worst.
+  **AK47** every A, K, 4, 7. **JOKER** every card of the RANK of the turned-up card. **HUKAM** every card of its SUIT
+  (a wild suit — the brief said "trump/wild"; `EvaluateHukam` is where a true trump rule would go). **LOWEST_JOKER** /
+  **HIGHEST_JOKER** per hand: its lowest / highest rank and every duplicate of it (3-3-K → both threes; a trail → all
+  three); the ace is high.
+- **The turned-up card** is `Deal`'s own `remaining[0]` — the top of the deck the hands came from, so it is in nobody's
+  hand — kept on every variation hand and put on the wire (`turnUp`) ONLY once JOKER or HUKAM has been chosen.
+- Exact ties are unchanged: the show-payer / missile firer loses, else nearest the dealer's left; a sideshow's asker loses.
+- **FIVE_CARD — 5-Card Teen Patti** (owner, 18 Sep 2026): every player HOLDS five cards and PLAYS the best three,
+  which THEY choose (owner, 19 Sep 2026: "when user clicks on 'see cards' … give user extra time so that he can choose 3 cards among 5"; the server used to find the strongest three itself). The window is per PLAYER and per hand, opens the moment five cards are in front of someone who can see them — their tap on See cards, or the top-up landing on a player already looking — and lasts `FIVE_CARD_PICK_TIMEOUT_MS` (8 s). Lapsing plays THE FIRST THREE THEY WERE DEALT, which is also what a player who never looks plays, so every hand always has three cards to compare. `table_fivecard.go` holds all of it: `playedCards`/`playedHand` (the ONE way a hand is scored at the showdown, at a sideshow and in a player's own view), `beginPick`, `SelectCards` (socket `game:selectCards {cards:[3]}`, refusals `no_hand | not_seated | not_picking | duplicate_action | invalid_pick`), `settlePick` — the one place a choice is made, guarded by `picked` already being set, so a pick and its own deadline arriving together decide exactly once — and ONE `pickTimer` armed for the earliest window outstanding, which `expirePicks` sweeps and re-arms. `extendTurn` pushes a chooser's turn out to cover the whole window and a full turn after it, so choosing never costs them the time to act. The choice is in the snapshot (`SnapshotSeat.picking/picked/pickedBy/pickUntil`, validated on restore against the cards that seat holds), so a restart neither re-asks a player who answered nor gives one who has not a fresh clock. **`Variation.CardsPerPlayer()` is the one place that number lives** (5 for
+  FIVE_CARD, `BaseCardsPerPlayer` 3 for everything else) — the engine carries no "3" of its own. The flow stays
+  deal → window → choice, so **every hand is still DEALT three**: `beginVariation(firstSeat, undealt)` takes the
+  turned-up card from `undealt[0]` and draws a two-card **top-up** per player from `undealt[1:]`, round the table in
+  deal order (`drawExtraCards` → `variationWindow.extra`, `SnapshotVariation.Extra`). Drawn at the deal, not at the
+  choice, so it is part of the hand: a restart mid-window deals the same two cards, and nothing about the choice can
+  influence them. It is server-only until dealt. `closeVariation` announces, then — when the chosen variation's
+  `CardsPerPlayer()` is more than three — `dealExtraCards` appends each seat's top-up to `seat.cards` AND the hand's
+  `contribution.cards` (a fresh slice, never an append into the deal's backing array), re-sends `cards` to a player
+  already looking, and `extra` is dropped either way. A player who left during the window has no seat to deal to; a
+  timeout or a departed chooser is still MUFLIS with three cards each. `extra` is nil when the deck could not cover
+  everyone (no table the lobby opens: 5×3 + 1 + 5×2 = 26 of 52), and then FIVE_CARD is neither on that hand's menu
+  (`variationWindow.options`) nor accepted (`invalid_variation`). `validateSnapshot` refuses a top-up that is not two
+  real cards each or repeats a card in play. **`EvaluateBest(cards)`** is the evaluator: every three-card combination
+  (`ThreeCardCombinations`, C(5,3) = 10) scored by the ONE classic `Evaluate` and the strongest kept by the ONE classic
+  `Compare` — no second ranking to drift. It keeps all five in `Cards` and names the strongest three in **`Best`**, in
+  the order held — which since 19 Sep 2026 is what a player is TOLD they could have played (`you.hand.bestPossible`),
+  not what plays; combinations are walked in index order and a later one must be STRICTLY better, so which three are
+  named is deterministic among ties, and being ties it cannot change who wins. No card is wild and nothing is reversed.
+- **`PlaysAs`** (`EvaluatedHand`, set with `Wild`, nil without a wild card): the hand as it was COUNTED, index for index
+  with `Cards` — a wild card replaced by the stand-in the search chose (`best.Cards[len(naturals):]` dealt back into the
+  player's own order), every other card itself. `Table.ownHandView` puts it in **`you.hand`** for a viewer who is not
+  blind once `hand.variation.selected` is set, so a player who looked during the window gets it the moment the choice
+  lands; the hand's end drops it (`t.hand == nil`). It is that player's own cards run through a public rule: nobody
+  else's snapshot carries any of it (`TestYourOwnHandIsNamedOnceYouHaveSeenItAndTheVariationIsChosen`).
+
+### 6.5 The Poker family (`internal/poker/`; Go only, owner 19 Sep 2026 — `go-server/POKER_PLAN.md` is the design report)
+Four more categories, each a **room beside the Teen Patti tables** in the same RoomManager, the same lobby, the same
+socket layer, the same live store and the same three money checkpoints (§5.1): **`three_card_poker`** (against the
+house), **`five_card_draw`**, **`texas_holdem`** and **`omaha`**. `Category.Game()` sorts every category into
+`GameTeenPatti` or `GamePoker`; `IsPoker()`, `Known()` and `PokerCategories` are the helpers. The brief's rule was
+**do not break Teen Patti**, and the shape follows from it:
+- **`game.Room`** (`room.go`) is the interface the RoomManager, the socket layer, the sweeper, the live-store restore
+  and the metrics now hold — `*game.Table` implements it unchanged in behaviour, `*poker.Table` implements it too.
+  A room is opened by the **`RoomFactory`** registered for its game (`RoomManagerOptions.Factories`;
+  `poker.Factory{Listener}` is wired in `app.go`), given `RoomSpec` (id, code, category, boot, private) and `RoomDeps`
+  (ledger, clock, live store, config, hooks). Restoring from Redis peeks `{"game","roomId","createdAt"}` first and
+  dispatches on `game` (absent = Teen Patti), so a Teen Patti snapshot is read exactly as before. The poker snapshot
+  keeps its config under `pokerConfig`, not `config`, so a Go tag from BEFORE the family — which reads every snapshot
+  as a Teen Patti one and never checks `category` — refuses it at its first check and drops the room instead of
+  rebuilding it as a seen table (`TestAPokerSnapshotHasNoConfigKey`; DEPLOY.md §5).
+- **`game.Actor` / `LiveState` / `Settler`** (`actor.go`) are the pieces of the Teen Patti `Table` that had nothing to
+  do with Teen Patti — the one goroutine with `run`/`post`, the per-closure Redis snapshot with its two-owners fence,
+  the hand-end settle retry chain — extracted so the poker room is built on the SAME shell (`Table` embeds all three;
+  `t.run`, `t.destroyed`, `t.liveSeq` are promoted). The actor rules of §14.1 apply to a poker room word for word.
+- **Money is the three checkpoints and nothing new**: a **fold** writes `hand_packed`, a **leave / kick** `hand_left`,
+  the **hand end** `hand_win` / `hand_loss` — same `action_id` shapes, same deltas, same UNIQUE guard, same purge. The
+  only schema change is **`chip_ledger.game` and `chip_ledger.variant`** (nullable TEXT, `V1.0.2__chip_ledger_game.sql`,
+  §7.3): `'poker'` + the category on a poker row, NULL on every Teen Patti row, so the audit can tell them apart —
+  **3-Card Poker is played against a house with no wallet**, so its hands are not zero-sum (chips a player wins enter
+  the economy like a reward, chips they lose leave it like a purchase); `tools/parity/money.test.js` exempts exactly
+  `variant='three_card_poker'` from the per-hand sum and nothing else. Every other poker hand conserves chips and every
+  wallet still equals its ledger sum (the §4 psql check stays 0).
+- **The variants** are fixed in `poker.Variants` (`VariantConfig`: hole cards, board, blinds or ante, dealer, draw,
+  the streets), nothing about how they play is env-tunable. **Stake = the LOBBY_TABLES boot**: the **big blind** at
+  Hold'em/Omaha (small = half) and the **ante** at 3-Card Poker / 5-Card Draw. The default menu offers **one table per
+  game, all four at 50,000** (owner, 19 Sep 2026), so the buy-in is 5 Lakh everywhere — above the welcome (§7.4). `PokerConfig` (§7.4) holds the three
+  deployment knobs: `POKER_TURN_TIMEOUT_MS` (0 = `TURN_TIMEOUT_MS`), `POKER_MIN_BUYIN_BOOTS` (10 — a stack below
+  `minBuyIn` cannot sit, `insufficient_chips`, and a seated one is held for `UNFUNDED_GRACE_MS` then kicked, as a short
+  Teen Patti seat is) and `POKER_MAX_DISCARDS` (3, 0..5). A poker room has **no pot limit** (`MaxPot()` 0) and
+  **hides every other stack** (owner, 19 Sep 2026: "in poker do not show opponent chips"): `Category.HidesChips()` is
+  true for the four poker categories as it is for blind and variation, so `chipsHidden:true` and every `seats[].chips`
+  but the viewer's own is **`null`** (never 0). The lobby card, the table info dialog and the rules sheet all say
+  "Only your own chips are visible".
+- **Hold'em / Omaha**: button, small and big blind posted at the deal (a short stack posts what it has, all-in),
+  streets `preflop → flop → turn → river`, first to act preflop is left of the big blind, after it left of the button;
+  bets are TO an amount (`raise` = the whole street bet after it; `minRaise` = the last raise size, at least the big
+  blind), `allIn` puts the stack in whatever the street's bet is, a street ends when every live seat has acted and
+  matched (or is all-in); when nobody left can act the remaining board is run out. **Side pots** (`SidePots`) by
+  contribution level, each paid to the best hand among its eligible seats, odd chips clockwise from the button
+  (`Award`); everyone folding to one player ends it `last_standing` with no reveal. Omaha's hand is **exactly two**
+  hole cards and three board cards (`BestOmaha`), never five of nine; Hold'em's the best five of seven (`BestHoldem`).
+- **5-Card Draw**: an ante each, five cards, `predraw` betting, then the **draw** in turn from the button's left —
+  `{action:"draw", cards:[…]}` names up to `maxDiscards` of the player's own cards (none = stand pat; a card not held,
+  one named twice or too many → `invalid_discard`), the room announces only HOW MANY (`poker:draw`) and re-sends the
+  new hand to its owner (`poker:cards`) — then `postdraw` betting and the showdown.
+- **3-Card Poker** (`flow_threecard.go`): every participant antes, three cards each and three to the dealer; in turn
+  each player **plays** (a second bet equal to the ante) or **folds** (the ante is the house's); then the dealer turns
+  up: **qualifies with queen-high or better** (`DealerQualifies`) — not qualified: play bet returned and ante paid 1:1
+  to everyone still in; qualified: each hand against the dealer's, win → both bets paid 1:1, lose → both taken, tie →
+  push. The ranking is `Evaluate3` — `game.Evaluate` with ace-low-lowest, **Straight Flush > Three of a Kind >
+  Straight > Flush > Pair > High Card** (3-Card Poker's order, not Teen Patti's, where Trail beats a Pure Sequence).
+  No ante bonus, no pair-plus (documented, not built). Win reason `dealer`.
+- **`Evaluate5`** (`eval5.go`) is the ONE five-card ranking: High Card 0 … Straight Flush 8, **Royal Flush 9**;
+  the wheel A-2-3-4-5 is a straight with high card 5; `Combinations`/`BestOf` walk every five of n.
+  `tools/parity/lib/poker5.mjs` is an INDEPENDENT evaluator written from the rules, and the poker parity suite checks
+  every reveal's `handName`/`best` against it, so the two would have to share a mistake to agree.
+- **`TableView`** (`view.go`): every key a Teen Patti snapshot has for the same concept keeps its name and shape
+  (`roomId, code, isPrivate, category, chipsHidden, state, handNo, dealerSeat, maxPlayers, minPlayers, bootAmount,
+  turnTimeoutMs, startsAt, pot, turn, you, seats`), plus **`game:"poker"`** and **`poker {variant, street, community,
+  pots, currentBet, minRaise, smallBlind, bigBlind, ante, holeCards, maxDiscards, minBuyIn, dealer?, result?}`**.
+  Redaction: `you.cards` are the viewer's own hole cards and nobody else's; other seats carry `cardCount`; the
+  dealer's cards and every revealed hand are on `poker.result` only after the showdown (kept until the next deal for
+  a viewer arriving mid-celebration); the board is public. `you.options` — `{street, fold, check, call, callAmount,
+  bet, minBet, maxBet, raise, minRaise, maxRaise, allIn, allInAmount, play, playAmount, draw, maxDiscards}` — is what
+  the player on turn may do **with every amount the server will accept**; the client draws its keys from it and the
+  server validates the move against the same figures. **There is no all-in move** (owner, 19 Sep 2026: "remove the
+  option ALL in one button"): `ActionAllIn` is refused, `applyAllIn` is gone and `Options` carries no
+  `allIn`/`allInAmount`, because every amount is already capped at the player's stack — the maximum bet or raise IS
+  the shove, a call short of the bet is the all-in call, and a stack smaller than the minimum bet is offered that
+  stack as the minimum. The boolean `allIn` on a seat, an ack and a `poker:action` event, which marks a move that put
+  the last chip in, is a different thing and stays. `you.hand {handName, category, best}` names what the viewer's
+  own cards make right now. `poker.pots` mid-hand are the chips COLLECTED at the ends of streets; the current street's
+  bets are `seats[].streetBet` (what a card room leaves in front of the players); `pot` is everything.
+- **Refusals**: the Teen Patti codes where they mean the same (`no_hand`, `not_seated`, `not_in_hand`,
+  `not_your_turn`, `duplicate_action`, `insufficient_chips`, `persist_failed`, `unknown_action`) plus
+  `invalid_action` (not allowed now), `invalid_amount` (not whole / outside `[min,max]`), `invalid_discard`, and
+  **`wrong_game`** — a `game:*` move sent to a poker room, or `poker:action` to a Teen Patti table. Turn clock
+  `POKER_TURN_TIMEOUT_MS` → a fold with `reason:"timeout"` (a check where a check is free), `missedTurns` and the
+  idle kick as at a Teen Patti table. A player leaving mid-hand folds (`hand_left`); the room destroyed mid-hand
+  refunds every pot to its contributors (`all_left`).
+- **Events** (`poker.Listener`, an interface of its own so no Teen Patti implementer changed; the socket layer's
+  `pokerEvents` implements it): `OnState, OnChat, OnHandStarted, OnCards, OnTurn, OnAction, OnStreet, OnDraw,
+  OnShowdown, OnHandEnded`. A new street emits a snapshot (`beginStreet` → `emitState`) so a reconnecting client and
+  a client that only reads `room:state` see the board and the options without the `poker:street` event.
+- **Tests**: `internal/poker/{eval,pot,table}_test.go` (the rankings against known hands, the wheel, Omaha's
+  exactly-two, side pots and odd chips, every variant's flow on the fake clock, timeouts, leaves, the restart);
+  `internal/socket/poker_test.go` (the wire, `wrong_game` both ways); `tools/parity/poker.test.js` (profile `poker`:
+  all four variants over real sockets with the independent oracle and the money audit). `tools/bot.js --category
+  texas_holdem|omaha|five_card_draw|three_card_poker` plays a loose game from `poker:yourTurn`'s options.
 
 ---
 
@@ -485,7 +675,10 @@ user (`session:replaced` to the old one). On connect: `session:ready {user, conf
 | `room:leave` | `{}` | `{roomId}` or `{}` |
 | `game:action` | `{action, amount?, actionId?}` | table.act result; `actionId` (≤64 chars) becomes the ledger row's unique id; `action:"missile"` acks `{ok, action, missiles}` (§6.1) |
 | `game:sideshowRespond` | `{accept}` (only `=== true` accepts) | `{accepted, packedUserId}` |
+| `game:selectVariation` (**Go only**, variation tables, §6.1/§6.4) | `{variation}` — one of the seven exact wire values; **no player id**, the chooser is the socket's user; any non-string is `""` → `invalid_variation` | `{variation, selectedBy, turnUp?, cardsPerPlayer}` |
+| `game:selectCards` (**Go only**, 5-Card hands, §6.4) | `{cards:[3]}` — three of the player's OWN five, in any order; **no player id**, the chooser is the socket's user; a non-string entry is `""`, which names no card | `{picked, best, wasBest}` — the three that now play (in the order HELD), the strongest three those five could have made, and whether they are the same hand |
 | `player:requestCards` | `{}` | `{cards}` (empty unless seen) |
+| `poker:action` (**Go only**, poker rooms, §6.5) | `{action, amount?, cards?, actionId?}` — `fold\|check\|call\|bet\|raise\|allIn\|play\|draw`; `amount` is the TOTAL street bet for bet/raise (safe integer, else `invalid_amount`); `cards` the codes to discard on a draw | `{ok, action, amount?, allIn?, discarded?}`; `wrong_game` at a Teen Patti table, and `game:action`/`game:sideshowRespond`/`game:selectVariation` answer `wrong_game` at a poker room |
 | `chat:message` | `{text}` | `{messageId}` — own 5/5s limiter (`chat_rate_limited`) |
 | `chat:history` | `{}` | `{count}` (no client sends it) |
 | `ping:rtt` | `sentAt` | `{sentAt, serverTime}` — **unguarded**, no `ok` |
@@ -503,7 +696,10 @@ user (`session:replaced` to the old one). On connect: `session:ready {user, conf
 | `game:action {userId, action, amount, pot, stake, reason?\|auto?}` | room |
 | `game:sideshowRequested` / `game:sideshowResolved` | room (no cards) |
 | `game:sideshowReveal {reveal}` | **the two players only** |
+| `game:variationSelecting {userId, displayName, seatIndex, startedAt, deadline, timeoutMs, options}` / `game:variationSelected {userId, displayName, seatIndex, variation, selectedBy: PLAYER\|TIMEOUT\|LEFT, turnUp?}` (**Go only**) — both only repeat `room:state.variation`, which is all a reconnecting client has | room |
 | `game:showdown {reveals, reason}` / `game:handEnded {…nextHandAt}` | room |
+| **Poker rooms only** (Go, §6.5; a poker room sends NO `game:*`/`player:*` event and a Teen Patti table no `poker:*` one): `poker:handStarted {handId, handNo, variant, dealerSeat, smallBlind, bigBlind, ante, pot, participants}` · `poker:turn {userId, seatIndex, street, deadline, timeoutMs}` · `poker:action {userId, seatIndex, action, amount, street, pot, allIn?, reason?, discarded?}` · `poker:street {street, community, pot}` · `poker:draw {userId, seatIndex, discarded}` · `poker:showdown {reveals[{userId, seatIndex, cards, best, handName, category, won, outcome?}], community, dealer?, reason}` · `poker:handEnded {handId, handNo, variant, reason, pot, pots[{amount, eligible, winners[{userId, seatIndex, amount, handName}]}], reveals, community, dealer?, summary, nextHandAt}` (all with `roomId`) | room |
+| `poker:cards {cards}` (the deal, and the new hand after a draw) · `poker:yourTurn {street, deadline, timeoutMs, options}` | owner only / player on turn |
 | `chat:message` / `chat:history` / `game:error` | room / socket / socket |
 
 Production: `https://api.sungamestudio.com` (REST + Socket.IO over TLS) — the Flutter default since 2026‑09‑08; runs the current server code (verified: 10-rung blind ladder, `invalid_bet` on string amounts).
@@ -511,6 +707,28 @@ Client coverage: **Flutter** never sends `lobby:list`, `chat:history`, `ping:rtt
 to `game:handStarted`, `player:hand`, `game:turn`, `game:yourTurn` — it derives turn and options
 from `room:state.turn` / `you.options`. Changing `you.options` affects Flutter; changing
 `game:yourTurn` does not. **Browser** ignores `room:kicked` and all `game:sideshow*`.
+**Variation tables on the wire** (Go only): `room:state.variation {selecting, userId, displayName, seatIndex, startedAt,
+deadline, timeoutMs, options, selected, selectedBy, turnUp?}` — public, identical for every viewer, **ABSENT (not null) on
+seen and blind tables and between hands**, so those snapshots are byte for byte what they were. While `selecting`,
+`turn.seatIndex` is -1 and `you.options` null. `game:showdown`/`game:handEnded` gain `variation` + `turnUp`, and each
+reveal (and sideshow-reveal hand) gains `wild` — which of its cards played wild; `handName`/`category` are what the hand
+MADE. All omitted where they do not apply. `session:ready.config.categories` is `[seen, blind]` plus `variation` only
+when the menu offers one. `variation.options` is the menu THIS hand offers (seven values, `FIVE_CARD` last) and
+**`variation.cardsPerPlayer`** is what every player in the hand holds right now — 3 from the deal and under the six
+three-card variations, 5 once FIVE_CARD is chosen and the server has topped each hand up; the ack and
+`game:variationSelected` carry it too, `seats[].cardCount` and `you.cards` follow it, and a client never decides it. A
+variation table's snapshot has `chipsHidden:true` and `maxPot:0`, and its `you` gains
+**`hand {handName, category, wild:[], playsAs:[], best:[], picking?, pickDeadline?, pickTimeoutMs?, pickedBy?,
+bestPossible?}`** — `best` is the three of `you.cards` that are counted (all three of a three-card hand, and under
+FIVE_CARD the three the PLAYER chose, or the first three where their window lapsed). While `picking` is true a choice is
+still owed and `handName`, `category` and `best` are all EMPTY — naming the hand would hand the player the answer — with
+`pickDeadline` (epoch ms) and `pickTimeoutMs` (the WHOLE window, not what is left of it: the client's bar drains from
+`deadline − total`, and sending the remainder drained it early). Once the choice is made `pickedBy` is `PLAYER` or
+`TIMEOUT` and `bestPossible` names the strongest three those five could have made, which is what lets the table say "you
+played this; the best was that" with no second ranking. A seat also carries a public **`picking`** while its player is
+still choosing, so the table can say who it is waiting on — never WHICH cards they are choosing between; showdown `reveals[]` and the two sideshow-reveal hands gain
+`best` only under FIVE_CARD, where `cards` holds all five — (never null arrays; ABSENT on seen and blind tables, while the viewer
+is blind, and until the variation is chosen) — what the Flutter table turns the viewer's wild cards into.
 Input guards (`socket/index.js`): `game:action.amount` must be a JS number and safe integer (strings/arrays/booleans → `invalid_bet`);
 rate-limited requests are acked `{ok:false, code:'rate_limited'}`; `RoomManager.join()` asserts one seat per player (also closes
 `room:create` to a seated player); `player:requestCards` outside a table → `not_in_room`. Covered by `internal/socket/invalidmoves_test.go` and `tools/parity/invalid.test.js`.
@@ -585,7 +803,7 @@ older databases forward (V1.0.2's Butterfly Flapping move/fold, V1.0.5's guarded
 They build an EMPTY database, and booted unchanged on one built by master's scripts at `c8cd055` (which added the missiles as V1.0.2) until `profile_pictures.duration_hours` joined the baseline later on 14 Sep 2026 — a database built before that needs `ALTER TABLE profile_pictures ADD COLUMN duration_hours INTEGER NOT NULL DEFAULT 0 CHECK (duration_hours >= 0)` run by hand first, or the seed fails the boot; a database from go-server/v1.3.0 or
 older lacks `users.hammer`, and one from go-server/v1.0.0 or older `users.missile` — the missiles were folded into the
 baseline the same day, for a second fresh production deploy — so production starts over (DEPLOY.md §8). `db_test.go`
-pins the count at two again: `V1.0.2__timed_bonus_milestone.sql` and `V1.0.3__seed_new_pictures.sql`, the first scripts written after production ran the pair, were folded into the baseline and the seed later on 14 Sep 2026 (owner) — so the TIMED_BONUS CHECK reaches only a `user_milestones` table built afresh (production's, from go-server/v1.1.0, needs a fresh start or the hand ALTER in the baseline's header), while pictures appended to the seed reach every database at its next boot. Later the same day the 9-diamond default arrived as `V1.0.2__new_account_diamonds.sql` and was folded back into the baseline together with the HAMMER picture currency, for another fresh production deploy: a database built before that has the old `profile_pictures_currency_check` and cannot take the seed (DEPLOY.md §8). The next change is a NEW file (`V1.0.2__…`), never an edit to an applied one. The catalogue guards that remain (the baseline's
+pinned the count at two again (three since V1.0.2, above): `V1.0.2__timed_bonus_milestone.sql` and `V1.0.3__seed_new_pictures.sql`, the first scripts written after production ran the pair, were folded into the baseline and the seed later on 14 Sep 2026 (owner) — so the TIMED_BONUS CHECK reaches only a `user_milestones` table built afresh (production's, from go-server/v1.1.0, needs a fresh start or the hand ALTER in the baseline's header), while pictures appended to the seed reach every database at its next boot. Later the same day the 9-diamond default arrived as `V1.0.2__new_account_diamonds.sql` and was folded back into the baseline together with the HAMMER picture currency, for another fresh production deploy: a database built before that has the old `profile_pictures_currency_check` and cannot take the seed (DEPLOY.md §8). The next change is a NEW file, never an edit to an applied one — and the first such file is here: **`V1.0.2__chip_ledger_game.sql`** (19 Sep 2026, the Poker family, §6.5) adds the two nullable columns `chip_ledger.game` and `chip_ledger.variant` through a **catalogue-guarded `DO` block** (`information_schema.columns` lookup, then `EXECUTE 'ALTER TABLE … ADD COLUMN …'` only where the column is missing) — never `ADD COLUMN IF NOT EXISTS`, which takes ACCESS EXCLUSIVE on the table even when the column exists and would queue every restart behind any reader (`TestABootSurvivesALongReaderHoldingTheTables` is the guard; the 9 Sep crash loop is the reason). `db_test.go` pins the count at **three**. The catalogue guards that remain (the baseline's
 `idx_users_last_login`, `users_no_delete` created only when missing) are for DEPLOY.md §7, where the app role no longer
 owns `users`. **A column added to an existing database is a deliberate one-off
 ALTER run by hand** (`CREATE TABLE IF NOT EXISTS` is a no-op where the table exists, so the baseline
@@ -599,7 +817,7 @@ CHECK ≥ 0`, **`diamond INTEGER NOT NULL DEFAULT 9 CHECK ≥ 0`** — the premi
 ledgered —, **`hammer INTEGER NOT NULL DEFAULT 20 CHECK ≥ 0`** — what a Force Sideshow costs, 20 per account, never ledgered —, **`missile INTEGER NOT NULL DEFAULT 1 CHECK ≥ 0`** — what a missile costs, one per new account, never ledgered —,
 counters, `active_picture_id`, `deleted_at`),
 **`user_milestones`** (owner, 14 Sep 2026: the rewards each player has collected, moved off `users`, where they were `milestone_claimed` and `next_bonus_at` — `user_id`, `milestone` HANDS_PLAYED|TIMED_BONUS|DAILY_BONUS (TIMED_BONUS in the baseline's CHECK since `V1.0.2__timed_bonus_milestone.sql` was folded into it; production's table, built by go-server/v1.1.0, keeps the two-value CHECK — and refuses every four-hour bonus claim — until a fresh start or the hand ALTER in the baseline's header), PK on the pair, `claimed_up_to`, `next_claim_at`, `times_claimed`, `last_claimed_at`; one row per player per milestone, inserted on the first claim and updated in place after (`db.collectMilestone`), read through two LEFT JOINs in `userFrom`, so no row reads as nothing collected and both bonuses ready),
-**`chip_ledger`** (`action_id UNIQUE`, `hand_id`, `delta`, `balance`, `reason`; append-only trigger),
+**`chip_ledger`** (`action_id UNIQUE`, `hand_id`, `delta`, `balance`, `reason`, and since 19 Sep 2026 `game`/`variant` — `'poker'` + the poker category on a poker row, NULL on every Teen Patti row, §6.5; append-only trigger),
 and the picture catalogue added 12 Sep 2026 (owner): **`profile_pictures`** (`name`, `asset_url`
 UNIQUE, `asset_format` IMAGE|SVG|LOTTIE|RIVE, `currency` COIN|DIAMOND|HAMMER, `type` FREE|PREMIUM, `cost` with a CHECK that free is 0 and premium is > 0, `is_active`,
 `sort_order`) and **`user_profile_pictures`** (`user_id`, `profile_picture_id`, PK on the pair) —
@@ -670,7 +888,7 @@ fallback `go-server/public`; not in `.env.example` — `config.go` documents it)
 | **`LEDGER_PURGE_AFTER_MS`** | 600000 (10 min) | **Go server only.** A `chip_ledger` row is deleted once older than this — but **only** `hand_win`/`hand_loss`/`hand_packed`/`hand_left` (`db.purgeableReasons`, hardcoded in the query): `purchase`, `picture_purchase`, `milestone_reward`, `timed_bonus`, `welcome_bonus` are never purged, since their UNIQUE `action_id` is a standing double-credit guard. Deletion is allowed only inside `PurgeLedger`'s own transaction, which sets `app.ledger_purge`; the append-only trigger refuses every other DELETE and every UPDATE. **Trap: 0 does NOT disable it** — the cutoff becomes `now`, so the next pass takes every purgeable row. Now equal to `RESUME_OFFER_MS`, so a retry at the edge of the resume window can find its `action_id` already gone (was 24h for that margin). |
 | `WELCOME_CHIPS` / `BOOT_AMOUNT` | 300000 / 200 | the 3 lakh welcome (owner, 14 Sep 2026; 2 lakh before). **Production's `.env` sets `WELCOME_CHIPS` explicitly**, so a new default changes nothing there until that line does |
 | `TABLE_STAKES` | `200,5000,50000,1000000` | empty = any (tests) |
-| **`LOBBY_TABLES`** | `seen:200,blind:200,blind:5000:max=50000000,blind:50000:max=1000000000,blind:1000000:min=500000000` | the menu; empty = any pair (tests). Each entry is `category:boot` plus an optional **stack band** — `max=N` shuts the table to a player holding MORE than N, `min=N` to one holding LESS. Exactly the limit is allowed at either end. A band whose min exceeds its max fails at load (it would advertise a table nobody could join). |
+| **`LOBBY_TABLES`** | `seen:200,blind:200,blind:5000:max=50000000,blind:50000:max=1000000000,blind:1000000:min=500000000,variation:50000:max=1000000000,variation:1000000:min=500000000,seen:50000:pot=50000000,three_card_poker:50000,five_card_draw:50000,texas_holdem:50000,omaha:50000` | the menu; empty = any pair (tests). **`pot=N` is a table's OWN pot cap** (Go only; owner, 19 Sep 2026: a second seen table, boot 50,000, open to all, pot limit 5 Crore — `LobbyTable.MaxPot`, read by `TableRules` and `MenuMaxPot` through `menuPotFor(category, boot)`): it wins over the category's cap (`SEEN_MAX_POT` is 40 boots at 50,000, so every hand there would be dealt into the POT_LIMIT showdown), changes nothing else — the ladder and rounds stay the category's — and a private table never reads it. 5 Crore is 5,00,00,000 = `50000000`; `500000000` is 50 Crore. The new entry is LAST in the list like every later addition; the Flutter lobby files it under Seen by category. Categories are `seen`, `blind`, (Go only, 18 Sep 2026) **`variation`** and (Go only, 19 Sep 2026, §6.5) the four poker ones **`three_card_poker`, `five_card_draw`, `texas_holdem`, `omaha`** — anything else stops the boot. A poker entry's boot is its big blind (Hold'em, Omaha) or ante (3-Card Poker, 5-Card Draw); its `minChips` on the menu is raised to the table's `minBuyIn` (`POKER_MIN_BUYIN_BOOTS` × boot) and each `options.tables[]` entry carries `game`, `smallBlind`, `bigBlind`, `ante`, `minBuyIn`, `holeCards`, `maxDiscards` (omitted on Teen Patti entries). Poker keeps **one table per game, all four at 50,000** (owner, 19 Sep 2026: "in poker category only keep one table 50000 for each gameplay"; it was six entries at 200 and 5,000 earlier that day) — so blinds 25,000/50,000, an ante of 50,000, and a buy-in of **5,00,000** at every poker table, which is MORE than the 3,00,000 welcome: a brand-new account sees the whole Poker category shut until it has won 5 Lakh, and `POKER_MIN_BUYIN_BOOTS` (4 = 2 Lakh) is the one key that changes that without touching the stake. The four default poker entries are LAST; an older Go tag cannot boot on a `.env` that lists one, and an installed app older than the first poker-aware build draws each as a seen table — raise `MIN_CLIENT_BUILD` first. Variation keeps **two tables only, 50,000 and 10 Lakh** (owner, 18 Sep 2026), behind the bands blind's tables of those stakes have; its entries are LAST so the five before them keep their places, and clients are told of the category (`config.categories`) only when it is listed. **Rollout:** an installed app older than the build that knows the category draws that card as a seen table and never shows the picker, so every hand there is a server-chosen Muflis — raise `MIN_CLIENT_BUILD` first. **Production's `.env` sets `LOBBY_TABLES` explicitly**, so the new default changes nothing there until that line does; a Go tag older than this cannot boot on a `.env` that lists `variation:`. Each entry is `category:boot` plus an optional **stack band** — `max=N` shuts the table to a player holding MORE than N, `min=N` to one holding LESS. Exactly the limit is allowed at either end. A band whose min exceeds its max fails at load (it would advertise a table nobody could join). |
 | `MAX_PLAYERS_PER_ROOM` / `MIN_PLAYERS_TO_START` | 5 / 2 | 5 is also hardcoded in Flutter `_places` and browser CSS |
 | `TURN_TIMEOUT_MS` | 25000 | |
 | `MAX_BET_ROUNDS` / `POT_LIMIT_MULTIPLIER` / `MAX_RAISE_STEPS` | 20 / 1024 / 8 | defaults only; `createTable` overrides all three per category (seen: 7 / 1024 / 2, blind: 0 / 0 / 0) |
@@ -679,6 +897,10 @@ fallback `go-server/public`; not in `.env.example` — `config.go` documents it)
 | `ENTRY_CAP_BOOT` / `ENTRY_CAP_CATEGORY` / `ENTRY_CAP_MAX_CHIPS` | 200 / blind / 500000 | Requirement 30, and now the oldest case of the band above: `RoomManager.tableMaxChips` folds this trio into the matching menu entry's `maxChips`, so the lobby draws it from the same field as every other table. A `max=` on that entry in `LOBBY_TABLES` wins, being the more specific statement. |
 | `MAX_MISSED_TURNS` | 3 | |
 | **`UNFUNDED_GRACE_MS`** | 30000 | **Go-only.** How long a seat that can no longer cover the boot is held between hands before the `insufficient_chips` kick, so a player can buy chips and stay; `you.unfundedDeadline` carries the deadline to that player and the Flutter status line counts it down. 0 = kicked at once (Node's rule). |
+| **`VARIATION_SELECT_TIMEOUT_MS`** | 10000 | **Go-only.** How long the player who opens a variation table's hand has to choose its variation before the SERVER chooses Muflis. The client's countdown is decoration. 0 = the window never lapses on its own (it still closes when the chooser leaves) — never in production: a chooser who walks away holds the table for the whole reconnect grace. Given to variation tables only; a seen or blind table's `TableConfig` and snapshot are unchanged. |
+| **`FIVE_CARD_PICK_TIMEOUT_MS`** | 8000 | **Go-only** (owner, 19 Sep 2026). The EXTRA time a player gets, once their five cards are in front of them under 5-Card Teen Patti, to choose which three of them play (§6.4). Per player and per hand; lapsing plays the first three they were dealt. A chooser whose turn is running has it pushed out to cover the window and a full turn after it. 0 = the window never lapses, and a hand can then sit on a player who has looked and will not choose until their turn clock packs them — never in production. Given to variation tables only. |
+| **`VARIATION_MAX_POT_BOOTS`** | 0 | **Go-only.** A public variation table's pot cap, counted in BOOTS of that table; **0 = no pot limit, the default** (owner, 18 Sep 2026). A count of boots and not a figure because variation runs at several stakes (§6.4). `MenuMaxPot(category, boot)` advertises exactly what `TableRules` gives the table. A product that overflows int64 for any variation table on the menu stops the boot with the key named; a negative value does too. |
+| **`POKER_TURN_TIMEOUT_MS`** / **`POKER_MIN_BUYIN_BOOTS`** / **`POKER_MAX_DISCARDS`** | 0 / 10 / 3 | **Go-only** (§6.5). A poker decision's clock (0 = `TURN_TIMEOUT_MS`); the smallest stack that may sit at a poker room, in boots of that table (at least 1; the menu's `minChips`); how many cards a 5-Card Draw player may exchange (0..5, else the boot stops). How each variant plays is fixed in `poker.Variants`, not here. |
 | **`MISSILE_REVEAL_EXTRA_MS`** | 3000 | **Go-only.** Added to `NEXT_HAND_DELAY_MS` after a missile showdown (§6.1), so the client's volley, its explosions and a look at every hand fit before the next deal. |
 | **`MIN_CLIENT_BUILD`** | 0 | The oldest client build allowed to play, sent to every client in `session:ready.config.minClientBuild`. A client below it is held on the update screen with no way past (Flutter `_belowMinimumBuild`/`_forceUpdate`). **0 = no floor**, which is what production runs; raise it only after the newer build is actually live in the store, or the floor locks everyone out of a version they cannot yet install. This is the server-authoritative gate — Play's own in-app check (`AppUpdate`) is a separate, best-effort nudge that fails open. |
 | `SIDESHOW_TIMEOUT_MS` / `SIDESHOW_MIN_PLAYERS` | 6000 / 3 | |
@@ -760,6 +982,11 @@ Production's lives at `/var/www/gameplay/king-teenpatti/go-server/.env` (`PG_POO
     `integration`/`socketProtocol`/`stakes`/`statsAndRewards`/`metrics` process suites (real sockets through
     `socket/testclient`, `/health`, `/metrics`, static files, review_headers); `internal/db` = ledger transactions
     (`duplicate_action`, `stale_state`), users/rewards, `NormalizeDisplayName`, `statement_timeout`, review_money.
+  - **Variation Teen Patti** (§6.1, §6.4): `internal/game/variation_test.go` (the six rule sets; a wild never makes a hand
+    worse, never duplicates a held card, three wilds against an exhaustive search) and `table_variation_test.go` (the window:
+    the six picks, timeout → MUFLIS, who may choose, the pick-versus-clock race run 200 times under `-race`, chooser leaves,
+    hand/table ends mid-window, restart mid-window keeping the ORIGINAL deadline, and "a seen table's JSON has no variation
+    key"); `internal/socket/variation_test.go` is the same over real sockets.
   - `internal/socket` (invalid moves, hostile payloads, leaks, money, concurrency, stack), `internal/sio` (framing, server,
     concurrency), `internal/auth`, `internal/config`, `internal/metrics` (the label rule), `cmd/gameplay` (version stamp).
   - **Node-assisted tests, all `t.Skip` without their prerequisite:** `internal/auth/nodeinterop_test.go` (tokens minted by
@@ -776,6 +1003,25 @@ Production's lives at `/var/www/gameplay/king-teenpatti/go-server/.env` (`PG_POO
   `--keep` (logs + schemas), `--serve [--profile main]`, `--verbose`. `npm run parity:diff -- --a go --b <url|go>` drives one fixed
   scenario against two servers and diffs the normalised recordings (uuids/codes/JWTs/timestamps/cards masked, consecutive
   identical `room:state` collapsed; `--out <dir>` keeps them). The Node target is gone — the last Node-vs-Go run was 141/141.
+- **Parity profile `poker`** runs `tools/parity/poker.test.js` (60 s clocks, the default menu's poker entries): snapshot keys and
+  redaction, the `wrong_game` wall both ways, Hold'em with the oracle (`lib/poker5.mjs`) checking every reveal and chips conserved,
+  fold-to-one, Omaha's exactly-two rule, 5-Card Draw's exchange, 3-Card Poker's verdict against the dealer — and the `money` audit over
+  those books (a 3-Card Poker hand is exempt from the per-hand zero-sum by its `variant`, §6.5). 7/7 + 8/8 on 19 Sep 2026.
+- **Parity profiles `variation` and `variation-timeout`** run `tools/parity/variation.test.js` (each runs its own half and
+  skips the other's — a profile is one server process with one window length) plus the `money` audit over the books those
+  hands wrote. On macOS two `metrics.test.js` tests fail for reasons that predate this (`bind 127.0.0.2`, no
+  `process_resident_memory_bytes`); proven against a HEAD build on 18 Sep 2026.
+- **`tools/bot.js`** also takes `--category variation` and **`--variation <MUFLIS|AK47|JOKER|HUKAM|LOWEST_JOKER|HIGHEST_JOKER|FIVE_CARD|random|none>`**
+  (default `random`, which picks from the `options` the SERVER sent, so FIVE_CARD is chosen only where it is offered): the
+  chooser's pick, made once per table-and-hand from `room:state`; `none` never answers, which is how to watch the server's
+  timeout choose Muflis. Bots never read their cards, so 5-Card needed nothing else. `variation.test.js` uses
+  `bot-play/src/handrank.js` as an INDEPENDENT oracle that a FIVE_CARD `best` really is the best of the ten
+  combinations, and deep-scans every frame a client received for card codes that are not that player's own — keep both. The resident fleet (`bot-play/`) joins a hard-coded seen/blind list and
+  cannot sit at a variation table.
+- **`tools/bot.js`** also plays the poker rooms: `--category three_card_poker|five_card_draw|texas_holdem|omaha` answers
+  `poker:yourTurn` from its `options` alone (`decidePoker`: check when free, call small bets, fold to a bet over a third of the stack half the time,
+  open or min-raise now and then, play against the dealer three times in four, stand pat or exchange one or two) — bots never read
+  their cards, so nothing else was needed.
 - **`tools/bot.js`** (`npm run bot -- …`) flags: `--count --boot --category --url --offset --churn`. **16** fixed identities
   (Ravi Meera Arjun Kavya Vikram Anita Rohit Neha Priya Aman Sneha Karan Pooja Rahul Isha Dev; device id `practice-bot-<slot>-<name>`);
   groups use `--offset 0/4/8/12` — a second group **must** use `--offset`. Bots always `see`, ask sideshow 45%, answer 75/15/10
@@ -841,9 +1087,30 @@ by `GameState._publishNumberFormat()`. Abbreviate only `> 100000`; Indian `3.24 
 in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
 
 ### 8.4 UI
-- **Lobby**: rail of square `_TableCard`s from `config.tables`, capped at 400dp tall. **Order is the
-  lobby's, not the server's** (owner, 12 Sep 2026): `_orderedTables()` buckets them **seen → joinable
-  → shut**, then `_PrivateCard` last. Bucketed rather than sorted because Dart's `List.sort` is not
+- **Lobby**: **two levels in one rail** (owner, 18 Sep 2026: "in lobby give 3 category — Seen, Blind, Variation — and
+  when the user selects Blind go into that and show all the Blind table cards"). The FRONT is one `_CategoryCard` per
+  category the server offers a table in (`GameState.lobbyCategories`, always Seen · Blind · Variation; an unknown
+  category is filed under Seen) and `_PrivateCard` last; a category card is the table card's own frosted square in the
+  category's colour (`_categoryPalette`) stating its blurb, boot range ("200 – 10 Lakh"), table count and how many are
+  **open to you**, under a "View tables" capsule, and is never padlocked — its tables are where the padlocks are. INSIDE
+  a category the rail is a slim `_BackTile` (the category's name over "All games") then that category's `_TableCard`s from
+  `GameState.lobbyTablesIn(category)`, **joinable → shut**, each group in the server's order. `GameState.lobbyCategory`
+  (null = the front) lives in GameState, not the lobby's State: main.dart's `_BackGuard` closes it before it offers to
+  quit (not while the consent panel is up), it survives a visit to a table (leave a Blind table → the Blind tables), it
+  is cleared on sign-out and when a new `session:ready` menu no longer lists it, and it is never persisted. Each level is
+  its own `ListView` keyed `lobby-rail:<category>` inside an `AnimatedSwitcher`, so a category opens at its first card
+  — the key holds nothing that ticks, or the one-second notify would restart the fade — and inside a category cards
+  take orb places from index 1 (index 0 spills LEFT, which would be over the back tile). **Every table card carries two
+  corner keys**, one over the other at its top-right (`_CardCornerKey`: each a full 44dp target whose tap wins the arena
+  over the card's own, so it never sits the player down; drawn above a shut card's fade; stacked rather than side by
+  side so neither reaches the badge on a 640dp phone). **ⓘ** opens `_TableInfoDialog`: game, boot, entry (the card's own
+  `entryValue`), blind moves, pot limit, players, turn time, the viewer's chips, who sees whose chips, and whether they
+  can sit or what it would take. The **rules key** under it opens `showRules(context, table: table)` — the rules of
+  THAT table: "How this table plays" first (`_RulesSheet._tableRules`, a sentence a rule with the table's own figures —
+  blind moves, the pot cap or "no limit" — and no number for what the menu does not carry), then the rankings, and the
+  six variations only for a variation table; the plain Rules button (`table: null`) is the whole reference.
+  `test/lobby_categories_test.dart`.
+  Bucketed rather than sorted because Dart's `List.sort` is not
   stable and the server's order decides the rest. `GameState.tableShut(table)` is the single
   eligibility answer used by both the ordering and the card, so the rail can never file a card under
   "you can join these" and then draw it padlocked;
@@ -913,6 +1180,111 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   over the middle of the table were removed (owner, 10 Sep 2026): the scrim greyed every revealed
   hand a player wanted to compare against, and the result is announced on the winner's own pod by
   `_WinnerFlash` instead. `handLive` gates bet pills. While `you.unfundedDeadline` is set, `_Status` shows `buyChipsToStay` (amber, counting down) in place of the waiting/starting line.
+- **Variation tables** (owner, 18 Sep 2026; server side §6.1/§6.4). Everything is drawn from `room:state.variation`
+  (`VariationState` in `dtos.dart`; `GameState.variation`, `variationSelecting`, `variationIsMine`, `shownVariation`,
+  `shownTurnUp`) — the two `game:variation*` events only say the same thing a moment sooner, so a reconnect mid-window
+  rebuilds the right view with the server's ORIGINAL deadline. **The picker is a panel in the felt's Stack
+  (`widgets/variation_prompt.dart` `VariationPrompt`), never a `showDialog` route** — no route can outlive the move it
+  asked about (the missile question's black screen, above): title "Choose Variation", whole seconds counting down from
+  `deadline − now` on its own controller (visual only; the server's clock decides), a draining bar, six keys three to a
+  row, a one-line rule under each where the screen is not short. It takes the top 64% of the felt so the chooser's own
+  hand and "See cards" stay usable (the server allows `see` in the window). A tap darkens all six and
+  `GameState.selectVariation` **awaits the ack**: taken → dark until the snapshot removes the panel however slow the link;
+  refused or unanswered → the keys come back. As the window opens for the viewer, the drawers close and any sheet over
+  the table is popped (`popUntil(isFirst)`, as `_TableRoutes` does). Everyone else gets `VariationSelectingLine` in
+  `_Status` ("Ravi is selecting variation…" + the seconds) and the chooser's pod is on the clock. When it closes,
+  `variationAnnounced` holds "Variation: AK47" for 3 s — once per hand whether the event, the snapshot or both said so —
+  with "Time ran out — Muflis was chosen" (`TIMEOUT`) or "<name> left — Muflis was chosen" (`LEFT`) under it, and
+  `_CategoryTag` reads "VARIATION · AK47" / "· Joker · 10" / "· Hukam · ♥" through the showdown (`lastVariation`, cleared
+  by the next deal, a change of table, or the celebration ending). At a reveal the cards that played as wild carry a gold
+  edge (`WildEdge`, from the reveal's `wild`). Palette: rani pink (`AppTheme.paletteFor` — `_rani`/`_raniDark`,
+  `Icons.shuffle_rounded`); the lobby card says `variationTableNote` as its ONE blurb line. A seen or blind table draws
+  exactly what it did. Tests: `test/variation_table_test.dart` (640x360 at text x1.25 in all five languages),
+  `variation_strings_test.dart`, `variation_palette_test.dart`, `five_card_test.dart`. **A wild card of the viewer's own hand turns into the
+  card it played as** (owner, 18 Sep 2026; `widgets/wild_transform.dart` `WildTransform`, fed by `you.hand` —
+  `OwnHand.standInFor`): it gathers gold light, lifts, turns a quarter on its long axis with the face swapped edge-on,
+  and comes back under a ring of sparks (1.15 s, 190 ms apart along the fan), then STAYS turned — gold edge, a "WILD"
+  ribbon at its head, the real card ("4♠") on a tab at its foot. It plays once: after the card's own face-up flip when
+  both arrived together, at once when the choice lands on a player already looking; built already knowing (a reconnect)
+  it shows the finished state; and it keeps the last stand-in when `you.hand` goes at the hand's end, so the hand does
+  not turn back under the showdown. It adds nothing to the card's box (the fan's Stack is `Clip.none` for its halo).
+  `_OwnHandName` names the live hand from `you.hand.handName`, faded in after the turn (`_AfterTheTurn`, keyed on
+  `handNo`). `test/wild_transform_test.dart`. **5-Card Teen Patti on the felt** (owner, 18 Sep 2026; server §6.4): the
+  client never decides how many cards anybody holds. Face down, `_OwnHand` draws the viewer's own `seats[].cardCount`
+  backs, then `variation.cardsPerPlayer` (`VariationState.cardsPerPlayer`: absent or garbage reads 3, clamped 3..5),
+  then 3 — the seat's count FIRST, because the server drops the variation block the moment a hand ends while the cards
+  stay until the next deal, and a blind winner's fan fell to three backs beside four seats showing five. Face up it
+  draws whatever `you.cards` (or the reveal) carries. **A five-card fan stands in the SAME box as the three-card one**
+  (on a 640dp phone the hand sits between the viewer's pod and the action keys with nothing to spare): the outer cards
+  keep a three-card hand's places and lean and the inner ones share the run, a step of 0.41 card widths, which still
+  clears every index; a three-card fan computes to exactly its old lefts, bottoms and size (pinned by a test). The two
+  top-up cards arrive through the existing `_Dealt` entrance, not pop. Once `you.hand.best` names three of FIVE those
+  three rise 0.08h and the other two are set back (`SetBack` in `variation_prompt.dart`: a wash and an 8% shrink that
+  never changes the card's box or the tree shape, so `WildTransform`/`PlayingCard` state survives). **The choice is acted
+  out, once per hand** (owner, 18 Sep 2026: "the two cards are low and then rearrange the cards that bring the selected
+  cards at top"; `_BestThreeStage`, stages `held → aside → arranged`): the faces turn over in the order held (650 ms), the
+  two that do not count dip 0.06h and are set back (520 ms), then the fan is RE-DEALT — those two take the left places,
+  underneath and tucked 0.24 of a card apart, and the best three the right ones, on top and raised, 0.58 of a card apart
+  instead of the five-card 0.41, so each one's middle pip reads as well as its corner (owner, 19 Sep 2026: "the front three
+  cards' symbols are not visible properly"); the first and last card keep their places, so the box is unchanged. Each group
+  keeps the order held. Places, lean and paint
+  order follow the SLOT; each card stays keyed by the index it was dealt at, so it slides with its flip and wild state
+  intact, and every index still reads. A fan built already knowing (a reconnect, a blind hand's showdown arriving with
+  the table) opens arranged with no animation. After the hand
+  it falls back to the reveal's or the sideshow peek's `best`. Rim seats (`seat_pod.dart`): three cards or fewer take
+  the old `Row` untouched; four or five overlap inside the same width and height, so a five-card reveal does not move
+  the seat's column (`test/seat_reveal_layout_test.dart` has the case), with the cards not in `best` set back. **The
+  picker is always two rows**: `VariationPrompt.perRowFor(n) = max(3, ceil(n/2))` — seven keys stand four over three in
+  a panel 72% of the screen wide (clamped 340..600; six or fewer keep three across at 60%), so it grows sideways and
+  its 169dp height at 640x360 is unchanged. `test/five_card_test.dart`. The rules sheet (`rules_sheet.dart`) has a **Variation tables** section
+  under the rankings: an intro and the six variations, each with an example hand whose wild cards carry `WildEdge`
+  (`test/rules_variation_test.dart`).
+- **Poker tables** (owner's brief, 19 Sep 2026; server side §6.5). The lobby front gains a **POKER** card (teal,
+  `Icons.casino_rounded`, `AppTheme.paletteFor` for the four categories and the `poker` family — before the seen
+  fall-through) whose rail lists the four variants with their own facts: the variant on the badge, blinds ("100 / 200") or
+  ante, buy-in ("from 2,000" — the server's `minBuyIn`, which is also the card's Entry), cards each, and "exchange up to"
+  on Draw; the info dialog and `showRules(table:)` have poker branches and the rules sheet a poker-ranking section.
+  `LobbyTable.game/isPoker` and `GameState.lobbyCategoryOrder` file every `three_card_poker | five_card_draw |
+  texas_holdem | omaha` entry under Poker. **`screens/table_screen.dart` mounts `PokerTableScreen`
+  (`screens/poker_table_screen.dart`) when `room.isPoker`**; the chrome both felts share — `LeftPanel`, `SideRail`,
+  `TableDrawer`, `ChatDrawer`, `MachinedKey`, `StepperKey`, `Plate`, `TableWallet`, `Reconnecting`, `seatPlaces` … —
+  moved to `widgets/table_chrome.dart` as pure renames (a private `_SideRail` wrapper stays in `table_screen.dart`
+  because `table_wallet_layout_test` finds it by name). **Everything on the poker felt is drawn from `room:state`**
+  (`RoomState.game/poker`, `PokerState`, `PokerOptions`, `PokerPot`, `PokerDealer`, `PokerReveal`, `PokerResult` in
+  `dtos.dart`; a `you.options` with a `street` key parses as `PokerOptions` and never as `TurnOptions`, so
+  `GameState.options`/`myTurn` are null/false at a poker table and `myPokerTurn`/`pokerOptions` take over):
+  `_StreetTag` ("Texas Hold'em · Pre-flop", the stake between hands), `_Board` (five slots, faint outlines until dealt),
+  `_Pots` (the plinth, side-pot capsules when there is more than one), `_DealerHand` (3-Card Poker's three backs at the
+  top, cards + hand name + qualifies/does not qualify at the reveal), `_PokerStatus`, `_OwnHandLine` from `you.hand`,
+  `_PokerHand` (the viewer's hole cards fanned face up from `you.cards` — 2, 4 or 5; after the river the ones not in
+  `you.hand.best` are set back; on the draw street a tap marks a card — lift + gold edge — into
+  `GameState.discardSelection`), `_PokerKeys` (Fold bottom-left where Pack is, and bottom-right `[Check|Call][All-in]`
+  over `[−][Bet|Raise][+]`; the Draw N / Stand pat key or the Play key with the ante replaces the bet row on those
+  streets), `_PokerCelebration` (winner ribbon with the hand name, fireworks, pot flights, armed by `poker:handEnded`
+  OR a snapshot whose `poker.result` arrives first — once per `handNo`). The bet stepper: `pokerBetAmount` between
+  the options' min/max, stepped by `pokerStepBet`; `pokerBetOrRaise` sends `bet` when nobody has bet the street and
+  `raise` TO the figure otherwise; every move through `GameConnection.pokerAct` with a fresh uuid `actionId`. Seat pods
+  take a `poker` flag: no BLIND/SEEN, no green backs, "Fold" not "Pack", the street bet on a gold chip badge, an ALL-IN
+  ribbon; Teen Patti paths unchanged. `refusalText` translates the poker codes at poker tables only. ~85 strings in all
+  five languages. Tests: `test/poker_table_test.dart` (DTOs, a Hold'em turn at 640×360 ×1.25 in all five languages,
+  the stepper's clamping, the draw street's marking, the 3-Card decision, a finished hand's reveals). **Played on the
+  emulator on 19 Sep 2026** against `tools/bot.js` at all four variants: Hold'em (call, bet each street, a straight
+  wins the showdown with both bots' hands revealed and named), Draw (mark one card, Draw 1, a straight after the
+  draw), 3-Card (Play, a non-qualifying dealer pays every seat) and Omaha (four hole cards), no RenderFlex overflows.
+  Note the poker clock is `POKER_TURN_TIMEOUT_MS` (25 s by default): the first emulator hand folded me on the clock
+  while I was reading screenshots, which is correct — run the dev server with `POKER_TURN_TIMEOUT_MS=90000` to play by
+  hand.
+  **The rulebook key** (owner, 19 Sep 2026: "in each poker gameplay add an icon of rulebook and which tells about that
+  specific table gameplay not other"): the poker rail carries a THIRD key under menu and chat, the book glyph the lobby's
+  table cards use, and it opens `showRules` scoped to the room being played — "How this table plays" with that table's own
+  figures, then that table's ranking and nothing else. **3-Card Poker shows the THREE-card order** (`_threeCardExamples`,
+  from `eval3.go`: Straight Flush, Three of a Kind, Straight, Flush, Pair, High Card, with A-K-Q the best straight and
+  A-2-3 the worst — neither the five-card order nor Teen Patti's, where a Trail beats a Pure Sequence); the other three
+  keep the five-card list. The heading is `pokerTableRankingTitle` on one table's sheet and `pokerRulesTitle` ("Poker
+  tables") only on the general one. A poker table's drawer Rules row is scoped the same way; a **Teen Patti table grows no
+  key and its drawer still opens the whole reference** — the rankings, the seven variations and the poker family.
+  `test/poker_rules_test.dart` (the key at each variant, the three-card ranking, the Teen Patti control, every sheet in all
+  five languages), `poker_lobby_test.dart`, `poker_dtos_test.dart`, `poker_strings_test.dart`.
 - **The seat pod** (`widgets/seat_pod.dart`) carries the rest of it. An unoccupied place draws
   `_emptySeat()` — a dashed outline and a chair, never a blank pod. The viewer's badge and total are
   **not** in their column: they hang over their own fanned hand (`SeatBet(totalFirst: true)`), and
@@ -1059,7 +1431,10 @@ idToken**; against production it is a guaranteed 401 `missing_token` — not a s
 ## 10. Requirements index (`Requirements.txt`)
 1 login providers · 2 DB per identity (brief says SQLite; **now Postgres by owner's decision**) ·
 3 ≤5/room · 4 ≥2 to start · 5 3 lakh welcome (2 lakh until 14 Sep 2026; with 9 diamonds, 20 hammers and 1 missile) · 6a–g core play · 7 persistence · 8 room chat ·
-9 +/− stepper · 10 auto-pack · **(no 11)** · 12 collapsible chat · 13 Blind/Seen × 200/5000 ·
+9 +/− stepper · 10 auto-pack · **(no 11)** · 12 collapsible chat · 13 Blind/Seen × 200/5000 (and, since 18 Sep 2026, a third
+category **Variation** × 50,000 / 10 Lakh, hidden stacks, no pot limit — §6.4: the first player to act picks Muflis, AK47,
+Joker, Hukam, Lowest Joker or Highest Joker for the hand in a server-timed 10 s, else the server picks Muflis; the lobby
+shows the three categories first and a category's tables inside it, §8.4) ·
 14 Show reveal · 15 pot to last leaver · 16 stats (played = made a chaal) · 17 25k/25 hands ·
 18 4h 10k bonus (and beside it, since 14 Sep 2026, a daily bonus of 1 lakh + 1 hammer every 24h) · 19 Seen: one double, forced showdown (brief 10 moves / code 7 rounds) ·
 20 provider avatar · 21 avatar picker (a DB catalogue since 12 Sep 2026: free
@@ -1071,6 +1446,10 @@ seat, shown on every lobby card) · 31 3 auto-packs → kick,
 below boot → kick · 32 boot deducted at start · 33 sideshow · 34 Indian numbering + toggle.
 Verbal additions: menu = exactly seen 200 / blind 200 / blind 5000; seen pot cap 1.2M; buy-chips
 button; category tag; winner chip flight; action-bar icons; chat as left drawer; missed-turn warning.
+**The Poker family** (owner's 45-section brief, 19 Sep 2026; `go-server/POKER_PLAN.md`, §6.5): 3-Card Poker against a
+Q-high-qualifying dealer, 5-Card Draw with configurable discards, Texas Hold'em best-of-seven, Omaha exactly-two —
+a family of rooms beside the Teen Patti tables, server-authoritative, sanitised per viewer, one nullable pair of ledger
+columns, and Teen Patti's wire byte for byte what it was.
 
 ---
 
@@ -1302,7 +1681,11 @@ deploy runbook; `steps.txt` the six-line routine.
   `gomaxprocs`. Grafana's former "Node.js" row is now "Runtime"; alerts
   `GameServerSchedulerLatencyHigh` / `GameServerGoroutinesHigh` / `GameServerMemoryHigh` replaced
   the three `nodejs_*` ones (§7.5 bundle at `go-server/ops/monitoring/`, `MONITORING.md`).
-- Small honest deviations: `room:state` carries `isPrivate` (13 Sep 2026, for the Flutter drawer), a seated player may wear a picture and buy a diamond one, a join is refused `settlement_pending` while that player's last hand is still being settled, JSON 404 for unknown `/api/*`, 400 `invalid_json` for bad bodies,
+- Small honest deviations: **the Poker family** (§6.5) — four poker categories, `poker:action` in, the nine `poker:*` events
+  out, `game`/`poker` on a poker room's `room:state`, `chip_ledger.game`/`variant`, `wrong_game`; a Teen Patti table's wire,
+  snapshot and ledger rows are unchanged; **Variation Teen Patti** — the `variation` category, `game:selectVariation`, the two
+  `game:variation*` broadcasts, `room:state.variation`, `variation`/`turnUp`/`wild` on reveals (§6.1, §6.4, §7.1; all of it
+  ABSENT on seen and blind tables, whose wire is unchanged); `room:state` carries `isPrivate` (13 Sep 2026, for the Flutter drawer), a seated player may wear a picture and buy a diamond one, a join is refused `settlement_pending` while that player's last hand is still being settled, JSON 404 for unknown `/api/*`, 400 `invalid_json` for bad bodies,
   HS256-only JWT verification (Node also took HS384/512), room codes regenerated until unique,
   `room:create {isPrivate:false}` validated like `quickJoin`, `already_in_room` checked before a
   table is created. Full list: PORT_PLAN §9 + DECISIONS.md. **Anything else that differs is a bug.**

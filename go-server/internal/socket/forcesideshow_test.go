@@ -37,7 +37,7 @@ func (st *stack) forcedTable() *forced {
 	for _, p := range ps {
 		st.mustOK(p.c, EvGameAction, map[string]any{"action": "see"})
 	}
-	table := st.rooms.GetTableForPlayer(ps[0].user.ID)
+	table := game.AsTable(st.rooms.GetTableForPlayer(ps[0].user.ID))
 	view := st.view(table, ps[0].user.ID)
 	byID := map[string]*player{}
 	for _, p := range ps {

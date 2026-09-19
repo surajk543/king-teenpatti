@@ -59,7 +59,7 @@ test('every wallet equals the sum of its ledger', async () => {
 });
 
 test('every ledger row has a known reason, a balance that follows the running total, and the right sign', async () => {
-  const { rows } = await query('SELECT id, user_id, hand_id, action_id, delta, balance, reason, created_at FROM chip_ledger ORDER BY user_id, id');
+  const { rows } = await query('SELECT id, user_id, hand_id, action_id, delta, balance, reason, created_at, game, variant FROM chip_ledger ORDER BY user_id, id');
   const running = new Map();
   for (const row of rows) {
     assert.ok(REASONS.has(row.reason), `reason ${row.reason}`);
@@ -81,15 +81,28 @@ test('every ledger row has a known reason, a balance that follows the running to
       assert.ok(row.delta < 0, 'buying a picture only ever takes chips');
       assert.ok(row.action_id?.startsWith('picture:'), 'a picture purchase carries its own action id');
     }
-    if (row.reason === 'hand_win') assert.ok(row.delta > 0, 'a win pays');
+    // A Teen Patti win pays; a poker win may be a split that returns exactly
+    // the stake (delta 0), or a 3-Card Poker push — never a loss.
+    if (row.reason === 'hand_win') assert.ok(row.game === 'poker' ? row.delta >= 0 : row.delta > 0, 'a win pays');
     if (row.reason === 'hand_packed') assert.ok(row.delta <= 0, 'a pack only ever takes chips');
+    // The family columns (V1.0.2): NULL on every Teen Patti row, the poker
+    // family and one of its four variants on a poker row.
+    if (row.game === null) assert.equal(row.variant, null, 'a Teen Patti row names no variant');
+    else {
+      assert.equal(row.game, 'poker');
+      assert.ok(['three_card_poker', 'five_card_draw', 'texas_holdem', 'omaha'].includes(row.variant), `variant ${row.variant}`);
+    }
   }
 });
 
 test('every hand conserves chips, and resolves each player exactly once', async () => {
+  // A 3-Card Poker hand is played against the house, which has no wallet:
+  // chips a player wins enter the economy and chips they lose leave it, as a
+  // reward or a picture purchase moves them (POKER_PLAN.md §6). Every other
+  // hand — Teen Patti and player-versus-player poker alike — sums to zero.
   const { rows: hands } = await query(
     `SELECT hand_id, SUM(delta) AS net, COUNT(*) AS rows FROM chip_ledger
-      WHERE hand_id IS NOT NULL GROUP BY hand_id`);
+      WHERE hand_id IS NOT NULL AND (variant IS NULL OR variant <> 'three_card_poker') GROUP BY hand_id`);
   for (const hand of hands) {
     assert.equal(Number(hand.net), 0, `hand ${hand.hand_id} moved ${hand.net} chips into or out of the economy`);
   }
@@ -101,10 +114,12 @@ test('every hand conserves chips, and resolves each player exactly once', async 
       WHERE reason IN ('hand_win', 'hand_loss', 'hand_left')
       GROUP BY hand_id, user_id HAVING COUNT(*) > 1`);
   assert.deepEqual(dupes, [], 'a player was resolved twice in one hand');
-  // A hand has at most one winner.
+  // A Teen Patti hand has exactly one winner; a poker hand may split a pot or
+  // pay several side pots, and against the house every player who beat the
+  // dealer wins.
   const { rows: winners } = await query(
-    `SELECT hand_id, COUNT(*) AS n FROM chip_ledger WHERE reason = 'hand_win' GROUP BY hand_id HAVING COUNT(*) > 1`);
-  assert.deepEqual(winners, [], 'a hand paid two winners');
+    `SELECT hand_id, COUNT(*) AS n FROM chip_ledger WHERE reason = 'hand_win' AND game IS NULL GROUP BY hand_id HAVING COUNT(*) > 1`);
+  assert.deepEqual(winners, [], 'a Teen Patti hand paid two winners');
 });
 
 test('action ids are unique, so a replayed checkpoint can never be applied twice', async () => {

@@ -42,7 +42,9 @@ test('quick-join: ack shape, snapshot shape, and the joiner hears room:state bef
   assertKeys(ready, ['user', 'config'], 'session:ready');
   assertKeys(ready.config, CONFIG_KEYS, 'session:ready.config');
   assert.equal(ready.user.id, account.user.id);
-  assert.deepEqual(ready.config.categories, ['seen', 'blind']);
+  // A lifted menu (LOBBY_TABLES empty) offers any pair, a variation table
+  // included, so the third category is advertised here as it is on the default menu.
+  assert.deepEqual(ready.config.categories, ['seen', 'blind', 'variation']);
   assert.deepEqual(ready.config.stakes, [], 'TABLE_STAKES is lifted in this profile');
   assert.deepEqual(ready.config.tables, [], 'LOBBY_TABLES is lifted in this profile');
   assert.equal(ready.config.bootAmount, profile.bootAmount);

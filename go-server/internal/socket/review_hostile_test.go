@@ -322,7 +322,7 @@ func TestReviewPingRTTEchoIsBoundedAndNilSafe(t *testing.T) {
 func TestReviewStructuralGarbageOnEveryEvent(t *testing.T) {
 	st := newStack(t, nil)
 	p := st.player("Garbage")
-	events := []string{EvLobbyList, EvRoomQuickJoin, EvRoomCreate, EvRoomJoinCode, EvRoomSwitch, EvRoomLeave, EvGameAction, EvGameSideshowResp, EvPlayerReqCards, EvChatMessage, EvChatHistory}
+	events := []string{EvLobbyList, EvRoomQuickJoin, EvRoomCreate, EvRoomJoinCode, EvRoomSwitch, EvRoomLeave, EvGameAction, EvGameSideshowResp, EvGameSelectVariation, EvPlayerReqCards, EvChatMessage, EvChatHistory}
 	payloads := []json.RawMessage{
 		nestedArrayJSON(9000, 60_000),
 		json.RawMessage(strings.Repeat(`{"text":`, 5000) + `"x"` + strings.Repeat(`}`, 5000)),
@@ -346,7 +346,7 @@ func TestReviewStructuralGarbageOnEveryEvent(t *testing.T) {
 			}
 		}
 	}
-	// Rate limit windows: the burst above is 66 requests; wait the window out
+	// Rate limit windows: the burst above is 72 requests; wait the window out
 	// before proving the socket is still healthy.
 	time.Sleep(ActionRateWindowMs*time.Millisecond + 100*time.Millisecond)
 	st.mustOK(p.c, EvLobbyList, map[string]any{})

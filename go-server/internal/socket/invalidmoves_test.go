@@ -439,7 +439,7 @@ func TestGarbageOnEveryEventIsAcked(t *testing.T) {
 		map[string]any{"action": "chaal", "amount": "1e3"}, map[string]any{"action": "chaal", "amount": []any{100}},
 		map[string]any{"action": "raise", "amount": true}, json.RawMessage(`{"__proto__":{"action":"pack"}}`),
 	}
-	events := []string{EvGameAction, EvGameSideshowResp, EvRoomQuickJoin, EvRoomJoinCode, EvRoomCreate, EvChatMessage}
+	events := []string{EvGameAction, EvGameSideshowResp, EvGameSelectVariation, EvRoomQuickJoin, EvRoomJoinCode, EvRoomCreate, EvChatMessage}
 	for _, payload := range garbage {
 		for _, event := range events {
 			raw, err := d.onTurn.c.Request(event, payload, 1500*time.Millisecond)

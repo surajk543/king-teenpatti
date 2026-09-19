@@ -208,7 +208,7 @@ func seatedWithoutSockets(t *testing.T, st *stack) (*game.Table, *player, *playe
 	t.Helper()
 	a, atok := st.login("Restored-A")
 	b, btok := st.login("Restored-B")
-	table := st.rooms.CreateTable(game.CreateTableOptions{BootAmount: st.uniqueStake(), Category: "seen"})
+	table := game.AsTable(st.rooms.CreateTable(game.CreateTableOptions{BootAmount: st.uniqueStake(), Category: "seen"}))
 	for _, u := range []*player{{user: a, token: atok}, {user: b, token: btok}} {
 		if err := st.rooms.Join(table, u.user.Player(), ""); err != nil {
 			t.Fatalf("join %s: %v", u.user.DisplayName, err)

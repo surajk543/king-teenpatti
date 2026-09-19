@@ -75,7 +75,13 @@ const (
 	CodeNoOtherTable      = "no_other_table"     // room:switch found nowhere to go
 	CodeNotInRoom         = "not_in_room"        // not seated anywhere / postChat by a non-seat
 	CodeNotSeated         = "not_seated"         // Table.Act by a user not at this table
-	CodeOverEntryCap      = "over_entry_cap"     // requirement 30
+	// The 5-Card pick (owner, 19 Sep 2026): CodeNotPicking is a choice made
+	// where none is owed — not a five-card hand, or a player who cannot see
+	// their cards — and CodeInvalidPick a list that is not exactly three cards
+	// of the player's own hand.
+	CodeNotPicking   = "not_picking"
+	CodeInvalidPick  = "invalid_pick"
+	CodeOverEntryCap = "over_entry_cap" // requirement 30
 	// CodeBelowTableMinimum: the table has a floor and this stack is under it
 	// (config.LobbyTable.MinChips). The partner of over_entry_cap: one says
 	// the player has outgrown a table, this says they have not grown into it.
@@ -86,6 +92,10 @@ const (
 	CodeTableFull         = "table_full"
 	CodeTableNotOffered   = "table_not_offered" // category:boot pair not on LobbyTables
 	CodeUnknownAction     = "unknown_action"
+	// CodeWrongGame: a Teen Patti event (game:action, game:sideshowRespond,
+	// game:selectVariation, player:requestCards) sent at a poker room, or a
+	// poker:* event sent at a Teen Patti table. Go only (POKER_PLAN.md §7).
+	CodeWrongGame = "wrong_game"
 
 	// Moves (table.js)
 	CodeAlreadySeen     = "already_seen"
@@ -116,6 +126,15 @@ const (
 	// MissileCost missiles. Go only (owner, 14 Sep 2026). Nothing was spent and
 	// nothing changed at the table.
 	CodeNoMissiles = "no_missiles"
+
+	// Variation window (Go only; owner, 18 Sep 2026) — Table.SelectVariation,
+	// and CodeVariationPending from Table.Act while the window is open.
+	CodeNoVariation              = "no_variation"               // this hand has no window: not a variation table
+	CodeVariationAlreadySelected = "variation_already_selected" // the window has closed, however it closed
+	CodeNotSelecting             = "not_selecting"              // the window is open for somebody else
+	CodeInvalidVariation         = "invalid_variation"          // not one of the six canonical values
+	CodeVariationExpired         = "variation_expired"          // past the deadline: the server chose instead
+	CodeVariationPending         = "variation_pending"          // a move while the variation is still being chosen
 
 	// Chat
 	CodeChatRateLimited = "chat_rate_limited"
@@ -158,6 +177,8 @@ const (
 	MsgNotInRoom            = "You are not at this table"
 	MsgNoHand               = "No hand is in progress"
 	MsgNotSeated            = "You are not at this table"
+	MsgNotPicking           = "There are no cards to choose here"
+	MsgInvalidPick          = "Choose exactly three of your own cards"
 	MsgNotInHand            = "You are not in this hand"
 	MsgNotYourTurn          = "It is not your turn"
 	MsgAlreadySeen          = "You have already seen your cards"
@@ -190,4 +211,13 @@ const (
 	// the show's own.
 	MsgMissileNeedsShowChips = "You need enough chips for a show to fire a missile" // Go only
 	MsgUnknownActionFormat   = "Unknown action \"%s\""
+	MsgWrongGame             = "That move belongs to a different game" // Go only
+
+	// Variation window (Go only).
+	MsgNoVariation              = "This table does not play variations"
+	MsgVariationAlreadySelected = "The variation has already been chosen"
+	MsgNotSelecting             = "It is not your turn to choose the variation"
+	MsgInvalidVariation         = "That is not a variation this table offers"
+	MsgVariationExpired         = "Time ran out, so Muflis was chosen"
+	MsgVariationPending         = "The variation is still being chosen"
 )

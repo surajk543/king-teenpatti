@@ -52,6 +52,7 @@ export const profile = {
   reconnectGraceMs: Number(process.env.PARITY_RECONNECT_GRACE_MS ?? 400),
   sideshowTimeoutMs: Number(process.env.PARITY_SIDESHOW_TIMEOUT_MS ?? 1500),
   welcomeChips: Number(process.env.PARITY_WELCOME_CHIPS ?? 200000),
+  variationSelectTimeoutMs: Number(process.env.PARITY_VARIATION_SELECT_TIMEOUT_MS ?? 10000),
   maxPlayers: 5,
   minPlayers: 2,
   maxMissedTurns: 3,
@@ -76,6 +77,37 @@ export const SNAPSHOT_KEYS = [
   'roomId', 'code', 'isPrivate', 'category', 'chipsHidden', 'state', 'handNo', 'dealerSeat', 'maxPlayers', 'minPlayers',
   'bootAmount', 'turnTimeoutMs', 'startsAt', 'pot', 'maxPot', 'stake', 'round', 'sideshow', 'turn', 'you', 'seats',
 ];
+/**
+ * Variation tables only (Go only; owner, 18 Sep 2026): room:state gains ONE
+ * optional key, `variation`, present during a hand at a variation table and
+ * absent — not null — everywhere else. SNAPSHOT_KEYS above is therefore still
+ * the exact key set of a seen or blind table, which is the point: those
+ * tables' wire did not change. `turnUp` joins the block only once JOKER or
+ * HUKAM has been chosen. `cardsPerPlayer` (added with 5-Card Teen Patti) is
+ * ALWAYS in the block: 3 while the window is open and under the six older
+ * variations, 5 once FIVE_CARD is chosen — the server says how many cards a
+ * player holds, a client never decides it.
+ */
+export const VARIATION_SNAPSHOT_KEYS = [...SNAPSHOT_KEYS, 'variation'];
+export const VARIATION_KEYS = [
+  'selecting', 'userId', 'displayName', 'seatIndex', 'startedAt', 'deadline', 'timeoutMs', 'options', 'selected', 'selectedBy',
+  'cardsPerPlayer',
+];
+/**
+ * The seven canonical wire values, in menu order — what the server sends as
+ * `options`. FIVE_CARD is LAST, so the six before it keep their places on
+ * every client's picker.
+ */
+export const VARIATIONS = ['MUFLIS', 'AK47', 'JOKER', 'HUKAM', 'LOWEST_JOKER', 'HIGHEST_JOKER', 'FIVE_CARD'];
+/** The six that leave every hand at the three cards it was dealt. */
+export const THREE_CARD_VARIATIONS = VARIATIONS.filter((v) => v !== 'FIVE_CARD');
+/** What you.hand carries once the viewer has looked and a variation is chosen. */
+export const YOU_HAND_KEYS = ['handName', 'category', 'wild', 'playsAs', 'best'];
+// Under 5-Card the player chooses their three, so you.hand carries the window
+// as well (owner, 19 Sep 2026): picking + its clock while a choice is owed,
+// and who chose plus what the best would have been once one is made.
+export const YOU_HAND_PICKING_KEYS = [...YOU_HAND_KEYS, 'picking', 'pickDeadline', 'pickTimeoutMs'];
+export const YOU_HAND_PICKED_KEYS = [...YOU_HAND_KEYS, 'pickedBy', 'bestPossible'];
 export const YOU_KEYS = [
   'seatIndex', 'chips', 'status', 'isBlind', 'blindMovesLeft', 'contributed', 'missedTurns', 'maxMissedTurns',
   'canMissile', 'cards', 'options',

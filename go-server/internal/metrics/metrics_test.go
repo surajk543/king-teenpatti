@@ -436,7 +436,7 @@ func TestNoLabelCarriesAnIdentifier(t *testing.T) {
 	// before they reach a label.
 	uuid := "7c2f1a2e-9b3d-4c1f-8a6e-0f1e2d3c4b5a"
 	knownCodes := map[string]struct{}{"not_your_turn": {}, "unknown_action": {}}
-	knownCategories := map[string]struct{}{"seen": {}, "blind": {}}
+	knownCategories := map[string]struct{}{"seen": {}, "blind": {}, "variation": {}}
 	m.SocketErrorsTotal.WithLabelValues(SafeLabel(uuid, knownCodes, OtherLabel)).Inc()
 	m.KicksTotal.WithLabelValues(SafeLabel("10.0.0.7", game.KnownKickReasons, OtherLabel)).Inc()
 	m.GamesStartedTotal.WithLabelValues(SafeLabel("ABC234", knownCategories, OtherLabel)).Inc()
@@ -497,7 +497,8 @@ func TestNoLabelCarriesAnIdentifier(t *testing.T) {
 		}
 	}
 	for _, c := range e.labelValues("category") {
-		if c != "seen" && c != "blind" && c != "other" {
+		// "variation" since 18 Sep 2026 (owner): the third table category.
+		if c != "seen" && c != "blind" && c != "variation" && c != "other" {
 			t.Errorf("category %q is not fixed", c)
 		}
 	}
@@ -819,9 +820,9 @@ func TestHTTPMiddlewareUnknownMethodFallsToRouting(t *testing.T) {
 
 // ------------------------------------------------------------- scrape gauges
 
-type fakeRooms struct{ tables []*game.Table }
+type fakeRooms struct{ tables []game.Room }
 
-func (f fakeRooms) LiveTables() []*game.Table { return f.tables }
+func (f fakeRooms) LiveTables() []game.Room { return f.tables }
 
 func TestPoolGaugesReadTheBoundSourceAndSwallowPanics(t *testing.T) {
 	m := newMetrics(t)
@@ -842,14 +843,14 @@ func TestPoolGaugesReadTheBoundSourceAndSwallowPanics(t *testing.T) {
 
 func TestTableGaugesRecountLiveTables(t *testing.T) {
 	m := newMetrics(t)
-	var tables []*game.Table
+	var tables []game.Room
 	func() {
 		defer func() {
 			if r := recover(); r != nil {
 				t.Skipf("game.NewTable is not ported yet: %v", r)
 			}
 		}()
-		mk := func(category game.Category, boot int64) *game.Table {
+		mk := func(category game.Category, boot int64) game.Room {
 			return game.NewTable(game.TableOptions{
 				ID: "room-" + string(category) + strconv.FormatInt(boot, 10), Code: "ABC" + strconv.FormatInt(boot, 10),
 				Config: game.TableConfig{Category: category, BootAmount: boot, MaxPlayers: 5, MinPlayers: 2,
@@ -857,7 +858,7 @@ func TestTableGaugesRecountLiveTables(t *testing.T) {
 				Ledger: game.NewMemoryLedger(game.MemoryLedgerHooks{}),
 			})
 		}
-		tables = []*game.Table{mk(game.CategorySeen, 200), mk(game.CategoryBlind, 200), mk(game.CategoryBlind, 5000), mk(game.CategoryBlind, 5000)}
+		tables = []game.Room{mk(game.CategorySeen, 200), mk(game.CategoryBlind, 200), mk(game.CategoryBlind, 5000), mk(game.CategoryBlind, 5000)}
 	}()
 	t.Cleanup(func() {
 		for _, tb := range tables {

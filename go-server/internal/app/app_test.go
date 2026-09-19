@@ -17,6 +17,7 @@ import (
 	"github.com/surajk543/king-teenpatti/go-server/internal/config"
 	"github.com/surajk543/king-teenpatti/go-server/internal/db"
 	"github.com/surajk543/king-teenpatti/go-server/internal/db/dbtest"
+	"github.com/surajk543/king-teenpatti/go-server/internal/game"
 	"github.com/surajk543/king-teenpatti/go-server/internal/live"
 	"github.com/surajk543/king-teenpatti/go-server/internal/livetest"
 	"github.com/surajk543/king-teenpatti/go-server/internal/util"
@@ -464,6 +465,67 @@ func TestRoomsEndpoint(t *testing.T) {
 	for _, key := range []string{"categories", "stakes", "tables", "entryCapBoot", "entryCapCategory", "entryCapMaxChips", "privateBoot", "privateMaxPot"} {
 		if _, ok := out.Options[key]; !ok {
 			t.Errorf("options.%s missing", key)
+		}
+	}
+}
+
+// GET /api/rooms?category= filters by table category, and "variation" (Go
+// only; owner, 18 Sep 2026) is a category like the other two. Left out of the
+// handler's switch it would not have failed — it would have been "no filter",
+// and a question about variation tables would have been answered with every
+// table in the building. An unknown value, a value in the wrong case and a
+// repeated key are all still no filter, as they were before: this route never
+// folded an unknown category to seen the way a join does.
+func TestRoomsEndpointFiltersByEveryCategoryVariationIncluded(t *testing.T) {
+	a, _ := newApp(t, nil)
+	h := a.Handler()
+	want := map[string]string{}
+	for _, category := range []string{"seen", "blind", "variation"} {
+		table := a.Rooms().CreateTable(game.CreateTableOptions{BootAmount: 200, Category: category})
+		if string(table.Category()) != category {
+			t.Fatalf("a %s table was created as %q", category, table.Category())
+		}
+		want[category] = table.ID()
+	}
+	list := func(query string) map[string]string {
+		t.Helper()
+		res, body := get(t, h, http.MethodGet, "/api/rooms"+query, nil)
+		if res.StatusCode != http.StatusOK {
+			t.Fatalf("%s: status %d: %s", query, res.StatusCode, body)
+		}
+		var out struct {
+			Tables []struct {
+				RoomID   string `json:"roomId"`
+				Category string `json:"category"`
+			} `json:"tables"`
+		}
+		if err := json.Unmarshal(body, &out); err != nil {
+			t.Fatalf("%s: %v in %s", query, err, body)
+		}
+		got := map[string]string{}
+		for _, row := range out.Tables {
+			got[row.Category] = row.RoomID
+		}
+		if len(got) != len(out.Tables) {
+			t.Fatalf("%s listed a category twice: %s", query, body)
+		}
+		return got
+	}
+	for category, id := range want {
+		got := list("?category=" + category)
+		if len(got) != 1 || got[category] != id {
+			t.Errorf("?category=%s listed %v, want only the %s table %s", category, got, category, id)
+		}
+	}
+	for _, noFilter := range []string{"", "?category=", "?category=muflis", "?category=Variation", "?category=VARIATION", "?category=variation&category=variation", "?category=seen&category=variation"} {
+		got := list(noFilter)
+		if len(got) != 3 {
+			t.Errorf("%q must be no filter at all and list every table, listed %v", noFilter, got)
+		}
+		for category, id := range want {
+			if got[category] != id {
+				t.Errorf("%q lost the %s table: %v", noFilter, category, got)
+			}
 		}
 	}
 }

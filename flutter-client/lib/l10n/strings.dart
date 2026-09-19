@@ -193,6 +193,303 @@ class Strings {
   String get sideshowWith => _('sideshowWith');
   String get sideshowAsksYou => _('sideshowAsksYou');
   String get sideshowRunning => _('sideshowRunning');
+
+  // --- variation tables: the first player picks the rules of the hand
+  /// The category's name, on the lobby card and over the pot.
+  String get variation => _('variation');
+  String get variationTableNote => _('variationTableNote');
+
+  /// The lobby's two levels (owner, 18 Sep 2026): the categories first, then
+  /// one category's tables. [viewTables] is the category card's key, as
+  /// [tapToSit] is the table card's; [tablesLabel] and [openToYouLabel] are its
+  /// two facts; [backToCategories] is what the tile at the head of a
+  /// category's rail is called.
+  String get viewTables => _('viewTables');
+  String get tablesLabel => _('tablesLabel');
+  String get openToYouLabel => _('openToYouLabel');
+  String get backToCategories => _('backToCategories');
+
+  /// The rules sheet's second section (owner, 18 Sep 2026): what a variation
+  /// table is, above the variations, each named and explained by
+  /// [variationName] and [variationNote].
+  String get variationRulesTitle => _('variationRulesTitle');
+  String get variationRulesIntro => _('variationRulesIntro');
+
+  /// A table card's info popup (owner, 18 Sep 2026: "every table give an info
+  /// icon on the right top side … it tells all info"). The rows it shares with
+  /// the card reuse the card's own labels ([boot], [entryLabel],
+  /// [maxBlindsLabel], [potLimitLabel]).
+  String get tableInfoTitle => _('tableInfoTitle');
+  String get categoryLabel => _('categoryLabel');
+  String get playersLabel => _('playersLabel');
+  String get turnTimeLabel => _('turnTimeLabel');
+  String get yourChipsLabel => _('yourChipsLabel');
+  String get canSitHere => _('canSitHere');
+  String playersUpTo(int n) => _('playersUpTo').replaceFirst('{n}', '$n');
+  String secondsEach(int n) => _('secondsEach').replaceFirst('{n}', '$n');
+
+  /// A table card's rules key (owner, 18 Sep 2026: "one more icon on the card;
+  /// clicking it shows the rules according to the table he selected"): how THAT
+  /// table plays, one sentence a rule, with the table's own figures in them.
+  /// The word a table category goes by: SEEN, BLIND or VARIATION.
+  String variationOrCategory(String category) => switch (category) {
+    'blind' => blind,
+    'variation' => variation,
+    // The poker family, or one of its four games by name.
+    'poker' => poker,
+    'texas_holdem' ||
+    'omaha' ||
+    'five_card_draw' ||
+    'three_card_poker' => pokerVariantName(category),
+    _ => seen,
+  };
+
+  String get tableRulesTitle => _('tableRulesTitle');
+  String get tableRulesKey => _('tableRulesKey');
+  String ruleBlindMoves(int n) => _('ruleBlindMoves').replaceFirst('{n}', '$n');
+  String get ruleRaiseOnce => _('ruleRaiseOnce');
+  String get ruleRaiseFree => _('ruleRaiseFree');
+  String rulePotCapped(String pot) =>
+      _('rulePotCapped').replaceFirst('{pot}', pot);
+  String get rulePotOpen => _('rulePotOpen');
+  String get ruleRoundsEnd => _('ruleRoundsEnd');
+  String get ruleShowTwo => _('ruleShowTwo');
+  String get ruleVariationPick => _('ruleVariationPick');
+  String get variationChooseTitle => _('variationChooseTitle');
+
+  // 5-Card Teen Patti: the player chooses which three of their five play
+  // (owner, 19 Sep 2026).
+  String get pickTitle => _('pickTitle');
+  String get pickHint => _('pickHint');
+  String get pickConfirm => _('pickConfirm');
+  String get pickThreeCards => _('pickThreeCards');
+  String get pickWasBest => _('pickWasBest');
+  String get pickNotBest => _('pickNotBest');
+  String get pickTimedOut => _('pickTimedOut');
+  String get pickYouPlayed => _('pickYouPlayed');
+  String get pickTheBest => _('pickTheBest');
+
+  /// "Ravi is choosing cards…", for everyone waiting on a 5-Card chooser who
+  /// is also on turn (owner, 19 Sep 2026).
+  String pickChoosing(String name) =>
+      _('pickChoosing').replaceAll('{name}', name);
+
+  /// What everyone but the chooser reads in the middle of the table.
+  String variationSelectingBy(String name) =>
+      _('variationSelectingBy').replaceAll('{name}', name);
+
+  /// "Variation: AK47" — [variation] is already in the player's language.
+  String variationChosen(String variation) =>
+      _('variationChosen').replaceAll('{variation}', variation);
+
+  /// The server chose because nobody did (the clock, or the chooser leaving).
+  String get variationAutoChosen => _('variationAutoChosen');
+
+  /// The server chose because the chooser LEFT the table — the clock did not
+  /// run out, so saying that it did would be a small lie.
+  String variationLeftChosen(String name) =>
+      _('variationLeftChosen').replaceAll('{name}', name);
+  String get wildCard => _('wildCard');
+
+  /// A variation's name from its wire value. An unknown one — a server newer
+  /// than this build — is shown as sent rather than hidden.
+  String variationName(String wire) => switch (wire) {
+    'MUFLIS' => _('varMuflis'),
+    'AK47' => _('varAk47'),
+    'JOKER' => _('varJoker'),
+    'HUKAM' => _('varHukam'),
+    'LOWEST_JOKER' => _('varLowestJoker'),
+    'HIGHEST_JOKER' => _('varHighestJoker'),
+    'FIVE_CARD' => varFiveCard,
+    _ => wire,
+  };
+
+  /// One line on what the variation changes; empty for one this build does
+  /// not know.
+  String variationNote(String wire) => switch (wire) {
+    'MUFLIS' => _('varMuflisNote'),
+    'AK47' => _('varAk47Note'),
+    'JOKER' => _('varJokerNote'),
+    'HUKAM' => _('varHukamNote'),
+    'LOWEST_JOKER' => _('varLowestJokerNote'),
+    'HIGHEST_JOKER' => _('varHighestJokerNote'),
+    'FIVE_CARD' => varFiveCardNote,
+    _ => '',
+  };
+
+  /// 5-Card Teen Patti (owner, 18 Sep 2026): every player holds five cards
+  /// and the best three are played. The name is short because it is a picker
+  /// key, one of four across on a 640dp phone; the note is its one-line rule.
+  String get varFiveCard => _('varFiveCard');
+  String get varFiveCardNote => _('varFiveCardNote');
+
+  // --- the poker family (go-server/internal/poker): Texas Hold'em, Omaha,
+  // 5-Card Draw and 3-Card Poker, one lobby category between them
+
+  /// The category's name, on the lobby's front card.
+  String get poker => _('poker');
+
+  /// The front card's one line: the four games it holds.
+  String get pokerTableNote => _('pokerTableNote');
+
+  /// A poker game's name from its wire category. An unknown one — a server
+  /// newer than this build — is shown as sent rather than hidden.
+  String pokerVariantName(String wire) => switch (wire) {
+    'texas_holdem' => _('pokerTexasHoldem'),
+    'omaha' => _('pokerOmaha'),
+    'five_card_draw' => _('pokerFiveCardDraw'),
+    'three_card_poker' => _('pokerThreeCardPoker'),
+    _ => wire,
+  };
+
+  /// One line on how that game is played; empty for one this build does not
+  /// know.
+  String pokerVariantNote(String wire) => switch (wire) {
+    'texas_holdem' => _('pokerTexasHoldemNote'),
+    'omaha' => _('pokerOmahaNote'),
+    'five_card_draw' => _('pokerFiveCardDrawNote'),
+    'three_card_poker' => _('pokerThreeCardPokerNote'),
+    _ => '',
+  };
+
+  /// A poker table card's facts.
+  String get blindsLabel => _('blindsLabel');
+  String get anteLabel => _('anteLabel');
+
+  /// The same two as row titles in the table menu, beside "Your chips":
+  /// capitalised where the script has case.
+  String get blindsTitle => _('blindsTitle');
+  String get anteTitle => _('anteTitle');
+  String get buyInLabel => _('buyInLabel');
+  String get holeCardsLabel => _('holeCardsLabel');
+  String get maxDiscardsLabel => _('maxDiscardsLabel');
+  String buyInFrom(String min) => _('buyInFrom').replaceAll('{min}', min);
+
+  /// The keys.
+  String get fold => _('fold');
+  String get check => _('check');
+  String get call => _('call');
+  String get bet => _('bet');
+  String get raise => _('raise');
+  String get allIn => _('allIn');
+  String get play => _('play');
+  String get draw => _('draw');
+  String get standPat => _('standPat');
+
+  /// What the table says during a 5-Card Draw exchange and a 3-Card Poker
+  /// decision.
+  String exchangeUpTo(int n) => _('exchangeUpTo').replaceAll('{n}', '$n');
+  String get playOrFold => _('playOrFold');
+
+  /// 3-Card Poker's house hand.
+  String get dealerLabel => _('dealerLabel');
+  String get dealerQualifies => _('dealerQualifies');
+  String get dealerNotQualified => _('dealerNotQualified');
+
+  /// The result, for the viewer and on each pod.
+  String youWon(String amount) => _('youWon').replaceAll('{amount}', amount);
+  String get youLost => _('youLost');
+  String get outcomeWin => _('outcomeWin');
+  String get outcomeLose => _('outcomeLose');
+  String get push => _('push');
+
+  /// A 3-Card Poker outcome (`win`, `lose`, `push`) in words; empty for
+  /// none.
+  String pokerOutcome(String? outcome) => switch (outcome) {
+    'win' => outcomeWin,
+    'lose' => outcomeLose,
+    'push' => push,
+    _ => '',
+  };
+
+  String get potLabel => _('potLabel');
+  String get sidePotLabel => _('sidePotLabel');
+  String get boardLabel => _('boardLabel');
+
+  /// A street's name for the tag over the pot; the wire value for one this
+  /// build does not know, and empty between hands.
+  String pokerStreetName(String street) => switch (street) {
+    'preflop' => _('streetPreflop'),
+    'flop' => _('streetFlop'),
+    'turn' => _('streetTurn'),
+    'river' => _('streetRiver'),
+    'predraw' => _('streetPredraw'),
+    'draw' => _('streetDraw'),
+    'postdraw' => _('streetPostdraw'),
+    'decision' => _('streetDecision'),
+    'showdown' => _('streetShowdown'),
+    _ => street,
+  };
+
+  /// Said to the player whose clock folded their hand.
+  String get pokerTimedOut => _('pokerTimedOut');
+
+  /// The rules sheet's poker section: the five-card ranking, strongest
+  /// first, and the two rules that differ by game.
+  String get pokerRulesTitle => _('pokerRulesTitle');
+  String get pokerRulesIntro => _('pokerRulesIntro');
+  String pokerRankName(String key) => switch (key) {
+    'royalFlush' => _('pokerRankRoyalFlush'),
+    'straightFlush' => _('pokerRankStraightFlush'),
+    'fourOfAKind' => _('pokerRankFourOfAKind'),
+    'fullHouse' => _('pokerRankFullHouse'),
+    'flush' => _('pokerRankFlush'),
+    'straight' => _('pokerRankStraight'),
+    'threeOfAKind' => _('pokerRankThreeOfAKind'),
+    'twoPair' => _('pokerRankTwoPair'),
+    'pair' => _('pokerRankPair'),
+    'highCard' => _('pokerRankHighCard'),
+    _ => key,
+  };
+  String get pokerThreeCardRanking => _('pokerThreeCardRanking');
+
+  /// How a poker table plays, a sentence a rule, with the table's own figures.
+  String rulePokerBlinds(String small, String big) => _(
+    'rulePokerBlinds',
+  ).replaceAll('{small}', small).replaceAll('{big}', big);
+  String rulePokerAnte(String ante) =>
+      _('rulePokerAnte').replaceAll('{ante}', ante);
+  String rulePokerBuyIn(String min) =>
+      _('rulePokerBuyIn').replaceAll('{min}', min);
+  String rulePokerHoleCards(int n) =>
+      _('rulePokerHoleCards').replaceAll('{n}', '$n');
+  String get rulePokerHoldemWin => _('rulePokerHoldemWin');
+  String get rulePokerOmahaWin => _('rulePokerOmahaWin');
+  String rulePokerDrawWin(int n) =>
+      _('rulePokerDrawWin').replaceAll('{n}', '$n');
+  String get rulePokerThreeCardWin => _('rulePokerThreeCardWin');
+  String get rulePokerDealerQualifies => _('rulePokerDealerQualifies');
+  String get rulePokerBestHandWins => _('rulePokerBestHandWins');
+
+  /// Enough of each game to play it: the streets in order, that a bet names
+  /// the total for the street, and 3-Card Poker's second bet.
+  String get rulePokerStreets => _('rulePokerStreets');
+  String get rulePokerBetTo => _('rulePokerBetTo');
+  String get rulePokerDrawStreets => _('rulePokerDrawStreets');
+  String get rulePokerPlayBet => _('rulePokerPlayBet');
+  String get rulePokerThreeCardRuns => _('rulePokerThreeCardRuns');
+
+  /// The ranking shown on ONE poker table's own sheet: five cards at
+  /// Hold'em, Omaha and 5-Card Draw, three at 3-Card Poker.
+  String get pokerTableRankingTitle => _('pokerTableRankingTitle');
+  String get pokerTableRankingIntro => _('pokerTableRankingIntro');
+  String get pokerThreeCardRankingIntro => _('pokerThreeCardRankingIntro');
+
+  /// The poker server's refusals, by code, in the player's language; null
+  /// for a code this has no words for, which keeps the server's sentence.
+  String? pokerRefusal(String? code) => switch (code) {
+    'not_your_turn' => _('refuseNotYourTurn'),
+    'invalid_action' => _('refuseInvalidAction'),
+    'invalid_amount' => _('refuseInvalidAmount'),
+    'invalid_discard' => _('refuseInvalidDiscard'),
+    'insufficient_chips' => _('refuseInsufficientChips'),
+    'no_hand' => _('refuseNoHand'),
+    'not_in_hand' => _('refuseNotInHand'),
+    'wrong_game' => _('refuseWrongGame'),
+    'duplicate_action' => _('refuseDuplicateAction'),
+    'unknown_action' => _('refuseUnknownAction'),
+    _ => null,
+  };
   String get accept => _('accept');
   String get decline => _('decline');
   String get sideshowDeclined => _('sideshowDeclined');
@@ -759,6 +1056,70 @@ class Strings {
       'sideshow': 'Sideshow',
       'sideshowWith': 'Compare with',
       'sideshowAsksYou': 'wants to compare hands with you',
+      // variation tables: the first player picks the rules of the hand
+      'variation': 'VARIATION',
+      'variationTableNote': 'First player picks each hand\'s rules',
+      'viewTables': 'View tables',
+      'tablesLabel': 'tables',
+      'openToYouLabel': 'open to you',
+      'backToCategories': 'All games',
+      'variationRulesTitle': 'Variation tables',
+      'tableInfoTitle': 'Table info',
+      'tableRulesTitle': 'How this table plays',
+      'tableRulesKey': 'Table rules',
+      'ruleBlindMoves':
+          'You can bet blind up to {n} times; after that your cards open for you.',
+      'ruleRaiseOnce': 'On your turn: chaal, or raise once to double.',
+      'ruleRaiseFree':
+          'On your turn: chaal, or keep doubling the raise as far as your chips go.',
+      'rulePotCapped':
+          'When the pot reaches {pot}, every hand is shown and the best one wins.',
+      'rulePotOpen': 'The pot has no limit.',
+      'ruleRoundsEnd':
+          'If the betting runs all its rounds, every hand is shown and the best one wins.',
+      'ruleShowTwo':
+          'When only two players are left, either can pay for a show.',
+      'ruleVariationPick':
+          'The first player to act has 10 seconds to choose how the hand is decided; otherwise it is Muflis.',
+      'categoryLabel': 'game',
+      'playersLabel': 'players',
+      'turnTimeLabel': 'turn time',
+      'yourChipsLabel': 'your chips',
+      'canSitHere': 'You can sit at this table.',
+      'playersUpTo': 'Up to {n}',
+      'secondsEach': '{n} seconds',
+      'variationRulesIntro':
+          'The first player to act has 10 seconds to choose how the hand is decided; if they do not, it is Muflis. A wild card counts as whichever card makes your hand best. Other players\' chips are hidden and the pot has no limit.',
+      'variationChooseTitle': 'Choose Variation',
+      'pickTitle': 'Choose your three',
+      'pickHint': 'Tap three of your five cards to play',
+      'pickConfirm': 'Play these three',
+      'pickThreeCards': 'Choose exactly three of your own cards',
+      'pickWasBest': 'You played the best combination',
+      'pickNotBest': 'You played this. The best was:',
+      'pickTimedOut': 'Time ran out — your first three were played',
+      'pickYouPlayed': 'You played',
+      'pickTheBest': 'Best',
+      'pickChoosing': '{name} is choosing cards…',
+      'variationSelectingBy': '{name} is selecting variation…',
+      'variationChosen': 'Variation: {variation}',
+      'variationLeftChosen': '{name} left the table — Muflis was chosen',
+      'variationAutoChosen': 'Time ran out — Muflis was chosen',
+      'varMuflis': 'Muflis',
+      'varAk47': 'AK47',
+      'varJoker': 'Joker',
+      'varHukam': 'Hukam',
+      'varLowestJoker': 'Lowest Joker',
+      'varHighestJoker': 'Highest Joker',
+      'varFiveCard': '5-Card',
+      'varMuflisNote': 'Lowest hand wins',
+      'varAk47Note': 'A, K, 4 and 7 are wild',
+      'varJokerNote': 'The turned-up rank is wild',
+      'varHukamNote': 'The turned-up suit is wild',
+      'varLowestJokerNote': 'Your lowest card is wild',
+      'varHighestJokerNote': 'Your highest card is wild',
+      'varFiveCardNote': 'Best 3 of your 5 cards',
+      'wildCard': 'Wild',
       'sideshowRunning': 'Sideshow',
       'accept': 'Accept',
       'decline': 'Decline',
@@ -995,6 +1356,124 @@ class Strings {
       'entryFrom': '{min} or more',
       'useSocialPicture': 'Use my Google or Facebook picture',
       'guestNoSocial': 'Sign in with Google or Facebook to use your own photo.',
+
+      // --- the poker family
+      'poker': 'POKER',
+      'pokerTableNote': "Hold'em, Omaha, 5-Card Draw and 3-Card Poker",
+      'pokerTexasHoldem': "Texas Hold'em",
+      'pokerOmaha': 'Omaha',
+      'pokerFiveCardDraw': '5-Card Draw',
+      'pokerThreeCardPoker': '3-Card Poker',
+      'pokerTexasHoldemNote': 'Two cards each, five on the board',
+      'pokerOmahaNote': 'Four cards each, play exactly two of them',
+      'pokerFiveCardDrawNote':
+          'Five cards each, exchange the ones you do not want',
+      'pokerThreeCardPokerNote': 'Three cards each, against the dealer',
+      'blindsLabel': 'blinds',
+      'anteLabel': 'ante',
+      'blindsTitle': 'Blinds',
+      'anteTitle': 'Ante',
+      'buyInLabel': 'buy-in',
+      'holeCardsLabel': 'cards each',
+      'maxDiscardsLabel': 'exchange up to',
+      'buyInFrom': 'from {min}',
+      'fold': 'Fold',
+      'check': 'Check',
+      'call': 'Call',
+      'bet': 'Bet',
+      'raise': 'Raise',
+      'allIn': 'All-in',
+      'play': 'Play',
+      'draw': 'Draw',
+      'standPat': 'Stand pat',
+      'exchangeUpTo': 'Choose up to {n} cards to exchange',
+      'playOrFold': 'Play or fold?',
+      'dealerLabel': 'Dealer',
+      'dealerQualifies': 'Dealer qualifies',
+      'dealerNotQualified': 'Dealer does not qualify',
+      'youWon': 'You won {amount}',
+      'youLost': 'You lost',
+      'outcomeWin': 'Win',
+      'outcomeLose': 'Lose',
+      'push': 'Push',
+      'potLabel': 'Pot',
+      'sidePotLabel': 'Side pot',
+      'boardLabel': 'Board',
+      'streetPreflop': 'Pre-flop',
+      'streetFlop': 'Flop',
+      'streetTurn': 'Turn',
+      'streetRiver': 'River',
+      'streetPredraw': 'Before the draw',
+      'streetDraw': 'Draw',
+      'streetPostdraw': 'After the draw',
+      'streetDecision': 'Decision',
+      'streetShowdown': 'Showdown',
+      'pokerTimedOut': 'Your time ran out and your hand was folded',
+      'pokerRulesTitle': 'Poker tables',
+      'pokerRulesIntro':
+          'Four poker games, all scored by the same five-card ranking. A hand '
+          'is the best five cards you can make.',
+      'pokerRankRoyalFlush': 'Royal Flush',
+      'pokerRankStraightFlush': 'Straight Flush',
+      'pokerRankFourOfAKind': 'Four of a Kind',
+      'pokerRankFullHouse': 'Full House',
+      'pokerRankFlush': 'Flush',
+      'pokerRankStraight': 'Straight',
+      'pokerRankThreeOfAKind': 'Three of a Kind',
+      'pokerRankTwoPair': 'Two Pair',
+      'pokerRankPair': 'Pair',
+      'pokerRankHighCard': 'High Card',
+      'pokerThreeCardRanking':
+          'In 3-Card Poker a straight beats a flush, and three of a kind beats '
+          'both.',
+      'rulePokerBlinds': 'Blinds of {small} and {big} start every hand',
+      'rulePokerAnte': 'Everyone puts in an ante of {ante} before the deal',
+      'rulePokerBuyIn': 'Sit down with at least {min}',
+      'rulePokerHoleCards': 'Each player is dealt {n} cards',
+      'rulePokerHoldemWin':
+          'Make your best five from your two cards and the five on the board',
+      'rulePokerOmahaWin':
+          'Exactly two of your four cards and three from the board make the '
+          'hand',
+      'rulePokerDrawWin': 'Bet, exchange up to {n} cards once, then bet again',
+      'rulePokerThreeCardWin':
+          "Play for the ante or fold; your three cards are compared with the "
+          "dealer's",
+      'rulePokerDealerQualifies':
+          'The dealer needs Queen-high to play; if not, your play bet comes '
+          'back and your ante wins',
+      'rulePokerBestHandWins':
+          'The best hand at the showdown takes the pot; the last player '
+          'standing takes it without one',
+      'rulePokerStreets':
+          'Betting runs pre-flop, then again on the flop, the turn and the '
+          'river',
+      'rulePokerBetTo':
+          'A bet or a raise names the TOTAL you want in for this street, not '
+          'the amount on top of it',
+      'rulePokerDrawStreets':
+          'Bet once before the draw and once after it',
+      'rulePokerPlayBet':
+          'Playing costs a second bet the size of the ante; folding leaves '
+          'your ante with the house',
+      'pokerTableRankingTitle': 'What beats what here',
+      'pokerTableRankingIntro':
+          'Your hand is the best five cards you can make, ranked like this.',
+      'pokerThreeCardRankingIntro':
+          'Three cards each, on their own ladder — not the five-card order, '
+          'and not Teen Patti\'s.',
+      'rulePokerThreeCardRuns':
+          'A-K-Q is the best run and A-2-3 the lowest',
+      'refuseNotYourTurn': 'It is not your turn',
+      'refuseInvalidAction': 'That move is not allowed right now',
+      'refuseInvalidAmount': 'That amount is not allowed',
+      'refuseInvalidDiscard': 'Those cards cannot be exchanged',
+      'refuseInsufficientChips': 'Not enough chips for that',
+      'refuseNoHand': 'No hand is being played',
+      'refuseNotInHand': 'You are not in this hand',
+      'refuseWrongGame': 'That move belongs to another game',
+      'refuseDuplicateAction': 'That move was already sent',
+      'refuseUnknownAction': 'That move is not one the table knows',
     },
     'hi': {
       'signInSubtitle': 'खेलने के लिए साइन इन करें।',
@@ -1118,6 +1597,70 @@ class Strings {
       'sideshow': 'साइडशो',
       'sideshowWith': 'तुलना करें',
       'sideshowAsksYou': 'आपके साथ पत्ते मिलाना चाहता है',
+      // variation tables: the first player picks the rules of the hand
+      'variation': 'वेरिएशन',
+      'variationTableNote': 'हर हाथ के नियम पहला खिलाड़ी चुनता है',
+      'viewTables': 'टेबल देखें',
+      'tablesLabel': 'टेबल',
+      'openToYouLabel': 'आपके लिए खुली',
+      'backToCategories': 'सभी खेल',
+      'variationRulesTitle': 'वेरिएशन टेबल',
+      'tableInfoTitle': 'टेबल की जानकारी',
+      'tableRulesTitle': 'यह टेबल कैसे खेली जाती है',
+      'tableRulesKey': 'टेबल के नियम',
+      'ruleBlindMoves':
+          'आप {n} बार तक ब्लाइंड चाल चल सकते हैं; उसके बाद आपके पत्ते आपके लिए खुल जाते हैं।',
+      'ruleRaiseOnce': 'अपनी बारी पर: चाल, या एक बार दुगना रेज़।',
+      'ruleRaiseFree':
+          'अपनी बारी पर: चाल, या जितने चिप्स हों उतना दुगना करते जाएँ।',
+      'rulePotCapped':
+          'पॉट {pot} पहुँचते ही सभी हाथ दिखाए जाते हैं और सबसे अच्छा हाथ जीतता है।',
+      'rulePotOpen': 'पॉट की कोई सीमा नहीं है।',
+      'ruleRoundsEnd':
+          'सारे राउंड पूरे हो जाएँ तो सभी हाथ दिखाए जाते हैं और सबसे अच्छा हाथ जीतता है।',
+      'ruleShowTwo':
+          'जब सिर्फ़ दो खिलाड़ी बचें, तो कोई भी शो के लिए भुगतान कर सकता है।',
+      'ruleVariationPick':
+          'पहली चाल वाले खिलाड़ी के पास 10 सेकंड होते हैं यह चुनने के लिए कि हाथ कैसे तय होगा; वरना मुफ़लिस।',
+      'categoryLabel': 'खेल',
+      'playersLabel': 'खिलाड़ी',
+      'turnTimeLabel': 'चाल का समय',
+      'yourChipsLabel': 'आपके चिप्स',
+      'canSitHere': 'आप इस टेबल पर बैठ सकते हैं।',
+      'playersUpTo': '{n} तक',
+      'secondsEach': '{n} सेकंड',
+      'variationRulesIntro':
+          'पहली चाल वाले खिलाड़ी के पास यह चुनने के लिए 10 सेकंड होते हैं कि हाथ किस नियम से तय होगा; न चुनने पर मुफ़लिस खेला जाता है। जोकर पत्ता वही पत्ता माना जाता है जिससे आपका हाथ सबसे अच्छा बने। दूसरों के चिप्स छिपे रहते हैं और पॉट की कोई सीमा नहीं है।',
+      'variationChooseTitle': 'वेरिएशन चुनें',
+      'pickTitle': 'अपने तीन कार्ड चुनें',
+      'pickHint': 'खेलने के लिए अपने पाँच में से तीन कार्ड चुनें',
+      'pickConfirm': 'ये तीन खेलें',
+      'pickThreeCards': 'अपने ही तीन कार्ड चुनें',
+      'pickWasBest': 'आपने सबसे अच्छा संयोजन खेला',
+      'pickNotBest': 'आपने यह खेला। सबसे अच्छा यह था:',
+      'pickTimedOut': 'समय समाप्त — आपके पहले तीन कार्ड खेले गए',
+      'pickYouPlayed': 'आपने खेला',
+      'pickTheBest': 'सबसे अच्छा',
+      'pickChoosing': '{name} कार्ड चुन रहे हैं…',
+      'variationSelectingBy': '{name} वेरिएशन चुन रहे हैं…',
+      'variationChosen': 'वेरिएशन: {variation}',
+      'variationLeftChosen': '{name} टेबल छोड़ गए — मुफ़लिस चुना गया',
+      'variationAutoChosen': 'समय समाप्त — मुफ़लिस चुना गया',
+      'varMuflis': 'मुफ़लिस',
+      'varAk47': 'AK47',
+      'varJoker': 'जोकर',
+      'varHukam': 'हुकुम',
+      'varLowestJoker': 'सबसे छोटा जोकर',
+      'varHighestJoker': 'सबसे बड़ा जोकर',
+      'varFiveCard': '5-पत्ती',
+      'varMuflisNote': 'सबसे कमज़ोर हाथ जीतता है',
+      'varAk47Note': 'A, K, 4 और 7 जोकर हैं',
+      'varJokerNote': 'खुले पत्ते की रैंक जोकर है',
+      'varHukamNote': 'खुले पत्ते का रंग जोकर है',
+      'varLowestJokerNote': 'आपका सबसे छोटा पत्ता जोकर है',
+      'varHighestJokerNote': 'आपका सबसे बड़ा पत्ता जोकर है',
+      'varFiveCardNote': 'आपके 5 पत्तों में से सबसे अच्छे 3',
+      'wildCard': 'जोकर',
       'sideshowRunning': 'साइडशो',
       'accept': 'स्वीकारें',
       'decline': 'मना करें',
@@ -1347,6 +1890,113 @@ class Strings {
       'useSocialPicture': 'मेरी Google या Facebook तस्वीर लगाएँ',
       'guestNoSocial':
           'अपनी तस्वीर लगाने के लिए Google या Facebook से साइन इन करें।',
+
+      // --- the poker family
+      'poker': 'पोकर',
+      'pokerTableNote': 'होल्डम, ओमाहा, 5-कार्ड ड्रॉ और 3-कार्ड पोकर',
+      'pokerTexasHoldem': 'टेक्सस होल्डम',
+      'pokerOmaha': 'ओमाहा',
+      'pokerFiveCardDraw': '5-कार्ड ड्रॉ',
+      'pokerThreeCardPoker': '3-कार्ड पोकर',
+      'pokerTexasHoldemNote': 'हर एक को दो पत्ते, बोर्ड पर पाँच',
+      'pokerOmahaNote': 'हर एक को चार पत्ते, उनमें से ठीक दो खेलें',
+      'pokerFiveCardDrawNote': 'हर एक को पाँच पत्ते, जो नहीं चाहिए उन्हें बदलें',
+      'pokerThreeCardPokerNote': 'हर एक को तीन पत्ते, डीलर के खिलाफ़',
+      'blindsLabel': 'ब्लाइंड्स',
+      'anteLabel': 'एंटी',
+      'blindsTitle': 'ब्लाइंड्स',
+      'anteTitle': 'एंटी',
+      'buyInLabel': 'बाय-इन',
+      'holeCardsLabel': 'हर एक को पत्ते',
+      'maxDiscardsLabel': 'अधिकतम बदलें',
+      'buyInFrom': '{min} से',
+      'fold': 'फ़ोल्ड',
+      'check': 'चेक',
+      'call': 'कॉल',
+      'bet': 'बेट',
+      'raise': 'रेज़',
+      'allIn': 'ऑल-इन',
+      'play': 'प्ले',
+      'draw': 'ड्रॉ',
+      'standPat': 'पत्ते रखें',
+      'exchangeUpTo': 'बदलने के लिए {n} तक पत्ते चुनें',
+      'playOrFold': 'प्ले या फ़ोल्ड?',
+      'dealerLabel': 'डीलर',
+      'dealerQualifies': 'डीलर क्वालिफ़ाई',
+      'dealerNotQualified': 'डीलर क्वालिफ़ाई नहीं',
+      'youWon': 'आपने {amount} जीते',
+      'youLost': 'आप हारे',
+      'outcomeWin': 'जीत',
+      'outcomeLose': 'हार',
+      'push': 'बराबर',
+      'potLabel': 'पॉट',
+      'sidePotLabel': 'साइड पॉट',
+      'boardLabel': 'बोर्ड',
+      'streetPreflop': 'प्री-फ़्लॉप',
+      'streetFlop': 'फ़्लॉप',
+      'streetTurn': 'टर्न',
+      'streetRiver': 'रिवर',
+      'streetPredraw': 'ड्रॉ से पहले',
+      'streetDraw': 'ड्रॉ',
+      'streetPostdraw': 'ड्रॉ के बाद',
+      'streetDecision': 'फ़ैसला',
+      'streetShowdown': 'शोडाउन',
+      'pokerTimedOut': 'आपका समय खत्म हो गया और आपका हाथ फ़ोल्ड हो गया',
+      'pokerRulesTitle': 'पोकर टेबल',
+      'pokerRulesIntro':
+          'चार पोकर खेल, सब एक ही पाँच-पत्ती रैंकिंग से आँके जाते हैं। हाथ वह '
+          'सबसे अच्छे पाँच पत्ते हैं जो आप बना सकें।',
+      'pokerRankRoyalFlush': 'रॉयल फ़्लश',
+      'pokerRankStraightFlush': 'स्ट्रेट फ़्लश',
+      'pokerRankFourOfAKind': 'फ़ोर ऑफ़ अ काइंड',
+      'pokerRankFullHouse': 'फ़ुल हाउस',
+      'pokerRankFlush': 'फ़्लश',
+      'pokerRankStraight': 'स्ट्रेट',
+      'pokerRankThreeOfAKind': 'थ्री ऑफ़ अ काइंड',
+      'pokerRankTwoPair': 'टू पेयर',
+      'pokerRankPair': 'पेयर',
+      'pokerRankHighCard': 'हाई कार्ड',
+      'pokerThreeCardRanking':
+          '3-कार्ड पोकर में स्ट्रेट फ़्लश से बड़ा है, और थ्री ऑफ़ अ काइंड दोनों से।',
+      'rulePokerBlinds': 'हर हाथ {small} और {big} के ब्लाइंड्स से शुरू होता है',
+      'rulePokerAnte': 'बाँटने से पहले हर कोई {ante} की एंटी लगाता है',
+      'rulePokerBuyIn': 'कम से कम {min} लेकर बैठें',
+      'rulePokerHoleCards': 'हर खिलाड़ी को {n} पत्ते बाँटे जाते हैं',
+      'rulePokerHoldemWin':
+          'अपने दो पत्तों और बोर्ड के पाँच से अपने सबसे अच्छे पाँच बनाएँ',
+      'rulePokerOmahaWin':
+          'आपके चार में से ठीक दो पत्ते और बोर्ड के तीन से हाथ बनता है',
+      'rulePokerDrawWin': 'बेट करें, एक बार {n} तक पत्ते बदलें, फिर दोबारा बेट करें',
+      'rulePokerThreeCardWin':
+          'एंटी के बराबर प्ले करें या फ़ोल्ड; आपके तीन पत्ते डीलर से मिलाए जाते हैं',
+      'rulePokerDealerQualifies':
+          'डीलर को खेलने के लिए क्वीन-हाई चाहिए; न हो तो आपका प्ले बेट वापस और '
+          'एंटी जीतती है',
+      'rulePokerBestHandWins':
+          'शोडाउन में सबसे अच्छा हाथ पॉट लेता है; अकेला बचा खिलाड़ी बिना शोडाउन के',
+      'rulePokerStreets':
+          'दांव प्री-फ्लॉप, फिर फ्लॉप, टर्न और रिवर पर लगते हैं',
+      'rulePokerBetTo':
+          'बेट या रेज़ इस स्ट्रीट के लिए आपकी कुल रकम बताता है, ऊपर से जोड़ी गई रकम नहीं',
+      'rulePokerDrawStreets': 'ड्रॉ से पहले एक बार और उसके बाद एक बार दांव',
+      'rulePokerPlayBet':
+          'प्ले करने पर एंटी जितना दूसरा दांव लगता है; फ़ोल्ड करने पर एंटी घर के पास रह जाती है',
+      'pokerTableRankingTitle': 'यहाँ क्या किससे बड़ा है',
+      'pokerTableRankingIntro':
+          'आपका हाथ आपके सबसे अच्छे पाँच पत्ते होते हैं, इस क्रम में।',
+      'pokerThreeCardRankingIntro':
+          'हर एक को तीन पत्ते, अपनी अलग सीढ़ी पर — न पाँच पत्तों का क्रम, न तीन पत्ती का।',
+      'rulePokerThreeCardRuns': 'A-K-Q सबसे बड़ी रन है और A-2-3 सबसे छोटी',
+      'refuseNotYourTurn': 'आपकी बारी नहीं है',
+      'refuseInvalidAction': 'यह चाल अभी नहीं चल सकती',
+      'refuseInvalidAmount': 'यह रकम मान्य नहीं है',
+      'refuseInvalidDiscard': 'ये पत्ते बदले नहीं जा सकते',
+      'refuseInsufficientChips': 'इसके लिए चिप्स काफ़ी नहीं हैं',
+      'refuseNoHand': 'अभी कोई हाथ नहीं चल रहा',
+      'refuseNotInHand': 'आप इस हाथ में नहीं हैं',
+      'refuseWrongGame': 'यह चाल किसी और खेल की है',
+      'refuseDuplicateAction': 'यह चाल पहले ही भेजी जा चुकी है',
+      'refuseUnknownAction': 'यह चाल टेबल नहीं जानती',
     },
     'bn': {
       'signInSubtitle': 'খেলতে সাইন ইন করুন।',
@@ -1472,6 +2122,69 @@ class Strings {
       'sideshow': 'সাইডশো',
       'sideshowWith': 'তুলনা করুন',
       'sideshowAsksYou': 'আপনার সঙ্গে তাস মেলাতে চায়',
+      // variation tables: the first player picks the rules of the hand
+      'variation': 'ভেরিয়েশন',
+      'variationTableNote': 'প্রতিটি হাতের নিয়ম প্রথম খেলোয়াড় বেছে নেন',
+      'viewTables': 'টেবিল দেখুন',
+      'tablesLabel': 'টেবিল',
+      'openToYouLabel': 'আপনার জন্য খোলা',
+      'backToCategories': 'সব খেলা',
+      'variationRulesTitle': 'ভেরিয়েশন টেবিল',
+      'tableInfoTitle': 'টেবিলের তথ্য',
+      'tableRulesTitle': 'এই টেবিল যেভাবে খেলা হয়',
+      'tableRulesKey': 'টেবিলের নিয়ম',
+      'ruleBlindMoves':
+          'আপনি {n} বার পর্যন্ত ব্লাইন্ড চাল দিতে পারেন; তারপর আপনার তাস আপনার জন্য খুলে যায়।',
+      'ruleRaiseOnce': 'নিজের পালায়: চাল, অথবা একবার দ্বিগুণ রেইজ।',
+      'ruleRaiseFree':
+          'নিজের পালায়: চাল, অথবা চিপস যতদূর যায় ততবার দ্বিগুণ করুন।',
+      'rulePotCapped': 'পট {pot} হলে সব হাত দেখানো হয় এবং সেরা হাত জেতে।',
+      'rulePotOpen': 'পটের কোনো সীমা নেই।',
+      'ruleRoundsEnd': 'সব রাউন্ড শেষ হলে সব হাত দেখানো হয় এবং সেরা হাত জেতে।',
+      'ruleShowTwo':
+          'মাত্র দুজন খেলোয়াড় বাকি থাকলে যে কেউ শো-এর জন্য দিতে পারেন।',
+      'ruleVariationPick':
+          'প্রথম চালের খেলোয়াড় ১০ সেকেন্ড সময় পান হাত কীভাবে ঠিক হবে তা বাছতে; নইলে মুফলিস।',
+      'categoryLabel': 'খেলা',
+      'playersLabel': 'খেলোয়াড়',
+      'turnTimeLabel': 'চালের সময়',
+      'yourChipsLabel': 'আপনার চিপস',
+      'canSitHere': 'আপনি এই টেবিলে বসতে পারেন।',
+      'playersUpTo': '{n} জন পর্যন্ত',
+      'secondsEach': '{n} সেকেন্ড',
+      'variationRulesIntro':
+          'প্রথম চালের খেলোয়াড় ১০ সেকেন্ড সময় পান হাতটি কোন নিয়মে ঠিক হবে তা বেছে নিতে; না বাছলে মুফলিস খেলা হয়। জোকার তাস সেই তাস হিসেবে গণ্য হয় যাতে আপনার হাত সবচেয়ে ভালো হয়। অন্যদের চিপস লুকানো থাকে এবং পটের কোনো সীমা নেই।',
+      'variationChooseTitle': 'ভেরিয়েশন বেছে নিন',
+      'pickTitle': 'আপনার তিনটি কার্ড বাছুন',
+      'pickHint': 'খেলার জন্য আপনার পাঁচটি থেকে তিনটি কার্ড বাছুন',
+      'pickConfirm': 'এই তিনটি খেলুন',
+      'pickThreeCards': 'নিজের তিনটি কার্ডই বাছুন',
+      'pickWasBest': 'আপনি সেরা কম্বিনেশনটি খেলেছেন',
+      'pickNotBest': 'আপনি এটি খেলেছেন। সেরা ছিল:',
+      'pickTimedOut': 'সময় শেষ — আপনার প্রথম তিনটি কার্ড খেলা হয়েছে',
+      'pickYouPlayed': 'আপনি খেলেছেন',
+      'pickTheBest': 'সেরা',
+      'pickChoosing': '{name} কার্ড বাছছেন…',
+      'variationSelectingBy': '{name} ভেরিয়েশন বেছে নিচ্ছেন…',
+      'variationChosen': 'ভেরিয়েশন: {variation}',
+      'variationLeftChosen':
+          '{name} টেবিল ছেড়ে গেছেন — মুফলিস বেছে নেওয়া হলো',
+      'variationAutoChosen': 'সময় শেষ — মুফলিস বেছে নেওয়া হলো',
+      'varMuflis': 'মুফলিস',
+      'varAk47': 'AK47',
+      'varJoker': 'জোকার',
+      'varHukam': 'হুকুম',
+      'varLowestJoker': 'সবচেয়ে ছোট জোকার',
+      'varHighestJoker': 'সবচেয়ে বড় জোকার',
+      'varFiveCard': '৫-তাস',
+      'varMuflisNote': 'সবচেয়ে দুর্বল হাত জেতে',
+      'varAk47Note': 'A, K, 4 ও 7 জোকার',
+      'varJokerNote': 'খোলা তাসের র‍্যাঙ্ক জোকার',
+      'varHukamNote': 'খোলা তাসের রং জোকার',
+      'varLowestJokerNote': 'আপনার সবচেয়ে ছোট তাস জোকার',
+      'varHighestJokerNote': 'আপনার সবচেয়ে বড় তাস জোকার',
+      'varFiveCardNote': 'আপনার ৫ তাসের সেরা ৩টি',
+      'wildCard': 'জোকার',
       'sideshowRunning': 'সাইডশো',
       'accept': 'গ্রহণ করুন',
       'decline': 'প্রত্যাখ্যান',
@@ -1705,6 +2418,115 @@ class Strings {
       'useSocialPicture': 'আমার Google বা Facebook ছবি ব্যবহার করুন',
       'guestNoSocial':
           'নিজের ছবি ব্যবহার করতে Google বা Facebook দিয়ে সাইন ইন করুন।',
+
+      // --- the poker family
+      'poker': 'পোকার',
+      'pokerTableNote': 'হোল্ডেম, ওমাহা, ৫-কার্ড ড্র ও ৩-কার্ড পোকার',
+      'pokerTexasHoldem': 'টেক্সাস হোল্ডেম',
+      'pokerOmaha': 'ওমাহা',
+      'pokerFiveCardDraw': '৫-কার্ড ড্র',
+      'pokerThreeCardPoker': '৩-কার্ড পোকার',
+      'pokerTexasHoldemNote': 'প্রত্যেকের দুটি তাস, বোর্ডে পাঁচটি',
+      'pokerOmahaNote': 'প্রত্যেকের চারটি তাস, তার ঠিক দুটি খেলুন',
+      'pokerFiveCardDrawNote': 'প্রত্যেকের পাঁচটি তাস, যেগুলো চান না বদলে নিন',
+      'pokerThreeCardPokerNote': 'প্রত্যেকের তিনটি তাস, ডিলারের বিরুদ্ধে',
+      'blindsLabel': 'ব্লাইন্ডস',
+      'anteLabel': 'অ্যান্টি',
+      'blindsTitle': 'ব্লাইন্ডস',
+      'anteTitle': 'অ্যান্টি',
+      'buyInLabel': 'বাই-ইন',
+      'holeCardsLabel': 'প্রত্যেকের তাস',
+      'maxDiscardsLabel': 'সর্বোচ্চ বদল',
+      'buyInFrom': '{min} থেকে',
+      'fold': 'ফোল্ড',
+      'check': 'চেক',
+      'call': 'কল',
+      'bet': 'বেট',
+      'raise': 'রেইজ',
+      'allIn': 'অল-ইন',
+      'play': 'প্লে',
+      'draw': 'ড্র',
+      'standPat': 'তাস রাখুন',
+      'exchangeUpTo': 'বদলাতে {n}টি পর্যন্ত তাস বেছে নিন',
+      'playOrFold': 'প্লে না ফোল্ড?',
+      'dealerLabel': 'ডিলার',
+      'dealerQualifies': 'ডিলার কোয়ালিফাই',
+      'dealerNotQualified': 'ডিলার কোয়ালিফাই নয়',
+      'youWon': 'আপনি {amount} জিতেছেন',
+      'youLost': 'আপনি হেরেছেন',
+      'outcomeWin': 'জয়',
+      'outcomeLose': 'হার',
+      'push': 'সমান',
+      'potLabel': 'পট',
+      'sidePotLabel': 'সাইড পট',
+      'boardLabel': 'বোর্ড',
+      'streetPreflop': 'প্রি-ফ্লপ',
+      'streetFlop': 'ফ্লপ',
+      'streetTurn': 'টার্ন',
+      'streetRiver': 'রিভার',
+      'streetPredraw': 'ড্র-এর আগে',
+      'streetDraw': 'ড্র',
+      'streetPostdraw': 'ড্র-এর পরে',
+      'streetDecision': 'সিদ্ধান্ত',
+      'streetShowdown': 'শোডাউন',
+      'pokerTimedOut': 'আপনার সময় শেষ, হাত ফোল্ড হয়ে গেছে',
+      'pokerRulesTitle': 'পোকার টেবিল',
+      'pokerRulesIntro':
+          'চারটি পোকার খেলা, সবই একই পাঁচ-তাসের র‍্যাঙ্কিং দিয়ে বিচার হয়। হাত '
+          'হলো সেরা পাঁচটি তাস যা আপনি বানাতে পারেন।',
+      'pokerRankRoyalFlush': 'রয়্যাল ফ্লাশ',
+      'pokerRankStraightFlush': 'স্ট্রেট ফ্লাশ',
+      'pokerRankFourOfAKind': 'ফোর অফ আ কাইন্ড',
+      'pokerRankFullHouse': 'ফুল হাউস',
+      'pokerRankFlush': 'ফ্লাশ',
+      'pokerRankStraight': 'স্ট্রেট',
+      'pokerRankThreeOfAKind': 'থ্রি অফ আ কাইন্ড',
+      'pokerRankTwoPair': 'টু পেয়ার',
+      'pokerRankPair': 'পেয়ার',
+      'pokerRankHighCard': 'হাই কার্ড',
+      'pokerThreeCardRanking':
+          '৩-কার্ড পোকারে স্ট্রেট ফ্লাশকে হারায়, আর থ্রি অফ আ কাইন্ড দুটোকেই।',
+      'rulePokerBlinds': 'প্রতিটি হাত {small} ও {big} ব্লাইন্ডস দিয়ে শুরু হয়',
+      'rulePokerAnte': 'বিলি করার আগে সবাই {ante} অ্যান্টি দেন',
+      'rulePokerBuyIn': 'অন্তত {min} নিয়ে বসুন',
+      'rulePokerHoleCards': 'প্রতিটি খেলোয়াড় {n}টি তাস পান',
+      'rulePokerHoldemWin':
+          'আপনার দুটি তাস ও বোর্ডের পাঁচটি থেকে সেরা পাঁচ বানান',
+      'rulePokerOmahaWin':
+          'আপনার চারটির ঠিক দুটি ও বোর্ডের তিনটি দিয়ে হাত হয়',
+      'rulePokerDrawWin':
+          'বেট করুন, একবার {n}টি পর্যন্ত তাস বদলান, তারপর আবার বেট',
+      'rulePokerThreeCardWin':
+          'অ্যান্টির সমান প্লে করুন বা ফোল্ড; আপনার তিনটি তাস ডিলারের সঙ্গে '
+          'মেলানো হয়',
+      'rulePokerDealerQualifies':
+          'ডিলারের খেলতে কুইন-হাই লাগে; না হলে আপনার প্লে বেট ফেরত আর অ্যান্টি '
+          'জেতে',
+      'rulePokerBestHandWins':
+          'শোডাউনে সেরা হাত পট নেয়; একা টিকে থাকা খেলোয়াড় শোডাউন ছাড়াই',
+      'rulePokerStreets':
+          'বাজি প্রি-ফ্লপে, তারপর ফ্লপ, টার্ন ও রিভারে',
+      'rulePokerBetTo':
+          'বেট বা রেইজ এই স্ট্রিটের জন্য আপনার মোট অঙ্ক বলে, তার উপরে যোগ করা অঙ্ক নয়',
+      'rulePokerDrawStreets': 'ড্র-এর আগে একবার আর পরে একবার বাজি',
+      'rulePokerPlayBet':
+          'প্লে করলে অ্যান্টির সমান দ্বিতীয় বাজি লাগে; ফোল্ড করলে অ্যান্টি ঘরের থাকে',
+      'pokerTableRankingTitle': 'এখানে কোনটা কাকে হারায়',
+      'pokerTableRankingIntro':
+          'আপনার হাত মানে আপনার সেরা পাঁচটি তাস, এই ক্রমে।',
+      'pokerThreeCardRankingIntro':
+          'প্রত্যেকের তিনটি তাস, নিজস্ব ক্রমে — পাঁচ তাসের ক্রম নয়, তিন পাত্তিরও নয়।',
+      'rulePokerThreeCardRuns': 'A-K-Q সেরা রান আর A-2-3 সবচেয়ে ছোট',
+      'refuseNotYourTurn': 'আপনার পালা নয়',
+      'refuseInvalidAction': 'এই চাল এখন দেওয়া যাবে না',
+      'refuseInvalidAmount': 'এই পরিমাণ গ্রহণযোগ্য নয়',
+      'refuseInvalidDiscard': 'এই তাসগুলো বদলানো যাবে না',
+      'refuseInsufficientChips': 'এর জন্য যথেষ্ট চিপ নেই',
+      'refuseNoHand': 'এখন কোনো হাত চলছে না',
+      'refuseNotInHand': 'আপনি এই হাতে নেই',
+      'refuseWrongGame': 'এই চাল অন্য খেলার',
+      'refuseDuplicateAction': 'এই চাল আগেই পাঠানো হয়েছে',
+      'refuseUnknownAction': 'এই চাল টেবিলের জানা নেই',
     },
     'gu': {
       'signInSubtitle': 'રમવા માટે સાઇન ઇન કરો.',
@@ -1827,6 +2649,70 @@ class Strings {
       'sideshow': 'સાઇડશો',
       'sideshowWith': 'સરખાવો',
       'sideshowAsksYou': 'તમારી સાથે પત્તાં સરખાવવા માંગે છે',
+      // variation tables: the first player picks the rules of the hand
+      'variation': 'વેરિએશન',
+      'variationTableNote': 'દરેક હાથના નિયમ પહેલો ખેલાડી પસંદ કરે છે',
+      'viewTables': 'ટેબલ જુઓ',
+      'tablesLabel': 'ટેબલ',
+      'openToYouLabel': 'તમારા માટે ખુલ્લાં',
+      'backToCategories': 'બધી રમતો',
+      'variationRulesTitle': 'વેરિએશન ટેબલ',
+      'tableInfoTitle': 'ટેબલની માહિતી',
+      'tableRulesTitle': 'આ ટેબલ કેવી રીતે રમાય છે',
+      'tableRulesKey': 'ટેબલના નિયમો',
+      'ruleBlindMoves':
+          'તમે {n} વખત સુધી બ્લાઇન્ડ ચાલ ચાલી શકો છો; પછી તમારાં પત્તાં તમારા માટે ખૂલી જાય છે.',
+      'ruleRaiseOnce': 'તમારા વારામાં: ચાલ, અથવા એક વાર બમણો રેઇઝ.',
+      'ruleRaiseFree':
+          'તમારા વારામાં: ચાલ, અથવા ચિપ્સ હોય ત્યાં સુધી બમણું કરતા જાઓ.',
+      'rulePotCapped':
+          'પોટ {pot} થાય ત્યારે બધા હાથ બતાવાય છે અને શ્રેષ્ઠ હાથ જીતે છે.',
+      'rulePotOpen': 'પોટની કોઈ મર્યાદા નથી.',
+      'ruleRoundsEnd':
+          'બધા રાઉન્ડ પૂરા થાય તો બધા હાથ બતાવાય છે અને શ્રેષ્ઠ હાથ જીતે છે.',
+      'ruleShowTwo':
+          'ફક્ત બે ખેલાડી બાકી રહે ત્યારે કોઈ પણ શો માટે ચૂકવી શકે છે.',
+      'ruleVariationPick':
+          'પહેલી ચાલવાળા ખેલાડીને હાથ કેવી રીતે નક્કી થશે તે પસંદ કરવા 10 સેકન્ડ મળે છે; નહીંતર મુફલિસ.',
+      'categoryLabel': 'રમત',
+      'playersLabel': 'ખેલાડીઓ',
+      'turnTimeLabel': 'ચાલનો સમય',
+      'yourChipsLabel': 'તમારી ચિપ્સ',
+      'canSitHere': 'તમે આ ટેબલ પર બેસી શકો છો.',
+      'playersUpTo': '{n} સુધી',
+      'secondsEach': '{n} સેકન્ડ',
+      'variationRulesIntro':
+          'પહેલી ચાલવાળા ખેલાડીને હાથ કયા નિયમથી નક્કી થશે તે પસંદ કરવા 10 સેકન્ડ મળે છે; ન પસંદ કરે તો મુફલિસ રમાય છે. જોકર પત્તું એ પત્તું ગણાય છે જેનાથી તમારો હાથ સૌથી સારો બને. બીજાની ચિપ્સ છુપાયેલી રહે છે અને પોટની કોઈ મર્યાદા નથી.',
+      'variationChooseTitle': 'વેરિએશન પસંદ કરો',
+      'pickTitle': 'તમારા ત્રણ કાર્ડ પસંદ કરો',
+      'pickHint': 'રમવા માટે તમારા પાંચમાંથી ત્રણ કાર્ડ પસંદ કરો',
+      'pickConfirm': 'આ ત્રણ રમો',
+      'pickThreeCards': 'તમારા જ ત્રણ કાર્ડ પસંદ કરો',
+      'pickWasBest': 'તમે શ્રેષ્ઠ સંયોજન રમ્યા',
+      'pickNotBest': 'તમે આ રમ્યા. શ્રેષ્ઠ આ હતું:',
+      'pickTimedOut': 'સમય પૂરો — તમારા પહેલા ત્રણ કાર્ડ રમાયા',
+      'pickYouPlayed': 'તમે રમ્યા',
+      'pickTheBest': 'શ્રેષ્ઠ',
+      'pickChoosing': '{name} કાર્ડ પસંદ કરી રહ્યા છે…',
+      'variationSelectingBy': '{name} વેરિએશન પસંદ કરી રહ્યા છે…',
+      'variationChosen': 'વેરિએશન: {variation}',
+      'variationLeftChosen': '{name} ટેબલ છોડી ગયા — મુફલિસ પસંદ થયું',
+      'variationAutoChosen': 'સમય પૂરો — મુફલિસ પસંદ થયું',
+      'varMuflis': 'મુફલિસ',
+      'varAk47': 'AK47',
+      'varJoker': 'જોકર',
+      'varHukam': 'હુકમ',
+      'varLowestJoker': 'સૌથી નાનો જોકર',
+      'varHighestJoker': 'સૌથી મોટો જોકર',
+      'varFiveCard': '5-પત્તી',
+      'varMuflisNote': 'સૌથી નબળો હાથ જીતે છે',
+      'varAk47Note': 'A, K, 4 અને 7 જોકર છે',
+      'varJokerNote': 'ખુલ્લા પત્તાનો રેન્ક જોકર છે',
+      'varHukamNote': 'ખુલ્લા પત્તાનો રંગ જોકર છે',
+      'varLowestJokerNote': 'તમારું સૌથી નાનું પત્તું જોકર છે',
+      'varHighestJokerNote': 'તમારું સૌથી મોટું પત્તું જોકર છે',
+      'varFiveCardNote': 'તમારાં 5 પત્તાંમાંથી શ્રેષ્ઠ 3',
+      'wildCard': 'જોકર',
       'sideshowRunning': 'સાઇડશો',
       'accept': 'સ્વીકારો',
       'decline': 'નકારો',
@@ -2055,6 +2941,113 @@ class Strings {
       'entryFrom': '{min} કે વધુ',
       'useSocialPicture': 'મારો Google કે Facebook ફોટો વાપરો',
       'guestNoSocial': 'તમારો ફોટો વાપરવા Google કે Facebook થી સાઇન ઇન કરો.',
+
+      // --- the poker family
+      'poker': 'પોકર',
+      'pokerTableNote': 'હોલ્ડમ, ઓમાહા, 5-કાર્ડ ડ્રૉ અને 3-કાર્ડ પોકર',
+      'pokerTexasHoldem': 'ટેક્સાસ હોલ્ડમ',
+      'pokerOmaha': 'ઓમાહા',
+      'pokerFiveCardDraw': '5-કાર્ડ ડ્રૉ',
+      'pokerThreeCardPoker': '3-કાર્ડ પોકર',
+      'pokerTexasHoldemNote': 'દરેકને બે પત્તાં, બોર્ડ પર પાંચ',
+      'pokerOmahaNote': 'દરેકને ચાર પત્તાં, તેમાંથી બરાબર બે રમો',
+      'pokerFiveCardDrawNote': 'દરેકને પાંચ પત્તાં, જે ન જોઈએ તે બદલો',
+      'pokerThreeCardPokerNote': 'દરેકને ત્રણ પત્તાં, ડીલર સામે',
+      'blindsLabel': 'બ્લાઇન્ડ્સ',
+      'anteLabel': 'એન્ટી',
+      'blindsTitle': 'બ્લાઇન્ડ્સ',
+      'anteTitle': 'એન્ટી',
+      'buyInLabel': 'બાય-ઇન',
+      'holeCardsLabel': 'દરેકને પત્તાં',
+      'maxDiscardsLabel': 'મહત્તમ બદલો',
+      'buyInFrom': '{min} થી',
+      'fold': 'ફોલ્ડ',
+      'check': 'ચેક',
+      'call': 'કૉલ',
+      'bet': 'બેટ',
+      'raise': 'રેઇઝ',
+      'allIn': 'ઑલ-ઇન',
+      'play': 'પ્લે',
+      'draw': 'ડ્રૉ',
+      'standPat': 'પત્તાં રાખો',
+      'exchangeUpTo': 'બદલવા માટે {n} સુધી પત્તાં પસંદ કરો',
+      'playOrFold': 'પ્લે કે ફોલ્ડ?',
+      'dealerLabel': 'ડીલર',
+      'dealerQualifies': 'ડીલર ક્વૉલિફાય',
+      'dealerNotQualified': 'ડીલર ક્વૉલિફાય નહીં',
+      'youWon': 'તમે {amount} જીત્યા',
+      'youLost': 'તમે હાર્યા',
+      'outcomeWin': 'જીત',
+      'outcomeLose': 'હાર',
+      'push': 'બરાબર',
+      'potLabel': 'પોટ',
+      'sidePotLabel': 'સાઇડ પોટ',
+      'boardLabel': 'બોર્ડ',
+      'streetPreflop': 'પ્રી-ફ્લોપ',
+      'streetFlop': 'ફ્લોપ',
+      'streetTurn': 'ટર્ન',
+      'streetRiver': 'રિવર',
+      'streetPredraw': 'ડ્રૉ પહેલાં',
+      'streetDraw': 'ડ્રૉ',
+      'streetPostdraw': 'ડ્રૉ પછી',
+      'streetDecision': 'નિર્ણય',
+      'streetShowdown': 'શોડાઉન',
+      'pokerTimedOut': 'તમારો સમય પૂરો થયો અને તમારો હાથ ફોલ્ડ થયો',
+      'pokerRulesTitle': 'પોકર ટેબલ',
+      'pokerRulesIntro':
+          'ચાર પોકર રમતો, બધી એક જ પાંચ-પત્તાંની રેન્કિંગથી અંકાય છે. હાથ એટલે '
+          'તમે બનાવી શકો તે શ્રેષ્ઠ પાંચ પત્તાં.',
+      'pokerRankRoyalFlush': 'રૉયલ ફ્લશ',
+      'pokerRankStraightFlush': 'સ્ટ્રેટ ફ્લશ',
+      'pokerRankFourOfAKind': 'ફોર ઑફ અ કાઇન્ડ',
+      'pokerRankFullHouse': 'ફુલ હાઉસ',
+      'pokerRankFlush': 'ફ્લશ',
+      'pokerRankStraight': 'સ્ટ્રેટ',
+      'pokerRankThreeOfAKind': 'થ્રી ઑફ અ કાઇન્ડ',
+      'pokerRankTwoPair': 'ટુ પેર',
+      'pokerRankPair': 'પેર',
+      'pokerRankHighCard': 'હાઈ કાર્ડ',
+      'pokerThreeCardRanking':
+          '3-કાર્ડ પોકરમાં સ્ટ્રેટ ફ્લશને હરાવે છે, અને થ્રી ઑફ અ કાઇન્ડ બંનેને.',
+      'rulePokerBlinds': 'દરેક હાથ {small} અને {big} ના બ્લાઇન્ડ્સથી શરૂ થાય છે',
+      'rulePokerAnte': 'વહેંચતા પહેલાં દરેક {ante} ની એન્ટી મૂકે છે',
+      'rulePokerBuyIn': 'ઓછામાં ઓછા {min} લઈને બેસો',
+      'rulePokerHoleCards': 'દરેક ખેલાડીને {n} પત્તાં વહેંચાય છે',
+      'rulePokerHoldemWin':
+          'તમારાં બે પત્તાં અને બોર્ડનાં પાંચમાંથી શ્રેષ્ઠ પાંચ બનાવો',
+      'rulePokerOmahaWin':
+          'તમારાં ચારમાંથી બરાબર બે અને બોર્ડનાં ત્રણથી હાથ બને છે',
+      'rulePokerDrawWin': 'બેટ કરો, એક વાર {n} સુધી પત્તાં બદલો, પછી ફરી બેટ કરો',
+      'rulePokerThreeCardWin':
+          'એન્ટી જેટલું પ્લે કરો કે ફોલ્ડ; તમારાં ત્રણ પત્તાં ડીલર સાથે સરખાવાય છે',
+      'rulePokerDealerQualifies':
+          'ડીલરને રમવા ક્વીન-હાઈ જોઈએ; ન હોય તો તમારો પ્લે બેટ પાછો અને એન્ટી '
+          'જીતે',
+      'rulePokerBestHandWins':
+          'શોડાઉનમાં શ્રેષ્ઠ હાથ પોટ લે છે; એકલો બચેલો ખેલાડી શોડાઉન વિના',
+      'rulePokerStreets':
+          'દાવ પ્રી-ફ્લોપ, પછી ફ્લોપ, ટર્ન અને રિવર પર લાગે છે',
+      'rulePokerBetTo':
+          'બેટ કે રેઝ આ સ્ટ્રીટ માટે તમારી કુલ રકમ કહે છે, ઉપરથી ઉમેરેલી રકમ નહીં',
+      'rulePokerDrawStreets': 'ડ્રો પહેલાં એક વાર અને પછી એક વાર દાવ',
+      'rulePokerPlayBet':
+          'પ્લે કરવાનો ખર્ચ એન્ટી જેટલો બીજો દાવ; ફોલ્ડ કરો તો એન્ટી ઘર પાસે રહે છે',
+      'pokerTableRankingTitle': 'અહીં શું કોને હરાવે છે',
+      'pokerTableRankingIntro':
+          'તમારો હાથ એટલે તમારા શ્રેષ્ઠ પાંચ પત્તાં, આ ક્રમમાં.',
+      'pokerThreeCardRankingIntro':
+          'દરેકને ત્રણ પત્તાં, પોતાના ક્રમમાં — પાંચ પત્તાંનો ક્રમ નહીં, તીન પત્તીનો પણ નહીં.',
+      'rulePokerThreeCardRuns': 'A-K-Q શ્રેષ્ઠ રન છે અને A-2-3 સૌથી નીચો',
+      'refuseNotYourTurn': 'તમારો વારો નથી',
+      'refuseInvalidAction': 'આ ચાલ અત્યારે ચાલી શકે નહીં',
+      'refuseInvalidAmount': 'આ રકમ માન્ય નથી',
+      'refuseInvalidDiscard': 'આ પત્તાં બદલી શકાય નહીં',
+      'refuseInsufficientChips': 'આ માટે પૂરતા ચિપ્સ નથી',
+      'refuseNoHand': 'અત્યારે કોઈ હાથ ચાલતો નથી',
+      'refuseNotInHand': 'તમે આ હાથમાં નથી',
+      'refuseWrongGame': 'આ ચાલ બીજી રમતની છે',
+      'refuseDuplicateAction': 'આ ચાલ પહેલેથી મોકલાઈ ગઈ છે',
+      'refuseUnknownAction': 'આ ચાલ ટેબલ જાણતું નથી',
     },
     'pa': {
       'signInSubtitle': 'ਖੇਡਣ ਲਈ ਸਾਈਨ ਇਨ ਕਰੋ।',
@@ -2179,6 +3172,70 @@ class Strings {
       'sideshow': 'ਸਾਈਡਸ਼ੋ',
       'sideshowWith': 'ਮਿਲਾਓ',
       'sideshowAsksYou': 'ਤੁਹਾਡੇ ਨਾਲ ਪੱਤੇ ਮਿਲਾਉਣਾ ਚਾਹੁੰਦਾ ਹੈ',
+      // variation tables: the first player picks the rules of the hand
+      'variation': 'ਵੇਰੀਏਸ਼ਨ',
+      'variationTableNote': 'ਹਰ ਹੱਥ ਦੇ ਨਿਯਮ ਪਹਿਲਾ ਖਿਡਾਰੀ ਚੁਣਦਾ ਹੈ',
+      'viewTables': 'ਟੇਬਲ ਵੇਖੋ',
+      'tablesLabel': 'ਟੇਬਲ',
+      'openToYouLabel': 'ਤੁਹਾਡੇ ਲਈ ਖੁੱਲ੍ਹੇ',
+      'backToCategories': 'ਸਾਰੀਆਂ ਖੇਡਾਂ',
+      'variationRulesTitle': 'ਵੇਰੀਏਸ਼ਨ ਟੇਬਲ',
+      'tableInfoTitle': 'ਟੇਬਲ ਦੀ ਜਾਣਕਾਰੀ',
+      'tableRulesTitle': 'ਇਹ ਟੇਬਲ ਕਿਵੇਂ ਖੇਡੀ ਜਾਂਦੀ ਹੈ',
+      'tableRulesKey': 'ਟੇਬਲ ਦੇ ਨਿਯਮ',
+      'ruleBlindMoves':
+          'ਤੁਸੀਂ {n} ਵਾਰ ਤੱਕ ਬਲਾਇੰਡ ਚਾਲ ਚੱਲ ਸਕਦੇ ਹੋ; ਉਸ ਤੋਂ ਬਾਅਦ ਤੁਹਾਡੇ ਪੱਤੇ ਤੁਹਾਡੇ ਲਈ ਖੁੱਲ੍ਹ ਜਾਂਦੇ ਹਨ।',
+      'ruleRaiseOnce': 'ਆਪਣੀ ਵਾਰੀ ਤੇ: ਚਾਲ, ਜਾਂ ਇੱਕ ਵਾਰ ਦੁੱਗਣਾ ਰੇਜ਼।',
+      'ruleRaiseFree':
+          'ਆਪਣੀ ਵਾਰੀ ਤੇ: ਚਾਲ, ਜਾਂ ਜਿੰਨੇ ਚਿਪਸ ਹੋਣ ਓਨਾ ਦੁੱਗਣਾ ਕਰਦੇ ਜਾਓ।',
+      'rulePotCapped':
+          'ਪੌਟ {pot} ਹੁੰਦੇ ਹੀ ਸਾਰੇ ਹੱਥ ਦਿਖਾਏ ਜਾਂਦੇ ਹਨ ਅਤੇ ਸਭ ਤੋਂ ਵਧੀਆ ਹੱਥ ਜਿੱਤਦਾ ਹੈ।',
+      'rulePotOpen': 'ਪੌਟ ਦੀ ਕੋਈ ਸੀਮਾ ਨਹੀਂ।',
+      'ruleRoundsEnd':
+          'ਸਾਰੇ ਰਾਊਂਡ ਪੂਰੇ ਹੋ ਜਾਣ ਤਾਂ ਸਾਰੇ ਹੱਥ ਦਿਖਾਏ ਜਾਂਦੇ ਹਨ ਅਤੇ ਸਭ ਤੋਂ ਵਧੀਆ ਹੱਥ ਜਿੱਤਦਾ ਹੈ।',
+      'ruleShowTwo':
+          'ਜਦੋਂ ਸਿਰਫ਼ ਦੋ ਖਿਡਾਰੀ ਬਚਣ, ਕੋਈ ਵੀ ਸ਼ੋਅ ਲਈ ਭੁਗਤਾਨ ਕਰ ਸਕਦਾ ਹੈ।',
+      'ruleVariationPick':
+          'ਪਹਿਲੀ ਚਾਲ ਵਾਲੇ ਖਿਡਾਰੀ ਕੋਲ 10 ਸਕਿੰਟ ਹੁੰਦੇ ਹਨ ਇਹ ਚੁਣਨ ਲਈ ਕਿ ਹੱਥ ਕਿਵੇਂ ਤੈਅ ਹੋਵੇਗਾ; ਨਹੀਂ ਤਾਂ ਮੁਫ਼ਲਿਸ।',
+      'categoryLabel': 'ਖੇਡ',
+      'playersLabel': 'ਖਿਡਾਰੀ',
+      'turnTimeLabel': 'ਚਾਲ ਦਾ ਸਮਾਂ',
+      'yourChipsLabel': 'ਤੁਹਾਡੇ ਚਿਪਸ',
+      'canSitHere': 'ਤੁਸੀਂ ਇਸ ਟੇਬਲ ਤੇ ਬੈਠ ਸਕਦੇ ਹੋ।',
+      'playersUpTo': '{n} ਤੱਕ',
+      'secondsEach': '{n} ਸਕਿੰਟ',
+      'variationRulesIntro':
+          'ਪਹਿਲੀ ਚਾਲ ਵਾਲੇ ਖਿਡਾਰੀ ਕੋਲ ਇਹ ਚੁਣਨ ਲਈ 10 ਸਕਿੰਟ ਹੁੰਦੇ ਹਨ ਕਿ ਹੱਥ ਕਿਸ ਨਿਯਮ ਨਾਲ ਤੈਅ ਹੋਵੇਗਾ; ਨਾ ਚੁਣੇ ਤਾਂ ਮੁਫ਼ਲਿਸ ਖੇਡਿਆ ਜਾਂਦਾ ਹੈ। ਜੋਕਰ ਪੱਤਾ ਉਹੀ ਪੱਤਾ ਗਿਣਿਆ ਜਾਂਦਾ ਹੈ ਜਿਸ ਨਾਲ ਤੁਹਾਡਾ ਹੱਥ ਸਭ ਤੋਂ ਵਧੀਆ ਬਣੇ। ਦੂਜਿਆਂ ਦੇ ਚਿਪਸ ਲੁਕੇ ਰਹਿੰਦੇ ਹਨ ਅਤੇ ਪੌਟ ਦੀ ਕੋਈ ਸੀਮਾ ਨਹੀਂ।',
+      'variationChooseTitle': 'ਵੇਰੀਏਸ਼ਨ ਚੁਣੋ',
+      'pickTitle': 'ਆਪਣੇ ਤਿੰਨ ਕਾਰਡ ਚੁਣੋ',
+      'pickHint': 'ਖੇਡਣ ਲਈ ਆਪਣੇ ਪੰਜਾਂ ਵਿੱਚੋਂ ਤਿੰਨ ਕਾਰਡ ਚੁਣੋ',
+      'pickConfirm': 'ਇਹ ਤਿੰਨ ਖੇਡੋ',
+      'pickThreeCards': 'ਆਪਣੇ ਹੀ ਤਿੰਨ ਕਾਰਡ ਚੁਣੋ',
+      'pickWasBest': 'ਤੁਸੀਂ ਸਭ ਤੋਂ ਵਧੀਆ ਸੁਮੇਲ ਖੇਡਿਆ',
+      'pickNotBest': 'ਤੁਸੀਂ ਇਹ ਖੇਡਿਆ। ਸਭ ਤੋਂ ਵਧੀਆ ਇਹ ਸੀ:',
+      'pickTimedOut': 'ਸਮਾਂ ਖ਼ਤਮ — ਤੁਹਾਡੇ ਪਹਿਲੇ ਤਿੰਨ ਕਾਰਡ ਖੇਡੇ ਗਏ',
+      'pickYouPlayed': 'ਤੁਸੀਂ ਖੇਡਿਆ',
+      'pickTheBest': 'ਸਭ ਤੋਂ ਵਧੀਆ',
+      'pickChoosing': '{name} ਕਾਰਡ ਚੁਣ ਰਹੇ ਹਨ…',
+      'variationSelectingBy': '{name} ਵੇਰੀਏਸ਼ਨ ਚੁਣ ਰਹੇ ਹਨ…',
+      'variationChosen': 'ਵੇਰੀਏਸ਼ਨ: {variation}',
+      'variationLeftChosen': '{name} ਟੇਬਲ ਛੱਡ ਗਏ — ਮੁਫ਼ਲਿਸ ਚੁਣਿਆ ਗਿਆ',
+      'variationAutoChosen': 'ਸਮਾਂ ਖਤਮ — ਮੁਫ਼ਲਿਸ ਚੁਣਿਆ ਗਿਆ',
+      'varMuflis': 'ਮੁਫ਼ਲਿਸ',
+      'varAk47': 'AK47',
+      'varJoker': 'ਜੋਕਰ',
+      'varHukam': 'ਹੁਕਮ',
+      'varLowestJoker': 'ਸਭ ਤੋਂ ਛੋਟਾ ਜੋਕਰ',
+      'varHighestJoker': 'ਸਭ ਤੋਂ ਵੱਡਾ ਜੋਕਰ',
+      'varFiveCard': '5-ਪੱਤੀ',
+      'varMuflisNote': 'ਸਭ ਤੋਂ ਕਮਜ਼ੋਰ ਹੱਥ ਜਿੱਤਦਾ ਹੈ',
+      'varAk47Note': 'A, K, 4 ਅਤੇ 7 ਜੋਕਰ ਹਨ',
+      'varJokerNote': 'ਖੁੱਲ੍ਹੇ ਪੱਤੇ ਦਾ ਰੈਂਕ ਜੋਕਰ ਹੈ',
+      'varHukamNote': 'ਖੁੱਲ੍ਹੇ ਪੱਤੇ ਦਾ ਰੰਗ ਜੋਕਰ ਹੈ',
+      'varLowestJokerNote': 'ਤੁਹਾਡਾ ਸਭ ਤੋਂ ਛੋਟਾ ਪੱਤਾ ਜੋਕਰ ਹੈ',
+      'varHighestJokerNote': 'ਤੁਹਾਡਾ ਸਭ ਤੋਂ ਵੱਡਾ ਪੱਤਾ ਜੋਕਰ ਹੈ',
+      'varFiveCardNote': 'ਤੁਹਾਡੇ 5 ਪੱਤਿਆਂ ਵਿੱਚੋਂ ਸਭ ਤੋਂ ਵਧੀਆ 3',
+      'wildCard': 'ਜੋਕਰ',
       'sideshowRunning': 'ਸਾਈਡਸ਼ੋ',
       'accept': 'ਮੰਨੋ',
       'decline': 'ਨਾਂਹ ਕਰੋ',
@@ -2410,6 +3467,116 @@ class Strings {
       'useSocialPicture': 'ਮੇਰੀ Google ਜਾਂ Facebook ਤਸਵੀਰ ਵਰਤੋ',
       'guestNoSocial':
           'ਆਪਣੀ ਤਸਵੀਰ ਵਰਤਣ ਲਈ Google ਜਾਂ Facebook ਨਾਲ ਸਾਈਨ ਇਨ ਕਰੋ।',
+
+      // --- the poker family
+      'poker': 'ਪੋਕਰ',
+      'pokerTableNote': 'ਹੋਲਡਮ, ਓਮਾਹਾ, 5-ਕਾਰਡ ਡਰਾਅ ਅਤੇ 3-ਕਾਰਡ ਪੋਕਰ',
+      'pokerTexasHoldem': 'ਟੈਕਸਸ ਹੋਲਡਮ',
+      'pokerOmaha': 'ਓਮਾਹਾ',
+      'pokerFiveCardDraw': '5-ਕਾਰਡ ਡਰਾਅ',
+      'pokerThreeCardPoker': '3-ਕਾਰਡ ਪੋਕਰ',
+      'pokerTexasHoldemNote': 'ਹਰੇਕ ਨੂੰ ਦੋ ਪੱਤੇ, ਬੋਰਡ ਉੱਤੇ ਪੰਜ',
+      'pokerOmahaNote': 'ਹਰੇਕ ਨੂੰ ਚਾਰ ਪੱਤੇ, ਉਨ੍ਹਾਂ ਵਿੱਚੋਂ ਠੀਕ ਦੋ ਖੇਡੋ',
+      'pokerFiveCardDrawNote': 'ਹਰੇਕ ਨੂੰ ਪੰਜ ਪੱਤੇ, ਜੋ ਨਹੀਂ ਚਾਹੀਦੇ ਉਹ ਬਦਲੋ',
+      'pokerThreeCardPokerNote': 'ਹਰੇਕ ਨੂੰ ਤਿੰਨ ਪੱਤੇ, ਡੀਲਰ ਦੇ ਖ਼ਿਲਾਫ਼',
+      'blindsLabel': 'ਬਲਾਈਂਡਸ',
+      'anteLabel': 'ਐਂਟੀ',
+      'blindsTitle': 'ਬਲਾਈਂਡਸ',
+      'anteTitle': 'ਐਂਟੀ',
+      'buyInLabel': 'ਬਾਇ-ਇਨ',
+      'holeCardsLabel': 'ਹਰੇਕ ਨੂੰ ਪੱਤੇ',
+      'maxDiscardsLabel': 'ਵੱਧ ਤੋਂ ਵੱਧ ਬਦਲੋ',
+      'buyInFrom': '{min} ਤੋਂ',
+      'fold': 'ਫ਼ੋਲਡ',
+      'check': 'ਚੈੱਕ',
+      'call': 'ਕਾਲ',
+      'bet': 'ਬੈੱਟ',
+      'raise': 'ਰੇਜ਼',
+      'allIn': 'ਆਲ-ਇਨ',
+      'play': 'ਪਲੇ',
+      'draw': 'ਡਰਾਅ',
+      'standPat': 'ਪੱਤੇ ਰੱਖੋ',
+      'exchangeUpTo': 'ਬਦਲਣ ਲਈ {n} ਤੱਕ ਪੱਤੇ ਚੁਣੋ',
+      'playOrFold': 'ਪਲੇ ਜਾਂ ਫ਼ੋਲਡ?',
+      'dealerLabel': 'ਡੀਲਰ',
+      'dealerQualifies': 'ਡੀਲਰ ਕੁਆਲੀਫ਼ਾਈ',
+      'dealerNotQualified': 'ਡੀਲਰ ਕੁਆਲੀਫ਼ਾਈ ਨਹੀਂ',
+      'youWon': 'ਤੁਸੀਂ {amount} ਜਿੱਤੇ',
+      'youLost': 'ਤੁਸੀਂ ਹਾਰੇ',
+      'outcomeWin': 'ਜਿੱਤ',
+      'outcomeLose': 'ਹਾਰ',
+      'push': 'ਬਰਾਬਰ',
+      'potLabel': 'ਪੌਟ',
+      'sidePotLabel': 'ਸਾਈਡ ਪੌਟ',
+      'boardLabel': 'ਬੋਰਡ',
+      'streetPreflop': 'ਪ੍ਰੀ-ਫ਼ਲਾਪ',
+      'streetFlop': 'ਫ਼ਲਾਪ',
+      'streetTurn': 'ਟਰਨ',
+      'streetRiver': 'ਰਿਵਰ',
+      'streetPredraw': 'ਡਰਾਅ ਤੋਂ ਪਹਿਲਾਂ',
+      'streetDraw': 'ਡਰਾਅ',
+      'streetPostdraw': 'ਡਰਾਅ ਤੋਂ ਬਾਅਦ',
+      'streetDecision': 'ਫ਼ੈਸਲਾ',
+      'streetShowdown': 'ਸ਼ੋਡਾਊਨ',
+      'pokerTimedOut': 'ਤੁਹਾਡਾ ਸਮਾਂ ਖ਼ਤਮ ਹੋ ਗਿਆ ਅਤੇ ਤੁਹਾਡਾ ਹੱਥ ਫ਼ੋਲਡ ਹੋ ਗਿਆ',
+      'pokerRulesTitle': 'ਪੋਕਰ ਟੇਬਲ',
+      'pokerRulesIntro':
+          'ਚਾਰ ਪੋਕਰ ਖੇਡਾਂ, ਸਾਰੀਆਂ ਇੱਕੋ ਪੰਜ-ਪੱਤੀ ਰੈਂਕਿੰਗ ਨਾਲ ਅੰਕੀਆਂ ਜਾਂਦੀਆਂ ਹਨ। '
+          'ਹੱਥ ਉਹ ਸਭ ਤੋਂ ਵਧੀਆ ਪੰਜ ਪੱਤੇ ਹਨ ਜੋ ਤੁਸੀਂ ਬਣਾ ਸਕੋ।',
+      'pokerRankRoyalFlush': 'ਰਾਇਲ ਫ਼ਲੱਸ਼',
+      'pokerRankStraightFlush': 'ਸਟ੍ਰੇਟ ਫ਼ਲੱਸ਼',
+      'pokerRankFourOfAKind': 'ਫ਼ੋਰ ਆਫ਼ ਏ ਕਾਈਂਡ',
+      'pokerRankFullHouse': 'ਫ਼ੁੱਲ ਹਾਊਸ',
+      'pokerRankFlush': 'ਫ਼ਲੱਸ਼',
+      'pokerRankStraight': 'ਸਟ੍ਰੇਟ',
+      'pokerRankThreeOfAKind': 'ਥ੍ਰੀ ਆਫ਼ ਏ ਕਾਈਂਡ',
+      'pokerRankTwoPair': 'ਟੂ ਪੇਅਰ',
+      'pokerRankPair': 'ਪੇਅਰ',
+      'pokerRankHighCard': 'ਹਾਈ ਕਾਰਡ',
+      'pokerThreeCardRanking':
+          '3-ਕਾਰਡ ਪੋਕਰ ਵਿੱਚ ਸਟ੍ਰੇਟ ਫ਼ਲੱਸ਼ ਨੂੰ ਹਰਾਉਂਦਾ ਹੈ, ਅਤੇ ਥ੍ਰੀ ਆਫ਼ ਏ ਕਾਈਂਡ '
+          'ਦੋਹਾਂ ਨੂੰ।',
+      'rulePokerBlinds': 'ਹਰ ਹੱਥ {small} ਅਤੇ {big} ਦੇ ਬਲਾਈਂਡਸ ਨਾਲ ਸ਼ੁਰੂ ਹੁੰਦਾ ਹੈ',
+      'rulePokerAnte': 'ਵੰਡਣ ਤੋਂ ਪਹਿਲਾਂ ਹਰ ਕੋਈ {ante} ਦੀ ਐਂਟੀ ਲਾਉਂਦਾ ਹੈ',
+      'rulePokerBuyIn': 'ਘੱਟੋ-ਘੱਟ {min} ਲੈ ਕੇ ਬੈਠੋ',
+      'rulePokerHoleCards': 'ਹਰ ਖਿਡਾਰੀ ਨੂੰ {n} ਪੱਤੇ ਵੰਡੇ ਜਾਂਦੇ ਹਨ',
+      'rulePokerHoldemWin':
+          'ਆਪਣੇ ਦੋ ਪੱਤਿਆਂ ਅਤੇ ਬੋਰਡ ਦੇ ਪੰਜ ਵਿੱਚੋਂ ਆਪਣੇ ਸਭ ਤੋਂ ਵਧੀਆ ਪੰਜ ਬਣਾਓ',
+      'rulePokerOmahaWin':
+          'ਤੁਹਾਡੇ ਚਾਰ ਵਿੱਚੋਂ ਠੀਕ ਦੋ ਪੱਤੇ ਅਤੇ ਬੋਰਡ ਦੇ ਤਿੰਨ ਨਾਲ ਹੱਥ ਬਣਦਾ ਹੈ',
+      'rulePokerDrawWin':
+          'ਬੈੱਟ ਕਰੋ, ਇੱਕ ਵਾਰ {n} ਤੱਕ ਪੱਤੇ ਬਦਲੋ, ਫਿਰ ਦੁਬਾਰਾ ਬੈੱਟ ਕਰੋ',
+      'rulePokerThreeCardWin':
+          'ਐਂਟੀ ਜਿੰਨਾ ਪਲੇ ਕਰੋ ਜਾਂ ਫ਼ੋਲਡ; ਤੁਹਾਡੇ ਤਿੰਨ ਪੱਤੇ ਡੀਲਰ ਨਾਲ ਮਿਲਾਏ ਜਾਂਦੇ ਹਨ',
+      'rulePokerDealerQualifies':
+          'ਡੀਲਰ ਨੂੰ ਖੇਡਣ ਲਈ ਕੁਈਨ-ਹਾਈ ਚਾਹੀਦਾ ਹੈ; ਨਾ ਹੋਵੇ ਤਾਂ ਤੁਹਾਡਾ ਪਲੇ ਬੈੱਟ ਵਾਪਸ '
+          'ਅਤੇ ਐਂਟੀ ਜਿੱਤਦੀ ਹੈ',
+      'rulePokerBestHandWins':
+          'ਸ਼ੋਡਾਊਨ ਵਿੱਚ ਸਭ ਤੋਂ ਵਧੀਆ ਹੱਥ ਪੌਟ ਲੈਂਦਾ ਹੈ; ਇਕੱਲਾ ਬਚਿਆ ਖਿਡਾਰੀ ਬਿਨਾਂ '
+          'ਸ਼ੋਡਾਊਨ ਦੇ',
+      'rulePokerStreets':
+          'ਦਾਅ ਪ੍ਰੀ-ਫਲੌਪ, ਫਿਰ ਫਲੌਪ, ਟਰਨ ਅਤੇ ਰਿਵਰ ਉੱਤੇ ਲੱਗਦੇ ਹਨ',
+      'rulePokerBetTo':
+          'ਬੈੱਟ ਜਾਂ ਰੇਜ਼ ਇਸ ਸਟ੍ਰੀਟ ਲਈ ਤੁਹਾਡੀ ਕੁੱਲ ਰਕਮ ਦੱਸਦਾ ਹੈ, ਉੱਤੋਂ ਜੋੜੀ ਰਕਮ ਨਹੀਂ',
+      'rulePokerDrawStreets': 'ਡਰਾਅ ਤੋਂ ਪਹਿਲਾਂ ਇੱਕ ਵਾਰ ਅਤੇ ਬਾਅਦ ਇੱਕ ਵਾਰ ਦਾਅ',
+      'rulePokerPlayBet':
+          'ਪਲੇ ਕਰਨ ਦਾ ਖ਼ਰਚ ਐਂਟੀ ਜਿੰਨਾ ਦੂਜਾ ਦਾਅ; ਫ਼ੋਲਡ ਕਰੋ ਤਾਂ ਐਂਟੀ ਘਰ ਕੋਲ ਰਹਿ ਜਾਂਦੀ ਹੈ',
+      'pokerTableRankingTitle': 'ਇੱਥੇ ਕੀ ਕਿਸ ਨੂੰ ਹਰਾਉਂਦਾ ਹੈ',
+      'pokerTableRankingIntro':
+          'ਤੁਹਾਡਾ ਹੱਥ ਤੁਹਾਡੇ ਸਭ ਤੋਂ ਵਧੀਆ ਪੰਜ ਪੱਤੇ ਹੁੰਦੇ ਹਨ, ਇਸ ਕ੍ਰਮ ਵਿੱਚ।',
+      'pokerThreeCardRankingIntro':
+          'ਹਰੇਕ ਨੂੰ ਤਿੰਨ ਪੱਤੇ, ਆਪਣੇ ਵੱਖਰੇ ਕ੍ਰਮ ਵਿੱਚ — ਨਾ ਪੰਜ ਪੱਤਿਆਂ ਦਾ ਕ੍ਰਮ, ਨਾ ਤੀਨ ਪੱਤੀ ਦਾ।',
+      'rulePokerThreeCardRuns': 'A-K-Q ਸਭ ਤੋਂ ਵੱਡੀ ਰਨ ਹੈ ਅਤੇ A-2-3 ਸਭ ਤੋਂ ਛੋਟੀ',
+      'refuseNotYourTurn': 'ਤੁਹਾਡੀ ਵਾਰੀ ਨਹੀਂ ਹੈ',
+      'refuseInvalidAction': 'ਇਹ ਚਾਲ ਹੁਣ ਨਹੀਂ ਚੱਲ ਸਕਦੀ',
+      'refuseInvalidAmount': 'ਇਹ ਰਕਮ ਮਨਜ਼ੂਰ ਨਹੀਂ ਹੈ',
+      'refuseInvalidDiscard': 'ਇਹ ਪੱਤੇ ਬਦਲੇ ਨਹੀਂ ਜਾ ਸਕਦੇ',
+      'refuseInsufficientChips': 'ਇਸ ਲਈ ਚਿਪਸ ਕਾਫ਼ੀ ਨਹੀਂ ਹਨ',
+      'refuseNoHand': 'ਹੁਣ ਕੋਈ ਹੱਥ ਨਹੀਂ ਚੱਲ ਰਿਹਾ',
+      'refuseNotInHand': 'ਤੁਸੀਂ ਇਸ ਹੱਥ ਵਿੱਚ ਨਹੀਂ ਹੋ',
+      'refuseWrongGame': 'ਇਹ ਚਾਲ ਕਿਸੇ ਹੋਰ ਖੇਡ ਦੀ ਹੈ',
+      'refuseDuplicateAction': 'ਇਹ ਚਾਲ ਪਹਿਲਾਂ ਹੀ ਭੇਜੀ ਜਾ ਚੁੱਕੀ ਹੈ',
+      'refuseUnknownAction': 'ਇਹ ਚਾਲ ਟੇਬਲ ਨਹੀਂ ਜਾਣਦਾ',
     },
   };
 }

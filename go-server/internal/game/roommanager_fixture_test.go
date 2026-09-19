@@ -16,6 +16,7 @@ import (
 	"github.com/surajk543/king-teenpatti/go-server/internal/config"
 	"github.com/surajk543/king-teenpatti/go-server/internal/game"
 	"github.com/surajk543/king-teenpatti/go-server/internal/game/testclock"
+	"github.com/surajk543/king-teenpatti/go-server/internal/poker"
 )
 
 const (
@@ -46,7 +47,7 @@ func (r *roomEvents) note(s string) {
 	}
 }
 
-func (r *roomEvents) OnTableCreated(t *game.Table) {
+func (r *roomEvents) OnTableCreated(t game.Room) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.created = append(r.created, t.ID())
@@ -54,7 +55,7 @@ func (r *roomEvents) OnTableCreated(t *game.Table) {
 }
 
 // OnTableRestored is the optional game.TableRestoreListener extension.
-func (r *roomEvents) OnTableRestored(t *game.Table) {
+func (r *roomEvents) OnTableRestored(t game.Room) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.restored = append(r.restored, t.ID())
@@ -235,7 +236,10 @@ func newRoomsFixture(t *testing.T, mutate func(*config.GameConfig, *game.RoomMan
 		Clock:         f.clock,
 		TableListener: f.tables,
 		Listener:      f.events,
-		Logger:        logger,
+		// The poker family, as the app wires it, so the default menu's poker
+		// entries open poker rooms here too.
+		Factories: map[game.Game]game.RoomFactory{game.GamePoker: &poker.Factory{}},
+		Logger:    logger,
 	}
 	if mutate != nil {
 		mutate(&f.cfg, &opts)
@@ -276,15 +280,22 @@ func (f *roomsFixture) player(name string, chips int64) game.Player {
 	return game.Player{ID: fmt.Sprintf("%s-%d", name, f.seq), DisplayName: name, Chips: chips}
 }
 
+// createTable is rooms.CreateTable for the Teen Patti tests: the *game.Table
+// behind the Room, so a test can reach the rules engine (Act, Config…).
+func (f *roomsFixture) createTable(opts game.CreateTableOptions) *game.Table {
+	f.t.Helper()
+	return game.AsTable(f.rooms.CreateTable(opts))
+}
+
 // singleTable is a public table holding exactly one player.
 func (f *roomsFixture) singleTable(boot int64, category game.Category) *game.Table {
 	f.t.Helper()
-	table := f.rooms.CreateTable(game.CreateTableOptions{BootAmount: boot, Category: string(category)})
+	table := f.createTable(game.CreateTableOptions{BootAmount: boot, Category: string(category)})
 	f.mustJoin(table, f.player("Solo", rmStart))
 	return table
 }
 
-func (f *roomsFixture) mustJoin(table *game.Table, p game.Player) {
+func (f *roomsFixture) mustJoin(table game.Room, p game.Player) {
 	f.t.Helper()
 	if err := f.rooms.Join(table, p, "sock-"+p.ID); err != nil {
 		f.t.Fatalf("join %s: %v", p.ID, err)
@@ -297,7 +308,7 @@ func (f *roomsFixture) mustQuickJoin(p game.Player, boot int64, category string)
 	if err != nil {
 		f.t.Fatalf("quickJoin %s (%d %s): %v", p.ID, boot, category, err)
 	}
-	return table
+	return game.AsTable(table)
 }
 
 func (f *roomsFixture) mustConsolidate() []game.PlayerMove {
@@ -315,11 +326,11 @@ func (f *roomsFixture) mustLeave(userID, reason string) *game.Table {
 	if err != nil {
 		f.t.Fatalf("leave %s: %v", userID, err)
 	}
-	return table
+	return game.AsTable(table)
 }
 
 // seatedIDs are the user ids at the table, sorted.
-func seatedIDs(t *testing.T, table *game.Table) []string {
+func seatedIDs(t *testing.T, table game.Room) []string {
 	t.Helper()
 	seats, err := table.Seats()
 	if err != nil {
@@ -334,7 +345,8 @@ func seatedIDs(t *testing.T, table *game.Table) []string {
 }
 
 // turnUser is the user on turn, read from a spectator's snapshot.
-func turnUser(t *testing.T, table *game.Table) string {
+func turnUser(t *testing.T, room game.Room) string {
+	table := game.AsTable(room)
 	t.Helper()
 	view, err := table.SerializeFor("")
 	if err != nil {
@@ -348,7 +360,8 @@ func turnUser(t *testing.T, table *game.Table) string {
 
 // optionsFor is the viewer's own turn options (you.options), which is where
 // Flutter reads the ladder from.
-func optionsFor(t *testing.T, table *game.Table, userID string) *game.TurnOptions {
+func optionsFor(t *testing.T, room game.Room, userID string) *game.TurnOptions {
+	table := game.AsTable(room)
 	t.Helper()
 	view, err := table.SerializeFor(userID)
 	if err != nil {
@@ -360,7 +373,8 @@ func optionsFor(t *testing.T, table *game.Table, userID string) *game.TurnOption
 	return view.You.Options
 }
 
-func viewOf(t *testing.T, table *game.Table, userID string) *game.TableView {
+func viewOf(t *testing.T, room game.Room, userID string) *game.TableView {
+	table := game.AsTable(room)
 	t.Helper()
 	view, err := table.SerializeFor(userID)
 	if err != nil {
@@ -370,8 +384,9 @@ func viewOf(t *testing.T, table *game.Table, userID string) *game.TableView {
 }
 
 // seatTwoAndDeal seats a and b directly on the table and deals a hand now.
-func seatTwoAndDeal(t *testing.T, f *roomsFixture, table *game.Table, chips int64) (game.Player, game.Player) {
+func seatTwoAndDeal(t *testing.T, f *roomsFixture, room game.Room, chips int64) (game.Player, game.Player) {
 	t.Helper()
+	table := game.AsTable(room)
 	a := f.player("A", chips)
 	b := f.player("B", chips)
 	f.mustJoin(table, a)
@@ -397,7 +412,7 @@ func expectCode(t *testing.T, err error, code string) {
 	}
 }
 
-func tableIDs(tables []*game.Table) []string {
+func tableIDs(tables []game.Room) []string {
 	ids := make([]string, 0, len(tables))
 	for _, t := range tables {
 		ids = append(ids, t.ID())

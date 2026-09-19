@@ -147,6 +147,43 @@ until the restart, so building never disturbs the live process. Files under `go-
 are different: the running binary reads them from disk, so a pull that deletes one takes it away
 before the restart. Keep the pull, the build and the restart back to back.
 
+### The first deploy that carries Variation Teen Patti — check `LOBBY_TABLES` first
+
+The same check covers the second seen table (19 Sep 2026): the default menu now also ends with
+`seen:50000:pot=50000000` — boot 50,000, open to all, a 5 Crore pot limit of its own. A `.env` that
+names `LOBBY_TABLES` needs that entry added by hand to offer it, and a Go tag older than this
+build cannot parse `pot=` and will refuse to boot on it.
+
+The build's **default** menu ends with two variation tables —
+`variation:50000:max=1000000000,variation:1000000:min=500000000` — so what the restart does
+depends on production's `.env`:
+
+```bash
+grep -n '^LOBBY_TABLES' /var/www/gameplay/king-teenpatti/go-server/.env
+```
+
+- **A line comes back** — production keeps exactly the menu it names. Nothing changes until
+  the two `variation:` entries are added to it (and the server restarted).
+- **Nothing comes back** — the restart puts the variation tables in every lobby at once,
+  including phones whose installed app has never heard of the category.
+
+An app older than the first build with the picker draws those cards as extra "SEEN" tables (at
+50,000 and 10 Lakh), shows no "Choose Variation" panel, and so every hand one of its players opens is timed
+out into a server-chosen **Muflis** — the weakest hand wins, with nothing on screen to say why.
+So, in order: ship the new app, wait until it is the version the store actually serves, raise
+`MIN_CLIENT_BUILD` to that build number (§7.4 of `CLAUDE.md`; it holds older apps on the update
+screen), and only then list the `variation:` entries. That same build is the one with the
+lobby's category chooser, the hidden stacks and the wild-card turn, all of which an older app
+lacks. To deploy this server *before* that, pin the old
+menu explicitly so the default cannot reach anyone:
+
+```bash
+LOBBY_TABLES=seen:200,blind:200,blind:5000:max=50000000,blind:50000:max=1000000000,blind:1000000:min=500000000
+```
+
+Rolling back past this release with `variation:` still in `.env` stops the older binary at boot
+(it rejects an unknown `LOBBY_TABLES` category at load) — take the entry out first.
+
 ## 4. Verify
 
 **Health** — `process.node` must start with `go`; `goroutines`/`numCpu`/`gomaxprocs` are Go-only extras:
@@ -253,6 +290,21 @@ diamonds. While v1.3.0 runs nobody can force a sideshow or buy a hammer pack: ne
 build. Only v1.3.0 was checked. Any build from before the missiles (`go-server/v1.0.0` and older)
 likewise never reads `users.missile`, `missile_purchases` or `missile_spends`; while it runs nobody can fire a missile or
 trade for one, and new accounts still get 9 diamonds and 1 missile from the column defaults.
+
+**Tags from before the Poker family (19 Sep 2026)** meet two more things. `LOBBY_TABLES` in the
+`.env`: a tag that does not know `three_card_poker`, `five_card_draw`, `texas_holdem` or `omaha`
+refuses to boot on a line that lists one (`parseLobbyTables` names the entry), so take the poker
+entries out of the line before the restart and put them back when coming forward. Redis: a poker
+room's snapshot begins `{"game":"poker",…}` and keeps its config under `pokerConfig`; the older tag
+reads it as a Teen Patti snapshot, finds no `config`, refuses it ("snapshot has no config") and
+deletes the key, so every poker room is dropped at that boot and its players re-join (rehearsed on
+19 Sep 2026 against a scratch Redis: the new binary saved a seen table and a Hold'em room mid-hand and
+was SIGKILLed; `master`'s binary logged `table restore: dropping stored table … has no config
+(maxPlayers 0)` for the poker room, `restored tables=1 seats=2` for the seen one, and the poker key was
+gone; the new binary booted forward on the same Redis and restored the seen table again) —
+their wallets are what PostgreSQL last knew (CLAUDE.md §5.1), and a hand in flight is un-made exactly
+as a lost-Redis hand is. The two nullable `chip_ledger` columns `V1.0.2` added are never read by the
+older tag and its rows leave them NULL, which is what a Teen Patti row holds anyway.
 
 Coming forward again does **not** remove the second row — the consolidated seed carries no clean-up —
 so retire it with the second query below, either during the rollback or after it (`UPDATE 1` retires

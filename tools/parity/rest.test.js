@@ -821,7 +821,8 @@ test('/api/rooms lists public tables with the lobby options', async () => {
     roomId: joined.roomId, code: joined.code, category: 'blind', state: 'waiting', players: 1, maxPlayers: 5, bootAmount, pot: 0,
   });
   assertKeys(all.body.options, ['categories', 'stakes', 'tables', 'entryCapBoot', 'entryCapCategory', 'entryCapMaxChips', 'privateBoot', 'privateMaxPot']);
-  assert.deepEqual(all.body.options.categories, ['seen', 'blind']);
+  // The lifted menu of this profile offers any pair, so variation is listed (Go only).
+  assert.deepEqual(all.body.options.categories, ['seen', 'blind', 'variation']);
 
   const seenOnly = await http('GET', '/api/rooms?category=seen');
   assert.ok(seenOnly.body.tables.every((t) => t.category === 'seen'));

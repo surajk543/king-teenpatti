@@ -31,7 +31,9 @@ go-server/
 ├── cmd/gameplay/            main: .env (godotenv) → config → db → app → listen; SIGTERM = graceful 8 s;  -version flag
 ├── internal/
 │   ├── config/              every env key → one immutable Config (the keys in .env.example, + PUBLIC_DIR)
-│   ├── game/                rules engine: constants, deck, handrank, chat, Table (actor), RoomManager, Ledger/Clock interfaces
+│   ├── game/                rules engine: constants, deck, handrank, chat, Table (actor), RoomManager, Ledger/Clock interfaces;
+│   │                        room.go (the Room interface every table implements) + actor.go (Actor / LiveState / Settler, the shell both families share)
+│   ├── poker/               the Poker family (POKER_PLAN.md; ../CLAUDE.md §6.5): 3-Card Poker, 5-Card Draw, Texas Hold'em, Omaha — rooms beside the Teen Patti tables
 │   │   └── testclock/       deterministic clock for unit tests (Advance)
 │   ├── sio/                 Engine.IO v4 + Socket.IO v5 server, websocket only (our own; no library)
 │   ├── socket/              the realtime protocol: handlers, per-viewer broadcast, grace, resume offers
@@ -47,6 +49,7 @@ go-server/
 ├── .env.example             every env key with its default — copy to .env
 ├── ops/                     production packaging — see ops/DEPLOY.md; ops/monitoring/ is the Prometheus/Grafana/nginx bundle
 ├── PORT_PLAN.md             architecture, Node→Go file map, concurrency rules, wire rules, deviations table (§9)
+├── POKER_PLAN.md            the Poker family's design report: what is reused, what was generalised, events, state, risks, phases
 ├── DECISIONS.md             every ambiguity settled; overrides PORT_PLAN §9 where they differ
 └── PORT_NOTES/              per-package porting notes (what was ported, how it was tested, deviations) — they cite the removed Node source
 ```
@@ -192,5 +195,6 @@ websocket only; no Redis; `game_server_go_*` runtime metrics instead of `nodejs_
 `/health process.node` is the Go version; JSON 404 for unknown `/api` paths and 400
 `invalid_json` for bad bodies; a handful of latent Node bugs fixed on the money path (settle
 statement order, retry after table destroy, `actionId` containing `:`, room-code collisions);
-`PG_STATEMENT_TIMEOUT_MS`. Anything else that differs from the documented behaviour
+`PG_STATEMENT_TIMEOUT_MS`; and the two families added since — Variation Teen Patti (18 Sep 2026)
+and the Poker family (19 Sep 2026), both ABSENT from a seen or blind table's wire. Anything else that differs from the documented behaviour
 (`../CLAUDE.md` §5–§7, `PORT_NOTES/specs/`) is a bug — the parity suites are how it is found.
