@@ -464,6 +464,38 @@ class GameState extends ChangeNotifier {
   /// How long the announcement stands in the middle of the table.
   static const variationAnnouncedFor = Duration(seconds: 3);
 
+  /// The 5-Card verdict, for the few seconds the table shows it (owner, 19 Sep
+  /// 2026: "show user you selected best combination… if not… you selected this
+  /// and best combination was that"). Raised once per hand, from the snapshot
+  /// itself — the moment `you.hand` stops asking and starts answering — so a
+  /// player who reconnects into a decided hand is not told twice and one whose
+  /// window the server closed is told at all.
+  PickNews? pickAnnounced;
+  Timer? _pickTimer;
+  int? _pickAnnouncedFor;
+
+  /// How long the verdict stands.
+  static const pickAnnouncedFor = Duration(seconds: 5);
+
+  /// Raises the verdict when a hand's choice has just been made.
+  void _announcePick(OwnHand? hand) {
+    final no = room?.handNo;
+    if (no == null || hand == null || hand.picking || hand.pickedBy.isEmpty) return;
+    if (_pickAnnouncedFor == no) return;
+    _pickAnnouncedFor = no;
+    pickAnnounced = (
+      played: hand.best,
+      best: hand.bestPossible,
+      wasBest: hand.pickedTheBest,
+      byTimeout: hand.pickedBy == 'TIMEOUT',
+    );
+    _pickTimer?.cancel();
+    _pickTimer = Timer(pickAnnouncedFor, () {
+      pickAnnounced = null;
+      notifyListeners();
+    });
+  }
+
   /// The variation the hand on the table was played under, and the card that
   /// was turned up for it, remembered past the hand's end: the snapshot drops
   /// its variation block the moment the hand is over, but the winner is
@@ -1173,6 +1205,15 @@ class GameState extends ChangeNotifier {
     // because the ladder had climbed with the stake it had just raised. On
     // a blind table, where the ladder runs to the whole stack, that is a
     // hand-sized bet the player never asked for.
+    if (newHand) {
+      // A new deal asks its own 5-Card question; nothing is carried over.
+      _pickSelection = const [];
+      pickAnnounced = null;
+      _pickTimer?.cancel();
+    }
+    // The 5-Card verdict rides on the snapshot, so it is raised wherever the
+    // choice was made — by this player, or by the server's clock.
+    _announcePick(room?.you?.hand);
     if (newHand || myTurnBegan) {
       raiseIndex = 0;
       // The poker stepper opens on the smallest bet or raise the server
@@ -1278,6 +1319,73 @@ class GameState extends ChangeNotifier {
   /// what the table draws. A refusal is a toast like any other (the server
   /// echoes it as `game:error`); one that never reached the server has no echo,
   /// so it is said here.
+  /// The cards a player has tapped while choosing which three of five play,
+  /// in the order they were tapped. Cleared by every new hand and by the
+  /// choice landing.
+  List<String> _pickSelection = const [];
+  List<String> get pickSelection => _pickSelection;
+
+  /// True while this player still owes a 5-Card choice — the one flag the
+  /// felt needs to put the picker in front of them.
+  bool get pickingCards => room?.you?.hand?.picking ?? false;
+
+  /// The player everyone else is waiting on: the seat ON TURN that is still
+  /// choosing its three (owner, 19 Sep 2026: "while player is choosing best
+  /// card and the turn is also his then, others should see that he is
+  /// choosing"). Null for that player themselves — they have the picker in
+  /// front of them — and null when the chooser is not the one holding the
+  /// table up.
+  Seat? get someoneChoosingCards {
+    final r = room;
+    final seatIndex = r?.turn?.seatIndex;
+    if (r == null || seatIndex == null || seatIndex < 0) return null;
+    for (final seat in r.seats) {
+      if (seat.seatIndex != seatIndex || !seat.picking) continue;
+      return seat.userId == user?.id ? null : seat;
+    }
+    return null;
+  }
+
+  /// Taps a card of the viewer's own hand while choosing. A tapped card is
+  /// untapped by tapping it again, and the third tap fills the hand — a
+  /// fourth is ignored rather than silently replacing one of the three.
+  void togglePickCard(String code) {
+    if (!pickingCards) return;
+    final next = List<String>.from(_pickSelection);
+    if (next.remove(code)) {
+      _pickSelection = next;
+    } else if (next.length < 3) {
+      _pickSelection = [...next, code];
+    } else {
+      return;
+    }
+    notifyListeners();
+  }
+
+  /// Sends the three chosen cards. Answers whether the server took them; a
+  /// refusal is shown as any refused move is, and leaves the selection alone
+  /// so the player can change it.
+  Future<bool> selectCards(List<String> cards) async {
+    final reply = await _conn.selectCards(cards);
+    if (reply['ok'] == true) {
+      _pickSelection = const [];
+      notifyListeners();
+      return true;
+    }
+    final code = reply['code'];
+    if (code == GameConnection.notConnected) {
+      notice = t.notConnected;
+      notifyListeners();
+    } else if (code is! String) {
+      notice = '${reply['message'] ?? t.notConnected}';
+      notifyListeners();
+    } else {
+      notice = refusalText(code, '${reply['message'] ?? ''}');
+      notifyListeners();
+    }
+    return false;
+  }
+
   Future<bool> selectVariation(String variation) async {
     final reply = await _conn.selectVariation(variation);
     if (reply['ok'] == true) return true;
@@ -2383,6 +2491,7 @@ class GameState extends ChangeNotifier {
       final poker = t.pokerRefusal(code);
       if (poker != null) return poker;
     }
+    if (code == 'invalid_pick') return t.pickThreeCards;
     if (code == 'no_hammers') return t.noHammers;
     if (code == 'no_missiles') return t.noMissiles;
     // A missile's refusal, and a sideshow's: both need three in the hand, so

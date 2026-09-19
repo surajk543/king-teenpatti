@@ -28,7 +28,7 @@ import assert from 'node:assert/strict';
 import {
   guestLogin, openClient, closeAll, closeOpenClients, stakeCounter, dealtTable, profile, pause,
   assertKeys, assertOrder, CARD_CODE, HAND_NAMES, SNAPSHOT_KEYS, VARIATION_SNAPSHOT_KEYS, VARIATION_KEYS, VARIATIONS,
-  THREE_CARD_VARIATIONS, YOU_HAND_KEYS, OPTIONS_KEYS,
+  THREE_CARD_VARIATIONS, YOU_HAND_KEYS, YOU_HAND_PICKING_KEYS, YOU_HAND_PICKED_KEYS, OPTIONS_KEYS,
 } from './lib/harness.mjs';
 import { closeDb } from './lib/db.mjs';
 // An independent oracle for the three-card ranking: bot-play's port of
@@ -134,8 +134,38 @@ const THREES_OF_FIVE = [];
 for (let a = 0; a < 5; a += 1) for (let b = a + 1; b < 5; b += 1) for (let c = b + 1; c < 5; c += 1) THREES_OF_FIVE.push([a, b, c]);
 
 /**
+ * `best` is the three of `cards` that PLAY, in the order they are held (owner,
+ * 19 Sep 2026: the player chooses them; the server no longer picks the
+ * strongest). `want` names which three to expect — the first three where the
+ * window lapsed, or whatever was chosen.
+ */
+const assertPlayedThree = (cards, best, handName, label, want) => {
+  assert.equal(cards.length, 5, `${label}: five cards held`);
+  assert.equal(new Set(cards).size, 5, `${label}: five different cards`);
+  for (const code of cards) assert.match(code, CARD_CODE);
+  assert.equal(best.length, 3, `${label}: three are counted`);
+  const places = best.map((code) => cards.indexOf(code));
+  assert.ok(places.every((i) => i >= 0), `${label}: every counted card is one of the five held`);
+  assert.deepEqual(places, [...places].sort((x, y) => x - y), `${label}: best keeps the order the cards are held in`);
+  assert.equal(new Set(places).size, 3);
+  assert.deepEqual(best, want, `${label}: the three that play are the three that were chosen`);
+  assert.equal(evaluate(best).name, handName, `${label}: the hand is named for the three it plays`);
+};
+
+/** The strongest three of five, by the suite's own ranking — what the server
+ * reports as `bestPossible` so a player can be told what they missed. */
+const bestOfFive = (cards) => {
+  let best = null;
+  for (const triple of THREES_OF_FIVE) {
+    const hand = triple.map((i) => cards[i]);
+    if (best === null || compare(evaluate(hand), evaluate(best)) > 0) best = hand;
+  }
+  return best;
+};
+
+/**
  * `best` is three of `cards`, in the order they are held, and no other three of
- * the five beats them — the server found the best hand, the player did not pick.
+ * the five beats them.
  */
 const assertBestOfFive = (cards, best, handName, label) => {
   assert.equal(cards.length, 5, `${label}: five cards held`);
@@ -549,14 +579,72 @@ test('a player who looked during the window holds three, then five with the firs
     const resent = await client.waitNext('player:cards', () => true, 4000, marks.get(client));
     assert.deepEqual(resent.cards, cards, 'player:cards again, with all five');
 
-    assertKeys(hand, YOU_HAND_KEYS, 'you.hand under FIVE_CARD');
+    // Five cards are in front of them and a choice is owed: the hand has no
+    // name yet, because naming it would hand them the answer.
+    assertKeys(hand, YOU_HAND_PICKING_KEYS, 'you.hand under FIVE_CARD, still choosing');
+    assert.equal(hand.picking, true, 'a choice is owed');
+    assert.equal(hand.handName, '', 'and the hand is not named until it is made');
+    assert.deepEqual(hand.best, [], 'nothing counts yet');
+    assert.ok(hand.pickDeadline > 0 && hand.pickTimeoutMs > 0, 'with a clock on it');
     assert.deepEqual(hand.wild, [], 'FIVE_CARD has no wild cards');
     assert.deepEqual(hand.playsAs, cards, 'so every card plays as itself');
-    assert.equal(HAND_NAMES[hand.category], hand.handName);
-    assertBestOfFive(cards, hand.best, hand.handName, user.displayName);
+
+    // They choose the last three they hold — any three of their own will do.
+    const chosen = cards.slice(2);
+    const ack = await client.emit('game:selectCards', { cards: chosen });
+    assert.equal(ack.ok, true, `${user.displayName}: the pick was taken`);
+    assert.deepEqual(ack.picked, chosen);
+    assert.deepEqual(ack.best, bestOfFive(cards), 'and the ack says what the best three were');
+    assert.equal(ack.wasBest, compare(evaluate(chosen), evaluate(bestOfFive(cards))) === 0);
+
+    const after = (await client.waitState((p) => p.you.hand?.picking !== true)).you.hand;
+    assertKeys(after, YOU_HAND_PICKED_KEYS, 'you.hand under FIVE_CARD, chosen');
+    assert.equal(after.pickedBy, 'PLAYER');
+    assert.deepEqual(after.bestPossible, bestOfFive(cards), 'what they could have played');
+    assertPlayedThree(cards, after.best, after.handName, user.displayName, chosen);
     for (const seat of state.seats) assert.equal('hand' in seat, false, 'and none of it is public');
   }
   assert.equal(new Set([...chooser.client.state().you.cards, ...other.client.state().you.cards]).size, 10);
+  await closeAll(...clients);
+});
+
+// The choice is the player's, and only theirs: three of their OWN cards, once
+// (owner, 19 Sep 2026).
+test('a FIVE_CARD pick takes three of your own cards, once, and nothing else', held, async () => {
+  const { chooser, other, clients } = await variationTable('pick5');
+  await chooser.client.emit('game:selectVariation', { variation: 'FIVE_CARD' });
+  await waitClosed(chooser.client);
+  await chooser.client.emit('game:action', { action: 'see' });
+  const cards = (await chooser.client.waitState((p) => p.you.isBlind === false)).you.cards;
+  assert.equal(cards.length, 5);
+
+  // A player who has not looked is owed no choice: they cannot see the cards.
+  const blind = await other.client.emit('game:selectCards', { cards: cards.slice(0, 3) });
+  assert.equal(blind.ok, false);
+  assert.equal(blind.code, 'not_picking', JSON.stringify(blind));
+
+  for (const bad of [
+    [], cards.slice(0, 2), cards.slice(0, 4), [cards[0], cards[0], cards[1]],
+    [cards[0], cards[1], 'Zz'], [cards[0], cards[1], 7], 'not-an-array', undefined,
+  ]) {
+    const ack = await chooser.client.emit('game:selectCards', { cards: bad });
+    assert.equal(ack.ok, false, `${JSON.stringify(bad)} was accepted`);
+    assert.equal(ack.code, 'invalid_pick', `${JSON.stringify(bad)}: ${JSON.stringify(ack)}`);
+  }
+
+  // Three of their own, named in any order, play in the order they are HELD.
+  const want = [cards[0], cards[2], cards[4]];
+  const ack = await chooser.client.emit('game:selectCards', { cards: [cards[4], cards[0], cards[2]] });
+  assert.equal(ack.ok, true, JSON.stringify(ack));
+  assert.deepEqual(ack.picked, want, 'kept in the order they are held');
+
+  // And once: the hand is decided.
+  const again = await chooser.client.emit('game:selectCards', { cards: cards.slice(0, 3) });
+  assert.equal(again.ok, false);
+  assert.equal(again.code, 'duplicate_action', JSON.stringify(again));
+
+  const hand = (await chooser.client.waitState((p) => p.you.hand?.picking !== true)).you.hand;
+  assert.deepEqual(hand.best, want, 'the three that play are the three chosen');
   await closeAll(...clients);
 });
 
@@ -579,13 +667,16 @@ test('a FIVE_CARD showdown reveals all five cards and the best three of each han
     assertKeys(reveal, ['userId', 'seatIndex', 'cards', 'handName', 'category', 'won', 'best'], 'a FIVE_CARD reveal: best, and no wild');
     assert.deepEqual(reveal.cards, held5.get(reveal.userId), 'the five the player held, in the order they held them');
     assert.equal(HAND_NAMES[reveal.category], reveal.handName);
-    assertBestOfFive(reveal.cards, reveal.best, reveal.handName, `reveal of seat ${reveal.seatIndex}`);
+    // Nobody chose, so the first three they were dealt are the three that
+    // played (owner, 19 Sep 2026).
+    assertPlayedThree(reveal.cards, reveal.best, reveal.handName,
+      `reveal of seat ${reveal.seatIndex}`, reveal.cards.slice(0, 3));
   }
   assert.equal(new Set(showdown.reveals.flatMap((r) => r.cards)).size, 10, 'ten cards, all different');
   const winners = showdown.reveals.filter((r) => r.won);
   assert.equal(winners.length, 1, 'exactly one winner, never a split pot');
   const loser = showdown.reveals.find((r) => !r.won);
-  assert.ok(compare(evaluate(winners[0].best), evaluate(loser.best)) >= 0, 'and the winner\'s best three are not the weaker');
+  assert.ok(compare(evaluate(winners[0].best), evaluate(loser.best)) >= 0, 'and the winner\'s played three are not the weaker');
 
   const ended = await chooser.client.wait('game:handEnded', (p) => p.roomId === roomId);
   assert.equal(ended.variation, 'FIVE_CARD');
@@ -625,7 +716,9 @@ test('a FIVE_CARD sideshow shows the two players five cards and a best three eac
     for (const hand of reveal.hands) {
       assertKeys(hand, ['userId', 'displayName', 'cards', 'handName', 'best'], 'a FIVE_CARD sideshow hand: best, and no wild');
       assert.deepEqual(hand.cards, held5.get(hand.userId));
-      assertBestOfFive(hand.cards, hand.best, hand.handName, `sideshow hand of ${hand.displayName}`);
+      // Nobody chose, so each plays the first three they were dealt.
+      assertPlayedThree(hand.cards, hand.best, hand.handName,
+        `sideshow hand of ${hand.displayName}`, hand.cards.slice(0, 3));
     }
     const [askerHand, askedHand] = reveal.hands.map((hand) => evaluate(hand.best));
     // A tie goes against the asker, so the asker survives only by being strictly better.

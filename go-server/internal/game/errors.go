@@ -75,7 +75,13 @@ const (
 	CodeNoOtherTable      = "no_other_table"     // room:switch found nowhere to go
 	CodeNotInRoom         = "not_in_room"        // not seated anywhere / postChat by a non-seat
 	CodeNotSeated         = "not_seated"         // Table.Act by a user not at this table
-	CodeOverEntryCap      = "over_entry_cap"     // requirement 30
+	// The 5-Card pick (owner, 19 Sep 2026): CodeNotPicking is a choice made
+	// where none is owed — not a five-card hand, or a player who cannot see
+	// their cards — and CodeInvalidPick a list that is not exactly three cards
+	// of the player's own hand.
+	CodeNotPicking   = "not_picking"
+	CodeInvalidPick  = "invalid_pick"
+	CodeOverEntryCap = "over_entry_cap" // requirement 30
 	// CodeBelowTableMinimum: the table has a floor and this stack is under it
 	// (config.LobbyTable.MinChips). The partner of over_entry_cap: one says
 	// the player has outgrown a table, this says they have not grown into it.
@@ -171,6 +177,8 @@ const (
 	MsgNotInRoom            = "You are not at this table"
 	MsgNoHand               = "No hand is in progress"
 	MsgNotSeated            = "You are not at this table"
+	MsgNotPicking           = "There are no cards to choose here"
+	MsgInvalidPick          = "Choose exactly three of your own cards"
 	MsgNotInHand            = "You are not in this hand"
 	MsgNotYourTurn          = "It is not your turn"
 	MsgAlreadySeen          = "You have already seen your cards"

@@ -18,15 +18,15 @@ import (
 // other seats carry `cardCount`; the dealer's cards and every revealed hand
 // are on `poker.result` only after the showdown, and the board is public.
 type TableView struct {
-	RoomID      string          `json:"roomId"`
-	Code        string          `json:"code"`
-	IsPrivate   bool            `json:"isPrivate"`
-	Game        game.Game       `json:"game"` // always "poker"
-	Category    game.Category   `json:"category"`
+	RoomID    string        `json:"roomId"`
+	Code      string        `json:"code"`
+	IsPrivate bool          `json:"isPrivate"`
+	Game      game.Game     `json:"game"` // always "poker"
+	Category  game.Category `json:"category"`
 	// ChipsHidden is true at every poker room (owner, 19 Sep 2026): a viewer
 	// is told their own stack and nobody else's, as at a blind or variation
 	// Teen Patti table (Category.HidesChips).
-	ChipsHidden bool `json:"chipsHidden"`
+	ChipsHidden bool            `json:"chipsHidden"`
 	State       game.TableState `json:"state"`
 	HandNo      int             `json:"handNo"`
 	DealerSeat  int             `json:"dealerSeat"` // the button; -1 before the first hand
@@ -151,14 +151,14 @@ type SeatView struct {
 	// Empty selects the two-field form. Never on the wire itself.
 	Empty bool `json:"-"`
 
-	SeatIndex   int            `json:"seatIndex"`
-	UserID      string         `json:"userId"`
-	DisplayName string         `json:"displayName"`
-	AvatarURL   *string        `json:"avatarUrl"`
+	SeatIndex   int     `json:"seatIndex"`
+	UserID      string  `json:"userId"`
+	DisplayName string  `json:"displayName"`
+	AvatarURL   *string `json:"avatarUrl"`
 	// Chips is null for everyone but the viewer while the room hides stacks
 	// (ChipsHidden) — null, never 0, so a client cannot draw a figure that
 	// was withheld as if it were a number.
-	Chips *int64 `json:"chips"`
+	Chips       *int64         `json:"chips"`
 	Status      game.SeatState `json:"status"`
 	Connected   bool           `json:"connected"`
 	CardCount   int            `json:"cardCount"` // never the cards

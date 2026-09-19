@@ -30,10 +30,13 @@ const (
 	// the socket's authenticated user, and the Table decides whether that is
 	// the player the window is open for.
 	EvGameSelectVariation = "game:selectVariation" // {variation} → game.VariationResult
-	EvPlayerReqCards      = "player:requestCards"  // {} → {cards}
-	EvChatMessage         = "chat:message"         // {text} → {messageId} or {}
-	EvChatHistory         = "chat:history"         // {} → {count}
-	EvPingRTT             = "ping:rtt"             // sentAt (number) → {sentAt, serverTime} — UNGUARDED, no `ok`
+	// EvGameSelectCards is a player's choice of which three of their five
+	// cards play under 5-Card Teen Patti (Go only; owner, 19 Sep 2026).
+	EvGameSelectCards = "game:selectCards"    // {cards:[3]} → game.PickResult
+	EvPlayerReqCards  = "player:requestCards" // {} → {cards}
+	EvChatMessage     = "chat:message"        // {text} → {messageId} or {}
+	EvChatHistory     = "chat:history"        // {} → {count}
+	EvPingRTT         = "ping:rtt"            // sentAt (number) → {sentAt, serverTime} — UNGUARDED, no `ok`
 )
 
 // Server → client events.
@@ -125,7 +128,7 @@ var KnownErrorCodes = map[string]struct{}{
 var KnownEvents = map[string]struct{}{
 	EvLobbyList: {}, EvRoomQuickJoin: {}, EvRoomCreate: {}, EvRoomJoinCode: {}, EvRoomSwitch: {},
 	EvRoomLeave: {}, EvGameAction: {}, EvGameSideshowResp: {}, EvPlayerReqCards: {}, EvChatMessage: {},
-	EvChatHistory: {}, EvPingRTT: {}, EvGameSelectVariation: {}, EvPokerAction: {},
+	EvChatHistory: {}, EvPingRTT: {}, EvGameSelectVariation: {}, EvGameSelectCards: {}, EvPokerAction: {},
 }
 
 // ---- inbound payloads ----
@@ -259,6 +262,20 @@ type SideshowAck struct {
 type VariationAck struct {
 	OK bool `json:"ok"`
 	game.VariationResult
+}
+
+// SelectCardsRequest ← game:selectCards. Cards is the list as sent; any entry
+// that is not a string becomes "", which names no card, so the table refuses
+// the whole pick as not the player's own cards rather than guessing at it.
+type SelectCardsRequest struct {
+	Cards []string
+}
+
+// PickAck ← game:selectCards: the three that now play, the best three those
+// five could have made, and whether they are the same.
+type PickAck struct {
+	OK bool `json:"ok"`
+	game.PickResult
 }
 
 // CardsAck ← player:requestCards: [] unless seen.

@@ -439,6 +439,9 @@ func (h *Handler) onConnection(s *sio.Socket) {
 	s.On(EvGameSelectVariation, h.guard(s, EvGameSelectVariation, func(args []json.RawMessage) (any, error) {
 		return h.selectVariation(s, decodeSelectVariation(args))
 	}))
+	s.On(EvGameSelectCards, h.guard(s, EvGameSelectCards, func(args []json.RawMessage) (any, error) {
+		return h.selectCards(s, decodeSelectCards(args))
+	}))
 	s.On(EvPlayerReqCards, h.guard(s, EvPlayerReqCards, func([]json.RawMessage) (any, error) {
 		return h.requestCards(s)
 	}))
@@ -941,6 +944,26 @@ func (h *Handler) selectVariation(s *sio.Socket, req SelectVariationRequest) (an
 		return nil, err
 	}
 	return VariationAck{OK: true, VariationResult: result}, nil
+}
+
+// selectCards is game:selectCards — which three of a player's five cards play
+// under 5-Card Teen Patti (owner, 19 Sep 2026). The player is the socket's
+// authenticated user and never anything the client sent, and every question
+// about the choice — is a pick owed here, has one been made already, are these
+// three cards this player actually holds — is answered by Table.SelectCards on
+// the table's actor, in one closure, so a pick and the window's own clock can
+// never both decide.
+func (h *Handler) selectCards(s *sio.Socket, req SelectCardsRequest) (any, error) {
+	user := sessionOf(s).user
+	table, err := h.teenPattiTable(user.ID)
+	if err != nil {
+		return nil, err
+	}
+	result, err := table.SelectCards(user.ID, req.Cards)
+	if err != nil {
+		return nil, err
+	}
+	return PickAck{OK: true, PickResult: result}, nil
 }
 
 // sideshowRespond: table (not_in_room); table.RespondToSideshow(user, accept

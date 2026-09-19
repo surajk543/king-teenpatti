@@ -524,7 +524,7 @@ is decided by one of **seven** variations, chosen in the window §6.1 describes.
   hand — kept on every variation hand and put on the wire (`turnUp`) ONLY once JOKER or HUKAM has been chosen.
 - Exact ties are unchanged: the show-payer / missile firer loses, else nearest the dealer's left; a sideshow's asker loses.
 - **FIVE_CARD — 5-Card Teen Patti** (owner, 18 Sep 2026): every player HOLDS five cards and PLAYS the best three,
-  which the server finds; nobody picks. **`Variation.CardsPerPlayer()` is the one place that number lives** (5 for
+  which THEY choose (owner, 19 Sep 2026: "when user clicks on 'see cards' … give user extra time so that he can choose 3 cards among 5"; the server used to find the strongest three itself). The window is per PLAYER and per hand, opens the moment five cards are in front of someone who can see them — their tap on See cards, or the top-up landing on a player already looking — and lasts `FIVE_CARD_PICK_TIMEOUT_MS` (8 s). Lapsing plays THE FIRST THREE THEY WERE DEALT, which is also what a player who never looks plays, so every hand always has three cards to compare. `table_fivecard.go` holds all of it: `playedCards`/`playedHand` (the ONE way a hand is scored at the showdown, at a sideshow and in a player's own view), `beginPick`, `SelectCards` (socket `game:selectCards {cards:[3]}`, refusals `no_hand | not_seated | not_picking | duplicate_action | invalid_pick`), `settlePick` — the one place a choice is made, guarded by `picked` already being set, so a pick and its own deadline arriving together decide exactly once — and ONE `pickTimer` armed for the earliest window outstanding, which `expirePicks` sweeps and re-arms. `extendTurn` pushes a chooser's turn out to cover the whole window and a full turn after it, so choosing never costs them the time to act. The choice is in the snapshot (`SnapshotSeat.picking/picked/pickedBy/pickUntil`, validated on restore against the cards that seat holds), so a restart neither re-asks a player who answered nor gives one who has not a fresh clock. **`Variation.CardsPerPlayer()` is the one place that number lives** (5 for
   FIVE_CARD, `BaseCardsPerPlayer` 3 for everything else) — the engine carries no "3" of its own. The flow stays
   deal → window → choice, so **every hand is still DEALT three**: `beginVariation(firstSeat, undealt)` takes the
   turned-up card from `undealt[0]` and draws a two-card **top-up** per player from `undealt[1:]`, round the table in
@@ -539,8 +539,9 @@ is decided by one of **seven** variations, chosen in the window §6.1 describes.
   (`variationWindow.options`) nor accepted (`invalid_variation`). `validateSnapshot` refuses a top-up that is not two
   real cards each or repeats a card in play. **`EvaluateBest(cards)`** is the evaluator: every three-card combination
   (`ThreeCardCombinations`, C(5,3) = 10) scored by the ONE classic `Evaluate` and the strongest kept by the ONE classic
-  `Compare` — no second ranking to drift. It keeps all five in `Cards` and names the counted three in **`Best`**, in
-  the order held; combinations are walked in index order and a later one must be STRICTLY better, so which three are
+  `Compare` — no second ranking to drift. It keeps all five in `Cards` and names the strongest three in **`Best`**, in
+  the order held — which since 19 Sep 2026 is what a player is TOLD they could have played (`you.hand.bestPossible`),
+  not what plays; combinations are walked in index order and a later one must be STRICTLY better, so which three are
   named is deterministic among ties, and being ties it cannot change who wins. No card is wild and nothing is reversed.
 - **`PlaysAs`** (`EvaluatedHand`, set with `Wild`, nil without a wild card): the hand as it was COUNTED, index for index
   with `Cards` — a wild card replaced by the stand-in the search chose (`best.Cards[len(naturals):]` dealt back into the
@@ -675,6 +676,7 @@ user (`session:replaced` to the old one). On connect: `session:ready {user, conf
 | `game:action` | `{action, amount?, actionId?}` | table.act result; `actionId` (≤64 chars) becomes the ledger row's unique id; `action:"missile"` acks `{ok, action, missiles}` (§6.1) |
 | `game:sideshowRespond` | `{accept}` (only `=== true` accepts) | `{accepted, packedUserId}` |
 | `game:selectVariation` (**Go only**, variation tables, §6.1/§6.4) | `{variation}` — one of the seven exact wire values; **no player id**, the chooser is the socket's user; any non-string is `""` → `invalid_variation` | `{variation, selectedBy, turnUp?, cardsPerPlayer}` |
+| `game:selectCards` (**Go only**, 5-Card hands, §6.4) | `{cards:[3]}` — three of the player's OWN five, in any order; **no player id**, the chooser is the socket's user; a non-string entry is `""`, which names no card | `{picked, best, wasBest}` — the three that now play (in the order HELD), the strongest three those five could have made, and whether they are the same hand |
 | `player:requestCards` | `{}` | `{cards}` (empty unless seen) |
 | `poker:action` (**Go only**, poker rooms, §6.5) | `{action, amount?, cards?, actionId?}` — `fold\|check\|call\|bet\|raise\|allIn\|play\|draw`; `amount` is the TOTAL street bet for bet/raise (safe integer, else `invalid_amount`); `cards` the codes to discard on a draw | `{ok, action, amount?, allIn?, discarded?}`; `wrong_game` at a Teen Patti table, and `game:action`/`game:sideshowRespond`/`game:selectVariation` answer `wrong_game` at a poker room |
 | `chat:message` | `{text}` | `{messageId}` — own 5/5s limiter (`chat_rate_limited`) |
@@ -716,8 +718,15 @@ when the menu offers one. `variation.options` is the menu THIS hand offers (seve
 three-card variations, 5 once FIVE_CARD is chosen and the server has topped each hand up; the ack and
 `game:variationSelected` carry it too, `seats[].cardCount` and `you.cards` follow it, and a client never decides it. A
 variation table's snapshot has `chipsHidden:true` and `maxPot:0`, and its `you` gains
-**`hand {handName, category, wild:[], playsAs:[], best:[]}`** — `best` is the three of `you.cards` that are counted (all
-three of a three-card hand, the strongest three of five); showdown `reveals[]` and the two sideshow-reveal hands gain
+**`hand {handName, category, wild:[], playsAs:[], best:[], picking?, pickDeadline?, pickTimeoutMs?, pickedBy?,
+bestPossible?}`** — `best` is the three of `you.cards` that are counted (all three of a three-card hand, and under
+FIVE_CARD the three the PLAYER chose, or the first three where their window lapsed). While `picking` is true a choice is
+still owed and `handName`, `category` and `best` are all EMPTY — naming the hand would hand the player the answer — with
+`pickDeadline` (epoch ms) and `pickTimeoutMs` (the WHOLE window, not what is left of it: the client's bar drains from
+`deadline − total`, and sending the remainder drained it early). Once the choice is made `pickedBy` is `PLAYER` or
+`TIMEOUT` and `bestPossible` names the strongest three those five could have made, which is what lets the table say "you
+played this; the best was that" with no second ranking. A seat also carries a public **`picking`** while its player is
+still choosing, so the table can say who it is waiting on — never WHICH cards they are choosing between; showdown `reveals[]` and the two sideshow-reveal hands gain
 `best` only under FIVE_CARD, where `cards` holds all five — (never null arrays; ABSENT on seen and blind tables, while the viewer
 is blind, and until the variation is chosen) — what the Flutter table turns the viewer's wild cards into.
 Input guards (`socket/index.js`): `game:action.amount` must be a JS number and safe integer (strings/arrays/booleans → `invalid_bet`);
@@ -889,6 +898,7 @@ fallback `go-server/public`; not in `.env.example` — `config.go` documents it)
 | `MAX_MISSED_TURNS` | 3 | |
 | **`UNFUNDED_GRACE_MS`** | 30000 | **Go-only.** How long a seat that can no longer cover the boot is held between hands before the `insufficient_chips` kick, so a player can buy chips and stay; `you.unfundedDeadline` carries the deadline to that player and the Flutter status line counts it down. 0 = kicked at once (Node's rule). |
 | **`VARIATION_SELECT_TIMEOUT_MS`** | 10000 | **Go-only.** How long the player who opens a variation table's hand has to choose its variation before the SERVER chooses Muflis. The client's countdown is decoration. 0 = the window never lapses on its own (it still closes when the chooser leaves) — never in production: a chooser who walks away holds the table for the whole reconnect grace. Given to variation tables only; a seen or blind table's `TableConfig` and snapshot are unchanged. |
+| **`FIVE_CARD_PICK_TIMEOUT_MS`** | 8000 | **Go-only** (owner, 19 Sep 2026). The EXTRA time a player gets, once their five cards are in front of them under 5-Card Teen Patti, to choose which three of them play (§6.4). Per player and per hand; lapsing plays the first three they were dealt. A chooser whose turn is running has it pushed out to cover the window and a full turn after it. 0 = the window never lapses, and a hand can then sit on a player who has looked and will not choose until their turn clock packs them — never in production. Given to variation tables only. |
 | **`VARIATION_MAX_POT_BOOTS`** | 0 | **Go-only.** A public variation table's pot cap, counted in BOOTS of that table; **0 = no pot limit, the default** (owner, 18 Sep 2026). A count of boots and not a figure because variation runs at several stakes (§6.4). `MenuMaxPot(category, boot)` advertises exactly what `TableRules` gives the table. A product that overflows int64 for any variation table on the menu stops the boot with the key named; a negative value does too. |
 | **`POKER_TURN_TIMEOUT_MS`** / **`POKER_MIN_BUYIN_BOOTS`** / **`POKER_MAX_DISCARDS`** | 0 / 10 / 3 | **Go-only** (§6.5). A poker decision's clock (0 = `TURN_TIMEOUT_MS`); the smallest stack that may sit at a poker room, in boots of that table (at least 1; the menu's `minChips`); how many cards a 5-Card Draw player may exchange (0..5, else the boot stops). How each variant plays is fixed in `poker.Variants`, not here. |
 | **`MISSILE_REVEAL_EXTRA_MS`** | 3000 | **Go-only.** Added to `NEXT_HAND_DELAY_MS` after a missile showdown (§6.1), so the client's volley, its explosions and a look at every hand fit before the next deal. |

@@ -416,6 +416,24 @@ func decodeSelectVariation(args []json.RawMessage) SelectVariationRequest {
 	return SelectVariationRequest{Variation: stringArg(p.field("variation"))}
 }
 
+// decodeSelectCards reads game:selectCards. A missing or non-array `cards` is
+// an empty list, which is not three cards and so is refused; a non-string entry
+// becomes "" for the same reason decodePokerAction does it — it names no card.
+func decodeSelectCards(args []json.RawMessage) SelectCardsRequest {
+	p := decodePayload(args)
+	req := SelectCardsRequest{Cards: []string{}}
+	if raw, kind := p.field("cards"); kind == kindArray {
+		var items []json.RawMessage
+		if err := json.Unmarshal(raw, &items); err == nil {
+			for _, item := range items {
+				s, _ := jsonString(item, kindOf(item))
+				req.Cards = append(req.Cards, s)
+			}
+		}
+	}
+	return req
+}
+
 func decodeSideshowRespond(args []json.RawMessage) SideshowRespondRequest {
 	p := decodePayload(args)
 	raw, kind := p.field("accept")

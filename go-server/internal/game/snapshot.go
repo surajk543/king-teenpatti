@@ -71,8 +71,14 @@ type SnapshotConfig struct {
 	// VariationSelectTimeoutMs is TableConfig.VariationSelectTimeout; absent
 	// (0) in every snapshot of a seen or blind table.
 	VariationSelectTimeoutMs int64 `json:"variationSelectTimeoutMs,omitempty"`
-	ChatMaxHistory           int   `json:"chatMaxHistory"`
-	ChatMaxLength            int   `json:"chatMaxLength"`
+	// FiveCardPickTimeoutMs is TableConfig.FiveCardPickTimeout; absent (0) in
+	// every snapshot of a seen or blind table, and in one saved before the
+	// 5-Card pick existed — which restores with no clock on the window, so an
+	// open one waits for its player rather than closing the instant it comes
+	// back.
+	FiveCardPickTimeoutMs int64 `json:"fiveCardPickTimeoutMs,omitempty"`
+	ChatMaxHistory        int   `json:"chatMaxHistory"`
+	ChatMaxLength         int   `json:"chatMaxLength"`
 }
 
 // SnapshotHand is Snapshot.hand.
@@ -189,7 +195,17 @@ type SnapshotSeat struct {
 	SideshowAskedThisTurn bool    `json:"sideshowAskedThisTurn"`
 	KickPending           bool    `json:"kickPending"`
 	UnfundedUntil         *int64  `json:"unfundedUntil,omitempty"` // epoch ms: end of the unfunded grace
-	JoinedAt              int64   `json:"joinedAt"`                // epoch ms
+	// The 5-Card pick (owner, 19 Sep 2026; table_fivecard.go). Picking is a
+	// window still owed a choice, Picked the three that play once one is made,
+	// PickedBy who made it and PickUntil when the server makes it for them
+	// (epoch ms; absent when no clock runs). All four are absent on every hand
+	// that plays what it holds, so a seen or blind table's snapshot is exactly
+	// what it was.
+	Picking   bool     `json:"picking,omitempty"`
+	Picked    []string `json:"picked,omitempty"`
+	PickedBy  string   `json:"pickedBy,omitempty"`
+	PickUntil *int64   `json:"pickUntil,omitempty"`
+	JoinedAt  int64    `json:"joinedAt"` // epoch ms
 }
 
 // HandSummaryEntry is one contributor in hands.summary_json and in the

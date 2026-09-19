@@ -66,6 +66,14 @@ type TableConfig struct {
 	// Read only by a table whose Category HasVariation.
 	VariationSelectTimeout time.Duration
 
+	// FiveCardPickTimeout is the extra time a player gets, once they can see
+	// five cards under 5-Card Teen Patti, to choose which three of them play
+	// before the server plays the first three for them
+	// (FIVE_CARD_PICK_TIMEOUT_MS, 15 s; Go only, owner 19 Sep 2026;
+	// table_fivecard.go). 0 = no clock. Read only by a table whose Category
+	// HasVariation.
+	FiveCardPickTimeout time.Duration
+
 	ChatMaxHistory int // RoomChat caps; 0 → chat.js defaults (100 / 140)
 	ChatMaxLength  int
 }
@@ -216,6 +224,16 @@ type seat struct {
 	// unfundedUntil ends the grace a seat below the boot is given between
 	// hands before the insufficient_chips kick; nil while none is running.
 	unfundedUntil *time.Time
+
+	// The 5-Card pick (owner, 19 Sep 2026; table_fivecard.go). picking is true
+	// while this player's window is open, picked the three of their five that
+	// play once it has closed, pickedBy who closed it and pickUntil when the
+	// server closes it for them (zero when no clock runs). All four are cleared
+	// by every deal and mean nothing on a hand that plays three cards.
+	picking   bool
+	picked    []Card
+	pickedBy  PickedBy
+	pickUntil time.Time
 }
 
 // contribution is hand.contributions[userId] — owned by the HAND, not the
@@ -353,7 +371,10 @@ type Table struct {
 	holdStartUntil time.Time
 	chat           *RoomChat
 	turnTimer      Timer
-	startTimer     Timer
+	// pickTimer is the ONE clock behind every open 5-Card pick window, armed
+	// for the earliest deadline outstanding (table_fivecard.go).
+	pickTimer  Timer
+	startTimer Timer
 	// startTimerGen names the armed start timer, so a callback whose timer
 	// was stopped a moment too late (time.AfterFunc's Stop can lose that
 	// race) is recognised as stale — the same guard hand.turnToken gives
@@ -1298,6 +1319,8 @@ func (t *Table) startHand() {
 	// Patti) has each hand topped up when it is chosen, from the cards left
 	// here (beginVariation draws them now, so they are part of the hand).
 	deals, undealt := Deal(len(participants), BaseCardsPerPlayer)
+	// No hand ever starts holding the last one's 5-Card choices.
+	t.clearPicks()
 
 	h := &hand{
 		id:            handID,
@@ -2101,6 +2124,11 @@ func (t *Table) see(s *seat, auto bool) (ActResult, error) {
 	t.syncContribution(s, s.status)
 
 	t.listener.OnCards(t.view, CardsEvent{UserID: s.userID, Cards: CardCodes(s.cards)})
+	// A look at five cards under 5-Card Teen Patti opens this player's window
+	// to choose the three that play (owner, 19 Sep 2026; table_fivecard.go).
+	// It does nothing on every other hand, and it runs before the turn is
+	// re-issued below so that the extra time it grants is in that event.
+	t.beginPick(s)
 	autoFlag := auto
 	t.listener.OnAction(t.view, ActionEvent{
 		UserID: s.userID,
@@ -2614,8 +2642,8 @@ func (t *Table) settleSideshow(pending *pendingSideshow, accepted bool, reason s
 		// variation on a variation table (a sideshow cannot be asked while the
 		// window is open, so the rules are always settled by now).
 		rules := t.handRules()
-		a := rules.EvaluateHand(asker.cards)
-		b := rules.EvaluateHand(asked.cards)
+		a := t.playedHand(rules, asker)
+		b := t.playedHand(rules, asked)
 		// A tie goes against the player who asked.
 		loser := asker
 		if rules.CompareHands(a, b) > 0 {
@@ -2724,7 +2752,7 @@ func (t *Table) resolveShowdown(contenders []*seat, reason WinReason, showReques
 	rules := t.handRules()
 	scored := make([]scoredSeat, 0, len(contenders))
 	for _, s := range contenders {
-		scored = append(scored, scoredSeat{seat: s, hand: rules.EvaluateHand(s.cards)})
+		scored = append(scored, scoredSeat{seat: s, hand: t.playedHand(rules, s)})
 	}
 
 	// Preference order for exact ties: the dealer's own seat first (distance
@@ -2846,6 +2874,7 @@ func (t *Table) endHand(winnerID *string, reason WinReason, reveals []Reveal) {
 	// already on its way finds nothing to do. Nothing was chosen and nothing is
 	// announced; with one player left there were no hands to compare.
 	t.stopVariationTimer()
+	t.stopPickTimer()
 	if h.variation != nil {
 		h.variation.open = false
 	}
@@ -3050,6 +3079,7 @@ func (t *Table) destroy() {
 	}
 	// The same for a variation window's clock (endHand stops it otherwise).
 	t.stopVariationTimer()
+	t.stopPickTimer()
 	// A settlement the database has not accepted yet is still owed whatever
 	// happens to the table: every stopped retry continues off the actor
 	// (Settler.Detach).
@@ -3097,6 +3127,16 @@ func (t *Table) snapshot() *Snapshot {
 		}
 		if s.unfundedUntil != nil {
 			snap.UnfundedUntil = Int64Ptr(Millis(*s.unfundedUntil))
+		}
+		if s.picking {
+			snap.Picking = true
+		}
+		if len(s.picked) > 0 {
+			snap.Picked = CardCodes(s.picked)
+			snap.PickedBy = string(s.pickedBy)
+		}
+		if !s.pickUntil.IsZero() {
+			snap.PickUntil = Int64Ptr(Millis(s.pickUntil))
 		}
 		if s.avatarURL != nil {
 			snap.AvatarURL = StrPtr(*s.avatarURL)
@@ -3226,6 +3266,7 @@ func snapshotConfig(cfg TableConfig) SnapshotConfig {
 		MissileRevealExtraMs: cfg.MissileRevealExtra.Milliseconds(),
 
 		VariationSelectTimeoutMs: cfg.VariationSelectTimeout.Milliseconds(),
+		FiveCardPickTimeoutMs:    cfg.FiveCardPickTimeout.Milliseconds(),
 	}
 }
 
@@ -3250,6 +3291,7 @@ func tableConfigFrom(c SnapshotConfig) TableConfig {
 		MissileRevealExtra: time.Duration(c.MissileRevealExtraMs) * time.Millisecond,
 
 		VariationSelectTimeout: time.Duration(c.VariationSelectTimeoutMs) * time.Millisecond,
+		FiveCardPickTimeout:    time.Duration(c.FiveCardPickTimeoutMs) * time.Millisecond,
 
 		ChatMaxHistory: c.ChatMaxHistory,
 		ChatMaxLength:  c.ChatMaxLength,
@@ -3368,6 +3410,9 @@ func (t *Table) serializeFor(viewerID string) *TableView {
 			Contributed: s.contributed,
 			Connected:   s.connected,
 			CardCount:   len(s.cards),
+			// Public, so the table can say who it is waiting on; the cards
+			// they are choosing between stay their own (owner, 19 Sep 2026).
+			Picking: s.picking && len(s.picked) == 0,
 		}
 		if s.avatarURL != nil {
 			entry.AvatarURL = StrPtr(*s.avatarURL)

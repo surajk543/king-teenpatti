@@ -683,6 +683,7 @@ class Seat {
     required this.contributed,
     required this.connected,
     required this.cardCount,
+    this.picking = false,
     this.streetBet = 0,
     this.allIn = false,
     this.dealer = false,
@@ -708,6 +709,11 @@ class Seat {
   final int contributed;
   final bool connected;
   final int cardCount;
+
+  /// 5-Card Teen Patti: this player is still choosing which three of their
+  /// five cards play (owner, 19 Sep 2026). Public so the table can say who it
+  /// is waiting on; WHICH cards they are choosing is never public.
+  final bool picking;
 
   /// A poker seat: what it has put in on the CURRENT street, whether its
   /// whole stack is in, and whether it holds the dealer button. A Teen Patti
@@ -735,6 +741,7 @@ class Seat {
     contributed: contributed,
     connected: connected,
     cardCount: cardCount,
+    picking: picking,
     streetBet: streetBet,
     allIn: allIn,
     dealer: dealer,
@@ -753,6 +760,7 @@ class Seat {
     contributed: _int(j['contributed']),
     connected: j['connected'] != false,
     cardCount: _int(j['cardCount']),
+    picking: j['picking'] == true,
     streetBet: _int(j['streetBet']),
     allIn: j['allIn'] == true,
     dealer: j['dealer'] == true,
@@ -1456,6 +1464,11 @@ class OwnHand {
     required this.wild,
     required this.playsAs,
     this.best = const [],
+    this.picking = false,
+    this.pickDeadline = 0,
+    this.pickTimeoutMs = 0,
+    this.pickedBy = '',
+    this.bestPossible = const [],
   });
 
   /// The codes of the `you.cards` that are COUNTED, in the order held: all
@@ -1474,6 +1487,35 @@ class OwnHand {
   /// `you.cards` as they were counted.
   final List<String> playsAs;
 
+  /// 5-Card Teen Patti: true while this player still owes a choice of which
+  /// three of their five cards play (owner, 19 Sep 2026). [handName] and
+  /// [best] are both empty while it is true — naming the hand would hand the
+  /// player the answer — so the felt asks instead of showing.
+  final bool picking;
+
+  /// When the server plays the first three for them, epoch ms, and how long
+  /// was left when the snapshot was made. Both 0 when no clock is running.
+  final int pickDeadline;
+  final int pickTimeoutMs;
+
+  /// "PLAYER" when they chose and "TIMEOUT" when the clock did; empty until
+  /// the choice is made.
+  final String pickedBy;
+
+  /// The strongest three those five could have made, sent only once the choice
+  /// is made. Equal to [best] when they chose well, which is how the table
+  /// knows whether to congratulate them or show them what they missed.
+  final List<String> bestPossible;
+
+  /// Whether the three that play are the strongest three that could have.
+  /// True when nothing better was on offer, and true for a three-card hand,
+  /// which plays all of itself.
+  bool get pickedTheBest =>
+      bestPossible.isEmpty ||
+      (best.length == bestPossible.length &&
+          List.generate(best.length, (i) => best[i] == bestPossible[i])
+              .every((same) => same));
+
   /// The card [code] (one of `you.cards`, at [index]) stood for, or null when
   /// it is not wild, the server said nothing usable, or it stood for itself.
   String? standInFor(String code, int index) {
@@ -1491,6 +1533,11 @@ class OwnHand {
       wild: cardCodes(j['wild']),
       playsAs: cardCodes(j['playsAs']),
       best: cardCodes(j['best']),
+      picking: j['picking'] == true,
+      pickDeadline: _int(j['pickDeadline']),
+      pickTimeoutMs: _int(j['pickTimeoutMs']),
+      pickedBy: _str(j['pickedBy']),
+      bestPossible: cardCodes(j['bestPossible']),
     );
   }
 }

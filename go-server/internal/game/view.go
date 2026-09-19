@@ -161,9 +161,36 @@ type YouHand struct {
 	// Never null.
 	PlaysAs []string `json:"playsAs"`
 	// Best is the three of you.cards that are COUNTED: all of them for a
-	// three-card hand, the strongest three of five under FIVE_CARD (the server
-	// finds them; the player never picks). Never null.
+	// three-card hand, and under FIVE_CARD the three the PLAYER chose — or
+	// the first three they were dealt, when their window lapsed or they never
+	// looked (owner, 19 Sep 2026; the server used to choose the strongest
+	// three itself). Never null, and EMPTY while Picking: nothing counts yet.
 	Best []string `json:"best"`
+
+	// The 5-Card pick (Go only, owner 19 Sep 2026; table_fivecard.go). All
+	// four are absent on every hand that plays what it holds.
+	//
+	// Picking is true while this player still owes a choice, and it is the one
+	// flag a client needs to put the chooser in front of their five cards.
+	// HandName, Category and Best are all empty while it is true: naming the
+	// hand would be handing over the answer.
+	Picking bool `json:"picking,omitempty"`
+	// PickDeadline is when the server plays the first three for them, epoch-ms,
+	// and PickTimeoutMs the WHOLE length of the window — not what is left of
+	// it. The client's countdown drains from `deadline - total` to `deadline`,
+	// so a total that shrank with every snapshot drained the bar early and the
+	// picker looked as though it had lapsed before it had (owner, 19 Sep
+	// 2026). Both absent when no clock runs (FIVE_CARD_PICK_TIMEOUT_MS 0).
+	PickDeadline  int64 `json:"pickDeadline,omitempty"`
+	PickTimeoutMs int64 `json:"pickTimeoutMs,omitempty"`
+	// PickedBy is "PLAYER" when they chose and "TIMEOUT" when the clock did,
+	// set only once the choice is made.
+	PickedBy string `json:"pickedBy,omitempty"`
+	// BestPossible is the strongest three the five held could have made, sent
+	// only once the choice is made — so a client can say "you played this; the
+	// best was that" without a second ranking. Equal to Best when they chose
+	// well.
+	BestPossible []string `json:"bestPossible,omitempty"`
 }
 
 // TurnOptions is what the player on turn may do (table.js turnOptions) —
@@ -240,6 +267,13 @@ type SeatView struct {
 	Contributed int64     `json:"contributed"`
 	Connected   bool      `json:"connected"`
 	CardCount   int       `json:"cardCount"` // 0, 3, or 5 under FIVE_CARD; never the cards
+	// Picking is true while this player is still choosing which three of their
+	// five cards play under 5-Card Teen Patti (Go only, owner 19 Sep 2026:
+	// "others should see that he is choosing"). Public, because the table
+	// waits on a chooser who is also on turn; absent on every other hand, so
+	// a seen or blind table's seats are byte for byte what they were. WHICH
+	// cards they are choosing is never public — only that they are.
+	Picking bool `json:"picking,omitempty"`
 }
 
 type seatViewFull SeatView

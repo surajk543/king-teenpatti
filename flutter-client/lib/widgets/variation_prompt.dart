@@ -106,12 +106,26 @@ class VariationCountdown extends StatefulWidget {
 class _VariationCountdownState extends State<VariationCountdown>
     with SingleTickerProviderStateMixin {
   /// Repeats rather than runs once, so the clock keeps redrawing whatever the
-  /// deadline is. Read on every build, so its initialiser never first runs in
-  /// dispose (CLAUDE.md §12.3).
-  late final AnimationController _frames = AnimationController(
-    vsync: this,
-    duration: const Duration(seconds: 1),
-  )..repeat();
+  /// deadline is.
+  ///
+  /// Built in initState rather than as a `late final` read from build: build
+  /// returns early when there is no deadline to draw, so on that path the
+  /// field was first read in dispose() — where `vsync: this` looks up
+  /// TickerMode on a deactivated element, the throw lands inside
+  /// _InactiveElements._unmount, and the NEXT screen dies on an
+  /// _ElementLifecycle.inactive assertion (CLAUDE.md §12.3). A line that shows
+  /// someone else choosing has no deadline of its own, which is how a clock
+  /// that never drew came to be disposed (19 Sep 2026).
+  late final AnimationController _frames;
+
+  @override
+  void initState() {
+    super.initState();
+    _frames = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 1),
+    )..repeat();
+  }
 
   double _remaining() {
     if (widget.totalMs <= 0) return 0;
@@ -776,6 +790,486 @@ class SetBack extends StatelessWidget {
           child: child,
         ),
       ),
+    );
+  }
+}
+
+/// 5-Card Teen Patti's card picker (owner, 19 Sep 2026: "when user clicks on
+/// See cards … give user extra time so that he can choose 3 cards among 5 which
+/// is shown in pop").
+///
+/// The five cards are drawn IN the panel rather than the player being sent to
+/// their own fan: the fan sits under the action keys on a 640dp phone, and a
+/// hand being chosen from should be the thing the screen is about. Tapping a
+/// card marks it and tapping it again unmarks it; the third fills the hand and
+/// a fourth tap is ignored rather than quietly dropping one of the three.
+///
+/// It is a panel in the felt's Stack, never a `showDialog` route, for the
+/// reason [VariationPrompt] is: the window can close under the player — their
+/// own clock runs out — and a route that outlives the question it asked takes
+/// the table down with it when it is popped.
+class CardPickPrompt extends StatefulWidget {
+  const CardPickPrompt({
+    super.key,
+    required this.title,
+    required this.hint,
+    required this.confirm,
+    required this.chosenLabel,
+    required this.cards,
+    required this.selected,
+    required this.deadlineMs,
+    required this.totalMs,
+    required this.onToggle,
+    required this.onConfirm,
+  });
+
+  final String title;
+  final String hint;
+  final String confirm;
+
+  /// What a marked card is, for a screen reader: the gold edge is a colour.
+  final String chosenLabel;
+
+  /// The player's own five, in the order they are held.
+  final List<String> cards;
+
+  /// Which of them are marked, in the order they were tapped.
+  final List<String> selected;
+  final int deadlineMs;
+  final int totalMs;
+  final void Function(String code) onToggle;
+
+  /// Sends the three. Answers whether the server took them; a refusal puts the
+  /// keys back so the player can choose again.
+  final Future<bool> Function(List<String> cards) onConfirm;
+
+  /// How many cards make a hand. Three, wherever this is used.
+  static const int plays = 3;
+
+  /// The clock's bar and the hint line, as the height arithmetic above counts
+  /// them: both are drawn by widgets that size themselves, so the panel has to
+  /// be told what they come to.
+  static const double _barH = 6;
+  static const double _hintH = 16;
+
+  @override
+  State<CardPickPrompt> createState() => _CardPickPromptState();
+}
+
+class _CardPickPromptState extends State<CardPickPrompt> {
+  bool _sending = false;
+
+  Future<void> _confirm() async {
+    if (_sending || widget.selected.length != CardPickPrompt.plays) return;
+    tapHaptic(context);
+    setState(() => _sending = true);
+    final taken = await widget.onConfirm(widget.selected);
+    if (taken || !mounted) return;
+    setState(() => _sending = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final screen = MediaQuery.sizeOf(context);
+    final roomy =
+        !Breaks.isShort(screen.height) && !Breaks.isCompact(screen.width);
+    final headerH = roomy ? 40.0 : 30.0;
+    final pad = roomy ? Space.lg : Space.md;
+    final ready = widget.selected.length == CardPickPrompt.plays;
+
+    return LayoutBuilder(
+      builder: (context, box) {
+        final width = math.min(
+          (screen.width * 0.72).clamp(340.0, 600.0),
+          math.max(0.0, box.maxWidth - 2 * Space.md),
+        );
+        // Five cards and four gaps inside the panel's padding — but the row
+        // is sized by the HEIGHT it is given as well as the width it has. A
+        // card wide enough for the panel is 116dp tall at 640x360, which with
+        // the header, the clock, the hint and the confirm key is taller than
+        // the 0.64 of the felt this stands in: the panel overflowed its box by
+        // 16 pixels there. So the row takes whatever is left after the chrome
+        // and the cards are cut to fit it, keeping their own aspect.
+        const gap = Space.sm;
+        const lift = 10.0;
+        final byWidth =
+            math.max(
+              0.0,
+              (width - 2 * pad - (widget.cards.length - 1) * gap) /
+                  widget.cards.length,
+            ) /
+            PlayingCard.aspect;
+        // Everything in the column that is not the row of cards.
+        final chrome =
+            2 * pad +
+            headerH +
+            (widget.deadlineMs > 0 ? Space.sm + CardPickPrompt._barH : 0) +
+            (roomy ? Space.xs + CardPickPrompt._hintH : 0) +
+            Space.sm +
+            Space.sm +
+            Dim.minTouch;
+        final byHeight = box.maxHeight.isFinite
+            ? box.maxHeight - chrome - lift
+            : byWidth;
+        final cardH = math.max(24.0, math.min(byWidth, byHeight));
+
+        return Center(
+          child: SizedBox(
+            width: width,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(Radii.lg),
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    AppTheme.ink800.withValues(alpha: 0.86),
+                    AppTheme.ink900.withValues(alpha: 0.94),
+                  ],
+                ),
+                border: Border.all(
+                  color: AppTheme.goldBright.withValues(alpha: 0.45),
+                  width: 1.5,
+                ),
+                boxShadow: AppTheme.controlShadow(
+                  Brightness.dark,
+                  elevation: 5,
+                ),
+              ),
+              child: Padding(
+                padding: EdgeInsets.all(pad),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SizedBox(
+                      height: headerH,
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              alignment: Alignment.centerLeft,
+                              child: Text(
+                                widget.title,
+                                maxLines: 1,
+                                style: AppTheme.label(
+                                  theme.textTheme.titleMedium ??
+                                      const TextStyle(),
+                                  colour: AppTheme.goldBright,
+                                  weight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: Space.md),
+                          if (widget.deadlineMs > 0)
+                            VariationCountdown(
+                              deadlineMs: widget.deadlineMs,
+                              totalMs: widget.totalMs,
+                              digitsHeight: headerH,
+                              bar: false,
+                            ),
+                        ],
+                      ),
+                    ),
+                    if (widget.deadlineMs > 0) ...[
+                      const SizedBox(height: Space.sm),
+                      VariationCountdown(
+                        deadlineMs: widget.deadlineMs,
+                        totalMs: widget.totalMs,
+                        digitsHeight: 0,
+                        digits: false,
+                      ),
+                    ],
+                    if (roomy) ...[
+                      const SizedBox(height: Space.xs),
+                      FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text(
+                          widget.hint,
+                          maxLines: 1,
+                          style: (theme.textTheme.bodySmall ??
+                                  const TextStyle())
+                              .copyWith(color: Colors.white70),
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: Space.sm),
+                    SizedBox(
+                      height: cardH + lift,
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          for (final (i, code) in widget.cards.indexed) ...[
+                            if (i > 0) const SizedBox(width: gap),
+                            _PickableCard(
+                              key: ValueKey('pick-card-$code'),
+                              code: code,
+                              label: widget.chosenLabel,
+                              height: cardH,
+                              lift: lift,
+                              marked: widget.selected.contains(code),
+                              enabled: !_sending,
+                              onTap: () => widget.onToggle(code),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: Space.sm),
+                    SizedBox(
+                      width: double.infinity,
+                      height: Dim.minTouch,
+                      child: GlassButton(
+                        onPressed: ready && !_sending ? _confirm : null,
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text(
+                            '${widget.confirm}  ${widget.selected.length}/${CardPickPrompt.plays}',
+                            maxLines: 1,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// One of the five, marked or not. A marked card lifts and takes the gold edge
+/// a wild card takes at a reveal, so "chosen" reads the same way everywhere.
+class _PickableCard extends StatelessWidget {
+  const _PickableCard({
+    super.key,
+    required this.code,
+    required this.label,
+    required this.height,
+    required this.lift,
+    required this.marked,
+    required this.enabled,
+    required this.onTap,
+  });
+
+  final String code;
+  final String label;
+  final double height;
+  final double lift;
+  final bool marked;
+  final bool enabled;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: height * PlayingCard.aspect,
+      height: height + lift,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: enabled ? onTap : null,
+        child: AnimatedAlign(
+          duration: Motion.base,
+          curve: Motion.standard,
+          alignment: marked ? Alignment.topCenter : Alignment.bottomCenter,
+          child: SetBack(
+            setBack: !marked,
+            cardHeight: height,
+            child: WildEdge(
+              wild: marked,
+              cardHeight: height,
+              label: label,
+              child: PlayingCard(code: code, height: height),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The verdict, for the few seconds after a hand's three are settled: "you
+/// played the best combination", or what was played beside what would have
+/// been best (owner, 19 Sep 2026). It names the cards rather than only the
+/// hand, because the point is to show the player the three they missed.
+class PickVerdict extends StatelessWidget {
+  const PickVerdict({
+    super.key,
+    required this.wasBest,
+    required this.byTimeout,
+    required this.played,
+    required this.best,
+    required this.title,
+    required this.playedLabel,
+    required this.bestLabel,
+    required this.timedOutNote,
+  });
+
+  final bool wasBest;
+  final bool byTimeout;
+
+  /// The three that were PLAYED, and the three that would have been best.
+  /// Both are drawn when they differ (owner, 19 Sep 2026: "while showing the
+  /// best card … also show your selected card"), so the player can see the
+  /// two hands side by side rather than being told about one of them.
+  final List<String> played;
+  final List<String> best;
+  final String title;
+  final String playedLabel;
+  final String bestLabel;
+  final String timedOutNote;
+
+  /// The green a hand well played is written in — the same green a seen
+  /// opponent's cards take, read off the dark plate this stands on.
+  static Color get _good => AppTheme.seenInk(Brightness.dark);
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final screen = MediaQuery.sizeOf(context);
+    final cardH = Breaks.isShort(screen.height) ? 34.0 : 44.0;
+
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: Space.md),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(Radii.lg),
+            color: AppTheme.ink900.withValues(alpha: 0.92),
+            border: Border.all(
+              color: (wasBest ? _good : AppTheme.goldBright).withValues(
+                alpha: 0.55,
+              ),
+              width: 1.5,
+            ),
+            boxShadow: AppTheme.controlShadow(Brightness.dark, elevation: 4),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: Space.lg,
+              vertical: Space.md,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (byTimeout)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: Space.xs),
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        timedOutNote,
+                        maxLines: 1,
+                        style: (theme.textTheme.bodySmall ?? const TextStyle())
+                            .copyWith(color: Colors.white70),
+                      ),
+                    ),
+                  ),
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    title,
+                    maxLines: 1,
+                    style: AppTheme.label(
+                      theme.textTheme.titleSmall ?? const TextStyle(),
+                      colour: wasBest ? _good : AppTheme.goldBright,
+                      weight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                if (!wasBest && best.isNotEmpty) ...[
+                  const SizedBox(height: Space.sm),
+                  // What was played, then what would have been best: the two
+                  // rows side by side are the whole point of the message.
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      _VerdictHand(
+                        label: playedLabel,
+                        cards: played,
+                        cardHeight: cardH,
+                        marked: false,
+                      ),
+                      const SizedBox(width: Space.md),
+                      Icon(
+                        Icons.arrow_forward_rounded,
+                        size: cardH * 0.4,
+                        color: Colors.white38,
+                      ),
+                      const SizedBox(width: Space.md),
+                      _VerdictHand(
+                        label: bestLabel,
+                        cards: best,
+                        cardHeight: cardH,
+                        marked: true,
+                      ),
+                    ],
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+
+/// One of the verdict's two hands: a caption over three small cards. The best
+/// three take the gold edge a chosen card takes in the picker, so the eye goes
+/// to them; what was played is drawn plainly beside them.
+class _VerdictHand extends StatelessWidget {
+  const _VerdictHand({
+    required this.label,
+    required this.cards,
+    required this.cardHeight,
+    required this.marked,
+  });
+
+  final String label;
+  final List<String> cards;
+  final double cardHeight;
+  final bool marked;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(
+            label,
+            maxLines: 1,
+            style: (theme.textTheme.labelSmall ?? const TextStyle()).copyWith(
+              color: marked ? AppTheme.goldBright : Colors.white70,
+            ),
+          ),
+        ),
+        const SizedBox(height: Space.xs),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final (i, code) in cards.indexed) ...[
+              if (i > 0) const SizedBox(width: Space.xs),
+              WildEdge(
+                wild: marked,
+                cardHeight: cardHeight,
+                label: label,
+                child: PlayingCard(code: code, height: cardHeight),
+              ),
+            ],
+          ],
+        ),
+      ],
     );
   }
 }

@@ -103,6 +103,11 @@ export const VARIATIONS = ['MUFLIS', 'AK47', 'JOKER', 'HUKAM', 'LOWEST_JOKER', '
 export const THREE_CARD_VARIATIONS = VARIATIONS.filter((v) => v !== 'FIVE_CARD');
 /** What you.hand carries once the viewer has looked and a variation is chosen. */
 export const YOU_HAND_KEYS = ['handName', 'category', 'wild', 'playsAs', 'best'];
+// Under 5-Card the player chooses their three, so you.hand carries the window
+// as well (owner, 19 Sep 2026): picking + its clock while a choice is owed,
+// and who chose plus what the best would have been once one is made.
+export const YOU_HAND_PICKING_KEYS = [...YOU_HAND_KEYS, 'picking', 'pickDeadline', 'pickTimeoutMs'];
+export const YOU_HAND_PICKED_KEYS = [...YOU_HAND_KEYS, 'pickedBy', 'bestPossible'];
 export const YOU_KEYS = [
   'seatIndex', 'chips', 'status', 'isBlind', 'blindMovesLeft', 'contributed', 'missedTurns', 'maxMissedTurns',
   'canMissile', 'cards', 'options',

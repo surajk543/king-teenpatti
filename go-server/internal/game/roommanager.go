@@ -788,6 +788,7 @@ func (rm *RoomManager) newTableLocked(opts CreateTableOptions) Room {
 	// it was before variation tables existed.
 	if resolved.HasVariation() {
 		cfg.VariationSelectTimeout = g.VariationSelectTimeout
+		cfg.FiveCardPickTimeout = g.FiveCardPickTimeout
 	}
 
 	id := util.UUID()

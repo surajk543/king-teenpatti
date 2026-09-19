@@ -18,10 +18,16 @@ import (
 
 const variationWindowMS = 10 * time.Second
 
+// fiveCardPickMS is the extra time a 5-Card player gets to choose their three
+// on a test table: long enough to be distinct from the variation window above,
+// short enough that advancing past it is cheap.
+const fiveCardPickMS = 8 * time.Second
+
 func variationConfig() TableConfig {
 	cfg := sideshowConfig()
 	cfg.Category = CategoryVariation
 	cfg.VariationSelectTimeout = variationWindowMS
+	cfg.FiveCardPickTimeout = fiveCardPickMS
 	return cfg
 }
 
@@ -1259,7 +1265,11 @@ func TestTheTopUpIsSecretUntilItIsDealtAndThenOnlyItsOwnersToSee(t *testing.T) {
 	eq(t, len(h.view(other).You.Cards), 5, "a later See shows five")
 }
 
-func TestYourOwnFiveCardHandNamesItsBestThree(t *testing.T) {
+// Under 5-Card the PLAYER picks the three that play (owner, 19 Sep 2026), so
+// until they have, their own view names no hand at all: naming it would hand
+// them the answer they are being asked for. Once they pick, it names what they
+// played and what the best would have been.
+func TestYourOwnFiveCardHandIsUnnamedUntilTheyPick(t *testing.T) {
 	h, _, chooser := variationTable(t, 2)
 	h.setCards(chooser, "As", "7d", "Ks")
 	h.setExtra(chooser, "7c", "Qs")
@@ -1267,33 +1277,128 @@ func TestYourOwnFiveCardHandNamesItsBestThree(t *testing.T) {
 	if _, err := h.table.SelectVariation(chooser, "FIVE_CARD"); err != nil {
 		t.Fatal(err)
 	}
+
 	hand := h.view(chooser).You.Hand
 	if hand == nil {
 		t.Fatal("no hand")
 	}
-	eq(t, hand.HandName, "Pure Sequence", "A-K-Q of spades, not the pair of sevens")
-	eq(t, strings.Join(hand.Best, " "), "As Ks Qs", "the three that count, in the order they are held")
-	eq(t, len(hand.Wild), 0, "nothing is wild")
+	eq(t, hand.Picking, true, "a choice is owed")
+	eq(t, hand.HandName, "", "and until it is made the hand has no name")
+	eq(t, len(hand.Best), 0, "nothing counts yet")
+	eq(t, len(hand.BestPossible), 0, "and the answer is not given away")
+	if hand.PickDeadline == 0 || hand.PickTimeoutMs <= 0 {
+		t.Fatalf("no deadline to choose by: %+v", hand)
+	}
+
+	// They pick the pair of sevens over the pure sequence they were dealt.
+	out, err := h.table.SelectCards(chooser, []string{"7d", "7c", "As"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	eq(t, strings.Join(out.Picked, " "), "As 7d 7c", "kept in the order they are held, not the order tapped")
+	eq(t, strings.Join(out.Best, " "), "As Ks Qs", "the best three those five could have made")
+	eq(t, out.WasBest, false, "and this was not it")
+
+	hand = h.view(chooser).You.Hand
+	eq(t, hand.Picking, false, "the choice is made")
+	eq(t, hand.HandName, "Pair", "the hand is what they played")
+	eq(t, strings.Join(hand.Best, " "), "As 7d 7c", "those three count")
+	eq(t, strings.Join(hand.BestPossible, " "), "As Ks Qs", "and they are told what they missed")
+	eq(t, hand.PickedBy, string(PickByPlayer), "by them")
 	eq(t, len(hand.PlaysAs), 5, "every card plays as itself")
 
-	// A three-card variation names all three.
+	// A three-card variation asks nothing and names all three.
 	h2, _, c2 := variationTable(t, 2)
 	h2.setCards(c2, "9h", "8d", "2c")
 	h2.mustAct(c2, ActionSee, ActRequest{})
 	if _, err := h2.table.SelectVariation(c2, "MUFLIS"); err != nil {
 		t.Fatal(err)
 	}
+	eq(t, h2.view(c2).You.Hand.Picking, false, "nothing to choose")
 	eq(t, strings.Join(h2.view(c2).You.Hand.Best, " "), "9h 8d 2c", "three cards, all three counted")
 }
 
-func TestAFiveCardShowdownComparesEveryPlayersBestThree(t *testing.T) {
+// The window lapses into the first three the player was dealt (owner: "if user
+// not able to select cards in extra time then select first 3 cards"), and a
+// player who never looks plays those three too.
+func TestAFiveCardWindowLapsesIntoTheFirstThree(t *testing.T) {
+	h, _, chooser := variationTable(t, 2)
+	h.setCards(chooser, "2c", "9d", "5h")
+	h.setExtra(chooser, "5s", "5d") // the trail is in cards 3-5
+	h.mustAct(chooser, ActionSee, ActRequest{})
+	if _, err := h.table.SelectVariation(chooser, "FIVE_CARD"); err != nil {
+		t.Fatal(err)
+	}
+	eq(t, h.view(chooser).You.Hand.Picking, true, "the window is open")
+
+	h.clock.Advance(h.table.cfg.FiveCardPickTimeout)
+
+	hand := h.view(chooser).You.Hand
+	eq(t, hand.Picking, false, "the clock closed it")
+	eq(t, hand.PickedBy, string(PickByTimeout), "the server chose")
+	eq(t, strings.Join(hand.Best, " "), "2c 9d 5h", "the first three they were dealt")
+	eq(t, strings.Join(hand.BestPossible, " "), "5h 5s 5d", "the trail they did not play")
+	eq(t, hand.HandName, "High Card", "and the hand is what they were left with")
+
+	// A pick after the clock has spoken changes nothing.
+	if _, err := h.table.SelectCards(chooser, []string{"5h", "5s", "5d"}); err == nil {
+		t.Fatal("a late pick was accepted")
+	} else if CodeOf(err, "") != CodeDuplicateAction {
+		t.Fatalf("late pick refused as %q", CodeOf(err, ""))
+	}
+}
+
+// Only three of the player's own cards, and only where a pick is owed.
+func TestAFiveCardPickIsRefusedUnlessItIsThreeOfYourOwn(t *testing.T) {
+	h, ids, chooser := variationTable(t, 2)
+	h.setCards(chooser, "As", "7d", "Ks")
+	h.setExtra(chooser, "7c", "Qs")
+	h.mustAct(chooser, ActionSee, ActRequest{})
+	if _, err := h.table.SelectVariation(chooser, "FIVE_CARD"); err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range [][]string{
+		{},                       // none
+		{"As", "7d"},             // two
+		{"As", "7d", "Ks", "Qs"}, // four
+		{"As", "As", "7d"},       // the same card twice
+		{"As", "7d", "3h"},       // a card they do not hold
+		{"As", "7d", ""},         // a non-string the decoder blanked
+		{"as", "7d", "Ks"},       // not a code this deck uses
+	} {
+		if _, err := h.table.SelectCards(chooser, bad); err == nil {
+			t.Fatalf("%v was accepted", bad)
+		} else if CodeOf(err, "") != CodeInvalidPick {
+			t.Fatalf("%v refused as %q", bad, CodeOf(err, ""))
+		}
+	}
+	// Somebody who is not at the table, and a hand that asks for no pick.
+	if _, err := h.table.SelectCards("nobody", []string{"As", "7d", "Ks"}); CodeOf(err, "") != CodeNotSeated {
+		t.Fatalf("a stranger picked: %v", err)
+	}
+	other := ids[0]
+	if other == chooser {
+		other = ids[1]
+	}
+	h2, _, c2 := variationTable(t, 2)
+	h2.mustAct(c2, ActionSee, ActRequest{})
+	if _, err := h2.table.SelectVariation(c2, "MUFLIS"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h2.table.SelectCards(c2, []string{"As", "7d", "Ks"}); CodeOf(err, "") != CodeNotPicking {
+		t.Fatalf("a three-card hand took a pick: %v", err)
+	}
+}
+
+// The showdown compares what each player PLAYED, which is their pick where they
+// made one and their first three where they did not.
+func TestAFiveCardShowdownComparesThePlayedThrees(t *testing.T) {
 	h, ids, chooser := variationTable(t, 3)
 	a, b, c := ids[0], ids[1], ids[2]
-	// A's first three are the best three dealt; B's and C's are rubbish.
 	h.setCards(a, "Qs", "Qh", "4d")
-	h.setExtra(a, "9c", "2s") // A: a pair of queens
+	h.setExtra(a, "9c", "2s") // A: a pair of queens in the first three
 	h.setCards(b, "2c", "9d", "5h")
-	h.setExtra(b, "5s", "5d") // B: a trail of fives, found in cards 3-5
+	h.setExtra(b, "5s", "5d") // B: a trail of fives, but only if B picks it
 	h.setCards(c, "Ah", "3c", "8d")
 	h.setExtra(c, "Kh", "6s") // C: ace high
 	if _, err := h.table.SelectVariation(chooser, "FIVE_CARD"); err != nil {
@@ -1302,15 +1407,19 @@ func TestAFiveCardShowdownComparesEveryPlayersBestThree(t *testing.T) {
 	for _, id := range ids {
 		h.mustAct(id, ActionSee, ActRequest{})
 	}
-	// Play it down to two, then show.
+	// B finds the trail; A and C leave their windows to lapse.
+	if _, err := h.table.SelectCards(b, []string{"5h", "5s", "5d"}); err != nil {
+		t.Fatal(err)
+	}
+	h.clock.Advance(h.table.cfg.FiveCardPickTimeout)
+
 	h.mustAct(h.turnUser(), ActionChaal, ActRequest{})
 	h.mustAct(h.turnUser(), ActionChaal, ActRequest{})
 	h.mustAct(h.turnUser(), ActionChaal, ActRequest{})
-	packer := c
-	for h.turnUser() != packer {
+	for h.turnUser() != c {
 		h.mustAct(h.turnUser(), ActionChaal, ActRequest{})
 	}
-	h.mustAct(packer, ActionPack, ActRequest{})
+	h.mustAct(c, ActionPack, ActRequest{})
 	h.mustAct(h.turnUser(), ActionShow, ActRequest{})
 
 	showdowns := h.rec.all("showdown")
@@ -1325,10 +1434,11 @@ func TestAFiveCardShowdownComparesEveryPlayersBestThree(t *testing.T) {
 		eq(t, len(r.Best), 3, r.UserID+" is told which three counted")
 		switch r.UserID {
 		case a:
-			eq(t, r.HandName, "Pair", "A plays the pair of queens")
+			eq(t, r.HandName, "Pair", "A plays the pair its first three hold")
+			eq(t, strings.Join(r.Best, " "), "Qs Qh 4d", "the first three, unchosen")
 			eq(t, r.Won, false, "and loses")
 		case b:
-			eq(t, r.HandName, "Trail", "B plays the trail found among the five")
+			eq(t, r.HandName, "Trail", "B plays the trail it picked")
 			eq(t, strings.Join(r.Best, " "), "5h 5s 5d", "those three")
 			eq(t, r.Won, true, "and wins")
 		}
@@ -1340,21 +1450,47 @@ func TestAFiveCardShowdownComparesEveryPlayersBestThree(t *testing.T) {
 	}
 }
 
-func TestASideshowUnderFiveCardComparesBestThrees(t *testing.T) {
+// The same five cards lose when their owner does not pick them: the rule really
+// is the player's choice and not the strongest three.
+func TestAFiveCardHandThatDoesNotPickPlaysItsFirstThreeAndLoses(t *testing.T) {
+	h, ids, chooser := variationTable(t, 2)
+	a, b := ids[0], ids[1]
+	h.setCards(a, "Qs", "Qh", "4d")
+	h.setExtra(a, "9c", "2s") // a pair, in the first three
+	h.setCards(b, "2c", "9d", "5h")
+	h.setExtra(b, "5s", "5d") // a trail, only if picked
+	if _, err := h.table.SelectVariation(chooser, "FIVE_CARD"); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range ids {
+		h.mustAct(id, ActionSee, ActRequest{})
+	}
+	h.clock.Advance(h.table.cfg.FiveCardPickTimeout) // nobody picks
+	h.mustAct(h.turnUser(), ActionChaal, ActRequest{})
+	h.mustAct(h.turnUser(), ActionShow, ActRequest{})
+
+	sd := h.rec.all("showdown")[0].(ShowdownEvent)
+	for _, r := range sd.Reveals {
+		if r.UserID == b {
+			eq(t, r.HandName, "High Card", "B played the first three it was dealt")
+			eq(t, r.Won, false, "and the trail it was holding never played")
+		}
+	}
+}
+
+// A sideshow compares the played threes too.
+func TestASideshowUnderFiveCardComparesThePlayedThrees(t *testing.T) {
 	h, ids, chooser := variationTable(t, 3)
 	for i, id := range ids {
-		// Everyone's first three are the same kind of nothing …
 		h.setCards(id, []string{"2c", "2d", "2h"}[i], []string{"9d", "9h", "9s"}[i], []string{"5h", "5s", "5c"}[i])
 	}
 	if _, err := h.table.SelectVariation(chooser, "FIVE_CARD"); err != nil {
 		t.Fatal(err)
 	}
-	// (the forced hands above replaced only the first three; the two dealt
-	// from the deck stay whatever they are — the comparison below asks the
-	// engine what it made of all five rather than assuming.)
 	for _, id := range ids {
 		h.mustAct(id, ActionSee, ActRequest{})
 	}
+	h.clock.Advance(h.table.cfg.FiveCardPickTimeout) // everyone plays their first three
 	h.mustAct(h.turnUser(), ActionChaal, ActRequest{})
 	asker := h.turnUser()
 	if _, err := h.act(asker, ActionSideshow, ActRequest{}); err != nil {
@@ -1373,16 +1509,57 @@ func TestASideshowUnderFiveCardComparesBestThrees(t *testing.T) {
 	for i, hand := range reveal.Hands {
 		eq(t, len(hand.Cards), 5, hand.UserID+" shows five to the other")
 		eq(t, len(hand.Best), 3, hand.UserID+": which three counted")
-		hands[i] = rules.EvaluateHand(ParseCards(hand.Cards))
-		eq(t, hand.HandName, hands[i].Name, hand.UserID+": named for its best three")
+		// Unchosen, so the first three of the five they hold.
+		hands[i] = rules.EvaluateHand(ParseCards(hand.Cards)[:BaseCardsPerPlayer])
+		eq(t, strings.Join(hand.Best, " "), strings.Join(hand.Cards[:BaseCardsPerPlayer], " "),
+			hand.UserID+": the first three played")
+		eq(t, hand.HandName, hands[i].Name, hand.UserID+": named for the three it played")
 	}
-	// The loser is whoever the best-three comparison says (a tie goes against
-	// the asker), not whoever a three-card comparison would have said.
 	loser := asked
 	if rules.CompareHands(hands[0], hands[1]) <= 0 {
 		loser = asker
 	}
-	eq(t, reveal.PackedUserID, loser, "the sideshow was decided on best threes")
+	eq(t, reveal.PackedUserID, loser, "the sideshow was decided on the played threes")
+}
+
+// A choice made before a restart stands, and a window still open comes back
+// with its ORIGINAL deadline rather than a fresh one.
+func TestAFiveCardPickSurvivesARestart(t *testing.T) {
+	h, ids, chooser := variationTable(t, 2)
+	a, b := ids[0], ids[1]
+	h.setCards(a, "2c", "9d", "5h")
+	h.setExtra(a, "5s", "5d")
+	h.setCards(b, "Qs", "Qh", "4d")
+	h.setExtra(b, "9c", "2s")
+	if _, err := h.table.SelectVariation(chooser, "FIVE_CARD"); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range ids {
+		h.mustAct(id, ActionSee, ActRequest{})
+	}
+	if _, err := h.table.SelectCards(a, []string{"5h", "5s", "5d"}); err != nil {
+		t.Fatal(err)
+	}
+
+	moved := time.Second
+	r := restoreHarness(t, roundTrip(t, mustSnapshot(h)), newFakeClock(h.clock.Now().Add(moved)), withLedger(emptyLedger))
+	eq(t, strings.Join(r.view(a).You.Hand.Best, " "), "5h 5s 5d", "A's choice came back with the table")
+	eq(t, r.view(a).You.Hand.Picking, false, "and A is not asked again")
+	if hand := r.view(b).You.Hand; !hand.Picking {
+		t.Fatal("B had not chosen, and must still be asked")
+	}
+	// The deadline is the ORIGINAL one — what is left really is shorter — while
+	// the window's length stays the whole window, which is what the client's
+	// countdown drains against.
+	hand := r.view(b).You.Hand
+	if want := h.table.cfg.FiveCardPickTimeout.Milliseconds(); hand.PickTimeoutMs != want {
+		t.Fatalf("B's window is %d ms long, want the whole %d", hand.PickTimeoutMs, want)
+	}
+	if left := FromMillis(hand.PickDeadline).Sub(r.clock.Now()); left != h.table.cfg.FiveCardPickTimeout-moved {
+		t.Fatalf("B's window has %s left, want %s", left, h.table.cfg.FiveCardPickTimeout-moved)
+	}
+	r.clock.Advance(h.table.cfg.FiveCardPickTimeout)
+	eq(t, strings.Join(r.view(b).You.Hand.Best, " "), "Qs Qh 4d", "and lapses into B's first three")
 }
 
 func TestARestartDuringTheWindowStillDealsTheSameTopUp(t *testing.T) {

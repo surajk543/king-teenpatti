@@ -767,7 +767,7 @@ func obj2(raw json.RawMessage) map[string]json.RawMessage {
 // 5-Card Teen Patti over real sockets (owner, 18 Sep 2026): the chooser picks
 // FIVE_CARD, the SERVER tops every hand up to five, each player is shown only
 // their own five, and the showdown names the three of each hand that counted.
-func TestFiveCardDealsFiveToEveryoneAndShowsTheBestThree(t *testing.T) {
+func TestFiveCardDealsFiveToEveryoneAndLetsEachPlayerChooseThree(t *testing.T) {
 	st := newStack(t, nil)
 	f := st.variationTable(2)
 
@@ -808,8 +808,10 @@ func TestFiveCardDealsFiveToEveryoneAndShowsTheBestThree(t *testing.T) {
 		}
 	}
 
-	// Each player looks, and is shown five of their own — and which three count.
-	seen := map[string][]any{}
+	// Each player looks, is shown five of their own — and is asked which three
+	// of them play (owner, 19 Sep 2026). Until they answer the hand has no
+	// name and nothing counts, so looking never hands them the answer.
+	seen := map[string][]string{}
 	for _, p := range f.players {
 		who := p.user.DisplayName
 		mark := p.c.Mark()
@@ -822,24 +824,18 @@ func TestFiveCardDealsFiveToEveryoneAndShowsTheBestThree(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: no you.hand after looking: %v", who, err)
 		}
-		mine := arr(state, "you.cards")
-		best := arr(state, "you.hand.best")
-		if len(mine) != 5 || len(best) != 3 || len(arr(state, "you.hand.wild")) != 0 || str(state, "you.hand.handName") == "" {
+		mine := codes(arr(state, "you.cards"))
+		if len(mine) != 5 {
 			t.Fatalf("%s: you %s", who, obj2(state)["you"])
 		}
-		held := map[any]bool{}
-		for _, c := range mine {
-			held[c] = true
-		}
-		for _, c := range best {
-			if !held[c] {
-				t.Fatalf("%s: best names %v, which is not in %v", who, c, mine)
-			}
+		if field(state, "you.hand.picking") != true || str(state, "you.hand.handName") != "" ||
+			len(arr(state, "you.hand.best")) != 0 || num(state, "you.hand.pickDeadline") == 0 {
+			t.Fatalf("%s was not asked to choose: %s", who, obj2(state)["you"])
 		}
 		seen[p.user.ID] = mine
 	}
 	// Ten different cards between the two of them.
-	all := map[any]bool{}
+	all := map[string]bool{}
 	for _, cards := range seen {
 		for _, c := range cards {
 			if all[c] {
@@ -847,6 +843,53 @@ func TestFiveCardDealsFiveToEveryoneAndShowsTheBestThree(t *testing.T) {
 			}
 			all[c] = true
 		}
+	}
+
+	// A pick must be exactly three cards of your own hand.
+	first := f.players[0]
+	mine := seen[first.user.ID]
+	for _, bad := range []any{
+		[]any{mine[0], mine[1]},
+		[]any{mine[0], mine[0], mine[1]},
+		[]any{mine[0], mine[1], "Zz"},
+		[]any{mine[0], mine[1], 7},
+		"As,Ks,Qs",
+		nil,
+	} {
+		st.mustFail(first.c, EvGameSelectCards, map[string]any{"cards": bad}, game.CodeInvalidPick)
+	}
+
+	// Everyone chooses the first three they were dealt.
+	picked := map[string][]string{}
+	for _, p := range f.players {
+		who := p.user.DisplayName
+		three := seen[p.user.ID][:3]
+		mark := p.c.Mark()
+		ack := st.mustOK(p.c, EvGameSelectCards, map[string]any{"cards": three})
+		if strings.Join(codes(arr(ack.Raw, "picked")), ",") != strings.Join(three, ",") {
+			t.Fatalf("%s: ack %s, want %v", who, ack.Raw, three)
+		}
+		// The ack's `best` is the one ranking's answer over all five, so a
+		// player can be told what they missed without a ranking of their own.
+		want := game.EvaluateBest(game.ParseCards(seen[p.user.ID])).Best
+		if strings.Join(codes(arr(ack.Raw, "best")), ",") != strings.Join(want, ",") {
+			t.Fatalf("%s: ack best %s, want %v", who, ack.Raw, want)
+		}
+		picked[p.user.ID] = three
+
+		state, err := p.c.WaitFrom(mark, EvRoomState, func(raw json.RawMessage) bool {
+			return has(raw, "you.hand") && field(raw, "you.hand.picking") != true
+		}, eventTimeout)
+		if err != nil {
+			t.Fatalf("%s: the choice did not land: %v", who, err)
+		}
+		if strings.Join(codes(arr(state, "you.hand.best")), ",") != strings.Join(three, ",") ||
+			str(state, "you.hand.handName") == "" || str(state, "you.hand.pickedBy") != "PLAYER" ||
+			len(arr(state, "you.hand.bestPossible")) != 3 {
+			t.Fatalf("%s: you %s", who, obj2(state)["you"])
+		}
+		// A second pick is refused: the hand is decided.
+		st.mustFail(p.c, EvGameSelectCards, map[string]any{"cards": three}, game.CodeDuplicateAction)
 	}
 
 	marks = f.marks()
@@ -868,9 +911,12 @@ func TestFiveCardDealsFiveToEveryoneAndShowsTheBestThree(t *testing.T) {
 			if len(r.Cards) != 5 || len(r.Best) != 3 || len(r.Wild) != 0 || r.HandName == "" {
 				t.Fatalf("%s: reveal %+v", who, r)
 			}
-			// Named for its best three by the one classic ranking.
-			if got := game.EvaluateBest(game.ParseCards(r.Cards)); got.Name != r.HandName || strings.Join(got.Best, ",") != strings.Join(r.Best, ",") {
-				t.Fatalf("%s: %v was called %s on %v; the ranking says %s on %v", who, r.Cards, r.HandName, r.Best, got.Name, got.Best)
+			// Named for the three its owner CHOSE, by the one classic ranking.
+			if strings.Join(r.Best, ",") != strings.Join(picked[r.UserID], ",") {
+				t.Fatalf("%s: %v played %v, want the chosen %v", who, r.Cards, r.Best, picked[r.UserID])
+			}
+			if got := game.Evaluate(game.ParseCards(r.Best), game.EvaluateOptions{}); got.Name != r.HandName {
+				t.Fatalf("%s: %v was called %s; the ranking says %s", who, r.Best, r.HandName, got.Name)
 			}
 			if r.Won {
 				winners++
@@ -880,4 +926,15 @@ func TestFiveCardDealsFiveToEveryoneAndShowsTheBestThree(t *testing.T) {
 			t.Fatalf("%s: %d winners", who, winners)
 		}
 	}
+}
+
+// codes turns a JSON array of card codes into the strings the engine uses.
+func codes(items []any) []string {
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		if s, ok := item.(string); ok {
+			out = append(out, s)
+		}
+	}
+	return out
 }

@@ -257,6 +257,23 @@ class Strings {
   String get ruleVariationPick => _('ruleVariationPick');
   String get variationChooseTitle => _('variationChooseTitle');
 
+  // 5-Card Teen Patti: the player chooses which three of their five play
+  // (owner, 19 Sep 2026).
+  String get pickTitle => _('pickTitle');
+  String get pickHint => _('pickHint');
+  String get pickConfirm => _('pickConfirm');
+  String get pickThreeCards => _('pickThreeCards');
+  String get pickWasBest => _('pickWasBest');
+  String get pickNotBest => _('pickNotBest');
+  String get pickTimedOut => _('pickTimedOut');
+  String get pickYouPlayed => _('pickYouPlayed');
+  String get pickTheBest => _('pickTheBest');
+
+  /// "Ravi is choosing cards…", for everyone waiting on a 5-Card chooser who
+  /// is also on turn (owner, 19 Sep 2026).
+  String pickChoosing(String name) =>
+      _('pickChoosing').replaceAll('{name}', name);
+
   /// What everyone but the chooser reads in the middle of the table.
   String variationSelectingBy(String name) =>
       _('variationSelectingBy').replaceAll('{name}', name);
@@ -1074,6 +1091,16 @@ class Strings {
       'variationRulesIntro':
           'The first player to act has 10 seconds to choose how the hand is decided; if they do not, it is Muflis. A wild card counts as whichever card makes your hand best. Other players\' chips are hidden and the pot has no limit.',
       'variationChooseTitle': 'Choose Variation',
+      'pickTitle': 'Choose your three',
+      'pickHint': 'Tap three of your five cards to play',
+      'pickConfirm': 'Play these three',
+      'pickThreeCards': 'Choose exactly three of your own cards',
+      'pickWasBest': 'You played the best combination',
+      'pickNotBest': 'You played this. The best was:',
+      'pickTimedOut': 'Time ran out — your first three were played',
+      'pickYouPlayed': 'You played',
+      'pickTheBest': 'Best',
+      'pickChoosing': '{name} is choosing cards…',
       'variationSelectingBy': '{name} is selecting variation…',
       'variationChosen': 'Variation: {variation}',
       'variationLeftChosen': '{name} left the table — Muflis was chosen',
@@ -1605,6 +1632,16 @@ class Strings {
       'variationRulesIntro':
           'पहली चाल वाले खिलाड़ी के पास यह चुनने के लिए 10 सेकंड होते हैं कि हाथ किस नियम से तय होगा; न चुनने पर मुफ़लिस खेला जाता है। जोकर पत्ता वही पत्ता माना जाता है जिससे आपका हाथ सबसे अच्छा बने। दूसरों के चिप्स छिपे रहते हैं और पॉट की कोई सीमा नहीं है।',
       'variationChooseTitle': 'वेरिएशन चुनें',
+      'pickTitle': 'अपने तीन कार्ड चुनें',
+      'pickHint': 'खेलने के लिए अपने पाँच में से तीन कार्ड चुनें',
+      'pickConfirm': 'ये तीन खेलें',
+      'pickThreeCards': 'अपने ही तीन कार्ड चुनें',
+      'pickWasBest': 'आपने सबसे अच्छा संयोजन खेला',
+      'pickNotBest': 'आपने यह खेला। सबसे अच्छा यह था:',
+      'pickTimedOut': 'समय समाप्त — आपके पहले तीन कार्ड खेले गए',
+      'pickYouPlayed': 'आपने खेला',
+      'pickTheBest': 'सबसे अच्छा',
+      'pickChoosing': '{name} कार्ड चुन रहे हैं…',
       'variationSelectingBy': '{name} वेरिएशन चुन रहे हैं…',
       'variationChosen': 'वेरिएशन: {variation}',
       'variationLeftChosen': '{name} टेबल छोड़ गए — मुफ़लिस चुना गया',
@@ -2118,6 +2155,16 @@ class Strings {
       'variationRulesIntro':
           'প্রথম চালের খেলোয়াড় ১০ সেকেন্ড সময় পান হাতটি কোন নিয়মে ঠিক হবে তা বেছে নিতে; না বাছলে মুফলিস খেলা হয়। জোকার তাস সেই তাস হিসেবে গণ্য হয় যাতে আপনার হাত সবচেয়ে ভালো হয়। অন্যদের চিপস লুকানো থাকে এবং পটের কোনো সীমা নেই।',
       'variationChooseTitle': 'ভেরিয়েশন বেছে নিন',
+      'pickTitle': 'আপনার তিনটি কার্ড বাছুন',
+      'pickHint': 'খেলার জন্য আপনার পাঁচটি থেকে তিনটি কার্ড বাছুন',
+      'pickConfirm': 'এই তিনটি খেলুন',
+      'pickThreeCards': 'নিজের তিনটি কার্ডই বাছুন',
+      'pickWasBest': 'আপনি সেরা কম্বিনেশনটি খেলেছেন',
+      'pickNotBest': 'আপনি এটি খেলেছেন। সেরা ছিল:',
+      'pickTimedOut': 'সময় শেষ — আপনার প্রথম তিনটি কার্ড খেলা হয়েছে',
+      'pickYouPlayed': 'আপনি খেলেছেন',
+      'pickTheBest': 'সেরা',
+      'pickChoosing': '{name} কার্ড বাছছেন…',
       'variationSelectingBy': '{name} ভেরিয়েশন বেছে নিচ্ছেন…',
       'variationChosen': 'ভেরিয়েশন: {variation}',
       'variationLeftChosen':
@@ -2637,6 +2684,16 @@ class Strings {
       'variationRulesIntro':
           'પહેલી ચાલવાળા ખેલાડીને હાથ કયા નિયમથી નક્કી થશે તે પસંદ કરવા 10 સેકન્ડ મળે છે; ન પસંદ કરે તો મુફલિસ રમાય છે. જોકર પત્તું એ પત્તું ગણાય છે જેનાથી તમારો હાથ સૌથી સારો બને. બીજાની ચિપ્સ છુપાયેલી રહે છે અને પોટની કોઈ મર્યાદા નથી.',
       'variationChooseTitle': 'વેરિએશન પસંદ કરો',
+      'pickTitle': 'તમારા ત્રણ કાર્ડ પસંદ કરો',
+      'pickHint': 'રમવા માટે તમારા પાંચમાંથી ત્રણ કાર્ડ પસંદ કરો',
+      'pickConfirm': 'આ ત્રણ રમો',
+      'pickThreeCards': 'તમારા જ ત્રણ કાર્ડ પસંદ કરો',
+      'pickWasBest': 'તમે શ્રેષ્ઠ સંયોજન રમ્યા',
+      'pickNotBest': 'તમે આ રમ્યા. શ્રેષ્ઠ આ હતું:',
+      'pickTimedOut': 'સમય પૂરો — તમારા પહેલા ત્રણ કાર્ડ રમાયા',
+      'pickYouPlayed': 'તમે રમ્યા',
+      'pickTheBest': 'શ્રેષ્ઠ',
+      'pickChoosing': '{name} કાર્ડ પસંદ કરી રહ્યા છે…',
       'variationSelectingBy': '{name} વેરિએશન પસંદ કરી રહ્યા છે…',
       'variationChosen': 'વેરિએશન: {variation}',
       'variationLeftChosen': '{name} ટેબલ છોડી ગયા — મુફલિસ પસંદ થયું',
@@ -3150,6 +3207,16 @@ class Strings {
       'variationRulesIntro':
           'ਪਹਿਲੀ ਚਾਲ ਵਾਲੇ ਖਿਡਾਰੀ ਕੋਲ ਇਹ ਚੁਣਨ ਲਈ 10 ਸਕਿੰਟ ਹੁੰਦੇ ਹਨ ਕਿ ਹੱਥ ਕਿਸ ਨਿਯਮ ਨਾਲ ਤੈਅ ਹੋਵੇਗਾ; ਨਾ ਚੁਣੇ ਤਾਂ ਮੁਫ਼ਲਿਸ ਖੇਡਿਆ ਜਾਂਦਾ ਹੈ। ਜੋਕਰ ਪੱਤਾ ਉਹੀ ਪੱਤਾ ਗਿਣਿਆ ਜਾਂਦਾ ਹੈ ਜਿਸ ਨਾਲ ਤੁਹਾਡਾ ਹੱਥ ਸਭ ਤੋਂ ਵਧੀਆ ਬਣੇ। ਦੂਜਿਆਂ ਦੇ ਚਿਪਸ ਲੁਕੇ ਰਹਿੰਦੇ ਹਨ ਅਤੇ ਪੌਟ ਦੀ ਕੋਈ ਸੀਮਾ ਨਹੀਂ।',
       'variationChooseTitle': 'ਵੇਰੀਏਸ਼ਨ ਚੁਣੋ',
+      'pickTitle': 'ਆਪਣੇ ਤਿੰਨ ਕਾਰਡ ਚੁਣੋ',
+      'pickHint': 'ਖੇਡਣ ਲਈ ਆਪਣੇ ਪੰਜਾਂ ਵਿੱਚੋਂ ਤਿੰਨ ਕਾਰਡ ਚੁਣੋ',
+      'pickConfirm': 'ਇਹ ਤਿੰਨ ਖੇਡੋ',
+      'pickThreeCards': 'ਆਪਣੇ ਹੀ ਤਿੰਨ ਕਾਰਡ ਚੁਣੋ',
+      'pickWasBest': 'ਤੁਸੀਂ ਸਭ ਤੋਂ ਵਧੀਆ ਸੁਮੇਲ ਖੇਡਿਆ',
+      'pickNotBest': 'ਤੁਸੀਂ ਇਹ ਖੇਡਿਆ। ਸਭ ਤੋਂ ਵਧੀਆ ਇਹ ਸੀ:',
+      'pickTimedOut': 'ਸਮਾਂ ਖ਼ਤਮ — ਤੁਹਾਡੇ ਪਹਿਲੇ ਤਿੰਨ ਕਾਰਡ ਖੇਡੇ ਗਏ',
+      'pickYouPlayed': 'ਤੁਸੀਂ ਖੇਡਿਆ',
+      'pickTheBest': 'ਸਭ ਤੋਂ ਵਧੀਆ',
+      'pickChoosing': '{name} ਕਾਰਡ ਚੁਣ ਰਹੇ ਹਨ…',
       'variationSelectingBy': '{name} ਵੇਰੀਏਸ਼ਨ ਚੁਣ ਰਹੇ ਹਨ…',
       'variationChosen': 'ਵੇਰੀਏਸ਼ਨ: {variation}',
       'variationLeftChosen': '{name} ਟੇਬਲ ਛੱਡ ਗਏ — ਮੁਫ਼ਲਿਸ ਚੁਣਿਆ ਗਿਆ',

@@ -25,6 +25,17 @@ typedef ShowdownNews = ({
 /// turned up from the deck ("9h"), sent only under Joker and Hukam.
 typedef VariationNews = ({String variation, String selectedBy, String? turnUp});
 
+/// The 5-Card verdict a player is shown once their three are settled (owner,
+/// 19 Sep 2026): the three that play, the three that would have been best, and
+/// whether they are the same hand. byTimeout is true when the server's clock
+/// chose the first three rather than the player.
+typedef PickNews = ({
+  List<String> played,
+  List<String> best,
+  bool wasBest,
+  bool byTimeout,
+});
+
 /// A poker hand's reveal or its end, as `poker:showdown` and `poker:handEnded`
 /// carry them. [ended] is true for the hand-ended frame, the only one with
 /// [nextHandAt] (0 means "not stated") and the pots' winners. The showdown
@@ -497,6 +508,12 @@ class GameConnection {
   /// whether the choice stood, and only the ack can say so.
   Future<Map<String, dynamic>> selectVariation(String variation) =>
       request('game:selectVariation', {'variation': variation});
+
+  /// 5-Card Teen Patti: which three of the player's five cards play (owner,
+  /// 19 Sep 2026). The server decides whether they are this player's own and
+  /// whether a choice is still owed; this only carries them.
+  Future<Map<String, dynamic>> selectCards(List<String> cards) =>
+      request('game:selectCards', {'cards': cards});
 
   void requestCards() => _emit('player:requestCards', const {});
 

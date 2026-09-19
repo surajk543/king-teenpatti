@@ -267,14 +267,34 @@ func (t *Table) ownHandView(viewer *seat) *YouHand {
 		len(viewer.cards) != t.hand.variation.cardsPerPlayer() {
 		return nil
 	}
-	hand := t.handRules().EvaluateHand(viewer.cards)
+	// While their window is open the hand is NOT yet a hand: naming what the
+	// five could make would hand the player the answer they are being asked
+	// for (owner, 19 Sep 2026). So the view says only that a choice is owed
+	// and when it lapses, and carries no name and no counted three.
+	if viewer.picking && len(viewer.picked) == 0 {
+		view := &YouHand{
+			Wild:    []string{},
+			PlaysAs: CardCodes(viewer.cards),
+			Best:    []string{},
+			Picking: true,
+		}
+		if !viewer.pickUntil.IsZero() {
+			view.PickDeadline = Millis(viewer.pickUntil)
+			// The WHOLE window, as the variation window's timeoutMs is: the
+			// client's bar drains from `deadline - total`, so sending what is
+			// LEFT made it drain early (owner, 19 Sep 2026).
+			view.PickTimeoutMs = t.cfg.FiveCardPickTimeout.Milliseconds()
+		}
+		return view
+	}
+	hand := t.playedHand(t.handRules(), viewer)
 	view := &YouHand{
 		HandName: hand.Name,
 		Category: hand.Category,
 		Wild:     []string{},
 		PlaysAs:  CardCodes(viewer.cards),
 		// Three cards are played whatever is held: all of a three-card hand,
-		// the best three of a five-card one.
+		// the three that were chosen of a five-card one.
 		Best: CardCodes(viewer.cards),
 	}
 	if len(hand.Wild) > 0 {
@@ -283,6 +303,14 @@ func (t *Table) ownHandView(viewer *seat) *YouHand {
 	}
 	if len(hand.Best) > 0 {
 		view.Best = hand.Best
+	}
+	// Once the choice is made, and only then, the player is told what the best
+	// three of their five would have been — their own cards run through the
+	// one ranking, so a client never needs a second (owner, 19 Sep 2026:
+	// "show you selected this and best combination was that").
+	if len(viewer.picked) > 0 {
+		view.PickedBy = string(viewer.pickedBy)
+		view.BestPossible = EvaluateBest(viewer.cards).Best
 	}
 	return view
 }
@@ -376,6 +404,10 @@ func (t *Table) dealExtraCards(w *variationWindow) {
 		}
 		if !s.isBlind {
 			t.listener.OnCards(t.view, CardsEvent{UserID: s.userID, Cards: CardCodes(s.cards)})
+			// Five cards are now in front of a player who can see them, so
+			// their window to choose three of them opens here (owner, 19 Sep
+			// 2026). A player still blind opens theirs when they look.
+			t.beginPick(s)
 		}
 	}
 }

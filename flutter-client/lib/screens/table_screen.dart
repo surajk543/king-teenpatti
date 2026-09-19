@@ -1196,6 +1196,73 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
                 ),
               ],
 
+              // 5-Card Teen Patti: the player's own five, to choose three of
+              // (owner, 19 Sep 2026). Only ever their own hand, and only while
+              // the server says a choice is owed.
+              if (state.pickingCards) ...[
+                const Positioned.fill(
+                  child: IgnorePointer(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [
+                            Color(0x8C000000),
+                            Color(0x8C000000),
+                            Color(0x00000000),
+                          ],
+                          stops: [0, 0.58, 0.72],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  top: 0,
+                  height: h * 0.64,
+                  child: CardPickPrompt(
+                    // One picker per hand, so cards marked in one are not
+                    // still marked in the next.
+                    key: ValueKey('pick-${room.handNo}'),
+                    title: state.t.pickTitle,
+                    hint: state.t.pickHint,
+                    confirm: state.t.pickConfirm,
+                    chosenLabel: state.t.pickConfirm,
+                    cards: room.you?.cards ?? const [],
+                    selected: state.pickSelection,
+                    deadlineMs: room.you?.hand?.pickDeadline ?? 0,
+                    totalMs: room.you?.hand?.pickTimeoutMs ?? 0,
+                    onToggle: state.togglePickCard,
+                    onConfirm: state.selectCards,
+                  ),
+                ),
+              ],
+
+              // And the verdict, for a few seconds after the three are settled.
+              if (state.pickAnnounced != null)
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  top: h * 0.10,
+                  child: IgnorePointer(
+                    child: PickVerdict(
+                      wasBest: state.pickAnnounced!.wasBest,
+                      byTimeout: state.pickAnnounced!.byTimeout,
+                      played: state.pickAnnounced!.played,
+                      best: state.pickAnnounced!.best,
+                      title: state.pickAnnounced!.wasBest
+                          ? state.t.pickWasBest
+                          : state.t.pickNotBest,
+                      playedLabel: state.t.pickYouPlayed,
+                      bestLabel: state.t.pickTheBest,
+                      timedOutNote: state.t.pickTimedOut,
+                    ),
+                  ),
+                ),
+
               if (state.showdown.isNotEmpty || state.showdownResult.isNotEmpty)
                 Positioned.fill(
                   child: _Showdown(
@@ -1863,6 +1930,20 @@ class _Status extends StatelessWidget {
         text: state.t.variationSelectingBy(window.displayName),
         deadlineMs: window.deadline,
         totalMs: window.timeoutMs,
+      );
+    }
+    // Someone is choosing which three of their five play, and the table is
+    // on their turn: everyone else is told so rather than watching a seat do
+    // nothing (owner, 19 Sep 2026). The chooser sees the picker instead.
+    final choosing = state.someoneChoosingCards;
+    if (graceLeft == null && choosing != null) {
+      final hand = state.room?.you?.hand;
+      return VariationSelectingLine(
+        text: state.t.pickChoosing(choosing.displayName),
+        // Everyone shares the chooser's clock; a viewer who is choosing too
+        // has their own deadline, which is the one their picker counts down.
+        deadlineMs: hand?.pickDeadline ?? 0,
+        totalMs: hand?.pickTimeoutMs ?? 0,
       );
     }
     final chosen = state.variationAnnounced;

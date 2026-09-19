@@ -96,6 +96,7 @@ func (t *Table) onFenced(err *FencedError) {
 		t.hand.sideshow.timer = nil
 	}
 	t.stopVariationTimer()
+	t.stopPickTimer()
 	t.listener.OnError(t.view, err)
 }
 
@@ -132,6 +133,7 @@ func (t *Table) suspend() {
 		t.hand.sideshow.timer = nil
 	}
 	t.stopVariationTimer()
+	t.stopPickTimer()
 	t.Settler.Detach()
 	// The last word on this table before the process goes: saved now, while
 	// the table is still ours (run's flushLive would skip a destroyed table).
@@ -271,6 +273,18 @@ func restoreTable(snap *Snapshot, opts TableOptions) (*Table, error) {
 			until := FromMillis(*ss.UnfundedUntil)
 			s.unfundedUntil = &until
 		}
+		// The 5-Card pick comes back as it was: a choice already made stands,
+		// and a window still open keeps its ORIGINAL deadline, so a restart
+		// neither re-asks a player who has answered nor hands one who has not
+		// a fresh clock (resumeTimers re-arms the sweep).
+		s.picking = ss.Picking
+		s.pickedBy = PickedBy(ss.PickedBy)
+		if len(ss.Picked) > 0 {
+			s.picked = ParseCards(ss.Picked)
+		}
+		if ss.PickUntil != nil {
+			s.pickUntil = FromMillis(*ss.PickUntil)
+		}
 		t.seats[index] = s
 	}
 	t.refreshPlayerCount()
@@ -361,6 +375,14 @@ func (t *Table) resumeTimers() {
 	// happens below.
 	t.liveDirty = true
 	now := t.clock.Now()
+
+	// Every 5-Card window that is still open comes back on the one sweep
+	// clock, for what is LEFT of its original deadline; any that lapsed while
+	// the process was down plays its first three now (expirePicks, which
+	// armPickTimer reaches through a zero delay).
+	if t.hand != nil {
+		t.armPickTimer()
+	}
 
 	switch {
 	case t.hand != nil && t.resumeVariation(now):
@@ -497,6 +519,17 @@ func validateSnapshot(snap *Snapshot) error {
 		}
 		if err := validCardCodes(s.Cards); err != nil {
 			return fmt.Errorf("snapshot %s: seat %d: %w", snap.RoomID, index, err)
+		}
+		// A 5-Card choice must be three of the cards that seat actually holds:
+		// restored unchecked, it would let a rebuilt table play cards nobody
+		// was dealt.
+		if len(s.Picked) > 0 {
+			if err := validCardCodes(s.Picked); err != nil {
+				return fmt.Errorf("snapshot %s: seat %d picked: %w", snap.RoomID, index, err)
+			}
+			if _, ok := pickFrom(ParseCards(s.Cards), s.Picked); !ok {
+				return fmt.Errorf("snapshot %s: seat %d picked cards it does not hold", snap.RoomID, index)
+			}
 		}
 	}
 	h := snap.Hand

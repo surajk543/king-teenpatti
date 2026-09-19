@@ -334,6 +334,23 @@ type GameConfig struct {
 	// seen table's ladder and its rounds (SeenMaxRaiseSteps, SeenMaxBetRounds),
 	// so a hand ends at the forced showdown whatever the pot has grown to.
 	VariationMaxPotBoots int64
+	// FiveCardPickTimeout is FIVE_CARD_PICK_TIMEOUT_MS 8000 (Go only, owner
+	// 19 Sep 2026: "give only 8 second window to pick"): the EXTRA time a
+	// player gets, once their five cards are in
+	// front of them under 5-Card Teen Patti, to choose which three of them
+	// play. It runs per player and per hand from the moment they can see the
+	// five — the tap on "See cards", or the top-up landing on a player who was
+	// already looking — and when it lapses the server plays the first three
+	// they were dealt, which is also what a player who never looks plays.
+	//
+	// A player whose turn is running while they choose has that turn pushed
+	// out to cover the whole window and a full turn after it, so choosing
+	// never costs them the time to act on the choice.
+	//
+	// 0 = the window never lapses on its own, and a hand could then sit on a
+	// player who has looked and will not choose until their turn clock packs
+	// them. Never in production.
+	FiveCardPickTimeout time.Duration
 	// Poker is the poker family's own knobs (Go only; owner, 19 Sep 2026).
 	Poker               PokerConfig
 	ConsolidateInterval time.Duration // CONSOLIDATE_INTERVAL_MS 15000 (requirement 24 sweeper)
@@ -514,6 +531,7 @@ func Defaults() *Config {
 			MissileRevealExtra:      3 * time.Second,
 			VariationSelectTimeout:  10 * time.Second,
 			VariationMaxPotBoots:    0,
+			FiveCardPickTimeout:     8 * time.Second,
 			Poker: PokerConfig{
 				TurnTimeout:   0, // the table's TURN_TIMEOUT_MS
 				MinBuyInBoots: 10,
@@ -707,6 +725,7 @@ func FromEnv(lookup Lookup) (*Config, error) {
 	g.MissileRevealExtra = r.millis("MISSILE_REVEAL_EXTRA_MS", g.MissileRevealExtra)
 	g.VariationSelectTimeout = r.millis("VARIATION_SELECT_TIMEOUT_MS", g.VariationSelectTimeout)
 	g.VariationMaxPotBoots = r.int64("VARIATION_MAX_POT_BOOTS", g.VariationMaxPotBoots)
+	g.FiveCardPickTimeout = r.millis("FIVE_CARD_PICK_TIMEOUT_MS", g.FiveCardPickTimeout)
 	// A cap that does not fit an int64 would wrap to a small or negative pot
 	// limit and end every hand at the deal, so it is a boot failure instead —
 	// checked against every boot this lobby can open a variation table at.
