@@ -1025,13 +1025,12 @@ func TestRoomsLobbyOffersExactlyTheDefaultMenu(t *testing.T) {
 		// The Poker family (owner, 19 Sep 2026): each entry carries its own
 		// facts — blinds or ante, buy-in, hole cards, the draw limit — and none
 		// of Teen Patti's (no pot cap, no blind moves). Last, so every entry
-		// above keeps its place.
-		{Category: "three_card_poker", BootAmount: 200, Game: game.GamePoker, Ante: 200, MinBuyIn: 2000, MinChips: 2000, HoleCards: 3},
-		{Category: "five_card_draw", BootAmount: 200, Game: game.GamePoker, Ante: 200, MinBuyIn: 2000, MinChips: 2000, HoleCards: 5, MaxDiscards: 3},
-		{Category: "texas_holdem", BootAmount: 200, Game: game.GamePoker, SmallBlind: 100, BigBlind: 200, MinBuyIn: 2000, MinChips: 2000, HoleCards: 2},
-		{Category: "texas_holdem", BootAmount: 5000, Game: game.GamePoker, SmallBlind: 2500, BigBlind: 5000, MinBuyIn: 50000, MinChips: 50000, HoleCards: 2},
-		{Category: "omaha", BootAmount: 200, Game: game.GamePoker, SmallBlind: 100, BigBlind: 200, MinBuyIn: 2000, MinChips: 2000, HoleCards: 4},
-		{Category: "omaha", BootAmount: 5000, Game: game.GamePoker, SmallBlind: 2500, BigBlind: 5000, MinBuyIn: 50000, MinChips: 50000, HoleCards: 4},
+		// above keeps its place. ONE table per game, all four at 50,000, so
+		// minChips is the 5,00,000 buy-in (10 boots) on every one of them.
+		{Category: "three_card_poker", BootAmount: 50000, Game: game.GamePoker, Ante: 50000, MinBuyIn: 500000, MinChips: 500000, HoleCards: 3},
+		{Category: "five_card_draw", BootAmount: 50000, Game: game.GamePoker, Ante: 50000, MinBuyIn: 500000, MinChips: 500000, HoleCards: 5, MaxDiscards: 3},
+		{Category: "texas_holdem", BootAmount: 50000, Game: game.GamePoker, SmallBlind: 25000, BigBlind: 50000, MinBuyIn: 500000, MinChips: 500000, HoleCards: 2},
+		{Category: "omaha", BootAmount: 50000, Game: game.GamePoker, SmallBlind: 25000, BigBlind: 50000, MinBuyIn: 500000, MinChips: 500000, HoleCards: 4},
 	}
 	if len(o.Tables) != len(wantTables) {
 		t.Fatalf("tables %+v", o.Tables)
@@ -1057,12 +1056,10 @@ func TestRoomsLobbyOffersExactlyTheDefaultMenu(t *testing.T) {
 		`{"category":"blind","bootAmount":1000000,"maxPot":0,"maxBlindMoves":4,"minChips":500000000,"maxChips":0},` +
 		`{"category":"variation","bootAmount":50000,"maxPot":0,"maxBlindMoves":4,"minChips":0,"maxChips":1000000000},` +
 		`{"category":"variation","bootAmount":1000000,"maxPot":0,"maxBlindMoves":4,"minChips":500000000,"maxChips":0},{"category":"seen","bootAmount":50000,"maxPot":50000000,"maxBlindMoves":4,"minChips":0,"maxChips":0},` +
-		`{"category":"three_card_poker","bootAmount":200,"maxPot":0,"maxBlindMoves":0,"minChips":2000,"maxChips":0,"game":"poker","ante":200,"minBuyIn":2000,"holeCards":3},` +
-		`{"category":"five_card_draw","bootAmount":200,"maxPot":0,"maxBlindMoves":0,"minChips":2000,"maxChips":0,"game":"poker","ante":200,"minBuyIn":2000,"holeCards":5,"maxDiscards":3},` +
-		`{"category":"texas_holdem","bootAmount":200,"maxPot":0,"maxBlindMoves":0,"minChips":2000,"maxChips":0,"game":"poker","smallBlind":100,"bigBlind":200,"minBuyIn":2000,"holeCards":2},` +
-		`{"category":"texas_holdem","bootAmount":5000,"maxPot":0,"maxBlindMoves":0,"minChips":50000,"maxChips":0,"game":"poker","smallBlind":2500,"bigBlind":5000,"minBuyIn":50000,"holeCards":2},` +
-		`{"category":"omaha","bootAmount":200,"maxPot":0,"maxBlindMoves":0,"minChips":2000,"maxChips":0,"game":"poker","smallBlind":100,"bigBlind":200,"minBuyIn":2000,"holeCards":4},` +
-		`{"category":"omaha","bootAmount":5000,"maxPot":0,"maxBlindMoves":0,"minChips":50000,"maxChips":0,"game":"poker","smallBlind":2500,"bigBlind":5000,"minBuyIn":50000,"holeCards":4}],` +
+		`{"category":"three_card_poker","bootAmount":50000,"maxPot":0,"maxBlindMoves":0,"minChips":500000,"maxChips":0,"game":"poker","ante":50000,"minBuyIn":500000,"holeCards":3},` +
+		`{"category":"five_card_draw","bootAmount":50000,"maxPot":0,"maxBlindMoves":0,"minChips":500000,"maxChips":0,"game":"poker","ante":50000,"minBuyIn":500000,"holeCards":5,"maxDiscards":3},` +
+		`{"category":"texas_holdem","bootAmount":50000,"maxPot":0,"maxBlindMoves":0,"minChips":500000,"maxChips":0,"game":"poker","smallBlind":25000,"bigBlind":50000,"minBuyIn":500000,"holeCards":2},` +
+		`{"category":"omaha","bootAmount":50000,"maxPot":0,"maxBlindMoves":0,"minChips":500000,"maxChips":0,"game":"poker","smallBlind":25000,"bigBlind":50000,"minBuyIn":500000,"holeCards":4}],` +
 		`"entryCapBoot":200,"entryCapCategory":"blind","entryCapMaxChips":500000,"privateBoot":200,"privateMaxPot":500000}`
 	if string(raw) != wantJSON {
 		t.Fatalf("json\n got  %s\n want %s", raw, wantJSON)
@@ -1128,7 +1125,7 @@ func TestRoomsEveryMenuRoomCanBeJoined(t *testing.T) {
 			t.Fatalf("%+v opened a %s room", entry, room.Game())
 		}
 	}
-	if n := len(f.rooms.ListTables(game.ListOptions{})); n != 14 {
+	if n := len(f.rooms.ListTables(game.ListOptions{})); n != 12 {
 		t.Fatalf("listTables %d", n)
 	}
 }
@@ -1138,7 +1135,7 @@ func TestRoomsPairNotOnMenuRefused(t *testing.T) {
 	// Both halves are offered on their own; the pair is not.
 	_, err := f.rooms.QuickJoin(f.player("P", rmStart), game.QuickJoinOptions{BootAmount: 5000, Category: "seen"})
 	expectCode(t, err, game.CodeTableNotOffered)
-	if want := "The lobby offers: seen 200, blind 200, blind 5000, blind 50000, blind 1000000, variation 50000, variation 1000000, seen 50000, three_card_poker 200, five_card_draw 200, texas_holdem 200, texas_holdem 5000, omaha 200, omaha 5000"; err.Error() != want {
+	if want := "The lobby offers: seen 200, blind 200, blind 5000, blind 50000, blind 1000000, variation 50000, variation 1000000, seen 50000, three_card_poker 50000, five_card_draw 50000, texas_holdem 50000, omaha 50000"; err.Error() != want {
 		t.Fatalf("message %q", err.Error())
 	}
 	if n := len(f.rooms.ListTables(game.ListOptions{})); n != 0 {

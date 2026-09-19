@@ -44,12 +44,10 @@ const MENU = [
   // facts — game, the blinds or the ante, the buy-in, the hole cards, the
   // draw limit — and none of Teen Patti's figures mean anything at it
   // (maxPot 0, maxBlindMoves 0); minChips is raised to the buy-in.
-  { category: 'three_card_poker', bootAmount: 200, maxPot: 0, maxBlindMoves: 0, minChips: 2000, maxChips: 0, game: 'poker', ante: 200, minBuyIn: 2000, holeCards: 3 },
-  { category: 'five_card_draw', bootAmount: 200, maxPot: 0, maxBlindMoves: 0, minChips: 2000, maxChips: 0, game: 'poker', ante: 200, minBuyIn: 2000, holeCards: 5, maxDiscards: 3 },
-  { category: 'texas_holdem', bootAmount: 200, maxPot: 0, maxBlindMoves: 0, minChips: 2000, maxChips: 0, game: 'poker', smallBlind: 100, bigBlind: 200, minBuyIn: 2000, holeCards: 2 },
-  { category: 'texas_holdem', bootAmount: 5000, maxPot: 0, maxBlindMoves: 0, minChips: 50000, maxChips: 0, game: 'poker', smallBlind: 2500, bigBlind: 5000, minBuyIn: 50000, holeCards: 2 },
-  { category: 'omaha', bootAmount: 200, maxPot: 0, maxBlindMoves: 0, minChips: 2000, maxChips: 0, game: 'poker', smallBlind: 100, bigBlind: 200, minBuyIn: 2000, holeCards: 4 },
-  { category: 'omaha', bootAmount: 5000, maxPot: 0, maxBlindMoves: 0, minChips: 50000, maxChips: 0, game: 'poker', smallBlind: 2500, bigBlind: 5000, minBuyIn: 50000, holeCards: 4 },
+  { category: 'three_card_poker', bootAmount: 50000, maxPot: 0, maxBlindMoves: 0, minChips: 500000, maxChips: 0, game: 'poker', ante: 50000, minBuyIn: 500000, holeCards: 3 },
+  { category: 'five_card_draw', bootAmount: 50000, maxPot: 0, maxBlindMoves: 0, minChips: 500000, maxChips: 0, game: 'poker', ante: 50000, minBuyIn: 500000, holeCards: 5, maxDiscards: 3 },
+  { category: 'texas_holdem', bootAmount: 50000, maxPot: 0, maxBlindMoves: 0, minChips: 500000, maxChips: 0, game: 'poker', smallBlind: 25000, bigBlind: 50000, minBuyIn: 500000, holeCards: 2 },
+  { category: 'omaha', bootAmount: 50000, maxPot: 0, maxBlindMoves: 0, minChips: 500000, maxChips: 0, game: 'poker', smallBlind: 25000, bigBlind: 50000, minBuyIn: 500000, holeCards: 4 },
 ];
 const TEEN_PATTI_KEYS = ['category', 'bootAmount', 'maxPot', 'maxBlindMoves', 'minChips', 'maxChips'];
 
@@ -150,7 +148,7 @@ test('a stake and category that is not a room on the menu is refused, and no roo
   const client = await openClient(account.token);
   // Both halves are offered on their own; the pair is not.
   const ack = await client.emit('room:quickJoin', { bootAmount: 5000, category: 'seen' });
-  assert.deepEqual(ack, { ok: false, code: 'table_not_offered', message: 'The lobby offers: seen 200, blind 200, blind 5000, blind 50000, blind 1000000, variation 50000, variation 1000000, seen 50000, three_card_poker 200, five_card_draw 200, texas_holdem 200, texas_holdem 5000, omaha 200, omaha 5000' });
+  assert.deepEqual(ack, { ok: false, code: 'table_not_offered', message: 'The lobby offers: seen 200, blind 200, blind 5000, blind 50000, blind 1000000, variation 50000, variation 1000000, seen 50000, three_card_poker 50000, five_card_draw 50000, texas_holdem 50000, omaha 50000' });
   const listed = await client.emit('lobby:list', {});
   assert.ok(!listed.tables.some((t) => t.category === 'seen' && t.bootAmount === 5000), 'no seen table at 5,000 exists');
   assert.equal(client.count('room:joined'), 0);

@@ -799,8 +799,14 @@ func (t *Table) checkpoint(entry *contribution, reason, actionID string, outcome
 		},
 	}
 	if _, err := t.ledger.Checkpoint(t.Context(), req); err != nil {
-		t.hooks.OnRoomPersistError(t, game.PersistErrorEvent{UserID: entry.userID, Delta: delta, Reason: reason, HandID: t.hand.id, Err: err})
-		return
+		// duplicate_action is the UNIQUE action_id refusing a write that
+		// already landed and whose acknowledgement was lost (CLAUDE.md §5.1):
+		// the money moved exactly once, so the seat IS written through and
+		// the delta must not be computed against a stale chipsWritten again.
+		if game.CodeOf(err, "") != game.CodeDuplicateAction {
+			t.hooks.OnRoomPersistError(t, game.PersistErrorEvent{UserID: entry.userID, Delta: delta, Reason: reason, HandID: t.hand.id, Err: err})
+			return
+		}
 	}
 	t.version.Add(1)
 	entry.chipsWritten = entry.chips

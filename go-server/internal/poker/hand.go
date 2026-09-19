@@ -371,7 +371,9 @@ func (t *Table) endStreet() {
 }
 
 // resolveIfOnlyOneLeft: one player still in → they take everything, no
-// cards shown; none → the hand ends all_left with every stake refunded.
+// cards shown; none → the hand ends all_left with every stake refunded,
+// EXCEPT at a dealer game, where nobody left in means everybody folded to
+// the house and the antes stay with it.
 func (t *Table) resolveIfOnlyOneLeft() bool {
 	h := t.hand
 	if h == nil {
@@ -387,6 +389,19 @@ func (t *Table) resolveIfOnlyOneLeft() bool {
 			return false
 		}
 		t.endHandWithWinners(WinLastStanding, nil, nil, nil)
+		return true
+	}
+	if t.cfg.Variant.HasDealer {
+		// EVERY player folded to the house — an ordinary outcome at a dealer
+		// game, where folding is a move against the dealer and not against
+		// the other players. A fold costs its ante (flow_threecard.go), so
+		// the hand is resolved against the dealer with nobody left to pay:
+		// the antes are the house's. Refunding them here, as a table with no
+		// dealer refunds a pot nobody can win, would make folding free
+		// whenever the whole table folded (two players fold together often
+		// enough to matter) and would leave in the economy chips that the
+		// rule takes out of it.
+		t.resolveDealer()
 		return true
 	}
 	t.endHandRefunded(WinAllLeft)
@@ -889,6 +904,23 @@ func (t *Table) endHandRefunded(reason WinReason) {
 func (t *Table) settle(reason WinReason, winners map[string]bool, pots []PotResult, reveals []Reveal, dealer *DealerReveal) {
 	h := t.hand
 	t.clearTurnTimer()
+	// A player who left mid-hand is skipped below, because their stake was
+	// banked by their own hand_left checkpoint. When that checkpoint was
+	// REFUSED, nothing retries it — a checkpoint has no retry chain, only the
+	// hand-end settle does — so their stake would stay unbanked while the
+	// winner is paid a pot that includes it, and the books would gain chips.
+	// Bank it here instead, under the SAME action id the leave used, so a
+	// write whose acknowledgement was lost comes back duplicate_action and
+	// the money still moves exactly once. A checkpoint that landed leaves
+	// chips == chipsWritten and nothing to do, so the ordinary hand writes
+	// the same rows it always did.
+	for _, userID := range h.contribOrder {
+		entry := h.contributions[userID]
+		if entry == nil || !entry.leftMidHand || entry.chips == entry.chipsWritten {
+			continue
+		}
+		t.checkpoint(entry, game.LedgerReasonHandLeft, game.LeftActionID(h.id, userID), true)
+	}
 	entries := make([]game.SettleEntry, 0, len(h.contribOrder))
 	summary := make([]HandSummaryEntry, 0, len(h.contribOrder))
 	for _, userID := range h.contribOrder {

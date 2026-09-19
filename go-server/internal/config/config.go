@@ -472,12 +472,18 @@ func Defaults() *Config {
 				// under one Poker card. Production's .env lists the menu itself,
 				// so nothing changes there until it does — and MIN_CLIENT_BUILD
 				// must be raised to the first poker-aware build first.
-				{Category: "three_card_poker", BootAmount: 200},
-				{Category: "five_card_draw", BootAmount: 200},
-				{Category: "texas_holdem", BootAmount: 200},
-				{Category: "texas_holdem", BootAmount: 5000},
-				{Category: "omaha", BootAmount: 200},
-				{Category: "omaha", BootAmount: 5000},
+				//
+				// ONE table per game, all four at 50,000 (owner, 19 Sep 2026:
+				// "in poker category only keep one table 50000 for each
+				// gameplay"). The buy-in is therefore 5,00,000 at every poker
+				// table (10 boots), which is more than the 3,00,000 welcome:
+				// a brand-new account sees the Poker cards shut until it has
+				// won 5 Lakh. Lower POKER_MIN_BUYIN_BOOTS to change that
+				// without touching the stake.
+				{Category: "three_card_poker", BootAmount: 50000},
+				{Category: "five_card_draw", BootAmount: 50000},
+				{Category: "texas_holdem", BootAmount: 50000},
+				{Category: "omaha", BootAmount: 50000},
 			},
 			MaxPlayers:              5,
 			MinPlayers:              2,

@@ -11,6 +11,15 @@ sets (`tools/parity/lib/harness.mjs` `SNAPSHOT_KEYS`/`YOU_KEYS`/`SEAT_KEYS`/`OPT
 `CONFIG_KEYS`), `wire_test.go`'s null-versus-absent bytes and the 141 black-box suites are the
 proof, and they are run after every phase.
 
+> **Status (19 Sep 2026, later the same day):** implemented on `variation-teen-patti`. Phase 1
+> (the shared core: `game.Room`, `RoomFactory`, `Actor`/`LiveState`/`Settler`, the poker categories
+> and config) is `b0966a3`; the server-side family (`internal/poker`, `socket/poker.go`, the
+> migration, the unit tests) is `028f344`; the black-box suite, the bots, the rollback guard
+> (`pokerConfig`, §9 risk 1) and the docs are `a74856f`. `go test -race ./...` is green across all
+> 14 packages; parity is 195/217 with the four failures that predate this work (CLAUDE.md §13, plus
+> two macOS-only metrics tests). CLAUDE.md §6.5 is now the reference for how the family behaves;
+> this file stays as the record of why it is shaped the way it is.
+
 ---
 
 ## 1. Current game architecture

@@ -81,6 +81,9 @@ type books struct {
 	wallets map[string]int64
 	rows    []game.SettleEntry
 	refuse  bool
+	// duplicate answers a checkpoint the way the UNIQUE action_id does when
+	// the write landed and only its acknowledgement was lost (§5.1).
+	duplicate bool
 }
 
 func (b *books) ledger() *game.MemoryLedger {
@@ -90,6 +93,9 @@ func (b *books) ledger() *game.MemoryLedger {
 			defer b.mu.Unlock()
 			if b.refuse {
 				return game.NewGameError(game.CodePersistFailed, "down")
+			}
+			if b.duplicate {
+				return game.NewGameError(game.CodeDuplicateAction, "already applied")
 			}
 			b.wallets[args.Entry.UserID] += args.Entry.Delta
 			b.rows = append(b.rows, args.Entry)
@@ -998,4 +1004,117 @@ func TestAPokerSnapshotHasNoConfigKey(t *testing.T) {
 	if _, err := ParseSnapshot(data); err != nil {
 		t.Fatalf("our own parser refuses the snapshot: %v", err)
 	}
+}
+
+// 3-Card Poker is played against the house, so every player folding is an
+// ordinary outcome and each fold costs its ante (flow_threecard.go). The
+// generic "nobody is left in the hand" path refunds the pot — right at a
+// table where players play each other and a pot nobody can win must go back,
+// wrong here: it made folding free whenever the whole table folded, and kept
+// in the economy chips the rule takes out of it.
+func TestEveryPlayerFoldingToTheDealerCostsThemTheirAntes(t *testing.T) {
+	h := newHarness(t, ThreeCardPoker)
+	h.seat("a", 10_000)
+	h.seat("b", 10_000)
+	h.deal()
+	ante := h.table.Config().BootAmount
+	h.mustAct(h.turn(), ActionFold)
+	h.mustAct(h.turn(), ActionFold)
+
+	ended, ok := h.rec.last("handEnded").(HandEndedEvent)
+	if !ok {
+		t.Fatal("the hand did not end")
+	}
+	if ended.Reason != WinDealer {
+		t.Fatalf("reason %q, want %q: the house took the antes", ended.Reason, WinDealer)
+	}
+	for _, id := range []string{"a", "b"} {
+		if got, want := h.chips(id), 10_000-ante; got != want {
+			t.Fatalf("%s holds %d, want %d — the folded ante came back", id, got, want)
+		}
+		if got, want := h.books.wallets[id], 10_000-ante; got != want {
+			t.Fatalf("%s is banked at %d, want %d", id, h.books.wallets[id], want)
+		}
+	}
+	// Nothing was paid out, and no hand was shown: there was nobody to show.
+	for _, p := range ended.Pots {
+		for _, w := range p.Winners {
+			t.Fatalf("paid %d to %s with every player folded", w.Amount, w.UserID)
+		}
+	}
+	if len(ended.Reveals) != 0 {
+		t.Fatalf("reveals %+v", ended.Reveals)
+	}
+}
+
+// A hand_left checkpoint the ledger refuses is retried at the hand's end,
+// under the same action id. Nothing else would ever write it — a checkpoint
+// has no retry chain — and the hand end skips a player who left, so the
+// stake they had already put in stayed unbanked while the winner was paid a
+// pot that included it: the books gained chips out of nowhere.
+func TestALeaveCheckpointTheLedgerRefusedIsBankedAtTheHandEnd(t *testing.T) {
+	h := newHarness(t, TexasHoldem)
+	h.seat("a", 10_000)
+	h.seat("b", 10_000)
+	h.seat("c", 10_000)
+	h.deal()
+	h.mustAct("a", ActionRaise, 1_000)
+	h.mustAct("b", ActionCall)
+
+	h.books.mu.Lock()
+	h.books.refuse = true // the database is down for exactly this write
+	h.books.mu.Unlock()
+	if _, err := h.table.RemovePlayer("b", game.LeaveReasonLeft); err != nil {
+		t.Fatal(err)
+	}
+	h.books.mu.Lock()
+	h.books.refuse = false
+	h.books.mu.Unlock()
+
+	h.mustAct("c", ActionFold)
+
+	if total := h.books.total(); total != 30_000 {
+		h.books.mu.Lock()
+		for _, r := range h.books.rows {
+			t.Logf("row %s %s delta=%d", r.UserID, r.Reason, r.Delta)
+		}
+		h.books.mu.Unlock()
+		t.Fatalf("the books hold %d, want 30,000: a refused leave created chips", total)
+	}
+	if got := h.books.wallets["b"]; got != 9_000 {
+		t.Fatalf("the leaver is banked at %d, want 9,000 (their stake stays in the pot)", got)
+	}
+}
+
+// The same write, landed but unacknowledged: the ledger answers
+// duplicate_action, the money has moved once, and the seat counts as written
+// through — never charged a second time at the next checkpoint.
+func TestACheckpointRefusedAsADuplicateCountsAsWrittenThrough(t *testing.T) {
+	h := newHarness(t, TexasHoldem)
+	h.seat("a", 10_000)
+	h.seat("b", 10_000)
+	h.deal()
+	h.mustAct(h.turn(), ActionCall)
+	h.mustAct(h.turn(), ActionCheck)
+
+	h.books.mu.Lock()
+	h.books.duplicate = true // the commit landed; the answer was lost
+	h.books.mu.Unlock()
+	if _, err := h.table.RemovePlayer("b", game.LeaveReasonLeft); err != nil {
+		t.Fatal(err)
+	}
+	h.books.mu.Lock()
+	h.books.duplicate = false
+	rows := len(h.books.rows)
+	h.books.mu.Unlock()
+
+	// The hand ends with a alone; b must not be written a second time.
+	h.clock.Advance(h.cfg.NextHandDelay + time.Millisecond)
+	h.books.mu.Lock()
+	for _, r := range h.books.rows[rows:] {
+		if r.UserID == "b" {
+			t.Fatalf("the leaver was written again: %s delta=%d", r.Reason, r.Delta)
+		}
+	}
+	h.books.mu.Unlock()
 }

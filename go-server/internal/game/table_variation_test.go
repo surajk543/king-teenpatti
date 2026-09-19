@@ -60,10 +60,45 @@ func (h *harness) window(viewer string) *VariationView {
 }
 
 // setTurnUp forces the card turned up for Joker and Hukam — the same kind of
-// seam setCards is.
+// seam setCards is. The card asked for may already have been dealt (a hand or
+// a FIVE_CARD top-up), so it is EXCHANGED for the one that was turned up
+// rather than simply written over it: the table keeps 52 distinct cards, and
+// a snapshot of it does not carry the same card twice — which
+// validateSnapshot refuses, and which made this seam a coin toss on the deal.
 func (h *harness) setTurnUp(code string) {
 	h.t.Helper()
-	h.read(func() { h.table.hand.variation.turnUp = ParseCard(code) })
+	want := ParseCard(code)
+	h.read(func() {
+		hand := h.table.hand
+		if hand == nil || hand.variation == nil {
+			return
+		}
+		was := hand.variation.turnUp
+		hand.variation.turnUp = want
+		if was == want {
+			return
+		}
+		// Idempotent over aliased slices: the second pass over the same
+		// backing array finds `want` gone.
+		swap := func(cards []Card) {
+			for i, c := range cards {
+				if c == want {
+					cards[i] = was
+				}
+			}
+		}
+		for _, s := range h.table.seats {
+			if s != nil {
+				swap(s.cards)
+			}
+		}
+		for _, c := range hand.contributions {
+			swap(c.cards)
+		}
+		for _, extra := range hand.variation.extra {
+			swap(extra)
+		}
+	})
 }
 
 func (h *harness) selected() []VariationSelectedEvent {

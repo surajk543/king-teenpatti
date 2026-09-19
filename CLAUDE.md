@@ -132,7 +132,8 @@ king-teenpatti/
     │   ├── net/game_connection.dart  Socket.IO streams; every move carries a fresh actionId
     │   ├── net/api_client.dart   REST
     │   ├── models/dtos.dart      wire DTOs mirroring server JSON
-    │   ├── screens/{login,lobby,table}_screen.dart
+    │   ├── screens/{login,lobby,table}_screen.dart; screens/poker_table_screen.dart (the poker felt, mounted by table_screen when room.isPoker — §8.4)
+    │   ├── widgets/table_chrome.dart  the chrome both felts share (rail, drawers, keys, wallet, reconnecting veil), moved out of table_screen.dart
     │   ├── widgets/              premium_surface, seat_pod, playing_card, poker_chip, liquid_fill,
     │   │                         fireworks, avatar, buy_chips, chip_store, picture_shelf, rules_sheet,
     │   │                         variation_prompt (the variation table's on-felt picker, "is selecting" line, announcement, wild-card edge — §8.4),
@@ -144,7 +145,7 @@ king-teenpatti/
     │   └── l10n/strings.dart     hand-written 5-language table (en/hi/bn/gu/pa)
     ├── assets/card_back.svg, assets/app_icon.svg, assets/fonts/ (Inter 400/500/600/700 + OFL licence), assets/sfx/,
     │                         assets/animations/Fireworks.json (Lottie 5.5.7, 512x512, 2.43s — the winner's burst)
-    ├── test/  number_format, connection_failure, consent, theme_preference
+    ├── test/  number_format, connection_failure, consent, theme_preference, … poker_table (§8.4)
     ├── android/                  applicationId com.sungamestudio.kingteenpatti, sensorLandscape, cleartext on
     └── ios/                      bundle id com.sungamestudio.kingteenpatti, landscape-only, status bar hidden,
                                   NSAllowsLocalNetworking; GIDClientID + URL scheme come from Flutter/*.xcconfig.
@@ -577,7 +578,8 @@ house), **`five_card_draw`**, **`texas_holdem`** and **`omaha`**. `Category.Game
   wallet still equals its ledger sum (the §4 psql check stays 0).
 - **The variants** are fixed in `poker.Variants` (`VariantConfig`: hole cards, board, blinds or ante, dealer, draw,
   the streets), nothing about how they play is env-tunable. **Stake = the LOBBY_TABLES boot**: the **big blind** at
-  Hold'em/Omaha (small = half) and the **ante** at 3-Card Poker / 5-Card Draw. `PokerConfig` (§7.4) holds the three
+  Hold'em/Omaha (small = half) and the **ante** at 3-Card Poker / 5-Card Draw. The default menu offers **one table per
+  game, all four at 50,000** (owner, 19 Sep 2026), so the buy-in is 5 Lakh everywhere — above the welcome (§7.4). `PokerConfig` (§7.4) holds the three
   deployment knobs: `POKER_TURN_TIMEOUT_MS` (0 = `TURN_TIMEOUT_MS`), `POKER_MIN_BUYIN_BOOTS` (10 — a stack below
   `minBuyIn` cannot sit, `insufficient_chips`, and a seated one is held for `UNFUNDED_GRACE_MS` then kicked, as a short
   Teen Patti seat is) and `POKER_MAX_DISCARDS` (3, 0..5). A poker room has **no pot limit** (`MaxPot()` 0) and its
@@ -869,7 +871,7 @@ fallback `go-server/public`; not in `.env.example` — `config.go` documents it)
 | **`LEDGER_PURGE_AFTER_MS`** | 600000 (10 min) | **Go server only.** A `chip_ledger` row is deleted once older than this — but **only** `hand_win`/`hand_loss`/`hand_packed`/`hand_left` (`db.purgeableReasons`, hardcoded in the query): `purchase`, `picture_purchase`, `milestone_reward`, `timed_bonus`, `welcome_bonus` are never purged, since their UNIQUE `action_id` is a standing double-credit guard. Deletion is allowed only inside `PurgeLedger`'s own transaction, which sets `app.ledger_purge`; the append-only trigger refuses every other DELETE and every UPDATE. **Trap: 0 does NOT disable it** — the cutoff becomes `now`, so the next pass takes every purgeable row. Now equal to `RESUME_OFFER_MS`, so a retry at the edge of the resume window can find its `action_id` already gone (was 24h for that margin). |
 | `WELCOME_CHIPS` / `BOOT_AMOUNT` | 300000 / 200 | the 3 lakh welcome (owner, 14 Sep 2026; 2 lakh before). **Production's `.env` sets `WELCOME_CHIPS` explicitly**, so a new default changes nothing there until that line does |
 | `TABLE_STAKES` | `200,5000,50000,1000000` | empty = any (tests) |
-| **`LOBBY_TABLES`** | `seen:200,blind:200,blind:5000:max=50000000,blind:50000:max=1000000000,blind:1000000:min=500000000,variation:50000:max=1000000000,variation:1000000:min=500000000,seen:50000:pot=50000000,three_card_poker:200,five_card_draw:200,texas_holdem:200,texas_holdem:5000,omaha:200,omaha:5000` | the menu; empty = any pair (tests). **`pot=N` is a table's OWN pot cap** (Go only; owner, 19 Sep 2026: a second seen table, boot 50,000, open to all, pot limit 5 Crore — `LobbyTable.MaxPot`, read by `TableRules` and `MenuMaxPot` through `menuPotFor(category, boot)`): it wins over the category's cap (`SEEN_MAX_POT` is 40 boots at 50,000, so every hand there would be dealt into the POT_LIMIT showdown), changes nothing else — the ladder and rounds stay the category's — and a private table never reads it. 5 Crore is 5,00,00,000 = `50000000`; `500000000` is 50 Crore. The new entry is LAST in the list like every later addition; the Flutter lobby files it under Seen by category. Categories are `seen`, `blind`, (Go only, 18 Sep 2026) **`variation`** and (Go only, 19 Sep 2026, §6.5) the four poker ones **`three_card_poker`, `five_card_draw`, `texas_holdem`, `omaha`** — anything else stops the boot. A poker entry's boot is its big blind (Hold'em, Omaha) or ante (3-Card Poker, 5-Card Draw); its `minChips` on the menu is raised to the table's `minBuyIn` (`POKER_MIN_BUYIN_BOOTS` × boot) and each `options.tables[]` entry carries `game`, `smallBlind`, `bigBlind`, `ante`, `minBuyIn`, `holeCards`, `maxDiscards` (omitted on Teen Patti entries). The six default poker entries are LAST; an older Go tag cannot boot on a `.env` that lists one, and an installed app older than the first poker-aware build draws each as a seen table — raise `MIN_CLIENT_BUILD` first. Variation keeps **two tables only, 50,000 and 10 Lakh** (owner, 18 Sep 2026), behind the bands blind's tables of those stakes have; its entries are LAST so the five before them keep their places, and clients are told of the category (`config.categories`) only when it is listed. **Rollout:** an installed app older than the build that knows the category draws that card as a seen table and never shows the picker, so every hand there is a server-chosen Muflis — raise `MIN_CLIENT_BUILD` first. **Production's `.env` sets `LOBBY_TABLES` explicitly**, so the new default changes nothing there until that line does; a Go tag older than this cannot boot on a `.env` that lists `variation:`. Each entry is `category:boot` plus an optional **stack band** — `max=N` shuts the table to a player holding MORE than N, `min=N` to one holding LESS. Exactly the limit is allowed at either end. A band whose min exceeds its max fails at load (it would advertise a table nobody could join). |
+| **`LOBBY_TABLES`** | `seen:200,blind:200,blind:5000:max=50000000,blind:50000:max=1000000000,blind:1000000:min=500000000,variation:50000:max=1000000000,variation:1000000:min=500000000,seen:50000:pot=50000000,three_card_poker:50000,five_card_draw:50000,texas_holdem:50000,omaha:50000` | the menu; empty = any pair (tests). **`pot=N` is a table's OWN pot cap** (Go only; owner, 19 Sep 2026: a second seen table, boot 50,000, open to all, pot limit 5 Crore — `LobbyTable.MaxPot`, read by `TableRules` and `MenuMaxPot` through `menuPotFor(category, boot)`): it wins over the category's cap (`SEEN_MAX_POT` is 40 boots at 50,000, so every hand there would be dealt into the POT_LIMIT showdown), changes nothing else — the ladder and rounds stay the category's — and a private table never reads it. 5 Crore is 5,00,00,000 = `50000000`; `500000000` is 50 Crore. The new entry is LAST in the list like every later addition; the Flutter lobby files it under Seen by category. Categories are `seen`, `blind`, (Go only, 18 Sep 2026) **`variation`** and (Go only, 19 Sep 2026, §6.5) the four poker ones **`three_card_poker`, `five_card_draw`, `texas_holdem`, `omaha`** — anything else stops the boot. A poker entry's boot is its big blind (Hold'em, Omaha) or ante (3-Card Poker, 5-Card Draw); its `minChips` on the menu is raised to the table's `minBuyIn` (`POKER_MIN_BUYIN_BOOTS` × boot) and each `options.tables[]` entry carries `game`, `smallBlind`, `bigBlind`, `ante`, `minBuyIn`, `holeCards`, `maxDiscards` (omitted on Teen Patti entries). Poker keeps **one table per game, all four at 50,000** (owner, 19 Sep 2026: "in poker category only keep one table 50000 for each gameplay"; it was six entries at 200 and 5,000 earlier that day) — so blinds 25,000/50,000, an ante of 50,000, and a buy-in of **5,00,000** at every poker table, which is MORE than the 3,00,000 welcome: a brand-new account sees the whole Poker category shut until it has won 5 Lakh, and `POKER_MIN_BUYIN_BOOTS` (4 = 2 Lakh) is the one key that changes that without touching the stake. The four default poker entries are LAST; an older Go tag cannot boot on a `.env` that lists one, and an installed app older than the first poker-aware build draws each as a seen table — raise `MIN_CLIENT_BUILD` first. Variation keeps **two tables only, 50,000 and 10 Lakh** (owner, 18 Sep 2026), behind the bands blind's tables of those stakes have; its entries are LAST so the five before them keep their places, and clients are told of the category (`config.categories`) only when it is listed. **Rollout:** an installed app older than the build that knows the category draws that card as a seen table and never shows the picker, so every hand there is a server-chosen Muflis — raise `MIN_CLIENT_BUILD` first. **Production's `.env` sets `LOBBY_TABLES` explicitly**, so the new default changes nothing there until that line does; a Go tag older than this cannot boot on a `.env` that lists `variation:`. Each entry is `category:boot` plus an optional **stack band** — `max=N` shuts the table to a player holding MORE than N, `min=N` to one holding LESS. Exactly the limit is allowed at either end. A band whose min exceeds its max fails at load (it would advertise a table nobody could join). |
 | `MAX_PLAYERS_PER_ROOM` / `MIN_PLAYERS_TO_START` | 5 / 2 | 5 is also hardcoded in Flutter `_places` and browser CSS |
 | `TURN_TIMEOUT_MS` | 25000 | |
 | `MAX_BET_ROUNDS` / `POT_LIMIT_MULTIPLIER` / `MAX_RAISE_STEPS` | 20 / 1024 / 8 | defaults only; `createTable` overrides all three per category (seen: 7 / 1024 / 2, blind: 0 / 0 / 0) |
@@ -1219,6 +1221,41 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   its 169dp height at 640x360 is unchanged. `test/five_card_test.dart`. The rules sheet (`rules_sheet.dart`) has a **Variation tables** section
   under the rankings: an intro and the six variations, each with an example hand whose wild cards carry `WildEdge`
   (`test/rules_variation_test.dart`).
+- **Poker tables** (owner's brief, 19 Sep 2026; server side §6.5). The lobby front gains a **POKER** card (teal,
+  `Icons.casino_rounded`, `AppTheme.paletteFor` for the four categories and the `poker` family — before the seen
+  fall-through) whose rail lists the four variants with their own facts: the variant on the badge, blinds ("100 / 200") or
+  ante, buy-in ("from 2,000" — the server's `minBuyIn`, which is also the card's Entry), cards each, and "exchange up to"
+  on Draw; the info dialog and `showRules(table:)` have poker branches and the rules sheet a poker-ranking section.
+  `LobbyTable.game/isPoker` and `GameState.lobbyCategoryOrder` file every `three_card_poker | five_card_draw |
+  texas_holdem | omaha` entry under Poker. **`screens/table_screen.dart` mounts `PokerTableScreen`
+  (`screens/poker_table_screen.dart`) when `room.isPoker`**; the chrome both felts share — `LeftPanel`, `SideRail`,
+  `TableDrawer`, `ChatDrawer`, `MachinedKey`, `StepperKey`, `Plate`, `TableWallet`, `Reconnecting`, `seatPlaces` … —
+  moved to `widgets/table_chrome.dart` as pure renames (a private `_SideRail` wrapper stays in `table_screen.dart`
+  because `table_wallet_layout_test` finds it by name). **Everything on the poker felt is drawn from `room:state`**
+  (`RoomState.game/poker`, `PokerState`, `PokerOptions`, `PokerPot`, `PokerDealer`, `PokerReveal`, `PokerResult` in
+  `dtos.dart`; a `you.options` with a `street` key parses as `PokerOptions` and never as `TurnOptions`, so
+  `GameState.options`/`myTurn` are null/false at a poker table and `myPokerTurn`/`pokerOptions` take over):
+  `_StreetTag` ("Texas Hold'em · Pre-flop", the stake between hands), `_Board` (five slots, faint outlines until dealt),
+  `_Pots` (the plinth, side-pot capsules when there is more than one), `_DealerHand` (3-Card Poker's three backs at the
+  top, cards + hand name + qualifies/does not qualify at the reveal), `_PokerStatus`, `_OwnHandLine` from `you.hand`,
+  `_PokerHand` (the viewer's hole cards fanned face up from `you.cards` — 2, 4 or 5; after the river the ones not in
+  `you.hand.best` are set back; on the draw street a tap marks a card — lift + gold edge — into
+  `GameState.discardSelection`), `_PokerKeys` (Fold bottom-left where Pack is, and bottom-right `[Check|Call][All-in]`
+  over `[−][Bet|Raise][+]`; the Draw N / Stand pat key or the Play key with the ante replaces the bet row on those
+  streets), `_PokerCelebration` (winner ribbon with the hand name, fireworks, pot flights, armed by `poker:handEnded`
+  OR a snapshot whose `poker.result` arrives first — once per `handNo`). The bet stepper: `pokerBetAmount` between
+  the options' min/max, stepped by `pokerStepBet`; `pokerBetOrRaise` sends `bet` when nobody has bet the street and
+  `raise` TO the figure otherwise; every move through `GameConnection.pokerAct` with a fresh uuid `actionId`. Seat pods
+  take a `poker` flag: no BLIND/SEEN, no green backs, "Fold" not "Pack", the street bet on a gold chip badge, an ALL-IN
+  ribbon; Teen Patti paths unchanged. `refusalText` translates the poker codes at poker tables only. ~85 strings in all
+  five languages. Tests: `test/poker_table_test.dart` (DTOs, a Hold'em turn at 640×360 ×1.25 in all five languages,
+  the stepper's clamping, the draw street's marking, the 3-Card decision, a finished hand's reveals). **Played on the
+  emulator on 19 Sep 2026** against `tools/bot.js` at all four variants: Hold'em (call, bet each street, a straight
+  wins the showdown with both bots' hands revealed and named), Draw (mark one card, Draw 1, a straight after the
+  draw), 3-Card (Play, a non-qualifying dealer pays every seat) and Omaha (four hole cards), no RenderFlex overflows.
+  Note the poker clock is `POKER_TURN_TIMEOUT_MS` (25 s by default): the first emulator hand folded me on the clock
+  while I was reading screenshots, which is correct — run the dev server with `POKER_TURN_TIMEOUT_MS=90000` to play by
+  hand.
 - **The seat pod** (`widgets/seat_pod.dart`) carries the rest of it. An unoccupied place draws
   `_emptySeat()` — a dashed outline and a chair, never a blank pod. The viewer's badge and total are
   **not** in their column: they hang over their own fanned hand (`SeatBet(totalFirst: true)`), and
