@@ -1722,6 +1722,8 @@ anywhere rather than an ssh, and `ops/prod-version.sh` compares it with the newe
 2 when prod is behind. **A restart that silently failed looks exactly like a successful one from
 outside**, and that is what this exists to catch.
 
+The Flutter client is tagged the same way, by hand: **`flutter-client/vX.Y.Z`**, cut on the commit whose `pubspec.yaml` carries that version, so the tag, the app's version name and the build number a store listing shows all agree (first cut 19 Sep 2026, `flutter-client/v1.1.0` = `1.1.0+4`, the build that carries Variation, the Poker family and the 5-Card picker). **`MIN_CLIENT_BUILD` is raised to a build number that exists in the store, never to one that is only tagged here** — the floor holds every older client on the update screen, so a floor above what Play is serving takes the game down for everyone with no way for a player to get past it.
+
 `ops/release.sh patch|minor|major|vX.Y.Z` cuts an annotated tag. It refuses a dirty tree and refuses a
 commit that already carries one — a tag has to name a commit someone else can rebuild byte for byte,
 or the stamp is a lie — and it **never pushes**: a published version number cannot be withdrawn once
