@@ -291,6 +291,21 @@ build. Only v1.3.0 was checked. Any build from before the missiles (`go-server/v
 likewise never reads `users.missile`, `missile_purchases` or `missile_spends`; while it runs nobody can fire a missile or
 trade for one, and new accounts still get 9 diamonds and 1 missile from the column defaults.
 
+**Tags from before the Poker family (19 Sep 2026)** meet two more things. `LOBBY_TABLES` in the
+`.env`: a tag that does not know `three_card_poker`, `five_card_draw`, `texas_holdem` or `omaha`
+refuses to boot on a line that lists one (`parseLobbyTables` names the entry), so take the poker
+entries out of the line before the restart and put them back when coming forward. Redis: a poker
+room's snapshot begins `{"game":"poker",…}` and keeps its config under `pokerConfig`; the older tag
+reads it as a Teen Patti snapshot, finds no `config`, refuses it ("snapshot has no config") and
+deletes the key, so every poker room is dropped at that boot and its players re-join (rehearsed on
+19 Sep 2026 against a scratch Redis: the new binary saved a seen table and a Hold'em room mid-hand and
+was SIGKILLed; `master`'s binary logged `table restore: dropping stored table … has no config
+(maxPlayers 0)` for the poker room, `restored tables=1 seats=2` for the seen one, and the poker key was
+gone; the new binary booted forward on the same Redis and restored the seen table again) —
+their wallets are what PostgreSQL last knew (CLAUDE.md §5.1), and a hand in flight is un-made exactly
+as a lost-Redis hand is. The two nullable `chip_ledger` columns `V1.0.2` added are never read by the
+older tag and its rows leave them NULL, which is what a Teen Patti row holds anyway.
+
 Coming forward again does **not** remove the second row — the consolidated seed carries no clean-up —
 so retire it with the second query below, either during the rollback or after it (`UPDATE 1` retires
 it; `UPDATE 0` means there is nothing to retire). Never `DELETE` it: `user_profile_pictures` cascades

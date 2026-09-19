@@ -14,8 +14,11 @@
  *   node tools/bot.js --count 3 --boot 200 --category variation --variation AK47
  *   node tools/bot.js --count 3 --boot 200 --category variation --variation none
  *
- * Flags: --count N  --boot N  --category seen|blind|variation  --url URL
- *        --offset N  --churn SECONDS
+ *   node tools/bot.js --count 3 --boot 200 --category texas_holdem --offset 8
+ *   node tools/bot.js --count 2 --boot 200 --category three_card_poker
+ *
+ * Flags: --count N  --boot N  --category seen|blind|variation|three_card_poker|five_card_draw|texas_holdem|omaha
+ *        --url URL  --offset N  --churn SECONDS
  *        --variation MUFLIS|AK47|JOKER|HUKAM|LOWEST_JOKER|HIGHEST_JOKER|FIVE_CARD|random|none
  *          what a bot picks when IT opens a hand at a variation table
  *          (default random; none never answers, so the server's timeout and
@@ -38,7 +41,10 @@ const BOOT = Number.parseInt(args.boot ?? '200', 10);
  * choosing the variation it is decided by. Anything else is a seen table,
  * which is also what the server makes of a category it does not know.
  */
-const CATEGORY = ['blind', 'variation'].includes(args.category) ? args.category : 'seen';
+const POKER = ['three_card_poker', 'five_card_draw', 'texas_holdem', 'omaha'];
+const CATEGORY = ['blind', 'variation', ...POKER].includes(args.category) ? args.category : 'seen';
+/** A poker room's turns arrive as poker:yourTurn and are answered with poker:action. */
+const IS_POKER = POKER.includes(CATEGORY);
 
 /**
  * The seven canonical wire values, FIVE_CARD last as on the server's menu. The
@@ -120,6 +126,34 @@ function decide(options) {
   if (options.chaal) return 'chaal';
   if (options.raise) return 'raise';
   return 'pack';
+}
+
+/**
+ * Plays a poker street loosely, from the options the server sent and nothing
+ * else — a bot never reads its cards. Checks when it can, calls small bets,
+ * folds to big ones now and then, opens or raises the minimum once in a while,
+ * plays against the dealer most of the time, and stands pat at the draw or
+ * exchanges a card or two.
+ */
+function decidePoker(options, you) {
+  const stack = you?.chips ?? 0;
+  if (options.draw) {
+    const n = Math.random() < 0.5 ? 0 : 1 + Math.floor(Math.random() * Math.min(2, options.maxDiscards));
+    return { action: 'draw', cards: (you?.cards ?? []).slice(0, n) };
+  }
+  if (options.play) return { action: Math.random() < 0.75 ? 'play' : 'fold' };
+  const roll = Math.random();
+  if (options.check) {
+    if (options.bet && roll < 0.2) return { action: 'bet', amount: options.minBet };
+    return { action: 'check' };
+  }
+  if (options.call) {
+    // Fold to a bet that would take more than a third of the stack, some of the time.
+    if (options.callAmount > stack / 3 && roll < 0.5) return { action: 'fold' };
+    if (options.raise && roll < 0.15) return { action: 'raise', amount: options.minRaise };
+    return { action: 'call' };
+  }
+  return { action: 'fold' };
 }
 
 /** Variation windows already reported closed, as "<roomId>:<handNo>", so each is logged once for the whole run. */
@@ -247,6 +281,22 @@ async function startBot(index) {
       if (table?.variation?.selecting) return;
       socket.emit('game:action', { action: decide(options) });
     }, 700 + Math.random() * 1600);
+  });
+
+  // A poker room's turn: the same think time, the poker vocabulary.
+  socket.on('poker:yourTurn', ({ options }) => {
+    setTimeout(() => {
+      const move = decidePoker(options, table?.you);
+      socket.emit('poker:action', move, (ack) => {
+        if (!ack?.ok) console.log(`${name} poker move ${move.action} refused: ${ack?.message ?? 'no answer'}`);
+      });
+    }, 700 + Math.random() * 1600);
+  });
+
+  socket.on('poker:handEnded', ({ pots, reason }) => {
+    if (index !== 0) return;
+    const winners = (pots ?? []).flatMap((p) => p.winners ?? []).map((w) => `${w.handName ?? 'hand'} ${w.amount.toLocaleString()}`);
+    console.log(`  poker hand ended (${reason}): ${winners.join(', ') || 'nobody paid'}`);
   });
 
   // Somebody asked this bot for a sideshow. Mostly accept, so the compare-and-

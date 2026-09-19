@@ -1,6 +1,7 @@
 package poker
 
 import (
+	"encoding/json"
 	"sync"
 	"testing"
 	"time"
@@ -900,10 +901,10 @@ func TestSnapshotRefusesAForeignFamilyAndABadCard(t *testing.T) {
 	if _, err := ParseSnapshot([]byte(`{"game":"teen_patti","roomId":"x"}`)); err == nil {
 		t.Fatal("a Teen Patti document parsed as poker")
 	}
-	if _, err := ParseSnapshot([]byte(`{"game":"poker","roomId":"x","state":"waiting","config":{"variant":"texas_holdem","maxPlayers":5,"bootAmount":200},"seats":[{"seatIndex":0,"userId":"u","status":"waiting","cards":["Zz"]}]}`)); err == nil {
+	if _, err := ParseSnapshot([]byte(`{"game":"poker","roomId":"x","state":"waiting","pokerConfig":{"variant":"texas_holdem","maxPlayers":5,"bootAmount":200},"seats":[{"seatIndex":0,"userId":"u","status":"waiting","cards":["Zz"]}]}`)); err == nil {
 		t.Fatal("a bad card code parsed")
 	}
-	if _, err := ParseSnapshot([]byte(`{"game":"poker","roomId":"x","state":"waiting","config":{"variant":"texas_holdem","maxPlayers":5,"bootAmount":200},"seats":[{"seatIndex":0,"userId":"u","status":"waiting","cards":["As"]},{"seatIndex":1,"userId":"v","status":"waiting","cards":["As"]}]}`)); err == nil {
+	if _, err := ParseSnapshot([]byte(`{"game":"poker","roomId":"x","state":"waiting","pokerConfig":{"variant":"texas_holdem","maxPlayers":5,"bootAmount":200},"seats":[{"seatIndex":0,"userId":"u","status":"waiting","cards":["As"]},{"seatIndex":1,"userId":"v","status":"waiting","cards":["As"]}]}`)); err == nil {
 		t.Fatal("one card in two hands parsed")
 	}
 }
@@ -959,5 +960,42 @@ func TestDestroyingARoomMidHandRefundsEveryStake(t *testing.T) {
 		if h.books.wallets[id] != 10_000 {
 			t.Fatalf("%s wallet %d", id, h.books.wallets[id])
 		}
+	}
+}
+
+// A Go tag from before the poker family reads every live-store snapshot as a
+// Teen Patti one, and its validator's first check is config.maxPlayers > 0 —
+// so a poker snapshot must carry NO top-level `config` key, or a rollback
+// would rebuild each poker room as a seen Teen Patti table with its poker
+// seats (ops/DEPLOY.md §5). With none, that tag refuses and drops the room.
+func TestAPokerSnapshotHasNoConfigKey(t *testing.T) {
+	h := newHarness(t, TexasHoldem)
+	h.seat("a", 10_000)
+	h.seat("b", 10_000)
+	h.deal()
+	snap, err := h.table.Snapshot()
+	if err != nil {
+		t.Fatalf("snapshot: %v", err)
+	}
+	data, err := h.table.marshalSnapshot(snap.Seq)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var doc map[string]json.RawMessage
+	if err := json.Unmarshal(data, &doc); err != nil {
+		t.Fatalf("snapshot is not an object: %v", err)
+	}
+	if _, has := doc["config"]; has {
+		t.Fatalf("poker snapshot carries a top-level config key; an older tag would restore it as a Teen Patti table: %s", data)
+	}
+	var cfg SnapshotConfig
+	if err := json.Unmarshal(doc["pokerConfig"], &cfg); err != nil || cfg.MaxPlayers <= 0 {
+		t.Fatalf("pokerConfig missing or empty (%v): %s", err, doc["pokerConfig"])
+	}
+	if string(doc["game"]) != `"poker"` {
+		t.Fatalf("game = %s", doc["game"])
+	}
+	if _, err := ParseSnapshot(data); err != nil {
+		t.Fatalf("our own parser refuses the snapshot: %v", err)
 	}
 }

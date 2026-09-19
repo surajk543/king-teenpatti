@@ -16,6 +16,16 @@ import (
 // key and always "poker": RoomManager.Restore peeks at it before choosing a
 // parser, which is what keeps a poker document out of the Teen Patti path
 // (POKER_PLAN.md §9 risk 1).
+//
+// The config is under `pokerConfig`, NOT `config`, for a server that knows
+// nothing of this family: a Go tag from before the poker rooms lists the same
+// Redis keys, reads every snapshot as a Teen Patti one, and its validator does
+// not look at `category` — but its first check is `config.maxPlayers > 0`.
+// With no `config` key that tag refuses the document ("snapshot has no
+// config") and drops it (dropStored), so a rollback loses the poker rooms —
+// their players re-join, ops/DEPLOY.md §5 — instead of rebuilding each as a
+// SEEN Teen Patti table with its poker seats. TestAPokerSnapshotHasNoConfigKey
+// pins it.
 type Snapshot struct {
 	Game       game.Game       `json:"game"`
 	RoomID     string          `json:"roomId"`
@@ -30,7 +40,7 @@ type Snapshot struct {
 	Version    int64           `json:"version"`
 	IsPrivate  bool            `json:"isPrivate"`
 	CreatedAt  int64           `json:"createdAt"`
-	Config     SnapshotConfig  `json:"config"`
+	Config     SnapshotConfig  `json:"pokerConfig"`
 	StartsAt   *int64          `json:"startsAt"`
 	LastResult *ResultView     `json:"lastResult,omitempty"`
 }

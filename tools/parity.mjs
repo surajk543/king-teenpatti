@@ -162,6 +162,22 @@ const PROFILES = [
     },
     suites: ['variation'],
   },
+  // The Poker family (Go only; owner, 19 Sep 2026 — go-server/POKER_PLAN.md):
+  // long clocks so no refusal can be blamed on a timeout, any pair (a poker
+  // room needs no menu entry to open, only to be advertised).
+  {
+    name: 'poker',
+    description: '60 s clocks, any stake, the four poker variants',
+    env: {
+      TURN_TIMEOUT_MS: '60000',
+      POKER_TURN_TIMEOUT_MS: '60000',
+      SIDESHOW_TIMEOUT_MS: '60000',
+      CONSOLIDATE_INTERVAL_MS: '600000',
+      TABLE_STAKES: '',
+      LOBBY_TABLES: '',
+    },
+    suites: ['poker'],
+  },
 ];
 
 /** The books audit that closes every profile. */

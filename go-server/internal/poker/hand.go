@@ -109,7 +109,6 @@ func (t *Table) startHand() {
 		t.listener.OnCards(t.view, CardsEvent{UserID: s.userID, Cards: game.CardCodes(s.cards)})
 	}
 	t.beginStreet(0)
-	t.emitState()
 	if t.onHandStart != nil {
 		t.onHandStart(t.clock.Now().Sub(started))
 	}
@@ -234,6 +233,10 @@ func (t *Table) beginStreet(i int) {
 	case street == StreetDecision:
 		t.setTurn(t.nextSeat(h.button, func(s *seat) bool { return s.inHand() && !s.acted }))
 	}
+	// The snapshot that carries the new street, its board and the options of
+	// the player now on turn: a street that opened from a previous street's
+	// last move would otherwise be announced (poker:turn) but not shown.
+	t.emitState()
 }
 
 // firstToAct: preflop the seat after the big blind (heads-up: the button,
@@ -559,10 +562,13 @@ func (t *Table) applyCall(s *seat) (ActResult, error) {
 	s.acted = true
 	s.lastAction = actionPtr(ActionCall)
 	t.markPlayed(s)
-	t.listener.OnAction(t.view, ActionEvent{UserID: s.userID, SeatIndex: s.seatIndex, Action: ActionCall, Amount: s.streetBet, Street: h.street(), Pot: h.pot, AllIn: s.allIn})
+	// The figures are read before the turn moves on: advancing can end the
+	// street, which zeroes every street bet for the next one.
+	amount, allIn := s.streetBet, s.allIn
+	t.listener.OnAction(t.view, ActionEvent{UserID: s.userID, SeatIndex: s.seatIndex, Action: ActionCall, Amount: amount, Street: h.street(), Pot: h.pot, AllIn: allIn})
 	t.clearTurnTimer()
 	t.advanceAfter(s.seatIndex)
-	return ActResult{Action: ActionCall, Amount: game.Int64Ptr(s.streetBet), AllIn: s.allIn}, nil
+	return ActResult{Action: ActionCall, Amount: game.Int64Ptr(amount), AllIn: allIn}, nil
 }
 
 // applyBet is a bet (no bet yet on the street) or a raise (to amount, the
@@ -592,8 +598,8 @@ func (t *Table) applyBet(s *seat, action Action, amount int64) (ActResult, error
 	if amount < lo || amount > hi {
 		return ActResult{}, game.Errorf(CodeInvalidAmount, MsgAmountRangeFormat, thousands(lo), thousands(hi))
 	}
-	t.raiseTo(s, amount, action)
-	return ActResult{Action: action, Amount: game.Int64Ptr(s.streetBet), AllIn: s.allIn}, nil
+	bet, allIn := t.raiseTo(s, amount, action)
+	return ActResult{Action: action, Amount: game.Int64Ptr(bet), AllIn: allIn}, nil
 }
 
 // applyAllIn puts the whole stack in: a raise when it beats the street's bet,
@@ -609,23 +615,25 @@ func (t *Table) applyAllIn(s *seat) (ActResult, error) {
 		if h.currentBet == 0 {
 			action = ActionBet
 		}
-		t.raiseTo(s, total, action)
-		return ActResult{Action: ActionAllIn, Amount: game.Int64Ptr(s.streetBet), AllIn: true}, nil
+		bet, _ := t.raiseTo(s, total, action)
+		return ActResult{Action: ActionAllIn, Amount: game.Int64Ptr(bet), AllIn: true}, nil
 	}
 	t.stake(s, s.chips)
 	s.acted = true
 	s.lastAction = actionPtr(ActionAllIn)
 	t.markPlayed(s)
-	t.listener.OnAction(t.view, ActionEvent{UserID: s.userID, SeatIndex: s.seatIndex, Action: ActionAllIn, Amount: s.streetBet, Street: h.street(), Pot: h.pot, AllIn: true})
+	amount := s.streetBet
+	t.listener.OnAction(t.view, ActionEvent{UserID: s.userID, SeatIndex: s.seatIndex, Action: ActionAllIn, Amount: amount, Street: h.street(), Pot: h.pot, AllIn: true})
 	t.clearTurnTimer()
 	t.advanceAfter(s.seatIndex)
-	return ActResult{Action: ActionAllIn, Amount: game.Int64Ptr(s.streetBet), AllIn: true}, nil
+	return ActResult{Action: ActionAllIn, Amount: game.Int64Ptr(amount), AllIn: true}, nil
 }
 
 // raiseTo sets the street's bet to amount from this seat and reopens the
 // action for everyone else. A raise smaller than the last (an all-in for
-// less) does not raise the minimum.
-func (t *Table) raiseTo(s *seat, amount int64, action Action) {
+// less) does not raise the minimum. Returns the seat's street bet and whether
+// it went all-in, read before the turn moved on.
+func (t *Table) raiseTo(s *seat, amount int64, action Action) (int64, bool) {
 	h := t.hand
 	previous := h.currentBet
 	t.stake(s, amount-s.streetBet)
@@ -643,9 +651,11 @@ func (t *Table) raiseTo(s *seat, amount int64, action Action) {
 	s.acted = true
 	s.lastAction = actionPtr(action)
 	t.markPlayed(s)
-	t.listener.OnAction(t.view, ActionEvent{UserID: s.userID, SeatIndex: s.seatIndex, Action: action, Amount: s.streetBet, Street: h.street(), Pot: h.pot, AllIn: s.allIn})
+	bet, allIn := s.streetBet, s.allIn
+	t.listener.OnAction(t.view, ActionEvent{UserID: s.userID, SeatIndex: s.seatIndex, Action: action, Amount: bet, Street: h.street(), Pot: h.pot, AllIn: allIn})
 	t.clearTurnTimer()
 	t.advanceAfter(s.seatIndex)
+	return bet, allIn
 }
 
 // markPlayed: a voluntary bet beyond the forced one — "played" (requirement 16).
@@ -666,10 +676,11 @@ func (t *Table) applyPlay(s *seat) (ActResult, error) {
 	s.acted = true
 	s.lastAction = actionPtr(ActionPlay)
 	t.markPlayed(s)
-	t.listener.OnAction(t.view, ActionEvent{UserID: s.userID, SeatIndex: s.seatIndex, Action: ActionPlay, Amount: amount, Street: h.street(), Pot: h.pot, AllIn: s.allIn})
+	allIn := s.allIn
+	t.listener.OnAction(t.view, ActionEvent{UserID: s.userID, SeatIndex: s.seatIndex, Action: ActionPlay, Amount: amount, Street: h.street(), Pot: h.pot, AllIn: allIn})
 	t.clearTurnTimer()
 	t.advanceAfter(s.seatIndex)
-	return ActResult{Action: ActionPlay, Amount: game.Int64Ptr(amount), AllIn: s.allIn}, nil
+	return ActResult{Action: ActionPlay, Amount: game.Int64Ptr(amount), AllIn: allIn}, nil
 }
 
 // applyDraw exchanges the named cards (none = stand pat) for the next off
@@ -785,7 +796,7 @@ func (t *Table) endHandWithWinners(reason WinReason, hands map[int]Hand, reveals
 	if h == nil {
 		return
 	}
-	pots := t.potsNow()
+	pots := t.pots(true)
 	if hands == nil {
 		hands = map[int]Hand{}
 	}

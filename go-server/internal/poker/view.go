@@ -303,10 +303,15 @@ func (t *Table) serializeFor(viewerID string) *TableView {
 	return view
 }
 
-// potsNow is the pots as they stand mid-hand: every contribution so far,
-// open to the seats still in. Between streets it is what a showdown now
-// would pay out of.
-func (t *Table) potsNow() []Pot {
+// potsNow is the pots as a viewer sees them mid-hand: the chips COLLECTED at
+// the end of each street, open to the seats still in — what a card room
+// pushes into the middle, with the current street's bets still in front of
+// the players (seats[].streetBet). The hand's end pays out of pots(true).
+func (t *Table) potsNow() []Pot { return t.pots(false) }
+
+// pots builds the pots from the hand's contributions: every chip when
+// withStreet is true (the settlement), the collected ones only otherwise.
+func (t *Table) pots(withStreet bool) []Pot {
 	h := t.hand
 	if h == nil {
 		return []Pot{}
@@ -314,8 +319,14 @@ func (t *Table) potsNow() []Pot {
 	contrib := map[int]int64{}
 	inHand := map[int]bool{}
 	for _, c := range h.contributions {
-		if c.contributed > 0 {
-			contrib[c.seatIndex] = c.contributed
+		amount := c.contributed
+		if !withStreet {
+			if s := t.seats[c.seatIndex]; s != nil && s.userID == c.userID {
+				amount -= s.streetBet
+			}
+		}
+		if amount > 0 {
+			contrib[c.seatIndex] = amount
 		}
 		if !c.folded && !c.leftMidHand {
 			inHand[c.seatIndex] = true

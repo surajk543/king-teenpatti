@@ -731,6 +731,27 @@ Payload ignored. `not_in_room` if unseated. `seat = table.findSeat(user.id)`; if
 Otherwise `cards = table.serializeFor(user.id).you.cards`, emit `player:cards {roomId, cards}` to
 this socket, ack `{ok:true, cards}`. Flutter wires but never calls it.
 
+### 6.4 `poker:action` (Go only — the Poker family, owner 19 Sep 2026; `internal/socket/poker.go`, CLAUDE.md §6.5)
+
+Payload `{action, amount?, cards?, actionId?}`; `action` is `String(action)` and must be one of
+`fold | check | call | bet | raise | allIn | play | draw` (else `unknown_action`, the `game:action`
+message). Then `not_in_room` if unseated, **`wrong_game`** ("That move belongs to a different game")
+at a Teen Patti table. `amount` follows `game:action`'s safe-integer rule (a string, array, boolean
+or fraction → `invalid_amount` "Bet must be a whole number"); it is the player's TOTAL street bet
+for `bet` / `raise` and ignored otherwise. `cards` is the array's string elements (a non-string
+element names no card and is refused `invalid_discard`); absent or not an array = stand pat.
+`actionId` hygiene as `game:action` (≤ 64 UTF-16 units, no `:`). Then `poker.Table.Act`, whose
+refusals in order are `no_hand`, `not_seated`, `not_in_hand`, `not_your_turn`, `duplicate_action`,
+then per action: `invalid_action` (a check facing a bet, a call with nothing to call, a bet on a
+street already bet, a raise with nothing to raise or no chips beyond the call, a draw outside the
+draw, a play outside the decision), `invalid_amount` (outside `[min, max]` of `you.options`),
+`invalid_discard` (a card not held, one twice, more than `maxDiscards`), `insufficient_chips` (3-Card
+Poker's play bet), `persist_failed`. Ack `{ok:true, action, amount?, allIn?, discarded?}`. Every
+refusal feeds `invalid_moves_total{code}`; the move feeds `moves_total{action}` and
+`move_processing_duration_seconds{action}` under the poker action labels. Conversely `game:action`,
+`game:sideshowRespond` and `game:selectVariation` at a poker room are refused `wrong_game` before any
+rule runs, and `player:requestCards` answers `{cards: []}` there.
+
 ---
 
 ## 7. Inbound events — chat and ping
@@ -831,6 +852,29 @@ raw `socket.emit` and count manually: `broadcastState` (`sock:192-199`) and the 
 
 Hand names (`handRank.js:16-23`) are English: `High Card`, `Pair`, `Color`, `Sequence`, `Pure
 Sequence`, `Trail`; `category` is the integer 0–5. MUST MATCH (Flutter shows them untranslated).
+
+**Poker rooms** (Go only, 19 Sep 2026; `internal/socket/poker.go`, `internal/poker/events.go`) send
+the room-level events above (`room:*`, `chat:*`, `session:*`, `game:error`) exactly as a Teen Patti
+table does, and in place of every `game:*` / `player:*` game event these — all with `roomId`:
+
+| Event | Audience | Payload |
+|---|---|---|
+| `poker:handStarted` | room | `{handId, handNo, variant, dealerSeat, smallBlind, bigBlind, ante, pot, participants:[userId…]}` |
+| `poker:cards` | owner only | `{cards}` — at the deal, and the NEW hand after a draw |
+| `poker:turn` | room | `{userId, seatIndex, street, deadline, timeoutMs}` (no options) |
+| `poker:yourTurn` | player on turn | `{street, deadline, timeoutMs, options}` — `options` is `you.options` (CLAUDE.md §6.5) |
+| `poker:action` | room | `{userId, seatIndex, action, amount, street, pot, allIn?, reason?, discarded?}` — `amount` is the street bet after a bet/raise/call/all-in, the play bet for `play`, 0 for fold/check/draw; `reason` only on a fold the player did not choose (`timeout`, a leave reason); `discarded` only on a draw |
+| `poker:street` | room | `{street, community, pot}` — the whole board so far, `[]` on a game with none |
+| `poker:draw` | room | `{userId, seatIndex, discarded}` — how many, never which |
+| `poker:showdown` | room | `{reveals:[{userId, seatIndex, cards, best, handName, category, won, outcome?}], community, dealer?:{cards, handName, category, qualified}, reason}` |
+| `poker:handEnded` | room | `{handId, handNo, variant, reason, pot, pots:[{amount, eligible:[seatIndex…], winners:[{userId, seatIndex, amount, handName}]}], reveals, community, dealer?, summary:[{userId, displayName, seatIndex, contributed, won, status}], nextHandAt}`; `reason` ∈ `showdown | last_standing | dealer | all_left` |
+
+Five-card hand names (`eval5.go`): `High Card`, `Pair`, `Two Pair`, `Three of a Kind`, `Straight`,
+`Flush`, `Full House`, `Four of a Kind`, `Straight Flush`, `Royal Flush` (`category` 0–9); 3-Card
+Poker's (`eval3.go`): `High Card`, `Pair`, `Flush`, `Straight`, `Three of a Kind`, `Straight Flush`
+(0–5). A poker room's `room:state` is `poker.TableView` (CLAUDE.md §6.5): the Teen Patti keys of the
+same meaning kept name for name, plus `game:"poker"` and `poker {…}`; a Teen Patti table's snapshot
+carries neither key.
 
 ### 8.1 `serializeFor(viewerId)` (`table.js:1642-1739`) — MUST MATCH, including redaction
 
