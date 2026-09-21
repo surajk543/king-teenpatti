@@ -670,6 +670,19 @@ class Strings {
   String get leaveStakeStays => _('leaveStakeStays');
   String get winner => _('winner');
   String get tableChat => _('tableChat');
+
+  /// The block control in the chat drawer (owner, 22 Sep 2026). Blocking is
+  /// this viewer's own view of one table for one sitting — no report, no
+  /// server, nothing kept — so the wording promises exactly that and says
+  /// plainly that it ends when they leave.
+  String get block => _('block');
+  String get unblock => _('unblock');
+  String get blockedLabel => _('blockedLabel');
+  String get blockPlayersTitle => _('blockPlayersTitle');
+  String get blockNobody => _('blockNobody');
+  String blockPlayerQ(String name) =>
+      _('blockPlayerQ').replaceAll('{name}', name);
+  String get blockBody => _('blockBody');
   String get saySomething => _('saySomething');
   String get tableMenu => _('tableMenu');
 
@@ -1226,6 +1239,14 @@ class Strings {
       'leaveStakeStays': 'Your stake stays in the pot',
       'winner': 'Winner',
       'tableChat': 'Table chat',
+      'block': 'Block',
+      'unblock': 'Unblock',
+      'blockedLabel': 'Blocked',
+      'blockPlayersTitle': 'Block players',
+      'blockNobody': 'Nobody else is at the table yet.',
+      'blockPlayerQ': 'Block {name}?',
+      'blockBody':
+          'You will not see their messages at this table. It lasts until you leave — nobody is told, and nothing is reported.',
       'saySomething': 'Say something…',
       'tableMenu': 'Table menu',
       // The panel's own title and its key's tooltip. The owner gave only the
@@ -1770,6 +1791,14 @@ class Strings {
       'leaveStakeStays': 'आपका दांव पॉट में रहेगा',
       'winner': 'विजेता',
       'tableChat': 'टेबल चैट',
+      'block': 'ब्लॉक करें',
+      'unblock': 'अनब्लॉक करें',
+      'blockedLabel': 'ब्लॉक किए गए',
+      'blockPlayersTitle': 'खिलाड़ियों को ब्लॉक करें',
+      'blockNobody': 'अभी टेबल पर कोई और नहीं है।',
+      'blockPlayerQ': '{name} को ब्लॉक करें?',
+      'blockBody':
+          'आपको इस टेबल पर उनके संदेश नहीं दिखेंगे। यह तब तक रहेगा जब तक आप टेबल नहीं छोड़ते — किसी को बताया नहीं जाता और कोई शिकायत दर्ज नहीं होती।',
       'saySomething': 'कुछ कहें…',
       'tableMenu': 'टेबल मेनू',
       'quickMessagesTitle': 'झटपट संदेश',
@@ -2302,6 +2331,14 @@ class Strings {
       'leaveStakeStays': 'আপনার বাজি পটেই থাকবে',
       'winner': 'বিজয়ী',
       'tableChat': 'টেবিল চ্যাট',
+      'block': 'ব্লক করুন',
+      'unblock': 'আনব্লক করুন',
+      'blockedLabel': 'ব্লক করা',
+      'blockPlayersTitle': 'খেলোয়াড় ব্লক করুন',
+      'blockNobody': 'এখনও টেবিলে আর কেউ নেই।',
+      'blockPlayerQ': '{name}-কে ব্লক করবেন?',
+      'blockBody':
+          'এই টেবিলে আপনি তাঁর বার্তা দেখতে পাবেন না। আপনি টেবিল ছাড়া পর্যন্ত এটি থাকবে — কাউকে জানানো হয় না, কোনও রিপোর্টও হয় না।',
       'saySomething': 'কিছু বলুন…',
       'tableMenu': 'টেবিল মেনু',
       'quickMessagesTitle': 'দ্রুত বার্তা',
@@ -2883,6 +2920,14 @@ class Strings {
       'leaveStakeStays': 'તમારો દાવ પોટમાં જ રહેશે',
       'winner': 'વિજેતા',
       'tableChat': 'ટેબલ ચૅટ',
+      'block': 'બ્લૉક કરો',
+      'unblock': 'અનબ્લૉક કરો',
+      'blockedLabel': 'બ્લૉક કરેલા',
+      'blockPlayersTitle': 'ખેલાડીઓને બ્લૉક કરો',
+      'blockNobody': 'હજી ટેબલ પર બીજું કોઈ નથી.',
+      'blockPlayerQ': '{name}ને બ્લૉક કરવા છે?',
+      'blockBody':
+          'આ ટેબલ પર તમને તેમના સંદેશા દેખાશે નહીં. તમે ટેબલ છોડો ત્યાં સુધી રહેશે — કોઈને જાણ થતી નથી અને કોઈ ફરિયાદ થતી નથી.',
       'saySomething': 'કંઈક કહો…',
       'tableMenu': 'ટેબલ મેનૂ',
       'quickMessagesTitle': 'ઝટપટ સંદેશા',
@@ -3414,6 +3459,14 @@ class Strings {
       'leaveStakeStays': 'ਤੁਹਾਡਾ ਦਾਅ ਪੌਟ ਵਿੱਚ ਹੀ ਰਹੇਗਾ',
       'winner': 'ਜੇਤੂ',
       'tableChat': 'ਟੇਬਲ ਚੈਟ',
+      'block': 'ਬਲਾਕ ਕਰੋ',
+      'unblock': 'ਅਨਬਲਾਕ ਕਰੋ',
+      'blockedLabel': 'ਬਲਾਕ ਕੀਤੇ',
+      'blockPlayersTitle': 'ਖਿਡਾਰੀਆਂ ਨੂੰ ਬਲਾਕ ਕਰੋ',
+      'blockNobody': 'ਹਾਲੇ ਟੇਬਲ ਉੱਤੇ ਹੋਰ ਕੋਈ ਨਹੀਂ ਹੈ।',
+      'blockPlayerQ': '{name} ਨੂੰ ਬਲਾਕ ਕਰਨਾ ਹੈ?',
+      'blockBody':
+          'ਇਸ ਟੇਬਲ ਉੱਤੇ ਤੁਹਾਨੂੰ ਉਹਨਾਂ ਦੇ ਸੁਨੇਹੇ ਨਹੀਂ ਦਿਸਣਗੇ। ਇਹ ਉਦੋਂ ਤੱਕ ਰਹੇਗਾ ਜਦੋਂ ਤੱਕ ਤੁਸੀਂ ਟੇਬਲ ਨਹੀਂ ਛੱਡਦੇ — ਕਿਸੇ ਨੂੰ ਦੱਸਿਆ ਨਹੀਂ ਜਾਂਦਾ ਤੇ ਕੋਈ ਸ਼ਿਕਾਇਤ ਨਹੀਂ ਹੁੰਦੀ।',
       'saySomething': 'ਕੁਝ ਕਹੋ…',
       'tableMenu': 'ਟੇਬਲ ਮੀਨੂ',
       'quickMessagesTitle': 'ਝਟਪਟ ਸੁਨੇਹੇ',

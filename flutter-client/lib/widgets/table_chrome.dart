@@ -1212,6 +1212,157 @@ Future<void> _confirmLeave(
   if (leave == true) state.leaveTable();
 }
 
+/// Asks before hiding a player's messages (owner, 22 Sep 2026).
+///
+/// It asks rather than toggling on the long-press because a long-press on a
+/// scrolling list is easy to trigger by accident, and a line vanishing with
+/// no explanation reads as a bug. The body says what blocking does *and* what
+/// it does not: nobody is told, nothing is reported, and it ends when they
+/// leave the table.
+Future<void> confirmBlock(
+  BuildContext context,
+  GameState state,
+  String userId,
+  String displayName,
+) async {
+  final t = state.t;
+  final block = await showDialog<bool>(
+    context: context,
+    builder: (context) => GlassDialog(
+      padding: const EdgeInsets.all(Space.xl),
+      title: dialogTitle(
+        context,
+        Icons.block_rounded,
+        t.blockPlayerQ(displayName),
+      ),
+      content: Text(t.blockBody),
+      actions: dialogActions(context, stay: t.cancel, go: t.block),
+    ),
+  );
+  if (block == true) state.blockPlayer(userId);
+}
+
+/// The block list, opened from the key at the top of the chat drawer.
+///
+/// The long-press on a message is quicker once you know it is there, but it
+/// is invisible until then, and a player who wants somebody to stop should
+/// not have to discover a gesture (owner, 22 Sep 2026). This lists everybody
+/// else at the table with their current state, so blocking and unblocking are
+/// the same one tap in the same place.
+///
+/// Rebuilt from `room` on every frame it is open: seats fill and empty while
+/// the sheet is up, and a list captured when it opened would offer to block
+/// somebody who had already gone.
+Future<void> showBlockPlayers(BuildContext context, GameState state) =>
+    showDialog<void>(
+      context: context,
+      builder: (context) {
+        final t = state.t;
+        return GlassDialog(
+          padding: const EdgeInsets.all(Space.xl),
+          title: dialogTitle(context, Icons.block_rounded, t.blockPlayersTitle),
+          content: Consumer<GameState>(
+            builder: (context, live, _) {
+              final others = [
+                for (final seat in live.room?.seats ?? const <Seat>[])
+                  if (seat.userId != null &&
+                      seat.userId!.isNotEmpty &&
+                      seat.userId != live.user?.id)
+                    seat,
+              ];
+              if (others.isEmpty) return Text(t.blockNobody);
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (final seat in others)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: Space.xxs),
+                      child: Row(
+                        children: [
+                          Expanded(child: Text(seat.displayName)),
+                          GlassButton(
+                            style: GlassButtonStyle.text,
+                            onPressed: () => live.isBlocked(seat.userId!)
+                                ? live.unblockPlayer(seat.userId!)
+                                : live.blockPlayer(seat.userId!),
+                            label: live.isBlocked(seat.userId!)
+                                ? t.unblock
+                                : t.block,
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
+              );
+            },
+          ),
+          actions: [
+            GlassButton(
+              style: GlassButtonStyle.text,
+              onPressed: () => Navigator.pop(context),
+              label: t.close,
+            ),
+          ],
+        );
+      },
+    );
+
+/// The way back out of a block, above the chat composer.
+///
+/// A block is invisible once it is made — the person simply stops appearing —
+/// so without this the drawer would offer a one-way door with no sign it had
+/// ever been used. It shows only while somebody is blocked, and one tap lifts
+/// it. Unblocking asks nothing: it takes a restriction away, and the worst it
+/// can do is show a message.
+class _BlockedRow extends StatelessWidget {
+  const _BlockedRow({required this.state});
+
+  final GameState state;
+
+  @override
+  Widget build(BuildContext context) {
+    final blocked = state.blockedIds;
+    if (blocked.isEmpty) return const SizedBox.shrink();
+    final theme = Theme.of(context);
+    final t = state.t;
+
+    // A blocked player can leave the table, taking their seat — and their
+    // name — with them, while the block outlives them for this sitting. Fall
+    // back to the label rather than drawing a raw user id at somebody.
+    String nameOf(String id) {
+      for (final seat in state.room?.seats ?? const <Seat>[]) {
+        if (seat.userId == id) return seat.displayName;
+      }
+      return t.blockedLabel;
+    }
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(Space.lg, Space.xs, Space.lg, 0),
+      child: Wrap(
+        spacing: Space.sm,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          Text(
+            '${t.blockedLabel}:',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurface.withValues(
+                alpha: AppTheme.inkMed,
+              ),
+            ),
+          ),
+          for (final id in blocked)
+            GlassButton(
+              style: GlassButtonStyle.text,
+              onPressed: () => state.unblockPlayer(id),
+              label: '${nameOf(id)} · ${t.unblock}',
+            ),
+        ],
+      ),
+    );
+  }
+}
+
 /// Gold as *ink*: champagne on charcoal, deep gold on parchment.
 ///
 /// Anything drawn on the cloth is always on charcoal, so it asks for
@@ -1656,6 +1807,25 @@ class _ChatDrawerState extends State<ChatDrawer> {
                           ),
                         ),
                       ),
+                      // The block list, in the open, beside the close key.
+                      // The long-press on a message is faster once known but
+                      // invisible until then, and somebody who wants a player
+                      // to stop should not have to find a gesture first.
+                      PressScale(
+                        child: IconButton(
+                          visualDensity: VisualDensity.compact,
+                          tooltip: t.blockPlayersTitle,
+                          icon: Icon(
+                            Icons.block_rounded,
+                            // Lit while somebody is blocked, so the drawer
+                            // says at a glance that a block is in force.
+                            color: state.blockedIds.isEmpty
+                                ? null
+                                : goldInk(theme.brightness),
+                          ),
+                          onPressed: () => showBlockPlayers(context, state),
+                        ),
+                      ),
                       PressScale(
                         child: IconButton(
                           visualDensity: VisualDensity.compact,
@@ -1690,7 +1860,7 @@ class _ChatDrawerState extends State<ChatDrawer> {
                         theme.colorScheme,
                       );
 
-                      return Padding(
+                      final row = Padding(
                         padding: const EdgeInsets.symmetric(
                           vertical: Space.xxs,
                         ),
@@ -1729,9 +1899,28 @@ class _ChatDrawerState extends State<ChatDrawer> {
                           ],
                         ),
                       );
+
+                      // Long-press somebody else's line to stop seeing them
+                      // at this table. Your own line has nothing to block,
+                      // and an opaque hit test means the press lands on the
+                      // whole row rather than only on the glyph it started
+                      // over.
+                      return mine
+                          ? row
+                          : GestureDetector(
+                              behavior: HitTestBehavior.opaque,
+                              onLongPress: () => confirmBlock(
+                                context,
+                                state,
+                                m.userId,
+                                m.displayName,
+                              ),
+                              child: row,
+                            );
                     },
                   ),
                 ),
+                _BlockedRow(state: state),
                 Padding(
                   padding: const EdgeInsets.fromLTRB(
                     Space.lg,

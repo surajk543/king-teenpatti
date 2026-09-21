@@ -299,6 +299,57 @@ class GameState extends ChangeNotifier {
 
   static const bubbleFor = Duration(seconds: 8);
 
+  /// Players this viewer has muted, by user id.
+  ///
+  /// Deliberately small: it is **this client, this table, this sitting**.
+  /// Nothing is sent to the server, nothing is written to disk, and the set is
+  /// emptied the moment the table changes — leaving, being shown out, or
+  /// switching. A player who blocks somebody and comes back to a table they
+  /// are also at blocks them again. That is the owner's rule (22 Sep 2026),
+  /// and it is why this is a `Set` on the state object rather than a
+  /// preference or a server-side relationship: a mute that outlived the
+  /// sitting would be a moderation feature, which this is not.
+  ///
+  /// A blocked player's lines are dropped on arrival rather than filtered at
+  /// paint: they raise no unread badge, never bubble over a seat, and do not
+  /// sit in [chat] waiting to reappear if the block is lifted. Blocking is
+  /// "stop showing me this person", not "hide, but keep".
+  final Set<String> _blocked = {};
+
+  /// The ids currently blocked, for the drawer to list. Unmodifiable so the
+  /// only ways in and out are [blockPlayer] and [unblockPlayer].
+  Set<String> get blockedIds => Set.unmodifiable(_blocked);
+
+  /// Whether [userId]'s messages are hidden from this viewer right now.
+  bool isBlocked(String userId) => _blocked.contains(userId);
+
+  /// Hides [userId]'s messages and takes away anything of theirs on screen —
+  /// the line over their seat and any line queued behind it — so blocking
+  /// takes effect on the felt at once rather than at their next message.
+  void blockPlayer(String userId) {
+    if (userId.isEmpty || userId == user?.id) return;
+    if (!_blocked.add(userId)) return;
+    chat.removeWhere((m) => m.userId == userId);
+    _bubbleTimers.remove(userId)?.cancel();
+    _bubbleQueue.remove(userId);
+    saidRecently.remove(userId);
+    notifyListeners();
+  }
+
+  /// Lets [userId] be heard again. Their past lines stay gone — they were
+  /// dropped, not hidden — so the drawer fills from their next message.
+  void unblockPlayer(String userId) {
+    if (_blocked.remove(userId)) notifyListeners();
+  }
+
+  /// Empties the block list. Called wherever the sitting ends, so the rule
+  /// "blocking lasts as long as you are at this table" has one meaning.
+  void _clearBlocked() {
+    if (_blocked.isEmpty) return;
+    _blocked.clear();
+    notifyListeners();
+  }
+
   // ------------------------------------------------------------- sideshow
 
   /// The two hands of a sideshow this player was part of, while they are still
@@ -1019,6 +1070,7 @@ class GameState extends ChangeNotifier {
         seatedAt = null;
         chat.clear();
         _clearBubbles();
+        _clearBlocked();
         _clearSideshow();
         _clearVariation();
         _clearMissile();
@@ -1037,6 +1089,7 @@ class GameState extends ChangeNotifier {
         seatedAt = null;
         chat.clear();
         _clearBubbles();
+        _clearBlocked();
         _clearSideshow();
         _clearVariation();
         _clearMissile();
@@ -1067,6 +1120,11 @@ class GameState extends ChangeNotifier {
       _conn.onPokerCards.listen((_) => notifyListeners()),
       _conn.onPokerAction.listen(handlePokerAction),
       _conn.onChat.listen((m) {
+        // A blocked player's line is dropped here, before it can raise a
+        // badge, bubble over their seat or sit in the drawer. The server is
+        // not told and keeps sending: blocking is this viewer's own view of
+        // the table, not a report.
+        if (isBlocked(m.userId)) return;
         chat.add(m);
         // The room keeps at most a hundred messages, and so does this.
         if (chat.length > 100) chat.removeAt(0);
@@ -1096,9 +1154,11 @@ class GameState extends ChangeNotifier {
         notifyListeners();
       }),
       _conn.onChatHistory.listen((h) {
+        // History is re-sent on a reconnect to the SAME table, where the
+        // blocks are still standing, so it is filtered like a live message.
         chat
           ..clear()
-          ..addAll(h);
+          ..addAll(h.where((m) => !isBlocked(m.userId)));
         notifyListeners();
       }),
       _conn.onError.listen((e) {
@@ -1184,7 +1244,13 @@ class GameState extends ChangeNotifier {
         !newHand && room?.variation?.selecting == true && !newTable;
     final wasChoosing = variationIsMine;
     room = s;
-    if (newTable) seatedAt = DateTime.now();
+    if (newTable) {
+      seatedAt = DateTime.now();
+      // A different table is a different sitting, so the blocks go with the
+      // old one. This covers the paths onLeft never sees: a room:switch (it
+      // returns early while `switching`) and a resume onto another table.
+      _clearBlocked();
+    }
     if (newHand) {
       // A fresh deal cuts the last celebration short — a hammer or a missile
       // still in the air included.
