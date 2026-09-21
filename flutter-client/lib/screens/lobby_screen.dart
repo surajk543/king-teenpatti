@@ -3870,6 +3870,70 @@ class _SettingsDrawer extends StatefulWidget {
 }
 
 class _SettingsDrawerState extends State<_SettingsDrawer> {
+  /// Asks twice-over before deleting, and reports a refusal rather than
+  /// swallowing it — the server says no while the player is seated, and a
+  /// button that silently does nothing is worse than one that explains.
+  ///
+  /// The caller closes the drawer first, as the sign-out row does, so this
+  /// never pops a route of its own: on success deletion has already put the
+  /// app back on the login screen.
+  Future<void> _confirmDelete(BuildContext context, GameState state) async {
+    final t = state.t;
+    final theme = Theme.of(context);
+    final go = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => GlassDialog(
+        padding: const EdgeInsets.all(Space.xl),
+        title: Row(
+          children: [
+            Icon(
+              Icons.delete_forever_outlined,
+              size: 20,
+              color: theme.colorScheme.error,
+            ),
+            const SizedBox(width: Space.md),
+            Expanded(
+              child: Text(
+                t.deleteAccountTitle,
+                style: AppTheme.label(theme.textTheme.titleSmall!),
+              ),
+            ),
+          ],
+        ),
+        content: Text(
+          t.deleteAccountBody,
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: theme.colorScheme.onSurface.withValues(
+              alpha: AppTheme.inkMed,
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: Text(t.cancel),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: theme.colorScheme.error,
+              foregroundColor: theme.colorScheme.onError,
+            ),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: Text(t.deleteAccountConfirm),
+          ),
+        ],
+      ),
+    );
+    if (go != true) return;
+    final refusal = await state.deleteAccount();
+    if (!context.mounted) return;
+    if (refusal != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        NoticeToast.snackBar(context, message: refusal, tone: NoticeTone.bad),
+      );
+    }
+  }
+
   late final TextEditingController _name;
   String? _nameError;
   bool _saving = false;
@@ -4204,6 +4268,15 @@ class _SettingsDrawerState extends State<_SettingsDrawer> {
             // so the question is not stacked over an open drawer.
             Navigator.pop(context);
             _confirmSignOut(context, state);
+          },
+        ),
+        _DrawerAction(
+          leading: const Icon(Icons.delete_forever_outlined),
+          title: t.deleteAccount,
+          danger: true,
+          onTap: () {
+            Navigator.pop(context);
+            _confirmDelete(context, state);
           },
         ),
         const _DrawerRule(),

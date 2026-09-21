@@ -79,23 +79,30 @@ web browsing history, search history.
 Play requires apps that let users create an account to offer deletion **both
 inside the app and at a publicly reachable URL** that does not require
 installing the app. King Teen Patti creates a guest account on first launch, so
-this applies to every player.
+this applies to every player. Both routes now exist:
 
-> **Neither route exists any more.** The in-app option, the public page and
-> `DELETE /api/account` were all removed on 10 Sep 2026 at the owner's request,
-> after the Play requirement was put to them. Deletion is now by email only —
-> `support@sungamestudio.com`, as the privacy policy says. **Expect this to be
-> raised at review**, and be ready either to restore the feature (it is one
-> commit back in history) or to argue the email route satisfies the policy.
-> The `deleted_at` column and the `selectUser` filter stay, so accounts
-> pseudonymised while the route existed remain hidden.
+| | |
+|---|---|
+| In-app | Lobby → Settings drawer → **Delete my account**, behind a confirmation |
+| Public URL | `https://api.sungamestudio.com/account-deletion/` |
+| API | `DELETE /api/account` — authenticated, refused with 409 `seated` while at a table |
+
+> **History, so the gap is not rediscovered as a surprise.** All three were
+> removed on 10 Sep 2026 at the owner's request and **restored on 20 Sep 2026**
+> before the 1.1.0 submission, when the listing was reviewed against this
+> requirement. Between those dates the app satisfied neither half of the policy
+> and deletion was by email only. Anything pseudonymised in either period stays
+> hidden: `deleted_at` and the `selectUser` filter that reads it were never
+> touched.
 
 **It pseudonymises rather than deletes, and the schema forces that.**
 `chip_ledger.user_id REFERENCES users (id) ON DELETE CASCADE`, so removing the
 row would take the money audit with it — the one table that is append-only
 precisely because it must never be lost. The row stays, emptied of everything
-that identifies anyone: display name, email, both avatar fields and the
-provider identity are cleared, and `deleted_at` is stamped.
+that identifies anyone: display name, email, the provider photo (`avatar_url`),
+the worn picture (`active_picture_id` — this was `avatar_choice` until the
+catalogue replaced it on 12 Sep 2026) and the provider identity are cleared,
+and `deleted_at` is stamped.
 
 Two consequences worth knowing:
 

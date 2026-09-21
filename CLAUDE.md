@@ -766,6 +766,21 @@ avatar POST. **At a table** a DIAMOND or HAMMER picture sells (`Pictures.BuyAtTa
 "You can only buy a chip-priced picture in the lobby.";
 `POST /api/profile/name {name}` (409 `seated` while at a table; these live in
 `playerRoutes({isSeated})`, **not** `authRoutes`);
+**`DELETE /api/account`** (restored 20 Sep 2026, removed 10 Sep) — the player erases their own
+account, which Google Play requires of any app that creates one; this game creates one on first
+launch, so it applies to everybody. **409 `seated`** first ("Leave the table before deleting your
+account"): a seated wallet is only banked at the three checkpoints (§5.1), so emptying it mid-hand
+would settle that hand against a balance that has stopped existing. Otherwise 200 `{deleted:true}`.
+`db.Users.DeleteAccount` **pseudonymises** — the row stays (the `users_no_delete` trigger and the
+ledger's CASCADE both forbid removing it), emptied of display name, email, `avatar_url`,
+`active_picture_id` and the provider identity, with `deleted_at` stamped; clearing the identity is
+what frees `(provider, provider_user_id)` so the same device signs in afterwards as somebody new.
+The wallet is emptied through an `account_deleted` ledger row (action_id `delete:<userId>`), never
+`chips = 0`, or `SUM(delta) == chips` would break for every deleted account for ever. The JWT keeps
+its signature but names nothing, since `selectUser` filters deleted rows → `unknown_user`. The
+client rotates the **device id** as well as dropping the token (`GameState.deleteAccount`), or a
+guest would sign straight back into the id just freed. Public page: `/account-deletion/` (served in
+production because `ROOT_REDIRECT` hides only top-level files, §7.4), linked from `privacy/`;
 `GET /api/rooms` (no client);
 **`POST /api/purchases/google {productId, purchaseToken}`** — verifies the token with Google and banks
 the pack through a `purchase` ledger row (action_id `gplay:<token>`), so a replay credits once. The same endpoint sells
@@ -843,8 +858,11 @@ constants in `users.js`. Display names: `NAME_PATTERN = /^[\p{L}\p{N}][\p{L}\p{N
 
 **`users` rows are never deleted** (owner's decision, 10 Sep 2026): trigger `users_no_delete`
 (`users_immutable_rows()`, `schema.sql`, created only when missing) raises on every DELETE from every
-caller — the server never issues one; the deletion route was removed on 10 Sep 2026 at the
-owner's request, so nothing in the code deletes or pseudonymises a user. Removing a row is a
+caller — the server never issues one. **`DELETE /api/account` pseudonymises instead** (restored
+20 Sep 2026 for the Play listing, after being removed on 10 Sep: Play requires apps that create an
+account to offer deletion in-app AND at a public URL, and this game creates one on first launch, so
+shipping without it risked the review — §7.2). It empties the row rather than removing it, because
+`chip_ledger.user_id … ON DELETE CASCADE` would take the money audit with it. Removing a row is a
 deliberate privileged step: `sudo -u postgres psql gameplay`, `ALTER TABLE users DISABLE TRIGGER
 users_no_delete`, delete, re-enable. Prod's app role `gameplay_app` still **owns** the table and the
 function (it runs `schema.sql`), so it could disable the trigger; DEPLOY.md §7 has the one-time
@@ -1612,9 +1630,16 @@ final t = state.t;` at the top of `build`; M3 roles via `theme.colorScheme`; `.w
 - `go-server/bin/` is git-ignored (so are `go-server/.env`, `*.log`, `tools/node_modules`); a stray
   `go-server/gameplay` binary from a bare `go build` is not — delete it (§12.1).
 - `flutter-client/README.md` and `pubspec.yaml description` are `flutter create` boilerplate.
-- **`docs/play-store/screenshots/` are out of date** — they show the pale felt and the action bar
-  across the foot, both gone since 10 Sep 2026. The 512x512 icon and the 1024x500 feature graphic in
-  the same directory are current. Re-shoot before the listing goes to review.
+- **`docs/play-store/screenshots/` were re-shot on 22 Sep 2026** for the 1.1.0 listing, replacing the
+  9 Sep set that still showed the pale felt and the action bar across the foot (both gone since
+  10 Sep). The six now there — `01-lobby`, `02-teen-patti-blind`, `03-variation`, `04-texas-holdem`,
+  `05-card-ranking`, `06-chip-store` — are the dark theme in English, shot on TP_API36 against a
+  local server with `tools/bot.js` filling the seats. **They are 2400x1350, letterboxed, and that is
+  deliberate**: Play refuses a phone screenshot wider than 16:9 and that AVD is 20:9, so each
+  2400x1080 grab is centred on a 16:9 canvas filled with the app's own ground colour (invisible
+  against the dark theme) rather than cropped — a crop would take 240px off each side, which is the
+  Shop key and the whole right-hand action cluster. Re-shoot the same way, never with a side crop.
+  The 512x512 icon and the 1024x500 feature graphic in the same directory are current.
 - `flutter-client/ios/` has never been compiled (no macOS here) and carries no `Podfile` — Flutter
   writes one on the Mac at first build. `docs/ios-setup.md` §5 lists what is deliberately off there.
 - `flutter-client/test/widget_test.dart` was **deleted on purpose** (template counter test).

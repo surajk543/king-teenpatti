@@ -24,6 +24,7 @@ type UserStore interface {
 	ClaimDailyBonus(ctx context.Context, userID string) (*db.RewardResult, error)
 	SetDisplayName(ctx context.Context, userID, displayName string) (*db.User, error)
 	SetActivePicture(ctx context.Context, userID string, pictureID *int64) (*db.User, error)
+	DeleteAccount(ctx context.Context, userID string) error
 }
 
 // PictureStore is the slice of db.Pictures the handlers use: the catalogue a
@@ -171,6 +172,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.Handle("/api/profile/picture/buy", methods(http.MethodPost, h.RequireAuth(h.BuyPicture)))
 	mux.Handle("/api/profile/name", methods(http.MethodPost, h.RequireAuth(h.Name)))
 	mux.Handle("/api/store/missiles", methods(http.MethodPost, h.RequireAuth(h.TradeMissiles)))
+	mux.Handle("/api/account", methods(http.MethodDelete, h.RequireAuth(h.DeleteAccount)))
 }
 
 // methods lets `method` (and HEAD when method is GET) through to next and
@@ -301,6 +303,11 @@ type LoginResponse struct {
 // UserResponse ← GET /api/auth/me, POST /api/profile/avatar, POST /api/profile/name.
 type UserResponse struct {
 	User *db.User `json:"user"`
+}
+
+// DeleteAccountResponse ← DELETE /api/account.
+type DeleteAccountResponse struct {
+	Deleted bool `json:"deleted"`
 }
 
 // ProfilesResponse ← GET /api/profiles: the catalogue, in display order, each
@@ -449,6 +456,7 @@ const (
 	MsgPictureChips       = "You do not have enough chips for that picture."
 	MsgPictureDiamonds    = "You do not have enough diamonds for that picture."
 	MsgSeatedPicture      = "You can only buy a chip-priced picture in the lobby."
+	MsgSeatedDelete       = "Leave the table before deleting your account."
 	// A hammer shortage names the price (PictureHammersMessage): the singular
 	// for a picture that costs one hammer, the format for any other price.
 	// MsgPictureHammers is what is said when the refusal carries no price.
