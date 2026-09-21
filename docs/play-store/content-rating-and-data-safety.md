@@ -93,9 +93,24 @@ this applies to every player. Both routes now exist:
 
 | | |
 |---|---|
-| In-app | Lobby → Settings drawer → **Delete my account**, behind a confirmation |
+| In-app | Lobby → top bar **Settings** → **Delete my account**, behind a confirmation |
 | Public URL | `https://api.sungamestudio.com/account-deletion/` |
 | API | `DELETE /api/account` — authenticated, refused with 409 `seated` while at a table |
+
+Play states three things the **Delete account URL** page must do. What answers
+each, so a reviewer's objection can be traced to a line rather than guessed at:
+
+| Play asks the page to | Where the page does it |
+|---|---|
+| refer to the app or developer name shown on the listing | The `<h1>` is "Delete your King Teen Patti account"; Sun Game Studio and the package name are in the header |
+| prominently feature the steps to request deletion | Two `<h2>`s above the fold — *From inside the app* (three numbered steps) and *By email* |
+| specify the data deleted or kept, **and any additional retention period** | *What is deleted, and what is kept* (a two-column table) followed by *How long anything is kept* — no retention for the deleted column, indefinite for the pseudonymised purchase record |
+
+> The page is a static file under `PUBLIC_DIR`, served through `http.Dir`, so it
+> goes live on a `git pull` on the host **without a rebuild or a restart**. It
+> was 404 until 22 Sep 2026 because production runs `go-server/v1.1.0`, tagged
+> before the page was restored — worth remembering, because a URL in a submitted
+> form is checked by a reviewer, not by us.
 
 > **History, so the gap is not rediscovered as a surprise.** All three were
 > removed on 10 Sep 2026 at the owner's request and **restored on 20 Sep 2026**
