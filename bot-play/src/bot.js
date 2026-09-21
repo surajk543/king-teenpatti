@@ -2,7 +2,9 @@ import { randomUUID } from 'node:crypto';
 
 import { io } from 'socket.io-client';
 
-import { answerSideshow, decide, newHandMemory } from './brain.js';
+import {
+  answerSideshow, chooseVariation, choosePlayedCards, decide, newHandMemory,
+} from './brain.js';
 import { moodFor, pickLine, tableAllowsChat } from './chat.js';
 import { config } from './config.js';
 import { PURE_SEQUENCE } from './handrank.js';
@@ -67,6 +69,12 @@ export class Bot {
     this.owesPicture = false;
     this.lastChatAt = 0;
     this.timers = new Set();
+    // Variation tables: the hand this bot has already answered for, so a
+    // repeated snapshot does not answer twice (`variation_already_selected`,
+    // `duplicate_action`). Null between hands and on any table without them.
+    this.variationAnswered = null;
+    this.cardsPicked = null;
+    this.variationNoticed = null;
     /**
      * Invalidates a decision that is no longer worth sending.
      *
@@ -342,7 +350,122 @@ export class Bot {
     if (state.state !== 'betting' && typeof me?.chips === 'number' && me.chips < this.table.boot) {
       this.leaveShort();
     }
+    this.maybeChooseVariation(state);
+    this.maybePickCards(state);
+    this.noticeVariation(state);
     this.noticeNewcomers(state);
+  }
+
+  /**
+   * A word about the variation just called — once per hand, from whoever
+   * feels like it. The line never names the variation (chat.js): being wrong
+   * about it is worse than being vague, and the announcement is already on
+   * the felt in front of everyone.
+   */
+  noticeVariation(state) {
+    const called = state.variation?.selected;
+    if (!called) return;
+    const token = `${state.handNo}:${called}`;
+    if (this.variationNoticed === token) return;
+    this.variationNoticed = token;
+    const mood = called === 'FIVE_CARD' ? 'fiveCard' : 'variation';
+    if (!this.talks(this.persona.chatRate * 0.5)) return;
+    this.after(900 + Math.random() * 2600, () => this.say(mood));
+  }
+
+  /**
+   * Variation tables (§6.4): the player to the dealer's left names the hand's
+   * variation, and the server picks Muflis if nobody answers in time.
+   *
+   * Everything comes from `room:state.variation`, not from the
+   * `game:variationSelecting` event — the snapshot is the authority the
+   * Flutter client uses too, and it is all a reconnecting client has. The
+   * block is ABSENT on seen and blind tables, so this costs those nothing.
+   *
+   * The menu is whatever the SERVER offered this hand: FIVE_CARD is missing
+   * when the deck could not cover a two-card top-up for everyone, and naming
+   * it then is `invalid_variation`.
+   */
+  maybeChooseVariation(state) {
+    const window = state.variation;
+    if (!window?.selecting || window.userId !== this.userId) return;
+    // Once per hand. The snapshot repeats while the window is open, and the
+    // server refuses the second answer as `variation_already_selected`.
+    const token = `${state.handNo}`;
+    if (this.variationAnswered === token) return;
+    this.variationAnswered = token;
+
+    const choice = chooseVariation({
+      options: window.options,
+      persona: this.persona,
+      rng: this.rng,
+    });
+    if (!choice) return;
+
+    // Someone who looked away and let the clock run out is a real thing that
+    // happens at a table, and it is the only way the TIMEOUT path is ever
+    // exercised in production. Rare, because a table where the picker lapses
+    // often is a table that plays Muflis all evening.
+    if (this.rng.chance(this.persona.distractedRate)) {
+      if (config.verbose) this.log?.(`${this.identity.name}: let the variation window lapse`);
+      return;
+    }
+
+    // Deciding inside the window but not instantly. The server's clock is
+    // VARIATION_SELECT_TIMEOUT_MS (10s by default) and `timeoutMs` carries
+    // it, so aim at the first half of whatever this table actually allows —
+    // a bot that answers on the 9th second every time reads as a machine
+    // cutting it fine, and one that answers in 200ms reads as a machine.
+    const allowed = Number(window.timeoutMs) > 0 ? Number(window.timeoutMs) : 10_000;
+    const delay = Math.min(thinkTime(this.persona, { heavy: true }), allowed * 0.55);
+    this.after(delay, () => {
+      if (this.stopped || this.view?.handNo !== state.handNo) return;
+      if (!this.view?.variation?.selecting) return;
+      this.socket?.emit('game:selectVariation', { variation: choice }, (ack) => {
+        if (ack?.ok === false && config.verbose) {
+          this.log?.(`${this.identity.name}: variation ${choice} refused — ${ack.code}`);
+        }
+      });
+    });
+  }
+
+  /**
+   * 5-Card Teen Patti (§6.4): holding five, the player chooses the three that
+   * play, and the first three they were dealt play if the window lapses.
+   *
+   * `you.hand.picking` is the ask. While it is true the server deliberately
+   * sends no `handName`, `category` or `best` — naming the hand would hand
+   * the player the answer — so the choice is made from `you.cards`, which is
+   * exactly what a person is looking at.
+   */
+  maybePickCards(state) {
+    const hand = state.you?.hand;
+    if (!hand?.picking) return;
+    const cards = state.you?.cards ?? [];
+    if (cards.length < 4) return;
+    const token = `${state.handNo}`;
+    if (this.cardsPicked === token) return;
+    this.cardsPicked = token;
+
+    const played = choosePlayedCards({ cards, persona: this.persona, rng: this.rng });
+    if (played.length !== 3) return;
+
+    // Letting this one lapse is cheaper than lapsing the variation window —
+    // the server plays the first three dealt — and it is what a player who
+    // put the phone down does.
+    if (this.rng.chance(this.persona.distractedRate * 0.5)) return;
+
+    const allowed = Number(hand.pickTimeoutMs) > 0 ? Number(hand.pickTimeoutMs) : 8000;
+    const delay = Math.min(thinkTime(this.persona, { heavy: true }), allowed * 0.6);
+    this.after(delay, () => {
+      if (this.stopped || this.view?.handNo !== state.handNo) return;
+      if (!this.view?.you?.hand?.picking) return;
+      this.socket?.emit('game:selectCards', { cards: played }, (ack) => {
+        if (ack?.ok === false && config.verbose) {
+          this.log?.(`${this.identity.name}: card pick refused — ${ack.code}`);
+        }
+      });
+    });
   }
 
   /** Someone sat down since this bot arrived: a hello, now and then. */
@@ -565,11 +688,28 @@ export class Bot {
    * Only some bots ever do it, and rarely, because a fleet that redistributes
    * itself constantly leaves whole stakes empty for minutes at a time.
    */
+  /**
+   * The other lobby entries this bot could sit at with what it is carrying.
+   *
+   * A player with two hundred chips does not wander into the 50,000 table,
+   * and a bot that tries is refused `insufficient_chips` and treated as
+   * broke — which, under `--on-broke rotate`, throws away a perfectly solvent
+   * account and mints a fresh welcome bonus in its place. So affordability is
+   * checked here rather than discovered from the refusal, and the bar is
+   * config.bootsToSit boots, not one: sitting down with a single boot is not
+   * a game, it is one hand and a walk back to the lobby.
+   */
+  tablesItCanAfford() {
+    const stack = this.chips ?? 0;
+    return config.categories.filter(
+      (c) => !(c.category === this.table.category && c.boot === this.table.boot)
+        && stack >= c.boot * config.bootsToSit,
+    );
+  }
+
   hop() {
     if (this.stopped || !this.seated || this.leaving) return;
-    const elsewhere = config.categories.filter(
-      (c) => !(c.category === this.table.category && c.boot === this.table.boot),
-    );
+    const elsewhere = this.tablesItCanAfford();
     if (!elsewhere.length) return;
     const next = elsewhere[Math.floor(Math.random() * elsewhere.length)];
     this.socket?.emit('room:leave', {}, () => {
@@ -590,10 +730,15 @@ export class Bot {
    * otherwise, and retrying twenty times does not change its balance.
    */
   affordableTable() {
-    const others = config.categories.filter(
-      (c) => !(c.category === this.table.category && c.boot === this.table.boot),
-    );
-    return others[Math.floor(Math.random() * others.length)] ?? this.table;
+    const others = this.tablesItCanAfford();
+    if (others.length) return others[Math.floor(Math.random() * others.length)];
+    // Nothing it can afford properly: fall back to the cheapest entry that is
+    // not the one that just refused it, so a bot turned away for being too
+    // rich still has somewhere to go.
+    const cheapest = config.categories
+      .filter((c) => !(c.category === this.table.category && c.boot === this.table.boot))
+      .sort((a, b) => a.boot - b.boot)[0];
+    return cheapest ?? this.table;
   }
 
   /** Asked by the fleet to get up after this hand. */

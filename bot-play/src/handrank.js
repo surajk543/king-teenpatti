@@ -110,3 +110,43 @@ function percentileTable() {
 export function strength(codes) {
   return percentileTable().get(evaluate(codes).score.join(','));
 }
+
+/**
+ * Every three-card combination of `codes`, in index order — C(5,3) = 10 for a
+ * 5-Card Teen Patti hand.
+ *
+ * Index order matters: `bestThreeOf` keeps the FIRST of equally strong
+ * combinations, and so does the server (`ThreeCardCombinations` in
+ * variation.go, where a later combination must be STRICTLY better). Two
+ * implementations that disagree about which of two tied hands to name would
+ * make a bot's pick differ from the server's `bestPossible` for no reason
+ * anyone could see.
+ */
+export function threeCardCombinations(codes) {
+  const out = [];
+  for (let i = 0; i < codes.length; i += 1) {
+    for (let j = i + 1; j < codes.length; j += 1) {
+      for (let k = j + 1; k < codes.length; k += 1) out.push([codes[i], codes[j], codes[k]]);
+    }
+  }
+  return out;
+}
+
+/**
+ * The strongest three of `codes`, as `{cards, hand}` — `cards` in the order
+ * held, which is the order `game:selectCards` wants.
+ *
+ * This is the port of `EvaluateBest` (variation.go, §6.4): every combination
+ * scored by the one classic `evaluate` and the best kept by the one classic
+ * `compare`. No second ranking, here or there.
+ */
+export function bestThreeOf(codes) {
+  if (!Array.isArray(codes) || codes.length < 3) return null;
+  if (codes.length === 3) return { cards: [...codes], hand: evaluate(codes) };
+  let best = null;
+  for (const combo of threeCardCombinations(codes)) {
+    const hand = evaluate(combo);
+    if (best === null || compare(hand, best.hand) > 0) best = { cards: combo, hand };
+  }
+  return best;
+}

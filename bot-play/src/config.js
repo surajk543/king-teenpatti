@@ -51,23 +51,62 @@ export const config = {
   serverUrl: str('server-url', 'http://127.0.0.1:3000'),
 
   /**
-   * Bots per table CATEGORY, not per table — a table seats five, so 66 here
-   * fills about thirteen tables in each of the three lobby categories when
-   * all of them are online. See onlineMin / onlineMax: most of the time only a
-   * share of them are.
+   * The default POOL for a lobby entry — how many accounts belong to it, not
+   * how many are playing. Only `online` of them are seated at any moment
+   * (below), the rest are resting between sittings, so the pool has to be
+   * several times the number you want to see.
    */
   perCategory: num('per-category', 66),
 
   /**
-   * The lobby's three tables (LOBBY_TABLES on the server). A bot belongs to
-   * one of these for its whole life, and only ever switches between tables
-   * within it, because that is what "switch table" means to a player.
+   * How many bots should be SEATED at each lobby entry, as a range the fleet
+   * drifts between (owner, 22 Sep 2026: "every table should contain 20-25
+   * bots").
+   *
+   * Read it as bots per lobby CARD, not per table: a table seats five
+   * (MAX_PLAYERS_PER_ROOM), so 20–25 at one entry is four or five tables of
+   * that stake running at once, which is what a busy lobby looks like.
+   *
+   * This replaced a share-of-the-pool figure (75–95%) that the fleet could
+   * never actually reach. Sittings end on their own after ~20 hands and a
+   * rest averages 25 minutes, so the online share settles at the duty cycle
+   * those two imply — about a third — whatever percentage was asked for. The
+   * old default therefore asked for 50–63 per entry and produced 19–27, and
+   * the log said `19/59` every tick without anything being wrong. An absolute
+   * target is honest: the fleet can hold it, and the number in the log is the
+   * number on the table.
+   */
+  onlineMin: num('online-min', 20),
+  onlineMax: num('online-max', 25),
+
+  /**
+   * The lobby's tables (LOBBY_TABLES on the server). A bot belongs to one of
+   * these, and `hop` is what moves it to another.
+   *
+   * `pool` and `online` override the fleet-wide defaults for that entry.
+   * Variation (owner, 22 Sep 2026) is deliberately smaller: its boot is
+   * 50,000, so a fresh bot sits down with six boots rather than the 1,500 a
+   * 200 table gives it, and a bot that busts is replaced by a NEW account
+   * carrying a new welcome bonus (config.onBroke). Fewer seats there means
+   * less of the fleet exposed to that, and richer bots reach it by hopping
+   * (bot.hop only offers a table the bot can actually afford).
    */
   categories: [
     { category: 'seen', boot: 200 },
     { category: 'blind', boot: 200 },
     { category: 'blind', boot: 5000 },
+    { category: 'variation', boot: 50000, pool: num('variation-pool', 45), online: [12, 18] },
   ],
+
+  /**
+   * The stack a bot wants before it will sit at a table, counted in boots.
+   *
+   * Used by `hop` and by the too-rich-for-this-table fallback, so a bot never
+   * moves somewhere it can only play a hand or two. The server refuses below
+   * one boot; this is the bot's own judgement on top, and it is what keeps
+   * the 200-boot regulars out of the 50,000 variation table.
+   */
+  bootsToSit: num('boots-to-sit', 8),
 
   /** Seconds between a bot considering moving tables. 0 disables wandering. */
   switchEvery: num('switch-every', 240),
@@ -76,19 +115,14 @@ export const config = {
    * Seconds between a bot considering a different STAKE — the other category,
    * or the 5,000 table instead of the 200. 0 disables it.
    *
-   * Much rarer than switchEvery on purpose. Switching seats is what a player
-   * does when a table goes quiet; changing stake is a different decision, and
-   * a fleet that made it often would leave whole stakes empty in waves.
+   * Rarer than switchEvery on purpose. Switching seats is what a player does
+   * when a table goes quiet; changing stake is a different decision, and a
+   * fleet that made it constantly would leave whole stakes empty in waves.
+   * Halved from 1800 (owner, 22 Sep 2026: bots should "randomly change
+   * boot"); persona.hopRate still decides who ever does it at all, and
+   * bot.hop only offers a table the bot can afford.
    */
-  hopEvery: num('hop-every', 1800),
-
-  /**
-   * The share of each category's bots online at once, in percent, drifting
-   * between the two (fleet.js). People come and go: a bot plays a sitting,
-   * gets up, rests, and another comes back. 100/100 is the old always-on fleet.
-   */
-  onlineMin: num('online-min', 75),
-  onlineMax: num('online-max', 95),
+  hopEvery: num('hop-every', 900),
 
   /** Average hands in a sitting before a bot gets up (each persona stays longer or shorter). */
   sessionHands: num('session-hands', 20),
@@ -130,4 +164,20 @@ export const config = {
   verbose: flag('verbose'),
 };
 
-export const totalBots = config.perCategory * config.categories.length;
+/** How many accounts belong to a lobby entry — its own `pool`, or the default. */
+export const poolFor = (table) => table.pool ?? config.perCategory;
+
+/**
+ * How many of them should be seated, as `[min, max]` — the entry's own
+ * `online`, or the fleet-wide target. Clamped to the pool, since the fleet
+ * cannot seat more bots than belong to the entry, and clamped to at least one
+ * so a tiny --per-category still puts somebody at the table.
+ */
+export const onlineRangeFor = (table) => {
+  const [lo, hi] = table.online ?? [config.onlineMin, config.onlineMax];
+  const pool = poolFor(table);
+  const min = Math.max(1, Math.min(lo, hi, pool));
+  return [min, Math.max(min, Math.min(Math.max(lo, hi), pool))];
+};
+
+export const totalBots = config.categories.reduce((sum, table) => sum + poolFor(table), 0);

@@ -16,7 +16,7 @@
  * The pool is the same fixed identities as before — no new accounts, so no
  * welcome bonuses minted by coming and going.
  */
-import { config } from './config.js';
+import { config, onlineRangeFor } from './config.js';
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const pick = (items) => items[Math.floor(Math.random() * items.length)];
@@ -50,12 +50,21 @@ export class Fleet {
     return byHome;
   }
 
-  /** A share of `size` somewhere between the configured bounds. */
-  wantedOnline(size) {
+  /**
+   * How many of this entry's bots should be seated right now.
+   *
+   * An absolute count drawn from the entry's range (config.onlineRangeFor),
+   * not a share of the pool. The share it used to be could not be met: a
+   * sitting ends by itself after ~20 hands and a rest averages 25 minutes, so
+   * the seated count settles at the duty cycle those imply — about a third of
+   * the pool — no matter what percentage was configured. Asking for a number
+   * the fleet can actually hold is what makes "20–25 at every table" true
+   * rather than aspirational.
+   */
+  wantedOnline(table, size) {
     if (config.steady) return size;
-    const lo = Math.min(config.onlineMin, config.onlineMax) / 100;
-    const hi = Math.max(config.onlineMin, config.onlineMax) / 100;
-    return Math.max(1, Math.round(size * (lo + Math.random() * (hi - lo))));
+    const [lo, hi] = onlineRangeFor(table);
+    return Math.min(size, lo + Math.floor(Math.random() * (hi - lo + 1)));
   }
 
   /** Brings the opening share of each category online, staggered; the rest start mid-rest. */
@@ -63,7 +72,7 @@ export class Fleet {
     const now = Date.now();
     const opening = [];
     for (const [key, group] of this.groups()) {
-      const target = this.wantedOnline(group.length);
+      const target = this.wantedOnline(group[0].home, group.length);
       this.targets.set(key, target);
       const order = shuffle(group);
       opening.push(...order.slice(0, target));
@@ -99,22 +108,36 @@ export class Fleet {
     if (this.stopped) return;
     const now = Date.now();
     for (const [key, group] of this.groups()) {
-      if (!config.steady && Math.random() < 0.25) this.targets.set(key, this.wantedOnline(group.length));
+      if (!config.steady && Math.random() < 0.25) {
+        this.targets.set(key, this.wantedOnline(group[0].home, group.length));
+      }
       const target = this.targets.get(key) ?? group.length;
       const online = group.filter((b) => b.online && !b.stopped);
 
       if (online.length < target) {
         const rested = group.filter((b) => !b.online && !b.stopped && !b.leaving && b.restUntil <= now);
-        if (rested.length) {
-          const bot = pick(rested);
+        // One arrival per tick takes twenty minutes to close a gap of forty,
+        // which is what a restart or a wave of sittings ending together
+        // leaves behind — and for all of it the table is emptier than the
+        // target says. Bring several when the gap is wide, but never the whole
+        // gap at once: a dozen logins in the same second is the thundering
+        // herd startStaggerMs exists to avoid, aimed at the server this fleet
+        // is here to make look healthy.
+        const shortfall = target - online.length;
+        const bringBack = Math.min(rested.length, shortfall > 4 ? 3 : 1);
+        for (let n = 0; n < bringBack; n += 1) {
+          if (this.stopped) return;
+          const bot = pick(rested.filter((b) => !b.online));
+          if (!bot) break;
           try {
             await bot.comeOnline();
             this.arrivals += 1;
-            this.log(`${bot.identity.name}: back online (${key}, ${online.length + 1}/${target})`);
+            this.log(`${bot.identity.name}: back online (${key}, ${online.length + n + 1}/${target})`);
           } catch (e) {
             bot.restUntil = Date.now() + 60_000;
             this.log(`${bot.identity.name}: could not come back — ${e.message}`);
           }
+          if (n + 1 < bringBack) await sleep(config.startStaggerMs);
         }
       } else if (online.length > target + 1) {
         const seated = online.filter((b) => b.seated && !b.wrappingUp && !b.leaving);

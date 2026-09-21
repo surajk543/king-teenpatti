@@ -21,7 +21,7 @@
  * ladder it sent. A move the server refuses is counted in
  * game_invalid_moves_total, a metric the real game is watched by.
  */
-import { evaluate, SEQUENCE, strength } from './handrank.js';
+import { bestThreeOf, evaluate, SEQUENCE, strength, threeCardCombinations } from './handrank.js';
 
 const clamp = (value, lo, hi) => Math.max(lo, Math.min(hi, value));
 
@@ -182,4 +182,83 @@ export function answerSideshow({ view, persona, rng }) {
   if (cards.length !== 3) return { answer: rng.chance(0.5) };
   const bar = 0.3 + persona.tightness * 0.25;
   return { answer: strength(cards) > bar ? rng.chance(0.85) : rng.chance(0.2) };
+}
+
+/* ------------------------------------------------------------------ *
+ * Variation tables (§6.4). The player to the dealer's left picks the
+ * hand's variation inside a server-timed window; lapsing gives Muflis.
+ * ------------------------------------------------------------------ */
+
+/** The seven wire values, in the server's order. FIVE_CARD is last there too. */
+export const VARIATIONS = [
+  'MUFLIS', 'AK47', 'JOKER', 'HUKAM', 'LOWEST_JOKER', 'HIGHEST_JOKER', 'FIVE_CARD',
+];
+
+/**
+ * How much this persona fancies a variation, as a weight.
+ *
+ * Kept deliberately mild — between 1 and about 2.2 — because the point is a
+ * table that sees all seven over an evening, not seven bots each welded to a
+ * favourite. A strong lean would make the choice predictable from the seat,
+ * which is the opposite of what a menu of seven is for.
+ */
+function variationAppetite(variation, persona) {
+  switch (variation) {
+    // Muflis turns junk into gold, so it rewards the player who would other-
+    // wise have folded it. A loose player is at home; a rock is not.
+    case 'MUFLIS': return 1 + (1 - persona.tightness) * 1.2;
+    // Wild cards mean bigger hands and bigger pots.
+    case 'AK47':
+    case 'JOKER':
+    case 'HUKAM': return 1 + persona.aggression * 1.2;
+    case 'LOWEST_JOKER':
+    case 'HIGHEST_JOKER': return 1 + persona.aggression * 0.6;
+    // Five cards is simply the one most people enjoy most.
+    case 'FIVE_CARD': return 1.4;
+    default: return 1;
+  }
+}
+
+/**
+ * Which variation to call, chosen from the menu the SERVER offered for this
+ * hand — never from a list of our own.
+ *
+ * `variation.options` is per hand: FIVE_CARD is absent when the deck could not
+ * cover a two-card top-up for everyone, and picking it then is
+ * `invalid_variation`. Returns null when there is nothing to choose from,
+ * which the caller treats as "say nothing and let the clock decide".
+ */
+export function chooseVariation({ options, persona, rng }) {
+  const menu = (options ?? []).filter((v) => typeof v === 'string' && v.length > 0);
+  if (menu.length === 0) return null;
+  const weights = menu.map((v) => variationAppetite(v, persona));
+  let roll = rng.next() * weights.reduce((sum, w) => sum + w, 0);
+  for (let i = 0; i < menu.length; i += 1) {
+    roll -= weights[i];
+    if (roll <= 0) return menu[i];
+  }
+  return menu[menu.length - 1];
+}
+
+/**
+ * Under FIVE_CARD, which three of the five to play.
+ *
+ * Usually the best three — that is what anyone is trying to do. But not
+ * always: a player glancing at five cards on a phone takes the obvious pair
+ * and misses the flush, and the server tells them afterwards what they could
+ * have played (`you.hand.bestPossible`). A fleet that found the optimum every
+ * single time would be the one thing at the table that never errs, which is
+ * a tell. The slip is small, and larger for the impatient.
+ *
+ * Returns the cards in the order HELD, which is what the ack echoes back.
+ */
+export function choosePlayedCards({ cards, persona, rng }) {
+  if (!Array.isArray(cards)) return [];
+  if (cards.length <= 3) return [...cards];
+  const slip = 0.04 + persona.aggression * 0.06;
+  if (rng.chance(slip)) {
+    const combos = threeCardCombinations(cards);
+    return combos[Math.floor(rng.next() * combos.length)];
+  }
+  return bestThreeOf(cards).cards;
 }

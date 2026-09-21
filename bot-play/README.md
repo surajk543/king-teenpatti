@@ -13,7 +13,7 @@ others just did.
 
 ```bash
 cd bot-play && npm install
-npm start                        # 66 per category = 198 bots, 75–95% of them online at once
+npm start                        # 243 bots, 20–25 seated at each lobby table
 npm start -- --per-category 10   # a smaller fleet
 npm run dev                      # six per category, for a laptop
 npm test                         # the decision, hand-ranking, persona and chat rules
@@ -36,25 +36,52 @@ Set `SERVER_URL` only when the bots genuinely run off-host.
 
 ## The fleet
 
-`--per-category 66` means 66 bots in **each of the three lobby tables**
-(`seen:200`, `blind:200`, `blind:5000`) — 198 in total. They are not all online
-at once: people come and go, so each category's share online drifts between
-`--online-min` and `--online-max` percent (see *Sittings*, below). At the
-defaults that is about 150–190 bots playing, roughly ten to thirteen tables per
-category.
+The fleet covers **four lobby tables** — `seen:200`, `blind:200`,
+`blind:5000` and, since 22 Sep 2026, `variation:50000` — and holds a target
+number of bots **seated at each one**:
+
+| Lobby table | Pool | Seated |
+|---|---|---|
+| `seen:200` | 66 | 20–25 |
+| `blind:200` | 66 | 20–25 |
+| `blind:5000` | 66 | 20–25 |
+| `variation:50000` | 45 | 12–18 |
+
+The pool is how many accounts belong to that table; only the seated figure is
+playing at any moment, because a bot plays a sitting and then rests (*Sittings*,
+below). Twenty to twenty-five at one lobby card is four or five tables of that
+stake running at once — a table seats five.
+
+**`--online-min` / `--online-max` are counts, not percentages** (changed
+22 Sep 2026). They used to be a share of the pool, and the fleet could never
+reach it: a sitting ends by itself after ~20 hands and a rest averages 25
+minutes, so the seated count settles at the duty cycle those two imply — about
+a third — whatever share was configured. The old default asked for 75–95% of
+66, i.e. 50–63 per table, and produced 19–27; the log read `19/59` every tick
+with nothing actually wrong. An absolute target is one the fleet can hold, so
+the number in the log is now the number at the table.
+
+Variation is deliberately smaller. Its boot is 50,000, so a fresh bot sits
+down with six boots where a 200 table gives it fifteen hundred, and a bot that
+busts is replaced by a **new account carrying a new welcome bonus**
+(`--on-broke`). Fewer seats there means less of the fleet exposed to that, and
+richer bots reach it by hopping — `hop` only ever offers a table the bot can
+afford (`--boots-to-sit`).
 
 | Flag / env | Default | Meaning |
 |---|---|---|
 | `--server-url` / `SERVER_URL` | `http://127.0.0.1:3000` | Where the game server is |
-| `--per-category` / `PER_CATEGORY` | 66 | Bots in *each* category, not per table |
-| `--online-min` / `ONLINE_MIN` | 75 | Lowest share of a category's bots online, in percent |
-| `--online-max` / `ONLINE_MAX` | 95 | Highest share online, in percent |
+| `--per-category` / `PER_CATEGORY` | 66 | Default pool for a lobby table (variation overrides it) |
+| `--variation-pool` / `VARIATION_POOL` | 45 | Pool for the variation table |
+| `--online-min` / `ONLINE_MIN` | 20 | Fewest bots seated at a lobby table |
+| `--online-max` / `ONLINE_MAX` | 25 | Most bots seated at a lobby table |
+| `--boots-to-sit` / `BOOTS_TO_SIT` | 8 | Boots a bot wants before it will hop to a table |
 | `--session-hands` / `SESSION_HANDS` | 20 | Average hands in a sitting before a bot gets up |
 | `--rest-minutes` / `REST_MINUTES` | 25 | Average minutes away between sittings |
 | `--steady` / `STEADY` | off | Everyone online and nobody gets up — the fleet before 12 Sep 2026 |
 | `--chat-scale` / `CHAT_SCALE` | 1 | Multiplies how often bots talk; 0 silences the fleet |
 | `--switch-every` / `SWITCH_EVERY` | 240 | Seconds between a bot considering another table at the SAME stake; 0 disables |
-| `--hop-every` / `HOP_EVERY` | 1800 | Seconds between a bot considering a DIFFERENT stake; 0 disables |
+| `--hop-every` / `HOP_EVERY` | 900 | Seconds between a bot considering a DIFFERENT stake; 0 disables |
 | `--start-stagger-ms` / `START_STAGGER_MS` | 250 | Gap between starting each bot |
 | `--on-broke` / `ON_BROKE` | `rotate` | `rotate` or `retire` — see below |
 | `--quiet` / `QUIET` | off | Only log chip-minting rotations and the heartbeat |
@@ -95,6 +122,23 @@ end sees bets that made sense for the cards that turn over.
   counts — a bet worth a real share of the stack, or a table raising hard, makes
   anyone look sooner — and the server turns the cards up itself after the
   table's blind-move limit. Seen tables are unchanged.
+- **At a variation table they call the game** (22 Sep 2026). The player to the
+  dealer's left names the hand's variation inside a server-timed window, and a
+  bot picks from the menu the **server** offered for that hand — never from a
+  list of its own, because `FIVE_CARD` is absent when the deck could not cover
+  a two-card top-up for everyone, and naming it then is refused. The persona
+  leans (a loose player likes Muflis, where junk becomes gold; an aggressive
+  one likes the wild-card variations) but only mildly, so a table sees all
+  seven over an evening rather than one per seat. Everything is read from
+  `room:state.variation`, not the `game:variation*` events — the snapshot is
+  what a reconnecting client has, and what the Flutter client uses too.
+- **Under 5-Card they choose which three play.** `bestThreeOf` is a port of the
+  server's `EvaluateBest`, down to which of two equally strong combinations it
+  names, so a bot's pick matches the `bestPossible` the server reports. Not
+  always, though: a small share of picks are the wrong three, because someone
+  glancing at five cards on a phone takes the obvious pair and misses the
+  flush, and a fleet that found the optimum every single time would be the one
+  thing at the table that never errs.
 - **A big loss stings.** A bot that just lost big plays looser for a few hands,
   then settles.
 - **Every move is one the server offered, and every amount a rung it sent.**
@@ -214,7 +258,7 @@ SELECT count(*), sum(delta) FROM chip_ledger l
 18 bots (six per category) against a local server for four and a half minutes,
 with sittings shortened to about four hands and a minute's rest so that coming
 and going actually happens inside the window (`--session-hands 4 --rest-minutes 1
---online-min 50 --online-max 85`):
+--online-min 12 --online-max 18`):
 
 ```
 hands completed               22        4.9 a minute, 11 moves a hand
@@ -270,7 +314,7 @@ drifts, and `--on-broke rotate` refills it by minting. Bots that now bet on
 their cards win more often from careless play than the old dice-rolling fleet
 did, so watch that drift after deploying.
 
-**About 150–190 bots play at any moment** (75–95% of 198), which is real load:
+**About 72–93 bots play at any moment** (the seated targets summed), which is real load:
 roughly thirty-odd tables dealing hands without pause. That is small against
 measured capacity (production served 14,000 players at 1,835 actions/s), but it
 is not nothing, and it is load the game carries even at 3am with nobody playing.

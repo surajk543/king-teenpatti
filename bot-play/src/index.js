@@ -10,7 +10,7 @@
  * rather than three empty tables. They speak only the public protocol.
  */
 import { Bot } from './bot.js';
-import { config, totalBots } from './config.js';
+import { config, onlineRangeFor, poolFor, totalBots } from './config.js';
 import { Fleet } from './fleet.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -50,17 +50,22 @@ console.log(
     `${health.players} players, ${health.tables} tables)`,
 );
 console.log(
-  `fleet of ${totalBots} bots: ${config.perCategory} in each of ` +
-    config.categories.map((c) => `${c.category}/${c.boot}`).join(', ') +
+  `fleet of ${totalBots} bots: ` +
+    config.categories
+      .map((c) => {
+        const [lo, hi] = onlineRangeFor(c);
+        return `${c.category}/${c.boot} ${poolFor(c)} (${lo}-${hi} seated)`;
+      })
+      .join(', ') +
     (config.steady
       ? ', all seated for good'
-      : `; ${config.onlineMin}–${config.onlineMax}% online at once, sittings of ~${config.sessionHands} hands, ~${config.restMinutes}m away between them`),
+      : `; sittings of ~${config.sessionHands} hands, ~${config.restMinutes}m away between them`),
 );
 
 const bots = [];
 let index = 0;
 for (const table of config.categories) {
-  for (let n = 0; n < config.perCategory; n += 1) {
+  for (let n = 0; n < poolFor(table); n += 1) {
     bots.push(new Bot({ index: index++, table, log }));
   }
 }

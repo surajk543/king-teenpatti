@@ -17,24 +17,29 @@
 const LINES = {
   greeting: [
     'hi all', 'hello', 'good luck', 'gl all', 'namaste', 'hi', 'aa gaya main',
-    'lets play', 'all the best', 'hey',
+    'lets play', 'all the best', 'hey', 'ram ram', 'shuru karein', 'kya haal',
+    'aaj to jeetna hai', 'hi guys', 'chalo shuru', 'good evening', 'yo',
   ],
   welcome: [
     'welcome {name}', 'hi {name}', 'aao {name}', 'hello {name}', '{name} aa gaye',
   ],
   wonBig: [
     'thank you thank you', 'finally', 'aaj ka din acha hai', 'yesss',
-    'kya baat', 'thats mine', 'ekdum', 'bohot badhiya',
+    'kya baat', 'thats mine', 'ekdum', 'bohot badhiya', 'aa gaya maza',
+    'itna wait kiya iske liye', 'jai ho', 'pot mera', 'haha lo',
   ],
   wonSmall: [
     'ty', 'thanks', 'chalo', 'ok ok', 'shukriya', 'nice', 'thank u',
+    'thoda thoda', 'chalo kuch to mila', 'ty all',
   ],
   lostBig: [
     'oh no', 'kya kismat hai', 'gaya', 'wow', 'that hurt', 'unbelievable',
-    'arre yaar', 'nice hand', 'well played',
+    'arre yaar', 'nice hand', 'well played', 'sab chala gaya', 'ufff',
+    'aisa bhi hota hai', 'kaise', 'bad beat',
   ],
   lostSmall: [
     'ok', 'gg', 'next', 'chalta hai', 'no problem', 'wp', 'aage dekhte hai',
+    'koi na', 'theek hai next', 'hmm',
   ],
   niceHand: [
     'nice hand {name}', 'wah {name}', 'kya haath tha', 'gg {name}', 'itna acha haath',
@@ -72,6 +77,27 @@ const LINES = {
   banter: [
     'bluff tha kya', 'dikhao', 'strong hand', 'sochke khelo', 'itna time',
     'bas bas', 'ha ha', 'lucky', 'again same', 'kaise kar lete ho',
+    'roz yehi', 'ab to batao', 'haan haan', 'dekh raha hu', 'arre',
+    'khelo jaldi', 'ek aur', 'maza aa raha hai',
+  ],
+  /**
+   * Variation tables (§6.4): the hand's variation has just been announced.
+   * Deliberately vague about WHICH one — a line naming the wrong variation is
+   * worse than a line that could follow any of the seven, and the announcement
+   * is already on the felt for everyone to read.
+   */
+  variation: [
+    'ye wala acha hai', 'arre wah', 'dekhte hai is baar', 'interesting',
+    'naya khel', 'ab maza aayega', 'ok ok', 'is baar alag', 'chalo try karte hai',
+  ],
+  /** This bot has the window and is taking its time over it. */
+  variationMine: [
+    'ek second', 'sochne do', 'ruko', 'main choose karta hu', 'hmm kya lu',
+  ],
+  /** Five cards in hand, three to play. */
+  fiveCard: [
+    'paanch patti', '5 card maza', 'ab teen choose karo', 'itne saare cards',
+    'konsa rakhu', 'choice hi choice',
   ],
 };
 export const MOODS = Object.keys(LINES);
