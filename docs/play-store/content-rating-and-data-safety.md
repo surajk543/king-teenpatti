@@ -62,15 +62,23 @@ is `flex_color_scheme`, `socket_io_client`, `http`, `provider`,
 | Data type | Collected | Shared | Required | Purpose | Why |
 |---|---|---|---|---|---|
 | Personal info → **Name** | Yes | No | Yes | App functionality | The display name a player types, shown at the table |
+| Personal info → **Email address** | Yes | No | **No** | App functionality, Account management | **Google sign-in only, and easy to miss.** `providers.go` reads `email` out of the Google ID token and `users.go` persists it (`email = COALESCE($2, email)`) into `users.email`. Optional because a guest has none — the column is null for them. This row was missing until 22 Sep 2026, when the list below still claimed no email was collected; the schema and the login path both said otherwise. |
 | Financial info → **Purchase history** | Yes | No | No | App functionality | The product id and Play receipt token, kept in `chip_ledger` so a receipt cannot be credited twice |
 | Messages → **Other in-app messages** | Yes | No | No | App functionality | Table chat. **Do not tick "processed ephemerally"** — a 100-message room buffer outlives the request that created it, which is more than Play's definition allows. |
 | App activity → **App interactions** | Yes | No | Yes | App functionality | Chip balance, hands played/won/lost, biggest pot, lifetime winnings |
 | Device or other IDs → **Device or other IDs** | Yes | No | Yes | App functionality, Account management | The device id identifies a returning guest. **Do not tick "processed ephemerally"** — although the raw id is never stored (it is hashed on arrival, `SHA-256`), the hash derived from it is persisted as the account key. |
 
 Explicitly **not** collected, and must be left unticked: location (any
-precision), contacts, photos/videos, files, calendar, health, email address,
-phone number, address, payment card details, advertising ID, installed apps,
-web browsing history, search history.
+precision), contacts, photos/videos, files, calendar, health, phone number,
+address, payment card details, advertising ID, installed apps, web browsing
+history, search history.
+
+Account creation, asked separately by the form: tick **OAuth** (Google
+sign-in) **and Other** (tapping *Play as Guest* creates a real account — a
+`users` row with a wallet and stats, keyed on the hashed device id — with no
+username or password, so none of the username options describe it). Do not
+answer "my app does not allow users to create an account": it would contradict
+§4, where creating one on first launch is exactly why deletion is required.
 
 > Payment card details never reach us. Google Play takes the payment and tells
 > the server only that a purchase completed, which is why "Payment info" is not
