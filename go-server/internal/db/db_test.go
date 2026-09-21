@@ -32,8 +32,11 @@ func TestMigrationsAreVersionedOrderedAndSplitByKind(t *testing.T) {
 	// an existing database: two ADD COLUMN IF NOT EXISTS on chip_ledger, which
 	// the baseline's CREATE TABLE IF NOT EXISTS could never add (POKER_PLAN.md
 	// §6).
-	if len(migrations) != 3 {
-		t.Fatalf("expected one DDL script, one DML script and the chip_ledger game columns, got %d", len(migrations))
+	// V1.0.3__users_is_bot.sql (owner, 22 Sep 2026) is the second such script:
+	// one guarded column on users marking an account as one of the resident
+	// bots (bot-play/), so a query about real players can leave them out.
+	if len(migrations) != 4 {
+		t.Fatalf("expected one DDL script, one DML script, the chip_ledger game columns and users.is_bot, got %d", len(migrations))
 	}
 
 	for i, m := range migrations {
@@ -73,6 +76,28 @@ func TestMigrationsAreVersionedOrderedAndSplitByKind(t *testing.T) {
 	for _, forbidden := range []string{"CREATE TABLE", "INSERT INTO", "DROP"} {
 		if strings.Contains(columns, forbidden) {
 			t.Errorf("%s must only add the two columns, found %s", migrations[2].File, forbidden)
+		}
+	}
+
+	// The fourth script is the same shape for one column on users: guarded by
+	// a catalogue lookup, adding nothing else, and defaulting to FALSE so
+	// every row that already exists — and every person who signs in — is a
+	// person unless something says otherwise.
+	isBot := statementsOf(migrations[3].SQL)
+	for _, want := range []string{
+		"EXECUTE 'ALTER TABLE users ADD COLUMN is_bot BOOLEAN NOT NULL DEFAULT FALSE'",
+		"column_name = 'is_bot'",
+	} {
+		if !strings.Contains(isBot, want) {
+			t.Errorf("%s lacks %q", migrations[3].File, want)
+		}
+	}
+	if strings.Contains(isBot, "IF NOT EXISTS is_bot") {
+		t.Errorf("%s must guard its ALTER with a catalogue lookup, not ADD COLUMN IF NOT EXISTS", migrations[3].File)
+	}
+	for _, forbidden := range []string{"CREATE TABLE", "INSERT INTO", "DROP"} {
+		if strings.Contains(isBot, forbidden) {
+			t.Errorf("%s must only add the one column, found %s", migrations[3].File, forbidden)
 		}
 	}
 	if !strings.Contains(baseline, "CREATE TABLE IF NOT EXISTS users") {

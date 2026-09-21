@@ -90,6 +90,23 @@ type Config struct {
 	// browser stubs). Validate() refuses it in production.
 	AllowFakeProviders bool
 
+	// BotDevicePrefix is BOT_DEVICE_PREFIX ("botplay-"). A guest login whose
+	// DEVICE ID starts with this is recorded as one of the resident bots
+	// (users.is_bot, V1.0.3); everything else is a person. The fleet in
+	// bot-play/ namespaces its device ids `botplay-v1-<n>` — and a rotated
+	// bot `botplay-v1-<n>-g<gen>` — so the prefix covers both, and the
+	// namespace already exists to keep those accounts from colliding with
+	// tools/bot.js and the ramp test's.
+	//
+	// Empty disables the marking entirely, which is what a deployment with no
+	// bots should set: with no prefix to match, nothing is ever flagged.
+	//
+	// The value is derived from something the CLIENT sends, so it is a label
+	// and never a permission. Nothing in the game reads it and it never
+	// reaches a client — a seat that announced itself as a bot would tell a
+	// player exactly what the fleet exists not to tell them.
+	BotDevicePrefix string
+
 	DB      DBConfig
 	Game    GameConfig
 	Metrics MetricsConfig
@@ -448,6 +465,7 @@ func Defaults() *Config {
 		Google:             GoogleConfig{ClientIDs: nil},
 		Facebook:           FacebookConfig{},
 		AllowFakeProviders: false,
+		BotDevicePrefix:    "botplay-",
 		DB: DBConfig{
 			URL:                 "postgres://postgres:postgres@localhost:5432/gameplay",
 			Schema:              "public",
@@ -669,6 +687,7 @@ func FromEnv(lookup Lookup) (*Config, error) {
 	c.Facebook.AppID = r.str("FACEBOOK_APP_ID", c.Facebook.AppID)
 	c.Facebook.AppSecret = r.str("FACEBOOK_APP_SECRET", c.Facebook.AppSecret)
 	c.AllowFakeProviders = r.boolean("AUTH_ALLOW_FAKE_PROVIDERS", c.AllowFakeProviders)
+	c.BotDevicePrefix = r.str("BOT_DEVICE_PREFIX", c.BotDevicePrefix)
 
 	c.DB.URL = r.str("DATABASE_URL", c.DB.URL)
 	c.DB.Schema = r.str("PG_SCHEMA", c.DB.Schema)

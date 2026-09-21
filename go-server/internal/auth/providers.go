@@ -104,6 +104,11 @@ type Verifier struct {
 	google             config.GoogleConfig
 	facebook           config.FacebookConfig
 	allowFakeProviders bool
+	// botDevicePrefix is config.BotDevicePrefix: a guest device id starting
+	// with it belongs to the resident fleet (bot-play/). Empty disables the
+	// marking. See Profile.IsBot — a label for the database, never a
+	// permission and never sent to a client.
+	botDevicePrefix string
 	// HTTP is used for Google's certificate endpoint and the Facebook Graph
 	// API; nil → a client with ProviderTimeout (http.DefaultClient has none,
 	// and a hung provider would pin the login goroutine and its DB slot).
@@ -129,6 +134,7 @@ func NewVerifier(cfg *config.Config) *Verifier {
 		google:             cfg.Google,
 		facebook:           cfg.Facebook,
 		allowFakeProviders: cfg.AllowFakeProviders,
+		botDevicePrefix:    cfg.BotDevicePrefix,
 		certsURL:           googleCertsURL,
 		graphURL:           facebookGraphURL,
 		now:                time.Now,
@@ -183,7 +189,15 @@ func (v *Verifier) VerifyLogin(ctx context.Context, req LoginRequest) (*db.Profi
 		if req.deviceIDInvalid {
 			return nil, invalidDeviceID()
 		}
-		return VerifyGuest(req.DeviceID, req.DisplayName)
+		profile, err := VerifyGuest(req.DeviceID, req.DisplayName)
+		if err != nil {
+			return nil, err
+		}
+		// The device id is hashed away inside VerifyGuest — the database never
+		// holds one in the clear — so this is the last place the raw value
+		// exists and therefore the only place the fleet can be recognised.
+		profile.IsBot = v.isBotDevice(req.DeviceID)
+		return profile, nil
 	}
 	shown := req.Provider
 	if req.providerAbsent {
@@ -544,6 +558,25 @@ func VerifyGuest(deviceID, displayName string) (*db.Profile, error) {
 		ProviderUserID: hashed,
 		DisplayName:    name,
 	}, nil
+}
+
+// isBotDevice reports whether a guest device id belongs to the resident bot
+// fleet (bot-play/), which namespaces its ids `botplay-v1-<n>` and, for a
+// rotated bot, `botplay-v1-<n>-g<gen>`.
+//
+// Trimmed the same way VerifyGuest trims before hashing, so the answer here
+// and the account it lands on are derived from the same string — otherwise a
+// device id with leading whitespace would be one account and two different
+// verdicts on successive logins.
+//
+// An empty prefix matches nothing rather than everything: a deployment with
+// no bots sets BOT_DEVICE_PREFIX="" and gets no marking at all, where
+// strings.HasPrefix(x, "") would have marked every guest on the server.
+func (v *Verifier) isBotDevice(deviceID string) bool {
+	if v.botDevicePrefix == "" {
+		return false
+	}
+	return strings.HasPrefix(jsTrim(deviceID), v.botDevicePrefix)
 }
 
 // verifyFake is the development escape hatch (verifyFake): refused with

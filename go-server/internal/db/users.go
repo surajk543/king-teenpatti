@@ -137,6 +137,17 @@ type Profile struct {
 	DisplayName    string
 	Email          *string
 	AvatarURL      *string
+	// IsBot marks this login as one of the resident bots (bot-play/), set by
+	// the auth layer from the guest device id's namespace
+	// (config.BotDevicePrefix). It is written to users.is_bot (V1.0.3) and
+	// is a LABEL for whoever queries the database — nothing in the game reads
+	// it, and it never reaches a client.
+	//
+	// Only ever raises the flag: a login that is not recognised as a bot
+	// leaves an existing account alone, so a human signing in can never clear
+	// the mark on an account that earned it, and one bad guess cannot be
+	// undone quietly by the next login.
+	IsBot bool
 }
 
 // RewardResult is what the two claim endpoints return. Claimed=false carries
@@ -473,10 +484,17 @@ func (u *Users) upsertOnce(ctx context.Context, p Profile, timestamp int64) (use
             SET display_name  = $1,
                 email         = COALESCE($2, email),
                 avatar_url    = COALESCE($3, avatar_url),
-                updated_at    = $4,
-                last_login_at = $4
-          WHERE id = $5`,
-				displayName, p.Email, p.AvatarURL, timestamp, existing.id); err != nil {
+                -- OR, never assignment: a login that is not recognised as a
+                -- bot leaves the mark alone. The fleet rotates a broke bot
+                -- into a fresh identity and the prefix follows it, so this is
+                -- belt and braces — but an account wrongly cleared would be
+                -- indistinguishable from a person for ever after, and the
+                -- whole value of the column is that it can be trusted.
+                is_bot        = users.is_bot OR $4,
+                updated_at    = $5,
+                last_login_at = $5
+          WHERE id = $6`,
+				displayName, p.Email, p.AvatarURL, p.IsBot, timestamp, existing.id); err != nil {
 				return err
 			}
 			row, err := selectUser(ctx, tx, existing.id)
@@ -491,9 +509,9 @@ func (u *Users) upsertOnce(ctx context.Context, p Profile, timestamp int64) (use
 		chips := u.welcomeChips
 
 		if _, err := tx.Exec(ctx, `INSERT INTO users (id, provider, provider_user_id, display_name, email, avatar_url,
-                          chips, created_at, updated_at, last_login_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8, $8)`,
-			id, p.Provider, p.ProviderUserID, p.DisplayName, p.Email, p.AvatarURL, chips, timestamp); err != nil {
+                          chips, is_bot, created_at, updated_at, last_login_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9, $9)`,
+			id, p.Provider, p.ProviderUserID, p.DisplayName, p.Email, p.AvatarURL, chips, p.IsBot, timestamp); err != nil {
 			return err
 		}
 
