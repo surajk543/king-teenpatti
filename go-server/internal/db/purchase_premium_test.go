@@ -17,25 +17,27 @@ import (
 func TestAPremiumPackageBanksItsChipsMissilesAndHammersOnce(t *testing.T) {
 	f := newFixture(t)
 	u := f.user("premium-buyer")
-	p, err := purchase.Lookup("premium_5_49999")
+	// P3 since P5 and P6 left the shelf on 22 Sep 2026; any premium package
+	// exercises the same three-wallet path.
+	p, err := purchase.Lookup("premium_3_19999")
 	if err != nil {
 		t.Fatal(err)
 	}
 	token := "premium-token-" + randomSuffix(t)
 	startRows := len(f.ledgerRows(u.ID))
 	missiles, hammers, diamonds := f.missilesOf(u.ID), f.hammersOf(u.ID), f.diamondsOf(u.ID)
-	const chips int64 = 47_500_000_000
+	const chips int64 = 15_000_000_000
 
 	first, err := db.CreditPurchase(f.ctx, f.d, f.users, u.ID, p, token)
 	if err != nil {
 		t.Fatalf("credit: %v", err)
 	}
-	if !first.Credited || first.Chips != chips || first.Missiles != 11 || first.Hammers != 45 || first.Diamonds != 0 ||
+	if !first.Credited || first.Chips != chips || first.Missiles != 4 || first.Hammers != 21 || first.Diamonds != 0 ||
 		first.Balance != welcome+chips || first.User == nil || first.User.Chips != welcome+chips ||
-		first.User.Missile != int(missiles)+11 || first.User.Hammer != int(hammers)+45 {
+		first.User.Missile != int(missiles)+4 || first.User.Hammer != int(hammers)+21 {
 		t.Fatalf("first credit: %+v (user %+v)", first, first.User)
 	}
-	if f.chips(u.ID) != welcome+chips || f.missilesOf(u.ID) != missiles+11 || f.hammersOf(u.ID) != hammers+45 || f.diamondsOf(u.ID) != diamonds {
+	if f.chips(u.ID) != welcome+chips || f.missilesOf(u.ID) != missiles+4 || f.hammersOf(u.ID) != hammers+21 || f.diamondsOf(u.ID) != diamonds {
 		t.Fatalf("wallets after the credit: chips %d, missiles %d, hammers %d, diamonds %d",
 			f.chips(u.ID), f.missilesOf(u.ID), f.hammersOf(u.ID), f.diamondsOf(u.ID))
 	}
@@ -58,11 +60,11 @@ func TestAPremiumPackageBanksItsChipsMissilesAndHammersOnce(t *testing.T) {
 	if err != nil {
 		t.Fatalf("replay: %v", err)
 	}
-	if again.Credited || again.Chips != chips || again.Missiles != 11 || again.Hammers != 45 ||
-		again.Balance != welcome+chips || again.User == nil || again.User.Missile != int(missiles)+11 || again.User.Hammer != int(hammers)+45 {
+	if again.Credited || again.Chips != chips || again.Missiles != 4 || again.Hammers != 21 ||
+		again.Balance != welcome+chips || again.User == nil || again.User.Missile != int(missiles)+4 || again.User.Hammer != int(hammers)+21 {
 		t.Fatalf("replay: %+v (user %+v), want the product's figures with nothing credited", again, again.User)
 	}
-	if f.chips(u.ID) != welcome+chips || f.missilesOf(u.ID) != missiles+11 || f.hammersOf(u.ID) != hammers+45 || len(f.ledgerRows(u.ID)) != startRows+1 {
+	if f.chips(u.ID) != welcome+chips || f.missilesOf(u.ID) != missiles+4 || f.hammersOf(u.ID) != hammers+21 || len(f.ledgerRows(u.ID)) != startRows+1 {
 		t.Fatalf("a replayed receipt moved a wallet: chips %d, missiles %d, hammers %d, ledger rows %d",
 			f.chips(u.ID), f.missilesOf(u.ID), f.hammersOf(u.ID), len(f.ledgerRows(u.ID))-startRows)
 	}

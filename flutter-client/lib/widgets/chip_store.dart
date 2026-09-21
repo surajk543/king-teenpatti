@@ -101,7 +101,15 @@ class PremiumPack {
 }
 
 /// The Premium Packages, cheapest first, as the owner set them: ⭐ on the
-/// ₹49,999 package and 👑 on the ₹99,999 one. 1 Crore is 1,00,00,000 chips.
+/// second-dearest and 👑 on the dearest. 1 Crore is 1,00,00,000 chips.
+///
+/// The ₹49,999 and ₹99,999 packages were dropped on 22 Sep 2026 (owner) when
+/// the Play Console products were created, so the shelf ends at ₹29,999 and
+/// the two marks moved down with it — a shelf where nothing is starred looks
+/// unfinished beside the chip shelf, which marks four of its nine. Every id
+/// here must exist as a managed product in the Play Console, and the server's
+/// catalogue (go-server/internal/purchase/catalogue.go) must agree: it is what
+/// decides the amounts, and it refuses an id it does not know.
 const premiumPacks = <PremiumPack>[
   PremiumPack(
     productId: 'premium_1_9999',
@@ -123,6 +131,7 @@ const premiumPacks = <PremiumPack>[
     chips: 15000000000,
     missiles: 4,
     hammers: 21,
+    mark: ShelfMark.popular,
   ),
   PremiumPack(
     productId: 'premium_4_29999',
@@ -130,21 +139,6 @@ const premiumPacks = <PremiumPack>[
     chips: 25000000000,
     missiles: 6,
     hammers: 30,
-  ),
-  PremiumPack(
-    productId: 'premium_5_49999',
-    rupees: 49999,
-    chips: 47500000000,
-    missiles: 11,
-    hammers: 45,
-    mark: ShelfMark.popular,
-  ),
-  PremiumPack(
-    productId: 'premium_6_99999',
-    rupees: 99999,
-    chips: 105000000000,
-    missiles: 50,
-    hammers: 100,
     mark: ShelfMark.crown,
   ),
 ];

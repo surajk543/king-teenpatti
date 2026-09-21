@@ -43,11 +43,12 @@ func TestAPremiumPackageThroughThePlayStoreCreditsChipsMissilesAndHammersOnceAnd
 		t.Fatalf("before: seat %d, wallet %d, ledger %d", seat0, wallet0, ledger0)
 	}
 
-	product, err := purchase.Lookup("premium_6_99999")
+	// P4 is the dearest package since P5 and P6 were dropped on 22 Sep 2026.
+	product, err := purchase.Lookup("premium_4_29999")
 	if err != nil {
 		t.Fatal(err)
 	}
-	const chips int64 = 105_000_000_000
+	const chips int64 = 25_000_000_000
 	users := db.NewUsers(database, a.cfg.Game.WelcomeChips, time.Now)
 	store := &playStore{verifier: newFakePlayVerifier(t), db: database, users: users, credit: a.Rooms().CreditBoughtChips}
 
@@ -55,27 +56,27 @@ func TestAPremiumPackageThroughThePlayStoreCreditsChipsMissilesAndHammersOnceAnd
 	if err != nil {
 		t.Fatalf("buy: %v", err)
 	}
-	if !out.Credited || out.Chips != chips || out.Missiles != 50 || out.Hammers != 100 || out.Diamonds != 0 ||
+	if !out.Credited || out.Chips != chips || out.Missiles != 6 || out.Hammers != 30 || out.Diamonds != 0 ||
 		out.Balance != wallet0+chips || out.User == nil || out.User.Chips != wallet0+chips ||
-		out.User.Missile != int(missiles0)+50 || out.User.Hammer != int(hammers0)+100 || out.User.Diamond != int(diamonds0) {
-		t.Fatalf("outcome %+v (user %+v), want 10,500 Crore, 50 missiles and 100 hammers credited", out, out.User)
+		out.User.Missile != int(missiles0)+6 || out.User.Hammer != int(hammers0)+30 || out.User.Diamond != int(diamonds0) {
+		t.Fatalf("outcome %+v (user %+v), want 2,500 Crore, 6 missiles and 30 hammers credited", out, out.User)
 	}
 	if seat, wallet, ledger := seatOf(t, a, id), walletOf(t, database, id), ledgerOf(t, database, id); seat != seat0+chips || wallet != wallet0+chips || ledger != wallet {
 		t.Fatalf("after the package: seat %d, wallet %d, ledger %d, want the seat and wallet %d and the ledger equal", seat, wallet, ledger, wallet0+chips)
 	}
-	if d, m, h := softWallets(t, database, id); d != diamonds0 || m != missiles0+50 || h != hammers0+100 {
+	if d, m, h := softWallets(t, database, id); d != diamonds0 || m != missiles0+6 || h != hammers0+30 {
 		t.Fatalf("after the package: diamonds %d, missiles %d, hammers %d", d, m, h)
 	}
 
 	again, err := store.Buy(ctx, id, product.ID, "fake-play-premium-receipt")
-	if err != nil || again.Credited || again.Chips != chips || again.Missiles != 50 || again.Hammers != 100 ||
-		again.Balance != wallet0+chips || again.User == nil || again.User.Missile != int(missiles0)+50 || again.User.Hammer != int(hammers0)+100 {
+	if err != nil || again.Credited || again.Chips != chips || again.Missiles != 6 || again.Hammers != 30 ||
+		again.Balance != wallet0+chips || again.User == nil || again.User.Missile != int(missiles0)+6 || again.User.Hammer != int(hammers0)+30 {
 		t.Fatalf("replayed receipt: %+v (user %+v) %v, want the package's figures with nothing credited", again, again.User, err)
 	}
 	if seat, wallet := seatOf(t, a, id), walletOf(t, database, id); seat != seat0+chips || wallet != wallet0+chips {
 		t.Fatalf("after a replayed receipt: seat %d, wallet %d, want both %d", seat, wallet, wallet0+chips)
 	}
-	if d, m, h := softWallets(t, database, id); d != diamonds0 || m != missiles0+50 || h != hammers0+100 {
+	if d, m, h := softWallets(t, database, id); d != diamonds0 || m != missiles0+6 || h != hammers0+30 {
 		t.Fatalf("a replayed receipt moved a soft wallet: diamonds %d, missiles %d, hammers %d", d, m, h)
 	}
 

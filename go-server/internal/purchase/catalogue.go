@@ -97,12 +97,17 @@ var Catalogue = map[string]Product{
 	// `purchase` chip_ledger row whose UNIQUE action_id (gplay:<token>) is the
 	// replay guard for all three, and users.missile and users.hammer beside it
 	// only when that row went in. 1 Crore = 1,00,00,000 chips.
-	"premium_1_9999":  {ID: "premium_1_9999", Pack: "P1", Rupees: 9999, Chips: 6_500_000_000, Missiles: 1, Hammers: 10},       // 650 Cr
-	"premium_2_14999": {ID: "premium_2_14999", Pack: "P2", Rupees: 14999, Chips: 10_500_000_000, Missiles: 2, Hammers: 15},    // 1,050 Cr
-	"premium_3_19999": {ID: "premium_3_19999", Pack: "P3", Rupees: 19999, Chips: 15_000_000_000, Missiles: 4, Hammers: 21},    // 1,500 Cr
-	"premium_4_29999": {ID: "premium_4_29999", Pack: "P4", Rupees: 29999, Chips: 25_000_000_000, Missiles: 6, Hammers: 30},    // 2,500 Cr
-	"premium_5_49999": {ID: "premium_5_49999", Pack: "P5", Rupees: 49999, Chips: 47_500_000_000, Missiles: 11, Hammers: 45},   // 4,750 Cr
-	"premium_6_99999": {ID: "premium_6_99999", Pack: "P6", Rupees: 99999, Chips: 105_000_000_000, Missiles: 50, Hammers: 100}, // 10,500 Cr
+	//
+	// P5 (₹49,999) and P6 (₹99,999) were dropped on 22 Sep 2026 (owner) when
+	// the Play Console products were created — the shelf ends at P4. They are
+	// removed rather than left here unsold: an id in this map that has no
+	// managed product behind it can never be bought, but it reads as if it
+	// can, and the next person to compare the two lists has to work out which
+	// is wrong. The 21 ids below are exactly the 21 in the Console.
+	"premium_1_9999":  {ID: "premium_1_9999", Pack: "P1", Rupees: 9999, Chips: 6_500_000_000, Missiles: 1, Hammers: 10},    // 650 Cr
+	"premium_2_14999": {ID: "premium_2_14999", Pack: "P2", Rupees: 14999, Chips: 10_500_000_000, Missiles: 2, Hammers: 15}, // 1,050 Cr
+	"premium_3_19999": {ID: "premium_3_19999", Pack: "P3", Rupees: 19999, Chips: 15_000_000_000, Missiles: 4, Hammers: 21}, // 1,500 Cr
+	"premium_4_29999": {ID: "premium_4_29999", Pack: "P4", Rupees: 29999, Chips: 25_000_000_000, Missiles: 6, Hammers: 30}, // 2,500 Cr
 }
 
 // Lookup returns the product for a Play product id.

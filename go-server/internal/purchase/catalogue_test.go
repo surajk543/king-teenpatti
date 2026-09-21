@@ -44,8 +44,6 @@ func TestThePremiumPackagesAreTheOwnersShelf(t *testing.T) {
 		"premium_2_14999": {Pack: "P2", Rupees: 14999, Chips: 10_500_000_000, Missiles: 2, Hammers: 15},
 		"premium_3_19999": {Pack: "P3", Rupees: 19999, Chips: 15_000_000_000, Missiles: 4, Hammers: 21},
 		"premium_4_29999": {Pack: "P4", Rupees: 29999, Chips: 25_000_000_000, Missiles: 6, Hammers: 30},
-		"premium_5_49999": {Pack: "P5", Rupees: 49999, Chips: 47_500_000_000, Missiles: 11, Hammers: 45},
-		"premium_6_99999": {Pack: "P6", Rupees: 99999, Chips: 105_000_000_000, Missiles: 50, Hammers: 100},
 	}
 	for id, w := range want {
 		p, err := Lookup(id)
@@ -65,8 +63,11 @@ func TestThePremiumPackagesAreTheOwnersShelf(t *testing.T) {
 			t.Errorf("%s sells missiles or a premium package but is not on the owner's shelf: %+v", id, p)
 		}
 	}
-	if len(Catalogue) != 9+4+4+6 {
-		t.Errorf("the catalogue holds %d products, want 23 (9 chip, 4 diamond, 4 hammer, 6 premium)", len(Catalogue))
+	// Every id here has to exist as a managed product in the Play Console, so
+	// this count is the one number to change when the shelf does — P5 and P6
+	// went on 22 Sep 2026 (owner) and it dropped from 23 to 21.
+	if len(Catalogue) != 9+4+4+4 {
+		t.Errorf("the catalogue holds %d products, want 21 (9 chip, 4 diamond, 4 hammer, 4 premium)", len(Catalogue))
 	}
 	if _, err := Lookup("premium_7_1"); err == nil {
 		t.Error("an unknown premium id must be refused, not defaulted")

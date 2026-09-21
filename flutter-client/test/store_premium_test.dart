@@ -6,7 +6,10 @@
 // game is checked on, in all five languages, at the normal text scale and the
 // 1.25 ceiling, in Indian and international numbering. A RenderFlex overflow
 // fails a test by itself; the cards are also measured, so the widest figure —
-// "10,500 Crore 👑", "105 Billion 👑" — is seen to sit inside its card.
+// "2,500 Crore 👑", "25 Billion 👑" — is seen to sit inside its card.
+//
+// The ₹49,999 and ₹99,999 packages were dropped on 22 Sep 2026 (owner), so the
+// shelf is four cards and the two marks moved down to the dearest pair left.
 import 'dart:async';
 import 'dart:convert';
 
@@ -140,7 +143,7 @@ void main() {
   tearDown(_resetNumbers);
 
   group('the premium packages', () {
-    test("are the owner's six, cheapest first, with his figures", () {
+    test("are the owner's four, cheapest first, with his figures", () {
       expect(
         [
           for (final p in premiumPacks)
@@ -151,18 +154,17 @@ void main() {
           ('premium_2_14999', 14999, 10500000000, 2, 15),
           ('premium_3_19999', 19999, 15000000000, 4, 21),
           ('premium_4_29999', 29999, 25000000000, 6, 30),
-          ('premium_5_49999', 49999, 47500000000, 11, 45),
-          ('premium_6_99999', 99999, 105000000000, 50, 100),
         ],
       );
     });
 
-    test('mark ⭐ on ₹49,999 and 👑 on ₹99,999, and nothing else', () {
+    test('mark ⭐ on ₹19,999 and 👑 on ₹29,999, and nothing else', () {
+      // The marks sat on ₹49,999 and ₹99,999 until those two packages left the
+      // shelf on 22 Sep 2026; they moved down to the dearest pair that remains
+      // rather than leaving the shelf with nothing marked.
       expect(
         [for (final p in premiumPacks) p.mark],
         [
-          ShelfMark.none,
-          ShelfMark.none,
           ShelfMark.none,
           ShelfMark.none,
           ShelfMark.popular,
@@ -190,8 +192,6 @@ void main() {
           '1,050 Crore',
           '1,500 Crore',
           '2,500 Crore',
-          '4,750 Crore',
-          '10,500 Crore',
         ],
       );
       _publishNumbers(AppLang.english, NumberSystem.international);
@@ -202,8 +202,6 @@ void main() {
           '10.5 Billion',
           '15 Billion',
           '25 Billion',
-          '47.5 Billion',
-          '105 Billion',
         ],
       );
     });
@@ -232,13 +230,13 @@ void main() {
           sent = request;
           return http.Response(
             jsonEncode({
-              'user': _user(chips: 105001250000),
+              'user': _user(chips: 25001250000),
               'credited': true,
-              'chips': 105000000000,
+              'chips': 25000000000,
               'diamonds': 0,
-              'hammers': 100,
-              'missiles': 50,
-              'balance': 105001250000,
+              'hammers': 30,
+              'missiles': 6,
+              'balance': 25001250000,
             }),
             200,
           );
@@ -246,7 +244,7 @@ void main() {
         final r = await http.runWithClient(
           () => ApiClient(
             'http://api.test',
-          ).redeemPurchase('tok', 'premium_6_99999', 'gplay-token'),
+          ).redeemPurchase('tok', 'premium_4_29999', 'gplay-token'),
           () => client,
         );
 
@@ -254,16 +252,16 @@ void main() {
         expect(sent.url.toString(), 'http://api.test/api/purchases/google');
         expect(sent.headers['Authorization'], 'Bearer tok');
         expect(jsonDecode(sent.body), {
-          'productId': 'premium_6_99999',
+          'productId': 'premium_4_29999',
           'purchaseToken': 'gplay-token',
         });
         expect(r.credited, isTrue);
-        expect(r.chips, 105000000000);
+        expect(r.chips, 25000000000);
         expect(r.diamonds, 0);
-        expect(r.hammers, 100);
-        expect(r.missiles, 50);
-        expect(r.balance, 105001250000);
-        expect(r.user?.chips, 105001250000);
+        expect(r.hammers, 30);
+        expect(r.missiles, 6);
+        expect(r.balance, 25001250000);
+        expect(r.user?.chips, 25001250000);
       },
     );
 
@@ -441,7 +439,7 @@ void main() {
 
   group('the Chips shelf', () {
     for (final screen in [Screen.lobby, Screen.table]) {
-      testWidgets('in the ${screen.name} store sells the six packages under '
+      testWidgets('in the ${screen.name} store sells the four packages under '
           'their heading', (tester) async {
         _setScreen(tester, const Size(891, 411));
         final state = _state(screen: screen);
@@ -452,7 +450,7 @@ void main() {
         expect(find.text('Premium Packages'), findsOneWidget);
         expect(_premiumCards, findsNWidgets(premiumPacks.length));
         // Every card carries the ribbon, and nothing else does.
-        expect(find.text('PREMIUM PACKAGE'), findsNWidgets(6));
+        expect(find.text('PREMIUM PACKAGE'), findsNWidgets(premiumPacks.length));
         for (var i = 0; i < premiumPacks.length; i++) {
           expect(
             find.descendant(
@@ -468,8 +466,6 @@ void main() {
           '₹14,999',
           '₹19,999',
           '₹29,999',
-          '₹49,999',
-          '₹99,999',
         ]) {
           expect(find.text(price), findsOneWidget, reason: price);
         }
@@ -478,8 +474,6 @@ void main() {
           ('1,050 Crore', '+2 Missiles', '+15 Hammers'),
           ('1,500 Crore', '+4 Missiles', '+21 Hammers'),
           ('2,500 Crore', '+6 Missiles', '+30 Hammers'),
-          ('4,750 Crore', '+11 Missiles', '+45 Hammers'),
-          ('10,500 Crore', '+50 Missiles', '+100 Hammers'),
         ].indexed) {
           for (final line in [figure, missiles, hammers]) {
             expect(
@@ -512,8 +506,8 @@ void main() {
         expect(find.text('⭐'), findsOneWidget);
         expect(find.text('👑'), findsOneWidget);
         for (final (i, glyph, figure) in [
-          (4, '⭐', '4,750 Crore'),
-          (5, '👑', '10,500 Crore'),
+          (2, '⭐', '1,500 Crore'),
+          (3, '👑', '2,500 Crore'),
         ]) {
           final mark = tester.getRect(
             find.descendant(
