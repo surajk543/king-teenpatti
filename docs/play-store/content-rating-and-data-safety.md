@@ -49,7 +49,9 @@ rejected.
 **Does your app collect or share any of the required user data types?** Yes.
 **Is all user data encrypted in transit?** Yes — HTTPS/TLS to
 `api.sungamestudio.com`.
-**Do you provide a way to request data deletion?** Yes — see the gap in §4.
+**Do you provide a way to request data deletion?** Yes — both routes Play asks
+for exist again (§4). Give it the public URL
+`https://api.sungamestudio.com/account-deletion/`.
 
 None of it is **shared** with anyone. There are no analytics, advertising,
 tracking or crash-reporting SDKs in the app at all — the entire dependency list
