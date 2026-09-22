@@ -61,6 +61,15 @@ dependencies:
   google_sign_in: ^7.2.0
   url_launcher: ^6.3.1
 
+  # Facebook Login (restored 22 Sep 2026, owner). It was dropped on 10 Sep 2026
+  # for the first release because com.facebook.android:facebook-core injects
+  # AD_ID, four ACCESS_ADSERVICES_* permissions and the install-referrer binding
+  # into the merged manifest, which forces a "yes" on Play's Advertising ID
+  # declaration for a game that carries no advertising. That trade is back on:
+  # re-check the declaration before the next submission with
+  # `aapt2 dump permissions` on the release APK. docs/social-login-setup.md §2.
+  flutter_facebook_auth: ^7.2.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

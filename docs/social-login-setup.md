@@ -143,10 +143,25 @@ list, and a mismatch is rejected as `Wrong recipient`.
 
 ## 2. Facebook
 
-> **Facebook is removed from the app entirely** (10 Sep 2026). Not merely
-> hidden: `flutter_facebook_auth` is out of `pubspec.yaml`, and with it the
-> `com.facebook.android:facebook-core` transitive dependency whose manifest was
-> injecting six permissions into the release build —
+> **Facebook was removed on 10 Sep 2026 and restored on 22 Sep 2026** at the
+> owner's request. The code is back in full — `flutter_facebook_auth 7.2.0` in
+> `pubspec.yaml`, the three strings in
+> `android/app/src/main/res/values/strings.xml`, the `com.facebook.sdk.*`
+> meta-data plus the `FacebookActivity` and `CustomTabActivity` blocks in
+> `AndroidManifest.xml`, `facebook()` and `facebookConfigured` in
+> `lib/net/social_sign_in.dart`, and the button in `login_screen.dart` directly
+> below Google. All that is missing is the credentials in §2 below.
+>
+> **The button is no longer gated on `facebookConfigured`** (owner, 22 Sep
+> 2026). It is drawn on the same terms as Google: always on screen, and a build
+> with no app id reports itself unavailable when tapped rather than vanishing,
+> because a door that has been offered must not close silently. The earlier
+> asymmetry made sense only while Facebook had never shipped.
+>
+> **The reason it was dropped is still true, and is now a release chore rather
+> than a settled question.** `com.facebook.android:facebook-core` injects six
+> permissions into the merged manifest — confirmed still present on
+> 22 Sep 2026 with `aapt2 dump permissions` on the debug APK:
 >
 > ```
 > com.google.android.gms.permission.AD_ID
@@ -157,26 +172,17 @@ list, and a mismatch is rejected as `Wrong recipient`.
 > com.google.android.finsky.permission.BIND_GET_INSTALL_REFERRER_SERVICE
 > ```
 >
-> — which would have forced a "yes" on Play's Advertising ID declaration for a
-> game that carries no advertising. Verified with `aapt2 dump permissions`: all
-> six are gone, and what remains is INTERNET, ACCESS_NETWORK_STATE, BILLING and
-> the two biometric permissions AndroidX Credential Manager needs for Google
-> sign-in.
+> Play's App content form will therefore demand a **"yes"** on the Advertising
+> ID declaration for a game that carries no advertising, no ad SDK and no
+> attribution. Answer it honestly and be ready to explain that the id arrives
+> with the Facebook Login SDK and is never read; the alternative is to strip the
+> five ad permissions with `tools:node="remove"` in the manifest and confirm
+> Facebook Login still works, which has **not** been tried here. Re-run
+> `aapt2 dump permissions` before each submission.
 >
-> **To restore Facebook**, in this order: add `flutter_facebook_auth` back to
-> `pubspec.yaml`; recreate
-> `android/app/src/main/res/values/strings.xml` with the three strings below;
-> restore the `com.facebook.sdk.*` meta-data plus the `FacebookActivity` and
-> `CustomTabActivity` blocks in `AndroidManifest.xml`; re-add `facebook()` and
-> the `facebookConfigured` gate to `lib/net/social_sign_in.dart`; and put the
-> button back in `login_screen.dart`. `ApiClient.loginProvider` and
-> `GameState.loginWithProvider` already handle `'facebook'` untouched, and the
-> five `continueFacebook` translations are still in `strings.dart`. Then face
-> the Advertising ID declaration honestly.
->
-> Google is deliberately **not** gated behind a build flag: it has shipped, so a
-> forgotten flag must produce a visible message rather than a silently missing
-> sign-in option.
+> Google is deliberately **not** gated behind a build flag either, for the same
+> reason: a forgotten flag must produce a visible message rather than a silently
+> missing sign-in option.
 
 At developers.facebook.com, create an app and add the **Facebook Login**
 product for Android.

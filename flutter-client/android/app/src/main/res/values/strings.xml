@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Facebook Login needs its identifiers here, not in Dart: the native SDK reads
+  them from resources before any Flutter code runs, so there is no way to hand
+  them over at runtime.
+
+  Fill all three from the Facebook app at developers.facebook.com:
+    facebook_app_id           Settings > Basic > App ID
+    facebook_client_token     Settings > Advanced > Client token
+    fb_login_protocol_scheme  the literal string "fb" followed by the App ID
+
+  The App SECRET is deliberately not here and must never be: it lives only in
+  go-server/.env as FACEBOOK_APP_SECRET, because anything shipped in the APK is
+  readable by anyone who downloads it.
+
+  Leaving them empty is safe. AutoInitEnabled is false in the manifest, so the
+  SDK does nothing until a login is attempted, and a login attempted without
+  the dart-define flag=FACEBOOK_APP_ID is refused in Dart before it reaches the
+  SDK (SocialSignIn.facebookConfigured) and reported on screen as unavailable.
+
+  (An XML comment may not contain a double hyphen, which is why the build flag
+  is written without its leading dashes here.)
+-->
+<resources>
+    <string name="facebook_app_id"></string>
+    <string name="facebook_client_token"></string>
+    <string name="fb_login_protocol_scheme"></string>
+</resources>
