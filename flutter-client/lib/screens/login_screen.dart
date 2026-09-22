@@ -165,6 +165,24 @@ class _LoginScreenState extends State<LoginScreen> {
                           SocialSignIn.google,
                         ),
                       ),
+                      const SizedBox(height: Space.sm),
+                      // Facebook sits directly under Google and is drawn on the
+                      // same terms: always on screen, and a build with no app id
+                      // says so when tapped (SignInUnavailable) rather than
+                      // hiding the door. It was gated on facebookConfigured
+                      // until 22 Sep 2026, when the owner asked for it back in
+                      // the UI — and once a provider has shipped, a button that
+                      // silently disappears is indistinguishable from a lost
+                      // account, which is the worse failure of the two.
+                      _ProviderButton(
+                        icon: Icons.facebook,
+                        label: t.continueFacebook,
+                        busy: state.busy,
+                        onPressed: () => state.loginWithProvider(
+                          'facebook',
+                          SocialSignIn.facebook,
+                        ),
+                      ),
                       if (state.loginError != null) ...[
                         const SizedBox(height: Space.md),
                         Text(
