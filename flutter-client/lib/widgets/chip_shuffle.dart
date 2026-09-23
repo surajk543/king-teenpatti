@@ -212,6 +212,29 @@ class _ChipShuffleState extends State<ChipShuffle> {
               chipShuffleAsset,
               delegates: delegates,
               fit: BoxFit.contain,
+              // The file draws its one chip precomp TWELVE times, and that
+              // precomp is eleven shape layers — 132 shape layers rebuilt from
+              // their paths, on the CPU, every frame, and the lobby's front
+              // shows two of these at once. That is what made it stutter.
+              //
+              // RenderCache.drawingCommands is the package's answer to exactly
+              // this shape of animation ("a short and small animation that is
+              // played repeatedly"): the first pass through the loop keeps each
+              // frame as a ui.Picture and every pass after it replays those
+              // instead of walking the shapes again. The motion and the timing
+              // are untouched — it is the same frames, drawn the same way.
+              //
+              // drawingCommands and not raster: the raster cache would hold
+              // rendered_width × rendered_height × 60fps × 2s of pixels PER
+              // CARD, which for a glyph this size is tens of megabytes against
+              // the package's own 50MB ceiling, and it is invalidated by any
+              // change of size. Pictures cost a fraction of that, and the work
+              // being saved here is the path building rather than the raster.
+              //
+              // The cache is keyed on the delegates among other things, so the
+              // two cards' colours are two entries, and the memoised subtree
+              // above is what keeps those delegates stable enough to hold.
+              renderCache: RenderCache.drawingCommands,
               errorBuilder: (context, error, stack) =>
                   Center(child: fallback ?? const SizedBox.shrink()),
             ),
