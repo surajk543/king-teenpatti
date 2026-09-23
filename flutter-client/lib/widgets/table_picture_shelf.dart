@@ -178,7 +178,17 @@ class _CachedPictureBoxState extends State<CachedPictureBox> {
 /// tile. The mask is a `dstIn` [ShaderMask] over the square alone — an
 /// offscreen pass the size of the square, not of the screen, which is what
 /// makes it affordable under a playing Lottie.
-class TablePictureGround extends StatelessWidget {
+///
+/// A BANNER is the exception (23 Sep 2026, found on TP_Tall): a canvas wider
+/// than [bannerAspect] fitted whole into the square is a thin strip exactly
+/// where the pot plinth sits, and Welcome (428×123) showed as one stroke
+/// peeking out from under "1,600". Such a picture is drawn across the
+/// square's width in the band just above the plinth ([bannerLift]), faded at
+/// its two ends instead of radially, so the whole word reads and the plinth
+/// covers none of it. The aspect is read off the file's head once its bytes
+/// are in the cache ([lottieCanvasAspect]; an SVG or a bitmap covers the
+/// square and never takes this path).
+class TablePictureGround extends StatefulWidget {
   const TablePictureGround({
     super.key,
     required this.url,
@@ -196,6 +206,17 @@ class TablePictureGround extends StatelessWidget {
   /// middle is at full [strength] to here, then falls to nothing at the rim.
   static const double featherFrom = 0.35;
 
+  /// A canvas wider than this is a banner, drawn above the plinth rather than
+  /// under it. The same line [pictureFitFor] draws between covering the
+  /// square and fitting the picture whole.
+  static const double bannerAspect = 1.6;
+
+  /// Where a banner's middle sits in the square: -1 is the square's top edge,
+  /// 0 its centre (the pot). -0.45 puts Welcome's whole word between the
+  /// status line and the plinth's top edge on every phone the app is laid out
+  /// for, the plinth's height being about a tenth of the felt's.
+  static const double bannerLift = -0.45;
+
   /// The absolute URL to draw, or null for the table as it comes.
   final String? url;
   final String? format;
@@ -204,13 +225,83 @@ class TablePictureGround extends StatelessWidget {
   final double strength;
 
   @override
+  State<TablePictureGround> createState() => _TablePictureGroundState();
+}
+
+class _TablePictureGroundState extends State<TablePictureGround> {
+  /// The canvas's width over its height, once the file's head has been read;
+  /// null until then, and for a file that does not say.
+  double? _aspect;
+
+  @override
+  void initState() {
+    super.initState();
+    _measure();
+  }
+
+  @override
+  void didUpdateWidget(covariant TablePictureGround old) {
+    super.didUpdateWidget(old);
+    if (old.url != widget.url || old.format != widget.format) {
+      _aspect = null;
+      _measure();
+    }
+  }
+
+  /// Reads the canvas off the cached bytes: at once when they are in memory,
+  /// else when the fetch [CachedPictureBox] shares lands. A fetch that fails
+  /// leaves the square, which is what the box draws then too — nothing.
+  void _measure() {
+    final url = widget.url;
+    if (url == null || widget.format != 'LOTTIE') return;
+    final ready = PictureCache.peek(url);
+    if (ready != null) {
+      _aspect = lottieCanvasAspect(ready);
+      return;
+    }
+    PictureCache.load(url).then((bytes) {
+      if (!mounted || url != widget.url || bytes == null) return;
+      final aspect = lottieCanvasAspect(bytes);
+      if (aspect != _aspect) setState(() => _aspect = aspect);
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final link = url;
+    final link = widget.url;
+    final strength = widget.strength.clamp(0.0, 1.0);
+    final aspect = _aspect;
+    final banner = aspect != null && aspect > TablePictureGround.bannerAspect;
     return ClipRect(
       child: AnimatedSwitcher(
         duration: Motion.base,
         child: link == null
             ? const SizedBox.expand(key: ValueKey('bare'))
+            : banner
+            ? Align(
+                key: ValueKey('$link:banner'),
+                alignment: const Alignment(0, TablePictureGround.bannerLift),
+                child: AspectRatio(
+                  aspectRatio: aspect,
+                  child: ShaderMask(
+                    blendMode: BlendMode.dstIn,
+                    shaderCallback: (rect) => LinearGradient(
+                      colors: [
+                        Colors.white.withValues(alpha: 0),
+                        Colors.white.withValues(alpha: strength),
+                        Colors.white.withValues(alpha: strength),
+                        Colors.white.withValues(alpha: 0),
+                      ],
+                      stops: const [0, 0.18, 0.82, 1],
+                    ).createShader(rect),
+                    child: CachedPictureBox(
+                      url: link,
+                      format: widget.format,
+                      animate: true,
+                    ),
+                  ),
+                ),
+              )
             : ShaderMask(
                 key: ValueKey(link),
                 blendMode: BlendMode.dstIn,
@@ -220,13 +311,17 @@ class TablePictureGround extends StatelessWidget {
                   // straight-edged is ever drawn.
                   radius: 0.5,
                   colors: [
-                    Colors.white.withValues(alpha: strength.clamp(0.0, 1.0)),
+                    Colors.white.withValues(alpha: strength),
                     Colors.white.withValues(alpha: 0),
                   ],
-                  stops: const [featherFrom, 1],
+                  stops: const [TablePictureGround.featherFrom, 1],
                 ).createShader(rect),
                 // A Lottie plays: the motion is what it was bought for.
-                child: CachedPictureBox(url: link, format: format, animate: true),
+                child: CachedPictureBox(
+                  url: link,
+                  format: widget.format,
+                  animate: true,
+                ),
               ),
       ),
     );

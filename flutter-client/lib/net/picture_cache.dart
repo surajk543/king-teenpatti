@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
+
 import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
@@ -144,6 +146,11 @@ class PictureCache {
   /// paint the picture on its first frame when it has been seen before, with
   /// no placeholder flash and no future to await.
   static Uint8List? peek(String url) => _memory[url];
+
+  /// Puts [bytes] in memory as if [url] had been fetched, for tests that draw
+  /// a picture without a network or a disk.
+  @visibleForTesting
+  static void prime(String url, Uint8List bytes) => _remember(url, bytes);
 
   /// The picture's bytes, from wherever they can be had.
   static Future<Uint8List?> load(String url) {

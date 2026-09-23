@@ -4,12 +4,15 @@
 // orders free → chips → hammers → diamonds; the unlock question names the
 // price in its wallet's word; and every new word is written in all five
 // languages.
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:teenpatti/l10n/strings.dart';
 import 'package:teenpatti/models/dtos.dart';
 import 'package:teenpatti/net/api_client.dart';
+import 'package:teenpatti/net/picture_cache.dart';
 import 'package:teenpatti/state/game_state.dart';
 import 'package:teenpatti/widgets/table_picture_shelf.dart';
 
@@ -248,6 +251,49 @@ void main() {
       // the box arms after a failed fetch is cancelled with it.
       await tester.pump(const Duration(seconds: 3));
       await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  testWidgets(
+    'on the felt a banner-shaped picture is drawn above the plinth, a square one around the pot',
+    (tester) async {
+      // Welcome (428x123) fitted whole into the square centred on the pot was
+      // a strip under the plinth (TP_Tall, 23 Sep 2026): a banner now stands
+      // in the band above it, across the square's width.
+      Uint8List lottie(int w, int h) => Uint8List.fromList(
+        utf8.encode('{"v":"5.5.3","fr":25,"ip":0,"op":10,"w":$w,"h":$h,"nm":"x","layers":[]}'),
+      );
+      PictureCache.prime('http://example.test/tables/banner.json', lottie(428, 123));
+      PictureCache.prime('http://example.test/tables/square.json', lottie(1500, 1500));
+      for (final (url, banner) in [
+        ('http://example.test/tables/banner.json', true),
+        ('http://example.test/tables/square.json', false),
+      ]) {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Center(
+              child: SizedBox(
+                width: 300,
+                height: 300,
+                child: TablePictureGround(url: url, format: 'LOTTIE'),
+              ),
+            ),
+          ),
+        );
+        await tester.pump();
+        expect(find.byType(AspectRatio), banner ? findsOneWidget : findsNothing, reason: url);
+        if (banner) {
+          final strip = tester.getRect(find.byType(AspectRatio));
+          expect(strip.width, 300);
+          expect(strip.height, closeTo(300 * 123 / 428, 0.5));
+          final pot = tester.getCenter(find.byType(TablePictureGround)).dy;
+          expect(strip.center.dy, lessThan(pot - 0.25 * 150), reason: 'the banner sits above the pot');
+          expect(strip.top, greaterThan(pot - 150), reason: 'and inside the square');
+        }
+        await tester.pump(const Duration(seconds: 3));
+        await tester.pumpWidget(const SizedBox());
+      }
+      PictureCache.clearMemory();
     },
   );
 

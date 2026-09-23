@@ -1808,7 +1808,11 @@ clock (4, 8, 16 s, then every 30 s) by both the backdrop and `CachedPictureBox`,
   for a rectangle, and shows NOTHING on a failed fetch rather than a placeholder. **A Lottie's fit follows its canvas** (16 Sep 2026:
   `pictureFitFor(lottieCanvasAspect(bytes))`, the `w`/`h` read off the file's head): near enough square covers the box, cropped — Lines
   Background 1:1, Background Pattern 3:2 — while a banner or a column past 1.6:1 is `contain`ed whole (Welcome, 428×123; cropped it was two
-  letters of the middle). SVGs and bitmaps still cover. **The header's tab strip scrolls** when six keys would crowd the blurb off its two lines (a 640dp
+  letters of the middle). SVGs and bitmaps still cover. **On the felt a banner stands ABOVE the plinth** (23 Sep 2026, TP_Tall:
+  fitted whole into the square centred on the pot, Welcome was a strip under "1,600" with one stroke peeking out): `TablePictureGround`
+  reads the canvas off the cached bytes and draws a canvas wider than `bannerAspect` 1.6 across the square's width in the band at
+  `bannerLift` −0.45 (between the status line and the plinth's top), faded at its two ends instead of radially; a square-ish canvas is
+  drawn as before. **The header's tab strip scrolls** when six keys would crowd the blurb off its two lines (a 640dp
   phone at the 1.25 text ceiling): `_ChipStoreState` cuts `tabsShown` a key at a time until `blurbLinesAt(...) <= 2`, and `_revealTab`
   jumps the strip to the key that is on. `_loadPictures` loads both catalogues; the lobby rental watch covers a laid premium table too.
 - **`Avatar` has two different fallbacks and the difference is deliberate.** No picture at all → the
