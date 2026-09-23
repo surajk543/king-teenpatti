@@ -16,7 +16,7 @@ code does, why it is shaped the way it is, and the traps that have already bitte
 > `snapshot.go`), `roomManager.js` → `internal/game/roommanager.go`, `handRank.js`/`deck.js`/`chat.js`
 > → `internal/game/{handrank,deck,chat}.go`, `socket/index.js` → `internal/socket/{handler,wire}.go`,
 > `auth/{routes,providers,tokens}.js` → `internal/auth/{http,handlers,providers,tokens}.go`,
-> `db/{index,ledger,users}.js` → `internal/db/{db,ledger,users}.go` (+ `schema.sql`),
+> `db/{index,ledger,users}.js` → `internal/db/{db,ledger,users}.go` (+ `migration/V1.0.0__baseline.sql`, `V1.0.1__seed.sql`),
 > `config/index.js` → `internal/config/config.go`, `metrics/index.js` →
 > `internal/metrics/{metrics,names}.go`, `src/index.js` → `cmd/gameplay/main.go` + `internal/app/`.
 > Node's `_private` methods keep their names minus the underscore in Go (`_endHand` → `endHand`).
@@ -33,7 +33,7 @@ A turn-based multiplayer **Teen Patti** (3-card Indian poker) game:
 
 | Part | Path | Status |
 |---|---|---|
-| **Game server** | `go-server/` | **The server** — live in production since `go-server/ops/DEPLOY.md` was run (Sept 2026). Go 1.27, one static binary, **PostgreSQL 18** via `pgx`. Database-first money model (§5). Wire-identical to the Node original it replaced — same protocol, JWTs, schema, ledger rows, `/health`, `game_*` metrics (141/141 black-box parity suites). §5–§7 describe its behaviour; §14 its shape. **Since 19 Sep 2026 it also runs the Poker family** (§6.5): 3-Card Poker, 5-Card Draw, Texas Hold'em and Omaha as rooms beside the Teen Patti tables, in `internal/poker/`. |
+| **Game server** | `go-server/` | **The server** — live in production since `go-server/ops/DEPLOY.md` was run (Sept 2026). Go 1.27, one static binary, **PostgreSQL 18** via `pgx`. Database-first money model (§5). Wire-identical to the Node original it replaced — same protocol, JWTs, schema, ledger rows, `/health`, `game_*` metrics (141/141 black-box parity suites). §5–§7 describe its behaviour; §14 its shape. **Since 19 Sep 2026 it also runs the Poker family** (§6.5): 3-Card Poker, 5-Card Draw, Texas Hold'em and Omaha as rooms beside the Teen Patti tables, in `internal/poker/`. **Since 23 Sep 2026 its table configuration can live in PostgreSQL** (owner: "all table related config store in database"): the engines (Teen Patti, Poker), the categories under them, and every lobby table with every figure it plays by, read once at boot when `TABLE_CONFIG_SOURCE=db` (§7.3, §7.4) and served to the app as `GET /api/tables` (§7.2). Configuration only — game state stays in Redis. |
 | Node.js server | *(removed)* | The original implementation, removed from the repo on 8 Sep 2026 (`git log -- server/`, last commit `c19963b`; `multi_node` branch). Its behaviour is what §5–§7 document; its file names are what those sections cite. **No longer a rollback target at all** (12 Sep 2026): it reads and writes `users.avatar_choice`, which the schema dropped for `active_picture_id`, and knows nothing of the picture-catalogue tables — so it cannot run against this database. `ops/rollback-to-node.sh` was deleted rather than left as a recovery script that would fail when used; rolling back now means the previous **Go** tag (DEPLOY.md §5). |
 | Mobile client | `flutter-client/` | **The live client.** Flutter 3.44 / Dart 3.12, Material 3 via FlexColorScheme. Android is the shipping platform; `ios/` exists and is configured (`docs/ios-setup.md`) but has never been compiled — there is no macOS here. |
 | Browser client | `go-server/public/` | Zero-build vanilla-JS reference client served at `/` by the Go binary (`PUBLIC_DIR`) — **in dev only; production hides it** (`ROOT_REDIRECT=/dashboard/`, §7.4/§9) and serves just `privacy/`, `profiles/` from that dir. **Lags behind** — no sideshow, kick, rename, entry-cap or Indian-numbering UI. |
@@ -62,16 +62,24 @@ king-teenpatti/
 ├── docs/load-reports/            ramp-test reports, HTML + JSON (2026‑09‑08 production runs; formerly server/loadtest-report/)
 ├── go-server/                    THE server (§14): Go 1.27, module github.com/surajk543/king-teenpatti/go-server
 │   ├── cmd/gameplay/main.go      entrypoint: godotenv .env → config → db → app → listen; SIGTERM = graceful 8 s; -version
+│   │                         tableconfig.go: -export-table-config (the env-composed table catalogue as a psql script on stdout) and
+│   │                         -check-table-config (reads the database's catalogue WITHOUT migrating, judges it as a db boot would; exit 0/1/2) — both run before the server, §4
 │   ├── internal/
-│   │   ├── config/config.go      ALL env → one immutable Config (Defaults(); strict integer parsing); parse.go
+│   │   ├── config/config.go      ALL env → one immutable Config (Defaults(); strict integer parsing); parse.go;
+│   │   │                         tables.go = the table catalogue contract (23 Sep 2026): TABLE_CONFIG_SOURCE, TableEnvKeys, Categories, EngineOf,
+│   │   │                         TableEngine/TableCategory/TableSettings/TableSpec, TableCatalogue{Engines, Categories, Settings, Public, Private},
+│   │   │                         GameConfig.Spec (THE answer to "what does a new table of this category and boot play by"), HasPrivate, FromDatabase,
+│   │   │                         EffectiveCatalogue, WithCatalogue, Validate (leaves a bad row out with a reason), SameRules
 │   │   ├── game/
-│   │   │   ├── room.go           the Room interface every table implements (Teen Patti AND poker), RoomFactory/RoomSpec/RoomDeps/RoomHooks, AsTable (§6.5)
+│   │   │   ├── room.go           the Room interface every table implements (Teen Patti AND poker; RulesSpec — what a room plays by, from its frozen config), RoomFactory/RoomSpec (.Table = the resolved TableSpec)/RoomDeps/RoomHooks, AsTable (§6.5)
 │   │   │   ├── actor.go          the shell a room is built on: Actor (one goroutine, run/post), LiveState (Redis snapshot + fence), Settler (the hand-end retry chain)
 │   │   │   ├── table.go          THE Teen Patti rules engine (embeds the three above; Table, run(), every Node _method minus the underscore)
 │   │   │   ├── view.go           serializeFor / betOptions / turnOptions / summary — the redacted wire structs
 │   │   │   ├── events.go         Listener (one method per table event) + payload structs
 │   │   │   ├── snapshot.go       the server-side full state (cards, bets, deadlines) saved to Redis; never sent to clients
-│   │   │   ├── roommanager.go    lobby menu, quick-join, switch, consolidation, sweeper; injects the Ledger
+│   │   │   ├── roommanager.go    lobby menu, quick-join, switch, consolidation, sweeper, draining (roommanager_live.go: restore → drainReason); injects the Ledger
+│   │   │   ├── tablespec.go      a Teen Patti TableConfig built from a config.TableSpec (tableConfigFromSpec) and back (Table.RulesSpec)
+│   │   │   ├── tableconfig.go    the menu rows (each entry with its Spec), TableConfigPayload — the GET /api/tables body, engines included — and its version (sha256)
 │   │   │   ├── handrank.go       Evaluate/Compare/PickWinner — the ONE hand ranking
 │   │   │   ├── variation.go      Variation Teen Patti's rules (§6.4): the six variations as a wild rule + a comparison direction laid over Evaluate
 │   │   │   ├── table_variation.go  the variation WINDOW: who chooses, the server's clock, closeVariation (exactly once), SelectVariation, snapshot/restore
@@ -81,19 +89,20 @@ king-teenpatti/
 │   │   │   ├── errors.go         GameError, every snake_case code and refusal message
 │   │   │   ├── ledger.go         Ledger interface (Checkpoint/Settle — the three checkpoints, §5.1) + MemoryLedger for unit tests
 │   │   │   ├── clock.go          Clock interface, RealClock, Millis;  testclock/ = deterministic clock (Advance)
-│   │   │   └── *_test.go         table, tablerules, sideshow, settlement, roommanager, handrank, deck, chat, wire, review_*, interop (needs NODE_REFERENCE_DIR)
+│   │   │   └── *_test.go         table, tablerules, sideshow, settlement, roommanager, handrank, deck, chat, wire, tablecatalogue, review_*, interop (needs NODE_REFERENCE_DIR)
 │   │   ├── poker/                THE POKER FAMILY (§6.5; Go only, owner 19 Sep 2026): variant.go (the four VariantConfigs, streets, actions, win reasons),
 │   │   │                         eval5.go (Evaluate5 / BestOf / BestHoldem / BestOmaha — the five-card ranking), eval3.go (3-Card Poker's, over game.Evaluate),
 │   │   │                         pot.go (SidePots, Award), table.go (the room: seats, join/leave, clocks, the three checkpoints), hand.go (the deal, the streets,
 │   │   │                         every move, the showdown, settle), flow_threecard.go (against the house), view.go (TableView — the redacted wire), events.go
-│   │   │                         (poker.Listener + payloads), snapshot.go ("game":"poker" first), factory.go (RoomFactory, ConfigFor, the menu entry), errors.go
+│   │   │                         (poker.Listener + payloads), snapshot.go ("game":"poker" first), factory.go (RoomFactory, ConfigFor/ConfigFromSpec, the menu entry), errors.go
 │   │   ├── sio/                  our own Engine.IO v4 + Socket.IO v5 server, websocket only (protocol.go, conn.go, server.go)
 │   │   ├── socket/               the game protocol on sio: handler.go (Attach, guard, one method per event, grace, resume offers), wire.go (every event/ack), payload.go,
 │   │   │                         poker.go (poker:action in, the poker:* events out — the Handler's poker.Listener); testclient/
-│   │   ├── auth/                 tokens.go (JWT HS256), providers.go (Google/Facebook/guest/fake), http.go (routes, RequireAuth, WriteError), handlers.go (the 8 REST handlers), text.go
-│   │   ├── db/                   db.go (pgxpool, search_path as connection param, WithTx, DropSchema, Migrations), migration/ (embedded, Flyway-named V<version>__<name>.sql, applied in version order — V1.0.0__baseline.sql = all DDL and V1.0.1__seed_profile_pictures.sql = all DML (consolidated 14 Sep 2026: missiles, the 9-diamond default and the HAMMER picture currency included)), ledger.go (THE money transactions: Checkpoint / Settle), users.go (login upsert, rewards, names, the worn picture), pictures.go (the catalogue, ownership and the chip purchase); dbtest/
+│   │   ├── auth/                 tokens.go (JWT HS256), providers.go (Google/guest/fake; Facebook commented out — switched off 23 Sep 2026, §7.2), http.go (routes, RequireAuth, WriteError), handlers.go (the 8 REST handlers), text.go
+│   │   ├── db/                   db.go (pgxpool, search_path as connection param, WithTx, DropSchema, Migrations, Options.SkipMigrations), migration/ (embedded, Flyway-named V<version>__<name>.sql, applied in version order — EXACTLY TWO since 23 Sep 2026: V1.0.0__baseline.sql = all DDL (users.is_bot, chip_ledger.game/variant with the guarded blocks that add them to an older database, the four table-configuration tables) and V1.0.1__seed.sql = all DML (the 45 pictures, the engines and categories, table_settings, the table_configs rows) — §7.3), ledger.go (THE money transactions: Checkpoint / Settle), users.go (login upsert, rewards, names, the worn picture), pictures.go (the catalogue, ownership and the chip purchase), tableconfigs.go (TableConfigs.Load — the table catalogue as the database holds it — and ExportTableConfigSQL); dbtest/
 │   │   ├── metrics/              names.go (every game_* metric), metrics.go (registry, Bind*, Handler, HTTPMiddleware, SafeLabel)
-│   │   ├── app/                  app.go (mux, REST, socket endpoint, Start/Shutdown), health.go, static.go (PUBLIC_DIR + embedded assets/socket.io.min.js)
+│   │   ├── app/                  app.go (mux, REST, socket endpoint, Start/Shutdown), health.go, static.go (PUBLIC_DIR + embedded assets/socket.io.min.js),
+│   │   │                         tableconfig.go (resolveTableCatalogue — the catalogue settled once, before anything is built from it; GET /api/tables; /health.tableConfig)
 │   │   └── util/                 UUID, RoomCode, slog JSON logger
 │   ├── public/                   browser client (index.html, client.js, style.css, theme.css) + profiles/ (15 Noto Emoji animal SVGs, Apache 2.0)
 │   ├── .env.example              every env key the server reads, with defaults (+ Go-only PG_STATEMENT_TIMEOUT_MS)
@@ -130,8 +139,9 @@ king-teenpatti/
     │   │     GameState: bubbles hold `bubbleFor` = 8s; a second line from the same player queues in `_bubbleQueue` and shows when the first expires; `_clearBubbles()` on leave/kick.
     │   │     `_CategoryTag` text shrinks via FittedBox (slot w*0.30).
     │   ├── net/game_connection.dart  Socket.IO streams; every move carries a fresh actionId
-    │   ├── net/api_client.dart   REST
-    │   ├── models/dtos.dart      wire DTOs mirroring server JSON
+    │   ├── net/api_client.dart   REST; tableConfig({version}) = GET /api/tables with If-None-Match (304 before decoding, 404 = a server with no catalogue, 12 s timeout)
+    │   ├── models/dtos.dart      wire DTOs mirroring server JSON (LobbyTable's catalogue figures and engine, GameConfig.fromCatalogue/engines/privateTables/tableConfigVersion, TableEngineInfo)
+    │   ├── state/table_config_cache.dart  TableConfigCache (SharedPreferences `tableConfig`: the phone's copy of GET /api/tables) + MenuPrecedence (pure: which menu the lobby shows) — §8.1
     │   ├── screens/{login,lobby,table}_screen.dart; screens/poker_table_screen.dart (the poker felt, mounted by table_screen when room.isPoker — §8.4)
     │   ├── widgets/table_chrome.dart  the chrome both felts share (rail, drawers, keys, wallet, reconnecting veil), moved out of table_screen.dart
     │   ├── widgets/              premium_surface, seat_pod, playing_card, poker_chip, liquid_fill,
@@ -145,7 +155,7 @@ king-teenpatti/
     │   └── l10n/strings.dart     hand-written 5-language table (en/hi/bn/gu/pa)
     ├── assets/card_back.svg, assets/app_icon.svg, assets/fonts/ (Inter 400/500/600/700 + OFL licence), assets/sfx/,
     │                         assets/animations/Fireworks.json (Lottie 5.5.7, 512x512, 2.43s — the winner's burst)
-    ├── test/  number_format, connection_failure, consent, theme_preference, … poker_table (§8.4)
+    ├── test/  number_format, connection_failure, consent, theme_preference, … poker_table (§8.4), table_config_{dtos,cache,menu}, table_engines (§8.1)
     ├── android/                  applicationId com.sungamestudio.kingteenpatti, sensorLandscape, cleartext on
     └── ios/                      bundle id com.sungamestudio.kingteenpatti, landscape-only, status bar hidden,
                                   NSAllowsLocalNetworking; GIDClientID + URL scheme come from Flutter/*.xcconfig.
@@ -190,7 +200,7 @@ server code). For a local server build with `--dart-define=SERVER_URL=http://10.
 
 ### Server (`cd go-server`, `export PATH=$HOME/.local/go/bin:$PATH`)
 ```bash
-cp .env.example .env            # optional; defaults work for local dev. Set JWT_SECRET for prod.
+cp .env.example .env            # optional; defaults work for local dev. Set JWT_SECRET for prod. It names TABLE_CONFIG_SOURCE=db (see below)
 go run ./cmd/gameplay           # → http://0.0.0.0:3000 (needs Postgres up); reads ./.env; browser client from ./public
 go build ./... && go vet ./... && test -z "$(gofmt -l .)"    # compiles, vets, formatted — part of "done"
 go test ./...                   # every package; Postgres-backed suites use schema test_<pkg>_<rand> and skip without a DB
@@ -199,7 +209,20 @@ go test ./internal/game -run 'Sideshow'        # one package / tests matching a 
 go test -count=1 ./internal/db ./internal/app  # force the DB suites to re-run (no cache)
 bash ops/build.sh && ./bin/gameplay            # static, stripped, version-stamped binary (bin/ is git-ignored); -version prints the stamp
 PORT=3001 PG_SCHEMA=test_x ./bin/gameplay      # spare port + throwaway schema (drop it after)
+# the table catalogue (§7.3/§7.4) — both read ./.env and start no server (no logger on stdout: the export's stdout is SQL alone):
+./bin/gameplay -export-table-config > tables.sql    # the catalogue the ENV keys compose, as one psql transaction (stderr: which keys, how to apply)
+PGPASSWORD=postgres psql -h localhost -U postgres -d gameplay -f tables.sql   # PGOPTIONS='-c search_path=<schema>' first on any PG_SCHEMA but public
+./bin/gameplay -check-table-config                  # the database's catalogue judged as a db boot would: exit 0 clean, 1 rows left out, 2 unusable
+curl -s localhost:3000/api/tables | python3 -m json.tool | head -40    # what the server enforces (and the app caches)
+curl -s localhost:3000/health | python3 -c 'import json,sys; print(json.load(sys.stdin)["tableConfig"])'   # {source, version, fallback}
 ```
+
+**Dev clocks and menus are env keys, and a table env key works only in env mode** (23 Sep 2026). Unset,
+`TABLE_CONFIG_SOURCE` resolves to `env` the moment ANY table key is set, so on this box (no `.env`)
+`POKER_TURN_TIMEOUT_MS=90000 go run ./cmd/gameplay` still plays a 90 s poker clock. A `.env` copied from
+`.env.example` says `TABLE_CONFIG_SOURCE=db`, and then every table key is ignored (one WARN names them):
+add `TABLE_CONFIG_SOURCE=env` to the command, or `UPDATE table_configs SET turn_timeout_ms = 90000 WHERE
+table_key = 'texas_holdem:50000'` and restart — the catalogue is read once, at boot.
 
 ### Tools (`cd tools`, Node ≥ 20 — `npm install` once)
 ```bash
@@ -234,7 +257,7 @@ PGPASSWORD=postgres psql -h localhost -U postgres -d gameplay -c "select nspname
 ```bash
 flutter pub get
 flutter analyze                 # must be clean (it is)
-flutter test                    # 21 tests (number formatting, connection failures, consent, theme preference)
+flutter test                    # every suite under test/ (number formatting, connection failures, consent, … the table catalogue and the engine lobby)
 flutter test tool/render_icons.dart   # re-render launcher/adaptive/splash PNGs from assets/app_icon.svg (not part of `flutter test`)
 flutter build apk --debug       # ~7s incremental; build/app/outputs/flutter-apk/app-debug.apk
 flutter build apk --debug --dart-define=SERVER_URL=http://10.0.2.2:3000   # local server on the emulator
@@ -277,9 +300,13 @@ adb shell screenrecord --time-limit 170 --bit-rate 8000000 /sdcard/seg.mp4   # f
 ### 5.1 The money model (three checkpoints)
 **Owner's decision, 9 Sep 2026 — this replaced the batched-bet model of `3fa983d`, which had itself
 replaced the per-bet "database-first" one.** All game state lives in **Redis and nowhere else**.
-**PostgreSQL holds money and audit only, in exactly two tables — `users` and `chip_ledger`.** There
-is no `game_states`, no `pots` and no `hands` table any more (`schema.sql` drops all three, guarded;
-see §7.3). A bet is **not** a database transaction, and neither is the deal.
+**PostgreSQL holds money and audit** — the wallet on `users`, every movement in `chip_ledger` — beside
+the accounts, the picture catalogue and the purchase records, and since 23 Sep 2026 the **table
+configuration** (owner: "PostgreSQL stores table CONFIG, never state"): what KIND of table the lobby
+offers and every figure it plays by, read once at boot (§7.3). None of it is the table being played:
+a table copies its figures into its own config when it opens and never reads the database again. There
+is no `game_states`, no `pots` and no `hands` table any more (retired 9 Sep 2026; the baseline no
+longer creates them — see §7.3). A bet is **not** a database transaction, and neither is the deal.
 
 The wallet is brought up to date at exactly three moments, each taking that player's chips as the
 live state has them:
@@ -383,6 +410,22 @@ RoomManager holds **`game.Room`s** (`room.go`), of which `*game.Table` is the Te
 `*poker.Table` the poker kind (§6.5); `game.AsTable(room)` is how code that needs the Teen Patti
 table gets it. Nothing in §6.1–§6.4 changed for it.
 
+**Engines → categories → tables** (owner, 23 Sep 2026: "Teen Patti engines / Poker engines"). Every
+category belongs to exactly one ENGINE — `seen`, `blind`, `variation` to `teen_patti`, the four poker
+categories to `poker` (`config.EngineOf`, which a test holds to `game.Category.Game()`; the values are
+`game.GameTeenPatti`/`GamePoker`, and `chip_ledger.game`'s `'poker'`). The categories are flat: a poker
+variant is a category of the Poker engine, not a kind of Teen Patti's `variation`. The code always had
+this; since 23 Sep 2026 the database does too (`table_engines`, `table_categories`, §7.3), and each
+table of the lobby is a `table_configs` row under a category. **A category is data AND code**: the
+database lists it, but only the engine written for it can play it, so the server leaves out (with a
+logged reason) a category it does not know or one filed under the wrong engine (seen under poker).
+**Where a new table's figures come from**: `config.GameConfig.Spec(category, boot, private)` — the one
+answer every table is built from, the lobby card is drawn from and `GET /api/tables` serves, so they
+can never disagree. With a catalogue loaded (db mode, §7.4) it is that pair's `table_configs` row (a
+private table: its category's template); otherwise it composes the env keys exactly as the server
+always did (`TableRules`, the global scalars, the poker knobs — pinned figure by figure in
+`config/tables_test.go`).
+
 ### 6.1 `table.js` (→ `table.go`)
 **Seat:** `{ userId, displayName, avatarUrl, chips, status, isBlind, blindMoves, cards, lastBet,
 lastAction, contributed, connected, socketId, missedTurns, sideshowAskedThisTurn, seatIndex }`.
@@ -471,7 +514,12 @@ showRequestedBy, sideshow, lastDeparture, turnDeadline, turnToken, contributions
   `NewTable`, which is also where a table restored from Redis gets its category back) → `assertTableOffered` (`lobbyTables` pair) → chips ≥ boot →
   `_assertUnderEntryCap` → **`assertWithinTableBand`** → fullest public non-full table with same boot+category,
   else `createTable`.
-  Sync.
+  Sync. The categories are seven since 19 Sep 2026 (the four poker ones too, §6.5), and the fields these checks read —
+  `TableStakes`, `LobbyTables`, the entry cap — come from the table catalogue in db mode (`GameConfig.WithCatalogue`
+  writes them from the rows, so no check changed, §7.4). **In db mode `assertUnderEntryCap` checks nothing**: the
+  settings' entry cap is folded into the matching table's band (`tableMaxChips`) and `assertWithinTableBand` refuses
+  with the same `over_entry_cap` code and message, and a row's own `max_chips` wins over it at the card AND the door —
+  checking the settings' cap as well would refuse a player the row lets in.
 - `switchTable` (**async**): same boot+category, a **random** other public non-full table (Go, owner 13 Sep 2026 —
   `pickRandomTableLocked`, crypto/rand; Node took the fullest, which quickJoin still does), **no entry cap**, leaves with reason `'moved'`
   (skips consolidation). `leave`, `destroyTable`, `consolidateTables`, `sweepEmptyTables`,
@@ -480,9 +528,31 @@ showRequestedBy, sideshow, lastDeparture, turnDeadline, turnToken, contributions
 - `createTable`: public seen → `{maxRaiseSteps: 2, maxBetRounds: 7, maxPot: 2_000_000}`; private →
   boot forced to `privateBoot`, `{maxPot: 500_000, maxRaiseSteps: 2}`; public blind → full ladder,
   uncapped. Constructs `Table` with `ledger: this.ledger` (defaults to `createLedger()` unless tests
-  pass `settle`/`persistChips`).
+  pass `settle`/`persistChips`). **In Go (`newTableLocked`, 23 Sep 2026) those are the env composition's
+  figures and every one comes through `g.Spec(resolved, boot, private)`**: the category is settled first — a
+  variation table the menu does not offer is seen; a PRIVATE table of a category with no active private
+  template (db mode, `GameConfig.HasPrivate`) is seen; a poker category without a factory, or whose factory
+  refuses, is seen — then a Teen Patti table's `TableConfig` is `tableConfigFromSpec(resolved, spec, chat)`
+  and a poker room gets the spec as `RoomSpec.Table` (`poker.ConfigFromSpec`). The table copies every figure
+  into its own config and snapshot, so an edit to the catalogue reaches only tables opened after the restart
+  that loads it.
 - `lobbyOptions()` → `{categories, stakes, tables:[{category, bootAmount, maxPot, maxBlindMoves}],
-  entryCap*, privateBoot, privateMaxPot}`. Clients render `tables` verbatim.
+  entryCap*, privateBoot, privateMaxPot}`. Clients render `tables` verbatim. In Go each entry's
+  `maxPot`/`maxBlindMoves` (and a poker entry's facts, `RoomFactory.MenuEntry(spec, …)`) come from that
+  entry's `Spec` (`menuRows`), so the card states exactly what the table it opens plays by; the JSON is byte
+  for byte what it was in env mode. `TableConfig()` / `TableConfigVersion()` are the same menu with every
+  figure beside it — the `GET /api/tables` body and its sha256 version (§7.2) — built ONCE in
+  `NewRoomManager` (the config is immutable) and handed out as copies.
+- **Draining** (Go only, 23 Sep 2026). A room restored from Redis keeps the rules frozen in its snapshot
+  whatever the configuration now says. `drainReason` (at `registerRestored`, before the room is visible to
+  matchmaking) marks a PUBLIC room `rm.draining` when its category+boot has left a non-empty menu, or when
+  `!room.RulesSpec().SameRules(g.Spec(category, boot, false))` (durations compared in whole ms, the grain a
+  snapshot keeps). A draining room plays on and `room:joinCode` still reaches it, but quick-join and a switch
+  never send anybody to it and consolidation neither empties nor fills it; it is swept like any table once
+  empty (the mark goes in `destroyTable`/`Suspend`), and one INFO `table draining` line names it. Without it a
+  poker room frozen with a higher buy-in than its card shows would refuse (`insufficient_chips`) every player
+  the card let through while quick-join kept choosing it. A private room is never drained — its code is its
+  only door.
 - Sweeper interval (unref'd): merges lone players on idle public tables of the same
   `category:boot` into the oldest; sweeps empty tables older than a **hardcoded** 30s.
 
@@ -499,7 +569,9 @@ from the blind one (`Category.HidesChips`: other stacks are `null`), and it has 
 `VARIATION_MAX_POT_BOOTS` 0 — the one variation-only rule key, a cap counted in that table's own BOOTS because one fixed
 figure cannot fit several stakes: the seen table's 20 Lakh is two boots at the 10 Lakh table, where every hand would be
 dealt straight into the POT_LIMIT showdown; a private variation table keeps `PRIVATE_MAX_POT`). The default menu offers
-it at **two stakes only, 50,000 and 10 Lakh**, behind the stack bands blind's tables of those stakes have. Every hand
+it at **two stakes only, 50,000 and 10 Lakh**, behind the stack bands blind's tables of those stakes have. (Those are
+the env keys' composition; in db mode each variation row carries its own ladder, `max_pot`, and the two windows, which
+a CHECK keeps above 0 — seeded to exactly these figures, §7.3.) Every hand
 is decided by one of **seven** variations, chosen in the window §6.1 describes. Wire values, matched EXACTLY by
 `ParseVariation` (no trimming, no case folding — `muflis` and `Lowest Joker` are `invalid_variation`): `MUFLIS`, `AK47`,
 `JOKER`, `HUKAM`, `LOWEST_JOKER`, `HIGHEST_JOKER`, and — added LAST, so the six before it keep their places —
@@ -571,19 +643,22 @@ house), **`five_card_draw`**, **`texas_holdem`** and **`omaha`**. `Category.Game
   `t.run`, `t.destroyed`, `t.liveSeq` are promoted). The actor rules of §14.1 apply to a poker room word for word.
 - **Money is the three checkpoints and nothing new**: a **fold** writes `hand_packed`, a **leave / kick** `hand_left`,
   the **hand end** `hand_win` / `hand_loss` — same `action_id` shapes, same deltas, same UNIQUE guard, same purge. The
-  only schema change is **`chip_ledger.game` and `chip_ledger.variant`** (nullable TEXT, `V1.0.2__chip_ledger_game.sql`,
-  §7.3): `'poker'` + the category on a poker row, NULL on every Teen Patti row, so the audit can tell them apart —
+  only schema change is **`chip_ledger.game` and `chip_ledger.variant`** (nullable TEXT; `V1.0.2__chip_ledger_game.sql`
+  until 23 Sep 2026, folded into the baseline since — §7.3): `'poker'` + the category on a poker row, NULL on every Teen Patti row, so the audit can tell them apart —
   **3-Card Poker is played against a house with no wallet**, so its hands are not zero-sum (chips a player wins enter
   the economy like a reward, chips they lose leave it like a purchase); `tools/parity/money.test.js` exempts exactly
   `variant='three_card_poker'` from the per-hand sum and nothing else. Every other poker hand conserves chips and every
   wallet still equals its ledger sum (the §4 psql check stays 0).
 - **The variants** are fixed in `poker.Variants` (`VariantConfig`: hole cards, board, blinds or ante, dealer, draw,
-  the streets), nothing about how they play is env-tunable. **Stake = the LOBBY_TABLES boot**: the **big blind** at
+  the streets), nothing about how they play is configurable. **Stake = the table's boot** (the `LOBBY_TABLES` entry's
+  in env mode, the `table_configs` row's `boot_amount` in db mode): the **big blind** at
   Hold'em/Omaha (small = half) and the **ante** at 3-Card Poker / 5-Card Draw. The default menu offers **one table per
-  game, all four at 50,000** (owner, 19 Sep 2026), so the buy-in is 5 Lakh everywhere — above the welcome (§7.4). `PokerConfig` (§7.4) holds the three
-  deployment knobs: `POKER_TURN_TIMEOUT_MS` (0 = `TURN_TIMEOUT_MS`), `POKER_MIN_BUYIN_BOOTS` (10 — a stack below
-  `minBuyIn` cannot sit, `insufficient_chips`, and a seated one is held for `UNFUNDED_GRACE_MS` then kicked, as a short
-  Teen Patti seat is) and `POKER_MAX_DISCARDS` (3, 0..5). A poker room has **no pot limit** (`MaxPot()` 0) and
+  game, all four at 50,000** (owner, 19 Sep 2026), so the buy-in is 5 Lakh everywhere — above the welcome (§7.4). Three
+  deployment figures: the turn clock (env: `POKER_TURN_TIMEOUT_MS`, 0 = `TURN_TIMEOUT_MS`), the buy-in (env:
+  `POKER_MIN_BUYIN_BOOTS` 10 × boot; db: the row's `min_buy_in` in CHIPS, at least the boot — a stack below it cannot
+  sit, `insufficient_chips`, and a seated one is held for `UNFUNDED_GRACE_MS` then kicked, as a short Teen Patti seat
+  is) and the exchange limit (env: `POKER_MAX_DISCARDS` 3, 0..5; db: `max_discards`) — each a `table_configs` column in
+  db mode, per table (`poker.ConfigFromSpec`). A poker room has **no pot limit** (`MaxPot()` 0) and
   **hides every other stack** (owner, 19 Sep 2026: "in poker do not show opponent chips"): `Category.HidesChips()` is
   true for the four poker categories as it is for blind and variation, so `chipsHidden:true` and every `seats[].chips`
   but the viewer's own is **`null`** (never 0). The lobby card, the table info dialog and the rules sheet all say
@@ -685,7 +760,7 @@ user (`session:replaced` to the old one). On connect: `session:ready {user, conf
 
 | Server → client | Audience |
 |---|---|
-| `session:ready {user, config}` / `session:replaced` | socket |
+| `session:ready {user, config}` / `session:replaced` — `config` is the table-wide figures + `LobbyOptions` + `welcomeChips`/`minClientBuild`, and since 23 Sep 2026 **`tableConfigVersion`** (the ONLY change to it: the version of the table catalogue this server enforces, `GET /api/tables`' `version`/ETag, §7.2; `""` only on a server with no rooms). A client holding that version keeps its catalogue; one holding another fetches it again. `config` still carries the whole menu (`tables`), so an installed app older than the catalogue needs nothing new | socket |
 | `room:joined` / `room:state` — `serializeFor(viewer)` | **per viewer** |
 | `room:moved {fromRoomId, toRoomId, code, message}` — **no `state`**; the snapshot is the `room:joined` that follows | socket |
 | `room:left` / `room:closed` / `room:kicked {roomId, reason, message}` | socket |
@@ -740,8 +815,11 @@ with `room:joinCode`. Voluntary leave / kick never create an offer (the grace ti
 `room:switch` must `untrackRoom` *before* `switchTable` and re-track on failure.
 
 ### 7.2 REST (`auth/routes.js` → `internal/auth/http.go` + `handlers.go`)
-`POST /api/auth/login {provider: google|facebook|guest, idToken|accessToken|deviceId, displayName?}`
-→ `{token, user, isNew, welcomeChips}`; `GET /api/auth/me` (takes off a worn rental that has run out, as
+`POST /api/auth/login {provider: google|guest, idToken|deviceId, displayName?}`
+→ `{token, user, isNew, welcomeChips}` (**Facebook is switched off for now** — owner, 23 Sep 2026, `94061a2`:
+`VerifyFacebook` and its `case` are commented out, so `provider:"facebook"` with an `accessToken` answers 400
+`unknown_provider`, fake path included; the app draws no Facebook button; `docs/social-login-setup.md` §2 says what to
+uncomment); `GET /api/auth/me` (takes off a worn rental that has run out, as
 login and `GET /api/profiles` do — a saved session comes back through here, never through login); `POST /api/rewards/milestone|bonus|daily`
 (**409 `seated` while at a table** — rewards are lobby-only so a seated wallet only ever moves at the
 three checkpoints, §5.1); **`GET /api/profiles`** — the picture catalogue from `profile_pictures`, active rows only, in
@@ -782,6 +860,26 @@ client rotates the **device id** as well as dropping the token (`GameState.delet
 guest would sign straight back into the id just freed. Public page: `/account-deletion/` (served in
 production because `ROOT_REDIRECT` hides only top-level files, §7.4), linked from `privacy/`;
 `GET /api/rooms` (no client);
+**`GET /api/tables`** (Go only, 23 Sep 2026; `app/tableconfig.go` `tablesHandler`) — **the table catalogue this
+process enforces**, served from memory (`RoomManager.TableConfig()`, never a fresh database read, which could show a
+client an edit the process does not play by until its next start). **Public**: no token, since the app fetches it
+before sign-in and it holds nothing a lobby card does not. `Cache-Control: no-cache`, `ETag: "<version>"`, and a
+request whose `If-None-Match` names that version (weak compare, `*` too) is answered **304** with no body. Body
+(`game.TableConfigPayload`, every slice non-nil): `version` (hex sha256 of the payload marshalled with `version:""`,
+so it changes exactly when anything a client reads changes — `session:ready.config.tableConfigVersion` is the same
+string), `source` (`db` | `env`), the table-wide scalars and lists exactly as `session:ready.config` has them
+(`maxPlayers, minPlayers, bootAmount, turnTimeoutMs, maxBetRounds, sideshowTimeoutMs, sideshowMinPlayers, categories,
+stakes, entryCap*, privateBoot, privateMaxPot` — one parser reads either), then **`tables`** — `session:ready.config.tables`
+entry for entry (same order, keys and values, poker facts included) plus `key` (`"seen:200"`), **`engine`**
+(`teen_patti` | `poker`, always present), `isPrivate`, `sortOrder`, `maxRaiseSteps`, `maxBetRounds`,
+`potLimitMultiplier`, `turnTimeoutMs`, `maxMissedTurns`, `sideshowTimeoutMs`, `sideshowMinPlayers`, `nextHandDelayMs`,
+`unfundedGraceMs`, `missileRevealExtraMs`, `variationSelectTimeoutMs`, `fiveCardPickTimeoutMs` — then
+**`privateTables`** (one per category with an active private template, same shape, `key:"private:<category>"`, band 0)
+and **`engines`**: `[{code, name, sortOrder, categories:[{code, name, sortOrder}]}]`, every active engine with its
+active categories (env mode: the defaults, Teen Patti {seen, blind, variation} then Poker {the four}). The names are
+the database's admin labels — the app names the engines and categories it knows in its own five languages and shows
+`name` only for a code it has never heard of. Nothing session-scoped (no `welcomeChips`, no `minClientBuild`): a phone
+caches the body across sessions and players (§8.1). No per-table `maxPlayers`/`minPlayers` — the server has one of each;
 **`POST /api/purchases/google {productId, purchaseToken}`** — verifies the token with Google and banks
 the pack through a `purchase` ledger row (action_id `gplay:<token>`), so a replay credits once. The same endpoint sells
 **diamond packs** (owner, 13 Sep 2026): `diamonds_1_49`, `diamonds_5_199`, `diamonds_20_699`, `diamonds_100_2999`
@@ -794,9 +892,11 @@ packs: `missiles_1` (15 diamonds for 1 — 10 until the owner raised it later on
 wallet lock (`db.Missiles.TradeMissiles`), replay-guarded by `missile_purchases` (`request_id` = `<userId>:<requestId>`).
 Answers `{user, charged, diamonds, missiles}` — `charged:false` with 0 and 0 on a replay; 400 `unknown_pack` /
 `invalid_request_id`, 409 `not_enough_diamonds`. Allowed while seated: diamonds and missiles sit outside §5.1;
-`GET /health`. Errors `{error: code, message}`. Guest id = `sha256('teenpatti:'+deviceId)`, deviceId
-≥ 8 chars. `AUTH_ALLOW_FAKE_PROVIDERS=true` lets google/facebook skip verification (tests, browser
-stubs). **A refused login is logged** (`login refused` WARN: provider, code, status, reason with the
+`GET /health` (since 23 Sep 2026 it ends with `tableConfig: {source, version, fallback}` — where the tables came
+from; `fallback:true` is a `TABLE_CONFIG_SOURCE=db` boot that could not use the database's catalogue and runs the env
+composition, the one state an operator must go and fix). Errors `{error: code, message}`. Guest id = `sha256('teenpatti:'+deviceId)`, deviceId
+≥ 8 chars. `AUTH_ALLOW_FAKE_PROVIDERS=true` lets google skip verification (tests, browser
+stubs; it did facebook too until Facebook was switched off). **A refused login is logged** (`login refused` WARN: provider, code, status, reason with the
 credential cut out — `handlers.go logRefusedLogin`, since 10 Sep 2026); other AuthErrors are written
 to the client only, so `journalctl -u gameplay | grep 'login refused'` is where a "Google sign-in
 doesn't work" report starts.
@@ -805,59 +905,145 @@ doesn't work" report starts.
 `pg` Pool (`DATABASE_URL`, `PG_POOL_MAX`), `search_path` set as a connection **option**
 (`-c search_path=<schema>,public`). `openDatabase({url, schema})` creates the schema if missing and applies
 **`internal/db/migration/*.sql`** in version order. They are named the Flyway way
-(`V<version>__<description>.sql`) and split DDL from DML — `V1.0.0__baseline.sql` declares every
-table in full (no ALTERs; a fresh database is built from it alone) and `V1.0.1__seed_profile_pictures.sql`
-holds the catalogue rows. **There is no schema history table**: the server applies EVERY script on
-EVERY boot, so each one must be idempotent (IF NOT EXISTS / CREATE OR REPLACE / ON CONFLICT DO
-NOTHING / a catalogue lookup before an unguarded trigger). A script that is not idempotent does not
-fail the first time — it fails on the next restart, in production. **Consolidated on 14 Sep 2026 (owner), for a
-production deploy onto an empty database:** there are exactly two scripts — `V1.0.0__baseline.sql` (every table, column,
-index, function and trigger, `users.hammer`, `users.missile` and the purchase, spend and missile tables included) and
-`V1.0.1__seed_profile_pictures.sql` (all 40 catalogue rows) — and V1.0.2–V1.0.5 are gone, with the blocks that brought
-older databases forward (V1.0.2's Butterfly Flapping move/fold, V1.0.5's guarded hammer ALTER; git history, `ccff445`).
-They build an EMPTY database, and booted unchanged on one built by master's scripts at `c8cd055` (which added the missiles as V1.0.2) until `profile_pictures.duration_hours` joined the baseline later on 14 Sep 2026 — a database built before that needs `ALTER TABLE profile_pictures ADD COLUMN duration_hours INTEGER NOT NULL DEFAULT 0 CHECK (duration_hours >= 0)` run by hand first, or the seed fails the boot; a database from go-server/v1.3.0 or
-older lacks `users.hammer`, and one from go-server/v1.0.0 or older `users.missile` — the missiles were folded into the
-baseline the same day, for a second fresh production deploy — so production starts over (DEPLOY.md §8). `db_test.go`
-pinned the count at two again (three since V1.0.2, above): `V1.0.2__timed_bonus_milestone.sql` and `V1.0.3__seed_new_pictures.sql`, the first scripts written after production ran the pair, were folded into the baseline and the seed later on 14 Sep 2026 (owner) — so the TIMED_BONUS CHECK reaches only a `user_milestones` table built afresh (production's, from go-server/v1.1.0, needs a fresh start or the hand ALTER in the baseline's header), while pictures appended to the seed reach every database at its next boot. Later the same day the 9-diamond default arrived as `V1.0.2__new_account_diamonds.sql` and was folded back into the baseline together with the HAMMER picture currency, for another fresh production deploy: a database built before that has the old `profile_pictures_currency_check` and cannot take the seed (DEPLOY.md §8). The next change is a NEW file, never an edit to an applied one — and the first such file is here: **`V1.0.2__chip_ledger_game.sql`** (19 Sep 2026, the Poker family, §6.5) adds the two nullable columns `chip_ledger.game` and `chip_ledger.variant` through a **catalogue-guarded `DO` block** (`information_schema.columns` lookup, then `EXECUTE 'ALTER TABLE … ADD COLUMN …'` only where the column is missing) — never `ADD COLUMN IF NOT EXISTS`, which takes ACCESS EXCLUSIVE on the table even when the column exists and would queue every restart behind any reader (`TestABootSurvivesALongReaderHoldingTheTables` is the guard; the 9 Sep crash loop is the reason). **`V1.0.3__users_is_bot.sql`** (22 Sep 2026, owner) is the second, the same shape for one column: `users.is_bot BOOLEAN NOT NULL DEFAULT FALSE`, so a query about real players can leave the resident fleet out. `db_test.go` pins the count at **four**. The catalogue guards that remain (the baseline's
+(`V<version>__<description>.sql`) and split DDL from DML. **There is no schema history table**: the server
+applies EVERY script on EVERY boot, so each one must be idempotent (IF NOT EXISTS / CREATE OR REPLACE / ON CONFLICT DO
+NOTHING / a catalogue lookup before an unguarded trigger or column). A script that is not idempotent does not
+fail the first time — it fails on the next restart, in production.
+
+**Exactly two scripts** (owner, 23 Sep 2026: "merge all DDL and DML into 2 files") —
+**`V1.0.0__baseline.sql`**, ALL the structure (every table, column, check, index, function and trigger), and
+**`V1.0.1__seed.sql`**, ALL the rows: the 45 pictures, then the table catalogue (engines, categories, `table_settings`,
+`table_configs`). The seed was `V1.0.1__seed_profile_pictures.sql` until then; nothing records a script's name, so the
+rename changed nothing for any database. `TestMigrationsAreVersionedOrderedAndSplitByKind` (`db_test.go`) pins the pair:
+two files, no CREATE/ALTER/INDEX in the seed, and in the baseline an `ALTER TABLE` only as an `EXECUTE` string inside a
+catalogue-guarded block (exactly three: `users.is_bot`, `chip_ledger.game`, `chip_ledger.variant`). How it got here: the 14 Sep 2026 consolidation (owner, for a
+production deploy onto an EMPTY database) folded V1.0.2–V1.0.5 in and dropped the blocks that brought older databases
+forward (git history, `ccff445`); later that day `duration_hours`, `V1.0.2__timed_bonus_milestone.sql`,
+`V1.0.3__seed_new_pictures.sql`, the 9-diamond default and the HAMMER currency were folded in too, so a database built
+before them cannot take this build without the hand steps in the baseline's header or a fresh start (DEPLOY.md §8) —
+the TIMED_BONUS CHECK reaches only a `user_milestones` table built afresh (production's, from go-server/v1.1.0, refuses
+every four-hour bonus claim until the hand ALTER). Then the first two scripts written AFTER production ran the pair:
+**`V1.0.2__chip_ledger_game.sql`** (19 Sep 2026, the Poker family, §6.5 — in tags go-server/v1.1.1 and v1.1.2) and
+**`V1.0.3__users_is_bot.sql`** (22 Sep 2026, never tagged). On 23 Sep 2026 both were **folded into the baseline**, with
+the four table-configuration tables, and each of those columns is now written TWICE: in its `CREATE TABLE`, so a fresh
+database is built with it, and — moved verbatim — in the **catalogue-guarded `DO` block** right after that
+`CREATE TABLE` (`information_schema.columns` lookup, then `EXECUTE 'ALTER TABLE … ADD COLUMN …'` only where the column is
+missing). Those blocks are what an OLDER database needs at its next boot, and they are kept for production: a database
+last booted by go-server/v1.1.2 (production's) has `game`/`variant` and lacks `is_bot`, so this build's first boot there runs one
+`ALTER TABLE users ADD COLUMN is_bot …` — which needs the app role to own `users` (DEPLOY.md §7: run it once as
+`postgres` first where §7 is applied). `TestABootBringsAnOlderDatabaseForward` (`upgrade_boot_test.go`) takes that path:
+the columns and the configuration tables dropped, one boot, and a login and a poker-tagged checkpoint work. **Never
+`ADD COLUMN IF NOT EXISTS`**: it takes ACCESS EXCLUSIVE on the table even when the column exists, and every restart would
+queue behind any reader (`TestABootSurvivesALongReaderHoldingTheTables` is the guard, now holding the four
+configuration tables too; the 9 Sep crash loop is the reason).
+
+**The next change goes INTO `V1.0.0`, never into a new file** (the baseline's header, 23 Sep 2026): the seed runs
+right after the baseline and BEFORE anything numbered later, so a seed row that needed a column a `V1.0.2` added would
+fail every boot — fresh databases included — before `V1.0.2` had run. **DDL the seed depends on lives in V1.0.0**, which
+runs first; keeping all of it there is what "two files" means. A new table is one `CREATE TABLE IF NOT EXISTS`; a new
+column is written twice, as `is_bot` and `game`/`variant` are. What a boot does NOT do is change what an existing
+column already IS — a CHECK, a default, a type: `CREATE TABLE IF NOT EXISTS` is a no-op where the table exists, and
+that stays **a deliberate one-off step run by hand**, or a fresh start. The other catalogue guards (the baseline's
 `idx_users_last_login`, `users_no_delete` created only when missing) are for DEPLOY.md §7, where the app role no longer
-owns `users`. **A column added to an existing database is a deliberate one-off
-ALTER run by hand** (`CREATE TABLE IF NOT EXISTS` is a no-op where the table exists, so the baseline
-cannot add one), which is the trade the no-ALTER baseline makes.
+owns `users`.
 `withTransaction(fn)` = BEGIN/COMMIT/ROLLBACK. `dropSchema()` refuses `public`. **int8 and numeric
 are parsed to JS numbers** (`pg.types.setTypeParser(20|1700)`) — without that, `chips` and `SUM()`
 come back as strings.
 
-Tables — **there are exactly ten, and none of them is game state** (`user_milestones`, `diamond_purchases`, `hammer_purchases`, `hammer_spends`, `missile_purchases` and `missile_spends` are below): `users` (wallet = `chips BIGINT
+Tables — **there are exactly fourteen, and none of them is game state**: ten of accounts, money and the picture
+catalogue (`user_milestones`, `diamond_purchases`, `hammer_purchases`, `hammer_spends`, `missile_purchases` and
+`missile_spends` are below), and since 23 Sep 2026 **four of table configuration** — `table_engines`,
+`table_categories`, `table_settings`, `table_configs` (the last paragraph of this list). `users` (wallet = `chips BIGINT
 CHECK ≥ 0`, **`diamond INTEGER NOT NULL DEFAULT 9 CHECK ≥ 0`** — the premium currency, nine per new account (owner, 14 Sep 2026; two, and one before that, earlier the same day), never
 ledgered —, **`hammer INTEGER NOT NULL DEFAULT 20 CHECK ≥ 0`** — what a Force Sideshow costs, 20 per account, never ledgered —, **`missile INTEGER NOT NULL DEFAULT 1 CHECK ≥ 0`** — what a missile costs, one per new account, never ledgered —,
-counters, `active_picture_id`, `deleted_at`, and since 22 Sep 2026 **`is_bot BOOLEAN NOT NULL DEFAULT FALSE`** — true for the `bot-play/` fleet, set at login from the guest DEVICE ID's namespace (`config.BotDevicePrefix`, env `BOT_DEVICE_PREFIX`, default `botplay-`, which covers a rotated bot's `botplay-v1-<n>-g<gen>` too). A **label, never a permission**: nothing in the game reads it, it is absent from every wire struct (`TestMarkingABotDoesNotLeakToTheClient` — a seat that announced itself as a bot would tell a player exactly what the fleet exists not to tell them), and the login **ORs** rather than assigns so a mark is never cleared. Empty prefix marks nobody, never everybody),
+counters, `active_picture_id`, `deleted_at`, and since 22 Sep 2026 **`is_bot BOOLEAN NOT NULL DEFAULT FALSE`** (in the baseline's `CREATE TABLE users` and its guarded block since 23 Sep 2026) — true for the `bot-play/` fleet, set at login from the guest DEVICE ID's namespace (`config.BotDevicePrefix`, env `BOT_DEVICE_PREFIX`, default `botplay-`, which covers a rotated bot's `botplay-v1-<n>-g<gen>` too). A **label, never a permission**: nothing in the game reads it, it is absent from every wire struct (`TestMarkingABotDoesNotLeakToTheClient` — a seat that announced itself as a bot would tell a player exactly what the fleet exists not to tell them), and the login **ORs** rather than assigns so a mark is never cleared. Empty prefix marks nobody, never everybody),
 **`user_milestones`** (owner, 14 Sep 2026: the rewards each player has collected, moved off `users`, where they were `milestone_claimed` and `next_bonus_at` — `user_id`, `milestone` HANDS_PLAYED|TIMED_BONUS|DAILY_BONUS (TIMED_BONUS in the baseline's CHECK since `V1.0.2__timed_bonus_milestone.sql` was folded into it; production's table, built by go-server/v1.1.0, keeps the two-value CHECK — and refuses every four-hour bonus claim — until a fresh start or the hand ALTER in the baseline's header), PK on the pair, `claimed_up_to`, `next_claim_at`, `times_claimed`, `last_claimed_at`; one row per player per milestone, inserted on the first claim and updated in place after (`db.collectMilestone`), read through two LEFT JOINs in `userFrom`, so no row reads as nothing collected and both bonuses ready),
 **`chip_ledger`** (`action_id UNIQUE`, `hand_id`, `delta`, `balance`, `reason`, and since 19 Sep 2026 `game`/`variant` — `'poker'` + the poker category on a poker row, NULL on every Teen Patti row, §6.5; append-only trigger),
 and the picture catalogue added 12 Sep 2026 (owner): **`profile_pictures`** (`name`, `asset_url`
 UNIQUE, `asset_format` IMAGE|SVG|LOTTIE|RIVE, `currency` COIN|DIAMOND|HAMMER, `type` FREE|PREMIUM, `cost` with a CHECK that free is 0 and premium is > 0, `is_active`,
 `sort_order`) and **`user_profile_pictures`** (`user_id`, `profile_picture_id`, PK on the pair) —
 who has bought what. A FREE picture needs **no** ownership row: everyone may wear it, so the table
-holds only what somebody paid for. `V1.0.1__seed_profile_pictures.sql` seeds 15 hosted animals (2 free, 13 coin-priced rentals), four LOTTIE rentals priced in chips (owner, 14 Sep 2026; sold in the lobby only, like every chip-priced picture) — Love Sheep 10 Lakh for 1 hour, Love Birds 30 Lakh for 3 hours, Error 404 1 Crore for 10 days, Anima Bot 1 Crore for 5 days — and
+holds only what somebody paid for. `V1.0.1__seed.sql` (THE PICTURES) seeds 15 hosted animals (2 free, 13 coin-priced rentals), four LOTTIE rentals priced in chips (owner, 14 Sep 2026; sold in the lobby only, like every chip-priced picture) — Love Sheep 10 Lakh for 1 hour, Love Birds 30 Lakh for 3 hours, Error 404 1 Crore for 10 days, Anima Bot 1 Crore for 5 days — and
 21 more LOTTIE rentals, 16 priced in HAMMERS (Love and Kiss, added the same day, 25 hammers for 10 days — its seed row was 2 until the owner changed it in place after production had run the seed, so only a database built from scratch has 25 and production keeps 2 (owner's choice, 14 Sep 2026)) and 5 in DIAMONDS (owner, 14 Sep 2026: a hammer picture costs ten times the figure in brackets below, which was its diamond price until then, and is rented for as many days as it costs — Swirling Dots 30 hammers for 50 days; Butterfly Flapping, Waving Tiger Cub, Indian Flag, Jolly King and Jolly Queen are priced in diamonds instead, at 4, 3, 5, 5 and 5, for 100 days. The seed now runs free → chip-priced → hammer-priced → diamond-priced with sort_order 10–400 in that order, so the sort_orders in brackets below are the old ones; the seed's header table is the current list) — Orange Ballerina (1, sort_order 160), Butterfly Flapping (4, 170; its first Drive upload beats its wings with 3D orientation the phone players ignore — §12.3 — so the row points at a second Drive upload of the flattened copy; go-server/v1.3.0 served that copy itself as `/profiles/butterfly-flapping.json`, and a rollback to that tag seeds the path again as a second row — DEPLOY.md §5), Toucan Flying (a landscape 1920×1080 canvas, 3, 180), Live Chatbot (1, 190), Paper Plane (1, 200), Bouncing Dots (1, 210), Monarch Butterfly (4, 220), Lovestruck Cat (5, 230), Waving Tiger Cub (5, 240; a tiny `loopOut()` detail in its head holds still on phones, which run no expressions), Galloping Horse (1, 250; a black silhouette flipbook, about 1.2:1 against the dark theme's picture circles), Gamer Raccoon (6, 260), Cool Cat (10, 270), Indian Flag (10, 280; it sits high and left in its canvas, so the round picture loses most of its pole), Jolly King (10, 290), Jolly Queen (10, 300; both move only through `loopOut()` expressions, so both are served from Drive as copies baked by `tools/lottie/bake_loop_expressions.py`, not as their original uploads), Shooting Game (8, 310; a video turned into a 28-frame flipbook of embedded WebP images with no transparency, so its round picture is a white disc), Spider (8, 320; a landscape 3840×2160 canvas whose centre square is the whole spider; its dark legs fade on the dark theme), Swirling Dots (3, 330; uploaded as "Dots Loader"), Sporty Avocado (9, 340; black line art that all but disappears on the dark theme; its 12 "Kleaner" overshoot expressions do not run on phones, which looked the same) and Blazing Fire (1, 350; the animated Noto Emoji 🔥, CC BY 4.0) — inserted with `ON CONFLICT (asset_url) DO NOTHING`, so re-pricing or retiring one is an UPDATE
-the next boot will not undo; on an empty database they number 1 (Bear) to 40 (Jolly Queen). The last five, and then Love Sheep, Love Birds, Error 404, Anima Bot and Love and Kiss, were added to the consolidated seed on 14 Sep 2026, before production had run it. Production has now run it (go-server/v1.1.0), and the next five were appended to the seed too (owner, 14 Sep 2026; they came as `V1.0.3__seed_new_pictures.sql` and were folded back in) — a row appended there reaches every database at its next boot, a changed row only a fresh database — **Bodybuilder** (50 Crore chips for 50 days, sort_order 195, uploaded as "Bodybuilder lifting heavy barbell"), **Butterfly** (100 Crore chips for 100 days, 197, the dearest picture; not Butterfly Flapping or Monarch Butterfly), **Dog Dancing** (30 hammers for 30 days, 352), **Dance** (20 hammers for 10 days, 354) and **Cockroach** (10 hammers for 15 days, 356; first priced at 80 Crore chips), none with 3D layers, expressions or embedded images — rows 41 to 45 on an empty database. The catalogue test (`TestTheSeededCatalogueHoldsEveryPictureAtTheOwnersPrices`) derives its counts from its price maps and `added`, so a later picture is a line in each. **`diamond_purchases`** (`purchase_token` PK, `user_id`, `product_id`, `diamonds`, `created_at`) is the replay guard and record for Play diamond packs — diamonds never enter `chip_ledger`; **`hammer_purchases`** is its twin for Play hammer packs, and **`hammer_spends`** (`action_id` PK — `<handId>:force:<userId>:<client actionId>` —, `user_id`, `hand_id`, `created_at`) is the one row per spend a Force Sideshow's hammer is charged against. **`missile_purchases`** (`request_id` PK, `user_id`, `diamonds`, `missiles`, `created_at`) and **`missile_spends`** (`action_id` PK, `user_id`, `hand_id`, `created_at`) are the same pair for missiles: a diamonds-for-missiles trade and a missile fired. `users.avatar_choice` (the old free-text `/profiles/x.svg` path) is
-migrated into `active_picture_id` and dropped — **but only once every non-empty choice has found its
-catalogue row**, and any picture that was already being worn is granted an ownership row first so
-seeding it as premium cannot confiscate it. Every statement naming `avatar_choice` goes through
-`EXECUTE` for the reason the retired-tables block documents: PL/pgSQL plans before it evaluates, so a
-direct reference stops the file parsing the boot after the column is gone. `avatar_url` **stays** —
-it is the Google/Facebook photo, a different thing from a chosen picture, and what "use my social
-picture" falls back to. `game_states`, `pots` and `hands` were
-all removed on 9 Sep 2026 — PostgreSQL holds money and audit only. `schema.sql` drops each on an
-existing database, but **only when it is empty**, so a restored backup is left for a human; every
-reference to a retired table goes through `EXECUTE` because PL/pgSQL plans before it evaluates and a
-direct reference stops parsing once the table is gone (that bug crash-looped production on
-9 Sep 2026 — `d949179`). Timestamps
-are epoch-ms BIGINT. Rewards: milestone 25,000 / 25 hands (`didChaal` only), timed bonus 10,000 / 4h (`POST /api/rewards/bonus`, `rewards.bonus*`), and beside it the Go-only daily bonus 1,00,000 chips + 1 hammer / 24h (owner, 14 Sep 2026; `POST /api/rewards/daily`, `rewards.daily*`, ledger reason `daily_bonus`) —
+the next boot will not undo; on an empty database they number 1 (Bear) to 40 (Jolly Queen). The last five, and then Love Sheep, Love Birds, Error 404, Anima Bot and Love and Kiss, were added to the consolidated seed on 14 Sep 2026, before production had run it. Production has now run it (go-server/v1.1.0), and the next five were appended to the seed too (owner, 14 Sep 2026; they came as `V1.0.3__seed_new_pictures.sql` and were folded back in) — a row appended there reaches every database at its next boot, a changed row only a fresh database — **Bodybuilder** (50 Crore chips for 50 days, sort_order 195, uploaded as "Bodybuilder lifting heavy barbell"), **Butterfly** (100 Crore chips for 100 days, 197, the dearest picture; not Butterfly Flapping or Monarch Butterfly), **Dog Dancing** (30 hammers for 30 days, 352), **Dance** (20 hammers for 10 days, 354) and **Cockroach** (10 hammers for 15 days, 356; first priced at 80 Crore chips), none with 3D layers, expressions or embedded images — rows 41 to 45 on an empty database. The catalogue test (`TestTheSeededCatalogueHoldsEveryPictureAtTheOwnersPrices`) derives its counts from its price maps and `added`, so a later picture is a line in each. **`diamond_purchases`** (`purchase_token` PK, `user_id`, `product_id`, `diamonds`, `created_at`) is the replay guard and record for Play diamond packs — diamonds never enter `chip_ledger`; **`hammer_purchases`** is its twin for Play hammer packs, and **`hammer_spends`** (`action_id` PK — `<handId>:force:<userId>:<client actionId>` —, `user_id`, `hand_id`, `created_at`) is the one row per spend a Force Sideshow's hammer is charged against. **`missile_purchases`** (`request_id` PK, `user_id`, `diamonds`, `missiles`, `created_at`) and **`missile_spends`** (`action_id` PK, `user_id`, `hand_id`, `created_at`) are the same pair for missiles: a diamonds-for-missiles trade and a missile fired. `users.avatar_choice` (the old free-text `/profiles/x.svg` path) was
+migrated into `active_picture_id` and dropped on 12 Sep 2026; the block that did it (and the guarded drops of the
+retired `game_states`, `pots` and `hands`, removed 9 Sep 2026 — `d949179` is the crash loop a direct reference to one
+caused) left the files when the schema was declared from scratch that evening (`79266b2`), so today's baseline neither
+creates nor drops any of them: a database still carrying one was restored from an old backup, and dropping it is a
+human's call. `avatar_url` **stays** — it is the Google (or Facebook, while that was on) photo, a different thing from a chosen picture, and what "use my social
+picture" falls back to.
+
+**The table configuration** (owner, 23 Sep 2026: "all table related config store in database"; `V1.0.0`'s TABLE
+CONFIGURATION section). CONFIGURATION, not state: a row says what KIND of table the lobby offers, the way
+`profile_pictures` says what a picture costs; a table in play copies every figure into its own config when it opens,
+keeps it in its Redis snapshot and never looks here again. All four are app-role owned and reference nothing of `users`,
+so DEPLOY.md §7 changes nothing for them; durations are in milliseconds, like the env keys they replace; timestamps
+epoch-ms with a DEFAULT; no index beyond the keys each declares (each is read whole, once per boot).
+- **`table_engines`** (`code` PK — `teen_patti` | `poker`, `config.EngineTeenPatti`/`EnginePoker` —, `name` an admin
+  label, `sort_order`, `is_active`) and **`table_categories`** (`code` PK — the seven categories —, **`engine REFERENCES
+  table_engines (code)`**, `name`, `sort_order`, `is_active`): the taxonomy of §6 ("Teen Patti engines / Poker engines",
+  the owner, the same day).
+- **`table_settings`** — ONE row (`id SMALLINT PK CHECK (id = 1)`): the figures that belong to no single table —
+  `default_boot_amount` (BOOT_AMOUNT), `stakes BIGINT[]` (TABLE_STAKES verbatim; empty = any stake), `max_players`
+  (2..5) and `min_players` — here and on no table row, because every installed client lays its seats out from the ONE
+  `maxPlayers` session:ready advertises —, the ADVERTISED `turn_timeout_ms` (≥ 5000), `max_bet_rounds`,
+  `sideshow_timeout_ms` (0 or ≥ 1000), `sideshow_min_players`, and requirement 30's `entry_cap_boot`,
+  `entry_cap_category REFERENCES table_categories (code)`, `entry_cap_max_chips` (0 disables).
+- **`table_configs`** — one row per PUBLIC lobby table (the menu, in `sort_order`) and one PRIVATE template per category
+  (what `room:create` opens; a category with no active template folds a private create to seen), **every figure fully
+  resolved on its own row** — no inheritance, no NULL meaning "the default". `category REFERENCES table_categories
+  (code)`; `boot_amount` (the boot; the big blind at Hold'em/Omaha, the ante at 3-Card Poker/5-Card Draw);
+  `is_private`; **`table_key` GENERATED ALWAYS AS `'category:boot'` or `'private:category'` STORED UNIQUE** — the
+  identity quick-join, switch, consolidation, the live lobby, resume offers and the metrics all key a public table on,
+  declared in the CREATE TABLE so a boot that changes nothing takes no SHARE lock and makes no ownership check;
+  `min_chips`/`max_chips` (the stack band, public only); Teen Patti's `max_pot`, `max_raise_steps`, `max_bet_rounds`,
+  `pot_limit_multiplier`, `max_blind_moves` (0 = no limit for each, the blind rule); `turn_timeout_ms` (≥ 5000),
+  `max_missed_turns`, `sideshow_timeout_ms`, `sideshow_min_players`, `next_hand_delay_ms`, `unfunded_grace_ms`,
+  `missile_reveal_extra_ms`; variation's `variation_select_timeout_ms`/`five_card_pick_timeout_ms` (a CHECK makes both
+  > 0 on a variation row: a 0 window never lapses); poker's `min_buy_in` (in CHIPS; a CHECK makes it ≥ the boot on a
+  poker row) and `max_discards` (0..5); `sort_order`; `is_active`. **The rule and timer columns have NO DEFAULT**: a row
+  typed by hand that forgets one fails there and then instead of playing by a number nobody chose. A figure a category
+  does not read (a poker row's ladder, a seen row's buy-in) is stored as written and zeroed by the server on load.
+- **Foreign keys, not enumerated CHECKs**, so the set stays OPEN: a future engine or category is a seed row, never a
+  change to a constraint an existing database already has (the trap `profile_pictures_currency_check` sprang when
+  HAMMER arrived). The keys refuse a row naming a category nobody declared; what they cannot say is whether THIS build
+  can play it, so `config.TableCatalogue.Validate` leaves out — with an ERROR `table config row left out` each, and the
+  boot carries on — an engine it does not run, a category it does not know or one filed under the wrong engine (seen
+  under poker), every table under a category that did not survive, and a row PostgreSQL accepted but the engine must not
+  open (a band min over max, a poker buy-in under the boot, a per-bet ceiling that overflows). Only a catalogue that
+  cannot run a lobby — no (or an invalid) settings row, no public table, no private **seen** template, or a read that
+  fails — is refused, and then the server
+  runs the env composition instead (`/health.tableConfig.fallback: true`), because refusing to boot over a hand edit
+  would turn an unrelated restart into a crash loop.
+- **`is_active` works at every level**: `db.TableConfigs.Load` reads a table only when its row, its category AND its
+  engine are active (one read-only REPEATABLE READ transaction, tables schema-qualified), so one `UPDATE` retires one
+  table, a whole category (every Variation table) or a whole engine (all of Poker) — silently, because what is switched
+  off on purpose is not a problem to report. **`seen` and `teen_patti` cannot be switched off**: the private template
+  room:create opens is seen's, and losing it makes the catalogue unusable — the boot falls back to the env
+  composition rather than hiding anything. (To keep seen out of the LOBBY, retire its public rows.) Retire with
+  `is_active = FALSE`, never DELETE (a DELETE of an engine or category is refused while anything names it, and the seed
+  puts a seeded row back).
+- **The seed policy** (`V1.0.1__seed.sql`, THE TABLES): engines and categories `ON CONFLICT (code) DO NOTHING`, ACTIVE
+  wherever the code is missing (a category puts nothing in front of a player by itself); the settings row `ON CONFLICT
+  (id) DO NOTHING`; the 12 public tables of the default menu (sort_order 10–120) and 7 private templates (1010–1070, boot
+  200) `ON CONFLICT (table_key) DO NOTHING` with **`is_active` = whether the catalogue was EMPTY** (asked separately for
+  public and private rows). So a fresh database gets everything active; **a table appended to the seed in a later
+  release reaches an existing database INACTIVE** — it goes live when the owner sets `is_active = TRUE`, after raising
+  `MIN_CLIENT_BUILD` to a build that can draw it (the way variation and poker were rolled out), never because a server
+  restarted; a row already there is never touched, so an owner's `UPDATE` survives every restart; a seed row changed
+  in place reaches only a fresh database (the picture rule); a seeded row DELETEd or re-keyed comes back inactive. The
+  VALUES were generated from `config.Defaults().Game.EffectiveCatalogue()` and **`TestTheSeededTableCatalogueIsTheDefaults`**
+  loads them back out of a fresh schema and compares them figure by figure — a server switched to db on this seed plays
+  exactly as one on the defaults did, and a default changed in `config` without the seed fails that test naming the
+  table. The seed is the CODE's default menu: a deployment whose `.env` configures its own gets its own into the
+  database with `gameplay -export-table-config` (§4, DEPLOY.md §3).
+
+Timestamps are epoch-ms BIGINT. Rewards: milestone 25,000 / 25 hands (`didChaal` only), timed bonus 10,000 / 4h (`POST /api/rewards/bonus`, `rewards.bonus*`), and beside it the Go-only daily bonus 1,00,000 chips + 1 hammer / 24h (owner, 14 Sep 2026; `POST /api/rewards/daily`, `rewards.daily*`, ledger reason `daily_bonus`) —
 constants in `users.js`. Display names: `NAME_PATTERN = /^[\p{L}\p{N}][\p{L}\p{N}\p{M} ]*$/u` —
 **`\p{M}` is essential** for Indic vowel signs.
 
 **`users` rows are never deleted** (owner's decision, 10 Sep 2026): trigger `users_no_delete`
-(`users_immutable_rows()`, `schema.sql`, created only when missing) raises on every DELETE from every
+(`users_immutable_rows()`, `V1.0.0__baseline.sql`, created only when missing) raises on every DELETE from every
 caller — the server never issues one. **`DELETE /api/account` pseudonymises instead** (restored
 20 Sep 2026 for the Play listing, after being removed on 10 Sep: Play requires apps that create an
 account to offer deletion in-app AND at a public URL, and this game creates one on first launch, so
@@ -865,7 +1051,7 @@ shipping without it risked the review — §7.2). It empties the row rather than
 `chip_ledger.user_id … ON DELETE CASCADE` would take the money audit with it. Removing a row is a
 deliberate privileged step: `sudo -u postgres psql gameplay`, `ALTER TABLE users DISABLE TRIGGER
 users_no_delete`, delete, re-enable. Prod's app role `gameplay_app` still **owns** the table and the
-function (it runs `schema.sql`), so it could disable the trigger; DEPLOY.md §7 has the one-time
+function (it runs the migrations), so it could disable the trigger; DEPLOY.md §7 has the one-time
 ownership transfer that closes that (owner → `postgres`, `GRANT SELECT, INSERT, UPDATE, REFERENCES` back — REFERENCES because a table a boot creates with a foreign key to users, such as `diamond_purchases`, needs it; and every migration statement that would need to OWN users, like the baseline's `idx_users_last_login`, is catalogue-guarded so it skips work already done, proven by `TestTheAppRoleBootsTwiceBeforeAndAfterUsersIsHandedToTheSuperuser` — tags up to go-server/v1.3.0 predate that guard and cannot boot once §7 is applied), which
 needs sudo on the host and is why the function is create-if-missing rather than CREATE OR REPLACE.
 Test: `TestUserRowsAreNeverDeleted` (`internal/db/users_delete_test.go`).
@@ -891,12 +1077,32 @@ Every key below is listed with its default in **`go-server/.env.example`** (copy
 `ROOT_REDIRECT` (below) and `PUBLIC_DIR` (browser-client dir; default `./public` relative to cwd,
 fallback `go-server/public`; not in `.env.example` — `config.go` documents it).
 
+**Keys marked † configure TABLES, and are read only when `TABLE_CONFIG_SOURCE` is `env`** (owner, 23 Sep 2026:
+"all table related config store in database"). They are `config.TableEnvKeys()`: `BOOT_AMOUNT`, `TABLE_STAKES`,
+`LOBBY_TABLES`, `MAX_PLAYERS_PER_ROOM`, `MIN_PLAYERS_TO_START`, `TURN_TIMEOUT_MS`, `MAX_BET_ROUNDS`,
+`POT_LIMIT_MULTIPLIER`, `MAX_RAISE_STEPS`, `SEEN_*`, `BLIND_*`, `MAX_BLIND_MOVES`, `ENTRY_CAP_*`, `MAX_MISSED_TURNS`,
+`SIDESHOW_*`, `PRIVATE_*`, `NEXT_HAND_DELAY_MS`, `UNFUNDED_GRACE_MS`, `MISSILE_REVEAL_EXTRA_MS`, `VARIATION_*`,
+`FIVE_CARD_PICK_TIMEOUT_MS`, `POKER_*`. In **db** mode the figures come from the four configuration tables (§7.3),
+read ONCE by `app.New` (`resolveTableCatalogue`, before the socket layer, the REST handler and the RoomManager are
+built, so all three hold one catalogue for the life of the process), and every † key set is IGNORED with one WARN
+naming them ("keep them for a rollback to a build that predates the table catalogue"). **An edit to the rows applies
+at the next restart, to tables opened after it**: hot reload was rejected — the manager reads `rm.game` lock-free from
+many goroutines, and a table restored from Redis keeps the rules in its snapshot (and is drained if they no longer
+match, §6.2). Where each key lands in db mode: `BOOT_AMOUNT`, `TABLE_STAKES`, `MAX_PLAYERS_PER_ROOM`,
+`MIN_PLAYERS_TO_START`, `ENTRY_CAP_*` and the ADVERTISED `TURN_TIMEOUT_MS`/`MAX_BET_ROUNDS`/`SIDESHOW_*` →
+`table_settings`; each `LOBBY_TABLES` entry → one public `table_configs` row (`category`, `boot_amount`, `min_chips`,
+`max_chips`, a `pot=` as `max_pot`), carrying every figure the category rules compose for it (`SEEN_*`/`BLIND_*`/
+`MAX_RAISE_STEPS`/`POT_LIMIT_MULTIPLIER`/`MAX_BET_ROUNDS` → the ladder columns, `VARIATION_MAX_POT_BOOTS` × boot →
+a variation row's `max_pot`, `POKER_MIN_BUYIN_BOOTS` × boot → `min_buy_in`, the clocks and kicks → their `_ms`
+columns); `PRIVATE_*` → the private templates. `gameplay -export-table-config` writes exactly that translation.
+
 | Env | Default | Purpose |
 |---|---|---|
+| **`TABLE_CONFIG_SOURCE`** | unset → `env` if ANY † key is set, else `db` | **Go-only (23 Sep 2026).** `db` — the table catalogue in PostgreSQL; `env` — the † keys and `Defaults()`, composed exactly as every build before it did (the rows are seeded but not read). Anything else stops the boot. **Unset, it follows the † keys**, so a deployment whose `.env` pins its menu (production's names `LOBBY_TABLES`) keeps exactly that menu on deploy until someone switches it on purpose — one WARN then says how (export, check, set `db`, restart: DEPLOY.md §3). `Defaults()` and `.env.example` say `db`. A db boot whose catalogue cannot run a lobby logs ERROR and runs the env composition instead (`/health.tableConfig` `{source:"env", fallback:true}`). Tests (`internal/app`'s `testConfig`), the parity harness (`BASE_ENV` names `env`; only the `menu` profile runs `db`, §7.6), `parity-diff`, chiptest and crashtest name `env` — they configure clocks and menus through the † keys and rely on `LOBBY_TABLES=''` meaning any pair, which a db catalogue has no equivalent of. |
 | `NODE_ENV` | development | `production` refuses to start on the default JWT secret / fake providers (the Go binary keeps the key name; the unit sets it) |
 | `PORT` / `HOST` / `CORS_ORIGIN` | 3000 / 0.0.0.0 / `*` | |
 | `JWT_SECRET` / `JWT_EXPIRES_IN` | dev-only-insecure-secret / 30d | |
-| `GOOGLE_CLIENT_IDS`, `FACEBOOK_APP_ID/SECRET` | empty → 503 | |
+| `GOOGLE_CLIENT_IDS`, `FACEBOOK_APP_ID/SECRET` | empty → 503 | Facebook's pair is read and unused while Facebook sign-in is switched off (23 Sep 2026, §7.2) |
 | `AUTH_ALLOW_FAKE_PROVIDERS` | false | |
 | **`DATABASE_URL`** | `postgres://postgres:postgres@localhost:5432/gameplay` | |
 | **`PG_SCHEMA`** | `public` | tests use `test_<suite>_<rand>` and drop it after |
@@ -904,29 +1110,29 @@ fallback `go-server/public`; not in `.env.example` — `config.go` documents it)
 | `PG_STATEMENT_TIMEOUT_MS` | 15000 | **Go server only**: Postgres `statement_timeout` per pooled connection so a hung query fails one ledger write instead of freezing a table; 0 = no limit (Node behaviour) |
 | **`LEDGER_PURGE_INTERVAL_MS`** | 300000 (5 min) | **Go server only.** How often the in-process purge goroutine runs (`App.startLedgerPurge`, a `time.NewTicker`, first pass one interval *after* boot — a server restarted more often never purges). **0 is the only way to turn the job off.** |
 | **`LEDGER_PURGE_AFTER_MS`** | 600000 (10 min) | **Go server only.** A `chip_ledger` row is deleted once older than this — but **only** `hand_win`/`hand_loss`/`hand_packed`/`hand_left` (`db.purgeableReasons`, hardcoded in the query): `purchase`, `picture_purchase`, `milestone_reward`, `timed_bonus`, `welcome_bonus` are never purged, since their UNIQUE `action_id` is a standing double-credit guard. Deletion is allowed only inside `PurgeLedger`'s own transaction, which sets `app.ledger_purge`; the append-only trigger refuses every other DELETE and every UPDATE. **Trap: 0 does NOT disable it** — the cutoff becomes `now`, so the next pass takes every purgeable row. Now equal to `RESUME_OFFER_MS`, so a retry at the edge of the resume window can find its `action_id` already gone (was 24h for that margin). |
-| `WELCOME_CHIPS` / `BOOT_AMOUNT` | 300000 / 200 | the 3 lakh welcome (owner, 14 Sep 2026; 2 lakh before). **Production's `.env` sets `WELCOME_CHIPS` explicitly**, so a new default changes nothing there until that line does |
-| `TABLE_STAKES` | `200,5000,50000,1000000` | empty = any (tests) |
-| **`LOBBY_TABLES`** | `seen:200,blind:200,blind:5000:max=50000000,blind:50000:max=1000000000,blind:1000000:min=500000000,variation:50000:max=1000000000,variation:1000000:min=500000000,seen:50000:pot=50000000,three_card_poker:50000,five_card_draw:50000,texas_holdem:50000,omaha:50000` | the menu; empty = any pair (tests). **`pot=N` is a table's OWN pot cap** (Go only; owner, 19 Sep 2026: a second seen table, boot 50,000, open to all, pot limit 5 Crore — `LobbyTable.MaxPot`, read by `TableRules` and `MenuMaxPot` through `menuPotFor(category, boot)`): it wins over the category's cap (`SEEN_MAX_POT` is 40 boots at 50,000, so every hand there would be dealt into the POT_LIMIT showdown), changes nothing else — the ladder and rounds stay the category's — and a private table never reads it. 5 Crore is 5,00,00,000 = `50000000`; `500000000` is 50 Crore. The new entry is LAST in the list like every later addition; the Flutter lobby files it under Seen by category. Categories are `seen`, `blind`, (Go only, 18 Sep 2026) **`variation`** and (Go only, 19 Sep 2026, §6.5) the four poker ones **`three_card_poker`, `five_card_draw`, `texas_holdem`, `omaha`** — anything else stops the boot. A poker entry's boot is its big blind (Hold'em, Omaha) or ante (3-Card Poker, 5-Card Draw); its `minChips` on the menu is raised to the table's `minBuyIn` (`POKER_MIN_BUYIN_BOOTS` × boot) and each `options.tables[]` entry carries `game`, `smallBlind`, `bigBlind`, `ante`, `minBuyIn`, `holeCards`, `maxDiscards` (omitted on Teen Patti entries). Poker keeps **one table per game, all four at 50,000** (owner, 19 Sep 2026: "in poker category only keep one table 50000 for each gameplay"; it was six entries at 200 and 5,000 earlier that day) — so blinds 25,000/50,000, an ante of 50,000, and a buy-in of **5,00,000** at every poker table, which is MORE than the 3,00,000 welcome: a brand-new account sees the whole Poker category shut until it has won 5 Lakh, and `POKER_MIN_BUYIN_BOOTS` (4 = 2 Lakh) is the one key that changes that without touching the stake. The four default poker entries are LAST; an older Go tag cannot boot on a `.env` that lists one, and an installed app older than the first poker-aware build draws each as a seen table — raise `MIN_CLIENT_BUILD` first. Variation keeps **two tables only, 50,000 and 10 Lakh** (owner, 18 Sep 2026), behind the bands blind's tables of those stakes have; its entries are LAST so the five before them keep their places, and clients are told of the category (`config.categories`) only when it is listed. **Rollout:** an installed app older than the build that knows the category draws that card as a seen table and never shows the picker, so every hand there is a server-chosen Muflis — raise `MIN_CLIENT_BUILD` first. **Production's `.env` sets `LOBBY_TABLES` explicitly**, so the new default changes nothing there until that line does; a Go tag older than this cannot boot on a `.env` that lists `variation:`. Each entry is `category:boot` plus an optional **stack band** — `max=N` shuts the table to a player holding MORE than N, `min=N` to one holding LESS. Exactly the limit is allowed at either end. A band whose min exceeds its max fails at load (it would advertise a table nobody could join). |
-| `MAX_PLAYERS_PER_ROOM` / `MIN_PLAYERS_TO_START` | 5 / 2 | 5 is also hardcoded in Flutter `_places` and browser CSS |
-| `TURN_TIMEOUT_MS` | 25000 | |
-| `MAX_BET_ROUNDS` / `POT_LIMIT_MULTIPLIER` / `MAX_RAISE_STEPS` | 20 / 1024 / 8 | defaults only; `createTable` overrides all three per category (seen: 7 / 1024 / 2, blind: 0 / 0 / 0) |
-| `SEEN_MAX_RAISE_STEPS` / `SEEN_MAX_BET_ROUNDS` / `SEEN_MAX_POT` | 2 / 7 / **2000000** | brief says "10 moves"; code is 7 rounds. **20 Lakh is the most a seen hand can pay** (owner, 12 Sep 2026): the moment the pot reaches it every player still in shows and the best hand takes it (`potCapReached` → `resolveShowdown(…, WinPotLimit)`), and `betOptions` headroom stops a bet that would carry the pot past it. `SEEN_MAX_RAISE_STEPS 2` is the two-rung ladder — chaal, or one raise — so a seen player raises once per turn. |
-| `MAX_BLIND_MOVES` | 4 | |
-| `ENTRY_CAP_BOOT` / `ENTRY_CAP_CATEGORY` / `ENTRY_CAP_MAX_CHIPS` | 200 / blind / 500000 | Requirement 30, and now the oldest case of the band above: `RoomManager.tableMaxChips` folds this trio into the matching menu entry's `maxChips`, so the lobby draws it from the same field as every other table. A `max=` on that entry in `LOBBY_TABLES` wins, being the more specific statement. |
-| `MAX_MISSED_TURNS` | 3 | |
-| **`UNFUNDED_GRACE_MS`** | 30000 | **Go-only.** How long a seat that can no longer cover the boot is held between hands before the `insufficient_chips` kick, so a player can buy chips and stay; `you.unfundedDeadline` carries the deadline to that player and the Flutter status line counts it down. 0 = kicked at once (Node's rule). |
-| **`VARIATION_SELECT_TIMEOUT_MS`** | 10000 | **Go-only.** How long the player who opens a variation table's hand has to choose its variation before the SERVER chooses Muflis. The client's countdown is decoration. 0 = the window never lapses on its own (it still closes when the chooser leaves) — never in production: a chooser who walks away holds the table for the whole reconnect grace. Given to variation tables only; a seen or blind table's `TableConfig` and snapshot are unchanged. |
-| **`FIVE_CARD_PICK_TIMEOUT_MS`** | 8000 | **Go-only** (owner, 19 Sep 2026). The EXTRA time a player gets, once their five cards are in front of them under 5-Card Teen Patti, to choose which three of them play (§6.4). Per player and per hand; lapsing plays the first three they were dealt. A chooser whose turn is running has it pushed out to cover the window and a full turn after it. 0 = the window never lapses, and a hand can then sit on a player who has looked and will not choose until their turn clock packs them — never in production. Given to variation tables only. |
-| **`VARIATION_MAX_POT_BOOTS`** | 0 | **Go-only.** A public variation table's pot cap, counted in BOOTS of that table; **0 = no pot limit, the default** (owner, 18 Sep 2026). A count of boots and not a figure because variation runs at several stakes (§6.4). `MenuMaxPot(category, boot)` advertises exactly what `TableRules` gives the table. A product that overflows int64 for any variation table on the menu stops the boot with the key named; a negative value does too. |
-| **`POKER_TURN_TIMEOUT_MS`** / **`POKER_MIN_BUYIN_BOOTS`** / **`POKER_MAX_DISCARDS`** | 0 / 10 / 3 | **Go-only** (§6.5). A poker decision's clock (0 = `TURN_TIMEOUT_MS`); the smallest stack that may sit at a poker room, in boots of that table (at least 1; the menu's `minChips`); how many cards a 5-Card Draw player may exchange (0..5, else the boot stops). How each variant plays is fixed in `poker.Variants`, not here. |
-| **`MISSILE_REVEAL_EXTRA_MS`** | 3000 | **Go-only.** Added to `NEXT_HAND_DELAY_MS` after a missile showdown (§6.1), so the client's volley, its explosions and a look at every hand fit before the next deal. |
+| `WELCOME_CHIPS` / `BOOT_AMOUNT` † | 300000 / 200 | only `BOOT_AMOUNT` is a table key (db: `table_settings.default_boot_amount`). The 3 lakh welcome (owner, 14 Sep 2026; 2 lakh before). **Production's `.env` sets `WELCOME_CHIPS` explicitly**, so a new default changes nothing there until that line does |
+| `TABLE_STAKES` † | `200,5000,50000,1000000` | empty = any (tests); db: `table_settings.stakes` (an empty array is any) |
+| **`LOBBY_TABLES`** † | `seen:200,blind:200,blind:5000:max=50000000,blind:50000:max=1000000000,blind:1000000:min=500000000,variation:50000:max=1000000000,variation:1000000:min=500000000,seen:50000:pot=50000000,three_card_poker:50000,five_card_draw:50000,texas_holdem:50000,omaha:50000` | the menu; empty = any pair (tests). **`pot=N` is a table's OWN pot cap** (Go only; owner, 19 Sep 2026: a second seen table, boot 50,000, open to all, pot limit 5 Crore — `LobbyTable.MaxPot`, read by `TableRules` and `MenuMaxPot` through `menuPotFor(category, boot)`): it wins over the category's cap (`SEEN_MAX_POT` is 40 boots at 50,000, so every hand there would be dealt into the POT_LIMIT showdown), changes nothing else — the ladder and rounds stay the category's — and a private table never reads it. 5 Crore is 5,00,00,000 = `50000000`; `500000000` is 50 Crore. The new entry is LAST in the list like every later addition; the Flutter lobby files it under Seen by category. Categories are `seen`, `blind`, (Go only, 18 Sep 2026) **`variation`** and (Go only, 19 Sep 2026, §6.5) the four poker ones **`three_card_poker`, `five_card_draw`, `texas_holdem`, `omaha`** — anything else stops the boot. A poker entry's boot is its big blind (Hold'em, Omaha) or ante (3-Card Poker, 5-Card Draw); its `minChips` on the menu is raised to the table's `minBuyIn` (`POKER_MIN_BUYIN_BOOTS` × boot) and each `options.tables[]` entry carries `game`, `smallBlind`, `bigBlind`, `ante`, `minBuyIn`, `holeCards`, `maxDiscards` (omitted on Teen Patti entries). Poker keeps **one table per game, all four at 50,000** (owner, 19 Sep 2026: "in poker category only keep one table 50000 for each gameplay"; it was six entries at 200 and 5,000 earlier that day) — so blinds 25,000/50,000, an ante of 50,000, and a buy-in of **5,00,000** at every poker table, which is MORE than the 3,00,000 welcome: a brand-new account sees the whole Poker category shut until it has won 5 Lakh, and `POKER_MIN_BUYIN_BOOTS` (4 = 2 Lakh) is the one key that changes that without touching the stake. The four default poker entries are LAST; an older Go tag cannot boot on a `.env` that lists one, and an installed app older than the first poker-aware build draws each as a seen table — raise `MIN_CLIENT_BUILD` first. Variation keeps **two tables only, 50,000 and 10 Lakh** (owner, 18 Sep 2026), behind the bands blind's tables of those stakes have; its entries are LAST so the five before them keep their places, and clients are told of the category (`config.categories`) only when it is listed. **Rollout:** an installed app older than the build that knows the category draws that card as a seen table and never shows the picker, so every hand there is a server-chosen Muflis — raise `MIN_CLIENT_BUILD` first. **Production's `.env` sets `LOBBY_TABLES` explicitly**, so the new default changes nothing there until that line does; a Go tag older than this cannot boot on a `.env` that lists `variation:`. Each entry is `category:boot` plus an optional **stack band** — `max=N` shuts the table to a player holding MORE than N, `min=N` to one holding LESS. Exactly the limit is allowed at either end. A band whose min exceeds its max fails at load (it would advertise a table nobody could join). **In db mode** the menu is the active public `table_configs` rows in `sort_order` (§7.3) and this key is ignored; the rollout rule becomes the row's: a table appended to the seed arrives inactive on an existing database, and goes live with `is_active = TRUE` after `MIN_CLIENT_BUILD` — never by a restart. A row with an unknown category is left out with a logged reason, not a stopped boot. |
+| `MAX_PLAYERS_PER_ROOM` / `MIN_PLAYERS_TO_START` † | 5 / 2 | 5 is also hardcoded in Flutter `_places` and browser CSS |
+| `TURN_TIMEOUT_MS` † | 25000 | |
+| `MAX_BET_ROUNDS` / `POT_LIMIT_MULTIPLIER` / `MAX_RAISE_STEPS` † | 20 / 1024 / 8 | defaults only; `createTable` overrides all three per category (seen: 7 / 1024 / 2, blind: 0 / 0 / 0) |
+| `SEEN_MAX_RAISE_STEPS` / `SEEN_MAX_BET_ROUNDS` / `SEEN_MAX_POT` † | 2 / 7 / **2000000** | brief says "10 moves"; code is 7 rounds. **20 Lakh is the most a seen hand can pay** (owner, 12 Sep 2026): the moment the pot reaches it every player still in shows and the best hand takes it (`potCapReached` → `resolveShowdown(…, WinPotLimit)`), and `betOptions` headroom stops a bet that would carry the pot past it. `SEEN_MAX_RAISE_STEPS 2` is the two-rung ladder — chaal, or one raise — so a seen player raises once per turn. |
+| `MAX_BLIND_MOVES` † | 4 | |
+| `ENTRY_CAP_BOOT` / `ENTRY_CAP_CATEGORY` / `ENTRY_CAP_MAX_CHIPS` † | 200 / blind / 500000 | Requirement 30, and now the oldest case of the band above: `RoomManager.tableMaxChips` folds this trio into the matching menu entry's `maxChips`, so the lobby draws it from the same field as every other table. A `max=` on that entry in `LOBBY_TABLES` wins, being the more specific statement. |
+| `MAX_MISSED_TURNS` † | 3 | |
+| **`UNFUNDED_GRACE_MS`** † | 30000 | **Go-only.** How long a seat that can no longer cover the boot is held between hands before the `insufficient_chips` kick, so a player can buy chips and stay; `you.unfundedDeadline` carries the deadline to that player and the Flutter status line counts it down. 0 = kicked at once (Node's rule). |
+| **`VARIATION_SELECT_TIMEOUT_MS`** † | 10000 | **Go-only.** How long the player who opens a variation table's hand has to choose its variation before the SERVER chooses Muflis. The client's countdown is decoration. 0 = the window never lapses on its own (it still closes when the chooser leaves) — never in production: a chooser who walks away holds the table for the whole reconnect grace. Given to variation tables only; a seen or blind table's `TableConfig` and snapshot are unchanged. |
+| **`FIVE_CARD_PICK_TIMEOUT_MS`** † | 8000 | **Go-only** (owner, 19 Sep 2026). The EXTRA time a player gets, once their five cards are in front of them under 5-Card Teen Patti, to choose which three of them play (§6.4). Per player and per hand; lapsing plays the first three they were dealt. A chooser whose turn is running has it pushed out to cover the window and a full turn after it. 0 = the window never lapses, and a hand can then sit on a player who has looked and will not choose until their turn clock packs them — never in production. Given to variation tables only. |
+| **`VARIATION_MAX_POT_BOOTS`** † | 0 | **Go-only.** A public variation table's pot cap, counted in BOOTS of that table; **0 = no pot limit, the default** (owner, 18 Sep 2026). A count of boots and not a figure because variation runs at several stakes (§6.4). `MenuMaxPot(category, boot)` advertises exactly what `TableRules` gives the table. A product that overflows int64 for any variation table on the menu stops the boot with the key named; a negative value does too. |
+| **`POKER_TURN_TIMEOUT_MS`** / **`POKER_MIN_BUYIN_BOOTS`** / **`POKER_MAX_DISCARDS`** † | 0 / 10 / 3 | **Go-only** (§6.5). A poker decision's clock (0 = `TURN_TIMEOUT_MS`); the smallest stack that may sit at a poker room, in boots of that table (at least 1; the menu's `minChips`); how many cards a 5-Card Draw player may exchange (0..5, else the boot stops). How each variant plays is fixed in `poker.Variants`, not here. |
+| **`MISSILE_REVEAL_EXTRA_MS`** † | 3000 | **Go-only.** Added to `NEXT_HAND_DELAY_MS` after a missile showdown (§6.1), so the client's volley, its explosions and a look at every hand fit before the next deal. |
 | **`MIN_CLIENT_BUILD`** | 0 | The oldest client build allowed to play, sent to every client in `session:ready.config.minClientBuild`. A client below it is held on the update screen with no way past (Flutter `_belowMinimumBuild`/`_forceUpdate`). **0 = no floor**, which is what production runs; raise it only after the newer build is actually live in the store, or the floor locks everyone out of a version they cannot yet install. This is the server-authoritative gate — Play's own in-app check (`AppUpdate`) is a separate, best-effort nudge that fails open. |
-| `SIDESHOW_TIMEOUT_MS` / `SIDESHOW_MIN_PLAYERS` | 6000 / 3 | |
+| `SIDESHOW_TIMEOUT_MS` / `SIDESHOW_MIN_PLAYERS` † | 6000 / 3 | |
 | `DISPLAY_NAME_MAX` | 24 | also hardcoded: providers.js `.slice(0,24)`, Flutter login/lobby `maxLength: 24` |
-| `PRIVATE_BOOT` / `PRIVATE_MAX_POT` / `PRIVATE_MAX_RAISE_STEPS` | 200 / 500000 / 2 | |
-| `NEXT_HAND_DELAY_MS` / `CONSOLIDATE_INTERVAL_MS` / `RECONNECT_GRACE_MS` | 4000 / 15000 / 60000 | |
+| `PRIVATE_BOOT` / `PRIVATE_MAX_POT` / `PRIVATE_MAX_RAISE_STEPS` † | 200 / 500000 / 2 | db: the private templates (`is_private` rows, one per category); `privateBoot`/`privateMaxPot` on the wire are the seen template's |
+| `NEXT_HAND_DELAY_MS` † / `CONSOLIDATE_INTERVAL_MS` / `RECONNECT_GRACE_MS` | 4000 / 15000 / 60000 | only the first is a table key |
 | `RESUME_OFFER_MS` | 600000 | how long a lapsed seat's table is offered back via `session:ready.resume` |
-| `BLIND_MAX_RAISE_STEPS` / `BLIND_MAX_BET_ROUNDS` / `BLIND_POT_LIMIT_MULTIPLIER` | 0 / 0 / 0 | blind tables: 0 = unlimited (ladder to the stack, no per-bet ceiling, no forced showdown) |
+| `BLIND_MAX_RAISE_STEPS` / `BLIND_MAX_BET_ROUNDS` / `BLIND_POT_LIMIT_MULTIPLIER` † | 0 / 0 / 0 | blind tables: 0 = unlimited (ladder to the stack, no per-bet ceiling, no forced showdown) |
 | `CHAT_MAX_HISTORY` / `CHAT_MAX_LENGTH` / `CHAT_RATE_LIMIT` / `CHAT_RATE_WINDOW_MS` | 100 / 140 / 5 / 5000 | Flutter's chat field allows **200** — chars 141–200 are dropped server-side |
 | `METRICS_ENABLED` / `METRICS_PATH` / `METRICS_PREFIX` | true / `/metrics` / `game_server_` | Prometheus exposition (req. 35); prefix applies to prom-client's default process metrics only |
 | `METRICS_TOKEN` / `METRICS_ALLOW_IPS` | empty / empty | bearer token and/or comma-separated client IPs required to scrape; both empty = open (fine behind a firewall, wrong on the internet) |
@@ -937,8 +1143,10 @@ fallback `go-server/public`; not in `.env.example` — `config.go` documents it)
 | `LOG_LEVEL` | info | slog level (`util.ParseLogLevel`) |
 | `ROOT_REDIRECT` | empty | **Go-only.** Set (**production: `/dashboard/`**, the Grafana login) it hides the browser client: `GET /` → 302 to the value, every top-level file of `PUBLIC_DIR` (`index.html`, `client.js`, the stylesheets) and `/socket.io/socket.io(.min).js` → 404; subdirectories keep serving — `privacy/` (Play listing link), `profiles/` (Flutter avatars via `/api/profiles`). Empty = browser client at `/` (dev, parity). The rule is the directory layout, not a filename list (`static.go`). |
 
-There is no `go-server/.env` on the dev box (it is git-ignored); the server runs on these defaults.
-Production's lives at `/var/www/gameplay/king-teenpatti/go-server/.env` (`PG_POOL_MAX=50`, `JWT_SECRET`, `METRICS_TOKEN`, …).
+There is no `go-server/.env` on the dev box (it is git-ignored); the server runs on these defaults — so with no †
+key set, `TABLE_CONFIG_SOURCE` resolves to `db` and the dev server plays the seeded catalogue (which is the defaults).
+Production's lives at `/var/www/gameplay/king-teenpatti/go-server/.env` (`PG_POOL_MAX=50`, `JWT_SECRET`, `METRICS_TOKEN`,
+`LOBBY_TABLES`, `WELCOME_CHIPS`, …) — its `LOBBY_TABLES` line keeps it in env mode until DEPLOY.md §3's switch.
 
 ### 7.5 Metrics (`src/metrics/index.js` → `internal/metrics/{names,metrics}.go`, requirement 35) & Grafana (requirement 36)
 - One registry (default label `service="king-teenpatti"`), exposed by `Metrics.Handler()` on `GET /metrics`
@@ -1005,6 +1213,24 @@ Production's lives at `/var/www/gameplay/king-teenpatti/go-server/.env` (`PG_POO
     the six picks, timeout → MUFLIS, who may choose, the pick-versus-clock race run 200 times under `-race`, chooser leaves,
     hand/table ends mid-window, restart mid-window keeping the ORIGINAL deadline, and "a seen table's JSON has no variation
     key"); `internal/socket/variation_test.go` is the same over real sockets.
+  - **The table catalogue** (§7.3, §7.4; 23 Sep 2026): `internal/config/tables_test.go` (`Spec` composes figure by
+    figure what `newTableLocked` and `poker.ConfigFor` always built; the default catalogue survives the database round
+    trip; `Validate` leaves bad rows out and holds every table to the taxonomy — blind filed under poker takes its five
+    tables, no Poker engine takes eight, seen under poker is unusable; `SameRules` ignores only band, place and engine);
+    `internal/db/tableconfigs_test.go` (**`TestTheSeededTableCatalogueIsTheDefaults`**, a row appended to a non-empty
+    catalogue arrives inactive, an inactive category or engine hides every table under it, the foreign keys, no DEFAULT on
+    a figure, the CHECK floors, the export round trip — env menu and taxonomy — applied twice and across a reboot,
+    `SkipMigrations`), `upgrade_boot_test.go` (`TestABootBringsAnOlderDatabaseForward`), and `db_test.go`/`bootlock_test.go`/
+    `handover_boot_test.go` counting the four tables; `internal/game/tablecatalogue_test.go` (a row's figures reach the
+    table, the card and the payload; private fold; the entry cap as the band in db mode; DRAINING — a changed or delisted
+    restored table is never matched into, `JoinByCode` still reaches it, and a drained poker room does not trap the buy-in;
+    `EngineOf` agrees with `Category.Game()`; the payload's version is its own hash); `internal/poker/factory_test.go`
+    (`ConfigFromSpec`, `MenuEntry` from a spec); `internal/socket/tableconfig_test.go` (`session:ready.config` keys +
+    `tableConfigVersion`); `internal/app/tableconfig_test.go` (a db-sourced server plays by the seed and not the env,
+    `GET /api/tables` = the session menu under one version with ETag/304, an edited row applies at the next boot only, a
+    bad row is left out and the boot carries on, an unusable catalogue — or no database — falls back); and
+    `cmd/gameplay/tableconfig_test.go` (the export is SQL alone on stdout, refuses an unusable catalogue; the check's
+    exit codes; export → apply → check is the env menu).
   - `internal/socket` (invalid moves, hostile payloads, leaks, money, concurrency, stack), `internal/sio` (framing, server,
     concurrency), `internal/auth`, `internal/config`, `internal/metrics` (the label rule), `cmd/gameplay` (version stamp).
   - **Node-assisted tests, all `t.Skip` without their prerequisite:** `internal/auth/nodeinterop_test.go` (tokens minted by
@@ -1021,6 +1247,14 @@ Production's lives at `/var/www/gameplay/king-teenpatti/go-server/.env` (`PG_POO
   `--keep` (logs + schemas), `--serve [--profile main]`, `--verbose`. `npm run parity:diff -- --a go --b <url|go>` drives one fixed
   scenario against two servers and diffs the normalised recordings (uuids/codes/JWTs/timestamps/cards masked, consecutive
   identical `room:state` collapsed; `--out <dir>` keeps them). The Node target is gone — the last Node-vs-Go run was 141/141.
+- **Parity and the table catalogue** (23 Sep 2026): `BASE_ENV` (`lib/launch.mjs`) names `TABLE_CONFIG_SOURCE=env`, so every
+  profile but one plays its tables from the env keys (`LOBBY_TABLES=''` = any pair), as the server always composed them.
+  The **`menu`** profile runs `TABLE_CONFIG_SOURCE=db` on its fresh schema — the SEEDED catalogue — while its env
+  deliberately says `BOOT_AMOUNT=100`, 1.2 s clocks and a lifted menu: every exact assertion of the seed's figures in
+  `stakes.test.js` and in `rest.test.js`'s `GET /api/tables` tests (a profile's `only` map runs just those, through
+  `--test-name-pattern`) also proves the keys were ignored. `CONFIG_KEYS` (`lib/harness.mjs`) includes
+  `tableConfigVersion`; `money.test.js`'s exact table list includes the four configuration tables. `parity-diff`,
+  `chiptest.mjs` and `crashtest.mjs` name `env` for the same reason.
 - **Parity profile `poker`** runs `tools/parity/poker.test.js` (60 s clocks, the default menu's poker entries): snapshot keys and
   redaction, the `wrong_game` wall both ways, Hold'em with the oracle (`lib/poker5.mjs`) checking every reveal and chips conserved,
   fold-to-one, Omaha's exactly-two rule, 5-Card Draw's exchange, 3-Card Poker's verdict against the dealer — and the `money` audit over
@@ -1034,8 +1268,9 @@ Production's lives at `/var/www/gameplay/king-teenpatti/go-server/.env` (`PG_POO
   chooser's pick, made once per table-and-hand from `room:state`; `none` never answers, which is how to watch the server's
   timeout choose Muflis. Bots never read their cards, so 5-Card needed nothing else. `variation.test.js` uses
   `bot-play/src/handrank.js` as an INDEPENDENT oracle that a FIVE_CARD `best` really is the best of the ten
-  combinations, and deep-scans every frame a client received for card codes that are not that player's own — keep both. The resident fleet (`bot-play/`) joins a hard-coded seen/blind list and
-  cannot sit at a variation table.
+  combinations, and deep-scans every frame a client received for card codes that are not that player's own — keep both. The resident fleet (`bot-play/`) joins a hard-coded list of four
+  tables (`seen:200`, `blind:200`, `blind:5000`, and since 22 Sep 2026 `variation:50000`; `bot-play/README.md`) — it does not
+  read `GET /api/tables`, so retiring one of those four rows leaves its bots refused `table_not_offered`.
 - **`tools/bot.js`** also plays the poker rooms: `--category three_card_poker|five_card_draw|texas_holdem|omaha` answers
   `poker:yourTurn` from its `options` alone (`decidePoker`: check when free, call small bets, fold to a bet over a third of the stack half the time,
   open or min-raise now and then, play against the dealer three times in four, stand pat or exchange one or two) — bots never read
@@ -1055,7 +1290,8 @@ Production's lives at `/var/www/gameplay/king-teenpatti/go-server/.env` (`PG_POO
   committed for that run yet).
 - `GET /health` returns `{ok, uptime, tables, players, activeHands, sockets, process:{pid,node,rssMb,heapUsedMb,heapTotalMb,
   externalMb,cpuPercent (share of one core since the previous call), loopLagP50Ms/P99Ms/MaxMs, goroutines, numCpu, gomaxprocs},
-  db:{total,idle,waiting}, live:{kind,ok,tables}, version}`. **`version`** is the go-server release tag `ops/build.sh` stamped in
+  db:{total,idle,waiting}, live:{kind,ok,tables}, version, tableConfig:{source, version, fallback}}` (the last since
+  23 Sep 2026, §7.2). **`version`** is the go-server release tag `ops/build.sh` stamped in
   (`v1.0.1`, or `v1.0.1-3-gabc1234` past a tag, `dev` for a plain `go build`) — the answer to "which build is prod on?"
   without an ssh, which is what `ops/prod-version.sh` reads. Under Go `process.node` is the runtime string (`go1.27.1`), `loopLag*` are scheduler-latency
   percentiles, `externalMb` is 0, `db.waiting` an acquire-wait delta (usually 0).
@@ -1080,7 +1316,34 @@ Production's lives at `/var/www/gameplay/king-teenpatti/go-server/.env` (`PG_POO
   classes; `Seat.chips` **nullable** (null = withheld, never 0).
 - SharedPreferences: `deviceId`, `token`, `themeMode` (`system|dark|light`, `state/theme_preference.dart`;
   the old `darkMode` bool is read once when `themeMode` is absent and never written again), `lang`,
-  `numbers`, `noWinningsAck:<userId>`.
+  `numbers`, `noWinningsAck:<userId>`, `soundOn`/`vibrateOn` (`settings/feedback_settings.dart`), and since 23 Sep
+  2026 **`tableConfig`** — the phone's copy of `GET /api/tables`.
+- **The table catalogue on the phone** (owner, 23 Sep 2026: "the UI fetches it, stores it on the phone, and re-fetches it
+  at every login"; `state/table_config_cache.dart`). `TableConfigCache` keeps ONE entry under `tableConfig`:
+  `{"schema":1, "version", "fetchedAt", "body"}`, `body` being the server's JSON exactly as it came (a later build can
+  read keys this one does not know). An entry that is corrupt, of another `schema`, or whose version does not match its
+  body is discarded, never half-read; a body that is not a usable catalogue (`GameConfig.fromCatalogue`: a non-empty
+  string `version`, `tables` and `privateTables` lists of objects, `maxPlayers` > 0) is never written, so a broken
+  answer cannot replace a good copy. It is the SERVER's menu, not the player's, so it survives sign-out and account
+  deletion. **When**: a cold start applies the copy right after the preferences load, before the socket is wired
+  (`restoreCachedMenu`), so the first lobby frame is the menu this server last described, not `GameConfig.fallback`;
+  every sign-in — a restored session after `me()`, guest, Google — starts `_loadTableConfig()` (unawaited, one in flight
+  at a time, errors swallowed: offline keeps the menu on screen and the next sign-in asks again), which sends the held
+  version as `If-None-Match` (a 304 re-applies the held copy; a 404 is an older server, and the copy is left alone).
+  **Which menu wins** is `MenuPrecedence`, a pure function (`test/table_config_menu_test.dart`): a `session:ready` with
+  NO `tableConfigVersion` is a server that predates the catalogue — its config is the menu exactly as before, nothing
+  is fetched; a version EQUAL to the catalogue held keeps the catalogue and takes only `minClientBuild` from the
+  session (session-scoped, never cached, never lifted by a menu swap); a DIFFERENT version shows the session's menu
+  and fetches (once the build floor has let this build through); a catalogue that arrives is shown only when no session
+  has named a version yet or it is the version the latest one named — otherwise it is late, kept, not shown. Every menu
+  write goes through ONE `GameState._applyMenu`, which also steps the lobby back a level when the menu no longer offers
+  the engine or category on screen. `GameConnection` passes `config: null` (not `GameConfig.fallback`) when
+  `session:ready` has no config, and the menu already held stays. The server stays authoritative: a stale copy can
+  only mis-draw a card for a moment — every door is checked again server-side. The richer per-table figures are used
+  where they exist: the table info dialog's turn time (a poker room's own clock, which it used to show as the Teen
+  Patti one) and `table_screen`'s blind-move dots — `GameConfig.entryFor` tries a PRIVATE room's template in
+  `privateTables` by category first, then the public entry of the pair, then 4. Seats are still laid out from the one
+  global `config.maxPlayers`.
 - **No-winnings confirmation** (`state/consent.dart`, `_ConsentGate` in `main.dart`, added 11 Sep 2026):
   after sign-in (either door, or a restored session) the lobby/table is covered by a panel — "I confirm
   that I do not have any expectations of winning any monetary or other enrichment from playing this
@@ -1105,8 +1368,25 @@ by `GameState._publishNumberFormat()`. Abbreviate only `> 100000`; Indian `3.24 
 in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
 
 ### 8.4 UI
-- **Lobby**: **two levels in one rail** (owner, 18 Sep 2026: "in lobby give 3 category — Seen, Blind, Variation — and
-  when the user selects Blind go into that and show all the Blind table cards"). The FRONT is one `_CategoryCard` per
+- **Lobby — three levels since 23 Sep 2026: engines → categories → tables** (owner: "IN UI also give two cards: Teen
+  Patti and Poker. inside TeenPatti give seen, blind and variation. Inside poker give three card poker, five card draw,
+  texas holdem, omaha"). The FRONT is one `_EngineCard` per engine the server offers a table in (`GameState.lobbyEngines`:
+  Teen Patti, gold; Poker, teal) and `_PrivateCard` last; inside an engine, a `_BackTile` ("All games") then one
+  `_CategoryCard` per category of it (`lobbyCategoriesIn(engine)`); inside a category, a `_BackTile` naming the engine
+  it returns to, then that category's `_TableCard`s (`lobbyTablesIn(category, engine:)`). Engine and category cards are
+  both a `_GroupCard` (the text below about the category card holds for both; an engine card's key says "View games").
+  **The grouping is data-driven**: a table's engine is `LobbyTable.engine` from the catalogue (`GameState.lobbyEngineOf`),
+  else — `session:ready`, an older server — a poker category is Poker's and everything else Teen Patti's; the order of
+  engines and of each engine's categories is `GameConfig.engines`' `sortOrder` when present, else the built-in
+  `GameState.lobbyTaxonomy` (Seen, Blind, Variation; 3-Card Poker, 5-Card Draw, Texas Hold'em, Omaha — the seed's own
+  taxonomy, so the lobby looks the same from either source). Names are the client's five-language strings (`teenPatti`,
+  `poker`, the category names); the database's `name` is shown only for an engine or category code this build has never
+  heard of, which then gets a card of its own (`lobbyEngineServerName`/`lobbyServerName`). `GameState.lobbyEngine` and
+  `lobbyCategory` (never a category without its engine) replace the old single field; `_BackGuard` closes one level at a
+  time (`closeLobbyLevel`), sign-out returns to the front, the rail is keyed `lobby-rail:<engine>[:<category>]`.
+  `test/table_engines_test.dart`. What follows describes the two-level lobby of 18 Sep 2026 whose inner levels these
+  are: **two levels in one rail** (owner, 18 Sep 2026: "in lobby give 3 category — Seen, Blind, Variation — and
+  when the user selects Blind go into that and show all the Blind table cards"). The FRONT was one `_CategoryCard` per
   category the server offers a table in (`GameState.lobbyCategories`, always Seen · Blind · Variation; an unknown
   category is filed under Seen) and `_PrivateCard` last; a category card is the table card's own frosted square in the
   category's colour (`_categoryPalette`) stating its blurb, boot range ("200 – 10 Lakh"), table count and how many are
@@ -1263,7 +1543,9 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   ante, buy-in ("from 2,000" — the server's `minBuyIn`, which is also the card's Entry), cards each, and "exchange up to"
   on Draw; the info dialog and `showRules(table:)` have poker branches and the rules sheet a poker-ranking section.
   `LobbyTable.game/isPoker` and `GameState.lobbyCategoryOrder` file every `three_card_poker | five_card_draw |
-  texas_holdem | omaha` entry under Poker. **`screens/table_screen.dart` mounts `PokerTableScreen`
+  texas_holdem | omaha` entry under Poker. (Since 23 Sep 2026 the Poker card is the Poker ENGINE's front card, which
+  opens one category card per game and each of those its tables — the Lobby bullet above; the table cards are these.)
+  **`screens/table_screen.dart` mounts `PokerTableScreen`
   (`screens/poker_table_screen.dart`) when `room.isPoker`**; the chrome both felts share — `LeftPanel`, `SideRail`,
   `TableDrawer`, `ChatDrawer`, `MachinedKey`, `StepperKey`, `Plate`, `TableWallet`, `Reconnecting`, `seatPlaces` … —
   moved to `widgets/table_chrome.dart` as pure renames (a private `_SideRail` wrapper stays in `table_screen.dart`
@@ -1291,7 +1573,8 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   draw), 3-Card (Play, a non-qualifying dealer pays every seat) and Omaha (four hole cards), no RenderFlex overflows.
   Note the poker clock is `POKER_TURN_TIMEOUT_MS` (25 s by default): the first emulator hand folded me on the clock
   while I was reading screenshots, which is correct — run the dev server with `POKER_TURN_TIMEOUT_MS=90000` to play by
-  hand.
+  hand (a table env key, so it takes effect only in env mode — which an unset `TABLE_CONFIG_SOURCE` becomes the moment
+  it is set; with `TABLE_CONFIG_SOURCE=db` in a `.env`, add `TABLE_CONFIG_SOURCE=env` or edit the row — §4).
   **The rulebook key** (owner, 19 Sep 2026: "in each poker gameplay add an icon of rulebook and which tells about that
   specific table gameplay not other"): the poker rail carries a THIRD key under menu and chat, the book glyph the lobby's
   table cards use, and it opens `showRules` scoped to the room being played — "How this table plays" with that table's own
@@ -1442,9 +1725,10 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
 Vanilla JS IIFE (`client.js`, `style.css`, `theme.css`, `index.html`, `profiles/`); served at `/` by the
 Go binary from `PUBLIC_DIR` (default `./public` from `go-server/`), with `/socket.io/socket.io.js`
 coming from the embedded bundle in `internal/app/assets/`. `localStorage tp_token/tp_device/tp_theme`;
-lobby from `config.tables`. No `room:kicked`, no sideshow, no rename/entry-cap/numbering.
-Google/Facebook buttons are stubs needing `AUTH_ALLOW_FAKE_PROVIDERS` (the Google one sends **no
-idToken**; against production it is a guaranteed 401 `missing_token` — not a server fault). Chat
+lobby from `session:ready`'s `config.tables` (it never calls `GET /api/tables`). No `room:kicked`, no sideshow, no rename/entry-cap/numbering.
+The Google button is a stub needing `AUTH_ALLOW_FAKE_PROVIDERS` (it sends **no
+idToken**; against production it is a guaranteed 401 `missing_token` — not a server fault); the Facebook button is an
+HTML comment and its handler commented out while Facebook is switched off (23 Sep 2026). Chat
 `maxlength=140`. Treat as a protocol smoke-test surface. **Production hides it** (`ROOT_REDIRECT=/dashboard/`,
 §7.4, since 10 Sep 2026): `/` bounces to the Grafana login and the client's files are 404, while
 `privacy/` and `profiles/` under the same dir stay served.
@@ -1452,19 +1736,20 @@ idToken**; against production it is a guaranteed 401 `missing_token` — not a s
 ---
 
 ## 10. Requirements index (`Requirements.txt`)
-1 login providers · 2 DB per identity (brief says SQLite; **now Postgres by owner's decision**) ·
+1 login providers (Google and guest; Facebook switched off for now, 23 Sep 2026) · 2 DB per identity (brief says SQLite; **now Postgres by owner's decision**) ·
 3 ≤5/room · 4 ≥2 to start · 5 3 lakh welcome (2 lakh until 14 Sep 2026; with 9 diamonds, 20 hammers and 1 missile) · 6a–g core play · 7 persistence · 8 room chat ·
 9 +/− stepper · 10 auto-pack · **(no 11)** · 12 collapsible chat · 13 Blind/Seen × 200/5000 (and, since 18 Sep 2026, a third
 category **Variation** × 50,000 / 10 Lakh, hidden stacks, no pot limit — §6.4: the first player to act picks Muflis, AK47,
 Joker, Hukam, Lowest Joker or Highest Joker for the hand in a server-timed 10 s, else the server picks Muflis; the lobby
-shows the three categories first and a category's tables inside it, §8.4) ·
+shows the three categories first and a category's tables inside it, §8.4 — and since 23 Sep 2026 the two engines,
+Teen Patti and Poker, in front of them) ·
 14 Show reveal · 15 pot to last leaver · 16 stats (played = made a chaal) · 17 25k/25 hands ·
 18 4h 10k bonus (and beside it, since 14 Sep 2026, a daily bonus of 1 lakh + 1 hammer every 24h) · 19 Seen: one double, forced showdown (brief 10 moves / code 7 rounds) ·
 20 provider avatar · 21 avatar picker (a DB catalogue since 12 Sep 2026: free
 pictures plus premium ones bought with chips, diamonds or (since 14 Sep 2026) hammers; not locked when seated since 13 Sep 2026 — worn at the table, and a diamond or hammer one bought there) · 22 private table · 23 landscape/M3 ·
 24 merge lone rooms · 25 leave confirm · 26 4h bonus top-left (the daily bonus bottom-left) · 27 milestone bottom-right ·
 28 square cards + sweep · 29 display name · 30 entry cap (not on switch; generalised 12 Sep 2026 to a per-table
-**stack band** — `config.LobbyTable.MinChips/MaxChips`, enforced by `assertWithinTableBand` on every route into a
+**stack band** — `config.LobbyTable.MinChips/MaxChips`, in db mode a row's `min_chips`/`max_chips`, enforced by `assertWithinTableBand` on every route into a
 seat, shown on every lobby card) · 31 3 auto-packs → kick,
 below boot → kick · 32 boot deducted at start · 33 sideshow · 34 Indian numbering + toggle.
 Verbal additions: menu = exactly seen 200 / blind 200 / blind 5000; seen pot cap 1.2M; buy-chips
@@ -1473,6 +1758,11 @@ button; category tag; winner chip flight; action-bar icons; chat as left drawer;
 Q-high-qualifying dealer, 5-Card Draw with configurable discards, Texas Hold'em best-of-seven, Omaha exactly-two —
 a family of rooms beside the Teen Patti tables, server-authoritative, sanitised per viewer, one nullable pair of ledger
 columns, and Teen Patti's wire byte for byte what it was.
+**The table catalogue in PostgreSQL** (owner, 23 Sep 2026: "merge all DDL and DML into 2 files" and "all table related
+config store in database … the UI fetches it, stores it on the phone, and re-fetches it at every login"; then "make this
+category table/db level also: Teen Patti engines / Poker engines"): two migration files, four configuration tables
+(§7.3), `TABLE_CONFIG_SOURCE` (§7.4), `GET /api/tables` (§7.2), the phone's copy (§8.1), the three-level lobby (§8.4) —
+PostgreSQL holding table CONFIG and never state.
 
 ---
 
@@ -1517,7 +1807,11 @@ final t = state.t;` at the top of `build`; M3 roles via `theme.colorScheme`; `.w
   `pgrep -f "[b]ot\.js"` immediately after) and `kill`/`wait` on those.
 - **Restart the server after any Go change** — `go run`/the binary is a long-lived process running old
   code until restarted (a client once fell back to a default because `publicGameConfig` lacked a new
-  key). `go test` caches: use `-count=1` when a DB-backed suite must really re-run.
+  key). `go test` caches: use `-count=1` when a DB-backed suite must really re-run. **The same goes for an edit to the
+  table catalogue** (`table_configs` and the rest, §7.3): it is read once, at boot, so an `UPDATE` does nothing until the
+  restart — and then only for tables opened after it (a table restored from Redis keeps its frozen rules, and is drained
+  if they changed). Check what the process actually runs with `curl -s localhost:3000/api/tables` or
+  `/health`'s `tableConfig.version`, never with a `SELECT`.
 - **Bots reconnect to their previous table** (server restores seated users on connect). Use
   `--churn`, or wait out the 30s grace.
 - A stray `go-server/gameplay` (a `go build` with no `-o`) is untracked and not git-ignored — only
@@ -1588,12 +1882,17 @@ final t = state.t;` at the top of `build`; M3 roles via `theme.colorScheme`; `.w
   matters, `python3 tools/lottie/bake_loop_expressions.py in.json out.json` writes `loopOut()` / `loopOut('pingpong')`
   out as keyframes (exact against lottie-web on Jolly King: 0 differing pixels at 251 frames); upload the result in place of the original
   (Jolly King and Jolly Queen live on Drive this way) or serve it from `go-server/public/profiles/`.
-- `GameConfig.fromJson` ints fall to 0 → `config.maxPlayers == 0 ? 5 : …` guards.
+- `GameConfig.fromJson` ints fall to 0 → `config.maxPlayers == 0 ? 5 : …` guards. The same tolerant reader parses the
+  cached and fetched table catalogue; its per-table figures are NULL, never 0, when the server did not send them, so a
+  missing figure is never mistaken for a real zero (the screens then fall back as before).
 - `_PotChips` animates only on increase. `PlayingCard`
   flips only face-down↔up. Only 5 `_places`.
 - Google sign-in works (`google_sign_in` 7.x, `net/social_sign_in.dart`); the **Web** client id is the
   `serverClientId` and arrives as `--dart-define=GOOGLE_SERVER_CLIENT_ID`, without which sign-in
-  succeeds and returns no `idToken`. Facebook was removed on 10 Sep 2026 (§8.4). A build with no client
+  succeeds and returns no `idToken`. Facebook was removed on 10 Sep 2026, restored on 22 Sep (`5b43510`) and
+  **switched off again on 23 Sep 2026** (owner, `94061a2`): the button, `SocialSignIn.facebook()`, the
+  `flutter_facebook_auth` dependency and its manifest entries are commented out, not deleted — `docs/social-login-setup.md`
+  §2 says what to uncomment to bring it back. A build with no client
   id throws `SignInUnavailable` and says so rather than blaming the network; "use provider picture"
   is still disabled.
 - `main()` awaits `/api/auth/me` with no timeout before the first frame.
@@ -1650,6 +1949,14 @@ final t = state.t;` at the top of `build`; M3 roles via `theme.colorScheme`; `.w
   checkpoints (§5.1), so this is a test-versus-design question for the owner, not a regression. Its sibling failure —
   `session:ready.config` lacking `minClientBuild` — was a stale key list, fixed in `tools/parity/lib/harness.mjs`.
 - `GameConnection.onCards`/`requestCards()` wired but unused; `room:moved` `state` branch dead.
+- **The seed's table rows are hand-committed generated text** (23 Sep 2026): the VALUES in `V1.0.1__seed.sql`'s THE
+  TABLES were generated from `config.Defaults().Game.EffectiveCatalogue()` by a throwaway test that was not kept. A
+  default changed in `config` must be carried into the seed by hand; `TestTheSeededTableCatalogueIsTheDefaults` fails
+  and names the drifting table until it is. (The seed's picture prose still says "against a 2,00,000 welcome"; the
+  welcome has been 3 lakh since 14 Sep 2026.)
+- **The resident fleet and the browser client do not read the catalogue**: `bot-play/` joins its four hard-coded tables
+  and `go-server/public/client.js` draws `session:ready`'s `config.tables`. A table retired in the database leaves the
+  browser client right (session:ready follows the rows) and the fleet's bots for that table refused `table_not_offered`.
 - The Grafana dashboard JSON links to `go-server/ops/monitoring/MONITORING.md` on `master`; production's
   imported copy still carries the old `server/ops/monitoring` link until re-imported (DEPLOY.md §6).
 - Local demo video: `~/Downloads/king-teenpatti-walkthrough.mp4`.
@@ -1689,10 +1996,10 @@ deploy runbook; `steps.txt` the six-line routine.
   `socket.io.min.js` (`internal/app/assets/`, MIT, copied from the former
   `server/node_modules/socket.io/client-dist`) so the browser client in `go-server/public` works
   unchanged. Every shipped client is websocket-only.
-- **DB via `pgx`** (`internal/db`): `migration/V*.sql` (embedded; Flyway-named, DDL and DML split,
-  applied in version order — idempotent, run at
-  every start — `users` and `chip_ledger` only, plus guarded drops of the retired `game_states`,
-  `pots` and `hands`), the `Checkpoint`/`Settle` transactions of §5.1, `search_path` as a connection parameter,
+- **DB via `pgx`** (`internal/db`): `migration/V*.sql` (embedded; Flyway-named, exactly two since 23 Sep 2026 —
+  `V1.0.0__baseline.sql` all DDL, `V1.0.1__seed.sql` all DML — applied in version order, idempotent, run at
+  every start: fourteen tables — money, accounts, the picture catalogue and the four table-configuration tables, no game
+  state — §7.3), `TableConfigs.Load`/`ExportTableConfigSQL` (the table catalogue), the `Checkpoint`/`Settle` transactions of §5.1, `search_path` as a connection parameter,
   `statement_timeout` per pooled connection (`PG_STATEMENT_TIMEOUT_MS`). Money-path fixes vs Node
   (all in DECISIONS §2): wallet locks before the `hands` insert, settle retry continues after table
   destroy, client `actionId` containing `:` replaced by a uuid, `duplicate_action` on a settle retry
@@ -1703,7 +2010,11 @@ deploy runbook; `steps.txt` the six-line routine.
   client behind a 302 to the Grafana login in production, §7.4) and `PG_STATEMENT_TIMEOUT_MS`
   (default 15000; `0` = Node's no-limit behaviour). Integers parse strictly; unknown `LOBBY_TABLES`
   categories fail at load; `NODE_ENV=production` refuses the default `JWT_SECRET` and fake providers
-  exactly like Node.
+  exactly like Node. Since 23 Sep 2026 `TABLE_CONFIG_SOURCE` decides whether the TABLE keys are read at all (§7.4):
+  in db mode `app.New` loads the catalogue from PostgreSQL once, validates it — a bad row is left out with an ERROR and
+  the boot carries on; an unusable catalogue falls back to the env composition — and lays it over `GameConfig`
+  (`WithCatalogue`) on its own copy of the Config, before the socket layer, the REST handler and the RoomManager are
+  built from it.
 - **Metrics** (`internal/metrics`): every `game_*` series identical; process/runtime metrics are
   `game_server_process_*` + `game_server_go_*` (goroutines, GC, memstats, `sched_latencies_seconds`)
   — **no `game_server_nodejs_*`**. `/health` keeps every Node key (`process.node` = `go1.27.1`,
@@ -1715,7 +2026,11 @@ deploy runbook; `steps.txt` the six-line routine.
   out, `game`/`poker` on a poker room's `room:state`, `chip_ledger.game`/`variant`, `wrong_game`; a Teen Patti table's wire,
   snapshot and ledger rows are unchanged; **Variation Teen Patti** — the `variation` category, `game:selectVariation`, the two
   `game:variation*` broadcasts, `room:state.variation`, `variation`/`turnUp`/`wild` on reveals (§6.1, §6.4, §7.1; all of it
-  ABSENT on seen and blind tables, whose wire is unchanged); `room:state` carries `isPrivate` (13 Sep 2026, for the Flutter drawer), a seated player may wear a picture and buy a diamond one, a join is refused `settlement_pending` while that player's last hand is still being settled, JSON 404 for unknown `/api/*`, 400 `invalid_json` for bad bodies,
+  ABSENT on seen and blind tables, whose wire is unchanged); **the table catalogue** (23 Sep 2026, §7.3/§7.4) — the
+  tables' configuration in PostgreSQL behind `TABLE_CONFIG_SOURCE`, `GET /api/tables`, `session:ready.config.tableConfigVersion`,
+  `/health.tableConfig`, draining of restored tables whose rules changed, and the two `-export-table-config` /
+  `-check-table-config` flags (with the seed and in env mode every table plays, and every other key of the wire reads,
+  as before); `room:state` carries `isPrivate` (13 Sep 2026, for the Flutter drawer), a seated player may wear a picture and buy a diamond one, a join is refused `settlement_pending` while that player's last hand is still being settled, JSON 404 for unknown `/api/*`, 400 `invalid_json` for bad bodies,
   HS256-only JWT verification (Node also took HS384/512), room codes regenerated until unique,
   `room:create {isPrivate:false}` validated like `quickJoin`, `already_in_room` checked before a
   table is created. Full list: PORT_PLAN §9 + DECISIONS.md. **Anything else that differs is a bug.**
@@ -1729,6 +2044,8 @@ go test -race ./...               # the actor/lock rules are exactly what the ra
 go run ./cmd/gameplay             # dev run: ./.env if present, port 3000, browser client from ./public
 bash ops/build.sh                 # static, stripped, release tag → main.version → bin/gameplay; installs Go 1.27.1 to ~/.local/go if missing
 ./bin/gameplay -version           # gameplay v1.0.1 go1.27.1 linux/amd64
+./bin/gameplay -export-table-config > tables.sql   # the env-composed table catalogue as SQL (reads ./.env; no server)
+./bin/gameplay -check-table-config                 # the database's catalogue as a db boot would judge it: exit 0 / 1 / 2
 # release tags (§14.4): cut one, see what it would be, and check what prod actually runs
 bash ops/release.sh patch         # go-server/v1.0.0 → go-server/v1.0.1 (annotated; does NOT push)
 bash ops/release.sh --current     # the newest tag and what `git describe` renders now
@@ -1790,3 +2107,13 @@ the ledger check. One-time after the first Go deploy: re-import
 commands in DEPLOY.md §6. Restart semantics are Node's: SIGTERM → live pots settled (first active seat,
 `all_left`), sockets closed, exit within 8 s (`TimeoutStopSec=15`). Node stays installed on the host only
 for `tools/`.
+
+**The table-catalogue release (23 Sep 2026) is a two-step deploy** (DEPLOY.md §3 has every command). Production's
+`.env` names `LOBBY_TABLES`, so the first boot resolves `TABLE_CONFIG_SOURCE` to `env` and plays exactly the menu it
+did; that boot creates the four configuration tables and seeds the CODE's default catalogue, which production does not
+read yet — and, on production's database (last booted by go-server/v1.1.2), runs the one guarded `ALTER TABLE users ADD COLUMN is_bot`
+(run it as `postgres` first where DEPLOY.md §7 is applied). The switch is then deliberate: `./bin/gameplay
+-export-table-config` with production's `.env` → psql → `-check-table-config` → `TABLE_CONFIG_SOURCE=db` in the `.env`
+→ restart → `/health.tableConfig.source == "db"` and `GET /api/tables`. From then on a table, a category or an engine
+is edited with an `UPDATE` and a restart; **keep the † keys in the `.env`** — a rollback to a tag older than the
+catalogue reads them and knows nothing of the rows.

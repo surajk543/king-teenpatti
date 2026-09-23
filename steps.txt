@@ -22,7 +22,11 @@ curl -s http://127.0.0.1:3000/health | python3 -m json.tool | head -20   # proce
 # The host's go-server/.env OVERRIDES the defaults compiled into the binary. A release that changes
 # a default (LOBBY_TABLES, TABLE_STAKES, SEEN_MAX_POT, …) does nothing on a host that pins that key
 # until the file is edited — check it whenever the release notes mention one.
-grep -E '^(LOBBY_TABLES|TABLE_STAKES|SEEN_MAX_POT|ENTRY_CAP)' go-server/.env
+grep -E '^(LOBBY_TABLES|TABLE_STAKES|SEEN_MAX_POT|ENTRY_CAP|TABLE_CONFIG_SOURCE)' go-server/.env
+# Since 23 Sep 2026 the tables can come from PostgreSQL instead (TABLE_CONFIG_SOURCE=db; DEPLOY.md §3):
+# then those keys are ignored, a release's new default table does not reach the existing rows either
+# (the seed adds a new one INACTIVE), and an edit is an UPDATE + this restart. Which one is playing:
+curl -s http://127.0.0.1:3000/health | python3 -c 'import sys,json;print(json.load(sys.stdin)["tableConfig"])'   # source env|db, fallback must be False
 
 # Which build is live? /health carries the release tag ops/build.sh stamped in.
 # Do this from anywhere — no ssh, no credentials — and trust nothing until it says IN SYNC:

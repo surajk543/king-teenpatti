@@ -234,6 +234,14 @@ below the min buy-in.
 
 ## 6. Proposed database changes (one migration, no new table)
 
+> **As built, and since.** The columns shipped in `V1.0.2__chip_ledger_game.sql` (go-server/v1.1.1) through a
+> catalogue-guarded `DO` block, not the `ADD COLUMN IF NOT EXISTS` proposed below, which takes ACCESS EXCLUSIVE even
+> when the column is there. On 23 Sep 2026 that file was folded into `V1.0.0__baseline.sql` — the columns in
+> `CREATE TABLE chip_ledger`, the guarded block right after it — and the migration directory is exactly two files
+> again (`V1.0.0__baseline.sql`, `V1.0.1__seed.sql`; CLAUDE.md §7.3). The same day the poker knobs of §5
+> (`POKER_TURN_TIMEOUT_MS`, `POKER_MIN_BUYIN_BOOTS`, `POKER_MAX_DISCARDS`) became per-table `table_configs` columns
+> when `TABLE_CONFIG_SOURCE=db`. The proposal is kept as written.
+
 `V1.0.2__chip_ledger_game.sql` — idempotent, runs on every boot:
 
 ```sql

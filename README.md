@@ -1,7 +1,7 @@
 # King Teen Patti
 
 A turn-based multiplayer Teen Patti game: an authoritative **Socket.IO** game server written in
-**Go** with **PostgreSQL** persistence (every chip movement is one transaction), a **Flutter**
+**Go** with **PostgreSQL** for money, audit and the table configuration (live game state is in Redis), a **Flutter**
 client for Android (Material 3), and a bundled browser client for playing and testing without a
 build. The server was first written in Node.js; the Go port replaced it on 8 Sep 2026 once it
 matched the original wire-for-wire (141/141 black-box parity suites, identical event streams).
@@ -29,7 +29,8 @@ king-teenpatti/
 
 `go-server/` is a single process. Each table is an **actor** — one goroutine owns its state and
 every mutation or read is a closure posted to it, so a database round-trip inside a move can never
-interleave with a turn timer. Go's scheduler uses every core; there is no cluster and no Redis. It
+interleave with a turn timer. Go's scheduler uses every core; there is no cluster — one process owns every table, and
+its live state is kept in Redis (`REDIS_URL`) so a restart brings the tables back. It
 carries its own WebSocket-only Engine.IO/Socket.IO server (`internal/sio`), talks to Postgres through
 `pgx`, and serves the browser client and the `socket.io.js` bundle itself. Everything a client or the
 database can observe — Socket.IO events, acks and error codes, REST bodies, JWTs, the schema and
@@ -55,9 +56,13 @@ Production deploys follow `go-server/ops/DEPLOY.md` (systemd unit `gameplay.serv
 directory and `.env` in `go-server/`; the first-time installer also removes the Node tree from the
 host once the Go binary is healthy — `steps.txt` is the short routine). Note that `go-server/.env`
 on the host overrides compiled-in defaults, so a release that changes one leaves any key production
-pins unchanged until somebody edits the file. Everything the Go server does differently from the Node
-original on purpose — websocket only, no Redis, Go runtime metrics under `game_server_go_*`, a few
-latent money-path bugs fixed — is listed in `go-server/PORT_PLAN.md` §9 and `go-server/DECISIONS.md`.
+pins unchanged until somebody edits the file. Since 23 Sep 2026 the TABLES — the engines (Teen Patti,
+Poker), their categories and every lobby table with every figure it plays by — can live in PostgreSQL
+instead (`TABLE_CONFIG_SOURCE=db`): read once at boot, served to the app as `GET /api/tables`, edited with
+an `UPDATE` and a restart, and never overwritten by a release's seed (DEPLOY.md §3 has the switch).
+Everything the Go server does differently from the Node original on purpose — websocket only, Go runtime
+metrics under `game_server_go_*`, a few latent money-path bugs fixed, the Variation and Poker tables, the
+table catalogue — is listed in `go-server/PORT_PLAN.md` §9 and `go-server/DECISIONS.md`.
 
 ## Quick start
 
@@ -66,7 +71,7 @@ latent money-path bugs fixed — is listed in `go-server/PORT_PLAN.md` §9 and `
 # postgres://postgres:postgres@localhost:5432/gameplay (see go-server/.env.example).
 cd go-server
 cp .env.example .env          # optional for local dev; set JWT_SECRET for anything public
-go run ./cmd/gameplay         # creates the schema on first boot
+go run ./cmd/gameplay         # creates the schema and seeds it (pictures, table catalogue) on first boot
 ```
 
 Open <http://localhost:3000> in two browser tabs, press **Play as Guest** in each, then tap a
@@ -100,8 +105,8 @@ npm run ramp -- --url http://localhost:3000 --stages 10,50,200,1000 --hold 40 --
 
 | # | Requirement | Where |
 |---|---|---|
-| 1 | Google, Facebook and guest (deviceId) login | [providers.go](go-server/internal/auth/providers.go), [handlers.go](go-server/internal/auth/handlers.go), [game_state.dart](flutter-client/lib/state/game_state.dart) |
-| 2 | Persistent storage per provider identity — **PostgreSQL** (the brief said SQLite; changed by the owner) | [schema.sql](go-server/internal/db/schema.sql), [ledger.go](go-server/internal/db/ledger.go), [users.go](go-server/internal/db/users.go) |
+| 1 | Google and guest (deviceId) login; Facebook is written but switched off for now (23 Sep 2026) | [providers.go](go-server/internal/auth/providers.go), [handlers.go](go-server/internal/auth/handlers.go), [game_state.dart](flutter-client/lib/state/game_state.dart) |
+| 2 | Persistent storage per provider identity — **PostgreSQL** (the brief said SQLite; changed by the owner) | [V1.0.0__baseline.sql](go-server/internal/db/migration/V1.0.0__baseline.sql), [ledger.go](go-server/internal/db/ledger.go), [users.go](go-server/internal/db/users.go) |
 | 3 | Rooms of at most 5 players | [table.go](go-server/internal/game/table.go), [roommanager.go](go-server/internal/game/roommanager.go) |
 | 4 | 2 players minimum to start; many rooms | [table.go](go-server/internal/game/table.go) |
 | 5 | 3 lakh welcome chips on first login, with 9 diamonds, 20 hammers and 1 missile | [users.go](go-server/internal/db/users.go) |
@@ -117,15 +122,15 @@ npm run ramp -- --url http://localhost:3000 --stages 10,50,200,1000 --hold 40 --
 | 9 | +/− stepper doubles the bet, capped at the player's chips | [table.go](go-server/internal/game/table.go), [table_screen.dart](flutter-client/lib/screens/table_screen.dart) |
 | 10 | Auto-pack when a turn is not acted on | [table.go](go-server/internal/game/table.go) |
 | 12 | Chat panel collapses to a badge and reopens | [client.js](go-server/public/client.js), [table_screen.dart](flutter-client/lib/screens/table_screen.dart) |
-| 13 | Blind/Seen categories at 200 and 5000; chip visibility per category | [table.go](go-server/internal/game/table.go), [view.go](go-server/internal/game/view.go), [roommanager.go](go-server/internal/game/roommanager.go) |
+| 13 | Seen/Blind categories (and Variation and the Poker family beside them), the stakes and tables from the menu or the table catalogue; chip visibility per category | [table.go](go-server/internal/game/table.go), [view.go](go-server/internal/game/view.go), [roommanager.go](go-server/internal/game/roommanager.go) |
 | 14 | Show reveals every hand to the room, with the winner and amount | [table.go](go-server/internal/game/table.go), [client.js](go-server/public/client.js) |
 | 15 | The pot always pays out, even when the table empties | [table.go](go-server/internal/game/table.go) |
-| 16 | Played / won / lost / abandoned counters and total winnings | [users.go](go-server/internal/db/users.go), [schema.sql](go-server/internal/db/schema.sql) |
+| 16 | Played / won / lost / abandoned counters and total winnings | [users.go](go-server/internal/db/users.go), [V1.0.0__baseline.sql](go-server/internal/db/migration/V1.0.0__baseline.sql) |
 | 17 | 25,000 chip reward at every 25 hands played | [users.go](go-server/internal/db/users.go), [handlers.go](go-server/internal/auth/handlers.go) |
 | 18 | 10,000 chip bonus on a 4-hour countdown, stored in the database | [users.go](go-server/internal/db/users.go) |
 | 19 | Seen tables: one double per turn, showdown after 7 rounds | [roommanager.go](go-server/internal/game/roommanager.go) |
-| 20 | Profile picture taken from the Google/Facebook account | [providers.go](go-server/internal/auth/providers.go) |
-| 21 | Pick a bundled picture; locked once seated; visible to everyone | [handlers.go](go-server/internal/auth/handlers.go), [profiles/](go-server/public/profiles/) |
+| 20 | Profile picture taken from the Google account (Facebook's too, while it was on) | [providers.go](go-server/internal/auth/providers.go) |
+| 21 | Pick a picture from the catalogue (free, or bought); worn at the table too; visible to everyone | [handlers.go](go-server/internal/auth/handlers.go), [profiles/](go-server/public/profiles/) |
 | 22 | Private tables: fixed 200 boot, maximum win 500,000, one double per turn | [roommanager.go](go-server/internal/game/roommanager.go), [table.go](go-server/internal/game/table.go) |
 | 23 | Landscape on phones, icons, light/dark toggle, Material 3 | [theme.css](go-server/public/theme.css), [app_theme.dart](flutter-client/lib/theme/app_theme.dart) |
 | 24 | Two half-empty rooms merge; never mid-hand; "starting in N" countdown | [roommanager.go](go-server/internal/game/roommanager.go) |
@@ -180,9 +185,10 @@ database, so neither can be farmed by replaying a request or reinstalling the ap
 *played* once the player commits chips beyond the boot — posting the ante and folding immediately
 does not count, which is the rule the milestone reward is paid against.
 
-**Profile pictures.** Google and Facebook pictures are captured at login. A player can instead pick
-one of the pictures bundled in `go-server/public/profiles/`, and that choice is what everyone at the
-table sees. Changing it is refused while seated, so a picture cannot swap mid-hand.
+**Profile pictures.** A Google picture is captured at login (Facebook's was too, while Facebook
+sign-in was on). A player can instead pick one from the picture catalogue (`profile_pictures`, seeded
+by `V1.0.1__seed.sql`: free ones, and premium ones bought with chips, diamonds or hammers), and that
+choice is what everyone at the table sees.
 
 **Private tables.** Opened with a code rather than through the lobby. The boot is **fixed at 200
 chips** — not a choice, so there is nothing to pick in the UI and a requested amount is simply
@@ -218,14 +224,21 @@ the backlog; when the last player leaves, the room and its chat are destroyed to
 written to the database. The panel is collapsed by default and reopens from a button that carries an
 unread badge.
 
-**Table categories.** The lobby offers two categories at each stake (200 and 5000):
+**Engines, categories and tables.** Every table belongs to a category, and every category to one of two
+engines: **Teen Patti** (Seen, Blind, Variation) and **Poker** (3-Card Poker, 5-Card Draw, Texas Hold'em,
+Omaha). The app's lobby is those three levels — an engine's card opens its categories, a category's card
+its tables — and the server decides what is on it: from the `LOBBY_TABLES`-style env keys, or, since
+23 Sep 2026, from four tables in PostgreSQL (`table_engines`, `table_categories`, `table_settings`,
+`table_configs`) that hold every table's boot, stack band, ladder, pot cap and clocks. The app fetches that
+catalogue (`GET /api/tables`) at every sign-in and keeps a copy on the phone. The default menu runs from
+200 to 10 Lakh; chip visibility by category:
 
 | | Your chips | Other players' chips |
 |---|---|---|
 | **Seen** | visible | visible |
-| **Blind** | visible | hidden |
+| **Blind**, **Variation** and every **Poker** game | visible | hidden |
 
-Blind and seen tables at the same stake are separate rooms. The hiding is done when state is
+Tables of different categories at the same stake are separate rooms. The hiding is done when state is
 serialized **for each viewer** — on a blind table another player's balance is never put on the wire,
 so it is a real privacy boundary rather than something the client politely declines to draw. Bets
 and the pot stay public in both categories, because those are announced as they happen.
@@ -280,8 +293,9 @@ formatting).
 ## Security notes
 
 - Provider tokens are verified server-side. Google id_tokens are checked against the configured
-  OAuth client ids; Facebook tokens are checked with `debug_token` including the `app_id`, without
-  which any Facebook token from any app would be accepted.
+  OAuth client ids. Facebook tokens were checked with `debug_token` including the `app_id`, without
+  which any Facebook token from any app would be accepted; that code is commented out while Facebook
+  sign-in is switched off (23 Sep 2026), and a `facebook` login is refused `unknown_provider`.
 - Guest device ids are SHA-256 hashed before storage — the database never holds a raw device id.
 - Card faces are never sent to anyone but their owner, and only after they look.
 - The deck is shuffled with `crypto/rand`, not `math/rand`, whose state is recoverable from a short
@@ -298,10 +312,11 @@ formatting).
 
 ## Not included
 
-- **Google/Facebook native sign-in SDKs.** The server verifies both providers, but the Flutter app
-  does not bundle the native SDKs yet, so those buttons are disabled and guest login is the way in.
+- **Facebook sign-in, for now.** Restored on 22 Sep 2026 and switched off again the next day (owner):
+  the button, the Flutter plugin and the server's verification are commented out, not deleted —
+  `docs/social-login-setup.md` §2 says what to uncomment. Google and guest are the ways in.
 - **An iOS build.** Only `flutter-client/android/` exists so far; the Dart code has nothing
   platform-specific in it.
-- **Multi-process scaling.** Accounts are shared through PostgreSQL, but a table lives in one
-  process (`REDIS_URL` is read and logged as ignored). One Go process carried 4,000 players at
+- **Multi-process scaling.** Accounts are shared through PostgreSQL and a table's live state is kept
+  in Redis, but one process owns every table. One Go process carried 4,000 players at
   p95 5 ms on the dev box, so sharding tables across processes has not been needed.
