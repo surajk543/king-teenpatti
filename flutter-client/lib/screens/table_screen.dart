@@ -966,8 +966,10 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
 
             return SeatPod(
               revealed: reveal?.cards ?? peek?.cards,
-              // Which of those cards played as wild ones (a variation table).
+              // Which of those cards played as wild ones (a variation table),
+              // and the hand as it was counted with them.
               wild: reveal?.wild ?? peek?.wild ?? const [],
+              playsAs: reveal?.playsAs ?? peek?.playsAs ?? const [],
               // Which three of five were counted (5-Card only).
               best: reveal?.best ?? peek?.best ?? const [],
               revealedHand:
@@ -1212,6 +1214,8 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
                       cardHeight: handH,
                       revealed: myReveal?.cards,
                       wild: myReveal?.wild ?? myPeek?.wild ?? const [],
+                      playsAs:
+                          myReveal?.playsAs ?? myPeek?.playsAs ?? const [],
                       best: myReveal?.best ?? myPeek?.best ?? const [],
                     ),
                   ],
@@ -2214,6 +2218,7 @@ class _OwnHand extends StatelessWidget {
     required this.cardHeight,
     this.revealed,
     this.wild = const [],
+    this.playsAs = const [],
     this.best = const [],
   });
 
@@ -2228,6 +2233,12 @@ class _OwnHand extends StatelessWidget {
   /// sees their own cards all hand, but which of them were wild is the
   /// server's to say, with the reveal.
   final List<String> wild;
+
+  /// The hand as it was counted, from a showdown's or a sideshow's reveal —
+  /// the stand-in for each wild card when `you.hand` cannot say (a player who
+  /// paid for a show while still blind never had that block), so their own
+  /// fan turns the way every rim seat's does (24 Sep 2026). Empty otherwise.
+  final List<String> playsAs;
   final double cardHeight;
 
   /// The viewer's own cards as the showdown turned them over.
@@ -2451,9 +2462,14 @@ class _OwnHand extends StatelessWidget {
                       child: WildTransform(
                         height: cardHeight,
                         code: i < cards.length ? cards[i] : null,
-                        standIn: i < cards.length
-                            ? you.hand?.standInFor(cards[i], i)
-                            : null,
+                        standIn: i >= cards.length
+                            ? null
+                            : you.hand != null
+                            ? you.hand!.standInFor(cards[i], i)
+                            : (playsAs.length == cards.length &&
+                                      wild.contains(cards[i])
+                                  ? playsAs[i]
+                                  : null),
                         wild:
                             i < cards.length &&
                             (wild.contains(cards[i]) ||

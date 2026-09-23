@@ -633,7 +633,9 @@ is decided by one of **seven** variations, chosen in the window §6.1 describes.
 - **`PlaysAs`** (`EvaluatedHand`, set with `Wild`, nil without a wild card): the hand as it was COUNTED, index for index
   with `Cards` — a wild card replaced by the stand-in the search chose (`best.Cards[len(naturals):]` dealt back into the
   player's own order), every other card itself. `Table.ownHandView` puts it in **`you.hand`** for a viewer who is not
-  blind once `hand.variation.selected` is set, so a player who looked during the window gets it the moment the choice
+  blind once `hand.variation.selected` is set — and since 24 Sep 2026 every showdown reveal and sideshow-reveal hand carries it too
+  (`Reveal.PlaysAs`, `SideshowHand.PlaysAs`, present exactly with `Wild`), so the table can show the hand that won rather than the
+  cards it was dealt, so a player who looked during the window gets it the moment the choice
   lands; the hand's end drops it (`t.hand == nil`). It is that player's own cards run through a public rule: nobody
   else's snapshot carries any of it (`TestYourOwnHandIsNamedOnceYouHaveSeenItAndTheVariationIsChosen`).
 
@@ -801,7 +803,9 @@ from `room:state.turn` / `you.options`. Changing `you.options` affects Flutter; 
 deadline, timeoutMs, options, selected, selectedBy, turnUp?}` — public, identical for every viewer, **ABSENT (not null) on
 seen and blind tables and between hands**, so those snapshots are byte for byte what they were. While `selecting`,
 `turn.seatIndex` is -1 and `you.options` null. `game:showdown`/`game:handEnded` gain `variation` + `turnUp`, and each
-reveal (and sideshow-reveal hand) gains `wild` — which of its cards played wild; `handName`/`category` are what the hand
+reveal (and sideshow-reveal hand) gains `wild` — which of its cards played wild — and, since 24 Sep 2026, **`playsAs`** beside it
+(owner: "on show or sideshow, show updated cards not the base cards"): the hand as it was COUNTED, index for index with `cards`, a
+wild card as the card it stood for; sent exactly when `wild` is; `handName`/`category` are what the hand
 MADE. All omitted where they do not apply. `session:ready.config.categories` is `[seen, blind]` plus `variation` only
 when the menu offers one. `variation.options` is the menu THIS hand offers (seven values, `FIVE_CARD` last) and
 **`variation.cardsPerPlayer`** is what every player in the hand holds right now — 3 from the deal and under the six
@@ -1314,6 +1318,15 @@ Production's lives at `/var/www/gameplay/king-teenpatti/go-server/.env` (`PG_POO
     `integration`/`socketProtocol`/`stakes`/`statsAndRewards`/`metrics` process suites (real sockets through
     `socket/testclient`, `/health`, `/metrics`, static files, review_headers); `internal/db` = ledger transactions
     (`duplicate_action`, `stale_state`), users/rewards, `NormalizeDisplayName`, `statement_timeout`, review_money.
+  - **The ranking audit** (24 Sep 2026, after the owner's "a pair is showing Trail" report): `internal/game/review_ranking_oracle_test.go`
+    — an oracle classic evaluator written from §6.3 and wild masks from §6.4's rule text, brute-forced, against Evaluate/Compare
+    and every VariationRules over all 22,100 hands (AK47, LOWEST/HIGHEST_JOKER exhaustive; JOKER for all 13 ranks, HUKAM all 4
+    suits; Muflis reversed; FIVE_CARD best-of-ten; every natural pair under every rule set is a Trail only with a wild card) —
+    ~1 min, ~3 min under `-race`; `review_showdown_winners_test.go` — who WINS at seen, blind and every variation table with
+    deterministic cards (shows, forced and pot-limit showdowns in every seat order, sideshows, ties, pot to the winner);
+    `flutter-client/test/review_reveal_naming_test.dart` — the reveal shows the wire's name and marks exactly the wild cards,
+    and a source scan proves the app ranks nothing itself. The audit's live half (112 hands on the local server judged by an
+    independent JS evaluator, 0 mismatches) was a scratch script, not kept.
   - **Variation Teen Patti** (§6.1, §6.4): `internal/game/variation_test.go` (the six rule sets; a wild never makes a hand
     worse, never duplicates a held card, three wilds against an exhaustive search) and `table_variation_test.go` (the window:
     the six picks, timeout → MUFLIS, who may choose, the pick-versus-clock race run 200 times under `-race`, chooser leaves,
@@ -1609,8 +1622,13 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   `variationAnnounced` holds "Variation: AK47" for 3 s — once per hand whether the event, the snapshot or both said so —
   with "Time ran out — Muflis was chosen" (`TIMEOUT`) or "<name> left — Muflis was chosen" (`LEFT`) under it, and
   `_CategoryTag` reads "VARIATION · AK47" / "· Joker · 10" / "· Hukam · ♥" through the showdown (`lastVariation`, cleared
-  by the next deal, a change of table, or the celebration ending). At a reveal the cards that played as wild carry a gold
-  edge (`WildEdge`, from the reveal's `wild`). Palette: rani pink (`AppTheme.paletteFor` — `_rani`/`_raniDark`,
+  by the next deal, a change of table, or the celebration ending). At a reveal a rim seat's fan shows the hand as it was COUNTED when the
+  server sends `playsAs` (`SeatPod.playsAs`, 24 Sep 2026: the wild 7♣ of K♠ K♦ 7♣ shows as the K♣ it stood for; a server without it,
+  or a hand with no wild card, shows the cards as dealt), and the cards that played as wild carry a gold
+  edge (`WildEdge`, from the reveal's `wild`, matched against the dealt cards) — since 24 Sep 2026 a 2dp edge in `AppTheme.gold` (`goldDeep` on the light theme)
+  with a gold star at the card's head on the side the index is not: the 1.5dp champagne edge it had was 1.24:1 against the card
+  face, the same contrast as the card's own edge, and the owner read a wild-made Trail as "a pair showing Trail". Nothing on a
+  rim seat re-ranks anything: the name is the wire's `handName`, and a natural PAIR plus a wild card IS a Trail by §6.4. Palette: rani pink (`AppTheme.paletteFor` — `_rani`/`_raniDark`,
   `Icons.shuffle_rounded`); the lobby card says `variationTableNote` as its ONE blurb line. A seen or blind table draws
   exactly what it did. Tests: `test/variation_table_test.dart` (640x360 at text x1.25 in all five languages),
   `variation_strings_test.dart`, `variation_palette_test.dart`, `five_card_test.dart`. **A wild card of the viewer's own hand turns into the

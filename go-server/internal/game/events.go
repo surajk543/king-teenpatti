@@ -195,6 +195,12 @@ type SideshowHand struct {
 	// Wild names which of Cards played as wild cards. Only on a variation
 	// table, and only under a variation that has wild cards; absent otherwise.
 	Wild []string `json:"wild,omitempty"`
+	// PlaysAs is the hand as it was COUNTED, index for index with Cards: a
+	// wild card replaced by the card it stood for, every other card itself
+	// (EvaluatedHand.PlaysAs). Present exactly when Wild is — so a client can
+	// show the hand that won, not the cards it was dealt (owner, 24 Sep 2026:
+	// "on show or sideshow, show updated cards not the base cards").
+	PlaysAs []string `json:"playsAs,omitempty"`
 	// Best names the three of Cards that were counted, when Cards holds more
 	// than three (FIVE_CARD); absent otherwise.
 	Best []string `json:"best,omitempty"`
@@ -240,6 +246,8 @@ type Reveal struct {
 	// HandName and Category are what the hand MADE with them, so under a
 	// variation they can differ from what the bare cards would be.
 	Wild []string `json:"wild,omitempty"`
+	// PlaysAs is the hand as it was counted — see SideshowHand.PlaysAs.
+	PlaysAs []string `json:"playsAs,omitempty"`
 	// Best names the three of Cards that were counted — see SideshowHand.Best.
 	// Under FIVE_CARD Cards holds all five the player was dealt and HandName is
 	// what the best three of them made.

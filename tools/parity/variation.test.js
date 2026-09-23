@@ -452,8 +452,19 @@ test('a showdown names the variation, marks the wild cards inside each hand, and
   assert.equal(showdown.reveals.length, 2);
   for (const reveal of showdown.reveals) {
     const expected = ['userId', 'seatIndex', 'cards', 'handName', 'category', 'won'];
-    assertKeys(reveal, 'wild' in reveal ? [...expected, 'wild'] : expected, 'reveal');
+    // playsAs (24 Sep 2026: "on show or sideshow, show updated cards not the
+    // base cards") comes exactly with wild: the hand as it was counted.
+    assertKeys(reveal, 'wild' in reveal ? [...expected, 'wild', 'playsAs'] : expected, 'reveal');
     assert.equal(reveal.cards.length, 3);
+    if ('playsAs' in reveal) {
+      assert.equal(reveal.playsAs.length, 3, 'playsAs runs index for index with cards');
+      for (const [i, code] of reveal.cards.entries()) {
+        if (reveal.wild.includes(code)) assert.match(reveal.playsAs[i], CARD_CODE);
+        else assert.equal(reveal.playsAs[i], code, 'a natural card plays as itself');
+      }
+      assert.equal(new Set(reveal.playsAs).size, 3, 'no card twice in the counted hand');
+      assert.equal(HAND_NAMES[evaluate(reveal.playsAs).category], reveal.handName, 'the counted hand makes the name the reveal carries');
+    }
     assert.ok(!('best' in reveal), 'best is FIVE_CARD\'s alone: absent, not null, under every other variation');
     // What the hand MADE, in the same six English names every table uses.
     assert.equal(HAND_NAMES[reveal.category], reveal.handName);

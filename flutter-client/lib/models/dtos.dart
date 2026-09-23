@@ -1696,6 +1696,7 @@ class SideshowHand {
     required this.cards,
     required this.handName,
     this.wild = const [],
+    this.playsAs = const [],
     this.best = const [],
   });
 
@@ -1709,6 +1710,12 @@ class SideshowHand {
   /// them, so it can differ from what the bare cards would be.
   final List<String> wild;
 
+  /// The hand as it was COUNTED, index for index with [cards]: a wild card
+  /// replaced by the card it stood for, every other card itself. Sent exactly
+  /// when [wild] is (owner, 24 Sep 2026: "on show or sideshow, show updated
+  /// cards not the base cards"); empty from a server that predates it.
+  final List<String> playsAs;
+
   /// The three of [cards] that were counted, under 5-Card only (where [cards]
   /// holds five). Empty everywhere else.
   final List<String> best;
@@ -1719,6 +1726,7 @@ class SideshowHand {
     cards: (j['cards'] as List? ?? const []).map((e) => '$e').toList(),
     handName: _str(j['handName']),
     wild: (j['wild'] as List? ?? const []).map((e) => '$e').toList(),
+    playsAs: cardCodes(j['playsAs']),
     best: cardCodes(j['best']),
   );
 }
@@ -2133,6 +2141,7 @@ class Reveal {
     required this.handName,
     required this.won,
     this.wild = const [],
+    this.playsAs = const [],
     this.best = const [],
   });
 
@@ -2145,6 +2154,9 @@ class Reveal {
   /// Which of [cards] played as wild cards (see [SideshowHand.wild]).
   final List<String> wild;
 
+  /// The hand as it was counted (see [SideshowHand.playsAs]).
+  final List<String> playsAs;
+
   /// The three of [cards] that were counted — present only under 5-Card, where
   /// [cards] holds all five. Empty on every other table and variation.
   final List<String> best;
@@ -2156,6 +2168,7 @@ class Reveal {
     handName: _str(j['handName']),
     won: j['won'] == true,
     wild: (j['wild'] as List?)?.map((e) => '$e').toList() ?? const [],
+    playsAs: cardCodes(j['playsAs']),
     best: cardCodes(j['best']),
   );
 }

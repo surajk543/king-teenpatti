@@ -138,6 +138,7 @@ class SeatPod extends StatelessWidget {
     this.revealed,
     this.revealedHand,
     this.wild = const [],
+    this.playsAs = const [],
     this.best = const [],
     this.saying,
     this.bubbleSide = BubbleSide.above,
@@ -187,6 +188,14 @@ class SeatPod extends StatelessWidget {
   /// empty everywhere else. They get a gold edge, which is what explains a
   /// ranking the three faces alone would not make.
   final List<String> wild;
+
+  /// The revealed hand as it was COUNTED, index for index with [revealed]: a
+  /// wild card replaced by the card it stood for. When the server sends it
+  /// (with [wild]) the fan shows THESE faces — the trail that won, not the
+  /// pair it was dealt (owner, 24 Sep 2026: "on show or sideshow, show updated
+  /// cards not the base cards") — and the wild marking stays on the stand-in,
+  /// so the star says which card was the joker. Empty: the real cards.
+  final List<String> playsAs;
 
   /// Which three of a FIVE-card [revealed] hand were counted (5-Card, a
   /// variation table) — the server's choice, sent with the reveal. The other
@@ -682,6 +691,9 @@ class SeatPod extends StatelessWidget {
         best.isNotEmpty &&
         best.length < show.length;
 
+    // The faces shown: the hand as it was counted when the server said how
+    // (a wild card as the card it stood for), else the cards as dealt.
+    final faces = show != null && playsAs.length == show.length ? playsAs : show;
     Widget card(int i) =>
         // A foreground edge on the card's own box, so a wild card takes no
         // more room than any other: the column must not move at the reveal.
@@ -692,7 +704,7 @@ class SeatPod extends StatelessWidget {
           child: PlayingCard(
             height: cardH,
             dimmed: dim,
-            code: show != null && i < show.length ? show[i] : null,
+            code: faces != null && i < faces.length ? faces[i] : null,
             // Green backs say this player has looked at their hand, which is
             // the one thing about an opponent that changes how you bet. Not
             // while they are out of it: a packed seat's cards are history.

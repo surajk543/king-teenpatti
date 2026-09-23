@@ -24,6 +24,7 @@ cd tools && npm install
 | `crashtest.mjs` | Failure-and-recovery acceptance tests for the live-state architecture. Four scenarios, each playing real hands and then breaking something for real: **crash** (SIGKILL the server, Redis survives → tables restored from Redis), **redis-flush** (FLUSHALL under a running server → play must not notice, and the reconciler refills Redis without waiting for a move), **redis-loss** (server killed *and* Redis wiped → nothing is rebuilt: PostgreSQL holds no game state, so no table and no seat comes back, every open pot is refunded exactly once, a player who had left mid-hand keeps their banked bets, and everyone rejoins into fresh tables), **no-redis** (no live store at all → a restart loses the tables and refunds the pots). Every scenario ends by auditing the books: each wallet equals the sum of its own ledger rows, wallets plus open pots are unchanged, and no hand was both settled and refunded. | `npm run crashtest`<br>`npm run crashtest -- --scenario redis-loss --keep` |
 | `chiptest.mjs` | Proves a player's chips are correct in PostgreSQL the moment they leave a table, between hands and mid-hand. The server is wallet-based: `users.chips` is debited inside the transaction of every boot, bet and show, so the seat mirrors the wallet rather than holding a separate stack. The test compares what the table showed, what REST reports, what `users.chips` holds and what the player's ledger rows sum to, and finally that no chips were created or destroyed. | `npm run chiptest` |
 | `host-metrics.mjs` | Companion to the ramp: for every stage of a ramp report, pulls what the server host recorded during that stage's exact hold window from its Prometheus (per-core CPU, I/O wait, memory, goroutines, sockets, database latency and commit rate) and writes them alongside. Needs a tunnel to the host's Prometheus. | `ssh -N -L 19090:127.0.0.1:9090 deploy@host &`<br>`npm run hostmetrics -- --prom http://127.0.0.1:19090 --ramp ramp.json` |
+| `ramp-report.mjs` | Turns a ramp run into one self-contained HTML report: the verdict and a plain-English summary computed from the data, the per-stage ladder with p95/p99 coloured by band, a chart per figure against the player count (ack latency p50/p95/p99, login and connect, actions/s, hands/min, host CPU per core, game CPU and RSS, goroutines, sockets, PostgreSQL CPU/backends/TPS/transaction latency, Redis memory/commands/latency, network, nginx, the generator's own lag) each with its numbers in a table, per-stage resource tables, time series over the whole run with every hold window shaded, and a methodology section. Inline CSS and SVG drawn by the script — no JavaScript, no images, no chart library; the typeface is the only thing fetched. Sections whose input was not given say "not collected". | `npm run report -- --ramp ramp.json --host ramp-host.json --samples host-samples.jsonl --title "Preprod, 1K–9K" --out ramp.html` |
 | `parity/poker.test.js` + `parity/lib/poker5.mjs` | The Poker family's black-box suite (profile `poker`): every variant over real sockets — snapshot keys and redaction, the `wrong_game` wall between the families, Hold'em with chips conserved, fold-to-one, Omaha's exactly-two rule, 5-Card Draw's exchange, 3-Card Poker against the dealer — with `poker5.mjs`, a five-card and three-card evaluator written from the rules and not ported from the server, checking every reveal's `handName` and `best`. `money.test.js` then audits those books, exempting only 3-Card Poker hands (played against a house with no wallet) from the per-hand zero-sum. | `npm run parity -- --filter poker` |
 | `parity/lib/csharpJsonPort.js` | A raw Socket.IO frame parser (a port of the retired Unity client's parser). The protocol tests use it to assert exact packet strings instead of trusting a client library. | used by `parity/protocol.test.js` |
 
@@ -63,6 +64,20 @@ connected ends the run, and the last healthy stage is the ceiling. Watch the rep
 column: if it climbs, the generator itself is the bottleneck and the latencies above it are
 suspect — add `--workers`. Above about 28,000 players one machine runs out of ephemeral TCP
 ports to a single destination, whatever the worker count.
+
+## Report flags
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `--ramp` | required | The ramp JSON `ramptest.mjs --out` wrote. |
+| `--host` | none | The host JSON `host-metrics.mjs` wrote for that ramp. Without it the host, PostgreSQL, Redis, network and nginx sections say "not collected" and the game-server charts fall back to what the generator read from `/health`. |
+| `--samples` | none | The `loadtest/host-sampler.py` JSONL from the host for the whole run. Without it the time-series section says "not collected". |
+| `--title` | `Ramp report — <url>` | The page title and headline. |
+| `--out` | `<ramp name>-report.html` | Where to write the page. |
+
+Every figure in the page is a figure from the files: milliseconds stay whole, megabytes keep one
+decimal, percentages one, and nothing is estimated. Open the result in a browser; it prints in
+light or dark following the system setting.
 
 ## Parity harness notes
 

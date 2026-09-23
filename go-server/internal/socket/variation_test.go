@@ -724,6 +724,31 @@ func TestAVariationShowdownNamesItsRulesAndItsWildCards(t *testing.T) {
 				if len(r.Cards) != 3 || r.HandName == "" || strings.Join(r.Wild, ",") != strings.Join(want, ",") {
 					t.Fatalf("%s: %s: %v played %v as wild under a turned-up %s, want %v", who, name, r.Cards, r.Wild, turnUp, want)
 				}
+				// playsAs — the hand as it was counted — comes exactly with wild
+				// (owner, 24 Sep 2026: "on show or sideshow, show updated cards
+				// not the base cards"): three cards, the naturals themselves,
+				// each wild a stand-in, and together the hand the reveal names.
+				if len(r.Wild) == 0 {
+					if r.PlaysAs != nil {
+						t.Fatalf("%s: %s: playsAs %v on a hand with no wild card", who, name, r.PlaysAs)
+					}
+					continue
+				}
+				if len(r.PlaysAs) != 3 {
+					t.Fatalf("%s: %s: playsAs %v, want three cards", who, name, r.PlaysAs)
+				}
+				isWild := map[string]bool{}
+				for _, w := range r.Wild {
+					isWild[w] = true
+				}
+				for i, card := range r.Cards {
+					if !isWild[card] && r.PlaysAs[i] != card {
+						t.Fatalf("%s: %s: natural %s plays as %s", who, name, card, r.PlaysAs[i])
+					}
+				}
+				if made := game.Evaluate(game.ParseCards(r.PlaysAs), game.EvaluateOptions{}); made.Name != r.HandName {
+					t.Fatalf("%s: %s: playsAs %v makes %s, the reveal says %s", who, name, r.PlaysAs, made.Name, r.HandName)
+				}
 			}
 		}
 		if str(ended, "winnerId") != f.players[0].user.ID && str(ended, "winnerId") != f.players[1].user.ID {

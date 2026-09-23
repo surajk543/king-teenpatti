@@ -720,19 +720,66 @@ class WildEdge extends StatelessWidget {
   Widget build(BuildContext context) {
     if (!wild) return child;
 
+    // A gold that reads on the card's cream face as well as on either ground.
+    // The champagne edge it had (goldBright, 1.24:1 against the face — the
+    // same contrast as the card's own edge) was the ONLY sign of a wild card
+    // on a rim seat, 1.5dp wide on a 26dp card, and it was missed: a natural
+    // pair plus a wild card is a Trail by the rules (§6.4), and a player who
+    // could not see the wild card saw a pair winning as a trail (owner, 24 Sep
+    // 2026). The edge is wider and darker now, and a gold star sits at the
+    // card's head on the side the index is not — the mark of a joker, in no
+    // language — inside the card's box, so the seat's column still does not
+    // move and a neighbouring card in the fan cannot cover it.
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final gold = dark ? AppTheme.gold : AppTheme.goldDeep;
+    final edge = math.max(2.0, cardHeight * 0.06);
+    final star = math.max(10.0, cardHeight * 0.30);
+
     return Semantics(
       label: label,
-      child: DecoratedBox(
-        position: DecorationPosition.foreground,
-        decoration: BoxDecoration(
-          // The card's own corner (PlayingCard draws 0.055 of its height).
-          borderRadius: BorderRadius.circular(cardHeight * 0.055),
-          border: Border.all(
-            color: AppTheme.goldBright,
-            width: math.max(1.5, cardHeight * 0.035),
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          DecoratedBox(
+            position: DecorationPosition.foreground,
+            decoration: BoxDecoration(
+              // The card's own corner (PlayingCard draws 0.055 of its height).
+              borderRadius: BorderRadius.circular(cardHeight * 0.055),
+              border: Border.all(color: gold, width: edge),
+            ),
+            child: child,
           ),
-        ),
-        child: child,
+          Positioned(
+            top: edge,
+            right: edge,
+            child: IgnorePointer(
+              child: Container(
+                width: star,
+                height: star,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: const LinearGradient(
+                    colors: [AppTheme.goldBright, AppTheme.gold],
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: AppTheme.ink900.withValues(alpha: 0.45),
+                      blurRadius: star * 0.3,
+                      offset: Offset(0, star * 0.1),
+                    ),
+                  ],
+                ),
+                child: Icon(
+                  Icons.auto_awesome_rounded,
+                  size: star * 0.66,
+                  color: AppTheme.ink900,
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

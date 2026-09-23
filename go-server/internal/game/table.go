@@ -2670,8 +2670,8 @@ func (t *Table) settleSideshow(pending *pendingSideshow, accepted bool, reason s
 				Reason:       reason,
 				PackedUserID: loser.userID,
 				Hands: []SideshowHand{
-					{UserID: asker.userID, DisplayName: asker.displayName, Cards: CardCodes(asker.cards), HandName: a.Name, Wild: a.Wild, Best: a.Best},
-					{UserID: asked.userID, DisplayName: asked.displayName, Cards: CardCodes(asked.cards), HandName: b.Name, Wild: b.Wild, Best: b.Best},
+					{UserID: asker.userID, DisplayName: asker.displayName, Cards: CardCodes(asker.cards), HandName: a.Name, Wild: a.Wild, PlaysAs: a.PlaysAs, Best: a.Best},
+					{UserID: asked.userID, DisplayName: asked.displayName, Cards: CardCodes(asked.cards), HandName: b.Name, Wild: b.Wild, PlaysAs: b.PlaysAs, Best: b.Best},
 				},
 			},
 		})
@@ -2821,6 +2821,7 @@ func (t *Table) resolveShowdown(contenders []*seat, reason WinReason, showReques
 			Category:  entry.hand.Category,
 			Won:       entry.seat.userID == best.seat.userID,
 			Wild:      entry.hand.Wild,
+			PlaysAs:   entry.hand.PlaysAs,
 			Best:      entry.hand.Best,
 		})
 	}
