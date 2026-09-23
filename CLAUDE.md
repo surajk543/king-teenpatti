@@ -1789,7 +1789,14 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   treatment (3 shadows + bevel + optional `Glint`).
 - **The picture picker** (`openPicturePicker`, with a day/night `DayNightSwitch` — sun, switch, moon, `GameState.toggleTheme` — at the top of its header since 14 Sep 2026 (owner), and headed by the player's display name where it read "Your picture" (owner, the same day); its shelf — `PictureFilter`, `PictureFilterMenu`, `pictureShelf`,
   `PictureChoice`, `unlockPicture`, `DiamondBalance` — lives in `widgets/picture_shelf.dart`, shared with the chip
-  store's **Pictures** tab (`chip_store.dart` `_StoreTabs`: Chips | Diamonds | Pictures in the header — the **Diamonds** tab (`diamondPacks`, `_DiamondPackCard`: 1/₹49, 5/₹199 ⭐, 20/₹699 🔥, 100/₹2,999) is offered at a table too, and a credited pack celebrates as `rewardWon.kind == 'diamonds'`; at a table the picture key
+  store's **Pictures** tab (`chip_store.dart` `_StoreTabs`: Chips | Diamonds | Pictures in the header — **every shelf heads with the
+  wallet it sells or spends, Chips with the player's chips since 24 Sep 2026** (owner: "In store when user click on Coins tab, then it is
+  not showing users current coin on top, just like we show for hammer"; it was the one shelf with no balance): `ChipBalance`, the
+  `HammerBalance` pill's twin in `picture_shelf.dart` — the lobby wallet's coin and `formatChips` in champagne on the dark pill; at a
+  table the SEAT's stack (what the drawer's "Your chips" shows and where a pack bought there lands), in the lobby the wallet; its width,
+  floored at a two-decimal lakh figure, is counted into the header's `walletW` on every shelf, so the tabs never move from one shelf to
+  the next and the blurb gives up the room (`test/store_chips_test.dart`: 640x360 at x1.25 in all five languages, a wallet change under
+  an open store, the seat at a table) — the **Diamonds** tab (`diamondPacks`, `_DiamondPackCard`: 1/₹49, 5/₹199 ⭐, 20/₹699 🔥, 100/₹2,999) is offered at a table too, and a credited pack celebrates as `rewardWon.kind == 'diamonds'`; at a table the picture key
   is **Animated** (`_StoreTabs.animatedOnly`, owner 13 Sep 2026): the animated shelf alone, no shelf menu, bought with hammers (since 14 Sep 2026; diamonds before) and worn on the seat at once; the chip packs are drawn as lobby table cards —
   frosted glass over a baked orb, a still plate, count-up figure, one fact, a price capsule — coloured sapphire → purple → gold
   up the range; the Pictures tab heads its grid with the worn picture, large and centred, beside the shelf menu); requirement 21): a horizontal strip

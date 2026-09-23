@@ -1222,6 +1222,88 @@ class HammerBalance extends StatelessWidget {
   }
 }
 
+/// The player's chips, in the store's header on the Chips shelf — the chips
+/// twin of [HammerBalance] (owner, 24 Sep 2026: "In store when user click on
+/// Coins tab, then it is not showing users current coin on top, just like we
+/// show for hammer"; until then Chips was the one shelf with no balance over
+/// its packs). The glyph is the lobby wallet's coin, the ink the champagne
+/// every gold figure takes on charcoal, and the figure is [formatChips]' —
+/// 2.07 Lakh, never the digits — so it reads exactly as the balance in the
+/// lobby bar does.
+class ChipBalance extends StatelessWidget {
+  const ChipBalance({super.key, required this.chips});
+
+  final int chips;
+
+  static const double _coin = 14;
+
+  static TextStyle? _figure(ThemeData theme) =>
+      theme.textTheme.labelMedium?.copyWith(
+        fontWeight: FontWeight.w700,
+        fontFeatures: const [FontFeature.tabularFigures()],
+      );
+
+  /// A two-decimal lakh figure: as wide as any wallet this shelf is likely to
+  /// be opened with, and wider than one a pack bought on it makes (3 Lakh to
+  /// 13 Lakh at most), so the header's sums never change under the finger
+  /// that bought the pack.
+  static const int _floorChips = 8888000;
+
+  /// How wide the pill is at this text scale, for the store header, which
+  /// counts one balance on every shelf so its tabs never move from one shelf
+  /// to the next. At least the width of [_floorChips] (88.88 Lakh, or its
+  /// international twin), for the reason [PictureWalletBalances.width]
+  /// measures three figures.
+  static double width(BuildContext context, {required int chips}) {
+    final style = _figure(Theme.of(context));
+    double figure(int value) {
+      final painter = TextPainter(
+        text: TextSpan(text: formatChips(value), style: style),
+        textDirection: Directionality.of(context),
+        textScaler: MediaQuery.textScalerOf(context),
+        maxLines: 1,
+      )..layout();
+      final w = painter.width;
+      painter.dispose();
+      return w;
+    }
+
+    final content =
+        _coin + Space.xs + math.max(figure(chips), figure(_floorChips));
+    return (2 * Space.md + 2 * Dim.hairline + content).ceilToDouble();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: Space.md,
+        vertical: Space.xs,
+      ),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(Radii.pill),
+        color: AppTheme.ink900.withValues(alpha: 0.82),
+        border: Border.all(
+          color: AppTheme.goldBright.withValues(alpha: 0.55),
+          width: Dim.hairline,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const PokerChip(colour: AppTheme.gold, size: _coin),
+          const SizedBox(width: Space.xs),
+          Text(
+            formatChips(chips),
+            style: _figure(theme)?.copyWith(color: AppTheme.goldBright),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 /// The two wallets a premium picture is paid from besides chips — diamonds,
 /// then hammers — in one dark pill, for the picture sheet's header and the
 /// store's Pictures shelf (owner, 14 Sep 2026: the animated pictures were

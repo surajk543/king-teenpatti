@@ -724,6 +724,7 @@ class _ChipStoreState extends State<_ChipStore> {
     final onDiamonds = tab == StoreTab.diamonds;
     final onHammers = tab == StoreTab.hammers;
     final onMissiles = tab == StoreTab.missiles;
+    final onChips = tab == StoreTab.chips;
     // The picture being worn, when it is one of the catalogue's, for the
     // Pictures tab's header; null leaves the provider photo or the initial.
     final wornMatches = state.pictures.where(
@@ -742,12 +743,13 @@ class _ChipStoreState extends State<_ChipStore> {
     // beside them on one line. The header row is the screen less the safe
     // area, the sheet's margin and its padding; its fixed parts are the
     // shelf's glyph, a balance, the close key and the gaps between them. A
-    // balance is counted on every shelf, although Chips shows none, and the
-    // widest blurb of all four shelves decides, so the tabs never change
-    // size — and move under a finger — on the way from one shelf to the
-    // next. It used to keep a flat 96dp for the title, which left the Hammers
-    // and Pictures blurbs cut off even on an 891dp phone ("A hammer forces a
-    // sideshow — nob…", QA 14 Sep 2026).
+    // balance is counted on every shelf — the widest of the chips, a diamond
+    // or hammer count and the Pictures pair — and the widest blurb of all the
+    // shelves decides, so the tabs never change size — and move under a
+    // finger — on the way from one shelf to the next. It used to keep a flat
+    // 96dp for the title, which left the Hammers and Pictures blurbs cut off
+    // even on an 891dp phone ("A hammer forces a sideshow — nob…", QA 14 Sep
+    // 2026).
     final safe = MediaQuery.paddingOf(context);
     final headerW =
         size.width - safe.left - safe.right - 2 * Space.md - 2 * Space.lg;
@@ -761,13 +763,19 @@ class _ChipStoreState extends State<_ChipStore> {
     const titleFloor = 96.0;
     final diamonds = state.user?.diamond ?? 0;
     final hammers = state.user?.hammer ?? 0;
+    // The chips the Chips shelf heads with (owner, 24 Sep 2026): at a table
+    // the seat's own stack — what the drawer's "Your chips" row shows, and
+    // where a pack bought there lands — and in the lobby the wallet. Read on
+    // every build, under the store's watch, so a pack landing counts up here
+    // as it does in the lobby bar.
+    final chips = state.room?.you?.chips ?? state.user?.chips ?? 0;
     final walletPairRowW = PictureWalletBalances.width(
       context,
       diamonds: diamonds,
       hammers: hammers,
       stacked: false,
     );
-    final walletW = math.max(
+    final walletW = [
       balanceW,
       PictureWalletBalances.width(
         context,
@@ -775,7 +783,8 @@ class _ChipStoreState extends State<_ChipStore> {
         hammers: hammers,
         stacked: true,
       ),
-    );
+      ChipBalance.width(context, chips: chips),
+    ].reduce(math.max);
     final fixedW =
         22 + Space.md + Space.md + walletW + Space.md + Space.sm + Dim.minTouch;
     final blurbStyle = theme.textTheme.bodySmall ?? const TextStyle();
@@ -1001,17 +1010,25 @@ class _ChipStoreState extends State<_ChipStore> {
                         ),
                         const SizedBox(width: Space.md),
                         // A shelf's balance stands before the tabs, not after
-                        // them. Chips shows none, and between the tabs and the
-                        // close key its coming and going slid the whole tab
-                        // row sideways, so a tap on a tab where it had just
-                        // been landed on the balance. Here the title gives up
-                        // the room instead, and the tabs stay anchored to the
-                        // close key on every shelf. The Missiles shelf is paid
+                        // them. Chips showed none at first, and between the
+                        // tabs and the close key a balance's coming and going
+                        // slid the whole tab row sideways, so a tap on a tab
+                        // where it had just been landed on the balance. Here
+                        // the title gives up the room instead, and the tabs
+                        // stay anchored to the close key on every shelf.
+                        // Chips heads with the chips themselves since 24 Sep
+                        // 2026 (owner: "when user click on Coins tab, then it
+                        // is not showing users current coin on top, just like
+                        // we show for hammer"). The Missiles shelf is paid
                         // for in diamonds, so it heads with the diamonds there
                         // are to trade; Pictures with both wallets a picture
                         // can cost besides chips.
                         // The Tables shelf is priced in the same three
                         // wallets as the pictures, so it heads the same way.
+                        if (onChips) ...[
+                          ChipBalance(chips: chips),
+                          const SizedBox(width: Space.md),
+                        ],
                         if (onPictures || onTables) ...[
                           PictureWalletBalances(
                             diamonds: diamonds,
