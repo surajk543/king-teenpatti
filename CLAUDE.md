@@ -1562,7 +1562,7 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   line of the 4-hour chip is `[coin] 10,000` and the daily chip's `[coin] 1,00,000  +1 [hammer]` — `_CornerChip.reward`, a
   `({chips, hammers})` record given instead of `subtitle` (exactly one of the two; the countdown, the hands to go and the milestone's
   "Collect 25,000" stay words, and the popup keeps its Collect key), drawn by `_rewardLine` with the top bar's own marks — a
-  `PokerChip` and `Icons.hardware`, in the chip's foreground `fg`, each the size of the figure's type so it scales with it and never
+  `PokerChip` in the wallet's gold and `Icons.hardware` in the hammer's copper (`hammerInkOn`), never the chip's champagne `fg`, each the size of the figure's type so it scales with it and never
   outgrows the line. It is a `Row`, not a `Text.rich` with `WidgetSpan`s: a placeholder that opens a paragraph is centred on a line
   with no text metrics yet and made the chip 2dp taller than its counting-down twin. "Collect 1,00,000 +1 Hammer" was cut to
   "Collect 100,000 +..." on a 640dp phone; the glyphs bring the line to 205dp at the 1.25 text ceiling, still over the top bar slot's
@@ -1591,6 +1591,23 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   `Sideshow` over `− Chaal +`; Chaal is dark on the player's own turn when they cannot pay the chaal — `GameState.canChaal`, an empty server ladder — and keeps showing the price, owner 14 Sep 2026). **The quick messages are a tab of the chat drawer** (owner, 14 Sep 2026; they had a third rail
   key and a `_QuickDrawer` of their own): `_ChatDrawer` heads with two `_ChatTab`s, Table chat and Quick messages,
   opens on the chat every time, and sends a quick line through `sendChat` and closes, as a typed one does.
+  **Each quick message stands in a box of its own with an icon for its meaning** (owner, 24 Sep 2026: "in quick chat
+  message also add some icons, and every message of quick message should be in some box"): `QuickLine` is a tinted, flat
+  `GlassCard` (`Radii.md`, `Space.sm` apart, `Space.lg` in from the drawer's sides, the whole box the target at
+  ≥ `Dim.minTouch + Space.md`) with `quickMessageIcons[i]` at its left — a const list in `table_chrome.dart` index for
+  index with `Strings.quickMessages` (eye-off for play blind, bolt for play fast, trophy for how you win it, … help for
+  help me), held to the list's length in every language by `test/chat_drawer_test.dart`; the cooldown still greys the box
+  and counts the seconds on it. **Blocking is a page of the drawer, never a popup** (owner, 24 Sep 2026: "when user click
+  on block button do not show pop up, instead show block button of players in drawer itself and in chat messages DO NOT
+  SHOW ANY unblock message, only message should appear"): the header's block key toggles a third page,
+  `_ChatView.players` — `ChatPlayers`, every other seat from `room.seats` (rebuilt live, so a player who leaves drops
+  off it) with one outline `GlassButton` whose label follows `isBlocked` (Block ↔ Unblock, nothing asked either way),
+  `blockNobody` when the viewer is alone — and a long-press on somebody else's line opens the same page; the key is lit
+  while the page is up or a block is in force, since the chat page now shows the messages and the composer only.
+  `showBlockPlayers`, `confirmBlock` (the two `GlassDialog`s) and `_BlockedRow` ("Blocked: Name · Unblock") are gone,
+  with `blockPlayerQ`/`blockBody`/`blockedLabel` from all five maps; `test/chat_drawer_test.dart` mounts the drawer at
+  640×360 ×1.25 in all five languages, counts routes through a `NavigatorObserver` (none pushed) and finds every box,
+  icon and key.
   **The chat key and both tabs play Lotties** (`_RailLottie`, `animate` only on the selected tab):
   `assets/animations/Message.json` (a speech bubble) and `assets/animations/Quick message.json` (an envelope sending a
   paper plane), both drawn in the theme's ink by `ValueDelegate`s — onSurface at full strength, black on the light theme,

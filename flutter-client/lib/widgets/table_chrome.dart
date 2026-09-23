@@ -1205,157 +1205,6 @@ Future<void> _confirmLeave(
   if (leave == true) state.leaveTable();
 }
 
-/// Asks before hiding a player's messages (owner, 22 Sep 2026).
-///
-/// It asks rather than toggling on the long-press because a long-press on a
-/// scrolling list is easy to trigger by accident, and a line vanishing with
-/// no explanation reads as a bug. The body says what blocking does *and* what
-/// it does not: nobody is told, nothing is reported, and it ends when they
-/// leave the table.
-Future<void> confirmBlock(
-  BuildContext context,
-  GameState state,
-  String userId,
-  String displayName,
-) async {
-  final t = state.t;
-  final block = await showDialog<bool>(
-    context: context,
-    builder: (context) => GlassDialog(
-      padding: const EdgeInsets.all(Space.xl),
-      title: dialogTitle(
-        context,
-        Icons.block_rounded,
-        t.blockPlayerQ(displayName),
-      ),
-      content: Text(t.blockBody),
-      actions: dialogActions(context, stay: t.cancel, go: t.block),
-    ),
-  );
-  if (block == true) state.blockPlayer(userId);
-}
-
-/// The block list, opened from the key at the top of the chat drawer.
-///
-/// The long-press on a message is quicker once you know it is there, but it
-/// is invisible until then, and a player who wants somebody to stop should
-/// not have to discover a gesture (owner, 22 Sep 2026). This lists everybody
-/// else at the table with their current state, so blocking and unblocking are
-/// the same one tap in the same place.
-///
-/// Rebuilt from `room` on every frame it is open: seats fill and empty while
-/// the sheet is up, and a list captured when it opened would offer to block
-/// somebody who had already gone.
-Future<void> showBlockPlayers(BuildContext context, GameState state) =>
-    showDialog<void>(
-      context: context,
-      builder: (context) {
-        final t = state.t;
-        return GlassDialog(
-          padding: const EdgeInsets.all(Space.xl),
-          title: dialogTitle(context, Icons.block_rounded, t.blockPlayersTitle),
-          content: Consumer<GameState>(
-            builder: (context, live, _) {
-              final others = [
-                for (final seat in live.room?.seats ?? const <Seat>[])
-                  if (seat.userId != null &&
-                      seat.userId!.isNotEmpty &&
-                      seat.userId != live.user?.id)
-                    seat,
-              ];
-              if (others.isEmpty) return Text(t.blockNobody);
-              return Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  for (final seat in others)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: Space.xxs),
-                      child: Row(
-                        children: [
-                          Expanded(child: Text(seat.displayName)),
-                          GlassButton(
-                            style: GlassButtonStyle.text,
-                            onPressed: () => live.isBlocked(seat.userId!)
-                                ? live.unblockPlayer(seat.userId!)
-                                : live.blockPlayer(seat.userId!),
-                            label: live.isBlocked(seat.userId!)
-                                ? t.unblock
-                                : t.block,
-                          ),
-                        ],
-                      ),
-                    ),
-                ],
-              );
-            },
-          ),
-          actions: [
-            GlassButton(
-              style: GlassButtonStyle.text,
-              onPressed: () => Navigator.pop(context),
-              label: t.close,
-            ),
-          ],
-        );
-      },
-    );
-
-/// The way back out of a block, above the chat composer.
-///
-/// A block is invisible once it is made — the person simply stops appearing —
-/// so without this the drawer would offer a one-way door with no sign it had
-/// ever been used. It shows only while somebody is blocked, and one tap lifts
-/// it. Unblocking asks nothing: it takes a restriction away, and the worst it
-/// can do is show a message.
-class _BlockedRow extends StatelessWidget {
-  const _BlockedRow({required this.state});
-
-  final GameState state;
-
-  @override
-  Widget build(BuildContext context) {
-    final blocked = state.blockedIds;
-    if (blocked.isEmpty) return const SizedBox.shrink();
-    final theme = Theme.of(context);
-    final t = state.t;
-
-    // A blocked player can leave the table, taking their seat — and their
-    // name — with them, while the block outlives them for this sitting. Fall
-    // back to the label rather than drawing a raw user id at somebody.
-    String nameOf(String id) {
-      for (final seat in state.room?.seats ?? const <Seat>[]) {
-        if (seat.userId == id) return seat.displayName;
-      }
-      return t.blockedLabel;
-    }
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(Space.lg, Space.xs, Space.lg, 0),
-      child: Wrap(
-        spacing: Space.sm,
-        crossAxisAlignment: WrapCrossAlignment.center,
-        children: [
-          Text(
-            '${t.blockedLabel}:',
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.onSurface.withValues(
-                alpha: AppTheme.inkMed,
-              ),
-            ),
-          ),
-          for (final id in blocked)
-            GlassButton(
-              style: GlassButtonStyle.text,
-              onPressed: () => state.unblockPlayer(id),
-              label: '${nameOf(id)} · ${t.unblock}',
-            ),
-        ],
-      ),
-    );
-  }
-}
-
 /// Gold as *ink*: champagne on charcoal, deep gold on parchment.
 ///
 /// Anything drawn on the cloth is always on charcoal, so it asks for
@@ -1712,8 +1561,9 @@ class ChatDrawer extends StatefulWidget {
   State<ChatDrawer> createState() => _ChatDrawerState();
 }
 
-/// The chat drawer's two pages.
-enum _ChatView { chat, quick }
+/// The chat drawer's three pages: the conversation, the quick messages, and
+/// the players list where blocking lives.
+enum _ChatView { chat, quick, players }
 
 class _ChatDrawerState extends State<ChatDrawer> {
   final _input = TextEditingController();
@@ -1804,19 +1654,32 @@ class _ChatDrawerState extends State<ChatDrawer> {
                       // The long-press on a message is faster once known but
                       // invisible until then, and somebody who wants a player
                       // to stop should not have to find a gesture first.
+                      //
+                      // It is a page of this drawer, not a popup (owner,
+                      // 24 Sep 2026: "when user click on block button do not
+                      // show pop up, instead show block button of players in
+                      // drawer itself"), so the key toggles: lit while the
+                      // list is up, and a second tap — or a tab — goes back
+                      // to the chat. It stays lit while a block is in force
+                      // too: with the unblock row gone from the chat page,
+                      // this key is the drawer's only sign of one.
                       PressScale(
                         child: IconButton(
                           visualDensity: VisualDensity.compact,
                           tooltip: t.blockPlayersTitle,
                           icon: Icon(
                             Icons.block_rounded,
-                            // Lit while somebody is blocked, so the drawer
-                            // says at a glance that a block is in force.
-                            color: state.blockedIds.isEmpty
-                                ? null
-                                : goldInk(theme.brightness),
+                            color:
+                                _view == _ChatView.players ||
+                                    state.blockedIds.isNotEmpty
+                                ? goldInk(theme.brightness)
+                                : null,
                           ),
-                          onPressed: () => showBlockPlayers(context, state),
+                          onPressed: () => setState(
+                            () => _view = _view == _ChatView.players
+                                ? _ChatView.chat
+                                : _ChatView.players,
+                          ),
                         ),
                       ),
                       PressScale(
@@ -1830,7 +1693,9 @@ class _ChatDrawerState extends State<ChatDrawer> {
                   ),
                 ),
               if (!typing) const MenuRule(),
-              if (_view == _ChatView.quick)
+              if (_view == _ChatView.players)
+                Expanded(child: ChatPlayers(state: state))
+              else if (_view == _ChatView.quick)
                 Expanded(child: _quickLines(state))
               else ...[
                 Expanded(
@@ -1893,27 +1758,24 @@ class _ChatDrawerState extends State<ChatDrawer> {
                         ),
                       );
 
-                      // Long-press somebody else's line to stop seeing them
-                      // at this table. Your own line has nothing to block,
-                      // and an opaque hit test means the press lands on the
-                      // whole row rather than only on the glyph it started
-                      // over.
+                      // Long-press somebody else's line to reach the
+                      // players list, where their Block key is (owner,
+                      // 24 Sep 2026: no popup — it used to ask in a dialog).
+                      // Your own line has nothing to block, and an opaque
+                      // hit test means the press lands on the whole row
+                      // rather than only on the glyph it started over.
                       return mine
                           ? row
                           : GestureDetector(
                               behavior: HitTestBehavior.opaque,
-                              onLongPress: () => confirmBlock(
-                                context,
-                                state,
-                                m.userId,
-                                m.displayName,
+                              onLongPress: () => setState(
+                                () => _view = _ChatView.players,
                               ),
                               child: row,
                             );
                     },
                   ),
                 ),
-                _BlockedRow(state: state),
                 Padding(
                   padding: const EdgeInsets.fromLTRB(
                     Space.lg,
@@ -1978,14 +1840,28 @@ class _ChatDrawerState extends State<ChatDrawer> {
   /// does — free text in the sender's own language, so the protocol does not
   /// change — and lands as their bubble and in the chat like anything typed.
   /// They share the chat's cooldown, and each row counts it down.
+  ///
+  /// Each line stands in a box of its own with an icon for what it says
+  /// (owner, 24 Sep 2026: "in quick chat message also add some icons, and
+  /// every message of quick message should be in some box"); the icon is
+  /// [quickMessageIcons] at the line's index.
   Widget _quickLines(GameState state) {
     final lines = state.t.quickMessages;
     final left = state.chatCooldownLeft;
-    return ListView.builder(
-      padding: const EdgeInsets.symmetric(vertical: Space.xs),
+    return ListView.separated(
+      padding: const EdgeInsets.symmetric(
+        horizontal: Space.lg,
+        vertical: Space.sm,
+      ),
       itemCount: lines.length,
+      separatorBuilder: (_, _) => const SizedBox(height: Space.sm),
       itemBuilder: (context, i) => QuickLine(
         text: lines[i],
+        // The test holds the two lists to one length; a line past the icons
+        // would still be better said under the plain bubble than not at all.
+        icon: i < quickMessageIcons.length
+            ? quickMessageIcons[i]
+            : Icons.chat_bubble_outline_rounded,
         secondsLeft: left,
         onTap: state.canChat ? () => _sendQuick(state, lines[i]) : null,
       ),
@@ -2008,6 +1884,121 @@ class _ChatDrawerState extends State<ChatDrawer> {
     FocusManager.instance.primaryFocus?.unfocus();
     Navigator.of(context).pop();
   }
+}
+
+/// The chat drawer's players page: everybody else at the table, each with a
+/// Block or Unblock key.
+///
+/// A page of the drawer and not a dialog (owner, 24 Sep 2026: "when user
+/// click on block button do not show pop up, instead show block button of
+/// players in drawer itself"): the drawer is already where a player came to
+/// deal with the chat, and a popup over it was one more layer to close.
+/// Unblocking lives here and nowhere else — the chat page shows the messages
+/// and nothing about who is blocked (owner: "in chat messages DO NOT SHOW ANY
+/// unblock message, only message should appear"). Neither direction asks
+/// first: a block is one tap, and its undo is the same tap in the same place.
+///
+/// Built from `room.seats` on every rebuild of the drawer, so it follows the
+/// table live: seats fill and empty while the drawer is up, and a list taken
+/// when the page opened would offer to block somebody who had already gone.
+/// A blocked player who has left is not listed — the block lasts the sitting
+/// either way ([GameState.blockPlayer]), and there is no seat to name.
+class ChatPlayers extends StatelessWidget {
+  const ChatPlayers({super.key, required this.state});
+
+  final GameState state;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final t = state.t;
+    final ink = theme.colorScheme.onSurface;
+    final others = [
+      for (final seat in state.room?.seats ?? const <Seat>[])
+        if (seat.userId != null &&
+            seat.userId!.isNotEmpty &&
+            seat.userId != state.user?.id)
+          seat,
+    ];
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(
+        Space.lg,
+        Space.sm,
+        Space.lg,
+        Space.md,
+      ),
+      children: [
+        // The page names itself: neither tab is up while it shows.
+        Padding(
+          padding: const EdgeInsets.only(bottom: Space.xs),
+          child: Text(
+            t.blockPlayersTitle,
+            style: AppTheme.label(
+              theme.textTheme.labelLarge ?? const TextStyle(),
+            ).copyWith(color: ink.withValues(alpha: AppTheme.inkMed)),
+          ),
+        ),
+        if (others.isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: Space.sm),
+            child: Text(t.blockNobody, style: theme.textTheme.bodyMedium),
+          ),
+        for (final seat in others)
+          ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: Dim.minTouch),
+            // The key takes at most three fifths or so of the row (0.62) and the name the
+            // rest: a long name is cut short rather than pushing the key off
+            // the drawer, and the key's label shrinks a little rather than
+            // being cut — on a 260dp drawer at the 1.25 text ceiling
+            // "अनब्लॉक करें" beside a name has no room to spare.
+            child: LayoutBuilder(
+              builder: (context, box) => Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      seat.displayName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodyLarge,
+                    ),
+                  ),
+                  const SizedBox(width: Space.md),
+                  ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxWidth: box.maxWidth * _keyShare,
+                    ),
+                    child: GlassButton(
+                      style: GlassButtonStyle.outline,
+                      buttonStyle: const ButtonStyle(
+                        padding: WidgetStatePropertyAll(
+                          EdgeInsets.symmetric(horizontal: Space.md),
+                        ),
+                      ),
+                      // The label follows the state, so the same key blocks
+                      // and unblocks, and a tap never has to be confirmed.
+                      onPressed: () => state.isBlocked(seat.userId!)
+                          ? state.unblockPlayer(seat.userId!)
+                          : state.blockPlayer(seat.userId!),
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text(
+                          state.isBlocked(seat.userId!) ? t.unblock : t.block,
+                          maxLines: 1,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  /// The most of a row the Block / Unblock key may take.
+  static const _keyShare = 0.62;
 }
 
 /// One of the chat drawer's two tabs, the conversation or the quick messages:
@@ -2096,24 +2087,56 @@ class ChatTab extends StatelessWidget {
   }
 }
 
-/// One sentence on the chat drawer's quick messages tab, the whole row its
-/// target.
+/// The icon beside each of [Strings.quickMessages], index for index.
 ///
-/// While the cooldown runs the row is disabled and says how many seconds are
+/// Beside the strings' order rather than on the strings themselves — a
+/// `Strings` is one language's text and knows nothing of Material — and held
+/// by test to the same length as the list in every language, so a line added
+/// to one without the other fails there and not on the felt. In the order of
+/// [Strings.quickMessages]: play blind, play fast, that's how you win it, I am
+/// unlucky, you got lucky, oops, take sideshow, take show, switch table, help
+/// me (owner, 24 Sep 2026: "in quick chat message also add some icons").
+const List<IconData> quickMessageIcons = [
+  Icons.visibility_off_rounded, // Please Play Blind.
+  Icons.bolt_rounded, // Please Play fast.
+  Icons.emoji_events_rounded, // That's how you win it.
+  Icons.sentiment_dissatisfied_rounded, // I am unlucky.
+  Icons.celebration_rounded, // You got lucky.
+  Icons.sentiment_very_dissatisfied_rounded, // Oops! I shouldn't have played it.
+  Icons.compare_arrows_rounded, // Please take sideshow.
+  Icons.visibility_rounded, // Please take show.
+  Icons.swap_horiz_rounded, // Switch Table.
+  Icons.help_outline_rounded, // Please help me.
+];
+
+/// One sentence on the chat drawer's quick messages tab, in a box of its own
+/// with an icon for what it says, the whole box its target (owner, 24 Sep
+/// 2026: "every message of quick message should be in some box").
+///
+/// While the cooldown runs the box is disabled and says how many seconds are
 /// left, rather than taking a tap that would do nothing and say nothing.
 class QuickLine extends StatelessWidget {
   const QuickLine({
     super.key,
     required this.text,
+    required this.icon,
     required this.secondsLeft,
     required this.onTap,
   });
 
   final String text;
+  final IconData icon;
   final int secondsLeft;
 
   /// Null while the cooldown runs.
   final VoidCallback? onTap;
+
+  /// The box's own inset; the floor below counts it, so the whole box stays
+  /// taller than the 44dp target.
+  static const _inset = EdgeInsets.symmetric(
+    horizontal: Space.md,
+    vertical: Space.sm,
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -2121,63 +2144,59 @@ class QuickLine extends StatelessWidget {
     final ink = theme.colorScheme.onSurface;
     final live = onTap != null;
 
-    final row = ConstrainedBox(
-      // Taller than the 44dp floor: a line is picked mid-hand, by thumb, from
-      // a list, where a near miss says the wrong thing to the whole table.
-      constraints: const BoxConstraints(minHeight: Dim.minTouch + Space.md),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(
-          horizontal: Space.lg,
-          vertical: Space.sm,
-        ),
-        child: Row(
-          children: [
-            Icon(
-              Icons.chat_bubble_outline_rounded,
-              size: 18,
-              color: live
-                  ? goldInk(theme.brightness)
-                  : ink.withValues(alpha: AppTheme.inkLow),
-            ),
-            const SizedBox(width: Space.lg),
-            Expanded(
-              child: Text(
-                text,
-                style: theme.textTheme.bodyLarge?.copyWith(
-                  color: ink.withValues(
-                    alpha: live ? AppTheme.inkHigh : AppTheme.inkLow,
-                  ),
-                ),
-              ),
-            ),
-            if (!live) ...[
-              const SizedBox(width: Space.md),
-              Text(
-                '${secondsLeft}s',
-                // Tabular, so 4-3-2-1 does not shift the row by a pixel.
-                style: AppTheme.money(
-                  theme.textTheme.labelMedium ?? const TextStyle(),
-                  colour: ink.withValues(alpha: AppTheme.inkMed),
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-
     return Semantics(
       button: true,
       enabled: live,
-      child: PressScale(
-        enabled: live,
-        child: InkWell(
-          // Material's click, gated on the Sound switch like every menu row.
-          enableFeedback: context.select<FeedbackSettings, bool>(
-            (f) => f.sound,
+      // Tinted, never blurred: the drawer around it holds the app's one
+      // blur, and a nested filter would sample the drawer's own layer every
+      // frame — the rule every panel inside a panel follows. Flat, so ten
+      // boxes down a list do not stack ten shadows.
+      child: GlassCard(
+        mode: GlassMode.tinted,
+        radius: Radii.md,
+        elevated: false,
+        padding: _inset,
+        onTap: onTap,
+        child: ConstrainedBox(
+          // Taller than the 44dp floor: a line is picked mid-hand, by thumb,
+          // from a list, where a near miss says the wrong thing to the whole
+          // table.
+          constraints: const BoxConstraints(
+            minHeight: Dim.minTouch + Space.md - 2 * Space.sm,
           ),
-          onTap: onTap,
-          child: row,
+          child: Row(
+            children: [
+              Icon(
+                icon,
+                size: 20,
+                color: live
+                    ? goldInk(theme.brightness)
+                    : ink.withValues(alpha: AppTheme.inkLow),
+              ),
+              const SizedBox(width: Space.md),
+              Expanded(
+                child: Text(
+                  text,
+                  style: theme.textTheme.bodyLarge?.copyWith(
+                    color: ink.withValues(
+                      alpha: live ? AppTheme.inkHigh : AppTheme.inkLow,
+                    ),
+                  ),
+                ),
+              ),
+              if (!live) ...[
+                const SizedBox(width: Space.md),
+                Text(
+                  '${secondsLeft}s',
+                  // Tabular, so 4-3-2-1 does not shift the row by a pixel.
+                  style: AppTheme.money(
+                    theme.textTheme.labelMedium ?? const TextStyle(),
+                    colour: ink.withValues(alpha: AppTheme.inkMed),
+                  ),
+                ),
+              ],
+            ],
+          ),
         ),
       ),
     );
