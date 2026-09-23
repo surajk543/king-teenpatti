@@ -203,15 +203,115 @@ class _LobbyScreenState extends State<LobbyScreen> {
                             Dim.lobbyCardSide(h),
                           );
 
-                          // Two levels in the one rail (owner, 18 Sep
-                          // 2026). The front of the lobby is the CATEGORIES
-                          // the server offers a table in — Seen, Blind,
-                          // Variation — and the private card; going into one
-                          // shows that category's tables behind a tile that
-                          // leads back. The server decides which rooms exist;
-                          // the lobby decides how a player meets them, and
-                          // nine cards in a row had become a walk.
-                          final category = state.lobbyCategory;
+                          // Three levels in the one rail (owner, 23 Sep
+                          // 2026: "give two cards: Teen Patti and Poker").
+                          // The front of the lobby is the ENGINES the server
+                          // offers a table in — Teen Patti, Poker — and the
+                          // private card; going into one shows its
+                          // CATEGORIES (Seen, Blind, Variation; the four
+                          // poker games) behind a tile that leads back, and
+                          // going into one of those shows its TABLES behind
+                          // another. The server decides which rooms exist;
+                          // the lobby decides how a player meets them.
+                          //
+                          // The level shown is the one the state holds only
+                          // while the menu still offers it: a menu written
+                          // straight into `config` never strands the player
+                          // at an empty rail.
+                          final engines = state.lobbyEngines;
+                          final engine = engines.contains(state.lobbyEngine)
+                              ? state.lobbyEngine
+                              : null;
+                          final categories = engine == null
+                              ? const <String>[]
+                              : state.lobbyCategoriesIn(engine);
+                          final category =
+                              categories.contains(state.lobbyCategory)
+                              ? state.lobbyCategory
+                              : null;
+                          final List<Widget> cards;
+                          if (engine == null) {
+                            cards = [
+                              for (final (i, name) in engines.indexed)
+                                entering(_EngineCard(engine: name, index: i)),
+                              // Last, as it always was: a private table is
+                              // not one of the server's games but a door of
+                              // its own, and it stays on the front.
+                              entering(
+                                _PrivateCard(
+                                  key: _privateCard,
+                                  codeFocus: _codeFocus,
+                                  codeFieldKey: _codeField,
+                                  index: engines.length,
+                                ),
+                              ),
+                            ];
+                          } else if (category == null) {
+                            cards = [
+                              entering(
+                                _BackTile(
+                                  here: _engineName(
+                                    state.t,
+                                    engine,
+                                    serverName: state.lobbyEngineServerName(
+                                      engine,
+                                    ),
+                                  ),
+                                  back: state.t.backToCategories,
+                                  accent: _enginePalette(
+                                    Theme.of(context).colorScheme,
+                                    engine,
+                                  ).accent,
+                                ),
+                              ),
+                              // The first card's orb spills LEFT, which here
+                              // would be over the back tile; every card takes
+                              // a right-hand place.
+                              for (final (i, name) in categories.indexed)
+                                entering(
+                                  _CategoryCard(
+                                    engine: engine,
+                                    category: name,
+                                    index: i + 1,
+                                  ),
+                                ),
+                            ];
+                          } else {
+                            cards = [
+                              entering(
+                                _BackTile(
+                                  here: _categoryName(
+                                    state.t,
+                                    category,
+                                    serverName: state.lobbyServerName(category),
+                                  ),
+                                  // Where Back goes: this category's engine.
+                                  back: _engineName(
+                                    state.t,
+                                    engine,
+                                    serverName: state.lobbyEngineServerName(
+                                      engine,
+                                    ),
+                                  ),
+                                  accent: _categoryPalette(
+                                    Theme.of(context).colorScheme,
+                                    category,
+                                  ).accent,
+                                ),
+                              ),
+                              // The tables this player can sit at, then the
+                              // ones shut to their stack
+                              // (GameState.lobbyTablesIn).
+                              for (final (i, table)
+                                  in state
+                                      .lobbyTablesIn(category, engine: engine)
+                                      .indexed)
+                                entering(
+                                  _TableCard(table: table, index: i + 1),
+                                ),
+                            ];
+                          }
+                          final level = [?engine, ?category].join(':');
                           final rail = Center(
                             child: SizedBox(
                               height: side + Space.xl,
@@ -228,7 +328,11 @@ class _LobbyScreenState extends State<LobbyScreen> {
                                 switchInCurve: Motion.standard,
                                 switchOutCurve: Motion.standard,
                                 child: ListView(
-                                  key: ValueKey('lobby-rail:${category ?? ''}'),
+                                  // 'lobby-rail:' at the front,
+                                  // 'lobby-rail:teen_patti' inside an engine,
+                                  // 'lobby-rail:teen_patti:blind' inside a
+                                  // category.
+                                  key: ValueKey('lobby-rail:$level'),
                                   scrollDirection: Axis.horizontal,
                                   // Holds its place while the cards change
                                   // size under it (_KeepsPlacePhysics).
@@ -239,49 +343,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
                                     Space.xl,
                                     Space.md,
                                   ),
-                                  children: category == null
-                                      ? [
-                                          for (final (i, name)
-                                              in state.lobbyCategories.indexed)
-                                            entering(
-                                              _CategoryCard(
-                                                category: name,
-                                                index: i,
-                                              ),
-                                            ),
-                                          // Last, as it always was: a private
-                                          // table is not one of the server's
-                                          // categories but a door of its own.
-                                          entering(
-                                            _PrivateCard(
-                                              key: _privateCard,
-                                              codeFocus: _codeFocus,
-                                              codeFieldKey: _codeField,
-                                            ),
-                                          ),
-                                        ]
-                                      : [
-                                          entering(
-                                            _BackTile(category: category),
-                                          ),
-                                          // The tables this player can sit at,
-                                          // then the ones shut to their stack
-                                          // (GameState.lobbyTablesIn).
-                                          for (final (i, table)
-                                              in state
-                                                  .lobbyTablesIn(category)
-                                                  .indexed)
-                                            entering(
-                                              // The first card's orb spills
-                                              // LEFT, which here would be over
-                                              // the back tile; every card
-                                              // takes a right-hand place.
-                                              _TableCard(
-                                                table: table,
-                                                index: i + 1,
-                                              ),
-                                            ),
-                                        ],
+                                  children: cards,
                                 ),
                               ),
                             ),
@@ -1268,56 +1330,221 @@ class _BarActions extends StatelessWidget {
   }
 }
 
-/// One boot table. Requirement 28: square, and lit by a sweep that runs corner
-/// to corner without stopping — the one piece of motion on the card itself.
+/// What an engine's front card is called.
 ///
-/// A solid lit object, not glass. Three tables that differ only in a hairline's
-/// hue are three charcoal rectangles; these differ in the colour of the plate,
-/// the crest bled into the corner, the wash through the body and the two-tone
-/// rim, so the room a player lands in is recognisably the card they tapped.
-/// The name a category goes by: the word on its tables' badges.
-String _categoryName(Strings t, String category) => switch (category) {
-  TableCategory.blind => t.blind,
-  TableCategory.variation => t.variation,
-  TableCategory.pokerFamily => t.poker,
-  _ => t.seen,
-};
+/// Teen Patti and Poker in the player's own language. An engine this build
+/// has never heard of — one the server's taxonomy added after it (owner,
+/// 23 Sep 2026) — goes by [serverName], the server's own label for it
+/// ([GameState.lobbyEngineServerName]), and failing that by its code.
+String _engineName(Strings t, String engine, {String? serverName}) =>
+    switch (engine) {
+      TableEngine.teenPatti => t.teenPatti,
+      TableEngine.poker => t.poker,
+      _ => serverName ?? engine,
+    };
 
-/// The one line that says what a category's tables are like — the line each of
-/// its table cards carries. The poker card names its four games instead: its
-/// tables each carry their own game's line.
-String _categoryBlurb(Strings t, String category) => switch (category) {
-  TableCategory.blind => t.onlyYourChips,
-  TableCategory.variation => t.variationTableNote,
-  TableCategory.pokerFamily => t.pokerTableNote,
-  _ => t.everyoneChips,
-};
+/// The name a category card goes by: the word on its tables' badges.
+///
+/// Every category this build knows is named in the player's own language — a
+/// poker game by its own name. One it does not know goes by [serverName], the
+/// server's own label for it ([GameState.lobbyServerName]), and failing that
+/// by its code: never as Seen, beside a Seen card it is not.
+String _categoryName(Strings t, String category, {String? serverName}) {
+  if (TableCategory.isPoker(category)) return t.pokerVariantName(category);
+  return switch (category) {
+    TableCategory.seen => t.seen,
+    TableCategory.blind => t.blind,
+    TableCategory.variation => t.variation,
+    // A poker table with no category of its own, filed under its engine's
+    // name (GameState.lobbyCategoryOf).
+    TableCategory.pokerFamily => t.poker,
+    _ => serverName ?? category,
+  };
+}
+
+/// What a table's own card and its info popup call it: a poker game by its
+/// own name, a Teen Patti table by its category — and a table of a category
+/// this build has never heard of by the server's name for that category, or
+/// as seen where the server names none, as before the taxonomy existed.
+String _tableName(GameState state, LobbyTable table) {
+  final t = state.t;
+  if (table.isPoker) return t.pokerVariantName(table.category);
+  return switch (table.category) {
+    TableCategory.seen => t.seen,
+    TableCategory.blind => t.blind,
+    TableCategory.variation => t.variation,
+    _ => state.lobbyServerName(table.category) ?? t.seen,
+  };
+}
+
+/// The one line on an engine's front card: the games inside it. An engine
+/// this build does not know is described by the server's names for its
+/// categories, which is all there is to say about it.
+String _engineBlurb(GameState state, String engine) {
+  final t = state.t;
+  return switch (engine) {
+    TableEngine.teenPatti => t.teenPattiTableNote,
+    TableEngine.poker => t.pokerTableNote,
+    _ => [
+      for (final category in state.lobbyCategoriesIn(engine))
+        _categoryName(t, category, serverName: state.lobbyServerName(category)),
+    ].join(', '),
+  };
+}
+
+/// The one line that says what a category's tables are like — the line each
+/// of its table cards carries: whose chips show, or what a variation table
+/// does, or how a poker game is played. Empty for a category of an engine this
+/// build does not know, where it has nothing true to say.
+String _categoryBlurb(Strings t, String engine, String category) {
+  if (engine == TableEngine.poker || TableCategory.isPoker(category)) {
+    final note = t.pokerVariantNote(category);
+    // Every poker room keeps the stacks to their owners (owner, 19 Sep 2026).
+    return note.isNotEmpty ? note : t.onlyYourChips;
+  }
+  if (engine != TableEngine.teenPatti) return '';
+  return switch (category) {
+    TableCategory.blind => t.onlyYourChips,
+    TableCategory.variation => t.variationTableNote,
+    _ => t.everyoneChips,
+  };
+}
 
 /// A category's colour: that of its cheapest table, which is the one every
-/// player has seen — gold, sapphire, rani pink.
+/// player has seen — gold, sapphire, rani pink, and the poker family's teal
+/// for each of its four games.
 TablePalette _categoryPalette(ColorScheme scheme, String category) =>
     AppTheme.paletteFor(scheme, category: category, bootAmount: 200);
 
-/// One of the lobby's categories — Seen, Blind, Variation (owner, 18 Sep 2026).
-///
-/// The same square of frosted glass over a baked orb as a [_TableCard], in the
-/// category's colour, so the front of the lobby and the inside of a category
-/// are visibly the same place. It states what a player needs to choose between
-/// categories and nothing a table card will say better: what the tables are
-/// like (the blurb every one of its table cards carries), the stakes it runs
-/// from and to, how many tables it has, and how many of them this player's
-/// stack can sit at today. The whole card is the key.
-///
-/// A category whose every table is shut to the player is NOT padlocked. Its
-/// tables are where the padlocks are, each saying what it would take to sit
-/// there; a locked category would hide exactly that.
-class _CategoryCard extends StatelessWidget {
-  const _CategoryCard({required this.category, required this.index});
+/// An engine's colour. Poker keeps the family's teal, which every one of its
+/// games and tables wears; Teen Patti wears the seen table's gold — its first
+/// category, the table every player has seen, and the house's own champagne.
+/// An engine this build does not know is drawn as Teen Patti is, as an unknown
+/// category is drawn as seen.
+TablePalette _enginePalette(ColorScheme scheme, String engine) =>
+    AppTheme.paletteFor(
+      scheme,
+      category: engine == TableEngine.poker
+          ? TableCategory.pokerFamily
+          : TableCategory.seen,
+      bootAmount: 200,
+    );
 
+/// One of the lobby's engines — Teen Patti, Poker (owner, 23 Sep 2026).
+///
+/// A [_GroupCard] over every table the engine has, naming the games inside
+/// it; its key opens them ([GameState.openLobbyEngine]).
+class _EngineCard extends StatelessWidget {
+  const _EngineCard({required this.engine, required this.index});
+
+  final String engine;
+
+  /// Where the card sits in the rail, which decides where its orb sits.
+  final int index;
+
+  @override
+  Widget build(BuildContext context) {
+    final state = context.watch<GameState>();
+    final t = state.t;
+    return _GroupCard(
+      name: _engineName(
+        t,
+        engine,
+        serverName: state.lobbyEngineServerName(engine),
+      ),
+      blurb: _engineBlurb(state, engine),
+      palette: _enginePalette(Theme.of(context).colorScheme, engine),
+      tables: state.lobbyTablesOf(engine),
+      action: t.viewGames,
+      index: index,
+      onOpen: () => context.read<GameState>().openLobbyEngine(engine),
+    );
+  }
+}
+
+/// One of an engine's categories — Seen, Blind, Variation inside Teen Patti
+/// (owner, 18 Sep 2026); 3-Card Poker, 5-Card Draw, Texas Hold'em and Omaha
+/// inside Poker (owner, 23 Sep 2026).
+///
+/// A [_GroupCard] over that category's tables, in the category's colour and
+/// with the line each of its table cards carries; its key opens them
+/// ([GameState.openLobbyCategory]).
+class _CategoryCard extends StatelessWidget {
+  const _CategoryCard({
+    required this.engine,
+    required this.category,
+    required this.index,
+  });
+
+  final String engine;
   final String category;
 
   /// Where the card sits in the rail, which decides where its orb sits.
   final int index;
+
+  @override
+  Widget build(BuildContext context) {
+    final state = context.watch<GameState>();
+    final t = state.t;
+    return _GroupCard(
+      name: _categoryName(
+        t,
+        category,
+        serverName: state.lobbyServerName(category),
+      ),
+      blurb: _categoryBlurb(t, engine, category),
+      palette: _categoryPalette(Theme.of(context).colorScheme, category),
+      tables: state.lobbyTablesIn(category, engine: engine),
+      action: t.viewTables,
+      index: index,
+      onOpen: () =>
+          context.read<GameState>().openLobbyCategory(category, engine: engine),
+    );
+  }
+}
+
+/// A card that opens a group of tables: an engine on the front, a category
+/// inside an engine.
+///
+/// The same square of frosted glass over a baked orb as a [_TableCard], in the
+/// group's colour, so every level of the lobby is visibly the same place. It
+/// states what a player needs to choose between groups and nothing a table
+/// card will say better: what is inside (one line), the stakes it runs from
+/// and to, how many tables it has, and how many of them this player's stack
+/// can sit at today. The whole card is the key.
+///
+/// A group whose every table is shut to the player is NOT padlocked. Its
+/// tables are where the padlocks are, each saying what it would take to sit
+/// there; a locked group would hide exactly that.
+class _GroupCard extends StatelessWidget {
+  const _GroupCard({
+    required this.name,
+    required this.blurb,
+    required this.palette,
+    required this.tables,
+    required this.action,
+    required this.index,
+    required this.onOpen,
+  });
+
+  /// The card's title, already in the player's language.
+  final String name;
+
+  /// Its one line; left out when empty.
+  final String blurb;
+
+  final TablePalette palette;
+
+  /// Every table behind the card, as the facts count them.
+  final List<LobbyTable> tables;
+
+  /// What the key at its foot says: "View games", "View tables".
+  final String action;
+
+  /// Where the card sits in the rail, which decides where its orb sits.
+  final int index;
+
+  final VoidCallback onOpen;
 
   @override
   Widget build(BuildContext context) {
@@ -1327,10 +1554,8 @@ class _CategoryCard extends StatelessWidget {
     final glass = GlassColors.of(context);
     final state = context.watch<GameState>();
     final t = state.t;
-    final palette = _categoryPalette(theme.colorScheme, category);
     final accent = palette.accent;
 
-    final tables = state.lobbyTablesIn(category);
     final open = tables.where((table) => !state.tableShut(table)).length;
     final boots = [for (final table in tables) table.bootAmount]..sort();
     final bootRange = boots.isEmpty
@@ -1353,11 +1578,11 @@ class _CategoryCard extends StatelessWidget {
         aspectRatio: 1,
         child: Semantics(
           button: true,
-          label: '${_categoryName(t, category)}. ${t.viewTables}',
+          label: '$name. $action',
           child: _Pressable(
             onTap: () {
               tapHaptic(context);
-              context.read<GameState>().openLobbyCategory(category);
+              onOpen();
             },
             child: LayoutBuilder(
               builder: (context, box) {
@@ -1431,7 +1656,7 @@ class _CategoryCard extends StatelessWidget {
                                             fit: BoxFit.scaleDown,
                                             alignment: Alignment.centerLeft,
                                             child: Text(
-                                              _categoryName(t, category),
+                                              name,
                                               maxLines: 1,
                                               style: AppTheme.label(
                                                 text.displaySmall!,
@@ -1442,16 +1667,18 @@ class _CategoryCard extends StatelessWidget {
                                         ),
                                       ],
                                     ),
-                                    SizedBox(height: gap),
-                                    Text(
-                                      _categoryBlurb(t, category),
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: text.bodySmall?.copyWith(
-                                        fontSize: blurbSize,
-                                        color: glass.textBody,
+                                    if (blurb.isNotEmpty) ...[
+                                      SizedBox(height: gap),
+                                      Text(
+                                        blurb,
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: text.bodySmall?.copyWith(
+                                          fontSize: blurbSize,
+                                          color: glass.textBody,
+                                        ),
                                       ),
-                                    ),
+                                    ],
                                     SizedBox(height: gap),
                                     _CardFact(
                                       icon: Icons.toll_rounded,
@@ -1486,7 +1713,7 @@ class _CategoryCard extends StatelessWidget {
                           ),
                           const Spacer(),
                           _SitCapsule(
-                            label: t.viewTables,
+                            label: action,
                             height: ctaH,
                             enabled: true,
                           ),
@@ -1523,25 +1750,34 @@ class _CategoryCard extends StatelessWidget {
   }
 }
 
-/// The way back from a category to the categories: a slim tile of the same
-/// glass at the head of that category's rail, in the category's colour, naming
-/// where the player is. The system Back key does the same (main.dart's
-/// `_BackGuard`).
+/// The way back one level: a slim tile of the same glass at the head of an
+/// engine's or a category's rail, in that level's colour, naming where the
+/// player is ([here]) and, under it, where the tile goes back to ([back]) —
+/// every game from inside an engine, the engine from inside one of its
+/// categories. The system Back key does the same (main.dart's `_BackGuard`).
 ///
 /// A tile in the rail rather than a bar above it: the rail's height is what
 /// the square cards are cut from, and on a 360dp phone there is none to spare.
 class _BackTile extends StatelessWidget {
-  const _BackTile({required this.category});
+  const _BackTile({
+    required this.here,
+    required this.back,
+    required this.accent,
+  });
 
-  final String category;
+  /// The level being shown, already in the player's language.
+  final String here;
+
+  /// The level Back leads to.
+  final String back;
+
+  final Color accent;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final text = theme.textTheme;
     final glass = GlassColors.of(context);
-    final t = context.select<GameState, Strings>((s) => s.t);
-    final accent = _categoryPalette(theme.colorScheme, category).accent;
 
     return Padding(
       padding: const EdgeInsets.only(right: Space.lg),
@@ -1555,11 +1791,11 @@ class _BackTile extends StatelessWidget {
             width: width,
             child: Semantics(
               button: true,
-              label: t.backToCategories,
+              label: back,
               child: _Pressable(
                 onTap: () {
                   tapHaptic(context);
-                  context.read<GameState>().closeLobbyCategory();
+                  context.read<GameState>().closeLobbyLevel();
                 },
                 child: PremiumGlassPanel(
                   mode: GlassMode.tinted,
@@ -1588,12 +1824,16 @@ class _BackTile extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(height: Space.md),
-                      // Where the player is, which is also where Back leaves.
+                      // Where the player is. A name of two words or more
+                      // stands on two lines: "Texas Hold'em" on one line was
+                      // scaled to a third of its size to fit the tile, and
+                      // read smaller than the muted line under it.
                       FittedBox(
                         fit: BoxFit.scaleDown,
                         child: Text(
-                          _categoryName(t, category),
-                          maxLines: 1,
+                          _onTwoLines(here),
+                          maxLines: 2,
+                          textAlign: TextAlign.center,
                           style: AppTheme.label(
                             text.labelLarge!,
                             colour: accent,
@@ -1601,10 +1841,11 @@ class _BackTile extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(height: Space.xs),
+                      // Where Back leaves for.
                       FittedBox(
                         fit: BoxFit.scaleDown,
                         child: Text(
-                          t.backToCategories,
+                          back,
                           maxLines: 1,
                           style: text.labelSmall?.copyWith(
                             color: glass.textMuted,
@@ -1623,6 +1864,30 @@ class _BackTile extends StatelessWidget {
   }
 }
 
+/// [name] broken at the space nearest its middle, so its two lines are as
+/// even as its words allow; a single word is left whole.
+String _onTwoLines(String name) {
+  final words = name.trim();
+  var best = -1;
+  for (var i = 0; i < words.length; i++) {
+    if (words[i] != ' ') continue;
+    if (best < 0 ||
+        (words.length - 2 * i).abs() < (words.length - 2 * best).abs()) {
+      best = i;
+    }
+  }
+  if (best < 0) return words;
+  return '${words.substring(0, best).trimRight()}\n'
+      '${words.substring(best + 1).trimLeft()}';
+}
+
+/// One boot table. Requirement 28: square, and lit by a sweep that runs corner
+/// to corner without stopping — the one piece of motion on the card itself.
+///
+/// A solid lit object, not glass. Three tables that differ only in a hairline's
+/// hue are three charcoal rectangles; these differ in the colour of the plate,
+/// the crest bled into the corner, the wash through the body and the two-tone
+/// rim, so the room a player lands in is recognisably the card they tapped.
 class _TableCard extends StatelessWidget {
   const _TableCard({required this.table, required this.index});
 
@@ -1800,13 +2065,7 @@ class _TableCard extends StatelessWidget {
                                         CrossAxisAlignment.start,
                                     children: [
                                       _CategoryBadge(
-                                        label: poker
-                                            ? t.pokerVariantName(category)
-                                            : variation
-                                            ? t.variation
-                                            : blind
-                                            ? t.blind
-                                            : t.seen,
+                                        label: _tableName(state, table),
                                         palette: palette,
                                         height: plateH,
                                         // The two cards at the same stake sit side by side,
@@ -1910,8 +2169,10 @@ class _TableCard extends StatelessWidget {
                                       // player sits down rather than discovered at the table.
                                       // A poker table states its own terms.
                                       if (poker) ...[
-                                        for (final fact
-                                            in _pokerFacts(t, table).indexed) ...[
+                                        for (final fact in _pokerFacts(
+                                          t,
+                                          table,
+                                        ).indexed) ...[
                                           if (fact.$1 > 0)
                                             Padding(
                                               padding:
@@ -2300,7 +2561,11 @@ class _TableInfoDialog extends StatelessWidget {
     final chips = state.user?.chips ?? 0;
     final shut = state.tableShut(table);
     final players = state.config.maxPlayers == 0 ? 5 : state.config.maxPlayers;
-    final turnSeconds = (state.config.turnTimeoutMs / 1000).round();
+    // The table's own clock where the catalogue names it — a poker room's is
+    // not the Teen Patti one — else the table-wide figure, as before.
+    final ownTurnMs = table.turnTimeoutMs ?? 0;
+    final turnMs = ownTurnMs > 0 ? ownTurnMs : state.config.turnTimeoutMs;
+    final turnSeconds = (turnMs / 1000).round();
 
     // Only a seen table shows every stack. Blind, variation and every poker
     // room (owner, 19 Sep 2026) keep them to their owners.
@@ -2308,11 +2573,8 @@ class _TableInfoDialog extends StatelessWidget {
     final chipsShown = category == TableCategory.seen && !poker
         ? t.everyoneChips
         : t.onlyYourChips;
-    // What the popup calls the table: a poker game by its own name, a Teen
-    // Patti table by its category.
-    final name = poker
-        ? t.pokerVariantName(table.category)
-        : _categoryName(t, category);
+    // What the popup calls the table: what its own card's badge calls it.
+    final name = _tableName(state, table);
 
     // Whether this player can sit, and if not, what it would take.
     final String standing;
@@ -2803,17 +3065,22 @@ class _CategoryBadgeState extends State<_CategoryBadge>
   }
 }
 
-/// The fourth card on the rail: a room only the player's own friends can find.
+/// The last card on the front of the rail, after the engines: a room only
+/// the player's own friends can find.
 ///
-/// Built from the same lit surface and the same square footprint as the three
-/// tables, in the house emerald rather than a table's colour, so the rail has
-/// one rhythm and four identities rather than three products and a form.
+/// Built from the same lit surface and the same square footprint as the
+/// other cards, in the house emerald rather than a game's colour, so the rail
+/// has one rhythm and several identities rather than products and a form.
 class _PrivateCard extends StatefulWidget {
   const _PrivateCard({
     super.key,
     required this.codeFocus,
     required this.codeFieldKey,
+    required this.index,
   });
+
+  /// Where the card sits in the rail, which decides where its orb sits.
+  final int index;
 
   /// The code field's focus, which the lobby watches to lift the rail over the
   /// keyboard while a code is being typed.
@@ -2861,7 +3128,7 @@ class _PrivateCardState extends State<_PrivateCard> {
             final gap = (s * 0.038).clamp(8.0, 20.0);
 
             final colours = orbColours(accent);
-            final orb = _orbPlace(state.config.tables.length, s);
+            final orb = _orbPlace(widget.index, s);
             final dark = brightness == Brightness.dark;
             final panel = PremiumGlassPanel(
               mode: GlassMode.tinted,

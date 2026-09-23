@@ -19,6 +19,7 @@ import '../net/social_sign_in.dart';
 import 'consent.dart';
 import 'hammer_strike.dart';
 import 'missile_strike.dart';
+import 'table_config_cache.dart';
 import 'theme_preference.dart';
 
 enum Screen { splash, update, login, lobby, table }
@@ -204,7 +205,31 @@ class GameState extends ChangeNotifier {
   Strings get t => Strings(lang);
 
   User? user;
+
+  /// The menu on screen and the table-wide figures beside it. Written only by
+  /// [_applyMenu] (tests set it directly), from one of three sources: the
+  /// phone's copy of the table catalogue at a cold start, `session:ready`, or
+  /// a fetched catalogue — [MenuPrecedence] decides which wins.
   GameConfig config = GameConfig.fallback;
+
+  /// The richest menu held: the table catalogue last fetched or read from the
+  /// phone ([TableConfigCache]), whether or not it is the one on screen. Its
+  /// version is what a fetch sends as `If-None-Match`, and what a session's
+  /// `tableConfigVersion` is compared with.
+  GameConfig? _catalogue;
+
+  /// The catalogue version the latest `session:ready` named, or null while
+  /// none has (or the server predates the catalogue and names none).
+  String? _announcedVersion;
+
+  /// The latest `session:ready`'s build floor, carried onto a catalogue when
+  /// one is shown: the catalogue does not hold it, and a menu swap must never
+  /// lift a floor the server set.
+  int _sessionMinClientBuild = 0;
+
+  /// The catalogue fetch in flight, so a login and a version mismatch landing
+  /// together ask once.
+  Future<void>? _tableConfigFetch;
   RoomState? room;
   List<ProfilePicture> pictures = const [];
 
@@ -928,6 +953,12 @@ class GameState extends ChangeNotifier {
     numbers = NumberSystem.fromName(prefs.getString('numbers'));
     _publishNumberFormat();
 
+    // The menu this server last described, before anything can draw the
+    // lobby: the first frame after the splash is the phone's copy, not
+    // GameConfig.fallback. session:ready replaces it moments later if the
+    // server has changed its tables since.
+    restoreCachedMenu(prefs);
+
     _wire();
     unawaited(_loadPictures());
 
@@ -944,6 +975,9 @@ class GameState extends ChangeNotifier {
       try {
         user = await _api.me(saved);
         unawaited(_loadPictures());
+        // Every sign-in asks for the table catalogue again — a restored
+        // session is a sign-in too — and a 304 makes that cheap.
+        unawaited(_loadTableConfig());
         next = Screen.lobby;
         // An install that signed in before the statement existed meets it on
         // its next launch, once, like everyone else.
@@ -1011,22 +1045,19 @@ class GameState extends ChangeNotifier {
     _subs.addAll([
       _conn.onSession.listen((s) {
         user = s.user;
-        config = s.config;
-        // A menu that no longer lists the category the lobby was showing
-        // (the server changed what it offers across a reconnect) would leave
-        // the player looking at an empty rail with only a way back.
-        if (lobbyCategory != null && !lobbyCategories.contains(lobbyCategory)) {
-          lobbyCategory = null;
-        }
+        final refetch = handleSessionMenu(s.config);
         _snapshotSinceSession = false;
         // The server's own floor, checked the moment it tells us what it is.
         // Play's update check answers "is there something newer"; this answers
         // "can this build still be talked to", which is the question that
         // matters when the wire has moved on — and only the server knows it.
-        if (_belowMinimumBuild(s.config.minClientBuild)) {
+        if (_belowMinimumBuild(config.minClientBuild)) {
           _forceUpdate();
           return;
         }
+        // The server is enforcing a catalogue other than the one held: its
+        // session menu is on screen meanwhile, and the full one is fetched.
+        if (refetch) unawaited(_loadTableConfig());
         _snapshotSinceSession = false;
         if (!resuming && room != null) {
           final offer = s.resume;
@@ -1825,6 +1856,7 @@ class GameState extends ChangeNotifier {
       // Re-read the catalogue now there is a token: ownership is resolved per
       // viewer, and the startup call was anonymous.
       unawaited(_loadPictures());
+      unawaited(_loadTableConfig());
 
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('token', r.token);
@@ -1881,6 +1913,7 @@ class GameState extends ChangeNotifier {
       // Re-read the catalogue now there is a token: ownership is resolved per
       // viewer, and the startup call was anonymous.
       unawaited(_loadPictures());
+      unawaited(_loadTableConfig());
 
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('token', r.token);
@@ -1921,8 +1954,9 @@ class GameState extends ChangeNotifier {
     seatedAt = null;
     user = null;
     consentPending = false;
-    // The next account starts at the categories, not where this one stood.
-    lobbyCategory = null;
+    // The next account starts at the front, not where this one stood.
+    _lobbyEngine = null;
+    _lobbyCategory = null;
     screen = Screen.login;
     notifyListeners();
   }
@@ -1976,6 +2010,103 @@ class GameState extends ChangeNotifier {
       notifyListeners();
     } catch (_) {
       // The picker just stays empty.
+    }
+  }
+
+  // ------------------------------------------------------------ the menu
+
+  /// The one writer of [config]. Every menu the lobby shows — the phone's
+  /// copy, a session's, a fetched catalogue — lands here, so the check that
+  /// goes with a new menu cannot be skipped by one of them: a menu that no
+  /// longer lists the category the lobby was showing (the server changed
+  /// what it offers) would leave the player looking at an empty rail with
+  /// only a way back, so the lobby goes back one level — to the engine's
+  /// categories, or to the front when the engine itself has gone.
+  void _applyMenu(GameConfig next) {
+    config = next;
+    final engine = _lobbyEngine;
+    if (engine == null) return;
+    if (!lobbyEngines.contains(engine)) {
+      _lobbyEngine = null;
+      _lobbyCategory = null;
+    } else if (_lobbyCategory != null &&
+        !lobbyCategoriesIn(engine).contains(_lobbyCategory)) {
+      _lobbyCategory = null;
+    }
+  }
+
+  /// A cold start's menu: the phone's copy of the table catalogue, when it
+  /// holds a usable one. Nothing when it does not — the lobby then opens on
+  /// [GameConfig.fallback] as it always has, until the session's menu comes.
+  @visibleForTesting
+  void restoreCachedMenu(SharedPreferences prefs) {
+    final cached = TableConfigCache.read(prefs);
+    if (cached == null) return;
+    handleCatalogue(cached.config);
+  }
+
+  /// `session:ready`'s part in the menu ([MenuPrecedence.onSession]). A
+  /// session with no config keeps the menu already held. Answers whether the
+  /// catalogue should be fetched, which the caller does once the build floor
+  /// has let this build through.
+  @visibleForTesting
+  bool handleSessionMenu(GameConfig? session) {
+    if (session == null) return false;
+    _announcedVersion = session.tableConfigVersion;
+    _sessionMinClientBuild = session.minClientBuild;
+    final decision = MenuPrecedence.onSession(
+      session: session,
+      catalogue: _catalogue,
+    );
+    _applyMenu(decision.config);
+    return decision.refetch;
+  }
+
+  /// A table catalogue arrived — fetched, confirmed by a 304, or read from
+  /// the phone. It becomes the catalogue held either way; it goes on screen
+  /// only when [MenuPrecedence.onCatalogue] says it is the one the server
+  /// enforces.
+  @visibleForTesting
+  void handleCatalogue(GameConfig catalogue) {
+    _catalogue = catalogue;
+    final next = MenuPrecedence.onCatalogue(
+      catalogue: catalogue,
+      announced: _announcedVersion,
+      minClientBuild: _sessionMinClientBuild,
+    );
+    if (next == null) return;
+    _applyMenu(next);
+    notifyListeners();
+  }
+
+  /// Fetches the table catalogue, once at a time.
+  ///
+  /// Run at every sign-in — both doors and a restored session — and whenever
+  /// a session names a catalogue other than the one held. Never awaited by
+  /// anything the player waits on: the menu already on screen is a working
+  /// menu, and this only makes it richer.
+  Future<void> _loadTableConfig() => _tableConfigFetch ??= _fetchTableConfig()
+      .whenComplete(() => _tableConfigFetch = null);
+
+  Future<void> _fetchTableConfig() async {
+    try {
+      final held = _catalogue;
+      final answer = await _api.tableConfig(version: held?.tableConfigVersion);
+      switch (answer) {
+        case TableConfigFresh(:final body, config: final fetched):
+          await TableConfigCache.write(body);
+          handleCatalogue(fetched);
+        case TableConfigNotModified():
+          if (held != null) handleCatalogue(held);
+        case TableConfigAbsent():
+          // A server from before the catalogue: its session menu is the whole
+          // menu. The phone's copy is left alone — a rollback is usually
+          // brief, and session:ready overrules the copy on every connection.
+          break;
+      }
+    } catch (_) {
+      // Offline, slow, or an answer that is not a menu: the one on screen
+      // stays, and the next sign-in asks again.
     }
   }
 
@@ -2056,86 +2187,253 @@ class GameState extends ChangeNotifier {
         cappedOut(table.bootAmount, table.category);
   }
 
-  // ------------------------------------------------------ lobby categories
+  // ---------------------------------------------------------- lobby levels
 
-  /// The category whose tables the lobby is showing, or null while it shows
-  /// the categories themselves (owner, 18 Sep 2026: "in lobby give 3 category
-  /// — Seen, Blind, Variation — and when the user selects Blind go into that
-  /// and show all the Blind table cards").
+  /// The engine whose games the lobby is showing, or null at the front.
+  ///
+  /// The lobby is three levels in one rail (owner, 23 Sep 2026: "IN UI also
+  /// give two cards: Teen Patti and Poker. inside TeenPatti give seen, blind
+  /// and variation. Inside poker give three card poker, five card draw, texas
+  /// holdem, omaha"): the ENGINES at the front, an engine's CATEGORIES inside
+  /// it, a category's TABLES inside that. It was two levels from 18 Sep 2026,
+  /// with Seen, Blind, Variation and Poker all on the front.
   ///
   /// Kept here rather than in the lobby's own State for two reasons: the
-  /// system Back key (main.dart's `_BackGuard`) has to know a category is open
-  /// so it can close it before it offers to quit, and it has to outlive the
+  /// system Back key (main.dart's `_BackGuard`) has to know a level is open so
+  /// it can close it before it offers to quit, and it has to outlive the
   /// lobby widget — a player who leaves a Blind table comes back to the Blind
   /// tables, not to the front door. It is a place in the app, not a
-  /// preference, so it is not saved: a fresh launch opens on the categories.
-  String? lobbyCategory;
+  /// preference, so it is not saved: a fresh launch opens on the front.
+  String? get lobbyEngine => _lobbyEngine;
+  String? _lobbyEngine;
 
-  /// The order the categories are shown in, whatever order the server lists
-  /// its tables in.
-  static const lobbyCategoryOrder = [
-    TableCategory.seen,
-    TableCategory.blind,
-    TableCategory.variation,
-    // The poker FAMILY: one front card for the four poker games, which are
-    // filed under it by [lobbyCategoryOf].
-    TableCategory.pokerFamily,
-  ];
+  /// The category whose tables the lobby is showing, inside [lobbyEngine];
+  /// null while it shows that engine's categories, or the front. Never set
+  /// without [lobbyEngine]: every way in goes through [openLobbyCategory].
+  String? get lobbyCategory => _lobbyCategory;
+  String? _lobbyCategory;
 
-  /// The category a menu entry is filed under. The four poker games go under
-  /// the one Poker card. A category this build has never heard of is a seen
-  /// table everywhere else in the client (its card, its felt, its rules
-  /// line), so it is one here too.
+  /// The order the front cards are shown in when the server names no engines
+  /// ([GameConfig.engines], which order them where it does).
+  static const lobbyEngineOrder = [TableEngine.teenPatti, TableEngine.poker];
+
+  /// Which categories each engine plays, in the order its cards are shown,
+  /// when the server names no engines — `session:ready`, an older server,
+  /// the fallback menu. The same taxonomy the server seeds (`table_engines`,
+  /// `table_categories`), so the lobby looks the same whichever source the
+  /// menu came from.
+  static const lobbyTaxonomy = <String, List<String>>{
+    TableEngine.teenPatti: [
+      TableCategory.seen,
+      TableCategory.blind,
+      TableCategory.variation,
+    ],
+    TableEngine.poker: [
+      TableCategory.threeCardPoker,
+      TableCategory.fiveCardDraw,
+      TableCategory.texasHoldem,
+      TableCategory.omaha,
+    ],
+  };
+
+  /// The front card a menu entry is filed under: its engine.
+  ///
+  /// The table catalogue names it ([LobbyTable.engine], owner, 23 Sep 2026:
+  /// "Teen Patti engines / Poker engines"), and an engine this build has never
+  /// heard of gets a card of its own ([lobbyEngineServerName] names it). Where
+  /// the server names none (`session:ready`, an older server), a poker table
+  /// is Poker's and everything else Teen Patti's.
+  static String lobbyEngineOf(LobbyTable table) {
+    final engine = table.engine;
+    if (engine != null && engine.isNotEmpty) return engine;
+    return table.isPoker ? TableEngine.poker : TableEngine.teenPatti;
+  }
+
+  /// The category card a menu entry is filed under, inside its engine
+  /// ([lobbyEngineOf]).
+  ///
+  /// Where the catalogue names the engine, the category is the server's own —
+  /// a Teen Patti category this build has never heard of is a card of its
+  /// own, named by the server ([lobbyServerName]). Where it does not, a poker
+  /// table goes under its game, and a Teen Patti category this build has
+  /// never heard of is a seen table everywhere else in the client (its card,
+  /// its felt, its rules line), so it is one here too.
   static String lobbyCategoryOf(LobbyTable table) {
-    if (table.isPoker) return TableCategory.pokerFamily;
-    return lobbyCategoryOrder.contains(table.category) &&
-            table.category != TableCategory.pokerFamily
-        ? table.category
+    final engine = lobbyEngineOf(table);
+    final category = table.category;
+    if (engine != TableEngine.teenPatti) {
+      // A table with no category at all has nowhere else to go than a card
+      // named by its engine.
+      return category.isNotEmpty ? category : engine;
+    }
+    if (table.engine != null && category.isNotEmpty) return category;
+    return category == TableCategory.blind ||
+            category == TableCategory.variation
+        ? category
         : TableCategory.seen;
   }
 
-  /// The categories the server offers at least one table in, in
-  /// [lobbyCategoryOrder]. A category it does not list is simply absent.
-  List<String> get lobbyCategories {
-    final offered = {for (final table in config.tables) lobbyCategoryOf(table)};
-    return [
-      for (final category in lobbyCategoryOrder)
-        if (offered.contains(category)) category,
-    ];
+  /// The front cards: every engine the server offers at least one table in,
+  /// and no other.
+  ///
+  /// In the order of [GameConfig.engines] when the server names them — by
+  /// their sortOrder, so the order is the server's to change — else
+  /// [lobbyEngineOrder], Teen Patti then Poker. An engine the list does not
+  /// place (a table naming an engine the list leaves out) still comes, after
+  /// the rest, rather than taking its tables away.
+  List<String> get lobbyEngines {
+    final offered = {for (final table in config.tables) lobbyEngineOf(table)};
+    final cards = <String>[];
+    void place(String card) {
+      if (offered.contains(card) && !cards.contains(card)) cards.add(card);
+    }
+
+    for (final engine in _bySortOrder(config.engines, (e) => e.sortOrder)) {
+      place(engine.code);
+    }
+    lobbyEngineOrder.forEach(place);
+    offered.forEach(place);
+    return cards;
   }
+
+  /// One engine's category cards: every category of [engine] the server
+  /// offers at least one table in, and no other.
+  ///
+  /// In the order of that engine's categories in [GameConfig.engines], by
+  /// their sortOrder, when the server names them; else [lobbyTaxonomy] —
+  /// Seen, Blind, Variation; 3-Card Poker, 5-Card Draw, Texas Hold'em, Omaha.
+  /// A category neither places still comes, after the rest.
+  List<String> lobbyCategoriesIn(String engine) {
+    final offered = {
+      for (final table in config.tables)
+        if (lobbyEngineOf(table) == engine) lobbyCategoryOf(table),
+    };
+    final cards = <String>[];
+    void place(String card) {
+      if (offered.contains(card) && !cards.contains(card)) cards.add(card);
+    }
+
+    for (final info in config.engines) {
+      if (info.code != engine) continue;
+      for (final category in _bySortOrder(
+        info.categories,
+        (c) => c.sortOrder,
+      )) {
+        place(category.code);
+      }
+    }
+    (lobbyTaxonomy[engine] ?? const <String>[]).forEach(place);
+    offered.forEach(place);
+    return cards;
+  }
+
+  /// [items] by [sortOrder], lower first, keeping the server's order among
+  /// equals — Dart's List.sort is not stable, and a tie must not shuffle the
+  /// lobby from one build of the menu to the next.
+  static List<T> _bySortOrder<T>(List<T> items, int Function(T) sortOrder) {
+    final indexed = items.indexed.toList()
+      ..sort((a, b) {
+        final bySort = sortOrder(a.$2).compareTo(sortOrder(b.$2));
+        return bySort != 0 ? bySort : a.$1.compareTo(b.$1);
+      });
+    return [for (final (_, item) in indexed) item];
+  }
+
+  /// The server's own name for an ENGINE, from [GameConfig.engines], or null
+  /// when it names none (no catalogue, or an empty name). An admin label, not
+  /// a translation: the lobby names Teen Patti and Poker in the player's own
+  /// language and reads this only for an engine it has never heard of, which
+  /// is better named in English than passed off as one it knows.
+  String? lobbyEngineServerName(String engine) {
+    for (final info in config.engines) {
+      if (info.code == engine) return info.name.isEmpty ? null : info.name;
+    }
+    return null;
+  }
+
+  /// The server's own name for a CATEGORY, from the categories of
+  /// [GameConfig.engines], or null when it names none. Read, like
+  /// [lobbyEngineServerName], only for a code this build has never heard of.
+  String? lobbyServerName(String category) {
+    for (final engine in config.engines) {
+      for (final info in engine.categories) {
+        if (info.code == category) return info.name.isEmpty ? null : info.name;
+      }
+    }
+    return null;
+  }
+
+  /// Every table of [engine], as its front card counts them.
+  List<LobbyTable> lobbyTablesOf(String engine) => [
+    for (final table in config.tables)
+      if (lobbyEngineOf(table) == engine) table,
+  ];
 
   /// One category's tables as the lobby shows them: the ones this player can
   /// sit at, then the ones shut to their stack, each group in the server's
-  /// order — which is the order of the stakes.
+  /// order — which is the order of the stakes. [engine], when given, keeps a
+  /// category code two engines might share to the one being shown.
   ///
   /// Bucketed rather than sorted because Dart's List.sort is not stable.
   /// Putting a padlocked card between two open ones makes a player scroll past
   /// a wall to reach a room they are allowed into; putting them last turns the
   /// same cards into the thing to play towards.
-  List<LobbyTable> lobbyTablesIn(String category) {
+  List<LobbyTable> lobbyTablesIn(String category, {String? engine}) {
     final open = <LobbyTable>[];
     final shut = <LobbyTable>[];
     for (final table in config.tables) {
       if (lobbyCategoryOf(table) != category) continue;
+      if (engine != null && lobbyEngineOf(table) != engine) continue;
       (tableShut(table) ? shut : open).add(table);
     }
     return [...open, ...shut];
   }
 
-  /// Goes into [category]. A category the server does not offer is ignored.
-  void openLobbyCategory(String category) {
-    if (lobbyCategory == category || !lobbyCategories.contains(category)) {
-      return;
-    }
-    lobbyCategory = category;
+  /// Goes into [engine]'s categories, from wherever the lobby is. An engine
+  /// the server does not offer is ignored.
+  void openLobbyEngine(String engine) {
+    if (!lobbyEngines.contains(engine)) return;
+    if (_lobbyEngine == engine && _lobbyCategory == null) return;
+    _lobbyEngine = engine;
+    _lobbyCategory = null;
     notifyListeners();
   }
 
-  /// Back to the categories. Answers whether there was a category to close,
-  /// which is how the Back key knows it has been used.
-  bool closeLobbyCategory() {
-    if (lobbyCategory == null) return false;
-    lobbyCategory = null;
+  /// Goes into [category]'s tables — inside [engine], or, when none is named,
+  /// inside the engine that offers it (the open one first). Opens that engine
+  /// too, so Back leaves the category for its engine's categories and only
+  /// then for the front. A category the server does not offer is ignored.
+  void openLobbyCategory(String category, {String? engine}) {
+    final home = engine ?? _engineOffering(category);
+    if (home == null || !lobbyCategoriesIn(home).contains(category)) return;
+    if (_lobbyEngine == home && _lobbyCategory == category) return;
+    _lobbyEngine = home;
+    _lobbyCategory = category;
+    notifyListeners();
+  }
+
+  String? _engineOffering(String category) {
+    final open = _lobbyEngine;
+    if (open != null && lobbyCategoriesIn(open).contains(category)) {
+      return open;
+    }
+    for (final engine in lobbyEngines) {
+      if (lobbyCategoriesIn(engine).contains(category)) return engine;
+    }
+    return null;
+  }
+
+  /// Back one level: from a category's tables to its engine's categories,
+  /// from an engine's categories to the front. Answers whether there was a
+  /// level to close, which is how the Back key knows it has been used.
+  bool closeLobbyLevel() {
+    if (_lobbyCategory != null) {
+      _lobbyCategory = null;
+    } else if (_lobbyEngine != null) {
+      _lobbyEngine = null;
+    } else {
+      return false;
+    }
     notifyListeners();
     return true;
   }

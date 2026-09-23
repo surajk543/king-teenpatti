@@ -75,7 +75,7 @@ class GameConnection {
   final _state = StreamController<RoomState>.broadcast();
   final _session =
       StreamController<
-        ({User user, GameConfig config, ResumeHint? resume})
+        ({User user, GameConfig? config, ResumeHint? resume})
       >.broadcast();
   final _cards = StreamController<List<String>>.broadcast();
   final _showdown = StreamController<ShowdownNews>.broadcast();
@@ -114,8 +114,11 @@ class GameConnection {
   Stream<RoomState> get onState => _state.stream;
 
   /// Who this is and how the game is configured; `resume` names a table to go
-  /// straight back to when a held seat has already lapsed.
-  Stream<({User user, GameConfig config, ResumeHint? resume})> get onSession =>
+  /// straight back to when a held seat has already lapsed. `config` is null
+  /// when the message carried none, which is not the same as the server
+  /// offering [GameConfig.fallback]'s three tables: the menu already held is
+  /// kept.
+  Stream<({User user, GameConfig? config, ResumeHint? resume})> get onSession =>
       _session.stream;
 
   /// This player's own three cards, sent only once they have looked.
@@ -235,7 +238,7 @@ class GameConnection {
         user: User.fromJson(_map(j['user'])),
         config: j['config'] is Map
             ? GameConfig.fromJson(_map(j['config']))
-            : GameConfig.fallback,
+            : null,
         resume: j['resume'] is Map
             ? ResumeHint.fromJson(_map(j['resume']))
             : null,

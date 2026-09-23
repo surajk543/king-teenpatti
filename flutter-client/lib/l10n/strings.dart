@@ -204,15 +204,24 @@ class Strings {
   String get variation => _('variation');
   String get variationTableNote => _('variationTableNote');
 
-  /// The lobby's two levels (owner, 18 Sep 2026): the categories first, then
-  /// one category's tables. [viewTables] is the category card's key, as
-  /// [tapToSit] is the table card's; [tablesLabel] and [openToYouLabel] are its
-  /// two facts; [backToCategories] is what the tile at the head of a
-  /// category's rail is called.
+  /// The lobby's levels: the categories and one category's tables (owner,
+  /// 18 Sep 2026), under the two engines since 23 Sep 2026. [viewTables] is
+  /// the category card's key, as [tapToSit] is the table card's;
+  /// [tablesLabel] and [openToYouLabel] are its two facts; [backToCategories]
+  /// is what the tile at the head of an engine's rail says it goes back to —
+  /// the front, every game.
   String get viewTables => _('viewTables');
   String get tablesLabel => _('tablesLabel');
   String get openToYouLabel => _('openToYouLabel');
   String get backToCategories => _('backToCategories');
+
+  /// The lobby's front (owner, 23 Sep 2026: "give two cards: Teen Patti and
+  /// Poker"). [teenPatti] names the Teen Patti engine's card as [poker] names
+  /// Poker's, and [teenPattiTableNote] is its one line as [pokerTableNote] is
+  /// Poker's; [viewGames] is an engine card's key, which opens its games.
+  String get teenPatti => _('teenPatti');
+  String get teenPattiTableNote => _('teenPattiTableNote');
+  String get viewGames => _('viewGames');
 
   /// The rules sheet's second section (owner, 18 Sep 2026): what a variation
   /// table is, above the variations, each named and explained by
@@ -1087,6 +1096,9 @@ class Strings {
       'tablesLabel': 'tables',
       'openToYouLabel': 'open to you',
       'backToCategories': 'All games',
+      'teenPatti': 'TEEN PATTI',
+      'teenPattiTableNote': 'Seen, Blind and Variation tables',
+      'viewGames': 'View games',
       'variationRulesTitle': 'Variation tables',
       'tableInfoTitle': 'Table info',
       'tableRulesTitle': 'How this table plays',
@@ -1642,6 +1654,9 @@ class Strings {
       'tablesLabel': 'टेबल',
       'openToYouLabel': 'आपके लिए खुली',
       'backToCategories': 'सभी खेल',
+      'teenPatti': 'तीन पत्ती',
+      'teenPattiTableNote': 'सीन, ब्लाइंड और वेरिएशन टेबल',
+      'viewGames': 'खेल देखें',
       'variationRulesTitle': 'वेरिएशन टेबल',
       'tableInfoTitle': 'टेबल की जानकारी',
       'tableRulesTitle': 'यह टेबल कैसे खेली जाती है',
@@ -2181,6 +2196,9 @@ class Strings {
       'tablesLabel': 'টেবিল',
       'openToYouLabel': 'আপনার জন্য খোলা',
       'backToCategories': 'সব খেলা',
+      'teenPatti': 'তিন পাত্তি',
+      'teenPattiTableNote': 'সিন, ব্লাইন্ড ও ভেরিয়েশন টেবিল',
+      'viewGames': 'খেলা দেখুন',
       'variationRulesTitle': 'ভেরিয়েশন টেবিল',
       'tableInfoTitle': 'টেবিলের তথ্য',
       'tableRulesTitle': 'এই টেবিল যেভাবে খেলা হয়',
@@ -2722,6 +2740,9 @@ class Strings {
       'tablesLabel': 'ટેબલ',
       'openToYouLabel': 'તમારા માટે ખુલ્લાં',
       'backToCategories': 'બધી રમતો',
+      'teenPatti': 'તીન પત્તી',
+      'teenPattiTableNote': 'સીન, બ્લાઇન્ડ અને વેરિએશન ટેબલ',
+      'viewGames': 'રમતો જુઓ',
       'variationRulesTitle': 'વેરિએશન ટેબલ',
       'tableInfoTitle': 'ટેબલની માહિતી',
       'tableRulesTitle': 'આ ટેબલ કેવી રીતે રમાય છે',
@@ -3259,6 +3280,9 @@ class Strings {
       'tablesLabel': 'ਟੇਬਲ',
       'openToYouLabel': 'ਤੁਹਾਡੇ ਲਈ ਖੁੱਲ੍ਹੇ',
       'backToCategories': 'ਸਾਰੀਆਂ ਖੇਡਾਂ',
+      'teenPatti': 'ਤੀਨ ਪੱਤੀ',
+      'teenPattiTableNote': 'ਸੀਨ, ਬਲਾਈਂਡ ਅਤੇ ਵੇਰੀਏਸ਼ਨ ਟੇਬਲ',
+      'viewGames': 'ਖੇਡਾਂ ਵੇਖੋ',
       'variationRulesTitle': 'ਵੇਰੀਏਸ਼ਨ ਟੇਬਲ',
       'tableInfoTitle': 'ਟੇਬਲ ਦੀ ਜਾਣਕਾਰੀ',
       'tableRulesTitle': 'ਇਹ ਟੇਬਲ ਕਿਵੇਂ ਖੇਡੀ ਜਾਂਦੀ ਹੈ',
