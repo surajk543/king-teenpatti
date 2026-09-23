@@ -17,6 +17,7 @@
 // use. The poker side is held by poker_lobby_test.dart.
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -27,6 +28,8 @@ import 'package:teenpatti/screens/lobby_screen.dart';
 import 'package:teenpatti/settings/feedback_settings.dart';
 import 'package:teenpatti/state/game_state.dart';
 import 'package:teenpatti/theme/app_theme.dart';
+import 'package:teenpatti/widgets/chip_shuffle.dart';
+import 'package:teenpatti/widgets/poker_chip.dart';
 import 'package:teenpatti/widgets/premium_surface.dart';
 
 /// The Teen Patti part of the server's default menu: one seen table, blind at
@@ -100,6 +103,7 @@ Future<void> _pumpLobby(
   GameState state, {
   required Size screen,
   double textScale = 1.0,
+  Brightness brightness = Brightness.dark,
 }) async {
   tester.view.physicalSize = screen;
   tester.view.devicePixelRatio = 1;
@@ -116,7 +120,9 @@ Future<void> _pumpLobby(
       ],
       child: MaterialApp(
         debugShowCheckedModeBanner: false,
-        theme: AppTheme.dark(sound: false),
+        theme: brightness == Brightness.dark
+            ? AppTheme.dark(sound: false)
+            : AppTheme.light(sound: false),
         builder: (context, child) => GlassBudget(child: child!),
         home: const LobbyScreen(),
       ),
@@ -543,6 +549,140 @@ void main() {
         await _unmount(tester);
         state.dispose();
       });
+    }
+
+    // The chip shuffle on the two engine cards (owner, 23 Sep 2026): each in
+    // the colours of the coin its card had, beside its own title, inside its
+    // card, the card's facts still at full size — and the one-second rebuild
+    // the lobby's cards take never reaching the animation.
+    for (final brightness in Brightness.values) {
+      for (final lang in AppLang.values) {
+        testWidgets('at $name in ${lang.englishName}, ${brightness.name}, the '
+            'engine cards shuffle chips in their own coin\'s colours, and fit', (
+          tester,
+        ) async {
+          final state = _state(lang: lang, tables: [..._menu, _poker('omaha')]);
+          final t = Strings(lang);
+          await _pumpLobby(
+            tester,
+            state,
+            screen: screen,
+            textScale: scale,
+            brightness: brightness,
+          );
+          expect(tester.takeException(), isNull);
+
+          final shuffles = find.byType(ChipShuffle, skipOffstage: false);
+          expect(shuffles, findsNWidgets(2));
+          final scheme = Theme.of(tester.element(shuffles.first)).colorScheme;
+          expect(scheme.brightness, brightness);
+          expect(
+            [
+              for (final e in shuffles.evaluate())
+                (e.widget as ChipShuffle).colour,
+            ],
+            [
+              // Teen Patti's gold, Poker's teal: what the coins were drawn in.
+              AppTheme.paletteFor(
+                scheme,
+                category: TableCategory.seen,
+                bootAmount: 200,
+              ).accent,
+              AppTheme.paletteFor(
+                scheme,
+                category: TableCategory.pokerFamily,
+                bootAmount: 200,
+              ).accent,
+            ],
+          );
+
+          for (final (i, title) in [t.teenPatti, t.poker].indexed) {
+            final shuffle = shuffles.at(i);
+            final slot = tester.getRect(shuffle);
+            final name = tester.getRect(find.text(title, skipOffstage: false));
+            final card = tester.getRect(
+              find
+                  .ancestor(of: shuffle, matching: find.byType(AspectRatio))
+                  .first,
+            );
+            // Beside its own title, on the same line, and inside its card.
+            expect(slot.right, lessThanOrEqualTo(name.left), reason: title);
+            expect(
+              (slot.center.dy - name.center.dy).abs(),
+              lessThan(1),
+              reason: title,
+            );
+            expect(card.contains(slot.topLeft), isTrue, reason: title);
+            expect(card.contains(slot.bottomRight), isTrue, reason: title);
+            // The card's column is never shrunk to make room for it.
+            RenderObject? box = tester.renderObject(shuffle);
+            while (box is! RenderFittedBox ||
+                box.alignment != Alignment.topLeft) {
+              box = box!.parent;
+            }
+            expect(
+              box.child!.size.height,
+              lessThanOrEqualTo(box.size.height + 0.01),
+              reason: '$title: the facts were scaled down to fit',
+            );
+          }
+
+          // A tick rebuilds every card; the shuffles keep their state and
+          // their whole subtree.
+          final before = [
+            for (final e in shuffles.evaluate())
+              (
+                (e as StatefulElement).state,
+                tester.widget(
+                  find
+                      .descendant(
+                        of: find.byWidget(e.widget),
+                        matching: find.byType(RepaintBoundary),
+                        skipOffstage: false,
+                      )
+                      .first,
+                ),
+              ),
+          ];
+          state.notifyListeners();
+          await tester.pump(const Duration(seconds: 1));
+          final after = [
+            for (final e in shuffles.evaluate())
+              (
+                (e as StatefulElement).state,
+                tester.widget(
+                  find
+                      .descendant(
+                        of: find.byWidget(e.widget),
+                        matching: find.byType(RepaintBoundary),
+                        skipOffstage: false,
+                      )
+                      .first,
+                ),
+              ),
+          ];
+          for (final (i, (was, subtree)) in before.indexed) {
+            expect(after[i].$1, same(was));
+            expect(after[i].$2, same(subtree));
+          }
+
+          // Inside an engine the category cards keep their settling pile.
+          await _tapInRail(
+            tester,
+            find.text(t.viewGames, skipOffstage: false).first,
+          );
+          await _settleLevel(tester);
+          expect(tester.takeException(), isNull);
+          expect(find.byType(ChipShuffle, skipOffstage: false), findsNothing);
+          expect(
+            find.byType(LivelyChipStack, skipOffstage: false),
+            findsNWidgets(3),
+          );
+
+          await _unmount(tester);
+          state.dispose();
+        });
+      }
     }
 
     testWidgets('at $name Variation holds its two tables, uncapped', (

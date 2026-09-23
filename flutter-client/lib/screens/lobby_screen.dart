@@ -15,6 +15,7 @@ import '../theme/theme_colors.dart';
 import '../widgets/glass_orb.dart';
 import '../widgets/avatar.dart';
 import '../widgets/buy_chips.dart';
+import '../widgets/chip_shuffle.dart';
 import '../widgets/feedback_toggles.dart';
 import '../widgets/drifting_chips.dart';
 import '../widgets/fireworks.dart';
@@ -1457,6 +1458,7 @@ class _EngineCard extends StatelessWidget {
       tables: state.lobbyTablesOf(engine),
       action: t.viewGames,
       index: index,
+      shuffle: true,
       onOpen: () => context.read<GameState>().openLobbyEngine(engine),
     );
   }
@@ -1525,6 +1527,7 @@ class _GroupCard extends StatelessWidget {
     required this.action,
     required this.index,
     required this.onOpen,
+    this.shuffle = false,
   });
 
   /// The card's title, already in the player's language.
@@ -1545,6 +1548,11 @@ class _GroupCard extends StatelessWidget {
   final int index;
 
   final VoidCallback onOpen;
+
+  /// Whether the coin beside the title is the chip shuffle — an engine's card
+  /// on the front (owner, 23 Sep 2026) — rather than the settling pile a
+  /// category's card keeps.
+  final bool shuffle;
 
   @override
   Widget build(BuildContext context) {
@@ -1646,10 +1654,26 @@ class _GroupCard extends StatelessWidget {
                                       crossAxisAlignment:
                                           CrossAxisAlignment.center,
                                       children: [
-                                        LivelyChipStack(
-                                          size: nameSize * 0.62,
-                                          colours: [accent, palette.rimLow],
-                                        ),
+                                        if (shuffle)
+                                          // Twelve chips, each as wide as the
+                                          // coin it replaces, in that coin's
+                                          // colours. The pile is what shows
+                                          // should the file fail to load.
+                                          ChipShuffle(
+                                            colour: accent,
+                                            size: ChipShuffle.sizeForChip(
+                                              nameSize * 0.62,
+                                            ),
+                                            fallback: LivelyChipStack(
+                                              size: nameSize * 0.62,
+                                              colours: [accent, palette.rimLow],
+                                            ),
+                                          )
+                                        else
+                                          LivelyChipStack(
+                                            size: nameSize * 0.62,
+                                            colours: [accent, palette.rimLow],
+                                          ),
                                         const SizedBox(width: Space.md),
                                         Expanded(
                                           child: FittedBox(

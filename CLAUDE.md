@@ -1386,6 +1386,15 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   `_CategoryCard` per category of it (`lobbyCategoriesIn(engine)`); inside a category, a `_BackTile` naming the engine
   it returns to, then that category's `_TableCard`s (`lobbyTablesIn(category, engine:)`). Engine and category cards are
   both a `_GroupCard` (the text below about the category card holds for both; an engine card's key says "View games").
+  **An engine card's coin is `assets/animations/Poker Chip Shuffle.json`** (owner, 23 Sep 2026: "use this animation on
+  teenPatti and Poker card … change coin colour accord to the card coin u have, but animation should be same"):
+  `widgets/chip_shuffle.dart` `ChipShuffle`, a 2 s / 60 fps loop of twelve copies of one red chip, recoloured at RUNTIME
+  by ValueDelegates (the file is never edited or baked) — the five red body shades take the card's own coin shades
+  (`poker_chip.dart` `chipBodyShades`, so it cannot drift from the static coin), the white/grey inlays take champagne
+  (`AppTheme.goldBright`) scaled by lightness; two layers use a MULTIPLY blend (the spots are set to coin ÷ champagne so
+  they show the coin exactly; the neutral shadow layer is left alone). Category and table cards keep the static coin.
+  Decoded once for the app, inside a RepaintBoundary, and the one-second lobby tick never restarts it
+  (`test/chip_shuffle_test.dart` pins the file's layers, the recolour and the no-restart rule).
   **The grouping is data-driven**: a table's engine is `LobbyTable.engine` from the catalogue (`GameState.lobbyEngineOf`),
   else — `session:ready`, an older server — a poker category is Poker's and everything else Teen Patti's; the order of
   engines and of each engine's categories is `GameConfig.engines`' `sortOrder` when present, else the built-in
