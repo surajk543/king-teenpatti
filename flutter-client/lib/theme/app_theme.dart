@@ -228,6 +228,14 @@ class Dim {
   /// 640 -> 192.0 | 891 -> 267.3 | 1280 -> 300.0
   static double bonusSlotW(double w) => (w * 0.30).clamp(180.0, 300.0);
 
+  /// The daily bonus chip's cap at the lobby's foot. Not the top bar's slot:
+  /// it stands in a corner nothing but the milestone shares, and once ready it
+  /// pays two currencies to the 4-hour chip's one — a coin, the lakh, "+1"
+  /// and the hammer (owner, 24 Sep 2026) need 205 on a 640dp phone at the
+  /// 1.25 text ceiling, where the slot's 192 cut the lakh to "1,00,0…".
+  /// 640 -> 211.2 | 891 -> 294.0 | 1280 -> 330.0
+  static double dailyBonusW(double w) => bonusSlotW(w) * 1.1;
+
   /// What the top bar's row actually has left — the number to hand
   /// [Breaks.isTightBar], never the raw screen width.
   /// 640 -> 448.0 | 891 -> 623.7 | 1280 -> 980.0

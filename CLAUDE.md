@@ -1551,12 +1551,25 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   `Flexible` beside a `Spacer` and a flex-4 balance, which handed it a sixth of the free space ("Gu…"). On a tight bar
   the Shop key is icon-only (`ShopButton(compact: true)`, tooltip "Shop"). TP_Tall shows "Guest0E00B" whole; TP_Small
   "Guest63…". The balance shows chips then diamonds (gem + count, `_diamondInkOn` — pale blue on dark glass, deep blue on light);
-  `_DailyBonusChip` in the bottom-left corner (the daily bonus — 1 lakh chips and 1 hammer every 24 h, "Collect 1 Lakh +1 Hammer",
-  a gift glyph, hidden when the server offers no daily bonus, the celebration showing the hammer under the chips; tapped while it is
+  `_DailyBonusChip` in the bottom-left corner (the daily bonus — 1 lakh chips and 1 hammer every 24 h, a gift glyph, hidden when
+  the server offers no daily bonus, the celebration showing the hammer under the chips; tapped while it is
   still counting down it opens `openBonusDetails`, as the 4-hour `_BonusChip` does — a popup of the reward, a live countdown and the
   interval, offering Collect once the wait is over (`_CornerChip.onWaitTap`; the milestone chip has none); owner, 14 Sep
   2026 — it had briefly replaced the 4-hour `_BonusChip` in the bar, which came back beside it the same day) and `_MilestoneChip` in the bottom-right, both clear
   of the rail's `band`, and `lobbyNoticeArea` keeps a toast between them; one `endDrawer` for stats/settings.
+  **A ready bonus chip pays in glyphs, not words** (owner, 24 Sep 2026: "In daily Bonus button instead of showing text 'collect' show
+  coins icon and instead of text 'Hammer' show icon. Same in case of 4 Hour Bonus show coin icon instead of collect text"): the second
+  line of the 4-hour chip is `[coin] 10,000` and the daily chip's `[coin] 1,00,000  +1 [hammer]` — `_CornerChip.reward`, a
+  `({chips, hammers})` record given instead of `subtitle` (exactly one of the two; the countdown, the hands to go and the milestone's
+  "Collect 25,000" stay words, and the popup keeps its Collect key), drawn by `_rewardLine` with the top bar's own marks — a
+  `PokerChip` and `Icons.hardware`, in the chip's foreground `fg`, each the size of the figure's type so it scales with it and never
+  outgrows the line. It is a `Row`, not a `Text.rich` with `WidgetSpan`s: a placeholder that opens a paragraph is centred on a line
+  with no text metrics yet and made the chip 2dp taller than its counting-down twin. "Collect 1,00,000 +1 Hammer" was cut to
+  "Collect 100,000 +..." on a 640dp phone; the glyphs bring the line to 205dp at the 1.25 text ceiling, still over the top bar slot's
+  192, so the daily chip — at the foot, where only the milestone shares its row — has a cap of its own, `Dim.dailyBonusW` (`bonusSlotW`
+  × 1.1; the toast area measures the chip, so it moves aside by itself). `test/bonus_chip_icons_test.dart` pumps the lobby at 640×360
+  ×1.25 in all five languages and holds the word absent, both glyphs present, the figures un-ellipsised (laid-out width = max intrinsic
+  width) and the chip the same height in both states.
 - **Table** (rebuilt around the felt on 10–11 Sep 2026 — `fb47ba4`, `b83b273`, `81a5981`; the bar
   across the foot and the cloth under it are both gone, and the screenshots in `docs/play-store/`
   predate all of it). `_TableScreenState.build` **watches nothing** (a per-second Scaffold rebuild
