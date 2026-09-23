@@ -67,6 +67,7 @@ void main() {
         StoreTab.hammers,
         StoreTab.missiles,
         StoreTab.pictures,
+        StoreTab.tables,
       ]);
     });
   });

@@ -48,6 +48,48 @@ void main() {
     expect(() => PictureCache.warm(const ['']), returnsNormally);
   });
 
+  group('looksLikeHtml', () {
+    Uint8List text(String t) => Uint8List.fromList(utf8.encode(t));
+
+    test('a page a host serves in place of a file is not a picture', () {
+      // Drive's sign-in page for a file that is not (yet) shared, as a phone
+      // cached it on 16 Sep 2026 and drew a bare felt from then on.
+      expect(looksLikeHtml(text('<!doctype html><html lang="en-US" dir="ltr"><head>')), isTrue);
+      expect(looksLikeHtml(text('<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN">')), isTrue);
+      expect(looksLikeHtml(text('﻿\n  <html><body>quota exceeded</body></html>')), isTrue,
+          reason: 'a byte-order mark and whitespace do not hide the page');
+    });
+
+    test('pictures pass, doctyped SVGs included', () {
+      expect(looksLikeHtml(text('<svg xmlns="http://www.w3.org/2000/svg"/>')), isFalse);
+      expect(looksLikeHtml(text('<?xml version="1.0"?><svg/>')), isFalse);
+      expect(looksLikeHtml(text('<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"><svg/>')), isFalse);
+      expect(looksLikeHtml(text('{"v":"5.5.3","layers":[]}')), isFalse);
+      expect(looksLikeHtml(Uint8List.fromList([0x89, 0x50, 0x4E, 0x47])), isFalse);
+      expect(looksLikeHtml(Uint8List(0)), isFalse);
+    });
+  });
+
+  group('lottieCanvasAspect', () {
+    Uint8List text(String t) => Uint8List.fromList(utf8.encode(t));
+
+    test('reads the canvas off the file head', () {
+      // Welcome.json's head, and Background Pattern's.
+      expect(
+        lottieCanvasAspect(text('{"v":"4.8.0","meta":{"g":"LottieFiles AE 3.1.1"},"fr":60,"ip":0,"op":493,"w":428,"h":123,"nm":"welcome"')),
+        closeTo(428 / 123, 1e-9),
+      );
+      expect(lottieCanvasAspect(text('{"v":"5.5.3","fr":25,"ip":0,"op":150,"w":1500,"h":1000,"nm":"Background Pattern"')), 1.5);
+    });
+
+    test('answers null where the head does not say', () {
+      expect(lottieCanvasAspect(text('{"v":"5.5.3","layers":[]}')), isNull);
+      expect(lottieCanvasAspect(text('<svg width="10" height="10"/>')), isNull);
+      expect(lottieCanvasAspect(text('{"w":0,"h":10}')), isNull);
+      expect(lottieCanvasAspect(Uint8List(0)), isNull);
+    });
+  });
+
   group('pictureKindOf', () {
     Uint8List text(String t) => Uint8List.fromList(utf8.encode(t));
 

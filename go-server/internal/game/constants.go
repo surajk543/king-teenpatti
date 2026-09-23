@@ -285,6 +285,12 @@ const (
 	// negative and the chips leave the economy, which is what makes a premium
 	// picture a chip sink rather than a transfer.
 	LedgerReasonPicturePurchase = "picture_purchase"
+	// LedgerReasonTablePicturePurchase is a premium TABLE picture — the cloth a
+	// player lays on their own table (owner, 15 Sep 2026) — bought with chips
+	// (db.TablePictures.Buy). Its action_id is "table:<userId>:<pictureId>:<n>",
+	// n counting that player's purchases of it so a lapsed rental can be bought
+	// again, and like picture_purchase it is a chip sink: the delta is negative.
+	LedgerReasonTablePicturePurchase = "table_picture_purchase"
 	// LedgerReasonAccountDeleted empties a wallet when a player deletes their
 	// account. The row is what keeps SUM(delta) == chips true afterwards: the
 	// account's chips go to 0, so the ledger has to record the same drop.

@@ -25,7 +25,7 @@ test.after(async () => {
 const uniqueStake = stakeCounter(100);
 
 const USER_KEYS = [
-  'id', 'provider', 'displayName', 'email', 'avatarUrl', 'providerAvatarUrl', 'activePictureId', 'chips', 'diamond', 'hammer', 'missile',
+  'id', 'provider', 'displayName', 'email', 'avatarUrl', 'providerAvatarUrl', 'activePictureId', 'tablePicture', 'chips', 'diamond', 'hammer', 'missile',
   'handsPlayed', 'handsWon', 'handsLost', 'handsLeftMid', 'totalWinnings', 'biggestPot', 'rewards',
   'createdAt', 'lastLoginAt',
 ];
@@ -54,6 +54,7 @@ test('guest login creates an account with the welcome chip grant, in the exact p
   assert.equal(user.avatarUrl, null);
   assert.equal(user.providerAvatarUrl, null);
   assert.equal(user.activePictureId, null);
+  assert.equal(user.tablePicture, null, 'the table as it comes, until a table picture is laid');
   assert.equal(user.chips, profile.welcomeChips, 'a first-time player is granted 2 lakh chips');
   assert.equal(user.diamond, 9, 'and nine diamonds, the premium currency');
   assert.equal(user.hammer, 20, 'and twenty hammers');
@@ -1143,4 +1144,101 @@ test('two seated players can leave cleanly (helper sanity)', async () => {
   await cb.emit('room:quickJoin', { bootAmount });
   await closeAll(ca, cb);
   assert.ok(true);
+});
+
+// ------------------------------------------------------------- table pictures
+
+test('a table picture is bought in the lobby, laid, shown by the table to every viewer, refused at a table when chip-priced, and cleared', async () => {
+  // GET /api/table-pictures, POST /api/table-pictures/{use,buy} (owner,
+  // 15 Sep 2026; merged 23 Sep 2026; CLAUDE.md §7.2): the profile-picture
+  // trio for the cloth a player lays on their table.
+  const listed = await http('GET', '/api/table-pictures');
+  assert.equal(listed.status, 200);
+  assertKeys(listed.body, ['tablePictures'], 'the catalogue body');
+  const rows = listed.body.tablePictures;
+  assert.ok(rows.length >= 1, 'the seed offers a table picture');
+  for (const p of rows) {
+    assertKeys(p, ['id', 'name', 'dayUrl', 'nightUrl', 'assetFormat', 'currency', 'type', 'cost', 'durationDays', 'durationHours', 'sortOrder', 'owned', 'expiresAt'], 'a catalogue row');
+    assert.equal(p.owned, p.type === 'FREE', 'without a token only a free picture reads as owned');
+    assert.equal(p.expiresAt, 0);
+  }
+  const coins = rows.filter((p) => p.type === 'PREMIUM' && p.currency === 'COIN').sort((a, b) => a.cost - b.cost);
+  const [coin, dearer] = coins;
+  assert.ok(coin, 'the seed offers a chip-priced table picture');
+
+  const account = await guestLogin('device-table-picture-01', 'Cloth');
+  const token = account.token;
+  assert.equal(account.user.tablePicture, null, 'a new account has laid nothing');
+  assert.ok(account.user.chips >= coin.cost, 'the welcome covers the cheapest cloth');
+
+  let r = await http('POST', '/api/table-pictures/use', { token, body: { pictureId: coin.id } });
+  assert.equal(r.status, 403);
+  assert.equal(r.body.error, 'picture_locked');
+  r = await http('POST', '/api/table-pictures/use', { token, body: { pictureId: 999999 } });
+  assert.equal(r.status, 400);
+  assert.equal(r.body.error, 'unknown_table_picture');
+  r = await http('POST', '/api/table-pictures/use', { body: { pictureId: coin.id } });
+  assert.equal(r.status, 401, 'laying needs a session');
+
+  // Buying: one ledger row, deltas only; a replay is not charged twice.
+  r = await http('POST', '/api/table-pictures/buy', { token, body: { pictureId: coin.id } });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assertKeys(r.body, ['user', 'picture', 'charged', 'spent'], 'the buy answer');
+  assert.equal(r.body.charged, true);
+  assert.equal(r.body.spent, coin.cost);
+  assert.equal(r.body.user.chips, account.user.chips - coin.cost);
+  assert.equal(r.body.picture.owned, true);
+  assert.ok(r.body.picture.expiresAt > Date.now(), 'a rental runs from now');
+  assert.equal(r.body.user.tablePicture, null, 'buying does not lay');
+  const again = await http('POST', '/api/table-pictures/buy', { token, body: { pictureId: coin.id } });
+  assert.equal(again.status, 200);
+  assert.equal(again.body.charged, false, 'an owned picture is not charged twice');
+  assert.equal(again.body.spent, 0);
+  assert.equal(again.body.user.chips, account.user.chips - coin.cost);
+  assert.equal(await wallet(account.user.id), account.user.chips - coin.cost);
+  const { rows: ledger } = await query(
+    `SELECT action_id, delta, reason FROM chip_ledger WHERE user_id = $1 AND reason = 'table_picture_purchase'`, [account.user.id]);
+  assert.deepEqual(ledger, [{ action_id: `table:${account.user.id}:${coin.id}:1`, delta: -coin.cost, reason: 'table_picture_purchase' }]);
+
+  // Laying: the account carries the pair, and /me agrees.
+  r = await http('POST', '/api/table-pictures/use', { token, body: { pictureId: coin.id } });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assertKeys(r.body, ['user'], 'the use answer');
+  assert.deepEqual(r.body.user.tablePicture,
+    { id: coin.id, dayUrl: coin.dayUrl, nightUrl: coin.nightUrl, assetFormat: coin.assetFormat, currency: 'COIN', cost: coin.cost });
+  assert.equal((await me(token)).tablePicture.id, coin.id);
+  const mine = await http('GET', '/api/table-pictures', { token });
+  assert.equal(mine.body.tablePictures.find((p) => p.id === coin.id).owned, true, 'with a token the bought picture reads as owned');
+
+  // At a table the snapshot carries the TABLE's pick — the same for the
+  // player who laid it and for a second player who laid nothing, tagged with
+  // who laid it.
+  const client = await openClient(token);
+  const joined = await client.emit('room:quickJoin', { bootAmount: uniqueStake() });
+  assert.equal(joined.ok, true);
+  const shown = (c) => c.state()?.tablePicture;
+  for (let i = 0; i < 40 && shown(client)?.id !== coin.id; i++) await pause(50);
+  assert.deepEqual(shown(client), { ...r.body.user.tablePicture, userId: account.user.id });
+  const viewer = await guestLogin('device-table-picture-02', 'Viewer');
+  const other = await openClient(viewer.token);
+  const sat = await other.emit('room:joinCode', { code: joined.code });
+  assert.equal(sat.ok, true);
+  for (let i = 0; i < 40 && shown(other)?.id !== coin.id; i++) await pause(50);
+  assert.equal(shown(other)?.userId, account.user.id, 'the whole table shows the laid picture, tagged with who laid it');
+
+  // A chip-priced picture is not sold at a table (§5.1) ...
+  if (dearer) {
+    r = await http('POST', '/api/table-pictures/buy', { token, body: { pictureId: dearer.id } });
+    assert.equal(r.status, 409);
+    assert.deepEqual(r.body, { error: 'seated', message: 'You can only buy a chip-priced table picture in the lobby.' });
+  }
+  // ... but taking one off is allowed there, and every viewer's snapshot follows.
+  r = await http('POST', '/api/table-pictures/use', { token, body: { pictureId: null } });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.user.tablePicture, null);
+  for (let i = 0; i < 40 && (shown(client) !== null || shown(other) !== null); i++) await pause(50);
+  assert.equal(shown(client), null);
+  assert.equal(shown(other), null);
+  await client.close();
+  await other.close();
 });

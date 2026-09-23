@@ -364,7 +364,8 @@ void main() {
             of: find.text(name),
             matching: find.byType(PictureChoice),
           ),
-          matching: _private('_PriceTag'),
+          // Public since the table shelf shares it (15 Sep 2026).
+          matching: find.byType(PriceTag),
         ),
         matching: matching,
       );

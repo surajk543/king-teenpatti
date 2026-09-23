@@ -168,6 +168,40 @@ func TestMigrationsAreVersionedOrderedAndSplitByKind(t *testing.T) {
 		}
 	}
 
+	// The table pictures (owner, 15 Sep 2026) arrived as a pair of their own
+	// — V1.0.2__table_pictures.sql and V1.0.3__seed_table_pictures.sql, written
+	// while a script that had run somewhere was never edited — and were folded
+	// into the two files on 23 Sep 2026 under the rule above: three new tables
+	// in the baseline, after the profile pictures they mirror, and their rows in
+	// the seed. Nothing of it touches users (which ops/DEPLOY.md §7 may have
+	// handed to the superuser): the picture a player has laid is a row of
+	// user_table_choice, not a users column, and REFERENCES users (id) needs
+	// only the REFERENCES grant.
+	for _, want := range []string{
+		"CREATE TABLE IF NOT EXISTS table_pictures", "CREATE TABLE IF NOT EXISTS user_table_pictures",
+		"CREATE TABLE IF NOT EXISTS user_table_choice", "day_asset_url", "night_asset_url",
+	} {
+		if !strings.Contains(baseline, want) {
+			t.Errorf("%s lacks %q", migrations[0].File, want)
+		}
+	}
+	if !inOrder(baseline, "CREATE TABLE IF NOT EXISTS user_profile_pictures", "CREATE TABLE IF NOT EXISTS table_pictures",
+		"CREATE TABLE IF NOT EXISTS user_table_pictures", "CREATE TABLE IF NOT EXISTS user_table_choice", "CREATE TABLE IF NOT EXISTS chip_ledger") {
+		t.Error("the baseline must create table_pictures, user_table_pictures and user_table_choice in that order, after user_profile_pictures")
+	}
+	if pictures := squash(createTableBody(t, baseline, "table_pictures")); !strings.Contains(pictures, "CHECK (currency IN ('COIN', 'DIAMOND', 'HAMMER'))") ||
+		!strings.Contains(pictures, "day_asset_url TEXT NOT NULL UNIQUE") {
+		t.Errorf("CREATE TABLE table_pictures must declare the three currencies and its UNIQUE day_asset_url:\n%s", pictures)
+	}
+	for _, table := range []string{"user_table_pictures", "user_table_choice"} {
+		if body := squash(createTableBody(t, baseline, table)); !strings.Contains(body, "user_id TEXT") || !strings.Contains(body, "REFERENCES users (id) ON DELETE CASCADE") {
+			t.Errorf("CREATE TABLE %s must reference users (id):\n%s", table, body)
+		}
+	}
+	if !strings.Contains(seed, "INSERT INTO table_pictures") || !inOrder(seed, "INSERT INTO profile_pictures", "INSERT INTO table_pictures", "INSERT INTO table_engines") {
+		t.Errorf("%s should seed the table pictures, after the profile pictures and before the table catalogue", migrations[1].File)
+	}
+
 	// The missile column and tables are the baseline's too (folded in from
 	// V1.0.2__missiles.sql on 14 Sep 2026), as are the new-account diamonds
 	// (from V1.0.2__new_account_diamonds.sql), the pictures' third currency and
@@ -291,8 +325,9 @@ func TestBootstrapCreatesEveryTableAndSetsSearchPathPerConnection(t *testing.T) 
 	f := newFixture(t)
 
 	// Exactly these tables: money and audit (users, chip_ledger and the
-	// purchase and spend records), the picture catalogue, and the four
-	// configuration tables — no game state (the baseline's header).
+	// purchase and spend records), the two picture catalogues (profile and
+	// table, with who owns and has laid what), and the four configuration
+	// tables — no game state (the baseline's header).
 	rows, err := f.d.Pool.Query(f.ctx, `SELECT table_name FROM information_schema.tables
          WHERE table_schema = $1 AND table_type = 'BASE TABLE' ORDER BY table_name`, f.d.Schema)
 	if err != nil {
@@ -311,8 +346,8 @@ func TestBootstrapCreatesEveryTableAndSetsSearchPathPerConnection(t *testing.T) 
 		t.Fatal(err)
 	}
 	want := []string{"chip_ledger", "diamond_purchases", "hammer_purchases", "hammer_spends", "missile_purchases", "missile_spends",
-		"profile_pictures", "table_categories", "table_configs", "table_engines", "table_settings",
-		"user_milestones", "user_profile_pictures", "users"}
+		"profile_pictures", "table_categories", "table_configs", "table_engines", "table_pictures", "table_settings",
+		"user_milestones", "user_profile_pictures", "user_table_choice", "user_table_pictures", "users"}
 	if strings.Join(tables, ",") != strings.Join(want, ",") {
 		t.Fatalf("schema %s has tables\n %v\nwant\n %v", f.d.Schema, tables, want)
 	}

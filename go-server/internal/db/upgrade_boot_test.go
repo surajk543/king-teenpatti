@@ -45,6 +45,11 @@ func TestABootBringsAnOlderDatabaseForward(t *testing.T) {
 	execSQL(t, older, `DROP TABLE table_settings`)
 	execSQL(t, older, `DROP TABLE table_categories`)
 	execSQL(t, older, `DROP TABLE table_engines`)
+	// The table pictures (merged 23 Sep 2026) are three more tables production
+	// lacks until its next boot: dependents first.
+	execSQL(t, older, `DROP TABLE user_table_choice`)
+	execSQL(t, older, `DROP TABLE user_table_pictures`)
+	execSQL(t, older, `DROP TABLE table_pictures`)
 	column := func(d *db.DB, table, name string) int64 {
 		t.Helper()
 		return countOf(t, d, `SELECT count(*) FROM information_schema.columns
@@ -80,6 +85,14 @@ func TestABootBringsAnOlderDatabaseForward(t *testing.T) {
 	}
 	if n := countOf(t, d, `SELECT count(*) FROM table_configs WHERE NOT is_active`); n != 0 {
 		t.Errorf("%d rows arrived inactive in an empty catalogue", n)
+	}
+	// The table pictures were created and seeded, and the account that was
+	// already there reads with none laid.
+	if n := countOf(t, d, `SELECT count(*) FROM table_pictures WHERE is_active`); n != 4 {
+		t.Errorf("%d table pictures after the upgrade, want the seed's 4", n)
+	}
+	if got, err := db.NewUsers(d, welcome, nil).FindByID(ctx, before.ID); err != nil || got == nil || got.TablePicture != nil {
+		t.Errorf("the existing account after the upgrade: %+v %v, want it read with no table picture laid", got, err)
 	}
 
 	// A bot's login writes the restored column.

@@ -102,7 +102,13 @@ type User struct {
 	// being worn, or null for none. Replaced avatarChoice, which carried the
 	// bare "/profiles/bear.svg" path before the catalogue existed.
 	ActivePictureID *int64 `json:"activePictureId"`
-	Chips           int64  `json:"chips"`
+	// TablePicture is the table picture the player has laid (owner, 15 Sep
+	// 2026; user_table_choice joined to table_pictures), or null for the table
+	// as it comes. Resolved here, as AvatarURL is, so the felt can be drawn
+	// from the account alone — before the catalogue has arrived, and for a row
+	// since retired from it. Go only.
+	TablePicture *LaidTablePicture `json:"tablePicture"`
+	Chips        int64             `json:"chips"`
 	// Diamond is the premium soft currency (users.diamond). Every account
 	// starts with 2 (owner, 14 Sep 2026; it was 1). It is not
 	// chip_ledger's business: the ledger backs the chips invariant, and
@@ -127,9 +133,37 @@ type User struct {
 	LastLoginAt   int64   `json:"lastLoginAt"` // epoch ms
 }
 
+// LaidTablePicture is user.tablePicture on the wire: the table picture a
+// player has laid, with both URLs so the client can draw the one its theme
+// wants without a second request. AssetFormat is the catalogue's, for the
+// loader (TablePicture.AssetFormat).
+type LaidTablePicture struct {
+	ID          int64  `json:"id"`
+	DayURL      string `json:"dayUrl"`
+	NightURL    string `json:"nightUrl"`
+	AssetFormat string `json:"assetFormat"`
+	// Currency and Cost are the catalogue row's, carried so a table can rank
+	// the pictures its players have laid (game.TablePicture): diamonds over
+	// hammers over coins, then the dearer.
+	Currency string `json:"currency"`
+	Cost     int64  `json:"cost"`
+}
+
+// ForTable is the laid picture as it goes onto a seat, tagged with the player
+// who laid it; nil for nil.
+func (l *LaidTablePicture) ForTable(userID string) *game.TablePicture {
+	if l == nil {
+		return nil
+	}
+	return &game.TablePicture{
+		ID: l.ID, DayURL: l.DayURL, NightURL: l.NightURL, AssetFormat: l.AssetFormat,
+		Currency: l.Currency, Cost: l.Cost, UserID: userID,
+	}
+}
+
 // Player converts to the seat-level view the RoomManager needs.
 func (u *User) Player() game.Player {
-	return game.Player{ID: u.ID, DisplayName: u.DisplayName, AvatarURL: u.AvatarURL, Chips: u.Chips}
+	return game.Player{ID: u.ID, DisplayName: u.DisplayName, AvatarURL: u.AvatarURL, TablePicture: u.TablePicture.ForTable(u.ID), Chips: u.Chips}
 }
 
 // Profile is a verified login identity (auth providers → UpsertFromProfile).
@@ -276,7 +310,9 @@ type queryer interface {
 // diamond, where the baseline declares them; a database built by older scripts
 // has them at the end of the table), so a row scans into
 // userRow without depending on `SELECT *` column ordering, followed by the
-// asset_url of the catalogue picture the player is wearing. The reward
+// asset_url of the catalogue picture the player is wearing and the table
+// picture they have laid (user_table_choice → table_pictures; owner, 15 Sep
+// 2026). The reward
 // milestones come from user_milestones, where milestone_claimed and
 // next_bonus_at sat until 14 Sep 2026, and read 0 for a player with no row.
 // Qualified with the `u` alias because every read now goes through userFrom's
@@ -285,37 +321,67 @@ const userColumns = `u.id, u.provider, u.provider_user_id, u.display_name, u.ema
        u.hands_played, u.hands_won, u.hands_lost, u.hands_left_mid, u.total_winnings, u.biggest_pot,
        COALESCE(mh.claimed_up_to, 0), COALESCE(mt.next_claim_at, 0), COALESCE(mb.next_claim_at, 0),
        u.active_picture_id, u.created_at, u.updated_at, u.last_login_at,
-       ap.asset_url`
+       ap.asset_url,
+       tp.id, tp.day_asset_url, tp.night_asset_url, tp.asset_format, tp.currency, tp.cost`
 
-// userFrom joins the picture the player is wearing so publicUser can resolve
-// avatarUrl without a second round trip, and the player's three rows of
-// user_milestones for the rewards. LEFT, because most players wear nothing and
-// a new one has collected nothing, and every one of them must still come back
-// from these queries.
+// userFromAt is the FROM clause of every account read: it joins the picture
+// the player is wearing so publicUser can resolve avatarUrl without a second
+// round trip, the table picture they have laid for the same reason, and the
+// player's three rows of user_milestones for the rewards. LEFT, because most
+// players wear nothing and a new one has collected nothing, and every one of
+// them must still come back from these queries.
+//
+// The laid table picture joins only while it may still be laid — a FREE row,
+// or a PREMIUM one whose rental has not run out at this instant (%d, epoch
+// ms, baked in as tableOwnedJoin bakes it) — so a lapsed rental reads as no
+// picture the moment it lapses, whether or not a sweep (TablePictures
+// .ExpireLapsed) has deleted the choice row yet. The account is what every
+// seat is built from (User.Player → RoomManagerOptions.LoadPlayer), and it is
+// the whole table that shows a laid picture, so a stale one here would go on
+// dressing every viewer's felt past the term the chips bought.
 //
 // A locking read adds `FOR UPDATE OF u`: the bare form would try to lock the
 // catalogue row too, and two players buying the same picture would queue behind
 // each other for no reason.
-const userFrom = ` FROM users u LEFT JOIN profile_pictures ap ON ap.id = u.active_picture_id
+const userFromAt = ` FROM users u LEFT JOIN profile_pictures ap ON ap.id = u.active_picture_id
+  LEFT JOIN user_table_choice tc ON tc.user_id = u.id
+  LEFT JOIN table_pictures tp ON tp.id = tc.table_picture_id
+   AND (tp.type = 'FREE' OR EXISTS (
+        SELECT 1 FROM user_table_pictures o
+         WHERE o.user_id = u.id AND o.table_picture_id = tp.id
+           AND (o.expires_at = 0 OR o.expires_at > %d)))
   LEFT JOIN user_milestones mh ON mh.user_id = u.id AND mh.milestone = 'HANDS_PLAYED'
   LEFT JOIN user_milestones mt ON mt.user_id = u.id AND mt.milestone = 'TIMED_BONUS'
   LEFT JOIN user_milestones mb ON mb.user_id = u.id AND mb.milestone = 'DAILY_BONUS' `
+
+// userFrom is userFromAt with this instant baked in.
+func (u *Users) userFrom() string {
+	return fmt.Sprintf(userFromAt, now(u.clock))
+}
 
 // userRow is one users row as stored (snake_case columns).
 type userRow struct {
 	id, provider, providerUserID, displayName string
 	email, avatarURL                          *string
 	// activePictureID is the catalogue row worn; pictureAssetURL is that
-	// row's asset_url, carried along by userFrom's join.
-	activePictureID           *int64
-	pictureAssetURL           *string
-	chips                     int64
-	diamond                   int
-	hammer                    int
-	missile                   int
-	handsPlayed, handsWon     int
-	handsLost, handsLeftMid   int
-	totalWinnings, biggestPot int64
+	// row's asset_url, carried along by userFromAt's join.
+	activePictureID *int64
+	pictureAssetURL *string
+	// tablePictureID and the three beside it are the table picture laid,
+	// carried by userFromAt's joins; all nil for the table as it comes, and
+	// for a rental that has run out.
+	tablePictureID             *int64
+	tableDayURL, tableNightURL *string
+	tableAssetFormat           *string
+	tableCurrency              *string
+	tableCost                  *int64
+	chips                      int64
+	diamond                    int
+	hammer                     int
+	missile                    int
+	handsPlayed, handsWon      int
+	handsLost, handsLeftMid    int
+	totalWinnings, biggestPot  int64
 	// milestoneClaimed is the HANDS_PLAYED claimed_up_to, nextBonusAt the
 	// TIMED_BONUS next_claim_at and nextDailyAt the DAILY_BONUS one, from
 	// user_milestones; 0 with no row.
@@ -331,7 +397,8 @@ func scanUser(row pgx.Row) (*userRow, error) {
 	err := row.Scan(&r.id, &r.provider, &r.providerUserID, &r.displayName, &r.email, &r.avatarURL, &r.chips, &r.diamond, &r.hammer, &r.missile,
 		&r.handsPlayed, &r.handsWon, &r.handsLost, &r.handsLeftMid, &r.totalWinnings, &r.biggestPot,
 		&r.milestoneClaimed, &r.nextBonusAt, &r.nextDailyAt, &r.activePictureID, &r.createdAt, &r.updatedAt, &r.lastLoginAt,
-		&r.pictureAssetURL)
+		&r.pictureAssetURL,
+		&r.tablePictureID, &r.tableDayURL, &r.tableNightURL, &r.tableAssetFormat, &r.tableCurrency, &r.tableCost)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -348,9 +415,12 @@ func scanUser(row pgx.Row) (*userRow, error) {
 // the account was deleted would otherwise keep working until it expired.
 // Every authenticated path — RequireAuth and the socket handshake both — ends
 // up in this query, and gets "unknown user" instead.
-func selectUser(ctx context.Context, q queryer, id string) (*userRow, error) {
+//
+// from is the FROM clause with the caller's instant baked in (Users.userFrom),
+// which is what decides whether a laid rental still reads as laid.
+func selectUser(ctx context.Context, q queryer, from, id string) (*userRow, error) {
 	return scanUser(q.QueryRow(ctx,
-		`SELECT `+userColumns+userFrom+` WHERE u.id = $1 AND u.deleted_at = 0`, id))
+		`SELECT `+userColumns+from+` WHERE u.id = $1 AND u.deleted_at = 0`, id))
 }
 
 // publicUser is users.js publicUser(row): the wire object. bonusAvailable is
@@ -368,6 +438,21 @@ func (u *Users) publicUser(r *userRow) *User {
 	if r.pictureAssetURL != nil && *r.pictureAssetURL != "" {
 		avatarURL = r.pictureAssetURL
 	}
+	// The table picture laid, when the join found its catalogue row; a choice
+	// whose row has gone (the cascade is on the way) reads as no table.
+	var table *LaidTablePicture
+	if r.tablePictureID != nil && r.tableDayURL != nil && r.tableNightURL != nil {
+		table = &LaidTablePicture{ID: *r.tablePictureID, DayURL: *r.tableDayURL, NightURL: *r.tableNightURL}
+		if r.tableAssetFormat != nil {
+			table.AssetFormat = *r.tableAssetFormat
+		}
+		if r.tableCurrency != nil {
+			table.Currency = *r.tableCurrency
+		}
+		if r.tableCost != nil {
+			table.Cost = *r.tableCost
+		}
+	}
 	return &User{
 		ID:                r.id,
 		Provider:          r.provider,
@@ -376,6 +461,7 @@ func (u *Users) publicUser(r *userRow) *User {
 		AvatarURL:         avatarURL,
 		ProviderAvatarURL: r.avatarURL,
 		ActivePictureID:   r.activePictureID,
+		TablePicture:      table,
 		Chips:             r.chips,
 		Diamond:           r.diamond,
 		Hammer:            r.hammer,
@@ -411,7 +497,7 @@ func (u *Users) publicUser(r *userRow) *User {
 // WHERE id = $1). The socket layer calls this on EVERY connect and every
 // join, so keep it one indexed query.
 func (u *Users) FindByID(ctx context.Context, id string) (*User, error) {
-	row, err := selectUser(ctx, u.db.Pool, id)
+	row, err := selectUser(ctx, u.db.Pool, u.userFrom(), id)
 	if err != nil {
 		return nil, err
 	}
@@ -421,7 +507,7 @@ func (u *Users) FindByID(ctx context.Context, id string) (*User, error) {
 // FindByProvider looks up by (provider, provider_user_id); nil, nil when absent.
 func (u *Users) FindByProvider(ctx context.Context, provider, providerUserID string) (*User, error) {
 	row, err := scanUser(u.db.Pool.QueryRow(ctx,
-		`SELECT `+userColumns+userFrom+` WHERE u.provider = $1 AND u.provider_user_id = $2
+		`SELECT `+userColumns+u.userFrom()+` WHERE u.provider = $1 AND u.provider_user_id = $2
 		   AND u.deleted_at = 0`,
 		provider, providerUserID))
 	if err != nil {
@@ -471,7 +557,7 @@ func (u *Users) UpsertFromProfile(ctx context.Context, p Profile) (user *User, i
 func (u *Users) upsertOnce(ctx context.Context, p Profile, timestamp int64) (user *User, isNew bool, err error) {
 	err = u.db.WithTx(ctx, func(tx pgx.Tx) error {
 		existing, err := scanUser(tx.QueryRow(ctx,
-			`SELECT `+userColumns+userFrom+` WHERE u.provider = $1 AND u.provider_user_id = $2 FOR UPDATE OF u`,
+			`SELECT `+userColumns+u.userFrom()+` WHERE u.provider = $1 AND u.provider_user_id = $2 FOR UPDATE OF u`,
 			p.Provider, p.ProviderUserID))
 		if err != nil {
 			return err
@@ -499,7 +585,7 @@ func (u *Users) upsertOnce(ctx context.Context, p Profile, timestamp int64) (use
 				displayName, p.Email, p.AvatarURL, p.IsBot, timestamp, existing.id); err != nil {
 				return err
 			}
-			row, err := selectUser(ctx, tx, existing.id)
+			row, err := selectUser(ctx, tx, u.userFrom(), existing.id)
 			if err != nil {
 				return err
 			}
@@ -524,7 +610,7 @@ func (u *Users) upsertOnce(ctx context.Context, p Profile, timestamp int64) (use
 			return err
 		}
 
-		row, err := selectUser(ctx, tx, id)
+		row, err := selectUser(ctx, tx, u.userFrom(), id)
 		if err != nil {
 			return err
 		}
@@ -604,7 +690,7 @@ func collectMilestone(ctx context.Context, tx pgx.Tx, userID, milestone string, 
 func (u *Users) ClaimMilestoneReward(ctx context.Context, userID string) (*RewardResult, error) {
 	var result *RewardResult
 	err := u.db.WithTx(ctx, func(tx pgx.Tx) error {
-		row, err := scanUser(tx.QueryRow(ctx, `SELECT `+userColumns+userFrom+` WHERE u.id = $1 FOR UPDATE OF u`, userID))
+		row, err := scanUser(tx.QueryRow(ctx, `SELECT `+userColumns+u.userFrom()+` WHERE u.id = $1 FOR UPDATE OF u`, userID))
 		if err != nil {
 			return err
 		}
@@ -635,7 +721,7 @@ func (u *Users) ClaimMilestoneReward(ctx context.Context, userID string) (*Rewar
 			return err
 		}
 
-		fresh, err := selectUser(ctx, tx, userID)
+		fresh, err := selectUser(ctx, tx, u.userFrom(), userID)
 		if err != nil {
 			return err
 		}
@@ -659,7 +745,7 @@ func (u *Users) ClaimMilestoneReward(ctx context.Context, userID string) (*Rewar
 func (u *Users) ClaimTimedBonus(ctx context.Context, userID string) (*RewardResult, error) {
 	var result *RewardResult
 	err := u.db.WithTx(ctx, func(tx pgx.Tx) error {
-		row, err := scanUser(tx.QueryRow(ctx, `SELECT `+userColumns+userFrom+` WHERE u.id = $1 FOR UPDATE OF u`, userID))
+		row, err := scanUser(tx.QueryRow(ctx, `SELECT `+userColumns+u.userFrom()+` WHERE u.id = $1 FOR UPDATE OF u`, userID))
 		if err != nil {
 			return err
 		}
@@ -688,7 +774,7 @@ func (u *Users) ClaimTimedBonus(ctx context.Context, userID string) (*RewardResu
 			return err
 		}
 
-		fresh, err := selectUser(ctx, tx, userID)
+		fresh, err := selectUser(ctx, tx, u.userFrom(), userID)
 		if err != nil {
 			return err
 		}
@@ -711,7 +797,7 @@ func (u *Users) ClaimTimedBonus(ctx context.Context, userID string) (*RewardResu
 func (u *Users) ClaimDailyBonus(ctx context.Context, userID string) (*RewardResult, error) {
 	var result *RewardResult
 	err := u.db.WithTx(ctx, func(tx pgx.Tx) error {
-		row, err := scanUser(tx.QueryRow(ctx, `SELECT `+userColumns+userFrom+` WHERE u.id = $1 FOR UPDATE OF u`, userID))
+		row, err := scanUser(tx.QueryRow(ctx, `SELECT `+userColumns+u.userFrom()+` WHERE u.id = $1 FOR UPDATE OF u`, userID))
 		if err != nil {
 			return err
 		}
@@ -740,7 +826,7 @@ func (u *Users) ClaimDailyBonus(ctx context.Context, userID string) (*RewardResu
 			return err
 		}
 
-		fresh, err := selectUser(ctx, tx, userID)
+		fresh, err := selectUser(ctx, tx, u.userFrom(), userID)
 		if err != nil {
 			return err
 		}
@@ -846,6 +932,14 @@ func (u *Users) DeleteAccount(ctx context.Context, userID string) error {
 			       updated_at        = $3
 			 WHERE id = $4`,
 			DeletedDisplayName, "deleted:"+util.UUID(), timestamp, userID)
+		if err != nil {
+			return err
+		}
+		// The laid table picture is active_picture_id's twin, kept in its own
+		// table (user_table_choice, V1.0.0's TABLE PICTURES); it comes off
+		// here as the face does. users rows are never deleted, so the row's
+		// ON DELETE CASCADE would never do it.
+		_, err = tx.Exec(ctx, `DELETE FROM user_table_choice WHERE user_id = $1`, userID)
 		return err
 	})
 }

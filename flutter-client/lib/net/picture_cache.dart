@@ -59,6 +59,46 @@ PictureKind pictureKindOf(String? format, Uint8List bytes) {
   return PictureKind.bitmap;
 }
 
+/// The canvas a Lottie declares at its head, as width over height, or null
+/// when the head does not say (not a Lottie, or `w`/`h` past the first 512
+/// bytes, where Bodymovin never puts them). What a box needs to know to fit
+/// a banner-shaped file whole rather than crop it to a fragment.
+double? lottieCanvasAspect(Uint8List bytes) {
+  final end = bytes.length < 512 ? bytes.length : 512;
+  final head = String.fromCharCodes(bytes.sublist(0, end));
+  final w = RegExp(r'"w"\s*:\s*(\d+(?:\.\d+)?)').firstMatch(head);
+  final h = RegExp(r'"h"\s*:\s*(\d+(?:\.\d+)?)').firstMatch(head);
+  if (w == null || h == null) return null;
+  final width = double.parse(w.group(1)!);
+  final height = double.parse(h.group(1)!);
+  if (width <= 0 || height <= 0) return null;
+  return width / height;
+}
+
+/// Whether [bytes] are a web page rather than a picture — what a host serves
+/// in place of a file it will not hand out: Google Drive's sign-in page for a
+/// file that is not shared (or not shared *yet*: a phone that asked in the
+/// minute before the owner set "Anyone with the link" got one, 16 Sep 2026),
+/// a "download quota exceeded" notice, a captive portal's login. Such a page
+/// answers 200, so the status says nothing, and [pictureKindOf] reads its
+/// leading '<' as an SVG. Past a byte-order mark and whitespace, `<!doctype
+/// html` or `<html` (any case) is a page; `<?xml`, `<svg` and an SVG's own
+/// `<!DOCTYPE svg` are pictures.
+bool looksLikeHtml(Uint8List bytes) {
+  var i = 0;
+  if (bytes.length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF) {
+    i = 3;
+  }
+  while (i < bytes.length &&
+      (bytes[i] == 0x20 || bytes[i] == 0x09 || bytes[i] == 0x0A || bytes[i] == 0x0D)) {
+    i++;
+  }
+  if (i >= bytes.length || bytes[i] != 0x3C) return false;
+  final end = bytes.length < i + 32 ? bytes.length : i + 32;
+  final head = String.fromCharCodes(bytes.sublist(i, end)).toLowerCase();
+  return head.startsWith('<html') || RegExp(r'^<!doctype\s+html').hasMatch(head);
+}
+
 /// Profile pictures, kept on the phone after the first fetch.
 ///
 /// The catalogue is a set of remote URLs (requirement 21), and without this
@@ -131,9 +171,16 @@ class PictureCache {
       try {
         if (file.existsSync()) {
           final bytes = await file.readAsBytes();
-          if (bytes.isNotEmpty) {
+          if (bytes.isNotEmpty && !looksLikeHtml(bytes)) {
             _remember(url, bytes);
             return bytes;
+          }
+          if (bytes.isNotEmpty) {
+            // A page kept before [_download] refused them (16 Sep 2026): a
+            // phone that had cached Drive's sign-in for a not-yet-shared file
+            // would otherwise show a bare felt for that picture for ever.
+            // Deleted, so this fetch and its write start clean.
+            file.deleteSync();
           }
         }
       } on FileSystemException {
@@ -166,6 +213,15 @@ class PictureCache {
           .get(Uri.parse(url))
           .timeout(const Duration(seconds: 12));
       if (response.statusCode != 200 || response.bodyBytes.isEmpty) return null;
+      // A page is not a picture, and a 200 does not say which one arrived:
+      // Drive answers a file that is not (yet) shared with its sign-in page.
+      // Kept, it would be served as the picture for ever — this cache treats
+      // a URL's contents as immutable. Refused, it is asked for again on the
+      // next build, by when the owner may have shared the file.
+      final type = response.headers['content-type'] ?? '';
+      if (type.startsWith('text/html') || looksLikeHtml(response.bodyBytes)) {
+        return null;
+      }
       return response.bodyBytes;
     } catch (_) {
       // Offline, DNS, TLS, a timeout, a malformed URL from a catalogue row:

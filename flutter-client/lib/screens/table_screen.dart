@@ -7,6 +7,7 @@ import 'package:lottie/lottie.dart';
 import 'package:provider/provider.dart';
 
 import '../models/dtos.dart';
+import '../net/picture_cache.dart';
 import '../state/game_state.dart';
 import '../state/hammer_strike.dart';
 import '../state/missile_strike.dart';
@@ -29,6 +30,7 @@ import '../widgets/table_chrome.dart';
 import '../widgets/variation_prompt.dart';
 import '../widgets/wild_transform.dart';
 import 'poker_table_screen.dart';
+import '../widgets/table_picture_shelf.dart';
 
 /// The game room: an emerald table in a champagne rail, standing in a charcoal
 /// room under one overhead lamp, with the players around it, the pot in the
@@ -142,10 +144,11 @@ class _TableScreenState extends State<TableScreen> {
           // direction each one runs. They live in the margin around the felt —
           // the only part of this screen with nothing in it — so the room reads
           // as somewhere a game is happening rather than as a blank ground.
-          // Behind everything and untouchable.
-          const Positioned.fill(
-            child: IgnorePointer(child: DriftingChips(strength: 2.6)),
-          ),
+          // Behind everything and untouchable — and only while no table
+          // picture is laid: a bought picture (_TableCentrepiece, behind the
+          // pot) takes their place, and the store's "Flowing chips" tile
+          // brings them back (owner, 15 Sep 2026).
+          const Positioned.fill(child: IgnorePointer(child: _RoomBackdrop())),
           SafeArea(
             child: Column(
               children: [
@@ -209,6 +212,141 @@ class _TableScreenState extends State<TableScreen> {
           ),
           const Positioned.fill(child: SafeArea(child: Reconnecting())),
         ],
+      ),
+    );
+  }
+}
+
+/// What drifts across the room behind the felt: the chips, while the table
+/// shows no picture, and nothing once it does — the picture the table shows
+/// ([_TableCentrepiece]) is its background then (owner, 15 Sep 2026: "remove
+/// the flowing coins, we have applied the one we bought"). The table shows
+/// the server's pick among everyone seated, so the chips come back when the
+/// last player with a picture takes it off or leaves.
+///
+/// `select`, as [RoomGround] does: the screen's own build watches nothing,
+/// and this rebuilds only when the table's picture comes or goes.
+class _RoomBackdrop extends StatelessWidget {
+  const _RoomBackdrop();
+
+  @override
+  Widget build(BuildContext context) {
+    final brightness = Theme.of(context).brightness;
+    final (url, format) = context.select<GameState, (String?, String?)>(
+      (s) => (s.tablePictureUrl(brightness), s.shownTablePicture?.assetFormat),
+    );
+    return _ChipsUntilDrawable(url: url, format: format);
+  }
+}
+
+/// The drifting chips until — and unless — the table's picture can actually
+/// be drawn (23 Sep 2026): on the server's word alone the room went bare the
+/// moment a picture was laid, and a file the phone could not fetch just then
+/// (offline for a moment, a host answering with a page, a RIVE row no runtime
+/// draws) left the felt empty for the whole sitting. The chips now stay until
+/// the file for this theme is in hand, and come back if it never is; a failed
+/// fetch is tried again on [pictureRetryDelay]'s clock, through the same
+/// cache [CachedPictureBox] reads, so the two agree.
+class _ChipsUntilDrawable extends StatefulWidget {
+  const _ChipsUntilDrawable({required this.url, required this.format});
+
+  /// The file the felt wants for this theme, or null for the table as it comes.
+  final String? url;
+  final String? format;
+
+  @override
+  State<_ChipsUntilDrawable> createState() => _ChipsUntilDrawableState();
+}
+
+class _ChipsUntilDrawableState extends State<_ChipsUntilDrawable> {
+  /// The url whose bytes are in hand, when it is the one wanted.
+  String? _drawable;
+  Timer? _retry;
+  int _failures = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _check(sync: true);
+  }
+
+  @override
+  void didUpdateWidget(covariant _ChipsUntilDrawable old) {
+    super.didUpdateWidget(old);
+    if (old.url != widget.url || old.format != widget.format) {
+      _retry?.cancel();
+      _failures = 0;
+      _check(sync: true);
+    }
+  }
+
+  @override
+  void dispose() {
+    _retry?.cancel();
+    super.dispose();
+  }
+
+  /// Settles [_drawable] for the url wanted now. [sync] is true from a
+  /// lifecycle method, where the field is set straight (build follows anyway);
+  /// a late answer sets state.
+  void _check({bool sync = false}) {
+    final url = widget.url;
+    if (url == null || widget.format == 'RIVE') return;
+    if (PictureCache.peek(url) != null) {
+      if (sync) {
+        _drawable = url;
+      } else if (_drawable != url) {
+        setState(() => _drawable = url);
+      }
+      return;
+    }
+    PictureCache.load(url).then((bytes) {
+      if (!mounted || url != widget.url) return;
+      if (bytes == null) {
+        _retry = Timer(pictureRetryDelay(_failures++), () {
+          if (mounted && url == widget.url) _check();
+        });
+        return;
+      }
+      _failures = 0;
+      setState(() => _drawable = url);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final shown = widget.url != null && _drawable == widget.url;
+    return shown ? const SizedBox.shrink() : const DriftingChips(strength: 2.6);
+  }
+}
+
+/// The picture the table shows — the server's pick among the pictures its
+/// players have laid, the same for everyone at it — as a square centred on
+/// the pot (owner, 15 Sep 2026: "at the centre of the pot, small, square"):
+/// the day file on the light theme, the night file on the dark, fading out
+/// towards its rim, and nothing when the table shows none. The pot's plinth
+/// paints over its middle.
+///
+/// `select`, as [RoomGround] does, so the felt's per-move rebuilds never
+/// rebuild the picture: only the shown pair or the theme does.
+class _TableCentrepiece extends StatelessWidget {
+  const _TableCentrepiece({required this.side});
+
+  /// The square's side, from the felt's own box.
+  final double side;
+
+  @override
+  Widget build(BuildContext context) {
+    final brightness = Theme.of(context).brightness;
+    final (url, format) = context.select<GameState, (String?, String?)>(
+      (s) => (s.tablePictureUrl(brightness), s.shownTablePicture?.assetFormat),
+    );
+    if (url == null) return SizedBox(width: side, height: side);
+    return SizedBox(
+      width: side,
+      height: side,
+      child: RepaintBoundary(
+        child: TablePictureGround(url: url, format: format),
       ),
     );
   }
@@ -958,6 +1096,19 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
                     ),
                   ),
                 ),
+              ),
+              // The table picture the player has laid: a square under the
+              // pot, centred where the pot is, fading out towards its rim so
+              // it reads as part of the ground (owner, 15 Sep 2026). Under the
+              // tag and the plinth, over the flights, and sized off the felt's
+              // short side; the fade is what lets it reach towards the seats
+              // above without an edge arriving there.
+              at(
+                const Offset(0.5, _potDy),
+                IgnorePointer(
+                  child: _TableCentrepiece(side: math.min(w * 0.37, h * 0.53)),
+                ),
+                width: math.min(w * 0.37, h * 0.53),
               ),
               // The table's furniture first, the seats after it: a seat's
               // speech bubble or bet chip is a moment that matters more

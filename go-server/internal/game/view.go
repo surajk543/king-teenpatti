@@ -19,8 +19,13 @@ type TableView struct {
 	// IsPrivate marks a table reached by its code alone (requirement 22). Go
 	// only (owner, 13 Sep 2026): the Flutter drawer shows a table's code only
 	// when it is private, since that code is how friends are let in.
-	IsPrivate bool     `json:"isPrivate"`
-	Category  Category `json:"category"`
+	IsPrivate bool `json:"isPrivate"`
+	// TablePicture is the picture the table shows — the highest-ranking one
+	// laid by any seated player (tablepicture.go), the same for every
+	// viewer — or null when nobody has laid one. Go only (owner, 15 Sep
+	// 2026).
+	TablePicture *TablePicture `json:"tablePicture"`
+	Category     Category      `json:"category"`
 	// ChipsHidden is true on blind and variation tables: other players' stacks
 	// are withheld (Category.HidesChips).
 	ChipsHidden bool       `json:"chipsHidden"`
@@ -313,7 +318,9 @@ type SeatInfo struct {
 	UserID      string
 	DisplayName string
 	AvatarURL   *string
-	Chips       int64
+	// TablePicture is the table picture this player has laid, or nil.
+	TablePicture *TablePicture
+	Chips        int64
 	// SocketID is the sio socket id the seat is currently attached to, or "".
 	SocketID  string
 	Connected bool

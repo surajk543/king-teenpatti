@@ -17,6 +17,7 @@ import 'glass_panels.dart';
 import 'picture_shelf.dart';
 import 'poker_chip.dart';
 import 'premium_surface.dart';
+import 'table_picture_shelf.dart';
 
 /// Where a pack sits in the range. Drives the ribbon across its top edge, and
 /// nothing else — the price and the chips are the offer, this is the signpost.
@@ -350,11 +351,13 @@ double _line(TextScaler scaler, double size, double heightFactor) =>
     (scaler.scale(size) * heightFactor).ceilToDouble();
 
 /// The store's shelves, in the order their keys sit in the header: chip packs,
-/// diamond packs, hammer packs, missile trades and the picture catalogue.
-/// Public so a caller can open the store on the shelf it is sending the player
-/// to — the table's Force Sideshow key sends a player with no hammers to
-/// [hammers], and its Missile key one with no missiles to [missiles].
-enum StoreTab { chips, diamonds, hammers, missiles, pictures }
+/// diamond packs, hammer packs, missile trades, the picture catalogue and the
+/// table pictures (owner, 15 Sep 2026: the cloths a player lays on their own
+/// table). Public so a caller can open the store on the shelf it is sending
+/// the player to — the table's Force Sideshow key sends a player with no
+/// hammers to [hammers], and its Missile key one with no missiles to
+/// [missiles].
+enum StoreTab { chips, diamonds, hammers, missiles, pictures, tables }
 
 /// The switch between the store's shelves, in the header beside the close key.
 ///
@@ -498,6 +501,11 @@ class _StoreTabs extends StatelessWidget {
             icon: Icons.face_rounded,
             label: t.storeTabPictures,
           ),
+    (
+      tab: StoreTab.tables,
+      icon: Icons.table_bar_rounded,
+      label: t.storeTabTables,
+    ),
   ];
 
   /// How wide the keys are with their words, in this language at this text
@@ -618,8 +626,25 @@ class _ChipStoreState extends State<_ChipStore> {
   /// dispose() is the teardown trap CLAUDE.md §12.3 documents.
   final ScrollController _scroller = ScrollController();
 
+  /// The header's tab strip, which scrolls where six keys crowd the blurb
+  /// (owner, 15 Sep 2026: the Tables shelf).
+  final ScrollController _tabScroller = ScrollController();
+
   /// Which shelf is showing. Set from [_ChipStore.opensOn] in initState.
   StoreTab _tab = StoreTab.chips;
+
+  /// Brings the key of the shelf that is on into view when the strip is cut:
+  /// a shelf opened from a table key, or picked from a strip that scrolled,
+  /// must never sit past its edge.
+  void _revealTab() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_tabScroller.hasClients) return;
+      final most = _tabScroller.position.maxScrollExtent;
+      if (most <= 0) return;
+      final i = StoreTab.values.indexOf(_tab);
+      _tabScroller.jumpTo(most * i / (StoreTab.values.length - 1));
+    });
+  }
 
   /// The picture shelf's filter, as in the picker; it opens on All. At a table
   /// the shelf is the animated one whatever this says.
@@ -639,11 +664,13 @@ class _ChipStoreState extends State<_ChipStore> {
     super.initState();
     _tab = widget.opensOn;
     _loadPrices();
+    _revealTab();
   }
 
   @override
   void dispose() {
     _scroller.dispose();
+    _tabScroller.dispose();
     super.dispose();
   }
 
@@ -689,9 +716,11 @@ class _ChipStoreState extends State<_ChipStore> {
     // At a table the picture key sells the animated shelf alone, with no shelf
     // menu (owner, 13 Sep 2026); the lobby keeps every shelf.
     final atTable = widget.atTable;
+    final atPokerRoom = atTable && (state.room?.isPoker ?? false);
     final shelf = atTable ? PictureFilter.animated : _shelf;
     final tab = _tab;
     final onPictures = tab == StoreTab.pictures;
+    final onTables = tab == StoreTab.tables;
     final onDiamonds = tab == StoreTab.diamonds;
     final onHammers = tab == StoreTab.hammers;
     final onMissiles = tab == StoreTab.missiles;
@@ -750,14 +779,17 @@ class _ChipStoreState extends State<_ChipStore> {
     final fixedW =
         22 + Space.md + Space.md + walletW + Space.md + Space.sm + Dim.minTouch;
     final blurbStyle = theme.textTheme.bodySmall ?? const TextStyle();
-    var blurbW = 0.0;
-    for (final blurb in [
+    final blurbs = [
       t.storeBlurb,
       t.storeDiamondsBlurb,
       t.storeHammersBlurb,
       t.storeMissilesBlurb,
       atTable ? t.storeAnimatedBlurb : t.storePicturesBlurb,
-    ]) {
+      t.storeTablesBlurb,
+      if (atPokerRoom) t.tablePokerNote,
+    ];
+    var blurbW = 0.0;
+    for (final blurb in blurbs) {
       final painter = TextPainter(
         text: TextSpan(text: blurb, style: blurbStyle),
         textDirection: Directionality.of(context),
@@ -766,6 +798,20 @@ class _ChipStoreState extends State<_ChipStore> {
       )..layout();
       blurbW = math.max(blurbW, painter.width.ceilToDouble());
       painter.dispose();
+    }
+    // How many lines the longest blurb takes when given [width].
+    int blurbLinesAt(double width) {
+      var most = 1;
+      for (final blurb in blurbs) {
+        final painter = TextPainter(
+          text: TextSpan(text: blurb, style: blurbStyle),
+          textDirection: Directionality.of(context),
+          textScaler: scaler,
+        )..layout(maxWidth: math.max(1, width));
+        most = math.max(most, painter.computeLineMetrics().length);
+        painter.dispose();
+      }
+      return most;
     }
     final labelledW = _StoreTabs.labelledWidth(
       context,
@@ -780,9 +826,20 @@ class _ChipStoreState extends State<_ChipStore> {
     final tabsW = compactTabs
         ? _StoreTabs.compactWidth(animatedOnly: atTable)
         : labelledW;
-    final blurbLines = headerW - fixedW - tabsW >= blurbW ? 1 : 2;
+    // With a sixth shelf (Tables, owner 15 Sep 2026) even the icons alone can
+    // crowd the blurb off its two lines on a 640dp phone at the 1.25 text
+    // ceiling. The strip is then cut, one key at a time, to the width that
+    // leaves the widest blurb two lines, and scrolls: the keys past the cut
+    // are a swipe away, and nothing in the header is ever cut off.
+    final keyStep = math.max(Dim.minTouch, 2 * Space.md + 18) + Space.sm;
+    var tabsShown = tabsW;
+    while (tabsShown - keyStep > 2 * keyStep &&
+        blurbLinesAt(headerW - fixedW - tabsShown) > 2) {
+      tabsShown -= keyStep;
+    }
+    final blurbLines = headerW - fixedW - tabsShown >= blurbW ? 1 : 2;
     final walletPairInRow =
-        headerW - fixedW - tabsW - (walletPairRowW - walletW) >= blurbW;
+        headerW - fixedW - tabsShown - (walletPairRowW - walletW) >= blurbW;
     final headerH = math.max(
       Dim.minTouch,
       _line(scaler, 17, 1.25) + blurbLines * _line(scaler, 12, 1.35),
@@ -860,6 +917,12 @@ class _ChipStoreState extends State<_ChipStore> {
                                 size: 22,
                                 color: AppTheme.goldBright,
                               )
+                            : onTables
+                            ? const Icon(
+                                Icons.table_bar_rounded,
+                                size: 22,
+                                color: AppTheme.goldBright,
+                              )
                             : onDiamonds
                             ? Icon(
                                 Icons.diamond_rounded,
@@ -890,6 +953,8 @@ class _ChipStoreState extends State<_ChipStore> {
                                     ? (atTable
                                           ? t.picturePremiumAnimated
                                           : t.storeTabPictures)
+                                    : onTables
+                                    ? t.storeTablesTitle
                                     : onDiamonds
                                     ? t.storeDiamondsTitle
                                     : onHammers
@@ -909,6 +974,13 @@ class _ChipStoreState extends State<_ChipStore> {
                                     ? (atTable
                                           ? t.storeAnimatedBlurb
                                           : t.storePicturesBlurb)
+                                    : onTables
+                                    // A poker room's felt shows no table
+                                    // picture: the shelf still sells, and
+                                    // says where the cloth will show.
+                                    ? (atPokerRoom
+                                          ? t.tablePokerNote
+                                          : t.storeTablesBlurb)
                                     : onDiamonds
                                     ? t.storeDiamondsBlurb
                                     : onHammers
@@ -938,7 +1010,9 @@ class _ChipStoreState extends State<_ChipStore> {
                         // for in diamonds, so it heads with the diamonds there
                         // are to trade; Pictures with both wallets a picture
                         // can cost besides chips.
-                        if (onPictures) ...[
+                        // The Tables shelf is priced in the same three
+                        // wallets as the pictures, so it heads the same way.
+                        if (onPictures || onTables) ...[
                           PictureWalletBalances(
                             diamonds: diamonds,
                             hammers: hammers,
@@ -954,14 +1028,22 @@ class _ChipStoreState extends State<_ChipStore> {
                           HammerBalance(count: hammers),
                           const SizedBox(width: Space.md),
                         ],
-                        _StoreTabs(
-                          value: tab,
-                          animatedOnly: atTable,
-                          compact: compactTabs,
-                          onChanged: (next) => setState(() {
-                            _tab = next;
-                            _toTop();
-                          }),
+                        SizedBox(
+                          width: math.min(tabsW, tabsShown),
+                          child: SingleChildScrollView(
+                            controller: _tabScroller,
+                            scrollDirection: Axis.horizontal,
+                            child: _StoreTabs(
+                              value: tab,
+                              animatedOnly: atTable,
+                              compact: compactTabs,
+                              onChanged: (next) => setState(() {
+                                _tab = next;
+                                _toTop();
+                                _revealTab();
+                              }),
+                            ),
+                          ),
                         ),
                         const SizedBox(width: Space.sm),
                         PressScale(
@@ -1103,7 +1185,62 @@ class _ChipStoreState extends State<_ChipStore> {
                                         _tab = next;
                                         _toTop();
                                       });
+                                      // The strip may be cut and scrolled to
+                                      // its far end (six keys on a small
+                                      // phone), so the key now on is brought
+                                      // into view as a tapped one is.
+                                      _revealTab();
                                     },
+                                  ),
+                                )
+                              : onTables
+                              ? SizedBox(
+                                  width: double.infinity,
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.stretch,
+                                    children: [
+                                      // A day/night switch over the shelf
+                                      // (owner, 16 Sep 2026: "give one button
+                                      // for switching day to dark mode"): every
+                                      // tile previews both halves, and this
+                                      // flips the theme — the felt behind the
+                                      // sheet and the sheet's own glass — so
+                                      // either look is seen whole, as the
+                                      // picture menu's switch does.
+                                      const Padding(
+                                        padding: EdgeInsets.fromLTRB(
+                                          0,
+                                          0,
+                                          Space.lg,
+                                          Space.sm,
+                                        ),
+                                        child: Align(
+                                          alignment: Alignment.centerRight,
+                                          child: DayNightSwitch(),
+                                        ),
+                                      ),
+                                      tablePictureShelf(
+                                    context: context,
+                                    state: state,
+                                    // The pack cards' width: a table tile is a
+                                    // card of the same size, wider than tall.
+                                    width: Dim.packW(size.width),
+                                    openStore: (next) {
+                                      if (!mounted) return;
+                                      setState(() {
+                                        _tab = next;
+                                        _toTop();
+                                      });
+                                      // The strip may be cut and scrolled to
+                                      // its far end (six keys on a small
+                                      // phone), so the key now on is brought
+                                      // into view as a tapped one is.
+                                      _revealTab();
+                                    },
+                                  ),
+                                    ],
                                   ),
                                 )
                               : onDiamonds

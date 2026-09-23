@@ -130,7 +130,9 @@ void main() {
               );
               // Each shelf heads with its own wallet, where it has one: the
               // Pictures shelf with both a picture can cost besides chips, in
-              // one pill, since the animated ones cost hammers (14 Sep 2026).
+              // one pill, since the animated ones cost hammers (14 Sep 2026),
+              // and the Tables shelf (15 Sep 2026), priced in the same three
+              // wallets, with the same pill.
               expect(
                 find.byType(HammerBalance),
                 tab == StoreTab.hammers ? findsOneWidget : findsNothing,
@@ -145,7 +147,9 @@ void main() {
               );
               expect(
                 find.byType(PictureWalletBalances),
-                tab == StoreTab.pictures ? findsOneWidget : findsNothing,
+                tab == StoreTab.pictures || tab == StoreTab.tables
+                    ? findsOneWidget
+                    : findsNothing,
                 reason: '$name ${lang.code} $tab',
               );
               await _closeStore(tester);
