@@ -256,6 +256,54 @@ class ApiClient {
     );
   }
 
+  /// The table-picture catalogue (owner, 15 Sep 2026): the cloths a player
+  /// can lay on their own table, each with a day and a night file. The token
+  /// is optional to the server and wanted here, as for [profilePictures]: it
+  /// is what marks the ones this player has bought as `owned`.
+  Future<List<TablePicture>> tablePictures([String? token]) async {
+    final r = await http.get(
+      _uri('/api/table-pictures'),
+      headers: _headers(token),
+    );
+    final j = _decode(r);
+    return (j['tablePictures'] as List? ?? [])
+        .map((e) => TablePicture.fromJson(Map<String, dynamic>.from(e as Map)))
+        .toList();
+  }
+
+  /// Lays a table picture, or null for the table as it comes. Allowed at a
+  /// table — the picture is drawn by this player alone — and refused for a
+  /// premium picture they have not bought (`picture_locked`).
+  Future<User> useTablePicture(String token, int? pictureId) async {
+    final r = await http.post(
+      _uri('/api/table-pictures/use'),
+      headers: _headers(token),
+      body: jsonEncode({'pictureId': pictureId}),
+    );
+    final j = _decode(r);
+    return User.fromJson(Map<String, dynamic>.from(j['user'] as Map));
+  }
+
+  /// Buys a premium table picture from the wallet its currency names. As with
+  /// [buyPicture], buying does not lay it — that is [useTablePicture] — and
+  /// `charged` is false when it was already owned.
+  Future<({User user, bool charged, int spent})> buyTablePicture(
+    String token,
+    int pictureId,
+  ) async {
+    final r = await http.post(
+      _uri('/api/table-pictures/buy'),
+      headers: _headers(token),
+      body: jsonEncode({'pictureId': pictureId}),
+    );
+    final j = _decode(r);
+    return (
+      user: User.fromJson(Map<String, dynamic>.from(j['user'] as Map)),
+      charged: j['charged'] == true,
+      spent: (j['spent'] as num?)?.toInt() ?? 0,
+    );
+  }
+
   /// Trades diamonds for missiles (owner, 14 Sep 2026): `POST
   /// /api/store/missiles {packId, requestId}`, in the lobby or at a table.
   ///

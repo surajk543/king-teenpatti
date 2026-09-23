@@ -36,7 +36,7 @@ test.after(closeDb);
 // (they belonged to the per-bet model) and must not appear in a fresh schema.
 const REASONS = new Set([
   'welcome_bonus', 'hand_win', 'hand_loss', 'hand_packed', 'hand_left', 'milestone_reward', 'timed_bonus', 'daily_bonus',
-  'picture_purchase', 'test_fixture',
+  'picture_purchase', 'table_picture_purchase', 'test_fixture',
 ]);
 const CHECKPOINT_REASONS = new Set(['hand_win', 'hand_loss', 'hand_packed', 'hand_left']);
 
@@ -81,6 +81,13 @@ test('every ledger row has a known reason, a balance that follows the running to
     if (row.reason === 'picture_purchase') {
       assert.ok(row.delta < 0, 'buying a picture only ever takes chips');
       assert.ok(row.action_id?.startsWith('picture:'), 'a picture purchase carries its own action id');
+    }
+    // So is a table picture (15 Sep 2026; merged 23 Sep 2026): action_id
+    // table:<user>:<picture>:<n>, n counting that pair's purchases so a lapsed
+    // rental can be bought again.
+    if (row.reason === 'table_picture_purchase') {
+      assert.ok(row.delta < 0, 'buying a table picture only ever takes chips');
+      assert.ok(row.action_id?.startsWith(`table:${row.user_id}:`), 'a table picture purchase carries its own action id');
     }
     // A Teen Patti win pays; a poker win may be a split that returns exactly
     // the stake (delta 0), or a 3-Card Poker push — never a loss.
@@ -148,8 +155,13 @@ test('PostgreSQL holds no game state at all: money, audit, accounts and table co
   // missile_spends (14 Sep 2026) are the missiles' twins: the record and
   // replay guard of a diamonds-for-missiles trade, and the receipt a fired
   // missile is spent against. user_milestones (14 Sep 2026) is an account fact
-  // too: which rewards a player has collected, moved off users. The list is exact
-  // rather than a minimum, so a new table has to be argued for here first.
+  // too: which rewards a player has collected, moved off users. table_pictures,
+  // user_table_pictures and user_table_choice (15 Sep 2026) are the
+  // table-picture catalogue, who has bought which, and which each player has
+  // laid on their own table — a catalogue, receipts and a choice, the same
+  // kind of thing as the profile pictures, and nothing a table reads to play a
+  // hand. The list is exact rather than a minimum, so a new table has to be
+  // argued for here first.
   //
   // table_engines, table_categories, table_settings and table_configs (owner,
   // 23 Sep 2026: "all table related config store in database") are
@@ -171,9 +183,9 @@ test('PostgreSQL holds no game state at all: money, audit, accounts and table co
   }
   assert.deepEqual(tables, [
     'chip_ledger', 'diamond_purchases', 'hammer_purchases', 'hammer_spends', 'missile_purchases', 'missile_spends',
-    'profile_pictures', 'table_categories', 'table_configs', 'table_engines', 'table_settings', 'user_milestones',
-    'user_profile_pictures', 'users',
-  ], `the schema must hold money, audit, accounts and table configuration only, got ${tables.join(', ')}`);
+    'profile_pictures', 'table_categories', 'table_configs', 'table_engines', 'table_pictures', 'table_settings',
+    'user_milestones', 'user_profile_pictures', 'user_table_choice', 'user_table_pictures', 'users',
+  ], `the schema must hold money, audit, accounts, the picture catalogues and table configuration only, got ${tables.join(', ')}`);
   // Configuration, by construction: no column of the four refers to a room, a
   // hand, a seat or a user.
   const { rows: stateful } = await query(

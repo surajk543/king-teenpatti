@@ -73,8 +73,36 @@ func TestDeletingAnAccountErasesWhatIdentifiesThePlayer(t *testing.T) {
 	f := newFixture(t)
 	u := f.user("Nameless")
 
+	// A laid table picture is active_picture_id's twin in its own table
+	// (user_table_choice), and comes off with the rest.
+	catalogue, err := f.tables.List(f.ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cloth *db.TablePicture
+	for i := range catalogue {
+		if catalogue[i].Currency == db.PictureCurrencyCoin && (cloth == nil || catalogue[i].Cost < cloth.Cost) {
+			cloth = &catalogue[i]
+		}
+	}
+	if cloth == nil {
+		t.Fatal("the seed offers no chip-priced table picture")
+	}
+	if _, err := f.tables.Buy(f.ctx, u.ID, cloth.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.tables.Use(f.ctx, u.ID, &cloth.ID); err != nil {
+		t.Fatal(err)
+	}
+	if f.laid(u.ID) != cloth.ID {
+		t.Fatal("the table picture was not laid")
+	}
+
 	if err := f.users.DeleteAccount(f.ctx, u.ID); err != nil {
 		t.Fatal(err)
+	}
+	if f.laid(u.ID) != 0 {
+		t.Error("the laid table picture survived deletion")
 	}
 
 	var name string

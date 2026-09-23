@@ -80,7 +80,7 @@ export const HAND_NAMES = ['High Card', 'Pair', 'Color', 'Sequence', 'Pure Seque
 
 /** Exact key sets of the wire objects, for shape assertions. */
 export const SNAPSHOT_KEYS = [
-  'roomId', 'code', 'isPrivate', 'category', 'chipsHidden', 'state', 'handNo', 'dealerSeat', 'maxPlayers', 'minPlayers',
+  'roomId', 'code', 'isPrivate', 'tablePicture', 'category', 'chipsHidden', 'state', 'handNo', 'dealerSeat', 'maxPlayers', 'minPlayers',
   'bootAmount', 'turnTimeoutMs', 'startsAt', 'pot', 'maxPot', 'stake', 'round', 'sideshow', 'turn', 'you', 'seats',
 ];
 /**

@@ -131,7 +131,12 @@ void main() {
         StoreTab.values.indexOf(StoreTab.missiles),
         StoreTab.values.indexOf(StoreTab.hammers) + 1,
       );
-      expect(StoreTab.values.last, StoreTab.pictures);
+      expect(
+        StoreTab.values.indexOf(StoreTab.pictures),
+        StoreTab.values.indexOf(StoreTab.missiles) + 1,
+      );
+      // Tables (owner, 15 Sep 2026) closes the row.
+      expect(StoreTab.values.last, StoreTab.tables);
     });
   });
 

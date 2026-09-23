@@ -244,6 +244,7 @@ func New(opts Options) (*App, error) {
 	// 4. stores, tokens, providers.
 	users := db.NewUsers(opts.DB, cfg.Game.WelcomeChips, clock.Now)
 	pictures := db.NewPictures(opts.DB, users, clock.Now)
+	tablePictures := db.NewTablePictures(opts.DB, users, clock.Now)
 	ledger := db.NewLedger(opts.DB, a.metrics, clock.Now)
 	hammers := db.NewHammers(opts.DB, a.metrics, clock.Now)
 	missiles := db.NewMissiles(opts.DB, users, a.metrics, clock.Now)
@@ -404,10 +405,18 @@ func New(opts Options) (*App, error) {
 		Verifier:    verifier,
 		IsSeated:    func(userID string) bool { return a.rooms.GetTableForPlayer(userID) != nil },
 		PictureWorn: func(userID string, avatarURL *string) { a.rooms.SetPlayerAvatar(userID, avatarURL) },
-		Purchases:   chipStore,
-		Missiles:    missiles,
-		Pictures:    pictures,
-		Logger:      logger,
+		TablePictureLaid: func(userID string, pic *game.TablePicture) {
+			a.rooms.SetPlayerTablePicture(userID, pic)
+		},
+		Purchases: chipStore,
+		Missiles:  missiles,
+		Pictures:  pictures,
+		// The cloths a player lays on their own table (owner, 15 Sep 2026):
+		// the same catalogue shape, bought at the same till; a Teen Patti
+		// table shows the highest-ranking one laid among its seats to
+		// everyone at it (game/tablepicture.go).
+		TablePictures: tablePictures,
+		Logger:        logger,
 
 		// Rewards and chip-priced pictures run under the player's seat lock,
 		// the lock every lobby seat reads the wallet under (LoadPlayer above).

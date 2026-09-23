@@ -448,10 +448,10 @@ String unlockPictureBody(Strings t, ProfilePicture picture) {
   };
 }
 
-/// What the player holds of the wallet [picture] is priced in, as its dialogs
-/// show it, or null for chips.
-Widget? _walletBalance(GameState state, ProfilePicture picture) =>
-    switch (picture.currency) {
+/// What the player holds of the wallet [currency] names, as the picture
+/// dialogs show it, or null for chips. Shared with the table shelf.
+Widget? walletBalanceFor(GameState state, String currency) =>
+    switch (currency) {
       PictureCurrency.hammer => HammerBalance(count: state.user?.hammer ?? 0),
       PictureCurrency.diamond => DiamondBalance(
         count: state.user?.diamond ?? 0,
@@ -486,10 +486,17 @@ Future<void> unlockPicture(
     return;
   }
   if (!canAffordPicture(picture, state.user)) {
-    await _offerWalletShelf(context, picture, openStore);
+    await offerWalletShelf(
+      context,
+      name: picture.name,
+      cost: picture.cost,
+      currency: picture.currency,
+      preview: _PictureOnOffer(picture: picture),
+      openStore: openStore,
+    );
     return;
   }
-  final balance = _walletBalance(state, picture);
+  final balance = walletBalanceFor(state, picture.currency);
 
   final confirmed = await showDialog<bool>(
     context: context,
@@ -553,7 +560,14 @@ Future<void> unlockPicture(
   if (confirmed != true) return;
   final result = await state.buyPicture(picture.id);
   if (result == PictureBuyResult.notEnough && context.mounted) {
-    await _offerWalletShelf(context, picture, openStore);
+    await offerWalletShelf(
+      context,
+      name: picture.name,
+      cost: picture.cost,
+      currency: picture.currency,
+      preview: _PictureOnOffer(picture: picture),
+      openStore: openStore,
+    );
   }
 }
 
@@ -582,24 +596,33 @@ class _PictureOnOffer extends StatelessWidget {
   );
 }
 
-/// The store's shelf for the wallet [picture] is priced in, offered to a
-/// player who cannot pay for it: "Not enough hammers", the picture, what it
-/// costs, what they hold, and a key to the Hammers shelf — or the same for
-/// diamonds.
+/// The store's shelf for the wallet [currency] names, offered to a player who
+/// cannot pay [cost] for [name]: "Not enough hammers", the [preview] of what
+/// they were after, what it costs, what they hold, and a key to the Hammers
+/// shelf — or the same for diamonds. Nothing is offered for chips.
 ///
-/// [openStore] moves a store that is already open to that shelf, rather than
-/// opening a second store over it; without one the store opens on it.
-Future<void> _offerWalletShelf(
-  BuildContext context,
-  ProfilePicture picture,
+/// Shared by the picture shelf and the table shelf (owner, 15 Sep 2026), so
+/// the two cannot word a shortage differently. [openStore] moves a store that
+/// is already open to that shelf, rather than opening a second store over it;
+/// without one the store opens on it.
+Future<void> offerWalletShelf(
+  BuildContext context, {
+  required String name,
+  required int cost,
+  required String currency,
+  required Widget preview,
   ValueChanged<StoreTab>? openStore,
-) async {
-  final shelf = pictureWalletShelf(picture);
+}) async {
+  final shelf = switch (currency) {
+    PictureCurrency.hammer => StoreTab.hammers,
+    PictureCurrency.diamond => StoreTab.diamonds,
+    _ => null,
+  };
   if (shelf == null) return;
   final state = context.read<GameState>();
   final t = state.t;
   final hammers = shelf == StoreTab.hammers;
-  final balance = _walletBalance(state, picture);
+  final balance = walletBalanceFor(state, currency);
 
   final go = await showDialog<bool>(
     context: context,
@@ -632,16 +655,13 @@ Future<void> _offerWalletShelf(
           children: [
             // The picture they were after, as the unlock question shows it
             // (owner, 14 Sep 2026): the offer is of hammers or diamonds, but
-            // what the player wants is this face.
-            _PictureOnOffer(picture: picture),
+            // what the player wants is this face — or this table.
+            preview,
             const SizedBox(height: Space.lg),
             Text(
               hammers
-                  ? t.notEnoughHammersBody(picture.name, picture.cost)
-                  : t.notEnoughDiamondsPictureBody(
-                      picture.name,
-                      formatChips(picture.cost),
-                    ),
+                  ? t.notEnoughHammersBody(name, cost)
+                  : t.notEnoughDiamondsPictureBody(name, formatChips(cost)),
               style: theme.textTheme.bodyMedium?.copyWith(
                 color: theme.colorScheme.onSurface.withValues(
                   alpha: AppTheme.inkMed,
@@ -1006,7 +1026,7 @@ class PictureChoice extends StatelessWidget {
               ),
               const SizedBox(height: Space.xxs),
               if (!busy && locked)
-                _PriceTag(
+                PriceTag(
                   cost: picture.cost,
                   currency: picture.currency,
                   days: picture.rented ? picture.durationDays : null,
@@ -1018,7 +1038,7 @@ class PictureChoice extends StatelessWidget {
               // long is left instead, because that is the thing its owner
               // actually needs to know.
               if (!busy && !locked && !picture.free)
-                _UnlockedTag(expiresAt: picture.expiresAt),
+                UnlockedTag(expiresAt: picture.expiresAt),
               if (!busy && (locked || !picture.free))
                 const SizedBox(height: Space.xxs),
               // The catalogue gives every picture a name; showing it is what
@@ -1051,9 +1071,10 @@ class PictureChoice extends StatelessWidget {
 
 /// The mark on a premium picture this player owns: an open padlock, in the
 /// same spot and the same shape as the price it replaces, so the eye reads the
-/// swap rather than a new kind of badge.
-class _UnlockedTag extends StatelessWidget {
-  const _UnlockedTag({required this.expiresAt});
+/// swap rather than a new kind of badge. Public for the table shelf, which
+/// tags its tiles the same way.
+class UnlockedTag extends StatelessWidget {
+  const UnlockedTag({super.key, required this.expiresAt});
 
   /// Epoch ms the rental runs out, or 0 when it never does.
   final int expiresAt;
@@ -1463,8 +1484,11 @@ class WalletPill extends StatelessWidget {
   }
 }
 
-class _PriceTag extends StatelessWidget {
-  const _PriceTag({
+/// The padlock and price on a premium picture nobody has bought yet. Public
+/// for the table shelf, whose locked tiles carry the same tag.
+class PriceTag extends StatelessWidget {
+  const PriceTag({
+    super.key,
     required this.cost,
     this.currency = 'COIN',
     this.days,

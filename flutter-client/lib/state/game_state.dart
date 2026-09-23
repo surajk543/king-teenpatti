@@ -233,6 +233,10 @@ class GameState extends ChangeNotifier {
   RoomState? room;
   List<ProfilePicture> pictures = const [];
 
+  /// The table-picture catalogue (owner, 15 Sep 2026): the cloths a player
+  /// can lay on their own table, loaded beside [pictures].
+  List<TablePicture> tablePictures = const [];
+
   String? loginError;
   String? notice;
   bool busy = false;
@@ -2000,6 +2004,10 @@ class GameState extends ChangeNotifier {
   /// picture comes back locked, and the second is what unlocks the ones this
   /// player has bought. Also re-run after a purchase.
   Future<void> _loadPictures() async {
+    // The table catalogue rides along on every load of the face catalogue:
+    // the same moments want both, and a failure of one must not empty the
+    // other, so they are two requests.
+    unawaited(_loadTablePictures());
     try {
       pictures = await _api.profilePictures(_token);
       // Pull the faces down as soon as we know what they are, so the picker
@@ -2108,6 +2116,109 @@ class GameState extends ChangeNotifier {
       // Offline, slow, or an answer that is not a menu: the one on screen
       // stays, and the next sign-in asks again.
     }
+  }
+
+  /// Loads the table-picture catalogue, and warms both files of every row —
+  /// the store's tiles show day and night side by side, and the felt needs
+  /// whichever the theme wants the moment a table is joined.
+  Future<void> _loadTablePictures() async {
+    try {
+      tablePictures = await _api.tablePictures(_token);
+      PictureCache.warm(
+        tablePictures.expand((p) => [p.dayUrl, p.nightUrl]).map(absoluteUrl).nonNulls,
+      );
+      notifyListeners();
+    } catch (_) {
+      // The Tables shelf just stays empty.
+    }
+  }
+
+  // --------------------------------------------------------------- tables
+
+  /// The table picture this player has laid on their own account, or null:
+  /// what the store's Tables tab ticks. Read off the account, which the
+  /// server resolves with both files.
+  LaidTablePicture? get laidTablePicture => user?.tablePicture;
+
+  /// The table picture the TABLE shows — the server's pick among everyone
+  /// seated (owner, 15 Sep 2026: diamonds over hammers over coins, then the
+  /// dearer), the same for every player at it, tagged with who laid it — or
+  /// null when nobody has, or away from a table. It is what the felt draws:
+  /// a player's own choice shows only when the table picks it.
+  LaidTablePicture? get shownTablePicture => room?.tablePicture;
+
+  /// The file the felt draws under [brightness], made absolute, or null when
+  /// the table shows no picture: the day file on the light theme, the night
+  /// file on the dark one (the ink on the table follows the theme, and a
+  /// picture that reads under one is lost under the other).
+  String? tablePictureUrl(Brightness brightness) =>
+      absoluteUrl(shownTablePicture?.forBrightness(brightness));
+
+  /// Lays a table picture, or null to go back to the table as it comes. The
+  /// account comes back with the pair to draw; the catalogue is re-read
+  /// unawaited, as after [chooseAvatar], so a lapsed rental re-locks itself.
+  Future<void> chooseTablePicture(int? id) async {
+    final token = _token;
+    if (token == null) return;
+    try {
+      user = await _api.useTablePicture(token, id);
+      // A poker room's felt shows no table picture (the board is where it
+      // would go; the server keeps the choice on the account and nothing on
+      // the poker felt changes), so laying one there says where it will
+      // show rather than looking like a tap that did nothing.
+      if (id != null && (room?.isPoker ?? false)) notice = t.tablePokerNote;
+    } on ApiException catch (e) {
+      notice = e.message;
+    }
+    notifyListeners();
+    unawaited(_refreshPictures());
+  }
+
+  /// Set while a table picture is being bought, for that tile's spinner.
+  int? buyingTablePicture;
+
+  /// Buys a premium table picture and, when that works, lays it — two
+  /// requests, as [buyPicture] makes, for the same reason.
+  Future<PictureBuyResult> buyTablePicture(int id) async {
+    final token = _token;
+    if (token == null || buyingTablePicture != null) {
+      return PictureBuyResult.refused;
+    }
+    buyingTablePicture = id;
+    notifyListeners();
+    try {
+      final bought = await _api.buyTablePicture(token, id);
+      user = bought.user;
+      await _refreshPictures();
+      await chooseTablePicture(id);
+      return PictureBuyResult.bought;
+    } on ApiException catch (e) {
+      return tablePictureRefused(id, e);
+    } catch (_) {
+      notice = 'Could not reach the server.';
+      return PictureBuyResult.refused;
+    } finally {
+      buyingTablePicture = null;
+      notifyListeners();
+    }
+  }
+
+  /// What a refused purchase of table picture [id] means to the player:
+  /// [pictureRefused]'s reading for the table shelf — a hammer or diamond
+  /// shortage is the offer of that wallet's shelf, a chip-priced table refused
+  /// at a table is said in the player's language, anything else is the
+  /// server's sentence.
+  @visibleForTesting
+  PictureBuyResult tablePictureRefused(int id, ApiException e) {
+    final picture = tablePictures.where((p) => p.id == id).firstOrNull;
+    if (e.code == 'picture_chips' &&
+        picture != null &&
+        (picture.pricedInHammers || picture.pricedInDiamonds)) {
+      unawaited(refreshUser());
+      return PictureBuyResult.notEnough;
+    }
+    notice = e.code == 'seated' ? t.tableChipsLobbyOnly : e.message;
+    return PictureBuyResult.refused;
   }
 
   // --------------------------------------------------------------- profile
@@ -2479,10 +2590,14 @@ class GameState extends ChangeNotifier {
   void _checkRental() {
     if (screen != Screen.lobby || _rentalRefreshing) return;
     final worn = user?.activePictureId;
-    if (worn == null) return;
+    final laid = user?.activeTablePictureId;
+    if (worn == null && laid == null) return;
 
-    // Nothing to watch unless what they are wearing can actually run out.
-    final premium = pictures.any((p) => p.id == worn && !p.free);
+    // Nothing to watch unless what they are wearing — on their face or on
+    // their table — can actually run out.
+    final premium =
+        pictures.any((p) => p.id == worn && !p.free) ||
+        tablePictures.any((p) => p.id == laid && !p.free);
     if (!premium) return;
 
     _rentalRefreshing = true;

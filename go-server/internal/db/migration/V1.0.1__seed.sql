@@ -2,13 +2,16 @@
 --
 -- The DATA half of the two scripts there are (owner, 23 Sep 2026: "merge all
 -- DDL and DML into 2 files"; V1.0.0__baseline.sql is the structure). Two
--- catalogues, each under its own heading below:
+-- catalogues — three since 23 Sep 2026 — each under its own heading below:
 --
 --   THE PICTURES  the profile-picture catalogue (requirements 20 and 21) —
 --                 this file's whole content while it was named
 --                 V1.0.1__seed_profile_pictures.sql. Nothing records a
 --                 script's name (there is no schema history table), so the
 --                 rename changed nothing for any database.
+--   THE TABLE PICTURES  the table-picture catalogue (owner, 15 Sep 2026):
+--                 the pictures a player lays on their table, a day and a
+--                 night file each (table_pictures).
 --   THE TABLES    the table catalogue (owner, 23 Sep 2026): the engines and
 --                 the categories under them (table_engines, table_categories),
 --                 the one table_settings row, and a table_configs row for
@@ -316,6 +319,140 @@ SELECT name, asset_url, asset_format, currency, type, cost, duration_days, durat
      'LOTTIE', 'HAMMER', 'PREMIUM', 10::bigint, 15, 0, TRUE, 356)
   ) AS seed(name, asset_url, asset_format, currency, type, cost, duration_days, duration_hours, is_active, sort_order)
     ON CONFLICT (asset_url) DO NOTHING;
+
+
+-- ========================================================= THE TABLE PICTURES
+--
+-- Every table picture the server seeds (owner, 15 Sep 2026), for the three
+-- tables V1.0.0__baseline.sql's TABLE PICTURES section builds. They arrived as
+-- V1.0.3__seed_table_pictures.sql on the table-pictures branch and were folded
+-- in here on 23 Sep 2026 under the two-file rule. Data apart from structure,
+-- as the profile pictures are: a price or a new table is a row here, never a
+-- change to the DDL.
+--
+-- Idempotent like everything in this file: ON CONFLICT on the natural key
+-- (day_asset_url) DO NOTHING, so a boot adds the rows a database lacks and
+-- never rewrites one the owner has since re-priced, renamed, reordered or
+-- retired. Editing a row a database already has is an UPDATE run there, not a
+-- code change; a new picture appended here reaches every database at its
+-- next boot.
+--
+-- THE TABLE PICTURES are the owner's own, hosted on Google Drive as the animated
+-- profile pictures are (THE PICTURES above says how a Drive link becomes a URL a
+-- client can load: the /file/d/<id>/view link is an HTML page, not the file).
+-- Each row is one picture in two files: the DAY file is drawn on the light
+-- theme, whose ink on the table is dark, and the NIGHT file on the dark theme,
+-- whose ink is light — a picture's art must read on its own ground or the
+-- words on the table (the pot, "waiting", a seat's bet) go with it. Every
+-- premium table is a RENTAL, as every premium profile picture is; a
+-- chip-priced one sells in the lobby only (CLAUDE.md §5.1), a hammer or
+-- diamond one at a table too. The table as it comes — no picture — is always
+-- there, so no free row is needed for a first launch.
+--
+-- Eight SVG designs, a day and a night file each, were drawn for this shelf by
+-- tools/tables/make_table_pictures.py into public/tables/ (served like
+-- profiles/) and seeded here on 15 Sep 2026; the owner took their rows out the
+-- same day, keeping the catalogue to their own art. The files and the script
+-- remain, and a row for any of them is the shape of the ones below with
+-- '/tables/<slug>-day.svg' and '/tables/<slug>-night.svg' as its two URLs.
+--
+--   Lines Background    1 lakh chips   7 days  sort_order 75  LOTTIE, on Drive
+--   Background Pattern  5 lakh chips   7 days  sort_order 80  LOTTIE, on Drive
+--   Welcome             1.5 lakh chips 7 days  sort_order 85  LOTTIE, on Drive
+--   Thank You           30 lakh chips  7 days  sort_order 90  LOTTIE, on Drive
+--
+-- LINES BACKGROUND (owner, 15 Sep 2026) is a Lottie of 23 layers of black
+-- lines moving over a transparent 1500×1500 canvas (Lottie 5.12.1, 60 fps,
+-- 2 s), uploaded to Drive as "Lines Background". No 3D layers and no
+-- expressions, so the phones play it as lottie-web does (CLAUDE.md §12.3).
+-- Black lines all but vanish on the dark theme's ground, so the NIGHT file is
+-- a copy with the lines in white — "Lines Background Night.json" in the
+-- owner's table_pictures folder on Drive, made from the day file: the 22
+-- strokes recoloured, editor metadata dropped, and each layer's 120 per-frame
+-- trim-offset keyframes re-encoded as the same curve sampled adaptively within
+-- 1° (a hold across the 360→0 wrap), 30 KB against 101. The day file stays
+-- the owner's original. Seeded at 10 hammers for 30 days and re-priced by the
+-- owner in chips the next day (1 lakh for 7 days) — which a database that ran
+-- the seed in between keeps as an UPDATE, the row being matched on
+-- day_asset_url:
+--
+--   UPDATE table_pictures SET currency = 'COIN', cost = 100000, duration_days = 7
+--    WHERE name = 'Lines Background';
+--
+-- BACKGROUND PATTERN (owner, 16 Sep 2026) is a Lottie of 96 rounded tiles in
+-- two blues that pop in one after another over four seconds on a transparent
+-- 1500×1000 canvas, hold, and shrink away together before the loop (Lottie
+-- 5.5.3, 25 fps, 6 s). The owner's export — 122 KB, 96 shape layers each
+-- carrying its own copy of the same path and keyframes — is kept as
+-- tools/tables/background-pattern.json, and both Drive files are made from it
+-- by tools/tables/make_background_pattern.py: the pop-in written once per
+-- colour as a precomp, each tile an instance started at its own frame, 31 KB
+-- each, checked keyframe for keyframe against the export ("Background
+-- Pattern.json" and "Background Pattern Night.json", same Drive folder). The
+-- NIGHT file swaps the pale blue (#E3F2FD, a tint that all but vanishes on the
+-- light ground) for a navy tint (#1B2F42) that sits on the dark ground the same
+-- way; the mid blue (#64B5F6) reads on both and stays.
+--
+-- WELCOME (owner, 16 Sep 2026) is a Lottie of one word, "welcome", written on
+-- in a rainbow gradient stroke — teal through yellow, orange, pink and violet
+-- to blue, 9 px wide, a trim path over 7.6 s (Lottie 4.8.0, 60 fps, 8.2 s) —
+-- on a transparent 428×123 banner canvas, the owner's own upload
+-- ("Welcome.json", public). No 3D, no expressions. A rainbow reads on both
+-- grounds, so its NIGHT file IS its day file: night_asset_url is not the
+-- unique key and may repeat it. The felt fits a banner-shaped canvas whole
+-- (pictureFitFor, 16 Sep 2026: wider than 1.6:1 or taller than 1:1.6 is
+-- contained, a squarer canvas covers the square), so the word lies across the
+-- pot's width rather than showing two letters of its middle.
+--
+-- THANK YOU (owner, 16 Sep 2026) is a Lottie of the words "Thank You" in gold
+-- (#FCC700) with 35 gold shapes animating around them on a transparent
+-- 1080×1080 canvas (Lottie 5.11.0, 30 fps, 10 s), the owner's own upload
+-- ("Thank You.json", public, 728 KB). No 3D, no expressions; its text layer
+-- carries its nine glyphs as shapes (`chars`), so the phones need no font.
+-- That gold reads on the dark ground and all but vanishes on the light one
+-- (owner, 16 Sep 2026: "Thank you text not visible in Day mode"), so the
+-- upload is the NIGHT file and the DAY file is the same Lottie with its 140
+-- shape fills and its text fill in the light theme's deep gold (#8A6A18,
+-- AppTheme.goldDeep) — "Thank You Day.json", the owner's upload to the same
+-- folder, 729 KB, written by tools/tables/make_thank_you_day.py, which checks
+-- that nothing else differs from the original (the twinkle's 7,722 per-frame
+-- keyframes are kept as they are). It was seeded first with the original as
+-- both files, and day_asset_url is the conflict key: a database that ran that
+-- seed would take the changed row as a NEW picture and show two Thank Yous.
+-- So this one change to a seeded row is in the script — the guarded UPDATE
+-- below the header moves such a row onto the day file before the INSERT and
+-- is a no-op everywhere else. (Lines Background's re-price above stays a hand
+-- step: it does not touch the key.)
+
+UPDATE table_pictures
+   SET day_asset_url = 'https://drive.google.com/uc?export=download&id=19egvyPjBfCFbtEna7cL-_U1kQLVra6e8',
+       updated_at    = (EXTRACT(EPOCH FROM now()) * 1000)::bigint
+ WHERE name = 'Thank You'
+   AND day_asset_url = 'https://drive.google.com/uc?export=download&id=1Iowysv9_-BE4qont-qLkZRi3XhfF6uc4';
+
+INSERT INTO table_pictures (name, day_asset_url, night_asset_url, asset_format, currency, type, cost, duration_days, duration_hours, is_active, sort_order, created_at, updated_at)
+SELECT name, day_asset_url, night_asset_url, asset_format, currency, type, cost, duration_days, duration_hours, is_active, sort_order,
+       (EXTRACT(EPOCH FROM now()) * 1000)::bigint,
+       (EXTRACT(EPOCH FROM now()) * 1000)::bigint
+  FROM (VALUES
+    ('Lines Background',
+     'https://drive.google.com/uc?export=download&id=1r26ntLyDxKVbu7NAcsAQ3P3Sh8qF-oN-',
+     'https://drive.google.com/uc?export=download&id=1mBnzYABRNRvP7aaEOk2JrBdQC7Lw--fB',
+     'LOTTIE', 'COIN', 'PREMIUM', 100000::bigint,  7, 0, TRUE, 75),
+    ('Background Pattern',
+     'https://drive.google.com/uc?export=download&id=1SZ9uuV6AuJB5vYqjMmbRq0Qi7ILr7O3_',
+     'https://drive.google.com/uc?export=download&id=1jysl9afLqlbeIO1SS8ypASb1TQkUFl2C',
+     'LOTTIE', 'COIN', 'PREMIUM', 500000::bigint, 7, 0, TRUE, 80),
+    ('Welcome',
+     'https://drive.google.com/uc?export=download&id=1iEyjVt07WkoblcgnX-DdWlqYp-Hsc3Wy',
+     'https://drive.google.com/uc?export=download&id=1iEyjVt07WkoblcgnX-DdWlqYp-Hsc3Wy',
+     'LOTTIE', 'COIN', 'PREMIUM', 150000::bigint, 7, 0, TRUE, 85),
+    ('Thank You',
+     'https://drive.google.com/uc?export=download&id=19egvyPjBfCFbtEna7cL-_U1kQLVra6e8',
+     'https://drive.google.com/uc?export=download&id=1Iowysv9_-BE4qont-qLkZRi3XhfF6uc4',
+     'LOTTIE', 'COIN', 'PREMIUM', 3000000::bigint, 7, 0, TRUE, 90)
+  ) AS seed(name, day_asset_url, night_asset_url, asset_format, currency, type, cost, duration_days, duration_hours, is_active, sort_order)
+    ON CONFLICT (day_asset_url) DO NOTHING;
 
 
 -- ================================================================== THE TABLES

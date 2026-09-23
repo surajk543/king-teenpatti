@@ -219,7 +219,7 @@ func (m *Missiles) TradeMissiles(ctx context.Context, userID, packID, requestID 
 			}
 			out.Charged, out.Diamonds, out.Missiles = true, pack.Diamonds, pack.Missiles
 		}
-		row, err := selectUser(ctx, tx, userID)
+		row, err := selectUser(ctx, tx, m.users.userFrom(), userID)
 		if err != nil {
 			return err
 		}

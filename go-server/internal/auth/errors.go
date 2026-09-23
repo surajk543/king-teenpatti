@@ -50,22 +50,23 @@ const (
 
 // REST-only error codes routes.js returns as plain JSON (not AuthErrors).
 const (
-	CodeRewardNotAvailable = "reward_not_available" // 409
-	CodeRewardNotReady     = "reward_not_ready"     // 409
-	CodeSeated             = "seated"               // 409: a name change, a reward claim or a chip-priced picture while at a table
-	CodeStoreUnavailable   = "store_unavailable"    // 503: no Google Play credentials configured
-	CodeInvalidPurchase    = "invalid_purchase"     // 400: productId or purchaseToken missing
-	CodeUnknownProduct     = "unknown_product"      // 400: a product id the catalogue does not hold
-	CodePurchaseUnverified = "purchase_unverified"  // 402: Google rejected the receipt
-	CodeUnknownAvatar      = "unknown_avatar"       // 400: no such picture in the catalogue
-	CodePictureLocked      = "picture_locked"       // 403: a premium picture the player has not bought
-	CodePictureRetired     = "picture_retired"      // 400: is_active = FALSE
-	CodePictureFree        = "picture_free"         // 400: nothing to buy
-	CodePictureChips       = "picture_chips"        // 409: wallet cannot cover the price
-	CodeUnknownPack        = "unknown_pack"         // 400: a missile pack the catalogue does not hold
-	CodeInvalidRequestID   = "invalid_request_id"   // 400: a missile trade's requestId empty or over 64 characters
-	CodeNotEnoughDiamonds  = "not_enough_diamonds"  // 409: the diamonds a missile pack costs are not there
-	CodeInternalError      = "internal_error"       // 500
-	CodeInvalidJSON        = "invalid_json"         // 400 — Go-only, see PORT_PLAN.md (Node answered 500 internal_error)
-	CodeNotFound           = "not_found"            // 404 — Go-only JSON 404 for unknown /api paths (DECISIONS.md §5)
+	CodeRewardNotAvailable  = "reward_not_available"  // 409
+	CodeRewardNotReady      = "reward_not_ready"      // 409
+	CodeSeated              = "seated"                // 409: a name change, a reward claim or a chip-priced picture while at a table
+	CodeStoreUnavailable    = "store_unavailable"     // 503: no Google Play credentials configured
+	CodeInvalidPurchase     = "invalid_purchase"      // 400: productId or purchaseToken missing
+	CodeUnknownProduct      = "unknown_product"       // 400: a product id the catalogue does not hold
+	CodePurchaseUnverified  = "purchase_unverified"   // 402: Google rejected the receipt
+	CodeUnknownAvatar       = "unknown_avatar"        // 400: no such picture in the catalogue
+	CodeUnknownTablePicture = "unknown_table_picture" // 400: no such table picture in its catalogue (Go only, owner 15 Sep 2026)
+	CodePictureLocked       = "picture_locked"        // 403: a premium picture the player has not bought
+	CodePictureRetired      = "picture_retired"       // 400: is_active = FALSE
+	CodePictureFree         = "picture_free"          // 400: nothing to buy
+	CodePictureChips        = "picture_chips"         // 409: wallet cannot cover the price
+	CodeUnknownPack         = "unknown_pack"          // 400: a missile pack the catalogue does not hold
+	CodeInvalidRequestID    = "invalid_request_id"    // 400: a missile trade's requestId empty or over 64 characters
+	CodeNotEnoughDiamonds   = "not_enough_diamonds"   // 409: the diamonds a missile pack costs are not there
+	CodeInternalError       = "internal_error"        // 500
+	CodeInvalidJSON         = "invalid_json"          // 400 — Go-only, see PORT_PLAN.md (Node answered 500 internal_error)
+	CodeNotFound            = "not_found"             // 404 — Go-only JSON 404 for unknown /api paths (DECISIONS.md §5)
 )

@@ -291,6 +291,13 @@ func (f *fakePictures) BuyAtTable(ctx context.Context, userID string, id int64) 
 	return f.Buy(ctx, userID, id)
 }
 
+// laidTable is one call of Deps.TablePictureLaid: the seat told what cloth
+// its player now lays (nil: none).
+type laidTable struct {
+	userID string
+	pic    *game.TablePicture
+}
+
 // wornPicture is one call of Deps.PictureWorn.
 type wornPicture struct {
 	userID string
@@ -304,10 +311,12 @@ type harness struct {
 	mux      *http.ServeMux
 	store    *fakeStore
 	pictures *fakePictures
+	tables   *fakeTablePictures
 	tokens   *Tokens
 	cfg      *config.Config
 	seated   map[string]bool
 	worn     []wornPicture
+	laid     []laidTable
 	logs     *bytes.Buffer
 }
 
@@ -317,16 +326,21 @@ func newHarness(t *testing.T) *harness {
 	cfg.AllowFakeProviders = true
 	h := &harness{t: t, mux: http.NewServeMux(), store: newFakeStore(), cfg: cfg, seated: map[string]bool{}, logs: &bytes.Buffer{}}
 	h.pictures = newFakePictures(h.store)
+	h.tables = newFakeTablePictures(h.store)
 	h.tokens = NewTokens(cfg.JWT.Secret, cfg.JWT.ExpiresIn, time.Now)
 	handler := NewHandler(Deps{
-		Config:   cfg,
-		Users:    h.store,
-		Pictures: h.pictures,
-		Tokens:   h.tokens,
-		Verifier: NewVerifier(cfg),
-		IsSeated: func(id string) bool { return h.seated[id] },
+		Config:        cfg,
+		Users:         h.store,
+		Pictures:      h.pictures,
+		TablePictures: h.tables,
+		Tokens:        h.tokens,
+		Verifier:      NewVerifier(cfg),
+		IsSeated:      func(id string) bool { return h.seated[id] },
 		PictureWorn: func(id string, url *string) {
 			h.worn = append(h.worn, wornPicture{userID: id, url: url})
+		},
+		TablePictureLaid: func(id string, pic *game.TablePicture) {
+			h.laid = append(h.laid, laidTable{userID: id, pic: pic})
 		},
 		Logger: slog.New(slog.NewJSONHandler(h.logs, nil)),
 	})

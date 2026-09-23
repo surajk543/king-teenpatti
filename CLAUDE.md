@@ -37,7 +37,7 @@ A turn-based multiplayer **Teen Patti** (3-card Indian poker) game:
 | Node.js server | *(removed)* | The original implementation, removed from the repo on 8 Sep 2026 (`git log -- server/`, last commit `c19963b`; `multi_node` branch). Its behaviour is what §5–§7 document; its file names are what those sections cite. **No longer a rollback target at all** (12 Sep 2026): it reads and writes `users.avatar_choice`, which the schema dropped for `active_picture_id`, and knows nothing of the picture-catalogue tables — so it cannot run against this database. `ops/rollback-to-node.sh` was deleted rather than left as a recovery script that would fail when used; rolling back now means the previous **Go** tag (DEPLOY.md §5). |
 | Mobile client | `flutter-client/` | **The live client.** Flutter 3.44 / Dart 3.12, Material 3 via FlexColorScheme. Android is the shipping platform; `ios/` exists and is configured (`docs/ios-setup.md`) but has never been compiled — there is no macOS here. |
 | Browser client | `go-server/public/` | Zero-build vanilla-JS reference client served at `/` by the Go binary (`PUBLIC_DIR`) — **in dev only; production hides it** (`ROOT_REDIRECT=/dashboard/`, §7.4/§9) and serves just `privacy/`, `profiles/` from that dir. **Lags behind** — no sideshow, kick, rename, entry-cap or Indian-numbering UI. |
-| Tools | `tools/` | Small Node ≥ 20 package (`npm install` first): `npm run bot` (practice bots), `npm run ramp` (staged load test), `npm run parity` / `parity:diff` (black-box suites in `tools/parity/`). Clients of the server; also lend `node_modules` to two Go interop tests. `tools/lottie/flatten_orientation.py` (Python 3, stdlib) flattens a Lottie's 3D orientation and `tools/lottie/bake_loop_expressions.py` writes its `loopOut()` expressions out as keyframes, both for the phone players (§12.3). |
+| Tools | `tools/` | Small Node ≥ 20 package (`npm install` first): `npm run bot` (practice bots), `npm run ramp` (staged load test), `npm run parity` / `parity:diff` (black-box suites in `tools/parity/`). Clients of the server; also lend `node_modules` to two Go interop tests. `tools/lottie/flatten_orientation.py` (Python 3, stdlib) flattens a Lottie's 3D orientation and `tools/lottie/bake_loop_expressions.py` writes its `loopOut()` expressions out as keyframes, both for the phone players (§12.3). `tools/tables/make_table_pictures.py` (Python 3, stdlib) draws the 16 SVG table pictures in `go-server/public/tables/` — eight designs, a day and a night file each (§7.3); `tools/tables/make_background_pattern.py` re-encodes the owner's Background Pattern Lottie (`background-pattern.json`, 122 KB) into the two 31 KB Drive files beside it, day and night (§7.3); `tools/tables/make_thank_you_day.py` recolours the owner's Thank You Lottie into its day file, deep gold for the light ground (§7.3). |
 | **Bot fleet** | `bot-play/` | The resident bots that keep production's lobby populated (`bot-play.service` on the game host, loopback to `:3000`): 198 guest identities, 75–95% online at once in sittings that come and go. They judge their cards with a port of `handrank.go` (verified on all 22,100 hands), raise up the server's ladder with strong hands, bluff by persona, and chat under a per-table budget. `npm test`; `bot-play/README.md` is the reference. Separate from `tools/bot.js`, the practice bots for manual testing. |
 | Load reports | `docs/load-reports/` | ramp-test HTML + JSON (the 2026‑09‑08 production runs, 1,000 → 4,000 players). |
 | Unity client | `unity-client/` | **Removed** (Sept 2026). A JS port of its Socket.IO parser survives as `tools/parity/lib/csharpJsonPort.js` and still exercises the raw wire protocol. |
@@ -104,7 +104,7 @@ king-teenpatti/
 │   │   ├── app/                  app.go (mux, REST, socket endpoint, Start/Shutdown), health.go, static.go (PUBLIC_DIR + embedded assets/socket.io.min.js),
 │   │   │                         tableconfig.go (resolveTableCatalogue — the catalogue settled once, before anything is built from it; GET /api/tables; /health.tableConfig)
 │   │   └── util/                 UUID, RoomCode, slog JSON logger
-│   ├── public/                   browser client (index.html, client.js, style.css, theme.css) + profiles/ (15 Noto Emoji animal SVGs, Apache 2.0)
+│   ├── public/                   browser client (index.html, client.js, style.css, theme.css) + profiles/ (15 Noto Emoji animal SVGs, Apache 2.0) + tables/ (16 generated SVG table pictures, §7.3; served in production like profiles/)
 │   ├── .env.example              every env key the server reads, with defaults (+ Go-only PG_STATEMENT_TIMEOUT_MS)
 │   ├── ops/                      build.sh, release.sh, prod-version.sh, gameplay-go.service, install-go-server.sh, lib.sh, DEPLOY.md
 │   │   └── monitoring/           Prometheus + Grafana + alerts + nginx bundle, MONITORING.md (formerly server/ops/monitoring)
@@ -263,7 +263,7 @@ flutter build apk --debug       # ~7s incremental; build/app/outputs/flutter-apk
 flutter build apk --debug --dart-define=SERVER_URL=http://10.0.2.2:3000   # local server on the emulator
 flutter build apk --debug --dart-define=SERVER_URL=http://192.168.1.10:3000  # local server, real device
 adb install -r build/app/outputs/flutter-apk/app-debug.apk
-adb shell monkey -p com.sungamestudio.kingteenpatti -c android.intent.category.LAUNCHER 1   # launch
+adb shell am start -n com.sungamestudio.kingteenpatti/.MainActivity   # launch (monkey … 1 also launches it but injects ONE random event — it once opened the store and an unlock question)
 adb shell am force-stop com.sungamestudio.kingteenpatti
 ```
 
@@ -768,7 +768,7 @@ user (`session:replaced` to the old one). On connect: `session:ready {user, conf
 | Server → client | Audience |
 |---|---|
 | `session:ready {user, config}` / `session:replaced` — `config` is the table-wide figures + `LobbyOptions` + `welcomeChips`/`minClientBuild`, and since 23 Sep 2026 **`tableConfigVersion`** (the ONLY change to it: the version of the table catalogue this server enforces, `GET /api/tables`' `version`/ETag, §7.2; `""` only on a server with no rooms). A client holding that version keeps its catalogue; one holding another fetches it again. `config` still carries the whole menu (`tables`), so an installed app older than the catalogue needs nothing new | socket |
-| `room:joined` / `room:state` — `serializeFor(viewer)` | **per viewer** |
+| `room:joined` / `room:state` — `serializeFor(viewer)`; a Teen Patti snapshot carries `tablePicture` (the picture the table shows, §7.2; null when none; absent from a poker snapshot) | **per viewer** |
 | `room:moved {fromRoomId, toRoomId, code, message}` — **no `state`**; the snapshot is the `room:joined` that follows | socket |
 | `room:left` / `room:closed` / `room:kicked {roomId, reason, message}` | socket |
 | `game:handStarted {…participants}` then per-socket `player:hand` | room |
@@ -887,6 +887,30 @@ active categories (env mode: the defaults, Teen Patti {seen, blind, variation} t
 the database's admin labels — the app names the engines and categories it knows in its own five languages and shows
 `name` only for a code it has never heard of. Nothing session-scoped (no `welcomeChips`, no `minClientBuild`): a phone
 caches the body across sessions and players (§8.1). No per-table `maxPlayers`/`minPlayers` — the server has one of each;
+**`GET /api/table-pictures`** / **`POST /api/table-pictures/use {pictureId|null}`** / **`POST /api/table-pictures/buy {pictureId}`**
+(owner, 15 Sep 2026; merged 23 Sep 2026; `auth/handlers.go` `TablePictures`/`UseTablePicture`/`BuyTablePicture`, `db/tablepictures.go`) —
+the picture a player lays on their TABLE, the profile-picture trio again for the cloth: the catalogue from `table_pictures`
+(`{tablePictures:[{id, name, dayUrl, nightUrl, assetFormat, currency, type, cost, durationDays, durationHours, sortOrder, owned,
+expiresAt}]}`, token optional as for `/api/profiles`); laying one (`pictureId` a number or its text, null/absent takes it off; 400
+`unknown_table_picture` / `picture_retired`, 403 `picture_locked`; **allowed while seated** — `Deps.TablePictureLaid` →
+`RoomManager.SetPlayerTablePicture` → `Table.SetTablePicture` puts it on the seat and emits state); and buying one — one
+`table_picture_purchase` ledger row (action_id `table:<userId>:<pictureId>:<n>`, `n` = that pair's `purchases`, so a lapsed rental
+can be bought again) plus a `user_table_pictures` row under the wallet lock, `{user, picture, charged, spent}`, DIAMOND/HAMMER from
+their `users` column with no ledger row, a COIN row 409 `seated` at a table ("You can only buy a chip-priced table picture in the
+lobby."). The account carries the laid pair as **`user.tablePicture {id, dayUrl, nightUrl, assetFormat, currency, cost}`** (null when
+none; `LEFT JOIN user_table_choice`/`table_pictures` in `userFromAt`, **joined only while the rental still runs** — since the
+23 Sep 2026 review: the account is what every seat is built from (`User.Player` → `LoadPlayer`), so a lapsed rental reads as none the
+instant it lapses, sweep or no sweep). The sweeps: login and `me` run both (`takeOffLapsedPicture`), `GET /api/profiles` the worn
+picture's only, `GET /api/table-pictures` the laid one's only — and a table sweep that finds the rental over also **tells the seat**
+(`tablePictureLapsed` → `Deps.TablePictureLaid(user, nil)`), so a seated player's lapsed cloth leaves every viewer's felt at once
+rather than when they next leave. `DELETE /api/account` takes the laid picture off with the rest (`user_table_choice` has no `users`
+CASCADE to fire, since `users` rows are never deleted). **A Teen Patti table shows ONE picture to everyone**: `Table.tablePicture()`
+picks among the seats' — DIAMOND over HAMMER over COIN, then the dearer, the lowest seat on a tie (`game/tablepicture.go`
+`outranks`) — and `room:state.tablePicture {…, userId}` (null when nobody has laid one) is the same for every viewer; the seat's
+copy is in the snapshot (`SnapshotSeat.tablePicture`), so a restart keeps it. **Poker rooms show none**: the feature predates §6.5
+and the poker felt has the board where the picture would go, so a poker snapshot has no `tablePicture` key, `SetPlayerTablePicture`
+does nothing at a poker room, and the choice waits on the account for the next Teen Patti table — the app says so
+(`tablePokerNote`, the Tables shelf's blurb at a poker room and the notice after laying there).
 **`POST /api/purchases/google {productId, purchaseToken}`** — verifies the token with Google and banks
 the pack through a `purchase` ledger row (action_id `gplay:<token>`), so a replay credits once. The same endpoint sells
 **diamond packs** (owner, 13 Sep 2026): `diamonds_1_49`, `diamonds_5_199`, `diamonds_20_699`, `diamonds_100_2999`
@@ -957,8 +981,9 @@ owns `users`.
 are parsed to JS numbers** (`pg.types.setTypeParser(20|1700)`) — without that, `chips` and `SUM()`
 come back as strings.
 
-Tables — **there are exactly fourteen, and none of them is game state**: ten of accounts, money and the picture
-catalogue (`user_milestones`, `diamond_purchases`, `hammer_purchases`, `hammer_spends`, `missile_purchases` and
+Tables — **there are exactly seventeen, and none of them is game state**: ten of accounts, money and the picture
+catalogue, three of the table pictures (`table_pictures`, `user_table_pictures`, `user_table_choice` — the paragraph after the
+`users` trigger below; merged 23 Sep 2026) (`user_milestones`, `diamond_purchases`, `hammer_purchases`, `hammer_spends`, `missile_purchases` and
 `missile_spends` are below), and since 23 Sep 2026 **four of table configuration** — `table_engines`,
 `table_categories`, `table_settings`, `table_configs` (the last paragraph of this list). `users` (wallet = `chips BIGINT
 CHECK ≥ 0`, **`diamond INTEGER NOT NULL DEFAULT 9 CHECK ≥ 0`** — the premium currency, nine per new account (owner, 14 Sep 2026; two, and one before that, earlier the same day), never
@@ -1067,10 +1092,66 @@ ownership transfer that closes that (owner → `postgres`, `GRANT SELECT, INSERT
 needs sudo on the host and is why the function is create-if-missing rather than CREATE OR REPLACE.
 Test: `TestUserRowsAreNeverDeleted` (`internal/db/users_delete_test.go`).
 
+**The table pictures (owner, 15 Sep 2026; merged into master from the `table-pictures` branch on 23 Sep 2026)** are three
+more tables — **seventeen in all now** — declared in `V1.0.0__baseline.sql` (TABLE PICTURES, right after `user_profile_pictures`)
+and seeded in `V1.0.1__seed.sql` (THE TABLE PICTURES, between the profile pictures and the table catalogue). On the branch they were
+a pair of their own, `V1.0.2__table_pictures.sql` and `V1.0.3__seed_table_pictures.sql`, written while a script that had run
+somewhere was never edited; the merge folded them into the two files under the rule above (`TestMigrationsAreVersionedOrderedAndSplitByKind`
+pins where). Deliberately nothing but `CREATE TABLE IF NOT EXISTS` (and one index): no ALTER and nothing on `users`, so a database
+built before them takes them at its next boot as `gameplay_app`, whether or not DEPLOY.md §7 has handed `users` to the superuser (a
+table with a foreign key to `users` needs only the REFERENCES grant §7 gives; `handover_boot_test.go` re-creates them under §7).
+Three tables:
+**`table_pictures`** (`profile_pictures` with `asset_url` split into `day_asset_url` UNIQUE — the seed's conflict key — and
+`night_asset_url`; same `asset_format`/`currency`/`type`/`cost`/`duration_days`/`duration_hours`/`is_active`/`sort_order` and CHECKs),
+**`user_table_pictures`** (who bought which, `expires_at`, `purchases` — the twin of `user_profile_pictures`) and
+**`user_table_choice`** (`user_id` PK → `table_picture_id`: the picture each player has LAID, one row or none; this is
+`users.active_picture_id` for the table, kept as a side table because a `users` column would be an `ALTER TABLE users` and a §7
+one-off on every deploy that carries it; `ON DELETE CASCADE` on the picture, so deleting a catalogue row clears the tables it was on).
+The seed holds **four rows, the owner's own art** (owner, 15 Sep 2026: "apply this only"), all LOTTIE, all hosted in the owner's Drive
+`table_pictures` folder (`uc?export=download&id=…`, never the `/file/d/…/view` page), all rented for chips — so sold in the lobby only
+(§5.1). The first two have a night file made here, where a Drive upload travels through a tool call and size is the constraint; Welcome
+reads on both grounds and is its own night file; Thank You has a day file made here that the owner uploaded (729 KB). **Lines
+Background** — 1 lakh chips / 7 days, sort_order 75 (seeded at 10 hammers / 30 days and re-priced by the owner on 16 Sep 2026; a database
+that ran the seed in between keeps the hammer price until the UPDATE in the seed's header): 23 layers of black lines on a transparent
+1500×1500 canvas, no 3D and no expressions; its **night file** ("Lines Background Night.json") has the lines in white — 22 strokes
+recoloured, editor metadata dropped, each layer's 120 per-frame trim-offset keyframes re-encoded as the same curve sampled adaptively
+within 1° with a hold across the 360→0 wrap — 30 KB against 101. **Background Pattern** — 5 lakh chips / 7 days, sort_order 80 (owner,
+16 Sep 2026): 96 rounded tiles in two blues that pop in one after another over four seconds on a transparent 1500×1000 canvas, hold, and
+shrink away together (Lottie 5.5.3, 25 fps, 6 s — a screenshot can land in the empty half-second at the loop's end and show a bare felt).
+The owner's 122 KB export is kept as `tools/tables/background-pattern.json` and **both** Drive files ("Background Pattern.json",
+"Background Pattern Night.json") are made from it by `tools/tables/make_background_pattern.py`, committed beside it: the pop-in written
+once per colour as a precomp and each tile an instance of it started at its own frame — `st` shifts a precomp's contents and nothing
+else, the convention of every Bodymovin export (Fireworks.json's shifted layers carry their keyframes in composition time) and of both
+players — with the shared shrink-out as the instance's own keyframes, the two double-bouncing tiles (55, 64) kept whole, and the path as
+the `rc` it is; 31 KB each, checked keyframe for keyframe against the export and byte for byte after upload. Its night file swaps the pale
+blue (#E3F2FD, a tint that all but vanishes on the light ground) for a navy (#1B2F42) that sits on the dark ground the same way and keeps
+the mid blue. **Welcome** — 1.5 lakh chips / 7 days, sort_order 85 (owner, 16 Sep 2026; 1 lakh for a few hours that day): the word written on in a rainbow gradient stroke
+over 7.6 s on a transparent 428×123 banner canvas (Lottie 4.8.0, one layer, no 3D, no expressions), the owner's own upload
+("Welcome.json"); a rainbow reads on both grounds, so `night_asset_url` repeats `day_asset_url` (only the day URL is UNIQUE), and its
+banner shape is fitted whole on the felt (§8.4 `pictureFitFor`) rather than cropped to two letters. **Thank You** — 30 lakh chips /
+7 days, sort_order 90 (owner, 16 Sep 2026): the words in gold (#FCC700) with 35 gold shapes around them on a 1080×1080 canvas (Lottie
+5.11.0, 10 s, 728 KB — the heaviest file; its text layer embeds its glyphs as `chars`, so no font is needed), the owner's own upload,
+public — the NIGHT file. That gold all but vanishes on the light ground (owner, 16 Sep 2026: "Thank you text not visible in Day mode"),
+so the DAY file ("Thank You Day.json") is the same Lottie with its 140 shape fills and its text fill in `AppTheme.goldDeep` #8A6A18,
+written by `tools/tables/make_thank_you_day.py`, which checks that nothing else differs; its 7,722 per-frame keyframes cannot be
+re-sampled without changing the twinkle, so at 729 KB it is far above what a Drive upload from here carries and the owner uploaded it
+("Thank You Day.json", same folder, public; proved on TP_Small in the light theme from a scratch `http.server` first and from Drive
+after). **Changing a seeded row's day URL changes its conflict key**: Thank You was seeded with the upload as both files first, so the
+seed carries a guarded UPDATE that moves such a row onto the day file before the INSERT (a no-op elsewhere) — without it the next
+boot of a database that ran the earlier seed would add a second Thank You. **A file uploaded from here is private
+until the owner sets "Anyone with the link"** (the connector cannot; a phone gets Google's sign-in page instead of the file until then — and
+kept it as the picture until §8.4's `looksLikeHtml` guard, 16 Sep 2026); the owner shared all three Drive night/day files that day. There is no free row and none is needed:
+"Flowing chips", the game as it comes, is always on the shelf. Eight SVG designs with a day and a night file each were drawn for this shelf by
+`tools/tables/make_table_pictures.py` into `go-server/public/tables/<slug>-{day,night}.svg` (served like `profiles/`, §9) and seeded
+that day; the owner took their rows out, keeping the catalogue to their own art — the files and the script remain, unseeded, and a row for
+one is the seeded row's shape with the two `/tables/` paths (the DAY file a pale cloth for the light theme's dark ink, the NIGHT file a
+deep one for the dark theme's light ink; a picture's art must read on its own ground or the words on the table go with it).
+
 Ledger `reason` values: `welcome_bonus, hand_packed, hand_left, hand_win, hand_loss,
-milestone_reward, timed_bonus, daily_bonus, purchase, picture_purchase, account_deleted, legacy_reconciliation,
+milestone_reward, timed_bonus, daily_bonus, purchase, picture_purchase, table_picture_purchase, account_deleted, legacy_reconciliation,
 test_fixture`. (`picture_purchase` is a premium profile picture bought with chips — a chip **sink**,
-always a negative delta, action_id `picture:<userId>:<pictureId>`.)
+always a negative delta, action_id `picture:<userId>:<pictureId>`; `table_picture_purchase` is the same for a table picture,
+action_id `table:<userId>:<pictureId>:<n>`.)
 (`purchase` is a Google Play chip pack, action_id `gplay:<token>`; `account_deleted` empties the
 wallet when a player deletes their account, action_id `delete:<userId>` — chips leave the economy
 there, which is correct, the player has gone.) The first three of the hand
@@ -1696,6 +1777,40 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   re-reads the catalogue (`owned` is per viewer) and wears it. The tick follows
   `user.activePictureId == p.id` — it used to compare the choice PATH to the picture's id, so
   nothing was ever ticked. `state.buyingPicture` puts a spinner on the one tile being bought.
+- **The Tables tab** (`StoreTab.tables`, owner 15 Sep 2026; `widgets/table_picture_shelf.dart`): the sixth store shelf sells the
+  cloths a player lays on their OWN table. Each tile (`TablePictureChoice`, the pack cards' width, wider than tall) shows the pair
+  split down the middle — the day file on the left, the night file on the right (`TablePicturePreview`, a sun and a moon in the
+  corners) — under the picture shelf's own `PriceTag` / `UnlockedTag` (made public for it) or an "In use" tick; the first tile is
+  **Flowing chips — the default background** (owner: "an option to restore the default flowing chips"), drawn as the real
+  `DriftingChips` over the split ground, and a tap lays nothing (`chooseTablePicture(null)`). A right-aligned `DayNightSwitch` sits over the
+  shelf (owner, 16 Sep 2026: "one button for switching day to dark mode"), flipping the theme as the picture menu's does, so either half of
+  every tile can be seen whole on its own ground. Locked → `unlockTablePicture` (the same three answers as
+  `unlockPicture`: chip-priced at a table says `tableChipsLobbyOnly`, a short hammer/diamond wallet gets `offerWalletShelf` — now shared
+  and taking a `preview` — else the question with `unlockTableBody`, whose price is `Strings.priceIn(currency, cost)`), then
+  `GameState.buyTablePicture` → `chooseTablePicture`. Owned → laid at once, no "already unlocked" stop. `tableShelfOrder` runs free →
+  chips → hammers → diamonds, cheapest first. **On the table it is a small square centred on the pot** (owner, 15 Sep 2026 — it was
+  the whole room in place of the flowing chips for an hour, then "at the centre of the pot, small, square"): `_TableCentrepiece` in
+  `_Felt`'s Stack at `(0.5, _potDy)`, side `min(w*0.37, h*0.53)` (`0.32/0.46` until the owner asked for "a little bit" bigger on
+  16 Sep 2026), under the tag and the pot plinth and over the flights, painting
+  `TablePictureGround` (not `TableGround`, the room's floor) with `GameState.tablePictureUrl(brightness)` — the day url on the light theme,
+  the night url on the dark — from **`room.tablePicture`** (`GameState.shownTablePicture`: the table's pick among everyone seated, §7.2),
+  not the viewer's own `user.tablePicture` (`laidTablePicture`, which only the store tick reads); nothing when the table shows none. **The
+  `DriftingChips` show only while the table shows no picture** (`_RoomBackdrop`, a `select` on `shownTablePicture != null`; owner: "remove
+  the flowing coins, we have applied the one we bought") — they come back when the last picture is taken off or its owner leaves.
+**Only once the file can actually be drawn** (`_ChipsUntilDrawable`, 23 Sep 2026 review): on the server's word alone the room went
+bare while a fetch the phone could not make just then (offline, a host answering with a page, a RIVE row) left the felt empty for the
+sitting; the chips now stay until the file for this theme is in `PictureCache`, and a failed fetch is retried on `pictureRetryDelay`'s
+clock (4, 8, 16 s, then every 30 s) by both the backdrop and `CachedPictureBox`, which never retried before. A Lottie plays. **No box** (owner: "it should look like part of the background"):
+  a `dstIn` `ShaderMask` fades it radially from `backdropStrength` (0.85 — 0.55, then 0.7, until the owner asked twice for "a little bit" more on 16 Sep 2026) at the middle (`featherFrom` 0.35 of the half-side) to nothing at
+  the inscribed circle's rim, so the square's corners are clear and no edge is ever drawn — an offscreen pass the size of the square,
+  not the screen, which is what makes it affordable under a playing Lottie (a full-screen `Opacity` would not be). The store tile shows the pair at full strength, each half on its theme's ground
+  (`_SplitGround`: bone left, obsidian right), so a transparent canvas previews as it will look. `CachedPictureBox` is `Avatar`'s loader
+  for a rectangle, and shows NOTHING on a failed fetch rather than a placeholder. **A Lottie's fit follows its canvas** (16 Sep 2026:
+  `pictureFitFor(lottieCanvasAspect(bytes))`, the `w`/`h` read off the file's head): near enough square covers the box, cropped — Lines
+  Background 1:1, Background Pattern 3:2 — while a banner or a column past 1.6:1 is `contain`ed whole (Welcome, 428×123; cropped it was two
+  letters of the middle). SVGs and bitmaps still cover. **The header's tab strip scrolls** when six keys would crowd the blurb off its two lines (a 640dp
+  phone at the 1.25 text ceiling): `_ChipStoreState` cuts `tabsShown` a key at a time until `blurbLinesAt(...) <= 2`, and `_revealTab`
+  jumps the strip to the key that is on. `_loadPictures` loads both catalogues; the lobby rental watch covers a laid premium table too.
 - **`Avatar` has two different fallbacks and the difference is deliberate.** No picture at all → the
   player's initial, which still says whose seat it is. A picture that was supposed to load and did
   not (a retired file, a dead Google URL, a phone that lost the network) → `assets/default_avatar.svg`,
@@ -1709,7 +1824,12 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
 - **A picture is downloaded once per URL and kept on the phone** (owner, 13 Sep 2026: opening the store must never
   fetch pictures again). `PictureCache` answers from memory, then `<app support>/pictures/<sha1(url)>`, and only then
   the network, writing through a `.part` rename; `GameState` warms it when the catalogue arrives. A URL's contents are
-  treated as immutable, so **a changed picture needs a new URL** — a file replaced in place is never re-fetched.
+  treated as immutable, so **a changed picture needs a new URL** — a file replaced in place is never re-fetched. **A web
+  page is never kept** (16 Sep 2026): a host that will not hand a file out answers 200 with a page — Drive's sign-in for a
+  file not (yet) shared, a quota notice, a captive portal — and one such answer used to be cached as the picture for good
+  (TP_Tall fetched Background Pattern's day file in the minute before the owner shared it and drew a bare felt from then on).
+  `_download` now refuses `text/html` and anything `looksLikeHtml` (`<!doctype html` / `<html`, not an SVG's `<!DOCTYPE svg`),
+  and `_read` deletes such a file it finds on disk and fetches again; `test/picture_cache_test.dart` pins the sniff.
 - **i18n**: `AppLang` × 5; `Strings(lang)` with English → key fallback. **New keys go in all five
   maps + a getter.** Teen Patti vocabulary transliterated. Still-English strings: `'YOU'`, `'Table
   ${code}'`, `'hand N'`, private-card body, picture-picker labels, `'Switch theme'`, chat `'You'`,
@@ -2018,7 +2138,7 @@ deploy runbook; `steps.txt` the six-line routine.
   unchanged. Every shipped client is websocket-only.
 - **DB via `pgx`** (`internal/db`): `migration/V*.sql` (embedded; Flyway-named, exactly two since 23 Sep 2026 —
   `V1.0.0__baseline.sql` all DDL, `V1.0.1__seed.sql` all DML — applied in version order, idempotent, run at
-  every start: fourteen tables — money, accounts, the picture catalogue and the four table-configuration tables, no game
+  every start: seventeen tables — money, accounts, the picture catalogues (profile and table), the four table-configuration tables, no game
   state — §7.3), `TableConfigs.Load`/`ExportTableConfigSQL` (the table catalogue), the `Checkpoint`/`Settle` transactions of §5.1, `search_path` as a connection parameter,
   `statement_timeout` per pooled connection (`PG_STATEMENT_TIMEOUT_MS`). Money-path fixes vs Node
   (all in DECISIONS §2): wallet locks before the `hands` insert, settle retry continues after table
@@ -2042,7 +2162,8 @@ deploy runbook; `steps.txt` the six-line routine.
   `gomaxprocs`. Grafana's former "Node.js" row is now "Runtime"; alerts
   `GameServerSchedulerLatencyHigh` / `GameServerGoroutinesHigh` / `GameServerMemoryHigh` replaced
   the three `nodejs_*` ones (§7.5 bundle at `go-server/ops/monitoring/`, `MONITORING.md`).
-- Small honest deviations: **the Poker family** (§6.5) — four poker categories, `poker:action` in, the nine `poker:*` events
+- Small honest deviations: **the table pictures** (§7.2/§7.3; merged 23 Sep 2026) — three tables, three REST endpoints,
+  `user.tablePicture`, `room:state.tablePicture` on Teen Patti snapshots, `table_picture_purchase` ledger rows; **the Poker family** (§6.5) — four poker categories, `poker:action` in, the nine `poker:*` events
   out, `game`/`poker` on a poker room's `room:state`, `chip_ledger.game`/`variant`, `wrong_game`; a Teen Patti table's wire,
   snapshot and ledger rows are unchanged; **Variation Teen Patti** — the `variation` category, `game:selectVariation`, the two
   `game:variation*` broadcasts, `room:state.variation`, `variation`/`turnUp`/`wild` on reveals (§6.1, §6.4, §7.1; all of it

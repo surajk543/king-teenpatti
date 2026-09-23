@@ -188,13 +188,17 @@ type SnapshotSeat struct {
 
 	// ---- added for the live store / restore ----
 
-	AvatarURL             *string `json:"avatarUrl"`
-	LastBet               int64   `json:"lastBet"`
-	LastAction            *Action `json:"lastAction"`
-	MissedTurns           int     `json:"missedTurns"`
-	SideshowAskedThisTurn bool    `json:"sideshowAskedThisTurn"`
-	KickPending           bool    `json:"kickPending"`
-	UnfundedUntil         *int64  `json:"unfundedUntil,omitempty"` // epoch ms: end of the unfunded grace
+	AvatarURL *string `json:"avatarUrl"`
+	// TablePicture is the table picture the player has laid (owner, 15 Sep
+	// 2026); absent when none. A snapshot written before it existed reads as
+	// none.
+	TablePicture          *TablePicture `json:"tablePicture,omitempty"`
+	LastBet               int64         `json:"lastBet"`
+	LastAction            *Action       `json:"lastAction"`
+	MissedTurns           int           `json:"missedTurns"`
+	SideshowAskedThisTurn bool          `json:"sideshowAskedThisTurn"`
+	KickPending           bool          `json:"kickPending"`
+	UnfundedUntil         *int64        `json:"unfundedUntil,omitempty"` // epoch ms: end of the unfunded grace
 	// The 5-Card pick (owner, 19 Sep 2026; table_fivecard.go). Picking is a
 	// window still owed a choice, Picked the three that play once one is made,
 	// PickedBy who made it and PickUntil when the server makes it for them
