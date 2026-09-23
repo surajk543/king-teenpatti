@@ -155,17 +155,18 @@ test('an unknown provider is rejected', async () => {
   assert.equal(none.body.error, 'unknown_provider');
 });
 
-test('google and facebook logins (fake providers) create provider-scoped accounts', async () => {
+test('google logins (fake providers) create provider-scoped accounts; facebook is switched off', async () => {
   const google = await login({ provider: 'google', providerUserId: 'google-sub-123', displayName: 'G Player' });
+  // Facebook login is switched off for now (owner, 23 Sep 2026): refused as an
+  // unsupported provider, the fake path included, and no account is created.
   const facebook = await login({ provider: 'facebook', providerUserId: 'fb-123', displayName: 'F Player' });
 
   assert.equal(google.status, 200);
   assert.equal(google.body.user.provider, 'google');
   assert.equal(google.body.user.displayName, 'G Player');
   assert.equal(google.body.user.chips, profile.welcomeChips);
-  assert.equal(facebook.status, 200);
-  assert.equal(facebook.body.user.provider, 'facebook');
-  assert.notEqual(google.body.user.id, facebook.body.user.id);
+  assert.equal(facebook.status, 400);
+  assert.deepEqual(facebook.body, { error: 'unknown_provider', message: 'Unsupported login provider "facebook"' });
 
   const again = await login({ provider: 'google', providerUserId: 'google-sub-123', displayName: 'G Player' });
   assert.equal(again.body.user.id, google.body.user.id);

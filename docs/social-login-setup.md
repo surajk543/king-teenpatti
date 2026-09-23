@@ -143,6 +143,19 @@ list, and a mismatch is rejected as `Wrong recipient`.
 
 ## 2. Facebook
 
+> **Switched off again on 23 Sep 2026 (owner), for now.** Everything below is
+> commented out rather than deleted: the button in `login_screen.dart`,
+> `SocialSignIn.facebook()` and its import, the `flutter_facebook_auth`
+> dependency in `pubspec.yaml` (so the SDK and its six injected permissions are
+> no longer in the build — the Advertising ID caveat below does not apply while
+> it is off), the Facebook entries in `AndroidManifest.xml`, and the server's
+> `case db.ProviderFacebook` in `auth.VerifyLogin` plus `VerifyFacebook`. The
+> server therefore answers a `facebook` login — fake path included — with 400
+> `unknown_provider`. To bring it back, uncomment all of those together, run
+> `flutter pub get`, and restore the tests marked "switched off" in
+> `internal/auth/providers_test.go`, `http_test.go` and
+> `tools/parity/rest.test.js`. `strings.xml` keeps its three placeholders.
+
 > **Facebook was removed on 10 Sep 2026 and restored on 22 Sep 2026** at the
 > owner's request. The code is back in full — `flutter_facebook_auth 7.2.0` in
 > `pubspec.yaml`, the three strings in

@@ -173,10 +173,12 @@ func TestVerifyLoginDispatch(t *testing.T) {
 	expectAuthErr(t, err, CodeMissingToken, http.StatusUnauthorized, "idToken is required for Google login")
 	_, err = v.VerifyLogin(ctx, LoginRequest{Provider: "google", IDToken: "x.y.z"})
 	expectAuthErr(t, err, CodeProviderUnconfigured, http.StatusServiceUnavailable, "Google login is not configured on this server")
+	// Facebook is switched off for now (owner, 23 Sep 2026): refused as an
+	// unsupported provider whatever the request carries.
 	_, err = v.VerifyLogin(ctx, LoginRequest{Provider: "facebook"})
-	expectAuthErr(t, err, CodeMissingToken, http.StatusUnauthorized, "accessToken is required for Facebook login")
+	expectAuthErr(t, err, CodeUnknownProvider, http.StatusBadRequest, `Unsupported login provider "facebook"`)
 	_, err = v.VerifyLogin(ctx, LoginRequest{Provider: "facebook", AccessToken: "tok"})
-	expectAuthErr(t, err, CodeProviderUnconfigured, http.StatusServiceUnavailable, "Facebook login is not configured on this server")
+	expectAuthErr(t, err, CodeUnknownProvider, http.StatusBadRequest, `Unsupported login provider "facebook"`)
 
 	// Guest.
 	p, err := v.VerifyLogin(ctx, LoginRequest{Provider: "guest", DeviceID: "device-guest-0001", DisplayName: "Suraj"})
@@ -205,10 +207,10 @@ func TestFakeProviders(t *testing.T) {
 	if err != nil || p.Provider != "google" || p.ProviderUserID != "google-sub-123" || p.DisplayName != "G Player" || p.Email != nil || p.AvatarURL != nil {
 		t.Errorf("fake google: %v %+v", err, p)
 	}
-	p, _ = on.VerifyLogin(ctx, LoginRequest{Provider: "facebook", ProviderUserID: "fb-123", DisplayName: "F Player"})
-	if p.Provider != "facebook" || p.ProviderUserID != "fb-123" {
-		t.Errorf("fake facebook: %+v", p)
-	}
+	// Facebook is switched off for now (owner, 23 Sep 2026), and the fake path
+	// with it: no provider the login screen cannot offer may create an account.
+	_, err = on.VerifyLogin(ctx, LoginRequest{Provider: "facebook", ProviderUserID: "fb-123", DisplayName: "F Player"})
+	expectAuthErr(t, err, CodeUnknownProvider, http.StatusBadRequest, `Unsupported login provider "facebook"`)
 	// providerUserId falls back to the RAW display name, then "fake"; the name is sanitised.
 	p, _ = on.VerifyLogin(ctx, LoginRequest{Provider: "google", DisplayName: "  Raw" + zwsp + "Name  "})
 	if p.ProviderUserID != "  Raw"+zwsp+"Name  " || p.DisplayName != "RawName" {
@@ -226,7 +228,7 @@ func TestFakeProviders(t *testing.T) {
 	_, err = on.VerifyLogin(ctx, LoginRequest{Provider: "google", IDToken: "a.b.c"})
 	expectAuthErr(t, err, CodeProviderUnconfigured, http.StatusServiceUnavailable, "")
 	_, err = on.VerifyLogin(ctx, LoginRequest{Provider: "facebook", AccessToken: "t"})
-	expectAuthErr(t, err, CodeProviderUnconfigured, http.StatusServiceUnavailable, "")
+	expectAuthErr(t, err, CodeUnknownProvider, http.StatusBadRequest, "")
 }
 
 func TestLoginRequestDecoding(t *testing.T) {
@@ -514,67 +516,71 @@ func (f *facebookFixture) verifier(t *testing.T) *Verifier {
 	return v
 }
 
-func TestVerifyFacebook(t *testing.T) {
-	ctx := context.Background()
-	f := newFacebookFixture(t)
-	v := f.verifier(t)
-
-	p, err := v.VerifyFacebook(ctx, "user tok/en+")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if p.Provider != "facebook" || p.ProviderUserID != "9988776655" || p.DisplayName != "Arjun Rao" ||
-		p.Email == nil || *p.Email != "arjun@example.com" || p.AvatarURL == nil || *p.AvatarURL != "https://fb.example/pic.jpg" {
-		t.Errorf("profile %+v", p)
-	}
-	if len(f.requests) != 2 {
-		t.Fatalf("requests %v", f.requests)
-	}
-	if f.requests[0] != "/debug_token?input_token=user+tok%2Fen%2B&access_token=123456%7Cs3cr3t" {
-		t.Errorf("debug_token request %q", f.requests[0])
-	}
-	if f.requests[1] != "/v20.0/9988776655?fields=id,name,email,picture.type(large)&access_token=user+tok%2Fen%2B" {
-		t.Errorf("profile request %q", f.requests[1])
-	}
-
-	// Numeric ids and app_id compare as text; missing name → Player; no picture → nil.
-	f.requests = nil
-	f.debugBody = `{"data":{"app_id":123456,"is_valid":true,"user_id":9988776655}}`
-	f.meBody = `{"id":9988776655}`
-	p, err = v.VerifyFacebook(ctx, "t")
-	if err != nil || p.ProviderUserID != "9988776655" || p.DisplayName != "Player" || p.Email != nil || p.AvatarURL != nil {
-		t.Errorf("numeric ids: %v %+v", err, p)
-	}
-	if !strings.HasPrefix(f.requests[1], "/v20.0/9988776655?") {
-		t.Errorf("user_id interpolated: %q", f.requests[1])
-	}
-
-	// Refusals in order.
-	f.debugStatus = 400
-	_, err = v.VerifyFacebook(ctx, "t")
-	expectAuthErr(t, err, CodeInvalidToken, http.StatusUnauthorized, "Facebook rejected the access token")
-	f.debugStatus = 200
-	f.debugBody = `{"data":{"app_id":"123456","is_valid":false,"user_id":"1"}}`
-	_, err = v.VerifyFacebook(ctx, "t")
-	expectAuthErr(t, err, CodeInvalidToken, http.StatusUnauthorized, "Facebook access token is not valid")
-	f.debugBody = `{"data":{"app_id":"999","is_valid":true,"user_id":"1"}}`
-	_, err = v.VerifyFacebook(ctx, "t")
-	expectAuthErr(t, err, CodeInvalidToken, http.StatusUnauthorized, "Facebook token was issued for a different app")
-	f.debugBody = `{"data":{"app_id":"123456","is_valid":true,"user_id":"1"}}`
-	f.meStatus = 500
-	_, err = v.VerifyFacebook(ctx, "t")
-	expectAuthErr(t, err, CodeInvalidToken, http.StatusUnauthorized, "Could not read the Facebook profile")
-	// A 2xx non-JSON body is a plain error (Node: SyntaxError → 500).
-	f.debugBody = `<html>oops</html>`
-	_, err = v.VerifyFacebook(ctx, "t")
-	var ae *AuthError
-	if err == nil || errors.As(err, &ae) {
-		t.Errorf("non-JSON debug body must be a plain error, got %v", err)
-	}
-	// Configuration gaps.
-	_, err = v.VerifyFacebook(ctx, "")
-	expectAuthErr(t, err, CodeMissingToken, http.StatusUnauthorized, "accessToken is required for Facebook login")
-	half := newVerifier(t, func(c *config.Config) { c.Facebook.AppID = "123456" })
-	_, err = half.VerifyFacebook(ctx, "t")
-	expectAuthErr(t, err, CodeProviderUnconfigured, http.StatusServiceUnavailable, "Facebook login is not configured on this server")
-}
+// TestVerifyFacebook is commented out with VerifyFacebook itself: Facebook
+// login is switched off for now (owner, 23 Sep 2026). Uncomment both to
+// bring it back; facebookFixture above is kept for that.
+//
+// func TestVerifyFacebook(t *testing.T) {
+// 	ctx := context.Background()
+// 	f := newFacebookFixture(t)
+// 	v := f.verifier(t)
+//
+// 	p, err := v.VerifyFacebook(ctx, "user tok/en+")
+// 	if err != nil {
+// 		t.Fatal(err)
+// 	}
+// 	if p.Provider != "facebook" || p.ProviderUserID != "9988776655" || p.DisplayName != "Arjun Rao" ||
+// 		p.Email == nil || *p.Email != "arjun@example.com" || p.AvatarURL == nil || *p.AvatarURL != "https://fb.example/pic.jpg" {
+// 		t.Errorf("profile %+v", p)
+// 	}
+// 	if len(f.requests) != 2 {
+// 		t.Fatalf("requests %v", f.requests)
+// 	}
+// 	if f.requests[0] != "/debug_token?input_token=user+tok%2Fen%2B&access_token=123456%7Cs3cr3t" {
+// 		t.Errorf("debug_token request %q", f.requests[0])
+// 	}
+// 	if f.requests[1] != "/v20.0/9988776655?fields=id,name,email,picture.type(large)&access_token=user+tok%2Fen%2B" {
+// 		t.Errorf("profile request %q", f.requests[1])
+// 	}
+//
+// 	// Numeric ids and app_id compare as text; missing name → Player; no picture → nil.
+// 	f.requests = nil
+// 	f.debugBody = `{"data":{"app_id":123456,"is_valid":true,"user_id":9988776655}}`
+// 	f.meBody = `{"id":9988776655}`
+// 	p, err = v.VerifyFacebook(ctx, "t")
+// 	if err != nil || p.ProviderUserID != "9988776655" || p.DisplayName != "Player" || p.Email != nil || p.AvatarURL != nil {
+// 		t.Errorf("numeric ids: %v %+v", err, p)
+// 	}
+// 	if !strings.HasPrefix(f.requests[1], "/v20.0/9988776655?") {
+// 		t.Errorf("user_id interpolated: %q", f.requests[1])
+// 	}
+//
+// 	// Refusals in order.
+// 	f.debugStatus = 400
+// 	_, err = v.VerifyFacebook(ctx, "t")
+// 	expectAuthErr(t, err, CodeInvalidToken, http.StatusUnauthorized, "Facebook rejected the access token")
+// 	f.debugStatus = 200
+// 	f.debugBody = `{"data":{"app_id":"123456","is_valid":false,"user_id":"1"}}`
+// 	_, err = v.VerifyFacebook(ctx, "t")
+// 	expectAuthErr(t, err, CodeInvalidToken, http.StatusUnauthorized, "Facebook access token is not valid")
+// 	f.debugBody = `{"data":{"app_id":"999","is_valid":true,"user_id":"1"}}`
+// 	_, err = v.VerifyFacebook(ctx, "t")
+// 	expectAuthErr(t, err, CodeInvalidToken, http.StatusUnauthorized, "Facebook token was issued for a different app")
+// 	f.debugBody = `{"data":{"app_id":"123456","is_valid":true,"user_id":"1"}}`
+// 	f.meStatus = 500
+// 	_, err = v.VerifyFacebook(ctx, "t")
+// 	expectAuthErr(t, err, CodeInvalidToken, http.StatusUnauthorized, "Could not read the Facebook profile")
+// 	// A 2xx non-JSON body is a plain error (Node: SyntaxError → 500).
+// 	f.debugBody = `<html>oops</html>`
+// 	_, err = v.VerifyFacebook(ctx, "t")
+// 	var ae *AuthError
+// 	if err == nil || errors.As(err, &ae) {
+// 		t.Errorf("non-JSON debug body must be a plain error, got %v", err)
+// 	}
+// 	// Configuration gaps.
+// 	_, err = v.VerifyFacebook(ctx, "")
+// 	expectAuthErr(t, err, CodeMissingToken, http.StatusUnauthorized, "accessToken is required for Facebook login")
+// 	half := newVerifier(t, func(c *config.Config) { c.Facebook.AppID = "123456" })
+// 	_, err = half.VerifyFacebook(ctx, "t")
+// 	expectAuthErr(t, err, CodeProviderUnconfigured, http.StatusServiceUnavailable, "Facebook login is not configured on this server")
+// }
