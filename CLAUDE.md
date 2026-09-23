@@ -1551,12 +1551,25 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   `Flexible` beside a `Spacer` and a flex-4 balance, which handed it a sixth of the free space ("Gu…"). On a tight bar
   the Shop key is icon-only (`ShopButton(compact: true)`, tooltip "Shop"). TP_Tall shows "Guest0E00B" whole; TP_Small
   "Guest63…". The balance shows chips then diamonds (gem + count, `_diamondInkOn` — pale blue on dark glass, deep blue on light);
-  `_DailyBonusChip` in the bottom-left corner (the daily bonus — 1 lakh chips and 1 hammer every 24 h, "Collect 1 Lakh +1 Hammer",
-  a gift glyph, hidden when the server offers no daily bonus, the celebration showing the hammer under the chips; tapped while it is
+  `_DailyBonusChip` in the bottom-left corner (the daily bonus — 1 lakh chips and 1 hammer every 24 h, a gift glyph, hidden when
+  the server offers no daily bonus, the celebration showing the hammer under the chips; tapped while it is
   still counting down it opens `openBonusDetails`, as the 4-hour `_BonusChip` does — a popup of the reward, a live countdown and the
   interval, offering Collect once the wait is over (`_CornerChip.onWaitTap`; the milestone chip has none); owner, 14 Sep
   2026 — it had briefly replaced the 4-hour `_BonusChip` in the bar, which came back beside it the same day) and `_MilestoneChip` in the bottom-right, both clear
   of the rail's `band`, and `lobbyNoticeArea` keeps a toast between them; one `endDrawer` for stats/settings.
+  **A ready bonus chip pays in glyphs, not words** (owner, 24 Sep 2026: "In daily Bonus button instead of showing text 'collect' show
+  coins icon and instead of text 'Hammer' show icon. Same in case of 4 Hour Bonus show coin icon instead of collect text"): the second
+  line of the 4-hour chip is `[coin] 10,000` and the daily chip's `[coin] 1,00,000  +1 [hammer]` — `_CornerChip.reward`, a
+  `({chips, hammers})` record given instead of `subtitle` (exactly one of the two; the countdown, the hands to go and the milestone's
+  "Collect 25,000" stay words, and the popup keeps its Collect key), drawn by `_rewardLine` with the top bar's own marks — a
+  `PokerChip` in the wallet's gold and `Icons.hardware` in the hammer's copper (`hammerInkOn`), never the chip's champagne `fg`, each the size of the figure's type so it scales with it and never
+  outgrows the line. It is a `Row`, not a `Text.rich` with `WidgetSpan`s: a placeholder that opens a paragraph is centred on a line
+  with no text metrics yet and made the chip 2dp taller than its counting-down twin. "Collect 1,00,000 +1 Hammer" was cut to
+  "Collect 100,000 +..." on a 640dp phone; the glyphs bring the line to 205dp at the 1.25 text ceiling, still over the top bar slot's
+  192, so the daily chip — at the foot, where only the milestone shares its row — has a cap of its own, `Dim.dailyBonusW` (`bonusSlotW`
+  × 1.1; the toast area measures the chip, so it moves aside by itself). `test/bonus_chip_icons_test.dart` pumps the lobby at 640×360
+  ×1.25 in all five languages and holds the word absent, both glyphs present, the figures un-ellipsised (laid-out width = max intrinsic
+  width) and the chip the same height in both states.
 - **Table** (rebuilt around the felt on 10–11 Sep 2026 — `fb47ba4`, `b83b273`, `81a5981`; the bar
   across the foot and the cloth under it are both gone, and the screenshots in `docs/play-store/`
   predate all of it). `_TableScreenState.build` **watches nothing** (a per-second Scaffold rebuild
@@ -1565,7 +1578,12 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   its own composer over the keyboard and drops its title while typing.
   `_LeftPanel {menu, chat}` shares one `drawer`. The menu (`_TableDrawer`) heads with `_ThemeFlip`, a one-tap
   light/dark key, where the table code was (owner, 13 Sep 2026); only a **private** table still shows `Table <code>`
-  (`RoomState.isPrivate`, from the wire's `isPrivate`), since that code is how friends get in.
+  (`RoomState.isPrivate`, from the wire's `isPrivate`), since that code is how friends get in. **Its small-caps line is
+  the category alone** — `SEEN`, or the poker variant's name at a poker room — beside the `_SeatedFor` clock: the
+  `· hand N` it carried went on 24 Sep 2026 (owner, from a phone screenshot of "SEEN · han… 0:05:25": "some hand info
+  text is visible, remove that text from UI"), and the two branches became ONE `FittedBox(scaleDown)` line — the poker
+  name was already shrunk to fit, and `VARIATION` alone still ellipsised on a 640dp phone at ×1.25 — so the line is
+  never cut; `test/table_drawer_test.dart` holds both headers to that at 640x360 x1.25.
   **There is no `_ActionBar`.** The keys live in the corners they are pressed in: the lobby's `ShopButton`
   top-left (13 Sep 2026, replacing the gold `+` that headed the rail; it opens the store on Chips), `_SideRail`
   (menu, chat — each key fills the rail so the target stays
@@ -1573,6 +1591,23 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   `Sideshow` over `− Chaal +`; Chaal is dark on the player's own turn when they cannot pay the chaal — `GameState.canChaal`, an empty server ladder — and keeps showing the price, owner 14 Sep 2026). **The quick messages are a tab of the chat drawer** (owner, 14 Sep 2026; they had a third rail
   key and a `_QuickDrawer` of their own): `_ChatDrawer` heads with two `_ChatTab`s, Table chat and Quick messages,
   opens on the chat every time, and sends a quick line through `sendChat` and closes, as a typed one does.
+  **Each quick message stands in a box of its own with an icon for its meaning** (owner, 24 Sep 2026: "in quick chat
+  message also add some icons, and every message of quick message should be in some box"): `QuickLine` is a tinted, flat
+  `GlassCard` (`Radii.md`, `Space.sm` apart, `Space.lg` in from the drawer's sides, the whole box the target at
+  ≥ `Dim.minTouch + Space.md`) with `quickMessageIcons[i]` at its left — a const list in `table_chrome.dart` index for
+  index with `Strings.quickMessages` (eye-off for play blind, bolt for play fast, trophy for how you win it, … help for
+  help me), held to the list's length in every language by `test/chat_drawer_test.dart`; the cooldown still greys the box
+  and counts the seconds on it. **Blocking is a page of the drawer, never a popup** (owner, 24 Sep 2026: "when user click
+  on block button do not show pop up, instead show block button of players in drawer itself and in chat messages DO NOT
+  SHOW ANY unblock message, only message should appear"): the header's block key toggles a third page,
+  `_ChatView.players` — `ChatPlayers`, every other seat from `room.seats` (rebuilt live, so a player who leaves drops
+  off it) with one outline `GlassButton` whose label follows `isBlocked` (Block ↔ Unblock, nothing asked either way),
+  `blockNobody` when the viewer is alone — and a long-press on somebody else's line opens the same page; the key is lit
+  while the page is up or a block is in force, since the chat page now shows the messages and the composer only.
+  `showBlockPlayers`, `confirmBlock` (the two `GlassDialog`s) and `_BlockedRow` ("Blocked: Name · Unblock") are gone,
+  with `blockPlayerQ`/`blockBody`/`blockedLabel` from all five maps; `test/chat_drawer_test.dart` mounts the drawer at
+  640×360 ×1.25 in all five languages, counts routes through a `NavigatorObserver` (none pushed) and finds every box,
+  icon and key.
   **The chat key and both tabs play Lotties** (`_RailLottie`, `animate` only on the selected tab):
   `assets/animations/Message.json` (a speech bubble) and `assets/animations/Quick message.json` (an envelope sending a
   paper plane), both drawn in the theme's ink by `ValueDelegate`s — onSurface at full strength, black on the light theme,
@@ -1583,7 +1618,7 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   `tools/lottie/flatten_orientation.py` (its flap opened with `rx`). **The Force key** reads "Force Sideshow" on two
   lines (`_MachinedKey.stackLabel`) beside `assets/animations/Hammer.json` (`_MachinedKey.glyph`), which swings only
   while the key can be used; no cost line — the confirmation states the hammer.
-  **Missiles** (owner, 14 Sep 2026; rules in §6.1): the Missile key over Pack carries its cost as its second line, as Chaal carries its bet — the rocket mark and 1 (the missile a shot spends), then a chip and the chips a show would cost the player (`_MissileCost`, drawn through `_MachinedKey.detail`) (`GameState.missileChips`: the server's first rung on turn, else the stake's chaal; owner, 14 Sep 2026 — §6.1's server refuses a missile to a player short of it), plays `assets/animations/Missile.json` (a copy
+  **Missiles** (owner, 14 Sep 2026; rules in §6.1): the Missile key over Pack carries, as its second line and as Chaal carries its bet, the rocket mark and **the missiles the player HOLDS** (owner, 24 Sep 2026: "Missile count is not updated in missile button when user have used that missile" — it wrote the constant 1 a shot spends, `missileCost`, so it read 1 for ever after the only missile was fired; now `user.missile`, which the fired missile's ack sets and a store pack raises, the same figure as the wallet pill, dropping to 0 the moment the shot is acknowledged because `_MissileKey` watches GameState; `missileCost` survives in `GameState.hasMissile`, which still mutes the key, and in `test/missile_wallet_test.dart`; a wider count scales down in `MachinedKey`'s FittedBox — `test/missile_key_test.dart` has the shot, the pack and a three-figure count at 640x360 ×1.25), then a chip and the chips a show would cost the player (`_MissileLine`, drawn through `MachinedKey.detail`) (`GameState.missileChips`: the server's first rung on turn, else the stake's chaal; owner, 14 Sep 2026 — §6.1's server refuses a missile to a player short of it), plays `assets/animations/Missile.json` (a copy
   with its one `loopOut()` baked; the nose points up-right, frames 30–60 loop) while `canMissile`, is greyed with no
   missiles and then offers the store's **Missiles** tab (between Hammers and Pictures, diamonds for missiles: 1 for 15, 5 for 73, 10 for 140, 20 for 220), and asks
   first (`_fireMissile`). Every viewer sees the volley (`state/missile_strike.dart`, `widgets/missile_flight.dart`): one
@@ -1622,7 +1657,21 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   `variationAnnounced` holds "Variation: AK47" for 3 s — once per hand whether the event, the snapshot or both said so —
   with "Time ran out — Muflis was chosen" (`TIMEOUT`) or "<name> left — Muflis was chosen" (`LEFT`) under it, and
   `_CategoryTag` reads "VARIATION · AK47" / "· Joker · 10" / "· Hukam · ♥" through the showdown (`lastVariation`, cleared
-  by the next deal, a change of table, or the celebration ending). At a reveal a rim seat's fan shows the hand as it was COUNTED when the
+  by the next deal, a change of table, or the celebration ending). **The Hukam suit on the tag is PAINTED, not typed** (owner,
+  24 Sep 2026: "in Variation Game play when user selects Hukam, then the icon on top is not visible properly" — the light-theme
+  screenshot showed "VARIATION · Hukam · ♣" with the ♣ BLACK on the dark pill while the rest of the label was gold): the tag was one
+  gold `Text` ending in a bare U+2663, a glyph the bundled Inter lacks, so Android drew it from the colour emoji font, which ignores the
+  text colour — a black club or spade on the pill, a red emoji heart for hearts. `variationTagParts` (`variation_prompt.dart`) now
+  splits the label into `words` (the Joker rank "10" stays plain digits among them) and a `suit` LETTER, and `_CategoryTag` is a
+  `Text.rich` whose `WidgetSpan` draws it as a `SuitMark` (`playing_card.dart`: a pale rounded card face, `cardFace` at 0.92, with
+  the `CardPips` silhouette in `PlayingCard.inkFor(suit)` — red hearts and diamonds, black spades and clubs, so the suit's colour
+  survives on the dark pill in both themes — sized to the label's line, font size × line height, so the tag does not grow;
+  `test/suit_mark_test.dart`, and `variation_table_test.dart` pumps the Hukam tag at 640×360 ×1.25 and finds the pip, not a '♣').
+  `variationTagText` still returns the glyph string (`VariationTagParts.text`) for the tests. The "4♠" tab under a turned wild card
+  (`_RealCardTab`, `wild_transform.dart`) paints its suit the same way — rank in type beside a `CardPips` in the suit's ink, keyed
+  `wild-real-card:<code>` — though on its white face the emoji colour had happened to be right; the `cardLabel`/`WildTransform`
+  semantics strings keep the glyph, being spoken, not drawn, and the rules sheet prints no suit as text (its examples are
+  `PlayingCard`s, which paint their pips). At a reveal a rim seat's fan shows the hand as it was COUNTED when the
   server sends `playsAs` (`SeatPod.playsAs`, 24 Sep 2026: the wild 7♣ of K♠ K♦ 7♣ shows as the K♣ it stood for; a server without it,
   or a hand with no wild card, shows the cards as dealt), and the cards that played as wild carry a gold
   edge (`WildEdge`, from the reveal's `wild`, matched against the dealt cards) — since 24 Sep 2026 a 2dp edge in `AppTheme.gold` (`goldDeep` on the light theme)
@@ -1789,7 +1838,22 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   treatment (3 shadows + bevel + optional `Glint`).
 - **The picture picker** (`openPicturePicker`, with a day/night `DayNightSwitch` — sun, switch, moon, `GameState.toggleTheme` — at the top of its header since 14 Sep 2026 (owner), and headed by the player's display name where it read "Your picture" (owner, the same day); its shelf — `PictureFilter`, `PictureFilterMenu`, `pictureShelf`,
   `PictureChoice`, `unlockPicture`, `DiamondBalance` — lives in `widgets/picture_shelf.dart`, shared with the chip
-  store's **Pictures** tab (`chip_store.dart` `_StoreTabs`: Chips | Diamonds | Pictures in the header — the **Diamonds** tab (`diamondPacks`, `_DiamondPackCard`: 1/₹49, 5/₹199 ⭐, 20/₹699 🔥, 100/₹2,999) is offered at a table too, and a credited pack celebrates as `rewardWon.kind == 'diamonds'`; at a table the picture key
+  store's **Pictures** tab (`chip_store.dart` `_StoreTabs`: Chips | Diamonds | Pictures in the header — **every shelf heads with the
+  wallet it sells or spends, Chips with the player's chips since 24 Sep 2026** (owner: "In store when user click on Coins tab, then it is
+  not showing users current coin on top, just like we show for hammer"; it was the one shelf with no balance): `ChipBalance`, the
+  `HammerBalance` pill's twin in `picture_shelf.dart` — the lobby wallet's coin and `formatChips` in champagne on the dark pill; at a
+  table the SEAT's stack (what the drawer's "Your chips" shows and where a pack bought there lands), in the lobby the wallet; its width,
+  floored at a two-decimal lakh figure, is counted into the header's `walletW` on every shelf, so the tabs never move from one shelf to
+  the next and the blurb gives up the room (`test/store_chips_test.dart`: 640x360 at x1.25 in all five languages, a wallet change under
+  an open store, the seat at a table); **and Missiles with the missiles held beside the diamonds a pack is traded for, since 24 Sep 2026**
+  (owner: "In store when user click on Missile tab, then it should also show the user current missile count just like it is showing
+  diamond count"; it headed with the diamonds alone): `MissileBalance`, the missiles twin of `DiamondBalance`/`HammerBalance` —
+  `missileIcon` in the missile's coral on the dark pill — inside `MissileWalletBalances`, diamonds then missiles (the order the table's `WalletPill` and the trade dialog give the two) in ONE dark panel,
+  exactly as `PictureWalletBalances` pairs diamonds and hammers (two framed pills one over the other would stand taller than a one-line
+  header at x1.25): in a row where the widest blurb keeps its line beside it, stacked otherwise, its stacked width counted into
+  `walletW` on every shelf. The diamond, hammer and missile pills and both panels are now one private `_WalletBalance` row (bare, `framed: false`,
+  inside a `_WalletPanel`; `ChipBalance` keeps its own coin row), so the Pictures/Tables shelves draw what they did pixel for pixel and the Diamonds/Hammers pills gain only
+  tabular figures; the count reads `user.missile` under the store's watch, so a trade raises it at once (`test/store_missiles_test.dart`) — the **Diamonds** tab (`diamondPacks`, `_DiamondPackCard`: 1/₹49, 5/₹199 ⭐, 20/₹699 🔥, 100/₹2,999) is offered at a table too, and a credited pack celebrates as `rewardWon.kind == 'diamonds'`; at a table the picture key
   is **Animated** (`_StoreTabs.animatedOnly`, owner 13 Sep 2026): the animated shelf alone, no shelf menu, bought with hammers (since 14 Sep 2026; diamonds before) and worn on the seat at once; the chip packs are drawn as lobby table cards —
   frosted glass over a baked orb, a still plate, count-up figure, one fact, a price capsule — coloured sapphire → purple → gold
   up the range; the Pictures tab heads its grid with the worn picture, large and centred, beside the shelf menu); requirement 21): a horizontal strip
@@ -1868,7 +1932,7 @@ clock (4, 8, 16 s, then every 30 s) by both the backdrop and `CachedPictureBox`,
   and `_read` deletes such a file it finds on disk and fetches again; `test/picture_cache_test.dart` pins the sniff.
 - **i18n**: `AppLang` × 5; `Strings(lang)` with English → key fallback. **New keys go in all five
   maps + a getter.** Teen Patti vocabulary transliterated. Still-English strings: `'YOU'`, `'Table
-  ${code}'`, `'hand N'`, private-card body, picture-picker labels, `'Switch theme'`, chat `'You'`,
+  ${code}'`, private-card body, picture-picker labels, `'Switch theme'`, chat `'You'`,
   the `'$winner won N'` banner (bypasses lakh formatting), and **wire hand names**.
 - **Android**: `com.sungamestudio.kingteenpatti`, `sensorLandscape`, cleartext, INTERNET (needed in
   release). **Icon & splash** come from one file, `assets/app_icon.svg` (crown over A♥ A♠ Q♥, all paths, no fonts):

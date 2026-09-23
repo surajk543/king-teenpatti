@@ -18,37 +18,106 @@ import 'playing_card.dart';
 /// hands them what the snapshot says and they draw it, so they can be pumped
 /// in a test without a server, a socket or a signed-in player.
 
-/// What is wild under [variation], from the card the server turned up:
-/// the card's rank under Joker ("9", "10", "K"), its suit under Hukam ("♥").
-/// Null under every other variation, which turns no card up, and for a code
-/// too short to read — the tag then names the variation alone.
+/// The suit that is wild under Hukam, as the suit LETTER ('s', 'h', 'd', 'c')
+/// a widget paints from: null under every other variation, none of which
+/// makes a suit wild, and for a code too short or too strange to read.
+String? variationWildSuit(String? variation, String? turnUp) {
+  if (variation != Variation.hukam) return null;
+  if (turnUp == null || turnUp.length < 2) return null;
+  final suit = PlayingCard.suitOf(turnUp);
+  return PlayingCard.suitSymbol(suit) == '?' ? null : suit;
+}
+
+/// What is wild under [variation], from the card the server turned up, as
+/// words: the card's rank under Joker ("9", "10", "K"), its suit's glyph under
+/// Hukam ("♥"). Null under every other variation, which turns no card up, and
+/// for a code too short to read — the tag then names the variation alone.
+///
+/// A string for the places that need one (a test, a sentence). Nothing DRAWS
+/// the glyph any more — see [VariationTagParts].
 String? variationWildLabel(String? variation, String? turnUp) {
   if (!Variation.usesTurnUp(variation)) return null;
   if (turnUp == null || turnUp.length < 2) return null;
   if (variation == Variation.joker) return PlayingCard.rankOf(turnUp);
-  final glyph = PlayingCard.suitSymbol(PlayingCard.suitOf(turnUp));
-  return glyph == '?' ? null : glyph;
+  final suit = variationWildSuit(variation, turnUp);
+  return suit == null ? null : PlayingCard.suitSymbol(suit);
 }
 
-/// The words on a variation table's tag over the pot.
+/// The label on a variation table's tag over the pot: the words, and the
+/// suit painted after them.
 ///
 /// Before anything is chosen it reads as every table's does — the category and
 /// the stake, "Variation · 200". Once the hand has its rules the stake gives
 /// way to them, "Variation · AK47", and under Joker and Hukam to what is wild
 /// as well, "Variation · Joker · 9", "Variation · Hukam · ♥": the stake was
 /// read when the player sat down, and what beats what is asked every hand.
-String variationTagText({
+///
+/// In two parts rather than one string (owner, 24 Sep 2026: "in Variation
+/// Game play when user selects Hukam, then the icon on top is not visible
+/// properly"): the tag was one gold [Text] ending in a bare '♣', a glyph Inter
+/// does not have, and Android drew it from the colour emoji font, which
+/// ignores the text colour — a black club on the dark pill. So [words] is
+/// everything the font can set, the Joker rank included ("10" is plain
+/// digits), and [suit] is handed to the tag to paint as a [SuitMark]. [text]
+/// still joins the two with the glyph, for anything that reads the label
+/// rather than draws it.
+class VariationTagParts {
+  const VariationTagParts({required this.words, this.suit});
+
+  /// "Variation · 200", "Variation · AK47", "Variation · Joker · 10",
+  /// "Variation · Hukam".
+  final String words;
+
+  /// The suit letter drawn after [words] under Hukam; null when there is
+  /// nothing to draw.
+  final String? suit;
+
+  /// The whole label as one string, the suit as its glyph.
+  String get text {
+    final s = suit;
+    return s == null ? words : '$words · ${PlayingCard.suitSymbol(s)}';
+  }
+}
+
+/// A table's tag in its parts: [category] and [boot] until [selected] is set,
+/// then the variation's name from [nameOf] and, from [turnUp], what is wild —
+/// the Joker rank among the words, the Hukam suit on its own.
+VariationTagParts variationTagParts({
   required String category,
   required String boot,
   required String? selected,
   required String? turnUp,
   required String Function(String wire) nameOf,
 }) {
-  if (selected == null || selected.isEmpty) return '$category · $boot';
-  final wild = variationWildLabel(selected, turnUp);
+  if (selected == null || selected.isEmpty) {
+    return VariationTagParts(words: '$category · $boot');
+  }
   final name = nameOf(selected);
-  return wild == null ? '$category · $name' : '$category · $name · $wild';
+  final suit = variationWildSuit(selected, turnUp);
+  if (suit != null) {
+    return VariationTagParts(words: '$category · $name', suit: suit);
+  }
+  final wild = variationWildLabel(selected, turnUp);
+  return VariationTagParts(
+    words: wild == null ? '$category · $name' : '$category · $name · $wild',
+  );
 }
+
+/// The tag's label as one string — [VariationTagParts.text] — for the tests
+/// and for anywhere the label is read rather than drawn.
+String variationTagText({
+  required String category,
+  required String boot,
+  required String? selected,
+  required String? turnUp,
+  required String Function(String wire) nameOf,
+}) => variationTagParts(
+  category: category,
+  boot: boot,
+  selected: selected,
+  turnUp: turnUp,
+  nameOf: nameOf,
+).text;
 
 /// Whole seconds left until [deadlineMs], never negative; 0 with no deadline.
 int _secondsLeft(int deadlineMs) {

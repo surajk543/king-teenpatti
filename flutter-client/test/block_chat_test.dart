@@ -8,9 +8,9 @@
 //   * it is THIS sitting — leaving and coming back means blocking again;
 //   * a blocked line is DROPPED, not hidden, so it cannot reappear later.
 //
-// The drawer's long-press and its unblock row are exercised through the
-// strings and the state they drive, since mounting the whole table felt to
-// reach a chat row costs more than it proves.
+// The drawer itself — its players page, the long-press that opens it and the
+// chat page that shows no sign of a block — is mounted and pressed in
+// test/chat_drawer_test.dart; this file is the state underneath it.
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:teenpatti/l10n/strings.dart';
@@ -118,28 +118,21 @@ void main() {
     );
   });
 
-  test('every language names the control and says what it does', () {
+  test('every language names the controls and the empty list', () {
+    // Since 24 Sep 2026 blocking asks nothing (owner: "do not show pop up"),
+    // so the question, its body and the chat page's "Blocked" label are gone
+    // with the dialog and the row: these four are all the drawer says.
     for (final lang in AppLang.values) {
       final t = Strings(lang);
-      for (final s in [
-        t.block,
-        t.unblock,
-        t.blockedLabel,
-        t.blockBody,
-        t.blockPlayersTitle,
-        t.blockNobody,
-        t.blockPlayerQ('Ravi'),
-      ]) {
+      for (final s in [t.block, t.unblock, t.blockPlayersTitle, t.blockNobody]) {
         expect(s, isNotEmpty, reason: lang.code);
         // An untranslated key falls through to its own name; none of these
-        // should be reading back as 'block' or 'blockPlayerQ'.
+        // should be reading back as 'block' or 'blockNobody'.
         expect(s, isNot(equals('block')), reason: lang.code);
-        expect(s, isNot(equals('blockPlayerQ')), reason: lang.code);
+        expect(s, isNot(equals('blockNobody')), reason: lang.code);
       }
-      expect(t.blockPlayerQ('Ravi'), contains('Ravi'), reason: lang.code);
-      // The body has to promise what blocking does NOT do — no report, no
-      // telling — in every language, not only English.
-      expect(t.blockBody.length, greaterThan(30), reason: lang.code);
+      // Block and Unblock are two keys on the same row, so they must differ.
+      expect(t.block, isNot(equals(t.unblock)), reason: lang.code);
     }
   });
 }

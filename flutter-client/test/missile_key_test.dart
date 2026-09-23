@@ -101,10 +101,17 @@ GameState _newState({required int missiles, required RoomState room}) {
     ..screen = Screen.table;
 }
 
-Future<void> _pumpTable(WidgetTester tester, GameState state) async {
-  tester.view.physicalSize = const Size(891, 411);
+Future<void> _pumpTable(
+  WidgetTester tester,
+  GameState state, {
+  Size size = const Size(891, 411),
+  double textScale = 1,
+}) async {
+  tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
+  tester.platformDispatcher.textScaleFactorTestValue = textScale;
   addTearDown(tester.view.reset);
+  addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
   final feedback = FeedbackSettings();
   addTearDown(feedback.dispose);
   await tester.pumpWidget(
@@ -225,9 +232,10 @@ void main() {
     final state = _newState(missiles: 1, room: _room(onTurn: true));
     await _pumpTable(tester, state);
     expect(figure('200'), findsOneWidget, reason: 'blind, on turn');
-    // One missile a shot, by the rocket the wallets use, and the chips by a
-    // chip (owner, 14 Sep 2026).
-    expect(figure('1'), findsOneWidget, reason: 'one missile a shot');
+    // The missiles held, by the rocket the wallets use (owner, 24 Sep 2026 —
+    // the 1 a shot spends before that), and the chips by a chip (owner,
+    // 14 Sep 2026).
+    expect(figure('1'), findsOneWidget, reason: 'one missile held');
     expect(
       find.descendant(of: _key, matching: find.byIcon(missileIcon)),
       findsOneWidget,
@@ -371,6 +379,95 @@ void main() {
       ..firingMissile = true;
     await _pumpTable(tester, state);
     expect(_button(tester).onPressed, isNull);
+
+    await _teardown(tester, state);
+  });
+
+  // The rocket's figure is the missiles the player HOLDS (owner, 24 Sep 2026:
+  // "Missile count is not updated in missile button when user have used that
+  // missile"). It was the constant 1 a shot spends, so it read 1 for ever,
+  // the only missile long gone. The count moves here exactly as the ack of a
+  // fired missile moves it (GameState.fireMissile: `user = u.withMissile(left)`
+  // and then a notify) — the connection cannot be stubbed — and the key must
+  // follow without the player leaving the table. The wallet pill in the
+  // top-right corner reads the same count, so the two must agree throughout.
+  testWidgets('counts the missiles held, and follows a shot and a pack', (
+    tester,
+  ) async {
+    Finder figure(String text) =>
+        find.descendant(of: _key, matching: find.text(text));
+    Finder pill(String text) => find.descendant(
+      of: find.byType(WalletPill),
+      matching: find.text(text),
+    );
+
+    final state = _newState(missiles: 1, room: _room(onTurn: true));
+    await _pumpTable(tester, state);
+    expect(figure('1'), findsOneWidget, reason: 'one missile held');
+    expect(pill('1'), findsOneWidget, reason: 'the pill agrees');
+    expect(_button(tester).onPressed, isNotNull);
+    expect(_opacity(tester), 1);
+
+    // The shot is acknowledged with none left.
+    state.user = state.user!.withMissile(0);
+    state.notifyListeners();
+    await tester.pump();
+    expect(figure('0'), findsOneWidget, reason: 'the missile is spent');
+    expect(figure('1'), findsNothing, reason: 'the cost is not written');
+    expect(pill('0'), findsOneWidget, reason: 'the pill agrees');
+    expect(state.hasMissile, isFalse);
+    expect(_opacity(tester), 0.42, reason: 'muted with none to spend');
+    expect(
+      _button(tester).onPressed,
+      isNotNull,
+      reason: 'still answers a tap with the store',
+    );
+
+    // A pack bought at the table lands the same way.
+    state.user = state.user!.withMissile(5);
+    state.notifyListeners();
+    await tester.pump();
+    expect(figure('5'), findsOneWidget, reason: 'the pack landed');
+    expect(figure('0'), findsNothing);
+    expect(pill('5'), findsOneWidget, reason: 'the pill agrees');
+    expect(_opacity(tester), 1, reason: 'lit again');
+
+    await _teardown(tester, state);
+  });
+
+  // A count wider than the 1 the key used to write must still fit the key on
+  // the tightest phone at the text ceiling: the detail line scales down
+  // inside MachinedKey's FittedBox rather than growing the key off Pack or
+  // painting an overflow.
+  testWidgets('a three-figure count fits the key at 640x360, text x1.25', (
+    tester,
+  ) async {
+    const screen = Size(640, 360);
+    final state = _newState(missiles: 250, room: _room(onTurn: true));
+    await _pumpTable(tester, state, size: screen, textScale: 1.25);
+
+    expect(
+      find.descendant(of: _key, matching: find.text('250')),
+      findsOneWidget,
+    );
+    final missile = tester.getRect(_key);
+    final pack = tester.getRect(
+      find.descendant(
+        of: find.byWidgetPredicate(
+          (w) => w.runtimeType.toString() == '_PackKey',
+        ),
+        matching: find.byType(FilledButton),
+      ),
+    );
+    expect(missile.left, pack.left);
+    expect(missile.width, pack.width);
+    expect(missile.bottom, lessThanOrEqualTo(pack.top));
+    expect(
+      (Offset.zero & screen).intersect(missile),
+      missile,
+      reason: 'the key is wholly on the screen',
+    );
+    expect(tester.takeException(), isNull, reason: 'nothing overflowed');
 
     await _teardown(tester, state);
   });

@@ -22,6 +22,7 @@ import 'package:teenpatti/screens/table_screen.dart';
 import 'package:teenpatti/settings/feedback_settings.dart';
 import 'package:teenpatti/state/game_state.dart';
 import 'package:teenpatti/theme/app_theme.dart';
+import 'package:teenpatti/widgets/playing_card.dart';
 import 'package:teenpatti/widgets/premium_surface.dart';
 import 'package:teenpatti/widgets/seat_pod.dart';
 import 'package:teenpatti/widgets/variation_prompt.dart';
@@ -347,6 +348,53 @@ void main() {
       expect(tag(Variation.joker, null), 'Variation · Joker');
       expect(tag(Variation.joker, '9'), 'Variation · Joker');
       expect(tag(Variation.hukam, '9x'), 'Variation · Hukam');
+    });
+
+    test('comes in parts: words, and under Hukam a suit to paint', () {
+      // Owner, 24 Sep 2026: "the icon on top is not visible properly" — the
+      // '♣' in the gold label was drawn by Android's colour emoji font, black
+      // on the dark pill. The tag paints the suit now, so it is handed over as
+      // a letter and never as a glyph among the words; the Joker rank is type
+      // the font has, and stays among them.
+      VariationTagParts parts(String? selected, String? turnUp) =>
+          variationTagParts(
+            category: 'Variation',
+            boot: '200',
+            selected: selected,
+            turnUp: turnUp,
+            nameOf: const Strings(AppLang.english).variationName,
+          );
+
+      final stake = parts(null, null);
+      expect(stake.words, 'Variation · 200');
+      expect(stake.suit, isNull);
+      expect(stake.text, stake.words);
+
+      final joker = parts(Variation.joker, 'Td');
+      expect(joker.words, 'Variation · Joker · 10');
+      expect(joker.suit, isNull);
+
+      final hukam = parts(Variation.hukam, 'Kc');
+      expect(hukam.words, 'Variation · Hukam');
+      expect(hukam.suit, 'c');
+      expect(hukam.text, 'Variation · Hukam · ♣', reason: 'the string form');
+      for (final (code, suit) in [('9h', 'h'), ('As', 's'), ('2d', 'd')]) {
+        expect(parts(Variation.hukam, code).suit, suit);
+      }
+      expect(parts(Variation.hukam, '9x').suit, isNull);
+      expect(parts(Variation.hukam, '9x').words, 'Variation · Hukam');
+
+      expect(
+        variationWildSuit(Variation.joker, '9h'),
+        isNull,
+        reason: 'Joker makes a rank wild, not a suit',
+      );
+      expect(variationWildSuit(Variation.hukam, '9'), isNull);
+
+      // No words ever carry a glyph the bundled font cannot set.
+      for (final v in Variation.all) {
+        expect(parts(v, 'Kc').words, isNot(contains(RegExp('[♠♥♦♣]'))));
+      }
     });
   });
 
@@ -817,6 +865,87 @@ void main() {
       expect(find.text('VARIATION · Joker · 10'), findsOneWidget);
       await _teardown(tester, state);
     });
+
+    testWidgets(
+      'the tag paints the suit that is wild under Hukam, never types it',
+      (tester) async {
+        // Owner, 24 Sep 2026: "in Variation Game play when user selects
+        // Hukam, then the icon on top is not visible properly" — the bare '♣'
+        // in the gold label came out of Android's colour emoji font, which
+        // ignores the text colour: black on the dark pill. The suit is now a
+        // painted pip on a pale card face, in the label's line.
+        final state = _newState(
+          room: _room(
+            variation: _selected('u2', Variation.hukam, turnUp: 'Kc'),
+            turn: 'u2',
+          ),
+        );
+        await _pumpTable(
+          tester,
+          state,
+          screen: const Size(640, 360),
+          textScale: 1.25,
+        );
+        expect(tester.takeException(), isNull);
+
+        final tag = _private('_CategoryTag');
+        expect(tag, findsOneWidget);
+        // The words stop at the name: no Text in the tag carries a glyph.
+        final texts = tester
+            .widgetList<Text>(
+              find.descendant(of: tag, matching: find.byType(Text)),
+            )
+            .map(
+              (w) =>
+                  w.data ??
+                  w.textSpan!.toPlainText(includePlaceholders: false),
+            )
+            .toList();
+        expect(texts, ['VARIATION · Hukam · ']);
+        expect(find.text('VARIATION · Hukam · ♣'), findsNothing);
+
+        // The club, painted in its own ink on its own pale face.
+        final mark = find.descendant(of: tag, matching: find.byType(SuitMark));
+        expect(mark, findsOneWidget);
+        expect(tester.widget<SuitMark>(mark).suit, 'c');
+        final pip = find.descendant(of: mark, matching: find.byType(CardPips));
+        expect(pip, findsOneWidget);
+        expect(tester.widget<CardPips>(pip).colour, AppTheme.pipBlack);
+        expect(
+          find.descendant(of: pip, matching: find.byType(CustomPaint)),
+          findsOneWidget,
+          reason: 'a shape, not a glyph',
+        );
+        final tagRect = tester.getRect(tag);
+        final markRect = tester.getRect(mark);
+        expect(
+          tagRect.contains(markRect.topLeft) &&
+              tagRect.contains(markRect.bottomRight),
+          isTrue,
+          reason: 'the mark stands inside the tag',
+        );
+        final hukamHeight = tagRect.height;
+        await _teardown(tester, state);
+
+        // The mark stands in the label's line and grows nothing: the tag is
+        // exactly as tall as under a variation with nothing to paint.
+        final plain = _newState(
+          room: _room(variation: _selected('u2', Variation.muflis), turn: 'u2'),
+        );
+        await _pumpTable(
+          tester,
+          plain,
+          screen: const Size(640, 360),
+          textScale: 1.25,
+        );
+        expect(find.byType(SuitMark), findsNothing);
+        expect(
+          tester.getRect(_private('_CategoryTag')).height,
+          closeTo(hukamHeight, 0.5),
+        );
+        await _teardown(tester, plain);
+      },
+    );
 
     testWidgets('a seen table reads exactly as it did', (tester) async {
       final state = _newState(

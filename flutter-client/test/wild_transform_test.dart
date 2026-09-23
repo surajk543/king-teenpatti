@@ -29,6 +29,15 @@ Future<void> _run(WidgetTester tester, Duration total) async {
 String? _shownCode(WidgetTester tester) =>
     tester.widget<PlayingCard>(find.byType(PlayingCard)).code;
 
+/// The tab at the foot of a turned wild card, naming the card really held.
+Finder _realCardTab(String code) =>
+    find.byKey(ValueKey('wild-real-card:$code'));
+
+/// The painted suit on that tab.
+CardPips _tabPip(WidgetTester tester, String code) => tester.widget<CardPips>(
+  find.descendant(of: _realCardTab(code), matching: find.byType(CardPips)),
+);
+
 void main() {
   group('you.hand', () {
     test('says which cards were wild and what each stood for', () {
@@ -133,7 +142,20 @@ void main() {
       expect(tester.takeException(), isNull);
       expect(_shownCode(tester), 'Kd');
       expect(find.text('WILD'), findsOneWidget);
-      expect(find.text('4♠'), findsOneWidget, reason: 'the card really held');
+      expect(
+        _realCardTab('4s'),
+        findsOneWidget,
+        reason: 'the card really held',
+      );
+      // The rank in type and the suit painted in the suit's own ink — never a
+      // bare '♠' from whatever font the phone falls back to (24 Sep 2026).
+      expect(
+        find.descendant(of: _realCardTab('4s'), matching: find.text('4')),
+        findsOneWidget,
+      );
+      expect(find.text('4♠'), findsNothing);
+      expect(_tabPip(tester, '4s').suit, 's');
+      expect(_tabPip(tester, '4s').colour, AppTheme.pipBlack);
 
       // The one-second tick rebuilds the table; the card does not turn again.
       await tester.pumpWidget(card(standIn: 'Kd'));
@@ -174,7 +196,9 @@ void main() {
       await _run(tester, const Duration(seconds: 3));
       expect(_shownCode(tester), 'Ah');
       expect(find.text('WILD'), findsOneWidget);
-      expect(find.text('7♥'), findsOneWidget);
+      expect(_realCardTab('7h'), findsOneWidget);
+      expect(_tabPip(tester, '7h').suit, 'h');
+      expect(_tabPip(tester, '7h').colour, AppTheme.pipRed);
       expect(tester.takeException(), isNull);
     });
 
@@ -195,7 +219,7 @@ void main() {
       await tester.pump();
       expect(_shownCode(tester), '9d');
       expect(find.text('WILD'), findsOneWidget);
-      expect(find.text('K♠'), findsOneWidget);
+      expect(_realCardTab('Ks'), findsOneWidget);
     });
 
     testWidgets('does not change the size of the card it stands in for', (

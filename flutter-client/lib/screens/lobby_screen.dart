@@ -4680,9 +4680,10 @@ class _BonusChip extends StatelessWidget {
       icon: Icons.hourglass_bottom,
       leadingBuilder: (fg) => _Hourglass(colour: fg, running: !ready),
       title: state.t.fourHourBonus,
-      subtitle: ready
-          ? '${state.t.collect} ${formatChips(r.bonusReward)}'
-          : formatCountdown(r.untilBonus, state.t),
+      // Ready, it shows what it pays behind a coin rather than the word
+      // Collect (owner, 24 Sep 2026).
+      subtitle: ready ? null : formatCountdown(r.untilBonus, state.t),
+      reward: ready ? (chips: r.bonusReward, hammers: 0) : null,
       enabled: ready,
       maxWidth: maxWidth,
       onTap: () => state.claimReward('bonus'),
@@ -4708,13 +4709,15 @@ class _DailyBonusChip extends StatelessWidget {
     return _CornerChip(
       icon: Icons.redeem,
       title: state.t.dailyBonus,
-      subtitle: ready
-          ? [
-              state.t.collect,
-              formatChips(r.dailyReward),
-              if (r.dailyHammers > 0) state.t.plusHammers(r.dailyHammers),
-            ].join(' ')
-          : formatCountdown(r.untilDaily, state.t),
+      // Ready, it shows the lakh behind a coin and the hammer as the hammer,
+      // with no word (owner, 24 Sep 2026): "Collect 1,00,000 +1 Hammer" was
+      // cut to "Collect 100,000 +..." on a 640dp phone, and the glyphs are
+      // what let the whole reward fit.
+      subtitle: ready ? null : formatCountdown(r.untilDaily, state.t),
+      reward: ready ? (chips: r.dailyReward, hammers: r.dailyHammers) : null,
+      // A cap of its own, a tenth over the top bar's slot: it pays two
+      // currencies to the 4-hour chip's one, and the foot has the room.
+      maxWidth: Dim.dailyBonusW(MediaQuery.sizeOf(context).width),
       enabled: ready,
       onTap: () => state.claimReward('daily'),
       onWaitTap: () => openBonusDetails(context, 'daily'),
@@ -5113,6 +5116,9 @@ class _MilestoneChip extends StatelessWidget {
   }
 }
 
+/// What a reward pays, for a [_CornerChip]'s second line once it is ready.
+typedef _RewardPay = ({int chips, int hammers});
+
 /// A reward, waiting to be taken.
 ///
 /// Both states carry the same body; what changes is the edge and the glow. A
@@ -5123,13 +5129,17 @@ class _CornerChip extends StatelessWidget {
   const _CornerChip({
     required this.icon,
     required this.title,
-    required this.subtitle,
     required this.enabled,
     required this.onTap,
+    this.subtitle,
+    this.reward,
     this.leadingBuilder,
     this.maxWidth,
     this.onWaitTap,
-  });
+  }) : assert(
+         (subtitle == null) != (reward == null),
+         'a chip has one second line: words, or what the reward pays',
+       );
 
   final IconData icon;
 
@@ -5138,7 +5148,25 @@ class _CornerChip extends StatelessWidget {
   /// whether the chip is enabled.
   final Widget Function(Color colour)? leadingBuilder;
   final String title;
-  final String subtitle;
+
+  /// The second line in words: the countdown, the hands to go, or the
+  /// milestone's "Collect 25,000". Exactly one of this and [reward] is given.
+  final String? subtitle;
+
+  /// The second line as what the reward pays — the wallet's own glyphs and the
+  /// figures, no word: a coin before the chips, and after them "+1" and the
+  /// hammer (owner, 24 Sep 2026: "In daily Bonus button instead of showing
+  /// text 'collect' show coins icon and instead of text 'Hammer' show icon.
+  /// Same in case of 4 Hour Bonus show coin icon instead of collect text").
+  /// "Collect 1,00,000 +1 Hammer" ellipsised on a 640dp phone; drawn this way
+  /// the whole reward fits in the same slot. The glyphs are the top bar's — a
+  /// [PokerChip] beside the balance, [Icons.hardware] beside the hammers — so
+  /// the chip reads as paying the currencies the bar counts, each in the ink
+  /// the bar gives it (the coin's gold, the hammer's copper), not the chip's
+  /// foreground — a champagne coin was not the wallet's coin (review, 24 Sep
+  /// 2026).
+  final _RewardPay? reward;
+
   final bool enabled;
   final VoidCallback onTap;
 
@@ -5162,6 +5190,7 @@ class _CornerChip extends StatelessWidget {
         ? gold
         : theme.colorScheme.onSurface.withValues(alpha: AppTheme.inkMed);
     final cap = maxWidth ?? Dim.bonusSlotW(MediaQuery.sizeOf(context).width);
+    final money = AppTheme.money(text.labelLarge!, colour: fg);
 
     return ConstrainedBox(
       constraints: BoxConstraints(maxWidth: cap),
@@ -5214,12 +5243,15 @@ class _CornerChip extends StatelessWidget {
                           ),
                         ),
                       ),
-                      Text(
-                        subtitle,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppTheme.money(text.labelLarge!, colour: fg),
-                      ),
+                      if (reward == null)
+                        Text(
+                          subtitle!,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: money,
+                        )
+                      else
+                        _rewardLine(context, reward!, fg, money),
                     ],
                   ),
                 ),
@@ -5228,6 +5260,51 @@ class _CornerChip extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+
+  /// `[coin] 1,00,000  +1 [hammer]`; the hammer and its count only when the
+  /// reward carries one. Each glyph is the size of the figure's type, so it
+  /// scales with the text and stays under its line: the row is exactly as
+  /// tall as the countdown's one line, and the chip does not grow when it
+  /// becomes claimable. A row rather than a paragraph with the glyphs inline,
+  /// because a placeholder that opens a paragraph is centred on a line that
+  /// has no text metrics yet and pushes the line 2dp taller. The figure alone
+  /// is flexible, so a slot too narrow cuts it to "…" and never overflows.
+  static Widget _rewardLine(
+    BuildContext context,
+    _RewardPay pay,
+    Color fg,
+    TextStyle style,
+  ) {
+    final glyph = MediaQuery.textScalerOf(context).scale(style.fontSize!);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // The wallet's own coin — the top bar's gold, not the chip's champagne
+        // ink — so the chip reads as paying the currency the bar counts.
+        PokerChip(colour: AppTheme.gold, size: glyph),
+        const SizedBox(width: Space.xs),
+        Flexible(
+          child: Text(
+            formatChips(pay.chips),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: style,
+          ),
+        ),
+        if (pay.hammers > 0) ...[
+          const SizedBox(width: Space.sm),
+          Text('+${pay.hammers}', maxLines: 1, style: style),
+          const SizedBox(width: Space.xxs),
+          // And the hammer in its own copper, as the bar and the popup draw it.
+          Icon(
+            Icons.hardware,
+            size: glyph,
+            color: hammerInkOn(Theme.of(context).brightness),
+          ),
+        ],
+      ],
     );
   }
 }

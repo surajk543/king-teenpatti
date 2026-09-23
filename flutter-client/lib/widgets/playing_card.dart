@@ -354,6 +354,57 @@ class CardPips extends StatelessWidget {
   }
 }
 
+/// A suit on a miniature card face, for the places a suit is NAMED in a line
+/// of text rather than printed on a card — the table's tag over the pot,
+/// "Variation · Hukam · ♣".
+///
+/// Painted, never typed (owner, 24 Sep 2026: "in Variation Game play when
+/// user selects Hukam, then the icon on top is not visible properly"). The tag
+/// used to end in a bare '♣' set in the label's gold, and Inter has no such
+/// glyph: Android drew it from the colour emoji font, which ignores the text
+/// colour — a black club on the tag's dark pill, invisible, and a red emoji
+/// heart for hearts. A pale rounded square with the [CardPips] silhouette in
+/// the suit's own ink keeps the suit's colour — red hearts and diamonds, black
+/// spades and clubs — on any ground in either theme, and reads as the card it
+/// names.
+class SuitMark extends StatelessWidget {
+  const SuitMark({super.key, required this.suit, required this.size});
+
+  /// A suit letter as [PlayingCard.suitOf] returns it.
+  final String suit;
+
+  /// The side of the square, which the pip fills [pipShare] of.
+  final double size;
+
+  /// How much of the face the pip takes: a card's own corner pip, with a
+  /// margin of face around it, not a poster.
+  static const double pipShare = 0.72;
+
+  /// The face, a little short of opaque so the pill's edge still shows
+  /// through where the two meet.
+  static const double faceAlpha = 0.92;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    // What a screen reader said when this was a glyph.
+    label: PlayingCard.suitSymbol(suit),
+    child: Container(
+      width: size,
+      height: size,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: AppTheme.cardFace.withValues(alpha: faceAlpha),
+        borderRadius: BorderRadius.circular(size * 0.22),
+      ),
+      child: CardPips(
+        suit: suit,
+        size: size * pipShare,
+        colour: PlayingCard.inkFor(suit),
+      ),
+    ),
+  );
+}
+
 /// The rank index, drawn on the same grid as the pips.
 ///
 /// Ranks are ASCII the server owns ("A", "2".."9", "10", "J", "Q", "K"), so
