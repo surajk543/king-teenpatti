@@ -1509,8 +1509,10 @@ class MissileBalance extends StatelessWidget {
   );
 }
 
-/// The missiles a player holds and the diamonds a missile pack is traded for —
-/// missiles first, then diamonds — in one dark panel, for the store's Missiles
+/// The diamonds a missile pack is traded for and the missiles a player holds
+/// — diamonds first, then missiles, the order every other place gives the two
+/// (the table's [WalletPill], the trade dialog over this very shelf) — in one
+/// dark panel, for the store's Missiles
 /// shelf (owner, 24 Sep 2026: the shelf must show "user current missile count
 /// just like it is showing diamond count", and the diamonds stay, since the
 /// packs are paid in them). The same [_WalletPanel] as the Pictures shelf's
@@ -1528,7 +1530,7 @@ class MissileWalletBalances extends StatelessWidget {
   final int missiles;
   final int diamonds;
 
-  /// Diamonds on a line under the missiles rather than beside them.
+  /// Missiles on a line under the diamonds rather than beside them.
   final bool stacked;
 
   /// How wide the panel is at this text scale, in a row or [stacked]
@@ -1540,7 +1542,7 @@ class MissileWalletBalances extends StatelessWidget {
     required bool stacked,
   }) => _WalletPanel.width(
     context,
-    counts: [missiles, diamonds],
+    counts: [diamonds, missiles],
     stacked: stacked,
   );
 
@@ -1548,8 +1550,8 @@ class MissileWalletBalances extends StatelessWidget {
   Widget build(BuildContext context) => _WalletPanel(
     stacked: stacked,
     wallets: [
-      MissileBalance(count: missiles, framed: false),
       DiamondBalance(count: diamonds, framed: false),
+      MissileBalance(count: missiles, framed: false),
     ],
   );
 }

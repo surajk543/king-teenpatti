@@ -362,7 +362,7 @@ void main() {
           tab: StoreTab.missiles,
           screen: const Size(640, 360),
         );
-        // One panel: the missiles, then the diamonds the packs are paid in.
+        // One panel: the diamonds the packs are paid in, then the missiles.
         expect(find.byType(MissileWalletBalances), findsOneWidget);
         expect(_missilesShown('3'), findsOneWidget);
         expect(_diamondsShown('100'), findsOneWidget);
@@ -374,12 +374,13 @@ void main() {
           ),
           findsOneWidget,
         );
-        // Missiles first — above the diamonds or to their left — as the
-        // owner asked for the count "just like" the diamonds', not instead
-        // of them.
+        // Diamonds first — above the missiles or to their left — the order
+        // the table's wallet pill and the trade dialog over this shelf give
+        // the two (review, 24 Sep 2026); the count is beside them, not
+        // instead of them.
         final missiles = tester.getTopLeft(find.byType(MissileBalance));
         final diamonds = tester.getTopLeft(find.byType(DiamondBalance));
-        expect(missiles.dy < diamonds.dy || missiles.dx < diamonds.dx, isTrue);
+        expect(diamonds.dy < missiles.dy || diamonds.dx < missiles.dx, isTrue);
         expect(find.byType(HammerBalance), findsNothing);
         expect(find.byType(PictureWalletBalances), findsNothing);
         // The shelf's own blurb keeps its words beside the panel.
