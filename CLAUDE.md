@@ -187,11 +187,17 @@ Shell quirks on this machine: zsh with `grep`→`ugrep` and `find`→`bfs` alias
 `--include=*.js` (or `*.go`) fails with "no matches found" — quote it; `cd` in one Bash call can leak
 into the next — use absolute paths.
 
-Server ↔ client: the app's default `SERVER_URL` is the **production backend
-`https://api.sungamestudio.com`** (REST + Socket.IO over TLS; verified 2026‑09‑08 to run the current
-server code). For a local server build with `--dart-define=SERVER_URL=http://10.0.2.2:3000`
-(the emulator's alias for the host loopback) or `http://<lan-ip>:3000` for a real device on the LAN —
-`usesCleartextTraffic` stays on for exactly that.
+Server ↔ client: the backend's address is ONE build-time setting, `lib/config/server_config.dart`
+(`ServerConfig.url`, `--dart-define=SERVER_URL`; REST at `<url>/api/...`, the Socket.IO handshake at
+`<url>/socket.io/`, the served pages such as `privacy/` on the same host). **With no define the app talks to
+PREPROD, `https://preprod.sungamestudio.com`** (owner, 24 Sep 2026: "change the prefix to preprod … this should be
+configurable"; the default was production, `https://api.sungamestudio.com`, until then), so an unconfigured build can
+never reach the production accounts — and **the store build must name production explicitly**:
+`flutter build appbundle --release --dart-define-from-file=flutter-client/config/production.json`. `flutter-client/config/`
+holds one JSON per environment (`production`, `preprod`, `local-emulator`: `SERVER_URL`, `APP_ENV`, `GOOGLE_SERVER_CLIENT_ID`);
+`APP_ENV` is shown beside the version in the settings drawer unless it is `production`. A local server is
+`--dart-define=SERVER_URL=http://10.0.2.2:3000` (the emulator's alias for the host loopback) or `http://<lan-ip>:3000` for a
+real device on the LAN — `usesCleartextTraffic` stays on for exactly that. `test/server_config_test.dart` pins the default.
 `usesCleartextTraffic="true"` in the manifest makes plain http work.
 
 ---
@@ -260,8 +266,10 @@ flutter analyze                 # must be clean (it is)
 flutter test                    # every suite under test/ (number formatting, connection failures, consent, … the table catalogue and the engine lobby)
 flutter test tool/render_icons.dart   # re-render launcher/adaptive/splash PNGs from assets/app_icon.svg (not part of `flutter test`)
 flutter build apk --debug       # ~7s incremental; build/app/outputs/flutter-apk/app-debug.apk
-flutter build apk --debug --dart-define=SERVER_URL=http://10.0.2.2:3000   # local server on the emulator
+flutter build apk --debug       # no define → PREPROD (https://preprod.sungamestudio.com), never production
+flutter build apk --debug --dart-define-from-file=config/local-emulator.json   # local server on the emulator (= SERVER_URL=http://10.0.2.2:3000)
 flutter build apk --debug --dart-define=SERVER_URL=http://192.168.1.10:3000  # local server, real device
+flutter build appbundle --release --dart-define-from-file=config/production.json   # THE STORE BUILD: api.sungamestudio.com + the Google client id
 adb install -r build/app/outputs/flutter-apk/app-debug.apk
 adb shell am start -n com.sungamestudio.kingteenpatti/.MainActivity   # launch (monkey … 1 also launches it but injects ONE random event — it once opened the store and an unlock question)
 adb shell am force-stop com.sungamestudio.kingteenpatti
@@ -784,7 +792,7 @@ user (`session:replaced` to the old one). On connect: `session:ready {user, conf
 | `poker:cards {cards}` (the deal, and the new hand after a draw) · `poker:yourTurn {street, deadline, timeoutMs, options}` | owner only / player on turn |
 | `chat:message` / `chat:history` / `game:error` | room / socket / socket |
 
-Production: `https://api.sungamestudio.com` (REST + Socket.IO over TLS) — the Flutter default since 2026‑09‑08; runs the current server code (verified: 10-rung blind ladder, `invalid_bet` on string amounts).
+Production: `https://api.sungamestudio.com` (REST + Socket.IO over TLS) — the Flutter default from 2026‑09‑08 until 24 Sep 2026, when the default became preprod (§3, `ServerConfig`); runs the current server code (verified: 10-rung blind ladder, `invalid_bet` on string amounts).
 Client coverage: **Flutter** never sends `lobby:list`, `chat:history`, `ping:rtt`, and never listens
 to `game:handStarted`, `player:hand`, `game:turn`, `game:yourTurn` — it derives turn and options
 from `room:state.turn` / `you.options`. Changing `you.options` affects Flutter; changing
@@ -2206,7 +2214,7 @@ PORT=3001 HOST=127.0.0.1 PG_SCHEMA=test_x ./bin/gameplay      # spare port + thr
 cd ../tools && npm run parity                                 # --bin <path> / --filter a,b / --keep / --url <running server> --schema <s>
 npm run parity:diff -- --a go --b http://127.0.0.1:3000 --schema-b public
 ```
-Bots (`npm run bot`), ramptest (`npm run ramp`), the Flutter debug build (`--dart-define=SERVER_URL=http://10.0.2.2:3000`)
+Bots (`npm run bot`), ramptest (`npm run ramp`), the Flutter debug build (`--dart-define-from-file=config/local-emulator.json`)
 and the §4 ledger-reconciliation psql check (`0`) are the acceptance run — unchanged tooling, Go on the other end.
 Two Go tests borrow `tools/node_modules` and one needs `NODE_REFERENCE_DIR` (§7.6); all skip cleanly without them.
 
