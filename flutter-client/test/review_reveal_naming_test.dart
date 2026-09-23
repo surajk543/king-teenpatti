@@ -130,6 +130,9 @@ ShowdownNews _showdown(
   List<({String id, List<String> cards, String name, List<String>? wild})>
   hands, {
   String? winnerId,
+  // The hand as it was counted, by player, where the server sends it (24 Sep
+  // 2026): a reveal with wild but no playsAs is an older server's.
+  Map<String, List<String>> playsAs = const {},
 }) => (
   reveals: [
     for (final h in hands)
@@ -140,6 +143,7 @@ ShowdownNews _showdown(
         'handName': h.name,
         'won': h.id == winnerId,
         'wild': ?h.wild,
+        'playsAs': ?playsAs[h.id],
       }),
   ],
   result: '',
@@ -271,7 +275,7 @@ void main() {
           _showdown([
             (id: 'u2', cards: ['Ks', 'Kd', '7c'], name: 'Trail', wild: ['7c']),
             (id: 'u3', cards: ['Ah', '9d', '4c'], name: 'High Card', wild: []),
-          ]),
+          ], playsAs: {'u2': ['Ks', 'Kd', 'Kc']}),
         );
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 400));
@@ -288,7 +292,9 @@ void main() {
         );
         expect(find.text('Pair'), findsNothing, reason: 'nothing re-ranked K-K');
 
-        // The three faces are the real cards, not the stand-in.
+        // The faces are the hand as it was COUNTED (owner, 24 Sep 2026: "on
+        // show or sideshow, show updated cards not the base cards"): the
+        // wild 7 shows as the king it stood for, still marked as the joker.
         expect(
           tester
               .widgetList<PlayingCard>(
@@ -298,7 +304,7 @@ void main() {
                 ),
               )
               .map((c) => c.code),
-          ['Ks', 'Kd', '7c'],
+          ['Ks', 'Kd', 'Kc'],
         );
 
         // Exactly the 7 is edged, in a gold that reads on the face (24 Sep
@@ -349,6 +355,33 @@ void main() {
         await _teardown(tester, state);
       },
     );
+
+    testWidgets('from a server that sends wild but no playsAs, the faces are '
+        'the cards as dealt, still edged', (tester) async {
+      final state = _newState(
+        room: _room(variation: _selected(Variation.ak47), state: 'showdown'),
+      );
+      await _pumpTable(tester, state);
+      state.handleShowdown(
+        _showdown([
+          (id: 'u2', cards: ['Ks', 'Kd', '7c'], name: 'Trail', wild: ['7c']),
+          (id: 'u3', cards: ['Ah', '9d', '4c'], name: 'High Card', wild: []),
+        ]),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(tester.takeException(), isNull);
+      expect(
+        tester
+            .widgetList<PlayingCard>(
+              find.descendant(of: _pod('u2'), matching: find.byType(PlayingCard)),
+            )
+            .map((c) => c.code),
+        ['Ks', 'Kd', '7c'],
+      );
+      expect(_edgesOf(tester, 'u2').map((e) => e.wild), [false, false, true]);
+      await _teardown(tester, state);
+    });
 
     testWidgets('under Muflis the same cards are the Pair the wire names, '
         'with no edge', (tester) async {
