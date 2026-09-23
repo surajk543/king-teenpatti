@@ -58,8 +58,14 @@ const verbose = Boolean(args.verbose);
 const outDir = args.out ? path.resolve(args.out) : null;
 const logDir = path.join(os.tmpdir(), `king-teenpatti-parity-diff-${process.pid}`);
 
-/** The environment both spawned servers run with: long clocks, a slow deal (so three joins land before it), any stake. */
+/**
+ * The environment both spawned servers run with: long clocks, a slow deal (so
+ * three joins land before it), any stake — table figures from the env keys
+ * (TABLE_CONFIG_SOURCE=env), not the seeded catalogue, which would ignore all
+ * three.
+ */
 const DIFF_ENV = {
+  TABLE_CONFIG_SOURCE: 'env',
   TURN_TIMEOUT_MS: '60000',
   SIDESHOW_TIMEOUT_MS: '60000',
   NEXT_HAND_DELAY_MS: '3000',

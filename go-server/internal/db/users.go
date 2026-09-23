@@ -36,8 +36,10 @@ const (
 	DailyBonusInterval       = 24 * time.Hour
 )
 
-// The milestones of user_milestones (V1.0.0; TIMED_BONUS since V1.0.2): what
-// each player has collected, one row per player per milestone, updated in place.
+// The milestones of user_milestones (V1.0.0__baseline.sql, whose CHECK has
+// held TIMED_BONUS since V1.0.2__timed_bonus_milestone.sql was folded into it):
+// what each player has collected, one row per player per milestone, updated in
+// place.
 const (
 	MilestoneHandsPlayed = "HANDS_PLAYED"
 	MilestoneTimedBonus  = "TIMED_BONUS"
@@ -139,7 +141,7 @@ type Profile struct {
 	AvatarURL      *string
 	// IsBot marks this login as one of the resident bots (bot-play/), set by
 	// the auth layer from the guest device id's namespace
-	// (config.BotDevicePrefix). It is written to users.is_bot (V1.0.3) and
+	// (config.BotDevicePrefix). It is written to users.is_bot (V1.0.0) and
 	// is a LABEL for whoever queries the database — nothing in the game reads
 	// it, and it never reaches a client.
 	//

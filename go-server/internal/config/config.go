@@ -92,9 +92,9 @@ type Config struct {
 
 	// BotDevicePrefix is BOT_DEVICE_PREFIX ("botplay-"). A guest login whose
 	// DEVICE ID starts with this is recorded as one of the resident bots
-	// (users.is_bot, V1.0.3); everything else is a person. The fleet in
-	// bot-play/ namespaces its device ids `botplay-v1-<n>` — and a rotated
-	// bot `botplay-v1-<n>-g<gen>` — so the prefix covers both, and the
+	// (users.is_bot, V1.0.0__baseline.sql); everything else is a person. The
+	// fleet in bot-play/ namespaces its device ids `botplay-v1-<n>` — and a
+	// rotated bot `botplay-v1-<n>-g<gen>` — so the prefix covers both, and the
 	// namespace already exists to keep those accounts from colliding with
 	// tools/bot.js and the ramp test's.
 	//
@@ -156,8 +156,9 @@ type Config struct {
 	LiveReconcile time.Duration
 
 	// TableConfigSource is TABLE_CONFIG_SOURCE resolved (tables.go): "db" —
-	// the table_settings and table_configs rows in PostgreSQL, loaded once at
-	// boot by app.New — or "env" — the env keys and Defaults(), as the server
+	// the four configuration tables in PostgreSQL (the engines, the
+	// categories, table_settings and table_configs), loaded once at boot by
+	// app.New — or "env" — the env keys and Defaults(), as the server
 	// always composed them. Unset, it is env when any table env key is set and
 	// db otherwise, so a deployment whose .env pins its menu changes nothing
 	// until someone switches it on purpose.

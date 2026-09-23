@@ -11,11 +11,16 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   http, login, guestLogin, me, health, openClient, closeAll, stakeCounter, isNode, isGo, profile,
-  assertKeys, decodeJwt, signJwt, UUID, pause, baseUrl,
+  assertKeys, decodeJwt, signJwt, UUID, pause, baseUrl, CONFIG_KEYS, closeOpenClients,
 } from './lib/harness.mjs';
 import { query, closeDb, wallet, setWallet } from './lib/db.mjs';
 
-test.after(closeDb);
+// A test that fails with a socket open would otherwise hold the runner until
+// the file timeout.
+test.after(async () => {
+  await closeOpenClients();
+  await closeDb();
+});
 
 const uniqueStake = stakeCounter(100);
 
@@ -765,7 +770,7 @@ test('reward and profile routes need a session', async () => {
 
 test('health reports live counts with the shape the tools read', async () => {
   const body = await health();
-  assertKeys(body, ['ok', 'uptime', 'tables', 'players', 'activeHands', 'sockets', 'process', 'db', 'live', 'version']);
+  assertKeys(body, ['ok', 'uptime', 'tables', 'players', 'activeHands', 'sockets', 'process', 'db', 'live', 'version', 'tableConfig']);
   assert.equal(body.ok, true);
   assert.equal(typeof body.uptime, 'number');
   assert.ok(body.uptime > 0);
@@ -794,6 +799,13 @@ test('health reports live counts with the shape the tools read', async () => {
   // actually landed, and an empty string there would read as "no build".
   assert.equal(typeof body.version, 'string');
   assert.ok(body.version.length > 0, 'version must not be empty');
+  // Where the tables this process plays by came from (23 Sep 2026): the source
+  // the profile asked for, never the env fallback a db-sourced boot takes when
+  // it cannot use the catalogue, and the version GET /api/tables carries.
+  assertKeys(body.tableConfig, ['source', 'version', 'fallback']);
+  assert.equal(body.tableConfig.source, profile.tableConfigSource);
+  assert.equal(body.tableConfig.fallback, false);
+  assert.match(body.tableConfig.version, /^[0-9a-f]{64}$/);
 
   // The counts move with the tables.
   const account = await guestLogin('device-health-0001', 'Healthy');
@@ -831,6 +843,224 @@ test('/api/rooms lists public tables with the lobby options', async () => {
   assert.ok(upper.body.tables.some((t) => t.roomId === joined.roomId), 'an unknown filter value means no filter');
 
   await client.close();
+});
+
+// ------------------------------------------------------- the table catalogue
+//
+// GET /api/tables (owner, 23 Sep 2026: "all table related config store in
+// database … the UI fetches it, stores it on the phone, and re-fetches it at
+// every login"). These tests run in two profiles (tools/parity.mjs): `main`,
+// whose server composes its tables from the env keys with the menu lifted, and
+// `menu`, which runs only the tests named "GET /api/tables" against a server
+// playing the seeded catalogue from PostgreSQL. Everything but the figures is
+// asserted identically in both.
+
+/** The body's keys: session:ready.config's table figures, then the catalogue's own. */
+const TABLE_CONFIG_KEYS = [
+  'version', 'source', 'maxPlayers', 'minPlayers', 'bootAmount', 'turnTimeoutMs', 'maxBetRounds', 'sideshowTimeoutMs',
+  'sideshowMinPlayers', 'categories', 'stakes', 'entryCapBoot', 'entryCapCategory', 'entryCapMaxChips', 'privateBoot',
+  'privateMaxPot', 'tables', 'privateTables', 'engines',
+];
+/** What a catalogue entry carries after the lobby entry's own keys, in this order. */
+const TABLE_ENTRY_EXTRA_KEYS = [
+  'key', 'engine', 'isPrivate', 'sortOrder', 'maxRaiseSteps', 'maxBetRounds', 'potLimitMultiplier', 'turnTimeoutMs',
+  'maxMissedTurns', 'sideshowTimeoutMs', 'sideshowMinPlayers', 'nextHandDelayMs', 'unfundedGraceMs', 'missileRevealExtraMs',
+  'variationSelectTimeoutMs', 'fiveCardPickTimeoutMs',
+];
+const POKER_CATEGORIES = ['three_card_poker', 'five_card_draw', 'texas_holdem', 'omaha'];
+const CATEGORY_ORDER = ['seen', 'blind', 'variation', ...POKER_CATEGORIES];
+/**
+ * The taxonomy (table_engines and table_categories): the categories are flat
+ * and each belongs to exactly one engine — seen, blind and variation to Teen
+ * Patti, the four poker categories to Poker. The names are admin labels (a
+ * client names what it knows in its own language); a db-sourced server reads
+ * them from the seed, an env-sourced one has the same defaults.
+ */
+const ENGINES = [
+  {
+    code: 'teen_patti',
+    name: 'Teen Patti',
+    sortOrder: 10,
+    categories: [
+      { code: 'seen', name: 'Seen', sortOrder: 10 },
+      { code: 'blind', name: 'Blind', sortOrder: 20 },
+      { code: 'variation', name: 'Variation', sortOrder: 30 },
+    ],
+  },
+  {
+    code: 'poker',
+    name: 'Poker',
+    sortOrder: 20,
+    categories: [
+      { code: 'three_card_poker', name: '3-Card Poker', sortOrder: 40 },
+      { code: 'five_card_draw', name: '5-Card Draw', sortOrder: 50 },
+      { code: 'texas_holdem', name: "Texas Hold'em", sortOrder: 60 },
+      { code: 'omaha', name: 'Omaha', sortOrder: 70 },
+    ],
+  },
+];
+/** The public tables V1.0.1__seed.sql writes into a fresh schema, in menu order. */
+const SEEDED_TABLE_KEYS = [
+  'seen:200', 'blind:200', 'blind:5000', 'blind:50000', 'blind:1000000', 'variation:50000', 'variation:1000000',
+  'seen:50000', 'three_card_poker:50000', 'five_card_draw:50000', 'texas_holdem:50000', 'omaha:50000',
+];
+
+const engineOf = (category) => (POKER_CATEGORIES.includes(category) ? 'poker' : 'teen_patti');
+
+test('GET /api/tables serves the catalogue session:ready names: the same menu entry for entry, one version, every table under its engine', async () => {
+  const account = await guestLogin('device-tables-0001', 'Catalogue');
+  const client = await openClient(account.token);
+  const ready = await client.wait('session:ready');
+  // Public: a client fetches it before it has signed in.
+  const r = await http('GET', '/api/tables');
+  assert.equal(r.status, 200);
+  assert.match(r.headers.get('content-type') ?? '', /^application\/json/);
+  const body = r.body;
+  assert.deepEqual(Object.keys(body), TABLE_CONFIG_KEYS, 'the body keys, in order');
+  assert.match(body.version, /^[0-9a-f]{64}$/);
+  assert.equal(body.version, ready.config.tableConfigVersion, 'session:ready names the version this body carries');
+  assert.equal(body.source, profile.tableConfigSource);
+
+  // Every figure the two share is the same figure. They share exactly the
+  // table figures: the session-scoped keys (welcomeChips, minClientBuild) are
+  // never in the catalogue a phone keeps across sessions and players.
+  const shared = CONFIG_KEYS.filter((key) => TABLE_CONFIG_KEYS.includes(key));
+  assert.deepEqual(
+    CONFIG_KEYS.filter((key) => !shared.includes(key)).sort(),
+    ['minClientBuild', 'tableConfigVersion', 'welcomeChips'],
+  );
+  for (const key of shared.filter((k) => k !== 'tables')) {
+    assert.deepEqual(body[key], ready.config[key], key);
+  }
+  // tables is session:ready.config.tables entry for entry — same order, same
+  // keys first, same values — with the figures a table plays by after them.
+  assert.equal(body.tables.length, ready.config.tables.length, 'one catalogue entry per menu entry');
+  for (const [i, menuEntry] of ready.config.tables.entries()) {
+    const entry = body.tables[i];
+    const menuKeys = Object.keys(menuEntry);
+    assert.deepEqual(Object.keys(entry), [...menuKeys, ...TABLE_ENTRY_EXTRA_KEYS], `keys of table ${i}`);
+    assert.deepEqual(Object.fromEntries(menuKeys.map((k) => [k, entry[k]])), menuEntry, `table ${i} is the menu entry`);
+  }
+
+  // The taxonomy, and every table filed under the engine that plays it.
+  assert.deepEqual(body.engines, ENGINES);
+  const filed = new Map(body.engines.flatMap((e) => e.categories.map((c) => [c.code, e.code])));
+  for (const entry of [...body.tables, ...body.privateTables]) {
+    assert.equal(entry.engine, engineOf(entry.category), `${entry.key} engine`);
+    assert.equal(filed.get(entry.category), entry.engine, `${entry.key} is under its category's engine`);
+    // A poker entry names its family as the lobby card always has.
+    if (entry.engine === 'poker') assert.equal(entry.game, 'poker', `${entry.key} game`);
+    else assert.equal('game' in entry, false, `${entry.key} names no family`);
+  }
+  for (const entry of body.tables) {
+    assert.equal(entry.key, `${entry.category}:${entry.bootAmount}`);
+    assert.equal(entry.isPrivate, false);
+  }
+  // One private template per category a room:create can open, in category
+  // order, with no stack band (a private table is open to whoever has the code).
+  assert.ok(body.privateTables.length > 0, 'a private seen template at least');
+  assert.equal(body.privateTables[0].category, 'seen');
+  const privateCategories = body.privateTables.map((entry) => entry.category);
+  assert.deepEqual(privateCategories, CATEGORY_ORDER.filter((c) => privateCategories.includes(c)), 'category order');
+  for (const entry of body.privateTables) {
+    assert.deepEqual(Object.keys(entry).slice(-TABLE_ENTRY_EXTRA_KEYS.length), TABLE_ENTRY_EXTRA_KEYS, `${entry.key} keys`);
+    assert.equal(entry.key, `private:${entry.category}`);
+    assert.equal(entry.isPrivate, true);
+    assert.equal(entry.minChips, 0, `${entry.key} has no band`);
+    assert.equal(entry.maxChips, 0, `${entry.key} has no band`);
+    assert.equal(entry.bootAmount, body.privateBoot, `${entry.key} boot`);
+  }
+  assert.equal(body.privateTables[0].maxPot, body.privateMaxPot, 'the private seen template is what privateMaxPot advertises');
+
+  // /health says the same thing about the same catalogue.
+  const h = await health();
+  assert.deepEqual(h.tableConfig, { source: body.source, version: body.version, fallback: false });
+  await client.close();
+});
+
+test('GET /api/tables carries the figures its source gives: the seeded rows from PostgreSQL, else the env keys', async () => {
+  const { body } = await http('GET', '/api/tables');
+  const privateKeys = body.privateTables.map((entry) => entry.key);
+  if (profile.tableConfigSource === 'db') {
+    // The `menu` profile: every table env key says otherwise (BOOT_AMOUNT 100,
+    // 1.2 s turns, 150 ms between hands, the menu lifted) and none of it shows.
+    assert.equal(body.source, 'db');
+    assert.equal(body.bootAmount, 200);
+    assert.equal(body.turnTimeoutMs, 25000);
+    assert.equal(body.sideshowTimeoutMs, 6000);
+    assert.deepEqual(body.stakes, [200, 5000, 50000, 1000000]);
+    assert.deepEqual(body.categories, CATEGORY_ORDER);
+    assert.deepEqual(body.tables.map((entry) => entry.key), SEEDED_TABLE_KEYS);
+    assert.deepEqual(body.tables.map((entry) => entry.sortOrder), SEEDED_TABLE_KEYS.map((_, i) => (i + 1) * 10));
+    assert.deepEqual(privateKeys, CATEGORY_ORDER.map((c) => `private:${c}`));
+    assert.deepEqual(body.privateTables.map((entry) => entry.sortOrder), CATEGORY_ORDER.map((_, i) => 1000 + (i + 1) * 10));
+    for (const entry of [...body.tables, ...body.privateTables]) {
+      assert.equal(entry.turnTimeoutMs, 25000, `${entry.key} turn`);
+      assert.equal(entry.nextHandDelayMs, 4000, `${entry.key} next hand`);
+      assert.equal(entry.maxMissedTurns, 3, `${entry.key} missed turns`);
+      if (entry.engine === 'teen_patti') assert.equal(entry.sideshowTimeoutMs, 6000, `${entry.key} sideshow`);
+      if (entry.category === 'variation') {
+        assert.equal(entry.variationSelectTimeoutMs, 10000, `${entry.key} window`);
+        assert.equal(entry.fiveCardPickTimeoutMs, 8000, `${entry.key} pick`);
+      } else {
+        assert.equal(entry.variationSelectTimeoutMs, 0, `${entry.key} has no window`);
+        assert.equal(entry.fiveCardPickTimeoutMs, 0, `${entry.key} has no pick`);
+      }
+    }
+    // The ladders the seed writes: the seen ladder of two rungs over seven
+    // rounds, blind without limits, the private seen table capped at 5 Lakh.
+    const byKey = Object.fromEntries([...body.tables, ...body.privateTables].map((entry) => [entry.key, entry]));
+    assert.deepEqual(
+      ['maxRaiseSteps', 'maxBetRounds', 'potLimitMultiplier', 'maxPot'].map((k) => byKey['seen:200'][k]),
+      [2, 7, 1024, 2000000],
+    );
+    assert.deepEqual(
+      ['maxRaiseSteps', 'maxBetRounds', 'potLimitMultiplier', 'maxPot'].map((k) => byKey['blind:200'][k]),
+      [0, 0, 0, 0],
+    );
+    assert.equal(byKey['private:seen'].maxPot, 500000);
+    assert.equal(byKey['texas_holdem:50000'].minBuyIn, 500000);
+    assert.equal(byKey['five_card_draw:50000'].maxDiscards, 3);
+  } else {
+    // An env-sourced server with the menu lifted (LOBBY_TABLES=''): no public
+    // table is listed because any pair may be opened, and every private
+    // template — variation included, a lifted menu offering it — plays by the
+    // profile's short clocks.
+    assert.equal(body.source, 'env');
+    assert.deepEqual(body.tables, []);
+    assert.deepEqual(body.stakes, []);
+    assert.equal(body.bootAmount, profile.bootAmount);
+    assert.equal(body.turnTimeoutMs, profile.turnTimeoutMs);
+    assert.equal(body.sideshowTimeoutMs, profile.sideshowTimeoutMs);
+    assert.deepEqual(privateKeys, CATEGORY_ORDER.map((c) => `private:${c}`));
+    for (const entry of body.privateTables) {
+      assert.equal(entry.turnTimeoutMs, profile.turnTimeoutMs, `${entry.key} turn`);
+      assert.equal(entry.nextHandDelayMs, profile.nextHandDelayMs, `${entry.key} next hand`);
+      if (entry.engine === 'teen_patti') assert.equal(entry.sideshowTimeoutMs, profile.sideshowTimeoutMs, `${entry.key} sideshow`);
+      if (entry.category === 'variation') {
+        assert.equal(entry.variationSelectTimeoutMs, profile.variationSelectTimeoutMs, `${entry.key} window`);
+      }
+    }
+  }
+});
+
+test('GET /api/tables is revalidated by its version: If-None-Match naming it answers 304 with no body', async () => {
+  const first = await http('GET', '/api/tables', { raw: true });
+  assert.equal(first.status, 200);
+  const { version } = JSON.parse(first.text);
+  assert.equal(first.headers.get('etag'), `"${version}"`);
+  assert.equal(first.headers.get('cache-control'), 'no-cache', 'kept, but asked about again every time');
+
+  for (const tag of [`"${version}"`, `W/"${version}"`, `"stale", "${version}"`, '*']) {
+    const again = await http('GET', '/api/tables', { raw: true, headers: { 'if-none-match': tag } });
+    assert.equal(again.status, 304, `If-None-Match: ${tag}`);
+    assert.equal(again.text, '', 'a 304 has no body');
+    assert.equal(again.headers.get('etag'), `"${version}"`);
+  }
+  // A phone holding another version is answered in full.
+  const stale = await http('GET', '/api/tables', { raw: true, headers: { 'if-none-match': '"0000"' } });
+  assert.equal(stale.status, 200);
+  assert.equal(stale.text, first.text, 'the same body, byte for byte');
 });
 
 test('the browser client and its assets are served', async () => {

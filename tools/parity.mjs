@@ -77,7 +77,9 @@ if (target === 'go' && !args.url) {
 /**
  * One server process per environment profile. `env` is layered over BASE_ENV
  * (parity/lib/launch.mjs); a key set to `undefined` is left unset so the
- * server's default applies.
+ * server's default applies. `only` names a suite the profile runs just part
+ * of: those of its tests whose names match the pattern (node --test's
+ * --test-name-pattern, which leaves the rest out of the report altogether).
  */
 const PROFILES = [
   {
@@ -118,18 +120,28 @@ const PROFILES = [
     },
     suites: ['metrics'],
   },
+  // The table catalogue in PostgreSQL (owner, 23 Sep 2026): TABLE_CONFIG_SOURCE=db,
+  // so the server plays the four configuration tables V1.0.1__seed.sql fills a
+  // fresh schema with — the real default menu. Every table env key it inherits
+  // or is given here says something else ON PURPOSE: BOOT_AMOUNT 100 and
+  // NEXT_HAND_DELAY_MS 150 from BASE_ENV, 1.2 s clocks and a lifted menu below.
+  // A db-mode server ignores all of them, so every exact assertion of the
+  // seed's figures here (boot 200, a 25 s turn, a 6 s sideshow, twelve tables)
+  // also proves that it did: a key that leaked through would fail one.
+  // suiteEnv reports the seed's figures for this profile, not these.
   {
     name: 'menu',
-    description: 'the real default lobby menu (stakes/lobbyRules conditions)',
+    description: 'the seeded table catalogue from PostgreSQL (TABLE_CONFIG_SOURCE=db; the table env keys ignored)',
     env: {
-      TURN_TIMEOUT_MS: '60000',
-      SIDESHOW_TIMEOUT_MS: '60000',
+      TABLE_CONFIG_SOURCE: 'db',
+      TURN_TIMEOUT_MS: '1200',
+      SIDESHOW_TIMEOUT_MS: '1500',
       CONSOLIDATE_INTERVAL_MS: '600000',
-      BOOT_AMOUNT: undefined,
-      TABLE_STAKES: undefined,
-      LOBBY_TABLES: undefined,
+      TABLE_STAKES: '',
+      LOBBY_TABLES: '',
     },
-    suites: ['stakes'],
+    suites: ['stakes', 'rest'],
+    only: { rest: 'GET /api/tables' },
   },
   // Variation Teen Patti (Go only). The window's length is read once at start
   // like every other clock, so the one suite runs against two servers: a
@@ -193,27 +205,59 @@ fs.mkdirSync(logDir, { recursive: true });
 
 const suiteWanted = (suite) => !filter || filter.some((f) => suite.includes(f));
 
+/**
+ * Where a profile's server takes its tables from. BASE_ENV names env and only
+ * the `menu` profile says db; a profile that unset it would still run env,
+ * because BASE_ENV sets table keys and the server resolves an unset source to
+ * env whenever one is set (config.resolveTableConfigSource).
+ */
+const tableConfigSource = (env) => (env.TABLE_CONFIG_SOURCE === 'db' ? 'db' : 'env');
+
+/**
+ * The table figures a db-sourced server plays by: the table_settings row and
+ * the seen 200 / variation rows V1.0.1__seed.sql writes, which are
+ * config.Defaults() composed (go-server's TestTheSeededTableCatalogueIsTheDefaults
+ * holds the two together). In db mode these, not the env keys, are the truth.
+ */
+const SEEDED_TABLE_FIGURES = {
+  BOOT_AMOUNT: '200',
+  TURN_TIMEOUT_MS: '25000',
+  NEXT_HAND_DELAY_MS: '4000',
+  SIDESHOW_TIMEOUT_MS: '6000',
+  VARIATION_SELECT_TIMEOUT_MS: '10000',
+};
+
 /** Values the suites read about the server they are talking to (see lib/harness.mjs `profile`). */
-const suiteEnv = ({ baseUrl, schema, env }) => ({
-  ...process.env,
-  SERVER_URL: baseUrl,
-  PG_SCHEMA: schema,
-  DATABASE_URL: databaseUrl,
-  PARITY_TARGET: target,
-  PARITY_JWT_SECRET: env.JWT_SECRET ?? BASE_ENV.JWT_SECRET,
-  PARITY_METRICS_TOKEN: env.METRICS_TOKEN ?? '',
-  PARITY_METRICS_ALLOW_IPS: env.METRICS_ALLOW_IPS ?? '',
-  PARITY_BOOT_AMOUNT: env.BOOT_AMOUNT ?? '200',
-  PARITY_TURN_TIMEOUT_MS: env.TURN_TIMEOUT_MS ?? '25000',
-  PARITY_NEXT_HAND_DELAY_MS: env.NEXT_HAND_DELAY_MS ?? '4000',
-  PARITY_RECONNECT_GRACE_MS: env.RECONNECT_GRACE_MS ?? '60000',
-  PARITY_SIDESHOW_TIMEOUT_MS: env.SIDESHOW_TIMEOUT_MS ?? '6000',
-  PARITY_WELCOME_CHIPS: env.WELCOME_CHIPS ?? '200000',
-  PARITY_VARIATION_SELECT_TIMEOUT_MS: env.VARIATION_SELECT_TIMEOUT_MS ?? '10000',
-});
+const suiteEnv = ({ baseUrl, schema, env }) => {
+  const source = tableConfigSource(env);
+  // A table figure is the env's in env mode and the seed's in db mode, where
+  // the server ignores every table env key (the menu profile sets several).
+  const table = (key, fallback) => (source === 'db' ? SEEDED_TABLE_FIGURES[key] : env[key] ?? fallback);
+  return {
+    ...process.env,
+    SERVER_URL: baseUrl,
+    PG_SCHEMA: schema,
+    DATABASE_URL: databaseUrl,
+    PARITY_TARGET: target,
+    PARITY_JWT_SECRET: env.JWT_SECRET ?? BASE_ENV.JWT_SECRET,
+    PARITY_METRICS_TOKEN: env.METRICS_TOKEN ?? '',
+    PARITY_METRICS_ALLOW_IPS: env.METRICS_ALLOW_IPS ?? '',
+    PARITY_TABLE_CONFIG_SOURCE: source,
+    PARITY_BOOT_AMOUNT: table('BOOT_AMOUNT', '200'),
+    PARITY_TURN_TIMEOUT_MS: table('TURN_TIMEOUT_MS', '25000'),
+    PARITY_NEXT_HAND_DELAY_MS: table('NEXT_HAND_DELAY_MS', '4000'),
+    PARITY_RECONNECT_GRACE_MS: env.RECONNECT_GRACE_MS ?? '60000',
+    PARITY_SIDESHOW_TIMEOUT_MS: table('SIDESHOW_TIMEOUT_MS', '6000'),
+    PARITY_WELCOME_CHIPS: env.WELCOME_CHIPS ?? '200000',
+    PARITY_VARIATION_SELECT_TIMEOUT_MS: table('VARIATION_SELECT_TIMEOUT_MS', '10000'),
+  };
+};
+
+/** The test-name pattern `profile` runs `suite` under, or null for the whole suite. */
+const patternFor = (profile, suite) => profile.only?.[suite] ?? null;
 
 /** Runs one suite file with node --test; resolves with parsed TAP totals. */
-const runSuite = (suite, server) => new Promise((resolve) => {
+const runSuite = (suite, server, pattern = null) => new Promise((resolve) => {
   const file = path.join(parityDir, `${suite}.test.js`);
   const tapFile = path.join(logDir, `${suite}-${Date.now()}.tap`);
   const started = Date.now();
@@ -221,6 +265,7 @@ const runSuite = (suite, server) => new Promise((resolve) => {
     '--test',
     `--test-timeout=${testTimeout}`,
     '--test-concurrency=1',
+    ...(pattern ? [`--test-name-pattern=${pattern}`] : []),
     '--test-reporter=spec', '--test-reporter-destination=stdout',
     '--test-reporter=tap', `--test-reporter-destination=${tapFile}`,
     file,
@@ -236,7 +281,7 @@ const runSuite = (suite, server) => new Promise((resolve) => {
     } catch {
       // no TAP output at all — the runner crashed before reporting
     }
-    resolve({ suite, code, durationMs: Date.now() - started, ...totals });
+    resolve({ suite, pattern, code, durationMs: Date.now() - started, ...totals });
   });
 });
 
@@ -248,7 +293,7 @@ const printSummary = (rows) => {
   log(`target: ${target}${goBinary ? ` (${goBinary})` : ''}`);
   const header = ['profile', 'suite', 'tests', 'pass', 'fail', 'skip', 'time', 'result'];
   const table = rows.map((row) => [
-    row.profile, row.suite, String(row.tests), String(row.pass), String(row.fail), String(row.skipped),
+    row.profile, row.pattern ? `${row.suite} (${row.pattern})` : row.suite, String(row.tests), String(row.pass), String(row.fail), String(row.skipped),
     `${(row.durationMs / 1000).toFixed(1)}s`, rowPassed(row) ? 'PASS' : 'FAIL',
   ]);
   const widths = header.map((h, i) => Math.max(h.length, ...table.map((r) => r[i].length)));
@@ -290,8 +335,10 @@ const runProfile = async (profile, server, rows) => {
   // The books are audited after every profile that played anything (and when asked for directly).
   const order = [...suites, MONEY_SUITE];
   for (const suite of order) {
-    log(`\n=== ${profile.name}/${suite} against ${server.baseUrl} (schema ${server.schema}) ===`);
-    const result = await runSuite(suite, server);
+    const pattern = patternFor(profile, suite);
+    const part = pattern ? `, only tests matching "${pattern}"` : '';
+    log(`\n=== ${profile.name}/${suite} against ${server.baseUrl} (schema ${server.schema}${part}) ===`);
+    const result = await runSuite(suite, server, pattern);
     rows.push({ profile: profile.name, ...result });
   }
 };
@@ -304,8 +351,10 @@ const attachMode = async () => {
   const suites = filter ? ALL_SUITES.filter(suiteWanted) : [...profile.suites, MONEY_SUITE];
   const rows = [];
   for (const suite of [...new Set(suites)]) {
-    log(`\n=== attach/${suite} against ${baseUrl} (schema ${schema}, values of profile "${profile.name}") ===`);
-    rows.push({ profile: 'attach', ...(await runSuite(suite, server)) });
+    const pattern = patternFor(profile, suite);
+    const part = pattern ? `, only tests matching "${pattern}"` : '';
+    log(`\n=== attach/${suite} against ${baseUrl} (schema ${schema}, values of profile "${profile.name}"${part}) ===`);
+    rows.push({ profile: 'attach', ...(await runSuite(suite, server, pattern)) });
   }
   printSummary(rows);
   process.exit(rows.every(rowPassed) ? 0 : 1);

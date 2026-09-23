@@ -28,8 +28,12 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// migrationFS holds the versioned DDL, named the Flyway way:
-// V<version>__<description>.sql, applied in ascending version order.
+// migrationFS holds the versioned scripts, named the Flyway way:
+// V<version>__<description>.sql, applied in ascending version order. Since
+// 23 Sep 2026 there are exactly two (owner): V1.0.0__baseline.sql, every
+// table, and V1.0.1__seed.sql, every row — the next change of structure goes
+// INTO the baseline, never into a V1.0.2, because the seed runs before any
+// later script and may depend on it (the baseline's header).
 //
 // There is no schema history table. Flyway would keep one and skip what it has
 // already applied; this server instead applies EVERY script on EVERY boot and
@@ -129,7 +133,15 @@ type Options struct {
 	// table's actor forever, since ledger calls run on it with the table's
 	// own context. Zero keeps Postgres' default (no limit), as Node had.
 	StatementTimeout time.Duration
-	Logger           *slog.Logger
+	// SkipMigrations opens the schema as it is: no CREATE SCHEMA, no
+	// migrations, no lock — just a pool whose search_path leads with Schema,
+	// after checking that the schema exists (a search_path naming a missing
+	// schema would silently fall through to public). For tools that must read
+	// a database without changing it, like `gameplay -check-table-config`,
+	// which may run against production beside a live server. A server never
+	// sets it: every boot runs every script.
+	SkipMigrations bool
+	Logger         *slog.Logger
 }
 
 // DB is the open pool plus the schema it was opened on.
@@ -187,6 +199,14 @@ func Open(ctx context.Context, opts Options) (*DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create pool: %w", err)
 	}
+	if opts.SkipMigrations {
+		if err := schemaExists(ctx, pool, opts.Schema); err != nil {
+			pool.Close()
+			return nil, err
+		}
+		log.Info("database ready", "url", Redact(opts.URL), "schema", opts.Schema, "migrations", "skipped")
+		return &DB{Pool: pool, Schema: opts.Schema, log: log}, nil
+	}
 	if err := bootstrap(ctx, pool, opts.Schema, quoted); err != nil {
 		pool.Close()
 		return nil, err
@@ -194,6 +214,19 @@ func Open(ctx context.Context, opts Options) (*DB, error) {
 
 	log.Info("database ready", "url", Redact(opts.URL), "schema", opts.Schema)
 	return &DB{Pool: pool, Schema: opts.Schema, log: log}, nil
+}
+
+// schemaExists is SkipMigrations' only check, and the first statement the
+// pool runs, so an unreachable database is reported here too.
+func schemaExists(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	var exists bool
+	if err := pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = $1)`, schema).Scan(&exists); err != nil {
+		return fmt.Errorf("connect: %w", err)
+	}
+	if !exists {
+		return fmt.Errorf("schema %q does not exist: no server has booted on it (opened without migrations, nothing creates it)", schema)
+	}
+	return nil
 }
 
 // bootstrap creates the schema and runs schema.sql on one connection under

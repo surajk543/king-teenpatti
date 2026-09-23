@@ -71,6 +71,9 @@ type App struct {
 	// restore records what the startup sequence did (logged once; Restore()
 	// exposes it to tests and tooling).
 	restore game.RestoreReport
+	// tableConfig is /health.tableConfig: where the tables came from, settled
+	// once by New (resolveTableCatalogue), with the RoomManager's version.
+	tableConfig TableConfigHealth
 	// reconcileStop/Done drive the live-store reconciler (LIVE_RECONCILE_MS);
 	// Shutdown stops it.
 	reconcileStop chan struct{}
@@ -125,7 +128,9 @@ const (
 )
 
 // New wires everything (createServer) and runs the live-state startup
-// sequence (LIVE_STATE_PLAN.md):
+// sequence (LIVE_STATE_PLAN.md). It works on a COPY of *Options.Config — the
+// table catalogue below is written into it — so the caller's Config is never
+// changed, and every part of the server built here holds that one copy:
 //
 //  1. metrics.New (if config.Metrics.Enabled; else a Metrics that observes
 //     into an unexposed registry — the counters are still safe to call);
@@ -133,18 +138,30 @@ const (
 //     set — unreachable → New fails and the process exits; memory otherwise),
 //     wrapped with live.WithHooks(store, m.LiveHooks()) so every call feeds
 //     game_live_store_*;
-//  3. users := db.NewUsers(DB, WelcomeChips); ledger := db.NewLedger(DB, m);
+//  3. the table catalogue (resolveTableCatalogue): TABLE_CONFIG_SOURCE=db
+//     reads the four configuration tables ONCE — the active engines, their
+//     active categories, table_settings and the active table_configs rows
+//     under them — leaves out (and logs) every row it must not open, and
+//     plays by the rest — or, when what is left cannot run a lobby, logs it
+//     and runs the env composition; env composes the env keys as the server
+//     always has. Settled BEFORE the
+//     socket layer, the REST handler and the RoomManager are built, so all
+//     three read the same tables for the life of the process: an edit to the
+//     rows applies at the next start, to tables opened after it (a table
+//     restored from the live store keeps the rules in its snapshot, and one
+//     whose rules the rows no longer give is drained);
+//  4. users := db.NewUsers(DB, WelcomeChips); ledger := db.NewLedger(DB, m);
 //     tokens := auth.NewTokens(JWT); verifier := auth.NewVerifier(cfg);
 //     sio.NewServer{PingInterval 20s, PingTimeout 25s, MaxPayload 1e5,
 //     CheckOrigin from cfg.CORSOrigin / AllowAnyOrigin};
-//  4. sockets := socket.New(Deps{Live, Instance, …}); rooms :=
+//  5. sockets := socket.New(Deps{Live, Instance, …}); rooms :=
 //     game.NewRoomManager{TableListener: sockets, Listener: sockets, Ledger,
 //     Clock, Live, Instance, LiveTTL, Metrics: {ObserveCreation}};
 //     sockets.SetRooms(rooms); sockets.Attach(sio) — this order because the
 //     RoomManager needs the Handler as its listeners at construction and the
 //     Handler needs the RoomManager only at request time;
-//  5. m.BindRooms(rooms); m.BindPool(DB.Stats);
-//  6. the restart sequence: rooms.Restore(ctx) (tables rebuilt from the
+//  6. m.BindRooms(rooms); m.BindPool(DB.Stats);
+//  7. the restart sequence: rooms.Restore(ctx) (tables rebuilt from the
 //     store; a store that cannot be listed is fatal) →
 //     DB.RefundOrphanedPots(ctx, restored hand ids) (open pots no live table
 //     holds go back to their contributors; a failure is logged, the next
@@ -152,11 +169,12 @@ const (
 //     restored seat held for RECONNECT_GRACE_MS) → one summary log line
 //     `live state restored`; then rooms.StartSweeper(). The listener opens in
 //     Start, after all of this.
-//  7. mux routes (Go 1.22 patterns):
+//  8. mux routes (Go 1.22 patterns):
 //     GET  {metricsPath}     → m.Handler(Guard{Token, AllowIPs})
 //     GET  /health           → Health
 //     auth.Handler.Register(mux)   (the 8 API routes)
 //     GET  /api/rooms        → {tables: ListTables({category: ?category if blind|seen|variation}), options}
+//     GET  /api/tables       → rooms.TableConfig(), ETag / If-None-Match → 304 (tablesHandler)
 //     /socket.io/            → sio
 //     /                      → the browser client from cfg.PublicDir (staticHandler)
 //     wrapped in m.HTTPMiddleware(metricsPath, metrics.RouteLabelFor, mux)
@@ -169,10 +187,14 @@ const (
 // the http.Server and intercepted /socket.io/ before Express, so handshakes
 // were never counted in game_http_requests_total.
 func New(opts Options) (*App, error) {
-	cfg := opts.Config
-	if cfg == nil {
+	if opts.Config == nil {
 		return nil, errors.New("app: Options.Config is required")
 	}
+	// The copy step 3 writes the table catalogue into. Shallow is enough:
+	// WithCatalogue replaces the slices it sets rather than writing through
+	// them, and nothing else here writes to the Config at all.
+	own := *opts.Config
+	cfg := &own
 	if cfg.Metrics.Enabled && !strings.HasPrefix(cfg.Metrics.Path, "/") {
 		return nil, fmt.Errorf("app: METRICS_PATH must start with '/', got %q", cfg.Metrics.Path)
 	}
@@ -216,7 +238,10 @@ func New(opts Options) (*App, error) {
 	a.live = live.WithHooks(store, a.metrics.LiveHooks())
 	logger.Info("live store ready", "kind", a.live.Kind(), "instance", cfg.LiveInstanceID, "url", db.Redact(cfg.RedisURL))
 
-	// 3. stores, tokens, providers.
+	// 3. the table catalogue, into cfg — before anything below reads it.
+	a.tableConfig = resolveTableCatalogue(cfg, opts.DB, logger)
+
+	// 4. stores, tokens, providers.
 	users := db.NewUsers(opts.DB, cfg.Game.WelcomeChips, clock.Now)
 	pictures := db.NewPictures(opts.DB, users, clock.Now)
 	ledger := db.NewLedger(opts.DB, a.metrics, clock.Now)
@@ -236,7 +261,7 @@ func New(opts Options) (*App, error) {
 		Now:          clock.Now,
 	})
 
-	// 4. realtime handler ↔ room manager (mutual dependency, see the doc).
+	// 5. realtime handler ↔ room manager (mutual dependency, see the doc).
 	a.sockets = socket.New(socket.Deps{
 		Config:   cfg,
 		Users:    users,
@@ -298,8 +323,17 @@ func New(opts Options) (*App, error) {
 	a.rooms = game.NewRoomManager(roomOpts)
 	a.sockets.SetRooms(a.rooms)
 	a.sockets.Attach(a.sio)
+	a.tableConfig.Version = a.rooms.TableConfigVersion()
+	tables := a.rooms.TableConfig()
+	logger.Info("table config ready",
+		"source", a.tableConfig.Source,
+		"fallback", a.tableConfig.Fallback,
+		"version", a.tableConfig.Version,
+		"engines", len(tables.Engines),
+		"tables", len(tables.Tables),
+		"privateTables", len(tables.PrivateTables))
 
-	// 5. late-bound metric sources.
+	// 6. late-bound metric sources.
 	a.metrics.BindRooms(a.rooms)
 	if opts.DB != nil {
 		a.metrics.BindPool(func() metrics.PoolStats {
@@ -308,7 +342,7 @@ func New(opts Options) (*App, error) {
 		})
 	}
 
-	// 6. the restart sequence, then the sweeper and the reconciler.
+	// 7. the restart sequence, then the sweeper and the reconciler.
 	if err := a.restoreLiveState(); err != nil {
 		if a.ownsLive {
 			_ = a.live.Close()
@@ -319,7 +353,7 @@ func New(opts Options) (*App, error) {
 	a.startReconciler()
 	a.startLedgerPurge()
 
-	// 7. routes.
+	// 8. routes.
 	//
 	// The chip store is wired only when Play credentials are present. With
 	// none, `store` stays nil and the endpoint answers 503: a server that
@@ -386,6 +420,7 @@ func New(opts Options) (*App, error) {
 	mux.HandleFunc("GET /health", a.Health)
 	api.Register(mux)
 	mux.HandleFunc("GET /api/rooms", a.roomsHandler)
+	mux.HandleFunc("GET /api/tables", a.tablesHandler)
 	mux.Handle("/api/", auth.NotFoundHandler())
 	if !publicDirExists(cfg.PublicDir) {
 		logger.Warn("browser client directory not found; static requests will 404", "publicDir", cfg.PublicDir)
@@ -733,6 +768,10 @@ type HealthResponse struct {
 	// `live`. It is what makes "which build is prod on?" a curl rather than
 	// an ssh, so a deploy can be confirmed from anywhere.
 	Version string `json:"version"`
+	// TableConfig is where the tables this process plays by came from and
+	// the catalogue's version (TableConfigHealth); appended after version.
+	// `fallback: true` is a database catalogue the boot could not use.
+	TableConfig TableConfigHealth `json:"tableConfig"`
 }
 
 // LiveHealth is /health.live: the store's kind ("redis" | "memory"), whether
@@ -826,6 +865,7 @@ func (a *App) Health(w http.ResponseWriter, r *http.Request) {
 	}
 	res.Live = a.liveHealth()
 	res.Version = a.version
+	res.TableConfig = a.tableConfig
 	auth.WriteJSON(w, http.StatusOK, res)
 }
 

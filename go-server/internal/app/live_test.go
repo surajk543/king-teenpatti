@@ -416,10 +416,10 @@ func TestRestartWithEmptyLiveStoreLosesTheTablesAndTheHandNeverHappened(t *testi
 	}
 }
 
-// PostgreSQL holds MONEY, AUDIT AND ACCOUNTS ONLY — never game state. A fresh
-// schema has exactly the four tables below and nothing else; no game_states,
-// no pots, no hands, and nothing per-hand or per-table that a restart would
-// have to reconcile against the live store.
+// PostgreSQL holds MONEY, AUDIT, ACCOUNTS AND TABLE CONFIGURATION ONLY — never
+// game state. A fresh schema has exactly the tables below and nothing else; no
+// game_states, no pots, no hands, and nothing per-hand or per-table that a
+// restart would have to reconcile against the live store.
 //
 // profile_pictures and user_profile_pictures are on this list because a
 // catalogue and who has paid for what are account facts, the same kind of
@@ -462,9 +462,30 @@ func TestPostgresHoldsNoGameState(t *testing.T) {
 	// Sideshow is charged against — receipts, not game state. missile_purchases
 	// and missile_spends (14 Sep 2026) are the same for missiles. user_milestones
 	// (14 Sep 2026) is which rewards a player has collected, moved off users.
-	want := []string{"chip_ledger", "diamond_purchases", "hammer_purchases", "hammer_spends", "missile_purchases", "missile_spends", "profile_pictures", "user_milestones", "user_profile_pictures", "users"}
+	//
+	// The four configuration tables (23 Sep 2026, owner: "all table related
+	// config store in database", then "Teen Patti engines / Poker engines") —
+	// table_engines and table_categories, the taxonomy every table is filed
+	// under, then table_settings and table_configs, what a table of each
+	// category and stake plays by — are CONFIGURATION, not game state: read
+	// once at boot and never written by a table. No row names a room, a seat,
+	// a hand or a player, so there is nothing in them a restart would reconcile
+	// against the live store — the hand just played above left all four exactly
+	// as the seed wrote them (checked below) — and a live table keeps the rules
+	// it was opened with in its own snapshot, whatever the rows say later.
+	want := []string{"chip_ledger", "diamond_purchases", "hammer_purchases", "hammer_spends", "missile_purchases", "missile_spends", "profile_pictures", "table_categories", "table_configs", "table_engines", "table_settings", "user_milestones", "user_profile_pictures", "users"}
 	if !slices.Equal(tables, want) {
 		t.Fatalf("schema tables = %v, want %v", tables, want)
+	}
+	// A hand in play wrote nothing to the configuration: every row still
+	// carries the timestamp the seed gave it.
+	var touched int64
+	if err := database.Pool.QueryRow(context.Background(),
+		`SELECT (SELECT count(*) FROM table_engines WHERE updated_at <> created_at)
+		      + (SELECT count(*) FROM table_categories WHERE updated_at <> created_at)
+		      + (SELECT count(*) FROM table_configs WHERE updated_at <> created_at)
+		      + (SELECT count(*) FROM table_settings WHERE updated_at <> created_at)`).Scan(&touched); err != nil || touched != 0 {
+		t.Fatalf("a hand wrote to the table configuration: %d rows touched (%v)", touched, err)
 	}
 }
 

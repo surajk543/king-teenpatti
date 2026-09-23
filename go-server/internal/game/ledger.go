@@ -122,9 +122,9 @@ type SettleEntry struct {
 	// carries what its player took.
 	Pot int64
 	// Game and Variant name the family and variant the row was written by
-	// (chip_ledger.game / .variant, V1.0.2): "" for a Teen Patti table, whose
-	// rows are byte for byte what they were; GamePoker and the poker category
-	// for a poker room (POKER_PLAN.md §6).
+	// (chip_ledger.game / .variant, V1.0.0__baseline.sql): "" for a Teen
+	// Patti table, whose rows are byte for byte what they were; GamePoker and
+	// the poker category for a poker room (POKER_PLAN.md §6).
 	Game    Game
 	Variant Category
 }

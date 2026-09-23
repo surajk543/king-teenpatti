@@ -1,7 +1,10 @@
 bin/
 .env
 *.log
-gameplay
+# The binary a bare `go build` leaves at go-server/gameplay (ops/build.sh
+# writes bin/ instead). Anchored: unanchored it also matched cmd/gameplay/,
+# which hid every new file there from git.
+/gameplay
 
 # Service-account keys. GOOGLE_PLAY_CREDENTIALS_FILE points at one of these and
 # it lives next to the binary, inside a tracked directory — so the ignore rule

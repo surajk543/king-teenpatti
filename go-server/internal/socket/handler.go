@@ -1495,7 +1495,8 @@ func (h *Handler) untrackRoom(roomID string, s *sio.Socket) {
 	s.Leave(roomID)
 }
 
-// publicGameConfig builds session:ready.config from config + LobbyOptions.
+// publicGameConfig builds session:ready.config from config + LobbyOptions,
+// and names the table catalogue those came from (tableConfigVersion).
 func (h *Handler) publicGameConfig() PublicGameConfig {
 	g := h.cfg().Game
 	out := PublicGameConfig{
@@ -1511,6 +1512,7 @@ func (h *Handler) publicGameConfig() PublicGameConfig {
 	}
 	if rooms := h.rooms(); rooms != nil {
 		out.LobbyOptions = rooms.LobbyOptions()
+		out.TableConfigVersion = rooms.TableConfigVersion()
 	}
 	return out
 }

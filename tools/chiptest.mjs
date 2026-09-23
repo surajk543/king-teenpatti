@@ -19,18 +19,23 @@
 //   npm run chiptest
 import { spawn, execFileSync } from 'node:child_process';
 import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path'; import net from 'node:net';
+import { fileURLToPath } from 'node:url';
 import { io } from 'socket.io-client';
 import pg from 'pg';
 pg.types.setTypeParser(20, (v) => Number(v));
 pg.types.setTypeParser(1700, (v) => Number(v)); // SUM() is numeric, not int8
 const HOME = path.join(os.homedir(), '.local', 'bin');
-const BIN = '/home/suraj/Project/king-teenpatti/go-server/bin/gameplay';
+// This checkout's build (go-server/ops/build.sh), wherever the checkout is.
+const BIN = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'go-server', 'bin', 'gameplay');
 const DB = 'postgres://postgres:postgres@localhost:5432/gameplay';
 const SCHEMA = 'chips_' + Math.random().toString(36).slice(2, 7);
 const RPORT = 6393;
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 const freePort = () => new Promise((res) => { const s = net.createServer(); s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => res(p)); }); });
 const cli = (...a) => execFileSync(path.join(HOME, 'redis-cli'), ['-p', String(RPORT), ...a], { stdio: 'pipe' }).toString().trim();
+// The tables that held game state before 9 Sep 2026 (LIVE_STATE_PLAN.md); the
+// boot drops each when it is empty and never creates them.
+const GAME_STATE_TABLES = ['game_states', 'pots', 'hands'];
 let bad = 0;
 const check = (ok, what, detail = '') => { if (!ok) bad++; console.log(`  ${ok ? 'ok  ' : 'FAIL'}  ${what}${detail ? '  — ' + detail : ''}`); };
 
@@ -39,8 +44,13 @@ const check = (ok, what, detail = '') => { if (!ok) bad++; console.log(`  ${ok ?
 const rp = spawn(path.join(HOME, 'redis-server'), ['--port', String(RPORT), '--save', '', '--appendonly', 'no'], { stdio: 'ignore' });
 for (let i = 0; i < 50; i++) { try { cli('ping'); break; } catch { await sleep(150); } }
 const PORT = await freePort(); const URL = `http://127.0.0.1:${PORT}`;
+// TABLE_CONFIG_SOURCE=env: the tables come from these keys (any stake, 1.2 s
+// between hands), not from the seeded catalogue in PostgreSQL, which would
+// ignore them. WELCOME_CHIPS is pinned to the 2 lakh every check below counts
+// in (the default has been 3 lakh since 14 Sep 2026), as crashtest.mjs pins it.
 const env = { ...process.env, PORT: String(PORT), HOST: '127.0.0.1', PG_SCHEMA: SCHEMA, DATABASE_URL: DB,
-  NODE_ENV: 'test', AUTH_ALLOW_FAKE_PROVIDERS: 'true', JWT_SECRET: 'chips', TABLE_STAKES: '', LOBBY_TABLES: '',
+  NODE_ENV: 'test', AUTH_ALLOW_FAKE_PROVIDERS: 'true', JWT_SECRET: 'chips', WELCOME_CHIPS: '200000',
+  TABLE_CONFIG_SOURCE: 'env', TABLE_STAKES: '', LOBBY_TABLES: '',
   BOOT_AMOUNT: '200', TURN_TIMEOUT_MS: '25000', NEXT_HAND_DELAY_MS: '1200', RECONNECT_GRACE_MS: '60000',
   LOG_LEVEL: 'warn', REDIS_URL: `redis://127.0.0.1:${RPORT}/0` };
 const srv = spawn(BIN, [], { env, cwd: path.dirname(BIN), stdio: ['ignore', 'ignore', fs.openSync('/tmp/probe-chips.log', 'w')] });
@@ -80,10 +90,15 @@ const ledgerSum = async (id) => (await q('select coalesce(sum(delta),0)::bigint 
 const walletOf = async (id) => (await q('select chips from %S%.users where id = $1', [id]))[0].chips;
 const rowsFor = async (id) => q('select hand_id, reason, delta from %S%.chip_ledger where user_id = $1 order by id', [id]);
 
-console.log('\n--- PostgreSQL holds money and audit only ---');
+console.log('\n--- PostgreSQL holds no game state ---');
 {
+  // A denylist rather than the exact list, which parity/money.test.js keeps and
+  // argues (accounts, purchases and the table configuration live beside the
+  // money too): what must never be here is the state of a table.
   const tables = (await q("select tablename from pg_tables where schemaname = $1 order by tablename", [SCHEMA])).map(r => r.tablename);
-  check(tables.join(',') === 'chip_ledger,users', 'the schema is users + chip_ledger and nothing else', tables.join(', '));
+  const gameState = GAME_STATE_TABLES.filter((t) => tables.includes(t));
+  check(tables.includes('users') && tables.includes('chip_ledger') && gameState.length === 0,
+    'the schema has users and chip_ledger, and no game_states, pots or hands', tables.join(', '));
 }
 
 console.log('\n--- nothing is written at the deal (owner example 1, first half) ---');

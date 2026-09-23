@@ -47,10 +47,15 @@ func publicDir(t *testing.T) string {
 }
 
 // testConfig is the process suites' environment: unrestricted stakes, fake
-// providers, short timers, a bearer on /metrics, an ephemeral port.
+// providers, short timers, a bearer on /metrics, an ephemeral port — and the
+// tables composed from those fields (TABLE_CONFIG_SOURCE=env), since an empty
+// menu meaning "any pair" and a 4 s clock are statements about the env
+// composition that a database catalogue would override. The db-sourced boot
+// has suites of its own (tableconfig_test.go).
 func testConfig(t *testing.T, public string) *config.Config {
 	t.Helper()
 	cfg := config.Defaults()
+	cfg.TableConfigSource = config.TableConfigSourceEnv
 	cfg.Env = config.EnvTest
 	cfg.Host = "127.0.0.1"
 	cfg.Port = 0
@@ -174,11 +179,12 @@ func TestHealthHasNodesShape(t *testing.T) {
 	}
 
 	// Key set and order (spec-auth-http §4.10: ok, uptime, tables, players,
-	// activeHands, sockets, process, db) plus the two keys appended after
+	// activeHands, sockets, process, db) plus the keys appended after
 	// Node's: the live-state store (LIVE_STATE_PLAN.md: live {kind, ok,
-	// tables}) and the build version ops/build.sh stamps in. Appended, never
+	// tables}), the build version ops/build.sh stamps in and the table
+	// catalogue (tableConfig {source, version, fallback}). Appended, never
 	// inserted — the load-test tooling reads Node's keys by position.
-	keyOrder := regexp.MustCompile(`^\{"ok":true,"uptime":[0-9.e+-]+,"tables":\d+,"players":\d+,"activeHands":\d+,"sockets":\d+,"process":\{.*\},"db":\{"total":\d+,"idle":\d+,"waiting":\d+\},"live":\{"kind":"[a-z]+","ok":(true|false),"tables":\d+\},"version":"[^"]+"\}$`)
+	keyOrder := regexp.MustCompile(`^\{"ok":true,"uptime":[0-9.e+-]+,"tables":\d+,"players":\d+,"activeHands":\d+,"sockets":\d+,"process":\{.*\},"db":\{"total":\d+,"idle":\d+,"waiting":\d+\},"live":\{"kind":"[a-z]+","ok":(true|false),"tables":\d+\},"version":"[^"]+","tableConfig":\{"source":"(db|env)","version":"[0-9a-f]{64}","fallback":(true|false)\}\}$`)
 	if !keyOrder.Match(body) {
 		t.Fatalf("unexpected /health body: %s", body)
 	}

@@ -19,7 +19,8 @@
  *     resolved exactly once (one outcome row per hand per player);
  *   - the counters (handsWon / totalWinnings / biggestPot) follow the
  *     hand_win rows;
- *   - the schema has no game state: no game_states, no pots, no hands;
+ *   - the schema has no game state: no game_states, no pots, no hands (the
+ *     four table configuration tables are configuration, argued below);
  *   - the append-only trigger refuses UPDATE/DELETE on chip_ledger.
  *
  * Runs last in each profile (tools/parity.mjs appends it), but is also safe to
@@ -85,8 +86,9 @@ test('every ledger row has a known reason, a balance that follows the running to
     // the stake (delta 0), or a 3-Card Poker push — never a loss.
     if (row.reason === 'hand_win') assert.ok(row.game === 'poker' ? row.delta >= 0 : row.delta > 0, 'a win pays');
     if (row.reason === 'hand_packed') assert.ok(row.delta <= 0, 'a pack only ever takes chips');
-    // The family columns (V1.0.2): NULL on every Teen Patti row, the poker
-    // family and one of its four variants on a poker row.
+    // The family columns (chip_ledger.game / .variant, V1.0.0__baseline.sql):
+    // NULL on every Teen Patti row, the poker family and one of its four
+    // variants on a poker row.
     if (row.game === null) assert.equal(row.variant, null, 'a Teen Patti row names no variant');
     else {
       assert.equal(row.game, 'poker');
@@ -129,7 +131,7 @@ test('action ids are unique, so a replayed checkpoint can never be applied twice
   assert.equal(bare.rows[0].n, 0, 'every checkpoint row carries its id');
 });
 
-test('PostgreSQL holds no game state at all: money, audit and accounts only', async () => {
+test('PostgreSQL holds no game state at all: money, audit, accounts and table configuration only', async () => {
   // Owner's decision of 9 Sep 2026 (LIVE_STATE_PLAN.md): ALL game state lives
   // in the live store (Redis). game_states, pots and hands are gone; the boot
   // path in schema.sql drops each of them when it exists AND is empty, and
@@ -148,11 +150,38 @@ test('PostgreSQL holds no game state at all: money, audit and accounts only', as
   // missile is spent against. user_milestones (14 Sep 2026) is an account fact
   // too: which rewards a player has collected, moved off users. The list is exact
   // rather than a minimum, so a new table has to be argued for here first.
+  //
+  // table_engines, table_categories, table_settings and table_configs (owner,
+  // 23 Sep 2026: "all table related config store in database") are
+  // CONFIGURATION: what a table IS, never what is happening at one. The engines
+  // and categories are the taxonomy the lobby files tables under (Teen Patti:
+  // seen, blind, variation; Poker: the four variants), the settings row the
+  // figures no one table owns, and each table_configs row the rules one lobby
+  // table or private template is opened with — boot, ladder, pot cap, clocks.
+  // The seed and the owner write them; a server reads the active rows once, at
+  // boot, and nothing a hand does writes a row. No row names a room, a seat, a
+  // hand or a player, and a table restored from Redis never reads them (its
+  // snapshot carries the rules it was opened with), so losing Redis still
+  // loses the hands and nothing else — which is the rule this test guards.
   const { rows } = await query(
     `SELECT tablename FROM pg_tables WHERE schemaname = current_schema() ORDER BY tablename`);
   const tables = rows.map((r) => r.tablename);
-  assert.deepEqual(tables, ['chip_ledger', 'diamond_purchases', 'hammer_purchases', 'hammer_spends', 'missile_purchases', 'missile_spends', 'profile_pictures', 'user_milestones', 'user_profile_pictures', 'users'],
-    `the schema must hold money, audit and accounts only, got ${tables.join(', ')}`);
+  for (const retired of ['game_states', 'pots', 'hands']) {
+    assert.ok(!tables.includes(retired), `${retired} is game state and must not exist`);
+  }
+  assert.deepEqual(tables, [
+    'chip_ledger', 'diamond_purchases', 'hammer_purchases', 'hammer_spends', 'missile_purchases', 'missile_spends',
+    'profile_pictures', 'table_categories', 'table_configs', 'table_engines', 'table_settings', 'user_milestones',
+    'user_profile_pictures', 'users',
+  ], `the schema must hold money, audit, accounts and table configuration only, got ${tables.join(', ')}`);
+  // Configuration, by construction: no column of the four refers to a room, a
+  // hand, a seat or a user.
+  const { rows: stateful } = await query(
+    `SELECT table_name, column_name FROM information_schema.columns
+      WHERE table_schema = current_schema()
+        AND table_name IN ('table_engines', 'table_categories', 'table_settings', 'table_configs')
+        AND column_name ~ '^(room|hand|seat|user)_'`);
+  assert.deepEqual(stateful, [], 'a table configuration column names a room, a hand, a seat or a user');
 });
 
 test('a bet is not a transaction: the books move only at a pack, a departure and the hand end', async () => {

@@ -259,6 +259,19 @@ func TestTheAppRoleBootsTwiceBeforeAndAfterUsersIsHandedToTheSuperuser(t *testin
 	if trade, err := store.TradeMissiles(ctx, u.ID, "missiles_1", "handover-"+suffix); err != nil || !trade.Charged || trade.User.Diamond != 0 || trade.User.Missile != 1 {
 		t.Fatalf("a missile trade must work on §7's grants: %+v %v", trade, err)
 	}
+
+	// 7. The table catalogue (23 Sep 2026): the app role created all four
+	// tables and still owns them, and the foreign keys between them name
+	// nothing §7 takes away — the seed ran on every boot above without a
+	// second copy of any row, and the server reads it.
+	cat, err := db.NewTableConfigs(d).Load(ctx)
+	if err != nil {
+		t.Fatalf("the table catalogue must load on §7's grants: %v", err)
+	}
+	if len(cat.Engines) != 2 || len(cat.Categories) != 7 || len(cat.Public) != 12 || len(cat.Private) != 7 {
+		t.Fatalf("the table catalogue after six boots: %d engines, %d categories, %d public, %d private, want 2, 7, 12 and 7",
+			len(cat.Engines), len(cat.Categories), len(cat.Public), len(cat.Private))
+	}
 }
 
 // section7SQL returns what ops/DEPLOY.md §7 has an operator feed to

@@ -10,7 +10,9 @@ import (
 	"github.com/surajk543/king-teenpatti/go-server/internal/db/dbtest"
 )
 
-// users.is_bot (owner, 22 Sep 2026; V1.0.3__users_is_bot.sql).
+// users.is_bot (owner, 22 Sep 2026). Declared in V1.0.0__baseline.sql, into
+// which V1.0.3__users_is_bot.sql was folded on 23 Sep 2026;
+// TestABootBringsAnOlderDatabaseForward covers a database built before it.
 //
 // The column exists so a question about real players can leave the resident
 // fleet out. That only works if the value is right on the way in and stays

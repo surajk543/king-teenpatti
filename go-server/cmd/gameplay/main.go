@@ -15,6 +15,11 @@
 //     8 s budget (tables suspended into Redis, or settled without it; the
 //     final game_states flush; the store closed last), db.Close, exit 0 — or
 //     exit 1 when the budget runs out.
+//
+// Two flags run a table-catalogue tool instead of the server (tableconfig.go):
+// -export-table-config prints the SQL that puts the env-composed catalogue in
+// the database, -check-table-config judges the database's catalogue without
+// migrating anything.
 package main
 
 import (
@@ -57,10 +62,34 @@ func versionString() string {
 
 func main() {
 	showVersion := flag.Bool("version", false, "print the build version and exit")
+	exportTables := flag.Bool("export-table-config", false,
+		"print, as SQL on stdout, what makes the database hold the table configuration the env keys compose, and exit")
+	checkTables := flag.Bool("check-table-config", false,
+		"read the database's table configuration without migrating it and judge it as a TABLE_CONFIG_SOURCE=db boot would; exit 0 clean, 1 rows left out, 2 unusable")
 	flag.Parse()
 	if *showVersion {
 		fmt.Println(versionString())
 		return
+	}
+	// The table tools run before run(): no server, no logger on stdout — the
+	// export's stdout is SQL alone (tableconfig.go).
+	if *exportTables || *checkTables {
+		if *exportTables && *checkTables {
+			fmt.Fprintln(os.Stderr, "choose one of -export-table-config and -check-table-config")
+			os.Exit(exitTablesUnusable)
+		}
+		note, err := loadDotEnv()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			if *exportTables {
+				os.Exit(exitTablesLeftOut)
+			}
+			os.Exit(exitTablesUnusable)
+		}
+		if *exportTables {
+			os.Exit(exportTableConfig(os.LookupEnv, note, time.Now(), os.Stdout, os.Stderr))
+		}
+		os.Exit(checkTableConfig(context.Background(), os.LookupEnv, note, os.Stdout, os.Stderr))
 	}
 	if err := run(); err != nil {
 		fmt.Fprintln(os.Stderr, err)

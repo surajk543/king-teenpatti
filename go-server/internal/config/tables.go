@@ -11,10 +11,12 @@ import (
 // Where a server takes its table configuration from (TABLE_CONFIG_SOURCE;
 // owner, 23 Sep 2026: "all table related config store in database").
 //
-//   - TableConfigSourceDB: the table_settings row and the active table_configs
-//     rows in PostgreSQL (V1.0.0__baseline.sql declares them, V1.0.1__seed.sql
-//     fills a fresh database with exactly the Defaults() composition). Every
-//     table env key is ignored — see TableEnvKeys.
+//   - TableConfigSourceDB: the four configuration tables in PostgreSQL — the
+//     taxonomy (table_engines, table_categories), the table_settings row and
+//     the table_configs rows — of which the server reads what is active
+//     (V1.0.0__baseline.sql declares them, V1.0.1__seed.sql fills a fresh
+//     database with exactly the Defaults() composition). Every table env key
+//     is ignored — see TableEnvKeys.
 //   - TableConfigSourceEnv: the env keys and Defaults(), composed exactly as the
 //     server always has (TableRules, the poker knobs). The database rows are
 //     seeded but not read. Tests, the parity harness and a deployment whose
@@ -49,10 +51,14 @@ func TableEnvKeys() []string {
 
 // Categories is every table category the engine knows, in the order the
 // lobby and the private templates are listed: the three Teen Patti ones, then
-// the poker family. The set is code, not data — a category is an engine
-// (game.Category.Game, poker.Variants) — so the database stores the string
-// and this package validates it (a CHECK listing them would freeze the set on
-// every existing database, the trap V1.0.0's header describes for HAMMER).
+// the poker family. A category is data AND code: the database lists it (a
+// table_categories row, which every table_configs row references), and this
+// package decides whether the server can play it — a category is only ever
+// played by the engine written for it (game.Category.Game, poker.Variants).
+// So the database keeps the set open with foreign keys rather than a CHECK
+// listing it (which would freeze the set on every existing database, the trap
+// V1.0.0's header describes for HAMMER), and Validate leaves out a row this
+// build cannot play.
 func Categories() []string {
 	return []string{
 		CategorySeen, CategoryBlind, CategoryVariation,
@@ -68,6 +74,76 @@ func IsKnownCategory(c string) bool {
 		}
 	}
 	return false
+}
+
+// The engines a category is played by (owner, 23 Sep 2026: "Teen Patti
+// engines / Poker engines") — table_engines.code, and game.Game's values
+// (game.GameTeenPatti, game.GamePoker; chip_ledger.game carries "poker"). The
+// categories are flat and each belongs to exactly one engine: seen, blind and
+// variation to Teen Patti, the four poker categories to Poker.
+const (
+	EngineTeenPatti = "teen_patti"
+	EnginePoker     = "poker"
+)
+
+// EngineOf is the engine category's tables are played by: EnginePoker for the
+// four poker categories, EngineTeenPatti for every other — the answer
+// game.Category.Game gives, which config cannot import (a test in
+// internal/game holds the two together). An unknown category is Teen Patti,
+// as NormalizeCategory makes it seen.
+func EngineOf(category string) string {
+	if IsPokerCategory(category) {
+		return EnginePoker
+	}
+	return EngineTeenPatti
+}
+
+// isKnownEngine reports whether code is an engine this build runs.
+func isKnownEngine(code string) bool {
+	return code == EngineTeenPatti || code == EnginePoker
+}
+
+// TableEngine is one table_engines row: a family of categories played by one
+// engine. Name is an admin label ("Teen Patti"); a client names the engine in
+// its own language and falls back to Name only for a code it does not know.
+type TableEngine struct {
+	Code      string // EngineTeenPatti or EnginePoker
+	Name      string
+	SortOrder int
+}
+
+// TableCategory is one table_categories row: a category, the engine it
+// belongs to, its admin label ("Texas Hold'em") and its place among the
+// engine's categories. Engine is always EngineOf(Code) once validated.
+type TableCategory struct {
+	Code      string // one of Categories()
+	Engine    string // the TableEngine.Code it belongs to
+	Name      string
+	SortOrder int
+}
+
+// DefaultTableEngines is the engines V1.0.1__seed.sql writes, in their order:
+// Teen Patti, then Poker. A fresh slice each call.
+func DefaultTableEngines() []TableEngine {
+	return []TableEngine{
+		{Code: EngineTeenPatti, Name: "Teen Patti", SortOrder: 10},
+		{Code: EnginePoker, Name: "Poker", SortOrder: 20},
+	}
+}
+
+// DefaultTableCategories is the categories V1.0.1__seed.sql writes, in
+// Categories() order, each under EngineOf of itself and ten apart. A fresh
+// slice each call.
+func DefaultTableCategories() []TableCategory {
+	return []TableCategory{
+		{Code: CategorySeen, Engine: EngineTeenPatti, Name: "Seen", SortOrder: 10},
+		{Code: CategoryBlind, Engine: EngineTeenPatti, Name: "Blind", SortOrder: 20},
+		{Code: CategoryVariation, Engine: EngineTeenPatti, Name: "Variation", SortOrder: 30},
+		{Code: CategoryThreeCardPoker, Engine: EnginePoker, Name: "3-Card Poker", SortOrder: 40},
+		{Code: CategoryFiveCardDraw, Engine: EnginePoker, Name: "5-Card Draw", SortOrder: 50},
+		{Code: CategoryTexasHoldem, Engine: EnginePoker, Name: "Texas Hold'em", SortOrder: 60},
+		{Code: CategoryOmaha, Engine: EnginePoker, Name: "Omaha", SortOrder: 70},
+	}
 }
 
 // TableSettings is the one table_settings row: the figures that belong to no
@@ -103,8 +179,11 @@ type TableSettings struct {
 type TableSpec struct {
 	// Key is the table's identity: "category:boot" for a public table,
 	// "private:category" for a private template — table_configs.table_key.
-	Key        string
-	Category   string
+	Key      string
+	Category string
+	// Engine is the engine the category is played by — EngineOf(Category),
+	// which is what the table's category row says once validated.
+	Engine     string
 	BootAmount int64
 	Private    bool
 
@@ -159,8 +238,13 @@ func PrivateTableKey(category string) string { return "private:" + category }
 // TableCatalogue is the whole table configuration a server runs with.
 type TableCatalogue struct {
 	// Source is TableConfigSourceDB or TableConfigSourceEnv.
-	Source   string
-	Settings TableSettings
+	Source string
+	// Engines and Categories are the taxonomy — every active engine, and every
+	// active category of an active engine, each in sort order. A table is
+	// offered only where its category is here (Validate).
+	Engines    []TableEngine
+	Categories []TableCategory
+	Settings   TableSettings
 	// Public is the lobby menu in display order; Private one template per
 	// category (a category with none folds a private create to seen).
 	Public  []TableSpec
@@ -250,6 +334,7 @@ func (g GameConfig) composeSpec(category string, bootAmount int64, private bool)
 		}
 		spec := TableSpec{
 			Category:       category,
+			Engine:         EnginePoker,
 			BootAmount:     boot,
 			Private:        private,
 			MaxPlayers:     g.MaxPlayers,
@@ -267,6 +352,7 @@ func (g GameConfig) composeSpec(category string, bootAmount int64, private bool)
 	rules := g.TableRules(category, bootAmount, private)
 	spec := TableSpec{
 		Category:           category,
+		Engine:             EngineTeenPatti,
 		BootAmount:         rules.BootAmount,
 		Private:            private,
 		MaxPot:             rules.MaxPot,
@@ -335,13 +421,22 @@ func (g GameConfig) Settings() TableSettings {
 // first of a repeated pair, as the engine reads it; a boot of 0 read as
 // BootAmount) and the private template of every category a private create can
 // open (variation only where the menu offers it, as newTableLocked folds it
-// otherwise). It is what -export-table-config writes and what GET /api/tables
-// serves in env mode.
+// otherwise). Its engines and categories are the defaults (DefaultTableEngines,
+// DefaultTableCategories): the env keys have never said anything about them.
+// It is what -export-table-config writes and what GET /api/tables serves in
+// env mode.
 func (g GameConfig) EffectiveCatalogue() TableCatalogue {
 	if g.Catalogue != nil {
 		return g.Catalogue.clone()
 	}
-	cat := TableCatalogue{Source: TableConfigSourceEnv, Settings: g.Settings(), Public: []TableSpec{}, Private: []TableSpec{}}
+	cat := TableCatalogue{
+		Source:     TableConfigSourceEnv,
+		Engines:    DefaultTableEngines(),
+		Categories: DefaultTableCategories(),
+		Settings:   g.Settings(),
+		Public:     []TableSpec{},
+		Private:    []TableSpec{},
+	}
 	seen := map[string]bool{}
 	for _, entry := range g.LobbyTables {
 		spec := g.Spec(entry.Category, entry.BootAmount, false)
@@ -370,6 +465,8 @@ func (g GameConfig) EffectiveCatalogue() TableCatalogue {
 
 func (c *TableCatalogue) clone() TableCatalogue {
 	out := *c
+	out.Engines = append([]TableEngine{}, c.Engines...)
+	out.Categories = append([]TableCategory{}, c.Categories...)
 	out.Settings.Stakes = append([]int64{}, c.Settings.Stakes...)
 	out.Public = append([]TableSpec{}, c.Public...)
 	out.Private = append([]TableSpec{}, c.Private...)
@@ -424,17 +521,70 @@ func (g GameConfig) WithCatalogue(cat TableCatalogue) GameConfig {
 // what the env composition would build. err is non-nil only when what is left
 // cannot run a lobby: an invalid settings row, no public table, or no private
 // seen template.
+//
+// The taxonomy is checked first, and each table against what survives of it:
+// an engine this build does not run is left out; so is a category it does not
+// know, one filed under an engine other than the one that plays it (seen under
+// poker), or one whose engine is not there; and so is every table whose
+// category is not among the categories kept. The engines and categories kept
+// stay in the order given. A table's Engine is set to EngineOf its category.
 func (c TableCatalogue) Validate() (TableCatalogue, []string, error) {
 	var problems []string
 	s := c.Settings
 	if err := s.validate(); err != nil {
 		return TableCatalogue{}, nil, err
 	}
-	out := TableCatalogue{Source: c.Source, Settings: s, Public: []TableSpec{}, Private: []TableSpec{}}
+	out := TableCatalogue{
+		Source:     c.Source,
+		Engines:    []TableEngine{},
+		Categories: []TableCategory{},
+		Settings:   s,
+		Public:     []TableSpec{},
+		Private:    []TableSpec{},
+	}
 	out.Settings.Stakes = append([]int64{}, s.Stakes...)
+	engines := map[string]bool{}
+	for _, engine := range c.Engines {
+		var err error
+		switch {
+		case !isKnownEngine(engine.Code):
+			err = fmt.Errorf("not an engine this server runs (%s or %s)", EngineTeenPatti, EnginePoker)
+		case engines[engine.Code]:
+			err = fmt.Errorf("a second row for engine %s", engine.Code)
+		}
+		if err != nil {
+			problems = append(problems, fmt.Sprintf("engine %s left out: %v", engine.Code, err))
+			continue
+		}
+		engines[engine.Code] = true
+		out.Engines = append(out.Engines, engine)
+	}
+	categories := map[string]bool{}
+	for _, category := range c.Categories {
+		var err error
+		switch {
+		case !IsKnownCategory(category.Code):
+			err = fmt.Errorf("unknown category %q", category.Code)
+		case categories[category.Code]:
+			err = fmt.Errorf("a second row for category %s", category.Code)
+		case category.Engine != EngineOf(category.Code):
+			err = fmt.Errorf("%s is a %s category, not %s", category.Code, EngineOf(category.Code), category.Engine)
+		case !engines[category.Engine]:
+			err = fmt.Errorf("its engine %s is inactive, unknown or left out", category.Engine)
+		}
+		if err != nil {
+			problems = append(problems, fmt.Sprintf("category %s left out: %v", category.Code, err))
+			continue
+		}
+		categories[category.Code] = true
+		out.Categories = append(out.Categories, category)
+	}
 	keys := map[string]bool{}
 	for _, row := range append(append([]TableSpec{}, c.Public...), c.Private...) {
 		spec, err := row.normalised(s)
+		if err == nil && !categories[spec.Category] {
+			err = fmt.Errorf("category %s is inactive, unknown or under the wrong engine", spec.Category)
+		}
 		if err == nil && keys[spec.Key] {
 			err = fmt.Errorf("a second row for %s", spec.Key)
 		}
@@ -498,8 +648,9 @@ func (s TableSettings) validate() error {
 }
 
 // normalised checks one row and returns it as the engine will read it: the
-// key set, the players from the settings, and every figure its family does not
-// read set to 0.
+// key and the engine set, the players from the settings, and every figure its
+// family does not read set to 0. Whether its category is offered is
+// Validate's question, not this one's.
 func (spec TableSpec) normalised(s TableSettings) (TableSpec, error) {
 	if !IsKnownCategory(spec.Category) {
 		return TableSpec{}, fmt.Errorf("unknown category %q", spec.Category)
@@ -524,6 +675,7 @@ func (spec TableSpec) normalised(s TableSettings) (TableSpec, error) {
 	}
 	spec.MaxPlayers = s.MaxPlayers
 	spec.MinPlayers = s.MinPlayers
+	spec.Engine = EngineOf(spec.Category)
 	if spec.Private {
 		spec.Key = PrivateTableKey(spec.Category)
 	} else {
@@ -572,13 +724,15 @@ func (spec TableSpec) describe() string {
 }
 
 // SameRules reports whether a table built from a and one built from b play
-// by the same figures — everything but the band, the key and the menu
-// position. The RoomManager asks it of every table restored from the live
-// store: one whose frozen rules the current configuration would no longer
-// open is drained (never matched into) rather than left to take players the
-// lobby card describes differently.
+// by the same figures — everything but the band, the key, the menu position
+// and the engine (which the category, compared, already decides: a table's
+// RulesSpec, built from its frozen config, need not name it). The RoomManager
+// asks it of every table restored from the live store: one whose frozen rules
+// the current configuration would no longer open is drained (never matched
+// into) rather than left to take players the lobby card describes differently.
 func (a TableSpec) SameRules(b TableSpec) bool {
 	a.Key, b.Key = "", ""
+	a.Engine, b.Engine = "", ""
 	a.MinChips, b.MinChips = 0, 0
 	a.MaxChips, b.MaxChips = 0, 0
 	a.SortOrder, b.SortOrder = 0, 0

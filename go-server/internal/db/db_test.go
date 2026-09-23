@@ -21,22 +21,23 @@ import (
 // them on every boot.
 func TestMigrationsAreVersionedOrderedAndSplitByKind(t *testing.T) {
 	migrations := db.Migrations()
-	// The consolidation of 14 Sep 2026 left one DDL script and one DML script
-	// to build an empty database. V1.0.2__new_account_diamonds.sql, added the
-	// same day, was folded back into the baseline with the pictures' HAMMER
-	// currency, for another fresh production start (DEPLOY.md §8), and so, after
-	// production had run the pair, were V1.0.2__timed_bonus_milestone.sql (into
-	// the baseline) and V1.0.3__seed_new_pictures.sql (into the seed).
-	// V1.0.2__chip_ledger_game.sql (owner, 19 Sep 2026) is the first script
-	// written AFTER production ran the pair, and so the first that must reach
-	// an existing database: two ADD COLUMN IF NOT EXISTS on chip_ledger, which
-	// the baseline's CREATE TABLE IF NOT EXISTS could never add (POKER_PLAN.md
-	// §6).
-	// V1.0.3__users_is_bot.sql (owner, 22 Sep 2026) is the second such script:
-	// one guarded column on users marking an account as one of the resident
-	// bots (bot-play/), so a query about real players can leave them out.
-	if len(migrations) != 4 {
-		t.Fatalf("expected one DDL script, one DML script, the chip_ledger game columns and users.is_bot, got %d", len(migrations))
+	// Exactly two scripts (owner, 23 Sep 2026: "merge all DDL and DML into 2
+	// files"): every table in the baseline, every row in the seed. The
+	// consolidation of 14 Sep 2026 had already folded everything written
+	// before production ran the pair — the missiles, the new-account diamonds,
+	// the pictures' HAMMER currency, V1.0.2__timed_bonus_milestone.sql and
+	// V1.0.3__seed_new_pictures.sql. The two scripts written after it,
+	// V1.0.2__chip_ledger_game.sql (19 Sep 2026) and V1.0.3__users_is_bot.sql
+	// (22 Sep 2026), are folded in now, each as a column in its CREATE TABLE
+	// and a guarded block that adds it to a database that lacks it; and the
+	// seed, renamed from V1.0.1__seed_profile_pictures.sql, holds the table
+	// catalogue beside the pictures. The baseline keeps its name because
+	// ops/DEPLOY.md greps it.
+	if len(migrations) != 2 {
+		t.Fatalf("expected one DDL script and one DML script, got %d", len(migrations))
+	}
+	if migrations[0].File != "V1.0.0__baseline.sql" || migrations[1].File != "V1.0.1__seed.sql" {
+		t.Fatalf("expected V1.0.0__baseline.sql then V1.0.1__seed.sql, got %s then %s", migrations[0].File, migrations[1].File)
 	}
 
 	for i, m := range migrations {
@@ -55,66 +56,113 @@ func TestMigrationsAreVersionedOrderedAndSplitByKind(t *testing.T) {
 	// SQL in their comments — the baseline documents the manual
 	// `ALTER TABLE users DISABLE TRIGGER` a superuser needs to delete a row —
 	// and a test that reads prose as code fails on documentation.
-	baseline, seed, columns := statementsOf(migrations[0].SQL), statementsOf(migrations[1].SQL), statementsOf(migrations[2].SQL)
-	// The third script adds two columns to a table the baseline already
-	// built, idempotently, and does nothing else.
-	for _, want := range []string{
-		"EXECUTE 'ALTER TABLE chip_ledger ADD COLUMN game TEXT'",
-		"EXECUTE 'ALTER TABLE chip_ledger ADD COLUMN variant TEXT'",
-		"column_name = 'game'", "column_name = 'variant'",
-	} {
-		if !strings.Contains(columns, want) {
-			t.Errorf("%s lacks %q", migrations[2].File, want)
+	baseline, seed := statementsOf(migrations[0].SQL), statementsOf(migrations[1].SQL)
+	for _, table := range []string{"users", "chip_ledger", "table_engines", "table_categories", "table_settings", "table_configs"} {
+		if !strings.Contains(baseline, "CREATE TABLE IF NOT EXISTS "+table+" (") {
+			t.Errorf("the baseline does not create %s", table)
 		}
-	}
-	// Guarded by a catalogue lookup, never `ADD COLUMN IF NOT EXISTS`: that
-	// form takes ACCESS EXCLUSIVE even when it does nothing, and a restart
-	// would queue behind any reader (TestABootSurvivesALongReaderHoldingTheTables).
-	if strings.Contains(columns, "IF NOT EXISTS game") || strings.Contains(columns, "IF NOT EXISTS variant") {
-		t.Errorf("%s must guard its ALTERs with a catalogue lookup, not ADD COLUMN IF NOT EXISTS", migrations[2].File)
-	}
-	for _, forbidden := range []string{"CREATE TABLE", "INSERT INTO", "DROP"} {
-		if strings.Contains(columns, forbidden) {
-			t.Errorf("%s must only add the two columns, found %s", migrations[2].File, forbidden)
-		}
-	}
-
-	// The fourth script is the same shape for one column on users: guarded by
-	// a catalogue lookup, adding nothing else, and defaulting to FALSE so
-	// every row that already exists — and every person who signs in — is a
-	// person unless something says otherwise.
-	isBot := statementsOf(migrations[3].SQL)
-	for _, want := range []string{
-		"EXECUTE 'ALTER TABLE users ADD COLUMN is_bot BOOLEAN NOT NULL DEFAULT FALSE'",
-		"column_name = 'is_bot'",
-	} {
-		if !strings.Contains(isBot, want) {
-			t.Errorf("%s lacks %q", migrations[3].File, want)
-		}
-	}
-	if strings.Contains(isBot, "IF NOT EXISTS is_bot") {
-		t.Errorf("%s must guard its ALTER with a catalogue lookup, not ADD COLUMN IF NOT EXISTS", migrations[3].File)
-	}
-	for _, forbidden := range []string{"CREATE TABLE", "INSERT INTO", "DROP"} {
-		if strings.Contains(isBot, forbidden) {
-			t.Errorf("%s must only add the one column, found %s", migrations[3].File, forbidden)
-		}
-	}
-	if !strings.Contains(baseline, "CREATE TABLE IF NOT EXISTS users") {
-		t.Error("the baseline does not create users")
 	}
 	if strings.Contains(baseline, "INSERT INTO") {
 		t.Errorf("%s is DDL and must hold no rows", migrations[0].File)
 	}
-	// A fresh schema is built from these alone, so nothing may depend on an
-	// ALTER to add a column after the fact.
-	if strings.Contains(baseline, "ALTER TABLE") {
-		t.Error("the baseline declares its tables in full; it needs no ALTER")
+
+	// The baseline declares its tables in full, so a fresh schema is built
+	// from it alone. The ONLY ALTER TABLE it runs is the EXECUTE string of a
+	// catalogue-guarded DO block that adds a column an older database lacks —
+	// never `ADD COLUMN IF NOT EXISTS`, which takes ACCESS EXCLUSIVE even when
+	// it does nothing, so a restart would queue behind any reader
+	// (TestABootSurvivesALongReaderHoldingTheTables), and never anything but an
+	// ADD COLUMN: a boot does not change a column that is already there.
+	outside, blocks := doBlocksOf(t, baseline)
+	if strings.Contains(outside, "ALTER TABLE") {
+		t.Error("an ALTER TABLE outside a guarded DO block would run on every boot")
 	}
-	if !strings.Contains(seed, "INSERT INTO profile_pictures") {
-		t.Errorf("%s should seed the catalogue", migrations[1].File)
+	var alters []string
+	for _, block := range blocks {
+		if !strings.Contains(block, "ALTER TABLE") {
+			continue
+		}
+		if strings.Count(block, "ALTER TABLE") != strings.Count(block, "EXECUTE 'ALTER TABLE ") {
+			t.Errorf("an ALTER TABLE in a DO block must go through EXECUTE (PL/pgSQL plans before it evaluates):\n%s", block)
+		}
+		if strings.Count(block, "EXECUTE 'ALTER TABLE ") != strings.Count(block, "information_schema.columns") {
+			t.Errorf("every ALTER TABLE must sit behind its own information_schema.columns lookup:\n%s", block)
+		}
+		if strings.Contains(block, "IF NOT EXISTS game") || strings.Contains(block, "IF NOT EXISTS variant") ||
+			strings.Contains(block, "IF NOT EXISTS is_bot") || strings.Contains(block, "ADD COLUMN IF NOT EXISTS") {
+			t.Errorf("guard with a catalogue lookup, not ADD COLUMN IF NOT EXISTS:\n%s", block)
+		}
+		for _, line := range strings.Split(block, "\n") {
+			if i := strings.Index(line, "EXECUTE 'ALTER TABLE "); i >= 0 {
+				alters = append(alters, strings.TrimSpace(line[i:]))
+			}
+		}
 	}
-	for _, ddl := range []string{"CREATE TABLE", "ALTER TABLE", "CREATE INDEX"} {
+	wantAlters := []string{
+		"EXECUTE 'ALTER TABLE users ADD COLUMN is_bot BOOLEAN NOT NULL DEFAULT FALSE';",
+		"EXECUTE 'ALTER TABLE chip_ledger ADD COLUMN game TEXT';",
+		"EXECUTE 'ALTER TABLE chip_ledger ADD COLUMN variant TEXT';",
+	}
+	if strings.Join(alters, "\n") != strings.Join(wantAlters, "\n") {
+		t.Errorf("the baseline brings forward exactly users.is_bot and chip_ledger.game/.variant, got:\n%s", strings.Join(alters, "\n"))
+	}
+	for _, want := range []string{"column_name = 'is_bot'", "column_name = 'game'", "column_name = 'variant'"} {
+		if !strings.Contains(baseline, want) {
+			t.Errorf("%s lacks the lookup %q", migrations[0].File, want)
+		}
+	}
+	// Each column the blocks add is declared in its CREATE TABLE too, for a
+	// fresh database — the same definition, so fresh and upgraded agree.
+	if users := squash(createTableBody(t, baseline, "users")); !strings.Contains(users, "is_bot BOOLEAN NOT NULL DEFAULT FALSE") {
+		t.Errorf("CREATE TABLE users must declare is_bot BOOLEAN NOT NULL DEFAULT FALSE:\n%s", users)
+	}
+	if ledger := squash(createTableBody(t, baseline, "chip_ledger")); !strings.Contains(ledger, "game TEXT") || !strings.Contains(ledger, "variant TEXT") {
+		t.Errorf("CREATE TABLE chip_ledger must declare game TEXT and variant TEXT:\n%s", ledger)
+	}
+	// The table catalogue's key is declared in its CREATE TABLE, generated and
+	// UNIQUE, not built by a CREATE INDEX: a boot that changes nothing then
+	// takes no SHARE lock on it and makes no ownership check.
+	configs := squash(createTableBody(t, baseline, "table_configs"))
+	if !strings.Contains(configs, "table_key TEXT GENERATED ALWAYS AS") || !strings.Contains(configs, "STORED UNIQUE") {
+		t.Errorf("table_configs must declare its generated UNIQUE table_key:\n%s", configs)
+	}
+	for _, table := range []string{"table_engines", "table_categories", "table_settings", "table_configs"} {
+		if strings.Contains(baseline, "ON "+table) {
+			t.Errorf("the table catalogue needs no index beyond the keys its CREATE TABLEs declare: ON %s", table)
+		}
+	}
+	// The taxonomy is held by foreign keys declared in the CREATE TABLEs —
+	// the set stays open, a new engine or category being a row — and never by
+	// a CHECK listing it; and the four tables are created in the order they
+	// reference one another.
+	for table, fk := range map[string]string{
+		"table_categories": "engine TEXT NOT NULL REFERENCES table_engines (code)",
+		"table_settings":   "entry_cap_category TEXT NOT NULL REFERENCES table_categories (code)",
+		"table_configs":    "category TEXT NOT NULL REFERENCES table_categories (code)",
+	} {
+		if body := squash(createTableBody(t, baseline, table)); !strings.Contains(body, fk) {
+			t.Errorf("CREATE TABLE %s must declare %s:\n%s", table, fk, body)
+		}
+	}
+	if !inOrder(baseline, "CREATE TABLE IF NOT EXISTS table_engines", "CREATE TABLE IF NOT EXISTS table_categories",
+		"CREATE TABLE IF NOT EXISTS table_settings", "CREATE TABLE IF NOT EXISTS table_configs") {
+		t.Error("the baseline must create table_engines, table_categories, table_settings, table_configs in that order")
+	}
+
+	// The seed holds every row the server seeds — the pictures and the table
+	// catalogue — and builds nothing: DDL it depends on lives in the baseline,
+	// which runs first. The engines and categories go in before the rows that
+	// name them.
+	for _, want := range []string{"INSERT INTO profile_pictures", "INSERT INTO table_engines", "INSERT INTO table_categories",
+		"INSERT INTO table_settings", "INSERT INTO table_configs"} {
+		if !strings.Contains(seed, want) {
+			t.Errorf("%s lacks %s", migrations[1].File, want)
+		}
+	}
+	if !inOrder(seed, "INSERT INTO table_engines", "INSERT INTO table_categories", "INSERT INTO table_settings", "INSERT INTO table_configs") {
+		t.Errorf("%s must write the engines, then the categories, then the settings and the tables", migrations[1].File)
+	}
+	for _, ddl := range []string{"CREATE TABLE", "ALTER TABLE", "CREATE INDEX", "CREATE UNIQUE INDEX", "DROP "} {
 		if strings.Contains(seed, ddl) {
 			t.Errorf("%s is DML and must not %s", migrations[1].File, ddl)
 		}
@@ -153,6 +201,63 @@ func statementsOf(sql string) string {
 	return strings.Join(kept, "\n")
 }
 
+// doBlocksOf splits statements into the bodies of its `DO $$ … $$;` blocks
+// and everything outside them.
+func doBlocksOf(t *testing.T, statements string) (outside string, blocks []string) {
+	t.Helper()
+	var rest strings.Builder
+	for {
+		start := strings.Index(statements, "DO $$")
+		if start < 0 {
+			rest.WriteString(statements)
+			return rest.String(), blocks
+		}
+		rest.WriteString(statements[:start])
+		body := statements[start+len("DO $$"):]
+		end := strings.Index(body, "$$;")
+		if end < 0 {
+			t.Fatal("a DO $$ block is not closed by $$;")
+		}
+		blocks = append(blocks, body[:end])
+		statements = body[end+len("$$;"):]
+	}
+}
+
+// createTableBody is the column list of `CREATE TABLE IF NOT EXISTS <name> (`
+// in statements, up to the `);` that closes it.
+func createTableBody(t *testing.T, statements, name string) string {
+	t.Helper()
+	open := "CREATE TABLE IF NOT EXISTS " + name + " ("
+	start := strings.Index(statements, open)
+	if start < 0 {
+		t.Fatalf("no %q", open)
+	}
+	body := statements[start+len(open):]
+	end := strings.Index(body, "\n);")
+	if end < 0 {
+		t.Fatalf("CREATE TABLE %s is not closed by a line starting \");\"", name)
+	}
+	return body[:end]
+}
+
+// squash collapses every run of whitespace to one space, so a test can look
+// for a column definition however the file aligns it.
+func squash(s string) string { return strings.Join(strings.Fields(s), " ") }
+
+// inOrder reports whether each of parts first appears in s after the one
+// before it.
+func inOrder(s string, parts ...string) bool {
+	last := -1
+	for _, part := range parts {
+		i := strings.Index(s, part)
+		if i <= last {
+			return false
+		}
+		last = i
+	}
+	return true
+}
+
 // lessVersionForTest mirrors the package's own dotted-version ordering.
 func lessVersionForTest(a, b string) bool {
 	as, bs := strings.Split(a, "."), strings.Split(b, ".")
@@ -185,11 +290,31 @@ func TestOpenRejectsANonIdentifierSchemaBeforeConnecting(t *testing.T) {
 func TestBootstrapCreatesEveryTableAndSetsSearchPathPerConnection(t *testing.T) {
 	f := newFixture(t)
 
-	for _, table := range []string{"users", "chip_ledger"} {
-		n := f.scalar(`SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = $1 AND table_name = $2`, f.d.Schema, table)
-		if n != 1 {
-			t.Fatalf("table %s missing from schema %s", table, f.d.Schema)
+	// Exactly these tables: money and audit (users, chip_ledger and the
+	// purchase and spend records), the picture catalogue, and the four
+	// configuration tables — no game state (the baseline's header).
+	rows, err := f.d.Pool.Query(f.ctx, `SELECT table_name FROM information_schema.tables
+         WHERE table_schema = $1 AND table_type = 'BASE TABLE' ORDER BY table_name`, f.d.Schema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tables []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			t.Fatal(err)
 		}
+		tables = append(tables, name)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"chip_ledger", "diamond_purchases", "hammer_purchases", "hammer_spends", "missile_purchases", "missile_spends",
+		"profile_pictures", "table_categories", "table_configs", "table_engines", "table_settings",
+		"user_milestones", "user_profile_pictures", "users"}
+	if strings.Join(tables, ",") != strings.Join(want, ",") {
+		t.Fatalf("schema %s has tables\n %v\nwant\n %v", f.d.Schema, tables, want)
 	}
 
 	// Every pooled connection resolves unqualified names in the test schema
@@ -224,6 +349,27 @@ func TestBootstrapIsIdempotent(t *testing.T) {
 	triggers := f.scalar(`SELECT COUNT(*) FROM pg_trigger WHERE tgname = 'chip_ledger_no_rewrite' AND tgrelid = 'chip_ledger'::regclass`)
 	if triggers != 1 {
 		t.Fatalf("expected exactly one append-only trigger, found %d", triggers)
+	}
+	// The seed ran twice and wrote each row once: 45 pictures, two engines and
+	// seven categories, one settings row, the twelve default tables and seven
+	// private templates, all active.
+	if n := f.scalar(`SELECT COUNT(*) FROM profile_pictures`); n != 45 {
+		t.Fatalf("profile_pictures holds %d rows after a second boot, want 45", n)
+	}
+	if n := f.scalar(`SELECT COUNT(*) FROM table_engines WHERE is_active`); n != 2 {
+		t.Fatalf("table_engines holds %d active rows after a second boot, want 2", n)
+	}
+	if n := f.scalar(`SELECT COUNT(*) FROM table_categories WHERE is_active`); n != 7 {
+		t.Fatalf("table_categories holds %d active rows after a second boot, want 7", n)
+	}
+	if n := f.scalar(`SELECT COUNT(*) FROM table_settings`); n != 1 {
+		t.Fatalf("table_settings holds %d rows after a second boot, want 1", n)
+	}
+	if n := f.scalar(`SELECT COUNT(*) FROM table_configs WHERE is_active`); n != 19 {
+		t.Fatalf("table_configs holds %d active rows after a second boot, want 19", n)
+	}
+	if n := f.scalar(`SELECT COUNT(*) FROM table_configs`); n != 19 {
+		t.Fatalf("table_configs holds %d rows after a second boot, want 19", n)
 	}
 	// Data written before the re-run survives it.
 	u := f.user("Survivor")

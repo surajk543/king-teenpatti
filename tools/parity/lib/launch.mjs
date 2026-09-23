@@ -21,12 +21,21 @@ export const goServerDir = path.join(repoDir, 'go-server');
 
 export const DEFAULT_DATABASE_URL = 'postgres://postgres:postgres@localhost:5432/gameplay';
 
-/** Environment every launched server shares — the union of what the Node process suites set. */
+/**
+ * Environment every launched server shares — the union of what the Node process suites set.
+ *
+ * TABLE_CONFIG_SOURCE=env: the tables come from the env keys below and the
+ * profile's (short clocks, BOOT_AMOUNT 100, LOBBY_TABLES='' meaning any
+ * pair), composed as the server always has. The server seeds its four table
+ * configuration tables either way but reads them only in db mode, which the
+ * `menu` profile turns on to play the seeded catalogue (tools/parity.mjs).
+ */
 export const BASE_ENV = {
   NODE_ENV: 'test',
   HOST: '127.0.0.1',
   JWT_SECRET: 'parity-secret',
   AUTH_ALLOW_FAKE_PROVIDERS: 'true',
+  TABLE_CONFIG_SOURCE: 'env',
   WELCOME_CHIPS: '200000',
   BOOT_AMOUNT: '100',
   NEXT_HAND_DELAY_MS: '150',
@@ -46,6 +55,7 @@ export const SCRUBBED = [
   'DATABASE_URL', 'PG_POOL_MAX', 'JWT_EXPIRES_IN', 'CORS_ORIGIN', 'MAX_PLAYERS_PER_ROOM', 'MIN_PLAYERS_TO_START',
   'VARIATION_SELECT_TIMEOUT_MS', 'VARIATION_MAX_POT_BOOTS', 'POKER_TURN_TIMEOUT_MS', 'POKER_MIN_BUYIN_BOOTS',
   'POKER_MAX_DISCARDS', 'MIN_CLIENT_BUILD', 'LEDGER_PURGE_INTERVAL_MS', 'LEDGER_PURGE_AFTER_MS',
+  'TABLE_CONFIG_SOURCE',
 ];
 
 export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
