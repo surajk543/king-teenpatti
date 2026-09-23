@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../config/server_config.dart';
 import '../settings/feedback_settings.dart';
 
 import '../l10n/strings.dart';
@@ -4520,7 +4521,8 @@ class _SettingsDrawerState extends State<_SettingsDrawer> {
           leading: const Icon(Icons.privacy_tip_outlined),
           title: t.privacyPolicy,
           onTap: () => launchUrl(
-            Uri.parse('https://api.sungamestudio.com/privacy/'),
+            // On the host this build talks to, so preprod shows its own.
+            ServerConfig.page('privacy/'),
             mode: LaunchMode.externalApplication,
           ),
         ),
@@ -4550,7 +4552,10 @@ class _SettingsDrawerState extends State<_SettingsDrawer> {
         Padding(
           padding: const EdgeInsets.fromLTRB(Space.lg, 0, Space.lg, Space.sm),
           child: Text(
-            '${t.appVersion}  ${state.appVersion.isEmpty ? '…' : state.appVersion}',
+            // The environment beside the version, unless it is production:
+            // a tester can tell which server a build talks to.
+            '${t.appVersion}  ${state.appVersion.isEmpty ? '…' : state.appVersion}'
+            '${ServerConfig.isProduction ? '' : ' · ${ServerConfig.environment}'}',
             style: AppTheme.money(
               text.labelSmall!,
               colour: scheme.onSurface.withValues(alpha: AppTheme.inkLow),

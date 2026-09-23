@@ -52,7 +52,7 @@ raise it in Xcode and in the Podfile's `platform :ios` line together.
 
 ## 3. Pointing at a server
 
-The default is production, `https://api.sungamestudio.com`, and needs nothing.
+The default is preprod, `https://preprod.sungamestudio.com` (since 24 Sep 2026); a store build passes `--dart-define-from-file=config/production.json` for `https://api.sungamestudio.com`.
 
 For a server running on the Mac itself, note that the Android emulator's
 `10.0.2.2` alias does not exist here:

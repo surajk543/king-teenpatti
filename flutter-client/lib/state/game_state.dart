@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:uuid/uuid.dart';
 
+import '../config/server_config.dart';
 import '../l10n/strings.dart';
 import '../models/dtos.dart';
 import '../net/picture_cache.dart';
@@ -152,13 +153,10 @@ class GameState extends ChangeNotifier {
       _api = ApiClient(serverUrl ?? defaultServerUrl),
       _conn = GameConnection(serverUrl ?? defaultServerUrl);
 
-  /// The production backend. For a local server override with
-  /// `--dart-define=SERVER_URL=http://10.0.2.2:3000` (the emulator's alias
-  /// for the host machine) or `http://<lan-ip>:3000` for a phone on the LAN.
-  static const defaultServerUrl = String.fromEnvironment(
-    'SERVER_URL',
-    defaultValue: 'https://api.sungamestudio.com',
-  );
+  /// The backend this build was made against — [ServerConfig.url]: preprod
+  /// unless a `--dart-define` (or `--dart-define-from-file=config/<env>.json`)
+  /// says otherwise; the store build names production explicitly.
+  static const defaultServerUrl = ServerConfig.url;
 
   final String serverUrl;
   final ApiClient _api;
