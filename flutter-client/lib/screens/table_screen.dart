@@ -3720,6 +3720,15 @@ class _PackKey extends StatelessWidget {
 /// `you.canMissile`: three or more still in the hand, blind or seen alike.
 /// Whether the player can PAY is their own count; with no missiles the key is
 /// greyed but still answers a tap, with an offer of the store.
+///
+/// Its second line counts the missiles the player HOLDS (owner, 24 Sep 2026:
+/// "Missile count is not updated in missile button when user have used that
+/// missile" — it wrote the constant 1 a shot spends, so it read "1" for ever,
+/// the only missile long gone). It reads `user.missile`, which the ack of a
+/// fired missile sets ([GameState.fireMissile]) and a store purchase raises,
+/// and this widget WATCHES GameState — every notify rebuilds it — so the
+/// figure drops to 0 the moment the shot is acknowledged, with the player
+/// still at the table.
 class _MissileKey extends StatelessWidget {
   const _MissileKey();
 
@@ -3731,6 +3740,7 @@ class _MissileKey extends StatelessWidget {
     final gap = Dim.gap(size.width);
     final canFire = state.canMissile && !state.firingMissile;
     final hasMissile = state.hasMissile;
+    final held = state.user?.missile ?? 0;
     final t = state.t;
 
     return Padding(
@@ -3743,11 +3753,12 @@ class _MissileKey extends StatelessWidget {
           height: Dim.keyH(size.height),
           glyph: _MissileGlyph(animate: canFire),
           label: t.missile,
-          // What firing takes, under its name as Chaal's bet is (owner,
-          // 14 Sep 2026): one missile, and the chips a show would cost — held
-          // by the server's rule, not paid.
-          detail: (style) => _MissileCost(
-            missiles: missileCost,
+          // Under its name, as Chaal carries its bet: the missiles the player
+          // holds (owner, 24 Sep 2026 — the constant a shot spends before
+          // that), and the chips a show would cost, which the server's rule
+          // needs them to hold, not pay (owner, 14 Sep 2026).
+          detail: (style) => _MissileLine(
+            missiles: held,
             chips: state.missileChips,
             style: style,
           ),
@@ -3761,11 +3772,19 @@ class _MissileKey extends StatelessWidget {
   }
 }
 
-/// The Missile key's second line: the missile a shot spends and the chips it
-/// needs the player to hold, each beside its mark — the rocket the wallets
+/// The Missile key's second line: the missiles the player holds and the chips
+/// a shot needs them to hold, each beside its mark — the rocket the wallets
 /// count missiles with, and a chip (owner, 14 Sep 2026).
-class _MissileCost extends StatelessWidget {
-  const _MissileCost({
+///
+/// The rocket's figure is the COUNT HELD, not the cost (owner, 24 Sep 2026:
+/// the owner reads that figure as the missiles they have, and it stayed at
+/// the 1 a shot spends after the only missile was fired). It is the same
+/// number the wallet pill in the top-right corner shows, so the two can never
+/// disagree; [GameState.hasMissile] still decides whether the key is muted.
+/// A count wider than 1 scales down inside the key's own [FittedBox] rather
+/// than growing it, so the key keeps its place on Pack.
+class _MissileLine extends StatelessWidget {
+  const _MissileLine({
     required this.missiles,
     required this.chips,
     required this.style,

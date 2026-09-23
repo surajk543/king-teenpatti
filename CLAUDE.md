@@ -1583,7 +1583,7 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   `tools/lottie/flatten_orientation.py` (its flap opened with `rx`). **The Force key** reads "Force Sideshow" on two
   lines (`_MachinedKey.stackLabel`) beside `assets/animations/Hammer.json` (`_MachinedKey.glyph`), which swings only
   while the key can be used; no cost line — the confirmation states the hammer.
-  **Missiles** (owner, 14 Sep 2026; rules in §6.1): the Missile key over Pack carries its cost as its second line, as Chaal carries its bet — the rocket mark and 1 (the missile a shot spends), then a chip and the chips a show would cost the player (`_MissileCost`, drawn through `_MachinedKey.detail`) (`GameState.missileChips`: the server's first rung on turn, else the stake's chaal; owner, 14 Sep 2026 — §6.1's server refuses a missile to a player short of it), plays `assets/animations/Missile.json` (a copy
+  **Missiles** (owner, 14 Sep 2026; rules in §6.1): the Missile key over Pack carries, as its second line and as Chaal carries its bet, the rocket mark and **the missiles the player HOLDS** (owner, 24 Sep 2026: "Missile count is not updated in missile button when user have used that missile" — it wrote the constant 1 a shot spends, `missileCost`, so it read 1 for ever after the only missile was fired; now `user.missile`, which the fired missile's ack sets and a store pack raises, the same figure as the wallet pill, dropping to 0 the moment the shot is acknowledged because `_MissileKey` watches GameState; `missileCost` survives in `GameState.hasMissile`, which still mutes the key, and in `test/missile_wallet_test.dart`; a wider count scales down in `MachinedKey`'s FittedBox — `test/missile_key_test.dart` has the shot, the pack and a three-figure count at 640x360 ×1.25), then a chip and the chips a show would cost the player (`_MissileLine`, drawn through `MachinedKey.detail`) (`GameState.missileChips`: the server's first rung on turn, else the stake's chaal; owner, 14 Sep 2026 — §6.1's server refuses a missile to a player short of it), plays `assets/animations/Missile.json` (a copy
   with its one `loopOut()` baked; the nose points up-right, frames 30–60 loop) while `canMissile`, is greyed with no
   missiles and then offers the store's **Missiles** tab (between Hammers and Pictures, diamonds for missiles: 1 for 15, 5 for 73, 10 for 140, 20 for 220), and asks
   first (`_fireMissile`). Every viewer sees the volley (`state/missile_strike.dart`, `widgets/missile_flight.dart`): one
@@ -1622,7 +1622,21 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   `variationAnnounced` holds "Variation: AK47" for 3 s — once per hand whether the event, the snapshot or both said so —
   with "Time ran out — Muflis was chosen" (`TIMEOUT`) or "<name> left — Muflis was chosen" (`LEFT`) under it, and
   `_CategoryTag` reads "VARIATION · AK47" / "· Joker · 10" / "· Hukam · ♥" through the showdown (`lastVariation`, cleared
-  by the next deal, a change of table, or the celebration ending). At a reveal a rim seat's fan shows the hand as it was COUNTED when the
+  by the next deal, a change of table, or the celebration ending). **The Hukam suit on the tag is PAINTED, not typed** (owner,
+  24 Sep 2026: "in Variation Game play when user selects Hukam, then the icon on top is not visible properly" — the light-theme
+  screenshot showed "VARIATION · Hukam · ♣" with the ♣ BLACK on the dark pill while the rest of the label was gold): the tag was one
+  gold `Text` ending in a bare U+2663, a glyph the bundled Inter lacks, so Android drew it from the colour emoji font, which ignores the
+  text colour — a black club or spade on the pill, a red emoji heart for hearts. `variationTagParts` (`variation_prompt.dart`) now
+  splits the label into `words` (the Joker rank "10" stays plain digits among them) and a `suit` LETTER, and `_CategoryTag` is a
+  `Text.rich` whose `WidgetSpan` draws it as a `SuitMark` (`playing_card.dart`: a pale rounded card face, `cardFace` at 0.92, with
+  the `CardPips` silhouette in `PlayingCard.inkFor(suit)` — red hearts and diamonds, black spades and clubs, so the suit's colour
+  survives on the dark pill in both themes — sized to the label's line, font size × line height, so the tag does not grow;
+  `test/suit_mark_test.dart`, and `variation_table_test.dart` pumps the Hukam tag at 640×360 ×1.25 and finds the pip, not a '♣').
+  `variationTagText` still returns the glyph string (`VariationTagParts.text`) for the tests. The "4♠" tab under a turned wild card
+  (`_RealCardTab`, `wild_transform.dart`) paints its suit the same way — rank in type beside a `CardPips` in the suit's ink, keyed
+  `wild-real-card:<code>` — though on its white face the emoji colour had happened to be right; the `cardLabel`/`WildTransform`
+  semantics strings keep the glyph, being spoken, not drawn, and the rules sheet prints no suit as text (its examples are
+  `PlayingCard`s, which paint their pips). At a reveal a rim seat's fan shows the hand as it was COUNTED when the
   server sends `playsAs` (`SeatPod.playsAs`, 24 Sep 2026: the wild 7♣ of K♠ K♦ 7♣ shows as the K♣ it stood for; a server without it,
   or a hand with no wild card, shows the cards as dealt), and the cards that played as wild carry a gold
   edge (`WildEdge`, from the reveal's `wild`, matched against the dealt cards) — since 24 Sep 2026 a 2dp edge in `AppTheme.gold` (`goldDeep` on the light theme)
