@@ -5,7 +5,7 @@
 // price in its wallet's word; and every new word is written in all five
 // languages.
 import 'package:flutter/foundation.dart';
-import 'package:flutter/painting.dart' show BoxFit;
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:teenpatti/l10n/strings.dart';
 import 'package:teenpatti/models/dtos.dart';
@@ -198,6 +198,58 @@ void main() {
     expect(state.shownTablePicture, isNull);
     state.dispose();
   });
+
+  testWidgets(
+    'a tile\'s two grounds fill its height, the pale one left and the dark one right',
+    (tester) async {
+      // A childless DecoratedBox has no height of its own: without the row
+      // stretching its halves both grounds laid out at zero height and painted
+      // nothing, and the day half of every tile sat on the store's dark
+      // backdrop (the emulator, 23 Sep 2026).
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Center(
+            child: SizedBox(
+              width: 200,
+              height: 112,
+              child: TablePicturePreview(
+                dayUrl: 'http://example.test/tables/d.svg',
+                nightUrl: 'http://example.test/tables/n.svg',
+                format: 'SVG',
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      final grounds = find.descendant(
+        of: find.byType(TablePicturePreview),
+        matching: find.byType(DecoratedBox),
+      );
+      expect(grounds, findsNWidgets(2));
+      final boxes = grounds.evaluate().map((e) => e.renderObject! as RenderBox).toList();
+      for (final box in boxes) {
+        expect(box.size.height, 112);
+        expect(box.size.width, 100);
+      }
+      final left = boxes[0].localToGlobal(Offset.zero).dx;
+      final right = boxes[1].localToGlobal(Offset.zero).dx;
+      expect(right - left, 100, reason: 'the pale ground is the left half, the dark one the right');
+      final decorations = grounds
+          .evaluate()
+          .map((e) => (e.widget as DecoratedBox).decoration as BoxDecoration)
+          .toList();
+      final pale = decorations[0];
+      final dark = decorations[1];
+      expect((pale.gradient! as LinearGradient).colors.first.computeLuminance(), greaterThan(0.8));
+      expect((dark.gradient! as LinearGradient).colors.first.computeLuminance(), lessThan(0.01));
+      // Let the cache's directory lookup and the fetch it starts run out
+      // (they fail here: no plugin, no network), then unmount so the retry
+      // the box arms after a failed fetch is cancelled with it.
+      await tester.pump(const Duration(seconds: 3));
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
 
   test('a near-square canvas covers its box, a banner is fitted whole', () {
     expect(pictureFitFor(1.0), BoxFit.cover);

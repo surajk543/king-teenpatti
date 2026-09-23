@@ -324,11 +324,20 @@ class TablePicturePreview extends StatelessWidget {
 
 /// The two themes' grounds side by side — the light theme's pale floor on the
 /// left, the dark theme's obsidian on the right — under every tile.
+///
+/// The row STRETCHES its halves: a childless DecoratedBox has no height of
+/// its own, and with the default cross-axis alignment both grounds laid out
+/// at zero height and painted nothing, so every tile's day half sat on the
+/// store's own backdrop — dark in the dark theme, where black day art
+/// (Lines Background, the sun glyph) all but vanished (found on the emulator,
+/// 23 Sep 2026; test/table_pictures_test.dart holds the two halves to the
+/// tile's height).
 class _SplitGround extends StatelessWidget {
   const _SplitGround();
 
   @override
   Widget build(BuildContext context) => const Row(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
       Expanded(
         child: DecoratedBox(
