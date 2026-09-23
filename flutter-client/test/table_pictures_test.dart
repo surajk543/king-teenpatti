@@ -302,7 +302,10 @@ void main() {
     expect(pictureFitFor(1.5), BoxFit.cover, reason: 'Background Pattern, 1500×1000');
     expect(pictureFitFor(1 / 1.5), BoxFit.cover);
     expect(pictureFitFor(428 / 123), BoxFit.contain, reason: 'Welcome, one word on a banner');
-    expect(pictureFitFor(0.5), BoxFit.contain);
+    expect(pictureFitFor(1920 / 1080), BoxFit.cover, reason: 'Circle Background Pattern, a 16:9 scene');
+    expect(pictureFitFor(2.01), BoxFit.contain);
+    expect(pictureFitFor(0.4), BoxFit.contain, reason: 'a column past 1:2');
+    expect(pictureFitFor(0.5), BoxFit.cover, reason: 'exactly 1:2 still covers');
     expect(pictureFitFor(null), BoxFit.cover, reason: 'a canvas the head does not give');
   });
 

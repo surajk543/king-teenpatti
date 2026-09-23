@@ -62,12 +62,20 @@ class CachedPictureBox extends StatefulWidget {
 
 /// How a picture fills a box it does not match. A canvas near enough square
 /// covers the box, cropped at the sides or the top and bottom — Lines
-/// Background (1:1) and Background Pattern (3:2) lose nothing that matters. A
-/// banner or a column is fitted whole: Welcome is one word on a 428×123
-/// canvas (owner, 16 Sep 2026), and cropped to the square it was two letters.
-/// The art decides, not the box; a file whose canvas is unknown covers.
+/// Background (1:1), Background Pattern (3:2) and Circle Background Pattern
+/// (16:9, a scene of three circles whose middle one the square keeps whole)
+/// lose nothing that matters. A banner or a column is fitted whole: Welcome
+/// is one word on a 428×123 canvas (owner, 16 Sep 2026), and cropped to the
+/// square it was two letters. The line is [TablePictureGround.bannerAspect],
+/// 2:1 since 24 Sep 2026 (1.6:1 before, which would have made the 16:9 scene
+/// a strip). The art decides, not the box; a file whose canvas is unknown
+/// covers.
 BoxFit pictureFitFor(double? aspect) =>
-    aspect != null && (aspect > 1.6 || aspect < 1 / 1.6) ? BoxFit.contain : BoxFit.cover;
+    aspect != null &&
+        (aspect > TablePictureGround.bannerAspect ||
+            aspect < 1 / TablePictureGround.bannerAspect)
+    ? BoxFit.contain
+    : BoxFit.cover;
 
 /// How long a picture fetch that failed waits before its [attempt]th retry:
 /// 4 s, 8 s, 16 s, then every 30 s. A phone that was offline for a moment, or
@@ -208,8 +216,10 @@ class TablePictureGround extends StatefulWidget {
 
   /// A canvas wider than this is a banner, drawn above the plinth rather than
   /// under it. The same line [pictureFitFor] draws between covering the
-  /// square and fitting the picture whole.
-  static const double bannerAspect = 1.6;
+  /// square and fitting the picture whole. 2:1 (24 Sep 2026; 1.6:1 before):
+  /// a 16:9 canvas is a scene that crops to the square — Circle Background
+  /// Pattern — while Welcome, at 3.5:1, is the banner this exists for.
+  static const double bannerAspect = 2.0;
 
   /// Where a banner's middle sits in the square: -1 is the square's top edge,
   /// 0 its centre (the pot). -0.45 puts Welcome's whole word between the

@@ -1107,7 +1107,7 @@ Three tables:
 **`user_table_choice`** (`user_id` PK → `table_picture_id`: the picture each player has LAID, one row or none; this is
 `users.active_picture_id` for the table, kept as a side table because a `users` column would be an `ALTER TABLE users` and a §7
 one-off on every deploy that carries it; `ON DELETE CASCADE` on the picture, so deleting a catalogue row clears the tables it was on).
-The seed holds **four rows, the owner's own art** (owner, 15 Sep 2026: "apply this only"), all LOTTIE, all hosted in the owner's Drive
+The seed holds **five rows, the owner's own art** (owner, 15 Sep 2026: "apply this only"; the fifth 24 Sep 2026), all LOTTIE, all hosted in the owner's Drive
 `table_pictures` folder (`uc?export=download&id=…`, never the `/file/d/…/view` page), all rented for chips — so sold in the lobby only
 (§5.1). The first two have a night file made here, where a Drive upload travels through a tool call and size is the constraint; Welcome
 reads on both grounds and is its own night file; Thank You has a day file made here that the owner uploaded (729 KB). **Lines
@@ -1136,7 +1136,13 @@ so the DAY file ("Thank You Day.json") is the same Lottie with its 140 shape fil
 written by `tools/tables/make_thank_you_day.py`, which checks that nothing else differs; its 7,722 per-frame keyframes cannot be
 re-sampled without changing the twinkle, so at 729 KB it is far above what a Drive upload from here carries and the owner uploaded it
 ("Thank You Day.json", same folder, public; proved on TP_Small in the light theme from a scratch `http.server` first and from Drive
-after). **Changing a seeded row's day URL changes its conflict key**: Thank You was seeded with the upload as both files first, so the
+after). **Circle Background Pattern** — 3 lakh chips / 7 days, sort_order 95 (owner, 24 Sep 2026): three circles turning once
+every 5 s over a pastel gradient (sky blue → grey-green → peach, spinning inside each circle under a soft white rim) on a
+1920×1080 canvas (Lottie 5.5.8, 60 fps, 3.6 KB, no 3D/expressions/text), the owner's upload "Circle Background Pattern .json"
+(trailing space and all). Its background rectangle is OPAQUE, so it brings its own ground and one file serves both themes
+(`night_asset_url` = `day_asset_url`); a 16:9 canvas is a scene, so the felt crops it to the square — `pictureFitFor` and
+`TablePictureGround.bannerAspect` draw the banner line at **2:1** since this row (1.6:1 before), Welcome at 3.5:1 staying the
+banner. **Changing a seeded row's day URL changes its conflict key**: Thank You was seeded with the upload as both files first, so the
 seed carries a guarded UPDATE that moves such a row onto the day file before the INSERT (a no-op elsewhere) — without it the next
 boot of a database that ran the earlier seed would add a second Thank You. **A file uploaded from here is private
 until the owner sets "Anyone with the link"** (the connector cannot; a phone gets Google's sign-in page instead of the file until then — and
@@ -1807,10 +1813,10 @@ clock (4, 8, 16 s, then every 30 s) by both the backdrop and `CachedPictureBox`,
   (`_SplitGround`: bone left, obsidian right), so a transparent canvas previews as it will look. `CachedPictureBox` is `Avatar`'s loader
   for a rectangle, and shows NOTHING on a failed fetch rather than a placeholder. **A Lottie's fit follows its canvas** (16 Sep 2026:
   `pictureFitFor(lottieCanvasAspect(bytes))`, the `w`/`h` read off the file's head): near enough square covers the box, cropped — Lines
-  Background 1:1, Background Pattern 3:2 — while a banner or a column past 1.6:1 is `contain`ed whole (Welcome, 428×123; cropped it was two
-  letters of the middle). SVGs and bitmaps still cover. **On the felt a banner stands ABOVE the plinth** (23 Sep 2026, TP_Tall:
+  Background 1:1, Background Pattern 3:2 — while a banner or a column past 2:1 (`bannerAspect`; 1.6:1 until Circle Background Pattern's 16:9 scene, 24 Sep 2026) is
+  `contain`ed whole (Welcome, 428×123; cropped it was two letters of the middle). SVGs and bitmaps still cover. **On the felt a banner stands ABOVE the plinth** (23 Sep 2026, TP_Tall:
   fitted whole into the square centred on the pot, Welcome was a strip under "1,600" with one stroke peeking out): `TablePictureGround`
-  reads the canvas off the cached bytes and draws a canvas wider than `bannerAspect` 1.6 across the square's width in the band at
+  reads the canvas off the cached bytes and draws a canvas wider than `bannerAspect` (2:1) across the square's width in the band at
   `bannerLift` −0.45 (between the status line and the plinth's top), faded at its two ends instead of radially; a square-ish canvas is
   drawn as before. **The header's tab strip scrolls** when six keys would crowd the blurb off its two lines (a 640dp
   phone at the 1.25 text ceiling): `_ChipStoreState` cuts `tabsShown` a key at a time until `blurbLinesAt(...) <= 2`, and `_revealTab`
