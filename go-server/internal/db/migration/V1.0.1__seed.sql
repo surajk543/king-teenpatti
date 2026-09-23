@@ -360,6 +360,7 @@ SELECT name, asset_url, asset_format, currency, type, cost, duration_days, durat
 --   Background Pattern  5 lakh chips   7 days  sort_order 80  LOTTIE, on Drive
 --   Welcome             1.5 lakh chips 7 days  sort_order 85  LOTTIE, on Drive
 --   Thank You           30 lakh chips  7 days  sort_order 90  LOTTIE, on Drive
+--   Circle Background Pattern  3 lakh chips  7 days  sort_order 95  LOTTIE, on Drive (one file, both themes)
 --
 -- LINES BACKGROUND (owner, 15 Sep 2026) is a Lottie of 23 layers of black
 -- lines moving over a transparent 1500×1500 canvas (Lottie 5.12.1, 60 fps,
@@ -424,6 +425,23 @@ SELECT name, asset_url, asset_format, currency, type, cost, duration_days, durat
 -- is a no-op everywhere else. (Lines Background's re-price above stays a hand
 -- step: it does not touch the key.)
 
+-- CIRCLE BACKGROUND PATTERN (owner, 24 Sep 2026: "LOTTIE COIN 300000 PREMIUM …
+-- validity 7 Days") is a Lottie of three circles turning once every five
+-- seconds over a pastel gradient — sky blue (#7DDBFF) through a grey-green to
+-- peach (#FFBD81), the same gradient spinning inside each circle under a soft
+-- white rim — on a 1920×1080 canvas (Lottie 5.5.8, 60 fps, 5 s, 3.6 KB), the
+-- owner's own upload ("Circle Background Pattern .json", trailing space and
+-- all, public). No 3D, no expressions, no text, no embedded images. Its
+-- background rectangle is OPAQUE, so unlike the pictures above it brings its
+-- own ground and reads the same on both themes: night_asset_url is the day
+-- file, as Welcome's is. A 16:9 canvas is a scene, not a banner — the felt
+-- crops it to the square around the pot (pictureFitFor / bannerAspect draw
+-- the line at 2:1 since this row; Welcome, at 3.5:1, stays a banner drawn
+-- above the plinth), which keeps the middle circle whole and halves the two
+-- beside it. Appended after Thank You so the ids an empty database gives the
+-- rows above stay what the header lists; sort_order 95 files it last on the
+-- shelf. Sold for chips, so in the lobby only.
+
 UPDATE table_pictures
    SET day_asset_url = 'https://drive.google.com/uc?export=download&id=19egvyPjBfCFbtEna7cL-_U1kQLVra6e8',
        updated_at    = (EXTRACT(EPOCH FROM now()) * 1000)::bigint
@@ -450,7 +468,12 @@ SELECT name, day_asset_url, night_asset_url, asset_format, currency, type, cost,
     ('Thank You',
      'https://drive.google.com/uc?export=download&id=19egvyPjBfCFbtEna7cL-_U1kQLVra6e8',
      'https://drive.google.com/uc?export=download&id=1Iowysv9_-BE4qont-qLkZRi3XhfF6uc4',
-     'LOTTIE', 'COIN', 'PREMIUM', 3000000::bigint, 7, 0, TRUE, 90)
+     'LOTTIE', 'COIN', 'PREMIUM', 3000000::bigint, 7, 0, TRUE, 90),
+    -- Appended 24 Sep 2026 (owner); opaque, so one file serves both themes.
+    ('Circle Background Pattern',
+     'https://drive.google.com/uc?export=download&id=1Hx3AHsY2-8by89WIsxbPxpM64zL7kZps',
+     'https://drive.google.com/uc?export=download&id=1Hx3AHsY2-8by89WIsxbPxpM64zL7kZps',
+     'LOTTIE', 'COIN', 'PREMIUM', 300000::bigint, 7, 0, TRUE, 95)
   ) AS seed(name, day_asset_url, night_asset_url, asset_format, currency, type, cost, duration_days, duration_hours, is_active, sort_order)
     ON CONFLICT (day_asset_url) DO NOTHING;
 

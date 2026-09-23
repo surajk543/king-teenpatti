@@ -88,8 +88,8 @@ func TestABootBringsAnOlderDatabaseForward(t *testing.T) {
 	}
 	// The table pictures were created and seeded, and the account that was
 	// already there reads with none laid.
-	if n := countOf(t, d, `SELECT count(*) FROM table_pictures WHERE is_active`); n != 4 {
-		t.Errorf("%d table pictures after the upgrade, want the seed's 4", n)
+	if n := countOf(t, d, `SELECT count(*) FROM table_pictures WHERE is_active`); n != 5 {
+		t.Errorf("%d table pictures after the upgrade, want the seed's 5", n)
 	}
 	if got, err := db.NewUsers(d, welcome, nil).FindByID(ctx, before.ID); err != nil || got == nil || got.TablePicture != nil {
 		t.Errorf("the existing account after the upgrade: %+v %v, want it read with no table picture laid", got, err)

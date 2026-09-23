@@ -76,11 +76,12 @@ func TestTheSeededTablePicturesAreTheOwnersOwn(t *testing.T) {
 		welcome     = "https://drive.google.com/uc?export=download&id=1iEyjVt07WkoblcgnX-DdWlqYp-Hsc3Wy"
 		thankYou    = "https://drive.google.com/uc?export=download&id=1Iowysv9_-BE4qont-qLkZRi3XhfF6uc4"
 		thankYouDay = "https://drive.google.com/uc?export=download&id=19egvyPjBfCFbtEna7cL-_U1kQLVra6e8"
+		circles     = "https://drive.google.com/uc?export=download&id=1Hx3AHsY2-8by89WIsxbPxpM64zL7kZps"
 	)
-	if len(pictures) != 4 {
-		t.Fatalf("the seed lists %d table pictures, want 4", len(pictures))
+	if len(pictures) != 5 {
+		t.Fatalf("the seed lists %d table pictures, want 5", len(pictures))
 	}
-	lines, pattern, word, thanks := pictures[0], pictures[1], pictures[2], pictures[3]
+	lines, pattern, word, thanks, rings := pictures[0], pictures[1], pictures[2], pictures[3], pictures[4]
 	if lines.Name != "Lines Background" || lines.Currency != db.PictureCurrencyCoin || lines.Type != db.PicturePremium || lines.Cost != 100000 ||
 		lines.DurationDays != 7 || lines.DurationHours != 0 || lines.AssetFormat != "LOTTIE" || lines.SortOrder != 75 ||
 		lines.DayURL != day || lines.NightURL != night || lines.Owned || lines.ExpiresAt != 0 {
@@ -103,6 +104,13 @@ func TestTheSeededTablePicturesAreTheOwnersOwn(t *testing.T) {
 		thanks.DurationDays != 7 || thanks.DurationHours != 0 || thanks.AssetFormat != "LOTTIE" || thanks.SortOrder != 90 ||
 		thanks.DayURL != thankYouDay || thanks.NightURL != thankYou || thanks.Owned || thanks.ExpiresAt != 0 {
 		t.Fatalf("the seeded Thank You = %+v", thanks)
+	}
+	// Opaque — its own pastel ground — so one file serves both themes
+	// (owner, 24 Sep 2026: 3 lakh chips for 7 days).
+	if rings.Name != "Circle Background Pattern" || rings.Currency != db.PictureCurrencyCoin || rings.Type != db.PicturePremium || rings.Cost != 300000 ||
+		rings.DurationDays != 7 || rings.DurationHours != 0 || rings.AssetFormat != "LOTTIE" || rings.SortOrder != 95 ||
+		rings.DayURL != circles || rings.NightURL != circles || rings.Owned || rings.ExpiresAt != 0 {
+		t.Fatalf("the seeded Circle Background Pattern = %+v", rings)
 	}
 }
 
@@ -132,8 +140,8 @@ func TestABootMovesAThankYouSeededWithOneFileOntoItsDayFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(pictures) != 4 {
-		t.Fatalf("after the boot the seed lists %d table pictures, want 4 — a second Thank You?", len(pictures))
+	if len(pictures) != 5 {
+		t.Fatalf("after the boot the seed lists %d table pictures, want 5 — a second Thank You?", len(pictures))
 	}
 	thanks := pictures[3]
 	if thanks.Name != "Thank You" || thanks.ID != before || thanks.DayURL != thankYouDay || thanks.NightURL != thankYou {
