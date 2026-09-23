@@ -275,6 +275,40 @@ func TestInDatabaseModeTheEntryCapIsTheBand(t *testing.T) {
 	expectCode(t, err, game.CodeOverEntryCap)
 }
 
+// TestANewTableRowIsJoinableAtItsOwnBoot: DEPLOY.md's "new table" recipe in
+// full — ONE table_configs row, blind:1000 copied from blind:200, with
+// table_settings.stakes left as the seed wrote it ([200, 5000, 50000,
+// 1000000]). The card appears, its boot is advertised among the stakes, and
+// quick-join and a public room:create both reach it: a table's own boot is an
+// allowed stake (config.TableCatalogue.Validate), so AssertStakeAllowed, which
+// runs before the menu check, no longer refuses the card it put in the lobby.
+// A boot no row has is still invalid_stake.
+func TestANewTableRowIsJoinableAtItsOwnBoot(t *testing.T) {
+	f := newRoomsFixture(t, dbCatalogue(t, func(cat *config.TableCatalogue) {
+		row := *catalogueRow(t, cat, "blind:200")
+		row.Key, row.BootAmount, row.SortOrder = "", 1000, 25
+		cat.Public = append(cat.Public, row)
+	}))
+	o := f.rooms.LobbyOptions()
+	if e := lobbyEntry(t, o, "blind", 1000); e.MaxChips != 0 {
+		t.Errorf("the new card %+v", e)
+	}
+	eq(t, reflect.DeepEqual(o.Stakes, []int64{200, 5000, 50000, 1000000, 1000}), true, "the stakes advertised")
+	eq(t, reflect.DeepEqual(f.rooms.TableConfig().Stakes, o.Stakes), true, "GET /api/tables says the same")
+
+	table := f.mustQuickJoin(f.player("A", rmStart), 1000, "blind")
+	eq(t, table.BootAmount(), int64(1000), "quick-join seats at the new table's boot")
+	eq(t, table.Category(), game.CategoryBlind, "and category")
+	created, err := f.rooms.CreateAndJoin(f.player("B", rmStart), game.CreateTableOptions{BootAmount: 1000, Category: "blind"}, "sock-b")
+	if err != nil {
+		t.Fatalf("a public room:create at the new table's boot: %v", err)
+	}
+	eq(t, created.BootAmount(), int64(1000), "the created table's boot")
+
+	_, err = f.rooms.QuickJoin(f.player("C", rmStart), game.QuickJoinOptions{BootAmount: 700, Category: "blind"})
+	expectCode(t, err, game.CodeInvalidStake)
+}
+
 // withStoreAndMenu attaches a live store and keeps the default menu.
 func withStoreAndMenu(store *livetest.Store, instance string, then func(*config.GameConfig, *game.RoomManagerOptions)) func(*config.GameConfig, *game.RoomManagerOptions) {
 	return func(g *config.GameConfig, o *game.RoomManagerOptions) {
@@ -291,7 +325,11 @@ func withStoreAndMenu(store *livetest.Store, instance string, then func(*config.
 // a table the live store brings back keeps the rules in its snapshot, and so
 // matchmaking must stop sending players to it — the card describes the new
 // rules. It plays on, it is joined by its code, it empties and goes like any
-// other; it is simply never picked, switched to or merged.
+// other; it is simply never picked or switched to, and never the table a
+// player from an undrained one is merged onto. Its own lone player is merged
+// (requirement 24): onto an older drained table playing by the same frozen
+// rules while there is nothing else, and onto the undrained table of the pair
+// once quick-join has opened one — never the other way round.
 func TestARestoredTableWhoseRulesChangedIsDrained(t *testing.T) {
 	store := livetest.New()
 	f1, ids, players := playingFixture(t, store)
@@ -337,9 +375,21 @@ func TestARestoredTableWhoseRulesChangedIsDrained(t *testing.T) {
 	// The hand in progress plays on by the rules it was dealt with.
 	eq(t, game.AsTable(f3.rooms.GetTable(ids[0])).Config().TurnTimeout, 25*time.Second, "frozen clock")
 
-	// Consolidation neither empties a drained table nor fills one: C (t2) and
-	// E (t3) stay where they are.
-	eq(t, len(f3.mustConsolidate()), 0, "no merge")
+	// C (t2) and E (t3) are alone at drained seen 200 tables with the same
+	// frozen rules, and the pair has no undrained table yet: E is merged onto
+	// the older, which stays drained. Emptied, t3 goes, and its mark with it.
+	c, e := players["C"], players["E"]
+	moves := f3.mustConsolidate()
+	if len(moves) != 1 || moves[0] != (game.PlayerMove{UserID: e.ID, FromRoomID: ids[2], ToRoomID: ids[1]}) {
+		t.Fatalf("drained singles of the same rules: moves %+v", moves)
+	}
+	if f3.rooms.GetTable(ids[2]) != nil {
+		t.Fatal("the emptied drained table was not destroyed")
+	}
+	eq(t, f3.rooms.Draining(ids[2]), false, "the mark goes with the table")
+	eq(t, f3.rooms.Draining(ids[1]), true, "the table merged onto stays drained")
+	eq(t, strings.Join(seatedIDs(t, f3.rooms.GetTable(ids[1])), ","), strings.Join(sortedStrings(c.ID, e.ID), ","), "C and E together")
+	eq(t, game.AsTable(f3.rooms.GetTable(ids[1])).Config().TurnTimeout, 25*time.Second, "on the rules both were playing by")
 
 	// Quick-join opens a table with the new rules rather than seat F there.
 	fp := f3.player("F", rmStart)
@@ -349,30 +399,195 @@ func TestARestoredTableWhoseRulesChangedIsDrained(t *testing.T) {
 	}
 	eq(t, fresh.Config().TurnTimeout, 40*time.Second, "the new table has the new clock")
 	eq(t, f3.rooms.Draining(fresh.ID()), false, "a new table is not drained")
-	// A switch finds nowhere to go: the other seen 200 tables are drained.
+	// A switch finds nowhere to go: the other seen 200 table is drained.
 	_, err = f3.rooms.SwitchTable(fp)
 	expectCode(t, err, game.CodeNoOtherTable)
+	// F, alone at the undrained table, is never merged onto the drained one:
+	// it holds two players, and a drained table is no undrained player's
+	// target in any case.
+	eq(t, len(f3.mustConsolidate()), 0, "F stays at the undrained table")
+
+	// Its code still works.
+	g := f3.player("G", rmStart)
+	joined, err := f3.rooms.JoinByCode(g, f3.rooms.GetTable(ids[1]).Code())
+	if err != nil || joined.ID() != ids[1] {
+		t.Fatalf("join a drained table by its code: %v", err)
+	}
 	// A switch AWAY from a drained table is allowed: C goes to F's table.
-	c := players["C"]
 	moved, err := f3.rooms.SwitchTable(c)
 	if err != nil {
 		t.Fatalf("switch from a drained table: %v", err)
 	}
 	eq(t, moved.To.ID(), fresh.ID(), "onto the undrained table")
 
-	// Its code still works.
-	g := f3.player("G", rmStart)
-	joined, err := f3.rooms.JoinByCode(g, f3.rooms.GetTable(ids[2]).Code())
-	if err != nil || joined.ID() != ids[2] {
-		t.Fatalf("join a drained table by its code: %v", err)
-	}
-	// Emptied, it goes like any table, and its mark with it.
+	// G leaves E alone on the drained table; F's table holds two, so there is
+	// nothing to merge E with yet.
 	f3.mustLeave(g.ID, game.LeaveReasonLeft)
-	f3.mustLeave(players["E"].ID, game.LeaveReasonLeft)
-	if f3.rooms.GetTable(ids[2]) != nil {
-		t.Fatal("the emptied drained table was not destroyed")
+	eq(t, seatedAt(f3, e.ID), ids[1], "E waits at the drained table")
+	// F leaves C alone at the undrained table, and the leave's own
+	// consolidation brings E there — onto the new rules the lobby offers, not
+	// C back onto the old ones, although E's table is the older.
+	before := len(f3.events.movedCopy())
+	f3.mustLeave(fp.ID, game.LeaveReasonLeft)
+	after := f3.events.movedCopy()
+	if len(after) != before+1 || after[before] != (game.PlayerMove{UserID: e.ID, FromRoomID: ids[1], ToRoomID: fresh.ID()}) {
+		t.Fatalf("a drained single onto the undrained single: moves %+v", after[before:])
 	}
-	eq(t, f3.rooms.Draining(ids[2]), false, "the mark goes with the table")
+	eq(t, seatedAt(f3, c.ID), fresh.ID(), "C stays on the new rules")
+	eq(t, seatedAt(f3, e.ID), fresh.ID(), "E joins C there")
+	if f3.rooms.GetTable(ids[1]) != nil {
+		t.Fatal("the drained table emptied by the move was not destroyed")
+	}
+	eq(t, f3.rooms.Draining(ids[1]), false, "and its mark went with it")
+}
+
+// seatedAt is the id of the table userID is seated at, "" when none.
+func seatedAt(f *roomsFixture, userID string) string {
+	if room := f.rooms.GetTableForPlayer(userID); room != nil {
+		return room.ID()
+	}
+	return ""
+}
+
+// sortedStrings is its arguments, sorted (seatedIDs sorts too).
+func sortedStrings(s ...string) []string {
+	out := append([]string(nil), s...)
+	sort.Strings(out)
+	return out
+}
+
+// TestLonePlayersOnADelistedPairMeetOnTheirOwnRules: a restart takes the
+// blind 5000 table off the menu while three tables of it hold a player each.
+// All three are drained and there is no undrained table of the pair to be
+// merged onto — nor can there ever be one — so, without merging drained
+// tables among themselves, those players could never meet. Two were opened
+// under the same configuration and merge, onto the older; the third was
+// opened under a configuration before that, with another turn clock, and is
+// left where it is rather than moved onto rules it was not playing by.
+func TestLonePlayersOnADelistedPairMeetOnTheirOwnRules(t *testing.T) {
+	store := livetest.New()
+	ctx := context.Background()
+
+	// Generation 0: blind 5000 with a 40 s clock. C sits there.
+	f0 := newRoomsFixture(t, withStoreAndMenu(store, "gen0", func(g *config.GameConfig, _ *game.RoomManagerOptions) {
+		g.TurnTimeout = 40 * time.Second
+	}))
+	c := f0.player("C", rmStart)
+	tc := f0.mustQuickJoin(c, 5000, "blind")
+	if err := f0.rooms.Suspend(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	// Generation 1: the default clock. C's table comes back drained, so A's
+	// quick-join opens another; B sits at a third.
+	f1 := newRoomsFixture(t, withStoreAndMenu(store, "gen1", nil))
+	f1.clock.Advance(f0.clock.Now().Sub(rmEpoch) + time.Second)
+	if _, err := f1.rooms.Restore(ctx); err != nil {
+		t.Fatal(err)
+	}
+	eq(t, f1.rooms.Draining(tc.ID()), true, "C's table drained by the new clock")
+	a, b := f1.player("A", rmStart), f1.player("B", rmStart)
+	ta := f1.mustQuickJoin(a, 5000, "blind")
+	if ta.ID() == tc.ID() {
+		t.Fatal("quick-join picked the drained table")
+	}
+	f1.clock.Advance(time.Second)
+	tb := f1.createTable(game.CreateTableOptions{BootAmount: 5000, Category: "blind"})
+	f1.mustJoin(tb, b)
+	if err := f1.rooms.Suspend(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	// Generation 2: blind 5000 is off the menu.
+	f2 := newRoomsFixture(t, withStoreAndMenu(store, "gen2", func(g *config.GameConfig, _ *game.RoomManagerOptions) {
+		var menu []config.LobbyTable
+		for _, entry := range g.LobbyTables {
+			if entry.Category != "blind" || entry.BootAmount != 5000 {
+				menu = append(menu, entry)
+			}
+		}
+		g.LobbyTables = menu
+	}))
+	f2.clock.Advance(f1.clock.Now().Sub(rmEpoch) + time.Second)
+	if _, err := f2.rooms.Restore(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{tc.ID(), ta.ID(), tb.ID()} {
+		eq(t, f2.rooms.Draining(id), true, "drained "+id)
+	}
+
+	moves := f2.mustConsolidate()
+	if len(moves) != 1 || moves[0] != (game.PlayerMove{UserID: b.ID, FromRoomID: tb.ID(), ToRoomID: ta.ID()}) {
+		t.Fatalf("moves %+v", moves)
+	}
+	eq(t, strings.Join(seatedIDs(t, f2.rooms.GetTable(ta.ID())), ","), strings.Join(sortedStrings(a.ID, b.ID), ","), "A and B together")
+	eq(t, f2.rooms.Draining(ta.ID()), true, "still drained")
+	if f2.rooms.GetTable(tb.ID()) != nil || f2.rooms.Draining(tb.ID()) {
+		t.Fatal("B's emptied table and its mark must be gone")
+	}
+	eq(t, seatedAt(f2, c.ID), tc.ID(), "C keeps the older rules, alone")
+	eq(t, len(f2.mustConsolidate()), 0, "nothing more to merge")
+}
+
+// TestADrainedLonePlayerTheLobbyWouldNotSeatStaysPut: consolidation checks
+// nothing a lobby door checks, and a drained table's player sat down under a
+// configuration the lobby no longer offers — so a lone one is moved onto the
+// undrained table of their pair only with a stack the lobby would seat there
+// now. Blind 5000's band is lowered to 10 Lakh across a restart that also
+// changes the clock: R, holding 20 Lakh, stays at the drained table while S,
+// holding 2 Lakh, is merged onto F's. Hold'em's buy-in is raised to 10 Lakh:
+// P, holding 6 Lakh, stays — without being taken off the table and bounced
+// back by the room's own refusal (the failure path that would otherwise run
+// on every sweep).
+func TestADrainedLonePlayerTheLobbyWouldNotSeatStaysPut(t *testing.T) {
+	store := livetest.New()
+	ctx := context.Background()
+	f1 := newRoomsFixture(t, withStoreAndMenu(store, "old", nil))
+	r, s := f1.player("R", 2000000), f1.player("S", rmStart)
+	tr := f1.mustQuickJoin(r, 5000, "blind")
+	f1.clock.Advance(time.Second)
+	ts := f1.createTable(game.CreateTableOptions{BootAmount: 5000, Category: "blind"})
+	f1.mustJoin(ts, s)
+	p := f1.player("P", 600000)
+	tp, err := f1.rooms.QuickJoin(p, game.QuickJoinOptions{BootAmount: 50000, Category: "texas_holdem"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f1.rooms.Suspend(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	f2 := newRoomsFixture(t, withStoreAndMenu(store, "new", dbCatalogue(t, func(cat *config.TableCatalogue) {
+		for i := range cat.Public {
+			cat.Public[i].TurnTimeout = 40 * time.Second
+		}
+		catalogueRow(t, cat, "blind:5000").MaxChips = 1000000
+		catalogueRow(t, cat, "texas_holdem:50000").MinBuyIn = 1000000
+	})))
+	f2.clock.Advance(f1.clock.Now().Sub(rmEpoch) + time.Second)
+	if _, err := f2.rooms.Restore(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{tr.ID(), ts.ID(), tp.ID()} {
+		eq(t, f2.rooms.Draining(id), true, "drained "+id)
+	}
+	fresh := f2.mustQuickJoin(f2.player("F", rmStart), 5000, "blind")
+	q := f2.player("Q", 1500000)
+	holdem, err := f2.rooms.QuickJoin(q, game.QuickJoinOptions{BootAmount: 50000, Category: "texas_holdem"})
+	if err != nil || holdem.ID() == tp.ID() {
+		t.Fatalf("Q must open an undrained hold'em room: %v", err)
+	}
+
+	moves := f2.mustConsolidate()
+	if len(moves) != 1 || moves[0] != (game.PlayerMove{UserID: s.ID, FromRoomID: ts.ID(), ToRoomID: fresh.ID()}) {
+		t.Fatalf("moves %+v", moves)
+	}
+	eq(t, seatedAt(f2, r.ID), tr.ID(), "R, over the new band, stays")
+	eq(t, seatedAt(f2, p.ID), tp.ID(), "P, under the new buy-in, stays")
+	eq(t, strings.Contains(f2.logText(), "table consolidation failed"), false, "nobody bounced")
+	// The door R would be turned away at is the one consolidation respected.
+	_, err = f2.rooms.JoinByCode(f2.player("R2", 2000000), fresh.Code())
+	expectCode(t, err, game.CodeOverEntryCap)
 }
 
 // TestATableWhosePairLeftTheMenuIsDrained: a table restored for a category

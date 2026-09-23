@@ -383,11 +383,14 @@ type RoomManager struct {
 	// draining is every public room restored from the live store that the
 	// current configuration would not open as it is: its pair has left a
 	// non-empty menu, or it plays by figures its pair's spec no longer gives
-	// (drainReason). Matchmaking never sends anybody to one — quick-join and
-	// a switch pass it by, consolidation neither empties it nor fills it —
-	// but its code still works, its players play on, and it goes the way of
-	// any table once it empties. The entry goes with the table (destroyTable,
-	// Suspend).
+	// (drainReason). Matchmaking never sends anybody INTO one — quick-join and
+	// a switch pass it by, and consolidation never moves a player there from
+	// an undrained table — but its players may be taken out: a switch away,
+	// or a consolidation moving its lone player onto the undrained table of
+	// the same pair (their stack permitting) or onto an older drained one
+	// playing by the same frozen rules (ConsolidateTables). Its code still
+	// works, its players play on, and it goes the way of any table once it
+	// empties. The entry goes with the table (destroyTable, Suspend).
 	draining map[string]bool
 	// pending is roomId → seats held by joins in flight (taken under mu when
 	// a table is picked, released once AddPlayer has run). Candidate scans
@@ -1986,22 +1989,49 @@ func (rm *RoomManager) walletUnfinishedLocked(userID string) bool {
 
 // ConsolidateTables (consolidateTables; requirement 24) merges public idle
 // tables (state waiting, no hand, exactly one player) of the same
-// "category:boot" onto the OLDEST of the group (by CreatedAt, ties by
-// creation order), moving one player at a time with movePlayer until the
-// target is full. Returns the moves made.
+// "category:boot" onto the OLDEST undrained one of the group (by CreatedAt,
+// ties by creation order), moving one player at a time with movePlayer until
+// the target is full. Returns the moves made.
 //
 // Two rooms each left with one player are two rooms where nobody can play,
 // so the stragglers are pulled together onto one table. Only idle tables
 // are touched: a table with a hand in progress is never disturbed, which is
-// what stops a player being moved out from under a live game. A draining
-// table is neither a source nor a target: nobody is moved onto rules the
-// lobby no longer offers, and its own player chose to stay where they were.
+// what stops a player being moved out from under a live game.
+//
+// A draining table (RoomManager.draining) may be a SOURCE, but never the
+// target of a player from an undrained one. Matchmaking sends nobody onto
+// rules the lobby no longer offers; but a lone player a restart left on such
+// rules is exactly who requirement 24 is for, and with the drained tables
+// left out of the merge they could never meet the fresh table quick-join
+// opens beside them, nor — once their pair has left the menu — each other.
+// So:
+//
+//   - The target is the group's oldest UNDRAINED single, and every other
+//     single goes there as before. One from a drained table goes only when
+//     its stack is one the lobby would seat at that pair now
+//     (admitsFromDrained: the band, the env entry cap, a poker room's
+//     buy-in), which movePlayer does not check; otherwise it stays put.
+//   - The drained singles still alone after that — every one of them when the
+//     group has no undrained single (the pair left the menu, or nobody has
+//     quick-joined it since the restart), else those the target would not
+//     admit or had no seat for — merge among themselves: each goes onto the
+//     oldest of them playing by the same frozen rules (RulesSpec, compared in
+//     whole milliseconds as drainReason compares them), so nobody is moved
+//     onto rules they were not already playing by. The pair, and so the band,
+//     is the same at both ends, and the target stays drained.
+//
+// Emptied, a drained source is destroyed by movePlayer like any other, and
+// its draining mark goes with it (destroyTable).
 func (rm *RoomManager) ConsolidateTables() ([]PlayerMove, error) {
 	rm.mu.Lock()
 	var singles []Room
+	drained := map[string]bool{}
 	for _, t := range rm.tablesLocked() {
-		if !t.IsPrivate() && !rm.draining[t.ID()] && !t.HasHand() && t.State() == TableWaiting && t.PlayerCount() == 1 {
+		if !t.IsPrivate() && !t.HasHand() && t.State() == TableWaiting && t.PlayerCount() == 1 {
 			singles = append(singles, t)
+			if rm.draining[t.ID()] {
+				drained[t.ID()] = true
+			}
 		}
 	}
 	seq := make(map[string]uint64, len(singles))
@@ -2035,29 +2065,118 @@ func (rm *RoomManager) ConsolidateTables() ([]PlayerMove, error) {
 			}
 			return a.Before(b)
 		})
-		target := group[0]
-		for _, source := range group[1:] {
-			if target.IsFull() {
+		var target Room
+		for _, t := range group {
+			if !drained[t.ID()] {
+				target = t
 				break
 			}
-			move, err := rm.movePlayer(source, target)
+		}
+		// stranded is every drained single not moved onto target, oldest first.
+		var stranded []Room
+		for _, source := range group {
+			if source == target {
+				continue
+			}
+			if target == nil || target.IsFull() {
+				if drained[source.ID()] {
+					stranded = append(stranded, source)
+				}
+				continue
+			}
+			var admit func(chips int64) bool
+			if drained[source.ID()] {
+				admit = func(chips int64) bool { return rm.admitsFromDrained(target, chips) }
+			}
+			move, err := rm.movePlayer(source, target, admit)
 			if err != nil {
 				return moves, err
 			}
 			if move != nil {
 				moves = append(moves, *move)
+			} else if drained[source.ID()] {
+				stranded = append(stranded, source)
 			}
+		}
+		merged, err := rm.mergeDrained(stranded)
+		moves = append(moves, merged...)
+		if err != nil {
+			return moves, err
 		}
 	}
 	return moves, nil
 }
 
+// mergeDrained is ConsolidateTables for the drained singles of one group that
+// are still alone (stranded, oldest first): each goes onto the oldest of them
+// playing by the same frozen rules, until that one is full. Rules are
+// compared as drainReason compares them — RulesSpec in whole milliseconds,
+// SameRules — and read from each room's frozen config, lock-free.
+func (rm *RoomManager) mergeDrained(stranded []Room) ([]PlayerMove, error) {
+	moves := []PlayerMove{}
+	type head struct {
+		room  Room
+		rules config.TableSpec
+	}
+	var heads []head
+	for _, source := range stranded {
+		rules := wholeMillis(source.RulesSpec())
+		var target Room
+		for _, h := range heads {
+			if h.rules.SameRules(rules) {
+				target = h.room
+				break
+			}
+		}
+		if target == nil {
+			heads = append(heads, head{room: source, rules: rules})
+			continue
+		}
+		if target.IsFull() {
+			continue
+		}
+		move, err := rm.movePlayer(source, target, nil)
+		if err != nil {
+			return moves, err
+		}
+		if move != nil {
+			moves = append(moves, *move)
+		}
+	}
+	return moves, nil
+}
+
+// admitsFromDrained reports whether a player holding chips may be moved by a
+// consolidation from a draining table onto target, an undrained table of the
+// same pair. They sat down under a configuration the lobby no longer offers,
+// and movePlayer checks nothing a lobby door checks, so the door's checks for
+// target's pair are made here, on the stack the seat holds: the band
+// (assertWithinTableBand, the entry cap folded in), the env entry cap
+// (assertUnderEntryCap, a no-op in db mode) and a poker room's buy-in
+// (RulesSpec().MinBuyIn, 0 at a Teen Patti table). The buy-in is checked
+// rather than left to the room: its AddPlayer would refuse and movePlayer's
+// failure path would put the player back, but only after taking them off
+// their table and seating them again — announced to the table as a departure
+// and an arrival — on every sweep. Chips a top-up adds after this look are
+// the chips of a player who bought while seated, which no band speaks to.
+// Lock-free: the immutable config and target's frozen config only.
+func (rm *RoomManager) admitsFromDrained(target Room, chips int64) bool {
+	p := Player{Chips: chips}
+	category, boot := target.Category(), target.BootAmount()
+	if rm.assertUnderEntryCap(p, boot, category) != nil || rm.assertWithinTableBand(p, boot, category) != nil {
+		return false
+	}
+	return chips >= target.RulesSpec().MinBuyIn
+}
+
 // movePlayer (_movePlayer): sole occupant of source → target. Bail (nil) if
-// no seat, either table has a hand, or target is full. Player built from the
-// seat (chips = seat chips), socketId kept. source.RemovePlayer(id,
-// "moved"); delete playerRooms (holding the target seat at the same time);
-// Join(target) — on failure (the target was destroyed under us) log `table
-// consolidation failed, restoring seat` and Join(source) back.
+// no seat, either table has a hand, target is full, or admit (nil = anyone)
+// refuses the chips the seat holds. Player built from the seat (chips = seat
+// chips), socketId kept. source.RemovePlayer(id, "moved"); delete
+// playerRooms (holding the target seat at the same time); Join(target) — on
+// failure (the target was destroyed under us, or refused the player: a poker
+// room's buy-in) log `table consolidation failed, restoring seat` and
+// Join(source) back.
 // If source is now empty → DestroyTable(source). RoomListener.OnPlayerMoved;
 // log `player moved to a busier table`.
 //
@@ -2066,7 +2185,7 @@ func (rm *RoomManager) ConsolidateTables() ([]PlayerMove, error) {
 // start countdown, state), then OnTableDestroyed(source), then
 // OnPlayerMoved — so a mover's room:closed always precedes room:moved /
 // room:joined (DECISIONS.md §1).
-func (rm *RoomManager) movePlayer(source, target Room) (*PlayerMove, error) {
+func (rm *RoomManager) movePlayer(source, target Room, admit func(chips int64) bool) (*PlayerMove, error) {
 	seats, err := source.Seats()
 	if err != nil {
 		if errors.Is(err, ErrTableDestroyed) {
@@ -2075,6 +2194,11 @@ func (rm *RoomManager) movePlayer(source, target Room) (*PlayerMove, error) {
 		return nil, err
 	}
 	if len(seats) == 0 || source.HasHand() || target.HasHand() || target.IsFull() {
+		return nil, nil
+	}
+	if admit != nil && !admit(seats[0].Chips) {
+		rm.log.Debug("table consolidation skipped: the player's stack is not one the table admits",
+			"userId", seats[0].UserID, "fromRoomId", source.ID(), "toRoomId", target.ID())
 		return nil, nil
 	}
 	seat := seats[0]

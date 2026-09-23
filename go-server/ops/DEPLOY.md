@@ -231,7 +231,9 @@ sudo systemctl restart gameplay                                                 
 - **A restart applies it, to tables opened after it.** The server reads the catalogue once, at boot. A table restored
   from Redis keeps the rules it was opened with; one whose rules the rows no longer give (or whose table left the menu)
   is **drained** — its players play on and its code still works, but the lobby sends nobody to it and it goes once
-  empty (`table draining` INFO in the journal). `GET /api/tables` and `/health.tableConfig.version` show what the
+  empty (`table draining` INFO in the journal). A player left alone at one is still merged (requirement 24): onto the
+  table of the same stake with the new rules once there is one and their stack fits its entry band, or else onto an
+  older drained table playing by the same old rules. `GET /api/tables` and `/health.tableConfig.version` show what the
   process runs; a `SELECT` shows only what the next boot will.
 - **Retire, never DELETE.** `is_active = FALSE` works at every level: a table, a category (every table of it) or an
   engine (every category and table of it). A DELETE of a category or engine something names is refused by the foreign
@@ -242,8 +244,12 @@ sudo systemctl restart gameplay                                                 
 - **A new table** is an INSERT stating every figure (the rule and clock columns have no DEFAULT on purpose); the easy
   way is to copy a row — `INSERT INTO table_configs (category, boot_amount, is_private, min_chips, …, sort_order,
   is_active) SELECT category, 1000, FALSE, min_chips, …, 25, FALSE FROM table_configs WHERE table_key = 'blind:200'` —
-  and switch it on with `is_active = TRUE` when it should appear. A category installed apps do not know (as variation
-  and poker once were) goes live only after `MIN_CLIENT_BUILD` is raised to a build that can draw it.
+  and switch it on with `is_active = TRUE` when it should appear. That one row is all it takes: **a table's own boot is
+  always an allowed stake**, so `table_settings.stakes` need not be edited — a boot it does not list (1000 here) is
+  appended to it at boot, after the stakes it lists (`/api/tables` and the lobby's `stakes` show it there), and
+  quick-join and a public `room:create` reach the new card. An empty `stakes` array still means any stake. A category
+  installed apps do not know (as variation and poker once were) goes live only after `MIN_CLIENT_BUILD` is raised to a
+  build that can draw it.
 - **The database has the last word on shape**: a turn clock under 5 s, a sideshow window under 1 s, a variation row
   without both windows, a poker buy-in under its boot, a band min over max, a category nobody declared — each refused by
   a CHECK or a foreign key at the `UPDATE`. What PostgreSQL accepts but the engine must not open is left out at boot

@@ -81,8 +81,9 @@ type TableRestoreListener interface {
 // Restored tables are ordinary tables afterwards: the sweeper, consolidation
 // and kicks treat them like any other — except a public one that the current
 // configuration would not open as it is, which is drained (drainReason): it
-// plays on and is joined by code, but matchmaking sends nobody to it and
-// consolidation leaves it alone until it empties. Call Restore before
+// plays on and is joined by code, but matchmaking sends nobody to it, and
+// consolidation only ever takes a lone player out of it (ConsolidateTables)
+// until it empties. Call Restore before
 // StartSweeper and before the listener opens; then hand RestoredSeats to the
 // socket layer and HandIDs to the database refund. A single instance owns
 // every stored table (there is no instance filter yet). Without a live store
@@ -422,7 +423,8 @@ func wholeMillis(spec config.TableSpec) config.TableSpec {
 
 // Draining reports whether the room is being drained: restored from the live
 // store with rules the current configuration would not open, and so never
-// chosen by quick-join, a switch or consolidation (RoomManager.draining).
+// chosen by quick-join or a switch, nor by consolidation as the table to move
+// a player from an undrained one onto (RoomManager.draining).
 func (rm *RoomManager) Draining(roomID string) bool {
 	rm.mu.Lock()
 	defer rm.mu.Unlock()

@@ -498,6 +498,75 @@ func TestValidateHoldsEveryTableToTheTaxonomy(t *testing.T) {
 	}
 }
 
+// TestATablesOwnBootIsAlwaysAnAllowedStake: DEPLOY.md's "new table" recipe is
+// one row — a blind:1000 copied from blind:200 — and the settings' stakes do
+// not list 1000. Validate appends it, after the stakes that were listed, in
+// menu order and once, with nothing to report, so the card that row puts in
+// the lobby can be joined (AssertStakeAllowed runs before AssertTableOffered).
+// A boot already listed is not repeated, the list's own order and duplicates
+// stay, a row left out adds nothing, and an empty list still means any stake.
+func TestATablesOwnBootIsAlwaysAnAllowedStake(t *testing.T) {
+	base := Defaults().Game.EffectiveCatalogue()
+	base.Source = TableConfigSourceDB
+	if !reflect.DeepEqual(base.Settings.Stakes, []int64{200, 5000, 50000, 1000000}) {
+		t.Fatalf("the default stakes are %v", base.Settings.Stakes)
+	}
+	withRows := func(stakes []int64) TableCatalogue {
+		cat := base.clone()
+		cat.Settings.Stakes = stakes
+		blind := cat.Public[1] // blind:200
+		blind.Key, blind.BootAmount, blind.SortOrder = "", 1000, 25
+		seen := cat.Public[0] // seen:200
+		seen.Key, seen.BootAmount, seen.SortOrder = "", 1000, 26
+		listed := cat.Public[0]
+		listed.Key, listed.BootAmount, listed.SortOrder = "", 5000, 27
+		rummy := cat.Public[1]
+		rummy.Key, rummy.Category, rummy.BootAmount, rummy.SortOrder = "", "rummy", 7000, 28
+		cat.Public = append(cat.Public, blind, seen, listed, rummy)
+		return cat
+	}
+
+	cat := withRows([]int64{200, 5000, 50000, 1000000})
+	valid, problems, err := cat.Validate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Only the rummy row is reported, and it adds no stake.
+	if len(problems) != 1 || !strings.Contains(problems[0], "table rummy:7000 left out") {
+		t.Errorf("problems %v", problems)
+	}
+	if want := []int64{200, 5000, 50000, 1000000, 1000}; !reflect.DeepEqual(valid.Settings.Stakes, want) {
+		t.Errorf("stakes %v, want %v", valid.Settings.Stakes, want)
+	}
+	if !reflect.DeepEqual(cat.Settings.Stakes, []int64{200, 5000, 50000, 1000000}) {
+		t.Errorf("Validate changed the catalogue it was given: %v", cat.Settings.Stakes)
+	}
+	if g := Defaults().Game.WithCatalogue(valid); !reflect.DeepEqual(g.TableStakes, []int64{200, 5000, 50000, 1000000, 1000}) {
+		t.Errorf("TableStakes %v", g.TableStakes)
+	}
+
+	// The list's own order and duplicates stay; what it lacks follows in
+	// menu order: 50000 (blind:50000), 1000000 (blind:1000000), 1000.
+	valid, _, err = withRows([]int64{5000, 200, 5000}).Validate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []int64{5000, 200, 5000, 50000, 1000000, 1000}; !reflect.DeepEqual(valid.Settings.Stakes, want) {
+		t.Errorf("stakes %v, want %v", valid.Settings.Stakes, want)
+	}
+
+	// An empty list is any stake, and stays empty — not nil.
+	for _, empty := range [][]int64{{}, nil} {
+		valid, problems, err := withRows(empty).Validate()
+		if err != nil || len(problems) != 1 {
+			t.Fatalf("empty stakes: %v %v", err, problems)
+		}
+		if valid.Settings.Stakes == nil || len(valid.Settings.Stakes) != 0 {
+			t.Errorf("an empty stakes list became %#v", valid.Settings.Stakes)
+		}
+	}
+}
+
 // TestSameRulesIgnoresOnlyTheBandAndThePlace: a restored table whose figures
 // match its row is left alone whatever its band (the band is the lobby's,
 // checked at the door); any figure it plays by differently drains it.

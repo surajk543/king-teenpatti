@@ -152,7 +152,7 @@ func DefaultTableCategories() []TableCategory {
 // session:ready advertises; the rest are what session:ready advertises too.
 type TableSettings struct {
 	DefaultBootAmount  int64         // BOOT_AMOUNT: the stake a quick-join without one gets
-	Stakes             []int64       // TABLE_STAKES, verbatim (order and duplicates kept); empty = any stake
+	Stakes             []int64       // TABLE_STAKES, verbatim (order and duplicates kept); empty = any stake; Validate appends every public table's own boot
 	MaxPlayers         int           // MAX_PLAYERS_PER_ROOM
 	MinPlayers         int           // MIN_PLAYERS_TO_START
 	TurnTimeout        time.Duration // TURN_TIMEOUT_MS as advertised (each table has its own)
@@ -528,6 +528,19 @@ func (g GameConfig) WithCatalogue(cat TableCatalogue) GameConfig {
 // poker), or one whose engine is not there; and so is every table whose
 // category is not among the categories kept. The engines and categories kept
 // stay in the order given. A table's Engine is set to EngineOf its category.
+//
+// A table's own boot is always an allowed stake. When Settings.Stakes is not
+// empty, the boot of every public table kept that it does not list is
+// appended to it, in menu order and once each, and nothing is reported: in db
+// mode the menu itself is what restricts a quick-join or a public create to
+// the pairs it offers (RoomManager.AssertTableOffered), and the stakes list
+// exists for the wire (lobby options, GET /api/tables) and for parity with
+// TABLE_STAKES. Without this a row whose boot the list lacks — the owner's
+// "copy a row at a new boot" — would put a card in the lobby on which every
+// quick-join is refused invalid_stake (AssertStakeAllowed runs first) while
+// -check-table-config called the catalogue clean; adding a table is ONE row,
+// not a row and a settings edit. An empty list still means any stake, and the
+// entries it has keep their order and any duplicates (TABLE_STAKES verbatim).
 func (c TableCatalogue) Validate() (TableCatalogue, []string, error) {
 	var problems []string
 	s := c.Settings
@@ -599,6 +612,7 @@ func (c TableCatalogue) Validate() (TableCatalogue, []string, error) {
 			out.Public = append(out.Public, spec)
 		}
 	}
+	out.Settings.Stakes = withTableBoots(out.Settings.Stakes, out.Public)
 	hasPublicVariation := false
 	for _, spec := range out.Public {
 		if spec.Category == CategoryVariation {
@@ -645,6 +659,28 @@ func (s TableSettings) validate() error {
 		}
 	}
 	return nil
+}
+
+// withTableBoots is stakes with the boot of every public table it does not
+// list appended, in the order the tables are given and once each (Validate: a
+// table's own boot is always an allowed stake). An empty stakes list means any
+// stake and is returned as it is; so are the entries a non-empty one has,
+// order and duplicates kept.
+func withTableBoots(stakes []int64, public []TableSpec) []int64 {
+	if len(stakes) == 0 {
+		return stakes
+	}
+	listed := make(map[int64]bool, len(stakes))
+	for _, stake := range stakes {
+		listed[stake] = true
+	}
+	for _, spec := range public {
+		if !listed[spec.BootAmount] {
+			listed[spec.BootAmount] = true
+			stakes = append(stakes, spec.BootAmount)
+		}
+	}
+	return stakes
 }
 
 // normalised checks one row and returns it as the engine will read it: the
