@@ -154,6 +154,19 @@ type Config struct {
 	// (every table re-saved, seats and lobby index re-published). 0 disables
 	// the reconciler.
 	LiveReconcile time.Duration
+
+	// TableConfigSource is TABLE_CONFIG_SOURCE resolved (tables.go): "db" —
+	// the table_settings and table_configs rows in PostgreSQL, loaded once at
+	// boot by app.New — or "env" — the env keys and Defaults(), as the server
+	// always composed them. Unset, it is env when any table env key is set and
+	// db otherwise, so a deployment whose .env pins its menu changes nothing
+	// until someone switches it on purpose.
+	TableConfigSource string
+	// TableEnvKeysSet is every table env key (TableEnvKeys) the environment
+	// sets, in that order. In db mode the boot WARNs that they are ignored —
+	// they stay in .env only for a rollback to a build that predates the
+	// table catalogue.
+	TableEnvKeysSet []string
 }
 
 // JWTConfig ← config.jwt.
@@ -369,7 +382,12 @@ type GameConfig struct {
 	// them. Never in production.
 	FiveCardPickTimeout time.Duration
 	// Poker is the poker family's own knobs (Go only; owner, 19 Sep 2026).
-	Poker               PokerConfig
+	Poker PokerConfig
+	// Catalogue is the table catalogue loaded from PostgreSQL in db mode
+	// (TABLE_CONFIG_SOURCE, tables.go; WithCatalogue sets it), nil when the
+	// tables are composed from the fields above. Immutable once set, so it is
+	// shared by every copy of GameConfig and read without a lock.
+	Catalogue           *TableCatalogue
 	ConsolidateInterval time.Duration // CONSOLIDATE_INTERVAL_MS 15000 (requirement 24 sweeper)
 	ReconnectGrace      time.Duration // RECONNECT_GRACE_MS 60000 (seat held after a drop)
 	// ResumeOffer is RESUME_OFFER_MS 600000: after the held seat lapses, how
@@ -583,6 +601,8 @@ func Defaults() *Config {
 		LiveStateTTL:   24 * time.Hour,
 		LiveInstanceID: "",
 		LiveReconcile:  30 * time.Second,
+		// No table env key set → the database (tables.go).
+		TableConfigSource: TableConfigSourceDB,
 	}
 }
 
@@ -800,6 +820,13 @@ func FromEnv(lookup Lookup) (*Config, error) {
 	c.LiveStateTTL = r.millis("LIVE_STATE_TTL_MS", c.LiveStateTTL)
 	c.LiveInstanceID = r.str("LIVE_INSTANCE_ID", c.LiveInstanceID)
 	c.LiveReconcile = r.millis("LIVE_RECONCILE_MS", c.LiveReconcile)
+
+	source, keysSet, err := resolveTableConfigSource(lookup)
+	if err != nil && r.err == nil {
+		r.err = err
+	}
+	c.TableConfigSource = source
+	c.TableEnvKeysSet = keysSet
 
 	if r.err != nil {
 		return nil, r.err
