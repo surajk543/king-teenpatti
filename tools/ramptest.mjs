@@ -45,6 +45,10 @@ const isWorker = WORKER_INDEX !== null;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const pct = (v, p) => { if (!v.length) return 0; const s = [...v].sort((a, b) => a - b); return s[Math.min(s.length - 1, Math.floor((p / 100) * s.length))]; };
 const mean = (v) => (v.length ? Math.round(v.reduce((a, b) => a + b, 0) / v.length) : 0);
+// Never maxOf(v): spreading a hold's 100k+ latency samples into arguments
+// overflows the call stack (RangeError), which took the coordinator down at the
+// 5,000-player stage of the 24 Sep 2026 preprod ladder and lost four stages.
+const maxOf = (v) => { let m = 0; for (const x of v) if (x > m) m = x; return m; };
 
 const bots = [];
 const stageResults = [];
@@ -64,7 +68,7 @@ setInterval(() => { const now = performance.now(); const drift = now - lagMark -
 
 async function login(i) {
   const t0 = performance.now();
-  const r = await fetch(`${BASE_URL}/api/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json' },
+  const r = await fetch(`${BASE_URL}/api/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, signal: AbortSignal.timeout(30_000),
     body: JSON.stringify({ provider: 'guest', deviceId: `ramp-bot-${i + ID_OFFSET}-device-id`, displayName: `LoadBot${i + ID_OFFSET}` }) });
   const ms = performance.now() - t0;
   if (!r.ok) throw new Error(`login ${r.status}`);
@@ -132,14 +136,22 @@ const closeBots = async () => {
   await sleep(500);
 };
 
-async function finish(reason) {
-  if (finished) return; finished = true;
-  const hEnd = await health();
-  const report = { url: BASE_URL, startedAt: runStartedAt, finishedAt: new Date().toISOString(), stages: STAGES, holdSeconds: HOLD_S, table: { category: CATEGORY, boot: BOOT },
+/** The report as it stands: written after every stage so a crash or a kill loses at most the stage in flight. */
+function buildReport(reason, hEnd) {
+  return { url: BASE_URL, startedAt: runStartedAt, finishedAt: new Date().toISOString(), stages: STAGES, holdSeconds: HOLD_S, table: { category: CATEGORY, boot: BOOT },
     workers: WORKERS || 1, thresholds: { maxP95Ms: MAX_P95_MS, maxErrorRate: MAX_ERROR_RATE }, ceiling: ceilingNote, results: stageResults, serverBefore: h0, serverAfter: hEnd,
     lastHealthyStage: stageResults.filter((r) => !ceilingNote || r.target !== ceilingNote.target).map((r) => r.target).pop() ?? null,
     stoppedBecause: reason ?? null, connectionsAtStop: WORKERS ? stageResults.at(-1)?.connected ?? null : bots.filter((b) => b.connected).length };
-  fs.writeFileSync(OUT, JSON.stringify(report, null, 2));
+}
+const writePartial = () => { if (!isWorker) fs.writeFileSync(OUT, JSON.stringify(buildReport('in progress', null), null, 2)); };
+
+async function finish(reason) {
+  if (finished) return; finished = true;
+  // A worker never writes the report: on 24 Sep 2026 four SIGTERMed workers
+  // each overwrote the coordinator's file with an empty run of their own.
+  if (isWorker) { await closeBots(); process.exit(0); }
+  const hEnd = await health();
+  fs.writeFileSync(OUT, JSON.stringify(buildReport(reason, hEnd), null, 2));
   console.log(`\nreport written to ${OUT}${reason ? ` (${reason})` : ''}`);
   if (children.length) {
     await Promise.all(children.map((c) => new Promise((resolve) => { c.once('exit', resolve); c.send({ type: 'finish' }); setTimeout(resolve, 8000); })));
@@ -160,34 +172,34 @@ function summarize({ target, stageStart, t0, connected, joined, loginFailures, c
   const hp = w.health.filter((h) => h.process);
   const host = hp.length ? {
     samples: hp.length,
-    rssMbMax: Math.max(...hp.map((h) => h.process.rssMb)),
-    heapUsedMbMax: Math.max(...hp.map((h) => h.process.heapUsedMb)),
+    rssMbMax: maxOf(hp.map((h) => h.process.rssMb)),
+    heapUsedMbMax: maxOf(hp.map((h) => h.process.heapUsedMb)),
     cpuPercentMean: mean(hp.map((h) => h.process.cpuPercent)),
-    cpuPercentMax: Math.max(...hp.map((h) => h.process.cpuPercent)),
-    loopLagP99MsMax: Math.max(...hp.map((h) => h.process.loopLagP99Ms)),
-    loopLagMaxMs: Math.max(...hp.map((h) => h.process.loopLagMaxMs)),
-    goroutinesMax: Math.max(...hp.map((h) => h.process.goroutines ?? 0)),
-    socketsMax: Math.max(...hp.map((h) => h.sockets ?? 0)),
+    cpuPercentMax: maxOf(hp.map((h) => h.process.cpuPercent)),
+    loopLagP99MsMax: maxOf(hp.map((h) => h.process.loopLagP99Ms)),
+    loopLagMaxMs: maxOf(hp.map((h) => h.process.loopLagMaxMs)),
+    goroutinesMax: maxOf(hp.map((h) => h.process.goroutines ?? 0)),
+    socketsMax: maxOf(hp.map((h) => h.sockets ?? 0)),
     socketsMin: Math.min(...hp.map((h) => h.sockets ?? 0)),
-    playersMax: Math.max(...hp.map((h) => h.players ?? 0)),
-    activeHandsMax: Math.max(...hp.map((h) => h.activeHands ?? 0)),
+    playersMax: maxOf(hp.map((h) => h.players ?? 0)),
+    activeHandsMax: maxOf(hp.map((h) => h.activeHands ?? 0)),
     activeHandsMean: mean(hp.map((h) => h.activeHands ?? 0)),
-    tablesMax: Math.max(...hp.map((h) => h.tables ?? 0)),
-    dbWaitingMax: Math.max(...hp.map((h) => h.db?.waiting ?? 0)),
-    dbTotalMax: Math.max(...hp.map((h) => h.db?.total ?? 0)),
+    tablesMax: maxOf(hp.map((h) => h.tables ?? 0)),
+    dbWaitingMax: maxOf(hp.map((h) => h.db?.waiting ?? 0)),
+    dbTotalMax: maxOf(hp.map((h) => h.db?.total ?? 0)),
   } : null;
   return {
     target, connected, joined, loginFailures,
-    generatorLag: { p50: pct(w.genLag, 50), p95: pct(w.genLag, 95), max: w.genLag.length ? Math.max(...w.genLag) : 0, samples: w.genLag.length },
+    generatorLag: { p50: pct(w.genLag, 50), p95: pct(w.genLag, 95), max: maxOf(w.genLag), samples: w.genLag.length },
     host,
     connectFailures,
     disconnectsDuringHold: w.disconnects,
-    login: { p50: pct(loginMs, 50), p95: pct(loginMs, 95), max: loginMs.length ? Math.max(...loginMs) : 0, mean: mean(loginMs) },
-    connect: { p50: pct(connectMs, 50), p95: pct(connectMs, 95), max: connectMs.length ? Math.max(...connectMs) : 0 },
-    action: { count: w.actions, errors: w.actionErrors, errorRate: Number(errorRate.toFixed(4)), perSec: Number((w.actions / seconds).toFixed(2)), p50: pct(w.latencies, 50), p90: pct(w.latencies, 90), p95: pct(w.latencies, 95), p99: pct(w.latencies, 99), max: w.latencies.length ? Math.max(...w.latencies) : 0, mean: mean(w.latencies) },
+    login: { p50: pct(loginMs, 50), p95: pct(loginMs, 95), max: maxOf(loginMs), mean: mean(loginMs) },
+    connect: { p50: pct(connectMs, 50), p95: pct(connectMs, 95), max: maxOf(connectMs) },
+    action: { count: w.actions, errors: w.actionErrors, errorRate: Number(errorRate.toFixed(4)), perSec: Number((w.actions / seconds).toFixed(2)), p50: pct(w.latencies, 50), p90: pct(w.latencies, 90), p95: pct(w.latencies, 95), p99: pct(w.latencies, 99), max: maxOf(w.latencies), mean: mean(w.latencies) },
     hands: { started: w.handsStarted.size, completed: w.hands.size, perSec: Number((w.hands.size / seconds).toFixed(2)), perMinute: Number((w.hands.size * 60 / seconds).toFixed(1)) },
     chatSent: w.chat,
-    healthRtt: { p50: pct(w.healthRtt, 50), p95: pct(w.healthRtt, 95), max: w.healthRtt.length ? Math.max(...w.healthRtt) : 0 },
+    healthRtt: { p50: pct(w.healthRtt, 50), p95: pct(w.healthRtt, 95), max: maxOf(w.healthRtt) },
     server: { players: lastHealth.players, tables: lastHealth.tables, activeHands: lastHealth.activeHands, sockets: lastHealth.sockets, uptime: lastHealth.uptime },
     stageSeconds: Math.round((Date.now() - stageStart) / 1000),
     holdStartedAt: new Date(t0).toISOString(), holdEndedAt: new Date().toISOString(),
@@ -294,6 +306,7 @@ async function main() {
     const result = summarize({ target, stageStart, t0, connected, joined, loginFailures, connectFailures: bots.filter((b) => b.connectError).length, loginMs, connectMs, w });
     result.joinRefusals = joinRefusals(bots);
     stageResults.push(result);
+    writePartial();
     printStage(result, w);
     const broke = stopRules(result, w.health.at(-1) ?? {});
     if (broke.length) { ceilingNote = { target, reasons: broke }; console.log(`\nStopping: ${broke.join('; ')}`); break; }
@@ -345,9 +358,13 @@ async function parentMain() {
   const self = fileURLToPath(import.meta.url);
   const passthrough = process.argv.slice(2).filter((a, i, all) => !(a === '--workers' || all[i - 1] === '--workers'));
   const ask = (child, msg, type) => new Promise((resolve, reject) => {
-    const onMsg = (m) => { if (m.type === type) { child.off('message', onMsg); resolve(m); } else if (m.type === 'error') { child.off('message', onMsg); reject(new Error(m.error)); } };
+    const onExit = (code) => { child.off('message', onMsg); if (!finished) reject(new Error(`worker exited with ${code}`)); };
+    const onMsg = (m) => {
+      if (m.type === type) { child.off('message', onMsg); child.off('exit', onExit); resolve(m); }
+      else if (m.type === 'error') { child.off('message', onMsg); child.off('exit', onExit); reject(new Error(m.error)); }
+    };
     child.on('message', onMsg);
-    child.once('exit', (code) => { if (!finished) reject(new Error(`worker exited with ${code}`)); });
+    child.once('exit', onExit);
     child.send(msg);
   });
   for (let k = 0; k < WORKERS; k++) {
@@ -407,6 +424,7 @@ async function parentMain() {
     result.connectedAfterHold = stillConnected;
     result.joinRefusals = refusals;
     stageResults.push(result);
+    writePartial();
     printStage(result, w);
     const broke = stopRules(result, w.health.at(-1) ?? {});
     if (broke.length) { ceilingNote = { target, reasons: broke }; console.log(`\nStopping: ${broke.join('; ')}`); break; }
@@ -414,4 +432,9 @@ async function parentMain() {
   await finish(null);
 }
 
-(isWorker ? workerMain() : WORKERS > 0 ? parentMain() : main()).catch((e) => { console.error(e); process.exit(1); });
+(isWorker ? workerMain() : WORKERS > 0 ? parentMain() : main()).catch(async (e) => {
+  console.error(e);
+  // Keep what was measured: the stages already held are in the report.
+  if (!isWorker) { try { await finish(`error: ${e.message}`); } catch {} }
+  process.exit(1);
+});
