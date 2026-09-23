@@ -908,7 +908,7 @@ void main() {
     await _teardown(tester, state);
   });
 
-  testWidgets("the table menu's header keeps the whole game name and hand "
+  testWidgets("the table menu's header keeps the whole game name and no hand "
       'number, and titles the blinds like every other row', (tester) async {
     const t = Strings(AppLang.english);
     for (final (screen, scale) in [
@@ -922,10 +922,16 @@ void main() {
       await tester.pump(const Duration(seconds: 1));
       expect(tester.takeException(), isNull);
 
-      final header = find.text(
-        "${t.pokerVariantName('texas_holdem')}  ·  hand 3",
-      );
+      // The game's name alone: the hand number that followed it ("· hand 3")
+      // went on 24 Sep 2026 (owner: "some hand info text is visible, remove
+      // that text from UI").
+      final header = find.text(t.pokerVariantName('texas_holdem'));
       expect(header, findsOneWidget, reason: '$screen');
+      expect(
+        find.textContaining('hand 3'),
+        findsNothing,
+        reason: '$screen: the hand number is back in the header',
+      );
       // Shrunk to the line, never cut: an ellipsised header reads as a
       // different game ("Texas Hold'em · …", Pixel 6, 19 Sep 2026).
       expect(

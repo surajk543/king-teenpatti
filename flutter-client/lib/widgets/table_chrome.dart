@@ -661,34 +661,26 @@ class TableDrawer extends StatelessWidget {
                               ),
                             ),
                           ),
-                        if (room.isPoker)
-                          // A poker game's name is long ("Texas Hold'em ·
-                          // hand 12"): shrunk to the line rather than cut to
-                          // "Texas Hold'em · …" before the clock beside it.
-                          FittedBox(
-                            fit: BoxFit.scaleDown,
-                            alignment: Alignment.centerLeft,
-                            child: Text(
-                              '${t.pokerVariantName(room.category)}  ·  hand ${room.handNo}',
-                              maxLines: 1,
-                              softWrap: false,
-                              style: AppTheme.smallCaps(
-                                theme.textTheme.labelSmall ??
-                                    const TextStyle(),
-                                colour: scheme.onSurface.withValues(
-                                  alpha: AppTheme.inkLowOn(theme.brightness),
-                                ),
-                              ),
-                            ),
-                          )
-                        else
-                          Text(
-                            // The category is server-owned ASCII, so tracked
-                            // capitals are safe on it; the hand number is not
-                            // translated either.
-                            '${room.category.toUpperCase()}  ·  hand ${room.handNo}',
+                        // The line names the game and nothing else: the
+                        // poker variant's name, or the category (server-owned
+                        // ASCII, so tracked capitals are safe on it). It
+                        // carried the hand number too ("SEEN · hand 12")
+                        // until the owner saw it cut to "SEEN · han…" beside
+                        // the clock on a phone and asked for the hand text
+                        // to go (24 Sep 2026: "some hand info text is
+                        // visible, remove that text from UI"). Shrunk to the
+                        // line rather than cut, as the poker name always was:
+                        // "VARIATION" alone still ellipsised on a 640dp phone
+                        // at the 1.25 text ceiling.
+                        FittedBox(
+                          fit: BoxFit.scaleDown,
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            room.isPoker
+                                ? t.pokerVariantName(room.category)
+                                : room.category.toUpperCase(),
                             maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
+                            softWrap: false,
                             style: AppTheme.smallCaps(
                               theme.textTheme.labelSmall ?? const TextStyle(),
                               colour: scheme.onSurface.withValues(
@@ -696,6 +688,7 @@ class TableDrawer extends StatelessWidget {
                               ),
                             ),
                           ),
+                        ),
                       ],
                     ),
                   ),

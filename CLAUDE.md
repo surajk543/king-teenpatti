@@ -1565,7 +1565,12 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   its own composer over the keyboard and drops its title while typing.
   `_LeftPanel {menu, chat}` shares one `drawer`. The menu (`_TableDrawer`) heads with `_ThemeFlip`, a one-tap
   light/dark key, where the table code was (owner, 13 Sep 2026); only a **private** table still shows `Table <code>`
-  (`RoomState.isPrivate`, from the wire's `isPrivate`), since that code is how friends get in.
+  (`RoomState.isPrivate`, from the wire's `isPrivate`), since that code is how friends get in. **Its small-caps line is
+  the category alone** — `SEEN`, or the poker variant's name at a poker room — beside the `_SeatedFor` clock: the
+  `· hand N` it carried went on 24 Sep 2026 (owner, from a phone screenshot of "SEEN · han… 0:05:25": "some hand info
+  text is visible, remove that text from UI"), and the two branches became ONE `FittedBox(scaleDown)` line — the poker
+  name was already shrunk to fit, and `VARIATION` alone still ellipsised on a 640dp phone at ×1.25 — so the line is
+  never cut; `test/table_drawer_test.dart` holds both headers to that at 640x360 x1.25.
   **There is no `_ActionBar`.** The keys live in the corners they are pressed in: the lobby's `ShopButton`
   top-left (13 Sep 2026, replacing the gold `+` that headed the rail; it opens the store on Chips), `_SideRail`
   (menu, chat — each key fills the rail so the target stays
@@ -1889,7 +1894,7 @@ clock (4, 8, 16 s, then every 30 s) by both the backdrop and `CachedPictureBox`,
   and `_read` deletes such a file it finds on disk and fetches again; `test/picture_cache_test.dart` pins the sniff.
 - **i18n**: `AppLang` × 5; `Strings(lang)` with English → key fallback. **New keys go in all five
   maps + a getter.** Teen Patti vocabulary transliterated. Still-English strings: `'YOU'`, `'Table
-  ${code}'`, `'hand N'`, private-card body, picture-picker labels, `'Switch theme'`, chat `'You'`,
+  ${code}'`, private-card body, picture-picker labels, `'Switch theme'`, chat `'You'`,
   the `'$winner won N'` banner (bypasses lakh formatting), and **wire hand names**.
 - **Android**: `com.sungamestudio.kingteenpatti`, `sensorLandscape`, cleartext, INTERNET (needed in
   release). **Icon & splash** come from one file, `assets/app_icon.svg` (crown over A♥ A♠ Q♥, all paths, no fonts):
