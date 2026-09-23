@@ -480,8 +480,24 @@ void main() {
           .toList();
       expect(faces, ['Ks', 'Kd', 'Kc']);
       expect(find.text('WILD'), findsOneWidget);
-      expect(find.text('7♣'), findsOneWidget, reason: 'the card really held');
-      expect(find.text('K♠'), findsNothing, reason: 'a natural card has no tab');
+      // The tab names the card really held — its rank in type, its suit a
+      // painted pip (24 Sep 2026), never a bare '♣' from a fallback font.
+      final tab = find.byKey(const ValueKey('wild-real-card:7c'));
+      expect(tab, findsOneWidget, reason: 'the card really held');
+      expect(find.descendant(of: tab, matching: find.text('7')), findsOneWidget);
+      expect(
+        tester
+            .widget<CardPips>(
+              find.descendant(of: tab, matching: find.byType(CardPips)),
+            )
+            .suit,
+        'c',
+      );
+      expect(
+        find.byKey(const ValueKey('wild-real-card:Ks')),
+        findsNothing,
+        reason: 'a natural card has no tab',
+      );
 
       // Named from `you.hand.handName`, over the viewer's own cards.
       expect(

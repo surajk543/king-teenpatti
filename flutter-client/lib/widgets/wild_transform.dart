@@ -317,7 +317,17 @@ class _Ribbon extends StatelessWidget {
 }
 
 /// The card the player really holds, on a small face-coloured tab at the foot
-/// of what it turned into: "4♠".
+/// of what it turned into: "4♠" — the rank set in type and the suit PAINTED
+/// ([CardPips]), as the card faces are, since 24 Sep 2026. It was one string
+/// ending in a bare '♠', which Inter has no glyph for, so a phone drew it from
+/// whatever it fell back to — on Android the colour emoji font, a chunkier
+/// club than the "4" beside it, and a box on a phone without it. On this pale
+/// tab the colour happened to come out right, which is why the owner's report
+/// that day was about the tag over the pot and not this; it is drawn the same
+/// way so that no suit anywhere depends on a font the app does not ship.
+///
+/// Keyed by its code (`wild-real-card:4s`), so a test can tell the tab under
+/// one card from the tab under another.
 class _RealCardTab extends StatelessWidget {
   const _RealCardTab({required this.code, required this.cardHeight});
 
@@ -328,32 +338,49 @@ class _RealCardTab extends StatelessWidget {
   Widget build(BuildContext context) {
     final height = math.max(13.0, cardHeight * 0.16);
     final suit = PlayingCard.suitOf(code);
-    return Container(
-      height: height,
-      padding: EdgeInsets.symmetric(horizontal: height * 0.4),
-      decoration: BoxDecoration(
-        color: AppTheme.cardFace,
-        borderRadius: BorderRadius.circular(height),
-        border: Border.all(color: AppTheme.gold, width: 1),
-        boxShadow: [
-          BoxShadow(
-            color: AppTheme.ink900.withValues(alpha: 0.35),
-            blurRadius: height * 0.3,
-          ),
-        ],
-      ),
-      child: FittedBox(
-        fit: BoxFit.scaleDown,
-        child: Text(
-          '${PlayingCard.rankOf(code)}${PlayingCard.suitSymbol(suit)}',
-          maxLines: 1,
-          textScaler: TextScaler.noScaling,
-          style: TextStyle(
-            fontFamily: AppTheme.fontFamily,
-            fontSize: height * 0.68,
-            fontWeight: FontWeight.w800,
-            height: 1,
-            color: PlayingCard.inkFor(suit),
+    final rank = PlayingCard.rankOf(code);
+    final ink = PlayingCard.inkFor(suit);
+    return Semantics(
+      // Read out as the text was, "4♠".
+      label: '$rank${PlayingCard.suitSymbol(suit)}',
+      excludeSemantics: true,
+      child: Container(
+        key: ValueKey('wild-real-card:$code'),
+        height: height,
+        padding: EdgeInsets.symmetric(horizontal: height * 0.4),
+        decoration: BoxDecoration(
+          color: AppTheme.cardFace,
+          borderRadius: BorderRadius.circular(height),
+          border: Border.all(color: AppTheme.gold, width: 1),
+          boxShadow: [
+            BoxShadow(
+              color: AppTheme.ink900.withValues(alpha: 0.35),
+              blurRadius: height * 0.3,
+            ),
+          ],
+        ),
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                rank,
+                maxLines: 1,
+                textScaler: TextScaler.noScaling,
+                style: TextStyle(
+                  fontFamily: AppTheme.fontFamily,
+                  fontSize: height * 0.68,
+                  fontWeight: FontWeight.w800,
+                  height: 1,
+                  color: ink,
+                ),
+              ),
+              SizedBox(width: height * 0.07),
+              // The pip a touch shorter than the rank's cap height, as a
+              // card's own index sets it.
+              CardPips(suit: suit, size: height * 0.58, colour: ink),
+            ],
           ),
         ),
       ),

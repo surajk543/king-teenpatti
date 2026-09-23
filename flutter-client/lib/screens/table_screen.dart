@@ -1793,6 +1793,46 @@ class _CategoryTag extends StatelessWidget {
       bootAmount: room.bootAmount,
     );
 
+    // The category and the stake together: "Blind · 5,000" names the table,
+    // and the colour behind it is the table's own. The category word is
+    // translated, so it keeps its natural case — tracked capitals are a no-op
+    // on Devanagari and would only mismatch the tracking beside it.
+    //
+    // A variation table names the rules of the hand in place of the stake
+    // once they are chosen, and keeps naming them through the showdown
+    // ("Variation · Joker · 9"): they are what the hands on the table are
+    // being read by. Its label comes in PARTS — the words, and under Hukam
+    // the suit to paint — because a bare '♣' in this gold text was drawn by
+    // Android's colour emoji font, black on the dark pill (owner, 24 Sep
+    // 2026: "the icon on top is not visible properly"; VariationTagParts). A
+    // seen or blind table's parts are its words alone, so its tag is the
+    // text it always was.
+    final label = variation
+        ? variationTagParts(
+            category: t.variation,
+            boot: formatChips(room.bootAmount),
+            selected: state.shownVariation,
+            turnUp: state.shownTurnUp,
+            nameOf: t.variationName,
+          )
+        : VariationTagParts(
+            words:
+                '${blind ? t.blind : t.seen} · ${formatChips(room.bootAmount)}',
+          );
+    final style = AppTheme.label(
+      theme.textTheme.labelMedium ?? const TextStyle(),
+      colour: AppTheme.goldBright.withValues(alpha: 0.92),
+      weight: FontWeight.w700,
+    );
+    // The suit stands exactly as tall as the label's line — the font size,
+    // scaled as the text is, by the line height — so it sits in the line
+    // where the glyph did and never grows the tag: 13.8dp at labelMedium,
+    // 17dp at the 1.25 text ceiling.
+    final suit = label.suit;
+    final markSize =
+        MediaQuery.textScalerOf(context).scale(style.fontSize ?? 12) *
+        (style.height ?? 1);
+
     return Center(
       child: Plate(
         accent: palette.accent.withValues(alpha: 0.45),
@@ -1811,34 +1851,24 @@ class _CategoryTag extends StatelessWidget {
             const SizedBox(width: Space.sm),
             Flexible(
               child: FittedBox(
+                // It shrinks on a small screen rather than losing its stake
+                // to an ellipsis; the suit shrinks with the words.
                 fit: BoxFit.scaleDown,
-                child: Text(
-                  // The category and the stake together: "Blind · 5,000"
-                  // names the table, and the colour behind it is the table's
-                  // own. It shrinks on a small screen rather than losing its
-                  // stake to an ellipsis. The category word is translated, so
-                  // it keeps its natural case — tracked capitals are a no-op on
-                  // Devanagari and would only mismatch the tracking beside it.
-                  //
-                  // A variation table names the rules of the hand in place of
-                  // the stake once they are chosen, and keeps naming them
-                  // through the showdown ("Variation · Joker · 9"): they are
-                  // what the hands on the table are being read by.
-                  variation
-                      ? variationTagText(
-                          category: t.variation,
-                          boot: formatChips(room.bootAmount),
-                          selected: state.shownVariation,
-                          turnUp: state.shownTurnUp,
-                          nameOf: t.variationName,
-                        )
-                      : '${blind ? t.blind : t.seen} · ${formatChips(room.bootAmount)}',
-                  maxLines: 1,
-                  style: AppTheme.label(
-                    theme.textTheme.labelMedium ?? const TextStyle(),
-                    colour: AppTheme.goldBright.withValues(alpha: 0.92),
-                    weight: FontWeight.w700,
+                child: Text.rich(
+                  TextSpan(
+                    text: label.words,
+                    children: [
+                      if (suit != null) ...[
+                        const TextSpan(text: ' · '),
+                        WidgetSpan(
+                          alignment: PlaceholderAlignment.middle,
+                          child: SuitMark(suit: suit, size: markSize),
+                        ),
+                      ],
+                    ],
                   ),
+                  maxLines: 1,
+                  style: style,
                 ),
               ),
             ),
