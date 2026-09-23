@@ -16,6 +16,10 @@ int _int(dynamic v) => v is num ? v.toInt() : 0;
 int? _intOrNull(dynamic v) => v is num ? v.toInt() : null;
 String _str(dynamic v) => v is String ? v : '';
 
+/// A name the server may leave out: anything but a non-empty string reads as
+/// null, so "not sent" never passes for a name that is merely empty.
+String? _strOrNull(dynamic v) => v is String && v.isNotEmpty ? v : null;
+
 /// A list of card codes off the wire ("As", "Td"), tolerant as every DTO here:
 /// anything that is not a list reads as empty, and anything in it that is not
 /// a usable code is dropped rather than drawn as a broken card.
@@ -58,9 +62,10 @@ class TableCategory {
   static const texasHoldem = 'texas_holdem';
   static const omaha = 'omaha';
 
-  /// The lobby's name for the poker FAMILY — the front card the four poker
-  /// tables are filed under. Never a wire category: the server knows only the
-  /// four above.
+  /// The lobby's name for the poker FAMILY — the Poker engine's front card,
+  /// inside which each of the four games has a card of its own
+  /// ([TableEngine.poker], the same string). Never a wire category: the
+  /// server knows only the four above.
   static const pokerFamily = 'poker';
 
   /// The four poker categories, in the order the lobby and the rules name
@@ -74,6 +79,23 @@ class TableCategory {
 
   /// Whether [category] is one of the poker games.
   static bool isPoker(String category) => pokerCategories.contains(category);
+}
+
+/// The ENGINES that play the categories (owner, 23 Sep 2026: "Make this
+/// category is table/db level also: Teen Patti engines / Poker engines").
+///
+/// The server keeps them in `table_engines`, and every category in
+/// `table_categories` under exactly one of them: seen, blind and variation
+/// are Teen Patti's, the four poker games Poker's. The table catalogue sends
+/// the pair as [GameConfig.engines] and names each table's own engine
+/// ([LobbyTable.engine]); `session:ready` sends neither.
+class TableEngine {
+  static const teenPatti = 'teen_patti';
+
+  /// The same string as [TableCategory.pokerFamily], and not by chance: the
+  /// lobby's front card for an engine is named by the engine's code, and the
+  /// Poker card already was.
+  static const poker = 'poker';
 }
 
 /// The four poker games, by the string the server uses for both the lobby
@@ -408,6 +430,16 @@ class User {
 /// The server lists the pairs it offers rather than the client crossing every
 /// category with every stake: the two are only meaningful together, and 5,000
 /// existing as a stake does not mean a seen table exists at it.
+///
+/// `session:ready.config.tables` carries the keys up to [maxDiscards]. The
+/// table catalogue (`GET /api/tables`, since 23 Sep 2026) carries the same
+/// entries with the engine that plays them and every figure the table plays
+/// by beside them — [engine], then [key] through [fiveCardPickTimeoutMs] —
+/// and lists the private templates too
+/// ([GameConfig.privateTables]). Those extra figures are NULL wherever the
+/// server did not send them (session:ready, an older server), which is what
+/// lets a widget prefer the table's own figure and fall back to today's
+/// table-wide one without mistaking "not sent" for a real zero.
 class LobbyTable {
   const LobbyTable({
     required this.category,
@@ -423,6 +455,22 @@ class LobbyTable {
     this.minBuyIn = 0,
     this.holeCards = 0,
     this.maxDiscards = 0,
+    this.engine,
+    this.key,
+    this.isPrivate,
+    this.sortOrder,
+    this.maxRaiseSteps,
+    this.maxBetRounds,
+    this.potLimitMultiplier,
+    this.turnTimeoutMs,
+    this.maxMissedTurns,
+    this.sideshowTimeoutMs,
+    this.sideshowMinPlayers,
+    this.nextHandDelayMs,
+    this.unfundedGraceMs,
+    this.missileRevealExtraMs,
+    this.variationSelectTimeoutMs,
+    this.fiveCardPickTimeoutMs,
   });
 
   final String category;
@@ -451,9 +499,13 @@ class LobbyTable {
   /// 5-Card Draw only: how many cards a player may exchange. 0 elsewhere.
   final int maxDiscards;
 
-  /// Whether this is a poker table: the server says so with `game`, and a
-  /// poker category says the same without it.
-  bool get isPoker => game == 'poker' || TableCategory.isPoker(category);
+  /// Whether this is a poker table: the server says so with `game` (and, in
+  /// the table catalogue, with [engine]), and a poker category says the same
+  /// without either.
+  bool get isPoker =>
+      game == 'poker' ||
+      engine == TableEngine.poker ||
+      TableCategory.isPoker(category);
 
   /// The pot ceiling on this table, or 0 when the pot is uncapped. It comes
   /// from the server alongside the room itself, so the card and the table it
@@ -486,6 +538,59 @@ class LobbyTable {
   /// Whether this table states any entry requirement at all.
   bool get hasBand => minChips > 0 || maxChips > 0;
 
+  // ---- the catalogue's figures: null when the server did not send them ----
+
+  /// The engine that plays this table's category — [TableEngine.teenPatti]
+  /// or [TableEngine.poker], or one this build has never heard of. The lobby
+  /// files the table under that engine's front card
+  /// ([GameState.lobbyEngineOf]); null (session:ready, an older server) files
+  /// it by its category — a poker game under Poker, everything else under
+  /// Teen Patti.
+  final String? engine;
+
+  /// The server's name for the table: `"seen:200"` for a public one,
+  /// `"private:seen"` for a private template.
+  final String? key;
+
+  /// Whether this is a private template (room:create) rather than a lobby
+  /// table. True only on [GameConfig.privateTables] entries.
+  final bool? isPrivate;
+
+  /// Where the table stands on the server's menu. The menu already arrives in
+  /// that order, so nothing sorts by it; it is here to be read, not used.
+  final int? sortOrder;
+
+  /// The ladder: how many rungs a bet may climb (0 = to the stack), how many
+  /// rounds before the forced showdown (0 = never), and the per-bet ceiling
+  /// as a multiple of the boot (0 = none).
+  final int? maxRaiseSteps;
+  final int? maxBetRounds;
+  final int? potLimitMultiplier;
+
+  /// This table's turn clock. A poker room's clock is its own and not the
+  /// Teen Patti one [GameConfig.turnTimeoutMs] names, which is why the table
+  /// info popup reads this first.
+  final int? turnTimeoutMs;
+
+  /// Missed turns before the idle kick (requirement 31).
+  final int? maxMissedTurns;
+
+  /// How long a sideshow request stands, and how many players must still be
+  /// in the hand for one to be asked.
+  final int? sideshowTimeoutMs;
+  final int? sideshowMinPlayers;
+
+  /// The pause between hands, the grace a short stack gets to buy chips
+  /// before it is shown out, and the extra pause after a missile's reveal.
+  final int? nextHandDelayMs;
+  final int? unfundedGraceMs;
+  final int? missileRevealExtraMs;
+
+  /// A variation table's two windows: choosing the hand's variation, and
+  /// choosing three of five under 5-Card. 0 on every other table.
+  final int? variationSelectTimeoutMs;
+  final int? fiveCardPickTimeoutMs;
+
   factory LobbyTable.fromJson(Map<String, dynamic> j) => LobbyTable(
     category: _str(j['category']),
     bootAmount: _int(j['bootAmount']),
@@ -500,6 +605,22 @@ class LobbyTable {
     minBuyIn: _int(j['minBuyIn']),
     holeCards: _int(j['holeCards']),
     maxDiscards: _int(j['maxDiscards']),
+    engine: _strOrNull(j['engine']),
+    key: _strOrNull(j['key']),
+    isPrivate: j['isPrivate'] is bool ? j['isPrivate'] as bool : null,
+    sortOrder: _intOrNull(j['sortOrder']),
+    maxRaiseSteps: _intOrNull(j['maxRaiseSteps']),
+    maxBetRounds: _intOrNull(j['maxBetRounds']),
+    potLimitMultiplier: _intOrNull(j['potLimitMultiplier']),
+    turnTimeoutMs: _intOrNull(j['turnTimeoutMs']),
+    maxMissedTurns: _intOrNull(j['maxMissedTurns']),
+    sideshowTimeoutMs: _intOrNull(j['sideshowTimeoutMs']),
+    sideshowMinPlayers: _intOrNull(j['sideshowMinPlayers']),
+    nextHandDelayMs: _intOrNull(j['nextHandDelayMs']),
+    unfundedGraceMs: _intOrNull(j['unfundedGraceMs']),
+    missileRevealExtraMs: _intOrNull(j['missileRevealExtraMs']),
+    variationSelectTimeoutMs: _intOrNull(j['variationSelectTimeoutMs']),
+    fiveCardPickTimeoutMs: _intOrNull(j['fiveCardPickTimeoutMs']),
   );
 
   /// The menu entry a poker ROOM would have had, read off the room's own
@@ -554,6 +675,72 @@ class ResumeHint {
   );
 }
 
+/// One engine of the table catalogue's taxonomy (`GET /api/tables` →
+/// `engines`, 23 Sep 2026): a family of categories played by one engine —
+/// Teen Patti, Poker — with the categories it plays, as the server's
+/// `table_engines` and `table_categories` hold them. Only ACTIVE ones are
+/// sent: switching an engine or a category off on the server takes it, and
+/// every table of it, off the menu.
+///
+/// [name] is the server's ADMIN label ("Teen Patti", "Poker"). The lobby
+/// names every card it knows in the player's own language and reads [name]
+/// only for a code this build has never heard of.
+class TableEngineInfo {
+  const TableEngineInfo({
+    required this.code,
+    required this.name,
+    required this.sortOrder,
+    this.categories = const [],
+  });
+
+  /// [TableEngine.teenPatti], [TableEngine.poker], or an engine added after
+  /// this build.
+  final String code;
+  final String name;
+
+  /// Where the engine stands among the engines; lower first.
+  final int sortOrder;
+
+  /// The categories this engine plays, each once.
+  final List<TableCategoryInfo> categories;
+
+  /// Tolerant as every DTO here: a category without a code names nothing and
+  /// is dropped, and anything that is not a list of them reads as none.
+  factory TableEngineInfo.fromJson(Map<String, dynamic> j) => TableEngineInfo(
+    code: _str(j['code']),
+    name: _str(j['name']),
+    sortOrder: _int(j['sortOrder']),
+    categories: [
+      for (final category in _list(j['categories'], TableCategoryInfo.fromJson))
+        if (category.code.isNotEmpty) category,
+    ],
+  );
+}
+
+/// One category of the taxonomy, under its [TableEngineInfo]: its wire code
+/// (the `category` a table entry carries), the server's admin label for it,
+/// and where it stands among its engine's categories.
+class TableCategoryInfo {
+  const TableCategoryInfo({
+    required this.code,
+    required this.name,
+    required this.sortOrder,
+  });
+
+  final String code;
+  final String name;
+
+  /// Lower first, within its engine.
+  final int sortOrder;
+
+  factory TableCategoryInfo.fromJson(Map<String, dynamic> j) =>
+      TableCategoryInfo(
+        code: _str(j['code']),
+        name: _str(j['name']),
+        sortOrder: _int(j['sortOrder']),
+      );
+}
+
 class GameConfig {
   const GameConfig({
     required this.maxPlayers,
@@ -570,6 +757,9 @@ class GameConfig {
     required this.sideshowTimeoutMs,
     required this.tables,
     this.minClientBuild = 0,
+    this.tableConfigVersion,
+    this.privateTables = const [],
+    this.engines = const [],
   });
 
   final int maxPlayers;
@@ -597,7 +787,93 @@ class GameConfig {
   /// The oldest Android versionCode this server will talk to; 0 means no
   /// floor. Only the server can answer this — Play knows a newer build exists
   /// but not that the wire changed this morning.
+  ///
+  /// Session-scoped: it comes from `session:ready` and nowhere else. The
+  /// table catalogue does not carry it, so a menu read from the catalogue (or
+  /// from the phone's copy of it) holds 0 here until a session says otherwise.
   final int minClientBuild;
+
+  /// Which table catalogue this menu is: `session:ready.config.tableConfigVersion`,
+  /// or the `version` of a `GET /api/tables` body. The two are the same
+  /// string when they describe the same menu, which is how the client knows
+  /// whether the catalogue it holds is the one the server is enforcing. Null
+  /// from a server that predates the catalogue.
+  final String? tableConfigVersion;
+
+  /// The private templates (room:create), one per category that has one.
+  /// Only the table catalogue lists them; empty from `session:ready` and from
+  /// an older server.
+  final List<LobbyTable> privateTables;
+
+  /// The engines and the categories each plays (owner, 23 Sep 2026), which
+  /// the lobby reads for the ORDER of its engine cards
+  /// ([GameState.lobbyEngines]) and of the category cards inside each
+  /// ([GameState.lobbyCategoriesIn]), and for the name of a card this build
+  /// does not know. Only the table catalogue sends them; empty from
+  /// `session:ready` and from an older server, and the lobby then files by
+  /// the fixed taxonomy ([GameState.lobbyTaxonomy]) — the same cards.
+  final List<TableEngineInfo> engines;
+
+  /// The menu entry a room was opened from: a PRIVATE table's template by its
+  /// category, a public table's entry by its category and stake. Null when
+  /// this menu does not carry it — a private table on a server that lists no
+  /// templates falls back to the public entry of the same pair, which is what
+  /// the client did before the catalogue existed.
+  LobbyTable? entryFor({
+    required String category,
+    required int bootAmount,
+    required bool isPrivate,
+  }) {
+    if (isPrivate) {
+      for (final table in privateTables) {
+        if (table.category == category) return table;
+      }
+    }
+    for (final table in tables) {
+      if (table.category == category && table.bootAmount == bootAmount) {
+        return table;
+      }
+    }
+    return null;
+  }
+
+  GameConfig copyWith({
+    int? maxPlayers,
+    int? minPlayers,
+    int? bootAmount,
+    int? turnTimeoutMs,
+    List<String>? categories,
+    List<int>? stakes,
+    int? privateBoot,
+    int? privateMaxPot,
+    int? entryCapBoot,
+    String? entryCapCategory,
+    int? entryCapMaxChips,
+    int? sideshowTimeoutMs,
+    List<LobbyTable>? tables,
+    int? minClientBuild,
+    String? tableConfigVersion,
+    List<LobbyTable>? privateTables,
+    List<TableEngineInfo>? engines,
+  }) => GameConfig(
+    maxPlayers: maxPlayers ?? this.maxPlayers,
+    minPlayers: minPlayers ?? this.minPlayers,
+    bootAmount: bootAmount ?? this.bootAmount,
+    turnTimeoutMs: turnTimeoutMs ?? this.turnTimeoutMs,
+    categories: categories ?? this.categories,
+    stakes: stakes ?? this.stakes,
+    privateBoot: privateBoot ?? this.privateBoot,
+    privateMaxPot: privateMaxPot ?? this.privateMaxPot,
+    entryCapBoot: entryCapBoot ?? this.entryCapBoot,
+    entryCapCategory: entryCapCategory ?? this.entryCapCategory,
+    entryCapMaxChips: entryCapMaxChips ?? this.entryCapMaxChips,
+    sideshowTimeoutMs: sideshowTimeoutMs ?? this.sideshowTimeoutMs,
+    tables: tables ?? this.tables,
+    minClientBuild: minClientBuild ?? this.minClientBuild,
+    tableConfigVersion: tableConfigVersion ?? this.tableConfigVersion,
+    privateTables: privateTables ?? this.privateTables,
+    engines: engines ?? this.engines,
+  );
 
   /// Whether this table is closed to a player holding [chips].
   bool cappedFor(int chips, {required int boot, required String category}) =>
@@ -666,7 +942,48 @@ class GameConfig {
     entryCapBoot: _int(j['entryCapBoot']),
     entryCapCategory: _str(j['entryCapCategory']),
     entryCapMaxChips: _int(j['entryCapMaxChips']),
+    tableConfigVersion: _strOrNull(j['tableConfigVersion']),
+    privateTables: j['privateTables'] is List
+        ? (j['privateTables'] as List)
+              .whereType<Map>()
+              .map((e) => LobbyTable.fromJson(Map<String, dynamic>.from(e)))
+              .toList()
+        : const [],
+    // An engine without a code names nothing a table could be filed under.
+    engines: [
+      for (final engine in _list(j['engines'], TableEngineInfo.fromJson))
+        if (engine.code.isNotEmpty) engine,
+    ],
   );
+
+  /// The menu a `GET /api/tables` body describes, or null when [json] is not
+  /// one worth keeping.
+  ///
+  /// The body is `session:ready.config`'s shape plus `version`, `source`,
+  /// `privateTables`, `engines` and the richer per-table figures, so it is
+  /// read by the same [GameConfig.fromJson] — with its `version` as
+  /// [tableConfigVersion]. Checked on the RAW JSON first, because what passes
+  /// here is cached on the phone and opens the lobby on the next cold start: a
+  /// non-empty `version` string, `tables` and `privateTables` lists of
+  /// objects, a positive `maxPlayers`, and `categories`/`stakes` lists where
+  /// present. A body that fails any of it is a broken answer, not a menu, and
+  /// must never replace a good one. The `engines` are read tolerantly and
+  /// refuse nothing: without them the lobby is what it was before they
+  /// existed, which is a working lobby.
+  static GameConfig? fromCatalogue(Object? json) {
+    if (json is! Map) return null;
+    final j = Map<String, dynamic>.from(json);
+    final version = j['version'];
+    if (version is! String || version.isEmpty) return null;
+    bool objects(Object? v) => v is List && v.every((e) => e is Map);
+    if (!objects(j['tables']) || !objects(j['privateTables'])) return null;
+    final players = j['maxPlayers'];
+    if (players is! num || players <= 0) return null;
+    for (final key in const ['categories', 'stakes']) {
+      if (j[key] != null && j[key] is! List) return null;
+    }
+    return GameConfig.fromJson(j).copyWith(tableConfigVersion: version);
+  }
 }
 
 class Seat {

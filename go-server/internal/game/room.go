@@ -39,6 +39,14 @@ type Room interface {
 	MaxPot() int64
 	MaxPlayers() int
 	CreatedAt() time.Time
+	// RulesSpec is every figure the room plays by, as a config.TableSpec
+	// rebuilt from its own frozen configuration — the one it was opened with,
+	// or the one its snapshot brought back. The RoomManager compares it with
+	// what the current configuration would open (TableSpec.SameRules) for
+	// every room restored from the live store, and drains one that differs.
+	// The band and the menu position are the lobby's, not the room's: they
+	// are always 0 here.
+	RulesSpec() config.TableSpec
 
 	// ---- state (lock-free atomics) ----
 	PlayerCount() int
@@ -108,6 +116,13 @@ type RoomSpec struct {
 	Category   Category
 	BootAmount int64
 	IsPrivate  bool
+	// Table is every figure the room is to play by, resolved by the manager
+	// through config.GameConfig.Spec — the table_configs row in db mode, the
+	// env composition otherwise — so a room and the lobby card that sent a
+	// player to it read one source. Its BootAmount is BootAmount above. A
+	// zero value (no Key) leaves the factory to compose the figures from
+	// RoomDeps.Game itself, as it did before the catalogue existed.
+	Table config.TableSpec
 }
 
 // RoomDeps is everything a room of any family is built with — the same
@@ -178,10 +193,13 @@ type RoomFactory interface {
 	// drops the document from the store exactly as it drops a Teen Patti
 	// snapshot it cannot rebuild.
 	Restore(data []byte, deps RoomDeps) (Room, RestoredRoom, error)
-	// MenuEntry fills in the family-specific fields of a lobby menu entry for
-	// a LOBBY_TABLES line of this family (blinds, ante, buy-in, hole cards…).
-	// The category, boot and stack band are already set.
-	MenuEntry(entry config.LobbyTable, g config.GameConfig, option *LobbyTableOption)
+	// MenuEntry fills in the family-specific fields of a lobby menu entry
+	// (blinds, ante, buy-in, hole cards…) from the TableSpec the room behind
+	// it would be opened with — config.GameConfig.Spec of a menu entry, or a
+	// category's private template for GET /api/tables — so a card never
+	// promises rules its table does not play. The category, boot and stack
+	// band are already set.
+	MenuEntry(spec config.TableSpec, option *LobbyTableOption)
 }
 
 // storedRoomHeader is the peek every stored document gets before a parser is

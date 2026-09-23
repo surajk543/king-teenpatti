@@ -10,7 +10,9 @@ lives in git history only (`git log -- server/`; the last commit carrying it is 
 `multi_node` branch still has it). The tooling that used to live beside it — bots, load ramp,
 parity harness — is now the `../tools` package.
 
-Go's scheduler uses every core; there is no cluster, no Redis.
+Go's scheduler uses every core; there is no cluster — one process owns every table, and the tables'
+live state is kept in Redis (`REDIS_URL`), never in PostgreSQL. PostgreSQL holds money, audit, the
+accounts and the picture catalogue, and since 23 Sep 2026 the table configuration (below).
 
 ## Architecture in one paragraph
 
@@ -28,9 +30,11 @@ set of concurrency rules; read it before touching `game`, `socket` or `sio`.
 
 ```
 go-server/
-├── cmd/gameplay/            main: .env (godotenv) → config → db → app → listen; SIGTERM = graceful 8 s;  -version flag
+├── cmd/gameplay/            main: .env (godotenv) → config → db → app → listen; SIGTERM = graceful 8 s;  -version flag;
+│                            -export-table-config / -check-table-config (tableconfig.go: the table catalogue tools, no server)
 ├── internal/
-│   ├── config/              every env key → one immutable Config (the keys in .env.example, + PUBLIC_DIR)
+│   ├── config/              every env key → one immutable Config (the keys in .env.example, + PUBLIC_DIR);
+│   │                        tables.go: the table catalogue contract (TABLE_CONFIG_SOURCE, TableSpec, GameConfig.Spec, Validate)
 │   ├── game/                rules engine: constants, deck, handrank, chat, Table (actor), RoomManager, Ledger/Clock interfaces;
 │   │                        room.go (the Room interface every table implements) + actor.go (Actor / LiveState / Settler, the shell both families share)
 │   ├── poker/               the Poker family (POKER_PLAN.md; ../CLAUDE.md §6.5): 3-Card Poker, 5-Card Draw, Texas Hold'em, Omaha — rooms beside the Teen Patti tables
@@ -38,11 +42,13 @@ go-server/
 │   ├── sio/                 Engine.IO v4 + Socket.IO v5 server, websocket only (our own; no library)
 │   ├── socket/              the realtime protocol: handlers, per-viewer broadcast, grace, resume offers
 │   │   └── testclient/      raw Socket.IO client used by the tests
-│   ├── auth/                JWT HS256, Google/Facebook/guest providers, REST handlers, AuthError
-│   ├── db/                  pgxpool, embedded schema.sql, Ledger, Users
+│   ├── auth/                JWT HS256, Google/guest providers (Facebook commented out, switched off 23 Sep 2026), REST handlers, AuthError
+│   ├── db/                  pgxpool, embedded migration/ (exactly two: V1.0.0__baseline.sql all DDL, V1.0.1__seed.sql all DML), Ledger, Users, Pictures,
+│   │                        TableConfigs (the table catalogue: Load, ExportTableConfigSQL)
 │   │   └── dbtest/          throwaway test schemas (skips when Postgres is unreachable)
 │   ├── metrics/             prometheus/client_golang; identical game_* names; process/Go runtime under game_server_
-│   ├── app/                 mux, static browser client, /health, /metrics, REST, socket endpoint, Start/Shutdown
+│   ├── app/                 mux, static browser client, /health, /metrics, REST (GET /api/tables too), socket endpoint, Start/Shutdown;
+│   │                        tableconfig.go settles the table catalogue once, before anything is built from it
 │   │   └── assets/          socket.io.min.js (MIT) served at /socket.io/socket.io.js for the browser client
 │   └── util/                UUID, RoomCode, slog JSON logger
 ├── public/                  the browser reference client (index.html, client.js, style.css, theme.css, profiles/)
@@ -72,6 +78,8 @@ go test -run TestVersionString ./cmd/gameplay                  # one test
 go run ./cmd/gameplay                                          # dev run: reads ./.env if present; http://0.0.0.0:3000; browser client from ./public
 bash ops/build.sh                                              # static, stripped, version-stamped → bin/gameplay (git-ignored)
 ./bin/gameplay -version                                        # gameplay <git describe> go1.27.1 linux/amd64
+./bin/gameplay -export-table-config > tables.sql               # the env-composed table catalogue as one psql transaction
+./bin/gameplay -check-table-config                             # the database's catalogue as a db boot would judge it (exit 0/1/2)
 ./bin/gameplay                                                 # same as go run, from the built binary
 PORT=3001 PG_SCHEMA=test_me ./bin/gameplay                     # spare port, throwaway schema (drop it afterwards)
 ```
@@ -92,8 +100,14 @@ Every env key and default is in `internal/config/config.go` (`Defaults()`), docu
   connection, so a hung query fails one ledger write (`persist_failed`, the move is refused) instead
   of freezing that table's actor; `0` disables it (Node's behaviour). See DECISIONS.md §5.
 
-`REDIS_URL` is read and logged as ignored. Integers are parsed strictly; `TABLE_STAKES=`/`LOBBY_TABLES=`
-empty mean unrestricted, as in Node.
+Integers are parsed strictly; `TABLE_STAKES=`/`LOBBY_TABLES=` empty mean unrestricted, as in Node —
+in env mode. **`TABLE_CONFIG_SOURCE`** (Go-only, 23 Sep 2026) decides where the tables come from: `db` —
+the four configuration tables (`table_engines`, `table_categories`, `table_settings`, `table_configs`),
+read once at boot, every table env key ignored with one WARN — or `env` — the table keys composed as
+before. Unset, it is `env` whenever any table key is set (so a `.env` that pins its menu keeps it) and
+`db` otherwise; the tests and the parity harness run env. A db catalogue that cannot run a lobby falls
+back to the env composition (`/health.tableConfig.fallback`). `../CLAUDE.md` §7.3/§7.4 are the reference;
+`ops/DEPLOY.md` §3 the production switch.
 
 ### Tests that need Node
 
@@ -186,15 +200,19 @@ that routine in short form.
 
 Check `go-server/.env` on the host when a release changes a default: the file's values **override**
 the defaults compiled in, so a key production pins (`LOBBY_TABLES`, `TABLE_STAKES`, …) keeps its old
-value through a deploy until somebody edits it.
+value through a deploy until somebody edits it. With `TABLE_CONFIG_SOURCE=db` the tables are rows
+instead: the seed never rewrites a row the database has and adds a new table INACTIVE, so a release's
+new default table reaches production only when someone switches it on (`ops/DEPLOY.md` §3).
 
 ## What differs from Node on purpose
 
 `PORT_PLAN.md` §9 (table) and `DECISIONS.md` (the reasoning) list every deliberate deviation:
-websocket only; no Redis; `game_server_go_*` runtime metrics instead of `nodejs_*`;
+websocket only; `game_server_go_*` runtime metrics instead of `nodejs_*`;
 `/health process.node` is the Go version; JSON 404 for unknown `/api` paths and 400
 `invalid_json` for bad bodies; a handful of latent Node bugs fixed on the money path (settle
 statement order, retry after table destroy, `actionId` containing `:`, room-code collisions);
 `PG_STATEMENT_TIMEOUT_MS`; and the two families added since — Variation Teen Patti (18 Sep 2026)
-and the Poker family (19 Sep 2026), both ABSENT from a seen or blind table's wire. Anything else that differs from the documented behaviour
+and the Poker family (19 Sep 2026), both ABSENT from a seen or blind table's wire; and the table
+catalogue (23 Sep 2026) — the tables' configuration in PostgreSQL, `GET /api/tables`,
+`session:ready.config.tableConfigVersion`, `/health.tableConfig`. Anything else that differs from the documented behaviour
 (`../CLAUDE.md` §5–§7, `PORT_NOTES/specs/`) is a bug — the parity suites are how it is found.

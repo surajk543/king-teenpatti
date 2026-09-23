@@ -147,7 +147,121 @@ until the restart, so building never disturbs the live process. Files under `go-
 are different: the running binary reads them from disk, so a pull that deletes one takes it away
 before the restart. Keep the pull, the build and the restart back to back.
 
+### The table-catalogue release (23 Sep 2026) — deploy first, then move the tables into the database
+
+This is the first release whose tables can come from PostgreSQL (owner: "all table related config store in
+database"; CLAUDE.md §7.3/§7.4): four configuration tables — `table_engines`, `table_categories`, `table_settings`,
+`table_configs` — `TABLE_CONFIG_SOURCE`, `GET /api/tables` and two flags on the binary. It goes out in two steps, and
+the first changes nothing a player sees.
+
+**Before the restart: who owns `users`.** Production's database was built by `go-server/v1.1.0` and last booted by
+`go-server/v1.1.2`, so it has `chip_ledger.game`/`variant` (v1.1.2's `V1.0.2`) and lacks `users.is_bot`. This build's baseline adds the column at its first boot, through
+a catalogue-guarded `ALTER TABLE users ADD COLUMN is_bot BOOLEAN NOT NULL DEFAULT FALSE` — a statement only the owner
+of `users` may run. While `gameplay_app` owns it (§7 not applied) there is nothing to do. If `postgres` owns it, every
+boot would fail `must be owner of table users`, so add the column as `postgres` once, first; the boot's lookup then
+finds it and skips the ALTER. The running server is unaffected (it never names the column; new rows take the default):
+
+```bash
+cd /var/www/gameplay/king-teenpatti
+psql "$(sed -n 's/^DATABASE_URL=//p' go-server/.env)" -Atc "SET statement_timeout = '10s'" \
+  -c "SELECT tableowner FROM pg_tables WHERE schemaname = 'public' AND tablename = 'users'" \
+  -c "SELECT count(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'users' AND column_name = 'is_bot'"
+# gameplay_app → nothing to do.  postgres and 0 → once, as postgres (catalogue-only: instant, but it must get the lock):
+sudo -u postgres psql gameplay -c "SET lock_timeout = '5s'" -c 'ALTER TABLE users ADD COLUMN is_bot BOOLEAN NOT NULL DEFAULT FALSE'
+```
+
+**Step 1 — deploy as usual** (§1, §2, the restart). Production's `.env` names `LOBBY_TABLES`, and with
+`TABLE_CONFIG_SOURCE` unset a server whose environment sets ANY table key resolves to `env`: it plays exactly the menu
+it played before. The same boot creates the four configuration tables and seeds them with the CODE's default
+catalogue, which it does not read. The journal says so, and so does `/health`:
+
+```bash
+sudo journalctl -u gameplay -n 30 --no-pager | grep -E 'table config'
+#   WARN "table config comes from the env keys, not the database"  keys=[LOBBY_TABLES, …]  hint="to move it into the database, …"
+#   INFO "table config ready"  source=env  fallback=false
+curl -s 127.0.0.1:3000/health | python3 -c 'import json,sys; print(json.load(sys.stdin)["tableConfig"])'   # {'source': 'env', 'version': '…', 'fallback': False}
+```
+
+**Step 2 — put production's own menu in the database, check it, switch.** The seed holds the code's default menu, not
+production's, so the database is first made to hold what production plays today. `-export-table-config` composes the
+table keys exactly as the running env-mode server does (from `./.env`, the file the service reads — so run it from
+`go-server/`) and prints them as one psql transaction; nothing else goes to stdout. `-check-table-config` then reads
+the database WITHOUT migrating anything and judges it as a db boot would. As `deploy`, no sudo until the restart:
+
+```bash
+cd /var/www/gameplay/king-teenpatti/go-server
+DB="$(sed -n 's/^DATABASE_URL=//p' .env)"
+TS=$(date -u +%Y%m%dT%H%M%SZ)
+./bin/gameplay -export-table-config > ~/tables-$TS.sql        # stderr: "table env keys set: LOBBY_TABLES, …", "exported N public tables and M private templates, under 2 engines and 7 categories"
+less ~/tables-$TS.sql                                         # engines, categories, table_settings, every table and private template — read it
+psql "$DB" -f ~/tables-$TS.sql                                # BEGIN … INSERT/UPDATE … COMMIT; any refusal stops it with nothing changed
+./bin/gameplay -check-table-config; echo "exit $?"            # lists the engines and every table key; must be "exit 0"
+grep -n '^TABLE_CONFIG_SOURCE=' .env || printf '\nTABLE_CONFIG_SOURCE=db\n' >> .env   # a line already there: edit it to db. LEAVE every table key in the file (rollback, §5)
+sudo systemctl restart gameplay
+curl -s 127.0.0.1:3000/health | python3 -c 'import json,sys; print(json.load(sys.stdin)["tableConfig"])'   # source 'db', fallback False
+curl -s 127.0.0.1:3000/api/tables | python3 -c 'import json,sys; b=json.load(sys.stdin); print(b["source"], len(b["tables"]), "tables", [(e["code"], [c["code"] for c in e["categories"]]) for e in b["engines"]])'
+sudo journalctl -u gameplay -n 30 --no-pager | grep -E 'table (config|env keys)|draining'
+#   WARN "table env keys are ignored in db mode" (expected: the keys stay for a rollback) — and no ERROR
+```
+
+The export retires every row it does not name (`UPDATE … SET is_active = FALSE`), so after it the database holds
+production's menu and nothing else active; running it twice is running it once. `exit 1` from the check means a db boot
+would leave rows out (each is printed as `problem:`); `exit 2`, that it could not use the catalogue at all — fix either
+before the switch. The catalogue's `version` changes once at the switch (the payload names its source), so every app
+fetches it once. If `/health` ever says `fallback: true`, the journal's ERROR names the reason and
+`./bin/gameplay -check-table-config` lists every problem; to go back to env meanwhile, delete the
+`TABLE_CONFIG_SOURCE` line (the table keys make it `env` again) and restart. Rehearsed on 23 Sep 2026 against a scratch
+schema with production's shape of `.env` (a five-table `LOBBY_TABLES`): export, apply (`UPDATE 8` retiring the seeded
+rows it did not name), check `exit 0`, a `TABLE_CONFIG_SOURCE=db` boot at `source: db`, and `GET /api/tables` 304 on
+its own ETag.
+
+**From then on the database is the menu.** Edit it with SQL, one statement at a time in autocommit (`psql -c`) — never
+leave a transaction open in psql across a restart, since the boot's seed writes to the same tables:
+
+```bash
+cd /var/www/gameplay/king-teenpatti/go-server && DB="$(sed -n 's/^DATABASE_URL=//p' .env)"
+psql "$DB" -c "UPDATE table_configs SET max_blind_moves = 3, updated_at = (EXTRACT(EPOCH FROM now()) * 1000)::bigint WHERE table_key = 'blind:200'"
+psql "$DB" -c "UPDATE table_configs SET is_active = FALSE WHERE table_key = 'seen:50000'"           # retire one table
+psql "$DB" -c "UPDATE table_categories SET is_active = FALSE WHERE code = 'variation'"             # hide every variation table
+psql "$DB" -c "UPDATE table_engines SET is_active = FALSE WHERE code = 'poker'"                    # hide all of Poker
+./bin/gameplay -check-table-config; echo "exit $?"                                                  # what the next boot will play
+sudo systemctl restart gameplay                                                                     # nothing applies before this
+```
+
+- **A restart applies it, to tables opened after it.** The server reads the catalogue once, at boot. A table restored
+  from Redis keeps the rules it was opened with; one whose rules the rows no longer give (or whose table left the menu)
+  is **drained** — its players play on and its code still works, but the lobby sends nobody to it and it goes once
+  empty (`table draining` INFO in the journal). A player left alone at one is still merged (requirement 24): onto the
+  table of the same stake with the new rules once there is one and their stack fits its entry band, or else onto an
+  older drained table playing by the same old rules. `GET /api/tables` and `/health.tableConfig.version` show what the
+  process runs; a `SELECT` shows only what the next boot will.
+- **Retire, never DELETE.** `is_active = FALSE` works at every level: a table, a category (every table of it) or an
+  engine (every category and table of it). A DELETE of a category or engine something names is refused by the foreign
+  keys, and a seeded row deleted comes back at the next boot — a table inactive, an engine or category active.
+- **`seen` cannot be switched off** — nor, therefore, the `teen_patti` engine: the private table `room:create` opens
+  is the seen template, and without it the boot cannot use the catalogue and falls back to the env composition
+  (`fallback: true`). To take seen tables out of the lobby, retire their public rows.
+- **A new table** is an INSERT stating every figure (the rule and clock columns have no DEFAULT on purpose); the easy
+  way is to copy a row — `INSERT INTO table_configs (category, boot_amount, is_private, min_chips, …, sort_order,
+  is_active) SELECT category, 1000, FALSE, min_chips, …, 25, FALSE FROM table_configs WHERE table_key = 'blind:200'` —
+  and switch it on with `is_active = TRUE` when it should appear. That one row is all it takes: **a table's own boot is
+  always an allowed stake**, so `table_settings.stakes` need not be edited — a boot it does not list (1000 here) is
+  appended to it at boot, after the stakes it lists (`/api/tables` and the lobby's `stakes` show it there), and
+  quick-join and a public `room:create` reach the new card. An empty `stakes` array still means any stake. A category
+  installed apps do not know (as variation and poker once were) goes live only after `MIN_CLIENT_BUILD` is raised to a
+  build that can draw it.
+- **The database has the last word on shape**: a turn clock under 5 s, a sideshow window under 1 s, a variation row
+  without both windows, a poker buy-in under its boot, a band min over max, a category nobody declared — each refused by
+  a CHECK or a foreign key at the `UPDATE`. What PostgreSQL accepts but the engine must not open is left out at boot
+  with an ERROR `table config row left out` naming the row, and the rest plays.
+- **A release that changes a default table does NOT change production's.** The seed never touches a row the database
+  already has, and a table appended to it arrives INACTIVE on an existing catalogue; read the release notes and apply
+  what they ask for by hand.
+
 ### The first deploy that carries Variation Teen Patti — check `LOBBY_TABLES` first
+
+*(Written for env mode, before the catalogue. In db mode the same rule is the row's: a variation or poker row added to
+an existing catalogue arrives inactive, and `is_active = TRUE` goes after `MIN_CLIENT_BUILD`, never before.)*
 
 The same check covers the second seen table (19 Sep 2026): the default menu now also ends with
 `seen:50000:pot=50000000` — boot 50,000, open to all, a 5 Crore pot limit of its own. A `.env` that
@@ -191,7 +305,11 @@ Rolling back past this release with `variation:` still in `.env` stops the older
 ```bash
 curl -s 127.0.0.1:3000/health | python3 -m json.tool
 curl -s https://api.sungamestudio.com/health | python3 -c 'import json,sys; h=json.load(sys.stdin); print(h["ok"], h["process"]["node"], h["players"], "players")'
+curl -s 127.0.0.1:3000/health | python3 -c 'import json,sys; print(json.load(sys.stdin)["tableConfig"])'   # source env|db as intended; fallback must be False
 ```
+
+`tableConfig.fallback: true` means a `TABLE_CONFIG_SOURCE=db` server found a catalogue it could not use and is playing
+the env composition — look for the ERROR in the journal and run `./bin/gameplay -check-table-config` (§3).
 
 **Metrics — scrape by hand, then confirm Prometheus sees the target as `up`:**
 
@@ -303,8 +421,21 @@ was SIGKILLed; `master`'s binary logged `table restore: dropping stored table �
 (maxPlayers 0)` for the poker room, `restored tables=1 seats=2` for the seen one, and the poker key was
 gone; the new binary booted forward on the same Redis and restored the seen table again) —
 their wallets are what PostgreSQL last knew (CLAUDE.md §5.1), and a hand in flight is un-made exactly
-as a lost-Redis hand is. The two nullable `chip_ledger` columns `V1.0.2` added are never read by the
-older tag and its rows leave them NULL, which is what a Teen Patti row holds anyway.
+as a lost-Redis hand is. The two nullable `chip_ledger` columns (`V1.0.2` from go-server/v1.1.1; in the baseline
+since 23 Sep 2026) are never read by the older tag and its rows leave them NULL, which is what a Teen Patti row holds anyway.
+
+**Tags from before the table catalogue (23 Sep 2026 — every tag up to and including `go-server/v1.1.2`)** never read
+`table_engines`, `table_categories`, `table_settings` or `table_configs`, nor `TABLE_CONFIG_SOURCE`: they play the table
+keys in `go-server/.env` and their own compiled-in defaults. So **an edit made in the database does not survive a
+rollback** — the older binary plays whatever the `.env` says — and that is why the table keys (`LOBBY_TABLES` and the
+rest) stay in the `.env` after the switch to `db`, where the new build ignores them with one WARN. If the catalogue has
+been edited since the switch, carry the edit into those keys before the rollback's restart, or accept the older menu
+while it runs; coming forward again, the rows are exactly where they were and the new build reads them. The older tag's
+scripts are harmless on this database: checked on 23 Sep 2026, `go-server/v1.1.2`'s three (its baseline, its
+`V1.0.1__seed_profile_pictures.sql`, the guarded `V1.0.2__chip_ledger_game.sql`) ran twice on a schema this build's two
+had built — fourteen tables before and after, 45 pictures before and after, the configuration rows untouched — and
+this build's two then ran over the result cleanly. `users.is_bot` is left alone too; the older build's logins simply do
+not mark the bot fleet's new accounts while it runs.
 
 Coming forward again does **not** remove the second row — the consolidated seed carries no clean-up —
 so retire it with the second query below, either during the rollback or after it (`UPDATE 1` retires
@@ -363,7 +494,8 @@ plan the reversal separately — through the ledger for anything touching money 
 append-only; a correction is a compensating row, never a DELETE).
 
 `go-server/.env` is also not versioned. A release that changed a key's meaning needs that key put
-back by hand, or the old binary reads a value it does not expect.
+back by hand, or the old binary reads a value it does not expect. And the table catalogue is data: a rollback neither
+undoes an edit to it nor makes an older binary read it (above).
 
 Prometheus and Grafana need nothing for a rollback: the game rows work for both servers and the
 Runtime row simply goes empty while Node runs (Node's `nodejs_*` panels are gone from the JSON; the
@@ -488,7 +620,7 @@ referencing `users` still crash-loops. What covers a checkout's scripts is
 PostgreSQL superuser). It reads the SQL block above out of this file, applies it to a throwaway
 schema, and boots every migration twice as a role that is not a superuser, before and after — then
 twice more while re-creating the five tables that reference `users` under the new ownership, and
-spends a hammer and a missile and trades diamonds for missiles on the new grants. Run it before deploying a
+spends a hammer and a missile, trades diamonds for missiles and loads the table catalogue on the new grants. Run it before deploying a
 release that touches `users` or adds a table referencing it:
 
 ```bash
@@ -542,31 +674,43 @@ done. This is also why the trigger function is created only when missing rather 
 guarded statement whose work production has not done yet (it builds its schema as the owner first),
 which is exactly why that one-off run as `postgres` comes before the deploy.
 
-**Releases that need that one-off run: none today.** The migrations are one DDL script and one DML
-script (§8), and everything they do to `users` — `users.hammer`, `users.missile` and the new-account
-`diamond` default of 9 — is declared in the baseline's `CREATE TABLE users`, which a database started
-over under §8 builds as its owner on the first boot. (For a day a `V1.0.2__new_account_diamonds.sql`
-moved the default with a guarded ALTER that needed this run; it is folded into the baseline now, so
-there is nothing to run for it.) The next script that ALTERs or indexes `users` goes behind a
-catalogue lookup, and is run once as `postgres` here before its release is deployed.
+**Releases that need that one-off run: the table-catalogue release (23 Sep 2026), on a database that lacks
+`users.is_bot`.** The migrations are one DDL script and one DML script (§8), and everything they do to `users` —
+`users.hammer`, `users.missile`, the new-account `diamond` default of 9 and `users.is_bot` — is declared in the
+baseline's `CREATE TABLE users`, which a database started over under §8 builds as its owner on the first boot. But
+`is_bot` is also in a catalogue-guarded block right after it (it was `V1.0.3__users_is_bot.sql` until it was folded in,
+never tagged), and on a database built before it — production's, last booted by `go-server/v1.1.2` — that block runs
+`ALTER TABLE users ADD COLUMN is_bot BOOLEAN NOT NULL DEFAULT FALSE` at the first boot. Under §7 the app role cannot, so
+run that one statement as `postgres` before deploying (§3 has the check and the command); the lookup then skips it for
+good. (For a day a `V1.0.2__new_account_diamonds.sql` moved the default with a guarded ALTER that needed this run too;
+it was folded into the baseline long since.) The next statement that ALTERs or indexes `users` goes into the baseline
+behind a catalogue lookup — never into a new script, CLAUDE.md §7.3 — and is run once as `postgres` here before its
+release is deployed. The four configuration tables need nothing: none of them references `users`, and the app role
+creates and owns them.
 
 ## 8. Starting production on an empty database
 
-Since 14 Sep 2026 `go-server/internal/db/migration/` holds two scripts: `V1.0.0__baseline.sql`
-(every table, column, check, index, function and trigger, as consolidated — the missile column and
-tables, the new-account `diamond` default of 9 and the pictures' `COIN`/`DIAMOND`/`HAMMER` currency
-check included) and `V1.0.1__seed_profile_pictures.sql` (the 40 catalogue rows: the 15 animals and 4 animated
-pictures priced in chips, 16 animated pictures in hammers and 5 in diamonds). They build a database from nothing on the first boot.
-Nothing in them brings an older database forward, and no older database boots this build: one built
+`go-server/internal/db/migration/` holds two scripts (since 14 Sep 2026, and again since 23 Sep 2026, when
+`V1.0.2__chip_ledger_game.sql` and `V1.0.3__users_is_bot.sql` were folded back in): `V1.0.0__baseline.sql`
+(every table, column, check, index, function and trigger — the missile column and tables, the new-account `diamond`
+default of 9, the pictures' `COIN`/`DIAMOND`/`HAMMER` currency check, `users.is_bot`, `chip_ledger.game`/`variant` and
+the four table-configuration tables included) and `V1.0.1__seed.sql` (formerly `V1.0.1__seed_profile_pictures.sql`:
+the 45 pictures — the 15 animals, 6 animated pictures priced in chips, 19 in hammers and 5 in diamonds — then the table
+catalogue: 2 engines, 7 categories, the `table_settings` row, 12 public tables and 7 private templates, the code's
+default menu). They build a database from nothing on the first boot. The only thing they bring forward on an older
+database is a MISSING column of the three the baseline guards (`users.is_bot`, `chip_ledger.game`, `.variant`), and
+no database built before the pictures' HAMMER currency boots this build: one built
 by `go-server/v1.0.0` or older lacks `users.missile` (and one from `go-server/v1.3.0` or older,
-`users.hammer`), and every database built before the hammer pictures — **production's included** —
+`users.hammer`), and every database built before the hammer pictures
 keeps `profile_pictures_currency_check` at `COIN`/`DIAMOND`, so the seed's first `HAMMER` row fails the
 boot with `violates check constraint "profile_pictures_currency_check"` (PostgreSQL checks a row
-before `ON CONFLICT DO NOTHING` can skip it, so rows already present do not save it). The release
-carrying these scripts must therefore start on an **empty** `public` schema. That deletes every
-account, wallet, ledger row, purchase record and owned picture — players come back as new accounts
-with the welcome chips (3 lakh — production's `.env` sets `WELCOME_CHIPS=300000`), 9 diamonds, 20
-hammers and 1 missile. Take the backup.
+before `ON CONFLICT DO NOTHING` can skip it, so rows already present do not save it). That is why
+production started over on 14 Sep 2026 (`go-server/v1.1.0`). **Its database since then does not need to**: the
+table-catalogue release (23 Sep 2026) boots on it — the guarded block adds `users.is_bot` (mind §7) and the four
+configuration tables are created and seeded (§3). A start on an **empty** `public` schema is for when one is wanted,
+and it deletes every account, wallet, ledger row, purchase record and owned picture — players come back as new
+accounts with the welcome chips (3 lakh — production's `.env` sets `WELCOME_CHIPS=300000`), 9 diamonds, 20 hammers and
+1 missile. Take the backup.
 
 This is the order that worked on 13 Sep 2026 (`go-server/v1.2.0`), as `deploy`, no sudo. The facts
 that shape it: `gameplay_app` owns every table and function but not the `public` schema, so "empty
@@ -616,10 +760,19 @@ until curl -sf 127.0.0.1:3000/health >/dev/null; do sleep 1; done
 curl -s 127.0.0.1:3000/health | python3 -c 'import json,sys; h=json.load(sys.stdin); print(h["ok"], h["version"])'
 psql "$DB" -Atc "SET statement_timeout = '10s'" \
   -c "SELECT count(*) FROM pg_tables WHERE schemaname = 'public'" \
-  -c "SELECT count(*) FROM profile_pictures"                     # 9, then 35
-journalctl -u gameplay -n 50 --no-pager | grep -iE 'restored|"level":"(WARN|ERROR)"'   # restored tables=0; no WARN or ERROR
+  -c "SELECT count(*) FROM profile_pictures" \
+  -c "SELECT count(*) FILTER (WHERE is_active), count(*) FROM table_configs"   # 14, then 45, then 19|19
+journalctl -u gameplay -n 50 --no-pager | grep -iE 'restored|"level":"(WARN|ERROR)"'   # restored tables=0; no ERROR (a WARN naming the table keys, below, is expected)
+curl -s 127.0.0.1:3000/health | python3 -c 'import json,sys; print(json.load(sys.stdin)["tableConfig"])'
 bash go-server/ops/prod-version.sh                                                     # IN SYNC
 ```
+
+**The fresh database holds the CODE's default table catalogue**, every row active. With production's `.env` naming
+`LOBBY_TABLES` the server resolves to `env` and plays that line anyway (one WARN says so), exactly as before. If the
+menu should be the database's, and production's is not the code default, run §3's step 2 now — export with the
+`.env`, apply, check, `TABLE_CONFIG_SOURCE=db`, restart — rather than switching onto the seed and finding the lobby
+changed. If production already had `TABLE_CONFIG_SOURCE=db` before the fresh start, its edits went with the old
+database: run the export from the `.env` keys (which you kept for exactly this) or re-apply the edits, then restart.
 
 Then restart `bot-play` the same way (kill its MainPID; `RestartSec=15s`) — the bots log in again as
 fresh guests. §7 belongs to the database, not the release: a database started over has lost it, so
@@ -632,6 +785,13 @@ run §7 again if `users` should belong to `postgres`.
 | `install-go-server.sh`: "bin/gameplay is missing" | run `bash ops/build.sh` as `deploy` first |
 | `install-go-server.sh`: "`go-server/.env` not readable" | neither `go-server/.env` nor the old `server/.env` exists — copy the production `.env` to `go-server/.env` |
 | journal: `config: PG_POOL_MAX: …` (or any key) at startup | strict integer/enum parsing of `.env`; fix the value, `sudo systemctl restart gameplay` |
+| journal: `run V1.0.0__baseline.sql: ERROR: must be owner of table users` on the table-catalogue release | `postgres` owns `users` (§7) and the database lacks `users.is_bot`: add the column as `postgres` (§3, "Before the restart"), then restart |
+| journal WARN `table config comes from the env keys, not the database` | `TABLE_CONFIG_SOURCE` is unset and the `.env` sets table keys, so the server plays those keys (env mode) — expected until §3's step 2 |
+| journal WARN `table env keys are ignored in db mode` | expected after the switch: the table keys stay in `.env` for a rollback (§5), and the database is what plays |
+| journal ERROR `table config row left out` | a row PostgreSQL accepted but this build must not open (unknown category, wrong engine, poker buy-in under the boot, …) — the rest plays; `./bin/gameplay -check-table-config` prints each, fix the row, restart |
+| journal ERROR `table config in the database is unusable; running the env composition instead`, `/health` `tableConfig.fallback: true` | no settings row, no active public table, no private seen template (seen or `teen_patti` switched off), or the read failed — the server plays the `.env` keys; `-check-table-config` (exit 2) says which, fix, restart |
+| psql refuses the export: `violates check constraint "table_configs_turn_timeout_ms_check"` (or a sideshow one) | the `.env` configures a clock the database does not allow (a turn under 5 s, a sideshow window under 1 s) — fine for tests, never for production; fix the key, export again. The transaction changed nothing |
+| a `table_configs` edit "does nothing" | the catalogue is read once, at boot — restart; and a table restored from Redis keeps its old rules (it is drained, not changed) |
 | journal: `JWT_SECRET must be set in production` | `.env` lacks `JWT_SECRET` (Node used the same key) — the unit sets `NODE_ENV=production` |
 | `/health` never answers, unit flaps every 2 s | port 3000 still held by the old process for a few seconds — normal; if it lasts, `ss -lptn 'sport = :3000'` |
 | `/metrics` → `401` from the install script | `METRICS_TOKEN` in `.env` has quotes/spaces Node tolerated; the script strips quotes — check the raw line |

@@ -36,7 +36,12 @@
             android:name="flutterEmbedding"
             android:value="2" />
 
-        <!-- Facebook Login.
+        <!-- Facebook login is switched off for now (owner, 23 Sep 2026): the
+             flutter_facebook_auth dependency is commented out of pubspec.yaml,
+             so these entries would name classes that are not in the build.
+             Uncomment them together with it to bring Facebook back.
+
+        Facebook Login.
              AutoInitEnabled is false on purpose: with it on, the SDK reads the
              app id at process start and complains when the strings are still
              empty, which is the state every build is in until somebody fills
@@ -44,7 +49,7 @@
              a build that carries no dart-define flag=FACEBOOK_APP_ID refuses
              that attempt in Dart before it ever reaches the SDK. (An XML
              comment may not contain a double hyphen, which is why the flag is
-             written without its leading dashes.) -->
+             written without its leading dashes.)
         <meta-data android:name="com.facebook.sdk.AutoInitEnabled" android:value="false" />
         <meta-data android:name="com.facebook.sdk.ApplicationId" android:value="@string/facebook_app_id" />
         <meta-data android:name="com.facebook.sdk.ClientToken" android:value="@string/facebook_client_token" />
@@ -63,6 +68,7 @@
                 <data android:scheme="@string/fb_login_protocol_scheme" />
             </intent-filter>
         </activity>
+        -->
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and

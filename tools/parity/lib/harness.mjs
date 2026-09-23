@@ -44,8 +44,14 @@ export const jwtSecret = process.env.PARITY_JWT_SECRET ?? 'parity-secret';
 /** The bearer token /metrics demands, when the server was started with one. */
 export const metricsToken = process.env.PARITY_METRICS_TOKEN ?? 'metrics-test-token';
 
-/** The env profile the server was started with (see tools/parity.mjs PROFILES). */
+/**
+ * The env profile the server was started with (see tools/parity.mjs PROFILES).
+ * `tableConfigSource` is where its tables come from: 'env' (the env keys, every
+ * profile but one) or 'db' (the seeded table catalogue, the `menu` profile),
+ * and the table figures below are the ones that source gives.
+ */
 export const profile = {
+  tableConfigSource: process.env.PARITY_TABLE_CONFIG_SOURCE ?? 'env',
   bootAmount: Number(process.env.PARITY_BOOT_AMOUNT ?? 100),
   turnTimeoutMs: Number(process.env.PARITY_TURN_TIMEOUT_MS ?? 1200),
   nextHandDelayMs: Number(process.env.PARITY_NEXT_HAND_DELAY_MS ?? 150),
@@ -120,10 +126,15 @@ export const OPTIONS_KEYS = [
   'canSee', 'canSideshow', 'sideshowWith', 'canForceSideshow', 'canMissile', 'chaal', 'raise', 'raiseSteps', 'maxBet', 'show', 'canPack', 'isBlind',
   'currentStake', 'chips', 'pot',
 ];
+/**
+ * session:ready.config. `tableConfigVersion` (23 Sep 2026) is the version of
+ * the table catalogue GET /api/tables serves — the one key the catalogue added
+ * here, so a client knows whether the copy it keeps is still the server's.
+ */
 export const CONFIG_KEYS = [
   'maxPlayers', 'minPlayers', 'bootAmount', 'turnTimeoutMs', 'welcomeChips', 'maxBetRounds', 'sideshowTimeoutMs',
   'sideshowMinPlayers', 'categories', 'stakes', 'tables', 'entryCapBoot', 'entryCapCategory', 'entryCapMaxChips',
-  'privateBoot', 'privateMaxPot', 'minClientBuild',
+  'privateBoot', 'privateMaxPot', 'minClientBuild', 'tableConfigVersion',
 ];
 
 // ------------------------------------------------------------------- REST

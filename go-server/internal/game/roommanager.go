@@ -50,8 +50,12 @@ type LobbyOptions struct {
 type LobbyTableOption struct {
 	Category   string `json:"category"`
 	BootAmount int64  `json:"bootAmount"`
-	// MaxPot is SeenMaxPot for seen entries, the boot-scaled cap for variation
-	// ones (config.VariationMaxPot), 0 (uncapped) for blind.
+	// MaxPot and MaxBlindMoves are the figures the table this entry opens
+	// plays by (config.GameConfig.Spec — the same answer newTableLocked
+	// builds the table from): from env, SeenMaxPot for seen entries, the
+	// boot-scaled cap for variation ones (config.VariationMaxPot), 0
+	// (uncapped) for blind, a `pot=N` of the entry's own over any of them;
+	// in db mode, the entry's table_configs row.
 	MaxPot        int64 `json:"maxPot"`
 	MaxBlindMoves int   `json:"maxBlindMoves"`
 	// MinChips / MaxChips are the stack band for this table, 0 for no limit
@@ -148,8 +152,10 @@ type CreateTableOptions struct {
 	// when IsPrivate.
 	BootAmount int64
 	IsPrivate  bool
-	// Category is normalised: anything but "blind" or "variation" is seen,
-	// and so is "variation" on a lobby whose menu does not offer it.
+	// Category is normalised: anything but "blind", "variation" or a poker
+	// category is seen, and so is "variation" on a lobby whose menu does not
+	// offer it, and a private table of a category with no private template
+	// (db mode; config.GameConfig.HasPrivate).
 	Category string
 }
 
@@ -282,9 +288,10 @@ type RoomManagerOptions struct {
 //
 // # Locking (PORT_PLAN.md decision 5)
 //
-// mu protects ONLY tables, order, pending and playerRooms. It is NEVER held while
-// calling into a Table (every Table method may block on the actor, which
-// may be inside a Ledger write). Pattern for every method: lock → look up /
+// mu protects ONLY tables, order, pending, draining and playerRooms (and the
+// wallet marks departing and owed, below). It is NEVER held while calling
+// into a Table (every Table method may block on the actor, which may be
+// inside a Ledger write). Pattern for every method: lock → look up /
 // decide → unlock → call the table → lock again to record the result if
 // needed. Join/QuickJoin/JoinByCode RESERVE playerRooms[userId] = roomId
 // under the lock BEFORE AddPlayer (so a concurrent second join is refused
@@ -346,6 +353,10 @@ type RoomManager struct {
 	// loadPlayer is RoomManagerOptions.LoadPlayer (nil → the caller's Player).
 	loadPlayer func(ctx context.Context, userID string) (Player, error)
 
+	// tableConfig is the catalogue payload (TableConfig), computed once at
+	// construction from the immutable config and never written again.
+	tableConfig TableConfigPayload
+
 	mu          sync.Mutex
 	tables      map[string]Room   // roomId → room (a *Table or a factory's room)
 	playerRooms map[string]string // userId → roomId
@@ -369,6 +380,18 @@ type RoomManager struct {
 	// the same CreatedAt, so the order is recorded explicitly.
 	order   map[string]uint64
 	nextSeq uint64
+	// draining is every public room restored from the live store that the
+	// current configuration would not open as it is: its pair has left a
+	// non-empty menu, or it plays by figures its pair's spec no longer gives
+	// (drainReason). Matchmaking never sends anybody INTO one — quick-join and
+	// a switch pass it by, and consolidation never moves a player there from
+	// an undrained table — but its players may be taken out: a switch away,
+	// or a consolidation moving its lone player onto the undrained table of
+	// the same pair (their stack permitting) or onto an older drained one
+	// playing by the same frozen rules (ConsolidateTables). Its code still
+	// works, its players play on, and it goes the way of any table once it
+	// empties. The entry goes with the table (destroyTable, Suspend).
+	draining map[string]bool
 	// pending is roomId → seats held by joins in flight (taken under mu when
 	// a table is picked, released once AddPlayer has run). Candidate scans
 	// and the full check count them, so fifty simultaneous quick-joins are
@@ -493,6 +516,7 @@ func NewRoomManager(opts RoomManagerOptions) *RoomManager {
 		departing:   map[string]int{},
 		owed:        map[string]int{},
 		order:       map[string]uint64{},
+		draining:    map[string]bool{},
 		pending:     map[string]int{},
 		live:        opts.Live,
 		instance:    opts.Instance,
@@ -508,6 +532,7 @@ func NewRoomManager(opts RoomManagerOptions) *RoomManager {
 				"category", entry.Category, "bootAmount", entry.BootAmount)
 		}
 	}
+	rm.tableConfig = rm.buildTableConfig()
 	return rm
 }
 
@@ -657,8 +682,10 @@ func (rm *RoomManager) AssertTableOffered(bootAmount int64, category Category) e
 }
 
 // CreateTable opens a table (createTable / _createTable), timed into
-// Metrics.ObserveCreation. Rules (config.GameConfig.TableRules composes
-// them exactly as Node's spreads did):
+// Metrics.ObserveCreation. Rules are config.GameConfig.Spec's (newTableLocked):
+// in db mode the table_configs row of the pair (a private table: its
+// category's template), from env the composition config.GameConfig.TableRules
+// makes exactly as Node's spreads did:
 //
 //   - boot = PrivateBoot when private (requirement 22: never chosen), else
 //     opts.BootAmount or the default;
@@ -669,7 +696,7 @@ func (rm *RoomManager) AssertTableOffered(bootAmount int64, category Category) e
 //     BlindMaxBetRounds, PotLimitMultiplier: BlindPotLimitMultiplier, MaxPot 0};
 //   - private (either category) then overrides MaxPot = PrivateMaxPot and
 //     MaxRaiseSteps = PrivateMaxRaiseSteps;
-//   - the rest of TableConfig copies config.Game / config.Chat;
+//   - the rest of TableConfig copies config.Game, the chat caps config.Chat;
 //   - id util.UUID(), code util.RoomCode(8) regenerated until unique among
 //     live tables (DECISIONS.md §3), Listener = rm's tableHooks.
 //
@@ -719,6 +746,15 @@ func (rm *RoomManager) offersCategory(c Category) bool {
 // NewTable only allocates and starts the actor goroutine — it never posts to
 // it — so holding mu across it does not break the "never call into a Table
 // under mu" rule.
+//
+// Every figure the new room plays by comes from config.GameConfig.Spec for
+// the category it resolves to (the table_configs row in db mode, the env
+// composition otherwise — TableRules and the global keys, exactly as they
+// always composed it), so the table and the lobby card that sent a player to
+// it read one source. The category is settled first, in this order: a
+// variation table the menu does not offer is seen; a private table of a
+// category with no private template (db mode) is seen; a poker category
+// without a factory, or whose factory refuses, is seen.
 func (rm *RoomManager) newTableLocked(opts CreateTableOptions) Room {
 	g := rm.game
 	resolved := NormalizeCategory(opts.Category)
@@ -728,7 +764,13 @@ func (rm *RoomManager) newTableLocked(opts CreateTableOptions) Room {
 	// offer is folded to seen — what an unknown category has always become.
 	if resolved == CategoryVariation && !rm.offersVariation() {
 		resolved = CategorySeen
-		opts.Category = string(CategorySeen)
+	}
+	// A private table plays by its category's private template. In db mode a
+	// category the operator has not given one (or has switched off) cannot be
+	// opened privately, and folds to seen as an unknown category does; the
+	// catalogue always has a private seen template (TableCatalogue.Validate).
+	if opts.IsPrivate && !g.HasPrivate(string(resolved)) {
+		resolved = CategorySeen
 	}
 	// A poker category opens a room of the poker family through its factory
 	// (POKER_PLAN.md §4). Without one — a deployment that never wired it —
@@ -742,14 +784,10 @@ func (rm *RoomManager) newTableLocked(opts CreateTableOptions) Room {
 			for rm.codeTakenLocked(code) {
 				code = util.RoomCode(util.DefaultRoomCodeLength)
 			}
-			boot := opts.BootAmount
-			if boot == 0 {
-				boot = g.BootAmount
-			}
-			if opts.IsPrivate {
-				boot = g.PrivateBoot
-			}
-			room, err := factory.New(RoomSpec{ID: id, Code: code, Category: resolved, BootAmount: boot, IsPrivate: opts.IsPrivate}, rm.roomDeps())
+			spec := g.Spec(string(resolved), opts.BootAmount, opts.IsPrivate)
+			room, err := factory.New(RoomSpec{
+				ID: id, Code: code, Category: resolved, BootAmount: spec.BootAmount, IsPrivate: opts.IsPrivate, Table: spec,
+			}, rm.roomDeps())
 			if err == nil {
 				rm.nextSeq++
 				rm.tables[id] = room
@@ -759,37 +797,8 @@ func (rm *RoomManager) newTableLocked(opts CreateTableOptions) Room {
 			rm.log.Error("poker room could not be opened; opening a seen table instead", "category", string(resolved), "error", err.Error())
 		}
 		resolved = CategorySeen
-		opts.Category = string(CategorySeen)
 	}
-	rules := g.TableRules(opts.Category, opts.BootAmount, opts.IsPrivate)
-
-	cfg := TableConfig{
-		Category:           resolved,
-		BootAmount:         rules.BootAmount,
-		MaxPlayers:         g.MaxPlayers,
-		MinPlayers:         g.MinPlayers,
-		TurnTimeout:        g.TurnTimeout,
-		MaxBetRounds:       rules.MaxBetRounds,
-		PotLimitMultiplier: rules.PotLimitMultiplier,
-		MaxRaiseSteps:      rules.MaxRaiseSteps,
-		MaxPot:             rules.MaxPot,
-		MaxBlindMoves:      g.MaxBlindMoves,
-		MaxMissedTurns:     g.MaxMissedTurns,
-		SideshowTimeout:    g.SideshowTimeout,
-		SideshowMinPlayers: g.SideshowMinPlayers,
-		NextHandDelay:      g.NextHandDelay,
-		UnfundedGrace:      g.UnfundedGrace,
-		MissileRevealExtra: g.MissileRevealExtra,
-		ChatMaxHistory:     rm.chat.MaxHistory,
-		ChatMaxLength:      rm.chat.MaxLength,
-	}
-	// Only a variation table is given the window's length: a seen or blind
-	// table's config — and so its snapshot in the live store — is exactly what
-	// it was before variation tables existed.
-	if resolved.HasVariation() {
-		cfg.VariationSelectTimeout = g.VariationSelectTimeout
-		cfg.FiveCardPickTimeout = g.FiveCardPickTimeout
-	}
+	cfg := tableConfigFromSpec(resolved, g.Spec(string(resolved), opts.BootAmount, opts.IsPrivate), rm.chat)
 
 	id := util.UUID()
 	code := util.RoomCode(util.DefaultRoomCodeLength)
@@ -1019,31 +1028,10 @@ func (rm *RoomManager) LobbyOptions() LobbyOptions {
 	// The rooms on the menu, in the order the lobby should show them. Each
 	// carries the rules a player would want before sitting down, from the
 	// same source the table is built from.
-	tables := make([]LobbyTableOption, 0, len(g.LobbyTables))
-	for _, entry := range g.LobbyTables {
-		option := LobbyTableOption{
-			Category:      entry.Category,
-			BootAmount:    entry.BootAmount,
-			MaxPot:        g.MenuMaxPot(entry.Category, entry.BootAmount), // 0 means the pot is uncapped
-			MaxBlindMoves: g.MaxBlindMoves,
-			MinChips:      rm.tableMinChips(entry),
-			MaxChips:      rm.tableMaxChips(entry),
-		}
-		// A poker entry carries its family's own facts (blinds, ante, buy-in,
-		// hole cards) instead of the Teen Patti ones, which mean nothing at a
-		// poker table: its factory fills them in and zeroes the rest.
-		if c := Category(entry.Category); c.IsPoker() {
-			option.Game = GamePoker
-			option.MaxPot = 0
-			option.MaxBlindMoves = 0
-			if factory := rm.factoryFor(c); factory != nil {
-				factory.MenuEntry(entry, g, &option)
-			}
-			if option.MinChips < option.MinBuyIn {
-				option.MinChips = option.MinBuyIn
-			}
-		}
-		tables = append(tables, option)
+	menu := rm.menuRows()
+	tables := make([]LobbyTableOption, 0, len(menu))
+	for _, row := range menu {
+		tables = append(tables, row.option)
 	}
 	// The two categories every client has always been told of, the third
 	// only where this lobby actually offers it, and each poker category only
@@ -1117,14 +1105,15 @@ func (rm *RoomManager) releaseHold(roomID string) {
 // FULLEST public non-full table with the same boot AND category, excluding
 // excludeID, ties to the earliest created (Node's stable sort over a Map in
 // insertion order). Table state is not considered — a player may sit down
-// mid-hand and wait for the next deal. nil when none. mu held; only
-// lock-free getters are read.
+// mid-hand and wait for the next deal. A draining table is never picked: the
+// lobby card describes the table the configuration opens now, not it. nil when
+// none. mu held; only lock-free getters are read.
 func (rm *RoomManager) pickTableLocked(bootAmount int64, category Category, excludeID string) Room {
 	var best Room
 	var bestSeq uint64
 	var bestOccupancy int
 	for id, t := range rm.tables {
-		if id == excludeID || t.IsPrivate() || rm.fullLocked(t) {
+		if id == excludeID || t.IsPrivate() || rm.draining[id] || rm.fullLocked(t) {
 			continue
 		}
 		if t.BootAmount() != bootAmount || t.Category() != category {
@@ -1144,12 +1133,13 @@ func (rm *RoomManager) pickTableLocked(bootAmount int64, category Category, excl
 // switcher to the fullest table, which funnelled every switch at a stake onto
 // the same few tables; a random pick spreads switchers across all the tables
 // of that kind. The draw is crypto/rand (cryptoIntn), like the deck: which
-// table a player lands on should not be predictable. nil when none. mu held;
-// only lock-free getters are read.
+// table a player lands on should not be predictable. A draining table is never
+// a destination (a player may still switch away from one). nil when none. mu
+// held; only lock-free getters are read.
 func (rm *RoomManager) pickRandomTableLocked(bootAmount int64, category Category, excludeID string) Room {
 	var candidates []Room
 	for id, t := range rm.tables {
-		if id == excludeID || t.IsPrivate() || rm.fullLocked(t) {
+		if id == excludeID || t.IsPrivate() || rm.draining[id] || rm.fullLocked(t) {
 			continue
 		}
 		if t.BootAmount() != bootAmount || t.Category() != category {
@@ -1734,8 +1724,17 @@ func (rm *RoomManager) vacateFrom(userID, roomID, reason string) (Room, *SeatInf
 // it. Checked on every route into a seat rather than only in the lobby: the
 // lobby greys the table out, but a client is never what enforces a rule.
 // EntryCapMaxChips 0 disables the cap; exactly the cap is allowed.
+//
+// In db mode it checks nothing: the cap is the matching menu entry's band
+// there (tableMaxChips folds it in, and assertWithinTableBand refuses with the
+// same code and message), where a table_configs row's own max_chips wins over
+// it at the card AND at the door — checked here as well, the settings' cap
+// would refuse a player the row lets in.
 func (rm *RoomManager) assertUnderEntryCap(user Player, bootAmount int64, category Category) error {
 	g := rm.game
+	if g.FromDatabase() {
+		return nil
+	}
 	cap := g.EntryCapMaxChips
 	if cap <= 0 {
 		return nil
@@ -1877,6 +1876,7 @@ func (rm *RoomManager) destroyTable(roomID string, onlyIfUnclaimed bool) error {
 	delete(rm.tables, roomID)
 	delete(rm.order, roomID)
 	delete(rm.pending, roomID)
+	delete(rm.draining, roomID)
 	rm.mu.Unlock()
 
 	// A fenced table belongs to another process now: its seats and its index
@@ -1989,20 +1989,49 @@ func (rm *RoomManager) walletUnfinishedLocked(userID string) bool {
 
 // ConsolidateTables (consolidateTables; requirement 24) merges public idle
 // tables (state waiting, no hand, exactly one player) of the same
-// "category:boot" onto the OLDEST of the group (by CreatedAt, ties by
-// creation order), moving one player at a time with movePlayer until the
-// target is full. Returns the moves made.
+// "category:boot" onto the OLDEST undrained one of the group (by CreatedAt,
+// ties by creation order), moving one player at a time with movePlayer until
+// the target is full. Returns the moves made.
 //
 // Two rooms each left with one player are two rooms where nobody can play,
 // so the stragglers are pulled together onto one table. Only idle tables
 // are touched: a table with a hand in progress is never disturbed, which is
 // what stops a player being moved out from under a live game.
+//
+// A draining table (RoomManager.draining) may be a SOURCE, but never the
+// target of a player from an undrained one. Matchmaking sends nobody onto
+// rules the lobby no longer offers; but a lone player a restart left on such
+// rules is exactly who requirement 24 is for, and with the drained tables
+// left out of the merge they could never meet the fresh table quick-join
+// opens beside them, nor — once their pair has left the menu — each other.
+// So:
+//
+//   - The target is the group's oldest UNDRAINED single, and every other
+//     single goes there as before. One from a drained table goes only when
+//     its stack is one the lobby would seat at that pair now
+//     (admitsFromDrained: the band, the env entry cap, a poker room's
+//     buy-in), which movePlayer does not check; otherwise it stays put.
+//   - The drained singles still alone after that — every one of them when the
+//     group has no undrained single (the pair left the menu, or nobody has
+//     quick-joined it since the restart), else those the target would not
+//     admit or had no seat for — merge among themselves: each goes onto the
+//     oldest of them playing by the same frozen rules (RulesSpec, compared in
+//     whole milliseconds as drainReason compares them), so nobody is moved
+//     onto rules they were not already playing by. The pair, and so the band,
+//     is the same at both ends, and the target stays drained.
+//
+// Emptied, a drained source is destroyed by movePlayer like any other, and
+// its draining mark goes with it (destroyTable).
 func (rm *RoomManager) ConsolidateTables() ([]PlayerMove, error) {
 	rm.mu.Lock()
 	var singles []Room
+	drained := map[string]bool{}
 	for _, t := range rm.tablesLocked() {
 		if !t.IsPrivate() && !t.HasHand() && t.State() == TableWaiting && t.PlayerCount() == 1 {
 			singles = append(singles, t)
+			if rm.draining[t.ID()] {
+				drained[t.ID()] = true
+			}
 		}
 	}
 	seq := make(map[string]uint64, len(singles))
@@ -2036,29 +2065,118 @@ func (rm *RoomManager) ConsolidateTables() ([]PlayerMove, error) {
 			}
 			return a.Before(b)
 		})
-		target := group[0]
-		for _, source := range group[1:] {
-			if target.IsFull() {
+		var target Room
+		for _, t := range group {
+			if !drained[t.ID()] {
+				target = t
 				break
 			}
-			move, err := rm.movePlayer(source, target)
+		}
+		// stranded is every drained single not moved onto target, oldest first.
+		var stranded []Room
+		for _, source := range group {
+			if source == target {
+				continue
+			}
+			if target == nil || target.IsFull() {
+				if drained[source.ID()] {
+					stranded = append(stranded, source)
+				}
+				continue
+			}
+			var admit func(chips int64) bool
+			if drained[source.ID()] {
+				admit = func(chips int64) bool { return rm.admitsFromDrained(target, chips) }
+			}
+			move, err := rm.movePlayer(source, target, admit)
 			if err != nil {
 				return moves, err
 			}
 			if move != nil {
 				moves = append(moves, *move)
+			} else if drained[source.ID()] {
+				stranded = append(stranded, source)
 			}
+		}
+		merged, err := rm.mergeDrained(stranded)
+		moves = append(moves, merged...)
+		if err != nil {
+			return moves, err
 		}
 	}
 	return moves, nil
 }
 
+// mergeDrained is ConsolidateTables for the drained singles of one group that
+// are still alone (stranded, oldest first): each goes onto the oldest of them
+// playing by the same frozen rules, until that one is full. Rules are
+// compared as drainReason compares them — RulesSpec in whole milliseconds,
+// SameRules — and read from each room's frozen config, lock-free.
+func (rm *RoomManager) mergeDrained(stranded []Room) ([]PlayerMove, error) {
+	moves := []PlayerMove{}
+	type head struct {
+		room  Room
+		rules config.TableSpec
+	}
+	var heads []head
+	for _, source := range stranded {
+		rules := wholeMillis(source.RulesSpec())
+		var target Room
+		for _, h := range heads {
+			if h.rules.SameRules(rules) {
+				target = h.room
+				break
+			}
+		}
+		if target == nil {
+			heads = append(heads, head{room: source, rules: rules})
+			continue
+		}
+		if target.IsFull() {
+			continue
+		}
+		move, err := rm.movePlayer(source, target, nil)
+		if err != nil {
+			return moves, err
+		}
+		if move != nil {
+			moves = append(moves, *move)
+		}
+	}
+	return moves, nil
+}
+
+// admitsFromDrained reports whether a player holding chips may be moved by a
+// consolidation from a draining table onto target, an undrained table of the
+// same pair. They sat down under a configuration the lobby no longer offers,
+// and movePlayer checks nothing a lobby door checks, so the door's checks for
+// target's pair are made here, on the stack the seat holds: the band
+// (assertWithinTableBand, the entry cap folded in), the env entry cap
+// (assertUnderEntryCap, a no-op in db mode) and a poker room's buy-in
+// (RulesSpec().MinBuyIn, 0 at a Teen Patti table). The buy-in is checked
+// rather than left to the room: its AddPlayer would refuse and movePlayer's
+// failure path would put the player back, but only after taking them off
+// their table and seating them again — announced to the table as a departure
+// and an arrival — on every sweep. Chips a top-up adds after this look are
+// the chips of a player who bought while seated, which no band speaks to.
+// Lock-free: the immutable config and target's frozen config only.
+func (rm *RoomManager) admitsFromDrained(target Room, chips int64) bool {
+	p := Player{Chips: chips}
+	category, boot := target.Category(), target.BootAmount()
+	if rm.assertUnderEntryCap(p, boot, category) != nil || rm.assertWithinTableBand(p, boot, category) != nil {
+		return false
+	}
+	return chips >= target.RulesSpec().MinBuyIn
+}
+
 // movePlayer (_movePlayer): sole occupant of source → target. Bail (nil) if
-// no seat, either table has a hand, or target is full. Player built from the
-// seat (chips = seat chips), socketId kept. source.RemovePlayer(id,
-// "moved"); delete playerRooms (holding the target seat at the same time);
-// Join(target) — on failure (the target was destroyed under us) log `table
-// consolidation failed, restoring seat` and Join(source) back.
+// no seat, either table has a hand, target is full, or admit (nil = anyone)
+// refuses the chips the seat holds. Player built from the seat (chips = seat
+// chips), socketId kept. source.RemovePlayer(id, "moved"); delete
+// playerRooms (holding the target seat at the same time); Join(target) — on
+// failure (the target was destroyed under us, or refused the player: a poker
+// room's buy-in) log `table consolidation failed, restoring seat` and
+// Join(source) back.
 // If source is now empty → DestroyTable(source). RoomListener.OnPlayerMoved;
 // log `player moved to a busier table`.
 //
@@ -2067,7 +2185,7 @@ func (rm *RoomManager) ConsolidateTables() ([]PlayerMove, error) {
 // start countdown, state), then OnTableDestroyed(source), then
 // OnPlayerMoved — so a mover's room:closed always precedes room:moved /
 // room:joined (DECISIONS.md §1).
-func (rm *RoomManager) movePlayer(source, target Room) (*PlayerMove, error) {
+func (rm *RoomManager) movePlayer(source, target Room, admit func(chips int64) bool) (*PlayerMove, error) {
 	seats, err := source.Seats()
 	if err != nil {
 		if errors.Is(err, ErrTableDestroyed) {
@@ -2076,6 +2194,11 @@ func (rm *RoomManager) movePlayer(source, target Room) (*PlayerMove, error) {
 		return nil, err
 	}
 	if len(seats) == 0 || source.HasHand() || target.HasHand() || target.IsFull() {
+		return nil, nil
+	}
+	if admit != nil && !admit(seats[0].Chips) {
+		rm.log.Debug("table consolidation skipped: the player's stack is not one the table admits",
+			"userId", seats[0].UserID, "fromRoomId", source.ID(), "toRoomId", target.ID())
 		return nil, nil
 	}
 	seat := seats[0]

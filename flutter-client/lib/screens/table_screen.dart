@@ -2153,18 +2153,18 @@ class _OwnHand extends StatelessWidget {
     // the server can only refuse.
     final stillBlind =
         you.isBlind && you.status == SeatState.active && cards.isEmpty;
-    // This table's blind allowance, from the menu the server sent with the
-    // room; 4 when the room is not on it (a private table).
+    // This table's blind allowance, from the menu entry the room was opened
+    // from: a private table's template when the server lists them (the table
+    // catalogue), else the lobby entry of the same pair; 4 when neither says.
     final room = state.room!;
     final maxBlind =
-        state.config.tables
-            .where(
-              (t) =>
-                  t.category == room.category &&
-                  t.bootAmount == room.bootAmount,
+        state.config
+            .entryFor(
+              category: room.category,
+              bootAmount: room.bootAmount,
+              isPrivate: room.isPrivate,
             )
-            .map((t) => t.maxBlindMoves)
-            .firstOrNull ??
+            ?.maxBlindMoves ??
         4;
 
     // How many cards to draw. Face up, what the server sent. Face down, what

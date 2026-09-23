@@ -324,6 +324,12 @@ type PublicGameConfig struct {
 	// instead of the lobby — see MIN_CLIENT_BUILD in internal/config.
 	MinClientBuild int `json:"minClientBuild"`
 
+	// TableConfigVersion is the version of the table catalogue this server
+	// runs (RoomManager.TableConfigVersion — GET /api/tables' `version` and
+	// ETag). A client holding a catalogue of the same version keeps it; one
+	// holding another fetches it again. "" only on a server with no rooms.
+	TableConfigVersion string `json:"tableConfigVersion"`
+
 	game.LobbyOptions
 }
 

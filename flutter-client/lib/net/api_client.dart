@@ -20,15 +20,48 @@ class ApiException implements Exception {
   String toString() => message;
 }
 
+/// What `GET /api/tables` answered ([ApiClient.tableConfig]).
+sealed class TableConfigAnswer {
+  const TableConfigAnswer();
+}
+
+/// A catalogue, already checked: [body] is the server's JSON exactly as it
+/// came (what the phone keeps), [config] the menu read from it.
+final class TableConfigFresh extends TableConfigAnswer {
+  const TableConfigFresh({required this.body, required this.config});
+  final Map<String, dynamic> body;
+  final GameConfig config;
+}
+
+/// 304: the catalogue named by the `If-None-Match` version is still the one
+/// the server enforces, so the copy already held is current.
+final class TableConfigNotModified extends TableConfigAnswer {
+  const TableConfigNotModified();
+}
+
+/// 404: a server that predates the catalogue. `session:ready`'s menu is the
+/// whole story there, and asking again will not change the answer.
+final class TableConfigAbsent extends TableConfigAnswer {
+  const TableConfigAbsent();
+}
+
 /// The REST half of the server: everything that is not live gameplay.
 ///
 /// Gameplay itself runs over the socket — see [GameConnection]. These calls are
 /// the ones that make sense as one-shot requests: signing in, re-reading the
 /// account, and claiming rewards.
 class ApiClient {
-  ApiClient(this.baseUrl);
+  ApiClient(this.baseUrl, {this.client});
 
   final String baseUrl;
+
+  /// For tests. The app leaves it null and every call opens its own
+  /// connection, as they always have.
+  final http.Client? client;
+
+  /// How long the table catalogue may take before the menu already on screen
+  /// is simply kept. It is never waited on by anything the player sees.
+  static const tableConfigTimeout = Duration(seconds: 12);
 
   Uri _uri(String path) => Uri.parse('$baseUrl$path');
 
@@ -148,6 +181,44 @@ class ApiClient {
           (e) => ProfilePicture.fromJson(Map<String, dynamic>.from(e as Map)),
         )
         .toList();
+  }
+
+  /// The table catalogue: every table the server opens and every figure it
+  /// plays by (`GET /api/tables`, public, no token).
+  ///
+  /// [version] is the catalogue already held, sent as `If-None-Match`; the
+  /// server answers 304 while it is still current, so a login that changed
+  /// nothing costs a round trip and no body. The 304 is read BEFORE the body
+  /// is decoded — it has none — and a 404 is an older server with no
+  /// catalogue, answered as such rather than thrown, so nothing retries it.
+  ///
+  /// A 200 whose body is not a usable catalogue ([GameConfig.fromCatalogue])
+  /// throws, as does any other refusal, a timeout ([tableConfigTimeout]) or a
+  /// network failure: the caller keeps the menu it has.
+  Future<TableConfigAnswer> tableConfig({String? version}) async {
+    final uri = _uri('/api/tables');
+    final headers = {
+      'Accept': 'application/json',
+      if (version != null && version.isNotEmpty) 'If-None-Match': '"$version"',
+    };
+    final client = this.client;
+    final r =
+        await (client != null
+                ? client.get(uri, headers: headers)
+                : http.get(uri, headers: headers))
+            .timeout(tableConfigTimeout);
+    if (r.statusCode == 304) return const TableConfigNotModified();
+    if (r.statusCode == 404) return const TableConfigAbsent();
+    final body = _decode(r);
+    final config = GameConfig.fromCatalogue(body);
+    if (config == null) {
+      throw ApiException(
+        'The table menu could not be read',
+        code: 'invalid_table_config',
+        status: r.statusCode,
+      );
+    }
+    return TableConfigFresh(body: body, config: config);
   }
 
   /// Wears a catalogue picture, or null to fall back to the provider's. The

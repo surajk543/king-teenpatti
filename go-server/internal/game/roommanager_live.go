@@ -13,7 +13,9 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"time"
 
+	"github.com/surajk543/king-teenpatti/go-server/internal/config"
 	"github.com/surajk543/king-teenpatti/go-server/internal/live"
 )
 
@@ -77,12 +79,16 @@ type TableRestoreListener interface {
 // OnTableRestored) → PublishTable and SetSeated per seat.
 //
 // Restored tables are ordinary tables afterwards: the sweeper, consolidation
-// and kicks treat them like any other. Call Restore before StartSweeper and
-// before the listener opens; then hand RestoredSeats to the socket layer and
-// HandIDs to the database refund. A single instance owns every stored table
-// (there is no instance filter yet). Without a live store Restore does
-// nothing. The returned error is fatal (the store could not even be listed);
-// the report is still filled with what was done before it.
+// and kicks treat them like any other — except a public one that the current
+// configuration would not open as it is, which is drained (drainReason): it
+// plays on and is joined by code, but matchmaking sends nobody to it, and
+// consolidation only ever takes a lone player out of it (ConsolidateTables)
+// until it empties. Call Restore before
+// StartSweeper and before the listener opens; then hand RestoredSeats to the
+// socket layer and HandIDs to the database refund. A single instance owns
+// every stored table (there is no instance filter yet). Without a live store
+// Restore does nothing. The returned error is fatal (the store could not even
+// be listed); the report is still filled with what was done before it.
 func (rm *RoomManager) Restore(ctx context.Context) (RestoreReport, error) {
 	report := RestoreReport{HandIDs: []string{}}
 	if err := rm.restoreFromLive(ctx, &report); err != nil {
@@ -281,6 +287,9 @@ func (rm *RoomManager) restoreOne(ctx context.Context, snap *Snapshot, report *R
 // lobby index.
 func (rm *RoomManager) registerRestored(ctx context.Context, table Room, seats []string, handID string, report *RestoreReport) {
 	rm.restoreChat(ctx, table)
+	// Decided before registration, from the room's frozen figures and the
+	// immutable config, so no matchmaking pass can see the room undrained.
+	drain := rm.drainReason(table)
 
 	var duplicates []string
 	rm.mu.Lock()
@@ -290,6 +299,9 @@ func (rm *RoomManager) registerRestored(ctx context.Context, table Room, seats [
 	rm.nextSeq++
 	rm.tables[table.ID()] = table
 	rm.order[table.ID()] = rm.nextSeq
+	if drain != "" {
+		rm.draining[table.ID()] = true
+	}
 	for _, userID := range seats {
 		if other, seated := rm.playerRooms[userID]; seated && other != table.ID() {
 			duplicates = append(duplicates, userID)
@@ -342,6 +354,81 @@ func (rm *RoomManager) registerRestored(ctx context.Context, table Room, seats [
 		"handInProgress", handID != "",
 		"state", string(table.State()),
 	)
+	if drain != "" {
+		rm.log.Info("table draining",
+			"roomId", table.ID(),
+			"code", table.Code(),
+			"bootAmount", table.BootAmount(),
+			"category", string(table.Category()),
+			"reason", drain,
+		)
+	}
+}
+
+// drainReason says why a restored room must be drained, "" when it need not
+// (RoomManager.draining). Only a public room can be: matchmaking is how one
+// reaches a player, and a private room is reached by its code alone.
+//
+// A room restored from the live store plays by the figures frozen in its
+// snapshot, whatever the configuration says now — an edit to table_configs
+// (or to the env keys) applies to tables opened after the restart that
+// brings it in. Left in the pool, such a room would take players the lobby
+// card describes differently: a pot limit, a clock, a buy-in that is not the
+// one they were shown. Worse, a poker room frozen with a higher buy-in than
+// its card advertises would refuse (insufficient_chips) every player the card
+// let through while quick-join kept picking it. So it is drained when its
+// category and boot have left a non-empty menu, or when what it plays by is
+// not what the configuration would open for that pair now
+// (config.TableSpec.SameRules; durations compared in whole milliseconds, the
+// grain a snapshot keeps them in). It reads only the immutable config and the
+// room's lock-free getters, so it needs no lock.
+func (rm *RoomManager) drainReason(r Room) string {
+	if r.IsPrivate() {
+		return ""
+	}
+	category, boot := string(r.Category()), r.BootAmount()
+	if len(rm.game.LobbyTables) > 0 && !rm.onMenu(category, boot) {
+		return "its table is no longer on the lobby menu"
+	}
+	if !wholeMillis(r.RulesSpec()).SameRules(wholeMillis(rm.game.Spec(category, boot, false))) {
+		return "the table configuration has changed since it was opened"
+	}
+	return ""
+}
+
+// onMenu reports whether the menu lists a table of this category and boot.
+func (rm *RoomManager) onMenu(category string, bootAmount int64) bool {
+	for _, entry := range rm.game.LobbyTables {
+		if entry.Category == category && entry.BootAmount == bootAmount {
+			return true
+		}
+	}
+	return false
+}
+
+// wholeMillis truncates every duration of spec to the millisecond, the grain
+// a snapshot stores them in, so a restored room compares equal to the spec it
+// was built from.
+func wholeMillis(spec config.TableSpec) config.TableSpec {
+	ms := func(d time.Duration) time.Duration { return d.Truncate(time.Millisecond) }
+	spec.TurnTimeout = ms(spec.TurnTimeout)
+	spec.SideshowTimeout = ms(spec.SideshowTimeout)
+	spec.NextHandDelay = ms(spec.NextHandDelay)
+	spec.UnfundedGrace = ms(spec.UnfundedGrace)
+	spec.MissileRevealExtra = ms(spec.MissileRevealExtra)
+	spec.VariationSelectTimeout = ms(spec.VariationSelectTimeout)
+	spec.FiveCardPickTimeout = ms(spec.FiveCardPickTimeout)
+	return spec
+}
+
+// Draining reports whether the room is being drained: restored from the live
+// store with rules the current configuration would not open, and so never
+// chosen by quick-join or a switch, nor by consolidation as the table to move
+// a player from an undrained one onto (RoomManager.draining).
+func (rm *RoomManager) Draining(roomID string) bool {
+	rm.mu.Lock()
+	defer rm.mu.Unlock()
+	return rm.draining[roomID]
 }
 
 // ReconcileReport is what ReconcileLive did.
@@ -567,6 +654,7 @@ func (rm *RoomManager) Suspend(ctx context.Context) error {
 				delete(rm.tables, t.ID())
 				delete(rm.order, t.ID())
 				delete(rm.pending, t.ID())
+				delete(rm.draining, t.ID())
 				rm.mu.Unlock()
 				if err := t.Suspend(); err != nil && !errors.Is(err, ErrTableDestroyed) {
 					if first == nil {

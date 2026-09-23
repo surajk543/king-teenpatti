@@ -1,6 +1,8 @@
-// The poker family in the lobby: one POKER card on the front, the four games
-// inside it, each card stating its own terms — and, on a menu that offers no
-// poker table, none of it.
+// The poker family in the lobby: one POKER card on the front beside Teen
+// Patti, the four games inside it as cards of their own — 3-Card Poker, 5-Card
+// Draw, Texas Hold'em, Omaha (owner, 23 Sep 2026) — and inside each game its
+// tables, each card stating its own terms. On a menu that offers no poker
+// table, none of it.
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -213,47 +215,88 @@ Future<void> _pumpRules(
   await tester.pump(const Duration(milliseconds: 600));
 }
 
+/// A text that reads [name] however it is broken over lines: the back tile
+/// stands a name of two words on two lines.
+Finder _named(String name) => find.byWidgetPredicate(
+  (w) => w is Text && w.data?.replaceAll('\n', ' ') == name,
+  skipOffstage: false,
+);
+
 void main() {
   setUpAll(_loadInter);
 
   group('the menu', () {
-    test('files the four poker games under one Poker category, last', () {
+    test('puts Poker on the front after Teen Patti, and the four games inside '
+        'it in the owner\'s order, whatever the menu\'s', () {
       final state = _state();
       addTearDown(state.dispose);
-      expect(state.lobbyCategories, [
+      expect(state.lobbyEngines, [TableEngine.teenPatti, TableEngine.poker]);
+      expect(state.lobbyCategoriesIn(TableEngine.poker), [
+        TableCategory.threeCardPoker,
+        TableCategory.fiveCardDraw,
+        TableCategory.texasHoldem,
+        TableCategory.omaha,
+      ]);
+      // Every poker table counts on the Poker card, in the server's order.
+      expect(state.lobbyTablesOf(TableEngine.poker).map((t) => t.category), [
+        'texas_holdem',
+        'omaha',
+        'five_card_draw',
+        'three_card_poker',
+      ]);
+      // Each game holds its own table.
+      for (final wire in TableCategory.pokerCategories) {
+        expect(state.lobbyTablesIn(wire).map((t) => t.category), [
+          wire,
+        ], reason: wire);
+        expect(
+          GameState.lobbyEngineOf(state.lobbyTablesIn(wire).single),
+          TableEngine.poker,
+        );
+      }
+      // And none of them under Teen Patti, or under Seen, where an unknown
+      // category goes.
+      expect(state.lobbyCategoriesIn(TableEngine.teenPatti), [
         TableCategory.seen,
         TableCategory.blind,
         TableCategory.variation,
-        TableCategory.pokerFamily,
       ]);
-      expect(
-        state.lobbyTablesIn(TableCategory.pokerFamily).map((t) => t.category),
-        ['texas_holdem', 'omaha', 'five_card_draw', 'three_card_poker'],
-      );
-      // And none of them under Seen, where an unknown category goes.
       expect(state.lobbyTablesIn(TableCategory.seen).map((t) => t.category), [
         'seen',
       ]);
     });
 
-    test('without a poker entry offers no Poker category', () {
+    test('offers only the games it has a table for', () {
+      final state = _state(tables: [..._teenPatti, _pokerEntries.first]);
+      addTearDown(state.dispose);
+      expect(state.lobbyCategoriesIn(TableEngine.poker), [
+        TableCategory.texasHoldem,
+      ]);
+      state.openLobbyCategory(TableCategory.omaha);
+      expect(state.lobbyCategory, isNull);
+    });
+
+    test('without a poker entry offers no Poker card', () {
       final state = _state(tables: _teenPatti);
       addTearDown(state.dispose);
-      expect(state.lobbyCategories, isNot(contains(TableCategory.pokerFamily)));
-      expect(state.lobbyTablesIn(TableCategory.pokerFamily), isEmpty);
-      state.openLobbyCategory(TableCategory.pokerFamily);
+      expect(state.lobbyEngines, [TableEngine.teenPatti]);
+      expect(state.lobbyTablesOf(TableEngine.poker), isEmpty);
+      state.openLobbyEngine(TableEngine.poker);
+      expect(state.lobbyEngine, isNull);
+      state.openLobbyCategory(TableCategory.texasHoldem);
+      expect(state.lobbyEngine, isNull);
       expect(state.lobbyCategory, isNull);
     });
 
     test('shuts a poker table to a stack under its buy-in', () {
       final poor = _state(chips: _buyIn - 1);
       addTearDown(poor.dispose);
-      for (final table in poor.lobbyTablesIn(TableCategory.pokerFamily)) {
+      for (final table in poor.lobbyTablesOf(TableEngine.poker)) {
         expect(poor.tableShut(table), isTrue, reason: table.category);
       }
       final rich = _state(chips: _buyIn);
       addTearDown(rich.dispose);
-      for (final table in rich.lobbyTablesIn(TableCategory.pokerFamily)) {
+      for (final table in rich.lobbyTablesOf(TableEngine.poker)) {
         expect(rich.tableShut(table), isFalse, reason: table.category);
       }
     });
@@ -266,35 +309,51 @@ void main() {
     final name = '${screen.width.toInt()}x${screen.height.toInt()} x$scale';
 
     for (final lang in AppLang.values) {
-      testWidgets('at $name in ${lang.englishName} the front has a Poker card '
-          'and the four games are inside it', (tester) async {
+      testWidgets('at $name in ${lang.englishName} the front has a Poker card, '
+          'the four games are inside it, and each game holds its table', (
+        tester,
+      ) async {
         final state = _state(lang: lang);
         final t = Strings(lang);
         await _pumpLobby(tester, state, screen: screen, textScale: scale);
         expect(tester.takeException(), isNull);
 
-        // Four categories and the private card; the poker card carries the
+        // Teen Patti, Poker and the private card; the poker card carries the
         // family's name and its one line.
-        expect(find.text(t.viewTables, skipOffstage: false), findsNWidgets(4));
+        expect(find.text(t.viewGames, skipOffstage: false), findsNWidgets(2));
         expect(find.text(t.poker, skipOffstage: false), findsOneWidget);
         expect(
           find.text(t.pokerTableNote, skipOffstage: false),
           findsOneWidget,
         );
+        expect(find.text(t.viewTables, skipOffstage: false), findsNothing);
 
-        // Into Poker: four tables, each badged with its game's name and
-        // saying how that game is played. Poker is the LAST category card,
-        // and it is named by `last` rather than by index because the rail is
-        // a ListView — scrolling to the fourth card can dispose the first,
-        // and an index taken before the scroll then names another card.
+        // Into Poker: the four games, each a card named for its game and
+        // saying how it is played, behind the way back to every game. Poker
+        // is the LAST engine card, and named by `last` rather than by index
+        // because the rail is a ListView — scrolling to a card can dispose
+        // the first, and an index taken before the scroll then names another.
         await _tapInRail(
           tester,
-          find.text(t.viewTables, skipOffstage: false).last,
+          find.text(t.viewGames, skipOffstage: false).last,
         );
         await _settleLevel(tester);
         expect(tester.takeException(), isNull);
-        expect(state.lobbyCategory, TableCategory.pokerFamily);
-        expect(find.text(t.tapToSit, skipOffstage: false), findsNWidgets(4));
+        expect(state.lobbyEngine, TableEngine.poker);
+        expect(state.lobbyCategory, isNull);
+        expect(
+          find.byKey(
+            const ValueKey('lobby-rail:${TableEngine.poker}'),
+            skipOffstage: false,
+          ),
+          findsOneWidget,
+        );
+        expect(find.text(t.viewTables, skipOffstage: false), findsNWidgets(4));
+        expect(find.text(t.tapToSit, skipOffstage: false), findsNothing);
+        expect(
+          find.text(t.backToCategories, skipOffstage: false),
+          findsOneWidget,
+        );
         for (final wire in TableCategory.pokerCategories) {
           expect(
             find.text(t.pokerVariantName(wire), skipOffstage: false),
@@ -307,33 +366,87 @@ void main() {
             reason: wire,
           );
         }
-        // The facts: blinds on the two board games, an ante on the other
-        // two, a buy-in and the cards dealt on all four, discards on Draw.
-        expect(find.text(t.blindsLabel, skipOffstage: false), findsNWidgets(2));
-        expect(
-          find.text(
-            '${formatChips(_boot ~/ 2)} / ${formatChips(_boot)}',
-            skipOffstage: false,
-          ),
-          findsNWidgets(2),
-        );
-        expect(find.text(t.anteLabel, skipOffstage: false), findsNWidgets(2));
-        expect(find.text(t.buyInLabel, skipOffstage: false), findsNWidgets(4));
-        expect(
-          find.text(t.buyInFrom(formatChips(_buyIn)), skipOffstage: false),
-          findsNWidgets(4),
-        );
-        expect(
-          find.text(t.holeCardsLabel, skipOffstage: false),
-          findsNWidgets(4),
-        );
-        expect(
-          find.text(t.maxDiscardsLabel, skipOffstage: false),
-          findsOneWidget,
-        );
         // Nothing a Teen Patti card says.
-        expect(find.text(t.maxBlindsLabel, skipOffstage: false), findsNothing);
-        expect(find.text(t.potLimitLabel, skipOffstage: false), findsNothing);
+        expect(find.text(t.seen, skipOffstage: false), findsNothing);
+        expect(find.text(t.blind, skipOffstage: false), findsNothing);
+
+        // Into each game in turn: its one table, badged with the game's name
+        // and stating its terms, behind a way back to Poker.
+        var blinds = 0, antes = 0, discards = 0;
+        for (final wire in TableCategory.pokerCategories) {
+          await _tapInRail(
+            tester,
+            find.text(t.pokerVariantName(wire), skipOffstage: false),
+          );
+          await _settleLevel(tester);
+          expect(tester.takeException(), isNull, reason: wire);
+          expect(state.lobbyCategory, wire);
+          expect(
+            find.text(t.tapToSit, skipOffstage: false),
+            findsOneWidget,
+            reason: wire,
+          );
+          expect(find.text(t.viewTables, skipOffstage: false), findsNothing);
+          // The table card's own line, and the way back naming the game
+          // (the tile) beside the table's badge.
+          expect(
+            find.text(t.pokerVariantNote(wire), skipOffstage: false),
+            findsOneWidget,
+            reason: wire,
+          );
+          expect(
+            _named(t.pokerVariantName(wire)),
+            findsNWidgets(2),
+            reason: wire,
+          );
+          expect(find.text(t.buyInLabel, skipOffstage: false), findsOneWidget);
+          expect(
+            find.text(t.buyInFrom(formatChips(_buyIn)), skipOffstage: false),
+            findsOneWidget,
+          );
+          expect(
+            find.text(t.holeCardsLabel, skipOffstage: false),
+            findsOneWidget,
+          );
+          blinds += tester
+              .widgetList(find.text(t.blindsLabel, skipOffstage: false))
+              .length;
+          antes += tester
+              .widgetList(find.text(t.anteLabel, skipOffstage: false))
+              .length;
+          discards += tester
+              .widgetList(find.text(t.maxDiscardsLabel, skipOffstage: false))
+              .length;
+          if (wire == TableCategory.texasHoldem ||
+              wire == TableCategory.omaha) {
+            expect(
+              find.text(
+                '${formatChips(_boot ~/ 2)} / ${formatChips(_boot)}',
+                skipOffstage: false,
+              ),
+              findsOneWidget,
+              reason: wire,
+            );
+          }
+          // Nothing a Teen Patti card says.
+          expect(
+            find.text(t.maxBlindsLabel, skipOffstage: false),
+            findsNothing,
+          );
+          expect(find.text(t.potLimitLabel, skipOffstage: false), findsNothing);
+
+          // Back to Poker, by the tile that names it.
+          await _tapInRail(tester, find.text(t.poker, skipOffstage: false));
+          await _settleLevel(tester);
+          expect(tester.takeException(), isNull, reason: wire);
+          expect(state.lobbyEngine, TableEngine.poker);
+          expect(state.lobbyCategory, isNull);
+        }
+        // Blinds on the two board games, an ante on the other two, discards
+        // on Draw alone.
+        expect(blinds, 2);
+        expect(antes, 2);
+        expect(discards, 1);
 
         await _unmount(tester);
         state.dispose();
@@ -341,14 +454,15 @@ void main() {
     }
   }
 
-  testWidgets('a menu without poker shows three categories and no Poker', (
+  testWidgets('a menu without poker shows Teen Patti alone and no Poker', (
     tester,
   ) async {
     final state = _state(tables: _teenPatti);
     const t = Strings(AppLang.english);
     await _pumpLobby(tester, state, screen: const Size(891, 411));
     expect(tester.takeException(), isNull);
-    expect(find.text(t.viewTables, skipOffstage: false), findsNWidgets(3));
+    expect(find.text(t.viewGames, skipOffstage: false), findsOneWidget);
+    expect(find.text(t.teenPatti, skipOffstage: false), findsOneWidget);
     expect(find.text(t.poker, skipOffstage: false), findsNothing);
     await _unmount(tester);
     state.dispose();
@@ -360,14 +474,15 @@ void main() {
     final state = _state();
     const t = Strings(AppLang.english);
     await _pumpLobby(tester, state, screen: const Size(891, 411));
-    state.openLobbyCategory(TableCategory.pokerFamily);
+    state.openLobbyCategory(TableCategory.omaha);
     await _settleLevel(tester);
     // The join goes to a socket that is not connected: the state reports
     // that as a notice rather than throwing, and the category stays open.
-    await _tapInRail(tester, find.text(t.tapToSit, skipOffstage: false).at(1));
+    await _tapInRail(tester, find.text(t.tapToSit, skipOffstage: false));
     await tester.pump(const Duration(milliseconds: 300));
     expect(tester.takeException(), isNull);
-    expect(state.lobbyCategory, TableCategory.pokerFamily);
+    expect(state.lobbyEngine, TableEngine.poker);
+    expect(state.lobbyCategory, TableCategory.omaha);
     expect(state.screen, Screen.lobby);
     await _unmount(tester);
     state.dispose();
@@ -384,12 +499,12 @@ void main() {
       screen: const Size(640, 360),
       textScale: 1.25,
     );
-    state.openLobbyCategory(TableCategory.pokerFamily);
+    state.openLobbyCategory(TableCategory.texasHoldem);
     await _settleLevel(tester);
     final keys = find.bySemanticsLabel(t.tableInfoTitle, skipOffstage: false);
-    expect(keys, findsNWidgets(4));
+    expect(keys, findsOneWidget);
 
-    // Texas Hold'em, the first card.
+    // Texas Hold'em's one table.
     await _tapInRail(tester, keys.first);
     await tester.pump(const Duration(milliseconds: 500));
     expect(tester.takeException(), isNull);
@@ -416,6 +531,51 @@ void main() {
     state.dispose();
   });
 
+  testWidgets("a poker card's info key names the table's own turn clock when "
+      'the table catalogue sends one', (tester) async {
+    // The catalogue (GET /api/tables, 23 Sep 2026) states each table's clock.
+    // A poker room's is its own — POKER_TURN_TIMEOUT_MS — and the popup used
+    // to show the table-wide Teen Patti figure beside it.
+    final state = _state(
+      tables: [
+        ..._teenPatti,
+        {..._pokerEntries.first, 'turnTimeoutMs': 90000},
+        ..._pokerEntries.skip(1),
+      ],
+    );
+    const t = Strings(AppLang.english);
+    await _pumpLobby(
+      tester,
+      state,
+      screen: const Size(640, 360),
+      textScale: 1.25,
+    );
+    state.openLobbyCategory(TableCategory.texasHoldem);
+    await _settleLevel(tester);
+    final keys = find.bySemanticsLabel(t.tableInfoTitle, skipOffstage: false);
+
+    // Texas Hold'em carries its own clock.
+    await _tapInRail(tester, keys.first);
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(tester.takeException(), isNull);
+    expect(find.text(t.secondsEach(90)), findsOneWidget);
+    expect(find.text(t.secondsEach(25)), findsNothing);
+    await tester.tap(find.byTooltip(t.close));
+    await tester.pump(const Duration(milliseconds: 500));
+
+    // Omaha's entry names none (a session menu): the table-wide figure.
+    state.openLobbyCategory(TableCategory.omaha);
+    await _settleLevel(tester);
+    await _tapInRail(tester, keys.first);
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.text(t.secondsEach(25)), findsOneWidget);
+    await tester.tap(find.byTooltip(t.close));
+    await tester.pump(const Duration(milliseconds: 500));
+
+    await _unmount(tester);
+    state.dispose();
+  });
+
   testWidgets("a poker card's rules key opens that game's rules and the "
       'poker ranking, not Teen Patti\'s', (tester) async {
     final state = _state();
@@ -426,13 +586,13 @@ void main() {
       screen: const Size(640, 360),
       textScale: 1.25,
     );
-    state.openLobbyCategory(TableCategory.pokerFamily);
+    state.openLobbyCategory(TableCategory.threeCardPoker);
     await _settleLevel(tester);
     final keys = find.bySemanticsLabel(t.tableRulesKey, skipOffstage: false);
-    expect(keys, findsNWidgets(4));
+    expect(keys, findsOneWidget);
 
-    // 3-Card Poker, the last card: the dealer's qualification is a rule.
-    await _tapInRail(tester, keys.last);
+    // 3-Card Poker's table: the dealer's qualification is a rule.
+    await _tapInRail(tester, keys.first);
     await tester.pump(const Duration(milliseconds: 600));
     expect(tester.takeException(), isNull);
     expect(state.screen, Screen.lobby);
@@ -461,10 +621,7 @@ void main() {
       findsOneWidget,
     );
     expect(find.text(t.rankTrail, skipOffstage: false), findsNothing);
-    expect(
-      find.text(t.variationRulesTitle, skipOffstage: false),
-      findsNothing,
-    );
+    expect(find.text(t.variationRulesTitle, skipOffstage: false), findsNothing);
     await tester.ensureVisible(
       find.text(t.pokerRankName('highCard'), skipOffstage: false),
     );

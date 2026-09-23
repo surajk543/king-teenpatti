@@ -18,52 +18,66 @@ type Factory struct {
 
 var _ game.RoomFactory = (*Factory)(nil)
 
-// ConfigFor composes a poker room's Config from the deployment's config and
-// a category + boot: the variant's fixed table plus the few PokerConfig
-// knobs. Exported for tests and the menu.
+// ConfigFor composes a public poker room's Config from the deployment's config
+// and a category + boot (0 = BOOT_AMOUNT): ConfigFromSpec over
+// config.GameConfig.Spec, which is the table_configs row in db mode and, from
+// env, the variant's fixed table plus the few PokerConfig knobs. Exported for
+// tests.
 func ConfigFor(category game.Category, bootAmount int64, g config.GameConfig, chat config.ChatConfig) (Config, error) {
+	if _, ok := VariantOf(category); !ok {
+		return Config{}, fmt.Errorf("%q is not a poker category", category)
+	}
+	return ConfigFromSpec(category, g.Spec(string(category), bootAmount, false), chat)
+}
+
+// ConfigFromSpec is the Config of a poker room of category that plays by spec
+// (config.TableSpec: its boot — the big blind or the ante —, the players, the
+// clocks, the buy-in and 5-Card Draw's exchange limit), with the variant's
+// fixed table and the server's chat caps. Every variant carries MaxDiscards,
+// as the env composition always gave it; only a draw table reads it. spec must
+// be for category — the RoomManager asks Spec for the category it opens.
+func ConfigFromSpec(category game.Category, spec config.TableSpec, chat config.ChatConfig) (Config, error) {
 	v, ok := VariantOf(category)
 	if !ok {
 		return Config{}, fmt.Errorf("%q is not a poker category", category)
 	}
-	if bootAmount <= 0 {
-		bootAmount = g.BootAmount
+	if spec.Category != string(category) {
+		return Config{}, fmt.Errorf("a %s spec cannot open a %s room", spec.Category, category)
 	}
-	turn := g.Poker.TurnTimeout
-	if turn <= 0 {
-		turn = g.TurnTimeout
+	if spec.BootAmount <= 0 {
+		return Config{}, fmt.Errorf("%s: the boot must be more than 0, got %d", category, spec.BootAmount)
 	}
-	buyInBoots := g.Poker.MinBuyInBoots
-	if buyInBoots < 1 {
-		buyInBoots = 1
-	}
-	discards := g.Poker.MaxDiscards
-	if discards < 0 {
-		discards = 0
-	}
-	if discards > 5 {
-		discards = 5
+	if spec.MaxDiscards < 0 || spec.MaxDiscards > 5 {
+		return Config{}, fmt.Errorf("%s: max discards must be between 0 and 5, got %d", category, spec.MaxDiscards)
 	}
 	return Config{
 		Category:       category,
 		Variant:        Variants[v],
-		BootAmount:     bootAmount,
-		MaxPlayers:     g.MaxPlayers,
-		MinPlayers:     g.MinPlayers,
-		TurnTimeout:    turn,
-		NextHandDelay:  g.NextHandDelay,
-		UnfundedGrace:  g.UnfundedGrace,
-		MaxMissedTurns: g.MaxMissedTurns,
-		MinBuyIn:       bootAmount * buyInBoots,
-		MaxDiscards:    discards,
+		BootAmount:     spec.BootAmount,
+		MaxPlayers:     spec.MaxPlayers,
+		MinPlayers:     spec.MinPlayers,
+		TurnTimeout:    spec.TurnTimeout,
+		NextHandDelay:  spec.NextHandDelay,
+		UnfundedGrace:  spec.UnfundedGrace,
+		MaxMissedTurns: spec.MaxMissedTurns,
+		MinBuyIn:       spec.MinBuyIn,
+		MaxDiscards:    spec.MaxDiscards,
 		ChatMaxHistory: chat.MaxHistory,
 		ChatMaxLength:  chat.MaxLength,
 	}, nil
 }
 
-// New opens a fresh room for spec.
+// New opens a fresh room for spec: from spec.Table when the RoomManager
+// resolved one (always, since the table catalogue), else composed from
+// deps.Game as ConfigFor does.
 func (f *Factory) New(spec game.RoomSpec, deps game.RoomDeps) (game.Room, error) {
-	cfg, err := ConfigFor(spec.Category, spec.BootAmount, deps.Game, deps.Chat)
+	var cfg Config
+	var err error
+	if spec.Table.Key != "" {
+		cfg, err = ConfigFromSpec(spec.Category, spec.Table, deps.Chat)
+	} else {
+		cfg, err = ConfigFor(spec.Category, spec.BootAmount, deps.Game, deps.Chat)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -103,10 +117,11 @@ func (f *Factory) Restore(data []byte, deps game.RoomDeps) (game.Room, game.Rest
 }
 
 // MenuEntry fills a poker lobby entry: the blinds or the ante, the buy-in,
-// the hole cards and the draw limit, from the same ConfigFor the room is
-// built with, so a card never promises rules its table does not play.
-func (f *Factory) MenuEntry(entry config.LobbyTable, g config.GameConfig, option *game.LobbyTableOption) {
-	cfg, err := ConfigFor(game.Category(entry.Category), entry.BootAmount, g, config.ChatConfig{})
+// the hole cards and the draw limit, from the same spec — through the same
+// ConfigFromSpec — the room is built with, so a card never promises rules its
+// table does not play.
+func (f *Factory) MenuEntry(spec config.TableSpec, option *game.LobbyTableOption) {
+	cfg, err := ConfigFromSpec(game.Category(spec.Category), spec, config.ChatConfig{})
 	if err != nil {
 		return
 	}
@@ -127,3 +142,32 @@ func (f *Factory) MenuEntry(entry config.LobbyTable, g config.GameConfig, option
 // turnTimeoutOf is the decision clock a room runs (for the socket layer's
 // public config, where a poker room's differs from a Teen Patti table's).
 func (t *Table) TurnTimeout() time.Duration { return t.cfg.TurnTimeout }
+
+// RulesSpec is the room's frozen Config as a config.TableSpec (game.Room):
+// its key, category and boot, the players, the clocks, the buy-in and the
+// exchange limit. Everything a poker room does not have — the Teen Patti
+// ladder, pot cap, blind moves, sideshow, missile and variation figures — is
+// 0, as a poker spec's always is (config.TableCatalogue.Validate), and so are
+// the band and the menu position, which are the lobby's.
+func (t *Table) RulesSpec() config.TableSpec {
+	c := t.cfg
+	spec := config.TableSpec{
+		Category:       string(c.Category),
+		BootAmount:     c.BootAmount,
+		Private:        t.isPrivate,
+		MaxPlayers:     c.MaxPlayers,
+		MinPlayers:     c.MinPlayers,
+		TurnTimeout:    c.TurnTimeout,
+		MaxMissedTurns: c.MaxMissedTurns,
+		NextHandDelay:  c.NextHandDelay,
+		UnfundedGrace:  c.UnfundedGrace,
+		MinBuyIn:       c.MinBuyIn,
+		MaxDiscards:    c.MaxDiscards,
+	}
+	if t.isPrivate {
+		spec.Key = config.PrivateTableKey(spec.Category)
+	} else {
+		spec.Key = config.PublicTableKey(spec.Category, spec.BootAmount)
+	}
+	return spec
+}

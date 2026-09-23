@@ -41,6 +41,8 @@ test('quick-join: ack shape, snapshot shape, and the joiner hears room:state bef
   const ready = await client.wait('session:ready');
   assertKeys(ready, ['user', 'config'], 'session:ready');
   assertKeys(ready.config, CONFIG_KEYS, 'session:ready.config');
+  // The table catalogue's version (rest.test.js checks it against GET /api/tables).
+  assert.match(ready.config.tableConfigVersion, /^[0-9a-f]{64}$/);
   assert.equal(ready.user.id, account.user.id);
   // A lifted menu (LOBBY_TABLES empty) offers any pair, a variation table
   // included, so the third category is advertised here as it is on the default menu.

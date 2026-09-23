@@ -1,19 +1,58 @@
--- King Teen Patti — the profile-picture catalogue (DML).
+-- King Teen Patti — every row the server seeds (DML).
 --
--- Every row the server seeds, in one file. Consolidated on 14 Sep 2026 (owner)
--- for a production deploy onto an empty database (V1.0.0's header): the rows
--- V1.0.2__seed_animated_pictures.sql and V1.0.4__seed_more_animated_pictures.sql
--- used to add are here. The rows run free first, then the pictures priced in
--- chips, then the animated pictures priced in hammers, then those priced in
--- diamonds (owner, 14 Sep 2026), and sort_order follows that order in steps of
--- ten, so a fresh database numbers the catalogue the same way: Bear is 1, Wolf
--- 15, Love Sheep 16, Anima Bot 19, Orange Ballerina 20, Love and Kiss 35,
--- Butterfly Flapping 36 and Jolly Queen 40, and the five appended after launch
--- 41 to 45. Shooting Game, Spider, Swirling Dots, Sporty Avocado and Blazing
--- Fire, and after them Love Sheep, Love Birds, Error 404, Anima Bot and Love and
--- Kiss, were added to this file the same day, rather than in a new script,
--- because no environment that matters had run it yet: production starts from
--- an empty database (ops/DEPLOY.md §8).
+-- The DATA half of the two scripts there are (owner, 23 Sep 2026: "merge all
+-- DDL and DML into 2 files"; V1.0.0__baseline.sql is the structure). Two
+-- catalogues, each under its own heading below:
+--
+--   THE PICTURES  the profile-picture catalogue (requirements 20 and 21) —
+--                 this file's whole content while it was named
+--                 V1.0.1__seed_profile_pictures.sql. Nothing records a
+--                 script's name (there is no schema history table), so the
+--                 rename changed nothing for any database.
+--   THE TABLES    the table catalogue (owner, 23 Sep 2026): the engines and
+--                 the categories under them (table_engines, table_categories),
+--                 the one table_settings row, and a table_configs row for
+--                 every lobby table and every private template.
+--
+-- Data, not structure: V1.0.0__baseline.sql builds every table these rows go
+-- into, and it runs FIRST — before this file and before anything numbered
+-- after it. So anything a row here needs of the structure (a new column, a new
+-- table) must be declared THERE, never in a later-numbered script, which would
+-- run after this one and leave the row failing on every boot (the baseline's
+-- header, "THE NEXT CHANGE GOES IN THIS FILE, NEVER IN A NEW ONE"). Separate
+-- on purpose — a price change, a new picture or a new table is a row, and a
+-- row should never require reopening a structural migration. This file
+-- creates, alters and indexes nothing
+-- (TestMigrationsAreVersionedOrderedAndSplitByKind).
+--
+-- Idempotent, like every script here: the server has no schema history table
+-- and runs all of them on every boot, so this must be indistinguishable from
+-- having run once. ON CONFLICT on each table's natural key does that — a
+-- picture's asset_url, an engine's or a category's code, the settings row's
+-- id, a table's table_key — and it
+-- also means the seed never rewrites a row the owner has since edited:
+-- re-priced, renamed, reordered, retired. Editing a row a database already
+-- has is an UPDATE (`UPDATE profile_pictures SET cost = … WHERE name = …`,
+-- `UPDATE table_configs SET max_blind_moves = 3 WHERE table_key = 'blind:200'`),
+-- not a code change.
+
+
+-- ================================================================ THE PICTURES
+--
+-- Consolidated on 14 Sep 2026 (owner) for a production deploy onto an empty
+-- database (V1.0.0's header): the rows V1.0.2__seed_animated_pictures.sql and
+-- V1.0.4__seed_more_animated_pictures.sql used to add are here. The rows run
+-- free first, then the pictures priced in chips, then the animated pictures
+-- priced in hammers, then those priced in diamonds (owner, 14 Sep 2026), and
+-- sort_order follows that order in steps of ten, so a fresh database numbers
+-- the catalogue the same way: Bear is 1, Wolf 15, Love Sheep 16, Anima Bot 19,
+-- Orange Ballerina 20, Love and Kiss 35, Butterfly Flapping 36 and Jolly Queen
+-- 40, and the five appended after launch 41 to 45. Shooting Game, Spider,
+-- Swirling Dots, Sporty Avocado and Blazing Fire, and after them Love Sheep,
+-- Love Birds, Error 404, Anima Bot and Love and Kiss, were added to this file
+-- the same day, rather than in a new script, because no environment that
+-- matters had run it yet: production starts from an empty database
+-- (ops/DEPLOY.md §8).
 --
 -- AFTER LAUNCH. go-server/v1.1.0 put production on this file the same day, and
 -- the owner has gone on adding to it rather than to new scripts: the five
@@ -24,18 +63,6 @@
 -- Love and Kiss was re-priced here from 2 hammers to 25 after production had
 -- the row, so only a database built from scratch sells it at 25, and
 -- production keeps 2 until an UPDATE is run there (owner's choice).
---
--- Data, not structure: V1.0.0__baseline.sql builds the tables, this fills one
--- of them. Separate on purpose — a price change or a new picture is a row, and
--- a row should never require reopening a structural migration.
---
--- Idempotent, like every script here: the server has no schema history table
--- and runs all of them on every boot, so this must be indistinguishable from
--- having run once. ON CONFLICT on the natural key (asset_url) does that, and
--- it also means the seed never rewrites a row the owner has since re-priced,
--- renamed, reordered or retired. Editing a row a database already has is an
--- UPDATE (`UPDATE profile_pictures SET type = …, cost = … WHERE name = …`),
--- not a code change.
 --
 -- THE ANIMALS. Which ones cost chips is a product decision, not a technical
 -- one. Two are free — everyone has a face from the first launch — and the rest
@@ -289,3 +316,176 @@ SELECT name, asset_url, asset_format, currency, type, cost, duration_days, durat
      'LOTTIE', 'HAMMER', 'PREMIUM', 10::bigint, 15, 0, TRUE, 356)
   ) AS seed(name, asset_url, asset_format, currency, type, cost, duration_days, duration_hours, is_active, sort_order)
     ON CONFLICT (asset_url) DO NOTHING;
+
+
+-- ================================================================== THE TABLES
+--
+-- What a fresh database is given is exactly what the server composed from its
+-- defaults before the catalogue existed — config.Defaults().Game
+-- .EffectiveCatalogue(), with TABLE_CONFIG_SOURCE unset and no table env key:
+--
+--   * the taxonomy (owner, 23 Sep 2026: "Teen Patti engines / Poker
+--     engines"): two engines, Teen Patti and Poker, and the seven categories,
+--     flat, each under exactly one of them — seen, blind and variation under
+--     Teen Patti, three_card_poker, five_card_draw, texas_holdem and omaha
+--     under Poker (config.DefaultTableEngines, DefaultTableCategories);
+--   * the settings row: a 200 boot when a quick-join names none, the stakes
+--     200 / 5,000 / 50,000 / 10 Lakh, five seats and two to start, the 25 s
+--     turn, 20 rounds and the 6 s sideshow as advertised, and requirement 30's
+--     entry cap — nobody holding more than 5 Lakh sits at the 200 blind table;
+--   * the twelve tables of the default LOBBY_TABLES menu, in its order
+--     (sort_order 10 to 120), each with its stack band;
+--   * a private template for each of the seven categories (sort_order 1010 to
+--     1070), the table room:create opens: boot 200, two rungs, a 5 Lakh pot
+--     cap at Teen Patti.
+--
+-- Every figure is resolved as TableRules and the poker knobs resolved it. Seen:
+-- two rungs, seven rounds, a per-bet ceiling of 1024 boots and a 20 Lakh pot
+-- cap, unless the table has its own (seen 50,000: 5 Crore). Blind: no limit
+-- anywhere. Variation: seen's ladder, no pot cap, the 10 s chooser's window and
+-- the 8 s 5-Card pick. Poker: a 25 s clock, a buy-in of ten boots, three cards
+-- to exchange (only 5-Card Draw reads it), and none of Teen Patti's figures.
+-- Every table: three missed turns before the idle kick, a 4 s pause between
+-- hands, 30 s to buy chips before a short seat is kicked; every Teen Patti
+-- table, four blind moves and 3 s more after a missile.
+--
+-- The VALUES below were GENERATED from that composition, and
+-- TestTheSeededTableCatalogueIsTheDefaults loads them back out of a fresh
+-- schema and compares them with it figure by figure — so a server switched to
+-- TABLE_CONFIG_SOURCE=db on this seed plays exactly as one on the defaults
+-- did. A default changed in config without this file fails that test, which
+-- names the table.
+--
+-- ACTIVE ONLY INTO AN EMPTY TABLE. Each table_configs INSERT first asks
+-- whether the table already holds a row of its kind — public, or private — and
+-- writes every row it adds with is_active set to that answer:
+--
+--   * a fresh database gets every row, active;
+--   * a row appended here in a later release reaches an existing database at
+--     its next boot INACTIVE: a new table goes live when the owner sets
+--     is_active = TRUE, after raising MIN_CLIENT_BUILD to a build that can draw
+--     it — the way variation and poker were rolled out — never because a
+--     server restarted;
+--   * a row already there is never touched (ON CONFLICT (table_key) DO
+--     NOTHING), so an owner's UPDATE survives every restart;
+--   * a seeded row that was DELETEd, or re-keyed by changing its category or
+--     boot, comes back at the next boot — inactive, so harmlessly. Retire a
+--     table with is_active = FALSE, never with DELETE.
+--
+-- The settings row is written only where there is none (ON CONFLICT (id) DO
+-- NOTHING); change it with an UPDATE.
+--
+-- The engines and categories come first — every other row here names a
+-- category, through a foreign key — and are written ACTIVE wherever their code
+-- is missing, on a fresh database and an existing one alike (ON CONFLICT
+-- (code) DO NOTHING, so a name, a place or an is_active the owner has changed
+-- stays changed). Active is safe there: a category puts nothing in front of a
+-- player by itself, and the tables that would are the table_configs rows
+-- below, which arrive inactive in a catalogue that already has tables. A new
+-- engine or category is a row appended here — and code in the server, which
+-- leaves out a category it cannot play (V1.0.0's TABLE CONFIGURATION).
+--
+-- A deployment whose .env configures its tables (LOBBY_TABLES and the rest of
+-- config.TableEnvKeys) gets the DEFAULT catalogue from this file, not its own.
+-- Before switching one to TABLE_CONFIG_SOURCE=db, run
+-- `TABLE_CONFIG_SOURCE=env ./bin/gameplay -export-table-config | psql …` with
+-- that .env: it writes the menu the deployment plays today over these rows
+-- (db.ExportTableConfigSQL). Either way the server reads the catalogue once, at
+-- boot, so an edit applies after the next restart, to the tables opened after
+-- it (V1.0.0's TABLE CONFIGURATION).
+
+-- The engines, then the categories under them, in config.Categories order.
+INSERT INTO table_engines (code, name, sort_order, is_active)
+VALUES ('teen_patti', 'Teen Patti', 10, TRUE),
+       ('poker',      'Poker',      20, TRUE)
+    ON CONFLICT (code) DO NOTHING;
+
+INSERT INTO table_categories (code, engine, name, sort_order, is_active)
+VALUES ('seen',             'teen_patti', 'Seen',           10, TRUE),
+       ('blind',            'teen_patti', 'Blind',          20, TRUE),
+       ('variation',        'teen_patti', 'Variation',      30, TRUE),
+       ('three_card_poker', 'poker',      '3-Card Poker',   40, TRUE),
+       ('five_card_draw',   'poker',      '5-Card Draw',    50, TRUE),
+       ('texas_holdem',     'poker',      'Texas Hold''em', 60, TRUE),
+       ('omaha',            'poker',      'Omaha',          70, TRUE)
+    ON CONFLICT (code) DO NOTHING;
+
+INSERT INTO table_settings (id, default_boot_amount, stakes, max_players, min_players, turn_timeout_ms,
+                            max_bet_rounds, sideshow_timeout_ms, sideshow_min_players,
+                            entry_cap_boot, entry_cap_category, entry_cap_max_chips)
+VALUES (1, 200, ARRAY[200, 5000, 50000, 1000000]::bigint[], 5, 2, 25000,
+        20, 6000, 3,
+        200, 'blind', 500000)
+    ON CONFLICT (id) DO NOTHING;
+
+-- The public tables: the default menu, in LOBBY_TABLES order. The column names
+-- over the rows are shortened; v(…) at the foot names each in full.
+WITH fresh AS (SELECT NOT EXISTS (SELECT 1 FROM table_configs WHERE NOT is_private) AS empty)
+INSERT INTO table_configs (category, boot_amount, is_private, min_chips, max_chips,
+                           max_pot, max_raise_steps, max_bet_rounds, pot_limit_multiplier, max_blind_moves,
+                           turn_timeout_ms, max_missed_turns, sideshow_timeout_ms, sideshow_min_players,
+                           next_hand_delay_ms, unfunded_grace_ms, missile_reveal_extra_ms,
+                           variation_select_timeout_ms, five_card_pick_timeout_ms, min_buy_in, max_discards,
+                           sort_order, is_active)
+SELECT v.category, v.boot_amount, FALSE, v.min_chips, v.max_chips,
+       v.max_pot, v.max_raise_steps, v.max_bet_rounds, v.pot_limit_multiplier, v.max_blind_moves,
+       v.turn_timeout_ms, v.max_missed_turns, v.sideshow_timeout_ms, v.sideshow_min_players,
+       v.next_hand_delay_ms, v.unfunded_grace_ms, v.missile_reveal_extra_ms,
+       v.variation_select_timeout_ms, v.five_card_pick_timeout_ms, v.min_buy_in, v.max_discards,
+       v.sort_order, fresh.empty
+  FROM (VALUES
+    -- category          boot         min_chips  max_chips   max_pot          steps  rounds  ceiling       blind  turn   missed  side  side_min  next  grace  missile  select  pick  buy_in     disc  sort
+    ('seen',             200::bigint, 0::bigint, 0::bigint,  2000000::bigint, 2,     7,      1024::bigint, 4,     25000, 3,      6000, 3,        4000, 30000, 3000,    0,      0,    0::bigint, 0,     10),
+    ('blind',            200,         0,         0,          0,               0,     0,      0,            4,     25000, 3,      6000, 3,        4000, 30000, 3000,    0,      0,    0,         0,     20),
+    ('blind',            5000,        0,         50000000,   0,               0,     0,      0,            4,     25000, 3,      6000, 3,        4000, 30000, 3000,    0,      0,    0,         0,     30),
+    ('blind',            50000,       0,         1000000000, 0,               0,     0,      0,            4,     25000, 3,      6000, 3,        4000, 30000, 3000,    0,      0,    0,         0,     40),
+    ('blind',            1000000,     500000000, 0,          0,               0,     0,      0,            4,     25000, 3,      6000, 3,        4000, 30000, 3000,    0,      0,    0,         0,     50),
+    ('variation',        50000,       0,         1000000000, 0,               2,     7,      1024,         4,     25000, 3,      6000, 3,        4000, 30000, 3000,    10000,  8000, 0,         0,     60),
+    ('variation',        1000000,     500000000, 0,          0,               2,     7,      1024,         4,     25000, 3,      6000, 3,        4000, 30000, 3000,    10000,  8000, 0,         0,     70),
+    ('seen',             50000,       0,         0,          50000000,        2,     7,      1024,         4,     25000, 3,      6000, 3,        4000, 30000, 3000,    0,      0,    0,         0,     80),
+    ('three_card_poker', 50000,       0,         0,          0,               0,     0,      0,            0,     25000, 3,      0,    0,        4000, 30000, 0,       0,      0,    500000,    3,     90),
+    ('five_card_draw',   50000,       0,         0,          0,               0,     0,      0,            0,     25000, 3,      0,    0,        4000, 30000, 0,       0,      0,    500000,    3,    100),
+    ('texas_holdem',     50000,       0,         0,          0,               0,     0,      0,            0,     25000, 3,      0,    0,        4000, 30000, 0,       0,      0,    500000,    3,    110),
+    ('omaha',            50000,       0,         0,          0,               0,     0,      0,            0,     25000, 3,      0,    0,        4000, 30000, 0,       0,      0,    500000,    3,    120)
+  ) AS v(category, boot_amount, min_chips, max_chips,
+         max_pot, max_raise_steps, max_bet_rounds, pot_limit_multiplier, max_blind_moves,
+         turn_timeout_ms, max_missed_turns, sideshow_timeout_ms, sideshow_min_players,
+         next_hand_delay_ms, unfunded_grace_ms, missile_reveal_extra_ms,
+         variation_select_timeout_ms, five_card_pick_timeout_ms, min_buy_in, max_discards,
+         sort_order)
+ CROSS JOIN fresh
+    ON CONFLICT (table_key) DO NOTHING;
+
+-- The private templates, one per category, in config.Categories order. Asked
+-- about separately: an existing catalogue with public tables but no templates
+-- still gets every template, active.
+WITH fresh AS (SELECT NOT EXISTS (SELECT 1 FROM table_configs WHERE is_private) AS empty)
+INSERT INTO table_configs (category, boot_amount, is_private, min_chips, max_chips,
+                           max_pot, max_raise_steps, max_bet_rounds, pot_limit_multiplier, max_blind_moves,
+                           turn_timeout_ms, max_missed_turns, sideshow_timeout_ms, sideshow_min_players,
+                           next_hand_delay_ms, unfunded_grace_ms, missile_reveal_extra_ms,
+                           variation_select_timeout_ms, five_card_pick_timeout_ms, min_buy_in, max_discards,
+                           sort_order, is_active)
+SELECT v.category, v.boot_amount, TRUE, v.min_chips, v.max_chips,
+       v.max_pot, v.max_raise_steps, v.max_bet_rounds, v.pot_limit_multiplier, v.max_blind_moves,
+       v.turn_timeout_ms, v.max_missed_turns, v.sideshow_timeout_ms, v.sideshow_min_players,
+       v.next_hand_delay_ms, v.unfunded_grace_ms, v.missile_reveal_extra_ms,
+       v.variation_select_timeout_ms, v.five_card_pick_timeout_ms, v.min_buy_in, v.max_discards,
+       v.sort_order, fresh.empty
+  FROM (VALUES
+    -- category          boot         min_chips  max_chips  max_pot         steps  rounds  ceiling       blind  turn   missed  side  side_min  next  grace  missile  select  pick  buy_in     disc  sort
+    ('seen',             200::bigint, 0::bigint, 0::bigint, 500000::bigint, 2,     7,      1024::bigint, 4,     25000, 3,      6000, 3,        4000, 30000, 3000,    0,      0,    0::bigint, 0,    1010),
+    ('blind',            200,         0,         0,         500000,         2,     0,      0,            4,     25000, 3,      6000, 3,        4000, 30000, 3000,    0,      0,    0,         0,    1020),
+    ('variation',        200,         0,         0,         500000,         2,     7,      1024,         4,     25000, 3,      6000, 3,        4000, 30000, 3000,    10000,  8000, 0,         0,    1030),
+    ('three_card_poker', 200,         0,         0,         0,              0,     0,      0,            0,     25000, 3,      0,    0,        4000, 30000, 0,       0,      0,    2000,      3,    1040),
+    ('five_card_draw',   200,         0,         0,         0,              0,     0,      0,            0,     25000, 3,      0,    0,        4000, 30000, 0,       0,      0,    2000,      3,    1050),
+    ('texas_holdem',     200,         0,         0,         0,              0,     0,      0,            0,     25000, 3,      0,    0,        4000, 30000, 0,       0,      0,    2000,      3,    1060),
+    ('omaha',            200,         0,         0,         0,              0,     0,      0,            0,     25000, 3,      0,    0,        4000, 30000, 0,       0,      0,    2000,      3,    1070)
+  ) AS v(category, boot_amount, min_chips, max_chips,
+         max_pot, max_raise_steps, max_bet_rounds, pot_limit_multiplier, max_blind_moves,
+         turn_timeout_ms, max_missed_turns, sideshow_timeout_ms, sideshow_min_players,
+         next_hand_delay_ms, unfunded_grace_ms, missile_reveal_extra_ms,
+         variation_select_timeout_ms, five_card_pick_timeout_ms, min_buy_in, max_discards,
+         sort_order)
+ CROSS JOIN fresh
+    ON CONFLICT (table_key) DO NOTHING;

@@ -531,16 +531,19 @@ func TestLoginRefusals(t *testing.T) {
 	}
 }
 
-func TestGoogleAndFacebookFakeLoginsCreateProviderScopedAccounts(t *testing.T) {
+// TestGoogleFakeLoginsCreateProviderScopedAccountsAndFacebookIsOff: Facebook
+// login is switched off for now (owner, 23 Sep 2026), so a facebook login —
+// even a fake one — is refused as an unsupported provider and creates nothing.
+func TestGoogleFakeLoginsCreateProviderScopedAccountsAndFacebookIsOff(t *testing.T) {
 	h := newHarness(t)
 	g := h.do(http.MethodPost, "/api/auth/login", map[string]any{"provider": "google", "providerUserId": "google-sub-123", "displayName": "G Player"})
-	f := h.do(http.MethodPost, "/api/auth/login", map[string]any{"provider": "facebook", "providerUserId": "fb-123", "displayName": "F Player"})
-	if g.status != 200 || f.status != 200 {
-		t.Fatalf("%d %d", g.status, f.status)
+	if g.status != 200 {
+		t.Fatalf("%d", g.status)
 	}
-	gu, fu := g.body["user"].(map[string]any), f.body["user"].(map[string]any)
-	if gu["provider"] != "google" || fu["provider"] != "facebook" || gu["chips"] != float64(200000) || gu["id"] == fu["id"] {
-		t.Errorf("%v %v", gu, fu)
+	expectError(t, h.do(http.MethodPost, "/api/auth/login", map[string]any{"provider": "facebook", "providerUserId": "fb-123", "displayName": "F Player"}), 400, CodeUnknownProvider)
+	gu := g.body["user"].(map[string]any)
+	if gu["provider"] != "google" || gu["chips"] != float64(200000) {
+		t.Errorf("%v", gu)
 	}
 	again := h.do(http.MethodPost, "/api/auth/login", map[string]any{"provider": "google", "providerUserId": "google-sub-123", "displayName": "G Player"})
 	if again.body["user"].(map[string]any)["id"] != gu["id"] || again.body["isNew"] != false {

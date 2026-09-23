@@ -8,7 +8,7 @@ import (
 	"github.com/surajk543/king-teenpatti/go-server/internal/db"
 )
 
-// Marking the resident fleet (owner, 22 Sep 2026; users.is_bot, V1.0.3).
+// Marking the resident fleet (owner, 22 Sep 2026; users.is_bot, V1.0.0__baseline.sql).
 //
 // The flag is only worth having if it is right in both directions: true for
 // every account bot-play opens, and false for everyone else. These pin both,

@@ -45,6 +45,15 @@ func TestABootSurvivesALongReaderHoldingTheTables(t *testing.T) {
 	if _, err := tx.Exec(ctx, `SELECT 1 FROM chip_ledger LIMIT 1`); err != nil {
 		t.Fatalf("read chip_ledger: %v", err)
 	}
+	// The table catalogue too (23 Sep 2026), all four tables: the seed writes
+	// into them on every boot, the baseline declares their keys and the
+	// foreign keys between them, and none of that may need a lock a report
+	// over the lobby's configuration would hold.
+	for _, table := range []string{"table_engines", "table_categories", "table_settings", "table_configs"} {
+		if _, err := tx.Exec(ctx, `SELECT 1 FROM `+table+` LIMIT 1`); err != nil {
+			t.Fatalf("read %s: %v", table, err)
+		}
+	}
 
 	// Now boot a second time against the same schema, as a restart would,
 	// with a statement timeout as tight as production's is generous.
@@ -84,5 +93,11 @@ func TestABootSurvivesALongReaderHoldingTheTables(t *testing.T) {
 	// The reader was untouched throughout: the boot did not need its lock.
 	if err := tx.QueryRow(ctx, `SELECT count(*) FROM users`).Scan(&n); err != nil {
 		t.Fatalf("the reader was disturbed by the boot: %v", err)
+	}
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM table_configs`).Scan(&n); err != nil || n != 19 {
+		t.Fatalf("the reader was disturbed by the boot, or the seed wrote twice: %d rows, %v", n, err)
+	}
+	if err := tx.QueryRow(ctx, `SELECT (SELECT count(*) FROM table_engines) + (SELECT count(*) FROM table_categories)`).Scan(&n); err != nil || n != 9 {
+		t.Fatalf("the reader was disturbed by the boot, or the seed wrote the taxonomy twice: %d rows, %v", n, err)
 	}
 }

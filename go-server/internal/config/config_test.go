@@ -593,6 +593,9 @@ func TestEnvExampleIsTheDefaults(t *testing.T) {
 	}
 	want := Defaults()
 	want.JWT.Secret = got.JWT.Secret
+	// The example sets every table key (so it can document each default) and
+	// therefore names the source explicitly; Defaults() sets none of them.
+	want.TableEnvKeysSet = TableEnvKeys()
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf(".env.example drifted from Defaults():\n got %+v\nwant %+v", got, want)
 	}

@@ -253,7 +253,7 @@ func appendLedger(ctx context.Context, tx pgx.Tx, userID, handID, actionID strin
 }
 
 // appendLedgerFor is appendLedger with the row's game family and variant
-// (chip_ledger.game / .variant, V1.0.2): NULL for a Teen Patti row and for
+// (chip_ledger.game / .variant, V1.0.0): NULL for a Teen Patti row and for
 // every non-hand row, so those rows are byte for byte what they were; the
 // poker family and its variant for a poker room's checkpoint (POKER_PLAN.md
 // §6).

@@ -103,6 +103,19 @@ class Books {
     return (await this.pool.query(
       { text: 'select tablename from pg_tables where schemaname = $1 order by tablename', values: [this.schema] })).rows.map((r) => r.tablename);
   }
+  /**
+   * Whether the schema holds the money and no game state: users and
+   * chip_ledger are there, and none of game_states, pots and hands (the tables
+   * that held a table's state before 9 Sep 2026). A denylist, not the exact
+   * list — parity/money.test.js keeps that one and argues each entry, the
+   * table configuration (table_engines, table_categories, table_settings,
+   * table_configs) among them.
+   */
+  async holdsNoGameState() {
+    const tables = await this.tables();
+    return tables.includes('users') && tables.includes('chip_ledger')
+      && !['game_states', 'pots', 'hands'].some((t) => tables.includes(t));
+  }
   async ledgerFor(userId) {
     const [r] = await this.q('select coalesce(sum(delta),0) as s, count(*) as n from %S%.chip_ledger where user_id = $1', [userId]);
     return r;
@@ -140,6 +153,9 @@ function startServer({ port, schema, logDir, name, redisUrl }) {
     ...process.env,
     PORT: String(port), HOST: '127.0.0.1', PG_SCHEMA: schema, DATABASE_URL,
     NODE_ENV: 'test', AUTH_ALLOW_FAKE_PROVIDERS: 'true', JWT_SECRET: 'crashtest-secret',
+    // The tables come from these keys (any stake, a 25 s turn), not from the
+    // seeded catalogue in PostgreSQL, which would ignore them.
+    TABLE_CONFIG_SOURCE: 'env',
     TABLE_STAKES: '', LOBBY_TABLES: '', BOOT_AMOUNT: '200', WELCOME_CHIPS: '200000',
     TURN_TIMEOUT_MS: '25000', NEXT_HAND_DELAY_MS: '1500', RECONNECT_GRACE_MS: '60000',
     // Short enough that the test does not wait long for the self-healing paths.
@@ -330,7 +346,8 @@ async function main() {
       `${redis.keys('kt:table:*').length} of ${h1.tables}`);
     postChat(recs); await sleep(1200);
     check(redis.keys('kt:chat:*').length > 0, 'chat is mirrored to the live store', `${redis.keys('kt:chat:*').length} rooms`);
-    check((await ctx.books.tables()).join(',') === 'chip_ledger,users', 'PostgreSQL holds money and audit only — nothing about a table');
+    check(await ctx.books.holdsNoGameState(), 'PostgreSQL holds no game state — nothing of what is happening at a table',
+      (await ctx.books.tables()).join(', '));
     const rooms = new Set(recs.map((r) => r.roomId).filter(Boolean));
 
     step('SIGKILL the server');
@@ -424,8 +441,8 @@ async function main() {
     const rooms = new Set(recs.map((r) => r.roomId).filter(Boolean));
     say(`     ${h1.tables} tables, ${h1.activeHands} hands running`);
     // PostgreSQL holds money and audit only (owner's decision of 9 Sep 2026).
-    check((await ctx.books.tables()).join(',') === 'chip_ledger,users',
-      'PostgreSQL holds money and audit only: no game_states, no pots, no hands');
+    check(await ctx.books.holdsNoGameState(),
+      'PostgreSQL holds no game state: no game_states, no pots, no hands', (await ctx.books.tables()).join(', '));
     postChat(recs); await sleep(1200);
 
     // One player walks out MID-HAND before the failure. That is checkpoint 1

@@ -1,13 +1,18 @@
 /**
  * The lobby menu with the REAL defaults (stakes.test.js and the lobbyRules
- * config assertions, replayed over the wire): TABLE_STAKES 200,5000 and
- * LOBBY_TABLES seen:200,blind:200,blind:5000. The menu is advertised in
- * `session:ready.config` and `/api/rooms`, every room on it can be joined, and
- * nothing off it can — stake first, then the pair, then the wallet, then the
- * entry cap.
+ * config assertions, replayed over the wire) — as the server reads them from
+ * PostgreSQL: the table catalogue V1.0.1__seed.sql writes into a fresh schema
+ * (four stakes, 200 to 10 Lakh; twelve public tables, from seen 200 to the four
+ * poker tables at 50,000; the settings row's boot 200, 25 s turn and 6 s
+ * sideshow). The menu is advertised in `session:ready.config` and
+ * `/api/rooms`, every room on it can be joined, and nothing off it can — stake
+ * first, then the pair, then the wallet, then the entry cap.
  *
- * Profile assumptions (tools/parity.mjs "menu"): TABLE_STAKES, LOBBY_TABLES and
- * BOOT_AMOUNT left at their defaults; long clocks.
+ * Profile assumptions (tools/parity.mjs "menu"): TABLE_CONFIG_SOURCE=db on a
+ * fresh schema, with every table env key saying something else on purpose —
+ * BOOT_AMOUNT 100, 1.2 s clocks, TABLE_STAKES and LOBBY_TABLES lifted. The
+ * exact figures asserted here are the seed's, so they also prove a db-sourced
+ * server ignores those keys.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -59,7 +64,7 @@ const legalStack = (entry) => {
   return stack;
 };
 
-test('the lobby offers exactly the four stakes and the six rooms, in menu order, with their rules and bands', async () => {
+test('the lobby offers exactly the four stakes and the twelve tables, in menu order, with their rules and bands', async () => {
   const account = await guestLogin('device-parity-menu-config', 'Menu');
   const client = await openClient(account.token);
   const ready = await client.wait('session:ready');
@@ -72,7 +77,13 @@ test('the lobby offers exactly the four stakes and the six rooms, in menu order,
     assert.deepEqual(Object.keys(entry).slice(0, 6), TEEN_PATTI_KEYS, 'key order');
     assert.deepEqual(Object.keys(entry), Object.keys(MENU[i]), `keys of ${entry.category} ${entry.bootAmount}`);
   }
+  // The settings row's figures, not the env's (BOOT_AMOUNT 100, TURN_TIMEOUT_MS
+  // 1200 and SIDESHOW_TIMEOUT_MS 1500 are set for this profile and ignored).
   assert.equal(ready.config.bootAmount, 200, 'the default boot');
+  assert.equal(ready.config.turnTimeoutMs, 25000, 'the seeded turn clock');
+  assert.equal(ready.config.sideshowTimeoutMs, 6000, 'the seeded sideshow clock');
+  assert.equal(profile.bootAmount, 200, 'the harness reports the seed for a db-sourced server');
+  assert.equal(profile.turnTimeoutMs, 25000);
   assert.equal(ready.config.entryCapBoot, 200);
   assert.equal(ready.config.entryCapCategory, 'blind');
   assert.equal(ready.config.entryCapMaxChips, 500000);

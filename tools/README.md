@@ -67,8 +67,18 @@ ports to a single destination, whatever the worker count.
 ## Parity harness notes
 
 - Profiles: `main` (short timers), `slow` (for the rate-limit and timeout cases), `metrics`
-  (with a metrics token and IP allow-list) and `menu` (the real production table menu). Each
-  profile is a separate server process because configuration is read once at start.
+  (with a metrics token and IP allow-list), `menu` (the real table menu), `variation`,
+  `variation-timeout` and `poker`. Each profile is a separate server process because
+  configuration is read once at start.
+- Every profile but `menu` runs `TABLE_CONFIG_SOURCE=env`: its tables come from the env keys
+  (`LOBBY_TABLES=''` meaning any stake and category), as the server always composed them. `menu`
+  runs `TABLE_CONFIG_SOURCE=db`, so the server plays the table catalogue the seed writes into
+  its fresh schema, while the env still says `BOOT_AMOUNT=100`, 1.2 s clocks and a lifted menu on
+  purpose: the suites seeing the seed's figures proves those keys are ignored. It runs
+  `stakes.test.js` and, from `rest.test.js`, only the `GET /api/tables` tests (a profile's `only`
+  map passes a `--test-name-pattern`).
+- `chiptest.mjs`, `crashtest.mjs` and `parity-diff.mjs` set `TABLE_CONFIG_SOURCE=env` for the same
+  reason.
 - `--keep` leaves the schemas and server logs in place for debugging; the summary prints the log
   directory.
 - The Node server this suite was first written against is no longer in the repository. The

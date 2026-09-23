@@ -12,7 +12,7 @@ import (
 	"io"
 	"math/big"
 	"net/http"
-	"net/url"
+	// "net/url" — only VerifyFacebook used it; restore with it.
 	"strconv"
 	"strings"
 	"sync"
@@ -166,7 +166,8 @@ func (v *Verifier) clock() time.Time {
 // VerifyLogin dispatches on Provider (verifyLogin):
 //
 //	"google":   fake path when allowFakeProviders && IDToken == "", else VerifyGoogle
-//	"facebook": fake path when allowFakeProviders && AccessToken == "", else VerifyFacebook
+//	"facebook": switched off for now — unknown_provider like any other (was:
+//	            fake path when allowFakeProviders && AccessToken == "", else VerifyFacebook)
 //	"guest":    VerifyGuest
 //	other:      unknown_provider, 400, `Unsupported login provider "<p>"`
 //
@@ -180,11 +181,15 @@ func (v *Verifier) VerifyLogin(ctx context.Context, req LoginRequest) (*db.Profi
 			return v.verifyFake(req)
 		}
 		return v.VerifyGoogle(ctx, req.IDToken)
-	case db.ProviderFacebook:
-		if v.allowFakeProviders && req.AccessToken == "" {
-			return v.verifyFake(req)
-		}
-		return v.VerifyFacebook(ctx, req.AccessToken)
+	// Facebook login is switched off for now (owner, 23 Sep 2026): the Flutter
+	// login screen no longer draws the button, and "facebook" is refused here
+	// as an unsupported provider (400 unknown_provider), fake path included.
+	// Uncomment this case and VerifyFacebook below to bring it back.
+	// case db.ProviderFacebook:
+	// 	if v.allowFakeProviders && req.AccessToken == "" {
+	// 		return v.verifyFake(req)
+	// 	}
+	// 	return v.VerifyFacebook(ctx, req.AccessToken)
 	case db.ProviderGuest:
 		if req.deviceIDInvalid {
 			return nil, invalidDeviceID()
@@ -402,91 +407,96 @@ func cacheMaxAge(header string) time.Duration {
 	return 0
 }
 
-// VerifyFacebook checks a user access token via the Graph API (verifyFacebook):
-// "" → missing_token ("accessToken is required for Facebook login"); missing
-// AppID or AppSecret → provider_unconfigured 503. GET
-// https://graph.facebook.com/debug_token?input_token=<t>&access_token=<appId>|<appSecret>
-// — non-2xx → invalid_token ("Facebook rejected the access token");
-// !data.is_valid → invalid_token ("Facebook access token is not valid");
-// data.app_id != AppID → invalid_token ("Facebook token was issued for a
-// different app"). Then GET https://graph.facebook.com/v20.0/<user_id>?fields=
-// id,name,email,picture.type(large)&access_token=<t> — non-2xx → invalid_token
-// ("Could not read the Facebook profile"). Profile: name || "Player", email,
-// picture.data.url.
+// Facebook login is switched off for now (owner, 23 Sep 2026) — see the
+// commented case in VerifyLogin. The verifier is kept here, commented out,
+// so bringing it back is uncommenting it (and the net/url import) rather
+// than rewriting it.
 //
-// As in Node there is no appsecret_proof and the app token is the plain
-// "<appId>|<appSecret>"; app_id is compared as text because the Graph API
-// has returned it both as a string and as a number. A 2xx body that is not
-// JSON is an ordinary error (Node: SyntaxError → 500 internal_error).
-func (v *Verifier) VerifyFacebook(ctx context.Context, accessToken string) (*db.Profile, error) {
-	if accessToken == "" {
-		return nil, NewAuthError(CodeMissingToken, "accessToken is required for Facebook login", 0)
-	}
-	if v.facebook.AppID == "" || v.facebook.AppSecret == "" {
-		return nil, NewAuthError(CodeProviderUnconfigured, "Facebook login is not configured on this server", http.StatusServiceUnavailable)
-	}
-	appToken := v.facebook.AppID + "|" + v.facebook.AppSecret
-	debugURL := v.graphURL + "/debug_token?input_token=" + url.QueryEscape(accessToken) + "&access_token=" + url.QueryEscape(appToken)
-	status, body, err := v.get(ctx, debugURL)
-	if err != nil {
-		return nil, err
-	}
-	if status < 200 || status > 299 {
-		return nil, NewAuthError(CodeInvalidToken, "Facebook rejected the access token", 0)
-	}
-	var debug struct {
-		Data struct {
-			IsValid bool            `json:"is_valid"`
-			AppID   json.RawMessage `json:"app_id"`
-			UserID  json.RawMessage `json:"user_id"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal(body, &debug); err != nil {
-		return nil, fmt.Errorf("facebook debug_token: %w", err)
-	}
-	if !debug.Data.IsValid {
-		return nil, NewAuthError(CodeInvalidToken, "Facebook access token is not valid", 0)
-	}
-	if jsString(debug.Data.AppID) != v.facebook.AppID {
-		return nil, NewAuthError(CodeInvalidToken, "Facebook token was issued for a different app", 0)
-	}
-	profileURL := v.graphURL + "/v20.0/" + jsString(debug.Data.UserID) + "?fields=id,name,email,picture.type(large)&access_token=" + url.QueryEscape(accessToken)
-	status, body, err = v.get(ctx, profileURL)
-	if err != nil {
-		return nil, err
-	}
-	if status < 200 || status > 299 {
-		return nil, NewAuthError(CodeInvalidToken, "Could not read the Facebook profile", 0)
-	}
-	var profile struct {
-		ID      json.RawMessage `json:"id"`
-		Name    string          `json:"name"`
-		Email   *string         `json:"email"`
-		Picture *struct {
-			Data *struct {
-				URL *string `json:"url"`
-			} `json:"data"`
-		} `json:"picture"`
-	}
-	if err := json.Unmarshal(body, &profile); err != nil {
-		return nil, fmt.Errorf("facebook profile: %w", err)
-	}
-	name := profile.Name
-	if name == "" {
-		name = "Player"
-	}
-	var avatar *string
-	if profile.Picture != nil && profile.Picture.Data != nil {
-		avatar = profile.Picture.Data.URL
-	}
-	return &db.Profile{
-		Provider:       db.ProviderFacebook,
-		ProviderUserID: jsString(profile.ID),
-		DisplayName:    name,
-		Email:          profile.Email,
-		AvatarURL:      avatar,
-	}, nil
-}
+// // VerifyFacebook checks a user access token via the Graph API (verifyFacebook):
+// // "" → missing_token ("accessToken is required for Facebook login"); missing
+// // AppID or AppSecret → provider_unconfigured 503. GET
+// // https://graph.facebook.com/debug_token?input_token=<t>&access_token=<appId>|<appSecret>
+// // — non-2xx → invalid_token ("Facebook rejected the access token");
+// // !data.is_valid → invalid_token ("Facebook access token is not valid");
+// // data.app_id != AppID → invalid_token ("Facebook token was issued for a
+// // different app"). Then GET https://graph.facebook.com/v20.0/<user_id>?fields=
+// // id,name,email,picture.type(large)&access_token=<t> — non-2xx → invalid_token
+// // ("Could not read the Facebook profile"). Profile: name || "Player", email,
+// // picture.data.url.
+// //
+// // As in Node there is no appsecret_proof and the app token is the plain
+// // "<appId>|<appSecret>"; app_id is compared as text because the Graph API
+// // has returned it both as a string and as a number. A 2xx body that is not
+// // JSON is an ordinary error (Node: SyntaxError → 500 internal_error).
+// func (v *Verifier) VerifyFacebook(ctx context.Context, accessToken string) (*db.Profile, error) {
+// 	if accessToken == "" {
+// 		return nil, NewAuthError(CodeMissingToken, "accessToken is required for Facebook login", 0)
+// 	}
+// 	if v.facebook.AppID == "" || v.facebook.AppSecret == "" {
+// 		return nil, NewAuthError(CodeProviderUnconfigured, "Facebook login is not configured on this server", http.StatusServiceUnavailable)
+// 	}
+// 	appToken := v.facebook.AppID + "|" + v.facebook.AppSecret
+// 	debugURL := v.graphURL + "/debug_token?input_token=" + url.QueryEscape(accessToken) + "&access_token=" + url.QueryEscape(appToken)
+// 	status, body, err := v.get(ctx, debugURL)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	if status < 200 || status > 299 {
+// 		return nil, NewAuthError(CodeInvalidToken, "Facebook rejected the access token", 0)
+// 	}
+// 	var debug struct {
+// 		Data struct {
+// 			IsValid bool            `json:"is_valid"`
+// 			AppID   json.RawMessage `json:"app_id"`
+// 			UserID  json.RawMessage `json:"user_id"`
+// 		} `json:"data"`
+// 	}
+// 	if err := json.Unmarshal(body, &debug); err != nil {
+// 		return nil, fmt.Errorf("facebook debug_token: %w", err)
+// 	}
+// 	if !debug.Data.IsValid {
+// 		return nil, NewAuthError(CodeInvalidToken, "Facebook access token is not valid", 0)
+// 	}
+// 	if jsString(debug.Data.AppID) != v.facebook.AppID {
+// 		return nil, NewAuthError(CodeInvalidToken, "Facebook token was issued for a different app", 0)
+// 	}
+// 	profileURL := v.graphURL + "/v20.0/" + jsString(debug.Data.UserID) + "?fields=id,name,email,picture.type(large)&access_token=" + url.QueryEscape(accessToken)
+// 	status, body, err = v.get(ctx, profileURL)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	if status < 200 || status > 299 {
+// 		return nil, NewAuthError(CodeInvalidToken, "Could not read the Facebook profile", 0)
+// 	}
+// 	var profile struct {
+// 		ID      json.RawMessage `json:"id"`
+// 		Name    string          `json:"name"`
+// 		Email   *string         `json:"email"`
+// 		Picture *struct {
+// 			Data *struct {
+// 				URL *string `json:"url"`
+// 			} `json:"data"`
+// 		} `json:"picture"`
+// 	}
+// 	if err := json.Unmarshal(body, &profile); err != nil {
+// 		return nil, fmt.Errorf("facebook profile: %w", err)
+// 	}
+// 	name := profile.Name
+// 	if name == "" {
+// 		name = "Player"
+// 	}
+// 	var avatar *string
+// 	if profile.Picture != nil && profile.Picture.Data != nil {
+// 		avatar = profile.Picture.Data.URL
+// 	}
+// 	return &db.Profile{
+// 		Provider:       db.ProviderFacebook,
+// 		ProviderUserID: jsString(profile.ID),
+// 		DisplayName:    name,
+// 		Email:          profile.Email,
+// 		AvatarURL:      avatar,
+// 	}, nil
+// }
 
 // get performs one Graph API GET and returns status and body.
 func (v *Verifier) get(ctx context.Context, target string) (int, []byte, error) {

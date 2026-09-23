@@ -68,7 +68,11 @@ dependencies:
   # declaration for a game that carries no advertising. That trade is back on:
   # re-check the declaration before the next submission with
   # `aapt2 dump permissions` on the release APK. docs/social-login-setup.md §2.
-  flutter_facebook_auth: ^7.2.0
+  #
+  # Switched off again on 23 Sep 2026 (owner), for now: the login screen draws
+  # no Facebook button, so the plugin (and the ad permissions it injects) is
+  # left out of the build. Uncomment to bring Facebook back.
+  # flutter_facebook_auth: ^7.2.0
 
 dev_dependencies:
   flutter_test:

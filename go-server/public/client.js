@@ -176,12 +176,14 @@
       displayName: $('nameInput').value.trim() || 'Google Player',
     });
 
-  $('facebookBtn').onclick = () =>
-    signIn({
-      provider: 'facebook',
-      providerUserId: `web-fb-${deviceId}`,
-      displayName: $('nameInput').value.trim() || 'Facebook Player',
-    });
+  // Facebook login is switched off for now (owner, 23 Sep 2026): the button is
+  // commented out of index.html and the server refuses the provider.
+  // $('facebookBtn').onclick = () =>
+  //   signIn({
+  //     provider: 'facebook',
+  //     providerUserId: `web-fb-${deviceId}`,
+  //     displayName: $('nameInput').value.trim() || 'Facebook Player',
+  //   });
 
   // ------------------------------------------------------------------ socket
 

@@ -1,5 +1,7 @@
 import 'package:flutter/foundation.dart';
-import 'package:flutter_facebook_auth/flutter_facebook_auth.dart';
+// Facebook login is switched off for now (owner, 23 Sep 2026); restore this
+// import with facebook() below and the dependency in pubspec.yaml.
+// import 'package:flutter_facebook_auth/flutter_facebook_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
 /// Thrown when the build carries no credentials for the provider tapped.
@@ -35,6 +37,12 @@ class SignInUnavailable implements Exception {
 /// a game that carries no advertising. Check the merged manifest with
 /// `aapt2 dump permissions` before each submission and answer the declaration
 /// to match. docs/social-login-setup.md §2 has the whole story.
+///
+/// **Switched off again on 23 Sep 2026 (owner), for now**: the login screen
+/// draws no Facebook button, [facebook] and the flutter_facebook_auth
+/// dependency are commented out (so the SDK and its ad permissions are not in
+/// the build), and the server refuses the provider. Uncomment all of it to
+/// bring Facebook back.
 class SocialSignIn {
   const SocialSignIn._();
 
@@ -109,23 +117,23 @@ class SocialSignIn {
     }
   }
 
-  /// Signs in with Facebook and returns the access token for our server.
-  static Future<String?> facebook() async {
-    if (!facebookConfigured) throw const SignInUnavailable('Facebook');
-    final result = await FacebookAuth.instance.login(
-      // The default set. Our server only needs the identity behind the token;
-      // asking for more would put a longer consent screen in front of a
-      // player for data the game never reads.
-      permissions: const ['public_profile'],
-    );
-    switch (result.status) {
-      case LoginStatus.success:
-        return result.accessToken?.tokenString;
-      case LoginStatus.cancelled:
-        return null;
-      case LoginStatus.failed:
-      case LoginStatus.operationInProgress:
-        throw StateError(result.message ?? 'Facebook sign-in failed');
-    }
-  }
+  // /// Signs in with Facebook and returns the access token for our server.
+  // static Future<String?> facebook() async {
+  //   if (!facebookConfigured) throw const SignInUnavailable('Facebook');
+  //   final result = await FacebookAuth.instance.login(
+  //     // The default set. Our server only needs the identity behind the token;
+  //     // asking for more would put a longer consent screen in front of a
+  //     // player for data the game never reads.
+  //     permissions: const ['public_profile'],
+  //   );
+  //   switch (result.status) {
+  //     case LoginStatus.success:
+  //       return result.accessToken?.tokenString;
+  //     case LoginStatus.cancelled:
+  //       return null;
+  //     case LoginStatus.failed:
+  //     case LoginStatus.operationInProgress:
+  //       throw StateError(result.message ?? 'Facebook sign-in failed');
+  //   }
+  // }
 }

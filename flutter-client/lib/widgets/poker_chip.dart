@@ -128,6 +128,18 @@ class _ChipTones {
   int get hashCode => body.hashCode;
 }
 
+/// The five shades a chip of [colour] is moulded in, lightest first: the lit
+/// top of its body, the body itself, its recessed face, the shaded foot of its
+/// body and its outer wall.
+///
+/// The same five every [PokerChip], pile and spin is painted with, for art
+/// drawn elsewhere that has to read as the same chip — the lobby's chip
+/// shuffle (`chip_shuffle.dart`) recolours its chips with them.
+List<Color> chipBodyShades(Color colour) {
+  final tones = _ChipTones.of(colour);
+  return [tones.top, tones.body, tones.face, tones.base, tones.outline];
+}
+
 Color _lighten(Color c, double t) => Color.lerp(c, const Color(0xFFFFFFFF), t)!;
 Color _darken(Color c, double t) => Color.lerp(c, const Color(0xFF000000), t)!;
 
