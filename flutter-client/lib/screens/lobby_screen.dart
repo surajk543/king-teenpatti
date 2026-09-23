@@ -3824,13 +3824,11 @@ class _DrawerAction extends StatelessWidget {
     required this.leading,
     required this.title,
     required this.onTap,
-    this.subtitle,
     this.danger = false,
   });
 
   final Widget leading;
   final String title;
-  final String? subtitle;
   final VoidCallback onTap;
 
   /// Quietened rather than shouted: the two destructive rows sit next to each
@@ -3841,7 +3839,6 @@ class _DrawerAction extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final text = theme.textTheme;
-    final caption = subtitle;
     final ink = danger
         ? theme.colorScheme.error.withValues(alpha: 0.86)
         : theme.colorScheme.onSurface;
@@ -3878,32 +3875,15 @@ class _DrawerAction extends StatelessWidget {
                   ),
                   const SizedBox(width: Space.md),
                   Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: AppTheme.label(
-                            text.bodyMedium!,
-                            colour: ink,
-                            weight: FontWeight.w500,
-                          ),
-                        ),
-                        if (caption != null)
-                          Text(
-                            caption,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: text.bodySmall?.copyWith(
-                              color: theme.colorScheme.onSurface.withValues(
-                                alpha: AppTheme.inkLow,
-                              ),
-                            ),
-                          ),
-                      ],
+                    child: Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTheme.label(
+                        text.bodyMedium!,
+                        colour: ink,
+                        weight: FontWeight.w500,
+                      ),
                     ),
                   ),
                 ],
@@ -4457,16 +4437,11 @@ class _SettingsDrawerState extends State<_SettingsDrawer> {
             ],
           ),
         ),
+        // No Rules row here (owner, 23 Sep 2026: "remove the rules button from
+        // setting drawer"): the rules are read where they apply — each table
+        // card's rulebook key in the lobby, and the table's own menu once
+        // seated.
         const _DrawerRule(space: Space.sm),
-        _DrawerAction(
-          leading: const Icon(Icons.menu_book_outlined),
-          title: t.rules,
-          subtitle: t.rulesTitle,
-          onTap: () {
-            Navigator.pop(context);
-            showRules(context);
-          },
-        ),
         // Sound and vibration, as switches rather than actions: they have a
         // state the player should be able to read at a glance, which a row
         // that merely reacts to a tap does not show.
