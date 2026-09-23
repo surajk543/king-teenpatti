@@ -485,9 +485,12 @@ void main() {
         find.text('Toucan Flying costs 30 hammers. Get more hammers?'),
         findsOneWidget,
       );
+      // The store's own pill — the FRAMED balance: the picture sheet's panel
+      // beneath it holds the same count on a bare HammerBalance since the
+      // wallet pairs were built from the pills (24 Sep 2026).
       expect(
         find.descendant(
-          of: find.byType(HammerBalance),
+          of: find.byWidgetPredicate((w) => w is HammerBalance && w.framed),
           matching: find.text('5'),
         ),
         findsOneWidget,

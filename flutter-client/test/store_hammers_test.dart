@@ -131,18 +131,20 @@ void main() {
               // Each shelf heads with its own wallet, where it has one: the
               // Pictures shelf with both a picture can cost besides chips, in
               // one pill, since the animated ones cost hammers (14 Sep 2026),
-              // and the Tables shelf (15 Sep 2026), priced in the same three
-              // wallets, with the same pill.
+              // the Tables shelf (15 Sep 2026), priced in the same three
+              // wallets, with the same pill, and the Missiles shelf with the
+              // missiles held beside the diamonds a pack is traded for, in a
+              // pill of the same kind (owner, 24 Sep 2026). A pill of its
+              // own is a FRAMED balance; inside a pair the same widgets stand
+              // bare, so a pair is counted as a pair and a pill by its frame.
               expect(
-                find.byType(HammerBalance),
+                find.byWidgetPredicate((w) => w is HammerBalance && w.framed),
                 tab == StoreTab.hammers ? findsOneWidget : findsNothing,
                 reason: '$name ${lang.code} $tab',
               );
               expect(
-                find.byType(DiamondBalance),
-                tab == StoreTab.diamonds || tab == StoreTab.missiles
-                    ? findsOneWidget
-                    : findsNothing,
+                find.byWidgetPredicate((w) => w is DiamondBalance && w.framed),
+                tab == StoreTab.diamonds ? findsOneWidget : findsNothing,
                 reason: '$name ${lang.code} $tab',
               );
               expect(
@@ -150,6 +152,16 @@ void main() {
                 tab == StoreTab.pictures || tab == StoreTab.tables
                     ? findsOneWidget
                     : findsNothing,
+                reason: '$name ${lang.code} $tab',
+              );
+              expect(
+                find.byType(MissileWalletBalances),
+                tab == StoreTab.missiles ? findsOneWidget : findsNothing,
+                reason: '$name ${lang.code} $tab',
+              );
+              expect(
+                find.byType(MissileBalance),
+                tab == StoreTab.missiles ? findsOneWidget : findsNothing,
                 reason: '$name ${lang.code} $tab',
               );
               await _closeStore(tester);

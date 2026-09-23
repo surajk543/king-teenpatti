@@ -1845,7 +1845,15 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   table the SEAT's stack (what the drawer's "Your chips" shows and where a pack bought there lands), in the lobby the wallet; its width,
   floored at a two-decimal lakh figure, is counted into the header's `walletW` on every shelf, so the tabs never move from one shelf to
   the next and the blurb gives up the room (`test/store_chips_test.dart`: 640x360 at x1.25 in all five languages, a wallet change under
-  an open store, the seat at a table) — the **Diamonds** tab (`diamondPacks`, `_DiamondPackCard`: 1/₹49, 5/₹199 ⭐, 20/₹699 🔥, 100/₹2,999) is offered at a table too, and a credited pack celebrates as `rewardWon.kind == 'diamonds'`; at a table the picture key
+  an open store, the seat at a table); **and Missiles with the missiles held beside the diamonds a pack is traded for, since 24 Sep 2026**
+  (owner: "In store when user click on Missile tab, then it should also show the user current missile count just like it is showing
+  diamond count"; it headed with the diamonds alone): `MissileBalance`, the missiles twin of `DiamondBalance`/`HammerBalance` —
+  `missileIcon` in the missile's coral on the dark pill — inside `MissileWalletBalances`, missiles then diamonds in ONE dark panel,
+  exactly as `PictureWalletBalances` pairs diamonds and hammers (two framed pills one over the other would stand taller than a one-line
+  header at x1.25): in a row where the widest blurb keeps its line beside it, stacked otherwise, its stacked width counted into
+  `walletW` on every shelf. The three single pills and both panels are now one private `_WalletBalance` row (bare, `framed: false`,
+  inside a `_WalletPanel`), so the Pictures/Tables shelves draw what they did pixel for pixel and the Diamonds/Hammers pills gain only
+  tabular figures; the count reads `user.missile` under the store's watch, so a trade raises it at once (`test/store_missiles_test.dart`) — the **Diamonds** tab (`diamondPacks`, `_DiamondPackCard`: 1/₹49, 5/₹199 ⭐, 20/₹699 🔥, 100/₹2,999) is offered at a table too, and a credited pack celebrates as `rewardWon.kind == 'diamonds'`; at a table the picture key
   is **Animated** (`_StoreTabs.animatedOnly`, owner 13 Sep 2026): the animated shelf alone, no shelf menu, bought with hammers (since 14 Sep 2026; diamonds before) and worn on the seat at once; the chip packs are drawn as lobby table cards —
   frosted glass over a baked orb, a still plate, count-up figure, one fact, a price capsule — coloured sapphire → purple → gold
   up the range; the Pictures tab heads its grid with the worn picture, large and centred, beside the shelf menu); requirement 21): a horizontal strip

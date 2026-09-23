@@ -744,9 +744,10 @@ class _ChipStoreState extends State<_ChipStore> {
     // area, the sheet's margin and its padding; its fixed parts are the
     // shelf's glyph, a balance, the close key and the gaps between them. A
     // balance is counted on every shelf — the widest of the chips, a diamond
-    // or hammer count and the Pictures pair — and the widest blurb of all the
-    // shelves decides, so the tabs never change size — and move under a
-    // finger — on the way from one shelf to the next. It used to keep a flat
+    // or hammer count, the Pictures pair and the Missiles pair — and the
+    // widest blurb of all the shelves decides, so the tabs never change size
+    // — and move under a finger — on the way from one shelf to the next. It
+    // used to keep a flat
     // 96dp for the title, which left the Hammers and Pictures blurbs cut off
     // even on an 891dp phone ("A hammer forces a sideshow — nob…", QA 14 Sep
     // 2026).
@@ -758,11 +759,17 @@ class _ChipStoreState extends State<_ChipStore> {
     // pill (owner, 14 Sep 2026: the animated pictures cost hammers). It is
     // counted here as it is when stacked — no wider than one balance — and
     // laid out in a row only where the widest blurb still keeps its line
-    // beside the row.
+    // beside the row. The Missiles shelf heads the same way with the missiles
+    // held and the diamonds a pack is traded for (owner, 24 Sep 2026: "it
+    // should also show the user current missile count just like it is
+    // showing diamond count"), and is counted and laid out by the same rule.
     const balanceW = 72.0;
     const titleFloor = 96.0;
     final diamonds = state.user?.diamond ?? 0;
     final hammers = state.user?.hammer ?? 0;
+    // Read on every build, under the store's watch, so a pack traded on the
+    // shelf counts up here the moment the wallet comes back from the server.
+    final missiles = state.user?.missile ?? 0;
     // The chips the Chips shelf heads with (owner, 24 Sep 2026): at a table
     // the seat's own stack — what the drawer's "Your chips" row shows, and
     // where a pack bought there lands — and in the lobby the wallet. Read on
@@ -775,12 +782,24 @@ class _ChipStoreState extends State<_ChipStore> {
       hammers: hammers,
       stacked: false,
     );
+    final missilePairRowW = MissileWalletBalances.width(
+      context,
+      missiles: missiles,
+      diamonds: diamonds,
+      stacked: false,
+    );
     final walletW = [
       balanceW,
       PictureWalletBalances.width(
         context,
         diamonds: diamonds,
         hammers: hammers,
+        stacked: true,
+      ),
+      MissileWalletBalances.width(
+        context,
+        missiles: missiles,
+        diamonds: diamonds,
         stacked: true,
       ),
       ChipBalance.width(context, chips: chips),
@@ -822,6 +841,7 @@ class _ChipStoreState extends State<_ChipStore> {
       }
       return most;
     }
+
     final labelledW = _StoreTabs.labelledWidth(
       context,
       t,
@@ -849,6 +869,8 @@ class _ChipStoreState extends State<_ChipStore> {
     final blurbLines = headerW - fixedW - tabsShown >= blurbW ? 1 : 2;
     final walletPairInRow =
         headerW - fixedW - tabsShown - (walletPairRowW - walletW) >= blurbW;
+    final missilePairInRow =
+        headerW - fixedW - tabsShown - (missilePairRowW - walletW) >= blurbW;
     final headerH = math.max(
       Dim.minTouch,
       _line(scaler, 17, 1.25) + blurbLines * _line(scaler, 12, 1.35),
@@ -1019,10 +1041,15 @@ class _ChipStoreState extends State<_ChipStore> {
                         // Chips heads with the chips themselves since 24 Sep
                         // 2026 (owner: "when user click on Coins tab, then it
                         // is not showing users current coin on top, just like
-                        // we show for hammer"). The Missiles shelf is paid
-                        // for in diamonds, so it heads with the diamonds there
-                        // are to trade; Pictures with both wallets a picture
-                        // can cost besides chips.
+                        // we show for hammer"). The Missiles shelf heads with
+                        // the missiles held and, since its packs are paid for
+                        // in diamonds, the diamonds there are to trade — both
+                        // since 24 Sep 2026 (owner: "when user click on
+                        // Missile tab, then it should also show the user
+                        // current missile count just like it is showing
+                        // diamond count"; it headed with the diamonds alone);
+                        // Pictures with both wallets a picture can cost
+                        // besides chips.
                         // The Tables shelf is priced in the same three
                         // wallets as the pictures, so it heads the same way.
                         if (onChips) ...[
@@ -1037,8 +1064,16 @@ class _ChipStoreState extends State<_ChipStore> {
                           ),
                           const SizedBox(width: Space.md),
                         ],
-                        if (onDiamonds || onMissiles) ...[
+                        if (onDiamonds) ...[
                           DiamondBalance(count: diamonds),
+                          const SizedBox(width: Space.md),
+                        ],
+                        if (onMissiles) ...[
+                          MissileWalletBalances(
+                            missiles: missiles,
+                            diamonds: diamonds,
+                            stacked: !missilePairInRow,
+                          ),
                           const SizedBox(width: Space.md),
                         ],
                         if (onHammers) ...[

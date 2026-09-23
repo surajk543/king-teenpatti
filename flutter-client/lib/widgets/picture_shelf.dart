@@ -1136,16 +1136,50 @@ const _diamondInk = Color(0xFFBFE3FF);
 Color diamondInkOn(Brightness brightness) =>
     brightness == Brightness.dark ? _diamondInk : const Color(0xFF2F6FB3);
 
-/// The player's diamonds: in the header of the store's Diamonds and Missiles
-/// shelves, and in a diamond-priced picture's dialogs.
-class DiamondBalance extends StatelessWidget {
-  const DiamondBalance({super.key, required this.count});
+/// One soft wallet — its glyph in its ink and the count — on the dark pill
+/// the store's single-wallet shelves head with, or bare, for [_WalletPanel],
+/// which frames several at once. The ONE place the row is drawn, so the
+/// missiles' figure on the Missiles shelf is the diamonds' beside it and the
+/// hammers' on the Pictures shelf. Tabular figures, as every other balance
+/// has (the chips, the panel, the table's [WalletPill]): a pack landing
+/// changes the digits, never the pill's width under the finger.
+class _WalletBalance extends StatelessWidget {
+  const _WalletBalance({
+    required this.icon,
+    required this.ink,
+    required this.count,
+    required this.framed,
+  });
 
+  final IconData icon;
+  final Color ink;
   final int count;
+
+  /// On its own dark pill, or the bare glyph and figure for a panel that
+  /// frames several wallets.
+  final bool framed;
+
+  /// The glyph's size, shared with [_WalletPanel.width].
+  static const double iconSize = 14;
+
+  static TextStyle? figure(ThemeData theme) =>
+      theme.textTheme.labelMedium?.copyWith(
+        fontWeight: FontWeight.w700,
+        fontFeatures: const [FontFeature.tabularFigures()],
+      );
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final row = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: iconSize, color: ink),
+        const SizedBox(width: Space.xs),
+        Text('$count', style: figure(theme)?.copyWith(color: ink)),
+      ],
+    );
+    if (!framed) return row;
     return Container(
       padding: const EdgeInsets.symmetric(
         horizontal: Space.md,
@@ -1154,24 +1188,35 @@ class DiamondBalance extends StatelessWidget {
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(Radii.pill),
         color: AppTheme.ink900.withValues(alpha: 0.82),
-        border: Border.all(color: _diamondInk.withValues(alpha: 0.55)),
+        border: Border.all(
+          color: ink.withValues(alpha: 0.55),
+          width: Dim.hairline,
+        ),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(Icons.diamond, size: 14, color: _diamondInk),
-          const SizedBox(width: Space.xs),
-          Text(
-            '$count',
-            style: theme.textTheme.labelMedium?.copyWith(
-              color: _diamondInk,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ],
-      ),
+      child: row,
     );
   }
+}
+
+/// The player's diamonds: in the header of the store's Diamonds shelf, in a
+/// diamond-priced picture's dialogs, and — [framed] off — as one figure of the
+/// panels that show two wallets at once, [PictureWalletBalances] and
+/// [MissileWalletBalances].
+class DiamondBalance extends StatelessWidget {
+  const DiamondBalance({super.key, required this.count, this.framed = true});
+
+  final int count;
+
+  /// On its own dark pill, or bare, for a panel that frames several wallets.
+  final bool framed;
+
+  @override
+  Widget build(BuildContext context) => _WalletBalance(
+    icon: Icons.diamond,
+    ink: _diamondInk,
+    count: count,
+    framed: framed,
+  );
 }
 
 /// The ink every hammer figure is drawn in on a dark pill: a pale copper, the
@@ -1185,41 +1230,23 @@ Color hammerInkOn(Brightness brightness) =>
     brightness == Brightness.dark ? _hammerInk : const Color(0xFFB0571F);
 
 /// The player's hammers, in the store's header on the Hammers shelf and in a
-/// hammer-priced picture's dialogs — the hammer twin of [DiamondBalance].
+/// hammer-priced picture's dialogs — the hammer twin of [DiamondBalance] —
+/// and, [framed] off, one figure of the Pictures shelf's pair.
 class HammerBalance extends StatelessWidget {
-  const HammerBalance({super.key, required this.count});
+  const HammerBalance({super.key, required this.count, this.framed = true});
 
   final int count;
 
+  /// On its own dark pill, or bare, for a panel that frames several wallets.
+  final bool framed;
+
   @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: Space.md,
-        vertical: Space.xs,
-      ),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(Radii.pill),
-        color: AppTheme.ink900.withValues(alpha: 0.82),
-        border: Border.all(color: _hammerInk.withValues(alpha: 0.55)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(Icons.hardware, size: 14, color: _hammerInk),
-          const SizedBox(width: Space.xs),
-          Text(
-            '$count',
-            style: theme.textTheme.labelMedium?.copyWith(
-              color: _hammerInk,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  Widget build(BuildContext context) => _WalletBalance(
+    icon: Icons.hardware,
+    ink: _hammerInk,
+    count: count,
+    framed: framed,
+  );
 }
 
 /// The player's chips, in the store's header on the Chips shelf — the chips
@@ -1304,51 +1331,37 @@ class ChipBalance extends StatelessWidget {
   }
 }
 
-/// The two wallets a premium picture is paid from besides chips — diamonds,
-/// then hammers — in one dark pill, for the picture sheet's header and the
-/// store's Pictures shelf (owner, 14 Sep 2026: the animated pictures were
-/// re-priced in hammers, so the hammer count joined the diamond one there).
-///
-/// One pill rather than a [DiamondBalance] beside a [HammerBalance]: on a
-/// 640dp phone a second pill took the store header's blurb down to a few
-/// words. Where even one row is too wide the counts stand one over the other
-/// ([stacked]), no wider than a single balance, as the table's [WalletPill]
-/// does with its three.
-class PictureWalletBalances extends StatelessWidget {
-  const PictureWalletBalances({
-    super.key,
-    required this.diamonds,
-    required this.hammers,
-    this.stacked = false,
-  });
+/// Several soft wallets in one dark panel, for a store header with room for
+/// one balance: the bare figures in a row, or — [stacked] — one over the
+/// other, no wider than a single balance, as the table's [WalletPill] does
+/// with its three. One panel rather than a pill each: on a 640dp phone a
+/// second pill took the store header's blurb down to a few words, and two
+/// pills one over the other stand taller than a one-line header at the 1.25
+/// text ceiling, which two bare lines on the thinner padding just keep to.
+/// [PictureWalletBalances] and [MissileWalletBalances] are the two faces of it.
+class _WalletPanel extends StatelessWidget {
+  const _WalletPanel({required this.wallets, required this.stacked});
 
-  final int diamonds;
-  final int hammers;
+  /// The bare balances ([DiamondBalance] and its twins with `framed: false`),
+  /// in the order shown.
+  final List<Widget> wallets;
 
-  /// Hammers on a line under the diamonds rather than beside them.
+  /// The figures on lines under one another rather than beside each other.
   final bool stacked;
 
-  static const double _icon = 14;
-
-  static TextStyle? _figure(ThemeData theme) =>
-      theme.textTheme.labelMedium?.copyWith(
-        fontWeight: FontWeight.w700,
-        fontFeatures: const [FontFeature.tabularFigures()],
-      );
-
-  /// How wide the pill is at this text scale, in a row or [stacked].
+  /// How wide the panel is at this text scale with these [counts], in a row
+  /// or [stacked].
   ///
   /// Each count is measured as at least three figures — tabular, so any three
   /// are one width — because the store header's sums must not change when a
-  /// purchase takes 100 hammers down to 70: its tabs would slide under the
-  /// finger that bought the picture.
+  /// purchase takes 100 hammers down to 70, or 100 diamonds to 27: its tabs
+  /// would slide under the finger that bought the picture or the pack.
   static double width(
     BuildContext context, {
-    required int diamonds,
-    required int hammers,
+    required List<int> counts,
     required bool stacked,
   }) {
-    final style = _figure(Theme.of(context));
+    final style = _WalletBalance.figure(Theme.of(context));
     double count(int value) {
       final painter = TextPainter(
         text: TextSpan(text: '$value'.padLeft(3, '0'), style: style),
@@ -1356,18 +1369,19 @@ class PictureWalletBalances extends StatelessWidget {
         textScaler: MediaQuery.textScalerOf(context),
         maxLines: 1,
       )..layout();
-      final w = _icon + Space.xs + painter.width;
+      final w = _WalletBalance.iconSize + Space.xs + painter.width;
       painter.dispose();
       return w;
     }
 
-    final gems = count(diamonds);
-    final tools = count(hammers);
-    final content = stacked ? math.max(gems, tools) : gems + Space.md + tools;
+    final widths = [for (final value in counts) count(value)];
+    final content = stacked
+        ? widths.reduce(math.max)
+        : widths.reduce((a, b) => a + Space.md + b);
     return (2 * _sidePad(stacked) + 2 * Dim.hairline + content).ceilToDouble();
   }
 
-  /// The pill's padding either side. Narrower when stacked, so two lines are
+  /// The panel's padding either side. Narrower when stacked, so two lines are
   /// no wider than the one balance the store header counts on every shelf:
   /// at the full padding they took 3dp more from the Pictures blurb on a
   /// 640dp phone.
@@ -1375,19 +1389,6 @@ class PictureWalletBalances extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final figure = _figure(Theme.of(context));
-
-    Widget count(IconData icon, Color ink, int value) => Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, size: _icon, color: ink),
-        const SizedBox(width: Space.xs),
-        Text('$value', style: figure?.copyWith(color: ink)),
-      ],
-    );
-    final gems = count(Icons.diamond, _diamondInk, diamonds);
-    final tools = count(Icons.hardware, _hammerInk, hammers);
-
     return Container(
       // Two lines keep to the header's height at the 1.25 text ceiling only
       // with the thinner padding.
@@ -1409,18 +1410,62 @@ class PictureWalletBalances extends StatelessWidget {
           ? Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.end,
-              children: [gems, tools],
+              children: wallets,
             )
           : Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                gems,
-                const SizedBox(width: Space.md),
-                tools,
+                for (final (i, wallet) in wallets.indexed) ...[
+                  if (i > 0) const SizedBox(width: Space.md),
+                  wallet,
+                ],
               ],
             ),
     );
   }
+}
+
+/// The two wallets a premium picture is paid from besides chips — diamonds,
+/// then hammers — in one dark panel, for the picture sheet's header and the
+/// store's Pictures and Tables shelves (owner, 14 Sep 2026: the animated
+/// pictures were re-priced in hammers, so the hammer count joined the diamond
+/// one there). A [_WalletPanel] of a bare [DiamondBalance] and
+/// [HammerBalance].
+class PictureWalletBalances extends StatelessWidget {
+  const PictureWalletBalances({
+    super.key,
+    required this.diamonds,
+    required this.hammers,
+    this.stacked = false,
+  });
+
+  final int diamonds;
+  final int hammers;
+
+  /// Hammers on a line under the diamonds rather than beside them.
+  final bool stacked;
+
+  /// How wide the panel is at this text scale, in a row or [stacked]
+  /// ([_WalletPanel.width]).
+  static double width(
+    BuildContext context, {
+    required int diamonds,
+    required int hammers,
+    required bool stacked,
+  }) => _WalletPanel.width(
+    context,
+    counts: [diamonds, hammers],
+    stacked: stacked,
+  );
+
+  @override
+  Widget build(BuildContext context) => _WalletPanel(
+    stacked: stacked,
+    wallets: [
+      DiamondBalance(count: diamonds, framed: false),
+      HammerBalance(count: hammers, framed: false),
+    ],
+  );
 }
 
 /// The ink every missile figure is drawn in on a dark pill: the coral of the
@@ -1437,6 +1482,77 @@ Color missileInkOn(Brightness brightness) =>
 /// the table's wallet, the lobby's bar, the store's tab. The Lottie is the
 /// key's; at 14dp its strokes would vanish, so a count wears the icon.
 const IconData missileIcon = Icons.rocket_launch_rounded;
+
+/// The player's missiles, in the store's header on the Missiles shelf — the
+/// missiles twin of [DiamondBalance] and [HammerBalance] (owner, 24 Sep 2026:
+/// "In store when user click on Missile tab, then it should also show the
+/// user current missile count just like it is showing diamond count"; until
+/// then the shelf headed with the diamonds alone, and how many missiles a
+/// pack would add to was nowhere on it). The glyph and ink are the ones the
+/// table's wallet and the lobby bar count missiles with, [missileIcon] and
+/// the coral of the missile itself, on the dark pill. [framed] off, it is one
+/// figure of [MissileWalletBalances].
+class MissileBalance extends StatelessWidget {
+  const MissileBalance({super.key, required this.count, this.framed = true});
+
+  final int count;
+
+  /// On its own dark pill, or bare, for a panel that frames several wallets.
+  final bool framed;
+
+  @override
+  Widget build(BuildContext context) => _WalletBalance(
+    icon: missileIcon,
+    ink: _missileInk,
+    count: count,
+    framed: framed,
+  );
+}
+
+/// The missiles a player holds and the diamonds a missile pack is traded for —
+/// missiles first, then diamonds — in one dark panel, for the store's Missiles
+/// shelf (owner, 24 Sep 2026: the shelf must show "user current missile count
+/// just like it is showing diamond count", and the diamonds stay, since the
+/// packs are paid in them). The same [_WalletPanel] as the Pictures shelf's
+/// pair, in a row where the widest blurb still keeps its line beside it and
+/// [stacked] otherwise, so the Missiles shelf costs the header nothing the
+/// Pictures shelf did not already.
+class MissileWalletBalances extends StatelessWidget {
+  const MissileWalletBalances({
+    super.key,
+    required this.missiles,
+    required this.diamonds,
+    this.stacked = false,
+  });
+
+  final int missiles;
+  final int diamonds;
+
+  /// Diamonds on a line under the missiles rather than beside them.
+  final bool stacked;
+
+  /// How wide the panel is at this text scale, in a row or [stacked]
+  /// ([_WalletPanel.width]).
+  static double width(
+    BuildContext context, {
+    required int missiles,
+    required int diamonds,
+    required bool stacked,
+  }) => _WalletPanel.width(
+    context,
+    counts: [missiles, diamonds],
+    stacked: stacked,
+  );
+
+  @override
+  Widget build(BuildContext context) => _WalletPanel(
+    stacked: stacked,
+    wallets: [
+      MissileBalance(count: missiles, framed: false),
+      DiamondBalance(count: diamonds, framed: false),
+    ],
+  );
+}
 
 /// The three soft wallets in one dark pill — diamonds, hammers, then missiles
 /// — for the top right of the game table (owner, 13 and 14 Sep 2026).
