@@ -10,6 +10,7 @@ import '../models/dtos.dart';
 import '../settings/feedback_settings.dart';
 import '../state/game_state.dart';
 import '../theme/app_theme.dart';
+import '../theme/table_theme.dart';
 import 'feedback_toggles.dart';
 import 'glass_components.dart';
 import 'glass_panels.dart';
@@ -142,6 +143,40 @@ class TableWallet extends StatelessWidget {
   }
 }
 
+/// A control in one of the room's two top corners — the Shop key on the left,
+/// the wallet on the right — [TableSpace.gap] down from the top of the safe
+/// area and, on the left, [TableSpace.edge] in from its side: the insets the
+/// key clusters at the foot keep, so the four corners agree. (The Shop key sat
+/// a fixed 10dp in and 6dp down whatever the phone, which put it 6dp out of
+/// line with the Missile and Pack keys under it on a Pixel.) The wallet keeps
+/// its own side inset ([TableWallet]), which is the same edge.
+class TopCorner extends StatelessWidget {
+  const TopCorner({super.key, required this.left, required this.child});
+
+  /// The left corner, or the right.
+  final bool left;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final width = MediaQuery.sizeOf(context).width;
+    return Positioned(
+      left: left ? 0 : null,
+      right: left ? null : 0,
+      top: 0,
+      child: SafeArea(
+        child: Padding(
+          padding: EdgeInsets.only(
+            left: left ? TableSpace.edge(width) : 0,
+            top: TableSpace.gap(width),
+          ),
+          child: child,
+        ),
+      ),
+    );
+  }
+}
+
 /// The smallest a one-line wallet may be scaled to fit its corner before the
 /// missiles go to a second line.
 const double _walletLineScale = 0.85;
@@ -221,10 +256,10 @@ class Reconnecting extends StatelessWidget {
                         const SizedBox(width: Space.md),
                         Text(
                           Strings(lang).reconnecting,
-                          style: theme.textTheme.titleSmall?.copyWith(
-                            // Light ink on a dark plate, in both brightnesses.
-                            color: Colors.white.withValues(alpha: 0.92),
-                            fontWeight: FontWeight.w600,
+                          // Light ink on a dark plate, in both brightnesses.
+                          style: TableType.system(
+                            theme,
+                            colour: Colors.white.withValues(alpha: 0.92),
                           ),
                         ),
                       ],
@@ -656,8 +691,7 @@ class TableDrawer extends StatelessWidget {
                               maxLines: 1,
                               softWrap: false,
                               style: AppTheme.money(
-                                theme.textTheme.titleMedium ??
-                                    const TextStyle(),
+                                TableType.modalTitle(theme),
                               ),
                             ),
                           ),
@@ -681,8 +715,8 @@ class TableDrawer extends StatelessWidget {
                                 : room.category.toUpperCase(),
                             maxLines: 1,
                             softWrap: false,
-                            style: AppTheme.smallCaps(
-                              theme.textTheme.labelSmall ?? const TextStyle(),
+                            style: TableType.caps(
+                              theme,
                               colour: scheme.onSurface.withValues(
                                 alpha: AppTheme.inkLowOn(theme.brightness),
                               ),
@@ -762,12 +796,15 @@ class TableDrawer extends StatelessWidget {
             ),
             MenuRow(
               icon: Icons.paid_outlined,
-              // A poker room's figure is its big blind or its ante.
+              // A poker room's figure is its big blind or its ante. The boot
+              // is a word the lobby writes mid-sentence and in capitals; as a
+              // row's name it takes a capital like the rows round it ("boot"
+              // under "Your chips"). A script with no case is left as it is.
               label: room.isPoker
                   ? (room.poker?.usesBlinds ?? false
                         ? t.blindsTitle
                         : t.anteTitle)
-                  : t.boot,
+                  : _sentenceCase(t.boot),
               value: formatChips(room.bootAmount),
             ),
             if (room.maxPot > 0)
@@ -819,8 +856,8 @@ class TableDrawer extends StatelessWidget {
                           t.appearance,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: AppTheme.label(
-                            theme.textTheme.labelMedium ?? const TextStyle(),
+                          style: TableType.label(
+                            theme,
                             colour: scheme.onSurface.withValues(
                               alpha: AppTheme.inkLowOn(theme.brightness),
                             ),
@@ -880,8 +917,8 @@ class MenuRule extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Padding(
     padding: const EdgeInsets.symmetric(
-      horizontal: Space.lg,
-      vertical: Space.sm,
+      horizontal: TableSpace.drawerInset,
+      vertical: TableSpace.section,
     ),
     child: SizedBox(
       height: Dim.hairline,
@@ -892,8 +929,20 @@ class MenuRule extends StatelessWidget {
   );
 }
 
+/// A word the code shows as a row's name, with its first letter capitalised
+/// ("boot" -> "Boot"). A script with no case is left exactly as it was.
+String _sentenceCase(String word) =>
+    word.isEmpty ? word : word[0].toUpperCase() + word.substring(1);
+
 /// A row in the table menu: a glyph, what it is, and either its figure or the
 /// consequence of tapping it.
+///
+/// Every row is [TableSpace.rowHeight] tall with its glyph in one slot, so the
+/// glyphs and the names line up down the drawer whatever a row holds. A row
+/// that does something names itself in the full ink (the error ink for the one
+/// that costs); a row that only reports is system information, and says so
+/// quietly — its name muted, its figure in gold carrying the row (owner's
+/// brief: "normal actions = neutral; system information = muted").
 class MenuRow extends StatelessWidget {
   const MenuRow({
     super.key,
@@ -926,26 +975,34 @@ class MenuRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
+    // A row that only reports (a figure, nothing to tap) is information.
+    final info = onTap == null && value != null;
     final ink = tone ?? scheme.onSurface;
 
     final body = Padding(
       padding: const EdgeInsets.symmetric(
-        horizontal: Space.lg,
-        vertical: Space.md,
+        horizontal: TableSpace.drawerInset,
+        vertical: Space.sm,
       ),
       child: Row(
         children: [
           SizedBox(
-            width: 22,
-            child:
-                leading ??
-                Icon(
-                  icon,
-                  size: 18,
-                  color: ink.withValues(
-                    alpha: tone == null ? AppTheme.inkMed : AppTheme.inkHigh,
+            width: TableSpace.rowIconSlot,
+            child: Center(
+              child:
+                  leading ??
+                  Icon(
+                    icon,
+                    size: TableSpace.rowIcon,
+                    color: ink.withValues(
+                      alpha: tone != null
+                          ? AppTheme.inkHigh
+                          : info
+                          ? AppTheme.inkLowOn(theme.brightness)
+                          : AppTheme.inkMed,
+                    ),
                   ),
-                ),
+            ),
           ),
           const SizedBox(width: Space.lg),
           Expanded(
@@ -955,10 +1012,15 @@ class MenuRow extends StatelessWidget {
               children: [
                 Text(
                   label,
-                  style: AppTheme.label(
-                    theme.textTheme.bodyLarge ?? const TextStyle(),
-                    colour: ink,
-                  ),
+                  style: info
+                      ? TableType.item(
+                          theme,
+                          colour: scheme.onSurface.withValues(
+                            alpha: AppTheme.inkMed,
+                          ),
+                          weight: FontWeight.w500,
+                        )
+                      : TableType.item(theme, colour: ink),
                 ),
                 if (note != null)
                   Text(
@@ -968,11 +1030,7 @@ class MenuRow extends StatelessWidget {
                     // Neutral ink even under a toned label: the error red at
                     // the quiet alpha measured 2:1 under "Leave table", and
                     // the red label above it already says the row costs.
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: scheme.onSurface.withValues(
-                        alpha: AppTheme.inkLowOn(theme.brightness),
-                      ),
-                    ),
+                    style: TableType.metadata(theme),
                   ),
               ],
             ),
@@ -981,10 +1039,7 @@ class MenuRow extends StatelessWidget {
             const SizedBox(width: Space.md),
             Text(
               value!,
-              style: AppTheme.money(
-                theme.textTheme.titleSmall ?? const TextStyle(),
-                colour: goldInk(theme.brightness),
-              ),
+              style: TableType.chips(theme, colour: goldInk(theme.brightness)),
             ),
           ],
         ],
@@ -993,7 +1048,7 @@ class MenuRow extends StatelessWidget {
 
     if (onTap == null) {
       return ConstrainedBox(
-        constraints: const BoxConstraints(minHeight: Dim.minTouch),
+        constraints: const BoxConstraints(minHeight: TableSpace.rowHeight),
         child: body,
       );
     }
@@ -1007,7 +1062,7 @@ class MenuRow extends StatelessWidget {
         enableFeedback: context.select<FeedbackSettings, bool>((f) => f.sound),
         onTap: onTap,
         child: ConstrainedBox(
-          constraints: const BoxConstraints(minHeight: Dim.minTouch),
+          constraints: const BoxConstraints(minHeight: TableSpace.rowHeight),
           child: body,
         ),
       ),
@@ -1015,49 +1070,87 @@ class MenuRow extends StatelessWidget {
   }
 }
 
+/// A dialog over the table, on the table's own scrim ([TableScrim.dialog]):
+/// the room dimmed so the question stands out, and still there behind it —
+/// Material's black at 0.54 turned the light theme's room to grey mud.
+Future<T?> showTableDialog<T>({
+  required BuildContext context,
+  required WidgetBuilder builder,
+}) => showDialog<T>(
+  context: context,
+  barrierColor: TableScrim.dialog,
+  builder: builder,
+);
+
 /// The two keys a dialog closes on: the quiet one, then the one that acts.
+///
+/// [destructive] is for the one question whose yes gives something up —
+/// leaving the table: its key wears the error colour, as the menu row that
+/// asked it does, where every other question's key is the gold one.
 List<Widget> dialogActions(
   BuildContext context, {
   required String stay,
   required String go,
-}) => [
-  // The flat half of the pair: the theme keeps a text button shadowless, so a
-  // shadow under "stay" never fights the key it defers to.
-  GlassButton(
-    style: GlassButtonStyle.text,
-    onPressed: () => Navigator.pop(context, false),
-    label: stay,
-  ),
-  // The acting key: the one solid gold fill, on ink900 in both brightnesses,
-  // and never under the 44dp touch floor.
-  GlassButton(
-    style: GlassButtonStyle.primary,
-    onPressed: () => Navigator.pop(context, true),
-    minimumSize: const Size(120, Dim.minTouch),
-    buttonStyle: FilledButton.styleFrom(
-      backgroundColor: AppTheme.gold,
-      foregroundColor: AppTheme.ink900,
+  bool destructive = false,
+}) {
+  final scheme = Theme.of(context).colorScheme;
+  return [
+    // The flat half of the pair: the theme keeps a text button shadowless, so
+    // a shadow under "stay" never fights the key it defers to.
+    GlassButton(
+      style: GlassButtonStyle.text,
+      onPressed: () => Navigator.pop(context, false),
+      label: stay,
     ),
-    label: go,
-  ),
-];
+    // The acting key: the one solid gold fill, on ink900 in both
+    // brightnesses — or the error fill for a destructive one — and never under
+    // the 44dp touch floor.
+    GlassButton(
+      style: GlassButtonStyle.primary,
+      onPressed: () => Navigator.pop(context, true),
+      minimumSize: const Size(120, Dim.minTouch),
+      buttonStyle: FilledButton.styleFrom(
+        backgroundColor: destructive ? scheme.error : AppTheme.gold,
+        foregroundColor: destructive ? scheme.onError : AppTheme.ink900,
+        textStyle: TableType.primaryAction(Theme.of(context)),
+      ),
+      label: go,
+    ),
+  ];
+}
 
 /// The title line of a table dialog: a glyph and the question, side by side.
-Widget dialogTitle(BuildContext context, IconData icon, String text) {
+/// [tone] colours the glyph of a question whose yes gives something up.
+Widget dialogTitle(
+  BuildContext context,
+  IconData icon,
+  String text, {
+  Color? tone,
+}) {
   final theme = Theme.of(context);
 
   return Row(
     children: [
-      Icon(icon, size: 20, color: goldInk(theme.brightness)),
+      Icon(icon, size: 20, color: tone ?? goldInk(theme.brightness)),
       const SizedBox(width: Space.md),
-      Expanded(
-        child: Text(
-          text,
-          style: AppTheme.label(
-            theme.textTheme.titleMedium ?? const TextStyle(),
-          ),
-        ),
-      ),
+      Expanded(child: Text(text, style: TableType.modalTitle(theme))),
+    ],
+  );
+}
+
+/// A table dialog's body: what the question means, and under it — quieter —
+/// what it costs or what else to know.
+Widget dialogBody(BuildContext context, String body, {String? note}) {
+  final theme = Theme.of(context);
+  return Column(
+    mainAxisSize: MainAxisSize.min,
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(body, style: TableType.modalBody(theme)),
+      if (note != null) ...[
+        const SizedBox(height: Space.sm),
+        Text(note, style: TableType.metadata(theme)),
+      ],
     ],
   );
 }
@@ -1161,8 +1254,10 @@ class _SwitchingVeil extends StatelessWidget {
               const SizedBox(width: Space.lg),
               Text(
                 t.switchTable,
-                style: AppTheme.smallCaps(
-                  theme.textTheme.titleSmall!,
+                // The table speaking for itself, translated — so in its own
+                // case and without the tracking the fixed Latin words get.
+                style: TableType.system(
+                  theme,
                   colour: AppTheme.onTable(
                     theme.colorScheme,
                     alpha: AppTheme.inkHigh,
@@ -1184,21 +1279,34 @@ Future<void> _confirmLeave(
   GameState state,
   RoomState room,
 ) async {
-  final leave = await showDialog<bool>(
+  final leave = await showTableDialog<bool>(
     context: context,
     builder: (context) => GlassDialog(
       padding: const EdgeInsets.all(Space.xl),
-      title: dialogTitle(context, Icons.logout_rounded, state.t.leaveTableQ),
+      // The question the red row in the menu asked, in the same red: its yes
+      // gives the seat up, and mid-hand the stake with it.
+      title: dialogTitle(
+        context,
+        Icons.logout_rounded,
+        state.t.leaveTableQ,
+        tone: Theme.of(context).colorScheme.error,
+      ),
       // Read live: a hand can be dealt while the dialog is up, and then
       // leaving costs the boot (QA PIX-4, 14 Sep 2026).
       content: Builder(
-        builder: (context) => Text(
+        builder: (context) => dialogBody(
+          context,
           context.select<GameState, bool>((s) => s.inLiveHand)
               ? state.t.leaveMidHand
               : state.t.leaveAnytime,
         ),
       ),
-      actions: dialogActions(context, stay: state.t.stay, go: state.t.leave),
+      actions: dialogActions(
+        context,
+        stay: state.t.stay,
+        go: state.t.leave,
+        destructive: true,
+      ),
     ),
   );
 
@@ -1296,17 +1404,43 @@ class Plate extends StatelessWidget {
 ButtonStyle stepperStyle(ThemeData theme) =>
     AppTheme.raisedIcon(theme.brightness);
 
+/// What a key on the console is for, which decides how loud it is (owner's
+/// table polish brief, 24 Sep 2026: "PRIMARY: Chaal. SECONDARY: SideShow, Force
+/// SideShow. DESTRUCTIVE: Pack. Disabled actions must have a clearly disabled
+/// state. Do not make all buttons visually equal.").
+enum KeyRole {
+  /// The move a turn is built around — Chaal; at a poker table Check or Call,
+  /// Draw, Play: struck gold, the larger and bolder name, and the one key on
+  /// the console that breathes while it can be pressed. Never a second.
+  primary,
+
+  /// Every other move — Sideshow, Force Sideshow, Show, Missile: the machined
+  /// plaque, with the gold hairline while the move is on offer.
+  secondary,
+
+  /// The move that gives the hand up — Pack: the plaque with its glyph, its
+  /// name and its edge in the error ink, and nothing about it that beckons.
+  destructive,
+}
+
+/// How far a key that cannot be pressed — or one the player cannot pay for —
+/// fades. One treatment for every key and stepper, and one nobody has to
+/// learn.
+const double deadKeyOpacity = 0.42;
+
 /// One key on the console: an icon, what it does, and what it costs.
 ///
 /// They share a shape so the console reads as one set of keys rather than four
 /// buttons that happen to sit together — and the icon is what a player finds
-/// under their thumb without reading, which matters on a clock.
+/// under their thumb without reading, which matters on a clock. How loud each
+/// one is follows what it is for ([role]).
 ///
 /// Still a [FilledButton], because leaving `elevation` unset in `styleFrom` is
 /// what lets the theme's `liftElevation` resolve the rest / pressed / hovered /
-/// disabled ladder. A disabled key loses its gold rather than changing colour:
-/// that is the only illegal-move signal the game has. The press-scale and the
-/// light haptic are laid over it; the caller's callback is called as before.
+/// disabled ladder. A disabled key loses its gold and fades rather than
+/// changing colour: that is the only illegal-move signal the game has. The
+/// press-scale and the light haptic are laid over it; the caller's callback is
+/// called as before.
 class MachinedKey extends StatelessWidget {
   const MachinedKey({
     super.key,
@@ -1319,6 +1453,7 @@ class MachinedKey extends StatelessWidget {
     this.amount,
     this.detail,
     this.primary = false,
+    this.role = KeyRole.secondary,
     this.edge,
     this.alive = false,
     this.muted = false,
@@ -1347,17 +1482,25 @@ class MachinedKey extends StatelessWidget {
   final Widget Function(TextStyle style)? detail;
   final VoidCallback? onPressed;
 
-  /// The one gold-filled key on the screen. There is never a second.
+  /// The one gold key on the console: shorthand for [KeyRole.primary], which
+  /// it outranks. There is never a second.
   final bool primary;
 
-  /// The hairline that gives this key its identity — crimson on Pack.
+  /// What this key is for, and so how loud it is ([KeyRole]).
+  final KeyRole role;
+
+  /// The hairline that gives this key its identity — the missile's coral on
+  /// the Missile key. A destructive key's is the error ink unless given.
   final Color? edge;
 
   /// This key is one of the moves available RIGHT NOW.
   ///
   /// The pod ring says whose turn it is; this says what can be done about it.
   /// Only ever set on keys that are actually pressable, so a lit key is always
-  /// a promise that tapping it will do something.
+  /// a promise that tapping it will do something. Only the primary key
+  /// breathes with it (table polish, 24 Sep 2026: five keys pulsing at once
+  /// was the console competing with itself); every other lit key says so with
+  /// its hairline alone.
   final bool alive;
 
   /// Drawn as inert while it still answers a tap. For a move the rules allow
@@ -1365,18 +1508,51 @@ class MachinedKey extends StatelessWidget {
   /// the tap is what offers the way to pay.
   final bool muted;
 
+  KeyRole get _role => primary ? KeyRole.primary : role;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final brightness = theme.brightness;
-    final ink = primary ? AppTheme.ink900 : scheme.onSurface;
-    final live = edge ?? AppTheme.hairlineColour(brightness, live: true);
-    final halo = edge ?? (primary ? AppTheme.gold : AppTheme.goldBright);
-    final amountStyle = AppTheme.money(
-      theme.textTheme.bodySmall ?? const TextStyle(),
-      weight: FontWeight.w600,
-    );
+    final kind = _role;
+    final isPrimary = kind == KeyRole.primary;
+    final destructive = kind == KeyRole.destructive;
+    final dead = onPressed == null;
+
+    // The key's ink, for its glyph and its words alike: charcoal on struck
+    // gold, the error colour on the key that gives the hand up, and the
+    // surface's own ink on every other and on every dead key, which the
+    // key's fade then dims as one. (The words used to take the type ramp's own
+    // colour whatever the key was, which wrote Chaal in white on gold by
+    // night — 2.3:1 — while its arrow was charcoal.)
+    final ink = dead
+        ? scheme.onSurface
+        : isPrimary
+        ? AppTheme.ink900
+        : destructive
+        ? scheme.error
+        : scheme.onSurface;
+    final live =
+        edge ??
+        (destructive
+            ? scheme.error.withValues(alpha: 0.55)
+            : AppTheme.hairlineColour(brightness, live: true));
+    final halo = edge ?? AppTheme.gold;
+    // Struck gold, as the Shop key is, only while the primary key can be
+    // pressed: a dead Chaal is the panel base like every other dead key.
+    final gilded = isPrimary && !dead;
+    final labelStyle =
+        (isPrimary
+                ? TableType.primaryAction(theme)
+                : TableType.secondaryAction(theme))
+            .copyWith(color: ink);
+    // A secondary key's second line is quieter than its name; the primary
+    // key's figure is the bet itself and keeps the key's ink.
+    final detailStyle = TableType.actionDetail(
+      theme,
+      primary: isPrimary,
+    ).copyWith(color: gilded ? ink : ink.withValues(alpha: AppTheme.inkMed));
 
     final style =
         FilledButton.styleFrom(
@@ -1385,13 +1561,19 @@ class MachinedKey extends StatelessWidget {
           // padded target would silently grow it past the width the console
           // measured out for it.
           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-          padding: const EdgeInsets.symmetric(horizontal: Space.sm),
-          backgroundColor: primary
-              ? AppTheme.gold
+          // The struck face is drawn by the key's own child, edge to edge.
+          padding: gilded
+              ? EdgeInsets.zero
+              : const EdgeInsets.symmetric(horizontal: Space.sm),
+          backgroundColor: gilded
+              ? Colors.transparent
               : AppTheme.plaque(brightness),
           foregroundColor: ink,
           disabledBackgroundColor: AppTheme.panelBase(brightness),
-          disabledForegroundColor: scheme.onSurface.withValues(alpha: 0.26),
+          // The fade dims a dead key's glyph with its words, rather than the
+          // glyph vanishing to a tenth while the words stay readable.
+          disabledForegroundColor: ink,
+          textStyle: labelStyle,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(Radii.md),
           ),
@@ -1406,20 +1588,68 @@ class MachinedKey extends StatelessWidget {
           ),
         );
 
-    // A key with nothing behind it is drawn as inert, not merely as a paler
-    // version of itself.
-    //
-    // The colours alone were not enough: on the light scheme the disabled
-    // plaque and the live one are both near-white, so a player waiting out a
-    // hand saw three buttons that looked pressable and were not. Dropping the
-    // whole key's opacity is the one treatment nobody has to learn.
-    final dead = onPressed == null;
-    final press = onPressed;
+    final content = Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        glyph ?? Icon(icon, size: 18),
+        SizedBox(width: stackLabel ? Space.xs : Space.sm),
+        Flexible(
+          child: stackLabel
+              // The two lines scale together, inside the key's width and
+              // height, rather than each shrinking on its own. A stacked label
+              // carries no amount line.
+              ? FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    label.replaceFirst(' ', '\n'),
+                    maxLines: 2,
+                    style: labelStyle.copyWith(height: 1.1),
+                  ),
+                )
+              : Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        // Translated, so it keeps its natural case.
+                        label,
+                        maxLines: 1,
+                        style: labelStyle,
+                      ),
+                    ),
+                    if (detail != null || amount != null)
+                      // A crore-sized bet is a long word; it shrinks to fit
+                      // rather than losing its tail to an ellipsis.
+                      FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerLeft,
+                        child:
+                            detail?.call(detailStyle) ??
+                            Text(amount!, maxLines: 1, style: detailStyle),
+                      ),
+                  ],
+                ),
+        ),
+      ],
+    );
 
+    final press = onPressed;
     return Opacity(
-      opacity: dead || muted ? 0.42 : 1,
+      // A key with nothing behind it is drawn as inert, not merely as a paler
+      // version of itself. The colours alone were not enough: on the light
+      // scheme the disabled plaque and the live one are both near-white, so a
+      // player waiting out a hand saw three buttons that looked pressable and
+      // were not. Dropping the whole key's opacity is the one treatment nobody
+      // has to learn.
+      opacity: dead || muted ? deadKeyOpacity : 1,
       child: KeyPulse(
-        alive: alive,
+        alive: alive && isPrimary && !muted,
         colour: halo,
         radius: Radii.md,
         // Inside the pulse, so the halo stays put while the key itself dips
@@ -1429,67 +1659,28 @@ class MachinedKey extends StatelessWidget {
           child: FilledButton(
             onPressed: press,
             style: style,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                glyph ?? Icon(icon, size: 18),
-                SizedBox(width: stackLabel ? Space.xs : Space.sm),
-                Flexible(
-                  child: stackLabel
-                      // The two lines scale together, inside the key's width
-                      // and height, rather than each shrinking on its own.
-                      // A stacked label carries no amount line.
-                      ? FittedBox(
-                          fit: BoxFit.scaleDown,
-                          alignment: Alignment.centerLeft,
-                          child: Text(
-                            label.replaceFirst(' ', '\n'),
-                            maxLines: 2,
-                            style: AppTheme.label(
-                              theme.textTheme.labelLarge ?? const TextStyle(),
-                              weight: FontWeight.w700,
-                            ).copyWith(height: 1.1),
-                          ),
-                        )
-                      : Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            FittedBox(
-                              fit: BoxFit.scaleDown,
-                              alignment: Alignment.centerLeft,
-                              child: Text(
-                                // Translated, so it keeps its natural case.
-                                label,
-                                maxLines: 1,
-                                style: AppTheme.label(
-                                  theme.textTheme.labelLarge ??
-                                      const TextStyle(),
-                                  weight: FontWeight.w700,
-                                ),
-                              ),
-                            ),
-                            if (detail != null || amount != null)
-                              // A crore-sized bet is a long word; it shrinks to
-                              // fit rather than losing its tail to an ellipsis.
-                              FittedBox(
-                                fit: BoxFit.scaleDown,
-                                alignment: Alignment.centerLeft,
-                                child:
-                                    detail?.call(amountStyle) ??
-                                    Text(
-                                      amount!,
-                                      maxLines: 1,
-                                      style: amountStyle,
-                                    ),
-                              ),
-                          ],
+            child: gilded
+                // On the button's own surface, under its splash and its
+                // hairline: gold lit at the top and deepening to the foot, and
+                // the lit top edge of struck metal — the Shop key's face.
+                ? Ink(
+                    width: width,
+                    height: height,
+                    decoration: BoxDecoration(
+                      gradient: AppTheme.goldFace,
+                      borderRadius: BorderRadius.circular(Radii.md),
+                      border: Border(
+                        top: BorderSide(
+                          color: Colors.white.withValues(alpha: 0.55),
                         ),
-                ),
-              ],
-            ),
+                      ),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: Space.sm),
+                      child: content,
+                    ),
+                  )
+                : content,
           ),
         ),
       ),
@@ -1497,8 +1688,11 @@ class MachinedKey extends StatelessWidget {
   }
 }
 
-/// One end of the stake stepper. A ring of champagne is the affordance, and it
-/// is present only while the key can be pressed.
+/// One end of the stake stepper: a utility beside the primary key, so the
+/// plaque a secondary key wears — not a second gold, which the tonal fill it
+/// used to wear read as on the light theme. A ring of champagne is the
+/// affordance, present only while the key can be pressed, and a stepper that
+/// cannot be pressed fades as every dead key does.
 class StepperKey extends StatelessWidget {
   const StepperKey({
     super.key,
@@ -1514,39 +1708,49 @@ class StepperKey extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final brightness = theme.brightness;
     final press = onPressed;
 
-    return PressScale(
-      enabled: press != null,
-      child: IconButton.filledTonal(
-        onPressed: press,
-        iconSize: 22,
-        style: stepperStyle(theme).copyWith(
-          fixedSize: WidgetStatePropertyAll(Size(Dim.minTouch, height)),
-          // Exactly 44 wide, not the 48 a padded tap target would take.
-          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-          padding: const WidgetStatePropertyAll(EdgeInsets.zero),
-          shape: WidgetStatePropertyAll(
-            RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(Radii.md),
+    return Opacity(
+      opacity: press == null ? deadKeyOpacity : 1,
+      child: PressScale(
+        enabled: press != null,
+        child: IconButton.filledTonal(
+          onPressed: press,
+          iconSize: 22,
+          style: stepperStyle(theme).copyWith(
+            fixedSize: WidgetStatePropertyAll(Size(Dim.minTouch, height)),
+            // Exactly 44 wide, not the 48 a padded tap target would take.
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            padding: const WidgetStatePropertyAll(EdgeInsets.zero),
+            backgroundColor: WidgetStateProperty.resolveWith(
+              (states) => states.contains(WidgetState.disabled)
+                  ? AppTheme.panelBase(brightness)
+                  : AppTheme.plaque(brightness),
+            ),
+            // One ink, live or dead: the fade is what says it cannot be
+            // pressed, as it is on every key.
+            foregroundColor: WidgetStatePropertyAll(scheme.onSurface),
+            shape: WidgetStatePropertyAll(
+              RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(Radii.md),
+              ),
+            ),
+            side: WidgetStateProperty.resolveWith(
+              (states) => states.contains(WidgetState.disabled)
+                  ? BorderSide(
+                      color: AppTheme.ink400.withValues(alpha: 0.30),
+                      width: Dim.hairline,
+                    )
+                  : BorderSide(
+                      color: AppTheme.hairlineColour(brightness, live: true),
+                      width: Dim.hairline,
+                    ),
             ),
           ),
-          side: WidgetStateProperty.resolveWith(
-            (states) => states.contains(WidgetState.disabled)
-                ? BorderSide(
-                    color: AppTheme.ink400.withValues(alpha: 0.30),
-                    width: Dim.hairline,
-                  )
-                : BorderSide(
-                    color: AppTheme.hairlineColour(
-                      theme.brightness,
-                      live: true,
-                    ),
-                    width: Dim.hairline,
-                  ),
-          ),
+          icon: Icon(icon),
         ),
-        icon: Icon(icon),
       ),
     );
   }
@@ -1617,37 +1821,62 @@ class _ChatDrawerState extends State<ChatDrawer> {
                   // one drawer either is a tap away.
                   child: Row(
                     children: [
+                      // The two tabs share what the header's keys leave, and
+                      // one height: a tab whose name takes two lines makes
+                      // both that tall, so their frames match
+                      // ([ChatTab.heightFor], measured in the fonts the phone
+                      // draws them in).
                       Expanded(
-                        child: ChatTab(
-                          label: t.tableChat,
-                          selected: _view == _ChatView.chat,
-                          onTap: () => setState(() => _view = _ChatView.chat),
-                          glyph: RailLottie(
-                            asset: 'assets/animations/Message.json',
-                            fallback: Icons.forum_rounded,
-                            recolour: strokesInInk,
-                            size: 24,
-                            animate: _view == _ChatView.chat,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: Space.xs),
-                      Expanded(
-                        child: ChatTab(
-                          label: t.quickMessagesTitle,
-                          selected: _view == _ChatView.quick,
-                          onTap: () => setState(() => _view = _ChatView.quick),
-                          // The rail's proportions (a 56dp canvas in a 30dp
-                          // slot, lifted 2dp), scaled to the tab.
-                          glyph: RailLottie(
-                            asset: 'assets/animations/Quick message.json',
-                            fallback: Icons.quickreply_rounded,
-                            recolour: envelopeInInk,
-                            size: 24,
-                            art: 45,
-                            artShift: const Offset(0, -1.6),
-                            animate: _view == _ChatView.quick,
-                          ),
+                        child: LayoutBuilder(
+                          builder: (context, box) {
+                            final tabH = ChatTab.heightFor(context, [
+                              t.tableChat,
+                              t.quickMessagesTitle,
+                            ], width: (box.maxWidth - Space.xs) / 2);
+                            return Row(
+                              children: [
+                                Expanded(
+                                  child: ChatTab(
+                                    label: t.tableChat,
+                                    height: tabH,
+                                    selected: _view == _ChatView.chat,
+                                    onTap: () =>
+                                        setState(() => _view = _ChatView.chat),
+                                    glyph: RailLottie(
+                                      asset: 'assets/animations/Message.json',
+                                      fallback: Icons.forum_rounded,
+                                      recolour: strokesInInk,
+                                      size: 24,
+                                      animate: _view == _ChatView.chat,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: Space.xs),
+                                Expanded(
+                                  child: ChatTab(
+                                    label: t.quickMessagesTitle,
+                                    height: tabH,
+                                    selected: _view == _ChatView.quick,
+                                    onTap: () =>
+                                        setState(() => _view = _ChatView.quick),
+                                    // The rail's proportions (a 56dp canvas in
+                                    // a 30dp slot, lifted 2dp), scaled to the
+                                    // tab.
+                                    glyph: RailLottie(
+                                      asset:
+                                          'assets/animations/Quick message.json',
+                                      fallback: Icons.quickreply_rounded,
+                                      recolour: envelopeInInk,
+                                      size: 24,
+                                      art: 45,
+                                      artShift: const Offset(0, -1.6),
+                                      animate: _view == _ChatView.quick,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            );
+                          },
                         ),
                       ),
                       // The block list, in the open, beside the close key.
@@ -1710,24 +1939,34 @@ class _ChatDrawerState extends State<ChatDrawer> {
                     itemCount: state.chat.length,
                     itemBuilder: (context, i) {
                       final m = state.chat[state.chat.length - 1 - i];
+                      // A line the table wrote itself — somebody joined or
+                      // left — arrives with no sender (the server's system
+                      // line: `userId` null, signed "Table"). It is a note in
+                      // the margin of the conversation, not a voice in it
+                      // (owner's brief: "System messages should be subtle
+                      // and muted"); it used to be signed "Table:" in red,
+                      // the colour a missing seat's id happened to hash to.
+                      if (m.userId.isEmpty) return ChatSystemLine(text: m.text);
                       final mine = m.userId == state.user?.id;
-                      // Everyone gets their own colour, kept from their id so a
-                      // player looks the same every time they speak.
+                      // Everyone gets their own colour, kept from their seat
+                      // so a player looks the same every time they speak — on
+                      // the bar beside the line. The NAME carries the line,
+                      // in the full ink; in the player's colour it was red
+                      // for whoever sat in the third seat, and a pale mint on
+                      // the light theme nobody could read.
                       final colour = state.colourFor(
                         m.userId,
                         theme.colorScheme,
                       );
 
                       final row = Padding(
-                        padding: const EdgeInsets.symmetric(
-                          vertical: Space.xxs,
-                        ),
+                        padding: const EdgeInsets.symmetric(vertical: Space.xs),
                         child: Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Container(
                               width: 3,
-                              height: 18,
+                              height: 16,
                               margin: const EdgeInsets.only(
                                 right: Space.md,
                                 top: 3,
@@ -1739,14 +1978,17 @@ class _ChatDrawerState extends State<ChatDrawer> {
                             ),
                             Expanded(
                               child: RichText(
+                                textScaler: MediaQuery.textScalerOf(context),
                                 text: TextSpan(
-                                  style: theme.textTheme.bodyMedium,
+                                  style: TableType.chatText(theme),
                                   children: [
                                     TextSpan(
                                       text: '${mine ? 'You' : m.displayName}: ',
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.w700,
-                                        color: colour,
+                                      style: TableType.chatName(
+                                        theme,
+                                        colour: mine
+                                            ? goldInk(theme.brightness)
+                                            : theme.colorScheme.onSurface,
                                       ),
                                     ),
                                     TextSpan(text: m.text),
@@ -1790,11 +2032,25 @@ class _ChatDrawerState extends State<ChatDrawer> {
                         // hint and submit, with the field's fill from the
                         // glass tokens rather than the bare input theme. The
                         // counter stays hidden (the component's default).
+                        //
+                        // In the chat's own type, the lines it adds to: at the
+                        // input theme's larger size the hint lost its last
+                        // letters in a 260dp drawer ("Say somethin…").
                         child: GlassTextField(
                           controller: _input,
                           maxLength: 200,
                           hintText: t.saySomething,
-                          decoration: const InputDecoration(isDense: true),
+                          style: TableType.chatText(
+                            theme,
+                          ).copyWith(color: theme.colorScheme.onSurface),
+                          decoration: InputDecoration(
+                            isDense: true,
+                            hintStyle: TableType.chatText(theme).copyWith(
+                              color: theme.colorScheme.onSurface.withValues(
+                                alpha: AppTheme.inkLowOn(theme.brightness),
+                              ),
+                            ),
+                          ),
                           onSubmitted: (_) => _send(state),
                         ),
                       ),
@@ -1934,15 +2190,16 @@ class ChatPlayers extends StatelessWidget {
           padding: const EdgeInsets.only(bottom: Space.xs),
           child: Text(
             t.blockPlayersTitle,
-            style: AppTheme.label(
-              theme.textTheme.labelLarge ?? const TextStyle(),
-            ).copyWith(color: ink.withValues(alpha: AppTheme.inkMed)),
+            style: TableType.label(
+              theme,
+              colour: ink.withValues(alpha: AppTheme.inkMed),
+            ),
           ),
         ),
         if (others.isEmpty)
           Padding(
             padding: const EdgeInsets.symmetric(vertical: Space.sm),
-            child: Text(t.blockNobody, style: theme.textTheme.bodyMedium),
+            child: Text(t.blockNobody, style: TableType.metadata(theme)),
           ),
         for (final seat in others)
           ConstrainedBox(
@@ -1960,7 +2217,11 @@ class ChatPlayers extends StatelessWidget {
                       seat.displayName,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodyLarge,
+                      style: TableType.item(
+                        theme,
+                        colour: ink,
+                        weight: FontWeight.w500,
+                      ),
                     ),
                   ),
                   const SizedBox(width: Space.md),
@@ -2001,10 +2262,37 @@ class ChatPlayers extends StatelessWidget {
   static const _keyShare = 0.62;
 }
 
+/// A line the table wrote in the chat itself — somebody joined, somebody left:
+/// small, muted and centred, a note in the margin of the conversation rather
+/// than a voice in it (owner's brief: "System messages should be subtle and
+/// muted"). No sender, no colour bar: nobody said it.
+class ChatSystemLine extends StatelessWidget {
+  const ChatSystemLine({super.key, required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: Space.xs),
+    child: Text(
+      text,
+      textAlign: TextAlign.center,
+      maxLines: 2,
+      overflow: TextOverflow.ellipsis,
+      style: TableType.metadata(Theme.of(context)),
+    ),
+  );
+}
+
 /// One of the chat drawer's two tabs, the conversation or the quick messages:
 /// a glyph over its name, the whole tab the target. The tab that is up is
-/// washed and ringed in gold, and only its glyph plays. The name shrinks to
-/// fit rather than being cut: two tabs share a 260dp drawer on a 640dp phone.
+/// washed and ringed in gold, and only its glyph plays.
+///
+/// Two tabs share a 260dp drawer on a 640dp phone, so a name that does not fit
+/// its line takes a second one ("Quick / messages") rather than shrinking:
+/// shrunk to its one line it was three-fifths the size of the tab beside it
+/// (table polish, 24 Sep 2026). Only a single word too wide for the tab is
+/// ever made smaller, and only as much as that word needs.
 class ChatTab extends StatelessWidget {
   const ChatTab({
     super.key,
@@ -2012,12 +2300,66 @@ class ChatTab extends StatelessWidget {
     required this.selected,
     required this.onTap,
     required this.glyph,
+    this.height = Dim.minTouch,
   });
 
   final String label;
   final bool selected;
   final VoidCallback onTap;
   final Widget glyph;
+
+  /// The tab's height, shared with the tab beside it ([heightFor]).
+  final double height;
+
+  /// The glyph's slot, the gap under it, and the tab's own inset.
+  static const double _glyph = 24;
+  static const double _pad = Space.xs;
+
+  /// The name's style, in the weight the tab is drawn at.
+  static TextStyle _nameStyle(ThemeData theme, {required bool selected}) =>
+      TableType.label(
+        theme,
+        colour: theme.colorScheme.onSurface.withValues(
+          alpha: selected ? AppTheme.inkHigh : AppTheme.inkMed,
+        ),
+        weight: selected ? FontWeight.w700 : FontWeight.w500,
+      ).copyWith(height: 1.1);
+
+  /// How tall a row of tabs [width] wide each must be to hold every one of
+  /// [labels] on up to two lines, in either weight, as the phone draws them
+  /// — so a tab never changes height when it is picked, and the two always
+  /// match. Never under the touch floor.
+  static double heightFor(
+    BuildContext context,
+    List<String> labels, {
+    required double width,
+  }) {
+    final theme = Theme.of(context);
+    final scaler = MediaQuery.textScalerOf(context);
+    final inner = math.max(1.0, width - 2 * _pad - 2 * Dim.hairline);
+    var tallest = 0.0;
+    for (final label in labels) {
+      for (final selected in const [true, false]) {
+        final painter = TextPainter(
+          text: TextSpan(
+            text: label,
+            style: _nameStyle(theme, selected: selected),
+          ),
+          textDirection: Directionality.of(context),
+          textScaler: scaler,
+          textAlign: TextAlign.center,
+          maxLines: 2,
+        )..layout(maxWidth: inner);
+        tallest = math.max(tallest, painter.height);
+        painter.dispose();
+      }
+    }
+    return math.max(
+      Dim.minTouch,
+      (2 * _pad + _glyph + Space.xxs + tallest + 2 * Dim.hairline)
+          .ceilToDouble(),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -2040,11 +2382,8 @@ class ChatTab extends StatelessWidget {
             onTap: onTap,
             child: AnimatedContainer(
               duration: Motion.fast,
-              constraints: const BoxConstraints(minHeight: Dim.minTouch),
-              padding: const EdgeInsets.symmetric(
-                horizontal: Space.xs,
-                vertical: Space.xs,
-              ),
+              height: height,
+              padding: const EdgeInsets.all(_pad),
               decoration: BoxDecoration(
                 borderRadius: radius,
                 color: selected
@@ -2059,23 +2398,13 @@ class ChatTab extends StatelessWidget {
               ),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   glyph,
                   const SizedBox(height: Space.xxs),
-                  FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child: Text(
-                      label,
-                      maxLines: 1,
-                      style: theme.textTheme.labelMedium?.copyWith(
-                        fontWeight: selected
-                            ? FontWeight.w700
-                            : FontWeight.w500,
-                        color: ink.withValues(
-                          alpha: selected ? AppTheme.inkHigh : AppTheme.inkMed,
-                        ),
-                      ),
-                    ),
+                  _TabName(
+                    label: label,
+                    style: _nameStyle(theme, selected: selected),
                   ),
                 ],
               ),
@@ -2083,6 +2412,49 @@ class ChatTab extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// A tab's name on up to two lines, at the tab's own size unless one of its
+/// words is wider than the tab, when the whole name is scaled to fit that word
+/// — never broken inside it.
+class _TabName extends StatelessWidget {
+  const _TabName({required this.label, required this.style});
+
+  final String label;
+  final TextStyle style;
+
+  @override
+  Widget build(BuildContext context) {
+    final scaler = MediaQuery.textScalerOf(context);
+    return LayoutBuilder(
+      builder: (context, box) {
+        var widest = 0.0;
+        for (final word in label.split(' ')) {
+          final painter = TextPainter(
+            text: TextSpan(text: word, style: style),
+            textDirection: Directionality.of(context),
+            textScaler: scaler,
+            maxLines: 1,
+          )..layout();
+          widest = math.max(widest, painter.width);
+          painter.dispose();
+        }
+        final fits = !box.maxWidth.isFinite || widest <= box.maxWidth;
+        final text = Text(
+          label,
+          maxLines: 2,
+          textAlign: TextAlign.center,
+          style: style.copyWith(height: 1.1),
+        );
+        return fits
+            ? text
+            : FittedBox(
+                fit: BoxFit.scaleDown,
+                child: SizedBox(width: widest, child: text),
+              );
+      },
     );
   }
 }
@@ -2177,10 +2549,12 @@ class QuickLine extends StatelessWidget {
               Expanded(
                 child: Text(
                   text,
-                  style: theme.textTheme.bodyLarge?.copyWith(
-                    color: ink.withValues(
+                  style: TableType.item(
+                    theme,
+                    colour: ink.withValues(
                       alpha: live ? AppTheme.inkHigh : AppTheme.inkLow,
                     ),
+                    weight: FontWeight.w500,
                   ),
                 ),
               ),
@@ -2189,8 +2563,8 @@ class QuickLine extends StatelessWidget {
                 Text(
                   '${secondsLeft}s',
                   // Tabular, so 4-3-2-1 does not shift the row by a pixel.
-                  style: AppTheme.money(
-                    theme.textTheme.labelMedium ?? const TextStyle(),
+                  style: TableType.count(
+                    theme,
                     colour: ink.withValues(alpha: AppTheme.inkMed),
                   ),
                 ),
@@ -2228,8 +2602,9 @@ class ChatCountdown extends StatelessWidget {
           child: Text(
             '$left',
             // Tabular, so 4-3-2-1 does not shift by a pixel inside the dial.
-            style: AppTheme.money(
-              theme.textTheme.labelSmall ?? const TextStyle(),
+            style: TableType.count(
+              theme,
+              small: true,
               colour: theme.colorScheme.onSurface.withValues(
                 alpha: AppTheme.inkMed,
               ),
@@ -2399,12 +2774,15 @@ class _TurnBuzzerState extends State<TurnBuzzer> {
   }
 }
 
-/// A soft pulse around an action key while that move is available.
+/// A soft pulse around the primary key while its move is available.
 ///
 /// The same idea as the pod's turn ring and deliberately quieter: the ring
-/// answers "whose turn", these answer "what can I do", and if both shouted at
-/// the same volume neither would be read. Nothing is drawn at all when the key
-/// is not alive.
+/// answers "whose turn", this answers "what do I do", and if both shouted at
+/// the same volume neither would be read. It breathes on the ring's own beat
+/// ([TableAmbient.turnBreath]), so the seat on turn and the key to press rise
+/// and fall together rather than as two rhythms, and — as the ring's — only
+/// its alpha moves: a halo whose blur grew and shrank rebuilt its mask every
+/// frame. Nothing is drawn at all when the key is not alive.
 class KeyPulse extends StatefulWidget {
   const KeyPulse({
     super.key,
@@ -2431,10 +2809,9 @@ class _KeyPulseState extends State<KeyPulse>
   /// element, which throws in the middle of unmounting the tree.
   AnimationController? _c;
 
-  AnimationController get _pulse => _c ??= AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 980),
-  )..repeat(reverse: true);
+  AnimationController get _pulse =>
+      _c ??= AnimationController(vsync: this, duration: TableAmbient.turnBreath)
+        ..repeat(reverse: true);
 
   @override
   void dispose() {
@@ -2455,8 +2832,8 @@ class _KeyPulseState extends State<KeyPulse>
             borderRadius: BorderRadius.circular(widget.radius),
             boxShadow: [
               BoxShadow(
-                color: widget.colour.withValues(alpha: 0.16 + 0.26 * t),
-                blurRadius: 10 + 8 * t,
+                color: widget.colour.withValues(alpha: 0.16 + 0.24 * t),
+                blurRadius: 14,
                 spreadRadius: 0.5,
               ),
             ],
@@ -2531,8 +2908,8 @@ class _SeatedForState extends State<_SeatedFor> {
           _clock(DateTime.now().difference(seatedAt)),
           // Tabular figures, or the whole row shuffles sideways every second
           // as the digits change width.
-          style: AppTheme.money(
-            theme.textTheme.labelMedium ?? const TextStyle(),
+          style: TableType.count(
+            theme,
             colour: theme.colorScheme.onSurface.withValues(
               alpha: AppTheme.inkMed,
             ),
