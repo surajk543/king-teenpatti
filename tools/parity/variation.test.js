@@ -659,6 +659,17 @@ test('a FIVE_CARD pick takes three of your own cards, once, and nothing else', h
   await closeAll(...clients);
 });
 
+// Every player named here picks the first three of the five they hold and
+// waits until the server has taken it, so a comparison that follows has no
+// open pick window to wait for.
+async function chooseFirstThree(entries, held5) {
+  for (const { client, user } of entries) {
+    const ack = await client.emit('game:selectCards', { cards: held5.get(user.id).slice(0, 3) });
+    assert.equal(ack.ok, true, `${user.displayName}: ${JSON.stringify(ack)}`);
+    await client.waitState((p) => p.you.hand?.picking !== true);
+  }
+}
+
 test('a FIVE_CARD showdown reveals all five cards and the best three of each hand, and pays exactly one winner', held, async () => {
   const { chooser, other, clients, roomId } = await variationTable('show5');
   await chooser.client.emit('game:selectVariation', { variation: 'FIVE_CARD' });
@@ -668,6 +679,11 @@ test('a FIVE_CARD showdown reveals all five cards and the best three of each han
     await client.emit('game:action', { action: 'see' });
     held5.set(user.id, (await client.waitState((p) => p.you.isBlind === false)).you.cards);
   }
+  // Each chooses the first three they were dealt. A show waits while anybody
+  // it compares is still choosing (pick_pending, 24 Sep 2026: a comparison
+  // never judges a player on cards they have not had the time to choose), so
+  // the players make their choice before the betting reaches a show.
+  await chooseFirstThree([chooser, other], held5);
 
   const showdown = await playToShowdown(chooser, other);
   assert.ok(showdown, 'the hand reached a show');
@@ -678,8 +694,8 @@ test('a FIVE_CARD showdown reveals all five cards and the best three of each han
     assertKeys(reveal, ['userId', 'seatIndex', 'cards', 'handName', 'category', 'won', 'best'], 'a FIVE_CARD reveal: best, and no wild');
     assert.deepEqual(reveal.cards, held5.get(reveal.userId), 'the five the player held, in the order they held them');
     assert.equal(HAND_NAMES[reveal.category], reveal.handName);
-    // Nobody chose, so the first three they were dealt are the three that
-    // played (owner, 19 Sep 2026).
+    // Each chose the first three they were dealt, so those are the three
+    // that played.
     assertPlayedThree(reveal.cards, reveal.best, reveal.handName,
       `reveal of seat ${reveal.seatIndex}`, reveal.cards.slice(0, 3));
   }
@@ -706,6 +722,9 @@ test('a FIVE_CARD sideshow shows the two players five cards and a best three eac
     await client.emit('game:action', { action: 'see' });
     held5.set(user.id, (await client.waitState((p) => p.you.isBlind === false)).you.cards);
   }
+  // A sideshow waits while either hand it compares is still being chosen
+  // (pick_pending, 24 Sep 2026), so everyone chooses their first three first.
+  await chooseFirstThree(entries, held5);
 
   // The chooser is on turn; the player on their right is the next seat DOWN, wrapping.
   const seatOf = (entry) => entry.client.state().you.seatIndex;
@@ -727,7 +746,7 @@ test('a FIVE_CARD sideshow shows the two players five cards and a best three eac
     for (const hand of reveal.hands) {
       assertKeys(hand, ['userId', 'displayName', 'cards', 'handName', 'best'], 'a FIVE_CARD sideshow hand: best, and no wild');
       assert.deepEqual(hand.cards, held5.get(hand.userId));
-      // Nobody chose, so each plays the first three they were dealt.
+      // Each chose the first three they were dealt.
       assertPlayedThree(hand.cards, hand.best, hand.handName,
         `sideshow hand of ${hand.displayName}`, hand.cards.slice(0, 3));
     }
