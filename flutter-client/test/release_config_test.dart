@@ -55,6 +55,17 @@ void main() {
     }
   });
 
+  test('a release build split per ABI is refused', () {
+    // RC-05: --split-per-abi adds 1000/2000/4000 to the build number, which no
+    // MIN_CLIENT_BUILD floor catches and Play can never update. Proved by
+    // hand: `flutter build apk --release --split-per-abi` fails at Gradle's
+    // configuration with this reason.
+    final gradle = _read('android/app/build.gradle.kts');
+    expect(gradle, contains('findProperty("split-per-abi")'));
+    expect(gradle, contains('allowSplitPerAbiRelease'));
+    expect(gradle, contains('throw GradleException('));
+  });
+
   test('the biometric permissions a dependency merges in are removed', () {
     final manifest = _read('android/app/src/main/AndroidManifest.xml');
     expect(
