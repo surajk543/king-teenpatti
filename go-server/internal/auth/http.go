@@ -183,31 +183,47 @@ type PurchaseOutcome struct {
 // callers (PORT_NOTES/auth-config.md).
 type Handler struct {
 	deps Deps
+	// loginLimit and walletLimit are the per-client-IP REST limits
+	// (config.RESTRateConfig): the account-minting login, and the doors that
+	// move a wallet.
+	loginLimit  *ipLimiter
+	walletLimit *ipLimiter
 }
 
 // NewHandler builds the REST handler.
 func NewHandler(deps Deps) *Handler {
-	return &Handler{deps: deps}
+	h := &Handler{deps: deps}
+	if deps.Config != nil {
+		rate := deps.Config.RESTRate
+		h.loginLimit = newIPLimiter(rate.Login, rate.Window, nil)
+		h.walletLimit = newIPLimiter(rate.Wallet, rate.Window, nil)
+	}
+	return h
 }
 
 // Register mounts every route on mux. The unknown-/api/* 404 is the app's
 // (it also owns GET /api/rooms); NotFoundHandler is the handler to use there.
 func (h *Handler) Register(mux *http.ServeMux) {
-	mux.Handle("/api/auth/login", methods(http.MethodPost, http.HandlerFunc(h.Login)))
+	// The doors that mint an account or move a wallet are limited per client
+	// IP (24 Sep 2026; config.RESTRateConfig), before any token or body work.
+	wallet := func(next func(w http.ResponseWriter, r *http.Request, user *db.User)) http.Handler {
+		return h.limited(h.walletLimit, h.RequireAuth(next))
+	}
+	mux.Handle("/api/auth/login", methods(http.MethodPost, h.limited(h.loginLimit, http.HandlerFunc(h.Login))))
 	mux.Handle("/api/auth/me", methods(http.MethodGet, h.RequireAuth(h.Me)))
-	mux.Handle("/api/rewards/milestone", methods(http.MethodPost, h.RequireAuth(h.Milestone)))
-	mux.Handle("/api/rewards/bonus", methods(http.MethodPost, h.RequireAuth(h.Bonus)))
-	mux.Handle("/api/rewards/daily", methods(http.MethodPost, h.RequireAuth(h.Daily)))
-	mux.Handle("/api/purchases/google", methods(http.MethodPost, h.RequireAuth(h.BuyChips)))
+	mux.Handle("/api/rewards/milestone", methods(http.MethodPost, wallet(h.Milestone)))
+	mux.Handle("/api/rewards/bonus", methods(http.MethodPost, wallet(h.Bonus)))
+	mux.Handle("/api/rewards/daily", methods(http.MethodPost, wallet(h.Daily)))
+	mux.Handle("/api/purchases/google", methods(http.MethodPost, wallet(h.BuyChips)))
 	mux.Handle("/api/profiles", methods(http.MethodGet, http.HandlerFunc(h.Profiles)))
 	mux.Handle("/api/profile/avatar", methods(http.MethodPost, h.RequireAuth(h.Avatar)))
-	mux.Handle("/api/profile/picture/buy", methods(http.MethodPost, h.RequireAuth(h.BuyPicture)))
+	mux.Handle("/api/profile/picture/buy", methods(http.MethodPost, wallet(h.BuyPicture)))
 	mux.Handle("/api/profile/name", methods(http.MethodPost, h.RequireAuth(h.Name)))
-	mux.Handle("/api/store/missiles", methods(http.MethodPost, h.RequireAuth(h.TradeMissiles)))
-	mux.Handle("/api/account", methods(http.MethodDelete, h.RequireAuth(h.DeleteAccount)))
+	mux.Handle("/api/store/missiles", methods(http.MethodPost, wallet(h.TradeMissiles)))
+	mux.Handle("/api/account", methods(http.MethodDelete, wallet(h.DeleteAccount)))
 	mux.Handle("/api/table-pictures", methods(http.MethodGet, http.HandlerFunc(h.TablePictures)))
 	mux.Handle("/api/table-pictures/use", methods(http.MethodPost, h.RequireAuth(h.UseTablePicture)))
-	mux.Handle("/api/table-pictures/buy", methods(http.MethodPost, h.RequireAuth(h.BuyTablePicture)))
+	mux.Handle("/api/table-pictures/buy", methods(http.MethodPost, wallet(h.BuyTablePicture)))
 }
 
 // methods lets `method` (and HEAD when method is GET) through to next and
@@ -246,6 +262,9 @@ type ctxKey struct{}
 // check, so invalid_session / unknown_user beat every other refusal.
 func (h *Handler) RequireAuth(next func(w http.ResponseWriter, r *http.Request, user *db.User)) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// An answer to a signed-in request is that player's, and a shared
+		// cache must never keep it (24 Sep 2026).
+		w.Header().Set("Cache-Control", "no-store")
 		claims, err := h.deps.Tokens.Verify(TokenFromRequest(r))
 		if err != nil {
 			h.writeError(w, r, err)

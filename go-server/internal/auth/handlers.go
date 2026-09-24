@@ -91,6 +91,8 @@ func ReadJSONBody(r *http.Request, v any) error {
 // {userId, provider} → 200 {token, user, isNew, welcomeChips} with
 // welcomeChips = config.Game.WelcomeChips when isNew, else 0.
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
+	// The answer carries a session token: never kept by a cache (24 Sep 2026).
+	w.Header().Set("Cache-Control", "no-store")
 	// No body, an empty body or a non-JSON content type leaves req untouched
 	// (body-parser's `{}`), and Node then reported the missing provider as
 	// `Unsupported login provider "undefined"`; UnmarshalJSON recomputes the

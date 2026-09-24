@@ -452,6 +452,9 @@ func New(opts Options) (*App, error) {
 		web = a.metrics.HTTPMiddleware(cfg.Metrics.Path, metrics.RouteLabelFor, mux)
 	}
 	a.handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasPrefix(r.URL.Path, sioPath) {
+			setSecurityHeaders(w.Header())
+		}
 		if clientBundlePaths[r.URL.Path] {
 			if cfg.RootRedirect != "" {
 				// The bundle exists only for the browser client; hidden with it.
@@ -761,6 +764,18 @@ func (a *App) Shutdown(ctx context.Context) error {
 		liveErr = a.live.Close()
 	}
 	return errors.Join(roomsErr, httpErr, sioErr, liveErr)
+}
+
+// setSecurityHeaders is on every HTTP answer but the Socket.IO endpoint (24
+// Sep 2026, owner's "fix all bugs"): nosniff, so a JSON or text body is never
+// sniffed into something a browser runs; no framing; no referrer. HSTS is the
+// TLS terminator's (nginx). Cache-Control is per route — no-store on a
+// signed-in answer and on login (auth.RequireAuth, auth.Login), and
+// GET /api/tables keeps its own no-cache + ETag.
+func setSecurityHeaders(h http.Header) {
+	h.Set("X-Content-Type-Options", "nosniff")
+	h.Set("X-Frame-Options", "DENY")
+	h.Set("Referrer-Policy", "no-referrer")
 }
 
 // OpenRoomIDs lists the rooms still registered — after a Shutdown that ran
