@@ -819,28 +819,31 @@ test('health reports live counts with the shape the tools read', async () => {
   await client.close();
 });
 
-test('/api/rooms lists public tables with the lobby options', async () => {
+test('/api/rooms lists public tables with the lobby options, to a signed-in player, without codes or pots', async () => {
   const account = await guestLogin('device-rooms-0001', 'Rooms');
   const client = await openClient(account.token);
   const bootAmount = uniqueStake();
   const joined = await client.emit('room:quickJoin', { bootAmount, category: 'blind' });
 
-  const all = await http('GET', '/api/rooms');
+  const anonymous = await http('GET', '/api/rooms');
+  assert.equal(anonymous.status, 401, 'signed-in players only (24 Sep 2026)');
+
+  const all = await http('GET', '/api/rooms', { token: account.token });
   assert.equal(all.status, 200);
   assertKeys(all.body, ['tables', 'options']);
   const mine = all.body.tables.find((t) => t.roomId === joined.roomId);
   assert.ok(mine, 'the table is listed');
-  assertKeys(mine, ['roomId', 'code', 'category', 'state', 'players', 'maxPlayers', 'bootAmount', 'pot']);
+  assertKeys(mine, ['roomId', 'category', 'state', 'players', 'maxPlayers', 'bootAmount']);
   assert.deepEqual(mine, {
-    roomId: joined.roomId, code: joined.code, category: 'blind', state: 'waiting', players: 1, maxPlayers: 5, bootAmount, pot: 0,
+    roomId: joined.roomId, category: 'blind', state: 'waiting', players: 1, maxPlayers: 5, bootAmount,
   });
   assertKeys(all.body.options, ['categories', 'stakes', 'tables', 'entryCapBoot', 'entryCapCategory', 'entryCapMaxChips', 'privateBoot', 'privateMaxPot']);
   // The lifted menu of this profile offers any pair, so variation is listed (Go only).
   assert.deepEqual(all.body.options.categories, ['seen', 'blind', 'variation']);
 
-  const seenOnly = await http('GET', '/api/rooms?category=seen');
+  const seenOnly = await http('GET', '/api/rooms?category=seen', { token: account.token });
   assert.ok(seenOnly.body.tables.every((t) => t.category === 'seen'));
-  const upper = await http('GET', '/api/rooms?category=BLIND');
+  const upper = await http('GET', '/api/rooms?category=BLIND', { token: account.token });
   assert.ok(upper.body.tables.some((t) => t.roomId === joined.roomId), 'an unknown filter value means no filter');
 
   await client.close();

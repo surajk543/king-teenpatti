@@ -173,7 +173,7 @@ const (
 //     GET  {metricsPath}     → m.Handler(Guard{Token, AllowIPs})
 //     GET  /health           → Health
 //     auth.Handler.Register(mux)   (the 8 API routes)
-//     GET  /api/rooms        → {tables: ListTables({category: ?category if blind|seen|variation}), options}
+//     GET  /api/rooms        → (signed in) {tables: ListTables({category: ?category if blind|seen|variation}) less code and pot, options}
 //     GET  /api/tables       → rooms.TableConfig(), ETag / If-None-Match → 304 (tablesHandler)
 //     /socket.io/            → sio
 //     /                      → the browser client from cfg.PublicDir (staticHandler)
@@ -432,7 +432,10 @@ func New(opts Options) (*App, error) {
 	}
 	mux.HandleFunc("GET /health", a.Health)
 	api.Register(mux)
-	mux.HandleFunc("GET /api/rooms", a.roomsHandler)
+	// Signed-in players only, and no join codes or pots (24 Sep 2026): the
+	// list is no client's, and served to anyone it let a scraper watch every
+	// live table's code and pot (auth.Handler.RequireAuth).
+	mux.Handle("GET /api/rooms", api.RequireAuth(func(w http.ResponseWriter, r *http.Request, _ *db.User) { a.roomsHandler(w, r) }))
 	mux.HandleFunc("GET /api/tables", a.tablesHandler)
 	mux.Handle("/api/", auth.NotFoundHandler())
 	if !publicDirExists(cfg.PublicDir) {
@@ -882,10 +885,23 @@ func (a *App) Health(w http.ResponseWriter, r *http.Request) {
 	auth.WriteJSON(w, http.StatusOK, res)
 }
 
-// RoomsResponse is GET /api/rooms and lobby:list's ack body.
+// RoomsResponse is GET /api/rooms's body.
 type RoomsResponse struct {
-	Tables  []game.TableSummary `json:"tables"`
-	Options game.LobbyOptions   `json:"options"`
+	Tables  []RoomListing     `json:"tables"`
+	Options game.LobbyOptions `json:"options"`
+}
+
+// RoomListing is one public table on GET /api/rooms: game.TableSummary less
+// its join code and its live pot (24 Sep 2026, owner's "fix all bugs"). The
+// route has no client; what it lists is enough to see the lobby, not to walk
+// into a table by its code or to watch its money.
+type RoomListing struct {
+	RoomID     string          `json:"roomId"`
+	Category   game.Category   `json:"category"`
+	State      game.TableState `json:"state"`
+	Players    int             `json:"players"`
+	MaxPlayers int             `json:"maxPlayers"`
+	BootAmount int64           `json:"bootAmount"`
 }
 
 // roomsHandler is GET /api/rooms?category= (index.js:87-97): the category
@@ -905,9 +921,13 @@ func (a *App) roomsHandler(w http.ResponseWriter, r *http.Request) {
 			category = c
 		}
 	}
-	tables := a.rooms.ListTables(game.ListOptions{Category: category})
-	if tables == nil {
-		tables = []game.TableSummary{}
+	summaries := a.rooms.ListTables(game.ListOptions{Category: category})
+	tables := make([]RoomListing, 0, len(summaries))
+	for _, t := range summaries {
+		tables = append(tables, RoomListing{
+			RoomID: t.RoomID, Category: t.Category, State: t.State,
+			Players: t.Players, MaxPlayers: t.MaxPlayers, BootAmount: t.BootAmount,
+		})
 	}
 	auth.WriteJSON(w, http.StatusOK, RoomsResponse{Tables: tables, Options: a.rooms.LobbyOptions()})
 }
