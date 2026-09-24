@@ -177,6 +177,19 @@ class PremiumSurface extends StatelessWidget {
 /// blur is affordable and settles for [tinted] when it is not.
 enum GlassMode { auto, blurred, tinted }
 
+/// What a glass panel's body is made of.
+enum GlassSurface {
+  /// A pane laid over the game — a drawer, a dialog, a pill, a notice — and
+  /// every panel that does not ask for anything else.
+  pane,
+
+  /// A game card: the lobby's cards and the chips at its corners (owner,
+  /// 24 Sep 2026). Near-opaque in the theme's card tokens
+  /// ([GlassColors.cardFill] and the rest) — its own body, edge, lit top line
+  /// and shadow, by night and by day — because it is the thing being read.
+  card,
+}
+
 /// The single glass primitive.
 ///
 /// A `BackdropFilter` does not cache: it re-reads and re-blurs its backdrop on
@@ -204,6 +217,8 @@ class PremiumGlassPanel extends StatefulWidget {
     this.behind,
     this.elevated = true,
     this.clipBehavior = Clip.antiAlias,
+    this.surface = GlassSurface.pane,
+    this.edge,
   });
 
   final Widget child;
@@ -212,6 +227,15 @@ class PremiumGlassPanel extends StatefulWidget {
   final EdgeInsetsGeometry padding;
 
   final GlassMode mode;
+
+  /// A pane over the game, or one of the lobby's game cards.
+  final GlassSurface surface;
+
+  /// The colour the hairline starts from at the top edge, fading to the
+  /// resting edge at the foot: a game card's mode accent, so the card is lit
+  /// in its colour along one line rather than washed in it. Ignored while
+  /// [live], which has its own.
+  final Color? edge;
 
   /// Blur radius, when this panel blurs at all. Null takes the theme's own —
   /// 16 on obsidian, 20 on ice ([GlassColors.sigma]). Never above 24: the
@@ -260,7 +284,13 @@ class _PremiumGlassPanelState extends State<PremiumGlassPanel> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (widget.mode != GlassMode.auto || _asked) return;
+    // A card never blurs, so it never holds the one lease another panel
+    // could have spent.
+    if (widget.mode != GlassMode.auto ||
+        widget.surface == GlassSurface.card ||
+        _asked) {
+      return;
+    }
     _asked = true;
     _allowance = GlassBudget.maybeOf(context);
     // A panel decides once, when it mounts, and keeps that decision for its
@@ -300,17 +330,22 @@ class _PremiumGlassPanelState extends State<PremiumGlassPanel> {
     final theme = Theme.of(context);
     final glass = GlassColors.of(context);
     final dark = theme.brightness == Brightness.dark;
-    final blurring = _blurring;
+    final card = widget.surface == GlassSurface.card;
+    // A card is near-opaque: nothing behind it would show through a blur.
+    final blurring = _blurring && !card;
 
     // Over a blur the panel is barely more than the blur: a whisper of white
     // on obsidian, milk on ice, because the softened backdrop IS the body.
     // Nothing behind a tinted panel is being blurred, so that panel has to
-    // carry its own body or it reads as a smear.
+    // carry its own body or it reads as a smear. A game card carries the
+    // theme's card body, lit from above.
+    Color washed(Color c) => widget.tint == null
+        ? c
+        : Color.alphaBlend(widget.tint!.withValues(alpha: 0.10), c);
     final List<Color> body;
-    if (blurring) {
-      Color washed(Color c) => widget.tint == null
-          ? c
-          : Color.alphaBlend(widget.tint!.withValues(alpha: 0.10), c);
+    if (card) {
+      body = [washed(glass.cardFill), washed(glass.cardFillEnd)];
+    } else if (blurring) {
       body = [washed(glass.fill), washed(glass.fillStrong)];
     } else {
       final base = AppTheme.panelBase(theme.brightness);
@@ -323,19 +358,23 @@ class _PremiumGlassPanelState extends State<PremiumGlassPanel> {
     }
 
     // Resting, the border is the spec's one-pixel gradient — lit above,
-    // fading below. Live (focused, claimable, the primary thing on screen) it
-    // is the app's gold hairline, so the accent still means something.
+    // fading below — or a card's own edge, which may start from its mode's
+    // accent. Live (focused, claimable, the primary thing on screen) it is the
+    // app's gold hairline, so the accent still means something.
     final live = AppTheme.hairlineColour(theme.brightness, live: true);
-    final border = widget.live
-        ? [live, live]
-        : [glass.borderTop, glass.borderBottom];
+    final rest = card
+        ? [widget.edge ?? glass.cardBorder, glass.cardBorder]
+        : [widget.edge ?? glass.borderTop, glass.borderBottom];
+    final border = widget.live ? [live, live] : rest;
 
     final panel = DecoratedBox(
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(widget.radius),
-        boxShadow: widget.elevated
-            ? AppTheme.glassShadow(theme.brightness)
-            : null,
+        boxShadow: !widget.elevated
+            ? null
+            : card
+            ? glass.cardShadow
+            : AppTheme.glassShadow(theme.brightness),
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(widget.radius),
@@ -357,8 +396,12 @@ class _PremiumGlassPanelState extends State<PremiumGlassPanel> {
                 child: DecoratedBox(
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
+                      // A card is lit from above, as the room is; a pane
+                      // catches the light across its diagonal.
+                      begin: card ? Alignment.topCenter : Alignment.topLeft,
+                      end: card
+                          ? Alignment.bottomCenter
+                          : Alignment.bottomRight,
                       colors: body,
                     ),
                   ),
@@ -380,8 +423,9 @@ class _PremiumGlassPanelState extends State<PremiumGlassPanel> {
                       begin: Alignment.topCenter,
                       end: Alignment.bottomCenter,
                       colors: [
-                        glass.highlight,
-                        glass.highlight.withValues(alpha: 0),
+                        card ? glass.cardHighlight : glass.highlight,
+                        (card ? glass.cardHighlight : glass.highlight)
+                            .withValues(alpha: 0),
                       ],
                     ),
                   ),

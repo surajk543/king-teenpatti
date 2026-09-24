@@ -1706,9 +1706,9 @@ class _PackCard extends StatefulWidget {
 /// a baked colour orb, a plate in the card's colour at the head, the figure
 /// large beside a chip stack, one line of small print, and a glass capsule
 /// along the foot — carrying the price where a table carries "Tap to sit
-/// down". Colour climbs the range the way it climbs the lobby rail: sapphire
-/// for the first three packs, royal purple for the next three, gold for the
-/// top three, so the shelf reads from modest to rich at a glance.
+/// down". Colour climbs the range from sapphire for the first three packs to
+/// violet for the next three and gold for the top three, so the shelf reads
+/// from modest to rich at a glance.
 class _PackCardState extends State<_PackCard> {
   bool _down = false;
 
@@ -1731,11 +1731,14 @@ class _PackCardState extends State<_PackCard> {
     final t = state.t;
     final p = widget.pack;
     final prices = widget.prices;
-    final palette = AppTheme.paletteFor(
-      theme.colorScheme,
-      category: widget.index >= 6 ? 'seen' : 'blind',
-      bootAmount: widget.index >= 3 ? 5000 : 200,
-    );
+    // Sapphire, then violet, then gold up the shelf. The violet is named
+    // outright: it was the high-stakes blind table's colour, and blind is
+    // one colour at every stake now (AppTheme.paletteFor).
+    final palette = widget.index >= 6
+        ? AppTheme.paletteFor(theme.colorScheme, category: 'seen', bootAmount: 200)
+        : widget.index >= 3
+        ? AppTheme.violetPalette(theme.colorScheme)
+        : AppTheme.paletteFor(theme.colorScheme, category: 'blind', bootAmount: 200);
     final accent = palette.accent;
     final champagne = dark ? AppTheme.goldBright : AppTheme.goldDeep;
 
@@ -2381,11 +2384,12 @@ class _CountPackCardState extends State<_CountPackCard> {
     final state = context.watch<GameState>();
     final t = state.t;
     final prices = widget.prices;
-    final palette = AppTheme.paletteFor(
-      theme.colorScheme,
-      category: widget.index >= 3 ? 'seen' : 'blind',
-      bootAmount: widget.index >= 2 ? 5000 : 200,
-    );
+    // Sapphire, sapphire, violet, gold (see _PackCardState).
+    final palette = widget.index >= 3
+        ? AppTheme.paletteFor(theme.colorScheme, category: 'seen', bootAmount: 200)
+        : widget.index >= 2
+        ? AppTheme.violetPalette(theme.colorScheme)
+        : AppTheme.paletteFor(theme.colorScheme, category: 'blind', bootAmount: 200);
     final accent = palette.accent;
     final ink = widget.inkOn(theme.brightness);
     final cost = widget.diamondCost;

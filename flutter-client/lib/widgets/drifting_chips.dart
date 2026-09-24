@@ -103,8 +103,7 @@ class _DriftingChipsState extends State<DriftingChips>
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final dark = scheme.brightness == Brightness.dark;
-    final purple =
-        AppTheme.paletteFor(scheme, category: 'blind', bootAmount: 5000).accent;
+    final purple = AppTheme.violetPalette(scheme).accent;
     final colours = [
       AppTheme.ink500,
       AppTheme.ink400,

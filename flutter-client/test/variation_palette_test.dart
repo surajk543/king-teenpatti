@@ -34,8 +34,10 @@ void main() {
         expect(variation.accent, isNot(other.accent));
         expect(variation.icon, isNot(other.icon));
       }
-      // The three that were there before are still three.
-      expect(others.map((p) => p.accent).toSet(), hasLength(3));
+      // Blind is one colour at every stake (owner, 24 Sep 2026: one accent a
+      // mode), so the others are two — gold and sapphire — where the
+      // high-stakes blind table's purple used to make three.
+      expect(others.map((p) => p.accent).toSet(), hasLength(2));
     });
 
     test('its orb is told apart by hue, which is all an orb keeps ($name)', () {

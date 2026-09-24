@@ -204,6 +204,7 @@ class GlassCapsule extends StatelessWidget {
     this.elevated = true,
     this.onTap,
     this.minHeight,
+    this.surface = GlassSurface.pane,
   });
 
   final Widget child;
@@ -213,6 +214,10 @@ class GlassCapsule extends StatelessWidget {
   final bool live;
 
   final GlassMode mode;
+
+  /// A pane, or a game card's body — the lobby's corner chips stand on the
+  /// same ground as its cards and are made of the same card.
+  final GlassSurface surface;
   final double radius;
   final Color? tint;
   final bool elevated;
@@ -250,6 +255,7 @@ class GlassCapsule extends StatelessWidget {
       ),
       child: PremiumGlassPanel(
         mode: mode,
+        surface: surface,
         radius: radius,
         live: live,
         tint: tint,
