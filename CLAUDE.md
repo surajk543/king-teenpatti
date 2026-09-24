@@ -156,7 +156,8 @@ king-teenpatti/
     ├── assets/card_back.svg, assets/app_icon.svg, assets/fonts/ (Inter 400/500/600/700 + OFL licence), assets/sfx/,
     │                         assets/animations/Fireworks.json (Lottie 5.5.7, 512x512, 2.43s — the winner's burst)
     ├── test/  number_format, connection_failure, consent, theme_preference, … poker_table (§8.4), table_config_{dtos,cache,menu}, table_engines (§8.1)
-    ├── android/                  applicationId com.sungamestudio.kingteenpatti, sensorLandscape, cleartext on
+    ├── android/                  applicationId com.sungamestudio.kingteenpatti, sensorLandscape, cleartext in DEBUG builds only (src/debug manifest),
+    │                             no Android backup (allowBackup=false + res/xml/data_extraction_rules.xml), USE_BIOMETRIC/USE_FINGERPRINT removed
     └── ios/                      bundle id com.sungamestudio.kingteenpatti, landscape-only, status bar hidden,
                                   NSAllowsLocalNetworking; GIDClientID + URL scheme come from Flutter/*.xcconfig.
                                   NO Podfile (Flutter writes one on the Mac); never built here — docs/ios-setup.md
@@ -197,8 +198,12 @@ never reach the production accounts — and **the store build must name producti
 holds one JSON per environment (`production`, `preprod`, `local-emulator`: `SERVER_URL`, `APP_ENV`, `GOOGLE_SERVER_CLIENT_ID`);
 `APP_ENV` is shown beside the version in the settings drawer unless it is `production`. A local server is
 `--dart-define=SERVER_URL=http://10.0.2.2:3000` (the emulator's alias for the host loopback) or `http://<lan-ip>:3000` for a
-real device on the LAN — `usesCleartextTraffic` stays on for exactly that. `test/server_config_test.dart` pins the default.
-`usesCleartextTraffic="true"` in the manifest makes plain http work.
+real device on the LAN — in a **DEBUG** build only: `usesCleartextTraffic="true"` lives in
+`android/app/src/debug/AndroidManifest.xml`, so a release or profile build refuses plain http (production is HTTPS, as it
+should be; corrected 24 Sep 2026 — this said "in the manifest"). `test/server_config_test.dart` pins the default.
+**`SERVER_URL` and `APP_ENV` are independent defines** — nothing ties the label to the backend, so a lone
+`--dart-define=SERVER_URL=https://api…` is a production build labelled "· preprod"; always build from a
+`config/*.json` file (`flutter-client/config/README.md`, 24 Sep 2026).
 
 ---
 
@@ -270,6 +275,9 @@ flutter build apk --debug       # no define → PREPROD (https://preprod.sungame
 flutter build apk --debug --dart-define-from-file=config/local-emulator.json   # local server on the emulator (= SERVER_URL=http://10.0.2.2:3000)
 flutter build apk --debug --dart-define=SERVER_URL=http://192.168.1.10:3000  # local server, real device
 flutter build appbundle --release --dart-define-from-file=config/production.json   # THE STORE BUILD: api.sungamestudio.com + the Google client id
+# NEVER distribute --split-per-abi APKs: build 8 becomes 1008/2008/4008, which no MIN_CLIENT_BUILD floor holds and Play can
+# never update. build.gradle.kts refuses a split RELEASE build (24 Sep 2026; --android-project-arg=allowSplitPerAbiRelease=true
+# for a throwaway test build). The Play upload is the App Bundle; a universal `flutter build apk --release` is fine to sideload.
 adb install -r build/app/outputs/flutter-apk/app-debug.apk
 adb shell am start -n com.sungamestudio.kingteenpatti/.MainActivity   # launch (monkey … 1 also launches it but injects ONE random event — it once opened the store and an unlock question)
 adb shell am force-stop com.sungamestudio.kingteenpatti
@@ -1466,13 +1474,34 @@ Production's lives at `/var/www/gameplay/king-teenpatti/go-server/.env` (`PG_POO
 - `GameConnection`: websocket-only Socket.IO; broadcast `Stream`s; every emit via `emitWithAck`; a
   refusal is `{ok:false, message}` → `notice`. `request()` awaits an ack with an 8s timeout.
   **Every `act()` sends a fresh `actionId` (uuid v4)** for server-side idempotency. The `room:moved`
-  `j['state']` branch is dead code (server sends no `state` there).
+  `j['state']` branch is dead code (server sends no `state` there). **`connect()` builds with `enableForceNew()`**
+  (24 Sep 2026, owner's "fix all bugs"; B7): without it `socket_io_client` handed every later session the Socket it
+  cached on the first connect and reconnected it with the FIRST token (§12.3) — after a sign-out the next account's
+  socket signed in as the previous one, and after Delete account it presented the deleted account's token
+  (`connect_error unknown_user` → "Service not available" over the new guest's consent panel, and no socket at all).
+  A `connect_error` from a socket that is no longer `_socket` is dropped. `test/connection_session_test.dart`.
 - DTOs (`dtos.dart`): `const` classes + tolerant `fromJson`; server enums as `static const String`
   classes; `Seat.chips` **nullable** (null = withheld, never 0).
 - SharedPreferences: `deviceId`, `token`, `themeMode` (`system|dark|light`, `state/theme_preference.dart`;
   the old `darkMode` bool is read once when `themeMode` is absent and never written again), `lang`,
   `numbers`, `noWinningsAck:<userId>`, `soundOn`/`vibrateOn` (`settings/feedback_settings.dart`), and since 23 Sep
-  2026 **`tableConfig`** — the phone's copy of `GET /api/tables`.
+  2026 **`tableConfig`** — the phone's copy of `GET /api/tables`. **None of the app's data is backed up or carried to
+  another phone** (24 Sep 2026, owner's "fix all bugs"; RC-07): `token` is a 30-day JWT and `deviceId` IS a guest's
+  account (guest id = sha256('teenpatti:'+deviceId)), and a device-to-device transfer left two phones signed in as one
+  player. `android:allowBackup="false"` plus `dataExtractionRules` (`res/xml/data_extraction_rules.xml`, every domain
+  excluded from cloud-backup and device-transfer — Android 12+ ignores allowBackup for D2D). The price: a guest who
+  reinstalls starts a new account; Google sign-in keeps one.
+- **Play purchases** (`net/purchases.dart`, 24 Sep 2026, owner's "fix all bugs"; RC-03): bought with
+  `buyConsumable(autoConsume: false)` and CONSUMED (`InAppPurchaseAndroidPlatformAddition.consumePurchase`) only after
+  `POST /api/purchases/google` has banked it — the plugin's default consumed a pack the moment Play reported it, before
+  the app or the server had seen it, so a credit that failed on the network was lost for good (Play never re-delivers a
+  consumed purchase). `Purchases.redeliver()` lists Play's OWNED purchases (`queryPastPurchases`, not
+  `restorePurchases`, which marks a pending purchase `restored` and drops the whole list when the subs query fails) and
+  posts each paid one again; GameState calls it on every `session:ready` (cold start, sign-in, reconnect). The server is
+  idempotent on the token (`gplay:<token>`). A refusal finishes the purchase only when it is a verdict on the receipt
+  (`receiptRefusalIsFinal`: 400, 402); 401/403/408/429/5xx keep it owned for the next session. In-flight and finished
+  tokens are de-duplicated. A consume that fails acknowledges instead (the server acknowledges on credit too).
+  `test/purchases_consume_test.dart`.
 - **The table catalogue on the phone** (owner, 23 Sep 2026: "the UI fetches it, stores it on the phone, and re-fetches it
   at every login"; `state/table_config_cache.dart`). `TableConfigCache` keeps ONE entry under `tableConfig`:
   `{"schema":1, "version", "fetchedAt", "body"}`, `body` being the server's JSON exactly as it came (a later build can
@@ -1562,7 +1591,10 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   is cleared on sign-out and when a new `session:ready` menu no longer lists it, and it is never persisted. Each level is
   its own `ListView` keyed `lobby-rail:<category>` inside an `AnimatedSwitcher`, so a category opens at its first card
   — the key holds nothing that ticks, or the one-second notify would restart the fade — and inside a category cards
-  take orb places from index 1 (index 0 spills LEFT, which would be over the back tile). **Every table card carries two
+  take orb places from index 1 (index 0 spills LEFT, which would be over the back tile). The private card's Create and
+  Join keys take a `Space.sm` margin and their word in a `FittedBox(scaleDown)` (24 Sep 2026: Bengali "তৈরি করুন" read
+  "তৈরি ..." on TP_Small; `test/private_card_keys_test.dart`), and the settings drawer's display-name error wraps
+  (`errorMaxLines`, it was cut to "Letters, numbers and spaces ..."; `test/name_error_test.dart`). **Every table card carries two
   corner keys**, one over the other at its top-right (`_CardCornerKey`: each a full 44dp target whose tap wins the arena
   over the card's own, so it never sits the player down; drawn above a shut card's fade; stacked rather than side by
   side so neither reaches the badge on a 640dp phone). **ⓘ** opens `_TableInfoDialog`: game, boot, entry (the card's own
@@ -1683,7 +1715,9 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   rebuilds the right view with the server's ORIGINAL deadline. **The picker is a panel in the felt's Stack
   (`widgets/variation_prompt.dart` `VariationPrompt`), never a `showDialog` route** — no route can outlive the move it
   asked about (the missile question's black screen, above): title "Choose Variation", whole seconds counting down from
-  `deadline − now` on its own controller (visual only; the server's clock decides), a draining bar, six keys three to a
+  `deadline − now` on its own controller (visual only; the server's clock decides) and never more than the window's own
+  whole seconds (`countdownSeconds`, 24 Sep 2026: a phone running behind the server read a 10 s window as 11 — the same
+  cap holds the 5-Card pick, `VariationState.secondsLeft` and the unfunded seat's grace), a draining bar, six keys three to a
   row, a one-line rule under each where the screen is not short. It takes the top 64% of the felt so the chooser's own
   hand and "See cards" stay usable (the server allows `see` in the window). A tap darkens all six and
   `GameState.selectVariation` **awaits the ack**: taken → dark until the snapshot removes the panel however slow the link;
@@ -1946,7 +1980,12 @@ clock (4, 8, 16 s, then every 30 s) by both the backdrop and `CachedPictureBox`,
   `bannerLift` −0.45 (between the status line and the plinth's top), faded at its two ends instead of radially; a square-ish canvas is
   drawn as before. **The header's tab strip scrolls** when six keys would crowd the blurb off its two lines (a 640dp
   phone at the 1.25 text ceiling): `_ChipStoreState` cuts `tabsShown` a key at a time until `blurbLinesAt(...) <= 2`, and `_revealTab`
-  jumps the strip to the key that is on. `_loadPictures` loads both catalogues; the lobby rental watch covers a laid premium table too.
+  jumps the strip to the key that is on. **The header's height is MEASURED** (24 Sep 2026, B1): each line the taller of the
+  Latin line and what every shelf's title and blurb take in the fonts the phone draws them in (`_measuredLine`, §12.3) —
+  the Hindi Chips blurb overflowed it by a pixel on TP_Small — and the worn picture's name under it the same way;
+  `test/store_header_scripts_test.dart` opens every shelf at 640x360 in all five languages at x1.0 and x1.25 with the Noto
+  fallback. The Pictures blurb names every wallet a picture sells for ("chips, hammers or diamonds"; the Animated shelf at
+  a table "hammers or diamonds"), since five pictures cost diamonds. `_loadPictures` loads both catalogues; the lobby rental watch covers a laid premium table too.
 - **`Avatar` has two different fallbacks and the difference is deliberate.** No picture at all → the
   player's initial, which still says whose seat it is. A picture that was supposed to load and did
   not (a retired file, a dead Google URL, a phone that lost the network) → `assets/default_avatar.svg`,
@@ -1970,8 +2009,12 @@ clock (4, 8, 16 s, then every 30 s) by both the backdrop and `CachedPictureBox`,
   maps + a getter.** Teen Patti vocabulary transliterated. Still-English strings: `'YOU'`, `'Table
   ${code}'`, private-card body, picture-picker labels, `'Switch theme'`, chat `'You'`,
   the `'$winner won N'` banner (bypasses lakh formatting), and **wire hand names**.
-- **Android**: `com.sungamestudio.kingteenpatti`, `sensorLandscape`, cleartext, INTERNET (needed in
-  release). **Icon & splash** come from one file, `assets/app_icon.svg` (crown over A♥ A♠ Q♥, all paths, no fonts):
+- **Android**: `com.sungamestudio.kingteenpatti`, `sensorLandscape`, cleartext in DEBUG builds only
+  (`src/debug/AndroidManifest.xml`), INTERNET (needed in release), no backup (`allowBackup="false"` +
+  `data_extraction_rules.xml`, §8.1), and the `USE_BIOMETRIC`/`USE_FINGERPRINT` that androidx.biometric merges in (via
+  google_sign_in's androidx.credentials) removed with `tools:node="remove"` (24 Sep 2026; the merged manifest holds
+  INTERNET, BILLING and ACCESS_NETWORK_STATE only; `test/release_config_test.dart` pins all three). The Play upload is
+  the **App Bundle**; `build.gradle.kts` refuses a `--split-per-abi` RELEASE build (§4). **Icon & splash** come from one file, `assets/app_icon.svg` (crown over A♥ A♠ Q♥, all paths, no fonts):
   `tool/render_icons.dart` renders `mipmap-*/ic_launcher.png` (legacy), `mipmap-*/ic_launcher_foreground.png` +
   `mipmap-anydpi-v26/ic_launcher.xml` (adaptive, bg `@color/ic_launcher_background` #2B363B), `drawable-*/splash_icon.png`,
   and the 200×80dp `splash_branding.png` (DejaVu Sans, light/night variants). `values-v31` sets `windowSplashScreenAnimatedIcon`
@@ -2144,7 +2187,20 @@ final t = state.t;` at the top of `build`; M3 roles via `theme.colorScheme`; `.w
 - `FractionallySizedBox` with only `widthFactor` and a childless child **collapses to zero height**
   (needed `heightFactor: 1`, `alignment: centerLeft`).
 - Both `game:showdown` and `game:handEnded` hit `onShowdown`; only the latter has `nextHandAt`.
-- Refused moves surface **twice** (ack + `game:error`).
+- Refused moves surface **twice** (ack + `game:error`). `GameState.refusalText` says a code in the player's language
+  where it has words for it; since 24 Sep 2026 that includes the server's `sideshow_pending` (a move while the player's
+  own sideshow request still waits for its answer) and `pick_pending` (Sideshow, Force Sideshow, Missile or Show while a
+  player is still choosing their three cards under 5-Card) — `test/pending_refusals_test.dart`.
+- **`socket_io_client` reuses a cached Socket across `io.io()` calls** (3.1.6): it caches one Manager per host and
+  compares the URL's EMPTY path with the `'/'` key the socket is stored under, so it never sees the namespace as
+  taken and returns the same Socket — reconnected with the auth it was first built with. Every connect must pass
+  `enableForceNew()` (GameConnection does, §8.1), or a new token never reaches the server.
+- **A line that mixes scripts is taller than either font's line.** Inter has no Indic glyphs; a phone draws them from
+  its Noto fonts while the spaces, commas and figures stay in Inter, each run is fitted to the style's `height` in its
+  own font's proportions, and the line takes the larger ascent AND the larger descent. Any box sized from
+  `fontSize × height` alone can overflow in Hindi, Bengali, Gujarati or Punjabi (the chip store's header did, B1,
+  24 Sep 2026): measure with a `TextPainter` (`chip_store.dart _measuredLine`). The test engine has no system fonts, so
+  a layout test must load the Noto fonts and name them as the theme's fallback (`test/script_fonts.dart`) to see it.
 - **Toasts are painted above the Navigator** (13 Sep 2026). `main.dart`'s `builder` wraps the Navigator in a
   transparent, never-resized `Scaffold`: a snack bar shows only on the outermost Scaffold its messenger knows, so
   every `notice` lands on top of sheets, dialogs and drawers. Before it the screens' own Scaffolds painted toasts
@@ -2173,7 +2229,8 @@ final t = state.t;` at the top of `build`; M3 roles via `theme.colorScheme`; `.w
   succeeds and returns no `idToken`. Facebook was removed on 10 Sep 2026, restored on 22 Sep (`5b43510`) and
   **switched off again on 23 Sep 2026** (owner, `94061a2`): the button, `SocialSignIn.facebook()`, the
   `flutter_facebook_auth` dependency and its manifest entries are commented out, not deleted — `docs/social-login-setup.md`
-  §2 says what to uncomment to bring it back. A build with no client
+  §2 says what to uncomment to bring it back; no visible line offers it (the picture sheet's guest tooltip and "Use my
+  Google or Facebook picture" named it until 24 Sep 2026 — `test/release_strings_test.dart`). A build with no client
   id throws `SignInUnavailable` and says so rather than blaming the network; "use provider picture"
   is still disabled.
 - `main()` awaits `/api/auth/me` with no timeout before the first frame.
@@ -2352,7 +2409,7 @@ anywhere rather than an ssh, and `ops/prod-version.sh` compares it with the newe
 2 when prod is behind. **A restart that silently failed looks exactly like a successful one from
 outside**, and that is what this exists to catch.
 
-The Flutter client is tagged the same way, by hand: **`flutter-client/vX.Y.Z`**, cut on the commit whose `pubspec.yaml` carries that version, so the tag, the app's version name and the build number a store listing shows all agree (first cut 19 Sep 2026, `flutter-client/v1.1.0` = `1.1.0+4`, the build that carries Variation, the Poker family and the 5-Card picker). **`MIN_CLIENT_BUILD` is raised to a build number that exists in the store, never to one that is only tagged here** — the floor holds every older client on the update screen, so a floor above what Play is serving takes the game down for everyone with no way for a player to get past it.
+The Flutter client is tagged the same way, by hand: **`flutter-client/vX.Y.Z`**, cut on the commit whose `pubspec.yaml` carries that version, so the tag, the app's version name and the build number a store listing shows all agree (first cut 19 Sep 2026, `flutter-client/v1.1.0` = `1.1.0+4`, the build that carries Variation, the Poker family and the 5-Card picker). `flutter-client/v1.2.0` = `1.2.0+7`; the release after it is **`1.2.1+8`** (24 Sep 2026, owner's "fix all bugs" — pubspec had stayed at 1.2.0+7 while eleven client commits landed after the tag; `test/release_config_test.dart` holds the build number past 7). **`MIN_CLIENT_BUILD` is raised to a build number that exists in the store, never to one that is only tagged here** — the floor holds every older client on the update screen, so a floor above what Play is serving takes the game down for everyone with no way for a player to get past it.
 
 `ops/release.sh patch|minor|major|vX.Y.Z` cuts an annotated tag. It refuses a dirty tree and refuses a
 commit that already carries one — a tag has to name a commit someone else can rebuild byte for byte,

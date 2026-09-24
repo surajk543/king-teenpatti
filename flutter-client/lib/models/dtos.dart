@@ -1646,10 +1646,17 @@ class VariationState {
   final String? turnUp;
 
   /// Seconds left on the window, never negative; 0 when it has no deadline.
+  /// Never more than the window's own whole seconds ([timeoutMs]): the
+  /// deadline is the server's clock, and a phone running behind it would
+  /// otherwise count a 10 s window from 11 (24 Sep 2026).
   int get secondsLeft {
     if (!selecting || deadline <= 0) return 0;
     final ms = deadline - DateTime.now().millisecondsSinceEpoch;
-    return ms <= 0 ? 0 : (ms / 1000).ceil();
+    if (ms <= 0) return 0;
+    final seconds = (ms / 1000).ceil();
+    return timeoutMs > 0
+        ? math.min(seconds, (timeoutMs / 1000).ceil())
+        : seconds;
   }
 
   /// Whether the server chose because the player did not.
@@ -1959,12 +1966,17 @@ class You {
   /// holding their seat for a chip purchase; the seat goes when it passes.
   final int? unfundedDeadline;
 
-  /// Whole seconds left of that grace, or null when there is none.
-  int? unfundedSecondsLeft(DateTime now) {
+  /// Whole seconds left of that grace, or null when there is none. Never more
+  /// than the grace's own whole seconds when its length [totalMs] is known:
+  /// the deadline is the server's clock, and a phone running behind it would
+  /// otherwise count from one second more than the table gives (24 Sep 2026).
+  int? unfundedSecondsLeft(DateTime now, {int totalMs = 0}) {
     final deadline = unfundedDeadline;
     if (deadline == null) return null;
     final ms = deadline - now.millisecondsSinceEpoch;
-    return ms <= 0 ? 0 : (ms / 1000).ceil();
+    if (ms <= 0) return 0;
+    final seconds = (ms / 1000).ceil();
+    return totalMs > 0 ? math.min(seconds, (totalMs / 1000).ceil()) : seconds;
   }
 
   factory You.fromJson(Map<String, dynamic> j) {

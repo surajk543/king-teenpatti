@@ -807,7 +807,7 @@ void main() {
       await _settle(tester);
       // The animated shelf alone, and its blurb says what it costs.
       expect(
-        find.text('Unlock an animated picture with hammers.'),
+        find.text('Unlock an animated picture with hammers or diamonds.'),
         findsOneWidget,
       );
 
@@ -909,8 +909,8 @@ void main() {
             findsOneWidget,
           );
           final blurb = screen == Screen.table
-              ? 'Unlock an animated picture with hammers.'
-              : 'Unlock a picture with chips or hammers.';
+              ? 'Unlock an animated picture with hammers or diamonds.'
+              : 'Unlock a picture with chips, hammers or diamonds.';
           expect(
             tester
                 .renderObject<RenderParagraph>(find.text(blurb))

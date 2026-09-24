@@ -120,10 +120,20 @@ String variationTagText({
 ).text;
 
 /// Whole seconds left until [deadlineMs], never negative; 0 with no deadline.
-int _secondsLeft(int deadlineMs) {
+///
+/// Never more than the window's own whole seconds when its length [totalMs]
+/// is known: the deadline is the SERVER's clock, and a phone whose clock runs
+/// behind the server's read a 10 s window as 11 on its first frame (TP_Small,
+/// 24 Sep 2026, owner's "fix all bugs"; release review B6). The bar beside the
+/// digits was already clamped to the window; the number now is too.
+@visibleForTesting
+int countdownSeconds(int deadlineMs, {int totalMs = 0, DateTime? now}) {
   if (deadlineMs <= 0) return 0;
-  final ms = deadlineMs - DateTime.now().millisecondsSinceEpoch;
-  return ms <= 0 ? 0 : (ms / 1000).ceil();
+  final ms = deadlineMs - (now ?? DateTime.now()).millisecondsSinceEpoch;
+  if (ms <= 0) return 0;
+  final seconds = (ms / 1000).ceil();
+  if (totalMs <= 0) return seconds;
+  return math.min(seconds, (totalMs / 1000).ceil());
 }
 
 /// A variation window's clock: the whole seconds left, and optionally the bar
@@ -218,6 +228,10 @@ class _VariationCountdownState extends State<VariationCountdown>
         animation: _frames,
         builder: (context, _) {
           final left = _remaining();
+          final seconds = countdownSeconds(
+            widget.deadlineMs,
+            totalMs: widget.totalMs,
+          );
           final colour = Color.lerp(
             theme.colorScheme.error,
             widget.ink ?? AppTheme.goldBright,
@@ -233,7 +247,7 @@ class _VariationCountdownState extends State<VariationCountdown>
                   child: FittedBox(
                     fit: BoxFit.contain,
                     child: Text(
-                      '${_secondsLeft(widget.deadlineMs)}',
+                      '$seconds',
                       key: const ValueKey('variation-seconds'),
                       maxLines: 1,
                       style: AppTheme.money(

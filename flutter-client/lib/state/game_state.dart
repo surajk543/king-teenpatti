@@ -1060,6 +1060,11 @@ class GameState extends ChangeNotifier {
         // The server is enforcing a catalogue other than the one held: its
         // session menu is on screen meanwhile, and the full one is fetched.
         if (refetch) unawaited(_loadTableConfig());
+        // Every session — a cold start, a sign-in, a reconnect — hands Play's
+        // owned (paid, not yet banked) purchases to the server again: a credit
+        // that failed on the network, or a purchase finished while the app was
+        // closed, lands now. The server is idempotent on the purchase token.
+        unawaited(purchases.redeliver());
         _snapshotSinceSession = false;
         if (!resuming && room != null) {
           final offer = s.resume;
@@ -2754,11 +2759,12 @@ class GameState extends ChangeNotifier {
   }
 
   /// Hands one receipt to the server and, if it banks the chips, reports true
-  /// so the purchase can be completed with Play.
+  /// so the purchase can be consumed with Play.
   ///
   /// Returning false is not a failure to swallow — it leaves the purchase
-  /// pending with Play, which re-delivers it on the next launch. That is the
-  /// safety net for dying between paying and crediting, and the reason this
+  /// owned with Play, and the next session's `purchases.redeliver()` (on
+  /// `session:ready`) posts it again. That is the safety net for dying, or
+  /// losing the network, between paying and crediting, and the reason this
   /// must never return true on a path that did not credit.
   Future<bool> _deliverPurchase(PurchaseDetails purchase) async {
     final token = _token;
@@ -2784,16 +2790,18 @@ class GameState extends ChangeNotifier {
       notifyListeners();
       return true;
     } on ApiException catch (e) {
-      // The server refused it — a receipt Google would not confirm, or an
-      // unknown product. Completing it stops an endless redelivery loop of
-      // something that will never be accepted.
       purchasePending = false;
       notice = e.message;
       notifyListeners();
-      return true;
+      // The server refused the receipt itself — Google would not confirm it,
+      // or the product is unknown: finishing it stops an endless redelivery
+      // of something that will never be accepted. Any other refusal (a
+      // lapsed session, Google or the server down) is not a verdict on the
+      // purchase, which stays owned for the next session to post again.
+      return receiptRefusalIsFinal(e.status);
     } catch (_) {
-      // Network or server trouble: keep the purchase pending so the next
-      // launch retries. The player has paid and must not lose the chips.
+      // Network or server trouble: keep the purchase owned so the next
+      // session retries. The player has paid and must not lose the chips.
       purchasePending = false;
       notifyListeners();
       return false;
@@ -3015,6 +3023,11 @@ class GameState extends ChangeNotifier {
     // A missile's refusal, and a sideshow's: both need three in the hand, so
     // one sentence serves either.
     if (code == 'too_few_players') return t.tooFewPlayers;
+    // The player's own sideshow request is still waiting for its answer, and
+    // a player still choosing their three cards under 5-Card holds back a
+    // Sideshow, Force Sideshow, Missile or Show (24 Sep 2026).
+    if (code == 'sideshow_pending') return t.sideshowPendingRefusal;
+    if (code == 'pick_pending') return t.pickPendingRefusal;
     if (code == GameConnection.notConnected) return t.notConnected;
     if (code == 'over_entry_cap' || code == 'below_table_minimum') {
       // The server writes the limit with Western grouping ("500,000"); the
@@ -3379,6 +3392,23 @@ class GameState extends ChangeNotifier {
 
   bool get canChat =>
       _chatReadyAt == null || !DateTime.now().isBefore(_chatReadyAt!);
+
+  /// Whole seconds left of the viewer's unfunded grace (the seat held for a
+  /// chip purchase), or null when there is none — never more than this
+  /// table's own grace when the menu carries it (`unfundedGraceMs`, the table
+  /// catalogue), whatever the phone's clock says of the server's deadline.
+  int? unfundedGraceLeft(DateTime now) {
+    final room = this.room;
+    if (room == null) return null;
+    final total = config
+        .entryFor(
+          category: room.category,
+          bootAmount: room.bootAmount,
+          isPrivate: room.isPrivate,
+        )
+        ?.unfundedGraceMs;
+    return room.you?.unfundedSecondsLeft(now, totalMs: total ?? 0);
+  }
 
   /// Whole seconds until the next message may be sent; 0 when it may.
   int get chatCooldownLeft {

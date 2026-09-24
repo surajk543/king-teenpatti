@@ -631,6 +631,15 @@ class Strings {
   /// The server's `no_missiles` and `too_few_players` refusals.
   String get noMissiles => _('noMissiles');
   String get tooFewPlayers => _('tooFewPlayers');
+
+  /// A move refused while the player's own sideshow request still waits for
+  /// its answer (`sideshow_pending`, 24 Sep 2026).
+  String get sideshowPendingRefusal => _('sideshowPendingRefusal');
+
+  /// Sideshow, Force Sideshow, Missile or Show refused while a player is still
+  /// choosing their three cards under 5-Card Teen Patti (`pick_pending`,
+  /// 24 Sep 2026).
+  String get pickPendingRefusal => _('pickPendingRefusal');
   String get missileNeedsShowChips => _('missileNeedsShowChips');
 
   /// What a missile says at the table: to the player who fired it, and to
@@ -1076,8 +1085,8 @@ class Strings {
       'storeTabChips': 'Chips',
       'storeTabPictures': 'Pictures',
       'storeTabAnimated': 'Animated',
-      'storePicturesBlurb': 'Unlock a picture with chips or hammers.',
-      'storeAnimatedBlurb': 'Unlock an animated picture with hammers.',
+      'storePicturesBlurb': 'Unlock a picture with chips, hammers or diamonds.',
+      'storeAnimatedBlurb': 'Unlock an animated picture with hammers or diamonds.',
       'storeTabTables': 'Tables',
       'storeTablesTitle': 'Table Pictures',
       'storeTablesBlurb': 'Dress your table — one look for day, one for night.',
@@ -1145,7 +1154,7 @@ class Strings {
           'This erases your name, picture, statistics and every chip you hold, including chips you paid for. It cannot be undone, and nothing can be restored to a new account.',
       'deleteAccountSeated': 'Leave the table before deleting your account.',
       'deleteAccountConfirm': 'Delete permanently',
-      'useProviderPicture': 'Use my Google/Facebook picture',
+      'useProviderPicture': 'Use my Google picture',
       'pictureChangeAnytime': 'You can change it any time, even at a table.',
       'pot': 'POT',
       'stake': 'stake',
@@ -1259,6 +1268,9 @@ class Strings {
       'getMissiles': 'Get missiles',
       'noMissiles': 'You need a missile to fire one',
       'tooFewPlayers': 'That needs at least 3 players still in the hand',
+      'sideshowPendingRefusal': 'Wait for the sideshow answer first',
+      'pickPendingRefusal':
+          'Wait a moment: a player is still choosing their three cards',
       'missileNeedsShowChips':
           'You need enough chips for a show to fire a missile',
       'missileFiredByYou': 'You fired a missile',
@@ -1462,8 +1474,8 @@ class Strings {
       'entryOpen': 'Open to all',
       'entryUpTo': 'Up to {cap}',
       'entryFrom': '{min} or more',
-      'useSocialPicture': 'Use my Google or Facebook picture',
-      'guestNoSocial': 'Sign in with Google or Facebook to use your own photo.',
+      'useSocialPicture': 'Use my Google picture',
+      'guestNoSocial': 'Sign in with Google to use your own photo.',
 
       // --- the poker family
       'poker': 'POKER',
@@ -1649,8 +1661,8 @@ class Strings {
       'storeTabChips': 'चिप्स',
       'storeTabPictures': 'तस्वीरें',
       'storeTabAnimated': 'एनिमेटेड',
-      'storePicturesBlurb': 'चिप्स या हथौड़ों से तस्वीर अनलॉक करें।',
-      'storeAnimatedBlurb': 'हथौड़ों से एनिमेटेड तस्वीर अनलॉक करें।',
+      'storePicturesBlurb': 'चिप्स, हथौड़ों या हीरों से तस्वीर अनलॉक करें।',
+      'storeAnimatedBlurb': 'हथौड़ों या हीरों से एनिमेटेड तस्वीर अनलॉक करें।',
       'storeTabTables': 'टेबल',
       'storeTablesTitle': 'टेबल की तस्वीरें',
       'storeTablesBlurb': 'अपनी टेबल सजाएँ — एक रूप दिन के लिए, एक रात के लिए।',
@@ -1717,7 +1729,7 @@ class Strings {
           'इससे आपका नाम, तस्वीर, आंकड़े और आपके सारे चिप्स मिट जाएंगे, वे भी जो आपने खरीदे थे। यह वापस नहीं हो सकता, और कुछ भी नए खाते में नहीं आएगा।',
       'deleteAccountSeated': 'खाता हटाने से पहले टेबल छोड़ें।',
       'deleteAccountConfirm': 'हमेशा के लिए हटाएं',
-      'useProviderPicture': 'मेरी Google/Facebook तस्वीर लगाएँ',
+      'useProviderPicture': 'मेरी Google तस्वीर लगाएँ',
       'pictureChangeAnytime': 'आप इसे कभी भी बदल सकते हैं, टेबल पर भी।',
       'pot': 'पॉट',
       'stake': 'दांव',
@@ -1831,6 +1843,9 @@ class Strings {
       'getMissiles': 'मिसाइलें लें',
       'noMissiles': 'मिसाइल दागने के लिए मिसाइल चाहिए',
       'tooFewPlayers': 'इसके लिए हाथ में कम से कम 3 खिलाड़ी होने चाहिए',
+      'sideshowPendingRefusal': 'पहले साइडशो के जवाब का इंतज़ार करें',
+      'pickPendingRefusal':
+          'एक पल रुकें: एक खिलाड़ी अभी अपने तीन कार्ड चुन रहा है',
       'missileNeedsShowChips': 'मिसाइल दागने के लिए शो जितनी चिप्स चाहिए',
       'missileFiredByYou': 'आपने मिसाइल दागी',
       'missileFiredBy': '{name} ने मिसाइल दागी',
@@ -2026,9 +2041,9 @@ class Strings {
       'entryOpen': 'सबके लिए खुला',
       'entryUpTo': '{cap} तक',
       'entryFrom': '{min} या ज़्यादा',
-      'useSocialPicture': 'मेरी Google या Facebook तस्वीर लगाएँ',
+      'useSocialPicture': 'मेरी Google तस्वीर लगाएँ',
       'guestNoSocial':
-          'अपनी तस्वीर लगाने के लिए Google या Facebook से साइन इन करें।',
+          'अपनी तस्वीर लगाने के लिए Google से साइन इन करें।',
 
       // --- the poker family
       'poker': 'पोकर',
@@ -2205,8 +2220,8 @@ class Strings {
       'storeTabChips': 'চিপস',
       'storeTabPictures': 'ছবি',
       'storeTabAnimated': 'অ্যানিমেটেড',
-      'storePicturesBlurb': 'চিপস বা হাতুড়ি দিয়ে ছবি আনলক করুন।',
-      'storeAnimatedBlurb': 'হাতুড়ি দিয়ে একটি অ্যানিমেটেড ছবি আনলক করুন।',
+      'storePicturesBlurb': 'চিপস, হাতুড়ি বা হীরে দিয়ে ছবি আনলক করুন।',
+      'storeAnimatedBlurb': 'হাতুড়ি বা হীরে দিয়ে একটি অ্যানিমেটেড ছবি আনলক করুন।',
       'storeTabTables': 'টেবিল',
       'storeTablesTitle': 'টেবিলের ছবি',
       'storeTablesBlurb': 'আপনার টেবিল সাজান — একটি রূপ দিনের, একটি রাতের।',
@@ -2272,7 +2287,7 @@ class Strings {
           'এতে আপনার নাম, ছবি, পরিসংখ্যান এবং আপনার সব চিপ মুছে যাবে, যেগুলি আপনি কিনেছিলেন সেগুলিও। এটি ফেরানো যায় না, এবং কিছুই নতুন অ্যাকাউন্টে ফিরবে না।',
       'deleteAccountSeated': 'অ্যাকাউন্ট মোছার আগে টেবিল ছাড়ুন।',
       'deleteAccountConfirm': 'স্থায়ীভাবে মুছুন',
-      'useProviderPicture': 'আমার Google/Facebook ছবি ব্যবহার করুন',
+      'useProviderPicture': 'আমার Google ছবি ব্যবহার করুন',
       'pictureChangeAnytime': 'আপনি এটি যেকোনো সময় বদলাতে পারেন, টেবিলে বসেও।',
       'pot': 'পট',
       'stake': 'বাজি',
@@ -2386,6 +2401,9 @@ class Strings {
       'getMissiles': 'মিসাইল নিন',
       'noMissiles': 'মিসাইল ছুড়তে একটি মিসাইল লাগবে',
       'tooFewPlayers': 'এর জন্য হাতে অন্তত 3 জন খেলোয়াড় থাকতে হবে',
+      'sideshowPendingRefusal': 'আগে সাইডশোর উত্তরের জন্য অপেক্ষা করুন',
+      'pickPendingRefusal':
+          'একটু অপেক্ষা করুন: একজন খেলোয়াড় এখনও তাঁর তিনটি কার্ড বাছছেন',
       'missileNeedsShowChips': 'মিসাইল ছুড়তে শো-এর মতো চিপ লাগবে',
       'missileFiredByYou': 'আপনি মিসাইল ছুড়লেন',
       'missileFiredBy': '{name} মিসাইল ছুড়লেন',
@@ -2584,9 +2602,9 @@ class Strings {
       'entryOpen': 'সবার জন্য খোলা',
       'entryUpTo': '{cap} পর্যন্ত',
       'entryFrom': '{min} বা বেশি',
-      'useSocialPicture': 'আমার Google বা Facebook ছবি ব্যবহার করুন',
+      'useSocialPicture': 'আমার Google ছবি ব্যবহার করুন',
       'guestNoSocial':
-          'নিজের ছবি ব্যবহার করতে Google বা Facebook দিয়ে সাইন ইন করুন।',
+          'নিজের ছবি ব্যবহার করতে Google দিয়ে সাইন ইন করুন।',
 
       // --- the poker family
       'poker': 'পোকার',
@@ -2763,8 +2781,8 @@ class Strings {
       'storeTabChips': 'ચિપ્સ',
       'storeTabPictures': 'ફોટા',
       'storeTabAnimated': 'એનિમેટેડ',
-      'storePicturesBlurb': 'ચિપ્સ અથવા હથોડીથી ફોટો અનલૉક કરો.',
-      'storeAnimatedBlurb': 'હથોડીથી એનિમેટેડ ફોટો અનલૉક કરો.',
+      'storePicturesBlurb': 'ચિપ્સ, હથોડી અથવા હીરાથી ફોટો અનલૉક કરો.',
+      'storeAnimatedBlurb': 'હથોડી અથવા હીરાથી એનિમેટેડ ફોટો અનલૉક કરો.',
       'storeTabTables': 'ટેબલ',
       'storeTablesTitle': 'ટેબલના ફોટા',
       'storeTablesBlurb': 'તમારું ટેબલ સજાવો — એક દેખાવ દિવસ માટે, એક રાત માટે.',
@@ -2830,7 +2848,7 @@ class Strings {
           'આનાથી તમારું નામ, ચિત્ર, આંકડા અને તમારી બધી ચિપ્સ ભૂંસાઈ જશે, જે તમે ખરીદી હતી તે પણ. આ પાછું લઈ શકાતું નથી, અને કંઈ પણ નવા ખાતામાં આવશે નહીં.',
       'deleteAccountSeated': 'ખાતું કાઢી નાખતાં પહેલાં ટેબલ છોડો.',
       'deleteAccountConfirm': 'કાયમ માટે કાઢી નાખો',
-      'useProviderPicture': 'મારો Google/Facebook ફોટો વાપરો',
+      'useProviderPicture': 'મારો Google ફોટો વાપરો',
       'pictureChangeAnytime': 'તમે આ ગમે ત્યારે બદલી શકો છો, ટેબલ પર પણ.',
       'pot': 'પોટ',
       'stake': 'દાવ',
@@ -2943,6 +2961,9 @@ class Strings {
       'getMissiles': 'મિસાઇલ લો',
       'noMissiles': 'મિસાઇલ છોડવા માટે મિસાઇલ જોઈએ',
       'tooFewPlayers': 'આ માટે હાથમાં ઓછામાં ઓછા 3 ખેલાડી હોવા જોઈએ',
+      'sideshowPendingRefusal': 'પહેલાં સાઇડશોના જવાબની રાહ જુઓ',
+      'pickPendingRefusal':
+          'થોડી રાહ જુઓ: એક ખેલાડી હજી પોતાના ત્રણ કાર્ડ પસંદ કરી રહ્યો છે',
       'missileNeedsShowChips': 'મિસાઇલ છોડવા માટે શો જેટલી ચિપ્સ જોઈએ',
       'missileFiredByYou': 'તમે મિસાઇલ છોડી',
       'missileFiredBy': '{name} એ મિસાઇલ છોડી',
@@ -3139,8 +3160,8 @@ class Strings {
       'entryOpen': 'બધા માટે ખુલ્લું',
       'entryUpTo': '{cap} સુધી',
       'entryFrom': '{min} કે વધુ',
-      'useSocialPicture': 'મારો Google કે Facebook ફોટો વાપરો',
-      'guestNoSocial': 'તમારો ફોટો વાપરવા Google કે Facebook થી સાઇન ઇન કરો.',
+      'useSocialPicture': 'મારો Google ફોટો વાપરો',
+      'guestNoSocial': 'તમારો ફોટો વાપરવા Google થી સાઇન ઇન કરો.',
 
       // --- the poker family
       'poker': 'પોકર',
@@ -3316,8 +3337,8 @@ class Strings {
       'storeTabChips': 'ਚਿਪਸ',
       'storeTabPictures': 'ਤਸਵੀਰਾਂ',
       'storeTabAnimated': 'ਐਨੀਮੇਟਿਡ',
-      'storePicturesBlurb': 'ਚਿਪਸ ਜਾਂ ਹਥੌੜਿਆਂ ਨਾਲ ਤਸਵੀਰ ਅਨਲੌਕ ਕਰੋ।',
-      'storeAnimatedBlurb': 'ਹਥੌੜਿਆਂ ਨਾਲ ਐਨੀਮੇਟਿਡ ਤਸਵੀਰ ਅਨਲੌਕ ਕਰੋ।',
+      'storePicturesBlurb': 'ਚਿਪਸ, ਹਥੌੜਿਆਂ ਜਾਂ ਹੀਰਿਆਂ ਨਾਲ ਤਸਵੀਰ ਅਨਲੌਕ ਕਰੋ।',
+      'storeAnimatedBlurb': 'ਹਥੌੜਿਆਂ ਜਾਂ ਹੀਰਿਆਂ ਨਾਲ ਐਨੀਮੇਟਿਡ ਤਸਵੀਰ ਅਨਲੌਕ ਕਰੋ।',
       'storeTabTables': 'ਟੇਬਲ',
       'storeTablesTitle': 'ਟੇਬਲ ਦੀਆਂ ਤਸਵੀਰਾਂ',
       'storeTablesBlurb': 'ਆਪਣਾ ਟੇਬਲ ਸਜਾਓ — ਇੱਕ ਰੂਪ ਦਿਨ ਲਈ, ਇੱਕ ਰਾਤ ਲਈ।',
@@ -3384,7 +3405,7 @@ class Strings {
           'ਇਸ ਨਾਲ ਤੁਹਾਡਾ ਨਾਂ, ਤਸਵੀਰ, ਅੰਕੜੇ ਅਤੇ ਤੁਹਾਡੀਆਂ ਸਾਰੀਆਂ ਚਿਪਸ ਮਿਟ ਜਾਣਗੀਆਂ, ਉਹ ਵੀ ਜੋ ਤੁਸੀਂ ਖਰੀਦੀਆਂ ਸਨ। ਇਹ ਵਾਪਸ ਨਹੀਂ ਹੋ ਸਕਦਾ, ਅਤੇ ਕੁਝ ਵੀ ਨਵੇਂ ਖਾਤੇ ਵਿੱਚ ਨਹੀਂ ਆਵੇਗਾ।',
       'deleteAccountSeated': 'ਖਾਤਾ ਮਿਟਾਉਣ ਤੋਂ ਪਹਿਲਾਂ ਟੇਬਲ ਛੱਡੋ।',
       'deleteAccountConfirm': 'ਹਮੇਸ਼ਾ ਲਈ ਮਿਟਾਓ',
-      'useProviderPicture': 'ਮੇਰੀ Google/Facebook ਤਸਵੀਰ ਵਰਤੋ',
+      'useProviderPicture': 'ਮੇਰੀ Google ਤਸਵੀਰ ਵਰਤੋ',
       'pictureChangeAnytime': 'ਤੁਸੀਂ ਇਹ ਕਦੇ ਵੀ ਬਦਲ ਸਕਦੇ ਹੋ, ਟੇਬਲ ਉੱਤੇ ਵੀ।',
       'pot': 'ਪੌਟ',
       'stake': 'ਦਾਅ',
@@ -3498,6 +3519,9 @@ class Strings {
       'getMissiles': 'ਮਿਜ਼ਾਈਲਾਂ ਲਓ',
       'noMissiles': 'ਮਿਜ਼ਾਈਲ ਚਲਾਉਣ ਲਈ ਮਿਜ਼ਾਈਲ ਚਾਹੀਦੀ ਹੈ',
       'tooFewPlayers': 'ਇਸ ਲਈ ਹੱਥ ਵਿੱਚ ਘੱਟੋ-ਘੱਟ 3 ਖਿਡਾਰੀ ਹੋਣੇ ਚਾਹੀਦੇ ਹਨ',
+      'sideshowPendingRefusal': 'ਪਹਿਲਾਂ ਸਾਈਡਸ਼ੋ ਦੇ ਜਵਾਬ ਦੀ ਉਡੀਕ ਕਰੋ',
+      'pickPendingRefusal':
+          'ਥੋੜ੍ਹਾ ਰੁਕੋ: ਇੱਕ ਖਿਡਾਰੀ ਅਜੇ ਆਪਣੇ ਤਿੰਨ ਕਾਰਡ ਚੁਣ ਰਿਹਾ ਹੈ',
       'missileNeedsShowChips': 'ਮਿਜ਼ਾਈਲ ਚਲਾਉਣ ਲਈ ਸ਼ੋ ਜਿੰਨੀਆਂ ਚਿਪਸ ਚਾਹੀਦੀਆਂ ਹਨ',
       'missileFiredByYou': 'ਤੁਸੀਂ ਮਿਜ਼ਾਈਲ ਚਲਾਈ',
       'missileFiredBy': '{name} ਨੇ ਮਿਜ਼ਾਈਲ ਚਲਾਈ',
@@ -3695,9 +3719,9 @@ class Strings {
       'entryOpen': 'ਸਾਰਿਆਂ ਲਈ ਖੁੱਲ੍ਹਾ',
       'entryUpTo': '{cap} ਤੱਕ',
       'entryFrom': '{min} ਜਾਂ ਵੱਧ',
-      'useSocialPicture': 'ਮੇਰੀ Google ਜਾਂ Facebook ਤਸਵੀਰ ਵਰਤੋ',
+      'useSocialPicture': 'ਮੇਰੀ Google ਤਸਵੀਰ ਵਰਤੋ',
       'guestNoSocial':
-          'ਆਪਣੀ ਤਸਵੀਰ ਵਰਤਣ ਲਈ Google ਜਾਂ Facebook ਨਾਲ ਸਾਈਨ ਇਨ ਕਰੋ।',
+          'ਆਪਣੀ ਤਸਵੀਰ ਵਰਤਣ ਲਈ Google ਨਾਲ ਸਾਈਨ ਇਨ ਕਰੋ।',
 
       // --- the poker family
       'poker': 'ਪੋਕਰ',

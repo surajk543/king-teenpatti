@@ -350,6 +350,41 @@ const chipPacks = <ChipPack>[
 double _line(TextScaler scaler, double size, double heightFactor) =>
     (scaler.scale(size) * heightFactor).ceilToDouble();
 
+/// The tallest line any of [texts] takes in [style], MEASURED, rounded up.
+///
+/// [_line] is the Latin line, and a line that mixes scripts is taller than
+/// it: Inter has no Devanagari, Bengali, Gujarati or Gurmukhi, so a phone
+/// draws those words from its own Noto fonts while the spaces, commas and
+/// figures between them stay in Inter, and each run is fitted to the style's
+/// height in its own font's proportions — the line then takes the larger
+/// ascent of the two AND the larger descent. On TP_Small the Hindi Chips
+/// blurb ("जितना बड़ा पैक, उतना बड़ा बोनस") overflowed the header by a pixel
+/// that way (24 Sep 2026, owner's "fix all bugs"; release review B1).
+///
+/// Each text is laid out on ONE line with an ellipsis after it: a line of the
+/// whole text holds every run any of its wrapped or cut lines can hold, and
+/// the ellipsis is the one glyph a cut line adds, so the answer is never short
+/// of what the widget draws.
+double _measuredLine(
+  BuildContext context,
+  TextScaler scaler,
+  TextStyle style,
+  Iterable<String> texts,
+) {
+  var tallest = 0.0;
+  for (final text in texts) {
+    final painter = TextPainter(
+      text: TextSpan(text: '$text\u2026', style: style),
+      textDirection: Directionality.of(context),
+      textScaler: scaler,
+      maxLines: 1,
+    )..layout();
+    tallest = math.max(tallest, painter.height);
+    painter.dispose();
+  }
+  return tallest.ceilToDouble();
+}
+
 /// The store's shelves, in the order their keys sit in the header: chip packs,
 /// diamond packs, hammer packs, missile trades, the picture catalogue and the
 /// table pictures (owner, 15 Sep 2026: the cloths a player lays on their own
@@ -871,9 +906,38 @@ class _ChipStoreState extends State<_ChipStore> {
         headerW - fixedW - tabsShown - (walletPairRowW - walletW) >= blurbW;
     final missilePairInRow =
         headerW - fixedW - tabsShown - (missilePairRowW - walletW) >= blurbW;
-    final headerH = math.max(
-      Dim.minTouch,
-      _line(scaler, 17, 1.25) + blurbLines * _line(scaler, 12, 1.35),
+    // Each line the taller of the Latin line and the tallest the shelves'
+    // own words make in the fonts the phone draws them in (_measuredLine), so
+    // a Hindi, Bengali, Gujarati or Punjabi header is not a pixel short.
+    final titleStyle = AppTheme.label(
+      theme.textTheme.titleMedium ?? const TextStyle(),
+    );
+    final titleLine = math.max(
+      _line(scaler, 17, 1.25),
+      _measuredLine(context, scaler, titleStyle, [
+        t.storeTitle,
+        t.storeDiamondsTitle,
+        t.storeHammersTitle,
+        t.storeMissilesTitle,
+        atTable ? t.picturePremiumAnimated : t.storeTabPictures,
+        t.storeTablesTitle,
+      ]),
+    );
+    final blurbLine = math.max(
+      _line(scaler, 12, 1.35),
+      _measuredLine(context, scaler, blurbStyle, blurbs),
+    );
+    final headerH = math.max(Dim.minTouch, titleLine + blurbLines * blurbLine);
+    // The worn picture's name under it on the Pictures shelf, measured the
+    // same way (it was a flat 18).
+    final wornNameLine = math.max(
+      18.0,
+      _measuredLine(
+        context,
+        scaler,
+        AppTheme.label(theme.textTheme.labelMedium ?? const TextStyle()),
+        [worn?.name ?? t.yourPicture],
+      ),
     );
 
     // A shelf of packs: near-square cards, the lobby card's proportions, set
@@ -995,10 +1059,7 @@ class _ChipStoreState extends State<_ChipStore> {
                                     : t.storeTitle,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
-                                style: AppTheme.label(
-                                  theme.textTheme.titleMedium ??
-                                      const TextStyle(),
-                                ),
+                                style: titleStyle,
                               ),
                               Text(
                                 onPictures
@@ -1124,7 +1185,7 @@ class _ChipStoreState extends State<_ChipStore> {
                     // player shops with their current face in view, and the row costs
                     // the sheet no more height than it has to.
                     SizedBox(
-                      height: wornR * 2 + 11 + Space.xs + 18,
+                      height: wornR * 2 + 11 + Space.xs + wornNameLine,
                       child: Stack(
                         children: [
                           Align(

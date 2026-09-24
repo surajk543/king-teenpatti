@@ -2098,7 +2098,7 @@ class _Status extends StatelessWidget {
 
     // A seat the table is holding for a chip purchase outranks the rest: it
     // is the one line here with the player's own seat riding on it.
-    final graceLeft = room.you?.unfundedSecondsLeft(DateTime.now());
+    final graceLeft = state.unfundedGraceLeft(DateTime.now());
 
     // A variation table has two things to say during a hand, in the slot that
     // is otherwise blank for it: who the table is waiting on while the window
