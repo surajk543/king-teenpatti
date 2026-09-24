@@ -660,8 +660,10 @@ func TestPlayingATurnClearsTheMissedTurnCount(t *testing.T) {
 	eq(t, len(h.kickEvents()), 0, "nobody was shown out")
 }
 
-func TestAnOffTurnSeeAlsoClearsTheMissedTurnCount(t *testing.T) {
-	// Spec §9.4: any successful act — including an off-turn SEE — resets it.
+func TestASeeDoesNotClearTheMissedTurnCount(t *testing.T) {
+	// Owner's "fix all bugs", 24 Sep 2026 (TPS-4): a look is not a move. Node
+	// (spec §9.4) reset the count on any successful act, so a player who tapped
+	// See once a hand and let every turn lapse was never kicked idle.
 	h := seatTable(t)
 	h.seatNamed("alice", "ALICE", seatStart)
 	h.seatNamed("bob", "BOB", seatStart)
@@ -676,14 +678,43 @@ func TestAnOffTurnSeeAlsoClearsTheMissedTurnCount(t *testing.T) {
 	}
 	h.advance(6 * time.Second)
 	eq(t, h.hasHand(), true, "next hand")
-	if h.turnUser() == player {
-		// make sure it is off turn
-		h.mustAct(player, ActionChaal, ActRequest{})
-		eq(t, h.mustSeat(player).MissedTurns, 0, "reset by the chaal")
-		return
-	}
 	h.mustAct(player, ActionSee, ActRequest{})
-	eq(t, h.mustSeat(player).MissedTurns, 0, "reset by an off-turn see")
+	eq(t, h.mustSeat(player).MissedTurns, 1, "a see, on turn or off, is not a move")
+	for h.turnUser() != player {
+		h.mustAct(h.turnUser(), ActionChaal, ActRequest{})
+	}
+	h.mustAct(player, ActionChaal, ActRequest{})
+	eq(t, h.mustSeat(player).MissedTurns, 0, "reset by the chaal")
+}
+
+func TestAPlayerWhoOnlyLooksIsStillKickedIdle(t *testing.T) {
+	h := seatTable(t)
+	h.seatNamed("alice", "ALICE", seatStart)
+	h.seatNamed("bob", "BOB", seatStart)
+	h.seatNamed("carol", "CAROL", seatStart)
+	h.advance(6 * time.Second)
+	idler := h.turnUser()
+	for hand := 0; hand < 3; hand++ {
+		eq(t, h.hasHand(), true, "a hand is running")
+		if s := h.mustSeat(idler); s.IsBlind {
+			h.mustAct(idler, ActionSee, ActRequest{})
+		}
+		for h.hasHand() && h.turnUser() != idler {
+			h.mustAct(h.turnUser(), ActionChaal, ActRequest{})
+		}
+		h.advance(seatTimeout + 10*time.Millisecond) // the idler's turn lapses
+		for h.hasHand() {
+			h.mustAct(h.turnUser(), ActionPack, ActRequest{})
+		}
+		h.waitKicks()
+		if hand < 2 {
+			h.advance(6 * time.Second)
+		}
+	}
+	kicks := h.kickEvents()
+	eq(t, len(kicks), 1, "kicked")
+	eq(t, kicks[0].UserID, idler, "the idler")
+	eq(t, kicks[0].Reason, KickReasonIdle, "idle")
 }
 
 func TestAPlayerWhoCannotCoverTheBootIsShownOutBetweenHands(t *testing.T) {

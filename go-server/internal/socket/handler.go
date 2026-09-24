@@ -929,7 +929,7 @@ var actionLabels = func() map[string]struct{} {
 // ack ActionAck.
 func (h *Handler) action(s *sio.Socket, req ActionRequest) (any, error) {
 	user := sessionOf(s).user
-	if _, ok := game.AllActions[game.Action(req.Action)]; !ok {
+	if _, ok := game.AllActions[game.Action(req.Action)]; !ok || !req.ActionIsString {
 		return nil, game.Errorf(game.CodeUnknownAction, game.MsgUnknownActionFormat, req.Action)
 	}
 	table, err := h.teenPattiTable(user.ID)

@@ -228,7 +228,7 @@ type TurnOptions struct {
 	// Show is the show cost when exactly two seats are active AND the player
 	// can afford it, else null. A show is never free.
 	Show         *int64 `json:"show"`
-	CanPack      bool   `json:"canPack"` // always true
+	CanPack      bool   `json:"canPack"` // true but while a sideshow stands
 	IsBlind      bool   `json:"isBlind"`
 	CurrentStake int64  `json:"currentStake"` // hand.stake in blind units
 	Chips        int64  `json:"chips"`

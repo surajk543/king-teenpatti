@@ -79,8 +79,14 @@ const (
 	// where none is owed — not a five-card hand, or a player who cannot see
 	// their cards — and CodeInvalidPick a list that is not exactly three cards
 	// of the player's own hand.
-	CodeNotPicking   = "not_picking"
-	CodeInvalidPick  = "invalid_pick"
+	CodeNotPicking  = "not_picking"
+	CodeInvalidPick = "invalid_pick"
+	// CodePickPending refuses a Sideshow, Force Sideshow, Missile or Show
+	// while a player it would compare is still inside their 5-Card pick
+	// window (owner's "fix all bugs", 24 Sep 2026: the owner's rule is that a
+	// player gets their time to choose; only a window that LAPSES plays the
+	// first three). The wait is bounded by FIVE_CARD_PICK_TIMEOUT_MS.
+	CodePickPending  = "pick_pending"
 	CodeOverEntryCap = "over_entry_cap" // requirement 30
 	// CodeBelowTableMinimum: the table has a floor and this stack is under it
 	// (config.LobbyTable.MinChips). The partner of over_entry_cap: one says
@@ -179,6 +185,7 @@ const (
 	MsgNotSeated            = "You are not at this table"
 	MsgNotPicking           = "There are no cards to choose here"
 	MsgInvalidPick          = "Choose exactly three of your own cards"
+	MsgPickPending          = "Wait a moment: a player is still choosing their three cards"
 	MsgNotInHand            = "You are not in this hand"
 	MsgNotYourTurn          = "It is not your turn"
 	MsgAlreadySeen          = "You have already seen your cards"

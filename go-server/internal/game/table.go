@@ -306,7 +306,19 @@ type hand struct {
 	// a bet. A bet writes nothing to PostgreSQL, so the chip_ledger UNIQUE
 	// index can no longer refuse a replayed move: this set does it in memory
 	// (duplicate_action). It is in the snapshot, so it survives a restart.
+	//
+	// Keyed per PLAYER (handActionKey: "<userId>:<actionId>"; owner's "fix all
+	// bugs", 24 Sep 2026): the id protects one player from double-applying
+	// their own request, and a hand-wide key let one player's id refuse
+	// another's move. A client id can never hold ':' (reservedActionIDSeparator),
+	// so the key cannot collide. A bare id from a snapshot written before this
+	// is still honoured (actionSeen).
 	actionIDs map[string]struct{}
+	// deferredShowdown is a showdown the SERVER started (forced_showdown at
+	// the round cap, pot_limit at the pot cap) that is waiting for 5-Card pick
+	// windows among the hands it compares to close; "" when none is. While it
+	// waits nobody is on turn (turnSeat -1). See serverShowdown.
+	deferredShowdown WinReason
 	// variation is the variation window and, once it has closed, the rules this
 	// hand is decided by. nil on a seen or blind table — see table_variation.go.
 	variation *variationWindow
@@ -1191,6 +1203,11 @@ func (t *Table) removePlayer(userID, reason string) *SeatInfo {
 		if t.resolveIfOnlyOneLeft() {
 			return s.info()
 		}
+		// A server showdown waiting on this player's pick window waits no
+		// longer for somebody who has gone.
+		if t.runDeferredShowdown() {
+			return s.info()
+		}
 		if wasOnTurn || wasChoosing {
 			t.clearTurnTimer()
 			t.advanceTurn(s.seatIndex)
@@ -1728,8 +1745,7 @@ func (t *Table) advanceTurn(fromSeat int) {
 	// Requirement 22: once no further bet can fit under the pot cap, everyone
 	// still in shows and the best hand takes it.
 	if t.potCapReached() {
-		t.clearTurnTimer()
-		t.resolveShowdown(t.activeSeats(), WinPotLimit, nil)
+		t.serverShowdown(WinPotLimit)
 		return
 	}
 
@@ -1847,7 +1863,7 @@ func (t *Table) showCost(s *seat) *int64 {
 func (t *Table) turnOptions(s *seat) TurnOptions {
 	options := t.betOptions(s)
 	var show *int64
-	if len(t.activeSeats()) == 2 {
+	if active := t.activeSeats(); len(active) == 2 && !t.pickPending(active...) {
 		if cost := t.showCost(s); cost != nil && s.chips >= *cost {
 			show = Int64Ptr(*cost)
 		}
@@ -1870,6 +1886,16 @@ func (t *Table) turnOptions(s *seat) TurnOptions {
 		currentStake = t.hand.stake
 		pot = t.hand.pot
 	}
+	// A sideshow stands, so act() refuses every move but a look (owner's "fix
+	// all bugs", 24 Sep 2026): the options say so, rather than offering keys
+	// whose tap would only be refused. No ladder, no show, no pack; the
+	// sideshow keys are already off (sideshow_pending). The client greys its
+	// Chaal, stepper, Show and Pack keys from exactly these fields.
+	pending := t.hand != nil && t.hand.sideshow != nil
+	if pending {
+		options = BetOptions{Steps: []int64{}}
+		show = nil
+	}
 	return TurnOptions{
 		CanSee:       s.isBlind,
 		CanSideshow:  blocked == "",
@@ -1882,7 +1908,7 @@ func (t *Table) turnOptions(s *seat) TurnOptions {
 		RaiseSteps:       options.Steps,
 		MaxBet:           options.Max,
 		Show:             show,
-		CanPack:          true,
+		CanPack:          !pending,
 		IsBlind:          s.isBlind,
 		CurrentStake:     currentStake,
 		Chips:            s.chips,
@@ -1892,7 +1918,8 @@ func (t *Table) turnOptions(s *seat) TurnOptions {
 
 // sideshowBlockedReason (sideshowBlockedReason; requirement 33) returns "" when
 // allowed, else the first failing check IN THIS ORDER: no_hand, not_in_hand,
-// not_your_turn, sideshow_pending, already_asked, too_few_players (active <
+// not_your_turn, sideshow_pending, pick_pending (either hand still
+// inside its 5-Card pick window), already_asked, too_few_players (active <
 // SideshowMinPlayers), you_are_blind, no_neighbour, neighbour_is_blind.
 //
 // Returned as a reason rather than a boolean so the same check can gate the
@@ -1910,6 +1937,11 @@ func (t *Table) sideshowBlockedReason(s *seat) string {
 	}
 	if t.hand.sideshow != nil {
 		return SideshowBlockedPending
+	}
+	// Either hand being compared still inside its 5-Card pick window: it
+	// waits for them to choose (at most FIVE_CARD_PICK_TIMEOUT_MS).
+	if right := t.rightActiveSeat(s.seatIndex); t.pickPending(s, t.seatAt(right)) {
+		return CodePickPending
 	}
 	// One ask per turn. Wanting another means waiting for the next one.
 	if s.sideshowAskedThisTurn {
@@ -1957,7 +1989,7 @@ func (t *Table) chargeToPot(s *seat, amount int64, actionID, reason string) erro
 	if actionID == "" || strings.ContainsRune(actionID, reservedActionIDSeparator) {
 		actionID = util.UUID()
 	}
-	if _, seen := t.hand.actionIDs[actionID]; seen {
+	if t.actionSeen(s.userID, actionID) {
 		err := &GameError{Code: CodeDuplicateAction, Message: MsgDuplicateAction}
 		t.listener.OnPersistError(t.view, PersistErrorEvent{UserID: s.userID, Delta: -amount, Reason: reason, Err: err})
 		return err
@@ -1968,7 +2000,7 @@ func (t *Table) chargeToPot(s *seat, amount int64, actionID, reason string) erro
 		return err
 	}
 
-	t.hand.actionIDs[actionID] = struct{}{}
+	t.rememberAction(s.userID, actionID)
 	s.chips -= amount
 	s.contributed += amount
 	t.hand.pot += amount
@@ -1991,6 +2023,28 @@ func (t *Table) chargeToPot(s *seat, amount int64, actionID, reason string) erro
 		t.hand.contribOrder = append(t.hand.contribOrder, s.userID)
 	}
 	return nil
+}
+
+// handActionKey is the key a client action id is remembered under in
+// hand.actionIDs: per player, so two players' ids never meet.
+func handActionKey(userID, actionID string) string {
+	return userID + string(reservedActionIDSeparator) + actionID
+}
+
+// actionSeen reports whether this player has already had actionID accepted
+// this hand. The bare id is checked too, for a hand restored from a snapshot
+// written before the set was keyed per player.
+func (t *Table) actionSeen(userID, actionID string) bool {
+	if _, seen := t.hand.actionIDs[handActionKey(userID, actionID)]; seen {
+		return true
+	}
+	_, seen := t.hand.actionIDs[actionID]
+	return seen
+}
+
+// rememberAction records that this player's actionID has been accepted.
+func (t *Table) rememberAction(userID, actionID string) {
+	t.hand.actionIDs[handActionKey(userID, actionID)] = struct{}{}
 }
 
 // checkpoint writes ONE player's chips through to PostgreSQL — the pack
@@ -2093,6 +2147,17 @@ func (t *Table) act(userID string, action Action, req ActRequest) (ActResult, er
 		return ActResult{}, NewGameError(CodeNotYourTurn, MsgNotYourTurn)
 	}
 
+	// A sideshow stands: the turn is frozen until the asked player answers or
+	// the request lapses (owner's "fix all bugs", 24 Sep 2026). Before this the
+	// asker could bet on, the turn moved round with the request still open, and
+	// a late acceptance then packed whoever held the turn without moving it —
+	// freezing the hand — or moved it from the asker's seat past the player on
+	// turn. Missile and Force Sideshow already refused; now every move does.
+	// Looking at one's own cards is still not a move.
+	if action != ActionSee && t.hand.sideshow != nil {
+		return ActResult{}, NewGameError(CodeSideshowPending, MsgSideshowPending)
+	}
+
 	var result ActResult
 	var err error
 	switch action {
@@ -2120,8 +2185,14 @@ func (t *Table) act(userID string, action Action, req ActRequest) (ActResult, er
 	}
 
 	// They are here and playing, so whatever they had missed before does not
-	// count against them any more. Cleared only once the move went through.
-	s.missedTurns = 0
+	// count against them any more. Cleared only once a MOVE went through: a
+	// look at one's own cards is free, off-turn and changes nothing, and
+	// counting it let a player tap See once a hand and never be kicked idle
+	// (requirement 31; owner's "fix all bugs", 24 Sep 2026 — Node reset it
+	// on any successful act).
+	if action != ActionSee {
+		s.missedTurns = 0
+	}
 	return result, nil
 }
 
@@ -2232,9 +2303,16 @@ func (t *Table) bet(s *seat, kind BetKind, requested *int64, actionID string) (A
 	// running total. Kept on the seat rather than inferred from the action
 	// stream, so it survives a reconnect and is there for a late joiner.
 	s.lastBet = *amount
+	// What the bet IS decides its name, not what the client called it: a
+	// "chaal" carrying a raise rung (at least twice the base) doubles the
+	// stake, and the table must be told it was raised (owner's "fix all
+	// bugs", 24 Sep 2026). Re-labelled rather than refused so a client whose
+	// ladder is a moment stale never has an honest bet bounced; the Flutter
+	// client sends chaal only for the first rung, which stays a chaal.
 	wireAction := ActionChaal
-	if kind == BetRaise {
+	if kind == BetRaise || *amount >= options.Steps[0]*2 {
 		wireAction = ActionRaise
+		kind = BetRaise
 	}
 	s.lastAction = ActionPtr(wireAction)
 
@@ -2294,6 +2372,7 @@ func (t *Table) pack(s *seat, reason string, advanceTurn bool) ActResult {
 	s.lastAction = ActionPtr(ActionPack)
 	t.hand.packedUserIDs[s.userID] = struct{}{}
 	t.syncContribution(s, SeatPacked)
+	t.dropPick(s)
 
 	// CHECKPOINT 2 of 3 — A PACK. Their stake is fixed the moment they fold,
 	// so the wallet is brought up to date now rather than at the hand end
@@ -2421,6 +2500,8 @@ func (t *Table) sideshowRefusal(blocked string) *GameError {
 		message = MsgSideshowNeighbour
 	case SideshowBlockedNoNeighbour:
 		message = MsgSideshowNoNeighbour
+	case CodePickPending:
+		message = MsgPickPending
 	default:
 		message = MsgSideshowGeneric
 	}
@@ -2457,7 +2538,7 @@ func (t *Table) forceSideshow(s *seat, actionID string) (ActResult, error) {
 	if actionID == "" || strings.ContainsRune(actionID, reservedActionIDSeparator) {
 		actionID = util.UUID()
 	}
-	if _, seen := t.hand.actionIDs[actionID]; seen {
+	if t.actionSeen(s.userID, actionID) {
 		return ActResult{}, &GameError{Code: CodeDuplicateAction, Message: MsgDuplicateAction}
 	}
 	target := t.seats[t.rightActiveSeat(s.seatIndex)]
@@ -2478,7 +2559,7 @@ func (t *Table) forceSideshow(s *seat, actionID string) (ActResult, error) {
 
 	// Paid for: from here on it happens. The id is remembered with the hand
 	// (and so in the snapshot), which is what refuses a replay later on.
-	t.hand.actionIDs[actionID] = struct{}{}
+	t.rememberAction(s.userID, actionID)
 	s.sideshowAskedThisTurn = true
 	t.clearTurnTimer()
 
@@ -2501,7 +2582,8 @@ func (t *Table) forceSideshow(s *seat, actionID string) (ActResult, error) {
 
 // missileBlockedReason returns "" when s may fire a missile now, else the first
 // failing check IN THIS ORDER: no_hand, not_in_hand, not_your_turn,
-// sideshow_pending, too_few_players (active < MissileMinPlayers),
+// sideshow_pending, pick_pending (any hand still in inside its 5-Card pick
+// window), too_few_players (active < MissileMinPlayers),
 // insufficient_chips (s holds less than a show would cost them — showCost,
 // their chaal. Owner, 14 Sep 2026: a missile is a show for everyone, so the
 // firer must be able to afford one, though firing charges no chips). The
@@ -2526,6 +2608,10 @@ func (t *Table) missileBlockedReason(s *seat) string {
 	if t.hand.sideshow != nil {
 		return CodeSideshowPending
 	}
+	// Every hand still in is compared, so every open pick window is waited for.
+	if t.pickPending(t.activeSeats()...) {
+		return CodePickPending
+	}
 	if len(t.activeSeats()) < MissileMinPlayers {
 		return CodeTooFewPlayers
 	}
@@ -2547,6 +2633,8 @@ func missileRefusal(blocked string) *GameError {
 		return NewGameError(CodeNotYourTurn, MsgNotYourTurn)
 	case CodeSideshowPending:
 		return NewGameError(CodeSideshowPending, MsgSideshowPending)
+	case CodePickPending:
+		return NewGameError(CodePickPending, MsgPickPending)
 	case CodeInsufficientChips:
 		return NewGameError(CodeInsufficientChips, MsgMissileNeedsShowChips)
 	default:
@@ -2582,7 +2670,7 @@ func (t *Table) fireMissile(s *seat, actionID string) (ActResult, error) {
 	if actionID == "" || strings.ContainsRune(actionID, reservedActionIDSeparator) {
 		actionID = util.UUID()
 	}
-	if _, seen := t.hand.actionIDs[actionID]; seen {
+	if t.actionSeen(s.userID, actionID) {
 		return ActResult{}, &GameError{Code: CodeDuplicateAction, Message: MsgDuplicateAction}
 	}
 
@@ -2601,7 +2689,7 @@ func (t *Table) fireMissile(s *seat, actionID string) (ActResult, error) {
 	}
 
 	// Paid for: from here on it happens.
-	t.hand.actionIDs[actionID] = struct{}{}
+	t.rememberAction(s.userID, actionID)
 	active := t.activeSeats()
 
 	t.listener.OnAction(t.view, ActionEvent{
@@ -2676,8 +2764,11 @@ func (t *Table) settleSideshow(pending *pendingSideshow, accepted bool, reason s
 			},
 		})
 
-		// Only the asker holds the turn, so only their packing moves it on.
-		t.pack(loser, PackReasonSideshow, loser == asker)
+		// Only whoever holds the turn moves it on by packing — the asker, as
+		// act() keeps every move back while a request stands. Asked of the
+		// turn itself rather than assumed, so no path can ever leave the turn
+		// on a packed seat or skip the player who holds it.
+		t.pack(loser, PackReasonSideshow, t.hand.turnSeat == loser.seatIndex)
 	}
 
 	t.listener.OnSideshowResolved(t.view, SideshowResolvedEvent{
@@ -2703,6 +2794,10 @@ func (t *Table) show(s *seat, actionID string) (ActResult, error) {
 	active := t.activeSeats()
 	if len(active) != 2 {
 		return ActResult{}, NewGameError(CodeShowUnavailable, MsgShowUnavailable)
+	}
+	// Both hands are compared: a player still choosing their three is waited for.
+	if t.pickPending(active...) {
+		return ActResult{}, NewGameError(CodePickPending, MsgPickPending)
 	}
 
 	cost := t.showCost(s)
@@ -2739,8 +2834,48 @@ func (t *Table) show(s *seat, actionID string) (ActResult, error) {
 // forcedShowdown (_forcedShowdown): round cap reached — everyone still in
 // reveals and the best hand takes it.
 func (t *Table) forcedShowdown() {
+	t.serverShowdown(WinForcedShowdown)
+}
+
+// serverShowdown is a showdown nobody asked for — the round cap
+// (forced_showdown) or the pot cap (pot_limit) — over every hand still in.
+//
+// Under 5-Card Teen Patti it waits for the hands it compares (owner's "fix all
+// bugs", 24 Sep 2026): run at once, it would judge a player whose pick window
+// is still open on the first three they were dealt, cutting short the time the
+// owner gave them to choose. So while any such window is open the showdown is
+// DEFERRED — recorded on the hand (and so in the snapshot), the turn clock
+// stopped and nobody on turn — and runDeferredShowdown runs it the moment the
+// last window closes: by the player's choice (selectCards), by its own
+// deadline (expirePicks, at most FIVE_CARD_PICK_TIMEOUT_MS), or by the picker
+// leaving (removePlayer). Every one of those is a closure on the actor, and
+// runDeferredShowdown clears the record before it resolves, so the showdown
+// runs exactly once. A window without a deadline (the timeout at 0) does not
+// hold it up (pickPending).
+func (t *Table) serverShowdown(reason WinReason) {
 	t.clearTurnTimer()
-	t.resolveShowdown(t.activeSeats(), WinForcedShowdown, nil)
+	if t.hand != nil && t.pickPending(t.activeSeats()...) {
+		t.hand.deferredShowdown = reason
+		t.hand.turnSeat = -1
+		t.hand.turnDeadline = time.Time{}
+		t.hand.turnToken = ""
+		t.emitState()
+		return
+	}
+	t.resolveShowdown(t.activeSeats(), reason, nil)
+}
+
+// runDeferredShowdown runs the showdown serverShowdown deferred, once no hand
+// it compares is still choosing. Returns whether it ran (the hand is then
+// over).
+func (t *Table) runDeferredShowdown() bool {
+	if t.hand == nil || t.hand.deferredShowdown == "" || t.pickPending(t.activeSeats()...) {
+		return false
+	}
+	reason := t.hand.deferredShowdown
+	t.hand.deferredShowdown = ""
+	t.resolveShowdown(t.activeSeats(), reason, nil)
+	return true
 }
 
 // resolveShowdown (_resolveShowdown): state showdown; score contenders;
@@ -3201,19 +3336,20 @@ func (t *Table) snapshot() *Snapshot {
 		seatOrder := make([]int, len(h.seatOrder))
 		copy(seatOrder, h.seatOrder)
 		snapHand = &SnapshotHand{
-			ID:            h.id,
-			HandNo:        h.handNo,
-			Pot:           h.pot,
-			Stake:         h.stake,
-			Round:         h.round,
-			TurnSeat:      h.turnSeat,
-			StartSeat:     h.startSeat,
-			StartedAt:     Millis(h.startedAt),
-			Contributions: contributions,
-			PackedUserIDs: packed,
-			SeatOrder:     seatOrder,
-			ActionIDs:     actionIDs,
-			Variation:     h.variation.snapshot(),
+			ID:               h.id,
+			HandNo:           h.handNo,
+			Pot:              h.pot,
+			Stake:            h.stake,
+			Round:            h.round,
+			TurnSeat:         h.turnSeat,
+			StartSeat:        h.startSeat,
+			StartedAt:        Millis(h.startedAt),
+			Contributions:    contributions,
+			PackedUserIDs:    packed,
+			SeatOrder:        seatOrder,
+			ActionIDs:        actionIDs,
+			Variation:        h.variation.snapshot(),
+			DeferredShowdown: h.deferredShowdown,
 		}
 		if h.showRequestedBy != nil {
 			snapHand.ShowRequestedBy = StrPtr(*h.showRequestedBy)

@@ -481,6 +481,11 @@ func (t *Table) closeVariation(chosen Variation, by VariationSelectedBy, startTu
 
 	if startTurn {
 		t.setTurn(w.chooserSeat, true)
+		// A chooser who looked during the window had their pick window opened
+		// by the top-up above, while nobody held the turn; their turn covers
+		// it now, as it would had they looked after choosing (owner's "fix all
+		// bugs", 24 Sep 2026).
+		t.extendTurnForPick(t.seatAt(w.chooserSeat))
 	}
 	t.emitState()
 	return true
