@@ -61,6 +61,13 @@ Future<void> _unmount(WidgetTester tester, GameState state) async {
 TableScene _scene(String prefix) =>
     tableScenes.firstWhere((s) => s.name.startsWith(prefix));
 
+/// WCAG's contrast ratio between two opaque colours.
+double _contrast(Color a, Color b) {
+  final la = a.computeLuminance();
+  final lb = b.computeLuminance();
+  return la > lb ? (la + 0.05) / (lb + 0.05) : (lb + 0.05) / (la + 0.05);
+}
+
 Finder _key(String label) =>
     find.byWidgetPredicate((w) => w is MachinedKey && w.label == label);
 
@@ -335,6 +342,29 @@ void main() {
         greaterThan(const Duration(milliseconds: 1000)),
       );
     });
+
+    test('words on a plate or a fill read in both themes', () {
+      // The PACKED plate is charcoal in both themes: its red is the dark
+      // scheme's error, and reads on charcoal.
+      expect(TableInk.alarm, AppTheme.dark(sound: false).colorScheme.error);
+      for (final ground in [AppTheme.ink900, AppTheme.ink800]) {
+        expect(_contrast(TableInk.alarm, ground), greaterThanOrEqualTo(4.5));
+      }
+      // A solid key's word takes whichever of charcoal and white reads better.
+      for (final theme in [
+        AppTheme.dark(sound: false),
+        AppTheme.light(sound: false),
+      ]) {
+        for (final fill in [theme.colorScheme.error, AppTheme.gold]) {
+          expect(
+            _contrast(inkOnFill(fill), fill),
+            greaterThanOrEqualTo(4.5),
+            reason: '$fill (${theme.brightness})',
+          );
+        }
+      }
+      expect(inkOnFill(AppTheme.gold), AppTheme.ink900);
+    });
   });
 
   group('the console', () {
@@ -500,31 +530,43 @@ void main() {
     testWidgets(
       'Leave table asks in a destructive dialog over the table scrim',
       (tester) async {
-        final state = await _mount(tester, _scene('14'));
-        final t = state.t;
-        final scheme = Theme.of(tester.element(find.text(t.leave))).colorScheme;
+        for (final dark in [true, false]) {
+          final state = await _mount(tester, _scene('14'), dark: dark);
+          final t = state.t;
+          final scheme = Theme.of(
+            tester.element(find.text(t.leave)),
+          ).colorScheme;
 
-        final barriers = tester.widgetList<ModalBarrier>(
-          find.byType(ModalBarrier),
-        );
-        expect(barriers.map((b) => b.color), contains(TableScrim.dialog));
-        final go = tester.widget<FilledButton>(
-          find.ancestor(
-            of: find.text(t.leave),
-            matching: find.byType(FilledButton),
-          ),
-        );
-        expect(go.style!.backgroundColor!.resolve({}), scheme.error);
-        // Staying is the quiet, flat half of the pair.
-        expect(
-          find.ancestor(
-            of: find.text(t.stay),
-            matching: find.byType(TextButton),
-          ),
-          findsOneWidget,
-        );
+          final barriers = tester.widgetList<ModalBarrier>(
+            find.byType(ModalBarrier),
+          );
+          expect(barriers.map((b) => b.color), contains(TableScrim.dialog));
+          final go = tester.widget<FilledButton>(
+            find.ancestor(
+              of: find.text(t.leave),
+              matching: find.byType(FilledButton),
+            ),
+          );
+          final fill = go.style!.backgroundColor!.resolve({})!;
+          expect(fill, scheme.error);
+          // Its word reads on the red in both themes (white on the dark
+          // theme's salmon was 2.8:1).
+          expect(
+            _contrast(go.style!.foregroundColor!.resolve({})!, fill),
+            greaterThanOrEqualTo(4.5),
+            reason: dark ? 'dark' : 'light',
+          );
+          // Staying is the quiet, flat half of the pair, in neutral ink.
+          final stay = tester.widget<TextButton>(
+            find.ancestor(
+              of: find.text(t.stay),
+              matching: find.byType(TextButton),
+            ),
+          );
+          expect(stay.style!.foregroundColor!.resolve({}), scheme.onSurface);
 
-        await _unmount(tester, state);
+          await _unmount(tester, state);
+        }
       },
     );
 

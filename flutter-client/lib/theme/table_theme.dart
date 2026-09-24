@@ -391,6 +391,16 @@ abstract final class TableScrim {
   );
 }
 
+/// Inks for words on the table's charcoal plates — the PACKED plate over the
+/// viewer's cards — which are charcoal in both themes, so their words are the
+/// same in both too, as the pot's gold is [AppTheme.goldBright] in both.
+abstract final class TableInk {
+  /// The red a plate says PACKED in: the dark scheme's error, which reads
+  /// 6.5:1 on charcoal. The light scheme's brick, which it used to take on the
+  /// light theme, read under 3:1 there.
+  static const Color alarm = Color(0xFFFF6B5A);
+}
+
 /// The table's ambient light, turned down so it supports the game rather than
 /// competing with it (owner's brief: "Ambient gradients/circles should remain
 /// visible but subtle ... Use lower opacity, softer blur, and better

@@ -2470,7 +2470,8 @@ class _OwnHand extends StatelessWidget {
                     child: Plate(
                       radius: Radii.sm,
                       opacity: 0.68,
-                      accent: theme.colorScheme.error.withValues(alpha: 0.45),
+                      // Charcoal in both themes, so the same red in both.
+                      accent: TableInk.alarm.withValues(alpha: 0.45),
                       padding: EdgeInsets.symmetric(
                         horizontal: cardHeight * 0.18,
                         vertical: cardHeight * 0.07,
@@ -2479,7 +2480,7 @@ class _OwnHand extends StatelessWidget {
                         state.t.packed,
                         style: TableType.system(
                           theme,
-                          colour: theme.colorScheme.error,
+                          colour: TableInk.alarm,
                           strong: true,
                         ),
                       ),

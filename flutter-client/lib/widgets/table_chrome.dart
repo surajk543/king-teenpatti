@@ -1098,13 +1098,21 @@ List<Widget> dialogActions(
   required String go,
   bool destructive = false,
 }) {
-  final scheme = Theme.of(context).colorScheme;
+  final theme = Theme.of(context);
+  final scheme = theme.colorScheme;
+  final fill = destructive ? scheme.error : AppTheme.gold;
   return [
     // The flat half of the pair: the theme keeps a text button shadowless, so
-    // a shadow under "stay" never fights the key it defers to.
+    // a shadow under "stay" never fights the key it defers to. Neutral ink —
+    // the safe answer is not an accent (owner's brief: "normal actions =
+    // neutral") — in a secondary key's type.
     GlassButton(
       style: GlassButtonStyle.text,
       onPressed: () => Navigator.pop(context, false),
+      tone: scheme.onSurface,
+      buttonStyle: TextButton.styleFrom(
+        textStyle: TableType.secondaryAction(theme),
+      ),
       label: stay,
     ),
     // The acting key: the one solid gold fill, on ink900 in both
@@ -1115,13 +1123,24 @@ List<Widget> dialogActions(
       onPressed: () => Navigator.pop(context, true),
       minimumSize: const Size(120, Dim.minTouch),
       buttonStyle: FilledButton.styleFrom(
-        backgroundColor: destructive ? scheme.error : AppTheme.gold,
-        foregroundColor: destructive ? scheme.onError : AppTheme.ink900,
-        textStyle: TableType.primaryAction(Theme.of(context)),
+        backgroundColor: fill,
+        foregroundColor: inkOnFill(fill),
+        textStyle: TableType.primaryAction(theme),
       ),
       label: go,
     ),
   ];
+}
+
+/// The ink for words on a solid [fill]: whichever of charcoal ([AppTheme.ink900])
+/// and white reads better on it. The error fill is a brick on the light theme,
+/// where white reads 5.9:1, and a salmon on the dark one, where white read
+/// 2.8:1 and charcoal reads 7.1:1 — so the scheme's own `onError` is not used.
+Color inkOnFill(Color fill) {
+  final l = fill.computeLuminance();
+  final onWhite = 1.05 / (l + 0.05);
+  final onInk = (l + 0.05) / (AppTheme.ink900.computeLuminance() + 0.05);
+  return onInk > onWhite ? AppTheme.ink900 : Colors.white;
 }
 
 /// The title line of a table dialog: a glyph and the question, side by side.
