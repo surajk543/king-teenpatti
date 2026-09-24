@@ -742,6 +742,94 @@ func (h *Handler) TradeMissiles(w http.ResponseWriter, r *http.Request, user *db
 	})
 }
 
+// LuckyDraw is GET /api/lucky-draw[?code=…] (owner, 24 Sep 2026; Go only): the
+// draw the lobby opens — the first active one in sort_order, today the owner's
+// BEGINNER_LUCKY_DRAW, unless code names another — with its spinnerType, its
+// slots in wheel order with each prize (a picture prize with its catalogue row,
+// owned resolved for this player), and when this player may next spin, 0 now.
+// The weights are not in it: the server draws. Allowed anywhere, seated
+// included — it only reads. No draw, a retired one, or one with no slot that
+// can be won → 503 lucky_draw_unavailable.
+func (h *Handler) LuckyDraw(w http.ResponseWriter, r *http.Request, user *db.User) {
+	if h.deps.LuckyDraws == nil {
+		WriteJSON(w, http.StatusServiceUnavailable, ErrorResponse{Error: CodeLuckyDrawUnavailable, Message: MsgLuckyDrawUnavailable})
+		return
+	}
+	state, err := h.deps.LuckyDraws.State(r.Context(), user.ID, r.URL.Query().Get("code"))
+	if errors.Is(err, db.ErrLuckyDrawUnavailable) {
+		WriteJSON(w, http.StatusServiceUnavailable, ErrorResponse{Error: CodeLuckyDrawUnavailable, Message: MsgLuckyDrawUnavailable})
+		return
+	}
+	if err != nil {
+		h.writeError(w, r, err)
+		return
+	}
+	WriteJSON(w, http.StatusOK, state)
+}
+
+// SpinLuckyDraw is POST /api/lucky-draw/spin {actionId, code?} (owner, 24 Sep
+// 2026; Go only): one spin, which the SERVER draws, grants and records in one
+// transaction (db.LuckyDraws.Spin), answering 200 {actionId, slotNumber,
+// reward, alreadyOwned, replayed, nextSpinAt, user}. The client turns its wheel
+// to slotNumber; nothing it sends besides the key and the draw's code is read.
+//
+// Order: no store → 503; body (400 invalid_json); an actionId empty or longer
+// than LuckyDrawActionIDMaxLength → 400 invalid_action_id; seated → 409 seated;
+// then the spin, where a draw that is missing, retired or has no slot to win →
+// 503 lucky_draw_unavailable, and a spin inside the cooldown → 409
+// lucky_draw_not_ready with readyAt, the moment it recharges. An actionId that
+// has already spun answers 200 with that spin again and replayed:true,
+// granting nothing — the retry a lost answer calls for.
+//
+// Lobby-only, and under the player's seat lock (Deps.WhileUnseated), for the
+// reasons Milestone gives: a CHIPS prize moves a wallet, and a seated player's
+// wallet moves only at the three checkpoints (CLAUDE.md §5.1).
+func (h *Handler) SpinLuckyDraw(w http.ResponseWriter, r *http.Request, user *db.User) {
+	if h.deps.LuckyDraws == nil {
+		WriteJSON(w, http.StatusServiceUnavailable, ErrorResponse{Error: CodeLuckyDrawUnavailable, Message: MsgLuckyDrawUnavailable})
+		return
+	}
+	var req LuckyDrawSpinRequest
+	if err := ReadJSONBody(r, &req); err != nil {
+		h.writeError(w, r, err)
+		return
+	}
+	if n := utf16Len(req.ActionID); n == 0 || n > LuckyDrawActionIDMaxLength {
+		WriteJSON(w, http.StatusBadRequest, ErrorResponse{Error: CodeInvalidActionID, Message: MsgInvalidActionID})
+		return
+	}
+	var spin *db.LuckyDrawSpin
+	var err error
+	if !h.whileUnseated(r.Context(), user.ID, func(ctx context.Context) {
+		spin, err = h.deps.LuckyDraws.Spin(ctx, user.ID, req.Code, req.ActionID)
+	}) {
+		WriteJSON(w, http.StatusConflict, ErrorResponse{Error: CodeSeated, Message: MsgSeatedLuckyDraw})
+		return
+	}
+	var cooldown *db.LuckyDrawCooldown
+	switch {
+	case errors.As(err, &cooldown):
+		readyAt := cooldown.NextSpinAt
+		WriteJSON(w, http.StatusConflict, ErrorResponse{Error: CodeLuckyDrawNotReady, Message: MsgLuckyDrawNotReady, ReadyAt: &readyAt})
+		return
+	case errors.Is(err, db.ErrLuckyDrawUnavailable):
+		WriteJSON(w, http.StatusServiceUnavailable, ErrorResponse{Error: CodeLuckyDrawUnavailable, Message: MsgLuckyDrawUnavailable})
+		return
+	case errors.Is(err, db.ErrLuckyDrawActionID):
+		WriteJSON(w, http.StatusBadRequest, ErrorResponse{Error: CodeInvalidActionID, Message: MsgInvalidActionID})
+		return
+	case err != nil:
+		h.writeError(w, r, err)
+		return
+	}
+	if !spin.Replayed && h.deps.Logger != nil {
+		h.deps.Logger.Info("lucky draw spun",
+			"userId", user.ID, "draw", req.Code, "slot", spin.SlotNumber, "rewardType", spin.Reward.Type,
+			"alreadyOwned", spin.AlreadyOwned)
+	}
+	WriteJSON(w, http.StatusOK, spin)
+}
+
 // TablePictures is GET /api/table-pictures (owner, 15 Sep 2026; Go only): the
 // table-picture catalogue in display order, as Profiles is the face catalogue.
 // The token is optional for the same reasons — the catalogue is not private,

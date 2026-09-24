@@ -477,7 +477,11 @@ func TestPostgresHoldsNoGameState(t *testing.T) {
 	// table_pictures, user_table_pictures and user_table_choice (15 Sep 2026)
 	// are the table-picture catalogue, who has bought which, and which each
 	// player has laid — a catalogue, receipts and a choice, no game state.
-	want := []string{"chip_ledger", "diamond_purchases", "hammer_purchases", "hammer_spends", "missile_purchases", "missile_spends", "profile_pictures", "table_categories", "table_configs", "table_engines", "table_pictures", "table_settings", "user_milestones", "user_profile_pictures", "user_table_choice", "user_table_pictures", "users"}
+	//
+	// lucky_draws, lucky_draw_slots and user_lucky_draws (24 Sep 2026) are the
+	// Lucky Draw: its draws and prizes — configuration, read on each request —
+	// and every spin, an audit written once and never read back to play a hand.
+	want := []string{"chip_ledger", "diamond_purchases", "hammer_purchases", "hammer_spends", "lucky_draw_slots", "lucky_draws", "missile_purchases", "missile_spends", "profile_pictures", "table_categories", "table_configs", "table_engines", "table_pictures", "table_settings", "user_lucky_draws", "user_milestones", "user_profile_pictures", "user_table_choice", "user_table_pictures", "users"}
 	if !slices.Equal(tables, want) {
 		t.Fatalf("schema tables = %v, want %v", tables, want)
 	}

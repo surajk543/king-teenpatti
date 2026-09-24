@@ -112,12 +112,22 @@ type Deps struct {
 	// Missiles is the missile store: diamonds traded for missiles. Nil → the
 	// endpoint answers 503 store_unavailable.
 	Missiles MissileStore
-	Logger   *slog.Logger
+	// LuckyDraws is the Lucky Draw (owner, 24 Sep 2026). Nil → both of its
+	// endpoints answer 503 lucky_draw_unavailable.
+	LuckyDraws LuckyDrawStore
+	Logger     *slog.Logger
 }
 
 // MissileStore is the slice of db.Missiles the missile store endpoint uses.
 type MissileStore interface {
 	TradeMissiles(ctx context.Context, userID, packID, requestID string) (*db.MissileTrade, error)
+}
+
+// LuckyDrawStore is the slice of db.LuckyDraws the Lucky Draw endpoints use:
+// what a draw offers a player, and a spin of it.
+type LuckyDrawStore interface {
+	State(ctx context.Context, userID, code string) (*db.LuckyDrawState, error)
+	Spin(ctx context.Context, userID, code, actionID string) (*db.LuckyDrawSpin, error)
 }
 
 // PurchaseGateway is the store side of the server: verify a receipt with
@@ -167,6 +177,8 @@ type PurchaseOutcome struct {
 //	GET  /api/table-pictures     → TablePictures    (token optional; Go only)
 //	POST /api/table-pictures/use → UseTablePicture  (RequireAuth; Go only)
 //	POST /api/table-pictures/buy → BuyTablePicture  (RequireAuth; Go only)
+//	GET  /api/lucky-draw         → LuckyDraw        (RequireAuth; Go only)
+//	POST /api/lucky-draw/spin    → SpinLuckyDraw    (RequireAuth; Go only)
 //
 // Responses are JSON; errors are ErrorResponse. Body parsing (ReadJSONBody):
 // JSON only, UTF-8 only, 32 KiB limit (express.json({limit:'32kb'})); a
@@ -224,6 +236,8 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.Handle("/api/table-pictures", methods(http.MethodGet, http.HandlerFunc(h.TablePictures)))
 	mux.Handle("/api/table-pictures/use", methods(http.MethodPost, h.RequireAuth(h.UseTablePicture)))
 	mux.Handle("/api/table-pictures/buy", methods(http.MethodPost, wallet(h.BuyTablePicture)))
+	mux.Handle("/api/lucky-draw", methods(http.MethodGet, h.RequireAuth(h.LuckyDraw)))
+	mux.Handle("/api/lucky-draw/spin", methods(http.MethodPost, wallet(h.SpinLuckyDraw)))
 }
 
 // methods lets `method` (and HEAD when method is GET) through to next and
@@ -532,6 +546,43 @@ type MissileTradeResponse struct {
 	Missiles int64    `json:"missiles"`
 }
 
+// LuckyDrawSpinRequest ← POST /api/lucky-draw/spin {actionId, code?}.
+// actionId is the client's idempotency key for this spin (1 to
+// LuckyDrawActionIDMaxLength UTF-16 units), minted once per tap and sent again
+// on a retry of that tap; code names the draw — the app sends the code GET
+// /api/lucky-draw gave it, so a draw switched on meanwhile cannot change the
+// wheel under a spin — and empty means the first active draw in sort_order.
+// Nothing else is read: the prize is the server's to draw,
+// so a slot, a reward type or an amount in the body is ignored.
+type LuckyDrawSpinRequest struct {
+	ActionID string `json:"actionId"`
+	Code     string `json:"code"`
+}
+
+// UnmarshalJSON reads each field on its own, as MissileTradeRequest does: a
+// field of the wrong JSON type reads as "" and is refused under its own code.
+func (s *LuckyDrawSpinRequest) UnmarshalJSON(data []byte) error {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	*s = LuckyDrawSpinRequest{}
+	text := func(key string) string {
+		var v string
+		if r, ok := raw[key]; ok && json.Unmarshal(r, &v) == nil {
+			return v
+		}
+		return ""
+	}
+	s.ActionID = text("actionId")
+	s.Code = text("code")
+	return nil
+}
+
+// LuckyDrawActionIDMaxLength is the longest actionId a spin accepts — the
+// socket layer's limit on a move's actionId, and the missile store's.
+const LuckyDrawActionIDMaxLength = 64
+
 // NameRequest ← POST /api/profile/name {name} (requirement 29). While seated
 // → 409 seated ("You can only change your name in the lobby."). Validation
 // via db.NormalizeDisplayName(name, config.Game.DisplayNameMaxLength) → 400
@@ -600,6 +651,11 @@ const (
 	MsgMissileStoreClosed     = "The missile store is not open yet."
 	MsgUnknownMissilePack     = "That missile pack does not exist"
 	MsgInvalidRequestID       = "A missile trade needs a request id of 1 to 64 characters"
+	// The Lucky Draw's refusals (owner, 24 Sep 2026).
+	MsgLuckyDrawUnavailable = "The Lucky Draw is closed right now."
+	MsgLuckyDrawNotReady    = "Your next Lucky Draw spin is not ready yet."
+	MsgSeatedLuckyDraw      = "Spin the Lucky Draw from the lobby, not while you are at a table."
+	MsgInvalidActionID      = "A spin needs an action id of 1 to 64 characters"
 	// MsgNotEnoughDiamondsFormat is fmt.Sprintf'd with the pack's diamonds.
 	// It is always plural: the cheapest pack in db.MissilePacks costs 10
 	// diamonds, so none costs a single diamond.

@@ -291,6 +291,12 @@ const (
 	// n counting that player's purchases of it so a lapsed rental can be bought
 	// again, and like picture_purchase it is a chip sink: the delta is negative.
 	LedgerReasonTablePicturePurchase = "table_picture_purchase"
+	// LedgerReasonLuckyDraw is chips won on the Lucky Draw (owner, 24 Sep
+	// 2026; db.LuckyDraws.Spin). Its action_id is the spin's key,
+	// "lucky:<userId>:<actionId>" — UNIQUE here as in user_lucky_draws, so a
+	// retried spin cannot pay twice. Like the bonuses it creates chips: the
+	// delta is positive.
+	LedgerReasonLuckyDraw = "lucky_draw"
 	// LedgerReasonAccountDeleted empties a wallet when a player deletes their
 	// account. The row is what keeps SUM(delta) == chips true afterwards: the
 	// account's chips go to 0, so the ledger has to record the same drop.

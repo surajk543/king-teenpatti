@@ -345,9 +345,10 @@ func TestBootstrapCreatesEveryTableAndSetsSearchPathPerConnection(t *testing.T) 
 	if err := rows.Err(); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"chip_ledger", "diamond_purchases", "hammer_purchases", "hammer_spends", "missile_purchases", "missile_spends",
+	want := []string{"chip_ledger", "diamond_purchases", "hammer_purchases", "hammer_spends",
+		"lucky_draw_slots", "lucky_draws", "missile_purchases", "missile_spends",
 		"profile_pictures", "table_categories", "table_configs", "table_engines", "table_pictures", "table_settings",
-		"user_milestones", "user_profile_pictures", "user_table_choice", "user_table_pictures", "users"}
+		"user_lucky_draws", "user_milestones", "user_profile_pictures", "user_table_choice", "user_table_pictures", "users"}
 	if strings.Join(tables, ",") != strings.Join(want, ",") {
 		t.Fatalf("schema %s has tables\n %v\nwant\n %v", f.d.Schema, tables, want)
 	}

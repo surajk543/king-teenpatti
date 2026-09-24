@@ -196,8 +196,9 @@ func TestTheAppRoleBootsTwiceBeforeAndAfterUsersIsHandedToTheSuperuser(t *testin
 	// takes REFERENCES on users, which an owner has and a grantee must be given.
 	// user_table_pictures and user_table_choice (15 Sep 2026) are the first
 	// tables added after §7 was written, and are exactly the case it foresaw.
+	// user_lucky_draws (24 Sep 2026), the Lucky Draw's spins, is the next.
 	referencing := []string{"diamond_purchases", "hammer_purchases", "hammer_spends", "missile_purchases", "missile_spends",
-		"user_table_pictures", "user_table_choice"}
+		"user_table_pictures", "user_table_choice", "user_lucky_draws"}
 	for _, table := range referencing {
 		if _, err := admin.Exec(ctx, `DROP TABLE `+qualified(table)); err != nil {
 			t.Fatal(err)

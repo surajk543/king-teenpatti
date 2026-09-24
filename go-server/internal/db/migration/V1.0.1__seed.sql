@@ -16,6 +16,8 @@
 --                 the categories under them (table_engines, table_categories),
 --                 the one table_settings row, and a table_configs row for
 --                 every lobby table and every private template.
+--   THE LUCKY DRAW  the beginner draw and its six prizes (owner, 24 Sep 2026;
+--                 lucky_draws, lucky_draw_slots).
 --
 -- Data, not structure: V1.0.0__baseline.sql builds every table these rows go
 -- into, and it runs FIRST — before this file and before anything numbered
@@ -649,3 +651,99 @@ SELECT v.category, v.boot_amount, TRUE, v.min_chips, v.max_chips,
          sort_order)
  CROSS JOIN fresh
     ON CONFLICT (table_key) DO NOTHING;
+
+
+-- ============================================================== THE LUCKY DRAW
+--
+-- The owner's draw (24 Sep 2026: "for now you can use this lucky draw insert
+-- query"), BEGINNER_LUCKY_DRAW: a spin every three days — 259,200,000 ms after
+-- a player's last one — on a wheel of six slots, numbered clockwise from the
+-- top:
+--
+--   slot  prize                weight
+--   1     1 hammer                25
+--   2     4 hammers               15
+--   3     10,00,000 chips         20
+--   4     1,00,000 chips          20
+--   5     no reward               10
+--   6     5,00,000 chips          10
+--
+-- The weights add up to 100 only so they read as percentages; the server draws
+-- by each active slot's share of whatever they add up to (db.pickWeighted). A
+-- request that names no draw gets the first active one in sort_order, which is
+-- this one. PROFILE_PICTURE and TABLE_PICTURE prizes are supported but not in
+-- this draw: a slot names its picture's catalogue id in reward_ref_id, looked
+-- up by the row's natural key rather than written as a number, because
+-- BIGSERIAL ids differ between databases (every ON CONFLICT DO NOTHING above
+-- takes a sequence value even when it inserts nothing) —
+--
+--   UPDATE lucky_draw_slots SET reward_type = 'PROFILE_PICTURE', reward_value = NULL,
+--          reward_ref_id = (SELECT id::text FROM profile_pictures WHERE name = 'Lovestruck Cat')
+--    WHERE slot_number = 5 AND lucky_draw_id = (SELECT id FROM lucky_draws WHERE code = 'BEGINNER_LUCKY_DRAW');
+--
+-- Written only where missing, like everything in this file — ON CONFLICT
+-- (code) for the draw, (lucky_draw_id, slot_number) for a slot — so an owner's
+-- UPDATE survives every restart, and a change to a row here reaches only a
+-- fresh database. The server reads the draw on each request, so an edit is on
+-- the wheel at the next look; retire a slot with is_active = FALSE, never
+-- DELETE — the spins that won it point at it.
+
+-- ============================================================
+-- BEGINNER LUCKY DRAW
+-- Cooldown: 3 days
+-- ============================================================
+
+INSERT INTO lucky_draws (
+    code,
+    name,
+    spinner_type,
+    cooldown_ms,
+    is_active,
+    sort_order
+)
+VALUES (
+    'BEGINNER_LUCKY_DRAW',
+    'Beginner Lucky Draw',
+    'BEGINNER',
+    259200000, -- 3 days
+    TRUE,
+    10
+)
+ON CONFLICT (code) DO NOTHING;
+
+
+-- ============================================================
+-- 6 REWARD SLOTS
+-- ============================================================
+
+INSERT INTO lucky_draw_slots (
+    lucky_draw_id,
+    slot_number,
+    reward_type,
+    reward_value,
+    reward_ref_id,
+    weight,
+    is_active,
+    sort_order
+)
+SELECT
+    ld.id,
+    v.slot_number,
+    v.reward_type,
+    v.reward_value,
+    NULL,
+    v.weight,
+    TRUE,
+    v.slot_number
+FROM lucky_draws ld
+CROSS JOIN (
+    VALUES
+        (1, 'HAMMER', 1::BIGINT,       25),
+        (2, 'HAMMER', 4::BIGINT,       15),
+        (3, 'CHIPS',  1000000::BIGINT, 20),
+        (4, 'CHIPS',  100000::BIGINT,  20),
+        (5, 'NO_REWARD', 0::BIGINT,    10),
+        (6, 'CHIPS',  500000::BIGINT,  10)
+) AS v(slot_number, reward_type, reward_value, weight)
+WHERE ld.code = 'BEGINNER_LUCKY_DRAW'
+ON CONFLICT (lucky_draw_id, slot_number) DO NOTHING;
