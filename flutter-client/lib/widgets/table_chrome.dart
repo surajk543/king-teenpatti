@@ -11,6 +11,7 @@ import '../settings/feedback_settings.dart';
 import '../state/game_state.dart';
 import '../theme/app_theme.dart';
 import '../theme/table_theme.dart';
+import 'edge_fade.dart';
 import 'feedback_toggles.dart';
 import 'glass_components.dart';
 import 'glass_panels.dart';
@@ -641,81 +642,226 @@ class TableDrawer extends StatelessWidget {
     final theme = Theme.of(context);
     final t = state.t;
 
+    final width = TableSpace.drawerW(MediaQuery.sizeOf(context).width);
     final room = state.room;
     if (room == null) {
-      return const GlassDrawerPanel(
+      return GlassDrawerPanel(
+        width: width,
         padding: EdgeInsets.zero,
-        child: SizedBox.expand(),
+        child: const SizedBox.expand(),
       );
     }
     final you = room.you;
     final scheme = theme.colorScheme;
 
     return GlassDrawerPanel(
+      width: width,
       padding: EdgeInsets.zero,
       // The panel is laid out by an Align, which hands its child loose
       // constraints; a ListView under those has no height to scroll in.
       child: SizedBox.expand(
-        child: ListView(
-          padding: const EdgeInsets.symmetric(vertical: Space.md),
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(
-                Space.lg,
-                0,
-                Space.sm,
-                Space.md,
-              ),
-              child: Row(
-                children: [
-                  // Light or dark in one tap, where the table code was (owner,
-                  // 13 Sep 2026). The System · Dark · Light choice stays at the
-                  // foot of the menu.
-                  _ThemeFlip(tooltip: t.switchTheme),
-                  const SizedBox(width: Space.xs),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // Only a private table keeps its code here: it is how
-                        // friends are let in, and nothing else shows it.
-                        // One line, shrunk to fit rather than broken: a code
-                        // split across two lines ("Table CMU4 / 2LFF" on a
-                        // 640dp phone, QA 14 Sep 2026) reads as two codes.
-                        if (room.isPrivate)
+        child: EdgeFade(
+          child: ListView(
+            padding: const EdgeInsets.symmetric(vertical: Space.md),
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  Space.lg,
+                  0,
+                  Space.sm,
+                  Space.md,
+                ),
+                child: Row(
+                  children: [
+                    // Light or dark in one tap, where the table code was (owner,
+                    // 13 Sep 2026). The System · Dark · Light choice stays at the
+                    // foot of the menu.
+                    _ThemeFlip(tooltip: t.switchTheme),
+                    const SizedBox(width: Space.xs),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // Only a private table keeps its code here: it is how
+                          // friends are let in, and nothing else shows it.
+                          // One line, shrunk to fit rather than broken: a code
+                          // split across two lines ("Table CMU4 / 2LFF" on a
+                          // 640dp phone, QA 14 Sep 2026) reads as two codes.
+                          if (room.isPrivate)
+                            FittedBox(
+                              fit: BoxFit.scaleDown,
+                              alignment: Alignment.centerLeft,
+                              child: Text(
+                                'Table ${room.code}',
+                                maxLines: 1,
+                                softWrap: false,
+                                style: AppTheme.money(
+                                  TableType.modalTitle(theme),
+                                ),
+                              ),
+                            ),
+                          // The line names the game and nothing else: the
+                          // poker variant's name, or the category (server-owned
+                          // ASCII, so tracked capitals are safe on it). It
+                          // carried the hand number too ("SEEN · hand 12")
+                          // until the owner saw it cut to "SEEN · han…" beside
+                          // the clock on a phone and asked for the hand text
+                          // to go (24 Sep 2026: "some hand info text is
+                          // visible, remove that text from UI"). Shrunk to the
+                          // line rather than cut, as the poker name always was:
+                          // "VARIATION" alone still ellipsised on a 640dp phone
+                          // at the 1.25 text ceiling.
                           FittedBox(
                             fit: BoxFit.scaleDown,
                             alignment: Alignment.centerLeft,
                             child: Text(
-                              'Table ${room.code}',
+                              room.isPoker
+                                  ? t.pokerVariantName(room.category)
+                                  : room.category.toUpperCase(),
                               maxLines: 1,
                               softWrap: false,
-                              style: AppTheme.money(
-                                TableType.modalTitle(theme),
+                              style: TableType.caps(
+                                theme,
+                                colour: scheme.onSurface.withValues(
+                                  alpha: AppTheme.inkLowOn(theme.brightness),
+                                ),
                               ),
                             ),
                           ),
-                        // The line names the game and nothing else: the
-                        // poker variant's name, or the category (server-owned
-                        // ASCII, so tracked capitals are safe on it). It
-                        // carried the hand number too ("SEEN · hand 12")
-                        // until the owner saw it cut to "SEEN · han…" beside
-                        // the clock on a phone and asked for the hand text
-                        // to go (24 Sep 2026: "some hand info text is
-                        // visible, remove that text from UI"). Shrunk to the
-                        // line rather than cut, as the poker name always was:
-                        // "VARIATION" alone still ellipsised on a 640dp phone
-                        // at the 1.25 text ceiling.
-                        FittedBox(
-                          fit: BoxFit.scaleDown,
-                          alignment: Alignment.centerLeft,
+                        ],
+                      ),
+                    ),
+                    // How long this sitting has lasted. Top right, above the
+                    // close key, because it is a fact about the table rather
+                    // than an action on it.
+                    const _SeatedFor(),
+                    const SizedBox(width: Space.xs),
+                    PressScale(
+                      child: IconButton(
+                        visualDensity: VisualDensity.compact,
+                        icon: const Icon(Icons.close_rounded),
+                        onPressed: () => Navigator.pop(context),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              // A private table cannot be swapped for another — the server
+              // refuses it — so it is not offered there, rather than offered and
+              // then refused with a toast (QA 14 Sep 2026).
+              if (!room.isPrivate) ...[
+                MenuRow(
+                  icon: Icons.swap_horiz_rounded,
+                  leading: state.switching
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : null,
+                  label: t.switchTable,
+                  // Which stake the new table will be: it repeated its own
+                  // title before, with the category left in English.
+                  note:
+                      '${room.isPoker
+                          ? t.pokerVariantName(room.category)
+                          : room.category == TableCategory.blind
+                          ? t.blind
+                          : room.category == TableCategory.variation
+                          ? t.variation
+                          : t.seen} · ${formatChips(room.bootAmount)}',
+                  onTap: state.switching
+                      ? null
+                      : () async {
+                          Navigator.pop(context);
+                          await _confirmSwitch(context, state, room);
+                        },
+                ),
+                const MenuRule(),
+              ],
+              MenuRow(
+                icon: Icons.logout_rounded,
+                label: t.leaveTable,
+                // What leaving costs right now (QA PIX-4, 14 Sep 2026): it said
+                // "join another straight away" in the middle of a hand too.
+                note: state.inLiveHand ? t.leaveStakeStays : t.joinAnother,
+                tone: scheme.error,
+                onTap: () async {
+                  // Close the menu first, so the dialog is not stacked on top of
+                  // a drawer that is still sliding.
+                  Navigator.pop(context);
+                  await _confirmLeave(context, state, room);
+                },
+              ),
+              const MenuRule(),
+              MenuRow(
+                icon: Icons.savings_outlined,
+                label: t.yourChips,
+                value: formatChips(you?.chips ?? state.user?.chips ?? 0),
+              ),
+              MenuRow(
+                icon: Icons.paid_outlined,
+                // A poker room's figure is its big blind or its ante. The boot
+                // is a word the lobby writes mid-sentence and in capitals; as a
+                // row's name it takes a capital like the rows round it ("boot"
+                // under "Your chips"). A script with no case is left as it is.
+                label: room.isPoker
+                    ? (room.poker?.usesBlinds ?? false
+                          ? t.blindsTitle
+                          : t.anteTitle)
+                    : _sentenceCase(t.boot),
+                value: formatChips(room.bootAmount),
+              ),
+              if (room.maxPot > 0)
+                MenuRow(
+                  icon: Icons.trending_up_rounded,
+                  label: t.maxPot,
+                  value: formatChips(room.maxPot),
+                ),
+              const MenuRule(),
+              MenuRow(
+                icon: Icons.menu_book_outlined,
+                label: t.rules,
+                onTap: () {
+                  Navigator.pop(context);
+                  showRules(context);
+                },
+              ),
+              // The same two switches the lobby has, from the same widget. A
+              // player who wants the phone quiet wants it quiet NOW, at the
+              // table, not after leaving one.
+              const FeedbackToggles(),
+              // Appearance: System · Dark · Light as one segmented control, in
+              // place of the day/night toggle row. The switcher selects the
+              // mode itself and calls GameState.setThemeMode; nothing here
+              // reads the theme.
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  Space.lg,
+                  Space.md,
+                  Space.lg,
+                  Space.md,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.palette_outlined,
+                          size: 16,
+                          color: scheme.onSurface.withValues(
+                            alpha: AppTheme.inkLowOn(theme.brightness),
+                          ),
+                        ),
+                        const SizedBox(width: Space.sm),
+                        Expanded(
                           child: Text(
-                            room.isPoker
-                                ? t.pokerVariantName(room.category)
-                                : room.category.toUpperCase(),
+                            t.appearance,
                             maxLines: 1,
-                            softWrap: false,
-                            style: TableType.caps(
+                            overflow: TextOverflow.ellipsis,
+                            style: TableType.label(
                               theme,
                               colour: scheme.onSurface.withValues(
                                 alpha: AppTheme.inkLowOn(theme.brightness),
@@ -725,153 +871,13 @@ class TableDrawer extends StatelessWidget {
                         ),
                       ],
                     ),
-                  ),
-                  // How long this sitting has lasted. Top right, above the
-                  // close key, because it is a fact about the table rather
-                  // than an action on it.
-                  const _SeatedFor(),
-                  const SizedBox(width: Space.xs),
-                  PressScale(
-                    child: IconButton(
-                      visualDensity: VisualDensity.compact,
-                      icon: const Icon(Icons.close_rounded),
-                      onPressed: () => Navigator.pop(context),
-                    ),
-                  ),
-                ],
+                    const SizedBox(height: Space.sm),
+                    const GlassThemeSwitcher(),
+                  ],
+                ),
               ),
-            ),
-            // A private table cannot be swapped for another — the server
-            // refuses it — so it is not offered there, rather than offered and
-            // then refused with a toast (QA 14 Sep 2026).
-            if (!room.isPrivate) ...[
-              MenuRow(
-                icon: Icons.swap_horiz_rounded,
-                leading: state.switching
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : null,
-                label: t.switchTable,
-                // Which stake the new table will be: it repeated its own
-                // title before, with the category left in English.
-                note:
-                    '${room.isPoker
-                        ? t.pokerVariantName(room.category)
-                        : room.category == TableCategory.blind
-                        ? t.blind
-                        : room.category == TableCategory.variation
-                        ? t.variation
-                        : t.seen} · ${formatChips(room.bootAmount)}',
-                onTap: state.switching
-                    ? null
-                    : () async {
-                        Navigator.pop(context);
-                        await _confirmSwitch(context, state, room);
-                      },
-              ),
-              const MenuRule(),
             ],
-            MenuRow(
-              icon: Icons.logout_rounded,
-              label: t.leaveTable,
-              // What leaving costs right now (QA PIX-4, 14 Sep 2026): it said
-              // "join another straight away" in the middle of a hand too.
-              note: state.inLiveHand ? t.leaveStakeStays : t.joinAnother,
-              tone: scheme.error,
-              onTap: () async {
-                // Close the menu first, so the dialog is not stacked on top of
-                // a drawer that is still sliding.
-                Navigator.pop(context);
-                await _confirmLeave(context, state, room);
-              },
-            ),
-            const MenuRule(),
-            MenuRow(
-              icon: Icons.savings_outlined,
-              label: t.yourChips,
-              value: formatChips(you?.chips ?? state.user?.chips ?? 0),
-            ),
-            MenuRow(
-              icon: Icons.paid_outlined,
-              // A poker room's figure is its big blind or its ante. The boot
-              // is a word the lobby writes mid-sentence and in capitals; as a
-              // row's name it takes a capital like the rows round it ("boot"
-              // under "Your chips"). A script with no case is left as it is.
-              label: room.isPoker
-                  ? (room.poker?.usesBlinds ?? false
-                        ? t.blindsTitle
-                        : t.anteTitle)
-                  : _sentenceCase(t.boot),
-              value: formatChips(room.bootAmount),
-            ),
-            if (room.maxPot > 0)
-              MenuRow(
-                icon: Icons.trending_up_rounded,
-                label: t.maxPot,
-                value: formatChips(room.maxPot),
-              ),
-            const MenuRule(),
-            MenuRow(
-              icon: Icons.menu_book_outlined,
-              label: t.rules,
-              onTap: () {
-                Navigator.pop(context);
-                showRules(context);
-              },
-            ),
-            // The same two switches the lobby has, from the same widget. A
-            // player who wants the phone quiet wants it quiet NOW, at the
-            // table, not after leaving one.
-            const FeedbackToggles(),
-            // Appearance: System · Dark · Light as one segmented control, in
-            // place of the day/night toggle row. The switcher selects the
-            // mode itself and calls GameState.setThemeMode; nothing here
-            // reads the theme.
-            Padding(
-              padding: const EdgeInsets.fromLTRB(
-                Space.lg,
-                Space.md,
-                Space.lg,
-                Space.md,
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Row(
-                    children: [
-                      Icon(
-                        Icons.palette_outlined,
-                        size: 16,
-                        color: scheme.onSurface.withValues(
-                          alpha: AppTheme.inkLowOn(theme.brightness),
-                        ),
-                      ),
-                      const SizedBox(width: Space.sm),
-                      Expanded(
-                        child: Text(
-                          t.appearance,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TableType.label(
-                            theme,
-                            colour: scheme.onSurface.withValues(
-                              alpha: AppTheme.inkLowOn(theme.brightness),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: Space.sm),
-                  const GlassThemeSwitcher(),
-                ],
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     );
@@ -1013,12 +1019,11 @@ class MenuRow extends StatelessWidget {
                 Text(
                   label,
                   style: info
-                      ? TableType.item(
+                      ? TableType.info(
                           theme,
                           colour: scheme.onSurface.withValues(
                             alpha: AppTheme.inkMed,
                           ),
-                          weight: FontWeight.w500,
                         )
                       : TableType.item(theme, colour: ink),
                 ),
@@ -1497,10 +1502,10 @@ class MachinedKey extends StatelessWidget {
   ///
   /// The pod ring says whose turn it is; this says what can be done about it.
   /// Only ever set on keys that are actually pressable, so a lit key is always
-  /// a promise that tapping it will do something. Only the primary key
-  /// breathes with it (table polish, 24 Sep 2026: five keys pulsing at once
-  /// was the console competing with itself); every other lit key says so with
-  /// its hairline alone.
+  /// a promise that tapping it will do something. A lit key glows; only the
+  /// primary one breathes (table polish, 24 Sep 2026: every lit key pulsing
+  /// at once was the console competing with itself), and the destructive one
+  /// never glows at all.
   final bool alive;
 
   /// Drawn as inert while it still answers a tap. For a move the rules allow
@@ -1649,7 +1654,11 @@ class MachinedKey extends StatelessWidget {
       // has to learn.
       opacity: dead || muted ? deadKeyOpacity : 1,
       child: KeyPulse(
-        alive: alive && isPrimary && !muted,
+        // Every key on offer glows; only the primary one breathes. Never the
+        // key that gives the hand up: Pack is there to be found, not to
+        // beckon.
+        alive: alive && !muted && !destructive,
+        breathe: isPrimary,
         colour: halo,
         radius: Radii.md,
         // Inside the pulse, so the halo stays put while the key itself dips
@@ -1797,6 +1806,7 @@ class _ChatDrawerState extends State<ChatDrawer> {
     final typing = MediaQuery.viewInsetsOf(context).bottom > 0;
 
     return GlassDrawerPanel(
+      width: TableSpace.drawerW(MediaQuery.sizeOf(context).width),
       padding: EdgeInsets.zero,
       child: SizedBox.expand(
         child: Padding(
@@ -1922,100 +1932,111 @@ class _ChatDrawerState extends State<ChatDrawer> {
                   ),
                 ),
               if (!typing) const MenuRule(),
+              // Every page of the drawer scrolls, and each fades out at an
+              // edge while there is more beyond it (EdgeFade), so a line cut
+              // by the edge reads as "more this way" rather than as clipped.
               if (_view == _ChatView.players)
-                Expanded(child: ChatPlayers(state: state))
+                Expanded(
+                  child: EdgeFade(child: ChatPlayers(state: state)),
+                )
               else if (_view == _ChatView.quick)
-                Expanded(child: _quickLines(state))
+                Expanded(child: EdgeFade(child: _quickLines(state)))
               else ...[
                 Expanded(
-                  child: ListView.builder(
-                    reverse: true,
-                    padding: const EdgeInsets.fromLTRB(
-                      Space.lg,
-                      Space.sm,
-                      Space.lg,
-                      Space.sm,
-                    ),
-                    itemCount: state.chat.length,
-                    itemBuilder: (context, i) {
-                      final m = state.chat[state.chat.length - 1 - i];
-                      // A line the table wrote itself — somebody joined or
-                      // left — arrives with no sender (the server's system
-                      // line: `userId` null, signed "Table"). It is a note in
-                      // the margin of the conversation, not a voice in it
-                      // (owner's brief: "System messages should be subtle
-                      // and muted"); it used to be signed "Table:" in red,
-                      // the colour a missing seat's id happened to hash to.
-                      if (m.userId.isEmpty) return ChatSystemLine(text: m.text);
-                      final mine = m.userId == state.user?.id;
-                      // Everyone gets their own colour, kept from their seat
-                      // so a player looks the same every time they speak — on
-                      // the bar beside the line. The NAME carries the line,
-                      // in the full ink; in the player's colour it was red
-                      // for whoever sat in the third seat, and a pale mint on
-                      // the light theme nobody could read.
-                      final colour = state.colourFor(
-                        m.userId,
-                        theme.colorScheme,
-                      );
+                  child: EdgeFade(
+                    child: ListView.builder(
+                      reverse: true,
+                      padding: const EdgeInsets.fromLTRB(
+                        Space.lg,
+                        Space.sm,
+                        Space.lg,
+                        Space.sm,
+                      ),
+                      itemCount: state.chat.length,
+                      itemBuilder: (context, i) {
+                        final m = state.chat[state.chat.length - 1 - i];
+                        // A line the table wrote itself — somebody joined or
+                        // left — arrives with no sender (the server's system
+                        // line: `userId` null, signed "Table"). It is a note in
+                        // the margin of the conversation, not a voice in it
+                        // (owner's brief: "System messages should be subtle
+                        // and muted"); it used to be signed "Table:" in red,
+                        // the colour a missing seat's id happened to hash to.
+                        if (m.userId.isEmpty) {
+                          return ChatSystemLine(text: m.text);
+                        }
+                        final mine = m.userId == state.user?.id;
+                        // Everyone gets their own colour, kept from their seat
+                        // so a player looks the same every time they speak — on
+                        // the bar beside the line. The NAME carries the line,
+                        // in the full ink; in the player's colour it was red
+                        // for whoever sat in the third seat, and a pale mint on
+                        // the light theme nobody could read.
+                        final colour = state.colourFor(
+                          m.userId,
+                          theme.colorScheme,
+                        );
 
-                      final row = Padding(
-                        padding: const EdgeInsets.symmetric(vertical: Space.xs),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Container(
-                              width: 3,
-                              height: 16,
-                              margin: const EdgeInsets.only(
-                                right: Space.md,
-                                top: 3,
-                              ),
-                              decoration: BoxDecoration(
-                                color: colour,
-                                borderRadius: BorderRadius.circular(Radii.xs),
-                              ),
-                            ),
-                            Expanded(
-                              child: RichText(
-                                textScaler: MediaQuery.textScalerOf(context),
-                                text: TextSpan(
-                                  style: TableType.chatText(theme),
-                                  children: [
-                                    TextSpan(
-                                      text: '${mine ? 'You' : m.displayName}: ',
-                                      style: TableType.chatName(
-                                        theme,
-                                        colour: mine
-                                            ? goldInk(theme.brightness)
-                                            : theme.colorScheme.onSurface,
-                                      ),
-                                    ),
-                                    TextSpan(text: m.text),
-                                  ],
+                        final row = Padding(
+                          padding: const EdgeInsets.symmetric(
+                            vertical: Space.xs,
+                          ),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Container(
+                                width: 3,
+                                height: 16,
+                                margin: const EdgeInsets.only(
+                                  right: Space.md,
+                                  top: 3,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: colour,
+                                  borderRadius: BorderRadius.circular(Radii.xs),
                                 ),
                               ),
-                            ),
-                          ],
-                        ),
-                      );
-
-                      // Long-press somebody else's line to reach the
-                      // players list, where their Block key is (owner,
-                      // 24 Sep 2026: no popup — it used to ask in a dialog).
-                      // Your own line has nothing to block, and an opaque
-                      // hit test means the press lands on the whole row
-                      // rather than only on the glyph it started over.
-                      return mine
-                          ? row
-                          : GestureDetector(
-                              behavior: HitTestBehavior.opaque,
-                              onLongPress: () => setState(
-                                () => _view = _ChatView.players,
+                              Expanded(
+                                child: RichText(
+                                  textScaler: MediaQuery.textScalerOf(context),
+                                  text: TextSpan(
+                                    style: TableType.chatText(theme),
+                                    children: [
+                                      TextSpan(
+                                        text:
+                                            '${mine ? 'You' : m.displayName}: ',
+                                        style: TableType.chatName(
+                                          theme,
+                                          colour: mine
+                                              ? goldInk(theme.brightness)
+                                              : theme.colorScheme.onSurface,
+                                        ),
+                                      ),
+                                      TextSpan(text: m.text),
+                                    ],
+                                  ),
+                                ),
                               ),
-                              child: row,
-                            );
-                    },
+                            ],
+                          ),
+                        );
+
+                        // Long-press somebody else's line to reach the
+                        // players list, where their Block key is (owner,
+                        // 24 Sep 2026: no popup — it used to ask in a dialog).
+                        // Your own line has nothing to block, and an opaque
+                        // hit test means the press lands on the whole row
+                        // rather than only on the glyph it started over.
+                        return mine
+                            ? row
+                            : GestureDetector(
+                                behavior: HitTestBehavior.opaque,
+                                onLongPress: () =>
+                                    setState(() => _view = _ChatView.players),
+                                child: row,
+                              );
+                      },
+                    ),
                   ),
                 ),
                 Padding(
@@ -2774,7 +2795,8 @@ class _TurnBuzzerState extends State<TurnBuzzer> {
   }
 }
 
-/// A soft pulse around the primary key while its move is available.
+/// A soft glow around a key while its move is on offer — breathing round the
+/// primary key ([breathe]), still round a secondary one.
 ///
 /// The same idea as the pod's turn ring and deliberately quieter: the ring
 /// answers "whose turn", this answers "what do I do", and if both shouted at
@@ -2790,12 +2812,19 @@ class KeyPulse extends StatefulWidget {
     required this.colour,
     required this.radius,
     required this.child,
+    this.breathe = true,
   });
 
   final bool alive;
   final Color colour;
   final double radius;
   final Widget child;
+
+  /// Whether the glow breathes (the primary key) or holds still at its resting
+  /// strength (a secondary key on offer — Sideshow, Force Sideshow, Show,
+  /// Missile). One key breathing beside the seat on turn is a rhythm; five
+  /// were the console competing with itself.
+  final bool breathe;
 
   @override
   State<KeyPulse> createState() => _KeyPulseState();
@@ -2814,32 +2843,56 @@ class _KeyPulseState extends State<KeyPulse>
         ..repeat(reverse: true);
 
   @override
+  void didUpdateWidget(KeyPulse oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // The breath runs only while it is shown: a key that goes off offer
+    // stops asking for frames, and picks the beat up again when it returns.
+    final c = _c;
+    if (c == null) return;
+    if (widget.alive && widget.breathe) {
+      if (!c.isAnimating) c.repeat(reverse: true);
+    } else if (c.isAnimating) {
+      c.stop();
+    }
+  }
+
+  @override
   void dispose() {
     _c?.dispose();
     super.dispose();
   }
 
+  BoxDecoration _glow(double alpha) => BoxDecoration(
+    borderRadius: BorderRadius.circular(widget.radius),
+    boxShadow: [
+      BoxShadow(
+        color: widget.colour.withValues(alpha: alpha),
+        blurRadius: 14,
+        spreadRadius: 0.5,
+      ),
+    ],
+  );
+
   @override
   Widget build(BuildContext context) {
-    if (!widget.alive) return widget.child;
-
+    final breathing = widget.alive && widget.breathe;
+    // One shape whatever the key's state, so a key coming on offer or going
+    // off it keeps its subtree — its glyph's animation, its ink — and only
+    // the glow around it changes. A secondary key on offer holds a still
+    // glow: it says "you can press this" without moving.
     return AnimatedBuilder(
-      animation: _pulse,
+      animation: breathing ? _pulse : const AlwaysStoppedAnimation<double>(0),
       builder: (context, child) {
-        final t = Motion.breathe.transform(_pulse.value);
-        return DecoratedBox(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(widget.radius),
-            boxShadow: [
-              BoxShadow(
-                color: widget.colour.withValues(alpha: 0.16 + 0.24 * t),
-                blurRadius: 14,
-                spreadRadius: 0.5,
-              ),
-            ],
-          ),
-          child: child,
-        );
+        final BoxDecoration glow;
+        if (!widget.alive) {
+          glow = const BoxDecoration();
+        } else if (!widget.breathe) {
+          glow = _glow(0.18);
+        } else {
+          final t = Motion.breathe.transform(_pulse.value);
+          glow = _glow(0.16 + 0.24 * t);
+        }
+        return DecoratedBox(decoration: glow, child: child);
       },
       child: RepaintBoundary(child: widget.child),
     );

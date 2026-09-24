@@ -3578,7 +3578,7 @@ class _ActionCluster extends StatelessWidget {
     final size = MediaQuery.sizeOf(context);
     final keyH = Dim.keyH(size.height);
     final keyW = Dim.keyW(size.width);
-    final gap = Dim.gap(size.width);
+    final gap = TableSpace.gap(size.width);
     // The force key is as wide as the two steppers and the gap between them,
     // so the top row comes out exactly as wide as the − Chaal + row under it.
     // The cluster's footprint — which the viewer's hand and the right-hand
@@ -3586,7 +3586,7 @@ class _ActionCluster extends StatelessWidget {
     final forceW = 2 * Dim.minTouch + gap;
 
     return Padding(
-      padding: EdgeInsets.fromLTRB(gap, gap, Dim.feltPad(size.width), gap),
+      padding: EdgeInsets.fromLTRB(gap, gap, TableSpace.edge(size.width), gap),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.end,
@@ -3700,20 +3700,22 @@ class _PackKey extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final state = context.watch<GameState>();
-    final theme = Theme.of(context);
     final size = MediaQuery.sizeOf(context);
     final canPack = state.myTurn && (state.options?.canPack ?? false);
-    final gap = Dim.gap(size.width);
+    final gap = TableSpace.gap(size.width);
 
     return Padding(
-      padding: EdgeInsets.fromLTRB(Dim.feltPad(size.width), gap, gap, gap),
+      padding: EdgeInsets.fromLTRB(TableSpace.edge(size.width), gap, gap, gap),
+      // The destructive key: its glyph, its name and its edge in the error
+      // ink, and no glow — it gives the hand up, and is there to be found
+      // rather than to beckon (KeyRole).
       child: MachinedKey(
         width: Dim.keyW(size.width),
         height: Dim.keyH(size.height),
         icon: Icons.close_rounded,
         label: state.t.pack,
+        role: KeyRole.destructive,
         alive: canPack,
-        edge: theme.colorScheme.error.withValues(alpha: 0.45),
         onPressed: canPack ? state.pack : null,
       ),
     );
@@ -3744,7 +3746,7 @@ class _MissileKey extends StatelessWidget {
     final state = context.watch<GameState>();
     final theme = Theme.of(context);
     final size = MediaQuery.sizeOf(context);
-    final gap = Dim.gap(size.width);
+    final gap = TableSpace.gap(size.width);
     final canFire = state.canMissile && !state.firingMissile;
     final hasMissile = state.hasMissile;
     final held = state.user?.missile ?? 0;
@@ -3752,7 +3754,7 @@ class _MissileKey extends StatelessWidget {
 
     return Padding(
       // Pack's own padding carries the gap between the two keys.
-      padding: EdgeInsets.fromLTRB(Dim.feltPad(size.width), gap, gap, 0),
+      padding: EdgeInsets.fromLTRB(TableSpace.edge(size.width), gap, gap, 0),
       child: Tooltip(
         message: t.missile,
         child: MachinedKey(

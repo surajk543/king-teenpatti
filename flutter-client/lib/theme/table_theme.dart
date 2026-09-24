@@ -110,6 +110,15 @@ abstract final class TableType {
     FontWeight weight = FontWeight.w600,
   }) => AppTheme.label(_t(theme).bodyLarge!, colour: colour, weight: weight);
 
+  /// A row that only reports — Your chips, Boot, Max pot: system information,
+  /// a step smaller and quieter than a row that does something, so its gold
+  /// figure carries it.
+  static TextStyle info(ThemeData theme, {Color? colour}) => AppTheme.label(
+    _t(theme).bodyMedium!,
+    colour: colour,
+    weight: FontWeight.w500,
+  );
+
   /// A chip figure beside a label: a drawer row's value, in tabular figures.
   static TextStyle chips(ThemeData theme, {Color? colour}) =>
       AppTheme.money(_t(theme).titleSmall!, colour: colour);
@@ -335,6 +344,12 @@ abstract final class TableSpace {
 
   /// Between the viewer's fanned hand and the name and bet stood over it.
   static const double hand = Space.xs;
+
+  /// The table's two drawers — the menu and the chat. A step wider than the
+  /// app's own drawer ([Dim.drawerW]): the chat's two tabs name themselves in
+  /// full and its lines wrap less, and the room behind is dimmed, not in use.
+  /// 640 -> 281.6 | 732 -> 322.1 | 891 -> 392.0 | 915 -> 400.0
+  static double drawerW(double width) => (width * 0.44).clamp(280.0, 400.0);
 
   /// A drawer row's inset from the drawer's sides.
   static const double drawerInset = Space.lg;

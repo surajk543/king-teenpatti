@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import '../models/dtos.dart';
 import '../state/game_state.dart';
 import '../theme/app_theme.dart';
+import '../theme/table_theme.dart';
 import '../widgets/buy_chips.dart';
 import '../widgets/deal_flight.dart';
 import '../widgets/drifting_chips.dart';
@@ -90,6 +91,8 @@ class _PokerTableScreenState extends State<PokerTableScreen> {
     return Scaffold(
       key: _scaffold,
       resizeToAvoidBottomInset: false,
+      // The room the Teen Patti felt stands in, dimmed the same way.
+      drawerScrimColor: TableScrim.drawer,
       drawer: DrawerSlot(
         onGone: _drawerGone,
         child: switch (_panel) {
@@ -102,7 +105,9 @@ class _PokerTableScreenState extends State<PokerTableScreen> {
           const Positioned.fill(child: RoomGround()),
           const TurnBuzzer(),
           const Positioned.fill(
-            child: IgnorePointer(child: DriftingChips(strength: 2.6)),
+            child: IgnorePointer(
+              child: DriftingChips(strength: TableAmbient.roomChips),
+            ),
           ),
           SafeArea(
             child: Column(
@@ -118,16 +123,9 @@ class _PokerTableScreenState extends State<PokerTableScreen> {
               ],
             ),
           ),
-          const Positioned(
-            left: Space.md,
-            top: Space.sm,
-            child: SafeArea(child: ShopButton()),
-          ),
-          const Positioned(
-            right: 0,
-            top: Space.sm,
-            child: SafeArea(child: TableWallet()),
-          ),
+          // The room's two top corners, as the Teen Patti table keeps them.
+          const TopCorner(left: true, child: ShopButton()),
+          const TopCorner(left: false, child: TableWallet()),
           // Check / Call and All-in over the bet stepper, in the corner the
           // Teen Patti keys are pressed in, and exactly as wide: the viewer's
           // fanned hand — five cards, on 5-Card Draw — is laid out to clear
@@ -1385,19 +1383,19 @@ class _FoldKey extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final state = context.watch<GameState>();
-    final theme = Theme.of(context);
     final size = MediaQuery.sizeOf(context);
     final gap = Dim.gap(size.width);
 
     return Padding(
       padding: EdgeInsets.fromLTRB(Dim.feltPad(size.width), gap, gap, gap),
+      // The destructive key, as Pack is at a Teen Patti table (KeyRole).
       child: MachinedKey(
         width: Dim.keyW(size.width),
         height: Dim.keyH(size.height),
         icon: Icons.close_rounded,
         label: state.t.fold,
+        role: KeyRole.destructive,
         alive: state.canFold,
-        edge: theme.colorScheme.error.withValues(alpha: 0.45),
         onPressed: state.canFold ? state.pokerFold : null,
       ),
     );
