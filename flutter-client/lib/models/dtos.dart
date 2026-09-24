@@ -2435,3 +2435,212 @@ class ProfilePicture {
     owned: j['owned'] == true,
   );
 }
+
+/// The prize kinds a Lucky Draw slot can hold (owner, 24 Sep 2026), as the
+/// server names them. A kind this build does not know is never sent: the
+/// server leaves such a slot off the wheel, so the client only has to draw
+/// these.
+class LuckyReward {
+  static const String chips = 'CHIPS';
+  static const String diamond = 'DIAMOND';
+  static const String hammer = 'HAMMER';
+  static const String missile = 'MISSILE';
+  static const String profilePicture = 'PROFILE_PICTURE';
+  static const String tablePicture = 'TABLE_PICTURE';
+
+  /// The empty slot: a spin that lands on it wins nothing.
+  static const String none = 'NO_REWARD';
+}
+
+/// What a Lucky Draw slot pays, or what a spin won: a kind, an amount for the
+/// four wallets, and the catalogue row for a picture — the same row the store
+/// shows, `owned` resolved for this player.
+class LuckyPrize {
+  const LuckyPrize({
+    required this.type,
+    this.value,
+    this.refId,
+    this.picture,
+    this.tablePicture,
+  });
+
+  /// One of [LuckyReward].
+  final String type;
+
+  /// The amount for CHIPS, DIAMOND, HAMMER and MISSILE; null for a picture.
+  final int? value;
+
+  /// The catalogue id of a picture prize, as text.
+  final String? refId;
+  final ProfilePicture? picture;
+  final TablePicture? tablePicture;
+
+  bool get isNothing => type == LuckyReward.none;
+  bool get isPicture =>
+      type == LuckyReward.profilePicture || type == LuckyReward.tablePicture;
+
+  /// The amount, 0 where the prize has none.
+  int get amount => value ?? 0;
+
+  /// The picture's name, for a picture prize.
+  String get pictureName => picture?.name ?? tablePicture?.name ?? '';
+
+  factory LuckyPrize.fromJson(
+    Map<String, dynamic> j, {
+    String typeKey = 'type',
+    String valueKey = 'value',
+    String refKey = 'refId',
+  }) => LuckyPrize(
+    type: _str(j[typeKey]),
+    value: _intOrNull(j[valueKey]),
+    refId: _strOrNull(j[refKey]),
+    picture: j['picture'] is Map
+        ? ProfilePicture.fromJson(
+            Map<String, dynamic>.from(j['picture'] as Map),
+          )
+        : null,
+    tablePicture: j['tablePicture'] is Map
+        ? TablePicture.fromJson(
+            Map<String, dynamic>.from(j['tablePicture'] as Map),
+          )
+        : null,
+  );
+}
+
+/// One slot of the wheel, in wheel order (GET /api/lucky-draw). How likely it
+/// is never reaches the client: the server draws.
+class LuckySlot {
+  const LuckySlot({required this.slotNumber, required this.prize});
+
+  /// 1 to 6; slot 1 is the wedge at the top when the wheel is at rest.
+  final int slotNumber;
+  final LuckyPrize prize;
+
+  factory LuckySlot.fromJson(Map<String, dynamic> j) => LuckySlot(
+    slotNumber: _int(j['slotNumber']),
+    prize: LuckyPrize.fromJson(
+      j,
+      typeKey: 'rewardType',
+      valueKey: 'rewardValue',
+      refKey: 'rewardRefId',
+    ),
+  );
+}
+
+/// The Lucky Draw as this player finds it (owner, 24 Sep 2026): which draw,
+/// its six slots, and when they may next spin.
+class LuckyDrawState {
+  const LuckyDrawState({
+    required this.code,
+    required this.name,
+    required this.spinnerType,
+    required this.cooldownMs,
+    required this.slots,
+    required this.nextSpinAt,
+  });
+
+  /// BEGINNER_LUCKY_DRAW today; the draw a spin is made on.
+  final String code;
+
+  /// The owner's name for it. The screen names it in the player's language
+  /// ("Lucky Draw") and shows this only as the draw's own label.
+  final String name;
+
+  /// BEGINNER, VIP… — a label for how the wheel may one day be dressed.
+  final String spinnerType;
+  final int cooldownMs;
+  final List<LuckySlot> slots;
+
+  /// Epoch ms the next spin is allowed; 0 = now. The server enforces it.
+  final int nextSpinAt;
+
+  /// Whether a spin is due by the phone's clock. The server has the last word.
+  bool readyAt(DateTime now) => nextSpinAt <= now.millisecondsSinceEpoch;
+
+  Duration untilNext(DateTime now) {
+    final ms = nextSpinAt - now.millisecondsSinceEpoch;
+    return Duration(milliseconds: ms < 0 ? 0 : ms);
+  }
+
+  /// The slot numbered [slotNumber], or null when the wheel has none.
+  LuckySlot? slot(int slotNumber) {
+    for (final s in slots) {
+      if (s.slotNumber == slotNumber) return s;
+    }
+    return null;
+  }
+
+  /// The same draw with a new wait, as a spin or a refusal reports it.
+  LuckyDrawState withNextSpinAt(int at) => LuckyDrawState(
+    code: code,
+    name: name,
+    spinnerType: spinnerType,
+    cooldownMs: cooldownMs,
+    slots: slots,
+    nextSpinAt: at,
+  );
+
+  factory LuckyDrawState.fromJson(Map<String, dynamic> j) {
+    final draw = j['draw'] is Map
+        ? Map<String, dynamic>.from(j['draw'] as Map)
+        : const <String, dynamic>{};
+    final slots =
+        (j['slots'] is List ? j['slots'] as List : const [])
+            .whereType<Map>()
+            .map((e) => LuckySlot.fromJson(Map<String, dynamic>.from(e)))
+            .where((s) => s.slotNumber >= 1 && s.slotNumber <= 6)
+            .toList()
+          ..sort((a, b) => a.slotNumber.compareTo(b.slotNumber));
+    return LuckyDrawState(
+      code: _str(draw['code']),
+      name: _str(draw['name']),
+      spinnerType: _str(draw['spinnerType']),
+      cooldownMs: _int(draw['cooldownMs']),
+      slots: slots,
+      nextSpinAt: _int(j['nextSpinAt']),
+    );
+  }
+}
+
+/// What one spin drew (POST /api/lucky-draw/spin): the slot the wheel must
+/// stop on, the prize, and the account after it.
+class LuckySpin {
+  const LuckySpin({
+    required this.actionId,
+    required this.slotNumber,
+    required this.prize,
+    required this.alreadyOwned,
+    required this.replayed,
+    required this.nextSpinAt,
+    this.user,
+  });
+
+  final String actionId;
+
+  /// The server's draw. The wheel stops here and nowhere else.
+  final int slotNumber;
+  final LuckyPrize prize;
+
+  /// A picture the player already had: the spin counted, nothing new was
+  /// unlocked.
+  final bool alreadyOwned;
+
+  /// A retry of a spin that had already landed: the same answer again.
+  final bool replayed;
+  final int nextSpinAt;
+  final User? user;
+
+  factory LuckySpin.fromJson(Map<String, dynamic> j) => LuckySpin(
+    actionId: _str(j['actionId']),
+    slotNumber: _int(j['slotNumber']),
+    prize: j['reward'] is Map
+        ? LuckyPrize.fromJson(Map<String, dynamic>.from(j['reward'] as Map))
+        : const LuckyPrize(type: LuckyReward.none),
+    alreadyOwned: j['alreadyOwned'] == true,
+    replayed: j['replayed'] == true,
+    nextSpinAt: _int(j['nextSpinAt']),
+    user: j['user'] is Map
+        ? User.fromJson(Map<String, dynamic>.from(j['user'] as Map))
+        : null,
+  );
+}

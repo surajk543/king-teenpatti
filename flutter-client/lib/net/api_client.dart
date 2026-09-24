@@ -20,6 +20,16 @@ class ApiException implements Exception {
   String toString() => message;
 }
 
+/// A Lucky Draw spin refused because the wheel has not recharged yet: 409
+/// `lucky_draw_not_ready`, carrying [readyAt], the epoch ms the server will
+/// allow the next spin — so the screen can count down to the server's moment
+/// rather than its own.
+class LuckyDrawNotReady extends ApiException {
+  LuckyDrawNotReady(super.message, {required this.readyAt})
+    : super(code: 'lucky_draw_not_ready', status: 409);
+  final int readyAt;
+}
+
 /// What `GET /api/tables` answered ([ApiClient.tableConfig]).
 sealed class TableConfigAnswer {
   const TableConfigAnswer();
@@ -332,6 +342,64 @@ class ApiClient {
       diamonds: (j['diamonds'] as num?)?.toInt() ?? 0,
       missiles: (j['missiles'] as num?)?.toInt() ?? 0,
     );
+  }
+
+  /// The Lucky Draw (owner, 24 Sep 2026): `GET /api/lucky-draw` — the draw
+  /// the lobby opens, its six slots in wheel order and when this player may
+  /// next spin. No weights: the server draws.
+  ///
+  /// Null when there is no wheel to show — 503 `lucky_draw_unavailable` (no
+  /// draw open, or none with a prize left to win) or 404 (a server that
+  /// predates the draw). Neither is a fault to report: the lobby simply shows
+  /// no Lucky Draw.
+  Future<LuckyDrawState?> luckyDraw(String token) async {
+    final r = await http.get(_uri('/api/lucky-draw'), headers: _headers(token));
+    if (r.statusCode == 404 || r.statusCode == 503) return null;
+    return LuckyDrawState.fromJson(_decode(r));
+  }
+
+  /// One spin of the Lucky Draw: `POST /api/lucky-draw/spin {actionId, code}`.
+  ///
+  /// The server draws the slot, grants its prize and records the spin in one
+  /// transaction; nothing sent here names a prize. [code] is the draw on
+  /// screen, so the wheel spun is the one the player is looking at.
+  /// [actionId] is minted once per spin and sent again on a retry of it: the
+  /// server answers a replay with the same spin, `replayed: true`, and grants
+  /// nothing twice.
+  ///
+  /// A spin before the wheel has recharged throws [LuckyDrawNotReady]; every
+  /// other refusal is an [ApiException] with the server's code — `seated`
+  /// (409: the draw is spun from the lobby), `lucky_draw_unavailable` (503),
+  /// `invalid_action_id` (400).
+  Future<LuckySpin> spinLuckyDraw(
+    String token,
+    String actionId, {
+    String? code,
+  }) async {
+    final r = await http.post(
+      _uri('/api/lucky-draw/spin'),
+      headers: _headers(token),
+      body: jsonEncode({
+        'actionId': actionId,
+        if (code != null && code.isNotEmpty) 'code': code,
+      }),
+    );
+    if (r.statusCode == 409) {
+      Object? body;
+      try {
+        body = jsonDecode(r.body);
+      } on FormatException {
+        body = null;
+      }
+      if (body is Map && body['error'] == 'lucky_draw_not_ready') {
+        final readyAt = body['readyAt'];
+        throw LuckyDrawNotReady(
+          '${body['message'] ?? ''}',
+          readyAt: readyAt is num ? readyAt.toInt() : 0,
+        );
+      }
+    }
+    return LuckySpin.fromJson(_decode(r));
   }
 
   /// Requirement 29: renames the player. The server validates the name and

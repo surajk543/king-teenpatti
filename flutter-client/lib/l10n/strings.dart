@@ -115,6 +115,45 @@ class Strings {
   String get rewardHammersPurchased => _('rewardHammersPurchased');
   String get tapToClose => _('tapToClose');
 
+  // --- the Lucky Draw (owner, 24 Sep 2026): a wheel of six prizes the
+  // server spins. The chip's title is capitals as the other corner chips'
+  // are; the screen's is the name as a name.
+  String get luckyDrawChip => _('luckyDrawChip');
+  String get luckyDrawTitle => _('luckyDrawTitle');
+  String get luckySpinReady => _('luckySpinReady');
+  String get luckySpinNow => _('luckySpinNow');
+  String get luckySpinning => _('luckySpinning');
+  String get luckyNextSpin => _('luckyNextSpin');
+
+  /// "One free spin every 3 days." — [time] written by [rentalTerm].
+  String luckyEvery(String time) => _('luckyEvery').replaceAll('{time}', time);
+  String get luckyPrizes => _('luckyPrizes');
+  String get luckyNoPrize => _('luckyNoPrize');
+  String get luckyCongrats => _('luckyCongrats');
+  String get luckyYouWon => _('luckyYouWon');
+  String get luckyNothingTitle => _('luckyNothingTitle');
+  String get luckyNothingBody => _('luckyNothingBody');
+  String get luckyAlreadyOwned => _('luckyAlreadyOwned');
+
+  /// "Yours for 50 days" under a picture won — [time] by [rentalTerm]; a
+  /// picture that never runs out says [pictureKeeps] instead.
+  String luckyPictureFor(String time) =>
+      _('luckyPictureFor').replaceAll('{time}', time);
+  String get luckyWearNow => _('luckyWearNow');
+  String get luckyLayNow => _('luckyLayNow');
+  String get luckyProfilePicture => _('luckyProfilePicture');
+  String get luckyTablePicture => _('luckyTablePicture');
+  String get luckyClosed => _('luckyClosed');
+  String get luckyLoadFailed => _('luckyLoadFailed');
+  String get luckyRetry => _('luckyRetry');
+  String get luckyLobbyOnly => _('luckyLobbyOnly');
+  String get luckyNotReady => _('luckyNotReady');
+
+  /// A missile count in words — "1 missile", "2 missiles" — for a prize. One
+  /// missile has its own line in every language, as [missilesAdded]'s does.
+  String countMissiles(int n) =>
+      _(n == 1 ? 'countMissileOne' : 'countMissiles').replaceAll('{n}', '$n');
+
   // --- buying chips, not open yet
   String get buyChips => _('buyChips');
 
@@ -1054,6 +1093,32 @@ class Strings {
       'playedNote': 'A hand counts as played once you have made a move in it.',
       'fourHourBonus': '4-HOUR BONUS',
       'dailyBonus': 'DAILY BONUS',
+      'luckyDrawChip': 'LUCKY DRAW',
+      'luckyDrawTitle': 'Lucky Draw',
+      'luckySpinReady': 'Spin now',
+      'luckySpinNow': 'SPIN NOW',
+      'luckySpinning': 'SPINNING…',
+      'luckyNextSpin': 'NEXT SPIN',
+      'luckyEvery': 'One free spin every {time}.',
+      'luckyPrizes': 'PRIZES ON THE WHEEL',
+      'luckyNoPrize': 'No prize',
+      'luckyCongrats': 'Congratulations!',
+      'luckyYouWon': 'You won',
+      'luckyNothingTitle': 'Better luck next time!',
+      'luckyNothingBody': 'The wheel stopped on the empty slot.',
+      'luckyAlreadyOwned': 'It is already yours, so nothing new was unlocked.',
+      'luckyPictureFor': 'Yours for {time}',
+      'luckyWearNow': 'Wear it',
+      'luckyLayNow': 'Use it',
+      'luckyProfilePicture': 'Profile picture',
+      'luckyTablePicture': 'Table picture',
+      'luckyClosed': 'The Lucky Draw is closed right now.',
+      'luckyLoadFailed': 'The Lucky Draw could not be loaded.',
+      'luckyRetry': 'Try again',
+      'luckyLobbyOnly': 'Spin the Lucky Draw from the lobby.',
+      'luckyNotReady': 'Your next spin is not ready yet.',
+      'countMissileOne': '1 missile',
+      'countMissiles': '{n} missiles',
       'milestone': 'MILESTONE',
       'collect': 'Collect',
       'rewardCollected': 'Reward collected!',
@@ -1632,6 +1697,33 @@ class Strings {
       'playedNote': 'हाथ तभी गिना जाता है जब आपने उसमें कोई चाल चली हो।',
       'fourHourBonus': '4-घंटे का बोनस',
       'dailyBonus': 'दैनिक बोनस',
+      'luckyDrawChip': 'लकी ड्रॉ',
+      'luckyDrawTitle': 'लकी ड्रॉ',
+      'luckySpinReady': 'अभी घुमाएँ',
+      'luckySpinNow': 'अभी घुमाएँ',
+      'luckySpinning': 'घूम रहा है…',
+      'luckyNextSpin': 'अगला स्पिन',
+      'luckyEvery': 'हर {time} में एक मुफ़्त स्पिन।',
+      'luckyPrizes': 'पहिये पर इनाम',
+      'luckyNoPrize': 'कोई इनाम नहीं',
+      'luckyCongrats': 'बधाई हो!',
+      'luckyYouWon': 'आपने जीता',
+      'luckyNothingTitle': 'अगली बार किस्मत साथ देगी!',
+      'luckyNothingBody': 'पहिया खाली खाने पर रुका।',
+      'luckyAlreadyOwned':
+          'यह तस्वीर पहले से आपकी है, इसलिए कुछ नया अनलॉक नहीं हुआ।',
+      'luckyPictureFor': '{time} के लिए आपकी',
+      'luckyWearNow': 'अभी लगाएँ',
+      'luckyLayNow': 'अभी लगाएँ',
+      'luckyProfilePicture': 'प्रोफ़ाइल तस्वीर',
+      'luckyTablePicture': 'टेबल की तस्वीर',
+      'luckyClosed': 'लकी ड्रॉ अभी बंद है।',
+      'luckyLoadFailed': 'लकी ड्रॉ लोड नहीं हो सका।',
+      'luckyRetry': 'फिर कोशिश करें',
+      'luckyLobbyOnly': 'लकी ड्रॉ लॉबी से घुमाएँ।',
+      'luckyNotReady': 'आपका अगला स्पिन अभी तैयार नहीं है।',
+      'countMissileOne': '1 मिसाइल',
+      'countMissiles': '{n} मिसाइलें',
       'milestone': 'माइलस्टोन',
       'collect': 'लें',
       'rewardCollected': 'इनाम मिल गया!',
@@ -2189,6 +2281,32 @@ class Strings {
       'playedNote': 'কোনো চাল দিলে তবেই হাতটি গোনা হয়।',
       'fourHourBonus': '4-ঘণ্টার বোনাস',
       'dailyBonus': 'দৈনিক বোনাস',
+      'luckyDrawChip': 'লাকি ড্র',
+      'luckyDrawTitle': 'লাকি ড্র',
+      'luckySpinReady': 'এখনই ঘোরান',
+      'luckySpinNow': 'এখনই ঘোরান',
+      'luckySpinning': 'ঘুরছে…',
+      'luckyNextSpin': 'পরের স্পিন',
+      'luckyEvery': '{time} পরপর একটি ফ্রি স্পিন।',
+      'luckyPrizes': 'চাকার পুরস্কার',
+      'luckyNoPrize': 'কোনো পুরস্কার নেই',
+      'luckyCongrats': 'অভিনন্দন!',
+      'luckyYouWon': 'আপনি জিতেছেন',
+      'luckyNothingTitle': 'পরের বার ভাগ্য সহায় হবে!',
+      'luckyNothingBody': 'চাকা খালি ঘরে থেমেছে।',
+      'luckyAlreadyOwned': 'এটি আগে থেকেই আপনার, তাই নতুন কিছু আনলক হয়নি।',
+      'luckyPictureFor': '{time} ধরে আপনার',
+      'luckyWearNow': 'এখনই ব্যবহার করুন',
+      'luckyLayNow': 'এখনই ব্যবহার করুন',
+      'luckyProfilePicture': 'প্রোফাইল ছবি',
+      'luckyTablePicture': 'টেবিলের ছবি',
+      'luckyClosed': 'লাকি ড্র এখন বন্ধ।',
+      'luckyLoadFailed': 'লাকি ড্র লোড করা যায়নি।',
+      'luckyRetry': 'আবার চেষ্টা করুন',
+      'luckyLobbyOnly': 'লাকি ড্র লবি থেকে ঘোরান।',
+      'luckyNotReady': 'আপনার পরের স্পিন এখনও তৈরি নয়।',
+      'countMissileOne': '1টি মিসাইল',
+      'countMissiles': '{n}টি মিসাইল',
       'milestone': 'মাইলস্টোন',
       'collect': 'নিন',
       'rewardCollected': 'পুরস্কার সংগ্রহ হয়েছে!',
@@ -2752,6 +2870,32 @@ class Strings {
       'playedNote': 'કોઈ ચાલ ચાલો ત્યારે જ હાથ ગણાય છે.',
       'fourHourBonus': '4-કલાકનું બોનસ',
       'dailyBonus': 'દૈનિક બોનસ',
+      'luckyDrawChip': 'લકી ડ્રો',
+      'luckyDrawTitle': 'લકી ડ્રો',
+      'luckySpinReady': 'હમણાં ફેરવો',
+      'luckySpinNow': 'હમણાં ફેરવો',
+      'luckySpinning': 'ફરી રહ્યું છે…',
+      'luckyNextSpin': 'આગલો સ્પિન',
+      'luckyEvery': 'દર {time} પછી એક મફત સ્પિન.',
+      'luckyPrizes': 'ચક્ર પરના ઇનામ',
+      'luckyNoPrize': 'કોઈ ઇનામ નથી',
+      'luckyCongrats': 'અભિનંદન!',
+      'luckyYouWon': 'તમે જીત્યા',
+      'luckyNothingTitle': 'આગલી વખતે નસીબ સાથ આપશે!',
+      'luckyNothingBody': 'ચક્ર ખાલી ખાના પર અટક્યું.',
+      'luckyAlreadyOwned': 'આ પહેલેથી તમારો છે, તેથી કંઈ નવું અનલૉક થયું નથી.',
+      'luckyPictureFor': '{time} માટે તમારો',
+      'luckyWearNow': 'હમણાં વાપરો',
+      'luckyLayNow': 'હમણાં વાપરો',
+      'luckyProfilePicture': 'પ્રોફાઇલ ફોટો',
+      'luckyTablePicture': 'ટેબલનો ફોટો',
+      'luckyClosed': 'લકી ડ્રો હમણાં બંધ છે.',
+      'luckyLoadFailed': 'લકી ડ્રો લોડ થઈ શક્યો નથી.',
+      'luckyRetry': 'ફરી પ્રયાસ કરો',
+      'luckyLobbyOnly': 'લકી ડ્રો લૉબીમાંથી ફેરવો.',
+      'luckyNotReady': 'તમારો આગલો સ્પિન હજી તૈયાર નથી.',
+      'countMissileOne': '1 મિસાઇલ',
+      'countMissiles': '{n} મિસાઇલ',
       'milestone': 'માઇલસ્ટોન',
       'collect': 'લો',
       'rewardCollected': 'ઇનામ મળી ગયું!',
@@ -3307,6 +3451,33 @@ class Strings {
       'playedNote': 'ਹੱਥ ਤਾਂ ਹੀ ਗਿਣਿਆ ਜਾਂਦਾ ਹੈ ਜਦੋਂ ਤੁਸੀਂ ਕੋਈ ਚਾਲ ਚੱਲੀ ਹੋਵੇ।',
       'fourHourBonus': '4-ਘੰਟੇ ਦਾ ਬੋਨਸ',
       'dailyBonus': 'ਰੋਜ਼ਾਨਾ ਬੋਨਸ',
+      'luckyDrawChip': 'ਲੱਕੀ ਡਰਾਅ',
+      'luckyDrawTitle': 'ਲੱਕੀ ਡਰਾਅ',
+      'luckySpinReady': 'ਹੁਣੇ ਘੁਮਾਓ',
+      'luckySpinNow': 'ਹੁਣੇ ਘੁਮਾਓ',
+      'luckySpinning': 'ਘੁੰਮ ਰਿਹਾ ਹੈ…',
+      'luckyNextSpin': 'ਅਗਲਾ ਸਪਿਨ',
+      'luckyEvery': 'ਹਰ {time} ਬਾਅਦ ਇੱਕ ਮੁਫ਼ਤ ਸਪਿਨ।',
+      'luckyPrizes': 'ਪਹੀਏ ਦੇ ਇਨਾਮ',
+      'luckyNoPrize': 'ਕੋਈ ਇਨਾਮ ਨਹੀਂ',
+      'luckyCongrats': 'ਵਧਾਈਆਂ!',
+      'luckyYouWon': 'ਤੁਸੀਂ ਜਿੱਤਿਆ',
+      'luckyNothingTitle': 'ਅਗਲੀ ਵਾਰ ਕਿਸਮਤ ਸਾਥ ਦੇਵੇਗੀ!',
+      'luckyNothingBody': 'ਪਹੀਆ ਖਾਲੀ ਖਾਨੇ ਉੱਤੇ ਰੁਕਿਆ।',
+      'luckyAlreadyOwned':
+          'ਇਹ ਪਹਿਲਾਂ ਤੋਂ ਤੁਹਾਡੀ ਹੈ, ਇਸ ਲਈ ਕੁਝ ਨਵਾਂ ਅਨਲੌਕ ਨਹੀਂ ਹੋਇਆ।',
+      'luckyPictureFor': '{time} ਲਈ ਤੁਹਾਡੀ',
+      'luckyWearNow': 'ਹੁਣੇ ਵਰਤੋ',
+      'luckyLayNow': 'ਹੁਣੇ ਵਰਤੋ',
+      'luckyProfilePicture': 'ਪ੍ਰੋਫਾਈਲ ਤਸਵੀਰ',
+      'luckyTablePicture': 'ਟੇਬਲ ਦੀ ਤਸਵੀਰ',
+      'luckyClosed': 'ਲੱਕੀ ਡਰਾਅ ਹੁਣ ਬੰਦ ਹੈ।',
+      'luckyLoadFailed': 'ਲੱਕੀ ਡਰਾਅ ਲੋਡ ਨਹੀਂ ਹੋ ਸਕਿਆ।',
+      'luckyRetry': 'ਮੁੜ ਕੋਸ਼ਿਸ਼ ਕਰੋ',
+      'luckyLobbyOnly': 'ਲੱਕੀ ਡਰਾਅ ਲਾਬੀ ਤੋਂ ਘੁਮਾਓ।',
+      'luckyNotReady': 'ਤੁਹਾਡਾ ਅਗਲਾ ਸਪਿਨ ਹਾਲੇ ਤਿਆਰ ਨਹੀਂ ਹੈ।',
+      'countMissileOne': '1 ਮਿਜ਼ਾਈਲ',
+      'countMissiles': '{n} ਮਿਜ਼ਾਈਲਾਂ',
       'milestone': 'ਮਾਈਲਸਟੋਨ',
       'collect': 'ਲਓ',
       'rewardCollected': 'ਇਨਾਮ ਮਿਲ ਗਿਆ!',

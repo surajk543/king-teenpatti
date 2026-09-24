@@ -27,6 +27,7 @@ import '../widgets/poker_chip.dart';
 import '../widgets/premium_surface.dart';
 import '../widgets/rules_sheet.dart';
 import '../widgets/table_ground.dart';
+import 'lucky_draw_screen.dart';
 
 /// The lobby: every choice is a card on one horizontal rail, so a phone held in
 /// landscape never has to scroll down — swipe sideways instead.
@@ -409,12 +410,17 @@ class _LobbyScreenState extends State<LobbyScreen> {
               ),
               // The daily bonus in the bottom-left corner (owner, 14 Sep 2026),
               // a key that counts down its 24 hours and collects when they are
-              // up; the 4-hour bonus keeps its chip in the top bar. Keyed so a
-              // lobby toast can stand clear of it (lobbyNoticeArea).
+              // up; the 4-hour bonus keeps its chip in the top bar. The Lucky
+              // Draw stands beside it (owner, 24 Sep 2026). Keyed as one row so
+              // a lobby toast can stand clear of both (lobbyNoticeArea).
               Positioned(
                 bottom: Space.md,
                 left: Space.md,
-                child: _DailyBonusChip(key: _dailyChip),
+                child: Row(
+                  key: _dailyChip,
+                  mainAxisSize: MainAxisSize.min,
+                  children: const [_DailyBonusChip(), _LuckyDrawChip()],
+                ),
               ),
               // Requirement 27: the milestone sits in the bottom-right corner,
               // opposite the daily bonus. The rail of tables stops short of
@@ -4731,7 +4737,7 @@ class _BonusChip extends StatelessWidget {
 /// the top bar. A gift rather than the hourglass, so the two read as two
 /// rewards at a glance. Absent when the server offers no daily bonus.
 class _DailyBonusChip extends StatelessWidget {
-  const _DailyBonusChip({super.key});
+  const _DailyBonusChip();
 
   @override
   Widget build(BuildContext context) {
@@ -4755,6 +4761,59 @@ class _DailyBonusChip extends StatelessWidget {
       enabled: ready,
       onTap: () => state.claimReward('daily'),
       onWaitTap: () => openBonusDetails(context, 'daily'),
+    );
+  }
+}
+
+/// The Lucky Draw (owner, 24 Sep 2026), beside the daily bonus: a small wheel
+/// that turns now and then while a spin is due, and the time left while the
+/// wheel recharges. Either way a tap opens the draw ([showLuckyDraw]) — its
+/// prizes are worth a look while the wait runs. Absent when the server offers
+/// no draw (none open, or a server that predates it).
+class _LuckyDrawChip extends StatelessWidget {
+  const _LuckyDrawChip();
+
+  @override
+  Widget build(BuildContext context) {
+    final state = context.watch<GameState>();
+    final draw = state.luckyDraw;
+    if (state.user == null) return const SizedBox.shrink();
+    if (draw == null) {
+      // While the first read of the draw is out, the key's room is kept,
+      // unseen: a toast raised at sign-in is placed the moment it appears
+      // (lobbyNoticeArea), and it used to lie over the key that arrived a
+      // moment after it.
+      if (!state.luckyDrawLoading) return const SizedBox.shrink();
+      return Visibility.maintain(
+        visible: false,
+        child: Padding(
+          padding: const EdgeInsets.only(left: Space.sm),
+          child: _CornerChip(
+            icon: Icons.casino_rounded,
+            title: state.t.luckyDrawChip,
+            subtitle: state.t.luckySpinReady,
+            enabled: false,
+            onTap: () {},
+          ),
+        ),
+      );
+    }
+    final now = DateTime.now();
+    final due = draw.readyAt(now);
+    return Padding(
+      key: const ValueKey('lucky-draw-chip'),
+      padding: const EdgeInsets.only(left: Space.sm),
+      child: _CornerChip(
+        icon: Icons.casino_rounded,
+        leadingBuilder: (fg) => LuckyWheelGlyph(colour: fg, turning: due),
+        title: state.t.luckyDrawChip,
+        subtitle: due
+            ? state.t.luckySpinReady
+            : formatSpinClock(draw.untilNext(now)),
+        enabled: due,
+        onTap: () => showLuckyDraw(context),
+        onWaitTap: () => showLuckyDraw(context),
+      ),
     );
   }
 }
