@@ -15,7 +15,9 @@
 # including a phone.
 set -euo pipefail
 
-URL="${1:-https://api.sungamestudio.com}"
+# Production answers on prod.sungamestudio.com since 24 Sep 2026 (owner);
+# api.sungamestudio.com no longer resolves.
+URL="${1:-https://prod.sungamestudio.com}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null || echo "")"
 PREFIX="go-server/v"

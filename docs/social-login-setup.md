@@ -96,6 +96,43 @@ Facebook key hashes for the same three, for when Facebook returns —
 Still outstanding for Google: creating those three Play clients, and
 **Audience → Publish app**.
 
+### Checked on 24 Sep 2026: what still stands between the store build and a Google sign-in
+
+Tested end to end on the Mac's `Pixel_9` AVD (`google_apis_playstore`, a Google account signed
+in) with a release build of `config/production.json`, 1.2.3+10:
+
+| Link in the chain | State | Evidence |
+|---|---|---|
+| The build asks Google for an ID token for the Web client | ✅ | the id is in `libapp.so`; the account picker opens under the app's own name and icon |
+| Credential Manager survives R8 in a release build | ✅ | `androidx.credentials.playservices.CredentialProviderPlayServicesImpl` is in the bundle's dex, and the picker opens |
+| Google issues a token to the build's signature | ❌ for a Mac-built release | logcat `status=UNREGISTERED_ON_API_CONSOLE`; the plugin reports `canceled: [16] Account reauth failed.` after the account is picked |
+| Production verifies the token | ✅ since the afternoon | `POST https://prod.sungamestudio.com/api/auth/login` `{"provider":"google","idToken":"probe"}` answered **503 `provider_unconfigured`** until the owner set `GOOGLE_CLIENT_IDS` and restarted; it now answers 401 `invalid_token`, as preprod does |
+
+What to do, in the order that unblocks players:
+
+1. ~~**Production's `go-server/.env`**: `GOOGLE_CLIENT_IDS=265025011940-0k4kh3ljcopn2pmkpb0q1rhbe8er8h09.apps.googleusercontent.com`,
+   then `sudo systemctl restart gameplay`.~~ Done 24 Sep 2026 (owner); the probe answers 401 `invalid_token`, not 503.
+   A real token refused as `Wrong recipient` would mean the value differs from the Web client id.
+2. **The three Play app-signing clients** from the table above: an installed-from-Play build carries
+   the Play key, never the upload key. They were outstanding on 10 Sep 2026, and nothing here can
+   see the Cloud console to say whether they exist now.
+3. **Audience → Publish app**, unless every player is listed as a test user.
+4. **Sign the store bundle with the upload key Play knows.** The Mac's `android/key.properties`
+   names `android/upload-keystore.jks`, a keystore generated on the Mac on 10 Sep 2026 at 23:27 IST,
+   *after* the `7C:D8` key above had signed the first release on the Linux box
+   (`~/Downloads/app-release.apk`, 1.0.0+3, carries `7C:D8`). Copy the `7C:D8` keystore and its
+   `key.properties` onto the Mac. The alternative is to ask Play for an upload-key reset to the Mac's
+   key, which takes days, and then register that key as an Android client as well.
+5. For testing on the Mac, add these two, each as its own Android client:
+
+| Mac key | SHA-1 | Where |
+|---|---|---|
+| debug | `1B:0E:D1:3A:8D:6F:EF:60:41:E5:4A:86:58:73:F6:4E:C4:FE:F1:F2` | `~/.android/debug.keystore`, created 11 Sep 2026 (the debug client above is the Linux box's `A0:54…`) |
+| upload (unregistered) | `3D:D3:39:BF:61:95:29:DA:68:C2:B5:CD:D4:B4:0D:31:4A:5C:7F:66` | `android/upload-keystore.jks`, CN=Sun Game Studio, OU=Mobile, L=Bengaluru |
+
+Since 1.2.3+10 a refused signature no longer ends in silence. The app now says "Google sign-in is
+not available in this version" (see *When a Google sign-in fails* below).
+
 > **Where the Play fingerprint lives.** Google's support article and Google's
 > own console disagree. The article says *Play Store distribution → Go to Play
 > app signing*; the console's help text on the client form says *Play Store
@@ -259,8 +296,8 @@ adb logcat | grep "Google sign-in"
 
 | What you see | What it means |
 |---|---|
-| `canceled` with no account picker shown | genuinely dismissed |
-| `canceled` right after picking an account | wrong SHA-1, or the wrong Cloud project |
+| `canceled: [16] Cancelled by user.` | genuinely dismissed — the back key or a tap outside the picker |
+| `canceled: [16] Account reauth failed.` right after picking an account (logcat: `status=UNREGISTERED_ON_API_CONSOLE`) | the build's signing SHA-1 has no Android client, or the wrong Cloud project. Since 1.2.3+10 the app says "Google sign-in is not available in this version" (`SocialSignIn.playerCancelled`); before, it returned to the login screen with nothing said |
 | `clientConfigurationError` | package name or fingerprint does not match any Android client |
 | `no idToken` | `GOOGLE_SERVER_CLIENT_ID` missing at build time, or not the **Web** client |
 | `Wrong recipient` from our server | app id and `GOOGLE_CLIENT_IDS` differ |
@@ -268,9 +305,10 @@ adb logcat | grep "Google sign-in"
 
 Two traps that waste the most time here: console changes take **5 minutes to a
 few hours** to propagate, so an immediate retest measures nothing; and Google
-sign-in cannot be tested on this machine's emulators at all — both installed
-system images are `google_apis`, which has no Play Store and so no Google
-account. Use a `google_apis_playstore` image or a real device.
+sign-in cannot be tested on a `google_apis` emulator image, which has no Play Store
+and so no Google account. Use a `google_apis_playstore` image or a real device. On
+the Mac that is the `Pixel_9` AVD, which has a Google account signed in; the
+`TP_*` AVDs are `google_apis`.
 
 ## One thing to fix before this ships
 

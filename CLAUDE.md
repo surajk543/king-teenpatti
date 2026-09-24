@@ -190,12 +190,18 @@ into the next — use absolute paths.
 
 Server ↔ client: the backend's address is ONE build-time setting, `lib/config/server_config.dart`
 (`ServerConfig.url`, `--dart-define=SERVER_URL`; REST at `<url>/api/...`, the Socket.IO handshake at
-`<url>/socket.io/`, the served pages such as `privacy/` on the same host). **With no define the app talks to
+`<url>/socket.io/`). The privacy policy the settings drawer opens is NOT on that host: it is the studio site's
+**`https://sungamestudio.com/privacy/`** (`ServerConfig.privacyUrl`, `--dart-define=PRIVACY_URL`, in every `config/*.json`;
+owner, 24 Sep 2026 — the page the Play listing names; `https://prod.sungamestudio.com/privacy/`, which 1.2.2+9 opened,
+answers 404). **With no define the app talks to
 PREPROD, `https://preprod.sungamestudio.com`** (owner, 24 Sep 2026: "change the prefix to preprod … this should be
 configurable"; the default was production, `https://api.sungamestudio.com`, until then), so an unconfigured build can
 never reach the production accounts — and **the store build must name production explicitly**:
-`flutter build appbundle --release --dart-define-from-file=flutter-client/config/production.json`. `flutter-client/config/`
-holds one JSON per environment (`production`, `preprod`, `local-emulator`: `SERVER_URL`, `APP_ENV`, `GOOGLE_SERVER_CLIENT_ID`);
+`flutter build appbundle --release --dart-define-from-file=flutter-client/config/production.json` — **production is
+`https://prod.sungamestudio.com`** (owner, 24 Sep 2026: "ui should call https://prod.sungamestudio.com/ to connect backend";
+`api.sungamestudio.com` stopped resolving that day, so a store build of `flutter-client/v1.2.1` or older reaches no server;
+`test/release_config_test.dart` pins `config/production.json`, https and no trailing slash). `flutter-client/config/`
+holds one JSON per environment (`production`, `preprod`, `local-emulator`: `SERVER_URL`, `APP_ENV`, `PRIVACY_URL`, `GOOGLE_SERVER_CLIENT_ID`);
 `APP_ENV` is shown beside the version in the settings drawer unless it is `production`. A local server is
 `--dart-define=SERVER_URL=http://10.0.2.2:3000` (the emulator's alias for the host loopback) or `http://<lan-ip>:3000` for a
 real device on the LAN — in a **DEBUG** build only: `usesCleartextTraffic="true"` lives in
@@ -240,7 +246,7 @@ table_key = 'texas_holdem:50000'` and restart — the catalogue is read once, at
 npm run bot -- --count 3 --boot 200  --category blind --offset 0            # practice bots on http://localhost:3000
 npm run bot -- --count 3 --boot 5000 --category blind --offset 4            # 2nd group needs its own --offset
 npm run bot -- --count 8 --boot 200 --category blind --churn 40             # bots hop tables → room:switch testable
-npm run bot -- --url https://api.sungamestudio.com --count 3 --boot 200 --category blind   # against production
+npm run bot -- --url https://prod.sungamestudio.com --count 3 --boot 200 --category blind   # against production
 npm run ramp -- --url http://localhost:3000 --stages 10,50,200,1000 --hold 40 --boot 200 --category blind --out ramp.json
 npm run parity                                                              # black-box suites vs ../go-server/bin/gameplay (build first)
 npm run parity -- --filter game,money --keep                                # some suites; keep server logs + schemas
@@ -274,7 +280,7 @@ flutter build apk --debug       # ~7s incremental; build/app/outputs/flutter-apk
 flutter build apk --debug       # no define → PREPROD (https://preprod.sungamestudio.com), never production
 flutter build apk --debug --dart-define-from-file=config/local-emulator.json   # local server on the emulator (= SERVER_URL=http://10.0.2.2:3000)
 flutter build apk --debug --dart-define=SERVER_URL=http://192.168.1.10:3000  # local server, real device
-flutter build appbundle --release --dart-define-from-file=config/production.json   # THE STORE BUILD: api.sungamestudio.com + the Google client id
+flutter build appbundle --release --dart-define-from-file=config/production.json   # THE STORE BUILD: prod.sungamestudio.com + the Google client id
 # NEVER distribute --split-per-abi APKs: build 8 becomes 1008/2008/4008, which no MIN_CLIENT_BUILD floor holds and Play can
 # never update. build.gradle.kts refuses a split RELEASE build (24 Sep 2026; --android-project-arg=allowSplitPerAbiRelease=true
 # for a throwaway test build). The Play upload is the App Bundle; a universal `flutter build apk --release` is fine to sideload.
@@ -832,7 +838,7 @@ user survives a reconnect, which used to reset the count (`userLimiters`, pruned
 | `poker:cards {cards}` (the deal, and the new hand after a draw) · `poker:yourTurn {street, deadline, timeoutMs, options}` | owner only / player on turn |
 | `chat:message` / `chat:history` / `game:error` | room / socket / socket |
 
-Production: `https://api.sungamestudio.com` (REST + Socket.IO over TLS) — the Flutter default from 2026‑09‑08 until 24 Sep 2026, when the default became preprod (§3, `ServerConfig`); runs the current server code (verified: 10-rung blind ladder, `invalid_bet` on string amounts).
+Production: **`https://prod.sungamestudio.com`** (REST + Socket.IO over TLS) since 24 Sep 2026 — verified that day: `/health` answered with the Go server built from `542e957` (table config from the database, the Redis live store), and `/api/tables`, `/api/profiles` and `/socket.io/` answer. `privacy/` and `account-deletion/` do NOT (404, rechecked the same day); the pages are served at `https://sungamestudio.com/privacy/` and `/account-deletion/` (§7.2). It was `https://api.sungamestudio.com` until then — a name that no longer resolves — which was also the Flutter default from 2026‑09‑08 until 24 Sep 2026, when the default became preprod (§3, `ServerConfig`).
 Client coverage: **Flutter** never sends `lobby:list`, `chat:history`, `ping:rtt`, and never listens
 to `game:handStarted`, `player:hand`, `game:turn`, `game:yourTurn` — it derives turn and options
 from `room:state.turn` / `you.options`. Changing `you.options` affects Flutter; changing
@@ -921,7 +927,10 @@ The wallet is emptied through an `account_deleted` ledger row (action_id `delete
 its signature but names nothing, since `selectUser` filters deleted rows → `unknown_user`. The
 client rotates the **device id** as well as dropping the token (`GameState.deleteAccount`), or a
 guest would sign straight back into the id just freed. Public page: `/account-deletion/` (served in
-production because `ROOT_REDIRECT` hides only top-level files, §7.4), linked from `privacy/`;
+production because `ROOT_REDIRECT` hides only top-level files, §7.4), linked from `privacy/`. **The URLs of record** (owner,
+24 Sep 2026 — the Play Console's and the app's) are the studio site's **`https://sungamestudio.com/privacy/`** and
+**`https://sungamestudio.com/account-deletion/`**, which serve `go-server/public/privacy/` and `account-deletion/` byte for
+byte; `prod.sungamestudio.com` answers 404 for both;
 `GET /api/rooms` (no client; **signed-in only, and no `code`/`pot` per table since 24 Sep 2026** — it handed anyone every live
 table's join code and pot; `app.RoomListing`);
 **`GET /api/tables`** (Go only, 23 Sep 2026; `app/tableconfig.go` `tablesHandler`) — **the table catalogue this
@@ -1258,7 +1267,7 @@ columns); `PRIVATE_*` → the private templates. `gameplay -export-table-config`
 | `NODE_ENV` | development | `production` refuses to start on the default JWT secret, on a JWT secret shorter than **32 bytes** (the empty one included — Go only, 24 Sep 2026: an empty HMAC key let anyone forge a session for any user id), or with fake providers (the Go binary keeps the key name; the unit sets it) |
 | `PORT` / `HOST` / `CORS_ORIGIN` | 3000 / 0.0.0.0 / `*` | |
 | `JWT_SECRET` / `JWT_EXPIRES_IN` | dev-only-insecure-secret / 30d | |
-| `GOOGLE_CLIENT_IDS`, `FACEBOOK_APP_ID/SECRET` | empty → 503 | Facebook's pair is read and unused while Facebook sign-in is switched off (23 Sep 2026, §7.2) |
+| `GOOGLE_CLIENT_IDS`, `FACEBOOK_APP_ID/SECRET` | empty → 503 | Facebook's pair is read and unused while Facebook sign-in is switched off (23 Sep 2026, §7.2). `GOOGLE_CLIENT_IDS` must name the Web client `265025011940-0k4kh3ljcopn2pmkpb0q1rhbe8er8h09.apps.googleusercontent.com`: `prod.sungamestudio.com` answered every Google login 503 `provider_unconfigured` until the owner set it and restarted on 24 Sep 2026 (a dummy-token login then answered 401 `invalid_token`); a login answered 503 there means it is missing again — §12.3 |
 | `AUTH_ALLOW_FAKE_PROVIDERS` | false | |
 | **`REST_LOGIN_RATE_LIMIT`** / **`REST_WALLET_RATE_LIMIT`** / **`REST_RATE_WINDOW_MS`** | 60 / 120 / 60000 | **Go-only (24 Sep 2026).** Per-client-IP fixed-window limits (`config.RESTRateConfig`, `auth/ratelimit.go`): `POST /api/auth/login`, and the doors that move a wallet (rewards, Play purchases, picture and table-picture buys, the missile store, `DELETE /api/account`). Over it: **429** `{error:"rate_limited"}` + `Retry-After`, one WARN `rest rate limited` per IP per window. 0 = that limit off. The IP is the peer's, or nginx's `X-Real-IP` from a loopback peer; a loopback peer with no `X-Real-IP` (bot-play, `tools/`, tests) is never limited. Generous on purpose — CGNAT puts many players behind one IP. |
 | **`DATABASE_URL`** | `postgres://postgres:postgres@localhost:5432/gameplay` | |
@@ -1444,7 +1453,7 @@ Production's lives at `/var/www/gameplay/king-teenpatti/go-server/.env` (`PG_POO
 - **`tools/bot.js`** (`npm run bot -- …`) flags: `--count --boot --category --url --offset --churn`. **16** fixed identities
   (Ravi Meera Arjun Kavya Vikram Anita Rohit Neha Priya Aman Sneha Karan Pooja Rahul Isha Dev; device id `practice-bot-<slot>-<name>`);
   groups use `--offset 0/4/8/12` — a second group **must** use `--offset`. Bots always `see`, ask sideshow 45%, answer 75/15/10
-  accept/decline/lapse; retry `already_in_room` for 60s. `--url https://api.sungamestudio.com` runs them against production.
+  accept/decline/lapse; retry `already_in_room` for 60s. `--url https://prod.sungamestudio.com` runs them against production.
 - **`tools/ramptest.mjs`** (`npm run ramp -- …`) — staged capacity test: `--url --stages 10,25,…,1000 --hold 40 --boot 200
   --category blind --out ramp.json [--idOffset N for a second generator]`. Adds players in batches, holds each stage, records
   login/connect/action-ack latency percentiles, moves/s, hands/min, `/health` RTT, the server's `process` vital signs, and its own
@@ -2027,6 +2036,13 @@ clock (4, 8, 16 s, then every 30 s) by both the backdrop and `CachedPictureBox`,
   §2): `build.gradle.kts` reads that file when it exists and **falls back to debug signing when it does not**, so a clone
   without the key still builds `--release` and cannot accidentally ship — Play refuses a debug-signed upload. Both the
   file and the keystore are git-ignored, and losing either means never being able to update the listing again.
+  **On the Mac this repository now lives on, `key.properties` names a DIFFERENT keystore** (found 24 Sep 2026):
+  `android/upload-keystore.jks`, generated there on 10 Sep 2026 at 23:27 IST (CN=Sun Game Studio, OU=Mobile, SHA-1
+  `3D:D3:39:BF:61:95:29:DA:68:C2:B5:CD:D4:B4:0D:31:4A:5C:7F:66`), after `7C:D8` had signed the first release on the Linux box
+  (`~/Downloads/app-release.apk`, 1.0.0+3, OU=King Teen Patti, carries it). Neither Google nor, by every record here, Play knows
+  `3D:D3`: a release built on the Mac is refused Google sign-in (`UNREGISTERED_ON_API_CONSOLE`, §12.3) and should be refused
+  as an upload by a Play listing whose upload key is `7C:D8`. Build the store bundle with the `7C:D8` keystore, or have Play
+  reset the upload key to `3D:D3` and register that fingerprint as an Android OAuth client — `docs/social-login-setup.md`.
   `flutter build apk --release` / `flutter build appbundle --release` both want
   `--dart-define=GOOGLE_SERVER_CLIENT_ID=…` or Google sign-in returns no `idToken` (§12.3).
 - **iOS** (`flutter-client/ios/`, added 11 Sep 2026, **never compiled — no macOS on this box**): same bundle id as the
@@ -2235,7 +2251,21 @@ final t = state.t;` at the top of `build`; M3 roles via `theme.colorScheme`; `.w
   §2 says what to uncomment to bring it back; no visible line offers it (the picture sheet's guest tooltip and "Use my
   Google or Facebook picture" named it until 24 Sep 2026 — `test/release_strings_test.dart`). A build with no client
   id throws `SignInUnavailable` and says so rather than blaming the network; "use provider picture"
-  is still disabled.
+  is still disabled. **Tested end to end on 24 Sep 2026** on the `Pixel_9` AVD (`google_apis_playstore`, a Google account
+  signed in — the one emulator here that can): the release build's account picker opens under the app's own name and icon
+  (Credential Manager survives R8: `CredentialProviderPlayServicesImpl` is in the bundle's dex), and then Google refuses a Mac-built
+  release — logcat `status=UNREGISTERED_ON_API_CONSOLE`, the plugin `canceled: [16] Account reauth failed.` — because its
+  signing certificate (`3D:D3…`, §8.4) has no Android OAuth client. That arrives as `canceled`, AFTER the account is picked,
+  and it used to return null: the player was dropped back on the login screen with nothing said. A player backing out
+  reads `[16] Cancelled by user.` (the back key and a tap outside alike), so `SocialSignIn.playerCancelled` now keeps only a
+  description that says "cancel" (or none) as the player's and turns the rest into `SignInUnavailable`
+  (`test/google_sign_in_cancel_test.dart`). **What Google sign-in needs, outside the code** (none of it could be done from
+  here): `GOOGLE_CLIENT_IDS` on production — `prod.sungamestudio.com` answered 503 `provider_unconfigured` that day, so
+  every store-build Google login failed after the picker (the owner set it and restarted the same afternoon; the
+  probe then answered 401); Android OAuth clients for the three Play app-signing
+  fingerprints (the store build's runtime signature), for whichever upload key signs a sideloaded release, and for
+  this Mac's debug key `1B:0E:D1:3A:8D:6F:EF:60:41:E5:4A:86:58:73:F6:4E:C4:FE:F1:F2` (the registered debug client is the
+  Linux box's `A0:54…`); and the consent screen published. `docs/social-login-setup.md` has the list.
 - `main()` awaits `/api/auth/me` with no timeout before the first frame.
 - Chat field `maxLength: 200` vs server 140 (see §7.4).
 - **The winner's seat is `won`, not `active`** — `endHand` moves it there the moment it settles, and
@@ -2412,7 +2442,13 @@ anywhere rather than an ssh, and `ops/prod-version.sh` compares it with the newe
 2 when prod is behind. **A restart that silently failed looks exactly like a successful one from
 outside**, and that is what this exists to catch.
 
-The Flutter client is tagged the same way, by hand: **`flutter-client/vX.Y.Z`**, cut on the commit whose `pubspec.yaml` carries that version, so the tag, the app's version name and the build number a store listing shows all agree (first cut 19 Sep 2026, `flutter-client/v1.1.0` = `1.1.0+4`, the build that carries Variation, the Poker family and the 5-Card picker). `flutter-client/v1.2.0` = `1.2.0+7`; the release after it is **`1.2.1+8`** (24 Sep 2026, owner's "fix all bugs" — pubspec had stayed at 1.2.0+7 while eleven client commits landed after the tag; `test/release_config_test.dart` holds the build number past 7). **`MIN_CLIENT_BUILD` is raised to a build number that exists in the store, never to one that is only tagged here** — the floor holds every older client on the update screen, so a floor above what Play is serving takes the game down for everyone with no way for a player to get past it.
+The Flutter client is tagged the same way, by hand: **`flutter-client/vX.Y.Z`**, cut on the commit whose `pubspec.yaml` carries that version, so the tag, the app's version name and the build number a store listing shows all agree (first cut 19 Sep 2026, `flutter-client/v1.1.0` = `1.1.0+4`, the build that carries Variation, the Poker family and the 5-Card picker). `flutter-client/v1.2.0` = `1.2.0+7`; the release after it is **`1.2.1+8`** (24 Sep 2026, owner's "fix all bugs" — pubspec had stayed at 1.2.0+7 while eleven client commits landed after the tag; `test/release_config_test.dart` holds the build number past 7). `flutter-client/v1.2.1` = `1.2.1+8` was tagged with
+`config/production.json` still naming `api.sungamestudio.com`, which stopped resolving the same day, so its store build
+reaches no server and was never the Play build; **`1.2.2+9`** is the same app pointed at `https://prod.sungamestudio.com`
+(owner, 24 Sep 2026), tagged `flutter-client/v1.2.2` — but its privacy row opened `https://prod.sungamestudio.com/privacy/`,
+which answers 404, and a Google sign-in its signature was refused ended in silence, so **`1.2.3+10`** follows the same day:
+the policy at `https://sungamestudio.com/privacy/` (`PRIVACY_URL`, §3) and a refused sign-in said on screen (§12.3); the test
+holds the build number past 9. **`MIN_CLIENT_BUILD` is raised to a build number that exists in the store, never to one that is only tagged here** — the floor holds every older client on the update screen, so a floor above what Play is serving takes the game down for everyone with no way for a player to get past it.
 
 `ops/release.sh patch|minor|major|vX.Y.Z` cuts an annotated tag. It refuses a dirty tree and refuses a
 commit that already carries one — a tag has to name a commit someone else can rebuild byte for byte,
@@ -2422,6 +2458,9 @@ at all, `git describe` falls back to the bare commit, which is why production re
 before the first tag existed.
 
 ### 14.3 Production deploy (`go-server/ops/DEPLOY.md` has every command; `steps.txt` the short form)
+**Hosts, by public DNS on 24 Sep 2026: `prod.sungamestudio.com` → `129.121.135.218` is production; `preprod.sungamestudio.com`
+→ `148.113.24.201`, the host the rest of this section was written against; `api.sungamestudio.com` no longer resolves.** The
+production box's ssh user and checkout path are not recorded here — confirm them before following the commands below there.
 Host `148.113.24.201` (`ssh deploy@…`), checkout `/var/www/gameplay/king-teenpatti` on **`master`**
 (go-server was merged in PR #2), unit **`gameplay.service`** (the same name Node used — nginx →
 `127.0.0.1:3000`, Prometheus job `game-server` with bearer token, `journalctl -u gameplay` all
@@ -2442,7 +2481,7 @@ git checkout go-server/v1.1.0 && bash go-server/ops/build.sh && sudo systemctl r
 bash go-server/ops/prod-version.sh                                # must report the tag you rolled back to
 ```
 Then: `/health`, `curl -s 127.0.0.1:9090/api/v1/targets` (game-server `up`), bots against production
-(`cd tools && npm install && npm run bot -- --url https://api.sungamestudio.com --count 3 --boot 200 --category blind`),
+(`cd tools && npm install && npm run bot -- --url https://prod.sungamestudio.com --count 3 --boot 200 --category blind`),
 the ledger check. One-time after the first Go deploy: re-import
 `go-server/ops/monitoring/grafana/dashboards/king-teenpatti.json` through the Grafana API
 (`POST /api/dashboards/db`, `overwrite:true`), point Prometheus's `rule_files` at

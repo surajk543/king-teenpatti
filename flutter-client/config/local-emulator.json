@@ -1,5 +1,6 @@
 {
   "SERVER_URL": "http://10.0.2.2:3000",
   "APP_ENV": "local",
+  "PRIVACY_URL": "https://sungamestudio.com/privacy/",
   "GOOGLE_SERVER_CLIENT_ID": "265025011940-0k4kh3ljcopn2pmkpb0q1rhbe8er8h09.apps.googleusercontent.com"
 }

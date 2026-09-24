@@ -4554,8 +4554,9 @@ class _SettingsDrawerState extends State<_SettingsDrawer> {
           leading: const Icon(Icons.privacy_tip_outlined),
           title: t.privacyPolicy,
           onTap: () => launchUrl(
-            // On the host this build talks to, so preprod shows its own.
-            ServerConfig.page('privacy/'),
+            // The studio's page, the one the Play listing names — not the
+            // backend's copy, so every build shows the same policy.
+            Uri.parse(ServerConfig.privacyUrl),
             mode: LaunchMode.externalApplication,
           ),
         ),

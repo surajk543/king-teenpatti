@@ -49,7 +49,7 @@
 	<!-- The Android manifest carries usesCleartextTraffic for exactly one
 	     reason: a debug build pointed at a game server on the development
 	     machine (SERVER_URL=http://…). This is that permission and no more —
-	     production is https://api.sungamestudio.com, and arbitrary cleartext
+	     production is https://prod.sungamestudio.com, and arbitrary cleartext
 	     stays refused. -->
 	<key>NSAppTransportSecurity</key>
 	<dict>
