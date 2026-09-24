@@ -854,7 +854,7 @@ class _PokerStatus extends StatelessWidget {
     final state = context.watch<GameState>();
     final theme = Theme.of(context);
     final t = state.t;
-    final graceLeft = room.you?.unfundedSecondsLeft(DateTime.now());
+    final graceLeft = state.unfundedGraceLeft(DateTime.now());
     // The clock folded this player's hand: said here for the rest of the
     // hand, where a toast is one glance long.
     final timedOut =

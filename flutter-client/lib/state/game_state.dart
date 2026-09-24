@@ -3393,6 +3393,23 @@ class GameState extends ChangeNotifier {
   bool get canChat =>
       _chatReadyAt == null || !DateTime.now().isBefore(_chatReadyAt!);
 
+  /// Whole seconds left of the viewer's unfunded grace (the seat held for a
+  /// chip purchase), or null when there is none — never more than this
+  /// table's own grace when the menu carries it (`unfundedGraceMs`, the table
+  /// catalogue), whatever the phone's clock says of the server's deadline.
+  int? unfundedGraceLeft(DateTime now) {
+    final room = this.room;
+    if (room == null) return null;
+    final total = config
+        .entryFor(
+          category: room.category,
+          bootAmount: room.bootAmount,
+          isPrivate: room.isPrivate,
+        )
+        ?.unfundedGraceMs;
+    return room.you?.unfundedSecondsLeft(now, totalMs: total ?? 0);
+  }
+
   /// Whole seconds until the next message may be sent; 0 when it may.
   int get chatCooldownLeft {
     final at = _chatReadyAt;
