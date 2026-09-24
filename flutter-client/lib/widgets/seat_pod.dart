@@ -7,6 +7,7 @@ import '../l10n/strings.dart';
 import '../models/dtos.dart';
 import '../state/game_state.dart';
 import '../theme/app_theme.dart';
+import '../theme/table_theme.dart';
 import 'avatar.dart';
 import 'hammer_flight.dart';
 import 'liquid_fill.dart';
@@ -19,9 +20,10 @@ import 'variation_prompt.dart';
 /// Every proportion in the pod, named once.
 ///
 /// A pod is the one thing in the app that has to work from 56dp to 148dp, so
-/// each figure is a fraction of [SeatPod.width] rather than a dp — but the type
-/// sizes carry a floor, because a fraction that stays legible at 90 is 5px at
-/// 56 and unreadable in any of the five languages.
+/// each figure is a fraction of [SeatPod.width] rather than a dp. Its type is
+/// not here: every size a seat writes in — the name, the status, the chips,
+/// the bubble — is a role of the table's type scale ([SeatType]), a share of
+/// the same width with a floor under it.
 ///
 /// The plaque's height is the sum below plus its padding, never a number of its
 /// own: 0.10 padding + name row + 0.04 + avatar + 0.04 + stack pill.
@@ -32,8 +34,6 @@ import 'variation_prompt.dart';
 /// clear of each other on the narrowest felt.
 const double _kRadius = 0.11;
 const double _kPad = 0.05;
-const double _kName = 0.125;
-const double _kNameFloor = 10.0;
 const double _kAvatar = 0.245;
 
 /// The picture when no stack pill sits under it — a blind table's other
@@ -50,29 +50,6 @@ const double _kAvatarAlone = 0.315;
 const double _kAvatarMine = 0.365;
 const double _kDealer = 0.095;
 const double _kGap = 0.04;
-const double _kStack = 0.125;
-
-/// The BLIND / SEEN badge, which used to share [_kStack] with the chips pill.
-/// They are not the same job: the pill is the viewer's own balance, glanced at
-/// occasionally, while the badge is how everyone reads what the other players
-/// are doing all hand long. Shrinking one should not shrink the other, and
-/// before this constant existed it did.
-const double _kBadge = 0.105;
-const double _kBadgeFloor = 10.0;
-
-/// What a seat has put in this hand. Deliberately a step smaller than
-/// [_kBadge]: the badge carries the decision (blind or seen, and for how
-/// much), the total is context for it, and when the two sit together the
-/// headline should be obvious without reading either.
-const double _kInPot = 0.086;
-const double _kInPotFloor = 9.0;
-const double _kStackFloor = 11.5;
-const double _kStatus = 0.095;
-const double _kStatusFloor = 9.0;
-
-/// Chat is read rather than glanced at, so it gets a larger floor than the
-/// captions do.
-const double _kBubbleFloor = 12.0;
 
 /// How far a seat fades once it is out of the hand — packed, lost, or waiting
 /// for the next deal. Low enough to read as "not playing", high enough that
@@ -107,12 +84,14 @@ enum BubbleSide { above, left, right }
 enum OrbCorner { topLeft, topRight, contained }
 
 /// Where a pod's orb sits, as a square in the pod's own coordinates: most of it
-/// behind the top of the pod, and a sixth of the pod's width spilling out of
-/// the chosen corner. No more than that — the table is crowded, and an orb
+/// behind the top of the pod, and a tenth of the pod's width reaching past the
+/// chosen corner ([TableAmbient.orbSpill]; a sixth until the table polish of
+/// 24 Sep 2026, when the orbs read as five coloured discs competing with the
+/// seat on turn). No more than that — the table is crowded, and an orb
 /// reaching further would lie under a neighbour's cards.
 Rect _orbRect(double w, OrbCorner corner) {
-  final d = w * 0.80;
-  final spill = w * 0.15;
+  final d = w * TableAmbient.orbSize;
+  final spill = w * TableAmbient.orbSpill;
   final cx = corner == OrbCorner.topRight ? w - d / 2 + spill : d / 2 - spill;
   return Rect.fromCenter(
     center: Offset(cx, d / 2 - spill),
@@ -426,13 +405,19 @@ class SeatPod extends StatelessWidget {
         ? AppTheme.ink400
         : theme.colorScheme.outlineVariant;
 
-    final nameSize = math.max(_kNameFloor, width * _kName);
+    final type = TableType.seat(theme, width);
 
     // Glass, with the player's own colour behind it (owner's decision, 11 Sep
     // 2026: the lobby's cards, at pod size). What the plaque used to say with
     // its border, wash and bloom now rides on the glass — a gold hairline and a
     // wash of the turn or winner colour while the seat is live, plain frosted
     // white at rest.
+    //
+    // The colour is ambient light, not a disc (table polish, 24 Sep 2026: five
+    // saturated circles at 0.95 were the loudest things on the felt, louder
+    // than the seat on turn): softened inside the glass and out, at the
+    // opacities [TableAmbient] keeps, so the seat's own ring and the cards
+    // stay the brightest things round it.
     final colours = orbColours(player);
     final orb = _orbRect(width, orbCorner);
     final panel = _TurnRing(
@@ -453,7 +438,7 @@ class SeatPod extends StatelessWidget {
                 colours: colours,
                 size: orb.width,
                 soft: true,
-                opacity: dark ? 0.58 : 0.42,
+                opacity: TableAmbient.orbInside(theme.brightness),
               ),
             ),
           ],
@@ -492,18 +477,12 @@ class SeatPod extends StatelessWidget {
                           // Bengali, and tracked RAVI beside untracked मीरा is
                           // worse than either alone.
                           style: isMe
-                              ? AppTheme.smallCaps(
-                                  theme.textTheme.labelLarge!,
-                                  fontSize: nameSize,
-                                  tracking: 1.2,
+                              ? type.you(
                                   colour: dark
                                       ? AppTheme.goldBright
                                       : AppTheme.goldDeep,
                                 )
-                              : AppTheme.label(
-                                  theme.textTheme.labelLarge!,
-                                  fontSize: nameSize,
-                                ),
+                              : type.name(),
                         ),
                       ),
                       if (isDealer) ...[
@@ -590,8 +569,10 @@ class SeatPod extends StatelessWidget {
       child: Stack(
         clipBehavior: Clip.none,
         children: [
-          // The sharp orb, behind the pod. Its softened twin is in the glass's
-          // `behind` slot at the same place.
+          // The orb behind the pod, where it reaches past the corner, and its
+          // twin in the glass's `behind` slot at the same place. Softened out
+          // here too since the table polish (24 Sep 2026): a hard edge is what
+          // made the colour read as a disc rather than as light.
           if (orbCorner != OrbCorner.contained)
             Positioned.fromRect(
               rect: orb,
@@ -599,7 +580,8 @@ class SeatPod extends StatelessWidget {
                 child: GlassOrb(
                   colours: colours,
                   size: orb.width,
-                  opacity: dark ? 0.95 : 0.85,
+                  soft: true,
+                  opacity: TableAmbient.orbOutside(theme.brightness),
                 ),
               ),
             ),
@@ -615,6 +597,7 @@ class SeatPod extends StatelessWidget {
     final theme = Theme.of(context);
     final dark = theme.brightness == Brightness.dark;
     final known = s.chips != null;
+    final type = TableType.seat(theme, width);
 
     return Container(
       width: double.infinity,
@@ -653,18 +636,16 @@ class SeatPod extends StatelessWidget {
           known ? formatChips(s.chips!) : '•••',
           textAlign: TextAlign.center,
           style: known
-              ? AppTheme.money(
-                  theme.textTheme.labelMedium!,
-                  fontSize: math.max(_kStackFloor, width * _kStack),
+              ? type.stack(
                   colour: dark ? AppTheme.goldBright : AppTheme.goldDeep,
                 )
-              : theme.textTheme.labelMedium!.copyWith(
-                  fontSize: math.max(_kStackFloor, width * _kStack),
-                  letterSpacing: width * 0.02,
-                  color: theme.colorScheme.onSurface.withValues(
-                    alpha: AppTheme.inkLow,
-                  ),
-                ),
+              : type
+                    .stack(
+                      colour: theme.colorScheme.onSurface.withValues(
+                        alpha: AppTheme.inkLow,
+                      ),
+                    )
+                    .copyWith(letterSpacing: width * 0.02),
         ),
       ),
     );
@@ -823,13 +804,11 @@ class SeatPod extends StatelessWidget {
         child: Text(
           seen ? t.seen : t.blind,
           maxLines: 1,
-          style: AppTheme.label(
-            theme.textTheme.labelMedium!,
-            fontSize: math.max(_kBadgeFloor, width * _kBadge),
+          style: TableType.seat(theme, width).tag(
             colour: seen
                 ? AppTheme.seenInk(theme.brightness)
                 : ink.withValues(alpha: AppTheme.inkMed),
-            weight: seen ? FontWeight.w800 : FontWeight.w600,
+            strong: seen,
           ),
         ),
       ),
@@ -861,12 +840,10 @@ class SeatPod extends StatelessWidget {
         child: Text(
           name,
           maxLines: 1,
-          style: AppTheme.smallCaps(
-            theme.textTheme.labelSmall!,
-            fontSize: math.max(_kStatusFloor, width * 0.095),
-            colour: dark ? AppTheme.goldBright : AppTheme.goldDeep,
-            weight: FontWeight.w800,
-          ),
+          style: TableType.seat(
+            theme,
+            width,
+          ).handName(colour: dark ? AppTheme.goldBright : AppTheme.goldDeep),
         ),
       ),
     );
@@ -885,7 +862,7 @@ class SeatPod extends StatelessWidget {
     final theme = Theme.of(context);
     final dark = theme.brightness == Brightness.dark;
     final label = s.isBlind ? t.blind : t.seen;
-    final size = math.max(_kBadgeFloor, width * _kBadge);
+    final type = TableType.seat(theme, width);
     final ink = dark ? AppTheme.boneInk : AppTheme.inkOnLight;
     // A poker badge carries this street's bet; a Teen Patti one the last
     // move's. Its chip is gold: there is no blind or seen to colour it by.
@@ -943,10 +920,9 @@ class SeatPod extends StatelessWidget {
                       Text(
                         label,
                         maxLines: 1,
-                        style: AppTheme.label(
-                          theme.textTheme.labelMedium!,
-                          fontSize: size,
+                        style: type.bet(
                           colour: ink.withValues(alpha: AppTheme.inkMed),
+                          figure: false,
                         ),
                       ),
                     if (figure > 0) ...[
@@ -954,11 +930,7 @@ class SeatPod extends StatelessWidget {
                       Text(
                         formatChips(figure),
                         maxLines: 1,
-                        style: AppTheme.money(
-                          theme.textTheme.labelMedium!,
-                          fontSize: size,
-                          colour: ink,
-                        ),
+                        style: type.bet(colour: ink),
                       ),
                     ],
                   ],
@@ -1009,7 +981,7 @@ class SeatPod extends StatelessWidget {
   /// Everything they are in for this hand.
   static Widget _total(BuildContext context, Strings t, Seat s, double width) {
     final theme = Theme.of(context);
-    final size = math.max(_kInPotFloor, width * _kInPot);
+    final type = TableType.seat(theme, width);
 
     return TweenAnimationBuilder<double>(
       tween: Tween(end: s.contributed.toDouble()),
@@ -1036,9 +1008,7 @@ class SeatPod extends StatelessWidget {
               Text(
                 t.inPot,
                 maxLines: 1,
-                style: AppTheme.label(
-                  theme.textTheme.labelSmall!,
-                  fontSize: size,
+                style: type.inPot(
                   colour: AppTheme.onTable(
                     theme.colorScheme,
                     alpha: AppTheme.inkLow,
@@ -1049,11 +1019,9 @@ class SeatPod extends StatelessWidget {
               Text(
                 formatChips(value.round()),
                 maxLines: 1,
-                style: AppTheme.money(
-                  theme.textTheme.labelSmall!,
-                  fontSize: size,
+                style: type.inPot(
                   colour: AppTheme.onTable(theme.colorScheme),
-                  weight: FontWeight.w600,
+                  figure: true,
                 ),
               ),
             ],
@@ -1096,12 +1064,7 @@ class SeatPod extends StatelessWidget {
             Text(
               text,
               maxLines: 1,
-              style: AppTheme.label(
-                theme.textTheme.labelSmall!,
-                fontSize: math.max(_kStatusFloor, width * _kStatus),
-                colour: tone,
-                weight: FontWeight.w700,
-              ),
+              style: TableType.seat(theme, width).status(colour: tone),
             ),
           ],
         ),
@@ -1161,12 +1124,11 @@ class _AllInRibbon extends StatelessWidget {
         child: Text(
           t.allIn,
           maxLines: 1,
-          style: AppTheme.label(
-            theme.textTheme.labelMedium!,
-            fontSize: math.max(_kStackFloor, width * _kStack),
-            colour: AppTheme.amber,
-            weight: FontWeight.w800,
-          ),
+          // The stack pill's size, since it lies over the pill.
+          style: TableType.seat(
+            theme,
+            width,
+          ).stack(colour: AppTheme.amber).copyWith(fontWeight: FontWeight.w800),
         ),
       ),
     );
@@ -1200,20 +1162,7 @@ class _DealerButton extends StatelessWidget {
           ),
         ],
       ),
-      child: Text(
-        'D',
-        style: TextStyle(
-          fontSize: size * 0.52,
-          height: 1,
-          fontWeight: FontWeight.w700,
-          color: const Color(0xFF6B5A33),
-          // Debossed: the highlight sits half a pixel above the letter, which
-          // is what makes it read as pressed into the disc.
-          shadows: const [
-            Shadow(color: Color(0x99FFFFFF), offset: Offset(0, -0.5)),
-          ],
-        ),
-      ),
+      child: Text('D', style: TableType.dealerMark(size)),
     );
   }
 }
@@ -1264,12 +1213,12 @@ class _TurnRingState extends State<_TurnRing>
   /// Every table teardown hit it. Keep the null check.
   AnimationController? _c;
 
-  /// 780ms is turn timing, not chrome timing: it is read against a 25-second
-  /// clock, so it stays out of [Motion].
-  AnimationController get _blink => _c ??= AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 780),
-  )..repeat(reverse: true);
+  /// Turn timing, not chrome timing: it is read against a 25-second clock, so
+  /// it stays out of [Motion]. 780ms until the table polish (24 Sep 2026),
+  /// when it read as a flicker; one slower breath is still a pulse.
+  AnimationController get _blink =>
+      _c ??= AnimationController(vsync: this, duration: TableAmbient.turnBreath)
+        ..repeat(reverse: true);
 
   @override
   void dispose() {
@@ -1287,29 +1236,36 @@ class _TurnRingState extends State<_TurnRing>
       builder: (context, child) {
         final t = Motion.breathe.transform(blink.value);
         // Whose turn it is has to be answerable at a glance from across a
-        // five-seat table, so this is the loudest thing the felt is allowed to
-        // do: a bright ring drawn OUTSIDE the plaque, pulsing in width and
-        // alpha, over a halo that breathes with it. The ring is what carries
-        // the signal — a glow alone reads as decoration and gets lost against
-        // a lit pod, while a hard edge that brightens is unmistakable.
+        // five-seat table, so this is the one ring the felt draws: a bright
+        // edge OUTSIDE the plaque, brightening and dimming, over a halo that
+        // breathes with it. The ring is what carries the signal — a glow alone
+        // reads as decoration and gets lost against a lit pod, while a hard
+        // edge that brightens is unmistakable.
+        //
+        // Its box is still (table polish, 24 Sep 2026): the gap round the
+        // plaque used to grow and shrink with the breath, which re-laid the
+        // seat's whole column every frame and nudged the pod up and down by a
+        // pixel and a half. Only the edge's alpha and weight, and the halo's
+        // alpha, move now — and less far, so the ring pulses rather than
+        // throbs beside the key the player is about to press.
         return Container(
-          padding: EdgeInsets.all(2.5 + 1.5 * t),
+          padding: const EdgeInsets.all(3),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(widget.radius + 4),
             border: Border.all(
-              color: widget.colour.withValues(alpha: 0.55 + 0.45 * t),
-              width: 2.0 + 0.8 * t,
+              color: widget.colour.withValues(alpha: 0.62 + 0.38 * t),
+              width: 2.0 + 0.5 * t,
             ),
             boxShadow: [
               BoxShadow(
-                color: widget.colour.withValues(alpha: 0.34 + 0.34 * t),
+                color: widget.colour.withValues(alpha: 0.26 + 0.26 * t),
                 blurRadius: 14,
                 spreadRadius: 1,
               ),
               BoxShadow(
-                color: widget.colour.withValues(alpha: 0.14 + 0.22 * t),
-                blurRadius: 34,
-                spreadRadius: 6,
+                color: widget.colour.withValues(alpha: 0.10 + 0.16 * t),
+                blurRadius: 30,
+                spreadRadius: 4,
               ),
             ],
           ),
@@ -1408,17 +1364,13 @@ class _Bubble extends StatelessWidget {
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
             textAlign: TextAlign.center,
-            style: theme.textTheme.bodySmall!.copyWith(
-              // Chat is the one thing on the felt a player actually reads, as
-              // opposed to glances at, and it was set at the same size as the
-              // status captions around it. Its own floor too: _kStatusFloor is
-              // 9pt, which is fine for a word like "BLIND" and not fine for a
-              // sentence somebody typed.
-              fontSize: math.max(_kBubbleFloor, width * 0.135),
-              height: 1.3,
-              fontWeight: FontWeight.w500,
-              color: AppTheme.boneInk.withValues(alpha: 0.94),
-            ),
+            // Chat is the one thing on the felt a player actually reads, as
+            // opposed to glances at, so its role has a floor above the status
+            // captions around it ([SeatType.speech]).
+            style: TableType.seat(
+              theme,
+              width,
+            ).speech(colour: AppTheme.boneInk.withValues(alpha: 0.94)),
           ),
         ),
       ),
@@ -1649,17 +1601,12 @@ class _WinnerFlashState extends State<_WinnerFlash>
   /// on-obsidian ink in both — the same reason the chat bubble's text is.
   TextStyle _struck(
     BuildContext context,
-    double w,
-    double scale,
-    FontWeight weight,
-  ) =>
-      AppTheme.smallCaps(
-        Theme.of(context).textTheme.titleLarge ?? const TextStyle(),
-        fontSize: math.max(9.0, w * scale),
-        tracking: w * scale * 0.065,
-        weight: weight,
-        colour: AppTheme.boneInk,
-      ).copyWith(
+    double w, {
+    required bool big,
+    required FontWeight weight,
+  }) => TableType.seat(Theme.of(context), w)
+      .winner(big: big, weight: weight)
+      .copyWith(
         shadows: [
           Shadow(
             color: AppTheme.ink900.withValues(alpha: 0.55),
@@ -1745,7 +1692,12 @@ class _WinnerFlashState extends State<_WinnerFlash>
                         child: Text(
                           'WINNER',
                           maxLines: 1,
-                          style: _struck(context, w, 0.175, FontWeight.w900),
+                          style: _struck(
+                            context,
+                            w,
+                            big: true,
+                            weight: FontWeight.w900,
+                          ),
                         ),
                       ),
                       // What they won with. On the ribbon rather than beside
@@ -1757,8 +1709,8 @@ class _WinnerFlashState extends State<_WinnerFlash>
                           style: _struck(
                             context,
                             w,
-                            0.092,
-                            FontWeight.w700,
+                            big: false,
+                            weight: FontWeight.w700,
                           ).copyWith(color: AppTheme.bone100),
                         ),
                     ],

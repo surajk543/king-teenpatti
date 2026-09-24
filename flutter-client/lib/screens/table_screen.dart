@@ -12,6 +12,7 @@ import '../state/game_state.dart';
 import '../state/hammer_strike.dart';
 import '../state/missile_strike.dart';
 import '../theme/app_theme.dart';
+import '../theme/table_theme.dart';
 import '../widgets/buy_chips.dart';
 import '../widgets/chip_store.dart';
 import '../widgets/deal_flight.dart';
@@ -126,6 +127,10 @@ class _TableScreenState extends State<TableScreen> {
       // over the keyboard (`viewInsets`), which is the only thing that needs
       // to move.
       resizeToAvoidBottomInset: false,
+      // The room dimmed behind the drawer, not blacked out: the table's own
+      // scrim (TableScrim.drawer), where Material's black at 0.54 turned the
+      // light theme's room to grey mud.
+      drawerScrimColor: TableScrim.drawer,
       drawer: DrawerSlot(
         onGone: _drawerGone,
         child: switch (_panel) {
@@ -169,20 +174,12 @@ class _TableScreenState extends State<TableScreen> {
           // opens the same store, on its Chips shelf; its picture key sells
           // the animated shelf alone here, bought with diamonds and worn on
           // the seat at once.
-          const Positioned(
-            left: Space.md,
-            top: Space.sm,
-            child: SafeArea(child: ShopButton()),
-          ),
+          const TopCorner(left: true, child: ShopButton()),
           // Diamonds and hammers, in the corner opposite the Shop key and on
           // its line (owner, 13 Sep 2026): what the player can still spend at
           // this table that is not chips. In the room rather than on the felt,
           // like the Shop key, and outside every seat's column (TableWallet).
-          const Positioned(
-            right: 0,
-            top: Space.sm,
-            child: SafeArea(child: TableWallet()),
-          ),
+          const TopCorner(left: false, child: TableWallet()),
           // The keys, floating over the bottom-right of the table instead of
           // sitting in a bar across the foot of it. Owner's decision,
           // 10 Sep 2026: the bar was a sixth of a landscape screen reserved
@@ -316,7 +313,9 @@ class _ChipsUntilDrawableState extends State<_ChipsUntilDrawable> {
   @override
   Widget build(BuildContext context) {
     final shown = widget.url != null && _drawable == widget.url;
-    return shown ? const SizedBox.shrink() : const DriftingChips(strength: 2.6);
+    return shown
+        ? const SizedBox.shrink()
+        : const DriftingChips(strength: TableAmbient.roomChips);
   }
 }
 
@@ -374,35 +373,21 @@ Future<void> _forceSideshow(BuildContext context, GameState state) async {
   // sent and nothing said (QA 14 Sep 2026).
   bool stillOpen(GameState s) =>
       s.canForceSideshow && (s.options?.sideshowWith ?? '') == name;
-  final go = await showDialog<bool>(
+  final go = await showTableDialog<bool>(
     context: context,
-    builder: (context) {
-      final theme = Theme.of(context);
-      return _WhileStillOpen(
-        open: stillOpen,
-        child: GlassDialog(
-          padding: const EdgeInsets.all(Space.xl),
-          title: dialogTitle(context, Icons.hardware, t.forceSideshowTitle),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(t.forceSideshowBody(name)),
-              const SizedBox(height: Space.sm),
-              Text(
-                t.forceSideshowNote,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurface.withValues(
-                    alpha: AppTheme.inkLowOn(theme.brightness),
-                  ),
-                ),
-              ),
-            ],
-          ),
-          actions: dialogActions(context, stay: t.cancel, go: t.force),
+    builder: (context) => _WhileStillOpen(
+      open: stillOpen,
+      child: GlassDialog(
+        padding: const EdgeInsets.all(Space.xl),
+        title: dialogTitle(context, Icons.hardware, t.forceSideshowTitle),
+        content: dialogBody(
+          context,
+          t.forceSideshowBody(name),
+          note: t.forceSideshowNote,
         ),
-      );
-    },
+        actions: dialogActions(context, stay: t.cancel, go: t.force),
+      ),
+    ),
   );
   if (!context.mounted) return;
   // Closed because the move went, or confirmed a moment after it did: nothing
@@ -461,12 +446,12 @@ class _WhileStillOpenState extends State<_WhileStillOpen> {
 /// The store's Hammers shelf, offered to a player whose wallet is empty.
 Future<void> _offerHammers(BuildContext context, GameState state) async {
   final t = state.t;
-  final shop = await showDialog<bool>(
+  final shop = await showTableDialog<bool>(
     context: context,
     builder: (context) => GlassDialog(
       padding: const EdgeInsets.all(Space.xl),
       title: dialogTitle(context, Icons.hardware, t.noHammersTitle),
-      content: Text(t.noHammersBody),
+      content: dialogBody(context, t.noHammersBody),
       actions: dialogActions(context, stay: t.cancel, go: t.getHammers),
     ),
   );
@@ -491,35 +476,21 @@ Future<void> _fireMissile(BuildContext context, GameState state) async {
   // Worth asking only while the turn can still fire it: the turn clock keeps
   // running under the question, as it does under Force Sideshow's.
   bool stillOpen(GameState s) => s.canMissile;
-  final go = await showDialog<bool>(
+  final go = await showTableDialog<bool>(
     context: context,
-    builder: (context) {
-      final theme = Theme.of(context);
-      return _WhileStillOpen(
-        open: stillOpen,
-        child: GlassDialog(
-          padding: const EdgeInsets.all(Space.xl),
-          title: dialogTitle(context, missileIcon, t.fireMissileTitle),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(t.fireMissileBody),
-              const SizedBox(height: Space.sm),
-              Text(
-                t.fireMissileNote,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurface.withValues(
-                    alpha: AppTheme.inkLowOn(theme.brightness),
-                  ),
-                ),
-              ),
-            ],
-          ),
-          actions: dialogActions(context, stay: t.cancel, go: t.fire),
+    builder: (context) => _WhileStillOpen(
+      open: stillOpen,
+      child: GlassDialog(
+        padding: const EdgeInsets.all(Space.xl),
+        title: dialogTitle(context, missileIcon, t.fireMissileTitle),
+        content: dialogBody(
+          context,
+          t.fireMissileBody,
+          note: t.fireMissileNote,
         ),
-      );
-    },
+        actions: dialogActions(context, stay: t.cancel, go: t.fire),
+      ),
+    ),
   );
   if (!context.mounted) return;
   // Closed because the turn went, or confirmed a moment after it did: nothing
@@ -539,12 +510,12 @@ Future<void> _fireMissile(BuildContext context, GameState state) async {
 /// The store's Missiles shelf, offered to a player whose wallet is empty.
 Future<void> _offerMissiles(BuildContext context, GameState state) async {
   final t = state.t;
-  final shop = await showDialog<bool>(
+  final shop = await showTableDialog<bool>(
     context: context,
     builder: (context) => GlassDialog(
       padding: const EdgeInsets.all(Space.xl),
       title: dialogTitle(context, missileIcon, t.noMissilesTitle),
-      content: Text(t.noMissilesBody),
+      content: dialogBody(context, t.noMissilesBody),
       actions: dialogActions(context, stay: t.cancel, go: t.getMissiles),
     ),
   );
@@ -1316,18 +1287,7 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
                 const Positioned.fill(
                   child: IgnorePointer(
                     child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          colors: [
-                            Color(0x8C000000),
-                            Color(0x8C000000),
-                            Color(0x00000000),
-                          ],
-                          stops: [0, 0.58, 0.72],
-                        ),
-                      ),
+                      decoration: BoxDecoration(gradient: TableScrim.picker),
                     ),
                   ),
                 ),
@@ -1358,18 +1318,7 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
                 const Positioned.fill(
                   child: IgnorePointer(
                     child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          colors: [
-                            Color(0x8C000000),
-                            Color(0x8C000000),
-                            Color(0x00000000),
-                          ],
-                          stops: [0, 0.58, 0.72],
-                        ),
-                      ),
+                      decoration: BoxDecoration(gradient: TableScrim.picker),
                     ),
                   ),
                 ),
@@ -1466,7 +1415,7 @@ Rect tableNoticeArea(BuildContext context) {
   final size = MediaQuery.sizeOf(context);
   final safe = MediaQuery.paddingOf(context);
   final scaler = MediaQuery.textScalerOf(context);
-  final text = Theme.of(context).textTheme;
+  final theme = Theme.of(context);
 
   // The felt's box as TableScreen lays it out: inside the SafeArea, right of
   // the rail, inside the felt's own padding (_Felt.build).
@@ -1485,14 +1434,14 @@ Rect tableNoticeArea(BuildContext context) {
 
   // The tag and the pot are each one line of type on a plate: the line, the
   // plate's padding above and below it, and its hairline.
-  double plate(TextStyle? style) =>
-      scaler.scale(style?.fontSize ?? 14) * (style?.height ?? 1.3) +
+  double plate(TextStyle style) =>
+      scaler.scale(style.fontSize ?? 14) * (style.height ?? 1.3) +
       2 * Space.xs +
       2 * Dim.hairline;
   final top =
-      feltTop + _Felt._tagDy * h + plate(text.labelMedium) / 2 + Space.sm;
+      feltTop + _Felt._tagDy * h + plate(TableType.boot(theme)) / 2 + Space.sm;
   final bottom =
-      feltTop + _Felt._potDy * h - plate(text.titleLarge) / 2 - Space.sm;
+      feltTop + _Felt._potDy * h - plate(TableType.pot(theme)) / 2 - Space.sm;
 
   var area = Rect.fromLTRB(left, top, right, bottom);
   // A screen too cramped for the gap still gets a toast that reads, centred
@@ -1819,11 +1768,7 @@ class _CategoryTag extends StatelessWidget {
             words:
                 '${blind ? t.blind : t.seen} · ${formatChips(room.bootAmount)}',
           );
-    final style = AppTheme.label(
-      theme.textTheme.labelMedium ?? const TextStyle(),
-      colour: AppTheme.goldBright.withValues(alpha: 0.92),
-      weight: FontWeight.w700,
-    );
+    final style = TableType.boot(theme);
     // The suit stands exactly as tall as the label's line — the font size,
     // scaled as the text is, by the line height — so it sits in the line
     // where the glyph did and never grows the tag: 13.8dp at labelMedium,
@@ -2003,10 +1948,7 @@ class _Pot extends StatelessWidget {
                     fit: BoxFit.scaleDown,
                     child: Text(
                       formatChips(value.round()),
-                      style: AppTheme.money(
-                        theme.textTheme.titleLarge ?? const TextStyle(),
-                        colour: AppTheme.goldBright,
-                      ),
+                      style: TableType.pot(theme),
                     ),
                   ),
                 ),
@@ -2168,7 +2110,6 @@ class _Status extends StatelessWidget {
     if (line.isEmpty) return const SizedBox.shrink();
 
     final mine = state.myTurn && room.state == TableState.betting;
-    final base = theme.textTheme.titleSmall ?? const TextStyle();
 
     return AnimatedSwitcher(
       duration: Motion.base,
@@ -2193,8 +2134,8 @@ class _Status extends StatelessWidget {
         child: Text(
           line,
           style:
-              AppTheme.label(
-                base,
+              TableType.system(
+                theme,
                 colour: graceLeft != null
                     ? AppTheme.amber
                     : mine
@@ -2206,7 +2147,9 @@ class _Status extends StatelessWidget {
                     : theme.brightness == Brightness.dark
                     ? AppTheme.boneInk.withValues(alpha: 0.82)
                     : AppTheme.inkOnLight.withValues(alpha: 0.78),
-                weight: FontWeight.w700,
+                // A seat held for a purchase is the one line here with the
+                // player's own seat riding on it, so it is the strong one.
+                strong: graceLeft != null,
               ).copyWith(
                 // The only glowing text in the app, on the only line that has a
                 // clock attached to it.
@@ -2527,17 +2470,18 @@ class _OwnHand extends StatelessWidget {
                     child: Plate(
                       radius: Radii.sm,
                       opacity: 0.68,
-                      accent: theme.colorScheme.error.withValues(alpha: 0.45),
+                      // Charcoal in both themes, so the same red in both.
+                      accent: TableInk.alarm.withValues(alpha: 0.45),
                       padding: EdgeInsets.symmetric(
                         horizontal: cardHeight * 0.18,
                         vertical: cardHeight * 0.07,
                       ),
                       child: Text(
                         state.t.packed,
-                        style: AppTheme.label(
-                          theme.textTheme.titleSmall ?? const TextStyle(),
-                          colour: theme.colorScheme.error,
-                          weight: FontWeight.w700,
+                        style: TableType.system(
+                          theme,
+                          colour: TableInk.alarm,
+                          strong: true,
                         ),
                       ),
                     ),
@@ -2579,12 +2523,14 @@ class _OwnHand extends StatelessWidget {
                                 Text(
                                   state.t.seeCards,
                                   maxLines: 1,
-                                  style: AppTheme.label(
-                                    theme.textTheme.labelLarge ??
-                                        const TextStyle(),
-                                    colour: AppTheme.goldBright,
-                                    weight: FontWeight.w700,
-                                  ),
+                                  // A move like any key's, laid over the cards
+                                  // it turns; in gold, and a weight up, as the
+                                  // one thing to do with a blind hand.
+                                  style: TableType.secondaryAction(theme)
+                                      .copyWith(
+                                        color: AppTheme.goldBright,
+                                        fontWeight: FontWeight.w700,
+                                      ),
                                 ),
                                 const SizedBox(height: Space.xs),
                                 _BlindDots(
@@ -3089,8 +3035,8 @@ class _SideshowPrompt extends StatelessWidget {
                 // One of the few fixed Latin words the code owns, so it may be
                 // tracked and set in capitals.
                 'SIDESHOW',
-                style: AppTheme.smallCaps(
-                  theme.textTheme.labelSmall ?? const TextStyle(),
+                style: TableType.caps(
+                  theme,
                   tracking: 2.4,
                   colour: AppTheme.goldBright.withValues(alpha: 0.75),
                 ),
@@ -3099,10 +3045,10 @@ class _SideshowPrompt extends StatelessWidget {
               Text(
                 '$askerName ${state.t.sideshowAsksYou}',
                 textAlign: TextAlign.center,
-                style: AppTheme.label(
-                  theme.textTheme.titleSmall ?? const TextStyle(),
+                style: TableType.system(
+                  theme,
                   colour: AppTheme.boneInk,
-                  weight: FontWeight.w700,
+                  strong: true,
                 ),
               ),
               const SizedBox(height: Space.lg),
@@ -3611,7 +3557,7 @@ class _ActionCluster extends StatelessWidget {
     final size = MediaQuery.sizeOf(context);
     final keyH = Dim.keyH(size.height);
     final keyW = Dim.keyW(size.width);
-    final gap = Dim.gap(size.width);
+    final gap = TableSpace.gap(size.width);
     // The force key is as wide as the two steppers and the gap between them,
     // so the top row comes out exactly as wide as the − Chaal + row under it.
     // The cluster's footprint — which the viewer's hand and the right-hand
@@ -3619,7 +3565,7 @@ class _ActionCluster extends StatelessWidget {
     final forceW = 2 * Dim.minTouch + gap;
 
     return Padding(
-      padding: EdgeInsets.fromLTRB(gap, gap, Dim.feltPad(size.width), gap),
+      padding: EdgeInsets.fromLTRB(gap, gap, TableSpace.edge(size.width), gap),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.end,
@@ -3733,20 +3679,22 @@ class _PackKey extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final state = context.watch<GameState>();
-    final theme = Theme.of(context);
     final size = MediaQuery.sizeOf(context);
     final canPack = state.myTurn && (state.options?.canPack ?? false);
-    final gap = Dim.gap(size.width);
+    final gap = TableSpace.gap(size.width);
 
     return Padding(
-      padding: EdgeInsets.fromLTRB(Dim.feltPad(size.width), gap, gap, gap),
+      padding: EdgeInsets.fromLTRB(TableSpace.edge(size.width), gap, gap, gap),
+      // The destructive key: its glyph, its name and its edge in the error
+      // ink, and no glow — it gives the hand up, and is there to be found
+      // rather than to beckon (KeyRole).
       child: MachinedKey(
         width: Dim.keyW(size.width),
         height: Dim.keyH(size.height),
         icon: Icons.close_rounded,
         label: state.t.pack,
+        role: KeyRole.destructive,
         alive: canPack,
-        edge: theme.colorScheme.error.withValues(alpha: 0.45),
         onPressed: canPack ? state.pack : null,
       ),
     );
@@ -3777,7 +3725,7 @@ class _MissileKey extends StatelessWidget {
     final state = context.watch<GameState>();
     final theme = Theme.of(context);
     final size = MediaQuery.sizeOf(context);
-    final gap = Dim.gap(size.width);
+    final gap = TableSpace.gap(size.width);
     final canFire = state.canMissile && !state.firingMissile;
     final hasMissile = state.hasMissile;
     final held = state.user?.missile ?? 0;
@@ -3785,7 +3733,7 @@ class _MissileKey extends StatelessWidget {
 
     return Padding(
       // Pack's own padding carries the gap between the two keys.
-      padding: EdgeInsets.fromLTRB(Dim.feltPad(size.width), gap, gap, 0),
+      padding: EdgeInsets.fromLTRB(TableSpace.edge(size.width), gap, gap, 0),
       child: Tooltip(
         message: t.missile,
         child: MachinedKey(
@@ -4021,9 +3969,8 @@ class _OwnHandName extends StatelessWidget {
       child: Text(
         name,
         maxLines: 1,
-        style: AppTheme.smallCaps(
-          theme.textTheme.labelMedium ?? const TextStyle(),
-          tracking: 0.8,
+        style: TableType.handName(
+          theme,
           colour: theme.brightness == Brightness.dark
               ? AppTheme.goldBright
               : AppTheme.goldDeep,

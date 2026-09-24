@@ -144,6 +144,7 @@ king-teenpatti/
     │   ├── state/table_config_cache.dart  TableConfigCache (SharedPreferences `tableConfig`: the phone's copy of GET /api/tables) + MenuPrecedence (pure: which menu the lobby shows) — §8.1
     │   ├── screens/{login,lobby,table}_screen.dart; screens/poker_table_screen.dart (the poker felt, mounted by table_screen when room.isPoker — §8.4); screens/lucky_draw_screen.dart (the Lucky Draw's wheel, prizes and spin — §8.4)
     │   ├── widgets/table_chrome.dart  the chrome both felts share (rail, drawers, keys, wallet, reconnecting veil), moved out of table_screen.dart
+    │   ├── theme/table_theme.dart  the table's type scale and tokens: TableType/SeatType, TableSpace, TableScrim, TableInk, TableAmbient (§8.4); widgets/edge_fade.dart EdgeFade
     │   ├── widgets/              premium_surface, game_card (the lobby's one card shell, and CardColumn/CardGap/CardRule/CardSpace — its words, §8.4), seat_pod, playing_card, poker_chip, liquid_fill,
     │   │                         fireworks, avatar, buy_chips, chip_store, picture_shelf, rules_sheet,
     │   │                         variation_prompt (the variation table's on-felt picker, "is selecting" line, announcement, wild-card edge — §8.4),
@@ -1820,6 +1821,54 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   over the middle of the table were removed (owner, 10 Sep 2026): the scrim greyed every revealed
   hand a player wanted to compare against, and the result is announced on the winner's own pod by
   `_WinnerFlash` instead. `handLive` gates bet pills. While `you.unfundedDeadline` is set, `_Status` shows `buyChipsToStay` (amber, counting down) in place of the waiting/starting line.
+- **The table polish** (owner's brief, 24 Sep 2026: "a polish pass, not a redesign" — type scale, spacing, clipping,
+  subtle accents, responsiveness, the keys' hierarchy; presentation only, nothing of the lobby's). **One type scale**,
+  `theme/table_theme.dart`: `TableType` roles taken from the theme's ramp — `pot` 20/w700, `modalTitle` 17, `system`
+  15 (`strong` w700: the sideshow question, the PACKED plate), `item`/`chips` 15, **`primaryAction` 14/w700**,
+  **`secondaryAction` 13.5/w600**, `info` 13.5/w500, `modalBody`/`chatText` 13.5, `chatName` 13.5/w700, `boot` 12/w700,
+  `label` 12, `actionDetail` 12, `metadata` 12/w500 in `inkLowOn`, `count` 12 (small 10.5), `caps`/`handName` in tracked
+  capitals, every figure tabular — and `SeatType` (`TableType.seat(theme, podW)`), which scales a seat's name, YOU, the
+  BLIND/SEEN tag, hand name, status line, stack, bet, In Pot, speech and WINNER from the pod's width over a floor (name
+  10, stack 11.5, status 9, speech 12). No widget on the table picks a font size of its own; `seat_pod.dart`'s
+  `_kName`/`_kStack`/… constants are gone. **Spacing** — `TableSpace`: every corner control stands `edge`
+  (`Dim.feltPad`) in from its safe edge and `gap` (`Dim.gap`) from the top or foot, so Shop and the wallet (`TopCorner`,
+  on both felts) line up with Missile/Pack and the key cluster; `drawerW` (w × 0.44, 280–400 — 282dp on a 640dp phone,
+  where the app drawer is 260) for both table drawers; a menu row is `rowHeight` 48 with its glyph in a 24dp slot.
+  **Scrims and ambient light** — `TableScrim.drawer` (ink900 at 0.40, `drawerScrimColor` on both table Scaffolds),
+  `.dialog` (ink900 at 0.45, `showTableDialog` — every dialog raised from the table), `.picker` (the variation and
+  5-Card pickers' gradient, figures unchanged), all under Material's black 0.54 that turned the light room to grey mud;
+  `TableAmbient`: the room's drifting chips at strength 1.8 (2.6 put a 42% grey disc behind the keys by day), a seat's
+  colour orb soft-edged at 0.46 / 0.34 outside the glass (dark / light; 0.95 before), 0.74 of the pod and spilling a
+  tenth, and the turn ring breathing every 1150 ms (780) with a fixed box — only its colour and stroke move. **The
+  console is not all equal** — `KeyRole {primary, secondary, destructive}` on `MachinedKey` (`primary: true` is
+  shorthand): PRIMARY Chaal (a poker room's Check/Call, Draw, Play) is struck gold (`AppTheme.goldFace`, the Shop key's
+  face), named in `primaryAction` in charcoal, and the ONE key that breathes (`KeyPulse(breathe:)`); SECONDARY Sideshow,
+  Force Sideshow, Show, Missile (and poker's Bet/Raise) are the plaque with a STILL glow while on offer; DESTRUCTIVE Pack
+  (and poker's Fold) wear the error ink on glyph, name and hairline and never glow. Every dead key and stepper fades to
+  `deadKeyOpacity` 0.42, glyph and words together (a dead key's ink is the surface's). `KeyPulse` keeps one tree shape
+  and stops its controller while nothing breathes. **Drawers and dialogs** — `MenuRow`: a row that acts names itself in
+  the full ink (Leave table in the error ink), a row that only reports (Your chips, Boot, Max pot) in `TableType.info` at
+  `inkMed` beside its gold figure; `dialogTitle`/`dialogBody`/`dialogActions(destructive:)` — the leave question's glyph
+  and its Leave key in the error colour, every other question's key gold, the acting key's word in `inkOnFill`
+  (charcoal on the dark theme's salmon error, where white read 2.8:1; white on the light theme's brick) and the quiet
+  key (Stay, Cancel) in neutral ink, not the scheme's emerald. The PACKED plate is charcoal in both themes, so it says
+  PACKED in `TableInk.alarm` (the dark scheme's red) in both — the light brick read under 3:1 on it. Chat lines now
+  follow the phone's text size (a `RichText` ignores it unless given the `textScaler`; they were fixed at ×1.0), so at
+  ×1.25 on a 640dp phone fewer lines fit and the list fades at the top. **Chat** — a line the table wrote (no
+  `userId`: joined, left) is a centred, muted `ChatSystemLine` (it was signed "Table:" in the colour an empty id hashed
+  to, a red); a player's line is signed in the full ink at w700 (the viewer's in gold), their colour kept in the bar
+  beside it; the composer and its hint in the chat's own type; the two tabs keep their names on up to two lines at one
+  measured height (`ChatTab.heightFor`). **Clipping** — the table has no carousel; what scrolls, fades:
+  `widgets/edge_fade.dart` `EdgeFade` masks a scrollable's edge only while there is more beyond it (the menu, the chat,
+  the quick messages, the players page; a reversed list fades at its top), one `ShaderMask` whatever it shows so the list
+  keeps its place. The store's tab strip, cut at whole tabs, was left alone (it is the lobby's sheet too).
+  `test/table_polish_test.dart` holds the ladder, the seat scale, the tokens, the key roles on turn and off, the one
+  active turn ring, the drawer's width and scrim, the destructive leave dialog, the chat's signatures, `EdgeFade`, and
+  every state at 640x360 ×1.25 in all five languages with every key on screen and clear of the others. The scenes are
+  `test/table_scenes.dart` (room:state JSON), which the screenshot harness `test/table_shots.dart` — not part of
+  `flutter test`; `flutter test test/table_shots.dart --dart-define=SHOTS_DIR=<abs dir>
+  --dart-define=ICON_FONT=<flutter>/bin/cache/artifacts/material_fonts/MaterialIcons-Regular.otf` — pictures at 640x360,
+  732x412, 844x390, 891x411 and 915x412, both themes, ×1.0 and ×1.25, in Hindi, and behind a camera cutout.
 - **Variation tables** (owner, 18 Sep 2026; server side §6.1/§6.4). Everything is drawn from `room:state.variation`
   (`VariationState` in `dtos.dart`; `GameState.variation`, `variationSelecting`, `variationIsMine`, `shownVariation`,
   `shownTurnUp`) — the two `game:variation*` events only say the same thing a moment sooner, so a reconnect mid-window
@@ -2065,7 +2114,8 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   card's column scale.
   **Seat pods** (`SeatPod._pod`) keep the orb pair from `widgets/glass_orb.dart` (`orbColours`,
   `GlassOrb`), coloured by `GameState.colourFor` (the player's chat
-  colour, so a pod and its chat name match) and spilling a sixth of the pod width out of
+  colour, so a pod and its chat name match) and — soft-edged, at `TableAmbient`'s opacities since the table polish of
+  24 Sep 2026 — spilling a tenth of the pod width out of
   `OrbCorner` (odd view index top-right, 2 and 4 top-left — always towards open felt, never under the
   rail or a card fan; the viewer's is `contained`, glow inside the glass and no orb outside, because
   between the missed-turns plate and their own cards there is no felt to spill into — on TP_Small a
@@ -2284,6 +2334,10 @@ through `_run` — still explain the shape of §5–§7 and of the port notes.)*
 final t = state.t;` at the top of `build`; M3 roles via `theme.colorScheme`; `.withValues(alpha:)`;
 `late final AnimationController … ..repeat()` + `AnimatedBuilder` + `RepaintBoundary`;
 `CustomPainter.shouldRepaint` compares all inputs; `LayoutBuilder` thresholds + `FittedBox`.
+**The table** (`theme/table_theme.dart`, §8.4): text on the felt, its drawers and its dialogs asks `TableType` for its
+ROLE (a seat's, `TableType.seat(theme, podW)`) and never sets a `fontSize` of its own; spacing is `TableSpace`, the dim
+behind a drawer or a dialog `TableScrim` (dialogs through `showTableDialog`), ambient light `TableAmbient`; a console key
+states its `KeyRole` — one primary on the console, never a second.
 
 ---
 
