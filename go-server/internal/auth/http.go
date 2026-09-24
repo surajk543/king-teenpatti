@@ -476,6 +476,29 @@ type MissileTradeRequest struct {
 	RequestID string `json:"requestId"`
 }
 
+// UnmarshalJSON reads each field on its own, so one of the wrong JSON type
+// spoils only itself (24 Sep 2026): a requestId sent as a number or an object
+// used to fail the whole decode, leave packId empty too, and be answered
+// unknown_pack for a pack that exists. A non-string field now reads as "",
+// which the handler refuses under that field's own code.
+func (m *MissileTradeRequest) UnmarshalJSON(data []byte) error {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	*m = MissileTradeRequest{}
+	text := func(key string) string {
+		var s string
+		if v, ok := raw[key]; ok && json.Unmarshal(v, &s) == nil {
+			return s
+		}
+		return ""
+	}
+	m.PackID = text("packId")
+	m.RequestID = text("requestId")
+	return nil
+}
+
 // MissileRequestIDMaxLength is the longest requestId a missile trade accepts —
 // the socket layer's limit on a move's actionId.
 const MissileRequestIDMaxLength = 64
