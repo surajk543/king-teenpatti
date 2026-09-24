@@ -4,7 +4,7 @@ One file per backend the app can be built against, passed with
 `--dart-define-from-file`:
 
 ```bash
-flutter build appbundle --release --dart-define-from-file=config/production.json   # the Play build — api.sungamestudio.com
+flutter build appbundle --release --dart-define-from-file=config/production.json   # the Play build — prod.sungamestudio.com
 flutter build apk --debug          --dart-define-from-file=config/preprod.json      # preprod.sungamestudio.com (also the default with no define)
 flutter build apk --debug          --dart-define-from-file=config/local-emulator.json   # a server on this machine, from the emulator
 ```
@@ -14,9 +14,15 @@ Keys: `SERVER_URL` (REST, Socket.IO and the served pages all hang off it — `li
 and `GOOGLE_SERVER_CLIENT_ID` (the Web client id Google sign-in needs for an idToken; a public id, not a secret).
 
 **`SERVER_URL` and `APP_ENV` are two separate defines and nothing ties them together** — always build from one of
-these files, never with a lone `--dart-define`. `--dart-define=SERVER_URL=https://api.sungamestudio.com` on its own
+these files, never with a lone `--dart-define`. `--dart-define=SERVER_URL=https://prod.sungamestudio.com` on its own
 makes a production build labelled "· preprod"; `APP_ENV=production` on its own hides the label on a preprod build.
 The label is the only on-screen sign of which backend a build talks to.
+
+**Production is `https://prod.sungamestudio.com`** (owner, 24 Sep 2026). It was `https://api.sungamestudio.com`
+until that name stopped resolving the same day — so a build of `flutter-client/v1.2.1` or older made from
+`production.json` reaches no server. `SERVER_URL` is the scheme and host with NO trailing slash:
+`ServerConfig.page` joins paths as `<url>/<path>`, and `https://prod.sungamestudio.com/` would ask for `//api/…`.
+`test/release_config_test.dart` pins all of it.
 
 **Plain `http://` works in DEBUG builds only.** `usesCleartextTraffic="true"` is in
 `android/app/src/debug/AndroidManifest.xml`, not the main manifest, so a release or profile build (targetSdk 36)

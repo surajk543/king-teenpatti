@@ -52,7 +52,7 @@ raise it in Xcode and in the Podfile's `platform :ios` line together.
 
 ## 3. Pointing at a server
 
-The default is preprod, `https://preprod.sungamestudio.com` (since 24 Sep 2026); a store build passes `--dart-define-from-file=config/production.json` for `https://api.sungamestudio.com`.
+The default is preprod, `https://preprod.sungamestudio.com` (since 24 Sep 2026); a store build passes `--dart-define-from-file=config/production.json` for `https://prod.sungamestudio.com` (`api.sungamestudio.com` until 24 Sep 2026).
 
 For a server running on the Mac itself, note that the Android emulator's
 `10.0.2.2` alias does not exist here:
@@ -140,6 +140,6 @@ Before archiving, check that `GOOGLE_IOS_URL_SCHEME` in `Release.xcconfig` is
 filled in — an empty URL scheme is the one thing here that builds cleanly and
 fails only in front of a reviewer.
 
-The privacy policy at `https://api.sungamestudio.com/privacy/` already
+The privacy policy at `https://prod.sungamestudio.com/privacy/` already
 describes Google sign-in and what is stored; it says nothing Android-specific,
 so it stands for iOS as it is.

@@ -194,7 +194,10 @@ Server ↔ client: the backend's address is ONE build-time setting, `lib/config/
 PREPROD, `https://preprod.sungamestudio.com`** (owner, 24 Sep 2026: "change the prefix to preprod … this should be
 configurable"; the default was production, `https://api.sungamestudio.com`, until then), so an unconfigured build can
 never reach the production accounts — and **the store build must name production explicitly**:
-`flutter build appbundle --release --dart-define-from-file=flutter-client/config/production.json`. `flutter-client/config/`
+`flutter build appbundle --release --dart-define-from-file=flutter-client/config/production.json` — **production is
+`https://prod.sungamestudio.com`** (owner, 24 Sep 2026: "ui should call https://prod.sungamestudio.com/ to connect backend";
+`api.sungamestudio.com` stopped resolving that day, so a store build of `flutter-client/v1.2.1` or older reaches no server;
+`test/release_config_test.dart` pins `config/production.json`, https and no trailing slash). `flutter-client/config/`
 holds one JSON per environment (`production`, `preprod`, `local-emulator`: `SERVER_URL`, `APP_ENV`, `GOOGLE_SERVER_CLIENT_ID`);
 `APP_ENV` is shown beside the version in the settings drawer unless it is `production`. A local server is
 `--dart-define=SERVER_URL=http://10.0.2.2:3000` (the emulator's alias for the host loopback) or `http://<lan-ip>:3000` for a
@@ -240,7 +243,7 @@ table_key = 'texas_holdem:50000'` and restart — the catalogue is read once, at
 npm run bot -- --count 3 --boot 200  --category blind --offset 0            # practice bots on http://localhost:3000
 npm run bot -- --count 3 --boot 5000 --category blind --offset 4            # 2nd group needs its own --offset
 npm run bot -- --count 8 --boot 200 --category blind --churn 40             # bots hop tables → room:switch testable
-npm run bot -- --url https://api.sungamestudio.com --count 3 --boot 200 --category blind   # against production
+npm run bot -- --url https://prod.sungamestudio.com --count 3 --boot 200 --category blind   # against production
 npm run ramp -- --url http://localhost:3000 --stages 10,50,200,1000 --hold 40 --boot 200 --category blind --out ramp.json
 npm run parity                                                              # black-box suites vs ../go-server/bin/gameplay (build first)
 npm run parity -- --filter game,money --keep                                # some suites; keep server logs + schemas
@@ -274,7 +277,7 @@ flutter build apk --debug       # ~7s incremental; build/app/outputs/flutter-apk
 flutter build apk --debug       # no define → PREPROD (https://preprod.sungamestudio.com), never production
 flutter build apk --debug --dart-define-from-file=config/local-emulator.json   # local server on the emulator (= SERVER_URL=http://10.0.2.2:3000)
 flutter build apk --debug --dart-define=SERVER_URL=http://192.168.1.10:3000  # local server, real device
-flutter build appbundle --release --dart-define-from-file=config/production.json   # THE STORE BUILD: api.sungamestudio.com + the Google client id
+flutter build appbundle --release --dart-define-from-file=config/production.json   # THE STORE BUILD: prod.sungamestudio.com + the Google client id
 # NEVER distribute --split-per-abi APKs: build 8 becomes 1008/2008/4008, which no MIN_CLIENT_BUILD floor holds and Play can
 # never update. build.gradle.kts refuses a split RELEASE build (24 Sep 2026; --android-project-arg=allowSplitPerAbiRelease=true
 # for a throwaway test build). The Play upload is the App Bundle; a universal `flutter build apk --release` is fine to sideload.
@@ -832,7 +835,7 @@ user survives a reconnect, which used to reset the count (`userLimiters`, pruned
 | `poker:cards {cards}` (the deal, and the new hand after a draw) · `poker:yourTurn {street, deadline, timeoutMs, options}` | owner only / player on turn |
 | `chat:message` / `chat:history` / `game:error` | room / socket / socket |
 
-Production: `https://api.sungamestudio.com` (REST + Socket.IO over TLS) — the Flutter default from 2026‑09‑08 until 24 Sep 2026, when the default became preprod (§3, `ServerConfig`); runs the current server code (verified: 10-rung blind ladder, `invalid_bet` on string amounts).
+Production: **`https://prod.sungamestudio.com`** (REST + Socket.IO over TLS) since 24 Sep 2026 — verified that day: `/health` answered with the Go server built from `542e957` (table config from the database, the Redis live store), and `/api/tables`, `/api/profiles`, `/socket.io/`, `privacy/` and `account-deletion/` all answer. It was `https://api.sungamestudio.com` until then — a name that no longer resolves — which was also the Flutter default from 2026‑09‑08 until 24 Sep 2026, when the default became preprod (§3, `ServerConfig`).
 Client coverage: **Flutter** never sends `lobby:list`, `chat:history`, `ping:rtt`, and never listens
 to `game:handStarted`, `player:hand`, `game:turn`, `game:yourTurn` — it derives turn and options
 from `room:state.turn` / `you.options`. Changing `you.options` affects Flutter; changing
@@ -1444,7 +1447,7 @@ Production's lives at `/var/www/gameplay/king-teenpatti/go-server/.env` (`PG_POO
 - **`tools/bot.js`** (`npm run bot -- …`) flags: `--count --boot --category --url --offset --churn`. **16** fixed identities
   (Ravi Meera Arjun Kavya Vikram Anita Rohit Neha Priya Aman Sneha Karan Pooja Rahul Isha Dev; device id `practice-bot-<slot>-<name>`);
   groups use `--offset 0/4/8/12` — a second group **must** use `--offset`. Bots always `see`, ask sideshow 45%, answer 75/15/10
-  accept/decline/lapse; retry `already_in_room` for 60s. `--url https://api.sungamestudio.com` runs them against production.
+  accept/decline/lapse; retry `already_in_room` for 60s. `--url https://prod.sungamestudio.com` runs them against production.
 - **`tools/ramptest.mjs`** (`npm run ramp -- …`) — staged capacity test: `--url --stages 10,25,…,1000 --hold 40 --boot 200
   --category blind --out ramp.json [--idOffset N for a second generator]`. Adds players in batches, holds each stage, records
   login/connect/action-ack latency percentiles, moves/s, hands/min, `/health` RTT, the server's `process` vital signs, and its own
@@ -2412,7 +2415,10 @@ anywhere rather than an ssh, and `ops/prod-version.sh` compares it with the newe
 2 when prod is behind. **A restart that silently failed looks exactly like a successful one from
 outside**, and that is what this exists to catch.
 
-The Flutter client is tagged the same way, by hand: **`flutter-client/vX.Y.Z`**, cut on the commit whose `pubspec.yaml` carries that version, so the tag, the app's version name and the build number a store listing shows all agree (first cut 19 Sep 2026, `flutter-client/v1.1.0` = `1.1.0+4`, the build that carries Variation, the Poker family and the 5-Card picker). `flutter-client/v1.2.0` = `1.2.0+7`; the release after it is **`1.2.1+8`** (24 Sep 2026, owner's "fix all bugs" — pubspec had stayed at 1.2.0+7 while eleven client commits landed after the tag; `test/release_config_test.dart` holds the build number past 7). **`MIN_CLIENT_BUILD` is raised to a build number that exists in the store, never to one that is only tagged here** — the floor holds every older client on the update screen, so a floor above what Play is serving takes the game down for everyone with no way for a player to get past it.
+The Flutter client is tagged the same way, by hand: **`flutter-client/vX.Y.Z`**, cut on the commit whose `pubspec.yaml` carries that version, so the tag, the app's version name and the build number a store listing shows all agree (first cut 19 Sep 2026, `flutter-client/v1.1.0` = `1.1.0+4`, the build that carries Variation, the Poker family and the 5-Card picker). `flutter-client/v1.2.0` = `1.2.0+7`; the release after it is **`1.2.1+8`** (24 Sep 2026, owner's "fix all bugs" — pubspec had stayed at 1.2.0+7 while eleven client commits landed after the tag; `test/release_config_test.dart` holds the build number past 7). `flutter-client/v1.2.1` = `1.2.1+8` was tagged with
+`config/production.json` still naming `api.sungamestudio.com`, which stopped resolving the same day, so its store build
+reaches no server and was never the Play build; **`1.2.2+9`** is the same app pointed at `https://prod.sungamestudio.com`
+(owner, 24 Sep 2026), tagged `flutter-client/v1.2.2`, and the test now holds the build number past 8. **`MIN_CLIENT_BUILD` is raised to a build number that exists in the store, never to one that is only tagged here** — the floor holds every older client on the update screen, so a floor above what Play is serving takes the game down for everyone with no way for a player to get past it.
 
 `ops/release.sh patch|minor|major|vX.Y.Z` cuts an annotated tag. It refuses a dirty tree and refuses a
 commit that already carries one — a tag has to name a commit someone else can rebuild byte for byte,
@@ -2422,6 +2428,9 @@ at all, `git describe` falls back to the bare commit, which is why production re
 before the first tag existed.
 
 ### 14.3 Production deploy (`go-server/ops/DEPLOY.md` has every command; `steps.txt` the short form)
+**Hosts, by public DNS on 24 Sep 2026: `prod.sungamestudio.com` → `129.121.135.218` is production; `preprod.sungamestudio.com`
+→ `148.113.24.201`, the host the rest of this section was written against; `api.sungamestudio.com` no longer resolves.** The
+production box's ssh user and checkout path are not recorded here — confirm them before following the commands below there.
 Host `148.113.24.201` (`ssh deploy@…`), checkout `/var/www/gameplay/king-teenpatti` on **`master`**
 (go-server was merged in PR #2), unit **`gameplay.service`** (the same name Node used — nginx →
 `127.0.0.1:3000`, Prometheus job `game-server` with bearer token, `journalctl -u gameplay` all
@@ -2442,7 +2451,7 @@ git checkout go-server/v1.1.0 && bash go-server/ops/build.sh && sudo systemctl r
 bash go-server/ops/prod-version.sh                                # must report the tag you rolled back to
 ```
 Then: `/health`, `curl -s 127.0.0.1:9090/api/v1/targets` (game-server `up`), bots against production
-(`cd tools && npm install && npm run bot -- --url https://api.sungamestudio.com --count 3 --boot 200 --category blind`),
+(`cd tools && npm install && npm run bot -- --url https://prod.sungamestudio.com --count 3 --boot 200 --category blind`),
 the ledger check. One-time after the first Go deploy: re-import
 `go-server/ops/monitoring/grafana/dashboards/king-teenpatti.json` through the Grafana API
 (`POST /api/dashboards/db`, `overwrite:true`), point Prometheus's `rule_files` at

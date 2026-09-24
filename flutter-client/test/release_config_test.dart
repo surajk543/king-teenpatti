@@ -1,5 +1,6 @@
 // What the release carries, read straight off the files the build reads
 // (24 Sep 2026, owner's "fix all bugs"; release review RC-02, RC-07, RC-08).
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -7,10 +8,13 @@ import 'package:flutter_test/flutter_test.dart';
 String _read(String path) => File(path).readAsStringSync();
 
 void main() {
-  test('the version is past the last tagged release, 1.2.0+7', () {
-    // flutter-client/v1.2.0 is 1.2.0+7; Play refuses a versionCode it has
+  test('the version is past the last tagged release, 1.2.1+8', () {
+    // flutter-client/v1.2.1 is 1.2.1+8; Play refuses a versionCode it has
     // already seen, and MIN_CLIENT_BUILD cannot tell two builds of one number
-    // apart. Every release after it carries a higher build number.
+    // apart. Every release after it carries a higher build number. (1.2.1+8
+    // was tagged with production.json still naming api.sungamestudio.com,
+    // which stopped resolving the same day, so its store build reaches no
+    // server — 24 Sep 2026.)
     final line = RegExp(
       r'^version:\s*(\d+)\.(\d+)\.(\d+)\+(\d+)\s*$',
       multiLine: true,
@@ -18,12 +22,37 @@ void main() {
     expect(line, isNotNull);
     final build = int.parse(line!.group(4)!);
     final name = [1, 2, 3].map((i) => int.parse(line.group(i)!)).toList();
-    expect(build, greaterThanOrEqualTo(8));
-    // The name moves with it: 1.2.0 is the tagged release.
-    final isAfter120 =
+    expect(build, greaterThanOrEqualTo(9));
+    // The name moves with it: 1.2.1 is the tagged release.
+    final isAfter121 =
         name[0] > 1 ||
-        (name[0] == 1 && (name[1] > 2 || (name[1] == 2 && name[2] > 0)));
-    expect(isAfter120, isTrue, reason: 'version name ${name.join('.')}');
+        (name[0] == 1 && (name[1] > 2 || (name[1] == 2 && name[2] > 1)));
+    expect(isAfter121, isTrue, reason: 'version name ${name.join('.')}');
+  });
+
+  test('the store build talks to production at prod.sungamestudio.com', () {
+    // Owner, 24 Sep 2026: "ui should call https://prod.sungamestudio.com/ to
+    // connect backend" — api.sungamestudio.com no longer resolves. The Play
+    // build is `--dart-define-from-file=config/production.json`, so this file
+    // IS the store build's backend: scheme and host, https, and no trailing
+    // slash (ServerConfig.page joins `<url>/<path>`, and a trailing slash
+    // would ask for `//api/...`). APP_ENV says production, which hides the
+    // environment label, so nothing on screen would say it was wrong.
+    final production =
+        jsonDecode(_read('config/production.json')) as Map<String, dynamic>;
+    expect(production['SERVER_URL'], 'https://prod.sungamestudio.com');
+    expect(production['APP_ENV'], 'production');
+    expect(
+      (production['GOOGLE_SERVER_CLIENT_ID'] as String? ?? ''),
+      endsWith('.apps.googleusercontent.com'),
+    );
+    for (final file in Directory('config').listSync().whereType<File>()) {
+      if (!file.path.endsWith('.json')) continue;
+      final url =
+          (jsonDecode(file.readAsStringSync()) as Map)['SERVER_URL'] as String;
+      expect(url, isNot(endsWith('/')), reason: file.path);
+      expect(url, isNot(contains('api.sungamestudio.com')), reason: file.path);
+    }
   });
 
   test('nothing of the app is backed up or carried to another phone', () {
