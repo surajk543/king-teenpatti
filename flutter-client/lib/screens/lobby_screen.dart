@@ -838,6 +838,7 @@ class _TopBar extends StatelessWidget {
                 // as "GUE…", which tells nobody anything — better absent than
                 // truncated.
                 final tight = Breaks.isTightBar(box.maxWidth - slotW);
+                final gap = tight ? Space.sm : Space.md;
 
                 return Padding(
                   padding: EdgeInsets.symmetric(
@@ -853,7 +854,9 @@ class _TopBar extends StatelessWidget {
                       // there that the name needed. The daily bonus is the chip
                       // in the lobby's bottom-left corner (14 Sep 2026).
                       _BonusChip(maxWidth: slotW - Space.md),
-                      const SizedBox(width: Space.md),
+                      // The groups sit a step closer on a tight bar, where
+                      // every dp is a letter of the name.
+                      SizedBox(width: gap),
                       Tooltip(
                         message: state.t.yourPicture,
                         child: SizedBox(
@@ -880,7 +883,7 @@ class _TopBar extends StatelessWidget {
                           ),
                         ),
                       ),
-                      const SizedBox(width: Space.md),
+                      SizedBox(width: gap),
                       // The name and the balance share what the fixed keys leave,
                       // and the balance is the one that knows its size: it takes
                       // its natural width, scaling down only past 65% of that (half
@@ -920,7 +923,13 @@ class _TopBar extends StatelessWidget {
                                   ],
                                 ),
                               ),
-                              const SizedBox(width: Space.md),
+                              const SizedBox(width: Space.sm),
+                              // The wallets in a pill of their own, with the
+                              // Shop against its right end (owner, 24 Sep 2026:
+                              // "visually separate … the currency"): what the
+                              // player holds and the way to more of it read as
+                              // one group, apart from who they are.
+                              //
                               // The balance counts to its new value rather than
                               // snapping, so a reward landing is something you see
                               // happen. Past its cap it scales down (FittedBox),
@@ -937,98 +946,110 @@ class _TopBar extends StatelessWidget {
                               // the name. Stacked, the balance is only as wide as
                               // its chip line, so the name keeps every letter it
                               // had before hammers came to the bar.
+                              //
+                              // The pill's own margin counts against the cap,
+                              // which is a little wider than it was for it
+                              // (0.53 of the room on a tight bar, from 0.5).
+                              // With the tight bar's closer steps that keeps
+                              // both the figures and the name the size they
+                              // were on a 640dp phone before the pill.
                               ConstrainedBox(
                                 constraints: BoxConstraints(
                                   maxWidth:
-                                      room.maxWidth * (tight ? 0.5 : 0.65),
+                                      room.maxWidth * (tight ? 0.53 : 0.65),
                                 ),
-                                child: FittedBox(
-                                  fit: BoxFit.scaleDown,
-                                  alignment: Alignment.centerRight,
-                                  child: RepaintBoundary(
-                                    child: Column(
-                                      mainAxisSize: MainAxisSize.min,
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.end,
-                                      children: [
-                                        Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            PokerChip(
-                                              colour: AppTheme.gold,
-                                              size: 18,
-                                            ),
-                                            const SizedBox(width: Space.sm),
-                                            _CountUp(
-                                              value: user?.chips ?? 0,
-                                              format: formatChips,
-                                              style: AppTheme.money(
-                                                text.titleMedium!,
-                                                colour: _goldInk(brightness),
+                                child: _WalletPill(
+                                  margin: gap,
+                                  child: FittedBox(
+                                    fit: BoxFit.scaleDown,
+                                    alignment: Alignment.centerRight,
+                                    child: RepaintBoundary(
+                                      child: Column(
+                                        mainAxisSize: MainAxisSize.min,
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.end,
+                                        children: [
+                                          Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              PokerChip(
+                                                colour: AppTheme.gold,
+                                                size: 18,
                                               ),
-                                            ),
-                                          ],
-                                        ),
-                                        // The second and third wallets: diamonds
-                                        // pay for what chips cannot and hammers
-                                        // for a Force Sideshow (owner, 13 Sep
-                                        // 2026), so a player sees both without
-                                        // opening the store — the lobby is where
-                                        // they decide whether to buy more before
-                                        // sitting down. Each in its own ink.
-                                        Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            Icon(
-                                              Icons.diamond,
-                                              size: 13,
-                                              color: diamondInkOn(brightness),
-                                            ),
-                                            const SizedBox(width: Space.xxs),
-                                            _CountUp(
-                                              value: user?.diamond ?? 0,
-                                              style: AppTheme.money(
-                                                text.labelMedium!,
-                                                colour: diamondInkOn(
-                                                  brightness,
+                                              const SizedBox(width: Space.sm),
+                                              _CountUp(
+                                                value: user?.chips ?? 0,
+                                                format: formatChips,
+                                                style: AppTheme.money(
+                                                  text.titleMedium!,
+                                                  colour: _goldInk(brightness),
                                                 ),
                                               ),
-                                            ),
-                                            const SizedBox(width: Space.md),
-                                            Icon(
-                                              Icons.hardware,
-                                              size: 13,
-                                              color: hammerInkOn(brightness),
-                                            ),
-                                            const SizedBox(width: Space.xxs),
-                                            _CountUp(
-                                              value: user?.hammer ?? 0,
-                                              style: AppTheme.money(
-                                                text.labelMedium!,
-                                                colour: hammerInkOn(brightness),
+                                            ],
+                                          ),
+                                          // The second and third wallets: diamonds
+                                          // pay for what chips cannot and hammers
+                                          // for a Force Sideshow (owner, 13 Sep
+                                          // 2026), so a player sees both without
+                                          // opening the store — the lobby is where
+                                          // they decide whether to buy more before
+                                          // sitting down. Each in its own ink.
+                                          Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(
+                                                Icons.diamond,
+                                                size: 13,
+                                                color: diamondInkOn(brightness),
                                               ),
-                                            ),
-                                            // Missiles, which fire at the
-                                            // table (owner, 14 Sep 2026).
-                                            const SizedBox(width: Space.md),
-                                            Icon(
-                                              missileIcon,
-                                              size: 13,
-                                              color: missileInkOn(brightness),
-                                            ),
-                                            const SizedBox(width: Space.xxs),
-                                            _CountUp(
-                                              value: user?.missile ?? 0,
-                                              style: AppTheme.money(
-                                                text.labelMedium!,
-                                                colour: missileInkOn(
-                                                  brightness,
+                                              const SizedBox(width: Space.xxs),
+                                              _CountUp(
+                                                value: user?.diamond ?? 0,
+                                                style: AppTheme.money(
+                                                  text.labelMedium!,
+                                                  colour: diamondInkOn(
+                                                    brightness,
+                                                  ),
                                                 ),
                                               ),
-                                            ),
-                                          ],
-                                        ),
-                                      ],
+                                              const SizedBox(width: Space.md),
+                                              Icon(
+                                                Icons.hardware,
+                                                size: 13,
+                                                color: hammerInkOn(brightness),
+                                              ),
+                                              const SizedBox(width: Space.xxs),
+                                              _CountUp(
+                                                value: user?.hammer ?? 0,
+                                                style: AppTheme.money(
+                                                  text.labelMedium!,
+                                                  colour: hammerInkOn(
+                                                    brightness,
+                                                  ),
+                                                ),
+                                              ),
+                                              // Missiles, which fire at the
+                                              // table (owner, 14 Sep 2026).
+                                              const SizedBox(width: Space.md),
+                                              Icon(
+                                                missileIcon,
+                                                size: 13,
+                                                color: missileInkOn(brightness),
+                                              ),
+                                              const SizedBox(width: Space.xxs),
+                                              _CountUp(
+                                                value: user?.missile ?? 0,
+                                                style: AppTheme.money(
+                                                  text.labelMedium!,
+                                                  colour: missileInkOn(
+                                                    brightness,
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ],
+                                      ),
                                     ),
                                   ),
                                 ),
@@ -1037,7 +1058,7 @@ class _TopBar extends StatelessWidget {
                           ),
                         ),
                       ),
-                      const SizedBox(width: Space.md),
+                      const SizedBox(width: Space.sm),
                       // The way to more chips, next to the count of them. It
                       // used to be a pill in the bottom-right corner, where it
                       // sat under the table rail and competed with the
@@ -1052,6 +1073,48 @@ class _TopBar extends StatelessWidget {
               },
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The top bar's wallets in one pill: the chips over the diamonds, hammers
+/// and missiles, in the same glass as the pill of keys at the bar's end
+/// ([_BarActions]) — its fill and its hairline — so the bar reads as groups
+/// rather than as loose figures. It hugs its figures: as wide as they are, as
+/// tall as a key.
+class _WalletPill extends StatelessWidget {
+  const _WalletPill({required this.child, this.margin = Space.md});
+
+  final Widget child;
+
+  /// The space either side of the figures, inside the pill.
+  final double margin;
+
+  @override
+  Widget build(BuildContext context) {
+    final glass = GlassColors.of(context);
+    return SizedBox(
+      height: Dim.minTouch,
+      child: CustomPaint(
+        foregroundPainter: GlassHairline(
+          radius: Radii.pill,
+          colors: [glass.borderTop, glass.borderBottom],
+        ),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(Radii.pill),
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [glass.fillStrong, glass.fill],
+            ),
+          ),
+          child: Padding(
+            padding: EdgeInsets.symmetric(horizontal: margin),
+            child: Center(widthFactor: 1, child: child),
+          ),
         ),
       ),
     );
@@ -5155,6 +5218,42 @@ class _MilestoneChip extends StatelessWidget {
 /// What a reward pays, for a [_CornerChip]'s second line once it is ready.
 typedef _RewardPay = ({int chips, int hammers});
 
+/// A corner chip's mark in a disc of its own: a gift, a trophy, an hourglass.
+/// Gold-lit while the reward can be taken, a quiet well while it is coming,
+/// so the chip's state reads from the corner of the eye before its words do.
+class _ChipMark extends StatelessWidget {
+  const _ChipMark({required this.ready, required this.child});
+
+  final bool ready;
+  final Widget child;
+
+  /// Room for the 18dp hourglass and a margin, well inside the 44dp pill.
+  static const double _size = 28;
+
+  @override
+  Widget build(BuildContext context) {
+    final glass = GlassColors.of(context);
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
+      width: _size,
+      height: _size,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: ready
+            ? AppTheme.gold.withValues(alpha: dark ? 0.16 : 0.12)
+            : glass.wellFill,
+        border: Border.all(
+          color: ready
+              ? AppTheme.gold.withValues(alpha: dark ? 0.45 : 0.50)
+              : glass.cardBorder,
+        ),
+      ),
+      child: child,
+    );
+  }
+}
+
 /// A reward, waiting to be taken.
 ///
 /// Both states carry the same body; what changes is the edge and the glow. A
@@ -5221,12 +5320,18 @@ class _CornerChip extends StatelessWidget {
     final theme = Theme.of(context);
     final text = theme.textTheme;
     final brightness = theme.brightness;
+    final glass = GlassColors.of(context);
+    final dark = brightness == Brightness.dark;
     final gold = _goldInk(brightness);
-    final fg = enabled
-        ? gold
-        : theme.colorScheme.onSurface.withValues(alpha: AppTheme.inkMed);
+    // The mark and the second line: gold while the reward can be taken, the
+    // card's own ink while it is still coming — the chip's news is whether
+    // it is ready, and that is what the colour says.
+    final fg = enabled ? gold : glass.textBody;
     final cap = maxWidth ?? Dim.bonusSlotW(MediaQuery.sizeOf(context).width);
-    final money = AppTheme.money(text.labelLarge!, colour: fg);
+    final money = AppTheme.money(
+      text.labelLarge!,
+      colour: enabled ? gold : glass.textDisplay,
+    );
 
     return ConstrainedBox(
       constraints: BoxConstraints(maxWidth: cap),
@@ -5241,7 +5346,9 @@ class _CornerChip extends StatelessWidget {
             boxShadow: enabled
                 ? [
                     BoxShadow(
-                      color: gold.withValues(alpha: 0.16),
+                      color: AppTheme.gold.withValues(
+                        alpha: dark ? 0.18 : 0.14,
+                      ),
                       blurRadius: 16,
                       spreadRadius: -2,
                     ),
@@ -5249,20 +5356,32 @@ class _CornerChip extends StatelessWidget {
                 : null,
           ),
           child: GlassCapsule(
+            // The card the lobby's cards are made of: the chips stand on the
+            // same ground and are the same kind of thing.
+            surface: GlassSurface.card,
             live: enabled,
             // Both states are the same size, so a chip becoming claimable does
             // not shove the row it is in.
             minHeight: Dim.minTouch,
             onTap: enabled ? onTap : onWaitTap,
-            padding: const EdgeInsets.symmetric(
-              horizontal: Space.lg,
-              vertical: Space.sm,
+            // The mark sits in the pill's own round end, as far from the rim
+            // as it is from the top and the foot.
+            padding: const EdgeInsets.fromLTRB(
+              Space.sm,
+              Space.xs,
+              Space.lg,
+              Space.xs,
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                leadingBuilder?.call(fg) ?? Icon(icon, size: 18, color: fg),
-                const SizedBox(width: Space.md),
+                _ChipMark(
+                  ready: enabled,
+                  child:
+                      leadingBuilder?.call(fg) ??
+                      Icon(icon, size: 16, color: fg),
+                ),
+                const SizedBox(width: Space.sm),
                 Flexible(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -5274,9 +5393,7 @@ class _CornerChip extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                         style: AppTheme.label(
                           text.labelSmall!,
-                          colour: theme.colorScheme.onSurface.withValues(
-                            alpha: AppTheme.inkLow,
-                          ),
+                          colour: glass.cardMuted,
                         ),
                       ),
                       if (reward == null)
