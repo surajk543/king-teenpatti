@@ -1,8 +1,9 @@
 /// Where the app talks to — the ONE place the backend's address lives.
 ///
-/// Every request goes to [url]: REST under `<url>/api/...`, the Socket.IO
-/// handshake at `<url>/socket.io/` (websocket only), and the pages the server
-/// serves beside the API ([page]). There is no second host or path setting.
+/// Every request goes to [url]: REST under `<url>/api/...` and the Socket.IO
+/// handshake at `<url>/socket.io/` (websocket only). There is no second host
+/// or path setting. The one page the app opens in a browser, the privacy
+/// policy, lives on the studio's own site instead ([privacyUrl]).
 ///
 /// It is set at BUILD time, never edited in code:
 ///
@@ -11,11 +12,11 @@
 ///     flutter build apk --debug --dart-define=SERVER_URL=http://10.0.2.2:3000   # a local server
 ///
 /// `config/*.json` holds one file per environment (`SERVER_URL`, `APP_ENV`,
-/// and the Google server client id the sign-in needs). With no define at all
-/// the app talks to PREPROD (owner, 24 Sep 2026: "change the prefix to
-/// preprod … this should be configurable"), so a build nobody configured
-/// can never reach the production accounts by accident — and a store build
-/// MUST name production explicitly.
+/// `PRIVACY_URL`, and the Google server client id the sign-in needs). With no
+/// define at all the app talks to PREPROD (owner, 24 Sep 2026: "change the
+/// prefix to preprod … this should be configurable"), so a build nobody
+/// configured can never reach the production accounts by accident — and a
+/// store build MUST name production explicitly.
 class ServerConfig {
   const ServerConfig._();
 
@@ -38,8 +39,15 @@ class ServerConfig {
   /// Whether this build talks to the production backend.
   static bool get isProduction => environment == 'production';
 
-  /// A page the server serves beside the API — `page('privacy/')` — on the
-  /// same host the app is built against.
-  static Uri page(String path) =>
-      Uri.parse('$url/${path.startsWith('/') ? path.substring(1) : path}');
+  /// The privacy policy the settings drawer opens — the same page the Play
+  /// listing and the Google sign-in consent screen name (owner, 24 Sep 2026:
+  /// "Privacy: https://sungamestudio.com/privacy/"). It is on the studio's
+  /// site, not on [url], so every build shows the one policy whichever backend
+  /// it talks to. The account-deletion page beside it,
+  /// `https://sungamestudio.com/account-deletion/`, is named only in the Play
+  /// Console: in the app, deletion is the settings drawer's own row.
+  static const String privacyUrl = String.fromEnvironment(
+    'PRIVACY_URL',
+    defaultValue: 'https://sungamestudio.com/privacy/',
+  );
 }

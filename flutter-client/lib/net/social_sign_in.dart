@@ -101,13 +101,14 @@ class SocialSignIn {
     } on GoogleSignInException catch (e) {
       // Log every one before deciding. Android's Credential Manager reports
       // several configuration errors as "canceled" *after* an account has been
-      // picked (the plugin's own README says so), which is indistinguishable
-      // from the player backing out. Without this line a wrong SHA-1 fingerprint
-      // looks exactly like a change of mind and leaves nothing to debug.
+      // picked (the plugin's own README says so). Without this line a wrong
+      // SHA-1 fingerprint looks exactly like a change of mind and leaves
+      // nothing to debug.
       debugPrint('Google sign-in: ${e.code.name}: ${e.description ?? ''}');
       switch (e.code) {
         case GoogleSignInExceptionCode.canceled:
-          return null;
+          if (playerCancelled(e.description)) return null;
+          throw const SignInUnavailable('Google');
         case GoogleSignInExceptionCode.clientConfigurationError:
         case GoogleSignInExceptionCode.providerConfigurationError:
           throw const SignInUnavailable('Google');
@@ -116,6 +117,26 @@ class SocialSignIn {
       }
     }
   }
+
+  /// Whether a `canceled` from the plugin is the player backing out.
+  ///
+  /// Android reports two different things as `canceled`. Backing out of
+  /// Google's account picker, with the back key or a tap outside it, reads
+  /// `[16] Cancelled by user.`. A build whose signing certificate has no
+  /// Android OAuth client in the Cloud project reads `[16] Account reauth
+  /// failed.`, *after* the player has picked their account; logcat says
+  /// `status=UNREGISTERED_ON_API_CONSOLE`. Both were seen on 24 Sep 2026 on a
+  /// Play Store emulator, the second from a release build signed with a key
+  /// the project did not know. Only the first is a decision. The second has to
+  /// be said on screen: returning null there dropped the player back on the
+  /// login screen with nothing said, which is all a tester saw too. With no
+  /// description at all, the cancel is read as the player's, as every
+  /// `canceled` was before.
+  @visibleForTesting
+  static bool playerCancelled(String? description) =>
+      description == null ||
+      description.isEmpty ||
+      description.toLowerCase().contains('cancel');
 
   // /// Signs in with Facebook and returns the access token for our server.
   // static Future<String?> facebook() async {

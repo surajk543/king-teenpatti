@@ -140,6 +140,6 @@ Before archiving, check that `GOOGLE_IOS_URL_SCHEME` in `Release.xcconfig` is
 filled in — an empty URL scheme is the one thing here that builds cleanly and
 fails only in front of a reviewer.
 
-The privacy policy at `https://prod.sungamestudio.com/privacy/` already
+The privacy policy at `https://sungamestudio.com/privacy/` already
 describes Google sign-in and what is stored; it says nothing Android-specific,
 so it stands for iOS as it is.

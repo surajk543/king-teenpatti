@@ -8,13 +8,14 @@ import 'package:flutter_test/flutter_test.dart';
 String _read(String path) => File(path).readAsStringSync();
 
 void main() {
-  test('the version is past the last tagged release, 1.2.1+8', () {
-    // flutter-client/v1.2.1 is 1.2.1+8; Play refuses a versionCode it has
+  test('the version is past the last tagged release, 1.2.2+9', () {
+    // flutter-client/v1.2.2 is 1.2.2+9; Play refuses a versionCode it has
     // already seen, and MIN_CLIENT_BUILD cannot tell two builds of one number
     // apart. Every release after it carries a higher build number. (1.2.1+8
     // was tagged with production.json still naming api.sungamestudio.com,
     // which stopped resolving the same day, so its store build reaches no
-    // server — 24 Sep 2026.)
+    // server; 1.2.2+9 opens the privacy policy on prod.sungamestudio.com
+    // rather than the studio's page — 24 Sep 2026.)
     final line = RegExp(
       r'^version:\s*(\d+)\.(\d+)\.(\d+)\+(\d+)\s*$',
       multiLine: true,
@@ -22,12 +23,12 @@ void main() {
     expect(line, isNotNull);
     final build = int.parse(line!.group(4)!);
     final name = [1, 2, 3].map((i) => int.parse(line.group(i)!)).toList();
-    expect(build, greaterThanOrEqualTo(9));
-    // The name moves with it: 1.2.1 is the tagged release.
-    final isAfter121 =
+    expect(build, greaterThanOrEqualTo(10));
+    // The name moves with it: 1.2.2 is the tagged release.
+    final isAfter122 =
         name[0] > 1 ||
-        (name[0] == 1 && (name[1] > 2 || (name[1] == 2 && name[2] > 1)));
-    expect(isAfter121, isTrue, reason: 'version name ${name.join('.')}');
+        (name[0] == 1 && (name[1] > 2 || (name[1] == 2 && name[2] > 2)));
+    expect(isAfter122, isTrue, reason: 'version name ${name.join('.')}');
   });
 
   test('the store build talks to production at prod.sungamestudio.com', () {
@@ -35,23 +36,40 @@ void main() {
     // connect backend" — api.sungamestudio.com no longer resolves. The Play
     // build is `--dart-define-from-file=config/production.json`, so this file
     // IS the store build's backend: scheme and host, https, and no trailing
-    // slash (ServerConfig.page joins `<url>/<path>`, and a trailing slash
-    // would ask for `//api/...`). APP_ENV says production, which hides the
-    // environment label, so nothing on screen would say it was wrong.
+    // slash (ApiClient joins `<url>/api/...`, and a trailing slash would ask
+    // for `//api/...`). APP_ENV says production, which hides the environment
+    // label, so nothing on screen would say it was wrong. The privacy policy
+    // is the studio's page, the one the Play listing names (owner, same day).
     final production =
         jsonDecode(_read('config/production.json')) as Map<String, dynamic>;
     expect(production['SERVER_URL'], 'https://prod.sungamestudio.com');
     expect(production['APP_ENV'], 'production');
+    expect(production['PRIVACY_URL'], 'https://sungamestudio.com/privacy/');
     expect(
-      (production['GOOGLE_SERVER_CLIENT_ID'] as String? ?? ''),
-      endsWith('.apps.googleusercontent.com'),
+      production['GOOGLE_SERVER_CLIENT_ID'],
+      '265025011940-0k4kh3ljcopn2pmkpb0q1rhbe8er8h09.apps.googleusercontent.com',
+      reason:
+          'the Web client of Cloud project king-teen-patti-508120 — the '
+          'audience the server checks against GOOGLE_CLIENT_IDS '
+          '(docs/social-login-setup.md)',
     );
     for (final file in Directory('config').listSync().whereType<File>()) {
       if (!file.path.endsWith('.json')) continue;
-      final url =
-          (jsonDecode(file.readAsStringSync()) as Map)['SERVER_URL'] as String;
+      final config = jsonDecode(file.readAsStringSync()) as Map;
+      final url = config['SERVER_URL'] as String;
       expect(url, isNot(endsWith('/')), reason: file.path);
       expect(url, isNot(contains('api.sungamestudio.com')), reason: file.path);
+      // Every build opens the one policy and can ask Google for an idToken.
+      expect(
+        config['PRIVACY_URL'],
+        production['PRIVACY_URL'],
+        reason: file.path,
+      );
+      expect(
+        config['GOOGLE_SERVER_CLIENT_ID'],
+        production['GOOGLE_SERVER_CLIENT_ID'],
+        reason: file.path,
+      );
     }
   });
 

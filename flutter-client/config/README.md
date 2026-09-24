@@ -9,8 +9,10 @@ flutter build apk --debug          --dart-define-from-file=config/preprod.json  
 flutter build apk --debug          --dart-define-from-file=config/local-emulator.json   # a server on this machine, from the emulator
 ```
 
-Keys: `SERVER_URL` (REST, Socket.IO and the served pages all hang off it — `lib/config/server_config.dart`),
-`APP_ENV` (`preprod` | `production` | `local`, shown beside the version in the settings drawer unless production)
+Keys: `SERVER_URL` (REST and Socket.IO both hang off it — `lib/config/server_config.dart`),
+`APP_ENV` (`preprod` | `production` | `local`, shown beside the version in the settings drawer unless production),
+`PRIVACY_URL` (the policy the settings drawer opens: `https://sungamestudio.com/privacy/` in every file — the studio
+site's page, the one the Play listing names, not the backend's; owner, 24 Sep 2026)
 and `GOOGLE_SERVER_CLIENT_ID` (the Web client id Google sign-in needs for an idToken; a public id, not a secret).
 
 **`SERVER_URL` and `APP_ENV` are two separate defines and nothing ties them together** — always build from one of
@@ -21,7 +23,7 @@ The label is the only on-screen sign of which backend a build talks to.
 **Production is `https://prod.sungamestudio.com`** (owner, 24 Sep 2026). It was `https://api.sungamestudio.com`
 until that name stopped resolving the same day — so a build of `flutter-client/v1.2.1` or older made from
 `production.json` reaches no server. `SERVER_URL` is the scheme and host with NO trailing slash:
-`ServerConfig.page` joins paths as `<url>/<path>`, and `https://prod.sungamestudio.com/` would ask for `//api/…`.
+`ApiClient` joins paths as `<url>/api/…`, and `https://prod.sungamestudio.com/` would ask for `//api/…`.
 `test/release_config_test.dart` pins all of it.
 
 **Plain `http://` works in DEBUG builds only.** `usesCleartextTraffic="true"` is in

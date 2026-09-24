@@ -120,7 +120,7 @@ and the seats have real names in them rather than three empty chairs.
 | Tags | Card, Casino *(Play may propose "Casino" — accept it; it is where Teen Patti apps sit)* |
 | Contact email | `support@sungamestudio.com` — **must be a working inbox**, Play shows it publicly and users write to it |
 | Website | `https://sungamestudio.com` (optional) |
-| Privacy policy | `https://prod.sungamestudio.com/privacy/` (was `api.sungamestudio.com`, which stopped resolving on 24 Sep 2026 — update the Console) |
+| Privacy policy | `https://sungamestudio.com/privacy/` — the studio site (owner, 24 Sep 2026); the app's settings drawer opens the same page from 1.2.3+10. **Update the Console** if it still names `api.sungamestudio.com` (stopped resolving on 24 Sep 2026) or `prod.sungamestudio.com/privacy/` (404) |
 
 ---
 

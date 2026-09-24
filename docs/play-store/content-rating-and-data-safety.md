@@ -52,8 +52,9 @@ rejected.
 stopped resolving).
 **Do you provide a way to request data deletion?** Yes — both routes Play asks
 for exist again (§4). Give it the public URL
-`https://prod.sungamestudio.com/account-deletion/` — **update the Console**: the
-`api.sungamestudio.com` URL entered before 24 Sep 2026 no longer resolves.
+`https://sungamestudio.com/account-deletion/` (the studio site, owner, 24 Sep 2026) —
+**update the Console**: the `api.sungamestudio.com` URL entered before 24 Sep 2026 no
+longer resolves, and `prod.sungamestudio.com/account-deletion/` answers 404.
 
 None of it is **shared** with anyone. There are no analytics, advertising,
 tracking or crash-reporting SDKs in the app at all — the entire dependency list
@@ -97,7 +98,7 @@ this applies to every player. Both routes now exist:
 | | |
 |---|---|
 | In-app | Lobby → top bar **Settings** → **Delete my account**, behind a confirmation |
-| Public URL | `https://prod.sungamestudio.com/account-deletion/` (was `api.`, dead since 24 Sep 2026) |
+| Public URL | `https://sungamestudio.com/account-deletion/` (was `api.`, dead since 24 Sep 2026; `prod.` answers 404) |
 | API | `DELETE /api/account` — authenticated, refused with 409 `seated` while at a table |
 
 Play states three things the **Delete account URL** page must do. What answers
@@ -155,7 +156,7 @@ deleted?"** with *Yes*, and give the public URL above.
 
 | Declaration | Answer |
 |---|---|
-| Privacy policy URL | `https://prod.sungamestudio.com/privacy/` (was `api.`, dead since 24 Sep 2026 — update the Console) |
+| Privacy policy URL | `https://sungamestudio.com/privacy/` (was `api.`, dead since 24 Sep 2026; `prod.` answers 404 — update the Console). The app opens the same page from 1.2.3+10 |
 | App access | All functionality available without special access — but **give Play the licence-tester account anyway**, since a reviewer who cannot get past the login sees nothing |
 | News app | No |
 | COVID-19 contact tracing | No |
