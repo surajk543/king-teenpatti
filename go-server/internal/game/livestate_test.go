@@ -859,6 +859,12 @@ func TestSnapshotRoundTripIsLossless(t *testing.T) {
 						continue
 					}
 					player := h.turnUser()
+					// A sideshow left pending freezes every move but a look
+					// until it is answered or lapses: let it lapse.
+					if v := h.view(player); v != nil && v.Sideshow != nil {
+						h.advance(cfg.SideshowTimeout)
+						continue
+					}
 					opts := h.turnOptions(player)
 					move := rng.Intn(100)
 					var err error
