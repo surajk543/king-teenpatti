@@ -108,9 +108,12 @@ class GlassColors extends ThemeExtension<GlassColors> {
 
   /// The light behind a card, in its mode's colour: the peak alpha of that
   /// light, and how far it reaches as a fraction of the card's side. Ambient
-  /// light rather than a coloured disc — 8–15% by day and a smaller pool,
-  /// 20–30% by night (owner, 24 Sep 2026) — so the card's content always
-  /// stays the brightest thing on it.
+  /// light rather than a coloured disc, and turned down in the owner's final
+  /// pass (24 Sep 2026: "keep the hues, reduce the tint") — about 5% by day,
+  /// where the card stays white with a warmth in one corner, and about 18% by
+  /// night, where a charcoal card needs more to show any colour at all (it was
+  /// 12% and 22%) — so the card's content always stays the brightest thing
+  /// on it.
   final double glowStrength;
   final double glowReach;
 
@@ -144,8 +147,8 @@ class GlassColors extends ThemeExtension<GlassColors> {
         offset: Offset(0, 14),
       ),
     ],
-    glowStrength: 0.22,
-    glowReach: 0.78,
+    glowStrength: 0.18,
+    glowReach: 0.72,
   );
 
   /// Frosted ice glass.
@@ -178,8 +181,8 @@ class GlassColors extends ThemeExtension<GlassColors> {
       BoxShadow(color: Color(0x0D0E1220), blurRadius: 3, offset: Offset(0, 1)),
       BoxShadow(color: Color(0x140E1220), blurRadius: 20, offset: Offset(0, 8)),
     ],
-    glowStrength: 0.12,
-    glowReach: 0.62,
+    glowStrength: 0.05,
+    glowReach: 0.56,
   );
 
   /// The set for the theme in scope. Falls back by brightness if a theme was

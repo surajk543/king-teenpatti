@@ -17,7 +17,6 @@
 // use. The poker side is held by poker_lobby_test.dart.
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -29,6 +28,7 @@ import 'package:teenpatti/settings/feedback_settings.dart';
 import 'package:teenpatti/state/game_state.dart';
 import 'package:teenpatti/theme/app_theme.dart';
 import 'package:teenpatti/widgets/chip_shuffle.dart';
+import 'package:teenpatti/widgets/game_card.dart';
 import 'package:teenpatti/widgets/poker_chip.dart';
 import 'package:teenpatti/widgets/premium_surface.dart';
 
@@ -614,15 +614,15 @@ void main() {
             );
             expect(card.contains(slot.topLeft), isTrue, reason: title);
             expect(card.contains(slot.bottomRight), isTrue, reason: title);
-            // The card's column is never shrunk to make room for it.
+            // The card's words are never shrunk to make room for it (its
+            // column, CardColumn, would scale them down as one).
             RenderObject? box = tester.renderObject(shuffle);
-            while (box is! RenderFittedBox ||
-                box.alignment != Alignment.topLeft) {
+            while (box is! RenderCardColumn) {
               box = box!.parent;
             }
             expect(
-              box.child!.size.height,
-              lessThanOrEqualTo(box.size.height + 0.01),
+              box.scale,
+              1,
               reason: '$title: the facts were scaled down to fit',
             );
           }
