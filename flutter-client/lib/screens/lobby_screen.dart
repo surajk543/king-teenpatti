@@ -1767,108 +1767,104 @@ class _GroupCard extends StatelessWidget {
                         // scaled down rather than overflowing past it — the
                         // table card's own guard, for the same reason:
                         // Devanagari stands taller than Latin.
-                        CardColumnFit(
+                        CardColumn(
                           maxHeight: math.max(
                             0.0,
                             inner.maxHeight - m.ctaH - m.ctaGap,
                           ),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                crossAxisAlignment: CrossAxisAlignment.center,
-                                children: [
-                                  if (shuffle)
-                                    // Twelve chips, each as wide as the
-                                    // coin it replaces, in that coin's
-                                    // colours. The pile is what shows
-                                    // should the file fail to load.
-                                    ChipShuffle(
-                                      colour: accent,
-                                      size: ChipShuffle.sizeForChip(
-                                        m.titleSize * 0.62,
-                                      ),
-                                      fallback: LivelyChipStack(
-                                        size: m.titleSize * 0.62,
-                                        colours: [accent, palette.rimLow],
-                                      ),
-                                    )
-                                  else
-                                    LivelyChipStack(
+                          children: [
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.center,
+                              children: [
+                                if (shuffle)
+                                  // Twelve chips, each as wide as the
+                                  // coin it replaces, in that coin's
+                                  // colours. The pile is what shows
+                                  // should the file fail to load.
+                                  ChipShuffle(
+                                    colour: accent,
+                                    size: ChipShuffle.sizeForChip(
+                                      m.titleSize * 0.62,
+                                    ),
+                                    fallback: LivelyChipStack(
                                       size: m.titleSize * 0.62,
                                       colours: [accent, palette.rimLow],
                                     ),
-                                  SizedBox(width: m.markGap),
-                                  // The card's name in the room's own
-                                  // ink, not gold: gold is what money is
-                                  // written in, and the mode's colour is
-                                  // already in the chips beside it.
-                                  Expanded(
-                                    child: FittedBox(
-                                      fit: BoxFit.scaleDown,
-                                      alignment: Alignment.centerLeft,
-                                      child: Text(
-                                        name,
-                                        maxLines: 1,
-                                        style: AppTheme.label(
-                                          text.displaySmall!,
-                                          colour: glass.textDisplay,
-                                          weight: FontWeight.w700,
-                                        ).copyWith(fontSize: m.titleSize),
-                                      ),
-                                    ),
+                                  )
+                                else
+                                  LivelyChipStack(
+                                    size: m.titleSize * 0.62,
+                                    colours: [accent, palette.rimLow],
                                   ),
-                                ],
-                              ),
-                              if (blurb.isNotEmpty) ...[
-                                SizedBox(height: m.gap),
-                                // Allowed a third line rather than cut
-                                // short: a long translation at a large
-                                // text size wraps, and the column above
-                                // the key scales down to hold it.
-                                Text(
-                                  blurb,
-                                  maxLines: 3,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: text.bodySmall?.copyWith(
-                                    fontSize: m.blurbSize,
-                                    color: glass.textBody,
+                                SizedBox(width: m.markGap),
+                                // The card's name in the room's own
+                                // ink, not gold: gold is what money is
+                                // written in, and the mode's colour is
+                                // already in the chips beside it.
+                                Expanded(
+                                  child: FittedBox(
+                                    fit: BoxFit.scaleDown,
+                                    alignment: Alignment.centerLeft,
+                                    child: Text(
+                                      name,
+                                      maxLines: 1,
+                                      style: AppTheme.label(
+                                        text.displaySmall!,
+                                        colour: glass.textDisplay,
+                                        weight: FontWeight.w700,
+                                      ).copyWith(fontSize: m.titleSize),
+                                    ),
                                   ),
                                 ),
                               ],
+                            ),
+                            if (blurb.isNotEmpty) ...[
                               SizedBox(height: m.gap),
-                              _CardFact(
-                                icon: Icons.toll_rounded,
-                                palette: palette,
-                                label: t.boot,
-                                value: bootRange,
-                                height: m.groupFactH,
-                                // Stakes are money, and money is gold.
-                                money: true,
-                              ),
-                              _FactRule(space: m.groupRuleSpace),
-                              _CardFact(
-                                icon: Icons.table_restaurant_rounded,
-                                palette: palette,
-                                label: t.tablesLabel,
-                                value: '${tables.length}',
-                                height: m.groupFactH,
-                              ),
-                              _FactRule(space: m.groupRuleSpace),
-                              _CardFact(
-                                icon: Icons.lock_open_rounded,
-                                palette: palette,
-                                label: t.openToYouLabel,
-                                value: '$open',
-                                height: m.groupFactH,
-                                // Every table open is the good news; none
-                                // open is said quietly.
-                                highlight: open > 0 && open == tables.length,
-                                quiet: open == 0,
+                              // Allowed a third line rather than cut
+                              // short: a long translation at a large
+                              // text size wraps, and the column above
+                              // the key scales down to hold it.
+                              Text(
+                                blurb,
+                                maxLines: 3,
+                                overflow: TextOverflow.ellipsis,
+                                style: text.bodySmall?.copyWith(
+                                  fontSize: m.blurbSize,
+                                  color: glass.textBody,
+                                ),
                               ),
                             ],
-                          ),
+                            SizedBox(height: m.gap),
+                            _CardFact(
+                              icon: Icons.toll_rounded,
+                              palette: palette,
+                              label: t.boot,
+                              value: bootRange,
+                              height: m.groupFactH,
+                              // Stakes are money, and money is gold.
+                              money: true,
+                            ),
+                            _FactRule(space: m.groupRuleSpace),
+                            _CardFact(
+                              icon: Icons.table_restaurant_rounded,
+                              palette: palette,
+                              label: t.tablesLabel,
+                              value: '${tables.length}',
+                              height: m.groupFactH,
+                            ),
+                            _FactRule(space: m.groupRuleSpace),
+                            _CardFact(
+                              icon: Icons.lock_open_rounded,
+                              palette: palette,
+                              label: t.openToYouLabel,
+                              value: '$open',
+                              height: m.groupFactH,
+                              // Every table open is the good news; none
+                              // open is said quietly.
+                              highlight: open > 0 && open == tables.length,
+                              quiet: open == 0,
+                            ),
+                          ],
                         ),
                         const Spacer(),
                         _SitCapsule(
@@ -2258,11 +2254,15 @@ class _TableCard extends StatelessWidget {
               // past it rather than overflowing, so the card can never stripe
               // itself; at 1.0 text on the phones it is sized for, it fits.
               final m = _CardMetrics(box.maxHeight);
-              // The two corner keys stand over the card's top-right corner,
-              // down to the foot of the rules key (withInfo, below): the boot
-              // stops a step short of them. Their discs reach 40dp in from the
-              // card's edge, which the margin already covers in part.
-              final clearOfKeys = 40 + CardSpace.s8 - m.pad;
+              // The two corner keys stand over the card's top-right corner
+              // (withInfo, below): their discs reach 40dp in from the card's
+              // edge and 84dp down from its top, which the margin covers in
+              // part. Nothing in the column starts beside them without
+              // stopping a step short of them.
+              final keys = Size(
+                _cornerKeysReach.width + CardSpace.s8 - m.pad,
+                _cornerKeysReach.height - m.pad,
+              );
 
               // Glass, not the table's cloth (owner's decision, 11 Sep 2026): the
               // lobby sits on the same obsidian / frosted-ice ground as every
@@ -2285,204 +2285,195 @@ class _TableCard extends StatelessWidget {
                       // Latin: the shut BLIND 10 Lakh card on a 640dp phone
                       // ran 0.665px past its foot in Hindi and striped its
                       // key. Wherever it fits the scale is 1 and nothing
-                      // moves; where it does not, it still spans the card
-                      // (CardColumnFit).
-                      CardColumnFit(
+                      // moves; where it does not, it still spans the card,
+                      // and at any scale it stops short of the corner keys
+                      // (CardColumn).
+                      CardColumn(
                         maxHeight: math.max(
                           0.0,
                           inner.maxHeight - m.ctaH - m.ctaGap,
                         ),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            _CategoryBadge(
-                              label: _tableName(state, table),
-                              palette: palette,
-                              height: m.plateH,
-                              // The two cards at the same stake sit side
-                              // by side, so their badges are offset
-                              // rather than pulsing together. The
-                              // variation card takes the beat between
-                              // them.
-                              delay: Duration(
-                                milliseconds: blind
-                                    ? 900
-                                    : variation
-                                    ? 450
-                                    : poker
-                                    ? 300
-                                    : 0,
-                              ),
+                        keepClear: keys,
+                        children: [
+                          _CategoryBadge(
+                            label: _tableName(state, table),
+                            palette: palette,
+                            height: m.plateH,
+                            // The two cards at the same stake sit side
+                            // by side, so their badges are offset
+                            // rather than pulsing together. The
+                            // variation card takes the beat between
+                            // them.
+                            delay: Duration(
+                              milliseconds: blind
+                                  ? 900
+                                  : variation
+                                  ? 450
+                                  : poker
+                                  ? 300
+                                  : 0,
                             ),
-                            SizedBox(height: m.headGap),
-                            // The boot is what a player chooses a table
-                            // by, so it is the largest figure on the card
-                            // (owner, 24 Sep 2026: "make it visually
-                            // prominent"), in gold, over its name — and
-                            // then, in the final pass, "prominent but not
-                            // dominating": a step under the name of a
-                            // group card, no longer twice its size. It
-                            // counts up on first paint, so the stake
-                            // lands rather than simply being there.
-                            Padding(
-                              padding: EdgeInsets.only(right: clearOfKeys),
-                              child: Row(
-                                crossAxisAlignment: CrossAxisAlignment.center,
-                                children: [
-                                  LivelyChipStack(
-                                    size: m.bootSize * 0.56,
-                                    colours: [accent, palette.rimLow],
-                                  ),
-                                  SizedBox(width: m.markGap),
-                                  Expanded(
-                                    child: RepaintBoundary(
-                                      child: TweenAnimationBuilder<double>(
-                                        tween: Tween(end: boot.toDouble()),
-                                        duration: const Duration(
-                                          milliseconds: 700,
-                                        ),
-                                        curve: Motion.standard,
-                                        builder: (context, value, _) =>
-                                            FittedBox(
-                                              fit: BoxFit.scaleDown,
-                                              alignment: Alignment.centerLeft,
-                                              child: Text(
-                                                formatChips(value.round()),
-                                                style: AppTheme.money(
-                                                  text.displaySmall!,
-                                                  fontSize: m.bootSize,
-                                                  colour: _goldInk(brightness),
-                                                ).copyWith(height: 1.0),
-                                              ),
-                                            ),
+                          ),
+                          SizedBox(height: m.headGap),
+                          // The boot is what a player chooses a table
+                          // by, so it is the largest figure on the card
+                          // (owner, 24 Sep 2026: "make it visually
+                          // prominent"), in gold, over its name — and
+                          // then, in the final pass, "prominent but not
+                          // dominating": a step under the name of a
+                          // group card, no longer twice its size. It
+                          // counts up on first paint, so the stake
+                          // lands rather than simply being there.
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            children: [
+                              LivelyChipStack(
+                                size: m.bootSize * 0.56,
+                                colours: [accent, palette.rimLow],
+                              ),
+                              SizedBox(width: m.markGap),
+                              Expanded(
+                                child: RepaintBoundary(
+                                  child: TweenAnimationBuilder<double>(
+                                    tween: Tween(end: boot.toDouble()),
+                                    duration: const Duration(milliseconds: 700),
+                                    curve: Motion.standard,
+                                    builder: (context, value, _) => FittedBox(
+                                      fit: BoxFit.scaleDown,
+                                      alignment: Alignment.centerLeft,
+                                      child: Text(
+                                        formatChips(value.round()),
+                                        style: AppTheme.money(
+                                          text.displaySmall!,
+                                          fontSize: m.bootSize,
+                                          colour: _goldInk(brightness),
+                                        ).copyWith(height: 1.0),
                                       ),
                                     ),
                                   ),
-                                ],
-                              ),
-                            ),
-                            // Its name under it, set small and tracked
-                            // as a caption where the script allows —
-                            // BOOT in English; tracking pulls Indic
-                            // vowel signs off their letters, so the
-                            // other languages keep their own case and
-                            // spacing.
-                            // Under the figure by a hair more than its
-                            // line, which its comma hangs below.
-                            Padding(
-                              padding: EdgeInsets.only(
-                                left: m.bootSize * 0.56 + m.markGap,
-                                top: CardSpace.s4,
-                              ),
-                              child: Text(
-                                state.lang == AppLang.english
-                                    ? t.boot.toUpperCase()
-                                    : t.boot,
-                                style:
-                                    AppTheme.label(
-                                      text.labelSmall!,
-                                      colour: glass.cardMuted,
-                                    ).copyWith(
-                                      height: 1.0,
-                                      letterSpacing:
-                                          state.lang == AppLang.english
-                                          ? 1.4
-                                          : 0,
-                                    ),
-                              ),
-                            ),
-                            SizedBox(height: m.gap),
-                            // One blurb line a card, so every card
-                            // keeps the same rhythm down to its key: a
-                            // variation card says what makes it
-                            // different rather than the chips line —
-                            // with both lines the Entry row sat against
-                            // the key, and the smallest phone scaled the
-                            // whole column down to fit. Always the
-                            // body's ink, under the figure and the facts
-                            // (owner's final pass: "body descriptions
-                            // clearly secondary"); the variation and
-                            // poker lines, which say how the game
-                            // differs, a half-step heavier. A third line
-                            // rather than a cut-off one when a long
-                            // translation wraps at a large text size.
-                            Text(
-                              poker
-                                  ? t.pokerVariantNote(category)
-                                  : variation
-                                  ? t.variationTableNote
-                                  : blind
-                                  ? t.onlyYourChips
-                                  : t.everyoneChips,
-                              maxLines: 3,
-                              overflow: TextOverflow.ellipsis,
-                              style: text.bodySmall?.copyWith(
-                                fontSize: m.blurbSize,
-                                fontWeight: variation || poker
-                                    ? FontWeight.w500
-                                    : null,
-                                color: glass.textBody,
-                              ),
-                            ),
-                            SizedBox(height: m.gap),
-
-                            // What the room actually plays like, stated
-                            // before the player sits down rather than
-                            // discovered at the table. A poker table
-                            // states its own terms.
-                            if (poker) ...[
-                              for (final fact in _pokerFacts(
-                                t,
-                                table,
-                              ).indexed) ...[
-                                if (fact.$1 > 0) _FactRule(space: m.ruleSpace),
-                                _CardFact(
-                                  icon: fact.$2.icon,
-                                  palette: palette,
-                                  label: fact.$2.label,
-                                  value: fact.$2.value,
-                                  height: m.factH,
-                                  highlight: fact.$2.highlight,
                                 ),
-                              ],
-                            ] else ...[
-                              _CardFact(
-                                icon: Icons.visibility_off_rounded,
-                                palette: palette,
-                                label: t.maxBlindsLabel,
-                                value: '${table.maxBlindMoves}',
-                                height: m.factH,
-                              ),
-                              _FactRule(space: m.ruleSpace),
-                              _CardFact(
-                                icon: Icons.savings_rounded,
-                                palette: palette,
-                                label: t.potLimitLabel,
-                                height: m.factH,
-                                value: table.potUncapped
-                                    ? t.potUnlimited
-                                    : formatChips(table.maxPot),
-                                // An uncapped pot is the headline on a
-                                // blind table, so it is the one fact
-                                // drawn in the table's colour.
-                                highlight: table.potUncapped,
-                                money: !table.potUncapped,
                               ),
                             ],
+                          ),
+                          // Its name under it, set small and tracked
+                          // as a caption where the script allows —
+                          // BOOT in English; tracking pulls Indic
+                          // vowel signs off their letters, so the
+                          // other languages keep their own case and
+                          // spacing.
+                          // Under the figure by a hair more than its
+                          // line, which its comma hangs below.
+                          Padding(
+                            padding: EdgeInsets.only(
+                              left: m.bootSize * 0.56 + m.markGap,
+                              top: CardSpace.s4,
+                            ),
+                            child: Text(
+                              state.lang == AppLang.english
+                                  ? t.boot.toUpperCase()
+                                  : t.boot,
+                              style:
+                                  AppTheme.label(
+                                    text.labelSmall!,
+                                    colour: glass.cardMuted,
+                                  ).copyWith(
+                                    height: 1.0,
+                                    letterSpacing: state.lang == AppLang.english
+                                        ? 1.4
+                                        : 0,
+                                  ),
+                            ),
+                          ),
+                          SizedBox(height: m.gap),
+                          // One blurb line a card, so every card
+                          // keeps the same rhythm down to its key: a
+                          // variation card says what makes it
+                          // different rather than the chips line —
+                          // with both lines the Entry row sat against
+                          // the key, and the smallest phone scaled the
+                          // whole column down to fit. Always the
+                          // body's ink, under the figure and the facts
+                          // (owner's final pass: "body descriptions
+                          // clearly secondary"); the variation and
+                          // poker lines, which say how the game
+                          // differs, a half-step heavier. A third line
+                          // rather than a cut-off one when a long
+                          // translation wraps at a large text size.
+                          Text(
+                            poker
+                                ? t.pokerVariantNote(category)
+                                : variation
+                                ? t.variationTableNote
+                                : blind
+                                ? t.onlyYourChips
+                                : t.everyoneChips,
+                            maxLines: 3,
+                            overflow: TextOverflow.ellipsis,
+                            style: text.bodySmall?.copyWith(
+                              fontSize: m.blurbSize,
+                              fontWeight: variation || poker
+                                  ? FontWeight.w500
+                                  : null,
+                              color: glass.textBody,
+                            ),
+                          ),
+                          SizedBox(height: m.gap),
+
+                          // What the room actually plays like, stated
+                          // before the player sits down rather than
+                          // discovered at the table. A poker table
+                          // states its own terms.
+                          if (poker) ...[
+                            for (final fact in _pokerFacts(
+                              t,
+                              table,
+                            ).indexed) ...[
+                              if (fact.$1 > 0) _FactRule(space: m.ruleSpace),
+                              _CardFact(
+                                icon: fact.$2.icon,
+                                palette: palette,
+                                label: fact.$2.label,
+                                value: fact.$2.value,
+                                height: m.factH,
+                                highlight: fact.$2.highlight,
+                              ),
+                            ],
+                          ] else ...[
+                            _CardFact(
+                              icon: Icons.visibility_off_rounded,
+                              palette: palette,
+                              label: t.maxBlindsLabel,
+                              value: '${table.maxBlindMoves}',
+                              height: m.factH,
+                            ),
                             _FactRule(space: m.ruleSpace),
                             _CardFact(
-                              icon: Icons.account_balance_wallet_rounded,
+                              icon: Icons.savings_rounded,
                               palette: palette,
-                              label: t.entryLabel,
-                              value: entryValue,
+                              label: t.potLimitLabel,
                               height: m.factH,
-                              // A floor is the fact that makes a table
-                              // aspirational, so it is worth the colour.
-                              highlight: table.minChips > 0,
+                              value: table.potUncapped
+                                  ? t.potUnlimited
+                                  : formatChips(table.maxPot),
+                              // An uncapped pot is the headline on a
+                              // blind table, so it is the one fact
+                              // drawn in the table's colour.
+                              highlight: table.potUncapped,
+                              money: !table.potUncapped,
                             ),
                           ],
-                        ),
+                          _FactRule(space: m.ruleSpace),
+                          _CardFact(
+                            icon: Icons.account_balance_wallet_rounded,
+                            palette: palette,
+                            label: t.entryLabel,
+                            value: entryValue,
+                            height: m.factH,
+                            // A floor is the fact that makes a table
+                            // aspirational, so it is worth the colour.
+                            highlight: table.minChips > 0,
+                          ),
+                        ],
                       ),
                       // Takes up whatever is left over, and nothing when
                       // there is nothing left over.
@@ -2683,6 +2674,17 @@ List<_PokerFact> _pokerFacts(Strings t, LobbyTable table) => [
 /// Each is a key of its own inside a card that is itself one big key: the inner
 /// tap wins the gesture arena, so touching one opens its popup and never sits
 /// the player down. A full 44dp target around a small glyph.
+/// The disc a [_CardCornerKey] draws inside its 44dp target.
+const double _cornerDisc = 28;
+
+/// How far a table card's two corner keys reach into it — their discs, from
+/// the card's right edge and from its top: the pair stands [Space.xs] in from
+/// both (the withInfo Stack in [_TableCard]), one 44dp target over the other.
+const Size _cornerKeysReach = Size(
+  Space.xs + (Dim.minTouch + _cornerDisc) / 2,
+  Space.xs + 2 * Dim.minTouch - (Dim.minTouch - _cornerDisc) / 2,
+);
+
 class _CardCornerKey extends StatelessWidget {
   const _CardCornerKey({
     required this.icon,
@@ -2717,8 +2719,8 @@ class _CardCornerKey extends StatelessWidget {
             // A small key in the mode's colour, quieter than the card's own
             // key at its foot: a glyph in the accent on a whisper of it.
             child: Container(
-              width: 28,
-              height: 28,
+              width: _cornerDisc,
+              height: _cornerDisc,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 color: accent.withValues(alpha: dark ? 0.10 : 0.06),
@@ -3393,46 +3395,42 @@ class _PrivateCardState extends State<_PrivateCard> {
                   Expanded(
                     child: Align(
                       alignment: Alignment.topLeft,
-                      child: CardColumnFit(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                _ModeMark(palette: palette, size: m.plateH),
-                                SizedBox(width: m.markGap),
-                                Flexible(
-                                  child: FittedBox(
-                                    fit: BoxFit.scaleDown,
-                                    alignment: Alignment.centerLeft,
-                                    child: Text(
-                                      state.t.privateTable,
-                                      maxLines: 1,
-                                      style: AppTheme.label(
-                                        text.titleLarge!,
-                                        colour: glass.textDisplay,
-                                        weight: FontWeight.w700,
-                                      ),
+                      child: CardColumn(
+                        children: [
+                          Row(
+                            children: [
+                              _ModeMark(palette: palette, size: m.plateH),
+                              SizedBox(width: m.markGap),
+                              Flexible(
+                                child: FittedBox(
+                                  fit: BoxFit.scaleDown,
+                                  alignment: Alignment.centerLeft,
+                                  child: Text(
+                                    state.t.privateTable,
+                                    maxLines: 1,
+                                    style: AppTheme.label(
+                                      text.titleLarge!,
+                                      colour: glass.textDisplay,
+                                      weight: FontWeight.w700,
                                     ),
                                   ),
                                 ),
-                              ],
-                            ),
-                            SizedBox(height: m.gap),
-                            Text(
-                              'Boot ${formatChips(state.config.privateBoot)}'
-                              '${cap > 0 ? ', max win ${formatChips(cap)}' : ''}.'
-                              ' Share the code to fill the seats.',
-                              maxLines: 3,
-                              overflow: TextOverflow.ellipsis,
-                              style: text.bodySmall?.copyWith(
-                                fontSize: m.blurbSize,
-                                color: glass.textBody,
                               ),
+                            ],
+                          ),
+                          SizedBox(height: m.gap),
+                          Text(
+                            'Boot ${formatChips(state.config.privateBoot)}'
+                            '${cap > 0 ? ', max win ${formatChips(cap)}' : ''}.'
+                            ' Share the code to fill the seats.',
+                            maxLines: 3,
+                            overflow: TextOverflow.ellipsis,
+                            style: text.bodySmall?.copyWith(
+                              fontSize: m.blurbSize,
+                              color: glass.textBody,
                             ),
-                          ],
-                        ),
+                          ),
+                        ],
                       ),
                     ),
                   ),

@@ -135,39 +135,62 @@ class CardLight extends StatelessWidget {
   );
 }
 
-/// A card's words above its key, as wide as the card and scaled down as one
-/// when they stand taller than [maxHeight] (or, with none given, than the room
-/// the parent allows) — a long translation, a large text size, a poker
-/// table's five facts.
+/// A card's words above its key: its blocks one under another, as wide as the
+/// card, scaled down together when they would stand taller than [maxHeight] —
+/// and never under the card's corner keys ([keepClear]).
 ///
-/// The column is laid out wider by the factor it is about to be scaled by, so
-/// that once scaled it still reaches the card's right edge. A [FittedBox] did
-/// this job before and scaled the column's width with its height: the values
-/// of a scaled card's facts stopped a strip short of the right edge, out of
-/// line with the key under them (owner's final pass, 24 Sep 2026: "proper card
-/// boundaries"). Where the column fits, nothing is scaled and nothing moves.
-class CardColumnFit extends SingleChildRenderObjectWidget {
-  const CardColumnFit({super.key, this.maxHeight, required super.child});
+/// A card is square and its sizes follow its side, but its words are set in
+/// the player's script and at the player's text size, and Devanagari stands
+/// taller than Latin: at 1.25x on a 640dp phone some columns want more height
+/// than the key at the foot leaves them. Scaling the column as one keeps every
+/// line of every block (the brief: "don't just hide text"), and laying the
+/// blocks out at the card's width divided by the scale before scaling them
+/// down keeps the column spanning the card — a FittedBox round the column
+/// would shrink it towards its left edge and leave a ragged margin at its
+/// right. Where the blocks fit, the scale is 1 and nothing moves.
+///
+/// [keepClear] is a zone at the column's top right, in the card's own units:
+/// a block that starts inside it is laid out that much narrower, at whatever
+/// scale the column ends up at. A table card's two corner keys stand there,
+/// and the further a column is scaled down, the more of it rises beside them:
+/// a block that runs under a key is a block a player cannot read (5-Card
+/// Draw's line did, scaled to 0.75 on a 640dp phone).
+class CardColumn extends MultiChildRenderObjectWidget {
+  const CardColumn({
+    super.key,
+    this.maxHeight,
+    this.keepClear = Size.zero,
+    required super.children,
+  });
 
+  /// The most the column may stand, besides what its parent allows.
   final double? maxHeight;
 
-  @override
-  RenderCardColumnFit createRenderObject(BuildContext context) =>
-      RenderCardColumnFit(maxHeight);
+  /// The corner of the column no block may reach into: this wide from its
+  /// right edge, this tall from its top.
+  final Size keepClear;
 
   @override
-  void updateRenderObject(
-    BuildContext context,
-    RenderCardColumnFit renderObject,
-  ) {
-    renderObject.maxHeight = maxHeight;
+  RenderCardColumn createRenderObject(BuildContext context) =>
+      RenderCardColumn(maxHeight: maxHeight, keepClear: keepClear);
+
+  @override
+  void updateRenderObject(BuildContext context, RenderCardColumn renderObject) {
+    renderObject
+      ..maxHeight = maxHeight
+      ..keepClear = keepClear;
   }
 }
 
-/// The render object of [CardColumnFit].
-class RenderCardColumnFit extends RenderBox
-    with RenderObjectWithChildMixin<RenderBox> {
-  RenderCardColumnFit(this._maxHeight);
+/// Where a [CardColumn] put one of its blocks.
+class CardColumnParentData extends ContainerBoxParentData<RenderBox> {}
+
+/// The render object behind [CardColumn].
+class RenderCardColumn extends RenderBox
+    with
+        ContainerRenderObjectMixin<RenderBox, CardColumnParentData>,
+        RenderBoxContainerDefaultsMixin<RenderBox, CardColumnParentData> {
+  RenderCardColumn({this._maxHeight, this._keepClear = Size.zero});
 
   double? _maxHeight;
   double? get maxHeight => _maxHeight;
@@ -177,40 +200,97 @@ class RenderCardColumnFit extends RenderBox
     markNeedsLayout();
   }
 
+  Size _keepClear;
+  Size get keepClear => _keepClear;
+  set keepClear(Size value) {
+    if (value == _keepClear) return;
+    _keepClear = value;
+    markNeedsLayout();
+  }
+
   double _scale = 1;
 
-  /// How far the column was scaled down to fit: 1 where it fits.
+  /// How far the column was scaled down at its last layout: 1 where its
+  /// blocks fit.
   double get scale => _scale;
 
-  /// The largest scale, no more than 1, at which the column laid out
-  /// `width / scale` wide stands no taller than [limit] once scaled, from
-  /// [heightAt] — the column's height at a given width, which can only fall
-  /// as the width grows (wider, the words wrap less).
-  static double _fit(
-    double width,
-    double limit,
-    double Function(double width) heightAt,
-  ) {
-    final natural = heightAt(width);
-    // Where it fits, or where there is no room to fit it into at all.
-    if (natural <= limit || limit <= 0) return 1;
-    // Always fits: laid out wider, the column is no taller than it was.
-    var fits = limit / natural;
-    // The scale its height at that width would allow, which fits too unless
-    // the narrower layout it implies wraps a line more; the answer lies
-    // between the two.
-    var over = math.min(1.0, limit / heightAt(width / fits));
-    if (over <= fits) return fits;
-    if (heightAt(width / over) * over <= limit) return over;
-    for (var i = 0; i < 4; i++) {
+  final LayerHandle<TransformLayer> _transform = LayerHandle<TransformLayer>();
+
+  /// Below this the words would be too small to read at any text size, and
+  /// the column stands as tall as it must instead.
+  static const double _minScale = 0.5;
+
+  @override
+  void setupParentData(RenderBox child) {
+    if (child.parentData is! CardColumnParentData) {
+      child.parentData = CardColumnParentData();
+    }
+  }
+
+  /// The column's height, in its own units, with its blocks laid out for a
+  /// column [width] wide scaled by [scale]; every block placed unless [dry].
+  double _heightAt(double width, double scale, {required bool dry}) {
+    final wide = width / scale;
+    final clearW = _keepClear.width / scale;
+    final clearH = _keepClear.height;
+    var y = 0.0;
+    var child = firstChild;
+    while (child != null) {
+      final data = child.parentData! as CardColumnParentData;
+      // A block that starts beside the keys is set short of them for its
+      // whole height: it is one box.
+      final inCorner = clearW > 0 && y * scale < clearH;
+      final constraints = BoxConstraints(
+        maxWidth: math.max(0.0, inCorner ? wide - clearW : wide),
+      );
+      final Size size;
+      if (dry) {
+        size = child.getDryLayout(constraints);
+      } else {
+        child.layout(constraints, parentUsesSize: true);
+        size = child.size;
+        data.offset = Offset(0, y);
+      }
+      y += size.height;
+      child = data.nextSibling;
+    }
+    return y;
+  }
+
+  /// The largest scale, down to [_minScale], at which the blocks stand no
+  /// taller than [limit], and the column's height at it in its own units.
+  (double, double) _fit(double width, double limit, {required bool dry}) {
+    final whole = _heightAt(width, 1, dry: dry);
+    if (whole <= limit || !limit.isFinite) return (1, whole);
+
+    // Set wider, the blocks wrap into fewer lines and stand no taller: the
+    // share the limit is of the whole is a scale that fits, or close to one.
+    var fits = math.max(_minScale, limit / whole);
+    var height = _heightAt(width, fits, dry: dry);
+    while (height * fits > limit && fits > _minScale) {
+      fits = math.max(_minScale, fits * 0.95);
+      height = _heightAt(width, fits, dry: dry);
+    }
+    if (height * fits > limit) return (fits, height);
+
+    // Then as close under the limit as a few halvings bring it.
+    var over = 1.0;
+    var last = fits;
+    for (var i = 0; i < 6; i++) {
       final mid = (fits + over) / 2;
-      if (heightAt(width / mid) * mid <= limit) {
+      final h = _heightAt(width, mid, dry: dry);
+      last = mid;
+      if (h * mid <= limit) {
         fits = mid;
+        height = h;
       } else {
         over = mid;
       }
     }
-    return fits;
+    // The blocks stand where the last try left them: set them again at the
+    // scale that fits if that was not it.
+    if (!dry && last != fits) height = _heightAt(width, fits, dry: false);
+    return (fits, height);
   }
 
   double _limit(BoxConstraints constraints) =>
@@ -218,68 +298,106 @@ class RenderCardColumnFit extends RenderBox
 
   @override
   Size computeDryLayout(covariant BoxConstraints constraints) {
-    final child = this.child;
-    if (child == null) return constraints.smallest;
     final width = constraints.maxWidth;
-    double heightAt(double w) =>
-        child.getDryLayout(BoxConstraints.tightFor(width: w)).height;
-    final scale = _fit(width, _limit(constraints), heightAt);
-    return constraints.constrain(Size(width, heightAt(width / scale) * scale));
+    final (scale, height) = _fit(width, _limit(constraints), dry: true);
+    return constraints.constrain(Size(width, height * scale));
   }
 
   @override
   void performLayout() {
-    final child = this.child;
-    if (child == null) {
-      _scale = 1;
-      size = constraints.smallest;
-      return;
-    }
     final width = constraints.maxWidth;
-    double heightAt(double w) {
-      child.layout(BoxConstraints.tightFor(width: w), parentUsesSize: true);
-      return child.size.height;
-    }
-
-    _scale = _fit(width, _limit(constraints), heightAt);
-    // The layout the column keeps is the one it is painted at.
-    final height = heightAt(width / _scale);
-    size = constraints.constrain(Size(width, height * _scale));
+    final (scale, height) = _fit(width, _limit(constraints), dry: false);
+    _scale = scale;
+    size = constraints.constrain(Size(width, height * scale));
   }
 
-  Matrix4 get _transform => Matrix4.diagonal3Values(_scale, _scale, 1);
+  @override
+  double computeMinIntrinsicWidth(double height) {
+    var widest = 0.0;
+    for (var child = firstChild; child != null; child = childAfter(child)) {
+      widest = math.max(widest, child.getMinIntrinsicWidth(double.infinity));
+    }
+    return widest;
+  }
+
+  @override
+  double computeMaxIntrinsicWidth(double height) {
+    var widest = 0.0;
+    for (var child = firstChild; child != null; child = childAfter(child)) {
+      widest = math.max(widest, child.getMaxIntrinsicWidth(double.infinity));
+    }
+    return widest;
+  }
+
+  @override
+  double computeMinIntrinsicHeight(double width) {
+    var total = 0.0;
+    for (var child = firstChild; child != null; child = childAfter(child)) {
+      total += child.getMinIntrinsicHeight(width);
+    }
+    return math.min(total, _maxHeight ?? double.infinity);
+  }
+
+  @override
+  double computeMaxIntrinsicHeight(double width) {
+    var total = 0.0;
+    for (var child = firstChild; child != null; child = childAfter(child)) {
+      total += child.getMaxIntrinsicHeight(width);
+    }
+    return math.min(total, _maxHeight ?? double.infinity);
+  }
+
+  Matrix4 get _scaling => Matrix4.diagonal3Values(_scale, _scale, 1);
 
   @override
   void paint(PaintingContext context, Offset offset) {
-    final child = this.child;
-    if (child == null) return;
     if (_scale == 1) {
-      layer = null;
-      context.paintChild(child, offset);
+      _transform.layer = null;
+      defaultPaint(context, offset);
       return;
     }
-    layer = context.pushTransform(
+    _transform.layer = context.pushTransform(
       needsCompositing,
       offset,
-      _transform,
-      (context, offset) => context.paintChild(child, offset),
-      oldLayer: layer as TransformLayer?,
+      _scaling,
+      defaultPaint,
+      oldLayer: _transform.layer,
+    );
+  }
+
+  @override
+  bool hitTestChildren(BoxHitTestResult result, {required Offset position}) {
+    if (_scale == 1) {
+      return defaultHitTestChildren(result, position: position);
+    }
+    return result.addWithPaintTransform(
+      transform: _scaling,
+      position: position,
+      hitTest: (result, position) =>
+          defaultHitTestChildren(result, position: position),
     );
   }
 
   @override
   void applyPaintTransform(RenderBox child, Matrix4 transform) {
-    transform.multiply(_transform);
+    final offset = (child.parentData! as CardColumnParentData).offset;
+    transform
+      ..multiply(_scaling)
+      ..translateByDouble(offset.dx, offset.dy, 0, 1);
   }
 
   @override
-  bool hitTestChildren(BoxHitTestResult result, {required Offset position}) {
-    final child = this.child;
-    if (child == null) return false;
-    return result.addWithPaintTransform(
-      transform: _transform,
-      position: position,
-      hitTest: (result, position) => child.hitTest(result, position: position),
-    );
+  void dispose() {
+    _transform.layer = null;
+    super.dispose();
+  }
+
+  @override
+  void debugFillProperties(DiagnosticPropertiesBuilder properties) {
+    super.debugFillProperties(properties);
+    properties
+      ..add(DoubleProperty('maxHeight', _maxHeight, defaultValue: null))
+      ..add(DiagnosticsProperty<Size>('keepClear', _keepClear))
+      ..add(DoubleProperty('scale', _scale, defaultValue: 1.0));
   }
 }
