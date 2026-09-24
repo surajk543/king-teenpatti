@@ -5,6 +5,15 @@
 // than a coloured disc; the boot as the largest figure on a table card; keys
 // that carry their mode's colour; and a top bar whose wallets stand in a group
 // of their own without the player's name losing a letter.
+//
+// And its final pass, the same day: the tint turned down (about 5% by day, 18%
+// by night), the boot "prominent but not dominating", a rail that stops on
+// whole cards and a glimpse of the next rather than on a card two-thirds shown,
+// the insides of a card on a 4dp grid, and a card's words that neither run
+// under its corner keys nor lose a line when a phone has less room than they
+// want.
+import 'dart:math' as math;
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -37,9 +46,21 @@ const _menu = <Map<String, Object>>[
     'minChips': 500000,
     'game': 'poker',
   },
+  // The card with the most to say: an ante, a buy-in, the cards dealt, the
+  // exchange and the entry under a two-line blurb.
+  {
+    'category': 'five_card_draw',
+    'bootAmount': 50000,
+    'minChips': 500000,
+    'minBuyIn': 500000,
+    'ante': 50000,
+    'holeCards': 5,
+    'maxDiscards': 3,
+    'game': 'poker',
+  },
 ];
 
-GameState _state() {
+GameState _state({int chips = 324500}) {
   // Play is never started; the override only keeps the purchase plugin from
   // registering an Android billing client in a unit test.
   debugDefaultTargetPlatformOverride = TargetPlatform.linux;
@@ -59,7 +80,7 @@ GameState _state() {
       'id': 'u0',
       'provider': 'guest',
       'displayName': 'Guest0E00B',
-      'chips': 324500,
+      'chips': chips,
       'diamond': 9,
       'hammer': 20,
       'missile': 1,
@@ -156,6 +177,78 @@ Finder _private(String type) => find.byWidgetPredicate(
   skipOffstage: false,
 );
 
+/// A render box's own rectangle on the screen, through every scale and
+/// transform above it.
+Rect _onScreen(RenderBox box) =>
+    MatrixUtils.transformRect(box.getTransformTo(null), Offset.zero & box.size);
+
+/// The rail on screen: the lobby's one horizontal list of cards.
+Finder get _rail => find.byWidgetPredicate(
+  (w) =>
+      w is ListView &&
+      w.key is ValueKey<String> &&
+      (w.key! as ValueKey<String>).value.startsWith('lobby-rail:'),
+);
+
+/// How much of each card on the rail stands inside the rail, 0 to 1.
+List<double> _cardsShown(WidgetTester tester) {
+  final rail = _onScreen(tester.renderObject<RenderBox>(_rail));
+  return [
+    for (final card
+        in find
+            .descendant(of: _rail, matching: find.byType(AspectRatio))
+            .evaluate())
+      if (card.renderObject case final RenderBox box when box.hasSize)
+        () {
+          final r = _onScreen(box);
+          final shown =
+              (r.right.clamp(rail.left, rail.right) -
+                  r.left.clamp(rail.left, rail.right)) /
+              r.width;
+          return shown;
+        }(),
+  ];
+}
+
+/// The discs of every table card's two corner keys: a 28dp disc centred in
+/// each 44dp key.
+List<Rect> _cornerDiscs(WidgetTester tester) => [
+  for (final key in _private('_CardCornerKey').evaluate())
+    if (key.renderObject case final RenderBox box when box.hasSize)
+      _onScreen(box).deflate((Dim.minTouch - 28) / 2),
+];
+
+/// A small column to lay out alone, [width] wide.
+Future<RenderCardColumn> _pumpColumn(
+  WidgetTester tester, {
+  required double width,
+  double? maxHeight,
+  Size keepClear = Size.zero,
+  required List<Widget> children,
+}) async {
+  await tester.pumpWidget(
+    Directionality(
+      textDirection: TextDirection.ltr,
+      child: Align(
+        alignment: Alignment.topLeft,
+        child: SizedBox(
+          width: width,
+          child: CardColumn(
+            maxHeight: maxHeight,
+            keepClear: keepClear,
+            children: children,
+          ),
+        ),
+      ),
+    ),
+  );
+  return tester.renderObject<RenderCardColumn>(find.byType(CardColumn));
+}
+
+/// A block of a column: as wide as it is allowed, [height] tall.
+Widget _block(String key, double height) =>
+    SizedBox(key: ValueKey(key), width: double.infinity, height: height);
+
 void main() {
   setUpAll(_loadInter);
 
@@ -233,7 +326,8 @@ void main() {
         expect(fill.a, inInclusiveRange(0.94, 0.97));
       }
       expect(glass.cardBorder, const Color(0xFFE2E4E7));
-      expect(glass.glowStrength, inInclusiveRange(0.08, 0.15));
+      // "Light: about 3-6% tint; the card mostly white" (the final pass).
+      expect(glass.glowStrength, inInclusiveRange(0.03, 0.06));
     });
 
     test('by night is charcoal on a white hairline with a deeper shadow', () {
@@ -246,7 +340,8 @@ void main() {
       }
       expect(_sameRgb(glass.cardBorder, Colors.white), isTrue);
       expect(glass.cardBorder.a, closeTo(0.10, 0.01));
-      expect(glass.glowStrength, inInclusiveRange(0.20, 0.30));
+      // "Dark: about 15-25% ambient; no neon."
+      expect(glass.glowStrength, inInclusiveRange(0.15, 0.25));
       // A stronger light, reaching further, and a darker shadow than by day.
       expect(glass.glowReach, greaterThan(GlassColors.light.glowReach));
       double weight(List<BoxShadow> s) =>
@@ -332,6 +427,9 @@ void main() {
           card.visitChildren(visit);
           expect(bootSize, isNotNull, reason: 'the boot, among $seen');
           expect(bootSize, greaterThan(others * 1.4), reason: '$seen');
+          // "Prominent but not dominating" (the final pass): under twice the
+          // next largest words on the card, where it had been more.
+          expect(bootSize, lessThanOrEqualTo(others * 2), reason: '$seen');
         }
 
         final keys = _private('_SitCapsule').evaluate().toList();
@@ -417,4 +515,327 @@ void main() {
     await _unmount(tester);
     state.dispose();
   });
+
+  test('a card is spaced on the 4dp grid, and the app\'s own steps are left '
+      'as they were', () {
+    for (final step in [
+      CardSpace.s4,
+      CardSpace.s8,
+      CardSpace.s12,
+      CardSpace.s16,
+      CardSpace.s20,
+      CardSpace.s24,
+      CardSpace.s32,
+    ]) {
+      expect(step % 4, 0, reason: '$step');
+    }
+    // Every other screen is laid out on these.
+    expect(
+      [
+        Space.xxs,
+        Space.xs,
+        Space.sm,
+        Space.md,
+        Space.lg,
+        Space.xl,
+        Space.xxl,
+        Space.xxxl,
+      ],
+      [2, 4, 6, 10, 14, 20, 28, 40],
+    );
+  });
+
+  group('the rail', () {
+    // Where the rail puts its cards: Space.xl in, then the way back when there
+    // is one (a quarter of a card, never narrower than a finger and its
+    // margins) and its gap, then each card and the gap after it. The share of
+    // the first card that does not stand whole Space.xl clear of the edge, or
+    // null when every card does.
+    double? partShown({
+      required double side,
+      required double width,
+      required int cards,
+      required bool backTile,
+    }) {
+      var left =
+          Space.xl +
+          (backTile
+              ? math.max(Dim.minTouch + Space.xl, side * 0.26) + Space.lg
+              : 0.0);
+      for (var i = 0; i < cards; i++, left += side + Space.lg) {
+        if (left + side + Space.xl <= width) continue;
+        return (width - left) / side;
+      }
+      return null;
+    }
+
+    // Phones and a tablet as the rail finds them: its width, and the side its
+    // height allows.
+    for (final (width, fit) in [
+      (732.0, 270.6),
+      (844.0, 252.0),
+      (891.0, 269.6),
+      (915.0, 270.6),
+      (932.0, 285.4),
+      (1280.0, 400.0),
+    ]) {
+      for (final (cards, backTile) in [(3, false), (4, true), (5, true)]) {
+        test(
+          '$width wide, $cards cards${backTile ? ' behind the way back' : ''}'
+          ': whole cards and a glimpse, from no more than the height '
+          'allows',
+          () {
+            final side = lobbyRailSide(
+              fit: fit,
+              width: width,
+              cards: cards,
+              backTile: backTile,
+            );
+            expect(side, lessThanOrEqualTo(fit));
+            expect(side, greaterThanOrEqualTo(196));
+            final shown = partShown(
+              side: side,
+              width: width,
+              cards: cards,
+              backTile: backTile,
+            );
+            if (shown != null) expect(shown, inInclusiveRange(0.15, 0.6));
+            // And it gave up no more than it had to: half a dp more, and the
+            // rail no longer stops cleanly.
+            if (side < fit) {
+              final bigger = partShown(
+                side: side + 0.5,
+                width: width,
+                cards: cards,
+                backTile: backTile,
+              );
+              expect(bigger != null && (bigger < 0.15 || bigger > 0.6), isTrue);
+            }
+          },
+        );
+      }
+    }
+
+    test('keeps the side its height allows where only smaller cards than a '
+        'card\'s words fit in would stop cleanly', () {
+      // A 640dp phone's front: its third card, the private room, shows 61%;
+      // every card whole would take 190dp cards, too small for that card.
+      expect(
+        lobbyRailSide(fit: 227, width: 640, cards: 3, backTile: false),
+        227,
+      );
+      // Every card whole at the height's side: nothing to give up.
+      expect(
+        lobbyRailSide(fit: 400, width: 1280, cards: 3, backTile: false),
+        400,
+      );
+    });
+
+    for (final screen in [
+      const Size(732, 412),
+      const Size(844, 390),
+      const Size(891, 411),
+      const Size(915, 412),
+      const Size(932, 430),
+      const Size(1280, 800),
+    ]) {
+      final name = '${screen.width.toInt()}x${screen.height.toInt()}';
+      testWidgets('at $name every level stops on whole cards and a glimpse of '
+          'the next, and ends as far from the edge as it starts', (
+        tester,
+      ) async {
+        final state = _state();
+        await _pumpLobby(
+          tester,
+          state,
+          screen: screen,
+          brightness: Brightness.dark,
+        );
+        for (final open in <void Function()>[
+          () {},
+          () => state.openLobbyEngine(TableEngine.teenPatti),
+          () => state.openLobbyCategory(TableCategory.blind),
+        ]) {
+          open();
+          await _settle(tester);
+          expect(tester.takeException(), isNull);
+          final level = tester.widget<ListView>(_rail).key;
+          for (final shown in _cardsShown(tester)) {
+            expect(
+              shown <= 0.605 || shown >= 0.995,
+              isTrue,
+              reason: '$level: a card $shown on screen',
+            );
+          }
+
+          final scroll = tester.state<ScrollableState>(
+            // The rail's own, before any a card holds (the code field's).
+            find.descendant(of: _rail, matching: find.byType(Scrollable)).first,
+          );
+          scroll.position.jumpTo(scroll.position.maxScrollExtent);
+          await tester.pump();
+          final rail = _onScreen(tester.renderObject<RenderBox>(_rail));
+          final last = find
+              .descendant(of: _rail, matching: find.byType(AspectRatio))
+              .evaluate()
+              .map((e) => _onScreen(e.renderObject! as RenderBox))
+              .reduce((a, b) => a.right > b.right ? a : b);
+          if (scroll.position.maxScrollExtent > 0) {
+            expect(
+              rail.right - last.right,
+              closeTo(Space.xl, 0.5),
+              reason: '$level',
+            );
+          } else {
+            expect(
+              rail.right - last.right,
+              greaterThanOrEqualTo(Space.xl - 0.5),
+              reason: '$level',
+            );
+          }
+          scroll.position.jumpTo(0);
+          await tester.pump();
+        }
+        await _unmount(tester);
+        state.dispose();
+      });
+    }
+  });
+
+  group('a card\'s column', () {
+    testWidgets('where its blocks fit, stands as tall as they are and moves '
+        'nothing', (tester) async {
+      final column = await _pumpColumn(
+        tester,
+        width: 200,
+        maxHeight: 100,
+        children: [_block('a', 30), const CardGap(20), _block('b', 30)],
+      );
+      expect(column.scale, 1);
+      expect(column.squeeze, 0);
+      expect(column.size, const Size(200, 80));
+      expect(tester.getRect(find.byKey(const ValueKey('b'))).top, 50);
+    });
+
+    testWidgets('gives up its air before its words: each gap to half, and '
+        'no further than it must', (tester) async {
+      final column = await _pumpColumn(
+        tester,
+        width: 200,
+        maxHeight: 75,
+        children: [_block('a', 30), const CardGap(20), _block('b', 30)],
+      );
+      expect(column.scale, 1);
+      expect(column.squeeze, closeTo(0.5, 0.001));
+      expect(column.size.height, closeTo(75, 0.001));
+      expect(tester.getRect(find.byKey(const ValueKey('b'))).top, 45);
+      // A rule keeps its line and gives up only its air.
+      expect(RenderCardGap(height: 9, line: Colors.black).extentAt(1), 5);
+      expect(RenderCardGap(height: 8).extentAt(1), 4);
+      expect(RenderCardGap(height: 8).extentAt(0), 8);
+    });
+
+    testWidgets('then scales its words down as one, still as wide as the '
+        'card', (tester) async {
+      final column = await _pumpColumn(
+        tester,
+        width: 200,
+        maxHeight: 50,
+        children: [_block('a', 30), const CardGap(20), _block('b', 30)],
+      );
+      expect(column.squeeze, 1);
+      expect(column.scale, lessThan(1));
+      expect(column.size.height, lessThanOrEqualTo(50));
+      // Laid out wider and scaled back to the card's width, never shrunk
+      // towards its left edge.
+      for (final key in ['a', 'b']) {
+        expect(
+          tester.getRect(find.byKey(ValueKey(key))).width,
+          closeTo(200, 0.01),
+        );
+      }
+    });
+
+    testWidgets('keeps every block clear of the corner keys, however far it is '
+        'scaled', (tester) async {
+      // Four blocks where three fit: scaled to 0.75, the third rises beside
+      // the keys and is set short of them too.
+      const clear = Size(40, 50);
+      final column = await _pumpColumn(
+        tester,
+        width: 200,
+        maxHeight: 90,
+        keepClear: clear,
+        children: [
+          for (final key in ['a', 'b', 'c', 'd']) _block(key, 30),
+        ],
+      );
+      expect(column.scale, closeTo(0.75, 0.01));
+      final zone = Rect.fromLTWH(
+        200 - clear.width,
+        0,
+        clear.width,
+        clear.height,
+      );
+      for (final key in ['a', 'b', 'c', 'd']) {
+        final rect = tester.getRect(find.byKey(ValueKey(key)));
+        expect(rect.overlaps(zone), isFalse, reason: '$key at $rect');
+      }
+      // Below the keys, a block has the card's whole width.
+      expect(
+        tester.getRect(find.byKey(const ValueKey('d'))).width,
+        closeTo(200, 0.01),
+      );
+    });
+  });
+
+  for (final scale in [1.0, 1.25]) {
+    testWidgets('on a 640dp phone at text x$scale no card cuts a line short, '
+        'and no card\'s words run under its corner keys', (tester) async {
+      tester.platformDispatcher.textScaleFactorTestValue = scale;
+      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+      for (final (chips, open) in <(int, void Function(GameState))>[
+        (324500, (_) {}),
+        (324500, (s) => s.openLobbyCategory(TableCategory.blind)),
+        (600000000, (s) => s.openLobbyCategory(TableCategory.blind)),
+        (600000000, (s) => s.openLobbyCategory(TableCategory.fiveCardDraw)),
+      ]) {
+        final state = _state(chips: chips);
+        open(state);
+        await _pumpLobby(
+          tester,
+          state,
+          screen: const Size(640, 360),
+          brightness: Brightness.light,
+        );
+        expect(tester.takeException(), isNull);
+        final level = tester.widget<ListView>(_rail).key;
+        final discs = _cornerDiscs(tester);
+        final words = find.descendant(
+          of: find.byType(CardColumn),
+          matching: find.byType(RichText),
+        );
+        expect(words, findsWidgets);
+        for (final e in words.evaluate()) {
+          final paragraph = e.renderObject! as RenderParagraph;
+          final line = paragraph.text.toPlainText();
+          expect(
+            paragraph.didExceedMaxLines,
+            isFalse,
+            reason: '$level: "$line" cut short',
+          );
+          final rect = _onScreen(paragraph);
+          for (final disc in discs) {
+            expect(
+              rect.overlaps(disc),
+              isFalse,
+              reason: '$level: "$line" at $rect under a key at $disc',
+            );
+          }
+        }
+        await _unmount(tester);
+        state.dispose();
+      }
+    });
+  }
 }
