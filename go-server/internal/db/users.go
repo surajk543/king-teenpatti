@@ -522,10 +522,8 @@ const upsertAttempts = 5
 
 // UpsertFromProfile finds or creates the account behind a verified profile
 // (requirements 1, 2, 5, 7). One transaction: SELECT … FOR UPDATE by
-// provider identity; if found UPDATE display_name = profile.DisplayName (or
-// the existing name when empty — NOTE this overwrites any in-game rename on
-// every login, a known unresolved issue vs requirement 29), email =
-// COALESCE($2, email), avatar_url = COALESCE($3, avatar_url), updated_at =
+// provider identity; if found UPDATE email = COALESCE($1, email), avatar_url
+// = COALESCE($2, avatar_url), updated_at =
 // last_login_at = now → isNew=false. Else INSERT users (id util.UUID(),
 // chips = welcomeChips, created/updated/last_login = now) and the welcome
 // ledger row (hand_id NULL, action_id NULL, delta = balance = welcomeChips,
@@ -537,6 +535,14 @@ const upsertAttempts = 5
 // whole transaction is retried, which now finds the winner's row and takes
 // the UPDATE path — so exactly one account and one welcome_bonus row ever
 // exist (DECISIONS.md §5; Node answered that request with HTTP 500).
+//
+// The profile's display name is used ONLY for a new account (24 Sep 2026,
+// owner's "fix all bugs"; requirement 29). Node overwrote display_name with
+// the provider's name on every login, so a name the player chose in the game
+// was clobbered the next time they signed in — for a guest, by the generated
+// "Guest8D049" whenever the login screen's name field was left empty. Once the
+// account exists the name is the player's: POST /api/profile/name is the one
+// way to change it. Email and the provider photo still refresh.
 func (u *Users) UpsertFromProfile(ctx context.Context, p Profile) (user *User, isNew bool, err error) {
 	// Captured before BEGIN, as Node does (`const timestamp = now()`).
 	timestamp := now(u.clock)
@@ -564,25 +570,20 @@ func (u *Users) upsertOnce(ctx context.Context, p Profile, timestamp int64) (use
 		}
 
 		if existing != nil {
-			displayName := p.DisplayName
-			if displayName == "" {
-				displayName = existing.displayName // Node: `profile.displayName || existing.display_name`
-			}
 			if _, err := tx.Exec(ctx, `UPDATE users
-            SET display_name  = $1,
-                email         = COALESCE($2, email),
-                avatar_url    = COALESCE($3, avatar_url),
+            SET email         = COALESCE($1, email),
+                avatar_url    = COALESCE($2, avatar_url),
                 -- OR, never assignment: a login that is not recognised as a
                 -- bot leaves the mark alone. The fleet rotates a broke bot
                 -- into a fresh identity and the prefix follows it, so this is
                 -- belt and braces — but an account wrongly cleared would be
                 -- indistinguishable from a person for ever after, and the
                 -- whole value of the column is that it can be trusted.
-                is_bot        = users.is_bot OR $4,
-                updated_at    = $5,
-                last_login_at = $5
-          WHERE id = $6`,
-				displayName, p.Email, p.AvatarURL, p.IsBot, timestamp, existing.id); err != nil {
+                is_bot        = users.is_bot OR $3,
+                updated_at    = $4,
+                last_login_at = $4
+          WHERE id = $5`,
+				p.Email, p.AvatarURL, p.IsBot, timestamp, existing.id); err != nil {
 				return err
 			}
 			row, err := selectUser(ctx, tx, u.userFrom(), existing.id)

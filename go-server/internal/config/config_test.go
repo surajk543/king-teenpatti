@@ -314,20 +314,34 @@ func TestProductionGuards(t *testing.T) {
 	if err == nil || err.Error() != "JWT_SECRET must be set in production" {
 		t.Errorf("default secret in production: %v", err)
 	}
-	_, err = FromEnv(env(map[string]string{"NODE_ENV": "production", "JWT_SECRET": "x", "AUTH_ALLOW_FAKE_PROVIDERS": "true"}))
+	strong := "0123456789abcdef0123456789abcdef" // 32 bytes
+	_, err = FromEnv(env(map[string]string{"NODE_ENV": "production", "JWT_SECRET": strong, "AUTH_ALLOW_FAKE_PROVIDERS": "true"}))
 	if err == nil || err.Error() != "AUTH_ALLOW_FAKE_PROVIDERS must be false in production" {
 		t.Errorf("fake providers in production: %v", err)
 	}
-	// Node: an empty JWT_SECRET is not the sentinel, so it passes the guard.
-	if _, err := FromEnv(env(map[string]string{"NODE_ENV": "production", "JWT_SECRET": ""})); err != nil {
-		t.Errorf("empty secret passes Node's guard: %v", err)
-	}
-	if _, err := FromEnv(env(map[string]string{"NODE_ENV": "production", "JWT_SECRET": "long-random"})); err != nil {
+	if _, err := FromEnv(env(map[string]string{"NODE_ENV": "production", "JWT_SECRET": strong})); err != nil {
 		t.Errorf("valid production config: %v", err)
+	}
+	// Outside production a short secret is still fine (dev, tests).
+	if _, err := FromEnv(env(map[string]string{"JWT_SECRET": "x"})); err != nil {
+		t.Errorf("development with a short secret: %v", err)
 	}
 	// Outside production both are fine.
 	if _, err := FromEnv(env(map[string]string{"AUTH_ALLOW_FAKE_PROVIDERS": "true"})); err != nil {
 		t.Errorf("development with fake providers: %v", err)
+	}
+}
+
+// An empty or short secret signs sessions anyone can forge (auth-1, 24 Sep
+// 2026): production refuses to boot on one, where Node let every value but the
+// default through.
+func TestProductionRefusesAnEmptyOrShortJWTSecret(t *testing.T) {
+	want := "JWT_SECRET must be at least 32 bytes in production"
+	for _, secret := range []string{"", "x", "long-random", "0123456789abcdef0123456789abcde"} {
+		_, err := FromEnv(env(map[string]string{"NODE_ENV": "production", "JWT_SECRET": secret}))
+		if err == nil || err.Error() != want {
+			t.Errorf("JWT_SECRET=%q in production: %v, want %q", secret, err, want)
+		}
 	}
 }
 

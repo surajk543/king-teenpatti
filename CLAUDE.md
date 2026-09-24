@@ -61,7 +61,7 @@ king-teenpatti/
 ├── recordings/                   empty local dir (no root .gitignore; git doesn't show it)
 ├── docs/load-reports/            ramp-test reports, HTML + JSON (2026‑09‑08 production runs; formerly server/loadtest-report/)
 ├── go-server/                    THE server (§14): Go 1.27, module github.com/surajk543/king-teenpatti/go-server
-│   ├── cmd/gameplay/main.go      entrypoint: godotenv .env → config → db → app → listen; SIGTERM = graceful 8 s; -version
+│   ├── cmd/gameplay/main.go      entrypoint: godotenv .env → config → db → app → listen; SIGTERM = graceful max(8 s, statement timeout + 5 s); -version
 │   │                         tableconfig.go: -export-table-config (the env-composed table catalogue as a psql script on stdout) and
 │   │                         -check-table-config (reads the database's catalogue WITHOUT migrating, judges it as a db boot would; exit 0/1/2) — both run before the server, §4
 │   ├── internal/
@@ -246,7 +246,7 @@ npm run parity:diff -- --a go --b http://127.0.0.1:3000 --schema-b public   # fr
 Find/stop the server safely (read §12.1 before reaching for `pkill`):
 ```bash
 ss -lptn 'sport = :3000'                      # shows the PID
-kill <pid>                                    # SIGTERM: settles live pots, closes sockets, exits within 8 s
+kill <pid>                                    # SIGTERM: settles live pots, closes sockets, exits within max(8 s, PG_STATEMENT_TIMEOUT_MS + 5 s)
 nohup ./bin/gameplay > /tmp/server.log 2>&1 &        # start in a SEPARATE command from the kill (from go-server/)
 ```
 
@@ -360,8 +360,8 @@ and the transactions that DO run have this shape:
   `RoomManager.SetPlayerAvatar` → `Table.SetAvatar`, which updates the seat and emits state).
   **The lobby side is serialised with taking a seat** (13 Sep 2026, after a race that could create chips): every lobby door
   (quickJoin, joinCode, create, the resume auto-join) reads the wallet (`RoomManagerOptions.LoadPlayer`) under the player's
-  seat-lock stripe, and every lobby-only wallet change — a COIN picture, the rewards — runs inside `RoomManager.WhileUnseated`
-  under the same stripe, as does a Play chip pack (`CreditBoughtChips`: the database credit and the seat top-up together), each
+  seat-lock stripe, and every lobby-only wallet change — a COIN picture, the rewards, and since 24 Sep 2026 `DELETE /api/account`
+  (§7.2) — runs inside `RoomManager.WhileUnseated` under the same stripe, as does a Play chip pack (`CreditBoughtChips`: the database credit and the seat top-up together), each
   on a context of its own rather than the request's. A purchase can therefore never land between a join's wallet read and its
   seat. While a table's refused hand-end settle is still retrying (`TableOptions.SettlementOwed` → the manager's `owed` count)
   or a destroyed table is still settling a seat (`departing`), that player gets 409 `seated` for lobby wallet changes and the
@@ -770,7 +770,8 @@ Handshake: JWT in `handshake.auth.token`; `io.use` is async (`await findById`). 
 user (`session:replaced` to the old one). On connect: `session:ready {user, config}`; if still seated
 → `room:joined` + `chat:history` (**why restarted bots land on their previous table**).
 
-`guard`: rate limit **30/5s per socket** (a trip acks `{ok:false, code:'rate_limited'}` **and** emits
+`guard`: rate limit **30/5s per socket, and (Go, 24 Sep 2026) the same 30/5s per ACCOUNT** — a second limiter keyed on the
+user survives a reconnect, which used to reset the count (`userLimiters`, pruned by the presence heartbeat) — (a trip acks `{ok:false, code:'rate_limited'}` **and** emits
 `game:error rate_limited` — both servers; the old "no ack" note was stale), then ack
 `{ok:true,…}` or `{ok:false, code, message}` **and** `game:error` (reported twice — clients dedupe).
 
@@ -848,7 +849,7 @@ leaving, `resumeOffers.set(userId, {roomId, at})`. On connect: if still seated �
 re-sent (resume); else `takeResumeOffer(userId)` (fresh within `resumeOfferMs`, table alive and not full, offered
 once) rides on `session:ready.resume {roomId, code, category, bootAmount}` and the Flutter client auto-joins it
 with `room:joinCode`. Voluntary leave / kick never create an offer (the grace timer finds no seat).
-`room:switch` must `untrackRoom` *before* `switchTable` and re-track on failure.
+`room:switch` must `untrackRoom` *before* `switchTable` and re-track on failure; on success it untracks every table but the RESULT's `To`, and `room:moved` (`OnPlayerMoved`) is ignored unless the player is still seated at its target — a consolidation racing a switch left the socket subscribed to a table it was not seated at (24 Sep 2026).
 
 ### 7.2 REST (`auth/routes.js` → `internal/auth/http.go` + `handlers.go`)
 `POST /api/auth/login {provider: google|guest, idToken|deviceId, displayName?}`
@@ -885,6 +886,12 @@ account, which Google Play requires of any app that creates one; this game creat
 launch, so it applies to everybody. **409 `seated`** first ("Leave the table before deleting your
 account"): a seated wallet is only banked at the three checkpoints (§5.1), so emptying it mid-hand
 would settle that hand against a balance that has stopped existing. Otherwise 200 `{deleted:true}`.
+**Since 24 Sep 2026 the deletion runs INSIDE `Deps.WhileUnseated`** (`RoomManager.WhileUnseated`, the seat-lock stripe, §5.1)
+rather than after an unlocked `isSeated` look, which a quickJoin or switch could beat — seating a deleted account with the chips
+`account_deleted` had just removed, the winner then paid chips that no longer existed — and it answers 409 `seated` too while the
+player is departing or owed a refused settle. `lockWallet` also skips a deleted row (`deleted_at = 0`), so no checkpoint ever lands
+on one, and the player's sockets are ended (`Deps.AccountDeleted` → `socket.Handler.EndSession`); a request that still reaches the
+socket layer for a deleted account is `unknown_user` and ends the session (it was `internal_error` + an ERROR line).
 `db.Users.DeleteAccount` **pseudonymises** — the row stays (the `users_no_delete` trigger and the
 ledger's CASCADE both forbid removing it), emptied of display name, email, `avatar_url`,
 `active_picture_id` and the provider identity, with `deleted_at` stamped; clearing the identity is
@@ -895,7 +902,8 @@ its signature but names nothing, since `selectUser` filters deleted rows → `un
 client rotates the **device id** as well as dropping the token (`GameState.deleteAccount`), or a
 guest would sign straight back into the id just freed. Public page: `/account-deletion/` (served in
 production because `ROOT_REDIRECT` hides only top-level files, §7.4), linked from `privacy/`;
-`GET /api/rooms` (no client);
+`GET /api/rooms` (no client; **signed-in only, and no `code`/`pot` per table since 24 Sep 2026** — it handed anyone every live
+table's join code and pot; `app.RoomListing`);
 **`GET /api/tables`** (Go only, 23 Sep 2026; `app/tableconfig.go` `tablesHandler`) — **the table catalogue this
 process enforces**, served from memory (`RoomManager.TableConfig()`, never a fresh database read, which could show a
 client an edit the process does not play by until its next start). **Public**: no token, since the app fetches it
@@ -951,7 +959,8 @@ is no Apple counterpart**, which is why the Flutter chip store does not start on
 packs: `missiles_1` (15 diamonds for 1 — 10 until the owner raised it later on 14 Sep 2026), `missiles_5` (73 for 5), `missiles_10` (140 for 10), `missiles_20` (220 for 20), in one transaction under the
 wallet lock (`db.Missiles.TradeMissiles`), replay-guarded by `missile_purchases` (`request_id` = `<userId>:<requestId>`).
 Answers `{user, charged, diamonds, missiles}` — `charged:false` with 0 and 0 on a replay; 400 `unknown_pack` /
-`invalid_request_id`, 409 `not_enough_diamonds`. Allowed while seated: diamonds and missiles sit outside §5.1;
+`invalid_request_id` (a non-string `requestId` is `invalid_request_id`, each field read on its own — 24 Sep 2026; it spoiled the
+whole decode and read as `unknown_pack`), 409 `not_enough_diamonds`. Allowed while seated: diamonds and missiles sit outside §5.1;
 `GET /health` (since 23 Sep 2026 it ends with `tableConfig: {source, version, fallback}` — where the tables came
 from; `fallback:true` is a `TABLE_CONFIG_SOURCE=db` boot that could not use the database's catalogue and runs the env
 composition, the one state an operator must go and fix). Errors `{error: code, message}`. Guest id = `sha256('teenpatti:'+deviceId)`, deviceId
@@ -1226,11 +1235,12 @@ columns); `PRIVATE_*` → the private templates. `gameplay -export-table-config`
 | Env | Default | Purpose |
 |---|---|---|
 | **`TABLE_CONFIG_SOURCE`** | unset → `env` if ANY † key is set, else `db` | **Go-only (23 Sep 2026).** `db` — the table catalogue in PostgreSQL; `env` — the † keys and `Defaults()`, composed exactly as every build before it did (the rows are seeded but not read). Anything else stops the boot. **Unset, it follows the † keys**, so a deployment whose `.env` pins its menu (production's names `LOBBY_TABLES`) keeps exactly that menu on deploy until someone switches it on purpose — one WARN then says how (export, check, set `db`, restart: DEPLOY.md §3). `Defaults()` and `.env.example` say `db`. A db boot whose catalogue cannot run a lobby logs ERROR and runs the env composition instead (`/health.tableConfig` `{source:"env", fallback:true}`). Tests (`internal/app`'s `testConfig`), the parity harness (`BASE_ENV` names `env`; only the `menu` profile runs `db`, §7.6), `parity-diff`, chiptest and crashtest name `env` — they configure clocks and menus through the † keys and rely on `LOBBY_TABLES=''` meaning any pair, which a db catalogue has no equivalent of. |
-| `NODE_ENV` | development | `production` refuses to start on the default JWT secret / fake providers (the Go binary keeps the key name; the unit sets it) |
+| `NODE_ENV` | development | `production` refuses to start on the default JWT secret, on a JWT secret shorter than **32 bytes** (the empty one included — Go only, 24 Sep 2026: an empty HMAC key let anyone forge a session for any user id), or with fake providers (the Go binary keeps the key name; the unit sets it) |
 | `PORT` / `HOST` / `CORS_ORIGIN` | 3000 / 0.0.0.0 / `*` | |
 | `JWT_SECRET` / `JWT_EXPIRES_IN` | dev-only-insecure-secret / 30d | |
 | `GOOGLE_CLIENT_IDS`, `FACEBOOK_APP_ID/SECRET` | empty → 503 | Facebook's pair is read and unused while Facebook sign-in is switched off (23 Sep 2026, §7.2) |
 | `AUTH_ALLOW_FAKE_PROVIDERS` | false | |
+| **`REST_LOGIN_RATE_LIMIT`** / **`REST_WALLET_RATE_LIMIT`** / **`REST_RATE_WINDOW_MS`** | 60 / 120 / 60000 | **Go-only (24 Sep 2026).** Per-client-IP fixed-window limits (`config.RESTRateConfig`, `auth/ratelimit.go`): `POST /api/auth/login`, and the doors that move a wallet (rewards, Play purchases, picture and table-picture buys, the missile store, `DELETE /api/account`). Over it: **429** `{error:"rate_limited"}` + `Retry-After`, one WARN `rest rate limited` per IP per window. 0 = that limit off. The IP is the peer's, or nginx's `X-Real-IP` from a loopback peer; a loopback peer with no `X-Real-IP` (bot-play, `tools/`, tests) is never limited. Generous on purpose — CGNAT puts many players behind one IP. |
 | **`DATABASE_URL`** | `postgres://postgres:postgres@localhost:5432/gameplay` | |
 | **`PG_SCHEMA`** | `public` | tests use `test_<suite>_<rand>` and drop it after |
 | **`PG_POOL_MAX`** | 10 | |
@@ -2097,13 +2107,17 @@ final t = state.t;` at the top of `build`; M3 roles via `theme.colorScheme`; `.w
   RoomManager attaches both listeners. Bare unit-test tables don't.
 - `_endHand` credits the winner in memory only when `balances` **lacks the key** — a returned
   balance of exactly 0 is valid; never `|| fallback`.
-- Every login **overwrites `display_name`** with the provider's name — a rename is clobbered on next
-  login (known, unresolved vs. req. 29).
+- **A login names only a NEW account** (Go, 24 Sep 2026, fixing req. 29): `UpsertFromProfile` writes the profile's
+  `display_name` on INSERT only; later logins refresh email and the provider photo and leave the name alone, so a rename
+  (`POST /api/profile/name`) survives — Node overwrote it at every login, a guest's with the generated `Guest8D049`.
 - Rate-limit trips ack `{ok:false, code:'rate_limited'}` (both servers). `room:create` does not
   `broadcastState`. `roomCode()` has no collision check in Node (Go regenerates until unique).
   `sweepEmptyTables` uses a hardcoded 30s. `handsToNextMilestone` says 25 (not 0)
   at an exact multiple — use `milestoneAvailable`.
-- Dead surface with no caller: `GET /api/rooms`, inbound `lobby:list`, `chat:history`, `ping:rtt`.
+- Dead surface with no caller: `GET /api/rooms` (signed-in only since 24 Sep 2026, no codes or pots), inbound `lobby:list`, `chat:history`, `ping:rtt`.
+- **HTTP answers carry `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`** (24 Sep
+  2026, `app.setSecurityHeaders`; not on `/socket.io/`), and a signed-in answer or a login is `Cache-Control: no-store`
+  (`auth.RequireAuth`, `Login`); `GET /api/tables` keeps its own `no-cache` + ETag. HSTS is nginx's.
   (`GET /api/auth/me/hands` was **removed** on 9 Sep 2026 with the `hands` table — it now 404s.)
 - **SQLite is gone entirely** (file, driver, import tool). The 41 old accounts (4,494 hands, 16,471
   ledger rows) were imported once on 2026‑09‑07; 12 of them didn't reconcile (the old `kicktest.mjs`
@@ -2268,7 +2282,8 @@ deploy runbook; `steps.txt` the six-line routine.
   client behind a 302 to the Grafana login in production, §7.4) and `PG_STATEMENT_TIMEOUT_MS`
   (default 15000; `0` = Node's no-limit behaviour). Integers parse strictly; unknown `LOBBY_TABLES`
   categories fail at load; `NODE_ENV=production` refuses the default `JWT_SECRET` and fake providers
-  exactly like Node. Since 23 Sep 2026 `TABLE_CONFIG_SOURCE` decides whether the TABLE keys are read at all (§7.4):
+  exactly like Node — and, Go only since 24 Sep 2026, any `JWT_SECRET` under 32 bytes (DEPLOY.md: check production's before
+  deploying). Since 23 Sep 2026 `TABLE_CONFIG_SOURCE` decides whether the TABLE keys are read at all (§7.4):
   in db mode `app.New` loads the catalogue from PostgreSQL once, validates it — a bad row is left out with an ERROR and
   the boot carries on; an unusable catalogue falls back to the env composition — and lays it over `GameConfig`
   (`WithCatalogue`) on its own copy of the Config, before the socket layer, the REST handler and the RoomManager are
@@ -2364,7 +2379,9 @@ the ledger check. One-time after the first Go deploy: re-import
 (`POST /api/dashboards/db`, `overwrite:true`), point Prometheus's `rule_files` at
 `go-server/ops/monitoring/prometheus/alerts.yml` (the path moved) and `sudo systemctl reload prometheus` —
 commands in DEPLOY.md §6. Restart semantics are Node's: SIGTERM → live pots settled (first active seat,
-`all_left`), sockets closed, exit within 8 s (`TimeoutStopSec=15`). Node stays installed on the host only
+`all_left`), sockets closed, exit within `max(8 s, PG_STATEMENT_TIMEOUT_MS + 5 s)` — 20 s by default since 24 Sep 2026, so an
+actor stuck in a stalled write still settles its pot; a budget that runs out logs `shutdown budget ran out; rooms abandoned`
+with the ids (`TimeoutStopSec=30`, was 15 — the installed unit is a copy: re-copy it and `daemon-reload`, DEPLOY.md). Node stays installed on the host only
 for `tools/`.
 
 **The table-catalogue release (23 Sep 2026) is a two-step deploy** (DEPLOY.md §3 has every command). Production's

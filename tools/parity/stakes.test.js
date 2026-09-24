@@ -91,7 +91,7 @@ test('the lobby offers exactly the four stakes and the twelve tables, in menu or
   assert.equal(ready.config.privateMaxPot, 500000);
   assert.equal(ready.config.maxBetRounds, 20, 'the default; per-category caps are applied at the table');
 
-  const rooms = await http('GET', '/api/rooms');
+  const rooms = await http('GET', '/api/rooms', { token: account.token });
   assert.equal(rooms.status, 200);
   assert.deepEqual(rooms.body.options.stakes, [200, 5000, 50000, 1000000]);
   assert.deepEqual(rooms.body.options.tables, MENU);
@@ -149,7 +149,7 @@ test('every room on the menu can be joined, and the ceiling a card advertises is
     assert.equal(row.state, 'waiting');
     assert.equal(row.pot, 0);
   }
-  const rest = await http('GET', '/api/rooms?category=blind');
+  const rest = await http('GET', '/api/rooms?category=blind', { token: (await guestLogin('device-parity-menu-rooms', 'Rooms')).token });
   assert.equal(rest.body.tables.length, MENU.filter((e) => e.category === 'blind').length);
   assert.ok(rest.body.tables.every((t) => t.category === 'blind'));
   await closeAll(...clients);

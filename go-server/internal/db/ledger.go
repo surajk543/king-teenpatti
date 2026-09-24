@@ -234,10 +234,13 @@ func Classify(err error) *game.GameError {
 
 // lockWallet: SELECT chips … FOR UPDATE; unknown_user when no row. Locking
 // first, then reading, is what stops two bets from the same account racing
-// past the balance check.
+// past the balance check. A deleted account (deleted_at set) reads as no row
+// (24 Sep 2026): its wallet was emptied through account_deleted, so a
+// checkpoint that still found it would record a debit the zero floor then
+// hid, and SUM(delta) would stop equalling chips for that account.
 func lockWallet(ctx context.Context, tx pgx.Tx, userID string) (int64, error) {
 	var chips int64
-	err := tx.QueryRow(ctx, `SELECT chips FROM users WHERE id = $1 FOR UPDATE`, userID).Scan(&chips)
+	err := tx.QueryRow(ctx, `SELECT chips FROM users WHERE id = $1 AND deleted_at = 0 FOR UPDATE`, userID).Scan(&chips)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return 0, game.Errorf(game.CodeUnknownUser, "unknown user %s", userID)
 	}
