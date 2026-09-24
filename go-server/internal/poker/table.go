@@ -596,16 +596,29 @@ func (t *Table) seatsInHand() []*seat {
 }
 
 // fundedSeats: seats that can be dealt in — at least the buy-in, or, once
-// seated, at least a full boot (a short stack may play down; it is the door
+// seated, at least dealInChips (a short stack may play down; it is the door
 // that asks for the buy-in).
 func (t *Table) fundedSeats() []*seat {
 	out := make([]*seat, 0, len(t.seats))
 	for _, s := range t.seats {
-		if s != nil && s.chips >= t.cfg.BootAmount {
+		if s != nil && s.chips >= t.dealInChips() {
 			out = append(out, s)
 		}
 	}
 	return out
+}
+
+// dealInChips is the smallest stack dealt into a hand, and so the line below
+// which a seat is unfunded (sweepUnfunded, expireUnfunded): one boot — the
+// big blind or the ante — except against the house, where a hand costs the
+// ante AND the play bet (2 × ante). A 3-Card Poker stack of exactly one ante
+// used to be dealt in, put all of it in as the ante and be offered only a
+// fold: the ante lost with certainty (24 Sep 2026 review, PM-3).
+func (t *Table) dealInChips() int64 {
+	if t.cfg.Variant.HasDealer {
+		return 2 * t.cfg.BootAmount
+	}
+	return t.cfg.BootAmount
 }
 
 func (t *Table) findSeat(userID string) *seat {
@@ -860,8 +873,8 @@ func (t *Table) cancelStart() {
 	t.emitState()
 }
 
-// sweepUnfunded (requirements 31/32): between hands, a seat below the boot
-// is held for UnfundedGrace and then shown out with insufficient_chips.
+// sweepUnfunded (requirements 31/32): between hands, a seat below
+// dealInChips (the boot; 2 × ante against the house) is held for UnfundedGrace and then shown out with insufficient_chips.
 func (t *Table) sweepUnfunded() {
 	if t.hand != nil {
 		return
@@ -869,7 +882,7 @@ func (t *Table) sweepUnfunded() {
 	now := t.clock.Now()
 	granted := false
 	for _, s := range t.occupiedSeats() {
-		if s.chips >= t.cfg.BootAmount {
+		if s.chips >= t.dealInChips() {
 			if s.unfundedUntil != nil {
 				s.unfundedUntil = nil
 				t.MarkDirty()
@@ -911,7 +924,7 @@ func (t *Table) expireUnfunded() {
 		if s.unfundedUntil == nil || s.unfundedUntil.After(now) || s.kickPending {
 			continue
 		}
-		if s.chips >= t.cfg.BootAmount {
+		if s.chips >= t.dealInChips() {
 			s.unfundedUntil = nil
 			t.MarkDirty()
 			continue
