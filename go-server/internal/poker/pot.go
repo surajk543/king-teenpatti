@@ -21,9 +21,14 @@ type Pot struct {
 // level holds (level − previous level) from every seat that contributed at
 // least that much, and is open to the in-hand seats among them. Consecutive
 // pots open to exactly the same seats are merged, so a hand with no all-in
-// has one pot. A pot nobody in hand reached (everyone at that level folded)
-// is folded into the pot before it — the chips are somebody's — or, when it
-// is the first, into the next.
+// has one pot. A pot nobody in hand reached (everyone at that level folded
+// or left) is DEAD MONEY: it is folded into the pot before it — the highest
+// pot a player still in can win — or, when there is none (the players still
+// in put nothing in), opened to every seat still in. A folded or departed
+// player's chips never come back to them, even the part nobody matched
+// (CLAUDE.md §6.1: leaving mid-hand = pack, the stake stays); only a player
+// STILL IN gets back an excess nobody could call, as the single-eligible top
+// pot. Every chip of contrib is in exactly one pot.
 func SidePots(contrib map[int]int64, inHand map[int]bool) []Pot {
 	var levels []int64
 	seen := map[int64]bool{}
@@ -69,7 +74,20 @@ func SidePots(contrib map[int]int64, inHand map[int]bool) []Pot {
 		case i+1 < len(pots):
 			pots[i+1].Amount += pots[i].Amount
 		default:
-			continue // nobody at all: left as it is for the caller to refund
+			// No pot anybody in hand reached: every chip was put in by
+			// players who have folded or left, while the one(s) still in
+			// put in nothing (the blinds walking out on the first player
+			// to act). The chips are dead money and go to whoever is
+			// still in — never to nobody, which destroyed them. With
+			// nobody in hand at all it stays unclaimed for the caller to
+			// refund.
+			for seat, in := range inHand {
+				if in {
+					pots[i].Eligible = append(pots[i].Eligible, seat)
+				}
+			}
+			sort.Ints(pots[i].Eligible)
+			continue
 		}
 		pots = append(pots[:i], pots[i+1:]...)
 		i--

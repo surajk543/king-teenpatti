@@ -530,7 +530,12 @@ showRequestedBy, sideshow, lastDeparture, turnDeadline, turnToken, contributions
   checking the settings' cap as well would refuse a player the row lets in.
 - `switchTable` (**async**): same boot+category, a **random** other public non-full table (Go, owner 13 Sep 2026 —
   `pickRandomTableLocked`, crypto/rand; Node took the fullest, which quickJoin still does), **no entry cap**, leaves with reason `'moved'`
-  (skips consolidation). `leave`, `destroyTable`, `consolidateTables`, `sweepEmptyTables`,
+  (skips consolidation). **Since 24 Sep 2026 (owner, "fix all bugs") a switch is refused `insufficient_chips` BEFORE the
+  seat is given up when the seat's stack does not cover the target's boot or a poker room's buy-in**
+  (`assertAdmitsMove`): a short seat used to hop tables to restart its unfunded grace for ever, and a poker stack below the
+  buy-in was vacated, refused by the target and then by its own room's buy-in on the way back — seated nowhere. The stack
+  BAND is still not applied on a switch (a band is an entry rule, `TestRoomsSwitchIgnoresTheStackBand`), nor the entry cap.
+  `leave`, `destroyTable`, `consolidateTables`, `sweepEmptyTables`,
   `_movePlayer`, `shutdown` are **async** and must be awaited. `leave` deletes `playerRooms` *before*
   awaiting the removal.
 - `createTable`: public seen → `{maxRaiseSteps: 2, maxBetRounds: 7, maxPot: 2_000_000}`; private →
@@ -569,7 +574,10 @@ showRequestedBy, sideshow, lastDeparture, turnDeadline, turnToken, contributions
   the card let through while quick-join kept choosing it. A private room is never drained — its code is its
   only door.
 - Sweeper interval (unref'd): merges lone players on idle public tables of the same
-  `category:boot` into the oldest (undrained, above); sweeps empty tables older than a **hardcoded** 30s.
+  `category:boot` into the oldest (undrained, above); sweeps empty tables older than a **hardcoded** 30s. Every consolidation
+  move (not only a drained one's) now needs a stack that covers the target's boot / poker buy-in (`assertAdmitsMove`, 24 Sep
+  2026): a poker player who had played below the buy-in was moved off, refused, and could not be put back. Such a player
+  simply stays where they are. `review_switch_admission_test.go`.
 
 ### 6.3 `handRank.js` / `deck.js` (→ `handrank.go` / `deck.go`)
 `HIGH_CARD 0 < PAIR < COLOR < SEQUENCE < PURE_SEQUENCE < TRAIL 5`. Runs: **A-K-Q > A-2-3 > K-Q-J >
@@ -686,14 +694,23 @@ house), **`five_card_draw`**, **`texas_holdem`** and **`omaha`**. `Category.Game
   blind), `allIn` puts the stack in whatever the street's bet is, a street ends when every live seat has acted and
   matched (or is all-in); when nobody left can act the remaining board is run out. **Side pots** (`SidePots`) by
   contribution level, each paid to the best hand among its eligible seats, odd chips clockwise from the button
-  (`Award`); everyone folding to one player ends it `last_standing` with no reveal. Omaha's hand is **exactly two**
+  (`Award`); everyone folding to one player ends it `last_standing` with no reveal. **Dead money** (24 Sep 2026, owner "fix
+  all bugs"): a folded or departed player's chips never come back to them, even the part nobody matched — they go to the
+  highest pot a player still in can win, and when the players still in put nothing in (the blinds walking out on the first
+  player to act) the pot is opened to them; it used to be paid to nobody and the blinds were destroyed. The last player
+  standing gets a hand-end row even with 0 chips in (`settle` skipped it). Only a player STILL IN gets back an excess nobody
+  could call. **An all-in for less than a full raise does not reopen the betting**: whoever has acted since the last full
+  raise may call or fold only (`raiseTo` resets `acted` only on a full raise, `mayRaise`), and **no raise is offered when no
+  other player still in can act** (every opponent all-in). `review_money_fixes_test.go`. Omaha's hand is **exactly two**
   hole cards and three board cards (`BestOmaha`), never five of nine; Hold'em's the best five of seven (`BestHoldem`).
 - **5-Card Draw**: an ante each, five cards, `predraw` betting, then the **draw** in turn from the button's left —
   `{action:"draw", cards:[…]}` names up to `maxDiscards` of the player's own cards (none = stand pat; a card not held,
   one named twice or too many → `invalid_discard`), the room announces only HOW MANY (`poker:draw`) and re-sends the
   new hand to its owner (`poker:cards`) — then `postdraw` betting and the showdown.
 - **3-Card Poker** (`flow_threecard.go`): every participant antes, three cards each and three to the dealer; in turn
-  each player **plays** (a second bet equal to the ante) or **folds** (the ante is the house's); then the dealer turns
+  each player **plays** (a second bet equal to the ante) or **folds** (the ante is the house's) — so a seat is dealt in only
+  holding **2 × ante** (`dealInChips`, 24 Sep 2026; below it the seat is unfunded, held for the grace and shown out, where a
+  stack of one ante used to be dealt in and offered only a fold); then the dealer turns
   up: **qualifies with queen-high or better** (`DealerQualifies`) — not qualified: play bet returned and ante paid 1:1
   to everyone still in; qualified: each hand against the dealer's, win → both bets paid 1:1, lose → both taken, tie →
   push. The ranking is `Evaluate3` — `game.Evaluate` with ace-low-lowest, **Straight Flush > Three of a Kind >
@@ -1989,8 +2006,9 @@ Teen Patti and Poker, in front of them) ·
 pictures plus premium ones bought with chips, diamonds or (since 14 Sep 2026) hammers; not locked when seated since 13 Sep 2026 — worn at the table, and a diamond or hammer one bought there) · 22 private table · 23 landscape/M3 ·
 24 merge lone rooms · 25 leave confirm · 26 4h bonus top-left (the daily bonus bottom-left) · 27 milestone bottom-right ·
 28 square cards + sweep · 29 display name · 30 entry cap (not on switch; generalised 12 Sep 2026 to a per-table
-**stack band** — `config.LobbyTable.MinChips/MaxChips`, in db mode a row's `min_chips`/`max_chips`, enforced by `assertWithinTableBand` on every route into a
-seat, shown on every lobby card) · 31 3 auto-packs → kick,
+**stack band** — `config.LobbyTable.MinChips/MaxChips`, in db mode a row's `min_chips`/`max_chips`, enforced by `assertWithinTableBand` on every LOBBY door into a
+seat (quick-join, join by code, create), shown on every lobby card; a switch or a consolidation move within the pair is exempt, as from the cap —
+a band decides who may sit down, not who may stay or move sideways — though since 24 Sep 2026 both need the target's boot / poker buy-in) · 31 3 auto-packs → kick,
 below boot → kick · 32 boot deducted at start · 33 sideshow · 34 Indian numbering + toggle.
 Verbal additions: menu = exactly seen 200 / blind 200 / blind 5000; seen pot cap 1.2M; buy-chips
 button; category tag; winner chip flight; action-bar icons; chat as left drawer; missed-turn warning.
