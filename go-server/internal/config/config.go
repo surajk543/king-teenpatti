@@ -838,6 +838,10 @@ func FromEnv(lookup Lookup) (*Config, error) {
 	return c, nil
 }
 
+// MinProductionJWTSecretBytes is the shortest JWT_SECRET production accepts:
+// 32 bytes, the HS256 output size (`openssl rand -hex 32` gives 64).
+const MinProductionJWTSecretBytes = 32
+
 // schemaPattern is db/index.js's `/^[A-Za-z_][A-Za-z0-9_]*$/` — the schema
 // name is interpolated into DDL and a connection option, so it must be a
 // plain identifier.
@@ -850,10 +854,19 @@ var schemaPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 // ("AUTH_ALLOW_FAKE_PROVIDERS must be false in production"). It also rejects
 // a DB.Schema that is not a plain identifier (db/index.js:35-37), which Node
 // only caught at openDatabase.
+//
+// Go only (24 Sep 2026, owner's "fix all bugs"): production also refuses a
+// JWT_SECRET shorter than MinProductionJWTSecretBytes, the empty one
+// included. Node compared against the default alone, so a set-but-empty
+// secret booted and signed every session with an empty HMAC key, which anyone
+// can forge a token for any user id with.
 func (c *Config) Validate() error {
 	if c.Env == EnvProduction {
 		if c.JWT.Secret == DefaultJWTSecret {
 			return fmt.Errorf("JWT_SECRET must be set in production")
+		}
+		if len(c.JWT.Secret) < MinProductionJWTSecretBytes {
+			return fmt.Errorf("JWT_SECRET must be at least %d bytes in production", MinProductionJWTSecretBytes)
 		}
 		if c.AllowFakeProviders {
 			return fmt.Errorf("AUTH_ALLOW_FAKE_PROVIDERS must be false in production")
