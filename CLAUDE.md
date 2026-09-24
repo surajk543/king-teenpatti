@@ -473,8 +473,11 @@ showRequestedBy, sideshow, lastDeparture, turnDeadline, turnToken, contributions
 - **Rounds** count when the turn steps *over* `startSeat` (by `_distance`, not equality).
   `round >= maxBetRounds` → forced showdown. `pot + stake > maxPot` → `POT_LIMIT` showdown.
 - **Show**: exactly 2 active seats; costs `showCost = chaal`; **null/unaffordable cost →
-  `insufficient_chips`** (a show is never free). Exact ties: show-payer loses, else nearest the dealer's
-  left. The pot is never split.
+  `insufficient_chips`** (a show is never free). Exact ties: show-payer loses, else the tied seat nearest
+  the dealer going clockwise, **the dealer's own seat first** (distance 0 — `table.go` `resolveShowdown`,
+  pinned by `review_showdown_winners_test.go` and DECISIONS.md; "nearest the dealer's left" was loose
+  wording, corrected 24 Sep 2026 after the live winner audit saw a missile tie go to the dealer's seat).
+  The pot is never split.
 - **Sideshow** (req. 33): `sideshowBlockedReason` order `no_hand | not_in_hand | not_your_turn |
   sideshow_pending | already_asked | too_few_players | you_are_blind | no_neighbour |
   neighbour_is_blind`. Clock stopped while pending (6s). Only `toUserId` may answer. Tie goes
