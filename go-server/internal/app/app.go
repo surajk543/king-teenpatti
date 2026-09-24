@@ -316,7 +316,9 @@ func New(opts Options) (*App, error) {
 				return game.Player{}, err
 			}
 			if user == nil {
-				return game.Player{}, fmt.Errorf("user %s no longer exists", userID)
+				// Deleted or vanished: unknown_user, which ends the session
+				// (socket.EndSession) rather than logging ERROR per request.
+				return game.Player{}, socket.AccountGoneError()
 			}
 			return user.Player(), nil
 		},
@@ -421,6 +423,8 @@ func New(opts Options) (*App, error) {
 		// Rewards and chip-priced pictures run under the player's seat lock,
 		// the lock every lobby seat reads the wallet under (LoadPlayer above).
 		WhileUnseated: a.rooms.WhileUnseated,
+		// A deleted account's sockets are ended at once (24 Sep 2026).
+		AccountDeleted: a.sockets.EndSession,
 	})
 	mux := http.NewServeMux()
 	if cfg.Metrics.Enabled {

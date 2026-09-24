@@ -93,6 +93,10 @@ type Deps struct {
 	// show it to everyone (app: rooms.SetPlayerTablePicture; owner, 15 Sep
 	// 2026). Nil = nobody to tell.
 	TablePictureLaid func(userID string, pic *game.TablePicture)
+	// AccountDeleted ends the sessions of a player who has just deleted their
+	// account (app: the socket layer disconnects every socket of that user,
+	// 24 Sep 2026). Nil = nobody to tell.
+	AccountDeleted func(userID string)
 	// Pictures is the profile-picture catalogue. It replaced a live listing
 	// of <PublicDir>/profiles: the files are still served from there, but
 	// what is on offer, what it is called and what it costs are rows now.

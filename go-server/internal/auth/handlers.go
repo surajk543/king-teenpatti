@@ -965,16 +965,30 @@ func (h *Handler) Name(w http.ResponseWriter, r *http.Request, user *db.User) {
 // keeps its signature but stops working immediately, because every
 // authenticated path resolves the user through db.selectUser, which does not
 // return deleted accounts.
+//
+// The deletion runs under Deps.WhileUnseated, the player's seat lock (24 Sep
+// 2026, owner's "fix all bugs"): an unlocked isSeated look let a quickJoin or
+// a switch read the wallet and take a seat between the look and the COMMIT,
+// seating a deleted account with the chips account_deleted had just removed,
+// and a delete while a refused hand-end settle was still retrying (owed) let
+// the late settle land on an emptied wallet. Under the lock every one of those
+// is 409 seated, as a reward or a chip-priced picture is. Once deleted, the
+// player's sockets are ended (Deps.AccountDeleted), so a session with no
+// account behind it does not linger.
 func (h *Handler) DeleteAccount(w http.ResponseWriter, r *http.Request, user *db.User) {
-	if h.isSeated(user.ID) {
+	var err error
+	if !h.whileUnseated(r.Context(), user.ID, func(ctx context.Context) { err = h.deps.Users.DeleteAccount(ctx, user.ID) }) {
 		WriteJSON(w, http.StatusConflict, ErrorResponse{Error: CodeSeated, Message: MsgSeatedDelete})
 		return
 	}
-	if err := h.deps.Users.DeleteAccount(r.Context(), user.ID); err != nil {
+	if err != nil {
 		h.writeError(w, r, err)
 		return
 	}
 	h.deps.Logger.Info("account deleted at the player's request", "userId", user.ID)
+	if h.deps.AccountDeleted != nil {
+		h.deps.AccountDeleted(user.ID)
+	}
 	WriteJSON(w, http.StatusOK, DeleteAccountResponse{Deleted: true})
 }
 
