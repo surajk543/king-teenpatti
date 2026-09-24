@@ -222,7 +222,10 @@ func (t *Table) selectCards(userID string, codes []string) (PickResult, error) {
 	if !ok {
 		return PickResult{}, NewGameError(CodeInvalidPick, MsgInvalidPick)
 	}
-	return t.settlePick(s, picked, PickByPlayer), nil
+	result := t.settlePick(s, picked, PickByPlayer)
+	// A server showdown may have been waiting for exactly this choice.
+	t.runDeferredShowdown()
+	return result, nil
 }
 
 // pickFrom turns the client's three codes into three of the player's own cards.
@@ -343,6 +346,9 @@ func (t *Table) expirePicks() {
 		t.settlePick(s, s.cards[:BaseCardsPerPlayer], PickByTimeout)
 	}
 	t.armPickTimer()
+	// Every lapsed window is settled first, so a deferred server showdown
+	// runs once, on the hands as they now stand.
+	t.runDeferredShowdown()
 }
 
 // stopPickTimer stops the pick clock if it is running.

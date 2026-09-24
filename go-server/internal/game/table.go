@@ -314,6 +314,11 @@ type hand struct {
 	// so the key cannot collide. A bare id from a snapshot written before this
 	// is still honoured (actionSeen).
 	actionIDs map[string]struct{}
+	// deferredShowdown is a showdown the SERVER started (forced_showdown at
+	// the round cap, pot_limit at the pot cap) that is waiting for 5-Card pick
+	// windows among the hands it compares to close; "" when none is. While it
+	// waits nobody is on turn (turnSeat -1). See serverShowdown.
+	deferredShowdown WinReason
 	// variation is the variation window and, once it has closed, the rules this
 	// hand is decided by. nil on a seen or blind table — see table_variation.go.
 	variation *variationWindow
@@ -1198,6 +1203,11 @@ func (t *Table) removePlayer(userID, reason string) *SeatInfo {
 		if t.resolveIfOnlyOneLeft() {
 			return s.info()
 		}
+		// A server showdown waiting on this player's pick window waits no
+		// longer for somebody who has gone.
+		if t.runDeferredShowdown() {
+			return s.info()
+		}
 		if wasOnTurn || wasChoosing {
 			t.clearTurnTimer()
 			t.advanceTurn(s.seatIndex)
@@ -1735,8 +1745,7 @@ func (t *Table) advanceTurn(fromSeat int) {
 	// Requirement 22: once no further bet can fit under the pot cap, everyone
 	// still in shows and the best hand takes it.
 	if t.potCapReached() {
-		t.clearTurnTimer()
-		t.resolveShowdown(t.activeSeats(), WinPotLimit, nil)
+		t.serverShowdown(WinPotLimit)
 		return
 	}
 
@@ -1877,6 +1886,16 @@ func (t *Table) turnOptions(s *seat) TurnOptions {
 		currentStake = t.hand.stake
 		pot = t.hand.pot
 	}
+	// A sideshow stands, so act() refuses every move but a look (owner's "fix
+	// all bugs", 24 Sep 2026): the options say so, rather than offering keys
+	// whose tap would only be refused. No ladder, no show, no pack; the
+	// sideshow keys are already off (sideshow_pending). The client greys its
+	// Chaal, stepper, Show and Pack keys from exactly these fields.
+	pending := t.hand != nil && t.hand.sideshow != nil
+	if pending {
+		options = BetOptions{Steps: []int64{}}
+		show = nil
+	}
 	return TurnOptions{
 		CanSee:       s.isBlind,
 		CanSideshow:  blocked == "",
@@ -1889,7 +1908,7 @@ func (t *Table) turnOptions(s *seat) TurnOptions {
 		RaiseSteps:       options.Steps,
 		MaxBet:           options.Max,
 		Show:             show,
-		CanPack:          true,
+		CanPack:          !pending,
 		IsBlind:          s.isBlind,
 		CurrentStake:     currentStake,
 		Chips:            s.chips,
@@ -2815,8 +2834,48 @@ func (t *Table) show(s *seat, actionID string) (ActResult, error) {
 // forcedShowdown (_forcedShowdown): round cap reached — everyone still in
 // reveals and the best hand takes it.
 func (t *Table) forcedShowdown() {
+	t.serverShowdown(WinForcedShowdown)
+}
+
+// serverShowdown is a showdown nobody asked for — the round cap
+// (forced_showdown) or the pot cap (pot_limit) — over every hand still in.
+//
+// Under 5-Card Teen Patti it waits for the hands it compares (owner's "fix all
+// bugs", 24 Sep 2026): run at once, it would judge a player whose pick window
+// is still open on the first three they were dealt, cutting short the time the
+// owner gave them to choose. So while any such window is open the showdown is
+// DEFERRED — recorded on the hand (and so in the snapshot), the turn clock
+// stopped and nobody on turn — and runDeferredShowdown runs it the moment the
+// last window closes: by the player's choice (selectCards), by its own
+// deadline (expirePicks, at most FIVE_CARD_PICK_TIMEOUT_MS), or by the picker
+// leaving (removePlayer). Every one of those is a closure on the actor, and
+// runDeferredShowdown clears the record before it resolves, so the showdown
+// runs exactly once. A window without a deadline (the timeout at 0) does not
+// hold it up (pickPending).
+func (t *Table) serverShowdown(reason WinReason) {
 	t.clearTurnTimer()
-	t.resolveShowdown(t.activeSeats(), WinForcedShowdown, nil)
+	if t.hand != nil && t.pickPending(t.activeSeats()...) {
+		t.hand.deferredShowdown = reason
+		t.hand.turnSeat = -1
+		t.hand.turnDeadline = time.Time{}
+		t.hand.turnToken = ""
+		t.emitState()
+		return
+	}
+	t.resolveShowdown(t.activeSeats(), reason, nil)
+}
+
+// runDeferredShowdown runs the showdown serverShowdown deferred, once no hand
+// it compares is still choosing. Returns whether it ran (the hand is then
+// over).
+func (t *Table) runDeferredShowdown() bool {
+	if t.hand == nil || t.hand.deferredShowdown == "" || t.pickPending(t.activeSeats()...) {
+		return false
+	}
+	reason := t.hand.deferredShowdown
+	t.hand.deferredShowdown = ""
+	t.resolveShowdown(t.activeSeats(), reason, nil)
+	return true
 }
 
 // resolveShowdown (_resolveShowdown): state showdown; score contenders;
@@ -3277,19 +3336,20 @@ func (t *Table) snapshot() *Snapshot {
 		seatOrder := make([]int, len(h.seatOrder))
 		copy(seatOrder, h.seatOrder)
 		snapHand = &SnapshotHand{
-			ID:            h.id,
-			HandNo:        h.handNo,
-			Pot:           h.pot,
-			Stake:         h.stake,
-			Round:         h.round,
-			TurnSeat:      h.turnSeat,
-			StartSeat:     h.startSeat,
-			StartedAt:     Millis(h.startedAt),
-			Contributions: contributions,
-			PackedUserIDs: packed,
-			SeatOrder:     seatOrder,
-			ActionIDs:     actionIDs,
-			Variation:     h.variation.snapshot(),
+			ID:               h.id,
+			HandNo:           h.handNo,
+			Pot:              h.pot,
+			Stake:            h.stake,
+			Round:            h.round,
+			TurnSeat:         h.turnSeat,
+			StartSeat:        h.startSeat,
+			StartedAt:        Millis(h.startedAt),
+			Contributions:    contributions,
+			PackedUserIDs:    packed,
+			SeatOrder:        seatOrder,
+			ActionIDs:        actionIDs,
+			Variation:        h.variation.snapshot(),
+			DeferredShowdown: h.deferredShowdown,
 		}
 		if h.showRequestedBy != nil {
 			snapHand.ShowRequestedBy = StrPtr(*h.showRequestedBy)

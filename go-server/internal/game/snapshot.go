@@ -114,6 +114,11 @@ type SnapshotHand struct {
 	// Variation is the hand's variation window (a variation table only);
 	// absent otherwise, so a seen or blind hand's snapshot is unchanged.
 	Variation *SnapshotVariation `json:"variation,omitempty"`
+	// DeferredShowdown is a server showdown (forced_showdown | pot_limit)
+	// waiting for 5-Card pick windows to close (Table.serverShowdown); absent
+	// when none is, so every other snapshot is unchanged. A restored table
+	// runs it once the windows it waits on have closed.
+	DeferredShowdown WinReason `json:"deferredShowdown,omitempty"`
 }
 
 // SnapshotVariation is SnapshotHand.variation: the window without its timer.

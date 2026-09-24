@@ -221,3 +221,169 @@ func TestAnActionIDIsIdempotentPerPlayerNotPerHand(t *testing.T) {
 	_, err := h.act(a, ActionChaal, ActRequest{ActionID: "dup-1"})
 	wantCode(t, err, CodeDuplicateAction, "the same player's replay")
 }
+
+// ---- Follow-up (same day): a showdown the SERVER starts waits too. ----
+
+// deferredShowdownTable plays a FIVE_CARD hand to the edge of a server
+// showdown with one player, the waiter, still inside their pick window, and
+// takes the last step. potLimit picks the pot cap over the round cap.
+func deferredShowdownTable(t *testing.T, potLimit bool) (h *harness, ids []string, waiter string) {
+	t.Helper()
+	h, ids, chooser := variationTable(t, 3)
+	if _, err := h.table.SelectVariation(chooser, "FIVE_CARD"); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range ids {
+		h.mustAct(id, ActionSee, ActRequest{})
+	}
+	for _, id := range ids {
+		if id == chooser || waiter != "" {
+			if _, err := h.table.SelectCards(id, h.view(id).You.Cards[:3]); err != nil {
+				t.Fatal(err)
+			}
+			continue
+		}
+		waiter = id
+	}
+	eq(t, h.turnUser(), chooser, "the chooser opens the betting")
+	if potLimit {
+		chaal := *h.betOptions(chooser).Chaal
+		h.read(func() { h.table.cfg.MaxPot = h.table.hand.pot + chaal })
+		h.mustAct(chooser, ActionChaal, ActRequest{})
+	} else {
+		h.read(func() { h.table.hand.round = h.table.cfg.MaxBetRounds - 1 })
+		for i := 0; i < 3; i++ {
+			h.mustAct(h.turnUser(), ActionChaal, ActRequest{})
+		}
+	}
+	return h, ids, waiter
+}
+
+func (h *harness) showdowns() []ShowdownEvent {
+	var out []ShowdownEvent
+	for _, p := range h.rec.all("showdown") {
+		out = append(out, p.(ShowdownEvent))
+	}
+	return out
+}
+
+func (h *harness) deferred() WinReason {
+	var r WinReason
+	h.read(func() {
+		if h.table.hand != nil {
+			r = h.table.hand.deferredShowdown
+		}
+	})
+	return r
+}
+
+func revealOf(t *testing.T, ev ShowdownEvent, userID string) Reveal {
+	t.Helper()
+	for _, r := range ev.Reveals {
+		if r.UserID == userID {
+			return r
+		}
+	}
+	t.Fatalf("no reveal for %s", userID)
+	return Reveal{}
+}
+
+func TestAForcedShowdownWaitsForAPlayerStillChoosingAndJudgesTheirChoice(t *testing.T) {
+	h, ids, waiter := deferredShowdownTable(t, false)
+	eq(t, len(h.showdowns()), 0, "no showdown while the waiter is choosing")
+	eq(t, h.hasHand(), true, "the hand waits")
+	eq(t, h.deferred(), WinForcedShowdown, "the showdown is deferred")
+	eq(t, h.turnSeat(), -1, "nobody is on turn meanwhile")
+	for _, id := range ids {
+		_, err := h.act(id, ActionChaal, ActRequest{})
+		wantCode(t, err, CodeNotYourTurn, id+" betting into a deferred showdown")
+	}
+
+	picked := h.view(waiter).You.Cards[2:]
+	if _, err := h.table.SelectCards(waiter, picked); err != nil {
+		t.Fatal(err)
+	}
+	shows := h.showdowns()
+	eq(t, len(shows), 1, "the showdown ran once the choice was made")
+	eq(t, shows[0].Reason, WinForcedShowdown, "as a forced showdown")
+	best := revealOf(t, shows[0], waiter).Best
+	eq(t, best[0]+best[1]+best[2], picked[0]+picked[1]+picked[2], "the waiter was judged on the three they chose")
+	h.advance(fiveCardPickMS)
+	eq(t, len(h.showdowns()), 1, "and it ran exactly once")
+}
+
+func TestAPotLimitShowdownWaitsForAWindowToLapseThenPlaysTheFirstThree(t *testing.T) {
+	h, _, waiter := deferredShowdownTable(t, true)
+	eq(t, h.deferred(), WinPotLimit, "the pot-limit showdown is deferred")
+	eq(t, len(h.showdowns()), 0, "no showdown yet")
+	first := h.view(waiter).You.Cards[:3]
+
+	h.advance(fiveCardPickMS)
+	shows := h.showdowns()
+	eq(t, len(shows), 1, "the lapse ran it")
+	eq(t, shows[0].Reason, WinPotLimit, "as the pot-limit showdown")
+	best := revealOf(t, shows[0], waiter).Best
+	eq(t, best[0]+best[1]+best[2], first[0]+first[1]+first[2], "a window that LAPSED plays the first three")
+}
+
+func TestAPlayerLeavingReleasesTheShowdownWaitingForThem(t *testing.T) {
+	h, _, waiter := deferredShowdownTable(t, false)
+	h.remove(waiter, LeaveReasonLeft)
+	shows := h.showdowns()
+	eq(t, len(shows), 1, "nobody waits for a player who has gone")
+	eq(t, len(shows[0].Reveals), 2, "the two still in show")
+}
+
+func TestADeferredShowdownSurvivesARestart(t *testing.T) {
+	h, _, waiter := deferredShowdownTable(t, false)
+	snap := roundTrip(t, mustSnapshot(h))
+	eq(t, snap.Hand.DeferredShowdown, WinForcedShowdown, "the snapshot keeps the deferral")
+
+	// Back inside the window: it still waits, and the choice releases it.
+	r := restoreHarness(t, snap, newFakeClock(h.clock.Now().Add(time.Second)), withLedger(emptyLedger))
+	eq(t, r.hasHand(), true, "restored mid-deferral")
+	eq(t, r.turnSeat(), -1, "and play was not reopened")
+	eq(t, len(r.showdowns()), 0, "no showdown yet")
+	picked := r.view(waiter).You.Cards[1:4]
+	if _, err := r.table.SelectCards(waiter, picked); err != nil {
+		t.Fatal(err)
+	}
+	eq(t, len(r.showdowns()), 1, "the choice ran it after the restart")
+	best := revealOf(t, r.showdowns()[0], waiter).Best
+	eq(t, best[0]+best[1]+best[2], picked[0]+picked[1]+picked[2], "on the three they chose")
+
+	// Back after the window lapsed: it runs, once, on the first three.
+	late := restoreHarness(t, roundTrip(t, mustSnapshot(h)), newFakeClock(h.clock.Now().Add(fiveCardPickMS+time.Second)), withLedger(emptyLedger))
+	late.advance(time.Millisecond)
+	eq(t, len(late.showdowns()), 1, "a lapsed window runs it at the restart")
+	eq(t, late.showdowns()[0].Reason, WinForcedShowdown, "as the showdown it was")
+	late.advance(fiveCardPickMS)
+	eq(t, len(late.showdowns()), 1, "exactly once")
+}
+
+// Follow-up 2: while a sideshow stands the asker's options offer nothing the
+// server would refuse, so the client's keys grey out instead of taking a tap.
+func TestTheAskersOptionsOfferNoMoveWhileTheirSideshowStands(t *testing.T) {
+	h, _ := sideshowTable(t, 3)
+	asker := h.turnUser()
+	asked := h.rightOf(asker)
+	h.mustAct(asker, ActionSideshow, ActRequest{})
+
+	opts := h.view(asker).You.Options
+	if opts == nil {
+		t.Fatal("the asker still holds the turn, so still has options")
+	}
+	eq(t, len(opts.RaiseSteps), 0, "no ladder")
+	if opts.RaiseSteps == nil {
+		t.Fatal("raiseSteps must be [] on the wire, never null")
+	}
+	eq(t, opts.Chaal == nil && opts.Raise == nil && opts.MaxBet == nil, true, "no chaal, raise or max")
+	eq(t, opts.Show == nil, true, "no show")
+	eq(t, opts.CanPack, false, "no pack")
+	eq(t, opts.CanSideshow || opts.CanForceSideshow || opts.CanMissile, false, "no sideshow, force or missile")
+
+	h.mustRespond(asked, false)
+	opts = h.view(asker).You.Options
+	eq(t, len(opts.RaiseSteps) > 0, true, "the ladder is back once it resolves")
+	eq(t, opts.CanPack, true, "and the pack")
+}
