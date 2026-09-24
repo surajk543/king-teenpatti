@@ -228,8 +228,9 @@ class RenderCardColumn extends RenderBox
 
   final LayerHandle<TransformLayer> _transform = LayerHandle<TransformLayer>();
 
-  /// Below this the words would be too small to read at any text size, and
-  /// the column stands as tall as it must instead.
+  /// Below this the words would be too small to read at any text size: a
+  /// column that would need less is left at it, running past its room, rather
+  /// than made smaller still.
   static const double _minScale = 0.5;
 
   @override

@@ -2316,10 +2316,12 @@ class _TableCard extends StatelessWidget {
                           // (owner, 24 Sep 2026: "make it visually
                           // prominent"), in gold, over its name — and
                           // then, in the final pass, "prominent but not
-                          // dominating": a step under the name of a
-                          // group card, no longer twice its size. It
-                          // counts up on first paint, so the stake
-                          // lands rather than simply being there.
+                          // dominating": a step under a group card's
+                          // name (_CardMetrics.bootSize), where it had
+                          // stood twice the height of every other word
+                          // on the card. It counts up on first paint,
+                          // so the stake lands rather than simply being
+                          // there.
                           Row(
                             crossAxisAlignment: CrossAxisAlignment.center,
                             children: [
@@ -2661,15 +2663,6 @@ List<_PokerFact> _pokerFacts(Strings t, LobbyTable table) => [
     ),
 ];
 
-/// A key on a table card's top-right corner. There are two, one over the other
-/// (owner, 18 Sep 2026): **ⓘ** — "every table give an info icon on the right top
-/// side; on clicking it, it will open a pop up showing table info … it tells all
-/// info" — and the **rules** key under it — "one more icon on the card; clicking
-/// it shows the rules according to the table he selected".
-///
-/// Each is a key of its own inside a card that is itself one big key: the inner
-/// tap wins the gesture arena, so touching one opens its popup and never sits
-/// the player down. A full 44dp target around a small glyph.
 /// The disc a [_CardCornerKey] draws inside its 44dp target.
 const double _cornerDisc = 28;
 
@@ -2681,6 +2674,15 @@ const Size _cornerKeysReach = Size(
   Space.xs + 2 * Dim.minTouch - (Dim.minTouch - _cornerDisc) / 2,
 );
 
+/// A key on a table card's top-right corner. There are two, one over the other
+/// (owner, 18 Sep 2026): **ⓘ** — "every table give an info icon on the right top
+/// side; on clicking it, it will open a pop up showing table info … it tells all
+/// info" — and the **rules** key under it — "one more icon on the card; clicking
+/// it shows the rules according to the table he selected".
+///
+/// Each is a key of its own inside a card that is itself one big key: the inner
+/// tap wins the gesture arena, so touching one opens its popup and never sits
+/// the player down. A full 44dp target around a small glyph.
 class _CardCornerKey extends StatelessWidget {
   const _CardCornerKey({
     required this.icon,
