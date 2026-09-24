@@ -631,6 +631,15 @@ class Strings {
   /// The server's `no_missiles` and `too_few_players` refusals.
   String get noMissiles => _('noMissiles');
   String get tooFewPlayers => _('tooFewPlayers');
+
+  /// A move refused while the player's own sideshow request still waits for
+  /// its answer (`sideshow_pending`, 24 Sep 2026).
+  String get sideshowPendingRefusal => _('sideshowPendingRefusal');
+
+  /// Sideshow, Force Sideshow, Missile or Show refused while a player is still
+  /// choosing their three cards under 5-Card Teen Patti (`pick_pending`,
+  /// 24 Sep 2026).
+  String get pickPendingRefusal => _('pickPendingRefusal');
   String get missileNeedsShowChips => _('missileNeedsShowChips');
 
   /// What a missile says at the table: to the player who fired it, and to
@@ -1259,6 +1268,9 @@ class Strings {
       'getMissiles': 'Get missiles',
       'noMissiles': 'You need a missile to fire one',
       'tooFewPlayers': 'That needs at least 3 players still in the hand',
+      'sideshowPendingRefusal': 'Wait for the sideshow answer first',
+      'pickPendingRefusal':
+          'Wait a moment: a player is still choosing their three cards',
       'missileNeedsShowChips':
           'You need enough chips for a show to fire a missile',
       'missileFiredByYou': 'You fired a missile',
@@ -1831,6 +1843,9 @@ class Strings {
       'getMissiles': 'मिसाइलें लें',
       'noMissiles': 'मिसाइल दागने के लिए मिसाइल चाहिए',
       'tooFewPlayers': 'इसके लिए हाथ में कम से कम 3 खिलाड़ी होने चाहिए',
+      'sideshowPendingRefusal': 'पहले साइडशो के जवाब का इंतज़ार करें',
+      'pickPendingRefusal':
+          'एक पल रुकें: एक खिलाड़ी अभी अपने तीन कार्ड चुन रहा है',
       'missileNeedsShowChips': 'मिसाइल दागने के लिए शो जितनी चिप्स चाहिए',
       'missileFiredByYou': 'आपने मिसाइल दागी',
       'missileFiredBy': '{name} ने मिसाइल दागी',
@@ -2386,6 +2401,9 @@ class Strings {
       'getMissiles': 'মিসাইল নিন',
       'noMissiles': 'মিসাইল ছুড়তে একটি মিসাইল লাগবে',
       'tooFewPlayers': 'এর জন্য হাতে অন্তত 3 জন খেলোয়াড় থাকতে হবে',
+      'sideshowPendingRefusal': 'আগে সাইডশোর উত্তরের জন্য অপেক্ষা করুন',
+      'pickPendingRefusal':
+          'একটু অপেক্ষা করুন: একজন খেলোয়াড় এখনও তাঁর তিনটি কার্ড বাছছেন',
       'missileNeedsShowChips': 'মিসাইল ছুড়তে শো-এর মতো চিপ লাগবে',
       'missileFiredByYou': 'আপনি মিসাইল ছুড়লেন',
       'missileFiredBy': '{name} মিসাইল ছুড়লেন',
@@ -2943,6 +2961,9 @@ class Strings {
       'getMissiles': 'મિસાઇલ લો',
       'noMissiles': 'મિસાઇલ છોડવા માટે મિસાઇલ જોઈએ',
       'tooFewPlayers': 'આ માટે હાથમાં ઓછામાં ઓછા 3 ખેલાડી હોવા જોઈએ',
+      'sideshowPendingRefusal': 'પહેલાં સાઇડશોના જવાબની રાહ જુઓ',
+      'pickPendingRefusal':
+          'થોડી રાહ જુઓ: એક ખેલાડી હજી પોતાના ત્રણ કાર્ડ પસંદ કરી રહ્યો છે',
       'missileNeedsShowChips': 'મિસાઇલ છોડવા માટે શો જેટલી ચિપ્સ જોઈએ',
       'missileFiredByYou': 'તમે મિસાઇલ છોડી',
       'missileFiredBy': '{name} એ મિસાઇલ છોડી',
@@ -3498,6 +3519,9 @@ class Strings {
       'getMissiles': 'ਮਿਜ਼ਾਈਲਾਂ ਲਓ',
       'noMissiles': 'ਮਿਜ਼ਾਈਲ ਚਲਾਉਣ ਲਈ ਮਿਜ਼ਾਈਲ ਚਾਹੀਦੀ ਹੈ',
       'tooFewPlayers': 'ਇਸ ਲਈ ਹੱਥ ਵਿੱਚ ਘੱਟੋ-ਘੱਟ 3 ਖਿਡਾਰੀ ਹੋਣੇ ਚਾਹੀਦੇ ਹਨ',
+      'sideshowPendingRefusal': 'ਪਹਿਲਾਂ ਸਾਈਡਸ਼ੋ ਦੇ ਜਵਾਬ ਦੀ ਉਡੀਕ ਕਰੋ',
+      'pickPendingRefusal':
+          'ਥੋੜ੍ਹਾ ਰੁਕੋ: ਇੱਕ ਖਿਡਾਰੀ ਅਜੇ ਆਪਣੇ ਤਿੰਨ ਕਾਰਡ ਚੁਣ ਰਿਹਾ ਹੈ',
       'missileNeedsShowChips': 'ਮਿਜ਼ਾਈਲ ਚਲਾਉਣ ਲਈ ਸ਼ੋ ਜਿੰਨੀਆਂ ਚਿਪਸ ਚਾਹੀਦੀਆਂ ਹਨ',
       'missileFiredByYou': 'ਤੁਸੀਂ ਮਿਜ਼ਾਈਲ ਚਲਾਈ',
       'missileFiredBy': '{name} ਨੇ ਮਿਜ਼ਾਈਲ ਚਲਾਈ',

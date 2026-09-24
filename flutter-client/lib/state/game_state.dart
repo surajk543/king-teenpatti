@@ -3023,6 +3023,11 @@ class GameState extends ChangeNotifier {
     // A missile's refusal, and a sideshow's: both need three in the hand, so
     // one sentence serves either.
     if (code == 'too_few_players') return t.tooFewPlayers;
+    // The player's own sideshow request is still waiting for its answer, and
+    // a player still choosing their three cards under 5-Card holds back a
+    // Sideshow, Force Sideshow, Missile or Show (24 Sep 2026).
+    if (code == 'sideshow_pending') return t.sideshowPendingRefusal;
+    if (code == 'pick_pending') return t.pickPendingRefusal;
     if (code == GameConnection.notConnected) return t.notConnected;
     if (code == 'over_entry_cap' || code == 'below_table_minimum') {
       // The server writes the limit with Western grouping ("500,000"); the
