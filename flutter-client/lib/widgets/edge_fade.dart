@@ -26,14 +26,23 @@ class EdgeFade extends StatefulWidget {
   final double extent;
 
   @override
-  State<EdgeFade> createState() => _EdgeFadeState();
+  State<EdgeFade> createState() => EdgeFadeState();
 }
 
-class _EdgeFadeState extends State<EdgeFade> {
+/// Public so a test can ask what is faded ([fadesStart], [fadesEnd]); nothing
+/// else needs it.
+class EdgeFadeState extends State<EdgeFade> {
   /// More beyond the visual start (top, or left) and the visual end.
   bool _start = false;
   bool _end = false;
   Axis _axis = Axis.vertical;
+
+  /// Whether the list is faded at its visual start (top, or left) — that is,
+  /// whether there is more of it beyond that edge.
+  bool get fadesStart => _start;
+
+  /// Whether the list is faded at its visual end (bottom, or right).
+  bool get fadesEnd => _end;
 
   bool _read(ScrollMetrics metrics, int depth) {
     if (depth != 0) return false;

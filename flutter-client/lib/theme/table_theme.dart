@@ -378,6 +378,17 @@ abstract final class TableScrim {
   /// Behind a dialog or the rules over the table: ink900 at 0.45, the rules
   /// sheet's own since it was written.
   static const Color dialog = Color(0x7308080A);
+
+  /// Behind a picker laid on the felt (the variation choice, the 5-Card
+  /// pick): the felt calmed under the panel, then clear again above the
+  /// viewer's own hand, which stays lit and live while they choose. The
+  /// figures the two pickers always had, in one place now.
+  static const LinearGradient picker = LinearGradient(
+    begin: Alignment.topCenter,
+    end: Alignment.bottomCenter,
+    colors: [Color(0x8C000000), Color(0x8C000000), Color(0x00000000)],
+    stops: [0, 0.58, 0.72],
+  );
 }
 
 /// The table's ambient light, turned down so it supports the game rather than

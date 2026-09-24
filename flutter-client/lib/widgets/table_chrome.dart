@@ -2056,7 +2056,8 @@ class _ChatDrawerState extends State<ChatDrawer> {
                         //
                         // In the chat's own type, the lines it adds to: at the
                         // input theme's larger size the hint lost its last
-                        // letters in a 260dp drawer ("Say somethin…").
+                        // letters in the 260dp drawer it had then ("Say
+                        // somethin…").
                         child: GlassTextField(
                           controller: _input,
                           maxLength: 200,
@@ -2228,7 +2229,7 @@ class ChatPlayers extends StatelessWidget {
             // The key takes at most three fifths or so of the row (0.62) and the name the
             // rest: a long name is cut short rather than pushing the key off
             // the drawer, and the key's label shrinks a little rather than
-            // being cut — on a 260dp drawer at the 1.25 text ceiling
+            // being cut — on a 282dp drawer at the 1.25 text ceiling
             // "अनब्लॉक करें" beside a name has no room to spare.
             child: LayoutBuilder(
               builder: (context, box) => Row(
@@ -2309,8 +2310,9 @@ class ChatSystemLine extends StatelessWidget {
 /// a glyph over its name, the whole tab the target. The tab that is up is
 /// washed and ringed in gold, and only its glyph plays.
 ///
-/// Two tabs share a 260dp drawer on a 640dp phone, so a name that does not fit
-/// its line takes a second one ("Quick / messages") rather than shrinking:
+/// Two tabs share a 282dp drawer on a 640dp phone ([TableSpace.drawerW]), so a
+/// name that does not fit its line takes a second one ("Quick / messages")
+/// rather than shrinking:
 /// shrunk to its one line it was three-fifths the size of the tab beside it
 /// (table polish, 24 Sep 2026). Only a single word too wide for the tab is
 /// ever made smaller, and only as much as that word needs.

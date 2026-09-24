@@ -1287,18 +1287,7 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
                 const Positioned.fill(
                   child: IgnorePointer(
                     child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          colors: [
-                            Color(0x8C000000),
-                            Color(0x8C000000),
-                            Color(0x00000000),
-                          ],
-                          stops: [0, 0.58, 0.72],
-                        ),
-                      ),
+                      decoration: BoxDecoration(gradient: TableScrim.picker),
                     ),
                   ),
                 ),
@@ -1329,18 +1318,7 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
                 const Positioned.fill(
                   child: IgnorePointer(
                     child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          colors: [
-                            Color(0x8C000000),
-                            Color(0x8C000000),
-                            Color(0x00000000),
-                          ],
-                          stops: [0, 0.58, 0.72],
-                        ),
-                      ),
+                      decoration: BoxDecoration(gradient: TableScrim.picker),
                     ),
                   ),
                 ),
