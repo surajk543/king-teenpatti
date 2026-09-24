@@ -16,6 +16,7 @@ import 'package:teenpatti/state/game_state.dart';
 import 'package:teenpatti/theme/app_theme.dart';
 import 'package:teenpatti/theme/theme_colors.dart';
 import 'package:teenpatti/widgets/casino_table.dart';
+import 'package:teenpatti/widgets/dealer_host.dart';
 import 'package:teenpatti/widgets/drifting_chips.dart';
 import 'package:teenpatti/widgets/seat_pod.dart';
 
@@ -391,6 +392,45 @@ void main() {
         );
         await _unmount(tester, state);
       }
+    });
+
+    testWidgets('the table never repaints while the room around it moves', (
+      tester,
+    ) async {
+      await tester.runAsync(() => DealerArt.load(DealerArt.defaultAsset));
+      final state = await _mount(tester, _scene('03'));
+      RenderRepaintBoundary boundaryIn(Type type) =>
+          tester.renderObject<RenderRepaintBoundary>(
+            find
+                .descendant(
+                  of: find.byType(type),
+                  matching: find.byType(RepaintBoundary),
+                )
+                .first,
+          );
+      final table = boundaryIn(CasinoTableSurface);
+      final host = boundaryIn(DealerHost);
+      // What each layer holds: a boundary that repaints records a new picture
+      // into its layer; one that does not keeps the picture it had.
+      Layer? drawing(RenderRepaintBoundary b) => b.debugLayer!.firstChild;
+      final tableBefore = drawing(table);
+      expect(tableBefore, isA<PictureLayer>());
+      // Half a second of the room: the host breathing, the lamp on the
+      // cloth, the turn ring, the drifting chips.
+      var hostRepaints = 0;
+      for (var i = 0; i < 30; i++) {
+        final hostBefore = drawing(host);
+        await tester.pump(const Duration(milliseconds: 16));
+        if (!identical(drawing(host), hostBefore)) hostRepaints++;
+      }
+      expect(
+        identical(drawing(table), tableBefore),
+        isTrue,
+        reason: 'the table is painted once and its picture reused',
+      );
+      // The host moves in her own layer.
+      expect(hostRepaints, greaterThan(20));
+      await _unmount(tester, state);
     });
 
     testWidgets('the near rail warms on the viewer\'s turn only', (
