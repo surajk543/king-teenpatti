@@ -1315,7 +1315,10 @@ func (rm *RoomManager) JoinByCode(user Player, code string) (Room, error) {
 // right now"). The entry cap is deliberately NOT applied (requirement 30
 // guards the lobby door only: a player already seated at a table of this
 // stake and category was admitted under it, and the server — not the client
-// — decides what a switch is). Then Leave(userId, "moved") — "moved" skips
+// — decides what a switch is), and nor is the pair's stack band (an entry
+// rule). What IS checked, on the stack the seat holds and before the seat is
+// given up, is that it covers the target's boot or poker buy-in
+// (assertAdmitsMove, 24 Sep 2026) → insufficient_chips. Then Leave(userId, "moved") — "moved" skips
 // the consolidation sweep, and an emptied source is destroyed before the new
 // seat is taken, as Node's awaited leave did — and Join(target). Every check
 // happens BEFORE the seat is given up, and the target seat is held from the
@@ -1354,8 +1357,21 @@ func (rm *RoomManager) SwitchTable(user Player) (SwitchResult, error) {
 	// The seat's socket follows the player, and comes back with them if the
 	// move has to be undone.
 	socketID := ""
-	if seat, err := current.FindSeat(user.ID); err == nil && seat != nil {
+	seat, err := current.FindSeat(user.ID)
+	if err == nil && seat != nil {
 		socketID = seat.SocketID
+	}
+	// The target's boot / buy-in is checked on the stack the seat holds
+	// BEFORE the seat is given up (24 Sep 2026 review, LR-4/LR-5, PM-5): a
+	// seat short of the boot hopped tables to restart its unfunded grace,
+	// and a poker stack below the buy-in was vacated first, refused by the
+	// target, then refused its own seat back by the source's buy-in —
+	// seated nowhere. Refused here, the player stays where they are.
+	if seat != nil {
+		if err := rm.assertAdmitsMove(target, seat.Chips); err != nil {
+			rm.releaseHold(target.ID())
+			return SwitchResult{From: current}, err
+		}
 	}
 
 	// "moved" rather than "left", so the departure does not trigger a merge
@@ -1369,7 +1385,8 @@ func (rm *RoomManager) SwitchTable(user Player) (SwitchResult, error) {
 	// the new table — the ledger was right and the seat was wrong, and the
 	// gap then became the base for every later checkpoint, so it compounded
 	// with each switch until a delta outran the wallet.
-	_, vacated, err := rm.vacateSeat(user.ID, LeaveReasonMoved)
+	var vacated *SeatInfo
+	_, vacated, err = rm.vacateSeat(user.ID, LeaveReasonMoved)
 	if err != nil {
 		rm.releaseHold(target.ID())
 		return SwitchResult{From: current}, err
@@ -2102,7 +2119,11 @@ func (rm *RoomManager) ConsolidateTables() ([]PlayerMove, error) {
 				}
 				continue
 			}
-			var admit func(chips int64) bool
+			// Every move needs a stack that covers the target's boot or
+			// buy-in (24 Sep 2026, PM-4): movePlayer checks nothing, and a
+			// poker room's buy-in refused the mover AND then their own seat
+			// back — the player was left seated nowhere, and told nothing.
+			admit := func(chips int64) bool { return rm.assertAdmitsMove(target, chips) == nil }
 			if drained[source.ID()] {
 				admit = func(chips int64) bool { return rm.admitsFromDrained(target, chips) }
 			}
@@ -2153,7 +2174,7 @@ func (rm *RoomManager) mergeDrained(stranded []Room) ([]PlayerMove, error) {
 		if target.IsFull() {
 			continue
 		}
-		move, err := rm.movePlayer(source, target, nil)
+		move, err := rm.movePlayer(source, target, func(chips int64) bool { return rm.assertAdmitsMove(target, chips) == nil })
 		if err != nil {
 			return moves, err
 		}
@@ -2184,7 +2205,32 @@ func (rm *RoomManager) admitsFromDrained(target Room, chips int64) bool {
 	if rm.assertUnderEntryCap(p, boot, category) != nil || rm.assertWithinTableBand(p, boot, category) != nil {
 		return false
 	}
-	return chips >= target.RulesSpec().MinBuyIn
+	return rm.assertAdmitsMove(target, chips) == nil
+}
+
+// assertAdmitsMove is the door a room:switch and a consolidation move pass
+// through onto target, checked on the stack the seat holds before the seat is
+// given up (24 Sep 2026 review, owner "fix all bugs"): the chips must cover
+// the target's boot — and a poker room's buy-in (RulesSpec().MinBuyIn, 0 at
+// a Teen Patti table) — or insufficient_chips, exactly as quick-join answers.
+// Without it a seat short of the boot hopped tables to restart its unfunded
+// grace for ever, and a poker stack below the buy-in was unseated, then
+// refused by the target AND by its own room's buy-in on the way back.
+//
+// Deliberately NOT applied: the stack band (min=/max=, the entry cap folded
+// in). A band is an ENTRY rule — it decides who may sit down at a pair, never
+// who may stay or move sideways within it (TestRoomsSwitchIgnoresTheStackBand,
+// 12 Sep 2026; requirement 30's cap likewise guards the lobby door only).
+// Lock-free: target's frozen config only.
+func (rm *RoomManager) assertAdmitsMove(target Room, chips int64) error {
+	need := target.BootAmount()
+	if buyIn := target.RulesSpec().MinBuyIn; buyIn > need {
+		need = buyIn
+	}
+	if chips < need {
+		return NewGameError(CodeInsufficientChips, msgInsufficientToJoin)
+	}
+	return nil
 }
 
 // movePlayer (_movePlayer): sole occupant of source → target. Bail (nil) if
