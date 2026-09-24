@@ -61,7 +61,7 @@ king-teenpatti/
 ├── recordings/                   empty local dir (no root .gitignore; git doesn't show it)
 ├── docs/load-reports/            ramp-test reports, HTML + JSON (2026‑09‑08 production runs; formerly server/loadtest-report/)
 ├── go-server/                    THE server (§14): Go 1.27, module github.com/surajk543/king-teenpatti/go-server
-│   ├── cmd/gameplay/main.go      entrypoint: godotenv .env → config → db → app → listen; SIGTERM = graceful 8 s; -version
+│   ├── cmd/gameplay/main.go      entrypoint: godotenv .env → config → db → app → listen; SIGTERM = graceful max(8 s, statement timeout + 5 s); -version
 │   │                         tableconfig.go: -export-table-config (the env-composed table catalogue as a psql script on stdout) and
 │   │                         -check-table-config (reads the database's catalogue WITHOUT migrating, judges it as a db boot would; exit 0/1/2) — both run before the server, §4
 │   ├── internal/
@@ -156,7 +156,8 @@ king-teenpatti/
     ├── assets/card_back.svg, assets/app_icon.svg, assets/fonts/ (Inter 400/500/600/700 + OFL licence), assets/sfx/,
     │                         assets/animations/Fireworks.json (Lottie 5.5.7, 512x512, 2.43s — the winner's burst)
     ├── test/  number_format, connection_failure, consent, theme_preference, … poker_table (§8.4), table_config_{dtos,cache,menu}, table_engines (§8.1)
-    ├── android/                  applicationId com.sungamestudio.kingteenpatti, sensorLandscape, cleartext on
+    ├── android/                  applicationId com.sungamestudio.kingteenpatti, sensorLandscape, cleartext in DEBUG builds only (src/debug manifest),
+    │                             no Android backup (allowBackup=false + res/xml/data_extraction_rules.xml), USE_BIOMETRIC/USE_FINGERPRINT removed
     └── ios/                      bundle id com.sungamestudio.kingteenpatti, landscape-only, status bar hidden,
                                   NSAllowsLocalNetworking; GIDClientID + URL scheme come from Flutter/*.xcconfig.
                                   NO Podfile (Flutter writes one on the Mac); never built here — docs/ios-setup.md
@@ -197,8 +198,12 @@ never reach the production accounts — and **the store build must name producti
 holds one JSON per environment (`production`, `preprod`, `local-emulator`: `SERVER_URL`, `APP_ENV`, `GOOGLE_SERVER_CLIENT_ID`);
 `APP_ENV` is shown beside the version in the settings drawer unless it is `production`. A local server is
 `--dart-define=SERVER_URL=http://10.0.2.2:3000` (the emulator's alias for the host loopback) or `http://<lan-ip>:3000` for a
-real device on the LAN — `usesCleartextTraffic` stays on for exactly that. `test/server_config_test.dart` pins the default.
-`usesCleartextTraffic="true"` in the manifest makes plain http work.
+real device on the LAN — in a **DEBUG** build only: `usesCleartextTraffic="true"` lives in
+`android/app/src/debug/AndroidManifest.xml`, so a release or profile build refuses plain http (production is HTTPS, as it
+should be; corrected 24 Sep 2026 — this said "in the manifest"). `test/server_config_test.dart` pins the default.
+**`SERVER_URL` and `APP_ENV` are independent defines** — nothing ties the label to the backend, so a lone
+`--dart-define=SERVER_URL=https://api…` is a production build labelled "· preprod"; always build from a
+`config/*.json` file (`flutter-client/config/README.md`, 24 Sep 2026).
 
 ---
 
@@ -246,7 +251,7 @@ npm run parity:diff -- --a go --b http://127.0.0.1:3000 --schema-b public   # fr
 Find/stop the server safely (read §12.1 before reaching for `pkill`):
 ```bash
 ss -lptn 'sport = :3000'                      # shows the PID
-kill <pid>                                    # SIGTERM: settles live pots, closes sockets, exits within 8 s
+kill <pid>                                    # SIGTERM: settles live pots, closes sockets, exits within max(8 s, PG_STATEMENT_TIMEOUT_MS + 5 s)
 nohup ./bin/gameplay > /tmp/server.log 2>&1 &        # start in a SEPARATE command from the kill (from go-server/)
 ```
 
@@ -270,6 +275,9 @@ flutter build apk --debug       # no define → PREPROD (https://preprod.sungame
 flutter build apk --debug --dart-define-from-file=config/local-emulator.json   # local server on the emulator (= SERVER_URL=http://10.0.2.2:3000)
 flutter build apk --debug --dart-define=SERVER_URL=http://192.168.1.10:3000  # local server, real device
 flutter build appbundle --release --dart-define-from-file=config/production.json   # THE STORE BUILD: api.sungamestudio.com + the Google client id
+# NEVER distribute --split-per-abi APKs: build 8 becomes 1008/2008/4008, which no MIN_CLIENT_BUILD floor holds and Play can
+# never update. build.gradle.kts refuses a split RELEASE build (24 Sep 2026; --android-project-arg=allowSplitPerAbiRelease=true
+# for a throwaway test build). The Play upload is the App Bundle; a universal `flutter build apk --release` is fine to sideload.
 adb install -r build/app/outputs/flutter-apk/app-debug.apk
 adb shell am start -n com.sungamestudio.kingteenpatti/.MainActivity   # launch (monkey … 1 also launches it but injects ONE random event — it once opened the store and an unlock question)
 adb shell am force-stop com.sungamestudio.kingteenpatti
@@ -360,12 +368,14 @@ and the transactions that DO run have this shape:
   `RoomManager.SetPlayerAvatar` → `Table.SetAvatar`, which updates the seat and emits state).
   **The lobby side is serialised with taking a seat** (13 Sep 2026, after a race that could create chips): every lobby door
   (quickJoin, joinCode, create, the resume auto-join) reads the wallet (`RoomManagerOptions.LoadPlayer`) under the player's
-  seat-lock stripe, and every lobby-only wallet change — a COIN picture, the rewards — runs inside `RoomManager.WhileUnseated`
-  under the same stripe, as does a Play chip pack (`CreditBoughtChips`: the database credit and the seat top-up together), each
+  seat-lock stripe, and every lobby-only wallet change — a COIN picture, the rewards, and since 24 Sep 2026 `DELETE /api/account`
+  (§7.2) — runs inside `RoomManager.WhileUnseated` under the same stripe, as does a Play chip pack (`CreditBoughtChips`: the database credit and the seat top-up together), each
   on a context of its own rather than the request's. A purchase can therefore never land between a join's wallet read and its
   seat. While a table's refused hand-end settle is still retrying (`TableOptions.SettlementOwed` → the manager's `owed` count)
   or a destroyed table is still settling a seat (`departing`), that player gets 409 `seated` for lobby wallet changes and the
   Go-only `settlement_pending` ("Your last hand is still being saved; try again in a moment") for joins (DECISIONS.md §3).
+- **`hand.actionIDs` is keyed per player** (`<userId>:<actionId>`, 24 Sep 2026, owner's "fix all bugs"): one player's
+  id never refuses another's move; a bare id in an older snapshot is still honoured.
 - **Resolve once, record twice.** A player who packs gets a `hand_packed` row and then a `hand_loss`
   row at the hand end whose delta computes to **zero** — the money moves once, while the outcome row
   still carries `hands_played`/`hands_lost`. A player who left is not in the hand-end write at all.
@@ -456,13 +466,18 @@ showRequestedBy, sideshow, lastDeparture, turnDeadline, turnToken, contributions
 - **SEE** is free, allowed off-turn, doesn't move the turn or reset the clock. After `maxBlindMoves`
   (4) blind bets the cards auto-reveal; that last bet is still charged at the blind rate.
 - **Turn clock** 25s → `missedTurns++`, `_pack('timeout')`; at `maxMissedTurns` (3) emits
-  `kick {reason:'idle'}`. `missedTurns` resets to 0 only **after a successful move**. The table only
+  `kick {reason:'idle'}`. `missedTurns` resets to 0 only **after a successful move** — and a `see` is
+  not one (24 Sep 2026, owner's "fix all bugs": Node reset it on any act, so tapping See once a hand
+  defeated the idle kick; `TestAPlayerWhoOnlyLooksIsStillKickedIdle`). The table only
   *emits* `kick`; RoomManager/socket layer removes the player.
 - **Rounds** count when the turn steps *over* `startSeat` (by `_distance`, not equality).
   `round >= maxBetRounds` → forced showdown. `pot + stake > maxPot` → `POT_LIMIT` showdown.
 - **Show**: exactly 2 active seats; costs `showCost = chaal`; **null/unaffordable cost →
-  `insufficient_chips`** (a show is never free). Exact ties: show-payer loses, else nearest the dealer's
-  left. The pot is never split.
+  `insufficient_chips`** (a show is never free). Exact ties: show-payer loses, else the tied seat nearest
+  the dealer going clockwise, **the dealer's own seat first** (distance 0 — `table.go` `resolveShowdown`,
+  pinned by `review_showdown_winners_test.go` and DECISIONS.md; "nearest the dealer's left" was loose
+  wording, corrected 24 Sep 2026 after the live winner audit saw a missile tie go to the dealer's seat).
+  The pot is never split.
 - **Sideshow** (req. 33): `sideshowBlockedReason` order `no_hand | not_in_hand | not_your_turn |
   sideshow_pending | already_asked | too_few_players | you_are_blind | no_neighbour |
   neighbour_is_blind`. Clock stopped while pending (6s). Only `toUserId` may answer. Tie goes
@@ -470,12 +485,17 @@ showRequestedBy, sideshow, lastDeparture, turnDeadline, turnToken, contributions
   never left the asker. Clock re-armed with `_setTurn(fromSeat, {freshTurn:false})` so
   `sideshowAskedThisTurn` survives (one ask per turn). Participant leaving → resolved `'left'`;
   `_endHand` clears the timer. The sideshow is **free** (the brief specified no bet — flagged as an
-  exploit vs. standard rules).
+  exploit vs. standard rules). **While a request stands `act` refuses every move but `see` with
+  `sideshow_pending`** (24 Sep 2026, owner's "fix all bugs"; Node let the asker bet on, the turn moved
+  round, and a late acceptance then froze the hand on a packed seat or skipped a turn), and the loser's
+  pack advances the turn exactly when the loser holds it (`hand.turnSeat`), never by assumption. The asker's
+  `you.options` say the same meanwhile: `raiseSteps: []`, `chaal`/`raise`/`maxBet`/`show` null, `canPack` false
+  (and the sideshow, force and missile flags false), so the Flutter keys grey out; the ladder comes back when it resolves.
 - **Missile** (owner, 14 Sep 2026; Go only): `ActionMissile`, on the firer's turn with **at least 3 players still in the
   hand** (the firer included; blind or seen) and **holding the chips a show would cost them** (`Table.showCost`, their chaal — held, not paid; owner, 14 Sep 2026), costs 1 missile and no chips (`MissileWallet.SpendMissile`, charged once per
   `<handId>:missile:<userId>:<actionId>` in `missile_spends`) and ends the hand: every player still in shows, the best
   hand takes the pot, exact ties go against the firer (win reason `missile`). Refusals in order `no_hand | not_in_hand |
-  not_your_turn | sideshow_pending | too_few_players | insufficient_chips | duplicate_action | no_missiles | persist_failed`. `you.canMissile`
+  not_your_turn | sideshow_pending | pick_pending | too_few_players | insufficient_chips | duplicate_action | no_missiles | persist_failed`. `you.canMissile`
   (also in `you.options`) is the rules-minus-the-count answer. The next deal waits `NEXT_HAND_DELAY_MS +
   MISSILE_REVEAL_EXTRA_MS` so the client's volley and the reveal fit before it.
 - **Variation window** (owner, 18 Sep 2026; Go only; rules in §6.4): on a `CategoryVariation` table `startHand` deals as
@@ -530,7 +550,12 @@ showRequestedBy, sideshow, lastDeparture, turnDeadline, turnToken, contributions
   checking the settings' cap as well would refuse a player the row lets in.
 - `switchTable` (**async**): same boot+category, a **random** other public non-full table (Go, owner 13 Sep 2026 —
   `pickRandomTableLocked`, crypto/rand; Node took the fullest, which quickJoin still does), **no entry cap**, leaves with reason `'moved'`
-  (skips consolidation). `leave`, `destroyTable`, `consolidateTables`, `sweepEmptyTables`,
+  (skips consolidation). **Since 24 Sep 2026 (owner, "fix all bugs") a switch is refused `insufficient_chips` BEFORE the
+  seat is given up when the seat's stack does not cover the target's boot or a poker room's buy-in**
+  (`assertAdmitsMove`): a short seat used to hop tables to restart its unfunded grace for ever, and a poker stack below the
+  buy-in was vacated, refused by the target and then by its own room's buy-in on the way back — seated nowhere. The stack
+  BAND is still not applied on a switch (a band is an entry rule, `TestRoomsSwitchIgnoresTheStackBand`), nor the entry cap.
+  `leave`, `destroyTable`, `consolidateTables`, `sweepEmptyTables`,
   `_movePlayer`, `shutdown` are **async** and must be awaited. `leave` deletes `playerRooms` *before*
   awaiting the removal.
 - `createTable`: public seen → `{maxRaiseSteps: 2, maxBetRounds: 7, maxPot: 2_000_000}`; private →
@@ -569,7 +594,10 @@ showRequestedBy, sideshow, lastDeparture, turnDeadline, turnToken, contributions
   the card let through while quick-join kept choosing it. A private room is never drained — its code is its
   only door.
 - Sweeper interval (unref'd): merges lone players on idle public tables of the same
-  `category:boot` into the oldest (undrained, above); sweeps empty tables older than a **hardcoded** 30s.
+  `category:boot` into the oldest (undrained, above); sweeps empty tables older than a **hardcoded** 30s. Every consolidation
+  move (not only a drained one's) now needs a stack that covers the target's boot / poker buy-in (`assertAdmitsMove`, 24 Sep
+  2026): a poker player who had played below the buy-in was moved off, refused, and could not be put back. Such a player
+  simply stays where they are. `review_switch_admission_test.go`.
 
 ### 6.3 `handRank.js` / `deck.js` (→ `handrank.go` / `deck.go`)
 `HIGH_CARD 0 < PAIR < COLOR < SEQUENCE < PURE_SEQUENCE < TRAIL 5`. Runs: **A-K-Q > A-2-3 > K-Q-J >
@@ -611,7 +639,7 @@ is decided by one of **seven** variations, chosen in the window §6.1 describes.
   hand — kept on every variation hand and put on the wire (`turnUp`) ONLY once JOKER or HUKAM has been chosen.
 - Exact ties are unchanged: the show-payer / missile firer loses, else nearest the dealer's left; a sideshow's asker loses.
 - **FIVE_CARD — 5-Card Teen Patti** (owner, 18 Sep 2026): every player HOLDS five cards and PLAYS the best three,
-  which THEY choose (owner, 19 Sep 2026: "when user clicks on 'see cards' … give user extra time so that he can choose 3 cards among 5"; the server used to find the strongest three itself). The window is per PLAYER and per hand, opens the moment five cards are in front of someone who can see them — their tap on See cards, or the top-up landing on a player already looking — and lasts `FIVE_CARD_PICK_TIMEOUT_MS` (8 s). Lapsing plays THE FIRST THREE THEY WERE DEALT, which is also what a player who never looks plays, so every hand always has three cards to compare. `table_fivecard.go` holds all of it: `playedCards`/`playedHand` (the ONE way a hand is scored at the showdown, at a sideshow and in a player's own view), `beginPick`, `SelectCards` (socket `game:selectCards {cards:[3]}`, refusals `no_hand | not_seated | not_picking | duplicate_action | invalid_pick`), `settlePick` — the one place a choice is made, guarded by `picked` already being set, so a pick and its own deadline arriving together decide exactly once — and ONE `pickTimer` armed for the earliest window outstanding, which `expirePicks` sweeps and re-arms. `extendTurn` pushes a chooser's turn out to cover the whole window and a full turn after it, so choosing never costs them the time to act. The choice is in the snapshot (`SnapshotSeat.picking/picked/pickedBy/pickUntil`, validated on restore against the cards that seat holds), so a restart neither re-asks a player who answered nor gives one who has not a fresh clock. **`Variation.CardsPerPlayer()` is the one place that number lives** (5 for
+  which THEY choose (owner, 19 Sep 2026: "when user clicks on 'see cards' … give user extra time so that he can choose 3 cards among 5"; the server used to find the strongest three itself). The window is per PLAYER and per hand, opens the moment five cards are in front of someone who can see them — their tap on See cards, or the top-up landing on a player already looking — and lasts `FIVE_CARD_PICK_TIMEOUT_MS` (8 s). Lapsing plays THE FIRST THREE THEY WERE DEALT, which is also what a player who never looks plays, so every hand always has three cards to compare. `table_fivecard.go` holds all of it: `playedCards`/`playedHand` (the ONE way a hand is scored at the showdown, at a sideshow and in a player's own view), `beginPick`, `SelectCards` (socket `game:selectCards {cards:[3]}`, refusals `no_hand | not_seated | not_in_hand | not_picking | duplicate_action | invalid_pick`), `settlePick` — the one place a choice is made, guarded by `picked` already being set, so a pick and its own deadline arriving together decide exactly once — and ONE `pickTimer` armed for the earliest window outstanding, which `expirePicks` sweeps and re-arms. `extendTurn` pushes a chooser's turn out to cover the whole window and a full turn after it, so choosing never costs them the time to act — **only the picker's own turn, and only while they hold it** (24 Sep 2026, owner's "fix all bugs": it used to extend whoever held the turn, so every other player's look topped the holder up), and a chooser who looked during the variation window gets it when their turn starts (`closeVariation` → `extendTurnForPick`). **A comparison a player forces waits for the hands it would judge** (same day): a Sideshow, Force Sideshow, Missile or Show is refused `pick_pending` ("Wait a moment: a player is still choosing their three cards") while any of those hands is inside a window with a deadline — at most `FIVE_CARD_PICK_TIMEOUT_MS` — and `canSideshow`/`canForceSideshow`/`canMissile`/`show` read false/null meanwhile; before, it played their first three with the window still open. **A showdown the SERVER starts waits too** (same day): `advanceTurn`'s round-cap (`forced_showdown`) and pot-cap (`pot_limit`) showdowns go through `serverShowdown`, which — while any hand still in has an open window with a deadline — records the reason on the hand (`hand.deferredShowdown`, in the snapshot as `SnapshotHand.deferredShowdown`, absent otherwise), stops the turn clock and puts nobody on turn (`turn.seatIndex` -1, every move `not_your_turn`, a look still allowed); `runDeferredShowdown` runs it exactly once, on the actor, the moment the last window closes — the player's choice (`selectCards`), the lapse (`expirePicks`, after settling every lapsed window) or the picker leaving (`removePlayer`) — and `resumeTimers` resumes a restored deferral (a lapsed window on the pick clock's zero delay, none left: at once) instead of reopening play. A packed seat's window closes with the pack and `selectCards` from it is `not_in_hand`. The choice is in the snapshot (`SnapshotSeat.picking/picked/pickedBy/pickUntil`, validated on restore against the cards that seat holds), so a restart neither re-asks a player who answered nor gives one who has not a fresh clock. **`Variation.CardsPerPlayer()` is the one place that number lives** (5 for
   FIVE_CARD, `BaseCardsPerPlayer` 3 for everything else) — the engine carries no "3" of its own. The flow stays
   deal → window → choice, so **every hand is still DEALT three**: `beginVariation(firstSeat, undealt)` takes the
   turned-up card from `undealt[0]` and draws a two-card **top-up** per player from `undealt[1:]`, round the table in
@@ -686,14 +714,23 @@ house), **`five_card_draw`**, **`texas_holdem`** and **`omaha`**. `Category.Game
   blind), `allIn` puts the stack in whatever the street's bet is, a street ends when every live seat has acted and
   matched (or is all-in); when nobody left can act the remaining board is run out. **Side pots** (`SidePots`) by
   contribution level, each paid to the best hand among its eligible seats, odd chips clockwise from the button
-  (`Award`); everyone folding to one player ends it `last_standing` with no reveal. Omaha's hand is **exactly two**
+  (`Award`); everyone folding to one player ends it `last_standing` with no reveal. **Dead money** (24 Sep 2026, owner "fix
+  all bugs"): a folded or departed player's chips never come back to them, even the part nobody matched — they go to the
+  highest pot a player still in can win, and when the players still in put nothing in (the blinds walking out on the first
+  player to act) the pot is opened to them; it used to be paid to nobody and the blinds were destroyed. The last player
+  standing gets a hand-end row even with 0 chips in (`settle` skipped it). Only a player STILL IN gets back an excess nobody
+  could call. **An all-in for less than a full raise does not reopen the betting**: whoever has acted since the last full
+  raise may call or fold only (`raiseTo` resets `acted` only on a full raise, `mayRaise`), and **no raise is offered when no
+  other player still in can act** (every opponent all-in). `review_money_fixes_test.go`. Omaha's hand is **exactly two**
   hole cards and three board cards (`BestOmaha`), never five of nine; Hold'em's the best five of seven (`BestHoldem`).
 - **5-Card Draw**: an ante each, five cards, `predraw` betting, then the **draw** in turn from the button's left —
   `{action:"draw", cards:[…]}` names up to `maxDiscards` of the player's own cards (none = stand pat; a card not held,
   one named twice or too many → `invalid_discard`), the room announces only HOW MANY (`poker:draw`) and re-sends the
   new hand to its owner (`poker:cards`) — then `postdraw` betting and the showdown.
 - **3-Card Poker** (`flow_threecard.go`): every participant antes, three cards each and three to the dealer; in turn
-  each player **plays** (a second bet equal to the ante) or **folds** (the ante is the house's); then the dealer turns
+  each player **plays** (a second bet equal to the ante) or **folds** (the ante is the house's) — so a seat is dealt in only
+  holding **2 × ante** (`dealInChips`, 24 Sep 2026; below it the seat is unfunded, held for the grace and shown out, where a
+  stack of one ante used to be dealt in and offered only a fold); then the dealer turns
   up: **qualifies with queen-high or better** (`DealerQualifies`) — not qualified: play bet returned and ante paid 1:1
   to everyone still in; qualified: each hand against the dealer's, win → both bets paid 1:1, lose → both taken, tie →
   push. The ranking is `Evaluate3` — `game.Evaluate` with ace-low-lowest, **Straight Flush > Three of a Kind >
@@ -753,7 +790,8 @@ Handshake: JWT in `handshake.auth.token`; `io.use` is async (`await findById`). 
 user (`session:replaced` to the old one). On connect: `session:ready {user, config}`; if still seated
 → `room:joined` + `chat:history` (**why restarted bots land on their previous table**).
 
-`guard`: rate limit **30/5s per socket** (a trip acks `{ok:false, code:'rate_limited'}` **and** emits
+`guard`: rate limit **30/5s per socket, and (Go, 24 Sep 2026) the same 30/5s per ACCOUNT** — a second limiter keyed on the
+user survives a reconnect, which used to reset the count (`userLimiters`, pruned by the presence heartbeat) — (a trip acks `{ok:false, code:'rate_limited'}` **and** emits
 `game:error rate_limited` — both servers; the old "no ack" note was stale), then ack
 `{ok:true,…}` or `{ok:false, code, message}` **and** `game:error` (reported twice — clients dedupe).
 
@@ -765,7 +803,7 @@ user (`session:replaced` to the old one). On connect: `session:ready {user, conf
 | `room:joinCode` | `{code}` — exactly 8 letters or digits, any case (owner, 13 Sep 2026: every table's code is issued 8 long, `util.DefaultRoomCodeLength`; any other shape → `invalid_room_code` "Table codes are 8 letters and numbers" before any lookup; Flutter's field lets nothing else in and holds Join until 8) | `{roomId, code, category}` |
 | `room:switch` | `{}` | `{roomId, code, category}` |
 | `room:leave` | `{}` | `{roomId}` or `{}` |
-| `game:action` | `{action, amount?, actionId?}` | table.act result; `actionId` (≤64 chars) becomes the ledger row's unique id; `action:"missile"` acks `{ok, action, missiles}` (§6.1) |
+| `game:action` | `{action, amount?, actionId?}` | table.act result; `actionId` (≤64 chars) becomes the ledger row's unique id; `action:"missile"` acks `{ok, action, missiles}` (§6.1). `action` must be a JSON **string** (`["see"]` → `unknown_action`, as Node; 24 Sep 2026). A `chaal` whose amount is a raise rung (≥ 2× the first) is played, acked and broadcast as the **`raise`** it is (same day) — the Flutter client sends `chaal` only for the first rung |
 | `game:sideshowRespond` | `{accept}` (only `=== true` accepts) | `{accepted, packedUserId}` |
 | `game:selectVariation` (**Go only**, variation tables, §6.1/§6.4) | `{variation}` — one of the seven exact wire values; **no player id**, the chooser is the socket's user; any non-string is `""` → `invalid_variation` | `{variation, selectedBy, turnUp?, cardsPerPlayer}` |
 | `game:selectCards` (**Go only**, 5-Card hands, §6.4) | `{cards:[3]}` — three of the player's OWN five, in any order; **no player id**, the chooser is the socket's user; a non-string entry is `""`, which names no card | `{picked, best, wasBest}` — the three that now play (in the order HELD), the strongest three those five could have made, and whether they are the same hand |
@@ -831,7 +869,7 @@ leaving, `resumeOffers.set(userId, {roomId, at})`. On connect: if still seated �
 re-sent (resume); else `takeResumeOffer(userId)` (fresh within `resumeOfferMs`, table alive and not full, offered
 once) rides on `session:ready.resume {roomId, code, category, bootAmount}` and the Flutter client auto-joins it
 with `room:joinCode`. Voluntary leave / kick never create an offer (the grace timer finds no seat).
-`room:switch` must `untrackRoom` *before* `switchTable` and re-track on failure.
+`room:switch` must `untrackRoom` *before* `switchTable` and re-track on failure; on success it untracks every table but the RESULT's `To`, and `room:moved` (`OnPlayerMoved`) is ignored unless the player is still seated at its target — a consolidation racing a switch left the socket subscribed to a table it was not seated at (24 Sep 2026).
 
 ### 7.2 REST (`auth/routes.js` → `internal/auth/http.go` + `handlers.go`)
 `POST /api/auth/login {provider: google|guest, idToken|deviceId, displayName?}`
@@ -868,6 +906,12 @@ account, which Google Play requires of any app that creates one; this game creat
 launch, so it applies to everybody. **409 `seated`** first ("Leave the table before deleting your
 account"): a seated wallet is only banked at the three checkpoints (§5.1), so emptying it mid-hand
 would settle that hand against a balance that has stopped existing. Otherwise 200 `{deleted:true}`.
+**Since 24 Sep 2026 the deletion runs INSIDE `Deps.WhileUnseated`** (`RoomManager.WhileUnseated`, the seat-lock stripe, §5.1)
+rather than after an unlocked `isSeated` look, which a quickJoin or switch could beat — seating a deleted account with the chips
+`account_deleted` had just removed, the winner then paid chips that no longer existed — and it answers 409 `seated` too while the
+player is departing or owed a refused settle. `lockWallet` also skips a deleted row (`deleted_at = 0`), so no checkpoint ever lands
+on one, and the player's sockets are ended (`Deps.AccountDeleted` → `socket.Handler.EndSession`); a request that still reaches the
+socket layer for a deleted account is `unknown_user` and ends the session (it was `internal_error` + an ERROR line).
 `db.Users.DeleteAccount` **pseudonymises** — the row stays (the `users_no_delete` trigger and the
 ledger's CASCADE both forbid removing it), emptied of display name, email, `avatar_url`,
 `active_picture_id` and the provider identity, with `deleted_at` stamped; clearing the identity is
@@ -878,7 +922,8 @@ its signature but names nothing, since `selectUser` filters deleted rows → `un
 client rotates the **device id** as well as dropping the token (`GameState.deleteAccount`), or a
 guest would sign straight back into the id just freed. Public page: `/account-deletion/` (served in
 production because `ROOT_REDIRECT` hides only top-level files, §7.4), linked from `privacy/`;
-`GET /api/rooms` (no client);
+`GET /api/rooms` (no client; **signed-in only, and no `code`/`pot` per table since 24 Sep 2026** — it handed anyone every live
+table's join code and pot; `app.RoomListing`);
 **`GET /api/tables`** (Go only, 23 Sep 2026; `app/tableconfig.go` `tablesHandler`) — **the table catalogue this
 process enforces**, served from memory (`RoomManager.TableConfig()`, never a fresh database read, which could show a
 client an edit the process does not play by until its next start). **Public**: no token, since the app fetches it
@@ -934,7 +979,8 @@ is no Apple counterpart**, which is why the Flutter chip store does not start on
 packs: `missiles_1` (15 diamonds for 1 — 10 until the owner raised it later on 14 Sep 2026), `missiles_5` (73 for 5), `missiles_10` (140 for 10), `missiles_20` (220 for 20), in one transaction under the
 wallet lock (`db.Missiles.TradeMissiles`), replay-guarded by `missile_purchases` (`request_id` = `<userId>:<requestId>`).
 Answers `{user, charged, diamonds, missiles}` — `charged:false` with 0 and 0 on a replay; 400 `unknown_pack` /
-`invalid_request_id`, 409 `not_enough_diamonds`. Allowed while seated: diamonds and missiles sit outside §5.1;
+`invalid_request_id` (a non-string `requestId` is `invalid_request_id`, each field read on its own — 24 Sep 2026; it spoiled the
+whole decode and read as `unknown_pack`), 409 `not_enough_diamonds`. Allowed while seated: diamonds and missiles sit outside §5.1;
 `GET /health` (since 23 Sep 2026 it ends with `tableConfig: {source, version, fallback}` — where the tables came
 from; `fallback:true` is a `TABLE_CONFIG_SOURCE=db` boot that could not use the database's catalogue and runs the env
 composition, the one state an operator must go and fix). Errors `{error: code, message}`. Guest id = `sha256('teenpatti:'+deviceId)`, deviceId
@@ -1209,11 +1255,12 @@ columns); `PRIVATE_*` → the private templates. `gameplay -export-table-config`
 | Env | Default | Purpose |
 |---|---|---|
 | **`TABLE_CONFIG_SOURCE`** | unset → `env` if ANY † key is set, else `db` | **Go-only (23 Sep 2026).** `db` — the table catalogue in PostgreSQL; `env` — the † keys and `Defaults()`, composed exactly as every build before it did (the rows are seeded but not read). Anything else stops the boot. **Unset, it follows the † keys**, so a deployment whose `.env` pins its menu (production's names `LOBBY_TABLES`) keeps exactly that menu on deploy until someone switches it on purpose — one WARN then says how (export, check, set `db`, restart: DEPLOY.md §3). `Defaults()` and `.env.example` say `db`. A db boot whose catalogue cannot run a lobby logs ERROR and runs the env composition instead (`/health.tableConfig` `{source:"env", fallback:true}`). Tests (`internal/app`'s `testConfig`), the parity harness (`BASE_ENV` names `env`; only the `menu` profile runs `db`, §7.6), `parity-diff`, chiptest and crashtest name `env` — they configure clocks and menus through the † keys and rely on `LOBBY_TABLES=''` meaning any pair, which a db catalogue has no equivalent of. |
-| `NODE_ENV` | development | `production` refuses to start on the default JWT secret / fake providers (the Go binary keeps the key name; the unit sets it) |
+| `NODE_ENV` | development | `production` refuses to start on the default JWT secret, on a JWT secret shorter than **32 bytes** (the empty one included — Go only, 24 Sep 2026: an empty HMAC key let anyone forge a session for any user id), or with fake providers (the Go binary keeps the key name; the unit sets it) |
 | `PORT` / `HOST` / `CORS_ORIGIN` | 3000 / 0.0.0.0 / `*` | |
 | `JWT_SECRET` / `JWT_EXPIRES_IN` | dev-only-insecure-secret / 30d | |
 | `GOOGLE_CLIENT_IDS`, `FACEBOOK_APP_ID/SECRET` | empty → 503 | Facebook's pair is read and unused while Facebook sign-in is switched off (23 Sep 2026, §7.2) |
 | `AUTH_ALLOW_FAKE_PROVIDERS` | false | |
+| **`REST_LOGIN_RATE_LIMIT`** / **`REST_WALLET_RATE_LIMIT`** / **`REST_RATE_WINDOW_MS`** | 60 / 120 / 60000 | **Go-only (24 Sep 2026).** Per-client-IP fixed-window limits (`config.RESTRateConfig`, `auth/ratelimit.go`): `POST /api/auth/login`, and the doors that move a wallet (rewards, Play purchases, picture and table-picture buys, the missile store, `DELETE /api/account`). Over it: **429** `{error:"rate_limited"}` + `Retry-After`, one WARN `rest rate limited` per IP per window. 0 = that limit off. The IP is the peer's, or nginx's `X-Real-IP` from a loopback peer; a loopback peer with no `X-Real-IP` (bot-play, `tools/`, tests) is never limited. Generous on purpose — CGNAT puts many players behind one IP. |
 | **`DATABASE_URL`** | `postgres://postgres:postgres@localhost:5432/gameplay` | |
 | **`PG_SCHEMA`** | `public` | tests use `test_<suite>_<rand>` and drop it after |
 | **`PG_POOL_MAX`** | 10 | |
@@ -1430,13 +1477,34 @@ Production's lives at `/var/www/gameplay/king-teenpatti/go-server/.env` (`PG_POO
 - `GameConnection`: websocket-only Socket.IO; broadcast `Stream`s; every emit via `emitWithAck`; a
   refusal is `{ok:false, message}` → `notice`. `request()` awaits an ack with an 8s timeout.
   **Every `act()` sends a fresh `actionId` (uuid v4)** for server-side idempotency. The `room:moved`
-  `j['state']` branch is dead code (server sends no `state` there).
+  `j['state']` branch is dead code (server sends no `state` there). **`connect()` builds with `enableForceNew()`**
+  (24 Sep 2026, owner's "fix all bugs"; B7): without it `socket_io_client` handed every later session the Socket it
+  cached on the first connect and reconnected it with the FIRST token (§12.3) — after a sign-out the next account's
+  socket signed in as the previous one, and after Delete account it presented the deleted account's token
+  (`connect_error unknown_user` → "Service not available" over the new guest's consent panel, and no socket at all).
+  A `connect_error` from a socket that is no longer `_socket` is dropped. `test/connection_session_test.dart`.
 - DTOs (`dtos.dart`): `const` classes + tolerant `fromJson`; server enums as `static const String`
   classes; `Seat.chips` **nullable** (null = withheld, never 0).
 - SharedPreferences: `deviceId`, `token`, `themeMode` (`system|dark|light`, `state/theme_preference.dart`;
   the old `darkMode` bool is read once when `themeMode` is absent and never written again), `lang`,
   `numbers`, `noWinningsAck:<userId>`, `soundOn`/`vibrateOn` (`settings/feedback_settings.dart`), and since 23 Sep
-  2026 **`tableConfig`** — the phone's copy of `GET /api/tables`.
+  2026 **`tableConfig`** — the phone's copy of `GET /api/tables`. **None of the app's data is backed up or carried to
+  another phone** (24 Sep 2026, owner's "fix all bugs"; RC-07): `token` is a 30-day JWT and `deviceId` IS a guest's
+  account (guest id = sha256('teenpatti:'+deviceId)), and a device-to-device transfer left two phones signed in as one
+  player. `android:allowBackup="false"` plus `dataExtractionRules` (`res/xml/data_extraction_rules.xml`, every domain
+  excluded from cloud-backup and device-transfer — Android 12+ ignores allowBackup for D2D). The price: a guest who
+  reinstalls starts a new account; Google sign-in keeps one.
+- **Play purchases** (`net/purchases.dart`, 24 Sep 2026, owner's "fix all bugs"; RC-03): bought with
+  `buyConsumable(autoConsume: false)` and CONSUMED (`InAppPurchaseAndroidPlatformAddition.consumePurchase`) only after
+  `POST /api/purchases/google` has banked it — the plugin's default consumed a pack the moment Play reported it, before
+  the app or the server had seen it, so a credit that failed on the network was lost for good (Play never re-delivers a
+  consumed purchase). `Purchases.redeliver()` lists Play's OWNED purchases (`queryPastPurchases`, not
+  `restorePurchases`, which marks a pending purchase `restored` and drops the whole list when the subs query fails) and
+  posts each paid one again; GameState calls it on every `session:ready` (cold start, sign-in, reconnect). The server is
+  idempotent on the token (`gplay:<token>`). A refusal finishes the purchase only when it is a verdict on the receipt
+  (`receiptRefusalIsFinal`: 400, 402); 401/403/408/429/5xx keep it owned for the next session. In-flight and finished
+  tokens are de-duplicated. A consume that fails acknowledges instead (the server acknowledges on credit too).
+  `test/purchases_consume_test.dart`.
 - **The table catalogue on the phone** (owner, 23 Sep 2026: "the UI fetches it, stores it on the phone, and re-fetches it
   at every login"; `state/table_config_cache.dart`). `TableConfigCache` keeps ONE entry under `tableConfig`:
   `{"schema":1, "version", "fetchedAt", "body"}`, `body` being the server's JSON exactly as it came (a later build can
@@ -1526,7 +1594,10 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   is cleared on sign-out and when a new `session:ready` menu no longer lists it, and it is never persisted. Each level is
   its own `ListView` keyed `lobby-rail:<category>` inside an `AnimatedSwitcher`, so a category opens at its first card
   — the key holds nothing that ticks, or the one-second notify would restart the fade — and inside a category cards
-  take orb places from index 1 (index 0 spills LEFT, which would be over the back tile). **Every table card carries two
+  take orb places from index 1 (index 0 spills LEFT, which would be over the back tile). The private card's Create and
+  Join keys take a `Space.sm` margin and their word in a `FittedBox(scaleDown)` (24 Sep 2026: Bengali "তৈরি করুন" read
+  "তৈরি ..." on TP_Small; `test/private_card_keys_test.dart`), and the settings drawer's display-name error wraps
+  (`errorMaxLines`, it was cut to "Letters, numbers and spaces ..."; `test/name_error_test.dart`). **Every table card carries two
   corner keys**, one over the other at its top-right (`_CardCornerKey`: each a full 44dp target whose tap wins the arena
   over the card's own, so it never sits the player down; drawn above a shut card's fade; stacked rather than side by
   side so neither reaches the badge on a 640dp phone). **ⓘ** opens `_TableInfoDialog`: game, boot, entry (the card's own
@@ -1647,7 +1718,9 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   rebuilds the right view with the server's ORIGINAL deadline. **The picker is a panel in the felt's Stack
   (`widgets/variation_prompt.dart` `VariationPrompt`), never a `showDialog` route** — no route can outlive the move it
   asked about (the missile question's black screen, above): title "Choose Variation", whole seconds counting down from
-  `deadline − now` on its own controller (visual only; the server's clock decides), a draining bar, six keys three to a
+  `deadline − now` on its own controller (visual only; the server's clock decides) and never more than the window's own
+  whole seconds (`countdownSeconds`, 24 Sep 2026: a phone running behind the server read a 10 s window as 11 — the same
+  cap holds the 5-Card pick, `VariationState.secondsLeft` and the unfunded seat's grace), a draining bar, six keys three to a
   row, a one-line rule under each where the screen is not short. It takes the top 64% of the felt so the chooser's own
   hand and "See cards" stay usable (the server allows `see` in the window). A tap darkens all six and
   `GameState.selectVariation` **awaits the ack**: taken → dark until the snapshot removes the panel however slow the link;
@@ -1910,7 +1983,12 @@ clock (4, 8, 16 s, then every 30 s) by both the backdrop and `CachedPictureBox`,
   `bannerLift` −0.45 (between the status line and the plinth's top), faded at its two ends instead of radially; a square-ish canvas is
   drawn as before. **The header's tab strip scrolls** when six keys would crowd the blurb off its two lines (a 640dp
   phone at the 1.25 text ceiling): `_ChipStoreState` cuts `tabsShown` a key at a time until `blurbLinesAt(...) <= 2`, and `_revealTab`
-  jumps the strip to the key that is on. `_loadPictures` loads both catalogues; the lobby rental watch covers a laid premium table too.
+  jumps the strip to the key that is on. **The header's height is MEASURED** (24 Sep 2026, B1): each line the taller of the
+  Latin line and what every shelf's title and blurb take in the fonts the phone draws them in (`_measuredLine`, §12.3) —
+  the Hindi Chips blurb overflowed it by a pixel on TP_Small — and the worn picture's name under it the same way;
+  `test/store_header_scripts_test.dart` opens every shelf at 640x360 in all five languages at x1.0 and x1.25 with the Noto
+  fallback. The Pictures blurb names every wallet a picture sells for ("chips, hammers or diamonds"; the Animated shelf at
+  a table "hammers or diamonds"), since five pictures cost diamonds. `_loadPictures` loads both catalogues; the lobby rental watch covers a laid premium table too.
 - **`Avatar` has two different fallbacks and the difference is deliberate.** No picture at all → the
   player's initial, which still says whose seat it is. A picture that was supposed to load and did
   not (a retired file, a dead Google URL, a phone that lost the network) → `assets/default_avatar.svg`,
@@ -1934,8 +2012,12 @@ clock (4, 8, 16 s, then every 30 s) by both the backdrop and `CachedPictureBox`,
   maps + a getter.** Teen Patti vocabulary transliterated. Still-English strings: `'YOU'`, `'Table
   ${code}'`, private-card body, picture-picker labels, `'Switch theme'`, chat `'You'`,
   the `'$winner won N'` banner (bypasses lakh formatting), and **wire hand names**.
-- **Android**: `com.sungamestudio.kingteenpatti`, `sensorLandscape`, cleartext, INTERNET (needed in
-  release). **Icon & splash** come from one file, `assets/app_icon.svg` (crown over A♥ A♠ Q♥, all paths, no fonts):
+- **Android**: `com.sungamestudio.kingteenpatti`, `sensorLandscape`, cleartext in DEBUG builds only
+  (`src/debug/AndroidManifest.xml`), INTERNET (needed in release), no backup (`allowBackup="false"` +
+  `data_extraction_rules.xml`, §8.1), and the `USE_BIOMETRIC`/`USE_FINGERPRINT` that androidx.biometric merges in (via
+  google_sign_in's androidx.credentials) removed with `tools:node="remove"` (24 Sep 2026; the merged manifest holds
+  INTERNET, BILLING and ACCESS_NETWORK_STATE only; `test/release_config_test.dart` pins all three). The Play upload is
+  the **App Bundle**; `build.gradle.kts` refuses a `--split-per-abi` RELEASE build (§4). **Icon & splash** come from one file, `assets/app_icon.svg` (crown over A♥ A♠ Q♥, all paths, no fonts):
   `tool/render_icons.dart` renders `mipmap-*/ic_launcher.png` (legacy), `mipmap-*/ic_launcher_foreground.png` +
   `mipmap-anydpi-v26/ic_launcher.xml` (adaptive, bg `@color/ic_launcher_background` #2B363B), `drawable-*/splash_icon.png`,
   and the 200×80dp `splash_branding.png` (DejaVu Sans, light/night variants). `values-v31` sets `windowSplashScreenAnimatedIcon`
@@ -1989,8 +2071,9 @@ Teen Patti and Poker, in front of them) ·
 pictures plus premium ones bought with chips, diamonds or (since 14 Sep 2026) hammers; not locked when seated since 13 Sep 2026 — worn at the table, and a diamond or hammer one bought there) · 22 private table · 23 landscape/M3 ·
 24 merge lone rooms · 25 leave confirm · 26 4h bonus top-left (the daily bonus bottom-left) · 27 milestone bottom-right ·
 28 square cards + sweep · 29 display name · 30 entry cap (not on switch; generalised 12 Sep 2026 to a per-table
-**stack band** — `config.LobbyTable.MinChips/MaxChips`, in db mode a row's `min_chips`/`max_chips`, enforced by `assertWithinTableBand` on every route into a
-seat, shown on every lobby card) · 31 3 auto-packs → kick,
+**stack band** — `config.LobbyTable.MinChips/MaxChips`, in db mode a row's `min_chips`/`max_chips`, enforced by `assertWithinTableBand` on every LOBBY door into a
+seat (quick-join, join by code, create), shown on every lobby card; a switch or a consolidation move within the pair is exempt, as from the cap —
+a band decides who may sit down, not who may stay or move sideways — though since 24 Sep 2026 both need the target's boot / poker buy-in) · 31 3 auto-packs → kick,
 below boot → kick · 32 boot deducted at start · 33 sideshow · 34 Indian numbering + toggle.
 Verbal additions: menu = exactly seen 200 / blind 200 / blind 5000; seen pot cap 1.2M; buy-chips
 button; category tag; winner chip flight; action-bar icons; chat as left drawer; missed-turn warning.
@@ -2079,13 +2162,17 @@ final t = state.t;` at the top of `build`; M3 roles via `theme.colorScheme`; `.w
   RoomManager attaches both listeners. Bare unit-test tables don't.
 - `_endHand` credits the winner in memory only when `balances` **lacks the key** — a returned
   balance of exactly 0 is valid; never `|| fallback`.
-- Every login **overwrites `display_name`** with the provider's name — a rename is clobbered on next
-  login (known, unresolved vs. req. 29).
+- **A login names only a NEW account** (Go, 24 Sep 2026, fixing req. 29): `UpsertFromProfile` writes the profile's
+  `display_name` on INSERT only; later logins refresh email and the provider photo and leave the name alone, so a rename
+  (`POST /api/profile/name`) survives — Node overwrote it at every login, a guest's with the generated `Guest8D049`.
 - Rate-limit trips ack `{ok:false, code:'rate_limited'}` (both servers). `room:create` does not
   `broadcastState`. `roomCode()` has no collision check in Node (Go regenerates until unique).
   `sweepEmptyTables` uses a hardcoded 30s. `handsToNextMilestone` says 25 (not 0)
   at an exact multiple — use `milestoneAvailable`.
-- Dead surface with no caller: `GET /api/rooms`, inbound `lobby:list`, `chat:history`, `ping:rtt`.
+- Dead surface with no caller: `GET /api/rooms` (signed-in only since 24 Sep 2026, no codes or pots), inbound `lobby:list`, `chat:history`, `ping:rtt`.
+- **HTTP answers carry `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`** (24 Sep
+  2026, `app.setSecurityHeaders`; not on `/socket.io/`), and a signed-in answer or a login is `Cache-Control: no-store`
+  (`auth.RequireAuth`, `Login`); `GET /api/tables` keeps its own `no-cache` + ETag. HSTS is nginx's.
   (`GET /api/auth/me/hands` was **removed** on 9 Sep 2026 with the `hands` table — it now 404s.)
 - **SQLite is gone entirely** (file, driver, import tool). The 41 old accounts (4,494 hands, 16,471
   ledger rows) were imported once on 2026‑09‑07; 12 of them didn't reconcile (the old `kicktest.mjs`
@@ -2103,7 +2190,20 @@ final t = state.t;` at the top of `build`; M3 roles via `theme.colorScheme`; `.w
 - `FractionallySizedBox` with only `widthFactor` and a childless child **collapses to zero height**
   (needed `heightFactor: 1`, `alignment: centerLeft`).
 - Both `game:showdown` and `game:handEnded` hit `onShowdown`; only the latter has `nextHandAt`.
-- Refused moves surface **twice** (ack + `game:error`).
+- Refused moves surface **twice** (ack + `game:error`). `GameState.refusalText` says a code in the player's language
+  where it has words for it; since 24 Sep 2026 that includes the server's `sideshow_pending` (a move while the player's
+  own sideshow request still waits for its answer) and `pick_pending` (Sideshow, Force Sideshow, Missile or Show while a
+  player is still choosing their three cards under 5-Card) — `test/pending_refusals_test.dart`.
+- **`socket_io_client` reuses a cached Socket across `io.io()` calls** (3.1.6): it caches one Manager per host and
+  compares the URL's EMPTY path with the `'/'` key the socket is stored under, so it never sees the namespace as
+  taken and returns the same Socket — reconnected with the auth it was first built with. Every connect must pass
+  `enableForceNew()` (GameConnection does, §8.1), or a new token never reaches the server.
+- **A line that mixes scripts is taller than either font's line.** Inter has no Indic glyphs; a phone draws them from
+  its Noto fonts while the spaces, commas and figures stay in Inter, each run is fitted to the style's `height` in its
+  own font's proportions, and the line takes the larger ascent AND the larger descent. Any box sized from
+  `fontSize × height` alone can overflow in Hindi, Bengali, Gujarati or Punjabi (the chip store's header did, B1,
+  24 Sep 2026): measure with a `TextPainter` (`chip_store.dart _measuredLine`). The test engine has no system fonts, so
+  a layout test must load the Noto fonts and name them as the theme's fallback (`test/script_fonts.dart`) to see it.
 - **Toasts are painted above the Navigator** (13 Sep 2026). `main.dart`'s `builder` wraps the Navigator in a
   transparent, never-resized `Scaffold`: a snack bar shows only on the outermost Scaffold its messenger knows, so
   every `notice` lands on top of sheets, dialogs and drawers. Before it the screens' own Scaffolds painted toasts
@@ -2132,7 +2232,8 @@ final t = state.t;` at the top of `build`; M3 roles via `theme.colorScheme`; `.w
   succeeds and returns no `idToken`. Facebook was removed on 10 Sep 2026, restored on 22 Sep (`5b43510`) and
   **switched off again on 23 Sep 2026** (owner, `94061a2`): the button, `SocialSignIn.facebook()`, the
   `flutter_facebook_auth` dependency and its manifest entries are commented out, not deleted — `docs/social-login-setup.md`
-  §2 says what to uncomment to bring it back. A build with no client
+  §2 says what to uncomment to bring it back; no visible line offers it (the picture sheet's guest tooltip and "Use my
+  Google or Facebook picture" named it until 24 Sep 2026 — `test/release_strings_test.dart`). A build with no client
   id throws `SignInUnavailable` and says so rather than blaming the network; "use provider picture"
   is still disabled.
 - `main()` awaits `/api/auth/me` with no timeout before the first frame.
@@ -2250,7 +2351,8 @@ deploy runbook; `steps.txt` the six-line routine.
   client behind a 302 to the Grafana login in production, §7.4) and `PG_STATEMENT_TIMEOUT_MS`
   (default 15000; `0` = Node's no-limit behaviour). Integers parse strictly; unknown `LOBBY_TABLES`
   categories fail at load; `NODE_ENV=production` refuses the default `JWT_SECRET` and fake providers
-  exactly like Node. Since 23 Sep 2026 `TABLE_CONFIG_SOURCE` decides whether the TABLE keys are read at all (§7.4):
+  exactly like Node — and, Go only since 24 Sep 2026, any `JWT_SECRET` under 32 bytes (DEPLOY.md: check production's before
+  deploying). Since 23 Sep 2026 `TABLE_CONFIG_SOURCE` decides whether the TABLE keys are read at all (§7.4):
   in db mode `app.New` loads the catalogue from PostgreSQL once, validates it — a bad row is left out with an ERROR and
   the boot carries on; an unusable catalogue falls back to the env composition — and lays it over `GameConfig`
   (`WithCatalogue`) on its own copy of the Config, before the socket layer, the REST handler and the RoomManager are
@@ -2310,7 +2412,7 @@ anywhere rather than an ssh, and `ops/prod-version.sh` compares it with the newe
 2 when prod is behind. **A restart that silently failed looks exactly like a successful one from
 outside**, and that is what this exists to catch.
 
-The Flutter client is tagged the same way, by hand: **`flutter-client/vX.Y.Z`**, cut on the commit whose `pubspec.yaml` carries that version, so the tag, the app's version name and the build number a store listing shows all agree (first cut 19 Sep 2026, `flutter-client/v1.1.0` = `1.1.0+4`, the build that carries Variation, the Poker family and the 5-Card picker). **`MIN_CLIENT_BUILD` is raised to a build number that exists in the store, never to one that is only tagged here** — the floor holds every older client on the update screen, so a floor above what Play is serving takes the game down for everyone with no way for a player to get past it.
+The Flutter client is tagged the same way, by hand: **`flutter-client/vX.Y.Z`**, cut on the commit whose `pubspec.yaml` carries that version, so the tag, the app's version name and the build number a store listing shows all agree (first cut 19 Sep 2026, `flutter-client/v1.1.0` = `1.1.0+4`, the build that carries Variation, the Poker family and the 5-Card picker). `flutter-client/v1.2.0` = `1.2.0+7`; the release after it is **`1.2.1+8`** (24 Sep 2026, owner's "fix all bugs" — pubspec had stayed at 1.2.0+7 while eleven client commits landed after the tag; `test/release_config_test.dart` holds the build number past 7). **`MIN_CLIENT_BUILD` is raised to a build number that exists in the store, never to one that is only tagged here** — the floor holds every older client on the update screen, so a floor above what Play is serving takes the game down for everyone with no way for a player to get past it.
 
 `ops/release.sh patch|minor|major|vX.Y.Z` cuts an annotated tag. It refuses a dirty tree and refuses a
 commit that already carries one — a tag has to name a commit someone else can rebuild byte for byte,
@@ -2346,7 +2448,9 @@ the ledger check. One-time after the first Go deploy: re-import
 (`POST /api/dashboards/db`, `overwrite:true`), point Prometheus's `rule_files` at
 `go-server/ops/monitoring/prometheus/alerts.yml` (the path moved) and `sudo systemctl reload prometheus` —
 commands in DEPLOY.md §6. Restart semantics are Node's: SIGTERM → live pots settled (first active seat,
-`all_left`), sockets closed, exit within 8 s (`TimeoutStopSec=15`). Node stays installed on the host only
+`all_left`), sockets closed, exit within `max(8 s, PG_STATEMENT_TIMEOUT_MS + 5 s)` — 20 s by default since 24 Sep 2026, so an
+actor stuck in a stalled write still settles its pot; a budget that runs out logs `shutdown budget ran out; rooms abandoned`
+with the ids (`TimeoutStopSec=30`, was 15 — the installed unit is a copy: re-copy it and `daemon-reload`, DEPLOY.md). Node stays installed on the host only
 for `tools/`.
 
 **The table-catalogue release (23 Sep 2026) is a two-step deploy** (DEPLOY.md §3 has every command). Production's

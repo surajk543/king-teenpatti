@@ -173,7 +173,7 @@ const (
 //     GET  {metricsPath}     → m.Handler(Guard{Token, AllowIPs})
 //     GET  /health           → Health
 //     auth.Handler.Register(mux)   (the 8 API routes)
-//     GET  /api/rooms        → {tables: ListTables({category: ?category if blind|seen|variation}), options}
+//     GET  /api/rooms        → (signed in) {tables: ListTables({category: ?category if blind|seen|variation}) less code and pot, options}
 //     GET  /api/tables       → rooms.TableConfig(), ETag / If-None-Match → 304 (tablesHandler)
 //     /socket.io/            → sio
 //     /                      → the browser client from cfg.PublicDir (staticHandler)
@@ -316,7 +316,9 @@ func New(opts Options) (*App, error) {
 				return game.Player{}, err
 			}
 			if user == nil {
-				return game.Player{}, fmt.Errorf("user %s no longer exists", userID)
+				// Deleted or vanished: unknown_user, which ends the session
+				// (socket.EndSession) rather than logging ERROR per request.
+				return game.Player{}, socket.AccountGoneError()
 			}
 			return user.Player(), nil
 		},
@@ -421,6 +423,8 @@ func New(opts Options) (*App, error) {
 		// Rewards and chip-priced pictures run under the player's seat lock,
 		// the lock every lobby seat reads the wallet under (LoadPlayer above).
 		WhileUnseated: a.rooms.WhileUnseated,
+		// A deleted account's sockets are ended at once (24 Sep 2026).
+		AccountDeleted: a.sockets.EndSession,
 	})
 	mux := http.NewServeMux()
 	if cfg.Metrics.Enabled {
@@ -428,7 +432,10 @@ func New(opts Options) (*App, error) {
 	}
 	mux.HandleFunc("GET /health", a.Health)
 	api.Register(mux)
-	mux.HandleFunc("GET /api/rooms", a.roomsHandler)
+	// Signed-in players only, and no join codes or pots (24 Sep 2026): the
+	// list is no client's, and served to anyone it let a scraper watch every
+	// live table's code and pot (auth.Handler.RequireAuth).
+	mux.Handle("GET /api/rooms", api.RequireAuth(func(w http.ResponseWriter, r *http.Request, _ *db.User) { a.roomsHandler(w, r) }))
 	mux.HandleFunc("GET /api/tables", a.tablesHandler)
 	mux.Handle("/api/", auth.NotFoundHandler())
 	if !publicDirExists(cfg.PublicDir) {
@@ -445,6 +452,9 @@ func New(opts Options) (*App, error) {
 		web = a.metrics.HTTPMiddleware(cfg.Metrics.Path, metrics.RouteLabelFor, mux)
 	}
 	a.handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasPrefix(r.URL.Path, sioPath) {
+			setSecurityHeaders(w.Header())
+		}
 		if clientBundlePaths[r.URL.Path] {
 			if cfg.RootRedirect != "" {
 				// The bundle exists only for the browser client; hidden with it.
@@ -756,6 +766,29 @@ func (a *App) Shutdown(ctx context.Context) error {
 	return errors.Join(roomsErr, httpErr, sioErr, liveErr)
 }
 
+// setSecurityHeaders is on every HTTP answer but the Socket.IO endpoint (24
+// Sep 2026, owner's "fix all bugs"): nosniff, so a JSON or text body is never
+// sniffed into something a browser runs; no framing; no referrer. HSTS is the
+// TLS terminator's (nginx). Cache-Control is per route — no-store on a
+// signed-in answer and on login (auth.RequireAuth, auth.Login), and
+// GET /api/tables keeps its own no-cache + ETag.
+func setSecurityHeaders(h http.Header) {
+	h.Set("X-Content-Type-Options", "nosniff")
+	h.Set("X-Frame-Options", "DENY")
+	h.Set("Referrer-Policy", "no-referrer")
+}
+
+// OpenRoomIDs lists the rooms still registered — after a Shutdown that ran
+// out of time, the ones it abandoned (cmd/gameplay logs them).
+func (a *App) OpenRoomIDs() []string {
+	rooms := a.rooms.LiveTables()
+	ids := make([]string, 0, len(rooms))
+	for _, r := range rooms {
+		ids = append(ids, r.ID())
+	}
+	return ids
+}
+
 // HealthResponse is GET /health. Field names are Node's; `node` carries the
 // Go runtime version string ("go1.27.1") because the load-test tooling reads
 // the key by name. Loop-lag fields report the scheduler-latency proxy
@@ -878,10 +911,23 @@ func (a *App) Health(w http.ResponseWriter, r *http.Request) {
 	auth.WriteJSON(w, http.StatusOK, res)
 }
 
-// RoomsResponse is GET /api/rooms and lobby:list's ack body.
+// RoomsResponse is GET /api/rooms's body.
 type RoomsResponse struct {
-	Tables  []game.TableSummary `json:"tables"`
-	Options game.LobbyOptions   `json:"options"`
+	Tables  []RoomListing     `json:"tables"`
+	Options game.LobbyOptions `json:"options"`
+}
+
+// RoomListing is one public table on GET /api/rooms: game.TableSummary less
+// its join code and its live pot (24 Sep 2026, owner's "fix all bugs"). The
+// route has no client; what it lists is enough to see the lobby, not to walk
+// into a table by its code or to watch its money.
+type RoomListing struct {
+	RoomID     string          `json:"roomId"`
+	Category   game.Category   `json:"category"`
+	State      game.TableState `json:"state"`
+	Players    int             `json:"players"`
+	MaxPlayers int             `json:"maxPlayers"`
+	BootAmount int64           `json:"bootAmount"`
 }
 
 // roomsHandler is GET /api/rooms?category= (index.js:87-97): the category
@@ -901,9 +947,13 @@ func (a *App) roomsHandler(w http.ResponseWriter, r *http.Request) {
 			category = c
 		}
 	}
-	tables := a.rooms.ListTables(game.ListOptions{Category: category})
-	if tables == nil {
-		tables = []game.TableSummary{}
+	summaries := a.rooms.ListTables(game.ListOptions{Category: category})
+	tables := make([]RoomListing, 0, len(summaries))
+	for _, t := range summaries {
+		tables = append(tables, RoomListing{
+			RoomID: t.RoomID, Category: t.Category, State: t.State,
+			Players: t.Players, MaxPlayers: t.MaxPlayers, BootAmount: t.BootAmount,
+		})
 	}
 	auth.WriteJSON(w, http.StatusOK, RoomsResponse{Tables: tables, Options: a.rooms.LobbyOptions()})
 }

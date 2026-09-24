@@ -534,7 +534,7 @@ func (t *Table) options(s *seat) Options {
 				o.MinBet = min(t.cfg.BootAmount, s.chips)
 				o.MaxBet = s.chips
 			}
-		} else if s.chips > toCall {
+		} else if s.chips > toCall && t.mayRaise(s) {
 			o.Raise = true
 			o.MinRaise = min(h.currentBet+h.minRaise, s.streetBet+s.chips)
 			o.MaxRaise = s.streetBet + s.chips
@@ -550,6 +550,25 @@ func (t *Table) options(s *seat) Options {
 		o.MaxDiscards = t.maxDiscards()
 	}
 	return o
+}
+
+// mayRaise: a raise is offered only when it can mean something and the
+// betting is open to this seat. At least one OTHER player still in must be
+// able to act — against opponents who are all all-in a raise is chips nobody
+// can call, handed straight back (PM-7). And a seat that has acted since the
+// last FULL raise may only call or fold: an all-in for less than a full raise
+// does not reopen the betting (raiseTo leaves `acted` set for it, PM-2); a
+// seat yet to act on the street, or reopened by a full raise, may raise.
+func (t *Table) mayRaise(s *seat) bool {
+	if s.acted {
+		return false
+	}
+	for _, other := range t.seatsInHand() {
+		if other != s && other.canAct() {
+			return true
+		}
+	}
+	return false
 }
 
 // fold takes a seat out of the hand and checkpoints its stake (hand_packed
@@ -635,8 +654,8 @@ func (t *Table) applyBet(s *seat, action Action, amount int64) (ActResult, error
 	return ActResult{Action: action, Amount: game.Int64Ptr(bet), AllIn: allIn}, nil
 }
 
-// raiseTo sets the street's bet to amount from this seat and reopens the
-// action for everyone else. A raise smaller than the last (an all-in for
+// raiseTo sets the street's bet to amount from this seat and, when it is a
+// full raise, reopens the action for everyone else. A raise smaller than the last (an all-in for
 // less) does not raise the minimum. Returns the seat's street bet and whether
 // it went all-in, read before the turn moved on.
 func (t *Table) raiseTo(s *seat, amount int64, action Action) (int64, bool) {
@@ -644,13 +663,23 @@ func (t *Table) raiseTo(s *seat, amount int64, action Action) (int64, bool) {
 	previous := h.currentBet
 	t.stake(s, amount-s.streetBet)
 	if s.streetBet > previous {
+		// A full raise (or any opening bet) reopens the action: everybody
+		// else must act again and may raise again. An all-in for LESS than a
+		// full raise does not — the others owe the call (needsAction sees
+		// their street bet short of currentBet) but whoever has already acted
+		// keeps `acted`, so mayRaise offers them call or fold only (the
+		// standard no-limit rule; 24 Sep 2026 review, PM-2).
+		full := previous == 0
 		if by := s.streetBet - previous; by >= h.minRaise {
 			h.minRaise = by
+			full = true
 		}
 		h.currentBet = s.streetBet
-		for _, other := range t.seatsInHand() {
-			if other != s {
-				other.acted = false
+		if full {
+			for _, other := range t.seatsInHand() {
+				if other != s {
+					other.acted = false
+				}
 			}
 		}
 	}
@@ -809,7 +838,11 @@ func (t *Table) endHandWithWinners(reason WinReason, hands map[int]Hand, reveals
 	payouts, totals := Award(pots, hands, h.button, len(t.seats))
 	results := make([]PotResult, len(pots))
 	for i, p := range pots {
-		results[i] = PotResult{Amount: p.Amount, Eligible: p.Eligible, Winners: []PotWinner{}}
+		eligible := p.Eligible
+		if eligible == nil {
+			eligible = []int{}
+		}
+		results[i] = PotResult{Amount: p.Amount, Eligible: eligible, Winners: []PotWinner{}}
 	}
 	for _, p := range payouts {
 		s := t.seats[p.Seat]
@@ -908,7 +941,11 @@ func (t *Table) settle(reason WinReason, winners map[string]bool, pushes map[str
 	summary := make([]HandSummaryEntry, 0, len(h.contribOrder))
 	for _, userID := range h.contribOrder {
 		entry := h.contributions[userID]
-		if entry == nil || entry.contributed <= 0 {
+		// A player who put nothing in is still owed a row when they won
+		// something: the last player standing after the blinds walked out
+		// on them took the blinds with 0 chips in (without the row the seat
+		// was paid and the wallet never was).
+		if entry == nil || (entry.contributed <= 0 && entry.won <= 0) {
 			continue
 		}
 		isWinner := winners[userID]

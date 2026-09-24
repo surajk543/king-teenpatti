@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:socket_io_client/socket_io_client.dart' as io;
 import 'package:uuid/uuid.dart';
 
@@ -199,6 +200,10 @@ class GameConnection {
 
   bool get isConnected => _socket?.connected ?? false;
 
+  /// The socket of the current session, for a test to inspect.
+  @visibleForTesting
+  io.Socket? get debugSocket => _socket;
+
   /// The code a move gets when it is refused because the socket is down.
   static const notConnected = 'not_connected';
 
@@ -212,6 +217,17 @@ class GameConnection {
           .setAuth({'token': token})
           .enableReconnection()
           .setReconnectionDelay(800)
+          // A new Manager and Socket for every session. Without it
+          // socket_io_client hands back the Socket it cached for this host
+          // on the first connect — disposed or not — and reconnects it with
+          // the auth it was BUILT with: after a sign-out, or Delete account,
+          // the next account's socket presented the previous account's
+          // token. A deleted account's token is refused (connect_error
+          // unknown_user), which surfaced as a "Service not available" toast
+          // over the new guest's consent panel and left them unconnected; a
+          // token still valid signed the socket in as the previous player
+          // (24 Sep 2026, owner's "fix all bugs"; release review B7).
+          .enableForceNew()
           .build(),
     );
     _socket = socket;
@@ -227,10 +243,13 @@ class GameConnection {
       socket.sendBuffer.clear();
       _connected.add(false);
     });
-    socket.onConnectError(
-      (e) =>
-          _errors.add((code: null, message: 'Could not reach the table: $e')),
-    );
+    socket.onConnectError((e) {
+      // Only the current session's socket speaks: one already replaced (a
+      // sign-out, Delete account, a new sign-in) has nothing to tell the
+      // player now.
+      if (!identical(_socket, socket)) return;
+      _errors.add((code: null, message: 'Could not reach the table: $e'));
+    });
 
     socket.on('session:ready', (data) {
       final j = _map(data);

@@ -107,6 +107,10 @@ type Config struct {
 	// player exactly what the fleet exists not to tell them.
 	BotDevicePrefix string
 
+	// RESTRate is the per-client-IP request limit on the REST doors that mint
+	// accounts or move wallets (Go only, 24 Sep 2026, owner's "fix all bugs").
+	RESTRate RESTRateConfig
+
 	DB      DBConfig
 	Game    GameConfig
 	Metrics MetricsConfig
@@ -485,6 +489,11 @@ func Defaults() *Config {
 		Facebook:           FacebookConfig{},
 		AllowFakeProviders: false,
 		BotDevicePrefix:    "botplay-",
+		RESTRate: RESTRateConfig{
+			Login:  60,
+			Wallet: 120,
+			Window: time.Minute,
+		},
 		DB: DBConfig{
 			URL:                 "postgres://postgres:postgres@localhost:5432/gameplay",
 			Schema:              "public",
@@ -709,6 +718,18 @@ func FromEnv(lookup Lookup) (*Config, error) {
 	c.Facebook.AppSecret = r.str("FACEBOOK_APP_SECRET", c.Facebook.AppSecret)
 	c.AllowFakeProviders = r.boolean("AUTH_ALLOW_FAKE_PROVIDERS", c.AllowFakeProviders)
 	c.BotDevicePrefix = r.str("BOT_DEVICE_PREFIX", c.BotDevicePrefix)
+	c.RESTRate.Login = r.integer("REST_LOGIN_RATE_LIMIT", c.RESTRate.Login)
+	c.RESTRate.Wallet = r.integer("REST_WALLET_RATE_LIMIT", c.RESTRate.Wallet)
+	c.RESTRate.Window = r.millis("REST_RATE_WINDOW_MS", c.RESTRate.Window)
+	if c.RESTRate.Login < 0 {
+		r.fail("REST_LOGIN_RATE_LIMIT", strconv.Itoa(c.RESTRate.Login), "must be 0 (off) or more")
+	}
+	if c.RESTRate.Wallet < 0 {
+		r.fail("REST_WALLET_RATE_LIMIT", strconv.Itoa(c.RESTRate.Wallet), "must be 0 (off) or more")
+	}
+	if c.RESTRate.Window <= 0 && (c.RESTRate.Login > 0 || c.RESTRate.Wallet > 0) {
+		r.fail("REST_RATE_WINDOW_MS", strconv.FormatInt(c.RESTRate.Window.Milliseconds(), 10), "must be above 0 while a REST rate limit is on")
+	}
 
 	c.DB.URL = r.str("DATABASE_URL", c.DB.URL)
 	c.DB.Schema = r.str("PG_SCHEMA", c.DB.Schema)
@@ -838,6 +859,28 @@ func FromEnv(lookup Lookup) (*Config, error) {
 	return c, nil
 }
 
+// RESTRateConfig is the per-client-IP limit on the REST doors that create
+// accounts or move a wallet: at most Login POST /api/auth/login, and at most
+// Wallet of the reward, purchase, store and account-deletion requests, per
+// Window, each counted per client IP. 0 turns that limit off. Generous by
+// design — a whole NAT'd office or a mobile carrier's CGNAT shares one IP —
+// it is there to stop a script minting guest accounts (each with the welcome
+// chips) or guessing guest device ids, not to pace a player. A refusal is 429
+// {error: "rate_limited"} with Retry-After.
+//
+// The client IP is the peer's; behind nginx on the same host (a loopback peer)
+// it is the X-Real-IP nginx sets, and a loopback peer WITHOUT that header —
+// the resident bot fleet, the tools, the tests — is not limited at all.
+type RESTRateConfig struct {
+	Login  int           // REST_LOGIN_RATE_LIMIT (60)
+	Wallet int           // REST_WALLET_RATE_LIMIT (120)
+	Window time.Duration // REST_RATE_WINDOW_MS (60000)
+}
+
+// MinProductionJWTSecretBytes is the shortest JWT_SECRET production accepts:
+// 32 bytes, the HS256 output size (`openssl rand -hex 32` gives 64).
+const MinProductionJWTSecretBytes = 32
+
 // schemaPattern is db/index.js's `/^[A-Za-z_][A-Za-z0-9_]*$/` — the schema
 // name is interpolated into DDL and a connection option, so it must be a
 // plain identifier.
@@ -850,10 +893,19 @@ var schemaPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 // ("AUTH_ALLOW_FAKE_PROVIDERS must be false in production"). It also rejects
 // a DB.Schema that is not a plain identifier (db/index.js:35-37), which Node
 // only caught at openDatabase.
+//
+// Go only (24 Sep 2026, owner's "fix all bugs"): production also refuses a
+// JWT_SECRET shorter than MinProductionJWTSecretBytes, the empty one
+// included. Node compared against the default alone, so a set-but-empty
+// secret booted and signed every session with an empty HMAC key, which anyone
+// can forge a token for any user id with.
 func (c *Config) Validate() error {
 	if c.Env == EnvProduction {
 		if c.JWT.Secret == DefaultJWTSecret {
 			return fmt.Errorf("JWT_SECRET must be set in production")
+		}
+		if len(c.JWT.Secret) < MinProductionJWTSecretBytes {
+			return fmt.Errorf("JWT_SECRET must be at least %d bytes in production", MinProductionJWTSecretBytes)
 		}
 		if c.AllowFakeProviders {
 			return fmt.Errorf("AUTH_ALLOW_FAKE_PROVIDERS must be false in production")

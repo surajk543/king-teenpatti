@@ -145,10 +145,18 @@ void main() {
         t.pictureChipsLobbyOnly,
         'You can only buy a chip-priced picture in the lobby.',
       );
-      // The animated pictures no longer cost diamonds, and the copy that said
-      // they did has moved on.
-      expect(t.storePicturesBlurb, 'Unlock a picture with chips or hammers.');
-      expect(t.storeAnimatedBlurb, 'Unlock an animated picture with hammers.');
+      // Pictures are sold for chips, hammers AND diamonds (Butterfly
+      // Flapping, Waving Tiger Cub, Indian Flag, Jolly King and Jolly Queen
+      // cost diamonds), and the shelves' copy says all of it (24 Sep 2026,
+      // owner's "fix all bugs": it said "chips or hammers" alone).
+      expect(
+        t.storePicturesBlurb,
+        'Unlock a picture with chips, hammers or diamonds.',
+      );
+      expect(
+        t.storeAnimatedBlurb,
+        'Unlock an animated picture with hammers or diamonds.',
+      );
       expect(t.storeDiamondsBlurb, 'Diamonds trade for missiles.');
       expect(
         t.rewardDiamondsPurchased,
@@ -228,23 +236,32 @@ void main() {
       }
     });
 
-    test('price the pictures shelves in hammers, not diamonds, everywhere', () {
-      for (final (lang, hammer, diamond) in [
-        (AppLang.english, 'hammer', 'diamond'),
-        (AppLang.hindi, 'हथौड़', 'हीर'),
-        (AppLang.bengali, 'হাতুড়ি', 'হীরে'),
-        (AppLang.gujarati, 'હથોડી', 'હીરા'),
-        (AppLang.punjabi, 'ਹਥੌੜ', 'ਹੀਰ'),
+    test('price the pictures shelves in every wallet they sell for, '
+        'everywhere', () {
+      for (final (lang, chip, hammer, diamond) in [
+        (AppLang.english, 'chips', 'hammer', 'diamond'),
+        (AppLang.hindi, 'चिप्स', 'हथौड़', 'हीर'),
+        (AppLang.bengali, 'চিপস', 'হাতুড়ি', 'হীরে'),
+        (AppLang.gujarati, 'ચિપ્સ', 'હથોડી', 'હીરા'),
+        (AppLang.punjabi, 'ਚਿਪਸ', 'ਹਥੌੜ', 'ਹੀਰ'),
       ]) {
         final t = Strings(lang);
+        // Hammer and diamond pictures sell in the lobby and at a table.
         for (final blurb in [t.storePicturesBlurb, t.storeAnimatedBlurb]) {
           expect(blurb, contains(hammer), reason: '${lang.code}: $blurb');
-          expect(
-            blurb,
-            isNot(contains(diamond)),
-            reason: '${lang.code}: $blurb',
-          );
+          expect(blurb, contains(diamond), reason: '${lang.code}: $blurb');
         }
+        // Chip-priced ones only in the lobby, where the Pictures shelf is.
+        expect(
+          t.storePicturesBlurb,
+          contains(chip),
+          reason: '${lang.code}: ${t.storePicturesBlurb}',
+        );
+        expect(
+          t.storeAnimatedBlurb,
+          isNot(contains(chip)),
+          reason: '${lang.code}: ${t.storeAnimatedBlurb}',
+        );
       }
     });
   });

@@ -183,9 +183,15 @@ type JoinCodeRequest struct {
 // string sent ("" for a non-string) and is used only when 1..64 UTF-16 units
 // long.
 type ActionRequest struct {
-	Action   string          `json:"action"`
-	Amount   json.RawMessage `json:"amount"`
-	ActionID string          `json:"actionId"`
+	Action string `json:"action"`
+	// ActionIsString is whether `action` arrived as a JSON string. Only a
+	// string can name an action (Node: VALID_ACTIONS.has(action) is false for
+	// anything else); Action still carries String(action) for the message, so
+	// ["see"] is `Unknown action "see"` — never the see it spells (owner's "fix
+	// all bugs", 24 Sep 2026).
+	ActionIsString bool            `json:"-"`
+	Amount         json.RawMessage `json:"amount"`
+	ActionID       string          `json:"actionId"`
 }
 
 // SideshowRespondRequest ← game:sideshowRespond. Accept is the raw value

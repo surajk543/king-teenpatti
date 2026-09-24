@@ -292,19 +292,20 @@ func restoreTable(snap *Snapshot, opts TableOptions) (*Table, error) {
 
 	if sh := snap.Hand; sh != nil {
 		h := &hand{
-			id:            sh.ID,
-			handNo:        sh.HandNo,
-			startedAt:     FromMillis(sh.StartedAt),
-			pot:           sh.Pot,
-			stake:         sh.Stake,
-			round:         sh.Round,
-			packedUserIDs: make(map[string]struct{}, len(sh.PackedUserIDs)),
-			turnSeat:      sh.TurnSeat,
-			startSeat:     sh.StartSeat,
-			seatOrder:     append([]int{}, sh.SeatOrder...),
-			contributions: make(map[string]*contribution, len(sh.Contributions)),
-			contribOrder:  make([]string, 0, len(sh.Contributions)),
-			actionIDs:     make(map[string]struct{}, len(sh.ActionIDs)),
+			id:               sh.ID,
+			handNo:           sh.HandNo,
+			startedAt:        FromMillis(sh.StartedAt),
+			pot:              sh.Pot,
+			stake:            sh.Stake,
+			round:            sh.Round,
+			packedUserIDs:    make(map[string]struct{}, len(sh.PackedUserIDs)),
+			turnSeat:         sh.TurnSeat,
+			startSeat:        sh.StartSeat,
+			seatOrder:        append([]int{}, sh.SeatOrder...),
+			contributions:    make(map[string]*contribution, len(sh.Contributions)),
+			contribOrder:     make([]string, 0, len(sh.Contributions)),
+			actionIDs:        make(map[string]struct{}, len(sh.ActionIDs)),
+			deferredShowdown: sh.DeferredShowdown,
 		}
 		for _, id := range sh.ActionIDs {
 			h.actionIDs[id] = struct{}{}
@@ -395,6 +396,13 @@ func (t *Table) resumeTimers() {
 		// same call, which gave the chooser their turn with a full clock; that
 		// returns false, and the hand falls through to the next case, which
 		// finds the turn it was just given and leaves it alone.)
+	case t.hand != nil && t.hand.deferredShowdown != "":
+		// A server showdown waiting on pick windows: nobody is on turn, so
+		// there is no clock to re-arm and play must not be opened by the "no
+		// turn recorded" branch below. The windows came back on the pick
+		// clock above (a lapsed one on a zero delay), and whichever closes
+		// last runs it; if none is open any more it runs now.
+		t.runDeferredShowdown()
 	case t.hand != nil:
 		h := t.hand
 		if p := h.sideshow; p != nil {
@@ -572,6 +580,14 @@ func validateSnapshot(snap *Snapshot) error {
 		if err := validCardCodes(c.Cards); err != nil {
 			return fmt.Errorf("snapshot %s: contribution of %s: %w", snap.RoomID, c.UserID, err)
 		}
+	}
+	switch h.DeferredShowdown {
+	case "", WinForcedShowdown, WinPotLimit:
+	default:
+		return fmt.Errorf("snapshot %s: deferred showdown %q", snap.RoomID, h.DeferredShowdown)
+	}
+	if h.DeferredShowdown != "" && (h.TurnSeat != -1 || h.Sideshow != nil) {
+		return fmt.Errorf("snapshot %s: a deferred showdown with a turn or a sideshow standing", snap.RoomID)
 	}
 	if p := h.Sideshow; p != nil {
 		if !seatOK(p.FromSeat) || snap.Seats[p.FromSeat].UserID != p.FromUserID {

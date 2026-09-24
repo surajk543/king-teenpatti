@@ -1420,7 +1420,10 @@ func TestGuestLoginCreatesAnAccountWithTheWelcomeGrant(t *testing.T) {
 	f.reconcile()
 }
 
-func TestLoggingInAgainReturnsTheSameAccountAndOverwritesTheName(t *testing.T) {
+// A login names only a NEW account (B5, 24 Sep 2026; requirement 29): a name
+// the player chose survives every later login, whatever name the login
+// carries — the generated guest name, a typed one, or none.
+func TestLoggingInAgainReturnsTheSameAccountAndKeepsTheChosenName(t *testing.T) {
 	f := newFixture(t)
 	id := "same-device-" + randomSuffix(t)
 	first, _, err := f.users.UpsertFromProfile(f.ctx, db.Profile{Provider: db.ProviderGuest, ProviderUserID: id, DisplayName: "Suraj"})
@@ -1432,7 +1435,7 @@ func TestLoggingInAgainReturnsTheSameAccountAndOverwritesTheName(t *testing.T) {
 		t.Fatal(err)
 	}
 	time.Sleep(2 * time.Millisecond)
-	// …is clobbered by the next login (known, unresolved vs requirement 29).
+	// …survives the next login, which carries the generated guest name.
 	second, isNew, err := f.users.UpsertFromProfile(f.ctx, db.Profile{Provider: db.ProviderGuest, ProviderUserID: id, DisplayName: "GuestABCDE"})
 	if err != nil {
 		t.Fatal(err)
@@ -1440,18 +1443,18 @@ func TestLoggingInAgainReturnsTheSameAccountAndOverwritesTheName(t *testing.T) {
 	if isNew || second.ID != first.ID || second.Chips != welcome {
 		t.Fatalf("second login = %+v isNew=%v", second, isNew)
 	}
-	if second.DisplayName != "GuestABCDE" {
-		t.Fatalf("displayName = %q, want the provider's name", second.DisplayName)
+	if second.DisplayName != "Renamed" {
+		t.Fatalf("displayName = %q, want the chosen %q", second.DisplayName, "Renamed")
 	}
 	if second.LastLoginAt <= first.LastLoginAt || second.CreatedAt != first.CreatedAt {
 		t.Fatalf("timestamps: first %d/%d second %d/%d", first.CreatedAt, first.LastLoginAt, second.CreatedAt, second.LastLoginAt)
 	}
-	// Only an empty provider name keeps the stored one.
+	// An empty provider name keeps it too.
 	third, _, err := f.users.UpsertFromProfile(f.ctx, db.Profile{Provider: db.ProviderGuest, ProviderUserID: id, DisplayName: ""})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if third.DisplayName != "GuestABCDE" {
+	if third.DisplayName != "Renamed" {
 		t.Fatalf("empty provider name must keep the stored one, got %q", third.DisplayName)
 	}
 	// No second welcome grant.

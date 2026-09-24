@@ -23,6 +23,29 @@ if (hasUploadKey) {
     keystoreProperties.load(FileInputStream(keystorePropertiesFile))
 }
 
+// A RELEASE build split per ABI is refused (24 Sep 2026, owner's "fix all
+// bugs"; release review RC-05). `flutter build apk --split-per-abi` gives each
+// APK the pubspec build number PLUS an ABI offset (1007, 2007, 4007 for build
+// 7): a phone that sideloads one reports that as its build, so no
+// MIN_CLIENT_BUILD floor ever holds it back, and it cannot take a Play update
+// either (Play's 8 is "older" than 2007). The store upload is the App Bundle
+// (`flutter build appbundle --release`), which Play splits itself with the
+// true version code. For a throwaway test build that really wants the split
+// APKs: `--android-project-arg=allowSplitPerAbiRelease=true`.
+val splitPerAbi = findProperty("split-per-abi")?.toString()?.toBoolean() ?: false
+if (splitPerAbi &&
+    findProperty("allowSplitPerAbiRelease") == null &&
+    gradle.startParameter.taskNames.any { it.contains("Release", ignoreCase = true) }
+) {
+    throw GradleException(
+        "Refusing a release build split per ABI: its APKs carry versionCodes " +
+            "1000+/2000+/4000+ that no MIN_CLIENT_BUILD floor catches and Play " +
+            "can never update. Ship the App Bundle (flutter build appbundle " +
+            "--release) or one universal APK (flutter build apk --release). " +
+            "A test build may pass --android-project-arg=allowSplitPerAbiRelease=true.",
+    )
+}
+
 android {
     namespace = "com.sungamestudio.kingteenpatti"
     compileSdk = flutter.compileSdkVersion

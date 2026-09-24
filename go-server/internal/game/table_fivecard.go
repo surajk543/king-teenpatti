@@ -130,8 +130,51 @@ func (t *Table) beginPick(s *seat) {
 	}
 	s.picking = true
 	s.pickUntil = t.clock.Now().Add(t.cfg.FiveCardPickTimeout)
-	// The choice must not eat the turn it is being made on.
-	t.extendTurn(s.pickUntil.Add(t.cfg.TurnTimeout))
+	// The choice must not eat the turn it is being made on — THEIR turn, and
+	// only when they hold it (extendTurn checks).
+	t.extendTurnForPick(s)
+	t.armPickTimer()
+}
+
+// extendTurnForPick gives a player whose pick window is open, and who holds
+// the turn, the whole window plus a full turn. Called when the window opens
+// and when the turn reaches a player whose window is already open (the
+// variation chooser who looked before choosing FIVE_CARD).
+func (t *Table) extendTurnForPick(s *seat) {
+	if s == nil || !s.picking || len(s.picked) > 0 || s.pickUntil.IsZero() {
+		return
+	}
+	t.extendTurn(s, s.pickUntil.Add(t.cfg.TurnTimeout))
+}
+
+// pickPending reports whether any of these seats, still in the hand, is inside
+// a 5-Card pick window with a deadline — a player who has five cards in front
+// of them and has not yet chosen which three play. A comparison a player
+// forces (Sideshow, Force Sideshow, Missile, Show) waits for them: judging
+// them now would play their first three and cut short the time the owner
+// gave them to choose. A window without a deadline (FIVE_CARD_PICK_TIMEOUT_MS
+// 0, never in production) does not hold anything up, or it could hold the
+// hand for ever.
+func (t *Table) pickPending(seats ...*seat) bool {
+	if !t.fiveCardHand() {
+		return false
+	}
+	for _, s := range seats {
+		if s != nil && s.status == SeatActive && s.picking && len(s.picked) == 0 && !s.pickUntil.IsZero() {
+			return true
+		}
+	}
+	return false
+}
+
+// dropPick closes a window that no longer matters — the player has packed —
+// so the pick clock does not fire for a seat out of the hand.
+func (t *Table) dropPick(s *seat) {
+	if s == nil || !s.picking {
+		return
+	}
+	s.picking = false
+	s.pickUntil = time.Time{}
 	t.armPickTimer()
 }
 
@@ -139,7 +182,8 @@ func (t *Table) beginPick(s *seat) {
 // (socket game:selectCards). codes is the client's list, untrusted; userID is
 // the socket's authenticated user, so nobody can choose for anyone else.
 //
-// Refusals, in order: no_hand | not_seated | not_picking | invalid_pick.
+// Refusals, in order: no_hand | not_seated | not_in_hand | not_picking |
+// duplicate_action | invalid_pick.
 // A choice that arrives after the deadline is not refused — the deadline is the
 // server's own, and by the time a late choice reaches the actor the sweep has
 // already played the first three; it finds the choice made and answers
@@ -163,6 +207,11 @@ func (t *Table) selectCards(userID string, codes []string) (PickResult, error) {
 	if s == nil {
 		return PickResult{}, NewGameError(CodeNotSeated, MsgNotSeated)
 	}
+	// A packed seat is out of the hand: its cards will never be compared, and
+	// a choice now would change a state nobody plays by.
+	if s.status != SeatActive {
+		return PickResult{}, NewGameError(CodeNotInHand, MsgNotInHand)
+	}
 	if !t.fiveCardHand() || len(s.cards) <= BaseCardsPerPlayer || s.isBlind {
 		return PickResult{}, NewGameError(CodeNotPicking, MsgNotPicking)
 	}
@@ -173,7 +222,10 @@ func (t *Table) selectCards(userID string, codes []string) (PickResult, error) {
 	if !ok {
 		return PickResult{}, NewGameError(CodeInvalidPick, MsgInvalidPick)
 	}
-	return t.settlePick(s, picked, PickByPlayer), nil
+	result := t.settlePick(s, picked, PickByPlayer)
+	// A server showdown may have been waiting for exactly this choice.
+	t.runDeferredShowdown()
+	return result, nil
 }
 
 // pickFrom turns the client's three codes into three of the player's own cards.
@@ -294,6 +346,9 @@ func (t *Table) expirePicks() {
 		t.settlePick(s, s.cards[:BaseCardsPerPlayer], PickByTimeout)
 	}
 	t.armPickTimer()
+	// Every lapsed window is settled first, so a deferred server showdown
+	// runs once, on the hands as they now stand.
+	t.runDeferredShowdown()
 }
 
 // stopPickTimer stops the pick clock if it is running.
@@ -323,12 +378,17 @@ func (t *Table) clearPicks() {
 // later than the deadline it already has, and leaves it alone otherwise. The
 // turn is re-tokened as setTurn does, so the clock being replaced is stale and
 // its timeout is ignored when it fires.
-func (t *Table) extendTurn(until time.Time) {
-	if t.hand == nil || t.hand.turnSeat < 0 || t.hand.turnSeat >= len(t.seats) {
+//
+// Only the picker's OWN turn is extended, and only while it runs (owner's "fix all
+// bugs", 24 Sep 2026): it used to extend whoever held the turn, so every other
+// player's first look topped the holder up to a window plus a full turn, and
+// it re-armed a clock a pending sideshow had stopped.
+func (t *Table) extendTurn(picker *seat, until time.Time) {
+	if t.hand == nil || picker == nil || t.hand.turnSeat != picker.seatIndex || t.hand.sideshow != nil {
 		return
 	}
-	s := t.seats[t.hand.turnSeat]
-	if s == nil || !until.After(t.hand.turnDeadline) {
+	s := picker
+	if t.seats[s.seatIndex] != s || !until.After(t.hand.turnDeadline) {
 		return
 	}
 	left := until.Sub(t.clock.Now())
@@ -350,4 +410,13 @@ func (t *Table) extendTurn(until time.Time) {
 		TimeoutMs: left.Milliseconds(),
 		Options:   t.turnOptions(s),
 	})
+}
+
+// seatAt is the seat at index i, or nil for -1, an index out of range or an
+// empty place.
+func (t *Table) seatAt(i int) *seat {
+	if i < 0 || i >= len(t.seats) {
+		return nil
+	}
+	return t.seats[i]
 }

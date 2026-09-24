@@ -36,9 +36,10 @@ RestartSec=2
 # EMFILE near 1,000 players (go-server/ops/monitoring/nginx/systemd/).
 LimitNOFILE=65536
 # SIGTERM → the binary closes sockets, settles every live pot and exits within
-# its own 8 s budget (cmd/gameplay/main.go); systemd only SIGKILLs after 15 s.
+# its own budget (cmd/gameplay/main.go shutdownBudgetFor: max(8 s, PG_STATEMENT_TIMEOUT_MS
+# + 5 s) = 20 s by default); systemd only SIGKILLs after 30 s, which must stay above it.
 KillSignal=SIGTERM
-TimeoutStopSec=15
+TimeoutStopSec=30
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=gameplay

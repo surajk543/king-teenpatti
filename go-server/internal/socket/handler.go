@@ -117,6 +117,13 @@ type Handler struct {
 	liveSockets int
 	peakSockets int
 
+	// userLimiters: userId → the account's own request limiter (24 Sep 2026,
+	// owner's "fix all bugs"): the per-socket limiter was reset by every
+	// reconnect, so one account could multiply its 30 / 5 s by reconnecting.
+	// This one survives the reconnect; the heartbeat drops it once its window
+	// has lapsed and the account has no live socket.
+	userLimiters map[string]*rateLimiter
+
 	// heartbeat is the armed presence refresh (see Attach); closed stops it
 	// from re-arming. Both under mu.
 	heartbeat game.Timer
@@ -150,7 +157,30 @@ func New(deps Deps) *Handler {
 		userSockets:     make(map[string]*sio.Socket),
 		pendingRemovals: make(map[string]game.Timer),
 		lapsing:         make(map[string]chan struct{}),
+		userLimiters:    make(map[string]*rateLimiter),
 	}
+}
+
+// EndSession disconnects the account's live socket, if any: the account has
+// gone (DELETE /api/account, or a request that found the row deleted), so
+// the session has nothing left to act for (24 Sep 2026). The client is told
+// nothing new; a server-side disconnect is what it sees, and a deleted
+// player's app has already dropped its token.
+func (h *Handler) EndSession(userID string) {
+	h.mu.Lock()
+	s := h.userSockets[userID]
+	h.mu.Unlock()
+	if s == nil {
+		return
+	}
+	s.Disconnect(true)
+	h.onDisconnect(s, sio.ReasonServerNamespaceDisc)
+}
+
+// AccountGoneError is the refusal a request from a deleted (or vanished)
+// account gets: unknown_user, "This account no longer exists".
+func AccountGoneError() error {
+	return game.NewGameError(auth.CodeUnknownUser, auth.MsgUnknownUser)
 }
 
 // SetRooms supplies the RoomManager. Must be called before Attach.
@@ -471,7 +501,7 @@ func (h *Handler) guard(s *sio.Socket, event string, fn func(args []json.RawMess
 	return func(args []json.RawMessage, ack sio.AckFunc) {
 		h.incMessages(event)
 		sess := sessionOf(s)
-		if sess == nil || !sess.rateLimiter.allow() {
+		if sess == nil || !sess.rateLimiter.allow() || !h.userLimiterAllows(sess.user.ID) {
 			h.incSocketError(game.CodeRateLimited)
 			// The refusal is emitted first, then acknowledged — a client
 			// awaiting the ack would otherwise hang on it.
@@ -493,6 +523,11 @@ func (h *Handler) guard(s *sio.Socket, event string, fn func(args []json.RawMess
 				ack(ErrorAck{OK: false, Code: code, Message: message})
 			}
 			h.fail(s, err)
+			if code == auth.CodeUnknownUser {
+				// The account behind this session has gone (deleted): answer,
+				// then end the session rather than keep refusing it.
+				h.EndSession(sess.user.ID)
+			}
 			return
 		}
 		if ack != nil {
@@ -563,8 +598,10 @@ func (h *Handler) teenPattiTable(userID string) (*game.Table, error) {
 }
 
 // freshUser re-reads the account (the seat needs CURRENT chips, not the
-// handshake snapshot). A vanished row is an internal error, as Node's
-// TypeError on `null.id` was.
+// handshake snapshot). A vanished or deleted row is unknown_user (24 Sep
+// 2026; it was an internal error, as Node's TypeError on `null.id` was, which
+// logged ERROR on every request a deleted account's socket sent): guard then
+// ends that session, since there is no account left behind it.
 //
 // This read is not the one a seat starts from: it happens before the join
 // holds the player's seat lock, so a lobby-only wallet change can still commit
@@ -580,7 +617,7 @@ func (h *Handler) freshUser(userID string) (*db.User, error) {
 		return nil, err
 	}
 	if fresh == nil {
-		return nil, fmt.Errorf("user %s no longer exists", userID)
+		return nil, AccountGoneError()
 	}
 	return fresh, nil
 }
@@ -818,6 +855,12 @@ func (h *Handler) switchTable(s *sio.Socket) (any, error) {
 			}
 			return err
 		}
+		// Listen to the table the switch RESULT names and to nothing else
+		// (24 Sep 2026): a consolidation that moved this player between the
+		// look above and the switch (it took them off `leaving` onto another
+		// table) left the socket tracked in that other table, which then
+		// kept sending room:state and chat to a player seated elsewhere.
+		h.untrackAllExcept(s, result.To.ID())
 		return h.seatSocket(result.To, s, user.ID)
 	}()
 	h.observeJoin(metrics.RouteSwitch, started)
@@ -852,10 +895,17 @@ func (h *Handler) leave(s *sio.Socket) (any, error) {
 		return OKAck{OK: true}, nil
 	}
 	roomID := table.ID()
-	if _, err := rooms.Leave(user.ID, game.LeaveReasonLeft); err != nil {
+	left, err := rooms.Leave(user.ID, game.LeaveReasonLeft)
+	if err != nil {
 		return nil, err
 	}
-	h.untrackRoom(roomID, s)
+	if left != nil {
+		// The table Leave actually took them from: a consolidation may have
+		// moved them since the look above (24 Sep 2026).
+		roomID = left.ID()
+	}
+	// In the lobby the socket listens to no table at all.
+	h.untrackAllExcept(s, "")
 	h.emitTo(s, EvRoomLeft, RoomIDOnly{RoomID: roomID})
 	if still := rooms.GetTable(roomID); still != nil {
 		h.broadcastState(still)
@@ -879,7 +929,7 @@ var actionLabels = func() map[string]struct{} {
 // ack ActionAck.
 func (h *Handler) action(s *sio.Socket, req ActionRequest) (any, error) {
 	user := sessionOf(s).user
-	if _, ok := game.AllActions[game.Action(req.Action)]; !ok {
+	if _, ok := game.AllActions[game.Action(req.Action)]; !ok || !req.ActionIsString {
 		return nil, game.Errorf(game.CodeUnknownAction, game.MsgUnknownActionFormat, req.Action)
 	}
 	table, err := h.teenPattiTable(user.ID)
@@ -1309,6 +1359,7 @@ func (h *Handler) heartbeatTick() {
 	for id := range h.userSockets {
 		users = append(users, id)
 	}
+	h.pruneUserLimitersLocked()
 	h.mu.Unlock()
 	for _, id := range users {
 		h.setOnline(id)
@@ -1480,6 +1531,36 @@ func (h *Handler) trackRoom(roomID string, s *sio.Socket) {
 	}
 }
 
+// untrackAllExcept stops s listening to every table but keepID ("" = every
+// table): used where the socket's seat is known for certain, so a table it
+// was left tracked in by a race stops reaching it.
+func (h *Handler) untrackAllExcept(s *sio.Socket, keepID string) {
+	h.mu.Lock()
+	var stale []string
+	for roomID, set := range h.roomSockets {
+		if roomID == keepID {
+			continue
+		}
+		if _, ok := set[s]; ok {
+			stale = append(stale, roomID)
+		}
+	}
+	h.mu.Unlock()
+	for _, roomID := range stale {
+		h.untrackRoom(roomID, s)
+	}
+}
+
+// seatedAt reports whether the player's seat is at roomID right now.
+func (h *Handler) seatedAt(userID, roomID string) bool {
+	rooms := h.rooms()
+	if rooms == nil {
+		return false
+	}
+	t := rooms.GetTableForPlayer(userID)
+	return t != nil && t.ID() == roomID
+}
+
 func (h *Handler) untrackRoom(roomID string, s *sio.Socket) {
 	h.mu.Lock()
 	set := h.roomSockets[roomID]
@@ -1518,6 +1599,42 @@ func (h *Handler) publicGameConfig() PublicGameConfig {
 }
 
 // ------------------------------------------------------------ rate limit
+
+// userLimiterAllows counts one request against the account's own limiter
+// (ActionRateLimit per ActionRateWindowMs, the per-socket figures): a player
+// who reconnects keeps the count their last socket had run up.
+func (h *Handler) userLimiterAllows(userID string) bool {
+	h.mu.Lock()
+	lim := h.userLimiters[userID]
+	if lim == nil {
+		lim = newRateLimiter(ActionRateLimit, ActionRateWindowMs*time.Millisecond, h.now)
+		h.userLimiters[userID] = lim
+	}
+	h.mu.Unlock()
+	return lim.allow()
+}
+
+// pruneUserLimitersLocked drops the limiter of every account with no live
+// socket whose window has lapsed — a fresh one would start from the same
+// zero. Caller holds mu.
+func (h *Handler) pruneUserLimitersLocked() {
+	for id, lim := range h.userLimiters {
+		if _, live := h.userSockets[id]; live {
+			continue
+		}
+		if lim.lapsed() {
+			delete(h.userLimiters, id)
+		}
+	}
+}
+
+// lapsed reports whether the current window is over (the next allow starts a
+// new one).
+func (r *rateLimiter) lapsed() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.now().Sub(r.windowStart) >= r.window
+}
 
 // rateLimiter is createRateLimiter: fixed window, per socket.
 type rateLimiter struct {
@@ -1869,8 +1986,21 @@ func (h *Handler) OnPlayerMoved(m game.PlayerMove) {
 	if target == nil {
 		return
 	}
+	// The move is delivered after the manager has let go of the player, so a
+	// switch or a leave may already have taken them somewhere else (24 Sep
+	// 2026): then this move is stale, and following it would subscribe the
+	// socket to a table they are not seated at. Checked before AND after the
+	// track, so a switch finishing in between is caught either by its own
+	// untrackAllExcept or by the second look here.
+	if !h.seatedAt(m.UserID, m.ToRoomID) {
+		return
+	}
 	h.untrackRoom(m.FromRoomID, s)
 	h.trackRoom(m.ToRoomID, s)
+	if !h.seatedAt(m.UserID, m.ToRoomID) {
+		h.untrackRoom(m.ToRoomID, s)
+		return
+	}
 	if _, err := target.SetConnected(m.UserID, true, s.ID()); err != nil {
 		h.log.Warn("playerMoved: setConnected failed", "userId", m.UserID, "roomId", m.ToRoomID, "error", err.Error())
 	}

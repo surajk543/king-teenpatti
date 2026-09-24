@@ -454,7 +454,7 @@ func TestUnknownAPIPathIsJSON404(t *testing.T) {
 
 func TestRoomsEndpoint(t *testing.T) {
 	a, _ := newApp(t, nil)
-	res, body := get(t, a.Handler(), http.MethodGet, "/api/rooms?category=blind", nil)
+	res, body := get(t, a.Handler(), http.MethodGet, "/api/rooms?category=blind", signedIn(t, a.Handler(), "rooms-endpoint-dev-01"))
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("status %d: %s", res.StatusCode, body)
 	}
@@ -485,6 +485,7 @@ func TestRoomsEndpoint(t *testing.T) {
 func TestRoomsEndpointFiltersByEveryCategoryVariationIncluded(t *testing.T) {
 	a, _ := newApp(t, nil)
 	h := a.Handler()
+	session := signedIn(t, h, "rooms-filter-device-01")
 	want := map[string]string{}
 	for _, category := range []string{"seen", "blind", "variation"} {
 		table := a.Rooms().CreateTable(game.CreateTableOptions{BootAmount: 200, Category: category})
@@ -495,7 +496,7 @@ func TestRoomsEndpointFiltersByEveryCategoryVariationIncluded(t *testing.T) {
 	}
 	list := func(query string) map[string]string {
 		t.Helper()
-		res, body := get(t, h, http.MethodGet, "/api/rooms"+query, nil)
+		res, body := get(t, h, http.MethodGet, "/api/rooms"+query, session)
 		if res.StatusCode != http.StatusOK {
 			t.Fatalf("%s: status %d: %s", query, res.StatusCode, body)
 		}
@@ -547,7 +548,7 @@ func TestMetricsEndpointGuardedAndExcludedFromHTTPMetrics(t *testing.T) {
 	}
 	get(t, h, http.MethodGet, "/health", nil)
 	get(t, h, http.MethodGet, "/nothing-here-123", nil)
-	get(t, h, http.MethodGet, "/api/rooms?category=seen", nil)
+	get(t, h, http.MethodGet, "/api/rooms?category=seen", signedIn(t, h, "rooms-metrics-device-1"))
 	get(t, h, http.MethodGet, "/style.css", nil)
 	get(t, h, http.MethodGet, "/socket.io/socket.io.js", nil)
 
