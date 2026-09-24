@@ -1267,7 +1267,7 @@ columns); `PRIVATE_*` → the private templates. `gameplay -export-table-config`
 | `NODE_ENV` | development | `production` refuses to start on the default JWT secret, on a JWT secret shorter than **32 bytes** (the empty one included — Go only, 24 Sep 2026: an empty HMAC key let anyone forge a session for any user id), or with fake providers (the Go binary keeps the key name; the unit sets it) |
 | `PORT` / `HOST` / `CORS_ORIGIN` | 3000 / 0.0.0.0 / `*` | |
 | `JWT_SECRET` / `JWT_EXPIRES_IN` | dev-only-insecure-secret / 30d | |
-| `GOOGLE_CLIENT_IDS`, `FACEBOOK_APP_ID/SECRET` | empty → 503 | Facebook's pair is read and unused while Facebook sign-in is switched off (23 Sep 2026, §7.2). `GOOGLE_CLIENT_IDS` must name the Web client `265025011940-0k4kh3ljcopn2pmkpb0q1rhbe8er8h09.apps.googleusercontent.com`: **on 24 Sep 2026 `prod.sungamestudio.com` answered every Google login 503 `provider_unconfigured`** (preprod had it) — §12.3 |
+| `GOOGLE_CLIENT_IDS`, `FACEBOOK_APP_ID/SECRET` | empty → 503 | Facebook's pair is read and unused while Facebook sign-in is switched off (23 Sep 2026, §7.2). `GOOGLE_CLIENT_IDS` must name the Web client `265025011940-0k4kh3ljcopn2pmkpb0q1rhbe8er8h09.apps.googleusercontent.com`: `prod.sungamestudio.com` answered every Google login 503 `provider_unconfigured` until the owner set it and restarted on 24 Sep 2026 (a dummy-token login then answered 401 `invalid_token`); a login answered 503 there means it is missing again — §12.3 |
 | `AUTH_ALLOW_FAKE_PROVIDERS` | false | |
 | **`REST_LOGIN_RATE_LIMIT`** / **`REST_WALLET_RATE_LIMIT`** / **`REST_RATE_WINDOW_MS`** | 60 / 120 / 60000 | **Go-only (24 Sep 2026).** Per-client-IP fixed-window limits (`config.RESTRateConfig`, `auth/ratelimit.go`): `POST /api/auth/login`, and the doors that move a wallet (rewards, Play purchases, picture and table-picture buys, the missile store, `DELETE /api/account`). Over it: **429** `{error:"rate_limited"}` + `Retry-After`, one WARN `rest rate limited` per IP per window. 0 = that limit off. The IP is the peer's, or nginx's `X-Real-IP` from a loopback peer; a loopback peer with no `X-Real-IP` (bot-play, `tools/`, tests) is never limited. Generous on purpose — CGNAT puts many players behind one IP. |
 | **`DATABASE_URL`** | `postgres://postgres:postgres@localhost:5432/gameplay` | |
@@ -2261,7 +2261,8 @@ final t = state.t;` at the top of `build`; M3 roles via `theme.colorScheme`; `.w
   description that says "cancel" (or none) as the player's and turns the rest into `SignInUnavailable`
   (`test/google_sign_in_cancel_test.dart`). **What Google sign-in needs, outside the code** (none of it could be done from
   here): `GOOGLE_CLIENT_IDS` on production — `prod.sungamestudio.com` answered 503 `provider_unconfigured` that day, so
-  every store-build Google login failed after the picker; Android OAuth clients for the three Play app-signing
+  every store-build Google login failed after the picker (the owner set it and restarted the same afternoon; the
+  probe then answered 401); Android OAuth clients for the three Play app-signing
   fingerprints (the store build's runtime signature), for whichever upload key signs a sideloaded release, and for
   this Mac's debug key `1B:0E:D1:3A:8D:6F:EF:60:41:E5:4A:86:58:73:F6:4E:C4:FE:F1:F2` (the registered debug client is the
   Linux box's `A0:54…`); and the consent screen published. `docs/social-login-setup.md` has the list.

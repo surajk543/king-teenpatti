@@ -106,12 +106,13 @@ in) with a release build of `config/production.json`, 1.2.3+10:
 | The build asks Google for an ID token for the Web client | ✅ | the id is in `libapp.so`; the account picker opens under the app's own name and icon |
 | Credential Manager survives R8 in a release build | ✅ | `androidx.credentials.playservices.CredentialProviderPlayServicesImpl` is in the bundle's dex, and the picker opens |
 | Google issues a token to the build's signature | ❌ for a Mac-built release | logcat `status=UNREGISTERED_ON_API_CONSOLE`; the plugin reports `canceled: [16] Account reauth failed.` after the account is picked |
-| Production verifies the token | ❌ | `POST https://prod.sungamestudio.com/api/auth/login` `{"provider":"google","idToken":"probe"}` → **503 `provider_unconfigured`**; preprod answers the same probe 401 `invalid_token`, i.e. it is configured |
+| Production verifies the token | ✅ since the afternoon | `POST https://prod.sungamestudio.com/api/auth/login` `{"provider":"google","idToken":"probe"}` answered **503 `provider_unconfigured`** until the owner set `GOOGLE_CLIENT_IDS` and restarted; it now answers 401 `invalid_token`, as preprod does |
 
 What to do, in the order that unblocks players:
 
-1. **Production's `go-server/.env`**: `GOOGLE_CLIENT_IDS=265025011940-0k4kh3ljcopn2pmkpb0q1rhbe8er8h09.apps.googleusercontent.com`,
-   then `sudo systemctl restart gameplay`. The same probe must then answer 401 `invalid_token`, not 503.
+1. ~~**Production's `go-server/.env`**: `GOOGLE_CLIENT_IDS=265025011940-0k4kh3ljcopn2pmkpb0q1rhbe8er8h09.apps.googleusercontent.com`,
+   then `sudo systemctl restart gameplay`.~~ Done 24 Sep 2026 (owner); the probe answers 401 `invalid_token`, not 503.
+   A real token refused as `Wrong recipient` would mean the value differs from the Web client id.
 2. **The three Play app-signing clients** from the table above: an installed-from-Play build carries
    the Play key, never the upload key. They were outstanding on 10 Sep 2026, and nothing here can
    see the Cloud console to say whether they exist now.
