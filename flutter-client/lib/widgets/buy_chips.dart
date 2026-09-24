@@ -1,5 +1,3 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -149,11 +147,13 @@ class BuyChipsButton extends StatelessWidget {
 /// a player already looks when they want to know what they can afford is the
 /// place to offer them more.
 ///
-/// It moves, and that is the point of it — a still gold pill next to a counting
-/// balance reads as part of the furniture. Two things move, both slow enough to
-/// notice rather than nag: a highlight sweeps the face every few seconds, and
-/// the bloom behind it breathes. The sweep spends most of its cycle off the
-/// right-hand edge, so the button is quiet far more often than it is not.
+/// Struck gold ([AppTheme.goldFace]) lifted a little off the bar, with a
+/// restrained gold bloom under it — the one strong gold key in the lobby
+/// (owner, 24 Sep 2026: "gold gradient, subtle elevation, clean icon,
+/// restrained shadow"). One thing moves, slowly enough to notice rather than
+/// nag: a soft highlight crosses the face every six seconds and spends the
+/// rest of the cycle off its edge, so the key is still far more often than
+/// not. The breathing bloom it had is gone; a shadow that pulses is noise.
 class ShopButton extends StatefulWidget {
   const ShopButton({super.key, this.compact = false});
 
@@ -173,7 +173,7 @@ class _ShopButtonState extends State<ShopButton>
   // (CLAUDE.md §12.3).
   late final AnimationController _sweep = AnimationController(
     vsync: this,
-    duration: const Duration(milliseconds: 3200),
+    duration: const Duration(milliseconds: 6000),
   )..repeat();
 
   @override
@@ -188,32 +188,26 @@ class _ShopButtonState extends State<ShopButton>
     final t = context.watch<GameState>().t;
     final radius = BorderRadius.circular(Radii.pill);
 
-    const face = LinearGradient(
-      begin: Alignment.topCenter,
-      end: Alignment.bottomCenter,
-      colors: [Color(0xFFE4BF52), AppTheme.gold, AppTheme.goldDeep],
-      stops: [0, 0.55, 1],
-    );
+    // The lift is still, so it is laid once, outside the animation.
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: radius,
+        boxShadow: AppTheme.controlShadow(
+          theme.brightness,
+          elevation: 3,
+          bloom: AppTheme.gold,
+        ),
+      ),
+      child: RepaintBoundary(
+        child: AnimatedBuilder(
+          animation: _sweep,
+          builder: (context, child) {
+            // The sweep crosses in the first fifth of the cycle and rests for
+            // the rest of it: a shine every second would be a fairground, not
+            // an offer.
+            final t0 = (_sweep.value / 0.2).clamp(0.0, 1.0);
 
-    return RepaintBoundary(
-      child: AnimatedBuilder(
-        animation: _sweep,
-        builder: (context, child) {
-          // The sweep runs over the first third of the cycle and rests for the
-          // other two: a shine every second would be a fairground, not an offer.
-          final t0 = (_sweep.value / 0.34).clamp(0.0, 1.0);
-          final breathing = 0.5 + 0.5 * math.sin(_sweep.value * 2 * math.pi);
-
-          return DecoratedBox(
-            decoration: BoxDecoration(
-              borderRadius: radius,
-              boxShadow: AppTheme.controlShadow(
-                theme.brightness,
-                elevation: 4 + 2 * breathing,
-                bloom: AppTheme.gold,
-              ),
-            ),
-            child: ClipRRect(
+            return ClipRRect(
               borderRadius: radius,
               child: Stack(
                 children: [
@@ -232,7 +226,7 @@ class _ShopButtonState extends State<ShopButton>
                               end: Alignment.bottomRight,
                               colors: [
                                 Colors.white.withValues(alpha: 0),
-                                Colors.white.withValues(alpha: 0.42),
+                                Colors.white.withValues(alpha: 0.30),
                                 Colors.white.withValues(alpha: 0),
                               ],
                             ),
@@ -243,69 +237,70 @@ class _ShopButtonState extends State<ShopButton>
                   ),
                 ],
               ),
-            ),
-          );
-        },
-        // Built once and handed to the builder: the face does not depend on
-        // the animation, so it must not be rebuilt sixty times a second.
-        child: PressScale(
-          child: Material(
-            color: Colors.transparent,
-            borderRadius: radius,
-            clipBehavior: Clip.antiAlias,
-            child: Ink(
-              decoration: BoxDecoration(
-                gradient: face,
-                borderRadius: radius,
-                border: Border(
-                  top: BorderSide(
-                    color: AppTheme.goldBright.withValues(alpha: 0.75),
+            );
+          },
+          // Built once and handed to the builder: the face does not depend on
+          // the animation, so it must not be rebuilt sixty times a second.
+          child: PressScale(
+            child: Material(
+              color: Colors.transparent,
+              borderRadius: radius,
+              clipBehavior: Clip.antiAlias,
+              child: Ink(
+                decoration: BoxDecoration(
+                  gradient: AppTheme.goldFace,
+                  borderRadius: radius,
+                  // The lit top edge of struck metal.
+                  border: Border(
+                    top: BorderSide(
+                      color: Colors.white.withValues(alpha: 0.55),
+                    ),
                   ),
                 ),
-              ),
-              child: InkWell(
-                enableFeedback: context.select<FeedbackSettings, bool>(
-                  (f) => f.sound,
-                ),
-                onTap: () => showChipStore(context),
-                splashColor: AppTheme.inkOnLight.withValues(alpha: 0.16),
-                highlightColor: AppTheme.inkOnLight.withValues(alpha: 0.08),
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(minHeight: Dim.minTouch),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: Space.md,
-                      vertical: Space.xs,
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        if (widget.compact)
-                          Tooltip(
-                            message: t.shop,
-                            child: const Icon(
+                child: InkWell(
+                  enableFeedback: context.select<FeedbackSettings, bool>(
+                    (f) => f.sound,
+                  ),
+                  onTap: () => showChipStore(context),
+                  splashColor: AppTheme.inkOnLight.withValues(alpha: 0.16),
+                  highlightColor: AppTheme.inkOnLight.withValues(alpha: 0.08),
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(minHeight: Dim.minTouch),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: Space.md,
+                        vertical: Space.xs,
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (widget.compact)
+                            Tooltip(
+                              message: t.shop,
+                              child: const Icon(
+                                Icons.storefront_rounded,
+                                size: 19,
+                                color: AppTheme.inkOnLight,
+                              ),
+                            )
+                          else
+                            const Icon(
                               Icons.storefront_rounded,
                               size: 19,
                               color: AppTheme.inkOnLight,
                             ),
-                          )
-                        else
-                          const Icon(
-                            Icons.storefront_rounded,
-                            size: 19,
-                            color: AppTheme.inkOnLight,
-                          ),
-                        if (!widget.compact) const SizedBox(width: Space.xs),
-                        if (!widget.compact)
-                          Text(
-                            t.shop,
-                            style: AppTheme.label(
-                              theme.textTheme.labelLarge ?? const TextStyle(),
-                              colour: AppTheme.inkOnLight,
-                              weight: FontWeight.w700,
+                          if (!widget.compact) const SizedBox(width: Space.xs),
+                          if (!widget.compact)
+                            Text(
+                              t.shop,
+                              style: AppTheme.label(
+                                theme.textTheme.labelLarge ?? const TextStyle(),
+                                colour: AppTheme.inkOnLight,
+                                weight: FontWeight.w700,
+                              ),
                             ),
-                          ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
                 ),

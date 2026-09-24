@@ -1,3 +1,5 @@
+import 'dart:ui' show lerpDouble;
+
 import 'package:flutter/material.dart';
 
 /// The glass tokens, one set per brightness.
@@ -30,6 +32,14 @@ class GlassColors extends ThemeExtension<GlassColors> {
     required this.textBody,
     required this.textMuted,
     required this.thumb,
+    required this.cardFill,
+    required this.cardFillEnd,
+    required this.cardBorder,
+    required this.cardHighlight,
+    required this.cardMuted,
+    required this.cardShadow,
+    required this.glowStrength,
+    required this.glowReach,
   });
 
   /// The screen's ground, and the darker (or greyer) edge a vignette closes on.
@@ -72,6 +82,38 @@ class GlassColors extends ThemeExtension<GlassColors> {
   /// The thumb of a segmented control: the one raised thing on a glass track.
   final Color thumb;
 
+  /// A game card in the lobby (`GlassSurface.card`): the square cards on the
+  /// rail and the chips at its corners (owner, 24 Sep 2026). Nearly opaque —
+  /// it is the thing being read, not a pane over something — and lit the way
+  /// its ground wants rather than one look inverted: by night a charcoal a
+  /// step off the ground, a hairline of white and a deep shadow; by day a
+  /// white card, a grey hairline and a shadow soft enough to be felt rather
+  /// than seen. [cardFill] is the top of the body and [cardFillEnd] its foot.
+  final Color cardFill;
+  final Color cardFillEnd;
+
+  /// The card's one-pixel edge, and the lit line just inside its top.
+  final Color cardBorder;
+  final Color cardHighlight;
+
+  /// The quiet tier of type on a card — a caption, a chip's title. By day
+  /// it is [textMuted]; by night a step up from white38, which is 3.5:1 on the
+  /// card's charcoal, to white at 0.50 (4.9:1), so the smallest words on the
+  /// card still clear AA.
+  final Color cardMuted;
+
+  /// What a card casts: stronger by night, where a shadow has to work harder
+  /// to lift a charcoal card off a charcoal ground.
+  final List<BoxShadow> cardShadow;
+
+  /// The light behind a card, in its mode's colour: the peak alpha of that
+  /// light, and how far it reaches as a fraction of the card's side. Ambient
+  /// light rather than a coloured disc — 8–15% by day and a smaller pool,
+  /// 20–30% by night (owner, 24 Sep 2026) — so the card's content always
+  /// stays the brightest thing on it.
+  final double glowStrength;
+  final double glowReach;
+
   /// Obsidian glass.
   static const GlassColors dark = GlassColors(
     ground: Color(0xFF0D0E12),
@@ -87,6 +129,23 @@ class GlassColors extends ThemeExtension<GlassColors> {
     textBody: Colors.white70,
     textMuted: Colors.white38,
     thumb: Color(0x24FFFFFF),
+    // rgb(35,38,42) at 0.92 over rgb(28,30,33) at 0.88: the brief's card
+    // (rgba(30,32,35,0.88–0.92)), lit a shade from above.
+    cardFill: Color(0xEA23262A),
+    cardFillEnd: Color(0xE11C1E21),
+    cardBorder: Color(0x1AFFFFFF), // white at 0.10
+    cardHighlight: Color(0x14FFFFFF), // white at 0.08
+    cardMuted: Color(0x80FFFFFF), // white at 0.50
+    cardShadow: [
+      BoxShadow(color: Color(0x66000000), blurRadius: 6, offset: Offset(0, 2)),
+      BoxShadow(
+        color: Color(0x73000000),
+        blurRadius: 30,
+        offset: Offset(0, 14),
+      ),
+    ],
+    glowStrength: 0.22,
+    glowReach: 0.78,
   );
 
   /// Frosted ice glass.
@@ -107,6 +166,20 @@ class GlassColors extends ThemeExtension<GlassColors> {
     textBody: Color(0xFF4A4D55),
     textMuted: Color(0xFF6B6F78),
     thumb: Color(0xF2FFFFFF),
+    // White at 0.97 over white at 0.94, and the brief's #E2E4E7 hairline.
+    cardFill: Color(0xF7FFFFFF),
+    cardFillEnd: Color(0xF0FFFFFF),
+    cardBorder: Color(0xFFE2E4E7),
+    cardHighlight: Color(0xFFFFFFFF),
+    cardMuted: Color(0xFF6B6F78),
+    // The slate-blue shadow the light theme casts everywhere (shadowFor), at
+    // an alpha a white card needs and no more.
+    cardShadow: [
+      BoxShadow(color: Color(0x0D0E1220), blurRadius: 3, offset: Offset(0, 1)),
+      BoxShadow(color: Color(0x140E1220), blurRadius: 20, offset: Offset(0, 8)),
+    ],
+    glowStrength: 0.12,
+    glowReach: 0.62,
   );
 
   /// The set for the theme in scope. Falls back by brightness if a theme was
@@ -133,6 +206,14 @@ class GlassColors extends ThemeExtension<GlassColors> {
     Color? textBody,
     Color? textMuted,
     Color? thumb,
+    Color? cardFill,
+    Color? cardFillEnd,
+    Color? cardBorder,
+    Color? cardHighlight,
+    Color? cardMuted,
+    List<BoxShadow>? cardShadow,
+    double? glowStrength,
+    double? glowReach,
   }) => GlassColors(
     ground: ground ?? this.ground,
     groundEdge: groundEdge ?? this.groundEdge,
@@ -147,6 +228,14 @@ class GlassColors extends ThemeExtension<GlassColors> {
     textBody: textBody ?? this.textBody,
     textMuted: textMuted ?? this.textMuted,
     thumb: thumb ?? this.thumb,
+    cardFill: cardFill ?? this.cardFill,
+    cardFillEnd: cardFillEnd ?? this.cardFillEnd,
+    cardBorder: cardBorder ?? this.cardBorder,
+    cardHighlight: cardHighlight ?? this.cardHighlight,
+    cardMuted: cardMuted ?? this.cardMuted,
+    cardShadow: cardShadow ?? this.cardShadow,
+    glowStrength: glowStrength ?? this.glowStrength,
+    glowReach: glowReach ?? this.glowReach,
   );
 
   /// What makes the theme toggle a cross-fade of every pane at once rather
@@ -174,6 +263,15 @@ class GlassColors extends ThemeExtension<GlassColors> {
       textBody: c(textBody, other.textBody),
       textMuted: c(textMuted, other.textMuted),
       thumb: c(thumb, other.thumb),
+      cardFill: c(cardFill, other.cardFill),
+      cardFillEnd: c(cardFillEnd, other.cardFillEnd),
+      cardBorder: c(cardBorder, other.cardBorder),
+      cardHighlight: c(cardHighlight, other.cardHighlight),
+      cardMuted: c(cardMuted, other.cardMuted),
+      cardShadow:
+          BoxShadow.lerpList(cardShadow, other.cardShadow, t) ?? cardShadow,
+      glowStrength: lerpDouble(glowStrength, other.glowStrength, t)!,
+      glowReach: lerpDouble(glowReach, other.glowReach, t)!,
     );
   }
 }

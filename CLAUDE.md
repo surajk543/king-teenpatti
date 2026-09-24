@@ -132,7 +132,7 @@ king-teenpatti/
     │   │     Chat pacing (client-side): `GameState.sendChat()` returns bool, starts `chatCooldown` (4s); `canChat`/`chatCooldownLeft` drive `_ChatCountdown` (ring + seconds) in the rail icon and the send key; `_ChatDrawer._send` unfocuses and pops the drawer after a successful send.
     │   │     `tableScaffold`/`lobbyScaffold` GlobalKeys: main.dart `_BackGuard` closes an open drawer/endDrawer first; only then asks leave (table) / quit (lobby).
     │   │     `_armSeatCheck()`: on a warm `session:ready` while `room != null`, if no snapshot follows within 1.8s the seat is gone (server restarted / room closed) → lobby + t.tableLost. Cold start uses the `resuming` veil instead.
-    │   ├── theme/app_theme.dart `AppTheme.paletteFor(scheme, category, bootAmount)` → TablePalette: seen=gold, blind<1000=sapphire(tertiary), blind≥1000=royal purple; used by lobby card, felt, _CategoryTag ("BLIND · 5,000")
+    │   ├── theme/app_theme.dart `AppTheme.paletteFor(scheme, category, bootAmount)` → TablePalette: one accent a game mode at every stake (24 Sep 2026) — seen=gold, blind=sapphire(tertiary), variation=violet (`violetPalette`), poker=teal; `privatePalette` = emerald (scheme.primary); `TablePalette.ink` = the accent as type on a card; used by lobby card, felt, _CategoryTag ("BLIND · 5,000")
     │   ├── screens/table_screen.dart `_BlindDots` (the blind bets left, as dots under "See cards" on the viewer's own hand — the missed-turns box over the Pack key was removed 13 Sep 2026, owner), `_BetFlights` (chip from seat to pot on every contributed increase), `_AmbientGlow`
     │   ├── screens/lobby_screen.dart `_DriftingChips` ambient background
     │   └── widgets/seat_pod.dart `BubbleSide {above,left,right}`: chat bubble hung off the column END in a zero-height OverflowBox — rim seats grow it up over their own cards/badge (max 1.7×podW, pointer tail up at the pod), the viewer's grows up from the column top (2.1×podW, tail down). Pods paint AFTER tag/pot/status in the felt Stack so a bubble is never hidden.
@@ -144,7 +144,7 @@ king-teenpatti/
     │   ├── state/table_config_cache.dart  TableConfigCache (SharedPreferences `tableConfig`: the phone's copy of GET /api/tables) + MenuPrecedence (pure: which menu the lobby shows) — §8.1
     │   ├── screens/{login,lobby,table}_screen.dart; screens/poker_table_screen.dart (the poker felt, mounted by table_screen when room.isPoker — §8.4); screens/lucky_draw_screen.dart (the Lucky Draw's wheel, prizes and spin — §8.4)
     │   ├── widgets/table_chrome.dart  the chrome both felts share (rail, drawers, keys, wallet, reconnecting veil), moved out of table_screen.dart
-    │   ├── widgets/              premium_surface, seat_pod, playing_card, poker_chip, liquid_fill,
+    │   ├── widgets/              premium_surface, game_card (the lobby's one card shell, §8.4), seat_pod, playing_card, poker_chip, liquid_fill,
     │   │                         fireworks, avatar, buy_chips, chip_store, picture_shelf, rules_sheet,
     │   │                         variation_prompt (the variation table's on-felt picker, "is selecting" line, announcement, wild-card edge — §8.4),
     │   │                         wild_transform (a wild card of the viewer's own hand turning into the card it played as — §8.4)
@@ -1680,17 +1680,29 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   `lockedTitle` when they have not grown into it, both faded to 0.42 so the stake stays readable;
   `_TopBar` (owner, 13 Sep 2026, "more letters of the name"): the 4-hour bonus chip takes its own width (capped at
   `Dim.bonusSlotW − Space.md`) and the profile picture follows straight after it; the name and the balance share one
-  `Expanded` in which the balance keeps its natural width up to 65% of that room (50% when `tight`, i.e. less than
+  `Expanded` in which the balance keeps its natural width up to 65% of that room (53% when `tight`, i.e. less than
   `Breaks.tightBar` 470dp left beside the bonus slot) and scales down past it, and the name takes the rest — it was a
   `Flexible` beside a `Spacer` and a flex-4 balance, which handed it a sixth of the free space ("Gu…"). On a tight bar
   the Shop key is icon-only (`ShopButton(compact: true)`, tooltip "Shop"). TP_Tall shows "Guest0E00B" whole; TP_Small
-  "Guest63…". The balance shows chips then diamonds (gem + count, `_diamondInkOn` — pale blue on dark glass, deep blue on light);
+  "Guest63…". The balance shows chips then diamonds (gem + count, `_diamondInkOn` — pale blue on dark glass, deep blue on light).
+  **The bar reads in groups** (owner, 24 Sep 2026: "visually separate: bonus, profile, currency, Shop, utility"): the
+  wallets stand in `_WalletPill` (the `_BarActions` pill's own fill and hairline, hugging its figures) with the Shop key
+  against its right end; on a tight bar the steps round the avatar and inside the pill are `Space.sm`, which with the
+  53% cap keeps the balance's scale where it was and gives the name 4dp more than before the pill (a 640dp phone now
+  shows "Guest0E00B" whole; `test/lobby_polish_test.dart`). The Shop key is struck gold (`AppTheme.goldFace`, #F1D27A →
+  #D4A514 → #B8890F) on a still lift and a restrained gold bloom; its highlight crosses once every 6 s (it swept every
+  3.2 s over a breathing bloom) — at the table too, the same widget;
   `_DailyBonusChip` in the bottom-left corner (the daily bonus — 1 lakh chips and 1 hammer every 24 h, a gift glyph, hidden when
   the server offers no daily bonus, the celebration showing the hammer under the chips; tapped while it is
   still counting down it opens `openBonusDetails`, as the 4-hour `_BonusChip` does — a popup of the reward, a live countdown and the
   interval, offering Collect once the wait is over (`_CornerChip.onWaitTap`; the milestone chip has none); owner, 14 Sep
   2026 — it had briefly replaced the 4-hour `_BonusChip` in the bar, which came back beside it the same day) and `_MilestoneChip` in the bottom-right, both clear
-  of the rail's `band`, and `lobbyNoticeArea` keeps a toast between them; one `endDrawer` for stats/settings.
+  of the rail's `band`, and `lobbyNoticeArea` keeps a toast between them; one `endDrawer` for stats/settings. Every
+  `_CornerChip` is a pill of the cards' own surface (`GlassCapsule(surface: GlassSurface.card)`) with its mark in a 28dp
+  disc (`_ChipMark`: gold-lit while the reward can be taken, a quiet well while it is coming), a `cardMuted` title and
+  the figure in the card's ink (gold when ready); the pill's padding is 6 at the mark's end and 14 at the other, so a
+  chip is no wider than it was. No progress ring: the rewards carry the time and the hands LEFT, not the interval, and
+  the brief says not to invent it.
   **A ready bonus chip pays in glyphs, not words** (owner, 24 Sep 2026: "In daily Bonus button instead of showing text 'collect' show
   coins icon and instead of text 'Hammer' show icon. Same in case of 4 Hour Bonus show coin icon instead of collect text"): the second
   line of the 4-hour chip is `[coin] 10,000` and the daily chip's `[coin] 1,00,000  +1 [hammer]` — `_CornerChip.reward`, a
@@ -1846,8 +1858,9 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   edge (`WildEdge`, from the reveal's `wild`, matched against the dealt cards) — since 24 Sep 2026 a 2dp edge in `AppTheme.gold` (`goldDeep` on the light theme)
   with a gold star at the card's head on the side the index is not: the 1.5dp champagne edge it had was 1.24:1 against the card
   face, the same contrast as the card's own edge, and the owner read a wild-made Trail as "a pair showing Trail". Nothing on a
-  rim seat re-ranks anything: the name is the wire's `handName`, and a natural PAIR plus a wild card IS a Trail by §6.4. Palette: rani pink (`AppTheme.paletteFor` — `_rani`/`_raniDark`,
-  `Icons.shuffle_rounded`); the lobby card says `variationTableNote` as its ONE blurb line. A seen or blind table draws
+  rim seat re-ranks anything: the name is the wire's `handName`, and a natural PAIR plus a wild card IS a Trail by §6.4. Palette: violet since 24 Sep 2026 (owner: "VARIATION: Purple"; rani pink before — `AppTheme.violetPalette`, `_violet` #7650CC / `_violetDark`,
+  `Icons.shuffle_rounded`; the table tag's mark is its accent lifted 40% toward white by day, on the tag's ink plate, where
+  blind's sapphire — every blind table's since that day — was 2.5:1); the lobby card says `variationTableNote` as its ONE blurb line. A seen or blind table draws
   exactly what it did. Tests: `test/variation_table_test.dart` (640x360 at text x1.25 in all five languages),
   `variation_strings_test.dart`, `variation_palette_test.dart`, `five_card_test.dart`. **A wild card of the viewer's own hand turns into the
   card it played as** (owner, 18 Sep 2026; `widgets/wild_transform.dart` `WildTransform`, fed by `you.hand` —
@@ -1985,17 +1998,30 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   default paints. A player who picks Light or System still gets it once the app is up. Screen changes are fade-through (`_ScreenFade`: veil + 0.96→1 scale).
   Solid things stay solid by design: felt, cards, chips, the on-cloth `_Plate`s, the machined
   console keys — glass is for what COVERS the game. **The lobby's cards and the table's seat pods
-  are the exception** (owner, 11 Sep 2026, after a reference of frosted cards over colour orbs): `_TableCard`
-  and `_PrivateCard` are `PremiumGlassPanel(mode: tinted, tint: white)` — no cloth, no coloured rim,
-  no watermark — each with a colour **orb** in its table's accent (`_orbColours`: saturated, plus a
-  hue-shifted partner). The blur is **baked, never live**: the sharp `_Orb` sits behind the card and
-  a pre-blurred copy (`ImageFiltered` in a `RepaintBoundary`, rasterised once) in the panel's
-  **`behind` slot** at the same place, so it reads as colour through frosted glass without a
-  `BackdropFilter` over the drifting chips or a claim on the one `GlassBudget` lease. `_orbPlace`
-  lets only the first card spill left (each card paints after the one before it, so a left spill
-  would lie on top of its neighbour) and keeps vertical spill inside the rail's `Space.md` padding.
-  **Seat pods** (`SeatPod._pod`) use the same pair from `widgets/glass_orb.dart` (`orbColours`,
-  `GlassOrb` — the lobby imports it too), coloured by `GameState.colourFor` (the player's chat
+  are the exception** (owner, 11 Sep 2026, after a reference of frosted cards over colour orbs). **The lobby's cards are
+  one `GameCard` since 24 Sep 2026** (`widgets/game_card.dart`; owner's lobby polish brief: "keep the ambient glow
+  concept, but make it much more subtle … like ambient lighting behind the UI, NOT like a large colored circle"): the
+  engine, category, table and private cards and the back tile are `PremiumGlassPanel(surface: GlassSurface.card)` —
+  the theme's card tokens in `GlassColors` (`cardFill`/`cardFillEnd`: white at 0.97→0.94 by day, rgb(35,38,42) at 0.92 →
+  rgb(28,30,33) at 0.88 by night; `cardBorder` #E2E4E7 / white 0.10; `cardHighlight`; `cardShadow`, deeper by night;
+  `cardMuted`, the quiet tier that clears 4.5:1 on the card), `Radii.xl` 22 — with the mode's accent spent on the top
+  of the hairline (`edge`) and on a light behind the card, `CardLight`: one radial gradient inside the card's clip, in
+  the accent brought to full colour (`orbColours(accent).$1`), peaking at `GlassColors.glowStrength` (0.12 by day,
+  0.22 by night) and gone by `glowReach` of the side (0.62 / 0.78). The two orbs it replaced — a sharp disc behind
+  each card and a blurred copy inside it, placed by `_orbPlace` — showed round the cards as coloured circles, loudest
+  on the light theme. A shut table is drawn unlit. The room itself takes the open level's colour through the lamp's
+  pool (`_RoomLight` → `LobbyGround(accent, accentStrength: 2.0)`, faded over `Motion.arrive`; none at the front). The
+  cards' figures: `_CardMetrics` (one set for group and table cards, from the card's side: 231 / 273 / 400dp); a group
+  card's name in the card's own ink at ~27–31dp; a table card's boot the largest figure on it (`s*0.14`, 32 / 38dp,
+  gold) over a tracked BOOT caption; facts with the mode's glyphs, money in gold; the foot key `_SitCapsule` neutral glass
+  with the mode's accent in its edge, a breath of it in its fill and on its arrow; the private card's Create key the same
+  in emerald (`_accentKeyStyle`) where it was a solid mint slab. Every column still fits unscaled at 640×360 and
+  1.0 text and scales less than before at ×1.25. The back tile is lighter than the cards: unlit, a neutral key, the
+  level's name in the card's ink over a 20×3 bar in the level's colour. `test/lobby_polish_test.dart` holds the modes'
+  accents and inks (≥ 4.5:1 on the card), the card tokens to the brief's ranges, no `GlassOrb` in the lobby, the boot as
+  the largest figure, the keys' accent edges, the wallet pill and the name's width, and the room light.
+  **Seat pods** (`SeatPod._pod`) keep the orb pair from `widgets/glass_orb.dart` (`orbColours`,
+  `GlassOrb`), coloured by `GameState.colourFor` (the player's chat
   colour, so a pod and its chat name match) and spilling a sixth of the pod width out of
   `OrbCorner` (odd view index top-right, 2 and 4 top-left — always towards open felt, never under the
   rail or a card fan; the viewer's is `contained`, glow inside the glass and no orb outside, because

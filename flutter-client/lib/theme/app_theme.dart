@@ -43,6 +43,12 @@ class Radii {
   /// Panels, cards, dialogs, drawers.
   static const double lg = 18;
 
+  /// The lobby's game cards alone (owner, 24 Sep 2026: "20–26px corner
+  /// radius"). They are the largest objects in the app — a square 230 to
+  /// 400dp across — and at [lg] a card that size reads as a tile; nothing
+  /// that sits beside them uses this step, so it does not blur into [lg].
+  static const double xl = 22;
+
   /// A capsule is still a capsule.
   static const double pill = 999;
 }
@@ -306,13 +312,15 @@ class Dim {
   static double lobbyCardSide(double h) => (h * 0.72).clamp(210.0, 400.0);
 }
 
-/// The colours one table is told apart by.
+/// The colours one kind of room is told apart by: the game modes' accents.
 ///
-/// Four tables, four identities: the seen table is gold, the small blind
-/// table is sapphire, the high-stakes blind table is royal purple and the
-/// variation table is rani pink. The lobby
-/// card, the felt, the tag over the pot and the badges all draw from the same
-/// palette, so the room a player sits down in matches the card they tapped.
+/// One accent per mode, whatever the stake (owner, 24 Sep 2026: "SEEN: Gold.
+/// BLIND: Cyan / Blue. VARIATION: Purple. PRIVATE TABLE: Emerald / Green"),
+/// and the poker family's teal beside them. The lobby card, the felt, the tag
+/// over the pot and the badges all draw from the same palette, so the room a
+/// player sits down in matches the card they tapped. An accent is spent on
+/// small things — a badge, an icon, a border, a key's edge, the light behind a
+/// card — and never on a whole surface.
 class TablePalette {
   const TablePalette({
     required this.accent,
@@ -320,10 +328,19 @@ class TablePalette {
     required this.onContainer,
     required this.icon,
     required this.tint,
+    this._ink,
   });
 
   /// The table's signature colour: borders, glows, the chip stack.
   final Color accent;
+
+  /// Given as `ink:` (a private named parameter); read through [ink].
+  final Color? _ink;
+
+  /// The accent as ink on a card of this brightness: a figure, a glyph, the
+  /// arrow on a key. The accent itself wherever it already reads; the seen
+  /// table's gold is too pale for type on white and names a deeper one.
+  Color get ink => _ink ?? accent;
 
   /// A filled surface in the table's colour, for badges and tags.
   final Color container;
@@ -385,6 +402,26 @@ class AppTheme {
   /// The underside of a gold gradient, an engraved shadow, gold ink on a light
   /// ground.
   static const Color goldDeep = Color(0xFF8A6A18);
+
+  /// Gold as the lobby writes money with it — a balance, a stake, a reward —
+  /// one per ground (owner, 24 Sep 2026: "Gold #D4A514 / #F1D27A" by night,
+  /// "Gold text #9A6B00" by day). Richer than champagne, which read as cream
+  /// on obsidian once the figures grew, and a warmer gold than [goldDeep] on
+  /// white, where it still holds 4.7:1.
+  static const Color goldOnDark = Color(0xFFF1D27A);
+  static const Color goldOnLight = Color(0xFF9A6B00);
+  static Color goldInk(Brightness b) =>
+      b == Brightness.dark ? goldOnDark : goldOnLight;
+
+  /// Struck gold, the face of the one gold key: lit at the top, the brief's
+  /// gold primary (#D4A514) through the middle, and a deeper — never brown —
+  /// gold at the foot, so the key reads as metal rather than as a flat fill.
+  static const LinearGradient goldFace = LinearGradient(
+    begin: Alignment.topCenter,
+    end: Alignment.bottomCenter,
+    colors: [Color(0xFFF1D27A), Color(0xFFD4A514), Color(0xFFB8890F)],
+    stops: [0, 0.52, 1],
+  );
 
   /// The two hairline alphas — resting and live. There is no third.
   static const double hairlineResting = 0.16;
@@ -475,20 +512,18 @@ class AppTheme {
   /// primary whichever theme is showing.
   static const Color mintOnInk = Color(0xFF5FD3A0);
 
-  /// Royal purple for the high-stakes blind table, one shade per brightness.
-  static const Color _royal = Color(0xFF6D4BC4);
-  static const Color _royalDark = Color(0xFFC9B3FF);
-
-  /// Rani pink for the variation table, one shade per brightness. The orbs
-  /// tell tables apart by hue alone (`orbColours` flattens saturation and
-  /// lightness), and the hues already spoken for are gold near 48, the private
-  /// room's emerald near 150, sapphire near 200 and purple near 257 — magenta,
-  /// near 328, is the middle of the widest gap left. The light shade is the
-  /// deepest that still clears 3.5:1 on the table tag's ink plate, which is
-  /// dark in both themes, while reading on frosted ice; the dark shade is pale
-  /// for obsidian, the same split as the purple's.
-  static const Color _rani = Color(0xFFC2297A);
-  static const Color _raniDark = Color(0xFFFF9CCB);
+  /// Violet for the variation table, one shade per brightness (owner, 24 Sep
+  /// 2026: "VARIATION: Purple"; it was rani pink, while purple was the
+  /// high-stakes blind table's, until blind became one colour at every stake).
+  /// Hue near 258, the widest gap the others leave: gold near 48, the private
+  /// room's emerald near 150, the poker family's teal near 181 and blind's
+  /// sapphire near 200 — `orbColours` flattens saturation and lightness, so a
+  /// card's light is told apart by hue alone. The light shade is a step up
+  /// from that royal purple (#6D4BC4, 3.3:1) so the mark on the table tag's
+  /// ink plate, dark in both themes, clears 3.5:1 while it still reads 5.5:1
+  /// on a white card; the dark shade is pale for obsidian.
+  static const Color _violet = Color(0xFF7650CC);
+  static const Color _violetDark = Color(0xFFC9B3FF);
 
   /// Teal for the poker family, one shade per brightness: the four poker
   /// games and their one lobby card wear it together. Hue near 181, between
@@ -497,6 +532,34 @@ class AppTheme {
   /// 3.5:1 on the table tag's ink plate; the dark one is pale for obsidian.
   static const Color _teal = Color(0xFF0F8B8D);
   static const Color _tealDark = Color(0xFF7FE0D6);
+
+  /// The variation table's palette — and the purple the chip store's middle
+  /// packs and the lobby's drifting chips are drawn in, which asked for the
+  /// high-stakes blind table's colour while that was purple.
+  static TablePalette violetPalette(ColorScheme scheme) {
+    final dark = scheme.brightness == Brightness.dark;
+    return TablePalette(
+      accent: dark ? _violetDark : _violet,
+      container: dark ? const Color(0xFF2A1E4E) : const Color(0xFFE9DEFF),
+      onContainer: dark ? const Color(0xFFEDE4FF) : const Color(0xFF261452),
+      // Crossing arrows: the one thing this table does that no other does
+      // is change the rules from hand to hand. A sparkle says "special",
+      // which the crown already says; dice would promise luck, not rules.
+      icon: Icons.shuffle_rounded,
+      tint: dark ? 0.14 : 0.12,
+    );
+  }
+
+  /// The private room's emerald: the app's own green (`scheme.primary`), in
+  /// the same role as a game mode's accent — its lobby card, the light behind
+  /// it and the edge of its Create key.
+  static TablePalette privatePalette(ColorScheme scheme) => TablePalette(
+    accent: scheme.primary,
+    container: scheme.primaryContainer,
+    onContainer: scheme.onPrimaryContainer,
+    icon: Icons.lock_outline_rounded,
+    tint: scheme.brightness == Brightness.dark ? 0.12 : 0.10,
+  );
 
   /// The poker family's palette, for the four wire categories and for the
   /// lobby's `poker` family card alike.
@@ -511,14 +574,22 @@ class AppTheme {
       // spoken for by the three categories that keep the Teen Patti rules.
       icon: Icons.casino_rounded,
       tint: dark ? 0.14 : 0.12,
+      // The light teal is 4.1:1 on a white card; type takes a step deeper
+      // (5.6:1).
+      ink: dark ? null : const Color(0xFF0B7375),
     );
   }
 
-  /// The palette for a table of this category and stake. Blind tables at or
-  /// above 1,000 boot are the high-stakes ones and wear the purple; a
-  /// variation table wears the pink at every stake. Anything else — a category
-  /// this build has never heard of included — is drawn as the seen table,
-  /// which is also how the server plays an unknown category.
+  /// The palette for a table of this category: gold for seen, sapphire for
+  /// blind, violet for variation, teal for every poker game. Anything else —
+  /// a category this build has never heard of included — is drawn as the
+  /// seen table, which is also how the server plays an unknown category.
+  ///
+  /// [bootAmount] no longer changes the colour (owner, 24 Sep 2026: one
+  /// accent a mode). Blind at 1,000 and over wore royal purple until then,
+  /// which left the lobby with two purples that meant different things; the
+  /// parameter stays so a stake can still be told apart here one day without
+  /// touching every caller.
   ///
   /// The tints are far lower than they were: the cloth is emerald baize now and
   /// the table's identity is carried by its rim, not by washing the felt.
@@ -537,18 +608,7 @@ class AppTheme {
         category == 'three_card_poker') {
       return _pokerPalette(scheme);
     }
-    if (category == 'variation') {
-      return TablePalette(
-        accent: dark ? _raniDark : _rani,
-        container: dark ? const Color(0xFF4A1230) : const Color(0xFFFFD9E8),
-        onContainer: dark ? const Color(0xFFFFE3EF) : const Color(0xFF3E0A25),
-        // Crossing arrows: the one thing this table does that no other does
-        // is change the rules from hand to hand. A sparkle says "special",
-        // which the crown already says; dice would promise luck, not rules.
-        icon: Icons.shuffle_rounded,
-        tint: dark ? 0.14 : 0.12,
-      );
-    }
+    if (category == 'variation') return violetPalette(scheme);
     if (category != 'blind') {
       return TablePalette(
         accent: _gold,
@@ -556,15 +616,8 @@ class AppTheme {
         onContainer: scheme.onSecondaryContainer,
         icon: Icons.visibility_rounded,
         tint: dark ? 0.10 : 0.09,
-      );
-    }
-    if (bootAmount >= 1000) {
-      return TablePalette(
-        accent: dark ? _royalDark : _royal,
-        container: dark ? const Color(0xFF2A1E4E) : const Color(0xFFE9DEFF),
-        onContainer: dark ? const Color(0xFFEDE4FF) : const Color(0xFF261452),
-        icon: Icons.workspace_premium_rounded,
-        tint: dark ? 0.14 : 0.12,
+        // The one accent too pale to write with on white.
+        ink: goldInk(scheme.brightness),
       );
     }
     return TablePalette(
@@ -635,10 +688,10 @@ class AppTheme {
     if (accent == null) return base;
 
     // The cloth carries the table's identity, so the room a player sits down
-    // in matches the card they tapped in the lobby: gold at the seen table,
-    // sapphire at the small blind, royal purple at the high-stakes one. Green
-    // stays underneath as the thing that reads as baize — an entirely purple
-    // cloth reads as a lighting effect, not a table.
+    // in matches the card they tapped in the lobby: gold at a seen table,
+    // sapphire at a blind one, violet at a variation one. Green stays
+    // underneath as the thing that reads as baize — an entirely violet cloth
+    // reads as a lighting effect, not a table.
     //
     // Weighted from the middle outwards: strongest where the light falls and
     // almost absent at the rim, because a real cloth takes its colour from

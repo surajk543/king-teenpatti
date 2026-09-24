@@ -1846,8 +1846,18 @@ class _CategoryTag extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             // The mark, not just the word: the eye and the crossed eye say
-            // whether this player sees their own cards at all.
-            Icon(palette.icon, size: 14, color: palette.accent),
+            // whether this player sees their own cards at all. The plate is
+            // ink in both themes, and the light theme's accents are deep ones
+            // for white cards — blind's sapphire is 2.5:1 on it, and since
+            // 24 Sep 2026 every blind table wears it — so by day the mark is
+            // the accent lifted toward white (6.8:1 for blind).
+            Icon(
+              palette.icon,
+              size: 14,
+              color: theme.brightness == Brightness.light
+                  ? Color.lerp(palette.accent, Colors.white, 0.4)
+                  : palette.accent,
+            ),
             const SizedBox(width: Space.sm),
             Flexible(
               child: FittedBox(

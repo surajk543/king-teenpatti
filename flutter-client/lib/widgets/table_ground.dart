@@ -41,10 +41,20 @@ class TableGround extends StatelessWidget {
 /// The same room, arranged for the lobby: the light is centred and softer,
 /// because there is no one object here to sit under it.
 class LobbyGround extends StatelessWidget {
-  const LobbyGround({super.key, required this.child, this.accent});
+  const LobbyGround({
+    super.key,
+    required this.child,
+    this.accent,
+    this.accentStrength = 1,
+  });
 
   final Widget child;
   final Color? accent;
+
+  /// How much of [accent] the lamp's pool carries, as a multiple of the
+  /// table's whisper: the lobby lets the open level's colour into the room as
+  /// its ambient light, and asks for more of it than a table does.
+  final double accentStrength;
 
   @override
   Widget build(BuildContext context) => _Ground(
@@ -53,6 +63,7 @@ class LobbyGround extends StatelessWidget {
         lampSpread: 1.25,
         vignette: 0.48,
         accent: accent,
+        accentStrength: accentStrength,
         child: child,
       );
 }
@@ -65,6 +76,7 @@ class _Ground extends StatelessWidget {
     required this.lampSpread,
     required this.vignette,
     required this.accent,
+    this.accentStrength = 1,
   });
 
   final Widget child;
@@ -73,6 +85,7 @@ class _Ground extends StatelessWidget {
   final double lampSpread;
   final double vignette;
   final Color? accent;
+  final double accentStrength;
 
   @override
   Widget build(BuildContext context) {
@@ -100,7 +113,7 @@ class _Ground extends StatelessWidget {
               lampSpread: lampSpread,
               vignette: dark ? vignette : vignette * 0.45,
               accent: accent,
-              accentAlpha: dark ? 0.05 : 0.035,
+              accentAlpha: (dark ? 0.05 : 0.035) * accentStrength,
             ),
           ),
         ),
