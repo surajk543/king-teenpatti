@@ -1,9 +1,29 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 
 import '../theme/app_theme.dart';
 import '../theme/theme_colors.dart';
 import 'glass_orb.dart';
 import 'premium_surface.dart';
+
+/// The steps inside a lobby card, on the 4dp grid the owner's final polish
+/// brief asks the cards to keep (24 Sep 2026: "consistent 4/8/12/16/20/24/32").
+///
+/// For the insides of the lobby's cards only — margins, the gaps between a
+/// card's blocks, the air round a rule or beside a mark. The app-wide [Space]
+/// ramp (2, 4, 6, 10, 14, 20, 28, 40) is deliberately not a 4dp grid and is
+/// left exactly as it is: every other screen is laid out on it.
+abstract final class CardSpace {
+  static const double s4 = 4;
+  static const double s8 = 8;
+  static const double s12 = 12;
+  static const double s16 = 16;
+  static const double s20 = 20;
+  static const double s24 = 24;
+  static const double s32 = 32;
+}
 
 /// One card on the lobby's rail — an engine, a category, a table, the private
 /// room, the way back — in its game mode's colour (owner, 24 Sep 2026: "the
@@ -55,7 +75,9 @@ class GameCard extends StatelessWidget {
       surface: GlassSurface.card,
       radius: Radii.xl,
       padding: padding,
-      edge: lit ? accent.withValues(alpha: dark ? 0.42 : 0.50) : null,
+      // A hint of the mode along the lit top of the hairline, no more (owner's
+      // final pass: "keep the hue, reduce the tint").
+      edge: lit ? accent.withValues(alpha: dark ? 0.32 : 0.36) : null,
       behind: lit
           ? CardLight(
               // The accent brought to full colour, as the old orbs were: a
@@ -111,4 +133,153 @@ class CardLight extends StatelessWidget {
       ),
     ),
   );
+}
+
+/// A card's words above its key, as wide as the card and scaled down as one
+/// when they stand taller than [maxHeight] (or, with none given, than the room
+/// the parent allows) — a long translation, a large text size, a poker
+/// table's five facts.
+///
+/// The column is laid out wider by the factor it is about to be scaled by, so
+/// that once scaled it still reaches the card's right edge. A [FittedBox] did
+/// this job before and scaled the column's width with its height: the values
+/// of a scaled card's facts stopped a strip short of the right edge, out of
+/// line with the key under them (owner's final pass, 24 Sep 2026: "proper card
+/// boundaries"). Where the column fits, nothing is scaled and nothing moves.
+class CardColumnFit extends SingleChildRenderObjectWidget {
+  const CardColumnFit({super.key, this.maxHeight, required super.child});
+
+  final double? maxHeight;
+
+  @override
+  RenderCardColumnFit createRenderObject(BuildContext context) =>
+      RenderCardColumnFit(maxHeight);
+
+  @override
+  void updateRenderObject(
+    BuildContext context,
+    RenderCardColumnFit renderObject,
+  ) {
+    renderObject.maxHeight = maxHeight;
+  }
+}
+
+/// The render object of [CardColumnFit].
+class RenderCardColumnFit extends RenderBox
+    with RenderObjectWithChildMixin<RenderBox> {
+  RenderCardColumnFit(this._maxHeight);
+
+  double? _maxHeight;
+  double? get maxHeight => _maxHeight;
+  set maxHeight(double? value) {
+    if (value == _maxHeight) return;
+    _maxHeight = value;
+    markNeedsLayout();
+  }
+
+  double _scale = 1;
+
+  /// How far the column was scaled down to fit: 1 where it fits.
+  double get scale => _scale;
+
+  /// The largest scale, no more than 1, at which the column laid out
+  /// `width / scale` wide stands no taller than [limit] once scaled, from
+  /// [heightAt] — the column's height at a given width, which can only fall
+  /// as the width grows (wider, the words wrap less).
+  static double _fit(
+    double width,
+    double limit,
+    double Function(double width) heightAt,
+  ) {
+    final natural = heightAt(width);
+    // Where it fits, or where there is no room to fit it into at all.
+    if (natural <= limit || limit <= 0) return 1;
+    // Always fits: laid out wider, the column is no taller than it was.
+    var fits = limit / natural;
+    // The scale its height at that width would allow, which fits too unless
+    // the narrower layout it implies wraps a line more; the answer lies
+    // between the two.
+    var over = math.min(1.0, limit / heightAt(width / fits));
+    if (over <= fits) return fits;
+    if (heightAt(width / over) * over <= limit) return over;
+    for (var i = 0; i < 4; i++) {
+      final mid = (fits + over) / 2;
+      if (heightAt(width / mid) * mid <= limit) {
+        fits = mid;
+      } else {
+        over = mid;
+      }
+    }
+    return fits;
+  }
+
+  double _limit(BoxConstraints constraints) =>
+      math.min(_maxHeight ?? double.infinity, constraints.maxHeight);
+
+  @override
+  Size computeDryLayout(covariant BoxConstraints constraints) {
+    final child = this.child;
+    if (child == null) return constraints.smallest;
+    final width = constraints.maxWidth;
+    double heightAt(double w) =>
+        child.getDryLayout(BoxConstraints.tightFor(width: w)).height;
+    final scale = _fit(width, _limit(constraints), heightAt);
+    return constraints.constrain(Size(width, heightAt(width / scale) * scale));
+  }
+
+  @override
+  void performLayout() {
+    final child = this.child;
+    if (child == null) {
+      _scale = 1;
+      size = constraints.smallest;
+      return;
+    }
+    final width = constraints.maxWidth;
+    double heightAt(double w) {
+      child.layout(BoxConstraints.tightFor(width: w), parentUsesSize: true);
+      return child.size.height;
+    }
+
+    _scale = _fit(width, _limit(constraints), heightAt);
+    // The layout the column keeps is the one it is painted at.
+    final height = heightAt(width / _scale);
+    size = constraints.constrain(Size(width, height * _scale));
+  }
+
+  Matrix4 get _transform => Matrix4.diagonal3Values(_scale, _scale, 1);
+
+  @override
+  void paint(PaintingContext context, Offset offset) {
+    final child = this.child;
+    if (child == null) return;
+    if (_scale == 1) {
+      layer = null;
+      context.paintChild(child, offset);
+      return;
+    }
+    layer = context.pushTransform(
+      needsCompositing,
+      offset,
+      _transform,
+      (context, offset) => context.paintChild(child, offset),
+      oldLayer: layer as TransformLayer?,
+    );
+  }
+
+  @override
+  void applyPaintTransform(RenderBox child, Matrix4 transform) {
+    transform.multiply(_transform);
+  }
+
+  @override
+  bool hitTestChildren(BoxHitTestResult result, {required Offset position}) {
+    final child = this.child;
+    if (child == null) return false;
+    return result.addWithPaintTransform(
+      transform: _transform,
+      position: position,
+      hitTest: (result, position) => child.hitTest(result, position: position),
+    );
+  }
 }
