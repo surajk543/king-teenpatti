@@ -1055,7 +1055,7 @@ class AppTheme {
       textTheme: _textTheme(Brightness.light),
       fontFamily: fontFamily,
       visualDensity: VisualDensity.standard,
-      extensions: const [GlassColors.light],
+      extensions: const [GlassColors.light, CasinoTableColors.light],
     ),
   );
 
@@ -1087,7 +1087,7 @@ class AppTheme {
       textTheme: _textTheme(Brightness.dark),
       fontFamily: fontFamily,
       visualDensity: VisualDensity.standard,
-      extensions: const [GlassColors.dark],
+      extensions: const [GlassColors.dark, CasinoTableColors.dark],
     ),
   );
 

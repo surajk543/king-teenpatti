@@ -14,8 +14,10 @@ import '../state/missile_strike.dart';
 import '../theme/app_theme.dart';
 import '../theme/table_theme.dart';
 import '../widgets/buy_chips.dart';
+import '../widgets/casino_table.dart';
 import '../widgets/chip_store.dart';
 import '../widgets/deal_flight.dart';
+import '../widgets/dealer_host.dart';
 import '../widgets/drifting_chips.dart';
 import '../widgets/glass_components.dart';
 import '../widgets/glass_panels.dart';
@@ -673,6 +675,46 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
     super.dispose();
   }
 
+  /// Where the host stands, in the felt's coordinates, or null when she is
+  /// switched off or the gap over the table is too small for her.
+  ///
+  /// The gap is worked out from the numbers the felt lays everything else
+  /// out with, as [tableNoticeArea] finds the notices' gap: down from the foot
+  /// of the category tag, up from the table's far rail (the waiting line
+  /// stands just under that rail, on the cloth), and in from the widest
+  /// speech bubble either top seat can open towards the middle — a bubble
+  /// hangs from its column's outer edge and grows up to 1.7 pods wide
+  /// (SeatPod). The pods themselves stand further out than that.
+  Rect? _hostBox(
+    BuildContext context,
+    double w,
+    double h,
+    double podW,
+    TableGeometry table,
+  ) {
+    if (!dealerHostEnabled) return null;
+    final theme = Theme.of(context);
+    final scaler = MediaQuery.textScalerOf(context);
+    final boot = TableType.boot(theme);
+    // The tag is one line on a plate: the line (or its 14dp mark, whichever
+    // is taller), the plate's padding above and below it, and its hairline.
+    final line = math.max(
+      14.0,
+      scaler.scale(boot.fontSize ?? 12) * (boot.height ?? 1.15),
+    );
+    final tagBottom = _tagDy * h + (line + 2 * Space.xs + 2 * Dim.hairline) / 2;
+    double columnLeft(Offset place) =>
+        (place.dx * w - podW / 2).clamp(0.0, math.max(0.0, w - podW));
+    return dealerSlot(
+      feltWidth: w,
+      top: tagBottom,
+      rimTop: table.rimTop,
+      left: columnLeft(_places[2]) + podW * 1.7,
+      right: columnLeft(_places[3]) + podW - podW * 1.7,
+      screenHeight: MediaQuery.sizeOf(context).height,
+    );
+  }
+
   /// Keeps the felt on the volley [GameState] is showing, as [_follow] does
   /// for the hammer.
   void _followMissile(MissileStrike? strike) {
@@ -1015,34 +1057,56 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
             );
           }
 
-          // The room takes its colour from the table you sat down at, so a
           final potCentre = Offset(0.5 * w, _potDy * h);
           Offset seatCentre(int seatIndex) =>
               _seatCentre(state, seatIndex, w, h, podW);
 
-          // The cloth is gone (owner's decision, 10 Sep 2026) and nothing else
-          // moved: every position in this Stack is computed from the
-          // LayoutBuilder's box, not from the table that used to be drawn
-          // inside it, so removing the drawing leaves the seats exactly where
-          // they were. Dropping the ClipRRect with it also means a pod at the
-          // rim can no longer lose its edge to the oval's curve.
+          // The table (owner's brief, 24 Sep 2026: "a large oval/rounded
+          // casino table surface behind the gameplay elements"), and the host
+          // standing behind its far rail. Nothing on the felt moved for them:
+          // every position in this Stack is still computed from the
+          // LayoutBuilder's box, and the table is laid out from the same box
+          // to meet the seats where they already were (TableGeometry).
+          final table = TableGeometry.of(Size(w, h));
+          final host = _hostBox(context, w, h, podW, table);
+
           return Stack(
             key: _stageKey,
             clipBehavior: Clip.none,
             children: [
-              // The overhead lamp, breathing slowly over the middle of the
-              // cloth, so the felt is never a flat wash. Its own layer: it
-              // repaints every frame for the life of the room, and the cloth
-              // beneath it never does.
-              const Positioned.fill(
-                child: RepaintBoundary(
-                  child: IgnorePointer(child: _AmbientLamp()),
+              // Behind the table: her waist and hands are hidden by the far
+              // rail, and she is under everything else on the felt.
+              if (host != null)
+                Positioned.fromRect(
+                  rect: host,
+                  child: const IgnorePointer(child: _TableDealer()),
+                ),
+              Positioned.fill(
+                child: CasinoTableSurface(
+                  geometry: table,
+                  // A short phone keeps the table and loses its trimmings.
+                  detailed: !Breaks.isShort(MediaQuery.sizeOf(context).height),
+                ),
+              ),
+              // The overhead lamp breathing on the cloth, and the near rail
+              // warming on the viewer's turn. Its own layer: it repaints every
+              // frame for the life of the room, and the table beneath it
+              // never does.
+              Positioned.fill(
+                child: TableAmbientEffects(
+                  geometry: table,
+                  yourTurn: state.myTurn && room.state == TableState.betting,
+                  viewerX: _places[0].dx * w + podW * 0.7,
                 ),
               ),
               // Every bet is seen to travel: a chip leaves the seat that made
               // it and lands on the pot. Boundaried for the same reason.
               // The deal, drawn before the bets so a boot chip lands on a
-              // seat that has already been given its cards.
+              // seat that has already been given its cards — from the cloth
+              // just in front of the host when she is there (a card is nearly
+              // as tall as she is, so launched from her hands the deal hid
+              // her), from just above the middle of the table when she is
+              // not.
               Positioned.fill(
                 child: RepaintBoundary(
                   child: IgnorePointer(
@@ -1051,7 +1115,14 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
                       roomId: room.roomId,
                       handNo: room.handNo,
                       centreOf: seatCentre,
-                      deck: Offset(w / 2, h * 0.42),
+                      deck: host == null
+                          ? Offset(w / 2, h * 0.42)
+                          : Offset(
+                              host.center.dx,
+                              host.bottom +
+                                  table.rail +
+                                  (podW * 0.42).clamp(18.0, 46.0) * 0.55,
+                            ),
                       cardHeight: (podW * 0.42).clamp(18.0, 46.0),
                     ),
                   ),
@@ -3214,68 +3285,129 @@ class _SideshowCountdownState extends State<_SideshowCountdown>
   }
 }
 
-/// The overhead lamp on the cloth, brightening and dimming on a slow cycle.
+/// The host behind the far rail (DealerHost), doing what the table is doing:
+/// dealing while the deal's cards are in the air, turning to the viewer on
+/// their turn, lifting at a win (owner's brief, 24 Sep 2026).
 ///
-/// Plain `srcOver` and no blend mode: a blend here would force an offscreen
-/// pass across the largest region on the screen, on every frame, for the life
-/// of the room.
-class _AmbientLamp extends StatefulWidget {
-  const _AmbientLamp();
+/// A read-only mapper over what [GameState] already shows ([dealerStateFor]):
+/// nothing here changes the game. `select`, never `watch`, so the one-second
+/// reward tick never reaches her; she rebuilds when the hand, the turn, the
+/// celebration or the table under her changes. The deal is timed by the
+/// flight's own arithmetic ([DealFlights.deals], [DealFlights.total]) on two
+/// timers, so her hands stop when its last card lands.
+///
+/// She steps out — fades, and her box stays where it is — while a panel is
+/// laid over the felt (the variation choice, the 5-Card pick and its verdict,
+/// a sideshow put to the viewer), and while the table says something on two
+/// lines in the waiting line's slot (who is choosing the variation or their
+/// cards, and which variation was chosen): those stand taller than the
+/// one-line waiting line, and reach up over the far rail she stands behind.
+/// Gameplay first, decoration after.
+class _TableDealer extends StatefulWidget {
+  const _TableDealer();
 
   @override
-  State<_AmbientLamp> createState() => _AmbientLampState();
+  State<_TableDealer> createState() => _TableDealerState();
 }
 
-class _AmbientLampState extends State<_AmbientLamp>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _breath = AnimationController(
-    vsync: this,
-    duration: Motion.breath,
-  )..repeat(reverse: true);
+/// Where a hand's opening has got to, as the host sees it.
+enum _Opening { none, nod, deal }
+
+class _TableDealerState extends State<_TableDealer> {
+  String? _roomId;
+  int _handNo = 0;
+  _Opening _opening = _Opening.none;
+  Duration _dealLength = Duration.zero;
+  final List<Timer> _timers = [];
 
   @override
   void dispose() {
-    _breath.dispose();
+    for (final timer in _timers) {
+      timer.cancel();
+    }
     super.dispose();
+  }
+
+  /// Starts a hand's opening when its number changes at the same table: the
+  /// nod, then — when the flight deals it — the deal until its last card
+  /// lands.
+  void _follow(String? roomId, int handNo, int dealtSeats) {
+    if (roomId == _roomId && handNo == _handNo) return;
+    final oldRoom = _roomId;
+    final oldHand = _handNo;
+    _roomId = roomId;
+    _handNo = handNo;
+    for (final timer in _timers) {
+      timer.cancel();
+    }
+    _timers.clear();
+    if (roomId == null || oldRoom != roomId) {
+      _opening = _Opening.none;
+      return;
+    }
+    final dealt = DealFlights.deals(
+      oldRoomId: oldRoom!,
+      oldHandNo: oldHand,
+      roomId: roomId,
+      handNo: handNo,
+    );
+    _dealLength = dealt
+        ? DealFlights.total(DealFlights.cardsEach * dealtSeats)
+        : Duration.zero;
+    _opening = _Opening.nod;
+    void to(_Opening next) {
+      if (mounted) setState(() => _opening = next);
+    }
+
+    _timers.add(
+      Timer(
+        DealerTiming.newHand,
+        () => to(
+          _dealLength > DealerTiming.newHand ? _Opening.deal : _Opening.none,
+        ),
+      ),
+    );
+    if (_dealLength > DealerTiming.newHand) {
+      _timers.add(Timer(_dealLength, () => to(_Opening.none)));
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final dark = Theme.of(context).brightness == Brightness.dark;
-
-    return AnimatedBuilder(
-      animation: _breath,
-      builder: (context, _) {
-        final v = Motion.breathe.transform(_breath.value);
-        final lamp = (dark ? 0.075 : 0.055) + 0.022 * v;
-
-        return DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: RadialGradient(
-              center: const Alignment(0, -0.35),
-              focal: const Alignment(0, -0.55),
-              radius: 0.62 + 0.05 * v,
-              colors: [
-                AppTheme.lampWarm.withValues(alpha: lamp),
-                AppTheme.lampWarm.withValues(alpha: lamp * 0.4),
-                AppTheme.lampWarm.withValues(alpha: 0),
-              ],
-              stops: const [0, 0.45, 1],
-            ),
-          ),
-          // The near rim falls into shadow, which is what actually says the
-          // light is coming from above rather than from inside the cloth.
-          child: const DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: RadialGradient(
-                center: Alignment(0, 0.72),
-                radius: 0.75,
-                colors: [Color(0x3806080A), Color(0x0006080A)],
-              ),
-            ),
-          ),
-        );
+    final (roomId, handNo, myTurn, celebrating, seats, covered) = context
+        .select<GameState, (String?, int, bool, bool, int, bool)>((s) {
+          final room = s.room;
+          return (
+            room?.roomId,
+            room?.handNo ?? 0,
+            s.myTurn && room?.state == TableState.betting,
+            s.showdown.isNotEmpty || s.showdownResult.isNotEmpty,
+            dealtSeats(room?.seats ?? const <Seat>[]).length,
+            s.variationSelecting ||
+                s.sideshowIsForMe ||
+                s.variationAnnounced != null ||
+                s.pickingCards ||
+                s.someoneChoosingCards != null ||
+                s.pickAnnounced != null,
+          );
+        });
+    _follow(roomId, handNo, seats);
+    final state = dealerStateFor(
+      celebrating: celebrating,
+      myTurn: myTurn,
+      // Where the opening has got to, as the two timers above step it: in
+      // the nod, then past it and inside the deal, then over.
+      sinceNewHand: switch (_opening) {
+        _Opening.none => null,
+        _Opening.nod => Duration.zero,
+        _Opening.deal => DealerTiming.newHand,
       },
+      dealLength: _dealLength,
+    );
+    return AnimatedOpacity(
+      opacity: covered ? 0 : 1,
+      duration: Motion.base,
+      child: DealerHost(state: state),
     );
   }
 }

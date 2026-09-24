@@ -278,3 +278,238 @@ class GlassColors extends ThemeExtension<GlassColors> {
     );
   }
 }
+
+/// The overhead lamp's warm white, as `AppTheme.lampWarm` keeps it (this file
+/// is imported by app_theme.dart, so it cannot import it back).
+const Color _lampWarm = Color(0xFFFFF3DC);
+
+/// The casino table's colours, one set per brightness (owner's brief, 24 Sep
+/// 2026: "a large oval/rounded casino table surface ... a modern luxury mobile
+/// casino ... Do NOT use the old-fashioned red casino table aesthetic"), read
+/// by the one painter that draws the table ([CasinoTableSurface]), the light
+/// that moves on it ([TableAmbientEffects]) and the light behind the host
+/// ([DealerHost]).
+///
+/// Two looks designed for their own grounds rather than one inverted: by day
+/// a pearl rail lit from above round a pale emerald cloth, with a thin
+/// champagne rim; by night a graphite rail round a deep emerald cloth that
+/// falls to near black at its edge, a subtler gold rim and a controlled cyan
+/// light around the table. Both cloths keep the table's type legible as it
+/// always was — charcoal on the pale cloth, white on the dark one — so no word
+/// on the felt changes colour for the table's sake.
+///
+/// A [ThemeExtension], as [GlassColors] is, so the theme's cross-fade carries
+/// the table with it rather than snapping it.
+@immutable
+class CasinoTableColors extends ThemeExtension<CasinoTableColors> {
+  const CasinoTableColors({
+    required this.railTop,
+    required this.railBottom,
+    required this.railSheen,
+    required this.rim,
+    required this.rimLow,
+    required this.seam,
+    required this.feltCentre,
+    required this.feltEdge,
+    required this.feltLine,
+    required this.lipShadow,
+    required this.shadow,
+    required this.shadowBlur,
+    required this.glow,
+    required this.lamp,
+    required this.lampAlpha,
+    required this.turnGlow,
+    required this.hostHalo,
+    required this.hostHaloOuter,
+    required this.hostHaloTurn,
+    required this.hostHaloWin,
+    required this.sparkle,
+  });
+
+  /// The rail — the "outer table" — lit from above: its top and its foot.
+  final Color railTop;
+  final Color railBottom;
+
+  /// The light along the rail's upper half, which rounds it into a lip.
+  final Color railSheen;
+
+  /// The thin champagne line round the rail's outer edge, lit at the top and
+  /// deeper at the foot.
+  final Color rim;
+  final Color rimLow;
+
+  /// The seam where the rail meets the cloth.
+  final Color seam;
+
+  /// The playing surface: lit in the middle, falling towards its edge.
+  final Color feltCentre;
+  final Color feltEdge;
+
+  /// The thin line printed on the cloth a step inside the rail.
+  final Color feltLine;
+
+  /// The shadow the rail's lip throws on the top of the cloth.
+  final Color lipShadow;
+
+  /// The one soft shadow the table casts on the floor, and its blur.
+  final Color shadow;
+  final double shadowBlur;
+
+  /// Light round the table's outer edge: a controlled cyan by night, none by
+  /// day, where a glow on a pale floor reads as a smudge.
+  final Color glow;
+
+  /// The overhead lamp's pool on the cloth, and its alpha at rest (it
+  /// breathes a little over that).
+  final Color lamp;
+  final double lampAlpha;
+
+  /// The warm light the near rail takes on the viewer's turn.
+  final Color turnGlow;
+
+  /// The light behind the host: at rest (its core and the colour it fades
+  /// into), on the viewer's turn and at a win.
+  final Color hostHalo;
+  final Color hostHaloOuter;
+  final Color hostHaloTurn;
+  final Color hostHaloWin;
+
+  /// The sparks round the host at a win.
+  final Color sparkle;
+
+  /// By night: graphite, deep emerald, a subtle gold rim, a controlled cyan
+  /// glow.
+  static const CasinoTableColors dark = CasinoTableColors(
+    railTop: Color(0xFF2E3238),
+    railBottom: Color(0xFF16181C),
+    railSheen: Color(0x1FFFFFFF),
+    rim: Color(0xC7E8C877),
+    rimLow: Color(0xA38A6A18),
+    seam: Color(0x99000000),
+    feltCentre: Color(0xFF123F35),
+    feltEdge: Color(0xFF05140F),
+    feltLine: Color(0x4D3E9C85),
+    lipShadow: Color(0x73000000),
+    shadow: Color(0x99000000),
+    shadowBlur: 22,
+    glow: Color(0x2E3FD1C2),
+    lamp: _lampWarm,
+    lampAlpha: 0.075,
+    turnGlow: Color(0xFFF1D27A),
+    hostHalo: Color(0x29F1D27A),
+    hostHaloOuter: Color(0x1F3FD1C2),
+    hostHaloTurn: Color(0x47F1D27A),
+    hostHaloWin: Color(0x61F1D27A),
+    sparkle: Color(0xFFF7E3A6),
+  );
+
+  /// By day: a pearl rail, a pale emerald cloth, a champagne rim, and a soft
+  /// shadow in the light theme's own slate.
+  static const CasinoTableColors light = CasinoTableColors(
+    railTop: Color(0xFFFCFAF5),
+    railBottom: Color(0xFFE7DECB),
+    railSheen: Color(0xCCFFFFFF),
+    rim: Color(0xFFD9B458),
+    rimLow: Color(0xFFA9822A),
+    seam: Color(0x80A88A48),
+    feltCentre: Color(0xFFE6F2ED),
+    feltEdge: Color(0xFFC3DDD4),
+    feltLine: Color(0x8C8DBDAE),
+    lipShadow: Color(0x2E0E3A30),
+    shadow: Color(0x330E1220),
+    shadowBlur: 18,
+    glow: Color(0x00000000),
+    lamp: _lampWarm,
+    lampAlpha: 0.30,
+    turnGlow: Color(0xFFD4A514),
+    hostHalo: Color(0x29E5C274),
+    hostHaloOuter: Color(0x1476C8BA),
+    hostHaloTurn: Color(0x42D4A514),
+    hostHaloWin: Color(0x5CD4A514),
+    sparkle: Color(0xFFD4A514),
+  );
+
+  /// The set for the theme in scope, by brightness when a theme was built
+  /// without the extension.
+  static CasinoTableColors of(BuildContext context) {
+    final theme = Theme.of(context);
+    return theme.extension<CasinoTableColors>() ??
+        (theme.brightness == Brightness.dark ? dark : light);
+  }
+
+  @override
+  CasinoTableColors copyWith({
+    Color? railTop,
+    Color? railBottom,
+    Color? railSheen,
+    Color? rim,
+    Color? rimLow,
+    Color? seam,
+    Color? feltCentre,
+    Color? feltEdge,
+    Color? feltLine,
+    Color? lipShadow,
+    Color? shadow,
+    double? shadowBlur,
+    Color? glow,
+    Color? lamp,
+    double? lampAlpha,
+    Color? turnGlow,
+    Color? hostHalo,
+    Color? hostHaloOuter,
+    Color? hostHaloTurn,
+    Color? hostHaloWin,
+    Color? sparkle,
+  }) => CasinoTableColors(
+    railTop: railTop ?? this.railTop,
+    railBottom: railBottom ?? this.railBottom,
+    railSheen: railSheen ?? this.railSheen,
+    rim: rim ?? this.rim,
+    rimLow: rimLow ?? this.rimLow,
+    seam: seam ?? this.seam,
+    feltCentre: feltCentre ?? this.feltCentre,
+    feltEdge: feltEdge ?? this.feltEdge,
+    feltLine: feltLine ?? this.feltLine,
+    lipShadow: lipShadow ?? this.lipShadow,
+    shadow: shadow ?? this.shadow,
+    shadowBlur: shadowBlur ?? this.shadowBlur,
+    glow: glow ?? this.glow,
+    lamp: lamp ?? this.lamp,
+    lampAlpha: lampAlpha ?? this.lampAlpha,
+    turnGlow: turnGlow ?? this.turnGlow,
+    hostHalo: hostHalo ?? this.hostHalo,
+    hostHaloOuter: hostHaloOuter ?? this.hostHaloOuter,
+    hostHaloTurn: hostHaloTurn ?? this.hostHaloTurn,
+    hostHaloWin: hostHaloWin ?? this.hostHaloWin,
+    sparkle: sparkle ?? this.sparkle,
+  );
+
+  @override
+  CasinoTableColors lerp(ThemeExtension<CasinoTableColors>? other, double t) {
+    if (other is! CasinoTableColors) return this;
+    Color c(Color a, Color b) => Color.lerp(a, b, t) ?? a;
+    return CasinoTableColors(
+      railTop: c(railTop, other.railTop),
+      railBottom: c(railBottom, other.railBottom),
+      railSheen: c(railSheen, other.railSheen),
+      rim: c(rim, other.rim),
+      rimLow: c(rimLow, other.rimLow),
+      seam: c(seam, other.seam),
+      feltCentre: c(feltCentre, other.feltCentre),
+      feltEdge: c(feltEdge, other.feltEdge),
+      feltLine: c(feltLine, other.feltLine),
+      lipShadow: c(lipShadow, other.lipShadow),
+      shadow: c(shadow, other.shadow),
+      shadowBlur: lerpDouble(shadowBlur, other.shadowBlur, t)!,
+      glow: c(glow, other.glow),
+      lamp: c(lamp, other.lamp),
+      lampAlpha: lerpDouble(lampAlpha, other.lampAlpha, t)!,
+      turnGlow: c(turnGlow, other.turnGlow),
+      hostHalo: c(hostHalo, other.hostHalo),
+      hostHaloOuter: c(hostHaloOuter, other.hostHaloOuter),
+      hostHaloTurn: c(hostHaloTurn, other.hostHaloTurn),
+      hostHaloWin: c(hostHaloWin, other.hostHaloWin),
+      sparkle: c(sparkle, other.sparkle),
+    );
+  }
+}

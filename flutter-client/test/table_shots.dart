@@ -22,6 +22,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:teenpatti/l10n/strings.dart';
 import 'package:teenpatti/theme/app_theme.dart';
+import 'package:teenpatti/widgets/dealer_host.dart';
 
 import 'table_scenes.dart';
 
@@ -111,6 +112,9 @@ Future<void> _loadFonts() async {
     await loader.load();
     break;
   }
+  // The table's host, loaded before the first shot rather than inside it, so
+  // every picture has her whatever order the shots run in.
+  await DealerArt.load(DealerArt.defaultAsset);
 }
 
 ThemeData _theme(bool dark, AppLang lang) {
