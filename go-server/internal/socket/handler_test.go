@@ -3,6 +3,7 @@ package socket
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"regexp"
 	"strings"
 	"testing"
@@ -1651,14 +1652,14 @@ func TestUnfundedKickBetweenHands(t *testing.T) {
 }
 
 func TestInternalErrorsAreReportedTwiceDifferently(t *testing.T) {
-	// A non-GameError failure (here: the account vanished between the
+	// A non-GameError failure (here: the user lookup failing between the
 	// handshake and the join) is acked with its raw message under
-	// internal_error, while game:error says only "Something went wrong".
+	// internal_error, while game:error says only "Something went wrong". (A
+	// VANISHED account is unknown_user since 24 Sep 2026 and ends the session:
+	// fixes_0924_test.go.)
 	st := newStack(t, nil)
 	p := st.player("Vanishing")
-	st.users.mu.Lock()
-	delete(st.users.users, p.user.ID)
-	st.users.mu.Unlock()
+	st.users.setFailure(errors.New("database unreachable"))
 	mark := p.c.Mark()
 	ack := st.mustFail(p.c, EvRoomQuickJoin, map[string]any{"bootAmount": st.uniqueStake()}, game.CodeInternalError)
 	if ack.Message == "" || ack.Message == MsgInternalError {
