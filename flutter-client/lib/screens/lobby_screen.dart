@@ -1819,7 +1819,7 @@ class _GroupCard extends StatelessWidget {
                               ],
                             ),
                             if (blurb.isNotEmpty) ...[
-                              SizedBox(height: m.gap),
+                              CardGap(m.gap),
                               // Allowed a third line rather than cut
                               // short: a long translation at a large
                               // text size wraps, and the column above
@@ -1834,7 +1834,7 @@ class _GroupCard extends StatelessWidget {
                                 ),
                               ),
                             ],
-                            SizedBox(height: m.gap),
+                            CardGap(m.gap),
                             _CardFact(
                               icon: Icons.toll_rounded,
                               palette: palette,
@@ -1984,20 +1984,16 @@ class _CardMetrics {
 }
 
 /// The hairline between two facts: the card's own edge colour, so the facts
-/// read as rows of one table rather than as gilded lines.
+/// read as rows of one table rather than as gilded lines. On a card its air
+/// gives way before the card's words shrink ([CardRule]).
 class _FactRule extends StatelessWidget {
   const _FactRule({required this.space});
 
   final double space;
 
   @override
-  Widget build(BuildContext context) => Padding(
-    padding: EdgeInsets.symmetric(vertical: space),
-    child: Container(
-      height: Dim.hairline,
-      color: GlassColors.of(context).cardBorder,
-    ),
-  );
+  Widget build(BuildContext context) =>
+      CardRule(space: space, colour: GlassColors.of(context).cardBorder);
 }
 
 /// The way back one level: a slim tile of the same card at the head of an
@@ -2314,7 +2310,7 @@ class _TableCard extends StatelessWidget {
                                   : 0,
                             ),
                           ),
-                          SizedBox(height: m.headGap),
+                          CardGap(m.headGap),
                           // The boot is what a player chooses a table
                           // by, so it is the largest figure on the card
                           // (owner, 24 Sep 2026: "make it visually
@@ -2384,7 +2380,7 @@ class _TableCard extends StatelessWidget {
                                   ),
                             ),
                           ),
-                          SizedBox(height: m.gap),
+                          CardGap(m.gap),
                           // One blurb line a card, so every card
                           // keeps the same rhythm down to its key: a
                           // variation card says what makes it
@@ -2417,7 +2413,7 @@ class _TableCard extends StatelessWidget {
                               color: glass.textBody,
                             ),
                           ),
-                          SizedBox(height: m.gap),
+                          CardGap(m.gap),
 
                           // What the room actually plays like, stated
                           // before the player sits down rather than
@@ -3418,7 +3414,7 @@ class _PrivateCardState extends State<_PrivateCard> {
                               ),
                             ],
                           ),
-                          SizedBox(height: m.gap),
+                          CardGap(m.gap),
                           Text(
                             'Boot ${formatChips(state.config.privateBoot)}'
                             '${cap > 0 ? ', max win ${formatChips(cap)}' : ''}.'

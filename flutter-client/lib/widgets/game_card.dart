@@ -136,18 +136,23 @@ class CardLight extends StatelessWidget {
 }
 
 /// A card's words above its key: its blocks one under another, as wide as the
-/// card, scaled down together when they would stand taller than [maxHeight] —
-/// and never under the card's corner keys ([keepClear]).
+/// card, with the air between them ([CardGap], [CardRule]) giving way and then
+/// the whole column scaled down when they would stand taller than
+/// [maxHeight] — and never under the card's corner keys ([keepClear]).
 ///
 /// A card is square and its sizes follow its side, but its words are set in
 /// the player's script and at the player's text size, and Devanagari stands
 /// taller than Latin: at 1.25x on a 640dp phone some columns want more height
-/// than the key at the foot leaves them. Scaling the column as one keeps every
-/// line of every block (the brief: "don't just hide text"), and laying the
-/// blocks out at the card's width divided by the scale before scaling them
-/// down keeps the column spanning the card — a FittedBox round the column
-/// would shrink it towards its left edge and leave a ragged margin at its
-/// right. Where the blocks fit, the scale is 1 and nothing moves.
+/// than the key at the foot leaves them, and a poker table's four or five
+/// facts want more at any size. The air between the blocks gives way first,
+/// down to half of each gap: it is the one thing on a card that can be less
+/// without anything being lost. Past that the column is scaled as one, which
+/// keeps every line of every block (the brief: "don't just hide text"), and
+/// laying the blocks out at the card's width divided by the scale before
+/// scaling them down keeps the column spanning the card — a FittedBox round
+/// the column would shrink it towards its left edge and leave a ragged margin
+/// at its right. Where the blocks fit, the gaps are whole, the scale is 1 and
+/// nothing moves.
 ///
 /// [keepClear] is a zone at the column's top right, in the card's own units:
 /// a block that starts inside it is laid out that much narrower, at whatever
@@ -214,6 +219,13 @@ class RenderCardColumn extends RenderBox
   /// blocks fit.
   double get scale => _scale;
 
+  double _squeeze = 0;
+
+  /// How much of its give the air between the blocks gave at the last
+  /// layout: 0 where the blocks fit with every gap whole, 1 where each gap
+  /// stood at half.
+  double get squeeze => _squeeze;
+
   final LayerHandle<TransformLayer> _transform = LayerHandle<TransformLayer>();
 
   /// Below this the words would be too small to read at any text size, and
@@ -228,8 +240,14 @@ class RenderCardColumn extends RenderBox
   }
 
   /// The column's height, in its own units, with its blocks laid out for a
-  /// column [width] wide scaled by [scale]; every block placed unless [dry].
-  double _heightAt(double width, double scale, {required bool dry}) {
+  /// column [width] wide scaled by [scale], its gaps giving [squeeze] of their
+  /// give; every block placed unless [dry].
+  double _heightAt(
+    double width,
+    double scale,
+    double squeeze, {
+    required bool dry,
+  }) {
     final wide = width / scale;
     final clearW = _keepClear.width / scale;
     final clearH = _keepClear.height;
@@ -240,8 +258,12 @@ class RenderCardColumn extends RenderBox
       // A block that starts beside the keys is set short of them for its
       // whole height: it is one box.
       final inCorner = clearW > 0 && y * scale < clearH;
+      final maxWidth = math.max(0.0, inCorner ? wide - clearW : wide);
+      final extent = child is RenderCardGap ? child.extentAt(squeeze) : null;
       final constraints = BoxConstraints(
-        maxWidth: math.max(0.0, inCorner ? wide - clearW : wide),
+        maxWidth: maxWidth,
+        minHeight: extent ?? 0,
+        maxHeight: extent ?? double.infinity,
       );
       final Size size;
       if (dry) {
@@ -257,28 +279,54 @@ class RenderCardColumn extends RenderBox
     return y;
   }
 
-  /// The largest scale, down to [_minScale], at which the blocks stand no
-  /// taller than [limit], and the column's height at it in its own units.
-  (double, double) _fit(double width, double limit, {required bool dry}) {
-    final whole = _heightAt(width, 1, dry: dry);
-    if (whole <= limit || !limit.isFinite) return (1, whole);
+  /// How the blocks stand no taller than [limit]: the least squeeze of the
+  /// gaps that does it at full size, or else every gap at half and the
+  /// largest scale, down to [_minScale], that does — with the column's height
+  /// in its own units. The blocks are left laid out as returned.
+  ({double scale, double squeeze, double height}) _fit(
+    double width,
+    double limit, {
+    required bool dry,
+  }) {
+    final whole = _heightAt(width, 1, 0, dry: dry);
+    if (whole <= limit || !limit.isFinite) {
+      return (scale: 1, squeeze: 0, height: whole);
+    }
 
-    // Set wider, the blocks wrap into fewer lines and stand no taller: the
-    // share the limit is of the whole is a scale that fits, or close to one.
-    var fits = math.max(_minScale, limit / whole);
-    var height = _heightAt(width, fits, dry: dry);
+    // The air first. It gives way evenly, and the words keep their lines as
+    // it does, so the squeeze that fits is the share of the give the column
+    // is over by — unless a block rose beside the corner keys and was set
+    // narrower, which a little more squeeze takes up.
+    final tight = _heightAt(width, 1, 1, dry: dry);
+    if (tight <= limit) {
+      var squeeze = ((whole - limit) / (whole - tight)).clamp(0.0, 1.0);
+      var height = _heightAt(width, 1, squeeze, dry: dry);
+      while (height > limit && squeeze < 1) {
+        squeeze = math.min(1.0, squeeze + 0.125);
+        height = _heightAt(width, 1, squeeze, dry: dry);
+      }
+      return (scale: 1, squeeze: squeeze, height: height);
+    }
+
+    // Then the words. Set wider, the blocks wrap into fewer lines and stand
+    // no taller: the share the limit is of the column is a scale that fits,
+    // or close to one.
+    var fits = math.max(_minScale, limit / tight);
+    var height = _heightAt(width, fits, 1, dry: dry);
     while (height * fits > limit && fits > _minScale) {
       fits = math.max(_minScale, fits * 0.95);
-      height = _heightAt(width, fits, dry: dry);
+      height = _heightAt(width, fits, 1, dry: dry);
     }
-    if (height * fits > limit) return (fits, height);
+    if (height * fits > limit) {
+      return (scale: fits, squeeze: 1, height: height);
+    }
 
     // Then as close under the limit as a few halvings bring it.
     var over = 1.0;
     var last = fits;
     for (var i = 0; i < 6; i++) {
       final mid = (fits + over) / 2;
-      final h = _heightAt(width, mid, dry: dry);
+      final h = _heightAt(width, mid, 1, dry: dry);
       last = mid;
       if (h * mid <= limit) {
         fits = mid;
@@ -289,8 +337,8 @@ class RenderCardColumn extends RenderBox
     }
     // The blocks stand where the last try left them: set them again at the
     // scale that fits if that was not it.
-    if (!dry && last != fits) height = _heightAt(width, fits, dry: false);
-    return (fits, height);
+    if (!dry && last != fits) height = _heightAt(width, fits, 1, dry: false);
+    return (scale: fits, squeeze: 1, height: height);
   }
 
   double _limit(BoxConstraints constraints) =>
@@ -299,16 +347,17 @@ class RenderCardColumn extends RenderBox
   @override
   Size computeDryLayout(covariant BoxConstraints constraints) {
     final width = constraints.maxWidth;
-    final (scale, height) = _fit(width, _limit(constraints), dry: true);
-    return constraints.constrain(Size(width, height * scale));
+    final fit = _fit(width, _limit(constraints), dry: true);
+    return constraints.constrain(Size(width, fit.height * fit.scale));
   }
 
   @override
   void performLayout() {
     final width = constraints.maxWidth;
-    final (scale, height) = _fit(width, _limit(constraints), dry: false);
-    _scale = scale;
-    size = constraints.constrain(Size(width, height * scale));
+    final fit = _fit(width, _limit(constraints), dry: false);
+    _scale = fit.scale;
+    _squeeze = fit.squeeze;
+    size = constraints.constrain(Size(width, fit.height * fit.scale));
   }
 
   @override
@@ -398,6 +447,112 @@ class RenderCardColumn extends RenderBox
     properties
       ..add(DoubleProperty('maxHeight', _maxHeight, defaultValue: null))
       ..add(DiagnosticsProperty<Size>('keepClear', _keepClear))
+      ..add(DoubleProperty('squeeze', _squeeze, defaultValue: 0.0))
       ..add(DoubleProperty('scale', _scale, defaultValue: 1.0));
+  }
+}
+
+/// Air between two blocks of a [CardColumn]: [height] of it where the column
+/// has the room, and as little as half before the column's words are made
+/// smaller. Anywhere else it is a plain gap of [height].
+class CardGap extends LeafRenderObjectWidget {
+  const CardGap(this.height, {super.key});
+
+  final double height;
+
+  @override
+  RenderCardGap createRenderObject(BuildContext context) =>
+      RenderCardGap(height: height);
+
+  @override
+  void updateRenderObject(BuildContext context, RenderCardGap renderObject) {
+    renderObject
+      ..height = height
+      ..line = null;
+  }
+}
+
+/// A hairline in [colour] across a [CardColumn] between two of a card's
+/// facts, with [space] of air above it and below it that gives way as a
+/// [CardGap]'s does.
+class CardRule extends LeafRenderObjectWidget {
+  const CardRule({super.key, required this.space, required this.colour});
+
+  final double space;
+  final Color colour;
+
+  @override
+  RenderCardGap createRenderObject(BuildContext context) =>
+      RenderCardGap(height: 2 * space + Dim.hairline, line: colour);
+
+  @override
+  void updateRenderObject(BuildContext context, RenderCardGap renderObject) {
+    renderObject
+      ..height = 2 * space + Dim.hairline
+      ..line = colour;
+  }
+}
+
+/// The render object behind [CardGap] and [CardRule]: a box as wide as it is
+/// allowed and [height] tall, with a hairline across its middle when it has a
+/// [line] to draw.
+class RenderCardGap extends RenderBox {
+  RenderCardGap({required this._height, this._line});
+
+  double _height;
+  double get height => _height;
+  set height(double value) {
+    if (value == _height) return;
+    _height = value;
+    markNeedsLayout();
+  }
+
+  Color? _line;
+  Color? get line => _line;
+  set line(Color? value) {
+    if (value == _line) return;
+    _line = value;
+    markNeedsPaint();
+  }
+
+  /// Its height when [squeeze] of its give is taken: all of [height] at 0,
+  /// and at 1 half of its air — all of a gap, a rule's but its line.
+  double extentAt(double squeeze) {
+    final air = _line == null ? _height : math.max(0.0, _height - Dim.hairline);
+    return _height - air * 0.5 * squeeze.clamp(0.0, 1.0);
+  }
+
+  Size _sizeFor(BoxConstraints constraints) => constraints.constrain(
+    Size(constraints.hasBoundedWidth ? constraints.maxWidth : 0, _height),
+  );
+
+  @override
+  Size computeDryLayout(covariant BoxConstraints constraints) =>
+      _sizeFor(constraints);
+
+  @override
+  void performLayout() {
+    size = _sizeFor(constraints);
+  }
+
+  @override
+  double computeMinIntrinsicHeight(double width) => _height;
+
+  @override
+  double computeMaxIntrinsicHeight(double width) => _height;
+
+  @override
+  void paint(PaintingContext context, Offset offset) {
+    final line = _line;
+    if (line == null || size.isEmpty) return;
+    context.canvas.drawRect(
+      Rect.fromLTWH(
+        offset.dx,
+        offset.dy + (size.height - Dim.hairline) / 2,
+        size.width,
+        Dim.hairline,
+      ),
+      Paint()..color = line,
+    );
   }
 }
