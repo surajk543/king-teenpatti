@@ -144,7 +144,7 @@ king-teenpatti/
     │   ├── state/table_config_cache.dart  TableConfigCache (SharedPreferences `tableConfig`: the phone's copy of GET /api/tables) + MenuPrecedence (pure: which menu the lobby shows) — §8.1
     │   ├── screens/{login,lobby,table}_screen.dart; screens/poker_table_screen.dart (the poker felt, mounted by table_screen when room.isPoker — §8.4); screens/lucky_draw_screen.dart (the Lucky Draw's wheel, prizes and spin — §8.4)
     │   ├── widgets/table_chrome.dart  the chrome both felts share (rail, drawers, keys, wallet, reconnecting veil), moved out of table_screen.dart
-    │   ├── widgets/              premium_surface, game_card (the lobby's one card shell, §8.4), seat_pod, playing_card, poker_chip, liquid_fill,
+    │   ├── widgets/              premium_surface, game_card (the lobby's one card shell, and CardColumn/CardGap/CardRule/CardSpace — its words, §8.4), seat_pod, playing_card, poker_chip, liquid_fill,
     │   │                         fireworks, avatar, buy_chips, chip_store, picture_shelf, rules_sheet,
     │   │                         variation_prompt (the variation table's on-felt picker, "is selecting" line, announcement, wild-card edge — §8.4),
     │   │                         wild_transform (a wild card of the viewer's own hand turning into the card it played as — §8.4)
@@ -2006,20 +2006,63 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   rgb(28,30,33) at 0.88 by night; `cardBorder` #E2E4E7 / white 0.10; `cardHighlight`; `cardShadow`, deeper by night;
   `cardMuted`, the quiet tier that clears 4.5:1 on the card), `Radii.xl` 22 — with the mode's accent spent on the top
   of the hairline (`edge`) and on a light behind the card, `CardLight`: one radial gradient inside the card's clip, in
-  the accent brought to full colour (`orbColours(accent).$1`), peaking at `GlassColors.glowStrength` (0.12 by day,
-  0.22 by night) and gone by `glowReach` of the side (0.62 / 0.78). The two orbs it replaced — a sharp disc behind
-  each card and a blurred copy inside it, placed by `_orbPlace` — showed round the cards as coloured circles, loudest
-  on the light theme. A shut table is drawn unlit. The room itself takes the open level's colour through the lamp's
-  pool (`_RoomLight` → `LobbyGround(accent, accentStrength: 2.0)`, faded over `Motion.arrive`; none at the front). The
-  cards' figures: `_CardMetrics` (one set for group and table cards, from the card's side: 231 / 273 / 400dp); a group
-  card's name in the card's own ink at ~27–31dp; a table card's boot the largest figure on it (`s*0.14`, 32 / 38dp,
-  gold) over a tracked BOOT caption; facts with the mode's glyphs, money in gold; the foot key `_SitCapsule` neutral glass
-  with the mode's accent in its edge, a breath of it in its fill and on its arrow; the private card's Create key the same
-  in emerald (`_accentKeyStyle`) where it was a solid mint slab. Every column still fits unscaled at 640×360 and
-  1.0 text and scales less than before at ×1.25. The back tile is lighter than the cards: unlit, a neutral key, the
-  level's name in the card's ink over a 20×3 bar in the level's colour. `test/lobby_polish_test.dart` holds the modes'
-  accents and inks (≥ 4.5:1 on the card), the card tokens to the brief's ranges, no `GlassOrb` in the lobby, the boot as
-  the largest figure, the keys' accent edges, the wallet pill and the name's width, and the room light.
+  the accent brought to full colour (`orbColours(accent).$1`), peaking at `GlassColors.glowStrength` and gone by
+  `glowReach` of the side — **0.05 / 0.56 by day and 0.18 / 0.72 by night** since the owner's final pass (24 Sep 2026:
+  "keep the hues, reduce the tint", light ≈ 3–6%, dark ≈ 15–25%; it was 0.12 / 0.62 and 0.22 / 0.78), the hairline's
+  `edge` at 0.36 / 0.32 (0.50 / 0.42). The two orbs it replaced — a sharp disc behind each card and a blurred copy
+  inside it, placed by `_orbPlace` — showed round the cards as coloured circles, loudest on the light theme. A shut
+  table is drawn unlit. The room itself takes the open level's colour through the lamp's pool (`_RoomLight` →
+  `LobbyGround`, `accentStrength` 1.2 by day and 2.0 by night, faded over `Motion.arrive`; none at the front), and
+  the corner keys, the foot key, the private card's mark and its Create key carry less of the accent than they did
+  (fills by about a third, edges by a sixth). A group card's name is in the card's own ink; facts carry the mode's
+  glyphs, money in gold; the foot key `_SitCapsule` is neutral glass with the mode's accent in its edge, a breath of it
+  in its fill and on its arrow; the private card's Create key the same in emerald (`_accentKeyStyle`).
+  **The final pass** (owner, 24 Sep 2026 — typography, clipping, spacing, tint and responsiveness, "no redesign"):
+  - *The rail stops on whole cards and a glimpse of the next* (`lobbyRailSide`). The owner's "Only your own chips are
+    vis…", "Entry Up…", "Tap to sit down…" was a table card two-thirds on screen: on a phone 844dp wide or more an
+    inner level's fourth card stood 79–89% on screen. The side is now the largest, no more than the rail's height
+    allows (`fit`), at which every card before the first partial one stands whole and `Space.xl` clear of the edge and
+    that one shows
+    15–60% of itself (or every card is whole) — never below 196dp (`_sideMin`: smaller, a table card's words would have
+    to shrink). A level inside an engine is sized as if it held four cards, so categories and tables stay one size. At
+    844–1280dp every level now stops cleanly (a blind level at 915×412: three whole tables and 15% of the fourth, at
+    246dp where they were 270); where no clean side ≥ 196 exists the rail keeps `fit` — a 640×360 front's private card
+    at 61%, an iPhone 844×390 inner level inside its notch insets at 70%. A level of another size than the last eases
+    to it, and the list's end padding is `Space.xl − Space.lg`, so the last card stops as far from the edge as the first
+    starts (it stopped 34dp in).
+  - *A card's words stand in a `CardColumn`* (`widgets/game_card.dart`; the group, table and private cards): its blocks
+    one under another, as wide as the card. When they stand taller than the room above the foot key, the air between
+    them (`CardGap`, and the facts' `CardRule` hairlines) gives way first, down to half, and only then is the column
+    scaled as one — laid out at the width ÷ the scale, so it still spans the card (the `FittedBox(topLeft)` it replaced
+    shrank it towards its left edge, a ragged right margin). `keepClear` keeps a table card's words out of its corner
+    keys (`_cornerKeysReach`: their discs, 40×84dp from the card's top right) at any scale — 5-Card Draw's line ran
+    under the rules key at 0.75. On a 640×360 phone at 1.0 a blind table's card fits whole; the densest card, 5-Card
+    Draw (five facts under a two-line line), is scaled to 0.85 (0.80 on master) and Hold'em to 0.94 (0.95); at ×1.25 a
+    blind card to 0.95 (0.89), and the Hindi blind card fits by its air alone (0.98).
+  - *Type* (`_CardMetrics`): the boot `s × 0.108` (22–36dp; 24.5 on a 640dp phone, where it was `s × 0.14`, 32) — a
+    step under a group card's name (`s × 0.112`), still the largest figure on a table card and under twice its next
+    largest words; the badge's word 11–15dp (10 on a 640dp phone before); every blurb in the body's ink (the variation
+    and poker lines a half-step heavier where they were display-ink semibold), allowed a third line; a fact's label
+    shrinks to the room its value leaves rather than "bo…", and a fact row is never shorter than its glyphs; the foot
+    key's words shrink rather than ellipsise.
+  - *Spacing* on the cards' own 4dp grid, **`CardSpace`** (4/8/12/16/20/24/32) — **the app-wide `Space` ramp
+    (2/4/6/10/14/20/28/40) is untouched**, since every other screen is laid out on it, and a test holds both. Three tiers
+    from the side, compact < 240 ≤ regular < 320 ≤ roomy: margin 12/16/20, between blocks 8/8/12, badge to boot 4/4/8,
+    mark to words 12/12/16, above the foot key 4/8/16, either side of a fact rule 4/4/8 (a group card's 4/8/12).
+  - *The private card* stands its code field and its keys together on its foot (two Spacers had split them), its name
+    and line at the top in a `CardColumn` (at ×1.3 the line was cut mid-sentence); the English hint is tracked 2, not the
+    code's 6 ("TABLE C…").
+  - *Left as they were*: the top bar (at ×1.25 on a 640dp phone its name still ends "Guest…" and its wallet scales to
+    0.79 — 0.62 for a 99,999 Crore wallet beside a 24-letter name — exactly as on master), the corner chips (no overlap
+    at any size tried), and the back tile.
+  The back tile is lighter than the cards: unlit, a neutral key, the level's name in the card's ink over a 20×3 bar in
+  the level's colour. `test/lobby_polish_test.dart` holds the modes' accents and inks (≥ 4.5:1 on the card), the card
+  tokens and the tint to the brief's ranges, no `GlassOrb` in the lobby, the boot as the largest figure on a table card
+  and under twice the next, the keys' accent edges, the wallet pill and the name's width, the room light, the 4dp grid,
+  the rail's stops (`lobbyRailSide` at six widths, and the rendered rail at 732–1280dp on every level, its end
+  included), the `CardColumn` (air before words, full width when scaled, the keys' zone kept at any scale) and, at
+  640×360 ×1.0 and ×1.25, no card line cut short or under a corner key; `lobby_categories_test` reads the engine
+  card's column scale.
   **Seat pods** (`SeatPod._pod`) keep the orb pair from `widgets/glass_orb.dart` (`orbColours`,
   `GlassOrb`), coloured by `GameState.colourFor` (the player's chat
   colour, so a pod and its chat name match) and spilling a sixth of the pod width out of
