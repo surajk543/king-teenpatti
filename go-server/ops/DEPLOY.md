@@ -42,8 +42,18 @@ Files in this directory:
   avatars) keep serving. Remove the line and restart to get the browser client back.
 - **Sessions survive.** JWTs issued by Node (HS256) verify in Go and vice versa; nobody logs in again.
 - **Restart behaviour is the Node one:** on SIGTERM the server closes the sockets, settles every
-  live pot (first still-active seat wins, reason `all_left`), writes the ledger, exits within 8 s.
-  Players come back to the lobby. Deploy in a quiet window, exactly as before.
+  live pot (first still-active seat wins, reason `all_left`), writes the ledger, exits within its
+  budget — 8 s in Node; since 24 Sep 2026 `max(8 s, PG_STATEMENT_TIMEOUT_MS + 5 s)`, 20 s on the
+  default 15 s statement timeout, so an actor stuck in a stalled write still settles its pot (a budget
+  that runs out logs `shutdown budget ran out; rooms abandoned` with the room ids). The unit's
+  `TimeoutStopSec` went from 15 to **30** to stay above it: the installed unit is a copy, so on a host
+  installed before that run `sudo cp go-server/ops/gameplay-go.service /etc/systemd/system/gameplay.service
+  && sudo systemctl daemon-reload` once. Players come back to the lobby. Deploy in a quiet window,
+  exactly as before.
+- **`JWT_SECRET` must be at least 32 bytes in production** (24 Sep 2026): `NODE_ENV=production`
+  refuses to boot on an empty or shorter secret, not only on the default. Check the `.env` BEFORE the
+  restart (`grep -c '^JWT_SECRET=.\{32,\}' go-server/.env` must print 1); a new one is
+  `openssl rand -hex 32` — changing it signs every player out once.
 - **WebSocket only.** `transport=polling` is refused with HTTP 400. Every shipped client (Flutter,
   browser, bots, ramptest) connects with websocket only, so nothing notices — but a stray
   `socket.io-client` default (polling first) would.

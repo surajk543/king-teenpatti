@@ -29,6 +29,19 @@ func signedIn(t *testing.T, h http.Handler, deviceID string) func(*http.Request)
 	return func(r *http.Request) { r.Header.Set("Authorization", "Bearer "+out.Token) }
 }
 
+// OpenRoomIDs names every registered room — what a shutdown that ran out of
+// budget left behind, which cmd/gameplay logs (chaos-F1, 24 Sep 2026).
+func TestOpenRoomIDsNamesEveryRegisteredRoom(t *testing.T) {
+	a, _ := newApp(t, nil)
+	if got := a.OpenRoomIDs(); len(got) != 0 {
+		t.Fatalf("a fresh app has rooms %v", got)
+	}
+	room := a.Rooms().CreateTable(game.CreateTableOptions{BootAmount: 200, Category: "seen"})
+	if got := a.OpenRoomIDs(); len(got) != 1 || got[0] != room.ID() {
+		t.Fatalf("OpenRoomIDs = %v, want [%s]", got, room.ID())
+	}
+}
+
 // GET /api/rooms is for signed-in players only and names no join code and
 // no pot (secrecy-F2, 24 Sep 2026): served to anyone, it let a scraper watch
 // every live public table's code and pot.

@@ -42,12 +42,33 @@ import (
 	"github.com/surajk543/king-teenpatti/go-server/internal/util"
 )
 
-// shutdownBudget mirrors Node's `setTimeout(() => process.exit(1), 8000)`.
+// shutdownBudget mirrors Node's `setTimeout(() => process.exit(1), 8000)`:
+// the floor of the shutdown budget (shutdownBudgetFor).
 const shutdownBudget = 8 * time.Second
+
+// shutdownStatementSlack is how far past PG_STATEMENT_TIMEOUT_MS the budget
+// reaches, so a table actor stuck in a checkpoint when SIGTERM lands has its
+// statement cancelled by PostgreSQL and still settles its pot before the exit.
+const shutdownStatementSlack = 5 * time.Second
+
+// shutdownBudgetFor is the SIGTERM budget: 8 s (Node's), or the statement
+// timeout plus shutdownStatementSlack when that is longer (24 Sep 2026,
+// owner's "fix all bugs"). With the default 15 s statement timeout the 8 s
+// budget ran out while an actor still waited on a stalled write, so the
+// shutdown's destroy — the all_left settle of the hand in play — never ran and
+// the hand was lost. No statement timeout (0) keeps the 8 s: nothing bounds
+// the write then, so no budget would be long enough. ops/gameplay-go.service's
+// TimeoutStopSec must stay above it.
+func shutdownBudgetFor(statementTimeout time.Duration) time.Duration {
+	if statementTimeout > 0 && statementTimeout+shutdownStatementSlack > shutdownBudget {
+		return statementTimeout + shutdownStatementSlack
+	}
+	return shutdownBudget
+}
 
 // errShutdownTimedOut is returned when the budget runs out; main exits 1, as
 // Node's hard timer did.
-var errShutdownTimedOut = errors.New("shutdown did not finish within 8s")
+var errShutdownTimedOut = errors.New("shutdown did not finish within its budget")
 
 // version is the build identifier stamped by ops/build.sh
 // (`-ldflags "-X main.version=$(git describe --always --dirty)"`); a plain
@@ -115,7 +136,8 @@ func run() error {
 	defer signal.Stop(signals)
 
 	ctx := context.Background()
-	database, err := db.Open(ctx, db.Options{URL: cfg.DB.URL, Schema: cfg.DB.Schema, PoolMax: cfg.DB.PoolMax, StatementTimeout: time.Duration(cfg.DB.StatementTimeoutMs) * time.Millisecond, Logger: logger})
+	statementTimeout := time.Duration(cfg.DB.StatementTimeoutMs) * time.Millisecond
+	database, err := db.Open(ctx, db.Options{URL: cfg.DB.URL, Schema: cfg.DB.Schema, PoolMax: cfg.DB.PoolMax, StatementTimeout: statementTimeout, Logger: logger})
 	if err != nil {
 		return err
 	}
@@ -152,11 +174,12 @@ func run() error {
 			}
 		}
 	}
-	logger.Info("shutting down", "signal", signalName)
+	budget := shutdownBudgetFor(statementTimeout)
+	logger.Info("shutting down", "signal", signalName, "budgetMs", budget.Milliseconds())
 
 	// Node: io.close(); await rooms.shutdown(); server.close(); closeDatabase();
 	// exit 0 — with a hard exit 1 after 8 s if any step hangs.
-	sctx, cancel := context.WithTimeout(context.Background(), shutdownBudget)
+	sctx, cancel := context.WithTimeout(context.Background(), budget)
 	defer cancel()
 	done := make(chan error, 1)
 	go func() { done <- server.Shutdown(sctx) }()
@@ -166,6 +189,11 @@ func run() error {
 			logger.Error("shutdown finished with errors", "error", err.Error())
 		}
 	case <-sctx.Done():
+		// Name what is left behind: a room still registered here was never
+		// destroyed (or suspended), so its hand in play was not settled.
+		if left := server.OpenRoomIDs(); len(left) > 0 {
+			logger.Error("shutdown budget ran out; rooms abandoned", "rooms", len(left), "roomIds", left)
+		}
 		return errShutdownTimedOut
 	}
 	// pgxpool.Close blocks until every acquired connection is released. A

@@ -763,6 +763,17 @@ func (a *App) Shutdown(ctx context.Context) error {
 	return errors.Join(roomsErr, httpErr, sioErr, liveErr)
 }
 
+// OpenRoomIDs lists the rooms still registered — after a Shutdown that ran
+// out of time, the ones it abandoned (cmd/gameplay logs them).
+func (a *App) OpenRoomIDs() []string {
+	rooms := a.rooms.LiveTables()
+	ids := make([]string, 0, len(rooms))
+	for _, r := range rooms {
+		ids = append(ids, r.ID())
+	}
+	return ids
+}
+
 // HealthResponse is GET /health. Field names are Node's; `node` carries the
 // Go runtime version string ("go1.27.1") because the load-test tooling reads
 // the key by name. Loop-lag fields report the scheduler-latency proxy
