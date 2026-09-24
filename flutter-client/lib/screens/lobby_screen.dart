@@ -13,7 +13,7 @@ import '../models/dtos.dart';
 import '../state/game_state.dart';
 import '../theme/app_theme.dart';
 import '../theme/theme_colors.dart';
-import '../widgets/glass_orb.dart';
+import '../widgets/game_card.dart';
 import '../widgets/avatar.dart';
 import '../widgets/buy_chips.dart';
 import '../widgets/chip_shuffle.dart';
@@ -31,40 +31,22 @@ import '../widgets/table_ground.dart';
 /// The lobby: every choice is a card on one horizontal rail, so a phone held in
 /// landscape never has to scroll down — swipe sideways instead.
 ///
-/// The rail is a shelf of *products*, not a stack of panels: each table is
-/// a solid lit object in its own colour (gold, sapphire, royal purple, and rani
-/// pink for the variation table) and the private room is the emerald last. Glass is spent only on what covers the
-/// shelf — the two drawers and the picture sheet, which blur, and the top bar,
-/// its pill of keys and the two corner chips, which are tinted panes — and
-/// never on the cards themselves, which would flatten three identities into one
-/// charcoal rectangle repeated three times.
+/// The rail is a shelf of *products*, not a stack of panels: each card is the
+/// same neutral card ([GameCard]) lit in its game mode's colour — gold for
+/// seen, sapphire for blind, violet for variation, the poker family's teal,
+/// and the private room's emerald last (owner, 24 Sep 2026) — spent on a light
+/// behind it, the top of its edge, its chips and its key, never on the whole
+/// card. Glass is spent only on what covers the shelf — the two drawers and
+/// the picture sheet, which blur, and the top bar and its pills, which are
+/// tinted panes.
 ///
 /// Nothing here blurs while the player is only looking: the drifting chips
 /// repaint the whole background continuously, and a `BackdropFilter` over a
 /// backdrop that is dirty every frame is a blur every frame.
-/// Champagne reads as gold on charcoal and as mud on parchment, so every gold
-/// figure in the lobby routes through here rather than naming a constant.
-Color _goldInk(Brightness b) =>
-    b == Brightness.dark ? AppTheme.goldBright : AppTheme.goldDeep;
-
-/// Where a lobby card's orb sits, as a square in the card's own coordinates.
-///
-/// Only the first card may spill left: each card is painted after the one
-/// before it, so an orb reaching left would lie on top of its neighbour rather
-/// than behind it. Vertically it passes the card by no more than the rail's own
-/// padding, or the rail would cut it off.
-Rect _orbPlace(int index, double s) {
-  final (cx, cy, d) = index == 0
-      ? (0.10, 0.64, 0.74)
-      : index.isOdd
-      ? (0.88, 0.34, 0.74)
-      : (0.90, 0.65, 0.76);
-  return Rect.fromCenter(
-    center: Offset(cx * s, cy * s),
-    width: d * s,
-    height: d * s,
-  );
-}
+/// Gold as money is written in the lobby — a rich gold by night, a deep one by
+/// day ([AppTheme.goldInk]) — so every gold figure routes through here rather
+/// than naming a constant.
+Color _goldInk(Brightness b) => AppTheme.goldInk(b);
 
 /// Which panel the right-hand drawer is currently showing. A Scaffold has only
 /// one end drawer, and both of these belong on that side.
@@ -156,6 +138,38 @@ class _LobbyScreenState extends State<LobbyScreen> {
     final safeBottom = MediaQuery.paddingOf(context).bottom;
     final screenH = MediaQuery.sizeOf(context).height;
 
+    // Three levels in the one rail (owner, 23 Sep 2026: "give two cards: Teen
+    // Patti and Poker"). The front of the lobby is the ENGINES the server
+    // offers a table in — Teen Patti, Poker — and the private card; going into
+    // one shows its CATEGORIES (Seen, Blind, Variation; the four poker games)
+    // behind a tile that leads back, and going into one of those shows its
+    // TABLES behind another. The server decides which rooms exist; the lobby
+    // decides how a player meets them.
+    //
+    // The level shown is the one the state holds only while the menu still
+    // offers it: a menu written straight into `config` never strands the
+    // player at an empty rail.
+    final scheme = Theme.of(context).colorScheme;
+    final engines = state.lobbyEngines;
+    final engine = engines.contains(state.lobbyEngine)
+        ? state.lobbyEngine
+        : null;
+    final categories = engine == null
+        ? const <String>[]
+        : state.lobbyCategoriesIn(engine);
+    final category = categories.contains(state.lobbyCategory)
+        ? state.lobbyCategory
+        : null;
+    // The open level's colour, let into the room as its ambient light (owner,
+    // 24 Sep 2026: "the glow should feel like ambient lighting behind the
+    // UI"): nothing at the front, where every mode stands side by side; the
+    // engine's inside an engine; the category's inside a category.
+    final roomLight = category != null
+        ? _categoryPalette(scheme, category).accent
+        : engine != null
+        ? _enginePalette(scheme, engine).accent
+        : null;
+
     return Scaffold(
       key: state.lobbyScaffold,
       // The ground paints the page; the Scaffold's own flat surface would sit
@@ -171,7 +185,8 @@ class _LobbyScreenState extends State<LobbyScreen> {
       endDrawer: _panel == _EndPanel.stats
           ? const _StatsDrawer()
           : const _SettingsDrawer(),
-      body: LobbyGround(
+      body: _RoomLight(
+        colour: roomLight,
         child: SafeArea(
           child: Stack(
             children: [
@@ -205,37 +220,12 @@ class _LobbyScreenState extends State<LobbyScreen> {
                             Dim.lobbyCardSide(h),
                           );
 
-                          // Three levels in the one rail (owner, 23 Sep
-                          // 2026: "give two cards: Teen Patti and Poker").
-                          // The front of the lobby is the ENGINES the server
-                          // offers a table in — Teen Patti, Poker — and the
-                          // private card; going into one shows its
-                          // CATEGORIES (Seen, Blind, Variation; the four
-                          // poker games) behind a tile that leads back, and
-                          // going into one of those shows its TABLES behind
-                          // another. The server decides which rooms exist;
-                          // the lobby decides how a player meets them.
-                          //
-                          // The level shown is the one the state holds only
-                          // while the menu still offers it: a menu written
-                          // straight into `config` never strands the player
-                          // at an empty rail.
-                          final engines = state.lobbyEngines;
-                          final engine = engines.contains(state.lobbyEngine)
-                              ? state.lobbyEngine
-                              : null;
-                          final categories = engine == null
-                              ? const <String>[]
-                              : state.lobbyCategoriesIn(engine);
-                          final category =
-                              categories.contains(state.lobbyCategory)
-                              ? state.lobbyCategory
-                              : null;
+                          // The level's cards (see engine / category above).
                           final List<Widget> cards;
                           if (engine == null) {
                             cards = [
-                              for (final (i, name) in engines.indexed)
-                                entering(_EngineCard(engine: name, index: i)),
+                              for (final name in engines)
+                                entering(_EngineCard(engine: name)),
                               // Last, as it always was: a private table is
                               // not one of the server's games but a door of
                               // its own, and it stays on the front.
@@ -244,7 +234,6 @@ class _LobbyScreenState extends State<LobbyScreen> {
                                   key: _privateCard,
                                   codeFocus: _codeFocus,
                                   codeFieldKey: _codeField,
-                                  index: engines.length,
                                 ),
                               ),
                             ];
@@ -260,22 +249,12 @@ class _LobbyScreenState extends State<LobbyScreen> {
                                     ),
                                   ),
                                   back: state.t.backToCategories,
-                                  accent: _enginePalette(
-                                    Theme.of(context).colorScheme,
-                                    engine,
-                                  ).accent,
+                                  accent: _enginePalette(scheme, engine).accent,
                                 ),
                               ),
-                              // The first card's orb spills LEFT, which here
-                              // would be over the back tile; every card takes
-                              // a right-hand place.
-                              for (final (i, name) in categories.indexed)
+                              for (final name in categories)
                                 entering(
-                                  _CategoryCard(
-                                    engine: engine,
-                                    category: name,
-                                    index: i + 1,
-                                  ),
+                                  _CategoryCard(engine: engine, category: name),
                                 ),
                             ];
                           } else {
@@ -296,7 +275,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
                                     ),
                                   ),
                                   accent: _categoryPalette(
-                                    Theme.of(context).colorScheme,
+                                    scheme,
                                     category,
                                   ).accent,
                                 ),
@@ -304,13 +283,11 @@ class _LobbyScreenState extends State<LobbyScreen> {
                               // The tables this player can sit at, then the
                               // ones shut to their stack
                               // (GameState.lobbyTablesIn).
-                              for (final (i, table)
-                                  in state
-                                      .lobbyTablesIn(category, engine: engine)
-                                      .indexed)
-                                entering(
-                                  _TableCard(table: table, index: i + 1),
-                                ),
+                              for (final table in state.lobbyTablesIn(
+                                category,
+                                engine: engine,
+                              ))
+                                entering(_TableCard(table: table)),
                             ];
                           }
                           final level = [?engine, ?category].join(':');
@@ -439,6 +416,54 @@ class _LobbyScreenState extends State<LobbyScreen> {
       ),
     );
   }
+}
+
+/// The lobby's room, lit in the open level's colour ([colour]; none at the
+/// front) through the lamp's pool — the ambient light the brief asks for, a
+/// room-wide wash too faint to read as a colour until a level is entered.
+///
+/// The light moves over half a second rather than cutting: into a level it
+/// rises in that level's colour, back out it fades in the colour it had, so
+/// the change says where the player is without flashing at them.
+class _RoomLight extends StatefulWidget {
+  const _RoomLight({required this.colour, required this.child});
+
+  final Color? colour;
+  final Widget child;
+
+  @override
+  State<_RoomLight> createState() => _RoomLightState();
+}
+
+class _RoomLightState extends State<_RoomLight> {
+  /// The last colour the room was lit in, which is what fades when the light
+  /// goes out — a fade through another hue would tint the room on the way.
+  late Color _last = widget.colour ?? AppTheme.gold;
+
+  @override
+  void didUpdateWidget(_RoomLight oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final colour = widget.colour;
+    if (colour != null) _last = colour;
+  }
+
+  @override
+  Widget build(BuildContext context) => TweenAnimationBuilder<Color?>(
+    tween: ColorTween(end: widget.colour ?? _last.withValues(alpha: 0)),
+    duration: Motion.arrive,
+    curve: Motion.standard,
+    builder: (context, light, child) {
+      final a = light?.a ?? 0;
+      return LobbyGround(
+        accent: a == 0 ? null : light!.withValues(alpha: 1),
+        // By night the room can carry more of it than by day (owner, 24 Sep
+        // 2026); LobbyGround already halves it on the light ground.
+        accentStrength: 2.0 * a,
+        child: child!,
+      );
+    },
+    child: widget.child,
+  );
 }
 
 /// The rail's physics: the platform's own, except that the rail keeps its
@@ -1412,9 +1437,8 @@ String _categoryBlurb(Strings t, String engine, String category) {
   };
 }
 
-/// A category's colour: that of its cheapest table, which is the one every
-/// player has seen — gold, sapphire, rani pink, and the poker family's teal
-/// for each of its four games.
+/// A category's colour, which every one of its tables wears — gold, sapphire,
+/// violet, and the poker family's teal for each of its four games.
 TablePalette _categoryPalette(ColorScheme scheme, String category) =>
     AppTheme.paletteFor(scheme, category: category, bootAmount: 200);
 
@@ -1437,12 +1461,9 @@ TablePalette _enginePalette(ColorScheme scheme, String engine) =>
 /// A [_GroupCard] over every table the engine has, naming the games inside
 /// it; its key opens them ([GameState.openLobbyEngine]).
 class _EngineCard extends StatelessWidget {
-  const _EngineCard({required this.engine, required this.index});
+  const _EngineCard({required this.engine});
 
   final String engine;
-
-  /// Where the card sits in the rail, which decides where its orb sits.
-  final int index;
 
   @override
   Widget build(BuildContext context) {
@@ -1458,7 +1479,6 @@ class _EngineCard extends StatelessWidget {
       palette: _enginePalette(Theme.of(context).colorScheme, engine),
       tables: state.lobbyTablesOf(engine),
       action: t.viewGames,
-      index: index,
       shuffle: true,
       onOpen: () => context.read<GameState>().openLobbyEngine(engine),
     );
@@ -1473,17 +1493,10 @@ class _EngineCard extends StatelessWidget {
 /// with the line each of its table cards carries; its key opens them
 /// ([GameState.openLobbyCategory]).
 class _CategoryCard extends StatelessWidget {
-  const _CategoryCard({
-    required this.engine,
-    required this.category,
-    required this.index,
-  });
+  const _CategoryCard({required this.engine, required this.category});
 
   final String engine;
   final String category;
-
-  /// Where the card sits in the rail, which decides where its orb sits.
-  final int index;
 
   @override
   Widget build(BuildContext context) {
@@ -1499,7 +1512,6 @@ class _CategoryCard extends StatelessWidget {
       palette: _categoryPalette(Theme.of(context).colorScheme, category),
       tables: state.lobbyTablesIn(category, engine: engine),
       action: t.viewTables,
-      index: index,
       onOpen: () =>
           context.read<GameState>().openLobbyCategory(category, engine: engine),
     );
@@ -1509,12 +1521,12 @@ class _CategoryCard extends StatelessWidget {
 /// A card that opens a group of tables: an engine on the front, a category
 /// inside an engine.
 ///
-/// The same square of frosted glass over a baked orb as a [_TableCard], in the
-/// group's colour, so every level of the lobby is visibly the same place. It
-/// states what a player needs to choose between groups and nothing a table
-/// card will say better: what is inside (one line), the stakes it runs from
-/// and to, how many tables it has, and how many of them this player's stack
-/// can sit at today. The whole card is the key.
+/// The same square [GameCard] as a [_TableCard], lit in the group's colour,
+/// so every level of the lobby is visibly the same place. It states what a
+/// player needs to choose between groups and nothing a table card will say
+/// better: its name (the largest words on it), what is inside (one line), the
+/// stakes it runs from and to, how many tables it has, and how many of them
+/// this player's stack can sit at today. The whole card is the key.
 ///
 /// A group whose every table is shut to the player is NOT padlocked. Its
 /// tables are where the padlocks are, each saying what it would take to sit
@@ -1526,7 +1538,6 @@ class _GroupCard extends StatelessWidget {
     required this.palette,
     required this.tables,
     required this.action,
-    required this.index,
     required this.onOpen,
     this.shuffle = false,
   });
@@ -1545,9 +1556,6 @@ class _GroupCard extends StatelessWidget {
   /// What the key at its foot says: "View games", "View tables".
   final String action;
 
-  /// Where the card sits in the rail, which decides where its orb sits.
-  final int index;
-
   final VoidCallback onOpen;
 
   /// Whether the coin beside the title is the chip shuffle — an engine's card
@@ -1559,7 +1567,6 @@ class _GroupCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final text = theme.textTheme;
-    final brightness = theme.brightness;
     final glass = GlassColors.of(context);
     final state = context.watch<GameState>();
     final t = state.t;
@@ -1572,14 +1579,6 @@ class _GroupCard extends StatelessWidget {
         : boots.first == boots.last
         ? formatChips(boots.first)
         : '${formatChips(boots.first)} – ${formatChips(boots.last)}';
-
-    Widget rule() => Padding(
-      padding: const EdgeInsets.symmetric(vertical: Space.xs),
-      child: Container(
-        height: Dim.hairline,
-        color: AppTheme.hairlineColour(brightness),
-      ),
-    );
 
     return Padding(
       padding: const EdgeInsets.only(right: Space.lg),
@@ -1600,171 +1599,139 @@ class _GroupCard extends StatelessWidget {
                 // name, a line, three facts against a badge, a stake, a line
                 // and three facts — so wherever a table card fits, this does.
                 final s = box.maxHeight;
-                final compact = s < 280;
-                final pad = compact ? Space.md : Space.lg;
-                final gap = (s * 0.038).clamp(8.0, 20.0);
-                final nameSize = (s * 0.115).clamp(22.0, 40.0);
-                final factH = (s * 0.072).clamp(17.0, 24.0);
-                final ctaH = (s * 0.125).clamp(28.0, 38.0);
-                final blurbSize = (s * 0.047).clamp(11.5, 15.0);
+                final m = _CardMetrics(s);
 
-                final colours = orbColours(accent);
-                final orb = _orbPlace(index, s);
-                final dark = brightness == Brightness.dark;
-                final panel = PremiumGlassPanel(
-                  mode: GlassMode.tinted,
-                  padding: EdgeInsets.zero,
-                  tint: Colors.white,
-                  behind: Stack(
-                    children: [
-                      Positioned.fromRect(
-                        rect: orb,
-                        child: GlassOrb(
-                          colours: colours,
-                          size: orb.width,
-                          soft: true,
-                          opacity: dark ? 0.62 : 0.46,
-                        ),
-                      ),
-                    ],
-                  ),
-                  child: Padding(
-                    padding: EdgeInsets.all(pad),
-                    child: LayoutBuilder(
-                      builder: (context, inner) => Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          // Allowed the height the key leaves and no more, and
-                          // scaled down rather than overflowing past it — the
-                          // table card's own guard, for the same reason:
-                          // Devanagari stands taller than Latin.
-                          ConstrainedBox(
-                            constraints: BoxConstraints(
-                              maxHeight: math.max(0.0, inner.maxHeight - ctaH),
+                return GameCard(
+                  accent: accent,
+                  padding: EdgeInsets.all(m.pad),
+                  child: LayoutBuilder(
+                    builder: (context, inner) => Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Allowed the height the key leaves and no more, and
+                        // scaled down rather than overflowing past it — the
+                        // table card's own guard, for the same reason:
+                        // Devanagari stands taller than Latin.
+                        ConstrainedBox(
+                          constraints: BoxConstraints(
+                            maxHeight: math.max(
+                              0.0,
+                              inner.maxHeight - m.ctaH - m.ctaGap,
                             ),
-                            child: FittedBox(
-                              fit: BoxFit.scaleDown,
-                              alignment: Alignment.topLeft,
-                              child: SizedBox(
-                                width: inner.maxWidth,
-                                child: Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Row(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.center,
-                                      children: [
-                                        if (shuffle)
-                                          // Twelve chips, each as wide as the
-                                          // coin it replaces, in that coin's
-                                          // colours. The pile is what shows
-                                          // should the file fail to load.
-                                          ChipShuffle(
-                                            colour: accent,
-                                            size: ChipShuffle.sizeForChip(
-                                              nameSize * 0.62,
-                                            ),
-                                            fallback: LivelyChipStack(
-                                              size: nameSize * 0.62,
-                                              colours: [accent, palette.rimLow],
-                                            ),
-                                          )
-                                        else
-                                          LivelyChipStack(
-                                            size: nameSize * 0.62,
+                          ),
+                          child: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            alignment: Alignment.topLeft,
+                            child: SizedBox(
+                              width: inner.maxWidth,
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.center,
+                                    children: [
+                                      if (shuffle)
+                                        // Twelve chips, each as wide as the
+                                        // coin it replaces, in that coin's
+                                        // colours. The pile is what shows
+                                        // should the file fail to load.
+                                        ChipShuffle(
+                                          colour: accent,
+                                          size: ChipShuffle.sizeForChip(
+                                            m.titleSize * 0.62,
+                                          ),
+                                          fallback: LivelyChipStack(
+                                            size: m.titleSize * 0.62,
                                             colours: [accent, palette.rimLow],
                                           ),
-                                        const SizedBox(width: Space.md),
-                                        Expanded(
-                                          child: FittedBox(
-                                            fit: BoxFit.scaleDown,
-                                            alignment: Alignment.centerLeft,
-                                            child: Text(
-                                              name,
-                                              maxLines: 1,
-                                              style: AppTheme.label(
-                                                text.displaySmall!,
-                                                colour: _goldInk(brightness),
-                                              ).copyWith(fontSize: nameSize),
-                                            ),
-                                          ),
+                                        )
+                                      else
+                                        LivelyChipStack(
+                                          size: m.titleSize * 0.62,
+                                          colours: [accent, palette.rimLow],
                                         ),
-                                      ],
-                                    ),
-                                    if (blurb.isNotEmpty) ...[
-                                      SizedBox(height: gap),
-                                      Text(
-                                        blurb,
-                                        maxLines: 2,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: text.bodySmall?.copyWith(
-                                          fontSize: blurbSize,
-                                          color: glass.textBody,
+                                      const SizedBox(width: Space.md),
+                                      // The card's name in the room's own
+                                      // ink, not gold: gold is what money is
+                                      // written in, and the mode's colour is
+                                      // already in the chips beside it.
+                                      Expanded(
+                                        child: FittedBox(
+                                          fit: BoxFit.scaleDown,
+                                          alignment: Alignment.centerLeft,
+                                          child: Text(
+                                            name,
+                                            maxLines: 1,
+                                            style: AppTheme.label(
+                                              text.displaySmall!,
+                                              colour: glass.textDisplay,
+                                              weight: FontWeight.w700,
+                                            ).copyWith(fontSize: m.titleSize),
+                                          ),
                                         ),
                                       ),
                                     ],
-                                    SizedBox(height: gap),
-                                    _CardFact(
-                                      icon: Icons.toll_rounded,
-                                      accent: accent,
-                                      label: t.boot,
-                                      value: bootRange,
-                                      height: factH,
-                                    ),
-                                    rule(),
-                                    _CardFact(
-                                      icon: Icons.table_restaurant_rounded,
-                                      accent: accent,
-                                      label: t.tablesLabel,
-                                      value: '${tables.length}',
-                                      height: factH,
-                                    ),
-                                    rule(),
-                                    _CardFact(
-                                      icon: Icons.lock_open_rounded,
-                                      accent: accent,
-                                      label: t.openToYouLabel,
-                                      value: '$open',
-                                      height: factH,
-                                      // Every table open is the good news.
-                                      highlight:
-                                          open > 0 && open == tables.length,
+                                  ),
+                                  if (blurb.isNotEmpty) ...[
+                                    SizedBox(height: m.gap * 0.8),
+                                    Text(
+                                      blurb,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: text.bodySmall?.copyWith(
+                                        fontSize: m.blurbSize,
+                                        color: glass.textBody,
+                                      ),
                                     ),
                                   ],
-                                ),
+                                  SizedBox(height: m.gap),
+                                  _CardFact(
+                                    icon: Icons.toll_rounded,
+                                    palette: palette,
+                                    label: t.boot,
+                                    value: bootRange,
+                                    height: m.groupFactH,
+                                    // Stakes are money, and money is gold.
+                                    money: true,
+                                  ),
+                                  _FactRule(space: m.groupRuleSpace),
+                                  _CardFact(
+                                    icon: Icons.table_restaurant_rounded,
+                                    palette: palette,
+                                    label: t.tablesLabel,
+                                    value: '${tables.length}',
+                                    height: m.groupFactH,
+                                  ),
+                                  _FactRule(space: m.groupRuleSpace),
+                                  _CardFact(
+                                    icon: Icons.lock_open_rounded,
+                                    palette: palette,
+                                    label: t.openToYouLabel,
+                                    value: '$open',
+                                    height: m.groupFactH,
+                                    // Every table open is the good news; none
+                                    // open is said quietly.
+                                    highlight:
+                                        open > 0 && open == tables.length,
+                                    quiet: open == 0,
+                                  ),
+                                ],
                               ),
                             ),
                           ),
-                          const Spacer(),
-                          _SitCapsule(
-                            label: action,
-                            height: ctaH,
-                            enabled: true,
-                          ),
-                        ],
-                      ),
+                        ),
+                        const Spacer(),
+                        _SitCapsule(
+                          label: action,
+                          height: m.ctaH,
+                          enabled: true,
+                          palette: palette,
+                        ),
+                      ],
                     ),
                   ),
-                );
-
-                return Stack(
-                  clipBehavior: Clip.none,
-                  children: [
-                    // The sharp orb, behind the card; its softened twin is in
-                    // the glass's `behind` slot at the same place.
-                    Positioned.fromRect(
-                      rect: orb,
-                      child: IgnorePointer(
-                        child: GlassOrb(
-                          colours: colours,
-                          size: orb.width,
-                          opacity: dark ? 1.0 : 0.9,
-                        ),
-                      ),
-                    ),
-                    panel,
-                  ],
                 );
               },
             ),
@@ -1775,14 +1742,93 @@ class _GroupCard extends StatelessWidget {
   }
 }
 
-/// The way back one level: a slim tile of the same glass at the head of an
-/// engine's or a category's rail, in that level's colour, naming where the
-/// player is ([here]) and, under it, where the tile goes back to ([back]) —
-/// every game from inside an engine, the engine from inside one of its
-/// categories. The system Back key does the same (main.dart's `_BackGuard`).
+/// Every size on a lobby card, from the one number a square card has: its
+/// side, [s].
+///
+/// One set for the group cards and the table cards, so the two are one
+/// family — the same margin, the same facts, the same key at the foot — and
+/// sized for the scarce axis: s is 231 on a 640x360 phone, 273 on a 915x411
+/// one and 400 on a tablet. Each figure is clamped at both ends so a phone
+/// keeps its type legible and a tablet does not turn it into a poster.
+class _CardMetrics {
+  _CardMetrics(this.s);
+
+  final double s;
+
+  /// A phone's card, where every row is counted.
+  bool get _tight => s < 250;
+
+  /// The card's inner margin. 231, 273 -> 10 | 400 -> 14.
+  double get pad => s < 280 ? Space.md : Space.lg;
+
+  /// The step between blocks of the card. 231 -> 8.8 | 273 -> 10.4.
+  double get gap => (s * 0.038).clamp(8.0, 20.0);
+
+  /// A group card's name. 231 -> 26.6 | 273 -> 31.4 | 400 -> 38.
+  double get titleSize => (s * 0.115).clamp(22.0, 38.0);
+
+  /// The boot on a table card: the figure a player chooses a table by, and
+  /// the largest thing on it. 231 -> 32.3 | 273 -> 38.2 | 400 -> 44.
+  double get bootSize => (s * 0.14).clamp(26.0, 44.0);
+
+  /// A fact row's box. 231 -> 16 | 273 -> 20.2 | 400 -> 26.
+  double get factH => _tight ? 16 : (s * 0.074).clamp(17.0, 26.0);
+
+  /// The space either side of the rule between two facts.
+  double get ruleSpace => _tight ? Space.xxs : Space.xs;
+
+  /// The one line of prose. 231 -> 11.5 | 273 -> 12.8 | 400 -> 15. A 640dp
+  /// phone keeps the half point: at 12 the variation card's line wrapped.
+  double get blurbSize => (s * 0.047).clamp(11.5, 15.0);
+
+  /// The key at the foot, and the least air kept above it (a Spacer gives
+  /// it whatever else the column leaves). 231 -> 28.9 | 273 -> 34.1 | 400 ->
+  /// 40.
+  double get ctaH => (s * 0.125).clamp(28.0, 40.0);
+  double get ctaGap => _tight ? Space.xxs : Space.sm;
+
+  /// A group card's fact rows, roomier than a table card's: it states three
+  /// facts where a table card states them under a badge and a stake, so it
+  /// has the height to let them breathe. 231 -> 19.2 | 273 -> 24.2.
+  double get groupFactH => factH * 1.2;
+  double get groupRuleSpace => ruleSpace * 1.5;
+
+  /// The table card's badge. 231 -> 22 | 273 -> 29.5 | 400 -> 34.
+  double get plateH => _tight ? 22 : (s * 0.108).clamp(24.0, 34.0);
+
+  /// From the badge down to the boot. 231 -> 4 | 273 -> 7.3 | 400 -> 10.6.
+  double get bootGap => _tight ? Space.xs : gap * 0.7;
+}
+
+/// The hairline between two facts: the card's own edge colour, so the facts
+/// read as rows of one table rather than as gilded lines.
+class _FactRule extends StatelessWidget {
+  const _FactRule({required this.space});
+
+  final double space;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: EdgeInsets.symmetric(vertical: space),
+    child: Container(
+      height: Dim.hairline,
+      color: GlassColors.of(context).cardBorder,
+    ),
+  );
+}
+
+/// The way back one level: a slim tile of the same card at the head of an
+/// engine's or a category's rail, naming where the player is ([here]) over a
+/// short bar in that level's colour — the one mark of which level is open —
+/// and, under it, where the tile goes back to ([back]): every game from
+/// inside an engine, the engine from inside one of its categories. The system
+/// Back key does the same (main.dart's `_BackGuard`).
 ///
 /// A tile in the rail rather than a bar above it: the rail's height is what
 /// the square cards are cut from, and on a 360dp phone there is none to spare.
+/// It stays lighter than the cards beside it — no light behind it, a neutral
+/// key, the level's colour spent on one bar (owner, 24 Sep 2026: "do not make
+/// the navigation visually heavier than the game cards").
 class _BackTile extends StatelessWidget {
   const _BackTile({
     required this.here,
@@ -1811,7 +1857,7 @@ class _BackTile extends StatelessWidget {
           // A quarter of a card, and never less than a finger and its margins.
           final side = box.maxHeight;
           final width = math.max(Dim.minTouch + Space.xl, side * 0.26);
-          final disc = math.min(width - Space.lg, 56.0);
+          final disc = math.min(width - Space.xl, Dim.minTouch);
           return SizedBox(
             width: width,
             child: Semantics(
@@ -1822,9 +1868,9 @@ class _BackTile extends StatelessWidget {
                   tapHaptic(context);
                   context.read<GameState>().closeLobbyLevel();
                 },
-                child: PremiumGlassPanel(
-                  mode: GlassMode.tinted,
-                  tint: Colors.white,
+                child: GameCard(
+                  accent: accent,
+                  lit: false,
                   padding: const EdgeInsets.symmetric(
                     horizontal: Space.sm,
                     vertical: Space.md,
@@ -1832,15 +1878,16 @@ class _BackTile extends StatelessWidget {
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
+                      // The key itself: a neutral well, so it reads as the
+                      // way out and not as one more thing in the level's
+                      // colour.
                       Container(
                         width: disc,
                         height: disc,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          color: accent.withValues(alpha: 0.16),
-                          border: Border.all(
-                            color: accent.withValues(alpha: 0.55),
-                          ),
+                          color: glass.wellFill,
+                          border: Border.all(color: glass.cardBorder),
                         ),
                         child: Icon(
                           Icons.arrow_back_rounded,
@@ -1848,7 +1895,7 @@ class _BackTile extends StatelessWidget {
                           color: glass.textDisplay,
                         ),
                       ),
-                      const SizedBox(height: Space.md),
+                      const SizedBox(height: Space.lg),
                       // Where the player is. A name of two words or more
                       // stands on two lines: "Texas Hold'em" on one line was
                       // scaled to a third of its size to fit the tile, and
@@ -1861,11 +1908,22 @@ class _BackTile extends StatelessWidget {
                           textAlign: TextAlign.center,
                           style: AppTheme.label(
                             text.labelLarge!,
-                            colour: accent,
+                            colour: glass.textDisplay,
+                            weight: FontWeight.w700,
                           ),
                         ),
                       ),
-                      const SizedBox(height: Space.xs),
+                      const SizedBox(height: Space.sm),
+                      // The open level, marked in its own colour.
+                      Container(
+                        width: Space.xl,
+                        height: 3,
+                        decoration: BoxDecoration(
+                          color: accent,
+                          borderRadius: BorderRadius.circular(Radii.pill),
+                        ),
+                      ),
+                      const SizedBox(height: Space.sm),
                       // Where Back leaves for.
                       FittedBox(
                         fit: BoxFit.scaleDown,
@@ -1873,7 +1931,7 @@ class _BackTile extends StatelessWidget {
                           back,
                           maxLines: 1,
                           style: text.labelSmall?.copyWith(
-                            color: glass.textMuted,
+                            color: glass.cardMuted,
                           ),
                         ),
                       ),
@@ -1906,22 +1964,21 @@ String _onTwoLines(String name) {
       '${words.substring(best + 1).trimLeft()}';
 }
 
-/// One boot table. Requirement 28: square, and lit by a sweep that runs corner
-/// to corner without stopping — the one piece of motion on the card itself.
+/// One boot table. Requirement 28: square, and lit by a sweep that runs across
+/// its badge — the one piece of motion on the card itself.
 ///
-/// A solid lit object, not glass. Three tables that differ only in a hairline's
-/// hue are three charcoal rectangles; these differ in the colour of the plate,
-/// the crest bled into the corner, the wash through the body and the two-tone
-/// rim, so the room a player lands in is recognisably the card they tapped.
+/// Read top to bottom in the order a player chooses by (owner, 24 Sep 2026):
+/// what kind of table (the badge), the boot — the largest figure on the card,
+/// in gold, over its name — what the table is like, its terms, and the key.
+/// The mode's colour marks the badge, the chips, the facts' glyphs, the light
+/// behind the card and its key, so the room a player lands in is recognisably
+/// the card they tapped without the card itself being painted.
 class _TableCard extends StatelessWidget {
-  const _TableCard({required this.table, required this.index});
+  const _TableCard({required this.table});
 
   /// The room as the server described it — stake, category and the rules the
   /// card states, all from the one source.
   final LobbyTable table;
-
-  /// Where the card sits in the rail, which decides where its orb sits.
-  final int index;
 
   String get category => table.category;
   int get boot => table.bootAmount;
@@ -1947,7 +2004,7 @@ class _TableCard extends StatelessWidget {
     // buy-in and the cards each player is dealt — there are no blind moves
     // and no pot limit to state.
     final poker = table.isPoker;
-    // Each table has a colour of its own — gold, sapphire, royal purple — and
+    // Each mode has a colour of its own — gold, sapphire, violet, teal — and
     // the room the card leads to is painted in the same one.
     final palette = AppTheme.paletteFor(
       scheme,
@@ -2009,310 +2066,245 @@ class _TableCard extends StatelessWidget {
           child: LayoutBuilder(
             builder: (context, box) {
               // The card is square, so every figure on it is a fraction of one
-              // number. Verified against the rail's own three sizes — the card
-              // side at h=360 / 411 / 800 is 259.2 / 295.9 / 400.0 — the column
-              // below asks for 212.6 / 239.5 / 269.1 of the 239.2 / 267.9 /
-              // 372.0 it has, so the Spacer above the call to action always has
-              // room to give and the card can never overflow.
-              final s = box.maxHeight;
-              final compact = s < 280;
-              final pad = compact ? Space.md : Space.lg;
-              final gap = (s * 0.038).clamp(8.0, 20.0);
-              final plateH = (s * 0.108).clamp(24.0, 34.0);
-              final bootSize = (s * 0.115).clamp(22.0, 40.0);
-              final factH = (s * 0.072).clamp(17.0, 24.0);
-              final ctaH = (s * 0.125).clamp(28.0, 38.0);
-              final blurbSize = (s * 0.047).clamp(11.5, 15.0);
+              // number, its side (_CardMetrics). The column above the call to
+              // action is allowed the height the key leaves and scales down
+              // past it rather than overflowing, so the card can never stripe
+              // itself; at 1.0 text on the phones it is sized for, it fits.
+              final m = _CardMetrics(box.maxHeight);
 
               // Glass, not the table's cloth (owner's decision, 11 Sep 2026): the
               // lobby sits on the same obsidian / frosted-ice ground as every
               // other covering surface, and the stake, the badge and the chips
-              // carry the table's colour instead of a whole painted card.
-              // Tinted rather than blurred: the drifting chips behind the rail
-              // move every frame, and a live blur there would be three
-              // full-card blurs per frame on the one GlassBudget lease.
-              final colours = orbColours(accent);
-              final orb = _orbPlace(index, s);
-              final dark = brightness == Brightness.dark;
-              final panel = PremiumGlassPanel(
-                mode: GlassMode.tinted,
-                padding: EdgeInsets.zero,
-                // Frosted: the theme's panel lifted toward white, the grey a
-                // dark room turns behind real glass.
-                tint: shut ? null : Colors.white,
-                behind: shut
-                    ? null
-                    : Stack(
-                        children: [
-                          Positioned.fromRect(
-                            rect: orb,
-                            child: GlassOrb(
-                              colours: colours,
-                              size: orb.width,
-                              soft: true,
-                              opacity: dark ? 0.62 : 0.46,
-                            ),
+              // carry the table's colour instead of a whole painted card. A
+              // table shut to the player keeps its card and loses its light.
+              return GameCard(
+                accent: accent,
+                lit: !shut,
+                padding: EdgeInsets.all(m.pad),
+                child: LayoutBuilder(
+                  builder: (context, inner) => Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Everything above the call to action is allowed the
+                      // height the capsule leaves and no more, and scales
+                      // down rather than overflowing past it. The rows are
+                      // sized from the card, but their text is set in the
+                      // player's script, and Devanagari stands taller than
+                      // Latin: the shut BLIND 10 Lakh card on a 640dp phone
+                      // ran 0.665px past its foot in Hindi and striped its
+                      // key. Wherever it fits the scale is 1 and nothing
+                      // moves.
+                      ConstrainedBox(
+                        constraints: BoxConstraints(
+                          maxHeight: math.max(
+                            0.0,
+                            inner.maxHeight - m.ctaH - m.ctaGap,
                           ),
-                        ],
-                      ),
-                child: Stack(
-                  children: [
-                    Padding(
-                      padding: EdgeInsets.all(pad),
-                      child: LayoutBuilder(
-                        builder: (context, inner) => Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            // Everything above the call to action is allowed
-                            // the height the capsule leaves and no more, and
-                            // scales down rather than overflowing past it. The
-                            // rows are sized from the card, but their text is
-                            // set in the player's script, and Devanagari
-                            // stands taller than Latin: the shut BLIND 10 Lakh
-                            // card on a 640dp phone ran 0.665px past its foot
-                            // in Hindi and striped its key. Wherever it fits
-                            // the scale is 1 and nothing moves.
-                            ConstrainedBox(
-                              constraints: BoxConstraints(
-                                maxHeight: math.max(
-                                  0.0,
-                                  inner.maxHeight - ctaH,
-                                ),
-                              ),
-                              child: FittedBox(
-                                fit: BoxFit.scaleDown,
-                                alignment: Alignment.topLeft,
-                                child: SizedBox(
-                                  width: inner.maxWidth,
-                                  child: Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      _CategoryBadge(
-                                        label: _tableName(state, table),
-                                        palette: palette,
-                                        height: plateH,
-                                        // The two cards at the same stake sit side by side,
-                                        // so their badges are offset rather than pulsing
-                                        // together. The variation card takes
-                                        // the beat between them.
-                                        delay: Duration(
-                                          milliseconds: blind
-                                              ? 900
-                                              : variation
-                                              ? 450
-                                              : poker
-                                              ? 300
-                                              : 0,
-                                        ),
-                                      ),
-                                      SizedBox(height: gap),
-                                      // Counts up on first paint, so the stake lands rather
-                                      // than simply being there.
-                                      Row(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.end,
-                                        children: [
-                                          LivelyChipStack(
-                                            size: bootSize * 0.62,
-                                            colours: [accent, palette.rimLow],
-                                          ),
-                                          const SizedBox(width: Space.md),
-                                          Expanded(
-                                            child: RepaintBoundary(
-                                              child: TweenAnimationBuilder<double>(
-                                                tween: Tween(
-                                                  end: boot.toDouble(),
-                                                ),
-                                                duration: const Duration(
-                                                  milliseconds: 700,
-                                                ),
-                                                curve: Motion.standard,
-                                                builder: (context, value, _) =>
-                                                    FittedBox(
-                                                      fit: BoxFit.scaleDown,
-                                                      alignment:
-                                                          Alignment.centerLeft,
-                                                      child: Text(
-                                                        formatChips(
-                                                          value.round(),
-                                                        ),
-                                                        style: AppTheme.money(
-                                                          text.displaySmall!,
-                                                          fontSize: bootSize,
-                                                          colour: _goldInk(
-                                                            brightness,
-                                                          ),
-                                                        ),
-                                                      ),
-                                                    ),
-                                              ),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                      Text(
-                                        t.boot,
-                                        style: AppTheme.label(
-                                          text.labelSmall!,
-                                          colour: glass.textMuted,
-                                        ),
-                                      ),
-                                      SizedBox(height: gap),
-                                      // One blurb line a card, so every card
-                                      // keeps the same rhythm down to its
-                                      // key: a variation card says what makes
-                                      // it different, in the stronger ink,
-                                      // rather than the chips line — with both
-                                      // lines the Entry row sat against the
-                                      // key, and the smallest phone scaled the
-                                      // whole column down to fit.
-                                      Text(
-                                        poker
-                                            ? t.pokerVariantNote(category)
-                                            : variation
-                                            ? t.variationTableNote
-                                            : blind
-                                            ? t.onlyYourChips
-                                            : t.everyoneChips,
-                                        maxLines: 2,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: text.bodySmall?.copyWith(
-                                          fontSize: blurbSize,
-                                          fontWeight: variation || poker
-                                              ? FontWeight.w600
-                                              : null,
-                                          color: variation || poker
-                                              ? glass.textDisplay
-                                              : glass.textBody,
-                                        ),
-                                      ),
-                                      SizedBox(height: gap),
-
-                                      // What the room actually plays like, stated before the
-                                      // player sits down rather than discovered at the table.
-                                      // A poker table states its own terms.
-                                      if (poker) ...[
-                                        for (final fact in _pokerFacts(
-                                          t,
-                                          table,
-                                        ).indexed) ...[
-                                          if (fact.$1 > 0)
-                                            Padding(
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                    vertical: Space.xs,
-                                                  ),
-                                              child: Container(
-                                                height: Dim.hairline,
-                                                color: AppTheme.hairlineColour(
-                                                  brightness,
-                                                ),
-                                              ),
-                                            ),
-                                          _CardFact(
-                                            icon: fact.$2.icon,
-                                            accent: accent,
-                                            label: fact.$2.label,
-                                            value: fact.$2.value,
-                                            height: factH,
-                                            highlight: fact.$2.highlight,
-                                          ),
-                                        ],
-                                      ] else ...[
-                                        _CardFact(
-                                          icon: Icons.visibility_off_rounded,
-                                          accent: accent,
-                                          label: t.maxBlindsLabel,
-                                          value: '${table.maxBlindMoves}',
-                                          height: factH,
-                                        ),
-                                        Padding(
-                                          padding: const EdgeInsets.symmetric(
-                                            vertical: Space.xs,
-                                          ),
-                                          child: Container(
-                                            height: Dim.hairline,
-                                            color: AppTheme.hairlineColour(
-                                              brightness,
-                                            ),
-                                          ),
-                                        ),
-                                        _CardFact(
-                                          icon: Icons.savings_rounded,
-                                          accent: accent,
-                                          label: t.potLimitLabel,
-                                          height: factH,
-                                          value: table.potUncapped
-                                              ? t.potUnlimited
-                                              : formatChips(table.maxPot),
-                                          // An uncapped pot is the headline on a blind table,
-                                          // so it is the one fact drawn in the table's colour.
-                                          highlight: table.potUncapped,
-                                        ),
-                                      ],
-                                      Padding(
-                                        padding: const EdgeInsets.symmetric(
-                                          vertical: Space.xs,
-                                        ),
-                                        child: Container(
-                                          height: Dim.hairline,
-                                          color: AppTheme.hairlineColour(
-                                            brightness,
-                                          ),
-                                        ),
-                                      ),
-                                      _CardFact(
-                                        icon: Icons
-                                            .account_balance_wallet_rounded,
-                                        accent: accent,
-                                        label: t.entryLabel,
-                                        value: entryValue,
-                                        height: factH,
-                                        // A floor is the fact that makes a table
-                                        // aspirational, so it is worth the colour.
-                                        highlight: table.minChips > 0,
-                                      ),
-                                    ],
+                        ),
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          alignment: Alignment.topLeft,
+                          child: SizedBox(
+                            width: inner.maxWidth,
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                _CategoryBadge(
+                                  label: _tableName(state, table),
+                                  palette: palette,
+                                  height: m.plateH,
+                                  // The two cards at the same stake sit side
+                                  // by side, so their badges are offset
+                                  // rather than pulsing together. The
+                                  // variation card takes the beat between
+                                  // them.
+                                  delay: Duration(
+                                    milliseconds: blind
+                                        ? 900
+                                        : variation
+                                        ? 450
+                                        : poker
+                                        ? 300
+                                        : 0,
                                   ),
                                 ),
-                              ),
-                            ),
-                            // Takes up whatever is left over, and nothing when
-                            // there is nothing left over.
-                            const Spacer(),
-                            _SitCapsule(
-                              label: t.tapToSit,
-                              height: ctaH,
-                              enabled: !shut,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              );
+                                SizedBox(height: m.bootGap),
+                                // The boot is what a player chooses a table
+                                // by, so it is the largest thing on the card
+                                // (owner, 24 Sep 2026: "make it visually
+                                // prominent"), in gold, over its name. It
+                                // counts up on first paint, so the stake
+                                // lands rather than simply being there.
+                                Row(
+                                  crossAxisAlignment: CrossAxisAlignment.center,
+                                  children: [
+                                    LivelyChipStack(
+                                      size: m.bootSize * 0.56,
+                                      colours: [accent, palette.rimLow],
+                                    ),
+                                    const SizedBox(width: Space.md),
+                                    Expanded(
+                                      child: RepaintBoundary(
+                                        child: TweenAnimationBuilder<double>(
+                                          tween: Tween(end: boot.toDouble()),
+                                          duration: const Duration(
+                                            milliseconds: 700,
+                                          ),
+                                          curve: Motion.standard,
+                                          builder: (context, value, _) =>
+                                              FittedBox(
+                                                fit: BoxFit.scaleDown,
+                                                alignment: Alignment.centerLeft,
+                                                child: Text(
+                                                  formatChips(value.round()),
+                                                  style: AppTheme.money(
+                                                    text.displaySmall!,
+                                                    fontSize: m.bootSize,
+                                                    colour: _goldInk(
+                                                      brightness,
+                                                    ),
+                                                  ).copyWith(height: 1.0),
+                                                ),
+                                              ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                // Its name under it, set small and tracked
+                                // as a caption where the script allows —
+                                // BOOT in English; tracking pulls Indic
+                                // vowel signs off their letters, so the
+                                // other languages keep their own case and
+                                // spacing.
+                                // Under the figure by a hair more than its
+                                // line, which its comma hangs below.
+                                Padding(
+                                  padding: EdgeInsets.only(
+                                    left: m.bootSize * 0.56 + Space.md,
+                                    top: Space.xs,
+                                  ),
+                                  child: Text(
+                                    state.lang == AppLang.english
+                                        ? t.boot.toUpperCase()
+                                        : t.boot,
+                                    style:
+                                        AppTheme.label(
+                                          text.labelSmall!,
+                                          colour: glass.cardMuted,
+                                        ).copyWith(
+                                          height: 1.0,
+                                          letterSpacing:
+                                              state.lang == AppLang.english
+                                              ? 1.4
+                                              : 0,
+                                        ),
+                                  ),
+                                ),
+                                SizedBox(height: m.gap),
+                                // One blurb line a card, so every card
+                                // keeps the same rhythm down to its key: a
+                                // variation card says what makes it
+                                // different, in the stronger ink, rather
+                                // than the chips line — with both lines the
+                                // Entry row sat against the key, and the
+                                // smallest phone scaled the whole column
+                                // down to fit.
+                                Text(
+                                  poker
+                                      ? t.pokerVariantNote(category)
+                                      : variation
+                                      ? t.variationTableNote
+                                      : blind
+                                      ? t.onlyYourChips
+                                      : t.everyoneChips,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: text.bodySmall?.copyWith(
+                                    fontSize: m.blurbSize,
+                                    fontWeight: variation || poker
+                                        ? FontWeight.w600
+                                        : null,
+                                    color: variation || poker
+                                        ? glass.textDisplay
+                                        : glass.textBody,
+                                  ),
+                                ),
+                                SizedBox(height: m.gap),
 
-              return Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  // The sharp orb, behind the card. Its softened twin is in the
-                  // glass's `behind` slot at the same place.
-                  if (!shut)
-                    Positioned.fromRect(
-                      rect: orb,
-                      child: IgnorePointer(
-                        child: GlassOrb(
-                          colours: colours,
-                          size: orb.width,
-                          opacity: dark ? 1.0 : 0.9,
+                                // What the room actually plays like, stated
+                                // before the player sits down rather than
+                                // discovered at the table. A poker table
+                                // states its own terms.
+                                if (poker) ...[
+                                  for (final fact in _pokerFacts(
+                                    t,
+                                    table,
+                                  ).indexed) ...[
+                                    if (fact.$1 > 0)
+                                      _FactRule(space: m.ruleSpace),
+                                    _CardFact(
+                                      icon: fact.$2.icon,
+                                      palette: palette,
+                                      label: fact.$2.label,
+                                      value: fact.$2.value,
+                                      height: m.factH,
+                                      highlight: fact.$2.highlight,
+                                    ),
+                                  ],
+                                ] else ...[
+                                  _CardFact(
+                                    icon: Icons.visibility_off_rounded,
+                                    palette: palette,
+                                    label: t.maxBlindsLabel,
+                                    value: '${table.maxBlindMoves}',
+                                    height: m.factH,
+                                  ),
+                                  _FactRule(space: m.ruleSpace),
+                                  _CardFact(
+                                    icon: Icons.savings_rounded,
+                                    palette: palette,
+                                    label: t.potLimitLabel,
+                                    height: m.factH,
+                                    value: table.potUncapped
+                                        ? t.potUnlimited
+                                        : formatChips(table.maxPot),
+                                    // An uncapped pot is the headline on a
+                                    // blind table, so it is the one fact
+                                    // drawn in the table's colour.
+                                    highlight: table.potUncapped,
+                                    money: !table.potUncapped,
+                                  ),
+                                ],
+                                _FactRule(space: m.ruleSpace),
+                                _CardFact(
+                                  icon: Icons.account_balance_wallet_rounded,
+                                  palette: palette,
+                                  label: t.entryLabel,
+                                  value: entryValue,
+                                  height: m.factH,
+                                  // A floor is the fact that makes a table
+                                  // aspirational, so it is worth the colour.
+                                  highlight: table.minChips > 0,
+                                ),
+                              ],
+                            ),
+                          ),
                         ),
                       ),
-                    ),
-                  panel,
-                ],
+                      // Takes up whatever is left over, and nothing when
+                      // there is nothing left over.
+                      const Spacer(),
+                      _SitCapsule(
+                        label: t.tapToSit,
+                        height: m.ctaH,
+                        enabled: !shut,
+                        palette: palette,
+                      ),
+                    ],
+                  ),
+                ),
               );
             },
           ),
@@ -2339,7 +2331,7 @@ class _TableCard extends StatelessWidget {
               _CardCornerKey(
                 icon: Icons.info_outline_rounded,
                 label: state.t.tableInfoTitle,
-                accent: accent,
+                palette: palette,
                 onTap: () => _showTableInfo(
                   context,
                   table: table,
@@ -2349,7 +2341,7 @@ class _TableCard extends StatelessWidget {
               _CardCornerKey(
                 icon: Icons.menu_book_outlined,
                 label: state.t.tableRulesKey,
-                accent: accent,
+                palette: palette,
                 onTap: () => showRules(context, table: table),
               ),
             ],
@@ -2376,6 +2368,9 @@ class _TableCard extends StatelessWidget {
                   padding: const EdgeInsets.symmetric(horizontal: Space.lg),
                   child: PremiumGlassPanel(
                     mode: GlassMode.tinted,
+                    // The card's own body, so the notice reads as solid over
+                    // the faded card rather than as a hole in it.
+                    surface: GlassSurface.card,
                     radius: Radii.md,
                     padding: const EdgeInsets.symmetric(
                       horizontal: Space.lg,
@@ -2501,7 +2496,7 @@ class _CardCornerKey extends StatelessWidget {
   const _CardCornerKey({
     required this.icon,
     required this.label,
-    required this.accent,
+    required this.palette,
     required this.onTap,
   });
 
@@ -2509,12 +2504,13 @@ class _CardCornerKey extends StatelessWidget {
 
   /// What the key is called, for a screen reader and for tests.
   final String label;
-  final Color accent;
+  final TablePalette palette;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    final glass = GlassColors.of(context);
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final accent = palette.accent;
     return Semantics(
       button: true,
       label: label,
@@ -2527,15 +2523,19 @@ class _CardCornerKey extends StatelessWidget {
         child: SizedBox.square(
           dimension: Dim.minTouch,
           child: Center(
+            // A small key in the mode's colour, quieter than the card's own
+            // key at its foot: a glyph in the accent on a whisper of it.
             child: Container(
-              width: 26,
-              height: 26,
+              width: 28,
+              height: 28,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: accent.withValues(alpha: 0.14),
-                border: Border.all(color: accent.withValues(alpha: 0.55)),
+                color: accent.withValues(alpha: dark ? 0.12 : 0.08),
+                border: Border.all(
+                  color: accent.withValues(alpha: dark ? 0.40 : 0.35),
+                ),
               ),
-              child: Icon(icon, size: 16, color: glass.textDisplay),
+              child: Icon(icon, size: 16, color: palette.ink),
             ),
           ),
         ),
@@ -2626,19 +2626,13 @@ class _TableInfoDialog extends StatelessWidget {
       bool bold = false,
     }) => _CardFact(
       icon: icon,
-      accent: accent,
+      palette: palette,
       label: label,
       value: value,
       height: 26,
       highlight: bold,
     );
-    Widget rule() => Padding(
-      padding: const EdgeInsets.symmetric(vertical: Space.xs),
-      child: Container(
-        height: Dim.hairline,
-        color: AppTheme.hairlineColour(theme.brightness),
-      ),
-    );
+    Widget rule() => const _FactRule(space: Space.xs);
 
     final facts = <Widget>[
       fact(Icons.style_rounded, t.categoryLabel, name),
@@ -2762,30 +2756,37 @@ class _TableInfoDialog extends StatelessWidget {
 
 /// The card's one call to action, at its foot.
 ///
-/// A hairline capsule rather than a line of coloured text: it is the only
-/// action on the card and it used to read as a caption. It is not a button of
-/// its own — the whole card is the target — so it carries no ink response and
-/// is not held to a touch-target height.
+/// A capsule of glass laid on the card rather than a line of coloured text:
+/// it is the only action on the card and it used to read as a caption. It is
+/// not a button of its own — the whole card is the target — so it carries no
+/// ink response and is not held to a touch-target height.
+///
+/// Neutral glass with the mode's accent in its edge, a breath of it in its
+/// fill and on its arrow (owner, 24 Sep 2026: "SEEN gold border/highlight;
+/// BLIND cyan…; do NOT make buttons excessively bright"): clearly the thing to
+/// press, never a block of colour. The label stays in the card's own ink, the
+/// most legible thing on it. A shut table's key is a quiet outline.
 class _SitCapsule extends StatelessWidget {
   const _SitCapsule({
     required this.label,
     required this.height,
     required this.enabled,
+    required this.palette,
   });
 
   final String label;
   final double height;
   final bool enabled;
+  final TablePalette palette;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    // Near-white rather than gold once there is a lit pane behind it: gold on
-    // glass on a brown card is three warm layers deep and the label was the
-    // one losing. Gold stays everywhere else on the card, so this reads as the
-    // action rather than as another value.
+    final glass = GlassColors.of(context);
+    final dark = theme.brightness == Brightness.dark;
+    final accent = palette.accent;
     final ink = enabled
-        ? GlassColors.of(context).textDisplay
+        ? glass.textDisplay
         : theme.colorScheme.onSurface.withValues(alpha: AppTheme.inkLow);
 
     return Container(
@@ -2794,47 +2795,47 @@ class _SitCapsule extends StatelessWidget {
       // own label reads as a caption again.
       width: double.infinity,
       alignment: Alignment.center,
+      padding: const EdgeInsets.symmetric(horizontal: Space.md),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(Radii.pill),
-        // A pane of glass laid on the card, not an outline drawn on it.
-        //
-        // This was a hairline border around transparency, and on a dark card
-        // that is very close to nothing: the one thing on the card you are
-        // meant to press looked like a caption, and looked disabled next to
-        // the enabled-looking rows above it. Filling it lifts it off the card
-        // without introducing a fourth solid colour into a lobby that already
-        // carries three.
+        // A pane laid on the card, lit from above, with the mode's colour
+        // washed through it: stronger by night, where glass on charcoal
+        // otherwise reads as nothing, a whisper by day.
         gradient: enabled
             ? LinearGradient(
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
                 colors: [
-                  Colors.white.withValues(alpha: 0.20),
-                  Colors.white.withValues(alpha: 0.07),
+                  Color.alphaBlend(
+                    accent.withValues(alpha: dark ? 0.20 : 0.10),
+                    dark ? Colors.white.withValues(alpha: 0.08) : Colors.white,
+                  ),
+                  Color.alphaBlend(
+                    accent.withValues(alpha: dark ? 0.10 : 0.05),
+                    dark
+                        ? Colors.white.withValues(alpha: 0.03)
+                        : const Color(0xFFF7F8FA),
+                  ),
                 ],
               )
             : null,
         border: Border.all(
           color: enabled
-              ? Colors.white.withValues(alpha: 0.34)
-              : AppTheme.hairlineColour(theme.brightness, live: false),
+              ? accent.withValues(alpha: dark ? 0.55 : 0.60)
+              : glass.cardBorder,
           width: enabled ? 1.2 : Dim.hairline,
         ),
-        // The lit top edge the felt and the card rims both use, so the capsule
-        // belongs to the same room as everything around it.
+        // Lifted a little off the card, and no further: a shadow is what says
+        // "press me" without a colour having to shout it.
         boxShadow: enabled
             ? [
                 BoxShadow(
-                  color: Colors.white.withValues(alpha: 0.16),
-                  offset: const Offset(0, -0.5),
-                  blurRadius: 0,
-                  spreadRadius: -0.5,
-                ),
-                BoxShadow(
-                  color: AppTheme.ink900.withValues(alpha: 0.30),
+                  color: AppTheme.shadowFor(
+                    theme.brightness,
+                  ).withValues(alpha: dark ? 0.30 : 0.08),
                   offset: const Offset(0, 2),
-                  blurRadius: 8,
-                  spreadRadius: -2,
+                  blurRadius: 6,
+                  spreadRadius: -1,
                 ),
               ]
             : null,
@@ -2849,13 +2850,18 @@ class _SitCapsule extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               style: AppTheme.label(
                 theme.textTheme.labelMedium!,
-                fontSize: (height * 0.36).clamp(11.0, 14.0),
+                fontSize: (height * 0.40).clamp(12.0, 15.0),
                 colour: ink,
+                weight: FontWeight.w700,
               ),
             ),
           ),
           const SizedBox(width: Space.sm),
-          Icon(Icons.arrow_forward_rounded, size: height * 0.44, color: ink),
+          Icon(
+            Icons.arrow_forward_rounded,
+            size: (height * 0.46).clamp(14.0, 19.0),
+            color: enabled ? palette.ink : ink,
+          ),
         ],
       ),
     );
@@ -2865,38 +2871,54 @@ class _SitCapsule extends StatelessWidget {
 /// One line of small print on a lobby card: an icon, what it is, and what it
 /// is set to.
 ///
-/// The icon carries the meaning at a glance and the value is what the eye
-/// lands on, so the label between them is deliberately the quietest part. The
-/// tinted icon tile it used to sit in is gone: two rounded squares of accent
-/// were the fussiest pixels on the card and they competed with the plate.
+/// The icon carries the meaning at a glance, in the mode's colour, and the
+/// value is what the eye lands on — money in gold, a notable fact in the
+/// mode's colour, the rest in the card's strongest ink — so the label between
+/// them is deliberately the quietest part.
 class _CardFact extends StatelessWidget {
   const _CardFact({
     required this.icon,
-    required this.accent,
+    required this.palette,
     required this.label,
     required this.value,
     required this.height,
     this.highlight = false,
+    this.money = false,
+    this.quiet = false,
   });
 
   final IconData icon;
-  final Color accent;
+  final TablePalette palette;
   final String label;
   final String value;
 
   /// The row's own box, so two rows and the rule between them are a known
-  /// height on the card's column. 259.2 -> 18.7 | 295.9 -> 21.3 | 400 -> 24.0,
-  /// against text that measures 15.6 / 17.8 / 18.9.
+  /// height on the card's column: 17.1 on a 640x360 phone's card, 20.2 on a
+  /// 915x411 one's, 26 on a tablet's.
   final double height;
 
-  /// Draws the value in the table's own colour, for the fact worth noticing.
+  /// Draws the value in the mode's own colour, for the fact worth noticing.
   final bool highlight;
+
+  /// Draws the value in gold: a stake, a buy-in — money.
+  final bool money;
+
+  /// Draws the value in the quiet ink: a count of nothing.
+  final bool quiet;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final text = theme.textTheme;
-    final size = (height * 0.62).clamp(10.5, 14.0);
+    final glass = GlassColors.of(context);
+    final size = (height * 0.66).clamp(11.0, 15.0);
+    final valueInk = highlight
+        ? palette.ink
+        : money
+        ? _goldInk(theme.brightness)
+        : quiet
+        ? glass.cardMuted
+        : glass.textDisplay;
 
     return SizedBox(
       height: height,
@@ -2904,8 +2926,8 @@ class _CardFact extends StatelessWidget {
         children: [
           Icon(
             icon,
-            size: height * 0.80,
-            color: GlassColors.of(context).textMuted,
+            size: (height * 0.78).clamp(13.0, 19.0),
+            color: palette.ink.withValues(alpha: 0.80),
           ),
           const SizedBox(width: Space.sm),
           Expanded(
@@ -2915,7 +2937,7 @@ class _CardFact extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               style: text.bodySmall?.copyWith(
                 fontSize: size,
-                color: GlassColors.of(context).textBody,
+                color: glass.textBody,
               ),
             ),
           ),
@@ -2927,7 +2949,7 @@ class _CardFact extends StatelessWidget {
             style: AppTheme.money(
               text.labelLarge!,
               fontSize: size,
-              colour: highlight ? accent : GlassColors.of(context).textDisplay,
+              colour: valueInk,
             ),
           ),
         ],
@@ -3015,11 +3037,12 @@ class _CategoryBadgeState extends State<_CategoryBadge>
           return DecoratedBox(
             decoration: BoxDecoration(
               borderRadius: radius,
+              // A glow that rises with the light and is gone between passes:
+              // restrained, so a rail of badges never reads as flashing.
               boxShadow: [
                 BoxShadow(
-                  color: palette.accent.withValues(alpha: 0.30 * glow),
-                  blurRadius: 12 + 8 * glow,
-                  spreadRadius: 1,
+                  color: palette.accent.withValues(alpha: 0.16 * glow),
+                  blurRadius: 10 + 6 * glow,
                 ),
               ],
             ),
@@ -3066,7 +3089,7 @@ class _CategoryBadgeState extends State<_CategoryBadge>
                             colors: [
                               Colors.white.withValues(alpha: 0),
                               Colors.white.withValues(
-                                alpha: dark ? 0.26 : 0.40,
+                                alpha: dark ? 0.20 : 0.34,
                               ),
                               Colors.white.withValues(alpha: 0),
                             ],
@@ -3093,19 +3116,16 @@ class _CategoryBadgeState extends State<_CategoryBadge>
 /// The last card on the front of the rail, after the engines: a room only
 /// the player's own friends can find.
 ///
-/// Built from the same lit surface and the same square footprint as the
-/// other cards, in the house emerald rather than a game's colour, so the rail
-/// has one rhythm and several identities rather than products and a form.
+/// Built from the same card and the same square footprint as the others, in
+/// the house emerald rather than a game's colour (owner, 24 Sep 2026:
+/// "PRIVATE TABLE: Emerald / Green"), so the rail has one rhythm and several
+/// identities rather than products and a form.
 class _PrivateCard extends StatefulWidget {
   const _PrivateCard({
     super.key,
     required this.codeFocus,
     required this.codeFieldKey,
-    required this.index,
   });
-
-  /// Where the card sits in the rail, which decides where its orb sits.
-  final int index;
 
   /// The code field's focus, which the lobby watches to lift the rail over the
   /// keyboard while a code is being typed.
@@ -3131,11 +3151,11 @@ class _PrivateCardState extends State<_PrivateCard> {
   Widget build(BuildContext context) {
     final state = context.watch<GameState>();
     final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
     final text = theme.textTheme;
     final brightness = theme.brightness;
+    final glass = GlassColors.of(context);
     final cap = state.config.privateMaxPot;
-    final accent = scheme.primary;
+    final palette = AppTheme.privatePalette(theme.colorScheme);
 
     return Padding(
       padding: const EdgeInsets.only(right: Space.lg),
@@ -3143,231 +3163,188 @@ class _PrivateCardState extends State<_PrivateCard> {
         aspectRatio: 1,
         child: LayoutBuilder(
           builder: (context, box) {
-            // The same three sizes as a table card. The column's fixed rows
-            // total 182.3 / 185.1 / 193.0 against 239.2 / 267.9 / 372.0 of
-            // content box, and the two Spacers split what is left, so the code
-            // field and the keys always sit on the card's foot.
-            final s = box.maxHeight;
-            final compact = s < 280;
-            final pad = compact ? Space.md : Space.lg;
-            final gap = (s * 0.038).clamp(8.0, 20.0);
+            // The same sizes as a table card. The column's fixed rows total
+            // well under the card's content box at every size, and the two
+            // Spacers split what is left, so the code field and the keys
+            // always sit on the card's foot.
+            final m = _CardMetrics(box.maxHeight);
+            final compact = m.s < 280;
 
-            final colours = orbColours(accent);
-            final orb = _orbPlace(widget.index, s);
-            final dark = brightness == Brightness.dark;
-            final panel = PremiumGlassPanel(
-              mode: GlassMode.tinted,
-              padding: EdgeInsets.zero,
-              tint: Colors.white,
-              behind: Stack(
+            return GameCard(
+              accent: palette.accent,
+              padding: EdgeInsets.all(m.pad),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Positioned.fromRect(
-                    rect: orb,
-                    child: GlassOrb(
-                      colours: colours,
-                      size: orb.width,
-                      soft: true,
-                      opacity: dark ? 0.62 : 0.46,
+                  Row(
+                    children: [
+                      _ModeMark(palette: palette, size: m.plateH),
+                      const SizedBox(width: Space.md),
+                      Flexible(
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            state.t.privateTable,
+                            maxLines: 1,
+                            style: AppTheme.label(
+                              text.titleLarge!,
+                              colour: glass.textDisplay,
+                              weight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  SizedBox(height: m.gap),
+                  Text(
+                    'Boot ${formatChips(state.config.privateBoot)}'
+                    '${cap > 0 ? ', max win ${formatChips(cap)}' : ''}.'
+                    ' Share the code to fill the seats.',
+                    maxLines: compact ? 2 : 3,
+                    overflow: TextOverflow.ellipsis,
+                    style: text.bodySmall?.copyWith(
+                      fontSize: m.blurbSize,
+                      color: glass.textBody,
                     ),
                   ),
-                ],
-              ),
-              child: Stack(
-                children: [
-                  Padding(
-                    padding: EdgeInsets.all(pad),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Row(
-                          children: [
-                            Icon(
-                              Icons.lock_outline_rounded,
-                              size: 18,
-                              color: accent,
-                            ),
-                            const SizedBox(width: Space.sm),
-                            Flexible(
-                              child: Text(
-                                state.t.privateTable,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: AppTheme.label(text.titleSmall!),
-                              ),
-                            ),
-                          ],
-                        ),
-                        SizedBox(height: gap),
-                        Text(
-                          'Boot ${formatChips(state.config.privateBoot)}'
-                          '${cap > 0 ? ', max win ${formatChips(cap)}' : ''}.'
-                          ' Share the code to fill the seats.',
-                          maxLines: compact ? 2 : 3,
-                          overflow: TextOverflow.ellipsis,
-                          style: text.bodySmall?.copyWith(
-                            color: scheme.onSurface.withValues(
-                              alpha: AppTheme.inkMed,
-                            ),
+                  const Spacer(),
+                  Text(
+                    state.t.orJoinCode,
+                    style: AppTheme.label(
+                      text.labelSmall!,
+                      colour: glass.cardMuted,
+                    ),
+                  ),
+                  const SizedBox(height: Space.xs),
+                  SizedBox(
+                    key: widget.codeFieldKey,
+                    height: Dim.minTouch,
+                    // Back, or Settings or the Shop closing over the
+                    // lobby, must not raise the keyboard again: that
+                    // lifted the rail over the top bar, and a swipe at
+                    // the rail typed into the code.
+                    child: KeyboardFocusGuard(
+                      child: GlassTextField(
+                        controller: _code,
+                        focusNode: widget.codeFocus,
+                        // Exactly the server's code: 8 letters or digits,
+                        // upper-cased as they are typed and nothing else
+                        // let in, so a space or a dash never reaches a join.
+                        maxLength: tableCodeLength,
+                        inputFormatters: [
+                          FilteringTextInputFormatter.allow(
+                            RegExp('[A-Za-z0-9]'),
                           ),
-                        ),
-                        const Spacer(),
-                        Text(
-                          state.t.orJoinCode,
-                          style: AppTheme.label(
-                            text.labelSmall!,
-                            colour: scheme.onSurface.withValues(
-                              alpha: AppTheme.inkLow,
-                            ),
+                          TextInputFormatter.withFunction(
+                            (_, value) =>
+                                value.copyWith(text: value.text.toUpperCase()),
                           ),
+                        ],
+                        // Rebuilds the card, so Join lights up at 8.
+                        onChanged: (_) => setState(() {}),
+                        onSubmitted: (value) {
+                          if (isValidTableCode(value)) {
+                            state.joinByCode(value);
+                          }
+                        },
+                        textAlign: TextAlign.center,
+                        textCapitalization: TextCapitalization.characters,
+                        // Tabular, tracked and centred: a room code is read
+                        // out loud and typed in, never scanned as a word.
+                        style: AppTheme.money(
+                          text.titleMedium!,
+                          colour: _goldInk(brightness),
+                        ).copyWith(letterSpacing: 6),
+                        hintText: state.t.tableCode,
+                        counterText: '',
+                        decoration: InputDecoration(
+                          isDense: true,
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: Space.md,
+                          ),
+                          // The tracking is for the code's own letters and
+                          // digits. Spread over Devanagari or Gurmukhi it
+                          // pulls the vowel signs off their letters, and
+                          // the hint read "ट ब ल क ो ड".
+                          hintStyle: state.lang == AppLang.english
+                              ? null
+                              : const TextStyle(letterSpacing: 0),
                         ),
-                        const SizedBox(height: Space.xs),
-                        SizedBox(
-                          key: widget.codeFieldKey,
+                      ),
+                    ),
+                  ),
+                  const Spacer(),
+                  SizedBox(height: m.gap),
+                  Row(
+                    children: [
+                      // The card's primary action, in its own emerald: the
+                      // key's edge and a breath of it through the glass, as
+                      // every card's key has its mode's (owner, 24 Sep
+                      // 2026) — not the solid mint slab it was, the one
+                      // bright block on the rail.
+                      Expanded(
+                        child: SizedBox(
                           height: Dim.minTouch,
-                          // Back, or Settings or the Shop closing over the
-                          // lobby, must not raise the keyboard again: that
-                          // lifted the rail over the top bar, and a swipe at
-                          // the rail typed into the code.
-                          child: KeyboardFocusGuard(
-                            child: GlassTextField(
-                              controller: _code,
-                              focusNode: widget.codeFocus,
-                              // Exactly the server's code: 8 letters or digits,
-                              // upper-cased as they are typed and nothing else
-                              // let in, so a space or a dash never reaches a join.
-                              maxLength: tableCodeLength,
-                              inputFormatters: [
-                                FilteringTextInputFormatter.allow(
-                                  RegExp('[A-Za-z0-9]'),
-                                ),
-                                TextInputFormatter.withFunction(
-                                  (_, value) => value.copyWith(
-                                    text: value.text.toUpperCase(),
-                                  ),
-                                ),
-                              ],
-                              // Rebuilds the card, so Join lights up at 8.
-                              onChanged: (_) => setState(() {}),
-                              onSubmitted: (value) {
-                                if (isValidTableCode(value)) {
-                                  state.joinByCode(value);
-                                }
-                              },
-                              textAlign: TextAlign.center,
-                              textCapitalization: TextCapitalization.characters,
-                              // Tabular, tracked and centred: a room code is read
-                              // out loud and typed in, never scanned as a word.
-                              style: AppTheme.money(
-                                text.titleMedium!,
-                                colour: _goldInk(brightness),
-                              ).copyWith(letterSpacing: 6),
-                              hintText: state.t.tableCode,
-                              counterText: '',
-                              decoration: InputDecoration(
-                                isDense: true,
-                                contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: Space.md,
-                                ),
-                                // The tracking is for the code's own letters and
-                                // digits. Spread over Devanagari or Gurmukhi it
-                                // pulls the vowel signs off their letters, and
-                                // the hint read "ट ब ल क ो ड".
-                                hintStyle: state.lang == AppLang.english
-                                    ? null
-                                    : const TextStyle(letterSpacing: 0),
-                              ),
-                            ),
+                          child: GlassButton(
+                            style: GlassButtonStyle.glass,
+                            onPressed: state.createPrivate,
+                            buttonStyle: _accentKeyStyle(palette, brightness),
+                            child: _CardKeyLabel(state.t.create),
                           ),
                         ),
-                        const Spacer(),
-                        SizedBox(height: gap),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: SizedBox(
-                                height: Dim.minTouch,
-                                child: GlassButton(
-                                  style: GlassButtonStyle.primary,
-                                  onPressed: state.createPrivate,
-                                  buttonStyle: _cardKeyStyle,
-                                  child: _CardKeyLabel(state.t.create),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: Space.md),
-                            Expanded(
-                              child: SizedBox(
-                                height: Dim.minTouch,
-                                child: GlassButton(
-                                  style: GlassButtonStyle.glass,
-                                  // Held until the code is whole: 8 letters
-                                  // or digits, the only shape the server takes.
-                                  onPressed: isValidTableCode(_code.text)
-                                      ? () => state.joinByCode(_code.text)
-                                      : null,
-                                  buttonStyle: _cardKeyStyle,
-                                  child: _CardKeyLabel(state.t.join),
-                                ),
-                              ),
-                            ),
-                          ],
+                      ),
+                      const SizedBox(width: Space.md),
+                      Expanded(
+                        child: SizedBox(
+                          height: Dim.minTouch,
+                          child: GlassButton(
+                            style: GlassButtonStyle.glass,
+                            // Held until the code is whole: 8 letters
+                            // or digits, the only shape the server takes.
+                            onPressed: isValidTableCode(_code.text)
+                                ? () => state.joinByCode(_code.text)
+                                : null,
+                            buttonStyle: _cardKeyStyle,
+                            child: _CardKeyLabel(state.t.join),
+                          ),
                         ),
-                      ],
-                    ),
-                  ),
-                  Positioned(
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    height: 1.5,
-                    child: IgnorePointer(
-                      child: ColoredBox(
-                        color: Color.lerp(
-                          accent,
-                          Colors.white,
-                          0.18,
-                        )!.withValues(alpha: 0.42),
                       ),
-                    ),
-                  ),
-                  Positioned(
-                    bottom: 0,
-                    left: 0,
-                    right: 0,
-                    height: 2,
-                    child: IgnorePointer(
-                      child: ColoredBox(
-                        color: Color.lerp(
-                          accent,
-                          Colors.black,
-                          0.34,
-                        )!.withValues(alpha: 0.50),
-                      ),
-                    ),
+                    ],
                   ),
                 ],
               ),
-            );
-
-            return Stack(
-              clipBehavior: Clip.none,
-              children: [
-                Positioned.fromRect(
-                  rect: orb,
-                  child: IgnorePointer(
-                    child: GlassOrb(
-                      colours: colours,
-                      size: orb.width,
-                      opacity: dark ? 1.0 : 0.9,
-                    ),
-                  ),
-                ),
-                panel,
-              ],
             );
           },
         ),
       ),
+    );
+  }
+}
+
+/// A mode's mark on a card: its glyph in the mode's ink, in a disc of its
+/// colour — the private card's padlock, where a game card has its chips.
+class _ModeMark extends StatelessWidget {
+  const _ModeMark({required this.palette, required this.size});
+
+  final TablePalette palette;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: palette.accent.withValues(alpha: dark ? 0.16 : 0.10),
+        border: Border.all(
+          color: palette.accent.withValues(alpha: dark ? 0.45 : 0.40),
+        ),
+      ),
+      child: Icon(palette.icon, size: size * 0.56, color: palette.ink),
     );
   }
 }
@@ -3379,6 +3356,31 @@ class _PrivateCardState extends State<_PrivateCard> {
 const _cardKeyStyle = ButtonStyle(
   padding: WidgetStatePropertyAll(EdgeInsets.symmetric(horizontal: Space.sm)),
 );
+
+/// [_cardKeyStyle] for a card's primary key: glass with the mode's accent in
+/// its edge and washed through its fill — stronger by night, where tinted
+/// glass on charcoal is otherwise nothing — and the card's own ink on it.
+ButtonStyle _accentKeyStyle(TablePalette palette, Brightness brightness) {
+  final dark = brightness == Brightness.dark;
+  final accent = palette.accent;
+  final glass = dark ? GlassColors.dark : GlassColors.light;
+  return _cardKeyStyle.copyWith(
+    backgroundColor: WidgetStatePropertyAll(
+      Color.alphaBlend(
+        accent.withValues(alpha: dark ? 0.22 : 0.12),
+        dark ? Colors.white.withValues(alpha: 0.06) : Colors.white,
+      ),
+    ),
+    side: WidgetStatePropertyAll(
+      BorderSide(
+        color: accent.withValues(alpha: dark ? 0.70 : 0.65),
+        width: 1.2,
+      ),
+    ),
+    foregroundColor: WidgetStatePropertyAll(glass.textDisplay),
+    overlayColor: WidgetStatePropertyAll(accent.withValues(alpha: 0.12)),
+  );
+}
 
 /// A private-card key's word, whole: shrunk to the key when it must be, never
 /// cut off.
