@@ -402,6 +402,7 @@ func decodeAction(args []json.RawMessage) ActionRequest {
 	req := ActionRequest{}
 	raw, kind := p.field("action")
 	req.Action = jsString(raw, kind) // `Unknown action "${action}"` interpolates String(action)
+	req.ActionIsString = kind == kindString
 	if raw, kind := p.field("amount"); kind != kindAbsent {
 		req.Amount = raw
 	}

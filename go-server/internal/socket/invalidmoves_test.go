@@ -105,6 +105,13 @@ func TestUnknownActionAndNoTable(t *testing.T) {
 	if ack := st.mustFail(d.onTurn.c, EvGameAction, map[string]any{"action": null()}, game.CodeUnknownAction); ack.Message != `Unknown action "null"` {
 		t.Fatalf("null action message %q", ack.Message)
 	}
+	// Only a string names an action (Node: VALID_ACTIONS.has(action)); an
+	// array spelling one is refused, not played (owner's "fix all bugs",
+	// 24 Sep 2026 — ["see"] used to look at the cards).
+	if ack := st.mustFail(d.onTurn.c, EvGameAction, map[string]any{"action": []string{"see"}}, game.CodeUnknownAction); ack.Message != `Unknown action "see"` {
+		t.Fatalf("array action message %q", ack.Message)
+	}
+	st.mustFail(d.onTurn.c, EvGameAction, map[string]any{"action": [][]string{{"chaal"}}, "amount": 200}, game.CodeUnknownAction)
 	// unknown_action is checked BEFORE not_in_room.
 	loner := st.player("Cara")
 	st.mustFail(loner.c, EvGameAction, map[string]any{"action": "allin"}, game.CodeUnknownAction)
