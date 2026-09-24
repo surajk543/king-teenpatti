@@ -199,13 +199,13 @@ test('login names are sanitised, not pattern-checked: punctuation survives, shor
   assert.equal(control.user.displayName, 'Suraj', 'control and format characters are stripped');
 });
 
-test('every login overwrites the display name with the provider one (known behaviour, requirement 29)', async () => {
+test('a login names only a new account: a chosen name survives the next login (requirement 29, 24 Sep 2026)', async () => {
   const first = await guestLogin('device-rename-0001', 'Original');
   const renamed = await http('POST', '/api/profile/name', { token: first.token, body: { name: 'Renamed' } });
   assert.equal(renamed.status, 200);
   assert.equal(renamed.body.user.displayName, 'Renamed');
   const again = await guestLogin('device-rename-0001', 'Original');
-  assert.equal(again.user.displayName, 'Original');
+  assert.equal(again.user.displayName, 'Renamed');
 });
 
 // --------------------------------------------------------------- sessions
