@@ -3289,7 +3289,8 @@ class _PrivateCardState extends State<_PrivateCard> {
                                 child: GlassButton(
                                   style: GlassButtonStyle.primary,
                                   onPressed: state.createPrivate,
-                                  label: state.t.create,
+                                  buttonStyle: _cardKeyStyle,
+                                  child: _CardKeyLabel(state.t.create),
                                 ),
                               ),
                             ),
@@ -3304,7 +3305,8 @@ class _PrivateCardState extends State<_PrivateCard> {
                                   onPressed: isValidTableCode(_code.text)
                                       ? () => state.joinByCode(_code.text)
                                       : null,
-                                  label: state.t.join,
+                                  buttonStyle: _cardKeyStyle,
+                                  child: _CardKeyLabel(state.t.join),
                                 ),
                               ),
                             ),
@@ -3368,6 +3370,28 @@ class _PrivateCardState extends State<_PrivateCard> {
       ),
     );
   }
+}
+
+/// The private card's two keys stand side by side in half a card: Material's
+/// 24dp of padding a side left "তৈরি করুন" (Bengali, Create) no room on a
+/// 640dp phone, and it was cut to "তৈরি ..." (24 Sep 2026, owner's "fix all
+/// bugs"; release review B2). A key keeps a small margin and its word whole.
+const _cardKeyStyle = ButtonStyle(
+  padding: WidgetStatePropertyAll(EdgeInsets.symmetric(horizontal: Space.sm)),
+);
+
+/// A private-card key's word, whole: shrunk to the key when it must be, never
+/// cut off.
+class _CardKeyLabel extends StatelessWidget {
+  const _CardKeyLabel(this.text);
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => FittedBox(
+    fit: BoxFit.scaleDown,
+    child: Text(text, maxLines: 1, softWrap: false),
+  );
 }
 
 /// Requirement 21: the picture is chosen from the top bar. Since 13 Sep 2026 it

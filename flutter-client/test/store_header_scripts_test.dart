@@ -15,11 +15,9 @@
 // languages, at the 1.0 and the 1.25 text scale, in the lobby and at a table.
 // An overflow is a FlutterError, which fails the test by itself.
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:teenpatti/l10n/strings.dart';
@@ -30,47 +28,7 @@ import 'package:teenpatti/theme/app_theme.dart';
 import 'package:teenpatti/widgets/chip_store.dart';
 import 'package:teenpatti/widgets/premium_surface.dart';
 
-/// The system fonts a phone falls back to for the four Indic scripts.
-const _scriptFonts = {
-  'Noto Sans Devanagari': 'NotoSansDevanagari',
-  'Noto Sans Bengali': 'NotoSansBengali',
-  'Noto Sans Gujarati': 'NotoSansGujarati',
-  'Noto Sans Gurmukhi': 'NotoSansGurmukhi',
-};
-const _fontDir = '/usr/share/fonts/truetype/noto';
-
-bool _haveScriptFonts() => _scriptFonts.values.every(
-  (file) => File('$_fontDir/$file-Regular.ttf').existsSync(),
-);
-
-Future<void> _loadFonts() async {
-  final inter = FontLoader('Inter');
-  for (final face in ['Regular', 'Medium', 'SemiBold', 'Bold']) {
-    inter.addFont(rootBundle.load('assets/fonts/Inter-$face.ttf'));
-  }
-  await inter.load();
-  if (!_haveScriptFonts()) return;
-  for (final MapEntry(key: family, value: file) in _scriptFonts.entries) {
-    final loader = FontLoader(family);
-    for (final face in ['Regular', 'Bold']) {
-      final path = '$_fontDir/$file-$face.ttf';
-      if (!File(path).existsSync()) continue;
-      final bytes = File(path).readAsBytesSync();
-      loader.addFont(Future.value(ByteData.sublistView(bytes)));
-    }
-    await loader.load();
-  }
-}
-
-/// The app's theme with the phone's script fallback made explicit: the test
-/// engine has no system fonts to fall back to on its own.
-ThemeData _theme() {
-  final base = AppTheme.dark(sound: false);
-  final fallback = _scriptFonts.keys.toList();
-  return base.copyWith(
-    textTheme: base.textTheme.apply(fontFamilyFallback: fallback),
-  );
-}
+import 'script_fonts.dart';
 
 Future<void> _openStore(
   WidgetTester tester, {
@@ -87,7 +45,7 @@ Future<void> _openStore(
       ],
       child: MaterialApp(
         debugShowCheckedModeBanner: false,
-        theme: _theme(),
+        theme: withScriptFallback(AppTheme.dark(sound: false)),
         builder: (context, child) => GlassBudget(
           child: Scaffold(
             backgroundColor: Colors.transparent,
@@ -133,7 +91,7 @@ GameState _state({required Screen screen, required AppLang lang}) {
 }
 
 void main() {
-  setUpAll(_loadFonts);
+  setUpAll(loadScriptFonts);
 
   for (final scale in [1.0, 1.25]) {
     for (final lang in AppLang.values) {
@@ -141,7 +99,7 @@ void main() {
         testWidgets('at 640x360 in ${lang.englishName} at text x$scale'
             '${atTable ? ' at a table' : ''}, every shelf header fits its '
             'script', (tester) async {
-          if (!_haveScriptFonts()) {
+          if (!haveScriptFonts()) {
             markTestSkipped('the Noto script fonts are not installed');
             return;
           }
