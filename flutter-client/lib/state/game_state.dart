@@ -1060,6 +1060,11 @@ class GameState extends ChangeNotifier {
         // The server is enforcing a catalogue other than the one held: its
         // session menu is on screen meanwhile, and the full one is fetched.
         if (refetch) unawaited(_loadTableConfig());
+        // Every session — a cold start, a sign-in, a reconnect — hands Play's
+        // owned (paid, not yet banked) purchases to the server again: a credit
+        // that failed on the network, or a purchase finished while the app was
+        // closed, lands now. The server is idempotent on the purchase token.
+        unawaited(purchases.redeliver());
         _snapshotSinceSession = false;
         if (!resuming && room != null) {
           final offer = s.resume;
@@ -2754,11 +2759,12 @@ class GameState extends ChangeNotifier {
   }
 
   /// Hands one receipt to the server and, if it banks the chips, reports true
-  /// so the purchase can be completed with Play.
+  /// so the purchase can be consumed with Play.
   ///
   /// Returning false is not a failure to swallow — it leaves the purchase
-  /// pending with Play, which re-delivers it on the next launch. That is the
-  /// safety net for dying between paying and crediting, and the reason this
+  /// owned with Play, and the next session's `purchases.redeliver()` (on
+  /// `session:ready`) posts it again. That is the safety net for dying, or
+  /// losing the network, between paying and crediting, and the reason this
   /// must never return true on a path that did not credit.
   Future<bool> _deliverPurchase(PurchaseDetails purchase) async {
     final token = _token;
@@ -2784,16 +2790,18 @@ class GameState extends ChangeNotifier {
       notifyListeners();
       return true;
     } on ApiException catch (e) {
-      // The server refused it — a receipt Google would not confirm, or an
-      // unknown product. Completing it stops an endless redelivery loop of
-      // something that will never be accepted.
       purchasePending = false;
       notice = e.message;
       notifyListeners();
-      return true;
+      // The server refused the receipt itself — Google would not confirm it,
+      // or the product is unknown: finishing it stops an endless redelivery
+      // of something that will never be accepted. Any other refusal (a
+      // lapsed session, Google or the server down) is not a verdict on the
+      // purchase, which stays owned for the next session to post again.
+      return receiptRefusalIsFinal(e.status);
     } catch (_) {
-      // Network or server trouble: keep the purchase pending so the next
-      // launch retries. The player has paid and must not lose the chips.
+      // Network or server trouble: keep the purchase owned so the next
+      // session retries. The player has paid and must not lose the chips.
       purchasePending = false;
       notifyListeners();
       return false;
