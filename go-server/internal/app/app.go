@@ -248,6 +248,7 @@ func New(opts Options) (*App, error) {
 	ledger := db.NewLedger(opts.DB, a.metrics, clock.Now)
 	hammers := db.NewHammers(opts.DB, a.metrics, clock.Now)
 	missiles := db.NewMissiles(opts.DB, users, a.metrics, clock.Now)
+	luckyDraws := db.NewLuckyDraws(opts.DB, users, clock.Now, logger)
 	tokens := auth.NewTokens(cfg.JWT.Secret, cfg.JWT.ExpiresIn, clock.Now)
 	verifier := auth.NewVerifier(cfg)
 
@@ -418,7 +419,10 @@ func New(opts Options) (*App, error) {
 		// table shows the highest-ranking one laid among its seats to
 		// everyone at it (game/tablepicture.go).
 		TablePictures: tablePictures,
-		Logger:        logger,
+		// The Lucky Draw (owner, 24 Sep 2026): a spin runs under the seat lock
+		// below, as a reward does — its prize may be chips.
+		LuckyDraws: luckyDraws,
+		Logger:     logger,
 
 		// Rewards and chip-priced pictures run under the player's seat lock,
 		// the lock every lobby seat reads the wallet under (LoadPlayer above).

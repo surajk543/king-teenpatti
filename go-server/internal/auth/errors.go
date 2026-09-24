@@ -66,7 +66,11 @@ const (
 	CodeUnknownPack         = "unknown_pack"          // 400: a missile pack the catalogue does not hold
 	CodeInvalidRequestID    = "invalid_request_id"    // 400: a missile trade's requestId empty or over 64 characters
 	CodeNotEnoughDiamonds   = "not_enough_diamonds"   // 409: the diamonds a missile pack costs are not there
-	CodeInternalError       = "internal_error"        // 500
-	CodeInvalidJSON         = "invalid_json"          // 400 — Go-only, see PORT_PLAN.md (Node answered 500 internal_error)
-	CodeNotFound            = "not_found"             // 404 — Go-only JSON 404 for unknown /api paths (DECISIONS.md §5)
+	// The Lucky Draw (owner, 24 Sep 2026; Go only).
+	CodeLuckyDrawUnavailable = "lucky_draw_unavailable" // 503: no active draw with that code, or none of its slots can be won
+	CodeLuckyDrawNotReady    = "lucky_draw_not_ready"   // 409: the player's last spin has not recharged; readyAt says when it will
+	CodeInvalidActionID      = "invalid_action_id"      // 400: a spin's actionId empty or over 64 characters
+	CodeInternalError        = "internal_error"         // 500
+	CodeInvalidJSON          = "invalid_json"           // 400 — Go-only, see PORT_PLAN.md (Node answered 500 internal_error)
+	CodeNotFound             = "not_found"              // 404 — Go-only JSON 404 for unknown /api paths (DECISIONS.md §5)
 )

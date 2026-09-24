@@ -980,6 +980,7 @@ class GameState extends ChangeNotifier {
         // Every sign-in asks for the table catalogue again — a restored
         // session is a sign-in too — and a 304 makes that cheap.
         unawaited(_loadTableConfig());
+        unawaited(loadLuckyDraw());
         next = Screen.lobby;
         // An install that signed in before the statement existed meets it on
         // its next launch, once, like everyone else.
@@ -1864,6 +1865,7 @@ class GameState extends ChangeNotifier {
       // viewer, and the startup call was anonymous.
       unawaited(_loadPictures());
       unawaited(_loadTableConfig());
+      unawaited(loadLuckyDraw());
 
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('token', r.token);
@@ -1921,6 +1923,7 @@ class GameState extends ChangeNotifier {
       // viewer, and the startup call was anonymous.
       unawaited(_loadPictures());
       unawaited(_loadTableConfig());
+      unawaited(loadLuckyDraw());
 
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('token', r.token);
@@ -1960,6 +1963,8 @@ class GameState extends ChangeNotifier {
     room = null;
     seatedAt = null;
     user = null;
+    luckyDraw = null;
+    luckyDrawFailed = false;
     consentPending = false;
     // The next account starts at the front, not where this one stood.
     _lobbyEngine = null;
@@ -2279,6 +2284,8 @@ class GameState extends ChangeNotifier {
     room = null;
     seatedAt = null;
     user = null;
+    luckyDraw = null;
+    luckyDrawFailed = false;
     screen = Screen.login;
     notifyListeners();
     return null;
@@ -3371,6 +3378,114 @@ class GameState extends ChangeNotifier {
       return MissileTradeResult.refused;
     } finally {
       tradingMissiles = null;
+      notifyListeners();
+    }
+  }
+
+  // ------------------------------------------------------------ lucky draw
+
+  /// The Lucky Draw (owner, 24 Sep 2026) as this player finds it: which draw,
+  /// its six prizes, and when they may next spin. Null while the server has
+  /// described none — no draw is open, or the server predates it — and then
+  /// the lobby shows no Lucky Draw at all.
+  LuckyDrawState? luckyDraw;
+
+  /// True while [loadLuckyDraw] is asking.
+  bool luckyDrawLoading = false;
+
+  /// For tests: a session without the sign-in round trip, so a test can drive
+  /// a REST call — the Lucky Draw's, say — through a fake client.
+  @visibleForTesting
+  set debugToken(String? token) => _token = token;
+
+  /// True when the last [loadLuckyDraw] failed — the network, a refusal —
+  /// rather than being told there is no draw; the screen offers Try again.
+  bool luckyDrawFailed = false;
+
+  /// True from the moment a spin is sent until the server has answered it.
+  /// The wheel's turning after that is the screen's.
+  bool luckySpinPending = false;
+
+  /// Reads the Lucky Draw again. Called at every sign-in, when the screen
+  /// opens, and after a spin whose answer was lost.
+  Future<void> loadLuckyDraw() async {
+    final token = _token;
+    if (token == null) return;
+    luckyDrawLoading = true;
+    notifyListeners();
+    try {
+      final draw = await _api.luckyDraw(token);
+      // Signed out, or somebody else signed in, while it was asked.
+      if (_token != token) return;
+      luckyDraw = draw;
+      luckyDrawFailed = false;
+    } catch (_) {
+      // What is on screen stays; with nothing on screen, Try again.
+      if (_token == token) luckyDrawFailed = true;
+    } finally {
+      luckyDrawLoading = false;
+      notifyListeners();
+    }
+  }
+
+  /// Spins the Lucky Draw. The SERVER draws the slot, grants its prize and
+  /// records the spin; the answer says where the wheel must stop, and the
+  /// wallet takes the server's figures.
+  ///
+  /// One actionId per spin, sent again when the request itself fails and is
+  /// retried: the server answers a replay with the same spin and grants
+  /// nothing twice. Returns the spin, or null when it was refused or never
+  /// answered — the player has been told why, and the wheel does not turn.
+  Future<LuckySpin?> spinLuckyDraw() async {
+    final token = _token;
+    final draw = luckyDraw;
+    if (token == null || draw == null || luckySpinPending) return null;
+    luckySpinPending = true;
+    notifyListeners();
+    final actionId = const Uuid().v4();
+    try {
+      LuckySpin spin;
+      try {
+        spin = await _api.spinLuckyDraw(token, actionId, code: draw.code);
+      } on ApiException {
+        rethrow;
+      } catch (_) {
+        // No answer: the spin may or may not have landed, and asking again
+        // with the same id is safe either way.
+        await Future<void>.delayed(const Duration(milliseconds: 700));
+        spin = await _api.spinLuckyDraw(token, actionId, code: draw.code);
+      }
+      if (spin.user != null) user = spin.user;
+      luckyDraw = (luckyDraw ?? draw).withNextSpinAt(spin.nextSpinAt);
+      // A picture won is owned now: the shelves re-read who owns what.
+      if (spin.prize.isPicture && !spin.alreadyOwned) {
+        unawaited(_loadPictures());
+      }
+      return spin;
+    } on LuckyDrawNotReady catch (e) {
+      // The wheel had not recharged: count down to the server's moment.
+      if (e.readyAt > 0) {
+        luckyDraw = (luckyDraw ?? draw).withNextSpinAt(e.readyAt);
+      }
+      notice = t.luckyNotReady;
+      return null;
+    } on ApiException catch (e) {
+      notice = switch (e.code) {
+        'seated' => t.luckyLobbyOnly,
+        'lucky_draw_unavailable' => t.luckyClosed,
+        _ => e.message,
+      };
+      if (e.code == 'lucky_draw_unavailable') unawaited(loadLuckyDraw());
+      return null;
+    } catch (_) {
+      // Twice without an answer. The spin may still have landed, so the
+      // wheel and the wallet are read again, and they say so if it did.
+      notice = t.notConnected;
+      unawaited(loadLuckyDraw());
+      unawaited(refreshUser());
+      return null;
+    } finally {
+      luckySpinPending = false;
       notifyListeners();
     }
   }

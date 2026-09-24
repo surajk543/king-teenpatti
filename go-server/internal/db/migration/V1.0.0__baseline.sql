@@ -108,7 +108,9 @@
 -- Order matters: `profile_pictures` is created before `users` because
 -- `users.active_picture_id` references it, and `user_profile_pictures`,
 -- `chip_ledger` and the purchase and spend tables come after both for the same
--- reason. The four table-configuration tables come last, in the order they
+-- reason. The Lucky Draw's three follow them — its draws, their slots (which
+-- name a draw), and the spins (which name a player, a draw and a slot). The
+-- four table-configuration tables come last, in the order they
 -- reference one another — `table_engines`, `table_categories` (each category
 -- names its engine), then `table_settings` and `table_configs` (each names a
 -- category) — and none of them references users.
@@ -129,7 +131,9 @@
 -- exception: they say what KIND of table the lobby offers — its engine and
 -- category, its boot, its ladder, its clocks — the way profile_pictures says
 -- what a picture costs, and are read once at boot. Nothing about any table in
--- play is ever written to them.
+-- play is ever written to them. Nor are the Lucky Draw's (24 Sep 2026): its
+-- draws and slots are configuration, and its spins an audit — a spin is one
+-- request, over before it answers.
 
 
 -- ---------------------------------------------------------------- pictures
@@ -741,6 +745,108 @@ CREATE TABLE IF NOT EXISTS missile_spends (
 );
 
 CREATE INDEX IF NOT EXISTS missile_spends_user_idx ON missile_spends (user_id, created_at);
+
+
+-- -------------------------------------------------------------- lucky draw
+
+-- The Lucky Draw (owner, 24 Sep 2026): a wheel of six slots the lobby opens, a
+-- prize in each, spun by the SERVER — which picks the slot by weight, grants
+-- the prize and records the spin in one transaction (db.LuckyDraws.Spin); the
+-- phone only asks to spin and turns its wheel to the slot it is told. Three
+-- tables:
+--
+--   lucky_draws       the draws — today one, BEGINNER_LUCKY_DRAW, a spin every
+--                     three days;
+--   lucky_draw_slots  the six slots of each draw and the prize in each;
+--   user_lucky_draws  every spin, for good: the audit, the cooldown's clock
+--                     and the replay guard.
+--
+-- The first two are CONFIGURATION, as the table catalogue is (the header):
+-- what a draw offers, never a spin in progress, and read on each request —
+-- a slot re-priced with an UPDATE is on the wheel at the next look, no restart.
+-- The third is an audit, as missile_spends is. Nothing of either is live state:
+-- a spin is one request, finished before it answers.
+--
+-- A PRIZE IS reward_type + reward_value + reward_ref_id, and nothing else.
+-- CHIPS, DIAMOND, HAMMER and MISSILE carry an amount in reward_value;
+-- NO_REWARD is a slot that pays nothing (its value, if any, is not read);
+-- PROFILE_PICTURE and TABLE_PICTURE name an existing catalogue row by its id in
+-- reward_ref_id (TEXT, so a later prize can name something that is not a
+-- number — an AVATAR_FRAME 'golden_crown_frame', a TITLE 'high_roller'). No
+-- ENUM and no CHECK lists the types: a new kind of prize is a row and a
+-- release, never a change to a constraint an existing database already has —
+-- the trap profile_pictures_currency_check sprang when HAMMER arrived. The
+-- server grants only the types it knows (db.LuckyReward*) and leaves out of
+-- the draw, with a logged reason, a slot it cannot grant: an unknown type, an
+-- amount that is missing or zero, or a picture that is gone or retired.
+
+-- One row per draw. code is what the app asks for (GET /api/lucky-draw?code=);
+-- a request that names none gets the first active draw in sort_order.
+-- spinner_type says what kind of draw it is — BEGINNER today (the owner's
+-- seed); VIP, EVENT and the like later — and rides the wire as spinnerType;
+-- the app has one wheel and draws it for every type. cooldown_ms is how long
+-- after a player's last spin of the draw they may spin it again (0: whenever
+-- they like). Retire a draw with is_active = FALSE, never DELETE: its spins
+-- keep pointing at it.
+CREATE TABLE IF NOT EXISTS lucky_draws (
+  id           BIGSERIAL PRIMARY KEY,
+  code         TEXT    NOT NULL UNIQUE,
+  name         TEXT    NOT NULL,
+  spinner_type TEXT    NOT NULL DEFAULT 'STANDARD',
+  cooldown_ms  BIGINT  NOT NULL DEFAULT 0 CHECK (cooldown_ms >= 0),
+  is_active    BOOLEAN NOT NULL DEFAULT TRUE,
+  sort_order   INTEGER NOT NULL DEFAULT 0,
+  created_at   BIGINT  NOT NULL DEFAULT ((EXTRACT(EPOCH FROM now()) * 1000)::bigint),
+  updated_at   BIGINT  NOT NULL DEFAULT ((EXTRACT(EPOCH FROM now()) * 1000)::bigint)
+);
+
+-- One row per slot of a draw's wheel, slot_number 1 to 6 clockwise from the
+-- top. weight is the slot's share of the draw — a slot of weight 40 in a draw
+-- whose active slots weigh 100 in all comes up 40 times in 100 — so weights
+-- need not add up to anything; they must only be positive, which the CHECK
+-- holds. An inactive slot is neither shown nor drawn. The weights never leave
+-- the server.
+CREATE TABLE IF NOT EXISTS lucky_draw_slots (
+  id            BIGSERIAL PRIMARY KEY,
+  lucky_draw_id BIGINT   NOT NULL REFERENCES lucky_draws (id) ON DELETE CASCADE,
+  slot_number   SMALLINT NOT NULL CHECK (slot_number BETWEEN 1 AND 6),
+  reward_type   TEXT     NOT NULL,
+  reward_value  BIGINT   CHECK (reward_value IS NULL OR reward_value >= 0),
+  reward_ref_id TEXT,
+  weight        INTEGER  NOT NULL CHECK (weight > 0),
+  is_active     BOOLEAN  NOT NULL DEFAULT TRUE,
+  sort_order    INTEGER  NOT NULL DEFAULT 0,
+  created_at    BIGINT   NOT NULL DEFAULT ((EXTRACT(EPOCH FROM now()) * 1000)::bigint),
+  updated_at    BIGINT   NOT NULL DEFAULT ((EXTRACT(EPOCH FROM now()) * 1000)::bigint),
+  UNIQUE (lucky_draw_id, slot_number)
+);
+
+-- One row per spin, never updated and never deleted: which slot came up and a
+-- SNAPSHOT of its prize as it stood then, so the record keeps saying what was
+-- won after the slot is re-priced or pointed at another picture. The newest row
+-- of a player's for a draw is the cooldown's clock (the index below). action_id
+-- is the spin's idempotency key, "lucky:<userId>:<client actionId>"
+-- (db.LuckyDrawActionID), inserted in the same transaction as the prize: a
+-- retried request whose first attempt committed finds its row and is answered
+-- with that spin again, granting nothing twice. A CHIPS prize's chip_ledger row
+-- carries the same key, so the ledger's own UNIQUE index guards it as well.
+-- slot_id has no ON DELETE: a slot that has been won cannot be deleted, only
+-- retired (is_active = FALSE), because the record points at it.
+CREATE TABLE IF NOT EXISTS user_lucky_draws (
+  id            BIGSERIAL PRIMARY KEY,
+  user_id       TEXT   NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  lucky_draw_id BIGINT NOT NULL REFERENCES lucky_draws (id),
+  slot_id       BIGINT NOT NULL REFERENCES lucky_draw_slots (id),
+  reward_type   TEXT   NOT NULL,
+  reward_value  BIGINT CHECK (reward_value IS NULL OR reward_value >= 0),
+  reward_ref_id TEXT,
+  action_id     TEXT   NOT NULL UNIQUE,
+  created_at    BIGINT NOT NULL
+);
+
+-- A player's latest spin of a draw, for the cooldown; newest first.
+CREATE INDEX IF NOT EXISTS user_lucky_draws_last_idx
+  ON user_lucky_draws (user_id, lucky_draw_id, created_at DESC);
 
 
 -- ---------------------------------------------------- table configuration

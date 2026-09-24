@@ -99,7 +99,7 @@ king-teenpatti/
 │   │   ├── socket/               the game protocol on sio: handler.go (Attach, guard, one method per event, grace, resume offers), wire.go (every event/ack), payload.go,
 │   │   │                         poker.go (poker:action in, the poker:* events out — the Handler's poker.Listener); testclient/
 │   │   ├── auth/                 tokens.go (JWT HS256), providers.go (Google/guest/fake; Facebook commented out — switched off 23 Sep 2026, §7.2), http.go (routes, RequireAuth, WriteError), handlers.go (the 8 REST handlers), text.go
-│   │   ├── db/                   db.go (pgxpool, search_path as connection param, WithTx, DropSchema, Migrations, Options.SkipMigrations), migration/ (embedded, Flyway-named V<version>__<name>.sql, applied in version order — EXACTLY TWO since 23 Sep 2026: V1.0.0__baseline.sql = all DDL (users.is_bot, chip_ledger.game/variant with the guarded blocks that add them to an older database, the four table-configuration tables) and V1.0.1__seed.sql = all DML (the 45 pictures, the engines and categories, table_settings, the table_configs rows) — §7.3), ledger.go (THE money transactions: Checkpoint / Settle), users.go (login upsert, rewards, names, the worn picture), pictures.go (the catalogue, ownership and the chip purchase), tableconfigs.go (TableConfigs.Load — the table catalogue as the database holds it — and ExportTableConfigSQL); dbtest/
+│   │   ├── db/                   db.go (pgxpool, search_path as connection param, WithTx, DropSchema, Migrations, Options.SkipMigrations), migration/ (embedded, Flyway-named V<version>__<name>.sql, applied in version order — EXACTLY TWO since 23 Sep 2026: V1.0.0__baseline.sql = all DDL (users.is_bot, chip_ledger.game/variant with the guarded blocks that add them to an older database, the four table-configuration tables) and V1.0.1__seed.sql = all DML (the 45 pictures, the engines and categories, table_settings, the table_configs rows) — §7.3), ledger.go (THE money transactions: Checkpoint / Settle), users.go (login upsert, rewards, names, the worn picture), pictures.go (the catalogue, ownership and the chip purchase), tableconfigs.go (TableConfigs.Load — the table catalogue as the database holds it — and ExportTableConfigSQL), luckydraw.go (the Lucky Draw: State, Spin — draw, grant and record in one transaction, §7.3); dbtest/
 │   │   ├── metrics/              names.go (every game_* metric), metrics.go (registry, Bind*, Handler, HTTPMiddleware, SafeLabel)
 │   │   ├── app/                  app.go (mux, REST, socket endpoint, Start/Shutdown), health.go, static.go (PUBLIC_DIR + embedded assets/socket.io.min.js),
 │   │   │                         tableconfig.go (resolveTableCatalogue — the catalogue settled once, before anything is built from it; GET /api/tables; /health.tableConfig)
@@ -142,7 +142,7 @@ king-teenpatti/
     │   ├── net/api_client.dart   REST; tableConfig({version}) = GET /api/tables with If-None-Match (304 before decoding, 404 = a server with no catalogue, 12 s timeout)
     │   ├── models/dtos.dart      wire DTOs mirroring server JSON (LobbyTable's catalogue figures and engine, GameConfig.fromCatalogue/engines/privateTables/tableConfigVersion, TableEngineInfo)
     │   ├── state/table_config_cache.dart  TableConfigCache (SharedPreferences `tableConfig`: the phone's copy of GET /api/tables) + MenuPrecedence (pure: which menu the lobby shows) — §8.1
-    │   ├── screens/{login,lobby,table}_screen.dart; screens/poker_table_screen.dart (the poker felt, mounted by table_screen when room.isPoker — §8.4)
+    │   ├── screens/{login,lobby,table}_screen.dart; screens/poker_table_screen.dart (the poker felt, mounted by table_screen when room.isPoker — §8.4); screens/lucky_draw_screen.dart (the Lucky Draw's wheel, prizes and spin — §8.4)
     │   ├── widgets/table_chrome.dart  the chrome both felts share (rail, drawers, keys, wallet, reconnecting veil), moved out of table_screen.dart
     │   ├── widgets/              premium_surface, seat_pod, playing_card, poker_chip, liquid_fill,
     │   │                         fireworks, avatar, buy_chips, chip_store, picture_shelf, rules_sheet,
@@ -154,7 +154,8 @@ king-teenpatti/
     │   ├── state/theme_preference.dart  themeMode read/write (+ legacy darkMode); state/consent.dart  the no-winnings flag
     │   └── l10n/strings.dart     hand-written 5-language table (en/hi/bn/gu/pa)
     ├── assets/card_back.svg, assets/app_icon.svg, assets/fonts/ (Inter 400/500/600/700 + OFL licence), assets/sfx/,
-    │                         assets/animations/Fireworks.json (Lottie 5.5.7, 512x512, 2.43s — the winner's burst)
+    │                         assets/animations/Fireworks.json (Lottie 5.5.7, 512x512, 2.43s — the winner's burst),
+    │                         assets/animations/Lucky Draw Spinner.json (Lottie 5.10, 300x300 — the owner's prize wheel, §8.4)
     ├── test/  number_format, connection_failure, consent, theme_preference, … poker_table (§8.4), table_config_{dtos,cache,menu}, table_engines (§8.1)
     ├── android/                  applicationId com.sungamestudio.kingteenpatti, sensorLandscape, cleartext in DEBUG builds only (src/debug manifest),
     │                             no Android backup (allowBackup=false + res/xml/data_extraction_rules.xml), USE_BIOMETRIC/USE_FINGERPRINT removed
@@ -363,6 +364,7 @@ and the transactions that DO run have this shape:
   restart). It is never `SET chips = <live value>`: a reward credits PostgreSQL without touching the
   Redis seat, and an absolute overwrite at the next checkpoint would erase it.
 - **Rewards and chip-priced picture purchases are lobby-only.** `POST /api/rewards/milestone|bonus|daily`
+  (and since 24 Sep 2026 `POST /api/lucky-draw/spin`, §7.2 — its prize may be chips)
   return **409 `seated`** before any DB work, matching the rule display name already had, and
   `POST /api/profile/picture/buy` refuses a **COIN** picture to a seated player with the same 409 —
   decided inside the purchase transaction (`db.Pictures.BuyAtTable` → `ErrPictureAtTable`), from the
@@ -990,6 +992,19 @@ wallet lock (`db.Missiles.TradeMissiles`), replay-guarded by `missile_purchases`
 Answers `{user, charged, diamonds, missiles}` — `charged:false` with 0 and 0 on a replay; 400 `unknown_pack` /
 `invalid_request_id` (a non-string `requestId` is `invalid_request_id`, each field read on its own — 24 Sep 2026; it spoiled the
 whole decode and read as `unknown_pack`), 409 `not_enough_diamonds`. Allowed while seated: diamonds and missiles sit outside §5.1;
+**`GET /api/lucky-draw[?code=]`** / **`POST /api/lucky-draw/spin {actionId, code?}`** (owner, 24 Sep 2026; `auth/handlers.go`
+`LuckyDraw`/`SpinLuckyDraw`, `db/luckydraw.go`; the tables in §7.3) — the Lucky Draw, a six-slot wheel the SERVER spins. The GET
+(signed in; allowed at a table, it only reads) answers `{draw:{code, name, spinnerType, cooldownMs}, slots:[{slotNumber, rewardType,
+rewardValue, rewardRefId, picture?|tablePicture?}], nextSpinAt}` for the first active draw in `sort_order` (today the owner's
+`BEGINNER_LUCKY_DRAW`) or the one `code` names — a picture prize carries its catalogue row with `owned` for this player, `nextSpinAt` is
+0 when a spin is due, and **the weights never leave the server**; no draw, a retired one or one with no slot that can be won → 503
+`lucky_draw_unavailable`. The spin reads nothing but its key and the draw's code (a `slotNumber` or prize in the body is ignored):
+under `Deps.WhileUnseated` (409 `seated` at a table — a CHIPS prize moves the wallet, §5.1) and the wallet lock it checks the cooldown
+from the player's last row in `user_lucky_draws` (409 `lucky_draw_not_ready` with `readyAt`), draws one active slot with
+`crypto/rand` over the weights laid end to end, grants the prize and records the spin in ONE transaction, and answers `{actionId,
+slotNumber, reward:{type, value, refId, picture?|tablePicture?}, alreadyOwned, replayed, nextSpinAt, user}`. An `actionId` (1–64,
+else 400 `invalid_action_id`) that has already spun answers that spin again, `replayed:true`, granting nothing; it rides the wallet
+limiter (§7.4);
 `GET /health` (since 23 Sep 2026 it ends with `tableConfig: {source, version, fallback}` — where the tables came
 from; `fallback:true` is a `TABLE_CONFIG_SOURCE=db` boot that could not use the database's catalogue and runs the env
 composition, the one state an operator must go and fix). Errors `{error: code, message}`. Guest id = `sha256('teenpatti:'+deviceId)`, deviceId
@@ -1048,11 +1063,12 @@ owns `users`.
 are parsed to JS numbers** (`pg.types.setTypeParser(20|1700)`) — without that, `chips` and `SUM()`
 come back as strings.
 
-Tables — **there are exactly seventeen, and none of them is game state**: ten of accounts, money and the picture
+Tables — **there are exactly twenty, and none of them is game state**: ten of accounts, money and the picture
 catalogue, three of the table pictures (`table_pictures`, `user_table_pictures`, `user_table_choice` — the paragraph after the
 `users` trigger below; merged 23 Sep 2026) (`user_milestones`, `diamond_purchases`, `hammer_purchases`, `hammer_spends`, `missile_purchases` and
 `missile_spends` are below), and since 23 Sep 2026 **four of table configuration** — `table_engines`,
-`table_categories`, `table_settings`, `table_configs` (the last paragraph of this list). `users` (wallet = `chips BIGINT
+`table_categories`, `table_settings`, `table_configs` (the last paragraph of this list), and since 24 Sep 2026 **three of the Lucky
+Draw** — `lucky_draws`, `lucky_draw_slots`, `user_lucky_draws` (the paragraph before the ledger reasons). `users` (wallet = `chips BIGINT
 CHECK ≥ 0`, **`diamond INTEGER NOT NULL DEFAULT 9 CHECK ≥ 0`** — the premium currency, nine per new account (owner, 14 Sep 2026; two, and one before that, earlier the same day), never
 ledgered —, **`hammer INTEGER NOT NULL DEFAULT 20 CHECK ≥ 0`** — what a Force Sideshow costs, 20 per account, never ledgered —, **`missile INTEGER NOT NULL DEFAULT 1 CHECK ≥ 0`** — what a missile costs, one per new account, never ledgered —,
 counters, `active_picture_id`, `deleted_at`, and since 22 Sep 2026 **`is_bot BOOLEAN NOT NULL DEFAULT FALSE`** (in the baseline's `CREATE TABLE users` and its guarded block since 23 Sep 2026) — true for the `bot-play/` fleet, set at login from the guest DEVICE ID's namespace (`config.BotDevicePrefix`, env `BOT_DEVICE_PREFIX`, default `botplay-`, which covers a rotated bot's `botplay-v1-<n>-g<gen>` too). A **label, never a permission**: nothing in the game reads it, it is absent from every wire struct (`TestMarkingABotDoesNotLeakToTheClient` — a seat that announced itself as a bot would tell a player exactly what the fleet exists not to tell them), and the login **ORs** rather than assigns so a mark is never cleared. Empty prefix marks nobody, never everybody),
@@ -1160,7 +1176,7 @@ needs sudo on the host and is why the function is create-if-missing rather than 
 Test: `TestUserRowsAreNeverDeleted` (`internal/db/users_delete_test.go`).
 
 **The table pictures (owner, 15 Sep 2026; merged into master from the `table-pictures` branch on 23 Sep 2026)** are three
-more tables — **seventeen in all now** — declared in `V1.0.0__baseline.sql` (TABLE PICTURES, right after `user_profile_pictures`)
+more tables — **seventeen in all then, twenty since the Lucky Draw's three (24 Sep 2026)** — declared in `V1.0.0__baseline.sql` (TABLE PICTURES, right after `user_profile_pictures`)
 and seeded in `V1.0.1__seed.sql` (THE TABLE PICTURES, between the profile pictures and the table catalogue). On the branch they were
 a pair of their own, `V1.0.2__table_pictures.sql` and `V1.0.3__seed_table_pictures.sql`, written while a script that had run
 somewhere was never edited; the merge folded them into the two files under the rule above (`TestMigrationsAreVersionedOrderedAndSplitByKind`
@@ -1220,9 +1236,37 @@ that day; the owner took their rows out, keeping the catalogue to their own art 
 one is the seeded row's shape with the two `/tables/` paths (the DAY file a pale cloth for the light theme's dark ink, the NIGHT file a
 deep one for the dark theme's light ink; a picture's art must read on its own ground or the words on the table go with it).
 
+**The Lucky Draw (owner, 24 Sep 2026)** is three more tables in `V1.0.0__baseline.sql` (LUCKY DRAW, after `missile_spends`) and one
+draw in `V1.0.1__seed.sql` (THE LUCKY DRAW, last). **`lucky_draws`** (`code` UNIQUE, `name`, `spinner_type` TEXT default `STANDARD` —
+a label for how the client may dress the wheel —, `cooldown_ms` ≥ 0, `is_active`, `sort_order`) and **`lucky_draw_slots`**
+(`lucky_draw_id` → `lucky_draws` ON DELETE CASCADE, `slot_number` 1..6 UNIQUE per draw, `reward_type` TEXT, `reward_value` ≥ 0 or NULL,
+`reward_ref_id` TEXT, `weight` INTEGER **CHECK > 0**, `is_active`, `sort_order`) are CONFIGURATION, read on every request, so an owner's
+`UPDATE` is on the wheel at the next look — no restart. **`reward_type` is TEXT checked by the server, not an ENUM or a CHECK**, so a
+future `AVATAR_FRAME`, `CARD_BACK` or `TITLE` is a row and code, never a migration: `db.LuckyDraws` knows `CHIPS`, `DIAMOND`,
+`HAMMER`, `MISSILE` (value > 0; the last three ≤ 2³¹−1), `PROFILE_PICTURE`/`TABLE_PICTURE` (`reward_ref_id` = the catalogue row's
+id as text, the row active) and `NO_REWARD` (the empty slot: a spin that wins nothing); a slot it cannot grant is left off the wheel
+with a WARN (`lucky draw slot left out`) and never drawn, and a draw with none left is `lucky_draw_unavailable`. The default draw is
+the first ACTIVE one in `sort_order`, so switching the lobby to another draw is two UPDATEs. **`user_lucky_draws`** is the history,
+append-only by use: `user_id` → `users` (CASCADE), `lucky_draw_id`, `slot_id`, a SNAPSHOT of `reward_type`/`reward_value`/
+`reward_ref_id` (a later edit of the slot never rewrites what somebody won), **`action_id` UNIQUE** (`lucky:<userId>:<client
+actionId>` — the replay guard, as `chip_ledger`'s is), `created_at`; the cooldown is `last created_at + cooldown_ms`, read under the
+wallet lock. The spin grants through the existing paths: CHIPS through `chip_ledger` (`appendLedger`, reason **`lucky_draw`**, same
+action_id — the §4 invariant holds), DIAMOND/HAMMER/MISSILE as deltas on their `users` columns with no ledger row (as their purchases
+are), a picture as the ownership row a purchase writes (`user_profile_pictures`/`user_table_pictures`, the rental term the shop sells
+it for, from now; `purchases` untouched) — **never worn or laid** (the player puts it on). A picture already owned and running is left
+exactly as it was (`alreadyOwned:true`, the spin still recorded); a lapsed rental is renewed in place. Grant and record are one
+transaction, so a prize that cannot be granted leaves no spin and a spin that cannot be recorded takes its prize back out
+(`TestASpinIsGrantedAndRecordedTogetherOrNotAtAll`). The seed is the owner's own SQL, verbatim (24 Sep 2026): **BEGINNER_LUCKY_DRAW**
+"Beginner Lucky Draw", `spinner_type` BEGINNER, a spin every **three days** (259200000 ms), slots 1 HAMMER 1 (weight 25), 2 HAMMER 4
+(15), 3 CHIPS 10,00,000 (20), 4 CHIPS 1,00,000 (20), 5 NO_REWARD (10), 6 CHIPS 5,00,000 (10) — `ON CONFLICT DO NOTHING` on the code and
+on (draw, slot), so an owner's UPDATE survives every restart. A picture prize is set by natural key, since BIGSERIAL ids differ between
+databases: `UPDATE lucky_draw_slots SET reward_type='PROFILE_PICTURE', reward_value=NULL, reward_ref_id=(SELECT id::text FROM
+profile_pictures WHERE name='Lovestruck Cat') WHERE …` (the seed's header has the table-picture twin).
+
 Ledger `reason` values: `welcome_bonus, hand_packed, hand_left, hand_win, hand_loss,
-milestone_reward, timed_bonus, daily_bonus, purchase, picture_purchase, table_picture_purchase, account_deleted, legacy_reconciliation,
-test_fixture`. (`picture_purchase` is a premium profile picture bought with chips — a chip **sink**,
+milestone_reward, timed_bonus, daily_bonus, purchase, picture_purchase, table_picture_purchase, lucky_draw, account_deleted, legacy_reconciliation,
+test_fixture`. (`lucky_draw` is a Lucky Draw CHIPS prize — a chip source, always positive, action_id
+`lucky:<userId>:<actionId>`.) (`picture_purchase` is a premium profile picture bought with chips — a chip **sink**,
 always a negative delta, action_id `picture:<userId>:<pictureId>`; `table_picture_purchase` is the same for a table picture,
 action_id `table:<userId>:<pictureId>:<n>`.)
 (`purchase` is a Google Play chip pack, action_id `gplay:<token>`; `account_deleted` empties the
@@ -1413,6 +1457,16 @@ Production's lives at `/var/www/gameplay/king-teenpatti/go-server/.env` (`PG_POO
     **`tools/node_modules`** — `cd tools && npm install`. `internal/game/interop_test.go` (every hand ranking and every
     sanitising result vs the Node engine) needs **`NODE_REFERENCE_DIR`** = a checkout of the removed `server/` tree with
     `node_modules` (`git worktree add /tmp/node-ref c19963b && (cd /tmp/node-ref/server && npm ci)`).
+  - **The Lucky Draw** (§7.3; 24 Sep 2026): `internal/db/luckydraw_test.go` on the seeded beginner draw (six prizes in wheel
+    order, no weight on the wire; the first active draw in `sort_order` is the lobby's; every prize into its wallet, chips through the
+    ledger; the empty slot pays nothing and starts the cooldown; a picture unlocked for its shop term and never put on; owned left
+    alone, lapsed renewed; the cooldown kept by the server; one action id one spin, an 8-way burst included; unwinnable slots neither
+    offered nor drawn; weight > 0; grant and record together or not at all; a deleted account cannot spin), `luckydraw_internal_test.go`
+    (`pickWeighted` lays arbitrary weights end to end; 60,000 `crypto/rand` draws follow them), `internal/app/luckydraw_test.go` (the
+    two routes on the real wiring: auth, a forged prize ignored, the replay, 409 with `readyAt`, 409 `seated` at a table). Flutter:
+    `test/lucky_draw_test.dart` (the wire, the wheel geometry — the slot the server names is the slot under the needle —, the lobby key
+    opens the screen, six prizes, the key quiet while a spin is out, the wheel stops on the server's slot, the prize, the countdown, and
+    640x360 at x1.25 in all five languages).
   - Leftover schemas after a crash: `select nspname from pg_namespace where nspname like 'test_%'` (§4).
 - **Parity harness** (`tools/parity/`, run with `cd tools && npm run parity`): black-box `node:test` suites — `game`, `money`
   (audits the books the profile wrote), `lobby`, `stakes`, `rest`, `protocol` (raw frames via `lib/csharpJsonPort.js`), `resume`,
@@ -1650,6 +1704,39 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   × 1.1; the toast area measures the chip, so it moves aside by itself). `test/bonus_chip_icons_test.dart` pumps the lobby at 640×360
   ×1.25 in all five languages and holds the word absent, both glyphs present, the figures un-ellipsised (laid-out width = max intrinsic
   width) and the chip the same height in both states.
+- **The Lucky Draw** (owner, 24 Sep 2026; `screens/lucky_draw_screen.dart`, server side §7.2/§7.3). **The lobby key** is a
+  `_CornerChip` beside the daily bonus in the bottom-left corner (`_LuckyDrawChip`; the two stand in one Row keyed `_dailyChip`, so
+  `lobbyNoticeArea` keeps a toast off both): LUCKY DRAW over "Spin now" while a spin is due (gold, a small drawn wheel —
+  `LuckyWheelGlyph` — turning a third of a turn now and then, as the hourglass breathes), else the wait as `HH:MM:SS` running past 24
+  hours (`formatSpinClock`); a tap opens the draw either way. Hidden while `GameState.luckyDraw` is null — no draw open, or a server
+  that predates it (404) — which `loadLuckyDraw()` reads at every sign-in and again when the screen opens. **The screen**
+  (`showLuckyDraw`, a `showGeneralDialog` page risen from the foot like the store; `PopScope` holds it while the wheel turns): the
+  owner's Lottie on the left (`LuckyWheel`, `assets/animations/Lucky Draw Spinner.json`), the six prizes two to a row on the right
+  (slot number, the wallet's mark, "10 Lakh chips" / "4 hammers" / a picture's name / "No prize"), and the key: **SPIN NOW** · **SPINNING…**
+  (from the tap until the prize is shown, disabled) · **NEXT SPIN** over the clock (disabled); the header says "One free spin every 3
+  days." **The client draws nothing**: the tap sends `POST /api/lucky-draw/spin` with a fresh uuid `actionId` (retried once with the
+  SAME id after a transport failure, as the missile trade is), the wheel does not move until the server answers, and then turns five
+  turns and on to the slot it named in **6 s along `LuckySpinCurve`** — its speed a smoothstep up to full over 1.5 s, full speed (under
+  two turns a second) for 0.9 s, then (1 − x)³(1 + 3x) down over 3.5 s, a long creep to rest (owner, 24 Sep 2026, on the first cut,
+  which left at full speed and slowed from the first frame: "not smooth … at least run for 5-6 seconds, slowly increase its speed and
+  the end slowly reduce its speed") — a few degrees off centre (`luckyNudge`, looks only). The Lottie and the six badges are built
+  once per size (`_artAt`/`_badgesAt`, each badge behind a `RepaintBoundary`), so a frame of the spin only moves them. **How the file is
+  steered**: its wheel is layer 12, the one layer named `L` whose rotation is keyframed (721° → 2526°); a `ValueDelegate.transformRotation`
+  on `['L']` answers `LuckyWheel.angle` for a native rotation of a turn or more and the layer's own value otherwise (the other `L`
+  layers stand at 0° or 20°), so the Lottie and the Flutter prize badges on its wedges (ivory discs at 57 of the wheel's 84 units,
+  `LuckyWheelGeometry`) are drawn from the same angle and cannot disagree; slot n is wedge n−1, centred 60(n−1)° clockwise from the
+  top, under the needle when the angle ≡ −60(n−1). Only frames 0–150 play (the rim's lights, looping); the rest flash the file's own
+  first wedge whatever was won, so they never do, and the layers named `S` (a currency glyph printed on that wedge, and the sparkles)
+  are hidden. **The rim's bulbs blink for as long as the wheel is on screen** (owner, 24 Sep 2026: "The wheel outer dots should blink
+  always"): the file turns each between an ivory and a pale yellow every half second, two rings out of step, which on a gold rim barely
+  read, so a `ValueDelegate.color` on `['L', 'L', 'G', 'F']` (the bulbs' precomps only — the wedges' ivory is out of its reach) draws
+  the yellow lit (`luckyBulbLit`, lemon) and the ivory unlit (`luckyBulbUnlit`, rust) — `luckyBulbColour` — and the rings chase.
+  `frameRate: FrameRate.max` and no `RenderCache`: the wheel's own keyframes change every frame of the loop, which is
+  what repaints it, and a cache would replay frames without the server's angle. **The prize** (`_LuckyPrizeCard`, built from the
+  lobby's reward celebration — scrim, `Fireworks`, `PremiumSurface`, `SpinningChip`): "Congratulations! You won 10 Lakh chips", the
+  wallet's mark in its ink, a picture as itself with "Yours for 50 days" (or "It is already yours…") and **Wear it** / **Use it**
+  (`chooseAvatar`/`chooseTablePicture` — winning never puts it on); the empty slot says "Better luck next time!" with no fireworks.
+  The wallet takes the spin's `user` at once and a picture prize re-reads the catalogues. 26 strings in all five languages.
 - **Table** (rebuilt around the felt on 10–11 Sep 2026 — `fb47ba4`, `b83b273`, `81a5981`; the bar
   across the foot and the cloth under it are both gone, and the screenshots in `docs/play-store/`
   predate all of it). `_TableScreenState.build` **watches nothing** (a per-second Scaffold rebuild
@@ -2102,6 +2189,9 @@ config store in database … the UI fetches it, stores it on the phone, and re-f
 category table/db level also: Teen Patti engines / Poker engines"): two migration files, four configuration tables
 (§7.3), `TABLE_CONFIG_SOURCE` (§7.4), `GET /api/tables` (§7.2), the phone's copy (§8.1), the three-level lobby (§8.4) —
 PostgreSQL holding table CONFIG and never state.
+**The Lucky Draw** (owner's brief, 24 Sep 2026, and the owner's BEGINNER_LUCKY_DRAW seed the same day): a six-slot wheel in the lobby,
+spun, granted and recorded by the server (weighted `crypto/rand`, cooldown, idempotent `action_id`, one transaction), prizes in the
+existing wallets and picture catalogues, `reward_type` open for future kinds — §7.2, §7.3, §8.4.
 
 ---
 
@@ -2369,7 +2459,7 @@ deploy runbook; `steps.txt` the six-line routine.
   unchanged. Every shipped client is websocket-only.
 - **DB via `pgx`** (`internal/db`): `migration/V*.sql` (embedded; Flyway-named, exactly two since 23 Sep 2026 —
   `V1.0.0__baseline.sql` all DDL, `V1.0.1__seed.sql` all DML — applied in version order, idempotent, run at
-  every start: seventeen tables — money, accounts, the picture catalogues (profile and table), the four table-configuration tables, no game
+  every start: twenty tables — money, accounts, the picture catalogues (profile and table), the four table-configuration tables, the Lucky Draw's three, no game
   state — §7.3), `TableConfigs.Load`/`ExportTableConfigSQL` (the table catalogue), the `Checkpoint`/`Settle` transactions of §5.1, `search_path` as a connection parameter,
   `statement_timeout` per pooled connection (`PG_STATEMENT_TIMEOUT_MS`). Money-path fixes vs Node
   (all in DECISIONS §2): wallet locks before the `hands` insert, settle retry continues after table
