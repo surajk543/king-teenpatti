@@ -4389,7 +4389,16 @@ class _SettingsDrawerState extends State<_SettingsDrawer> {
                         _save(state);
                       },
                     ),
-              decoration: InputDecoration(isDense: true, errorText: _nameError),
+              // The server's complaint wraps: InputDecoration keeps an error
+              // to one line unless told otherwise, and in the drawer's width
+              // "Letters, numbers and spaces only." was cut to "Letters,
+              // numbers and spaces ..." (24 Sep 2026, owner's "fix all bugs";
+              // release review B4).
+              decoration: InputDecoration(
+                isDense: true,
+                errorText: _nameError,
+                errorMaxLines: 4,
+              ),
               // The server's complaint is about the name that was sent. Once
               // the player edits it, that complaint no longer describes what
               // is in the field, so it goes rather than staying red over a
