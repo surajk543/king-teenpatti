@@ -125,6 +125,11 @@ class Strings {
   String get luckySpinning => _('luckySpinning');
   String get luckyNextSpin => _('luckyNextSpin');
 
+  /// The polish of 26 Sep 2026: "FREE SPIN" beside the title while a spin is
+  /// due, and "NEXT FREE SPIN" over the wait on the key while it is not.
+  String get luckyFreeSpin => _('luckyFreeSpin');
+  String get luckyNextFreeSpin => _('luckyNextFreeSpin');
+
   /// "One free spin every 3 days." — [time] written by [rentalTerm].
   String luckyEvery(String time) => _('luckyEvery').replaceAll('{time}', time);
   String get luckyPrizes => _('luckyPrizes');
@@ -243,6 +248,15 @@ class Strings {
   String get forceSideshowTooLate => _('forceSideshowTooLate');
   String get settings => _('settings');
   String get language => _('language');
+
+  /// The settings drawer's line under its title, and the names of its groups
+  /// (the settings polish, 26 Sep 2026). A group's name is set in tracked
+  /// capitals in English only; the other scripts keep their own shape. The
+  /// Appearance group is named by [appearance].
+  String get settingsSubtitle => _('settingsSubtitle');
+  String get settingsProfile => _('settingsProfile');
+  String get settingsGameExperience => _('settingsGameExperience');
+  String get settingsAccount => _('settingsAccount');
 
   // --- requirement 34: lakh/crore or million/billion
   String get numberSystem => _('numberSystem');
@@ -858,6 +872,12 @@ class Strings {
   /// The word on a premium picture this player has already paid for.
   String get pictureUnlocked => _('pictureUnlocked');
 
+  /// The word a shelf tile's badge says on a picture the player can put on
+  /// now — free, or bought and still running (the store polish, 26 Sep 2026).
+  /// The picture being worn says [wearing], as the store's head does, and the
+  /// laid table picture [tableInUse].
+  String get pictureOwned => _('pictureOwned');
+
   /// Diamond-priced wording: the same two offers, paid from the diamond
   /// wallet instead of chips. `{s}` pluralises the English unit ("1 diamond",
   /// "5 diamonds") and is absent from the other four languages, whose word
@@ -1105,6 +1125,8 @@ class Strings {
       'luckySpinNow': 'SPIN NOW',
       'luckySpinning': 'SPINNING…',
       'luckyNextSpin': 'NEXT SPIN',
+      'luckyFreeSpin': 'FREE SPIN',
+      'luckyNextFreeSpin': 'NEXT FREE SPIN',
       'luckyEvery': 'One free spin every {time}.',
       'luckyPrizes': 'PRIZES ON THE WHEEL',
       'luckyNoPrize': 'No prize',
@@ -1200,6 +1222,10 @@ class Strings {
           'Too late — that sideshow is no longer open. No hammer was spent.',
       'settings': 'Settings',
       'language': 'Language',
+      'settingsSubtitle': 'Personalize your game experience',
+      'settingsProfile': 'Profile',
+      'settingsGameExperience': 'Game experience',
+      'settingsAccount': 'Account',
       'numberSystem': 'Number format',
       'numberIndian': 'Indian  ·  Lakh, Crore',
       'numberInternational': 'International  ·  Million, Billion',
@@ -1446,6 +1472,7 @@ class Strings {
       'unlockBodyDiamond':
           '{name} costs {cost} diamond{s}. Unlock it and wear it now?',
       'pictureUnlocked': 'Unlocked',
+      'pictureOwned': 'Owned',
       'tapToChangePicture': 'Tap to change your picture',
       'rentForDays': '{days} days',
       'daysLeft': '{days}d left',
@@ -1715,6 +1742,8 @@ class Strings {
       'luckySpinNow': 'अभी घुमाएँ',
       'luckySpinning': 'घूम रहा है…',
       'luckyNextSpin': 'अगला स्पिन',
+      'luckyFreeSpin': 'मुफ़्त स्पिन',
+      'luckyNextFreeSpin': 'अगला मुफ़्त स्पिन',
       'luckyEvery': 'हर {time} में एक मुफ़्त स्पिन।',
       'luckyPrizes': 'पहिये पर इनाम',
       'luckyNoPrize': 'कोई इनाम नहीं',
@@ -1808,6 +1837,10 @@ class Strings {
           'देर हो गई — अब वह साइडशो नहीं हो सकता। कोई हथौड़ा खर्च नहीं हुआ।',
       'settings': 'सेटिंग्स',
       'language': 'भाषा',
+      'settingsSubtitle': 'खेल का अनुभव अपने हिसाब से सजाएँ',
+      'settingsProfile': 'प्रोफ़ाइल',
+      'settingsGameExperience': 'खेल का अनुभव',
+      'settingsAccount': 'खाता',
       'numberSystem': 'संख्या प्रारूप',
       'numberIndian': 'भारतीय  ·  लाख, करोड़',
       'numberInternational': 'अंतरराष्ट्रीय  ·  मिलियन, बिलियन',
@@ -2043,6 +2076,7 @@ class Strings {
       'unlockBodyDiamond':
           '{name} की कीमत {cost} डायमंड है। अभी अनलॉक करके लगाएँ?',
       'pictureUnlocked': 'अनलॉक',
+      'pictureOwned': 'आपकी',
       'tapToChangePicture': 'तस्वीर बदलने के लिए टैप करें',
       'rentForDays': '{days} दिन',
       'daysLeft': '{days} दिन बाकी',
@@ -2305,6 +2339,8 @@ class Strings {
       'luckySpinNow': 'এখনই ঘোরান',
       'luckySpinning': 'ঘুরছে…',
       'luckyNextSpin': 'পরের স্পিন',
+      'luckyFreeSpin': 'ফ্রি স্পিন',
+      'luckyNextFreeSpin': 'পরের ফ্রি স্পিন',
       'luckyEvery': '{time} পরপর একটি ফ্রি স্পিন।',
       'luckyPrizes': 'চাকার পুরস্কার',
       'luckyNoPrize': 'কোনো পুরস্কার নেই',
@@ -2399,6 +2435,10 @@ class Strings {
           'দেরি হয়ে গেছে — সেই সাইডশো আর সম্ভব নয়। কোনো হাতুড়ি খরচ হয়নি।',
       'settings': 'সেটিংস',
       'language': 'ভাষা',
+      'settingsSubtitle': 'খেলার অভিজ্ঞতা নিজের মতো সাজান',
+      'settingsProfile': 'প্রোফাইল',
+      'settingsGameExperience': 'খেলার অভিজ্ঞতা',
+      'settingsAccount': 'অ্যাকাউন্ট',
       'numberSystem': 'সংখ্যা বিন্যাস',
       'numberIndian': 'ভারতীয়  ·  লাখ, কোটি',
       'numberInternational': 'আন্তর্জাতিক  ·  মিলিয়ন, বিলিয়ন',
@@ -2628,6 +2668,7 @@ class Strings {
       'unlockBodyDiamond':
           '{name} এর দাম {cost} ডায়মন্ড। এখনই আনলক করে ব্যবহার করবেন?',
       'pictureUnlocked': 'আনলক',
+      'pictureOwned': 'আপনার',
       'tapToChangePicture': 'ছবি বদলাতে ট্যাপ করুন',
       'rentForDays': '{days} দিন',
       'daysLeft': '{days} দিন বাকি',
@@ -2900,6 +2941,8 @@ class Strings {
       'luckySpinNow': 'હમણાં ફેરવો',
       'luckySpinning': 'ફરી રહ્યું છે…',
       'luckyNextSpin': 'આગલો સ્પિન',
+      'luckyFreeSpin': 'મફત સ્પિન',
+      'luckyNextFreeSpin': 'આગલો મફત સ્પિન',
       'luckyEvery': 'દર {time} પછી એક મફત સ્પિન.',
       'luckyPrizes': 'ચક્ર પરના ઇનામ',
       'luckyNoPrize': 'કોઈ ઇનામ નથી',
@@ -2992,6 +3035,10 @@ class Strings {
           'મોડું થઈ ગયું — હવે એ સાઇડશો શક્ય નથી. કોઈ હથોડી વપરાઈ નથી.',
       'settings': 'સેટિંગ્સ',
       'language': 'ભાષા',
+      'settingsSubtitle': 'રમતનો અનુભવ તમારી રીતે ગોઠવો',
+      'settingsProfile': 'પ્રોફાઇલ',
+      'settingsGameExperience': 'રમતનો અનુભવ',
+      'settingsAccount': 'ખાતું',
       'numberSystem': 'સંખ્યા ફોર્મેટ',
       'numberIndian': 'ભારતીય  ·  લાખ, કરોડ',
       'numberInternational': 'આંતરરાષ્ટ્રીય  ·  મિલિયન, બિલિયન',
@@ -3185,6 +3232,7 @@ class Strings {
       'unlockBodyDiamond':
           '{name} ની કિંમત {cost} ડાયમંડ છે. હમણાં અનલૉક કરીને વાપરવો?',
       'pictureUnlocked': 'અનલૉક',
+      'pictureOwned': 'તમારો',
       'tapToChangePicture': 'ફોટો બદલવા ટૅપ કરો',
       'rentForDays': '{days} દિવસ',
       'daysLeft': '{days} દિવસ બાકી',
@@ -3487,6 +3535,8 @@ class Strings {
       'luckySpinNow': 'ਹੁਣੇ ਘੁਮਾਓ',
       'luckySpinning': 'ਘੁੰਮ ਰਿਹਾ ਹੈ…',
       'luckyNextSpin': 'ਅਗਲਾ ਸਪਿਨ',
+      'luckyFreeSpin': 'ਮੁਫ਼ਤ ਸਪਿਨ',
+      'luckyNextFreeSpin': 'ਅਗਲਾ ਮੁਫ਼ਤ ਸਪਿਨ',
       'luckyEvery': 'ਹਰ {time} ਬਾਅਦ ਇੱਕ ਮੁਫ਼ਤ ਸਪਿਨ।',
       'luckyPrizes': 'ਪਹੀਏ ਦੇ ਇਨਾਮ',
       'luckyNoPrize': 'ਕੋਈ ਇਨਾਮ ਨਹੀਂ',
@@ -3581,6 +3631,10 @@ class Strings {
           'ਦੇਰ ਹੋ ਗਈ — ਹੁਣ ਉਹ ਸਾਈਡਸ਼ੋ ਨਹੀਂ ਹੋ ਸਕਦਾ। ਕੋਈ ਹਥੌੜਾ ਖਰਚ ਨਹੀਂ ਹੋਇਆ।',
       'settings': 'ਸੈਟਿੰਗਾਂ',
       'language': 'ਭਾਸ਼ਾ',
+      'settingsSubtitle': 'ਖੇਡ ਦਾ ਅਨੁਭਵ ਆਪਣੇ ਤਰੀਕੇ ਨਾਲ ਸਜਾਓ',
+      'settingsProfile': 'ਪ੍ਰੋਫਾਈਲ',
+      'settingsGameExperience': 'ਖੇਡ ਦਾ ਅਨੁਭਵ',
+      'settingsAccount': 'ਖਾਤਾ',
       'numberSystem': 'ਨੰਬਰ ਫਾਰਮੈਟ',
       'numberIndian': 'ਭਾਰਤੀ  ·  ਲੱਖ, ਕਰੋੜ',
       'numberInternational': 'ਅੰਤਰਰਾਸ਼ਟਰੀ  ·  ਮਿਲੀਅਨ, ਬਿਲੀਅਨ',
@@ -3775,6 +3829,7 @@ class Strings {
       'unlockBodyDiamond':
           '{name} ਦੀ ਕੀਮਤ {cost} ਹੀਰੇ ਹੈ। ਹੁਣੇ ਅਨਲਾਕ ਕਰਕੇ ਲਗਾਉਣੀ ਹੈ?',
       'pictureUnlocked': 'ਅਨਲਾਕ',
+      'pictureOwned': 'ਤੁਹਾਡੀ',
       'tapToChangePicture': 'ਤਸਵੀਰ ਬਦਲਣ ਲਈ ਟੈਪ ਕਰੋ',
       'rentForDays': '{days} ਦਿਨ',
       'daysLeft': '{days} ਦਿਨ ਬਾਕੀ',

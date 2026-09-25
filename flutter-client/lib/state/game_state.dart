@@ -3555,7 +3555,8 @@ class GameState extends ChangeNotifier {
   /// One actionId per spin, sent again when the request itself fails and is
   /// retried: the server answers a replay with the same spin and grants
   /// nothing twice. Returns the spin, or null when it was refused or never
-  /// answered — the player has been told why, and the wheel does not turn.
+  /// answered — the player has been told why, and the wheel, turning since the
+  /// tap, runs down to rest with no prize shown.
   Future<LuckySpin?> spinLuckyDraw() async {
     final token = _token;
     final draw = luckyDraw;

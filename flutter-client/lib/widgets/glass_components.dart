@@ -544,7 +544,12 @@ class _KeyboardFocusGuardState extends State<KeyboardFocusGuard> {
 /// settle. Tapping a segment gives the light haptic and calls
 /// `GameState.setThemeMode`, which is the only thing it does.
 class GlassThemeSwitcher extends StatefulWidget {
-  const GlassThemeSwitcher({super.key, this.compact = false, this.height});
+  const GlassThemeSwitcher({
+    super.key,
+    this.compact = false,
+    this.height,
+    this.track,
+  });
 
   /// Icons only, whatever the width allows. A narrow slot drops the words on
   /// its own, so this is for a caller that wants them gone regardless.
@@ -554,6 +559,11 @@ class GlassThemeSwitcher extends StatefulWidget {
   /// three segments is a legal touch target. A caller that passes less gets
   /// what it asked for.
   final double? height;
+
+  /// The well the segments sit in. Defaults to the theme's own well
+  /// ([GlassColors.wellFill]); a panel whose fields are filled otherwise
+  /// passes their fill, so the control is sunk the same way they are.
+  final Color? track;
 
   /// The inset between the track and its segments, top and bottom.
   static const double _pad = 3;
@@ -657,58 +667,83 @@ class _GlassThemeSwitcherState extends State<GlassThemeSwitcher>
     final theme = Theme.of(context);
     final glass = GlassColors.of(context);
     final b = theme.brightness;
+    final dark = b == Brightness.dark;
 
-    return PremiumGlassPanel(
-      mode: GlassMode.tinted,
-      radius: Radii.pill,
-      padding: const EdgeInsets.all(GlassThemeSwitcher._pad),
-      elevated: false,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          AnimatedBuilder(
-            animation: _c,
-            builder: (context, _) => Align(
-              // Three segments, so the thumb's centre runs -1 .. 0 .. 1.
-              alignment: Alignment(-1 + _c.value.clamp(0.0, 2.0), 0),
-              child: FractionallySizedBox(
-                widthFactor: 1 / 3,
-                heightFactor: 1,
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(Radii.pill),
-                    color: glass.thumb,
-                    border: Border.all(
-                      color: AppTheme.hairlineColour(b, live: true),
-                      width: Dim.hairline,
+    // A well sunk into whatever it sits on — the fill every field in a panel
+    // has (GlassColors.wellFill) — with the chosen segment raised out of it
+    // (the settings polish, 26 Sep 2026). It was a raised glass pill with a
+    // raised thumb on it: by day a white thumb on a white track, told apart by
+    // its hairline alone.
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(Radii.pill),
+        color: widget.track ?? glass.wellFill,
+        border: Border.all(
+          color: dark ? glass.borderTop : glass.borderBottom,
+          width: Dim.hairline,
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(GlassThemeSwitcher._pad),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            AnimatedBuilder(
+              animation: _c,
+              builder: (context, _) => Align(
+                // Three segments, so the thumb's centre runs -1 .. 0 .. 1.
+                alignment: Alignment(-1 + _c.value.clamp(0.0, 2.0), 0),
+                child: FractionallySizedBox(
+                  widthFactor: 1 / 3,
+                  heightFactor: 1,
+                  // The chosen segment in the store's own words for a chosen
+                  // thing — a wash of gold under a champagne edge, as its
+                  // shelf keys wear — over the raised thumb's body, so the
+                  // choice reads as gold on both grounds without shouting.
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(Radii.pill),
+                      color: Color.alphaBlend(
+                        AppTheme.gold.withValues(alpha: dark ? 0.18 : 0.10),
+                        glass.thumb,
+                      ),
+                      border: Border.all(
+                        color: dark
+                            ? AppTheme.goldBright.withValues(alpha: 0.55)
+                            : AppTheme.hairlineColour(b, live: true),
+                        width: Dim.hairline,
+                      ),
+                      boxShadow: AppTheme.controlShadow(
+                        b,
+                        elevation: dark ? 1.5 : 2,
+                      ),
                     ),
-                    boxShadow: AppTheme.controlShadow(b, elevation: 2),
                   ),
                 ),
               ),
             ),
-          ),
-          Material(
-            type: MaterialType.transparency,
-            child: Row(
-              children: [
-                for (final m in _order)
-                  Expanded(
-                    child: _Segment(
-                      icon: labels[m]!.$1,
-                      label: labels[m]!.$2,
-                      selected: m == mode,
-                      compact: !words,
-                      onTap: () {
-                        tapHaptic(context);
-                        context.read<GameState>().setThemeMode(m);
-                      },
+            Material(
+              type: MaterialType.transparency,
+              child: Row(
+                children: [
+                  for (final m in _order)
+                    Expanded(
+                      child: _Segment(
+                        icon: labels[m]!.$1,
+                        label: labels[m]!.$2,
+                        selected: m == mode,
+                        compact: !words,
+                        onTap: () {
+                          tapHaptic(context);
+                          context.read<GameState>().setThemeMode(m);
+                        },
+                      ),
                     ),
-                  ),
-              ],
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -733,7 +768,15 @@ class _Segment extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final glass = GlassColors.of(context);
-    final colour = selected ? glass.textDisplay : glass.textMuted;
+    // The chosen word in champagne on its gold thumb, as the store's chosen
+    // shelf key is written; the other two in the body ink, not the quiet
+    // tier, which at white38 by night read as switched off rather than as
+    // two more choices (settings polish, 26 Sep 2026).
+    final colour = selected
+        ? (theme.brightness == Brightness.dark
+              ? AppTheme.goldBright
+              : AppTheme.goldDeep)
+        : glass.textBody;
 
     Widget body = InkWell(
       enableFeedback: soundOn(context),
@@ -743,23 +786,24 @@ class _Segment extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            AnimatedSwitcher(
+            // The colour crosses over as the thumb arrives, rather than a
+            // second glyph fading in over the first.
+            TweenAnimationBuilder<Color?>(
+              tween: ColorTween(end: colour),
               duration: Motion.base,
-              child: Icon(
-                icon,
-                key: ValueKey(selected),
-                size: 16,
-                color: colour,
-              ),
+              curve: Motion.standard,
+              builder: (context, ink, _) => Icon(icon, size: 16, color: ink),
             ),
             if (!compact) ...[
               const SizedBox(width: Space.xs),
               Flexible(
                 child: AnimatedDefaultTextStyle(
                   duration: Motion.base,
+                  curve: Motion.standard,
                   style: AppTheme.label(
                     theme.textTheme.labelMedium ?? const TextStyle(),
                     colour: colour,
+                    weight: selected ? FontWeight.w700 : FontWeight.w600,
                   ),
                   child: Text(
                     label,

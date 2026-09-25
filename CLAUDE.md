@@ -1740,10 +1740,10 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   (`showLuckyDraw`, a `showGeneralDialog` page risen from the foot like the store; `PopScope` holds it while the wheel turns): the
   owner's Lottie on the left (`LuckyWheel`, `assets/animations/Lucky Draw Spinner.json`), the six prizes two to a row on the right
   (slot number, the wallet's mark, "10 Lakh chips" / "4 hammers" / a picture's name / "No prize"), and the key: **SPIN NOW** · **SPINNING…**
-  (from the tap until the prize is shown, disabled) · **NEXT SPIN** over the clock (disabled); the header says "One free spin every 3
+  (from the tap until the prize is shown, disabled) · **NEXT FREE SPIN** over the clock (disabled; NEXT SPIN until the polish below); the header says "One free spin every 3
   days." **The client draws nothing**: the tap sends `POST /api/lucky-draw/spin` with a fresh uuid `actionId` (retried once with the
-  SAME id after a transport failure, as the missile trade is), the wheel does not move until the server answers, and then turns five
-  turns and on to the slot it named in **6 s along `LuckySpinCurve`** — its speed a smoothstep up to full over 1.5 s, full speed (under
+  SAME id after a transport failure, as the missile trade is), the wheel — since the polish below from the tap, until then only once the server had answered — turns five
+  turns and on to the slot the server named in **6 s along `LuckySpinCurve`** — its speed a smoothstep up to full over 1.5 s, full speed (under
   two turns a second) for 0.9 s, then (1 − x)³(1 + 3x) down over 3.5 s, a long creep to rest (owner, 24 Sep 2026, on the first cut,
   which left at full speed and slowed from the first frame: "not smooth … at least run for 5-6 seconds, slowly increase its speed and
   the end slowly reduce its speed") — a few degrees off centre (`luckyNudge`, looks only). The Lottie and the six badges are built
@@ -1764,6 +1764,41 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   wallet's mark in its ink, a picture as itself with "Yours for 50 days" (or "It is already yours…") and **Wear it** / **Use it**
   (`chooseAvatar`/`chooseTablePicture` — winning never puts it on); the empty slot says "Better luck next time!" with no fireworks.
   The wallet takes the spin's `user` at once and a picture prize re-reads the catalogues. 26 strings in all five languages.
+- **The Lucky Draw polish** (owner's brief, 26 Sep 2026: "make THIS design look significantly more polished, premium and
+  exciting while preserving the existing visual identity" — header, wheel left, six prizes right, key at the foot; presentation
+  only, the server still draws). The screen is split into `widgets/lucky_wheel.dart` (the geometry, the motion, `LuckyWheel`,
+  `LuckyWheelGlyph`), `lucky_prizes.dart`, `lucky_spin_key.dart` and `lucky_reveal.dart`, all re-exported by the screen. **The
+  wheel turns from the tap** (it waited for the answer until then): `LuckySpinMotion`, the `Simulation` of an unbounded
+  controller, gathers speed along `LuckySpinCurve`'s smoothstep (1.5 s) and holds full speed (641°/s, the curve's 5.5 turns in
+  6 s) until the server answers; `landOn` then picks the one moment to leave full speed from which the curve's run-down (3.6 s)
+  rests exactly on `luckySpinTarget` — five turns at least, one more per 360° a late answer costs — so the answer shows nowhere
+  in the turn, and a prompt one rests the wheel 5.7–6.3 s after the tap; a refusal or no answer (`stop`) runs it down from its
+  own speed (≥ 0.5 s) with no prize and gives the key back at rest. At rest the winning wedge lights in two beats to a resting
+  glow (`luckyWedgeLight`; warm gold — white read pink on the red wedges) and its tile swells, glows, pops its mark and takes one
+  shine while the others drop to half (`LuckyDrawScreen.litFor` 1.1 s) — the empty slot is only outlined, pale, and ringed in
+  grey: where the wheel stopped, not something won; the prize follows `revealAfter` (900 ms) later. The wheel stands ~10%
+  larger (the canvas window tightened to the art, 48..252 × 26..274, and 8dp of chrome given back: the rim 198.5 → 217.7dp at
+  640x360) over a stage it casts — a gold light round the rim that breathes (`Motion.breath`, ±16%) only while a free spin
+  waits, brighter while it turns and low while it recharges (`LuckyWheelLight`), the stand's shadow and, by day, the disc's
+  own; the file's cream needle and cap are left out (`luckyHubColour`) and drawn again in struck gold, outlined, shadowed,
+  under a domed cap with a glint. **The key** (`LuckySpinKey`, the one widget that watches the one-second tick; the
+  screen `select`s): SPIN NOW in `AppTheme.goldFace` with the wheel glyph, a gold bloom and `PressScale` (`LuckyGoldKey`);
+  SPINNING… and NEXT FREE SPIN (`luckyNextFreeSpin`) over the server's clock and an hourglass, on the plaque with a gold
+  hairline; FREE SPIN (`luckyFreeSpin`) tags the title while a spin is due. **The tiles** lead with the figure over the wallet's
+  word (`luckyPrizeParts` cuts both out of the one sentence per language, so "1 hammer"/"4 hammers" and a Bengali classifier
+  keep their grammar; one line where the tile is too short for two; the empty slot in the quieter label role), the mark in a
+  well tinted with its wallet's ink (`luckyPrizeInk`: gold, copper, blue, coral, a grey for the empty slot) that gives way to
+  the words on a narrow tile, the slot's number quiet in the top-left. **The page** is obsidian glass by night and the lobby's
+  card warmed to cream by day (on opaque white: the lobby ghosted through), gold along its top edge, at most 1040×640 on a
+  tablet. **The reveal** arrives from 0.9 and settles, its mark popping over a swelling gold light, the prize figure-first,
+  its action on the gold key and Close in neutral ink; the empty slot is a shrug —
+  "Better luck next time!" over "No prize", no fireworks, no overshoot. `test/lucky_draw_test.dart` (44: the motion millisecond
+  by millisecond for every answer time and slot, the wedge's beats, the hub's colours, the parts in all five languages, the
+  tile's two layouts, the gold key, tap to rest in ≈ 6 s with no jolt at the answer, the win lit in its tile alone before the
+  reveal, the empty slot's grey ring, refusals at once and mid-turn, the wait, the wheel's size, and 640x360 and 592x360 ×1.25
+  in all five languages with no tile's words cut); pictures by hand, `test/lucky_shots.dart` (every journey at 640x360,
+  891x411, 592x360, 915x412 and 1280x800, both themes, ×1.0 and ×1.25, and Hindi at 640x360 and 592x360;
+  `--dart-define=SHOTS_DIR=… ICON_FONT=…`, as `table_shots`).
 - **Table** (rebuilt around the felt on 10–11 Sep 2026 — `fb47ba4`, `b83b273`, `81a5981`; the bar
   across the foot and the cloth under it are both gone — a table came back under the seats on 24 Sep 2026, the casino
   table below — and the screenshots in `docs/play-store/` predate all of it). `_TableScreenState.build` **watches nothing** (a per-second Scaffold rebuild
@@ -2246,6 +2281,31 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   (it used to appear only at a showdown, so a sideshow the viewer won put the label on the loser).
 - **Per-frame clocks** (`LiquidFill`, `_SideshowCountdown`) compute from `deadlineMs -
   DateTime.now()` inside an `AnimationController` — never from the 1s tick. No clock-skew correction.
+- **The Settings drawer** (owner's brief, 26 Sep 2026: "Settings = premium + clean + calm + functional", some 20–30% of the
+  store's language; presentation only — every dialog and what every row does is as it was; the app is landscape-only, so the
+  brief's portrait case does not arise). `_LobbyDrawer`, which the Stats drawer shares, takes a fixed `head` (`_DrawerHead`: a
+  32dp mark, the title in titleMedium w700, a muted line that may take two lines and steps aside while the keyboard is up, the
+  close key) over a list that scrolls under an `EdgeFade`, on a body laid over its glass (`_DrawerBody`): the lobby cards'
+  charcoal by night (`GlassColors.dark.cardFill` — the bare glass was near-black over the dimmed room), the table room's pearl
+  by day (`TableGround.pearl` — it was grey milk-glass), lerped on the ground's lightness so the appearance control inside it
+  cross-fades it. Four named groups (`settingsProfile`, `settingsGameExperience`, `appearance`, `settingsAccount`; tracked
+  capitals in English only) under "Personalize your game experience" (`settingsSubtitle`): PROFILE — the portrait with a thin
+  gold ring (`_AvatarWithPip(ringed: true)`, the drawer's copy only), the name and language fields in one type on one well
+  (`_DrawerBody.well`, a warm stone by day), the language field naming the language in its own words alone
+  (`selectedItemBuilder`; "বাংলা · Bengali" was cut at ×1.25, the list keeps both names); GAME EXPERIENCE — one `_SettingsGroup`
+  pane: the number format as ONE row (the choice in gold, the player's own money under it, a chevron) that opens in place onto
+  the same two `_NumberOption` tiles (now in the store's gold for a chosen thing) and closes on a choice, `_SystemName` keeping
+  "Indian · Lakh, Crore" on one line where it fits and the units under the name where not, then `FeedbackToggles(grouped: true)`;
+  APPEARANCE; ACCOUNT — Privacy policy (an open-in-new mark), Sign out NEUTRAL (it was red beside Delete), and Delete my account
+  apart as the one red row; then the version, centred and muted, with the environment quieter after it off production
+  (`versionEnvironmentTag`). The switches are gold when on (`FeedbackSwitchStyle`: `AppTheme.goldFace`'s middle by night under a
+  charcoal thumb, its foot by day under a white one; off keeps 3:1) — in the table's menu drawer too, whose row geometry is
+  unchanged — and `GlassThemeSwitcher` is a sunk well (`track:`, optional) with the chosen segment in the store's gold wash and
+  champagne edge and the other two in the body ink, not white38 — on the login screen and the table drawer alike. The Stats
+  drawer's figure names may take two lines ("Total winn…" at ×1.25). `test/settings_drawer_test.dart` (640x360 ×1.25 in all five
+  languages: nothing cut short, the head in place at the list's end; the number format row; the switches; the appearance
+  control; Sign out and Delete still asking; the keyboard; the ring; the environment tag); pictures by hand,
+  `test/settings_shots.dart` (run like table_shots).
 - **Theme** ("Glassmorphic Premium", 11 Sep 2026): FlexColorScheme with explicit palettes (the "one seed"
   comment is stale) plus a `GlassColors` ThemeExtension (`theme/theme_colors.dart`) holding the glass
   tokens per brightness — **Obsidian** dark (ground `#0D0E12`→`#08080A`, fill white 0.04/0.08, border
@@ -2387,6 +2447,31 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   re-reads the catalogue (`owned` is per viewer) and wears it. The tick follows
   `user.activePictureId == p.id` — it used to compare the choice PATH to the picture's id, so
   nothing was ever ticked. `state.buyingPicture` puts a spinner on the one tile being bought.
+- **The picture shelves' tiles** (the store polish, 26 Sep 2026 — the brief's "EQUIPPED / OWNED / LOCKED: 🔒 Price, duration",
+  "IN USE", never by colour alone; presentation only, `picture_shelf.dart`/`table_picture_shelf.dart`). Every tile of the Pictures
+  shelf, the picker, the Animated shelf and the Tables shelf reads: picture (or preview), ONE `ShelfBadge`, name, small print. The
+  badge is **"✓ Wearing"** (`t.wearing`, the store head's `_WornTag` look: solid `AppTheme.gold`, ink900, champagne rim, `Radii.xs`)
+  on the worn picture and **"✓ In use"** on the laid table picture; **"✓ Owned"** (`pictureOwned`, new in all five languages) in the
+  scheme's green on everything the player can put on now — free pictures and the Flowing chips too; or the price as a small purchase
+  key (`PriceTag`: a pill washed and rimmed in the wallet's ink — `goldInk`, `diamondInkOn`, `hammerInkOn` — with a padlock on EVERY
+  price, the gem or hammer beside it, the figure in full ink; the hammer and gem used to replace the padlock). One height for all:
+  the label ramp's smallest step on ONE measured line (`ShelfBadge.lineHeightFor`: the language's badge words and figures together,
+  §12.3 — a price and "आपकी" stood 3dp apart), 12dp glyphs, scaled whole rather than cut on the narrowest tile at ×1.25.
+  `UnlockedTag` and `_InUseTag` (champagne on a pale wash — unreadable by day) are gone, and the term left the price pill: a
+  rental's term (`rentalTerm`, so "1 day", not "1 days") or the time left (`rentalTagLeft`) is `ShelfDetail`, quiet ink and a clock
+  under the name (it overflowed the tile as "42 मिनट बाकी" at 640x360 ×1.25). Names take the label ramp's natural case and
+  tracking (labelSmall on faces, labelMedium on tables; 10dp at 0.8 tracking before), two lines on both shelves (a table's one line
+  cut "Circle Background Patt…"). The ring or frame agrees with the badge: `shelfGoldOn` (`goldInk` — the champagne ring vanished by
+  day) and a still `shelfGlow` on the worn/laid one, `shelfOwnedLine` (primary at 0.7) round everything owned, the hairline round
+  the rest; locked pictures stay at full colour. `ShelfGrid` sets whole columns in a centred block with every row — the last too —
+  starting at its left edge (a centred `Wrap` set a short last row between the columns), rows `Space.lg` apart; `ShelfTileEntrance`
+  fades and lifts each tile once (keyed by id; `Motion.enter`, `Motion.stagger` a beat capped at 6, no timers);
+  `ShelfBadgeSwitcher` crosses a tile's badge over when it changes kind (a purchase), with the store's fade and 0.985 scale;
+  `PressScale` is off while a tile is being bought. `test/picture_shelf_states_test.dart` (every state and its words, glyphs,
+  rings and small print on both shelves, the Flowing chips in use, the columns, the entrance, the cross-over, and at 640x360 ×1.25
+  in all five languages, both themes, store, picker and the Animated shelf: every word inside its tile, names uncut, badges one
+  height and never scaled below 85%); `hammer_pictures_test` now finds the padlock on every price and the term under the name.
+  Pictures: `test/picture_shelf_shots.dart` (by hand, like table_shots).
 - **The Tables tab** (`StoreTab.tables`, owner 15 Sep 2026; `widgets/table_picture_shelf.dart`): the sixth store shelf sells the
   cloths a player lays on their OWN table. Each tile (`TablePictureChoice`, the pack cards' width, wider than tall) shows the pair
   split down the middle — the day file on the left, the night file on the right (`TablePicturePreview`, a sun and a moon in the
@@ -2430,6 +2515,37 @@ clock (4, 8, 16 s, then every 30 s) by both the backdrop and `CachedPictureBox`,
   `test/store_header_scripts_test.dart` opens every shelf at 640x360 in all five languages at x1.0 and x1.25 with the Noto
   fallback. The Pictures blurb names every wallet a picture sells for ("chips, hammers or diamonds"; the Animated shelf at
   a table "hammers or diamonds"), since five pictures cost diamonds. `_loadPictures` loads both catalogues; the lobby rental watch covers a laid premium table too.
+- **The store polish** (owner's brief, 26 Sep 2026: "a UI POLISH task, NOT a complete redesign"; `widgets/chip_store.dart`,
+  presentation only — no price, pack, mark, purchase or trade path changed; the picture and table TILES are not part of it).
+  **One product card**, `_StoreProductCard`, for every pack of the Chips, Diamonds, Hammers and Missiles shelves and the Premium
+  Packages (`_PackCard`, `_PremiumPackCard`, `_CountPackCard` are thin wrappers now): a badge slot kept on every card so a row's
+  figures stand level, the product's icon and figure, the secondary lines, the purchase key, every size from one scale on the
+  card's box (`_CardMetrics`). **One figure size a shelf** (`_fitFigures`: the largest at which the shelf's widest figure fits
+  beside its icon — "12 Crore" was set larger than "5.28 Crore" beside it), the largest type on the card. **A badge only where the
+  owner marked the pack** (`_StoreBadge`: ⭐ POPULAR, 🔥 BEST VALUE, PREMIUM and the Premium Package filled in the card's colour,
+  STARTER outlined, the chip shelf's marks now wearing `shelfMarkGlyph` too); an unmarked chip pack said its bonus on a plate and
+  under its figure, an unmarked count pack its wallet's name twice, and the plate's poker chip sat on DIAMONDS. **The glow** is one
+  soft orb, 0.54 of the card's side at 0.50 by night and 0.38 by day (a 0.62 orb at 0.62/0.46 over a sharp twin at 1.0/0.9), in the
+  card's top right corner and clipped by it — the twin spilled past every card's right edge as a hard crescent. **The purchase
+  key** (`_PriceButton`) is a raised key rimmed in the STORE's ink (`AppTheme.goldInk`, `diamondInkOn`, `hammerInkOn`,
+  `missileInkOn`) with a filled arrow disc and the price in full ink, where the grey glass capsule read as switched off by day; the
+  card presses to 0.97 (`PressScale`; 0.955 on its own scale before) and lights the key under the finger. **The grid fills its
+  row** (`_ShelfGeometry`: columns at `Dim.packW`, widened — 186×159dp at 640x360 where 140×147 stood centred with 95dp empty either
+  side, the figure 26.5px where a card-by-card fit left about 17), near square where the body allows and never over 80% of it, so
+  the next row always shows; the row cut by the sheet's foot fades (`EdgeFade`, the pack shelves only: over the Pictures and
+  Tables shelves' Lotties a mask is an offscreen pass every frame), and the Tables shelf keeps `Dim.packW` tiles. **The shelf
+  keys** are 44dp circles (they took the header's height — 44×69dp capsules on a two-line header), the one on lit gold inside and
+  rimmed, the others drawn to 0.92 on a faint well, every change animated; a cut strip stops on whole keys (`_revealTab`: the least
+  scroll that shows the key on; it jumped to a share of its length, leaving half-keys) and fades 6dp where more lie past it. The
+  shelf's glyph, title (w700) and blurb, and the shelf itself, fade in with a 0.985 scale; a card rises 14dp (26); the grab handle
+  is the resting hairline; the Pictures and Tables glyph is `goldDeep` by day (champagne vanished on the light sheet). **The
+  Pictures head** (`_PicturesHead`): the worn picture, "Your picture", its name and `_WornTag` — "✓ Wearing · 7d left" struck in
+  solid gold — between the two menus, 57dp tall on a 640x360 phone where the 96dp portrait took 105 of a 206dp shelf. Tests:
+  `test/store_polish_test.dart` (the circles, whole keys, row fill, one figure size and the hierarchy, badges, the orb, the key,
+  0.97, the head in five languages, every word inside its card at 640x360 ×1.25 with the Noto fonts); `store_chips`/`hammers`/
+  `missiles_test` updated (the strip's hammer found in the strip, no unmarked plates). Pictures: `test/store_shots.dart` — every
+  shelf, the store at a table, the picker, at 640x360, 891x411, 592x360, 915x412 and 1280x800, both themes, ×1.0 and ×1.25, and
+  Hindi, emoji drawn from Noto Color Emoji — by hand, like table_shots.
 - **`Avatar` has two different fallbacks and the difference is deliberate.** No picture at all → the
   player's initial, which still says whose seat it is. A picture that was supposed to load and did
   not (a retired file, a dead Google URL, a phone that lost the network) → `assets/default_avatar.svg`,

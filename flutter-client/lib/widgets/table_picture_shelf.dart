@@ -486,7 +486,8 @@ class _DefaultPreview extends StatelessWidget {
       fit: StackFit.expand,
       children: [
         const _SplitGround(),
-        // The real thing, at the strength the table draws it.
+        // The real thing, stronger than the room draws it now
+        // (TableAmbient.roomChips), so a few chips still read on a tile.
         const IgnorePointer(child: DriftingChips(strength: 2.6)),
         Positioned(
           left: Space.xs,
@@ -549,37 +550,47 @@ Widget tablePictureShelf({
   final laid = state.user?.activeTablePictureId;
   return Padding(
     padding: const EdgeInsets.only(bottom: Space.md),
-    child: Wrap(
-      alignment: WrapAlignment.center,
-      spacing: Space.md,
-      runSpacing: Space.md,
+    child: ShelfGrid(
+      tileWidth: width,
       children: [
-        TablePictureChoice.flowingChips(
-          width: width,
-          selected: laid == null,
-          onTap: () => state.chooseTablePicture(null),
-        ),
-        for (final p in pictures)
-          TablePictureChoice(
-            picture: p,
+        ShelfTileEntrance(
+          key: const ValueKey('flowing-chips'),
+          index: 0,
+          child: TablePictureChoice.flowingChips(
             width: width,
-            selected: laid == p.id,
-            busy: state.buyingTablePicture == p.id,
-            // A locked table asks to be bought; an owned one is laid. There is
-            // no "already unlocked" stop here as the face shelf has: the tile
-            // carries the time left, and laying a table costs nothing.
-            onTap: () => p.locked
-                ? unlockTablePicture(context, p, openStore: openStore)
-                : state.chooseTablePicture(p.id),
+            selected: laid == null,
+            onTap: () => state.chooseTablePicture(null),
+          ),
+        ),
+        for (final (i, p) in pictures.indexed)
+          ShelfTileEntrance(
+            key: ValueKey(p.id),
+            index: i + 1,
+            child: TablePictureChoice(
+              picture: p,
+              width: width,
+              selected: laid == p.id,
+              busy: state.buyingTablePicture == p.id,
+              // A locked table asks to be bought; an owned one is laid. There
+              // is no "already unlocked" stop here as the face shelf has: the
+              // tile carries the time left, and laying a table costs nothing.
+              onTap: () => p.locked
+                  ? unlockTablePicture(context, p, openStore: openStore)
+                  : state.chooseTablePicture(p.id),
+            ),
           ),
       ],
     ),
   );
 }
 
-/// One tile of the Tables shelf: the split preview, the name, and the tag
-/// that says what tapping it does — a price, the time left, or that it is the
-/// one in use.
+/// One tile of the Tables shelf (the store polish, 26 Sep 2026: "the preview
+/// should be the primary focus"): the split preview, as wide as the tile and
+/// framed by the one line that says its state in colour; under it the shelf's
+/// badge — "In use" on the table's own picture, "Owned", or the padlock and
+/// the price — the name, and the small print: a rental's term, the time left
+/// on one, or what the default is. Built as the picture shelf's tile is, so
+/// the two shelves read as one store.
 class TablePictureChoice extends StatelessWidget {
   const TablePictureChoice({
     super.key,
@@ -606,6 +617,14 @@ class TablePictureChoice extends StatelessWidget {
   final bool busy;
   final VoidCallback onTap;
 
+  /// The preview's height for a tile [width] wide: a table, wider than tall,
+  /// the felt's own proportions.
+  static double previewHeightFor(double width) => width * 0.56;
+
+  /// The frame round the preview: its line, and the room between the line
+  /// and the picture.
+  static const double _frameGap = 2;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -613,24 +632,51 @@ class TablePictureChoice extends StatelessWidget {
     final t = state.t;
     final p = picture;
     final locked = p?.locked ?? false;
-    // The tile is a table: wider than tall, the felt's own proportions.
-    final previewH = width * 0.56;
-    final ring = selected
-        ? AppTheme.goldBright
-        : (p != null && !p.free && !locked)
-        ? theme.colorScheme.primary
-        : AppTheme.hairlineColour(theme.brightness);
+    final previewH = previewHeightFor(width);
+    final gold = shelfGoldOn(theme.brightness);
+
+    // The frame says what the badge says, in colour: gold round the table's
+    // own picture, green round every one the player can lay now — the
+    // default, a free one, one bought and still running — and the hairline
+    // round the rest. The laid one's frame is heavier.
+    final kind = locked
+        ? ShelfBadgeKind.locked
+        : selected
+        ? ShelfBadgeKind.equipped
+        : ShelfBadgeKind.owned;
+    final (Color frame, double frameWidth) = switch (kind) {
+      ShelfBadgeKind.equipped => (gold, 2.5),
+      ShelfBadgeKind.owned => (shelfOwnedLine(theme), 1.5),
+      ShelfBadgeKind.locked => (AppTheme.hairlineColour(theme.brightness), 1.5),
+    };
+    // The picture's corners run parallel to the frame's.
+    final inner = Radii.md - frameWidth - _frameGap;
 
     final Widget preview = p == null
-        ? _DefaultPreview(radius: Radii.md - 2)
+        ? _DefaultPreview(radius: inner)
         : TablePicturePreview(
             dayUrl: state.absoluteUrl(p.dayUrl) ?? '',
             nightUrl: state.absoluteUrl(p.nightUrl) ?? '',
             format: p.assetFormat,
-            radius: Radii.md - 2,
+            radius: inner,
           );
 
+    final Widget badge = p != null && locked
+        ? PriceTag(cost: p.cost, currency: p.currency)
+        : ShelfBadge(
+            kind: kind,
+            label: selected ? t.tableInUse : t.pictureOwned,
+          );
+    // The small print: the default says what it is; a rental its term, or
+    // what is left of it on the one the player holds.
+    final String? detail = p == null
+        ? t.tableDefaultHint
+        : locked
+        ? (p.rented ? t.rentalTerm(p.durationDays, p.durationHours) : null)
+        : rentalTagLeft(t, p.expiresAt, DateTime.now());
+
     return PressScale(
+      enabled: !busy,
       child: InkWell(
         enableFeedback: context.select<FeedbackSettings, bool>((f) => f.sound),
         onTap: busy ? null : onTap,
@@ -641,20 +687,27 @@ class TablePictureChoice extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              Container(
+              AnimatedContainer(
+                duration: Motion.base,
+                curve: Motion.standard,
                 height: previewH,
-                padding: const EdgeInsets.all(2),
+                padding: const EdgeInsets.all(_frameGap),
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(Radii.md),
-                  border: Border.all(color: ring, width: selected ? 2.5 : 1.5),
+                  border: Border.all(color: frame, width: frameWidth),
                   boxShadow: [
                     BoxShadow(
                       color: AppTheme.shadowFor(theme.brightness).withValues(
-                        alpha: theme.brightness == Brightness.dark ? 0.45 : 0.16,
+                        alpha: theme.brightness == Brightness.dark
+                            ? 0.45
+                            : 0.16,
                       ),
                       blurRadius: 6,
                       offset: const Offset(0, 2),
                     ),
+                    // The table's own picture stands in a soft gold light: a
+                    // still one, as on the picture shelf.
+                    if (selected) ...shelfGlow(gold, theme.brightness),
                   ],
                 ),
                 child: Stack(
@@ -675,91 +728,30 @@ class TablePictureChoice extends StatelessWidget {
                   ],
                 ),
               ),
+              const SizedBox(height: Space.sm),
+              ShelfBadgeSwitcher(kind: kind, child: badge),
               const SizedBox(height: Space.xs),
-              if (!busy && selected)
-                _InUseTag(label: t.tableInUse)
-              else if (!busy && p != null && locked)
-                PriceTag(
-                  cost: p.cost,
-                  currency: p.currency,
-                  days: p.rented ? p.durationDays : null,
-                  hours: p.durationHours,
-                )
-              else if (!busy && p != null && !p.free)
-                UnlockedTag(expiresAt: p.expiresAt),
-              if (!busy && (selected || (p != null && (locked || !p.free))))
-                const SizedBox(height: Space.xxs),
+              // Two lines, as on the picture shelf: one cut "Circle
+              // Background Pattern" to "Circle Background Patt…" on a 640dp
+              // phone.
               Text(
                 p?.name ?? t.tableDefault,
-                maxLines: 1,
+                maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 textAlign: TextAlign.center,
-                style: theme.textTheme.labelSmall?.copyWith(
-                  fontSize: 10,
-                  height: 1.1,
-                  color: theme.colorScheme.onSurface.withValues(
-                    alpha: selected ? AppTheme.inkHigh : AppTheme.inkMed,
-                  ),
-                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                style: shelfNameStyle(
+                  theme,
+                  theme.textTheme.labelMedium,
+                  selected: selected,
                 ),
               ),
-              if (p == null)
-                Text(
-                  t.tableDefaultHint,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.center,
-                  style: theme.textTheme.labelSmall?.copyWith(
-                    fontSize: 9,
-                    height: 1.1,
-                    color: theme.colorScheme.onSurface.withValues(
-                      alpha: AppTheme.inkLow,
-                    ),
-                  ),
-                ),
+              if (detail != null) ...[
+                const SizedBox(height: Space.xxs),
+                ShelfDetail(text: detail, time: p != null),
+              ],
             ],
           ),
         ),
-      ),
-    );
-  }
-}
-
-/// The mark on the tile whose picture is on the table now, in the price tag's
-/// shape so the eye reads the swap.
-class _InUseTag extends StatelessWidget {
-  const _InUseTag({required this.label});
-
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: Space.xs,
-        vertical: Space.xxs,
-      ),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(Radii.pill),
-        color: AppTheme.gold.withValues(alpha: 0.18),
-        border: Border.all(color: AppTheme.goldBright.withValues(alpha: 0.55)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(Icons.check_rounded, size: 9, color: AppTheme.goldBright),
-          const SizedBox(width: 2),
-          Text(
-            label,
-            style: theme.textTheme.labelSmall?.copyWith(
-              color: AppTheme.goldBright,
-              fontWeight: FontWeight.w700,
-              fontSize: 9,
-              height: 1.1,
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -794,7 +786,8 @@ Future<void> unlockTablePicture(
   final t = state.t;
   final theme = Theme.of(context);
 
-  if (state.screen == Screen.table && picture.currency == PictureCurrency.coin) {
+  if (state.screen == Screen.table &&
+      picture.currency == PictureCurrency.coin) {
     state.say(t.tableChipsLobbyOnly);
     return;
   }
@@ -805,7 +798,8 @@ Future<void> unlockTablePicture(
   };
   Widget offer() => SizedBox(
     width: (MediaQuery.sizeOf(context).height * 0.42).clamp(160.0, 300.0),
-    height: (MediaQuery.sizeOf(context).height * 0.42).clamp(160.0, 300.0) * 0.56,
+    height:
+        (MediaQuery.sizeOf(context).height * 0.42).clamp(160.0, 300.0) * 0.56,
     child: TablePicturePreview(
       dayUrl: state.absoluteUrl(picture.dayUrl) ?? '',
       nightUrl: state.absoluteUrl(picture.nightUrl) ?? '',

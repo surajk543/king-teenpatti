@@ -209,8 +209,12 @@ void main() {
     }
     expect(find.text('⭐ POPULAR'), findsOneWidget);
     expect(find.text('🔥 BEST VALUE'), findsOneWidget);
-    // The two unmarked packs carry the shelf's name on their plate.
-    expect(find.text('HAMMERS'), findsNWidgets(2));
+    // Only the packs the owner marked wear a badge (store polish, 26 Sep
+    // 2026: "do not make every card visually compete for attention"); the
+    // two unmarked ones carried the shelf's name on a plate as well as under
+    // their count. Every pack names the wallet under its count.
+    expect(find.text('HAMMERS'), findsNothing);
+    expect(find.text('Hammers'), findsNWidgets(hammerPacks.length));
 
     await _closeStore(tester);
     state.dispose();

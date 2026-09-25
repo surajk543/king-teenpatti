@@ -177,11 +177,15 @@ void main() {
         // A header that no longer fits reports a RenderFlex overflow.
         expect(tester.takeException(), isNull);
 
-        // The Hammers key: the tab strip's 18dp hammer, not the small ones on
-        // the Premium Packages' cards. The strip may be cut and scrolling on
-        // this phone, so bring it in first.
-        final hammersKey = find.byWidgetPredicate(
-          (w) => w is Icon && w.icon == Icons.hardware && w.size == 18,
+        // The Hammers key: the tab strip's hammer, not the small ones on the
+        // Premium Packages' cards (found by the strip, since its glyphs grew
+        // from 18 to 20dp in the store polish of 26 Sep 2026). The strip may
+        // be cut and scrolling on this phone, so bring it in first.
+        final hammersKey = find.descendant(
+          of: find.byWidgetPredicate(
+            (w) => w.runtimeType.toString() == '_StoreTabs',
+          ),
+          matching: find.byIcon(Icons.hardware),
         );
         expect(hammersKey, findsOneWidget);
         await tester.ensureVisible(hammersKey);

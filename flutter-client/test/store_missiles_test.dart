@@ -196,10 +196,13 @@ void main() {
     ]) {
       expect(find.text(gone), findsNothing, reason: gone);
     }
-    // A single missile is named in the singular, on its plate and under its
-    // figure.
-    expect(find.text('MISSILES'), findsNWidgets(3));
-    expect(find.text('MISSILE'), findsOneWidget);
+    // A single missile is named in the singular under its figure. No pack
+    // on this shelf is marked, so none wears a badge (store polish, 26 Sep
+    // 2026: a badge is for a pack the owner marked; the plates repeated the
+    // wallet's name the line under the figure already gives).
+    expect(find.text('MISSILES'), findsNothing);
+    expect(find.text('MISSILE'), findsNothing);
+    expect(find.text('Missiles'), findsNWidgets(3));
     expect(find.text('Missile'), findsOneWidget);
 
     await _close(tester, state, feedback);
