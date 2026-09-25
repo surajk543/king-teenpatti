@@ -161,10 +161,14 @@ void main() {
 
           // A pot of crores: as wide as the fifth allows, and no wider — once
           // the flare of its chips landing (a brief 3.5% swell) has passed.
+          // The flare waits for the chip to come down on the pile (26 Sep
+          // 2026, BetFlights.landsAt), so it has passed 1.16 s after the bet
+          // — here, where a frame is drawn only at the end of each pump, a
+          // flare's 620 ms after the frame that follows the landing.
           state.handleState(seenTurnRoom(pot: 999999999));
           await tester.pump();
           await tester.pump(const Duration(milliseconds: 900));
-          await tester.pump(const Duration(milliseconds: 100));
+          await tester.pump(const Duration(milliseconds: 800));
           expect(tester.takeException(), isNull, reason: label);
           final big = tester.getRect(_private('_Pot'));
           expect(

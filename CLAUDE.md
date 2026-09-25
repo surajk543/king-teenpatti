@@ -2128,6 +2128,34 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   ring, the poker felt's own pot bar. `test/table_final_polish_test.dart` (in Inter: the test font's em-wide glyphs overflow a
   real pot), the brief's two other hands in `premium_cards_test.dart`, scenes 33 (6♠ 8♦ Q♥), 34 (K♣ 2♣ 7♠) and 35 (a sideshow
   waiting on its answer).
+- **The end of a hand and the coin flow** (owner, 26 Sep 2026: "check winner animation and coin flow, make it smooth";
+  presentation only — no rule, server timing, wire or GameState change). **Bets**: `_BetFlights` (now `BetFlights`,
+  `widgets/pot_flight.dart`, one painter through `PokerChipBrush`) stamped each chip with the time its ticker had reached when it
+  last stopped, while the ticker restarted from nought — every bet after the first at a table flashed a frame at its seat and left
+  0.64 s later than the one before (1.28, 1.9 s …, the next hand's boots too); its clock now only moves forward, a chip rises in at
+  its seat, a switch flies nothing, and the pot's flare and the pile's lift wait for the chip to come down on the PILE, where bets
+  now land (`BetFlights.landsAt` 540 ms; the figure still counts from the bet). **The celebration** runs off one clock in
+  `_FeltState` (`_Party`, `WinnerTiming`) from the frame after `game:handEnded` names the winner — nothing on `game:showdown`, where
+  the fireworks used to go up over the middle of the felt and jump to the winner, grown, a moment later: the fireworks at once (with
+  `TurnBuzzer`'s win sound), then at the RESULT, once the hands shown down have turned (`WinnerTiming.turnOf`: 520 ms for three
+  cards, 620 for five; at once when none was), the ribbon's strike (the pod's "Winner" tag fading in with it) and the pot off its
+  pile onto the winner's stack pill (`PotFlight.progress`; the poker felt's flight keeps its own clock) — the plinth holds the whole
+  pot until the chips set off and falls as they leave (`PotFlight.leftAt`), the stack holds until the first lands (720 ms after the
+  result) and rises with them (`landedAt`, `SeatPod.stackLanding`), each through `LiveFigure`, rebuilt only when the words change;
+  they used to count the plinth to nought in 550 ms and jump the stack before a chip had moved. `FireworksArt` parses the file when
+  the table opens (11–95 ms, on the first win's frame before) and a painter draws it at the screen's rate (`FrameRate.max`; the
+  `Lottie.asset` stepped at 30 fps). The celebration's Positioned is keyed: the missile volley leaving the Stack 80 ms after the
+  reveal (or a 5-Card verdict timing out) had rebuilt it from nothing, restarting the fireworks and the pot. The shine crosses and
+  comes back (`winnerShine`, `repeat(reverse)`, the band slid, not its stops pinned) — it flipped the word from deep gold to bright
+  every 2.2 s (231/255 in one frame; 10 now) — and strike and shine are set by render objects (`_StrikeScale`, `_ShineMask`), not
+  rebuilt. **The whole screen repainted every frame**: a rebuild inside the felt's LayoutBuilder lays the builder out again, and
+  the pot's breathing glow (an AnimatedBuilder round the plate) rebuilt every frame, which, the felt being loosely constrained,
+  relaid out and re-recorded the table screen — rail, keys, the viewer's hand — for as long as the table was open. The felt is now a
+  relayout and repaint boundary (same size), the glow a painter on its own layer (`_PotGlowPainter`), the room's `DriftingChips`
+  behind a boundary at the table: idle and through the celebration's tail the felt's and the screen's layers are re-recorded in 0
+  of 30 frames (59 of 60 before). `test/winner_flow_test.dart`; pictures by hand, `test/winner_shots.dart` (the sequence frame by
+  frame, `<run>_t<ms>.png`, 640x360 and 891x411 both themes, key frames at 592x360, 915x412, ×1.25 and Hindi; fixture
+  `test/winner_scenes.dart`); `table_final_polish_test` now waits for the flare fired at the landing.
 - **Variation tables** (owner, 18 Sep 2026; server side §6.1/§6.4). Everything is drawn from `room:state.variation`
   (`VariationState` in `dtos.dart`; `GameState.variation`, `variationSelecting`, `variationIsMine`, `shownVariation`,
   `shownTurnUp`) — the two `game:variation*` events only say the same thing a moment sooner, so a reconnect mid-window

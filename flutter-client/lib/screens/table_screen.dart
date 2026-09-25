@@ -164,7 +164,18 @@ class _TableScreenState extends State<TableScreen> {
                   child: Row(
                     children: [
                       _SideRail(onOpen: _open),
-                      const Expanded(child: _Felt()),
+                      // A boundary of both kinds, the felt's own size (its
+                      // Stack fills the room it is given). A rebuild inside
+                      // the felt's LayoutBuilder lays the builder out again,
+                      // and loosely constrained that layout ran up to the
+                      // Scaffold and repainted the whole table screen —
+                      // rail, keys and all — every frame something on the
+                      // felt moved: during a celebration, every frame.
+                      const Expanded(
+                        child: RepaintBoundary(
+                          child: SizedBox.expand(child: _Felt()),
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -316,9 +327,17 @@ class _ChipsUntilDrawableState extends State<_ChipsUntilDrawable> {
   @override
   Widget build(BuildContext context) {
     final shown = widget.url != null && _drawable == widget.url;
+    // In a layer of its own from the outside too (26 Sep 2026): the chips'
+    // LayoutBuilder is laid out again on every frame they move, and laying a
+    // render object out marks it to be painted — which, with no boundary above
+    // it, re-recorded the whole table screen every frame, the winner's
+    // celebration included. The boundary inside DriftingChips sits below the
+    // LayoutBuilder and could not stop it.
     return shown
         ? const SizedBox.shrink()
-        : const DriftingChips(strength: TableAmbient.roomChips);
+        : const RepaintBoundary(
+            child: DriftingChips(strength: TableAmbient.roomChips),
+          );
   }
 }
 
@@ -631,6 +650,16 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
     podW,
   );
 
+  /// The middle of the pot's pile in the felt's coordinates, as the felt was
+  /// last laid out, or [fallback] before it has been.
+  Offset _pileIn({required Offset fallback}) {
+    final stage = _stageKey.currentContext?.findRenderObject();
+    final pile = _pileKey.currentContext?.findRenderObject();
+    if (stage is! RenderBox || !stage.hasSize) return fallback;
+    if (pile is! RenderBox || !pile.attached || !pile.hasSize) return fallback;
+    return pile.localToGlobal(pile.size.center(Offset.zero), ancestor: stage);
+  }
+
   /// One key per place, naming that place's pod. A column's middle is known
   /// from the [SeatRing], but where the pod sits in it depends on everything
   /// under it — cards, a hand name, a bet — so the hammer is aimed at the pod
@@ -673,20 +702,176 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
   /// clock; null when none is, or once its buzz has gone.
   double? _buzzAt;
 
+  /// Where each place's stack is shown on its pod, by view index — where the
+  /// pot's chips land on the winner, so their stack rises under the chips.
+  final List<GlobalKey> _stackKeys = List.generate(
+    SeatRing.maxSeats,
+    (i) => GlobalKey(debugLabel: 'stack $i'),
+  );
+
+  /// The pile on the pot's plinth: where the bets land and the pot leaves
+  /// from, clear of the figure beside it.
+  final GlobalKey _pileKey = GlobalKey(debugLabel: 'pile');
+
+  /// The celebration's clock (see [WinnerTiming]). Created by the first win,
+  /// never in advance and never by [dispose] (CLAUDE.md §12.3).
+  AnimationController? _partyClock;
+
+  /// The celebration being followed — the table, the hand and its winner —
+  /// from the frame the result is known; and, once its clock is running, the
+  /// celebration itself. Between the two (one frame) everything it will move
+  /// holds still: the ribbon unstruck, the pot and the winner's stack as they
+  /// stood.
+  String? _partyKey;
+  _Party? _party;
+
+  /// The hand whose reveal is on the table, and the frame it arrived on: the
+  /// hands it turned over are still turning for [WinnerTiming.turnOf] after
+  /// that.
+  String? _revealKey;
+  Duration _revealAt = Duration.zero;
+  int _revealCards = 3;
+
+  /// The frame being built, on the clock the animations run on.
+  static Duration get _frameTime =>
+      SchedulerBinding.instance.currentSystemFrameTimeStamp;
+
   @override
   void initState() {
     super.initState();
-    // Parsed while the table opens, so the first hammer or missile is not the
-    // thing that waits for it.
+    // Parsed while the table opens, so the first hammer, missile or win is
+    // not the thing that waits for it: the fireworks used to be read and
+    // parsed from the bundle on the frame of the first win of a sitting, and
+    // went up a beat late, over a stall.
     unawaited(HammerArt.load());
     unawaited(MissileArt.load());
+    unawaited(FireworksArt.load());
   }
 
   @override
   void dispose() {
     _hammer?.dispose();
     _missile?.dispose();
+    _partyClock?.dispose();
     super.dispose();
+  }
+
+  /// Keeps the felt on the celebration [GameState] is showing, as [_follow]
+  /// does for the hammer: a result that has just arrived is launched after
+  /// this frame, and a celebration that has gone (the next deal) is dropped
+  /// at once.
+  ///
+  /// Nothing starts on the reveal: `game:showdown` turns the cards over and
+  /// the winner is only named by `game:handEnded` a moment later. The
+  /// fireworks used to go up over the middle of the felt on the first and
+  /// jump to the winner, grown, on the second.
+  void _followCelebration(GameState state, RoomState room) {
+    final showing =
+        state.showdown.isNotEmpty || state.showdownResult.isNotEmpty;
+    if (!showing) {
+      _revealKey = null;
+      if (_partyKey != null) {
+        _partyKey = null;
+        _party = null;
+        // Stopped, not reset: nothing listens to it once this build is done.
+        _partyClock?.stop();
+      }
+      return;
+    }
+    final hand = '${room.roomId}:${room.handNo}';
+    if (state.showdown.isNotEmpty && _revealKey != hand) {
+      _revealKey = hand;
+      _revealAt = _frameTime;
+      _revealCards = state.showdown.fold(
+        3,
+        (most, reveal) => math.max(most, reveal.cards.length),
+      );
+    }
+    final winner = state.winnerId;
+    if (winner == null) return;
+    final key = '$hand:$winner';
+    if (key == _partyKey) return;
+    _partyKey = key;
+    _party = null;
+    // The result lands once the hands shown down have turned over — at once
+    // when nothing was (everyone else packed) or they turned long ago.
+    var resultAt = Duration.zero;
+    if (_revealKey == hand) {
+      final turning =
+          WinnerTiming.turnOf(_revealCards) - (_frameTime - _revealAt);
+      if (turning > Duration.zero) resultAt = turning;
+    }
+    final winnerView = state.seatsInViewOrder().indexWhere(
+      (seat) => seat?.userId == winner,
+    );
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _launchParty(
+        key,
+        resultAt: resultAt,
+        winnerView: winnerView < 0 ? null : winnerView,
+      ),
+    );
+  }
+
+  /// Starts the celebration: the fireworks at once, then — at [resultAt] —
+  /// the WINNER ribbon and the pot off its pile onto the winner's stack,
+  /// all off one clock, so the plinth's figure falls as the chips leave and
+  /// the stack rises as they land.
+  void _launchParty(String key, {required Duration resultAt, int? winnerView}) {
+    if (!mounted || key != _partyKey) return;
+
+    // Where the chips leave from and land, as the felt was laid out a frame
+    // ago; the pot's middle and the winner's seat stand in if either was not.
+    Offset? pile;
+    Offset? stack;
+    final stage = _stageKey.currentContext?.findRenderObject();
+    if (stage is RenderBox && stage.hasSize) {
+      Offset? centreOf(GlobalKey key) {
+        final box = key.currentContext?.findRenderObject();
+        if (box is! RenderBox || !box.attached || !box.hasSize) return null;
+        return box.localToGlobal(box.size.center(Offset.zero), ancestor: stage);
+      }
+
+      pile = centreOf(_pileKey);
+      if (winnerView != null && winnerView < _stackKeys.length) {
+        stack =
+            centreOf(_stackKeys[winnerView]) ?? centreOf(_podKeys[winnerView]);
+      }
+    }
+
+    final burst = FireworksArt.composition?.duration ?? WinnerTiming.burst;
+    final total = WinnerTiming.total(resultAt, burst: burst);
+    final clock = _partyClock ??= AnimationController(vsync: this);
+    clock.duration = total;
+    double share(Duration at) => at.inMicroseconds / total.inMicroseconds;
+    setState(() {
+      _party = _Party(
+        clock: clock,
+        total: total,
+        pile: pile,
+        stack: stack,
+        flight: clock.drive(
+          CurveTween(
+            curve: Interval(share(resultAt), share(resultAt + PotFlight.total)),
+          ),
+        ),
+        strike: clock.drive(
+          CurveTween(
+            curve: Interval(
+              share(resultAt),
+              share(resultAt + WinnerTiming.strike),
+            ),
+          ),
+        ),
+        left: clock.drive(
+          _Shaped((v) => PotFlight.leftAt(total * v - resultAt)),
+        ),
+        landed: clock.drive(
+          _Shaped((v) => PotFlight.landedAt(total * v - resultAt)),
+        ),
+      );
+    });
+    clock.forward(from: 0);
   }
 
   /// Keeps the felt on the volley [GameState] is showing, as [_follow] does
@@ -831,6 +1016,7 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
 
     final room = state.room;
     if (room == null) return const Center(child: CircularProgressIndicator());
+    _followCelebration(state, room);
 
     final seats = state.seatsInViewOrder();
     // The viewer's own showdown reveal, if the hand got that far.
@@ -878,6 +1064,11 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
         winnerSeat = seat.seatIndex;
       }
     }
+    // Whether the pot crosses the table to them: from the moment the result
+    // is known the plinth and the winner's stack are the celebration's, and
+    // show what the chips in the air say rather than the settled table.
+    final pays = _partyKey != null && winnerSeat != null && state.winnerPot > 0;
+    final party = _party;
 
     // A hand is on the table until the celebration for it has finished, not
     // just until the server stops dealing — the seats keep their bets and
@@ -984,6 +1175,10 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
                 room.state == TableState.betting &&
                 state.variationSelecting &&
                 s.userId == state.variation!.userId;
+            // The seat the pot is crossing to: its ribbon strikes and its
+            // stack rises on the celebration's clock, and hold still until
+            // it runs.
+            final paid = pays && s != null && s.userId == state.winnerId;
 
             return SeatPod(
               revealed: reveal?.cards ?? peek?.cards,
@@ -1047,9 +1242,19 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
               // pot keeps the middle of the table (SeatSpot.head).
               beside: spot.head,
               podKey: viewIndex < _podKeys.length ? _podKeys[viewIndex] : null,
+              stackKey: viewIndex < _stackKeys.length
+                  ? _stackKeys[viewIndex]
+                  : null,
               impact: _flight?.targetView == viewIndex
                   ? _hammer
                   : _volleyJolts[viewIndex],
+              winnerStrike: paid
+                  ? party?.strike ?? kAlwaysDismissedAnimation
+                  : null,
+              stackLanding: paid
+                  ? party?.landed ?? kAlwaysDismissedAnimation
+                  : null,
+              stackWon: paid ? state.winnerPot : 0,
             );
           }
 
@@ -1079,6 +1284,10 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
           final potCentre = Offset(0.5 * w, _potDy * h);
           Offset seatCentre(int seatIndex) =>
               _seatCentre(state, seatIndex, w, h, podW);
+          // The pile on the plinth, where a bet lands: as the plinth was laid
+          // out a frame ago — it only moves as its figure widens — and the
+          // pot's middle until it has been.
+          final pile = _pileIn(fallback: potCentre);
 
           // The category tag over the far rail, or beside the head seat's pod
           // when a two- or four-place table seats somebody at the head.
@@ -1136,11 +1345,12 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
               Positioned.fill(
                 child: RepaintBoundary(
                   child: IgnorePointer(
-                    child: _BetFlights(
+                    child: BetFlights(
                       seats: room.seats,
+                      roomId: room.roomId,
                       handNo: room.handNo,
                       centreOf: seatCentre,
-                      pot: potCentre,
+                      pot: pile,
                       size: (podW * 0.22).clamp(14.0, 26.0),
                     ),
                   ),
@@ -1242,12 +1452,26 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
               at(
                 const Offset(0.5, _potDy),
                 Center(
-                  child: _PotPulse(
-                    pot: pot,
-                    child: _Pot(
-                      room: room,
+                  // One plinth per table: a switch lands on a pot that was
+                  // never this player's to watch grow, and must not count up
+                  // to it from the last table's.
+                  child: KeyedSubtree(
+                    key: ValueKey('pot-${room.roomId}'),
+                    child: _PotPulse(
                       pot: pot,
-                      chipSize: (podW * 0.17).clamp(12.0, 20.0),
+                      child: _Pot(
+                        room: room,
+                        pot: pot,
+                        chipSize: (podW * 0.17).clamp(12.0, 20.0),
+                        pileKey: _pileKey,
+                        // The pot crossing to the winner: the figure falls as
+                        // the chips leave the pile, and holds the whole pot
+                        // until they do.
+                        leaving: pays
+                            ? party?.left ?? kAlwaysDismissedAnimation
+                            : null,
+                        paying: state.winnerPot,
+                      ),
                     ),
                   ),
                 ),
@@ -1501,9 +1725,18 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
                   ),
                 ),
 
+              // Keyed: it is the last thing on the felt, and every overlay above
+              // it comes and goes. Unkeyed, the missile volley leaving the
+              // Stack 80 ms after the reveal (or a 5-Card verdict timing out)
+              // shifted it one place up, where the framework matched it with
+              // the volley's element and built it again from nothing — the
+              // fireworks started over and the pot's chips jumped back onto
+              // the pile.
               if (state.showdown.isNotEmpty || state.showdownResult.isNotEmpty)
                 Positioned.fill(
+                  key: const ValueKey('celebration'),
                   child: _Showdown(
+                    party: party,
                     // Fractions of the felt, so the bursts land over the
                     // player who won rather than across the whole room.
                     winnerAt: winnerSeat == null
@@ -1512,16 +1745,21 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
                             _seatCentre(state, winnerSeat, w, h, podW).dx / w,
                             _seatCentre(state, winnerSeat, w, h, podW).dy / h,
                           ),
-                    // The pot going where it was won.
-                    potFlight: winnerSeat == null || state.winnerPot <= 0
+                    big: state.iWon,
+                    // The pot going where it was won: off the pile and onto
+                    // the winner's stack, where their figure rises under it.
+                    potFlight: winnerSeat == null || !pays || party == null
                         ? null
                         : PotFlight(
                             key: ValueKey(
                               'pot-${room.handNo}-${state.winnerId}',
                             ),
-                            from: potCentre,
-                            to: _seatCentre(state, winnerSeat, w, h, podW),
+                            from: party.pile ?? potCentre,
+                            to:
+                                party.stack ??
+                                _seatCentre(state, winnerSeat, w, h, podW),
                             size: podW * 0.28,
+                            progress: party.flight,
                           ),
                   ),
                 ),
@@ -2046,7 +2284,14 @@ class _Pip extends StatelessWidget {
 
 /// The pot, on a plinth in the middle of the cloth.
 class _Pot extends StatelessWidget {
-  const _Pot({required this.room, required this.chipSize, required this.pot});
+  const _Pot({
+    required this.room,
+    required this.chipSize,
+    required this.pot,
+    this.pileKey,
+    this.leaving,
+    this.paying = 0,
+  });
 
   final RoomState room;
 
@@ -2058,12 +2303,25 @@ class _Pot extends StatelessWidget {
   /// chips landing on it are the same size.
   final double chipSize;
 
+  /// Names the pile, which the felt aims the chips at.
+  final Key? pileKey;
+
+  /// While the pot is crossing to its winner: how much of it has left the
+  /// pile ([PotFlight.leftAt]), and the pot it was ([paying]). The figure is
+  /// then what is still on the plinth — all of it until the chips set off,
+  /// nothing once the last has gone — rather than the settled table's
+  /// nought, which it used to count down to before a chip had moved.
+  final Animation<double>? leaving;
+  final int paying;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     // No watch: `room` arrives as a field from _Felt, which does watch, so the
     // figure still moves with the pot. The watch here only ever fed the two
     // captions that are gone.
+    final style = TableType.pot(theme);
+    final leaving = this.leaving;
 
     return Plate(
       radius: Radii.lg,
@@ -2091,21 +2349,36 @@ class _Pot extends StatelessWidget {
             children: [
               // The pile grows as the pot does — a nudge upward each time chips
               // land, so the middle of the table is where the eye goes.
-              _PotChips(pot: pot, size: chipSize),
+              KeyedSubtree(
+                key: pileKey,
+                child: _PotChips(pot: pot, size: chipSize),
+              ),
               const SizedBox(width: Space.sm),
               Flexible(
                 // Chips arriving in the pot is the thing players watch, so the
                 // number travels to its new value instead of jumping. Tabular
                 // figures are what stop it jittering sideways while it counts.
-                child: TweenAnimationBuilder<double>(
-                  tween: Tween(end: pot.toDouble()),
-                  duration: const Duration(milliseconds: 550),
-                  curve: Motion.standard,
-                  builder: (context, value, _) => FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child: Text(
-                      formatChips(value.round()),
-                      style: TableType.pot(theme),
+                // Its own layer: a count repaints the figure, not the plate.
+                child: RepaintBoundary(
+                  child: TweenAnimationBuilder<double>(
+                    tween: Tween(end: pot.toDouble()),
+                    duration: const Duration(milliseconds: 550),
+                    curve: Motion.standard,
+                    builder: (context, value, _) => FittedBox(
+                      fit: BoxFit.scaleDown,
+                      // While the pot crosses to its winner the figure is
+                      // what is left on the pile, frame by frame. The count
+                      // above keeps running underneath, so the next hand's
+                      // boots count up from nought as they always did.
+                      child: leaving == null
+                          ? Text(formatChips(value.round()), style: style)
+                          : LiveFigure(
+                              animation: leaving,
+                              figureAt: (left) =>
+                                  formatChips((paying * (1 - left)).round()),
+                              builder: (context, figure) =>
+                                  Text(figure, style: style),
+                            ),
                     ),
                   ),
                 ),
@@ -2137,16 +2410,26 @@ class _PotChipsState extends State<_PotChips>
     duration: const Duration(milliseconds: 420),
   );
 
+  /// The chip that carries a rise is still crossing the cloth when the
+  /// snapshot says so: the pile answers it when it comes down on it.
+  Timer? _landing;
+
   @override
   void didUpdateWidget(covariant _PotChips old) {
     super.didUpdateWidget(old);
     // Only on the way up: the pot resetting to zero at the hand's end is not
     // chips landing.
-    if (widget.pot > old.pot) _c.forward(from: 0);
+    if (widget.pot > old.pot) {
+      _landing?.cancel();
+      _landing = Timer(BetFlights.landsAt, () {
+        if (mounted) _c.forward(from: 0);
+      });
+    }
   }
 
   @override
   void dispose() {
+    _landing?.cancel();
     _c.dispose();
     super.dispose();
   }
@@ -3111,17 +3394,132 @@ class _DealtState extends State<_Dealt> with SingleTickerProviderStateMixin {
   }
 }
 
+/// When each beat of a hand's end falls, on the celebration's clock — which
+/// starts the frame the table learns who won (owner, 26 Sep 2026: "check
+/// winner animation and coin flow, make it smooth").
+///
+/// Everything used to start on that frame, over the cards still turning: the
+/// ribbon struck the winner's pod and the pot left for it while their
+/// opponent's hand was half over, and the plinth counted down to nought and
+/// the winner's stack jumped up before a chip had moved. Now the fireworks go
+/// up at once (with the win sound, which `TurnBuzzer` plays on the same
+/// news); the hands shown down finish turning; and then — the result — the
+/// ribbon strikes and the pot crosses to the winner, its figure falling as
+/// the chips leave the pile and the winner's rising as they land on it.
+abstract final class WinnerTiming {
+  /// The fireworks: `Fireworks.json`'s own 73 frames at 30 a second, for
+  /// when the file has not been read. The file's own length wins when it has.
+  static const Duration burst = Duration(milliseconds: 2433);
+
+  /// The WINNER ribbon striking the pod ([_WinnerFlash]'s own length).
+  static const Duration strike = Duration(milliseconds: 620);
+
+  /// How long a hand of [cards] turned over at a showdown takes to show its
+  /// faces: each card a flip stagger after the one before, for a flip each.
+  /// 520 ms for three cards, 620 for five.
+  static Duration turnOf(int cards) =>
+      PlayingCard.flipStagger * math.max(0, cards - 1) + PlayingCard.flipFor;
+
+  /// The whole celebration, for a result that lands [resultAt] after it
+  /// starts and fireworks [burst] long: the longer of the two.
+  static Duration total(Duration resultAt, {Duration burst = burst}) {
+    final paid = resultAt + PotFlight.total;
+    return paid > burst ? paid : burst;
+  }
+}
+
+/// The winner's fireworks, parsed once and drawn by [_WinnerBurst]'s painter.
+abstract final class FireworksArt {
+  static const asset = 'assets/animations/Fireworks.json';
+
+  static LottieComposition? _composition;
+  static Future<LottieComposition?>? _loading;
+
+  /// The parsed file, once [load] has finished; null before, or if it failed.
+  static LottieComposition? get composition => _composition;
+
+  /// Reads and parses the file the first time it is asked for, and hands every
+  /// later caller the same result. A failure is remembered as nothing and the
+  /// next call tries again: a win without fireworks is still a win.
+  static Future<LottieComposition?> load() =>
+      _loading ??= AssetLottie(asset).load().then<LottieComposition?>(
+        (composition) => _composition = composition,
+        onError: (Object _) {
+          _loading = null;
+          return null;
+        },
+      );
+}
+
+/// A celebration under way: its clock and the beats derived from it (see
+/// [WinnerTiming]), and where the pot's chips leave from and land, measured on
+/// the frame it began. Null [pile] and [stack] fall back to the pot's middle
+/// and the winner's seat.
+@immutable
+class _Party {
+  const _Party({
+    required this.clock,
+    required this.total,
+    required this.flight,
+    required this.strike,
+    required this.left,
+    required this.landed,
+    this.pile,
+    this.stack,
+  });
+
+  /// 0 to 1 over [total]: the fireworks from its start, everything else
+  /// from the result.
+  final Animation<double> clock;
+  final Duration total;
+
+  /// The pot's run ([PotFlight.progress]) and the ribbon's strike, each 0
+  /// until the result and 1 once it is over.
+  final Animation<double> flight;
+  final Animation<double> strike;
+
+  /// How much of the pot has left the pile, and how much has landed on the
+  /// winner's stack ([PotFlight.leftAt], [PotFlight.landedAt]).
+  final Animation<double> left;
+  final Animation<double> landed;
+
+  final Offset? pile;
+  final Offset? stack;
+}
+
+/// An [Animatable] from any function of its parent's value.
+class _Shaped extends Animatable<double> {
+  const _Shaped(this.shape);
+
+  final double Function(double) shape;
+
+  @override
+  double transform(double t) => shape(t);
+}
+
 /// Requirement 14: every revealed hand, plus who won and for how much.
 ///
 /// It sits over the table rather than replacing it. Covering the felt with a
 /// near-opaque sheet reads as the game having stopped; the players, the pot and
 /// the chips should all still be there while the hand is being settled.
 class _Showdown extends StatelessWidget {
-  const _Showdown({this.winnerAt, this.potFlight});
+  const _Showdown({
+    required this.party,
+    this.winnerAt,
+    this.big = false,
+    this.potFlight,
+  });
+
+  /// The celebration's clock, once it is running; nothing is drawn before —
+  /// the reveal has turned the cards over and the result has not come yet.
+  final _Party? party;
 
   /// Where the winner is sitting, as a fraction of the felt. Null when they
   /// have already left, in which case the fireworks go up over the table.
   final Offset? winnerAt;
+
+  /// Whether the viewer won, for the bigger burst.
+  final bool big;
 
   /// The chips crossing the table to them, drawn over the wash but under the
   /// headline — chips passing across the words would only make them harder to
@@ -3130,10 +3528,8 @@ class _Showdown extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final state = context.watch<GameState>();
-
-    final won = state.iWon;
-
+    final party = this.party;
+    if (party == null) return const SizedBox.shrink();
     return Stack(
       children: [
         // No scrim (owner's decision, 10 Sep 2026). Dimming the table to point
@@ -3143,12 +3539,13 @@ class _Showdown extends StatelessWidget {
         // their own pod instead, which points without switching the lights off.
         Positioned.fill(
           child: _WinnerBurst(
-            // Restarts on the next win rather than on every rebuild: the
-            // screen repaints once a second for the reward clock, and a
-            // celebration that began again each tick would never finish.
-            hand: state.room?.handNo ?? 0,
+            // Once per win: the clock is the celebration's, started when the
+            // result arrived and never by a rebuild (the screen rebuilds once
+            // a second for the reward clock).
+            clock: party.clock,
+            total: party.total,
             focus: winnerAt,
-            big: won,
+            big: big,
           ),
         ),
         if (potFlight != null) Positioned.fill(child: potFlight!),
@@ -3174,11 +3571,25 @@ class _Showdown extends StatelessWidget {
 /// It runs ONCE, not on a loop. The celebration stays up for a few seconds
 /// while the pot travels and the next deal is announced, and fireworks
 /// restarting under that would read as a stuck screen rather than a flourish.
+///
+/// Drawn as the hammer and the missiles are (26 Sep 2026): the composition
+/// the table parsed when it opened ([FireworksArt]), painted by one painter at
+/// the frame the celebration's clock asks for, every frame the screen draws.
+/// It was a `Lottie.asset` that read and parsed the 84 KB file on the frame of
+/// the first win, went up a frame or more late, and then stepped at the
+/// file's own 30 frames a second beside chips moving at the screen's rate.
 class _WinnerBurst extends StatefulWidget {
-  const _WinnerBurst({required this.hand, this.focus, this.big = false});
+  const _WinnerBurst({
+    required this.clock,
+    required this.total,
+    this.focus,
+    this.big = false,
+  });
 
-  /// The hand just won. A change is what replays it.
-  final int hand;
+  /// The celebration's clock, 0 to 1 over [total]; the burst plays from its
+  /// start for as long as the composition runs.
+  final Animation<double> clock;
+  final Duration total;
 
   /// Where the burst is centred, as a fraction of this box — the winner's
   /// seat, so the celebration is about a player rather than the room. Null
@@ -3192,73 +3603,94 @@ class _WinnerBurst extends StatefulWidget {
   State<_WinnerBurst> createState() => _WinnerBurstState();
 }
 
-class _WinnerBurstState extends State<_WinnerBurst>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller = AnimationController(vsync: this);
+class _WinnerBurstState extends State<_WinnerBurst> {
+  LottieDrawable? _drawable;
 
   @override
-  void didUpdateWidget(covariant _WinnerBurst old) {
-    super.didUpdateWidget(old);
-    if (old.hand != widget.hand && _controller.duration != null) {
-      _controller.forward(from: 0);
+  void initState() {
+    super.initState();
+    final composition = FireworksArt.composition;
+    if (composition != null) {
+      _drawable = _drawableFor(composition);
+    } else {
+      // The table parses the file as it opens, so this is only a win that
+      // beat it there: the burst joins the clock where it has got to.
+      unawaited(
+        FireworksArt.load().then((composition) {
+          if (!mounted || composition == null) return;
+          setState(() => _drawable = _drawableFor(composition));
+        }),
+      );
     }
   }
 
+  /// Every frame the screen draws, not the file's 30 a second.
+  static LottieDrawable _drawableFor(LottieComposition composition) =>
+      LottieDrawable(composition, frameRate: FrameRate.max);
+
   @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
+  Widget build(BuildContext context) => IgnorePointer(
+    child: RepaintBoundary(
+      child: CustomPaint(
+        size: Size.infinite,
+        painter: _BurstPainter(
+          clock: widget.clock,
+          total: widget.total,
+          drawable: _drawable,
+          focus: widget.focus,
+          big: widget.big,
+        ),
+      ),
+    ),
+  );
+}
+
+class _BurstPainter extends CustomPainter {
+  _BurstPainter({
+    required this.clock,
+    required this.total,
+    required this.drawable,
+    required this.focus,
+    required this.big,
+  }) : super(repaint: clock);
+
+  final Animation<double> clock;
+  final Duration total;
+  final LottieDrawable? drawable;
+  final Offset? focus;
+  final bool big;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final art = drawable;
+    if (art == null) return;
+    final length = art.composition.duration;
+    final elapsed = total * clock.value;
+    if (length <= Duration.zero || elapsed >= length) return;
+    art.setProgress(
+      (elapsed.inMicroseconds / length.inMicroseconds).clamp(0.0, 1 - 1e-6),
+    );
+    // Square, because the composition is: 512x512. Sized off the SHORTER side
+    // so it never runs off a wide felt, and overscaled a little so the sparks
+    // clear the pod rather than stopping at it.
+    final side = math.min(size.width, size.height) * (big ? 1.25 : 0.95);
+    final centre = focus == null
+        ? size.center(Offset.zero)
+        : Offset(focus!.dx * size.width, focus!.dy * size.height);
+    art.draw(
+      canvas,
+      Rect.fromCenter(center: centre, width: side, height: side),
+      fit: BoxFit.contain,
+    );
   }
 
   @override
-  Widget build(BuildContext context) {
-    return IgnorePointer(
-      child: LayoutBuilder(
-        builder: (context, box) {
-          // Square, because the composition is: 512x512. Sized off the
-          // SHORTER side so it never runs off a wide felt, and overscaled a
-          // little so the sparks clear the pod rather than stopping at it.
-          final side =
-              math.min(box.maxWidth, box.maxHeight) *
-              (widget.big ? 1.25 : 0.95);
-          final centre = widget.focus == null
-              ? Offset(box.maxWidth / 2, box.maxHeight / 2)
-              : Offset(
-                  widget.focus!.dx * box.maxWidth,
-                  widget.focus!.dy * box.maxHeight,
-                );
-          return Stack(
-            clipBehavior: Clip.none,
-            children: [
-              Positioned(
-                left: centre.dx - side / 2,
-                top: centre.dy - side / 2,
-                width: side,
-                height: side,
-                child: RepaintBoundary(
-                  child: Lottie.asset(
-                    'assets/animations/Fireworks.json',
-                    controller: _controller,
-                    fit: BoxFit.contain,
-                    // The composition carries its own length; taking it from
-                    // the file keeps the timing right if the art is replaced.
-                    onLoaded: (composition) {
-                      _controller.duration = composition.duration;
-                      _controller.forward(from: 0);
-                    },
-                    // A missing or unreadable file must not take the table
-                    // down with it — the hand is already won either way.
-                    errorBuilder: (context, error, stack) =>
-                        const SizedBox.shrink(),
-                  ),
-                ),
-              ),
-            ],
-          );
-        },
-      ),
-    );
-  }
+  bool shouldRepaint(_BurstPainter old) =>
+      old.clock != clock ||
+      old.total != total ||
+      old.drawable != drawable ||
+      old.focus != focus ||
+      old.big != big;
 }
 
 class _SideshowLink extends StatefulWidget {
@@ -3609,135 +4041,6 @@ class _SideshowCountdownState extends State<_SideshowCountdown>
   }
 }
 
-/// Chips in flight from a seat to the pot, one for every bet as it happens.
-///
-/// Watches each seat's running total; when it rises, a chip sets off from that
-/// seat and lands on the pot. A new hand resets the totals, so the boot
-/// everyone posts at the deal flies in too. Nothing is sent for the snapshot a
-/// player arrives to — those bets were made before they sat down.
-class _BetFlights extends StatefulWidget {
-  const _BetFlights({
-    required this.seats,
-    required this.handNo,
-    required this.centreOf,
-    required this.pot,
-    required this.size,
-  });
-
-  final List<Seat> seats;
-  final int handNo;
-  final Offset Function(int seatIndex) centreOf;
-  final Offset pot;
-  final double size;
-
-  @override
-  State<_BetFlights> createState() => _BetFlightsState();
-}
-
-class _Flight {
-  _Flight({required this.from, required this.startedAt, required this.delay});
-  final Offset from;
-  final Duration startedAt;
-  final Duration delay;
-}
-
-class _BetFlightsState extends State<_BetFlights>
-    with SingleTickerProviderStateMixin {
-  static const _travel = Duration(milliseconds: 620);
-
-  late final Ticker _ticker;
-  Duration _now = Duration.zero;
-  final Map<int, int> _seen = {};
-  int _handNo = -1;
-  final List<_Flight> _flights = [];
-
-  @override
-  void initState() {
-    super.initState();
-    _ticker = createTicker((elapsed) {
-      _now = elapsed;
-      _flights.removeWhere((f) => elapsed - f.startedAt - f.delay > _travel);
-      if (_flights.isEmpty) _ticker.stop();
-      setState(() {});
-    });
-    // The state we arrive to is the baseline, not a set of bets to animate.
-    _handNo = widget.handNo;
-    for (final seat in widget.seats) {
-      _seen[seat.seatIndex] = seat.contributed;
-    }
-  }
-
-  @override
-  void didUpdateWidget(covariant _BetFlights old) {
-    super.didUpdateWidget(old);
-    final newHand = widget.handNo != _handNo;
-    if (newHand) {
-      _handNo = widget.handNo;
-      _seen.clear();
-    }
-    var launched = 0;
-    for (final seat in widget.seats) {
-      final before = _seen[seat.seatIndex] ?? 0;
-      if (seat.occupied && seat.contributed > before) {
-        _flights.add(
-          _Flight(
-            from: widget.centreOf(seat.seatIndex),
-            startedAt: _now,
-            // At the deal every seat posts at once; a short stagger keeps the
-            // chips from arriving as one lump.
-            delay: Duration(milliseconds: 70 * launched),
-          ),
-        );
-        launched += 1;
-      }
-      _seen[seat.seatIndex] = seat.contributed;
-    }
-    if (_flights.isNotEmpty && !_ticker.isActive) _ticker.start();
-  }
-
-  @override
-  void dispose() {
-    _ticker.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (_flights.isEmpty) return const SizedBox.expand();
-    return Stack(
-      clipBehavior: Clip.none,
-      children: [
-        for (final f in _flights)
-          () {
-            final elapsed = _now - f.startedAt - f.delay;
-            if (elapsed.isNegative) return const SizedBox.shrink();
-            final t = (elapsed.inMicroseconds / _travel.inMicroseconds).clamp(
-              0.0,
-              1.0,
-            );
-            final eased = Motion.travel.transform(t);
-            // A shallow arc, so the chip is tossed rather than slid.
-            final lift = math.sin(t * math.pi) * widget.size * 1.6;
-            final pos =
-                Offset.lerp(f.from, widget.pot, eased)! - Offset(0, lift);
-            final fade = t > 0.82 ? (1 - t) / 0.18 : 1.0;
-            return Positioned(
-              left: pos.dx - widget.size / 2,
-              top: pos.dy - widget.size / 2,
-              child: Opacity(
-                opacity: fade.clamp(0.0, 1.0),
-                child: Transform.rotate(
-                  angle: t * math.pi * 1.5,
-                  child: PokerChip(colour: AppTheme.gold, size: widget.size),
-                ),
-              ),
-            );
-          }(),
-      ],
-    );
-  }
-}
-
 /// Slides a gradient sideways without rebuilding it.
 ///
 /// `GradientTransform` exists for exactly this: the shader is created from the
@@ -3788,14 +4091,24 @@ class _PotPulseState extends State<_PotPulse> with TickerProviderStateMixin {
     duration: const Duration(milliseconds: 620),
   );
 
+  /// The chip carrying a rise is still in the air when the snapshot says
+  /// so; the flare is for it coming down on the pile.
+  Timer? _landing;
+
   @override
   void didUpdateWidget(covariant _PotPulse old) {
     super.didUpdateWidget(old);
-    if (widget.pot > old.pot) _flare.forward(from: 0);
+    if (widget.pot > old.pot) {
+      _landing?.cancel();
+      _landing = Timer(BetFlights.landsAt, () {
+        if (mounted) _flare.forward(from: 0);
+      });
+    }
   }
 
   @override
   void dispose() {
+    _landing?.cancel();
     _breath.dispose();
     _flare.dispose();
     super.dispose();
@@ -3804,52 +4117,104 @@ class _PotPulseState extends State<_PotPulse> with TickerProviderStateMixin {
   @override
   Widget build(BuildContext context) {
     final dark = Theme.of(context).brightness == Brightness.dark;
-    return AnimatedBuilder(
-      animation: Listenable.merge([_breath, _flare]),
-      builder: (context, child) {
-        // Ease out, so the flare is at its brightest the instant it starts and
-        // spends the rest of its life fading — the shape money arriving has.
-        final flare = Curves.easeOut.transform(1 - _flare.value);
-        final breathe = Curves.easeInOut.transform(_breath.value);
-        final live = _flare.isAnimating;
-
-        return Transform.scale(
+    // The glow is its own painter on its own layer, so the breath repaints
+    // the glow and nothing else. It was a DecoratedBox round the plate,
+    // rebuilt by an AnimatedBuilder every frame for as long as the table was
+    // open — and on the felt a rebuild lays the felt out again, which marked
+    // the whole table screen (the rail, the keys, the viewer's hand) to be
+    // painted again, every frame, the celebration included. The glow is drawn
+    // under the plate exactly as the box's shadows were.
+    return RepaintBoundary(
+      child: AnimatedBuilder(
+        animation: _flare,
+        builder: (context, child) => Transform.scale(
           // Barely more than one. At 1.06 the plate visibly jumps and the
           // number under it stops being readable mid-count.
-          scale: live ? 1 + 0.035 * flare : 1,
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(Radii.lg),
-              boxShadow: [
-                // The plinth set into the cloth (owner's brief, 25 Sep 2026:
-                // "subtle gold glow, soft shadow, better integration with the
-                // table surface"): a soft shadow a little below it, which
-                // stands it on the table rather than over it ...
-                BoxShadow(
-                  color: AppTheme.ink900.withValues(alpha: dark ? 0.32 : 0.14),
-                  blurRadius: 14,
-                  offset: const Offset(0, 5),
-                  spreadRadius: -1,
-                ),
-                // ... and the gold it gives off: steadier than it was (0.05
-                // at rest), so the pot always reads as the table's centre,
-                // and still flaring when chips land.
-                BoxShadow(
-                  color: AppTheme.goldBright.withValues(
-                    alpha: 0.08 + 0.04 * breathe + 0.24 * flare,
+          scale: _flare.isAnimating
+              ? 1 + 0.035 * Curves.easeOut.transform(1 - _flare.value)
+              : 1,
+          child: child,
+        ),
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Positioned.fill(
+              child: RepaintBoundary(
+                child: CustomPaint(
+                  painter: _PotGlowPainter(
+                    breath: _breath,
+                    flare: _flare,
+                    dark: dark,
                   ),
-                  blurRadius: 18 + 26 * flare,
-                  spreadRadius: 1 + 6 * flare,
                 ),
-              ],
+              ),
             ),
-            child: child,
-          ),
-        );
-      },
-      child: widget.child,
+            RepaintBoundary(child: widget.child),
+          ],
+        ),
+      ),
     );
   }
+}
+
+/// The plinth's shadow and the gold it gives off (see [_PotPulse]), painted
+/// as a BoxDecoration paints its shadows, from the breath and the flare's
+/// clocks without a rebuild.
+class _PotGlowPainter extends CustomPainter {
+  _PotGlowPainter({
+    required this.breath,
+    required this.flare,
+    required this.dark,
+  }) : super(repaint: Listenable.merge([breath, flare]));
+
+  final Animation<double> breath;
+  final Animation<double> flare;
+  final bool dark;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    // Ease out, so the flare is at its brightest the instant it starts and
+    // spends the rest of its life fading — the shape money arriving has.
+    final flaring = Curves.easeOut.transform(1 - flare.value);
+    final breathe = Curves.easeInOut.transform(breath.value);
+    final plate = Offset.zero & size;
+    for (final shadow in [
+      // The plinth set into the cloth (owner's brief, 25 Sep 2026: "subtle
+      // gold glow, soft shadow, better integration with the table surface"):
+      // a soft shadow a little below it, which stands it on the table rather
+      // than over it ...
+      BoxShadow(
+        color: AppTheme.ink900.withValues(alpha: dark ? 0.32 : 0.14),
+        blurRadius: 14,
+        offset: const Offset(0, 5),
+        spreadRadius: -1,
+      ),
+      // ... and the gold it gives off: steadier than it was (0.05 at rest), so
+      // the pot always reads as the table's centre, and still flaring when
+      // chips land.
+      BoxShadow(
+        color: AppTheme.goldBright.withValues(
+          alpha: 0.08 + 0.04 * breathe + 0.24 * flaring,
+        ),
+        blurRadius: 18 + 26 * flaring,
+        spreadRadius: 1 + 6 * flaring,
+      ),
+    ]) {
+      // As BoxDecoration draws a shadow: the box moved and grown, its corners
+      // the box's own.
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          plate.shift(shadow.offset).inflate(shadow.spreadRadius),
+          const Radius.circular(Radii.lg),
+        ),
+        shadow.toPaint(),
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_PotGlowPainter old) =>
+      old.breath != breath || old.flare != flare || old.dark != dark;
 }
 
 /// The keys, gathered into the bottom-right corner instead of a bar.

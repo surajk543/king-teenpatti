@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:provider/provider.dart';
 
 import '../l10n/strings.dart';
@@ -13,6 +14,7 @@ import 'hammer_flight.dart';
 import 'liquid_fill.dart';
 import 'playing_card.dart';
 import 'poker_chip.dart';
+import 'pot_flight.dart';
 import 'glass_orb.dart';
 import 'premium_surface.dart';
 import 'seat_ring.dart';
@@ -135,7 +137,27 @@ class SeatPod extends StatelessWidget {
     this.podKey,
     this.impact,
     this.poker = false,
+    this.stackKey,
+    this.winnerStrike,
+    this.stackLanding,
+    this.stackWon = 0,
   });
+
+  /// Names the stack pill, where the pot's chips land when this seat wins.
+  final Key? stackKey;
+
+  /// The WINNER ribbon's strike, 0 to 1, when the table times it: held at 0
+  /// until the hands shown down have turned over, then struck with the pot
+  /// setting off (the felt's celebration). Null strikes the moment the seat is
+  /// seen to have won — a player arriving mid-celebration, and the poker felt.
+  final Animation<double>? winnerStrike;
+
+  /// While the pot crosses to this seat: how much of it has landed
+  /// ([stackWon] in all). The stack pill shows the pot arriving rather than
+  /// the settled figure — the stack it had until the first chip comes down on
+  /// it, then rising with them. Null shows the seat's stack as it is.
+  final Animation<double>? stackLanding;
+  final int stackWon;
 
   /// A seat at a poker table (go-server/internal/poker). Nothing about it is
   /// blind or seen: no BLIND / SEEN word rides on its cards and no back turns
@@ -296,7 +318,15 @@ class SeatPod extends StatelessWidget {
         SeatBet(seat: s, width: width, withCategory: false, poker: poker),
       ] else if (status != null) ...[
         SizedBox(height: gap),
-        _statusTag(context, s, status),
+        // "Winner" says what the ribbon says, so it comes with the ribbon's
+        // strike rather than over the cards still turning.
+        if (s.status == SeatState.won && winnerStrike != null)
+          FadeTransition(
+            opacity: winnerStrike!.drive(_strikeFade),
+            child: _statusTag(context, s, status),
+          )
+        else
+          _statusTag(context, s, status),
       ],
     ];
 
@@ -618,7 +648,11 @@ class SeatPod extends StatelessWidget {
             if (won)
               Positioned.fill(
                 child: IgnorePointer(
-                  child: _WinnerFlash(width: width, hand: revealedHand),
+                  child: _WinnerFlash(
+                    width: width,
+                    hand: revealedHand,
+                    strike: winnerStrike,
+                  ),
                 ),
               ),
           ],
@@ -664,6 +698,7 @@ class SeatPod extends StatelessWidget {
     final type = TableType.seat(theme, width);
 
     return Container(
+      key: stackKey,
       width: double.infinity,
       // Slimmer than it was: only the viewer still carries a pill (the rim
       // seats' figures are withheld on a blind table and the pill went with
@@ -694,23 +729,55 @@ class SeatPod extends StatelessWidget {
       ),
       child: FittedBox(
         fit: BoxFit.scaleDown,
-        child: Text(
-          // On a blind table another player's stack was never sent, so show it
-          // as withheld rather than as zero.
-          known ? formatChips(s.chips!) : '•••',
-          textAlign: TextAlign.center,
-          style: known
-              ? type.stack(
-                  colour: dark ? AppTheme.goldBright : AppTheme.goldDeep,
-                )
-              : type
-                    .stack(
-                      colour: theme.colorScheme.onSurface.withValues(
-                        alpha: AppTheme.inkLow,
-                      ),
+        child:
+            _stackArriving(
+              s,
+              type.stack(
+                colour: dark ? AppTheme.goldBright : AppTheme.goldDeep,
+              ),
+            ) ??
+            Text(
+              // On a blind table another player's stack was never sent, so
+              // show it as withheld rather than as zero.
+              known ? formatChips(s.chips!) : '•••',
+              textAlign: TextAlign.center,
+              style: known
+                  ? type.stack(
+                      colour: dark ? AppTheme.goldBright : AppTheme.goldDeep,
                     )
-                    .copyWith(letterSpacing: width * 0.02),
-        ),
+                  : type
+                        .stack(
+                          colour: theme.colorScheme.onSurface.withValues(
+                            alpha: AppTheme.inkLow,
+                          ),
+                        )
+                        .copyWith(letterSpacing: width * 0.02),
+            ),
+      ),
+    );
+  }
+
+  /// The pot arriving on a winner's stack ([stackLanding]), in [style]: the
+  /// settled snapshot already holds it, so until the chips land the pill shows
+  /// what is not here yet. Only once the seat HAS won — the snapshot before
+  /// that is the stack before the pot, and taking the pot off it would dip it.
+  /// Null when nothing is arriving.
+  Widget? _stackArriving(Seat s, TextStyle style) {
+    final landing = stackLanding;
+    final chips = s.chips;
+    if (landing == null ||
+        chips == null ||
+        s.status != SeatState.won ||
+        stackWon <= 0) {
+      return null;
+    }
+    return RepaintBoundary(
+      child: LiveFigure(
+        animation: landing,
+        figureAt: (landed) =>
+            formatChips(chips - (stackWon * (1 - landed)).round()),
+        builder: (context, figure) =>
+            Text(figure, textAlign: TextAlign.center, style: style),
       ),
     );
   }
@@ -1685,8 +1752,15 @@ class SeatBet extends StatelessWidget {
 /// pod, the way a stamp lands, then a slow shine that keeps it alive for the
 /// few seconds it is up. Both run once per hand — the widget is rebuilt with
 /// the seat, so a new winner gets a new strike.
+///
+/// On the Teen Patti felt the strike is the celebration's ([strike]): it lands
+/// with the pot setting off, once the hands shown down have turned over, not
+/// over the opponent's cards still turning (26 Sep 2026). Only the shine is
+/// the ribbon's own, and only the shine repaints — the words and the plate
+/// are laid out once, where they used to be rebuilt and laid out every frame
+/// the ribbon was up.
 class _WinnerFlash extends StatefulWidget {
-  const _WinnerFlash({required this.width, this.hand});
+  const _WinnerFlash({required this.width, this.hand, this.strike});
 
   final double width;
 
@@ -1695,25 +1769,93 @@ class _WinnerFlash extends StatefulWidget {
   /// to name then, only a last player standing.
   final String? hand;
 
+  /// The strike, 0 to 1 over its 620 ms, when the table times it
+  /// ([SeatPod.winnerStrike]); null strikes at once.
+  final Animation<double>? strike;
+
   @override
   State<_WinnerFlash> createState() => _WinnerFlashState();
 }
 
+/// The shine across WINNER at [t], 0 to 1 and back: a light band crossing the
+/// word from its bright side to its deep one and back again, off the word at
+/// both ends.
+///
+/// The band ran 0 to 1 and then jumped back to 0, where the colours either
+/// side of it are not the same (deep gold behind it, bright ahead), so every
+/// 2.2 s the whole word flipped from deep to bright in one frame. Crossing and
+/// coming back again it never jumps: the word is the same colour at the end
+/// of one crossing as at the start of the next. And the band keeps its width
+/// all the way across — slid over the word rather than its stops pinned to
+/// the word's edges, which squeezed the deep side of it into the first
+/// letters as it came on and flicked them from bone to deep gold.
+LinearGradient winnerShine(double t) => LinearGradient(
+  begin: Alignment.topLeft,
+  end: Alignment.bottomRight,
+  colors: const [AppTheme.goldDeep, AppTheme.boneInk, AppTheme.goldBright],
+  stops: const [0.22, 0.5, 0.78],
+  transform: _AlongDiagonal(-0.8 + 1.6 * t),
+);
+
+/// Slides a top-left to bottom-right gradient along itself by [shift] of its
+/// length: its stops, in the box, move by exactly that much.
+class _AlongDiagonal extends GradientTransform {
+  const _AlongDiagonal(this.shift);
+
+  final double shift;
+
+  @override
+  Matrix4 transform(Rect bounds, {TextDirection? textDirection}) =>
+      Matrix4.translationValues(shift * bounds.width, shift * bounds.height, 0);
+
+  @override
+  bool operator ==(Object other) =>
+      other is _AlongDiagonal && other.shift == shift;
+
+  @override
+  int get hashCode => shift.hashCode;
+}
+
 class _WinnerFlashState extends State<_WinnerFlash>
     with TickerProviderStateMixin {
-  late final AnimationController _strike = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 620),
-  )..forward();
+  /// The strike's own clock, when the table does not time it. Made in
+  /// initState or didUpdateWidget, never first touched in dispose (CLAUDE.md
+  /// §12.3).
+  AnimationController? _ownStrike;
 
   late final AnimationController _shine = AnimationController(
     vsync: this,
     duration: const Duration(milliseconds: 2200),
-  )..repeat();
+  )..repeat(reverse: true);
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.strike == null) {
+      _ownStrike = AnimationController(
+        vsync: this,
+        duration: const Duration(milliseconds: 620),
+      )..forward();
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant _WinnerFlash old) {
+    super.didUpdateWidget(old);
+    // The table let go of the strike with the ribbon still up: it has struck
+    // already, so it stays struck rather than striking again.
+    if (widget.strike == null && _ownStrike == null) {
+      _ownStrike = AnimationController(
+        vsync: this,
+        duration: const Duration(milliseconds: 620),
+        value: 1,
+      );
+    }
+  }
 
   @override
   void dispose() {
-    _strike.dispose();
+    _ownStrike?.dispose();
     _shine.dispose();
     super.dispose();
   }
@@ -1743,108 +1885,198 @@ class _WinnerFlashState extends State<_WinnerFlash>
   @override
   Widget build(BuildContext context) {
     final w = widget.width;
+    final strike = widget.strike ?? _ownStrike!;
 
-    return AnimatedBuilder(
-      animation: Listenable.merge([_strike, _shine]),
-      builder: (context, _) {
-        final t = Curves.easeOutBack.transform(_strike.value.clamp(0.0, 1.0));
-        // From oversized down onto the pod, so it reads as landing rather than
-        // as growing — but only just oversized. At 2.1x the strike was half a
-        // pod tall before it settled, and on the top row that overshoot went
-        // straight off the top of the screen: the word and the hand under it
-        // were cut for the first third of a second, which is exactly the part
-        // a player looks at.
-        final scale = 1.32 - 0.32 * t;
-        final fade = Curves.easeOut.transform(
-          (_strike.value * 2.2).clamp(0.0, 1.0),
-        );
-        final shine = _shine.value;
-
-        return Opacity(
-          opacity: fade,
-          child: Transform.scale(
-            scale: scale,
-            child: Center(
-              child: Container(
-                // A solid ribbon, not bare text. Gold letters sat directly on
-                // the pod were gold on a pale plaque over a photograph, which
-                // is three light things in a row — the word was there and
-                // could not be read, and the ranking under it disappeared
-                // altogether. Ink behind them is what makes both legible on
-                // any avatar anybody ever picks.
-                padding: EdgeInsets.symmetric(
-                  horizontal: w * 0.09,
-                  vertical: w * 0.045,
+    // Both moved by their render objects, frame by frame, with nothing rebuilt
+    // or laid out: a rebuild anywhere on the felt re-runs the felt's layout.
+    return FadeTransition(
+      opacity: strike.drive(_strikeFade),
+      child: _StrikeScale(
+        strike: strike,
+        child: Center(
+          child: Container(
+            // A solid ribbon, not bare text. Gold letters sat directly on the
+            // pod were gold on a pale plaque over a photograph, which is three
+            // light things in a row — the word was there and could not be
+            // read, and the ranking under it disappeared altogether. Ink behind
+            // them is what makes both legible on any avatar anybody ever picks.
+            padding: EdgeInsets.symmetric(
+              horizontal: w * 0.09,
+              vertical: w * 0.045,
+            ),
+            margin: EdgeInsets.symmetric(horizontal: w * 0.04),
+            decoration: BoxDecoration(
+              color: AppTheme.ink900.withValues(alpha: 0.88),
+              borderRadius: BorderRadius.circular(w * 0.06),
+              border: Border.all(
+                color: AppTheme.goldBright.withValues(alpha: 0.55),
+                width: 1.2,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: AppTheme.goldBright.withValues(alpha: 0.30),
+                  blurRadius: w * 0.16,
+                  spreadRadius: w * 0.01,
                 ),
-                margin: EdgeInsets.symmetric(horizontal: w * 0.04),
-                decoration: BoxDecoration(
-                  color: AppTheme.ink900.withValues(alpha: 0.88),
-                  borderRadius: BorderRadius.circular(w * 0.06),
-                  border: Border.all(
-                    color: AppTheme.goldBright.withValues(alpha: 0.55),
-                    width: 1.2,
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: AppTheme.goldBright.withValues(alpha: 0.30 * fade),
-                      blurRadius: w * 0.16,
-                      spreadRadius: w * 0.01,
-                    ),
-                  ],
-                ),
-                child: FittedBox(
-                  fit: BoxFit.scaleDown,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      ShaderMask(
-                        blendMode: BlendMode.srcIn,
-                        shaderCallback: (rect) => LinearGradient(
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                          colors: const [
-                            AppTheme.goldDeep,
-                            AppTheme.boneInk,
-                            AppTheme.goldBright,
-                          ],
-                          stops: [
-                            (shine - 0.28).clamp(0.0, 1.0),
-                            shine.clamp(0.0, 1.0),
-                            (shine + 0.28).clamp(0.0, 1.0),
-                          ],
-                        ).createShader(rect),
-                        child: Text(
-                          'WINNER',
-                          maxLines: 1,
-                          style: _struck(
-                            context,
-                            w,
-                            big: true,
-                            weight: FontWeight.w900,
-                          ),
+              ],
+            ),
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // The one thing that moves once it has landed, in a layer
+                  // of its own, so the shine repaints the word and nothing else
+                  // on the pod.
+                  RepaintBoundary(
+                    child: _ShineMask(
+                      shine: _shine,
+                      child: Text(
+                        'WINNER',
+                        maxLines: 1,
+                        style: _struck(
+                          context,
+                          w,
+                          big: true,
+                          weight: FontWeight.w900,
                         ),
                       ),
-                      // What they won with. On the ribbon rather than beside
-                      // it, so it cannot end up over a face on its own.
-                      if (widget.hand != null)
-                        Text(
-                          widget.hand!,
-                          maxLines: 1,
-                          style: _struck(
-                            context,
-                            w,
-                            big: false,
-                            weight: FontWeight.w700,
-                          ).copyWith(color: AppTheme.bone100),
-                        ),
-                    ],
+                    ),
                   ),
-                ),
+                  // What they won with. On the ribbon rather than beside it,
+                  // so it cannot end up over a face on its own.
+                  if (widget.hand != null)
+                    Text(
+                      widget.hand!,
+                      maxLines: 1,
+                      style: _struck(
+                        context,
+                        w,
+                        big: false,
+                        weight: FontWeight.w700,
+                      ).copyWith(color: AppTheme.bone100),
+                    ),
+                ],
               ),
             ),
           ),
-        );
-      },
+        ),
+      ),
     );
+  }
+}
+
+/// The strike's fade: in over its first 45%, easing out.
+final Animatable<double> _strikeFade = CurveTween(
+  curve: Interval(0, 1 / 2.2, curve: Curves.easeOut),
+);
+
+/// The strike's scale, from oversized down onto the pod on an overshoot.
+double _strikeScaleAt(double v) =>
+    1.32 - 0.32 * Curves.easeOutBack.transform(v.clamp(0.0, 1.0));
+
+/// Its child at the strike's scale ([_strikeScaleAt]), about its middle, set
+/// by the render object on every tick of [strike]: a scale transition would
+/// rebuild a Transform each frame, and every rebuild on the felt lays the
+/// felt out again.
+class _StrikeScale extends SingleChildRenderObjectWidget {
+  const _StrikeScale({required this.strike, super.child});
+
+  final Animation<double> strike;
+
+  @override
+  _RenderStrikeScale createRenderObject(BuildContext context) =>
+      _RenderStrikeScale(strike);
+
+  @override
+  void updateRenderObject(
+    BuildContext context,
+    _RenderStrikeScale renderObject,
+  ) => renderObject.strike = strike;
+}
+
+class _RenderStrikeScale extends RenderTransform {
+  _RenderStrikeScale(this._strike)
+    : super(
+        transform: _scaled(_strikeScaleAt(_strike.value)),
+        alignment: Alignment.center,
+      );
+
+  Animation<double> _strike;
+  set strike(Animation<double> value) {
+    if (identical(value, _strike)) return;
+    if (attached) _strike.removeListener(_update);
+    _strike = value;
+    if (attached) _strike.addListener(_update);
+    _update();
+  }
+
+  static Matrix4 _scaled(double s) => Matrix4.diagonal3Values(s, s, 1);
+
+  /// Repaints only when the scale moves: once struck the strike's clock can
+  /// still be running, and an unchanged matrix repaints nothing.
+  void _update() => transform = _scaled(_strikeScaleAt(_strike.value));
+
+  @override
+  void attach(PipelineOwner owner) {
+    super.attach(owner);
+    _strike.addListener(_update);
+    _update();
+  }
+
+  @override
+  void detach() {
+    _strike.removeListener(_update);
+    super.detach();
+  }
+}
+
+/// WINNER's shine ([winnerShine]) at [shine]'s value, repainted by the render
+/// object on every tick with nothing rebuilt — the only thing on the ribbon
+/// that moves for as long as it is up.
+class _ShineMask extends SingleChildRenderObjectWidget {
+  const _ShineMask({required this.shine, super.child});
+
+  final Animation<double> shine;
+
+  @override
+  _RenderShine createRenderObject(BuildContext context) => _RenderShine(shine);
+
+  @override
+  void updateRenderObject(BuildContext context, _RenderShine renderObject) =>
+      renderObject.shine = shine;
+}
+
+class _RenderShine extends RenderShaderMask {
+  _RenderShine(this._shine)
+    : super(shaderCallback: _unshaded, blendMode: BlendMode.srcIn) {
+    shaderCallback = _shade;
+  }
+
+  static Shader _unshaded(Rect rect) => const LinearGradient(
+    colors: [AppTheme.goldBright, AppTheme.goldBright],
+  ).createShader(rect);
+
+  Animation<double> _shine;
+  set shine(Animation<double> value) {
+    if (identical(value, _shine)) return;
+    if (attached) _shine.removeListener(markNeedsPaint);
+    _shine = value;
+    if (attached) _shine.addListener(markNeedsPaint);
+    markNeedsPaint();
+  }
+
+  Shader _shade(Rect rect) => winnerShine(_shine.value).createShader(rect);
+
+  @override
+  void attach(PipelineOwner owner) {
+    super.attach(owner);
+    _shine.addListener(markNeedsPaint);
+  }
+
+  @override
+  void detach() {
+    _shine.removeListener(markNeedsPaint);
+    super.detach();
   }
 }
