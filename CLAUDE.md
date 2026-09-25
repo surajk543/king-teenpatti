@@ -2430,6 +2430,37 @@ clock (4, 8, 16 s, then every 30 s) by both the backdrop and `CachedPictureBox`,
   `test/store_header_scripts_test.dart` opens every shelf at 640x360 in all five languages at x1.0 and x1.25 with the Noto
   fallback. The Pictures blurb names every wallet a picture sells for ("chips, hammers or diamonds"; the Animated shelf at
   a table "hammers or diamonds"), since five pictures cost diamonds. `_loadPictures` loads both catalogues; the lobby rental watch covers a laid premium table too.
+- **The store polish** (owner's brief, 26 Sep 2026: "a UI POLISH task, NOT a complete redesign"; `widgets/chip_store.dart`,
+  presentation only — no price, pack, mark, purchase or trade path changed; the picture and table TILES are not part of it).
+  **One product card**, `_StoreProductCard`, for every pack of the Chips, Diamonds, Hammers and Missiles shelves and the Premium
+  Packages (`_PackCard`, `_PremiumPackCard`, `_CountPackCard` are thin wrappers now): a badge slot kept on every card so a row's
+  figures stand level, the product's icon and figure, the secondary lines, the purchase key, every size from one scale on the
+  card's box (`_CardMetrics`). **One figure size a shelf** (`_fitFigures`: the largest at which the shelf's widest figure fits
+  beside its icon — "12 Crore" was set larger than "5.28 Crore" beside it), the largest type on the card. **A badge only where the
+  owner marked the pack** (`_StoreBadge`: ⭐ POPULAR, 🔥 BEST VALUE, PREMIUM and the Premium Package filled in the card's colour,
+  STARTER outlined, the chip shelf's marks now wearing `shelfMarkGlyph` too); an unmarked chip pack said its bonus on a plate and
+  under its figure, an unmarked count pack its wallet's name twice, and the plate's poker chip sat on DIAMONDS. **The glow** is one
+  soft orb, 0.54 of the card's side at 0.50 by night and 0.38 by day (a 0.62 orb at 0.62/0.46 over a sharp twin at 1.0/0.9), in the
+  card's top right corner and clipped by it — the twin spilled past every card's right edge as a hard crescent. **The purchase
+  key** (`_PriceButton`) is a raised key rimmed in the STORE's ink (`AppTheme.goldInk`, `diamondInkOn`, `hammerInkOn`,
+  `missileInkOn`) with a filled arrow disc and the price in full ink, where the grey glass capsule read as switched off by day; the
+  card presses to 0.97 (`PressScale`; 0.955 on its own scale before) and lights the key under the finger. **The grid fills its
+  row** (`_ShelfGeometry`: columns at `Dim.packW`, widened — 186×159dp at 640x360 where 140×147 stood centred with 95dp empty either
+  side, the figure 26.5px where a card-by-card fit left about 17), near square where the body allows and never over 80% of it, so
+  the next row always shows; the row cut by the sheet's foot fades (`EdgeFade`, the pack shelves only: over the Pictures and
+  Tables shelves' Lotties a mask is an offscreen pass every frame), and the Tables shelf keeps `Dim.packW` tiles. **The shelf
+  keys** are 44dp circles (they took the header's height — 44×69dp capsules on a two-line header), the one on lit gold inside and
+  rimmed, the others drawn to 0.92 on a faint well, every change animated; a cut strip stops on whole keys (`_revealTab`: the least
+  scroll that shows the key on; it jumped to a share of its length, leaving half-keys) and fades 6dp where more lie past it. The
+  shelf's glyph, title (w700) and blurb, and the shelf itself, fade in with a 0.985 scale; a card rises 14dp (26); the grab handle
+  is the resting hairline; the Pictures and Tables glyph is `goldDeep` by day (champagne vanished on the light sheet). **The
+  Pictures head** (`_PicturesHead`): the worn picture, "Your picture", its name and `_WornTag` — "✓ Wearing · 7d left" struck in
+  solid gold — between the two menus, 57dp tall on a 640x360 phone where the 96dp portrait took 105 of a 206dp shelf. Tests:
+  `test/store_polish_test.dart` (the circles, whole keys, row fill, one figure size and the hierarchy, badges, the orb, the key,
+  0.97, the head in five languages, every word inside its card at 640x360 ×1.25 with the Noto fonts); `store_chips`/`hammers`/
+  `missiles_test` updated (the strip's hammer found in the strip, no unmarked plates). Pictures: `test/store_shots.dart` — every
+  shelf, the store at a table, the picker, at 640x360, 891x411, 592x360, 915x412 and 1280x800, both themes, ×1.0 and ×1.25, and
+  Hindi, emoji drawn from Noto Color Emoji — by hand, like table_shots.
 - **`Avatar` has two different fallbacks and the difference is deliberate.** No picture at all → the
   player's initial, which still says whose seat it is. A picture that was supposed to load and did
   not (a retired file, a dead Google URL, a phone that lost the network) → `assets/default_avatar.svg`,
