@@ -223,6 +223,39 @@ void main() {
       }
     });
 
+    test("the viewer's hand clears the key cluster and their pod Missile "
+        'and Pack', () {
+      for (final size in _sizes) {
+        final felt = _felt(size);
+        final ring = SeatRing.forFelt(seats: 5, screen: size, felt: felt);
+        final me = ring.spots.first.anchor;
+        final hand = SeatRing.handWidthFor(Dim.handH(felt.height));
+        final handRight = me.dx + ring.podW / 2 + Space.md + hand;
+        expect(
+          handRight,
+          lessThanOrEqualTo(
+            SeatRing.keysLeftFor(size, felt.width) - Space.sm + 1e-6,
+          ),
+          reason: '$size',
+        );
+        expect(
+          me.dx - ring.podW / 2,
+          greaterThanOrEqualTo(
+            SeatRing.leftKeysRightFor(size) + Space.sm - 1e-6,
+          ),
+          reason: '$size',
+        );
+        // Where the keys leave the room, the place the felt was tuned with.
+        if (size.width >= 732) {
+          expect(
+            me.dx,
+            closeTo(felt.width * SeatRing.viewerShare, 1e-6),
+            reason: '$size',
+          );
+        }
+      }
+    });
+
     test('only a two- or four-place table seats somebody at the head', () {
       for (var n = 2; n <= 5; n++) {
         final ring = _ring(n, const Size(891, 411));
@@ -380,8 +413,19 @@ void main() {
               }
               others.forEach((what, rect) => clear('seat $i', a, what, rect));
             }
-            // The pot never lies on anybody's cards, the viewer's included.
+            // The pot never lies on anybody's cards, the viewer's included,
+            // and no key on the viewer's cards or pod.
             clear('pot', pot, "viewer's cards", cards);
+            for (final corner in ['key cluster', 'pack key', 'missile key']) {
+              clear("viewer's cards", cards, corner, others[corner]!);
+              clear("viewer's pod", mine, corner, others[corner]!);
+            }
+            // The fan is as wide as the ring was told it would be.
+            final feltH = size.height - Space.xxs;
+            expect(
+              tester.getSize(_private('_OwnHand')).width,
+              closeTo(SeatRing.handWidthFor(Dim.handH(feltH)), 0.5),
+            );
             expect(
               screen.inflate(0.5).contains(mine.topLeft) &&
                   screen.inflate(0.5).contains(mine.bottomRight),

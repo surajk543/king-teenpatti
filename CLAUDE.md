@@ -1929,7 +1929,10 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   add the female dealer yet"). **Seats** — `widgets/seat_ring.dart` `SeatRing`, a PURE function of the seat count
   (`config.maxPlayers`, held to 2..5; 0 reads 5), the `TableGeometry` and the pod's width: the viewer on the floor at the
   foot (90°, x `viewerShare` 0.265 — not centred: their hand is fanned to the right of their pod and on a 640dp phone it
-  already ends where the key cluster begins), everyone else on ONE ellipse concentric with the table (`centreShare` 0.284
+  already ends where the key cluster begins — and bounded by the corner keys, `keysLeftFor`/`leftKeysRightFor`/
+  `handWidthFor`: the hand clear of the cluster, the pod clear of Missile and Pack, the hand's clearance winning; 10dp left
+  of 0.265 at 640x360, 40dp at a narrow 592x360, where the third card lay under the minus key; unchanged from 732dp up),
+  everyone else on ONE ellipse concentric with the table (`centreShare` 0.284
   of the table's height down it, `rxShare` 0.922 of its half-width across, `ryShare` 0.23 of its height deep), spread
   evenly clockwise from its left end round the head to its right end — 2: 270 (the head); 3: 180/360; 4: 180/270/360;
   5: 180/240/300/360 — each column pinned by its middle as before. Five places land within a dp of the tuned
@@ -1949,7 +1952,9 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   pot, the viewer's cards or pod, the tag, the Shop key, the wallet or any key. **YOU** — the viewer's pod glows at
   `TableAmbient.mineGlow` 0.75 (its colour inside the glass and the halo round its turn ring; the ring's gold edge and the
   turn clock are untouched). **Seats** — every capsule on a seat (BLIND/SEEN, a hand's name, the bet badge, In Pot) is cut to
-  one corner, `_kCapsule` 0.08 (0.08/0.08/0.10/0.07 before). **In Pot** — `SeatType.inPot`, the seat's quietest words:
+  one corner, `_kCapsule` 0.08 (0.08/0.08/0.10/0.07 before); a name is never cut while it can be set smaller —
+  `SeatName` shrinks it to `minScale` 0.78 of its size first ("Vikramaditya" read "Vikramad…" at 640x360 ×1.25), and only a
+  name that would need less (24 letters) ends in an ellipsis (`test/seat_name_test.dart`, in Inter). **In Pot** — `SeatType.inPot`, the seat's quietest words:
   0.078 of the pod over an 8.5 floor (the bet is 0.105), the metadata tier's ink (`inPotLabelAlpha` 0.68 by day, 0.56 by
   night; the figure `inPotFigureAlpha` 0.78/0.70) on a lighter capsule (`inPotPlate` 0.6), still ≥4.5:1 on every cloth.
   **Pot** — `_PotPulse` sets the plinth on the cloth with a soft shadow and gives off a steadier gold (0.08 + 0.04 breath at

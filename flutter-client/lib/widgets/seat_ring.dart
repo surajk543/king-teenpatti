@@ -10,6 +10,7 @@ import 'package:flutter/widgets.dart';
 
 import '../theme/app_theme.dart';
 import 'casino_table.dart';
+import 'playing_card.dart';
 
 /// One place at the table, in view order: [view] 0 is the viewer, 1 the seat
 /// on their left, and on clockwise round the table.
@@ -84,10 +85,15 @@ class SeatSpot {
 /// and 0.725 of its width and 0.30 down.
 ///
 /// **The viewer** stands on the floor, not on the ring: their pod at
-/// [viewerShare] of the felt's width with their hand fanned to its right. Not
-/// centred — the key cluster fills the bottom-right corner, and on a 640dp
-/// phone the hand already ends where the cluster begins; centred, the hand
-/// would lie under the minus key.
+/// [viewerShare] of the felt's width with their hand fanned to its right —
+/// and never so far right that the hand reaches the key cluster, nor so far
+/// left that the pod reaches Missile and Pack ([keysLeftFor],
+/// [leftKeysRightFor], [handWidthFor]). Not centred: the key cluster fills the
+/// bottom-right corner, and on a 640dp phone the hand already ends where the
+/// cluster begins; centred, it would lie under the minus key. On a narrow
+/// phone (592dp: a 640dp one with its navigation bar down the side) it did
+/// even at [viewerShare], and the viewer moves left until it does not; the
+/// cards come first (the brief's order).
 ///
 /// Every column is kept inside the felt, which is itself inside the safe
 /// area, the rail and the felt's padding ([safe] reserves more), and — given
@@ -117,6 +123,9 @@ class SeatRing {
     EdgeInsets safe = EdgeInsets.zero,
     double? keysTop,
     double? cornersBottom,
+    double? keysLeft,
+    double? leftKeysRight,
+    double handWidth = 0,
   }) {
     final n = clampSeats(seats);
     final felt = table.felt;
@@ -129,12 +138,25 @@ class SeatRing {
     final rx = outer.width / 2 * rxShare;
     final ry = outer.height * ryShare;
 
+    // The viewer: at their share of the felt, their hand (fanned [Space.md]
+    // right of their pod) clear of the key cluster and their pod clear of
+    // Missile and Pack; where both cannot be had, the hand's is kept.
+    final viewerHi = keysLeft == null
+        ? double.infinity
+        : keysLeft - Space.sm - handWidth - Space.md - podW / 2;
+    final viewerLo = leftKeysRight == null
+        ? double.negativeInfinity
+        : leftKeysRight + Space.sm + podW / 2;
+    final preferred = bounds.left + bounds.width * viewerShare;
+    final viewerX = viewerLo <= viewerHi
+        ? preferred.clamp(viewerLo, viewerHi).toDouble()
+        : viewerHi;
     final spots = <SeatSpot>[
       SeatSpot(
         view: 0,
         angle: 90,
         anchor: Offset(
-          _clampX(bounds.left + bounds.width * viewerShare, bounds, podW),
+          _clampX(viewerX, bounds, podW),
           bounds.bottom - felt.height * floorShare,
         ),
       ),
@@ -199,6 +221,9 @@ class SeatRing {
     podW: Dim.podW(felt.width, felt.height),
     keysTop: keysTopFor(screen, felt.height),
     cornersBottom: cornersBottomFor(screen),
+    keysLeft: keysLeftFor(screen, felt.width),
+    leftKeysRight: leftKeysRightFor(screen),
+    handWidth: handWidthFor(Dim.handH(felt.height)),
   );
 
   /// The fewest and most places a table lays out. The server's
@@ -224,9 +249,11 @@ class SeatRing {
   /// 0.23 x 0.705 = 0.162 of the felt's height.
   static const double ryShare = 0.23;
 
-  /// The viewer's pod, as a share of the felt's width: as far towards the
-  /// middle as their hand can go and still clear the key cluster on a 640dp
-  /// phone (see the class doc).
+  /// Where the viewer's pod stands, as a share of the felt's width, wherever
+  /// the corner keys leave it room to (see the class doc): the place the felt
+  /// was tuned with, as far towards the middle as the hand goes and still
+  /// clears the key cluster on the phones from 732dp up; on a 640dp phone the
+  /// keys hold it 10dp to the left of this.
   static const double viewerShare = 0.265;
 
   /// How far up from the felt's bottom edge the viewer's pod and hand stand,
@@ -247,6 +274,27 @@ class SeatRing {
   /// the foot, which the felt's own foot is (the table screen's layout).
   static double keysTopFor(Size screen, double feltHeight) =>
       feltHeight - 2 * Dim.keyH(screen.height) - 2 * Dim.gap(screen.width);
+
+  /// Where the key cluster starts, across a felt [feltWidth] wide on a
+  /// [screen]: its two rows are each two [Dim.minTouch] keys (the steppers,
+  /// or Force Sideshow) and a [Dim.keyW] key, [Dim.gap] apart, standing the
+  /// felt's own padding in from the safe edge — which is where the felt ends.
+  static double keysLeftFor(Size screen, double feltWidth) =>
+      feltWidth -
+      (2 * Dim.minTouch + 2 * Dim.gap(screen.width) + Dim.keyW(screen.width));
+
+  /// Where Missile and Pack end, across the felt: a [Dim.keyW] key the felt's
+  /// padding in from the safe edge, where the rail stands before the felt.
+  static double leftKeysRightFor(Size screen) =>
+      Dim.keyW(screen.width) - Dim.railW(screen.width);
+
+  /// How wide the viewer's fanned hand is, its cards [handHeight] tall: a
+  /// card, the run of two more overlapping by 18%, and the outer two's lean
+  /// (the table screen's `_OwnHand` — five cards share the same box).
+  static double handWidthFor(double handHeight) {
+    final card = handHeight * PlayingCard.aspect;
+    return card + 2 * card * 0.82 + 2 * handHeight * 0.09;
+  }
 
   /// Where the top corners' controls end — the Shop key, the wallet — down
   /// the felt on a screen of [screen]: a touch target [Dim.gap] down from
