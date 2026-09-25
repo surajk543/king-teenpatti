@@ -35,8 +35,8 @@ import '../theme/app_theme.dart';
 ///
 /// **Small faces drop detail, never the rank.** Below [compactBelow] (a rim
 /// seat's cards) the face is COMPACT: a larger share of its height goes to the
-/// rank and the corner pip, and the court frame, the highlight and the pip's
-/// shading are left out.
+/// rank and the corner pip, and the court frame, the lacquer's hairline and
+/// the pip's shading are left out.
 class PlayingCard extends StatefulWidget {
   const PlayingCard({
     super.key,
@@ -376,21 +376,23 @@ class CardFaceMetrics {
   factory CardFaceMetrics.of(double height) {
     final h = height;
     if (h < PlayingCard.compactBelow) {
-      // Compact: a rim seat's card, 38dp tall on a 640x360 phone. A quarter of
-      // the card is rank.
+      // Compact: a rim seat's card, 33 to 45dp tall on the phones the table
+      // is laid out for. More than a quarter of the card is rank — 8.9dp of
+      // cap on a 592x360 phone — and the index column ends inside the half of
+      // the card a rim seat's five-card fan leaves showing.
       return CardFaceMetrics._(
         height: h,
         compact: true,
         inset: h * 0.058,
-        top: h * 0.07,
-        rankCap: h * 0.25,
-        indexWidth: h * 0.28,
-        gap: h * 0.028,
-        indexPip: h * 0.135,
-        centrePip: h * 0.36,
+        top: h * 0.065,
+        rankCap: h * 0.27,
+        indexWidth: h * 0.30,
+        gap: h * 0.025,
+        indexPip: h * 0.13,
+        centrePip: h * 0.34,
         centreY: h * 0.70,
-        acePip: h * 0.40,
-        aceY: h * 0.695,
+        acePip: h * 0.38,
+        aceY: h * 0.705,
       );
     }
     return CardFaceMetrics._(
@@ -447,6 +449,26 @@ class CardFaceMetrics {
       top,
       indexWidth,
       h,
+    );
+  }
+
+  /// Where the rank stands in its column: the column's width, the rank's
+  /// cap height. The rank itself is centred in it, as narrow as it is.
+  Rect rank({bool right = false}) {
+    final column = index(right: right);
+    return Rect.fromLTWH(column.left, column.top, column.width, rankCap);
+  }
+
+  /// The pip under the rank, centred on the same axis.
+  Rect indexPipBox({bool right = false}) {
+    final column = index(right: right);
+    return Rect.fromCenter(
+      center: Offset(
+        column.center.dx,
+        column.top + rankCap + gap + indexPip / 2,
+      ),
+      width: indexPip,
+      height: indexPip,
     );
   }
 
@@ -579,7 +601,7 @@ class CardFacePainter extends CustomPainter {
     }
 
     // The index, in the corner that shows.
-    _paintIndex(canvas, m, m.index(right: indexOnRight), rank, suit, ink);
+    _paintIndex(canvas, m, indexOnRight, rank, suit, ink);
 
     // The centre pip: larger on an ace, inside the frame on a court card.
     final ace = rank == 'A';
@@ -625,11 +647,12 @@ class CardFacePainter extends CustomPainter {
   static void _paintIndex(
     Canvas canvas,
     CardFaceMetrics m,
-    Rect column,
+    bool right,
     String rank,
     String suit,
     Color ink,
   ) {
+    final column = m.rank(right: right);
     final fit = cardRankFit(rank, m.height);
     final painter = _rankPainter(rank, fit.fontSize, ink);
     final baseline = painter.computeDistanceToActualBaseline(
@@ -647,19 +670,7 @@ class CardFacePainter extends CustomPainter {
     canvas.restore();
     painter.dispose();
 
-    paintPip(
-      canvas,
-      suit,
-      Rect.fromCenter(
-        center: Offset(
-          column.center.dx,
-          column.top + m.rankCap + m.gap + m.indexPip / 2,
-        ),
-        width: m.indexPip,
-        height: m.indexPip,
-      ),
-      ink,
-    );
+    paintPip(canvas, suit, m.indexPipBox(right: right), ink);
   }
 
   @override

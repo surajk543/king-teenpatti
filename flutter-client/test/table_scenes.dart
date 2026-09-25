@@ -590,8 +590,9 @@ Map<String, dynamic> _fiveCardVariation({String selected = 'FIVE_CARD'}) => {
 };
 
 /// A 5-Card hand on the viewer's turn: five cards looked at, the best three
-/// the server named standing at the front of the fan.
-RoomState fiveCardRoom() => _room(
+/// the server named standing at the front of the fan — or, [choosing], the
+/// player still inside their window to choose them, the five fanned evenly.
+RoomState fiveCardRoom({bool choosing = false}) => _room(
   category: 'variation',
   boot: 50000,
   stake: 50000,
@@ -613,12 +614,22 @@ RoomState fiveCardRoom() => _room(
     chips: 1250000,
     cards: const ['Qd', '5c', 'Kh', 'Jc', 'Ts'],
     blindMovesLeft: 0,
-    hand: {
-      'handName': 'Sequence',
-      'wild': const <String>[],
-      'playsAs': const ['Qd', '5c', 'Kh', 'Jc', 'Ts'],
-      'best': const ['Qd', 'Kh', 'Jc'],
-    },
+    hand: choosing
+        ? {
+            'handName': '',
+            'wild': const <String>[],
+            'playsAs': const <String>[],
+            'best': const <String>[],
+            'picking': true,
+            'pickDeadline': _now + 6000,
+            'pickTimeoutMs': 8000,
+          }
+        : {
+            'handName': 'Sequence',
+            'wild': const <String>[],
+            'playsAs': const ['Qd', '5c', 'Kh', 'Jc', 'Ts'],
+            'best': const ['Qd', 'Kh', 'Jc'],
+          },
     options: {
       'canSee': false,
       'canPack': true,

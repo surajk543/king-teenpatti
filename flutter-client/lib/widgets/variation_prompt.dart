@@ -1118,14 +1118,21 @@ class _CardPickPromptState extends State<CardPickPrompt> {
                     ],
                     if (roomy) ...[
                       const SizedBox(height: Space.xs),
-                      FittedBox(
-                        fit: BoxFit.scaleDown,
-                        child: Text(
-                          widget.hint,
-                          maxLines: 1,
-                          style:
-                              (theme.textTheme.bodySmall ?? const TextStyle())
-                                  .copyWith(color: Colors.white70),
+                      // Held to the height the cards' row was sized around:
+                      // at the text ceiling its line stood 2dp taller and the
+                      // panel overflowed (found by the premium-card tests,
+                      // 25 Sep 2026).
+                      SizedBox(
+                        height: CardPickPrompt._hintH,
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text(
+                            widget.hint,
+                            maxLines: 1,
+                            style:
+                                (theme.textTheme.bodySmall ?? const TextStyle())
+                                    .copyWith(color: Colors.white70),
+                          ),
                         ),
                       ),
                     ],

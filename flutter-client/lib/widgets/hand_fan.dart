@@ -19,7 +19,7 @@ import 'playing_card.dart';
 /// another card.
 ///
 /// **Five cards stand in the same box** (5-Card Teen Patti, CLAUDE.md §8.4):
-/// their run, first card to last, is [wideRun] — 0.37 of a card a step, the
+/// their run, first card to last, is [wideRun] — 0.375 of a card a step, the
 /// least that still clears each card's index once the fan's tilt has opened
 /// its top — and the box is always as wide as that run, so a hand topped up
 /// from three to five never takes more of the felt. Three cards are fanned
@@ -28,7 +28,7 @@ import 'playing_card.dart';
 /// **A little more prominent than any other card** (the brief: "For the YOU
 /// player, make the cards slightly more prominent"): [cardScale] of the
 /// table's hand height, which the tighter overlap pays for: the box is a
-/// little narrower than the old eighteen-percent overlap's (2.04 card heights
+/// little narrower than the old eighteen-percent overlap's (2.05 card heights
 /// of the table's against 2.07) and, at [heightShare], barely taller (1.13
 /// against 1.12), so nothing it stands beside moves — on a 640x360 phone the
 /// column over it already reaches the pot.
@@ -41,7 +41,7 @@ abstract final class HandFan {
   static const double step = 0.62;
 
   /// First card to last of a hand of four or five, in card widths.
-  static const double wideRun = 1.48;
+  static const double wideRun = 1.5;
 
   /// How far the outer cards lean out, in radians: 4.5°, within the brief's
   /// 3–5°. The cards between lean in proportion to where they stand.

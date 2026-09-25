@@ -431,7 +431,7 @@ void main() {
         expect(slots[2].left - slots[1].left, closeTo(cardW * 0.24, 0.001));
         final wide = slots[3].left - slots[2].left;
         expect(slots[4].left - slots[3].left, closeTo(wide, 0.001));
-        expect(wide, closeTo(cardW * 0.5, 0.001));
+        expect(wide, closeTo((HandFan.wideRun - 2 * 0.24) / 2 * cardW, 0.001));
         expect(wide, greaterThan(CardFaceMetrics.of(cardH).index().right));
 
         // The best three are lifted; the other two are left down, set back.
