@@ -48,13 +48,22 @@ class FeedbackSettings extends ChangeNotifier {
     ),
   );
 
-  /// The clips are synthesised, not sourced: nothing here carries a licence,
-  /// an attribution or a third party's rights, and the whole set is under
-  /// 90 KB. See tool notes in the repo for how they were generated.
-  Future<void> _play(String clip) async {
+  /// The clips in `assets/sfx/` are synthesised, not sourced: nothing there
+  /// carries a licence, an attribution or a third party's rights, and the
+  /// whole set is under 90 KB. See tool notes in the repo for how they were
+  /// generated. The owner's own recordings live in `assets/sound/`.
+  Future<void> _play(String clip) => _playAsset('sfx/$clip.wav');
+
+  /// The look at a hand — the player's own or anybody else's at the table
+  /// (owner, 26 Sep 2026: "this sound should be played when player see
+  /// cards"). The owner's recording, 0.62 s.
+  static const seeCardsClip = 'sound/see card sound.mp3';
+
+  /// [asset] is under `assets/`, as [AssetSource] takes it.
+  Future<void> _playAsset(String asset, {double volume = 0.85}) async {
     if (!_sound) return;
     try {
-      final player = _voices.putIfAbsent(clip, () {
+      final player = _voices.putIfAbsent(asset, () {
         final p = AudioPlayer()..setReleaseMode(ReleaseMode.stop);
         unawaited(p.setPlayerMode(PlayerMode.lowLatency));
         // Sonification, not media, and NO audio focus.
@@ -68,7 +77,7 @@ class FeedbackSettings extends ChangeNotifier {
         return p;
       });
       await player.stop();
-      await player.play(AssetSource('sfx/$clip.wav'), volume: 0.85);
+      await player.play(AssetSource(asset), volume: volume);
     } catch (_) {
       // A missing or unplayable clip must never be the reason a tap feels
       // dead: fall back to the platform tick.
@@ -143,15 +152,14 @@ class FeedbackSettings extends ChangeNotifier {
 
   /// A hand has been looked at — this player's or somebody else's.
   ///
-  /// A card being turned over is not a button being pressed, so it gets its
-  /// own feel: selectionClick is the lightest thing the platform has, which is
-  /// what a card sliding over another one should be.
-  ///
-  /// The SOUND is still the platform tick, because Flutter only exposes two
-  /// system sounds (click and alert) and neither is a card. A real flick needs
-  /// an asset — see the note on [alarm].
+  /// The owner's recording ([seeCardsClip]; it replaced the synthesised
+  /// `sfx/card.wav` on 26 Sep 2026). At full volume: it peaks where the others
+  /// do but its body is some 15 dB quieter, the flick of a card rather than a
+  /// tone. A card being turned over is not a button being pressed, so it gets
+  /// its own feel as well: selectionClick is the lightest thing the platform
+  /// has, which is what a card sliding over another one should be.
   void cards() {
-    unawaited(_play('card'));
+    unawaited(_playAsset(seeCardsClip, volume: 1));
     if (_vibrate) HapticFeedback.selectionClick();
   }
 

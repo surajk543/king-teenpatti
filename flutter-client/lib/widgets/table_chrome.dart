@@ -3102,9 +3102,21 @@ class _TurnBuzzerState extends State<TurnBuzzer> {
   bool _was = false;
   int _missed = -1;
   int _pot = -1;
-  int _seen = -1;
+  String? _seenHand;
+  Set<String> _seenBy = const {};
   bool _alarmed = false;
   bool _won = false;
+
+  /// The seats dealt into the hand. A seat waiting for the next deal, or an
+  /// empty one (whose `isBlind` reads false: the wire leaves it out), has
+  /// looked at nothing — counting them made a blind player leaving sound like
+  /// a player looking.
+  static const _dealtIn = {
+    SeatState.active,
+    SeatState.packed,
+    SeatState.won,
+    SeatState.lost,
+  };
 
   /// How much of the turn clock is left when the alarm sounds. Five seconds of
   /// twenty-five: late enough that it is not nagging, early enough to act on.
@@ -3116,7 +3128,15 @@ class _TurnBuzzerState extends State<TurnBuzzer> {
     final now = context
         .select<
           GameState,
-          ({bool mine, int missed, int pot, int seen, int deadline, bool won})
+          ({
+            bool mine,
+            int missed,
+            int pot,
+            String seenHand,
+            String seenBy,
+            int deadline,
+            bool won,
+          })
         >((s) {
           final room = s.room;
           return (
@@ -3126,10 +3146,22 @@ class _TurnBuzzerState extends State<TurnBuzzer> {
             mine: s.myTurn && room?.state == TableState.betting,
             missed: room?.you?.missedTurns ?? 0,
             pot: room?.pot ?? 0,
-            // How many players have looked at their cards. Any increase is
-            // somebody turning a hand over, whoever it was.
-            seen:
-                room?.seats.nonNulls.where((seat) => !seat.isBlind).length ?? 0,
+            // Who has looked at their cards this hand, by user id: a player
+            // dealt in who is no longer blind. Only ever grows within a hand
+            // (only a look, or the reveal the fourth blind bet forces, turns
+            // a player seen), so a new name in it is somebody turning a hand
+            // over, whoever it was, the viewer included. None at a poker
+            // table, where nothing is dealt blind. Text, so the select still
+            // compares by value and rebuilds only when it changes.
+            seenHand: room == null ? '' : '${room.roomId}#${room.handNo}',
+            seenBy: room == null || room.isPoker
+                ? ''
+                : ([
+                    for (final seat in room.seats)
+                      if (seat.userId case final id?
+                          when _dealtIn.contains(seat.status) && !seat.isBlind)
+                        id,
+                  ]..sort()).join(','),
             deadline: room?.turn?.deadline ?? 0,
           );
         });
@@ -3140,7 +3172,13 @@ class _TurnBuzzerState extends State<TurnBuzzer> {
     final autoPacked = _missed >= 0 && now.missed > _missed;
     final potGrew = _pot >= 0 && now.pot > _pot;
     final justWon = now.won && !_won;
-    final sawCards = _seen >= 0 && now.seen > _seen;
+    final seenBy = now.seenBy.isEmpty
+        ? const <String>{}
+        : now.seenBy.split(',').toSet();
+    // Within one hand only: a new deal makes everybody blind again, which is
+    // not news, and the table a player arrives at is not either.
+    final sawCards =
+        now.seenHand == _seenHand && !_seenBy.containsAll(seenBy);
 
     if (startedTurn) _alarmed = false;
 
@@ -3150,8 +3188,8 @@ class _TurnBuzzerState extends State<TurnBuzzer> {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         final feedback = context.read<FeedbackSettings>();
-        // Ordered by how much news each carries, and only one fires per frame
-        // — three sounds at once is noise, not feedback.
+        // Ordered by how much news each carries, and only one of these fires
+        // per frame — three sounds at once is noise, not feedback.
         if (justWon) {
           feedback.win();
         } else if (autoPacked) {
@@ -3160,16 +3198,22 @@ class _TurnBuzzerState extends State<TurnBuzzer> {
           feedback.turn();
         } else if (potGrew) {
           feedback.potGrew();
-        } else if (sawCards) {
-          feedback.cards();
         }
+        // A look at a hand is heard on its own (owner, 26 Sep 2026: "when I
+        // see card then also and someone also see card then also, I should
+        // hear this sound"), whatever else the frame brought: the fourth
+        // blind bet grows the pot and turns the cards over in one snapshot,
+        // and the chips going in used to drown the look. Never over a win,
+        // which no look shares a frame with anyway.
+        if (sawCards && !justWon) feedback.cards();
       });
     }
 
     _was = now.mine;
     _missed = now.missed;
     _pot = now.pot;
-    _seen = now.seen;
+    _seenHand = now.seenHand;
+    _seenBy = seenBy;
     _won = now.won;
 
     // The clock is its own thing: it is not driven by a state change but by

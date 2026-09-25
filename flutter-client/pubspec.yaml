@@ -101,6 +101,8 @@ flutter:
 
   assets:
     - assets/sfx/
+    # The owner's recorded sounds (26 Sep 2026): the look at a hand.
+    - assets/sound/
     - assets/animations/
     - assets/
 

@@ -161,7 +161,8 @@ king-teenpatti/
     │   ├── widgets/glass_components.dart  tapHaptic, PressScale, GlassCard, GlassButton, GlassTextField, GlassThemeSwitcher
     │   ├── state/theme_preference.dart  themeMode read/write (+ legacy darkMode); state/consent.dart  the no-winnings flag
     │   └── l10n/strings.dart     hand-written 5-language table (en/hi/bn/gu/pa)
-    ├── assets/card_back.svg, assets/app_icon.svg, assets/fonts/ (Inter 400/500/600/700 + OFL licence), assets/sfx/,
+    ├── assets/card_back.svg, assets/app_icon.svg, assets/fonts/ (Inter 400/500/600/700 + OFL licence), assets/sfx/ (synthesised clips),
+    │                         assets/sound/see card sound.mp3 (the owner's recording, 0.62 s — the look at a hand, §8.4 "Sounds"),
     │                         assets/animations/Fireworks.json (Lottie 5.5.7, 512x512, 2.43s — the winner's burst),
     │                         assets/animations/Lucky Draw Spinner.json (Lottie 5.10, 300x300 — the owner's prize wheel, §8.4)
     ├── test/  number_format, connection_failure, consent, theme_preference, … poker_table (§8.4), table_config_{dtos,cache,menu}, table_engines (§8.1),
@@ -2309,6 +2310,17 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   (it used to appear only at a showdown, so a sideshow the viewer won put the label on the loser).
 - **Per-frame clocks** (`LiquidFill`, `_SideshowCountdown`) compute from `deadlineMs -
   DateTime.now()` inside an `AnimationController` — never from the 1s tick. No clock-skew correction.
+- **Sounds** (`settings/feedback_settings.dart`, fired by `TurnBuzzer` in `table_chrome.dart` on both felts): one low-latency
+  `AudioPlayer` per clip, played as sonification with no audio focus (music keeps playing), all behind the Sound switch.
+  `assets/sfx/` holds the synthesised clips (tick, coins, alarm, door, win); **`assets/sound/see card sound.mp3`** is the
+  owner's recording (26 Sep 2026: "this sound should be played when player see cards — when I see card then also and
+  someone also see card then also"), played at full volume by `cards()` whenever a player dealt into the hand turns from
+  blind to seen — the viewer or anybody else, by a tap on See cards or by the reveal the fourth blind bet forces (the
+  server's only `isBlind = false` is `Table.see`). `TurnBuzzer` follows the look per hand and per player (`seenHand`,
+  `seenBy`): a new deal, an empty seat (whose `isBlind` reads false — the wire leaves it out; it used to count, so a blind
+  player getting up sounded like a look) and a player waiting for the next deal are no look, and there is none at a poker
+  table. The look plays whatever else the frame brought — the chips of that fourth blind bet used to drown it — and only
+  a win silences it. `sfx/card.wav` is no longer played. `test/see_cards_sound_test.dart`.
 - **The Settings drawer** (owner's brief, 26 Sep 2026: "Settings = premium + clean + calm + functional", some 20–30% of the
   store's language; presentation only — every dialog and what every row does is as it was; the app is landscape-only, so the
   brief's portrait case does not arise). `_LobbyDrawer`, which the Stats drawer shares, takes a fixed `head` (`_DrawerHead`: a
