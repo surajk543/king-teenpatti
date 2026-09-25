@@ -206,14 +206,39 @@ class GameState extends ChangeNotifier {
 
   /// The quick-message order the player saved on this phone, as read back —
   /// unchecked; [quickMessageOrder] is the order to draw.
-  List<int> _quickOrder = const [];
+  List<String> _quickOrder = const [];
 
-  /// The order the chat drawer lists [Strings.quickMessages] in: indices into
-  /// that list, the player's own arrangement first ([moveQuickMessage]), every
-  /// line always present exactly once ([normaliseQuickOrder]). The owner's
-  /// order until the player drags a line.
-  List<int> get quickMessageOrder =>
-      normaliseQuickOrder(_quickOrder, t.quickMessages.length);
+  /// The quick messages of the player's own, oldest first, kept on this phone
+  /// ([addCustomQuickMessage]).
+  List<CustomQuickMessage> _quickCustom = const [];
+
+  /// The player's own quick messages, oldest first.
+  List<CustomQuickMessage> get customQuickMessages => _quickCustom;
+
+  /// The order the chat drawer lists its quick messages in, as order keys
+  /// ([builtInQuickKey], [customQuickKey]): the player's own arrangement
+  /// ([moveQuickMessage]), every line — the set ones and their own — always
+  /// present exactly once ([normaliseQuickOrder]). The owner's order, with
+  /// nothing of their own, until the player changes it.
+  List<String> get quickMessageOrder => normaliseQuickOrder(
+    _quickOrder,
+    t.quickMessages.length,
+    [for (final line in _quickCustom) line.id],
+  );
+
+  /// The quick messages page, line by line in [quickMessageOrder]: each set
+  /// line in the player's language, each of their own as they saved it.
+  List<QuickEntry> get quickMessageEntries {
+    final lines = t.quickMessages;
+    final own = {for (final line in _quickCustom) line.id: line.text};
+    return [
+      for (final key in quickMessageOrder)
+        if (builtInIndexOf(key) case final i?)
+          (key: key, text: lines[i], builtIn: i, customId: null)
+        else if (customIdOf(key) case final id?)
+          (key: key, text: own[id]!, builtIn: null, customId: id),
+    ];
+  }
 
   User? user;
 
@@ -2932,10 +2957,14 @@ class GameState extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Takes up the quick-message order this phone saved ([moveQuickMessage]),
-  /// at start-up with the rest of the preferences.
+  /// Takes up the quick messages this phone saved — the order
+  /// ([moveQuickMessage]) and the player's own lines ([addCustomQuickMessage])
+  /// — at start-up with the rest of the preferences.
   void restoreQuickOrder(SharedPreferences prefs) {
     _quickOrder = parseQuickOrder(prefs.getStringList(quickOrderPrefsKey));
+    _quickCustom = decodeCustomQuickMessages(
+      prefs.getString(quickCustomPrefsKey),
+    );
   }
 
   /// Moves the quick message at position [from] of [quickMessageOrder] to
@@ -2948,9 +2977,62 @@ class GameState extends ChangeNotifier {
     if (listEquals(next, quickMessageOrder)) return;
     _quickOrder = next;
     notifyListeners();
+    await _saveQuickMessages();
+  }
+
+  /// Saves [raw] as a quick message of the player's own, at the top of the
+  /// list, kept on this phone (owner, 25 Sep 2026: "when user clicks and type
+  /// and save that typed message will be seen in quick message list"). It is
+  /// kept as the server will read it ([cleanQuickMessage]), and refused when
+  /// there is nothing left to say, when the list already says exactly that,
+  /// or when the player already keeps [maxCustomQuickMessages] of their own.
+  Future<QuickAddResult> addCustomQuickMessage(String raw) async {
+    final text = cleanQuickMessage(raw);
+    if (text.isEmpty) return QuickAddResult.empty;
+    if (t.quickMessages.contains(text) ||
+        _quickCustom.any((line) => line.text == text)) {
+      return QuickAddResult.duplicate;
+    }
+    if (_quickCustom.length >= maxCustomQuickMessages) {
+      return QuickAddResult.full;
+    }
+    final line = CustomQuickMessage(id: const Uuid().v4(), text: text);
+    // The order as it stands, with the new line first — so an old install's
+    // order, never saved, is written down whole here.
+    final order = [customQuickKey(line.id), ...quickMessageOrder];
+    _quickCustom = [..._quickCustom, line];
+    _quickOrder = order;
+    notifyListeners();
+    await _saveQuickMessages();
+    return QuickAddResult.added;
+  }
+
+  /// Takes the player's own quick message [id] off the list, and off the
+  /// phone. A set line cannot be removed; an id that is not theirs does
+  /// nothing.
+  Future<void> removeCustomQuickMessage(String id) async {
+    if (!_quickCustom.any((line) => line.id == id)) return;
+    _quickCustom = [
+      for (final line in _quickCustom)
+        if (line.id != id) line,
+    ];
+    _quickOrder = quickMessageOrder;
+    notifyListeners();
+    await _saveQuickMessages();
+  }
+
+  /// Writes the quick messages down — the order and the player's own lines,
+  /// both, so the two can never disagree after a restart. A write that fails
+  /// leaves them for this session, not an error: only the next launch loses
+  /// them.
+  Future<void> _saveQuickMessages() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setStringList(quickOrderPrefsKey, encodeQuickOrder(next));
+      await prefs.setString(
+        quickCustomPrefsKey,
+        encodeCustomQuickMessages(_quickCustom),
+      );
+      await prefs.setStringList(quickOrderPrefsKey, _quickOrder);
     } catch (_) {
       // Only the next launch loses it.
     }

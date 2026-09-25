@@ -9,6 +9,7 @@ import '../l10n/strings.dart';
 import '../models/dtos.dart';
 import '../settings/feedback_settings.dart';
 import '../state/game_state.dart';
+import '../state/quick_message_order.dart';
 import '../theme/app_theme.dart';
 import '../theme/table_theme.dart';
 import 'edge_fade.dart';
@@ -1800,6 +1801,18 @@ enum _ChatView { chat, quick, players }
 class _ChatDrawerState extends State<ChatDrawer> {
   final _input = TextEditingController();
 
+  /// The quick messages page's own field: a line of the player's own, being
+  /// written ([_quickComposer]).
+  final _custom = TextEditingController();
+
+  /// The quick messages list, so a line just saved — at its top — is brought
+  /// into view.
+  final _quickScroll = ScrollController();
+
+  /// Whether the quick messages page shows its field (the player tapped Add
+  /// message) rather than the Add message key.
+  bool _composing = false;
+
   /// Which page is up. Every opening starts on the conversation — the drawer
   /// goes back to the menu once it closes, so this state is new each time —
   /// because the conversation is what the rail's key promised.
@@ -1808,6 +1821,8 @@ class _ChatDrawerState extends State<ChatDrawer> {
   @override
   void dispose() {
     _input.dispose();
+    _custom.dispose();
+    _quickScroll.dispose();
     super.dispose();
   }
 
@@ -1958,9 +1973,10 @@ class _ChatDrawerState extends State<ChatDrawer> {
                 Expanded(
                   child: EdgeFade(child: ChatPlayers(state: state)),
                 )
-              else if (_view == _ChatView.quick)
-                Expanded(child: EdgeFade(child: _quickLines(state)))
-              else ...[
+              else if (_view == _ChatView.quick) ...[
+                Expanded(child: EdgeFade(child: _quickLines(state))),
+                _quickComposer(state, theme),
+              ] else ...[
                 Expanded(
                   child: EdgeFade(
                     child: ListView.builder(
@@ -2151,43 +2167,169 @@ class _ChatDrawerState extends State<ChatDrawer> {
   /// icons travel with their lines, the words sent never change, and the
   /// cooldown stops a line being said, never being moved.
   Widget _quickLines(GameState state) {
-    final lines = state.t.quickMessages;
-    final order = state.quickMessageOrder;
+    final entries = state.quickMessageEntries;
     final left = state.chatCooldownLeft;
+    final t = state.t;
     return ReorderableListView.builder(
+      scrollController: _quickScroll,
       padding: const EdgeInsets.symmetric(
         horizontal: Space.lg,
         vertical: Space.sm,
       ),
       buildDefaultDragHandles: false,
-      itemCount: order.length,
+      itemCount: entries.length,
       onReorderStart: (_) => tapHaptic(context),
       onReorderItem: state.moveQuickMessage,
       proxyDecorator: _liftedQuickLine,
       itemBuilder: (context, position) {
-        final i = order[position];
+        final entry = entries[position];
+        final i = entry.builtIn;
+        final id = entry.customId;
         // Keyed by the line, not its place, so a moved box keeps its state
         // and the list animates the others round it.
         return Padding(
-          key: ValueKey<int>(i),
+          key: ValueKey<String>(entry.key),
           padding: EdgeInsets.only(
-            bottom: position == order.length - 1 ? 0 : Space.sm,
+            bottom: position == entries.length - 1 ? 0 : Space.sm,
           ),
           child: QuickLine(
-            text: lines[i],
-            // The test holds the two lists to one length; a line past the
-            // icons would still be better said under the plain bubble than
-            // not at all.
-            icon: i < quickMessageIcons.length
+            text: entry.text,
+            // A set line wears the icon of its meaning; the test holds the two
+            // lists to one length, and a line past the icons would still be
+            // better said under the plain bubble than not at all. A line of
+            // the player's own wears the one mark that says so.
+            icon: i == null
+                ? customQuickMessageIcon
+                : i < quickMessageIcons.length
                 ? quickMessageIcons[i]
                 : Icons.chat_bubble_outline_rounded,
             secondsLeft: left,
-            onTap: state.canChat ? () => _sendQuick(state, lines[i]) : null,
-            reorder: (index: position, label: state.t.quickReorderHint),
+            onTap: state.canChat ? () => _sendQuick(state, entry.text) : null,
+            reorder: (index: position, label: t.quickReorderHint),
+            onDelete: id == null
+                ? null
+                : () => state.removeCustomQuickMessage(id),
+            deleteLabel: t.quickDeleteMessage,
           ),
         );
       },
     );
+  }
+
+  /// The foot of the quick messages page: the Add message key, or — once it
+  /// is tapped — a field and its Save and Cancel keys, where the chat page
+  /// keeps its composer, so it rides above the keyboard the same way (owner,
+  /// 25 Sep 2026: "add a button in quick message drawer so that when user
+  /// clicks and type and save that typed message will be seen in quick message
+  /// list"). In the drawer, never a popup, like everything else here.
+  Widget _quickComposer(GameState state, ThemeData theme) {
+    final t = state.t;
+    final ink = theme.colorScheme.onSurface;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        Space.lg,
+        Space.sm,
+        Space.lg,
+        Space.md,
+      ),
+      child: _composing
+          ? Row(
+              children: [
+                Expanded(
+                  child: GlassTextField(
+                    controller: _custom,
+                    autofocus: true,
+                    // The server's own limit, so the whole line arrives.
+                    maxLength: customQuickMessageMaxLength,
+                    hintText: t.quickCustomHint,
+                    textInputAction: TextInputAction.done,
+                    style: TableType.chatText(theme).copyWith(color: ink),
+                    decoration: InputDecoration(
+                      isDense: true,
+                      hintStyle: TableType.chatText(theme).copyWith(
+                        color: ink.withValues(
+                          alpha: AppTheme.inkLowOn(theme.brightness),
+                        ),
+                      ),
+                    ),
+                    onSubmitted: (_) => _saveCustom(state),
+                  ),
+                ),
+                const SizedBox(width: Space.sm),
+                PressScale(
+                  child: IconButton.filled(
+                    tooltip: t.save,
+                    onPressed: () => _saveCustom(state),
+                    style: stepperStyle(theme).copyWith(
+                      minimumSize: const WidgetStatePropertyAll(
+                        Size(Dim.minTouch, Dim.minTouch),
+                      ),
+                    ),
+                    icon: const Icon(Icons.check_rounded),
+                  ),
+                ),
+                PressScale(
+                  child: IconButton(
+                    tooltip: t.cancel,
+                    onPressed: _closeComposer,
+                    icon: const Icon(Icons.close_rounded),
+                  ),
+                ),
+              ],
+            )
+          : GlassButton(
+              // The drawer's own well and hairline, the words in the gold the
+              // lines' icons wear: a live key, where the outline theme's grey
+              // fill read as one switched off.
+              style: GlassButtonStyle.glass,
+              expand: true,
+              minimumSize: const Size(0, Dim.minTouch),
+              tone: goldInk(theme.brightness),
+              icon: const Icon(Icons.add_rounded),
+              label: t.quickAddMessage,
+              onPressed: () {
+                if (state.customQuickMessages.length >=
+                    maxCustomQuickMessages) {
+                  state.say(t.quickCustomFull);
+                  return;
+                }
+                setState(() => _composing = true);
+              },
+            ),
+    );
+  }
+
+  /// Saves what the field says as a line of the player's own. Saved, the
+  /// field goes and the list shows the new line at its top; refused, the
+  /// field stays with the words in it, and a note says why.
+  Future<void> _saveCustom(GameState state) async {
+    final t = state.t;
+    switch (await state.addCustomQuickMessage(_custom.text)) {
+      case QuickAddResult.added:
+        if (!mounted) return;
+        _closeComposer();
+        if (_quickScroll.hasClients) {
+          unawaited(
+            _quickScroll.animateTo(
+              0,
+              duration: Motion.base,
+              curve: Curves.easeOut,
+            ),
+          );
+        }
+      case QuickAddResult.empty:
+        break;
+      case QuickAddResult.duplicate:
+        state.say(t.quickCustomDuplicate);
+      case QuickAddResult.full:
+        state.say(t.quickCustomFull);
+    }
+  }
+
+  void _closeComposer() {
+    _custom.clear();
+    FocusScope.of(context).unfocus();
+    setState(() => _composing = false);
   }
 
   /// The box under the player's finger while it is dragged: lifted a little
@@ -2561,6 +2703,11 @@ const List<IconData> quickMessageIcons = [
   Icons.help_outline_rounded, // Please help me.
 ];
 
+/// The mark beside a quick message of the player's own (owner, 25 Sep 2026:
+/// "add icon in custom saved quick message"): a note being written — theirs,
+/// not one of the set lines, whose icons say what each means.
+const IconData customQuickMessageIcon = Icons.edit_note_rounded;
+
 /// One sentence on the chat drawer's quick messages tab, in a box of its own
 /// with an icon for what it says, the whole box its target (owner, 24 Sep
 /// 2026: "every message of quick message should be in some box").
@@ -2575,6 +2722,8 @@ class QuickLine extends StatelessWidget {
     required this.secondsLeft,
     required this.onTap,
     this.reorder,
+    this.onDelete,
+    this.deleteLabel,
   });
 
   final String text;
@@ -2594,6 +2743,13 @@ class QuickLine extends StatelessWidget {
   /// each takes the pointer when it goes down, and an outer one would take it
   /// from the grip's and turn every grip drag into a long-press.
   final ({int index, String label})? reorder;
+
+  /// Takes the line off the list: a line of the player's own has one
+  /// ([QuickDeleteKey]), a set line none.
+  final VoidCallback? onDelete;
+
+  /// What a screen reader calls the delete key.
+  final String? deleteLabel;
 
   /// The box's own inset; the floor below counts it, so the whole box stays
   /// taller than the 44dp target.
@@ -2674,6 +2830,10 @@ class QuickLine extends StatelessWidget {
                   null => body,
                 },
               ),
+              if (onDelete case final delete?) ...[
+                const SizedBox(width: Space.xs),
+                QuickDeleteKey(label: deleteLabel ?? '', onTap: delete),
+              ],
               if (reorder case final r?) ...[
                 const SizedBox(width: Space.xs),
                 ReorderableDragStartListener(
@@ -2682,6 +2842,44 @@ class QuickLine extends StatelessWidget {
                 ),
               ],
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The key that takes a quick message of the player's own off the list: a
+/// bin, quiet beside the grip, as wide as it.
+///
+/// It takes its own taps, so a tap on it never also says the line — the box
+/// around it would.
+class QuickDeleteKey extends StatelessWidget {
+  const QuickDeleteKey({super.key, required this.label, required this.onTap});
+
+  /// What a screen reader says for it.
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final ink = Theme.of(context).colorScheme.onSurface;
+    return Semantics(
+      button: true,
+      label: label,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () {
+          tapHaptic(context);
+          onTap();
+        },
+        child: SizedBox(
+          width: QuickDragHandle.width,
+          height: Dim.minTouch - 2 * Space.sm,
+          child: Icon(
+            Icons.delete_outline_rounded,
+            size: 20,
+            color: ink.withValues(alpha: AppTheme.inkMed),
           ),
         ),
       ),
