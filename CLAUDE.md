@@ -2447,6 +2447,31 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   re-reads the catalogue (`owned` is per viewer) and wears it. The tick follows
   `user.activePictureId == p.id` — it used to compare the choice PATH to the picture's id, so
   nothing was ever ticked. `state.buyingPicture` puts a spinner on the one tile being bought.
+- **The picture shelves' tiles** (the store polish, 26 Sep 2026 — the brief's "EQUIPPED / OWNED / LOCKED: 🔒 Price, duration",
+  "IN USE", never by colour alone; presentation only, `picture_shelf.dart`/`table_picture_shelf.dart`). Every tile of the Pictures
+  shelf, the picker, the Animated shelf and the Tables shelf reads: picture (or preview), ONE `ShelfBadge`, name, small print. The
+  badge is **"✓ Wearing"** (`t.wearing`, the store head's `_WornTag` look: solid `AppTheme.gold`, ink900, champagne rim, `Radii.xs`)
+  on the worn picture and **"✓ In use"** on the laid table picture; **"✓ Owned"** (`pictureOwned`, new in all five languages) in the
+  scheme's green on everything the player can put on now — free pictures and the Flowing chips too; or the price as a small purchase
+  key (`PriceTag`: a pill washed and rimmed in the wallet's ink — `goldInk`, `diamondInkOn`, `hammerInkOn` — with a padlock on EVERY
+  price, the gem or hammer beside it, the figure in full ink; the hammer and gem used to replace the padlock). One height for all:
+  the label ramp's smallest step on ONE measured line (`ShelfBadge.lineHeightFor`: the language's badge words and figures together,
+  §12.3 — a price and "आपकी" stood 3dp apart), 12dp glyphs, scaled whole rather than cut on the narrowest tile at ×1.25.
+  `UnlockedTag` and `_InUseTag` (champagne on a pale wash — unreadable by day) are gone, and the term left the price pill: a
+  rental's term (`rentalTerm`, so "1 day", not "1 days") or the time left (`rentalTagLeft`) is `ShelfDetail`, quiet ink and a clock
+  under the name (it overflowed the tile as "42 मिनट बाकी" at 640x360 ×1.25). Names take the label ramp's natural case and
+  tracking (labelSmall on faces, labelMedium on tables; 10dp at 0.8 tracking before), two lines on both shelves (a table's one line
+  cut "Circle Background Patt…"). The ring or frame agrees with the badge: `shelfGoldOn` (`goldInk` — the champagne ring vanished by
+  day) and a still `shelfGlow` on the worn/laid one, `shelfOwnedLine` (primary at 0.7) round everything owned, the hairline round
+  the rest; locked pictures stay at full colour. `ShelfGrid` sets whole columns in a centred block with every row — the last too —
+  starting at its left edge (a centred `Wrap` set a short last row between the columns), rows `Space.lg` apart; `ShelfTileEntrance`
+  fades and lifts each tile once (keyed by id; `Motion.enter`, `Motion.stagger` a beat capped at 6, no timers);
+  `ShelfBadgeSwitcher` crosses a tile's badge over when it changes kind (a purchase), with the store's fade and 0.985 scale;
+  `PressScale` is off while a tile is being bought. `test/picture_shelf_states_test.dart` (every state and its words, glyphs,
+  rings and small print on both shelves, the Flowing chips in use, the columns, the entrance, the cross-over, and at 640x360 ×1.25
+  in all five languages, both themes, store, picker and the Animated shelf: every word inside its tile, names uncut, badges one
+  height and never scaled below 85%); `hammer_pictures_test` now finds the padlock on every price and the term under the name.
+  Pictures: `test/picture_shelf_shots.dart` (by hand, like table_shots).
 - **The Tables tab** (`StoreTab.tables`, owner 15 Sep 2026; `widgets/table_picture_shelf.dart`): the sixth store shelf sells the
   cloths a player lays on their OWN table. Each tile (`TablePictureChoice`, the pack cards' width, wider than tall) shows the pair
   split down the middle — the day file on the left, the night file on the right (`TablePicturePreview`, a sun and a moon in the

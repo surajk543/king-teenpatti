@@ -872,11 +872,10 @@ class Strings {
   /// The word on a premium picture this player has already paid for.
   String get pictureUnlocked => _('pictureUnlocked');
 
-  /// The two words a shelf tile's badge says besides a price (the store
-  /// polish, 26 Sep 2026): the picture being worn, and one the player can put
-  /// on now — free, or bought and still running. The table shelf's word for
-  /// its laid picture stays [tableInUse].
-  String get pictureEquipped => _('pictureEquipped');
+  /// The word a shelf tile's badge says on a picture the player can put on
+  /// now — free, or bought and still running (the store polish, 26 Sep 2026).
+  /// The picture being worn says [wearing], as the store's head does, and the
+  /// laid table picture [tableInUse].
   String get pictureOwned => _('pictureOwned');
 
   /// Diamond-priced wording: the same two offers, paid from the diamond
@@ -1473,7 +1472,6 @@ class Strings {
       'unlockBodyDiamond':
           '{name} costs {cost} diamond{s}. Unlock it and wear it now?',
       'pictureUnlocked': 'Unlocked',
-      'pictureEquipped': 'Equipped',
       'pictureOwned': 'Owned',
       'tapToChangePicture': 'Tap to change your picture',
       'rentForDays': '{days} days',
@@ -2078,7 +2076,6 @@ class Strings {
       'unlockBodyDiamond':
           '{name} की कीमत {cost} डायमंड है। अभी अनलॉक करके लगाएँ?',
       'pictureUnlocked': 'अनलॉक',
-      'pictureEquipped': 'लगी हुई',
       'pictureOwned': 'आपकी',
       'tapToChangePicture': 'तस्वीर बदलने के लिए टैप करें',
       'rentForDays': '{days} दिन',
@@ -2671,7 +2668,6 @@ class Strings {
       'unlockBodyDiamond':
           '{name} এর দাম {cost} ডায়মন্ড। এখনই আনলক করে ব্যবহার করবেন?',
       'pictureUnlocked': 'আনলক',
-      'pictureEquipped': 'ব্যবহারে',
       'pictureOwned': 'আপনার',
       'tapToChangePicture': 'ছবি বদলাতে ট্যাপ করুন',
       'rentForDays': '{days} দিন',
@@ -3236,7 +3232,6 @@ class Strings {
       'unlockBodyDiamond':
           '{name} ની કિંમત {cost} ડાયમંડ છે. હમણાં અનલૉક કરીને વાપરવો?',
       'pictureUnlocked': 'અનલૉક',
-      'pictureEquipped': 'વપરાશમાં',
       'pictureOwned': 'તમારો',
       'tapToChangePicture': 'ફોટો બદલવા ટૅપ કરો',
       'rentForDays': '{days} દિવસ',
@@ -3834,7 +3829,6 @@ class Strings {
       'unlockBodyDiamond':
           '{name} ਦੀ ਕੀਮਤ {cost} ਹੀਰੇ ਹੈ। ਹੁਣੇ ਅਨਲਾਕ ਕਰਕੇ ਲਗਾਉਣੀ ਹੈ?',
       'pictureUnlocked': 'ਅਨਲਾਕ',
-      'pictureEquipped': 'ਲੱਗੀ ਹੋਈ',
       'pictureOwned': 'ਤੁਹਾਡੀ',
       'tapToChangePicture': 'ਤਸਵੀਰ ਬਦਲਣ ਲਈ ਟੈਪ ਕਰੋ',
       'rentForDays': '{days} ਦਿਨ',

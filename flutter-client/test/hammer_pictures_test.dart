@@ -370,24 +370,39 @@ void main() {
         matching: matching,
       );
 
-      // Hammers: the hammer and the count, with the term under it.
+      // The term is the tile's small print under its name (the store polish,
+      // 26 Sep 2026): every badge on the shelf is one line, so it left the
+      // price tag it used to be a second line of.
+      Finder inTile(String name, Finder matching) => find.descendant(
+        of: find.ancestor(
+          of: find.text(name),
+          matching: find.byType(PictureChoice),
+        ),
+        matching: matching,
+      );
+
+      // Hammers: the padlock, the hammer and the count, with the term under
+      // the name. Every price carries the padlock since the store polish
+      // (26 Sep 2026: "LOCKED / PURCHASABLE: 🔒 Price"); the wallet's glyph
+      // stands beside it, so "30" is never read as chips.
       for (final (name, cost) in [
         ('Toucan Flying', '30'),
         ('Blazing Fire', '1'),
       ]) {
+        expect(inTag(name, find.byIcon(Icons.lock_rounded)), findsOneWidget);
         expect(inTag(name, find.byIcon(Icons.hardware)), findsOneWidget);
         expect(inTag(name, find.text(cost)), findsOneWidget);
-        expect(inTag(name, find.text('100 days')), findsOneWidget);
-        expect(inTag(name, find.byIcon(Icons.lock)), findsNothing);
+        expect(inTile(name, find.text('100 days')), findsOneWidget);
         expect(inTag(name, find.byIcon(Icons.diamond)), findsNothing);
       }
       // Diamonds keep the gem.
       expect(inTag('Jolly King', find.byIcon(Icons.diamond)), findsOneWidget);
       expect(inTag('Jolly King', find.byIcon(Icons.hardware)), findsNothing);
-      // Chips keep the padlock.
-      expect(inTag('Bear', find.byIcon(Icons.lock)), findsOneWidget);
+      // Chips: the padlock and the price, and no wallet glyph.
+      expect(inTag('Bear', find.byIcon(Icons.lock_rounded)), findsOneWidget);
       expect(inTag('Bear', find.text(formatChips(25000))), findsOneWidget);
       expect(inTag('Bear', find.byIcon(Icons.hardware)), findsNothing);
+      expect(inTag('Bear', find.byIcon(Icons.diamond)), findsNothing);
       expect(tester.takeException(), isNull);
 
       await _close(tester, state, feedback);

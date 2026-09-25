@@ -486,7 +486,8 @@ class _DefaultPreview extends StatelessWidget {
       fit: StackFit.expand,
       children: [
         const _SplitGround(),
-        // The real thing, at the strength the table draws it.
+        // The real thing, stronger than the room draws it now
+        // (TableAmbient.roomChips), so a few chips still read on a tile.
         const IgnorePointer(child: DriftingChips(strength: 2.6)),
         Positioned(
           left: Space.xs,

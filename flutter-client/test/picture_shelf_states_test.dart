@@ -3,7 +3,7 @@
 // never by colour alone).
 //
 // Every tile of the store's Pictures shelf, the lobby's picture picker and
-// the Tables shelf carries ONE badge — a tick and "Equipped" on the picture
+// the Tables shelf carries ONE badge — a tick and "Wearing" on the picture
 // being worn, "In use" on the table picture laid, "Owned" on everything the
 // player can put on now, or a padlock, the wallet's glyph (hammers and
 // diamonds) and the price — and the small print under its name: a rental's
@@ -14,7 +14,6 @@
 // tile. A RenderFlex overflow fails a test by itself.
 import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -374,7 +373,7 @@ void main() {
     const english = Strings(AppLang.english);
     for (final lang in AppLang.values) {
       final t = Strings(lang);
-      for (final key in ['pictureEquipped', 'pictureOwned', 'tableInUse']) {
+      for (final key in ['wearing', 'pictureOwned', 'tableInUse']) {
         final own = t.ownEntry(key);
         expect(own, isNotNull, reason: '${lang.code} has no "$key"');
         expect(own!.trim(), isNotEmpty, reason: '${lang.code} "$key"');
@@ -387,7 +386,7 @@ void main() {
         }
       }
     }
-    expect(english.pictureEquipped, 'Equipped');
+    expect(english.wearing, 'Wearing');
     expect(english.pictureOwned, 'Owned');
   });
 
@@ -405,7 +404,8 @@ void main() {
     // Worn: the struck-gold badge, and the time left on the rental.
     final lion = _tile('Lion', PictureChoice);
     expect(_badgeOf(tester, lion).kind, ShelfBadgeKind.equipped);
-    expect(_badgeOf(tester, lion).label, 'Equipped');
+    // The store head's word for it, so the head and the tile agree.
+    expect(_badgeOf(tester, lion).label, 'Wearing');
     expect(_inBadge(lion, find.byIcon(Icons.check_rounded)), findsOneWidget);
     expect(_detailOf(tester, lion), endsWith('left'));
 
@@ -575,7 +575,7 @@ void main() {
     await _close(tester, state, feedback);
   });
 
-  testWidgets('a tile arrives once, and a bought picture turns into Equipped', (
+  testWidgets('a tile arrives once, and a bought picture turns into Wearing', (
     tester,
   ) async {
     _setScreen(tester, const Size(891, 411));
@@ -610,7 +610,7 @@ void main() {
     expect(opacities().every((o) => o == 1), isTrue);
 
     // The player buys Fox and wears it: the catalogue is read again, and the
-    // tile's badge crosses from the price to Equipped. Nothing arrives again.
+    // tile's badge crosses from the price to Wearing. Nothing arrives again.
     state
       ..pictures = [
         for (final p in state.pictures)

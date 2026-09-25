@@ -258,34 +258,36 @@ class ShelfTileEntrance extends StatefulWidget {
 class _ShelfTileEntranceState extends State<ShelfTileEntrance>
     with SingleTickerProviderStateMixin {
   late final AnimationController _arrive;
-  late final Animation<double> _eased;
+  late final CurvedAnimation _eased;
   late final Animation<Offset> _rise;
-  Timer? _beat;
 
   @override
   void initState() {
     super.initState();
-    _arrive = AnimationController(vsync: this, duration: Motion.enter);
-    _eased = CurvedAnimation(parent: _arrive, curve: Motion.standard);
+    // The beat is the head of the tile's own run rather than a timer before
+    // it: every tile starts on the shelf's first frame and simply holds still
+    // for its beat, so nothing is left pending when a shelf closes within it.
+    final wait =
+        Motion.stagger * math.min(widget.index, ShelfTileEntrance.maxBeats);
+    final run = wait + Motion.enter;
+    _arrive = AnimationController(vsync: this, duration: run)..forward();
+    _eased = CurvedAnimation(
+      parent: _arrive,
+      curve: Interval(
+        wait.inMicroseconds / run.inMicroseconds,
+        1,
+        curve: Motion.standard,
+      ),
+    );
     _rise = Tween<Offset>(
       begin: const Offset(0, 0.06),
       end: Offset.zero,
     ).animate(_eased);
-    final beats = math.min(widget.index, ShelfTileEntrance.maxBeats);
-    if (beats == 0) {
-      _arrive.forward();
-    } else {
-      // A Timer rather than Future.delayed, so a shelf closed within the beat
-      // leaves nothing pending behind it.
-      _beat = Timer(Motion.stagger * beats, () {
-        if (mounted) _arrive.forward();
-      });
-    }
   }
 
   @override
   void dispose() {
-    _beat?.cancel();
+    _eased.dispose();
     _arrive.dispose();
     super.dispose();
   }
@@ -1132,10 +1134,7 @@ class PictureChoice extends StatelessWidget {
         : ShelfBadgeKind.owned;
     final Widget badge = locked
         ? PriceTag(cost: picture.cost, currency: picture.currency)
-        : ShelfBadge(
-            kind: kind,
-            label: selected ? t.pictureEquipped : t.pictureOwned,
-          );
+        : ShelfBadge(kind: kind, label: selected ? t.wearing : t.pictureOwned);
     // The small print: what a rental would give — "1 day", where the old
     // tag's short form said "1 days" — or what is left of one.
     final String? detail = locked
@@ -1273,22 +1272,25 @@ enum ShelfBadgeKind {
 
 /// The one badge every tile of the two picture shelves carries (the store
 /// polish, 26 Sep 2026: "EQUIPPED … OWNED … LOCKED / PURCHASABLE", never by
-/// colour alone): a glyph and a word — a tick and "Equipped", "In use" or
-/// "Owned" — or a padlock, the wallet's glyph and the price.
+/// colour alone): a glyph and a word — a tick and "Wearing", "In use" or
+/// "Owned" — or a padlock, the wallet's glyph and the price. Drawn in the
+/// store's own vocabulary, so a tile and the store round it read as one:
+/// * [ShelfBadgeKind.equipped] — the store head's "Wearing" tag: solid gold
+///   under ink900 with a champagne rim and [Radii.xs] corners, the one solid
+///   gold on the shelf, on the one picture worn or table picture laid;
+/// * [ShelfBadgeKind.owned] — a quiet tag of the same shape in the scheme's
+///   green (mint by night, the seed green by day), on a breath of it;
+/// * [ShelfBadgeKind.locked] — the price as the store's purchase keys draw
+///   one ([PriceTag]): a raised pill washed and rimmed in the wallet's ink
+///   (the money gold, [diamondInkOn], [hammerInkOn]), the padlock and the
+///   wallet's glyph in that ink, the figure in the full ink. It is the tile's
+///   call to buy, so it is the one badge that is a pill.
 ///
-/// One geometry for all three — height, radius, padding, type and glyph size
-/// — so a row of tiles reads as one row whatever each is; the fill and the
-/// ink say which:
-/// * [ShelfBadgeKind.equipped] — struck gold under charcoal ink, the one tile
-///   of a shelf on the player's seat or table;
-/// * [ShelfBadgeKind.owned] — the ink pill with mint;
-/// * [ShelfBadgeKind.locked] — the ink pill with the money gold ([PriceTag]).
-///
-/// The ink pill is dark in both themes, as the shelf's tags always were, so
-/// the mint and the gold keep their contrast on the frosted day sheet. The
-/// type is the label ramp's smallest step, the glyphs as tall as its letters
-/// at the phone's text size, and one line: at the 1.25 text ceiling on the
-/// narrowest tile the line is scaled to fit rather than cut.
+/// One height for all three — the padding, the type (the label ramp's
+/// smallest step, w700) and ONE measured line ([lineHeightFor]) — so the
+/// badges of a row stand level whatever each says; the glyphs are the store
+/// head's 12dp. A line too wide for the narrowest tile at the 1.25 text
+/// ceiling is scaled into it whole rather than cut, and keeps that height.
 class ShelfBadge extends StatelessWidget {
   const ShelfBadge({
     super.key,
@@ -1307,42 +1309,146 @@ class ShelfBadge extends StatelessWidget {
   /// The glyph of the wallet a price is paid from, beside the padlock: the
   /// hammer or the gem. None for chips, whose price reads as chips.
   final IconData? wallet;
+
+  /// A price's ink: its rim, its wash, the padlock and the wallet's glyph.
+  /// The money gold ([AppTheme.goldInk]) when null.
   final Color? walletInk;
 
   /// What a screen reader says for the badge, when it is more than [label].
   final String? semanticsLabel;
 
-  /// The pill the owned and locked badges stand on.
-  static final Color inkPill = AppTheme.ink900.withValues(alpha: 0.82);
+  /// The glyphs' size: the store head's "Wearing" tag's.
+  static const double glyph = 12;
 
-  /// The equipped badge's ink on struck gold.
-  static const Color onGold = AppTheme.inkOnLight;
+  /// The height of one line of badge type at this text size in this language:
+  /// the language's own badge words and the figures on ONE line, measured,
+  /// because a phone draws Hindi, Bengali, Gujarati and Punjabi from its Noto
+  /// fonts beside Inter's figures, and such a line is taller than either
+  /// font's own (§12.3; a price and "आपकी" stood 3dp apart). Every badge
+  /// stands on it, so a price and a word are one height in every language.
+  /// Measured once per language, size and style, not on every tick.
+  static double lineHeightFor(BuildContext context, TextStyle style) {
+    final t = context.read<GameState>().t;
+    final probe = '${t.wearing} ${t.pictureOwned} ${t.tableInUse} 0123456789';
+    final scaler = MediaQuery.textScalerOf(context);
+    final key =
+        '$probe|${scaler.scale(100)}|${style.fontSize}|${style.height}|'
+        '${style.fontFamily}|${style.fontFamilyFallback}|${style.fontWeight}';
+    return _lines[key] ??= () {
+      final painter = TextPainter(
+        text: TextSpan(text: probe, style: style),
+        textDirection: Directionality.of(context),
+        textScaler: scaler,
+        maxLines: 1,
+      )..layout();
+      final height = painter.height;
+      painter.dispose();
+      return height;
+    }();
+  }
+
+  static final Map<String, double> _lines = {};
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final dark = theme.brightness == Brightness.dark;
     final base = theme.textTheme.labelSmall ?? const TextStyle(fontSize: 10.5);
-    final glyph = MediaQuery.textScalerOf(context).scale(base.fontSize ?? 10.5);
-    final (Color ink, Color edge, IconData mark) = switch (kind) {
+    final green = theme.colorScheme.primary;
+    final money = walletInk ?? AppTheme.goldInk(theme.brightness);
+    final (
+      Color ink,
+      Color mark,
+      IconData glyphIcon,
+      BoxDecoration look,
+    ) = switch (kind) {
       ShelfBadgeKind.equipped => (
-        onGold,
-        AppTheme.goldDeep.withValues(alpha: 0.55),
+        AppTheme.ink900,
+        AppTheme.ink900,
         Icons.check_rounded,
+        BoxDecoration(
+          borderRadius: BorderRadius.circular(Radii.xs),
+          color: AppTheme.gold,
+          border: Border.all(
+            color: AppTheme.goldBright.withValues(alpha: 0.9),
+            width: Dim.hairline,
+          ),
+        ),
       ),
       ShelfBadgeKind.owned => (
-        AppTheme.mintOnInk,
-        AppTheme.mintOnInk.withValues(alpha: 0.55),
+        green,
+        green,
         Icons.check_rounded,
+        BoxDecoration(
+          borderRadius: BorderRadius.circular(Radii.xs),
+          color: green.withValues(alpha: dark ? 0.12 : 0.08),
+          border: Border.all(
+            color: green.withValues(alpha: 0.55),
+            width: Dim.hairline,
+          ),
+        ),
       ),
       ShelfBadgeKind.locked => (
-        AppTheme.goldOnDark,
-        AppTheme.goldOnDark.withValues(alpha: 0.5),
+        GlassColors.of(context).textDisplay,
+        money,
         Icons.lock_rounded,
+        BoxDecoration(
+          borderRadius: BorderRadius.circular(Radii.pill),
+          // The purchase key's surface: a step off the sheet, lit from
+          // above, with a breath of the wallet's ink in it.
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: dark
+                ? [
+                    Color.alphaBlend(
+                      money.withValues(alpha: 0.08),
+                      const Color(0xFF3B4047),
+                    ),
+                    Color.alphaBlend(
+                      money.withValues(alpha: 0.06),
+                      const Color(0xFF272B30),
+                    ),
+                  ]
+                : [
+                    Color.alphaBlend(
+                      money.withValues(alpha: 0.036),
+                      Colors.white,
+                    ),
+                    Color.alphaBlend(
+                      money.withValues(alpha: 0.06),
+                      AppTheme.bone100,
+                    ),
+                  ],
+          ),
+          border: Border.all(
+            color: money.withValues(alpha: 0.55),
+            width: Dim.hairline,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: AppTheme.shadowFor(
+                theme.brightness,
+              ).withValues(alpha: dark ? 0.42 : 0.14),
+              offset: const Offset(0, 1.5),
+              blurRadius: 6,
+              spreadRadius: -2,
+            ),
+          ],
+        ),
       ),
     };
+    // The store head's tag type: w700, a little tracking, tabular figures.
+    final words = base.copyWith(
+      color: ink,
+      fontWeight: FontWeight.w700,
+      height: 1.15,
+      letterSpacing: 0.3,
+      fontFeatures: const [FontFeature.tabularFigures()],
+    );
     final style = kind == ShelfBadgeKind.locked
-        ? AppTheme.money(base, colour: ink)
-        : AppTheme.label(base, colour: ink, weight: FontWeight.w700);
+        ? AppTheme.money(base.copyWith(height: 1.15), colour: ink)
+        : words;
 
     return Semantics(
       label: semanticsLabel ?? label,
@@ -1352,25 +1458,28 @@ class ShelfBadge extends StatelessWidget {
           horizontal: Space.sm,
           vertical: Space.xxs,
         ),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(Radii.pill),
-          color: kind == ShelfBadgeKind.equipped ? null : inkPill,
-          gradient: kind == ShelfBadgeKind.equipped ? AppTheme.goldFace : null,
-          border: Border.all(color: edge, width: Dim.hairline),
-        ),
-        child: FittedBox(
-          fit: BoxFit.scaleDown,
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(mark, size: glyph, color: ink),
-              if (wallet != null) ...[
-                const SizedBox(width: Space.xxs),
-                Icon(wallet, size: glyph, color: walletInk ?? ink),
-              ],
-              const SizedBox(width: Space.xs),
-              Text(label, maxLines: 1, softWrap: false, style: style),
-            ],
+        decoration: look,
+        // One measured line for every badge; a line too wide for the
+        // narrowest tile is scaled into it whole, and keeps that height.
+        child: SizedBox(
+          height: math.max(glyph, lineHeightFor(context, words)),
+          child: Align(
+            widthFactor: 1,
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(glyphIcon, size: glyph, color: mark),
+                  if (wallet != null) ...[
+                    const SizedBox(width: Space.xxs),
+                    Icon(wallet, size: glyph, color: mark),
+                  ],
+                  const SizedBox(width: Space.xs),
+                  Text(label, maxLines: 1, softWrap: false, style: style),
+                ],
+              ),
+            ),
           ),
         ),
       ),
@@ -1378,10 +1487,11 @@ class ShelfBadge extends StatelessWidget {
   }
 }
 
-/// A tile's badge, changing kind with a short cross-fade and a small rise in
-/// scale — the store polish's "purchase success: subtle success feedback":
-/// a picture just bought turns from its price into "Equipped" where the
-/// player is looking. Nothing moves while the kind stays.
+/// A tile's badge, changing kind with the store's own switch — a fade and a
+/// small scale over [Motion.base] (its `_fadeScale`) — the store polish's
+/// "purchase success: subtle success feedback": a picture just bought turns
+/// from its price into "Wearing" where the player is looking. Nothing moves
+/// while the kind stays.
 class ShelfBadgeSwitcher extends StatelessWidget {
   const ShelfBadgeSwitcher({
     super.key,
@@ -1403,7 +1513,7 @@ class ShelfBadgeSwitcher extends StatelessWidget {
     transitionBuilder: (child, animation) => FadeTransition(
       opacity: animation,
       child: ScaleTransition(
-        scale: Tween<double>(begin: 0.9, end: 1).animate(animation),
+        scale: Tween<double>(begin: 0.985, end: 1).animate(animation),
         child: child,
       ),
     ),
@@ -2020,9 +2130,10 @@ class WalletPill extends StatelessWidget {
 /// A padlock on every price (the store polish, 26 Sep 2026: "LOCKED /
 /// PURCHASABLE: 🔒 Price"), and beside it the glyph of the wallet the price
 /// leaves when that is not chips — the hammer, the wallet pill's and the
-/// Hammers shelf's glyph, or the gem — so "30" is never read as chips. The
-/// rental term is no longer a second line in the pill: every badge on a shelf
-/// is one line, and the term is the tile's small print ([ShelfDetail]).
+/// Hammers shelf's glyph, or the gem — so "30" is never read as chips; the
+/// pill wears that wallet's ink, as the store's purchase keys do. The rental
+/// term is no longer a second line in the pill: every badge on a shelf is one
+/// line, and the term is the tile's small print ([ShelfDetail]).
 class PriceTag extends StatelessWidget {
   const PriceTag({super.key, required this.cost, this.currency = 'COIN'});
 
@@ -2036,9 +2147,10 @@ class PriceTag extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.read<GameState>().t;
     final price = formatChips(cost);
+    final brightness = Theme.of(context).brightness;
     final (IconData? wallet, Color? ink) = switch (currency) {
-      PictureCurrency.diamond => (Icons.diamond, _diamondInk),
-      PictureCurrency.hammer => (Icons.hardware, _hammerInk),
+      PictureCurrency.diamond => (Icons.diamond, diamondInkOn(brightness)),
+      PictureCurrency.hammer => (Icons.hardware, hammerInkOn(brightness)),
       _ => (null, null),
     };
     return ShelfBadge(
