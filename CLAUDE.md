@@ -2793,6 +2793,11 @@ console, never a second. **A card** is a `PlayingCard` at a height and nothing e
   middle card is built last so it is on top. `tester.widgetList` over `_OwnHand` therefore reads `As 4c Kd` for a hand held
   `As Kd 4c`; read it left to right by the widgets' global x (`five_card_test.dart` `_leftToRight`), or by the entrance's
   `ValueKey('<handNo>-<dealt index>')`.
+- **Every child of the felt's Stack carries a key** (26 Sep 2026, `table_screen.dart` `_Felt`). Overlays come and go in the
+  middle of its children — a sideshow's thread, a hammer's, the pickers — and the framework matches unkeyed siblings by
+  their place: a sideshow request appearing (the practice bots ask on nearly half their turns), or being answered,
+  shifted every later child one place along, rebuilding each seat's pod as its neighbour's and dealing the viewer's hand
+  again. A new overlay takes a key of its own; `test/felt_keys_test.dart` holds every child to one.
 - **A `Future` cached across widget tests completes into a dead zone.** Every `testWidgets` runs in its own fake-async
   zone, and a future that completed inside one of them runs the continuation of every later `await` on it in THAT zone,
   which nobody pumps any more: the await never returns (24 Sep 2026: an asset drawn in the first screenshot of a run and

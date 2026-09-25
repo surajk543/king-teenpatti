@@ -1261,13 +1261,19 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
           // Positioned by centre, so a seat stays put as its own column grows
           // and shrinks with the hand — but never past either edge, which is
           // what clipped the outermost seat on a narrow screen.
-          Widget atPoint(Offset point, Widget child, {double? width}) {
+          Widget atPoint(
+            Offset point,
+            Widget child, {
+            double? width,
+            Key? key,
+          }) {
             final box = width ?? podW;
             final left = (point.dx - box / 2)
                 .clamp(0.0, math.max(0.0, w - box))
                 .toDouble();
 
             return Positioned(
+              key: key,
               left: left,
               top: point.dy,
               width: box,
@@ -1278,8 +1284,13 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
             );
           }
 
-          Widget at(Offset place, Widget child, {double? width}) =>
-              atPoint(Offset(place.dx * w, place.dy * h), child, width: width);
+          Widget at(Offset place, Widget child, {double? width, Key? key}) =>
+              atPoint(
+                Offset(place.dx * w, place.dy * h),
+                child,
+                width: width,
+                key: key,
+              );
 
           final potCentre = Offset(0.5 * w, _potDy * h);
           Offset seatCentre(int seatIndex) =>
@@ -1299,11 +1310,18 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
               ? _statusDy * h
               : math.max(_statusDy * h, headPod.bottom + Space.sm + 20);
 
+          // Every child is keyed (26 Sep 2026). Overlays come and go in the
+          // middle of this list — a sideshow's thread, a hammer's, the
+          // pickers — and the framework matches unkeyed siblings by their
+          // place: a sideshow request appearing, or being answered, shifted
+          // every later child one place along, so each seat's pod was rebuilt
+          // as its neighbour's and the viewer's hand dealt itself again.
           return Stack(
             key: _stageKey,
             clipBehavior: Clip.none,
             children: [
               Positioned.fill(
+                key: const ValueKey('table'),
                 child: CasinoTableSurface(
                   geometry: table,
                   // The game's own cloth: gold for seen, blue for blind,
@@ -1318,6 +1336,7 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
               // frame for the life of the room, and the table beneath it
               // never does.
               Positioned.fill(
+                key: const ValueKey('ambient'),
                 child: TableAmbientEffects(
                   geometry: table,
                   yourTurn: state.myTurn && room.state == TableState.betting,
@@ -1329,6 +1348,7 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
               // The deal, drawn before the bets so a boot chip lands on a
               // seat that has already been given its cards.
               Positioned.fill(
+                key: const ValueKey('deal-flights'),
                 child: RepaintBoundary(
                   child: IgnorePointer(
                     child: DealFlights(
@@ -1343,6 +1363,7 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
                 ),
               ),
               Positioned.fill(
+                key: const ValueKey('bet-flights'),
                 child: RepaintBoundary(
                   child: IgnorePointer(
                     child: BetFlights(
@@ -1368,6 +1389,7 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
                   child: _TableCentrepiece(side: math.min(w * 0.37, h * 0.53)),
                 ),
                 width: math.min(w * 0.37, h * 0.53),
+                key: const ValueKey('centrepiece'),
               ),
 
               // A sideshow in progress, drawn for everyone: a line pulsing
@@ -1383,6 +1405,7 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
               // never through a word.
               if (state.sideshow != null)
                 Positioned.fill(
+                  key: const ValueKey('sideshow-link'),
                   child: RepaintBoundary(
                     child: IgnorePointer(
                       child: _SideshowLink(
@@ -1414,6 +1437,7 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
               // over everything.
               if (_flight != null && state.hammerLinkShown)
                 Positioned.fill(
+                  key: const ValueKey('hammer-link'),
                   child: RepaintBoundary(
                     child: IgnorePointer(
                       child: _SideshowLink(
@@ -1429,6 +1453,7 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
               // than the tag or the pot label it might briefly cross, so
               // the seats paint on top.
               Positioned(
+                key: const ValueKey('tag'),
                 left: tagSlot.left,
                 top: tagSlot.center.dy,
                 width: tagSlot.width,
@@ -1476,6 +1501,7 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
                   ),
                 ),
                 width: w * 0.20,
+                key: const ValueKey('pot'),
               ),
               atPoint(
                 Offset(0.5 * w, statusY),
@@ -1485,6 +1511,7 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
                 // over it, so a long line (the buy-chips countdown) has to
                 // shrink into the gap instead of running under them.
                 width: w * 0.28,
+                key: const ValueKey('status'),
               ),
 
               // Every place round the rim, each column hung by its middle from
@@ -1493,6 +1520,7 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
               for (final spot in ring.rim)
                 if (spot.head)
                   Positioned(
+                    key: ValueKey('seat-${spot.view}'),
                     left: ring.headLeft,
                     top: spot.anchor.dy,
                     width: ring.headUnitWidth,
@@ -1504,7 +1532,11 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
                     ),
                   )
                 else
-                  atPoint(spot.anchor, pod(spot)),
+                  atPoint(
+                    spot.anchor,
+                    pod(spot),
+                    key: ValueKey('seat-${spot.view}'),
+                  ),
 
               // The viewer's pod and hand stand on the floor of the table
               // rather than being centred on a point: their columns are
@@ -1512,6 +1544,7 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
               // rim and clipped by it. A shared bottom line keeps them inside
               // and flush with the edge.
               Positioned(
+                key: const ValueKey('seat-me'),
                 left: me.anchor.dx - podW / 2,
                 bottom: h - me.anchor.dy,
                 width: podW,
@@ -1534,6 +1567,7 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
               // high as HandFan.liftFor wherever the pot above leaves room,
               // and never lower than the step it always stood.
               Positioned.fill(
+                key: const ValueKey('own-hand'),
                 child: _LiftedHand(
                   left: me.anchor.dx + podW / 2 + Space.md,
                   floor: me.anchor.dy,
@@ -1603,6 +1637,7 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
               // only the two players get).
               if (_flight != null && _hammer != null)
                 Positioned.fill(
+                  key: const ValueKey('hammer'),
                   child: HammerFlight(
                     clock: _hammer!,
                     from: _flight!.from,
@@ -1617,6 +1652,7 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
               // cards come with the showdown, which waits for the last impact.
               if (_volley != null && _missile != null)
                 Positioned.fill(
+                  key: const ValueKey('missile'),
                   child: MissileFlight(
                     clock: _missile!,
                     count: _volley!.count,
@@ -1628,7 +1664,10 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
 
               // Only the player being asked gets the buttons.
               if (state.sideshowIsForMe)
-                Positioned.fill(child: _SideshowPrompt(state: state)),
+                Positioned.fill(
+                  key: const ValueKey('sideshow-prompt'),
+                  child: _SideshowPrompt(state: state),
+                ),
 
               // A variation table's picker, for the one player choosing. In
               // the Stack rather than a dialog, so it is gone with the very
@@ -1643,6 +1682,7 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
               // is 0.235h + about 40dp, under 0.36h at every height there is.
               if (state.variationIsMine) ...[
                 const Positioned.fill(
+                  key: ValueKey('variation-scrim'),
                   child: IgnorePointer(
                     child: DecoratedBox(
                       decoration: BoxDecoration(gradient: TableScrim.picker),
@@ -1650,6 +1690,7 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
                   ),
                 ),
                 Positioned(
+                  key: const ValueKey('variation-picker'),
                   left: 0,
                   right: 0,
                   top: 0,
@@ -1674,6 +1715,7 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
               // the server says a choice is owed.
               if (state.pickingCards) ...[
                 const Positioned.fill(
+                  key: ValueKey('pick-scrim'),
                   child: IgnorePointer(
                     child: DecoratedBox(
                       decoration: BoxDecoration(gradient: TableScrim.picker),
@@ -1681,6 +1723,7 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
                   ),
                 ),
                 Positioned(
+                  key: const ValueKey('pick-picker'),
                   left: 0,
                   right: 0,
                   top: 0,
@@ -1706,6 +1749,7 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
               // And the verdict, for a few seconds after the three are settled.
               if (state.pickAnnounced != null)
                 Positioned(
+                  key: const ValueKey('pick-verdict'),
                   left: 0,
                   right: 0,
                   top: h * 0.10,
