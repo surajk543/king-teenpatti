@@ -81,6 +81,12 @@ type Config struct {
 	// no CORS headers in Node either.
 	CORSOrigin     []string
 	AllowAnyOrigin bool
+	// WSCompression is WS_COMPRESSION (true since 26 Sep 2026): negotiate
+	// websocket permessage-deflate with a client that offers it. The table
+	// state the server sends is JSON repeated per viewer and compresses
+	// several-fold; the 26 Sep production ladder found that traffic, not CPU,
+	// is what a big room fills first. false = plain frames (Node's behaviour).
+	WSCompression bool
 
 	JWT      JWTConfig
 	Google   GoogleConfig
@@ -481,6 +487,7 @@ func Defaults() *Config {
 		Host:           "0.0.0.0",
 		CORSOrigin:     nil,
 		AllowAnyOrigin: true,
+		WSCompression:  true,
 		JWT: JWTConfig{
 			Secret:    DefaultJWTSecret,
 			ExpiresIn: 30 * 24 * time.Hour,
@@ -703,6 +710,8 @@ func FromEnv(lookup Lookup) (*Config, error) {
 		c.CORSOrigin = list(origin)
 		c.AllowAnyOrigin = false
 	}
+
+	c.WSCompression = r.boolean("WS_COMPRESSION", c.WSCompression)
 
 	c.JWT.Secret = r.str("JWT_SECRET", c.JWT.Secret)
 	if raw, ok := lookup("JWT_EXPIRES_IN"); ok {

@@ -326,6 +326,39 @@ func wildMask(cards []Card, isWild func(Card) bool) [3]bool {
 // TestThreeWildCardsAreWorthWhatTheSearchWouldFind holds it to the search.
 var bestPossibleHand = []Card{{Rank: 14, Suit: 's'}, {Rank: 14, Suit: 'h'}, {Rank: 14, Suit: 'd'}}
 
+// acesStoodFor is what three wild cards stand for, card by card in the order
+// held: the trail of aces they make, with an ace the player holds standing for
+// itself and every other card taking an ace the hand does not hold (spades,
+// hearts, diamonds, clubs, in that order). Handing out bestPossibleHand's three
+// aces in seat order instead could show a card of the hand standing for
+// ANOTHER card of the same hand (A♥ K♠ 4♣ under AK47: the K♠ as A♥ while the
+// A♥ played as A♠) — the rank was right, the reveal was not (26 Sep 2026, the
+// parity suite's "a stand-in is not another card of the same hand").
+func acesStoodFor(cards []Card) []string {
+	held := map[byte]bool{}
+	for _, c := range cards {
+		if c.Rank == 14 {
+			held[c.Suit] = true
+		}
+	}
+	free := make([]byte, 0, 4)
+	for _, suit := range []byte{'s', 'h', 'd', 'c'} {
+		if !held[suit] {
+			free = append(free, suit)
+		}
+	}
+	out := make([]string, len(cards))
+	for i, c := range cards {
+		if c.Rank == 14 {
+			out[i] = c.Code()
+			continue
+		}
+		out[i] = Card{Rank: 14, Suit: free[0]}.Code()
+		free = free[1:]
+	}
+	return out
+}
+
 // evaluateWithWilds scores a hand in which the masked cards are wild: it is
 // worth the best classic hand they can complete.
 //
@@ -364,15 +397,18 @@ func evaluateWithWilds(cards []Card, wild [3]bool) EvaluatedHand {
 	}
 
 	var best EvaluatedHand
+	var standIns []string
 	if len(naturals) == 0 {
 		best = Evaluate(bestPossibleHand, EvaluateOptions{})
+		standIns = acesStoodFor(cards)
 	} else {
 		best = bestCompletion(naturals, len(wildCodes))
+		// best.Cards is the winning candidate in the order it was built: the
+		// natural cards, then what the wilds stood for.
+		standIns = best.Cards[len(naturals):]
 	}
-	// best.Cards is the winning candidate in the order it was built: the
-	// natural cards, then what the wilds stood for. Dealt back into the
-	// player's own order, each wild card takes the next stand-in.
-	standIns := best.Cards[len(naturals):]
+	// Dealt back into the player's own order, each wild card takes the next
+	// stand-in.
 	playsAs := make([]string, len(cards))
 	next := 0
 	for i, c := range cards {

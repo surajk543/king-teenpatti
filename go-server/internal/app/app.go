@@ -261,6 +261,8 @@ func New(opts Options) (*App, error) {
 		CheckOrigin:  originChecker(cfg),
 		Logger:       logger,
 		Now:          clock.Now,
+		// permessage-deflate for every client that offers it (WS_COMPRESSION).
+		EnableCompression: cfg.WSCompression,
 	})
 
 	// 5. realtime handler ↔ room manager (mutual dependency, see the doc).
