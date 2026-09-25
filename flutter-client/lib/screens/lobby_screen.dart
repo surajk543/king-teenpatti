@@ -4349,7 +4349,9 @@ class _StatRow extends StatelessWidget {
           Expanded(
             child: Text(
               label,
-              maxLines: 1,
+              // Two lines rather than one cut short: at text x1.25 on a 640dp
+              // phone "Total winnings" read "Total winn…" beside its figure.
+              maxLines: 2,
               overflow: TextOverflow.ellipsis,
               style: text.bodyMedium?.copyWith(
                 color: scheme.onSurface.withValues(alpha: AppTheme.inkMed),
@@ -4567,12 +4569,14 @@ class _SystemName extends StatelessWidget {
 
     return LayoutBuilder(
       builder: (context, box) {
+        // Measured a hair short of the room, so a line that only just fits
+        // by this measure can never be clipped by the paragraph that draws it.
         final painter = TextPainter(
           text: line,
           textDirection: Directionality.of(context),
           textScaler: MediaQuery.textScalerOf(context),
           maxLines: 1,
-        )..layout(maxWidth: box.maxWidth);
+        )..layout(maxWidth: math.max(0, box.maxWidth - 1));
         final fits = !painter.didExceedMaxLines;
         painter.dispose();
         if (fits) return Text.rich(line, maxLines: 1);
@@ -5180,7 +5184,8 @@ class _SettingsDrawerState extends State<_SettingsDrawer> {
               fillColor: well,
             ),
             // Each language names itself, which is the only label a player
-            // who does not read the current one can act on.
+            // who does not read the current one can act on — with its English
+            // name beside it in the list, where there is room.
             items: [
               for (final l in AppLang.values)
                 DropdownMenuItem(
@@ -5192,6 +5197,17 @@ class _SettingsDrawerState extends State<_SettingsDrawer> {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
+                ),
+            ],
+            // The field itself names the language on in its own words alone:
+            // with its English name too it was cut short in the drawer's
+            // width at text x1.25 ("বাংলা  ·  Beng…").
+            selectedItemBuilder: (context) => [
+              for (final l in AppLang.values)
+                Text(
+                  l.nativeName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
             ],
             onChanged: (l) => l == null ? null : state.setLanguage(l),

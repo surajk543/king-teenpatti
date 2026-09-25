@@ -2281,6 +2281,31 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   (it used to appear only at a showdown, so a sideshow the viewer won put the label on the loser).
 - **Per-frame clocks** (`LiquidFill`, `_SideshowCountdown`) compute from `deadlineMs -
   DateTime.now()` inside an `AnimationController` — never from the 1s tick. No clock-skew correction.
+- **The Settings drawer** (owner's brief, 26 Sep 2026: "Settings = premium + clean + calm + functional", some 20–30% of the
+  store's language; presentation only — every dialog and what every row does is as it was; the app is landscape-only, so the
+  brief's portrait case does not arise). `_LobbyDrawer`, which the Stats drawer shares, takes a fixed `head` (`_DrawerHead`: a
+  32dp mark, the title in titleMedium w700, a muted line that may take two lines and steps aside while the keyboard is up, the
+  close key) over a list that scrolls under an `EdgeFade`, on a body laid over its glass (`_DrawerBody`): the lobby cards'
+  charcoal by night (`GlassColors.dark.cardFill` — the bare glass was near-black over the dimmed room), the table room's pearl
+  by day (`TableGround.pearl` — it was grey milk-glass), lerped on the ground's lightness so the appearance control inside it
+  cross-fades it. Four named groups (`settingsProfile`, `settingsGameExperience`, `appearance`, `settingsAccount`; tracked
+  capitals in English only) under "Personalize your game experience" (`settingsSubtitle`): PROFILE — the portrait with a thin
+  gold ring (`_AvatarWithPip(ringed: true)`, the drawer's copy only), the name and language fields in one type on one well
+  (`_DrawerBody.well`, a warm stone by day), the language field naming the language in its own words alone
+  (`selectedItemBuilder`; "বাংলা · Bengali" was cut at ×1.25, the list keeps both names); GAME EXPERIENCE — one `_SettingsGroup`
+  pane: the number format as ONE row (the choice in gold, the player's own money under it, a chevron) that opens in place onto
+  the same two `_NumberOption` tiles (now in the store's gold for a chosen thing) and closes on a choice, `_SystemName` keeping
+  "Indian · Lakh, Crore" on one line where it fits and the units under the name where not, then `FeedbackToggles(grouped: true)`;
+  APPEARANCE; ACCOUNT — Privacy policy (an open-in-new mark), Sign out NEUTRAL (it was red beside Delete), and Delete my account
+  apart as the one red row; then the version, centred and muted, with the environment quieter after it off production
+  (`versionEnvironmentTag`). The switches are gold when on (`FeedbackSwitchStyle`: `AppTheme.goldFace`'s middle by night under a
+  charcoal thumb, its foot by day under a white one; off keeps 3:1) — in the table's menu drawer too, whose row geometry is
+  unchanged — and `GlassThemeSwitcher` is a sunk well (`track:`, optional) with the chosen segment in the store's gold wash and
+  champagne edge and the other two in the body ink, not white38 — on the login screen and the table drawer alike. The Stats
+  drawer's figure names may take two lines ("Total winn…" at ×1.25). `test/settings_drawer_test.dart` (640x360 ×1.25 in all five
+  languages: nothing cut short, the head in place at the list's end; the number format row; the switches; the appearance
+  control; Sign out and Delete still asking; the keyboard; the ring; the environment tag); pictures by hand,
+  `test/settings_shots.dart` (run like table_shots).
 - **Theme** ("Glassmorphic Premium", 11 Sep 2026): FlexColorScheme with explicit palettes (the "one seed"
   comment is stale) plus a `GlassColors` ThemeExtension (`theme/theme_colors.dart`) holding the glass
   tokens per brightness — **Obsidian** dark (ground `#0D0E12`→`#08080A`, fill white 0.04/0.08, border
