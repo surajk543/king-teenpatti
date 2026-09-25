@@ -1033,61 +1033,96 @@ class AppTheme {
     );
   }
 
-  static ThemeData light({bool sound = true}) => _raisedButtons(
-    sound: sound,
-    FlexThemeData.light(
-      colors: const FlexSchemeColor(
-        primary: _seed,
-        primaryContainer: Color(0xFFA8E9C6),
-        secondary: Color(0xFF7A6412),
-        secondaryContainer: Color(0xFFF6E4B0),
-        tertiary: Color(0xFF15586F),
-        tertiaryContainer: Color(0xFFC2E3F2),
-        appBarColor: Color(0xFFF6E4B0),
-        error: Color(0xFFC0271B),
+  static ThemeData light({bool sound = true}) => _withTable(
+    _raisedButtons(
+      sound: sound,
+      FlexThemeData.light(
+        colors: const FlexSchemeColor(
+          primary: _seed,
+          primaryContainer: Color(0xFFA8E9C6),
+          secondary: Color(0xFF7A6412),
+          secondaryContainer: Color(0xFFF6E4B0),
+          tertiary: Color(0xFF15586F),
+          tertiaryContainer: Color(0xFFC2E3F2),
+          appBarColor: Color(0xFFF6E4B0),
+          error: Color(0xFFC0271B),
+        ),
+        surface: bone200,
+        scaffoldBackground: bone100,
+        surfaceMode: FlexSurfaceMode.highScaffoldLowSurface,
+        blendLevel: 4,
+        useMaterial3: true,
+        subThemesData: _subThemes,
+        textTheme: _textTheme(Brightness.light),
+        fontFamily: fontFamily,
+        visualDensity: VisualDensity.standard,
+        extensions: const [GlassColors.light],
       ),
-      surface: bone200,
-      scaffoldBackground: bone100,
-      surfaceMode: FlexSurfaceMode.highScaffoldLowSurface,
-      blendLevel: 4,
-      useMaterial3: true,
-      subThemesData: _subThemes,
-      textTheme: _textTheme(Brightness.light),
-      fontFamily: fontFamily,
-      visualDensity: VisualDensity.standard,
-      extensions: const [GlassColors.light],
     ),
   );
+
+  /// [theme] with the casino table's colours for its own scheme
+  /// ([tableColours]).
+  static ThemeData _withTable(ThemeData theme) => theme.copyWith(
+    extensions: [...theme.extensions.values, tableColours(theme.colorScheme)],
+  );
+
+  /// The games with a cloth of their own on the casino table: the three that
+  /// keep the Teen Patti rules. Any other category is laid on the emerald.
+  static const List<String> clothGames = ['seen', 'blind', 'variation'];
+
+  /// The casino table's colours for a theme of [scheme]: the rail, the rim
+  /// and the light of its brightness ([CasinoTableColors.light] and
+  /// [CasinoTableColors.dark]), and each of [clothGames] on a cloth tinted from
+  /// that game's own accent ([paletteFor]: gold, sapphire, violet) — the
+  /// colour its lobby card and its table tag wear, so the three always agree
+  /// (owner, 25 Sep 2026: "keep different table color for seen, blind,
+  /// variation gameplay").
+  static CasinoTableColors tableColours(ColorScheme scheme) {
+    final brightness = scheme.brightness;
+    final base = brightness == Brightness.dark
+        ? CasinoTableColors.dark
+        : CasinoTableColors.light;
+    return base.withCloths({
+      for (final game in clothGames)
+        game: TableCloth.tinted(
+          paletteFor(scheme, category: game, bootAmount: 0).accent,
+          brightness,
+        ),
+    });
+  }
 
   /// The app's one typeface. Inter, bundled (assets/fonts, SIL OFL 1.1) so
   /// the first launch does not depend on a font download, with tabular
   /// figures for everything [money] sets.
   static const String fontFamily = 'Inter';
 
-  static ThemeData dark({bool sound = true}) => _raisedButtons(
-    sound: sound,
-    FlexThemeData.dark(
-      colors: const FlexSchemeColor(
-        primary: Color(0xFF5FD3A0),
-        primaryContainer: Color(0xFF0E3A2A),
-        secondary: Color(0xFFE3C88B),
-        secondaryContainer: Color(0xFF3A2E12),
-        tertiary: Color(0xFF7FB6D6),
-        tertiaryContainer: Color(0xFF17394B),
-        appBarColor: Color(0xFF12161A),
-        error: Color(0xFFFF6B5A),
+  static ThemeData dark({bool sound = true}) => _withTable(
+    _raisedButtons(
+      sound: sound,
+      FlexThemeData.dark(
+        colors: const FlexSchemeColor(
+          primary: Color(0xFF5FD3A0),
+          primaryContainer: Color(0xFF0E3A2A),
+          secondary: Color(0xFFE3C88B),
+          secondaryContainer: Color(0xFF3A2E12),
+          tertiary: Color(0xFF7FB6D6),
+          tertiaryContainer: Color(0xFF17394B),
+          appBarColor: Color(0xFF12161A),
+          error: Color(0xFFFF6B5A),
+        ),
+        surface: ink700,
+        scaffoldBackground: ink800,
+        surfaceMode: FlexSurfaceMode.highScaffoldLowSurface,
+        // A whisper of emerald in every container, so charcoal never goes blue.
+        blendLevel: 6,
+        useMaterial3: true,
+        subThemesData: _subThemes,
+        textTheme: _textTheme(Brightness.dark),
+        fontFamily: fontFamily,
+        visualDensity: VisualDensity.standard,
+        extensions: const [GlassColors.dark],
       ),
-      surface: ink700,
-      scaffoldBackground: ink800,
-      surfaceMode: FlexSurfaceMode.highScaffoldLowSurface,
-      // A whisper of emerald in every container, so charcoal never goes blue.
-      blendLevel: 6,
-      useMaterial3: true,
-      subThemesData: _subThemes,
-      textTheme: _textTheme(Brightness.dark),
-      fontFamily: fontFamily,
-      visualDensity: VisualDensity.standard,
-      extensions: const [GlassColors.dark],
     ),
   );
 

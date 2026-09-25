@@ -84,6 +84,21 @@ List<_Shot> _shots() => [
     ].contains(s.name),
   ))
     _Shot(scene, const Size(915, 412), true, 1.0, cutout: true),
+  // A narrow phone (a 640dp phone with its navigation bar down the side):
+  // each game's table and the two-, three- and four-place tables.
+  for (final scene in tableScenes.where(
+    (s) =>
+        const [
+          '01-opponent-turn',
+          '03-your-turn-seen-sideshow',
+          '20-opponent-turn-seen',
+          '21-your-turn-variation',
+        ].contains(s.name) ||
+        s.name.endsWith('-places'),
+  ))
+    for (final dark in [true, false])
+      for (final scale in [1.0, 1.25])
+        _Shot(scene, const Size(592, 360), dark, scale),
 ];
 
 Future<void> _loadFonts() async {

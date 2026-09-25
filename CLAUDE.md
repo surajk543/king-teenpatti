@@ -145,19 +145,24 @@ king-teenpatti/
     │   ├── screens/{login,lobby,table}_screen.dart; screens/poker_table_screen.dart (the poker felt, mounted by table_screen when room.isPoker — §8.4); screens/lucky_draw_screen.dart (the Lucky Draw's wheel, prizes and spin — §8.4)
     │   ├── widgets/table_chrome.dart  the chrome both felts share (rail, drawers, keys, wallet, reconnecting veil), moved out of table_screen.dart
     │   ├── theme/table_theme.dart  the table's type scale and tokens: TableType/SeatType, TableSpace, TableScrim, TableInk, TableAmbient (§8.4); widgets/edge_fade.dart EdgeFade
+    │   ├── widgets/casino_table.dart  the casino table (24 Sep 2026, §8.4): TableGeometry (one stadium at fixed shares of the felt), CasinoTableSurface (static,
+    │   │                         one layer), TableAmbientEffects (the breathing lamp on the cloth, the near rail warming on the viewer's turn)
+    │   ├── widgets/seat_ring.dart  SeatRing (25 Sep 2026, §8.4): where 2..5 seats stand round that table — a pure function of the seat count, the table
+    │   │                         and the pod's width; the head seat's cards beside its pod; the corners' controls bound it
     │   ├── widgets/              premium_surface, game_card (the lobby's one card shell, and CardColumn/CardGap/CardRule/CardSpace — its words, §8.4), seat_pod, playing_card, poker_chip, liquid_fill,
     │   │                         fireworks, avatar, buy_chips, chip_store, picture_shelf, rules_sheet,
     │   │                         variation_prompt (the variation table's on-felt picker, "is selecting" line, announcement, wild-card edge — §8.4),
     │   │                         wild_transform (a wild card of the viewer's own hand turning into the card it played as — §8.4)
     │   ├── theme/app_theme.dart  FlexColorScheme + shadow/lift helpers, Space/Radii/Motion/Breaks/Dim, Inter
-    │   ├── theme/theme_colors.dart  GlassColors ThemeExtension (obsidian / frosted-ice tokens, §8.4)
+    │   ├── theme/theme_colors.dart  GlassColors ThemeExtension (obsidian / frosted-ice tokens, §8.4); CasinoTableColors (the casino table's, §8.4)
     │   ├── widgets/glass_components.dart  tapHaptic, PressScale, GlassCard, GlassButton, GlassTextField, GlassThemeSwitcher
     │   ├── state/theme_preference.dart  themeMode read/write (+ legacy darkMode); state/consent.dart  the no-winnings flag
     │   └── l10n/strings.dart     hand-written 5-language table (en/hi/bn/gu/pa)
     ├── assets/card_back.svg, assets/app_icon.svg, assets/fonts/ (Inter 400/500/600/700 + OFL licence), assets/sfx/,
     │                         assets/animations/Fireworks.json (Lottie 5.5.7, 512x512, 2.43s — the winner's burst),
     │                         assets/animations/Lucky Draw Spinner.json (Lottie 5.10, 300x300 — the owner's prize wheel, §8.4)
-    ├── test/  number_format, connection_failure, consent, theme_preference, … poker_table (§8.4), table_config_{dtos,cache,menu}, table_engines (§8.1)
+    ├── test/  number_format, connection_failure, consent, theme_preference, … poker_table (§8.4), table_config_{dtos,cache,menu}, table_engines (§8.1),
+    │          casino_table, seat_ring (§8.4); by hand, not `_test`: table_shots (pictures)
     ├── android/                  applicationId com.sungamestudio.kingteenpatti, sensorLandscape, cleartext in DEBUG builds only (src/debug manifest),
     │                             no Android backup (allowBackup=false + res/xml/data_extraction_rules.xml), USE_BIOMETRIC/USE_FINGERPRINT removed
     └── ios/                      bundle id com.sungamestudio.kingteenpatti, landscape-only, status bar hidden,
@@ -1329,7 +1334,7 @@ columns); `PRIVATE_*` → the private templates. `gameplay -export-table-config`
 | `WELCOME_CHIPS` / `BOOT_AMOUNT` † | 300000 / 200 | only `BOOT_AMOUNT` is a table key (db: `table_settings.default_boot_amount`). The 3 lakh welcome (owner, 14 Sep 2026; 2 lakh before). **Production's `.env` sets `WELCOME_CHIPS` explicitly**, so a new default changes nothing there until that line does |
 | `TABLE_STAKES` † | `200,5000,50000,1000000` | empty = any (tests); db: `table_settings.stakes` (an empty array is any; a non-empty one gains the boot of every active public row it lacks, since a table's own boot is always an allowed stake, §7.3) |
 | **`LOBBY_TABLES`** † | `seen:200,blind:200,blind:5000:max=50000000,blind:50000:max=1000000000,blind:1000000:min=500000000,variation:50000:max=1000000000,variation:1000000:min=500000000,seen:50000:pot=50000000,three_card_poker:50000,five_card_draw:50000,texas_holdem:50000,omaha:50000` | the menu; empty = any pair (tests). **`pot=N` is a table's OWN pot cap** (Go only; owner, 19 Sep 2026: a second seen table, boot 50,000, open to all, pot limit 5 Crore — `LobbyTable.MaxPot`, read by `TableRules` and `MenuMaxPot` through `menuPotFor(category, boot)`): it wins over the category's cap (`SEEN_MAX_POT` is 40 boots at 50,000, so every hand there would be dealt into the POT_LIMIT showdown), changes nothing else — the ladder and rounds stay the category's — and a private table never reads it. 5 Crore is 5,00,00,000 = `50000000`; `500000000` is 50 Crore. The new entry is LAST in the list like every later addition; the Flutter lobby files it under Seen by category. Categories are `seen`, `blind`, (Go only, 18 Sep 2026) **`variation`** and (Go only, 19 Sep 2026, §6.5) the four poker ones **`three_card_poker`, `five_card_draw`, `texas_holdem`, `omaha`** — anything else stops the boot. A poker entry's boot is its big blind (Hold'em, Omaha) or ante (3-Card Poker, 5-Card Draw); its `minChips` on the menu is raised to the table's `minBuyIn` (`POKER_MIN_BUYIN_BOOTS` × boot) and each `options.tables[]` entry carries `game`, `smallBlind`, `bigBlind`, `ante`, `minBuyIn`, `holeCards`, `maxDiscards` (omitted on Teen Patti entries). Poker keeps **one table per game, all four at 50,000** (owner, 19 Sep 2026: "in poker category only keep one table 50000 for each gameplay"; it was six entries at 200 and 5,000 earlier that day) — so blinds 25,000/50,000, an ante of 50,000, and a buy-in of **5,00,000** at every poker table, which is MORE than the 3,00,000 welcome: a brand-new account sees the whole Poker category shut until it has won 5 Lakh, and `POKER_MIN_BUYIN_BOOTS` (4 = 2 Lakh) is the one key that changes that without touching the stake. The four default poker entries are LAST; an older Go tag cannot boot on a `.env` that lists one, and an installed app older than the first poker-aware build draws each as a seen table — raise `MIN_CLIENT_BUILD` first. Variation keeps **two tables only, 50,000 and 10 Lakh** (owner, 18 Sep 2026), behind the bands blind's tables of those stakes have; its entries are LAST so the five before them keep their places, and clients are told of the category (`config.categories`) only when it is listed. **Rollout:** an installed app older than the build that knows the category draws that card as a seen table and never shows the picker, so every hand there is a server-chosen Muflis — raise `MIN_CLIENT_BUILD` first. **Production's `.env` sets `LOBBY_TABLES` explicitly**, so the new default changes nothing there until that line does; a Go tag older than this cannot boot on a `.env` that lists `variation:`. Each entry is `category:boot` plus an optional **stack band** — `max=N` shuts the table to a player holding MORE than N, `min=N` to one holding LESS. Exactly the limit is allowed at either end. A band whose min exceeds its max fails at load (it would advertise a table nobody could join). **In db mode** the menu is the active public `table_configs` rows in `sort_order` (§7.3) and this key is ignored; the rollout rule becomes the row's: a table appended to the seed arrives inactive on an existing database, and goes live with `is_active = TRUE` after `MIN_CLIENT_BUILD` — never by a restart. A row with an unknown category is left out with a logged reason, not a stopped boot. |
-| `MAX_PLAYERS_PER_ROOM` / `MIN_PLAYERS_TO_START` † | 5 / 2 | 5 is also hardcoded in Flutter `_places` and browser CSS |
+| `MAX_PLAYERS_PER_ROOM` / `MIN_PLAYERS_TO_START` † | 5 / 2 | the Teen Patti felt lays out 2..5 places round its table from it (`SeatRing`, §8.4); 5 is still hardcoded in the poker felt's `seatPlaces` and the browser CSS |
 | `TURN_TIMEOUT_MS` † | 25000 | |
 | `MAX_BET_ROUNDS` / `POT_LIMIT_MULTIPLIER` / `MAX_RAISE_STEPS` † | 20 / 1024 / 8 | defaults only; `createTable` overrides all three per category (seen: 7 / 1024 / 2, blind: 0 / 0 / 0) |
 | `SEEN_MAX_RAISE_STEPS` / `SEEN_MAX_BET_ROUNDS` / `SEEN_MAX_POT` † | 2 / 7 / **2000000** | brief says "10 moves"; code is 7 rounds. **20 Lakh is the most a seen hand can pay** (owner, 12 Sep 2026): the moment the pot reaches it every player still in shows and the best hand takes it (`potCapReached` → `resolveShowdown(…, WinPotLimit)`), and `betOptions` headroom stops a bet that would carry the pot past it. `SEEN_MAX_RAISE_STEPS 2` is the two-rung ladder — chaal, or one raise — so a seen player raises once per turn. |
@@ -1757,8 +1762,8 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   (`chooseAvatar`/`chooseTablePicture` — winning never puts it on); the empty slot says "Better luck next time!" with no fireworks.
   The wallet takes the spin's `user` at once and a picture prize re-reads the catalogues. 26 strings in all five languages.
 - **Table** (rebuilt around the felt on 10–11 Sep 2026 — `fb47ba4`, `b83b273`, `81a5981`; the bar
-  across the foot and the cloth under it are both gone, and the screenshots in `docs/play-store/`
-  predate all of it). `_TableScreenState.build` **watches nothing** (a per-second Scaffold rebuild
+  across the foot and the cloth under it are both gone — a table came back under the seats on 24 Sep 2026, the casino
+  table below — and the screenshots in `docs/play-store/` predate all of it). `_TableScreenState.build` **watches nothing** (a per-second Scaffold rebuild
   destroyed the open drawer) and sets **`resizeToAvoidBottomInset: false`** — the soft keyboard used
   to squeeze the rail and the chat panel until both painted overflow stripes; the chat drawer lifts
   its own composer over the keyboard and drops its title while typing.
@@ -1838,9 +1843,9 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   closes a Force Sideshow or missile question when the move is taken away, pops only while its dialog is still the current
   route: firing ends the hand while the question is still animating out, and its unconditional pop used to take the table
   with it — a black screen on the phone that fired (14 Sep 2026).
-  `_Felt`: seats at fractional `_places` (5 only), viewer at view seat 0, `Dim.podW(feltW, feltH) =
+  `_Felt`: seats on the `SeatRing` (2..5 places, the casino table below), viewer at view seat 0, `Dim.podW(feltW, feltH) =
   min(feltH*0.270, feltW*0.150).clamp(60,140)`, pods clamped inside. Overlays: `_CategoryTag`,
-  `_Pot`/`_PotPulse` at `_potDy` 0.46, `_Status` at 0.28, `_SideshowLink/Prompt`, `_Showdown`.
+  `_Pot`/`_PotPulse` at `_potDy` 0.46, `_Status` at 0.325 (0.28 until the casino table's far rail, below), `_SideshowLink/Prompt`, `_Showdown`.
   **`_Showdown` is now only `_WinnerBurst(focus: winner)` + `PotFlight`** (`widgets/pot_flight.dart`, rebuilt 14 Sep 2026 when the owner found the winner's coins not smooth: each of the 9 chips makes the same 0.9 s trip 60 ms behind the one before, so none overtakes — the old `_PotToWinner` gave each what was left of one 1.7 s clock — fades and grows in at the pot and out on the seat, drags no ghost copy, and the run is ONE `CustomPainter` repainting off its controller through `PokerChipBrush` instead of 18 widgets with an Opacity and a rotated raster each; `test/pot_flight_test.dart`) — since 12 Sep 2026 the
   burst is **`assets/animations/Fireworks.json` through `Lottie.asset`**, played ONCE per win (keyed
   on `handNo`, so the one-second reward tick cannot restart it) and centred on the winner's seat;
@@ -1869,12 +1874,15 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   `TableAmbient`: the room's drifting chips at strength 1.8 (2.6 put a 42% grey disc behind the keys by day), a seat's
   colour orb soft-edged at 0.46 / 0.34 outside the glass (dark / light; 0.95 before), 0.74 of the pod and spilling a
   tenth, and the turn ring breathing every 1150 ms (780) with a fixed box — only its colour and stroke move. **The
-  console is not all equal** — `KeyRole {primary, secondary, destructive}` on `MachinedKey` (`primary: true` is
+  console is not all equal** — `KeyRole {primary, secondary, destructive, special}` on `MachinedKey` (`primary: true` is
   shorthand): PRIMARY Chaal (a poker room's Check/Call, Draw, Play) is struck gold (`AppTheme.goldFace`, the Shop key's
   face), named in `primaryAction` in charcoal, and the ONE key that breathes (`KeyPulse(breathe:)`); SECONDARY Sideshow,
-  Force Sideshow, Show, Missile (and poker's Bet/Raise) are the plaque with a STILL glow while on offer; DESTRUCTIVE Pack
-  (and poker's Fold) wear the error ink on glyph, name and hairline and never glow. Every dead key and stepper fades to
-  `deadKeyOpacity` 0.42, glyph and words together (a dead key's ink is the surface's). `KeyPulse` keeps one tree shape
+  Force Sideshow, Show, the ± steppers (and poker's Bet/Raise) are the plaque with a STILL glow while on offer;
+  DESTRUCTIVE Pack (and poker's Fold) wear the error ink on glyph, name and hairline and never glow; SPECIAL Missile (25 Sep
+  2026) is the plaque washed with the missile's coral (`edge`, `missileInkOn`), its hairline coral live or dead, a still
+  coral glow on offer, its name in the surface's ink. Every dead key and stepper fades to `deadKeyOpacity` 0.5 (0.42 until
+  25 Sep 2026, which left a dead key's name under 3:1 on the light theme), glyph and words together (a dead key's ink is
+  the surface's). `KeyPulse` keeps one tree shape
   and stops its controller while nothing breathes. **Drawers and dialogs** — `MenuRow`: a row that acts names itself in
   the full ink (Leave table in the error ink), a row that only reports (Your chips, Boot, Max pot) in `TableType.info` at
   `inkMed` beside its gold figure; `dialogTitle`/`dialogBody`/`dialogActions(destructive:)` — the leave question's glyph
@@ -1894,10 +1902,92 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   `test/table_polish_test.dart` holds the ladder, the seat scale, the tokens, the key roles on turn and off, the one
   active turn ring, the drawer's width and scrim, the destructive leave dialog, the chat's signatures, `EdgeFade`, and
   every state at 640x360 ×1.25 in all five languages with every key on screen and clear of the others. The scenes are
-  `test/table_scenes.dart` (room:state JSON), which the screenshot harness `test/table_shots.dart` — not part of
-  `flutter test`; `flutter test test/table_shots.dart --dart-define=SHOTS_DIR=<abs dir>
+  `test/table_scenes.dart` (room:state JSON; 23–25 are the 2-, 3- and 4-place tables), which the screenshot harness
+  `test/table_shots.dart` — not part of `flutter test`; `flutter test test/table_shots.dart --dart-define=SHOTS_DIR=<abs dir>
   --dart-define=ICON_FONT=<flutter>/bin/cache/artifacts/material_fonts/MaterialIcons-Regular.otf` — pictures at 640x360,
-  732x412, 844x390, 891x411 and 915x412, both themes, ×1.0 and ×1.25, in Hindi, and behind a camera cutout.
+  732x412, 844x390, 891x411 and 915x412, both themes, ×1.0 and ×1.25, in Hindi, behind a camera cutout, and at a narrow
+  592x360.
+- **The casino table** (owner's brief, 24 Sep 2026: "transform the current gameplay screen from a mostly flat background
+  into a more recognizable premium casino table experience"; presentation only — no game logic, networking, betting,
+  card logic or state management changed). `widgets/casino_table.dart`: `TableGeometry.of(feltSize)` is ONE stadium at
+  fixed shares of the felt — x 0.012..0.988, y 0.24..0.945, semicircle ends, a rail of 0.034 of the felt's height held to
+  9..18dp — laid out to MEET the seats where they already were (the five places the felt was tuned around, now the
+  `SeatRing`'s, below): the far rail runs under the two top pods, the
+  ends under the side pods, the near rail under the viewer's pod and hand, and the pot (0.46) sits on the cloth. Nothing on
+  the felt moved for it but the waiting line: the far rail at 0.24 lies between the category tag above it (0.075, off the
+  table) and the waiting line, which came down from 0.28, where it straddled the rail's inner edge, to 0.325 on the cloth
+  (25 Sep 2026) — with the two-line notices that share its slot (who is choosing a variation or their cards, which
+  variation was chosen) on the cloth too and 15dp or more above the pot at 640x360–915x412, ×1.0 and ×1.25, English and
+  Hindi (`test/casino_table_test.dart`). `CasinoTableSurface` paints it once into its own layer (`isComplex`,
+  `willChange: false`; every soft edge a gradient or a blurred `RRect`, the one blur Impeller draws analytically): by day
+  a pearl rail lit from above round a soft teal cloth with a thin champagne rim; by night a graphite rail round a deep
+  teal cloth that falls to near black, a subtler gold rim and a controlled cyan glow — `CasinoTableColors`
+  (`theme/theme_colors.dart`), a `ThemeExtension` on both themes, so one painter serves both and the theme's cross-fade
+  carries the table. **Each Teen Patti game lays its own cloth** (owner, 25 Sep 2026: "keep different table color for
+  seen, blind, variation gameplay"): `TableCloth {centre, edge, line, lip}`, `TableCloth.tinted(accent, brightness)` takes
+  only the HUE of the game's accent (`AppTheme.paletteFor` — the lobby card's and the tag's colour, so the three can never
+  disagree) and lays the same lightness and restraint on each, never saturated (0.40 at most by day, 0.42 by night) — a
+  soft champagne, a pale cyan, a lavender by day; a deep olive-gold, sapphire, plum by night (a yellow leans a few degrees to
+  amber there); `AppTheme.tableColours(scheme)` fills `CasinoTableColors.cloths` for `AppTheme.clothGames` (seen, blind,
+  variation), `clothFor(category)` answers the game's cloth or the fallback `cloth` — a soft teal, `TableCloth.tealHue`
+  172, in the same tones (25 Sep 2026; emerald before) — for any other, and `_Felt` passes `room.category` (a private
+  table is its game's too). **Depth** (owner's polish brief, 25 Sep 2026: "subtle layered depth: outer shadow;
+  champagne/gold outer rim; subtle inner rim; soft cyan/teal felt surface; very subtle inner shadow ... Do NOT make it
+  photorealistic"): a tight contact shadow under the soft one, the rim, an inner rim — a thread of the rim's champagne
+  just outside the seam — and an inner shadow all round the cloth's edge (a blurred band of the cloth's `lip` outside
+  it, clipped, so only its soft inner half falls on the cloth), all in the one static layer.
+  A short phone (`Breaks.isShort`) drops the line printed on the cloth and the glow. The table's words
+  keep their inks: charcoal on the pale cloths, white on the dark ones, ≥4.5:1 on every cloth and the rail alike
+  (`test/casino_table_test.dart`, which also samples the painted pixels in both themes for every game, holds each cloth
+  to its game's hue and every cloth away from red, and checks which cloth each table — a private one too — lays). `TableAmbientEffects` replaced `_AmbientLamp`: the same breathing lamp, clipped to the cloth
+  now, and a warm light on the near rail in front of the viewer while it is their turn — its own layer, repainting every
+  frame while the table's never does. Paint order in `_Felt`: the table, the ambient light, the deal and bet flights (the
+  deal still leaves from just above the middle of the table, 0.42, as it always did), the paid table picture
+  (`_TableCentrepiece` — over the cloth), then the tag, the pot, the status line and the seats; the room's `DriftingChips`
+  drift under the table and show round it. **Poker rooms have no table**: their board (0.29) and 3-Card Poker's dealer
+  hand stand where the far rail goes, so `poker_table_screen.dart` was left as it was. A host behind the far rail — an
+  illustrated dealer, a layered SVG animated by the table's state — was tried with the table and removed on 25 Sep 2026
+  (owner: "remove women from the table"); she is recoverable from commits `6a01773`/`a6314af`.
+- **The seat ring and the second table polish** (owner's brief, 25 Sep 2026 — 14 points, presentation only: "Do NOT
+  change: game logic, betting logic, networking ... state management, card logic, game rules, existing assets"; "Do NOT
+  add the female dealer yet"). **Seats** — `widgets/seat_ring.dart` `SeatRing`, a PURE function of the seat count
+  (`config.maxPlayers`, held to 2..5; 0 reads 5), the `TableGeometry` and the pod's width: the viewer on the floor at the
+  foot (90°, x `viewerShare` 0.265 — not centred: their hand is fanned to the right of their pod and on a 640dp phone it
+  already ends where the key cluster begins — and bounded by the corner keys, `keysLeftFor`/`leftKeysRightFor`/
+  `handWidthFor`: the hand clear of the cluster, the pod clear of Missile and Pack, the hand's clearance winning; 10dp left
+  of 0.265 at 640x360, 40dp at a narrow 592x360, where the third card lay under the minus key; unchanged from 732dp up),
+  everyone else on ONE ellipse concentric with the table (`centreShare` 0.284
+  of the table's height down it, `rxShare` 0.922 of its half-width across, `ryShare` 0.23 of its height deep), spread
+  evenly clockwise from its left end round the head to its right end — 2: 270 (the head); 3: 180/360; 4: 180/270/360;
+  5: 180/240/300/360 — each column pinned by its middle as before. Five places land within a dp of the tuned
+  `seatPlaces` (0.05/0.275/0.725/0.95 across, 0.44/0.30 down). A player joining or leaving moves nobody; an empty place
+  keeps its chair. **The head seat** (2 and 4 places) cannot hang a column down the table's middle — the tag and the pot
+  stand there — so its pod sits `headTop` from the felt's top with its cards and bet BESIDE it (`SeatPod.beside`, unit
+  `headUnitWidth` = 2 pods + `headGap`), the category tag moves to its left (`tagSlot`), and the waiting line drops under
+  its pod. **The corners bound the ring** (`SeatRing.forFelt`: `keysTopFor`, `cornersBottomFor`): an end seat whose
+  tallest column (`columnShare` 2.05 pods, turn ring and text ceiling included) would reach the key clusters rises off
+  them, and stays under the Shop key and the wallet; where there is room for neither (a screen under 360dp tall) the keys
+  win. On the Android phones the felt was tuned on an end seat rises 6dp at most (891x411; an iPhone's 844x390, where the
+  right-hand seat on turn at ×1.25 ended on the cluster's top edge, is the one it was for). The felt, `tableNoticeArea`
+  and `tableWalletRoom` all read `SeatRing.forFelt`, so the three cannot disagree; the poker felt has no table and keeps its
+  five `seatPlaces`. `test/seat_ring_test.dart`: angles, symmetry, bounds and corners at seven screens (800x340 as
+  geometry only), five places against the tuned layout, and the table laid out for real at 2–5 places at 640x360, 732x412,
+  844x390, 891x411, 915x412, a narrow 592x360 and a 1280x800 tablet, ×1.0 and ×1.25, with no seat over another seat, the
+  pot, the viewer's cards or pod, the tag, the Shop key, the wallet or any key. **YOU** — the viewer's pod glows at
+  `TableAmbient.mineGlow` 0.75 (its colour inside the glass and the halo round its turn ring; the ring's gold edge and the
+  turn clock are untouched). **Seats** — every capsule on a seat (BLIND/SEEN, a hand's name, the bet badge, In Pot) is cut to
+  one corner, `_kCapsule` 0.08 (0.08/0.08/0.10/0.07 before); a name is never cut while it can be set smaller —
+  `SeatName` shrinks it to `minScale` 0.78 of its size first ("Vikramaditya" read "Vikramad…" at 640x360 ×1.25), and only a
+  name that would need less (24 letters) ends in an ellipsis (`test/seat_name_test.dart`, in Inter). **In Pot** — `SeatType.inPot`, the seat's quietest words:
+  0.078 of the pod over an 8.5 floor (the bet is 0.105), the metadata tier's ink (`inPotLabelAlpha` 0.68 by day, 0.56 by
+  night; the figure `inPotFigureAlpha` 0.78/0.70) on a lighter capsule (`inPotPlate` 0.6), still ≥4.5:1 on every cloth.
+  **Pot** — `_PotPulse` sets the plinth on the cloth with a soft shadow and gives off a steadier gold (0.08 + 0.04 breath at
+  rest, the flare as before). **The viewer's hand** stands `TableSpace.handLift` (6dp) off the floor with one soft shadow
+  on the cloth under the fan (none under a packed hand); card backs and faces untouched. **Left controls** — the rail's
+  menu and chat `RailKey`s are machined plaques (plaque, resting champagne hairline, the console's lift), not glass, so
+  they read as the table's controls beside Missile and Pack. **Light** — the table's room is pearl (`TableGround.pearl`
+  #FAF8F4 closing to `pearlEdge`), not the app's cool grey. `test/table_polish_test.dart` holds the special role and its
+  coral glow, In Pot's size and contrast, a dead key's 3:1, and the YOU glow.
 - **Variation tables** (owner, 18 Sep 2026; server side §6.1/§6.4). Everything is drawn from `room:state.variation`
   (`VariationState` in `dtos.dart`; `GameState.variation`, `variationSelecting`, `variationIsMine`, `shownVariation`,
   `shownTurnUp`) — the two `game:variation*` events only say the same thing a moment sooner, so a reconnect mid-window
@@ -2365,8 +2455,9 @@ final t = state.t;` at the top of `build`; M3 roles via `theme.colorScheme`; `.w
 `CustomPainter.shouldRepaint` compares all inputs; `LayoutBuilder` thresholds + `FittedBox`.
 **The table** (`theme/table_theme.dart`, §8.4): text on the felt, its drawers and its dialogs asks `TableType` for its
 ROLE (a seat's, `TableType.seat(theme, podW)`) and never sets a `fontSize` of its own; spacing is `TableSpace`, the dim
-behind a drawer or a dialog `TableScrim` (dialogs through `showTableDialog`), ambient light `TableAmbient`; a console key
-states its `KeyRole` — one primary on the console, never a second.
+behind a drawer or a dialog `TableScrim` (dialogs through `showTableDialog`), ambient light `TableAmbient`, the table's
+own colours `CasinoTableColors` (one painter, both themes); a console key states its `KeyRole` — one primary on the
+console, never a second.
 
 ---
 
@@ -2445,6 +2536,11 @@ states its `KeyRole` — one primary on the console, never a second.
 
 ### 12.3 Flutter
 - The 1s ticker: `watch` GameState only where per-second rebuilds are wanted.
+- **A `Future` cached across widget tests completes into a dead zone.** Every `testWidgets` runs in its own fake-async
+  zone, and a future that completed inside one of them runs the continuation of every later `await` on it in THAT zone,
+  which nobody pumps any more: the await never returns (24 Sep 2026: an asset drawn in the first screenshot of a run and
+  in none after it). Keep what an asset loader has loaded as a VALUE and use it synchronously, and load such assets in
+  `setUpAll`, where async is real, in the picture harnesses.
 - `FractionallySizedBox` with only `widthFactor` and a childless child **collapses to zero height**
   (needed `heightFactor: 1`, `alignment: centerLeft`).
 - Both `game:showdown` and `game:handEnded` hit `onShowdown`; only the latter has `nextHandAt`.
@@ -2484,7 +2580,7 @@ states its `KeyRole` — one primary on the console, never a second.
   cached and fetched table catalogue; its per-table figures are NULL, never 0, when the server did not send them, so a
   missing figure is never mistaken for a real zero (the screens then fall back as before).
 - `_PotChips` animates only on increase. `PlayingCard`
-  flips only face-down↔up. Only 5 `_places`.
+  flips only face-down↔up. The poker felt has only 5 `seatPlaces`; the Teen Patti felt's `SeatRing` lays 2..5.
 - Google sign-in works (`google_sign_in` 7.x, `net/social_sign_in.dart`); the **Web** client id is the
   `serverClientId` and arrives as `--dart-define=GOOGLE_SERVER_CLIENT_ID`, without which sign-in
   succeeds and returns no `idToken`. Facebook was removed on 10 Sep 2026, restored on 22 Sep (`5b43510`) and

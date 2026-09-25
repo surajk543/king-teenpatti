@@ -19,6 +19,7 @@ import 'glass_panels.dart';
 import 'picture_shelf.dart';
 import 'premium_surface.dart';
 import 'rules_sheet.dart';
+import 'seat_ring.dart';
 import 'table_ground.dart';
 
 /// The chrome every table screen shares — the Teen Patti felt and the poker
@@ -28,9 +29,11 @@ import 'table_ground.dart';
 /// table_screen.dart unchanged when the poker family arrived, so the two
 /// screens are one room with different games on the cloth.
 ///
-/// Where each seat sits on the felt, as a fraction of it, in view order: the
-/// viewer at the bottom, then clockwise from their left. The felt's own copy
-/// (`_Felt._places`) is this list; the wallet measures its corner from it.
+/// Where each seat sits on the poker felt, as a fraction of it, in view order:
+/// the viewer at the bottom, then clockwise from their left. The Teen Patti
+/// felt lays its seats round its casino table with [SeatRing] instead (25 Sep
+/// 2026), whose five places are these to within 2dp; the poker felt has no
+/// table and keeps these five.
 const List<Offset> seatPlaces = [
   Offset(0.265, 0.00), // you — x only; the pair below sit on the floor
   Offset(0.055, 0.44), // left
@@ -91,17 +94,19 @@ class TableWallet extends StatelessWidget {
   Widget build(BuildContext context) {
     // `select`, not `watch`: the counts change when a hammer is spent or a
     // pack lands, never with the reward ticker. A record compares by value.
-    final (diamonds, hammers, missiles, lang) = context
-        .select<GameState, (int, int, int, AppLang)>(
+    final (diamonds, hammers, missiles, lang, seats) = context
+        .select<GameState, (int, int, int, AppLang, int)>(
           (s) => (
             s.user?.diamond ?? 0,
             s.user?.hammer ?? 0,
             s.user?.missile ?? 0,
             s.lang,
+            // The poker felt keeps its own five places (seatPlaces).
+            s.room?.isPoker ?? false ? SeatRing.maxSeats : s.config.maxPlayers,
           ),
         );
     final width = MediaQuery.sizeOf(context).width;
-    final room = tableWalletRoom(context);
+    final room = tableWalletRoom(context, seats: seats);
     // Three counts on one line fit a tablet and most phones. Where that line
     // would have to shrink past [_walletLineScale] to fit the corner — a
     // 640dp phone — the missiles take a second line under the other two, and
@@ -184,11 +189,15 @@ class TopCorner extends StatelessWidget {
 const double _walletLineScale = 0.85;
 
 /// How wide the table's wallet may be: from the felt's right edge back to the
-/// top-right seat's pod, less the sixth of a pod its orb spills out of that
-/// corner and a little air. Worked out from the numbers [_Felt] lays the seats
-/// out with, the way [tableNoticeArea] finds the notices' gap — about 95dp at
-/// 640x360, 144 at 891x411 and 227 at 1280x800.
-double tableWalletRoom(BuildContext context) {
+/// seat that stands under the top-right corner — the upper right-hand seat
+/// round the rim, or the head seat's cards beside its pod — less the sixth of
+/// a pod its orb spills out of that corner and a little air. Worked out from
+/// the [SeatRing] the felt lays the [seats] out with, the way
+/// [tableNoticeArea] finds the notices' gap — about 95dp at 640x360, 144 at
+/// 891x411 and 227 at 1280x800, at five places. A seat at the table's right
+/// END stands below the corner and does not count; with nobody under the
+/// corner the wallet may take half the felt.
+double tableWalletRoom(BuildContext context, {int seats = SeatRing.maxSeats}) {
   final size = MediaQuery.sizeOf(context);
   final safe = MediaQuery.paddingOf(context);
   final pad = Dim.feltPad(size.width);
@@ -197,14 +206,18 @@ double tableWalletRoom(BuildContext context) {
   final w = size.width - safe.right - pad - feltLeft;
   final h = size.height - safe.bottom - feltTop;
   final podW = Dim.podW(w, h);
+  final ring = SeatRing.forFelt(seats: seats, screen: size, felt: Size(w, h));
 
-  final topRight = seatPlaces[3];
-  final podLeft = (topRight.dx * w - podW / 2)
-      .clamp(0.0, math.max(0.0, w - podW))
-      .toDouble();
-  final clear = feltLeft + podLeft + podW + podW / 6 + Space.xs;
+  var clear = w / 2;
+  for (final spot in ring.rim) {
+    if (spot.head) {
+      clear = math.max(clear, ring.headLeft + ring.headUnitWidth + Space.xs);
+    } else if (spot.angle > 270 && spot.angle < 360) {
+      clear = math.max(clear, spot.anchor.dx + podW / 2 + podW / 6 + Space.xs);
+    }
+  }
   final right = size.width - safe.right - pad;
-  return math.max(Dim.minTouch, right - clear);
+  return math.max(Dim.minTouch, right - (feltLeft + clear));
 }
 
 /// Said over the table while the connection is down (QA PIX-2, 14 Sep 2026).
@@ -583,7 +596,13 @@ class _RailLottieState extends State<RailLottie> {
   }
 }
 
-/// One key in the rail: a tinted panel with a glyph in it.
+/// One key in the rail: a machined plaque with a glyph in it — the material
+/// of the console's keys (owner's brief, 25 Sep 2026: "Polish: menu, chat,
+/// missile, pack. They should feel like part of the game table UI"). It was a
+/// pane of tinted glass, which read as the app's chrome laid over the game
+/// rather than as a control of the table beside Missile and Pack under it.
+/// The same plaque, the same resting champagne hairline, the same corner and
+/// the same lift as those two; a glyph in the surface's own ink.
 class RailKey extends StatelessWidget {
   const RailKey({
     super.key,
@@ -603,6 +622,8 @@ class RailKey extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final brightness = theme.brightness;
+    final corner = BorderRadius.circular(Radii.md);
 
     return Tooltip(
       message: tooltip,
@@ -615,15 +636,32 @@ class RailKey extends StatelessWidget {
               alpha: AppTheme.inkMed,
             ),
           ),
-          // The press-scale is a Listener over the capsule, so the capsule's
-          // own ink and tap are untouched; only the feel of the key changes.
+          // The press-scale is a Listener over the key, so its own ink and
+          // tap are untouched; only the feel of the key changes.
           child: PressScale(
-            child: GlassCapsule(
-              radius: Radii.md,
-              padding: EdgeInsets.zero,
-              minHeight: height,
-              onTap: onTap,
-              child: Center(child: child),
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: AppTheme.plaque(brightness),
+                borderRadius: corner,
+                border: Border.all(
+                  color: AppTheme.hairlineColour(brightness),
+                  width: Dim.hairline,
+                ),
+                boxShadow: AppTheme.controlShadow(brightness, elevation: 2),
+              ),
+              child: Material(
+                type: MaterialType.transparency,
+                child: InkWell(
+                  // Material's own click, gated on the player's Sound switch,
+                  // as every key's is.
+                  enableFeedback: context.select<FeedbackSettings, bool>(
+                    (f) => f.sound,
+                  ),
+                  onTap: onTap,
+                  borderRadius: corner,
+                  child: Center(child: child),
+                ),
+              ),
             ),
           ),
         ),
@@ -1432,26 +1470,40 @@ ButtonStyle stepperStyle(ThemeData theme) =>
 /// What a key on the console is for, which decides how loud it is (owner's
 /// table polish brief, 24 Sep 2026: "PRIMARY: Chaal. SECONDARY: SideShow, Force
 /// SideShow. DESTRUCTIVE: Pack. Disabled actions must have a clearly disabled
-/// state. Do not make all buttons visually equal.").
+/// state. Do not make all buttons visually equal."; and 25 Sep 2026:
+/// "PRIMARY: Chaal. SECONDARY: SideShow, Force SideShow, Plus/Minus.
+/// DESTRUCTIVE: Pack. SPECIAL: Missile.").
 enum KeyRole {
   /// The move a turn is built around — Chaal; at a poker table Check or Call,
   /// Draw, Play: struck gold, the larger and bolder name, and the one key on
   /// the console that breathes while it can be pressed. Never a second.
   primary,
 
-  /// Every other move — Sideshow, Force Sideshow, Show, Missile: the machined
-  /// plaque, with the gold hairline while the move is on offer.
+  /// Every other move — Sideshow, Force Sideshow, Show, and the stake's two
+  /// steppers ([StepperKey]): the machined plaque, with the gold hairline
+  /// while the move is on offer.
   secondary,
 
   /// The move that gives the hand up — Pack: the plaque with its glyph, its
   /// name and its edge in the error ink, and nothing about it that beckons.
   destructive,
+
+  /// A move bought with something the player collects — Missile: the plaque
+  /// washed with its own colour (the missile's coral, [MachinedKey.edge]),
+  /// its hairline in that colour whether or not it is on offer, and a still
+  /// glow of it while it is. Its name keeps the surface's ink, so it reads
+  /// as every other name does; the colour is what says the key is not one
+  /// of the table's ordinary moves.
+  special,
 }
 
 /// How far a key that cannot be pressed — or one the player cannot pay for —
 /// fades. One treatment for every key and stepper, and one nobody has to
-/// learn.
-const double deadKeyOpacity = 0.42;
+/// learn. Visibly off, still readable (owner's brief, 25 Sep 2026: "Disabled
+/// actions must be visibly disabled but still readable"): at 0.5 a dead key's
+/// name keeps 3:1 or more against its own plaque in both themes, where 0.42
+/// left the light theme's under 3:1 (test/table_polish_test.dart).
+const double deadKeyOpacity = 0.5;
 
 /// One key on the console: an icon, what it does, and what it costs.
 ///
@@ -1514,8 +1566,10 @@ class MachinedKey extends StatelessWidget {
   /// What this key is for, and so how loud it is ([KeyRole]).
   final KeyRole role;
 
-  /// The hairline that gives this key its identity — the missile's coral on
-  /// the Missile key. A destructive key's is the error ink unless given.
+  /// The colour that gives this key its identity — a [KeyRole.special] key's
+  /// wash, hairline, glyph and glow (the missile's coral when none is given);
+  /// on any other key, its hairline. A destructive key's is the error ink
+  /// unless given.
   final Color? edge;
 
   /// This key is one of the moves available RIGHT NOW.
@@ -1543,7 +1597,10 @@ class MachinedKey extends StatelessWidget {
     final kind = _role;
     final isPrimary = kind == KeyRole.primary;
     final destructive = kind == KeyRole.destructive;
+    final special = kind == KeyRole.special;
     final dead = onPressed == null;
+    // A special key's own colour: the one it is given, else the missile's.
+    final identity = special ? edge ?? missileInkOn(brightness) : null;
 
     // The key's ink, for its glyph and its words alike: charcoal on struck
     // gold, the error colour on the key that gives the hand up, and the
@@ -1558,12 +1615,13 @@ class MachinedKey extends StatelessWidget {
         : destructive
         ? scheme.error
         : scheme.onSurface;
-    final live =
-        edge ??
-        (destructive
-            ? scheme.error.withValues(alpha: 0.55)
-            : AppTheme.hairlineColour(brightness, live: true));
-    final halo = edge ?? AppTheme.gold;
+    final live = identity != null
+        ? identity.withValues(alpha: 0.62)
+        : edge ??
+              (destructive
+                  ? scheme.error.withValues(alpha: 0.55)
+                  : AppTheme.hairlineColour(brightness, live: true));
+    final halo = identity ?? edge ?? AppTheme.gold;
     // Struck gold, as the Shop key is, only while the primary key can be
     // pressed: a dead Chaal is the panel base like every other dead key.
     final gilded = isPrimary && !dead;
@@ -1592,6 +1650,14 @@ class MachinedKey extends StatelessWidget {
               : const EdgeInsets.symmetric(horizontal: Space.sm),
           backgroundColor: gilded
               ? Colors.transparent
+              : identity != null
+              // The special key's plaque, washed with its own colour.
+              ? Color.alphaBlend(
+                  identity.withValues(
+                    alpha: brightness == Brightness.dark ? 0.12 : 0.08,
+                  ),
+                  AppTheme.plaque(brightness),
+                )
               : AppTheme.plaque(brightness),
           foregroundColor: ink,
           disabledBackgroundColor: AppTheme.panelBase(brightness),
@@ -1606,7 +1672,10 @@ class MachinedKey extends StatelessWidget {
           side: WidgetStateProperty.resolveWith(
             (states) => BorderSide(
               color: states.contains(WidgetState.disabled)
-                  ? AppTheme.ink400.withValues(alpha: 0.35)
+                  // A special key keeps its colour's thread even dead, so a
+                  // missile off offer is still the missile.
+                  ? identity?.withValues(alpha: 0.35) ??
+                        AppTheme.ink400.withValues(alpha: 0.35)
                   : live,
               width: Dim.hairline,
             ),
@@ -1617,7 +1686,7 @@ class MachinedKey extends StatelessWidget {
       mainAxisAlignment: MainAxisAlignment.center,
       mainAxisSize: MainAxisSize.min,
       children: [
-        glyph ?? Icon(icon, size: 18),
+        glyph ?? Icon(icon, size: 18, color: dead ? null : identity),
         SizedBox(width: stackLabel ? Space.xs : Space.sm),
         Flexible(
           child: stackLabel
@@ -1717,11 +1786,11 @@ class MachinedKey extends StatelessWidget {
   }
 }
 
-/// One end of the stake stepper: a utility beside the primary key, so the
-/// plaque a secondary key wears — not a second gold, which the tonal fill it
-/// used to wear read as on the light theme. A ring of champagne is the
-/// affordance, present only while the key can be pressed, and a stepper that
-/// cannot be pressed fades as every dead key does.
+/// One end of the stake stepper: a SECONDARY key ([KeyRole.secondary]) beside
+/// the primary one, so the plaque a secondary key wears — not a second gold,
+/// which the tonal fill it used to wear read as on the light theme. A ring of
+/// champagne is the affordance, present only while the key can be pressed,
+/// and a stepper that cannot be pressed fades as every dead key does.
 class StepperKey extends StatelessWidget {
   const StepperKey({
     super.key,

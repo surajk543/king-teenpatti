@@ -290,15 +290,50 @@ class SeatType {
           colour: colour,
         );
 
-  /// "In Pot" and its figure: the badge's quieter partner.
-  TextStyle inPot({required Color colour, bool figure = false}) => figure
-      ? AppTheme.money(
-          _t.labelSmall!,
-          fontSize: _at(0.086, 9),
-          colour: colour,
-          weight: FontWeight.w600,
-        )
-      : AppTheme.label(_t.labelSmall!, fontSize: _at(0.086, 9), colour: colour);
+  /// "In Pot" and its figure: the badge's quieter partner, and the quietest
+  /// words on a seat (owner's brief, 25 Sep 2026: "Reduce the visual
+  /// prominence of the In Pot label. Use smaller typography and lighter
+  /// contrast"). A step under the bet it sits beside (0.078 of the pod
+  /// against 0.105), and in the metadata tier's ink rather than the table's:
+  /// the word at [inPotLabelAlpha], the figure a step firmer at
+  /// [inPotFigureAlpha] — each still 4.5:1 or more on its capsule over every
+  /// cloth (test/table_polish_test.dart).
+  TextStyle inPot({Color? colour, bool figure = false}) {
+    final ink =
+        colour ??
+        theme.colorScheme.onSurface.withValues(
+          alpha: figure
+              ? inPotFigureAlpha(theme.brightness)
+              : inPotLabelAlpha(theme.brightness),
+        );
+    return figure
+        ? AppTheme.money(
+            _t.labelSmall!,
+            fontSize: _at(0.078, 8.5),
+            colour: ink,
+            weight: FontWeight.w600,
+          )
+        : AppTheme.label(
+            _t.labelSmall!,
+            fontSize: _at(0.078, 8.5),
+            colour: ink,
+            weight: FontWeight.w500,
+          );
+  }
+
+  /// The "In Pot" word's ink, as an alpha of the surface's ink: the metadata
+  /// tier ([AppTheme.inkLowOn]) by day, a step firmer by night, where the
+  /// lower figure fell under 4.5:1 on the deepest cloths.
+  static double inPotLabelAlpha(Brightness b) =>
+      b == Brightness.dark ? 0.56 : AppTheme.inkLowOn(b);
+
+  /// The "In Pot" figure's ink, as an alpha of the surface's ink.
+  static double inPotFigureAlpha(Brightness b) =>
+      b == Brightness.dark ? AppTheme.inkMed : 0.78;
+
+  /// How solid the "In Pot" capsule is over the cloth: lighter than the
+  /// bet's badge (solid, with a hairline), so the badge stays the headline.
+  static const double inPotPlate = 0.6;
 
   /// A chat line over a seat — the one thing on the felt a player reads
   /// rather than glances at, so its floor is higher than a caption's.
@@ -344,6 +379,12 @@ abstract final class TableSpace {
 
   /// Between the viewer's fanned hand and the name and bet stood over it.
   static const double hand = Space.xs;
+
+  /// How far the viewer's hand stands above the floor their pod stands on:
+  /// held a little off the cloth, towards the middle of the table (owner's
+  /// brief, 25 Sep 2026: "Move the current player's cards slightly upward
+  /// toward the center of the table").
+  static const double handLift = Space.sm;
 
   /// The table's two drawers — the menu and the chat. A step wider than the
   /// app's own drawer ([Dim.drawerW]): the chat's two tabs name themselves in
@@ -427,4 +468,12 @@ abstract final class TableAmbient {
   /// was, so it reads as a glow that pulses rather than a light that flickers
   /// — still the one ring on the felt, and still answerable at a glance.
   static const Duration turnBreath = Duration(milliseconds: 1150);
+
+  /// The viewer's own pod — the YOU card — glows at three quarters of a rim
+  /// seat's strength (owner's brief, 25 Sep 2026: "Reduce its ambient glow
+  /// intensity by approximately 20–30%. Keep: gold/orange active border"):
+  /// its colour inside the glass and the halo round its turn ring, never the
+  /// ring's own edge. It is the largest pod on the felt and the closest to
+  /// the eye, so at a rim seat's strength it outshone the seats being watched.
+  static const double mineGlow = 0.75;
 }

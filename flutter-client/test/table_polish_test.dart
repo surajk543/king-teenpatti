@@ -12,9 +12,12 @@ import 'package:teenpatti/l10n/strings.dart';
 import 'package:teenpatti/state/game_state.dart';
 import 'package:teenpatti/theme/app_theme.dart';
 import 'package:teenpatti/theme/table_theme.dart';
+import 'package:teenpatti/theme/theme_colors.dart';
 import 'package:teenpatti/widgets/edge_fade.dart';
 import 'package:teenpatti/widgets/glass_panels.dart';
+import 'package:teenpatti/widgets/picture_shelf.dart';
 import 'package:teenpatti/widgets/table_chrome.dart';
+import 'package:teenpatti/widgets/table_ground.dart';
 
 import 'table_scenes.dart';
 
@@ -260,7 +263,7 @@ void main() {
       expect(small.status(colour: c).fontSize, 9);
       expect(small.stack(colour: c).fontSize, 11.5);
       expect(small.bet(colour: c).fontSize, 10);
-      expect(small.inPot(colour: c).fontSize, 9);
+      expect(small.inPot(colour: c).fontSize, 8.5);
       expect(small.speech(colour: c).fontSize, 12);
 
       // The largest: the shares.
@@ -292,6 +295,50 @@ void main() {
         expect(tag, greaterThanOrEqualTo(status), reason: 'at $w');
         expect(stack, greaterThanOrEqualTo(bet), reason: 'at $w');
         expect(bet, greaterThanOrEqualTo(inPot), reason: 'at $w');
+        // In Pot is the quietest words on a seat, and smaller than the bet
+        // it sits beside (25 Sep 2026).
+        expect(inPot, lessThan(bet), reason: 'at $w');
+        expect(inPot, lessThanOrEqualTo(status), reason: 'at $w');
+      }
+    });
+
+    // Owner's brief, 25 Sep 2026: "Reduce the visual prominence of the In Pot
+    // label. Use smaller typography and lighter contrast" — lighter, not
+    // illegible.
+    test('In Pot is quieter and still reads on every cloth', () {
+      for (final theme in [
+        AppTheme.dark(sound: false),
+        AppTheme.light(sound: false),
+      ]) {
+        final b = theme.brightness;
+        final seat = TableType.seat(theme, 100);
+        final label = seat.inPot().color!;
+        final figure = seat.inPot(figure: true).color!;
+        // The metadata tier's ink by day, a step firmer by night; the figure a
+        // step firmer again, and quieter than the table's own ink.
+        expect(label.a, closeTo(SeatType.inPotLabelAlpha(b), 1e-6));
+        expect(figure.a, closeTo(SeatType.inPotFigureAlpha(b), 1e-6));
+        expect(figure.a, greaterThan(label.a));
+        expect(SeatType.inPotPlate, lessThan(1));
+        final colours = theme.extension<CasinoTableColors>()!;
+        for (final cloth in [
+          colours.cloth,
+          for (final game in AppTheme.clothGames) colours.clothFor(game),
+        ]) {
+          for (final felt in [cloth.centre, cloth.edge]) {
+            final capsule = Color.alphaBlend(
+              AppTheme.plaque(b).withValues(alpha: SeatType.inPotPlate),
+              felt,
+            );
+            for (final ink in [label, figure]) {
+              expect(
+                _contrast(Color.alphaBlend(ink, capsule), capsule),
+                greaterThanOrEqualTo(4.5),
+                reason: '$b $ink on $felt',
+              );
+            }
+          }
+        }
       }
     });
   });
@@ -384,9 +431,9 @@ void main() {
       expect(_pulseOf(tester, chaal).alive, isTrue);
       expect(_pulseOf(tester, chaal).breathe, isTrue);
 
-      // SECONDARY: Sideshow, Force Sideshow and Missile — the plaque, a still
-      // glow while on offer.
-      for (final label in [t.sideshow, t.forceSideshow, t.missile]) {
+      // SECONDARY: Sideshow and Force Sideshow — the plaque, a still glow
+      // while on offer.
+      for (final label in [t.sideshow, t.forceSideshow]) {
         final key = _key(label);
         final widget = tester.widget<MachinedKey>(key);
         expect(widget.primary, isFalse, reason: label);
@@ -396,6 +443,19 @@ void main() {
         expect(_pulseOf(tester, key).breathe, isFalse, reason: label);
         expect(_fadeOf(tester, key), 1, reason: label);
       }
+
+      // SPECIAL: Missile — its own coral, a still glow of it while on offer,
+      // never gold and never breathing (25 Sep 2026).
+      final missile = _key(t.missile);
+      expect(tester.widget<MachinedKey>(missile).role, KeyRole.special);
+      expect(_gilded(tester, missile), isFalse);
+      expect(_pulseOf(tester, missile).alive, isTrue);
+      expect(_pulseOf(tester, missile).breathe, isFalse);
+      expect(
+        _pulseOf(tester, missile).colour,
+        missileInkOn(Theme.of(tester.element(missile)).brightness),
+      );
+      expect(_fadeOf(tester, missile), 1);
 
       // DESTRUCTIVE: Pack, in the error ink, and never beckoning.
       final pack = _key(t.pack);
@@ -422,6 +482,54 @@ void main() {
       expect(primary.color, AppTheme.ink900);
 
       await _unmount(tester, state);
+    });
+
+    // "Disabled actions must be visibly disabled but still readable" (owner's
+    // brief, 25 Sep 2026): a dead key's name, faded with its plaque, still
+    // holds 3:1 against it on the room in both themes.
+    test('a dead key is plainly off and still reads', () {
+      expect(deadKeyOpacity, inInclusiveRange(0.45, 0.6));
+      for (final theme in [
+        AppTheme.dark(sound: false),
+        AppTheme.light(sound: false),
+      ]) {
+        final b = theme.brightness;
+        final room = b == Brightness.dark
+            ? AppTheme.ground(b)
+            : TableGround.pearl;
+        final face = Color.alphaBlend(
+          AppTheme.panelBase(b).withValues(alpha: deadKeyOpacity),
+          room,
+        );
+        final name = Color.alphaBlend(
+          theme.colorScheme.onSurface.withValues(alpha: deadKeyOpacity),
+          face,
+        );
+        expect(_contrast(name, face), greaterThanOrEqualTo(3), reason: '$b');
+      }
+    });
+
+    testWidgets('the YOU card glows at three quarters of a rim seat', (
+      tester,
+    ) async {
+      // The viewer on turn, and — at the next scene — a rim seat on turn.
+      for (final (prefix, mine) in [('03', true), ('01', false)]) {
+        final state = await _mount(tester, _scene(prefix));
+        final ring = tester.widget(
+          find.byWidgetPredicate(
+            (w) =>
+                w.runtimeType.toString() == '_TurnRing' &&
+                (w as dynamic).active == true,
+          ),
+        );
+        expect(
+          (ring as dynamic).glow,
+          mine ? TableAmbient.mineGlow : 1.0,
+          reason: prefix,
+        );
+        await _unmount(tester, state);
+      }
+      expect(TableAmbient.mineGlow, inInclusiveRange(0.7, 0.8));
     });
 
     testWidgets('off turn every key is plainly dead', (tester) async {

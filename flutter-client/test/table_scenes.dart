@@ -46,6 +46,8 @@ Map<String, dynamic> _seat(
 };
 
 RoomState _room({
+  String roomId = 'r1',
+  bool isPrivate = false,
   String category = 'blind',
   int boot = 200,
   String state = 'betting',
@@ -58,9 +60,11 @@ RoomState _room({
   required List<Map<String, dynamic>> seats,
   required Map<String, dynamic> you,
   Map<String, dynamic>? sideshow,
+  Map<String, dynamic>? variation,
 }) => RoomState.fromJson({
-  'roomId': 'r1',
+  'roomId': roomId,
   'code': 'ABCD2345',
+  'isPrivate': isPrivate,
   'category': category,
   'chipsHidden': category != 'seen',
   'state': state,
@@ -84,6 +88,7 @@ RoomState _room({
   'you': you,
   'seats': seats,
   'sideshow': ?sideshow,
+  'variation': ?variation,
 });
 
 Map<String, dynamic> _you({
@@ -207,8 +212,64 @@ RoomState seenTurnRoom() => _room(
 );
 
 /// Somebody else's turn at a blind table: nothing on the console to press.
-RoomState opponentTurnRoom() =>
-    _room(turnSeat: 2, seats: _blindSeats(), you: _you());
+RoomState opponentTurnRoom({int handNo = 7, String roomId = 'r1'}) => _room(
+  roomId: roomId,
+  handNo: handNo,
+  turnSeat: 2,
+  seats: _blindSeats(),
+  you: _you(),
+);
+
+/// The next hand dealt at the same table: what starts the deal's flight.
+Future<void> dealNextHand(WidgetTester tester, GameState state) async {
+  state.handleState(opponentTurnRoom(handNo: 8));
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 520));
+}
+
+/// The two top seats talking: their speech bubbles hang from their columns
+/// and grow towards the middle of the table.
+void topSeatsTalking(GameState state) {
+  for (final (id, name, text) in [
+    ('u2', 'Meera', 'That was a close one, next hand is mine'),
+    ('u3', 'Arjun', 'Good luck everyone, play fast please'),
+  ]) {
+    state.saidRecently[id] = _line(id, name, text);
+  }
+}
+
+/// Another player choosing the hand's variation: nobody is on turn and the
+/// table says who it is waiting on, in the waiting line's slot, mid-hand —
+/// or, [mine], the viewer choosing, under the picker.
+RoomState variationSelectingRoom({bool mine = false}) => _room(
+  category: 'variation',
+  boot: 50000,
+  stake: 50000,
+  pot: 250000,
+  seats: [
+    for (var i = 0; i < 5; i++)
+      _seat(i, chips: i == 0 ? 245000 : null, lastBet: 0, contributed: 50000),
+  ],
+  you: _you(chips: 1250000),
+  variation: {
+    'selecting': true,
+    'userId': mine ? 'u0' : 'u2',
+    'displayName': mine ? 'Priya' : 'Meera',
+    'seatIndex': mine ? 0 : 2,
+    'startedAt': _now - 2000,
+    'deadline': _now + 8000,
+    'timeoutMs': 10000,
+    'options': [
+      'MUFLIS',
+      'AK47',
+      'JOKER',
+      'HUKAM',
+      'LOWEST_JOKER',
+      'HIGHEST_JOKER',
+      'FIVE_CARD',
+    ],
+  },
+);
 
 final tableScenes = <TableScene>[
   TableScene('01-opponent-turn', (s) => s.handleState(opponentTurnRoom())),
@@ -446,7 +507,133 @@ final tableScenes = <TableScene>[
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 900));
   }),
+  // The casino table (24 Sep 2026): a deal in the air, the top seats
+  // talking towards the middle of the table, and the waiting line in use
+  // mid-hand.
+  TableScene(
+    '17-dealing',
+    (s) => s.handleState(opponentTurnRoom()),
+    dealNextHand,
+  ),
+  TableScene('18-top-seats-talking', (s) {
+    s.handleState(opponentTurnRoom());
+    topSeatsTalking(s);
+  }),
+  TableScene(
+    '19-variation-selecting',
+    (s) => s.handleState(variationSelectingRoom()),
+  ),
+  // A cloth per game (25 Sep 2026): the seen and variation tables on turn and
+  // off it, as the blind table is in 01 and 02.
+  TableScene(
+    '20-opponent-turn-seen',
+    (s) => s.handleState(seenOpponentTurnRoom()),
+  ),
+  TableScene(
+    '21-your-turn-variation',
+    (s) => s.handleState(variationTurnRoom(yours: true)),
+  ),
+  TableScene(
+    '22-opponent-turn-variation',
+    (s) => s.handleState(variationTurnRoom()),
+  ),
+  // The seat ring (25 Sep 2026): a table of two, three and four places, every
+  // place taken, the player at the far end on turn. Five places is every
+  // scene above.
+  for (final places in const [2, 3, 4])
+    TableScene('${22 + places - 1}-$places-places', (s) {
+      s.config = s.config.copyWith(maxPlayers: places);
+      s.handleState(placesRoom(places));
+    }),
 ];
+
+/// A seen hand at a table of [places] places, every place taken but [empty],
+/// the viewer looking at their cards and the last seat round the table on
+/// turn.
+RoomState placesRoom(int places, {List<int> empty = const []}) => _room(
+  category: 'seen',
+  maxPot: 2000000,
+  turnSeat: places - 1,
+  seats: [
+    for (var i = 0; i < places; i++)
+      if (empty.contains(i))
+        {'seatIndex': i, 'status': 'empty', 'cardCount': 0}
+      else
+        _seat(
+          i,
+          chips: [245000, 1820000, 96000, 12500000, 530000][i],
+          blind: i.isOdd,
+          lastBet: i.isOdd ? 400 : 800,
+          contributed: [2600, 1400, 2600, 1800, 3400][i],
+        ),
+  ],
+  you: _you(blind: false, cards: const ['As', 'Kd', 'Qh'], blindMovesLeft: 0),
+);
+
+/// Somebody else's turn at a seen table: every stack public, the viewer's own
+/// cards face up, nothing on the console to press.
+RoomState seenOpponentTurnRoom({bool isPrivate = false}) => _room(
+  isPrivate: isPrivate,
+  category: 'seen',
+  maxPot: 2000000,
+  turnSeat: 2,
+  seats: _seenSeats(),
+  you: _you(blind: false, cards: const ['As', 'Kd', 'Qh'], blindMovesLeft: 0),
+);
+
+/// A hand at a variation table played under AK47: the viewer on turn when
+/// [yours], the player across the table when not.
+RoomState variationTurnRoom({bool yours = false}) => _room(
+  category: 'variation',
+  boot: 50000,
+  stake: 50000,
+  pot: 400000,
+  turnSeat: yours ? 0 : 2,
+  seats: [
+    for (var i = 0; i < 5; i++)
+      _seat(
+        i,
+        chips: i == 0 ? 1250000 : null,
+        blind: i != 2 && i != 4,
+        lastBet: 50000,
+        contributed: 80000,
+      ),
+  ],
+  you: _you(
+    chips: 1250000,
+    options: yours
+        ? {
+            'canSee': true,
+            'canPack': true,
+            'canSideshow': false,
+            'canForceSideshow': false,
+            'raiseSteps': [50000, 100000],
+            'chips': 1250000,
+            'currentStake': 50000,
+          }
+        : null,
+  ),
+  variation: {
+    'selecting': false,
+    'userId': 'u2',
+    'displayName': 'Meera',
+    'seatIndex': 2,
+    'startedAt': _now - 20000,
+    'deadline': _now - 10000,
+    'timeoutMs': 10000,
+    'options': [
+      'MUFLIS',
+      'AK47',
+      'JOKER',
+      'HUKAM',
+      'LOWEST_JOKER',
+      'HIGHEST_JOKER',
+      'FIVE_CARD',
+    ],
+    'selected': 'AK47',
+    'selectedBy': 'PLAYER',
+  },
+);
 
 /// A Hold'em flop with the viewer to call — the poker felt the shared chrome
 /// also serves.
