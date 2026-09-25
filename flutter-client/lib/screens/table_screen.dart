@@ -1042,6 +1042,9 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
               Positioned.fill(
                 child: CasinoTableSurface(
                   geometry: table,
+                  // The game's own cloth: gold for seen, blue for blind,
+                  // violet for variation (25 Sep 2026).
+                  category: room.category,
                   // A short phone keeps the table and loses its trimmings.
                   detailed: !Breaks.isShort(MediaQuery.sizeOf(context).height),
                 ),

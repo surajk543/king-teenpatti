@@ -1887,10 +1887,17 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   a pearl rail lit from above round a pale emerald cloth with a thin champagne rim; by night a graphite rail round a deep
   emerald cloth that falls to near black, a subtler gold rim and a controlled cyan glow — `CasinoTableColors`
   (`theme/theme_colors.dart`), a `ThemeExtension` on both themes, so one painter serves both and the theme's cross-fade
-  carries the table. A short phone (`Breaks.isShort`) drops the line printed on the cloth and the glow. The table's words
-  keep their inks: charcoal on the pale cloth, white on the dark one, ≥4.5:1 on cloth and rail alike
-  (`test/casino_table_test.dart`, which also samples the painted pixels in both themes and holds the felt's hue to
-  green-teal, never red). `TableAmbientEffects` replaced `_AmbientLamp`: the same breathing lamp, clipped to the cloth
+  carries the table. **Each Teen Patti game lays its own cloth** (owner, 25 Sep 2026: "keep different table color for
+  seen, blind, variation gameplay"): `TableCloth {centre, edge, line, lip}`, `TableCloth.tinted(accent, brightness)` takes
+  only the HUE of the game's accent (`AppTheme.paletteFor` — the lobby card's and the tag's colour, so the three can never
+  disagree) and lays the same lightness and restraint on each — a soft champagne, a pale cyan, a lavender by day; a deep
+  olive-gold, sapphire, plum by night (a yellow leans a few degrees to amber there); `AppTheme.tableColours(scheme)` fills
+  `CasinoTableColors.cloths` for `AppTheme.clothGames` (seen, blind, variation), `clothFor(category)` answers the game's
+  cloth or the fallback `cloth` for any other, and `_Felt` passes `room.category` (a private table is its game's too).
+  A short phone (`Breaks.isShort`) drops the line printed on the cloth and the glow. The table's words
+  keep their inks: charcoal on the pale cloths, white on the dark ones, ≥4.5:1 on every cloth and the rail alike
+  (`test/casino_table_test.dart`, which also samples the painted pixels in both themes for every game, holds each cloth
+  to its game's hue and every cloth away from red, and checks which cloth each table — a private one too — lays). `TableAmbientEffects` replaced `_AmbientLamp`: the same breathing lamp, clipped to the cloth
   now, and a warm light on the near rail in front of the viewer while it is their turn — its own layer, repainting every
   frame while the table's never does. Paint order in `_Felt`: the table, the ambient light, the deal and bet flights (the
   deal still leaves from just above the middle of the table, 0.42, as it always did), the paid table picture

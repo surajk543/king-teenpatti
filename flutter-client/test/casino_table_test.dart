@@ -76,67 +76,131 @@ Future<void> _unmount(WidgetTester tester, GameState state) async {
 
 void main() {
   group('its colours', () {
+    final lightTheme = AppTheme.light(sound: false);
+    final darkTheme = AppTheme.dark(sound: false);
+    CasinoTableColors of(ThemeData theme) =>
+        theme.extension<CasinoTableColors>()!;
+
+    /// Every cloth a theme can lay: the fallback and each game's own.
+    List<TableCloth> everyCloth(CasinoTableColors c) => [
+      c.cloth,
+      for (final game in AppTheme.clothGames) c.clothFor(game),
+    ];
+
     test('both themes carry the table, and it cross-fades with them', () {
+      for (final theme in [lightTheme, darkTheme]) {
+        expect(of(theme), AppTheme.tableColours(theme.colorScheme));
+      }
+      final light = of(lightTheme);
+      final dark = of(darkTheme);
+      final half = light.lerp(dark, 0.5);
       expect(
-        AppTheme.light(sound: false).extension<CasinoTableColors>(),
-        CasinoTableColors.light,
+        half.cloth.centre,
+        Color.lerp(light.cloth.centre, dark.cloth.centre, 0.5),
       );
-      expect(
-        AppTheme.dark(sound: false).extension<CasinoTableColors>(),
-        CasinoTableColors.dark,
-      );
-      final half = CasinoTableColors.light.lerp(CasinoTableColors.dark, 0.5);
-      expect(
-        half.feltCentre,
-        Color.lerp(
-          CasinoTableColors.light.feltCentre,
-          CasinoTableColors.dark.feltCentre,
-          0.5,
-        ),
-      );
+      // Each game's cloth crosses into its own cloth in the other theme.
+      for (final game in AppTheme.clothGames) {
+        expect(
+          half.clothFor(game).centre,
+          Color.lerp(
+            light.clothFor(game).centre,
+            dark.clothFor(game).centre,
+            0.5,
+          ),
+          reason: game,
+        );
+      }
       expect(half.shadowBlur, closeTo(20, 1e-9));
     });
 
-    test('by day: a pearl rail, a pale emerald cloth, a champagne rim', () {
-      const c = CasinoTableColors.light;
+    test('by day: a pearl rail, pale cloths, a champagne rim', () {
+      final c = of(lightTheme);
       expect(c.railTop.computeLuminance(), greaterThan(0.85));
       expect(c.railBottom.computeLuminance(), greaterThan(0.65));
-      for (final felt in [c.feltCentre, c.feltEdge]) {
-        expect(felt.computeLuminance(), greaterThan(0.6));
-        expect(_hue(felt), inInclusiveRange(140, 180), reason: '$felt');
+      for (final cloth in everyCloth(c)) {
+        for (final felt in [cloth.centre, cloth.edge]) {
+          expect(felt.computeLuminance(), greaterThan(0.4), reason: '$felt');
+        }
+      }
+      for (final felt in [c.cloth.centre, c.cloth.edge]) {
+        expect(_hue(felt), inInclusiveRange(140, 190), reason: '$felt');
       }
       expect(_hue(c.rim), inInclusiveRange(35, 50));
       // No glow on a pale floor: it reads as a smudge.
       expect(c.glow.a, 0);
     });
 
-    test('by night: graphite, deep emerald, a subtler gold, a cyan glow', () {
-      const c = CasinoTableColors.dark;
+    test('by night: graphite, deep cloths, a subtler gold, a cyan glow', () {
+      final c = of(darkTheme);
       expect(c.railTop.computeLuminance(), lessThan(0.05));
-      for (final felt in [c.feltCentre, c.feltEdge]) {
-        expect(felt.computeLuminance(), lessThan(0.05));
-        expect(_hue(felt), inInclusiveRange(140, 180), reason: '$felt');
+      for (final cloth in everyCloth(c)) {
+        for (final felt in [cloth.centre, cloth.edge]) {
+          expect(felt.computeLuminance(), lessThan(0.05), reason: '$felt');
+        }
+      }
+      for (final felt in [c.cloth.centre, c.cloth.edge]) {
+        expect(_hue(felt), inInclusiveRange(140, 190), reason: '$felt');
       }
       expect(_hue(c.rim), inInclusiveRange(35, 50));
-      expect(c.rim.a, lessThan(CasinoTableColors.light.rim.a));
+      expect(c.rim.a, lessThan(of(lightTheme).rim.a));
       expect(_hue(c.glow), inInclusiveRange(165, 185));
       expect(c.glow.a, lessThan(0.25));
     });
 
     test('never the red table', () {
-      for (final c in [CasinoTableColors.light, CasinoTableColors.dark]) {
-        for (final felt in [c.feltCentre, c.feltEdge]) {
-          final h = _hue(felt);
-          expect(h > 20 && h < 330, isTrue, reason: '$felt');
+      for (final theme in [lightTheme, darkTheme]) {
+        for (final cloth in everyCloth(of(theme))) {
+          for (final felt in [cloth.centre, cloth.edge]) {
+            final h = _hue(felt);
+            expect(h > 20 && h < 330, isTrue, reason: '$felt');
+          }
         }
       }
     });
 
-    test('the table\'s words still read on the cloth', () {
-      for (final (theme, c) in [
-        (AppTheme.light(sound: false), CasinoTableColors.light),
-        (AppTheme.dark(sound: false), CasinoTableColors.dark),
-      ]) {
+    // Owner, 25 Sep 2026: "keep different table color for seen, blind,
+    // variation gameplay".
+    test('each game lays its own cloth, in its own colour', () {
+      for (final theme in [lightTheme, darkTheme]) {
+        final c = of(theme);
+        final cloths = [for (final g in AppTheme.clothGames) c.clothFor(g)];
+        expect(cloths.toSet(), hasLength(AppTheme.clothGames.length));
+        for (final cloth in cloths) {
+          expect(cloth, isNot(c.cloth));
+        }
+        for (final game in AppTheme.clothGames) {
+          final accent = AppTheme.paletteFor(
+            theme.colorScheme,
+            category: game,
+            bootAmount: 0,
+          ).accent;
+          final want = HSLColor.fromColor(accent).hue;
+          final got = HSLColor.fromColor(c.clothFor(game).centre).hue;
+          final off = ((got - want + 540) % 360) - 180;
+          // The hue of the game's lobby card and table tag; by night a
+          // yellow leans a few degrees to amber.
+          expect(off.abs(), lessThan(10), reason: '${theme.brightness} $game');
+        }
+      }
+    });
+
+    test('a game with no colour of its own lays the table\'s own cloth', () {
+      for (final theme in [lightTheme, darkTheme]) {
+        final c = of(theme);
+        for (final game in [null, 'three_card_poker', 'texas_holdem', 'x']) {
+          expect(c.clothFor(game), c.cloth, reason: '$game');
+        }
+      }
+      // A theme built without the table's extension still has a table.
+      expect(
+        CasinoTableColors.dark.clothFor('seen'),
+        CasinoTableColors.dark.cloth,
+      );
+    });
+
+    test('the table\'s words still read on every cloth', () {
+      for (final theme in [lightTheme, darkTheme]) {
+        final c = of(theme);
         final dark = theme.brightness == Brightness.dark;
         // The seat's status line and the waiting line, in the inks they
         // are written in (seat_pod.dart, table_screen.dart _Status).
@@ -144,17 +208,19 @@ void main() {
         final waiting = dark
             ? AppTheme.boneInk.withValues(alpha: 0.82)
             : AppTheme.inkOnLight.withValues(alpha: 0.78);
-        for (final felt in [c.feltCentre, c.feltEdge]) {
-          expect(
-            _contrast(status, felt),
-            greaterThanOrEqualTo(4.5),
-            reason: '${theme.brightness} status on $felt',
-          );
-          expect(
-            _contrast(_over(waiting, felt), felt),
-            greaterThanOrEqualTo(4.5),
-            reason: '${theme.brightness} waiting line on $felt',
-          );
+        for (final cloth in everyCloth(c)) {
+          for (final felt in [cloth.centre, cloth.edge]) {
+            expect(
+              _contrast(status, felt),
+              greaterThanOrEqualTo(4.5),
+              reason: '${theme.brightness} status on $felt',
+            );
+            expect(
+              _contrast(_over(waiting, felt), felt),
+              greaterThanOrEqualTo(4.5),
+              reason: '${theme.brightness} waiting line on $felt',
+            );
+          }
         }
         // And on the rail, where a top seat's words can land.
         for (final rail in [c.railTop, c.railBottom]) {
@@ -169,7 +235,11 @@ void main() {
   });
 
   group('its painter', () {
-    Future<ui.Image> paint(WidgetTester tester, bool dark) async {
+    Future<ui.Image> paint(
+      WidgetTester tester,
+      bool dark, {
+      String? category,
+    }) async {
       const size = Size(600, 300);
       final key = GlobalKey();
       await tester.pumpWidget(
@@ -184,6 +254,7 @@ void main() {
                 size: size,
                 child: CasinoTableSurface(
                   geometry: TableGeometry.of(size),
+                  category: category,
                   detailed: false,
                 ),
               ),
@@ -219,51 +290,61 @@ void main() {
       testWidgets('draws its own colours (${dark ? 'dark' : 'light'})', (
         tester,
       ) async {
-        final c = dark ? CasinoTableColors.dark : CasinoTableColors.light;
-        final image = await paint(tester, dark);
+        final theme = dark
+            ? AppTheme.dark(sound: false)
+            : AppTheme.light(sound: false);
+        final c = theme.extension<CasinoTableColors>()!;
         final geometry = TableGeometry.of(const Size(600, 300));
         final cloth = geometry.cloth.outerRect;
+        for (final category in [null, ...AppTheme.clothGames]) {
+          final image = await paint(tester, dark, category: category);
+          final want = c.clothFor(category).centre;
 
-        // The middle of the cloth is the cloth's own light.
-        final middle = await pixel(tester, image, cloth.center);
-        expect(middle.a, closeTo(1, 0.01));
-        for (final (a, b) in [
-          (middle.r, c.feltCentre.r),
-          (middle.g, c.feltCentre.g),
-          (middle.b, c.feltCentre.b),
-        ]) {
-          expect(a, closeTo(b, 0.08));
+          // The middle of the cloth is the game's own cloth, lit.
+          final middle = await pixel(tester, image, cloth.center);
+          expect(middle.a, closeTo(1, 0.01));
+          for (final (a, b) in [
+            (middle.r, want.r),
+            (middle.g, want.g),
+            (middle.b, want.b),
+          ]) {
+            expect(a, closeTo(b, 0.08), reason: '$category');
+          }
+          // The far rail between the rim and the cloth is the rail's colour,
+          // pearl by day and graphite by night.
+          final rail = await pixel(
+            tester,
+            image,
+            Offset(300, geometry.outer.top + geometry.rail * 0.55),
+          );
+          expect(
+            rail.computeLuminance(),
+            dark ? lessThan(0.1) : greaterThan(0.7),
+          );
+          // Outside the table: nothing but the shadow's soft edge, far from
+          // it.
+          final room = await pixel(tester, image, const Offset(2, 2));
+          expect(room.a, lessThan(0.05));
+          image.dispose();
         }
-        // The far rail between the rim and the cloth is the rail's colour,
-        // pearl by day and graphite by night.
-        final rail = await pixel(
-          tester,
-          image,
-          Offset(300, geometry.outer.top + geometry.rail * 0.55),
-        );
-        expect(
-          rail.computeLuminance(),
-          dark ? lessThan(0.1) : greaterThan(0.7),
-        );
-        // Outside the table: nothing but the shadow's soft edge, far from it.
-        final room = await pixel(tester, image, const Offset(2, 2));
-        expect(room.a, lessThan(0.05));
-        image.dispose();
       });
     }
 
-    test('repaints only when the table or the theme changes', () {
+    test('repaints only when the table, its cloth or the theme changes', () {
       final g = TableGeometry.of(const Size(600, 300));
+      const dark = CasinoTableColors.dark;
       final a = CasinoTablePainter(
         geometry: g,
-        colours: CasinoTableColors.dark,
+        colours: dark,
+        cloth: dark.cloth,
         detailed: true,
       );
       expect(
         a.shouldRepaint(
           CasinoTablePainter(
             geometry: TableGeometry.of(const Size(600, 300)),
-            colours: CasinoTableColors.dark,
+            colours: dark,
+            cloth: dark.cloth,
             detailed: true,
           ),
         ),
@@ -274,6 +355,18 @@ void main() {
           CasinoTablePainter(
             geometry: g,
             colours: CasinoTableColors.light,
+            cloth: dark.cloth,
+            detailed: true,
+          ),
+        ),
+        isTrue,
+      );
+      expect(
+        a.shouldRepaint(
+          CasinoTablePainter(
+            geometry: g,
+            colours: dark,
+            cloth: TableCloth.tinted(AppTheme.gold, Brightness.dark),
             detailed: true,
           ),
         ),
@@ -401,6 +494,50 @@ void main() {
               await _unmount(tester, state);
             }
           }
+        }
+      });
+    }
+  });
+
+  group('which cloth it lays', () {
+    for (final (prefix, scene, category) in [
+      ('01', _scene('01'), 'blind'),
+      ('20', _scene('20'), 'seen'),
+      ('22', _scene('22'), 'variation'),
+      (
+        'private',
+        TableScene(
+          'private-seen',
+          (s) => s.handleState(seenOpponentTurnRoom(isPrivate: true)),
+        ),
+        'seen',
+      ),
+    ]) {
+      testWidgets('a $category table ($prefix) lays the $category cloth', (
+        tester,
+      ) async {
+        for (final dark in [true, false]) {
+          final state = await _mount(tester, scene, dark: dark);
+          final surface = find.byType(CasinoTableSurface);
+          expect(tester.widget<CasinoTableSurface>(surface).category, category);
+          final painter =
+              tester
+                      .widget<CustomPaint>(
+                        find.descendant(
+                          of: surface,
+                          matching: find.byType(CustomPaint),
+                        ),
+                      )
+                      .painter
+                  as CasinoTablePainter;
+          final colours =
+              (dark
+                      ? AppTheme.dark(sound: false)
+                      : AppTheme.light(sound: false))
+                  .extension<CasinoTableColors>()!;
+          expect(painter.cloth, colours.clothFor(category));
+          expect(painter.cloth, isNot(colours.cloth));
+          await _unmount(tester, state);
         }
       });
     }

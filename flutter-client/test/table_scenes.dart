@@ -47,6 +47,7 @@ Map<String, dynamic> _seat(
 
 RoomState _room({
   String roomId = 'r1',
+  bool isPrivate = false,
   String category = 'blind',
   int boot = 200,
   String state = 'betting',
@@ -63,6 +64,7 @@ RoomState _room({
 }) => RoomState.fromJson({
   'roomId': roomId,
   'code': 'ABCD2345',
+  'isPrivate': isPrivate,
   'category': category,
   'chipsHidden': category != 'seen',
   'state': state,
@@ -521,7 +523,86 @@ final tableScenes = <TableScene>[
     '19-variation-selecting',
     (s) => s.handleState(variationSelectingRoom()),
   ),
+  // A cloth per game (25 Sep 2026): the seen and variation tables on turn and
+  // off it, as the blind table is in 01 and 02.
+  TableScene(
+    '20-opponent-turn-seen',
+    (s) => s.handleState(seenOpponentTurnRoom()),
+  ),
+  TableScene(
+    '21-your-turn-variation',
+    (s) => s.handleState(variationTurnRoom(yours: true)),
+  ),
+  TableScene(
+    '22-opponent-turn-variation',
+    (s) => s.handleState(variationTurnRoom()),
+  ),
 ];
+
+/// Somebody else's turn at a seen table: every stack public, the viewer's own
+/// cards face up, nothing on the console to press.
+RoomState seenOpponentTurnRoom({bool isPrivate = false}) => _room(
+  isPrivate: isPrivate,
+  category: 'seen',
+  maxPot: 2000000,
+  turnSeat: 2,
+  seats: _seenSeats(),
+  you: _you(blind: false, cards: const ['As', 'Kd', 'Qh'], blindMovesLeft: 0),
+);
+
+/// A hand at a variation table played under AK47: the viewer on turn when
+/// [yours], the player across the table when not.
+RoomState variationTurnRoom({bool yours = false}) => _room(
+  category: 'variation',
+  boot: 50000,
+  stake: 50000,
+  pot: 400000,
+  turnSeat: yours ? 0 : 2,
+  seats: [
+    for (var i = 0; i < 5; i++)
+      _seat(
+        i,
+        chips: i == 0 ? 1250000 : null,
+        blind: i != 2 && i != 4,
+        lastBet: 50000,
+        contributed: 80000,
+      ),
+  ],
+  you: _you(
+    chips: 1250000,
+    options: yours
+        ? {
+            'canSee': true,
+            'canPack': true,
+            'canSideshow': false,
+            'canForceSideshow': false,
+            'raiseSteps': [50000, 100000],
+            'chips': 1250000,
+            'currentStake': 50000,
+          }
+        : null,
+  ),
+  variation: {
+    'selecting': false,
+    'userId': 'u2',
+    'displayName': 'Meera',
+    'seatIndex': 2,
+    'startedAt': _now - 20000,
+    'deadline': _now - 10000,
+    'timeoutMs': 10000,
+    'options': [
+      'MUFLIS',
+      'AK47',
+      'JOKER',
+      'HUKAM',
+      'LOWEST_JOKER',
+      'HIGHEST_JOKER',
+      'FIVE_CARD',
+    ],
+    'selected': 'AK47',
+    'selectedBy': 'PLAYER',
+  },
+);
 
 /// A Hold'em flop with the viewer to call — the poker felt the shared chrome
 /// also serves.

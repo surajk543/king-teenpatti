@@ -76,22 +76,31 @@ class TableGeometry {
   int get hashCode => Object.hash(felt, outer, rail);
 }
 
-/// The table: a pearl or graphite rail with a thin champagne rim round an
-/// emerald cloth, and the one soft shadow it casts on the floor.
+/// The table: a pearl or graphite rail with a thin champagne rim round the
+/// game's own cloth, and the one soft shadow it casts on the floor.
 ///
 /// Entirely static and painted once into its own layer, like the room's
-/// ground under it: it repaints only when the felt changes size or the theme
-/// changes colour. Every soft edge is either a gradient or a blurred rounded
-/// rectangle — the one blur Impeller draws analytically — so the table costs
-/// nothing per frame whatever is animating above it.
+/// ground under it: it repaints only when the felt changes size, the theme
+/// changes colour or the table becomes another game's. Every soft edge is
+/// either a gradient or a blurred rounded rectangle — the one blur Impeller
+/// draws analytically — so the table costs nothing per frame whatever is
+/// animating above it.
 class CasinoTableSurface extends StatelessWidget {
   const CasinoTableSurface({
     super.key,
     required this.geometry,
+    this.category,
     this.detailed = true,
   });
 
   final TableGeometry geometry;
+
+  /// The game the table is laid for, by its wire category (owner, 25 Sep
+  /// 2026: "keep different table color for seen, blind, variation
+  /// gameplay"): the cloth is that game's own ([CasinoTableColors.clothFor]),
+  /// in the colour its lobby card and its tag wear. A private table is its
+  /// game's too. Null, or a game this build has no colour for, is the emerald.
+  final String? category;
 
   /// The decoration a short phone goes without (owner's brief: "Short phone:
   /// ... reduce decorative elements"): the line printed on the cloth and the
@@ -109,6 +118,7 @@ class CasinoTableSurface extends StatelessWidget {
           painter: CasinoTablePainter(
             geometry: geometry,
             colours: colours,
+            cloth: colours.clothFor(category),
             detailed: detailed,
           ),
         ),
@@ -122,18 +132,22 @@ class CasinoTablePainter extends CustomPainter {
   const CasinoTablePainter({
     required this.geometry,
     required this.colours,
+    required this.cloth,
     required this.detailed,
   });
 
   final TableGeometry geometry;
   final CasinoTableColors colours;
+
+  /// The cloth inside the rail: the game's own.
+  final TableCloth cloth;
   final bool detailed;
 
   @override
   void paint(Canvas canvas, Size size) {
     final c = colours;
     final outer = geometry.outer;
-    final cloth = geometry.cloth;
+    final surface = geometry.cloth;
     final box = outer.outerRect;
     final h = box.height;
 
@@ -168,7 +182,7 @@ class CasinoTablePainter extends CustomPainter {
     );
     canvas.drawDRRect(
       outer,
-      cloth,
+      surface,
       Paint()
         ..shader = LinearGradient(
           begin: Alignment.topCenter,
@@ -194,14 +208,14 @@ class CasinoTablePainter extends CustomPainter {
     // The cloth: lit a little above its middle, where the lamp hangs, and
     // falling towards its edge — an ellipse of light, not a circle, so the
     // two ends of a wide table darken as its sides do.
-    final clothBox = cloth.outerRect;
+    final clothBox = surface.outerRect;
     canvas.drawRRect(
-      cloth,
+      surface,
       Paint()
         ..shader = RadialGradient(
           center: const Alignment(0, -0.2),
           radius: 0.62,
-          colors: [c.feltCentre, c.feltEdge],
+          colors: [cloth.centre, cloth.edge],
           stops: const [0.1, 1],
           transform: StretchedGradient(clothBox.width / clothBox.height * 0.78),
         ).createShader(clothBox),
@@ -209,7 +223,7 @@ class CasinoTablePainter extends CustomPainter {
 
     // The rail's lip throws a little shadow onto the top of the cloth.
     canvas.save();
-    canvas.clipRRect(cloth);
+    canvas.clipRRect(surface);
     final lip = Rect.fromLTRB(
       clothBox.left,
       clothBox.top,
@@ -222,14 +236,14 @@ class CasinoTablePainter extends CustomPainter {
         ..shader = LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: [c.lipShadow, c.lipShadow.withValues(alpha: 0)],
+          colors: [cloth.lip, cloth.lip.withValues(alpha: 0)],
         ).createShader(lip),
     );
     canvas.restore();
 
     // The seam where the rail meets the cloth.
     canvas.drawRRect(
-      cloth,
+      surface,
       Paint()
         ..style = PaintingStyle.stroke
         ..strokeWidth = Dim.hairline
@@ -240,11 +254,11 @@ class CasinoTablePainter extends CustomPainter {
     // real table carries, and the first thing a short phone does without.
     if (detailed) {
       canvas.drawRRect(
-        cloth.deflate(h * 0.075),
+        surface.deflate(h * 0.075),
         Paint()
           ..style = PaintingStyle.stroke
           ..strokeWidth = Dim.hairline
-          ..color = c.feltLine,
+          ..color = cloth.line,
       );
     }
   }
@@ -253,6 +267,7 @@ class CasinoTablePainter extends CustomPainter {
   bool shouldRepaint(CasinoTablePainter old) =>
       old.geometry != geometry ||
       old.colours != colours ||
+      old.cloth != cloth ||
       old.detailed != detailed;
 }
 
