@@ -452,12 +452,8 @@ class CardFaceMetrics {
 
   /// A court card's frame: the window its centre pip stands in, below the
   /// indices on either side. Full faces only.
-  Rect get courtFrame => Rect.fromLTRB(
-    width * 0.15,
-    height * 0.45,
-    width * 0.85,
-    height * 0.93,
-  );
+  Rect get courtFrame =>
+      Rect.fromLTRB(width * 0.15, height * 0.45, width * 0.85, height * 0.93);
 
   /// How thick the stock's gold edge is drawn.
   double get rimWidth => (height * 0.010).clamp(0.7, 1.1).toDouble();
@@ -478,7 +474,11 @@ const double _rankMinCondense = 0.8;
   double height,
 ) {
   final m = CardFaceMetrics.of(height);
-  final painter = _rankPainter(rank, m.rankCap / _interCapShare, AppTheme.pipBlack);
+  final painter = _rankPainter(
+    rank,
+    m.rankCap / _interCapShare,
+    AppTheme.pipBlack,
+  );
   final natural = painter.width;
   painter.dispose();
   var condense = natural <= m.indexWidth ? 1.0 : m.indexWidth / natural;
@@ -954,10 +954,9 @@ Path _club() {
     path = Path.combine(
       PathOperation.union,
       path,
-      Path()
-        ..addOval(
-          Rect.fromCircle(center: Offset(lobe.$1, lobe.$2), radius: lobe.$3),
-        ),
+      Path()..addOval(
+        Rect.fromCircle(center: Offset(lobe.$1, lobe.$2), radius: lobe.$3),
+      ),
     );
   }
   return path;

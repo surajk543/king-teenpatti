@@ -230,6 +230,20 @@ Future<void> _teardown(WidgetTester tester, GameState state) async {
 Finder _private(String type) =>
     find.byWidgetPredicate((w) => w.runtimeType.toString() == type);
 
+/// The widgets [finder] matches, left to right across the felt: the order
+/// the viewer's fan holds its cards in. Not the order they are built in — the
+/// fan paints its middle card last, on top (HandFan, 25 Sep 2026).
+List<T> _leftToRight<T extends Widget>(WidgetTester tester, Finder finder) {
+  double centreX(Element element) {
+    final box = element.renderObject! as RenderBox;
+    return box.localToGlobal(box.size.center(Offset.zero)).dx;
+  }
+
+  final elements = finder.evaluate().toList()
+    ..sort((a, b) => centreX(a).compareTo(centreX(b)));
+  return [for (final e in elements) e.widget as T];
+}
+
 Finder _pod(String userId) =>
     find.byWidgetPredicate((w) => w is SeatPod && w.seat?.userId == userId);
 
@@ -460,24 +474,23 @@ void main() {
       await _run(tester, const Duration(seconds: 5));
       expect(tester.takeException(), isNull);
 
-      final cards = tester
-          .widgetList<WildTransform>(find.byType(WildTransform))
-          .toList();
+      final cards = _leftToRight<WildTransform>(
+        tester,
+        find.byType(WildTransform),
+      );
       expect(cards.map((c) => c.code), ['Ks', 'Kd', '7c']);
       expect(cards.map((c) => c.wild), [false, false, true]);
       expect(cards.map((c) => c.standIn), [null, null, 'Kc']);
 
       // The 7 now shows the king it played as, with the WILD ribbon and the
       // real card on its tab; the two kings are untouched.
-      final faces = tester
-          .widgetList<PlayingCard>(
-            find.descendant(
-              of: find.byType(WildTransform),
-              matching: find.byType(PlayingCard),
-            ),
-          )
-          .map((c) => c.code)
-          .toList();
+      final faces = _leftToRight<PlayingCard>(
+        tester,
+        find.descendant(
+          of: find.byType(WildTransform),
+          matching: find.byType(PlayingCard),
+        ),
+      ).map((c) => c.code).toList();
       expect(faces, ['Ks', 'Kd', 'Kc']);
       expect(find.text('WILD'), findsOneWidget);
       // The tab names the card really held — its rank in type, its suit a
@@ -530,9 +543,10 @@ void main() {
       await _pumpTable(tester, state);
       await _run(tester, const Duration(seconds: 4));
       expect(tester.takeException(), isNull);
-      final cards = tester
-          .widgetList<WildTransform>(find.byType(WildTransform))
-          .toList();
+      final cards = _leftToRight<WildTransform>(
+        tester,
+        find.byType(WildTransform),
+      );
       expect(cards.map((c) => c.wild), [false, false, false]);
       expect(cards.map((c) => c.standIn), [null, null, null]);
       expect(find.text('WILD'), findsNothing);
@@ -562,9 +576,10 @@ void main() {
       );
       await _run(tester, const Duration(seconds: 2));
       expect(tester.takeException(), isNull);
-      final cards = tester
-          .widgetList<WildTransform>(find.byType(WildTransform))
-          .toList();
+      final cards = _leftToRight<WildTransform>(
+        tester,
+        find.byType(WildTransform),
+      );
       expect(cards.map((c) => c.code), ['Ks', 'Kd', '7c']);
       expect(cards.map((c) => c.wild), [false, false, true]);
       // Nothing turns: a showdown reveal names the wild card but not what it

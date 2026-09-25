@@ -1042,11 +1042,8 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
             );
           }
 
-          Widget at(Offset place, Widget child, {double? width}) => atPoint(
-            Offset(place.dx * w, place.dy * h),
-            child,
-            width: width,
-          );
+          Widget at(Offset place, Widget child, {double? width}) =>
+              atPoint(Offset(place.dx * w, place.dy * h), child, width: width);
 
           final potCentre = Offset(0.5 * w, _potDy * h);
           Offset seatCentre(int seatIndex) =>
@@ -1257,8 +1254,7 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
                       cardHeight: HandFan.cardHeightFor(handH),
                       revealed: myReveal?.cards,
                       wild: myReveal?.wild ?? myPeek?.wild ?? const [],
-                      playsAs:
-                          myReveal?.playsAs ?? myPeek?.playsAs ?? const [],
+                      playsAs: myReveal?.playsAs ?? myPeek?.playsAs ?? const [],
                       best: myReveal?.best ?? myPeek?.best ?? const [],
                     ),
                   ],
@@ -2481,8 +2477,10 @@ class _OwnHand extends StatelessWidget {
           ].indexed)
             slot: rank,
         };
-        final order = List<int>.generate(count, (i) => i)
-          ..sort((a, b) => slotRank[slotOf[a]]!.compareTo(slotRank[slotOf[b]]!));
+        final order = List<int>.generate(
+          count,
+          (i) => i,
+        )..sort((a, b) => slotRank[slotOf[a]]!.compareTo(slotRank[slotOf[b]]!));
         // The place painted last: the card on top, whose face is whole.
         final topSlot = slotRank.entries
             .firstWhere((e) => e.value == count - 1)
@@ -2814,6 +2812,12 @@ class _DealtState extends State<_Dealt> with SingleTickerProviderStateMixin {
     duration: _landFor,
   );
 
+  /// In over the first part of the flight: it leaves the deck, not a fade.
+  late final Animation<double> _fade = CurvedAnimation(
+    parent: _c,
+    curve: const Interval(0, 0.3),
+  );
+
   @override
   void initState() {
     super.initState();
@@ -2834,37 +2838,37 @@ class _DealtState extends State<_Dealt> with SingleTickerProviderStateMixin {
     // from three cards to five closes its fan, and the cards already held
     // should turn to their new places rather than flick to them. Built at its
     // end value, so a hand that never changes never moves.
-    return TweenAnimationBuilder<double>(
-      tween: Tween<double>(end: widget.restAngle),
-      duration: Motion.slow,
-      curve: Motion.standard,
-      child: widget.child,
-      builder: (context, rest, child) => AnimatedBuilder(
-        animation: _c,
-        child: child,
-        builder: (context, child) {
-          // One tree shape from the first frame to rest, so the card under
-          // it (its flip, its wild turn) is never rebuilt when it lands.
-          final v = _c.value;
-          final travel = Curves.easeOutCubic.transform(
-            (v / _travel).clamp(0.0, 1.0),
-          );
-          final settle = Curves.easeOut.transform(
-            ((v - _travel) / (1 - _travel)).clamp(0.0, 1.0),
-          );
-          // Out of the middle of the table, up and to the left of the fan.
-          const from = Offset(-0.5, -0.9);
-          // A touch past its place, then back onto it.
-          final past = rest + 0.035;
-          final angle = v < _travel
-              ? -0.2 + (past + 0.2) * travel
-              : past + (rest - past) * settle;
-          final scale = v < _travel
-              ? 0.9 + 0.14 * travel
-              : 1.04 - 0.04 * settle;
-          return Opacity(
-            opacity: (v / 0.3).clamp(0.0, 1.0),
-            child: FractionalTranslation(
+    return FadeTransition(
+      opacity: _fade,
+      child: TweenAnimationBuilder<double>(
+        tween: Tween<double>(end: widget.restAngle),
+        duration: Motion.slow,
+        curve: Motion.standard,
+        child: widget.child,
+        builder: (context, rest, child) => AnimatedBuilder(
+          animation: _c,
+          child: child,
+          builder: (context, child) {
+            // One tree shape from the first frame to rest, so the card under
+            // it (its flip, its wild turn) is never rebuilt when it lands.
+            final v = _c.value;
+            final travel = Curves.easeOutCubic.transform(
+              (v / _travel).clamp(0.0, 1.0),
+            );
+            final settle = Curves.easeOut.transform(
+              ((v - _travel) / (1 - _travel)).clamp(0.0, 1.0),
+            );
+            // Out of the middle of the table, up and to the left of the fan.
+            const from = Offset(-0.5, -0.9);
+            // A touch past its place, then back onto it.
+            final past = rest + 0.035;
+            final angle = v < _travel
+                ? -0.2 + (past + 0.2) * travel
+                : past + (rest - past) * settle;
+            final scale = v < _travel
+                ? 0.9 + 0.14 * travel
+                : 1.04 - 0.04 * settle;
+            return FractionalTranslation(
               translation: from * (1 - travel),
               child: Transform.scale(
                 scale: scale,
@@ -2875,9 +2879,9 @@ class _DealtState extends State<_Dealt> with SingleTickerProviderStateMixin {
                   child: child,
                 ),
               ),
-            ),
-          );
-        },
+            );
+          },
+        ),
       ),
     );
   }

@@ -193,7 +193,8 @@ class _WildTransformState extends State<WildTransform>
           // Up off the fan for the turn, back down after it.
           final lift = math.sin(math.pi * _span(v, 0, 0.8));
           // Light: gathers, flares at the turn, rests as a quiet halo.
-          final glow = math.max(charge * (1 - settle), 0.30 * settle) +
+          final glow =
+              math.max(charge * (1 - settle), 0.30 * settle) +
               0.55 * math.sin(math.pi * _span(v, 0.30, 0.70));
 
           return Stack(
@@ -204,7 +205,9 @@ class _WildTransformState extends State<WildTransform>
                 child: IgnorePointer(
                   child: DecoratedBox(
                     decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(h * PlayingCard.cornerShare),
+                      borderRadius: BorderRadius.circular(
+                        h * PlayingCard.cornerShare,
+                      ),
                       boxShadow: [
                         BoxShadow(
                           color: AppTheme.goldBright.withValues(
@@ -242,7 +245,10 @@ class _WildTransformState extends State<WildTransform>
                 Positioned.fill(
                   child: IgnorePointer(
                     child: CustomPaint(
-                      painter: _BurstPainter(progress: burst, seed: widget.index),
+                      painter: _BurstPainter(
+                        progress: burst,
+                        seed: widget.index,
+                      ),
                     ),
                   ),
                 ),
@@ -254,7 +260,9 @@ class _WildTransformState extends State<WildTransform>
                   right: 0,
                   child: Opacity(
                     opacity: settle,
-                    child: Center(child: _Ribbon(text: widget.label, cardHeight: h)),
+                    child: Center(
+                      child: _Ribbon(text: widget.label, cardHeight: h),
+                    ),
                   ),
                 ),
                 Positioned(
@@ -263,7 +271,9 @@ class _WildTransformState extends State<WildTransform>
                   right: 0,
                   child: Opacity(
                     opacity: settle,
-                    child: Center(child: _RealCardTab(code: code, cardHeight: h)),
+                    child: Center(
+                      child: _RealCardTab(code: code, cardHeight: h),
+                    ),
                   ),
                 ),
               ],
@@ -444,7 +454,11 @@ class _BurstPainter extends CustomPainter {
       final from = reach * (0.34 + 0.50 * progress) * far;
       final to = from + reach * 0.16 * fade;
       final direction = Offset(math.cos(angle), math.sin(angle));
-      canvas.drawLine(centre + direction * from, centre + direction * to, spark);
+      canvas.drawLine(
+        centre + direction * from,
+        centre + direction * to,
+        spark,
+      );
     }
   }
 

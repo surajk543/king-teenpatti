@@ -192,28 +192,28 @@ void chatHistory(GameState state) {
 /// kind of key on the console lit at once — holding [cards].
 RoomState seenTurnRoom({List<String> cards = const ['As', 'Kd', 'Qh']}) =>
     _room(
-  category: 'seen',
-  maxPot: 2000000,
-  stake: 400,
-  turnSeat: 0,
-  seats: _seenSeats(),
-  you: _you(
-    blind: false,
-    cards: cards,
-    blindMovesLeft: 0,
-    canMissile: true,
-    options: {
-      'canSee': false,
-      'canPack': true,
-      'canSideshow': true,
-      'canForceSideshow': true,
-      'sideshowWith': 'Vikramaditya',
-      'raiseSteps': [800, 1600],
-      'chips': 245000,
-      'currentStake': 400,
-    },
-  ),
-);
+      category: 'seen',
+      maxPot: 2000000,
+      stake: 400,
+      turnSeat: 0,
+      seats: _seenSeats(),
+      you: _you(
+        blind: false,
+        cards: cards,
+        blindMovesLeft: 0,
+        canMissile: true,
+        options: {
+          'canSee': false,
+          'canPack': true,
+          'canSideshow': true,
+          'canForceSideshow': true,
+          'sideshowWith': 'Vikramaditya',
+          'raiseSteps': [800, 1600],
+          'chips': 245000,
+          'currentStake': 400,
+        },
+      ),
+    );
 
 /// Somebody else's turn at a blind table: nothing on the console to press.
 RoomState opponentTurnRoom({int handNo = 7, String roomId = 'r1'}) => _room(

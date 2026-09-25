@@ -77,9 +77,7 @@ Future<void> _shoot(
         theme: theme,
         home: Builder(
           builder: (context) {
-            final colours = Theme.of(
-              context,
-            ).extension<CasinoTableColors>()!;
+            final colours = Theme.of(context).extension<CasinoTableColors>()!;
             final cloth = colours.clothFor(game);
             return Container(
               decoration: BoxDecoration(
