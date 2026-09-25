@@ -72,7 +72,7 @@ const (
 	CodeAlreadySeated     = "already_seated"     // Table.AddPlayer: same user twice
 	CodeInsufficientChips = "insufficient_chips" // join: chips < boot; bet: cannot afford; show: no affordable cost; boot refused by DB
 	CodeInvalidStake      = "invalid_stake"      // boot not an integer > 0, or not in TableStakes
-	CodeNoOtherTable      = "no_other_table"     // room:switch found nowhere to go
+	CodeNoOtherTable      = "no_other_table"     // room:switch from a table whose pair the lobby no longer opens
 	CodeNotInRoom         = "not_in_room"        // not seated anywhere / postChat by a non-seat
 	CodeNotSeated         = "not_seated"         // Table.Act by a user not at this table
 	// The 5-Card pick (owner, 19 Sep 2026): CodeNotPicking is a choice made

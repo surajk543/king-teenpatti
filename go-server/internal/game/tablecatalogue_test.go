@@ -399,9 +399,23 @@ func TestARestoredTableWhoseRulesChangedIsDrained(t *testing.T) {
 	}
 	eq(t, fresh.Config().TurnTimeout, 40*time.Second, "the new table has the new clock")
 	eq(t, f3.rooms.Draining(fresh.ID()), false, "a new table is not drained")
-	// A switch finds nowhere to go: the other seen 200 table is drained.
-	_, err = f3.rooms.SwitchTable(fp)
-	expectCode(t, err, game.CodeNoOtherTable)
+	// A switch never lands on the drained seen 200 table: with no other table
+	// of the pair to go to, it opens a new one on the current rules (owner,
+	// 25 Sep 2026), and the table F left, emptied, is destroyed. F's table is
+	// that new one from here on.
+	switched, err := f3.rooms.SwitchTable(fp)
+	if err != nil {
+		t.Fatalf("switch past a drained table: %v", err)
+	}
+	if to := switched.To.ID(); to == ids[1] || to == ids[2] || to == fresh.ID() {
+		t.Fatalf("the switch landed on %s", to)
+	}
+	if f3.rooms.GetTable(fresh.ID()) != nil {
+		t.Fatal("the table F left empty was not destroyed")
+	}
+	fresh = game.AsTable(switched.To)
+	eq(t, fresh.Config().TurnTimeout, 40*time.Second, "the switch's new table has the new clock")
+	eq(t, f3.rooms.Draining(fresh.ID()), false, "and is not drained")
 	// F, alone at the undrained table, is never merged onto the drained one:
 	// it holds two players, and a drained table is no undrained player's
 	// target in any case.

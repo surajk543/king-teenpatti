@@ -557,8 +557,13 @@ showRequestedBy, sideshow, lastDeparture, turnDeadline, turnToken, contributions
   settings' entry cap is folded into the matching table's band (`tableMaxChips`) and `assertWithinTableBand` refuses
   with the same `over_entry_cap` code and message, and a row's own `max_chips` wins over it at the card AND the door —
   checking the settings' cap as well would refuse a player the row lets in.
-- `switchTable` (**async**): same boot+category, a **random** other public non-full table (Go, owner 13 Sep 2026 —
-  `pickRandomTableLocked`, crypto/rand; Node took the fullest, which quickJoin still does), **no entry cap**, leaves with reason `'moved'`
+- `switchTable` (**async**): same boot+category, the other public non-full table with the **fewest players** (Go, owner
+  25 Sep 2026: "try to find table who has lowest player" — `pickEmptiestTableLocked`, seats taken plus seats held, ties drawn with
+  crypto/rand; a random pick from 13 Sep, and Node took the fullest, which quickJoin still does). **When every other table of the
+  kind is full, or there is none, a NEW table of that boot and category is opened for the player** (same day: "if all the tables are
+  fully filled then create a new table for that player"), and closed again if the move is then refused, so no empty table is left
+  behind (`TestARefusedSwitchLeavesNoNewTableBehind`). `no_other_table` now answers only a table whose pair the lobby no longer
+  opens (`AssertStakeAllowed`/`AssertTableOffered`; the seat is kept). **No entry cap**, leaves with reason `'moved'`
   (skips consolidation). **Since 24 Sep 2026 (owner, "fix all bugs") a switch is refused `insufficient_chips` BEFORE the
   seat is given up when the seat's stack does not cover the target's boot or a poker room's buy-in**
   (`assertAdmitsMove`): a short seat used to hop tables to restart its unfunded grace for ever, and a poker stack below the

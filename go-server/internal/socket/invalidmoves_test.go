@@ -322,7 +322,8 @@ func TestSeatingRefusals(t *testing.T) {
 	if st.rooms.GetTableForPlayer(d.onTurn.user.ID) != d.table {
 		t.Fatalf("seat lost")
 	}
-	st.mustFail(d.onTurn.c, EvRoomSwitch, map[string]any{}, game.CodeNoOtherTable)
+	// A switch is no seating refusal any more: with no other table at the
+	// stake it opens a new one (owner, 25 Sep 2026; roommanager_test.go).
 
 	loner := st.player("Cara")
 	// A table code is exactly 8 letters or digits: anything else is refused as

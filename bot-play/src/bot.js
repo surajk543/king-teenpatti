@@ -663,12 +663,13 @@ export class Bot {
    * one. Bots coming and going keep seats open across the whole lobby, which
    * is what a busy game actually looks like.
    *
-   * Since 13 Sep 2026 the server sends a switch to a RANDOM other table of the
-   * same boot and category (Go `pickRandomTableLocked`), not the fullest, so a
-   * wandering bot now spreads itself evenly instead of piling onto the busiest
-   * table — which is exactly the churn this is for. `no_other_table` (every
-   * other table full, or none exists) is not an error worth logging: the bot
-   * simply stays where it is.
+   * Since 25 Sep 2026 the server sends a switch to the other table of the same
+   * boot and category with the FEWEST players (Go `pickEmptiestTableLocked`;
+   * a random one from 13 Sep), not the fullest, so a wandering bot spreads
+   * itself onto the quietest tables — which is exactly the churn this is for.
+   * When every other table is full the server opens a new one for the bot
+   * rather than refusing. `no_other_table` now means only a table the lobby no
+   * longer offers; it is not an error worth logging: the bot stays put.
    */
   wander() {
     if (this.stopped || !this.seated || this.leaving) return;
