@@ -549,20 +549,29 @@ final tableScenes = <TableScene>[
       s.config = s.config.copyWith(maxPlayers: places);
       s.handleState(placesRoom(places));
     }),
-  // The cards (premium-card brief, 25 Sep 2026): the faces the owner names,
-  // on the viewer's turn so every key the hand must clear is on the console;
-  // a five-card hand; a five-card showdown at the rim; a wild card turned.
+  // The cards (premium-card brief, 25 Sep 2026, and its refinement the same
+  // day): the four hands the owner names, on the viewer's turn so every key
+  // the hand must clear is on the console; a five-card hand; a five-card
+  // showdown at the rim; a wild card turned.
   TableScene(
     '26-cards-5c-9c-5d',
     (s) => s.handleState(seenTurnRoom(cards: const ['5c', '9c', '5d'])),
   ),
   TableScene(
-    '27-cards-As-Kh-Ts',
-    (s) => s.handleState(seenTurnRoom(cards: const ['As', 'Kh', 'Ts'])),
+    '27-cards-As-Kh-Qd',
+    (s) => s.handleState(seenTurnRoom(cards: const ['As', 'Kh', 'Qd'])),
   ),
   TableScene('28-cards-five-card', (s) => s.handleState(fiveCardRoom())),
   TableScene('29-cards-five-card-showdown', fiveCardShowdown),
   TableScene('30-cards-wild', (s) => s.handleState(wildCardRoom())),
+  TableScene(
+    '31-cards-Qs-Ac-Jh',
+    (s) => s.handleState(seenTurnRoom(cards: const ['Qs', 'Ac', 'Jh'])),
+  ),
+  TableScene(
+    '32-cards-Ts-Jc-Qh',
+    (s) => s.handleState(seenTurnRoom(cards: const ['Ts', 'Jc', 'Qh'])),
+  ),
 ];
 
 /// The 5-Card variation block, FIVE_CARD chosen by the player across the

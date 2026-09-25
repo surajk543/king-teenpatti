@@ -33,10 +33,15 @@ import '../theme/app_theme.dart';
 /// colour emoji font, which ignores the ink. Red is hearts and diamonds, black
 /// spades and clubs, and nothing else.
 ///
+/// **A clean face** (owner, 25 Sep 2026, on the first cut: "premium
+/// traditional playing cards, not UI tiles"): the rank, its suit, and one
+/// large centre pip on the bare stock — a court card too, which had its pip
+/// inside a gold-ruled window; nothing on a face is boxed.
+///
 /// **Small faces drop detail, never the rank.** Below [compactBelow] (a rim
 /// seat's cards) the face is COMPACT: a larger share of its height goes to the
-/// rank and the corner pip, and the court frame, the lacquer's hairline and
-/// the pip's shading are left out.
+/// rank and the corner pip, and the lacquer's hairline and the pip's shading
+/// are left out.
 class PlayingCard extends StatefulWidget {
   const PlayingCard({
     super.key,
@@ -99,13 +104,17 @@ class PlayingCard extends StatefulWidget {
   /// How long a turn takes, from back to face.
   static const Duration flipFor = Motion.enter;
 
-  /// Out of play, not half-erased: the colour drains and the card sits back
-  /// rather than fading toward the felt. One filter, so it costs one layer.
+  /// Out of play, not half-erased: the colour drains and the card sits back —
+  /// a third darker — rather than fading toward the felt. Opaque since the
+  /// premium cards (25 Sep 2026): it took the card to 55% opacity, and in the
+  /// viewer's fan, where cards now overlap by more than a third, every overlap
+  /// showed through as a bright bar across the packed hand. One filter, so it
+  /// costs one layer.
   static const ColorFilter _drained = ColorFilter.matrix(<double>[
-    0.40975, 0.53625, 0.054, 0, 0, //
-    0.15975, 0.78625, 0.054, 0, 0, //
-    0.15975, 0.53625, 0.304, 0, 0, //
-    0, 0, 0, 0.55, 0, //
+    0.2704, 0.3539, 0.0356, 0, 0, //
+    0.1054, 0.5189, 0.0356, 0, 0, //
+    0.1054, 0.3539, 0.2006, 0, 0, //
+    0, 0, 0, 1, 0, //
   ]);
 
   @override
@@ -130,9 +139,6 @@ class PlayingCard extends StatefulWidget {
   /// Red suits and black suits, from a suit letter.
   static Color inkFor(String suit) =>
       suit == 'h' || suit == 'd' ? AppTheme.pipRed : AppTheme.pipBlack;
-
-  /// Whether a rank is a court card, which the face frames.
-  static bool isCourt(String rank) => rank == 'J' || rank == 'Q' || rank == 'K';
 
   /// The two soft shadows a card casts on the table, [lift] times further off
   /// it than at rest (a card turning over, or in the air). None for a dimmed
@@ -433,8 +439,8 @@ class CardFaceMetrics {
   final double gap;
   final double indexPip;
 
-  /// The pip in the middle of a number card or a court card's frame, and the
-  /// larger one an ace carries, each with the height its centre stands at.
+  /// The pip in the middle of every card, and the larger one an ace carries,
+  /// each with the height its centre stands at.
   final double centrePip;
   final double centreY;
   final double acePip;
@@ -471,11 +477,6 @@ class CardFaceMetrics {
       height: indexPip,
     );
   }
-
-  /// A court card's frame: the window its centre pip stands in, below the
-  /// indices on either side. Full faces only.
-  Rect get courtFrame =>
-      Rect.fromLTRB(width * 0.15, height * 0.45, width * 0.85, height * 0.93);
 
   /// How thick the stock's gold edge is drawn.
   double get rimWidth => (height * 0.010).clamp(0.7, 1.1).toDouble();
@@ -574,50 +575,13 @@ class CardFacePainter extends CustomPainter {
       ..save()
       ..clipRRect(card);
 
-    // A court card's window, below the indices, as a printed court card has:
-    // a thin gold rule and a fainter one just inside it. Full faces only.
-    final court = PlayingCard.isCourt(rank) && !m.compact;
-    if (court) {
-      final rule = math.max(0.7, height * 0.008);
-      final frame = RRect.fromRectAndRadius(
-        m.courtFrame,
-        Radius.circular(height * 0.025),
-      );
-      canvas
-        ..drawRRect(
-          frame,
-          Paint()
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = rule
-            ..color = AppTheme.cardRim.withValues(alpha: 0.85),
-        )
-        ..drawRRect(
-          frame.deflate(height * 0.018),
-          Paint()
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = rule * 0.7
-            ..color = AppTheme.cardRim.withValues(alpha: 0.38),
-        );
-    }
-
     // The index, in the corner that shows.
     _paintIndex(canvas, m, indexOnRight, rank, suit, ink);
 
-    // The centre pip: larger on an ace, inside the frame on a court card.
+    // The centre pip, on the bare stock: larger on an ace.
     final ace = rank == 'A';
-    final pipSize = court
-        ? m.courtFrame.height * 0.6
-        : ace
-        ? m.acePip
-        : m.centrePip;
-    final pipCentre = Offset(
-      size.width / 2,
-      court
-          ? m.courtFrame.center.dy
-          : ace
-          ? m.aceY
-          : m.centreY,
-    );
+    final pipSize = ace ? m.acePip : m.centrePip;
+    final pipCentre = Offset(size.width / 2, ace ? m.aceY : m.centreY);
     paintPip(
       canvas,
       suit,

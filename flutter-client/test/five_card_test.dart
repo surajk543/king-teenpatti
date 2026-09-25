@@ -19,6 +19,7 @@ import 'package:teenpatti/screens/table_screen.dart';
 import 'package:teenpatti/settings/feedback_settings.dart';
 import 'package:teenpatti/state/game_state.dart';
 import 'package:teenpatti/theme/app_theme.dart';
+import 'package:teenpatti/theme/table_theme.dart';
 import 'package:teenpatti/widgets/hand_fan.dart';
 import 'package:teenpatti/widgets/playing_card.dart';
 import 'package:teenpatti/widgets/premium_surface.dart';
@@ -218,6 +219,25 @@ List<T> _leftToRight<T extends Widget>(WidgetTester tester, Finder finder) {
 double _centreX(Element element) {
   final box = element.renderObject! as RenderBox;
   return box.localToGlobal(box.size.center(Offset.zero)).dx;
+}
+
+/// The fan's box is where [box] was: as wide, as tall, in the same place
+/// across the felt — and up and down, within the hand's lift. Since the
+/// refinement of the premium cards (25 Sep 2026) the hand stands as far off
+/// the floor as the pot above leaves room for, and the hand's name arriving
+/// over the cards takes some of that room, so the hand settles back towards
+/// the floor by as much, never more than the lift itself.
+void _expectSameBox(WidgetTester tester, Rect box, {String? reason}) {
+  final now = tester.getRect(_ownHand);
+  final cardH = tester.getSize(_inOwnHand(PlayingCard).first).height;
+  expect(now.width, closeTo(box.width, 0.01), reason: reason);
+  expect(now.height, closeTo(box.height, 0.01), reason: reason);
+  expect(now.left, closeTo(box.left, 0.01), reason: reason);
+  expect(
+    (now.top - box.top).abs(),
+    lessThanOrEqualTo(HandFan.liftFor(cardH) - TableSpace.handLift + 0.01),
+    reason: reason,
+  );
 }
 
 /// The codes of the viewer's cards, left to right.
@@ -533,10 +553,7 @@ void main() {
             .map((c) => c.code),
         unorderedEquals(_five),
       );
-      expect(
-        tester.getRect(_ownHand),
-        rectMoreOrLessEquals(box, epsilon: 0.01),
-      );
+      _expectSameBox(tester, box);
 
       await _teardown(tester, state);
     });
@@ -605,10 +622,7 @@ void main() {
       await tester.pump();
       await _settle(tester);
       expect(tester.takeException(), isNull);
-      expect(
-        tester.getRect(_ownHand),
-        rectMoreOrLessEquals(box, epsilon: 0.01),
-      );
+      _expectSameBox(tester, box);
       // The best three are whichever the server named, wherever they were
       // held: once the fan has been re-dealt they are the three on top.
       expect(_ownCodes(tester), ['7d', '7c', 'As', 'Ks', 'Qs']);
@@ -704,9 +718,9 @@ void main() {
       );
       expect(dealt.map((s) => s.bottom > 0), [false, false, true, true, true]);
       expect(dealt.take(2).map((s) => s.bottom), everyElement(0));
-      expect(
-        tester.getRect(_ownHand),
-        rectMoreOrLessEquals(box, epsilon: 0.01),
+      _expectSameBox(
+        tester,
+        box,
         reason: 'the hand never takes more of the felt',
       );
 

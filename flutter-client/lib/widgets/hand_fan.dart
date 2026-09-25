@@ -3,53 +3,67 @@ library;
 
 import 'playing_card.dart';
 
-/// Where each card of the viewer's own hand stands, how far it leans and which
-/// is on top — shared by the table's `_OwnHand`, which draws the fan, and
-/// `SeatRing`, which keeps the room for it clear of the keys.
+/// Where each card of the viewer's own hand stands, how far it leans, which
+/// is on top and how high the hand stands — shared by the table's `_OwnHand`,
+/// which draws the fan, and `SeatRing`, which keeps the room for it clear of
+/// the keys.
 ///
 /// **One hand, not three cards** (premium-card brief, 25 Sep 2026: "controlled
-/// overlap so the three cards read as one hand"). Three cards stand [step] of
-/// a card apart — each side card shows its outer 62%, its index, its corner
-/// pip and most of its centre pip — the left one turned [tilt] out one way,
-/// the right one as far the other, the middle one upright, raised [proud] and
-/// ON TOP, the one card whose face is whole. Because the middle card covers
-/// its neighbours' inner edges, a card to its right shows only its right
-/// side, and prints its index in its top-RIGHT corner
-/// ([PlayingCard.indexOnRight], [indexOnRight]) so that no rank is ever under
-/// another card.
+/// overlap so the three cards read as one hand"; tightened the same day, the
+/// owner's refinement: "left −4°, centre 0°, right +4° … increase the overlap
+/// slightly"). Three cards stand [step] of a card apart — each side card shows
+/// its outer 58%, its index, its corner pip and part of its centre pip — the
+/// left one turned [tilt] out one way, the right one as far the other, the
+/// middle one upright, raised [proud], a touch larger ([topScale]) and ON TOP,
+/// the one card whose face is whole. Because the middle card covers its
+/// neighbours' inner edges, a card to its right shows only its right side, and
+/// prints its index in its top-RIGHT corner ([PlayingCard.indexOnRight],
+/// [indexOnRight]) so that no rank is ever under another card.
 ///
 /// **Five cards stand in the same box** (5-Card Teen Patti, CLAUDE.md §8.4):
-/// their run, first card to last, is [wideRun] — 0.375 of a card a step, the
-/// least that still clears each card's index once the fan's tilt has opened
+/// their run, first card to last, is [wideRun] — 0.38 of a card a step, the
+/// least that still clears each card's index once the fan's lean has opened
 /// its top — and the box is always as wide as that run, so a hand topped up
 /// from three to five never takes more of the felt. Three cards are fanned
-/// tighter, centred in it.
+/// tighter, centred in it. Only a plain hand of three enlarges its middle card:
+/// five stand too close for a larger card on top to leave its neighbours'
+/// indices clear.
 ///
 /// **A little more prominent than any other card** (the brief: "For the YOU
 /// player, make the cards slightly more prominent"): [cardScale] of the
 /// table's hand height, which the tighter overlap pays for: the box is a
-/// little narrower than the old eighteen-percent overlap's (2.05 card heights
-/// of the table's against 2.07) and, at [heightShare], barely taller (1.13
-/// against 1.12), so nothing it stands beside moves — on a 640x360 phone the
-/// column over it already reaches the pot.
+/// little narrower than the old eighteen-percent overlap's (2.06 of the
+/// table's hand heights against 2.07) and, at [heightShare], barely taller
+/// (1.13 against 1.12).
+///
+/// **It stands a little off the floor** ([liftFor]): the owner's refinement,
+/// "slightly UP, for more breathing room between the cards and the bottom
+/// action controls" — as far as the pot above it allows, never less than it
+/// stood before (the table screen's hand placement).
 abstract final class HandFan {
   /// The viewer's cards, as a multiple of the table's hand height
   /// (`Dim.handH`).
   static const double cardScale = 1.05;
 
   /// Between the cards of a hand of three, in card widths.
-  static const double step = 0.62;
+  static const double step = 0.58;
 
   /// First card to last of a hand of four or five, in card widths.
-  static const double wideRun = 1.5;
+  static const double wideRun = 1.52;
 
-  /// How far the outer cards lean out, in radians: 4.5°, within the brief's
-  /// 3–5°. The cards between lean in proportion to where they stand.
-  static const double tilt = 0.0785;
+  /// How far the outer cards lean out, in radians: 4° (the owner's
+  /// refinement; 4.5° before). The cards between lean in proportion to where
+  /// they stand.
+  static const double tilt = 0.0698;
+
+  /// The middle card of a plain hand of three, against its neighbours: a
+  /// touch larger, never enough to look unbalanced (the owner: "about
+  /// 102–105%").
+  static const double topScale = 1.04;
 
   /// The room kept each side of the run for the outer cards' lean and their
   /// shadows, as a share of the card's height.
-  static const double leanShare = 0.085;
+  static const double leanShare = 0.08;
 
   /// How far the middle card of a plain hand stands proud of the others, as
   /// a share of its height.
@@ -59,6 +73,11 @@ abstract final class HandFan {
   /// card is raised (the best three of five, 0.08); the shadows under the
   /// cards, and their lean, are painted past it.
   static const double heightShare = 1.08;
+
+  /// How high the hand would stand off the table's floor for cards
+  /// [cardHeight] tall: 0.15 of a card, 13dp on a 640x360 phone and 15dp
+  /// on a 915x412 one.
+  static double liftFor(double cardHeight) => cardHeight * 0.15;
 
   /// The viewer's card height for a table whose hand height is [handHeight].
   static double cardHeightFor(double handHeight) => handHeight * cardScale;
@@ -92,6 +111,12 @@ abstract final class HandFan {
   /// either end, upright in the middle.
   static double angleAt(double along, double run) =>
       run <= 0 ? 0 : (along / run - 0.5) * 2 * tilt;
+
+  /// How large the card in [slot] is drawn, the card on top being in
+  /// [topSlot], in a hand of [count]: [topScale] for the middle of a plain
+  /// hand of three, else its own size.
+  static double scaleFor(int slot, int topSlot, int count) =>
+      count == 3 && slot == topSlot ? topScale : 1;
 
   /// Whether the card in [slot] prints its index on its right: it stands to
   /// the right of the card on top, [topSlot], whose face covers its left.

@@ -5,12 +5,16 @@
 // The face: red and black read on the ivory stock at every height a card is
 // drawn at, the rank leads (a quarter of a small card, a fifth of a large
 // one), a 10 fits its corner condensed rather than shrunk, and the index and
-// the centre pip never meet. The painted pixels are the right colours.
+// the centre pip never meet. The painted pixels are the right colours, and
+// nothing on any face is boxed (the owner's refinement: "premium traditional
+// playing cards, not UI tiles").
 //
-// The fan: 4.5° out at either end, the middle card upright and ON TOP, and no
-// card's index under another card — three cards, five being chosen from, and
-// five with the best three set out — and at every phone size, at text x1.0 and
-// x1.25, no card of the viewer's under a key, the pot or their own pod.
+// The fan: 4° out at either end, the middle card upright, 4% larger and ON
+// TOP, and no card's index under another card — the four hands the owner
+// names, a ten on the right, five being chosen from, and five with the best
+// three set out — and at every phone size, at text x1.0 and x1.25, no card of
+// the viewer's under a key, the pot, their bet or their own pod; the hand
+// lifted off the floor as far as the pot allows, never less than before.
 //
 // The motion: a hand turns over left to right, a card waits its beat before
 // turning, and a dealt hand has landed inside 0.7 s. The back: the crown still,
@@ -23,8 +27,10 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:teenpatti/models/dtos.dart';
 import 'package:teenpatti/state/game_state.dart';
 import 'package:teenpatti/theme/app_theme.dart';
+import 'package:teenpatti/theme/table_theme.dart';
 import 'package:teenpatti/widgets/hand_fan.dart';
 import 'package:teenpatti/widgets/playing_card.dart';
 import 'package:teenpatti/widgets/seat_pod.dart';
@@ -135,6 +141,13 @@ Future<void> _unmount(WidgetTester tester, GameState state) async {
 TableScene _scene(String prefix) =>
     tableScenes.firstWhere((s) => s.name.startsWith(prefix));
 
+/// A ten on the RIGHT of the hand, where its index is printed in the card's
+/// top-right corner — the widest index there is, on the side covered least.
+final _tenOnTheRight = TableScene(
+  'ten on the right',
+  (s) => s.handleState(seenTurnRoom(cards: const ['Jc', 'Qh', 'Ts'])),
+);
+
 /// Five cards being chosen from: the fan evenly spread, all five faces up.
 final _choosing = TableScene(
   'choosing',
@@ -146,6 +159,7 @@ const _sizes = [
   Size(640, 360),
   Size(732, 412),
   Size(844, 390),
+  Size(891, 411),
   Size(915, 412),
 ];
 
@@ -238,9 +252,6 @@ void main() {
             reason: why,
           );
           expect(column.bottom, lessThan(m.aceY - m.acePip / 2), reason: why);
-          if (!m.compact) {
-            expect(column.bottom, lessThan(m.courtFrame.top), reason: why);
-          }
         }
         expect(m.centreY + m.centrePip / 2, lessThan(h), reason: why);
         expect(m.aceY + m.acePip / 2, lessThan(h), reason: why);
@@ -322,11 +333,7 @@ void main() {
         final origin = Offset(10 + i * (m.width + 20), 10);
         final suit = PlayingCard.suitOf(code);
         final rank = PlayingCard.rankOf(code);
-        final y = PlayingCard.isCourt(rank)
-            ? m.courtFrame.center.dy
-            : rank == 'A'
-            ? m.aceY
-            : m.centreY;
+        final y = rank == 'A' ? m.aceY : m.centreY;
         // A point well inside every suit's silhouette: a club's centre is
         // the notch between its lobes.
         final corner = m.indexPipBox();
@@ -357,15 +364,37 @@ void main() {
         expect(stock.r * 255, greaterThan(235), reason: '$code: ivory');
         expect(stock.b * 255, greaterThan(200), reason: '$code: ivory');
         expect(stock.r, greaterThan(stock.b), reason: '$code: warm ivory');
+        // A clean face: round the centre pip, where a court card's window
+        // was ruled, is bare stock on every card.
+        for (final at in [
+          Offset(m.width * 0.13, h * 0.72),
+          Offset(m.width * 0.87, h * 0.72),
+          Offset(m.width * 0.13, h * 0.47),
+          Offset(m.width * 0.87, h * 0.47),
+          Offset(m.width * 0.5, h * 0.93),
+        ]) {
+          final bare = pixel(origin + at);
+          expect(
+            bare.r * 255,
+            greaterThan(230),
+            reason: '$code at $at is bare stock, not a frame: $bare',
+          );
+          expect(bare.b * 255, greaterThan(195), reason: '$code at $at');
+        }
       }
       image!.dispose();
     });
   });
 
   group('the fan', () {
-    test('leans 4.5° out at either end and paints its middle card last', () {
+    test('leans 4° out at either end and paints its middle card last, a '
+        'touch larger', () {
       final degrees = HandFan.tilt * 180 / math.pi;
-      expect(degrees, inInclusiveRange(3, 5));
+      expect(degrees, closeTo(4, 0.01));
+      expect(HandFan.topScale, inInclusiveRange(1.02, 1.05));
+      expect(HandFan.scaleFor(1, 1, 3), HandFan.topScale);
+      expect(HandFan.scaleFor(0, 1, 3), 1.0);
+      expect(HandFan.scaleFor(2, 2, 5), 1.0, reason: 'five stand too close');
       expect(HandFan.paintOrder(3), [0, 2, 1]);
       expect(HandFan.paintOrder(5), [0, 4, 1, 3, 2]);
       expect(HandFan.angleAt(0, 1), closeTo(-HandFan.tilt, 1e-12));
@@ -383,8 +412,11 @@ void main() {
     });
 
     for (final (name, scene, count) in [
-      ('three cards', _scene('26-cards'), 3),
-      ('three cards with a ten', _scene('27-cards'), 3),
+      ('5c 9c 5d', _scene('26-cards'), 3),
+      ('As Kh Qd', _scene('27-cards'), 3),
+      ('Qs Ac Jh', _scene('31-cards'), 3),
+      ('Ts Jc Qh', _scene('32-cards'), 3),
+      ('a ten on the right', _tenOnTheRight, 3),
       ('five cards being chosen from', _choosing, 5),
       ('five cards with the best three set out', _scene('28-cards'), 5),
     ]) {
@@ -448,16 +480,73 @@ void main() {
               }
             }
 
-            // A plain hand of three: the middle card upright, the outer two
-            // 4.5° out.
+            // A plain hand of three: the middle card upright and a touch
+            // larger, the outer two 4° out.
             if (count == 3) {
               double angle(List<Offset> q) =>
                   math.atan2(q[1].dy - q[0].dy, q[1].dx - q[0].dx);
+              double width(List<Offset> q) => (q[1] - q[0]).distance;
               final byX = [...quads]
                 ..sort((a, b) => a[0].dx.compareTo(b[0].dx));
               expect(angle(byX[0]), closeTo(-HandFan.tilt, 1e-3));
               expect(angle(byX[1]), closeTo(0, 1e-3));
               expect(angle(byX[2]), closeTo(HandFan.tilt, 1e-3));
+              expect(
+                width(byX[1]) / width(byX[0]),
+                closeTo(HandFan.topScale, 1e-3),
+              );
+              expect(width(byX[2]), closeTo(width(byX[0]), 1e-3));
+            }
+
+            // Off the floor: the hand stands as high as HandFan.liftFor where
+            // the pot above leaves the room, never lower than it always did,
+            // and never up into the pot.
+            final column = tester.getRect(
+              find.byKey(const ValueKey('own-hand-column')),
+            );
+            final pod = tester.getRect(
+              find.byWidgetPredicate((w) => w is SeatPod && w.isMe),
+            );
+            final pot = tester.getRect(_private('_Pot'));
+            final cardH = (cards.first.widget as PlayingCard).height;
+            final lift = pod.bottom - column.bottom;
+            expect(
+              lift,
+              greaterThanOrEqualTo(TableSpace.handLift - 0.5),
+              reason: '$label: never lower than it stood',
+            );
+            expect(
+              lift,
+              lessThanOrEqualTo(HandFan.liftFor(cardH) + 0.5),
+              reason: '$label: lifted a little, not a lot',
+            );
+            if (lift > TableSpace.handLift + 0.5) {
+              expect(
+                column.top,
+                greaterThanOrEqualTo(pot.bottom),
+                reason: '$label: lifted into the pot',
+              );
+            }
+            if (count == 3 && scale == 1.0) {
+              expect(
+                lift,
+                closeTo(HandFan.liftFor(cardH), 0.5),
+                reason: '$label: a plain hand has the room to rise',
+              );
+            }
+            // The bet over the hand stands clear of every card.
+            final bet = find.descendant(
+              of: find.byKey(const ValueKey('own-hand-column')),
+              matching: find.byType(SeatBet),
+            );
+            for (final q in quads) {
+              for (var i = 0; i < bet.evaluate().length; i++) {
+                expect(
+                  _overlap(q, _rectQuad(tester.getRect(bet.at(i)))),
+                  isFalse,
+                  reason: '$label: a card is under the bet badge',
+                );
+              }
             }
 
             // Nothing the viewer presses or reads is under their cards.
@@ -541,6 +630,64 @@ void main() {
   });
 
   group('the motion', () {
+    testWidgets('the hand settles back, never jumps, when its name arrives '
+        'over it and takes the room its lift had', (tester) async {
+      final state = await _mount(
+        tester,
+        _scene('26-cards'),
+        size: const Size(640, 360),
+        textScale: 1.25,
+      );
+      final column = find.byKey(const ValueKey('own-hand-column'));
+      final hand = _private('_OwnHand');
+      final pod = find.byWidgetPredicate((w) => w is SeatPod && w.isMe);
+      double lift() =>
+          tester.getRect(pod).bottom - tester.getRect(column).bottom;
+      final before = lift();
+      final cardTop = tester.getRect(hand).top;
+      expect(before, greaterThan(TableSpace.handLift + 1), reason: 'lifted');
+
+      state.handleShowdown((
+        reveals: [
+          Reveal.fromJson({
+            'userId': 'u0',
+            'displayName': 'Priya',
+            'cards': ['5c', '9c', '5d'],
+            'handName': 'Pair',
+            'won': false,
+          }),
+        ],
+        result: 'show',
+        winnerId: 'u1',
+        winnerName: 'Ravi',
+        pot: 6800,
+        nextHandAt: DateTime.now().millisecondsSinceEpoch + 60000,
+        reason: 'show',
+      ));
+      await tester.pump();
+      expect(
+        find.descendant(of: column, matching: find.text('Pair')),
+        findsOne,
+      );
+      // The frame the name arrives in, the cards have not moved.
+      expect(tester.getRect(hand).top, closeTo(cardTop, 0.01));
+      final lifts = <double>[];
+      for (var i = 0; i < 24; i++) {
+        await tester.pump(const Duration(milliseconds: 16));
+        lifts.add(lift());
+      }
+      // Down, a little each frame, then still.
+      for (var i = 1; i < lifts.length; i++) {
+        expect(lifts[i], lessThanOrEqualTo(lifts[i - 1] + 1e-6));
+        expect(lifts[i - 1] - lifts[i], lessThan(3), reason: 'no jump');
+      }
+      expect(lifts.last, lessThan(before));
+      // Back to the step it always stood — a 640x360 phone at the text
+      // ceiling has no room for the name AND the lift — and never lower.
+      expect(lifts.last, closeTo(TableSpace.handLift, 0.5));
+      await _unmount(tester, state);
+    });
+
     testWidgets('a card waits its beat, then turns over', (tester) async {
       Widget card(String? code) => MaterialApp(
         home: Center(
