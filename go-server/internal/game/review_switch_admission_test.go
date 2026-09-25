@@ -55,6 +55,28 @@ func TestASwitchIsRefusedToAStackBelowTheTargetsBootAndKeepsTheSeat(t *testing.T
 	}
 }
 
+// A short stack with nowhere else to go (owner, 25 Sep 2026: a switch then
+// opens a new table): the new table is closed again the moment the stack is
+// refused, so no empty table is left for the sweeper, and the player keeps
+// their seat.
+func TestARefusedSwitchLeavesNoNewTableBehind(t *testing.T) {
+	f := newRoomsFixture(t, withUnfundedGrace)
+	home := f.createTable(game.CreateTableOptions{BootAmount: 200, Category: "seen"})
+	f.mustJoin(home, f.player("Other", 10_000))
+	short := f.player("Short", 150)
+	f.mustJoin(home, short)
+	before := len(f.rooms.LiveTables())
+
+	_, err := f.rooms.SwitchTable(short)
+	expectCode(t, err, game.CodeInsufficientChips)
+	if after := len(f.rooms.LiveTables()); after != before {
+		t.Fatalf("%d tables after a refused switch, want %d", after, before)
+	}
+	if at := f.rooms.GetTableForPlayer(short.ID); at == nil || at.ID() != home.ID() {
+		t.Fatalf("the refused switch moved or unseated the player: %v", at)
+	}
+}
+
 // losePokerBlind seats a (exactly the buy-in) and b at room, deals, and has
 // a — the button, so the small blind, first to act heads-up — fold, leaving
 // a below the buy-in but above the boot. Returns a's stack.

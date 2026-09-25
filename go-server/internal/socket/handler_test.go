@@ -1126,15 +1126,16 @@ func TestSwitchTable(t *testing.T) {
 	if _, err := others[0].c.Wait(EvChatMessageOut, func(p json.RawMessage) bool { return str(p, "text") == "A joined the table" }, eventTimeout); err != nil {
 		t.Fatal(err)
 	}
-	// Nowhere else to go now: refused and the socket stays on its table.
-	st.mustFail(a.c, EvRoomSwitch, map[string]any{}, game.CodeNoOtherTable)
-	if st.rooms.GetTableForPlayer(a.user.ID) != full {
-		t.Fatalf("seat lost after a refused switch")
+	// No other table at this stake now (A's first one went when it emptied):
+	// a new table is opened for A (owner, 25 Sep 2026), the ack names it and
+	// the seat follows it.
+	ack = st.mustOK(a.c, EvRoomSwitch, map[string]any{})
+	opened := st.rooms.GetTableForPlayer(a.user.ID)
+	if opened == nil || opened == full || str(ack.Raw, "roomId") != opened.ID() || str(ack.Raw, "code") != opened.Code() {
+		t.Fatalf("switch with nowhere to go: ack %s, seated at %v", ack.Raw, opened)
 	}
-	mark = a.c.Mark()
-	st.mustOK(others[0].c, EvChatMessage, map[string]any{"text": "still here?"})
-	if _, err := a.c.WaitFrom(mark, EvChatMessageOut, func(p json.RawMessage) bool { return str(p, "text") == "still here?" }, eventTimeout); err != nil {
-		t.Fatalf("socket no longer tracked on its table after a refused switch: %v", err)
+	if opened.BootAmount() != full.BootAmount() || opened.Category() != full.Category() || opened.IsPrivate() {
+		t.Fatalf("the new table is %s %d private=%v", opened.Category(), opened.BootAmount(), opened.IsPrivate())
 	}
 	// A private table cannot be swapped.
 	priv := st.player("Priv")

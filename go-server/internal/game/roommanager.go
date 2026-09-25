@@ -1144,17 +1144,23 @@ func (rm *RoomManager) pickTableLocked(bootAmount int64, category Category, excl
 	return best
 }
 
-// pickRandomTableLocked is switchTable's candidate scan: a table chosen
-// uniformly at random from every OTHER public non-full table with the same
-// boot AND category (owner, 13 Sep 2026). Node — and quickJoin still — sent a
-// switcher to the fullest table, which funnelled every switch at a stake onto
-// the same few tables; a random pick spreads switchers across all the tables
-// of that kind. The draw is crypto/rand (cryptoIntn), like the deck: which
-// table a player lands on should not be predictable. A draining table is never
-// a destination (a player may still switch away from one). nil when none. mu
-// held; only lock-free getters are read.
-func (rm *RoomManager) pickRandomTableLocked(bootAmount int64, category Category, excludeID string) Room {
-	var candidates []Room
+// pickEmptiestTableLocked is switchTable's candidate scan (owner, 25 Sep
+// 2026: "try to find table who has lowest player"): of every OTHER public
+// non-full table with the same boot AND category, the one with the FEWEST
+// players — seats taken plus seats held by joins in flight
+// (occupancyLocked), so two switches landing together are routed by the
+// seats that will be taken. Tables tied on that count are drawn among
+// uniformly at random with crypto/rand (cryptoIntn), as the deck is: it keeps
+// the owner's 13 Sep 2026 rule that which table a switcher lands on is not
+// predictable, and spreads switchers across equally quiet tables instead of
+// always the oldest. quickJoin still takes the FULLEST (pickTableLocked): a
+// player arriving should find a game, a player switching wants a different,
+// quieter one. A draining table is never a destination (a player may still
+// switch away from one). nil when none. mu held; only lock-free getters are
+// read.
+func (rm *RoomManager) pickEmptiestTableLocked(bootAmount int64, category Category, excludeID string) Room {
+	var quietest []Room
+	fewest := 0
 	for id, t := range rm.tables {
 		if id == excludeID || t.IsPrivate() || rm.draining[id] || rm.fullLocked(t) {
 			continue
@@ -1162,12 +1168,17 @@ func (rm *RoomManager) pickRandomTableLocked(bootAmount int64, category Category
 		if t.BootAmount() != bootAmount || t.Category() != category {
 			continue
 		}
-		candidates = append(candidates, t)
+		switch occupancy := rm.occupancyLocked(t); {
+		case len(quietest) == 0 || occupancy < fewest:
+			quietest, fewest = []Room{t}, occupancy
+		case occupancy == fewest:
+			quietest = append(quietest, t)
+		}
 	}
-	if len(candidates) == 0 {
+	if len(quietest) == 0 {
 		return nil
 	}
-	return candidates[cryptoIntn(len(candidates))]
+	return quietest[cryptoIntn(len(quietest))]
 }
 
 // QuickJoin (quickJoin) seats a player, creating a table if every one at the
@@ -1308,11 +1319,19 @@ func (rm *RoomManager) JoinByCode(user Player, code string) (Room, error) {
 }
 
 // SwitchTable (switchTable) moves a seated player sideways: not_in_room if
-// unseated; private_table if the current table is private; target = a RANDOM
-// other public non-full table with the same boot and category
-// (pickRandomTableLocked; owner, 13 Sep 2026 — Node took the fullest), else
-// no_other_table ("No other <category> table at this stake has a free seat
-// right now"). The entry cap is deliberately NOT applied (requirement 30
+// unseated; private_table if the current table is private; target = the other
+// public non-full table with the same boot and category that has the FEWEST
+// players, ties drawn at random (pickEmptiestTableLocked; owner, 25 Sep 2026
+// — a random pick since 13 Sep, Node the fullest). When every other table of
+// the kind is full, or there is none, a NEW table of that boot and category is
+// opened for the player, as a quick-join would open one (owner, 25 Sep 2026:
+// "if all the tables are fully filled then create a new table for that
+// player"); it is closed again if the move is then refused, so no empty table
+// is left for the sweeper. Only a pair the lobby no longer opens
+// (AssertStakeAllowed / AssertTableOffered — a table left over from a menu
+// that has since changed) still gets no_other_table ("No other <category>
+// table at this stake has a free seat right now"), and the seat is kept. The
+// entry cap is deliberately NOT applied (requirement 30
 // guards the lobby door only: a player already seated at a table of this
 // stake and category was admitted under it, and the server — not the client
 // — decides what a switch is), and nor is the pair's stack band (an entry
@@ -1346,13 +1365,40 @@ func (rm *RoomManager) SwitchTable(user Player) (SwitchResult, error) {
 		return SwitchResult{From: current}, NewGameError(CodePrivateTable, msgPrivateTableSwitch)
 	}
 	bootAmount, category := current.BootAmount(), current.Category()
-	target := rm.pickRandomTableLocked(bootAmount, category, current.ID())
+	started := time.Now()
+	target := rm.pickEmptiestTableLocked(bootAmount, category, current.ID())
+	created := false
 	if target == nil {
-		rm.mu.Unlock()
-		return SwitchResult{From: current}, Errorf(CodeNoOtherTable, msgNoOtherTableFormat, string(category))
+		// Every other table of the kind is full, or there is none: open one for
+		// this player — but only for a pair the lobby still opens. A table left
+		// over from a menu that has since changed has no new table to give.
+		if rm.AssertStakeAllowed(bootAmount) != nil || rm.AssertTableOffered(bootAmount, category) != nil {
+			rm.mu.Unlock()
+			return SwitchResult{From: current}, Errorf(CodeNoOtherTable, msgNoOtherTableFormat, string(category))
+		}
+		target = rm.newTableLocked(CreateTableOptions{BootAmount: bootAmount, Category: string(category)})
+		created = true
 	}
 	rm.holdLocked(target)
 	rm.mu.Unlock()
+	if created {
+		rm.announceCreated(target, started)
+	}
+	// abandon gives the held seat back and closes a table opened for this
+	// switch, rather than leave it empty for the sweeper.
+	abandon := func() {
+		rm.releaseHold(target.ID())
+		if created {
+			_ = rm.destroyTable(target.ID(), true)
+		}
+	}
+	// A switch never changes the kind of table. newTableLocked folds a
+	// category it cannot open (a poker game whose factory refused) to seen;
+	// a switcher is not moved onto that.
+	if created && target.Category() != category {
+		abandon()
+		return SwitchResult{From: current}, Errorf(CodeNoOtherTable, msgNoOtherTableFormat, string(category))
+	}
 
 	// The seat's socket follows the player, and comes back with them if the
 	// move has to be undone.
@@ -1369,7 +1415,7 @@ func (rm *RoomManager) SwitchTable(user Player) (SwitchResult, error) {
 	// seated nowhere. Refused here, the player stays where they are.
 	if seat != nil {
 		if err := rm.assertAdmitsMove(target, seat.Chips); err != nil {
-			rm.releaseHold(target.ID())
+			abandon()
 			return SwitchResult{From: current}, err
 		}
 	}
@@ -1388,7 +1434,7 @@ func (rm *RoomManager) SwitchTable(user Player) (SwitchResult, error) {
 	var vacated *SeatInfo
 	_, vacated, err = rm.vacateSeat(user.ID, LeaveReasonMoved)
 	if err != nil {
-		rm.releaseHold(target.ID())
+		abandon()
 		return SwitchResult{From: current}, err
 	}
 	// The seat is the authority the moment it is given up: whatever it held is
@@ -1400,11 +1446,14 @@ func (rm *RoomManager) SwitchTable(user Player) (SwitchResult, error) {
 	}
 	if current.IsEmpty() {
 		if err := rm.destroyTable(current.ID(), true); err != nil {
-			rm.releaseHold(target.ID())
+			abandon()
 			return SwitchResult{From: current}, err
 		}
 	}
 	if err := rm.seatHeld(target, moving, socketID); err != nil {
+		if created {
+			_ = rm.destroyTable(target.ID(), true)
+		}
 		if rerr := rm.seat(current, moving, socketID); rerr != nil {
 			rm.log.Warn("table switch failed and the seat could not be restored",
 				"userId", user.ID, "roomId", current.ID(), "error", err.Error(), "restoreError", rerr.Error())
