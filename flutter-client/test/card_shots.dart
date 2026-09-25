@@ -30,7 +30,7 @@ const _dir = String.fromEnvironment('SHOTS_DIR');
 /// tall phone.
 const _heights = [38.0, 45.0, 52.0, 66.0, 88.0, 104.0];
 
-/// The faces the brief names, red and black, a ten and every court.
+/// The faces the brief names, red and black, a ten and every court card.
 const _codes = ['5c', '9c', '5d', 'As', 'Kh', 'Qd', 'Jc', 'Ts'];
 
 Future<void> _loadFonts() async {

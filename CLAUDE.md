@@ -1985,7 +1985,8 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   0.078 of the pod over an 8.5 floor (the bet is 0.105), the metadata tier's ink (`inPotLabelAlpha` 0.68 by day, 0.56 by
   night; the figure `inPotFigureAlpha` 0.78/0.70) on a lighter capsule (`inPotPlate` 0.6), still ≥4.5:1 on every cloth.
   **Pot** — `_PotPulse` sets the plinth on the cloth with a soft shadow and gives off a steadier gold (0.08 + 0.04 breath at
-  rest, the flare as before). **The viewer's hand** stands `TableSpace.handLift` (6dp) off the floor with one soft shadow
+  rest, the flare as before). **The viewer's hand** stands `TableSpace.handLift` (6dp; since the premium cards at least 6dp, up
+  to `HandFan.liftFor` where the pot leaves room — "The playing cards", next) off the floor with one soft shadow
   on the cloth under the fan (none under a packed hand); card backs and faces untouched then (the cards themselves: "The playing
   cards", next). **Left controls** — the rail's
   menu and chat `RailKey`s are machined plaques (plaque, resting champagne hairline, the console's lift), not glass, so
@@ -2011,25 +2012,40 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   suit glyphs and Android would draw them from the colour emoji font), red hearts and diamonds, black spades and clubs
   (`pipRed`/`pipBlack` unchanged, ≥5.5:1 and ≥15:1 on the stock). The replaced monoline drawn ranks (`CardRankGlyph`) are gone.
   **`CardFaceMetrics.of(height)`** is where everything goes: FULL from `compactBelow` 56dp — rank cap 0.21h in a 0.235h
-  column 0.055h in, a 0.115h pip under it, a 0.34h centre pip at 0.665h (an ace's 0.44h, higher), and a court card
-  (J/Q/K) its centre pip inside a WINDOW (`courtFrame`: a thin gold rule and a fainter one inside it, the frame a printed
-  court card has — no illustration), the pip shaded a touch lighter at its top; COMPACT below it (a rim seat's cards, 33dp on
-  a 592x360 phone to 45dp): rank 0.27h (8.9dp at the smallest) in a 0.30h column that ends inside the half of the card a rim
-  seat's five-card fan leaves showing, and no court frame, hairline or shading — small faces drop detail, never rank.
+  column 0.055h in, a 0.115h pip under it, a 0.34h centre pip at 0.665h (an ace's 0.44h, higher), the pip shaded a touch
+  lighter at its top — and **a clean face**: every card, a court card too, is its rank, its suit and one large centre pip on
+  the bare stock, nothing boxed (the owner's refinement the same day: "premium traditional playing cards, not UI tiles"; the
+  first cut ruled a court card's pip inside a gold window, `courtFrame`, removed with `PlayingCard.isCourt`); COMPACT below
+  it (a rim seat's cards, 33dp on a 592x360 phone to 45dp): rank 0.27h (8.9dp at the smallest) in a 0.30h column that ends
+  inside the half of the card a rim seat's five-card fan leaves showing, and no hairline or shading — small faces drop
+  detail, never rank.
   **The viewer's hand is one hand** (`widgets/hand_fan.dart` `HandFan`, pure geometry, shared with `SeatRing.handWidthFor`
-  so the ring keeps exactly the room the fan takes): three cards 0.62 of a card apart (18% overlap before, which read as
-  three cards), the outer two leaning `tilt` 4.5° out about their foot and the middle one upright, raised `proud` 0.035 and
-  **painted last, on top** (`HandFan.paintOrder`: outside in — `_OwnHand` builds its cards in that order, so a test that
-  reads the fan in tree order reads it in PAINT order; the tests read it left to right). The middle card covers its
+  so the ring keeps exactly the room the fan takes): three cards `step` 0.58 of a card apart (18% overlap before, which
+  read as three cards; 0.62 in the first cut), the outer two leaning `tilt` 4° out about their foot (the owner's refinement:
+  "left −4°, centre 0°, right +4°"; 4.5° in the first cut) and the middle one upright, raised `proud` 0.035, `topScale` 1.04
+  of its neighbours' size (`AnimatedScale` from its foot, `HandFan.scaleFor` — a plain hand of three only: five stand too
+  close for a larger card on top to leave its neighbours' indices clear) and **painted last, on top**
+  (`HandFan.paintOrder`: outside in — `_OwnHand` builds its cards in that order, so a test that reads the fan in tree order
+  reads it in PAINT order; the tests read it left to right). No glow on any card: the stock, its edge and the shadow do the
+  work. The middle card covers its
   neighbours' inner edges, so a card to the right of the one on top prints its index in its TOP-RIGHT corner instead
   (`PlayingCard.indexOnRight`, `HandFan.indexOnRight`; one index a card, never two — a second peeked out in fragments from
   under its neighbour when tried): every card shows its rank and suit whole. The cards are `cardScale` 1.05 of `Dim.handH`
-  — a little more prominent — which the tighter overlap pays for: the box (`HandFan.widthFor`) is 2.05 table hand heights
-  wide against the old 2.07 and 1.13 tall against 1.12, so nothing beside it moved. **Five cards stand in the same box**:
-  the box is always the five-card run (`wideRun` 1.5 card widths, 0.375 a step — the least that clears each index once the
-  lean opens its top) and a three-card hand is fanned tighter, centred in it; the 5-Card choice (`_BestThreeStage`) is
-  acted out as before, the two set aside tucked 0.24 apart underneath and the best three 0.51 apart on top, the middle of
-  those three painted last. **Motion**: a card waits `flipDelay` before it turns, and the viewer's hand and a rim seat's
+  — a little more prominent — which the tighter overlap pays for: the box (`HandFan.widthFor`, `leanShare` 0.08) is 2.06
+  table hand heights wide against the old 2.07 and 1.13 tall against 1.12. **Five cards stand in the same box**: the box is
+  always the five-card run (`wideRun` 1.52 card widths, 0.38 a step — the least that clears each index once the 4° lean
+  opens its top) and a three-card hand is fanned tighter, centred in it; the 5-Card choice (`_BestThreeStage`) is acted out
+  as before, the two set aside tucked 0.24 apart underneath and the best three 0.52 apart on top, the middle of those three
+  painted last. **The hand stands a little higher** (the refinement: "slightly UP, for more breathing room between the cards
+  and the bottom action controls"): `_LiftedHand` lays the viewer's column (their hand's name at a showdown, their bet and
+  the fan, keyed `own-hand-column`) out knowing its height (`_HandPlacement`, a `SingleChildLayoutDelegate`) and stands it
+  `HandFan.liftFor` — 0.15 of a card, 13dp on a 640x360 phone, 15dp on a 915x412 one — off the floor wherever its top
+  then stays under the pot's plate (the pot's type line, padding and hairline, text-scaled, plus `Space.sm`), as far as it
+  can where it cannot, and never less than `TableSpace.handLift`, the 6dp it stood before. Its left is the pod's right plus
+  `Space.md`, as it was, so the ring's clearance of the key clusters (592 and 640 wide) is untouched. When the column's
+  height changes — the hand's name arriving at a showdown takes the room the lift had on a 640x360 phone at ×1.25 — the lift
+  GLIDES (`Motion.slow`, started after the frame: layout may not start an animation) instead of jumping; the first placement
+  is at once. **Motion**: a card waits `flipDelay` before it turns, and the viewer's hand and a rim seat's
   reveal turn left to right `PlayingCard.flipStagger` 50 ms apart (five cards have turned in 0.62 s, inside
   `_BestThreeStage.beforeAside`'s 650 ms; `WildTransform` waits the same beat before its own turn); the turn itself
   (`flipFor` 420 ms) now lifts the card — 5% larger, 5% of its height up, its shadow further below it — and the band of
@@ -2040,15 +2056,20 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   first frame to rest, so the card under it never rebuilds. `DealFlights` keeps its one pre-rendered back and one painter.
   **The back** keeps its artwork (the crown medallion on the lattice, `assets/card_back.svg`, unchanged) under the stock's
   gold edge and a faint top light (`CardStockPainter(face: false)`); `tint` still recolours the printing only
-  (`BlendMode.color`), so a SEEN back is green under a gold edge. Found by the new tests and fixed: the 5-Card picker's hint
-  line stood 2–4dp taller than the row was sized around at text ×1.25 and overflowed the panel (`CardPickPrompt`).
+  (`BlendMode.color`), so a SEEN back is green under a gold edge. A DIMMED card (a packed hand, a beaten rim seat) is
+  drained and a third darker but OPAQUE (`PlayingCard._drained`): at 55% opacity, as it was, every overlap of the tighter
+  fan showed through as a bright bar across a packed hand. Found by the new tests and fixed: the 5-Card picker's hint line
+  stood 2–4dp taller than the row was sized around at text ×1.25 and overflowed the panel (`CardPickPrompt`).
   `test/premium_cards_test.dart`: the stock's contrast, the rank's share at every height a card is drawn at, every rank in
-  its column and a 10 condensed not shrunk (Inter loaded), the painted pips' colours sampled from a render, the fan's lean
-  and paint order, **no index under another card and no card under a key, the pot or the viewer's pod at 592x360, 640x360,
-  732x412, 844x390 and 915x412, ×1.0 and ×1.25** (three cards, five being chosen from, five set out — separating-axis tests
-  on the rotated quads), a rim card's rank ≥ 8.5dp on the narrowest phone, a card's beat, the hand turning left to right,
-  a dealt hand landed inside 0.7 s, and the back's crown, tint and stock. Pictures: `test/table_shots.dart` scenes 26–30
-  (5♣ 9♣ 5♦ and A♠ K♥ 10♠ on the viewer's turn, a 5-Card hand, a 5-Card showdown at the rim, a wild card turned; the
+  its column and a 10 condensed not shrunk (Inter loaded), the painted pips' colours sampled from a render and bare stock
+  where a frame would be, the fan's lean, scale and paint order, **no index under another card and no card under a key,
+  the pot, the bet badge or the viewer's pod at 592x360, 640x360, 732x412, 844x390, 891x411 and 915x412, ×1.0 and ×1.25**
+  (the owner's four hands Q♠ A♣ J♥, 5♣ 9♣ 5♦, A♠ K♥ Q♦, 10♠ J♣ Q♥, a ten on the right, five being chosen from, five set
+  out — separating-axis tests on the rotated quads), the hand's lift (never below 6dp, never above `liftFor`, never into
+  the pot, the whole `liftFor` for a plain hand at ×1.0) and its glide when the name arrives, a rim card's rank ≥ 8.5dp on
+  the narrowest phone, a card's beat, the hand turning left to right, a dealt hand landed inside 0.7 s, and the back's
+  crown, tint and stock. Pictures: `test/table_shots.dart` scenes 26–32 (the four hands on the viewer's turn — 26
+  5♣ 9♣ 5♦, 27 A♠ K♥ Q♦, 31 Q♠ A♣ J♥, 32 10♠ J♣ Q♥ — a 5-Card hand, a 5-Card showdown at the rim, a wild card turned; the
   harness's `SHOTS_ONLY` takes `a,b` for either and `a+b` for both), and `test/card_shots.dart` — the faces at six heights on
   each game's cloth in both themes, and frame by frame the turn ("See cards") and the deal — by hand, like table_shots:
   `flutter test test/card_shots.dart --dart-define=SHOTS_DIR=<abs dir> --dart-define=ICON_FONT=<…>/MaterialIcons-Regular.otf`.
@@ -2110,7 +2131,7 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   stay until the next deal, and a blind winner's fan fell to three backs beside four seats showing five. Face up it
   draws whatever `you.cards` (or the reveal) carries. **A five-card fan stands in the SAME box as the three-card one**
   (on a 640dp phone the hand sits between the viewer's pod and the action keys with nothing to spare): since the premium
-  cards (25 Sep 2026, "The playing cards" above) the box is the five-card run, 0.375 of a card a step, and three cards are
+  cards (25 Sep 2026, "The playing cards" above) the box is the five-card run, 0.38 of a card a step, and three cards are
   fanned tighter inside it (until then the outer cards kept a three-card hand's places, 0.82 apart, and five shared the
   run 0.41 apart); `five_card_test.dart` pins both. The two
   top-up cards arrive through the existing `_Dealt` entrance, not pop. Once `you.hand.best` names three of FIVE those
@@ -2119,8 +2140,8 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   out, once per hand** (owner, 18 Sep 2026: "the two cards are low and then rearrange the cards that bring the selected
   cards at top"; `_BestThreeStage`, stages `held → aside → arranged`): the faces turn over in the order held (650 ms), the
   two that do not count dip 0.06h and are set back (520 ms), then the fan is RE-DEALT — those two take the left places,
-  underneath and tucked 0.24 of a card apart, and the best three the right ones, on top and raised, 0.51 of a card apart
-  instead of the five-card 0.375 (0.58 against 0.41 until the premium cards), so each one's middle pip reads as well as its
+  underneath and tucked 0.24 of a card apart, and the best three the right ones, on top and raised, 0.52 of a card apart
+  instead of the five-card 0.38 (0.58 against 0.41 until the premium cards), so each one's middle pip reads as well as its
   corner (owner, 19 Sep 2026: "the front three cards' symbols are not visible properly"); the first and last card keep
   their places, so the box is unchanged, and the middle of the three is painted last, on top. Each group
   keeps the order held. Places, lean and paint

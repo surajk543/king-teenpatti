@@ -844,9 +844,10 @@ void main() {
         final cardW = cardH * PlayingCard.aspect;
         // The fan of the premium-card brief (25 Sep 2026; until then an 18%
         // overlap with the right-hand card on top, which read as three cards
-        // rather than one hand): HandFan's — the cards 0.62 of a card apart,
-        // centred in the box a five-card hand needs, the middle card raised
-        // and painted last, on top. Nothing else on the table moves for it.
+        // rather than one hand; tightened by the owner's refinement the same
+        // day): HandFan's — the cards 0.58 of a card apart, centred in the box
+        // a five-card hand needs, the middle card raised, a touch larger and
+        // painted last, on top.
         final start = HandFan.startFor(3, cardH);
         final slots = _slots(tester);
         final lefts = [

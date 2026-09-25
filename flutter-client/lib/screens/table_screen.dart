@@ -2428,15 +2428,16 @@ class _HandPlacement extends SingleChildLayoutDelegate {
 /// block or the server predates the figure.
 ///
 /// **One hand, not three cards** (premium-card brief, 25 Sep 2026): the fan
-/// is [HandFan]'s — the middle card upright, raised and on top, the outer two
-/// turned 4.5° out and tucked under it, 0.62 of a card apart, the card to
-/// its right printing its index in its top-right corner so that no rank is
-/// under another card. [PlayingCard] turns them over one after another, left to right.
+/// is [HandFan]'s — the middle card upright, raised, a touch larger and on
+/// top, the outer two turned 4° out and tucked under it, 0.58 of a card apart,
+/// the card to its right printing its index in its top-right corner so that
+/// no rank is under another card. [PlayingCard] turns them over one after
+/// another, left to right.
 ///
 /// **Five cards stand in the box three do.** On a 640dp phone the hand sits
 /// between the viewer's pod and the action keys with nothing to spare, so the
 /// box is always as wide as a five-card hand's run ([HandFan.widthFor]) and a
-/// three-card hand is fanned tighter, centred in it; five cards stand 0.375 of
+/// three-card hand is fanned tighter, centred in it; five cards stand 0.38 of
 /// a card apart, the least that still clears each index once the fan's lean
 /// has opened its top.
 ///
@@ -2496,7 +2497,7 @@ class _OwnHand extends StatelessWidget {
   /// How far apart the cards that do NOT count stand once the fan is re-dealt,
   /// in card widths. Tight — they are out of the hand and only their rank has
   /// to read — so that the run they give up goes to the three that count: those
-  /// stand 0.51 of a card apart instead of 0.375, which shows each one's middle
+  /// stand 0.52 of a card apart instead of 0.38, which shows each one's middle
   /// pip as well as its corner (owner, 19 Sep 2026: "the front three cards'
   /// symbols are not visible properly"). The first and the last card stay
   /// where a five-card hand's are, so the fan's box is what it was.
