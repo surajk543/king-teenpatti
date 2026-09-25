@@ -10,8 +10,8 @@
 // playing cards, not UI tiles").
 //
 // The fan: 4° out at either end, the middle card upright, 4% larger and ON
-// TOP, and no card's index under another card — the four hands the owner
-// names, a ten on the right, five being chosen from, and five with the best
+// TOP, and no card's index under another card — the six hands the owner's
+// briefs name, a ten on the right, five being chosen from, and five with the best
 // three set out — and at every phone size, at text x1.0 and x1.25, no card of
 // the viewer's under a key, the pot, their bet or their own pod; the hand
 // lifted off the floor as far as the pot allows, never less than before.
@@ -409,6 +409,12 @@ void main() {
       // A hand of three is fanned tighter than five, inside the same box.
       expect(HandFan.runFor(3, 1), lessThan(HandFan.runFor(5, 1)));
       expect(HandFan.startFor(3, 100), greaterThan(HandFan.startFor(5, 100)));
+      // A little more overlap than the 0.58 the cards stood at (final table
+      // polish, 26 Sep 2026: "slightly increase overlap between adjacent
+      // cards"), each side card still showing over half of itself — the
+      // layouts below prove every index clear.
+      expect(HandFan.step, lessThan(0.58));
+      expect(HandFan.step, greaterThan(0.5));
     });
 
     for (final (name, scene, count) in [
@@ -416,6 +422,9 @@ void main() {
       ('As Kh Qd', _scene('27-cards'), 3),
       ('Qs Ac Jh', _scene('31-cards'), 3),
       ('Ts Jc Qh', _scene('32-cards'), 3),
+      // The final table polish's two other hands (26 Sep 2026).
+      ('6s 8d Qh', _scene('33-cards'), 3),
+      ('Kc 2c 7s', _scene('34-cards'), 3),
       ('a ten on the right', _tenOnTheRight, 3),
       ('five cards being chosen from', _choosing, 5),
       ('five cards with the best three set out', _scene('28-cards'), 5),

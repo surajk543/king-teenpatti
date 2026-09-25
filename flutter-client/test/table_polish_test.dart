@@ -431,9 +431,8 @@ void main() {
       expect(_pulseOf(tester, chaal).alive, isTrue);
       expect(_pulseOf(tester, chaal).breathe, isTrue);
 
-      // SECONDARY: Sideshow and Force Sideshow — the plaque, a still glow
-      // while on offer.
-      for (final label in [t.sideshow, t.forceSideshow]) {
+      // SECONDARY: Sideshow — the plaque, a still glow while on offer.
+      for (final label in [t.sideshow]) {
         final key = _key(label);
         final widget = tester.widget<MachinedKey>(key);
         expect(widget.primary, isFalse, reason: label);
@@ -444,18 +443,27 @@ void main() {
         expect(_fadeOf(tester, key), 1, reason: label);
       }
 
-      // SPECIAL: Missile — its own coral, a still glow of it while on offer,
-      // never gold and never breathing (25 Sep 2026).
-      final missile = _key(t.missile);
-      expect(tester.widget<MachinedKey>(missile).role, KeyRole.special);
-      expect(_gilded(tester, missile), isFalse);
-      expect(_pulseOf(tester, missile).alive, isTrue);
-      expect(_pulseOf(tester, missile).breathe, isFalse);
-      expect(
-        _pulseOf(tester, missile).colour,
-        missileInkOn(Theme.of(tester.element(missile)).brightness),
-      );
-      expect(_fadeOf(tester, missile), 1);
+      // SPECIAL: Missile in its coral (25 Sep 2026) and Force Sideshow in the
+      // hammer's copper (final table polish, 26 Sep 2026: "SPECIAL/
+      // CONDITIONAL: Force Sideshow"; it was secondary until then) — each a
+      // move bought with something collected, a still glow of its own colour
+      // while on offer, never gold and never breathing.
+      for (final (label, ink) in [
+        (t.missile, missileInkOn),
+        (t.forceSideshow, hammerInkOn),
+      ]) {
+        final key = _key(label);
+        expect(tester.widget<MachinedKey>(key).role, KeyRole.special);
+        expect(_gilded(tester, key), isFalse, reason: label);
+        expect(_pulseOf(tester, key).alive, isTrue, reason: label);
+        expect(_pulseOf(tester, key).breathe, isFalse, reason: label);
+        expect(
+          _pulseOf(tester, key).colour,
+          ink(Theme.of(tester.element(key)).brightness),
+          reason: label,
+        );
+        expect(_fadeOf(tester, key), 1, reason: label);
+      }
 
       // DESTRUCTIVE: Pack, in the error ink, and never beckoning.
       final pack = _key(t.pack);
