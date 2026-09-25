@@ -218,8 +218,7 @@ RoomState opponentTurnRoom({int handNo = 7, String roomId = 'r1'}) => _room(
   you: _you(),
 );
 
-/// The next hand dealt at the same table: what starts the deal's flight and
-/// the host's opening (lib/widgets/dealer_host.dart).
+/// The next hand dealt at the same table: what starts the deal's flight.
 Future<void> dealNextHand(WidgetTester tester, GameState state) async {
   state.handleState(opponentTurnRoom(handNo: 8));
   await tester.pump();
@@ -227,7 +226,7 @@ Future<void> dealNextHand(WidgetTester tester, GameState state) async {
 }
 
 /// The two top seats talking: their speech bubbles hang from their columns
-/// and grow towards the middle of the table, under the host.
+/// and grow towards the middle of the table.
 void topSeatsTalking(GameState state) {
   for (final (id, name, text) in [
     ('u2', 'Meera', 'That was a close one, next hand is mine'),
@@ -506,8 +505,8 @@ final tableScenes = <TableScene>[
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 900));
   }),
-  // The casino table and its host (24 Sep 2026): a deal in the air, the top
-  // seats talking over the host's shoulders, and the waiting line in use
+  // The casino table (24 Sep 2026): a deal in the air, the top seats
+  // talking towards the middle of the table, and the waiting line in use
   // mid-hand.
   TableScene(
     '17-dealing',

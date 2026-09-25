@@ -147,8 +147,6 @@ king-teenpatti/
     │   ├── theme/table_theme.dart  the table's type scale and tokens: TableType/SeatType, TableSpace, TableScrim, TableInk, TableAmbient (§8.4); widgets/edge_fade.dart EdgeFade
     │   ├── widgets/casino_table.dart  the casino table (24 Sep 2026, §8.4): TableGeometry (one stadium at fixed shares of the felt), CasinoTableSurface (static,
     │   │                         one layer), TableAmbientEffects (the breathing lamp on the cloth, the near rail warming on the viewer's turn)
-    │   ├── widgets/dealer_host.dart  the table's host (§8.4): DealerState + dealerStateFor (read-only), the DealerArt contract (one SVG, layers by
-    │   │                         top-level group id) + parseDealerArt, dealerPose, dealerSlot, DealerHost (layers rendered once to images, one ticker)
     │   ├── widgets/              premium_surface, game_card (the lobby's one card shell, and CardColumn/CardGap/CardRule/CardSpace — its words, §8.4), seat_pod, playing_card, poker_chip, liquid_fill,
     │   │                         fireworks, avatar, buy_chips, chip_store, picture_shelf, rules_sheet,
     │   │                         variation_prompt (the variation table's on-felt picker, "is selecting" line, announcement, wild-card edge — §8.4),
@@ -160,10 +158,9 @@ king-teenpatti/
     │   └── l10n/strings.dart     hand-written 5-language table (en/hi/bn/gu/pa)
     ├── assets/card_back.svg, assets/app_icon.svg, assets/fonts/ (Inter 400/500/600/700 + OFL licence), assets/sfx/,
     │                         assets/animations/Fireworks.json (Lottie 5.5.7, 512x512, 2.43s — the winner's burst),
-    │                         assets/animations/Lucky Draw Spinner.json (Lottie 5.10, 300x300 — the owner's prize wheel, §8.4),
-    │                         assets/dealer/host.svg (the table's host, a layered SVG drawn by hand — its contract is DealerArt's, §8.4)
+    │                         assets/animations/Lucky Draw Spinner.json (Lottie 5.10, 300x300 — the owner's prize wheel, §8.4)
     ├── test/  number_format, connection_failure, consent, theme_preference, … poker_table (§8.4), table_config_{dtos,cache,menu}, table_engines (§8.1),
-    │          casino_table, dealer_host (§8.4); by hand, not `_test`: table_shots, dealer_shots (pictures)
+    │          casino_table (§8.4); by hand, not `_test`: table_shots (pictures)
     ├── android/                  applicationId com.sungamestudio.kingteenpatti, sensorLandscape, cleartext in DEBUG builds only (src/debug manifest),
     │                             no Android backup (allowBackup=false + res/xml/data_extraction_rules.xml), USE_BIOMETRIC/USE_FINGERPRINT removed
     └── ios/                      bundle id com.sungamestudio.kingteenpatti, landscape-only, status bar hidden,
@@ -1817,7 +1814,7 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   with it — a black screen on the phone that fired (14 Sep 2026).
   `_Felt`: seats at fractional `_places` (5 only), viewer at view seat 0, `Dim.podW(feltW, feltH) =
   min(feltH*0.270, feltW*0.150).clamp(60,140)`, pods clamped inside. Overlays: `_CategoryTag`,
-  `_Pot`/`_PotPulse` at `_potDy` 0.46, `_Status` at 0.28, `_SideshowLink/Prompt`, `_Showdown`.
+  `_Pot`/`_PotPulse` at `_potDy` 0.46, `_Status` at 0.325 (0.28 until the casino table's far rail, below), `_SideshowLink/Prompt`, `_Showdown`.
   **`_Showdown` is now only `_WinnerBurst(focus: winner)` + `PotFlight`** (`widgets/pot_flight.dart`, rebuilt 14 Sep 2026 when the owner found the winner's coins not smooth: each of the 9 chips makes the same 0.9 s trip 60 ms behind the one before, so none overtakes — the old `_PotToWinner` gave each what was left of one 1.7 s clock — fades and grows in at the pot and out on the seat, drags no ghost copy, and the run is ONE `CustomPainter` repainting off its controller through `PokerChipBrush` instead of 18 widgets with an Opacity and a rotated raster each; `test/pot_flight_test.dart`) — since 12 Sep 2026 the
   burst is **`assets/animations/Fireworks.json` through `Lottie.asset`**, played ONCE per win (keyed
   on `handNo`, so the one-second reward tick cannot restart it) and centred on the winner's seat;
@@ -1875,69 +1872,33 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   `flutter test`; `flutter test test/table_shots.dart --dart-define=SHOTS_DIR=<abs dir>
   --dart-define=ICON_FONT=<flutter>/bin/cache/artifacts/material_fonts/MaterialIcons-Regular.otf` — pictures at 640x360,
   732x412, 844x390, 891x411 and 915x412, both themes, ×1.0 and ×1.25, in Hindi, and behind a camera cutout.
-- **The casino table and its host** (owner's brief, 24 Sep 2026: "transform the current gameplay screen from a mostly
-  flat background into a more recognizable premium casino table experience ... an elegant female dealer/host ... a visual
-  host rather than a playable character"; presentation only — no game logic, networking, betting, card logic or state
-  management changed). **The table** (`widgets/casino_table.dart`): `TableGeometry.of(feltSize)` is ONE stadium at fixed
-  shares of the felt — x 0.012..0.988, y 0.24..0.945, semicircle ends, a rail of 0.034 of the felt's height held to
+- **The casino table** (owner's brief, 24 Sep 2026: "transform the current gameplay screen from a mostly flat background
+  into a more recognizable premium casino table experience"; presentation only — no game logic, networking, betting,
+  card logic or state management changed). `widgets/casino_table.dart`: `TableGeometry.of(feltSize)` is ONE stadium at
+  fixed shares of the felt — x 0.012..0.988, y 0.24..0.945, semicircle ends, a rail of 0.034 of the felt's height held to
   9..18dp — laid out to MEET the seats where `seatPlaces` already had them: the far rail runs under the two top pods, the
   ends under the side pods, the near rail under the viewer's pod and hand, and the pot (0.46) sits on the cloth. Nothing on
-  the felt moved for it. The far rail is at 0.24 because that is the one line the table's words leave free: the category
-  tag above it (0.075), the one-line waiting line just under it on the cloth (0.28 ± half a line at ×1.25).
-  `CasinoTableSurface` paints it once into its own layer (`isComplex`, `willChange: false`; every soft edge a gradient or
-  a blurred `RRect`, the one blur Impeller draws analytically): by day a pearl rail lit from above round a pale emerald
-  cloth with a thin champagne rim; by night a graphite rail round a deep emerald cloth that falls to near black, a subtler
-  gold rim and a controlled cyan glow — `CasinoTableColors` (`theme/theme_colors.dart`), a `ThemeExtension` on both
-  themes, so one painter serves both and the theme's cross-fade carries the table. A short phone (`Breaks.isShort`) drops
-  the line printed on the cloth and the glow. The table's words keep their inks: charcoal on the pale cloth, white on the
-  dark one, ≥4.5:1 on cloth and rail alike (`test/casino_table_test.dart`, which also samples the painted pixels in both
-  themes and holds the felt's hue to green-teal, never red). `TableAmbientEffects` replaced `_AmbientLamp`: the same
-  breathing lamp, clipped to the cloth now, and a warm light on the near rail in front of the viewer while it is their
-  turn. Paint order in `_Felt`: the host, the table, the ambient light, the deal and bet flights, the paid table picture
-  (`_TableCentrepiece` — still over the cloth), then the tag, the pot, the status line and the seats; the room's
-  `DriftingChips` drift under the table and show round it. **Poker rooms have no table**: their board (0.29) and 3-Card
-  Poker's dealer hand stand where the far rail and the host go, so `poker_table_screen.dart` was left as it was.
-  **The host** (`widgets/dealer_host.dart`; art `assets/dealer/host.svg`): an original flat/semi-flat illustration drawn by
-  hand in `flutter_svg`'s subset (no image generator, no third-party art) of an Indian-inspired casino host, waist-up —
-  sleek centre-parted hair in a low side bun with a jasmine gajra, a small bindi, gold jhumkas, a high-necked teal blouse
-  with gold buttis and a pendant, a champagne pallu with a maroon-and-gold zari border pinned at her left shoulder, her
-  hands resting on the rail. She stands in `dealerSlot`'s box: centred, ON the far rail (her waist is behind it), under
-  the tag, inside what the top seats' widest speech bubbles leave free (1.7 pods from their columns' outer edges), no
-  taller than 16% of the screen, and not drawn at all below 36dp (a 568x320 phone). On the phones the table is checked
-  at she is 40–50dp tall — 11–13% of the screen: the brief's 15–20% is more than the tag and the waiting line leave on
-  any landscape phone — and about 114dp on a 1280x800 tablet. **She never covers the game**: `test/dealer_host_test.dart`
-  lays nine states out at 640x360, 732x412, 844x390, 891x411 and 915x412, text ×1.0 and ×1.25, and holds her box clear
-  of every seat and card fan, the viewer's hand, the pot, the tag, the waiting line, speech bubbles, the sideshow prompt
-  and every key. She **steps out** (fades; her box stays) while a panel lies on the felt — the variation picker, the
-  5-Card pick and its verdict, a sideshow put to the viewer — and while a two-line notice stands in the waiting line's
-  slot (who is choosing the variation or their cards, which variation was chosen), which reach up over the far rail.
-  `_TableDealer` maps her `DealerState` from GameState read-only, with `select`, never `watch` (`dealerStateFor`, in this
-  order: WIN while the showdown is celebrated; NEW_HAND for 450ms after the hand number changes at the same table; DEALING
-  until the deal's last card lands — `DealFlights.deals`/`total`, the flight's own test and arithmetic, on two timers;
-  YOUR_TURN; IDLE). Her poses (`dealerPose`, pure): IDLE breathes (4.2 s) and blinks on an uneven beat; NEW_HAND nods and
-  squares the deck; DEALING flicks her right hand about twice a second with a card in it, eyes on the table; YOUR_TURN
-  turns her head and eyes to the viewer's side (bottom left) and warms the light behind her on a slow pulse, while the
-  near rail warms too; WIN lifts her, brightens the light and sends up seven sparks over 1.6 s, then holds a warm light
-  — never more than 0.06 rad of tilt or 3 units of lift. The deal flies from the cloth just in front of her (a flying card
-  is nearly as tall as she is; from her hands it hid her). `MediaQuery.disableAnimations` stills the loops. **Cost**: her
-  layers are parsed and drawn once for the app (`DealerArt.load`, kept as a VALUE, so a table opened again draws her in
-  its first frame) and rendered once into images at her size; a frame is a handful of images drawn at small offsets in
-  her own `RepaintBoundary`, on one ticker. **`--dart-define=DEALER_HOST=false`** builds the table without her
-  (`dealerHostEnabled`). **The artwork contract** (`DealerArt`; a commissioned illustration replaces the FILE and nothing
-  else): ONE SVG at `DealerArt.defaultAsset` (or `DealerHost.asset`). The root carries `viewBox` — leave room above her head
-  and at her sides for the lift, the tilt and the sparks — and `data-rim-y`, where the far rail meets her (below it is
-  never seen; absent, 0.83 of the canvas). Her layers are TOP-LEVEL `<g id>` groups in paint order, each drawn in place on
-  the one canvas: `host-hair-back` (hair behind the head and the bun; moves with the head), `host-body` (neck, torso, upper
-  arms, drape), `host-arm-right` / `host-arm-left` (each forearm and hand, from the elbow), `host-head` (face, ears,
-  earrings, front hair), `host-eyes` (blinks and glances), `host-card` (the card she deals; shown only while dealing).
-  Each may carry `data-pivot="x y"`, the point it turns about in viewBox units (the waist for the body, the neck for the
-  head, an elbow for a forearm, the eye line for the eyes). Any other `host-…` group rides the body; a missing layer does
-  not move; a file with no `host-…` group is drawn whole as the body (it still breathes, lifts and glows). `<defs>` are
-  shared by every layer. Only what `flutter_svg` draws — paths, shapes, gradients, clip paths, opacity; no filters or
-  masks; a raster as a data-URI `<image>`. The box is 0.8 wide per unit of height (`DealerArt.boxAspect`); a canvas of
-  another shape is fitted whole, standing on the box's foot. `test/dealer_shots.dart` (by hand: `flutter test
-  test/dealer_shots.dart --dart-define=SHOTS_DIR=<abs dir>`, and `--dart-define=DEALER_ART=<abs draft.svg>` to try a
-  draft before it replaces the asset) pictures her in every state, both themes, at 52, 140 and 300dp.
+  the felt moved for it but the waiting line: the far rail at 0.24 lies between the category tag above it (0.075, off the
+  table) and the waiting line, which came down from 0.28, where it straddled the rail's inner edge, to 0.325 on the cloth
+  (25 Sep 2026) — with the two-line notices that share its slot (who is choosing a variation or their cards, which
+  variation was chosen) on the cloth too and 15dp or more above the pot at 640x360–915x412, ×1.0 and ×1.25, English and
+  Hindi (`test/casino_table_test.dart`). `CasinoTableSurface` paints it once into its own layer (`isComplex`,
+  `willChange: false`; every soft edge a gradient or a blurred `RRect`, the one blur Impeller draws analytically): by day
+  a pearl rail lit from above round a pale emerald cloth with a thin champagne rim; by night a graphite rail round a deep
+  emerald cloth that falls to near black, a subtler gold rim and a controlled cyan glow — `CasinoTableColors`
+  (`theme/theme_colors.dart`), a `ThemeExtension` on both themes, so one painter serves both and the theme's cross-fade
+  carries the table. A short phone (`Breaks.isShort`) drops the line printed on the cloth and the glow. The table's words
+  keep their inks: charcoal on the pale cloth, white on the dark one, ≥4.5:1 on cloth and rail alike
+  (`test/casino_table_test.dart`, which also samples the painted pixels in both themes and holds the felt's hue to
+  green-teal, never red). `TableAmbientEffects` replaced `_AmbientLamp`: the same breathing lamp, clipped to the cloth
+  now, and a warm light on the near rail in front of the viewer while it is their turn — its own layer, repainting every
+  frame while the table's never does. Paint order in `_Felt`: the table, the ambient light, the deal and bet flights (the
+  deal still leaves from just above the middle of the table, 0.42, as it always did), the paid table picture
+  (`_TableCentrepiece` — over the cloth), then the tag, the pot, the status line and the seats; the room's `DriftingChips`
+  drift under the table and show round it. **Poker rooms have no table**: their board (0.29) and 3-Card Poker's dealer
+  hand stand where the far rail goes, so `poker_table_screen.dart` was left as it was. A host behind the far rail — an
+  illustrated dealer, a layered SVG animated by the table's state — was tried with the table and removed on 25 Sep 2026
+  (owner: "remove women from the table"); she is recoverable from commits `6a01773`/`a6314af`.
 - **Variation tables** (owner, 18 Sep 2026; server side §6.1/§6.4). Everything is drawn from `room:state.variation`
   (`VariationState` in `dtos.dart`; `GameState.variation`, `variationSelecting`, `variationIsMine`, `shownVariation`,
   `shownTurnUp`) — the two `game:variation*` events only say the same thing a moment sooner, so a reconnect mid-window
@@ -2407,8 +2368,7 @@ final t = state.t;` at the top of `build`; M3 roles via `theme.colorScheme`; `.w
 ROLE (a seat's, `TableType.seat(theme, podW)`) and never sets a `fontSize` of its own; spacing is `TableSpace`, the dim
 behind a drawer or a dialog `TableScrim` (dialogs through `showTableDialog`), ambient light `TableAmbient`, the table's
 own colours `CasinoTableColors` (one painter, both themes); a console key states its `KeyRole` — one primary on the
-console, never a second. Decoration on the felt (the host) is sized from the space the game leaves and steps out
-whenever the game needs that space.
+console, never a second.
 
 ---
 
@@ -2489,10 +2449,9 @@ whenever the game needs that space.
 - The 1s ticker: `watch` GameState only where per-second rebuilds are wanted.
 - **A `Future` cached across widget tests completes into a dead zone.** Every `testWidgets` runs in its own fake-async
   zone, and a future that completed inside one of them runs the continuation of every later `await` on it in THAT zone,
-  which nobody pumps any more: the await never returns. The table's host was drawn in the first screenshot of a run and in
-  none after it (24 Sep 2026). Keep what an asset loader has loaded as a VALUE and use it synchronously (`DealerArt.loaded`
-  — the app wants that anyway: a table opened again draws her in its first frame), and load such assets in `setUpAll`,
-  where async is real, in the picture harnesses (`table_shots.dart`, `dealer_shots.dart`).
+  which nobody pumps any more: the await never returns (24 Sep 2026: an asset drawn in the first screenshot of a run and
+  in none after it). Keep what an asset loader has loaded as a VALUE and use it synchronously, and load such assets in
+  `setUpAll`, where async is real, in the picture harnesses.
 - `FractionallySizedBox` with only `widthFactor` and a childless child **collapses to zero height**
   (needed `heightFactor: 1`, `alignment: centerLeft`).
 - Both `game:showdown` and `game:handEnded` hit `onShowdown`; only the latter has `nextHandAt`.

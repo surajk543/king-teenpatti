@@ -286,9 +286,8 @@ const Color _lampWarm = Color(0xFFFFF3DC);
 /// The casino table's colours, one set per brightness (owner's brief, 24 Sep
 /// 2026: "a large oval/rounded casino table surface ... a modern luxury mobile
 /// casino ... Do NOT use the old-fashioned red casino table aesthetic"), read
-/// by the one painter that draws the table ([CasinoTableSurface]), the light
-/// that moves on it ([TableAmbientEffects]) and the light behind the host
-/// ([DealerHost]).
+/// by the one painter that draws the table ([CasinoTableSurface]) and the
+/// light that moves on it ([TableAmbientEffects]).
 ///
 /// Two looks designed for their own grounds rather than one inverted: by day
 /// a pearl rail lit from above round a pale emerald cloth, with a thin
@@ -319,11 +318,6 @@ class CasinoTableColors extends ThemeExtension<CasinoTableColors> {
     required this.lamp,
     required this.lampAlpha,
     required this.turnGlow,
-    required this.hostHalo,
-    required this.hostHaloOuter,
-    required this.hostHaloTurn,
-    required this.hostHaloWin,
-    required this.sparkle,
   });
 
   /// The rail — the "outer table" — lit from above: its top and its foot.
@@ -367,16 +361,6 @@ class CasinoTableColors extends ThemeExtension<CasinoTableColors> {
   /// The warm light the near rail takes on the viewer's turn.
   final Color turnGlow;
 
-  /// The light behind the host: at rest (its core and the colour it fades
-  /// into), on the viewer's turn and at a win.
-  final Color hostHalo;
-  final Color hostHaloOuter;
-  final Color hostHaloTurn;
-  final Color hostHaloWin;
-
-  /// The sparks round the host at a win.
-  final Color sparkle;
-
   /// By night: graphite, deep emerald, a subtle gold rim, a controlled cyan
   /// glow.
   static const CasinoTableColors dark = CasinoTableColors(
@@ -396,11 +380,6 @@ class CasinoTableColors extends ThemeExtension<CasinoTableColors> {
     lamp: _lampWarm,
     lampAlpha: 0.075,
     turnGlow: Color(0xFFF1D27A),
-    hostHalo: Color(0x29F1D27A),
-    hostHaloOuter: Color(0x1F3FD1C2),
-    hostHaloTurn: Color(0x47F1D27A),
-    hostHaloWin: Color(0x61F1D27A),
-    sparkle: Color(0xFFF7E3A6),
   );
 
   /// By day: a pearl rail, a pale emerald cloth, a champagne rim, and a soft
@@ -422,11 +401,6 @@ class CasinoTableColors extends ThemeExtension<CasinoTableColors> {
     lamp: _lampWarm,
     lampAlpha: 0.30,
     turnGlow: Color(0xFFD4A514),
-    hostHalo: Color(0x29E5C274),
-    hostHaloOuter: Color(0x1476C8BA),
-    hostHaloTurn: Color(0x42D4A514),
-    hostHaloWin: Color(0x5CD4A514),
-    sparkle: Color(0xFFD4A514),
   );
 
   /// The set for the theme in scope, by brightness when a theme was built
@@ -455,11 +429,6 @@ class CasinoTableColors extends ThemeExtension<CasinoTableColors> {
     Color? lamp,
     double? lampAlpha,
     Color? turnGlow,
-    Color? hostHalo,
-    Color? hostHaloOuter,
-    Color? hostHaloTurn,
-    Color? hostHaloWin,
-    Color? sparkle,
   }) => CasinoTableColors(
     railTop: railTop ?? this.railTop,
     railBottom: railBottom ?? this.railBottom,
@@ -477,11 +446,6 @@ class CasinoTableColors extends ThemeExtension<CasinoTableColors> {
     lamp: lamp ?? this.lamp,
     lampAlpha: lampAlpha ?? this.lampAlpha,
     turnGlow: turnGlow ?? this.turnGlow,
-    hostHalo: hostHalo ?? this.hostHalo,
-    hostHaloOuter: hostHaloOuter ?? this.hostHaloOuter,
-    hostHaloTurn: hostHaloTurn ?? this.hostHaloTurn,
-    hostHaloWin: hostHaloWin ?? this.hostHaloWin,
-    sparkle: sparkle ?? this.sparkle,
   );
 
   @override
@@ -505,11 +469,6 @@ class CasinoTableColors extends ThemeExtension<CasinoTableColors> {
       lamp: c(lamp, other.lamp),
       lampAlpha: lerpDouble(lampAlpha, other.lampAlpha, t)!,
       turnGlow: c(turnGlow, other.turnGlow),
-      hostHalo: c(hostHalo, other.hostHalo),
-      hostHaloOuter: c(hostHaloOuter, other.hostHaloOuter),
-      hostHaloTurn: c(hostHaloTurn, other.hostHaloTurn),
-      hostHaloWin: c(hostHaloWin, other.hostHaloWin),
-      sparkle: c(sparkle, other.sparkle),
     );
   }
 }

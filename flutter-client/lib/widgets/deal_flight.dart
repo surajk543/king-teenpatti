@@ -74,19 +74,6 @@ class DealFlights extends StatefulWidget {
   /// A deal of [cards], from the first card leaving to the last one landing.
   static Duration total(int cards) => trip + stagger * math.max(0, cards - 1);
 
-  /// Whether a table moving from [oldHandNo] at [oldRoomId] to [handNo] at
-  /// [roomId] is dealt in view: a new hand, at the SAME table, and not the
-  /// first after arriving. The room check keeps a switch quiet: the flights
-  /// survive a move and see handNo jump to the new table's, which looks
-  /// exactly like a deal. The table's host deals on the same test
-  /// (dealer_host.dart), so the two can never disagree.
-  static bool deals({
-    required String oldRoomId,
-    required int oldHandNo,
-    required String roomId,
-    required int handNo,
-  }) => roomId == oldRoomId && handNo != oldHandNo && oldHandNo != 0;
-
   @override
   State<DealFlights> createState() => _DealFlightsState();
 }
@@ -200,14 +187,11 @@ class _DealFlightsState extends State<DealFlights>
   void didUpdateWidget(DealFlights old) {
     super.didUpdateWidget(old);
     if (widget.cardHeight != old.cardHeight) _prepareBack();
-    if (!DealFlights.deals(
-      oldRoomId: old.roomId,
-      oldHandNo: old.handNo,
-      roomId: widget.roomId,
-      handNo: widget.handNo,
-    )) {
-      return;
-    }
+    // A new hand, at the SAME table, and not the first after arriving. The
+    // room check keeps a switch quiet: this state survives a move and sees
+    // handNo jump to the new table's, which looks exactly like a deal.
+    if (widget.roomId != old.roomId) return;
+    if (widget.handNo == old.handNo || old.handNo == 0) return;
     _deal();
   }
 

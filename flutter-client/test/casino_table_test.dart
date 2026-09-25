@@ -12,13 +12,14 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:teenpatti/l10n/strings.dart';
 import 'package:teenpatti/state/game_state.dart';
 import 'package:teenpatti/theme/app_theme.dart';
 import 'package:teenpatti/theme/theme_colors.dart';
 import 'package:teenpatti/widgets/casino_table.dart';
-import 'package:teenpatti/widgets/dealer_host.dart';
 import 'package:teenpatti/widgets/drifting_chips.dart';
 import 'package:teenpatti/widgets/seat_pod.dart';
+import 'package:teenpatti/widgets/variation_prompt.dart';
 
 import 'table_scenes.dart';
 
@@ -36,12 +37,16 @@ Color _over(Color ink, Color ground) => Color.alphaBlend(ink, ground);
 
 double _hue(Color c) => HSVColor.fromColor(c).hue;
 
+Finder _private(String name) =>
+    find.byWidgetPredicate((w) => w.runtimeType.toString() == name);
+
 Future<GameState> _mount(
   WidgetTester tester,
   TableScene scene, {
   Size size = const Size(891, 411),
   double textScale = 1.0,
   bool dark = true,
+  AppLang lang = AppLang.english,
 }) async {
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
@@ -50,7 +55,7 @@ Future<GameState> _mount(
   addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
   final feedback = await silentFeedback();
   addTearDown(feedback.dispose);
-  final state = sceneState(scene);
+  final state = sceneState(scene, lang: lang);
   await tester.pumpWidget(
     tableApp(
       state: state,
@@ -345,6 +350,60 @@ void main() {
         }
       });
     }
+
+    // The waiting line took the perch the pot gave up, just under the top of
+    // the felt; with a table there, it stood across the far rail's inner
+    // edge. It stands on the cloth now (25 Sep 2026), and so do the two-line
+    // notices that share its slot — the taller of them is who the table is
+    // waiting on while a variation is chosen — without coming down onto the
+    // pot.
+    for (final size in const [
+      Size(640, 360),
+      Size(732, 412),
+      Size(844, 390),
+      Size(891, 411),
+      Size(915, 412),
+    ]) {
+      testWidgets('the waiting line stands on the cloth, over the pot, at '
+          '${size.width.toInt()}x${size.height.toInt()}', (tester) async {
+        for (final scale in [1.0, 1.25]) {
+          for (final lang in [AppLang.english, AppLang.hindi]) {
+            for (final prefix in ['09', '19']) {
+              final state = await _mount(
+                tester,
+                _scene(prefix),
+                size: size,
+                textScale: scale,
+                lang: lang,
+              );
+              final why = '$prefix x$scale ${lang.name}';
+              final surface = find.byType(CasinoTableSurface);
+              final felt = tester.getRect(surface);
+              final g = tester.widget<CasinoTableSurface>(surface).geometry;
+              final clothTop = felt.top + g.rimTop + g.rail;
+              final line = prefix == '09'
+                  ? tester.getRect(
+                      find
+                          .descendant(
+                            of: _private('_Status'),
+                            matching: find.byType(Text),
+                          )
+                          .first,
+                    )
+                  : tester.getRect(find.byType(VariationSelectingLine));
+              final pot = tester.getRect(_private('_Pot'));
+              expect(line.top, greaterThanOrEqualTo(clothTop), reason: why);
+              expect(
+                pot.top - line.bottom,
+                greaterThanOrEqualTo(Space.md),
+                reason: why,
+              );
+              await _unmount(tester, state);
+            }
+          }
+        }
+      });
+    }
   });
 
   group('what paints over it', () {
@@ -368,8 +427,7 @@ void main() {
       ]) {
         expect(order.indexOf(above), greaterThan(table), reason: above);
       }
-      // The host stands behind it, and the room's chips under everything.
-      expect(order.indexOf('DealerHost'), lessThan(table));
+      // The room's chips drift under everything.
       expect(find.byType(DriftingChips), findsOneWidget);
       expect(order.indexOf('DriftingChips'), lessThan(table));
       await _unmount(tester, state);
@@ -397,7 +455,6 @@ void main() {
     testWidgets('the table never repaints while the room around it moves', (
       tester,
     ) async {
-      await tester.runAsync(() => DealerArt.load(DealerArt.defaultAsset));
       final state = await _mount(tester, _scene('03'));
       RenderRepaintBoundary boundaryIn(Type type) =>
           tester.renderObject<RenderRepaintBoundary>(
@@ -409,27 +466,28 @@ void main() {
                 .first,
           );
       final table = boundaryIn(CasinoTableSurface);
-      final host = boundaryIn(DealerHost);
+      final light = boundaryIn(TableAmbientEffects);
       // What each layer holds: a boundary that repaints records a new picture
       // into its layer; one that does not keeps the picture it had.
       Layer? drawing(RenderRepaintBoundary b) => b.debugLayer!.firstChild;
       final tableBefore = drawing(table);
       expect(tableBefore, isA<PictureLayer>());
-      // Half a second of the room: the host breathing, the lamp on the
-      // cloth, the turn ring, the drifting chips.
-      var hostRepaints = 0;
+      // Half a second of the room: the lamp breathing on the cloth and the
+      // near rail warming for the viewer's turn, the turn ring, the drifting
+      // chips.
+      var lightRepaints = 0;
       for (var i = 0; i < 30; i++) {
-        final hostBefore = drawing(host);
+        final lightBefore = drawing(light);
         await tester.pump(const Duration(milliseconds: 16));
-        if (!identical(drawing(host), hostBefore)) hostRepaints++;
+        if (!identical(drawing(light), lightBefore)) lightRepaints++;
       }
       expect(
         identical(drawing(table), tableBefore),
         isTrue,
         reason: 'the table is painted once and its picture reused',
       );
-      // The host moves in her own layer.
-      expect(hostRepaints, greaterThan(20));
+      // The light moves in its own layer, on top.
+      expect(lightRepaints, greaterThan(20));
       await _unmount(tester, state);
     });
 

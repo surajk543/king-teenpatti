@@ -16,14 +16,11 @@ import '../theme/theme_colors.dart';
 /// (`seatPlaces`, the pot at 0.46 of the felt's height), and the table is
 /// drawn to meet them: its far rail runs under the two top seats' pods, its
 /// rounded ends under the side seats, its near rail under the viewer's pod
-/// and hand, and the pot sits on the cloth a little towards the far side,
-/// where the host stands.
+/// and hand, and the pot sits on the cloth a little towards the far side.
 ///
-/// The far rail is at [top] — 0.24 of the felt's height — because that is
-/// the one line the table's own words leave free: the category tag stands
-/// above it (at 0.075) and the waiting line below it (at 0.28, about twelve
-/// points either side), so the host standing behind that rail is never under
-/// either.
+/// The far rail is at [top] — 0.24 of the felt's height — between the table's
+/// own words: the category tag stands above it (at 0.075), off the table, and
+/// the waiting line below it on the cloth (at 0.325).
 @immutable
 class TableGeometry {
   const TableGeometry._(this.felt, this.outer, this.rail);
@@ -65,7 +62,7 @@ class TableGeometry {
   /// The playing surface inside the rail.
   RRect get cloth => outer.deflate(rail);
 
-  /// The far rail's outer edge: the line the host stands behind.
+  /// The far rail's outer edge.
   double get rimTop => outer.top;
 
   @override
@@ -382,7 +379,7 @@ class _AmbientPainter extends CustomPainter {
     final clothBox = cloth.outerRect;
     final v = Motion.breathe.transform(breath.value);
 
-    // The lamp's pool on the cloth: over the pot and the host's side of the
+    // The lamp's pool on the cloth: over the pot and the far side of the
     // table, breathing a little.
     final lamp = c.lampAlpha * (0.85 + 0.3 * v);
     final pool = Rect.fromCenter(

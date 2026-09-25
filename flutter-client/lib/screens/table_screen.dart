@@ -17,7 +17,6 @@ import '../widgets/buy_chips.dart';
 import '../widgets/casino_table.dart';
 import '../widgets/chip_store.dart';
 import '../widgets/deal_flight.dart';
-import '../widgets/dealer_host.dart';
 import '../widgets/drifting_chips.dart';
 import '../widgets/glass_components.dart';
 import '../widgets/glass_panels.dart';
@@ -569,8 +568,15 @@ class _Felt extends StatefulWidget {
   static const double _potDy = 0.46;
 
   /// The waiting / starting line takes the perch the pot gave up. It only ever
-  /// speaks when no hand is running, so it can have the high ground.
-  static const double _statusDy = 0.28;
+  /// speaks when no hand is running, so it can have the high ground: on the
+  /// cloth, just inside the casino table's far rail (which ends at 0.274 of
+  /// the height on a phone). At 0.28 it straddled the rail's inner edge;
+  /// since 25 Sep 2026 the one-line waiting line stands 14–16dp inside it and
+  /// the two-line notices that share its slot (who is choosing a variation or
+  /// their cards, which variation was chosen) clear it too, at every phone
+  /// size and text scale, and still stand 15dp or more above the pot
+  /// (test/casino_table_test.dart).
+  static const double _statusDy = 0.325;
 
   /// Where the middle of the category tag is, as a fraction of the felt's
   /// height. A name rather than a literal because the table's notices stand
@@ -673,46 +679,6 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
     _hammer?.dispose();
     _missile?.dispose();
     super.dispose();
-  }
-
-  /// Where the host stands, in the felt's coordinates, or null when she is
-  /// switched off or the gap over the table is too small for her.
-  ///
-  /// The gap is worked out from the numbers the felt lays everything else
-  /// out with, as [tableNoticeArea] finds the notices' gap: down from the foot
-  /// of the category tag, up from the table's far rail (the waiting line
-  /// stands just under that rail, on the cloth), and in from the widest
-  /// speech bubble either top seat can open towards the middle — a bubble
-  /// hangs from its column's outer edge and grows up to 1.7 pods wide
-  /// (SeatPod). The pods themselves stand further out than that.
-  Rect? _hostBox(
-    BuildContext context,
-    double w,
-    double h,
-    double podW,
-    TableGeometry table,
-  ) {
-    if (!dealerHostEnabled) return null;
-    final theme = Theme.of(context);
-    final scaler = MediaQuery.textScalerOf(context);
-    final boot = TableType.boot(theme);
-    // The tag is one line on a plate: the line (or its 14dp mark, whichever
-    // is taller), the plate's padding above and below it, and its hairline.
-    final line = math.max(
-      14.0,
-      scaler.scale(boot.fontSize ?? 12) * (boot.height ?? 1.15),
-    );
-    final tagBottom = _tagDy * h + (line + 2 * Space.xs + 2 * Dim.hairline) / 2;
-    double columnLeft(Offset place) =>
-        (place.dx * w - podW / 2).clamp(0.0, math.max(0.0, w - podW));
-    return dealerSlot(
-      feltWidth: w,
-      top: tagBottom,
-      rimTop: table.rimTop,
-      left: columnLeft(_places[2]) + podW * 1.7,
-      right: columnLeft(_places[3]) + podW - podW * 1.7,
-      screenHeight: MediaQuery.sizeOf(context).height,
-    );
   }
 
   /// Keeps the felt on the volley [GameState] is showing, as [_follow] does
@@ -1062,25 +1028,17 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
               _seatCentre(state, seatIndex, w, h, podW);
 
           // The table (owner's brief, 24 Sep 2026: "a large oval/rounded
-          // casino table surface behind the gameplay elements"), and the host
-          // standing behind its far rail. Nothing on the felt moved for them:
-          // every position in this Stack is still computed from the
-          // LayoutBuilder's box, and the table is laid out from the same box
-          // to meet the seats where they already were (TableGeometry).
+          // casino table surface behind the gameplay elements"). Nothing on
+          // the felt moved for it: every position in this Stack is still
+          // computed from the LayoutBuilder's box, and the table is laid out
+          // from the same box to meet the seats where they already were
+          // (TableGeometry).
           final table = TableGeometry.of(Size(w, h));
-          final host = _hostBox(context, w, h, podW, table);
 
           return Stack(
             key: _stageKey,
             clipBehavior: Clip.none,
             children: [
-              // Behind the table: her waist and hands are hidden by the far
-              // rail, and she is under everything else on the felt.
-              if (host != null)
-                Positioned.fromRect(
-                  rect: host,
-                  child: const IgnorePointer(child: _TableDealer()),
-                ),
               Positioned.fill(
                 child: CasinoTableSurface(
                   geometry: table,
@@ -1102,11 +1060,7 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
               // Every bet is seen to travel: a chip leaves the seat that made
               // it and lands on the pot. Boundaried for the same reason.
               // The deal, drawn before the bets so a boot chip lands on a
-              // seat that has already been given its cards — from the cloth
-              // just in front of the host when she is there (a card is nearly
-              // as tall as she is, so launched from her hands the deal hid
-              // her), from just above the middle of the table when she is
-              // not.
+              // seat that has already been given its cards.
               Positioned.fill(
                 child: RepaintBoundary(
                   child: IgnorePointer(
@@ -1115,14 +1069,7 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
                       roomId: room.roomId,
                       handNo: room.handNo,
                       centreOf: seatCentre,
-                      deck: host == null
-                          ? Offset(w / 2, h * 0.42)
-                          : Offset(
-                              host.center.dx,
-                              host.bottom +
-                                  table.rail +
-                                  (podW * 0.42).clamp(18.0, 46.0) * 0.55,
-                            ),
+                      deck: Offset(w / 2, h * 0.42),
                       cardHeight: (podW * 0.42).clamp(18.0, 46.0),
                     ),
                   ),
@@ -3281,133 +3228,6 @@ class _SideshowCountdownState extends State<_SideshowCountdown>
           );
         },
       ),
-    );
-  }
-}
-
-/// The host behind the far rail (DealerHost), doing what the table is doing:
-/// dealing while the deal's cards are in the air, turning to the viewer on
-/// their turn, lifting at a win (owner's brief, 24 Sep 2026).
-///
-/// A read-only mapper over what [GameState] already shows ([dealerStateFor]):
-/// nothing here changes the game. `select`, never `watch`, so the one-second
-/// reward tick never reaches her; she rebuilds when the hand, the turn, the
-/// celebration or the table under her changes. The deal is timed by the
-/// flight's own arithmetic ([DealFlights.deals], [DealFlights.total]) on two
-/// timers, so her hands stop when its last card lands.
-///
-/// She steps out — fades, and her box stays where it is — while a panel is
-/// laid over the felt (the variation choice, the 5-Card pick and its verdict,
-/// a sideshow put to the viewer), and while the table says something on two
-/// lines in the waiting line's slot (who is choosing the variation or their
-/// cards, and which variation was chosen): those stand taller than the
-/// one-line waiting line, and reach up over the far rail she stands behind.
-/// Gameplay first, decoration after.
-class _TableDealer extends StatefulWidget {
-  const _TableDealer();
-
-  @override
-  State<_TableDealer> createState() => _TableDealerState();
-}
-
-/// Where a hand's opening has got to, as the host sees it.
-enum _Opening { none, nod, deal }
-
-class _TableDealerState extends State<_TableDealer> {
-  String? _roomId;
-  int _handNo = 0;
-  _Opening _opening = _Opening.none;
-  Duration _dealLength = Duration.zero;
-  final List<Timer> _timers = [];
-
-  @override
-  void dispose() {
-    for (final timer in _timers) {
-      timer.cancel();
-    }
-    super.dispose();
-  }
-
-  /// Starts a hand's opening when its number changes at the same table: the
-  /// nod, then — when the flight deals it — the deal until its last card
-  /// lands.
-  void _follow(String? roomId, int handNo, int dealtSeats) {
-    if (roomId == _roomId && handNo == _handNo) return;
-    final oldRoom = _roomId;
-    final oldHand = _handNo;
-    _roomId = roomId;
-    _handNo = handNo;
-    for (final timer in _timers) {
-      timer.cancel();
-    }
-    _timers.clear();
-    if (roomId == null || oldRoom != roomId) {
-      _opening = _Opening.none;
-      return;
-    }
-    final dealt = DealFlights.deals(
-      oldRoomId: oldRoom!,
-      oldHandNo: oldHand,
-      roomId: roomId,
-      handNo: handNo,
-    );
-    _dealLength = dealt
-        ? DealFlights.total(DealFlights.cardsEach * dealtSeats)
-        : Duration.zero;
-    _opening = _Opening.nod;
-    void to(_Opening next) {
-      if (mounted) setState(() => _opening = next);
-    }
-
-    _timers.add(
-      Timer(
-        DealerTiming.newHand,
-        () => to(
-          _dealLength > DealerTiming.newHand ? _Opening.deal : _Opening.none,
-        ),
-      ),
-    );
-    if (_dealLength > DealerTiming.newHand) {
-      _timers.add(Timer(_dealLength, () => to(_Opening.none)));
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final (roomId, handNo, myTurn, celebrating, seats, covered) = context
-        .select<GameState, (String?, int, bool, bool, int, bool)>((s) {
-          final room = s.room;
-          return (
-            room?.roomId,
-            room?.handNo ?? 0,
-            s.myTurn && room?.state == TableState.betting,
-            s.showdown.isNotEmpty || s.showdownResult.isNotEmpty,
-            dealtSeats(room?.seats ?? const <Seat>[]).length,
-            s.variationSelecting ||
-                s.sideshowIsForMe ||
-                s.variationAnnounced != null ||
-                s.pickingCards ||
-                s.someoneChoosingCards != null ||
-                s.pickAnnounced != null,
-          );
-        });
-    _follow(roomId, handNo, seats);
-    final state = dealerStateFor(
-      celebrating: celebrating,
-      myTurn: myTurn,
-      // Where the opening has got to, as the two timers above step it: in
-      // the nod, then past it and inside the deal, then over.
-      sinceNewHand: switch (_opening) {
-        _Opening.none => null,
-        _Opening.nod => Duration.zero,
-        _Opening.deal => DealerTiming.newHand,
-      },
-      dealLength: _dealLength,
-    );
-    return AnimatedOpacity(
-      opacity: covered ? 0 : 1,
-      duration: Motion.base,
-      child: DealerHost(state: state),
     );
   }
 }
