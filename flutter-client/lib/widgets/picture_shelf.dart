@@ -145,33 +145,155 @@ Widget pictureShelf({
 
   return Padding(
     padding: const EdgeInsets.only(bottom: Space.md),
-    child: Wrap(
-      // Centred in the sheet: flush left, a tablet's nine columns left about
-      // 95dp empty on the right and 20 on the left (QA 14 Sep 2026).
-      alignment: WrapAlignment.center,
-      spacing: Space.md,
-      runSpacing: Space.sm,
+    child: ShelfGrid(
+      tileWidth: PictureChoice.widthFor(radius),
       children: [
-        for (final p in pictures)
-          PictureChoice(
-            picture: p,
-            radius: radius,
-            selected: user?.activePictureId == p.id,
-            busy: state.buyingPicture == p.id,
-            // One answer per kind of tile. A locked picture asks to be bought.
-            // A premium one already paid for stops to say so, and for how
-            // long, before it is worn: the tile's "12d left" is all its owner
-            // otherwise sees of the rental, and on the last day that pill
-            // cannot tell twenty hours from twenty minutes. A free picture has
-            // nothing to say, so a tap simply wears it.
-            onTap: () => p.locked
-                ? unlockPicture(context, p, openStore: openStore)
-                : p.free
-                ? state.chooseAvatar(p.id)
-                : showOwnedPicture(context, p),
+        for (final (i, p) in pictures.indexed)
+          ShelfTileEntrance(
+            // Keyed by the picture, so a tile keeps its state — its entrance
+            // run once, its ring's switcher — when the shelf is sorted, a
+            // purchase re-reads the catalogue, or the clock ticks.
+            key: ValueKey(p.id),
+            index: i,
+            child: PictureChoice(
+              picture: p,
+              radius: radius,
+              selected: user?.activePictureId == p.id,
+              busy: state.buyingPicture == p.id,
+              // One answer per kind of tile. A locked picture asks to be
+              // bought. A premium one already paid for stops to say so, and
+              // for how long, before it is worn: the tile's "12d left" is all
+              // its owner otherwise sees of the rental, and on the last day
+              // that line cannot tell twenty hours from twenty minutes. A free
+              // picture has nothing to say, so a tap simply wears it.
+              onTap: () => p.locked
+                  ? unlockPicture(context, p, openStore: openStore)
+                  : p.free
+                  ? state.chooseAvatar(p.id)
+                  : showOwnedPicture(context, p),
+            ),
           ),
       ],
     ),
+  );
+}
+
+/// A shelf's tiles in whole columns (the store polish, 26 Sep 2026: "Are
+/// cards aligned?"). The block is centred in the width it is given — flush
+/// left, a tablet's nine columns left about 95dp empty on the right and 20 on
+/// the left (QA 14 Sep 2026) — but every row inside it, the last one too,
+/// starts at the block's left edge: a centred Wrap set a short last row
+/// between the columns above it. Every child is [tileWidth] wide, as both
+/// shelves' tiles are.
+class ShelfGrid extends StatelessWidget {
+  const ShelfGrid({
+    super.key,
+    required this.tileWidth,
+    required this.children,
+    this.spacing = Space.md,
+    this.runSpacing = Space.lg,
+  });
+
+  final double tileWidth;
+  final List<Widget> children;
+
+  /// Between two tiles of a row, and between two rows. A row ends on type
+  /// — a name, a term — so rows stand further apart than tiles do.
+  final double spacing;
+  final double runSpacing;
+
+  /// How many tiles stand in a row of [width].
+  static int columnsFor(double width, double tileWidth, double spacing) =>
+      math.max(1, ((width + spacing) / (tileWidth + spacing)).floor());
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, box) {
+      final wrap = Wrap(
+        spacing: spacing,
+        runSpacing: runSpacing,
+        children: children,
+      );
+      if (!box.hasBoundedWidth || children.isEmpty) return wrap;
+      final across = math.min(
+        columnsFor(box.maxWidth, tileWidth, spacing),
+        children.length,
+      );
+      // Half a dp over the sum, so rounding can never push the last tile of
+      // a full row onto a row of its own.
+      final width = across * tileWidth + (across - 1) * spacing + 0.5;
+      return Center(
+        child: SizedBox(width: math.min(width, box.maxWidth), child: wrap),
+      );
+    },
+  );
+}
+
+/// A tile arriving on a shelf: faded in and risen a few dp, a beat after the
+/// tile before it (the store polish, 26 Sep 2026: "Product card: very subtle
+/// entrance animation"). It runs once per tile — keyed by its picture, a tile
+/// that stays on the shelf through a tick, a sort or a purchase never runs it
+/// again, while one a new shelf brings does — and the beat is capped at
+/// [maxBeats], so the last tile of a long shelf is not kept waiting behind
+/// forty others. One controller a tile, idle once the tile has arrived.
+class ShelfTileEntrance extends StatefulWidget {
+  const ShelfTileEntrance({
+    super.key,
+    required this.index,
+    required this.child,
+  });
+
+  /// The tile's place on the shelf, which decides its beat.
+  final int index;
+  final Widget child;
+
+  /// The most beats ([Motion.stagger] each) a tile waits: the whole shelf is
+  /// in place within [Motion.stagger] × 6 + [Motion.enter].
+  static const int maxBeats = 6;
+
+  @override
+  State<ShelfTileEntrance> createState() => _ShelfTileEntranceState();
+}
+
+class _ShelfTileEntranceState extends State<ShelfTileEntrance>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _arrive;
+  late final Animation<double> _eased;
+  late final Animation<Offset> _rise;
+  Timer? _beat;
+
+  @override
+  void initState() {
+    super.initState();
+    _arrive = AnimationController(vsync: this, duration: Motion.enter);
+    _eased = CurvedAnimation(parent: _arrive, curve: Motion.standard);
+    _rise = Tween<Offset>(
+      begin: const Offset(0, 0.06),
+      end: Offset.zero,
+    ).animate(_eased);
+    final beats = math.min(widget.index, ShelfTileEntrance.maxBeats);
+    if (beats == 0) {
+      _arrive.forward();
+    } else {
+      // A Timer rather than Future.delayed, so a shelf closed within the beat
+      // leaves nothing pending behind it.
+      _beat = Timer(Motion.stagger * beats, () {
+        if (mounted) _arrive.forward();
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _beat?.cancel();
+    _arrive.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => FadeTransition(
+    opacity: _eased,
+    child: SlideTransition(position: _rise, child: widget.child),
   );
 }
 
@@ -589,7 +711,8 @@ class _PictureOnOffer extends StatelessWidget {
     format: picture.assetFormat,
     fallback: picture.name,
     radius: (MediaQuery.sizeOf(context).height * 0.15).clamp(40.0, 80.0),
-    ring: AppTheme.goldBright,
+    // The shelf's gold, which holds its contrast on the day dialog too.
+    ring: shelfGoldOn(Theme.of(context).brightness),
     ringWidth: 2.5,
     ringGap: 3,
     animate: true,
@@ -834,10 +957,10 @@ class _OwnedPictureDialog extends StatelessWidget {
               80.0,
             ),
             ring: worn
-                ? AppTheme.goldBright
+                ? shelfGoldOn(theme.brightness)
                 : lapsed
                 ? null
-                : theme.colorScheme.primary,
+                : shelfOwnedLine(theme),
             ringWidth: 2.5,
             ringGap: 3,
             animate: true,
@@ -925,6 +1048,11 @@ class _OwnedPictureDialog extends StatelessWidget {
       DateTime.fromMillisecondsSinceEpoch(epochMs);
 }
 
+/// One tile of the picture shelf (the store polish, 26 Sep 2026): the
+/// picture, one [ShelfBadge] saying what it is to this player, its name, and
+/// the small print — a rental's term or the time left on one ([ShelfDetail]).
+/// The table shelf's tiles are built the same way round a preview, so the
+/// two shelves read as one store.
 class PictureChoice extends StatelessWidget {
   const PictureChoice({
     super.key,
@@ -937,60 +1065,87 @@ class PictureChoice extends StatelessWidget {
 
   final ProfilePicture picture;
 
-  /// The circle's radius. The tile is wider than 2r so the name underneath has
-  /// room, and every tile is the same width so the grid stays on its columns
-  /// whatever the names are.
+  /// The circle's radius. The tile is wider than 2r so the badge and the name
+  /// underneath have room, and every tile is the same width so the grid stays
+  /// on its columns whatever the names are ([widthFor]).
   final double radius;
+
+  /// The picture being worn.
   final bool selected;
 
   /// This picture is being bought right now.
   final bool busy;
   final VoidCallback onTap;
 
+  /// How wide a tile with a picture of [radius] stands on the shelf.
+  static double widthFor(double radius) => radius * 2 + Space.lg;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final url = context.read<GameState>().absoluteUrl(picture.url);
+    final state = context.read<GameState>();
+    final t = state.t;
+    final url = state.absoluteUrl(picture.url);
     final locked = picture.locked;
+    final gold = shelfGoldOn(theme.brightness);
 
-    // Three rings, and each says something different. Gold is the one being
-    // worn. Green is premium already paid for — the padlock is off, and at a
-    // glance down the shelf that is the line between what this player can use
-    // and what they would have to buy. Everything else keeps the champagne
-    // hairline every portrait in the app wears.
-    final unlockedRing = !picture.free && !locked;
+    // The ring says what the badge says, in colour, for the eye running down
+    // the shelf: gold round the picture being worn, green round every one the
+    // player can put on now — free or bought, which is the line between what
+    // they can use and what they would have to buy — and the champagne
+    // hairline every portrait in the app wears round the rest. Never colour
+    // alone: the badge under it says the same in a glyph and a word.
     final Widget face = AnimatedSwitcher(
       duration: Motion.base,
       child: selected
           ? Avatar(
-              key: const ValueKey(true),
+              key: const ValueKey(ShelfBadgeKind.equipped),
               url: url,
               format: picture.assetFormat,
               fallback: picture.name,
               radius: radius - 3,
-              ring: AppTheme.goldBright,
+              ring: gold,
               ringWidth: 2.5,
               ringGap: 2,
               animate: true,
             )
           : Avatar(
-              key: ValueKey(unlockedRing),
+              key: ValueKey(locked),
               url: url,
               format: picture.assetFormat,
               fallback: picture.name,
               radius: radius,
-              ring: unlockedRing ? theme.colorScheme.primary : null,
-              ringWidth: unlockedRing ? 2 : 1.5,
+              ring: locked ? null : shelfOwnedLine(theme),
               animate: true,
             ),
     );
 
     // A locked picture is shown, not hidden, and at full colour (owner,
     // 14 Sep 2026; it was dimmed to 0.55): knowing what is behind the padlock
-    // is the whole reason anybody buys one. The price tag under it is what
-    // says it is not one tap away.
+    // is the whole reason anybody buys one. The badge under it is what says
+    // it is not one tap away. A picture being worn but no longer owned (a
+    // rental that lapsed a moment ago) shows its price: a tap asks to buy it.
+    final kind = locked
+        ? ShelfBadgeKind.locked
+        : selected
+        ? ShelfBadgeKind.equipped
+        : ShelfBadgeKind.owned;
+    final Widget badge = locked
+        ? PriceTag(cost: picture.cost, currency: picture.currency)
+        : ShelfBadge(
+            kind: kind,
+            label: selected ? t.pictureEquipped : t.pictureOwned,
+          );
+    // The small print: what a rental would give — "1 day", where the old
+    // tag's short form said "1 days" — or what is left of one.
+    final String? detail = locked
+        ? (picture.rented
+              ? t.rentalTerm(picture.durationDays, picture.durationHours)
+              : null)
+        : rentalTagLeft(t, picture.expiresAt, DateTime.now());
 
     return PressScale(
+      enabled: !busy,
       child: InkWell(
         // Material's own click, gated on the player's Sound switch —
         // otherwise a silenced game would still tick on every tap.
@@ -998,19 +1153,30 @@ class PictureChoice extends StatelessWidget {
         onTap: busy ? null : onTap,
         borderRadius: BorderRadius.circular(Radii.md),
         child: SizedBox(
-          width: radius * 2 + Space.lg,
+          width: widthFor(radius),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               // The picture, with nothing written on it. The price and the
               // term used to sit over the bottom of the portrait, which put
-              // type on exactly the part of a face people look at; they are a
-              // line of their own underneath now.
+              // type on exactly the part of a face people look at; they are
+              // lines of their own underneath.
               SizedBox(
                 height: radius * 2 + 6,
                 child: Stack(
                   alignment: Alignment.center,
                   children: [
+                    if (selected)
+                      // The one being worn stands in a soft gold light — a
+                      // still one: nothing on the shelf moves but the
+                      // pictures themselves.
+                      DecoratedBox(
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          boxShadow: shelfGlow(gold, theme.brightness),
+                        ),
+                        child: SizedBox.square(dimension: radius * 2),
+                      ),
                     Center(child: face),
                     if (busy)
                       SizedBox(
@@ -1024,43 +1190,30 @@ class PictureChoice extends StatelessWidget {
                   ],
                 ),
               ),
-              const SizedBox(height: Space.xxs),
-              if (!busy && locked)
-                PriceTag(
-                  cost: picture.cost,
-                  currency: picture.currency,
-                  days: picture.rented ? picture.durationDays : null,
-                  hours: picture.durationHours,
-                ),
-              // A premium picture that HAS been paid for. Without this an
-              // unlocked one is indistinguishable from a free one, and the
-              // chips somebody spent stop showing anywhere. A rental says how
-              // long is left instead, because that is the thing its owner
-              // actually needs to know.
-              if (!busy && !locked && !picture.free)
-                UnlockedTag(expiresAt: picture.expiresAt),
-              if (!busy && (locked || !picture.free))
-                const SizedBox(height: Space.xxs),
+              const SizedBox(height: Space.xs),
+              ShelfBadgeSwitcher(kind: kind, child: badge),
+              const SizedBox(height: Space.xs),
               // The catalogue gives every picture a name; showing it is what
               // turns a row of circles into a list somebody can talk about.
               // Two lines, not one: the tile is only as wide as the portrait,
               // and on a 640dp phone one line cut "Orange Ballerina" down to
-              // "Orange Baller…". The Wrap top-aligns its tiles, so a longer
-              // name only hangs lower — the faces stay in their row.
+              // "Orange Baller…". Every tile carries a badge, so the names of
+              // a row start on one line; a longer one only hangs lower.
               Text(
                 picture.name,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 textAlign: TextAlign.center,
-                style: theme.textTheme.labelSmall?.copyWith(
-                  fontSize: 10,
-                  height: 1.1,
-                  color: theme.colorScheme.onSurface.withValues(
-                    alpha: selected ? AppTheme.inkHigh : AppTheme.inkMed,
-                  ),
-                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                style: shelfNameStyle(
+                  theme,
+                  theme.textTheme.labelSmall,
+                  selected: selected,
                 ),
               ),
+              if (detail != null) ...[
+                const SizedBox(height: Space.xxs),
+                ShelfDetail(text: detail),
+              ],
             ],
           ),
         ),
@@ -1069,55 +1222,231 @@ class PictureChoice extends StatelessWidget {
   }
 }
 
-/// The mark on a premium picture this player owns: an open padlock, in the
-/// same spot and the same shape as the price it replaces, so the eye reads the
-/// swap rather than a new kind of badge. Public for the table shelf, which
-/// tags its tiles the same way.
-class UnlockedTag extends StatelessWidget {
-  const UnlockedTag({super.key, required this.expiresAt});
+/// The gold of the picture being worn and the table being laid — the ring
+/// round it, the glow behind it — in each theme's money gold: the lobby's
+/// balance gold by night, and by day the deeper gold that still holds its
+/// contrast on the frosted sheet, where the champagne ring all but vanished.
+Color shelfGoldOn(Brightness brightness) => AppTheme.goldInk(brightness);
 
-  /// Epoch ms the rental runs out, or 0 when it never does.
-  final int expiresAt;
+/// The line round a picture the player can put on now: the scheme's green,
+/// turned down so a shelf of owned pictures is not a wall of green rings —
+/// the badge under each says "Owned" in a word.
+Color shelfOwnedLine(ThemeData theme) =>
+    theme.colorScheme.primary.withValues(alpha: 0.7);
+
+/// The still, soft light behind the one tile a shelf has on (the store
+/// polish, 26 Sep 2026: "Selected item: soft glow" — never a pulse here):
+/// wide and faint, so it lifts the picture without competing with it.
+List<BoxShadow> shelfGlow(Color gold, Brightness brightness) => [
+  BoxShadow(
+    color: gold.withValues(alpha: brightness == Brightness.dark ? 0.30 : 0.26),
+    blurRadius: 14,
+  ),
+];
+
+/// A tile's name: the label ramp's natural case and tracking (the old 10dp
+/// size and the ramp's 0.8 tracking set a name out like a caption), in the
+/// body ink — the full ink and a step heavier on the one tile a shelf has on.
+TextStyle shelfNameStyle(
+  ThemeData theme,
+  TextStyle? base, {
+  required bool selected,
+}) => AppTheme.label(
+  (base ?? const TextStyle()).copyWith(height: 1.15),
+  colour: theme.colorScheme.onSurface.withValues(
+    alpha: selected ? AppTheme.inkHigh : AppTheme.inkMed,
+  ),
+  weight: selected ? FontWeight.w700 : FontWeight.w600,
+);
+
+/// What a shelf's tile is to this player (the store polish, 26 Sep 2026).
+enum ShelfBadgeKind {
+  /// The picture being worn, or the table picture being laid.
+  equipped,
+
+  /// One the player can put on now: free, or bought and still running.
+  owned,
+
+  /// One with a price.
+  locked,
+}
+
+/// The one badge every tile of the two picture shelves carries (the store
+/// polish, 26 Sep 2026: "EQUIPPED … OWNED … LOCKED / PURCHASABLE", never by
+/// colour alone): a glyph and a word — a tick and "Equipped", "In use" or
+/// "Owned" — or a padlock, the wallet's glyph and the price.
+///
+/// One geometry for all three — height, radius, padding, type and glyph size
+/// — so a row of tiles reads as one row whatever each is; the fill and the
+/// ink say which:
+/// * [ShelfBadgeKind.equipped] — struck gold under charcoal ink, the one tile
+///   of a shelf on the player's seat or table;
+/// * [ShelfBadgeKind.owned] — the ink pill with mint;
+/// * [ShelfBadgeKind.locked] — the ink pill with the money gold ([PriceTag]).
+///
+/// The ink pill is dark in both themes, as the shelf's tags always were, so
+/// the mint and the gold keep their contrast on the frosted day sheet. The
+/// type is the label ramp's smallest step, the glyphs as tall as its letters
+/// at the phone's text size, and one line: at the 1.25 text ceiling on the
+/// narrowest tile the line is scaled to fit rather than cut.
+class ShelfBadge extends StatelessWidget {
+  const ShelfBadge({
+    super.key,
+    required this.kind,
+    required this.label,
+    this.wallet,
+    this.walletInk,
+    this.semanticsLabel,
+  });
+
+  final ShelfBadgeKind kind;
+
+  /// The word, or the price as [formatChips] writes it.
+  final String label;
+
+  /// The glyph of the wallet a price is paid from, beside the padlock: the
+  /// hammer or the gem. None for chips, whose price reads as chips.
+  final IconData? wallet;
+  final Color? walletInk;
+
+  /// What a screen reader says for the badge, when it is more than [label].
+  final String? semanticsLabel;
+
+  /// The pill the owned and locked badges stand on.
+  static final Color inkPill = AppTheme.ink900.withValues(alpha: 0.82);
+
+  /// The equipped badge's ink on struck gold.
+  static const Color onGold = AppTheme.inkOnLight;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    // Mint in both themes. The pill is ink whatever the theme, and the light
-    // scheme's primary — the dark seed green the ring round an unlocked
-    // picture wears — all but vanished on it (1.5:1).
-    const green = AppTheme.mintOnInk;
-    final t = context.read<GameState>().t;
-    final label =
-        rentalTagLeft(t, expiresAt, DateTime.now()) ?? t.pictureUnlocked;
+    final base = theme.textTheme.labelSmall ?? const TextStyle(fontSize: 10.5);
+    final glyph = MediaQuery.textScalerOf(context).scale(base.fontSize ?? 10.5);
+    final (Color ink, Color edge, IconData mark) = switch (kind) {
+      ShelfBadgeKind.equipped => (
+        onGold,
+        AppTheme.goldDeep.withValues(alpha: 0.55),
+        Icons.check_rounded,
+      ),
+      ShelfBadgeKind.owned => (
+        AppTheme.mintOnInk,
+        AppTheme.mintOnInk.withValues(alpha: 0.55),
+        Icons.check_rounded,
+      ),
+      ShelfBadgeKind.locked => (
+        AppTheme.goldOnDark,
+        AppTheme.goldOnDark.withValues(alpha: 0.5),
+        Icons.lock_rounded,
+      ),
+    };
+    final style = kind == ShelfBadgeKind.locked
+        ? AppTheme.money(base, colour: ink)
+        : AppTheme.label(base, colour: ink, weight: FontWeight.w700);
 
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: Space.xs,
-        vertical: Space.xxs,
+    return Semantics(
+      label: semanticsLabel ?? label,
+      excludeSemantics: true,
+      child: Container(
+        padding: const EdgeInsets.symmetric(
+          horizontal: Space.sm,
+          vertical: Space.xxs,
+        ),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(Radii.pill),
+          color: kind == ShelfBadgeKind.equipped ? null : inkPill,
+          gradient: kind == ShelfBadgeKind.equipped ? AppTheme.goldFace : null,
+          border: Border.all(color: edge, width: Dim.hairline),
+        ),
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(mark, size: glyph, color: ink),
+              if (wallet != null) ...[
+                const SizedBox(width: Space.xxs),
+                Icon(wallet, size: glyph, color: walletInk ?? ink),
+              ],
+              const SizedBox(width: Space.xs),
+              Text(label, maxLines: 1, softWrap: false, style: style),
+            ],
+          ),
+        ),
       ),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(Radii.pill),
-        color: AppTheme.ink900.withValues(alpha: 0.82),
-        border: Border.all(color: green.withValues(alpha: 0.55)),
+    );
+  }
+}
+
+/// A tile's badge, changing kind with a short cross-fade and a small rise in
+/// scale — the store polish's "purchase success: subtle success feedback":
+/// a picture just bought turns from its price into "Equipped" where the
+/// player is looking. Nothing moves while the kind stays.
+class ShelfBadgeSwitcher extends StatelessWidget {
+  const ShelfBadgeSwitcher({
+    super.key,
+    required this.kind,
+    required this.child,
+  });
+
+  /// What [child] says, which is what the switch is keyed on.
+  final ShelfBadgeKind kind;
+
+  /// A [ShelfBadge] or a [PriceTag].
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => AnimatedSwitcher(
+    duration: Motion.base,
+    switchInCurve: Motion.standard,
+    switchOutCurve: Curves.easeIn,
+    transitionBuilder: (child, animation) => FadeTransition(
+      opacity: animation,
+      child: ScaleTransition(
+        scale: Tween<double>(begin: 0.9, end: 1).animate(animation),
+        child: child,
       ),
+    ),
+    child: KeyedSubtree(key: ValueKey(kind), child: child),
+  );
+}
+
+/// The small print under a tile's name: how long a rental runs ("100 days"),
+/// how long is left of one the player holds ("6d left"), or — on the default
+/// table tile — what it is. The quiet ink, one line, a clock beside a time;
+/// at the 1.25 text ceiling on the narrowest tile it is scaled to fit rather
+/// than cut (the Hindi "42 मिनट बाकी" ran off its tile before, 26 Sep 2026).
+class ShelfDetail extends StatelessWidget {
+  const ShelfDetail({super.key, required this.text, this.time = true});
+
+  final String text;
+
+  /// Whether [text] is a time, which a clock marks.
+  final bool time;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final base = theme.textTheme.labelSmall ?? const TextStyle(fontSize: 10.5);
+    final quiet = theme.colorScheme.onSurface.withValues(
+      alpha: AppTheme.inkLowOn(theme.brightness),
+    );
+    final style = AppTheme.label(
+      base.copyWith(fontFeatures: const [FontFeature.tabularFigures()]),
+      colour: quiet,
+      weight: FontWeight.w500,
+    );
+    final glyph = MediaQuery.textScalerOf(context).scale(base.fontSize ?? 10.5);
+    return FittedBox(
+      fit: BoxFit.scaleDown,
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            expiresAt <= 0 ? Icons.lock_open : Icons.schedule,
-            size: 9,
-            color: green,
-          ),
-          const SizedBox(width: 2),
-          Text(
-            label,
-            style: theme.textTheme.labelSmall?.copyWith(
-              color: green,
-              fontWeight: FontWeight.w700,
-              fontSize: 9,
-              height: 1.1,
-            ),
-          ),
+          if (time) ...[
+            Icon(Icons.schedule_rounded, size: glyph, color: quiet),
+            const SizedBox(width: Space.xxs),
+          ],
+          Text(text, maxLines: 1, softWrap: false, style: style),
         ],
       ),
     );
@@ -1684,91 +2013,44 @@ class WalletPill extends StatelessWidget {
   }
 }
 
-/// The padlock and price on a premium picture nobody has bought yet. Public
-/// for the table shelf, whose locked tiles carry the same tag.
+/// The padlock and the price on a picture — or a table picture — nobody has
+/// bought yet: the locked [ShelfBadge]. Public for the table shelf, whose
+/// locked tiles carry the same badge.
+///
+/// A padlock on every price (the store polish, 26 Sep 2026: "LOCKED /
+/// PURCHASABLE: 🔒 Price"), and beside it the glyph of the wallet the price
+/// leaves when that is not chips — the hammer, the wallet pill's and the
+/// Hammers shelf's glyph, or the gem — so "30" is never read as chips. The
+/// rental term is no longer a second line in the pill: every badge on a shelf
+/// is one line, and the term is the tile's small print ([ShelfDetail]).
 class PriceTag extends StatelessWidget {
-  const PriceTag({
-    super.key,
-    required this.cost,
-    this.currency = 'COIN',
-    this.days,
-    this.hours = 0,
-  });
+  const PriceTag({super.key, required this.cost, this.currency = 'COIN'});
 
   final int cost;
 
   /// Which wallet the cost leaves — [PictureCurrency.coin], `diamond` or
-  /// `hammer`. It decides the pill's glyph: the padlock-plus-price reads as
-  /// chips, the gem as a diamond price, and the hammer — the wallet pill's
-  /// and the Hammers shelf's glyph — as a hammer price. A currency this build
-  /// does not know keeps the padlock.
+  /// `hammer`. A currency this build does not know reads as chips.
   final String currency;
-
-  /// The rental term, or null when buying it keeps it for good. Shown under
-  /// the price rather than beside it: the price is the decision, the term is
-  /// the small print, and on a 60dp tile they cannot share a line.
-  final int? days;
-
-  /// The hours of the rental term, beside [days].
-  final int hours;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: Space.xs,
-        vertical: Space.xxs,
-      ),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(Radii.pill),
-        color: AppTheme.ink900.withValues(alpha: 0.82),
-        border: Border.all(color: AppTheme.goldBright.withValues(alpha: 0.45)),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              switch (currency) {
-                PictureCurrency.diamond => const Icon(
-                  Icons.diamond,
-                  size: 11,
-                  color: _diamondInk,
-                ),
-                PictureCurrency.hammer => const Icon(
-                  Icons.hardware,
-                  size: 11,
-                  color: _hammerInk,
-                ),
-                _ => Icon(Icons.lock, size: 9, color: AppTheme.goldBright),
-              },
-              const SizedBox(width: 2),
-              Text(
-                formatChips(cost),
-                style: theme.textTheme.labelSmall?.copyWith(
-                  color: AppTheme.goldBright,
-                  fontWeight: FontWeight.w700,
-                  fontSize: 9,
-                  height: 1.1,
-                ),
-              ),
-            ],
-          ),
-          if (days != null)
-            Text(
-              context.read<GameState>().t.rentForDays(days!, hours: hours),
-              style: theme.textTheme.labelSmall?.copyWith(
-                color: AppTheme.goldBright.withValues(alpha: 0.75),
-                fontWeight: FontWeight.w600,
-                fontSize: 8,
-                height: 1.15,
-              ),
-            ),
-        ],
-      ),
+    final t = context.read<GameState>().t;
+    final price = formatChips(cost);
+    final (IconData? wallet, Color? ink) = switch (currency) {
+      PictureCurrency.diamond => (Icons.diamond, _diamondInk),
+      PictureCurrency.hammer => (Icons.hardware, _hammerInk),
+      _ => (null, null),
+    };
+    return ShelfBadge(
+      kind: ShelfBadgeKind.locked,
+      label: price,
+      wallet: wallet,
+      walletInk: ink,
+      // "Unlock, 30 hammers": the price in its wallet's word, since the
+      // glyph beside the figure says nothing to a screen reader.
+      semanticsLabel:
+          '${t.unlock}, '
+          '${t.priceIn(currency, currency == PictureCurrency.hammer ? '$cost' : price)}',
     );
   }
 }
