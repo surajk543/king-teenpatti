@@ -796,6 +796,12 @@ class Strings {
   // --- quick messages: set lines a player sends from the table's rail
   String get quickMessagesTitle => _('quickMessagesTitle');
   String get quickMessagesTip => _('quickMessagesTip');
+  String get quickReorderHint => _('quickReorderHint');
+  String get quickAddMessage => _('quickAddMessage');
+  String get quickCustomHint => _('quickCustomHint');
+  String get quickCustomDuplicate => _('quickCustomDuplicate');
+  String get quickCustomFull => _('quickCustomFull');
+  String get quickDeleteMessage => _('quickDeleteMessage');
   String get quickPlayBlind => _('quickPlayBlind');
   String get quickPlayFast => _('quickPlayFast');
   String get quickHowToWin => _('quickHowToWin');
@@ -1406,6 +1412,12 @@ class Strings {
       // ten lines below, so this wording is ours and free to change.
       'quickMessagesTitle': 'Quick messages',
       'quickMessagesTip': 'Send a quick message',
+      'quickReorderHint': 'Hold and drag to reorder',
+      'quickAddMessage': 'Add message',
+      'quickCustomHint': 'Type your message',
+      'quickCustomDuplicate': 'That message is already in your list.',
+      'quickCustomFull': 'You can save up to 10 messages of your own.',
+      'quickDeleteMessage': 'Delete message',
       // The owner's wording, capitals and apostrophes as given.
       'quickPlayBlind': 'Please Play Blind.',
       'quickPlayFast': 'Please Play fast.',
@@ -2003,6 +2015,12 @@ class Strings {
       'tableMenu': 'टेबल मेनू',
       'quickMessagesTitle': 'झटपट संदेश',
       'quickMessagesTip': 'झटपट संदेश भेजें',
+      'quickReorderHint': 'क्रम बदलने के लिए दबाकर खींचें',
+      'quickAddMessage': 'संदेश जोड़ें',
+      'quickCustomHint': 'अपना संदेश लिखें',
+      'quickCustomDuplicate': 'यह संदेश पहले से आपकी सूची में है।',
+      'quickCustomFull': 'आप अपने 10 संदेश तक सहेज सकते हैं।',
+      'quickDeleteMessage': 'संदेश हटाएँ',
       'quickPlayBlind': 'कृपया ब्लाइंड खेलें।',
       'quickPlayFast': 'कृपया जल्दी खेलें।',
       'quickHowToWin': 'ऐसे जीतते हैं।',
@@ -2588,6 +2606,12 @@ class Strings {
       'tableMenu': 'টেবিল মেনু',
       'quickMessagesTitle': 'দ্রুত বার্তা',
       'quickMessagesTip': 'দ্রুত বার্তা পাঠান',
+      'quickReorderHint': 'ক্রম বদলাতে চেপে ধরে টানুন',
+      'quickAddMessage': 'বার্তা যোগ করুন',
+      'quickCustomHint': 'আপনার বার্তা লিখুন',
+      'quickCustomDuplicate': 'এই বার্তাটি আগে থেকেই আপনার তালিকায় আছে।',
+      'quickCustomFull': 'আপনি নিজের 10টি পর্যন্ত বার্তা সেভ করতে পারেন।',
+      'quickDeleteMessage': 'বার্তা মুছুন',
       'quickPlayBlind': 'দয়া করে ব্লাইন্ড খেলুন।',
       'quickPlayFast': 'দয়া করে তাড়াতাড়ি খেলুন।',
       'quickHowToWin': 'এভাবেই জিততে হয়।',
@@ -3223,6 +3247,12 @@ class Strings {
       'tableMenu': 'ટેબલ મેનૂ',
       'quickMessagesTitle': 'ઝટપટ સંદેશા',
       'quickMessagesTip': 'ઝટપટ સંદેશો મોકલો',
+      'quickReorderHint': 'ક્રમ બદલવા દબાવીને ખેંચો',
+      'quickAddMessage': 'સંદેશ ઉમેરો',
+      'quickCustomHint': 'તમારો સંદેશ લખો',
+      'quickCustomDuplicate': 'આ સંદેશ પહેલેથી તમારી યાદીમાં છે.',
+      'quickCustomFull': 'તમે તમારા 10 સંદેશા સુધી સાચવી શકો છો.',
+      'quickDeleteMessage': 'સંદેશ કાઢી નાખો',
       'quickPlayBlind': 'કૃપા કરીને બ્લાઇન્ડ રમો.',
       'quickPlayFast': 'કૃપા કરીને ઝડપથી રમો.',
       'quickHowToWin': 'આમ જ જીતાય છે.',
@@ -3809,6 +3839,12 @@ class Strings {
       'tableMenu': 'ਟੇਬਲ ਮੀਨੂ',
       'quickMessagesTitle': 'ਝਟਪਟ ਸੁਨੇਹੇ',
       'quickMessagesTip': 'ਝਟਪਟ ਸੁਨੇਹਾ ਭੇਜੋ',
+      'quickReorderHint': 'ਕ੍ਰਮ ਬਦਲਣ ਲਈ ਦਬਾ ਕੇ ਖਿੱਚੋ',
+      'quickAddMessage': 'ਸੁਨੇਹਾ ਜੋੜੋ',
+      'quickCustomHint': 'ਆਪਣਾ ਸੁਨੇਹਾ ਲਿਖੋ',
+      'quickCustomDuplicate': 'ਇਹ ਸੁਨੇਹਾ ਪਹਿਲਾਂ ਹੀ ਤੁਹਾਡੀ ਸੂਚੀ ਵਿੱਚ ਹੈ।',
+      'quickCustomFull': 'ਤੁਸੀਂ ਆਪਣੇ 10 ਸੁਨੇਹੇ ਤੱਕ ਸੰਭਾਲ ਸਕਦੇ ਹੋ।',
+      'quickDeleteMessage': 'ਸੁਨੇਹਾ ਮਿਟਾਓ',
       'quickPlayBlind': 'ਕਿਰਪਾ ਕਰਕੇ ਬਲਾਈਂਡ ਖੇਡੋ।',
       'quickPlayFast': 'ਕਿਰਪਾ ਕਰਕੇ ਜਲਦੀ ਖੇਡੋ।',
       'quickHowToWin': 'ਇੰਝ ਜਿੱਤੀਦਾ ਹੈ।',
