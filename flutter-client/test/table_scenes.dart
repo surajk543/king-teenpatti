@@ -537,7 +537,38 @@ final tableScenes = <TableScene>[
     '22-opponent-turn-variation',
     (s) => s.handleState(variationTurnRoom()),
   ),
+  // The seat ring (25 Sep 2026): a table of two, three and four places, every
+  // place taken, the player at the far end on turn. Five places is every
+  // scene above.
+  for (final places in const [2, 3, 4])
+    TableScene('${22 + places - 1}-$places-places', (s) {
+      s.config = s.config.copyWith(maxPlayers: places);
+      s.handleState(placesRoom(places));
+    }),
 ];
+
+/// A seen hand at a table of [places] places, every place taken but [empty],
+/// the viewer looking at their cards and the last seat round the table on
+/// turn.
+RoomState placesRoom(int places, {List<int> empty = const []}) => _room(
+  category: 'seen',
+  maxPot: 2000000,
+  turnSeat: places - 1,
+  seats: [
+    for (var i = 0; i < places; i++)
+      if (empty.contains(i))
+        {'seatIndex': i, 'status': 'empty', 'cardCount': 0}
+      else
+        _seat(
+          i,
+          chips: [245000, 1820000, 96000, 12500000, 530000][i],
+          blind: i.isOdd,
+          lastBet: i.isOdd ? 400 : 800,
+          contributed: [2600, 1400, 2600, 1800, 3400][i],
+        ),
+  ],
+  you: _you(blind: false, cards: const ['As', 'Kd', 'Qh'], blindMovesLeft: 0),
+);
 
 /// Somebody else's turn at a seen table: every stack public, the viewer's own
 /// cards face up, nothing on the console to press.

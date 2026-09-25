@@ -28,6 +28,7 @@ import '../widgets/poker_chip.dart';
 import '../widgets/pot_flight.dart';
 import '../widgets/premium_surface.dart';
 import '../widgets/seat_pod.dart';
+import '../widgets/seat_ring.dart';
 import '../widgets/table_chrome.dart';
 import '../widgets/variation_prompt.dart';
 import '../widgets/wild_transform.dart';
@@ -527,33 +528,28 @@ Future<void> _offerMissiles(BuildContext context, GameState state) async {
 class _Felt extends StatefulWidget {
   const _Felt();
 
-  /// Where each seat sits on the felt, as a fraction of it, in view order:
-  /// the viewer at the bottom, then clockwise from their left.
-  /// A seat's column is pod, then cards, then its bet chip — about half the
-  /// felt's height in all — so the top pair sit well clear of the rim or their
-  /// names are clipped off by it.
+  /// Where each seat sits on the felt: the [SeatRing] for this table's number
+  /// of places, laid round the casino table the felt is drawing (owner's
+  /// table polish brief, 25 Sep 2026: "a responsive seat-positioning system
+  /// based on the table bounds"). A pure function of the seat count, the
+  /// table and the pod's width — never of who is sitting where, so a player
+  /// joining or leaving moves nobody.
   ///
-  /// The columns also have to clear each OTHER sideways. The viewer's column
-  /// is reversed, so its status line sits above their pod — at very nearly the
-  /// height the top pair's "in pot" line sits below theirs. With the top-left
-  /// seat at 0.260 and the viewer at 0.335 those two lines were 0.075 of the
-  /// width apart inside columns 0.163 wide, and they ran together into one
-  /// unreadable sentence ("in pot 2,200 • Pack"). Widened on 10 Sep 2026, and
-  /// there is room to spread now: with the cloth gone nothing clips a pod for
-  /// reaching past where the oval used to be.
-  ///
-  /// The viewer sits at 0.265 rather than centred because their fanned hand is
-  /// drawn to the RIGHT of their pod, and the key cluster now occupies the
-  /// bottom-right corner. Those two collided at 0.375 — the plus key ended up
-  /// underneath the third card — so the whole column moved left until the hand
-  /// clears the cluster with room to spare. Their dy moved 0.28 -> 0.335 on 10 Sep 2026
-  /// when the pods grew. The anchor is the column's MIDDLE, so a taller column
-  /// hangs further above it — and the column's height is not fixed: a seat
-  /// showing a revealed hand carries its hand name, its badge and its pot line
-  /// as well, which is why the winner's pod was the one losing its top edge
-  /// while the seat beside it at the same dy was fine. The figure has to clear
-  /// the tallest state a column can reach, not the common one.
-  static const List<Offset> _places = seatPlaces;
+  /// What the places have to clear is recorded on [SeatRing]; what they were
+  /// tuned against before there was a ring, and still hold to, is: the upper
+  /// pair's "In Pot" lines and the viewer's reversed status line running
+  /// together when the two columns stood 0.075 of the width apart (widened on
+  /// 10 Sep 2026); the viewer's hand, fanned to the right of their pod,
+  /// running under the key cluster when the viewer stood at 0.375; and a
+  /// column hung by its MIDDLE growing both ways, so the height it has to
+  /// clear is the tallest state it can reach (a revealed hand), not the common
+  /// one.
+  static SeatRing _ring(GameState state, Size screen, double w, double h) =>
+      SeatRing.forFelt(
+        seats: state.config.maxPlayers,
+        screen: screen,
+        felt: Size(w, h),
+      );
 
   /// Where the middle of the pot is, as a fraction of the felt's height.
   ///
@@ -590,6 +586,7 @@ class _Felt extends StatefulWidget {
   /// bottom, and that one stands on the floor rather than being centred.
   static Offset _seatCentre(
     GameState state,
+    Size screen,
     int seatIndex,
     double w,
     double h,
@@ -598,10 +595,7 @@ class _Felt extends StatefulWidget {
     final total = state.config.maxPlayers == 0 ? 5 : state.config.maxPlayers;
     final mine = state.room?.you?.seatIndex ?? 0;
     final view = (seatIndex - mine + total * 2) % total;
-
-    if (view == 0) return Offset(_places[0].dx * w, h * 0.84);
-    final place = _places[view % _places.length];
-    return Offset(place.dx * w, place.dy * h);
+    return _ring(state, screen, w, h).centreOf(view, floorY: h * 0.84);
   }
 
   @override
@@ -611,24 +605,30 @@ class _Felt extends StatefulWidget {
 /// The felt's state: a Force Sideshow's hammer, a missile volley, and where
 /// the pods they fly between actually stand.
 class _FeltState extends State<_Felt> with TickerProviderStateMixin {
-  static const _places = _Felt._places;
   static const _potDy = _Felt._potDy;
   static const _statusDy = _Felt._statusDy;
   static const _tagDy = _Felt._tagDy;
-  static Offset _seatCentre(
+  Offset _seatCentre(
     GameState state,
     int seatIndex,
     double w,
     double h,
     double podW,
-  ) => _Felt._seatCentre(state, seatIndex, w, h, podW);
+  ) => _Felt._seatCentre(
+    state,
+    MediaQuery.sizeOf(context),
+    seatIndex,
+    w,
+    h,
+    podW,
+  );
 
   /// One key per place, naming that place's pod. A column's middle is known
-  /// from [_places], but where the pod sits in it depends on everything under
-  /// it — cards, a hand name, a bet — so the hammer is aimed at the pod as it
-  /// was actually laid out, not at a guess.
+  /// from the [SeatRing], but where the pod sits in it depends on everything
+  /// under it — cards, a hand name, a bet — so the hammer is aimed at the pod
+  /// as it was actually laid out, not at a guess.
   final List<GlobalKey> _podKeys = List.generate(
-    _Felt._places.length,
+    SeatRing.maxSeats,
     (i) => GlobalKey(debugLabel: 'pod $i'),
   );
 
@@ -904,7 +904,17 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
           final podW = Dim.podW(w, h);
           final handH = Dim.handH(h);
 
-          Widget pod(int viewIndex) {
+          // The table (owner's brief, 24 Sep 2026: "a large oval/rounded
+          // casino table surface behind the gameplay elements"), laid out from
+          // the LayoutBuilder's box, and the seats round it: the ring for this
+          // table's number of places (SeatRing), from the same box.
+          final table = TableGeometry.of(Size(w, h));
+          final ring = _Felt._ring(state, MediaQuery.sizeOf(context), w, h);
+          final me = ring.spots.first;
+
+          Widget pod(SeatSpot spot) {
+            final viewIndex = spot.view;
+            final angle = spot.angle;
             final seated = viewIndex < seats.length ? seats[viewIndex] : null;
             // A Force Sideshow's loser has already been packed by the server
             // when the hammer sets off; their pod folds when it lands. A
@@ -955,14 +965,18 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
                   reveal?.handName ??
                   (wonSideshow(peek?.userId) ? peek?.handName : null),
               seat: s,
-              // The orb leaks towards open felt: away from the rail on the left
-              // seat, off the top edge for the top two, and away from the
-              // screen edge on the right seat. The viewer's stays inside their
-              // glass — the missed-turns plate and their own cards leave it
-              // nowhere to go (on TP_Small it lay under the plate).
+              // The orb leaks towards open felt: inwards from a seat at either
+              // end of the table, outwards off the top edge from the seats
+              // between. The viewer's stays inside their glass — the
+              // missed-turns plate and their own cards leave it nowhere to go
+              // (on TP_Small it lay under the plate).
               orbCorner: viewIndex == 0
                   ? OrbCorner.contained
-                  : viewIndex.isOdd
+                  : angle < 210
+                  ? OrbCorner.topRight
+                  : angle <= 270
+                  ? OrbCorner.topLeft
+                  : angle <= 330
                   ? OrbCorner.topRight
                   : OrbCorner.topLeft,
               isMe: s?.userId != null && s!.userId == state.user?.id,
@@ -988,14 +1002,18 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
                   : state.saidRecently[s!.userId]?.text,
               // A bubble opens towards the middle of the table: seats on the
               // left speak to the right, seats on the right to the left, and
-              // the viewer's own words go up over their pod.
+              // the viewer's own words go up over their pod. The head seat's
+              // opens over its own cards, to its right.
               bubbleSide: viewIndex == 0
                   ? BubbleSide.above
-                  : viewIndex <= 2
+                  : angle <= 270
                   ? BubbleSide.right
                   : BubbleSide.left,
               // The bottom seat stacks upwards, or its chip runs off the felt.
               reversed: viewIndex == 0,
+              // The head seat lays its cards and bet beside its pod, so the
+              // pot keeps the middle of the table (SeatSpot.head).
+              beside: spot.head,
               podKey: viewIndex < _podKeys.length ? _podKeys[viewIndex] : null,
               impact: _flight?.targetView == viewIndex
                   ? _hammer
@@ -1006,15 +1024,15 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
           // Positioned by centre, so a seat stays put as its own column grows
           // and shrinks with the hand — but never past either edge, which is
           // what clipped the outermost seat on a narrow screen.
-          Widget at(Offset place, Widget child, {double? width}) {
+          Widget atPoint(Offset point, Widget child, {double? width}) {
             final box = width ?? podW;
-            final left = (place.dx * w - box / 2)
+            final left = (point.dx - box / 2)
                 .clamp(0.0, math.max(0.0, w - box))
                 .toDouble();
 
             return Positioned(
               left: left,
-              top: place.dy * h,
+              top: point.dy,
               width: box,
               child: FractionalTranslation(
                 translation: const Offset(0, -0.5),
@@ -1023,17 +1041,25 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
             );
           }
 
+          Widget at(Offset place, Widget child, {double? width}) => atPoint(
+            Offset(place.dx * w, place.dy * h),
+            child,
+            width: width,
+          );
+
           final potCentre = Offset(0.5 * w, _potDy * h);
           Offset seatCentre(int seatIndex) =>
               _seatCentre(state, seatIndex, w, h, podW);
 
-          // The table (owner's brief, 24 Sep 2026: "a large oval/rounded
-          // casino table surface behind the gameplay elements"). Nothing on
-          // the felt moved for it: every position in this Stack is still
-          // computed from the LayoutBuilder's box, and the table is laid out
-          // from the same box to meet the seats where they already were
-          // (TableGeometry).
-          final table = TableGeometry.of(Size(w, h));
+          // The category tag over the far rail, or beside the head seat's pod
+          // when a two- or four-place table seats somebody at the head.
+          final tagSlot = ring.tagSlot(width: w * 0.30, centreY: _tagDy * h);
+          // The waiting line under it, and under a head seat's pod when there
+          // is one: its two-line notices (who is choosing) need the room.
+          final headPod = ring.headPod;
+          final statusY = headPod == null
+              ? _statusDy * h
+              : math.max(_statusDy * h, headPod.bottom + Space.sm + 20);
 
           return Stack(
             key: _stageKey,
@@ -1057,7 +1083,7 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
                 child: TableAmbientEffects(
                   geometry: table,
                   yourTurn: state.myTurn && room.state == TableState.betting,
-                  viewerX: _places[0].dx * w + podW * 0.7,
+                  viewerX: me.anchor.dx + podW * 0.7,
                 ),
               ),
               // Every bet is seen to travel: a chip leaves the seat that made
@@ -1108,10 +1134,14 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
               // speech bubble or bet chip is a moment that matters more
               // than the tag or the pot label it might briefly cross, so
               // the seats paint on top.
-              at(
-                const Offset(0.5, _tagDy),
-                _CategoryTag(room: room),
-                width: w * 0.30,
+              Positioned(
+                left: tagSlot.left,
+                top: tagSlot.center.dy,
+                width: tagSlot.width,
+                child: FractionalTranslation(
+                  translation: const Offset(0, -0.5),
+                  child: _CategoryTag(room: room),
+                ),
               ),
               // Narrower than the tag above it, and narrower again since the
               // cloth went: with no table under it the plinth is the largest
@@ -1129,8 +1159,8 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
                 ),
                 width: w * 0.20,
               ),
-              at(
-                const Offset(0.5, _statusDy),
+              atPoint(
+                Offset(0.5 * w, statusY),
                 _Status(room: room),
                 // Narrower than it looks like it needs to be: at this height
                 // the line sits between the two top seats, whose pods paint
@@ -1139,7 +1169,24 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
                 width: w * 0.28,
               ),
 
-              for (var i = 1; i < _places.length; i++) at(_places[i], pod(i)),
+              // Every place round the rim, each column hung by its middle from
+              // the ring — and the head seat, if the table has one, by the top
+              // of its pod, its cards and bet beside it.
+              for (final spot in ring.rim)
+                if (spot.head)
+                  Positioned(
+                    left: ring.headLeft,
+                    top: spot.anchor.dy,
+                    width: ring.headUnitWidth,
+                    // Loose inside the unit, so an empty chair is a pod wide
+                    // and stands where the pod would.
+                    child: Align(
+                      alignment: Alignment.topLeft,
+                      child: pod(spot),
+                    ),
+                  )
+                else
+                  atPoint(spot.anchor, pod(spot)),
 
               // The viewer's pod and hand stand on the floor of the table
               // rather than being centred on a point: their columns are
@@ -1147,10 +1194,10 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
               // rim and clipped by it. A shared bottom line keeps them inside
               // and flush with the edge.
               Positioned(
-                left: _places[0].dx * w - podW / 2,
-                bottom: h * 0.012,
+                left: me.anchor.dx - podW / 2,
+                bottom: h - me.anchor.dy,
                 width: podW,
-                child: pod(0),
+                child: pod(me),
               ),
               // The viewer's own badge and total ride over their cards rather
               // than under their pod: the pod stands on the floor, so a stack
@@ -1162,8 +1209,8 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
               // width the cards happen to take — three cards, or two after a
               // sideshow — instead of being pinned to their left edge.
               Positioned(
-                left: _places[0].dx * w + podW / 2 + Space.md,
-                bottom: h * 0.012,
+                left: me.anchor.dx + podW / 2 + Space.md,
+                bottom: h - me.anchor.dy,
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -1421,17 +1468,18 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
 }
 
 /// Where a notice may stand at the table, in screen coordinates: the open felt
-/// between the two top seats, under the category tag and over the pot.
+/// between the seats nearest the head of the table, under the category tag
+/// (and under the head seat's pod, when a seat has the head) and over the pot.
 ///
 /// The foot of the screen is the viewer's own pod, hand and keys, and a band
 /// 40% of the width over the pot ran across the top seats' card fans and their
 /// SEEN labels, hiding who had looked. Every seat's column is exactly a pod
-/// wide and placed from [_Felt._places], so the gap between the top pair is
-/// worked out here from the numbers [_Felt] lays them out with rather than
+/// wide and placed by the [SeatRing], so the gap between the top pair is
+/// worked out here from the ring [_Felt] lays them out with rather than
 /// guessed as a share of the screen: about 214dp wide on a Pixel 7 Pro, 150 on
-/// a 640dp phone and 370 on a tablet. Nothing is drawn there during a hand;
-/// between hands the waiting line stands in it, and a notice may cover that
-/// for the moment it shows.
+/// a 640dp phone and 370 on a tablet, at five places. Nothing is drawn there
+/// during a hand; between hands the waiting line stands in it, and a notice
+/// may cover that for the moment it shows.
 Rect tableNoticeArea(BuildContext context) {
   final size = MediaQuery.sizeOf(context);
   final safe = MediaQuery.paddingOf(context);
@@ -1446,12 +1494,27 @@ Rect tableNoticeArea(BuildContext context) {
   final w = size.width - safe.right - pad - feltLeft;
   final h = size.height - safe.bottom - feltTop;
   final podW = Dim.podW(w, h);
+  final ring = SeatRing.forFelt(
+    seats: context.read<GameState>().config.maxPlayers,
+    screen: size,
+    felt: Size(w, h),
+  );
 
-  // A column's left edge, clamped inside the felt exactly as _Felt.at() does.
-  double columnLeft(Offset place) =>
-      (place.dx * w - podW / 2).clamp(0.0, math.max(0.0, w - podW)).toDouble();
-  final left = feltLeft + columnLeft(_Felt._places[2]) + podW + Space.md;
-  final right = feltLeft + columnLeft(_Felt._places[3]) - Space.md;
+  // Between the columns nearest the head on either side — each a pod wide
+  // and centred on its place, as _Felt lays them — or the felt's own sides
+  // when no seat stands on that side of the head.
+  var left = podW / 2;
+  var right = w - podW / 2;
+  for (final spot in ring.rim.where((s) => !s.head)) {
+    final columnLeft = spot.anchor.dx - podW / 2;
+    if (spot.angle < 270) {
+      left = math.max(left, columnLeft + podW);
+    } else {
+      right = math.min(right, columnLeft);
+    }
+  }
+  left += feltLeft + Space.md;
+  right += feltLeft - Space.md;
 
   // The tag and the pot are each one line of type on a plate: the line, the
   // plate's padding above and below it, and its hairline.
@@ -1459,8 +1522,11 @@ Rect tableNoticeArea(BuildContext context) {
       scaler.scale(style.fontSize ?? 14) * (style.height ?? 1.3) +
       2 * Space.xs +
       2 * Dim.hairline;
-  final top =
-      feltTop + _Felt._tagDy * h + plate(TableType.boot(theme)) / 2 + Space.sm;
+  final headPod = ring.headPod;
+  final top = math.max(
+    feltTop + _Felt._tagDy * h + plate(TableType.boot(theme)) / 2 + Space.sm,
+    headPod == null ? 0.0 : feltTop + headPod.bottom + Space.sm,
+  );
   final bottom =
       feltTop + _Felt._potDy * h - plate(TableType.pot(theme)) / 2 - Space.sm;
 

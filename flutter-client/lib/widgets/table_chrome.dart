@@ -18,6 +18,7 @@ import 'glass_panels.dart';
 import 'picture_shelf.dart';
 import 'premium_surface.dart';
 import 'rules_sheet.dart';
+import 'seat_ring.dart';
 import 'table_ground.dart';
 
 /// The chrome every table screen shares — the Teen Patti felt and the poker
@@ -27,9 +28,11 @@ import 'table_ground.dart';
 /// table_screen.dart unchanged when the poker family arrived, so the two
 /// screens are one room with different games on the cloth.
 ///
-/// Where each seat sits on the felt, as a fraction of it, in view order: the
-/// viewer at the bottom, then clockwise from their left. The felt's own copy
-/// (`_Felt._places`) is this list; the wallet measures its corner from it.
+/// Where each seat sits on the poker felt, as a fraction of it, in view order:
+/// the viewer at the bottom, then clockwise from their left. The Teen Patti
+/// felt lays its seats round its casino table with [SeatRing] instead (25 Sep
+/// 2026), whose five places are these to within 2dp; the poker felt has no
+/// table and keeps these five.
 const List<Offset> seatPlaces = [
   Offset(0.265, 0.00), // you — x only; the pair below sit on the floor
   Offset(0.055, 0.44), // left
@@ -90,17 +93,19 @@ class TableWallet extends StatelessWidget {
   Widget build(BuildContext context) {
     // `select`, not `watch`: the counts change when a hammer is spent or a
     // pack lands, never with the reward ticker. A record compares by value.
-    final (diamonds, hammers, missiles, lang) = context
-        .select<GameState, (int, int, int, AppLang)>(
+    final (diamonds, hammers, missiles, lang, seats) = context
+        .select<GameState, (int, int, int, AppLang, int)>(
           (s) => (
             s.user?.diamond ?? 0,
             s.user?.hammer ?? 0,
             s.user?.missile ?? 0,
             s.lang,
+            // The poker felt keeps its own five places (seatPlaces).
+            s.room?.isPoker ?? false ? SeatRing.maxSeats : s.config.maxPlayers,
           ),
         );
     final width = MediaQuery.sizeOf(context).width;
-    final room = tableWalletRoom(context);
+    final room = tableWalletRoom(context, seats: seats);
     // Three counts on one line fit a tablet and most phones. Where that line
     // would have to shrink past [_walletLineScale] to fit the corner — a
     // 640dp phone — the missiles take a second line under the other two, and
@@ -183,11 +188,15 @@ class TopCorner extends StatelessWidget {
 const double _walletLineScale = 0.85;
 
 /// How wide the table's wallet may be: from the felt's right edge back to the
-/// top-right seat's pod, less the sixth of a pod its orb spills out of that
-/// corner and a little air. Worked out from the numbers [_Felt] lays the seats
-/// out with, the way [tableNoticeArea] finds the notices' gap — about 95dp at
-/// 640x360, 144 at 891x411 and 227 at 1280x800.
-double tableWalletRoom(BuildContext context) {
+/// seat that stands under the top-right corner — the upper right-hand seat
+/// round the rim, or the head seat's cards beside its pod — less the sixth of
+/// a pod its orb spills out of that corner and a little air. Worked out from
+/// the [SeatRing] the felt lays the [seats] out with, the way
+/// [tableNoticeArea] finds the notices' gap — about 95dp at 640x360, 144 at
+/// 891x411 and 227 at 1280x800, at five places. A seat at the table's right
+/// END stands below the corner and does not count; with nobody under the
+/// corner the wallet may take half the felt.
+double tableWalletRoom(BuildContext context, {int seats = SeatRing.maxSeats}) {
   final size = MediaQuery.sizeOf(context);
   final safe = MediaQuery.paddingOf(context);
   final pad = Dim.feltPad(size.width);
@@ -196,14 +205,18 @@ double tableWalletRoom(BuildContext context) {
   final w = size.width - safe.right - pad - feltLeft;
   final h = size.height - safe.bottom - feltTop;
   final podW = Dim.podW(w, h);
+  final ring = SeatRing.forFelt(seats: seats, screen: size, felt: Size(w, h));
 
-  final topRight = seatPlaces[3];
-  final podLeft = (topRight.dx * w - podW / 2)
-      .clamp(0.0, math.max(0.0, w - podW))
-      .toDouble();
-  final clear = feltLeft + podLeft + podW + podW / 6 + Space.xs;
+  var clear = w / 2;
+  for (final spot in ring.rim) {
+    if (spot.head) {
+      clear = math.max(clear, ring.headLeft + ring.headUnitWidth + Space.xs);
+    } else if (spot.angle > 270 && spot.angle < 360) {
+      clear = math.max(clear, spot.anchor.dx + podW / 2 + podW / 6 + Space.xs);
+    }
+  }
   final right = size.width - safe.right - pad;
-  return math.max(Dim.minTouch, right - clear);
+  return math.max(Dim.minTouch, right - (feltLeft + clear));
 }
 
 /// Said over the table while the connection is down (QA PIX-2, 14 Sep 2026).

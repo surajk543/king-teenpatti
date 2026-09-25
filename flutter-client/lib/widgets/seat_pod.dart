@@ -15,6 +15,7 @@ import 'playing_card.dart';
 import 'poker_chip.dart';
 import 'glass_orb.dart';
 import 'premium_surface.dart';
+import 'seat_ring.dart';
 import 'variation_prompt.dart';
 
 /// Every proportion in the pod, named once.
@@ -122,6 +123,7 @@ class SeatPod extends StatelessWidget {
     this.saying,
     this.bubbleSide = BubbleSide.above,
     this.reversed = false,
+    this.beside = false,
     this.orbCorner = OrbCorner.topLeft,
     this.podKey,
     this.impact,
@@ -210,6 +212,12 @@ class SeatPod extends StatelessWidget {
   /// Cards and the bet chip stack upwards instead of down. The seat at the
   /// bottom of the table needs this or its column runs off the felt.
   final bool reversed;
+
+  /// The seat at the head of the table ([SeatSpot.head]): its cards and its
+  /// bet stand BESIDE its pod, on its right, rather than under it, so the seat
+  /// is no taller than its pod and the pot keeps the middle of the table. The
+  /// seat is then [SeatRing.headUnitWidth] wide: two pods and the gap.
+  final bool beside;
 
   /// Which corner of the pod its colour spills out of (see [OrbCorner]).
   final OrbCorner orbCorner;
@@ -333,6 +341,35 @@ class SeatPod extends StatelessWidget {
     // foot of the column and grows up over it.
     final ordered = <Widget>[...column, ?bubble];
 
+    // The head seat: the pod on the left with its bubble hanging from it, and
+    // its cards and bet beside it, centred on the pod's height.
+    final Widget body = beside
+        ? Row(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              SizedBox(
+                width: width,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [column.first, ?bubble],
+                ),
+              ),
+              SizedBox(width: width * SeatRing.headGapShare),
+              SizedBox(
+                width: width,
+                child: Column(mainAxisSize: MainAxisSize.min, children: below),
+              ),
+            ],
+          )
+        : SizedBox(
+            width: width,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [...(reversed ? ordered.reversed.toList() : ordered)],
+            ),
+          );
+
     // The pod is the app's most expensive repeated object — a gradient, three
     // shadows, a ring and a turn clock, five times over a felt whose lamp
     // breathes continuously. Without this boundary all five re-rasterise on
@@ -369,13 +406,7 @@ class SeatPod extends StatelessWidget {
             : 1,
         duration: Motion.base,
         curve: Curves.easeOut,
-        child: SizedBox(
-          width: width,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [...(reversed ? ordered.reversed.toList() : ordered)],
-          ),
-        ),
+        child: body,
       ),
     );
   }
