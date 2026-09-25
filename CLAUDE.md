@@ -650,7 +650,9 @@ is decided by one of **seven** variations, chosen in the window §6.1 describes.
   natural card of the same hand (never a duplicate of one it holds; it MAY be a card another player holds — jokers are
   per hand), no two wilds for the same card, every candidate goes to the one `Evaluate`, the strongest wins. ≤ 50
   evaluations for one wild, 1,275 for two; three wilds are answered from a constant (a trail of aces) that a test holds
-  to the exhaustive search. The result keeps the player's REAL cards in `Cards`, names the wild ones in `Wild`, and takes
+  to the exhaustive search. Three wild cards are SHOWN as that trail too (`acesStoodFor`, 26 Sep 2026): a held ace stands for itself and the other
+  cards for aces the hand does not hold — handing out A♠ A♥ A♦ in seat order showed [4♠ 7♠ A♠] as [A♠ A♥ A♦], the 4♠ standing
+  for the A♠ the player held (`variation_standins_test.go`, all 560 hands of three AK47 cards; a deal the parity suite hit). The result keeps the player's REAL cards in `Cards`, names the wild ones in `Wild`, and takes
   `Category`/`Name`/`Score` from the hand they made.
 - **MUFLIS** `Compare(b, a)`; the ace stays high, so 5-3-2 off-suit is the best hand there is and A-A-A the worst.
   **AK47** every A, K, 4, 7. **JOKER** every card of the RANK of the turned-up card. **HUKAM** every card of its SUIT
