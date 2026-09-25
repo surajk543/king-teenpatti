@@ -38,6 +38,8 @@ const samples = args.samples
   : null;
 const OUT = args.out ?? path.basename(args.ramp).replace(/\.json$/, '') + '-report.html';
 const TITLE = args.title ?? `Ramp report — ${ramp.url ?? 'unknown server'}`;
+// --notes: an HTML fragment (the bottleneck and the reviewer's feedback) placed right under the header.
+const NOTES = args.notes ? fs.readFileSync(args.notes, 'utf8') : null;
 
 const stages = ramp.results ?? [];
 const hostByTarget = new Map((host?.stages ?? []).map((s) => [s.target, s]));
@@ -421,18 +423,29 @@ function sectionResourceTables() {
       ['Game % (sampler) mean / max', (h) => `${fmtPct(h.sampled?.gameplayCpuPercent?.mean)} / ${fmtPct(h.sampled?.gameplayCpuPercent?.max)}`],
       ['PostgreSQL % mean / max', (h) => `${fmtPct(h.database?.cpuPercentMean)} / ${fmtPct(h.database?.cpuPercentMax)}`],
       ['Redis % mean / max', (h) => `${fmtPct(h.redis?.cpuPercentMean)} / ${fmtPct(h.redis?.cpuPercentMax)}`],
+      ...(host.stages.some((s) => has(s.nginx?.cpuPercentMax)) ? [['nginx % mean / max', (h) => `${fmtPct(h.nginx?.cpuPercentMean)} / ${fmtPct(h.nginx?.cpuPercentMax)}`]] : []),
+      ...(host.stages.some((s) => has(s.host?.load1Max)) ? [['Load (1 min) mean / max', (h) => `${fmtAsIs(h.host?.load1Mean)} / ${fmtAsIs(h.host?.load1Max)}`]] : []),
     ], 'Host and per-core figures are the busy share of a core from node_exporter. Game cores is CPU seconds per wall second from the process\'s own metrics; the sampler columns are the process CPU as a share of one core from /proc, so PostgreSQL (many processes) can exceed 100%.'),
     resourceTable('RAM', [
       ['Host total', (h) => fmtMb(h.host?.memTotalMb)], ['Host used mean / max', (h) => `${fmtMb(h.host?.memUsedMbMean)} / ${fmtMb(h.host?.memUsedMbMax)}`], ['Host available min', (h) => fmtMb(h.host?.memAvailableMbMin)],
       ['Game RSS mean / max', (h) => `${fmtMb(h.gameServer?.rssMbMean)} / ${fmtMb(h.gameServer?.rssMbMax)}`], ['Game RSS max (/health)', (h, s) => fmtMb(s.host?.rssMbMax)], ['Game heap max (/health)', (h, s) => fmtMb(s.host?.heapUsedMbMax)],
     ], 'Host memory from node_exporter (used = total − available). The two /health columns are what the generator read from the server itself, for a cross-check against the exporter.'),
+    ...(host.stages.some((s) => s.disk) ? [resourceTable('Disk', [
+      ['Root used', (h) => has(h.disk?.rootUsedGb) ? `${fmtAsIs(h.disk.rootUsedGb)} of ${fmtAsIs(h.disk.rootTotalGb)} GB (${fmtPct(h.disk.rootUsedPercent)})` : '—'],
+      ['Write MB/s mean / max', (h) => `${fmtAsIs(h.disk?.writeMBpsMean)} / ${fmtAsIs(h.disk?.writeMBpsMax)}`],
+      ['Read MB/s mean / max', (h) => `${fmtAsIs(h.disk?.readMBpsMean)} / ${fmtAsIs(h.disk?.readMBpsMax)}`],
+      ['Write IOPS mean / max', (h) => `${fmtAsIs(h.disk?.writeIopsMean)} / ${fmtAsIs(h.disk?.writeIopsMax)}`],
+      ['Busy mean / max', (h) => `${fmtPct(h.disk?.utilPercentMean)} / ${fmtPct(h.disk?.utilPercentMax)}`],
+    ], 'The device from /proc/diskstats and the root filesystem from statvfs, every few seconds by the host sampler. Busy is the share of the window the device had a request in flight.')] : []),
     resourceTable('Go runtime', [
       ['Goroutines mean / max', (h) => `${fmtInt(h.gameServer?.goroutinesMean)} / ${fmtInt(h.gameServer?.goroutinesMax)}`], ['Goroutines max (/health)', (h, s) => fmtInt(s.host?.goroutinesMax)], ['OS threads max', (h) => fmtInt(h.gameServer?.threadsMax)],
       ['Sched latency p99 max (/health)', (h, s) => has(s.host?.loopLagP99MsMax) ? `${fmtAsIs(s.host.loopLagP99MsMax)} ms` : '—'], ['Sched latency max (/health)', (h, s) => has(s.host?.loopLagMaxMs) ? `${fmtAsIs(s.host.loopLagMaxMs)} ms` : '—'],
       ['Move processing p95 / p99', (h) => `${fmtMs(h.gameServer?.moveProcessingP95Ms)} / ${fmtMs(h.gameServer?.moveProcessingP99Ms)}`],
     ], 'Scheduler latency is Go\'s event-loop-lag analogue, as /health reports it. Move processing is server-side only — the time inside the table actor — which is why it sits far below the client-observed acknowledgements.'),
     resourceTable('Sockets', [
-      ['Mean / max', (h) => `${fmtInt(h.gameServer?.socketsMean)} / ${fmtInt(h.gameServer?.socketsMax)}`], ['Peak since server start', (h) => fmtInt(h.gameServer?.socketsPeakSinceStart)],
+      ['Mean / max', (h) => `${fmtInt(h.gameServer?.socketsMean)} / ${fmtInt(h.gameServer?.socketsMax)}`],
+      ...(host.stages.some((s) => has(s.gameServer?.fdsMax)) ? [['Game open fds max', (h) => fmtInt(h.gameServer?.fdsMax)]] : []),
+      ['Peak since server start', (h) => fmtInt(h.gameServer?.socketsPeakSinceStart)],
       ['Accepted in window', (h) => fmtInt(h.gameServer?.connectionsAccepted)], ['Disconnections in window', (h) => fmtInt(h.gameServer?.disconnections)],
       ['Players seated mean / max', (h) => `${fmtInt(h.gameServer?.playersSeatedMean)} / ${fmtInt(h.gameServer?.playersSeatedMax)}`], ['Tables mean (in hand / waiting)', (h) => `${fmtInt(h.gameServer?.tablesMean)} (${fmtInt(h.gameServer?.tablesInHandMean)} / ${fmtInt(h.gameServer?.tablesWaitingMean)})`],
     ], 'From the game server\'s own metrics over the hold window. Accepted and disconnections are the increase of the counters across the window — the stage\'s players connected before it, so accepted is small.'),
@@ -457,7 +470,10 @@ function sectionResourceTables() {
       ['nginx active max', (h) => fmtInt(h.nginx?.activeConnectionsMax)], ['nginx accepted in window', (h) => fmtInt(h.nginx?.accepted)],
     ], `Interface ${esc(host.stages[0]?.network?.iface ?? '?')} from node_exporter (15 s rate) and from the host sampler (5 s deltas), which is why the two pairs differ; nginx from its stub_status exporter.`),
   ];
-  return `<section><h2>Resources per stage</h2><p class="lede">Every figure is an aggregate over that stage's hold window, ${host.stages[0]?.window ? `${fmtInt(host.stages[0].window.seconds)} s` : ''} of Prometheus samples and sampler lines; a dash is a figure the host did not record.</p>${tables.join('')}</section>`;
+  const lede = host.sampledOnly
+    ? `Every figure is an aggregate over that stage's hold window${host.stages[0]?.window ? ` (${fmtInt(host.stages[0].window.seconds)} s)` : ''}. This host runs no Prometheus, so every host figure is the host sampler's — <code>loadtest/host-sampler.py</code> reading /proc, statvfs, the sockets table and pg_stat_activity every 5 s on the server — and the game process's are its own /health, polled by the generator. A dash is a figure only an exporter records (the game's own histograms, nginx's accepted count). Where a caption below names node_exporter, postgres_exporter, redis_exporter or the stub_status exporter, read "the host sampler"; nginx active is the ESTABLISHED sockets on port 443.`
+    : `Every figure is an aggregate over that stage's hold window, ${host.stages[0]?.window ? `${fmtInt(host.stages[0].window.seconds)} s` : ''} of Prometheus samples and sampler lines; a dash is a figure the host did not record.`;
+  return `<section><h2>Resources per stage</h2><p class="lede">${lede}</p>${tables.join('')}</section>`;
 }
 
 function sectionTimeSeries() {
@@ -506,6 +522,11 @@ function sectionMethodology() {
   </ul>
   </div>
 </section>`;
+}
+
+function sectionNotes() {
+  if (!NOTES) return '';
+  return `<section id="bottleneck"><h2>Bottleneck and feedback</h2>${NOTES}</section>`;
 }
 
 function footer() {
@@ -626,6 +647,7 @@ const html = `<!doctype html>
 <body>
 <div class="wrap">
 ${sectionHeader()}
+${sectionNotes()}
 ${sectionSummaryTable()}
 ${sectionStageCharts()}
 ${sectionResourceTables()}

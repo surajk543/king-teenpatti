@@ -1,0 +1,2288 @@
+{
+  "source": "loadtest/host-sampler.py (no Prometheus on this host)",
+  "sampledOnly": true,
+  "ramp": "/tmp/claude-1000/-home-suraj-Project-king-teenpatti/621ef529-9695-4dcf-9935-4a6be28fea55/scratchpad/prod-2026-09-26-ramp.json",
+  "collectedAt": "2026-09-25T20:40:04.268Z",
+  "stages": [
+    {
+      "target": 1000,
+      "window": {
+        "start": "2026-09-25T20:29:18.980Z",
+        "end": "2026-09-25T20:30:04.718Z",
+        "seconds": 47
+      },
+      "host": {
+        "cores": 8,
+        "cpuPerCorePercent": [
+          {
+            "core": 0,
+            "mean": 6.6,
+            "max": 7.6
+          },
+          {
+            "core": 1,
+            "mean": 9.7,
+            "max": 13.4
+          },
+          {
+            "core": 2,
+            "mean": 5.5,
+            "max": 8.2
+          },
+          {
+            "core": 3,
+            "mean": 5.8,
+            "max": 8.8
+          },
+          {
+            "core": 4,
+            "mean": 6.4,
+            "max": 8.6
+          },
+          {
+            "core": 5,
+            "mean": 5.6,
+            "max": 8.5
+          },
+          {
+            "core": 6,
+            "mean": 4.8,
+            "max": 6.4
+          },
+          {
+            "core": 7,
+            "mean": 5.2,
+            "max": 8.7
+          }
+        ],
+        "cpuTotalPercentMean": 6.2,
+        "cpuTotalPercentMax": 8.4,
+        "iowaitPercentMean": 0.6,
+        "memTotalMb": 15986,
+        "memUsedMbMean": 1957,
+        "memUsedMbMax": 1972,
+        "memAvailableMbMin": 14014,
+        "swapUsedMbMax": 0,
+        "load1Max": 0.12,
+        "load1Mean": 0.07
+      },
+      "gameServer": {
+        "rssMbMean": 172,
+        "rssMbMax": 175,
+        "cpuCoresMean": 0.33,
+        "cpuCoresMax": 0.43,
+        "goroutinesMax": 3223,
+        "goroutinesMean": null,
+        "threadsMax": null,
+        "socketsMean": 1000,
+        "socketsMax": 1000,
+        "socketsPeakSinceStart": null,
+        "connectionsAccepted": null,
+        "disconnections": null,
+        "playersSeatedMean": null,
+        "playersSeatedMax": 1000,
+        "tablesMean": 200,
+        "tablesInHandMean": 126,
+        "tablesInHandMax": 189,
+        "tablesWaitingMean": null,
+        "moveProcessingP95Ms": null,
+        "moveProcessingP99Ms": null,
+        "fdsMax": 1096
+      },
+      "database": {
+        "poolConnectionsMax": 50,
+        "txP95Ms": {},
+        "txP99Ms": {},
+        "txMeanMs": null,
+        "commitsPerSecMean": 145,
+        "transactionsPerSecMean": 145,
+        "transactionsPerSecMax": 496,
+        "rollbacksPerSecMean": 0,
+        "backendsMean": 51,
+        "backendsMax": 51,
+        "maxConnections": 100,
+        "activeBackendsMean": 1,
+        "activeBackendsMax": 1,
+        "idleInTxMax": 0,
+        "cpuPercentMean": 5.4,
+        "cpuPercentMax": 29.2,
+        "rssMbMax": 2417
+      },
+      "redis": {
+        "usedMemoryMbMean": 3.07,
+        "usedMemoryMbMax": 3.18,
+        "clientsMax": 41,
+        "commandsPerSecMean": 2708,
+        "commandsPerSecMax": 3091,
+        "serverLatencyMeanMs": null,
+        "gameOpP95Ms": null,
+        "gameOpP99Ms": null,
+        "gameOpMeanMs": null,
+        "gameOpsPerSecMean": null,
+        "clientLatencyMs": {
+          "avg": {
+            "mean": 0.02,
+            "max": 0.026,
+            "samples": 9
+          },
+          "p95": {
+            "mean": 0.029,
+            "max": 0.066,
+            "samples": 9
+          },
+          "max": {
+            "mean": 0.084,
+            "max": 0.139,
+            "samples": 9
+          }
+        },
+        "cpuPercentMean": 1.9,
+        "cpuPercentMax": 2.4
+      },
+      "network": {
+        "iface": "ens3",
+        "rxKBpsMean": 610,
+        "rxKBpsMax": 790.5,
+        "txKBpsMean": 8496.1,
+        "txKBpsMax": 11248.1
+      },
+      "nginx": {
+        "activeConnectionsMax": 1002,
+        "accepted": null,
+        "cpuPercentMean": 7.4,
+        "cpuPercentMax": 9,
+        "rssMbMax": 210
+      },
+      "disk": {
+        "rootTotalGb": 467.5,
+        "rootUsedGb": 7.04,
+        "rootUsedPercent": 1.5,
+        "readMBpsMean": 0,
+        "readMBpsMax": 0,
+        "writeMBpsMean": 1.115,
+        "writeMBpsMax": 4.026,
+        "writeIopsMean": 128.4,
+        "writeIopsMax": 157.4,
+        "utilPercentMean": 5.2,
+        "utilPercentMax": 6.1
+      },
+      "sampled": {
+        "samples": 9,
+        "postgresCpuPercent": {
+          "mean": 5.4,
+          "max": 29.2,
+          "samples": 9
+        },
+        "gameplayCpuPercent": {
+          "mean": 32.8,
+          "max": 43.4,
+          "samples": 9
+        },
+        "redisCpuPercent": {
+          "mean": 1.9,
+          "max": 2.4,
+          "samples": 9
+        },
+        "nginxCpuPercent": {
+          "mean": 7.4,
+          "max": 9,
+          "samples": 9
+        },
+        "hostCpuPercent": {
+          "mean": 6.2,
+          "max": 8.4,
+          "samples": 9
+        },
+        "redisClientLatencyMs": {
+          "avg": {
+            "mean": 0.02,
+            "max": 0.026,
+            "samples": 9
+          },
+          "p95": {
+            "mean": 0.029,
+            "max": 0.066,
+            "samples": 9
+          },
+          "max": {
+            "mean": 0.084,
+            "max": 0.139,
+            "samples": 9
+          }
+        },
+        "redisUsedMemoryMb": {
+          "mean": 3.07,
+          "max": 3.18,
+          "samples": 9
+        },
+        "redisOpsPerSec": {
+          "mean": 2708,
+          "max": 3091,
+          "samples": 9
+        },
+        "netRxKBps": {
+          "mean": 610,
+          "max": 790.5,
+          "samples": 9
+        },
+        "netTxKBps": {
+          "mean": 8496.1,
+          "max": 11248.1,
+          "samples": 9
+        }
+      }
+    },
+    {
+      "target": 2000,
+      "window": {
+        "start": "2026-09-25T20:30:08.791Z",
+        "end": "2026-09-25T20:30:54.532Z",
+        "seconds": 47
+      },
+      "host": {
+        "cores": 8,
+        "cpuPerCorePercent": [
+          {
+            "core": 0,
+            "mean": 15.3,
+            "max": 16.6
+          },
+          {
+            "core": 1,
+            "mean": 17.2,
+            "max": 18.9
+          },
+          {
+            "core": 2,
+            "mean": 10,
+            "max": 11.7
+          },
+          {
+            "core": 3,
+            "mean": 10.2,
+            "max": 12.2
+          },
+          {
+            "core": 4,
+            "mean": 13.2,
+            "max": 14.5
+          },
+          {
+            "core": 5,
+            "mean": 13.1,
+            "max": 14.5
+          },
+          {
+            "core": 6,
+            "mean": 10.3,
+            "max": 14
+          },
+          {
+            "core": 7,
+            "mean": 9.9,
+            "max": 12.5
+          }
+        ],
+        "cpuTotalPercentMean": 12.4,
+        "cpuTotalPercentMax": 14,
+        "iowaitPercentMean": 1.1,
+        "memTotalMb": 15986,
+        "memUsedMbMean": 2956,
+        "memUsedMbMax": 2967,
+        "memAvailableMbMin": 13019,
+        "swapUsedMbMax": 0,
+        "load1Max": 0.56,
+        "load1Mean": 0.45
+      },
+      "gameServer": {
+        "rssMbMean": 303,
+        "rssMbMax": 307,
+        "cpuCoresMean": 0.69,
+        "cpuCoresMax": 0.75,
+        "goroutinesMax": 6420,
+        "goroutinesMean": null,
+        "threadsMax": null,
+        "socketsMean": 1999,
+        "socketsMax": 1999,
+        "socketsPeakSinceStart": null,
+        "connectionsAccepted": null,
+        "disconnections": null,
+        "playersSeatedMean": null,
+        "playersSeatedMax": 1999,
+        "tablesMean": 400,
+        "tablesInHandMean": 262,
+        "tablesInHandMax": 321,
+        "tablesWaitingMean": null,
+        "moveProcessingP95Ms": null,
+        "moveProcessingP99Ms": null,
+        "fdsMax": 2097
+      },
+      "database": {
+        "poolConnectionsMax": 50,
+        "txP95Ms": {},
+        "txP99Ms": {},
+        "txMeanMs": null,
+        "commitsPerSecMean": 222,
+        "transactionsPerSecMean": 222,
+        "transactionsPerSecMax": 515,
+        "rollbacksPerSecMean": 0,
+        "backendsMean": 51,
+        "backendsMax": 51,
+        "maxConnections": 100,
+        "activeBackendsMean": 1,
+        "activeBackendsMax": 1,
+        "idleInTxMax": 1,
+        "cpuPercentMean": 7,
+        "cpuPercentMax": 23.8,
+        "rssMbMax": 3363
+      },
+      "redis": {
+        "usedMemoryMbMean": 4.93,
+        "usedMemoryMbMax": 5.12,
+        "clientsMax": 43,
+        "commandsPerSecMean": 5404,
+        "commandsPerSecMax": 5701,
+        "serverLatencyMeanMs": null,
+        "gameOpP95Ms": null,
+        "gameOpP99Ms": null,
+        "gameOpMeanMs": null,
+        "gameOpsPerSecMean": null,
+        "clientLatencyMs": {
+          "avg": {
+            "mean": 0.031,
+            "max": 0.053,
+            "samples": 9
+          },
+          "p95": {
+            "mean": 0.061,
+            "max": 0.118,
+            "samples": 9
+          },
+          "max": {
+            "mean": 0.154,
+            "max": 0.326,
+            "samples": 9
+          }
+        },
+        "cpuPercentMean": 3.7,
+        "cpuPercentMax": 4.6
+      },
+      "network": {
+        "iface": "ens3",
+        "rxKBpsMean": 1188.2,
+        "rxKBpsMax": 1384.1,
+        "txKBpsMean": 16885.6,
+        "txKBpsMax": 19478.5
+      },
+      "nginx": {
+        "activeConnectionsMax": 2000,
+        "accepted": null,
+        "cpuPercentMean": 14.3,
+        "cpuPercentMax": 15.4,
+        "rssMbMax": 281
+      },
+      "disk": {
+        "rootTotalGb": 467.5,
+        "rootUsedGb": 7.05,
+        "rootUsedPercent": 1.5,
+        "readMBpsMean": 0,
+        "readMBpsMax": 0,
+        "writeMBpsMean": 1.472,
+        "writeMBpsMax": 2.02,
+        "writeIopsMean": 253,
+        "writeIopsMax": 280.4,
+        "utilPercentMean": 11,
+        "utilPercentMax": 14.5
+      },
+      "sampled": {
+        "samples": 9,
+        "postgresCpuPercent": {
+          "mean": 7,
+          "max": 23.8,
+          "samples": 9
+        },
+        "gameplayCpuPercent": {
+          "mean": 68.8,
+          "max": 75.2,
+          "samples": 9
+        },
+        "redisCpuPercent": {
+          "mean": 3.7,
+          "max": 4.6,
+          "samples": 9
+        },
+        "nginxCpuPercent": {
+          "mean": 14.3,
+          "max": 15.4,
+          "samples": 9
+        },
+        "hostCpuPercent": {
+          "mean": 12.4,
+          "max": 14,
+          "samples": 9
+        },
+        "redisClientLatencyMs": {
+          "avg": {
+            "mean": 0.031,
+            "max": 0.053,
+            "samples": 9
+          },
+          "p95": {
+            "mean": 0.061,
+            "max": 0.118,
+            "samples": 9
+          },
+          "max": {
+            "mean": 0.154,
+            "max": 0.326,
+            "samples": 9
+          }
+        },
+        "redisUsedMemoryMb": {
+          "mean": 4.93,
+          "max": 5.12,
+          "samples": 9
+        },
+        "redisOpsPerSec": {
+          "mean": 5404,
+          "max": 5701,
+          "samples": 9
+        },
+        "netRxKBps": {
+          "mean": 1188.2,
+          "max": 1384.1,
+          "samples": 9
+        },
+        "netTxKBps": {
+          "mean": 16885.6,
+          "max": 19478.5,
+          "samples": 9
+        }
+      }
+    },
+    {
+      "target": 3000,
+      "window": {
+        "start": "2026-09-25T20:30:58.629Z",
+        "end": "2026-09-25T20:31:44.374Z",
+        "seconds": 47
+      },
+      "host": {
+        "cores": 8,
+        "cpuPerCorePercent": [
+          {
+            "core": 0,
+            "mean": 19.9,
+            "max": 22.9
+          },
+          {
+            "core": 1,
+            "mean": 24.2,
+            "max": 27.5
+          },
+          {
+            "core": 2,
+            "mean": 15.5,
+            "max": 17.6
+          },
+          {
+            "core": 3,
+            "mean": 13.7,
+            "max": 16.7
+          },
+          {
+            "core": 4,
+            "mean": 19.1,
+            "max": 21.3
+          },
+          {
+            "core": 5,
+            "mean": 16.7,
+            "max": 20.2
+          },
+          {
+            "core": 6,
+            "mean": 13.6,
+            "max": 16.3
+          },
+          {
+            "core": 7,
+            "mean": 14.7,
+            "max": 16.5
+          }
+        ],
+        "cpuTotalPercentMean": 17.2,
+        "cpuTotalPercentMax": 18.7,
+        "iowaitPercentMean": 1.5,
+        "memTotalMb": 15986,
+        "memUsedMbMean": 3967,
+        "memUsedMbMax": 3987,
+        "memAvailableMbMin": 11999,
+        "swapUsedMbMax": 0,
+        "load1Max": 2,
+        "load1Mean": 1.46
+      },
+      "gameServer": {
+        "rssMbMean": 443,
+        "rssMbMax": 448,
+        "cpuCoresMean": 0.96,
+        "cpuCoresMax": 1.05,
+        "goroutinesMax": 9620,
+        "goroutinesMean": null,
+        "threadsMax": null,
+        "socketsMean": 2999,
+        "socketsMax": 2999,
+        "socketsPeakSinceStart": null,
+        "connectionsAccepted": null,
+        "disconnections": null,
+        "playersSeatedMean": null,
+        "playersSeatedMax": 2993,
+        "tablesMean": 599,
+        "tablesInHandMean": 403,
+        "tablesInHandMax": 459,
+        "tablesWaitingMean": null,
+        "moveProcessingP95Ms": null,
+        "moveProcessingP99Ms": null,
+        "fdsMax": 3115
+      },
+      "database": {
+        "poolConnectionsMax": 50,
+        "txP95Ms": {},
+        "txP99Ms": {},
+        "txMeanMs": null,
+        "commitsPerSecMean": 248,
+        "transactionsPerSecMean": 248,
+        "transactionsPerSecMax": 678,
+        "rollbacksPerSecMean": 0,
+        "backendsMean": 51,
+        "backendsMax": 51,
+        "maxConnections": 100,
+        "activeBackendsMean": 1.2,
+        "activeBackendsMax": 2,
+        "idleInTxMax": 1,
+        "cpuPercentMean": 8.2,
+        "cpuPercentMax": 15,
+        "rssMbMax": 4408
+      },
+      "redis": {
+        "usedMemoryMbMean": 7.13,
+        "usedMemoryMbMax": 7.43,
+        "clientsMax": 61,
+        "commandsPerSecMean": 8201,
+        "commandsPerSecMax": 8712,
+        "serverLatencyMeanMs": null,
+        "gameOpP95Ms": null,
+        "gameOpP99Ms": null,
+        "gameOpMeanMs": null,
+        "gameOpsPerSecMean": null,
+        "clientLatencyMs": {
+          "avg": {
+            "mean": 0.025,
+            "max": 0.033,
+            "samples": 9
+          },
+          "p95": {
+            "mean": 0.034,
+            "max": 0.068,
+            "samples": 9
+          },
+          "max": {
+            "mean": 0.134,
+            "max": 0.305,
+            "samples": 9
+          }
+        },
+        "cpuPercentMean": 4.9,
+        "cpuPercentMax": 6
+      },
+      "network": {
+        "iface": "ens3",
+        "rxKBpsMean": 1781.5,
+        "rxKBpsMax": 1954.8,
+        "txKBpsMean": 25428.4,
+        "txKBpsMax": 27636.3
+      },
+      "nginx": {
+        "activeConnectionsMax": 3000,
+        "accepted": null,
+        "cpuPercentMean": 21,
+        "cpuPercentMax": 22.6,
+        "rssMbMax": 353
+      },
+      "disk": {
+        "rootTotalGb": 467.5,
+        "rootUsedGb": 7.09,
+        "rootUsedPercent": 1.5,
+        "readMBpsMean": 0,
+        "readMBpsMax": 0,
+        "writeMBpsMean": 3.023,
+        "writeMBpsMax": 5.36,
+        "writeIopsMean": 378,
+        "writeIopsMax": 410.6,
+        "utilPercentMean": 15.6,
+        "utilPercentMax": 17.3
+      },
+      "sampled": {
+        "samples": 9,
+        "postgresCpuPercent": {
+          "mean": 8.2,
+          "max": 15,
+          "samples": 9
+        },
+        "gameplayCpuPercent": {
+          "mean": 95.7,
+          "max": 104.6,
+          "samples": 9
+        },
+        "redisCpuPercent": {
+          "mean": 4.9,
+          "max": 6,
+          "samples": 9
+        },
+        "nginxCpuPercent": {
+          "mean": 21,
+          "max": 22.6,
+          "samples": 9
+        },
+        "hostCpuPercent": {
+          "mean": 17.2,
+          "max": 18.7,
+          "samples": 9
+        },
+        "redisClientLatencyMs": {
+          "avg": {
+            "mean": 0.025,
+            "max": 0.033,
+            "samples": 9
+          },
+          "p95": {
+            "mean": 0.034,
+            "max": 0.068,
+            "samples": 9
+          },
+          "max": {
+            "mean": 0.134,
+            "max": 0.305,
+            "samples": 9
+          }
+        },
+        "redisUsedMemoryMb": {
+          "mean": 7.13,
+          "max": 7.43,
+          "samples": 9
+        },
+        "redisOpsPerSec": {
+          "mean": 8201,
+          "max": 8712,
+          "samples": 9
+        },
+        "netRxKBps": {
+          "mean": 1781.5,
+          "max": 1954.8,
+          "samples": 9
+        },
+        "netTxKBps": {
+          "mean": 25428.4,
+          "max": 27636.3,
+          "samples": 9
+        }
+      }
+    },
+    {
+      "target": 4000,
+      "window": {
+        "start": "2026-09-25T20:31:48.569Z",
+        "end": "2026-09-25T20:32:34.322Z",
+        "seconds": 47
+      },
+      "host": {
+        "cores": 8,
+        "cpuPerCorePercent": [
+          {
+            "core": 0,
+            "mean": 27.6,
+            "max": 30.6
+          },
+          {
+            "core": 1,
+            "mean": 27.2,
+            "max": 29.6
+          },
+          {
+            "core": 2,
+            "mean": 18.2,
+            "max": 22.1
+          },
+          {
+            "core": 3,
+            "mean": 19.5,
+            "max": 21.2
+          },
+          {
+            "core": 4,
+            "mean": 24.7,
+            "max": 27
+          },
+          {
+            "core": 5,
+            "mean": 22.7,
+            "max": 25.1
+          },
+          {
+            "core": 6,
+            "mean": 19.9,
+            "max": 22.2
+          },
+          {
+            "core": 7,
+            "mean": 19.5,
+            "max": 22.4
+          }
+        ],
+        "cpuTotalPercentMean": 22.4,
+        "cpuTotalPercentMax": 24.5,
+        "iowaitPercentMean": 1.9,
+        "memTotalMb": 15986,
+        "memUsedMbMean": 4989,
+        "memUsedMbMax": 5010,
+        "memAvailableMbMin": 10976,
+        "swapUsedMbMax": 0,
+        "load1Max": 3.25,
+        "load1Mean": 2.62
+      },
+      "gameServer": {
+        "rssMbMean": 576,
+        "rssMbMax": 580,
+        "cpuCoresMean": 1.24,
+        "cpuCoresMax": 1.32,
+        "goroutinesMax": 12815,
+        "goroutinesMean": null,
+        "threadsMax": null,
+        "socketsMean": 3999,
+        "socketsMax": 3999,
+        "socketsPeakSinceStart": null,
+        "connectionsAccepted": null,
+        "disconnections": null,
+        "playersSeatedMean": null,
+        "playersSeatedMax": 3971,
+        "tablesMean": 795,
+        "tablesInHandMean": 524,
+        "tablesInHandMax": 589,
+        "tablesWaitingMean": null,
+        "moveProcessingP95Ms": null,
+        "moveProcessingP99Ms": null,
+        "fdsMax": 4115
+      },
+      "database": {
+        "poolConnectionsMax": 50,
+        "txP95Ms": {},
+        "txP99Ms": {},
+        "txMeanMs": null,
+        "commitsPerSecMean": 329,
+        "transactionsPerSecMean": 329,
+        "transactionsPerSecMax": 842,
+        "rollbacksPerSecMean": 0,
+        "backendsMean": 51,
+        "backendsMax": 51,
+        "maxConnections": 100,
+        "activeBackendsMean": 1.4,
+        "activeBackendsMax": 3,
+        "idleInTxMax": 0,
+        "cpuPercentMean": 10.6,
+        "cpuPercentMax": 16.2,
+        "rssMbMax": 5542
+      },
+      "redis": {
+        "usedMemoryMbMean": 9.43,
+        "usedMemoryMbMax": 9.75,
+        "clientsMax": 61,
+        "commandsPerSecMean": 10892,
+        "commandsPerSecMax": 11370,
+        "serverLatencyMeanMs": null,
+        "gameOpP95Ms": null,
+        "gameOpP99Ms": null,
+        "gameOpMeanMs": null,
+        "gameOpsPerSecMean": null,
+        "clientLatencyMs": {
+          "avg": {
+            "mean": 0.033,
+            "max": 0.045,
+            "samples": 9
+          },
+          "p95": {
+            "mean": 0.071,
+            "max": 0.121,
+            "samples": 9
+          },
+          "max": {
+            "mean": 0.14,
+            "max": 0.258,
+            "samples": 9
+          }
+        },
+        "cpuPercentMean": 6.1,
+        "cpuPercentMax": 7.6
+      },
+      "network": {
+        "iface": "ens3",
+        "rxKBpsMean": 2320.6,
+        "rxKBpsMax": 2590.9,
+        "txKBpsMean": 33132.1,
+        "txKBpsMax": 36390.8
+      },
+      "nginx": {
+        "activeConnectionsMax": 4000,
+        "accepted": null,
+        "cpuPercentMean": 26.4,
+        "cpuPercentMax": 27.6,
+        "rssMbMax": 423
+      },
+      "disk": {
+        "rootTotalGb": 467.5,
+        "rootUsedGb": 7.12,
+        "rootUsedPercent": 1.5,
+        "readMBpsMean": 0,
+        "readMBpsMax": 0,
+        "writeMBpsMean": 3.453,
+        "writeMBpsMax": 6.68,
+        "writeIopsMean": 506.2,
+        "writeIopsMax": 560.4,
+        "utilPercentMean": 20.1,
+        "utilPercentMax": 21.8
+      },
+      "sampled": {
+        "samples": 9,
+        "postgresCpuPercent": {
+          "mean": 10.6,
+          "max": 16.2,
+          "samples": 9
+        },
+        "gameplayCpuPercent": {
+          "mean": 124.4,
+          "max": 131.8,
+          "samples": 9
+        },
+        "redisCpuPercent": {
+          "mean": 6.1,
+          "max": 7.6,
+          "samples": 9
+        },
+        "nginxCpuPercent": {
+          "mean": 26.4,
+          "max": 27.6,
+          "samples": 9
+        },
+        "hostCpuPercent": {
+          "mean": 22.4,
+          "max": 24.5,
+          "samples": 9
+        },
+        "redisClientLatencyMs": {
+          "avg": {
+            "mean": 0.033,
+            "max": 0.045,
+            "samples": 9
+          },
+          "p95": {
+            "mean": 0.071,
+            "max": 0.121,
+            "samples": 9
+          },
+          "max": {
+            "mean": 0.14,
+            "max": 0.258,
+            "samples": 9
+          }
+        },
+        "redisUsedMemoryMb": {
+          "mean": 9.43,
+          "max": 9.75,
+          "samples": 9
+        },
+        "redisOpsPerSec": {
+          "mean": 10892,
+          "max": 11370,
+          "samples": 9
+        },
+        "netRxKBps": {
+          "mean": 2320.6,
+          "max": 2590.9,
+          "samples": 9
+        },
+        "netTxKBps": {
+          "mean": 33132.1,
+          "max": 36390.8,
+          "samples": 9
+        }
+      }
+    },
+    {
+      "target": 5000,
+      "window": {
+        "start": "2026-09-25T20:32:38.735Z",
+        "end": "2026-09-25T20:33:27.722Z",
+        "seconds": 50
+      },
+      "host": {
+        "cores": 8,
+        "cpuPerCorePercent": [
+          {
+            "core": 0,
+            "mean": 31.9,
+            "max": 34.5
+          },
+          {
+            "core": 1,
+            "mean": 31.9,
+            "max": 33.8
+          },
+          {
+            "core": 2,
+            "mean": 21.8,
+            "max": 24.4
+          },
+          {
+            "core": 3,
+            "mean": 24.8,
+            "max": 27.1
+          },
+          {
+            "core": 4,
+            "mean": 27.5,
+            "max": 30.9
+          },
+          {
+            "core": 5,
+            "mean": 25.7,
+            "max": 26.9
+          },
+          {
+            "core": 6,
+            "mean": 23.1,
+            "max": 25.2
+          },
+          {
+            "core": 7,
+            "mean": 22.9,
+            "max": 25.6
+          }
+        ],
+        "cpuTotalPercentMean": 26.2,
+        "cpuTotalPercentMax": 28,
+        "iowaitPercentMean": 2.1,
+        "memTotalMb": 15986,
+        "memUsedMbMean": 5913,
+        "memUsedMbMax": 5956,
+        "memAvailableMbMin": 10029,
+        "swapUsedMbMax": 0,
+        "load1Max": 3.13,
+        "load1Mean": 2.8
+      },
+      "gameServer": {
+        "rssMbMean": 710,
+        "rssMbMax": 714,
+        "cpuCoresMean": 1.45,
+        "cpuCoresMax": 1.5,
+        "goroutinesMax": 16001,
+        "goroutinesMean": null,
+        "threadsMax": null,
+        "socketsMean": 4999,
+        "socketsMax": 4999,
+        "socketsPeakSinceStart": null,
+        "connectionsAccepted": null,
+        "disconnections": null,
+        "playersSeatedMean": null,
+        "playersSeatedMax": 4895,
+        "tablesMean": 980,
+        "tablesInHandMean": 674,
+        "tablesInHandMax": 739,
+        "tablesWaitingMean": null,
+        "moveProcessingP95Ms": null,
+        "moveProcessingP99Ms": null,
+        "fdsMax": 5115
+      },
+      "database": {
+        "poolConnectionsMax": 50,
+        "txP95Ms": {},
+        "txP99Ms": {},
+        "txMeanMs": null,
+        "commitsPerSecMean": 358,
+        "transactionsPerSecMean": 358,
+        "transactionsPerSecMax": 774,
+        "rollbacksPerSecMean": 0,
+        "backendsMean": 51,
+        "backendsMax": 51,
+        "maxConnections": 100,
+        "activeBackendsMean": 1.5,
+        "activeBackendsMax": 2,
+        "idleInTxMax": 2,
+        "cpuPercentMean": 12.3,
+        "cpuPercentMax": 16,
+        "rssMbMax": 6761
+      },
+      "redis": {
+        "usedMemoryMbMean": 12.03,
+        "usedMemoryMbMax": 12.46,
+        "clientsMax": 61,
+        "commandsPerSecMean": 12291,
+        "commandsPerSecMax": 13779,
+        "serverLatencyMeanMs": null,
+        "gameOpP95Ms": null,
+        "gameOpP99Ms": null,
+        "gameOpMeanMs": null,
+        "gameOpsPerSecMean": null,
+        "clientLatencyMs": {
+          "avg": {
+            "mean": 0.071,
+            "max": 0.222,
+            "samples": 10
+          },
+          "p95": {
+            "mean": 0.092,
+            "max": 0.343,
+            "samples": 10
+          },
+          "max": {
+            "mean": 0.849,
+            "max": 3.949,
+            "samples": 10
+          }
+        },
+        "cpuPercentMean": 7.2,
+        "cpuPercentMax": 9
+      },
+      "network": {
+        "iface": "ens3",
+        "rxKBpsMean": 2668.4,
+        "rxKBpsMax": 2787.1,
+        "txKBpsMean": 43398.6,
+        "txKBpsMax": 45914.6
+      },
+      "nginx": {
+        "activeConnectionsMax": 5000,
+        "accepted": null,
+        "cpuPercentMean": 29.7,
+        "cpuPercentMax": 31.6,
+        "rssMbMax": 494
+      },
+      "disk": {
+        "rootTotalGb": 467.5,
+        "rootUsedGb": 7.17,
+        "rootUsedPercent": 1.5,
+        "readMBpsMean": 0,
+        "readMBpsMax": 0,
+        "writeMBpsMean": 3.728,
+        "writeMBpsMax": 6.445,
+        "writeIopsMean": 570,
+        "writeIopsMax": 610.6,
+        "utilPercentMean": 22.5,
+        "utilPercentMax": 23.4
+      },
+      "sampled": {
+        "samples": 10,
+        "postgresCpuPercent": {
+          "mean": 12.3,
+          "max": 16,
+          "samples": 10
+        },
+        "gameplayCpuPercent": {
+          "mean": 144.6,
+          "max": 150,
+          "samples": 10
+        },
+        "redisCpuPercent": {
+          "mean": 7.2,
+          "max": 9,
+          "samples": 10
+        },
+        "nginxCpuPercent": {
+          "mean": 29.7,
+          "max": 31.6,
+          "samples": 10
+        },
+        "hostCpuPercent": {
+          "mean": 26.2,
+          "max": 28,
+          "samples": 10
+        },
+        "redisClientLatencyMs": {
+          "avg": {
+            "mean": 0.071,
+            "max": 0.222,
+            "samples": 10
+          },
+          "p95": {
+            "mean": 0.092,
+            "max": 0.343,
+            "samples": 10
+          },
+          "max": {
+            "mean": 0.849,
+            "max": 3.949,
+            "samples": 10
+          }
+        },
+        "redisUsedMemoryMb": {
+          "mean": 12.03,
+          "max": 12.46,
+          "samples": 10
+        },
+        "redisOpsPerSec": {
+          "mean": 12291,
+          "max": 13779,
+          "samples": 10
+        },
+        "netRxKBps": {
+          "mean": 2668.4,
+          "max": 2787.1,
+          "samples": 10
+        },
+        "netTxKBps": {
+          "mean": 43398.6,
+          "max": 45914.6,
+          "samples": 10
+        }
+      }
+    },
+    {
+      "target": 6000,
+      "window": {
+        "start": "2026-09-25T20:33:36.056Z",
+        "end": "2026-09-25T20:34:24.251Z",
+        "seconds": 49
+      },
+      "host": {
+        "cores": 8,
+        "cpuPerCorePercent": [
+          {
+            "core": 0,
+            "mean": 31.2,
+            "max": 33.7
+          },
+          {
+            "core": 1,
+            "mean": 32.4,
+            "max": 33.9
+          },
+          {
+            "core": 2,
+            "mean": 22.9,
+            "max": 25.1
+          },
+          {
+            "core": 3,
+            "mean": 22.9,
+            "max": 25.7
+          },
+          {
+            "core": 4,
+            "mean": 28.5,
+            "max": 30.5
+          },
+          {
+            "core": 5,
+            "mean": 25.5,
+            "max": 28.9
+          },
+          {
+            "core": 6,
+            "mean": 23.2,
+            "max": 26
+          },
+          {
+            "core": 7,
+            "mean": 24.4,
+            "max": 26.6
+          }
+        ],
+        "cpuTotalPercentMean": 26.4,
+        "cpuTotalPercentMax": 27.6,
+        "iowaitPercentMean": 2,
+        "memTotalMb": 15986,
+        "memUsedMbMean": 6332,
+        "memUsedMbMax": 6340,
+        "memAvailableMbMin": 9645,
+        "swapUsedMbMax": 0,
+        "load1Max": 4.33,
+        "load1Mean": 4.04
+      },
+      "gameServer": {
+        "rssMbMean": 814,
+        "rssMbMax": 815,
+        "cpuCoresMean": 1.45,
+        "cpuCoresMax": 1.52,
+        "goroutinesMax": 19172,
+        "goroutinesMean": null,
+        "threadsMax": null,
+        "socketsMean": 5993,
+        "socketsMax": 5999,
+        "socketsPeakSinceStart": null,
+        "connectionsAccepted": null,
+        "disconnections": null,
+        "playersSeatedMean": null,
+        "playersSeatedMax": 5757,
+        "tablesMean": 1152,
+        "tablesInHandMean": 862,
+        "tablesInHandMax": 888,
+        "tablesWaitingMean": null,
+        "moveProcessingP95Ms": null,
+        "moveProcessingP99Ms": null,
+        "fdsMax": 6115
+      },
+      "database": {
+        "poolConnectionsMax": 50,
+        "txP95Ms": {},
+        "txP99Ms": {},
+        "txMeanMs": null,
+        "commitsPerSecMean": 336,
+        "transactionsPerSecMean": 336,
+        "transactionsPerSecMax": 504,
+        "rollbacksPerSecMean": 0,
+        "backendsMean": 51,
+        "backendsMax": 51,
+        "maxConnections": 100,
+        "activeBackendsMean": 1.2,
+        "activeBackendsMax": 2,
+        "idleInTxMax": 1,
+        "cpuPercentMean": 12.1,
+        "cpuPercentMax": 12.6,
+        "rssMbMax": 7479
+      },
+      "redis": {
+        "usedMemoryMbMean": 15.02,
+        "usedMemoryMbMax": 15.43,
+        "clientsMax": 61,
+        "commandsPerSecMean": 12289,
+        "commandsPerSecMax": 12595,
+        "serverLatencyMeanMs": null,
+        "gameOpP95Ms": null,
+        "gameOpP99Ms": null,
+        "gameOpMeanMs": null,
+        "gameOpsPerSecMean": null,
+        "clientLatencyMs": {
+          "avg": {
+            "mean": 0.04,
+            "max": 0.079,
+            "samples": 9
+          },
+          "p95": {
+            "mean": 0.092,
+            "max": 0.327,
+            "samples": 9
+          },
+          "max": {
+            "mean": 0.204,
+            "max": 0.397,
+            "samples": 9
+          }
+        },
+        "cpuPercentMean": 7.4,
+        "cpuPercentMax": 9.6
+      },
+      "network": {
+        "iface": "ens3",
+        "rxKBpsMean": 2657.2,
+        "rxKBpsMax": 2672.2,
+        "txKBpsMean": 48327.1,
+        "txKBpsMax": 49735.9
+      },
+      "nginx": {
+        "activeConnectionsMax": 6000,
+        "accepted": null,
+        "cpuPercentMean": 28.3,
+        "cpuPercentMax": 28.8,
+        "rssMbMax": 563
+      },
+      "disk": {
+        "rootTotalGb": 467.5,
+        "rootUsedGb": 7.23,
+        "rootUsedPercent": 1.5,
+        "readMBpsMean": 0,
+        "readMBpsMax": 0,
+        "writeMBpsMean": 3.756,
+        "writeMBpsMax": 7.265,
+        "writeIopsMean": 570.4,
+        "writeIopsMax": 622,
+        "utilPercentMean": 21.6,
+        "utilPercentMax": 22.9
+      },
+      "sampled": {
+        "samples": 9,
+        "postgresCpuPercent": {
+          "mean": 12.1,
+          "max": 12.6,
+          "samples": 9
+        },
+        "gameplayCpuPercent": {
+          "mean": 145.1,
+          "max": 152,
+          "samples": 9
+        },
+        "redisCpuPercent": {
+          "mean": 7.4,
+          "max": 9.6,
+          "samples": 9
+        },
+        "nginxCpuPercent": {
+          "mean": 28.3,
+          "max": 28.8,
+          "samples": 9
+        },
+        "hostCpuPercent": {
+          "mean": 26.4,
+          "max": 27.6,
+          "samples": 9
+        },
+        "redisClientLatencyMs": {
+          "avg": {
+            "mean": 0.04,
+            "max": 0.079,
+            "samples": 9
+          },
+          "p95": {
+            "mean": 0.092,
+            "max": 0.327,
+            "samples": 9
+          },
+          "max": {
+            "mean": 0.204,
+            "max": 0.397,
+            "samples": 9
+          }
+        },
+        "redisUsedMemoryMb": {
+          "mean": 15.02,
+          "max": 15.43,
+          "samples": 9
+        },
+        "redisOpsPerSec": {
+          "mean": 12289,
+          "max": 12595,
+          "samples": 9
+        },
+        "netRxKBps": {
+          "mean": 2657.2,
+          "max": 2672.2,
+          "samples": 9
+        },
+        "netTxKBps": {
+          "mean": 48327.1,
+          "max": 49735.9,
+          "samples": 9
+        }
+      }
+    },
+    {
+      "target": 7000,
+      "window": {
+        "start": "2026-09-25T20:34:38.890Z",
+        "end": "2026-09-25T20:35:25.890Z",
+        "seconds": 48
+      },
+      "host": {
+        "cores": 8,
+        "cpuPerCorePercent": [
+          {
+            "core": 0,
+            "mean": 31.9,
+            "max": 35.6
+          },
+          {
+            "core": 1,
+            "mean": 31,
+            "max": 33.7
+          },
+          {
+            "core": 2,
+            "mean": 23,
+            "max": 26.3
+          },
+          {
+            "core": 3,
+            "mean": 23.4,
+            "max": 26.5
+          },
+          {
+            "core": 4,
+            "mean": 28.7,
+            "max": 31.6
+          },
+          {
+            "core": 5,
+            "mean": 26.3,
+            "max": 29
+          },
+          {
+            "core": 6,
+            "mean": 22.5,
+            "max": 25.5
+          },
+          {
+            "core": 7,
+            "mean": 24.6,
+            "max": 26.7
+          }
+        ],
+        "cpuTotalPercentMean": 26.4,
+        "cpuTotalPercentMax": 29.2,
+        "iowaitPercentMean": 1.9,
+        "memTotalMb": 15986,
+        "memUsedMbMean": 6604,
+        "memUsedMbMax": 6617,
+        "memAvailableMbMin": 9369,
+        "swapUsedMbMax": 0,
+        "load1Max": 3.74,
+        "load1Mean": 3.29
+      },
+      "gameServer": {
+        "rssMbMean": 912,
+        "rssMbMax": 914,
+        "cpuCoresMean": 1.44,
+        "cpuCoresMax": 1.6,
+        "goroutinesMax": 22252,
+        "goroutinesMean": null,
+        "threadsMax": null,
+        "socketsMean": 6963,
+        "socketsMax": 6970,
+        "socketsPeakSinceStart": null,
+        "connectionsAccepted": null,
+        "disconnections": null,
+        "playersSeatedMean": null,
+        "playersSeatedMax": 6590,
+        "tablesMean": 1319,
+        "tablesInHandMean": 1029,
+        "tablesInHandMax": 1060,
+        "tablesWaitingMean": null,
+        "moveProcessingP95Ms": null,
+        "moveProcessingP99Ms": null,
+        "fdsMax": 7085
+      },
+      "database": {
+        "poolConnectionsMax": 50,
+        "txP95Ms": {},
+        "txP99Ms": {},
+        "txMeanMs": null,
+        "commitsPerSecMean": 336,
+        "transactionsPerSecMean": 336,
+        "transactionsPerSecMax": 496,
+        "rollbacksPerSecMean": 0,
+        "backendsMean": 51,
+        "backendsMax": 51,
+        "maxConnections": 100,
+        "activeBackendsMean": 2.2,
+        "activeBackendsMax": 5,
+        "idleInTxMax": 5,
+        "cpuPercentMean": 12.6,
+        "cpuPercentMax": 14.2,
+        "rssMbMax": 8273
+      },
+      "redis": {
+        "usedMemoryMbMean": 18.24,
+        "usedMemoryMbMax": 18.82,
+        "clientsMax": 61,
+        "commandsPerSecMean": 12502,
+        "commandsPerSecMax": 12835,
+        "serverLatencyMeanMs": null,
+        "gameOpP95Ms": null,
+        "gameOpP99Ms": null,
+        "gameOpMeanMs": null,
+        "gameOpsPerSecMean": null,
+        "clientLatencyMs": {
+          "avg": {
+            "mean": 0.042,
+            "max": 0.118,
+            "samples": 10
+          },
+          "p95": {
+            "mean": 0.131,
+            "max": 0.681,
+            "samples": 10
+          },
+          "max": {
+            "mean": 0.202,
+            "max": 1.019,
+            "samples": 10
+          }
+        },
+        "cpuPercentMean": 7.5,
+        "cpuPercentMax": 10.8
+      },
+      "network": {
+        "iface": "ens3",
+        "rxKBpsMean": 2672.2,
+        "rxKBpsMax": 2708.1,
+        "txKBpsMean": 47453.7,
+        "txKBpsMax": 49294.1
+      },
+      "nginx": {
+        "activeConnectionsMax": 7122,
+        "accepted": null,
+        "cpuPercentMean": 27.7,
+        "cpuPercentMax": 29,
+        "rssMbMax": 636
+      },
+      "disk": {
+        "rootTotalGb": 467.5,
+        "rootUsedGb": 7.27,
+        "rootUsedPercent": 1.6,
+        "readMBpsMean": 0,
+        "readMBpsMax": 0,
+        "writeMBpsMean": 3.891,
+        "writeMBpsMax": 7.935,
+        "writeIopsMean": 554.2,
+        "writeIopsMax": 582.4,
+        "utilPercentMean": 21.2,
+        "utilPercentMax": 22.7
+      },
+      "sampled": {
+        "samples": 10,
+        "postgresCpuPercent": {
+          "mean": 12.6,
+          "max": 14.2,
+          "samples": 10
+        },
+        "gameplayCpuPercent": {
+          "mean": 144.4,
+          "max": 159.8,
+          "samples": 10
+        },
+        "redisCpuPercent": {
+          "mean": 7.5,
+          "max": 10.8,
+          "samples": 10
+        },
+        "nginxCpuPercent": {
+          "mean": 27.7,
+          "max": 29,
+          "samples": 10
+        },
+        "hostCpuPercent": {
+          "mean": 26.4,
+          "max": 29.2,
+          "samples": 10
+        },
+        "redisClientLatencyMs": {
+          "avg": {
+            "mean": 0.042,
+            "max": 0.118,
+            "samples": 10
+          },
+          "p95": {
+            "mean": 0.131,
+            "max": 0.681,
+            "samples": 10
+          },
+          "max": {
+            "mean": 0.202,
+            "max": 1.019,
+            "samples": 10
+          }
+        },
+        "redisUsedMemoryMb": {
+          "mean": 18.24,
+          "max": 18.82,
+          "samples": 10
+        },
+        "redisOpsPerSec": {
+          "mean": 12502,
+          "max": 12835,
+          "samples": 10
+        },
+        "netRxKBps": {
+          "mean": 2672.2,
+          "max": 2708.1,
+          "samples": 10
+        },
+        "netTxKBps": {
+          "mean": 47453.7,
+          "max": 49294.1,
+          "samples": 10
+        }
+      }
+    },
+    {
+      "target": 8000,
+      "window": {
+        "start": "2026-09-25T20:35:45.178Z",
+        "end": "2026-09-25T20:36:32.397Z",
+        "seconds": 48
+      },
+      "host": {
+        "cores": 8,
+        "cpuPerCorePercent": [
+          {
+            "core": 0,
+            "mean": 30.4,
+            "max": 34.3
+          },
+          {
+            "core": 1,
+            "mean": 29.4,
+            "max": 32.3
+          },
+          {
+            "core": 2,
+            "mean": 23.1,
+            "max": 25.1
+          },
+          {
+            "core": 3,
+            "mean": 23.9,
+            "max": 26.9
+          },
+          {
+            "core": 4,
+            "mean": 27.8,
+            "max": 30.4
+          },
+          {
+            "core": 5,
+            "mean": 25.7,
+            "max": 31.3
+          },
+          {
+            "core": 6,
+            "mean": 22.4,
+            "max": 25.5
+          },
+          {
+            "core": 7,
+            "mean": 23.4,
+            "max": 27
+          }
+        ],
+        "cpuTotalPercentMean": 25.8,
+        "cpuTotalPercentMax": 28.9,
+        "iowaitPercentMean": 1.9,
+        "memTotalMb": 15986,
+        "memUsedMbMean": 6836,
+        "memUsedMbMax": 6855,
+        "memAvailableMbMin": 9130,
+        "swapUsedMbMax": 0,
+        "load1Max": 3.96,
+        "load1Mean": 3.38
+      },
+      "gameServer": {
+        "rssMbMean": 1015,
+        "rssMbMax": 1017,
+        "cpuCoresMean": 1.42,
+        "cpuCoresMax": 1.55,
+        "goroutinesMax": 25360,
+        "goroutinesMean": null,
+        "threadsMax": null,
+        "socketsMean": 7952,
+        "socketsMax": 7957,
+        "socketsPeakSinceStart": null,
+        "connectionsAccepted": null,
+        "disconnections": null,
+        "playersSeatedMean": null,
+        "playersSeatedMax": 7323,
+        "tablesMean": 1466,
+        "tablesInHandMean": 1174,
+        "tablesInHandMax": 1207,
+        "tablesWaitingMean": null,
+        "moveProcessingP95Ms": null,
+        "moveProcessingP99Ms": null,
+        "fdsMax": 8073
+      },
+      "database": {
+        "poolConnectionsMax": 50,
+        "txP95Ms": {},
+        "txP99Ms": {},
+        "txMeanMs": null,
+        "commitsPerSecMean": 326,
+        "transactionsPerSecMean": 326,
+        "transactionsPerSecMax": 456,
+        "rollbacksPerSecMean": 0,
+        "backendsMean": 51,
+        "backendsMax": 51,
+        "maxConnections": 100,
+        "activeBackendsMean": 1.6,
+        "activeBackendsMax": 3,
+        "idleInTxMax": 1,
+        "cpuPercentMean": 12.4,
+        "cpuPercentMax": 14.6,
+        "rssMbMax": 8962
+      },
+      "redis": {
+        "usedMemoryMbMean": 21.78,
+        "usedMemoryMbMax": 22.43,
+        "clientsMax": 61,
+        "commandsPerSecMean": 12505,
+        "commandsPerSecMax": 12840,
+        "serverLatencyMeanMs": null,
+        "gameOpP95Ms": null,
+        "gameOpP99Ms": null,
+        "gameOpMeanMs": null,
+        "gameOpsPerSecMean": null,
+        "clientLatencyMs": {
+          "avg": {
+            "mean": 0.036,
+            "max": 0.095,
+            "samples": 10
+          },
+          "p95": {
+            "mean": 0.076,
+            "max": 0.354,
+            "samples": 10
+          },
+          "max": {
+            "mean": 0.23,
+            "max": 0.853,
+            "samples": 10
+          }
+        },
+        "cpuPercentMean": 7,
+        "cpuPercentMax": 10.6
+      },
+      "network": {
+        "iface": "ens3",
+        "rxKBpsMean": 2703.3,
+        "rxKBpsMax": 2731.7,
+        "txKBpsMean": 46319,
+        "txKBpsMax": 48052
+      },
+      "nginx": {
+        "activeConnectionsMax": 7961,
+        "accepted": null,
+        "cpuPercentMean": 27.3,
+        "cpuPercentMax": 28.4,
+        "rssMbMax": 700
+      },
+      "disk": {
+        "rootTotalGb": 467.5,
+        "rootUsedGb": 7.32,
+        "rootUsedPercent": 1.6,
+        "readMBpsMean": 0,
+        "readMBpsMax": 0,
+        "writeMBpsMean": 3.981,
+        "writeMBpsMax": 7.951,
+        "writeIopsMean": 550.8,
+        "writeIopsMax": 593.6,
+        "utilPercentMean": 20.8,
+        "utilPercentMax": 22.6
+      },
+      "sampled": {
+        "samples": 10,
+        "postgresCpuPercent": {
+          "mean": 12.4,
+          "max": 14.6,
+          "samples": 10
+        },
+        "gameplayCpuPercent": {
+          "mean": 142.2,
+          "max": 155.2,
+          "samples": 10
+        },
+        "redisCpuPercent": {
+          "mean": 7,
+          "max": 10.6,
+          "samples": 10
+        },
+        "nginxCpuPercent": {
+          "mean": 27.3,
+          "max": 28.4,
+          "samples": 10
+        },
+        "hostCpuPercent": {
+          "mean": 25.8,
+          "max": 28.9,
+          "samples": 10
+        },
+        "redisClientLatencyMs": {
+          "avg": {
+            "mean": 0.036,
+            "max": 0.095,
+            "samples": 10
+          },
+          "p95": {
+            "mean": 0.076,
+            "max": 0.354,
+            "samples": 10
+          },
+          "max": {
+            "mean": 0.23,
+            "max": 0.853,
+            "samples": 10
+          }
+        },
+        "redisUsedMemoryMb": {
+          "mean": 21.78,
+          "max": 22.43,
+          "samples": 10
+        },
+        "redisOpsPerSec": {
+          "mean": 12505,
+          "max": 12840,
+          "samples": 10
+        },
+        "netRxKBps": {
+          "mean": 2703.3,
+          "max": 2731.7,
+          "samples": 10
+        },
+        "netTxKBps": {
+          "mean": 46319,
+          "max": 48052,
+          "samples": 10
+        }
+      }
+    },
+    {
+      "target": 9000,
+      "window": {
+        "start": "2026-09-25T20:36:51.843Z",
+        "end": "2026-09-25T20:37:40.770Z",
+        "seconds": 50
+      },
+      "host": {
+        "cores": 8,
+        "cpuPerCorePercent": [
+          {
+            "core": 0,
+            "mean": 30.9,
+            "max": 34
+          },
+          {
+            "core": 1,
+            "mean": 30.4,
+            "max": 33.1
+          },
+          {
+            "core": 2,
+            "mean": 23.4,
+            "max": 28.7
+          },
+          {
+            "core": 3,
+            "mean": 25.3,
+            "max": 29.1
+          },
+          {
+            "core": 4,
+            "mean": 28.1,
+            "max": 30.4
+          },
+          {
+            "core": 5,
+            "mean": 26.2,
+            "max": 29.7
+          },
+          {
+            "core": 6,
+            "mean": 24.4,
+            "max": 29.4
+          },
+          {
+            "core": 7,
+            "mean": 24.8,
+            "max": 29.6
+          }
+        ],
+        "cpuTotalPercentMean": 26.6,
+        "cpuTotalPercentMax": 30,
+        "iowaitPercentMean": 1.9,
+        "memTotalMb": 15986,
+        "memUsedMbMean": 7079,
+        "memUsedMbMax": 7105,
+        "memAvailableMbMin": 8881,
+        "swapUsedMbMax": 0,
+        "load1Max": 4.31,
+        "load1Mean": 3.55
+      },
+      "gameServer": {
+        "rssMbMean": 1115,
+        "rssMbMax": 1118,
+        "cpuCoresMean": 1.47,
+        "cpuCoresMax": 1.61,
+        "goroutinesMax": 28452,
+        "goroutinesMean": null,
+        "threadsMax": null,
+        "socketsMean": 8927,
+        "socketsMax": 8937,
+        "socketsPeakSinceStart": null,
+        "connectionsAccepted": null,
+        "disconnections": null,
+        "playersSeatedMean": null,
+        "playersSeatedMax": 8088,
+        "tablesMean": 1618,
+        "tablesInHandMean": 1323,
+        "tablesInHandMax": 1354,
+        "tablesWaitingMean": null,
+        "moveProcessingP95Ms": null,
+        "moveProcessingP99Ms": null,
+        "fdsMax": 9053
+      },
+      "database": {
+        "poolConnectionsMax": 50,
+        "txP95Ms": {},
+        "txP99Ms": {},
+        "txMeanMs": null,
+        "commitsPerSecMean": 321,
+        "transactionsPerSecMean": 321,
+        "transactionsPerSecMax": 364,
+        "rollbacksPerSecMean": 0,
+        "backendsMean": 51,
+        "backendsMax": 51,
+        "maxConnections": 100,
+        "activeBackendsMean": 1.7,
+        "activeBackendsMax": 3,
+        "idleInTxMax": 1,
+        "cpuPercentMean": 12.5,
+        "cpuPercentMax": 14.4,
+        "rssMbMax": 9638
+      },
+      "redis": {
+        "usedMemoryMbMean": 25.77,
+        "usedMemoryMbMax": 26.59,
+        "clientsMax": 61,
+        "commandsPerSecMean": 13455,
+        "commandsPerSecMax": 18199,
+        "serverLatencyMeanMs": null,
+        "gameOpP95Ms": null,
+        "gameOpP99Ms": null,
+        "gameOpMeanMs": null,
+        "gameOpsPerSecMean": null,
+        "clientLatencyMs": {
+          "avg": {
+            "mean": 0.034,
+            "max": 0.052,
+            "samples": 10
+          },
+          "p95": {
+            "mean": 0.069,
+            "max": 0.127,
+            "samples": 10
+          },
+          "max": {
+            "mean": 0.2,
+            "max": 0.49,
+            "samples": 10
+          }
+        },
+        "cpuPercentMean": 7.7,
+        "cpuPercentMax": 11.4
+      },
+      "network": {
+        "iface": "ens3",
+        "rxKBpsMean": 2729,
+        "rxKBpsMax": 2825.8,
+        "txKBpsMean": 46580,
+        "txKBpsMax": 47462.3
+      },
+      "nginx": {
+        "activeConnectionsMax": 9115,
+        "accepted": null,
+        "cpuPercentMean": 28.1,
+        "cpuPercentMax": 31.6,
+        "rssMbMax": 777
+      },
+      "disk": {
+        "rootTotalGb": 467.5,
+        "rootUsedGb": 7.37,
+        "rootUsedPercent": 1.6,
+        "readMBpsMean": 0,
+        "readMBpsMax": 0,
+        "writeMBpsMean": 3.739,
+        "writeMBpsMax": 6.259,
+        "writeIopsMean": 558.6,
+        "writeIopsMax": 578.8,
+        "utilPercentMean": 21.2,
+        "utilPercentMax": 22.3
+      },
+      "sampled": {
+        "samples": 10,
+        "postgresCpuPercent": {
+          "mean": 12.5,
+          "max": 14.4,
+          "samples": 10
+        },
+        "gameplayCpuPercent": {
+          "mean": 147,
+          "max": 160.8,
+          "samples": 10
+        },
+        "redisCpuPercent": {
+          "mean": 7.7,
+          "max": 11.4,
+          "samples": 10
+        },
+        "nginxCpuPercent": {
+          "mean": 28.1,
+          "max": 31.6,
+          "samples": 10
+        },
+        "hostCpuPercent": {
+          "mean": 26.6,
+          "max": 30,
+          "samples": 10
+        },
+        "redisClientLatencyMs": {
+          "avg": {
+            "mean": 0.034,
+            "max": 0.052,
+            "samples": 10
+          },
+          "p95": {
+            "mean": 0.069,
+            "max": 0.127,
+            "samples": 10
+          },
+          "max": {
+            "mean": 0.2,
+            "max": 0.49,
+            "samples": 10
+          }
+        },
+        "redisUsedMemoryMb": {
+          "mean": 25.77,
+          "max": 26.59,
+          "samples": 10
+        },
+        "redisOpsPerSec": {
+          "mean": 13455,
+          "max": 18199,
+          "samples": 10
+        },
+        "netRxKBps": {
+          "mean": 2729,
+          "max": 2825.8,
+          "samples": 10
+        },
+        "netTxKBps": {
+          "mean": 46580,
+          "max": 47462.3,
+          "samples": 10
+        }
+      }
+    },
+    {
+      "target": 10000,
+      "window": {
+        "start": "2026-09-25T20:38:01.441Z",
+        "end": "2026-09-25T20:38:49.433Z",
+        "seconds": 49
+      },
+      "host": {
+        "cores": 8,
+        "cpuPerCorePercent": [
+          {
+            "core": 0,
+            "mean": 31.3,
+            "max": 34.5
+          },
+          {
+            "core": 1,
+            "mean": 30.2,
+            "max": 32.7
+          },
+          {
+            "core": 2,
+            "mean": 24.5,
+            "max": 27.8
+          },
+          {
+            "core": 3,
+            "mean": 25.4,
+            "max": 29.2
+          },
+          {
+            "core": 4,
+            "mean": 29.2,
+            "max": 33
+          },
+          {
+            "core": 5,
+            "mean": 26.2,
+            "max": 29.5
+          },
+          {
+            "core": 6,
+            "mean": 24.7,
+            "max": 27.7
+          },
+          {
+            "core": 7,
+            "mean": 25.3,
+            "max": 28.9
+          }
+        ],
+        "cpuTotalPercentMean": 27.1,
+        "cpuTotalPercentMax": 29.6,
+        "iowaitPercentMean": 2,
+        "memTotalMb": 15986,
+        "memUsedMbMean": 7317,
+        "memUsedMbMax": 7342,
+        "memAvailableMbMin": 8644,
+        "swapUsedMbMax": 0,
+        "load1Max": 4.69,
+        "load1Mean": 4.15
+      },
+      "gameServer": {
+        "rssMbMean": 1214,
+        "rssMbMax": 1218,
+        "cpuCoresMean": 1.49,
+        "cpuCoresMax": 1.64,
+        "goroutinesMax": 31464,
+        "goroutinesMean": null,
+        "threadsMax": null,
+        "socketsMean": 9864,
+        "socketsMax": 9891,
+        "socketsPeakSinceStart": null,
+        "connectionsAccepted": null,
+        "disconnections": null,
+        "playersSeatedMean": null,
+        "playersSeatedMax": 8819,
+        "tablesMean": 1768,
+        "tablesInHandMean": 1474,
+        "tablesInHandMax": 1501,
+        "tablesWaitingMean": null,
+        "moveProcessingP95Ms": null,
+        "moveProcessingP99Ms": null,
+        "fdsMax": 10004
+      },
+      "database": {
+        "poolConnectionsMax": 50,
+        "txP95Ms": {},
+        "txP99Ms": {},
+        "txMeanMs": null,
+        "commitsPerSecMean": 327,
+        "transactionsPerSecMean": 327,
+        "transactionsPerSecMax": 440,
+        "rollbacksPerSecMean": 0,
+        "backendsMean": 51,
+        "backendsMax": 51,
+        "maxConnections": 100,
+        "activeBackendsMean": 1.3,
+        "activeBackendsMax": 2,
+        "idleInTxMax": 1,
+        "cpuPercentMean": 12.4,
+        "cpuPercentMax": 13.4,
+        "rssMbMax": 10318
+      },
+      "redis": {
+        "usedMemoryMbMean": 29.79,
+        "usedMemoryMbMax": 30.51,
+        "clientsMax": 61,
+        "commandsPerSecMean": 14146,
+        "commandsPerSecMax": 18890,
+        "serverLatencyMeanMs": null,
+        "gameOpP95Ms": null,
+        "gameOpP99Ms": null,
+        "gameOpMeanMs": null,
+        "gameOpsPerSecMean": null,
+        "clientLatencyMs": {
+          "avg": {
+            "mean": 0.049,
+            "max": 0.129,
+            "samples": 9
+          },
+          "p95": {
+            "mean": 0.116,
+            "max": 0.426,
+            "samples": 9
+          },
+          "max": {
+            "mean": 0.369,
+            "max": 1.413,
+            "samples": 9
+          }
+        },
+        "cpuPercentMean": 8,
+        "cpuPercentMax": 12
+      },
+      "network": {
+        "iface": "ens3",
+        "rxKBpsMean": 2735.4,
+        "rxKBpsMax": 2754.2,
+        "txKBpsMean": 46465.1,
+        "txKBpsMax": 47584.6
+      },
+      "nginx": {
+        "activeConnectionsMax": 9895,
+        "accepted": null,
+        "cpuPercentMean": 28.1,
+        "cpuPercentMax": 29.2,
+        "rssMbMax": 839
+      },
+      "disk": {
+        "rootTotalGb": 467.5,
+        "rootUsedGb": 7.44,
+        "rootUsedPercent": 1.6,
+        "readMBpsMean": 0,
+        "readMBpsMax": 0,
+        "writeMBpsMean": 4.296,
+        "writeMBpsMax": 6.347,
+        "writeIopsMean": 561.7,
+        "writeIopsMax": 604.8,
+        "utilPercentMean": 21.8,
+        "utilPercentMax": 22.6
+      },
+      "sampled": {
+        "samples": 9,
+        "postgresCpuPercent": {
+          "mean": 12.4,
+          "max": 13.4,
+          "samples": 9
+        },
+        "gameplayCpuPercent": {
+          "mean": 148.8,
+          "max": 163.6,
+          "samples": 9
+        },
+        "redisCpuPercent": {
+          "mean": 8,
+          "max": 12,
+          "samples": 9
+        },
+        "nginxCpuPercent": {
+          "mean": 28.1,
+          "max": 29.2,
+          "samples": 9
+        },
+        "hostCpuPercent": {
+          "mean": 27.1,
+          "max": 29.6,
+          "samples": 9
+        },
+        "redisClientLatencyMs": {
+          "avg": {
+            "mean": 0.049,
+            "max": 0.129,
+            "samples": 9
+          },
+          "p95": {
+            "mean": 0.116,
+            "max": 0.426,
+            "samples": 9
+          },
+          "max": {
+            "mean": 0.369,
+            "max": 1.413,
+            "samples": 9
+          }
+        },
+        "redisUsedMemoryMb": {
+          "mean": 29.79,
+          "max": 30.51,
+          "samples": 9
+        },
+        "redisOpsPerSec": {
+          "mean": 14146,
+          "max": 18890,
+          "samples": 9
+        },
+        "netRxKBps": {
+          "mean": 2735.4,
+          "max": 2754.2,
+          "samples": 9
+        },
+        "netTxKBps": {
+          "mean": 46465.1,
+          "max": 47584.6,
+          "samples": 9
+        }
+      }
+    }
+  ]
+}

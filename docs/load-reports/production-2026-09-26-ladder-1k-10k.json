@@ -1,0 +1,913 @@
+{
+  "url": "https://prod.sungamestudio.com",
+  "startedAt": "2026-09-25T20:29:14.408Z",
+  "finishedAt": "2026-09-25T20:38:49.688Z",
+  "stages": [
+    1000,
+    2000,
+    3000,
+    4000,
+    5000,
+    6000,
+    7000,
+    8000,
+    9000,
+    10000
+  ],
+  "holdSeconds": 45,
+  "table": {
+    "category": "blind",
+    "boot": 200
+  },
+  "workers": 8,
+  "thresholds": {
+    "maxP95Ms": 3000,
+    "maxErrorRate": 0.1
+  },
+  "ceiling": null,
+  "results": [
+    {
+      "target": 1000,
+      "connected": 1000,
+      "joined": 1000,
+      "loginFailures": 0,
+      "generatorLag": {
+        "p50": 0,
+        "p95": 1,
+        "max": 3,
+        "samples": 2031
+      },
+      "host": {
+        "samples": 9,
+        "rssMbMax": 175.4,
+        "heapUsedMbMax": 115.4,
+        "cpuPercentMean": 34,
+        "cpuPercentMax": 44,
+        "loopLagP99MsMax": 2.6,
+        "loopLagMaxMs": 8.4,
+        "goroutinesMax": 3223,
+        "socketsMax": 1000,
+        "socketsMin": 1000,
+        "playersMax": 1000,
+        "activeHandsMax": 189,
+        "activeHandsMean": 126,
+        "tablesMax": 200,
+        "dbWaitingMax": 3121,
+        "dbTotalMax": 50
+      },
+      "connectFailures": 0,
+      "disconnectsDuringHold": 0,
+      "login": {
+        "p50": 105,
+        "p95": 303,
+        "max": 408,
+        "mean": 133
+      },
+      "connect": {
+        "p50": 191,
+        "p95": 278,
+        "max": 361
+      },
+      "action": {
+        "count": 18533,
+        "errors": 0,
+        "errorRate": 0,
+        "perSec": 411.84,
+        "p50": 24,
+        "p90": 25,
+        "p95": 26,
+        "p99": 27,
+        "max": 65,
+        "mean": 24
+      },
+      "hands": {
+        "started": 780,
+        "completed": 643,
+        "perSec": 14.29,
+        "perMinute": 857.3
+      },
+      "chatSent": 1343,
+      "healthRtt": {
+        "p50": 80,
+        "p95": 83,
+        "max": 83
+      },
+      "server": {
+        "players": 1000,
+        "tables": 200,
+        "activeHands": 145,
+        "sockets": 1000,
+        "uptime": 232.690352843
+      },
+      "stageSeconds": 50,
+      "holdStartedAt": "2026-09-25T20:29:18.980Z",
+      "holdEndedAt": "2026-09-25T20:30:04.718Z",
+      "workers": 8,
+      "connectedAfterHold": 1000,
+      "joinRefusals": {}
+    },
+    {
+      "target": 2000,
+      "connected": 1999,
+      "joined": 1999,
+      "loginFailures": 0,
+      "generatorLag": {
+        "p50": 0,
+        "p95": 1,
+        "max": 3,
+        "samples": 2002
+      },
+      "host": {
+        "samples": 9,
+        "rssMbMax": 307.1,
+        "heapUsedMbMax": 224.3,
+        "cpuPercentMean": 68,
+        "cpuPercentMax": 73.7,
+        "loopLagP99MsMax": 2.1,
+        "loopLagMaxMs": 12.6,
+        "goroutinesMax": 6420,
+        "socketsMax": 1999,
+        "socketsMin": 1999,
+        "playersMax": 1999,
+        "activeHandsMax": 321,
+        "activeHandsMean": 262,
+        "tablesMax": 400,
+        "dbWaitingMax": 3195,
+        "dbTotalMax": 50
+      },
+      "connectFailures": 0,
+      "disconnectsDuringHold": 0,
+      "login": {
+        "p50": 122,
+        "p95": 216,
+        "max": 241,
+        "mean": 125
+      },
+      "connect": {
+        "p50": 180,
+        "p95": 255,
+        "max": 361
+      },
+      "action": {
+        "count": 36340,
+        "errors": 0,
+        "errorRate": 0,
+        "perSec": 807.56,
+        "p50": 24,
+        "p90": 25,
+        "p95": 26,
+        "p99": 29,
+        "max": 320,
+        "mean": 24
+      },
+      "hands": {
+        "started": 1494,
+        "completed": 1345,
+        "perSec": 29.89,
+        "perMinute": 1793.3
+      },
+      "chatSent": 2713,
+      "healthRtt": {
+        "p50": 79,
+        "p95": 82,
+        "max": 82
+      },
+      "server": {
+        "players": 1996,
+        "tables": 400,
+        "activeHands": 276,
+        "sockets": 1999,
+        "uptime": 282.49591053
+      },
+      "stageSeconds": 50,
+      "holdStartedAt": "2026-09-25T20:30:08.791Z",
+      "holdEndedAt": "2026-09-25T20:30:54.532Z",
+      "workers": 8,
+      "connectedAfterHold": 1999,
+      "joinRefusals": {}
+    },
+    {
+      "target": 3000,
+      "connected": 2999,
+      "joined": 2999,
+      "loginFailures": 0,
+      "generatorLag": {
+        "p50": 0,
+        "p95": 1,
+        "max": 2,
+        "samples": 1958
+      },
+      "host": {
+        "samples": 9,
+        "rssMbMax": 447.6,
+        "heapUsedMbMax": 304.3,
+        "cpuPercentMean": 95,
+        "cpuPercentMax": 102,
+        "loopLagP99MsMax": 2.6,
+        "loopLagMaxMs": 14.7,
+        "goroutinesMax": 9620,
+        "socketsMax": 2999,
+        "socketsMin": 2999,
+        "playersMax": 2993,
+        "activeHandsMax": 459,
+        "activeHandsMean": 403,
+        "tablesMax": 599,
+        "dbWaitingMax": 3445,
+        "dbTotalMax": 50
+      },
+      "connectFailures": 1,
+      "disconnectsDuringHold": 0,
+      "login": {
+        "p50": 110,
+        "p95": 226,
+        "max": 280,
+        "mean": 124
+      },
+      "connect": {
+        "p50": 181,
+        "p95": 259,
+        "max": 361
+      },
+      "action": {
+        "count": 54115,
+        "errors": 0,
+        "errorRate": 0,
+        "perSec": 1202.56,
+        "p50": 24,
+        "p90": 25,
+        "p95": 26,
+        "p99": 28,
+        "max": 294,
+        "mean": 24
+      },
+      "hands": {
+        "started": 2189,
+        "completed": 2085,
+        "perSec": 46.33,
+        "perMinute": 2780
+      },
+      "chatSent": 4107,
+      "healthRtt": {
+        "p50": 79,
+        "p95": 82,
+        "max": 82
+      },
+      "server": {
+        "players": 2975,
+        "tables": 599,
+        "activeHands": 411,
+        "sockets": 2999,
+        "uptime": 332.321259355
+      },
+      "stageSeconds": 50,
+      "holdStartedAt": "2026-09-25T20:30:58.629Z",
+      "holdEndedAt": "2026-09-25T20:31:44.374Z",
+      "workers": 8,
+      "connectedAfterHold": 2999,
+      "joinRefusals": {}
+    },
+    {
+      "target": 4000,
+      "connected": 3999,
+      "joined": 3999,
+      "loginFailures": 0,
+      "generatorLag": {
+        "p50": 0,
+        "p95": 1,
+        "max": 2,
+        "samples": 1882
+      },
+      "host": {
+        "samples": 9,
+        "rssMbMax": 579.9,
+        "heapUsedMbMax": 417.1,
+        "cpuPercentMean": 125,
+        "cpuPercentMax": 133.9,
+        "loopLagP99MsMax": 3.1,
+        "loopLagMaxMs": 29.4,
+        "goroutinesMax": 12815,
+        "socketsMax": 3999,
+        "socketsMin": 3999,
+        "playersMax": 3971,
+        "activeHandsMax": 589,
+        "activeHandsMean": 524,
+        "tablesMax": 795,
+        "dbWaitingMax": 3760,
+        "dbTotalMax": 50
+      },
+      "connectFailures": 1,
+      "disconnectsDuringHold": 0,
+      "login": {
+        "p50": 136,
+        "p95": 225,
+        "max": 337,
+        "mean": 141
+      },
+      "connect": {
+        "p50": 185,
+        "p95": 262,
+        "max": 361
+      },
+      "action": {
+        "count": 70828,
+        "errors": 0,
+        "errorRate": 0,
+        "perSec": 1573.96,
+        "p50": 24,
+        "p90": 26,
+        "p95": 26,
+        "p99": 28,
+        "max": 278,
+        "mean": 24
+      },
+      "hands": {
+        "started": 2979,
+        "completed": 2853,
+        "perSec": 63.4,
+        "perMinute": 3804
+      },
+      "chatSent": 5406,
+      "healthRtt": {
+        "p50": 79,
+        "p95": 82,
+        "max": 82
+      },
+      "server": {
+        "players": 3912,
+        "tables": 795,
+        "activeHands": 513,
+        "sockets": 3999,
+        "uptime": 382.264648677
+      },
+      "stageSeconds": 50,
+      "holdStartedAt": "2026-09-25T20:31:48.569Z",
+      "holdEndedAt": "2026-09-25T20:32:34.322Z",
+      "workers": 8,
+      "connectedAfterHold": 3999,
+      "joinRefusals": {}
+    },
+    {
+      "target": 5000,
+      "connected": 4999,
+      "joined": 4999,
+      "loginFailures": 0,
+      "generatorLag": {
+        "p50": 0,
+        "p95": 1,
+        "max": 1,
+        "samples": 1874
+      },
+      "host": {
+        "samples": 9,
+        "rssMbMax": 713.8,
+        "heapUsedMbMax": 529.6,
+        "cpuPercentMean": 145,
+        "cpuPercentMax": 159.2,
+        "loopLagP99MsMax": 2.6,
+        "loopLagMaxMs": 21,
+        "goroutinesMax": 16001,
+        "socketsMax": 4999,
+        "socketsMin": 4999,
+        "playersMax": 4895,
+        "activeHandsMax": 739,
+        "activeHandsMean": 674,
+        "tablesMax": 980,
+        "dbWaitingMax": 3418,
+        "dbTotalMax": 50
+      },
+      "connectFailures": 1,
+      "disconnectsDuringHold": 0,
+      "login": {
+        "p50": 148,
+        "p95": 218,
+        "max": 377,
+        "mean": 140
+      },
+      "connect": {
+        "p50": 190,
+        "p95": 266,
+        "max": 1107
+      },
+      "action": {
+        "count": 79248,
+        "errors": 0,
+        "errorRate": 0,
+        "perSec": 1761.07,
+        "p50": 47,
+        "p90": 285,
+        "p95": 369,
+        "p99": 829,
+        "max": 14490,
+        "mean": 102
+      },
+      "hands": {
+        "started": 3392,
+        "completed": 3235,
+        "perSec": 71.89,
+        "perMinute": 4313.3
+      },
+      "chatSent": 6616,
+      "healthRtt": {
+        "p50": 81,
+        "p95": 2155,
+        "max": 2155
+      },
+      "server": {
+        "players": 4799,
+        "tables": 980,
+        "activeHands": 685,
+        "sockets": 4999,
+        "uptime": 435.641273341
+      },
+      "stageSeconds": 53,
+      "holdStartedAt": "2026-09-25T20:32:38.735Z",
+      "holdEndedAt": "2026-09-25T20:33:27.722Z",
+      "workers": 8,
+      "connectedAfterHold": 4999,
+      "joinRefusals": {}
+    },
+    {
+      "target": 6000,
+      "connected": 5991,
+      "joined": 5988,
+      "loginFailures": 0,
+      "generatorLag": {
+        "p50": 0,
+        "p95": 1,
+        "max": 3,
+        "samples": 1882
+      },
+      "host": {
+        "samples": 9,
+        "rssMbMax": 815.3,
+        "heapUsedMbMax": 630.4,
+        "cpuPercentMean": 147,
+        "cpuPercentMax": 156.6,
+        "loopLagP99MsMax": 0.5,
+        "loopLagMaxMs": 16.8,
+        "goroutinesMax": 19172,
+        "socketsMax": 5999,
+        "socketsMin": 5986,
+        "playersMax": 5757,
+        "activeHandsMax": 888,
+        "activeHandsMean": 862,
+        "tablesMax": 1152,
+        "dbWaitingMax": 378,
+        "dbTotalMax": 50
+      },
+      "connectFailures": 1,
+      "disconnectsDuringHold": 18,
+      "login": {
+        "p50": 59,
+        "p95": 992,
+        "max": 2386,
+        "mean": 207
+      },
+      "connect": {
+        "p50": 192,
+        "p95": 720,
+        "max": 6827
+      },
+      "action": {
+        "count": 78654,
+        "errors": 4,
+        "errorRate": 0.0001,
+        "perSec": 1747.87,
+        "p50": 70,
+        "p90": 431,
+        "p95": 788,
+        "p99": 1534,
+        "max": 28347,
+        "mean": 199
+      },
+      "hands": {
+        "started": 3257,
+        "completed": 3321,
+        "perSec": 73.8,
+        "perMinute": 4428
+      },
+      "chatSent": 8175,
+      "healthRtt": {
+        "p50": 89,
+        "p95": 1154,
+        "max": 1154
+      },
+      "server": {
+        "players": 5655,
+        "tables": 1152,
+        "activeHands": 810,
+        "sockets": 5986,
+        "uptime": 492.164095595
+      },
+      "stageSeconds": 57,
+      "holdStartedAt": "2026-09-25T20:33:36.056Z",
+      "holdEndedAt": "2026-09-25T20:34:24.251Z",
+      "workers": 8,
+      "connectedAfterHold": 5981,
+      "joinRefusals": {}
+    },
+    {
+      "target": 7000,
+      "connected": 6968,
+      "joined": 6992,
+      "loginFailures": 0,
+      "generatorLag": {
+        "p50": 0,
+        "p95": 1,
+        "max": 2,
+        "samples": 1883
+      },
+      "host": {
+        "samples": 8,
+        "rssMbMax": 913.3,
+        "heapUsedMbMax": 683.8,
+        "cpuPercentMean": 144,
+        "cpuPercentMax": 151.6,
+        "loopLagP99MsMax": 0.4,
+        "loopLagMaxMs": 4.2,
+        "goroutinesMax": 22252,
+        "socketsMax": 6970,
+        "socketsMin": 6961,
+        "playersMax": 6590,
+        "activeHandsMax": 1060,
+        "activeHandsMean": 1029,
+        "tablesMax": 1319,
+        "dbWaitingMax": 15,
+        "dbTotalMax": 50
+      },
+      "connectFailures": 1,
+      "disconnectsDuringHold": 10,
+      "login": {
+        "p50": 57,
+        "p95": 871,
+        "max": 7568,
+        "mean": 226
+      },
+      "connect": {
+        "p50": 196,
+        "p95": 1194,
+        "max": 8194
+      },
+      "action": {
+        "count": 78796,
+        "errors": 7,
+        "errorRate": 0.0001,
+        "perSec": 1751.02,
+        "p50": 132,
+        "p90": 641,
+        "p95": 999,
+        "p99": 1997,
+        "max": 30494,
+        "mean": 283
+      },
+      "hands": {
+        "started": 3344,
+        "completed": 3447,
+        "perSec": 76.6,
+        "perMinute": 4596
+      },
+      "chatSent": 9420,
+      "healthRtt": {
+        "p50": 414,
+        "p95": 4023,
+        "max": 4023
+      },
+      "server": {
+        "players": 6430,
+        "tables": 1319,
+        "activeHands": 1010,
+        "sockets": 6961,
+        "uptime": 553.776961896
+      },
+      "stageSeconds": 62,
+      "holdStartedAt": "2026-09-25T20:34:38.890Z",
+      "holdEndedAt": "2026-09-25T20:35:25.890Z",
+      "workers": 8,
+      "connectedAfterHold": 6961,
+      "joinRefusals": {}
+    },
+    {
+      "target": 8000,
+      "connected": 7957,
+      "joined": 7994,
+      "loginFailures": 0,
+      "generatorLag": {
+        "p50": 0,
+        "p95": 1,
+        "max": 3,
+        "samples": 1875
+      },
+      "host": {
+        "samples": 8,
+        "rssMbMax": 1016.5,
+        "heapUsedMbMax": 780.6,
+        "cpuPercentMean": 143,
+        "cpuPercentMax": 154,
+        "loopLagP99MsMax": 0.4,
+        "loopLagMaxMs": 6.3,
+        "goroutinesMax": 25360,
+        "socketsMax": 7957,
+        "socketsMin": 7946,
+        "playersMax": 7323,
+        "activeHandsMax": 1207,
+        "activeHandsMean": 1174,
+        "tablesMax": 1466,
+        "dbWaitingMax": 0,
+        "dbTotalMax": 50
+      },
+      "connectFailures": 1,
+      "disconnectsDuringHold": 12,
+      "login": {
+        "p50": 82,
+        "p95": 1342,
+        "max": 6359,
+        "mean": 340
+      },
+      "connect": {
+        "p50": 203,
+        "p95": 1425,
+        "max": 16741
+      },
+      "action": {
+        "count": 78545,
+        "errors": 3,
+        "errorRate": 0,
+        "perSec": 1745.44,
+        "p50": 146,
+        "p90": 817,
+        "p95": 1229,
+        "p99": 2626,
+        "max": 24086,
+        "mean": 348
+      },
+      "hands": {
+        "started": 3335,
+        "completed": 3408,
+        "perSec": 75.73,
+        "perMinute": 4544
+      },
+      "chatSent": 10721,
+      "healthRtt": {
+        "p50": 691,
+        "p95": 2163,
+        "max": 2163
+      },
+      "server": {
+        "players": 7183,
+        "tables": 1466,
+        "activeHands": 1179,
+        "sockets": 7946,
+        "uptime": 620.300272574
+      },
+      "stageSeconds": 67,
+      "holdStartedAt": "2026-09-25T20:35:45.178Z",
+      "holdEndedAt": "2026-09-25T20:36:32.397Z",
+      "workers": 8,
+      "connectedAfterHold": 7946,
+      "joinRefusals": {}
+    },
+    {
+      "target": 9000,
+      "connected": 8935,
+      "joined": 8981,
+      "loginFailures": 1,
+      "generatorLag": {
+        "p50": 0,
+        "p95": 1,
+        "max": 3,
+        "samples": 1878
+      },
+      "host": {
+        "samples": 9,
+        "rssMbMax": 1117.6,
+        "heapUsedMbMax": 853.3,
+        "cpuPercentMean": 146,
+        "cpuPercentMax": 154.4,
+        "loopLagP99MsMax": 0.5,
+        "loopLagMaxMs": 14.7,
+        "goroutinesMax": 28452,
+        "socketsMax": 8937,
+        "socketsMin": 8918,
+        "playersMax": 8088,
+        "activeHandsMax": 1354,
+        "activeHandsMean": 1323,
+        "tablesMax": 1618,
+        "dbWaitingMax": 125,
+        "dbTotalMax": 50
+      },
+      "connectFailures": 3,
+      "disconnectsDuringHold": 20,
+      "login": {
+        "p50": 77,
+        "p95": 1114,
+        "max": 3479,
+        "mean": 269
+      },
+      "connect": {
+        "p50": 210,
+        "p95": 1585,
+        "max": 17252
+      },
+      "action": {
+        "count": 78510,
+        "errors": 9,
+        "errorRate": 0.0001,
+        "perSec": 1744.67,
+        "p50": 159,
+        "p90": 927,
+        "p95": 1393,
+        "p99": 3125,
+        "max": 38815,
+        "mean": 403
+      },
+      "hands": {
+        "started": 3392,
+        "completed": 3491,
+        "perSec": 77.58,
+        "perMinute": 4654.7
+      },
+      "chatSent": 12035,
+      "healthRtt": {
+        "p50": 396,
+        "p95": 1154,
+        "max": 1154
+      },
+      "server": {
+        "players": 7927,
+        "tables": 1618,
+        "activeHands": 1301,
+        "sockets": 8918,
+        "uptime": 688.665962242
+      },
+      "stageSeconds": 68,
+      "holdStartedAt": "2026-09-25T20:36:51.843Z",
+      "holdEndedAt": "2026-09-25T20:37:40.770Z",
+      "workers": 8,
+      "connectedAfterHold": 8918,
+      "joinRefusals": {}
+    },
+    {
+      "target": 10000,
+      "connected": 9892,
+      "joined": 9989,
+      "loginFailures": 1,
+      "generatorLag": {
+        "p50": 0,
+        "p95": 1,
+        "max": 8,
+        "samples": 1920
+      },
+      "host": {
+        "samples": 8,
+        "rssMbMax": 1216.1,
+        "heapUsedMbMax": 948.2,
+        "cpuPercentMean": 151,
+        "cpuPercentMax": 157.9,
+        "loopLagP99MsMax": 0.4,
+        "loopLagMaxMs": 4.2,
+        "goroutinesMax": 31464,
+        "socketsMax": 9891,
+        "socketsMin": 9838,
+        "playersMax": 8819,
+        "activeHandsMax": 1501,
+        "activeHandsMean": 1474,
+        "tablesMax": 1768,
+        "dbWaitingMax": 4,
+        "dbTotalMax": 50
+      },
+      "connectFailures": 7,
+      "disconnectsDuringHold": 55,
+      "login": {
+        "p50": 61,
+        "p95": 1269,
+        "max": 9906,
+        "mean": 302
+      },
+      "connect": {
+        "p50": 219,
+        "p95": 1792,
+        "max": 17252
+      },
+      "action": {
+        "count": 78742,
+        "errors": 18,
+        "errorRate": 0.0002,
+        "perSec": 1749.82,
+        "p50": 178,
+        "p90": 1022,
+        "p95": 1522,
+        "p99": 3668,
+        "max": 44021,
+        "mean": 441
+      },
+      "hands": {
+        "started": 3455,
+        "completed": 3550,
+        "perSec": 78.89,
+        "perMinute": 4733.3
+      },
+      "chatSent": 13212,
+      "healthRtt": {
+        "p50": 696,
+        "p95": 3204,
+        "max": 3204
+      },
+      "server": {
+        "players": 8653,
+        "tables": 1768,
+        "activeHands": 1474,
+        "sockets": 9838,
+        "uptime": 757.308478455
+      },
+      "stageSeconds": 69,
+      "holdStartedAt": "2026-09-25T20:38:01.441Z",
+      "holdEndedAt": "2026-09-25T20:38:49.433Z",
+      "workers": 8,
+      "connectedAfterHold": 9837,
+      "joinRefusals": {}
+    }
+  ],
+  "serverBefore": {
+    "ok": true,
+    "uptime": 187.386822946,
+    "tables": 0,
+    "players": 0,
+    "activeHands": 0,
+    "sockets": 0,
+    "process": {
+      "pid": 33013,
+      "node": "go1.27.1",
+      "rssMb": 22.1,
+      "heapUsedMb": 1.1,
+      "heapTotalMb": 11.2,
+      "externalMb": 0,
+      "cpuPercent": 0,
+      "loopLagP50Ms": 0,
+      "loopLagP99Ms": 0,
+      "loopLagMaxMs": 0,
+      "goroutines": 23,
+      "numCpu": 8,
+      "gomaxprocs": 8
+    },
+    "db": {
+      "total": 1,
+      "idle": 1,
+      "waiting": 0
+    },
+    "live": {
+      "kind": "redis",
+      "ok": true,
+      "tables": 0
+    },
+    "version": "v1.2.0-49-g542e957",
+    "tableConfig": {
+      "source": "db",
+      "version": "0f99d37c0f1fbb10cb0f5282aed3a6b97f1e5d08b598393fdd04f1977f0d6447",
+      "fallback": false
+    },
+    "rtt": 216
+  },
+  "serverAfter": {
+    "ok": true,
+    "uptime": 762.662590734,
+    "tables": 1768,
+    "players": 8630,
+    "activeHands": 1440,
+    "sockets": 9834,
+    "process": {
+      "pid": 33013,
+      "node": "go1.27.1",
+      "rssMb": 1217.7,
+      "heapUsedMb": 786.4,
+      "heapTotalMb": 1020.4,
+      "externalMb": 0,
+      "cpuPercent": 149.3,
+      "loopLagP50Ms": 0,
+      "loopLagP99Ms": 0.4,
+      "loopLagMaxMs": 2.6,
+      "goroutines": 31293,
+      "numCpu": 8,
+      "gomaxprocs": 8
+    },
+    "db": {
+      "total": 50,
+      "idle": 50,
+      "waiting": 0
+    },
+    "live": {
+      "kind": "redis",
+      "ok": true,
+      "tables": 1768
+    },
+    "version": "v1.2.0-49-g542e957",
+    "tableConfig": {
+      "source": "db",
+      "version": "0f99d37c0f1fbb10cb0f5282aed3a6b97f1e5d08b598393fdd04f1977f0d6447",
+      "fallback": false
+    },
+    "rtt": 254
+  },
+  "lastHealthyStage": 10000,
+  "stoppedBecause": null,
+  "connectionsAtStop": 9892
+}
