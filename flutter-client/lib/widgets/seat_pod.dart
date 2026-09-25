@@ -508,10 +508,8 @@ class SeatPod extends StatelessWidget {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Flexible(
-                        child: Text(
+                        child: SeatName(
                           isMe ? 'YOU' : s.displayName,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
                           // 'YOU' is a fixed Latin string the code owns, so it
                           // can be tracked capitals. A display name never can:
                           // toUpperCase() does nothing to Devanagari or
@@ -1517,6 +1515,50 @@ class _BubbleSkin extends CustomPainter {
 /// is drawn over their own cards, where there is room and where they are
 /// already looking. Everyone else's sits under their pod as before, and both
 /// go through here so the two can never drift apart.
+/// A player's name across the head of their pod, whole wherever it can be
+/// (owner's brief, 25 Sep 2026: "Never allow: player names to clip"). A name
+/// a little wider than its pod is set a little smaller — down to [minScale]
+/// of its size — rather than cut: "Vikramaditya" read "Vikramad…" at 640x360
+/// with text at x1.25, and is whole now at every phone size. Only a name that
+/// would need smaller still (a 24-letter one) ends in an ellipsis, at that
+/// size.
+class SeatName extends StatelessWidget {
+  const SeatName(this.name, {super.key, required this.style});
+
+  final String name;
+  final TextStyle style;
+
+  /// The smallest a name is set before it is cut instead.
+  static const double minScale = 0.78;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, box) {
+        final painter = TextPainter(
+          text: TextSpan(text: name, style: style),
+          textDirection: Directionality.of(context),
+          textScaler: MediaQuery.textScalerOf(context),
+          maxLines: 1,
+        )..layout();
+        final natural = painter.width;
+        painter.dispose();
+        final room = box.maxWidth;
+        final scale = !room.isFinite || natural <= room
+            ? 1.0
+            : math.max(minScale, room / natural * 0.98);
+        return Text(
+          name,
+          maxLines: 1,
+          softWrap: false,
+          overflow: TextOverflow.ellipsis,
+          style: style.copyWith(fontSize: (style.fontSize ?? 14) * scale),
+        );
+      },
+    );
+  }
+}
+
 class SeatBet extends StatelessWidget {
   const SeatBet({
     super.key,
