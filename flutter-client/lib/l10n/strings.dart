@@ -249,6 +249,15 @@ class Strings {
   String get settings => _('settings');
   String get language => _('language');
 
+  /// The settings drawer's line under its title, and the names of its groups
+  /// (the settings polish, 26 Sep 2026). A group's name is set in tracked
+  /// capitals in English only; the other scripts keep their own shape. The
+  /// Appearance group is named by [appearance].
+  String get settingsSubtitle => _('settingsSubtitle');
+  String get settingsProfile => _('settingsProfile');
+  String get settingsGameExperience => _('settingsGameExperience');
+  String get settingsAccount => _('settingsAccount');
+
   // --- requirement 34: lakh/crore or million/billion
   String get numberSystem => _('numberSystem');
   String get numberIndian => _('numberIndian');
@@ -1214,6 +1223,10 @@ class Strings {
           'Too late — that sideshow is no longer open. No hammer was spent.',
       'settings': 'Settings',
       'language': 'Language',
+      'settingsSubtitle': 'Personalize your game experience',
+      'settingsProfile': 'Profile',
+      'settingsGameExperience': 'Game experience',
+      'settingsAccount': 'Account',
       'numberSystem': 'Number format',
       'numberIndian': 'Indian  ·  Lakh, Crore',
       'numberInternational': 'International  ·  Million, Billion',
@@ -1826,6 +1839,10 @@ class Strings {
           'देर हो गई — अब वह साइडशो नहीं हो सकता। कोई हथौड़ा खर्च नहीं हुआ।',
       'settings': 'सेटिंग्स',
       'language': 'भाषा',
+      'settingsSubtitle': 'खेल का अनुभव अपने हिसाब से सजाएँ',
+      'settingsProfile': 'प्रोफ़ाइल',
+      'settingsGameExperience': 'खेल का अनुभव',
+      'settingsAccount': 'खाता',
       'numberSystem': 'संख्या प्रारूप',
       'numberIndian': 'भारतीय  ·  लाख, करोड़',
       'numberInternational': 'अंतरराष्ट्रीय  ·  मिलियन, बिलियन',
@@ -2421,6 +2438,10 @@ class Strings {
           'দেরি হয়ে গেছে — সেই সাইডশো আর সম্ভব নয়। কোনো হাতুড়ি খরচ হয়নি।',
       'settings': 'সেটিংস',
       'language': 'ভাষা',
+      'settingsSubtitle': 'খেলার অভিজ্ঞতা নিজের মতো সাজান',
+      'settingsProfile': 'প্রোফাইল',
+      'settingsGameExperience': 'খেলার অভিজ্ঞতা',
+      'settingsAccount': 'অ্যাকাউন্ট',
       'numberSystem': 'সংখ্যা বিন্যাস',
       'numberIndian': 'ভারতীয়  ·  লাখ, কোটি',
       'numberInternational': 'আন্তর্জাতিক  ·  মিলিয়ন, বিলিয়ন',
@@ -3018,6 +3039,10 @@ class Strings {
           'મોડું થઈ ગયું — હવે એ સાઇડશો શક્ય નથી. કોઈ હથોડી વપરાઈ નથી.',
       'settings': 'સેટિંગ્સ',
       'language': 'ભાષા',
+      'settingsSubtitle': 'રમતનો અનુભવ તમારી રીતે ગોઠવો',
+      'settingsProfile': 'પ્રોફાઇલ',
+      'settingsGameExperience': 'રમતનો અનુભવ',
+      'settingsAccount': 'ખાતું',
       'numberSystem': 'સંખ્યા ફોર્મેટ',
       'numberIndian': 'ભારતીય  ·  લાખ, કરોડ',
       'numberInternational': 'આંતરરાષ્ટ્રીય  ·  મિલિયન, બિલિયન',
@@ -3611,6 +3636,10 @@ class Strings {
           'ਦੇਰ ਹੋ ਗਈ — ਹੁਣ ਉਹ ਸਾਈਡਸ਼ੋ ਨਹੀਂ ਹੋ ਸਕਦਾ। ਕੋਈ ਹਥੌੜਾ ਖਰਚ ਨਹੀਂ ਹੋਇਆ।',
       'settings': 'ਸੈਟਿੰਗਾਂ',
       'language': 'ਭਾਸ਼ਾ',
+      'settingsSubtitle': 'ਖੇਡ ਦਾ ਅਨੁਭਵ ਆਪਣੇ ਤਰੀਕੇ ਨਾਲ ਸਜਾਓ',
+      'settingsProfile': 'ਪ੍ਰੋਫਾਈਲ',
+      'settingsGameExperience': 'ਖੇਡ ਦਾ ਅਨੁਭਵ',
+      'settingsAccount': 'ਖਾਤਾ',
       'numberSystem': 'ਨੰਬਰ ਫਾਰਮੈਟ',
       'numberIndian': 'ਭਾਰਤੀ  ·  ਲੱਖ, ਕਰੋੜ',
       'numberInternational': 'ਅੰਤਰਰਾਸ਼ਟਰੀ  ·  ਮਿਲੀਅਨ, ਬਿਲੀਅਨ',

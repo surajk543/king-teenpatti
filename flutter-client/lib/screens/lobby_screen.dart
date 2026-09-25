@@ -19,6 +19,7 @@ import '../widgets/buy_chips.dart';
 import '../widgets/chip_shuffle.dart';
 import '../widgets/feedback_toggles.dart';
 import '../widgets/drifting_chips.dart';
+import '../widgets/edge_fade.dart';
 import '../widgets/fireworks.dart';
 import '../widgets/glass_components.dart';
 import '../widgets/glass_panels.dart';
@@ -1245,11 +1246,21 @@ class _AvatarWithPip extends StatelessWidget {
     required this.url,
     required this.fallback,
     required this.diameter,
+    this.ringed = false,
   });
 
   final String? url;
   final String fallback;
   final double diameter;
+
+  /// A thin gold ring round the picture, a band of ground inside it — the
+  /// Settings drawer's portrait (settings polish, 26 Sep 2026), in the store's
+  /// words for the worn picture, only finer. Never the top bar's, whose rail
+  /// is measured from this footprint and wears the plain hairline.
+  final bool ringed;
+
+  static const double _ringWidth = 2;
+  static const double _ringGap = 2;
 
   @override
   Widget build(BuildContext context) {
@@ -1264,8 +1275,18 @@ class _AvatarWithPip extends StatelessWidget {
         Avatar(
           url: url,
           fallback: fallback,
-          // Avatar's ring grows outwards, so the picture gives the ring back.
-          radius: diameter / 2 - 1.5,
+          // Avatar's ring grows outwards, so the picture gives the ring (and
+          // any band inside it) back, and the footprint stays [diameter].
+          radius: ringed
+              ? diameter / 2 - _ringWidth - _ringGap
+              : diameter / 2 - 1.5,
+          ring: ringed
+              ? (brightness == Brightness.dark
+                    ? AppTheme.goldBright
+                    : AppTheme.gold)
+              : null,
+          ringWidth: ringed ? _ringWidth : 1.5,
+          ringGap: ringed ? _ringGap : 0,
           // The player's own picture plays where they see it in the lobby: an
           // animated one they paid for, frozen on its first frame in the one
           // place they look at it most, read as broken.
@@ -3907,13 +3928,19 @@ String? _wornPictureName(GameState state) {
   return null;
 }
 
-/// The shell both right-hand panels share.
+/// The shell both right-hand panels share: a head that stays put and, under
+/// it, a list that scrolls (the settings polish, 26 Sep 2026: "fixed header,
+/// scrollable settings content, stable close button"). The head used to be the
+/// list's first row and scrolled away with it, and the way out went with it.
 ///
 /// Not [GlassDrawerPanel]: that one aligns its body to the start edge, which is
 /// right for a left drawer and would put these panels on the opposite side of
 /// the screen from the edge they slide in on.
 class _LobbyDrawer extends StatelessWidget {
-  const _LobbyDrawer({required this.children});
+  const _LobbyDrawer({required this.head, required this.children});
+
+  /// The title, which does not scroll.
+  final Widget head;
 
   final List<Widget> children;
 
@@ -3933,19 +3960,39 @@ class _LobbyDrawer extends StatelessWidget {
           priority: 10,
           radius: Radii.lg,
           padding: EdgeInsets.zero,
+          behind: const _DrawerBody(),
           child: SafeArea(
-            // Landscape leaves very little height, so this scrolls rather than
-            // overflowing — which is what was clipping the name off the top.
-            // It also stops short of the keyboard: the lobby is not resized
-            // for it, so the list shrinks instead and scrolls a focused field
-            // (the display name) into what is left.
+            // Landscape leaves very little height, so the list scrolls rather
+            // than overflowing — which is what was clipping the name off the
+            // top. It also stops short of the keyboard: the lobby is not
+            // resized for it, so the list shrinks instead and scrolls a
+            // focused field (the display name) into what is left, under the
+            // head, which stays.
             child: Padding(
               padding: EdgeInsets.only(
                 bottom: MediaQuery.viewInsetsOf(context).bottom,
               ),
-              child: ListView(
-                padding: const EdgeInsets.symmetric(vertical: Space.lg),
-                children: children,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  head,
+                  const _DrawerRule(space: 0),
+                  Expanded(
+                    // Faded at an edge only while there is more beyond it, so
+                    // a row the head's rule cuts through reads as "there is
+                    // more" rather than as clipped by accident.
+                    child: EdgeFade(
+                      extent: Space.lg,
+                      child: ListView(
+                        padding: const EdgeInsets.only(
+                          top: Space.xs,
+                          bottom: Space.lg,
+                        ),
+                        children: children,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
@@ -3955,7 +4002,70 @@ class _LobbyDrawer extends StatelessWidget {
   }
 }
 
-/// A drawer's title row: a mark, what the panel is, and the way out.
+/// What the two drawers are made of, laid over their glass (the settings
+/// polish, 26 Sep 2026): by night the lobby cards' own charcoal
+/// ([GlassColors.cardFill]) — not the near-black the bare glass was over the
+/// dimmed room, which the drawer all but disappeared into — and by day the
+/// warm pearl the table's room is ([TableGround.pearl]) rather than the grey
+/// milk-glass over the dimmed room made, which was the drawer's whole colour.
+///
+/// Mostly opaque, so the glass under it shows as a breath of frost rather
+/// than as the room. Lerped on the ground's own lightness rather than chosen
+/// by brightness, so the appearance control inside the drawer cross-fades it
+/// with everything else instead of snapping it halfway through.
+class _DrawerBody extends StatelessWidget {
+  const _DrawerBody();
+
+  static final double _nightGround = GlassColors.dark.ground.computeLuminance();
+  static final double _dayGround = GlassColors.light.ground.computeLuminance();
+
+  /// How far the theme's cross-fade has come from obsidian (0) to ice (1),
+  /// read off the ground colour, which lerps with the rest of the theme.
+  static double dayOf(GlassColors glass) =>
+      ((glass.ground.computeLuminance() - _nightGround) /
+              (_dayGround - _nightGround))
+          .clamp(0.0, 1.0);
+
+  /// A warm stone well under the pearl.
+  static final Color _stoneWell = Color.alphaBlend(
+    TableGround.pearlEdge.withValues(alpha: 0.55),
+    TableGround.pearl,
+  );
+
+  /// The fill of what is sunk into the drawer — the two fields and the
+  /// appearance control: the theme's own well by night, and by day a warm
+  /// stone rather than the theme's cool slate, which read grey-blue on the
+  /// pearl.
+  static Color well(GlassColors glass) =>
+      Color.lerp(glass.wellFill, _stoneWell, dayOf(glass)) ?? glass.wellFill;
+
+  @override
+  Widget build(BuildContext context) {
+    final glass = GlassColors.of(context);
+    final day = dayOf(glass);
+    final pearl = TableGround.pearl;
+    final stone = Color.lerp(pearl, TableGround.pearlEdge, 0.4)!;
+    Color at(Color night, Color dayColour) =>
+        Color.lerp(night, dayColour, day) ?? night;
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            at(GlassColors.dark.cardFill, pearl.withValues(alpha: 0.94)),
+            at(GlassColors.dark.cardFillEnd, stone.withValues(alpha: 0.96)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// A drawer's title row: a mark, what the panel is, a line under it, and the
+/// way out. Kept short on purpose: in a landscape drawer every line the head
+/// takes is a line the list does not get.
 class _DrawerHead extends StatelessWidget {
   const _DrawerHead({
     required this.leading,
@@ -3972,9 +4082,18 @@ class _DrawerHead extends StatelessWidget {
     final theme = Theme.of(context);
     final text = theme.textTheme;
     final caption = subtitle;
+    // While the keyboard is up the line under the title steps aside, as the
+    // table's chat drawer drops its title while typing: a landscape keyboard
+    // leaves the list a band barely taller than the field being typed in.
+    final typing = MediaQuery.viewInsetsOf(context).bottom > 0;
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(Space.lg, 0, Space.sm, Space.md),
+      padding: const EdgeInsets.fromLTRB(
+        Space.lg,
+        Space.md,
+        Space.xs,
+        Space.md,
+      ),
       child: Row(
         children: [
           leading,
@@ -3982,23 +4101,35 @@ class _DrawerHead extends StatelessWidget {
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
                   title,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: AppTheme.label(text.titleSmall!),
+                  style: AppTheme.label(
+                    text.titleMedium!,
+                    weight: FontWeight.w700,
+                  ),
                 ),
                 if (caption != null)
-                  Text(
-                    caption,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: text.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurface.withValues(
-                        alpha: AppTheme.inkLow,
-                      ),
-                    ),
+                  AnimatedSize(
+                    duration: Motion.base,
+                    curve: Motion.standard,
+                    alignment: Alignment.topLeft,
+                    child: typing
+                        ? const SizedBox(width: double.infinity)
+                        : Text(
+                            caption,
+                            // Two lines rather than one cut short: the drawer
+                            // is 260dp on a 640dp phone, and the line is a
+                            // sentence.
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: text.bodySmall?.copyWith(
+                              color: GlassColors.of(context).cardMuted,
+                            ),
+                          ),
                   ),
               ],
             ),
@@ -4009,6 +4140,7 @@ class _DrawerHead extends StatelessWidget {
             child: PressScale(
               child: IconButton(
                 padding: EdgeInsets.zero,
+                tooltip: MaterialLocalizations.of(context).closeButtonTooltip,
                 icon: const Icon(Icons.close_rounded, size: 20),
                 onPressed: () => Navigator.pop(context),
               ),
@@ -4018,6 +4150,150 @@ class _DrawerHead extends StatelessWidget {
       ),
     );
   }
+}
+
+/// The Settings drawer's mark: its glyph in a gold-lit disc the size of the
+/// Stats drawer's portrait, so the two heads stand alike — the lobby's reward
+/// chips wear the same disc while their reward can be taken.
+class _HeadMark extends StatelessWidget {
+  const _HeadMark({required this.icon});
+
+  final IconData icon;
+
+  /// The Stats drawer's portrait is radius 16.
+  static const double size = 32;
+
+  @override
+  Widget build(BuildContext context) {
+    final brightness = Theme.of(context).brightness;
+    final dark = brightness == Brightness.dark;
+    return Container(
+      width: size,
+      height: size,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: AppTheme.gold.withValues(alpha: dark ? 0.16 : 0.12),
+        border: Border.all(
+          color: AppTheme.gold.withValues(alpha: dark ? 0.45 : 0.50),
+          width: Dim.hairline,
+        ),
+      ),
+      child: Icon(icon, size: 18, color: _goldInk(brightness)),
+    );
+  }
+}
+
+/// The name over one group of settings — PROFILE, GAME EXPERIENCE, APPEARANCE,
+/// ACCOUNT (settings polish, 26 Sep 2026): small and quiet, so it orders the
+/// drawer without competing with what it heads. Tracked capitals in English
+/// only: spread over Devanagari or Gurmukhi, tracking pulls the vowel signs
+/// off their letters, so the other scripts keep their own shape.
+class _SectionLabel extends StatelessWidget {
+  const _SectionLabel(this.label, {required this.english, this.first = false});
+
+  final String label;
+  final bool english;
+
+  /// The first group's name sits closer under the head.
+  final bool first;
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    return Padding(
+      padding: EdgeInsets.fromLTRB(
+        _SettingsGroup.inset + Space.xs,
+        first ? Space.md : Space.xl,
+        _SettingsGroup.inset,
+        Space.sm,
+      ),
+      child: Semantics(
+        header: true,
+        child: Text(
+          english ? label.toUpperCase() : label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: AppTheme.label(
+            text.labelSmall!,
+            colour: GlassColors.of(context).cardMuted,
+          ).copyWith(letterSpacing: english ? 1.2 : 0),
+        ),
+      ),
+    );
+  }
+}
+
+/// One group of settings rows on a very light pane of its own, the rows parted
+/// by an inset hairline (settings polish, 26 Sep 2026: "clean rows with subtle
+/// separators or very light containers" — one pane a group, never a card a
+/// setting). [danger] edges the pane in a restrained red, for the one row
+/// that cannot be undone; its body stays the other groups' own, so the drawer
+/// has one red word in it rather than a red box.
+class _SettingsGroup extends StatelessWidget {
+  const _SettingsGroup({required this.children, this.danger = false});
+
+  final List<Widget> children;
+  final bool danger;
+
+  /// How far a group stands in from the drawer's edge — the drawer's margin,
+  /// which the fields and the appearance control keep too.
+  static const double inset = Space.lg;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final glass = GlassColors.of(context);
+    final dark = theme.brightness == Brightness.dark;
+    final error = theme.colorScheme.error;
+    // A breath lighter than the drawer by night, and a clear white over the
+    // pearl by day: the rows' own surface, a step above the drawer's.
+    final fill = dark ? glass.fill : glass.fillStrong;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: inset),
+      child: Material(
+        color: fill,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(Radii.md),
+          side: BorderSide(
+            color: danger
+                ? error.withValues(alpha: dark ? 0.26 : 0.22)
+                : glass.cardBorder,
+            width: Dim.hairline,
+          ),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            for (var i = 0; i < children.length; i++) ...[
+              if (i > 0) const _GroupDivider(),
+              children[i],
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The hairline between two rows of a group, starting where their words do.
+class _GroupDivider extends StatelessWidget {
+  const _GroupDivider();
+
+  /// A row's glyph and the gap after it: the words start here.
+  static const double _indent = Space.md + _DrawerAction.glyph + Space.md;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(left: _indent),
+    child: Container(
+      height: Dim.hairline,
+      color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.08),
+    ),
+  );
 }
 
 /// The one rule inside a drawer. Groups are separated by this and by nothing
@@ -4094,79 +4370,80 @@ class _StatRow extends StatelessWidget {
   }
 }
 
-/// A row in a drawer that does something. No fill and no tinted tile: a drawer
-/// full of filled rows reads as a list of buttons, and only one of these is
-/// ever the thing the player came in for.
+/// A row in a settings group that does something: a glyph, its name, and
+/// whatever it ends in. No fill of its own — the group is the surface — and
+/// the group's own ink says it was pressed.
+///
+/// Neutral unless [danger]: Sign out is a row like any other (settings polish,
+/// 26 Sep 2026: "visible but not aggressive"), and Delete my account — the one
+/// thing here that cannot be undone — is the one red row, in a group of its
+/// own.
 class _DrawerAction extends StatelessWidget {
   const _DrawerAction({
-    required this.leading,
+    required this.icon,
     required this.title,
     required this.onTap,
     this.danger = false,
+    this.trailing,
   });
 
-  final Widget leading;
+  /// A row's glyph, the same size in every row of the drawer.
+  static const double glyph = 20;
+
+  final IconData icon;
   final String title;
   final VoidCallback onTap;
-
-  /// Quietened rather than shouted: the two destructive rows sit next to each
-  /// other and a filled red row is exactly what a mis-tap looks for.
   final bool danger;
+
+  /// A mark after the name: where the row goes, if it goes somewhere else.
+  final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final text = theme.textTheme;
-    final ink = danger
-        ? theme.colorScheme.error.withValues(alpha: 0.86)
-        : theme.colorScheme.onSurface;
+    final scheme = theme.colorScheme;
+    final ink = danger ? scheme.error : scheme.onSurface;
+    final end = trailing;
 
-    return PressScale(
-      child: Material(
-        type: MaterialType.transparency,
-        child: InkWell(
-          // Material's own click, gated on the player's Sound switch —
-          // otherwise a silenced game would still tick on every tap.
-          enableFeedback: context.select<FeedbackSettings, bool>(
-            (f) => f.sound,
+    return InkWell(
+      // Material's own click, gated on the player's Sound switch —
+      // otherwise a silenced game would still tick on every tap.
+      enableFeedback: context.select<FeedbackSettings, bool>((f) => f.sound),
+      onTap: () {
+        tapHaptic(context);
+        onTap();
+      },
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(
+          minHeight: FeedbackSwitchStyle.groupedRowHeight,
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: Space.md,
+            vertical: Space.xs,
           ),
-          onTap: onTap,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(minHeight: Dim.minTouch),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: Space.lg,
-                vertical: Space.sm,
+          child: Row(
+            children: [
+              Icon(
+                icon,
+                size: glyph,
+                color: danger ? ink : ink.withValues(alpha: AppTheme.inkMed),
               ),
-              child: Row(
-                children: [
-                  IconTheme.merge(
-                    data: IconThemeData(
-                      size: 18,
-                      color: danger
-                          ? ink
-                          : theme.colorScheme.onSurface.withValues(
-                              alpha: AppTheme.inkLow,
-                            ),
-                    ),
-                    child: leading,
+              const SizedBox(width: Space.md),
+              Expanded(
+                child: Text(
+                  title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTheme.label(
+                    theme.textTheme.bodyMedium!,
+                    colour: ink,
+                    weight: FontWeight.w500,
                   ),
-                  const SizedBox(width: Space.md),
-                  Expanded(
-                    child: Text(
-                      title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppTheme.label(
-                        text.bodyMedium!,
-                        colour: ink,
-                        weight: FontWeight.w500,
-                      ),
-                    ),
-                  ),
-                ],
+                ),
               ),
-            ),
+              if (end != null) ...[const SizedBox(width: Space.sm), end],
+            ],
           ),
         ),
       ),
@@ -4209,19 +4486,18 @@ class _StatsDrawer extends StatelessWidget {
     ];
 
     return _LobbyDrawer(
-      children: [
-        _DrawerHead(
-          leading: Avatar(
-            url: state.avatarUrl,
-            fallback: user?.displayName ?? '',
-            radius: 16,
-            animate: true,
-          ),
-          title: user?.displayName ?? '',
-          subtitle: t.yourRecord,
+      head: _DrawerHead(
+        leading: Avatar(
+          url: state.avatarUrl,
+          fallback: user?.displayName ?? '',
+          radius: _HeadMark.size / 2,
+          animate: true,
         ),
-        const _DrawerRule(space: 0),
-        const SizedBox(height: Space.sm),
+        title: user?.displayName ?? '',
+        subtitle: t.yourRecord,
+      ),
+      children: [
+        const SizedBox(height: Space.xs),
         for (var i = 0; i < rows.length; i++) ...[
           // The four counts of hands are one group; the two money figures are
           // another, and the rule between them is the only one in the list.
@@ -4249,6 +4525,76 @@ class _StatsDrawer extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// A number system's name and its units — "Indian  ·  Lakh, Crore" — on one
+/// line where they fit, and otherwise the name over its units with the dot
+/// dropped (settings polish, 26 Sep 2026). Left to wrap by itself, a 260dp
+/// drawer broke the line after the dot, or inside the units ("Indian · Lakh,"
+/// over "Crore"). A label with no dot is written as it is.
+class _SystemName extends StatelessWidget {
+  const _SystemName(
+    this.label, {
+    required this.nameStyle,
+    required this.unitsStyle,
+  });
+
+  final String label;
+  final TextStyle nameStyle;
+  final TextStyle unitsStyle;
+
+  @override
+  Widget build(BuildContext context) {
+    final cut = label.indexOf('·');
+    if (cut < 0) {
+      return Text(
+        label,
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+        style: nameStyle,
+      );
+    }
+    final name = label.substring(0, cut).trim();
+    final units = label.substring(cut + 1).trim();
+    final line = TextSpan(
+      children: [
+        TextSpan(text: '$name  ·  ', style: nameStyle),
+        TextSpan(text: units, style: unitsStyle),
+      ],
+    );
+
+    return LayoutBuilder(
+      builder: (context, box) {
+        final painter = TextPainter(
+          text: line,
+          textDirection: Directionality.of(context),
+          textScaler: MediaQuery.textScalerOf(context),
+          maxLines: 1,
+        )..layout(maxWidth: box.maxWidth);
+        final fits = !painter.didExceedMaxLines;
+        painter.dispose();
+        if (fits) return Text.rich(line, maxLines: 1);
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              name,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: nameStyle,
+            ),
+            Text(
+              units,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: unitsStyle,
+            ),
+          ],
+        );
+      },
     );
   }
 }
@@ -4298,11 +4644,12 @@ class _NumberOption extends StatelessWidget {
     final dark = brightness == Brightness.dark;
     final ink = selected
         ? _goldInk(brightness)
-        : scheme.onSurface.withValues(alpha: AppTheme.inkLow);
+        : scheme.onSurface.withValues(alpha: AppTheme.inkMed);
 
-    // A tile of tinted glass inside the drawer's pane: the stronger fill and
-    // the live gold hairline mark the chosen one; the other wears the resting
-    // glass edge.
+    // A tile inside the number format's group: the chosen one in the store's
+    // own words for a chosen thing — a wash of gold under a champagne edge,
+    // as its shelf keys wear (settings polish, 26 Sep 2026) — and the other
+    // on the resting card edge.
     return PressScale(
       child: Material(
         type: MaterialType.transparency,
@@ -4312,7 +4659,7 @@ class _NumberOption extends StatelessWidget {
           enableFeedback: context.select<FeedbackSettings, bool>(
             (f) => f.sound,
           ),
-          borderRadius: BorderRadius.circular(Radii.md),
+          borderRadius: BorderRadius.circular(Radii.sm),
           onTap: onTap,
           child: AnimatedContainer(
             duration: Motion.base,
@@ -4323,12 +4670,16 @@ class _NumberOption extends StatelessWidget {
               vertical: Space.sm,
             ),
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(Radii.md),
-              color: selected ? glass.fillStrong : glass.fill,
+              borderRadius: BorderRadius.circular(Radii.sm),
+              color: selected
+                  ? AppTheme.gold.withValues(alpha: dark ? 0.14 : 0.10)
+                  : Colors.transparent,
               border: Border.all(
                 color: selected
-                    ? AppTheme.hairlineColour(brightness, live: true)
-                    : (dark ? glass.borderTop : glass.borderBottom),
+                    ? (dark
+                          ? AppTheme.goldBright.withValues(alpha: 0.55)
+                          : AppTheme.hairlineColour(brightness, live: true))
+                    : glass.cardBorder,
                 width: Dim.hairline,
               ),
             ),
@@ -4341,15 +4692,21 @@ class _NumberOption extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Text(
+                      // Never cut short (QA 14 Sep 2026: "International ·
+                      // Millio…"): on one line where it fits, the name over
+                      // its units where it does not.
+                      _SystemName(
                         label,
-                        // Two lines rather than one cut short: a 640dp drawer
-                        // showed "International · Millio…" (QA 14 Sep 2026).
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppTheme.label(
+                        nameStyle: AppTheme.label(
                           text.bodyMedium!,
                           weight: selected ? FontWeight.w700 : FontWeight.w500,
+                        ),
+                        unitsStyle: AppTheme.label(
+                          text.labelMedium!,
+                          colour: scheme.onSurface.withValues(
+                            alpha: AppTheme.inkMed,
+                          ),
+                          weight: FontWeight.w500,
                         ),
                       ),
                       Text(
@@ -4360,9 +4717,7 @@ class _NumberOption extends StatelessWidget {
                           text.labelMedium!,
                           colour: selected
                               ? _goldInk(brightness)
-                              : scheme.onSurface.withValues(
-                                  alpha: AppTheme.inkLow,
-                                ),
+                              : glass.cardMuted,
                         ),
                       ),
                     ],
@@ -4500,25 +4855,193 @@ class _SettingsDrawerState extends State<_SettingsDrawer> {
     }
   }
 
+  /// Whether the number format's two choices stand open under its row.
+  bool _numbersOpen = false;
+
+  /// Requirement 34: lakh and crore, or million and billion — one row that
+  /// says which is on and how the player's own money reads under it, opening
+  /// in place onto the two choices, each previewing itself with the same
+  /// figure (settings polish, 26 Sep 2026). The two tiles used to stand open
+  /// under a heading, the tallest thing in the drawer for a choice a player
+  /// makes once. Choosing is exactly what it was, and closes the row again.
+  Widget _numberFormat(GameState state) {
+    final t = state.t;
+    final theme = Theme.of(context);
+    final text = theme.textTheme;
+    final scheme = theme.colorScheme;
+    final glass = GlassColors.of(context);
+    final open = _numbersOpen;
+    final current = state.numbers;
+
+    String name(NumberSystem system) =>
+        system == NumberSystem.indian ? t.numberIndian : t.numberInternational;
+
+    final row = Semantics(
+      button: true,
+      expanded: open,
+      child: InkWell(
+        // Material's own click, gated on the player's Sound switch —
+        // otherwise a silenced game would still tick on every tap.
+        enableFeedback: context.select<FeedbackSettings, bool>((f) => f.sound),
+        onTap: () {
+          tapHaptic(context);
+          setState(() => _numbersOpen = !open);
+        },
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(
+            minHeight: FeedbackSwitchStyle.groupedRowHeight,
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: Space.md,
+              vertical: Space.sm,
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.tag,
+                  size: _DrawerAction.glyph,
+                  color: scheme.onSurface.withValues(alpha: AppTheme.inkMed),
+                ),
+                const SizedBox(width: Space.md),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        t.numberSystem,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTheme.label(
+                          text.bodyMedium!,
+                          colour: scheme.onSurface,
+                          weight: FontWeight.w500,
+                        ),
+                      ),
+                      // What is on, in the accent a chosen thing wears, and
+                      // the player's own money as it reads under it. Gone
+                      // while the choices are open: each of them says it.
+                      if (!open) ...[
+                        const SizedBox(height: Space.xxs),
+                        _SystemName(
+                          name(current),
+                          nameStyle: AppTheme.label(
+                            text.labelMedium!,
+                            colour: _goldInk(theme.brightness),
+                          ),
+                          unitsStyle: AppTheme.label(
+                            text.labelMedium!,
+                            colour: _goldInk(theme.brightness),
+                            weight: FontWeight.w500,
+                          ),
+                        ),
+                        Text(
+                          _sampleIn(current, state),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTheme.money(
+                            text.labelMedium!,
+                            colour: glass.cardMuted,
+                            weight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                const SizedBox(width: Space.sm),
+                AnimatedRotation(
+                  turns: open ? 0.5 : 0,
+                  duration: Motion.base,
+                  curve: Motion.standard,
+                  child: Icon(
+                    Icons.expand_more_rounded,
+                    size: 22,
+                    color: glass.cardMuted,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    return AnimatedSize(
+      duration: Motion.base,
+      curve: Motion.standard,
+      alignment: Alignment.topCenter,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          row,
+          if (open)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                Space.md,
+                0,
+                Space.md,
+                Space.md,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (final (i, option) in NumberSystem.values.indexed) ...[
+                    if (i > 0) const SizedBox(height: Space.sm),
+                    _NumberOption(
+                      icon: option == NumberSystem.indian
+                          ? Icons.currency_rupee
+                          : Icons.public,
+                      label: name(option),
+                      // The same stack written both ways.
+                      sample: _sampleIn(option, state),
+                      selected: current == option,
+                      onTap: () {
+                        setState(() => _numbersOpen = false);
+                        state.setNumberSystem(option);
+                      },
+                    ),
+                  ],
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = context.watch<GameState>();
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final text = theme.textTheme;
+    final glass = GlassColors.of(context);
     final t = state.t;
+    final english = state.lang == AppLang.english;
+    // What is typed in the name field and what is chosen in the language
+    // field, in one style, so the two read as the pair they are: the
+    // dropdown took the theme's titleMedium, a size and a weight above the
+    // name beside it.
+    final fieldText = text.bodyLarge?.copyWith(color: scheme.onSurface);
+    // Everything sunk into the drawer is filled alike: the two fields and the
+    // appearance control.
+    final well = _DrawerBody.well(glass);
+    final environment = versionEnvironmentTag();
 
     return _LobbyDrawer(
+      head: _DrawerHead(
+        leading: const _HeadMark(icon: Icons.tune_rounded),
+        title: t.settings,
+        subtitle: t.settingsSubtitle,
+      ),
       children: [
-        _DrawerHead(
-          leading: Icon(
-            Icons.tune_rounded,
-            size: 20,
-            color: _goldInk(theme.brightness),
-          ),
-          title: t.settings,
-        ),
-        const _DrawerRule(space: 0),
+        // PROFILE: who you are at the table — the picture, the name and the
+        // language — as one block, headed and spaced as one.
+        _SectionLabel(t.settingsProfile, english: english, first: true),
         // The picture leads the drawer, above the name, because it is the
         // louder half of the same decision — who you are at the table. The top
         // bar's avatar opens the same sheet; this is the copy for anyone who
@@ -4529,9 +5052,10 @@ class _SettingsDrawerState extends State<_SettingsDrawer> {
         // that is a picture, and at row scale it read as an icon next to a
         // label instead of as the face everyone at the table will see. The
         // pencil is the same pip the top bar's avatar wears, so the two read as
-        // the same control in two places rather than as two different ones.
+        // the same control in two places rather than as two different ones;
+        // the thin gold ring is this copy's alone.
         Padding(
-          padding: const EdgeInsets.fromLTRB(Space.lg, Space.sm, Space.lg, 0),
+          padding: const EdgeInsets.symmetric(horizontal: _SettingsGroup.inset),
           child: PressScale(
             child: Material(
               type: MaterialType.transparency,
@@ -4548,34 +5072,31 @@ class _SettingsDrawerState extends State<_SettingsDrawer> {
                   openPicturePicker(context);
                 },
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: Space.sm),
+                  padding: const EdgeInsets.symmetric(vertical: Space.xs),
                   child: Column(
                     children: [
                       _AvatarWithPip(
                         url: state.avatarUrl,
                         fallback: state.user?.displayName ?? '',
                         diameter: 72,
+                        ringed: true,
                       ),
                       const SizedBox(height: Space.sm),
                       Text(
                         _wornPictureName(state) ?? t.yourPicture,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.center,
                         style: AppTheme.label(
                           text.titleSmall ?? const TextStyle(),
                         ),
                       ),
-                      const SizedBox(height: Space.xxs),
                       Text(
                         t.tapToChangePicture,
                         textAlign: TextAlign.center,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
-                        style: text.bodySmall?.copyWith(
-                          color: scheme.onSurface.withValues(
-                            alpha: AppTheme.inkMed,
-                          ),
-                        ),
+                        style: text.bodySmall?.copyWith(color: glass.cardMuted),
                       ),
                     ],
                   ),
@@ -4584,10 +5105,9 @@ class _SettingsDrawerState extends State<_SettingsDrawer> {
             ),
           ),
         ),
-        const _DrawerRule(space: Space.sm),
-        const SizedBox(height: Space.xs),
+        const SizedBox(height: Space.md),
         Padding(
-          padding: const EdgeInsets.fromLTRB(Space.lg, 0, Space.lg, Space.xs),
+          padding: const EdgeInsets.symmetric(horizontal: _SettingsGroup.inset),
           // Let go when Back puts the keyboard away, so the selection handle
           // does not stay standing under a field nobody is typing in.
           child: KeyboardFocusGuard(
@@ -4598,6 +5118,7 @@ class _SettingsDrawerState extends State<_SettingsDrawer> {
               labelText: t.displayName,
               prefixIcon: const Icon(Icons.badge_outlined, size: 18),
               counterText: '',
+              style: fieldText,
               suffixIcon: _saving
                   ? const Padding(
                       padding: EdgeInsets.all(Space.md),
@@ -4627,6 +5148,7 @@ class _SettingsDrawerState extends State<_SettingsDrawer> {
                 isDense: true,
                 errorText: _nameError,
                 errorMaxLines: 4,
+                fillColor: well,
               ),
               // The server's complaint is about the name that was sent. Once
               // the player edits it, that complaint no longer describes what
@@ -4639,8 +5161,9 @@ class _SettingsDrawerState extends State<_SettingsDrawer> {
             ),
           ),
         ),
+        const SizedBox(height: Space.sm),
         Padding(
-          padding: const EdgeInsets.fromLTRB(Space.lg, Space.xs, Space.lg, 0),
+          padding: const EdgeInsets.symmetric(horizontal: _SettingsGroup.inset),
           child: DropdownButtonFormField<AppLang>(
             initialValue: state.lang,
             // The field takes the width it is given and its longest item
@@ -4649,10 +5172,12 @@ class _SettingsDrawerState extends State<_SettingsDrawer> {
             // what it did once the type became Inter, which is wider than the
             // font this slot was measured against.
             isExpanded: true,
+            style: fieldText,
             decoration: InputDecoration(
               labelText: t.language,
               prefixIcon: const Icon(Icons.translate, size: 18),
               isDense: true,
+              fillColor: well,
             ),
             // Each language names itself, which is the only label a player
             // who does not read the current one can act on.
@@ -4672,157 +5197,118 @@ class _SettingsDrawerState extends State<_SettingsDrawer> {
             onChanged: (l) => l == null ? null : state.setLanguage(l),
           ),
         ),
-        const _DrawerRule(),
-        // Requirement 34: lakh and crore, or million and billion. Each option
-        // previews itself with the same figure, so the choice is made by
-        // looking rather than by knowing what the words mean.
-        Padding(
-          padding: const EdgeInsets.fromLTRB(Space.lg, 0, Space.lg, 0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Icon(
-                    Icons.tag,
-                    size: 16,
-                    color: scheme.onSurface.withValues(alpha: AppTheme.inkLow),
-                  ),
-                  const SizedBox(width: Space.sm),
-                  Flexible(
-                    child: Text(
-                      t.numberSystem,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppTheme.label(
-                        text.labelMedium!,
-                        colour: scheme.onSurface.withValues(
-                          alpha: AppTheme.inkLow,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: Space.sm),
-              for (final option in NumberSystem.values)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: Space.sm),
-                  child: _NumberOption(
-                    icon: option == NumberSystem.indian
-                        ? Icons.currency_rupee
-                        : Icons.public,
-                    label: option == NumberSystem.indian
-                        ? t.numberIndian
-                        : t.numberInternational,
-                    // The same stack written both ways.
-                    sample: _sampleIn(option, state),
-                    selected: state.numbers == option,
-                    onTap: () => state.setNumberSystem(option),
-                  ),
-                ),
-            ],
-          ),
+        // GAME EXPERIENCE: how money reads, and how the game sounds and feels
+        // — one group, the rows parted by hairlines.
+        _SectionLabel(t.settingsGameExperience, english: english),
+        _SettingsGroup(
+          children: [
+            _numberFormat(state),
+            // Sound and vibration, as switches rather than actions: they have
+            // a state the player should be able to read at a glance, which a
+            // row that merely reacts to a tap does not show.
+            const FeedbackToggles(grouped: true, divider: _GroupDivider()),
+          ],
         ),
         // No Rules row here (owner, 23 Sep 2026: "remove the rules button from
         // setting drawer"): the rules are read where they apply — each table
         // card's rulebook key in the lobby, and the table's own menu once
         // seated.
-        const _DrawerRule(space: Space.sm),
-        // Sound and vibration, as switches rather than actions: they have a
-        // state the player should be able to read at a glance, which a row
-        // that merely reacts to a tap does not show.
-        const FeedbackToggles(),
-        // Appearance: System, Dark or Light as one segmented glass control,
-        // headed the same way as the number system above it. The switcher
-        // reads and writes the theme mode itself.
+        //
+        // APPEARANCE: System, Dark or Light as one segmented control. The
+        // switcher reads and writes the theme mode itself.
+        _SectionLabel(t.appearance, english: english),
         Padding(
-          padding: const EdgeInsets.fromLTRB(Space.lg, Space.md, Space.lg, 0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Icon(
-                    Icons.palette_outlined,
-                    size: 16,
-                    color: scheme.onSurface.withValues(alpha: AppTheme.inkLow),
-                  ),
-                  const SizedBox(width: Space.sm),
-                  Flexible(
-                    child: Text(
-                      t.appearance,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppTheme.label(
-                        text.labelMedium!,
-                        colour: scheme.onSurface.withValues(
-                          alpha: AppTheme.inkLow,
-                        ),
+          padding: const EdgeInsets.symmetric(horizontal: _SettingsGroup.inset),
+          child: GlassThemeSwitcher(track: well),
+        ),
+        // ACCOUNT. Google's User Data policy wants the privacy policy
+        // reachable from inside the app, not only from the Play listing. It
+        // opens in the browser rather than a webview so the player can see the
+        // address they are being shown — which its trailing mark says.
+        _SectionLabel(t.settingsAccount, english: english),
+        _SettingsGroup(
+          children: [
+            _DrawerAction(
+              icon: Icons.privacy_tip_outlined,
+              title: t.privacyPolicy,
+              trailing: Icon(
+                Icons.open_in_new_rounded,
+                size: 16,
+                color: glass.cardMuted,
+              ),
+              onTap: () => launchUrl(
+                // The studio's page, the one the Play listing names — not the
+                // backend's copy, so every build shows the same policy.
+                Uri.parse(ServerConfig.privacyUrl),
+                mode: LaunchMode.externalApplication,
+              ),
+            ),
+            _DrawerAction(
+              icon: Icons.logout_rounded,
+              title: t.signOut,
+              onTap: () {
+                // The drawer closes first, as it does before the picture
+                // picker, so the question is not stacked over an open drawer.
+                Navigator.pop(context);
+                _confirmSignOut(context, state);
+              },
+            ),
+          ],
+        ),
+        // The one row that cannot be undone, apart from the rest and the one
+        // red thing in the drawer. Google Play requires an in-app route to
+        // account deletion, and this game creates an account on first launch,
+        // so every player has one to delete.
+        const SizedBox(height: Space.md),
+        _SettingsGroup(
+          danger: true,
+          children: [
+            _DrawerAction(
+              icon: Icons.delete_forever_outlined,
+              title: t.deleteAccount,
+              danger: true,
+              onTap: () {
+                Navigator.pop(context);
+                _confirmDelete(context, state);
+              },
+            ),
+          ],
+        ),
+        // Which build this is, for anyone reporting what they saw: small,
+        // quiet and centred at the end of the list, with the environment
+        // after it — quieter still — on a build that does not talk to
+        // production.
+        Padding(
+          padding: const EdgeInsets.fromLTRB(
+            _SettingsGroup.inset,
+            Space.xl,
+            _SettingsGroup.inset,
+            0,
+          ),
+          child: Text.rich(
+            TextSpan(
+              children: [
+                TextSpan(
+                  text:
+                      '${t.appVersion}  '
+                      '${state.appVersion.isEmpty ? '…' : state.appVersion}',
+                ),
+                if (environment != null)
+                  TextSpan(
+                    text: '  ·  $environment',
+                    style: TextStyle(
+                      color: glass.cardMuted.withValues(
+                        alpha: glass.cardMuted.a * 0.72,
                       ),
                     ),
                   ),
-                ],
-              ),
-              const SizedBox(height: Space.sm),
-              const GlassThemeSwitcher(),
-            ],
-          ),
-        ),
-        const _DrawerRule(),
-        // The two irreversible rows are pushed below a full rule and drawn in
-        // one quiet red, because they sit next to each other and only one of
-        // them can be undone. Google Play requires an in-app route to account
-        // deletion, and this game creates an account on first launch, so every
-        // player has one to delete.
-        // Google's User Data policy wants the privacy policy reachable from
-        // inside the app, not only from the Play listing. It opens in the
-        // browser rather than a webview so the player can see the address they
-        // are being shown.
-        _DrawerAction(
-          leading: const Icon(Icons.privacy_tip_outlined),
-          title: t.privacyPolicy,
-          onTap: () => launchUrl(
-            // The studio's page, the one the Play listing names — not the
-            // backend's copy, so every build shows the same policy.
-            Uri.parse(ServerConfig.privacyUrl),
-            mode: LaunchMode.externalApplication,
-          ),
-        ),
-        const _DrawerRule(space: Space.lg),
-        _DrawerAction(
-          leading: const Icon(Icons.logout_rounded),
-          title: t.signOut,
-          danger: true,
-          onTap: () {
-            // The drawer closes first, as it does before the picture picker,
-            // so the question is not stacked over an open drawer.
-            Navigator.pop(context);
-            _confirmSignOut(context, state);
-          },
-        ),
-        _DrawerAction(
-          leading: const Icon(Icons.delete_forever_outlined),
-          title: t.deleteAccount,
-          danger: true,
-          onTap: () {
-            Navigator.pop(context);
-            _confirmDelete(context, state);
-          },
-        ),
-        const _DrawerRule(),
-        // Which build this is, for anyone reporting what they saw.
-        Padding(
-          padding: const EdgeInsets.fromLTRB(Space.lg, 0, Space.lg, Space.sm),
-          child: Text(
-            // The environment beside the version, unless it is production:
-            // a tester can tell which server a build talks to.
-            '${t.appVersion}  ${state.appVersion.isEmpty ? '…' : state.appVersion}'
-            '${ServerConfig.isProduction ? '' : ' · ${ServerConfig.environment}'}',
+              ],
+            ),
+            textAlign: TextAlign.center,
             style: AppTheme.money(
               text.labelSmall!,
-              colour: scheme.onSurface.withValues(alpha: AppTheme.inkLow),
-              weight: FontWeight.w600,
+              colour: glass.cardMuted,
+              weight: FontWeight.w500,
             ),
           ),
         ),
@@ -4830,6 +5316,16 @@ class _SettingsDrawerState extends State<_SettingsDrawer> {
     );
   }
 }
+
+/// What the settings drawer's footer names after the version: the environment
+/// a build that does not talk to production talks to, so a tester can tell
+/// which server it is — and nothing on a production build, where a player has
+/// no use for it.
+@visibleForTesting
+String? versionEnvironmentTag({bool? production, String? environment}) =>
+    (production ?? ServerConfig.isProduction)
+    ? null
+    : (environment ?? ServerConfig.environment);
 
 /// Fades and lifts a widget in, staggered by its place in the row, so the
 /// lobby assembles itself instead of appearing all at once.
