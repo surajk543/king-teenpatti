@@ -467,7 +467,14 @@ test('blind table: hidden stacks are null, the ladder runs on, and the fourth bl
     if (last) {
       assert.deepEqual(actions[1], { userId: actor.user.id, action: 'see', amount: 0, auto: true, pot: expectedPot, stake: bootAmount, roomId: t.roomId });
       assert.equal(actor.client.since(mark).filter((e) => e.event === 'player:cards').length, 1, 'the auto-reveal sends the cards');
-      assert.deepEqual(collapseRuns(actor.client.eventsSince(mark)).slice(0, 5), ['game:action', 'player:cards', 'game:action', 'room:state', 'game:turn']);
+      // node's ws inflates a compressed frame off the socket's turn (the server
+      // negotiates permessage-deflate since 26 Sep 2026, WS_COMPRESSION): the
+      // previous move's room:state can land after the mark and this move's turn
+      // after the ack. Wait for the turn and read from this move's own action.
+      await actor.client.waitNext('game:turn', () => true, 4000, mark);
+      const moveEvents = collapseRuns(actor.client.eventsSince(mark));
+      const from = moveEvents.indexOf('game:action');
+      assert.deepEqual(moveEvents.slice(from, from + 5), ['game:action', 'player:cards', 'game:action', 'room:state', 'game:turn']);
       const after = actor.client.state();
       assert.equal(after.you.isBlind, false);
       assert.equal(after.you.blindMovesLeft, 0);
@@ -665,8 +672,10 @@ test('sideshow: gated by the blocked-reason order, asked of the player on the ri
   assert.equal(reTurn.timeoutMs, profile.turnTimeoutMs);
   assert.equal(asker.client.count('game:sideshowReveal'), 0);
   assert.equal(asked.client.count('game:sideshowReveal'), 0);
-  assertOrder(asker.client.eventsSince(declineMark), ['game:sideshowResolved', 'game:turn', 'game:yourTurn', 'room:state'], 'asker after decline');
+  // The room:state comes after the turn and, compressed, is inflated a moment
+  // later (node's ws): wait for it before checking the order.
   const afterView = await asker.client.waitNext('room:state', (s) => s.sideshow === null, 4000, declineMark);
+  assertOrder(asker.client.eventsSince(declineMark), ['game:sideshowResolved', 'game:turn', 'game:yourTurn', 'room:state'], 'asker after decline');
   assert.equal(afterView.you.options.canSideshow, false, 'one ask per turn');
   assert.equal(afterView.you.options.chaal, bootAmount * 2);
   assert.equal(afterView.seats[0].status, 'active');

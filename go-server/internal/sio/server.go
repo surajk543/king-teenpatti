@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -35,6 +36,11 @@ const (
 	// the socket is closed with ReasonTransportError instead of blocking the
 	// emitter (a Table actor or a handler).
 	DefaultWriteQueueSize = 512
+	// DefaultCompressMinBytes: with permessage-deflate negotiated, frames
+	// shorter than this go out uncompressed — a ping ("2"), a short ack or an
+	// action broadcast costs more to deflate than it saves; a room:state (a few
+	// KB of JSON, the bulk of what a table sends) is compressed.
+	DefaultCompressMinBytes = 256
 	// maxCloseDrain caps how long the writer flushes queued frames (the "41"
 	// of a Disconnect, a final session:replaced) before it sends the close
 	// frame — Node's engine `close()` waits for the write buffer to drain
@@ -71,6 +77,16 @@ type Options struct {
 	WriteTimeout time.Duration
 	// WriteQueueSize is the per-connection outbound queue; default 512.
 	WriteQueueSize int
+	// EnableCompression negotiates permessage-deflate (RFC 7692) with a client
+	// that offers it — every shipped client does (dart:io's WebSocket, the
+	// browsers, node's ws); one that does not gets plain frames. Off by default
+	// here, as engine.io 6 left perMessageDeflate off; the app turns it on
+	// (config WS_COMPRESSION, 26 Sep 2026). gorilla negotiates no context
+	// takeover both ways, so every message is compressed on its own.
+	EnableCompression bool
+	// CompressMinBytes: the smallest frame compressed once negotiated;
+	// default DefaultCompressMinBytes.
+	CompressMinBytes int
 }
 
 func (o Options) withDefaults() Options {
@@ -103,6 +119,9 @@ func (o Options) withDefaults() Options {
 	}
 	if o.WriteQueueSize <= 0 {
 		o.WriteQueueSize = DefaultWriteQueueSize
+	}
+	if o.CompressMinBytes <= 0 {
+		o.CompressMinBytes = DefaultCompressMinBytes
 	}
 	return o
 }
@@ -181,8 +200,9 @@ func NewServer(opts Options) *Server {
 		ReadBufferSize:  4096,
 		WriteBufferSize: 4096,
 		CheckOrigin:     opts.CheckOrigin,
-		// engine.io 6 leaves perMessageDeflate disabled.
-		EnableCompression: false,
+		// engine.io 6 left perMessageDeflate disabled; Options.EnableCompression
+		// (WS_COMPRESSION) turns it on.
+		EnableCompression: opts.EnableCompression,
 	}
 	return s
 }
@@ -253,6 +273,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.log.Debug("sio: upgrade failed", "error", err.Error())
 		return
 	}
+	s.log.Debug("sio: websocket open", "compressed", s.opts.EnableCompression && offersDeflate(r))
 
 	c := newConn(s, ws, r, q)
 	s.mu.Lock()
@@ -732,4 +753,19 @@ func hostOf(remoteAddr string) string {
 		return remoteAddr
 	}
 	return host
+}
+
+// offersDeflate reports whether an upgrade request offers permessage-deflate —
+// what gorilla negotiates on when Options.EnableCompression is set (a debug
+// line says which connections are compressed).
+func offersDeflate(r *http.Request) bool {
+	for _, v := range r.Header.Values("Sec-WebSocket-Extensions") {
+		for _, ext := range strings.Split(v, ",") {
+			name, _, _ := strings.Cut(strings.TrimSpace(ext), ";")
+			if strings.EqualFold(strings.TrimSpace(name), "permessage-deflate") {
+				return true
+			}
+		}
+	}
+	return false
 }

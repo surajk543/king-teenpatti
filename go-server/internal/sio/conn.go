@@ -246,13 +246,22 @@ func (c *conn) writeLoop() {
 // them) to the reader's closed notice; see writeFailureReason.
 func (c *conn) write(frame []byte) bool {
 	_ = c.ws.SetWriteDeadline(time.Now().Add(c.srv.opts.WriteTimeout))
-	if err := c.ws.WriteMessage(websocket.TextMessage, frame); err != nil {
+	if err := c.writeText(frame); err != nil {
 		if !c.readDone.Load() {
 			c.terminate(ReasonTransportError)
 		}
 		return false
 	}
 	return true
+}
+
+// writeText writes one text frame, deflated when the peer negotiated
+// permessage-deflate and the frame is at least Options.CompressMinBytes (a
+// no-op switch otherwise). Only the connection's writer goroutine writes, so
+// the per-message switch never races.
+func (c *conn) writeText(frame []byte) error {
+	c.ws.EnableWriteCompression(len(frame) >= c.srv.opts.CompressMinBytes)
+	return c.ws.WriteMessage(websocket.TextMessage, frame)
 }
 
 // closeTransport waits for the disconnect reason to be fixed (terminate may
@@ -271,7 +280,7 @@ func (c *conn) closeTransport() {
 			select {
 			case frame := <-c.outbound:
 				_ = c.ws.SetWriteDeadline(deadline)
-				if err := c.ws.WriteMessage(websocket.TextMessage, frame); err != nil {
+				if err := c.writeText(frame); err != nil {
 					break drain
 				}
 			default:
