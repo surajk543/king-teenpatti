@@ -242,9 +242,12 @@ test('refused joins: already seated, bad stakes, bad codes, unfunded, full', asy
   assert.equal(ack.code, 'already_in_room', 'the seat check comes first');
   ack = await cs.emit('room:create', { isPrivate: true });
   assert.equal(ack.code, 'already_in_room');
-  ack = await cs.emit('room:switch', {});
-  assert.deepEqual(ack, { ok: false, code: 'no_other_table', message: 'No other seen table at this stake has a free seat right now' });
-  assert.equal(cs.state().you.seatIndex, 0, 'still seated after a refused switch');
+  // Nowhere else at this stake: a switch is not refused, it opens a new table
+  // for the player (owner, 25 Sep 2026) and moves them there.
+  const switched = await cs.emit('room:switch', {});
+  assert.equal(switched.ok, true, JSON.stringify(switched));
+  assert.notEqual(switched.roomId, seatedAck.roomId, 'a new table, not the one left');
+  assert.equal(switched.category, 'seen');
 
   const loner = await guestLogin('device-parity-lobby-refuse-b', 'Loner');
   const cl = await openClient(loner.token);
@@ -273,7 +276,9 @@ test('refused joins: already seated, bad stakes, bad codes, unfunded, full', asy
   const cp = await openClient(poor.token);
   ack = await cp.emit('room:quickJoin', { bootAmount });
   assert.deepEqual(ack, { ok: false, code: 'insufficient_chips', message: 'Not enough chips to join this table' });
-  ack = await cp.emit('room:joinCode', { code: seatedAck.code });
+  // The seated player's table is now the one the switch opened (the one they
+  // left went when it emptied).
+  ack = await cp.emit('room:joinCode', { code: switched.code });
   assert.equal(ack.code, 'insufficient_chips');
   ack = await cp.emit('room:quickJoin', { bootAmount: 50 });
   assert.equal(ack.ok, true, 'exactly the boot is enough');

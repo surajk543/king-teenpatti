@@ -567,35 +567,100 @@ func TestRoomsSwitchIgnoresTheEntryCap(t *testing.T) {
 	}
 }
 
+// A switch never changes the stake or the category: with only tables of
+// other kinds about, however empty, it opens a new table of its own kind for
+// the player (owner, 25 Sep 2026) rather than seat them at one of those.
 func TestRoomsSwitchNeverChangesStakeOrCategory(t *testing.T) {
 	f := newRoomsFixture(t, nil)
 	home := f.mustQuickJoin(f.player("P", 1000), f.cfg.EntryCapBoot, f.cfg.EntryCapCategory)
-	// Tables of a different kind are not candidates, however empty they are.
-	f.createTable(game.CreateTableOptions{BootAmount: f.cfg.EntryCapBoot, Category: "seen"})
-	f.createTable(game.CreateTableOptions{BootAmount: 5000, Category: f.cfg.EntryCapCategory})
+	seen := f.createTable(game.CreateTableOptions{BootAmount: f.cfg.EntryCapBoot, Category: "seen"})
+	richer := f.createTable(game.CreateTableOptions{BootAmount: 5000, Category: f.cfg.EntryCapCategory})
 	mover := f.player("Mover", 1000)
 	f.mustJoin(home, mover)
 
-	_, err := f.rooms.SwitchTable(mover)
-	expectCode(t, err, game.CodeNoOtherTable)
-	if want := "No other blind table at this stake has a free seat right now"; err.Error() != want {
-		t.Fatalf("message %q", err.Error())
+	result, err := f.rooms.SwitchTable(mover)
+	if err != nil {
+		t.Fatal(err)
+	}
+	to := result.To
+	if to == nil || to.ID() == home.ID() || to.ID() == seen.ID() || to.ID() == richer.ID() {
+		t.Fatalf("moved to %v", to)
+	}
+	if to.BootAmount() != f.cfg.EntryCapBoot || string(to.Category()) != f.cfg.EntryCapCategory || to.IsPrivate() {
+		t.Fatalf("the new table is %s %d private=%v", to.Category(), to.BootAmount(), to.IsPrivate())
+	}
+	if seen.PlayerCount() != 0 || richer.PlayerCount() != 0 {
+		t.Fatalf("a table of another kind was used: seen %d richer %d", seen.PlayerCount(), richer.PlayerCount())
 	}
 }
 
-func TestRoomsSwitchKeepsSeatWhenNowhereToGo(t *testing.T) {
-	f := newRoomsFixture(t, nil)
-	home := f.mustQuickJoin(f.player("P", 1000), f.cfg.EntryCapBoot, f.cfg.EntryCapCategory)
-	mover := f.player("Mover", 1000)
+// Every other table of the kind full: a new table of that boot and category
+// is opened for the player (owner, 25 Sep 2026: "if all the tables are fully
+// filled then create a new table for that player"), who sits there alone; the
+// table they left keeps everyone else.
+func TestRoomsSwitchOpensANewTableWhenEveryOtherIsFull(t *testing.T) {
+	f := newRoomsFixture(t, func(g *config.GameConfig, o *game.RoomManagerOptions) {
+		openMenu(g, o)
+		g.NextHandDelay = time.Hour // keep every table idle so seats stay put
+	})
+	home := f.createTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"})
+	stay := f.player("Stay", rmStart)
+	mover := f.player("Mover", rmStart)
+	f.mustJoin(home, stay)
 	f.mustJoin(home, mover)
+	full := f.createTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"})
+	for i := 0; i < full.MaxPlayers(); i++ {
+		f.mustJoin(full, f.player("F", rmStart))
+	}
+	before := len(f.rooms.LiveTables())
+
+	result, err := f.rooms.SwitchTable(mover)
+	if err != nil {
+		t.Fatal(err)
+	}
+	to := result.To
+	if to == nil || to.ID() == home.ID() || to.ID() == full.ID() {
+		t.Fatalf("moved to %v", to)
+	}
+	if to.BootAmount() != rmBoot || to.Category() != game.CategoryBlind || to.IsPrivate() {
+		t.Fatalf("the new table is %s %d private=%v", to.Category(), to.BootAmount(), to.IsPrivate())
+	}
+	if after := len(f.rooms.LiveTables()); after != before+1 {
+		t.Fatalf("%d tables, want %d", after, before+1)
+	}
+	if got := f.rooms.GetTableForPlayer(mover.ID); got == nil || got.ID() != to.ID() || to.PlayerCount() != 1 {
+		t.Fatalf("the mover is at %v, the new table holds %d", got, to.PlayerCount())
+	}
+	if home.PlayerCount() != 1 || full.PlayerCount() != full.MaxPlayers() {
+		t.Fatalf("home %d full %d", home.PlayerCount(), full.PlayerCount())
+	}
+}
+
+// Only a table the lobby no longer opens has nowhere new to go: its pair is
+// off the menu, so no table is opened for it, the switch is refused and the
+// player keeps their seat.
+func TestRoomsSwitchKeepsSeatWhenThePairIsNoLongerOffered(t *testing.T) {
+	f := newRoomsFixture(t, nil)
+	// Seen at 5,000 is an allowed stake but not on the default menu.
+	home := f.createTable(game.CreateTableOptions{BootAmount: 5000, Category: "seen"})
+	f.mustJoin(home, f.player("P", 100_000))
+	mover := f.player("Mover", 100_000)
+	f.mustJoin(home, mover)
+	before := len(f.rooms.LiveTables())
 
 	_, err := f.rooms.SwitchTable(mover)
 	expectCode(t, err, game.CodeNoOtherTable)
+	if want := "No other seen table at this stake has a free seat right now"; err.Error() != want {
+		t.Fatalf("message %q", err.Error())
+	}
 	if got := f.rooms.GetTableForPlayer(mover.ID); got == nil || got.ID() != home.ID() {
 		t.Fatal("still seated where they were")
 	}
 	if home.PlayerCount() != 2 {
 		t.Fatal("the seat was never given up")
+	}
+	if after := len(f.rooms.LiveTables()); after != before {
+		t.Fatalf("a table was opened for a pair off the menu: %d tables, want %d", after, before)
 	}
 }
 
@@ -622,10 +687,11 @@ func TestRoomsSwitchFromPrivateTableRefused(t *testing.T) {
 	}
 }
 
-// A switch lands on a random other table of the same kind, never the table
-// being left and never a full one: over many switches every eligible table is
-// reached, the fullest and the emptiest alike.
-func TestRoomsSwitchPicksARandomOtherTable(t *testing.T) {
+// A switch goes to the other table of the kind with the FEWEST players
+// (owner, 25 Sep 2026: "try to find table who has lowest player") — never the
+// table being left, never a full one, never a table of another kind, however
+// empty.
+func TestRoomsSwitchGoesToTheEmptiestOtherTable(t *testing.T) {
 	f := newRoomsFixture(t, func(g *config.GameConfig, o *game.RoomManagerOptions) {
 		openMenu(g, o)
 		g.NextHandDelay = time.Hour // keep every table idle so seats stay put
@@ -641,13 +707,55 @@ func TestRoomsSwitchPicksARandomOtherTable(t *testing.T) {
 		f.mustJoin(busier, f.player("B", rmStart))
 	}
 	full := f.createTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"})
-	for i := 0; i < 5; i++ {
+	for i := 0; i < full.MaxPlayers(); i++ {
 		f.mustJoin(full, f.player("F", rmStart))
 	}
-	// A table of another kind at the same stake is never a destination.
-	seen := f.createTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "seen"})
-	f.mustJoin(seen, f.player("Seen", rmStart))
+	// A table of another kind at the same stake, emptier than all of them, is
+	// never a destination.
+	f.createTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "seen"})
 
+	// From home: sparse (1) beats busier (3); full and seen are out.
+	result, err := f.rooms.SwitchTable(mover)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.To.ID() != sparse.ID() {
+		t.Fatalf("moved to %s, want the emptiest table %s", result.To.ID(), sparse.ID())
+	}
+	// From sparse: home now holds one (Stay), busier three.
+	result, err = f.rooms.SwitchTable(mover)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.To.ID() != home.ID() {
+		t.Fatalf("moved to %s, want the emptiest table %s", result.To.ID(), home.ID())
+	}
+	if busier.PlayerCount() != 3 || full.PlayerCount() != full.MaxPlayers() {
+		t.Fatalf("busier %d full %d", busier.PlayerCount(), full.PlayerCount())
+	}
+}
+
+// Tables tied on the fewest players are drawn among at random, as the owner
+// asked on 13 Sep 2026 that a switch not be predictable: over many switches
+// every equally quiet table is reached, and a busier one never is.
+func TestRoomsSwitchDrawsAtRandomAmongTheEmptiest(t *testing.T) {
+	f := newRoomsFixture(t, func(g *config.GameConfig, o *game.RoomManagerOptions) {
+		openMenu(g, o)
+		g.NextHandDelay = time.Hour
+	})
+	home := f.createTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"})
+	mover := f.player("Mover", rmStart)
+	f.mustJoin(home, mover)
+	f.mustJoin(home, f.player("Stay", rmStart))
+	quietA := f.singleTable(rmBoot, game.CategoryBlind)
+	quietB := f.singleTable(rmBoot, game.CategoryBlind)
+	busier := f.createTable(game.CreateTableOptions{BootAmount: rmBoot, Category: "blind"})
+	for i := 0; i < 3; i++ {
+		f.mustJoin(busier, f.player("B", rmStart))
+	}
+
+	// Wherever the mover sits, the two tables left behind hold one player each
+	// and busier three: every switch is a draw between two quiet tables.
 	reached := map[game.Room]int{}
 	var from game.Room = home
 	for i := 0; i < 60; i++ {
@@ -655,27 +763,18 @@ func TestRoomsSwitchPicksARandomOtherTable(t *testing.T) {
 		if err != nil {
 			t.Fatalf("switch %d: %v", i, err)
 		}
-		switch result.To {
-		case from:
-			t.Fatalf("switch %d stayed on the table it left", i)
-		case full, seen:
-			t.Fatalf("switch %d landed on an ineligible table %s", i, result.To.ID())
-		}
-		if f.rooms.GetTableForPlayer(mover.ID) != result.To {
-			t.Fatalf("switch %d: seat is not on the reported table", i)
+		if result.To == from || result.To == busier {
+			t.Fatalf("switch %d landed on %s", i, result.To.ID())
 		}
 		reached[result.To]++
 		from = result.To
 	}
-	// Three eligible tables, each left by two routes: missing one in 60 draws
-	// of a fair coin is odds of about 2^-30.
-	for name, table := range map[string]game.Room{"home": home, "sparse": sparse, "busier": busier} {
+	// Each quiet table is one of two equal candidates whenever the mover is
+	// elsewhere: missing one in 60 fair draws is odds of about 2^-30.
+	for name, table := range map[string]game.Room{"home": home, "quietA": quietA, "quietB": quietB} {
 		if reached[table] == 0 {
 			t.Fatalf("the %s table was never reached: %v", name, reached)
 		}
-	}
-	if full.PlayerCount() != 5 || seen.PlayerCount() != 1 {
-		t.Fatalf("full %d seen %d", full.PlayerCount(), seen.PlayerCount())
 	}
 }
 

@@ -213,10 +213,12 @@ end sees bets that made sense for the cards that turn over.
   player at the *fullest* table with room, so without churn exactly one table
   per category ever has a free seat, and every arriving real player lands in
   the same one. Bots coming and going keep seats open across the lobby. Since
-  13 Sep 2026 `room:switch` lands on a **random** other table of the same boot
-  and category rather than the fullest, so a wandering bot spreads itself
-  evenly instead of piling onto the busiest table; `no_other_table` just leaves
-  it where it is.
+  25 Sep 2026 `room:switch` lands on the other table of the same boot and
+  category with the **fewest players** (a random one from 13 Sep, the fullest
+  before that), so a wandering bot spreads itself onto the quietest tables;
+  when every other table is full the server opens a new one rather than
+  refusing, and `no_other_table` (a table the lobby no longer offers) just
+  leaves it where it is.
 - **A few change stake.** `room:switch` means "another table of the same boot
   and category" — changing stake is leaving one game for another, so it is a
   leave and a fresh quick-join, as a player would do it from the lobby. Only
