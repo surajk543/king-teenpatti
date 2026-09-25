@@ -1740,10 +1740,10 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   (`showLuckyDraw`, a `showGeneralDialog` page risen from the foot like the store; `PopScope` holds it while the wheel turns): the
   owner's Lottie on the left (`LuckyWheel`, `assets/animations/Lucky Draw Spinner.json`), the six prizes two to a row on the right
   (slot number, the wallet's mark, "10 Lakh chips" / "4 hammers" / a picture's name / "No prize"), and the key: **SPIN NOW** · **SPINNING…**
-  (from the tap until the prize is shown, disabled) · **NEXT SPIN** over the clock (disabled); the header says "One free spin every 3
+  (from the tap until the prize is shown, disabled) · **NEXT FREE SPIN** over the clock (disabled; NEXT SPIN until the polish below); the header says "One free spin every 3
   days." **The client draws nothing**: the tap sends `POST /api/lucky-draw/spin` with a fresh uuid `actionId` (retried once with the
-  SAME id after a transport failure, as the missile trade is), the wheel does not move until the server answers, and then turns five
-  turns and on to the slot it named in **6 s along `LuckySpinCurve`** — its speed a smoothstep up to full over 1.5 s, full speed (under
+  SAME id after a transport failure, as the missile trade is), the wheel — since the polish below from the tap, until then only once the server had answered — turns five
+  turns and on to the slot the server named in **6 s along `LuckySpinCurve`** — its speed a smoothstep up to full over 1.5 s, full speed (under
   two turns a second) for 0.9 s, then (1 − x)³(1 + 3x) down over 3.5 s, a long creep to rest (owner, 24 Sep 2026, on the first cut,
   which left at full speed and slowed from the first frame: "not smooth … at least run for 5-6 seconds, slowly increase its speed and
   the end slowly reduce its speed") — a few degrees off centre (`luckyNudge`, looks only). The Lottie and the six badges are built
