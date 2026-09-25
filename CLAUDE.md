@@ -1764,6 +1764,41 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   wallet's mark in its ink, a picture as itself with "Yours for 50 days" (or "It is already yours…") and **Wear it** / **Use it**
   (`chooseAvatar`/`chooseTablePicture` — winning never puts it on); the empty slot says "Better luck next time!" with no fireworks.
   The wallet takes the spin's `user` at once and a picture prize re-reads the catalogues. 26 strings in all five languages.
+- **The Lucky Draw polish** (owner's brief, 26 Sep 2026: "make THIS design look significantly more polished, premium and
+  exciting while preserving the existing visual identity" — header, wheel left, six prizes right, key at the foot; presentation
+  only, the server still draws). The screen is split into `widgets/lucky_wheel.dart` (the geometry, the motion, `LuckyWheel`,
+  `LuckyWheelGlyph`), `lucky_prizes.dart`, `lucky_spin_key.dart` and `lucky_reveal.dart`, all re-exported by the screen. **The
+  wheel turns from the tap** (it waited for the answer until then): `LuckySpinMotion`, the `Simulation` of an unbounded
+  controller, gathers speed along `LuckySpinCurve`'s smoothstep (1.5 s) and holds full speed (641°/s, the curve's 5.5 turns in
+  6 s) until the server answers; `landOn` then picks the one moment to leave full speed from which the curve's run-down (3.6 s)
+  rests exactly on `luckySpinTarget` — five turns at least, one more per 360° a late answer costs — so the answer shows nowhere
+  in the turn, and a prompt one rests the wheel 5.7–6.3 s after the tap; a refusal or no answer (`stop`) runs it down from its
+  own speed (≥ 0.5 s) with no prize and gives the key back at rest. At rest the winning wedge lights in two beats to a resting
+  glow (`luckyWedgeLight`; warm gold — white read pink on the red wedges) and its tile swells, glows, pops its mark and takes one
+  shine while the others drop to half (`LuckyDrawScreen.litFor` 1.1 s) — the empty slot is only outlined, pale, and ringed in
+  grey: where the wheel stopped, not something won; the prize follows `revealAfter` (900 ms) later. The wheel stands ~10%
+  larger (the canvas window tightened to the art, 48..252 × 26..274, and 8dp of chrome given back: the rim 198.5 → 217.7dp at
+  640x360) over a stage it casts — a gold light round the rim that breathes (`Motion.breath`, ±16%) only while a free spin
+  waits, brighter while it turns and low while it recharges (`LuckyWheelLight`), the stand's shadow and, by day, the disc's
+  own; the file's cream needle and cap are left out (`luckyHubColour`) and drawn again in struck gold, outlined, shadowed,
+  under a domed cap with a glint. **The key** (`LuckySpinKey`, the one widget that watches the one-second tick; the
+  screen `select`s): SPIN NOW in `AppTheme.goldFace` with the wheel glyph, a gold bloom and `PressScale` (`LuckyGoldKey`);
+  SPINNING… and NEXT FREE SPIN (`luckyNextFreeSpin`) over the server's clock and an hourglass, on the plaque with a gold
+  hairline; FREE SPIN (`luckyFreeSpin`) tags the title while a spin is due. **The tiles** lead with the figure over the wallet's
+  word (`luckyPrizeParts` cuts both out of the one sentence per language, so "1 hammer"/"4 hammers" and a Bengali classifier
+  keep their grammar; one line where the tile is too short for two; the empty slot in the quieter label role), the mark in a
+  well tinted with its wallet's ink (`luckyPrizeInk`: gold, copper, blue, coral, a grey for the empty slot) that gives way to
+  the words on a narrow tile, the slot's number quiet in the top-left. **The page** is obsidian glass by night and the lobby's
+  card warmed to cream by day (on opaque white: the lobby ghosted through), gold along its top edge, at most 1040×640 on a
+  tablet. **The reveal** arrives from 0.9 and settles, its mark popping over a swelling gold light, the prize figure-first,
+  its action on the gold key and Close in neutral ink; the empty slot is a shrug —
+  "Better luck next time!" over "No prize", no fireworks, no overshoot. `test/lucky_draw_test.dart` (44: the motion millisecond
+  by millisecond for every answer time and slot, the wedge's beats, the hub's colours, the parts in all five languages, the
+  tile's two layouts, the gold key, tap to rest in ≈ 6 s with no jolt at the answer, the win lit in its tile alone before the
+  reveal, the empty slot's grey ring, refusals at once and mid-turn, the wait, the wheel's size, and 640x360 and 592x360 ×1.25
+  in all five languages with no tile's words cut); pictures by hand, `test/lucky_shots.dart` (every journey at 640x360,
+  891x411, 592x360, 915x412 and 1280x800, both themes, ×1.0 and ×1.25, and Hindi at 640x360 and 592x360;
+  `--dart-define=SHOTS_DIR=… ICON_FONT=…`, as `table_shots`).
 - **Table** (rebuilt around the felt on 10–11 Sep 2026 — `fb47ba4`, `b83b273`, `81a5981`; the bar
   across the foot and the cloth under it are both gone — a table came back under the seats on 24 Sep 2026, the casino
   table below — and the screenshots in `docs/play-store/` predate all of it). `_TableScreenState.build` **watches nothing** (a per-second Scaffold rebuild

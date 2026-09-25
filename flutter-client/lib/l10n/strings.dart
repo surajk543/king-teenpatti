@@ -125,6 +125,11 @@ class Strings {
   String get luckySpinning => _('luckySpinning');
   String get luckyNextSpin => _('luckyNextSpin');
 
+  /// The polish of 26 Sep 2026: "FREE SPIN" beside the title while a spin is
+  /// due, and "NEXT FREE SPIN" over the wait on the key while it is not.
+  String get luckyFreeSpin => _('luckyFreeSpin');
+  String get luckyNextFreeSpin => _('luckyNextFreeSpin');
+
   /// "One free spin every 3 days." — [time] written by [rentalTerm].
   String luckyEvery(String time) => _('luckyEvery').replaceAll('{time}', time);
   String get luckyPrizes => _('luckyPrizes');
@@ -1112,6 +1117,8 @@ class Strings {
       'luckySpinNow': 'SPIN NOW',
       'luckySpinning': 'SPINNING…',
       'luckyNextSpin': 'NEXT SPIN',
+      'luckyFreeSpin': 'FREE SPIN',
+      'luckyNextFreeSpin': 'NEXT FREE SPIN',
       'luckyEvery': 'One free spin every {time}.',
       'luckyPrizes': 'PRIZES ON THE WHEEL',
       'luckyNoPrize': 'No prize',
@@ -1724,6 +1731,8 @@ class Strings {
       'luckySpinNow': 'अभी घुमाएँ',
       'luckySpinning': 'घूम रहा है…',
       'luckyNextSpin': 'अगला स्पिन',
+      'luckyFreeSpin': 'मुफ़्त स्पिन',
+      'luckyNextFreeSpin': 'अगला मुफ़्त स्पिन',
       'luckyEvery': 'हर {time} में एक मुफ़्त स्पिन।',
       'luckyPrizes': 'पहिये पर इनाम',
       'luckyNoPrize': 'कोई इनाम नहीं',
@@ -2316,6 +2325,8 @@ class Strings {
       'luckySpinNow': 'এখনই ঘোরান',
       'luckySpinning': 'ঘুরছে…',
       'luckyNextSpin': 'পরের স্পিন',
+      'luckyFreeSpin': 'ফ্রি স্পিন',
+      'luckyNextFreeSpin': 'পরের ফ্রি স্পিন',
       'luckyEvery': '{time} পরপর একটি ফ্রি স্পিন।',
       'luckyPrizes': 'চাকার পুরস্কার',
       'luckyNoPrize': 'কোনো পুরস্কার নেই',
@@ -2913,6 +2924,8 @@ class Strings {
       'luckySpinNow': 'હમણાં ફેરવો',
       'luckySpinning': 'ફરી રહ્યું છે…',
       'luckyNextSpin': 'આગલો સ્પિન',
+      'luckyFreeSpin': 'મફત સ્પિન',
+      'luckyNextFreeSpin': 'આગલો મફત સ્પિન',
       'luckyEvery': 'દર {time} પછી એક મફત સ્પિન.',
       'luckyPrizes': 'ચક્ર પરના ઇનામ',
       'luckyNoPrize': 'કોઈ ઇનામ નથી',
@@ -3502,6 +3515,8 @@ class Strings {
       'luckySpinNow': 'ਹੁਣੇ ਘੁਮਾਓ',
       'luckySpinning': 'ਘੁੰਮ ਰਿਹਾ ਹੈ…',
       'luckyNextSpin': 'ਅਗਲਾ ਸਪਿਨ',
+      'luckyFreeSpin': 'ਮੁਫ਼ਤ ਸਪਿਨ',
+      'luckyNextFreeSpin': 'ਅਗਲਾ ਮੁਫ਼ਤ ਸਪਿਨ',
       'luckyEvery': 'ਹਰ {time} ਬਾਅਦ ਇੱਕ ਮੁਫ਼ਤ ਸਪਿਨ।',
       'luckyPrizes': 'ਪਹੀਏ ਦੇ ਇਨਾਮ',
       'luckyNoPrize': 'ਕੋਈ ਇਨਾਮ ਨਹੀਂ',
