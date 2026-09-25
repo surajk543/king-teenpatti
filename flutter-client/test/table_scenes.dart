@@ -30,6 +30,7 @@ Map<String, dynamic> _seat(
   int? chips,
   bool connected = true,
   String lastAction = 'chaal',
+  int cardCount = 3,
 }) => {
   'seatIndex': i,
   'userId': _ids[i],
@@ -42,7 +43,7 @@ Map<String, dynamic> _seat(
   'lastAction': lastAction,
   'contributed': contributed,
   'connected': connected,
-  'cardCount': 3,
+  'cardCount': cardCount,
 };
 
 RoomState _room({
@@ -99,6 +100,7 @@ Map<String, dynamic> _you({
   Map<String, dynamic>? options,
   bool canMissile = false,
   int chips = 245000,
+  Map<String, dynamic>? hand,
 }) => {
   'seatIndex': 0,
   'chips': chips,
@@ -111,6 +113,7 @@ Map<String, dynamic> _you({
   'cards': cards,
   'canMissile': canMissile,
   'options': ?options,
+  'hand': ?hand,
 };
 
 /// Five at a blind table, the viewer blind and every stack but theirs hidden.
@@ -186,30 +189,31 @@ void chatHistory(GameState state) {
 }
 
 /// The viewer's seen turn with Sideshow and Force Sideshow on offer — every
-/// kind of key on the console lit at once.
-RoomState seenTurnRoom() => _room(
-  category: 'seen',
-  maxPot: 2000000,
-  stake: 400,
-  turnSeat: 0,
-  seats: _seenSeats(),
-  you: _you(
-    blind: false,
-    cards: const ['As', 'Kd', 'Qh'],
-    blindMovesLeft: 0,
-    canMissile: true,
-    options: {
-      'canSee': false,
-      'canPack': true,
-      'canSideshow': true,
-      'canForceSideshow': true,
-      'sideshowWith': 'Vikramaditya',
-      'raiseSteps': [800, 1600],
-      'chips': 245000,
-      'currentStake': 400,
-    },
-  ),
-);
+/// kind of key on the console lit at once — holding [cards].
+RoomState seenTurnRoom({List<String> cards = const ['As', 'Kd', 'Qh']}) =>
+    _room(
+      category: 'seen',
+      maxPot: 2000000,
+      stake: 400,
+      turnSeat: 0,
+      seats: _seenSeats(),
+      you: _you(
+        blind: false,
+        cards: cards,
+        blindMovesLeft: 0,
+        canMissile: true,
+        options: {
+          'canSee': false,
+          'canPack': true,
+          'canSideshow': true,
+          'canForceSideshow': true,
+          'sideshowWith': 'Vikramaditya',
+          'raiseSteps': [800, 1600],
+          'chips': 245000,
+          'currentStake': 400,
+        },
+      ),
+    );
 
 /// Somebody else's turn at a blind table: nothing on the console to press.
 RoomState opponentTurnRoom({int handNo = 7, String roomId = 'r1'}) => _room(
@@ -545,7 +549,210 @@ final tableScenes = <TableScene>[
       s.config = s.config.copyWith(maxPlayers: places);
       s.handleState(placesRoom(places));
     }),
+  // The cards (premium-card brief, 25 Sep 2026, and its refinement the same
+  // day): the four hands the owner names, on the viewer's turn so every key
+  // the hand must clear is on the console; a five-card hand; a five-card
+  // showdown at the rim; a wild card turned.
+  TableScene(
+    '26-cards-5c-9c-5d',
+    (s) => s.handleState(seenTurnRoom(cards: const ['5c', '9c', '5d'])),
+  ),
+  TableScene(
+    '27-cards-As-Kh-Qd',
+    (s) => s.handleState(seenTurnRoom(cards: const ['As', 'Kh', 'Qd'])),
+  ),
+  TableScene('28-cards-five-card', (s) => s.handleState(fiveCardRoom())),
+  TableScene('29-cards-five-card-showdown', fiveCardShowdown),
+  TableScene('30-cards-wild', (s) => s.handleState(wildCardRoom())),
+  TableScene(
+    '31-cards-Qs-Ac-Jh',
+    (s) => s.handleState(seenTurnRoom(cards: const ['Qs', 'Ac', 'Jh'])),
+  ),
+  TableScene(
+    '32-cards-Ts-Jc-Qh',
+    (s) => s.handleState(seenTurnRoom(cards: const ['Ts', 'Jc', 'Qh'])),
+  ),
 ];
+
+/// The 5-Card variation block, FIVE_CARD chosen by the player across the
+/// table.
+Map<String, dynamic> _fiveCardVariation({String selected = 'FIVE_CARD'}) => {
+  'selecting': false,
+  'userId': 'u2',
+  'displayName': 'Meera',
+  'seatIndex': 2,
+  'startedAt': _now - 20000,
+  'deadline': _now - 10000,
+  'timeoutMs': 10000,
+  'options': const [
+    'MUFLIS',
+    'AK47',
+    'JOKER',
+    'HUKAM',
+    'LOWEST_JOKER',
+    'HIGHEST_JOKER',
+    'FIVE_CARD',
+  ],
+  'selected': selected,
+  'selectedBy': 'PLAYER',
+  'cardsPerPlayer': selected == 'FIVE_CARD' ? 5 : 3,
+};
+
+/// A 5-Card hand on the viewer's turn: five cards looked at, the best three
+/// the server named standing at the front of the fan — or, [choosing], the
+/// player still inside their window to choose them, the five fanned evenly.
+RoomState fiveCardRoom({bool choosing = false}) => _room(
+  category: 'variation',
+  boot: 50000,
+  stake: 50000,
+  pot: 400000,
+  turnSeat: 0,
+  seats: [
+    for (var i = 0; i < 5; i++)
+      _seat(
+        i,
+        chips: i == 0 ? 1250000 : null,
+        blind: i != 0 && i != 2,
+        lastBet: 50000,
+        contributed: 80000,
+        cardCount: 5,
+      ),
+  ],
+  you: _you(
+    blind: false,
+    chips: 1250000,
+    cards: const ['Qd', '5c', 'Kh', 'Jc', 'Ts'],
+    blindMovesLeft: 0,
+    hand: choosing
+        ? {
+            'handName': '',
+            'wild': const <String>[],
+            'playsAs': const <String>[],
+            'best': const <String>[],
+            'picking': true,
+            'pickDeadline': _now + 6000,
+            'pickTimeoutMs': 8000,
+          }
+        : {
+            'handName': 'Sequence',
+            'wild': const <String>[],
+            'playsAs': const ['Qd', '5c', 'Kh', 'Jc', 'Ts'],
+            'best': const ['Qd', 'Kh', 'Jc'],
+          },
+    options: {
+      'canSee': false,
+      'canPack': true,
+      'canSideshow': false,
+      'canForceSideshow': false,
+      'raiseSteps': [100000, 200000],
+      'chips': 1250000,
+      'currentStake': 50000,
+    },
+  ),
+  variation: _fiveCardVariation(),
+);
+
+/// A 5-Card showdown: three hands of five turned over round the table, the
+/// three each played standing and the other two set back.
+void fiveCardShowdown(GameState s) {
+  final seats = [
+    for (var i = 0; i < 5; i++)
+      _seat(
+        i,
+        chips: i == 0 ? 1250000 : null,
+        blind: false,
+        lastBet: 50000,
+        contributed: 80000,
+        cardCount: 5,
+        status: i == 1 || i == 4 ? 'packed' : (i == 3 ? 'won' : 'lost'),
+      ),
+  ];
+  s.handleState(
+    _room(
+      category: 'variation',
+      state: 'showdown',
+      boot: 50000,
+      stake: 50000,
+      pot: 450000,
+      seats: seats,
+      you: _you(
+        status: 'lost',
+        blind: false,
+        chips: 1250000,
+        cards: const ['9c', '5d', 'As', '5c', '2h'],
+        blindMovesLeft: 0,
+      ),
+      variation: _fiveCardVariation(),
+    ),
+  );
+  s.handleShowdown((
+    reveals: [
+      Reveal.fromJson({
+        'userId': 'u0',
+        'displayName': 'Priya',
+        'cards': ['9c', '5d', 'As', '5c', '2h'],
+        'best': ['5d', 'As', '5c'],
+        'handName': 'Pair',
+        'won': false,
+      }),
+      Reveal.fromJson({
+        'userId': 'u2',
+        'displayName': 'Meera',
+        'cards': ['Kh', '8s', 'Qd', 'Jc', '3d'],
+        'best': ['Kh', 'Qd', 'Jc'],
+        'handName': 'Sequence',
+        'won': false,
+      }),
+      Reveal.fromJson({
+        'userId': 'u3',
+        'displayName': 'Arjun',
+        'cards': ['Ts', '4h', 'Th', '6c', 'Td'],
+        'best': ['Ts', 'Th', 'Td'],
+        'handName': 'Trail',
+        'won': true,
+      }),
+    ],
+    result: 'show',
+    winnerId: 'u3',
+    winnerName: 'Arjun',
+    pot: 450000,
+    nextHandAt: _now + 60000,
+    reason: 'show',
+  ));
+}
+
+/// An AK47 hand the viewer has looked at: the 4 plays wild, as the king that
+/// makes J-Q-K a sequence, and has already turned (a snapshot built knowing).
+RoomState wildCardRoom() => _room(
+  category: 'variation',
+  boot: 50000,
+  stake: 50000,
+  pot: 400000,
+  turnSeat: 2,
+  seats: [
+    for (var i = 0; i < 5; i++)
+      _seat(
+        i,
+        chips: i == 0 ? 1250000 : null,
+        blind: i != 0 && i != 2,
+        lastBet: 50000,
+        contributed: 80000,
+      ),
+  ],
+  you: _you(
+    blind: false,
+    chips: 1250000,
+    cards: const ['Jc', 'Qd', '4s'],
+    blindMovesLeft: 0,
+    hand: {
+      'handName': 'Sequence',
+      'wild': const ['4s'],
+      'playsAs': const ['Jc', 'Qd', 'Kd'],
+      'best': const ['Jc', 'Qd', '4s'],
+    },
+  ),
+  variation: _fiveCardVariation(selected: 'AK47'),
+);
 
 /// A seen hand at a table of [places] places, every place taken but [empty],
 /// the viewer looking at their cards and the last seat round the table on

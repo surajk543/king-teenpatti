@@ -296,8 +296,7 @@ ui.Image _renderBack(PictureInfo art, double height, double scale) {
   final room = height * _shadowRoom;
   final card = RRect.fromRectAndRadius(
     Rect.fromLTWH(room, room, width, height),
-    // PlayingCard's own corner, a fraction of its height.
-    Radius.circular(height * 0.055),
+    Radius.circular(height * PlayingCard.cornerShare),
   );
 
   final recorder = ui.PictureRecorder();
@@ -315,6 +314,8 @@ ui.Image _renderBack(PictureInfo art, double height, double scale) {
     ..scale(width / art.size.width, height / art.size.height)
     ..drawPicture(art.picture)
     ..restore();
+  // The stock's edge, as every card on the table has it (PlayingCard).
+  CardStockPainter.paintEdge(canvas, card, height, face: false);
 
   final picture = recorder.endRecording();
   final image = picture.toImageSync(
@@ -383,7 +384,7 @@ class _DealPainter extends CustomPainter {
             width: cardHeight * PlayingCard.aspect,
             height: cardHeight,
           ),
-          Radius.circular(cardHeight * 0.055),
+          Radius.circular(cardHeight * PlayingCard.cornerShare),
         );
         canvas
           ..drawRRect(
@@ -395,7 +396,7 @@ class _DealPainter extends CustomPainter {
             Paint()
               ..style = PaintingStyle.stroke
               ..strokeWidth = 1
-              ..color = AppTheme.goldDeep.withValues(alpha: card.alpha),
+              ..color = AppTheme.cardRim.withValues(alpha: card.alpha),
           );
       }
       canvas.restore();

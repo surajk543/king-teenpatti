@@ -713,7 +713,9 @@ class SeatPod extends StatelessWidget {
 
     // The faces shown: the hand as it was counted when the server said how
     // (a wild card as the card it stood for), else the cards as dealt.
-    final faces = show != null && playsAs.length == show.length ? playsAs : show;
+    final faces = show != null && playsAs.length == show.length
+        ? playsAs
+        : show;
     Widget card(int i) =>
         // A foreground edge on the card's own box, so a wild card takes no
         // more room than any other: the column must not move at the reveal.
@@ -725,6 +727,9 @@ class SeatPod extends StatelessWidget {
             height: cardH,
             dimmed: dim,
             code: faces != null && i < faces.length ? faces[i] : null,
+            // A hand turned over at a showdown or a sideshow turns one card
+            // after another, left to right, as the viewer's own does.
+            flipDelay: PlayingCard.flipStagger * i,
             // Green backs say this player has looked at their hand, which is
             // the one thing about an opponent that changes how you bet. Not
             // while they are out of it: a packed seat's cards are history.

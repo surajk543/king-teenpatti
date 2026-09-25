@@ -1,5 +1,5 @@
+import 'dart:async';
 import 'dart:math' as math;
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -10,14 +10,38 @@ import '../theme/app_theme.dart';
 ///
 /// Cards keep one aspect ratio everywhere — the player's own hand and every
 /// opponent's — so a card means the same thing wherever it appears. Turning one
-/// over animates: the card rotates on its long axis and the face appears at the
-/// halfway point, which is what a real card does and what makes "see" feel like
-/// an action rather than a repaint.
+/// over animates: the card lifts, rotates on its long axis and the face appears
+/// at the halfway point, which is what a real card does and what makes "see"
+/// feel like an action rather than a repaint.
 ///
-/// The face is printed stock, never glass: solid ground, a cut edge, drawn
-/// pips and a drawn rank index. Nothing on it is a system glyph, because a
-/// Unicode pip and a UI sans-serif index are what make a card app look like an
-/// app rather than a deck.
+/// **The face is printed stock** (premium-card brief, 25 Sep 2026: "a physical
+/// premium playing card", not "Flutter UI with card widgets"). Warm ivory,
+/// lighter where the table's lamp falls and a shade deeper in the far corner;
+/// a thin cut edge in a restrained warm gold ([AppTheme.cardRim]) that faces
+/// and backs share; the faintest highlight along the top edge; two soft
+/// shadows, one tight under the card and one wider, so it lies a little above
+/// the cloth. All of it is one painter ([CardFaceMetrics] holds the layout),
+/// under the card's own repaint boundary, so a face costs one picture however
+/// much is printed on it.
+///
+/// **The rank leads, the suit follows** (the brief: "RANK > SUIT > secondary
+/// card details"). The rank is set in the app's own face, Inter, at its
+/// heaviest weight, and fitted to a cap height — never by its line box — so a
+/// 5 and a Q stand exactly as tall; a 10 is condensed rather than shrunk, as a
+/// printed deck's is. The suit under it and in the middle is PAINTED
+/// ([CardPips]): Inter has no suit glyphs and a phone would draw them from its
+/// colour emoji font, which ignores the ink. Red is hearts and diamonds, black
+/// spades and clubs, and nothing else.
+///
+/// **A clean face** (owner, 25 Sep 2026, on the first cut: "premium
+/// traditional playing cards, not UI tiles"): the rank, its suit, and one
+/// large centre pip on the bare stock — a court card too, which had its pip
+/// inside a gold-ruled window; nothing on a face is boxed.
+///
+/// **Small faces drop detail, never the rank.** Below [compactBelow] (a rim
+/// seat's cards) the face is COMPACT: a larger share of its height goes to the
+/// rank and the corner pip, and the lacquer's hairline and the pip's shading
+/// are left out.
 class PlayingCard extends StatefulWidget {
   const PlayingCard({
     super.key,
@@ -25,6 +49,8 @@ class PlayingCard extends StatefulWidget {
     this.height = 96,
     this.dimmed = false,
     this.tint,
+    this.indexOnRight = false,
+    this.flipDelay = Duration.zero,
   });
 
   /// A server card code such as "As" or "Td". Null means face down.
@@ -40,41 +66,55 @@ class PlayingCard extends StatefulWidget {
   /// [BlendMode.color] takes the hue and saturation from this and the
   /// luminosity from the printed back, so the crown and the bevel survive the
   /// change — a flat fill would paint over both. A face is never tinted: a
-  /// card that is showing has already answered the question this asks.
+  /// card that is showing has already answered the question this asks. The
+  /// stock's gold edge is not printing and is not tinted either.
   final Color? tint;
 
-  /// The card-back artwork's own ratio, which is the standard 5:7.
+  /// Prints the index in the top-RIGHT corner instead of the top-left —
+  /// the corner a left-hander's deck prints it in, for a card whose left side
+  /// is covered. The viewer's own fan has its middle card on top, so a card
+  /// to the right of it shows only its right-hand side; with its index in the
+  /// top-left its rank would be under the middle card (premium-card brief,
+  /// 25 Sep 2026: "Do not hide rank/suit information"). One index a card,
+  /// never two: a second would peek out in pieces from under its neighbour.
+  final bool indexOnRight;
+
+  /// How long the card waits before it turns over once told to — how a hand
+  /// is turned one card after another rather than all at once.
+  final Duration flipDelay;
+
+  /// The card-back artwork's own ratio, which is the standard poker 5:7
+  /// (2.5 x 3.5 in): wide enough for a rank, its pip and the centre pip.
   static const double aspect = 240 / 336;
 
-  // Every measurement below is a fraction of [height], so one set of numbers
-  // covers every size the app asks for. The card heights that actually occur
-  // are the rules sheet's 46, the viewer's own hand (Dim.handH, 50..134) and a
-  // reveal card (Dim.revealCardH: 61.2 at screen h=360, 69.9 at h=411, 104.0 at
-  // h=800). At those three reveal sizes: rank box 15.9 / 18.2 / 27.0, index pip
-  // 7.3 / 8.4 / 12.5, centre pip 20.8 / 23.8 / 35.4.
-  //
-  // The index block ends at 0.45h (0.055 top + 0.26 rank + 0.015 gap + 0.12
-  // pip) and the centre pip starts at 0.49h, so the two clear each other by
-  // 0.04h — 1.8dp on the smallest face in the app (h=46) and 4.2dp at h=104,
-  // before the margin the drawn glyphs carry inside their own boxes. Cards are
-  // never tappable, so no touch target depends on any of this.
-  static const double _radius = 0.055;
-  static const double _indexLeft = 0.065;
-  static const double _indexTop = 0.055;
-  static const double _indexWidth = 0.20;
-  static const double _rankHeight = 0.26;
-  static const double _indexGap = 0.015;
-  static const double _indexPip = 0.12;
-  static const double _centrePipTop = 0.49;
-  static const double _centrePip = 0.34;
+  /// The stock's corner radius, as a share of the card's height: a real
+  /// card's rounded corner, not a button's.
+  static const double cornerShare = 0.058;
 
-  /// Out of play, not half-erased: the colour drains and the card sits back
-  /// rather than fading toward the felt. One filter, so it costs one layer.
+  /// Faces shorter than this are drawn COMPACT (see the class doc): a rim
+  /// seat's cards, 38 to 46dp on the phones the table is laid out for, and the
+  /// rules sheet's examples.
+  static const double compactBelow = 56;
+
+  /// How far apart the cards of one hand turn over (see [flipDelay]): a hand
+  /// of five has turned in 0.62 s, inside the pause before its best three are
+  /// set out (table_screen's `_BestThreeStage.beforeAside`, 650 ms).
+  static const Duration flipStagger = Duration(milliseconds: 50);
+
+  /// How long a turn takes, from back to face.
+  static const Duration flipFor = Motion.enter;
+
+  /// Out of play, not half-erased: the colour drains and the card sits back —
+  /// a third darker — rather than fading toward the felt. Opaque since the
+  /// premium cards (25 Sep 2026): it took the card to 55% opacity, and in the
+  /// viewer's fan, where cards now overlap by more than a third, every overlap
+  /// showed through as a bright bar across the packed hand. One filter, so it
+  /// costs one layer.
   static const ColorFilter _drained = ColorFilter.matrix(<double>[
-    0.40975, 0.53625, 0.054, 0, 0, //
-    0.15975, 0.78625, 0.054, 0, 0, //
-    0.15975, 0.53625, 0.304, 0, 0, //
-    0, 0, 0, 0.55, 0, //
+    0.2704, 0.3539, 0.0356, 0, 0, //
+    0.1054, 0.5189, 0.0356, 0, 0, //
+    0.1054, 0.3539, 0.2006, 0, 0, //
+    0, 0, 0, 1, 0, //
   ]);
 
   @override
@@ -89,39 +129,89 @@ class PlayingCard extends StatefulWidget {
       code.substring(code.length - 1).toLowerCase();
 
   static String suitSymbol(String suit) => switch (suit) {
-        's' => '♠',
-        'h' => '♥',
-        'd' => '♦',
-        'c' => '♣',
-        _ => '?',
-      };
+    's' => '♠',
+    'h' => '♥',
+    'd' => '♦',
+    'c' => '♣',
+    _ => '?',
+  };
 
   /// Red suits and black suits, from a suit letter.
   static Color inkFor(String suit) =>
       suit == 'h' || suit == 'd' ? AppTheme.pipRed : AppTheme.pipBlack;
+
+  /// The two soft shadows a card casts on the table, [lift] times further off
+  /// it than at rest (a card turning over, or in the air). None for a dimmed
+  /// card, which is out of the hand and lies flat.
+  static List<BoxShadow> shadows(
+    double height,
+    Brightness brightness, {
+    double lift = 1,
+  }) {
+    final dark = brightness == Brightness.dark;
+    final ink = AppTheme.shadowFor(brightness);
+    return <BoxShadow>[
+      // Contact: small, tight and directly underneath.
+      BoxShadow(
+        color: ink.withValues(alpha: dark ? 0.46 : 0.24),
+        blurRadius: height * 0.018 * lift,
+        offset: Offset(0, height * 0.010 * lift),
+      ),
+      // Depth: wider and softer, so the card stands off the cloth.
+      BoxShadow(
+        color: ink.withValues(alpha: dark ? 0.26 : 0.14),
+        blurRadius: height * 0.085 * lift,
+        offset: Offset(0, height * 0.040 * lift),
+      ),
+    ];
+  }
 }
 
 class _PlayingCardState extends State<PlayingCard>
     with SingleTickerProviderStateMixin {
+  // Read by every build (the AnimatedBuilder below), so never first touched
+  // in dispose() (CLAUDE.md §12.3).
   late final AnimationController _flip = AnimationController(
     vsync: this,
-    duration: Motion.enter,
+    duration: PlayingCard.flipFor,
     value: widget.code == null ? 0 : 1,
   );
+  Timer? _wait;
+
+  /// The last face shown, kept while the card turns back over so the face's
+  /// half of the turn is not blank.
+  String? _face;
+
+  @override
+  void initState() {
+    super.initState();
+    _face = widget.code;
+  }
 
   @override
   void didUpdateWidget(covariant PlayingCard old) {
     super.didUpdateWidget(old);
+    if (widget.code != null) _face = widget.code;
     final wasFaceUp = old.code != null;
     final isFaceUp = widget.code != null;
     if (wasFaceUp == isFaceUp) return;
 
-    // Turned over, so play it rather than swapping the picture.
-    isFaceUp ? _flip.forward() : _flip.reverse();
+    // Turned over, so play it rather than swapping the picture — after the
+    // card's own beat in a hand being turned one card at a time.
+    _wait?.cancel();
+    void turn() => isFaceUp ? _flip.forward() : _flip.reverse();
+    if (widget.flipDelay <= Duration.zero) {
+      turn();
+    } else {
+      _wait = Timer(widget.flipDelay, () {
+        if (mounted) turn();
+      });
+    }
   }
 
   @override
   void dispose() {
+    _wait?.cancel();
     _flip.dispose();
     super.dispose();
   }
@@ -129,33 +219,72 @@ class _PlayingCardState extends State<PlayingCard>
   @override
   Widget build(BuildContext context) {
     final h = widget.height;
+    final w = h * PlayingCard.aspect;
+    final brightness = Theme.of(context).brightness;
+    final radius = BorderRadius.circular(h * PlayingCard.cornerShare);
+    final faceCode = _face;
+
+    // Both sides are built once per build of the card and handed to the
+    // turn, which only moves them: nothing on either is laid out per frame.
+    final face = faceCode == null
+        ? null
+        : RepaintBoundary(
+            child: CustomPaint(
+              size: Size(w, h),
+              painter: CardFacePainter(
+                code: faceCode,
+                height: h,
+                indexOnRight: widget.indexOnRight,
+              ),
+            ),
+          );
+    final back = _CardBack(height: h, tint: widget.tint);
 
     Widget card = AnimatedBuilder(
       animation: _flip,
       builder: (context, _) {
         final t = Curves.easeInOut.transform(_flip.value);
         final angle = t * math.pi;
-        final showingFace = t > 0.5;
-        // Edge-on, the card has no width to draw; the specular band peaks
+        final showingFace = t > 0.5 && face != null;
+        final rising = math.sin(angle);
+        // Edge-on, the card has no width to draw; the light band peaks
         // exactly where the geometry vanishes so it never blinks out.
         final sheen = (1 - math.cos(angle).abs()) * 0.5;
-        // And it lifts off the felt on the way over rather than pivoting flat.
-        final lift = 1 + 0.6 * math.sin(angle);
+        // It lifts off the felt on the way over rather than pivoting flat:
+        // a little larger, a little higher, its shadow further below it.
+        final lift = 1 + 0.9 * rising;
+
+        final side = DecoratedBox(
+          decoration: BoxDecoration(
+            borderRadius: radius,
+            boxShadow: widget.dimmed
+                ? const <BoxShadow>[]
+                : PlayingCard.shadows(h, brightness, lift: lift),
+          ),
+          child: Stack(
+            children: <Widget>[
+              showingFace
+                  // The face would be mirrored halfway through the turn, so
+                  // it is flipped back the other way.
+                  ? Transform(
+                      alignment: Alignment.center,
+                      transform: Matrix4.identity()..rotateY(math.pi),
+                      child: face,
+                    )
+                  : back,
+              ?_sheen(sheen, radius),
+            ],
+          ),
+        );
 
         return Transform(
           alignment: Alignment.center,
           transform: Matrix4.identity()
             ..setEntry(3, 2, 0.0015) // a little perspective, so it has depth
+            ..translateByDouble(0, -h * 0.05 * rising, 0, 1)
+            ..scaleByDouble(1 + 0.05 * rising, 1 + 0.05 * rising, 1, 1)
             ..rotateY(angle),
-          child: showingFace
-              // The face would be mirrored halfway through the turn, so it is
-              // flipped back the other way.
-              ? Transform(
-                  alignment: Alignment.center,
-                  transform: Matrix4.identity()..rotateY(math.pi),
-                  child: _face(sheen, lift),
-                )
-              : _back(sheen, lift),
+          child: side,
         );
       },
     );
@@ -170,146 +299,472 @@ class _PlayingCardState extends State<PlayingCard>
     // The felt behind a card animates continuously; the card does not. One
     // boundary each keeps up to fifteen of them out of every ambient frame.
     return RepaintBoundary(
-      child: SizedBox(
-        width: h * PlayingCard.aspect,
-        height: h,
-        child: card,
-      ),
+      child: SizedBox(width: w, height: h, child: card),
     );
   }
 
-  /// The card lies on the felt: one tight contact shadow and one soft one.
-  /// A dimmed card drops both — it is out of the hand, so it stops casting.
-  List<BoxShadow> _shadows(double h, double lift) {
-    if (widget.dimmed) return const <BoxShadow>[];
-    return <BoxShadow>[
-      BoxShadow(
-        color: AppTheme.ink900.withValues(alpha: 0.42),
-        blurRadius: h * 0.045 * lift,
-        offset: Offset(0, h * 0.020),
-      ),
-      BoxShadow(
-        color: AppTheme.ink900.withValues(alpha: 0.18),
-        blurRadius: h * 0.11 * lift,
-        offset: Offset(0, h * 0.05),
-      ),
-    ];
-  }
-
-  /// The band that crosses the card as it turns. Absent at rest, so a resting
-  /// card is a plain decoration and nothing more.
-  Widget? _sheen(double alpha) {
+  /// The band of light that crosses the card as it turns. Absent at rest, so
+  /// a resting card is its stock and nothing more.
+  Widget? _sheen(double alpha, BorderRadius radius) {
     if (alpha < 0.004) return null;
     return Positioned.fill(
       child: IgnorePointer(
         child: DecoratedBox(
           decoration: BoxDecoration(
+            borderRadius: radius,
             gradient: LinearGradient(
               begin: Alignment.centerLeft,
               end: Alignment.centerRight,
               colors: <Color>[
                 Colors.transparent,
-                AppTheme.goldBright.withValues(alpha: alpha),
+                const Color(0xFFFFF6DC).withValues(alpha: alpha * 0.9),
                 Colors.transparent,
               ],
-              stops: const <double>[0.12, 0.5, 0.88],
+              stops: const <double>[0.14, 0.5, 0.86],
             ),
           ),
         ),
       ),
     );
   }
+}
 
-  Widget _back(double sheen, double lift) {
-    final h = widget.height;
-    final radius = BorderRadius.circular(h * PlayingCard._radius);
+/// The printed back — the King Teen Patti crown on its lattice — on the same
+/// stock as the face: cut to the card's corner, with the stock's gold edge and
+/// its top-edge light laid over it. [tint] recolours the printing only.
+class _CardBack extends StatelessWidget {
+  const _CardBack({required this.height, this.tint});
 
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        borderRadius: radius,
-        boxShadow: _shadows(h, lift),
-      ),
+  final double height;
+  final Color? tint;
+
+  @override
+  Widget build(BuildContext context) {
+    final h = height;
+    final w = h * PlayingCard.aspect;
+    return CustomPaint(
+      foregroundPainter: CardStockPainter(height: h, face: false),
       child: ClipRRect(
-        borderRadius: radius,
-        child: Stack(
-          children: <Widget>[
-            SvgPicture.asset(
-              'assets/card_back.svg',
-              fit: BoxFit.fill,
-              width: h * PlayingCard.aspect,
-              height: h,
-              colorFilter: widget.tint == null
-                  ? null
-                  : ColorFilter.mode(widget.tint!, BlendMode.color),
-            ),
-            ?_sheen(sheen),
-          ],
+        borderRadius: BorderRadius.circular(h * PlayingCard.cornerShare),
+        child: SvgPicture.asset(
+          'assets/card_back.svg',
+          fit: BoxFit.fill,
+          width: w,
+          height: h,
+          colorFilter: tint == null
+              ? null
+              : ColorFilter.mode(tint!, BlendMode.color),
         ),
       ),
     );
   }
+}
 
-  Widget _face(double sheen, double lift) {
-    final code = widget.code;
-    if (code == null) return const SizedBox.shrink();
+/// Where everything on a face goes, as a function of the card's height alone
+/// — the one set of numbers the face painter draws by and the tests measure.
+@immutable
+class CardFaceMetrics {
+  const CardFaceMetrics._({
+    required this.height,
+    required this.compact,
+    required this.inset,
+    required this.top,
+    required this.rankCap,
+    required this.indexWidth,
+    required this.gap,
+    required this.indexPip,
+    required this.centrePip,
+    required this.centreY,
+    required this.acePip,
+    required this.aceY,
+  });
 
-    final h = widget.height;
+  factory CardFaceMetrics.of(double height) {
+    final h = height;
+    if (h < PlayingCard.compactBelow) {
+      // Compact: a rim seat's card, 33 to 45dp tall on the phones the table
+      // is laid out for. More than a quarter of the card is rank — 8.9dp of
+      // cap on a 592x360 phone — and the index column ends inside the half of
+      // the card a rim seat's five-card fan leaves showing.
+      return CardFaceMetrics._(
+        height: h,
+        compact: true,
+        inset: h * 0.058,
+        top: h * 0.065,
+        rankCap: h * 0.27,
+        indexWidth: h * 0.30,
+        gap: h * 0.025,
+        indexPip: h * 0.13,
+        centrePip: h * 0.34,
+        centreY: h * 0.70,
+        acePip: h * 0.38,
+        aceY: h * 0.705,
+      );
+    }
+    return CardFaceMetrics._(
+      height: h,
+      compact: false,
+      inset: h * 0.055,
+      top: h * 0.06,
+      rankCap: h * 0.21,
+      indexWidth: h * 0.235,
+      gap: h * 0.024,
+      indexPip: h * 0.115,
+      centrePip: h * 0.34,
+      centreY: h * 0.665,
+      acePip: h * 0.44,
+      aceY: h * 0.645,
+    );
+  }
+
+  final double height;
+  double get width => height * PlayingCard.aspect;
+
+  /// Whether the face is drawn compact (see [PlayingCard.compactBelow]).
+  final bool compact;
+
+  /// The index column's distance from the card's side, and the rank's cap
+  /// from its top.
+  final double inset;
+  final double top;
+
+  /// The rank's cap height: every rank, a 5 and a Q alike, stands this tall.
+  final double rankCap;
+
+  /// The column the rank and its pip are centred in; a rank wider than it (a
+  /// 10) is condensed to it.
+  final double indexWidth;
+
+  /// Between the rank's baseline and the pip under it, and that pip's size.
+  final double gap;
+  final double indexPip;
+
+  /// The pip in the middle of every card, and the larger one an ace carries,
+  /// each with the height its centre stands at.
+  final double centrePip;
+  final double centreY;
+  final double acePip;
+  final double aceY;
+
+  /// The index column: rank over pip, in the top-left corner, or mirrored
+  /// into the top-right ([PlayingCard.indexOnRight]).
+  Rect index({bool right = false}) {
+    final h = rankCap + gap + indexPip;
+    return Rect.fromLTWH(
+      right ? width - inset - indexWidth : inset,
+      top,
+      indexWidth,
+      h,
+    );
+  }
+
+  /// Where the rank stands in its column: the column's width, the rank's
+  /// cap height. The rank itself is centred in it, as narrow as it is.
+  Rect rank({bool right = false}) {
+    final column = index(right: right);
+    return Rect.fromLTWH(column.left, column.top, column.width, rankCap);
+  }
+
+  /// The pip under the rank, centred on the same axis.
+  Rect indexPipBox({bool right = false}) {
+    final column = index(right: right);
+    return Rect.fromCenter(
+      center: Offset(
+        column.center.dx,
+        column.top + rankCap + gap + indexPip / 2,
+      ),
+      width: indexPip,
+      height: indexPip,
+    );
+  }
+
+  /// How thick the stock's gold edge is drawn.
+  double get rimWidth => (height * 0.010).clamp(0.7, 1.1).toDouble();
+}
+
+/// Inter's cap height, as a share of its size. The rank is fitted to a cap
+/// height, not to a line box, so that its top is where the metrics say.
+const double _interCapShare = 0.727;
+
+/// The heaviest a rank is ever condensed across before it is made smaller.
+const double _rankMinCondense = 0.8;
+
+/// How a rank is set: the size, how far it is condensed across and how wide
+/// it then stands, for a face [height] tall — the painter's own sums, public
+/// so that a test can hold a 10 to its column.
+({double fontSize, double condense, double width, double shrink}) cardRankFit(
+  String rank,
+  double height,
+) {
+  final m = CardFaceMetrics.of(height);
+  final painter = _rankPainter(
+    rank,
+    m.rankCap / _interCapShare,
+    AppTheme.pipBlack,
+  );
+  final natural = painter.width;
+  painter.dispose();
+  var condense = natural <= m.indexWidth ? 1.0 : m.indexWidth / natural;
+  var shrink = 1.0;
+  if (condense < _rankMinCondense) {
+    shrink = condense / _rankMinCondense;
+    condense = _rankMinCondense;
+  }
+  return (
+    fontSize: m.rankCap / _interCapShare * shrink,
+    condense: condense,
+    width: natural * condense * shrink,
+    shrink: shrink,
+  );
+}
+
+TextPainter _rankPainter(String rank, double fontSize, Color ink) =>
+    TextPainter(
+      text: TextSpan(
+        text: rank,
+        style: TextStyle(
+          fontFamily: AppTheme.fontFamily,
+          fontWeight: FontWeight.w700,
+          fontSize: fontSize,
+          // Two figures sit close, as a printed 10's do.
+          letterSpacing: rank.length > 1 ? -0.05 * fontSize : 0,
+          color: ink,
+          height: 1,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+      maxLines: 1,
+    )..layout();
+
+/// The printed face of [code], [height] tall (see [PlayingCard]).
+class CardFacePainter extends CustomPainter {
+  const CardFacePainter({
+    required this.code,
+    required this.height,
+    this.indexOnRight = false,
+  });
+
+  final String code;
+  final double height;
+  final bool indexOnRight;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final m = CardFaceMetrics.of(height);
+    final rect = Offset.zero & size;
+    final card = RRect.fromRectAndRadius(
+      rect,
+      Radius.circular(height * PlayingCard.cornerShare),
+    );
     final suit = PlayingCard.suitOf(code);
+    final rank = PlayingCard.rankOf(code);
     final ink = PlayingCard.inkFor(suit);
 
-    return Container(
-      decoration: BoxDecoration(
-        color: AppTheme.cardFace,
-        borderRadius: BorderRadius.circular(h * PlayingCard._radius),
-        // The cut edge of the stock, which is what stops a pale card from
-        // dissolving into a pale seat pod behind it.
-        border: Border.all(color: AppTheme.cardEdge, width: 0.5),
-        boxShadow: _shadows(h, lift),
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(h * PlayingCard._radius),
-        child: Stack(
-          children: <Widget>[
-            Positioned(
-              left: h * PlayingCard._indexLeft,
-              top: h * PlayingCard._indexTop,
-              width: h * PlayingCard._indexWidth,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  CardRankGlyph(
-                    rank: PlayingCard.rankOf(code),
-                    height: h * PlayingCard._rankHeight,
-                    colour: ink,
-                  ),
-                  SizedBox(height: h * PlayingCard._indexGap),
-                  CardPips(
-                    suit: suit,
-                    size: h * PlayingCard._indexPip,
-                    colour: ink,
-                  ),
-                ],
-              ),
-            ),
-            Positioned(
-              left: 0,
-              right: 0,
-              top: h * PlayingCard._centrePipTop,
-              height: h * PlayingCard._centrePip,
-              child: Center(
-                child: CardPips(
-                  suit: suit,
-                  size: h * PlayingCard._centrePip,
-                  colour: ink,
-                ),
-              ),
-            ),
-            ?_sheen(sheen),
+    // The stock: warm ivory, lit from its upper-left corner.
+    canvas.drawRRect(
+      card,
+      Paint()
+        ..shader = const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: <Color>[AppTheme.cardFaceHigh, AppTheme.cardFaceLow],
+        ).createShader(rect),
+    );
+
+    canvas
+      ..save()
+      ..clipRRect(card);
+
+    // The index, in the corner that shows.
+    _paintIndex(canvas, m, indexOnRight, rank, suit, ink);
+
+    // The centre pip, on the bare stock: larger on an ace.
+    final ace = rank == 'A';
+    final pipSize = ace ? m.acePip : m.centrePip;
+    final pipCentre = Offset(size.width / 2, ace ? m.aceY : m.centreY);
+    paintPip(
+      canvas,
+      suit,
+      Rect.fromCenter(center: pipCentre, width: pipSize, height: pipSize),
+      ink,
+      shaded: !m.compact,
+    );
+
+    // The light along the top edge, where the stock catches the lamp.
+    canvas.drawRect(
+      Rect.fromLTWH(0, 0, size.width, height * 0.2),
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: <Color>[
+            Colors.white.withValues(alpha: m.compact ? 0.35 : 0.55),
+            Colors.white.withValues(alpha: 0),
           ],
-        ),
-      ),
+        ).createShader(Rect.fromLTWH(0, 0, size.width, height * 0.2)),
+    );
+    canvas.restore();
+
+    CardStockPainter.paintEdge(canvas, card, height, face: true);
+  }
+
+  static void _paintIndex(
+    Canvas canvas,
+    CardFaceMetrics m,
+    bool right,
+    String rank,
+    String suit,
+    Color ink,
+  ) {
+    final column = m.rank(right: right);
+    final fit = cardRankFit(rank, m.height);
+    final painter = _rankPainter(rank, fit.fontSize, ink);
+    final baseline = painter.computeDistanceToActualBaseline(
+      TextBaseline.alphabetic,
+    );
+    // The cap top on the column's top, or — a rank that had to be made
+    // smaller — its cap centred in the rank's own band.
+    final cap = m.rankCap * fit.shrink;
+    final capTop = column.top + (m.rankCap - cap) / 2;
+    canvas
+      ..save()
+      ..translate(column.center.dx, capTop + cap - baseline)
+      ..scale(fit.condense, 1);
+    painter.paint(canvas, Offset(-painter.width / 2, 0));
+    canvas.restore();
+    painter.dispose();
+
+    paintPip(canvas, suit, m.indexPipBox(right: right), ink);
+  }
+
+  @override
+  bool shouldRepaint(CardFacePainter old) =>
+      old.code != code ||
+      old.height != height ||
+      old.indexOnRight != indexOnRight;
+}
+
+/// The stock's own finish, laid over a back (and drawn by the face painter
+/// for a face): the gold cut edge, and on a back a faint light along its top.
+class CardStockPainter extends CustomPainter {
+  const CardStockPainter({required this.height, required this.face});
+
+  final double height;
+  final bool face;
+
+  /// The cut edge round [card], and inside it on a full-size card the thin
+  /// highlight a printed card's lacquer catches along its top.
+  static void paintEdge(
+    Canvas canvas,
+    RRect card,
+    double height, {
+    required bool face,
+  }) {
+    final m = CardFaceMetrics.of(height);
+    final rim = m.rimWidth;
+    canvas.drawRRect(
+      card.deflate(rim / 2),
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = rim
+        ..color = face
+            ? AppTheme.cardRim
+            : AppTheme.cardRim.withValues(alpha: 0.85),
+    );
+    if (m.compact) return;
+    final inner = card.deflate(rim + 0.6);
+    canvas.drawRRect(
+      inner,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 0.8
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: <Color>[
+            Colors.white.withValues(alpha: face ? 0.9 : 0.22),
+            Colors.white.withValues(alpha: 0),
+          ],
+          stops: const <double>[0, 0.45],
+        ).createShader(inner.outerRect),
     );
   }
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final card = RRect.fromRectAndRadius(
+      Offset.zero & size,
+      Radius.circular(height * PlayingCard.cornerShare),
+    );
+    if (!face) {
+      // The lacquer on a back: a faint light across its top.
+      canvas
+        ..save()
+        ..clipRRect(card)
+        ..drawRect(
+          Rect.fromLTWH(0, 0, size.width, height * 0.22),
+          Paint()
+            ..shader = LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: <Color>[
+                Colors.white.withValues(alpha: 0.12),
+                Colors.white.withValues(alpha: 0),
+              ],
+            ).createShader(Rect.fromLTWH(0, 0, size.width, height * 0.22)),
+        )
+        ..restore();
+    }
+    paintEdge(canvas, card, height, face: face);
+  }
+
+  @override
+  bool shouldRepaint(CardStockPainter old) =>
+      old.height != height || old.face != face;
+}
+
+/// Paints the [suit]'s silhouette filling [box] in [ink] — [shaded], a shade
+/// lighter at its top than at its foot, as a pip printed in heavy ink reads
+/// under a lamp. An unknown suit paints nothing: [CardPips] owns the '?'.
+void paintPip(
+  Canvas canvas,
+  String suit,
+  Rect box,
+  Color ink, {
+  bool shaded = false,
+}) {
+  final path = _pipPaths[suit];
+  if (path == null) {
+    final painter = TextPainter(
+      text: TextSpan(
+        text: PlayingCard.suitSymbol(suit),
+        style: TextStyle(color: ink, fontSize: box.height * 0.9, height: 1),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    painter.paint(
+      canvas,
+      box.center - Offset(painter.width / 2, painter.height / 2),
+    );
+    painter.dispose();
+    return;
+  }
+  final paint = Paint()..color = ink;
+  if (shaded) {
+    final light = Color.lerp(ink, Colors.white, 0.16)!;
+    final deep = Color.lerp(ink, Colors.black, 0.10)!;
+    paint.shader = LinearGradient(
+      begin: Alignment.topCenter,
+      end: Alignment.bottomCenter,
+      colors: <Color>[light, deep],
+    ).createShader(box);
+  }
+  canvas
+    ..save()
+    ..translate(box.left, box.top)
+    ..scale(box.width / _glyphBox, box.height / _glyphBox)
+    ..drawPath(path, paint)
+    ..restore();
 }
 
 /// One suit mark, drawn rather than typed.
@@ -349,7 +804,7 @@ class CardPips extends StatelessWidget {
     }
     return CustomPaint(
       size: Size.square(size),
-      painter: _PipPainter(path: path, colour: colour),
+      painter: _PipPainter(suit: suit, colour: colour),
     );
   }
 }
@@ -405,243 +860,23 @@ class SuitMark extends StatelessWidget {
   );
 }
 
-/// The rank index, drawn on the same grid as the pips.
-///
-/// Ranks are ASCII the server owns ("A", "2".."9", "10", "J", "Q", "K"), so
-/// drawing them is safe in a way that drawing a display name never would be.
-/// Anything else falls through to text, for the same reason the '?' pip does.
-class CardRankGlyph extends StatelessWidget {
-  const CardRankGlyph({
-    super.key,
-    required this.rank,
-    required this.height,
-    required this.colour,
-  });
-
-  /// A rank as [PlayingCard.rankOf] returns it.
-  final String rank;
-  final double height;
-  final Color colour;
-
-  @override
-  Widget build(BuildContext context) {
-    final glyph = _rankGlyph(rank);
-    if (glyph == null) {
-      return SizedBox(
-        height: height,
-        child: FittedBox(
-          fit: BoxFit.scaleDown,
-          child: Text(
-            rank,
-            style: TextStyle(
-              color: colour,
-              fontWeight: FontWeight.w800,
-              height: 1,
-            ),
-          ),
-        ),
-      );
-    }
-    return CustomPaint(
-      size: Size(height * glyph.width / _glyphBox, height),
-      painter: _RankPainter(glyph: glyph, colour: colour),
-    );
-  }
-}
-
 class _PipPainter extends CustomPainter {
-  const _PipPainter({required this.path, required this.colour});
+  const _PipPainter({required this.suit, required this.colour});
 
-  final Path path;
+  final String suit;
   final Color colour;
 
   @override
-  void paint(Canvas canvas, Size size) {
-    canvas.save();
-    canvas.scale(size.width / _glyphBox, size.height / _glyphBox);
-    canvas.drawPath(path, Paint()..color = colour);
-    canvas.restore();
-  }
+  void paint(Canvas canvas, Size size) =>
+      paintPip(canvas, suit, Offset.zero & size, colour);
 
   @override
   bool shouldRepaint(_PipPainter old) =>
-      old.path != path || old.colour != colour;
+      old.suit != suit || old.colour != colour;
 }
 
-class _RankPainter extends CustomPainter {
-  const _RankPainter({required this.glyph, required this.colour});
-
-  final _Glyph glyph;
-  final Color colour;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    // Fit by height, then by width, which is the '10' case and the only one
-    // that is ever wider than its box.
-    final scale = math.min(
-      size.height / _glyphBox,
-      size.width / glyph.width,
-    );
-    canvas.save();
-    canvas.translate(
-      (size.width - glyph.width * scale) / 2,
-      (size.height - _glyphBox * scale) / 2,
-    );
-    canvas.scale(scale);
-    canvas.drawPath(
-      glyph.path,
-      Paint()
-        ..color = colour
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = _glyphStroke
-        ..strokeCap = StrokeCap.round
-        ..strokeJoin = StrokeJoin.round,
-    );
-    canvas.restore();
-  }
-
-  @override
-  bool shouldRepaint(_RankPainter old) =>
-      old.glyph != glyph || old.colour != colour;
-}
-
-/// A drawn glyph and the advance width it needs, on the [_glyphBox] grid.
-class _Glyph {
-  const _Glyph(this.path, this.width);
-  final Path path;
-  final double width;
-}
-
-/// Everything below is drawn on a 100-tall grid and scaled at paint time, so
-/// the stroke weight stays in proportion at every card size.
+/// Everything below is drawn on a 100-square grid and scaled at paint time.
 const double _glyphBox = 100;
-const double _glyphStroke = 17;
-
-/// A monoline engraved index: the strokes are round-ended and the shapes carry
-/// the deck's own quirks (a closed 4, a barred J, a crossed Q) so the rank
-/// reads as printed on a card rather than set in the interface's typeface.
-final Map<String, _Glyph> _rankGlyphs = <String, _Glyph>{
-  'A': _Glyph(
-    Path()
-      ..moveTo(9, 91)
-      ..lineTo(32, 9)
-      ..lineTo(55, 91)
-      ..moveTo(17, 64)
-      ..lineTo(47, 64),
-    64,
-  ),
-  '2': _Glyph(
-    Path()
-      ..moveTo(10, 28)
-      ..cubicTo(10, 9, 49, 7, 49, 31)
-      ..cubicTo(49, 47, 30, 60, 10, 91)
-      ..lineTo(50, 91),
-    58,
-  ),
-  '3': _Glyph(
-    Path()
-      ..moveTo(11, 22)
-      ..cubicTo(23, 7, 48, 10, 48, 28)
-      ..cubicTo(48, 41, 36, 47, 28, 47)
-      ..cubicTo(39, 47, 50, 53, 50, 69)
-      ..cubicTo(50, 89, 21, 96, 11, 84),
-    58,
-  ),
-  '4': _Glyph(
-    Path()
-      ..moveTo(40, 9)
-      ..lineTo(9, 66)
-      ..lineTo(53, 66)
-      ..moveTo(40, 9)
-      ..lineTo(40, 91),
-    62,
-  ),
-  '5': _Glyph(
-    Path()
-      ..moveTo(48, 10)
-      ..lineTo(14, 10)
-      ..lineTo(11, 45)
-      ..cubicTo(25, 38, 48, 42, 48, 66)
-      ..cubicTo(48, 88, 22, 95, 10, 85),
-    57,
-  ),
-  '6': _Glyph(_six(), 61),
-  '7': _Glyph(
-    Path()
-      ..moveTo(10, 11)
-      ..lineTo(48, 11)
-      ..lineTo(23, 91),
-    56,
-  ),
-  '8': _Glyph(
-    Path()
-      ..addOval(const Rect.fromLTWH(14, 9, 30, 34))
-      ..addOval(const Rect.fromLTWH(9, 45, 40, 46)),
-    58,
-  ),
-  '9': _Glyph(_six().transform(_halfTurn(61 / 2, 50)), 61),
-  '10': _ten(),
-  'J': _Glyph(
-    Path()
-      ..moveTo(12, 12)
-      ..lineTo(44, 12)
-      ..moveTo(31, 12)
-      ..lineTo(31, 72)
-      ..cubicTo(31, 89, 21, 95, 12, 89),
-    53,
-  ),
-  'Q': _Glyph(
-    Path()
-      ..addOval(const Rect.fromLTWH(9, 9, 46, 72))
-      ..moveTo(40, 64)
-      ..lineTo(56, 90),
-    65,
-  ),
-  'K': _Glyph(
-    Path()
-      ..moveTo(11, 9)
-      ..lineTo(11, 91)
-      ..moveTo(51, 9)
-      ..lineTo(18, 51)
-      ..moveTo(25, 44)
-      ..lineTo(52, 91),
-    61,
-  ),
-};
-
-_Glyph? _rankGlyph(String rank) => _rankGlyphs[rank];
-
-Path _six() => Path()
-  ..moveTo(46, 12)
-  ..cubicTo(28, 5, 11, 22, 11, 56)
-  ..cubicTo(11, 82, 24, 92, 33, 92)
-  ..cubicTo(46, 92, 52, 82, 52, 68)
-  ..cubicTo(52, 54, 42, 46, 31, 46)
-  ..cubicTo(21, 46, 14, 52, 11, 60);
-
-/// A half turn about a point, which is all a 9 is. Written out rather than
-/// built from a Matrix4 so nothing here depends on a deprecated translate.
-Float64List _halfTurn(double cx, double cy) => Float64List.fromList(<double>[
-      -1, 0, 0, 0, //
-      0, -1, 0, 0, //
-      0, 0, 1, 0, //
-      2 * cx, 2 * cy, 0, 1, //
-    ]);
-
-/// Ten is the one two-glyph rank; the painter fits it by width instead of
-/// height, which is what the old FittedBox(scaleDown) did for the '10' text.
-_Glyph _ten() {
-  const gap = 10.0;
-  final one = Path()
-    ..moveTo(10, 26)
-    ..lineTo(21, 12)
-    ..lineTo(21, 91);
-  final zero = Path()..addOval(const Rect.fromLTWH(9, 9, 40, 82));
-  final path = Path()
-    ..addPath(one, Offset.zero)
-    ..addPath(zero, const Offset(31 + gap, 0));
-  return _Glyph(path, 31 + gap + 58);
-}
 
 /// Four silhouettes on the same 100-grid, each sized so its ink fills the box.
 final Map<String, Path> _pipPaths = <String, Path>{
@@ -694,10 +929,9 @@ Path _club() {
     path = Path.combine(
       PathOperation.union,
       path,
-      Path()
-        ..addOval(
-          Rect.fromCircle(center: Offset(lobe.$1, lobe.$2), radius: lobe.$3),
-        ),
+      Path()..addOval(
+        Rect.fromCircle(center: Offset(lobe.$1, lobe.$2), radius: lobe.$3),
+      ),
     );
   }
   return path;

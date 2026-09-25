@@ -826,8 +826,10 @@ class WildEdge extends StatelessWidget {
           DecoratedBox(
             position: DecorationPosition.foreground,
             decoration: BoxDecoration(
-              // The card's own corner (PlayingCard draws 0.055 of its height).
-              borderRadius: BorderRadius.circular(cardHeight * 0.055),
+              // The card's own corner.
+              borderRadius: BorderRadius.circular(
+                cardHeight * PlayingCard.cornerShare,
+              ),
               border: Border.all(color: gold, width: edge),
             ),
             child: child,
@@ -913,8 +915,10 @@ class SetBack extends StatelessWidget {
         child: DecoratedBox(
           position: DecorationPosition.foreground,
           decoration: BoxDecoration(
-            // The card's own corner (PlayingCard draws 0.055 of its height).
-            borderRadius: BorderRadius.circular(cardHeight * 0.055),
+            // The card's own corner.
+            borderRadius: BorderRadius.circular(
+              cardHeight * PlayingCard.cornerShare,
+            ),
             color: AppTheme.ink900.withValues(alpha: wash * t),
           ),
           child: child,
@@ -1114,14 +1118,21 @@ class _CardPickPromptState extends State<CardPickPrompt> {
                     ],
                     if (roomy) ...[
                       const SizedBox(height: Space.xs),
-                      FittedBox(
-                        fit: BoxFit.scaleDown,
-                        child: Text(
-                          widget.hint,
-                          maxLines: 1,
-                          style:
-                              (theme.textTheme.bodySmall ?? const TextStyle())
-                                  .copyWith(color: Colors.white70),
+                      // Held to the height the cards' row was sized around:
+                      // at the text ceiling its line stood 2dp taller and the
+                      // panel overflowed (found by the premium-card tests,
+                      // 25 Sep 2026).
+                      SizedBox(
+                        height: CardPickPrompt._hintH,
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text(
+                            widget.hint,
+                            maxLines: 1,
+                            style:
+                                (theme.textTheme.bodySmall ?? const TextStyle())
+                                    .copyWith(color: Colors.white70),
+                          ),
                         ),
                       ),
                     ],

@@ -590,7 +590,7 @@ class _EmptySlot extends StatelessWidget {
     height: height,
     child: DecoratedBox(
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(height * 0.055),
+        borderRadius: BorderRadius.circular(height * PlayingCard.cornerShare),
         border: Border.all(
           color: AppTheme.goldBright.withValues(alpha: 0.22),
           width: Dim.hairline,

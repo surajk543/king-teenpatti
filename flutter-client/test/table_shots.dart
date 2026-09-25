@@ -6,7 +6,9 @@
 //
 //   flutter test test/table_shots.dart --dart-define=SHOTS_DIR=/abs/dir \
 //     --dart-define=ICON_FONT=<flutter>/bin/cache/artifacts/material_fonts/MaterialIcons-Regular.otf
-//   (optional) --dart-define=SHOTS_ONLY=02-your-turn   a substring of the names
+//   (optional) --dart-define=SHOTS_ONLY=02-your-turn   a substring of the names;
+//              several, comma-separated, take any of them, and a '+' inside
+//              one asks for all its parts (26-cards+_dark_x1.0,15-poker)
 //
 // Every shot is laid out for real — the whole TableScreen, Inter and the
 // Material icons loaded — and written to SHOTS_DIR as a PNG at twice the
@@ -94,7 +96,8 @@ List<_Shot> _shots() => [
           '20-opponent-turn-seen',
           '21-your-turn-variation',
         ].contains(s.name) ||
-        s.name.endsWith('-places'),
+        s.name.endsWith('-places') ||
+        s.name.contains('-cards-'),
   ))
     for (final dark in [true, false])
       for (final scale in [1.0, 1.25])
@@ -148,8 +151,14 @@ void main() {
     );
   });
 
+  bool wanted(String file) =>
+      _only.isEmpty ||
+      _only
+          .split(',')
+          .any((term) => term.split('+').every((part) => file.contains(part)));
+
   for (final shot in _shots()) {
-    if (_only.isNotEmpty && !shot.file.contains(_only)) continue;
+    if (!wanted(shot.file)) continue;
     testWidgets(shot.file, (tester) async {
       // The test binding draws every shadow as a solid block unless told not
       // to, which rings every lifted key in black; a picture wants them soft.

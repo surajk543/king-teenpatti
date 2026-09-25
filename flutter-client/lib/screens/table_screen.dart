@@ -20,6 +20,7 @@ import '../widgets/deal_flight.dart';
 import '../widgets/drifting_chips.dart';
 import '../widgets/glass_components.dart';
 import '../widgets/glass_panels.dart';
+import '../widgets/hand_fan.dart';
 import '../widgets/hammer_flight.dart';
 import '../widgets/missile_flight.dart';
 import '../widgets/picture_shelf.dart';
@@ -903,6 +904,14 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
           // outer ones hang over the rim.
           final podW = Dim.podW(w, h);
           final handH = Dim.handH(h);
+          // The pot's plate — one line of its type, the plate's padding and
+          // hairline — which the viewer's hand never rises into.
+          final potType = TableType.pot(Theme.of(context));
+          final potPlate =
+              MediaQuery.textScalerOf(context).scale(potType.fontSize ?? 20) *
+                  (potType.height ?? 1.3) +
+              2 * Space.xs +
+              2 * Dim.hairline;
 
           // The table (owner's brief, 24 Sep 2026: "a large oval/rounded
           // casino table surface behind the gameplay elements"), laid out from
@@ -1041,11 +1050,8 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
             );
           }
 
-          Widget at(Offset place, Widget child, {double? width}) => atPoint(
-            Offset(place.dx * w, place.dy * h),
-            child,
-            width: width,
-          );
+          Widget at(Offset place, Widget child, {double? width}) =>
+              atPoint(Offset(place.dx * w, place.dy * h), child, width: width);
 
           final potCentre = Offset(0.5 * w, _potDy * h);
           Offset seatCentre(int seatIndex) =>
@@ -1208,59 +1214,69 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
               // computed offset, so the readout centres itself over whatever
               // width the cards happen to take — three cards, or two after a
               // sideshow — instead of being pinned to their left edge.
-              Positioned(
-                left: me.anchor.dx + podW / 2 + Space.md,
-                // A step above the floor the viewer's pod stands on, towards
-                // the middle of the table (owner's brief, 25 Sep 2026: "Move
-                // the current player's cards slightly upward").
-                bottom: h - me.anchor.dy + TableSpace.handLift,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    // The viewer's own hand name at a showdown, over their
-                    // cards, so the seat that matters most to them is not the
-                    // one seat that has to work out what it won with — and
-                    // after a sideshow they won, which it names the same way.
-                    if (ownHandName != null) ...[
-                      if (ownHandNameIsLive)
-                        // Keyed on the hand, so the one-second tick cannot
-                        // restart the wait.
-                        _AfterTheTurn(
-                          key: ValueKey('own-hand-name-${room.handNo}'),
-                          // Nothing turns in a hand with no wild card, so
-                          // there is nothing to wait for but the flip.
-                          turns: room.you?.hand?.wild.isNotEmpty ?? false,
-                          child: _OwnHandName(name: ownHandName),
-                        )
-                      else
-                        _OwnHandName(name: ownHandName),
-                      const SizedBox(height: Space.xxs),
-                    ],
-                    if (seats.isNotEmpty && seats[0] != null && handLive) ...[
-                      // Scaled against a wider pod than the viewer actually
-                      // has: this is their own bet, read every turn from the
-                      // far end of a landscape screen, and it earns a size the
-                      // rim seats' copies do not.
-                      SeatBet(
-                        seat: state.seatAsShown(seats[0])!,
-                        width: podW * 1.22,
-                        totalFirst: true,
+              // Off the floor the viewer's pod stands on, towards the middle
+              // of the table (owner's brief, 25 Sep 2026: "Move the current
+              // player's cards slightly upward"; and the refinement of the
+              // premium cards the same day: "slightly UP, for more breathing
+              // room between the cards and the bottom action controls"): as
+              // high as HandFan.liftFor wherever the pot above leaves room,
+              // and never lower than the step it always stood.
+              Positioned.fill(
+                child: _LiftedHand(
+                  left: me.anchor.dx + podW / 2 + Space.md,
+                  floor: me.anchor.dy,
+                  least: TableSpace.handLift,
+                  most: HandFan.liftFor(HandFan.cardHeightFor(handH)),
+                  ceiling: _potDy * h + potPlate / 2 + Space.sm,
+                  child: Column(
+                    key: const ValueKey('own-hand-column'),
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // The viewer's own hand name at a showdown, over their
+                      // cards, so the seat that matters most to them is not the
+                      // one seat that has to work out what it won with — and
+                      // after a sideshow they won, which it names the same way.
+                      if (ownHandName != null) ...[
+                        if (ownHandNameIsLive)
+                          // Keyed on the hand, so the one-second tick cannot
+                          // restart the wait.
+                          _AfterTheTurn(
+                            key: ValueKey('own-hand-name-${room.handNo}'),
+                            // Nothing turns in a hand with no wild card, so
+                            // there is nothing to wait for but the flip.
+                            turns: room.you?.hand?.wild.isNotEmpty ?? false,
+                            child: _OwnHandName(name: ownHandName),
+                          )
+                        else
+                          _OwnHandName(name: ownHandName),
+                        const SizedBox(height: Space.xxs),
+                      ],
+                      if (seats.isNotEmpty && seats[0] != null && handLive) ...[
+                        // Scaled against a wider pod than the viewer actually
+                        // has: this is their own bet, read every turn from the
+                        // far end of a landscape screen, and it earns a size the
+                        // rim seats' copies do not.
+                        SeatBet(
+                          seat: state.seatAsShown(seats[0])!,
+                          width: podW * 1.22,
+                          totalFirst: true,
+                        ),
+                        const SizedBox(height: Space.xs),
+                      ],
+                      // The showdown's copy of their own hand, so a player who
+                      // paid for a show while still blind sees what they were
+                      // holding: the server withholds `you.cards` until they
+                      // look, and it never turns that off.
+                      _OwnHand(
+                        cardHeight: HandFan.cardHeightFor(handH),
+                        revealed: myReveal?.cards,
+                        wild: myReveal?.wild ?? myPeek?.wild ?? const [],
+                        playsAs:
+                            myReveal?.playsAs ?? myPeek?.playsAs ?? const [],
+                        best: myReveal?.best ?? myPeek?.best ?? const [],
                       ),
-                      const SizedBox(height: Space.xs),
                     ],
-                    // The showdown's copy of their own hand, so a player who
-                    // paid for a show while still blind sees what they were
-                    // holding: the server withholds `you.cards` until they
-                    // look, and it never turns that off.
-                    _OwnHand(
-                      cardHeight: handH,
-                      revealed: myReveal?.cards,
-                      wild: myReveal?.wild ?? myPeek?.wild ?? const [],
-                      playsAs:
-                          myReveal?.playsAs ?? myPeek?.playsAs ?? const [],
-                      best: myReveal?.best ?? myPeek?.best ?? const [],
-                    ),
-                  ],
+                  ),
                 ),
               ),
 
@@ -2258,6 +2274,148 @@ class _Status extends StatelessWidget {
   }
 }
 
+/// The viewer's hand — its name at a showdown, their bet and the fan — stood
+/// on the felt: [left] across it, and up off the table's floor at [floor] by
+/// [most] wherever the column's top then stays under the pot's plate
+/// ([ceiling]); where it cannot, as far as it can, and never less than
+/// [least], the step it always stood (a crowded screen at the text ceiling
+/// keeps the layout it had).
+///
+/// Laid out knowing the column's height, which the hand's name and the bet
+/// badge change from one moment to the next — so the lift GLIDES to a new
+/// height ([Motion.slow]) rather than jumping: on a 640x360 phone the name
+/// arriving at a showdown takes the room the lift had, and the cards settle
+/// the few dp back towards the floor as they are turned. The first placement
+/// is at once.
+class _LiftedHand extends StatefulWidget {
+  const _LiftedHand({
+    required this.left,
+    required this.floor,
+    required this.least,
+    required this.most,
+    required this.ceiling,
+    required this.child,
+  });
+
+  final double left;
+  final double floor;
+  final double least;
+  final double most;
+  final double ceiling;
+  final Widget child;
+
+  @override
+  State<_LiftedHand> createState() => _LiftedHandState();
+}
+
+class _LiftedHandState extends State<_LiftedHand>
+    with SingleTickerProviderStateMixin {
+  // Handed to the delegate on every build, so never first read in dispose()
+  // (CLAUDE.md §12.3).
+  late final AnimationController _glide = AnimationController(
+    vsync: this,
+    duration: Motion.slow,
+  );
+
+  /// Where the lift is gliding from and to; null before the first placement.
+  double? _from;
+  double? _to;
+
+  /// A new height asked for in a layout, waiting for the frame to end before
+  /// its glide starts: layout may not start an animation.
+  bool _waiting = false;
+
+  double get _shown {
+    final to = _to!;
+    final from = _from;
+    if (from == null) return to;
+    if (_waiting) return from;
+    return from + (to - from) * Motion.standard.transform(_glide.value);
+  }
+
+  /// The lift to lay the column out at, given the one it should have now.
+  double _liftFor(double target) {
+    if (_to == null) return _to = target;
+    if ((target - _to!).abs() > 0.5) {
+      _from = _shown;
+      _to = target;
+      if (!_waiting) {
+        _waiting = true;
+        SchedulerBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          _waiting = false;
+          _glide.forward(from: 0);
+        });
+      }
+    }
+    return _shown;
+  }
+
+  @override
+  void dispose() {
+    _glide.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => CustomSingleChildLayout(
+    delegate: _HandPlacement(
+      left: widget.left,
+      floor: widget.floor,
+      least: widget.least,
+      most: widget.most,
+      ceiling: widget.ceiling,
+      lift: _liftFor,
+      glide: _glide,
+    ),
+    child: widget.child,
+  );
+}
+
+/// Lays the viewer's hand column out for [_LiftedHand].
+class _HandPlacement extends SingleChildLayoutDelegate {
+  _HandPlacement({
+    required this.left,
+    required this.floor,
+    required this.least,
+    required this.most,
+    required this.ceiling,
+    required this.lift,
+    required Listenable glide,
+  }) : super(relayout: glide);
+
+  final double left;
+  final double floor;
+  final double least;
+  final double most;
+  final double ceiling;
+
+  /// The lift to stand the column at, given the one its height asks for.
+  final double Function(double target) lift;
+
+  @override
+  BoxConstraints getConstraintsForChild(BoxConstraints constraints) =>
+      BoxConstraints(
+        maxWidth: math.max(0.0, constraints.maxWidth - left),
+        maxHeight: constraints.maxHeight,
+      );
+
+  @override
+  Offset getPositionForChild(Size size, Size childSize) {
+    final room = floor - childSize.height - ceiling;
+    final target = math.max(least, math.min(most, room));
+    return Offset(left, floor - lift(target) - childSize.height);
+  }
+
+  @override
+  bool shouldRelayout(_HandPlacement old) =>
+      old.left != left ||
+      old.floor != floor ||
+      old.least != least ||
+      old.most != most ||
+      old.ceiling != ceiling;
+}
+
 /// The viewer's own cards, resting on the cloth in a fan, with "See cards"
 /// laid over them: looking at your hand is something you do to the cards, and
 /// once you have looked the key has no reason to still be there.
@@ -2269,14 +2427,19 @@ class _Status extends StatelessWidget {
 /// is `variation.cardsPerPlayer` backs — three where there is no variation
 /// block or the server predates the figure.
 ///
+/// **One hand, not three cards** (premium-card brief, 25 Sep 2026): the fan
+/// is [HandFan]'s — the middle card upright, raised, a touch larger and on
+/// top, the outer two turned 4° out and tucked under it, 0.58 of a card apart,
+/// the card to its right printing its index in its top-right corner so that
+/// no rank is under another card. [PlayingCard] turns them over one after
+/// another, left to right.
+///
 /// **Five cards stand in the box three do.** On a 640dp phone the hand sits
-/// between the viewer's pod and the action keys with nothing to spare, so a
-/// longer hand is fanned TIGHTER, not wider: the first and last card stay
-/// where a three-card hand's are and lean as far, and the rest share the run
-/// between them — a step of 0.41 of a card instead of 0.82, which still clears
-/// the index in each card's corner (0.265 of a card's height, 0.37 of its
-/// width). A three-card hand is laid out by the same arithmetic and comes out
-/// exactly as it always did.
+/// between the viewer's pod and the action keys with nothing to spare, so the
+/// box is always as wide as a five-card hand's run ([HandFan.widthFor]) and a
+/// three-card hand is fanned tighter, centred in it; five cards stand 0.38 of
+/// a card apart, the least that still clears each index once the fan's lean
+/// has opened its top.
 ///
 /// **What is being played is shown, not asked.** Once `you.hand.best` names
 /// three of five, the server's choice is ACTED OUT (owner, 18 Sep 2026: "show
@@ -2323,14 +2486,8 @@ class _OwnHand extends StatelessWidget {
   /// they are being told they won with it.
   final List<String>? revealed;
 
-  /// How far the OUTER cards are turned out of the fan, in radians. Small:
-  /// cards held in one hand are barely splayed at all. The cards between are
-  /// turned in proportion, so five cards splay no wider than three.
-  static const double _fan = 0.078;
-
   /// How far a card that counts stands proud of the fan, as a share of its
-  /// height: the middle card of a plain hand, and the best three of five.
-  static const double _proud = 0.04;
+  /// height: the best three of five, once they are set out.
   static const double _lifted = 0.08;
 
   /// How far a card that does not count dips while it is being set aside,
@@ -2340,10 +2497,10 @@ class _OwnHand extends StatelessWidget {
   /// How far apart the cards that do NOT count stand once the fan is re-dealt,
   /// in card widths. Tight — they are out of the hand and only their rank has
   /// to read — so that the run they give up goes to the three that count: those
-  /// stand 0.58 of a card apart instead of 0.41, which shows each one's middle
+  /// stand 0.52 of a card apart instead of 0.38, which shows each one's middle
   /// pip as well as its corner (owner, 19 Sep 2026: "the front three cards'
-  /// symbols are not visible properly"). The first and the last card stay where
-  /// every hand's are, so the fan's box is what it was.
+  /// symbols are not visible properly"). The first and the last card stay
+  /// where a five-card hand's are, so the fan's box is what it was.
   static const double _tucked = 0.24;
 
   @override
@@ -2432,16 +2589,15 @@ class _OwnHand extends StatelessWidget {
     final picking =
         cards.length > 3 && counted.isNotEmpty && counted.length < cards.length;
 
-    // The fan's own box. Three cards overlap by 18% and the outer two lean
-    // out, so the box pays for both the overlap and the lean; the cards cast
-    // their shadows onto the cloth, so nothing here may clip tightly to a
-    // card. More than three share the same run between the same two outer
-    // cards, so the box is the same whatever the hand.
-    final cardW = cardHeight * PlayingCard.aspect;
-    final run = 2 * cardW * 0.82;
+    // The fan's own box (HandFan): as wide as a five-card hand's run and the
+    // outer cards' lean, whatever this hand holds, so a top-up never moves
+    // anything; the cards cast their shadows onto the cloth, so nothing here
+    // may clip tightly to a card.
+    final cardW = HandFan.cardWidthFor(cardHeight);
+    final run = HandFan.runFor(count, cardW);
     final step = run / (count - 1);
-    final lean = cardHeight * 0.09;
-    final width = cardW + run + 2 * lean;
+    final start = HandFan.startFor(count, cardHeight);
+    final width = HandFan.widthFor(cardHeight);
     final mid = (count - 1) / 2;
 
     return _BestThreeStage(
@@ -2450,8 +2606,8 @@ class _OwnHand extends StatelessWidget {
       builder: (context, stage) {
         // Which place in the fan each card holds. In the order held, until the
         // last stage re-deals them: the cards that do not count take the left
-        // places — underneath, since a fan paints left to right — and the three
-        // that count take the right ones, on top, each keeping its order.
+        // places, underneath, and the three that count take the right ones,
+        // on top, each keeping its order.
         final sorting = picking && stage == _PickStage.arranged;
         final slotOf = List<int>.generate(count, (i) => i);
         if (sorting) {
@@ -2467,16 +2623,33 @@ class _OwnHand extends StatelessWidget {
             slotOf[i] = slot;
           }
         }
-        // Painted in slot order, so the card in the rightmost place is on top.
-        // Every card is keyed by the index it was DEALT at, so a card that
-        // changes places keeps its state — its flip, its wild turn — and
-        // slides rather than being rebuilt somewhere else.
-        final order = List<int>.generate(count, (i) => i)
-          ..sort((a, b) => slotOf[a].compareTo(slotOf[b]));
+        // Painted from the outside in, so the card in the middle place is on
+        // top (HandFan.paintOrder) — and once the fan is re-dealt, the cards
+        // set aside first, left to right, under the three that count, whose
+        // middle one is on top of them. Every card is keyed by the index it
+        // was DEALT at, so a card that changes places keeps its state — its
+        // flip, its wild turn — and slides rather than being rebuilt
+        // somewhere else.
+        final asideCount = sorting ? count - counted.length : 0;
+        final slotRank = <int, int>{
+          for (final (rank, slot) in [
+            for (var a = 0; a < asideCount; a++) a,
+            for (final c in HandFan.paintOrder(count - asideCount))
+              asideCount + c,
+          ].indexed)
+            slot: rank,
+        };
+        final order = List<int>.generate(
+          count,
+          (i) => i,
+        )..sort((a, b) => slotRank[slotOf[a]]!.compareTo(slotRank[slotOf[b]]!));
+        // The place painted last: the card on top, whose face is whole.
+        final topSlot = slotRank.entries
+            .firstWhere((e) => e.value == count - 1)
+            .key;
         // Where each place stands along the run. Even steps, until the fan is
         // re-dealt; then the set-aside cards are tucked close together and the
         // three that count share what is left, ending where the run ends.
-        final asideCount = sorting ? count - counted.length : 0;
         final wide = asideCount > 0 && counted.length > 1
             ? (run - asideCount * cardW * _tucked) / (counted.length - 1)
             : step;
@@ -2489,7 +2662,7 @@ class _OwnHand extends StatelessWidget {
 
         return SizedBox(
           width: width,
-          height: cardHeight * 1.12,
+          height: HandFan.heightFor(cardHeight),
           child: Stack(
             // A wild card's halo and sparks are painted past its own box
             // (WildTransform), and the cards' shadows already were.
@@ -2501,8 +2674,8 @@ class _OwnHand extends StatelessWidget {
               // the cards' own. Not under a packed hand, which lies flat.
               if (!packed)
                 Positioned(
-                  left: lean + cardW * 0.2,
-                  right: lean + cardW * 0.2,
+                  left: start + cardW * 0.2,
+                  width: run + cardW * 0.6,
                   bottom: cardHeight * 0.02,
                   height: cardHeight * 0.1,
                   child: IgnorePointer(
@@ -2533,52 +2706,65 @@ class _OwnHand extends StatelessWidget {
                   key: ValueKey('own-card-${state.room?.handNo}-$i'),
                   duration: sorting ? Motion.arrive : Motion.slow,
                   curve: Motion.standard,
-                  left: lean + placeOf(slotOf[i]),
+                  left: start + placeOf(slotOf[i]),
                   // The middle card sits a little proud of its neighbours — until
                   // the hand has three that count. Then the two that do not dip
                   // as they are set aside, and once the fan is re-dealt the three
                   // that do stand proud instead.
                   bottom: !setAside
-                      ? (i == mid ? cardHeight * _proud : 0)
+                      ? (i == mid ? cardHeight * HandFan.proud : 0)
                       : counted.contains(cards[i])
                       ? (sorting ? cardHeight * _lifted : 0)
                       : (sorting ? 0 : -cardHeight * _sunk),
-                  child: _Dealt(
-                    key: ValueKey('${state.room?.handNo}-$i'),
-                    // The two cards of a top-up arrive as the first two of a deal
-                    // did, not after a pause for three cards that are not coming.
-                    index: i < 3 ? i : i - 3,
-                    // A card leans by where it stands along the run, which for
-                    // even steps is the lean it always had.
-                    restAngle: sorting && asideCount > 0
-                        ? (placeOf(slotOf[i]) / run - 0.5) * 2 * _fan
-                        : (slotOf[i] - mid) * (_fan / mid),
-                    // On a variation table a wild card turns into the card it
-                    // played as, once the server says what that was — `you.hand`,
-                    // sent to this player alone when they have looked and the
-                    // variation is chosen. Everywhere else, and for every card
-                    // that is not wild, this is the plain card it always was.
-                    child: SetBack(
-                      setBack: setAside && !counted.contains(cards[i]),
-                      cardHeight: cardHeight,
-                      child: WildTransform(
-                        height: cardHeight,
-                        code: i < cards.length ? cards[i] : null,
-                        standIn: i >= cards.length
-                            ? null
-                            : you.hand != null
-                            ? you.hand!.standInFor(cards[i], i)
-                            : (playsAs.length == cards.length &&
-                                      wild.contains(cards[i])
-                                  ? playsAs[i]
-                                  : null),
-                        wild:
-                            i < cards.length &&
-                            (wild.contains(cards[i]) ||
-                                (you.hand?.wild.contains(cards[i]) ?? false)),
-                        index: i,
-                        label: state.t.wildCard,
-                        dimmed: packed,
+                  // The middle card of a plain hand a touch larger than its
+                  // neighbours, grown up from its foot (HandFan.topScale).
+                  child: AnimatedScale(
+                    scale: HandFan.scaleFor(slotOf[i], topSlot, count),
+                    duration: Motion.slow,
+                    curve: Motion.standard,
+                    alignment: Alignment.bottomCenter,
+                    child: _Dealt(
+                      key: ValueKey('${state.room?.handNo}-$i'),
+                      // The two cards of a top-up arrive as the first two of a deal
+                      // did, not after a pause for three cards that are not coming.
+                      index: i < 3 ? i : i - 3,
+                      // A card leans by where it stands along the run.
+                      restAngle: HandFan.angleAt(placeOf(slotOf[i]), run),
+                      // On a variation table a wild card turns into the card it
+                      // played as, once the server says what that was — `you.hand`,
+                      // sent to this player alone when they have looked and the
+                      // variation is chosen. Everywhere else, and for every card
+                      // that is not wild, this is the plain card it always was.
+                      child: SetBack(
+                        setBack: setAside && !counted.contains(cards[i]),
+                        cardHeight: cardHeight,
+                        child: WildTransform(
+                          height: cardHeight,
+                          code: i < cards.length ? cards[i] : null,
+                          // The card on top covers its neighbours' inner
+                          // edges, so a card to its right prints its index on
+                          // its right; and the hand turns over left to right.
+                          indexOnRight: HandFan.indexOnRight(
+                            slotOf[i],
+                            topSlot,
+                          ),
+                          flipDelay: PlayingCard.flipStagger * i,
+                          standIn: i >= cards.length
+                              ? null
+                              : you.hand != null
+                              ? you.hand!.standInFor(cards[i], i)
+                              : (playsAs.length == cards.length &&
+                                        wild.contains(cards[i])
+                                    ? playsAs[i]
+                                    : null),
+                          wild:
+                              i < cards.length &&
+                              (wild.contains(cards[i]) ||
+                                  (you.hand?.wild.contains(cards[i]) ?? false)),
+                          index: i,
+                          label: state.t.wildCard,
+                          dimmed: packed,
+                        ),
                       ),
                     ),
                   ),
@@ -2757,6 +2943,15 @@ class _BestThreeStageState extends State<_BestThreeStage> {
 
 /// Tosses a card in from the middle of the table, staggered, so a hand looks
 /// dealt onto cloth rather than switched on.
+///
+/// Dealt like a card (premium-card brief, 25 Sep 2026: "cards enter from the
+/// deck; slight rotation; move into their final positions; small settling
+/// animation"): it leaves the middle of the table turned a little and a touch
+/// small, comes in over [_travel] of its time a little larger than life — in
+/// the air, nearer the eye — turning into its place in the fan and just past
+/// it, and in the rest sets down onto the cloth at its own size and lean.
+/// Under half a second a card and [_beat] between them: the three cards of a
+/// hand are down in 0.65 s.
 class _Dealt extends StatefulWidget {
   const _Dealt({
     super.key,
@@ -2775,16 +2970,31 @@ class _Dealt extends StatefulWidget {
   State<_Dealt> createState() => _DealtState();
 }
 
+/// One card's flight into the fan, and the beat between one card and the
+/// next.
+const Duration _landFor = Duration(milliseconds: 460);
+const Duration _beat = Duration(milliseconds: 95);
+
+/// The share of the flight spent travelling; the rest is the card setting
+/// down.
+const double _travel = 0.78;
+
 class _DealtState extends State<_Dealt> with SingleTickerProviderStateMixin {
   late final AnimationController _c = AnimationController(
     vsync: this,
-    duration: const Duration(milliseconds: 380),
+    duration: _landFor,
+  );
+
+  /// In over the first part of the flight: it leaves the deck, not a fade.
+  late final Animation<double> _fade = CurvedAnimation(
+    parent: _c,
+    curve: const Interval(0, 0.3),
   );
 
   @override
   void initState() {
     super.initState();
-    Future<void>.delayed(Duration(milliseconds: widget.index * 110), () {
+    Future<void>.delayed(_beat * widget.index, () {
       if (mounted) _c.forward();
     });
   }
@@ -2797,38 +3007,53 @@ class _DealtState extends State<_Dealt> with SingleTickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
-    final curved = CurvedAnimation(parent: _c, curve: Motion.standard);
-
+    // The resting angle is eased as well as the landing: a hand topped up
+    // from three cards to five closes its fan, and the cards already held
+    // should turn to their new places rather than flick to them. Built at its
+    // end value, so a hand that never changes never moves.
     return FadeTransition(
-      opacity: curved,
-      child: SlideTransition(
-        // From up and to the left: the middle of the table, where the pot is.
-        position: Tween(
-          begin: const Offset(-0.5, -0.9),
-          end: Offset.zero,
-        ).animate(curved),
-        child: ScaleTransition(
-          scale: Tween(begin: 0.85, end: 1.0).animate(curved),
-          // The resting angle is eased as well as the landing: a hand topped
-          // up from three cards to five closes its fan, and the cards already
-          // held should turn to their new places rather than flick to them.
-          // Built at its end value, so a hand that never changes never moves.
-          child: TweenAnimationBuilder<double>(
-            tween: Tween<double>(end: widget.restAngle),
-            duration: Motion.slow,
-            curve: Motion.standard,
-            child: widget.child,
-            builder: (context, rest, child) => AnimatedBuilder(
-              animation: curved,
-              builder: (context, child) => Transform.rotate(
-                // Turning into its place in the fan as it lands.
-                angle: -0.18 + (rest + 0.18) * curved.value,
+      opacity: _fade,
+      child: TweenAnimationBuilder<double>(
+        tween: Tween<double>(end: widget.restAngle),
+        duration: Motion.slow,
+        curve: Motion.standard,
+        child: widget.child,
+        builder: (context, rest, child) => AnimatedBuilder(
+          animation: _c,
+          child: child,
+          builder: (context, child) {
+            // One tree shape from the first frame to rest, so the card under
+            // it (its flip, its wild turn) is never rebuilt when it lands.
+            final v = _c.value;
+            final travel = Curves.easeOutCubic.transform(
+              (v / _travel).clamp(0.0, 1.0),
+            );
+            final settle = Curves.easeOut.transform(
+              ((v - _travel) / (1 - _travel)).clamp(0.0, 1.0),
+            );
+            // Out of the middle of the table, up and to the left of the fan.
+            const from = Offset(-0.5, -0.9);
+            // A touch past its place, then back onto it.
+            final past = rest + 0.035;
+            final angle = v < _travel
+                ? -0.2 + (past + 0.2) * travel
+                : past + (rest - past) * settle;
+            final scale = v < _travel
+                ? 0.9 + 0.14 * travel
+                : 1.04 - 0.04 * settle;
+            return FractionalTranslation(
+              translation: from * (1 - travel),
+              child: Transform.scale(
+                scale: scale,
                 alignment: Alignment.bottomCenter,
-                child: child,
+                child: Transform.rotate(
+                  angle: angle,
+                  alignment: Alignment.bottomCenter,
+                  child: child,
+                ),
               ),
-              child: child,
-            ),
-          ),
+            );
+          },
         ),
       ),
     );

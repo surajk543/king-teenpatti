@@ -19,6 +19,8 @@ import 'package:teenpatti/screens/table_screen.dart';
 import 'package:teenpatti/settings/feedback_settings.dart';
 import 'package:teenpatti/state/game_state.dart';
 import 'package:teenpatti/theme/app_theme.dart';
+import 'package:teenpatti/theme/table_theme.dart';
+import 'package:teenpatti/widgets/hand_fan.dart';
 import 'package:teenpatti/widgets/playing_card.dart';
 import 'package:teenpatti/widgets/premium_surface.dart';
 import 'package:teenpatti/widgets/seat_pod.dart';
@@ -195,13 +197,61 @@ Finder _inOwnHand(Type type) =>
     find.descendant(of: _ownHand, matching: find.byType(type));
 
 /// Where each of the viewer's cards stands in its fan: its left edge and how
-/// far it is raised off the fan's foot.
+/// far it is raised off the fan's foot — left to right. (Not in the order the
+/// cards are built: since the premium-card brief, 25 Sep 2026, the fan paints
+/// from the outside in, its middle card last, on top — HandFan.paintOrder.)
 List<({double left, double bottom})> _slots(WidgetTester tester) => [
   for (final p in tester.widgetList<AnimatedPositioned>(
     _inOwnHand(AnimatedPositioned),
   ))
     (left: p.left!, bottom: p.bottom!),
-];
+]..sort((a, b) => a.left.compareTo(b.left));
+
+/// The widgets [finder] matches, left to right across the felt: the order the
+/// viewer's fan HOLDS its cards in, which since 25 Sep 2026 is not the order
+/// they are painted in (see [_slots]).
+List<T> _leftToRight<T extends Widget>(WidgetTester tester, Finder finder) {
+  final elements = finder.evaluate().toList()
+    ..sort((a, b) => _centreX(a).compareTo(_centreX(b)));
+  return [for (final e in elements) e.widget as T];
+}
+
+double _centreX(Element element) {
+  final box = element.renderObject! as RenderBox;
+  return box.localToGlobal(box.size.center(Offset.zero)).dx;
+}
+
+/// The fan's box is where [box] was: as wide, as tall, in the same place
+/// across the felt — and up and down, within the hand's lift. Since the
+/// refinement of the premium cards (25 Sep 2026) the hand stands as far off
+/// the floor as the pot above leaves room for, and the hand's name arriving
+/// over the cards takes some of that room, so the hand settles back towards
+/// the floor by as much, never more than the lift itself.
+void _expectSameBox(WidgetTester tester, Rect box, {String? reason}) {
+  final now = tester.getRect(_ownHand);
+  final cardH = tester.getSize(_inOwnHand(PlayingCard).first).height;
+  expect(now.width, closeTo(box.width, 0.01), reason: reason);
+  expect(now.height, closeTo(box.height, 0.01), reason: reason);
+  expect(now.left, closeTo(box.left, 0.01), reason: reason);
+  expect(
+    (now.top - box.top).abs(),
+    lessThanOrEqualTo(HandFan.liftFor(cardH) - TableSpace.handLift + 0.01),
+    reason: reason,
+  );
+}
+
+/// The codes of the viewer's cards, left to right.
+List<String?> _ownCodes(WidgetTester tester) => _leftToRight<PlayingCard>(
+  tester,
+  _inOwnHand(PlayingCard),
+).map((c) => c.code).toList();
+
+/// The codes of the viewer's cards in the order they are painted, the card
+/// on top last.
+List<String?> _paintedCodes(WidgetTester tester) => tester
+    .widgetList<PlayingCard>(_inOwnHand(PlayingCard))
+    .map((c) => c.code)
+    .toList();
 
 void main() {
   setUpAll(() async {
@@ -364,37 +414,45 @@ void main() {
         expect(_inOwnHand(PlayingCard), findsNWidgets(5));
         // Built already knowing the best three, the fan opens re-dealt: the
         // two that do not count underneath on the left, the three that do on
-        // top on the right (painted last), each group in the order held.
-        expect(
-          tester
-              .widgetList<PlayingCard>(_inOwnHand(PlayingCard))
-              .map((c) => c.code),
-          ['7d', '7c', 'As', 'Ks', 'Qs'],
-        );
+        // top on the right, each group in the order held — and, since the
+        // premium-card brief (25 Sep 2026), the middle of those three painted
+        // last, on top, as the middle card of any hand is.
+        expect(_ownCodes(tester), ['7d', '7c', 'As', 'Ks', 'Qs']);
+        expect(_paintedCodes(tester), ['7d', '7c', 'As', 'Qs', 'Ks']);
         expect(
           tester.getRect(_ownHand),
           rectMoreOrLessEquals(threeBox, epsilon: 0.01),
           reason: 'a five-card hand must not take more of the felt',
         );
 
-        // The outer two cards stand where a three-card hand's do; the rest
-        // share the run between them evenly.
+        // The outer two cards stand at the two ends of the box's run, which a
+        // three-card hand is fanned tighter inside, centred (HandFan, 25 Sep
+        // 2026 — until then three cards stood as far apart as five did).
         final slots = _slots(tester);
         expect(slots, hasLength(5));
-        expect(slots.first.left, threeSlots.first.left);
-        expect(slots.last.left, closeTo(threeSlots.last.left, 0.001));
-        // The two set aside are tucked close together; the three that count
-        // share the rest of the run evenly, far enough apart that each one's
-        // index (0.265 of a card's height across) AND its middle pip are clear
-        // of the card laid over it.
         final cardH = tester.getSize(_inOwnHand(PlayingCard).first).height;
         final cardW = cardH * PlayingCard.aspect;
+        expect(slots.first.left, closeTo(HandFan.startFor(5, cardH), 0.001));
+        expect(
+          slots.last.left - slots.first.left,
+          closeTo(HandFan.wideRun * cardW, 0.001),
+        );
+        final threeRun = threeSlots.last.left - threeSlots.first.left;
+        expect(threeRun, closeTo(2 * HandFan.step * cardW, 0.001));
+        expect(
+          threeSlots.first.left - slots.first.left,
+          closeTo((HandFan.wideRun * cardW - threeRun) / 2, 0.001),
+          reason: 'three cards are centred in the box five fill',
+        );
+        // The two set aside are tucked close together; the three that count
+        // share the rest of the run evenly, far enough apart that each one's
+        // index AND most of its middle pip are clear of the card laid over it.
         expect(slots[1].left - slots[0].left, closeTo(cardW * 0.24, 0.001));
         expect(slots[2].left - slots[1].left, closeTo(cardW * 0.24, 0.001));
         final wide = slots[3].left - slots[2].left;
         expect(slots[4].left - slots[3].left, closeTo(wide, 0.001));
-        expect(wide, closeTo(cardW * 0.58, 0.001));
-        expect(wide, greaterThan(cardH * 0.265));
+        expect(wide, closeTo((HandFan.wideRun - 2 * 0.24) / 2 * cardW, 0.001));
+        expect(wide, greaterThan(CardFaceMetrics.of(cardH).index().right));
 
         // The best three are lifted; the other two are left down, set back.
         expect(slots.map((s) => s.bottom > 0), [
@@ -406,7 +464,10 @@ void main() {
         ]);
         expect(slots.take(2).map((s) => s.bottom), everyElement(0));
         expect(
-          tester.widgetList<SetBack>(_inOwnHand(SetBack)).map((w) => w.setBack),
+          _leftToRight<SetBack>(
+            tester,
+            _inOwnHand(SetBack),
+          ).map((w) => w.setBack),
           [true, true, false, false, false],
         );
         // And the hand is named, as any variation hand is.
@@ -441,11 +502,23 @@ void main() {
       await tester.pump();
       expect(tester.takeException(), isNull);
       expect(_inOwnHand(PlayingCard), findsNWidgets(5));
-      // The two new cards are on their way in, not simply there.
-      final arriving = tester
-          .widgetList<FadeTransition>(_inOwnHand(FadeTransition))
-          .map((f) => f.opacity.value)
-          .toList();
+      // The two new cards are on their way in, not simply there. Read by the
+      // index each card was dealt at (its entrance's key), not in the order
+      // the fan paints them (outside in, since 25 Sep 2026).
+      final arriving = [
+        for (var i = 0; i < 5; i++)
+          tester
+              .widget<FadeTransition>(
+                find
+                    .descendant(
+                      of: find.byKey(ValueKey('4-$i')),
+                      matching: find.byType(FadeTransition),
+                    )
+                    .first,
+              )
+              .opacity
+              .value,
+      ];
       expect(arriving.sublist(0, 3), everyElement(1.0));
       expect(arriving.sublist(3), everyElement(lessThan(1.0)));
       await _settle(tester);
@@ -480,10 +553,7 @@ void main() {
             .map((c) => c.code),
         unorderedEquals(_five),
       );
-      expect(
-        tester.getRect(_ownHand),
-        rectMoreOrLessEquals(box, epsilon: 0.01),
-      );
+      _expectSameBox(tester, box);
 
       await _teardown(tester, state);
     });
@@ -552,18 +622,11 @@ void main() {
       await tester.pump();
       await _settle(tester);
       expect(tester.takeException(), isNull);
-      expect(
-        tester.getRect(_ownHand),
-        rectMoreOrLessEquals(box, epsilon: 0.01),
-      );
+      _expectSameBox(tester, box);
       // The best three are whichever the server named, wherever they were
       // held: once the fan has been re-dealt they are the three on top.
-      expect(
-        tester
-            .widgetList<PlayingCard>(_inOwnHand(PlayingCard))
-            .map((c) => c.code),
-        ['7d', '7c', 'As', 'Ks', 'Qs'],
-      );
+      expect(_ownCodes(tester), ['7d', '7c', 'As', 'Ks', 'Qs']);
+      expect(_paintedCodes(tester).skip(2), unorderedEquals(_best));
       expect(_slots(tester).map((s) => s.bottom > 0), [
         false,
         false,
@@ -597,14 +660,12 @@ void main() {
       final box = tester.getRect(_ownHand);
       final rest = _slots(tester);
 
-      List<String?> codes() => tester
-          .widgetList<PlayingCard>(_inOwnHand(PlayingCard))
-          .map((c) => c.code)
-          .toList();
-      List<bool> setBack() => tester
-          .widgetList<SetBack>(_inOwnHand(SetBack))
-          .map((w) => w.setBack)
-          .toList();
+      // Left to right, as the fan holds them (it paints its middle card last).
+      List<String?> codes() => _ownCodes(tester);
+      List<bool> setBack() => _leftToRight<SetBack>(
+        tester,
+        _inOwnHand(SetBack),
+      ).map((w) => w.setBack).toList();
 
       // They look.
       state.handleState(
@@ -657,9 +718,9 @@ void main() {
       );
       expect(dealt.map((s) => s.bottom > 0), [false, false, true, true, true]);
       expect(dealt.take(2).map((s) => s.bottom), everyElement(0));
-      expect(
-        tester.getRect(_ownHand),
-        rectMoreOrLessEquals(box, epsilon: 0.01),
+      _expectSameBox(
+        tester,
+        box,
         reason: 'the hand never takes more of the felt',
       );
 
@@ -781,19 +842,29 @@ void main() {
         expect(_inOwnHand(PlayingCard), findsNWidgets(3));
         final cardH = tester.getSize(_inOwnHand(PlayingCard).first).height;
         final cardW = cardH * PlayingCard.aspect;
-        // The fan it has always been: an 18% overlap, the outer cards leaning
-        // 9% of a card's height, the middle card 4% proud.
+        // The fan of the premium-card brief (25 Sep 2026; until then an 18%
+        // overlap with the right-hand card on top, which read as three cards
+        // rather than one hand; tightened by the owner's refinement the same
+        // day): HandFan's — the cards 0.58 of a card apart, centred in the box
+        // a five-card hand needs, the middle card raised, a touch larger and
+        // painted last, on top.
+        final start = HandFan.startFor(3, cardH);
         final slots = _slots(tester);
-        expect(slots.map((s) => s.left), [
-          cardH * 0.09,
-          cardH * 0.09 + cardW * 0.82,
-          cardH * 0.09 + 2 * cardW * 0.82,
-        ]);
-        expect(slots.map((s) => s.bottom), [0, cardH * 0.04, 0]);
+        final lefts = [
+          start,
+          start + cardW * HandFan.step,
+          start + 2 * cardW * HandFan.step,
+        ];
+        for (var i = 0; i < 3; i++) {
+          expect(slots[i].left, closeTo(lefts[i], 0.001));
+        }
+        expect(slots.map((s) => s.bottom), [0, cardH * HandFan.proud, 0]);
         expect(
           tester.getSize(_ownHand),
-          Size(cardW + 2 * cardW * 0.82 + 2 * cardH * 0.09, cardH * 1.12),
+          Size(HandFan.widthFor(cardH), HandFan.heightFor(cardH)),
         );
+        expect(_ownCodes(tester), ['As', 'Kd', '4c']);
+        expect(_paintedCodes(tester), ['As', '4c', 'Kd']);
         // Nothing is set back anywhere, and every other seat holds three.
         expect(
           tester
