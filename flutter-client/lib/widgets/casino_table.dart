@@ -99,7 +99,7 @@ class CasinoTableSurface extends StatelessWidget {
   /// 2026: "keep different table color for seen, blind, variation
   /// gameplay"): the cloth is that game's own ([CasinoTableColors.clothFor]),
   /// in the colour its lobby card and its tag wear. A private table is its
-  /// game's too. Null, or a game this build has no colour for, is the emerald.
+  /// game's too. Null, or a game this build has no colour for, is the teal.
   final String? category;
 
   /// The decoration a short phone goes without (owner's brief: "Short phone:
@@ -151,12 +151,21 @@ class CasinoTablePainter extends CustomPainter {
     final box = outer.outerRect;
     final h = box.height;
 
-    // The table's one shadow, a little below it on the floor.
+    // The table's shadow on the floor: a soft one a little below it, and a
+    // tight one where it stands (owner's brief, 25 Sep 2026: "subtle layered
+    // depth: outer shadow ...") — the second is what sets it down rather than
+    // floating it.
     canvas.drawRRect(
       outer.shift(Offset(0, h * 0.035)),
       Paint()
         ..color = c.shadow
         ..maskFilter = MaskFilter.blur(BlurStyle.normal, c.shadowBlur),
+    );
+    canvas.drawRRect(
+      outer.shift(Offset(0, h * 0.008)),
+      Paint()
+        ..color = c.shadow.withValues(alpha: c.shadow.a * 0.55)
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, c.shadowBlur * 0.22),
     );
 
     // By night, a controlled cyan light round the rail's edge.
@@ -239,6 +248,17 @@ class CasinoTablePainter extends CustomPainter {
           colors: [cloth.lip, cloth.lip.withValues(alpha: 0)],
         ).createShader(lip),
     );
+    // And a very subtle inner shadow all the way round the cloth's edge, as a
+    // rail standing a little proud of it throws: a blurred band outside the
+    // cloth, of which only the soft inner half falls on it.
+    canvas.drawRRect(
+      surface.inflate(geometry.rail * 0.5),
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = geometry.rail
+        ..color = cloth.lip.withValues(alpha: cloth.lip.a * 0.6)
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, geometry.rail * 0.45),
+    );
     canvas.restore();
 
     // The seam where the rail meets the cloth.
@@ -248,6 +268,17 @@ class CasinoTablePainter extends CustomPainter {
         ..style = PaintingStyle.stroke
         ..strokeWidth = Dim.hairline
         ..color = c.seam,
+    );
+
+    // The inner rim: a thread of the rim's champagne on the rail's inner
+    // edge, just outside the seam, which is what makes the rail read as a
+    // moulding with two edges rather than a band.
+    canvas.drawRRect(
+      surface.inflate(1.2),
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 0.8
+        ..color = c.rim.withValues(alpha: c.rim.a * 0.42),
     );
 
     // The line printed on the cloth a step inside the rail: the one mark a

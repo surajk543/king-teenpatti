@@ -27,6 +27,13 @@ class TableGround extends StatelessWidget {
   /// too.
   final Alignment lamp;
 
+  /// The room by day: pearl rather than the app's cool grey (owner's brief,
+  /// 25 Sep 2026: "LIGHT MODE: pearl/white background ... Avoid excessive
+  /// gray"), closing to a warm stone at its corners — the pearl rail and the
+  /// champagne rim of the table stand in it as in a lit room.
+  static const Color pearl = Color(0xFFFAF8F4);
+  static const Color pearlEdge = Color(0xFFE6E0D4);
+
   @override
   Widget build(BuildContext context) => _Ground(
         lamp: lamp,
@@ -34,6 +41,8 @@ class TableGround extends StatelessWidget {
         lampSpread: 0.95,
         vignette: 0.62,
         accent: accent,
+        lightBase: pearl,
+        lightEdge: pearlEdge,
         child: child,
       );
 }
@@ -77,6 +86,8 @@ class _Ground extends StatelessWidget {
     required this.vignette,
     required this.accent,
     this.accentStrength = 1,
+    this.lightBase,
+    this.lightEdge,
   });
 
   final Widget child;
@@ -86,6 +97,10 @@ class _Ground extends StatelessWidget {
   final double vignette;
   final Color? accent;
   final double accentStrength;
+
+  /// The floor and its corners by day, when not the app's own ground.
+  final Color? lightBase;
+  final Color? lightEdge;
 
   @override
   Widget build(BuildContext context) {
@@ -103,8 +118,12 @@ class _Ground extends StatelessWidget {
             isComplex: true,
             willChange: false,
             painter: _GroundPainter(
-              base: AppTheme.ground(brightness),
-              edge: AppTheme.groundEdge(brightness),
+              base: dark
+                  ? AppTheme.ground(brightness)
+                  : lightBase ?? AppTheme.ground(brightness),
+              edge: dark
+                  ? AppTheme.groundEdge(brightness)
+                  : lightEdge ?? AppTheme.groundEdge(brightness),
               lampColour: AppTheme.lampWarm,
               // A warm pool reads on charcoal and turns parchment yellow, so
               // light mode gets a fraction of it.

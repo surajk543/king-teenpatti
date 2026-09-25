@@ -15,6 +15,7 @@ import 'package:teenpatti/theme/app_theme.dart';
 import 'package:teenpatti/widgets/picture_shelf.dart';
 import 'package:teenpatti/widgets/poker_chip.dart';
 import 'package:teenpatti/widgets/premium_surface.dart';
+import 'package:teenpatti/widgets/table_chrome.dart';
 
 /// A table of three, the viewer (u0) in seat 0.
 RoomState _room({
@@ -149,7 +150,7 @@ FilledButton _button(WidgetTester tester) => tester.widget<FilledButton>(
   find.descendant(of: _key, matching: find.byType(FilledButton)),
 );
 
-/// The key's own fade: 1 lit, 0.42 dark or greyed.
+/// The key's own fade: 1 lit, [deadKeyOpacity] dark or greyed.
 double _opacity(WidgetTester tester) => tester
     .widget<Opacity>(
       find.descendant(of: _key, matching: find.byType(Opacity)).first,
@@ -267,12 +268,12 @@ void main() {
     final state = _newState(missiles: 5, room: _room(onTurn: false));
     await _pumpTable(tester, state);
     expect(_button(tester).onPressed, isNull);
-    expect(_opacity(tester), 0.42);
+    expect(_opacity(tester), deadKeyOpacity);
 
     state.handleState(_room(onTurn: true, canMissile: false));
     await tester.pump();
     expect(_button(tester).onPressed, isNull);
-    expect(_opacity(tester), 0.42);
+    expect(_opacity(tester), deadKeyOpacity);
 
     // Lit the moment the server says so.
     state.handleState(_room(onTurn: true));
@@ -356,7 +357,7 @@ void main() {
     final state = _newState(missiles: 0, room: _room(onTurn: true));
     await _pumpTable(tester, state);
     expect(_button(tester).onPressed, isNotNull);
-    expect(_opacity(tester), 0.42);
+    expect(_opacity(tester), deadKeyOpacity);
 
     await tester.tap(_key);
     await tester.pump();
@@ -416,7 +417,7 @@ void main() {
     expect(figure('1'), findsNothing, reason: 'the cost is not written');
     expect(pill('0'), findsOneWidget, reason: 'the pill agrees');
     expect(state.hasMissile, isFalse);
-    expect(_opacity(tester), 0.42, reason: 'muted with none to spend');
+    expect(_opacity(tester), deadKeyOpacity, reason: 'muted with none to spend');
     expect(
       _button(tester).onPressed,
       isNotNull,

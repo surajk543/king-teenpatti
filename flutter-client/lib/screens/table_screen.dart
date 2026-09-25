@@ -1210,7 +1210,10 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
               // sideshow — instead of being pinned to their left edge.
               Positioned(
                 left: me.anchor.dx + podW / 2 + Space.md,
-                bottom: h - me.anchor.dy,
+                // A step above the floor the viewer's pod stands on, towards
+                // the middle of the table (owner's brief, 25 Sep 2026: "Move
+                // the current player's cards slightly upward").
+                bottom: h - me.anchor.dy + TableSpace.handLift,
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -2492,6 +2495,35 @@ class _OwnHand extends StatelessWidget {
             // (WildTransform), and the cards' shadows already were.
             clipBehavior: Clip.none,
             children: [
+              // The hand held a little off the cloth (owner's brief, 25 Sep
+              // 2026: "clear separation, subtle elevation, subtle shadow"): one
+              // soft shadow the width of the fan on the cloth beneath it, under
+              // the cards' own. Not under a packed hand, which lies flat.
+              if (!packed)
+                Positioned(
+                  left: lean + cardW * 0.2,
+                  right: lean + cardW * 0.2,
+                  bottom: cardHeight * 0.02,
+                  height: cardHeight * 0.1,
+                  child: IgnorePointer(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(cardHeight),
+                        boxShadow: [
+                          BoxShadow(
+                            color: AppTheme.ink900.withValues(
+                              alpha: theme.brightness == Brightness.dark
+                                  ? 0.34
+                                  : 0.16,
+                            ),
+                            blurRadius: cardHeight * 0.16,
+                            spreadRadius: cardHeight * 0.02,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
               for (final i in order)
                 // Animated, so that when a hand is topped up to five the three
                 // already held slide together to make room rather than jumping,
@@ -3495,6 +3527,7 @@ class _PotPulseState extends State<_PotPulse> with TickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
     return AnimatedBuilder(
       animation: Listenable.merge([_breath, _flare]),
       builder: (context, child) {
@@ -3512,9 +3545,22 @@ class _PotPulseState extends State<_PotPulse> with TickerProviderStateMixin {
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(Radii.lg),
               boxShadow: [
+                // The plinth set into the cloth (owner's brief, 25 Sep 2026:
+                // "subtle gold glow, soft shadow, better integration with the
+                // table surface"): a soft shadow a little below it, which
+                // stands it on the table rather than over it ...
+                BoxShadow(
+                  color: AppTheme.ink900.withValues(alpha: dark ? 0.32 : 0.14),
+                  blurRadius: 14,
+                  offset: const Offset(0, 5),
+                  spreadRadius: -1,
+                ),
+                // ... and the gold it gives off: steadier than it was (0.05
+                // at rest), so the pot always reads as the table's centre,
+                // and still flaring when chips land.
                 BoxShadow(
                   color: AppTheme.goldBright.withValues(
-                    alpha: 0.05 + 0.05 * breathe + 0.26 * flare,
+                    alpha: 0.08 + 0.04 * breathe + 0.24 * flare,
                   ),
                   blurRadius: 18 + 26 * flare,
                   spreadRadius: 1 + 6 * flare,
@@ -3771,7 +3817,10 @@ class _MissileKey extends StatelessWidget {
             chips: state.missileChips,
             style: style,
           ),
-          edge: missileInkOn(theme.brightness).withValues(alpha: 0.5),
+          // SPECIAL (owner's brief, 25 Sep 2026): a move bought with
+          // something collected, in the missile's own coral.
+          role: KeyRole.special,
+          edge: missileInkOn(theme.brightness),
           alive: canFire && hasMissile,
           muted: canFire && !hasMissile,
           onPressed: canFire ? () => _fireMissile(context, state) : null,

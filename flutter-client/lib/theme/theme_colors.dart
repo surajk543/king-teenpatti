@@ -303,12 +303,17 @@ class TableCloth {
   /// The accent gives the HUE and nothing else: every game's cloth has the
   /// same lightness and the same restraint, so the three tables are one family
   /// told apart by colour alone, and the lobby card, the tag and the cloth of a
-  /// game can never disagree. By day a pale tint — a soft champagne-gold, a
-  /// pale cyan, a soft lavender — deep enough to read as its colour beside the
+  /// game can never disagree. By day a pale tint — a soft champagne, a pale
+  /// cyan, a soft lavender — deep enough to read as its colour beside the
   /// pearl rail, pale enough that charcoal type, the dark card backs and the
   /// pot's plate stand on it as they did on the pale emerald. By night a deep,
   /// quiet shade — olive-gold, deep sapphire, deep plum — falling to near
   /// black at its edge, as the deep emerald did.
+  ///
+  /// Never saturated (owner's brief, 25 Sep 2026: "soft cyan/teal felt
+  /// surface ... Do NOT make it photorealistic"): 0.40 saturation at most by
+  /// day and 0.42 by night, a tint of the game's colour rather than the colour
+  /// itself.
   factory TableCloth.tinted(Color accent, Brightness brightness) {
     var hue = HSLColor.fromColor(accent).hue;
     // A yellow darkened goes olive, where gold itself darkens to amber, so by
@@ -321,19 +326,25 @@ class TableCloth {
         HSLColor.fromAHSL(alpha, hue, saturation, lightness).toColor();
     return switch (brightness) {
       Brightness.light => TableCloth(
-        centre: tone(0.50, 0.88),
-        edge: tone(0.36, 0.78),
-        line: tone(0.30, 0.55, 0.55),
-        lip: tone(0.60, 0.14, 0.18),
+        centre: tone(0.40, 0.885),
+        edge: tone(0.30, 0.79),
+        line: tone(0.26, 0.55, 0.55),
+        lip: tone(0.50, 0.14, 0.18),
       ),
       Brightness.dark => TableCloth(
-        centre: tone(0.42, 0.155),
-        edge: tone(0.50, 0.05),
-        line: tone(0.40, 0.45, 0.30),
+        centre: tone(0.36, 0.16),
+        edge: tone(0.42, 0.055),
+        line: tone(0.34, 0.45, 0.30),
         lip: tone(0, 0, 0.45),
       ),
     };
   }
+
+  /// The hue of the cloth a table with no game colour of its own lays: a
+  /// soft teal, between the emerald the table was first drawn in and the
+  /// cyan the brief names (owner's brief, 25 Sep 2026: "soft cyan/teal felt
+  /// surface"; by night "deep teal/emerald table").
+  static const double tealHue = 172;
 
   /// The playing surface: lit in the middle, falling towards its edge.
   final Color centre;
@@ -378,7 +389,7 @@ class TableCloth {
 /// rail, a subtler gold rim and a controlled cyan light around the table. The
 /// cloth inside the rail is the game's own (owner, 25 Sep 2026): each Teen
 /// Patti game has one in its own colour ([cloths], [TableCloth.tinted]), and
-/// the emerald [cloth] is for a game this build has no colour for. Every
+/// the soft teal [cloth] is for a game this build has no colour for. Every
 /// cloth keeps the table's type legible as it always was — charcoal on the
 /// pale ones, white on the deep ones — so no word on the felt changes colour
 /// for the table's sake.
@@ -419,8 +430,9 @@ class CasinoTableColors extends ThemeExtension<CasinoTableColors> {
   /// The seam where the rail meets the cloth.
   final Color seam;
 
-  /// The emerald cloth: the table of a game with no cloth of its own in
-  /// [cloths] — one this build does not know.
+  /// The soft teal cloth ([TableCloth.tealHue], in [TableCloth.tinted]'s
+  /// tones): the table of a game with no cloth of its own in [cloths] — one
+  /// this build does not know.
   final TableCloth cloth;
 
   /// Each game's own cloth, by its wire category (`seen`, `blind`,
@@ -444,15 +456,16 @@ class CasinoTableColors extends ThemeExtension<CasinoTableColors> {
   /// The warm light the near rail takes on the viewer's turn.
   final Color turnGlow;
 
-  /// The cloth for a table of [category]: its game's own, or the emerald.
+  /// The cloth for a table of [category]: its game's own, or the teal.
   TableCloth clothFor(String? category) => cloths[category] ?? cloth;
 
   /// This set with [cloths] as each game's cloth.
   CasinoTableColors withCloths(Map<String, TableCloth> cloths) =>
       copyWith(cloths: cloths);
 
-  /// By night: graphite, a deep emerald cloth, a subtle gold rim, a
-  /// controlled cyan glow.
+  /// By night: graphite, a deep teal cloth, a subtle gold rim, a controlled
+  /// cyan glow. (The cloth is `TableCloth.tinted` of [TableCloth.tealHue],
+  /// written out so the set stays `const`.)
   static const CasinoTableColors dark = CasinoTableColors(
     railTop: Color(0xFF2E3238),
     railBottom: Color(0xFF16181C),
@@ -461,9 +474,9 @@ class CasinoTableColors extends ThemeExtension<CasinoTableColors> {
     rimLow: Color(0xA38A6A18),
     seam: Color(0x99000000),
     cloth: TableCloth(
-      centre: Color(0xFF123F35),
-      edge: Color(0xFF05140F),
-      line: Color(0x4D3E9C85),
+      centre: Color(0xFF1A3734),
+      edge: Color(0xFF081412),
+      line: Color(0x4C4C9A8F),
       lip: Color(0x73000000),
     ),
     shadow: Color(0x99000000),
@@ -474,7 +487,7 @@ class CasinoTableColors extends ThemeExtension<CasinoTableColors> {
     turnGlow: Color(0xFFF1D27A),
   );
 
-  /// By day: a pearl rail, a pale emerald cloth, a champagne rim, and a soft
+  /// By day: a pearl rail, a soft teal cloth, a champagne rim, and a soft
   /// shadow in the light theme's own slate.
   static const CasinoTableColors light = CasinoTableColors(
     railTop: Color(0xFFFCFAF5),
@@ -484,10 +497,10 @@ class CasinoTableColors extends ThemeExtension<CasinoTableColors> {
     rimLow: Color(0xFFA9822A),
     seam: Color(0x80A88A48),
     cloth: TableCloth(
-      centre: Color(0xFFE6F2ED),
-      edge: Color(0xFFC3DDD4),
-      line: Color(0x8C8DBDAE),
-      lip: Color(0x2E0E3A30),
+      centre: Color(0xFFD6EDEA),
+      edge: Color(0xFFB9DAD5),
+      line: Color(0x8C6EAAA2),
+      lip: Color(0x2E123631),
     ),
     shadow: Color(0x330E1220),
     shadowBlur: 18,
@@ -498,7 +511,7 @@ class CasinoTableColors extends ThemeExtension<CasinoTableColors> {
   );
 
   /// The set for the theme in scope, by brightness when a theme was built
-  /// without the extension (every table then wears the emerald).
+  /// without the extension (every table then wears the teal).
   static CasinoTableColors of(BuildContext context) {
     final theme = Theme.of(context);
     return theme.extension<CasinoTableColors>() ??

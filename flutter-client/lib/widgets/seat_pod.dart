@@ -52,6 +52,13 @@ const double _kAvatarMine = 0.365;
 const double _kDealer = 0.095;
 const double _kGap = 0.04;
 
+/// The corner every capsule on a seat is cut to — BLIND / SEEN on its cards,
+/// a revealed hand's name, the bet badge and "In Pot" — so the four read as
+/// one set of labels rather than four (owner's brief, 25 Sep 2026: "Improve
+/// consistency between: player name, avatar, cards, BLIND/SEEN state, In Pot
+/// amount"). They were cut at 0.08, 0.08, 0.10 and 0.07 of the pod.
+const double _kCapsule = 0.08;
+
 /// How far a seat fades once it is out of the hand — packed, lost, or waiting
 /// for the next deal. Low enough to read as "not playing", high enough that
 /// the name and the picture are still legible: a seat you cannot see is a
@@ -451,10 +458,13 @@ class SeatPod extends StatelessWidget {
     // stay the brightest things round it.
     final colours = orbColours(player);
     final orb = _orbRect(width, orbCorner);
+    // The viewer's own pod glows at three quarters of a rim seat's strength.
+    final glow = isMe ? TableAmbient.mineGlow : 1.0;
     final panel = _TurnRing(
       active: onTurn,
       colour: beat,
       radius: width * _kRadius,
+      glow: glow,
       child: PremiumGlassPanel(
         mode: GlassMode.tinted,
         padding: EdgeInsets.zero,
@@ -469,7 +479,7 @@ class SeatPod extends StatelessWidget {
                 colours: colours,
                 size: orb.width,
                 soft: true,
-                opacity: TableAmbient.orbInside(theme.brightness),
+                opacity: TableAmbient.orbInside(theme.brightness) * glow,
               ),
             ),
           ],
@@ -827,7 +837,7 @@ class SeatPod extends StatelessWidget {
         // The badge's own capsule, at the badge's own size: the two carry one
         // seat's state between them and should not read as two materials.
         color: AppTheme.plaque(theme.brightness).withValues(alpha: 0.88),
-        borderRadius: BorderRadius.circular(width * 0.08),
+        borderRadius: BorderRadius.circular(width * _kCapsule),
         border: Border.all(color: AppTheme.hairlineColour(theme.brightness)),
       ),
       child: FittedBox(
@@ -863,7 +873,7 @@ class SeatPod extends StatelessWidget {
       ),
       decoration: BoxDecoration(
         color: AppTheme.plaque(theme.brightness).withValues(alpha: 0.92),
-        borderRadius: BorderRadius.circular(width * 0.08),
+        borderRadius: BorderRadius.circular(width * _kCapsule),
         border: Border.all(color: AppTheme.hairlineColour(theme.brightness)),
       ),
       child: FittedBox(
@@ -909,7 +919,7 @@ class SeatPod extends StatelessWidget {
         // object. It used to be `secondaryContainer` — a muddy olive capsule,
         // and the most frequently visible thing on a rim seat during a hand.
         color: AppTheme.plaque(theme.brightness),
-        borderRadius: BorderRadius.circular(width * 0.1),
+        borderRadius: BorderRadius.circular(width * _kCapsule),
         border: Border.all(color: AppTheme.hairlineColour(theme.brightness)),
       ),
       child: Row(
@@ -1020,40 +1030,31 @@ class SeatPod extends StatelessWidget {
       curve: Curves.easeOutCubic,
       builder: (context, value, _) => FittedBox(
         fit: BoxFit.scaleDown,
-        // A plaque of its own, a step quieter than the badge beneath it: same
-        // material, no border, tighter corners. Enough to read as a chip of
-        // information rather than loose text on the ground, not enough to
-        // argue with the badge for which of the two is the headline.
+        // A plaque of its own, quieter than the badge beneath it: the same
+        // material, lighter, no border, tighter corners. Enough to read as a
+        // chip of information rather than loose text on the ground, not
+        // enough to argue with the badge for which of the two is the
+        // headline — its words are the seat's quietest ([SeatType.inPot]).
         child: Container(
           padding: EdgeInsets.symmetric(
             horizontal: width * 0.055,
             vertical: width * 0.018,
           ),
           decoration: BoxDecoration(
-            color: AppTheme.plaque(theme.brightness).withValues(alpha: 0.72),
-            borderRadius: BorderRadius.circular(width * 0.07),
+            color: AppTheme.plaque(
+              theme.brightness,
+            ).withValues(alpha: SeatType.inPotPlate),
+            borderRadius: BorderRadius.circular(width * _kCapsule),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(
-                t.inPot,
-                maxLines: 1,
-                style: type.inPot(
-                  colour: AppTheme.onTable(
-                    theme.colorScheme,
-                    alpha: AppTheme.inkLow,
-                  ),
-                ),
-              ),
+              Text(t.inPot, maxLines: 1, style: type.inPot()),
               SizedBox(width: width * 0.035),
               Text(
                 formatChips(value.round()),
                 maxLines: 1,
-                style: type.inPot(
-                  colour: AppTheme.onTable(theme.colorScheme),
-                  figure: true,
-                ),
+                style: type.inPot(figure: true),
               ),
             ],
           ),
@@ -1216,12 +1217,18 @@ class _TurnRing extends StatefulWidget {
     required this.colour,
     required this.radius,
     required this.child,
+    this.glow = 1,
   });
 
   final bool active;
   final Color colour;
   final double radius;
   final Widget child;
+
+  /// How strong the halo round the ring is: 1 at a rim seat, less on the
+  /// viewer's own pod ([TableAmbient.mineGlow]). The ring's edge is the same
+  /// for everyone.
+  final double glow;
 
   @override
   State<_TurnRing> createState() => _TurnRingState();
@@ -1289,12 +1296,16 @@ class _TurnRingState extends State<_TurnRing>
             ),
             boxShadow: [
               BoxShadow(
-                color: widget.colour.withValues(alpha: 0.26 + 0.26 * t),
+                color: widget.colour.withValues(
+                  alpha: (0.26 + 0.26 * t) * widget.glow,
+                ),
                 blurRadius: 14,
                 spreadRadius: 1,
               ),
               BoxShadow(
-                color: widget.colour.withValues(alpha: 0.10 + 0.16 * t),
+                color: widget.colour.withValues(
+                  alpha: (0.10 + 0.16 * t) * widget.glow,
+                ),
                 blurRadius: 30,
                 spreadRadius: 4,
               ),

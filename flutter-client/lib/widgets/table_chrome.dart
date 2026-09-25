@@ -595,7 +595,13 @@ class _RailLottieState extends State<RailLottie> {
   }
 }
 
-/// One key in the rail: a tinted panel with a glyph in it.
+/// One key in the rail: a machined plaque with a glyph in it — the material
+/// of the console's keys (owner's brief, 25 Sep 2026: "Polish: menu, chat,
+/// missile, pack. They should feel like part of the game table UI"). It was a
+/// pane of tinted glass, which read as the app's chrome laid over the game
+/// rather than as a control of the table beside Missile and Pack under it.
+/// The same plaque, the same resting champagne hairline, the same corner and
+/// the same lift as those two; a glyph in the surface's own ink.
 class RailKey extends StatelessWidget {
   const RailKey({
     super.key,
@@ -615,6 +621,8 @@ class RailKey extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final brightness = theme.brightness;
+    final corner = BorderRadius.circular(Radii.md);
 
     return Tooltip(
       message: tooltip,
@@ -627,15 +635,32 @@ class RailKey extends StatelessWidget {
               alpha: AppTheme.inkMed,
             ),
           ),
-          // The press-scale is a Listener over the capsule, so the capsule's
-          // own ink and tap are untouched; only the feel of the key changes.
+          // The press-scale is a Listener over the key, so its own ink and
+          // tap are untouched; only the feel of the key changes.
           child: PressScale(
-            child: GlassCapsule(
-              radius: Radii.md,
-              padding: EdgeInsets.zero,
-              minHeight: height,
-              onTap: onTap,
-              child: Center(child: child),
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: AppTheme.plaque(brightness),
+                borderRadius: corner,
+                border: Border.all(
+                  color: AppTheme.hairlineColour(brightness),
+                  width: Dim.hairline,
+                ),
+                boxShadow: AppTheme.controlShadow(brightness, elevation: 2),
+              ),
+              child: Material(
+                type: MaterialType.transparency,
+                child: InkWell(
+                  // Material's own click, gated on the player's Sound switch,
+                  // as every key's is.
+                  enableFeedback: context.select<FeedbackSettings, bool>(
+                    (f) => f.sound,
+                  ),
+                  onTap: onTap,
+                  borderRadius: corner,
+                  child: Center(child: child),
+                ),
+              ),
             ),
           ),
         ),
@@ -1444,26 +1469,40 @@ ButtonStyle stepperStyle(ThemeData theme) =>
 /// What a key on the console is for, which decides how loud it is (owner's
 /// table polish brief, 24 Sep 2026: "PRIMARY: Chaal. SECONDARY: SideShow, Force
 /// SideShow. DESTRUCTIVE: Pack. Disabled actions must have a clearly disabled
-/// state. Do not make all buttons visually equal.").
+/// state. Do not make all buttons visually equal."; and 25 Sep 2026:
+/// "PRIMARY: Chaal. SECONDARY: SideShow, Force SideShow, Plus/Minus.
+/// DESTRUCTIVE: Pack. SPECIAL: Missile.").
 enum KeyRole {
   /// The move a turn is built around — Chaal; at a poker table Check or Call,
   /// Draw, Play: struck gold, the larger and bolder name, and the one key on
   /// the console that breathes while it can be pressed. Never a second.
   primary,
 
-  /// Every other move — Sideshow, Force Sideshow, Show, Missile: the machined
-  /// plaque, with the gold hairline while the move is on offer.
+  /// Every other move — Sideshow, Force Sideshow, Show, and the stake's two
+  /// steppers ([StepperKey]): the machined plaque, with the gold hairline
+  /// while the move is on offer.
   secondary,
 
   /// The move that gives the hand up — Pack: the plaque with its glyph, its
   /// name and its edge in the error ink, and nothing about it that beckons.
   destructive,
+
+  /// A move bought with something the player collects — Missile: the plaque
+  /// washed with its own colour (the missile's coral, [MachinedKey.edge]),
+  /// its hairline in that colour whether or not it is on offer, and a still
+  /// glow of it while it is. Its name keeps the surface's ink, so it reads
+  /// as every other name does; the colour is what says the key is not one
+  /// of the table's ordinary moves.
+  special,
 }
 
 /// How far a key that cannot be pressed — or one the player cannot pay for —
 /// fades. One treatment for every key and stepper, and one nobody has to
-/// learn.
-const double deadKeyOpacity = 0.42;
+/// learn. Visibly off, still readable (owner's brief, 25 Sep 2026: "Disabled
+/// actions must be visibly disabled but still readable"): at 0.5 a dead key's
+/// name keeps 3:1 or more against its own plaque in both themes, where 0.42
+/// left the light theme's under 3:1 (test/table_polish_test.dart).
+const double deadKeyOpacity = 0.5;
 
 /// One key on the console: an icon, what it does, and what it costs.
 ///
@@ -1526,8 +1565,10 @@ class MachinedKey extends StatelessWidget {
   /// What this key is for, and so how loud it is ([KeyRole]).
   final KeyRole role;
 
-  /// The hairline that gives this key its identity — the missile's coral on
-  /// the Missile key. A destructive key's is the error ink unless given.
+  /// The colour that gives this key its identity — a [KeyRole.special] key's
+  /// wash, hairline, glyph and glow (the missile's coral when none is given);
+  /// on any other key, its hairline. A destructive key's is the error ink
+  /// unless given.
   final Color? edge;
 
   /// This key is one of the moves available RIGHT NOW.
@@ -1555,7 +1596,10 @@ class MachinedKey extends StatelessWidget {
     final kind = _role;
     final isPrimary = kind == KeyRole.primary;
     final destructive = kind == KeyRole.destructive;
+    final special = kind == KeyRole.special;
     final dead = onPressed == null;
+    // A special key's own colour: the one it is given, else the missile's.
+    final identity = special ? edge ?? missileInkOn(brightness) : null;
 
     // The key's ink, for its glyph and its words alike: charcoal on struck
     // gold, the error colour on the key that gives the hand up, and the
@@ -1570,12 +1614,13 @@ class MachinedKey extends StatelessWidget {
         : destructive
         ? scheme.error
         : scheme.onSurface;
-    final live =
-        edge ??
-        (destructive
-            ? scheme.error.withValues(alpha: 0.55)
-            : AppTheme.hairlineColour(brightness, live: true));
-    final halo = edge ?? AppTheme.gold;
+    final live = identity != null
+        ? identity.withValues(alpha: 0.62)
+        : edge ??
+              (destructive
+                  ? scheme.error.withValues(alpha: 0.55)
+                  : AppTheme.hairlineColour(brightness, live: true));
+    final halo = identity ?? edge ?? AppTheme.gold;
     // Struck gold, as the Shop key is, only while the primary key can be
     // pressed: a dead Chaal is the panel base like every other dead key.
     final gilded = isPrimary && !dead;
@@ -1604,6 +1649,14 @@ class MachinedKey extends StatelessWidget {
               : const EdgeInsets.symmetric(horizontal: Space.sm),
           backgroundColor: gilded
               ? Colors.transparent
+              : identity != null
+              // The special key's plaque, washed with its own colour.
+              ? Color.alphaBlend(
+                  identity.withValues(
+                    alpha: brightness == Brightness.dark ? 0.12 : 0.08,
+                  ),
+                  AppTheme.plaque(brightness),
+                )
               : AppTheme.plaque(brightness),
           foregroundColor: ink,
           disabledBackgroundColor: AppTheme.panelBase(brightness),
@@ -1618,7 +1671,10 @@ class MachinedKey extends StatelessWidget {
           side: WidgetStateProperty.resolveWith(
             (states) => BorderSide(
               color: states.contains(WidgetState.disabled)
-                  ? AppTheme.ink400.withValues(alpha: 0.35)
+                  // A special key keeps its colour's thread even dead, so a
+                  // missile off offer is still the missile.
+                  ? identity?.withValues(alpha: 0.35) ??
+                        AppTheme.ink400.withValues(alpha: 0.35)
                   : live,
               width: Dim.hairline,
             ),
@@ -1629,7 +1685,7 @@ class MachinedKey extends StatelessWidget {
       mainAxisAlignment: MainAxisAlignment.center,
       mainAxisSize: MainAxisSize.min,
       children: [
-        glyph ?? Icon(icon, size: 18),
+        glyph ?? Icon(icon, size: 18, color: dead ? null : identity),
         SizedBox(width: stackLabel ? Space.xs : Space.sm),
         Flexible(
           child: stackLabel
@@ -1729,11 +1785,11 @@ class MachinedKey extends StatelessWidget {
   }
 }
 
-/// One end of the stake stepper: a utility beside the primary key, so the
-/// plaque a secondary key wears — not a second gold, which the tonal fill it
-/// used to wear read as on the light theme. A ring of champagne is the
-/// affordance, present only while the key can be pressed, and a stepper that
-/// cannot be pressed fades as every dead key does.
+/// One end of the stake stepper: a SECONDARY key ([KeyRole.secondary]) beside
+/// the primary one, so the plaque a secondary key wears — not a second gold,
+/// which the tonal fill it used to wear read as on the light theme. A ring of
+/// champagne is the affordance, present only while the key can be pressed,
+/// and a stepper that cannot be pressed fades as every dead key does.
 class StepperKey extends StatelessWidget {
   const StepperKey({
     super.key,
