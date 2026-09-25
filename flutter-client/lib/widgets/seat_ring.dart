@@ -10,7 +10,7 @@ import 'package:flutter/widgets.dart';
 
 import '../theme/app_theme.dart';
 import 'casino_table.dart';
-import 'playing_card.dart';
+import 'hand_fan.dart';
 
 /// One place at the table, in view order: [view] 0 is the viewer, 1 the seat
 /// on their left, and on clockwise round the table.
@@ -288,13 +288,11 @@ class SeatRing {
   static double leftKeysRightFor(Size screen) =>
       Dim.keyW(screen.width) - Dim.railW(screen.width);
 
-  /// How wide the viewer's fanned hand is, its cards [handHeight] tall: a
-  /// card, the run of two more overlapping by 18%, and the outer two's lean
-  /// (the table screen's `_OwnHand` — five cards share the same box).
-  static double handWidthFor(double handHeight) {
-    final card = handHeight * PlayingCard.aspect;
-    return card + 2 * card * 0.82 + 2 * handHeight * 0.09;
-  }
+  /// How wide the viewer's fanned hand is on a table whose hand height is
+  /// [handHeight] (`Dim.handH`): [HandFan]'s box, which the table screen's
+  /// `_OwnHand` draws whatever the hand holds.
+  static double handWidthFor(double handHeight) =>
+      HandFan.widthFor(HandFan.cardHeightFor(handHeight));
 
   /// Where the top corners' controls end — the Shop key, the wallet — down
   /// the felt on a screen of [screen]: a touch target [Dim.gap] down from

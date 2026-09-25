@@ -630,13 +630,23 @@ class AppTheme {
   }
 
   /// A playing card's face is warm ivory stock and its pips red or black,
-  /// whatever the theme is doing.
+  /// whatever the theme is doing. [cardFace] is the stock's middle tone — what
+  /// a tab or a mark printed "on a card" is filled with.
   static const Color cardFace = Color(0xFFFBF7EE);
   static const Color pipRed = Color(0xFFB3202C);
   static const Color pipBlack = Color(0xFF14171B);
 
-  /// The cut edge of that stock, drawn as a half-pixel inner rim.
-  static const Color cardEdge = Color(0xFFE6DFCE);
+  /// The face's light, from its upper-left corner, where the stock catches
+  /// the table's lamp, to its lower-right, a shade deeper (premium-card brief,
+  /// 25 Sep 2026: "subtle warm ivory background, very subtle surface
+  /// gradient"). Both clear 4.5:1 under [pipRed].
+  static const Color cardFaceHigh = Color(0xFFFFFDF8);
+  static const Color cardFaceLow = Color(0xFFF2EAD9);
+
+  /// The cut edge of the stock, one thin line round every card, face and back
+  /// alike: a restrained warm gold, the table's own accent turned down until
+  /// it reads as the edge of good card stock and not as a frame.
+  static const Color cardRim = Color(0xFFC8AE78);
 
   /// The colour a raised control casts.
   ///

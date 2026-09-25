@@ -350,7 +350,7 @@ void main() {
           'review: 640x360 rim card ${cardW.toStringAsFixed(1)}x'
           '${cardH.toStringAsFixed(1)}dp, wild edge ${width.toStringAsFixed(2)}dp '
           '${AppTheme.gold} on face ${AppTheme.cardFace} '
-          '(the card\'s own edge ${AppTheme.cardEdge} at 0.5dp)',
+          '(the card\'s own rim ${AppTheme.cardRim})',
         );
         await _teardown(tester, state);
       },

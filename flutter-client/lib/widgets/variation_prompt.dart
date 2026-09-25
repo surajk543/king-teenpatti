@@ -826,8 +826,10 @@ class WildEdge extends StatelessWidget {
           DecoratedBox(
             position: DecorationPosition.foreground,
             decoration: BoxDecoration(
-              // The card's own corner (PlayingCard draws 0.055 of its height).
-              borderRadius: BorderRadius.circular(cardHeight * 0.055),
+              // The card's own corner.
+              borderRadius: BorderRadius.circular(
+                cardHeight * PlayingCard.cornerShare,
+              ),
               border: Border.all(color: gold, width: edge),
             ),
             child: child,
@@ -913,8 +915,10 @@ class SetBack extends StatelessWidget {
         child: DecoratedBox(
           position: DecorationPosition.foreground,
           decoration: BoxDecoration(
-            // The card's own corner (PlayingCard draws 0.055 of its height).
-            borderRadius: BorderRadius.circular(cardHeight * 0.055),
+            // The card's own corner.
+            borderRadius: BorderRadius.circular(
+              cardHeight * PlayingCard.cornerShare,
+            ),
             color: AppTheme.ink900.withValues(alpha: wash * t),
           ),
           child: child,

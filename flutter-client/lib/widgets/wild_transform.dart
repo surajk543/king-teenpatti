@@ -45,6 +45,8 @@ class WildTransform extends StatefulWidget {
     this.wild = false,
     this.standIn,
     this.dimmed = false,
+    this.indexOnRight = false,
+    this.flipDelay = Duration.zero,
   });
 
   final double height;
@@ -65,6 +67,14 @@ class WildTransform extends StatefulWidget {
   /// "Wild", in the player's language: the ribbon, and the screen reader's word.
   final String label;
   final bool dimmed;
+
+  /// Handed to the card ([PlayingCard.indexOnRight]): the viewer's fan
+  /// prints a card's index in the corner that shows.
+  final bool indexOnRight;
+
+  /// Handed to the card ([PlayingCard.flipDelay]); the turn into the stand-in
+  /// waits for it too.
+  final Duration flipDelay;
 
   /// The whole performance, per card.
   static const Duration turnFor = Duration(milliseconds: 1150);
@@ -113,7 +123,9 @@ class _WildTransformState extends State<WildTransform>
     final flippingUp = old.code == null && widget.code != null;
     final wait =
         (flippingUp
-            ? Motion.enter + const Duration(milliseconds: 220)
+            ? PlayingCard.flipFor +
+                  widget.flipDelay +
+                  const Duration(milliseconds: 220)
             : const Duration(milliseconds: 120)) +
         WildTransform.stagger * widget.index;
     _cue?.cancel();
@@ -140,7 +152,13 @@ class _WildTransformState extends State<WildTransform>
 
     // Nothing to turn into: the card as it always was, edged if it was wild.
     if (standIn == null || code == null) {
-      final card = PlayingCard(height: h, code: code, dimmed: widget.dimmed);
+      final card = PlayingCard(
+        height: h,
+        code: code,
+        dimmed: widget.dimmed,
+        indexOnRight: widget.indexOnRight,
+        flipDelay: widget.flipDelay,
+      );
       if (!widget.wild || code == null) return card;
       return Semantics(
         label: widget.label,
@@ -186,7 +204,7 @@ class _WildTransformState extends State<WildTransform>
                 child: IgnorePointer(
                   child: DecoratedBox(
                     decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(h * 0.055),
+                      borderRadius: BorderRadius.circular(h * PlayingCard.cornerShare),
                       boxShadow: [
                         BoxShadow(
                           color: AppTheme.goldBright.withValues(
@@ -214,6 +232,8 @@ class _WildTransformState extends State<WildTransform>
                     height: h,
                     code: turned ? standIn : code,
                     dimmed: widget.dimmed,
+                    indexOnRight: widget.indexOnRight,
+                    flipDelay: widget.flipDelay,
                   ),
                 ),
               ),
@@ -256,7 +276,7 @@ class _WildTransformState extends State<WildTransform>
 
   /// The gold edge of a wild card (PlayingCard's own corner radius).
   static BoxDecoration _edge(double h, double strength) => BoxDecoration(
-    borderRadius: BorderRadius.circular(h * 0.055),
+    borderRadius: BorderRadius.circular(h * PlayingCard.cornerShare),
     border: Border.all(
       color: AppTheme.goldBright.withValues(alpha: strength.clamp(0.0, 1.0)),
       width: math.max(1.5, h * 0.035),

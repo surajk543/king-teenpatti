@@ -725,6 +725,9 @@ class SeatPod extends StatelessWidget {
             height: cardH,
             dimmed: dim,
             code: faces != null && i < faces.length ? faces[i] : null,
+            // A hand turned over at a showdown or a sideshow turns one card
+            // after another, left to right, as the viewer's own does.
+            flipDelay: PlayingCard.flipStagger * i,
             // Green backs say this player has looked at their hand, which is
             // the one thing about an opponent that changes how you bet. Not
             // while they are out of it: a packed seat's cards are history.
