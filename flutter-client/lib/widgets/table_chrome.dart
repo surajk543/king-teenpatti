@@ -2142,28 +2142,66 @@ class _ChatDrawerState extends State<ChatDrawer> {
   /// (owner, 24 Sep 2026: "in quick chat message also add some icons, and
   /// every message of quick message should be in some box"); the icon is
   /// [quickMessageIcons] at the line's index.
+  ///
+  /// The player puts the lines in their own order (owner, 25 Sep 2026: "make
+  /// sure user can drag and reorder the quick message in UI … save that order
+  /// in UI only"): the handle at a box's right drags it at once, and a
+  /// long-press anywhere on the box does too; a plain tap still says the line.
+  /// The order is [GameState.quickMessageOrder], kept on this phone — the
+  /// icons travel with their lines, the words sent never change, and the
+  /// cooldown stops a line being said, never being moved.
   Widget _quickLines(GameState state) {
     final lines = state.t.quickMessages;
+    final order = state.quickMessageOrder;
     final left = state.chatCooldownLeft;
-    return ListView.separated(
+    return ReorderableListView.builder(
       padding: const EdgeInsets.symmetric(
         horizontal: Space.lg,
         vertical: Space.sm,
       ),
-      itemCount: lines.length,
-      separatorBuilder: (_, _) => const SizedBox(height: Space.sm),
-      itemBuilder: (context, i) => QuickLine(
-        text: lines[i],
-        // The test holds the two lists to one length; a line past the icons
-        // would still be better said under the plain bubble than not at all.
-        icon: i < quickMessageIcons.length
-            ? quickMessageIcons[i]
-            : Icons.chat_bubble_outline_rounded,
-        secondsLeft: left,
-        onTap: state.canChat ? () => _sendQuick(state, lines[i]) : null,
-      ),
+      buildDefaultDragHandles: false,
+      itemCount: order.length,
+      onReorderStart: (_) => tapHaptic(context),
+      onReorderItem: state.moveQuickMessage,
+      proxyDecorator: _liftedQuickLine,
+      itemBuilder: (context, position) {
+        final i = order[position];
+        // Keyed by the line, not its place, so a moved box keeps its state
+        // and the list animates the others round it.
+        return Padding(
+          key: ValueKey<int>(i),
+          padding: EdgeInsets.only(
+            bottom: position == order.length - 1 ? 0 : Space.sm,
+          ),
+          child: QuickLine(
+            text: lines[i],
+            // The test holds the two lists to one length; a line past the
+            // icons would still be better said under the plain bubble than
+            // not at all.
+            icon: i < quickMessageIcons.length
+                ? quickMessageIcons[i]
+                : Icons.chat_bubble_outline_rounded,
+            secondsLeft: left,
+            onTap: state.canChat ? () => _sendQuick(state, lines[i]) : null,
+            reorder: (index: position, label: state.t.quickReorderHint),
+          ),
+        );
+      },
     );
   }
+
+  /// The box under the player's finger while it is dragged: lifted a little
+  /// towards them, with nothing painted round it — a shadow here would fall
+  /// on the gap below the box as well, which travels with it.
+  Widget _liftedQuickLine(Widget child, int index, Animation<double> lift) =>
+      AnimatedBuilder(
+        animation: lift,
+        builder: (context, child) => Transform.scale(
+          scale: 1 + 0.03 * Curves.easeOut.transform(lift.value),
+          child: child,
+        ),
+        child: Material(type: MaterialType.transparency, child: child),
+      );
 
   /// The same ending as a typed line: once it is out the drawer goes, and what
   /// the player sees next is their words over their own seat. A refusal (the
@@ -2536,6 +2574,7 @@ class QuickLine extends StatelessWidget {
     required this.icon,
     required this.secondsLeft,
     required this.onTap,
+    this.reorder,
   });
 
   final String text;
@@ -2544,6 +2583,17 @@ class QuickLine extends StatelessWidget {
 
   /// Null while the cooldown runs.
   final VoidCallback? onTap;
+
+  /// Where the box stands in a reorderable list, and what a screen reader
+  /// calls its grip. Given, the box can be moved — by the grip at its right
+  /// ([QuickDragHandle]) at once, or by a long-press on the rest of it — live
+  /// whether or not the line can be said right now. None: the box only says
+  /// its line.
+  ///
+  /// The two drag starters stand side by side, never one inside the other:
+  /// each takes the pointer when it goes down, and an outer one would take it
+  /// from the grip's and turn every grip drag into a long-press.
+  final ({int index, String label})? reorder;
 
   /// The box's own inset; the floor below counts it, so the whole box stays
   /// taller than the 44dp target.
@@ -2557,6 +2607,41 @@ class QuickLine extends StatelessWidget {
     final theme = Theme.of(context);
     final ink = theme.colorScheme.onSurface;
     final live = onTap != null;
+    final body = Row(
+      children: [
+        Icon(
+          icon,
+          size: 20,
+          color: live
+              ? goldInk(theme.brightness)
+              : ink.withValues(alpha: AppTheme.inkLow),
+        ),
+        const SizedBox(width: Space.md),
+        Expanded(
+          child: Text(
+            text,
+            style: TableType.item(
+              theme,
+              colour: ink.withValues(
+                alpha: live ? AppTheme.inkHigh : AppTheme.inkLow,
+              ),
+              weight: FontWeight.w500,
+            ),
+          ),
+        ),
+        if (!live) ...[
+          const SizedBox(width: Space.md),
+          Text(
+            '${secondsLeft}s',
+            // Tabular, so 4-3-2-1 does not shift the row by a pixel.
+            style: TableType.count(
+              theme,
+              colour: ink.withValues(alpha: AppTheme.inkMed),
+            ),
+          ),
+        ],
+      ],
+    );
 
     return Semantics(
       button: true,
@@ -2580,38 +2665,60 @@ class QuickLine extends StatelessWidget {
           ),
           child: Row(
             children: [
-              Icon(
-                icon,
-                size: 20,
-                color: live
-                    ? goldInk(theme.brightness)
-                    : ink.withValues(alpha: AppTheme.inkLow),
-              ),
-              const SizedBox(width: Space.md),
               Expanded(
-                child: Text(
-                  text,
-                  style: TableType.item(
-                    theme,
-                    colour: ink.withValues(
-                      alpha: live ? AppTheme.inkHigh : AppTheme.inkLow,
-                    ),
-                    weight: FontWeight.w500,
+                child: switch (reorder) {
+                  final r? => ReorderableDelayedDragStartListener(
+                    index: r.index,
+                    child: body,
                   ),
-                ),
+                  null => body,
+                },
               ),
-              if (!live) ...[
-                const SizedBox(width: Space.md),
-                Text(
-                  '${secondsLeft}s',
-                  // Tabular, so 4-3-2-1 does not shift the row by a pixel.
-                  style: TableType.count(
-                    theme,
-                    colour: ink.withValues(alpha: AppTheme.inkMed),
-                  ),
+              if (reorder case final r?) ...[
+                const SizedBox(width: Space.xs),
+                ReorderableDragStartListener(
+                  index: r.index,
+                  child: QuickDragHandle(label: r.label),
                 ),
               ],
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The grip a quick message is dragged by: six dots at the box's right, a
+/// full-height strip wide enough for a thumb.
+///
+/// It takes its own taps, so a tap that misses the drag says nothing to the
+/// table — the box around it sends its line on a tap, and a grip that did the
+/// same would be a line sent by a player who only meant to move it.
+class QuickDragHandle extends StatelessWidget {
+  const QuickDragHandle({super.key, required this.label});
+
+  /// What a screen reader says for it: how to move the line.
+  final String label;
+
+  /// Wide enough for a thumb beside the words; the box sets its height.
+  static const width = 36.0;
+
+  @override
+  Widget build(BuildContext context) {
+    final ink = Theme.of(context).colorScheme.onSurface;
+    return Semantics(
+      label: label,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () {},
+        child: SizedBox(
+          width: width,
+          height: Dim.minTouch - 2 * Space.sm,
+          child: Icon(
+            Icons.drag_indicator_rounded,
+            size: 20,
+            color: ink.withValues(alpha: AppTheme.inkMed),
           ),
         ),
       ),

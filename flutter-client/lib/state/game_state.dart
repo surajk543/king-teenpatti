@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
 import 'package:in_app_purchase/in_app_purchase.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -20,6 +21,7 @@ import '../net/social_sign_in.dart';
 import 'consent.dart';
 import 'hammer_strike.dart';
 import 'missile_strike.dart';
+import 'quick_message_order.dart';
 import 'table_config_cache.dart';
 import 'theme_preference.dart';
 
@@ -201,6 +203,17 @@ class GameState extends ChangeNotifier {
 
   /// The strings for the chosen language.
   Strings get t => Strings(lang);
+
+  /// The quick-message order the player saved on this phone, as read back —
+  /// unchecked; [quickMessageOrder] is the order to draw.
+  List<int> _quickOrder = const [];
+
+  /// The order the chat drawer lists [Strings.quickMessages] in: indices into
+  /// that list, the player's own arrangement first ([moveQuickMessage]), every
+  /// line always present exactly once ([normaliseQuickOrder]). The owner's
+  /// order until the player drags a line.
+  List<int> get quickMessageOrder =>
+      normaliseQuickOrder(_quickOrder, t.quickMessages.length);
 
   User? user;
 
@@ -954,6 +967,7 @@ class GameState extends ChangeNotifier {
     lang = AppLang.fromCode(prefs.getString('lang'));
     numbers = NumberSystem.fromName(prefs.getString('numbers'));
     _publishNumberFormat();
+    restoreQuickOrder(prefs);
 
     // The menu this server last described, before anything can draw the
     // lobby: the first frame after the splash is the phone's copy, not
@@ -2916,6 +2930,30 @@ class GameState extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('lang', next.code);
     notifyListeners();
+  }
+
+  /// Takes up the quick-message order this phone saved ([moveQuickMessage]),
+  /// at start-up with the rest of the preferences.
+  void restoreQuickOrder(SharedPreferences prefs) {
+    _quickOrder = parseQuickOrder(prefs.getStringList(quickOrderPrefsKey));
+  }
+
+  /// Moves the quick message at position [from] of [quickMessageOrder] to
+  /// [to], as the chat drawer's reorderable list reports a drag, and keeps the
+  /// new order on this phone (owner, 25 Sep 2026: "save that order in UI
+  /// only"). The list redraws at once; the write follows, and a write that
+  /// fails leaves the order for this session, not an error.
+  Future<void> moveQuickMessage(int from, int to) async {
+    final next = moveInQuickOrder(quickMessageOrder, from, to);
+    if (listEquals(next, quickMessageOrder)) return;
+    _quickOrder = next;
+    notifyListeners();
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setStringList(quickOrderPrefsKey, encodeQuickOrder(next));
+    } catch (_) {
+      // Only the next launch loses it.
+    }
   }
 
   Future<void> setNumberSystem(NumberSystem next) async {

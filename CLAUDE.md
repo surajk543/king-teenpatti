@@ -1556,7 +1556,8 @@ Production's lives at `/var/www/gameplay/king-teenpatti/go-server/.env` (`PG_POO
   classes; `Seat.chips` **nullable** (null = withheld, never 0).
 - SharedPreferences: `deviceId`, `token`, `themeMode` (`system|dark|light`, `state/theme_preference.dart`;
   the old `darkMode` bool is read once when `themeMode` is absent and never written again), `lang`,
-  `numbers`, `noWinningsAck:<userId>`, `soundOn`/`vibrateOn` (`settings/feedback_settings.dart`), and since 23 Sep
+  `numbers`, `noWinningsAck:<userId>`, `soundOn`/`vibrateOn` (`settings/feedback_settings.dart`), `quickMessageOrder` (25 Sep
+  2026, the player's order of the quick messages, §8.4), and since 23 Sep
   2026 **`tableConfig`** — the phone's copy of `GET /api/tables`. **None of the app's data is backed up or carried to
   another phone** (24 Sep 2026, owner's "fix all bugs"; RC-07): `token` is a 30-day JWT and `deviceId` IS a guest's
   account (guest id = sha256('teenpatti:'+deviceId)), and a device-to-device transfer left two phones signed in as one
@@ -1782,7 +1783,16 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   ≥ `Dim.minTouch + Space.md`) with `quickMessageIcons[i]` at its left — a const list in `table_chrome.dart` index for
   index with `Strings.quickMessages` (eye-off for play blind, bolt for play fast, trophy for how you win it, … help for
   help me), held to the list's length in every language by `test/chat_drawer_test.dart`; the cooldown still greys the box
-  and counts the seconds on it. **Blocking is a page of the drawer, never a popup** (owner, 24 Sep 2026: "when user click
+  and counts the seconds on it. **The player orders the quick messages themselves** (owner, 25 Sep 2026: "make sure user can
+  drag and reorder the quick message in UI … save that order in UI only"): the page is a `ReorderableListView` keyed by
+  each line's index; a box drags at once by the grip at its right (`QuickDragHandle`, six dots, which takes its own taps so a
+  missed drag says nothing to the table) or after a long-press on the rest of it — the two starters side by side, never
+  nested (`QuickLine.reorder`), since an outer one takes the pointer from the grip's. The order is indices into
+  `Strings.quickMessages`, so it holds in every language: `GameState.quickMessageOrder` (`normaliseQuickOrder` — a later
+  build's added line joins at the end, a dropped one is skipped), `moveQuickMessage`, and SharedPreferences
+  `quickMessageOrder` (`state/quick_message_order.dart`), read in `start()` (`restoreQuickOrder`); nothing reaches the
+  server and the words sent never change. `test/quick_message_order_test.dart` (a drop settles only frame by frame — one
+  long `pump` runs the drop animation once). **Blocking is a page of the drawer, never a popup** (owner, 24 Sep 2026: "when user click
   on block button do not show pop up, instead show block button of players in drawer itself and in chat messages DO NOT
   SHOW ANY unblock message, only message should appear"): the header's block key toggles a third page,
   `_ChatView.players` — `ChatPlayers`, every other seat from `room.seats` (rebuilt live, so a player who leaves drops

@@ -796,6 +796,7 @@ class Strings {
   // --- quick messages: set lines a player sends from the table's rail
   String get quickMessagesTitle => _('quickMessagesTitle');
   String get quickMessagesTip => _('quickMessagesTip');
+  String get quickReorderHint => _('quickReorderHint');
   String get quickPlayBlind => _('quickPlayBlind');
   String get quickPlayFast => _('quickPlayFast');
   String get quickHowToWin => _('quickHowToWin');
@@ -1406,6 +1407,7 @@ class Strings {
       // ten lines below, so this wording is ours and free to change.
       'quickMessagesTitle': 'Quick messages',
       'quickMessagesTip': 'Send a quick message',
+      'quickReorderHint': 'Hold and drag to reorder',
       // The owner's wording, capitals and apostrophes as given.
       'quickPlayBlind': 'Please Play Blind.',
       'quickPlayFast': 'Please Play fast.',
@@ -2003,6 +2005,7 @@ class Strings {
       'tableMenu': 'टेबल मेनू',
       'quickMessagesTitle': 'झटपट संदेश',
       'quickMessagesTip': 'झटपट संदेश भेजें',
+      'quickReorderHint': 'क्रम बदलने के लिए दबाकर खींचें',
       'quickPlayBlind': 'कृपया ब्लाइंड खेलें।',
       'quickPlayFast': 'कृपया जल्दी खेलें।',
       'quickHowToWin': 'ऐसे जीतते हैं।',
@@ -2588,6 +2591,7 @@ class Strings {
       'tableMenu': 'টেবিল মেনু',
       'quickMessagesTitle': 'দ্রুত বার্তা',
       'quickMessagesTip': 'দ্রুত বার্তা পাঠান',
+      'quickReorderHint': 'ক্রম বদলাতে চেপে ধরে টানুন',
       'quickPlayBlind': 'দয়া করে ব্লাইন্ড খেলুন।',
       'quickPlayFast': 'দয়া করে তাড়াতাড়ি খেলুন।',
       'quickHowToWin': 'এভাবেই জিততে হয়।',
@@ -3223,6 +3227,7 @@ class Strings {
       'tableMenu': 'ટેબલ મેનૂ',
       'quickMessagesTitle': 'ઝટપટ સંદેશા',
       'quickMessagesTip': 'ઝટપટ સંદેશો મોકલો',
+      'quickReorderHint': 'ક્રમ બદલવા દબાવીને ખેંચો',
       'quickPlayBlind': 'કૃપા કરીને બ્લાઇન્ડ રમો.',
       'quickPlayFast': 'કૃપા કરીને ઝડપથી રમો.',
       'quickHowToWin': 'આમ જ જીતાય છે.',
@@ -3809,6 +3814,7 @@ class Strings {
       'tableMenu': 'ਟੇਬਲ ਮੀਨੂ',
       'quickMessagesTitle': 'ਝਟਪਟ ਸੁਨੇਹੇ',
       'quickMessagesTip': 'ਝਟਪਟ ਸੁਨੇਹਾ ਭੇਜੋ',
+      'quickReorderHint': 'ਕ੍ਰਮ ਬਦਲਣ ਲਈ ਦਬਾ ਕੇ ਖਿੱਚੋ',
       'quickPlayBlind': 'ਕਿਰਪਾ ਕਰਕੇ ਬਲਾਈਂਡ ਖੇਡੋ।',
       'quickPlayFast': 'ਕਿਰਪਾ ਕਰਕੇ ਜਲਦੀ ਖੇਡੋ।',
       'quickHowToWin': 'ਇੰਝ ਜਿੱਤੀਦਾ ਹੈ।',
