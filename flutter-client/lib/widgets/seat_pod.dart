@@ -254,8 +254,25 @@ class SeatPod extends StatelessWidget {
       theme.colorScheme.error,
       turn * turn,
     )!;
+    // The ring's EDGE, and the ring round the picture: the beat itself by
+    // night, where champagne on obsidian cannot be missed — and by day the
+    // gold the app writes with on a light ground ([AppTheme.goldOnLight]),
+    // reddening the same way. Champagne on the pale room, rail and cloths
+    // measured 1.0 to 1.3:1: on a light table the seat on turn was the
+    // hardest thing on it to find (final table polish, 26 Sep 2026: "the
+    // active player should be immediately identifiable … light/dark theme
+    // contrast"). The pod's wash and its rising clock keep the beat.
+    final edge = theme.brightness == Brightness.dark
+        ? beat
+        : Color.lerp(
+            AppTheme.goldOnLight,
+            theme.colorScheme.error,
+            turn * turn,
+          )!;
 
-    final gap = width * _kPad;
+    // Between the pod and the cards and badge hung under it: the table's own
+    // spacing for a seat, one step for every gap in the column.
+    final gap = TableSpace.seat(width);
     final status = _status(t, s);
     // Nothing in this column may change height as a hand is shown down. A seat
     // is placed by its column's MIDDLE (_Felt `at`), so a column that grows or
@@ -288,6 +305,7 @@ class SeatPod extends StatelessWidget {
         context,
         s,
         beat,
+        edge,
         state.colourFor(s.userId ?? '', theme.colorScheme),
       ),
       ...below,
@@ -418,7 +436,13 @@ class SeatPod extends StatelessWidget {
     );
   }
 
-  Widget _pod(BuildContext context, Seat s, Color beat, Color player) {
+  Widget _pod(
+    BuildContext context,
+    Seat s,
+    Color beat,
+    Color edge,
+    Color player,
+  ) {
     final theme = Theme.of(context);
     final dark = theme.brightness == Brightness.dark;
     final won = s.status == SeatState.won;
@@ -463,6 +487,7 @@ class SeatPod extends StatelessWidget {
     final panel = _TurnRing(
       active: onTurn,
       colour: beat,
+      edge: edge,
       radius: width * _kRadius,
       glow: glow,
       child: PremiumGlassPanel(
@@ -560,8 +585,8 @@ class SeatPod extends StatelessWidget {
                             ? _kAvatar
                             : _kAvatarAlone),
                     // The second, quieter turn cue, for a player reading faces
-                    // rather than borders.
-                    ring: onTurn ? beat : null,
+                    // rather than borders — in the ring's own edge colour.
+                    ring: onTurn ? edge : null,
                     ringWidth: onTurn ? 2 : 1.5,
                     // An animated picture plays at the table too: it is what
                     // the player paid for, and a still frame of it here read as
@@ -1220,11 +1245,18 @@ class _TurnRing extends StatefulWidget {
     required this.colour,
     required this.radius,
     required this.child,
+    this.edge,
     this.glow = 1,
   });
 
   final bool active;
+
+  /// The halo's colour — and the edge's, unless [edge] says otherwise.
   final Color colour;
+
+  /// The ring's hard edge, where it must read against a pale ground that the
+  /// halo's champagne does not (the light theme); null is [colour].
+  final Color? edge;
   final double radius;
   final Widget child;
 
@@ -1272,6 +1304,7 @@ class _TurnRingState extends State<_TurnRing>
     if (!widget.active) return widget.child;
 
     final blink = _blink;
+    final floor = TableAmbient.turnEdgeFloor(Theme.of(context).brightness);
     return AnimatedBuilder(
       animation: blink,
       builder: (context, child) {
@@ -1294,7 +1327,9 @@ class _TurnRingState extends State<_TurnRing>
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(widget.radius + 4),
             border: Border.all(
-              color: widget.colour.withValues(alpha: 0.62 + 0.38 * t),
+              color: (widget.edge ?? widget.colour).withValues(
+                alpha: floor + (1 - floor) * t,
+              ),
               width: 2.0 + 0.5 * t,
             ),
             boxShadow: [

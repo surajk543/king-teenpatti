@@ -580,6 +580,12 @@ class _Felt extends StatefulWidget {
   /// under it too ([tableNoticeArea]).
   static const double _tagDy = 0.075;
 
+  /// The viewer's own bet badge, over their cards, is scaled as if their pod
+  /// were this much wider than it is: a step over a rim seat's badge, and no
+  /// louder than the Chaal key or the pot (1.22 until the final table polish,
+  /// 26 Sep 2026).
+  static const double myBetScale = 1.1;
+
   /// Where a seat sits on the felt, given its index as the server numbers it.
   ///
   /// The table is drawn from the viewer's chair, so a server index has to be
@@ -609,6 +615,7 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
   static const _potDy = _Felt._potDy;
   static const _statusDy = _Felt._statusDy;
   static const _tagDy = _Felt._tagDy;
+  static const _myBetScale = _Felt.myBetScale;
   Offset _seatCentre(
     GameState state,
     int seatIndex,
@@ -888,6 +895,22 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
     // the missiles have landed.
     final pot = state.heldPot ?? room.pot;
 
+    // The viewer's own seat as the felt draws it (a fold held back under a
+    // Force Sideshow's hammer, or a result under a missile volley, still
+    // playing), and whether their bet stands over their cards: on the same
+    // terms as every rim seat's badge (SeatPod `_betShown`) — while they are
+    // in the hand, and after a showdown they lost for as long as it is on
+    // show. A packed hand under its PACKED plate carried a live-looking
+    // "BLIND 400" over it, and a seat sitting a hand out the word alone over
+    // no cards at all (final table polish, 26 Sep 2026).
+    final myShown = seats.isEmpty ? null : state.seatAsShown(seats[0]);
+    final myBetShown =
+        handLive &&
+        myShown != null &&
+        (myShown.status == SeatState.active ||
+            myShown.status == SeatState.won ||
+            myShown.status == SeatState.lost);
+
     return Padding(
       padding: EdgeInsets.fromLTRB(pad, Space.xxs, pad, 0),
       child: LayoutBuilder(
@@ -1136,6 +1159,61 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
                 ),
                 width: math.min(w * 0.37, h * 0.53),
               ),
+
+              // A sideshow in progress, drawn for everyone: a line pulsing
+              // between the two seats, so the rest of the table can see who
+              // asked whom without seeing a single card.
+              //
+              // On the cloth, under the table's furniture and every seat
+              // (final table polish, 26 Sep 2026: "incorrect z-order"): drawn
+              // over them, the thread and its comet scored through whatever
+              // lay between the two seats — the asker's own "In Pot", a
+              // neighbour's bet badge, the stack on the pod it ended in. Under
+              // them it runs across the cloth from one seat to the other and
+              // never through a word.
+              if (state.sideshow != null)
+                Positioned.fill(
+                  child: RepaintBoundary(
+                    child: IgnorePointer(
+                      child: _SideshowLink(
+                        from: _seatCentre(
+                          state,
+                          state.sideshow!.fromSeat,
+                          w,
+                          h,
+                          podW,
+                        ),
+                        to: _seatCentre(
+                          state,
+                          state.sideshow!.toSeat,
+                          w,
+                          h,
+                          podW,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+
+              // A forced sideshow is shown to everyone at the table at least
+              // the way an ordinary one is — the same link between the two
+              // players, with its comet running from the one who forced it —
+              // from the throw until the loser folds. A forced one never has a
+              // pending request, so without this a bystander would get nothing
+              // but the hammer itself. On the cloth too; the hammer flies
+              // over everything.
+              if (_flight != null && state.hammerLinkShown)
+                Positioned.fill(
+                  child: RepaintBoundary(
+                    child: IgnorePointer(
+                      child: _SideshowLink(
+                        from: _flight!.from.center,
+                        to: _flight!.to.center,
+                      ),
+                    ),
+                  ),
+                ),
+
               // The table's furniture first, the seats after it: a seat's
               // speech bubble or bet chip is a moment that matters more
               // than the tag or the pot label it might briefly cross, so
@@ -1153,14 +1231,24 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
               // cloth went: with no table under it the plinth is the largest
               // solid object on the screen, and at a third of the felt it was
               // reading as the subject rather than as the score.
+              //
+              // And no wider than its figure (final table polish, 26 Sep
+              // 2026: "The pot should remain easy to locate without competing
+              // with the Chaal button"): the plinth was stretched across its
+              // whole fifth of the felt whatever it held — a 169dp slab round
+              // "6,800" on a 891dp phone, wider and darker than the Chaal key
+              // itself. It hugs the pile and the figure now, in the same type,
+              // and only a figure that would pass the fifth still shrinks.
               at(
                 const Offset(0.5, _potDy),
-                _PotPulse(
-                  pot: pot,
-                  child: _Pot(
-                    room: room,
+                Center(
+                  child: _PotPulse(
                     pot: pot,
-                    chipSize: (podW * 0.17).clamp(12.0, 20.0),
+                    child: _Pot(
+                      room: room,
+                      pot: pot,
+                      chipSize: (podW * 0.17).clamp(12.0, 20.0),
+                    ),
                   ),
                 ),
                 width: w * 0.20,
@@ -1251,17 +1339,21 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
                           _OwnHandName(name: ownHandName),
                         const SizedBox(height: Space.xxs),
                       ],
-                      if (seats.isNotEmpty && seats[0] != null && handLive) ...[
+                      if (myBetShown) ...[
                         // Scaled against a wider pod than the viewer actually
-                        // has: this is their own bet, read every turn from the
-                        // far end of a landscape screen, and it earns a size the
-                        // rim seats' copies do not.
+                        // has: this is their own bet, read every turn, and it
+                        // earns a size the rim seats' copies do not — a step,
+                        // not more (final table polish, 26 Sep 2026: "SECONDARY:
+                        // Current pot amount. SUPPORTING: Individual player
+                        // contribution"). At 1.22 its figure was 14dp on a
+                        // 891dp phone, the size of the Chaal key's name, and
+                        // its plaque wider than the pot's.
                         SeatBet(
-                          seat: state.seatAsShown(seats[0])!,
-                          width: podW * 1.22,
+                          seat: myShown,
+                          width: podW * _myBetScale,
                           totalFirst: true,
                         ),
-                        const SizedBox(height: Space.xs),
+                        const SizedBox(height: TableSpace.hand),
                       ],
                       // The showdown's copy of their own hand, so a player who
                       // paid for a show while still blind sees what they were
@@ -1279,51 +1371,6 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
                   ),
                 ),
               ),
-
-              // A sideshow in progress, drawn for everyone: a line pulsing
-              // between the two seats, so the rest of the table can see who
-              // asked whom without seeing a single card.
-              if (state.sideshow != null)
-                Positioned.fill(
-                  child: RepaintBoundary(
-                    child: IgnorePointer(
-                      child: _SideshowLink(
-                        from: _seatCentre(
-                          state,
-                          state.sideshow!.fromSeat,
-                          w,
-                          h,
-                          podW,
-                        ),
-                        to: _seatCentre(
-                          state,
-                          state.sideshow!.toSeat,
-                          w,
-                          h,
-                          podW,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-
-              // A forced sideshow is shown to everyone at the table at least
-              // the way an ordinary one is — the same link between the two
-              // players, with its comet running from the one who forced it —
-              // from the throw until the loser folds. A forced one never has a
-              // pending request, so without this a bystander would get nothing
-              // but the hammer itself.
-              if (_flight != null && state.hammerLinkShown)
-                Positioned.fill(
-                  child: RepaintBoundary(
-                    child: IgnorePointer(
-                      child: _SideshowLink(
-                        from: _flight!.from.center,
-                        to: _flight!.to.center,
-                      ),
-                    ),
-                  ),
-                ),
 
               // A Force Sideshow's hammer, thrown from one pod to the other
               // over everything else on the felt — the viewer's own hand
@@ -2034,7 +2081,11 @@ class _Pot extends StatelessWidget {
           // figure beside it in the middle of a card table is not ambiguous,
           // and the stake is already on the action key the player is about to
           // press. Both were labels explaining something the table says.
+          //
+          // As wide as the pile and the figure, not as the felt allows: the
+          // plinth frames the score rather than laying a bar across the table.
           Row(
+            mainAxisSize: MainAxisSize.min,
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
@@ -2429,7 +2480,7 @@ class _HandPlacement extends SingleChildLayoutDelegate {
 ///
 /// **One hand, not three cards** (premium-card brief, 25 Sep 2026): the fan
 /// is [HandFan]'s — the middle card upright, raised, a touch larger and on
-/// top, the outer two turned 4° out and tucked under it, 0.58 of a card apart,
+/// top, the outer two turned 4° out and tucked under it, 0.54 of a card apart,
 /// the card to its right printing its index in its top-right corner so that
 /// no rank is under another card. [PlayingCard] turns them over one after
 /// another, left to right.
@@ -3829,6 +3880,22 @@ class _ActionCluster extends StatelessWidget {
     final options = state.options;
     final showCost = options?.show;
     final canSideshow = live && (options?.canSideshow ?? false);
+    // Who the sideshow is with: the neighbour the server names while the key
+    // can ask — and, once the viewer HAS asked, the player the request is
+    // waiting on, for as long as it waits (final table polish, 26 Sep 2026:
+    // "If a target player is involved, preserve the existing target/player
+    // information"). The key is dead while the request stands — nothing may
+    // be asked twice — but it no longer drops back to a bare "Sideshow" the
+    // moment it has been pressed.
+    final pending = state.sideshow;
+    String? sideshowWith = canSideshow ? options?.sideshowWith : null;
+    if (sideshowWith == null &&
+        pending != null &&
+        pending.fromUserId == state.user?.id) {
+      for (final seat in state.room?.seats ?? const <Seat>[]) {
+        if (seat.userId == pending.toUserId) sideshowWith = seat.displayName;
+      }
+    }
     // A Force Sideshow has a sideshow's rules, and the server says so in an
     // option of its own. Whether the player can PAY is their own count — the
     // table never sees the wallet — so with no hammers the key is greyed but
@@ -3888,6 +3955,14 @@ class _ActionCluster extends StatelessWidget {
                   ),
                   label: t.forceSideshow,
                   stackLabel: true,
+                  // SPECIAL (final table polish, 26 Sep 2026: "SPECIAL/
+                  // CONDITIONAL: Force Sideshow ... Keep its special status
+                  // visually clear without making it stronger than the primary
+                  // Chaal action"; it was SECONDARY, a plaque the twin of
+                  // Sideshow's): a move bought with a hammer, in the copper
+                  // the wallet counts hammers in, as Missile wears its coral.
+                  role: KeyRole.special,
+                  edge: hammerInkOn(Theme.of(context).brightness),
                   alive: canForce && hasHammer,
                   muted: canForce && !hasHammer,
                   onPressed: canForce
@@ -3916,7 +3991,7 @@ class _ActionCluster extends StatelessWidget {
                       height: keyH,
                       icon: Icons.compare_arrows_rounded,
                       label: t.sideshow,
-                      amount: canSideshow ? options?.sideshowWith : null,
+                      amount: sideshowWith,
                       alive: canSideshow,
                       onPressed: canSideshow ? state.askSideshow : null,
                     ),

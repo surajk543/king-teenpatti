@@ -2073,6 +2073,26 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   harness's `SHOTS_ONLY` takes `a,b` for either and `a+b` for both), and `test/card_shots.dart` — the faces at six heights on
   each game's cloth in both themes, and frame by frame the turn ("See cards") and the deal — by hand, like table_shots:
   `flutter test test/card_shots.dart --dart-define=SHOTS_DIR=<abs dir> --dart-define=ICON_FONT=<…>/MaterialIcons-Regular.otf`.
+- **The final table polish** (owner's brief, 26 Sep 2026: "a FINAL GAMEPLAY UI POLISH PASS … POLISH, DON'T REDESIGN";
+  presentation only — the geometry, the card faces and every rule untouched). **Hierarchy**, Chaal over the pot over the
+  contributions: the pot's plinth (`_Pot`) hugs its pile and figure inside the fifth of the felt it used to fill whatever it
+  held (169dp round "6,800" on a 891dp phone, wider and darker than the Chaal key; about 95 now — only a figure past the fifth
+  shrinks); the viewer's own bet badge is scaled `_Felt.myBetScale` 1.1 of their pod (1.22, whose figure was 14dp at 891, the
+  Chaal key's name size) and stands over their cards on a rim seat's terms (`myBetShown`: in the hand, or beaten while the
+  showdown is on show — a packed hand wore a live-looking "BLIND 400" over its PACKED plate); `KeyPulse.still` 0.12 (0.18)
+  against a primary breath of `breathLow`..`breathHigh` 0.22..0.40 (0.16..0.40), so Chaal's faintest glow outshines every other
+  lit key; Pack's edge the error ink at the live-hairline alpha (0.55; glyph and name keep the red); Force Sideshow
+  `KeyRole.special` in the hammer's copper (`hammerInkOn`), as Missile wears its coral — the brief's "SPECIAL/CONDITIONAL",
+  where the 25 Sep brief had it secondary. **Turn**: the ring round the pod on turn, and round its picture, draws its edge by
+  day in `AppTheme.goldOnLight` (reddening as the beat does), where champagne measured 1.0–1.3:1 on the pale room, rail and
+  cloths — by night the beat, as before; its faintest edge `TableAmbient.turnEdgeFloor` 0.62 by night, 0.85 by day (3:1 on the
+  room and rail, 2.2:1 on the palest cloths' edge). **Cards**: `HandFan.step` 0.54 (0.58) — a little more overlap, every index
+  clear, the box and everything round it unchanged. **Sideshow**: the key keeps naming the player while the viewer's own request
+  waits (`room.sideshow`), dead; its thread and the Force Sideshow's (`_SideshowLink`) paint on the cloth under the tag, the pot
+  and every seat, where they had scored through "In Pot", bet badges and stacks. Left as recorded: the Shop key's gold, the seat
+  ring, the poker felt's own pot bar. `test/table_final_polish_test.dart` (in Inter: the test font's em-wide glyphs overflow a
+  real pot), the brief's two other hands in `premium_cards_test.dart`, scenes 33 (6♠ 8♦ Q♥), 34 (K♣ 2♣ 7♠) and 35 (a sideshow
+  waiting on its answer).
 - **Variation tables** (owner, 18 Sep 2026; server side §6.1/§6.4). Everything is drawn from `room:state.variation`
   (`VariationState` in `dtos.dart`; `GameState.variation`, `variationSelecting`, `variationIsMine`, `shownVariation`,
   `shownTurnUp`) — the two `game:variation*` events only say the same thing a moment sooner, so a reconnect mid-window

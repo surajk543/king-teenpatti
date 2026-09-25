@@ -189,31 +189,34 @@ void chatHistory(GameState state) {
 }
 
 /// The viewer's seen turn with Sideshow and Force Sideshow on offer — every
-/// kind of key on the console lit at once — holding [cards].
-RoomState seenTurnRoom({List<String> cards = const ['As', 'Kd', 'Qh']}) =>
-    _room(
-      category: 'seen',
-      maxPot: 2000000,
-      stake: 400,
-      turnSeat: 0,
-      seats: _seenSeats(),
-      you: _you(
-        blind: false,
-        cards: cards,
-        blindMovesLeft: 0,
-        canMissile: true,
-        options: {
-          'canSee': false,
-          'canPack': true,
-          'canSideshow': true,
-          'canForceSideshow': true,
-          'sideshowWith': 'Vikramaditya',
-          'raiseSteps': [800, 1600],
-          'chips': 245000,
-          'currentStake': 400,
-        },
-      ),
-    );
+/// kind of key on the console lit at once — holding [cards], over [pot].
+RoomState seenTurnRoom({
+  List<String> cards = const ['As', 'Kd', 'Qh'],
+  int pot = 6800,
+}) => _room(
+  category: 'seen',
+  maxPot: 2000000,
+  pot: pot,
+  stake: 400,
+  turnSeat: 0,
+  seats: _seenSeats(),
+  you: _you(
+    blind: false,
+    cards: cards,
+    blindMovesLeft: 0,
+    canMissile: true,
+    options: {
+      'canSee': false,
+      'canPack': true,
+      'canSideshow': true,
+      'canForceSideshow': true,
+      'sideshowWith': 'Vikramaditya',
+      'raiseSteps': [800, 1600],
+      'chips': 245000,
+      'currentStake': 400,
+    },
+  ),
+);
 
 /// Somebody else's turn at a blind table: nothing on the console to press.
 RoomState opponentTurnRoom({int handNo = 7, String roomId = 'r1'}) => _room(
@@ -572,7 +575,54 @@ final tableScenes = <TableScene>[
     '32-cards-Ts-Jc-Qh',
     (s) => s.handleState(seenTurnRoom(cards: const ['Ts', 'Jc', 'Qh'])),
   ),
+  // The final table polish (26 Sep 2026): the brief's two other hands, on the
+  // viewer's turn, and the sideshow the viewer has asked for while it waits
+  // on its answer — the key still naming who it is with.
+  TableScene(
+    '33-cards-6s-8d-Qh',
+    (s) => s.handleState(seenTurnRoom(cards: const ['6s', '8d', 'Qh'])),
+  ),
+  TableScene(
+    '34-cards-Kc-2c-7s',
+    (s) => s.handleState(seenTurnRoom(cards: const ['Kc', '2c', '7s'])),
+  ),
+  TableScene(
+    '35-sideshow-waiting',
+    (s) => s.handleState(sideshowWaitingRoom()),
+  ),
 ];
+
+/// The viewer has asked Vikramaditya, on their right, for a sideshow and is
+/// waiting on the answer: still on turn, every move off until it comes (the
+/// server's `you.options` while a request stands), and the link drawn from
+/// their seat to his.
+RoomState sideshowWaitingRoom() => _room(
+  category: 'seen',
+  maxPot: 2000000,
+  turnSeat: 0,
+  seats: _seenSeats(),
+  you: _you(
+    blind: false,
+    cards: const ['Jc', 'Jd', '4s'],
+    blindMovesLeft: 0,
+    options: {
+      'canSee': false,
+      'canPack': false,
+      'canSideshow': false,
+      'canForceSideshow': false,
+      'raiseSteps': <int>[],
+      'chips': 245000,
+      'currentStake': 400,
+    },
+  ),
+  sideshow: {
+    'fromUserId': 'u0',
+    'fromSeat': 0,
+    'toUserId': 'u4',
+    'toSeat': 4,
+    'expiresAt': _now + 4000,
+  },
+);
 
 /// The 5-Card variation block, FIVE_CARD chosen by the player across the
 /// table.

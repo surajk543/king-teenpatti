@@ -845,7 +845,8 @@ void main() {
         // The fan of the premium-card brief (25 Sep 2026; until then an 18%
         // overlap with the right-hand card on top, which read as three cards
         // rather than one hand; tightened by the owner's refinement the same
-        // day): HandFan's — the cards 0.58 of a card apart, centred in the box
+        // day, and again in the final table polish, 26 Sep 2026): HandFan's —
+        // the cards [HandFan.step] of a card apart, centred in the box
         // a five-card hand needs, the middle card raised, a touch larger and
         // painted last, on top.
         final start = HandFan.startFor(3, cardH);

@@ -1479,17 +1479,19 @@ enum KeyRole {
   /// the console that breathes while it can be pressed. Never a second.
   primary,
 
-  /// Every other move — Sideshow, Force Sideshow, Show, and the stake's two
-  /// steppers ([StepperKey]): the machined plaque, with the gold hairline
-  /// while the move is on offer.
+  /// Every other move — Sideshow, Show, and the stake's two steppers
+  /// ([StepperKey]): the machined plaque, with the gold hairline while the
+  /// move is on offer.
   secondary,
 
   /// The move that gives the hand up — Pack: the plaque with its glyph, its
   /// name and its edge in the error ink, and nothing about it that beckons.
   destructive,
 
-  /// A move bought with something the player collects — Missile: the plaque
-  /// washed with its own colour (the missile's coral, [MachinedKey.edge]),
+  /// A move bought with something the player collects — Missile, and since
+  /// the final table polish (26 Sep 2026) Force Sideshow, a hammer's: the
+  /// plaque washed with its own colour (the missile's coral, the hammer's
+  /// copper, [MachinedKey.edge]),
   /// its hairline in that colour whether or not it is on offer, and a still
   /// glow of it while it is. Its name keeps the surface's ink, so it reads
   /// as every other name does; the colour is what says the key is not one
@@ -1615,11 +1617,20 @@ class MachinedKey extends StatelessWidget {
         : destructive
         ? scheme.error
         : scheme.onSurface;
+    // A destructive key's edge is the error ink at the strength every live
+    // key's hairline has (final table polish, 26 Sep 2026: Pack "keep the
+    // destructive/red treatment but do not make it visually louder than
+    // necessary") — its glyph and its name say what it does; at 0.55 its
+    // ring was the brightest edge on the console by night.
     final live = identity != null
         ? identity.withValues(alpha: 0.62)
         : edge ??
               (destructive
-                  ? scheme.error.withValues(alpha: 0.55)
+                  ? scheme.error.withValues(
+                      alpha: brightness == Brightness.dark
+                          ? AppTheme.hairlineLive
+                          : AppTheme.hairlineLiveLight,
+                    )
                   : AppTheme.hairlineColour(brightness, live: true));
     final halo = identity ?? edge ?? AppTheme.gold;
     // Struck gold, as the Shop key is, only while the primary key can be
@@ -2765,7 +2776,8 @@ const List<IconData> quickMessageIcons = [
   Icons.emoji_events_rounded, // That's how you win it.
   Icons.sentiment_dissatisfied_rounded, // I am unlucky.
   Icons.celebration_rounded, // You got lucky.
-  Icons.sentiment_very_dissatisfied_rounded, // Oops! I shouldn't have played it.
+  Icons
+      .sentiment_very_dissatisfied_rounded, // Oops! I shouldn't have played it.
   Icons.compare_arrows_rounded, // Please take sideshow.
   Icons.visibility_rounded, // Please take show.
   Icons.swap_horiz_rounded, // Switch Table.
@@ -3221,6 +3233,17 @@ class KeyPulse extends StatefulWidget {
   /// were the console competing with itself.
   final bool breathe;
 
+  /// The glow's strength, as the alpha of its colour: [still] round a key
+  /// that holds still, and between [breathLow] and [breathHigh] round the one
+  /// that breathes. The breathing key's faintest glow outshines every still
+  /// one (final table polish, 26 Sep 2026: Chaal "should clearly stand above
+  /// secondary actions"): it used to fall to 0.16 while a secondary key held
+  /// 0.18, so for a moment of every breath Sideshow glowed more than Chaal.
+  /// The still glow is quieter than it was, and the breath shallower.
+  static const double still = 0.12;
+  static const double breathLow = 0.22;
+  static const double breathHigh = 0.40;
+
   @override
   State<KeyPulse> createState() => _KeyPulseState();
 }
@@ -3282,10 +3305,12 @@ class _KeyPulseState extends State<KeyPulse>
         if (!widget.alive) {
           glow = const BoxDecoration();
         } else if (!widget.breathe) {
-          glow = _glow(0.18);
+          glow = _glow(KeyPulse.still);
         } else {
           final t = Motion.breathe.transform(_pulse.value);
-          glow = _glow(0.16 + 0.24 * t);
+          glow = _glow(
+            KeyPulse.breathLow + (KeyPulse.breathHigh - KeyPulse.breathLow) * t,
+          );
         }
         return DecoratedBox(decoration: glow, child: child);
       },

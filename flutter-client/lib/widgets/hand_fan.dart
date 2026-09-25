@@ -11,8 +11,10 @@ import 'playing_card.dart';
 /// **One hand, not three cards** (premium-card brief, 25 Sep 2026: "controlled
 /// overlap so the three cards read as one hand"; tightened the same day, the
 /// owner's refinement: "left −4°, centre 0°, right +4° … increase the overlap
-/// slightly"). Three cards stand [step] of a card apart — each side card shows
-/// its outer 58%, its index, its corner pip and part of its centre pip — the
+/// slightly"; and again in the final table polish, 26 Sep 2026: "slightly
+/// increase overlap between adjacent cards … keep the hand visually compact").
+/// Three cards stand [step] of a card apart — each side card shows its outer
+/// 54%, its index, its corner pip and part of its centre pip — the
 /// left one turned [tilt] out one way, the right one as far the other, the
 /// middle one upright, raised [proud], a touch larger ([topScale]) and ON TOP,
 /// the one card whose face is whole. Because the middle card covers its
@@ -45,8 +47,12 @@ abstract final class HandFan {
   /// (`Dim.handH`).
   static const double cardScale = 1.05;
 
-  /// Between the cards of a hand of three, in card widths.
-  static const double step = 0.58;
+  /// Between the cards of a hand of three, in card widths: 0.54, a step
+  /// tighter than the 0.58 it was (0.62 before that). Every index still
+  /// stands clear of the card over it at every phone size
+  /// (test/premium_cards_test.dart); the box, which is the five-card run's,
+  /// is unchanged, so nothing round the hand moves.
+  static const double step = 0.54;
 
   /// First card to last of a hand of four or five, in card widths.
   static const double wideRun = 1.52;

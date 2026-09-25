@@ -469,6 +469,18 @@ abstract final class TableAmbient {
   /// — still the one ring on the felt, and still answerable at a glance.
   static const Duration turnBreath = Duration(milliseconds: 1150);
 
+  /// How faint the edge of the ring round the pod on turn gets at the bottom
+  /// of its breath, as an alpha of its colour: 0.62 by night, where
+  /// champagne on obsidian and the dark cloths is still 4.7:1 or more there;
+  /// 0.85 by day, where the deeper gold the light table draws it in
+  /// ([AppTheme.goldOnLight]) keeps 3:1 against the pale room and the rail
+  /// the pods stand on, and 2.2:1 or more on the palest cloths' deepest edge
+  /// — the champagne it replaced was 1.0 to 1.3:1 on all of them (final
+  /// table polish, 26 Sep 2026: "light/dark theme contrast"). A shallower
+  /// breath by day, and a calmer one; its stroke still breathes.
+  static double turnEdgeFloor(Brightness b) =>
+      b == Brightness.dark ? 0.62 : 0.85;
+
   /// The viewer's own pod — the YOU card — glows at three quarters of a rim
   /// seat's strength (owner's brief, 25 Sep 2026: "Reduce its ambient glow
   /// intensity by approximately 20–30%. Keep: gold/orange active border"):
