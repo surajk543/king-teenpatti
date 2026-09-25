@@ -64,6 +64,60 @@ class LobbyScreen extends StatefulWidget {
 class _LobbyScreenState extends State<LobbyScreen> {
   _EndPanel _panel = _EndPanel.stats;
 
+  /// The rail's level as last drawn ('' the front, 'teen_patti' inside an
+  /// engine, 'teen_patti:seen' inside a category), which way the last change
+  /// of level went, and whether one has happened since the lobby appeared —
+  /// what [_railTransition] and the cards' [_Entrance] read.
+  String? _shownLevel;
+  bool _levelForward = true;
+  bool _levelChanged = false;
+
+  /// How far a level slides as it gives way, as a share of the rail's width.
+  static const double _railShift = 0.06;
+
+  static int _levelDepth(String level) =>
+      level.isEmpty ? 0 : ':'.allMatches(level).length + 1;
+
+  /// How one level of the rail gives way to the next: ONE movement along the
+  /// rail's own axis (owner, 26 Sep 2026: "when I click the Teen Patti card and
+  /// go to Seen, that transition is not smooth"). Going in, the new level comes
+  /// in from the right while the old one leaves to the left, and Back mirrors
+  /// it. The old level is gone in the first 30% of the time and the new one
+  /// fades in over the rest, so the two never stand over each other (a
+  /// fade-through, where the old cross-fade left the rail empty while the new
+  /// cards waited out their stagger), and the new level's cards come in WITH
+  /// it rather than one after another ([_Entrance.settled]); the lobby's first
+  /// appearance keeps its stagger. The rail moves as one layer
+  /// (RepaintBoundary), so a frame of the transition only moves and fades it.
+  ///
+  /// Given to the switcher as a fresh closure every build on purpose: a
+  /// switcher re-wraps its children only when its builder changes, and that is
+  /// what turns the leaving level's transition, built when it came in, into a
+  /// leaving one at the moment the level changes.
+  Widget _railTransition(Widget child, Animation<double> animation) {
+    final incoming = child.key == ValueKey('lobby-rail:$_shownLevel');
+    final away =
+        (_levelForward ? 1.0 : -1.0) * (incoming ? 1.0 : -1.0) * _railShift;
+    return FadeTransition(
+      opacity: animation.drive(
+        CurveTween(
+          curve: incoming
+              ? const Interval(0.3, 1, curve: Curves.easeOut)
+              : const Interval(0.7, 1, curve: Curves.easeIn),
+        ),
+      ),
+      child: SlideTransition(
+        position: animation.drive(
+          Tween<Offset>(
+            begin: Offset(away, 0),
+            end: Offset.zero,
+          ).chain(CurveTween(curve: Motion.emphasized)),
+        ),
+        child: RepaintBoundary(child: child),
+      ),
+    );
+  }
+
   /// The private card's code field. Owned here because the rail is what has
   /// to move while it has focus: the lobby is not resized for the keyboard, so
   /// the rail lifts itself instead, and only for that one field.
@@ -119,7 +173,8 @@ class _LobbyScreenState extends State<LobbyScreen> {
     // The rail is rebuilt whenever the server changes what it offers, so the
     // entrance animation is keyed off the card's place in the row.
     var slot = 0;
-    Widget entering(Widget child) => _Entrance(index: slot++, child: child);
+    Widget entering(Widget child) =>
+        _Entrance(index: slot++, settled: _levelChanged, child: child);
 
     // The milestone chip's height, measured from the two lines it holds at the
     // current text scale: the rail keeps a band this tall clear at its foot,
@@ -162,6 +217,17 @@ class _LobbyScreenState extends State<LobbyScreen> {
     final category = categories.contains(state.lobbyCategory)
         ? state.lobbyCategory
         : null;
+    // Which way the rail moves when the level changes: deeper is forward, Back
+    // is backward (_railTransition). The first level drawn is the lobby's own
+    // entrance, with its stagger.
+    final level = [?engine, ?category].join(':');
+    if (_shownLevel == null) {
+      _shownLevel = level;
+    } else if (level != _shownLevel) {
+      _levelForward = _levelDepth(level) >= _levelDepth(_shownLevel!);
+      _shownLevel = level;
+      _levelChanged = true;
+    }
     // The open level's colour, let into the room as its ambient light (owner,
     // 24 Sep 2026: "the glow should feel like ambient lighting behind the
     // UI"): nothing at the front, where every mode stands side by side; the
@@ -307,7 +373,6 @@ class _LobbyScreenState extends State<LobbyScreen> {
                                 : cards.length,
                             backTile: backTile,
                           );
-                          final level = [?engine, ?category].join(':');
                           final rail = Center(
                             // A level whose cards are another size than the
                             // last one's eases to it while the two cross-fade,
@@ -329,9 +394,9 @@ class _LobbyScreenState extends State<LobbyScreen> {
                               // key that changed with it would restart this
                               // fade once a second.
                               child: AnimatedSwitcher(
-                                duration: Motion.base,
-                                switchInCurve: Motion.standard,
-                                switchOutCurve: Motion.standard,
+                                duration: Motion.slow,
+                                transitionBuilder: (child, animation) =>
+                                    _railTransition(child, animation),
                                 child: ListView(
                                   // 'lobby-rail:' at the front,
                                   // 'lobby-rail:teen_patti' inside an engine,
@@ -5350,11 +5415,17 @@ class _Entrance extends StatefulWidget {
     required this.index,
     required this.child,
     this.axis = Axis.horizontal,
+    this.settled = false,
   });
 
   final int index;
   final Widget child;
   final Axis axis;
+
+  /// Already in place: a card that arrives with a change of the lobby's level
+  /// comes in with the level's own transition (_railTransition) instead of
+  /// making an entrance of its own.
+  final bool settled;
 
   @override
   State<_Entrance> createState() => _EntranceState();
@@ -5365,11 +5436,13 @@ class _EntranceState extends State<_Entrance>
   late final AnimationController _c = AnimationController(
     vsync: this,
     duration: Motion.enter,
+    value: widget.settled ? 1 : 0,
   );
 
   @override
   void initState() {
     super.initState();
+    if (widget.settled) return;
     // Capped, so a long rail does not take a noticeable age to finish.
     final delay = Duration(
       milliseconds: (widget.index * Motion.stagger.inMilliseconds).clamp(
