@@ -36,7 +36,7 @@ test.after(closeDb);
 // (they belonged to the per-bet model) and must not appear in a fresh schema.
 const REASONS = new Set([
   'welcome_bonus', 'hand_win', 'hand_loss', 'hand_packed', 'hand_left', 'milestone_reward', 'timed_bonus', 'daily_bonus',
-  'lucky_draw', 'picture_purchase', 'table_picture_purchase', 'test_fixture',
+  'lucky_draw', 'picture_purchase', 'table_picture_purchase', 'emoji_purchase', 'test_fixture',
 ]);
 const CHECKPOINT_REASONS = new Set(['hand_win', 'hand_loss', 'hand_packed', 'hand_left']);
 
@@ -88,6 +88,12 @@ test('every ledger row has a known reason, a balance that follows the running to
     if (row.reason === 'table_picture_purchase') {
       assert.ok(row.delta < 0, 'buying a table picture only ever takes chips');
       assert.ok(row.action_id?.startsWith(`table:${row.user_id}:`), 'a table picture purchase carries its own action id');
+    }
+    // And so is a chip-priced emoji (26 Sep 2026): action_id
+    // emoji:<user>:<emoji>:<n>, n counting that pair's purchases.
+    if (row.reason === 'emoji_purchase') {
+      assert.ok(row.delta < 0, 'buying an emoji only ever takes chips');
+      assert.ok(row.action_id?.startsWith(`emoji:${row.user_id}:`), 'an emoji purchase carries its own action id');
     }
     // A Teen Patti win pays; a poker win may be a split that returns exactly
     // the stake (delta 0), or a 3-Card Poker push — never a loss.
@@ -163,8 +169,12 @@ test('PostgreSQL holds no game state at all: money, audit, accounts and table co
   // hand. lucky_draws, lucky_draw_slots and user_lucky_draws (24 Sep 2026) are
   // the Lucky Draw: the draws and their prizes, configuration read on each
   // request, and every spin — an audit a spin writes once, in the same
-  // transaction as its prize, and nothing a table reads. The list is exact
-  // rather than a minimum, so a new table has to be argued for here first.
+  // transaction as its prize, and nothing a table reads. emojis and
+  // user_emojis (26 Sep 2026) are the emoji catalogue and who has bought
+  // which — a catalogue and receipts, the profile pictures' shape again; a
+  // sent emoji is a chat line, and chat lives with the room in Redis. The list
+  // is exact rather than a minimum, so a new table has to be argued for here
+  // first.
   //
   // table_engines, table_categories, table_settings and table_configs (owner,
   // 23 Sep 2026: "all table related config store in database") are
@@ -185,9 +195,9 @@ test('PostgreSQL holds no game state at all: money, audit, accounts and table co
     assert.ok(!tables.includes(retired), `${retired} is game state and must not exist`);
   }
   assert.deepEqual(tables, [
-    'chip_ledger', 'diamond_purchases', 'hammer_purchases', 'hammer_spends', 'lucky_draw_slots', 'lucky_draws',
+    'chip_ledger', 'diamond_purchases', 'emojis', 'hammer_purchases', 'hammer_spends', 'lucky_draw_slots', 'lucky_draws',
     'missile_purchases', 'missile_spends', 'profile_pictures', 'table_categories', 'table_configs', 'table_engines',
-    'table_pictures', 'table_settings', 'user_lucky_draws', 'user_milestones', 'user_profile_pictures',
+    'table_pictures', 'table_settings', 'user_emojis', 'user_lucky_draws', 'user_milestones', 'user_profile_pictures',
     'user_table_choice', 'user_table_pictures', 'users',
   ], `the schema must hold money, audit, accounts, the picture catalogues and table configuration only, got ${tables.join(', ')}`);
   // Configuration, by construction: no column of the four refers to a room, a

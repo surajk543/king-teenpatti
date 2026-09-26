@@ -150,10 +150,12 @@ String? forcedSideshowLine(
 /// are all decided by the server; this just relays intent and republishes what
 /// comes back.
 class GameState extends ChangeNotifier {
-  GameState({String? serverUrl})
+  /// [connection] is for tests: a stand-in socket that records what is sent
+  /// (an emoji, say) without a server. The app leaves it null.
+  GameState({String? serverUrl, @visibleForTesting GameConnection? connection})
     : serverUrl = serverUrl ?? defaultServerUrl,
       _api = ApiClient(serverUrl ?? defaultServerUrl),
-      _conn = GameConnection(serverUrl ?? defaultServerUrl) {
+      _conn = connection ?? GameConnection(serverUrl ?? defaultServerUrl) {
     _api.onAccountDisabled = _accountWasDisabled;
   }
 
@@ -275,6 +277,11 @@ class GameState extends ChangeNotifier {
   /// can lay on their own table, loaded beside [pictures].
   List<TablePicture> tablePictures = const [];
 
+  /// The emoji catalogue (owner, 26 Sep 2026): animated emojis a player can
+  /// own and send at a table, loaded beside [pictures] — anonymously at
+  /// start, with the token at every sign-in — so `owned` is this player's.
+  List<EmojiItem> emojis = const [];
+
   String? loginError;
   String? notice;
   bool busy = false;
@@ -373,6 +380,22 @@ class GameState extends ChangeNotifier {
 
   static const bubbleFor = Duration(seconds: 8);
 
+  /// The emoji each player last sent, while it still plays over their seat
+  /// (owner, 26 Sep 2026) — in the chat bubble's place, and apart from
+  /// [saidRecently]: an emoji is a moment, not a sentence, so it holds for
+  /// [emojiBubbleFor] rather than [bubbleFor], and while it plays it stands
+  /// where the player's words would.
+  final Map<String, ChatMessage> emojiShown = {};
+  final Map<String, Timer> _emojiTimers = {};
+
+  /// An emoji sent while the player's previous one was still playing — the
+  /// newest only, as [_bubbleQueue] keeps for words.
+  final Map<String, ChatMessage> _emojiWaiting = {};
+
+  /// How long an emoji plays over its sender's seat (owner, 26 Sep 2026: "for
+  /// emoji keep the timing 5 seconds instead of 4").
+  static const emojiBubbleFor = Duration(seconds: 5);
+
   /// Players this viewer has muted, by user id.
   ///
   /// Deliberately small: it is **this client, this table, this sitting**.
@@ -407,6 +430,10 @@ class GameState extends ChangeNotifier {
     _bubbleTimers.remove(userId)?.cancel();
     _bubbleQueue.remove(userId);
     saidRecently.remove(userId);
+    // Their emoji goes with their words: it is a chat line like any other.
+    _emojiTimers.remove(userId)?.cancel();
+    _emojiWaiting.remove(userId);
+    emojiShown.remove(userId);
     notifyListeners();
   }
 
@@ -1206,40 +1233,7 @@ class GameState extends ChangeNotifier {
       // the cue that they changed (a draw).
       _conn.onPokerCards.listen((_) => notifyListeners()),
       _conn.onPokerAction.listen(handlePokerAction),
-      _conn.onChat.listen((m) {
-        // A blocked player's line is dropped here, before it can raise a
-        // badge, bubble over their seat or sit in the drawer. The server is
-        // not told and keeps sending: blocking is this viewer's own view of
-        // the table, not a report.
-        if (isBlocked(m.userId)) return;
-        chat.add(m);
-        // The room keeps at most a hundred messages, and so does this.
-        if (chat.length > 100) chat.removeAt(0);
-        // Only other players' lines are unread. The server echoes the viewer's
-        // own message back, and it lands after the chat drawer has closed on
-        // sending (a quick message never opens the chat drawer at all), so
-        // counting it raised a badge for something they had just sent.
-        if (m.userId != user?.id) unreadChat++;
-
-        // Show it over the sender's seat for a moment, so a table that is
-        // talking is visible without opening the chat. If their last line is
-        // still up, this one waits its turn rather than cutting it short.
-        //
-        // At most ONE line waits. A bubble holds for 8s and a player may send
-        // every 4s, so an unbounded queue drains slower than it fills and the
-        // bubble drifts further behind real time with every message — a
-        // chatty player would end up with the felt showing something they
-        // said a minute ago. Keeping only the newest bounds how stale a
-        // bubble can be to one hold. The full conversation is in the chat
-        // drawer, in order and complete; the bubble is a glance, not a log.
-        if (saidRecently.containsKey(m.userId)) {
-          _bubbleQueue[m.userId] = [m];
-        } else {
-          _showBubble(m);
-        }
-
-        notifyListeners();
-      }),
+      _conn.onChat.listen(handleChat),
       _conn.onChatHistory.listen((h) {
         // History is re-sent on a reconnect to the SAME table, where the
         // blocks are still standing, so it is filtered like a live message.
@@ -1262,6 +1256,10 @@ class GameState extends ChangeNotifier {
         notice = refusalText(e.code, e.message);
         // A refused rejoin is an answer too: there is nothing to resume.
         if (resuming) _endResume();
+        // An emoji refused as locked, retired or unknown means the catalogue
+        // this phone holds is out of date — a rental ran out, a row was
+        // retired — so the emoji page is re-read to show it as it now is.
+        if (_emojiStale(e.code)) unawaited(_loadEmojis());
         notifyListeners();
       }),
       _conn.onConnected.listen((up) {
@@ -1269,6 +1267,57 @@ class GameState extends ChangeNotifier {
         notifyListeners();
       }),
     ]);
+  }
+
+  /// A chat line from the table — words, or an emoji (owner, 26 Sep 2026).
+  ///
+  /// A blocked player's line is dropped here, before it can raise a badge,
+  /// bubble over their seat or sit in the drawer. The server is not told and
+  /// keeps sending: blocking is this viewer's own view of the table, not a
+  /// report.
+  @visibleForTesting
+  void handleChat(ChatMessage m) {
+    if (isBlocked(m.userId)) return;
+    chat.add(m);
+    // The room keeps at most a hundred messages, and so does this.
+    if (chat.length > 100) chat.removeAt(0);
+    // Only other players' lines are unread. The server echoes the viewer's
+    // own message back, and it lands after the chat drawer has closed on
+    // sending (a quick message never opens the chat drawer at all), so
+    // counting it raised a badge for something they had just sent.
+    if (m.userId != user?.id) unreadChat++;
+
+    // An emoji plays over the sender's seat, in the bubble's place, for a
+    // few seconds — on every phone at the table, the sender's too — and a
+    // second one sent while it plays waits for it, as a line of words does.
+    if (m.isEmoji) {
+      if (emojiShown.containsKey(m.userId)) {
+        _emojiWaiting[m.userId] = m;
+      } else {
+        _showEmoji(m);
+      }
+      notifyListeners();
+      return;
+    }
+
+    // Show it over the sender's seat for a moment, so a table that is
+    // talking is visible without opening the chat. If their last line is
+    // still up, this one waits its turn rather than cutting it short.
+    //
+    // At most ONE line waits. A bubble holds for 8s and a player may send
+    // every 4s, so an unbounded queue drains slower than it fills and the
+    // bubble drifts further behind real time with every message — a chatty
+    // player would end up with the felt showing something they said a minute
+    // ago. Keeping only the newest bounds how stale a bubble can be to one
+    // hold. The full conversation is in the chat drawer, in order and
+    // complete; the bubble is a glance, not a log.
+    if (saidRecently.containsKey(m.userId)) {
+      _bubbleQueue[m.userId] = [m];
+    } else {
+      _showBubble(m);
+    }
+
+    notifyListeners();
   }
 
   /// A hand's reveal, or its end.
@@ -1838,6 +1887,28 @@ class GameState extends ChangeNotifier {
     });
   }
 
+  /// Plays [m]'s emoji over its sender's seat for [emojiBubbleFor], then the
+  /// one waiting behind it, if any.
+  void _showEmoji(ChatMessage m) {
+    emojiShown[m.userId] = m;
+    _emojiTimers[m.userId]?.cancel();
+    _emojiTimers[m.userId] = Timer(emojiBubbleFor, () {
+      emojiShown.remove(m.userId);
+      final waiting = _emojiWaiting.remove(m.userId);
+      if (waiting != null) {
+        _showEmoji(waiting);
+      } else {
+        _emojiTimers.remove(m.userId);
+      }
+      notifyListeners();
+    });
+  }
+
+  /// The emoji playing over [userId]'s seat right now, or null — for the
+  /// seat pods, which play it in their bubble's place.
+  ChatEmoji? emojiOver(String? userId) =>
+      userId == null ? null : emojiShown[userId]?.emoji;
+
   /// Drops every bubble and everything queued behind one — for leaving a
   /// table, where the people who said them are no longer in view.
   void _clearBubbles() {
@@ -1847,6 +1918,12 @@ class GameState extends ChangeNotifier {
     _bubbleTimers.clear();
     _bubbleQueue.clear();
     saidRecently.clear();
+    for (final t in _emojiTimers.values) {
+      t.cancel();
+    }
+    _emojiTimers.clear();
+    _emojiWaiting.clear();
+    emojiShown.clear();
   }
 
   // ------------------------------------------------------------ seat check
@@ -2096,6 +2173,10 @@ class GameState extends ChangeNotifier {
     // the same moments want both, and a failure of one must not empty the
     // other, so they are two requests.
     unawaited(_loadTablePictures());
+    // And the emojis (owner, 26 Sep 2026), at the same moments for the same
+    // reason: `owned` is per viewer, anonymous at start and this player's
+    // once there is a token.
+    unawaited(_loadEmojis());
     try {
       pictures = await _api.profilePictures(_token);
       // Pull the faces down as soon as we know what they are, so the picker
@@ -2306,6 +2387,88 @@ class GameState extends ChangeNotifier {
       return PictureBuyResult.notEnough;
     }
     notice = e.code == 'seated' ? t.tableChipsLobbyOnly : e.message;
+    return PictureBuyResult.refused;
+  }
+
+  // --------------------------------------------------------------- emojis
+
+  /// Loads the emoji catalogue and warms every emoji into [PictureCache], so
+  /// the store, the table's emoji page and a seat playing one draw it from
+  /// the phone: a URL is fetched once and kept.
+  ///
+  /// The answer is dropped if the session changed while it was asked — a
+  /// sign-out, or somebody else signing in — since `owned` is per viewer.
+  Future<void> _loadEmojis() async {
+    final token = _token;
+    try {
+      final got = await _api.emojis(token: token);
+      if (_token != token) return;
+      emojis = got;
+      PictureCache.warm(got.map((e) => absoluteUrl(e.url)).nonNulls);
+      notifyListeners();
+    } catch (_) {
+      // The Emojis shelf and the table's emoji page keep what they had.
+    }
+  }
+
+  /// Re-reads the emoji catalogue: after the store is opened on it, and when
+  /// a send is refused because this phone's copy was out of date.
+  Future<void> reloadEmojis() => _loadEmojis();
+
+  /// Whether a refusal says the emoji catalogue held here is out of date.
+  static bool _emojiStale(String? code) =>
+      code == 'emoji_locked' ||
+      code == 'emoji_retired' ||
+      code == 'unknown_emoji';
+
+  /// Set while an emoji is being bought, for that tile's spinner.
+  int? buyingEmoji;
+
+  /// Buys a premium emoji. Owning it is all there is — an emoji is never
+  /// worn — so one request, then the catalogue is re-read so the shelf and
+  /// the table's emoji page stop drawing a padlock on it.
+  Future<PictureBuyResult> buyEmoji(int id) async {
+    final token = _token;
+    if (token == null || buyingEmoji != null) {
+      return PictureBuyResult.refused;
+    }
+    buyingEmoji = id;
+    notifyListeners();
+    try {
+      final bought = await _api.buyEmoji(token, id);
+      user = bought.user;
+      await _loadEmojis();
+      return PictureBuyResult.bought;
+    } on ApiException catch (e) {
+      return emojiRefused(id, e);
+    } catch (_) {
+      notice = 'Could not reach the server.';
+      return PictureBuyResult.refused;
+    } finally {
+      buyingEmoji = null;
+      notifyListeners();
+    }
+  }
+
+  /// What a refused purchase of emoji [id] means to the player —
+  /// [pictureRefused]'s reading for the emoji shelf: a hammer or diamond
+  /// shortage (`emoji_unaffordable`) is the offer of that wallet's shelf,
+  /// which the caller makes; a chip-priced emoji refused at a table
+  /// (`seated`) is said in the player's language, and so is every other
+  /// emoji refusal ([refusalText]).
+  @visibleForTesting
+  PictureBuyResult emojiRefused(int id, ApiException e) {
+    final emoji = emojis.where((p) => p.id == id).firstOrNull;
+    if (e.code == 'emoji_unaffordable' &&
+        emoji != null &&
+        (emoji.pricedInHammers || emoji.pricedInDiamonds)) {
+      unawaited(refreshUser());
+      return PictureBuyResult.notEnough;
+    }
+    notice = e.code == 'seated'
+        ? t.emojiChipsLobbyOnly
+        : refusalText(e.code, e.message);
+    if (_emojiStale(e.code)) unawaited(_loadEmojis());
     return PictureBuyResult.refused;
   }
 
@@ -3196,6 +3359,11 @@ class GameState extends ChangeNotifier {
     // Sideshow, Force Sideshow, Missile or Show (24 Sep 2026).
     if (code == 'sideshow_pending') return t.sideshowPendingRefusal;
     if (code == 'pick_pending') return t.pickPendingRefusal;
+    // The emoji store and the table's emoji key (owner, 26 Sep 2026).
+    if (code == 'emoji_locked') return t.emojiLockedRefusal;
+    if (code == 'unknown_emoji') return t.emojiUnknownRefusal;
+    if (code == 'emoji_retired') return t.emojiRetiredRefusal;
+    if (code == 'emoji_unaffordable') return t.emojiUnaffordableRefusal;
     if (code == GameConnection.notConnected) return t.notConnected;
     if (code == 'over_entry_cap' || code == 'below_table_minimum') {
       // The server writes the limit with Western grouping ("500,000"); the
@@ -3707,13 +3875,39 @@ class GameState extends ChangeNotifier {
       return false;
     }
     _conn.sendChat(text.trim());
+    _startChatCooldown();
+    notifyListeners();
+    return true;
+  }
+
+  /// Sends emoji [id] to the table (owner, 26 Sep 2026) and starts the chat's
+  /// cooldown: an emoji IS a chat line — the server counts it against the
+  /// same limiter — so the two share one wait. False when nothing was sent:
+  /// the cooldown still running, or the connection down.
+  ///
+  /// Ownership is not checked here: the emoji page offers only what the
+  /// catalogue says is this player's, and the server checks again on every
+  /// send (`emoji_locked`).
+  bool sendEmoji(int id) {
+    if (!canChat) return false;
+    if (offline) {
+      notice = t.notConnected;
+      notifyListeners();
+      return false;
+    }
+    _conn.sendEmoji(id);
+    _startChatCooldown();
+    notifyListeners();
+    return true;
+  }
+
+  /// The wait after a chat line or an emoji goes out.
+  void _startChatCooldown() {
     _chatReadyAt = DateTime.now().add(chatCooldown);
     _chatCooldownTimer?.cancel();
     // The one-second ticker redraws the countdown; this makes the moment it
     // reaches zero exact rather than up to a second late.
     _chatCooldownTimer = Timer(chatCooldown, notifyListeners);
-    notifyListeners();
-    return true;
   }
 
   /// Places the bet the stepper is showing. Anything above the base rung is a
@@ -3909,6 +4103,9 @@ class GameState extends ChangeNotifier {
     _celebrationTimer?.cancel();
     _ticker?.cancel();
     for (final t in _bubbleTimers.values) {
+      t.cancel();
+    }
+    for (final t in _emojiTimers.values) {
       t.cancel();
     }
     for (final s in _subs) {

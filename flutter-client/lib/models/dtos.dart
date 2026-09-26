@@ -2191,18 +2191,154 @@ class ChatMessage {
     required this.displayName,
     required this.text,
     required this.at,
+    this.emoji,
   });
 
   final String userId;
   final String displayName;
+
+  /// What was said. On an emoji line, the emoji's NAME — so an app that knows
+  /// nothing of emojis still shows a word, not a blank line.
   final String text;
   final int at;
+
+  /// The emoji this line sends (owner, 26 Sep 2026: "that emoji message will
+  /// send to all players just like chat messages"), or null on a plain line —
+  /// the server leaves the key out of every line that is not one.
+  final ChatEmoji? emoji;
+
+  /// Whether this line is an emoji rather than words.
+  bool get isEmoji => emoji != null;
 
   factory ChatMessage.fromJson(Map<String, dynamic> j) => ChatMessage(
     userId: _str(j['userId']),
     displayName: _str(j['displayName']),
     text: _str(j['text']),
     at: _int(j['at']),
+    emoji: ChatEmoji.maybe(j['emoji']),
+  );
+}
+
+/// The emoji a chat line carries (`chat:message.emoji`): which one, what it
+/// is called, and the Lottie to play. Only what is needed to draw it — the
+/// price and the rental are the catalogue's ([EmojiItem]), not the line's.
+class ChatEmoji {
+  const ChatEmoji({
+    required this.id,
+    required this.name,
+    required this.url,
+    this.assetFormat = 'LOTTIE',
+  });
+
+  final int id;
+  final String name;
+
+  /// Server-relative or absolute, as sent.
+  final String url;
+
+  /// 'LOTTIE' — the only format an emoji comes in.
+  final String assetFormat;
+
+  factory ChatEmoji.fromJson(Map<String, dynamic> j) => ChatEmoji(
+    id: _int(j['id']),
+    name: _str(j['name']),
+    url: _str(j['url']),
+    assetFormat: _str(j['assetFormat']).isEmpty
+        ? 'LOTTIE'
+        : _str(j['assetFormat']),
+  );
+
+  /// The emoji of a line, or null when [raw] is not one — absent, null, not
+  /// an object, or naming no file to play. A line whose emoji cannot be drawn
+  /// is shown as the words it carries rather than as an empty bubble.
+  static ChatEmoji? maybe(Object? raw) {
+    if (raw is! Map) return null;
+    final emoji = ChatEmoji.fromJson(Map<String, dynamic>.from(raw));
+    return emoji.url.isEmpty ? null : emoji;
+  }
+}
+
+/// One row of the emoji catalogue (`GET /api/emojis`, owner 26 Sep 2026): an
+/// animated emoji a player can own and SEND at a table. The picture
+/// catalogue's shape ([ProfilePicture]) — the same FREE/PREMIUM rule, the
+/// same three wallets, the same rentals, `owned` decided by the server per
+/// viewer — except that an emoji is a Lottie and is never worn.
+class EmojiItem {
+  const EmojiItem({
+    required this.id,
+    required this.name,
+    required this.url,
+    this.assetFormat = 'LOTTIE',
+    this.currency = 'COIN',
+    this.type = 'FREE',
+    this.cost = 0,
+    this.durationDays = 0,
+    this.durationHours = 0,
+    this.sortOrder = 0,
+    required this.owned,
+    this.expiresAt = 0,
+  });
+
+  final int id;
+
+  /// What to call it — "Laughing".
+  final String name;
+
+  /// The Lottie JSON: server-relative ("/emojis/laugh.json") or absolute.
+  final String url;
+
+  /// 'LOTTIE'.
+  final String assetFormat;
+
+  /// Which wallet [cost] is paid from: [PictureCurrency.coin] (chips),
+  /// [PictureCurrency.diamond] or [PictureCurrency.hammer]. Kept as sent, so
+  /// a currency this build does not know is drawn as chips.
+  final String currency;
+
+  /// 'FREE' or 'PREMIUM'.
+  final String type;
+
+  /// In [currency]; 0 on a free emoji.
+  final int cost;
+
+  /// How long a purchase lasts; both 0 means for ever.
+  final int durationDays;
+  final int durationHours;
+
+  /// The catalogue's own order.
+  final int sortOrder;
+
+  /// Whether this player may send it: every free emoji, and the premium ones
+  /// they have bought whose rental is running. Decided by the server.
+  final bool owned;
+
+  /// Epoch ms this player's rental runs out; 0 when they do not own it, or
+  /// own it for ever.
+  final int expiresAt;
+
+  bool get free => type == 'FREE';
+  bool get locked => !owned;
+  bool get rented => durationDays > 0 || durationHours > 0;
+  bool get pricedInDiamonds => currency == PictureCurrency.diamond;
+  bool get pricedInHammers => currency == PictureCurrency.hammer;
+
+  factory EmojiItem.fromJson(Map<String, dynamic> j) => EmojiItem(
+    id: _int(j['id']),
+    name: _str(j['name']),
+    url: _str(j['url']),
+    assetFormat: _str(j['assetFormat']).isEmpty
+        ? 'LOTTIE'
+        : _str(j['assetFormat']),
+    currency: _str(j['currency']).isEmpty ? 'COIN' : _str(j['currency']),
+    type: _str(j['type']).isEmpty ? 'FREE' : _str(j['type']),
+    cost: _int(j['cost']),
+    durationDays: _int(j['durationDays']),
+    durationHours: _int(j['durationHours']),
+    sortOrder: _int(j['sortOrder']),
+    expiresAt: _int(j['expiresAt']),
+    // Absent reads as "not owned", as a picture's does: a free emoji is only
+    // ever sent with owned true.
+    owned: j['owned'] == true,
   );
 }
 

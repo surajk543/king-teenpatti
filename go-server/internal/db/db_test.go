@@ -204,6 +204,43 @@ func TestMigrationsAreVersionedOrderedAndSplitByKind(t *testing.T) {
 		t.Errorf("%s should seed the table pictures, after the profile pictures and before the table catalogue", migrations[1].File)
 	}
 
+	// The emoji store (owner, 26 Sep 2026): two more tables in the baseline,
+	// after the table pictures and before the ledger, and NO rows in the seed —
+	// the owner supplies the art and the rows are added then. Nothing of it
+	// touches users: user_emojis references it, which needs only the
+	// REFERENCES grant ops/DEPLOY.md §7 gives. An emoji is a Lottie and nothing
+	// else, priced by the pictures' FREE/PREMIUM rule in their three
+	// currencies.
+	if !inOrder(baseline, "CREATE TABLE IF NOT EXISTS user_table_choice", "CREATE TABLE IF NOT EXISTS emojis",
+		"CREATE TABLE IF NOT EXISTS user_emojis", "CREATE TABLE IF NOT EXISTS chip_ledger") {
+		t.Error("the baseline must create emojis then user_emojis, after the table pictures and before chip_ledger")
+	}
+	emojis := squash(createTableBody(t, baseline, "emojis"))
+	for _, want := range []string{
+		"asset_url TEXT NOT NULL UNIQUE", "CHECK (asset_format IN ('LOTTIE'))", "CHECK (currency IN ('COIN', 'DIAMOND', 'HAMMER'))",
+		"CHECK (type IN ('FREE', 'PREMIUM'))", "CONSTRAINT free_emoji_cost_check", "duration_hours INTEGER NOT NULL DEFAULT 0",
+	} {
+		if !strings.Contains(emojis, want) {
+			t.Errorf("CREATE TABLE emojis must declare %q:\n%s", want, emojis)
+		}
+	}
+	owned := squash(createTableBody(t, baseline, "user_emojis"))
+	for _, want := range []string{"user_id TEXT NOT NULL REFERENCES users (id) ON DELETE CASCADE",
+		"emoji_id BIGINT NOT NULL REFERENCES emojis (id) ON DELETE CASCADE", "PRIMARY KEY (user_id, emoji_id)"} {
+		if !strings.Contains(owned, want) {
+			t.Errorf("CREATE TABLE user_emojis must declare %q:\n%s", want, owned)
+		}
+	}
+	// The seed holds the owner's emojis (THE EMOJIS) and never anybody's
+	// ownership, and adds a row only where its asset_url is missing, so an
+	// owner's UPDATE survives every boot.
+	if strings.Contains(seed, "INTO user_emojis") {
+		t.Errorf("%s must seed no emoji ownership", migrations[1].File)
+	}
+	if strings.Contains(seed, "INTO emojis") && !strings.Contains(seed, "ON CONFLICT (asset_url) DO NOTHING;\n") {
+		t.Errorf("%s must add emojis ON CONFLICT (asset_url) DO NOTHING", migrations[1].File)
+	}
+
 	// The missile column and tables are the baseline's too (folded in from
 	// V1.0.2__missiles.sql on 14 Sep 2026), as are the new-account diamonds
 	// (from V1.0.2__new_account_diamonds.sql), the pictures' third currency and
@@ -328,8 +365,10 @@ func TestBootstrapCreatesEveryTableAndSetsSearchPathPerConnection(t *testing.T) 
 
 	// Exactly these tables: money and audit (users, chip_ledger and the
 	// purchase and spend records), the two picture catalogues (profile and
-	// table, with who owns and has laid what), and the four configuration
-	// tables — no game state (the baseline's header).
+	// table, with who owns and has laid what), the emoji catalogue and who
+	// owns which (26 Sep 2026), the Lucky Draw's three, and the four
+	// configuration tables — twenty-two, and no game state (the baseline's
+	// header).
 	rows, err := f.d.Pool.Query(f.ctx, `SELECT table_name FROM information_schema.tables
          WHERE table_schema = $1 AND table_type = 'BASE TABLE' ORDER BY table_name`, f.d.Schema)
 	if err != nil {
@@ -347,10 +386,10 @@ func TestBootstrapCreatesEveryTableAndSetsSearchPathPerConnection(t *testing.T) 
 	if err := rows.Err(); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"chip_ledger", "diamond_purchases", "hammer_purchases", "hammer_spends",
+	want := []string{"chip_ledger", "diamond_purchases", "emojis", "hammer_purchases", "hammer_spends",
 		"lucky_draw_slots", "lucky_draws", "missile_purchases", "missile_spends",
 		"profile_pictures", "table_categories", "table_configs", "table_engines", "table_pictures", "table_settings",
-		"user_lucky_draws", "user_milestones", "user_profile_pictures", "user_table_choice", "user_table_pictures", "users"}
+		"user_emojis", "user_lucky_draws", "user_milestones", "user_profile_pictures", "user_table_choice", "user_table_pictures", "users"}
 	if strings.Join(tables, ",") != strings.Join(want, ",") {
 		t.Fatalf("schema %s has tables\n %v\nwant\n %v", f.d.Schema, tables, want)
 	}

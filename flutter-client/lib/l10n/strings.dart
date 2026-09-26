@@ -213,6 +213,56 @@ class Strings {
   /// Tables shelf's blurb there.
   String get tablePokerNote => _('tablePokerNote');
 
+  // --- emojis (owner, 26 Sep 2026: animated emojis a player buys and sends
+  // to the whole table, like a chat line)
+
+  /// The store's Emojis shelf: its key, its title and its line.
+  String get storeTabEmojis => _('storeTabEmojis');
+  String get storeEmojisTitle => _('storeEmojisTitle');
+  String get storeEmojisBlurb => _('storeEmojisBlurb');
+
+  /// Said where the catalogue holds no emoji at all.
+  String get emojiShelfEmpty => _('emojiShelfEmpty');
+
+  /// The unlock question for an emoji, with the price written out by
+  /// [priceIn] and, for a rental, its term by [rentalTerm].
+  String get unlockEmojiTitle => _('unlockEmojiTitle');
+  String unlockEmojiBody(String name, String price) => _('unlockEmojiBody')
+      .replaceAll('{name}', name)
+      .replaceAll('{price}', price);
+  String unlockEmojiRentBody(String name, String price, String time) =>
+      _('unlockEmojiRentBody')
+          .replaceAll('{name}', name)
+          .replaceAll('{price}', price)
+          .replaceAll('{time}', time);
+
+  /// Said instead of asking when a chip-priced emoji is tapped at a table,
+  /// as [pictureChipsLobbyOnly] is for a face — and the server's `seated`.
+  String get emojiChipsLobbyOnly => _('emojiChipsLobbyOnly');
+
+  /// Said when an emoji the player owns is tapped in the store: it is sent
+  /// from the table, not from here.
+  String get emojiOwnedNote => _('emojiOwnedNote');
+
+  /// The table's emoji key and the drawer page it opens: its name, the line
+  /// under it, the heading over the locked ones, and the line where the
+  /// player owns none yet.
+  String get tableEmojis => _('tableEmojis');
+  String get emojiSendHint => _('emojiSendHint');
+  String get emojiUnlockMore => _('emojiUnlockMore');
+  String get emojiNoneOwned => _('emojiNoneOwned');
+
+  /// What a screen reader says for an emoji line in the chat.
+  String emojiSentBy(String name, String emoji) => _(
+    'emojiSentBy',
+  ).replaceAll('{name}', name).replaceAll('{emoji}', emoji);
+
+  /// The server's emoji refusals, by code.
+  String get emojiLockedRefusal => _('emojiLockedRefusal');
+  String get emojiUnknownRefusal => _('emojiUnknownRefusal');
+  String get emojiRetiredRefusal => _('emojiRetiredRefusal');
+  String get emojiUnaffordableRefusal => _('emojiUnaffordableRefusal');
+
   /// A price with its wallet's word: "50,000 chips", "5 diamonds", "1 hammer".
   /// [cost] arrives formatted for chips and diamonds; a hammer count is bare,
   /// and one hammer — and one diamond (23 Sep 2026: the four other languages
@@ -1203,6 +1253,25 @@ class Strings {
       'priceHammerOne': '1 hammer',
       'priceDiamondOne': '1 diamond',
       'tablePokerNote': 'Poker tables show no table picture — it will show at your next Teen Patti table.',
+      // Emojis (owner, 26 Sep 2026).
+      'storeTabEmojis': 'Emojis',
+      'storeEmojisTitle': 'Emojis',
+      'storeEmojisBlurb': 'Animated emojis to send to the whole table.',
+      'emojiShelfEmpty': 'No emojis yet.',
+      'unlockEmojiTitle': 'Unlock this emoji?',
+      'unlockEmojiBody': '{name} costs {price}. Unlock it now?',
+      'unlockEmojiRentBody': '{name} costs {price} and is yours for {time}. Unlock it now?',
+      'emojiChipsLobbyOnly': 'You can only buy a chip-priced emoji in the lobby.',
+      'emojiOwnedNote': 'This emoji is yours — send it with the emoji key at a table.',
+      'tableEmojis': 'Emojis',
+      'emojiSendHint': 'Tap an emoji to send it to the table.',
+      'emojiUnlockMore': 'Unlock more in the store',
+      'emojiNoneOwned': 'You have no emojis yet — unlock one below.',
+      'emojiSentBy': '{name} sent {emoji}',
+      'emojiLockedRefusal': 'Unlock this emoji in the store first.',
+      'emojiUnknownRefusal': 'That emoji does not exist.',
+      'emojiRetiredRefusal': 'That emoji is no longer available.',
+      'emojiUnaffordableRefusal': 'You do not have enough to unlock this emoji.',
       'storeTabDiamonds': 'Diamonds',
       'storeDiamondsTitle': 'Diamond Store',
       'storeDiamondsBlurb': 'Diamonds trade for missiles.',
@@ -1822,6 +1891,25 @@ class Strings {
       'priceHammerOne': '1 हथौड़ा',
       'priceDiamondOne': '1 हीरा',
       'tablePokerNote': 'पोकर टेबल पर टेबल पिक्चर नहीं दिखती — यह आपकी अगली तीन पत्ती टेबल पर दिखेगी।',
+      // Emojis (owner, 26 Sep 2026).
+      'storeTabEmojis': 'इमोजी',
+      'storeEmojisTitle': 'इमोजी',
+      'storeEmojisBlurb': 'पूरी टेबल को भेजने के लिए एनिमेटेड इमोजी।',
+      'emojiShelfEmpty': 'अभी कोई इमोजी नहीं है।',
+      'unlockEmojiTitle': 'यह इमोजी अनलॉक करें?',
+      'unlockEmojiBody': '{name} की कीमत {price} है। अभी अनलॉक करें?',
+      'unlockEmojiRentBody': '{name} की कीमत {price} है और यह {time} तक आपका है। अभी अनलॉक करें?',
+      'emojiChipsLobbyOnly': 'चिप्स की कीमत वाला इमोजी सिर्फ़ लॉबी में खरीदा जा सकता है।',
+      'emojiOwnedNote': 'यह इमोजी आपका है — इसे टेबल पर इमोजी बटन से भेजें।',
+      'tableEmojis': 'इमोजी',
+      'emojiSendHint': 'टेबल को भेजने के लिए किसी इमोजी पर टैप करें।',
+      'emojiUnlockMore': 'स्टोर में और अनलॉक करें',
+      'emojiNoneOwned': 'आपके पास अभी कोई इमोजी नहीं है — नीचे से एक अनलॉक करें।',
+      'emojiSentBy': '{name} ने {emoji} भेजा',
+      'emojiLockedRefusal': 'पहले स्टोर में यह इमोजी अनलॉक करें।',
+      'emojiUnknownRefusal': 'यह इमोजी मौजूद नहीं है।',
+      'emojiRetiredRefusal': 'यह इमोजी अब उपलब्ध नहीं है।',
+      'emojiUnaffordableRefusal': 'यह इमोजी अनलॉक करने के लिए आपके पास पर्याप्त नहीं है।',
       'storeTabDiamonds': 'हीरे',
       'storeDiamondsTitle': 'हीरा स्टोर',
       'storeDiamondsBlurb': 'हीरे देकर मिसाइलें लें।',
@@ -2422,6 +2510,25 @@ class Strings {
       'priceHammerOne': '1টি হাতুড়ি',
       'priceDiamondOne': '1টি হীরে',
       'tablePokerNote': 'পোকার টেবিলে টেবিল ছবি দেখা যায় না — এটি আপনার পরের তিন পাত্তি টেবিলে দেখা যাবে।',
+      // Emojis (owner, 26 Sep 2026).
+      'storeTabEmojis': 'ইমোজি',
+      'storeEmojisTitle': 'ইমোজি',
+      'storeEmojisBlurb': 'পুরো টেবিলে পাঠানোর জন্য অ্যানিমেটেড ইমোজি।',
+      'emojiShelfEmpty': 'এখনও কোনো ইমোজি নেই।',
+      'unlockEmojiTitle': 'এই ইমোজিটি আনলক করবেন?',
+      'unlockEmojiBody': '{name} এর দাম {price}। এখনই আনলক করবেন?',
+      'unlockEmojiRentBody': '{name} এর দাম {price} এবং এটি {time} আপনার। এখনই আনলক করবেন?',
+      'emojiChipsLobbyOnly': 'চিপসের দামের ইমোজি শুধু লবিতে কেনা যায়।',
+      'emojiOwnedNote': 'এই ইমোজিটি আপনার — টেবিলে ইমোজি বোতাম দিয়ে পাঠান।',
+      'tableEmojis': 'ইমোজি',
+      'emojiSendHint': 'টেবিলে পাঠাতে একটি ইমোজিতে ট্যাপ করুন।',
+      'emojiUnlockMore': 'স্টোরে আরও আনলক করুন',
+      'emojiNoneOwned': 'আপনার এখনও কোনো ইমোজি নেই — নিচে থেকে একটি আনলক করুন।',
+      'emojiSentBy': '{name} {emoji} পাঠিয়েছেন',
+      'emojiLockedRefusal': 'আগে স্টোরে এই ইমোজিটি আনলক করুন।',
+      'emojiUnknownRefusal': 'এই ইমোজিটি নেই।',
+      'emojiRetiredRefusal': 'এই ইমোজিটি আর পাওয়া যায় না।',
+      'emojiUnaffordableRefusal': 'এই ইমোজিটি আনলক করার মতো যথেষ্ট আপনার নেই।',
       'storeTabDiamonds': 'হীরে',
       'storeDiamondsTitle': 'হীরের দোকান',
       'storeDiamondsBlurb': 'হীরে দিয়ে মিসাইল নিন।',
@@ -3026,6 +3133,25 @@ class Strings {
       'priceHammerOne': '1 હથોડી',
       'priceDiamondOne': '1 હીરો',
       'tablePokerNote': 'પોકર ટેબલ પર ટેબલ ચિત્ર દેખાતું નથી — તે તમારા આગલા તીન પત્તી ટેબલ પર દેખાશે.',
+      // Emojis (owner, 26 Sep 2026).
+      'storeTabEmojis': 'ઇમોજી',
+      'storeEmojisTitle': 'ઇમોજી',
+      'storeEmojisBlurb': 'આખા ટેબલને મોકલવા માટે એનિમેટેડ ઇમોજી.',
+      'emojiShelfEmpty': 'હજી કોઈ ઇમોજી નથી.',
+      'unlockEmojiTitle': 'આ ઇમોજી અનલૉક કરવું છે?',
+      'unlockEmojiBody': '{name} ની કિંમત {price} છે. હમણાં અનલૉક કરવું છે?',
+      'unlockEmojiRentBody': '{name} ની કિંમત {price} છે અને તે {time} સુધી તમારું છે. હમણાં અનલૉક કરવું છે?',
+      'emojiChipsLobbyOnly': 'ચિપ્સની કિંમતવાળું ઇમોજી ફક્ત લૉબીમાં ખરીદી શકાય છે.',
+      'emojiOwnedNote': 'આ ઇમોજી તમારું છે — ટેબલ પર ઇમોજી બટનથી મોકલો.',
+      'tableEmojis': 'ઇમોજી',
+      'emojiSendHint': 'ટેબલને મોકલવા માટે ઇમોજી પર ટૅપ કરો.',
+      'emojiUnlockMore': 'સ્ટોરમાં વધુ અનલૉક કરો',
+      'emojiNoneOwned': 'તમારી પાસે હજી કોઈ ઇમોજી નથી — નીચેથી એક અનલૉક કરો.',
+      'emojiSentBy': '{name} એ {emoji} મોકલ્યું',
+      'emojiLockedRefusal': 'પહેલાં સ્ટોરમાં આ ઇમોજી અનલૉક કરો.',
+      'emojiUnknownRefusal': 'આ ઇમોજી અસ્તિત્વમાં નથી.',
+      'emojiRetiredRefusal': 'આ ઇમોજી હવે ઉપલબ્ધ નથી.',
+      'emojiUnaffordableRefusal': 'આ ઇમોજી અનલૉક કરવા માટે તમારી પાસે પૂરતું નથી.',
       'storeTabDiamonds': 'હીરા',
       'storeDiamondsTitle': 'હીરા સ્ટોર',
       'storeDiamondsBlurb': 'હીરા આપીને મિસાઇલ લો.',
@@ -3625,6 +3751,25 @@ class Strings {
       'priceHammerOne': '1 ਹਥੌੜਾ',
       'priceDiamondOne': '1 ਹੀਰਾ',
       'tablePokerNote': 'ਪੋਕਰ ਟੇਬਲ ਉੱਤੇ ਟੇਬਲ ਤਸਵੀਰ ਨਹੀਂ ਦਿਖਦੀ — ਇਹ ਤੁਹਾਡੇ ਅਗਲੇ ਤੀਨ ਪੱਤੀ ਟੇਬਲ ਉੱਤੇ ਦਿਖੇਗੀ।',
+      // Emojis (owner, 26 Sep 2026).
+      'storeTabEmojis': 'ਇਮੋਜੀ',
+      'storeEmojisTitle': 'ਇਮੋਜੀ',
+      'storeEmojisBlurb': 'ਪੂਰੇ ਟੇਬਲ ਨੂੰ ਭੇਜਣ ਲਈ ਐਨੀਮੇਟਡ ਇਮੋਜੀ।',
+      'emojiShelfEmpty': 'ਅਜੇ ਕੋਈ ਇਮੋਜੀ ਨਹੀਂ ਹੈ।',
+      'unlockEmojiTitle': 'ਇਹ ਇਮੋਜੀ ਅਨਲਾਕ ਕਰਨਾ ਹੈ?',
+      'unlockEmojiBody': '{name} ਦੀ ਕੀਮਤ {price} ਹੈ। ਹੁਣੇ ਅਨਲਾਕ ਕਰਨਾ ਹੈ?',
+      'unlockEmojiRentBody': '{name} ਦੀ ਕੀਮਤ {price} ਹੈ ਅਤੇ ਇਹ {time} ਤੱਕ ਤੁਹਾਡਾ ਹੈ। ਹੁਣੇ ਅਨਲਾਕ ਕਰਨਾ ਹੈ?',
+      'emojiChipsLobbyOnly': 'ਚਿਪਸ ਦੀ ਕੀਮਤ ਵਾਲਾ ਇਮੋਜੀ ਸਿਰਫ਼ ਲਾਬੀ ਵਿੱਚ ਖਰੀਦਿਆ ਜਾ ਸਕਦਾ ਹੈ।',
+      'emojiOwnedNote': 'ਇਹ ਇਮੋਜੀ ਤੁਹਾਡਾ ਹੈ — ਟੇਬਲ ਉੱਤੇ ਇਮੋਜੀ ਬਟਨ ਨਾਲ ਭੇਜੋ।',
+      'tableEmojis': 'ਇਮੋਜੀ',
+      'emojiSendHint': 'ਟੇਬਲ ਨੂੰ ਭੇਜਣ ਲਈ ਕਿਸੇ ਇਮੋਜੀ ਉੱਤੇ ਟੈਪ ਕਰੋ।',
+      'emojiUnlockMore': 'ਸਟੋਰ ਵਿੱਚ ਹੋਰ ਅਨਲਾਕ ਕਰੋ',
+      'emojiNoneOwned': 'ਤੁਹਾਡੇ ਕੋਲ ਅਜੇ ਕੋਈ ਇਮੋਜੀ ਨਹੀਂ — ਹੇਠਾਂ ਤੋਂ ਇੱਕ ਅਨਲਾਕ ਕਰੋ।',
+      'emojiSentBy': '{name} ਨੇ {emoji} ਭੇਜਿਆ',
+      'emojiLockedRefusal': 'ਪਹਿਲਾਂ ਸਟੋਰ ਵਿੱਚ ਇਹ ਇਮੋਜੀ ਅਨਲਾਕ ਕਰੋ।',
+      'emojiUnknownRefusal': 'ਇਹ ਇਮੋਜੀ ਮੌਜੂਦ ਨਹੀਂ ਹੈ।',
+      'emojiRetiredRefusal': 'ਇਹ ਇਮੋਜੀ ਹੁਣ ਉਪਲਬਧ ਨਹੀਂ ਹੈ।',
+      'emojiUnaffordableRefusal': 'ਇਹ ਇਮੋਜੀ ਅਨਲਾਕ ਕਰਨ ਲਈ ਤੁਹਾਡੇ ਕੋਲ ਕਾਫ਼ੀ ਨਹੀਂ ਹੈ।',
       'storeTabDiamonds': 'ਹੀਰੇ',
       'storeDiamondsTitle': 'ਹੀਰਾ ਸਟੋਰ',
       'storeDiamondsBlurb': 'ਹੀਰੇ ਦੇ ਕੇ ਮਿਜ਼ਾਈਲਾਂ ਲਓ।',

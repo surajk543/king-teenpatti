@@ -77,6 +77,14 @@ type Room interface {
 	SetAvatar(userID string, avatarURL *string) error
 	CreditChips(userID string, amount int64) bool
 	PostChat(userID, text string) (*ChatMessage, error)
+	// PostEmoji posts an animated emoji the player sends to the table
+	// (chat:emoji; owner, 26 Sep 2026): a chat line whose text is the emoji's
+	// name and which carries the emoji (RoomChat.AddEmoji), stored in the
+	// room's history and broadcast through OnChat exactly as PostChat's line
+	// is. Whether the player may send it — the row active, the emoji free or
+	// theirs — is the caller's check, made against the database before this
+	// is called; the room only asks that the sender is seated (not_in_room).
+	PostEmoji(userID string, emoji ChatEmoji) (*ChatMessage, error)
 	SaveLive() error
 	// Settled posts a no-op and waits: every mutation queued before it has run.
 	Settled() error

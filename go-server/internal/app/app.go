@@ -245,6 +245,7 @@ func New(opts Options) (*App, error) {
 	users := db.NewUsers(opts.DB, cfg.Game.WelcomeChips, clock.Now)
 	pictures := db.NewPictures(opts.DB, users, clock.Now)
 	tablePictures := db.NewTablePictures(opts.DB, users, clock.Now)
+	emojis := db.NewEmojis(opts.DB, users, clock.Now)
 	ledger := db.NewLedger(opts.DB, a.metrics, clock.Now)
 	hammers := db.NewHammers(opts.DB, a.metrics, clock.Now)
 	missiles := db.NewMissiles(opts.DB, users, a.metrics, clock.Now)
@@ -275,6 +276,9 @@ func New(opts Options) (*App, error) {
 		Logger:   logger,
 		Live:     a.live,
 		Instance: cfg.LiveInstanceID,
+		// chat:emoji reads the sender's ownership here on every send
+		// (owner, 26 Sep 2026).
+		Emojis: emojis,
 	})
 	roomOpts := game.RoomManagerOptions{
 		Game:   cfg.Game,
@@ -426,6 +430,11 @@ func New(opts Options) (*App, error) {
 		// table shows the highest-ranking one laid among its seats to
 		// everyone at it (game/tablepicture.go).
 		TablePictures: tablePictures,
+		// The animated emojis a player buys and sends to their table (owner,
+		// 26 Sep 2026): the same catalogue shape and the same till; a
+		// chip-priced one is bought in the lobby only, under the seat lock
+		// below.
+		Emojis: emojis,
 		// The Lucky Draw (owner, 24 Sep 2026): a spin runs under the seat lock
 		// below, as a reward does — its prize may be chips.
 		LuckyDraws: luckyDraws,

@@ -149,7 +149,9 @@ void main() {
               );
               expect(
                 find.byType(PictureWalletBalances),
-                tab == StoreTab.pictures || tab == StoreTab.tables
+                tab == StoreTab.pictures ||
+                        tab == StoreTab.tables ||
+                        tab == StoreTab.emojis
                     ? findsOneWidget
                     : findsNothing,
                 reason: '$name ${lang.code} $tab',

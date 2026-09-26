@@ -481,7 +481,12 @@ func TestPostgresHoldsNoGameState(t *testing.T) {
 	// lucky_draws, lucky_draw_slots and user_lucky_draws (24 Sep 2026) are the
 	// Lucky Draw: its draws and prizes — configuration, read on each request —
 	// and every spin, an audit written once and never read back to play a hand.
-	want := []string{"chip_ledger", "diamond_purchases", "hammer_purchases", "hammer_spends", "lucky_draw_slots", "lucky_draws", "missile_purchases", "missile_spends", "profile_pictures", "table_categories", "table_configs", "table_engines", "table_pictures", "table_settings", "user_lucky_draws", "user_milestones", "user_profile_pictures", "user_table_choice", "user_table_pictures", "users"}
+	//
+	// emojis and user_emojis (26 Sep 2026) are the emoji catalogue and who has
+	// bought which — a catalogue and receipts, like the pictures'. A sent
+	// emoji is a chat line, and chat lives with the room in the live store;
+	// nothing here records one.
+	want := []string{"chip_ledger", "diamond_purchases", "emojis", "hammer_purchases", "hammer_spends", "lucky_draw_slots", "lucky_draws", "missile_purchases", "missile_spends", "profile_pictures", "table_categories", "table_configs", "table_engines", "table_pictures", "table_settings", "user_emojis", "user_lucky_draws", "user_milestones", "user_profile_pictures", "user_table_choice", "user_table_pictures", "users"}
 	if !slices.Equal(tables, want) {
 		t.Fatalf("schema tables = %v, want %v", tables, want)
 	}

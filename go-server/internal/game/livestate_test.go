@@ -1014,3 +1014,38 @@ func TestAPictureWornAtTheTableReachesEverySeatAndTheSnapshot(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// An emoji line (Table.PostEmoji; owner, 26 Sep 2026) is posted as a typed
+// line is: only a seated player may post it, it is emitted through OnChat, kept
+// in the room's history, and mirrored to the live store with its emoji — so a
+// table restored from Redis hands a late joiner the same line.
+func TestASeatedPlayersEmojiIsEmittedKeptAndMirroredWithIt(t *testing.T) {
+	store := livetest.New()
+	h := newHarness(t, liveConfig(), withLive(store))
+	h.seatNamed("a", "Alice", tableStart)
+	emoji := ChatEmoji{ID: 3, Name: "Laughing", URL: "https://drive.example/laughing.json", AssetFormat: "LOTTIE"}
+
+	msg, err := h.table.PostEmoji("a", emoji)
+	if err != nil || msg == nil || msg.Text != "Laughing" || msg.DisplayName != "Alice" || msg.Emoji == nil || *msg.Emoji != emoji {
+		t.Fatalf("PostEmoji: %+v %v", msg, err)
+	}
+	emitted := h.rec.all("chat")
+	if last := emitted[len(emitted)-1].(ChatMessage); last.ID != msg.ID || last.Emoji == nil || *last.Emoji != emoji {
+		t.Fatalf("the chat event = %+v", last)
+	}
+	history, _ := h.table.ChatHistory()
+	if last := history[len(history)-1]; last.ID != msg.ID || last.Emoji == nil {
+		t.Fatalf("the history's last line = %+v", last)
+	}
+	lines := store.Chat("room-1")
+	var stored ChatMessage
+	if err := json.Unmarshal(lines[len(lines)-1], &stored); err != nil {
+		t.Fatal(err)
+	}
+	eq(t, mustJSON(t, stored), mustJSON(t, *msg), "the mirrored line is the emitted one, emoji and all")
+
+	before := len(h.rec.all("chat"))
+	_, err = h.table.PostEmoji("stranger", emoji)
+	codeIs(t, err, CodeNotInRoom)
+	eq(t, len(h.rec.all("chat")), before, "no event for a player who is not seated")
+}

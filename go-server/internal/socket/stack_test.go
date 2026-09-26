@@ -194,6 +194,9 @@ type stack struct {
 	// live is the Handler's live store (presence, resume offers), a fake
 	// whose ttl clock is the Handler's clock.
 	live *livetest.Fake
+	// emojis is the emoji catalogue chat:emoji checks each send against — a
+	// fake of db.Emojis.Owns (emoji_test.go); it starts empty.
+	emojis *fakeEmojis
 
 	stakes  atomic.Int64
 	clients []*testclient.Client
@@ -238,7 +241,8 @@ func newStackWithClock(t *testing.T, mutate func(cfg *config.Config), clock game
 	users := newFakeUsers()
 	bk := &books{actionIDs: map[string]int{}, users: users}
 	m := metrics.New(metrics.Options{})
-	st := &stack{t: t, cfg: cfg, users: users, books: bk, metrics: m, hammers: game.NewMemoryHammers(nil), missiles: game.NewMemoryMissiles(nil)}
+	st := &stack{t: t, cfg: cfg, users: users, books: bk, metrics: m, hammers: game.NewMemoryHammers(nil), missiles: game.NewMemoryMissiles(nil),
+		emojis: newFakeEmojis()}
 	st.stakes.Store(1000)
 	st.tokens = auth.NewTokens(cfg.JWT.Secret, cfg.JWT.ExpiresIn, nil)
 	if clock != nil {
@@ -257,6 +261,7 @@ func newStackWithClock(t *testing.T, mutate func(cfg *config.Config), clock game
 		Logger:   logger,
 		Live:     st.live,
 		Instance: testInstance,
+		Emojis:   st.emojis,
 	})
 	st.rooms = game.NewRoomManager(game.RoomManagerOptions{
 		Game:          cfg.Game,

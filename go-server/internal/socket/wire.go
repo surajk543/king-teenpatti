@@ -10,6 +10,7 @@ package socket
 
 import (
 	"encoding/json"
+	"time"
 
 	"github.com/surajk543/king-teenpatti/go-server/internal/db"
 	"github.com/surajk543/king-teenpatti/go-server/internal/game"
@@ -37,6 +38,11 @@ const (
 	EvChatMessage     = "chat:message"        // {text} → {messageId} or {}
 	EvChatHistory     = "chat:history"        // {} → {count}
 	EvPingRTT         = "ping:rtt"            // sentAt (number) → {sentAt, serverTime} — UNGUARDED, no `ok`
+	// EvChatEmoji sends an animated emoji the player owns to their table
+	// (owner, 26 Sep 2026; Go only). It arrives at everybody there as an
+	// ordinary chat:message whose text is the emoji's name and which carries
+	// the emoji (game.ChatMessage.Emoji).
+	EvChatEmoji = "chat:emoji" // {emojiId} → {messageId}
 )
 
 // Server → client events.
@@ -80,6 +86,10 @@ const (
 	MsgChatRateLimited   = "You are sending messages too quickly"
 )
 
+// emojiLookupTimeout bounds chat:emoji's one database read (Deps.Emojis.Owns),
+// so a stalled PostgreSQL fails that send rather than holding the handler.
+const emojiLookupTimeout = 5 * time.Second
+
 // Rate limits (createRateLimiter, per socket, fixed window).
 const (
 	ActionRateLimit    = 30
@@ -116,6 +126,8 @@ var KnownErrorCodes = map[string]struct{}{
 	"invalid_action": {}, "invalid_amount": {}, "invalid_discard": {},
 	// chat
 	"chat_rate_limited": {},
+	// chat:emoji (Go only)
+	"unknown_emoji": {}, "emoji_retired": {}, "emoji_locked": {},
 	// auth
 	"invalid_device_id": {}, "invalid_session": {}, "invalid_token": {}, "missing_token": {},
 	"provider_unconfigured": {}, "unknown_provider": {}, "unknown_user": {}, "account_disabled": {},
@@ -129,6 +141,7 @@ var KnownEvents = map[string]struct{}{
 	EvLobbyList: {}, EvRoomQuickJoin: {}, EvRoomCreate: {}, EvRoomJoinCode: {}, EvRoomSwitch: {},
 	EvRoomLeave: {}, EvGameAction: {}, EvGameSideshowResp: {}, EvPlayerReqCards: {}, EvChatMessage: {},
 	EvChatHistory: {}, EvPingRTT: {}, EvGameSelectVariation: {}, EvGameSelectCards: {}, EvPokerAction: {},
+	EvChatEmoji: {},
 }
 
 // ---- inbound payloads ----
@@ -214,6 +227,14 @@ type SelectVariationRequest struct {
 // string, or "" for anything else (DECISIONS.md §4); the Table sanitises it.
 type ChatRequest struct {
 	Text string `json:"text"`
+}
+
+// ChatEmojiRequest ← chat:emoji. EmojiID is the id sent — a JSON number or its
+// decimal text, as the REST buy takes it — when it is a positive integer, and
+// 0 for anything else (a fraction, a negative, a boolean, an object, null or no
+// field at all), which names no row and is refused unknown_emoji.
+type ChatEmojiRequest struct {
+	EmojiID int64 `json:"emojiId"`
 }
 
 // ---- acks ----

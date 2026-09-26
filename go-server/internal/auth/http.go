@@ -56,6 +56,17 @@ type TablePictureStore interface {
 	ExpireLapsed(ctx context.Context, userID string) (bool, error)
 }
 
+// EmojiStore is the slice of db.Emojis the handlers use (owner, 26 Sep 2026;
+// Go only): the catalogue of animated emojis a player sends to their table, and
+// the till they are bought at. Sending one is the socket's (chat:emoji).
+type EmojiStore interface {
+	List(ctx context.Context, userID string) ([]db.Emoji, error)
+	Buy(ctx context.Context, userID string, id int64) (*db.EmojiPurchase, error)
+	// BuyAtTable is Buy for a seated player: diamonds or hammers only
+	// (db.ErrEmojiAtTable).
+	BuyAtTable(ctx context.Context, userID string, id int64) (*db.EmojiPurchase, error)
+}
+
 // Deps wires a Handler.
 type Deps struct {
 	Config   *config.Config
@@ -105,6 +116,10 @@ type Deps struct {
 	// only in tests that never reach its routes; the lapsed-rental sweep
 	// skips it then.
 	TablePictures TablePictureStore
+	// Emojis is the emoji catalogue (owner, 26 Sep 2026). Nil reads as an
+	// empty catalogue: GET /api/emojis lists nothing and a buy is
+	// unknown_emoji — there is no emoji to sell.
+	Emojis EmojiStore
 	// Purchases credits a verified Google Play purchase. Nil when the server
 	// has no Play credentials, and then the endpoint refuses every request
 	// rather than crediting on the client's word.
@@ -179,6 +194,8 @@ type PurchaseOutcome struct {
 //	POST /api/table-pictures/buy → BuyTablePicture  (RequireAuth; Go only)
 //	GET  /api/lucky-draw         → LuckyDraw        (RequireAuth; Go only)
 //	POST /api/lucky-draw/spin    → SpinLuckyDraw    (RequireAuth; Go only)
+//	GET  /api/emojis             → Emojis           (token optional; Go only)
+//	POST /api/emojis/buy         → BuyEmoji         (RequireAuth; Go only)
 //
 // Responses are JSON; errors are ErrorResponse. Body parsing (ReadJSONBody):
 // JSON only, UTF-8 only, 32 KiB limit (express.json({limit:'32kb'})); a
@@ -238,6 +255,8 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.Handle("/api/table-pictures/buy", methods(http.MethodPost, wallet(h.BuyTablePicture)))
 	mux.Handle("/api/lucky-draw", methods(http.MethodGet, h.RequireAuth(h.LuckyDraw)))
 	mux.Handle("/api/lucky-draw/spin", methods(http.MethodPost, wallet(h.SpinLuckyDraw)))
+	mux.Handle("/api/emojis", methods(http.MethodGet, http.HandlerFunc(h.Emojis)))
+	mux.Handle("/api/emojis/buy", methods(http.MethodPost, wallet(h.BuyEmoji)))
 }
 
 // methods lets `method` (and HEAD when method is GET) through to next and
@@ -508,6 +527,50 @@ type BuyTablePictureResponse struct {
 	Spent   int64           `json:"spent"`
 }
 
+// EmojisResponse ← GET /api/emojis: the emoji catalogue in display order, each
+// row marked with whether this caller may send it (owner, 26 Sep 2026; Go
+// only). Anonymous callers see the free ones as owned and nothing else.
+type EmojisResponse struct {
+	Emojis []db.Emoji `json:"emojis"` // [] when the catalogue is empty, never null
+}
+
+// BuyEmojiRequest ← POST /api/emojis/buy {emojiId}. Decoded the forgiving way
+// AvatarRequest is — a JSON number or its text — since the id came off a
+// listing this server produced; anything that is not a positive integer is
+// unknown_emoji.
+type BuyEmojiRequest struct {
+	EmojiID *string `json:"emojiId"`
+}
+
+// UnmarshalJSON applies AvatarRequest's coercion to emojiId.
+func (b *BuyEmojiRequest) UnmarshalJSON(data []byte) error {
+	*b = BuyEmojiRequest{}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		if bytes.HasPrefix(bytes.TrimSpace(data), []byte("[")) {
+			return nil
+		}
+		return err
+	}
+	value, ok := raw["emojiId"]
+	if !ok || string(value) == "null" {
+		return nil
+	}
+	text := jsString(value)
+	b.EmojiID = &text
+	return nil
+}
+
+// BuyEmojiResponse ← POST /api/emojis/buy: BuyPictureResponse for an emoji,
+// {user, emoji, charged, spent}. Charged is false when the player already
+// owned it, running — the request still succeeded, and nothing moved.
+type BuyEmojiResponse struct {
+	User    *db.User `json:"user"`
+	Emoji   db.Emoji `json:"emoji"`
+	Charged bool     `json:"charged"`
+	Spent   int64    `json:"spent"`
+}
+
 // MissileTradeRequest ← POST /api/store/missiles {packId, requestId}. packId
 // names a pack of db.MissilePacks; requestId is the client's idempotency key
 // for this trade (1 to MissileRequestIDMaxLength UTF-16 units), so a retried
@@ -675,6 +738,23 @@ const (
 	MsgInternalError           = "Something went wrong"
 	MsgUnknownUser             = "This account no longer exists"
 	MsgAccountDisabled         = "Your account is disabled. Please contact support."
+	// The emoji store's refusals (owner, 26 Sep 2026). The first two and
+	// MsgEmojiLocked are also chat:emoji's. A shortage names the wallet and
+	// the price (EmojiUnaffordableMessage): the singular for a price of one,
+	// the format for any other.
+	MsgUnknownEmoji     = "That emoji does not exist."
+	MsgEmojiRetired     = "That emoji is no longer available."
+	MsgEmojiFree        = "That emoji is free — it is already yours."
+	MsgEmojiLocked      = "Unlock this emoji in the store first."
+	MsgSeatedEmoji      = "You can only buy a chip-priced emoji in the lobby."
+	MsgEmojiDiamond     = "You need 1 diamond to unlock this emoji."
+	MsgEmojiDiamondsFmt = "You need %d diamonds to unlock this emoji."
+	MsgEmojiHammer      = "You need 1 hammer to unlock this emoji."
+	MsgEmojiHammersFmt  = "You need %d hammers to unlock this emoji."
+	MsgEmojiChip        = "You need 1 chip to unlock this emoji."
+	MsgEmojiChipsFmt    = "You need %d chips to unlock this emoji."
+	// MsgEmojiUnaffordable is said only when a shortage carries no price.
+	MsgEmojiUnaffordable = "You do not have enough to unlock this emoji."
 )
 
 // AccountDisabledError is the refusal every door gives an account whose

@@ -449,6 +449,29 @@ func decodeChat(args []json.RawMessage) ChatRequest {
 	return ChatRequest{Text: chatTextArg(p.field("text"))}
 }
 
+// decodeChatEmoji reads chat:emoji's emojiId: a JSON number or a string, taken
+// as its decimal text and kept only when it is a positive integer (surrounding
+// whitespace in a string allowed, as the REST buy's pictureIDFrom allows it);
+// every other value — and every other kind — is 0, no emoji.
+func decodeChatEmoji(args []json.RawMessage) ChatEmojiRequest {
+	p := decodePayload(args)
+	raw, kind := p.field("emojiId")
+	var text string
+	switch kind {
+	case kindNumber:
+		text = jsNumberString(raw)
+	case kindString:
+		text, _ = jsonString(raw, kind)
+	default:
+		return ChatEmojiRequest{}
+	}
+	id, err := strconv.ParseInt(strings.TrimSpace(text), 10, 64)
+	if err != nil || id <= 0 {
+		return ChatEmojiRequest{}
+	}
+	return ChatEmojiRequest{EmojiID: id}
+}
+
 // acceptsSideshow is `accept === true`: only the JSON literal true accepts;
 // 1, "true", {} and everything else decline.
 func acceptsSideshow(raw json.RawMessage) bool {

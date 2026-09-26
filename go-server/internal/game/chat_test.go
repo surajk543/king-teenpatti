@@ -294,3 +294,53 @@ func itoa(n int) string {
 	b, _ := json.Marshal(n)
 	return string(b)
 }
+
+// An emoji line (chat:emoji; owner, 26 Sep 2026) is a chat line in every
+// respect — author, clock, fresh id, the same history and cap — whose text is
+// the emoji's name and which carries the emoji. Only it has an "emoji" key: a
+// typed line's JSON and a system line's are byte for byte what they were. The
+// line survives the live store's JSON round trip whole, and a name that
+// sanitises away still posts.
+func TestAnEmojiLineIsAChatLineWithTheEmojiBesideItsName(t *testing.T) {
+	chat, _ := newChat(2, 140)
+	emoji := ChatEmoji{ID: 3, Name: "Laughing", URL: "https://drive.example/laughing.json", AssetFormat: "LOTTIE"}
+	line := chat.AddEmoji("u1", "Ravi", emoji)
+	if line == nil || line.Text != "Laughing" || line.DisplayName != "Ravi" || line.UserID == nil || *line.UserID != "u1" ||
+		line.At != 1_700_000_000_000 || line.ID == "" || line.System || line.Emoji == nil || *line.Emoji != emoji {
+		t.Fatalf("the emoji line = %+v", line)
+	}
+	raw, _ := json.Marshal(line)
+	want := `{"id":"` + line.ID + `","userId":"u1","displayName":"Ravi","text":"Laughing","at":1700000000000,` +
+		`"emoji":{"id":3,"name":"Laughing","url":"https://drive.example/laughing.json","assetFormat":"LOTTIE"}}`
+	if string(raw) != want {
+		t.Fatalf("the emoji line on the wire:\n %s\nwant\n %s", raw, want)
+	}
+	var back ChatMessage
+	if err := json.Unmarshal(raw, &back); err != nil || back.Emoji == nil || *back.Emoji != emoji || back.Text != "Laughing" {
+		t.Fatalf("the emoji line after the live store's round trip: %+v %v", back, err)
+	}
+
+	typed := chat.Add("u2", "Meera", "gg")
+	system := chat.AddSystem("Meera joined the table")
+	for _, m := range []*ChatMessage{typed, system} {
+		raw, _ := json.Marshal(m)
+		if strings.Contains(string(raw), "emoji") {
+			t.Fatalf("a line that is not an emoji carries the key: %s", raw)
+		}
+	}
+	// The emoji line is history like any other, and ages out the same way.
+	if history := chat.History(); len(history) != 2 || history[0].ID != typed.ID {
+		t.Fatalf("the capped history = %+v", history)
+	}
+
+	// A name made of nothing a chat line may carry still sends the emoji.
+	blank := chat.AddEmoji("u1", "Ravi", ChatEmoji{ID: 9, Name: "\u0007​", URL: "/e.json", AssetFormat: "LOTTIE"})
+	if blank == nil || blank.Text != "" || blank.Emoji == nil || blank.Emoji.ID != 9 {
+		t.Fatalf("an emoji whose name sanitises away = %+v", blank)
+	}
+	// The name is the text a typed line would be: controls go, length is cut.
+	long := chat.AddEmoji("u1", "Ravi", ChatEmoji{ID: 10, Name: "Big\u0000" + strings.Repeat("x", 200), URL: "/f.json", AssetFormat: "LOTTIE"})
+	if !strings.HasPrefix(long.Text, "Big x") || len(long.Text) != 140 {
+		t.Fatalf("an emoji's text is not sanitised as a line: %q (%d)", long.Text, len(long.Text))
+	}
+}

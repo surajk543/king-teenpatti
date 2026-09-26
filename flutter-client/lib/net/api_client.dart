@@ -278,6 +278,49 @@ class ApiClient {
     );
   }
 
+  /// The emoji catalogue (owner, 26 Sep 2026): `GET /api/emojis`, active
+  /// rows in the catalogue's order. The token is optional to the server and
+  /// wanted here, as for [profilePictures]: without it every premium emoji
+  /// comes back locked. A server that predates emojis answers 404, which is
+  /// an empty catalogue rather than a failure.
+  Future<List<EmojiItem>> emojis({String? token}) async {
+    final r = await http.get(_uri('/api/emojis'), headers: _headers(token));
+    if (r.statusCode == 404) return const [];
+    final j = _decode(r);
+    return (j['emojis'] as List? ?? [])
+        .whereType<Map>()
+        .map((e) => EmojiItem.fromJson(Map<String, dynamic>.from(e)))
+        .toList();
+  }
+
+  /// Buys a premium emoji from the wallet its currency names: `POST
+  /// /api/emojis/buy {emojiId}`. `charged` is false when it was already owned
+  /// and running; `emoji` is the row as it now stands for this player.
+  ///
+  /// Refusals arrive as [ApiException] with the server's code:
+  /// `unknown_emoji`, `emoji_retired`, `emoji_free` (400),
+  /// `emoji_unaffordable` and `seated` (409 — a chip-priced emoji is sold in
+  /// the lobby only).
+  Future<({User user, EmojiItem? emoji, bool charged, int spent})> buyEmoji(
+    String token,
+    int emojiId,
+  ) async {
+    final r = await http.post(
+      _uri('/api/emojis/buy'),
+      headers: _headers(token),
+      body: jsonEncode({'emojiId': emojiId}),
+    );
+    final j = _decode(r);
+    return (
+      user: User.fromJson(Map<String, dynamic>.from(j['user'] as Map)),
+      emoji: j['emoji'] is Map
+          ? EmojiItem.fromJson(Map<String, dynamic>.from(j['emoji'] as Map))
+          : null,
+      charged: j['charged'] == true,
+      spent: (j['spent'] as num?)?.toInt() ?? 0,
+    );
+  }
+
   /// The table-picture catalogue (owner, 15 Sep 2026): the cloths a player
   /// can lay on their own table, each with a day and a night file. The token
   /// is optional to the server and wanted here, as for [profilePictures]: it

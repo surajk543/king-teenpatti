@@ -549,6 +549,14 @@ class GameConnection {
 
   void sendChat(String text) => _emit('chat:message', {'text': text});
 
+  /// Sends an emoji to the table (owner, 26 Sep 2026): `chat:emoji
+  /// {emojiId}`, acknowledged like a chat line. The server checks that it is
+  /// this player's to send and answers with the ordinary `chat:message` —
+  /// carrying the emoji — to everyone at the table; a refusal
+  /// (`emoji_locked`, `unknown_emoji`, `emoji_retired`, `chat_rate_limited`,
+  /// `not_in_room`) comes back in the ack and as `game:error`.
+  void sendEmoji(int emojiId) => _emit('chat:emoji', {'emojiId': emojiId});
+
   /// Sends an event and waits for the server's acknowledgement.
   ///
   /// Every gameplay handler is wrapped in the server's `guard`, which always
