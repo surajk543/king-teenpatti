@@ -100,21 +100,23 @@ func TestMigrationsAreVersionedOrderedAndSplitByKind(t *testing.T) {
 	}
 	wantAlters := []string{
 		"EXECUTE 'ALTER TABLE users ADD COLUMN is_bot BOOLEAN NOT NULL DEFAULT FALSE';",
+		"EXECUTE 'ALTER TABLE users ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT TRUE';",
 		"EXECUTE 'ALTER TABLE chip_ledger ADD COLUMN game TEXT';",
 		"EXECUTE 'ALTER TABLE chip_ledger ADD COLUMN variant TEXT';",
 	}
 	if strings.Join(alters, "\n") != strings.Join(wantAlters, "\n") {
-		t.Errorf("the baseline brings forward exactly users.is_bot and chip_ledger.game/.variant, got:\n%s", strings.Join(alters, "\n"))
+		t.Errorf("the baseline brings forward exactly users.is_bot, users.is_active and chip_ledger.game/.variant, got:\n%s", strings.Join(alters, "\n"))
 	}
-	for _, want := range []string{"column_name = 'is_bot'", "column_name = 'game'", "column_name = 'variant'"} {
+	for _, want := range []string{"column_name = 'is_bot'", "column_name = 'is_active'", "column_name = 'game'", "column_name = 'variant'"} {
 		if !strings.Contains(baseline, want) {
 			t.Errorf("%s lacks the lookup %q", migrations[0].File, want)
 		}
 	}
 	// Each column the blocks add is declared in its CREATE TABLE too, for a
 	// fresh database — the same definition, so fresh and upgraded agree.
-	if users := squash(createTableBody(t, baseline, "users")); !strings.Contains(users, "is_bot BOOLEAN NOT NULL DEFAULT FALSE") {
-		t.Errorf("CREATE TABLE users must declare is_bot BOOLEAN NOT NULL DEFAULT FALSE:\n%s", users)
+	if users := squash(createTableBody(t, baseline, "users")); !strings.Contains(users, "is_bot BOOLEAN NOT NULL DEFAULT FALSE") ||
+		!strings.Contains(users, "is_active BOOLEAN NOT NULL DEFAULT TRUE") {
+		t.Errorf("CREATE TABLE users must declare is_bot BOOLEAN NOT NULL DEFAULT FALSE and is_active BOOLEAN NOT NULL DEFAULT TRUE:\n%s", users)
 	}
 	if ledger := squash(createTableBody(t, baseline, "chip_ledger")); !strings.Contains(ledger, "game TEXT") || !strings.Contains(ledger, "variant TEXT") {
 		t.Errorf("CREATE TABLE chip_ledger must declare game TEXT and variant TEXT:\n%s", ledger)

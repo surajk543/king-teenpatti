@@ -271,7 +271,7 @@ type ctxKey struct{}
 
 // RequireAuth wraps a handler: TokenFromRequest → Tokens.Verify →
 // Users.FindByID(sub); nil user → unknown_user ("This account no longer
-// exists"). On failure WriteError(AuthError). The user is stored in the
+// exists"); a disabled one (users.is_active FALSE) → 403 account_disabled. On failure WriteError(AuthError). The user is stored in the
 // request context (UserFrom). Authentication runs before any body or seated
 // check, so invalid_session / unknown_user beat every other refusal.
 func (h *Handler) RequireAuth(next func(w http.ResponseWriter, r *http.Request, user *db.User)) http.Handler {
@@ -291,6 +291,14 @@ func (h *Handler) RequireAuth(next func(w http.ResponseWriter, r *http.Request, 
 		}
 		if user == nil {
 			h.writeError(w, r, NewAuthError(CodeUnknownUser, MsgUnknownUser, 0))
+			return
+		}
+		// A disabled account (users.is_active) keeps a valid token for up to
+		// 30 days; this is what makes the switch take effect at once, on
+		// GET /api/auth/me — a cold start's restored session — and on every
+		// other signed-in request alike.
+		if user.Disabled {
+			h.writeError(w, r, AccountDisabledError())
 			return
 		}
 		next(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, user)), user)
@@ -666,4 +674,13 @@ const (
 	MsgNameUnusable            = "That name cannot be used."
 	MsgInternalError           = "Something went wrong"
 	MsgUnknownUser             = "This account no longer exists"
+	MsgAccountDisabled         = "Your account is disabled. Please contact support."
 )
+
+// AccountDisabledError is the refusal every door gives an account whose
+// users.is_active is FALSE (owner, 26 Sep 2026): 403 account_disabled. The
+// login and RequireAuth write it as it is; the socket layer and the
+// RoomManager's loader turn it into the same code (socket.AccountDisabled).
+func AccountDisabledError() *AuthError {
+	return NewAuthError(CodeAccountDisabled, MsgAccountDisabled, http.StatusForbidden)
+}

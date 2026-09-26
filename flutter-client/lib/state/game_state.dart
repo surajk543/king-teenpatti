@@ -153,7 +153,9 @@ class GameState extends ChangeNotifier {
   GameState({String? serverUrl})
     : serverUrl = serverUrl ?? defaultServerUrl,
       _api = ApiClient(serverUrl ?? defaultServerUrl),
-      _conn = GameConnection(serverUrl ?? defaultServerUrl);
+      _conn = GameConnection(serverUrl ?? defaultServerUrl) {
+    _api.onAccountDisabled = _accountWasDisabled;
+  }
 
   /// The backend this build was made against — [ServerConfig.url]: preprod
   /// unless a `--dart-define` (or `--dart-define-from-file=config/<env>.json`)
@@ -276,6 +278,13 @@ class GameState extends ChangeNotifier {
   String? loginError;
   String? notice;
   bool busy = false;
+
+  /// True once the server has said this account is disabled (users.is_active
+  /// FALSE; owner, 26 Sep 2026): the sign-in screen shows the "contact
+  /// support" popup, and [dismissAccountDisabled] clears it. Set from the
+  /// login, a restored session, any signed-in request, the socket's handshake
+  /// and a table's refusal alike ([accountDisabledCode]).
+  bool accountDisabled = false;
 
   /// True while the signed-in player has yet to confirm that they expect no
   /// money or other enrichment from playing. The game is held behind that
@@ -1240,6 +1249,11 @@ class GameState extends ChangeNotifier {
         notifyListeners();
       }),
       _conn.onError.listen((e) {
+        // The account was disabled while signed in: out, and the popup.
+        if (e.code == accountDisabledCode) {
+          _accountWasDisabled();
+          return;
+        }
         // A Force Sideshow reads these two refusals from its ack, which the
         // server sends first: no_hammers turns into an offer of the store and
         // persist_failed into a retry. Their game:error copies would only put
@@ -1918,7 +1932,8 @@ class GameState extends ChangeNotifier {
       _conn.connect(r.token);
       screen = Screen.lobby;
     } on ApiException catch (e) {
-      loginError = e.message;
+      // A disabled account gets the popup ([accountDisabled]), not a line.
+      if (e.code != accountDisabledCode) loginError = e.message;
     } catch (e) {
       // Not an answer from the server: a network-level failure, named by
       // kind so a report from a phone says what actually went wrong.
@@ -1981,7 +1996,8 @@ class GameState extends ChangeNotifier {
       // retrying something that cannot start working.
       loginError = t.signInUnavailable(e.provider);
     } on ApiException catch (e) {
-      loginError = e.message;
+      // A disabled account gets the popup ([accountDisabled]), not a line.
+      if (e.code != accountDisabledCode) loginError = e.message;
     } catch (e) {
       // Not an answer from the server: a network-level failure, named by
       // kind so a report from a phone says what actually went wrong.
@@ -1992,6 +2008,31 @@ class GameState extends ChangeNotifier {
       busy = false;
       notifyListeners();
     }
+  }
+
+  /// The server said this account is disabled. Signs it out (the token is
+  /// dropped; the device id is KEPT, so a guest cannot sign straight into a
+  /// fresh account) and raises [accountDisabled] for the sign-in screen's
+  /// popup. On a cold start the splash is left to finish: [start] falls back
+  /// to the sign-in screen by itself.
+  void _accountWasDisabled() {
+    accountDisabled = true;
+    if (screen == Screen.splash) {
+      notifyListeners();
+      return;
+    }
+    if (_token != null || user != null) {
+      unawaited(signOut());
+      return;
+    }
+    notifyListeners();
+  }
+
+  /// The popup has been read.
+  void dismissAccountDisabled() {
+    if (!accountDisabled) return;
+    accountDisabled = false;
+    notifyListeners();
   }
 
   Future<void> signOut() async {

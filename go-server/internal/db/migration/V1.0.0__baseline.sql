@@ -29,7 +29,8 @@
 -- which adds it to a database that lacks it. Those two blocks are what a
 -- database built by an older tag needs at its next boot (production's, from
 -- go-server/v1.1.2, has game and variant but not is_bot), and they are why this
--- file is no longer free of ALTER TABLE.
+-- file is no longer free of ALTER TABLE. users.is_active (26 Sep 2026) was
+-- written straight in here the same way, a column and its guarded block.
 --
 -- Flyway naming: V<version>__<description>.sql, applied in ascending version
 -- order. With no schema history table (below) a script's name is recorded
@@ -281,6 +282,18 @@ CREATE TABLE IF NOT EXISTS users (
   -- on an older database, so the column order is the same either way. No
   -- index: nothing at run time queries by it.
   is_bot            BOOLEAN NOT NULL DEFAULT FALSE,
+  -- FALSE disables the account (owner, 26 Sep 2026: "by default keep its value
+  -- true and when it is marked false, it means user is disabled … he cannot
+  -- join the table also"). Set by hand — `UPDATE users SET is_active = FALSE
+  -- WHERE id = …` — and read on every door: a login is refused before the row
+  -- is touched, every signed-in request and the socket handshake answer
+  -- account_disabled, and so does every way into a seat. A seat already taken
+  -- plays on until the player leaves it; the wallet and the ledger are left
+  -- alone, so TRUE again restores the account exactly as it was. Never on the
+  -- wire: a disabled account never receives a user object. Last, where the
+  -- guarded block below puts it on an older database. No index: it is read
+  -- with the row, by primary key or provider identity.
+  is_active         BOOLEAN NOT NULL DEFAULT TRUE,
   UNIQUE (provider, provider_user_id)
 );
 
@@ -297,6 +310,21 @@ BEGIN
      WHERE table_schema = current_schema() AND table_name = 'users' AND column_name = 'is_bot'
   ) THEN
     EXECUTE 'ALTER TABLE users ADD COLUMN is_bot BOOLEAN NOT NULL DEFAULT FALSE';
+  END IF;
+END;
+$$;
+
+-- users.is_active for a database built before it (26 Sep 2026; production's
+-- go-server/v1.4.0 lacks it). Guarded like is_bot above, and as cheap: a NOT
+-- NULL column with a constant DEFAULT lives in the catalogue. TRUE, so every
+-- account that already exists stays enabled.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_schema = current_schema() AND table_name = 'users' AND column_name = 'is_active'
+  ) THEN
+    EXECUTE 'ALTER TABLE users ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT TRUE';
   END IF;
 END;
 $$;

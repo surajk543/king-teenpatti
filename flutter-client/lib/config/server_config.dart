@@ -50,4 +50,8 @@ class ServerConfig {
     'PRIVACY_URL',
     defaultValue: 'https://sungamestudio.com/privacy/',
   );
+
+  /// Where a player writes for help — the address the privacy and
+  /// account-deletion pages give. Named in the popup a disabled account gets.
+  static const String supportEmail = 'support@sungamestudio.com';
 }

@@ -2,11 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:provider/provider.dart';
 
+import '../config/server_config.dart';
+import '../l10n/strings.dart';
 import '../net/social_sign_in.dart';
 import '../state/game_state.dart';
 import '../theme/app_theme.dart';
 import '../theme/theme_colors.dart';
 import '../widgets/glass_components.dart';
+import '../widgets/glass_panels.dart';
 import '../widgets/premium_surface.dart';
 import '../widgets/table_ground.dart';
 
@@ -19,6 +22,24 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   final _name = TextEditingController();
+
+  /// Whether the disabled-account popup is up, so a rebuild (the one-second
+  /// tick) never raises a second one over it.
+  bool _disabledShown = false;
+
+  /// The popup a disabled account gets (users.is_active; owner, 26 Sep 2026:
+  /// "show a pop up that your account is disabled, please connect with
+  /// support"), raised after the frame that noticed [GameState.accountDisabled]
+  /// and cleared once it has been read.
+  Future<void> _showAccountDisabled(GameState state) async {
+    await showDialog<void>(
+      context: context,
+      builder: (_) => AccountDisabledDialog(t: state.t),
+    );
+    if (!mounted) return;
+    _disabledShown = false;
+    state.dismissAccountDisabled();
+  }
 
   @override
   void dispose() {
@@ -33,6 +54,12 @@ class _LoginScreenState extends State<LoginScreen> {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final glass = GlassColors.of(context);
+    if (state.accountDisabled && !_disabledShown) {
+      _disabledShown = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _showAccountDisabled(state);
+      });
+    }
     final width = MediaQuery.sizeOf(context).width;
     // The card breathes on a phone with room to spare and tightens on a
     // TP_Small (640 wide, 360 tall), where the eight extra dp top and bottom
@@ -247,4 +274,69 @@ class _ProviderButton extends StatelessWidget {
     icon: Icon(icon),
     label: label,
   );
+}
+
+/// "Account disabled": what the account's state is, who to write to, and one
+/// key to close it. The address is selectable so it can be copied.
+class AccountDisabledDialog extends StatelessWidget {
+  const AccountDisabledDialog({super.key, required this.t});
+
+  final Strings t;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final body = theme.textTheme.bodyMedium ?? const TextStyle();
+    return GlassDialog(
+      padding: const EdgeInsets.all(Space.xl),
+      title: Row(
+        children: [
+          Icon(Icons.block_rounded, size: 20, color: scheme.error),
+          const SizedBox(width: Space.md),
+          Expanded(
+            child: Text(
+              t.accountDisabledTitle,
+              style: AppTheme.label(
+                theme.textTheme.titleMedium ?? const TextStyle(),
+              ),
+            ),
+          ),
+        ],
+      ),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            t.accountDisabledBody,
+            style: body.copyWith(
+              color: scheme.onSurface.withValues(alpha: AppTheme.inkMed),
+            ),
+          ),
+          const SizedBox(height: Space.lg),
+          Row(
+            children: [
+              Icon(Icons.mail_outline_rounded, size: 18, color: scheme.primary),
+              const SizedBox(width: Space.sm),
+              Flexible(
+                child: SelectableText(
+                  ServerConfig.supportEmail,
+                  style: body.copyWith(fontWeight: FontWeight.w600),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+      actions: [
+        GlassButton(
+          key: const ValueKey('account-disabled-close'),
+          style: GlassButtonStyle.primary,
+          label: t.close,
+          onPressed: () => Navigator.pop(context),
+        ),
+      ],
+    );
+  }
 }

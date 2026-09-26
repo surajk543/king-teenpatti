@@ -40,6 +40,8 @@ func TestABootBringsAnOlderDatabaseForward(t *testing.T) {
 	}
 
 	execSQL(t, older, `ALTER TABLE users DROP COLUMN is_bot`)
+	// users.is_active (26 Sep 2026) is missing from production's go-server/v1.4.0.
+	execSQL(t, older, `ALTER TABLE users DROP COLUMN is_active`)
 	execSQL(t, older, `ALTER TABLE chip_ledger DROP COLUMN game, DROP COLUMN variant`)
 	execSQL(t, older, `DROP TABLE table_configs`)
 	execSQL(t, older, `DROP TABLE table_settings`)
@@ -55,7 +57,7 @@ func TestABootBringsAnOlderDatabaseForward(t *testing.T) {
 		return countOf(t, d, `SELECT count(*) FROM information_schema.columns
              WHERE table_schema = $1 AND table_name = $2 AND column_name = $3`, d.Schema, table, name)
 	}
-	if column(older, "users", "is_bot")+column(older, "chip_ledger", "game")+column(older, "chip_ledger", "variant") != 0 {
+	if column(older, "users", "is_bot")+column(older, "users", "is_active")+column(older, "chip_ledger", "game")+column(older, "chip_ledger", "variant") != 0 {
 		t.Fatal("the columns were not dropped")
 	}
 
@@ -67,7 +69,7 @@ func TestABootBringsAnOlderDatabaseForward(t *testing.T) {
 	}
 	t.Cleanup(d.Close)
 
-	for _, c := range [][2]string{{"users", "is_bot"}, {"chip_ledger", "game"}, {"chip_ledger", "variant"}} {
+	for _, c := range [][2]string{{"users", "is_bot"}, {"users", "is_active"}, {"chip_ledger", "game"}, {"chip_ledger", "variant"}} {
 		if column(d, c[0], c[1]) != 1 {
 			t.Errorf("%s.%s is not back", c[0], c[1])
 		}
@@ -75,6 +77,10 @@ func TestABootBringsAnOlderDatabaseForward(t *testing.T) {
 	// The account that was already there is a person, as the DEFAULT says.
 	if isBotOf(t, d, before.ID) {
 		t.Error("an existing account must read is_bot = FALSE after the upgrade")
+	}
+	// …and enabled, as users.is_active's DEFAULT says: an upgrade disables nobody.
+	if got, err := db.NewUsers(d, welcome, nil).FindByID(ctx, before.ID); err != nil || got == nil || got.Disabled {
+		t.Errorf("the existing account after the upgrade: %+v %v, want it enabled", got, err)
 	}
 	// The catalogue tables were created and, being empty, seeded active — the
 	// engines and categories with them.
@@ -134,7 +140,7 @@ func TestABootBringsAnOlderDatabaseForward(t *testing.T) {
 
 	// A second boot on the upgraded database is a no-op.
 	reboot(t, d)
-	for _, c := range [][2]string{{"users", "is_bot"}, {"chip_ledger", "game"}, {"chip_ledger", "variant"}} {
+	for _, c := range [][2]string{{"users", "is_bot"}, {"users", "is_active"}, {"chip_ledger", "game"}, {"chip_ledger", "variant"}} {
 		if column(d, c[0], c[1]) != 1 {
 			t.Errorf("%s.%s after a second boot", c[0], c[1])
 		}
