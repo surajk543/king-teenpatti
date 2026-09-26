@@ -47,9 +47,9 @@ func withoutSeededEmojis(t *testing.T, f *fixture) {
 
 // The seed is the owner's own art (26 Sep 2026: "use this Lottie emoji,
 // validity 30 days, cost 5 Hammer", then six more at "same price same
-// validity"): sixteen Drive-hosted Lotties at 5 hammers for 30 days each, in
+// validity"): nineteen Drive-hosted Lotties at 5 hammers for 30 days each, in
 // the order they were given and owned by nobody.
-func TestTheSeededEmojisAreTheOwnersSixteenAtFiveHammersForThirtyDays(t *testing.T) {
+func TestTheSeededEmojisAreTheOwnersNineteenAtFiveHammersForThirtyDays(t *testing.T) {
 	f := newFixture(t)
 	listed, err := f.emojiStore().List(f.ctx, "")
 	if err != nil {
@@ -72,6 +72,9 @@ func TestTheSeededEmojisAreTheOwnersSixteenAtFiveHammersForThirtyDays(t *testing
 		{"Chill Face", "1kvwY307kfud4L9SjaZCLzO0mLOZ9pRYR"},
 		{"Face Blowing a Kiss", "1K7mIif6FpaHl06j1VFkPB8awW21zz-wf"},
 		{"Kiss Face", "1oLtnFWg0dd75cuPebF5i0IHuynRnJlp2"},
+		{"Ok", "1YnSphiJ7STpuHng9ACqPjwxWFSD4ex6t"},
+		{"No Face", "1MWQZiwQMIqDtJcfqBEaB7PcgQ0Py4x8t"},
+		{"Tongue Face", "1htRt4pDieoOmUJtBPf-FtXb5OK7nPyz8"},
 	}
 	if len(listed) != len(want) {
 		t.Fatalf("the seeded catalogue holds %d emojis, want %d: %+v", len(listed), len(want), listed)

@@ -86,11 +86,11 @@ func TestTheEmojiCatalogueIsListedWithAnOptionalTokenAndBoughtOverREST(t *testin
 	ctx := context.Background()
 	welcome := a.cfg.Game.WelcomeChips
 
-	// A fresh database lists the owner's sixteen seeded emojis (5 hammers for
-	// 30 days each, Angry first, Kiss Face last); cleared, the listing is [].
+	// A fresh database lists the owner's nineteen seeded emojis (5 hammers for
+	// 30 days each, Angry first, Tongue Face last); cleared, the listing is [].
 	status, body := getEmojis(t, ts.URL, "")
-	if seeded := emojisIn(t, body); status != http.StatusOK || len(seeded) != 16 ||
-		seeded[0].Name != "Angry" || seeded[15].Name != "Kiss Face" {
+	if seeded := emojisIn(t, body); status != http.StatusOK || len(seeded) != 19 ||
+		seeded[0].Name != "Angry" || seeded[18].Name != "Tongue Face" {
 		t.Fatalf("the seeded catalogue: %d %s", status, body)
 	}
 	if _, err := database.Pool.Exec(ctx, `DELETE FROM emojis`); err != nil {

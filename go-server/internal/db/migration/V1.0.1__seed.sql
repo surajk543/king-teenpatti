@@ -781,6 +781,9 @@ ON CONFLICT (lucky_draw_id, slot_number) DO NOTHING;
 --   Chill Face                  5 hammers  30 days  sort_order 140  "Chill Face Emoji.json", 512x512, 60 fps, 2.70 s
 --   Face Blowing a Kiss         5 hammers  30 days  sort_order 150  "Face Blowing A Kiss Emoji.json", 512x512, 60 fps, 2.00 s
 --   Kiss Face                   5 hammers  30 days  sort_order 160  "Kiss Face Emoji.json", 512x512, 60 fps, 3.00 s
+--   Ok                          5 hammers  30 days  sort_order 170  "Ok Emoji.json", 512x512, 60 fps, 1.53 s
+--   No Face                     5 hammers  30 days  sort_order 180  "No Face Emoji.json", 512x512, 60 fps, 2.22 s
+--   Tongue Face                 5 hammers  30 days  sort_order 190  "Tongue Face Emoji.json", 512x512, 60 fps, 0.73 s
 --
 -- None has a 3D layer, an expression, an embedded image or a text layer —
 -- what a phone's Lottie player cannot draw (CLAUDE.md §12.3).
@@ -836,6 +839,15 @@ SELECT name, asset_url, 'LOTTIE', currency, type, cost, duration_days, 0, TRUE, 
      'HAMMER', 'PREMIUM', 5::bigint, 30, 150),
     ('Kiss Face',
      'https://drive.google.com/uc?export=download&id=1oLtnFWg0dd75cuPebF5i0IHuynRnJlp2',
-     'HAMMER', 'PREMIUM', 5::bigint, 30, 160)
+     'HAMMER', 'PREMIUM', 5::bigint, 30, 160),
+    ('Ok',
+     'https://drive.google.com/uc?export=download&id=1YnSphiJ7STpuHng9ACqPjwxWFSD4ex6t',
+     'HAMMER', 'PREMIUM', 5::bigint, 30, 170),
+    ('No Face',
+     'https://drive.google.com/uc?export=download&id=1MWQZiwQMIqDtJcfqBEaB7PcgQ0Py4x8t',
+     'HAMMER', 'PREMIUM', 5::bigint, 30, 180),
+    ('Tongue Face',
+     'https://drive.google.com/uc?export=download&id=1htRt4pDieoOmUJtBPf-FtXb5OK7nPyz8',
+     'HAMMER', 'PREMIUM', 5::bigint, 30, 190)
   ) AS v(name, asset_url, currency, type, cost, duration_days, sort_order)
 ON CONFLICT (asset_url) DO NOTHING;

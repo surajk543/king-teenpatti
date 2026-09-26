@@ -104,10 +104,10 @@ func TestABootBringsAnOlderDatabaseForward(t *testing.T) {
 		t.Errorf("the existing account after the upgrade: %+v %v, want it read with no table picture laid", got, err)
 	}
 
-	// The emoji tables were created and seeded with the owner's sixteen, and an
+	// The emoji tables were created and seeded with the owner's nineteen, and an
 	// emoji added to them can be bought by the account that was already there.
-	if n := countOf(t, d, `SELECT count(*) FROM emojis WHERE is_active`); n != 16 {
-		t.Errorf("%d emojis after the upgrade, want the seed's 16", n)
+	if n := countOf(t, d, `SELECT count(*) FROM emojis WHERE is_active`); n != 19 {
+		t.Errorf("%d emojis after the upgrade, want the seed's 19", n)
 	}
 	var emojiID int64
 	if err := d.Pool.QueryRow(ctx, `INSERT INTO emojis (name, asset_url, type, currency, cost, created_at, updated_at)

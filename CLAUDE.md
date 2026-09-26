@@ -1284,12 +1284,12 @@ deep one for the dark theme's light ink; a picture's art must read on its own gr
 columns — `name`, `asset_url` UNIQUE, `asset_format` LOTTIE only, `currency` COIN|DIAMOND|HAMMER, `type` FREE|PREMIUM
 with the free-is-0 CHECK, `cost`, `duration_days`/`duration_hours`, `is_active`, `sort_order`) and **`user_emojis`**
 (`user_id`, `emoji_id`, `acquired_at`, `expires_at`, `purchases`; PK on the pair — the twin of `user_profile_pictures`;
-a FREE emoji needs no row). `V1.0.1__seed.sql`'s THE EMOJIS holds the owner's SIXTEEN, every one a Drive-hosted Lottie at
+a FREE emoji needs no row). `V1.0.1__seed.sql`'s THE EMOJIS holds the owner's NINETEEN, every one a Drive-hosted Lottie at
 **5 hammers for 30 days** (checked: no 3D, no expressions, no images), `ON CONFLICT (asset_url) DO NOTHING`: Angry,
 Dollar, Crying, Hi Face, Clapping Hands, Cowboy Hat Face, Muscle, Plane Face, Knife, Sleeping, Squinting Face with
-Tongue, Crying Face, Enraged Face, Chill Face, Face Blowing a Kiss, Kiss Face (sort_order 10–160, the order they were
+Tongue, Crying Face, Enraged Face, Chill Face, Face Blowing a Kiss, Kiss Face, Ok, No Face, Tongue Face (sort_order 10–190, the order they were
 given; the names are the Drive titles without "Emoji" — the app never shows a Drive title).
-`TestTheSeededEmojisAreTheOwnersSixteenAtFiveHammersForThirtyDays`.
+`TestTheSeededEmojisAreTheOwnersNineteenAtFiveHammersForThirtyDays`. Twice a batch of links repeated one link where the owner's upload to the emoji folder held another file; the batch's unlinked files were taken as meant (Chill Face, Face Blowing a Kiss, Kiss Face; Tongue Face).
 
 **The Lucky Draw (owner, 24 Sep 2026)** is three more tables in `V1.0.0__baseline.sql` (LUCKY DRAW, after `missile_spends`) and one
 draw in `V1.0.1__seed.sql` (THE LUCKY DRAW, last). **`lucky_draws`** (`code` UNIQUE, `name`, `spinner_type` TEXT default `STANDARD` —
