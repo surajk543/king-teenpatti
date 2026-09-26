@@ -146,6 +146,7 @@ class SeatPod extends StatelessWidget {
     this.stackWon = 0,
     this.onTap,
     this.requestBadge,
+    this.friendMark,
   });
 
   /// A tap on the pod — the glass plaque, not the cards and bet under it:
@@ -154,16 +155,28 @@ class SeatPod extends StatelessWidget {
   /// chair never takes one.
   final VoidCallback? onTap;
 
-  /// A badge for the pod's top corner — the one facing the middle of the
-  /// table — while this player's friend request waits for the viewer
-  /// ([SeatRequestBadge]). Laid over the pod, so neither the pod's size nor
-  /// the ring's layout changes with it.
+  /// A badge for the lower-left corner of the player's picture while their
+  /// friend request waits for the viewer ([SeatRequestBadge]). On the picture
+  /// rather than the pod's top corner, where it stood over the first letter
+  /// of a long name ("Vikramaditya" read "ikramaditya").
   final Widget? requestBadge;
 
-  /// The side of [requestBadge] on a pod [podWidth] wide: a quarter of it,
-  /// never so small it cannot be seen nor so large it covers the name.
-  static double requestBadgeSide(double podWidth) =>
-      (podWidth * 0.24).clamp(18.0, 30.0);
+  /// A mark for the lower-right corner of the player's picture while they are
+  /// the viewer's friend ([SeatFriendMark]) — where a picture's status dot
+  /// sits, so it reads as being about the person.
+  ///
+  /// Both are laid over the picture, so neither the pod's size nor the ring's
+  /// layout changes with them, and both stay clear of the name and the
+  /// dealer's button above the picture and of the stack pill and cards below
+  /// it. They stand on opposite corners, so they could be worn together — a
+  /// friend has no request waiting, so they never are. Never on the viewer's
+  /// own pod.
+  final Widget? friendMark;
+
+  /// The side of [requestBadge] and [friendMark] on a pod [podWidth] wide: a
+  /// fifth of it — about two fifths of the picture they sit on — never so
+  /// small the glyph cannot be seen nor so large it covers the face.
+  static double markSide(double podWidth) => (podWidth * 0.2).clamp(15.0, 26.0);
 
   /// Names the stack pill, where the pot's chips land when this seat wins.
   final Key? stackKey;
@@ -665,32 +678,64 @@ class SeatPod extends StatelessWidget {
                     ),
                   ],
                   SizedBox(height: width * _kGap),
-                  Avatar(
-                    url: avatarUrl,
-                    fallback: s.displayName,
-                    // Bigger when there is no stack pill under it. On a blind
-                    // table another player's chips were never sent, so the
-                    // pill under their picture said nothing but '•••' — a
-                    // bordered, shaded plaque spending a fifth of the pod's
-                    // height to report that it has nothing to report. Drop it
-                    // and the picture takes the room instead, which is the one
-                    // thing in a pod worth looking at.
-                    radius:
-                        width *
-                        (isMe
-                            ? _kAvatarMine
-                            : knownStack
-                            ? _kAvatar
-                            : _kAvatarAlone),
-                    // The second, quieter turn cue, for a player reading faces
-                    // rather than borders — in the ring's own edge colour.
-                    ring: onTurn ? edge : null,
-                    ringWidth: onTurn ? 2 : 1.5,
-                    // An animated picture plays at the table too: it is what
-                    // the player paid for, and a still frame of it here read as
-                    // broken. A still picture has no frames, so this costs a
-                    // ticker only for the seats that wear one that moves.
-                    animate: true,
+                  // The picture, with the request badge and the friend mark on
+                  // its two lower corners. One Stack whether or not either is
+                  // worn, sized by the picture alone, so a mark coming or
+                  // going changes nothing round it and the picture keeps its
+                  // state.
+                  Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      Avatar(
+                        url: avatarUrl,
+                        fallback: s.displayName,
+                        // Bigger when there is no stack pill under it. On a
+                        // blind table another player's chips were never sent,
+                        // so the pill under their picture said nothing but
+                        // '•••' — a bordered, shaded plaque spending a fifth
+                        // of the pod's height to report that it has nothing to
+                        // report. Drop it and the picture takes the room
+                        // instead, which is the one thing in a pod worth
+                        // looking at.
+                        radius:
+                            width *
+                            (isMe
+                                ? _kAvatarMine
+                                : knownStack
+                                ? _kAvatar
+                                : _kAvatarAlone),
+                        // The second, quieter turn cue, for a player reading
+                        // faces rather than borders — in the ring's own edge
+                        // colour.
+                        ring: onTurn ? edge : null,
+                        ringWidth: onTurn ? 2 : 1.5,
+                        // An animated picture plays at the table too: it is
+                        // what the player paid for, and a still frame of it
+                        // here read as broken. A still picture has no frames,
+                        // so this costs a ticker only for the seats that wear
+                        // one that moves.
+                        animate: true,
+                      ),
+                      // Each on the picture's foot, a quarter of it past the
+                      // picture's side — never below it, where the stack pill
+                      // and the cards are. The pod under them takes the tap.
+                      if (requestBadge != null && !isMe)
+                        Positioned(
+                          left: -markSide(width) * 0.25,
+                          bottom: 0,
+                          width: markSide(width),
+                          height: markSide(width),
+                          child: IgnorePointer(child: requestBadge!),
+                        ),
+                      if (friendMark != null && !isMe)
+                        Positioned(
+                          right: -markSide(width) * 0.25,
+                          bottom: 0,
+                          width: markSide(width),
+                          height: markSide(width),
+                          child: IgnorePointer(child: friendMark!),
+                        ),
+                    ],
                   ),
                   if (knownStack) ...[
                     SizedBox(height: width * _kGap),
@@ -728,14 +773,6 @@ class SeatPod extends StatelessWidget {
       ),
     );
 
-    final badge = requestBadge;
-    final badgeSide = requestBadgeSide(width);
-    // A third of the badge stands off the pod's corner, the rest over it:
-    // on the corner that faces the middle of the table, which is the side the
-    // seat's words open towards, so it never runs off the felt.
-    final badgeOut = -badgeSide * 0.3;
-    final badgeLeft = bubbleSide == BubbleSide.left;
-
     return PodImpact(
       key: podKey,
       clock: impact,
@@ -760,16 +797,6 @@ class SeatPod extends StatelessWidget {
               ),
             ),
           panel,
-          if (badge != null)
-            Positioned(
-              top: badgeOut,
-              left: badgeLeft ? badgeOut : null,
-              right: badgeLeft ? null : badgeOut,
-              width: badgeSide,
-              height: badgeSide,
-              // The pod under it takes the tap that answers the request.
-              child: IgnorePointer(child: badge),
-            ),
         ],
       ),
     );

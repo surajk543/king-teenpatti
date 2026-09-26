@@ -57,11 +57,12 @@ String friendsRefusalText(Strings t, String? code) => switch (code) {
 /// "do this async"): a request that has just arrived ([requestArrived],
 /// `friend:request`) and one of the player's own that has just been accepted
 /// ([requestAccepted], `friend:accepted`). At a table the incoming requests
-/// are read once as the table opens and kept by those two and by the moves;
-/// a seat's pod wears a badge while its player's request waits
-/// ([hasRequestFrom]), and a tap on it opens the table's player drawer, whose
-/// profile has a slot of its own here ([seatPlayer] and the rest) — never the
-/// Friends page's.
+/// and the friends are read once as the table opens ([tableOpened]) and kept
+/// by those two and by the moves; a seat's pod wears a badge while its
+/// player's request waits ([hasRequestFrom]), a friend's pod wears the friend
+/// mark ([isFriend]), and a tap on a pod opens the table's player drawer,
+/// whose profile has a slot of its own here ([seatPlayer] and the rest) —
+/// never the Friends page's.
 class FriendsState extends ChangeNotifier {
   FriendsState({
     required this._api,
@@ -83,8 +84,31 @@ class FriendsState extends ChangeNotifier {
 
   // ----------------------------------------------------------------- data
 
-  /// The friend list, PLAYING first, then ONLINE, then OFFLINE, by name.
-  List<FriendItem> friends = const [];
+  /// The friend list, PLAYING first, then ONLINE, then OFFLINE, by name — and
+  /// the ONE answer to "is this player my friend" ([isFriend]). Every change
+  /// to it comes through here — a read of the list, an accept, the
+  /// `friend:accepted` push, a removal, a sign-out — so the Friends page's
+  /// list and the marks a table puts on friends' seats can never disagree.
+  List<FriendItem> get friends => _friends;
+  set friends(List<FriendItem> list) {
+    _friends = list;
+    _friendIds = {
+      for (final f in list)
+        if (f.userId.isNotEmpty) f.userId,
+    };
+  }
+
+  List<FriendItem> _friends = const [];
+
+  /// The ids on [friends], kept with it: what [isFriend] reads.
+  Set<String> _friendIds = const {};
+
+  /// Whether [userId] is this player's friend, as their own friend list has
+  /// it. A table asks it of every seat for the mark a friend's pod wears
+  /// ([FriendsState.tableOpened]) — decided here, on this phone, and sent to
+  /// nobody.
+  bool isFriend(String? userId) =>
+      userId != null && userId.isNotEmpty && _friendIds.contains(userId);
 
   /// Requests addressed to this player — the ones Accept and Reject answer —
   /// and the ones they sent, newest first.
@@ -348,6 +372,23 @@ class FriendsState extends ChangeNotifier {
       }
     }
   }
+
+  /// A table has opened: both lists are read, once — the requests waiting,
+  /// for the badge a seat wears while its player's request waits, and the
+  /// friends, for the mark a friend's seat wears ([isFriend]). Nothing reads
+  /// them again at the table: a request is pushed as it arrives, an
+  /// acceptance is pushed to the player who asked, and the player's own
+  /// Accept and Reject in the drawer change the lists themselves.
+  ///
+  /// A friendship only ever ends in the lobby — a table offers no Remove, and
+  /// nothing is pushed when one ends — so for everyone seated with this player
+  /// the list read here holds for the whole sitting. The one case it misses is
+  /// a friend who gets up, ends the friendship from their Friends page and
+  /// sits down again: their mark stays until the next table opens.
+  ///
+  /// A server from before Friends answers `not_found`, and then there is no
+  /// list, no mark and no drawer ([available]).
+  Future<void> tableOpened() => refresh();
 
   /// Reads the lobby key's count again: the requests waiting for this
   /// player. Quiet: a failure keeps the count it had.

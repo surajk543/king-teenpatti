@@ -1868,15 +1868,24 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   re-reads and shows its note in the drawer — and the five stat tiles through the ONE `PlayerStatsGrid`
   (`widgets/player_profile.dart`, `RecordSurface.lobby|table`, shared with the lobby profile). No presence, no wallet, no
   table id. Its own state slot (`FriendsState.seatPlayer/seatProfile/openSeat/closeSeat`), apart from the page's. A seat
-  whose player has asked the viewer wears **`SeatRequestBadge`** (a gold person-add disc on the pod's top corner towards the
-  middle; `SeatPod.onTap/requestBadge`, the pod's size and the ring unchanged), from FriendsState's incoming requests read
-  ONCE as a table opens (`refreshBadge` in `handleState`) and kept by the pushes and the moves — nothing polls at a table.
+  whose player has asked the viewer wears **`SeatRequestBadge`** (a gold person-add disc on the lower-LEFT corner of their
+  picture — on the pod's top corner it covered a long name's first letter), and a seat whose player is the viewer's
+  FRIEND wears **`SeatFriendMark`** (owner, 26 Sep 2026: "if two or more friends are on same table … their should appear
+  small icon on each of them … while other are not their friend so they cannot see that icon"; a green disc on the
+  picture's lower-RIGHT corner, named "Friend") — both laid over the picture in a Stack that is always there
+  (`SeatPod.requestBadge/friendMark`, `markSide`), so neither changes the pod's size or the ring, never on the viewer's
+  own pod or an empty chair, on both felts. Decided ON THE PHONE from the viewer's own lists, never sent to anyone:
+  each friend sees the mark on the other's pod because each is in the other's list, and nobody else sees either.
+  `FriendsState.tableOpened()` reads the incoming requests AND the friends list ONCE as a table opens (in
+  `handleState`); `isFriend` answers from ONE id set kept with the friends list by every read, accept, push and remove;
+  the pushes and the moves keep both — nothing polls at a table, and removal is lobby-only, so the list read at the
+  table's opening stays right for the sitting.
   **The pushes** (§7.1): `GameConnection.onFriendRequest/onFriendAccepted`, registered before connect (a push can beat
   `session:ready`); `GameState.handleFriendRequest` → the request joins the incoming list and a toast says "{name} sent
   you a friend request." — "… Tap their seat to answer." when the sender sits at the viewer's table (`seatedHere`), no toast
   for a sender blocked in the table chat; `handleFriendAccepted` → "{name} accepted your friend request."; an open drawer or
   page showing that player re-reads. The source scan in `test/friends_page_test.dart` now holds that the table files know
-  the drawer and the badge and never the Friends page, its key or presence. `test/friends_table_test.dart` (39: both felts,
+  the drawer and the badge and never the Friends page, its key or presence. `test/friends_table_test.dart` (60: both felts, the friend mark,
   every status, the moves, the pushes, 640x360 ×1.25 in all five languages both themes); pictures by hand,
   `test/friends_table_shots.dart`. **The key**
   (`FriendsKey`) is a round 44dp key of the corner chips' card surface just left of the MILESTONE chip in the lobby's foot —
@@ -1905,7 +1914,7 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   table too), every 60 s while the lobby shows (not while the page is open) and when the page closes; the page's lists when it
   opens, every 15 s while it is on screen (the timer tied to the page's own lifetime) and on pull or Retry; an answer that set
   out before an accept, reject or remove is dropped so it cannot undo it; the page closes itself if the app leaves the lobby.
-  50 strings in five languages. Tests: `friends_{dtos,api,state,page,table}_test.dart` (170) on `friends_fixture.dart`, a fake
+  50 strings in five languages. Tests: `friends_{dtos,api,state,page,table}_test.dart` (191) on `friends_fixture.dart`, a fake
   server built from the contract; pictures by hand, `test/friends_shots.dart`.
 - **Emojis** (owner, 26 Sep 2026; server side §7.1/§7.2/§7.3; `widgets/emoji_shelf.dart`, `widgets/emoji_art.dart`).
   `EmojiItem`/`ChatEmoji` DTOs, `ApiClient.emojis`/`buyEmoji`, `GameConnection.sendEmoji` (`chat:emoji`), `GameState.emojis`

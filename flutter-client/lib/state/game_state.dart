@@ -1517,11 +1517,11 @@ class GameState extends ChangeNotifier {
       screen = Screen.table;
       chat.clear();
       unreadChat = 0;
-      // The requests waiting for this player, read once as the table opens:
-      // the seat of a player who asked wears a badge (the player drawer).
-      // From here they are kept by the pushes and the moves — nothing polls
-      // at a table.
-      unawaited(friends.refreshBadge());
+      // The requests waiting for this player and their friends, read once as
+      // the table opens: the seat of a player who asked wears a badge, a
+      // friend's seat the friend mark (the player drawer's file). From here
+      // they are kept by the pushes and the moves — nothing polls at a table.
+      unawaited(friends.tableOpened());
     }
     if (restored) _endResume(welcome: true);
     notifyListeners();

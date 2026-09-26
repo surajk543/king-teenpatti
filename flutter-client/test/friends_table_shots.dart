@@ -1,12 +1,13 @@
 // Pictures of Friends at the table (owner, 26 Sep 2026): the Teen Patti felt
-// (and the poker felt) with a waiting request's badge on its sender's seat,
-// and the player drawer
-// a pod opens — reading the profile, Add Friend, Request Sent, Accept and
-// Reject under the badge, the Friends tag, a refusal said in the drawer, a
-// profile that could not be read — and the poker felt's drawer, at the
-// landscape sizes the app is checked on and a tablet, in both themes, at text
-// x1.0 and x1.25, and in Hindi at the tightest size. Not part of
-// `flutter test` (the name has no `_test`): run it by hand.
+// (and the poker felt) with a waiting request's badge on its sender's seat —
+// a long name's too — and the friend mark on the seats of the viewer's
+// friends (the two on one pod, as they never are, to show they stand apart),
+// and the player drawer a pod opens — reading the profile, Add Friend,
+// Request Sent, Accept and Reject under the badge, the Friends tag, a refusal
+// said in the drawer, a profile that could not be read — and the poker felt's
+// drawer, at the landscape sizes the app is checked on and a tablet, in both
+// themes, at text x1.0 and x1.25, and in Hindi at the tightest size. Not part
+// of `flutter test` (the name has no `_test`): run it by hand.
 //
 //   flutter test test/friends_table_shots.dart --dart-define=SHOTS_DIR=/abs/dir \
 //     --dart-define=ICON_FONT=<flutter>/bin/cache/artifacts/material_fonts/MaterialIcons-Regular.otf
@@ -50,6 +51,9 @@ const _pictures = ['owl', 'tiger', 'fox', 'lion', 'panda'];
 
 enum _Scene {
   badge,
+  longBadge,
+  marks,
+  both,
   loading,
   add,
   sent,
@@ -58,8 +62,12 @@ enum _Scene {
   refused,
   failed,
   pokerBadge,
+  pokerMarks,
   poker,
 }
+
+/// The scenes laid on the poker felt.
+const _pokerScenes = {_Scene.pokerBadge, _Scene.pokerMarks, _Scene.poker};
 
 /// Whose pod each scene taps.
 const _tapped = {
@@ -174,15 +182,38 @@ RoomState _room({required bool poker}) {
 }
 
 /// The table's players as they stand to the viewer: Ravi nobody yet, Meera
-/// asked by the viewer, Arjun asking the viewer, Vikramaditya a friend.
+/// asked by the viewer, Arjun asking the viewer, Vikramaditya a friend. The
+/// marks scenes make Ravi a friend too; `both` makes Arjun a friend with his
+/// request still waiting (the two never meet: this shows they stand apart);
+/// `longBadge` has Vikramaditya asking instead, and nobody a friend.
 FakeFriendsServer _server(_Scene scene) {
   Map<String, dynamic> card(int i) => {
     ...cardJson('u$i', _names[i]),
     'profilePicture': {'id': 1, 'url': '/profiles/${_pictures[i]}.svg'},
   };
+  final friends = switch (scene) {
+    _Scene.marks || _Scene.pokerMarks => [1, 4],
+    _Scene.both => [3, 4],
+    _Scene.longBadge => <int>[],
+    _ => [4],
+  };
+  final asking = scene == _Scene.longBadge ? 4 : 3;
   final server = FakeFriendsServer(
+    friends: [
+      for (final i in friends)
+        {
+          ...friendJson(
+            'u$i',
+            _names[i],
+            status: 'PLAYING',
+            game: 'TEEN_PATTI',
+            variant: 'SEEN',
+          ),
+          'profilePicture': {'id': 1, 'url': '/profiles/${_pictures[i]}.svg'},
+        },
+    ],
     incoming: [
-      {'requestId': 41, 'player': card(3), 'createdAt': 1790442915826},
+      {'requestId': 41, 'player': card(asking), 'createdAt': 1790442915826},
     ],
     outgoing: [
       {'requestId': 43, 'player': card(2), 'createdAt': 1790442915000},
@@ -322,11 +353,7 @@ Future<void> _shoot(
       'missile': 1,
     })
     ..screen = Screen.lobby
-    ..handleState(
-      _room(
-        poker: shot.scene == _Scene.poker || shot.scene == _Scene.pokerBadge,
-      ),
-    );
+    ..handleState(_room(poker: _pokerScenes.contains(shot.scene)));
 
   final key = GlobalKey();
   await tester.pumpWidget(

@@ -24,9 +24,10 @@ import 'table_chrome.dart';
 // friend request, do this async"). The one Friends surface a table has: a tap
 // on another player's pod opens this drawer on the right with what the two
 // are to each other and that player's record; a seat whose player has asked
-// wears a badge. Everything else of Friends — the page, its lists, the
-// search, where a friend is — stays in the lobby, and nothing here is, or
-// names, a wallet or a table.
+// wears a badge, and a friend's seat a small mark this player alone sees.
+// Everything else of Friends — the page, its lists, the search, where a
+// friend is — stays in the lobby, and nothing here is, or names, a wallet or
+// a table.
 
 /// [seat] when a tap on its pod opens the player drawer — another player,
 /// sitting there now, on a server that has Friends — and null for the
@@ -547,8 +548,9 @@ class _Trouble extends StatelessWidget {
 
 /// The badge a seat wears while its player's friend request waits for the
 /// viewer — so the viewer knows whose seat to tap to answer it. A gold disc
-/// with the person-add glyph, laid over the pod's corner by [SeatPod], which
-/// neither the pod's size nor the ring's layout feels.
+/// with the person-add glyph, laid by [SeatPod] on the lower-left corner of
+/// the player's picture, which neither the pod's size nor the ring's layout
+/// feels.
 ///
 /// It subscribes for itself: the requests waiting are read once as the table
 /// opens and kept by the pushes and the moves ([FriendsState]), and the badge
@@ -568,6 +570,7 @@ class SeatRequestBadge extends StatelessWidget {
       builder: (context, _) {
         if (!friends.hasRequestFrom(userId)) return const SizedBox.shrink();
         return Semantics(
+          container: true,
           label: Strings(lang).wantsToBeFriends,
           child: LayoutBuilder(
             builder: (context, box) {
@@ -595,6 +598,95 @@ class SeatRequestBadge extends StatelessWidget {
                   Icons.person_add_alt_1_rounded,
                   size: side * 0.62,
                   color: AppTheme.ink900,
+                ),
+              );
+            },
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// The glyph's ink on the friend mark's disc ([friendsGreen]): charcoal on
+/// the night's mint, white on the day's deep green.
+Color friendMarkInk(Brightness b) =>
+    b == Brightness.dark ? AppTheme.ink900 : Colors.white;
+
+/// The small mark a friend's pod wears at a table (owner, 26 Sep 2026: "if two
+/// or more friends are on same table playing game then their should appear
+/// small icon on each of them so that they can know they are friends while
+/// other are not their friend so they cannot see that icon"): a disc in the
+/// green a friendship is marked in ([friendsGreen]) with a person and a tick,
+/// laid by [SeatPod] on the lower-right corner of the friend's picture — the
+/// corner opposite a [SeatRequestBadge]'s.
+///
+/// Decided on this phone, from this player's own friend list
+/// ([FriendsState.isFriend]), and sent to nobody. So it is seen only where the
+/// two ARE friends: on this phone over the friend's seat, and on the friend's
+/// phone over this player's, from the friend's own list — everyone else at
+/// the table sees neither.
+///
+/// It subscribes for itself, as [SeatRequestBadge] does: the friends are read
+/// once as the table opens and kept by the `friend:accepted` push and by the
+/// player's own Accept, and the mark comes the moment either lands — nothing at
+/// a table polls for it.
+class SeatFriendMark extends StatelessWidget {
+  const SeatFriendMark({super.key, required this.userId});
+
+  /// The seated player the mark would call this player's friend.
+  final String userId;
+
+  @override
+  Widget build(BuildContext context) {
+    final friends = context.read<GameState>().friends;
+    final lang = context.select<GameState, AppLang>((s) => s.lang);
+    return ListenableBuilder(
+      listenable: friends,
+      builder: (context, _) {
+        if (!friends.available || !friends.isFriend(userId)) {
+          return const SizedBox.shrink();
+        }
+        final brightness = Theme.of(context).brightness;
+        final dark = brightness == Brightness.dark;
+        final green = friendsGreen(brightness);
+        // A node of its own, so a screen reader says "Friend" on the seat
+        // rather than folding it into the name and the stack.
+        return Semantics(
+          container: true,
+          label: Strings(lang).friendMark,
+          child: LayoutBuilder(
+            builder: (context, box) {
+              final side = box.biggest.shortestSide;
+              return Container(
+                key: const ValueKey('seat-friend-mark'),
+                width: side,
+                height: side,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: green,
+                  // Cut out of the picture it sits on by a ring of the pod's
+                  // own glass, as a picture's status dot is.
+                  border: Border.all(
+                    color: dark ? AppTheme.ink900 : Colors.white,
+                    width: 1.5,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: AppTheme.ink900.withValues(alpha: 0.30),
+                      blurRadius: 3,
+                      offset: const Offset(0, 1),
+                    ),
+                  ],
+                ),
+                // Charcoal on the night's mint, white on the day's deep green:
+                // a mark this small reads as a badge in the light-on-colour a
+                // status dot wears, 3:1 or more either way.
+                child: Icon(
+                  Icons.how_to_reg_rounded,
+                  size: side * 0.66,
+                  color: friendMarkInk(brightness),
                 ),
               );
             },

@@ -286,6 +286,11 @@ class _PokerFelt extends StatelessWidget {
               requestBadge: other == null
                   ? null
                   : SeatRequestBadge(userId: other.userId!),
+              // And, while they are the viewer's friend, the friend mark: the
+              // viewer's own list decides it, on this phone alone.
+              friendMark: other == null
+                  ? null
+                  : SeatFriendMark(userId: other.userId!),
               revealed: reveal?.cards,
               best: reveal?.best ?? const [],
               // What the hand made — and, against the dealer, how it fared.

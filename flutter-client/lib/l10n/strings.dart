@@ -227,6 +227,10 @@ class Strings {
   String friendAcceptedYours(String name) =>
       _('friendAcceptedYours').replaceAll('{name}', name);
 
+  /// What the small mark on a friend's seat at a table says to a screen
+  /// reader: this player is the viewer's friend.
+  String get friendMark => _('friendMark');
+
   /// Every refusal a Friends route can answer, in words
   /// (`friendsRefusalText` picks by code).
   String get friendRefusePlayerNotFound => _('friendRefusePlayerNotFound');
@@ -1897,6 +1901,7 @@ class Strings {
       'friendRequestAtTable':
           '{name} sent you a friend request. Tap their seat to answer.',
       'friendAcceptedYours': '{name} accepted your friend request.',
+      'friendMark': 'Friend',
       'friendRefusePlayerNotFound': 'Player not found.',
       'friendRefuseInvalidId': 'That is not a valid Player ID.',
       'friendRefuseSelf': 'You cannot add yourself.',
@@ -2572,6 +2577,7 @@ class Strings {
       'friendRequestAtTable':
           '{name} ने आपको फ़्रेंड रिक्वेस्ट भेजी है। जवाब देने के लिए उनकी सीट पर टैप करें।',
       'friendAcceptedYours': '{name} ने आपकी फ़्रेंड रिक्वेस्ट स्वीकार कर ली।',
+      'friendMark': 'दोस्त',
       'friendRefusePlayerNotFound': 'खिलाड़ी नहीं मिला।',
       'friendRefuseInvalidId': 'यह सही खिलाड़ी आईडी नहीं है।',
       'friendRefuseSelf': 'आप खुद को नहीं जोड़ सकते।',
@@ -3253,6 +3259,7 @@ class Strings {
       'friendRequestAtTable':
           '{name} আপনাকে বন্ধুত্বের অনুরোধ পাঠিয়েছেন। উত্তর দিতে তাঁর আসনে ট্যাপ করুন।',
       'friendAcceptedYours': '{name} আপনার বন্ধুত্বের অনুরোধ গ্রহণ করেছেন।',
+      'friendMark': 'বন্ধু',
       'friendRefusePlayerNotFound': 'খেলোয়াড় পাওয়া যায়নি।',
       'friendRefuseInvalidId': 'এটি সঠিক খেলোয়াড় আইডি নয়।',
       'friendRefuseSelf': 'আপনি নিজেকে যোগ করতে পারবেন না।',
@@ -3925,6 +3932,7 @@ class Strings {
       'friendRequestAtTable':
           '{name}એ તમને મિત્રતાની વિનંતી મોકલી છે. જવાબ આપવા તેમની સીટ પર ટૅપ કરો.',
       'friendAcceptedYours': '{name}એ તમારી મિત્રતાની વિનંતી સ્વીકારી.',
+      'friendMark': 'મિત્ર',
       'friendRefusePlayerNotFound': 'ખેલાડી મળ્યો નથી.',
       'friendRefuseInvalidId': 'આ સાચી ખેલાડી આઈડી નથી.',
       'friendRefuseSelf': 'તમે પોતાને ઉમેરી શકતા નથી.',
@@ -4607,6 +4615,7 @@ class Strings {
       'friendRequestAtTable':
           '{name} ਨੇ ਤੁਹਾਨੂੰ ਦੋਸਤੀ ਦੀ ਬੇਨਤੀ ਭੇਜੀ ਹੈ। ਜਵਾਬ ਦੇਣ ਲਈ ਉਨ੍ਹਾਂ ਦੀ ਸੀਟ ਉੱਤੇ ਟੈਪ ਕਰੋ।',
       'friendAcceptedYours': '{name} ਨੇ ਤੁਹਾਡੀ ਦੋਸਤੀ ਦੀ ਬੇਨਤੀ ਸਵੀਕਾਰ ਕਰ ਲਈ।',
+      'friendMark': 'ਦੋਸਤ',
       'friendRefusePlayerNotFound': 'ਖਿਡਾਰੀ ਨਹੀਂ ਮਿਲਿਆ।',
       'friendRefuseInvalidId': 'ਇਹ ਸਹੀ ਖਿਡਾਰੀ ਆਈਡੀ ਨਹੀਂ ਹੈ।',
       'friendRefuseSelf': 'ਤੁਸੀਂ ਆਪਣੇ-ਆਪ ਨੂੰ ਨਹੀਂ ਜੋੜ ਸਕਦੇ।',

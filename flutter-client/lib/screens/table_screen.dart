@@ -1226,6 +1226,11 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
               requestBadge: other == null
                   ? null
                   : SeatRequestBadge(userId: other.userId!),
+              // And, while they are the viewer's friend, the friend mark: the
+              // viewer's own list decides it, on this phone alone.
+              friendMark: other == null
+                  ? null
+                  : SeatFriendMark(userId: other.userId!),
               revealed: reveal?.cards ?? peek?.cards,
               // Which of those cards played as wild ones (a variation table),
               // and the hand as it was counted with them.

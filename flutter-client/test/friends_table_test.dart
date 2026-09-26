@@ -37,6 +37,7 @@ import 'package:teenpatti/state/friends_state.dart';
 import 'package:teenpatti/state/game_state.dart';
 import 'package:teenpatti/theme/app_theme.dart';
 import 'package:teenpatti/theme/table_theme.dart';
+import 'package:teenpatti/widgets/avatar.dart';
 import 'package:teenpatti/widgets/glass_panels.dart';
 import 'package:teenpatti/widgets/hammer_flight.dart';
 import 'package:teenpatti/widgets/player_drawer.dart';
@@ -304,6 +305,45 @@ Finder _plaqueOf(String userId) =>
 
 Finder _badgeOn(String userId) =>
     find.descendant(of: _podOf(userId), matching: _key('seat-friend-request'));
+
+Finder _markOn(String userId) =>
+    find.descendant(of: _podOf(userId), matching: _key('seat-friend-mark'));
+
+/// The player's picture on their pod.
+Finder _pictureOf(String userId) =>
+    find.descendant(of: _plaqueOf(userId), matching: find.byType(Avatar));
+
+/// [mark] stands on a lower corner of [userId]'s picture — its foot on the
+/// picture's foot, a quarter of it past the picture's [left] or right side —
+/// inside the pod, and clear of the name over the picture.
+void _expectOnPicture(
+  WidgetTester tester,
+  String userId,
+  Finder mark, {
+  required bool left,
+}) {
+  final pod = tester.getRect(_plaqueOf(userId));
+  final picture = tester.getRect(_pictureOf(userId));
+  final rect = tester.getRect(mark);
+  expect(rect.width, closeTo(SeatPod.markSide(pod.width), 0.01));
+  expect(rect.bottom, closeTo(picture.bottom, 0.01), reason: userId);
+  if (left) {
+    expect(rect.left, closeTo(picture.left - rect.width * 0.25, 0.01));
+  } else {
+    expect(rect.right, closeTo(picture.right + rect.width * 0.25, 0.01));
+  }
+  // Inside the pod's glass, and nowhere near the name above the picture.
+  expect(pod.contains(rect.topLeft), isTrue, reason: '$userId $rect $pod');
+  expect(
+    pod.contains(rect.bottomRight - const Offset(0.01, 0.01)),
+    isTrue,
+    reason: '$userId $rect $pod',
+  );
+  final name = tester.getRect(
+    find.descendant(of: _plaqueOf(userId), matching: find.byType(SeatName)),
+  );
+  expect(rect.overlaps(name), isFalse, reason: '$userId $rect over $name');
+}
 
 Finder _inDrawer(Finder matching) =>
     find.descendant(of: find.byType(PlayerDrawer), matching: matching);
@@ -576,21 +616,282 @@ void main() {
           for (final id in _names.keys) {
             expect(tester.getRect(_plaqueOf(id)), before[id], reason: id);
           }
-          // On the pod's top corner, most of it over the pod.
-          final pod = before['u2']!;
-          final badge = tester.getRect(_badgeOn('u2'));
-          expect(badge.center.dy, closeTo(pod.top, badge.height * 0.3));
-          expect(
-            (badge.center.dx - pod.left).abs() < badge.width ||
-                (badge.center.dx - pod.right).abs() < badge.width,
-            isTrue,
-          );
+          // On the lower-left corner of the picture, inside the pod, clear
+          // of the name.
+          _expectOnPicture(tester, 'u2', _badgeOn('u2'), left: true);
           expect(tester.takeException(), isNull);
           await _unmount(tester, state);
         }, () => server.client);
       });
     });
+
+    // The owner, 26 Sep 2026: "if two or more friends are on same table
+    // playing game then their should appear small icon on each of them so
+    // that they can know they are friends while other are not their friend so
+    // they cannot see that icon".
+    group('the friend mark on the $felt felt', () {
+      testWidgets('a friend\'s pod wears it, named "Friend", and nobody '
+          'else\'s — never the viewer\'s own, never an empty chair', (
+        tester,
+      ) async {
+        // Even a list that named the viewer, and a friend in no seat here.
+        final server = _server()
+          ..friends.addAll([
+            friendJson('u0', 'Priya'),
+            friendJson('u1', 'Ravi'),
+          ]);
+        await http.runWithClient(() async {
+          final state = _state();
+          await _mount(tester, state, room(empty: [1]));
+          expect(_markOn('u4'), findsOneWidget);
+          for (final id in ['u0', 'u2', 'u3']) {
+            expect(_markOn(id), findsNothing, reason: id);
+          }
+          // One mark on the whole table — Vikramaditya's: the viewer's own
+          // pod and the empty chair wear none, whatever the list says.
+          expect(state.friends.isFriend('u0'), isTrue);
+          expect(state.friends.isFriend('u1'), isTrue);
+          expect(_key('seat-friend-mark'), findsOneWidget);
+          expect(find.byType(SeatFriendMark), findsNWidgets(3));
+          _expectOnPicture(tester, 'u4', _markOn('u4'), left: false);
+          expect(find.bySemanticsLabel(t.friendMark), findsOneWidget);
+          expect(t.friendMark, 'Friend');
+          expect(tester.takeException(), isNull);
+          await _unmount(tester, state);
+        }, () => server.client);
+      });
+
+      testWidgets('it comes at once when the viewer\'s request is accepted, '
+          'and when the viewer accepts one — the list is not read again', (
+        tester,
+      ) async {
+        final server = _server();
+        await http.runWithClient(() async {
+          final state = _state();
+          await _mount(tester, state, room());
+          expect(_markOn('u2'), findsNothing);
+          expect(_markOn('u3'), findsNothing);
+          // Meera accepts the request the viewer sent her (friend:accepted).
+          state.handleFriendAccepted(
+            const FriendAccepted(
+              requestId: '43',
+              player: PlayerCard(userId: 'u2', displayName: 'Meera'),
+              friendsSince: 1790442915835,
+            ),
+          );
+          await tester.pump();
+          expect(_markOn('u2'), findsOneWidget);
+          // The viewer accepts Arjun's in the drawer his seat opens.
+          await _tapPod(tester, 'u3');
+          await tester.tap(_key('seat-accept'));
+          await _settle(tester);
+          expect(_markOn('u3'), findsOneWidget);
+          expect(_badgeOn('u3'), findsNothing);
+          await _closeDrawer(tester);
+          expect(_key('seat-friend-mark'), findsNWidgets(3));
+          expect(server.count('GET', '/api/friends'), 1);
+          await _unmount(tester, state);
+        }, () => server.client);
+      });
+
+      testWidgets('it changes neither the pod\'s size nor the ring\'s places', (
+        tester,
+      ) async {
+        final server = _server()
+          ..holdPath = '/api/friends'
+          ..hold = Completer<void>();
+        await http.runWithClient(() async {
+          final state = _state();
+          await _mount(tester, state, room());
+          // The list is still on its way: no mark yet.
+          expect(_key('seat-friend-mark'), findsNothing);
+          final pods = {
+            for (final id in _names.keys) id: tester.getRect(_plaqueOf(id)),
+          };
+          final pictures = {
+            for (final id in _names.keys) id: tester.getRect(_pictureOf(id)),
+          };
+          server.hold!.complete();
+          await _settle(tester);
+          expect(_markOn('u4'), findsOneWidget);
+          // The pod on turn is left out: its turn ring breathes, which moves
+          // its box by a fraction of a pixel between any two moments, mark or
+          // no mark. The mark itself is on u4, which is not on turn.
+          final onTurn = state.room?.turn?.userId;
+          expect(onTurn, isNot('u4'));
+          for (final id in _names.keys) {
+            if (id == onTurn) continue;
+            expect(tester.getRect(_plaqueOf(id)), pods[id], reason: id);
+            expect(tester.getRect(_pictureOf(id)), pictures[id], reason: id);
+          }
+          expect(tester.takeException(), isNull);
+          await _unmount(tester, state);
+        }, () => server.client);
+      });
+
+      testWidgets('it and the request badge stand on opposite corners of the '
+          'picture, so the two could be worn together', (tester) async {
+        // Never both in truth — a friend has no request waiting — so the list
+        // is made to say both of Arjun.
+        final server = _server()..friends.add(friendJson('u3', 'Arjun'));
+        await http.runWithClient(() async {
+          final state = _state();
+          await _mount(tester, state, room());
+          expect(_markOn('u3'), findsOneWidget);
+          expect(_badgeOn('u3'), findsOneWidget);
+          _expectOnPicture(tester, 'u3', _markOn('u3'), left: false);
+          _expectOnPicture(tester, 'u3', _badgeOn('u3'), left: true);
+          expect(
+            tester
+                .getRect(_markOn('u3'))
+                .overlaps(tester.getRect(_badgeOn('u3'))),
+            isFalse,
+          );
+          await _unmount(tester, state);
+        }, () => server.client);
+      });
+    });
   }
+
+  group('the friend mark', () {
+    testWidgets('a server from before Friends shows no marks, no badges and '
+        'no drawer', (tester) async {
+      final server = FakeFriendsServer(
+        friends: [friendJson('u4', 'Vikramaditya')],
+        incoming: [requestJson(41, 'u3', 'Arjun')],
+      )..unsupported = true;
+      await http.runWithClient(() async {
+        final state = _state();
+        await _mount(tester, state, _teenPatti());
+        expect(state.friends.available, isFalse);
+        expect(_key('seat-friend-mark'), findsNothing);
+        expect(_key('seat-friend-request'), findsNothing);
+        await tester.tap(_plaqueOf('u4'), warnIfMissed: false);
+        await _settle(tester);
+        expect(_drawerOpen(state), isFalse);
+        // Asked once, as the table opened, and never again.
+        await tester.pump(const Duration(minutes: 3));
+        expect(server.count('GET', '/api/friends'), 1);
+        await _unmount(tester, state);
+      }, () => server.client);
+    });
+
+    test(
+      'the Friends page and the table read one answer to "is this player '
+      'my friend", kept by the list, an accept, the push and a removal',
+      () async {
+        final server = populatedServer();
+        final state = signedInState();
+        final friends = state.friends;
+        Future<T> on<T>(Future<T> Function() body) =>
+            http.runWithClient(body, () => server.client);
+        void agrees() {
+          for (final id in [
+            'u-meera',
+            'u-arjun',
+            'u-kavya',
+            'u-ravi',
+            'u-isha',
+            'u-dev',
+          ]) {
+            expect(
+              friends.isFriend(id),
+              friends.friends.any((f) => f.userId == id),
+              reason: id,
+            );
+          }
+        }
+
+        expect(friends.isFriend('u-meera'), isFalse);
+        // A read of the list: the page's, and the table's as it opens.
+        await on(friends.tableOpened);
+        expect(friends.isFriend('u-meera'), isTrue);
+        expect(friends.isFriend('u-ravi'), isFalse);
+        agrees();
+        // The player's own Accept.
+        await on(() => friends.accept('41'));
+        expect(friends.isFriend('u-ravi'), isTrue);
+        agrees();
+        // An acceptance pushed to the player who asked.
+        friends.requestAccepted(
+          const FriendAccepted(
+            requestId: '43',
+            player: PlayerCard(userId: 'u-dev', displayName: 'Dev'),
+          ),
+        );
+        expect(friends.isFriend('u-dev'), isTrue);
+        agrees();
+        // A removal — in the lobby, the only place one is made.
+        await on(() => friends.remove('u-meera'));
+        expect(friends.isFriend('u-meera'), isFalse);
+        agrees();
+        expect(friends.isFriend(null), isFalse);
+        expect(friends.isFriend(''), isFalse);
+        // Signed out: nobody.
+        friends.reset();
+        expect(friends.isFriend('u-ravi'), isFalse);
+        agrees();
+        state.dispose();
+      },
+    );
+
+    test('its glyph holds 3:1 or more on its disc, by day and by night', () {
+      double contrast(Color a, Color b) {
+        final la = a.computeLuminance();
+        final lb = b.computeLuminance();
+        return la > lb ? (la + 0.05) / (lb + 0.05) : (lb + 0.05) / (la + 0.05);
+      }
+
+      for (final b in Brightness.values) {
+        expect(
+          contrast(friendMarkInk(b), friendsGreen(b)),
+          greaterThanOrEqualTo(3),
+          reason: b.name,
+        );
+      }
+    });
+  });
+
+  group('the marks read at 640x360, text x1.25', () {
+    for (final brightness in Brightness.values) {
+      for (final lang in AppLang.values) {
+        testWidgets('in ${lang.name} (${brightness.name})', (tester) async {
+          final t = Strings(lang);
+          for (final room in [_teenPatti(), _poker()]) {
+            // Ravi and Vikramaditya friends, Arjun asking.
+            final server = _server()..friends.add(friendJson('u1', 'Ravi'));
+            await http.runWithClient(() async {
+              final state = _state(lang: lang);
+              await _mount(tester, state, room, brightness: brightness);
+              final where = '${room.category} ${lang.name}';
+              expect(tester.takeException(), isNull, reason: where);
+              expect(_markOn('u1'), findsOneWidget, reason: where);
+              expect(_markOn('u4'), findsOneWidget, reason: where);
+              expect(_badgeOn('u3'), findsOneWidget, reason: where);
+              _expectOnPicture(tester, 'u1', _markOn('u1'), left: false);
+              _expectOnPicture(tester, 'u4', _markOn('u4'), left: false);
+              _expectOnPicture(tester, 'u3', _badgeOn('u3'), left: true);
+              for (final id in ['u1', 'u4']) {
+                final mark = tester.getRect(_markOn(id));
+                expect(mark.width, greaterThanOrEqualTo(15), reason: where);
+                expect(
+                  Offset.zero & const Size(640, 360),
+                  predicate<Rect>((screen) => screen.contains(mark.center)),
+                  reason: where,
+                );
+              }
+              expect(
+                find.bySemanticsLabel(t.friendMark),
+                findsNWidgets(2),
+                reason: where,
+              );
+              await _unmount(tester, state);
+            }, () => server.client);
+          }
+        });
+      }
+    }
+  });
 
   group('the moves', () {
     testWidgets('Add Friend sends the request and turns to Request Sent', (
@@ -615,24 +916,27 @@ void main() {
       }, () => server.client);
     });
 
-    testWidgets('the requests waiting are read once as the table opens, and '
-        'nothing at the table asks again', (tester) async {
+    testWidgets('the requests waiting and the friends are read once as the '
+        'table opens, and nothing at the table asks again', (tester) async {
       final server = _server();
       await http.runWithClient(() async {
         final state = _state();
         await _mount(tester, state, _teenPatti());
         expect(server.count('GET', '/api/friends/requests'), 1);
+        expect(server.count('GET', '/api/friends'), 1);
         await tester.pump();
         expect(_badgeOn('u3'), findsOneWidget);
         expect(
           find.byKey(const ValueKey('seat-friend-request')),
           findsOneWidget,
         );
+        expect(_markOn('u4'), findsOneWidget);
         // Another snapshot of the same table, and minutes of play.
         state.handleState(_teenPatti());
         await tester.pump(const Duration(minutes: 3));
         expect(server.count('GET', '/api/friends/requests'), 1);
-        expect(server.count('GET', '/api/friends'), 0);
+        expect(server.count('GET', '/api/friends'), 1);
+        expect(_markOn('u4'), findsOneWidget);
         await _unmount(tester, state);
       }, () => server.client);
     });
