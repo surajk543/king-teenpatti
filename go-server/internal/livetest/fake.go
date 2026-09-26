@@ -34,6 +34,7 @@ const (
 	OpSetOnline         = "set_online"
 	OpSetOffline        = "set_offline"
 	OpOnlineCount       = "online_count"
+	OpPresence          = "presence"
 	OpPutResumeOffer    = "put_resume_offer"
 	OpTakeResumeOffer   = "take_resume_offer"
 	OpDeleteResumeOffer = "delete_resume_offer"
@@ -54,6 +55,7 @@ type Fake struct {
 	tables    map[string]tableEntry
 	chats     map[string][][]byte
 	seats     map[string]string
+	playing   map[string]playingEntry
 	online    map[string]onlineEntry
 	offers    map[string]offerEntry
 	summaries map[string]live.TableSummary
@@ -70,6 +72,11 @@ type tableEntry struct {
 
 type onlineEntry struct {
 	instance  string
+	expiresAt time.Time
+}
+
+type playingEntry struct {
+	record    live.Playing
 	expiresAt time.Time
 }
 
@@ -91,6 +98,7 @@ func NewWithClock(now func() time.Time) *Fake {
 		tables:    map[string]tableEntry{},
 		chats:     map[string][][]byte{},
 		seats:     map[string]string{},
+		playing:   map[string]playingEntry{},
 		online:    map[string]onlineEntry{},
 		offers:    map[string]offerEntry{},
 		summaries: map[string]live.TableSummary{},
@@ -138,6 +146,25 @@ func (f *Fake) OnlineExpiry(userID string) time.Time {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.online[userID].expiresAt
+}
+
+// Playing peeks at a user's playing record (ok=false when absent or
+// expired). Does not count as a call.
+func (f *Fake) Playing(userID string) (live.Playing, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	e, present := f.playing[userID]
+	if !present || !e.expiresAt.After(f.now()) {
+		return live.Playing{}, false
+	}
+	return e.record, true
+}
+
+// PlayingExpiry is when the user's playing record lapses (zero when absent).
+func (f *Fake) PlayingExpiry(userID string) time.Time {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.playing[userID].expiresAt
 }
 
 // Offer peeks at a user's resume offer without taking it.
@@ -318,13 +345,21 @@ func (f *Fake) DeleteChat(ctx context.Context, roomID string) error {
 
 // ---- presence ---------------------------------------------------------------
 
-func (f *Fake) SetSeated(ctx context.Context, userID, roomID string) error {
+func (f *Fake) SetSeated(ctx context.Context, userID, roomID string, playing live.Playing, playingTTL time.Duration) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if err := f.enter(ctx, OpSetSeated); err != nil {
 		return err
 	}
 	f.seats[userID] = roomID
+	if playing.Game == "" {
+		delete(f.playing, userID)
+		return nil
+	}
+	if playing.UpdatedAt == 0 {
+		playing.UpdatedAt = f.now().UnixMilli()
+	}
+	f.playing[userID] = playingEntry{record: playing, expiresAt: f.expiry(playingTTL)}
 	return nil
 }
 
@@ -335,6 +370,7 @@ func (f *Fake) ClearSeated(ctx context.Context, userID string) error {
 		return err
 	}
 	delete(f.seats, userID)
+	delete(f.playing, userID)
 	return nil
 }
 
@@ -399,6 +435,27 @@ func (f *Fake) OnlineCount(ctx context.Context) (int, error) {
 		n++
 	}
 	return n, nil
+}
+
+func (f *Fake) Presence(ctx context.Context, userIDs []string) (map[string]live.Presence, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.enter(ctx, OpPresence); err != nil {
+		return nil, err
+	}
+	now := f.now()
+	out := make(map[string]live.Presence, len(userIDs))
+	for _, id := range userIDs {
+		var p live.Presence
+		if e, ok := f.online[id]; ok && e.expiresAt.After(now) {
+			p.Online = true
+		}
+		if e, ok := f.playing[id]; ok && e.expiresAt.After(now) {
+			p.Playing, p.Game, p.Variant, p.UpdatedAt = true, e.record.Game, e.record.Variant, e.record.UpdatedAt
+		}
+		out[id] = p
+	}
+	return out, nil
 }
 
 // ---- resume offers ----------------------------------------------------------

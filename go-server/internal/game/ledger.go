@@ -60,11 +60,13 @@ type Ledger interface {
 	// Settle is the HAND-END checkpoint: every player still at the table.
 	// Per entry, in ascending userId
 	// order: lock the wallet (skip silently if the row is gone), balance =
-	// max(0, chips + delta), UPDATE users (chips, hands_played += DidChaal
-	// when Outcome, hands_won += IsWinner, hands_lost += Outcome &&
-	// !IsWinner && !LeftMidHand, hands_left_mid += LeftMidHand,
-	// total_winnings += Pot if winner, biggest_pot = GREATEST(…, Pot if
-	// winner), updated_at); INSERT chip_ledger with the entry's ActionID and
+	// max(0, chips + delta), UPDATE users (chips, updated_at); when a counter
+	// moves, add to the player's player_stats row in the same transaction
+	// (hands_played += DidChaal when Outcome, hands_won += IsWinner,
+	// hands_lost += Outcome && !IsWinner && !LeftMidHand, hands_left +=
+	// LeftMidHand, total_winnings += Pot if winner, biggest_pot = GREATEST(…,
+	// Pot if winner) — the users columns of those names are retired, Friends
+	// V1); INSERT chip_ledger with the entry's ActionID and
 	// Reason (a zero delta is STILL written). Returns every settled balance.
 	// The Table retries it unchanged on failure; the UNIQUE action ids are
 	// what make that safe.
@@ -79,8 +81,8 @@ const (
 	LedgerReasonHandPacked = "hand_packed"
 	// LedgerReasonHandLeft is the leave/switch checkpoint: the player is
 	// gone from the table, their wallet must be right immediately, and
-	// hands_left_mid is incremented here because they will not be at the
-	// hand-end write.
+	// player_stats.hands_left is incremented here because they will not be at
+	// the hand-end write.
 	LedgerReasonHandLeft = "hand_left"
 )
 
@@ -114,7 +116,8 @@ type SettleEntry struct {
 	Push bool
 	// DidChaal drives hands_played on an outcome row (requirement 16).
 	DidChaal bool
-	// LeftMidHand drives hands_left_mid, and excludes the row from hands_lost.
+	// LeftMidHand drives hands_left (player_stats; the wire's handsLeftMid),
+	// and excludes the row from hands_lost.
 	LeftMidHand bool
 	// Pot is the hand's pot, used for total_winnings/biggest_pot when
 	// IsWinner. With several winners (a poker split or side pot) it is THIS

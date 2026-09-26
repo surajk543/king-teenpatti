@@ -28,6 +28,7 @@ import '../widgets/missile_flight.dart';
 import '../widgets/picture_shelf.dart';
 import '../widgets/playing_card.dart';
 import '../widgets/poker_chip.dart';
+import '../widgets/player_drawer.dart';
 import '../widgets/pot_flight.dart';
 import '../widgets/premium_surface.dart';
 import '../widgets/seat_pod.dart';
@@ -144,6 +145,12 @@ class _TableScreenState extends State<TableScreen> {
           LeftPanel.emoji => const EmojiDrawer(),
         },
       ),
+      // Another player's pod, tapped, opens this from the right: what the two
+      // are to each other and that player's record (owner, 26 Sep 2026). Only
+      // a pod opens it — a swipe in from the edge of a table where thumbs
+      // live on the key cluster would open it by accident.
+      endDrawer: const PlayerDrawer(),
+      endDrawerEnableOpenDragGesture: false,
       body: Stack(
         children: [
           // The room the table stands in — charcoal floor, one warm pool where
@@ -1208,8 +1215,22 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
             // stack rises on the celebration's clock, and hold still until
             // it runs.
             final paid = pays && s != null && s.userId == state.winnerId;
+            // Another player: a tap on their pod opens the player drawer, and
+            // their pod wears a badge while their friend request waits.
+            final other = playerDrawerSeat(state, s);
 
             return SeatPod(
+              onTap: other == null
+                  ? null
+                  : () => openPlayerDrawer(context, other),
+              requestBadge: other == null
+                  ? null
+                  : SeatRequestBadge(userId: other.userId!),
+              // And, while they are the viewer's friend, the friend mark: the
+              // viewer's own list decides it, on this phone alone.
+              friendMark: other == null
+                  ? null
+                  : SeatFriendMark(userId: other.userId!),
               revealed: reveal?.cards ?? peek?.cards,
               // Which of those cards played as wild ones (a variation table),
               // and the hand as it was counted with them.

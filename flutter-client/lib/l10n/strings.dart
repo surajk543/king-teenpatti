@@ -159,6 +159,92 @@ class Strings {
   String countMissiles(int n) =>
       _(n == 1 ? 'countMissileOne' : 'countMissiles').replaceAll('{n}', '$n');
 
+  // --- Friends (owner, 26 Sep 2026): the lobby's key, the page, Add Friend
+  // and a player's profile. Nothing here names a wallet.
+  String get friends => _('friends');
+
+  /// The key's badge, spoken: "2 new friend requests".
+  String friendRequestsWaiting(int n) => _(
+    n == 1 ? 'friendRequestWaiting' : 'friendRequestsWaiting',
+  ).replaceAll('{n}', '$n');
+  String get yourPlayerId => _('yourPlayerId');
+  String get copyId => _('copyId');
+  String get idCopied => _('idCopied');
+  String get addFriend => _('addFriend');
+  String get friendRequests => _('friendRequests');
+  String get noFriendRequests => _('noFriendRequests');
+  String get noFriendsTitle => _('noFriendsTitle');
+  String get noFriendsBody => _('noFriendsBody');
+  String get friendsLoadFailed => _('friendsLoadFailed');
+  String get friendsRetry => _('friendsRetry');
+  String get friendAccept => _('friendAccept');
+  String get friendReject => _('friendReject');
+  String get wantsToBeFriends => _('wantsToBeFriends');
+  String get presenceOnline => _('presenceOnline');
+  String get presenceOffline => _('presenceOffline');
+  String get playingNow => _('playingNow');
+  String get addFriendHint => _('addFriendHint');
+
+  /// Under the empty search: where a friend finds the ID to give.
+  String get addFriendHowTo => _('addFriendHowTo');
+  String get playerIdLabel => _('playerIdLabel');
+  String get searchPlayer => _('searchPlayer');
+  String get requestSent => _('requestSent');
+  String get thatsYou => _('thatsYou');
+  String get enterPlayerId => _('enterPlayerId');
+  String get playerProfile => _('playerProfile');
+  String get winRate => _('winRate');
+  String get removeFriend => _('removeFriend');
+
+  /// "Remove Ravi from your friends?"
+  String removeFriendQ(String name) =>
+      _('removeFriendQ').replaceAll('{name}', name);
+  String get removeFriendBody => _('removeFriendBody');
+  String get removeFriendConfirm => _('removeFriendConfirm');
+  String get profileLoadFailed => _('profileLoadFailed');
+  String get back => _('back');
+
+  /// "Ravi is now your friend." — an accepted request.
+  String friendAdded(String name) =>
+      _('friendAdded').replaceAll('{name}', name);
+
+  /// "Ravi is no longer your friend." — a friend removed.
+  String friendRemoved(String name) =>
+      _('friendRemoved').replaceAll('{name}', name);
+
+  /// "Ravi sent you a friend request." — a request that has just arrived
+  /// (`friend:request`), wherever the player is.
+  String friendRequestArrived(String name) =>
+      _('friendRequestArrived').replaceAll('{name}', name);
+
+  /// The same, at a table the sender sits at: where to answer it — their
+  /// seat, which wears the request's badge.
+  String friendRequestAtTable(String name) =>
+      _('friendRequestAtTable').replaceAll('{name}', name);
+
+  /// "Ravi accepted your friend request." — one of the player's own requests
+  /// accepted (`friend:accepted`).
+  String friendAcceptedYours(String name) =>
+      _('friendAcceptedYours').replaceAll('{name}', name);
+
+  /// What the small mark on a friend's seat at a table says to a screen
+  /// reader: this player is the viewer's friend.
+  String get friendMark => _('friendMark');
+
+  /// Every refusal a Friends route can answer, in words
+  /// (`friendsRefusalText` picks by code).
+  String get friendRefusePlayerNotFound => _('friendRefusePlayerNotFound');
+  String get friendRefuseInvalidId => _('friendRefuseInvalidId');
+  String get friendRefuseSelf => _('friendRefuseSelf');
+  String get friendRefuseAlreadyFriends => _('friendRefuseAlreadyFriends');
+  String get friendRefuseAlreadySent => _('friendRefuseAlreadySent');
+  String get friendRefuseAlreadyReceived => _('friendRefuseAlreadyReceived');
+  String get friendRefuseRequestGone => _('friendRefuseRequestGone');
+  String get friendRefuseNotPending => _('friendRefuseNotPending');
+  String get friendRefuseNotFriends => _('friendRefuseNotFriends');
+  String get friendRefuseRateLimited => _('friendRefuseRateLimited');
+  String get friendActionFailed => _('friendActionFailed');
+
   // --- buying chips, not open yet
   String get buyChips => _('buyChips');
 
@@ -1041,6 +1127,33 @@ class Strings {
   /// than "left" glued on, so each language keeps its own word order.
   String timeLeft(String time) => _('timeLeft').replaceAll('{time}', time);
 
+  /// Months and years, for how long two players have been friends.
+  String timeMonths(int n) =>
+      _(n == 1 ? 'timeMonth' : 'timeMonths').replaceAll('{n}', '$n');
+  String timeYears(int n) =>
+      _(n == 1 ? 'timeYear' : 'timeYears').replaceAll('{n}', '$n');
+
+  /// How long two players have been friends, [since] they became friends (a
+  /// duration, never negative): "Friends for 3 days", in the largest whole
+  /// unit — minutes under an hour, hours under a day, days under 30, months
+  /// (of 30 days) under a year (of 365), then years; "Friends since just now"
+  /// under a minute. The player drawer's head (owner, 26 Sep 2026: "show each
+  /// other at the top how long they are friends in time").
+  String friendsFor(Duration since) {
+    final d = since.isNegative ? Duration.zero : since;
+    if (d.inMinutes < 1) return _('friendsJustNow');
+    final time = d.inHours < 1
+        ? timeMinutes(d.inMinutes)
+        : d.inDays < 1
+        ? timeHours(d.inHours)
+        : d.inDays < 30
+        ? timeDays(d.inDays)
+        : d.inDays < 365
+        ? timeMonths(d.inDays ~/ 30)
+        : timeYears(d.inDays ~/ 365);
+    return _('friendsFor').replaceAll('{time}', time);
+  }
+
   /// Said instead of a time for a premium picture that never runs out.
   String get pictureKeeps => _('pictureKeeps');
 
@@ -1585,6 +1698,12 @@ class Strings {
       'timeMinute': '{n} minute',
       'timeMinutes': '{n} minutes',
       'timeLeft': '{time} left',
+      'timeMonth': '{n} month',
+      'timeMonths': '{n} months',
+      'timeYear': '{n} year',
+      'timeYears': '{n} years',
+      'friendsFor': 'Friends for {time}',
+      'friendsJustNow': 'Friends since just now',
       'pictureKeeps': 'Yours to keep',
       'rentalLapsed': 'Your rental has run out',
       'rentalEnds': 'Ends {date}',
@@ -1775,6 +1894,62 @@ class Strings {
       'refuseWrongGame': 'That move belongs to another game',
       'refuseDuplicateAction': 'That move was already sent',
       'refuseUnknownAction': 'That move is not one the table knows',
+      // Friends (owner, 26 Sep 2026)
+      'friends': 'Friends',
+      'friendRequestWaiting': '1 new friend request',
+      'friendRequestsWaiting': '{n} new friend requests',
+      'yourPlayerId': 'Your Player ID',
+      'copyId': 'Copy',
+      'idCopied': 'Copied',
+      'addFriend': 'Add Friend',
+      'friendRequests': 'Friend Requests',
+      'noFriendRequests': 'No Friend Requests',
+      'noFriendsTitle': 'No Friends Yet',
+      'noFriendsBody': 'Add friends using their Player ID.',
+      'friendsLoadFailed': 'Could not load friends.',
+      'friendsRetry': 'Retry',
+      'friendAccept': 'Accept',
+      'friendReject': 'Reject',
+      'wantsToBeFriends': 'Wants to be your friend',
+      'presenceOnline': 'Online',
+      'presenceOffline': 'Offline',
+      'playingNow': 'Playing now',
+      'addFriendHint': 'Search by Player ID',
+      'playerIdLabel': 'Player ID',
+      'searchPlayer': 'Search',
+      'requestSent': 'Request Sent',
+      'thatsYou': "That's you",
+      'enterPlayerId': 'Enter a Player ID.',
+      'playerProfile': 'Profile',
+      'winRate': 'Win rate',
+      'removeFriend': 'Remove Friend',
+      'removeFriendQ': 'Remove {name} from your friends?',
+      'removeFriendBody': 'You can send them a friend request again later.',
+      'removeFriendConfirm': 'Remove',
+      'profileLoadFailed': 'Could not load this profile.',
+      'back': 'Back',
+      'friendAdded': '{name} is now your friend.',
+      'friendRemoved': '{name} is no longer your friend.',
+      'friendRequestArrived': '{name} sent you a friend request.',
+      'friendRequestAtTable':
+          '{name} sent you a friend request. Tap their seat to answer.',
+      'friendAcceptedYours': '{name} accepted your friend request.',
+      'friendMark': 'Friend',
+      'friendRefusePlayerNotFound': 'Player not found.',
+      'friendRefuseInvalidId': 'That is not a valid Player ID.',
+      'friendRefuseSelf': 'You cannot add yourself.',
+      'friendRefuseAlreadyFriends': 'You are already friends.',
+      'friendRefuseAlreadySent': 'Friend request already sent.',
+      'friendRefuseAlreadyReceived':
+          'This player already sent you a request — accept it.',
+      'friendRefuseRequestGone': 'This friend request is no longer there.',
+      'friendRefuseNotPending':
+          'This friend request has already been answered.',
+      'friendRefuseNotFriends': 'You are not friends with this player.',
+      'friendRefuseRateLimited': 'Too many tries. Wait a moment and try again.',
+      'friendActionFailed': 'That did not go through. Try again.',
+      'addFriendHowTo':
+          'Ask your friend for their Player ID — it is at the top of their Friends page.',
     },
     'hi': {
       'signInSubtitle': 'खेलने के लिए साइन इन करें।',
@@ -2211,6 +2386,12 @@ class Strings {
       'timeMinute': '{n} मिनट',
       'timeMinutes': '{n} मिनट',
       'timeLeft': '{time} बाकी',
+      'timeMonth': '{n} महीना',
+      'timeMonths': '{n} महीने',
+      'timeYear': '{n} साल',
+      'timeYears': '{n} साल',
+      'friendsFor': '{time} से दोस्त',
+      'friendsJustNow': 'अभी-अभी दोस्त बने',
       'pictureKeeps': 'हमेशा के लिए आपकी',
       'rentalLapsed': 'किराये की अवधि ख़त्म हो गई',
       'rentalEnds': 'समाप्ति: {date}',
@@ -2394,6 +2575,64 @@ class Strings {
       'refuseWrongGame': 'यह चाल किसी और खेल की है',
       'refuseDuplicateAction': 'यह चाल पहले ही भेजी जा चुकी है',
       'refuseUnknownAction': 'यह चाल टेबल नहीं जानती',
+      // Friends (owner, 26 Sep 2026)
+      'friends': 'दोस्त',
+      'friendRequestWaiting': '1 नई फ़्रेंड रिक्वेस्ट',
+      'friendRequestsWaiting': '{n} नई फ़्रेंड रिक्वेस्ट',
+      'yourPlayerId': 'आपकी खिलाड़ी आईडी',
+      'copyId': 'कॉपी करें',
+      'idCopied': 'कॉपी हो गई',
+      'addFriend': 'दोस्त जोड़ें',
+      'friendRequests': 'फ़्रेंड रिक्वेस्ट',
+      'noFriendRequests': 'कोई फ़्रेंड रिक्वेस्ट नहीं',
+      'noFriendsTitle': 'अभी कोई दोस्त नहीं',
+      'noFriendsBody': 'दोस्तों को उनकी खिलाड़ी आईडी से जोड़ें।',
+      'friendsLoadFailed': 'दोस्तों की सूची लोड नहीं हो सकी।',
+      'friendsRetry': 'फिर कोशिश करें',
+      'friendAccept': 'स्वीकारें',
+      'friendReject': 'अस्वीकारें',
+      'wantsToBeFriends': 'आपका दोस्त बनना चाहते हैं',
+      'presenceOnline': 'ऑनलाइन',
+      'presenceOffline': 'ऑफ़लाइन',
+      'playingNow': 'अभी खेल रहे हैं',
+      'addFriendHint': 'खिलाड़ी आईडी से खोजें',
+      'playerIdLabel': 'खिलाड़ी आईडी',
+      'searchPlayer': 'खोजें',
+      'requestSent': 'रिक्वेस्ट भेजी गई',
+      'thatsYou': 'यह आप हैं',
+      'enterPlayerId': 'खिलाड़ी आईडी डालें।',
+      'playerProfile': 'प्रोफ़ाइल',
+      'winRate': 'जीत दर',
+      'removeFriend': 'दोस्त हटाएँ',
+      'removeFriendQ': '{name} को अपने दोस्तों से हटाएँ?',
+      'removeFriendBody':
+          'आप बाद में उन्हें फिर से फ़्रेंड रिक्वेस्ट भेज सकते हैं।',
+      'removeFriendConfirm': 'हटाएँ',
+      'profileLoadFailed': 'यह प्रोफ़ाइल लोड नहीं हो सकी।',
+      'back': 'वापस',
+      'friendAdded': '{name} अब आपके दोस्त हैं।',
+      'friendRemoved': '{name} अब आपके दोस्त नहीं हैं।',
+      'friendRequestArrived': '{name} ने आपको फ़्रेंड रिक्वेस्ट भेजी है।',
+      'friendRequestAtTable':
+          '{name} ने आपको फ़्रेंड रिक्वेस्ट भेजी है। जवाब देने के लिए उनकी सीट पर टैप करें।',
+      'friendAcceptedYours': '{name} ने आपकी फ़्रेंड रिक्वेस्ट स्वीकार कर ली।',
+      'friendMark': 'दोस्त',
+      'friendRefusePlayerNotFound': 'खिलाड़ी नहीं मिला।',
+      'friendRefuseInvalidId': 'यह सही खिलाड़ी आईडी नहीं है।',
+      'friendRefuseSelf': 'आप खुद को नहीं जोड़ सकते।',
+      'friendRefuseAlreadyFriends': 'आप पहले से दोस्त हैं।',
+      'friendRefuseAlreadySent': 'फ़्रेंड रिक्वेस्ट पहले ही भेजी जा चुकी है।',
+      'friendRefuseAlreadyReceived':
+          'इस खिलाड़ी ने आपको पहले ही रिक्वेस्ट भेजी है — उसे स्वीकारें।',
+      'friendRefuseRequestGone': 'यह फ़्रेंड रिक्वेस्ट अब नहीं है।',
+      'friendRefuseNotPending':
+          'इस फ़्रेंड रिक्वेस्ट का जवाब पहले ही दिया जा चुका है।',
+      'friendRefuseNotFriends': 'आप इस खिलाड़ी के दोस्त नहीं हैं।',
+      'friendRefuseRateLimited':
+          'बहुत ज़्यादा कोशिशें। थोड़ा रुककर फिर कोशिश करें।',
+      'friendActionFailed': 'यह नहीं हो सका। फिर कोशिश करें।',
+      'addFriendHowTo':
+          'अपने दोस्त से उनकी खिलाड़ी आईडी पूछें — यह उनके दोस्त पेज में सबसे ऊपर होती है।',
     },
     'bn': {
       'signInSubtitle': 'খেলতে সাইন ইন করুন।',
@@ -2826,6 +3065,12 @@ class Strings {
       'timeMinute': '{n} মিনিট',
       'timeMinutes': '{n} মিনিট',
       'timeLeft': '{time} বাকি',
+      'timeMonth': '{n} মাস',
+      'timeMonths': '{n} মাস',
+      'timeYear': '{n} বছর',
+      'timeYears': '{n} বছর',
+      'friendsFor': '{time} ধরে বন্ধু',
+      'friendsJustNow': 'এইমাত্র বন্ধু হয়েছেন',
       'pictureKeeps': 'চিরকাল আপনার',
       'rentalLapsed': 'ভাড়ার মেয়াদ শেষ হয়েছে',
       'rentalEnds': 'মেয়াদ শেষ: {date}',
@@ -3018,6 +3263,64 @@ class Strings {
       'refuseWrongGame': 'এই চাল অন্য খেলার',
       'refuseDuplicateAction': 'এই চাল আগেই পাঠানো হয়েছে',
       'refuseUnknownAction': 'এই চাল টেবিলের জানা নেই',
+      // Friends (owner, 26 Sep 2026)
+      'friends': 'বন্ধুরা',
+      'friendRequestWaiting': '1টি নতুন বন্ধুত্বের অনুরোধ',
+      'friendRequestsWaiting': '{n}টি নতুন বন্ধুত্বের অনুরোধ',
+      'yourPlayerId': 'আপনার খেলোয়াড় আইডি',
+      'copyId': 'কপি করুন',
+      'idCopied': 'কপি হয়েছে',
+      'addFriend': 'বন্ধু যোগ করুন',
+      'friendRequests': 'বন্ধুত্বের অনুরোধ',
+      'noFriendRequests': 'কোনো বন্ধুত্বের অনুরোধ নেই',
+      'noFriendsTitle': 'এখনও কোনো বন্ধু নেই',
+      'noFriendsBody': 'খেলোয়াড় আইডি দিয়ে বন্ধুদের যোগ করুন।',
+      'friendsLoadFailed': 'বন্ধুদের তালিকা লোড করা যায়নি।',
+      'friendsRetry': 'আবার চেষ্টা করুন',
+      'friendAccept': 'গ্রহণ করুন',
+      'friendReject': 'প্রত্যাখ্যান করুন',
+      'wantsToBeFriends': 'আপনার বন্ধু হতে চান',
+      'presenceOnline': 'অনলাইন',
+      'presenceOffline': 'অফলাইন',
+      'playingNow': 'এখন খেলছেন',
+      'addFriendHint': 'খেলোয়াড় আইডি দিয়ে খুঁজুন',
+      'playerIdLabel': 'খেলোয়াড় আইডি',
+      'searchPlayer': 'খুঁজুন',
+      'requestSent': 'অনুরোধ পাঠানো হয়েছে',
+      'thatsYou': 'এটি আপনি',
+      'enterPlayerId': 'একটি খেলোয়াড় আইডি লিখুন।',
+      'playerProfile': 'প্রোফাইল',
+      'winRate': 'জয়ের হার',
+      'removeFriend': 'বন্ধু সরান',
+      'removeFriendQ': '{name}-কে আপনার বন্ধুদের থেকে সরাবেন?',
+      'removeFriendBody':
+          'পরে আপনি তাঁকে আবার বন্ধুত্বের অনুরোধ পাঠাতে পারবেন।',
+      'removeFriendConfirm': 'সরান',
+      'profileLoadFailed': 'এই প্রোফাইলটি লোড করা যায়নি।',
+      'back': 'ফিরে যান',
+      'friendAdded': '{name} এখন আপনার বন্ধু।',
+      'friendRemoved': '{name} আর আপনার বন্ধু নন।',
+      'friendRequestArrived': '{name} আপনাকে বন্ধুত্বের অনুরোধ পাঠিয়েছেন।',
+      'friendRequestAtTable':
+          '{name} আপনাকে বন্ধুত্বের অনুরোধ পাঠিয়েছেন। উত্তর দিতে তাঁর আসনে ট্যাপ করুন।',
+      'friendAcceptedYours': '{name} আপনার বন্ধুত্বের অনুরোধ গ্রহণ করেছেন।',
+      'friendMark': 'বন্ধু',
+      'friendRefusePlayerNotFound': 'খেলোয়াড় পাওয়া যায়নি।',
+      'friendRefuseInvalidId': 'এটি সঠিক খেলোয়াড় আইডি নয়।',
+      'friendRefuseSelf': 'আপনি নিজেকে যোগ করতে পারবেন না।',
+      'friendRefuseAlreadyFriends': 'আপনারা আগে থেকেই বন্ধু।',
+      'friendRefuseAlreadySent': 'বন্ধুত্বের অনুরোধ আগেই পাঠানো হয়েছে।',
+      'friendRefuseAlreadyReceived':
+          'এই খেলোয়াড় আপনাকে আগেই অনুরোধ পাঠিয়েছেন — সেটি গ্রহণ করুন।',
+      'friendRefuseRequestGone': 'এই বন্ধুত্বের অনুরোধটি আর নেই।',
+      'friendRefuseNotPending':
+          'এই বন্ধুত্বের অনুরোধের উত্তর আগেই দেওয়া হয়েছে।',
+      'friendRefuseNotFriends': 'আপনি এই খেলোয়াড়ের বন্ধু নন।',
+      'friendRefuseRateLimited':
+          'অনেক বেশি চেষ্টা। একটু অপেক্ষা করে আবার চেষ্টা করুন।',
+      'friendActionFailed': 'এটি হয়নি। আবার চেষ্টা করুন।',
+      'addFriendHowTo':
+          'আপনার বন্ধুর কাছে তাঁর খেলোয়াড় আইডি চেয়ে নিন — এটি তাঁর বন্ধুরা পাতার একেবারে উপরে থাকে।',
     },
     'gu': {
       'signInSubtitle': 'રમવા માટે સાઇન ઇન કરો.',
@@ -3412,6 +3715,12 @@ class Strings {
       'timeMinute': '{n} મિનિટ',
       'timeMinutes': '{n} મિનિટ',
       'timeLeft': '{time} બાકી',
+      'timeMonth': '{n} મહિનો',
+      'timeMonths': '{n} મહિના',
+      'timeYear': '{n} વર્ષ',
+      'timeYears': '{n} વર્ષ',
+      'friendsFor': '{time}થી મિત્રો',
+      'friendsJustNow': 'હમણાં જ મિત્રો બન્યા',
       'pictureKeeps': 'હંમેશા માટે તમારો',
       'rentalLapsed': 'ભાડાની મુદત પૂરી થઈ ગઈ',
       'rentalEnds': 'મુદત પૂરી: {date}',
@@ -3634,6 +3943,63 @@ class Strings {
       'refuseWrongGame': 'આ ચાલ બીજી રમતની છે',
       'refuseDuplicateAction': 'આ ચાલ પહેલેથી મોકલાઈ ગઈ છે',
       'refuseUnknownAction': 'આ ચાલ ટેબલ જાણતું નથી',
+      // Friends (owner, 26 Sep 2026)
+      'friends': 'મિત્રો',
+      'friendRequestWaiting': '1 નવી મિત્રતાની વિનંતી',
+      'friendRequestsWaiting': '{n} નવી મિત્રતાની વિનંતીઓ',
+      'yourPlayerId': 'તમારી ખેલાડી આઈડી',
+      'copyId': 'કૉપિ કરો',
+      'idCopied': 'કૉપિ થઈ',
+      'addFriend': 'મિત્ર ઉમેરો',
+      'friendRequests': 'મિત્રતાની વિનંતીઓ',
+      'noFriendRequests': 'કોઈ મિત્રતાની વિનંતી નથી',
+      'noFriendsTitle': 'હજી કોઈ મિત્ર નથી',
+      'noFriendsBody': 'મિત્રોને તેમની ખેલાડી આઈડીથી ઉમેરો.',
+      'friendsLoadFailed': 'મિત્રોની યાદી લોડ થઈ શકી નથી.',
+      'friendsRetry': 'ફરી પ્રયાસ કરો',
+      'friendAccept': 'સ્વીકારો',
+      'friendReject': 'નકારો',
+      'wantsToBeFriends': 'તમારા મિત્ર બનવા માંગે છે',
+      'presenceOnline': 'ઑનલાઇન',
+      'presenceOffline': 'ઑફલાઇન',
+      'playingNow': 'હમણાં રમી રહ્યા છે',
+      'addFriendHint': 'ખેલાડી આઈડીથી શોધો',
+      'playerIdLabel': 'ખેલાડી આઈડી',
+      'searchPlayer': 'શોધો',
+      'requestSent': 'વિનંતી મોકલાઈ',
+      'thatsYou': 'આ તમે છો',
+      'enterPlayerId': 'ખેલાડી આઈડી લખો.',
+      'playerProfile': 'પ્રોફાઇલ',
+      'winRate': 'જીતનો દર',
+      'removeFriend': 'મિત્ર દૂર કરો',
+      'removeFriendQ': '{name}ને તમારા મિત્રોમાંથી દૂર કરશો?',
+      'removeFriendBody': 'તમે પછીથી તેમને ફરી મિત્રતાની વિનંતી મોકલી શકો છો.',
+      'removeFriendConfirm': 'દૂર કરો',
+      'profileLoadFailed': 'આ પ્રોફાઇલ લોડ થઈ શકી નથી.',
+      'back': 'પાછા',
+      'friendAdded': '{name} હવે તમારા મિત્ર છે.',
+      'friendRemoved': '{name} હવે તમારા મિત્ર નથી.',
+      'friendRequestArrived': '{name}એ તમને મિત્રતાની વિનંતી મોકલી છે.',
+      'friendRequestAtTable':
+          '{name}એ તમને મિત્રતાની વિનંતી મોકલી છે. જવાબ આપવા તેમની સીટ પર ટૅપ કરો.',
+      'friendAcceptedYours': '{name}એ તમારી મિત્રતાની વિનંતી સ્વીકારી.',
+      'friendMark': 'મિત્ર',
+      'friendRefusePlayerNotFound': 'ખેલાડી મળ્યો નથી.',
+      'friendRefuseInvalidId': 'આ સાચી ખેલાડી આઈડી નથી.',
+      'friendRefuseSelf': 'તમે પોતાને ઉમેરી શકતા નથી.',
+      'friendRefuseAlreadyFriends': 'તમે પહેલેથી જ મિત્રો છો.',
+      'friendRefuseAlreadySent': 'મિત્રતાની વિનંતી પહેલેથી જ મોકલાઈ છે.',
+      'friendRefuseAlreadyReceived':
+          'આ ખેલાડીએ તમને પહેલેથી જ વિનંતી મોકલી છે — તેને સ્વીકારો.',
+      'friendRefuseRequestGone': 'આ મિત્રતાની વિનંતી હવે નથી.',
+      'friendRefuseNotPending':
+          'આ મિત્રતાની વિનંતીનો જવાબ પહેલેથી જ અપાઈ ગયો છે.',
+      'friendRefuseNotFriends': 'તમે આ ખેલાડીના મિત્ર નથી.',
+      'friendRefuseRateLimited':
+          'ઘણા બધા પ્રયાસો. થોડી રાહ જોઈને ફરી પ્રયાસ કરો.',
+      'friendActionFailed': 'આ થઈ શક્યું નથી. ફરી પ્રયાસ કરો.',
+      'addFriendHowTo':
+          'તમારા મિત્ર પાસેથી તેમની ખેલાડી આઈડી માંગો — તે તેમના મિત્રો પેજમાં સૌથી ઉપર હોય છે.',
     },
     'pa': {
       'signInSubtitle': 'ਖੇਡਣ ਲਈ ਸਾਈਨ ਇਨ ਕਰੋ।',
@@ -4030,6 +4396,12 @@ class Strings {
       'timeMinute': '{n} ਮਿੰਟ',
       'timeMinutes': '{n} ਮਿੰਟ',
       'timeLeft': '{time} ਬਾਕੀ',
+      'timeMonth': '{n} ਮਹੀਨਾ',
+      'timeMonths': '{n} ਮਹੀਨੇ',
+      'timeYear': '{n} ਸਾਲ',
+      'timeYears': '{n} ਸਾਲ',
+      'friendsFor': '{time} ਤੋਂ ਦੋਸਤ',
+      'friendsJustNow': 'ਹੁਣੇ ਹੁਣੇ ਦੋਸਤ ਬਣੇ',
       'pictureKeeps': 'ਹਮੇਸ਼ਾ ਲਈ ਤੁਹਾਡੀ',
       'rentalLapsed': 'ਕਿਰਾਏ ਦੀ ਮਿਆਦ ਖਤਮ ਹੋ ਗਈ',
       'rentalEnds': 'ਮਿਆਦ ਖਤਮ: {date}',
@@ -4259,6 +4631,64 @@ class Strings {
       'refuseWrongGame': 'ਇਹ ਚਾਲ ਕਿਸੇ ਹੋਰ ਖੇਡ ਦੀ ਹੈ',
       'refuseDuplicateAction': 'ਇਹ ਚਾਲ ਪਹਿਲਾਂ ਹੀ ਭੇਜੀ ਜਾ ਚੁੱਕੀ ਹੈ',
       'refuseUnknownAction': 'ਇਹ ਚਾਲ ਟੇਬਲ ਨਹੀਂ ਜਾਣਦਾ',
+      // Friends (owner, 26 Sep 2026)
+      'friends': 'ਦੋਸਤ',
+      'friendRequestWaiting': '1 ਨਵੀਂ ਦੋਸਤੀ ਦੀ ਬੇਨਤੀ',
+      'friendRequestsWaiting': '{n} ਨਵੀਆਂ ਦੋਸਤੀ ਦੀਆਂ ਬੇਨਤੀਆਂ',
+      'yourPlayerId': 'ਤੁਹਾਡੀ ਖਿਡਾਰੀ ਆਈਡੀ',
+      'copyId': 'ਕਾਪੀ ਕਰੋ',
+      'idCopied': 'ਕਾਪੀ ਹੋ ਗਈ',
+      'addFriend': 'ਦੋਸਤ ਜੋੜੋ',
+      'friendRequests': 'ਦੋਸਤੀ ਦੀਆਂ ਬੇਨਤੀਆਂ',
+      'noFriendRequests': 'ਕੋਈ ਦੋਸਤੀ ਦੀ ਬੇਨਤੀ ਨਹੀਂ',
+      'noFriendsTitle': 'ਅਜੇ ਕੋਈ ਦੋਸਤ ਨਹੀਂ',
+      'noFriendsBody': 'ਦੋਸਤਾਂ ਨੂੰ ਉਨ੍ਹਾਂ ਦੀ ਖਿਡਾਰੀ ਆਈਡੀ ਨਾਲ ਜੋੜੋ।',
+      'friendsLoadFailed': 'ਦੋਸਤਾਂ ਦੀ ਸੂਚੀ ਲੋਡ ਨਹੀਂ ਹੋ ਸਕੀ।',
+      'friendsRetry': 'ਮੁੜ ਕੋਸ਼ਿਸ਼ ਕਰੋ',
+      'friendAccept': 'ਸਵੀਕਾਰ ਕਰੋ',
+      'friendReject': 'ਅਸਵੀਕਾਰ ਕਰੋ',
+      'wantsToBeFriends': 'ਤੁਹਾਡਾ ਦੋਸਤ ਬਣਨਾ ਚਾਹੁੰਦੇ ਹਨ',
+      'presenceOnline': 'ਔਨਲਾਈਨ',
+      'presenceOffline': 'ਔਫ਼ਲਾਈਨ',
+      'playingNow': 'ਹੁਣ ਖੇਡ ਰਹੇ ਹਨ',
+      'addFriendHint': 'ਖਿਡਾਰੀ ਆਈਡੀ ਨਾਲ ਖੋਜੋ',
+      'playerIdLabel': 'ਖਿਡਾਰੀ ਆਈਡੀ',
+      'searchPlayer': 'ਖੋਜੋ',
+      'requestSent': 'ਬੇਨਤੀ ਭੇਜੀ ਗਈ',
+      'thatsYou': 'ਇਹ ਤੁਸੀਂ ਹੋ',
+      'enterPlayerId': 'ਖਿਡਾਰੀ ਆਈਡੀ ਲਿਖੋ।',
+      'playerProfile': 'ਪ੍ਰੋਫਾਈਲ',
+      'winRate': 'ਜਿੱਤ ਦਰ',
+      'removeFriend': 'ਦੋਸਤ ਹਟਾਓ',
+      'removeFriendQ': 'ਕੀ {name} ਨੂੰ ਆਪਣੇ ਦੋਸਤਾਂ ਵਿੱਚੋਂ ਹਟਾਉਣਾ ਹੈ?',
+      'removeFriendBody':
+          'ਤੁਸੀਂ ਬਾਅਦ ਵਿੱਚ ਉਨ੍ਹਾਂ ਨੂੰ ਮੁੜ ਦੋਸਤੀ ਦੀ ਬੇਨਤੀ ਭੇਜ ਸਕਦੇ ਹੋ।',
+      'removeFriendConfirm': 'ਹਟਾਓ',
+      'profileLoadFailed': 'ਇਹ ਪ੍ਰੋਫਾਈਲ ਲੋਡ ਨਹੀਂ ਹੋ ਸਕੀ।',
+      'back': 'ਵਾਪਸ',
+      'friendAdded': '{name} ਹੁਣ ਤੁਹਾਡੇ ਦੋਸਤ ਹਨ।',
+      'friendRemoved': '{name} ਹੁਣ ਤੁਹਾਡੇ ਦੋਸਤ ਨਹੀਂ ਹਨ।',
+      'friendRequestArrived': '{name} ਨੇ ਤੁਹਾਨੂੰ ਦੋਸਤੀ ਦੀ ਬੇਨਤੀ ਭੇਜੀ ਹੈ।',
+      'friendRequestAtTable':
+          '{name} ਨੇ ਤੁਹਾਨੂੰ ਦੋਸਤੀ ਦੀ ਬੇਨਤੀ ਭੇਜੀ ਹੈ। ਜਵਾਬ ਦੇਣ ਲਈ ਉਨ੍ਹਾਂ ਦੀ ਸੀਟ ਉੱਤੇ ਟੈਪ ਕਰੋ।',
+      'friendAcceptedYours': '{name} ਨੇ ਤੁਹਾਡੀ ਦੋਸਤੀ ਦੀ ਬੇਨਤੀ ਸਵੀਕਾਰ ਕਰ ਲਈ।',
+      'friendMark': 'ਦੋਸਤ',
+      'friendRefusePlayerNotFound': 'ਖਿਡਾਰੀ ਨਹੀਂ ਮਿਲਿਆ।',
+      'friendRefuseInvalidId': 'ਇਹ ਸਹੀ ਖਿਡਾਰੀ ਆਈਡੀ ਨਹੀਂ ਹੈ।',
+      'friendRefuseSelf': 'ਤੁਸੀਂ ਆਪਣੇ-ਆਪ ਨੂੰ ਨਹੀਂ ਜੋੜ ਸਕਦੇ।',
+      'friendRefuseAlreadyFriends': 'ਤੁਸੀਂ ਪਹਿਲਾਂ ਹੀ ਦੋਸਤ ਹੋ।',
+      'friendRefuseAlreadySent': 'ਦੋਸਤੀ ਦੀ ਬੇਨਤੀ ਪਹਿਲਾਂ ਹੀ ਭੇਜੀ ਜਾ ਚੁੱਕੀ ਹੈ।',
+      'friendRefuseAlreadyReceived':
+          'ਇਸ ਖਿਡਾਰੀ ਨੇ ਤੁਹਾਨੂੰ ਪਹਿਲਾਂ ਹੀ ਬੇਨਤੀ ਭੇਜੀ ਹੈ — ਇਸਨੂੰ ਸਵੀਕਾਰ ਕਰੋ।',
+      'friendRefuseRequestGone': 'ਇਹ ਦੋਸਤੀ ਦੀ ਬੇਨਤੀ ਹੁਣ ਨਹੀਂ ਹੈ।',
+      'friendRefuseNotPending':
+          'ਇਸ ਦੋਸਤੀ ਦੀ ਬੇਨਤੀ ਦਾ ਜਵਾਬ ਪਹਿਲਾਂ ਹੀ ਦਿੱਤਾ ਜਾ ਚੁੱਕਾ ਹੈ।',
+      'friendRefuseNotFriends': 'ਤੁਸੀਂ ਇਸ ਖਿਡਾਰੀ ਦੇ ਦੋਸਤ ਨਹੀਂ ਹੋ।',
+      'friendRefuseRateLimited':
+          'ਬਹੁਤ ਜ਼ਿਆਦਾ ਕੋਸ਼ਿਸ਼ਾਂ। ਥੋੜ੍ਹਾ ਰੁਕ ਕੇ ਮੁੜ ਕੋਸ਼ਿਸ਼ ਕਰੋ।',
+      'friendActionFailed': 'ਇਹ ਨਹੀਂ ਹੋ ਸਕਿਆ। ਮੁੜ ਕੋਸ਼ਿਸ਼ ਕਰੋ।',
+      'addFriendHowTo':
+          'ਆਪਣੇ ਦੋਸਤ ਤੋਂ ਉਨ੍ਹਾਂ ਦੀ ਖਿਡਾਰੀ ਆਈਡੀ ਪੁੱਛੋ — ਇਹ ਉਨ੍ਹਾਂ ਦੇ ਦੋਸਤ ਪੰਨੇ ਦੇ ਸਭ ਤੋਂ ਉੱਪਰ ਹੁੰਦੀ ਹੈ।',
     },
   };
 }

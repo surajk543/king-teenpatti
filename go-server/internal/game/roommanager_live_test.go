@@ -684,9 +684,10 @@ func TestReconcileLiveSweepsStraySeatsAndSummaries(t *testing.T) {
 	f.mustJoin(private, b)
 
 	// What a previous process left in the store: seats for players nobody
-	// has, and a summary for a table that no longer exists.
+	// has — each with the playing record beside it — and a summary for a
+	// table that no longer exists.
 	for _, ghost := range []string{"ghost-1", "ghost-2", "ghost-3"} {
-		if err := store.SetSeated(ctx, ghost, "room-that-is-gone"); err != nil {
+		if err := store.SetSeated(ctx, ghost, "room-that-is-gone", game.PlayingAt(game.CategoryBlind, f.clock.Now()), 0); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -707,6 +708,10 @@ func TestReconcileLiveSweepsStraySeatsAndSummaries(t *testing.T) {
 	eq(t, len(seats), 2, "only the real seats survive")
 	eq(t, seats[a.ID], t1.ID(), "A keeps their seat")
 	eq(t, seats[b.ID], private.ID(), "and so does a player at a private table")
+	// The strays' playing records went with their seats: nobody's friends are
+	// told a ghost is playing.
+	playing := store.Playing()
+	eq(t, strings.Join(sortedKeys(playing), ","), strings.Join(sortedKeys(seats), ","), "a playing record for exactly the real seats")
 	index := store.Index()
 	eq(t, len(index), 1, "only the real public summary survives")
 	if _, ok := index[t1.ID()]; !ok {

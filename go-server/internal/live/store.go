@@ -65,6 +65,69 @@ type ResumeOffer struct {
 	At         int64  `json:"at"` // epoch ms when the seat lapsed
 }
 
+// Playing is the record a seated player's friends are shown (Friends V1,
+// owner 26 Sep 2026): what KIND of table they sit at, never which one. It is
+// the value of kt:playing:<userId>, written beside the seat mirror by
+// SetSeated and deleted with it by ClearSeated, and it carries no room id, no
+// code and nothing about the hand — only the game family and the variant:
+//
+//	{"game":"TEEN_PATTI","variant":"SEEN","updatedAt":1790000000000}
+//
+// Game is TEEN_PATTI or POKER; Variant is the table's category upper-cased
+// (SEEN, BLIND, VARIATION, THREE_CARD_POKER, FIVE_CARD_DRAW, TEXAS_HOLDEM,
+// OMAHA) — game.PlayingAt is the one place that mapping lives. UpdatedAt is
+// the epoch ms of the write (a store stamps it when the caller leaves it 0).
+type Playing struct {
+	Game      string `json:"game"`
+	Variant   string `json:"variant"`
+	UpdatedAt int64  `json:"updatedAt"`
+}
+
+// Presence is one account's presence as the live store holds it — the raw
+// facts, before any rule is applied to them:
+//
+//   - Online: kt:online holds an unexpired entry for the account (a live
+//     socket on some instance, refreshed by the socket layer's heartbeat);
+//   - Playing: kt:playing:<userId> exists, the account has a seat — Game,
+//     Variant and UpdatedAt are then the record's (empty otherwise).
+//
+// Status resolves the two into what a friend is shown.
+type Presence struct {
+	Online    bool
+	Playing   bool
+	Game      string
+	Variant   string
+	UpdatedAt int64
+}
+
+// Presence statuses, the wire's `status` (GET /api/friends, the friend
+// profile).
+const (
+	StatusPlaying = "PLAYING"
+	StatusOnline  = "ONLINE"
+	StatusOffline = "OFFLINE"
+)
+
+// Status is PLAYING when the account has a seat — whatever its socket is
+// doing: a player inside the reconnect grace (RECONNECT_GRACE_MS) has no
+// socket and no kt:online entry, and is still "Playing now" rather than
+// flickering offline until the seat lapses — else ONLINE when kt:online is
+// live, else OFFLINE.
+func (p Presence) Status() string {
+	switch {
+	case p.Playing:
+		return StatusPlaying
+	case p.Online:
+		return StatusOnline
+	default:
+		return StatusOffline
+	}
+}
+
+// IsOnline is the wire's `online`: true whenever Status is not OFFLINE, so a
+// PLAYING account in its reconnect grace reads online as well.
+func (p Presence) IsOnline() bool { return p.Online || p.Playing }
+
 // Store is the live-state contract. Implementations: Redis (redis.go) and
 // Memory (memory.go).
 type Store interface {
@@ -101,7 +164,16 @@ type Store interface {
 	// ---- presence ----------------------------------------------------------
 	// SetSeated / ClearSeated / SeatOf mirror RoomManager's userId → roomId
 	// index so a restarted (or second) process knows who sits where.
-	SetSeated(ctx context.Context, userID, roomID string) error
+	//
+	// SetSeated writes the seat key (kt:seat:<userId>, no ttl) AND the
+	// player's playing record beside it (kt:playing:<userId>, Playing JSON,
+	// expiring after playingTTL; playingTTL <= 0 means no expiry) in one
+	// atomic round trip — the record lives and dies with the seat mirror, so
+	// every place the manager mirrors a seat writes it and every rewrite (a
+	// move, a restore, the reconciler's refresh) renews it. A zero Playing
+	// (Game "") writes the seat alone and removes any playing record.
+	// ClearSeated deletes both keys in one command.
+	SetSeated(ctx context.Context, userID, roomID string, playing Playing, playingTTL time.Duration) error
 	ClearSeated(ctx context.Context, userID string) error
 	SeatOf(ctx context.Context, userID string) (roomID string, err error) // ErrNotFound when not seated
 	// ListSeats returns every mirrored seat entry (userId → roomId). Seat
@@ -115,6 +187,13 @@ type Store interface {
 	SetOnline(ctx context.Context, userID, instance string, ttl time.Duration) error
 	SetOffline(ctx context.Context, userID string) error
 	OnlineCount(ctx context.Context) (int, error)
+	// Presence reads, for every id asked about, whether its kt:online entry
+	// is live and the playing record it holds — batched, one round trip on
+	// Redis (HMGET kt:online + MGET kt:playing:*, pipelined) whatever the
+	// number of ids. The map has one entry per distinct id asked about (the
+	// zero Presence for an account with neither); never nil. The friends
+	// endpoints call it for a whole friend list at once.
+	Presence(ctx context.Context, userIDs []string) (map[string]Presence, error)
 
 	// ---- resume offers -----------------------------------------------------
 	// PutResumeOffer stores the offer for ttl (RESUME_OFFER_MS); TakeResumeOffer

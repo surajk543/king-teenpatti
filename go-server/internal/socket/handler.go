@@ -190,6 +190,27 @@ func (h *Handler) EndSession(userID string) {
 	h.onDisconnect(s, sio.ReasonServerNamespaceDisc)
 }
 
+// NotifyFriendRequest tells userID of a friend request just made to them
+// (Friends at the table, owner 26 Sep 2026; app: auth.Deps.FriendRequestSent,
+// called once POST /api/friends/requests has committed): friend:request with
+// the request exactly as their GET /api/friends/requests lists it in incoming
+// — its id, the SENDER's card, when it was sent. To the account's live socket
+// alone, lobby or table, counted in socket_emits_total{friend:request}; with
+// no socket — signed out, or inside the reconnect grace — nothing is sent and
+// nothing is kept. Never blocks: the frame is queued for the socket's writer.
+func (h *Handler) NotifyFriendRequest(userID string, item auth.FriendRequestItem) {
+	h.emitToUser(userID, EvFriendRequest, item)
+}
+
+// NotifyFriendAccepted tells userID that the friend request they sent has
+// just been accepted (app: auth.Deps.FriendRequestAccepted, called once POST
+// /api/friends/requests/{requestId}/accept has committed): friend:accepted
+// with the request's id, the ACCEPTER's card and friendsSince. Delivered as
+// NotifyFriendRequest's is — to the live socket alone, or not at all.
+func (h *Handler) NotifyFriendAccepted(userID string, accepted auth.FriendAccepted) {
+	h.emitToUser(userID, EvFriendAccepted, accepted)
+}
+
 // AccountGoneError is the refusal a request from a deleted (or vanished)
 // account gets: unknown_user, "This account no longer exists".
 func AccountGoneError() error {

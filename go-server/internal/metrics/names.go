@@ -132,7 +132,7 @@ var (
 		LiveOpSaveTable: {}, LiveOpLoadTable: {}, LiveOpDeleteTable: {}, LiveOpListTables: {}, LiveOpCountTables: {},
 		LiveOpAppendChat: {}, LiveOpLoadChat: {}, LiveOpDeleteChat: {},
 		LiveOpSetSeated: {}, LiveOpClearSeated: {}, LiveOpSeatOf: {}, LiveOpListSeats: {},
-		LiveOpSetOnline: {}, LiveOpSetOffline: {}, LiveOpOnlineCount: {},
+		LiveOpSetOnline: {}, LiveOpSetOffline: {}, LiveOpOnlineCount: {}, LiveOpPresence: {},
 		LiveOpPutResumeOffer: {}, LiveOpTakeResumeOffer: {}, LiveOpDeleteResumeOffer: {},
 		LiveOpPublishTable: {}, LiveOpRetireTable: {}, LiveOpCandidates: {}, LiveOpListSummaries: {},
 		LiveOpPing: {},
@@ -193,6 +193,7 @@ const (
 	LiveOpSetOnline         = "set_online"
 	LiveOpSetOffline        = "set_offline"
 	LiveOpOnlineCount       = "online_count"
+	LiveOpPresence          = "presence" // the friends endpoints' batched read of who is online and playing (Friends V1)
 	LiveOpPutResumeOffer    = "put_resume_offer"
 	LiveOpTakeResumeOffer   = "take_resume_offer"
 	LiveOpDeleteResumeOffer = "delete_resume_offer"

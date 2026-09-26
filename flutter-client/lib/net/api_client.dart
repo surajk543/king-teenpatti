@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../models/dtos.dart';
+import '../models/friends.dart';
 
 /// Thrown when the server refuses a request. The message is the server's own,
 /// so it is safe to put in front of the player.
@@ -28,6 +29,17 @@ class LuckyDrawNotReady extends ApiException {
   LuckyDrawNotReady(super.message, {required this.readyAt})
     : super(code: 'lucky_draw_not_ready', status: 409);
   final int readyAt;
+}
+
+/// A Friends refusal (owner, 26 Sep 2026): an [ApiException] with the code
+/// the server gave, and — for 409 `request_already_received` — the id of the
+/// request the other player already sent, so the refusal can be answered by
+/// accepting it.
+class FriendRefusal extends ApiException {
+  FriendRefusal(super.message, {super.code, super.status, this.requestId});
+
+  /// The other player's pending request, when the refusal names one.
+  final String? requestId;
 }
 
 /// What `GET /api/tables` answered ([ApiClient.tableConfig]).
@@ -456,6 +468,161 @@ class ApiClient {
     }
     return LuckySpin.fromJson(_decode(r));
   }
+
+  // --------------------------------------------------------------- friends
+  //
+  // Friends V1 (owner, 26 Sep 2026): eight routes, every one signed in. A
+  // refusal is a [FriendRefusal] carrying the server's code — what the app
+  // says it by, in the player's language — and, for 409
+  // `request_already_received`, the other player's request id.
+
+  /// [_decode], with every refusal thrown as a [FriendRefusal].
+  Map<String, dynamic> _decodeFriends(http.Response r) {
+    try {
+      return _decode(r);
+    } on ApiException catch (e) {
+      String? requestId;
+      try {
+        final body = jsonDecode(r.body);
+        if (body is Map) requestId = friendRequestIdOf(body['requestId']);
+      } on FormatException {
+        requestId = null;
+      }
+      throw FriendRefusal(
+        e.message,
+        code: e.code,
+        status: e.status,
+        requestId: requestId,
+      );
+    }
+  }
+
+  /// A Player ID, a request id or a friend's id as one path segment: typed by
+  /// a player, so escaped rather than trusted.
+  static String _segment(String id) => Uri.encodeComponent(id.trim());
+
+  /// Finds a player by their Player ID: `GET /api/players/{playerId}` — their
+  /// card and what they are to the viewer. Refusals: 400
+  /// `invalid_player_id`, 404 `player_not_found` (unknown, deleted or
+  /// disabled).
+  Future<PlayerLookup> findPlayer(String token, String playerId) async {
+    final r = await http.get(
+      _uri('/api/players/${_segment(playerId)}'),
+      headers: _headers(token),
+    );
+    return PlayerLookup.fromJson(_decodeFriends(r));
+  }
+
+  /// A player's public profile: `GET /api/players/{playerId}/profile` — their
+  /// card, what they are to the viewer, their record, and where they are
+  /// only when they are the viewer's friend (or the viewer). Refusals as
+  /// [findPlayer].
+  Future<PublicProfile> playerProfile(String token, String playerId) async {
+    final r = await http.get(
+      _uri('/api/players/${_segment(playerId)}/profile'),
+      headers: _headers(token),
+    );
+    return PublicProfile.fromJson(_decodeFriends(r));
+  }
+
+  /// The viewer's friends: `GET /api/friends`, each with where they are,
+  /// playing first, then online, then offline, by name.
+  Future<List<FriendItem>> friends(String token) async {
+    final r = await http.get(_uri('/api/friends'), headers: _headers(token));
+    final j = _decodeFriends(r);
+    return (j['friends'] is List ? j['friends'] as List : const [])
+        .whereType<Map>()
+        .map((e) => FriendItem.fromJson(Map<String, dynamic>.from(e)))
+        .where((f) => f.userId.isNotEmpty)
+        .toList();
+  }
+
+  /// The viewer's pending requests, both ways: `GET /api/friends/requests`.
+  /// The incoming ones are what the lobby's Friends key counts.
+  Future<FriendRequests> friendRequests(String token) async {
+    final r = await http.get(
+      _uri('/api/friends/requests'),
+      headers: _headers(token),
+    );
+    return FriendRequests.fromJson(_decodeFriends(r));
+  }
+
+  /// Asks [userId] to be friends: `POST /api/friends/requests {userId}`,
+  /// answered 201 `{requestId, friendStatus: PENDING_SENT}`.
+  ///
+  /// Refusals: 400 `invalid_player_id`, `self_request`; 404
+  /// `player_not_found`; 409 `already_friends`, `request_already_sent`, and
+  /// `request_already_received` with the other player's
+  /// [FriendRefusal.requestId].
+  Future<({String requestId, String friendStatus})> sendFriendRequest(
+    String token,
+    String userId,
+  ) async {
+    final r = await http.post(
+      _uri('/api/friends/requests'),
+      headers: _headers(token),
+      body: jsonEncode({'userId': userId.trim()}),
+    );
+    final j = _decodeFriends(r);
+    final status = FriendStatus.read(j['friendStatus']);
+    return (
+      requestId: friendRequestIdOf(j['requestId']) ?? '',
+      friendStatus: status == FriendStatus.none
+          ? FriendStatus.pendingSent
+          : status,
+    );
+  }
+
+  /// Accepts a request addressed to the viewer:
+  /// `POST /api/friends/requests/{requestId}/accept`, answered with the new
+  /// friend. Refusals: 404 `request_not_found` (unknown, or not the
+  /// viewer's to answer), 409 `request_not_pending`.
+  Future<FriendItem> acceptFriendRequest(String token, String requestId) async {
+    final r = await http.post(
+      _uri('/api/friends/requests/${_segment(requestId)}/accept'),
+      headers: _headers(token),
+      body: jsonEncode(const {}),
+    );
+    final j = _decodeFriends(r);
+    return FriendItem.fromJson(
+      j['friend'] is Map
+          ? Map<String, dynamic>.from(j['friend'] as Map)
+          : const <String, dynamic>{},
+    );
+  }
+
+  /// Rejects a request addressed to the viewer:
+  /// `POST /api/friends/requests/{requestId}/reject` → `{requestId, status:
+  /// REJECTED}`. Refusals as [acceptFriendRequest].
+  Future<({String requestId, String status})> rejectFriendRequest(
+    String token,
+    String requestId,
+  ) async {
+    final r = await http.post(
+      _uri('/api/friends/requests/${_segment(requestId)}/reject'),
+      headers: _headers(token),
+      body: jsonEncode(const {}),
+    );
+    final j = _decodeFriends(r);
+    return (
+      requestId: friendRequestIdOf(j['requestId']) ?? requestId,
+      status: _stringOr(j['status'], 'REJECTED'),
+    );
+  }
+
+  /// Ends a friendship, both ways: `DELETE /api/friends/{friendUserId}` →
+  /// `{removed: true}`. Refusal: 404 `not_friends`.
+  Future<bool> removeFriend(String token, String friendUserId) async {
+    final r = await http.delete(
+      _uri('/api/friends/${_segment(friendUserId)}'),
+      headers: _headers(token),
+    );
+    final j = _decodeFriends(r);
+    return j['removed'] != false;
+  }
+
+  static String _stringOr(Object? v, String fallback) =>
+      v is String && v.isNotEmpty ? v : fallback;
 
   /// Requirement 29: renames the player. The server validates the name and
   /// refuses the change while they are seated at a table.

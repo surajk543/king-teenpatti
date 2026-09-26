@@ -45,7 +45,8 @@ var _ game.Ledger = (*Ledger)(nil)
 // in one transaction.
 //
 //	SELECT chips FROM users WHERE id = $1 FOR UPDATE          (no row → unknown_user)
-//	UPDATE users SET chips = chips + delta, counters…, updated_at
+//	UPDATE users SET chips = chips + delta, updated_at
+//	INSERT INTO player_stats … ON CONFLICT DO UPDATE          (only when a counter moves)
 //	INSERT INTO chip_ledger (…, action_id UNIQUE)             (replay → duplicate_action, whole txn rolls back)
 //
 // The delta is what the Table computed (`chips now − chips as last written`);
@@ -113,18 +114,18 @@ func applyCheckpoint(ctx context.Context, tx pgx.Tx, entry game.SettleEntry, han
 		}
 	}
 
-	if _, err := tx.Exec(ctx, `UPDATE users
-          SET chips          = $1,
-              hands_played   = hands_played + $2,
-              hands_won      = hands_won + $3,
-              hands_lost     = hands_lost + $4,
-              hands_left_mid = hands_left_mid + $5,
-              total_winnings = total_winnings + $6,
-              biggest_pot    = GREATEST(biggest_pot, $7),
-              updated_at     = $8
-        WHERE id = $9`,
-		balance, played, won, lost, left, gross, gross, at, entry.UserID); err != nil {
+	// The wallet is all users holds. The counters live in player_stats alone
+	// (Friends V1, 26 Sep 2026: users has no stat column), added to in this
+	// same transaction — and only when one of them moves: a pack, a boot-only
+	// fold or a leave between hands writes no stats statement at all.
+	if _, err := tx.Exec(ctx, `UPDATE users SET chips = $1, updated_at = $2 WHERE id = $3`,
+		balance, at, entry.UserID); err != nil {
 		return 0, err
+	}
+	if played+won+lost+left > 0 || gross > 0 {
+		if err := addPlayerStats(ctx, tx, entry.UserID, played, won, lost, left, gross, at); err != nil {
+			return 0, err
+		}
 	}
 
 	// A zero delta is still recorded: the row is what says this player was in
@@ -133,6 +134,28 @@ func applyCheckpoint(ctx context.Context, tx pgx.Tx, entry game.SettleEntry, han
 		return 0, err
 	}
 	return balance, nil
+}
+
+// addPlayerStats adds one resolved hand to a player's row of player_stats,
+// creating it the first time: played/won/lost/left are 0 or 1, gross the pot
+// they took (0 unless they won), which total_winnings sums and biggest_pot
+// keeps the largest of. Called inside the checkpoint's transaction, holding
+// the player's wallet lock — every writer of a player's row holds that lock
+// first, so two writes to one row queue on the wallet, never on each other.
+func addPlayerStats(ctx context.Context, tx pgx.Tx, userID string, played, won, lost, left int, gross, at int64) error {
+	_, err := tx.Exec(ctx, `INSERT INTO player_stats (user_id, hands_played, hands_won, hands_lost, hands_left,
+	                                  total_winnings, biggest_pot, created_at, updated_at)
+	     VALUES ($1, $2, $3, $4, $5, $6, $6, $7, $7)
+	     ON CONFLICT (user_id) DO UPDATE
+	        SET hands_played   = player_stats.hands_played + EXCLUDED.hands_played,
+	            hands_won      = player_stats.hands_won + EXCLUDED.hands_won,
+	            hands_lost     = player_stats.hands_lost + EXCLUDED.hands_lost,
+	            hands_left     = player_stats.hands_left + EXCLUDED.hands_left,
+	            total_winnings = player_stats.total_winnings + EXCLUDED.total_winnings,
+	            biggest_pot    = GREATEST(player_stats.biggest_pot, EXCLUDED.biggest_pot),
+	            updated_at     = EXCLUDED.updated_at`,
+		userID, played, won, lost, left, gross, at)
+	return err
 }
 
 // errAccountGone marks a checkpoint whose wallet row has been deleted: the

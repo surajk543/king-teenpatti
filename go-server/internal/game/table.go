@@ -1206,8 +1206,8 @@ func (t *Table) removePlayer(userID, reason string) *SeatInfo {
 		// wallet must be right NOW: they may sit down elsewhere or read their
 		// balance at once. Their stake stays in the pot (leaving mid-hand is
 		// a pack), and this is the row that resolves the hand for them —
-		// hands_left_mid lands here, because they will not be at the
-		// hand-end write.
+		// player_stats.hands_left lands here, because they will not be at
+		// the hand-end write.
 		if entry := t.hand.contributions[userID]; entry != nil {
 			entry.chips = s.chips
 			t.checkpoint(entry, LedgerReasonHandLeft, LeftActionID(t.hand.id, userID), true)
@@ -3015,12 +3015,12 @@ func (t *Table) resolveShowdown(contenders []*seat, reason WinReason, showReques
 //	delta   = contribution.chips − contribution.chipsWritten
 //	reason  = hand_win for the winner, hand_loss for everyone else
 //	Outcome = true: this is the row that carries hands_played / hands_won /
-//	          hands_lost / total_winnings / biggest_pot
+//	          hands_lost / total_winnings / biggest_pot (player_stats)
 //
 // A packer's delta is zero here (their pack checkpoint already moved it), so
 // the money moves once and the row records only the outcome — exactly what a
 // losing player's row has always been. A player who LEFT is not written here:
-// their leave checkpoint resolved them and counted hands_left_mid.
+// their leave checkpoint resolved them and counted hands_left.
 //
 // On failure the hand is over anyway — memory is already right — and retrySettle re-sends the identical
 // request until it lands; the per-entry action ids make that safe.

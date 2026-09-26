@@ -28,6 +28,7 @@ import '../widgets/poker_chip.dart';
 import '../widgets/premium_surface.dart';
 import '../widgets/rules_sheet.dart';
 import '../widgets/table_ground.dart';
+import 'friends_screen.dart';
 import 'lucky_draw_screen.dart';
 
 /// The lobby: every choice is a card on one horizontal rail, so a phone held in
@@ -496,15 +497,24 @@ class _LobbyScreenState extends State<LobbyScreen> {
               // Requirement 27: the milestone sits in the bottom-right corner,
               // opposite the daily bonus. The rail of tables stops short of
               // both (`band`), so no card's keys run under either.
+              //
+              // Friends (owner, 26 Sep 2026) stands just left of it: a round
+              // key, the requests waiting counted on it. The brief put it among
+              // the top bar's keys, but there a fourth key takes its width from
+              // the player's name, which a 640dp phone at text x1.25 already
+              // cuts; the foot has room for a key and keeps the name whole.
               Positioned(
                 bottom: Space.md,
                 right: Space.md,
-                child: Column(
+                child: Row(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   mainAxisSize: MainAxisSize.min,
-                  // Keyed so a lobby toast can stand clear of it
+                  // Keyed so a lobby toast can stand clear of them
                   // (lobbyNoticeArea).
-                  children: [_MilestoneChip(key: _milestoneChip)],
+                  children: [
+                    FriendsKey(key: _friendsKey),
+                    _MilestoneChip(key: _milestoneChip),
+                  ],
                 ),
               ),
               // Sits last so it covers the chips and the rail. Collecting a
@@ -5947,6 +5957,15 @@ final _milestoneChip = GlobalKey(debugLabel: 'milestone chip');
 /// On the daily bonus key in the opposite corner, for the same reason.
 final _dailyChip = GlobalKey(debugLabel: 'bonus chip');
 
+/// On the Friends key beside the milestone chip (owner, 26 Sep 2026).
+final _friendsKey = GlobalKey(debugLabel: 'friends key');
+
+/// The narrowest a lobby toast is made to keep clear of the Friends key: a
+/// toast squeezed any narrower between the foot's keys would break every few
+/// words, so below this it stands where it always stood and may cover the
+/// key while it shows — never a reward, whose news is on its face.
+const double _toastFloor = 160;
+
 /// Where a notice may stand in the lobby, in screen coordinates, or null for
 /// the plain foot of the screen.
 ///
@@ -5955,16 +5974,27 @@ final _dailyChip = GlobalKey(debugLabel: 'bonus chip');
 /// toast centred on a 640dp phone ran 5dp over the milestone chip's rim. The
 /// toast keeps its width and its place at the foot and moves aside only as far
 /// as a chip needs, narrowing only if the whole space between them is smaller
-/// than it. With no chip laid out (no account yet) it is centred.
+/// than it. With no chip laid out (no account yet) it is centred. The Friends
+/// key beside the milestone chip (26 Sep 2026) is kept clear of too, where the
+/// toast still has [_toastFloor] to stand in.
 ///
 /// Read through the screen's fade-in, the chip measures a little nearer the
 /// middle than it comes to rest, which can only move the toast further off it.
+///
+/// While a page or a dialog stands over the lobby (the Friends page, the
+/// store), the foot is covered and there is nothing at it to keep clear of:
+/// the toast takes the plain foot. Kept between the chips under the page, the
+/// Friends page's "Tall7 is no longer your friend." stood 156dp wide on a
+/// 640dp phone and broke over three lines (26 Sep 2026).
 Rect? lobbyNoticeArea(BuildContext context) {
   final chip = _milestoneChip.currentContext?.findRenderObject();
   if (chip is! RenderBox ||
       !chip.attached ||
       !chip.hasSize ||
       chip.size.isEmpty) {
+    return null;
+  }
+  if (ModalRoute.isCurrentOf(_milestoneChip.currentContext!) == false) {
     return null;
   }
   final chipLeft = chip.localToGlobal(Offset.zero).dx;
@@ -5982,7 +6012,19 @@ Rect? lobbyNoticeArea(BuildContext context) {
     final bonusRight = bonus.localToGlobal(Offset(bonus.size.width, 0)).dx;
     if (bonusRight.isFinite) start = math.max(start, bonusRight + Space.sm);
   }
-  final end = chipLeft - Space.sm;
+  var end = chipLeft - Space.sm;
+  // The Friends key stands left of the milestone chip. The toast keeps clear
+  // of it as well wherever that still leaves it [_toastFloor] to stand in.
+  final friends = _friendsKey.currentContext?.findRenderObject();
+  if (friends is RenderBox &&
+      friends.attached &&
+      friends.hasSize &&
+      !friends.size.isEmpty) {
+    final clear = friends.localToGlobal(Offset.zero).dx - Space.sm;
+    if (clear.isFinite && clear - start >= _toastFloor) {
+      end = math.min(end, clear);
+    }
+  }
   var left = (size.width - width) / 2;
   var right = left + width;
   if (right > end) {

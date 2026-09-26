@@ -123,13 +123,36 @@ func TestRedisKeySchema(t *testing.T) {
 		t.Fatal("chat list has no safety-net ttl")
 	}
 
-	must(t, r.SetSeated(ctx, "user1", "room1"))
+	must(t, r.SetSeated(ctx, "user1", "room1", Playing{Game: "TEEN_PATTI", Variant: "SEEN", UpdatedAt: 1790000000000}, 90*time.Second))
 	if got, _ := m.Get("kt:seat:user1"); got != "room1" {
 		t.Fatalf("kt:seat:user1 = %q", got)
 	}
 	if ttl := m.TTL("kt:seat:user1"); ttl != 0 {
 		t.Fatalf("seat key has a ttl (%v); it must be cleared explicitly", ttl)
 	}
+	// The seat's playing record (Friends V1): the family and the variant,
+	// never the room, with its own expiry.
+	if got, _ := m.Get("kt:playing:user1"); got != `{"game":"TEEN_PATTI","variant":"SEEN","updatedAt":1790000000000}` {
+		t.Fatalf("kt:playing:user1 = %s", got)
+	}
+	if ttl := m.TTL("kt:playing:user1"); ttl <= 89*time.Second || ttl > 90*time.Second {
+		t.Fatalf("kt:playing:user1 ttl = %v, want ≈90s", ttl)
+	}
+	// A rewrite with no ttl leaves none behind; a zero record deletes it; the
+	// seat's clear takes it with the seat.
+	must(t, r.SetSeated(ctx, "user1", "room1", Playing{Game: "POKER", Variant: "OMAHA"}, 0))
+	if ttl := m.TTL("kt:playing:user1"); ttl != 0 {
+		t.Fatalf("kt:playing:user1 kept a ttl (%v) across a rewrite with none", ttl)
+	}
+	if got, _ := m.Get("kt:playing:user1"); !strings.HasPrefix(got, `{"game":"POKER","variant":"OMAHA","updatedAt":`) {
+		t.Fatalf("kt:playing:user1 after the rewrite = %s", got)
+	}
+	must(t, r.SetSeated(ctx, "user2", "room1", Playing{}, time.Minute))
+	if m.Exists("kt:playing:user2") {
+		t.Fatal("a zero Playing wrote a record")
+	}
+	must(t, r.ClearSeated(ctx, "user2"))
+	must(t, r.SetSeated(ctx, "user1", "room1", Playing{Game: "TEEN_PATTI", Variant: "BLIND"}, time.Hour))
 
 	must(t, r.SetOnline(ctx, "user1", "host:123", 90*time.Second))
 	value := m.HGet("kt:online", "user1")
@@ -271,6 +294,18 @@ func TestRedisCorruptValues(t *testing.T) {
 	must(t, err)
 	if idsOf(out) != "s" {
 		t.Fatalf("ghost member listed: %s", idsOf(out))
+	}
+	// A playing record that is not a Playing, and a presence entry with no
+	// expiry stamp, read as neither playing nor online — the batch answers
+	// for everybody else all the same.
+	must(t, m.Set("kt:playing:junk", "{not json"))
+	must(t, m.Set("kt:playing:nogame", `{"variant":"SEEN"}`))
+	m.HSet("kt:online", "junk", "host-without-a-stamp")
+	must(t, r.SetOnline(ctx, "fine", "host:1", time.Minute))
+	presence, err := r.Presence(ctx, []string{"junk", "nogame", "fine"})
+	must(t, err)
+	if presence["junk"] != (Presence{}) || presence["nogame"] != (Presence{}) || !presence["fine"].Online {
+		t.Fatalf("Presence over corrupt values = %+v", presence)
 	}
 }
 

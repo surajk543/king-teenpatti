@@ -611,6 +611,14 @@ test('a diamond picture is paid in diamonds, never chips, and a new account can 
 
 // ---------------------------------------------------------------- rewards
 
+// setHandsPlayed puts a career's worth of hands on the counter, so the
+// milestone test does not have to play 25. The counter is
+// player_stats.hands_played since Friends V1 (26 Sep 2026): the users column
+// of that name is retired and nothing reads it.
+const setHandsPlayed = ([n, userId]) => query(
+  `INSERT INTO player_stats (user_id, hands_played) VALUES ($2, $1)
+     ON CONFLICT (user_id) DO UPDATE SET hands_played = EXCLUDED.hands_played`, [n, userId]);
+
 test('the milestone reward is refused until 25 played hands, then paid exactly once through the ledger', async () => {
   const { token, user } = await guestLogin('device-milestone-0001', 'Miles');
 
@@ -621,13 +629,13 @@ test('the milestone reward is refused until 25 played hands, then paid exactly o
   assert.equal(r.body.message, 'No milestone reward is waiting yet.');
   assert.equal(r.body.user.id, user.id);
 
-  await query('UPDATE users SET hands_played = $1 WHERE id = $2', [24, user.id]);
+  await setHandsPlayed([24, user.id]);
   const nearly = await me(token);
   assert.equal(nearly.rewards.milestoneAvailable, false);
   assert.equal(nearly.rewards.handsToNextMilestone, 1);
   assert.equal(nearly.rewards.milestoneAt, 0);
 
-  await query('UPDATE users SET hands_played = $1 WHERE id = $2', [50, user.id]);
+  await setHandsPlayed([50, user.id]);
   const ready = await me(token);
   assert.equal(ready.rewards.milestoneAvailable, true);
   assert.equal(ready.rewards.milestoneAt, 50);
@@ -660,9 +668,9 @@ test('the milestone reward is refused until 25 played hands, then paid exactly o
   assert.equal(await wallet(user.id), before + 25000);
 
   // The next multiple unlocks it again.
-  await query('UPDATE users SET hands_played = $1 WHERE id = $2', [74, user.id]);
+  await setHandsPlayed([74, user.id]);
   assert.equal((await me(token)).rewards.milestoneAvailable, false);
-  await query('UPDATE users SET hands_played = $1 WHERE id = $2', [75, user.id]);
+  await setHandsPlayed([75, user.id]);
   r = await http('POST', '/api/rewards/milestone', { token });
   assert.equal(r.status, 200);
   assert.equal(r.body.milestone, 75);

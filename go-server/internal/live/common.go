@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -31,7 +32,53 @@ const (
 	// thousand keys take a handful of round trips, small enough that no
 	// single SCAN blocks Redis noticeably.
 	scanBatch = 500
+
+	// presenceBatch bounds how many accounts one Presence round trip asks
+	// about (the HMGET's fields, the MGET's keys); a longer list is read in
+	// round trips of this size.
+	presenceBatch = 500
 )
+
+// distinctIDs returns ids with repeats and empty strings removed, in the
+// order first seen — what Presence answers for.
+func distinctIDs(ids []string) []string {
+	seen := make(map[string]struct{}, len(ids))
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if id == "" {
+			continue
+		}
+		if _, dup := seen[id]; dup {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	return out
+}
+
+// onlineEntryLive reads one kt:online hash value, "<instance>|<expiresAtMs>",
+// and reports whether its expiry stamp is still ahead of nowMs — the same
+// test OnlineCount's script makes. A malformed value is not live.
+func onlineEntryLive(value string, nowMs int64) bool {
+	sep := strings.LastIndexByte(value, '|')
+	if sep < 0 {
+		return false
+	}
+	expires, err := strconv.ParseInt(value[sep+1:], 10, 64)
+	return err == nil && expires > nowMs
+}
+
+// playingFromJSON decodes a kt:playing:<userId> value; ok is false for
+// anything that is not a Playing with a game — a corrupt record reads as
+// not playing rather than failing the whole batch.
+func playingFromJSON(raw string) (Playing, bool) {
+	var p Playing
+	if err := json.Unmarshal([]byte(raw), &p); err != nil || p.Game == "" {
+		return Playing{}, false
+	}
+	return p, true
+}
 
 // HandIDOf extracts hand.id from a game.Snapshot JSON document ("" when the
 // table is between hands or the document is not a snapshot). The Redis store
