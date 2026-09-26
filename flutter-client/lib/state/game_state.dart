@@ -161,9 +161,9 @@ class GameState extends ChangeNotifier {
     _api.onAccountDisabled = _accountWasDisabled;
   }
 
-  /// The backend this build was made against — [ServerConfig.url]: preprod
+  /// The backend this build was made against — [ServerConfig.url]: production
   /// unless a `--dart-define` (or `--dart-define-from-file=config/<env>.json`)
-  /// says otherwise; the store build names production explicitly.
+  /// says otherwise.
   static const defaultServerUrl = ServerConfig.url;
 
   final String serverUrl;

@@ -4,8 +4,8 @@ One file per backend the app can be built against, passed with
 `--dart-define-from-file`:
 
 ```bash
-flutter build appbundle --release --dart-define-from-file=config/production.json   # the Play build — prod.sungamestudio.com
-flutter build apk --debug          --dart-define-from-file=config/preprod.json      # preprod.sungamestudio.com (also the default with no define)
+flutter build appbundle --release --dart-define-from-file=config/production.json   # the Play build — prod.sungamestudio.com (also the default with no define)
+flutter build apk --debug          --dart-define-from-file=config/preprod.json      # preprod.sungamestudio.com
 flutter build apk --debug          --dart-define-from-file=config/local-emulator.json   # a server on this machine, from the emulator
 ```
 

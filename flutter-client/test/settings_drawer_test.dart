@@ -453,21 +453,18 @@ void main() {
     );
   });
 
-  testWidgets('a build that is not production shows its environment, '
-      'quieter than the version', (tester) async {
-    // The test build is preprod (ServerConfig's default).
+  testWidgets('a production build shows its version and no environment', (
+    tester,
+  ) async {
+    // The test build is production (ServerConfig's default since 27 Sep 2026;
+    // the tag a preprod or local build carries is held above).
     final state = await _open(tester);
     final version = _inDrawer(find.textContaining(state.t.appVersion));
     await _reveal(tester, version);
-    // The paragraph's span is the Text's own style over the span it was
-    // given: the version, then the environment.
     final line = tester.renderObject<RenderParagraph>(version).text as TextSpan;
     expect(line.toPlainText(), contains('1.2.3 (10)'));
-    expect(line.toPlainText(), contains('preprod'));
-    final given = line.children!.single as TextSpan;
-    final environment = given.children!.last as TextSpan;
-    expect(environment.text, contains('preprod'));
-    expect(environment.style!.color!.a, lessThan(line.style!.color!.a));
+    expect(line.toPlainText(), isNot(contains('preprod')));
+    expect(line.toPlainText(), isNot(contains('production')));
     await _close(tester);
   });
 

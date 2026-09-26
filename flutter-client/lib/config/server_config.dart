@@ -7,24 +7,24 @@
 ///
 /// It is set at BUILD time, never edited in code:
 ///
-///     flutter build apk --dart-define-from-file=config/production.json   # the store build
-///     flutter build apk --dart-define-from-file=config/preprod.json      # what the default is
+///     flutter build apk --dart-define-from-file=config/production.json   # the store build (= the default)
+///     flutter build apk --dart-define-from-file=config/preprod.json      # preprod
 ///     flutter build apk --debug --dart-define=SERVER_URL=http://10.0.2.2:3000   # a local server
 ///
 /// `config/*.json` holds one file per environment (`SERVER_URL`, `APP_ENV`,
 /// `PRIVACY_URL`, and the Google server client id the sign-in needs). With no
-/// define at all the app talks to PREPROD (owner, 24 Sep 2026: "change the
-/// prefix to preprod … this should be configurable"), so a build nobody
-/// configured can never reach the production accounts by accident — and a
-/// store build MUST name production explicitly.
+/// define at all the app talks to PRODUCTION (owner, 27 Sep 2026: "in frontend
+/// when UI is build it should by default call prod api"; the default was
+/// preprod from 24 Sep 2026), so a plain build is the store build; preprod and
+/// a local server must be named with a define.
 class ServerConfig {
   const ServerConfig._();
 
   /// The scheme, host and port the app is built against, with no trailing
-  /// slash. Default: the preprod backend.
+  /// slash. Default: the production backend.
   static const String url = String.fromEnvironment(
     'SERVER_URL',
-    defaultValue: 'https://preprod.sungamestudio.com',
+    defaultValue: 'https://prod.sungamestudio.com',
   );
 
   /// A short name for the environment [url] points at — `preprod`,
@@ -33,7 +33,7 @@ class ServerConfig {
   /// build talks to without reading its traffic.
   static const String environment = String.fromEnvironment(
     'APP_ENV',
-    defaultValue: 'preprod',
+    defaultValue: 'production',
   );
 
   /// Whether this build talks to the production backend.
