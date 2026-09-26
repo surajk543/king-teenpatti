@@ -71,6 +71,17 @@ class DealFlights extends StatefulWidget {
   /// How long after the card before it each card sets off.
   static const Duration stagger = Duration(milliseconds: 115);
 
+  /// How far into its flight a card's sound starts ([FeedbackSettings.dealCard],
+  /// once per card: 6 at a table of two, 12 at four, 15 at five). The owner's
+  /// clip is a faint rustle for 200 ms and then a swish, loudest at 380 ms, so
+  /// started 400 ms before the card comes down it peaks as the card lands.
+  /// Started at the landing, as the tick it replaced was, the swish came 0.4 s
+  /// after the card.
+  static const Duration soundAt = Duration(milliseconds: 400);
+
+  /// When card [index] of a deal is heard, from the deal's start.
+  static Duration soundOf(int index) => stagger * index + soundAt;
+
   /// A deal of [cards], from the first card leaving to the last one landing.
   static Duration total(int cards) => trip + stagger * math.max(0, cards - 1);
 
@@ -167,7 +178,9 @@ class _DealFlightsState extends State<DealFlights>
 
   /// Where each card of the deal lands, in the order they are dealt.
   List<Offset> _targets = const [];
-  int _landed = 0;
+
+  /// How many cards of this deal have been heard.
+  int _sounded = 0;
 
   /// The card back as one image, and the size and pixel ratio it was made
   /// for; null until the artwork has loaded, when a plain back stands in.
@@ -213,27 +226,30 @@ class _DealFlightsState extends State<DealFlights>
     ];
     setState(() {
       _targets = targets;
-      _landed = 0;
+      _sounded = 0;
     });
     _run
       ..duration = DealFlights.total(targets.length)
       ..forward(from: 0);
   }
 
-  /// A click as each card lands, through the settings so it honours the
-  /// player's switch: the rhythm of the cards landing IS the sound of dealing.
+  /// The owner's deal sound once for every card, in the deal's rhythm
+  /// ([DealFlights.soundOf]), through the settings so it honours the player's
+  /// switch: the rhythm of the cards IS the sound of dealing. A frame that
+  /// comes late still plays every card it passed, so a deal is always heard
+  /// exactly as many times as it has cards.
   void _onTick() {
     final elapsed = (_run.duration ?? Duration.zero) * _run.value;
-    var landed = 0;
-    for (var i = 0; i < _targets.length; i++) {
-      if (elapsed >= DealFlights.stagger * i + DealFlights.trip) landed++;
+    var due = _sounded;
+    while (due < _targets.length && elapsed >= DealFlights.soundOf(due)) {
+      due++;
     }
-    if (landed <= _landed) return;
+    if (due == _sounded) return;
     final feedback = context.read<FeedbackSettings>();
-    for (var i = _landed; i < landed; i++) {
-      feedback.tap();
+    for (var i = _sounded; i < due; i++) {
+      feedback.dealCard();
     }
-    _landed = landed;
+    _sounded = due;
   }
 
   /// Renders the card back, once per size, into the image every flying card

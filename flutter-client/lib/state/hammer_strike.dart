@@ -63,6 +63,12 @@ abstract final class HammerTiming {
   /// that was hit shakes.
   static const impact = Duration(milliseconds: 900);
 
+  /// The hammer is heard (`FeedbackSettings.hammerHit`; owner, 26 Sep 2026:
+  /// "when someone hit force side show then this sound should be played").
+  /// The owner's clip is silent for 40 ms and strikes at 90–100 ms, so started
+  /// here its strike lands with [impact].
+  static const sound = Duration(milliseconds: 810);
+
   /// How long the hit pod shakes for.
   static const shake = Duration(milliseconds: 380);
 

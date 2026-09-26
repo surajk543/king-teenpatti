@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 
 import '../models/dtos.dart';
 import '../net/picture_cache.dart';
+import '../settings/feedback_settings.dart';
 import '../state/game_state.dart';
 import '../state/hammer_strike.dart';
 import '../state/missile_strike.dart';
@@ -684,6 +685,10 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
   /// measured; null when there is nothing in the air.
   ({Rect from, Rect to, int targetView})? _flight;
 
+  /// Where on the strike's clock the hammer is heard ([HammerTiming.sound]);
+  /// null once it has been, or when there is nothing to hear.
+  double? _thudAt;
+
   /// A missile volley's clock, 0 to 1 over [MissileTiming.total]. Created by
   /// the first volley, never in advance and never by [dispose].
   AnimationController? _missile;
@@ -965,6 +970,7 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
     if (strike?.key == _strikeKey) return;
     _strikeKey = strike?.key;
     _flight = null;
+    _thudAt = null;
     // Stopped, not reset: resetting would notify the hit pod's jolt in the
     // middle of this build. With no flight nothing listens to it any more.
     _hammer?.stop();
@@ -1003,9 +1009,24 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
     final clock = _hammer ??= AnimationController(
       vsync: this,
       duration: HammerTiming.total,
-    );
-    setState(() => _flight = (from: from, to: to, targetView: targetView));
+    )..addListener(_thudIfDue);
+    final thudAt = HammerTiming.share(HammerTiming.sound);
+    setState(() {
+      _flight = (from: from, to: to, targetView: targetView);
+      // A strike joined after the hammer had already landed is not heard late.
+      _thudAt = thudAt > start ? thudAt : null;
+    });
     clock.forward(from: start.clamp(0.0, 1.0));
+  }
+
+  /// The hammer heard as it comes down, once per strike, through the settings
+  /// so it honours the player's Sound switch.
+  void _thudIfDue() {
+    final at = _thudAt;
+    final clock = _hammer;
+    if (at == null || clock == null || clock.value < at) return;
+    _thudAt = null;
+    if (mounted) context.read<FeedbackSettings>().hammerHit();
   }
 
   @override

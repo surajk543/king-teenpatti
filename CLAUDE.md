@@ -162,7 +162,8 @@ king-teenpatti/
     │   ├── state/theme_preference.dart  themeMode read/write (+ legacy darkMode); state/consent.dart  the no-winnings flag
     │   └── l10n/strings.dart     hand-written 5-language table (en/hi/bn/gu/pa)
     ├── assets/card_back.svg, assets/app_icon.svg, assets/fonts/ (Inter 400/500/600/700 + OFL licence), assets/sfx/ (synthesised clips),
-    │                         assets/sound/see card sound.mp3 (the owner's recording, 0.62 s — the look at a hand, §8.4 "Sounds"),
+    │                         assets/sound/ (the owner's recordings, §8.4 "Sounds": see card sound.mp3 — the look at a hand;
+    │                         Card Distribute.mp3 — each card of the deal; hammer hit.mp3 — a Force Sideshow's hammer),
     │                         assets/animations/Fireworks.json (Lottie 5.5.7, 512x512, 2.43s — the winner's burst),
     │                         assets/animations/Lucky Draw Spinner.json (Lottie 5.10, 300x300 — the owner's prize wheel, §8.4)
     ├── test/  number_format, connection_failure, consent, theme_preference, … poker_table (§8.4), table_config_{dtos,cache,menu}, table_engines (§8.1),
@@ -2324,6 +2325,20 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   player getting up sounded like a look) and a player waiting for the next deal are no look, and there is none at a poker
   table. The look plays whatever else the frame brought — the chips of that fourth blind bet used to drown it — and only
   a win silences it. `sfx/card.wav` is no longer played. `test/see_cards_sound_test.dart`.
+  **The deal** (owner, 26 Sep 2026: "when card is being distributed then use this sound … remove old sound … 12 times if 4
+  player plays and 15 times if 5 player plays, 6 times if 2 player plays"): `DealFlights` plays **`assets/sound/Card
+  Distribute.mp3`** (`FeedbackSettings.dealCard`, full volume) once for EVERY card it deals — cards each × players dealt in
+  (`dealtSeats`), 115 ms apart — in place of the `tick` that clicked as each card landed (`tap()` still clicks the Sound
+  switch on). The clip rustles for 200 ms and swishes to a peak at 380 ms, so card k is heard at `DealFlights.soundOf(k)` =
+  `stagger × k + soundAt` (400 ms), its peak landing with the card; a late frame plays every card it passed, so the count is
+  always exact. It overlaps itself four deep, so it has `dealCardVoices` (5) players taken in turn — on the ONE player a clip
+  had, each card stopped the last before its swish began and only the final card was heard. **The hammer** (same day: "when
+  someone hit force side show then this sound should be played"): **`assets/sound/hammer hit.mp3`** (`hammerHit()`, 0.85 —
+  it strikes at full scale) for everybody at the table, as everybody sees the hammer — off the felt's hammer clock
+  (`_thudIfDue`, the missile buzz's pattern) at `HammerTiming.sound` (810 ms): the clip strikes 90–100 ms in, so it lands
+  with `impact`; a strike joined after the landing is not heard late, and an ordinary sideshow has no hammer and no sound.
+  On the emulators (a build logging each clip): a two-player deal played 6, a four-player one 12, each Force Sideshow one
+  hammer, and Android's audio service logged every start. `test/deal_sound_test.dart`, `test/hammer_strike_test.dart`.
 - **The Settings drawer** (owner's brief, 26 Sep 2026: "Settings = premium + clean + calm + functional", some 20–30% of the
   store's language; presentation only — every dialog and what every row does is as it was; the app is landscape-only, so the
   brief's portrait case does not arise). `_LobbyDrawer`, which the Stats drawer shares, takes a fixed `head` (`_DrawerHead`: a

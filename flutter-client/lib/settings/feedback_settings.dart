@@ -59,23 +59,53 @@ class FeedbackSettings extends ChangeNotifier {
   /// cards"). The owner's recording, 0.62 s.
   static const seeCardsClip = 'sound/see card sound.mp3';
 
-  /// [asset] is under `assets/`, as [AssetSource] takes it.
-  Future<void> _playAsset(String asset, {double volume = 0.85}) async {
+  /// A card of the deal (owner, 26 Sep 2026: "when card is being distributed
+  /// then use this sound … 12 times if 4 player plays and 15 times if 5 player
+  /// plays, 6 times if 2 player plays"). The owner's recording, 0.5 s: a faint
+  /// rustle for its first 200 ms, then the card's swish, loudest at 380 ms.
+  static const dealCardClip = 'sound/Card Distribute.mp3';
+
+  /// A Force Sideshow's hammer landing (owner, 26 Sep 2026: "when someone hit
+  /// force side show then this sound should be played"). The owner's
+  /// recording, 2 s: a strike at 100 ms and a ring that fades by 1.2 s.
+  static const hammerHitClip = 'sound/hammer hit.mp3';
+
+  /// How many of [dealCardClip] may sound at once. The deal sends a card
+  /// every 115 ms and the clip is heard for 440 ms, so four overlap; one voice
+  /// would stop each card's sound for the next one before its swish began,
+  /// and only the last card of a deal would ever be heard.
+  static const dealCardVoices = 5;
+  int _dealCardVoice = 0;
+
+  /// The voice the next [dealCard] plays on.
+  @visibleForTesting
+  int get nextDealCardVoice => _dealCardVoice;
+
+  /// [asset] is under `assets/`, as [AssetSource] takes it; [voice] picks one
+  /// of several players for the same clip, so that plays of it can overlap.
+  Future<void> _playAsset(
+    String asset, {
+    double volume = 0.85,
+    int voice = 0,
+  }) async {
     if (!_sound) return;
     try {
-      final player = _voices.putIfAbsent(asset, () {
-        final p = AudioPlayer()..setReleaseMode(ReleaseMode.stop);
-        unawaited(p.setPlayerMode(PlayerMode.lowLatency));
-        // Sonification, not media, and NO audio focus.
-        //
-        // The default asks Android for USAGE_MEDIA focus, which pauses
-        // whatever the player is listening to — every tick would stop their
-        // music. These are interface sounds: they belong in the same category
-        // as a keyboard click, mixing over anything else rather than
-        // interrupting it, and they respect the player's own silent mode.
-        unawaited(p.setAudioContext(_uiSound));
-        return p;
-      });
+      final player = _voices.putIfAbsent(
+        voice == 0 ? asset : '$asset#$voice',
+        () {
+          final p = AudioPlayer()..setReleaseMode(ReleaseMode.stop);
+          unawaited(p.setPlayerMode(PlayerMode.lowLatency));
+          // Sonification, not media, and NO audio focus.
+          //
+          // The default asks Android for USAGE_MEDIA focus, which pauses
+          // whatever the player is listening to — every tick would stop their
+          // music. These are interface sounds: they belong in the same category
+          // as a keyboard click, mixing over anything else rather than
+          // interrupting it, and they respect the player's own silent mode.
+          unawaited(p.setAudioContext(_uiSound));
+          return p;
+        },
+      );
       await player.stop();
       await player.play(AssetSource(asset), volume: volume);
     } catch (_) {
@@ -118,6 +148,23 @@ class FeedbackSettings extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_vibrateKey, on);
   }
+
+  /// One card of a deal leaving the deck ([dealCardClip]), at full volume: it
+  /// peaks some 10 dB under the synthesised clips. Each card takes the next of
+  /// [dealCardVoices] in turn, so a card's sound plays out while the cards
+  /// after it start theirs. No haptic: a buzz for each of fifteen cards would
+  /// be a rattle, not a deal. It replaced [tap]'s tick on the deal
+  /// (26 Sep 2026).
+  void dealCard() {
+    final voice = _dealCardVoice;
+    _dealCardVoice = (_dealCardVoice + 1) % dealCardVoices;
+    unawaited(_playAsset(dealCardClip, volume: 1, voice: voice));
+  }
+
+  /// A Force Sideshow's hammer coming down on its target ([hammerHitClip]),
+  /// heard by everybody at the table, as everybody sees the hammer. At the
+  /// synthesised clips' 0.85: it strikes at full scale already.
+  void hammerHit() => unawaited(_playAsset(hammerHitClip));
 
   /// A tap on a control.
   ///

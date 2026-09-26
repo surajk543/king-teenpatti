@@ -9,6 +9,7 @@
 // snapshot that hands the turn back.
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:teenpatti/models/dtos.dart';
@@ -143,15 +144,27 @@ GameState _newState() {
   return state;
 }
 
+/// Every hammer the table asks to be heard, and when.
+class _Heard extends FeedbackSettings {
+  _Heard(this.now);
+
+  final DateTime Function() now;
+  final hammers = <DateTime>[];
+
+  @override
+  void hammerHit() => hammers.add(now());
+}
+
 Future<void> _pumpTable(
   WidgetTester tester,
   GameState state, {
   Size screen = const Size(891, 411),
+  FeedbackSettings? sounds,
 }) async {
   tester.view.physicalSize = screen;
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
-  final feedback = FeedbackSettings();
+  final feedback = sounds ?? FeedbackSettings();
   addTearDown(feedback.dispose);
   // Parsed for real, so the painter draws the hammer rather than skipping it.
   await tester.runAsync(HammerArt.load);
@@ -459,6 +472,114 @@ void main() {
 
     await _teardown(tester, state);
   });
+
+  // The owner's hammer sound (26 Sep 2026: "when someone hit force side show
+  // then this sound should be played"): once per Force Sideshow, for every
+  // player at the table, its strike landing with the hammer.
+  group('the hammer is heard', () {
+    /// Frame by frame for [total], as a phone draws them.
+    Future<void> frames(WidgetTester tester, Duration total) async {
+      for (var t = Duration.zero; t < total; t += _ms(16)) {
+        await tester.pump(_ms(16));
+      }
+    }
+
+    testWidgets('by a bystander, once, as it lands', (tester) async {
+      final state = _newState();
+      final sounds = _Heard(() => tester.binding.clock.now());
+      await _pumpTable(tester, state, sounds: sounds);
+
+      state
+        ..handleTableAction(_packFor('u1'))
+        ..handleState(_room(packed: {'u1'}))
+        ..handleSideshowDone(_done('u2', 'u1', packed: 'u1'));
+      final thrown = tester.binding.clock.now();
+      await tester.pump();
+      await frames(tester, _ms(600));
+      expect(sounds.hammers, isEmpty, reason: 'not while it is in the air');
+
+      // The same resolution twice throws, and sounds, one hammer.
+      state.handleSideshowDone(_done('u2', 'u1', packed: 'u1'));
+      await frames(tester, HammerTiming.total);
+      expect(sounds.hammers, hasLength(1));
+      // Started 90 ms before the impact, so the clip's strike (90–100 ms in)
+      // comes with the hammer — within a few frames: the felt starts the
+      // strike's clock where the real clock says it has got to since the
+      // event, which a test's frames only approximate.
+      expect(
+        sounds.hammers.single.difference(thrown).inMilliseconds,
+        inInclusiveRange(
+          HammerTiming.sound.inMilliseconds - 50,
+          HammerTiming.sound.inMilliseconds + 50,
+        ),
+      );
+      expect(
+        (HammerTiming.impact - HammerTiming.sound).inMilliseconds,
+        inInclusiveRange(80, 100),
+      );
+
+      await _teardown(tester, state);
+    });
+
+    testWidgets('by the player who forced it', (tester) async {
+      final state = _newState();
+      final sounds = _Heard(() => tester.binding.clock.now());
+      await _pumpTable(tester, state, sounds: sounds);
+
+      state
+        ..handleSideshowReveal(_reveal('u0', 'u4', packed: 'u4'))
+        ..handleTableAction(_packFor('u4'))
+        ..handleState(_room(packed: {'u4'}))
+        ..handleSideshowDone(_done('u0', 'u4', packed: 'u4'));
+      await tester.pump();
+      await frames(tester, HammerTiming.total + _ms(200));
+      expect(sounds.hammers, hasLength(1));
+
+      await _teardown(tester, state);
+    });
+
+    testWidgets('never for an ordinary sideshow', (tester) async {
+      final state = _newState();
+      final sounds = _Heard(() => tester.binding.clock.now());
+      state.room = _room(
+        pending: {
+          'fromUserId': 'u0',
+          'fromSeat': 0,
+          'toUserId': 'u4',
+          'toSeat': 4,
+          'expiresAt': 0,
+        },
+      );
+      await _pumpTable(tester, state, sounds: sounds);
+
+      state
+        ..handleSideshowReveal(
+          _reveal('u0', 'u4', packed: 'u4', reason: SideshowReason.accepted),
+        )
+        ..handleTableAction(_packFor('u4'))
+        ..handleState(_room(packed: {'u4'}))
+        ..handleSideshowDone(
+          _done('u0', 'u4', packed: 'u4', reason: SideshowReason.accepted),
+        );
+      await tester.pump();
+      await frames(tester, HammerTiming.total + _ms(200));
+      expect(sounds.hammers, isEmpty);
+
+      await _teardown(tester, state);
+    });
+  });
+
+  test(
+    "the owner's hammer clip is bundled where the table plays it from",
+    () async {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      expect(FeedbackSettings.hammerHitClip, 'sound/hammer hit.mp3');
+      final clip = await rootBundle.load(
+        'assets/${FeedbackSettings.hammerHitClip}',
+      );
+      expect(clip.lengthInBytes, greaterThan(10000));
+    },
+  );
 
   const screens = [Size(640, 360), Size(891, 411), Size(1280, 800)];
   for (final screen in screens) {
