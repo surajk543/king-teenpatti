@@ -1111,13 +1111,15 @@ func TestRoomsLobbyOffersExactlyTheDefaultMenu(t *testing.T) {
 		{Category: "blind", BootAmount: 200, MaxPot: 0, MaxBlindMoves: 4, MaxChips: 500000},
 		{Category: "blind", BootAmount: 5000, MaxPot: 0, MaxBlindMoves: 4, MaxChips: 50000000},
 		{Category: "blind", BootAmount: 50000, MaxPot: 0, MaxBlindMoves: 4, MaxChips: 1000000000},
-		{Category: "blind", BootAmount: 1000000, MaxPot: 0, MaxBlindMoves: 4, MinChips: 500000000},
+		// Blind at 10 Lakh taxes its winners (owner, 26 Sep 2026).
+		{Category: "blind", BootAmount: 1000000, MaxPot: 0, MaxBlindMoves: 4, MinChips: 500000000, WinnerTax: true},
 		// Variation Teen Patti (owner, 18 Sep 2026): LAST, so the five entries
 		// above keep their places; two tables only, 50,000 and 10 Lakh, behind
 		// the bands blind's tables of those stakes have; and with NO pot limit
-		// ("in all variation tables, do not keep any pot limit").
+		// ("in all variation tables, do not keep any pot limit"). The 10 Lakh
+		// one taxes its winners, as blind's does.
 		{Category: "variation", BootAmount: 50000, MaxPot: 0, MaxBlindMoves: 4, MaxChips: 1000000000},
-		{Category: "variation", BootAmount: 1000000, MaxPot: 0, MaxBlindMoves: 4, MinChips: 500000000},
+		{Category: "variation", BootAmount: 1000000, MaxPot: 0, MaxBlindMoves: 4, MinChips: 500000000, WinnerTax: true},
 		// A second seen table (owner, 19 Sep 2026): boot 50,000, open to all,
 		// with a 5 Crore pot limit of its own rather than seen's 20 Lakh.
 		{Category: "seen", BootAmount: 50000, MaxPot: 50000000, MaxBlindMoves: 4},
@@ -1146,15 +1148,16 @@ func TestRoomsLobbyOffersExactlyTheDefaultMenu(t *testing.T) {
 	}
 	// The entries that existed before variation and poker tables are byte for
 	// byte what they were: a later entry adds a row and adds no field to theirs
-	// (a poker entry's own fields are omitempty and absent here).
+	// (a poker entry's own fields are omitempty and absent here). The two
+	// tables that tax their winners say so, and only they do.
 	wantJSON := `{"categories":["seen","blind","variation","three_card_poker","five_card_draw","texas_holdem","omaha"],"stakes":[200,5000,50000,1000000],"tables":[` +
 		`{"category":"seen","bootAmount":200,"maxPot":2000000,"maxBlindMoves":4,"minChips":0,"maxChips":0},` +
 		`{"category":"blind","bootAmount":200,"maxPot":0,"maxBlindMoves":4,"minChips":0,"maxChips":500000},` +
 		`{"category":"blind","bootAmount":5000,"maxPot":0,"maxBlindMoves":4,"minChips":0,"maxChips":50000000},` +
 		`{"category":"blind","bootAmount":50000,"maxPot":0,"maxBlindMoves":4,"minChips":0,"maxChips":1000000000},` +
-		`{"category":"blind","bootAmount":1000000,"maxPot":0,"maxBlindMoves":4,"minChips":500000000,"maxChips":0},` +
+		`{"category":"blind","bootAmount":1000000,"maxPot":0,"maxBlindMoves":4,"minChips":500000000,"maxChips":0,"winnerTax":true},` +
 		`{"category":"variation","bootAmount":50000,"maxPot":0,"maxBlindMoves":4,"minChips":0,"maxChips":1000000000},` +
-		`{"category":"variation","bootAmount":1000000,"maxPot":0,"maxBlindMoves":4,"minChips":500000000,"maxChips":0},{"category":"seen","bootAmount":50000,"maxPot":50000000,"maxBlindMoves":4,"minChips":0,"maxChips":0},` +
+		`{"category":"variation","bootAmount":1000000,"maxPot":0,"maxBlindMoves":4,"minChips":500000000,"maxChips":0,"winnerTax":true},{"category":"seen","bootAmount":50000,"maxPot":50000000,"maxBlindMoves":4,"minChips":0,"maxChips":0},` +
 		`{"category":"three_card_poker","bootAmount":50000,"maxPot":0,"maxBlindMoves":0,"minChips":500000,"maxChips":0,"game":"poker","ante":50000,"minBuyIn":500000,"holeCards":3},` +
 		`{"category":"five_card_draw","bootAmount":50000,"maxPot":0,"maxBlindMoves":0,"minChips":500000,"maxChips":0,"game":"poker","ante":50000,"minBuyIn":500000,"holeCards":5,"maxDiscards":3},` +
 		`{"category":"texas_holdem","bootAmount":50000,"maxPot":0,"maxBlindMoves":0,"minChips":500000,"maxChips":0,"game":"poker","smallBlind":25000,"bigBlind":50000,"minBuyIn":500000,"holeCards":2},` +

@@ -53,11 +53,14 @@ func (rm *RoomManager) menuOption(spec config.TableSpec, category string, bootAm
 		MaxBlindMoves: spec.MaxBlindMoves,
 		MinChips:      minChips,
 		MaxChips:      maxChips,
+		// Absent unless the table taxes its winners (config.TableSpec).
+		WinnerTax: spec.WinnerTax,
 	}
 	if c := Category(category); c.IsPoker() {
 		option.Game = GamePoker
 		option.MaxPot = 0
 		option.MaxBlindMoves = 0
+		option.WinnerTax = false
 		if factory := rm.factoryFor(c); factory != nil {
 			factory.MenuEntry(spec, &option)
 		}

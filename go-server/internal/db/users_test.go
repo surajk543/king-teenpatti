@@ -1651,8 +1651,10 @@ func TestUserMarshalsToThePublicUserShape(t *testing.T) {
 		t.Fatal(err)
 	}
 	// tablePicture (15 Sep 2026) is the table picture laid, null until one is.
+	// playerLevel (26 Sep 2026) is the player's own level, XP and winning-tax
+	// rate, last.
 	wantKeys := []string{"id", "provider", "displayName", "email", "avatarUrl", "providerAvatarUrl", "activePictureId", "tablePicture", "chips", "diamond", "hammer", "missile",
-		"handsPlayed", "handsWon", "handsLost", "handsLeftMid", "totalWinnings", "biggestPot", "rewards", "createdAt", "lastLoginAt"}
+		"handsPlayed", "handsWon", "handsLost", "handsLeftMid", "totalWinnings", "biggestPot", "rewards", "createdAt", "lastLoginAt", "playerLevel"}
 	if len(m) != len(wantKeys) {
 		t.Fatalf("user has %d keys, want %d: %s", len(m), len(wantKeys), out)
 	}

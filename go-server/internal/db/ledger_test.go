@@ -198,10 +198,11 @@ func TestSettleWritesARowPerPlayerAndMovesTheCounters(t *testing.T) {
 		settleEntry(hand, b.ID, -staked, false, true, 0),
 		settleEntry(hand, c.ID, -staked, false, false, 0), // boot only: not "played"
 	}
-	balances, err := f.ledger.Settle(f.ctx, game.SettleRequest{RoomID: room, HandID: hand, Entries: entries})
+	settled, err := f.ledger.Settle(f.ctx, game.SettleRequest{RoomID: room, HandID: hand, Entries: entries})
 	if err != nil {
 		t.Fatal(err)
 	}
+	balances := settled.Balances
 	if len(balances) != 3 {
 		t.Fatalf("balances %+v", balances)
 	}
@@ -275,13 +276,14 @@ func TestSettleSkipsUnknownUsersAndReportsZeroBalancesAsPresent(t *testing.T) {
 	f := newFixture(t)
 	a := f.user("A")
 	room, hand := "room-gone", "hand-gone"
-	balances, err := f.ledger.Settle(f.ctx, game.SettleRequest{RoomID: room, HandID: hand, Entries: []game.SettleEntry{
+	settled, err := f.ledger.Settle(f.ctx, game.SettleRequest{RoomID: room, HandID: hand, Entries: []game.SettleEntry{
 		settleEntry(hand, a.ID, -welcome, false, true, 0),
 		settleEntry(hand, "nobody-at-all", -100, false, false, 0),
 	}})
 	if err != nil {
 		t.Fatal(err)
 	}
+	balances := settled.Balances
 	if _, ok := balances["nobody-at-all"]; ok {
 		t.Fatal("a deleted account must not report a balance")
 	}

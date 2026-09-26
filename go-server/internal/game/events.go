@@ -288,6 +288,13 @@ type HandEndedEvent struct {
 	Variation Variation `json:"variation,omitempty"`
 	// TurnUp is the turned-up card when Variation is decided by it.
 	TurnUp *string `json:"turnUp,omitempty"`
+	// Tax is the WINNING TAX the winner paid out of Pot (owner, 26 Sep 2026;
+	// tabletax.go), and TaxBps the rate it was taken at, in basis points —
+	// their level's as the hand was dealt. The winner was credited Pot − Tax.
+	// Both ABSENT when no tax was taken, so every other hand's payload is
+	// what it always was. Go only.
+	Tax    int64 `json:"tax,omitempty"`
+	TaxBps int   `json:"taxBps,omitempty"`
 }
 
 // KickEvent ← 'kick'.

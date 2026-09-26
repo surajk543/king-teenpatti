@@ -216,6 +216,14 @@ type TableSpec struct {
 	VariationSelectTimeout time.Duration
 	FiveCardPickTimeout    time.Duration
 
+	// WinnerTax (Teen Patti only; owner, 26 Sep 2026): the table TAXES ITS
+	// WINNERS — the one winner of each hand pays a share of the whole pot at
+	// the rate of their player level (player_levels.tax_bps; game.TableTax).
+	// By default the blind and variation tables at 10 Lakh do; every other
+	// table does not. Always false on a poker spec: a figure its family does
+	// not read.
+	WinnerTax bool
+
 	// Poker only: the smallest stack that may sit (absolute chips) and
 	// 5-Card Draw's exchange limit (carried by every poker spec, as the env
 	// composition always gave every variant POKER_MAX_DISCARDS; only a draw
@@ -374,6 +382,11 @@ func (g GameConfig) composeSpec(category string, bootAmount int64, private bool)
 		spec.VariationSelectTimeout = g.VariationSelectTimeout
 		spec.FiveCardPickTimeout = g.FiveCardPickTimeout
 	}
+	// Whether it taxes its winners is the menu entry's own ("tax=1"), and only
+	// a public table's: a private template has no menu entry to carry it.
+	if !private {
+		spec.WinnerTax = g.menuWinnerTaxFor(category, rules.BootAmount)
+	}
 	g.fillIdentity(&spec)
 	return spec
 }
@@ -476,7 +489,8 @@ func (c *TableCatalogue) clone() TableCatalogue {
 // WithCatalogue returns a copy of g that plays by cat (db mode). Every field
 // an existing check reads is taken from it, so none of those checks changes:
 // LobbyTables (public rows, in order: category, boot and the OWN band — MaxPot
-// left 0 because every pot figure is read through Spec), TableStakes and the
+// and WinnerTax left 0 and false because every pot and tax figure is read
+// through Spec), TableStakes and the
 // advertised scalars (settings), the entry cap (settings) and the private
 // figures (the private seen template: what the Flutter app creates). cat must
 // have been through Validate.
@@ -727,6 +741,10 @@ func (spec TableSpec) normalised(s TableSettings) (TableSpec, error) {
 		spec.MaxPot, spec.MaxRaiseSteps, spec.MaxBetRounds, spec.PotLimitMultiplier, spec.MaxBlindMoves = 0, 0, 0, 0, 0
 		spec.SideshowTimeout, spec.SideshowMinPlayers, spec.MissileRevealExtra = 0, 0, 0
 		spec.VariationSelectTimeout, spec.FiveCardPickTimeout = 0, 0
+		// A poker room never taxes its winners (owner, 26 Sep 2026: the taxed
+		// tables are Teen Patti's), so winner_tax on a poker row is a figure
+		// its family does not read.
+		spec.WinnerTax = false
 		return spec, nil
 	}
 	if spec.MaxPot < 0 || spec.MaxRaiseSteps < 0 || spec.MaxBetRounds < 0 || spec.PotLimitMultiplier < 0 ||
@@ -766,6 +784,9 @@ func (spec TableSpec) describe() string {
 // asks it of every table restored from the live store: one whose frozen rules
 // the current configuration would no longer open is drained (never matched
 // into) rather than left to take players the lobby card describes differently.
+// Whether a table taxes its winners is one of the figures compared: a table
+// restored from before the switch changed goes on playing as its players sat
+// down to it, and is drained.
 func (a TableSpec) SameRules(b TableSpec) bool {
 	a.Key, b.Key = "", ""
 	a.Engine, b.Engine = "", ""

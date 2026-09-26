@@ -263,6 +263,13 @@ type LobbyTable struct {
 	// nothing else — the ladder and the rounds stay the category's — and a
 	// private table never reads it.
 	MaxPot int64
+	// WinnerTax ("tax=1"; owner, 26 Sep 2026) makes this table TAX ITS
+	// WINNERS: the one winner of every hand pays a share of the whole pot, at
+	// the rate of their player level (player_levels.tax_bps; game.TableTax). A
+	// rule figure like MaxPot, read through Spec by the PUBLIC Teen Patti
+	// table of this category and boot and by nothing else: a private table
+	// and a poker room never read it.
+	WinnerTax bool
 }
 
 // GameConfig ← config.game. Durations replace Node's *Ms integers; convert
@@ -521,16 +528,19 @@ func Defaults() *Config {
 			LobbyTables: []LobbyTable{
 				{Category: "seen", BootAmount: 200},
 				{Category: "blind", BootAmount: 200},
-				{Category: "blind", BootAmount: 5000, MaxChips: 50000000},     // over 5 Cr must move up
-				{Category: "blind", BootAmount: 50000, MaxChips: 1000000000},  // over 100 Cr must move up
-				{Category: "blind", BootAmount: 1000000, MinChips: 500000000}, // 50 Cr or more to enter
+				{Category: "blind", BootAmount: 5000, MaxChips: 50000000},    // over 5 Cr must move up
+				{Category: "blind", BootAmount: 50000, MaxChips: 1000000000}, // over 100 Cr must move up
+				// 50 Cr or more to enter; and it taxes its winners (owner,
+				// 26 Sep 2026): a share of the pot, by the winner's level.
+				{Category: "blind", BootAmount: 1000000, MinChips: 500000000, WinnerTax: true},
 				// Variation Teen Patti (owner, 18 Sep 2026). Last, so the five
 				// entries before it keep their places on every client's rail.
 				// Two tables only — "in variation keep only two tables, 50000
 				// and 10 Lakh" — behind the stack bands blind's tables of the
-				// same stakes have.
+				// same stakes have; the 10 Lakh one taxes its winners as
+				// blind's does.
 				{Category: "variation", BootAmount: 50000, MaxChips: 1000000000},
-				{Category: "variation", BootAmount: 1000000, MinChips: 500000000},
+				{Category: "variation", BootAmount: 1000000, MinChips: 500000000, WinnerTax: true},
 				// A second seen table (owner, 19 Sep 2026): boot 50,000, a pot
 				// limit of 5 Crore, open to all. Last in the list like every
 				// later addition; the lobby files it under Seen by category.
@@ -1060,6 +1070,20 @@ func (g GameConfig) menuPotFor(category string, bootAmount int64) int64 {
 		}
 	}
 	return 0
+}
+
+// menuWinnerTaxFor is whether the LOBBY_TABLES entry for this category and
+// boot taxes its winners ("tax=1"; owner, 26 Sep 2026): false when there is no
+// such entry or it says nothing. The first entry for the pair, as menuPotFor
+// reads it. Only a public Teen Patti spec asks (composeSpec).
+func (g GameConfig) menuWinnerTaxFor(category string, bootAmount int64) bool {
+	category = NormalizeCategory(category)
+	for _, entry := range g.LobbyTables {
+		if NormalizeCategory(entry.Category) == category && entry.BootAmount == bootAmount {
+			return entry.WinnerTax
+		}
+	}
+	return false
 }
 
 // VariationMaxPot is a public variation table's pot cap at bootAmount:

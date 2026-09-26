@@ -87,6 +87,7 @@ type Metrics struct {
 	KicksTotal          *prometheus.CounterVec // reason
 	ChatMessagesTotal   prometheus.Counter
 	PotSettledTotal     prometheus.Counter
+	TableTaxTotal       *prometheus.CounterVec // category
 
 	// Latency
 	MoveDuration          *prometheus.HistogramVec // action
@@ -293,8 +294,12 @@ func New(opts Options) *Metrics {
 		Name: NamePotSettledTotal,
 		Help: "Chips paid out to hand winners since the process started.",
 	})
+	m.TableTaxTotal = m.counterVec(prometheus.CounterOpts{
+		Name: NameTableTaxTotal,
+		Help: "Chips taken as winning tax from hand winners at the tables that tax them, by category.",
+	}, []string{"category"})
 	svc.MustRegister(m.GamesStartedTotal, m.GamesCompletedTotal, m.GamesAbandonedTotal, m.MovesTotal,
-		m.InvalidMovesTotal, m.TurnTimeoutsTotal, m.KicksTotal, m.ChatMessagesTotal, m.PotSettledTotal)
+		m.InvalidMovesTotal, m.TurnTimeoutsTotal, m.KicksTotal, m.ChatMessagesTotal, m.PotSettledTotal, m.TableTaxTotal)
 
 	// ----------------------------------------------------------------- latency
 	m.MoveDuration = m.histogramVec(prometheus.HistogramOpts{
@@ -437,6 +442,21 @@ func LiveResultOf(err error) string {
 	default:
 		return LiveResultError
 	}
+}
+
+// ObserveTableTax adds chips to game_table_tax_chips_total{category} — the
+// game.MetricsHooks.ObserveTableTax a table calls once per taxed hand end. The
+// label is the table's category, folded to "other" outside the known set (the
+// label rule: SafeLabel's). Nothing for 0 chips or less.
+func (m *Metrics) ObserveTableTax(category game.Category, chips int64) {
+	if m == nil || m.TableTaxTotal == nil || chips <= 0 {
+		return
+	}
+	label := OtherLabel
+	if category.Known() {
+		label = string(category)
+	}
+	m.TableTaxTotal.WithLabelValues(label).Add(float64(chips))
 }
 
 // BindRooms gives the table gauges their source (Node bindRooms). Before it

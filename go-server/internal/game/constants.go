@@ -261,6 +261,15 @@ const (
 	LedgerReasonWelcomeBonus = "welcome_bonus"
 	LedgerReasonHandWin      = "hand_win"
 	LedgerReasonHandLoss     = "hand_loss"
+	// LedgerReasonTableTax is the TABLE TAX a winner pays at a taxed table
+	// (owner, 26 Sep 2026; TableTax): a row of its own beside the hand_win,
+	// written in the same hand-end transaction, with delta −tax, the hand's
+	// hand_id and action_id TaxActionID "<handId>:tax:<userId>". The hand_win
+	// row carries the win GROSS, so a hand's hand_* rows still sum to zero and
+	// the tax is exactly the chips that leave the game — a chip sink, like a
+	// picture purchase. Never purged (db.purgeableReasons): it is the house's
+	// revenue record.
+	LedgerReasonTableTax = "table_tax"
 	// Retired 9 Sep 2026; historical rows only.
 	LedgerReasonBoot            = "boot"
 	LedgerReasonBet             = "bet"

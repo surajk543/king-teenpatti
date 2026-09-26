@@ -262,6 +262,7 @@ func restoreTable(snap *Snapshot, opts TableOptions) (*Table, error) {
 			contributed:           ss.Contributed,
 			joinedAt:              FromMillis(ss.JoinedAt),
 			kickPending:           ss.KickPending,
+			taxBps:                ss.TaxBps,
 		}
 		if ss.AvatarURL != nil {
 			s.avatarURL = StrPtr(*ss.AvatarURL)
@@ -324,6 +325,7 @@ func restoreTable(snap *Snapshot, opts TableOptions) (*Table, error) {
 				cards:        ParseCards(c.Cards),
 				didChaal:     c.DidChaal,
 				leftMidHand:  c.LeftMidHand,
+				taxBps:       c.TaxBps,
 				chips:        c.Chips,
 				chipsWritten: c.ChipsWritten,
 			}
@@ -526,6 +528,12 @@ func validateSnapshot(snap *Snapshot) error {
 		if !validSeatState(s.Status) {
 			return fmt.Errorf("snapshot %s: seat %d has status %q", snap.RoomID, index, s.Status)
 		}
+		// The winning-tax rate is money taken from a winner: one no level
+		// could carry (player_levels' CHECK: 0..10000 bps) is not restored and
+		// charged.
+		if !validTaxBps(s.TaxBps) {
+			return fmt.Errorf("snapshot %s: seat %d has a winning-tax rate of %d bps", snap.RoomID, index, s.TaxBps)
+		}
 		if err := validCardCodes(s.Cards); err != nil {
 			return fmt.Errorf("snapshot %s: seat %d: %w", snap.RoomID, index, err)
 		}
@@ -576,6 +584,9 @@ func validateSnapshot(snap *Snapshot) error {
 		seen[c.UserID] = true
 		if !validSeatState(c.Status) {
 			return fmt.Errorf("snapshot %s: contribution of %s has status %q", snap.RoomID, c.UserID, c.Status)
+		}
+		if !validTaxBps(c.TaxBps) {
+			return fmt.Errorf("snapshot %s: contribution of %s has a winning-tax rate of %d bps", snap.RoomID, c.UserID, c.TaxBps)
 		}
 		if err := validCardCodes(c.Cards); err != nil {
 			return fmt.Errorf("snapshot %s: contribution of %s: %w", snap.RoomID, c.UserID, err)

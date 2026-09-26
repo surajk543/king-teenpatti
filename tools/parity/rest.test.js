@@ -28,6 +28,8 @@ const USER_KEYS = [
   'id', 'provider', 'displayName', 'email', 'avatarUrl', 'providerAvatarUrl', 'activePictureId', 'tablePicture', 'chips', 'diamond', 'hammer', 'missile',
   'handsPlayed', 'handsWon', 'handsLost', 'handsLeftMid', 'totalWinnings', 'biggestPot', 'rewards',
   'createdAt', 'lastLoginAt',
+  // The player's own level, XP and winning-tax rate (owner, 26 Sep 2026; Go only).
+  'playerLevel',
 ];
 const REWARD_KEYS = [
   'milestoneAvailable', 'milestoneAt', 'milestoneReward', 'milestoneEvery', 'handsToNextMilestone',

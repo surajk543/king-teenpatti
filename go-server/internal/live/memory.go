@@ -32,6 +32,16 @@ type Memory struct {
 	summaries map[string]*memSummary // roomID → lobby summary
 	lobby     map[string]map[string]struct{}
 	// lobby: bucket "<category>:<boot>" → public room ids published there
+	xpDays map[string]*memXPDay // userID → XP play-time window (PlayClock)
+}
+
+// memXPDay is one player's XP play-time window: when it opened, the play in
+// it, the marks claimed (PlayMark.Field), and when it is gone.
+type memXPDay struct {
+	start     time.Time
+	play      time.Duration
+	claimed   map[string]bool
+	expiresAt time.Time
 }
 
 type memTable struct {
@@ -78,9 +88,54 @@ func NewMemoryWithClock(now func() time.Time) Store {
 		offers:    make(map[string]memOffer),
 		summaries: make(map[string]*memSummary),
 		lobby:     make(map[string]map[string]struct{}),
+		xpDays:    make(map[string]*memXPDay),
 	}
 	m.lastSweep = now()
 	return m
+}
+
+var _ PlayClock = (*Memory)(nil)
+
+// AddPlayTime implements PlayClock under the one mutex, so a mark is claimed
+// by exactly one call.
+func (m *Memory) AddPlayTime(ctx context.Context, userID string, play time.Duration, now time.Time, window time.Duration) (PlayTime, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := m.enter(ctx); err != nil {
+		return PlayTime{}, err
+	}
+	day := m.xpDays[userID]
+	if day != nil && !day.expiresAt.After(m.now()) {
+		day = nil
+	}
+	if day == nil {
+		day = &memXPDay{start: now, claimed: map[string]bool{}, expiresAt: now.Add(window)}
+		m.xpDays[userID] = day
+	}
+	if play > 0 {
+		day.play += play
+	}
+	out := PlayTime{Start: day.start, Play: day.play, Claimed: []string{}}
+	for _, mark := range PlayMarks() {
+		if day.play >= mark.At && !day.claimed[mark.Field] {
+			day.claimed[mark.Field] = true
+			out.Claimed = append(out.Claimed, mark.Field)
+		}
+	}
+	return out, nil
+}
+
+// ClearPlayMark implements PlayClock.
+func (m *Memory) ClearPlayMark(ctx context.Context, userID, mark string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := m.enter(ctx); err != nil {
+		return err
+	}
+	if day := m.xpDays[userID]; day != nil && day.expiresAt.After(m.now()) {
+		delete(day.claimed, mark)
+	}
+	return nil
 }
 
 // Kind implements Store.
@@ -143,6 +198,11 @@ func (m *Memory) sweep(now time.Time) {
 	for id, s := range m.summaries {
 		if !s.expiresAt.After(now) {
 			m.dropSummary(id, s)
+		}
+	}
+	for id, d := range m.xpDays {
+		if !d.expiresAt.After(now) {
+			delete(m.xpDays, id)
 		}
 	}
 }

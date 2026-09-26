@@ -334,7 +334,7 @@ type SettlerHooks struct {
 	// Landed: a retry landed (or was found already landed — duplicate_action);
 	// the room adopts the returned balances onto seats that are not mid-hand
 	// and emits state. Version has already been bumped.
-	Landed func(req SettleRequest, balances SettleResult)
+	Landed func(req SettleRequest, result SettleResult)
 	// RetryFailed: attempt n failed and the next is armed (OnPersistError
 	// settle_retry).
 	RetryFailed func(req SettleRequest, attempt int, err error)
@@ -451,7 +451,7 @@ func (s *Settler) Retry(req SettleRequest, attempt int) {
 	entry.timer = s.clock.AfterFunc(s.delay(attempt), func() {
 		err := s.actor.Run(func() {
 			delete(s.retryTimers, gen)
-			balances, err := s.ledger.Settle(s.actor.Context(), req)
+			result, err := s.ledger.Settle(s.actor.Context(), req)
 			if err != nil && CodeOf(err, "") != CodeDuplicateAction {
 				if s.hooks.RetryFailed != nil {
 					s.hooks.RetryFailed(req, attempt, err)
@@ -462,7 +462,7 @@ func (s *Settler) Retry(req SettleRequest, attempt int) {
 			s.Owe(req, false) // landed: first, so nothing below can skip it
 			s.version.Add(1)
 			if s.hooks.Landed != nil {
-				s.hooks.Landed(req, balances)
+				s.hooks.Landed(req, result)
 			}
 		})
 		if errors.Is(err, ErrTableDestroyed) {

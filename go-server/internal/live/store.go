@@ -56,6 +56,75 @@ type TableSummary struct {
 	Instance   string `json:"instance"`  // which server process owns the table
 }
 
+// PlayMark is one threshold of active play in a player's XP window (owner,
+// 26 Sep 2026: "30 minutes active gameplay 5 · 60 minutes active gameplay 15").
+// Field is the kt:xpday hash field that records who has claimed it; At the
+// play time that reaches it.
+type PlayMark struct {
+	Field string
+	At    time.Duration
+}
+
+// The two play marks: 30 and 60 minutes of active play in one window. What
+// each is worth is the database's business (xp_sources ACTIVE_30_MIN and
+// ACTIVE_60_MIN); this package only keeps the time and who claimed a mark.
+const (
+	PlayMark30 = "a30"
+	PlayMark60 = "a60"
+)
+
+// PlayMarks is every mark AddPlayTime claims, in order of play. A fresh slice
+// each call.
+func PlayMarks() []PlayMark {
+	return []PlayMark{{Field: PlayMark30, At: 30 * time.Minute}, {Field: PlayMark60, At: 60 * time.Minute}}
+}
+
+// PlayTime is AddPlayTime's answer: the window's opening, its play time after
+// the call, and the marks THIS call claimed (PlayMark.Field, in PlayMarks
+// order; never nil).
+type PlayTime struct {
+	Start   time.Time
+	Play    time.Duration
+	Claimed []string
+}
+
+// PlayClock is the live store's XP play time (owner, 26 Sep 2026: "game
+// duration will be stored in redis not in postgres"): per player, the active
+// play in their current XP window and which play marks have been claimed in
+// it — never PostgreSQL's business. A store that implements it is where a
+// server keeps the play time the 30- and 60-minute XP is earned by; a store
+// that does not keeps none, and those two sources are then never earned.
+// Memory implements it; PlayClockOf finds it behind a WithHooks wrapper.
+type PlayClock interface {
+	// AddPlayTime adds play to the active play in userID's current XP window —
+	// a record {start, playMs, a30, a60} — opening the window (start = now,
+	// gone window after it) when there is none, and claims every PlayMarks
+	// mark the window's play has reached and nobody has claimed in it.
+	// Atomic: of calls that carry the play past a mark together, exactly one
+	// claims it. A play of 0 or less adds nothing (and still opens a window).
+	AddPlayTime(ctx context.Context, userID string, play time.Duration, now time.Time, window time.Duration) (PlayTime, error)
+	// ClearPlayMark releases a mark (PlayMark.Field) AddPlayTime claimed in
+	// userID's window — its award failed — so the next AddPlayTime at or past
+	// it claims it again. No window, or a mark not claimed: a no-op.
+	ClearPlayMark(ctx context.Context, userID, mark string) error
+}
+
+// PlayClockOf is s's PlayClock — s itself, or the store a WithHooks wrapper
+// (anything with Unwrap() Store) decorates — and whether it has one.
+func PlayClockOf(s Store) (PlayClock, bool) {
+	for s != nil {
+		if pc, ok := s.(PlayClock); ok {
+			return pc, true
+		}
+		u, ok := s.(interface{ Unwrap() Store })
+		if !ok {
+			return nil, false
+		}
+		s = u.Unwrap()
+	}
+	return nil, false
+}
+
 // ResumeOffer is the table a lapsed seat is offered back (session:ready.resume).
 type ResumeOffer struct {
 	RoomID     string `json:"roomId"`

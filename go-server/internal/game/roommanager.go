@@ -27,6 +27,11 @@ type Player struct {
 	// account, or nil (owner, 15 Sep 2026); it goes onto their seat.
 	TablePicture *TablePicture
 	Chips        int64
+	// TaxBps is the winning-tax rate of the player's level, in basis points
+	// (owner, 26 Sep 2026; db.PlayerLevel): it goes onto their seat
+	// (NewPlayer.TaxBps), which pays it on a win at a table that taxes its
+	// winners.
+	TaxBps int
 }
 
 // LobbyOptions is RoomManager.lobbyOptions(): the menu the client renders
@@ -69,6 +74,13 @@ type LobbyTableOption struct {
 	// into a seat.
 	MinChips int64 `json:"minChips"`
 	MaxChips int64 `json:"maxChips"`
+
+	// WinnerTax is true on a table that TAXES ITS WINNERS (owner, 26 Sep 2026;
+	// config.TableSpec.WinnerTax): the winner of each hand pays their level's
+	// share of the whole pot. ABSENT on every other entry, whose bytes are
+	// unchanged. The rate is the player's own — their user.playerLevel — so
+	// the menu carries none. Go only.
+	WinnerTax bool `json:"winnerTax,omitempty"`
 
 	// ---- poker entries only (POKER_PLAN.md §4); ABSENT on every Teen Patti
 	// entry, whose bytes are unchanged ----
@@ -205,6 +217,12 @@ type MetricsHooks struct {
 	// app may leave it nil when the store itself is wrapped with
 	// live.WithHooks, which counts the same failures.
 	ObserveLiveError func(op string, err error)
+	// ObserveTableTax counts the chips a hand's winner paid in winning tax, by
+	// the table's category — game_table_tax_chips_total{category} (owner,
+	// 26 Sep 2026; tabletax.go). Handed to every Teen Patti table
+	// (TableOptions.ObserveTableTax) and called on its actor, once per taxed
+	// hand end; must not block. May be nil.
+	ObserveTableTax func(category Category, chips int64)
 }
 
 // RoomManagerOptions builds a RoomManager.
@@ -835,6 +853,7 @@ func (rm *RoomManager) tableOptions(opts TableOptions) TableOptions {
 	opts.LiveTTL = rm.liveTTL
 	opts.LiveErrors = rm.liveErrorHook
 	opts.ObserveHandStart = rm.mx.ObserveHandStart
+	opts.ObserveTableTax = rm.mx.ObserveTableTax
 	opts.SettlementOwed = rm.settlementOwed
 	return opts
 }
@@ -1701,6 +1720,7 @@ func (rm *RoomManager) seatHeld(table Room, user Player, socketID string) error 
 		TablePicture: user.TablePicture,
 		Chips:        user.Chips,
 		SocketID:     socketID,
+		TaxBps:       user.TaxBps,
 	})
 
 	rm.mu.Lock()
@@ -2321,6 +2341,9 @@ func (rm *RoomManager) movePlayer(source, target Room, admit func(chips int64) b
 		AvatarURL:    seat.AvatarURL,
 		TablePicture: seat.TablePicture,
 		Chips:        seat.Chips,
+		// The seat's rate moves with it, as its chips do: a consolidation
+		// move is not a sit-down that reads the account.
+		TaxBps: seat.TaxBps,
 	}
 	socketID := seat.SocketID
 	fromRoomID := source.ID()

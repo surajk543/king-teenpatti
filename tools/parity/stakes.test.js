@@ -34,14 +34,17 @@ const MENU = [
   { category: 'blind', bootAmount: 200, maxPot: 0, maxBlindMoves: 4, minChips: 0, maxChips: 500000 },
   { category: 'blind', bootAmount: 5000, maxPot: 0, maxBlindMoves: 4, minChips: 0, maxChips: 50000000 },
   { category: 'blind', bootAmount: 50000, maxPot: 0, maxBlindMoves: 4, minChips: 0, maxChips: 1000000000 },
-  { category: 'blind', bootAmount: 1000000, maxPot: 0, maxBlindMoves: 4, minChips: 500000000, maxChips: 0 },
+  // The two 10 Lakh tables TAX THEIR WINNERS (owner, 26 Sep 2026): the winner of
+  // each hand pays their level's share of the whole pot. The flag follows the
+  // six keys, and no other entry carries it.
+  { category: 'blind', bootAmount: 1000000, maxPot: 0, maxBlindMoves: 4, minChips: 500000000, maxChips: 0, winnerTax: true },
   // Variation Teen Patti (Go only; owner, 18 Sep 2026). Last on the menu, so
   // the five rows above keep the places they always had. Two tables only —
   // 50,000 and 10 Lakh — behind the bands blind's tables of those stakes have.
   // It bets as a seen table does, but has NO pot limit (owner, 18 Sep 2026;
   // VARIATION_MAX_POT_BOOTS=0).
   { category: 'variation', bootAmount: 50000, maxPot: 0, maxBlindMoves: 4, minChips: 0, maxChips: 1000000000 },
-  { category: 'variation', bootAmount: 1000000, maxPot: 0, maxBlindMoves: 4, minChips: 500000000, maxChips: 0 },
+  { category: 'variation', bootAmount: 1000000, maxPot: 0, maxBlindMoves: 4, minChips: 500000000, maxChips: 0, winnerTax: true },
   // A second seen table (owner, 19 Sep 2026): open to all, its own 5 Crore pot limit.
   { category: 'seen', bootAmount: 50000, maxPot: 50000000, maxBlindMoves: 4, minChips: 0, maxChips: 0 },
   // The Poker family (Go only; owner, 19 Sep 2026 — go-server/POKER_PLAN.md).
@@ -72,8 +75,9 @@ test('the lobby offers exactly the four stakes and the twelve tables, in menu or
   assert.deepEqual(ready.config.categories, ['seen', 'blind', 'variation', 'three_card_poker', 'five_card_draw', 'texas_holdem', 'omaha']);
   assert.deepEqual(ready.config.tables, MENU);
   for (const [i, entry] of ready.config.tables.entries()) {
-    // A Teen Patti entry has exactly the six keys it always had, in that order;
-    // a poker entry those six first and then its own.
+    // A Teen Patti entry has exactly the six keys it always had, in that order
+    // (a table that taxes its winners, winnerTax after them); a poker entry
+    // those six first and then its own.
     assert.deepEqual(Object.keys(entry).slice(0, 6), TEEN_PATTI_KEYS, 'key order');
     assert.deepEqual(Object.keys(entry), Object.keys(MENU[i]), `keys of ${entry.category} ${entry.bootAmount}`);
   }

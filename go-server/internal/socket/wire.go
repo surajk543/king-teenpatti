@@ -74,6 +74,11 @@ const (
 	EvChatMessageOut         = "chat:message"
 	EvChatHistoryOut         = "chat:history"
 	EvGameError              = "game:error" // socket: {code, message}
+	// EvPlayerLevel is a player's own level, XP and winning-tax rate
+	// (db.PlayerLevel — the user object's playerLevel), sent to that account's
+	// live socket alone after an XP award that changed their XP has committed
+	// (owner, 26 Sep 2026; Go only).
+	EvPlayerLevel = "player:level"
 )
 
 // Messages the socket layer itself puts on the wire.

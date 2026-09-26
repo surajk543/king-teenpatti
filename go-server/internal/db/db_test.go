@@ -103,11 +103,14 @@ func TestMigrationsAreVersionedOrderedAndSplitByKind(t *testing.T) {
 		"EXECUTE 'ALTER TABLE users ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT TRUE';",
 		"EXECUTE 'ALTER TABLE chip_ledger ADD COLUMN game TEXT';",
 		"EXECUTE 'ALTER TABLE chip_ledger ADD COLUMN variant TEXT';",
+		// The winning tax (owner, 26 Sep 2026): whether a table taxes its
+		// winners, FALSE on every row an older catalogue already holds.
+		"EXECUTE 'ALTER TABLE table_configs ADD COLUMN winner_tax BOOLEAN NOT NULL DEFAULT FALSE';",
 	}
 	if strings.Join(alters, "\n") != strings.Join(wantAlters, "\n") {
-		t.Errorf("the baseline brings forward exactly users.is_bot, users.is_active and chip_ledger.game/.variant, got:\n%s", strings.Join(alters, "\n"))
+		t.Errorf("the baseline brings forward exactly users.is_bot, users.is_active, chip_ledger.game/.variant and table_configs.winner_tax, got:\n%s", strings.Join(alters, "\n"))
 	}
-	for _, want := range []string{"column_name = 'is_bot'", "column_name = 'is_active'", "column_name = 'game'", "column_name = 'variant'"} {
+	for _, want := range []string{"column_name = 'is_bot'", "column_name = 'is_active'", "column_name = 'game'", "column_name = 'variant'", "column_name = 'winner_tax'"} {
 		if !strings.Contains(baseline, want) {
 			t.Errorf("%s lacks the lookup %q", migrations[0].File, want)
 		}
@@ -120,6 +123,13 @@ func TestMigrationsAreVersionedOrderedAndSplitByKind(t *testing.T) {
 	}
 	if ledger := squash(createTableBody(t, baseline, "chip_ledger")); !strings.Contains(ledger, "game TEXT") || !strings.Contains(ledger, "variant TEXT") {
 		t.Errorf("CREATE TABLE chip_ledger must declare game TEXT and variant TEXT:\n%s", ledger)
+	}
+	// winner_tax is the one column whose two definitions differ, on purpose:
+	// the CREATE TABLE gives it no DEFAULT, like every rule column (a row typed
+	// by hand must say whether its table taxes its winners), and the guarded
+	// block gives the rows an older catalogue already holds FALSE.
+	if configs := squash(createTableBody(t, baseline, "table_configs")); !strings.Contains(configs, "winner_tax BOOLEAN NOT NULL,") {
+		t.Errorf("CREATE TABLE table_configs must declare winner_tax BOOLEAN NOT NULL with no DEFAULT:\n%s", configs)
 	}
 	// The table catalogue's key is declared in its CREATE TABLE, generated and
 	// UNIQUE, not built by a CREATE INDEX: a boot that changes nothing then
@@ -256,6 +266,46 @@ func TestMigrationsAreVersionedOrderedAndSplitByKind(t *testing.T) {
 			t.Errorf("%s lacks %q", migrations[0].File, want)
 		}
 	}
+	// Player levels and XP (owner, 26 Sep 2026): four more tables in the
+	// baseline, after the Lucky Draw and before the table catalogue —
+	// player_xp last of them, since it names a player and a level — and their
+	// rows in the seed, never any player's. VIP is structural: a VIP tier has
+	// no XP threshold and every other level has one.
+	if !inOrder(baseline, "CREATE TABLE IF NOT EXISTS user_lucky_draws", "CREATE TABLE IF NOT EXISTS player_levels",
+		"CREATE TABLE IF NOT EXISTS xp_sources", "CREATE TABLE IF NOT EXISTS xp_settings", "CREATE TABLE IF NOT EXISTS player_xp",
+		"CREATE TABLE IF NOT EXISTS table_engines") {
+		t.Error("the baseline must create player_levels, xp_sources, xp_settings and player_xp in that order, after the Lucky Draw")
+	}
+	levels := squash(createTableBody(t, baseline, "player_levels"))
+	for _, want := range []string{"level SMALLINT PRIMARY KEY", "min_xp BIGINT UNIQUE CHECK (min_xp >= 0)", "title TEXT NOT NULL",
+		"icon TEXT NOT NULL", "tax_bps INTEGER NOT NULL CHECK (tax_bps BETWEEN 0 AND 10000)", "is_vip BOOLEAN NOT NULL",
+		"CHECK (NOT is_vip OR min_xp IS NULL)", "CHECK (is_vip OR min_xp IS NOT NULL)"} {
+		if !strings.Contains(levels, want) {
+			t.Errorf("CREATE TABLE player_levels must declare %q:\n%s", want, levels)
+		}
+	}
+	xpRows := squash(createTableBody(t, baseline, "player_xp"))
+	for _, want := range []string{"user_id TEXT PRIMARY KEY REFERENCES users (id) ON DELETE CASCADE",
+		"xp BIGINT NOT NULL DEFAULT 0 CHECK (xp >= 0)", "level_override SMALLINT REFERENCES player_levels (level)",
+		"window_start BIGINT NOT NULL DEFAULT 0", "window_xp INTEGER NOT NULL DEFAULT 0"} {
+		if !strings.Contains(xpRows, want) {
+			t.Errorf("CREATE TABLE player_xp must declare %q:\n%s", want, xpRows)
+		}
+	}
+	if settings := squash(createTableBody(t, baseline, "xp_settings")); !strings.Contains(settings, "CHECK (id = 1)") ||
+		!strings.Contains(settings, "daily_cap INTEGER NOT NULL CHECK (daily_cap >= 0)") || !strings.Contains(settings, "window_ms BIGINT NOT NULL CHECK (window_ms > 0)") {
+		t.Errorf("CREATE TABLE xp_settings must be one row with its cap and window:\n%s", settings)
+	}
+	for _, want := range []string{"INSERT INTO player_levels", "ON CONFLICT (level) DO NOTHING", "INSERT INTO xp_sources",
+		"ON CONFLICT (code) DO NOTHING", "INSERT INTO xp_settings"} {
+		if !strings.Contains(seed, want) {
+			t.Errorf("%s lacks %q", migrations[1].File, want)
+		}
+	}
+	if strings.Contains(seed, "INTO player_xp") {
+		t.Errorf("%s must seed no player's XP", migrations[1].File)
+	}
+
 	if !strings.Contains(db.SchemaSQL(), "chip_ledger_no_rewrite") {
 		t.Fatal("the embedded DDL lacks the append-only trigger")
 	}
@@ -366,9 +416,10 @@ func TestBootstrapCreatesEveryTableAndSetsSearchPathPerConnection(t *testing.T) 
 	// Exactly these tables: money and audit (users, chip_ledger and the
 	// purchase and spend records), the two picture catalogues (profile and
 	// table, with who owns and has laid what), the emoji catalogue and who
-	// owns which (26 Sep 2026), the Lucky Draw's three, and the four
-	// configuration tables — twenty-two, and no game state (the baseline's
-	// header).
+	// owns which (26 Sep 2026), the Lucky Draw's three, the player levels and
+	// XP (26 Sep 2026: the ladder, the XP sources and settings, and each
+	// player's XP), and the four configuration tables — twenty-six, and no
+	// game state (the baseline's header).
 	rows, err := f.d.Pool.Query(f.ctx, `SELECT table_name FROM information_schema.tables
          WHERE table_schema = $1 AND table_type = 'BASE TABLE' ORDER BY table_name`, f.d.Schema)
 	if err != nil {
@@ -388,8 +439,10 @@ func TestBootstrapCreatesEveryTableAndSetsSearchPathPerConnection(t *testing.T) 
 	}
 	want := []string{"chip_ledger", "diamond_purchases", "emojis", "hammer_purchases", "hammer_spends",
 		"lucky_draw_slots", "lucky_draws", "missile_purchases", "missile_spends",
+		"player_levels", "player_xp",
 		"profile_pictures", "table_categories", "table_configs", "table_engines", "table_pictures", "table_settings",
-		"user_emojis", "user_lucky_draws", "user_milestones", "user_profile_pictures", "user_table_choice", "user_table_pictures", "users"}
+		"user_emojis", "user_lucky_draws", "user_milestones", "user_profile_pictures", "user_table_choice", "user_table_pictures", "users",
+		"xp_settings", "xp_sources"}
 	if strings.Join(tables, ",") != strings.Join(want, ",") {
 		t.Fatalf("schema %s has tables\n %v\nwant\n %v", f.d.Schema, tables, want)
 	}

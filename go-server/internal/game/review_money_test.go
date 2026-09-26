@@ -95,18 +95,18 @@ func (l *persistingLedger) Settle(_ context.Context, req SettleRequest) (SettleR
 	defer l.mu.Unlock()
 	l.settleCalls++
 	if l.failSettle {
-		return nil, errors.New("database unavailable")
+		return SettleResult{}, errors.New("database unavailable")
 	}
 	if l.settled[req.HandID] > 0 {
-		return nil, NewGameError(CodeDuplicateAction, MsgDuplicateAction)
+		return SettleResult{}, NewGameError(CodeDuplicateAction, MsgDuplicateAction)
 	}
 	l.settled[req.HandID]++
-	out := SettleResult{}
+	out := SettleResult{Balances: map[string]int64{}}
 	for _, e := range req.Entries {
 		if err := l.applyLocked(e); err != nil {
-			return nil, err
+			return SettleResult{}, err
 		}
-		out[e.UserID] = l.wallets[e.UserID]
+		out.Balances[e.UserID] = l.wallets[e.UserID]
 	}
 	return out, nil
 }

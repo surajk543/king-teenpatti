@@ -49,11 +49,13 @@ func TestDefaultsMatchNode(t *testing.T) {
 			{Category: "blind", BootAmount: 200},
 			{Category: "blind", BootAmount: 5000, MaxChips: 50000000},
 			{Category: "blind", BootAmount: 50000, MaxChips: 1000000000},
-			{Category: "blind", BootAmount: 1000000, MinChips: 500000000},
+			// It taxes its winners (owner, 26 Sep 2026: tax=1).
+			{Category: "blind", BootAmount: 1000000, MinChips: 500000000, WinnerTax: true},
 			// Variation Teen Patti (Go only; owner, 18 Sep 2026), last: two
-			// tables, 50,000 and 10 Lakh, behind blind's bands for those stakes.
+			// tables, 50,000 and 10 Lakh, behind blind's bands for those stakes;
+			// the 10 Lakh one taxes its winners too.
 			{Category: "variation", BootAmount: 50000, MaxChips: 1000000000},
-			{Category: "variation", BootAmount: 1000000, MinChips: 500000000},
+			{Category: "variation", BootAmount: 1000000, MinChips: 500000000, WinnerTax: true},
 			// A second seen table with a pot cap of its own (owner, 19 Sep 2026).
 			{Category: "seen", BootAmount: 50000, MaxPot: 50000000},
 			// The Poker family (owner, 19 Sep 2026), last: the boot is the big
@@ -545,11 +547,12 @@ func TestPublicGameConfigValues(t *testing.T) {
 		{Category: "blind", BootAmount: 200},
 		{Category: "blind", BootAmount: 5000, MaxChips: 50000000},
 		{Category: "blind", BootAmount: 50000, MaxChips: 1000000000},
-		{Category: "blind", BootAmount: 1000000, MinChips: 500000000},
+		{Category: "blind", BootAmount: 1000000, MinChips: 500000000, WinnerTax: true},
 		// Variation keeps two tables only (owner, 18 Sep 2026), behind the
-		// bands blind's tables of the same stakes have.
+		// bands blind's tables of the same stakes have. Both 10 Lakh tables
+		// tax their winners (owner, 26 Sep 2026).
 		{Category: "variation", BootAmount: 50000, MaxChips: 1000000000},
-		{Category: "variation", BootAmount: 1000000, MinChips: 500000000},
+		{Category: "variation", BootAmount: 1000000, MinChips: 500000000, WinnerTax: true},
 		// Seen at 50,000: open to all, its own 5 Crore pot limit.
 		{Category: "seen", BootAmount: 50000, MaxPot: 50000000},
 		// The Poker family (owner, 19 Sep 2026), last.

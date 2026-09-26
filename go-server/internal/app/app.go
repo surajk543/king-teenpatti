@@ -27,6 +27,7 @@ import (
 	"github.com/surajk543/king-teenpatti/go-server/internal/purchase"
 	"github.com/surajk543/king-teenpatti/go-server/internal/sio"
 	"github.com/surajk543/king-teenpatti/go-server/internal/socket"
+	"github.com/surajk543/king-teenpatti/go-server/internal/xp"
 )
 
 // Options builds an App. DB must already be open (cmd/gameplay opens it and
@@ -68,6 +69,9 @@ type App struct {
 	rooms    *game.RoomManager
 	sio      *sio.Server
 	sockets  *socket.Handler
+	// xp keeps the XP that play time earns (internal/xp): it hears of every
+	// committed hand-end settlement from the ledger (db.Ledger.OnSettled).
+	xp *xp.Tracker
 	// restore records what the startup sequence did (logged once; Restore()
 	// exposes it to tests and tooling).
 	restore game.RestoreReport
@@ -280,6 +284,19 @@ func New(opts Options) (*App, error) {
 		// (owner, 26 Sep 2026).
 		Emojis: emojis,
 	})
+	// Player levels and XP (owner, 26 Sep 2026): a hand-end settlement awards
+	// the hand's XP in its own transaction; once it has committed, the
+	// tracker tells each player whose XP changed (player:level) and adds the
+	// hand's play time to their window in the live store, whose 30- and
+	// 60-minute marks it awards asynchronously through db.XP.
+	a.xp = xp.New(xp.Options{
+		Awards: db.NewXP(opts.DB, clock.Now),
+		Live:   a.live,
+		Push:   a.sockets.PushPlayerLevel,
+		Logger: logger,
+		Clock:  clock.Now,
+	})
+	ledger.OnSettled(a.xp.Settled)
 	roomOpts := game.RoomManagerOptions{
 		Game:   cfg.Game,
 		Chat:   cfg.Chat,
@@ -311,6 +328,9 @@ func New(opts Options) (*App, error) {
 			ObserveHandStart: func(d time.Duration) { metrics.Observe(a.metrics.HandStartDuration, d) },
 			// ObserveLiveError stays nil: the WithHooks wrapper already
 			// counts every failed store call in game_live_store_errors_total.
+			// game_table_tax_chips_total{category}: the winning tax a hand's
+			// winner paid at a table that taxes its winners.
+			ObserveTableTax: a.metrics.ObserveTableTax,
 		},
 
 		// A seat taken from the lobby starts from the wallet as read under the
@@ -774,7 +794,14 @@ func (a *App) Shutdown(ctx context.Context) error {
 	}
 	// 4. Wait for the socket goroutines to wind down (bounded by ctx).
 	sioErr := a.sio.Shutdown(ctx)
-	// 5. Stop the presence heartbeat and the reconciler, then close the store
+	// 5. Let the play-time XP the last hand ends started finish (bounded by
+	// ctx): it writes to the live store and the database, both still open.
+	// An award cut off is not lost — its mark is released or never claimed,
+	// and the next hand end tries again.
+	if err := a.xp.Wait(ctx); err != nil {
+		a.log.Warn("shutdown: play-time XP still being awarded", "error", err.Error())
+	}
+	// 6. Stop the presence heartbeat and the reconciler, then close the store
 	// (when it is ours) — nothing above touches it any more.
 	a.sockets.Close()
 	a.stopReconciler()

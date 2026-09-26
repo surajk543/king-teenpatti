@@ -140,14 +140,16 @@ func parseLobbyTables(raw string) ([]LobbyTable, error) {
 		}
 		table := LobbyTable{Category: category, BootAmount: boot}
 		// Anything after the boot is a stack band — "blind:5000:max=50000000"
-		// or "blind:1000000:min=500000000" — or the table's own pot cap,
-		// "seen:50000:pot=50000000"; in any order and all optional. Suffixes rather than more colon-positions because a
+		// or "blind:1000000:min=500000000" — the table's own pot cap,
+		// "seen:50000:pot=50000000", or "tax=1", a table that taxes its winners
+		// (owner, 26 Sep 2026: the winner pays their level's share of the pot);
+		// in any order and all optional. Suffixes rather than more colon-positions because a
 		// bare third number would be unreadable at a glance, and because
 		// "category:boot" has to keep parsing exactly as it always did.
 		for _, extra := range parts[2:] {
 			key, value, found := strings.Cut(strings.TrimSpace(extra), "=")
 			if !found {
-				return nil, fmt.Errorf("entry %q: %q must be min=N, max=N or pot=N", entry, extra)
+				return nil, fmt.Errorf("entry %q: %q must be min=N, max=N, pot=N or tax=1", entry, extra)
 			}
 			n, err := parseInt(value)
 			if err != nil {
@@ -164,8 +166,16 @@ func parseLobbyTables(raw string) ([]LobbyTable, error) {
 			case "pot":
 				// This table's own pot cap, over its category's (0 = none set).
 				table.MaxPot = n
+			case "tax":
+				// A switch, not a rate: what the winner pays is their level's
+				// (player_levels), so a figure here would be a promise the
+				// table does not keep.
+				if n > 1 {
+					return nil, fmt.Errorf("entry %q: tax is 1 (the winner pays their level's rate) or 0, not %d", entry, n)
+				}
+				table.WinnerTax = n == 1
 			default:
-				return nil, fmt.Errorf("entry %q: unknown limit %q (want min, max or pot)", entry, key)
+				return nil, fmt.Errorf("entry %q: unknown limit %q (want min, max, pot or tax)", entry, key)
 			}
 		}
 		// A band nobody can satisfy would take the table off the menu at run

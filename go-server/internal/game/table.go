@@ -74,6 +74,11 @@ type TableConfig struct {
 	// HasVariation.
 	FiveCardPickTimeout time.Duration
 
+	// WinnerTax makes the table TAX ITS WINNERS (owner, 26 Sep 2026;
+	// tabletax.go): the winner of each hand pays their level's share of the
+	// whole pot. false on every table but the catalogue's taxing ones.
+	WinnerTax bool
+
 	ChatMaxHistory int // RoomChat caps; 0 → chat.js defaults (100 / 140)
 	ChatMaxLength  int
 }
@@ -125,6 +130,11 @@ type TableOptions struct {
 	// ObserveHandStart, if set, is called with how long startHand took —
 	// game_hand_start_duration_seconds. Called on the actor; must not block.
 	ObserveHandStart func(d time.Duration)
+	// ObserveTableTax, if set, is called with the table's category and the
+	// chips a hand's winner paid in table tax, once per taxed hand end —
+	// game_table_tax_chips_total{category}. Called on the actor; must not
+	// block.
+	ObserveTableTax func(category Category, chips int64)
 	// SettlementOwed, if set, hears of every hand-end settlement the database
 	// refused: once with owed=true as its retries begin, and once with
 	// owed=false when they end — the write landed (duplicate_action included)
@@ -152,6 +162,11 @@ type NewPlayer struct {
 	TablePicture *TablePicture
 	Chips        int64
 	SocketID     string // "" when seated by consolidation without a live socket
+	// TaxBps is the winning-tax rate of the player's level, in basis points,
+	// as read with their account when they sat down (owner, 26 Sep 2026;
+	// tabletax.go). The seat keeps it, refreshed by every hand-end settle, and
+	// pays it on a win at a table that taxes its winners.
+	TaxBps int
 }
 
 // ActRequest is the client's move (socket game:action → table.act payload).
@@ -240,6 +255,11 @@ type seat struct {
 	picked    []Card
 	pickedBy  PickedBy
 	pickUntil time.Time
+
+	// taxBps is the winning-tax rate of the player's level (tabletax.go):
+	// NewPlayer.TaxBps when they sat down, refreshed from every hand-end
+	// settle. A hand captures it when it is dealt (contribution.taxBps).
+	taxBps int
 }
 
 // contribution is hand.contributions[userId] — owned by the HAND, not the
@@ -254,6 +274,11 @@ type contribution struct {
 	cards       []Card
 	didChaal    bool // set on the first chaal/raise/show — "played" (requirement 16)
 	leftMidHand bool // abandoned before the hand finished
+	// taxBps is the seat's winning-tax rate when the hand was dealt: what this
+	// player pays if they win THIS hand (tabletax.go), however their level
+	// moves before it ends — and still known if they win it after leaving the
+	// table (the pot of the last to leave).
+	taxBps int
 
 	// chips is this player's stack as the LIVE state has it — the seat's
 	// chips, kept in step here so a player who has left the table still has
@@ -358,6 +383,7 @@ type Table struct {
 	createdAt time.Time
 
 	onHandStart func(d time.Duration)
+	onTableTax  func(category Category, chips int64)
 
 	// The family-neutral shell (actor.go), shared with every other room kind:
 	// the mailbox (ctx, posts, destroyed, fenced), the live-state side (live
@@ -476,6 +502,7 @@ func newTableCore(opts TableOptions) *Table {
 		listener:    listener,
 		createdAt:   clock.Now(),
 		onHandStart: opts.ObserveHandStart,
+		onTableTax:  opts.ObserveTableTax,
 		seats:       make([]*seat, cfg.MaxPlayers),
 		dealerSeat:  -1,
 		chat:        NewRoomChat(chatHistory, chatLength, clock),
@@ -1095,6 +1122,7 @@ func (s *seat) info() *SeatInfo {
 		JoinedAt:              Millis(s.joinedAt),
 		DisconnectedAt:        disconnectedAt,
 		KickPending:           s.kickPending,
+		TaxBps:                s.taxBps,
 	}
 }
 
@@ -1138,6 +1166,7 @@ func (t *Table) addPlayer(p NewPlayer) (*SeatInfo, error) {
 		cards:        []Card{},
 		isBlind:      true,
 		joinedAt:     t.clock.Now(),
+		taxBps:       p.TaxBps,
 	}
 	t.seats[seatIndex] = s
 	t.refreshPlayerCount()
@@ -1400,6 +1429,9 @@ func (t *Table) startHand() {
 			cards:       deals[i],
 			didChaal:    false,
 			leftMidHand: false,
+			// The rate this player pays if they win this hand: their seat's
+			// as the hand starts (tabletax.go).
+			taxBps: s.taxBps,
 			// PostgreSQL still holds the pre-boot figure: nothing is written
 			// at the deal.
 			chipsWritten: s.chips,
@@ -2039,6 +2071,7 @@ func (t *Table) chargeToPot(s *seat, amount int64, actionID, reason string) erro
 			status:       s.status,
 			sawCards:     !s.isBlind,
 			cards:        s.cards,
+			taxBps:       s.taxBps,
 			chips:        s.chips,
 			chipsWritten: s.chips + amount,
 		}
@@ -3006,7 +3039,9 @@ func (t *Table) resolveShowdown(contenders []*seat, reason WinReason, showReques
 // resolves everybody still at the table.
 //
 // clearTurnTimer; stop the sideshow timer; endedAt = now; the winner's seat
-// takes the pot IN MEMORY (the live state is the truth for a stack), then one
+// takes the pot IN MEMORY (the live state is the truth for a stack) — less the
+// table tax at a taxed table (tabletax.go), which their entry carries as Tax
+// and handEnded announces — then one
 // SettleEntry per player still at the table — packers included, because their
 // outcome row and its counters belong here even though their money moved at
 // the pack — plus the winner when they have already left (ALL_LEFT), whose
@@ -3054,11 +3089,23 @@ func (t *Table) endHand(winnerID *string, reason WinReason, reveals []Reveal) {
 	if winnerID != nil {
 		winnerSeat = t.findSeat(*winnerID)
 	}
+	// The winning tax (tabletax.go): at a table that taxes its winners the
+	// winner pays their level's share of the whole pot — at the rate they
+	// were dealt this hand with — and is credited the rest. Nothing anywhere
+	// else, which leaves every untaxed hand exactly as it was.
+	var tax int64
+	var taxBps int
+	if winnerID != nil && t.cfg.WinnerTax {
+		if entry := h.contributions[*winnerID]; entry != nil {
+			taxBps = entry.taxBps
+			tax = TableTax(h.pot, taxBps)
+		}
+	}
 	if winnerSeat != nil {
 		winnerSeat.status = SeatWon
 		// The pot is paid in memory first: the live state is what the
 		// checkpoint below writes through.
-		winnerSeat.chips += h.pot
+		winnerSeat.chips += h.pot - tax
 		t.syncContribution(winnerSeat, SeatWon)
 	} else if winnerID != nil {
 		// The winner has already left. Their leave checkpoint took their
@@ -3066,7 +3113,7 @@ func (t *Table) endHand(winnerID *string, reason WinReason, reveals []Reveal) {
 		// credited and written even though they have no seat.
 		if entry := h.contributions[*winnerID]; entry != nil {
 			entry.status = SeatWon
-			entry.chips += h.pot
+			entry.chips += h.pot - tax
 		}
 	}
 
@@ -3089,9 +3136,13 @@ func (t *Table) endHand(winnerID *string, reason WinReason, reveals []Reveal) {
 		if isWinner {
 			rowReason = LedgerReasonHandWin
 		}
-		var pot int64
+		var pot, entryTax int64
 		if isWinner {
 			pot = h.pot
+			// Delta below is already net of it (the seat was credited the pot
+			// less the tax); the ledger writes the win gross and the tax as a
+			// row of its own (LedgerRows).
+			entryTax = tax
 		}
 		entries = append(entries, SettleEntry{
 			UserID:      entry.userID,
@@ -3103,6 +3154,7 @@ func (t *Table) endHand(winnerID *string, reason WinReason, reveals []Reveal) {
 			DidChaal:    entry.didChaal,
 			LeftMidHand: entry.leftMidHand,
 			Pot:         pot,
+			Tax:         entryTax,
 		})
 	}
 
@@ -3130,8 +3182,10 @@ func (t *Table) endHand(winnerID *string, reason WinReason, reveals []Reveal) {
 	// The hand is over whatever the database says next: the pot is already at
 	// the winner's seat and every stack is final. The write only makes the
 	// wallets agree.
-	settleReq := SettleRequest{RoomID: t.id, HandID: h.id, Entries: entries}
-	_, err := t.ledger.Settle(t.Context(), settleReq)
+	// PlayedMs is the hand's duration, deal to end: the active play its players
+	// add to their XP window (SettleRequest).
+	settleReq := SettleRequest{RoomID: t.id, HandID: h.id, Entries: entries, PlayedMs: max(0, h.endedAt.Sub(h.startedAt).Milliseconds())}
+	settled, err := t.ledger.Settle(t.Context(), settleReq)
 	if err != nil {
 		t.listener.OnPersistError(t.view, PersistErrorEvent{Reason: "settle", HandID: h.id, Err: err})
 		// Keep trying — the write is idempotent (per-player action ids), so a
@@ -3151,6 +3205,9 @@ func (t *Table) endHand(winnerID *string, reason WinReason, reveals []Reveal) {
 		for _, entry := range contributors {
 			entry.chipsWritten = entry.chips
 		}
+		// The XP this settle awarded may have raised a level: every seat it
+		// names deals its next hand at the rate its level carries now.
+		t.adoptTaxRates(settled.TaxBps)
 	}
 
 	var winnerName *string
@@ -3176,7 +3233,7 @@ func (t *Table) endHand(winnerID *string, reason WinReason, reveals []Reveal) {
 	if winnerID != nil {
 		wireWinner = StrPtr(*winnerID)
 	}
-	t.listener.OnHandEnded(t.view, HandEndedEvent{
+	ended := HandEndedEvent{
 		HandID:     h.id,
 		HandNo:     h.handNo,
 		WinnerID:   wireWinner,
@@ -3188,7 +3245,17 @@ func (t *Table) endHand(winnerID *string, reason WinReason, reveals []Reveal) {
 		NextHandAt: Millis(nextHandAt),
 		Variation:  h.variation.rules().Variation,
 		TurnUp:     h.variation.turnUpCode(),
-	})
+	}
+	if tax > 0 {
+		// What the winner paid and at what rate — absent when no tax was
+		// taken, so every other hand's payload is what it always was.
+		ended.Tax = tax
+		ended.TaxBps = taxBps
+		if t.onTableTax != nil {
+			t.onTableTax(t.cfg.Category, tax)
+		}
+	}
+	t.listener.OnHandEnded(t.view, ended)
 
 	t.emitState()
 
@@ -3201,15 +3268,18 @@ func (t *Table) endHand(winnerID *string, reason WinReason, reveals []Reveal) {
 // port does not copy.
 
 // onSettleLanded adopts the balances a landed retry returned ONLY onto seats
-// that are not active (a live stake is in play), then emits state.
-func (t *Table) onSettleLanded(req SettleRequest, balances SettleResult) {
-	for userID, balance := range balances {
+// that are not active (a live stake is in play), and the winning-tax rates
+// onto every seat it names (a hand in progress keeps the rate it was dealt
+// with), then emits state.
+func (t *Table) onSettleLanded(req SettleRequest, result SettleResult) {
+	for userID, balance := range result.Balances {
 		s := t.findSeat(userID)
 		// Only correct a seat that is not mid-hand; a live stake is in play.
 		if s != nil && s.status != SeatActive {
 			s.chips = balance
 		}
 	}
+	t.adoptTaxRates(result.TaxBps)
 	t.emitState()
 }
 
@@ -3294,6 +3364,7 @@ func (t *Table) snapshot() *Snapshot {
 			SideshowAskedThisTurn: s.sideshowAskedThisTurn,
 			KickPending:           s.kickPending,
 			JoinedAt:              Millis(s.joinedAt),
+			TaxBps:                s.taxBps,
 		}
 		if s.unfundedUntil != nil {
 			snap.UnfundedUntil = Int64Ptr(Millis(*s.unfundedUntil))
@@ -3343,6 +3414,7 @@ func (t *Table) snapshot() *Snapshot {
 				Cards:        CardCodes(entry.cards),
 				Chips:        entry.chips,
 				ChipsWritten: entry.chipsWritten,
+				TaxBps:       entry.taxBps,
 			})
 		}
 		packed := make([]string, 0, len(h.packedUserIDs))
@@ -3439,6 +3511,8 @@ func snapshotConfig(cfg TableConfig) SnapshotConfig {
 
 		VariationSelectTimeoutMs: cfg.VariationSelectTimeout.Milliseconds(),
 		FiveCardPickTimeoutMs:    cfg.FiveCardPickTimeout.Milliseconds(),
+
+		WinnerTax: cfg.WinnerTax,
 	}
 }
 
@@ -3464,6 +3538,8 @@ func tableConfigFrom(c SnapshotConfig) TableConfig {
 
 		VariationSelectTimeout: time.Duration(c.VariationSelectTimeoutMs) * time.Millisecond,
 		FiveCardPickTimeout:    time.Duration(c.FiveCardPickTimeoutMs) * time.Millisecond,
+
+		WinnerTax: c.WinnerTax,
 
 		ChatMaxHistory: c.ChatMaxHistory,
 		ChatMaxLength:  c.ChatMaxLength,
@@ -3498,6 +3574,7 @@ func (t *Table) serializeFor(viewerID string) *TableView {
 		BootAmount:    t.cfg.BootAmount,
 		TurnTimeoutMs: t.cfg.TurnTimeout.Milliseconds(),
 		MaxPot:        t.cfg.MaxPot,
+		WinnerTax:     t.cfg.WinnerTax,
 		Stake:         t.cfg.BootAmount,
 	}
 	if t.startsAt != nil {
@@ -3560,6 +3637,10 @@ func (t *Table) serializeFor(viewerID string) *TableView {
 			you.Options = &options
 		}
 		you.CanMissile = t.missileBlockedReason(viewer) == ""
+		// The winning-tax rate this viewer's seat pays now, at a table that
+		// taxes its winners — in `you`, so it is sent to them alone: no
+		// snapshot says what level any OTHER seat's player has.
+		you.TaxBps = t.youTaxBps(viewer)
 		view.You = you
 	}
 

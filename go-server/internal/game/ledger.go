@@ -65,7 +65,9 @@ type Ledger interface {
 	// !IsWinner && !LeftMidHand, hands_left_mid += LeftMidHand,
 	// total_winnings += Pot if winner, biggest_pot = GREATEST(…, Pot if
 	// winner), updated_at); INSERT chip_ledger with the entry's ActionID and
-	// Reason (a zero delta is STILL written). Returns every settled balance.
+	// Reason (a zero delta is STILL written) — and for an entry carrying a
+	// table tax, the win gross and a table_tax row after it (LedgerRows), in
+	// the same transaction. Returns every settled balance.
 	// The Table retries it unchanged on failure; the UNIQUE action ids are
 	// what make that safe.
 	Settle(ctx context.Context, req SettleRequest) (SettleResult, error)
@@ -121,6 +123,14 @@ type SettleEntry struct {
 	// winner's share: the database counts per entry, so each winning entry
 	// carries what its player took.
 	Pot int64
+	// Tax is the TABLE TAX withheld from this entry's winnings (owner, 26 Sep
+	// 2026; TableTax): set on the winner's hand-end entry at a taxed table,
+	// and 0 on every other entry and at every other table. Delta is already
+	// NET of it — the wallet moves by Delta, as for every entry — and the
+	// ledger writes the entry as TWO rows (LedgerRows): the win at its gross
+	// figure, Delta + Tax, and the tax as a table_tax row of −Tax. Never set
+	// by the poker family.
+	Tax int64
 	// Game and Variant name the family and variant the row was written by
 	// (chip_ledger.game / .variant, V1.0.0__baseline.sql): "" for a Teen
 	// Patti table, whose rows are byte for byte what they were; GamePoker and
@@ -148,11 +158,27 @@ type SettleRequest struct {
 	RoomID  string
 	HandID  string
 	Entries []SettleEntry
+	// PlayedMs is the hand's duration, from the deal to its end, in ms (owner,
+	// 26 Sep 2026): the active play each player the hand-end write resolves
+	// adds to their XP window in the live store, where the 30- and 60-minute
+	// XP is earned (db.Ledger hands it on after the commit). A retry resends
+	// it unchanged. 0 adds nothing.
+	PlayedMs int64
 }
 
-// SettleResult is userId → balance after the write for every entry whose
-// wallet row exists.
-type SettleResult map[string]int64
+// SettleResult is what a landed hand-end settlement reports.
+type SettleResult struct {
+	// Balances is userId → the wallet after the write, for every entry whose
+	// wallet row exists.
+	Balances map[string]int64
+	// TaxBps is userId → the winning-tax rate, in basis points, of the
+	// player's level AFTER the XP this settle awarded (owner, 26 Sep 2026;
+	// tabletax.go), for every settled player whose level the ledger could
+	// resolve — read in the settle's own transaction. nil from a ledger that
+	// keeps no levels. A Teen Patti table adopts it onto their seats, for the
+	// hands they are dealt after (Table.adoptTaxRates).
+	TaxBps map[string]int
+}
 
 // PackedActionID is the chip_ledger.action_id of a pack checkpoint:
 // "<handId>:packed:<userId>".
@@ -172,6 +198,38 @@ func SettleActionID(handID, userID string) string {
 	return handID + ":settle:" + userID
 }
 
+// TaxActionID is the action_id of a table-tax row: "<handId>:tax:<userId>".
+// UNIQUE like every other, so a settle retry that replays the hand end is
+// refused duplicate_action on it too, and the tax is taken once.
+func TaxActionID(handID, userID string) string {
+	return handID + ":tax:" + userID
+}
+
+// LedgerRows is the chip_ledger rows entry is written as, in order — what
+// db.Ledger inserts and what MemoryLedger hands its Checkpoint hook, so the
+// two cannot disagree. An entry with no Tax is one row, itself. An entry that
+// carries a table tax is two (owner, 26 Sep 2026): the entry at its GROSS
+// figure — Delta + Tax, what the win would have been untaxed, so the hand's
+// hand_* rows still sum to zero — and then a table_tax row of −Tax under
+// TaxActionID, a row of its own that moves no counter (Outcome false). The
+// rows' deltas sum to entry.Delta, which is what the wallet moves by.
+func LedgerRows(handID string, entry SettleEntry) []SettleEntry {
+	if entry.Tax <= 0 {
+		return []SettleEntry{entry}
+	}
+	win := entry
+	win.Delta = entry.Delta + entry.Tax
+	win.Tax = 0
+	return []SettleEntry{win, {
+		UserID:   entry.UserID,
+		Delta:    -entry.Tax,
+		ActionID: TaxActionID(handID, entry.UserID),
+		Reason:   LedgerReasonTableTax,
+		Game:     entry.Game,
+		Variant:  entry.Variant,
+	}}
+}
+
 // CheckpointArgs is what MemoryLedger's Checkpoint hook receives for every
 // row the table writes — the pack and leave checkpoints and each entry of
 // the hand-end settlement. A returned error fails that write (the Table
@@ -185,13 +243,17 @@ type CheckpointArgs struct {
 // MemoryLedgerHooks are the optional callbacks a test ledger wraps.
 type MemoryLedgerHooks struct {
 	// Checkpoint, if set, is called once per ledger row: the pack and leave
-	// checkpoints and every entry of the settlement. It is where a test's
-	// fake wallet moves.
+	// checkpoints and every row of the settlement — one per entry, two for a
+	// taxed winner's (LedgerRows). It is where a test's fake wallet moves.
 	Checkpoint func(args CheckpointArgs) error
 	// Settle, if set, is called once at the hand end with the request and the
 	// entries, AFTER the per-entry Checkpoint calls, and returns the
 	// post-hand balances. Nil → Settle returns an empty map.
 	Settle func(req SettleRequest, entries []SettleEntry) (map[string]int64, error)
+	// TaxBps, if set, is called after a Settle that succeeded and supplies
+	// SettleResult.TaxBps — the rates the players' levels carry now. Nil →
+	// no rates, and every seat keeps the one it has.
+	TaxBps func(req SettleRequest) map[string]int
 }
 
 // MemoryLedger keeps no books of its own — for tables built without a
@@ -216,27 +278,35 @@ func (m *MemoryLedger) Checkpoint(ctx context.Context, req CheckpointRequest) (C
 	return CheckpointResult{}, nil
 }
 
-// Settle implements Ledger: every entry through the Checkpoint hook, then the
+// Settle implements Ledger: every ledger row of every entry through the
+// Checkpoint hook — a taxed winner's entry as its two rows, the gross win and
+// the table tax (LedgerRows), exactly as db.Ledger writes them — then the
 // Settle hook's balances (nil → empty, and the Table keeps its own figures).
+// The Settle hook sees req.Entries as the Table sent them, Tax included.
 func (m *MemoryLedger) Settle(ctx context.Context, req SettleRequest) (SettleResult, error) {
 	if m.Hooks.Checkpoint != nil {
 		for _, entry := range req.Entries {
-			if err := m.Hooks.Checkpoint(CheckpointArgs{RoomID: req.RoomID, HandID: req.HandID, Entry: entry}); err != nil {
-				return nil, hookRefusal(err)
+			for _, row := range LedgerRows(req.HandID, entry) {
+				if err := m.Hooks.Checkpoint(CheckpointArgs{RoomID: req.RoomID, HandID: req.HandID, Entry: row}); err != nil {
+					return SettleResult{}, hookRefusal(err)
+				}
 			}
 		}
 	}
-	if m.Hooks.Settle == nil {
-		return SettleResult{}, nil
+	result := SettleResult{Balances: map[string]int64{}}
+	if m.Hooks.Settle != nil {
+		balances, err := m.Hooks.Settle(req, req.Entries)
+		if err != nil {
+			return SettleResult{}, hookRefusal(err)
+		}
+		if balances != nil {
+			result.Balances = balances
+		}
 	}
-	balances, err := m.Hooks.Settle(req, req.Entries)
-	if err != nil {
-		return nil, hookRefusal(err)
+	if m.Hooks.TaxBps != nil {
+		result.TaxBps = m.Hooks.TaxBps(req)
 	}
-	if balances == nil {
-		return SettleResult{}, nil
-	}
-	return SettleResult(balances), nil
+	return result, nil
 }
 
 // hookRefusal is what a hook's error becomes: a *GameError passes through

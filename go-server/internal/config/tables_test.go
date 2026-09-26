@@ -89,9 +89,9 @@ func TestSpecComposesWhatTheServerAlwaysBuilt(t *testing.T) {
 		teenPatti(TableSpec{Key: "blind:200", Category: "blind", BootAmount: 200, SortOrder: 20}),
 		teenPatti(TableSpec{Key: "blind:5000", Category: "blind", BootAmount: 5000, MaxChips: 50000000, SortOrder: 30}),
 		teenPatti(TableSpec{Key: "blind:50000", Category: "blind", BootAmount: 50000, MaxChips: 1000000000, SortOrder: 40}),
-		teenPatti(TableSpec{Key: "blind:1000000", Category: "blind", BootAmount: 1000000, MinChips: 500000000, SortOrder: 50}),
+		teenPatti(TableSpec{Key: "blind:1000000", Category: "blind", BootAmount: 1000000, MinChips: 500000000, WinnerTax: true, SortOrder: 50}),
 		variation(TableSpec{Key: "variation:50000", Category: "variation", BootAmount: 50000, MaxChips: 1000000000, SortOrder: 60}),
-		variation(TableSpec{Key: "variation:1000000", Category: "variation", BootAmount: 1000000, MinChips: 500000000, SortOrder: 70}),
+		variation(TableSpec{Key: "variation:1000000", Category: "variation", BootAmount: 1000000, MinChips: 500000000, WinnerTax: true, SortOrder: 70}),
 		seen(TableSpec{Key: "seen:50000", Category: "seen", BootAmount: 50000, MaxPot: 50000000, SortOrder: 80}),
 		poker(TableSpec{Key: "three_card_poker:50000", Category: "three_card_poker", BootAmount: 50000, SortOrder: 90}),
 		poker(TableSpec{Key: "five_card_draw:50000", Category: "five_card_draw", BootAmount: 50000, SortOrder: 100}),
@@ -190,10 +190,12 @@ func TestTheDefaultCatalogueSurvivesTheDatabaseRoundTrip(t *testing.T) {
 		}
 	}
 	// Every field an existing check reads is what it was — except the menu's
-	// own pot cap, which is read through Spec and left 0 on purpose.
+	// own pot cap and winner tax, which are read through Spec and left 0 and
+	// false on purpose.
 	wantMenu := make([]LobbyTable, len(g.LobbyTables))
 	for i, entry := range g.LobbyTables {
 		entry.MaxPot = 0
+		entry.WinnerTax = false
 		wantMenu[i] = entry
 	}
 	if !reflect.DeepEqual(db.LobbyTables, wantMenu) || !reflect.DeepEqual(db.TableStakes, g.TableStakes) ||

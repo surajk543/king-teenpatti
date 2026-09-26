@@ -30,7 +30,10 @@
 -- database built by an older tag needs at its next boot (production's, from
 -- go-server/v1.1.2, has game and variant but not is_bot), and they are why this
 -- file is no longer free of ALTER TABLE. users.is_active (26 Sep 2026) was
--- written straight in here the same way, a column and its guarded block.
+-- written straight in here the same way, a column and its guarded block, and
+-- so was table_configs.winner_tax the same day — whose block alone gives the
+-- column a DEFAULT, for the rows an older catalogue already holds (its comment
+-- says why).
 --
 -- Flyway naming: V<version>__<description>.sql, applied in ascending version
 -- order. With no schema history table (below) a script's name is recorded
@@ -111,8 +114,10 @@
 -- table pictures, the emojis (`emojis`, then `user_emojis`, which names a
 -- player and an emoji), `chip_ledger` and the purchase and spend tables come
 -- after both for the same reason. The Lucky Draw's three follow them — its draws, their slots (which
--- name a draw), and the spins (which name a player, a draw and a slot). The
--- four table-configuration tables come last, in the order they
+-- name a draw), and the spins (which name a player, a draw and a slot) — then
+-- the player levels and XP (player_levels, xp_sources, xp_settings, then
+-- player_xp, which names a player and a level). The four table-configuration
+-- tables come last, in the order they
 -- reference one another — `table_engines`, `table_categories` (each category
 -- names its engine), then `table_settings` and `table_configs` (each names a
 -- category) — and none of them references users.
@@ -135,7 +140,11 @@
 -- what a picture costs, and are read once at boot. Nothing about any table in
 -- play is ever written to them. Nor are the Lucky Draw's (24 Sep 2026): its
 -- draws and slots are configuration, and its spins an audit — a spin is one
--- request, over before it answers.
+-- request, over before it answers. Nor the player levels and XP (26 Sep
+-- 2026): player_levels, xp_sources and xp_settings are configuration, and
+-- player_xp an account fact, like the counters on users — a settle adds to it,
+-- and no table reads it to play a hand. The active play time the 30- and
+-- 60-minute XP is earned by lives in the live store, never here.
 
 
 -- ---------------------------------------------------------------- pictures
@@ -946,6 +955,131 @@ CREATE INDEX IF NOT EXISTS user_lucky_draws_last_idx
   ON user_lucky_draws (user_id, lucky_draw_id, created_at DESC);
 
 
+-- --------------------------------------------------------- player levels
+
+-- Player levels and XP (owner, 26 Sep 2026: "create table which stores every
+-- player xp and ac to their level, tax will be applied", and "XP source / XP:
+-- Complete a hand 1 · Win a game 1 · 30 minutes active gameplay 5 · 60 minutes
+-- active gameplay 15 · Daily play bonus 5 … daily xp cap limit is 50XP for
+-- each user … these XP source and XP store in diff table"). Four tables:
+--
+--   player_levels  CONFIGURATION: the ladder a player climbs — fifty levels,
+--                  each reached at its min_xp, and the VIP tier (51), which XP
+--                  never reaches — with the title and icon each is shown by and
+--                  the WINNING TAX each carries: the share of the whole pot, in
+--                  basis points (2000 = 20.00%), that a table which taxes its
+--                  winners (table_configs.winner_tax) takes from the winner of
+--                  a hand.
+--   xp_sources     CONFIGURATION: what earns XP and how much — a hand completed,
+--                  a hand won, 30 and 60 minutes of active play in a window,
+--                  the daily play bonus (db.XPSource* are the codes this build
+--                  knows; an inactive source, or one it does not know, awards
+--                  nothing).
+--   xp_settings    CONFIGURATION, ONE row: the daily cap — the most XP any
+--                  player earns in one window — and the window's length.
+--   player_xp      an ACCOUNT FACT, one row per player who has earned any: the
+--                  lifetime XP that decides their level, the window their daily
+--                  XP is counted in (window_start, window_xp), and
+--                  level_override, a level set BY HAND — the VIP tier — which XP
+--                  never changes. No row = 0 XP, no override, no window: Level 1.
+--
+-- The three configuration tables are read on demand and never cached — every
+-- account read resolves a level afresh, and every award reads the sources and
+-- the settings in its own transaction — so an owner's UPDATE shows at the next
+-- read, with no restart, and reaches a seat's winning-tax rate at its next
+-- sit-down or hand end. V1.0.1 seeds all three.
+--
+-- A player's level is their level_override when set, else the highest non-VIP
+-- level whose min_xp their XP has reached (db.levelLateral). VIP is a property
+-- of a TIER, never of an XP total, and structurally so: a VIP tier has no
+-- min_xp and every other level has one (the two CHECKs on player_levels),
+-- resolution by XP never considers a VIP tier, and the XP award never writes
+-- level_override — no amount of play makes a player VIP; only the hand
+-- statement in V1.0.1's header does.
+--
+-- XP is written by ONE function (db.awardXP), whatever the source: it opens a
+-- new window when the last one has run out, grants what the daily cap leaves
+-- of the source's XP, and adds it to both the lifetime and the window's XP. A
+-- hand's sources are awarded in the ledger transaction that settles the hand;
+-- the active-play ones asynchronously, once the play time kept in the live
+-- store (Redis, never here) crosses 30 and 60 minutes in a window.
+--
+-- None of it is game state. The rate a seat pays is captured on the seat when
+-- its player sits down and refreshed from every hand-end settle, and kept in
+-- the table's Redis snapshot; nothing at a table reads these tables at any
+-- other moment. All four are the app role's, and player_xp's foreign key to
+-- users needs only the REFERENCES grant ops/DEPLOY.md §7 gives.
+--
+-- At the seeded cap (50 XP a day) a player needs at least 80 days to reach
+-- Level 10 (4,000 XP) and 760 to reach Level 20 (38,000): the ladder, the
+-- sources and the cap are all rows the owner can edit.
+CREATE TABLE IF NOT EXISTS player_levels (
+  level      SMALLINT PRIMARY KEY CHECK (level >= 1),
+  -- The XP that reaches this level; NULL on a VIP tier, which XP never
+  -- reaches. UNIQUE: two levels at one threshold would be one level twice.
+  min_xp     BIGINT   UNIQUE CHECK (min_xp >= 0),
+  title      TEXT     NOT NULL,
+  -- The level's emoji, exactly as the owner gave it — some are two emoji, and
+  -- the crossed swords, shield, medal and infinity carry a U+FE0F variation
+  -- selector that must not be lost. Sent as user.playerLevel.icon; the app
+  -- draws it from the phone's colour emoji font.
+  icon       TEXT     NOT NULL,
+  -- The winning tax in basis points: 2000 = 20.00%, 10000 = the whole pot.
+  tax_bps    INTEGER  NOT NULL CHECK (tax_bps BETWEEN 0 AND 10000),
+  -- A property of the TIER, never of an account.
+  is_vip     BOOLEAN  NOT NULL,
+  created_at BIGINT   NOT NULL DEFAULT ((EXTRACT(EPOCH FROM now()) * 1000)::bigint),
+  updated_at BIGINT   NOT NULL DEFAULT ((EXTRACT(EPOCH FROM now()) * 1000)::bigint),
+  -- VIP is granted by hand, never by XP (owner: "remember VIP Tag is not
+  -- granted by XP"): a VIP tier has no XP threshold, and every other level has.
+  CONSTRAINT player_levels_vip_has_no_min_xp CHECK (NOT is_vip OR min_xp IS NULL),
+  CONSTRAINT player_levels_level_has_min_xp CHECK (is_vip OR min_xp IS NOT NULL)
+);
+
+-- One row per source of XP. code is what the server knows it by
+-- (db.XPSource*); name is an admin label. Retire a source with
+-- is_active = FALSE — the seed would put a deleted row back (inactive rows are
+-- left as they are).
+CREATE TABLE IF NOT EXISTS xp_sources (
+  code       TEXT    PRIMARY KEY,
+  name       TEXT    NOT NULL,
+  xp         INTEGER NOT NULL CHECK (xp >= 0),
+  is_active  BOOLEAN NOT NULL,
+  sort_order INTEGER NOT NULL,
+  created_at BIGINT  NOT NULL DEFAULT ((EXTRACT(EPOCH FROM now()) * 1000)::bigint),
+  updated_at BIGINT  NOT NULL DEFAULT ((EXTRACT(EPOCH FROM now()) * 1000)::bigint)
+);
+
+-- The one row of XP rules that belong to no source. id is always 1 — the CHECK
+-- makes a second row impossible. daily_cap is the most XP a player earns in one
+-- window (0 = none at all); window_ms how long a window lasts from the award
+-- that opened it — a rolling 24 hours per player, not a calendar day.
+CREATE TABLE IF NOT EXISTS xp_settings (
+  id         SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+  daily_cap  INTEGER  NOT NULL CHECK (daily_cap >= 0),
+  window_ms  BIGINT   NOT NULL CHECK (window_ms > 0),
+  created_at BIGINT   NOT NULL DEFAULT ((EXTRACT(EPOCH FROM now()) * 1000)::bigint),
+  updated_at BIGINT   NOT NULL DEFAULT ((EXTRACT(EPOCH FROM now()) * 1000)::bigint)
+);
+
+-- One row per player who has earned XP or been given a level by hand. Only
+-- db.awardXP writes xp, window_start and window_xp, and it never names
+-- level_override, which is set and cleared by hand (V1.0.1's header). An
+-- override cannot name a level that does not exist, and a level somebody holds
+-- by override cannot be deleted from under them. window_start is the epoch ms
+-- the current window opened (0: none yet); window_xp what the player has
+-- earned in it, never more than the cap it was earned under.
+CREATE TABLE IF NOT EXISTS player_xp (
+  user_id        TEXT     PRIMARY KEY REFERENCES users (id) ON DELETE CASCADE,
+  xp             BIGINT   NOT NULL DEFAULT 0 CHECK (xp >= 0),
+  level_override SMALLINT REFERENCES player_levels (level),
+  window_start   BIGINT   NOT NULL DEFAULT 0 CHECK (window_start >= 0),
+  window_xp      INTEGER  NOT NULL DEFAULT 0 CHECK (window_xp >= 0),
+  created_at     BIGINT   NOT NULL,
+  updated_at     BIGINT   NOT NULL
+);
+
+
 -- ---------------------------------------------------- table configuration
 
 -- The table catalogue (owner, 23 Sep 2026: "all table related config store in
@@ -1141,6 +1275,13 @@ CREATE TABLE IF NOT EXISTS table_configs (
   -- many cards a 5-Card Draw player may exchange.
   min_buy_in   BIGINT  NOT NULL CHECK (min_buy_in >= 0),
   max_discards INTEGER NOT NULL CHECK (max_discards BETWEEN 0 AND 5),
+  -- Teen Patti only (owner, 26 Sep 2026): TRUE makes the table TAX ITS
+  -- WINNERS — the winner of each hand pays a share of the whole pot at the
+  -- rate of their player level (player_levels.tax_bps, below). Seeded TRUE on
+  -- blind and variation at 10 Lakh and FALSE everywhere else; a poker row's is
+  -- read as FALSE. No DEFAULT here, like every rule column; the guarded block
+  -- after this table gives an older database's rows FALSE.
+  winner_tax   BOOLEAN NOT NULL,
   -- The menu position; the private templates sit after the public tables.
   sort_order INTEGER NOT NULL,
   is_active  BOOLEAN NOT NULL DEFAULT TRUE,
@@ -1156,3 +1297,22 @@ CREATE TABLE IF NOT EXISTS table_configs (
   -- A poker stack must at least cover the stake it sits down to.
   CHECK (category NOT IN ('three_card_poker', 'five_card_draw', 'texas_holdem', 'omaha') OR min_buy_in >= boot_amount)
 );
+
+-- table_configs.winner_tax for a catalogue built before it (26 Sep 2026;
+-- production's go-server/v1.4.x lacks it). Catalogue-guarded (the header), and
+-- the one place the column has a DEFAULT: a column added to a table that
+-- already holds rows needs a value for them, and FALSE — no table taxes its
+-- winners — is what every one of them was opened with. The CREATE TABLE above
+-- declares it without one, like every rule column, so on a database built
+-- afresh a row typed by hand must say. An existing database's two taxing
+-- tables are switched on by the one-off UPDATE in ops/DEPLOY.md, not by a boot.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_schema = current_schema() AND table_name = 'table_configs' AND column_name = 'winner_tax'
+  ) THEN
+    EXECUTE 'ALTER TABLE table_configs ADD COLUMN winner_tax BOOLEAN NOT NULL DEFAULT FALSE';
+  END IF;
+END;
+$$;
